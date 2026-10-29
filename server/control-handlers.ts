@@ -27,7 +27,6 @@ import type { TelegramDeliveryControl } from './core/telegram-delivery-core.ts';
 import { normalizeClientTrust } from './core/request-trust.ts';
 import { mergeSettingsBlock, settingsBlockSpecFor, validateSettingsBlock } from './core/settings-block-core.ts';
 import { readPosthogReport } from './radar/radar-report.ts';
-import { willSessionRunGuarded } from './session/session-factory.ts';
 import * as radarLaneCore from './radar/core/radar-lane-core.ts';
 import { buildGithubIssuePrompt, deriveIssueSessionName } from './github/core/github-issues-core.ts';
 import { machineSkipsPermissionsByDefault } from './session/core/session-registry-core.ts';
@@ -498,7 +497,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       agent: requestedAgent && requestedAgent !== DEFAULT_AGENT_ID ? requestedAgent : undefined,
       dangerouslySkipPermissions: skipPerms,
       saneYolo: skipPerms && msg.saneYolo === true,
-      unguarded: msg.unguarded === true,
       requireExistingPath: !repos,
       environment: remote?.environment,
       runSettings: msg.runSettings,
@@ -1177,7 +1175,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     return entries;
   }
 
-  function createProjectSession({ id = generateProjectId(), name, path: projectPath, repos, baseBranch, agent, dangerouslySkipPermissions, saneYolo, unguarded, requireExistingPath, environment, runSettings }: { id?: string; name: string; path: string; repos?: string[]; baseBranch?: string; agent?: ProjectEntry['agent']; dangerouslySkipPermissions?: boolean; saneYolo?: boolean; unguarded?: boolean; requireExistingPath?: boolean; environment?: ProjectEntry['environment']; runSettings?: Partial<ProjectEntry> }): { ok: true; project: ProjectEntry } | { ok: false; error: string } {
+  function createProjectSession({ id = generateProjectId(), name, path: projectPath, repos, baseBranch, agent, dangerouslySkipPermissions, saneYolo, requireExistingPath, environment, runSettings }: { id?: string; name: string; path: string; repos?: string[]; baseBranch?: string; agent?: ProjectEntry['agent']; dangerouslySkipPermissions?: boolean; saneYolo?: boolean; requireExistingPath?: boolean; environment?: ProjectEntry['environment']; runSettings?: Partial<ProjectEntry> }): { ok: true; project: ProjectEntry } | { ok: false; error: string } {
     const uniqueName = nextSuggestedName(name, liveSessionNames());
     let resolvedPath = path.resolve(projectPath);
     let workspaceRepos: string[] | undefined;
@@ -1196,7 +1194,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     if (baseBranch) project.baseBranch = baseBranch;
     if (typeof dangerouslySkipPermissions === 'boolean') project.dangerouslySkipPermissions = dangerouslySkipPermissions;
     if (saneYolo) project.saneYolo = true;
-    if (unguarded) project.unguarded = true;
     if (agent) project.agent = agent;
     if (environment) project.environment = environment;
     const freshConfig = configStore.save(cfg => {
@@ -1237,13 +1234,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
   function findConfiguredProject(projectId: unknown): ProjectEntry | null {
     if (typeof projectId !== 'string') return null;
     return config.projects.find((project) => project.id === projectId) ?? null;
-  }
-
-  function canRestoreGuardrails(session: Session): boolean {
-    if (!session.isGuardrailsReleased) return false;
-    const project = findConfiguredProject(session.id);
-    if (!project) return false;
-    return willSessionRunGuarded({ ...project, unguarded: false }, config, null);
   }
 
   const issueOpenQueue = createKeyedSerialQueue();
@@ -1338,17 +1328,12 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       const checkout = await teamReview.preparePrSession(msg.key);
       if (!checkout.ok) { reply({ error: checkout.error }); return; }
       const sourceProject = checkout.isConfiguredProject ? singleRepoProjects.find((project) => project.path === checkout.checkoutPath) : undefined;
-      const isPrSessionGuarded = willSessionRunGuarded({ path: checkout.checkoutPath, agent: sourceProject?.agent }, config, null);
-      if (!checkout.isConfiguredProject && isPrSessionGuarded) {
-        reply({ error: `No checkout of ${checkout.repo} found. Clone ${checkout.repo} under a repo root (Settings) to open its pull requests in a guarded session.` });
-        return;
-      }
       const created = createProjectSession({
         name: prSessionName(checkout.repo, checkout.detail.number, checkout.detail.title),
         path: checkout.checkoutPath,
         baseBranch: checkout.baseBranch,
         agent: sourceProject?.agent,
-        dangerouslySkipPermissions: isPrSessionGuarded ? sourceProject?.dangerouslySkipPermissions : false,
+        dangerouslySkipPermissions: false,
       });
       if (!created.ok) { reply({ error: created.error }); return; }
       const session = sessions.get(created.project.id);
@@ -1435,12 +1420,11 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     if (!seeded.ok) { reply({ error: seeded.error }); return; }
     const project = config.projects.find((candidate) => candidate.id === msg.projectId && !candidate.repos);
     if (!project) { reply({ error: 'Pick a single-repository session to start from' }); return; }
-    const isGuarded = willSessionRunGuarded({ path: project.path, agent: project.agent }, config, null);
     const created = createProjectSession({
       name: radarLaneCore.sanitizeSessionName(`Community ${seeded.title}`) ?? 'Community question',
       path: project.path,
       agent: project.agent,
-      dangerouslySkipPermissions: isGuarded ? project.dangerouslySkipPermissions : false,
+      dangerouslySkipPermissions: false,
     });
     if (!created.ok) { reply({ error: created.error }); return; }
     const session = sessions.get(created.project.id);
@@ -1815,25 +1799,6 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       } catch (error) {
         sendError(ws, `Plan read failed: ${errorMessage(error)}`, { id: requestedSessionId, scope: 'plan' });
       }
-    },
-    'set-session-guardrails': (message: ClientMessageOf<'set-session-guardrails'>, ws: ControlSocket) => {
-      const session = findSession(message);
-      if (!session) return sendError(ws, 'Session not found', { id: message.id, scope: 'guardrails' });
-      if (session.ephemeral) return sendError(ws, 'This session cannot change its guardrails', { id: session.id, scope: 'guardrails' });
-      if (message.isOn && !session.isGuarded && !canRestoreGuardrails(session)) return sendError(ws, 'Guardrails cannot cover this session, so restoring them would only restart it', { id: session.id, scope: 'guardrails' });
-      const freshConfig = configStore.save((config) => {
-        const project = config.projects.find((candidate) => candidate.id === session.id);
-        if (!project) return ABORT_CONFIG_SAVE;
-        if (message.isOn) {
-          delete project.unguarded;
-          return undefined;
-        }
-        project.unguarded = true;
-        return undefined;
-      });
-      if (!freshConfig) return sendError(ws, `Could not save session "${session.name}"`, { id: session.id, scope: 'guardrails' });
-      applyConfigReload(freshConfig);
-      console.log(`[control] Guardrails ${message.isOn ? 'restored' : 'released'} via UI: ${session.name}`);
     },
     'plan-decision':    (message: ClientMessageOf<'plan-decision'>, ws: ControlSocket) => {
       const requestedSessionId = String(message.id || '');

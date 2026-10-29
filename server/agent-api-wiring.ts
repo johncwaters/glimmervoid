@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-import { getAdapter, isKnownAgentId } from '../session/adapters/index.ts';
+import { isKnownAgentId } from '../session/adapters/index.ts';
 import { projectSessionCard } from '../session/core/snapshot-projection.ts';
 import { describeSessionLimits } from '../session/core/session-routes.ts';
 import type { SessionRoleFacts } from '../session/core/session-routes.ts';
@@ -24,7 +24,6 @@ import {
   openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldStopNoteWake, withdrawUnreadNote,
 } from './core/child-channel-core.ts';
 import type { AgentChannel, ChannelEntry, ChannelSide } from './core/child-channel-core.ts';
-import { isGuardedSessionVendor } from './guardrails/core/guardrails-roles-core.ts';
 import { registerEphemeralSession } from './lanes/ephemeral-session.ts';
 import type { RecordLane, SpawnGate } from './lanes/ephemeral-session.ts';
 import type { SessionSpawnOverrides } from './session/session-factory.ts';
@@ -394,9 +393,6 @@ function createAgentApiWiring({
       return { ok: false, status: 400, error: `unknown agent ${request.agent}` };
     }
     const agentId = request.agent || parent.agentId;
-    if (parent.isGuarded && !isGuardedSessionVendor(getAdapter(agentId)?.usageVendor ?? null)) {
-      return { ok: false, status: 403, error: `a guarded session can only spawn a guarded agent, and ${agentId} does not run inside the guardrails` };
-    }
     const { hasParentEnded, memoryShortfall } = await describeMemoryShortfallWhileParentLives(parent);
     if (hasParentEnded) return { ok: false, status: 409, error: PARENT_ENDED_MESSAGE };
     if (memoryShortfall) return { ok: false, status: 503, error: memoryShortfall };
@@ -413,7 +409,6 @@ function createAgentApiWiring({
       path: parent.path,
       dangerouslySkipPermissions: parent.dangerouslySkipPermissions,
       saneYolo: parent.saneYolo,
-      unguarded: !parent.isGuarded,
     };
 
     let child: Session | null = null;
@@ -500,7 +495,7 @@ function createAgentApiWiring({
   }
 
   function limits(session: Session): AgentLimitsReply {
-    return { ok: true, ...describeSessionLimits({ ...roleFactsOf(session), isGuarded: session.isGuarded, environment: environmentOf(session) }) };
+    return { ok: true, ...describeSessionLimits({ ...roleFactsOf(session), environment: environmentOf(session) }) };
   }
 
   function environmentOf(session: Session): SessionLimits['environment'] {

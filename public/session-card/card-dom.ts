@@ -11,7 +11,7 @@ import { escapeMarkup } from '#shared/escape-markup.ts';
 import { el } from '../dom-helpers.ts';
 import { buildMenuItem } from '../menu.ts';
 import { refreshHoverTip, installHoverTips } from '../hover-tip.ts';
-import { BOLT_ICON_PATH, CLOSE_ICON_PATH, createLineIcon, createSvgIcon, createSvgShape, MORE_ICON_PATH, SHIELD_ICON_PATH, SHIELD_OFF_ICON_PATH, SHIELDED_BOLT_FILL_PATH, USAGE_ICON_PATH } from '../svg-dom.ts';
+import { BOLT_ICON_PATH, CLOSE_ICON_PATH, createLineIcon, createSvgIcon, createSvgShape, MORE_ICON_PATH, SHIELD_ICON_PATH, SHIELDED_BOLT_FILL_PATH, USAGE_ICON_PATH } from '../svg-dom.ts';
 import type { CardOptions } from './card-options-core.ts';
 import { buildDialogShell } from './modal.ts';
 import type { SessionUi } from './card-registry.ts';
@@ -135,8 +135,6 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   if (options.worktree) card.dataset.worktree = '';
   if (options.workspace) card.dataset.workspace = '';
   if (options.remoteWorkspace) card.dataset.remoteWorkspace = options.remoteWorkspace;
-  if (options.guarded) card.dataset.guarded = '';
-  if (options.guardrailsReleased) card.dataset.guardrailsReleased = '';
   if (options.ephemeral) card.dataset.ephemeral = '';
   if (options.path) card.dataset.path = String(options.path);
 
@@ -169,10 +167,6 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   btnRestart.setAttribute('aria-haspopup', 'dialog');
   const btnWorkspaceRepos = buildMenuItem('Edit repositories...', 'Add or remove repositories in this workspace', 'overflow-workspace-repos');
   const btnLinkPr = buildMenuItem('Link pull request...', 'Link or unlink pull requests for this session', 'overflow-link-pr visible');
-  const btnGuardrails = el('button', 'tag-icon guardrails-badge');
-  btnGuardrails.type = 'button';
-  btnGuardrails.setAttribute('aria-label', 'Guardrails');
-  paintGuardrailsToggle(btnGuardrails, card);
   btnLinkPr.onclick = () => {
     sessionMenu.classList.remove('open');
     btnSessionMenu.setAttribute('aria-expanded', 'false');
@@ -227,7 +221,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const usageBadge = buildTagIcon('usage-badge', 'Usage');
   usageBadge.append(createLineIcon(USAGE_ICON_PATH, '2.2'));
   if (permsBadge) tags.append(permsBadge);
-  tags.append(btnGuardrails, usageBadge);
+  tags.append(usageBadge);
   installHoverTips();
   const ownershipEl = el('span', 'session-ownership');
   ownershipEl.hidden = true;
@@ -237,24 +231,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   card.append(header, termWrap);
 
-  return { card, header, nameEl, taskTitleEl, btnRestart, btnSessionMenu, btnWorkspaceRepos, btnGuardrails, tags, btnTrace, btnRemove, btnPlan, btnDocs, btnShown, shownUnopenedDot, btnDebug, sessionMenu, termWrap };
-}
-
-const GUARDRAILS_TIP_DETAIL = {
-  on: 'Credentials, Glimmervoid state and blocked folders are off-limits to this session.',
-  released: 'This session can read, write and reach anything your account can.',
-};
-
-export function paintGuardrailsToggle(button: HTMLButtonElement, card: HTMLElement) {
-  const isGuarded = card.dataset.guarded !== undefined;
-  const canChangeGuardrails = card.dataset.ephemeral === undefined && (isGuarded || card.dataset.guardrailsReleased !== undefined);
-  const clickHint = isGuarded ? ' Click to release.' : ' Click to restore.';
-  button.setAttribute('aria-pressed', String(isGuarded));
-  button.setAttribute('aria-disabled', String(!canChangeGuardrails));
-  button.dataset.tipLabel = isGuarded ? 'Guardrails on' : 'Guardrails released';
-  button.dataset.tipDetail = `${isGuarded ? GUARDRAILS_TIP_DETAIL.on : GUARDRAILS_TIP_DETAIL.released}${canChangeGuardrails ? clickHint : ''}`;
-  button.replaceChildren(createLineIcon(isGuarded ? SHIELD_ICON_PATH : SHIELD_OFF_ICON_PATH, '1.6'));
-  refreshHoverTip(button);
+  return { card, header, nameEl, taskTitleEl, btnRestart, btnSessionMenu, btnWorkspaceRepos, tags, btnTrace, btnRemove, btnPlan, btnDocs, btnShown, shownUnopenedDot, btnDebug, sessionMenu, termWrap };
 }
 
 function openLinkPullRequestDialog(sessionId: string) {

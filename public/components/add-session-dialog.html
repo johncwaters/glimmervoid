@@ -44,20 +44,9 @@
     <input type="checkbox" class="dialog-checkbox" id="add-session-skip-perms">
     <span>Sane YOLO mode</span>
   </label>
-  <a class="dialog-help-link" id="add-session-sane-yolo-help" href="#settings/machine-guardrails/sane-yolo" aria-label="What Sane YOLO mode does" title="What Sane YOLO mode does">?</a>
+  <a class="dialog-help-link" id="add-session-sane-yolo-help" href="#settings/machine-safety/sane-yolo" aria-label="What Sane YOLO mode does" title="What Sane YOLO mode does">?</a>
 </div>
 <p class="dialog-hint dialog-hint-warning add-session-agent-only" id="add-session-sane-yolo-unavailable" hidden>Sane YOLO cannot protect this session here, so this mode skips permission prompts unprotected.</p>
-<div class="dialog-safety-row add-session-agent-only">
-  <button type="button" class="dialog-advanced-toggle" id="add-session-safety-toggle" aria-controls="add-session-safety" aria-expanded="false">Safety overrides</button>
-  <span class="dialog-safety-status" id="add-session-safety-status">guardrails on</span>
-</div>
-<div class="dialog-advanced-panel add-session-agent-only" id="add-session-safety" hidden>
-  <label class="dialog-label dialog-checkbox-label" id="add-session-unguarded-label">
-    <input type="checkbox" class="dialog-checkbox" id="add-session-unguarded">
-    <span>Run without guardrails</span>
-    <span class="dialog-hint">Claude Code sessions run with guardrails that block writes to credentials and Glimmervoid's own state and hide credentials and other agents' settings. Turn this on only for work the guardrails cannot serve.</span>
-  </label>
-</div>
 <p class="dialog-hint" id="add-session-shell-hint" hidden>A plain terminal on the machine Glimmervoid runs on, started in this folder. Leave Path blank for your home folder.</p>
 <div class="dialog-error" id="add-session-error"></div>
 <div class="dialog-actions">

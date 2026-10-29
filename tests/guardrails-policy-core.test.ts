@@ -4,7 +4,7 @@ import test from 'node:test';
 import { FilesystemConfigSchema, SandboxRuntimeConfigSchema } from '@anthropic-ai/sandbox-runtime';
 import { buildGuardrailsLaunchPlan, guardrailsPolicyProbePaths, standardWriteBlockCandidates } from '../server/guardrails/core/guardrails-policy-core.ts';
 import type { GuardrailsNetworkAccess } from '../server/guardrails/core/guardrails-policy-core.ts';
-import { isSessionGuarded, sessionRole } from '../server/guardrails/core/guardrails-roles-core.ts';
+import { sessionRole } from '../server/guardrails/core/guardrails-roles-core.ts';
 import { homeDir, glimmervoidHome, tempDir, launchHomeDir, agentSessionId, worktree, hostPaths, roleWith, hostWhereEveryProbedPathExists, planFor, entryPaths } from './helpers/guardrails-host.ts';
 
 const networkByName: Record<string, GuardrailsNetworkAccess> = {
@@ -22,16 +22,7 @@ test('roles with a network policy produce a settings file the pinned sandbox run
   }
 });
 
-test('an ordinary Claude or Kimi session is guarded unless it or a folder above it is marked unguarded, and is blocked only from credentials and Glimmervoid state', () => {
-  const claudeSession = { usageVendor: 'claude', isMarkedUnguarded: false, sessionFolders: [path.resolve('/work/repo')], unguardedRepos: [] };
-  assert.equal(isSessionGuarded(claudeSession), true);
-  assert.equal(isSessionGuarded({ ...claudeSession, isMarkedUnguarded: true }), false);
-  assert.equal(isSessionGuarded({ ...claudeSession, unguardedRepos: [path.resolve('/work')] }), false);
-  assert.equal(isSessionGuarded({ ...claudeSession, unguardedRepos: [path.resolve('/work/other')] }), true);
-  assert.equal(isSessionGuarded({ ...claudeSession, usageVendor: 'kimi' }), true);
-  assert.equal(isSessionGuarded({ ...claudeSession, usageVendor: 'codex' }), false);
-  assert.equal(isSessionGuarded({ ...claudeSession, usageVendor: null }), false);
-
+test('the session role is blocked only from credentials and Glimmervoid state', () => {
   const hookScratch = path.join(glimmervoidHome, 'scratch', 'glimmervoid-hooks', 'session-one');
   const githubLogin = path.join(homeDir, '.config', 'gh');
   const listedSecret = path.resolve('/work/secrets');

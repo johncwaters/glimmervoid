@@ -25,7 +25,6 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 | `config-store.ts` | Runtime config load/save/defaults |
 | `child-process-safe.ts` | THE ONLY importer of `node:child_process` |
 | `update-check.ts` | Startup release-tag check, advisory only |
-| `guardrails/session-guardrails.ts` | Ordinary session guardrails: the session role, rebuilt from the live checkout at every spawn; the session factory's default |
 | `benchmark-wiring.ts` | Benchmark lane: suites under `~/.glimmervoid/benchmarks`, mining, one serial run (pure rules in `core/benchmark-core.ts`, `core/benchmark-mining-core.ts`) |
 | `claude-credentials.ts` | The operator's Claude Code access token for benchmark arms (decisions in `core/claude-credentials-core.ts`) |
 | `claude-trust.ts` | Grants Claude Code folder trust plus external CLAUDE.md import approval (never over a recorded decline) for a session or lane folder under Claude Code's own config lock (decisions in `core/claude-trust-core.ts`) |
@@ -84,8 +83,6 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - Port-exact Origin, the port read from the socket so nothing a client sends decides it; a mismatch falls THROUGH to the allow-list. Browser channels demand an Origin, non-browser ingresses do not.
 - A per-process page token guards local control and data upgrades, riding the query string since a browser cannot set a WS handshake header. `GET /control-token` refuses a disallowed Origin outright.
 - Trust is the LISTENER PORT, never a header or IP: a reverse proxy makes remote traffic look loopback, so an IP or `X-Forwarded-For` rule would hand every visitor local trust.
-- An ordinary Claude Code or Kimi Code session is wrapped by default in `session/session-factory.ts`. A caller that sets `prepareGuardrails`, even to null, owns its own confinement, and only operator config opts a session out (`projects[].unguarded`, `guardrails.unguardedRepos`), never the agent API: a child is unguarded only when its parent is. A guarded session adds only its OWN vendor's home to the shared vendors (`GUARDED_SESSION_VENDORS`), so a Claude session never reads kimi's login.
-- The ordinary session wrap starts in a scratch folder and enters the checkout inside the guardrails, because the sandbox runtime plants protected-name placeholders in its working folder and a session that commits everything would commit them (`session` role in `scripts/probe-guardrails-roles.ts`).
 - Sessions reach `/hook` and `/agent` on their OWN loopback listener, never the dashboard port: a lane guardrails allowlists one exact host and port (enforced on Linux, macOS unverified), and that port must not also serve `GET /control-token` or the control WS.
 - A pairing cookie is RCE as the server account, the control WS accepting any project path plus `dangerouslySkipPermissions`. Pairing URLs are single-use, short-TTL, never logged or stored in plaintext; the store fails CLOSED on corruption.
 - The `/pair/*` exemption is judged on the DECODED pathname: `express.static` resolves dot segments, so an un-normalized check served the dashboard bundle under `/pair/%2e%2e/`.

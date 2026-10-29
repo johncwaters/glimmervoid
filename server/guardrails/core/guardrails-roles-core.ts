@@ -29,13 +29,6 @@ interface SessionRoleFacts {
   blockedPaths: readonly string[];
 }
 
-interface SessionGuardrailsFacts {
-  usageVendor: string | null;
-  isMarkedUnguarded: boolean;
-  sessionFolders: readonly string[];
-  unguardedRepos: readonly string[];
-}
-
 const SESSION_VENDORS: readonly GuardrailsRoleVendor[] = Object.freeze(['claude', 'codex']);
 const GUARDED_SESSION_VENDORS: readonly GuardrailsRoleVendor[] = Object.freeze(['claude', 'kimi']);
 
@@ -112,21 +105,11 @@ function mainCheckoutWriteBlocks({ mainCheckout, commonGitDir, trackedPaths, kep
   return [...blocksUnder('.'), path.join(commonGitDir, 'index')];
 }
 
-function isGuardedSessionVendor(usageVendor: string | null): boolean {
-  return GUARDED_SESSION_VENDORS.some((vendor) => vendor === usageVendor);
-}
-
-function isSessionGuarded({ usageVendor, isMarkedUnguarded, sessionFolders, unguardedRepos }: SessionGuardrailsFacts): boolean {
-  if (isMarkedUnguarded) return false;
-  if (!isGuardedSessionVendor(usageVendor)) return false;
-  return !sessionFolders.some((folder) => unguardedRepos.some((repo) => isPathInside(repo, folder)));
-}
-
 function isWorktreeAdminDirOf({ adminDir, commonGitDir }: { adminDir: string; commonGitDir: string }): boolean {
   return path.dirname(path.resolve(adminDir)) === path.resolve(commonGitDir, 'worktrees');
 }
 
 export {
-  isGuardedSessionVendor, isSessionGuarded, isWorktreeAdminDirOf, judgeRole, LANE_CREDENTIAL_ENV, mainCheckoutWriteBlocks, sessionRole,
+  isWorktreeAdminDirOf, judgeRole, LANE_CREDENTIAL_ENV, mainCheckoutWriteBlocks, sessionRole,
   workRole,
 };

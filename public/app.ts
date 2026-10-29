@@ -52,7 +52,7 @@ import { applySessionSetupResponse, openSessionSetup } from './session-setup/set
 import { attentionTally, findSessionUi, sessionName, sessionUIs } from './session-card/card-registry.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { buildSessionCardOptions } from './session-card/card-options-core.ts';
-import { applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, reportSessionProblem, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, markSessionSeen, refreshTerminalFonts, getSessionCount, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionDiff, setSessionEffectiveBase, setSessionFailureReason, setSessionHasPlan, setSessionMergeStatus, setSessionPrompt, setSessionUnseenOutcome, setSessionUsage, setSessionGuarded, setSessionWorktree, updateAttentionTitle } from './session-card/lifecycle.ts';
+import { applyPlanConnectionState, applySessionPlanChanged, applySessionPlanDraft, applySessionPlanError, reportSessionProblem, applySessionPlanResponse, applyState, applyTerminalSettings, createSessionCard, markSessionSeen, refreshTerminalFonts, getSessionCount, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionTaskTitle, setSessionAgent, setSessionAgents, setSessionDiff, setSessionEffectiveBase, setSessionFailureReason, setSessionHasPlan, setSessionMergeStatus, setSessionPrompt, setSessionUnseenOutcome, setSessionUsage, setSessionWorktree, updateAttentionTitle } from './session-card/lifecycle.ts';
 import { resolvePlanTarget } from './plan/plan-link.ts';
 import { isModalOpen, openConfirmDialog } from './session-card/modal.ts';
 import { countShownConnectingTerminals, onTerminalLinkChange, prewarmDataSocket, reconnectDataWs, syncGridOnEngagementEdge } from './session-card/terminal.ts';
@@ -301,7 +301,6 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
     const exists = hasSession(s.id);
     if (exists) applyState(s.id, s.state, s.stateSince);
     if (exists) setSessionSaneYolo(s.id, !!s.saneYolo);
-    if (exists) setSessionGuarded(s.id, s.isGuarded, s.isGuardrailsReleased);
     if (!exists) createSessionCard(s.id, s.name, s.state, buildSessionCardOptions(s));
     setSessionFailureReason(s.id, s.failureReason);
 
@@ -364,7 +363,7 @@ function rebuildAsDormantCard(msg: SessionStatusMessage) {
 
   const path = card ? card.dataset.path : undefined;
   removeSessionCard(msg.id);
-  createSessionCard(msg.id, msg.session, STATES.DORMANT, buildSessionCardOptions({ skipPerms, saneYolo, worktree: card?.dataset.worktree !== undefined, workspace: card?.dataset.workspace !== undefined, remoteWorkspace: card?.dataset.remoteWorkspace ?? null, guarded: card?.dataset.guarded !== undefined, guardrailsReleased: card?.dataset.guardrailsReleased !== undefined, ephemeral: card?.dataset.ephemeral !== undefined, path, stateSince: msg.timestamp, taskTitle: previousUi?.taskTitle, taskTitleIsCustom: previousUi?.taskTitleIsCustom }));
+  createSessionCard(msg.id, msg.session, STATES.DORMANT, buildSessionCardOptions({ skipPerms, saneYolo, worktree: card?.dataset.worktree !== undefined, workspace: card?.dataset.workspace !== undefined, remoteWorkspace: card?.dataset.remoteWorkspace ?? null, ephemeral: card?.dataset.ephemeral !== undefined, path, stateSince: msg.timestamp, taskTitle: previousUi?.taskTitle, taskTitleIsCustom: previousUi?.taskTitleIsCustom }));
   setSessionAgent(msg.id, previousUi?.agent);
   carryOverClientSessionFields(msg.id, previousUi);
 }

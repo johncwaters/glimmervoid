@@ -13,11 +13,8 @@ import { SHELL_AGENT_ID } from '../../shared/contracts/config.ts';
 import { DEFAULT_CONFIG } from '../config-store.ts';
 import type { GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
-import { isSessionGuarded } from '../guardrails/core/guardrails-roles-core.ts';
 import { machineSkipsPermissionsByDefault, projectSkipsPermissions } from './core/session-registry-core.ts';
-import { expandTilde } from '../usage/core/usage-scan-core.ts';
 import { remoteCheckoutDirectory } from '../coder/core/coder-env-core.ts';
-import type { SessionGuardrails } from '../guardrails/session-guardrails.ts';
 import { ensureSessionTempFolder } from '../guardrails/guardrails-launch.ts';
 import { resolveUsageConfig } from '../usage/usage-wiring.ts';
 
@@ -33,7 +30,6 @@ interface SessionFactoryDependencies {
   getPlanReviewPort: () => SessionPlanReviewPort | null;
   resolveHookTools: (config: GlimmervoidConfig) => ResolvedHookTool[];
   getUserHooks: (projectId: string) => UserHook[];
-  sessionGuardrails?: SessionGuardrails;
   commitSigningProgram?: string | null;
   homeDir?: string;
   getCoderEnv?: () => CoderWorkspacePort | null;
@@ -49,40 +45,10 @@ interface CoderWorkspacePort {
   uploadFile: (file: { workspace: string; remotePath: string; contents: string; mode: number }) => Promise<void>;
 }
 
-interface GuardedSessionProject {
-  path: string;
-  repos?: string[];
-  agent?: string | null;
-  unguarded?: boolean;
-}
-
-function willSessionRunGuarded(project: GuardedSessionProject, config: GlimmervoidConfig, homeDir: string | null): boolean {
-  const unguardedRepos = (config.guardrails?.unguardedRepos ?? []).map((repo) => expandTilde(repo, process.env, homeDir));
-  return isSessionGuarded({
-    usageVendor: getAdapter(project.agent)?.usageVendor ?? null,
-    isMarkedUnguarded: project.unguarded === true,
-    sessionFolders: [project.path, ...(project.repos ?? [])],
-    unguardedRepos,
-  });
-}
-
 function createSessionFactory(dependencies: SessionFactoryDependencies) {
   function planLimitsEnabled(config: GlimmervoidConfig): boolean {
     const usageConfig = resolveUsageConfig(config.usage);
     return usageConfig.enabled && usageConfig.planLimits;
-  }
-
-  function defaultGuardrailsFor(project: ProjectEntry, config: GlimmervoidConfig, overrides: SessionSpawnOverrides): SessionOptions['prepareGuardrails'] {
-    if (!dependencies.sessionGuardrails) return null;
-    const agent = overrides.agent ?? project.agent;
-    const isGuarded = willSessionRunGuarded({ ...project, agent }, config, dependencies.homeDir ?? null);
-    if (!isGuarded) return null;
-    return dependencies.sessionGuardrails.prepareFor({ sessionId: project.id, isWorkspace: Boolean(project.repos?.length), vendor: getAdapter(agent)?.usageVendor ?? null });
-  }
-
-  function isReleasedOnlyByMark(project: ProjectEntry, config: GlimmervoidConfig, overrides: SessionSpawnOverrides): boolean {
-    if (project.unguarded !== true || !dependencies.sessionGuardrails) return false;
-    return willSessionRunGuarded({ ...project, agent: overrides.agent ?? project.agent, unguarded: false }, config, dependencies.homeDir ?? null);
   }
 
   function remoteLaunchFor(builtProject: ProjectEntry, builtMapping: NonNullable<ProjectEntry['environment']>, config: GlimmervoidConfig): RemoteLaunch {
@@ -145,8 +111,6 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       dangerouslySkipPermissions: skipPermissions,
       agent: project.agent,
       bypassHookTrust: project.codexBypassHookTrust === true,
-      isMarkedUnguarded: project.unguarded === true,
-      isGuardrailsReleased: isReleasedOnlyByMark(project, config, overrides),
       replayBufferKB: config.replayBufferKB,
       hookRouter: dependencies.hookRouter,
       getHookPort: dependencies.getHookPort,
@@ -169,7 +133,6 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       getRemoteLaunch: builtMapping ? () => remoteLaunchFor(project, builtMapping, dependencies.getConfig?.() ?? config) : null,
       ...overrides,
       spawnEnv: sessionTempFolder ? { CLAUDE_CODE_TMPDIR: sessionTempFolder, ...(overrides.spawnEnv ?? {}) } : overrides.spawnEnv,
-      prepareGuardrails: 'prepareGuardrails' in overrides ? overrides.prepareGuardrails : defaultGuardrailsFor(project, config, overrides),
     });
     const captureConfig = {
       ...(config.capture || {}),
@@ -181,5 +144,5 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
   };
 }
 
-export { createSessionFactory, willSessionRunGuarded };
+export { createSessionFactory };
 export type { SessionSpawnOverrides };

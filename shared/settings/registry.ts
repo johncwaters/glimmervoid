@@ -292,11 +292,11 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
     ],
   },
   {
-    id: 'machine-guardrails',
+    id: 'machine-safety',
     level: 'machine',
-    title: 'Guardrails and unattended',
-    description: 'What a guarded session may touch, and which unattended actions automated work may take. Claude Code sessions on Linux and macOS write anywhere this account can, except credentials, Glimmervoid\'s own state and the blocked folders here.',
-    legacyIds: ['lanes-unattended', 'unattended'],
+    title: 'Sane YOLO and unattended',
+    description: 'Which risky commands and credential reads Sane YOLO blocks, and which unattended actions automated work may take.',
+    legacyIds: ['machine-guardrails', 'lanes-unattended', 'unattended'],
     settings: [
       {
         id: 'skip-permissions-by-default', path: 'skipPermissionsByDefault', title: 'Skip permission prompts by default',
@@ -322,19 +322,6 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
         control: 'toggle', keywords: ['git', 'cleanup', 'orphan'], danger: true,
         warning: 'Enabling this control lets branch cleanup delete stale remote branches without merge proof.',
         defaultValue: false, ...MACHINE_NOW,
-      },
-      {
-        id: 'guardrails-unguarded-repos', path: 'guardrails.unguardedRepos', title: 'Unguarded repositories',
-        description: 'Folders whose sessions run without guardrails. A session started in one of these folders, or below it, is not guarded.',
-        control: 'list', keywords: ['guardrails', 'opt out', 'dotfiles'], danger: true,
-        warning: 'A session without guardrails can read credentials and write anywhere this account can.',
-        defaultValue: [], listPlaceholder: 'Folder path', listEmptyText: 'Every repository is guarded.', ...MACHINE_NEW_SESSIONS,
-      },
-      {
-        id: 'guardrails-blocked-paths', path: 'guardrails.blockedPaths', title: 'Blocked folders',
-        description: 'Extra folders and files a guarded session cannot write, on top of credentials and Glimmervoid\'s own state. A leading ~ means the home folder.',
-        control: 'list', keywords: ['guardrails', 'block', 'protect'], defaultValue: [],
-        listPlaceholder: '~/folder', listEmptyText: 'Only the built-in list is blocked.', ...MACHINE_NEW_SESSIONS,
       },
     ],
   },

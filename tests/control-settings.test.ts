@@ -121,11 +121,11 @@ test('a usage save carrying one nested leaf leaves every stored sibling and nest
   assert.deepEqual(h.cfg.usage, { ...stored, budget: { ...stored.budget, dailyUsd: 7 } });
 });
 
-test('a list value is one leaf: a saved list replaces the stored list whole and leaves sibling lists alone', () => {
-  const h = harness({ projects: [], guardrails: { unguardedRepos: ['/repo-a', '/repo-b'], blockedPaths: ['/secrets'] } });
-  h.send({ type: 'update-settings', settings: { guardrails: { unguardedRepos: ['/repo-c'] } } });
+test('a list value is one leaf: a saved list replaces the stored list whole and leaves its siblings alone', () => {
+  const h = harness({ projects: [], community: { discordChannels: ['general', 'help'], skill: 'answering' } });
+  h.send({ type: 'update-settings', settings: { community: { discordChannels: ['questions'] } } });
   assert.equal(errorFrom(h), undefined);
-  assert.deepEqual(h.cfg.guardrails, { unguardedRepos: ['/repo-c'], blockedPaths: ['/secrets'] });
+  assert.deepEqual(h.cfg.community, { discordChannels: ['questions'], skill: 'answering' });
 });
 
 test('the block validator refuses by name a leaf the registry does not list', () => {

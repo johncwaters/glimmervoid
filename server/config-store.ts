@@ -65,11 +65,6 @@ const DEFAULT_CONFIG = {
   taskTitle: {
     refiner: { enabled: true, model: 'haiku', minIntervalSeconds: 60, timeoutSeconds: 60 },
   },
-  guardrails: {
-    unguardedRepos: [] as string[],
-    blockedPaths: [] as string[],
-  },
-
   telemetry: {
     enabled: true,
   },
@@ -353,14 +348,18 @@ function secretSourcesOf(env: Record<string, string | undefined>): Record<string
   ]));
 }
 
+const RETIRED_PROJECT_FLAGS = Object.freeze(['unconfined', 'unguarded']);
+
 function retiredGuardrailKeysWarning(config: GlimmervoidConfig): string | null {
   const projects: unknown[] = Array.isArray(config.projects) ? config.projects : [];
+  const guardrails = config.guardrails;
   const retiredKeys = [
-    ...(Object.hasOwn(config, 'sandbox') ? ['sandbox (move it to guardrails, renaming unconfinedRepos to unguardedRepos)'] : []),
-    ...(projects.some((project) => isRecord(project) && Object.hasOwn(project, 'unconfined')) ? ['projects[].unconfined (rename it to unguarded)'] : []),
+    ...(Object.hasOwn(config, 'sandbox') ? ['sandbox'] : []),
+    ...(isRecord(guardrails) ? Object.keys(guardrails).filter((key) => key !== 'unreadablePaths').map((key) => `guardrails.${key}`) : []),
+    ...RETIRED_PROJECT_FLAGS.filter((key) => projects.some((project) => isRecord(project) && Object.hasOwn(project, key))).map((key) => `projects[].${key}`),
   ];
   if (retiredKeys.length === 0) return null;
-  return `[guardrails] config.json still has ${retiredKeys.join(' and ')}. These keys are ignored, so their unreadable paths and opt-outs do not apply until you move them.`;
+  return `[sane-yolo] config.json still has ${retiredKeys.join(', ')}; these keys are ignored (unreadablePaths moved to saneYoloUnreadablePaths)`;
 }
 
 function isAbsoluteOrHomePath(entry: unknown): entry is string {
@@ -557,7 +556,6 @@ function createConfigStore({
       detectBackgroundAgents: config.detectBackgroundAgents ?? effectiveDefaults.detectBackgroundAgents,
       recordSignals: config.recordSignals ?? effectiveDefaults.recordSignals,
       trace: pickBlock('trace', { ...DEFAULT_CONFIG.trace, ...config.trace }),
-      guardrails: pickBlock('guardrails', { ...DEFAULT_CONFIG.guardrails, ...config.guardrails }),
       telemetry: pickBlock('telemetry', { ...DEFAULT_CONFIG.telemetry, ...config.telemetry }),
       telemetryForcedOff: isTelemetryForcedOff(process.env),
       telemetryInstallId: readTelemetryInstallId?.() ?? null,
@@ -629,7 +627,6 @@ function createConfigStore({
     if (newConfig.posthog != null) config.posthog = newConfig.posthog;
     if (newConfig.usage != null) config.usage = newConfig.usage;
     if (newConfig.telegram != null) config.telegram = newConfig.telegram;
-    if (newConfig.guardrails != null) config.guardrails = newConfig.guardrails;
     if (newConfig.telemetry != null) config.telemetry = newConfig.telemetry;
     if (newConfig.workflows == null) delete config.workflows;
     if (newConfig.workflows != null) config.workflows = newConfig.workflows;

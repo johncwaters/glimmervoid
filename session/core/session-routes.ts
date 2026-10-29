@@ -3,7 +3,6 @@ import type { AgentApiVerb, SessionCommand, SessionLimits } from '../../shared/c
 
 const SUPERVISION_LINE = "Glimmervoid supervises this session. Run glimmervoid --help for the commands it gives you and this session's limits.";
 const SPAWN_LINE = 'To delegate work that edits files or runs long, use glimmervoid spawn rather than an in-process subagent: the spawned session gets its own dashboard card the operator can watch. An in-process subagent stays fine for a quick read-only lookup.';
-const GUARDRAILS_LINE = 'Its guardrails are OS-enforced, so a read, write or connection they refuse will not succeed on retry.';
 const HELP_COMMAND = 'glimmervoid --help';
 const SHELL_TOOL_RULE = 'Bash';
 const SHELL_PREFIX_RULE = /^Bash\((.+):\*\)$/;
@@ -19,7 +18,6 @@ interface SessionRoleFacts {
 type SessionKindFacts = Omit<SessionRoleFacts, 'hasOwnWorktree'>;
 
 interface SessionLimitFacts extends SessionRoleFacts {
-  isGuarded: boolean;
   environment: SessionLimits['environment'];
 }
 
@@ -27,15 +25,12 @@ type PushRefusalCode = 'not-operator-session' | 'no-worktree';
 type RouteVerdict = { answers: true } | { answers: false; reason: string; code?: PushRefusalCode };
 
 type SessionCommandLimit = SessionLimits['commands'][number];
-type SessionDeadEnd = SessionLimits['deadEnds'][number];
 
 const ANSWERS: { answers: true } = Object.freeze({ answers: true });
 
-function supervisionLine({ isGuarded, canSpawn = false }: { isGuarded: boolean; canSpawn?: boolean }): string {
-  const sentences = [SUPERVISION_LINE];
-  if (canSpawn) sentences.push(SPAWN_LINE);
-  if (isGuarded) sentences.push(GUARDRAILS_LINE);
-  return sentences.join(' ');
+function supervisionLine({ canSpawn = false }: { canSpawn?: boolean }): string {
+  if (!canSpawn) return SUPERVISION_LINE;
+  return `${SUPERVISION_LINE} ${SPAWN_LINE}`;
 }
 
 function coversHelpCommand(permissionRule: unknown): boolean {
@@ -139,30 +134,15 @@ function commandLimit(name: SessionCommand, facts: SessionRoleFacts): SessionCom
   return { name, answers: false, reason: verdict.reason };
 }
 
-function runsUnderOperatorSessionGuardrails({ isGuarded, isEphemeral, isSpawnedChild }: SessionLimitFacts): boolean {
-  if (!isGuarded) return false;
-  return !isEphemeral || isSpawnedChild;
-}
-
-const OPERATOR_SESSION_GUARDRAIL_DEAD_ENDS: readonly SessionDeadEnd[] = Object.freeze([
-  {
-    blocked: "credential folders, Glimmervoid's own folder and any path the operator blocked are off limits",
-    route: 'flag the operator with glimmervoid attention',
-  },
-]);
-
-function sessionBoundary({ environment, isGuarded }: SessionLimitFacts): SessionLimits['boundary'] {
-  if (environment !== null) return 'workspace';
-  return isGuarded ? 'os-sandbox' : 'none';
+function sessionBoundary({ environment }: SessionLimitFacts): SessionLimits['boundary'] {
+  return environment === null ? 'none' : 'workspace';
 }
 
 function describeSessionLimits(facts: SessionLimitFacts): SessionLimits {
   return {
     commands: SESSION_COMMANDS.map((name) => commandLimit(name, facts)),
-    guarded: facts.isGuarded,
     boundary: sessionBoundary(facts),
     environment: facts.environment,
-    deadEnds: runsUnderOperatorSessionGuardrails(facts) ? [...OPERATOR_SESSION_GUARDRAIL_DEAD_ENDS] : [],
   };
 }
 
@@ -172,16 +152,8 @@ function boundaryLines({ boundary, environment }: SessionLimits): string[] {
 }
 
 function formatSessionLimits(limits: SessionLimits): string[] {
-  const { commands, guarded, deadEnds } = limits;
-  const commandLines = commands.map(({ name, answers, reason }) => (answers ? `  ${name}: available` : `  ${name}: not available, ${reason}`));
-  if (!guarded) return ['This session:', ...commandLines, ...boundaryLines(limits), '  guardrails: none'];
-  return [
-    'This session:',
-    ...commandLines,
-    ...boundaryLines(limits),
-    '  guardrails: OS-enforced, so a read, write or connection they refuse will not succeed on retry',
-    ...deadEnds.map(({ blocked, route }) => `  ${blocked}: ${route}`),
-  ];
+  const commandLines = limits.commands.map(({ name, answers, reason }) => (answers ? `  ${name}: available` : `  ${name}: not available, ${reason}`));
+  return ['This session:', ...commandLines, ...boundaryLines(limits)];
 }
 
 export { supervisionLine, permitsHelpCommand, COMMAND_ROUTES, describeSessionLimits, formatSessionLimits, NO_OWN_WORKTREE_REASON };

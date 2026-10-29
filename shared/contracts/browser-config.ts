@@ -200,11 +200,6 @@ export const PlanReviewSettings = z.object({
   enabled: optionalBoolean('planReview.enabled'),
 }, { error: 'planReview must be an object' }).optional();
 
-const optionalPathList = (field: string) => z.array(z.string({ error: `${field} must be an array of paths` }).trim().min(1, { error: `${field} must be an array of paths` }), { error: `${field} must be an array of paths` }).optional();
-const guardrailsShape = {
-  unguardedRepos: optionalPathList('guardrails.unguardedRepos'),
-  blockedPaths: optionalPathList('guardrails.blockedPaths'),
-};
 const isHomeRelativePath = (entry: string) => entry === '~' || entry.startsWith('~/') || entry.startsWith('~\\');
 const absoluteOrHomePathList = (field: string, isAbsolutePath: (directory: string) => boolean) => z.array(
   z.string({ error: `${field} must be an array of paths` }).trim()
@@ -212,11 +207,6 @@ const absoluteOrHomePathList = (field: string, isAbsolutePath: (directory: strin
     .refine((entry) => isHomeRelativePath(entry) || isAbsolutePath(entry), { message: `${field} entries must be absolute paths or start with ~/` }),
   { error: `${field} must be an array of paths` },
 ).optional();
-const createGuardrailsSettings = (isAbsolutePath: (directory: string) => boolean) => z.object({
-  ...guardrailsShape,
-  blockedPaths: absoluteOrHomePathList('guardrails.blockedPaths', isAbsolutePath),
-}, { error: 'guardrails must be an object' }).strict().optional();
-export const GuardrailsFileSettings = z.object(guardrailsShape, { error: 'guardrails must be an object' }).passthrough().optional();
 
 const telemetryShape = { enabled: optionalBoolean('telemetry.enabled') };
 const TelemetrySettings = z.object(telemetryShape, { error: 'telemetry must be an object' }).strict().optional();
@@ -257,7 +247,6 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   posthog: PosthogSettings,
   usage: createUsageSettings(isAbsolutePath),
   telegram: TelegramSettings,
-  guardrails: createGuardrailsSettings(isAbsolutePath),
   telemetry: TelemetrySettings,
   workflows: WorkflowsSettings.nullable().optional(),
 });

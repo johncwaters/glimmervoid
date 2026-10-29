@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro';
 import { AGENT_COMMAND_HELP } from '../../../server/core/agent-api-core.ts';
 import { agentMarkdownPage, markdownResponse } from '../lib/agent-markdown.ts';
 import { INSTALL_COMMAND, LINUX_INSTALL_COMMAND } from '../lib/install-command.ts';
-import { AGENT_CARDS, DEFAULT_PORT, GUARDED_AGENT_LABELS, MINIMUM_NODE_VERSION, PRODUCT_VERSION, REPOSITORY_URL } from '../lib/product-facts.ts';
+import { AGENT_CARDS, DEFAULT_PORT, MINIMUM_NODE_VERSION, SANE_YOLO_AGENT_LABELS, PRODUCT_VERSION, REPOSITORY_URL } from '../lib/product-facts.ts';
 import { sitePath } from '../lib/site-path.ts';
 
 export const GET: APIRoute = ({ site }) => {
@@ -28,7 +28,7 @@ export const GET: APIRoute = ({ site }) => {
       '- Reviews, Mine: every pull request you opened shows its merge readiness (checks, review, threads, conflicts, base). Per pull request you can turn on Merge when ready, which merges it once everything is green, and Keep mergeable, which has a sandboxed agent repair conflicts and failing checks.',
       '- Worktrees: every session in a git repo runs in its own git worktree, so parallel agents never collide. One click merges a session\'s work back; a conflict goes back to the agent that wrote the code.',
       '- Helper agents: every session gets the `glimmervoid` CLI, so an agent can spawn a helper session, message it, and close it.',
-      `- Guardrails: accident protection, not a security boundary, for ${GUARDED_AGENT_LABELS} on macOS and Linux. Safe commands run without prompts; destructive ones such as \`git reset --hard\` are blocked.`,
+      `- Guardrails: accident protection, not a security boundary, for ${SANE_YOLO_AGENT_LABELS}. Safe commands run without prompts; destructive ones such as \`git reset --hard\` are blocked.`,
       '- Remote: one machine hosts everything; a phone or other device pairs once with a single-use link over your own HTTPS proxy, such as Tailscale.',
       '- Notifications: browser notifications, or Telegram when no dashboard tab is open.',
       '- Plan review: approve an agent\'s plan from any device.',

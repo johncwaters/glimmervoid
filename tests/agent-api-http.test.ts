@@ -196,7 +196,6 @@ interface WiringFixtureOptions {
   makeSessionThrowsFirst?: boolean;
   laneSessions?: Session[];
   holdSpawnGate?: boolean;
-  parentIsGuarded?: boolean;
   headroomBytes?: number;
   holdFirstHeadroomRead?: boolean;
   clock?: ManualClock;
@@ -238,7 +237,7 @@ function manualClock() {
 
 function wiringFixture({
   parentSkipsPermissions = true, spawnFails = false, makeSessionThrowsFirst = false, laneSessions = [],
-  holdSpawnGate = false, parentIsGuarded = false, headroomBytes = 64 * 1024 * 1024 * 1024, holdFirstHeadroomRead = false,
+  holdSpawnGate = false, headroomBytes = 64 * 1024 * 1024 * 1024, holdFirstHeadroomRead = false,
   clock, coderWorkspaceStatus, childGitWorkspace, teamReviewStatus,
 }: WiringFixtureOptions = {}) {
   const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, agentApi: { enabled: true }, projects: [] };
@@ -249,7 +248,6 @@ function wiringFixture({
     path: process.cwd(),
     dangerouslySkipPermissions: parentSkipsPermissions,
     ptySpawn: () => fakePty(),
-    prepareGuardrails: parentIsGuarded ? async () => ({ ok: false, reason: 'never launched' }) : null,
   });
   const created: Session[] = [];
   const childProjects: ProjectEntry[] = [];
@@ -343,10 +341,8 @@ function wiringFixture({
 
 
 test('a valid spawn creates exactly one sibling that may not spawn again', async () => {
-  const fixture = wiringFixture({ parentIsGuarded: true });
+  const fixture = wiringFixture();
   try {
-    const unguarded = await fixture.spawn(fixture.parent, { prompt: 'review the diff', agent: 'codex' });
-    assert.deepEqual([unguarded.status, fixture.created.length], [403, 0], 'a guarded parent cannot name an agent that runs outside the guardrails');
     const reply = await fixture.spawn(fixture.parent, { prompt: 'review the diff' });
     assert.equal(reply.status, 200);
     assert.equal(reply.body.ok, true);
@@ -477,8 +473,6 @@ test('a spawned child reaches the dashboard as one session-added card naming its
       skipPerms: true,
       saneYolo: false,
       worktree: fixture.parent.isWorktree,
-      guarded: false,
-      guardrailsReleased: false,
       resumeSessionId: null,
       ownerId: 'parent',
       ephemeral: true,
@@ -576,8 +570,6 @@ test('the shared session card projection carries exactly the session-added paylo
     skipPerms: true,
     saneYolo: false,
     worktree: false,
-    guarded: false,
-    guardrailsReleased: false,
     resumeSessionId: null,
     ephemeral: true,
   });
@@ -588,13 +580,12 @@ test('the shared session card projection carries exactly the session-added paylo
   assert.equal('ephemeral' in flaglessCard, false, 'a source without the flag leaves it off the wire');
 });
 
-test('limits tells a session which commands answer, its boundary, and a guarded operator session what its guardrails block with the route that still works', async () => {
-  const fixture = wiringFixture({ parentIsGuarded: true, coderWorkspaceStatus: (workspace) => (workspace === 'gv-0123456789ab' ? 'running' : null) });
+test('limits tells a session which commands answer and its boundary', async () => {
+  const fixture = wiringFixture({ coderWorkspaceStatus: (workspace) => (workspace === 'gv-0123456789ab' ? 'running' : null) });
   const guardedLane = new Session({
     id: 'review-lane', name: 'review', path: process.cwd(), ephemeral: true, ptySpawn: () => fakePty(),
     prepareGuardrails: async () => ({ ok: false, reason: 'never launched' }),
   });
-  const unguarded = new Session({ id: 'unguarded', name: 'unguarded', path: process.cwd(), ptySpawn: () => fakePty() });
   const remote = new Session({ id: 'remote', name: 'remote', path: process.cwd(), ptySpawn: () => fakePty() });
   fixture.config.projects.push({ id: 'remote', name: 'remote', path: process.cwd(), environment: { name: 'dev', workspace: 'gv-0123456789ab', remotePort: 45000, branch: 'main' } });
   const limitsOf = async (session: Session) => {
@@ -608,14 +599,12 @@ test('limits tells a session which commands answer, its boundary, and a guarded 
       { name: 'push', answers: false, reason: 'this session has no worktree of its own, so there is nothing of its own to land' },
       ...['spawn', 'send', 'read', 'close', 'attention', 'board', 'edit', 'show', 'review', 'reviews', 'prs', 'link-pr', 'settings'].map((name) => ({ name, answers: true })),
     ]);
-    assert.deepEqual([operatorLimits.guarded, operatorLimits.boundary, operatorLimits.environment], [true, 'os-sandbox', null]);
-    assert.deepEqual(operatorLimits.deadEnds.map(({ route }) => route), ['flag the operator with glimmervoid attention']);
+    assert.deepEqual([operatorLimits.boundary, operatorLimits.environment], ['none', null]);
     const laneLimits = await limitsOf(guardedLane);
     assert.deepEqual(laneLimits.commands.map(({ name, answers }) => [name, answers]), [
       ['push', false], ['spawn', false], ['send', false], ['read', false], ['close', false], ['attention', false], ['board', true], ['edit', false], ['show', false],
       ['review', false], ['reviews', false], ['prs', false], ['link-pr', false], ['settings', false],
     ]);
-    assert.deepEqual([laneLimits.guarded, laneLimits.deadEnds], [true, []]);
     const refusedCalls: [Session, AgentLimitsReply, string, Record<string, unknown>][] = [
       [fixture.parent, operatorLimits, 'push', {}],
       [guardedLane, laneLimits, 'push', {}],
@@ -634,14 +623,11 @@ test('limits tells a session which commands answer, its boundary, and a guarded 
       const refusal = await fixture.wiring.handle(session, command, payload);
       assert.equal(refusal.body.error, limits.commands.find(({ name }) => name === command)?.reason, `${command} is refused for the reason limits gave`);
     }
-    const unguardedLimits = await limitsOf(unguarded);
-    assert.deepEqual([unguardedLimits.guarded, unguardedLimits.boundary, unguardedLimits.deadEnds], [false, 'none', []]);
     const remoteLimits = await limitsOf(remote);
     assert.deepEqual([remoteLimits.boundary, remoteLimits.environment], ['workspace', { name: 'dev', workspace: 'gv-0123456789ab', state: 'running' }]);
     assert.ok(formatSessionLimits(remoteLimits).includes('  environment: dev, workspace gv-0123456789ab, running'));
   } finally {
     guardedLane.destroy();
-    unguarded.destroy();
     remote.destroy();
     fixture.destroyAll();
   }

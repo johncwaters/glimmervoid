@@ -25,13 +25,12 @@ import type { UsageSessionUsage } from '../usage/usage-store-core.ts';
 import { sessionChipText, sessionChipTitle } from '../usage/usage-store-core.ts';
 import { setRunningActivity } from './activity.ts';
 import type { CardOptions } from './card-dom.ts';
-import { buildCardDOM, closeDebugOverlay, isDebugModeEnabled, isRenameInProgress, makeTitleEditable, openDebugOverlay, paintGuardrailsToggle, paintTaskTitle, sendSessionAction, sessionActionStatus, setDebugMode, startInlineRename, startInlineTitleEdit } from './card-dom.ts';
+import { buildCardDOM, closeDebugOverlay, isDebugModeEnabled, isRenameInProgress, makeTitleEditable, openDebugOverlay, paintTaskTitle, sessionActionStatus, setDebugMode, startInlineRename, startInlineTitleEdit } from './card-dom.ts';
 import type { SessionUi } from './card-registry.ts';
 import { syncLiveSession } from './session-tick.ts';
 import { attentionTally, container, findSessionUi, sessionIdOf, sessionUIs } from './card-registry.ts';
 import { decidePlanHeaderAction, preferredBorrowedFace } from './face-core.ts';
 import type { SessionCardFace } from './face-core.ts';
-import { openConfirmDialog } from './modal.ts';
 import { requestSessionRemoval } from '../session-actions.ts';
 import { openWorkspaceReposDialog } from './workspace-repos-dialog.ts';
 import { reportHeaderError } from '../action-status.ts';
@@ -209,28 +208,6 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
     openShownLightbox(sessionId);
   });
 
-  ui.btnGuardrails.addEventListener('click', () => {
-    if (ui.btnGuardrails.getAttribute('aria-disabled') === 'true') return;
-    const sendGuardrails = (isOn: boolean) => () => { sendSessionAction(ui, { type: 'set-session-guardrails', id: sessionId, isOn }); };
-    if (ui.card.dataset.guarded === undefined) {
-      openConfirmDialog({
-        title: 'Restore guardrails',
-        message: 'This session restarts with guardrails on, interrupting any turn in progress.',
-        confirmLabel: 'Restore guardrails',
-        danger: false,
-        onConfirm: sendGuardrails(true),
-      });
-      return;
-    }
-    openConfirmDialog({
-      title: 'Release guardrails',
-      message: 'This session restarts without guardrails, interrupting any turn in progress. It can then read, write and reach anything your account can, including credentials and Glimmervoid itself.',
-      confirmLabel: 'Release guardrails',
-      danger: true,
-      onConfirm: sendGuardrails(false),
-    });
-  });
-
   ui.btnPlan.addEventListener('click', () => {
     const action = decidePlanHeaderAction(ui);
     if (action === 'hidden') return;
@@ -387,7 +364,6 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     btnRestart: dom.btnRestart,
     btnSessionMenu: dom.btnSessionMenu,
     btnWorkspaceRepos: dom.btnWorkspaceRepos,
-    btnGuardrails: dom.btnGuardrails,
     tags: dom.tags,
     btnTrace: dom.btnTrace,
     btnPlan: dom.btnPlan,
@@ -537,19 +513,6 @@ export function setSessionWorktree(sessionId: unknown, worktree: unknown) {
   if (!ui) return;
   if (worktree) { ui.card.dataset.worktree = ''; return; }
   delete ui.card.dataset.worktree;
-}
-
-export function setSessionGuarded(sessionId: unknown, isGuarded: boolean, isGuardrailsReleased: boolean) {
-  const ui = findSessionUi(sessionId);
-  if (!ui) return;
-  toggleCardFlag(ui.card, 'guarded', isGuarded);
-  toggleCardFlag(ui.card, 'guardrailsReleased', isGuardrailsReleased);
-  paintGuardrailsToggle(ui.btnGuardrails, ui.card);
-}
-
-function toggleCardFlag(card: HTMLElement, datasetKey: string, isOn: boolean) {
-  if (isOn) { card.dataset[datasetKey] = ''; return; }
-  delete card.dataset[datasetKey];
 }
 
 export function setSessionAgents(sessionId: unknown, activeAgents: unknown, awaitingBackgroundTasks: unknown = false) {

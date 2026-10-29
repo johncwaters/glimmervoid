@@ -14,8 +14,6 @@ interface SessionCardSource {
   isWorktree?: boolean;
   isWorkspace?: boolean;
   remoteWorkspace?: string | null;
-  isGuarded?: boolean;
-  isGuardrailsReleased?: boolean;
   resumeSessionId?: string | null;
   ephemeral?: boolean;
   ownerId?: string | null;
@@ -43,8 +41,6 @@ function projectSessionCard(
     skipPerms: !!source.dangerouslySkipPermissions,
     saneYolo: !!source.saneYolo,
     worktree: !!source.isWorktree,
-    guarded: source.isGuarded === true,
-    guardrailsReleased: source.isGuardrailsReleased === true,
     resumeSessionId: source.resumeSessionId || null,
     ...(source.isWorkspace ? { workspace: true } : {}),
     ...(source.remoteWorkspace ? { remoteWorkspace: source.remoteWorkspace } : {}),
@@ -71,8 +67,6 @@ interface SnapshotSource {
   isWorktree: boolean;
   isWorkspace: boolean;
   remoteWorkspace?: string | null;
-  isGuarded?: boolean;
-  isGuardrailsReleased?: boolean;
   resumeSessionId: string | null;
   activeAgents: number;
   awaitingBackgroundTasks: boolean;
@@ -108,8 +102,6 @@ function projectSessionSnapshots(source: SnapshotSource) {
     isWorktree: source.isWorktree,
     isWorkspace: source.isWorkspace,
     remoteWorkspace: source.remoteWorkspace ?? null,
-    isGuarded: source.isGuarded === true,
-    isGuardrailsReleased: source.isGuardrailsReleased === true,
     resumeSessionId: source.resumeSessionId,
     activeAgents: source.activeAgents,
     awaitingBackgroundTasks: source.awaitingBackgroundTasks,

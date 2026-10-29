@@ -55,7 +55,7 @@ test('a settings row names when a change takes effect only where it is not at on
   const rowsByFirstCell = new Map(doc.split('\n').map((line) => [line.split(' | ')[0], line]));
   assert.match(doc, /A change to a setting in the tables below takes effect at once unless its row says it applies to new sessions or needs a server restart\./);
   assert.match(rowsByFirstCell.get('| `port`') ?? '', /Needs a server restart\./);
-  assert.match(rowsByFirstCell.get('| `guardrails.unguardedRepos`') ?? '', /Applies to new sessions\./);
+  assert.match(rowsByFirstCell.get('| `saneYoloUnreadablePaths`') ?? '', /Applies to new sessions\./);
   assert.doesNotMatch(rowsByFirstCell.get('| `autoResume`') ?? '', /new sessions|restart/);
 });
 

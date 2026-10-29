@@ -64,7 +64,7 @@ test('add-session for a shell with no folder runs it in the home folder', () => 
   assert.equal(config.projects[0]?.agent, 'shell');
 });
 
-test('quick-session copies a workspace session under the next free name, guarded once its guardrails were released, without its conversation', () => {
+test('quick-session copies a workspace session under the next free name, without its conversation', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-control-workspace-'));
   try {
     const first = path.join(root, 'first');
@@ -80,12 +80,11 @@ test('quick-session copies a workspace session under the next free name, guarded
       repos: [first, second],
       baseBranch: 'staging',
       dangerouslySkipPermissions: true,
-      unguarded: true,
       resumeSessionId: 'conversation-of-the-source',
       wasWorking: true,
     };
     const config: { projects: ProjectEntry[]; worktreeRoot: string } = { projects: [source], worktreeRoot };
-    const sourceSession = new Session({ id: source.id, name: source.name, path: source.path, workspaceRepos: source.repos, dangerouslySkipPermissions: true, isMarkedUnguarded: true, isGuardrailsReleased: true, ptySpawn: () => fakePty() });
+    const sourceSession = new Session({ id: source.id, name: source.name, path: source.path, workspaceRepos: source.repos, dangerouslySkipPermissions: true, ptySpawn: () => fakePty() });
     const server = createControlServer(controlDeps(config, { sessions: new Map([[source.id, sourceSession]]), generateProjectId: () => 'bbbbbbbb-copy' }));
     const connection = connectControl<{ type: string; requestId?: string; ok?: boolean; sessionId?: string }>(server);
     connection.send({ type: 'quick-session', id: source.id, requestId: 'q1' });

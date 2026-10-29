@@ -720,11 +720,6 @@ async function sendControlMessage(viewer: Viewer, controlMessage: Record<string,
   }, controlMessage);
 }
 
-async function runReleaseGuardrails(viewer: Viewer, sessionId: string): Promise<StepOutcome> {
-  await sendControlMessage(viewer, { type: 'set-session-guardrails', id: sessionId, isOn: false });
-  return passedOutcome('guardrails-released', 'sent set-session-guardrails off');
-}
-
 async function runRenameSession(viewer: Viewer, sessionId: string, newName: string, deadlines: Deadlines): Promise<StepOutcome> {
   await sendControlMessage(viewer, { type: 'rename-session', id: sessionId, newName });
   const rosterName = viewer.page.locator(`${rosterSelector(viewer, sessionId)} .session-row-name`).first();
@@ -954,7 +949,6 @@ export async function runCase({
     if (step.kind === 'watch-terminal') return runWatchTerminal(viewer, sessionId, tickAtWatchByViewer);
     if (step.kind === 'expect-terminal-untouched') return runExpectTerminalUntouched(viewer, sessionId, step.durationMs);
     if (step.kind === 'expect-revealed') return runExpectRevealed(viewer, sessionId, tickAtWatchByViewer.get(viewer.id) ?? null, deadlines);
-    if (step.kind === 'release-guardrails') return runReleaseGuardrails(viewer, sessionId);
     if (step.kind === 'rename-session') return runRenameSession(viewer, sessionId, `${step.newName} ${sessionId.slice(0, 8)}`, deadlines);
     if (step.kind === 'load-deep-history') return runLoadDeepHistory(viewer, sessionId, deadlines);
     const shot = await takeShot(viewer, artifacts, key, step.name);

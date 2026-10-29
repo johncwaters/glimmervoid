@@ -36,7 +36,6 @@ export type Step =
   | { kind: 'expect-terminal-untouched'; durationMs: number; viewer?: ViewerId }
   | { kind: 'expect-revealed'; viewer?: ViewerId }
   | { kind: 'load-deep-history'; viewer?: ViewerId }
-  | { kind: 'release-guardrails'; viewer?: ViewerId }
   | { kind: 'rename-session'; newName: string; viewer?: ViewerId }
   | { kind: 'shot'; name: string; viewer?: ViewerId };
 
@@ -169,17 +168,6 @@ export const SCENARIOS: readonly Scenario[] = [
   {
     name: 'team-review',
     steps: [{ kind: 'assert-team-review' }, { kind: 'shot', name: 'team-review' }],
-  },
-  {
-    name: 'release-guardrails',
-    viewports: ['desktop-1280', 'phone-393'],
-    steps: [
-      { kind: 'open' },
-      { kind: 'settle' },
-      { kind: 'release-guardrails' },
-      { kind: 'settle' },
-      { kind: 'shot', name: 'released' },
-    ],
   },
   {
     name: 'rename-repaints-roster',

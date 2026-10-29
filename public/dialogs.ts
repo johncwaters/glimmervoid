@@ -154,7 +154,7 @@ export function openAgentConnectDialog(agent: ConnectableAgent) {
 
 export function openRemoteSetupDialog() {
   const { dialog, close, actions, btnCancel } = buildDialogShell({ title: 'Set up a remote host' });
-  const warning = el('p', 'dialog-hint', 'The setup session runs outside the guardrails so it can use your ssh keys. It runs commands on the remote host over ssh and asks before each one. Glimmervoid deletes its working folder when the session ends.');
+  const warning = el('p', 'dialog-hint', 'The setup session uses your ssh keys. It runs commands on the remote host over ssh and asks before each one. Glimmervoid deletes its working folder when the session ends.');
   const agentLabel = el('p', 'dialog-label', 'Agent');
   const agentChoices = el('div', 'hooks-type-row');
   agentChoices.setAttribute('role', 'radiogroup');
@@ -240,12 +240,8 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
   const pathInput = queryTag(dialog, '#add-session-path', 'input');
   const pathLabelEl = query(dialog, '#add-session-path-label');
   const skipPermsCheckbox = queryTag(dialog, '#add-session-skip-perms', 'input');
-  const unguardedCheckbox = queryTag(dialog, '#add-session-unguarded', 'input');
   const saneYoloHelpLink = queryTag(dialog, '#add-session-sane-yolo-help', 'a');
   const saneYoloUnavailableEl = query(dialog, '#add-session-sane-yolo-unavailable');
-  const safetyToggle = queryTag(dialog, '#add-session-safety-toggle', 'button');
-  const safetyPanel = query(dialog, '#add-session-safety');
-  const safetyStatusEl = query(dialog, '#add-session-safety-status');
   const errorEl = query(dialog, '#add-session-error');
   const shellHintEl = query(dialog, '#add-session-shell-hint');
   const btnCancel = queryTag(dialog, '#add-session-cancel', 'button');
@@ -278,14 +274,6 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
   });
 
   saneYoloHelpLink.addEventListener('click', () => close());
-  safetyToggle.addEventListener('click', () => {
-    const expanded = safetyPanel.hidden;
-    safetyPanel.hidden = !expanded;
-    safetyToggle.setAttribute('aria-expanded', String(expanded));
-  });
-  unguardedCheckbox.addEventListener('change', () => {
-    safetyStatusEl.textContent = unguardedCheckbox.checked ? 'guardrails off' : 'guardrails on';
-  });
 
   const repoRootsAdder = createRepoRootsAdder({ onAdded: fillProjectPicker });
   repoRootsEl.append(repoRootsAdder.element);
@@ -501,7 +489,6 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
         repos,
         dangerouslySkipPermissions: skipPermsCheckbox.checked,
         saneYolo: skipPermsCheckbox.checked,
-        unguarded: unguardedCheckbox.checked,
       };
       if (selectedAgentId && selectedAgentId !== DEFAULT_AGENT_ID) message.agent = selectedAgentId;
       requestAddSession(message);
@@ -516,7 +503,6 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
       path: projectPath,
       dangerouslySkipPermissions: skipPermsCheckbox.checked,
       saneYolo: skipPermsCheckbox.checked,
-      unguarded: unguardedCheckbox.checked,
     };
     if (selectedAgentId && selectedAgentId !== DEFAULT_AGENT_ID) message.agent = selectedAgentId;
     if (selectedEnvironment) message.environment = selectedEnvironment.name;

@@ -15,7 +15,6 @@ export interface RegistryProject {
   agent?: AgentId;
   codexBypassHookTrust?: boolean;
   dangerouslySkipPermissions?: boolean;
-  unguarded?: boolean;
 }
 
 interface RegistrySession {
@@ -26,7 +25,6 @@ interface RegistrySession {
   agentId?: string;
   dangerouslySkipPermissions?: boolean;
   bypassHookTrust?: boolean;
-  isMarkedUnguarded?: boolean;
 }
 
 interface RegistryDependencies {
@@ -107,8 +105,7 @@ function diffProjects(
       || agentFingerprintOf(resolvedAgentId) !== capturedAgentFingerprintOf(id);
     const hookTrustChanged = (project.codexBypassHookTrust === true) !== session.bypassHookTrust;
     const workspaceReposChanged = !haveSameWorkspaceRepos(project.repos, session.workspaceRepos);
-    const guardrailsReleaseChanged = (project.unguarded === true) !== (session.isMarkedUnguarded === true);
-    if (pathChanged || permissionsChanged || agentChanged || hookTrustChanged || workspaceReposChanged || guardrailsReleaseChanged) {
+    if (pathChanged || permissionsChanged || agentChanged || hookTrustChanged || workspaceReposChanged) {
       modified.push(project);
       continue;
     }

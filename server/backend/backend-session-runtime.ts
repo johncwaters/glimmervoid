@@ -10,11 +10,7 @@ import type { ConfigStore, GlimmervoidConfig } from '../config-store.ts';
 import type { OutcomeRecorder } from '../../shared/outcome-names.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import { resolveHookTools } from '../hook-tools.ts';
-import { createClaudeFolderTrust } from '../claude-trust.ts';
-import { DEFAULT_CONFIG } from '../config-store.ts';
-import type { GuardrailsSpawnRefusal } from '../guardrails/guardrails-deps.ts';
 import { createSessionFactory } from '../session/session-factory.ts';
-import { createSessionGuardrails } from '../guardrails/session-guardrails.ts';
 import { cliPath } from '../runtime-paths.ts';
 import { createSshSigner, installCommitSigningShim } from '../ssh-signing.ts';
 import { createClaudeCredentials } from '../claude-credentials.ts';
@@ -34,7 +30,6 @@ interface BackendSessionRuntimeDependencies {
   getBroadcastControl: () => ControlBroadcast | null;
   recordOutcome?: OutcomeRecorder;
   logger: Pick<Console, 'warn'>;
-  guardrailsRefusal: GuardrailsSpawnRefusal;
   getCoderEnv?: () => Pick<ReturnType<typeof createCoderEnvWiring>, 'resume' | 'uploadFile' | 'describeRemoteExit'> | null;
 }
 
@@ -111,19 +106,6 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     getPlanReviewPort: dependencies.getPlanReviewPort || (() => null),
     resolveHookTools: (config) => resolveHookTools(config, { warn: dependencies.logger.warn.bind(dependencies.logger) }),
     getUserHooks: (projectId: string) => hooksForProject(dependencies.config.hooks, projectId),
-    sessionGuardrails: createSessionGuardrails({
-      getSettings: () => {
-        const { guardrails, saneYoloUnreadablePaths } = dependencies.configStore.config;
-        return {
-          blockedPaths: guardrails?.blockedPaths ?? DEFAULT_CONFIG.guardrails.blockedPaths,
-          unreadablePaths: saneYoloUnreadablePaths ?? DEFAULT_CONFIG.saneYoloUnreadablePaths,
-        };
-      },
-      uploadsRoot: configSiblingPath(dependencies.configStore.configPath, 'uploads'),
-      guardrailsRefusal: dependencies.guardrailsRefusal,
-      trustClaudeFolder: createClaudeFolderTrust().ensureTrusted,
-      log: dependencies.logger,
-    }),
   });
 
   return { agentConnect, agentIngressServer, claudeCommand, claudeCredentials, getHookPort, hookRouter, makeSession, sshSigner };

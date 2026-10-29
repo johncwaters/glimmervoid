@@ -450,7 +450,7 @@ function buildArgs({
 }: AgentArgsOptions = {}): string[] {
   const args = [...UPDATE_CHECK_ARGS];
   if (canRunHelpCommand && !hasOperatorInstructions && !extraArgs.some(isDeveloperInstructionsOverride)) {
-    args.push("-c", `${DEVELOPER_INSTRUCTIONS_KEY}='''${supervisionLine({ isGuarded: hasOuterGuardrails, canSpawn })}'''`);
+    args.push("-c", `${DEVELOPER_INSTRUCTIONS_KEY}='''${supervisionLine({ canSpawn })}'''`);
   }
   if (resumeSessionId) args.push("resume", resumeSessionId);
   args.push(...permissionArgs(dangerouslySkipPermissions, hasOuterGuardrails));

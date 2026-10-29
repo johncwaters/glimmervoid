@@ -7,8 +7,6 @@ interface LiveSessionSettings {
   workspaceRepos: readonly string[] | null;
   agentId: string;
   dangerouslySkipPermissions: boolean;
-  isMarkedUnguarded: boolean;
-  isGuardrailsReleased: boolean;
 }
 
 interface QuickSessionRequest {
@@ -17,7 +15,6 @@ interface QuickSessionRequest {
   repos?: string[];
   agent?: string;
   dangerouslySkipPermissions?: boolean;
-  unguarded: boolean;
   environment?: string;
 }
 
@@ -50,18 +47,16 @@ function requestFromLiveSession(live: LiveSessionSettings, name: string): QuickS
     repos,
     agent: live.agentId,
     dangerouslySkipPermissions: live.dangerouslySkipPermissions,
-    unguarded: live.isMarkedUnguarded && !live.isGuardrailsReleased,
   };
 }
 
-function requestFromProject(project: ProjectConfig, live: LiveSessionSettings, name: string): QuickSessionRequest {
+function requestFromProject(project: ProjectConfig, name: string): QuickSessionRequest {
   return {
     name,
     path: project.repos?.[0] ?? project.path,
     repos: project.repos ? [...project.repos] : undefined,
     agent: project.agent,
     dangerouslySkipPermissions: project.dangerouslySkipPermissions,
-    unguarded: project.unguarded === true && !live.isGuardrailsReleased,
     environment: project.environment?.name,
   };
 }
@@ -69,5 +64,5 @@ function requestFromProject(project: ProjectConfig, live: LiveSessionSettings, n
 export function planQuickSession({ live, project, sessionNames }: { live: LiveSessionSettings; project: ProjectConfig | null; sessionNames: readonly string[] }): QuickSessionPlan {
   const name = nextSuggestedName(autoNameBase(live.name), sessionNames);
   if (!project) return { request: requestFromLiveSession(live, name), runSettings: {} };
-  return { request: requestFromProject(project, live, name), runSettings: runSettingsOf(project) };
+  return { request: requestFromProject(project, name), runSettings: runSettingsOf(project) };
 }

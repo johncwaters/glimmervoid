@@ -40,9 +40,9 @@ How sessions start, where projects are found, and what the dashboard shows for t
 | `debugMode` | Debug mode | `false` | Show session-card diagnostics for state, transitions and detection signals. **File-only.** A diagnostic switch kept out of the Settings view; change it in config.json while investigating. |
 | `sessionMemoryReserveMB` | Session memory reserve | `600` | Free memory an automatic session start waits for; 0 starts sessions without checking. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 
-### Guardrails and unattended
+### Sane YOLO and unattended
 
-What a guarded session may touch, and which unattended actions automated work may take. Claude Code sessions on Linux and macOS write anywhere this account can, except credentials, Glimmervoid's own state and the blocked folders here.
+Which risky commands and credential reads Sane YOLO blocks, and which unattended actions automated work may take.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
@@ -50,8 +50,6 @@ What a guarded session may touch, and which unattended actions automated work ma
 | `saneYolo` | Sane YOLO | `true` | Block catastrophic commands and reads of credentials in every session whose agent supports it, when the cc-safety-net executable is available and trusted hooks are installed. Missing or untrusted hooks leave a session unprotected. Applies to new sessions. |
 | `saneYoloUnreadablePaths` | Unreadable folders | `[]` | Extra folders and files Sane YOLO refuses to let an agent read, on top of the built-in credential list. A leading ~ means the home folder. Applies to new sessions. |
 | `branchGc.deleteUnmerged` | Delete unmerged branches | `false` | Also delete stale remote branches with no merge proof. Off keeps every unmerged branch. |
-| `guardrails.unguardedRepos` | Unguarded repositories | `[]` | Folders whose sessions run without guardrails. A session started in one of these folders, or below it, is not guarded. Applies to new sessions. |
-| `guardrails.blockedPaths` | Blocked folders | `[]` | Extra folders and files a guarded session cannot write, on top of credentials and Glimmervoid's own state. A leading ~ means the home folder. Applies to new sessions. |
 
 ### Updates
 
@@ -240,6 +238,7 @@ Edit these in `config.json` unless the note names another dashboard surface.
 | Key | Default | Notes |
 |-----|---------|-------|
 | `coder` |  | Set `coder.appSlug` to an existing `coder_app` slug on the workspace agent to prevent Coder autostop while Glimmervoid sessions are running. Requires `CODER_AGENT_URL` and `CODER_AGENT_TOKEN` (or `CODER_AGENT_TOKEN_FILE`) in the environment; Coder supplies them when started from a workspace terminal or startup script. |
+| `guardrails` |  | Retired and ignored: sessions no longer run inside an OS sandbox, and a leftover block logs one line at startup. `guardrails.unreadablePaths` moved to `saneYoloUnreadablePaths`. |
 | `planReview` | `{"enabled":true}` | Hold Claude Code plan approvals (`ExitPlanMode`) so the plan can be read and approved from the dashboard or phone (`planReview.enabled`). |
 | `hooks` |  | Operator-defined hooks per project, managed from the dashboard Hooks panel. |
 | `remote` | `{"enabled":false,"port":null,"publicHost":"","allowedOrigins":[]}` | Opt-in remote listener: `enabled`, `port` (required when enabled, must differ from the local port), `publicHost`, `allowedOrigins` and `ownerLogin` (when set, only that Tailscale login is answered; trustworthy only when the remote port is reached solely through HTTP-mode `tailscale serve`, since any other proxy, or `tailscale serve --tcp` or `--tls-terminated-tcp`, lets a client send its own `Tailscale-User-Login`). Needs a server restart. See [Remote access](../README.md#remote-access). |

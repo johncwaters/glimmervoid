@@ -1,6 +1,6 @@
 ---
 import { STATUS_ICON_SHAPES } from '../../../shared/state-icons.ts';
-import { BLOCKED_PATHS_KEY, GUARDED_AGENT_LABELS, UNREADABLE_PATHS_KEY } from '../lib/product-facts.ts';
+import { SANE_YOLO_AGENT_LABELS, UNREADABLE_PATHS_KEY } from '../lib/product-facts.ts';
 
 const COMMANDS_IN_ORDER = [
   { command: 'npm test', reason: null },
@@ -56,7 +56,7 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
   </div>
   <details class="ledger-details reveal">
     <summary>See exactly what is blocked</summary>
-    <p class="ledger-intro">Accident protection, not a security boundary. Applies to {GUARDED_AGENT_LABELS} on macOS and Linux. Lanes are the automated sessions that read pull requests and error reports.</p>
+    <p class="ledger-intro">Accident protection, not a security boundary. Your sessions get Sane YOLO in {SANE_YOLO_AGENT_LABELS}. Lanes are the automated sessions that read pull requests and error reports.</p>
     <div class="ledger diagram reveal">
       <table aria-label="What your sessions and automated lanes can and cannot do">
         <thead>
@@ -69,12 +69,12 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
         <tbody>
           <tr>
             <th scope="row" class="aspect">Writes</th>
-            <td class="yes"><span class="verdict">Anywhere</span><span class="detail">Except credentials, Glimmervoid's own files and your <code>{BLOCKED_PATHS_KEY}</code></span></td>
+            <td class="yes"><span class="verdict">Anywhere</span><span class="detail">Destructive commands such as <code>git reset --hard</code> are refused</span></td>
             <td class="no"><span class="verdict">Their own folder</span><span class="detail">Not even git hooks</span></td>
           </tr>
           <tr>
             <th scope="row" class="aspect">Reads</th>
-            <td class="yes"><span class="verdict">Everywhere</span><span class="detail">Except credentials, Glimmervoid's own files and your <code>{UNREADABLE_PATHS_KEY}</code></span></td>
+            <td class="yes"><span class="verdict">Everywhere</span><span class="detail">Except credentials and your <code>{UNREADABLE_PATHS_KEY}</code></span></td>
             <td class="no"><span class="verdict">No credentials</span><span class="detail">Nor Glimmervoid's own files</span></td>
           </tr>
           <tr>

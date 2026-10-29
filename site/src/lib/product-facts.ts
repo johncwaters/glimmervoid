@@ -1,6 +1,5 @@
 import { getAdapter, listAgentIds } from '../../../session/adapters/index.ts';
 import type { AgentAdapter } from '../../../session/adapters/index.ts';
-import { isGuardedSessionVendor } from '../../../server/guardrails/core/guardrails-roles-core.ts';
 import { SETTINGS_INDEX } from '../../../shared/settings/registry-core.ts';
 import rootPackage from '../../../package.json';
 
@@ -49,11 +48,7 @@ function minimumNodeVersionOf(enginesRange: string): string {
 
 export const AGENT_CARDS: readonly AgentCard[] = builtInAdapters.map((adapter) => ({ monogram: monogramOf(adapter), label: adapter.label, support: supportLevelOf(adapter) }));
 
-export const GUARDED_AGENT_LABELS = labelsOfAdaptersWhere((adapter) => isGuardedSessionVendor(adapter.usageVendor));
-
 export const SANE_YOLO_AGENT_LABELS = labelsOfAdaptersWhere((adapter) => adapter.capabilities.saneYolo);
-
-export const BLOCKED_PATHS_KEY = settingNamed('guardrails.blockedPaths').path.split('.').at(-1);
 
 export const UNREADABLE_PATHS_KEY = settingNamed('saneYoloUnreadablePaths').path;
 

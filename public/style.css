@@ -530,14 +530,6 @@ body {
 
 .session-card:not([data-sane-yolo]) .perms-badge { color: var(--perms-warn); }
 
-.guardrails-badge { display: none; }
-
-.session-card:is([data-guarded], [data-guardrails-released]) .guardrails-badge { display: grid; }
-
-.session-card[data-guardrails-released] .guardrails-badge { color: var(--perms-warn); }
-
-.guardrails-badge[aria-disabled="false"] { cursor: pointer; }
-
 .usage-badge { display: none; }
 
 :root[data-show-usage] .session-card[data-usage] .usage-badge { display: grid; }
@@ -1829,8 +1821,7 @@ html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, 
   display: none;
 }
 
-.dialog-sane-yolo-row,
-.dialog-safety-row {
+.dialog-sane-yolo-row {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1856,12 +1847,6 @@ html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, 
     color: var(--accent);
     border-color: var(--accent);
   }
-}
-
-.dialog-safety-status {
-  font-family: var(--font-mono);
-  font-size: var(--type-meta);
-  color: var(--text-muted);
 }
 
 .dialog-workspace-list {
@@ -4819,8 +4804,6 @@ html[data-layout="phone"] .session-row-remove { flex-basis: 44px; min-width: 44p
 .phone-terminal-badge .tag-icon { position: relative; }
 .phone-terminal-badge .tag-icon::after { content: ""; position: absolute; inset: -12px -2px; }
 .phone-terminal:has(.session-card:not([data-sane-yolo])) .phone-terminal-badge .perms-badge { color: var(--perms-warn); }
-.phone-terminal:has(.session-card:is([data-guarded], [data-guardrails-released])) .phone-terminal-badge .guardrails-badge { display: grid; }
-.phone-terminal:has(.session-card[data-guardrails-released]) .phone-terminal-badge .guardrails-badge { color: var(--perms-warn); }
 :root[data-show-usage] .phone-terminal:has(.session-card[data-usage]) .phone-terminal-badge .usage-badge { display: grid; }
 
 .phone-card-slot .session-card.phone-centered .terminal-wrap {

@@ -149,7 +149,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const sessionRuntime = createBackendSessionRuntime({
     config,
     configStore,
-    guardrailsRefusal,
     getGitWorkspace: () => gitWorkspace,
     getPlanReviewPort: () => laneAssembly.planReview?.port ?? null,
     getCoderEnv: () => laneAssembly.coderEnv,

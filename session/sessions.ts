@@ -245,8 +245,6 @@ interface SessionOptions {
   agent?: string;
   adapter?: AgentAdapter | null;
   bypassHookTrust?: boolean;
-  isMarkedUnguarded?: boolean;
-  isGuardrailsReleased?: boolean;
   holdsQuestionsForParent?: boolean;
   startCodexBridge?: typeof startCodexAppServerBridge;
   titleQuietFallbackMs?: number;
@@ -319,8 +317,6 @@ class Session extends EventEmitter {
   agentId: string;
   usageVendor: string;
   bypassHookTrust: boolean;
-  isMarkedUnguarded: boolean;
-  isGuardrailsReleased: boolean;
   _holdsQuestionsForParent: boolean;
   _startCodexBridge: typeof startCodexAppServerBridge;
   _codexBridge: CodexAppServerBridge | null;
@@ -431,8 +427,6 @@ class Session extends EventEmitter {
     adapter = null,
 
     bypassHookTrust = false,
-    isMarkedUnguarded = false,
-    isGuardrailsReleased = false,
     holdsQuestionsForParent = false,
     startCodexBridge = startCodexAppServerBridge,
 
@@ -557,8 +551,6 @@ class Session extends EventEmitter {
 
     this.usageVendor = this._adapter.usageVendor || "claude";
     this.bypassHookTrust = bypassHookTrust === true;
-    this.isMarkedUnguarded = isMarkedUnguarded === true;
-    this.isGuardrailsReleased = isGuardrailsReleased === true;
     this._holdsQuestionsForParent = holdsQuestionsForParent;
     this._startCodexBridge = startCodexBridge;
     this._codexBridge = null;
@@ -1401,8 +1393,6 @@ class Session extends EventEmitter {
       isWorktree: this.isWorktree,
       isWorkspace: this.isWorkspace,
       remoteWorkspace: this.remoteWorkspace,
-      isGuarded: this.isGuarded,
-      isGuardrailsReleased: this.isGuardrailsReleased,
       resumeSessionId: this._resumeSessionId,
       activeAgents: active,
       awaitingBackgroundTasks: this.backgroundTracking.awaitingBackgroundTasks(),
@@ -1722,7 +1712,7 @@ class Session extends EventEmitter {
     );
     this._deliverPtyInitialPrompt(launchPrompt, env);
     this._pendingPromptSupervisionLine = this._can("promptContextSupervision") && this._canRunHelpCommand
-      ? supervisionLine({ isGuarded: isSpawnGuarded, canSpawn: !this.ephemeral })
+      ? supervisionLine({ canSpawn: !this.ephemeral })
       : null;
   }
 
@@ -1741,10 +1731,6 @@ class Session extends EventEmitter {
     }
     const pastablePrompt = prompt.replaceAll(PASTE_BREAKING_CONTROL_BYTES, "");
     this._output.pasteTextWhenReady(pastablePrompt, { settleMs: PTY_PROMPT_SETTLE_MS, submitDelayMs: PTY_PROMPT_SUBMIT_DELAY_MS });
-  }
-
-  get isGuarded(): boolean {
-    return this._prepareGuardrails !== null && this._getRemoteLaunch() === null;
   }
 
   async _stopCodexBridge(): Promise<void> {

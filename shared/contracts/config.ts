@@ -4,7 +4,7 @@ import { TaskTitle } from './session.ts';
 import { SessionPrLinks } from './my-prs.ts';
 import { BranchGcControlSettings, GithubSettings,
   createBrowserConfig, optionalBoolean, optionalLooseObject,
-  PlanReviewSettings, GuardrailsFileSettings, TelemetryFileSettings, TraceSettings,
+  PlanReviewSettings, TelemetryFileSettings, TraceSettings,
 } from './browser-config.ts';
 import { WorkflowsSettingsUpdate } from './workflows.ts';
 import type { BranchGcFileSettings as BranchGcFileSettingsSchema } from './browser-config.ts';
@@ -162,7 +162,6 @@ export const ProjectConfig = z.object({
   agent: z.string({ error: 'projects[].agent must be a string' }).regex(AGENT_ID_RE, { error: `projects[].agent must be ${AGENT_ID_SHAPE_MESSAGE}` }).optional(),
   codexBypassHookTrust: z.boolean().optional(),
   dangerouslySkipPermissions: z.boolean({ error: 'projects[].dangerouslySkipPermissions must be a boolean' }).optional(),
-  unguarded: z.boolean({ error: 'projects[].unguarded must be a boolean' }).optional(),
   saneYolo: z.boolean({ error: 'projects[].saneYolo must be a boolean' }).optional(),
   environment: ProjectEnvironment.optional(),
 }).passthrough();
@@ -180,7 +179,7 @@ const FILE_CONFIG_SHAPE = {
   usage: optionalLooseObject('usage'),
   telegram: optionalLooseObject('telegram'),
   workflows: optionalLooseObject('workflows'),
-  guardrails: GuardrailsFileSettings,
+  guardrails: optionalLooseObject('guardrails'),
   telemetry: TelemetryFileSettings,
   trace: TraceSettings,
   planReview: PlanReviewSettings,
@@ -229,7 +228,7 @@ export const Config = z.object({
 
 export const CONFIG_BLOCK_KEYS = Object.freeze([
   'taskTitle', 'branchGc', 'github', 'teamReview', 'benchmarks', 'coherence', 'issues', 'community', 'posthog', 'usage', 'telegram',
-  'guardrails', 'telemetry', 'workflows', 'coder',
+  'telemetry', 'workflows', 'coder',
 ]);
 export const CONFIG_SCALAR_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE).filter((key) => {
   if (CONFIG_BLOCK_KEYS.includes(key)) return false;
