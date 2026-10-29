@@ -853,7 +853,8 @@ function createTeamReviewSpawn({
   return async function spawnTeamReviewSession({ id, name, cwd, spawnEnv, extraClaudeArgs, settingsPermissions, settingsGuardrails, guardrailsRole, signal, onToolStep, onSessionId, resumeSessionId, initialPrompt, agent, extraUserHooks, prependPathDirs }) {
     if (guardrailsRole !== undefined && platform === SANDBOX_RUNTIME_UNSUPPORTED_PLATFORM) throw new Error(`${laneName} lane needs the sandbox runtime, which does not run on ${platform}`);
     const skipPermissions = settingsPermissions.defaultMode === 'bypassPermissions';
-    const laneMcp = hookRouter && (agent ?? DEFAULT_AGENT_ID) === DEFAULT_AGENT_ID ? await prepareMcp({ laneArgs: extraClaudeArgs }) : null;
+    const laneAgent = agent ?? DEFAULT_AGENT_ID;
+    const laneMcp = hookRouter && (laneAgent === DEFAULT_AGENT_ID || laneAgent === 'codex') ? await prepareMcp({ laneArgs: extraClaudeArgs, agent: laneAgent }) : null;
     const sharedHookTools = hookToolConfig ? resolveHookTools({ saneYolo: hookToolConfig.saneYolo }, { skipPermissions }) : [];
     const sess = makeSession({
       id,
@@ -862,6 +863,7 @@ function createTeamReviewSpawn({
       ...(agent ? { agent } : {}),
       spawnEnv,
       dangerouslySkipPermissions: skipPermissions,
+      ...(laneMcp?.posture.bypassHookTrust ? { bypassHookTrust: true } : {}),
       hookTools: laneMcp ? [...sharedHookTools, laneMcp.posture.hookTool] : sharedHookTools,
       extraClaudeArgs: laneMcp ? [...extraClaudeArgs, ...laneMcp.posture.args] : extraClaudeArgs,
       ...(extraUserHooks ? { extraUserHooks } : {}),

@@ -8,9 +8,11 @@ interface MatchedRelayHook {
 interface CodexHookPlan {
   events: string[];
   matchedRelayHooks: readonly MatchedRelayHook[];
+  gatesMcpToolCalls: boolean;
 }
 
 const CODEX_EXTENDED_HOOKS_FLOOR = '0.163.0';
+const CODEX_MCP_PRE_TOOL_USE_FLOOR = '0.165.0';
 
 const LEGACY_HOOK_EVENTS = ['SessionStart', 'SessionEnd', 'UserPromptSubmit', 'Stop', 'PermissionRequest'];
 const EXTENDED_HOOK_EVENTS = [...LEGACY_HOOK_EVENTS, 'PreCompact', 'PostCompact', 'SubagentStart', 'SubagentStop'];
@@ -28,16 +30,17 @@ function parseCodexVersion(versionOutput: unknown): string | null {
   return CODEX_VERSION_RE.exec(versionOutput)?.[1] ?? null;
 }
 
-function isAtOrAboveExtendedHooksFloor(installedVersion: string): boolean {
-  const releaseOrder = compareSemver(installedVersion, CODEX_EXTENDED_HOOKS_FLOOR);
+function isAtOrAbove(installedVersion: string | null, floor: string): boolean {
+  if (installedVersion === null) return false;
+  const releaseOrder = compareSemver(installedVersion, floor);
   if (releaseOrder !== 0) return releaseOrder > 0;
   return !PRERELEASE_SUFFIX_RE.test(installedVersion);
 }
 
 function codexHookPlanFor(installedVersion: string | null): CodexHookPlan {
-  const isExtended = installedVersion !== null && isAtOrAboveExtendedHooksFloor(installedVersion);
-  if (!isExtended) return { events: [...LEGACY_HOOK_EVENTS], matchedRelayHooks: [] };
-  return { events: [...EXTENDED_HOOK_EVENTS], matchedRelayHooks: EXTENDED_MATCHED_RELAY_HOOKS };
+  const gatesMcpToolCalls = isAtOrAbove(installedVersion, CODEX_MCP_PRE_TOOL_USE_FLOOR);
+  if (!isAtOrAbove(installedVersion, CODEX_EXTENDED_HOOKS_FLOOR)) return { events: [...LEGACY_HOOK_EVENTS], matchedRelayHooks: [], gatesMcpToolCalls };
+  return { events: [...EXTENDED_HOOK_EVENTS], matchedRelayHooks: EXTENDED_MATCHED_RELAY_HOOKS, gatesMcpToolCalls };
 }
 
 export { LEGACY_HOOK_EVENTS, parseCodexVersion, codexHookPlanFor };

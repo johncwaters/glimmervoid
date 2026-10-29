@@ -115,12 +115,13 @@ function createLaneSpawn({
     async function runLaneSession(): Promise<void> {
       const posture = isClaude ? buildLanePermissions({ denyTools: LANE_SPAWN_DENY_TOOLS, allowTools }) : null;
       const basePermissions = settingsPermissions ?? posture?.permissions ?? null;
-      const laneMcp = isClaude && hookRouter ? await prepareMcp({ laneArgs: posture?.args ?? [] }) : null;
+      const laneMcp = (isClaude || isCodex) && hookRouter ? await prepareMcp({ laneArgs: posture?.args ?? [], agent }) : null;
       const permissions = basePermissions && laneMcp ? withAllowRules(basePermissions, laneMcp.posture.allowRules) : basePermissions;
       const standalone = !hookRouter && permissions ? await writeStandaloneDenySettings(permissions, []) : null;
       const hookTools = [...(guardHookTools ?? []), ...(laneMcp ? [laneMcp.posture.hookTool] : [])];
       const promptLaunch = headlessPromptLaunch(agent, prompt);
-      const extraClaudeArgs = laneAgentArgs({ isClaude, isWrapped, isCodex, extraArgs, model, postureArgs: [...(posture?.args ?? []), ...(laneMcp?.posture.args ?? [])], standaloneArgs: standalone?.args ?? [] });
+      const agentExtraArgs = isCodex && laneMcp ? [...extraArgs, ...laneMcp.posture.args] : extraArgs;
+      const extraClaudeArgs = laneAgentArgs({ isClaude, isWrapped, isCodex, extraArgs: agentExtraArgs, model, postureArgs: [...(posture?.args ?? []), ...(laneMcp?.posture.args ?? [])], standaloneArgs: standalone?.args ?? [] });
       extraClaudeArgs.push(...promptLaunch.args);
       const options: SessionOptions = {
         ...(hookTools.length > 0 ? { hookTools } : {}),
@@ -129,6 +130,7 @@ function createLaneSpawn({
         path: cwd,
         agent,
         dangerouslySkipPermissions: false,
+        ...(laneMcp?.posture.bypassHookTrust ? { bypassHookTrust: true } : {}),
         extraClaudeArgs,
         initialPrompt: promptLaunch.initialPrompt,
         ephemeral: true,

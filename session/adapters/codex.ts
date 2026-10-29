@@ -131,6 +131,7 @@ function buildHookArgs({
   events = HOOK_EVENTS,
   matchedRelayHooks = [],
   bypassHookTrust = false,
+  gatesMcpToolCalls = false,
   hookTools = [],
   hookToolRelayPath = HOOK_TOOL_RELAY_PATH,
   userHooks = [],
@@ -140,6 +141,7 @@ function buildHookArgs({
   events?: string[];
   matchedRelayHooks?: readonly MatchedRelayHook[];
   bypassHookTrust?: boolean;
+  gatesMcpToolCalls?: boolean;
   hookTools?: ResolvedHookTool[];
   hookToolRelayPath?: string;
   userHooks?: readonly UserHook[];
@@ -194,6 +196,7 @@ function buildHookArgs({
     args.push('-c', `hooks.${event}=[${eventGroups.join(',')}]`);
   }
   args.push(...mergeCodexPreToolUse(preToolUseGroups));
+  if (bypassHookTrust && gatesMcpToolCalls) args.push(...hookTools.flatMap((tool) => HOOK_TOOLS[tool.id].codexTrustedArgs(tool)));
   return args;
 }
 

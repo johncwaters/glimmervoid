@@ -33,6 +33,7 @@ function buildLanePermissions({
 const POSTHOG_MCP_HOST = 'mcp.posthog.com';
 const POSTHOG_OAUTH_HOST = 'oauth.posthog.com';
 const MCP_SERVER_NAME_RE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
+const CODEX_MCP_SERVER_NAME_RE = /^[A-Za-z0-9_-]+$/;
 const STRICT_MCP_CONFIG_ARG = '--strict-mcp-config';
 const HOOK_COMMAND_SAFE_PATH_RE = /^[A-Za-z0-9_.:/\\ -]+$/;
 
@@ -46,6 +47,7 @@ interface LaneMcpPosture {
   allowRules: string[];
   hookTool: ResolvedHookTool;
   networkDomains: string[];
+  bypassHookTrust: boolean;
 }
 
 function urlHostname(value: unknown): string | null {
@@ -70,16 +72,44 @@ function laneMcpConfig(server: LaneMcpServer): { mcpServers: Record<string, Reco
   return { mcpServers: { [server.name]: server.entry } };
 }
 
+function codexMcpServers(mcpListOutput: unknown): Record<string, Record<string, unknown>> {
+  if (!Array.isArray(mcpListOutput)) return {};
+  const enabledServers = mcpListOutput.filter((server) => isRecord(server) && server.enabled === true && typeof server.name === 'string' && isRecord(server.transport));
+  return Object.fromEntries(enabledServers.map((server) => [server.name, server.transport]));
+}
+
+function gatedPosthogTool({ server, gatePath, interpreterPath }: { server: LaneMcpServer; gatePath: string; interpreterPath: string }): ResolvedHookTool | null {
+  if (![gatePath, interpreterPath].every((commandPath) => HOOK_COMMAND_SAFE_PATH_RE.test(commandPath))) return null;
+  return { id: 'posthogReadGate', binPath: gatePath, serverName: server.name, interpreterPath };
+}
+
 function laneMcpPosture({ server, mcpConfigPath, gatePath, interpreterPath, laneArgs }: {
   server: LaneMcpServer; mcpConfigPath: string; gatePath: string; interpreterPath: string; laneArgs: readonly string[];
 }): LaneMcpPosture | null {
-  if (![gatePath, interpreterPath].every((commandPath) => HOOK_COMMAND_SAFE_PATH_RE.test(commandPath))) return null;
+  const hookTool = gatedPosthogTool({ server, gatePath, interpreterPath });
+  if (!hookTool) return null;
   const loadsOnlyListedServers = laneArgs.includes(STRICT_MCP_CONFIG_ARG);
   return {
     args: loadsOnlyListedServers ? ['--mcp-config', mcpConfigPath] : [],
     allowRules: [`mcp__${server.name}__exec`],
-    hookTool: { id: 'posthogReadGate', binPath: gatePath, serverName: server.name, interpreterPath },
+    hookTool,
     networkDomains: [POSTHOG_MCP_HOST, POSTHOG_OAUTH_HOST],
+    bypassHookTrust: false,
+  };
+}
+
+function codexLaneMcpPosture({ server, otherServerNames, gatePath, interpreterPath }: {
+  server: LaneMcpServer; otherServerNames: readonly string[]; gatePath: string; interpreterPath: string;
+}): LaneMcpPosture | null {
+  const hookTool = gatedPosthogTool({ server, gatePath, interpreterPath });
+  if (!hookTool || !otherServerNames.every((name) => CODEX_MCP_SERVER_NAME_RE.test(name))) return null;
+  const disabledServerArgs = otherServerNames.flatMap((name) => ['-c', `mcp_servers.${name}.enabled=false`]);
+  return {
+    args: ['-c', `mcp_servers.${server.name}.enabled_tools=["exec"]`, ...disabledServerArgs],
+    allowRules: [],
+    hookTool,
+    networkDomains: [POSTHOG_MCP_HOST, POSTHOG_OAUTH_HOST],
+    bypassHookTrust: true,
   };
 }
 
@@ -96,6 +126,6 @@ function withAllowRules(permissions: Record<string, unknown>, allowRules: readon
 
 export {
   ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, LANE_ENVIRONMENT_ARGS, buildLanePermissions,
-  findPosthogServer, laneMcpConfig, laneMcpPosture, withAllowRules, withNetworkDomains,
+  codexLaneMcpPosture, codexMcpServers, findPosthogServer, laneMcpConfig, laneMcpPosture, withAllowRules, withNetworkDomains,
 };
 export type { LaneMcpPosture };

@@ -9,13 +9,16 @@ import { listClaudeGlobalConfigPathCandidates } from '../core/claude-trust-core.
 import { makeHostScratchDirectory } from '../host-scratch.ts';
 import { writeJsonAtomic } from '../json-file.ts';
 import { relayPath } from '../runtime-paths.ts';
+import codex from '../../session/adapters/codex.ts';
 import { HOOK_TOOLS } from '../../session/core/hook-tools.ts';
 import type { ResolvedHookTool } from '../../session/core/hook-tools.ts';
-import { findPosthogServer, laneMcpConfig, laneMcpPosture } from './core/lane-permissions-core.ts';
+import { codexLaneMcpPosture, codexMcpServers, findPosthogServer, laneMcpConfig, laneMcpPosture } from './core/lane-permissions-core.ts';
 import type { LaneMcpPosture } from './core/lane-permissions-core.ts';
 
 const LANE_MCP_DIR_PREFIX = 'glimmervoid-lane-settings-';
 const GATE_SELF_TEST_TIMEOUT_MS = 5000;
+const CODEX_MCP_LIST_TIMEOUT_MS = 10000;
+const CODEX_AGENT_ID = 'codex';
 const HOOK_SHELL = '/bin/sh';
 const BLOCKING_EXIT_CODE = 2;
 
@@ -27,12 +30,19 @@ interface PreparedLaneMcp {
 
 interface LaneMcpDeps {
   readClaudeConfig?: () => Promise<unknown>;
+  listCodexServers?: () => Promise<unknown>;
   gatePath?: string;
 }
 
 async function readOperatorClaudeConfig(): Promise<unknown> {
   const [, currentConfigPath] = listClaudeGlobalConfigPathCandidates(process.env, os.homedir());
   return JSON.parse(await fsPromises.readFile(currentConfigPath, 'utf8'));
+}
+
+async function listOperatorCodexServers(): Promise<unknown> {
+  const listCommand = codex.buildSpawnCommand({ platform: process.platform, resolved: codex.resolveCommand(), agentArgs: ['mcp', 'list', '--json'] });
+  const { stdout } = await execFileAsync(listCommand.file, listCommand.args, { encoding: 'utf8', timeout: CODEX_MCP_LIST_TIMEOUT_MS, windowsHide: true });
+  return JSON.parse(stdout);
 }
 
 async function gateDeniesKnownWrite(gateTool: ResolvedHookTool): Promise<boolean> {
@@ -45,10 +55,21 @@ async function gateDeniesKnownWrite(gateTool: ResolvedHookTool): Promise<boolean
   }
 }
 
+async function prepareCodexLaneMcp(listCodexServers: () => Promise<unknown>, gatePath: string): Promise<PreparedLaneMcp | null> {
+  const servers = codexMcpServers(await listCodexServers().catch(() => null));
+  const server = findPosthogServer(servers);
+  if (!server) return null;
+  const otherServerNames = Object.keys(servers).filter((name) => name !== server.name);
+  const posture = codexLaneMcpPosture({ server, otherServerNames, gatePath, interpreterPath: process.execPath });
+  if (!posture || !(await gateDeniesKnownWrite(posture.hookTool))) return null;
+  return { posture, readablePaths: [process.execPath], cleanup: async () => {} };
+}
+
 async function prepareLaneMcp(
-  { laneArgs }: { laneArgs: readonly string[] },
-  { readClaudeConfig = readOperatorClaudeConfig, gatePath = relayPath('posthog-read-gate') }: LaneMcpDeps = {},
+  { laneArgs, agent }: { laneArgs: readonly string[]; agent?: string },
+  { readClaudeConfig = readOperatorClaudeConfig, listCodexServers = listOperatorCodexServers, gatePath = relayPath('posthog-read-gate') }: LaneMcpDeps = {},
 ): Promise<PreparedLaneMcp | null> {
+  if (agent === CODEX_AGENT_ID) return prepareCodexLaneMcp(listCodexServers, gatePath);
   const claudeConfig = await readClaudeConfig().catch(() => null);
   const server = findPosthogServer(isRecord(claudeConfig) ? claudeConfig.mcpServers : null);
   if (!server) return null;

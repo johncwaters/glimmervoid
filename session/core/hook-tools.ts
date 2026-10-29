@@ -24,6 +24,7 @@ interface HookToolDescriptor {
   env(tool: ResolvedHookTool, homeDir: string): Record<string, string>;
   claudeEntry(tool: ResolvedHookTool, relayPath: string): ClaudeHookEntry;
   codexGroup(tool: ResolvedHookTool, relayPath: string): string | null;
+  codexTrustedArgs(tool: ResolvedHookTool): string[];
 }
 
 function codexGroup(command: string | null, matcher = 'Bash'): string | null {
@@ -49,6 +50,7 @@ const HOOK_TOOLS: Record<HookToolId, HookToolDescriptor> = {
       hooks: [{ type: 'command', command: `node "${toForwardSlashes(tool.binPath)}" hook --coding-cli` }],
     }),
     codexGroup: (tool) => codexGroup(buildHookCommand(tool.binPath, 'hook', ['--codex'])),
+    codexTrustedArgs: () => [],
   },
   posthogReadGate: {
     capability: 'hooks',
@@ -59,6 +61,7 @@ const HOOK_TOOLS: Record<HookToolId, HookToolDescriptor> = {
       hooks: [{ type: 'command', command: posthogGateCommand(tool) }],
     }),
     codexGroup: (tool) => codexGroup(posthogGateCommand(tool), posthogToolMatcher(tool)),
+    codexTrustedArgs: (tool) => ['-c', 'features.hooks=true', '-c', `mcp_servers.${tool.serverName ?? ''}.default_tools_approval_mode="approve"`],
   },
 };
 

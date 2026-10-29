@@ -8,6 +8,8 @@ import { promisify } from 'node:util';
 import { execFile } from '../server/child-process-safe.ts';
 import { prepareLaneMcp } from '../server/lanes/lane-mcp.ts';
 import { relayPath } from '../server/runtime-paths.ts';
+import codex from '../session/adapters/codex.ts';
+import { codexHookPlanFor } from '../session/core/codex-version-core.ts';
 import { HOOK_TOOLS } from '../session/core/hook-tools.ts';
 
 const executeFile = promisify(execFile);
@@ -84,4 +86,26 @@ test('the installed gate hook blocks when its interpreter cannot run the gate', 
   const hookCommand = HOOK_TOOLS.posthogReadGate.claudeEntry(brokenInterpreterTool, '').hooks[0]?.command ?? '';
   const outcome = await executeFile('/bin/sh', ['-c', hookCommand], { input: execCall('call execute-sql {}'), encoding: 'utf8' }).then(() => 0, (error: { code: number }) => error.code);
   assert.equal(outcome, 2);
+});
+
+test('a Codex lane approves PostHog calls only when the gate hook runs trusted on a Codex that gates MCP calls', async () => {
+  const codexServers = [
+    { name: 'posthog', enabled: true, transport: { type: 'streamable_http', url: 'https://mcp.posthog.com/mcp' } },
+    { name: 'gauge', enabled: true, transport: { type: 'streamable_http', url: 'https://gauge.example.com/mcp' } },
+  ];
+  const prepared = await prepareLaneMcp({ laneArgs: [], agent: 'codex' }, { listCodexServers: async () => codexServers });
+  assert.ok(prepared);
+  assert.deepEqual(prepared.posture.args, ['-c', 'mcp_servers.posthog.enabled_tools=["exec"]', '-c', 'mcp_servers.gauge.enabled=false']);
+  assert.equal(prepared.posture.bypassHookTrust, true);
+
+  const approval = 'mcp_servers.posthog.default_tools_approval_mode="approve"';
+  const hookArgsFor = (bypassHookTrust: boolean, codexVersion: string) =>
+    codex.buildHookArgs({ ...codexHookPlanFor(codexVersion), bypassHookTrust, hookTools: [prepared.posture.hookTool] }) ?? [];
+  assert.equal(hookArgsFor(true, '0.165.0').includes(approval), true);
+  assert.equal(hookArgsFor(true, '0.165.0').includes('features.hooks=true'), true);
+  assert.equal(hookArgsFor(false, '0.165.0').includes(approval), false);
+  assert.equal(hookArgsFor(true, '0.164.0').includes(approval), false);
+  assert.equal(await prepareLaneMcp({ laneArgs: [], agent: 'codex' }, { listCodexServers: async () => { throw new Error('no codex'); } }), null);
+  const undisableableServer = { name: 'my.server', enabled: true, transport: { type: 'stdio', command: 'echo' } };
+  assert.equal(await prepareLaneMcp({ laneArgs: [], agent: 'codex' }, { listCodexServers: async () => [...codexServers, undisableableServer] }), null);
 });
