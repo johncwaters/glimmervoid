@@ -1,0 +1,34 @@
+#!/bin/sh
+if [ ! -d node_modules ]; then
+  echo "pre-push: node_modules is missing, run npm ci first" >&2
+  exit 1
+fi
+
+repo_root=$(pwd)
+deleted_ref_sha=0000000000000000000000000000000000000000
+head_sha=$(git rev-parse HEAD)
+checked_shas=""
+
+check_in_temp_worktree() {
+  pushed_sha=$1
+  check_dir=$(mktemp -d)
+  git worktree add --quiet --detach "$check_dir" "$pushed_sha" || return 1
+  ln -s "$repo_root/node_modules" "$check_dir/node_modules"
+  (cd "$check_dir" && npm run --silent check:fast)
+  check_status=$?
+  git worktree remove --force "$check_dir"
+  return $check_status
+}
+
+while read -r local_ref pushed_sha remote_ref remote_sha; do
+  [ "$pushed_sha" = "$deleted_ref_sha" ] && continue
+  case " $checked_shas " in *" $pushed_sha "*) continue ;; esac
+  checked_shas="$checked_shas $pushed_sha"
+  if [ "$pushed_sha" = "$head_sha" ] && [ -z "$(git status --porcelain)" ]; then
+    npm run --silent check:fast || exit 1
+    continue
+  fi
+  echo "pre-push: checking $pushed_sha in a temporary worktree" >&2
+  check_in_temp_worktree "$pushed_sha" || exit 1
+done
+exit 0

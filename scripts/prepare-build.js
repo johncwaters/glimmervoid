@@ -30,6 +30,11 @@ function runNpm(args, env = {}) {
   process.exit(child.status || 1);
 }
 
+const repoRoot = path.join(import.meta.dirname, '..');
+if (!process.env.CI && fs.existsSync(path.join(repoRoot, '.githooks', 'pre-push')) && fs.existsSync(path.join(repoRoot, '.git'))) {
+  spawnSync('git', ['config', 'core.hooksPath', '.githooks'], { cwd: repoRoot, stdio: 'inherit' });
+}
+
 if (!fs.existsSync(viteBin)) {
   runNpm(['ci', '--include=dev', '--ignore-scripts', '--no-audit', '--no-fund']);
 }
