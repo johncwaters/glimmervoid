@@ -14,6 +14,8 @@ import { createCommunityPoller } from './community-poller.ts';
 import type { DiscordSource, SourceRows } from './community-poller.ts';
 import { COMMUNITY_JUDGE_TOOLS, createCommunityJudge } from './community-judge.ts';
 import { createLaneSpawn } from '../lanes/lane-spawn.ts';
+import { sendTelegramMessage } from '../telegram-transport.ts';
+import { decideTelegramNotification } from '../../notifications/channels/telegram.ts';
 import { CommunityState } from '../../shared/contracts/community.ts';
 import type { CommunityActionRequest, CommunityActionResult, CommunityStateEntry } from '../../shared/contracts/community.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -199,17 +201,31 @@ interface CommunityWiringOptions {
   homeDir?: string;
   createApi?: (connection: core.PosthogConnection) => PosthogApi;
   spawnDependencies?: CommunitySpawnDependencies | null;
+  controlClientCount?: () => number;
+  sendTelegram?: typeof sendTelegramMessage;
   log?: Pick<Console, 'warn'>;
 }
 
 function createCommunityWiring({
   config, broadcast = () => {}, homeDir = glimmervoidHomeDir(),
-  createApi = (connection) => createPosthogApi(connection), spawnDependencies = null, log = console,
+  createApi = (connection) => createPosthogApi(connection), spawnDependencies = null,
+  controlClientCount = () => 0, sendTelegram = sendTelegramMessage, log = console,
 }: CommunityWiringOptions) {
   const stateIo = createCommunityStateIo(path.join(homeDir, core.COMMUNITY_STATE_FILENAME), log);
   const runItem = spawnDependencies
     ? createCommunityRunner({ spawnDependencies, homeDir, getSettings: () => core.readCommunitySettings(config) })
     : undefined;
+
+  function notifyDraftReady(entry: CommunityStateEntry): void {
+    const message = core.draftNotificationText(entry);
+    broadcast({ type: 'notify', session: entry.item.key, category: core.NOTIFICATION_CATEGORY, message, escalationCount: 0 });
+    const { botToken, chatId } = core.readTelegramTarget(config);
+    const decision = decideTelegramNotification({
+      enabled: config.telegramNotifications === true, botToken, chatId, connectionCount: controlClientCount(),
+    });
+    if (!decision.send) return;
+    void sendTelegram({ botToken, chatId, text: message, tag: core.COMMUNITY_LANE_ID });
+  }
 
   const runner = createLaneRunner({
     tag: core.COMMUNITY_LANE_ID,
@@ -230,6 +246,7 @@ function createCommunityWiring({
         writeState: stateIo.writeState,
         runItem,
         onTickComplete,
+        onDraftReady: notifyDraftReady,
         firstTickDelayMs: bootStaggerDelay,
         log,
       });

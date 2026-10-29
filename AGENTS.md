@@ -81,6 +81,7 @@ Each subsystem states its own rules beside its code, so a rule is loaded when th
 | Usage Tracking | `server/usage/AGENTS.md` |
 | Team PR Review, Shared GitHub Store | `server/github/AGENTS.md` |
 | Radar / PostHog Auto-Fix | `server/radar/AGENTS.md` |
+| Community Questions | `server/community/AGENTS.md` |
 | Dashboard Layouts | `public/AGENTS.md` |
 
 ## Coding Style

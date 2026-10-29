@@ -29,6 +29,8 @@ const DISCORD_SNOWFLAKE_RE = /^\d{1,30}$/;
 const DISCORD_CHANNEL_URL = 'https://discord.com/channels/';
 const DISCORD_AUTHOR = 'Discord member';
 const DISCORD_TITLE_CHARS = 120;
+const NOTIFICATION_TITLE_CHARS = 120;
+const NOTIFICATION_CATEGORY = 'community';
 const MAX_DISCORD_CHANNELS = 50;
 const JUDGE_PROMPT_FILENAME = 'judge-prompt.txt';
 const JUDGE_RESULT_FILENAME = 'judge-result.json';
@@ -84,6 +86,14 @@ function readPosthogConnection(config: { posthog?: unknown }): PosthogConnection
   const apiKey = typeof block.apiKey === 'string' ? block.apiKey.trim() : '';
   if (!apiKey) return null;
   return { host: resolvePosthogHost(typeof block.host === 'string' ? block.host.trim() : null), apiKey };
+}
+
+function readTelegramTarget(config: { telegram?: unknown }): { botToken: string; chatId: string } {
+  const block = recordOf(config.telegram);
+  return {
+    botToken: typeof block.botToken === 'string' ? block.botToken : '',
+    chatId: typeof block.chatId === 'string' ? block.chatId : '',
+  };
 }
 
 function communityGate(config: { community?: unknown; posthog?: unknown }): { start: boolean; reason?: string } {
@@ -262,6 +272,16 @@ function parseJudgeResult(raw: unknown, candidateKeys: readonly string[]): Set<s
   if (!Array.isArray(questions)) return null;
   const candidates = new Set(candidateKeys);
   return new Set(questions.filter((key): key is string => typeof key === 'string' && candidates.has(key)));
+}
+
+function shouldNotifyDraft(finished: CommunityStateEntry): boolean {
+  return finished.status === 'ready' && finished.verdict === 'HIGH' && (finished.draft?.body.trim() ?? '') !== '';
+}
+
+function draftNotificationText(entry: CommunityStateEntry): string {
+  const title = entry.item.title.trim() || 'Untitled question';
+  const shownTitle = title.length > NOTIFICATION_TITLE_CHARS ? `${title.slice(0, NOTIFICATION_TITLE_CHARS - 3)}...` : title;
+  return `High confidence community draft ready: ${shownTitle}`;
 }
 
 function shouldPruneEntry(entry: CommunityStateEntry, nowMs: number, retentionMs: number = ENTRY_RETENTION_MS): boolean {
@@ -459,8 +479,9 @@ export {
   COMMUNITY_BOOTSTRAP_PROMPT, COMMUNITY_LANE_ID, COMMUNITY_POSTING_FILENAME, COMMUNITY_PROMPT_FILENAME, COMMUNITY_REPORT_FILENAME, COMMUNITY_STATE_FILENAME,
   MAX_CONCURRENT_RUNS, RUN_TIMEOUT_SECONDS,
   JUDGE_BOOTSTRAP_PROMPT, JUDGE_MODEL, JUDGE_PROMPT_FILENAME, JUDGE_RESULT_FILENAME, JUDGE_TIMEOUT_MS,
+  NOTIFICATION_CATEGORY, draftNotificationText, shouldNotifyDraft,
   admitSourceItems, withWatermarkAtLeast, applyCommunityAction, buildJudgePrompt, discordItemsFromRows, discordQuery, freshItems, parseJudgeResult, buildCommunityPrompt, communityGate, communitySessionPrompt, emptyCommunityState, entryFromRun, forumItemsFromRows, forumQuery, markRunning,
-  parseCommunityState, prunedState, readCommunitySettings, readPosthogConnection, requeueInterruptedRuns, selectRuns,
+  parseCommunityState, prunedState, readCommunitySettings, readPosthogConnection, readTelegramTarget, requeueInterruptedRuns, selectRuns,
   shouldPruneEntry,
 };
-export type { CommunityRunResult, CommunitySettings, CommunitySourceName, PosthogConnection };
+export type { CommunityRunResult, CommunitySettings, PosthogConnection };

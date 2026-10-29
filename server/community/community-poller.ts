@@ -15,6 +15,7 @@ interface CommunityPollerDependencies {
   runItem?: (entry: CommunityStateEntry, signal: AbortSignal) => Promise<core.CommunityRunResult>;
   maxConcurrentRuns?: number;
   onTickComplete?: (summary: Record<string, unknown>) => void;
+  onDraftReady?: (entry: CommunityStateEntry) => void;
   firstTickDelayMs?: () => number;
   now?: () => number;
   log?: Pick<Console, 'warn'>;
@@ -36,7 +37,7 @@ interface CommunityPoller {
 
 function createCommunityPoller({
   intervalMinutes, queryForum, discord = null, readState, writeState, runItem, maxConcurrentRuns = core.MAX_CONCURRENT_RUNS,
-  onTickComplete = () => {}, firstTickDelayMs, now = Date.now, log = console,
+  onTickComplete = () => {}, onDraftReady = () => {}, firstTickDelayMs, now = Date.now, log = console,
 }: CommunityPollerDependencies): CommunityPoller {
   let state: CommunityState = core.emptyCommunityState();
   const runAborts = new Map<string, AbortController>();
@@ -104,6 +105,7 @@ function createCommunityPoller({
     const finished = core.entryFromRun(entry, run, new Date(now()).toISOString());
     if (finished.warning) log.warn(`[${core.COMMUNITY_LANE_ID}] ${finished.warning}`);
     replaceEntry(finished.entry);
+    if (core.shouldNotifyDraft(finished.entry)) onDraftReady(finished.entry);
     dispatchRuns();
     await loop.persist();
     publishStatus(null);

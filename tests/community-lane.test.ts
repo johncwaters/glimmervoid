@@ -23,10 +23,10 @@ function forumRow(id: number, createdAt: string, subject: string): Record<string
 
 type RunItem = (entry: CommunityStateEntry, signal: AbortSignal) => Promise<CommunityRunResult>;
 
-function startPoller(statePath: string, nowMs: () => number, queryForum: (sinceIso: string) => Promise<SourceRows>, runItem?: RunItem) {
+function startPoller(statePath: string, nowMs: () => number, queryForum: (sinceIso: string) => Promise<SourceRows>, runItem?: RunItem, onDraftReady?: (entry: CommunityStateEntry) => void) {
   const stateIo = createCommunityStateIo(statePath, { warn() {} });
   return createCommunityPoller({
-    intervalMinutes: 5, queryForum, readState: stateIo.readState, writeState: stateIo.writeState, runItem,
+    intervalMinutes: 5, queryForum, readState: stateIo.readState, writeState: stateIo.writeState, runItem, onDraftReady,
     now: nowMs, log: { warn() {} },
   });
 }
@@ -82,7 +82,7 @@ test('community lane queues only questions asked after enabling, whatever their 
   }
 });
 
-test('community lane runs each queued question once, oldest first, keeping a ready draft and failing a malformed report', async () => {
+test('community lane runs each queued question once, oldest first, keeping a ready draft, notifying only for it, and failing a malformed report', async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'community-lane-'));
   const statePath = path.join(directory, 'community-state.json');
   let currentMs = ENABLED_AT;
@@ -94,8 +94,9 @@ test('community lane runs each queued question once, oldest first, keeping a rea
     if (entry.item.key === 'forum:4') return { report: HIGH_REPORT, posting: JSON.stringify({ body: 'Use the capture endpoint.', publicLinks: ['https://posthog.com/docs'] }), error: null };
     return { report: 'VERDICT: SURE\nOVERALL_SUMMARY:\nfine', posting: null, error: null };
   };
+  const notifiedKeys: string[] = [];
   try {
-    const poller = startPoller(statePath, () => currentMs, queryForum, runItem);
+    const poller = startPoller(statePath, () => currentMs, queryForum, runItem, (entry) => notifiedKeys.push(entry.item.key));
     await poller.start();
     currentMs += 5 * 60000;
     forumRows = [forumRow(5, '2026-10-28T12:02:00Z', 'second question'), forumRow(4, '2026-10-28T12:01:00Z', 'first question')];
@@ -104,6 +105,7 @@ test('community lane runs each queued question once, oldest first, keeping a rea
     await poller.stop();
 
     assert.deepEqual(ranKeys, ['forum:4', 'forum:5']);
+    assert.deepEqual(notifiedKeys, ['forum:4']);
     const ready = poller.state().entries['forum:4'];
     assert.equal(ready?.status, 'ready');
     assert.equal(ready?.verdict, 'HIGH');

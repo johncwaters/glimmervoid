@@ -12,9 +12,9 @@ const STATUS_TEXT: Readonly<Record<Exclude<CommunityStateEntry['status'], 'ready
 
 const SOURCE_TEXT: Readonly<Record<CommunityStateEntry['item']['source'], string>> = { forum: 'Forum', discord: 'Discord' };
 
-export interface CommunityBadge { text: string; tone: StateTone }
+interface CommunityBadge { text: string; tone: StateTone }
 
-export interface StartSessionCandidate { id: string; name: string; isWorkspace: boolean; isEphemeral: boolean }
+interface StartSessionCandidate { id: string; name: string; isWorkspace: boolean; isEphemeral: boolean }
 
 export function communityBadge(entry: CommunityStateEntry): CommunityBadge {
   if (entry.status === 'ready' && entry.verdict) return { text: VERDICT_TEXT[entry.verdict], tone: VERDICT_TONES[entry.verdict] };

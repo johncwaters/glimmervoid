@@ -210,6 +210,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   });
   const community = createCommunityWiring({
     config, broadcast: broadcastControl, homeDir: glimmervoidHomeDir(), log: logger,
+    controlClientCount: () => controlWss.clients.size,
     spawnDependencies: { investigationSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane, replayBufferKB: config.replayBufferKB },
   });
   const githubStatus = createGithubStatus({ log: logger });

@@ -7,7 +7,7 @@ import { buildCommunityQueue, communityActivityEntry, decideTurnAttention, turnI
 import type { CommunityQueueItem, QueueGroup } from '../github/review-queue-core.ts';
 import { getCommunityAttentionAck, getCommunityUnseenRows, setCommunityAttentionAck, setCommunityUnseenRows } from '../ui-prefs.ts';
 
-export type CommunityChange =
+type CommunityChange =
   | { kind: 'status' }
   | { kind: 'connection'; isConnected: boolean };
 

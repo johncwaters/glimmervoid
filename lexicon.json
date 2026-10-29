@@ -111,6 +111,14 @@
     {
       "name": "question",
       "definition": "An agent's request for the operator's answer (Claude Code AskUserQuestion, Codex request_user_input, Kimi Code AskUserQuestion), carried as the question kind of a session's ConversationApproval and putting the session in waiting until answered"
+    },
+    {
+      "name": "community question",
+      "definition": "A question a member of the public asked on a watched community source (posthog.com/questions or an allowlisted Discord channel) that the Community tab tracks, researches and drafts a reply for, which the operator posts by hand."
+    },
+    {
+      "name": "discord",
+      "definition": "A community source: the PostHog Discord server, read through the Discord events PostHog already captures, limited to the channel names the operator allowlists."
     }
   ]
 }

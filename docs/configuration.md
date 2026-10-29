@@ -204,6 +204,7 @@ New posthog.com community questions researched by your own skill, with a draft r
 | `community.skill` | Research skill | `""` | Skill the research agent follows for each question, typed by name. Leave empty for no skill: the agent researches with whatever skills it has. |
 | `community.projectId` | PostHog project | `2` | PostHog project id that holds the synced community forum table and the Discord bot events. |
 | `community.intervalMinutes` | Poll interval | `5` | Delay between community polling passes. |
+| `community.discordChannels` | Discord channels | `[]` | Discord channels whose new messages and threads are checked, by name without the #. A cheap model picks out the questions; only those are researched. Empty leaves Discord out. |
 
 ### Privacy
 
