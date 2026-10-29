@@ -7,9 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- **Quieter empty Changes panel**: a session with no changes yet shows just "No changes yet" instead of a sentence about what will appear there, and the panel header no longer repeats the session name next to Review.
+## [0.47.0] - 2026-10-29
 
 ### Fixed
 
@@ -46,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Quieter empty Changes panel**: a session with no changes yet shows just "No changes yet" instead of a sentence about what will appear there, and the panel header no longer repeats the session name next to Review.
 - **One type scale across the dashboard**: dashboard text now uses four sizes (12, 14, 16 and 20px) instead of six, each tied to a role: labels and metadata at 12px, body text at 14px, titles and phone form fields at 16px, and the header title and big stat numbers at 20px. The smallest 10px and 11px text grows to 12px, so dense rows read more easily but truncate a little sooner. Lowercase text drops its letter spacing so CommitMono's smart kerning evens out the gaps; only uppercase labels and headings stay tracked.
 - **Visions is now experimental**: Visions and its machine context ingest only appear on the Experimental update channel, as Issues, Community and Coherence do. On a release build the Visions settings are hidden and Visions stays off, even if you turned it on before.
 - **Feature tips never point to experimental features**: the owl tip card no longer suggests Issues or Visions, or any other feature that is still experimental, on any build.
