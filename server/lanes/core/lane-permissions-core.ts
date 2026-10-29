@@ -16,6 +16,15 @@ const LANE_ENVIRONMENT_ARGS: readonly string[] = Object.freeze([
   '--setting-sources', 'project,local',
 ]);
 
+const READ_ONLY_GIT_SUBCOMMANDS: readonly string[] = Object.freeze([
+  'diff', 'log', 'show', 'merge-base', 'range-diff', 'rev-parse', 'blame', 'ls-files', 'cat-file',
+]);
+
+function readOnlyGitAllowRules(checkoutPath: string, envPrefixes: readonly string[] = []): string[] {
+  const commandPrefixes = ['', ...envPrefixes.map((envPrefix) => `${envPrefix} `)];
+  return commandPrefixes.flatMap((commandPrefix) => READ_ONLY_GIT_SUBCOMMANDS.map((subcommand) => `Bash(${commandPrefix}git -C ${checkoutPath} ${subcommand}:*)`));
+}
+
 interface LanePermissions {
   permissions: { deny: string[]; defaultMode: string };
   args: string[];
@@ -165,8 +174,8 @@ function withAllowRules(permissions: Record<string, unknown>, allowRules: readon
 }
 
 export {
-  ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, LANE_ENVIRONMENT_ARGS, buildLanePermissions,
+  ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, LANE_ENVIRONMENT_ARGS, READ_ONLY_GIT_SUBCOMMANDS, buildLanePermissions,
   codexLaneMcpPosture, codexMcpServers, findPosthogServer, kimiLaneConfigText, kimiLaneMcpConfig, kimiLaneMcpPosture, laneMcpConfig, laneMcpPosture,
-  withAllowRules, withLaneMcp,
+  readOnlyGitAllowRules, withAllowRules, withLaneMcp,
 };
 export type { LaneMcpPosture };

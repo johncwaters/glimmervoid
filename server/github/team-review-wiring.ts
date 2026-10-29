@@ -14,7 +14,8 @@ import { type AwakeStopwatch, createAwakeTimeoutFn, startAwakeStopwatch } from '
 import { glimmervoidHomeDir } from '../config-store.ts';
 import { resolveHookTools as resolveSharedHookTools } from '../hook-tools.ts';
 import { trailStepFromHook } from '../core/investigation-trail-core.ts';
-import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, withAllowRules, withLaneMcp } from '../lanes/core/lane-permissions-core.ts';
+import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, readOnlyGitAllowRules, withAllowRules, withLaneMcp } from '../lanes/core/lane-permissions-core.ts';
+import { writeUntrustedPayload } from '../lanes/untrusted-payload.ts';
 import { prepareLaneMcp } from '../lanes/lane-mcp.ts';
 import { DEFAULT_AGENT_ID } from '../../session/adapters/index.ts';
 import * as core from './core/team-review-core.ts';
@@ -75,7 +76,7 @@ const TEAM_REVIEW_DENY_RULES = Object.freeze([
 ]);
 const TEAM_REVIEW_SESSION_DENY_RULES = Object.freeze([...TEAM_REVIEW_DENY_RULES, ...LANE_CONFIG_EDIT_DENY_RULES]);
 const TEAM_REVIEW_EXTRA_DOMAINS = Object.freeze(['api.github.com']);
-const TEAM_REVIEW_SHELL_ALLOW_RULE = 'Bash';
+const TEAM_REVIEW_GIT_READOUT_RULE = 'Bash(git -C <checkout> <read-only subcommand>)';
 const SANDBOX_RUNTIME_UNSUPPORTED_PLATFORM = 'win32';
 const LINKED_CHECKOUT_UNREADABLE_ENTRY = /^(?:\.env(?:\..*)?|\.claude)$/;
 const LINKED_CHECKOUT_UNREADABLE_NAMES = Object.freeze(['.env', '.env.*', '.claude']);
@@ -294,7 +295,7 @@ function describeTeamReviewSandbox(sandbox: TeamReviewSandboxSettings, reviewAge
     mcpLoaded: sandbox.loadMcpServers || reviewAgents.some((agent) => agent !== 'claude'),
     unreadableCheckoutEntries: [...LINKED_CHECKOUT_UNREADABLE_NAMES],
     githubTokenStripped: true,
-    allowedTools: [TEAM_REVIEW_SHELL_ALLOW_RULE, 'Read'],
+    allowedTools: [TEAM_REVIEW_GIT_READOUT_RULE, 'Read'],
     deniedTools: [...TEAM_REVIEW_SESSION_DENY_RULES],
     threadJudgeTools: [...THREAD_JUDGE_TOOLS],
   };
@@ -313,15 +314,15 @@ async function linkedCheckoutUnreadablePaths(linkedCheckout: string | null): Pro
   return entryNames.filter((entryName) => LINKED_CHECKOUT_UNREADABLE_ENTRY.test(entryName)).map((entryName) => path.join(linkedCheckout, entryName));
 }
 
-function teamReviewClaudeArgs(reviewer: ReviewerChoice, sandbox: TeamReviewSandboxSettings, readable: { checkoutPath: string; linkedCheckout: string | null }): string[] {
+function teamReviewClaudeArgs(reviewer: ReviewerChoice, sandbox: TeamReviewSandboxSettings, readable: { checkoutPath: string; linkedCheckout: string | null }, gitEnvPrefixes: readonly string[] = []): string[] {
   return [
-    '-p', '--allowedTools', TEAM_REVIEW_SHELL_ALLOW_RULE, ...teamReviewReadAllowRules(readable), ...(sandbox.loadMcpServers ? [] : ['--strict-mcp-config']),
+    '-p', '--allowedTools', ...readOnlyGitAllowRules(readable.checkoutPath, gitEnvPrefixes), ...teamReviewReadAllowRules(readable), ...(sandbox.loadMcpServers ? [] : ['--strict-mcp-config']),
     '--disallowedTools', ...TEAM_REVIEW_SESSION_DENY_RULES, ...core.reviewerAgentArgs({ ...reviewer, agent: 'claude' }),
   ];
 }
 
-function teamReviewAgentArgs(reviewer: ReviewerChoice, sandbox: TeamReviewSandboxSettings, readable: { checkoutPath: string; linkedCheckout: string | null }): string[] {
-  if (reviewer.agent === 'claude') return teamReviewClaudeArgs(reviewer, sandbox, readable);
+function teamReviewAgentArgs(reviewer: ReviewerChoice, sandbox: TeamReviewSandboxSettings, readable: { checkoutPath: string; linkedCheckout: string | null }, gitEnvPrefixes: readonly string[]): string[] {
+  if (reviewer.agent === 'claude') return teamReviewClaudeArgs(reviewer, sandbox, readable, gitEnvPrefixes);
   return core.reviewerAgentArgs(reviewer);
 }
 
@@ -598,6 +599,12 @@ function createTeamReviewDispatcher({
       .catch((error: unknown) => ({ ok: false, err: errorMessage(error) }));
   }
 
+  async function resumedRemergeGitEnvPrefixes(workDir: string, projectPath: string): Promise<string[]> {
+    const scratchObjectsDir = path.join(workDir, core.REMERGE_OBJECTS_DIRNAME);
+    if (!await pathExists(scratchObjectsDir)) return [];
+    return [core.remergeGitEnvPrefix({ scratchObjectsDir, cloneObjectsDir: path.join(projectPath, '.git', 'objects') })];
+  }
+
   async function pointAtNewWork(candidate: TeamReviewCandidate, detail: PrDetail, priorReview: PriorReview, workDir: string): Promise<NewWorkPointer | null> {
     if (!priorReview.base) return null;
     const isolation = await repoCache.isolateNewWork(candidate.repo, { number: detail.number, priorHead: priorReview.head, priorBase: priorReview.base, head: detail.headRefOid }).catch((error: unknown) => {
@@ -629,8 +636,8 @@ function createTeamReviewDispatcher({
   }
 
   function spawnWithTimeout(
-    { candidate, detail, tier, reasons, reportProgress, resume, priorReview, signal: cancelSignal, timeoutMs, workDir, checkoutPath, cachedClone, linkedCheckout, reportPath, postingPath, commentable, onPending, onSessionId }: SpawnReviewArgs & {
-      timeoutMs: number; workDir: string; checkoutPath: string; cachedClone: string; linkedCheckout: string | null; reportPath: string; postingPath: string; commentable: CommentableLines | null;
+    { candidate, detail, tier, reasons, reportProgress, resume, priorReview, signal: cancelSignal, timeoutMs, workDir, checkoutPath, cachedClone, linkedCheckout, reportPath, postingPath, commentable, gitEnvPrefixes, onPending, onSessionId }: SpawnReviewArgs & {
+      timeoutMs: number; workDir: string; checkoutPath: string; cachedClone: string; linkedCheckout: string | null; reportPath: string; postingPath: string; commentable: CommentableLines | null; gitEnvPrefixes: readonly string[];
       onPending: (pending: Promise<unknown>) => void;
       onSessionId: (id: string) => void;
     },
@@ -655,7 +662,7 @@ function createTeamReviewDispatcher({
         cwd: workDir,
         spawnEnv: hooksPathPinnedSpawnEnv(workDir),
         agent: core.reviewAgentAdapterId(reviewer.agent),
-        extraClaudeArgs: [...teamReviewAgentArgs(reviewer, setup.sandbox, { checkoutPath, linkedCheckout }), ...promptLaunch.args],
+        extraClaudeArgs: [...teamReviewAgentArgs(reviewer, setup.sandbox, { checkoutPath, linkedCheckout }, gitEnvPrefixes), ...promptLaunch.args],
         settingsPermissions: teamReviewAcceptEditsPermissions(),
         guardrailsRole: await describeTeamReviewRole({ checkoutPath, cachedClone, linkedCheckout, sandbox: setup.sandbox, reviewAgent: reviewer.agent }),
         signal: AbortSignal.any([signal, shutdownSignal, cancelSignal].filter((candidate): candidate is AbortSignal => candidate instanceof AbortSignal)),
@@ -726,6 +733,7 @@ function createTeamReviewDispatcher({
               reportPath: path.join(args.resume.workDir, core.REVIEW_REPORT_FILENAME),
               postingPath: path.join(args.resume.workDir, core.REVIEW_POSTING_FILENAME),
               commentable: diff === null ? null : core.commentableLines(diff),
+              gitEnvPrefixes: await resumedRemergeGitEnvPrefixes(args.resume.workDir, projectPath),
               onPending: (pending) => { pendingSession = pending; },
               onSessionId: (id) => { sessionId = id; },
             });
@@ -759,14 +767,12 @@ function createTeamReviewDispatcher({
       if (!hydrated.ok) return failed(`could not fetch the file contents of ${candidate.key}${hydrated.err ? `: ${firstLine(hydrated.err)}` : ''}`);
       const priorReview = args.priorReview ?? null;
       const newWork = priorReview ? await pointAtNewWork(candidate, detail, priorReview, workDir) : null;
-      let dependencyState: 'linked' | 'none' = 'none';
       let linkedCheckout: string | null = null;
       try {
         const localCheckout = await discoverLocalCheckout(candidate.repo);
         if (localCheckout) {
           await gitWorkspace.populate({ projectPath: localCheckout, wtDir: worktreePath, shareList: ['node_modules'], keepTrackableLinks: true });
           const isModulesLinked = await isLinkedToCheckout(worktreePath, localCheckout);
-          dependencyState = isModulesLinked ? 'linked' : 'none';
           linkedCheckout = isModulesLinked ? localCheckout : null;
           if (!isModulesLinked) log.warn(`[${core.TEAM_REVIEW_LANE_ID}] node_modules could not be linked from ${localCheckout}`);
         }
@@ -775,15 +781,19 @@ function createTeamReviewDispatcher({
       }
       const reviewSetup = readReviewSetup();
       const prompt = core.buildReviewPrompt({
-        candidate, detail, tier, reasons, checkoutPath: worktreePath, reportPath, postingPath, dependencyState, reviewSkill: reviewSetup.skill, reviewAgent: core.reviewerFor(reviewSetup, tier).agent,
+        candidate, detail, tier, reasons, checkoutPath: worktreePath, reportPath, postingPath, reviewSkill: reviewSetup.skill, reviewAgent: core.reviewerFor(reviewSetup, tier).agent,
         priorReview, newWork,
       });
       await fs.writeFile(path.join(workDir, core.REVIEW_PROMPT_FILENAME), prompt, 'utf8');
+      await writeUntrustedPayload(workDir, {
+        trust: 'untrusted', source: core.TEAM_REVIEW_LANE_ID, fetchedAt: new Date(now()).toISOString(), items: core.reviewUntrustedItems(detail, priorReview),
+      }, core.REVIEW_UNTRUSTED_ITEM_MAX_CHARS);
       await fs.mkdir(emptyGhConfigDir(workDir), { recursive: true });
       reportProgress({ kind: 'phase', phase: 'reviewing', tier, reasons, timeoutSeconds });
       resources.awakeStopwatch = startAwakeStopwatch({ now });
       return await spawnWithTimeout({
         ...args, resume: undefined, timeoutMs: timeoutBudgetMs, workDir, checkoutPath: worktreePath, cachedClone: staged.projectPath, linkedCheckout, reportPath, postingPath, commentable: diff === null ? null : core.commentableLines(diff),
+        gitEnvPrefixes: newWork ? [core.remergeGitEnvPrefix(newWork)] : [],
         onPending: (pending) => { pendingSession = pending; },
         onSessionId: (id) => { sessionId = id; },
       });

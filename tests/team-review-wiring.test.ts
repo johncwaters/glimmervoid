@@ -14,6 +14,7 @@ import type { SpawnReviewArgs } from '../server/github/team-review-poller.ts';
 import { createTeamReviewDispatcher, createTeamReviewWiring, createTeamReviewStateIo, makeTeamReviewWorkDir, sweepLeftoverCheckouts, teamReviewRole, hooksPathPinnedSpawnEnv, } from '../server/github/team-review-wiring.ts';
 import type { TeamReviewDispatchOptions, TeamReviewSpawn } from '../server/github/team-review-wiring.ts';
 import { PrDetail, ReviewDraft } from '../shared/contracts/team-review.ts';
+import { UNTRUSTED_PAYLOAD_FILENAME, UNTRUSTED_PREAMBLE, UntrustedPayload } from '../shared/contracts/untrusted-payload.ts';
 import type { ResumableReview, ReviewDraft as ReviewDraftType } from '../shared/contracts/team-review.ts';
 
 const HEAD = 'c'.repeat(40);
@@ -32,7 +33,7 @@ const detail = PrDetail.parse({
 });
 const DIFF = 'diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,2 +1,3 @@\n one\n+two\n three\n';
 
-type SpawnCall = Parameters<TeamReviewSpawn>[0] & { workDir: string; workDirFiles: string[]; prompt: string };
+type SpawnCall = Parameters<TeamReviewSpawn>[0] & { workDir: string; workDirFiles: string[]; prompt: string; untrustedPayloadText: string | null };
 const CACHED_CLONE = '/cache/Acme/app';
 const ROLE_FACTS = { launchId: 'launch-one', cwd: '/review/work', hookPort: 3911, readablePaths: ['/hook/settings'], writablePaths: [], agentSessionId: null };
 function roleOf(spawn: Pick<SpawnCall, 'guardrailsRole'> | undefined) {
@@ -108,6 +109,7 @@ function setup(overrides: Partial<TeamReviewDispatchOptions> & {
         workDir,
         workDirFiles: fs.readdirSync(workDir).sort(),
         prompt: fs.readFileSync(path.join(workDir, REVIEW_PROMPT_FILENAME), 'utf8'),
+        untrustedPayloadText: fs.existsSync(path.join(workDir, UNTRUSTED_PAYLOAD_FILENAME)) ? fs.readFileSync(path.join(workDir, UNTRUSTED_PAYLOAD_FILENAME), 'utf8') : null,
       });
       writeReport(workDir);
     },
@@ -288,6 +290,7 @@ test('resume uses the saved cwd and session with the remaining timeout without s
   const workDir = fs.mkdtempSync(path.join(workRoot, 'resume-work-'));
   const worktreePath = fs.mkdtempSync(path.join(worktreeRoot, 'resume-tree-'));
   fs.writeFileSync(path.join(workDir, REVIEW_PROMPT_FILENAME), 'original prompt');
+  fs.mkdirSync(path.join(workDir, REMERGE_OBJECTS_DIRNAME));
   const resume = { sessionId: 'claude-1', workDir, worktreePath, head: HEAD, deadlineAt: 81000, savedAt: 1000 };
   try {
     const outcome = await dispatch({ ...reviewArgs('full'), resume });
@@ -299,7 +302,13 @@ test('resume uses the saved cwd and session with the remaining timeout without s
     assert.equal(spawns[0]?.initialPrompt, REVIEW_RESUME_PROMPT);
     assert.equal(spawns[0]?.cwd, workDir);
     assert.deepEqual(spawns[0]?.spawnEnv, hooksPathPinnedSpawnEnv(workDir));
-    assert.deepEqual(spawns[0]?.extraClaudeArgs.slice(0, 4), ['-p', '--allowedTools', 'Bash', `Read(/${worktreePath}/**)`]);
+    const reviewArgsSpawned = spawns[0]?.extraClaudeArgs ?? [];
+    assert.deepEqual(reviewArgsSpawned.slice(0, 2), ['-p', '--allowedTools']);
+    assert.equal(reviewArgsSpawned.includes('Bash'), false);
+    assert.ok(reviewArgsSpawned.includes(`Bash(git -C ${worktreePath} diff:*)`));
+    assert.ok(reviewArgsSpawned.includes(`Read(/${worktreePath}/**)`));
+    const remergeEnvPrefix = `GIT_OBJECT_DIRECTORY=${path.join(workDir, REMERGE_OBJECTS_DIRNAME)} GIT_ALTERNATE_OBJECT_DIRECTORIES=${path.join(CACHED_CLONE, '.git', 'objects')}`;
+    assert.ok(reviewArgsSpawned.includes(`Bash(${remergeEnvPrefix} git -C ${worktreePath} range-diff:*)`));
     assert.equal(spawns[0]?.workDirFiles.includes('tmp'), false);
     assert.deepEqual(roleOf(spawns[0]), teamReviewRole(ROLE_FACTS, { checkoutPath: worktreePath, cachedClone: CACHED_CLONE, unreadablePaths: [] }));
     assert.deepEqual(timeouts, [78000]);
@@ -320,6 +329,7 @@ test('resume with a saved awake budget uses that budget even when the wall-clock
   const workDir = fs.mkdtempSync(path.join(workRoot, 'resume-work-'));
   const worktreePath = fs.mkdtempSync(path.join(worktreeRoot, 'resume-tree-'));
   fs.writeFileSync(path.join(workDir, REVIEW_PROMPT_FILENAME), 'original prompt');
+  fs.mkdirSync(path.join(workDir, REMERGE_OBJECTS_DIRNAME));
   const resume = { sessionId: 'claude-1', workDir, worktreePath, head: HEAD, deadlineAt: 2000, remainingAwakeMs: 45000, savedAt: 1000 };
   try {
     const outcome = await dispatch({ ...reviewArgs('full'), resume });
@@ -752,6 +762,12 @@ test('a re-review isolates the new work since the earlier review from the base b
     const scratchObjectsDir = path.join(spawns[0].workDir, REMERGE_OBJECTS_DIRNAME);
     assert.ok(spawns[0].prompt.includes(`GIT_OBJECT_DIRECTORY=${scratchObjectsDir} GIT_ALTERNATE_OBJECT_DIRECTORIES=/cache/Acme/app/.git/objects`));
     assert.ok(spawns[0].workDirFiles.includes(REMERGE_OBJECTS_DIRNAME));
+    const remergeEnvPrefix = `GIT_OBJECT_DIRECTORY=${scratchObjectsDir} GIT_ALTERNATE_OBJECT_DIRECTORIES=/cache/Acme/app/.git/objects`;
+    assert.ok(spawns[0].extraClaudeArgs.some((argument) => argument.startsWith(`Bash(${remergeEnvPrefix} git -C `) && argument.endsWith(' range-diff:*)')));
+    const payload = UntrustedPayload.parse(JSON.parse(spawns[0].untrustedPayloadText ?? 'null'));
+    assert.deepEqual(payload.items.map((item) => item.kind), ['pr-title', 'pr-body', 'prior-review']);
+    assert.ok(spawns[0].prompt.includes(UNTRUSTED_PREAMBLE));
+    assert.ok(!spawns[0].prompt.includes(PRIOR_REVIEW.summary));
   } finally {
     cleanup();
   }
@@ -762,7 +778,7 @@ test('a re-review whose new work cannot be isolated, or whose earlier review sto
   try {
     await unisolable.review({ ...reviewArgs('full'), priorReview: PRIOR_REVIEW });
     assert.match(unisolable.spawns[0].prompt, /cannot be told apart from the base branch/);
-    assert.ok(!unisolable.spawns[0].prompt.includes('range-diff'));
+    assert.ok(!unisolable.spawns[0].prompt.includes('range-diff --diff-merges'));
   } finally {
     unisolable.cleanup();
   }
