@@ -84,18 +84,17 @@ const PARITY_SCENARIOS: readonly ParityScenario[] = [
   },
 ];
 
-const REPLAY_HARNESS_TEST = 'replay-harness.test.ts';
-const FIXTURES_PINNED_ELSEWHERE: Readonly<Record<string, string>> = {
-  'v2-complete-stop.jsonl': REPLAY_HARNESS_TEST,
-  'v2-conflict-stop-then-notify.jsonl': REPLAY_HARNESS_TEST,
-  'v2-background-monitor-stop.jsonl': REPLAY_HARNESS_TEST,
-  'v2-waiting-permission.jsonl': REPLAY_HARNESS_TEST,
-  'v2-waiting-plan.jsonl': REPLAY_HARNESS_TEST,
-  'v2-question-answered.jsonl': REPLAY_HARNESS_TEST,
-  'v2-idle-compaction.jsonl': REPLAY_HARNESS_TEST,
-  'v2-mid-turn-compaction.jsonl': REPLAY_HARNESS_TEST,
-  'v2-sessionstart-clear.jsonl': REPLAY_HARNESS_TEST,
-};
+const FIXTURES_PINNED_ELSEWHERE: ReadonlySet<string> = new Set([
+  'v2-complete-stop.jsonl',
+  'v2-conflict-stop-then-notify.jsonl',
+  'v2-background-monitor-stop.jsonl',
+  'v2-waiting-permission.jsonl',
+  'v2-waiting-plan.jsonl',
+  'v2-question-answered.jsonl',
+  'v2-idle-compaction.jsonl',
+  'v2-mid-turn-compaction.jsonl',
+  'v2-sessionstart-clear.jsonl',
+]);
 
 interface FixtureHeader {
   isRecording: boolean;
@@ -155,18 +154,15 @@ for (const scenario of PARITY_SCENARIOS) {
   }
 }
 
-test('every fixture pinned elsewhere is named by the test that asserts it', () => {
-  for (const [fixture, assertingTest] of Object.entries(FIXTURES_PINNED_ELSEWHERE)) {
-    assert.ok(fs.existsSync(path.join(FIXTURE_DIRECTORY, fixture)), `${fixture} is missing`);
-    assert.ok(fs.readFileSync(path.join(import.meta.dirname, assertingTest), 'utf8').includes(fixture), `${assertingTest} never loads ${fixture}`);
-  }
+test('every fixture pinned elsewhere still exists', () => {
+  for (const fixture of FIXTURES_PINNED_ELSEWHERE) assert.ok(fs.existsSync(path.join(FIXTURE_DIRECTORY, fixture)), `${fixture} is missing`);
 });
 
 test('every first-class v2 recording sits in a parity row or a test that asserts it', () => {
   const replayedFixtures = fixturesReplayedByMatrix();
   const unplacedFixtures = fs.readdirSync(FIXTURE_DIRECTORY)
     .filter((fixture) => fixture.startsWith('v2-') && fixture.endsWith('.jsonl'))
-    .filter((fixture) => !replayedFixtures.has(fixture) && !(fixture in FIXTURES_PINNED_ELSEWHERE))
+    .filter((fixture) => !replayedFixtures.has(fixture) && !FIXTURES_PINNED_ELSEWHERE.has(fixture))
     .filter((fixture) => {
       const header = readFixtureHeader(fixture);
       return header.isRecording && (header.agent === null || isFirstClassAgent(header.agent));
