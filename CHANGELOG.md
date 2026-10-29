@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Lanes read PostHog through your own login**: when your Claude Code has the PostHog MCP server connected (`https://mcp.posthog.com/mcp`), the Claude Code lanes Glimmervoid runs, such as Reviews and Community, can look things up and run read queries in PostHog with that login, with no key to set up. Every call passes a read-only check first: creating, changing or deleting anything, switching project or organization, and any other PostHog tool are refused before they reach PostHog. Your own sessions are unchanged. With no PostHog server connected, lanes run as before.
 - **Sessions read a review in full**: `glimmervoid reviews <pr>` (a pull request url or `owner/repo#number`) gives a session the whole Reviews tab draft as JSON: verdict, summary, body, assessment, every inline comment with its severity and diff excerpt, GitHub threads and the earlier review. A review still queued or running reports its state instead, and a pull request not in the Reviews tab says to queue one with `glimmervoid review <pr>`. Ask a chat to run it instead of pasting the review in. `glimmervoid reviews` with no pull request lists the tab as before.
 
 ### Changed

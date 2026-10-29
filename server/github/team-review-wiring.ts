@@ -14,7 +14,9 @@ import { type AwakeStopwatch, createAwakeTimeoutFn, startAwakeStopwatch } from '
 import { glimmervoidHomeDir } from '../config-store.ts';
 import { resolveHookTools as resolveSharedHookTools } from '../hook-tools.ts';
 import { trailStepFromHook } from '../core/investigation-trail-core.ts';
-import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES } from '../lanes/core/lane-permissions-core.ts';
+import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, withAllowRules, withNetworkDomains } from '../lanes/core/lane-permissions-core.ts';
+import { prepareLaneMcp } from '../lanes/lane-mcp.ts';
+import { DEFAULT_AGENT_ID } from '../../session/adapters/index.ts';
 import * as core from './core/team-review-core.ts';
 import type { ReviewAgentId } from '../../shared/contracts/browser-config.ts';
 import type { CommentableLines, NewWorkPointer, ReviewerChoice, TeamReviewCandidate, TeamReviewSandboxSettings, TeamReviewSettings, TeamReviewSettingsSource } from './core/team-review-core.ts';
@@ -830,6 +832,7 @@ function createTeamReviewSpawn({
   hookToolConfig = null,
   resolveHookTools = resolveSharedHookTools,
   prepareGuardrails = prepareGuardrailsLaunch,
+  prepareMcp = prepareLaneMcp,
   platform = process.platform,
 }: {
   reviewSessions: Map<string, unknown>;
@@ -844,11 +847,14 @@ function createTeamReviewSpawn({
   hookToolConfig?: { saneYolo?: boolean } | null;
   resolveHookTools?: typeof resolveSharedHookTools;
   prepareGuardrails?: typeof prepareGuardrailsLaunch;
+  prepareMcp?: typeof prepareLaneMcp;
   platform?: NodeJS.Platform;
 }): TeamReviewSpawn {
   return async function spawnTeamReviewSession({ id, name, cwd, spawnEnv, extraClaudeArgs, settingsPermissions, settingsGuardrails, guardrailsRole, signal, onToolStep, onSessionId, resumeSessionId, initialPrompt, agent, extraUserHooks, prependPathDirs }) {
     if (guardrailsRole !== undefined && platform === SANDBOX_RUNTIME_UNSUPPORTED_PLATFORM) throw new Error(`${laneName} lane needs the sandbox runtime, which does not run on ${platform}`);
     const skipPermissions = settingsPermissions.defaultMode === 'bypassPermissions';
+    const laneMcp = hookRouter && (agent ?? DEFAULT_AGENT_ID) === DEFAULT_AGENT_ID ? await prepareMcp({ laneArgs: extraClaudeArgs }) : null;
+    const sharedHookTools = hookToolConfig ? resolveHookTools({ saneYolo: hookToolConfig.saneYolo }, { skipPermissions }) : [];
     const sess = makeSession({
       id,
       name,
@@ -856,17 +862,20 @@ function createTeamReviewSpawn({
       ...(agent ? { agent } : {}),
       spawnEnv,
       dangerouslySkipPermissions: skipPermissions,
-      hookTools: hookToolConfig ? resolveHookTools({ saneYolo: hookToolConfig.saneYolo }, { skipPermissions }) : [],
-      extraClaudeArgs,
+      hookTools: laneMcp ? [...sharedHookTools, laneMcp.posture.hookTool] : sharedHookTools,
+      extraClaudeArgs: laneMcp ? [...extraClaudeArgs, ...laneMcp.posture.args] : extraClaudeArgs,
       ...(extraUserHooks ? { extraUserHooks } : {}),
       ...(prependPathDirs ? { prependPathDirs } : {}),
       initialPrompt: initialPrompt === undefined ? core.REVIEW_BOOTSTRAP_PROMPT : initialPrompt,
       resumeSessionId,
       ephemeral: true,
       observeToolCalls: onToolStep !== undefined,
-      settingsPermissions,
+      settingsPermissions: laneMcp ? withAllowRules(settingsPermissions, laneMcp.posture.allowRules) : settingsPermissions,
       settingsGuardrails: settingsGuardrails ?? null,
-      prepareGuardrails: guardrailsRole === undefined ? null : (facts) => prepareGuardrails({ role: guardrailsRole(facts), launchId: facts.launchId }),
+      prepareGuardrails: guardrailsRole === undefined ? null : (facts) => prepareGuardrails({
+        role: withNetworkDomains(guardrailsRole({ ...facts, readablePaths: [...facts.readablePaths, ...(laneMcp?.readablePaths ?? [])] }), laneMcp?.posture.networkDomains ?? []),
+        launchId: facts.launchId,
+      }),
       replayBufferKB,
       hookRouter,
       getHookPort,
@@ -881,7 +890,11 @@ function createTeamReviewSpawn({
         if (step) onToolStep(step);
       });
     }
-    await awaitSessionExit(sess, { signal, spawnGate });
+    try {
+      await awaitSessionExit(sess, { signal, spawnGate });
+    } finally {
+      if (laneMcp) await laneMcp.cleanup();
+    }
   };
 }
 

@@ -10,23 +10,33 @@ function toForwardSlashes(commandPath: string): string {
   return commandPath.replace(/\\/g, '/');
 }
 
-type HookToolId = 'saneYolo';
+type HookToolId = 'saneYolo' | 'posthogReadGate';
 interface ResolvedHookTool {
   id: HookToolId;
   binPath: string;
+  serverName?: string;
+  interpreterPath?: string;
 }
 
 interface HookToolDescriptor {
-  capability: HookToolId;
+  capability: 'saneYolo' | 'hooks';
   purpose: string;
   env(tool: ResolvedHookTool, homeDir: string): Record<string, string>;
   claudeEntry(tool: ResolvedHookTool, relayPath: string): ClaudeHookEntry;
   codexGroup(tool: ResolvedHookTool, relayPath: string): string | null;
 }
 
-function codexGroup(command: string | null): string | null {
+function codexGroup(command: string | null, matcher = 'Bash'): string | null {
   if (!command) return null;
-  return `{matcher='Bash',hooks=[{type='command',command='${command}'}]}`;
+  return `{matcher='${matcher}',hooks=[{type='command',command='${command}'}]}`;
+}
+
+function posthogToolMatcher(tool: ResolvedHookTool): string {
+  return `^mcp__${tool.serverName ?? ''}__`;
+}
+
+function posthogGateCommand(tool: ResolvedHookTool): string {
+  return `"${toForwardSlashes(tool.interpreterPath ?? 'node')}" "${toForwardSlashes(tool.binPath)}" ${tool.serverName ?? ''} || exit 2`;
 }
 
 const HOOK_TOOLS: Record<HookToolId, HookToolDescriptor> = {
@@ -39,6 +49,16 @@ const HOOK_TOOLS: Record<HookToolId, HookToolDescriptor> = {
       hooks: [{ type: 'command', command: `node "${toForwardSlashes(tool.binPath)}" hook --coding-cli` }],
     }),
     codexGroup: (tool) => codexGroup(buildHookCommand(tool.binPath, 'hook', ['--codex'])),
+  },
+  posthogReadGate: {
+    capability: 'hooks',
+    purpose: 'Read-only PostHog MCP access for lanes',
+    env: () => ({}),
+    claudeEntry: (tool) => ({
+      matcher: posthogToolMatcher(tool),
+      hooks: [{ type: 'command', command: posthogGateCommand(tool) }],
+    }),
+    codexGroup: (tool) => codexGroup(posthogGateCommand(tool), posthogToolMatcher(tool)),
   },
 };
 

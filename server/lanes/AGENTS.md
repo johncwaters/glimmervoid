@@ -8,6 +8,7 @@ Lane spawning: the ephemeral judge lanes and the interactive work lane, with the
 |------|------|
 | `lane-spawn.ts` | Ephemeral lane spawn on the lane-permissions seam; every lane is wrapped in the judge guardrails role (`server/guardrails/core/guardrails-roles-core.ts`), bar Windows |
 | `work-lane.ts` | Shared work guardrails helpers for interactive lanes |
+| `lane-mcp.ts` | Read-only PostHog MCP posture shared by both lane spawn chokepoints |
 
 ## Invariants
 
@@ -22,3 +23,10 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - No lane may deny bare `Read`, `Write`, `Glob` or `Grep`: a bare `Read` deny refuses the Write tool, mutually exclusive with a result-file contract.
 - The mode is set in the lane's managed settings file, overriding the operator's own, or `defaultMode: auto` leaves a classifier deciding these writes instead of a rule.
 - A lane prompt is written in its throwaway cwd and invoked by a constant bootstrap argument, since a Windows `.cmd` shim re-parses argv through `cmd.exe` (`server/core/workflows-core.ts`).
+
+### Lane PostHog MCP
+
+- A lane reaches PostHog only through the operator's own `mcp.posthog.com` server entry copied unchanged, since any URL or header change loses its stored OAuth login, and only behind the `posthogReadGate` hook tool.
+- Claude Code, Codex and Kimi all run a tool when a PreToolUse hook crashes, so the gate exits 2 on any error and `lane-mcp.ts` drops PostHog when its self-test does not deny a known write (`tests/lane-mcp.test.ts`).
+- The `mcp__<name>__exec` allow rule rides in the same settings file as the gate hook, so a failed hook injection drops the permission with it; PostHog needs a hook router for that reason.
+- Known gap, accepted by the operator 2026-10-29: the sandbox allowlist opens `mcp.posthog.com` to the whole lane, so a lane that keeps a general shell can reach PostHog around the gate. Claude and its Bash children share one srt policy, and a nested Seatbelt is refused on macOS, so closing it needs a sandbox split or a loopback relay, not a gate change.

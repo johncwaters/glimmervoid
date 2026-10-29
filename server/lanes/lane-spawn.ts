@@ -7,7 +7,8 @@ import type { UserHook } from '../../session/core/user-hooks-core.ts';
 import { DEFAULT_AGENT_ID } from '../../session/adapters/index.ts';
 import { Session } from '../../session/sessions.ts';
 import type { SessionOptions } from '../../session/sessions.ts';
-import { buildLanePermissions } from './core/lane-permissions-core.ts';
+import { buildLanePermissions, withAllowRules, withNetworkDomains } from './core/lane-permissions-core.ts';
+import { prepareLaneMcp } from './lane-mcp.ts';
 import { awaitSessionExit, registerEphemeralSession } from './ephemeral-session.ts';
 import { judgeRole, LANE_CREDENTIAL_ENV } from '../guardrails/core/guardrails-roles-core.ts';
 import { resolveRequiredSaneYoloHookTools } from '../hook-tools.ts';
@@ -57,6 +58,7 @@ interface LaneSpawnOptions {
   createSession?: (options: SessionOptions) => Session;
   prepareGuardrails?: typeof prepareGuardrailsLaunch;
   guardrailsRefusal?: GuardrailsSpawnRefusal;
+  prepareMcp?: typeof prepareLaneMcp;
   platform?: NodeJS.Platform;
 }
 
@@ -95,7 +97,7 @@ function createLaneSpawn({
   sessions = new Map(), closeSessionDataClients = () => {}, hookRouter = null, getHookPort = null,
   spawnGate = null, replayBufferKB = undefined, recordLane = null, laneName, allowTools = [],
   createSession = (options) => new Session(options), settingsPermissions, spawnEnv = null,
-  prepareGuardrails = prepareGuardrailsLaunch, guardrailsRefusal = allowGuardedSpawn, platform = process.platform,
+  prepareGuardrails = prepareGuardrailsLaunch, guardrailsRefusal = allowGuardedSpawn, prepareMcp = prepareLaneMcp, platform = process.platform,
 }: LaneSpawnOptions): LaneSpawn {
   return async function spawnLaneSession({ id, name, prompt, cwd, agent = DEFAULT_AGENT_ID, extraArgs = [], model = null, signal = null, onOutput, readablePaths = [] }) {
     const isCodex = agent === 'codex';
@@ -113,13 +115,15 @@ function createLaneSpawn({
     async function runLaneSession(): Promise<void> {
       const posture = isClaude ? buildLanePermissions({ denyTools: LANE_SPAWN_DENY_TOOLS, allowTools }) : null;
       const basePermissions = settingsPermissions ?? posture?.permissions ?? null;
-      const permissions = basePermissions;
+      const laneMcp = isClaude && hookRouter ? await prepareMcp({ laneArgs: posture?.args ?? [] }) : null;
+      const permissions = basePermissions && laneMcp ? withAllowRules(basePermissions, laneMcp.posture.allowRules) : basePermissions;
       const standalone = !hookRouter && permissions ? await writeStandaloneDenySettings(permissions, []) : null;
+      const hookTools = [...(guardHookTools ?? []), ...(laneMcp ? [laneMcp.posture.hookTool] : [])];
       const promptLaunch = headlessPromptLaunch(agent, prompt);
-      const extraClaudeArgs = laneAgentArgs({ isClaude, isWrapped, isCodex, extraArgs, model, postureArgs: posture?.args ?? [], standaloneArgs: standalone?.args ?? [] });
+      const extraClaudeArgs = laneAgentArgs({ isClaude, isWrapped, isCodex, extraArgs, model, postureArgs: [...(posture?.args ?? []), ...(laneMcp?.posture.args ?? [])], standaloneArgs: standalone?.args ?? [] });
       extraClaudeArgs.push(...promptLaunch.args);
       const options: SessionOptions = {
-        ...(guardHookTools ? { hookTools: guardHookTools } : {}),
+        ...(hookTools.length > 0 ? { hookTools } : {}),
         id,
         name,
         path: cwd,
@@ -134,10 +138,10 @@ function createLaneSpawn({
         hookRouter,
         getHookPort,
         prepareGuardrails: isWrapped ? (facts) => prepareGuardrails({
-          role: judgeRole({
+          role: withNetworkDomains(judgeRole({
             vendor: laneVendor(agent), cwd: facts.cwd, hookPort: facts.hookPort, agentSessionId: facts.agentSessionId,
-            readablePaths: [...facts.readablePaths, ...readablePaths],
-          }),
+            readablePaths: [...facts.readablePaths, ...readablePaths, ...(laneMcp?.readablePaths ?? [])],
+          }), laneMcp?.posture.networkDomains ?? []),
           launchId: facts.launchId,
         }) : null,
       };
@@ -150,6 +154,7 @@ function createLaneSpawn({
         await awaitSessionExit(laneSession, { signal, spawnGate });
       } finally {
         if (standalone) await standalone.cleanup();
+        if (laneMcp) await laneMcp.cleanup();
       }
     }
   };
