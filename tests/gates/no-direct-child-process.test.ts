@@ -76,6 +76,29 @@ test("only child-process-safe.ts imports child_process directly (all spawns go t
   );
 });
 
+const NODE_PATH_ALLOWED = new Set([
+  path.join(ROOT, "server", "stable-node-path.ts"),
+  path.join(ROOT, "session", "hook-tool-relay.ts"),
+  path.join(ROOT, "bin", "glimmervoid.ts"),
+  EXTENSION,
+]);
+
+const RUNNING_NODE_PATH = /\bprocess\.execPath\b|\bargv\[0\]/;
+
+test("only stable-node-path.ts names the running Node binary (a Homebrew upgrade deletes process.execPath under a live server)", () => {
+  const files = collectJsFiles(ROOT, []);
+  const offenders = files
+    .filter((file) => !NODE_PATH_ALLOWED.has(file))
+    .filter((file) => RUNNING_NODE_PATH.test(fs.readFileSync(file, "utf8")))
+    .map((file) => path.relative(ROOT, file));
+
+  assert.deepEqual(
+    offenders,
+    [],
+    `These modules must launch Node through stableNodePath from 'server/stable-node-path.ts' instead of process.execPath or argv[0]:\n  ${offenders.join("\n  ")}`,
+  );
+});
+
 test("child-process-safe.ts exists and exports the spawn surface", () => {
   const { execFile, execFileSync, execSync, spawn, hide } = childProcessSafe;
   for (const [name, fn] of Object.entries({ execFile, execFileSync, execSync, spawn, hide })) {

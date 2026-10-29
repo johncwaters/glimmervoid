@@ -21,6 +21,7 @@ import { relayPath, resolvePackageBin } from '../runtime-paths.ts';
 import { pruneAgedFiles } from '../prune-files.ts';
 import { recordSweptPath } from '../removal-journal.ts';
 import { createHeldSessionTempFolder, releaseSessionLock, sessionIdOfLockFile, trashSessionTempFolderOnceUnheld } from './session-temp-locks.ts';
+import { stableNodePath } from '../stable-node-path.ts';
 
 interface WrappedCommand {
   file: string;
@@ -361,10 +362,10 @@ async function pruneLeftoverSessionTempFolders(glimmervoidHome: string, liveSess
 }
 
 function launcherCommand(plan: GuardrailsLaunchPlan, policyPath: string): WrappedCommand | null {
-  if (plan.launcher === 'open-network') return { file: process.execPath, args: [relayPath('guardrails-open-launcher'), policyPath] };
+  if (plan.launcher === 'open-network') return { file: stableNodePath, args: [relayPath('guardrails-open-launcher'), policyPath] };
   const runtimeCliPath = resolvePackageBin('@anthropic-ai/sandbox-runtime', 'srt');
   if (!runtimeCliPath) return null;
-  return { file: process.execPath, args: [runtimeCliPath, '--settings', policyPath, '--'] };
+  return { file: stableNodePath, args: [runtimeCliPath, '--settings', policyPath, '--'] };
 }
 
 function guardedEnvPrefix(plan: GuardrailsLaunchPlan): string[] {

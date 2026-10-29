@@ -24,6 +24,7 @@ import codexAdapter, { readHostCodexVersion } from '../../session/adapters/codex
 import { createCodexCredentials } from '../codex-credentials.ts';
 import { chatgptAuthTokensLogin, chatgptAuthTokensRefreshResult } from '../core/codex-credentials-core.ts';
 import type { createCoderEnvWiring } from '../coder/coder-env-wiring.ts';
+import { stableNodePath } from '../stable-node-path.ts';
 
 interface BackendSessionRuntimeDependencies {
   config: GlimmervoidConfig;
@@ -54,7 +55,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
 
   const commitSigningProgram = installCommitSigningShim({
     binDir: configSiblingPath(dependencies.configStore.configPath, 'bin'),
-    nodePath: process.execPath,
+    nodePath: stableNodePath,
     cliPath,
     log: dependencies.logger,
   });

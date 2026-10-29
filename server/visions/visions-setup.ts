@@ -21,6 +21,7 @@ import type { EditorOutcome } from '../editor-wire.ts';
 import { createLaneLog } from '../lanes/lane-log.ts';
 import type { LaneLogger } from '../lanes/lane-log.ts';
 import { bundled, cliPath, extensionDir, packageRoot, relayPath } from '../runtime-paths.ts';
+import { stableNodePath } from '../stable-node-path.ts';
 import { errorMessage } from '../../shared/text.ts';
 
 const EXTENSION_DIR = extensionDir;
@@ -139,8 +140,8 @@ function relayInvocationOptions(
 ): { chosen: Invocation; absolute: Invocation; onPath: boolean } {
   const onPath = resolvePathCommandMatches('glimmervoid', { platform, exec }).length > 0;
   return {
-    chosen: relayInvocation({ glimmervoidOnPath: onPath, cliPath: CLI_PATH, nodePath: process.execPath }),
-    absolute: relayInvocation({ glimmervoidOnPath: false, cliPath: CLI_PATH, nodePath: process.execPath }),
+    chosen: relayInvocation({ glimmervoidOnPath: onPath, cliPath: CLI_PATH, nodePath: stableNodePath }),
+    absolute: relayInvocation({ glimmervoidOnPath: false, cliPath: CLI_PATH, nodePath: stableNodePath }),
     onPath,
   };
 }

@@ -14,6 +14,7 @@ import {
 } from './core/coherence-feed-core.ts';
 import { coherenceHealFailureReason, coherenceInstallFailureReason, isTimedOutCommand, shouldInstallCoherenceHooks } from './core/coherence-session-core.ts';
 import { judgeCoherenceSupport, readCoherenceBinScript } from './core/coherence-support-core.ts';
+import { stableNodePath } from '../stable-node-path.ts';
 
 type CoherenceHealOutcome = { status: 'not-needed' | 'healed' } | { status: 'failed'; reason: string };
 
@@ -46,8 +47,8 @@ export async function resolveCoherence({ worktree, host, isSettingOn, confine = 
   let version: string | null = null;
   let unavailable: CoherenceHooksState | null = null;
   async function runScript(script: string, args: string[], timeout = timeoutMs): Promise<string> {
-    if (!confine) return (await execFileAsync(process.execPath, [script, ...args], { cwd: worktree, env, timeout, maxBuffer: 16 * 1024 * 1024 })).stdout;
-    const confined = await confine({ file: process.execPath, args: [script, ...args] });
+    if (!confine) return (await execFileAsync(stableNodePath, [script, ...args], { cwd: worktree, env, timeout, maxBuffer: 16 * 1024 * 1024 })).stdout;
+    const confined = await confine({ file: stableNodePath, args: [script, ...args] });
     try {
       return (await execFileAsync(confined.file, confined.args, { cwd: confined.cwd ?? worktree, env: { ...env, ...confined.env }, timeout, maxBuffer: 16 * 1024 * 1024 })).stdout;
     } finally {
