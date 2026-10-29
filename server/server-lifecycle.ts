@@ -1,10 +1,11 @@
-import type { SpawnOptions } from 'node:child_process';
+import type { ChildProcess, SpawnOptions } from 'node:child_process';
 import { SUPERVISED_RESTART_EXIT_CODE, decideRestartStrategy } from './core/restart-strategy.ts';
 import {
   awaitBounded, normalizeShutdownResult, stopFailureText, summarizeStopOutcomes,
 } from './core/shutdown-core.ts';
 import type { StopperEntry } from './core/shutdown-core.ts';
 import { unrefTimer } from '../shared/timer-deps.ts';
+import { stableNodePath } from './stable-node-path.ts';
 
 interface BoundedWaitOptions {
   capMs?: number;
@@ -21,7 +22,7 @@ interface ClosableServer {
   closeAllConnections?: () => void;
 }
 
-type RespawnFn = (file: string, args: string[], options: SpawnOptions) => { unref(): unknown };
+type RespawnFn = (file: string, args: string[], options: SpawnOptions) => Pick<ChildProcess, 'unref' | 'once'>;
 
 interface LifecycleOptions {
   shutdown: () => unknown;
@@ -164,13 +165,22 @@ function createLifecycle({
         exit(SUPERVISED_RESTART_EXIT_CODE);
         return;
       }
-      const argv = getArgv();
-      spawn(argv[0], argv.slice(1), {
+      const successor = spawn(stableNodePath, getArgv().slice(1), {
         cwd: cwd(),
         stdio: 'ignore',
         detached: true,
         windowsHide: true,
-      }).unref();
+      });
+      const spawnError = await new Promise<Error | null>((resolve) => {
+        successor.once('spawn', () => resolve(null));
+        successor.once('error', resolve);
+      });
+      if (spawnError) {
+        log(`[lifecycle] could not start the replacement server with ${stableNodePath}: ${stopFailureText(spawnError)}`);
+        exit(1);
+        return;
+      }
+      successor.unref();
       exit(0);
     }
 

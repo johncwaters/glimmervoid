@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Restart works after a Node upgrade**: when Homebrew (or another package manager) upgraded Node while Glimmervoid was running, the dashboard Restart button stopped the server and never brought it back, with nothing in the log. The replacement server now starts through the `node` on your PATH that the server booted from, such as `/opt/homebrew/bin/node`, so it follows the upgrade. If even that Node is gone, the server log says so with a `[lifecycle]` line and the process exits 1.
+
 ## [0.47.0] - 2026-10-29
 
 ### Fixed

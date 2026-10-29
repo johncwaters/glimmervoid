@@ -161,5 +161,5 @@ function buildAgentSpawnCommand(
   return { file: "cmd.exe", args: ["/c", name, ...childArgs] };
 }
 
-export { resolvePathCommandMatches, resolveAgentCommand, buildAgentSpawnCommand };
+export { resolveArgvCommandMatches, resolvePathCommandMatches, resolveAgentCommand, buildAgentSpawnCommand };
 export type { PathLookupExec, PathLookupExecFile, ResolvedCommand };
