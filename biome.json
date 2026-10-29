@@ -102,8 +102,7 @@
       "includes": [
         "server/**/core/**",
         "session/**/core/**",
-        "notifications/**/core/**",
-        "detection/**/core/**"
+        "notifications/**/core/**"
       ],
       "linter": {
         "rules": {

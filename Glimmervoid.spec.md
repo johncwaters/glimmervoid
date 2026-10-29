@@ -37,5 +37,3 @@ A local agent orchestrator: a Node.js process that spawns and supervises coding 
 - release: the operator cuts a versioned release from the changelog
   handler: scripts/release.ts
   trust: operator
-
-## invariants

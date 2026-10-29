@@ -1,7 +1,7 @@
 {
   "name": "glimmervoid",
   "version": "0.47.1-next.0",
-  "description": "Mission control that ships. Not a terminal multiplexer: Claude Code, Codex and Grok each work in their own git worktree, and the one session that needs you comes to the front",
+  "description": "Mission control that ships. Not a terminal multiplexer: Claude Code, Codex, Kimi Code and Grok each work in their own git worktree, and the one session that needs you comes to the front",
   "main": "dist/server/index.js",
   "type": "module",
   "imports": {
@@ -38,6 +38,7 @@
     "claude",
     "claude-code",
     "codex",
+    "kimi-code",
     "coding-agents",
     "ai-agents",
     "agent-orchestrator",

@@ -1,4 +1,4 @@
-# socket.yml — Socket.dev security policy for Glimmervoid
+# socket.yml: Socket.dev security policy for Glimmervoid
 # https://docs.socket.dev/docs/socket-yml
 version: 2
 
@@ -8,7 +8,7 @@ triggerPaths:
   - "package-lock.json"
 
 issueRules:
-  # node-pty spawns the Claude CLI via a real PTY (pty.spawn()).
+  # node-pty spawns the agent CLIs via a real PTY (pty.spawn()).
   # Shell access is the core feature of this tool, not a supply-chain risk.
   shellAccess: false
 
@@ -17,7 +17,7 @@ issueRules:
   networkAccess: false
 
   # node-pty requires compiled native bindings (C++ via node-gyp).
-  # This is documented and expected — not a supply-chain risk.
+  # This is documented and expected, not a supply-chain risk.
   hasNativeCode: false
 
   # Express and ws read process.env for PORT, NODE_ENV, etc.

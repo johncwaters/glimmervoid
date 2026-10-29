@@ -1,6 +1,6 @@
 ---
 name: Glimmervoid
-description: A calm operator console for watching and steering many live Claude Code sessions.
+description: A calm operator console for watching and steering many live agent sessions.
 colors:
   accent: "#c084fc"
   accent-dim: "#9656d6"
@@ -279,7 +279,7 @@ A primary view with a 220px sidebar of nine theme-first sections and one scrolli
 
 ## 7. States
 
-Process (motion, inline feedback, failure and empty states) comes from the `design` skill; this section names the one pattern each situation uses here.
+Process (motion, inline feedback, failure and empty states) comes from the `designing-ui` skill; this section names the one pattern each situation uses here.
 
 | Situation | Pattern |
 |---|---|

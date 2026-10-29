@@ -3,7 +3,7 @@
   "concepts": [
     {
       "name": "session",
-      "definition": "One supervised agent process (Claude Code, Codex, Grok or a custom CLI) that glimmervoid spawns in a PTY, keyed by a stable UUID and shown on the dashboard"
+      "definition": "One supervised agent process (Claude Code, Codex, Kimi Code, Grok or a custom CLI) that glimmervoid spawns in a PTY, keyed by a stable UUID and shown on the dashboard"
     },
     {
       "name": "worktree",
@@ -39,7 +39,7 @@
     },
     {
       "name": "agent adapter",
-      "definition": "The per-agent module (Claude Code, Codex, Grok, custom CLI) that tells glimmervoid how to spawn, resume and read the status of one agent kind"
+      "definition": "The per-agent module (Claude Code, Codex, Kimi Code, Grok, custom CLI) that tells glimmervoid how to spawn, resume and read the status of one agent kind"
     },
     {
       "name": "visions",

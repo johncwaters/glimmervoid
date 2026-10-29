@@ -4,7 +4,7 @@ This file is loaded into EVERY session, so it holds only what every session need
 
 ## Purpose
 
-Glimmervoid is a local agent orchestrator, not a harness: a Node.js background process that spawns and supervises coding agent sessions (Claude Code, Codex, Grok, custom CLIs) via node-pty, streams terminal output to a browser dashboard over WebSockets, derives session status from structural signals (Claude Code hooks plus an OSC-0 title fallback, never screen scraping), and notifies the operator through browser notifications and Telegram.
+Glimmervoid is a local agent orchestrator, not a harness: a Node.js background process that spawns and supervises coding agent sessions (Claude Code, Codex and Kimi Code first-class; Grok and custom CLIs best effort) via node-pty, streams terminal output to a browser dashboard over WebSockets, derives session status from structural signals (agent hooks plus an OSC-0 title fallback, never screen scraping), and notifies the operator through browser notifications and Telegram.
 
 ## Architecture Map
 
@@ -29,6 +29,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 | `public/` | Browser dashboard (`public/AGENTS.md`) |
 | `site/` | Public Astro website, its own npm package; reads dashboard sprites from `public/` at build time |
 | `scripts/`, `tests/`, `harness/` | Release scripts, the npm test suite, hand-run harnesses |
+| `marketing/`, `.githooks/` | Social assets; the pre-push check |
 | `assets/`, `dist/` | Static assets and generated build output |
 
 ## For AI Agents
@@ -39,6 +40,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 - Node >=22.18.0 (where type stripping is on by default, which source mode and the `.test.ts` suite depend on). Windows 11, Linux and macOS, developed on v24.
 - Do NOT add dependencies without explicit instruction.
 - Status detection is structural (hooks plus OSC-0 title). Never reintroduce PTY body or content scraping.
+- Claude Code, Codex and Kimi Code are first-class: a feature ships only when it works on all three, pinned by the agent parity matrix, where every scenario row needs a live-captured fixture per agent. Grok and custom agents are best effort.
 - Spawn sessions with `pty.spawn`, never `child_process.spawn`, and never `shell: true`. Scrub env via `session/core/spawn-env.ts`.
 - Session worktrees use the configured integration branch, or each repo's default branch when unset. Origin is the source of truth, as pinned by the git-workspace tests.
 - All sessions share one event loop: no sync git or fs on recurring paths (polls, turn-end, watchers). Use async `execFile` with yields. One-shot cold paths may stay sync.
@@ -108,7 +110,7 @@ Runtime: `express`, `ws` (no Socket.IO and no abstraction over WebSockets, ever)
 
 `fs-native-extensions` gives the kernel file locks (`fcntl` OFD, `flock`, `LockFileEx`) that mark a session temp folder in use, because Node core has no file lock and the kernel drops one when its holder dies, which a pid record cannot tell from pid reuse. A load failure leaves folders to the 7-day age gate.
 
-Dev: `vite`, `tailwindcss` v4 with `@tailwindcss/vite`, and `@posthog/coherence`, this repository's own Coherence install.
+Dev: the toolchain in `package.json`.
 
 ## Parallel Agent Work
 

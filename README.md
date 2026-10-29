@@ -12,7 +12,7 @@
 
 Glimmervoid takes a feature from start to finish. Every agent works in its own git worktree, status comes from the agent's own hooks, and the one session that needs you comes to the front. Review and merge from the same page.
 
-It is an orchestrator, not a harness. Claude Code, Codex and Grok run unmodified, as real processes in real terminals on your own machine, with your own login, subscription, skills, hooks and settings, talking straight to their model. No cloud service, no account. Glimmervoid is developed inside Glimmervoid.
+It is an orchestrator, not a harness. Claude Code, Codex, Kimi Code and Grok run unmodified, as real processes in real terminals on your own machine, with your own login, subscription, skills, hooks and settings, talking straight to their model. No cloud service, no account. Glimmervoid is developed inside Glimmervoid.
 
 ![Glimmervoid dashboard replaying recorded Claude Code sessions: one fixes a flaky upload test with its diff in the terminal, three more work on their own projects in the session rail](assets/pictures/glimmervoid-demo.gif)
 
@@ -56,8 +56,8 @@ To update, run `git pull --ff-only && npm ci && npm run build` and restart. The 
 ## Requirements
 
 - **Node.js 22.18 or newer.** Distro-packaged Node is usually older; use nvm, NodeSource or the official installer.
-- **Windows 11, Linux or macOS.** CI runs on Linux; Windows and macOS are tested by hand.
-- **An agent CLI** on PATH: Claude Code, Codex, Grok or another terminal agent.
+- **Windows 11, Linux or macOS.** CI runs the suite on Linux and installs and starts the package on Windows; macOS is tested by hand.
+- **An agent CLI** on PATH: Claude Code, Codex, Kimi Code, Grok or another terminal agent.
 - **git** on PATH, for per-session worktrees.
 - **Linux only:** `build-essential` and `python3` to compile node-pty, plus `bubblewrap`, `socat` and `ripgrep` for session guardrails (`sudo apt install bubblewrap socat ripgrep`).
 
@@ -67,10 +67,13 @@ To update, run `git pull --ff-only && npm ci && npm run build` and restart. The 
 
 | Agent | Command | Status from |
 |-------|---------|-------------|
-| Claude Code (default, most complete) | `claude` | Hooks, with background agent gating and auto-resume |
-| Codex CLI | `codex` | Hooks. Codex has no notification event, so a question asked in prose looks like a finished turn |
-| Grok Build | `grok` | Hooks, after running `glimmervoid agent setup grok` once |
-| Any other terminal agent | your own | Terminal title only |
+| Claude Code (default) | `claude` | Hooks |
+| Codex CLI | `codex` | Hooks, plus its session log for a plan awaiting approval |
+| Kimi Code | `kimi` | Hooks |
+| Grok Build (best effort) | `grok` | Hooks, after running `glimmervoid agent setup grok` once |
+| Any other terminal agent (best effort) | your own | Terminal title only |
+
+Claude Code, Codex and Kimi Code are first-class: every feature is checked against live recordings of all three, so a waiting prompt, a plan, a question, compaction, sub-agents and `/clear` look the same on each card.
 
 Declare another agent under `customAgents` in `config.json` with an `id`, `label` and `command`, plus optional `args`, `idleTitle` and `busyTitle`. The **+ Session** dialog offers only the agents it finds on PATH, and a project can default to one with `projects[].agent`.
 
@@ -83,7 +86,7 @@ Declare another agent under `customAgents` in `config.json` with an `id`, `label
 - **Phone layout.** Board, terminal and review screens, attention first, with a terminal that resizes around the keyboard.
 - **Plan review.** Read, edit and approve Claude Code plans from the dashboard or your phone.
 - **Guardrails.** Guarded Claude Code sessions on macOS and Linux (on unless a project or folder opts out) cannot touch credentials or Glimmervoid's own state, and Sane YOLO, once its hooks are installed and trusted, refuses commands like `git reset --hard` and `git push --force` in sessions that skip permission prompts.
-- **Usage.** Tokens and estimated cost from local Claude Code, Codex and Grok transcripts, with optional budgets.
+- **Usage.** Tokens and estimated cost from local Claude Code, Codex, Kimi Code and Grok transcripts, with optional budgets.
 - **Auto-resume.** Sessions live when Glimmervoid stopped come back with their conversation resumed.
 - **Remote access** (opt-in). Reach the dashboard from another device through single-use pairing links.
 - **Radar** (opt-in). Watches PostHog error tracking, pings Telegram on a spike, regression or new issue, and sends an agent to investigate. Optional auto-fix opens a pull request the agent can never push or merge itself.
@@ -126,7 +129,7 @@ Glimmervoid sends anonymous usage and error data by default. [Telemetry](docs/co
 
 The obvious way to tell whether an agent is working, waiting or done is to scrape the terminal for a prompt or a spinner. That breaks on every redraw, theme change and CLI release, so Glimmervoid never does it.
 
-Instead, each session gets Claude Code hooks scoped to that one session, with no change to your repo. They POST every lifecycle event to a local endpoint: prompt submitted, turn stopped, notification raised, sub-agent started or finished. Hooks are the authoritative signal. The terminal title (spinner glyph means working, idle glyph means ready) covers anything the hooks miss, and a hook wins any conflict.
+Instead, each session gets agent hooks scoped to that one session, with no change to your repo. They POST every lifecycle event to a local endpoint: prompt submitted, turn stopped, notification raised, sub-agent started or finished. Hooks are the authoritative signal. The terminal title (spinner glyph means working, idle glyph means ready) covers anything the hooks miss, and a hook wins any conflict.
 
 Three bugs shaped the details:
 

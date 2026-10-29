@@ -2,7 +2,7 @@
 
 ## Set up
 
-You need Node.js 24 (the version in `.nvmrc`, which CI uses), git, and an agent CLI such as Claude Code to try sessions end to end. On Linux, also `build-essential` and `python3` for node-pty.
+You need Node.js 24 (the version in `.nvmrc`, which CI uses), git, and an agent CLI such as Claude Code, Codex or Kimi Code to try sessions end to end. On Linux, also `build-essential` and `python3` for node-pty. `npm ci` does not run on Windows, because the `@posthog/coherence` dev dependency supports only macOS and Linux: develop in WSL, macOS or Linux.
 
 ```bash
 git clone https://github.com/johncwaters/glimmervoid.git
