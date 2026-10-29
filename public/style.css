@@ -3095,39 +3095,6 @@ html[data-layout="phone"] .trace-section-hint { flex-basis: 100%; font-size: var
   color: var(--text-muted);
 }
 
-.visions-intent {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px 14px;
-  border: 1px solid var(--border-dim);
-  border-radius: 4px;
-  background: var(--bg-surface);
-}
-
-.visions-hand {
-  border: 1px solid color-mix(in oklab, var(--accent) 48%, var(--border));
-  border-left: 3px solid var(--accent);
-  border-radius: 4px;
-  background: color-mix(in oklab, var(--accent) 10%, var(--bg-surface));
-  padding: 8px 10px;
-  color: var(--text-head);
-  font-size: var(--type-meta);
-  line-height: 1.5;
-}
-
-.visions-findings {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.visions-comments {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 4px;
-}
 
 .header-brand {
   display: flex;
@@ -4930,11 +4897,6 @@ html[data-layout="phone"] .review-sidebar-body { overscroll-behavior: contain; }
 .phone-settings > .settings-view { flex: 1 1 auto; min-height: 0; }
 .phone-settings .settings-view-content { overscroll-behavior: contain; }
 html[data-layout="phone"] .usage-section-title { font-size: var(--type-meta); }
-.visions-view {
-  --phone-panel-max-width: none;
-}
-html[data-layout="phone"] .visions-view { font-size: var(--type-meta); }
-html[data-layout="phone"] .visions-intent { padding: 12px; }
 html[data-layout="phone"] .radar-section { gap: 10px; }
 html[data-layout="phone"] .radar-section-head { flex-wrap: wrap; gap: 2px 8px; }
 html[data-layout="phone"] .radar-section-title { font-size: var(--type-meta); }

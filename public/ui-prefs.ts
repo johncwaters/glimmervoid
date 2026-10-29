@@ -32,7 +32,6 @@ interface UiPrefs extends FlyingAnimalsOptions {
   communityAttentionAck: string;
   communityUnseenRows: string;
   usageAttentionAck: string;
-  visionsAttentionAck: string;
 }
 
 const asBoolean = (fallback: boolean) => (value: unknown): boolean => (typeof value === 'boolean' ? value : fallback);
@@ -75,7 +74,6 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   communityAttentionAck: asString(''),
   communityUnseenRows: asString(''),
   usageAttentionAck: asString(''),
-  visionsAttentionAck: asString(''),
 };
 
 function normalizeInto<Key extends keyof UiPrefs>(prefs: Partial<UiPrefs>, key: Key, raw: unknown) {
@@ -165,8 +163,6 @@ export const setCommunityUnseenRows = (signature: string) => write('communityUns
 export const getUsageAttentionAck = () => read('usageAttentionAck');
 export const setUsageAttentionAck = (signature: string) => write('usageAttentionAck', signature);
 
-export const getVisionsAttentionAck = () => read('visionsAttentionAck');
-export const setVisionsAttentionAck = (signature: string) => write('visionsAttentionAck', signature);
 
 export const getLastFocusedSessionId = () => read('lastFocusedSessionId');
 export const setLastFocusedSessionId = (id: string | null) => write('lastFocusedSessionId', id);

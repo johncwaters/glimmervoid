@@ -26,7 +26,6 @@ import { activateFocusOnNextAttention, centerSessionQuietly, focusAdjacentInRail
 import { initFormFactor, isPhoneLayout, onLayoutChange } from './form-factor.ts';
 import type { HealthSnapshot } from './health-monitor.ts';
 import { applyHealthSnapshot, mountHealthMonitor } from './health-monitor.ts';
-import { applyIngestActivity, applyIngestSnapshot, applyVisionsComments, applyVisionsFindings, applyVisionsFix, applyVisionsHand, applyVisionsIntent, applyVisionsSettings, applyVisionsSnapshot, setVisionsProjectNames } from './visions/visions-store.ts';
 import { applyHooksReport, applyLateHookResult, setHooksRequestSender } from './hooks-store.ts';
 import { alertFromNotify, showDesktopNotification } from './notifications.ts';
 import { clearHeaderError, clearHeaderErrorsForSession, reportHeaderError } from './action-status.ts';
@@ -289,7 +288,6 @@ function noteServerBuild(serverBuild: unknown) {
 
 function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
 
-  setVisionsProjectNames(new Map(rows.filter((s) => !s.ephemeral).map((s): [string, string] => [s.id, s.name])));
   applySettingsProjects(rows.filter((session) => !session.ephemeral).map((session) => ({
     id: session.id,
     name: session.name,
@@ -554,18 +552,6 @@ const messageHandlers = {
     ignoreFocus: true,
   }),
 
-  'visions-findings': (msg) => applyVisionsFindings(msg),
-
-  'visions-comments': (msg) => applyVisionsComments(msg),
-  'visions-hand':     (msg) => applyVisionsHand(msg),
-
-  'visions-intent':   (msg) => applyVisionsIntent(msg),
-
-  'visions-fix':      (msg) => applyVisionsFix(msg),
-  'visions-snapshot': (msg) => applyVisionsSnapshot(msg),
-
-  'ingest-activity':    (msg) => applyIngestActivity(msg),
-  'ingest-snapshot':    (msg) => applyIngestSnapshot(msg),
   'client-trust':       (msg) => applyClientTrust(msg.trust),
   'shutting-down':      () => showServerGoingDown('Shutting down...', 'Shutting down sessions...'),
   'restarting':         () => showServerGoingDown('Restarting...', 'Restarting server...'),
@@ -932,7 +918,6 @@ function applyDashboardSettings(settings: FeatureSurfaceSettings & Pick<BrowserC
   applyPhoneArrowPad(settings.isExperimentalBuild === true && isPhoneArrowPad());
   applyTerminalSettings(settings);
   applySettingsBroadcast(settings);
-  applyVisionsSettings(settings);
   applySurfaceSettings(settings);
   syncTelemetryBanner(settings);
   applyTabOrder(settings.viewTabOrder);

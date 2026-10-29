@@ -220,7 +220,6 @@ const LANE_LABELS: Readonly<Record<string, string>> = Object.freeze({
   'my-prs': 'Keep mergeable',
   workflows: 'Workflows',
   'change-map': 'Change map',
-  visions: 'Visions',
   benchmark: 'Benchmarks',
   'agent-spawn': 'Agent API',
   'task-title': 'Task titles',

@@ -14,7 +14,6 @@ import { setSettingsRestartHandler } from './settings/settings-store.ts';
 import { applyTeamReviewConnectionState } from './github/team-review-store.ts';
 import { applyTraceConnectionState, openTraceForSession } from './trace-store.ts';
 import { acknowledgeUsageAttention, applyUsageConnectionState, setUsageActivityCallback } from './usage/usage-store.ts';
-import { acknowledgeVisionsAttention, applyVisionsConnectionState, setVisionsActivityCallback } from './visions/visions-store.ts';
 import { createViewLoader, shouldReloadAfterPreloadError, viewAttentionState } from './view-registry-core.ts';
 import type { PrimaryView, PrimaryViewDefinition, ViewAttention, ViewModule } from './view-registry-core.ts';
 
@@ -98,7 +97,6 @@ export function createDashboardViews(actions: ViewRegistryActions): DashboardVie
     { view: 'usage', label: 'Usage', glyph: '\u25d4', panelClass: 'usage-view', gate: { fromSettings: FEATURE_SURFACE_RULES.usage }, load: () => import('./usage/usage-panel.ts').then((panel) => panel.view), attention: { subscribe: setUsageActivityCallback, acknowledge: acknowledgeUsageAttention }, onConnectionChange: applyUsageConnectionState, refreshOn: ['shown', 'connected', 'usage-sessions'] },
     { view: 'radar', label: 'Radar', glyph: '\u25ce', panelClass: 'radar-view', gate: { fromSettings: FEATURE_SURFACE_RULES.posthog }, load: () => import('./radar/radar-panel.ts').then((panel) => panel.view), attention: { subscribe: setRadarActivityCallback, acknowledge: acknowledgeRadarAttention } },
     { view: 'community', label: 'Community', glyph: '?', panelClass: 'community-view', gate: { fromSettings: FEATURE_SURFACE_RULES.community }, load: () => import('./community/community-panel.ts').then((panel) => panel.view), refreshOn: ['shown'], attention: { subscribe: setCommunityActivityCallback, acknowledge: acknowledgeCommunityAttention }, onConnectionChange: applyCommunityConnectionState },
-    { view: 'visions', label: 'Visions', glyph: '\u25c7', panelClass: 'visions-view', gate: { fromSettings: FEATURE_SURFACE_RULES.visions }, load: () => import('./visions/visions-panel.ts').then((panel) => panel.view), attention: { subscribe: setVisionsActivityCallback, acknowledge: acknowledgeVisionsAttention }, refreshOn: ['shown'], onConnectionChange: applyVisionsConnectionState },
     { view: 'hooks', label: 'Hooks', glyph: '\u25c8', panelClass: 'hooks-view', load: () => import('./hooks-panel.ts').then((panel) => panel.view), refreshOn: ['shown', 'connected', 'hooks-updated'] },
     { view: 'trace', label: 'Trace', panelClass: 'trace-view', gate: { subscribe: onDebugModeChanged }, load: () => import('./trace-panel.ts').then((panel) => panel.view), refreshOn: ['shown'], onAvailabilityChange: (isAvailable) => setRadarTraceOpener(isAvailable ? openTraceForSession : null), onConnectionChange: applyTraceConnectionState },
     { view: 'benchmarks', label: 'Bench', panelClass: 'bench-view', gate: { fromSettings: FEATURE_SURFACE_RULES.benchmarks }, load: () => import('./benchmark-panel.ts').then((panel) => panel.view), onConnectionChange: applyBenchmarkConnectionState },
