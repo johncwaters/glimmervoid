@@ -1,5 +1,4 @@
 import path from 'node:path';
-import { isPathInside } from '../../../shared/paths.ts';
 import type { GuardrailsRole } from './guardrails-policy-core.ts';
 
 type GuardrailsRoleVendor = GuardrailsRole['vendors'][number];
@@ -79,37 +78,11 @@ function sessionRole({ ownVendor = null, writableRoots, readDenied, readablePath
   };
 }
 
-interface MainCheckoutFacts {
-  mainCheckout: string;
-  commonGitDir: string;
-  trackedPaths: readonly string[];
-  keptWritable: readonly string[];
-}
-
-const CLAUDE_CODE_WORKTREES_FOLDER = path.join('.claude', 'worktrees');
-
-function mainCheckoutWriteBlocks({ mainCheckout, commonGitDir, trackedPaths, keptWritable }: MainCheckoutFacts): string[] {
-  const writableInside = [...keptWritable, path.join(mainCheckout, CLAUDE_CODE_WORKTREES_FOLDER)];
-  const childNamesByParent = new Map<string, string[]>();
-  for (const trackedPath of trackedPaths) {
-    const parent = path.posix.dirname(trackedPath);
-    childNamesByParent.set(parent, [...childNamesByParent.get(parent) ?? [], path.posix.basename(trackedPath)]);
-  }
-  const blocksUnder = (relativeFolder: string): string[] => (childNamesByParent.get(relativeFolder) ?? []).flatMap((name) => {
-    const relativeEntry = relativeFolder === '.' ? name : path.posix.join(relativeFolder, name);
-    const entry = path.join(mainCheckout, relativeEntry);
-    if (writableInside.some((writable) => isPathInside(writable, entry))) return [];
-    if (writableInside.some((writable) => isPathInside(entry, writable))) return blocksUnder(relativeEntry);
-    return [entry];
-  });
-  return [...blocksUnder('.'), path.join(commonGitDir, 'index')];
-}
-
 function isWorktreeAdminDirOf({ adminDir, commonGitDir }: { adminDir: string; commonGitDir: string }): boolean {
   return path.dirname(path.resolve(adminDir)) === path.resolve(commonGitDir, 'worktrees');
 }
 
 export {
-  isWorktreeAdminDirOf, judgeRole, LANE_CREDENTIAL_ENV, mainCheckoutWriteBlocks, sessionRole,
+  isWorktreeAdminDirOf, judgeRole, LANE_CREDENTIAL_ENV, sessionRole,
   workRole,
 };

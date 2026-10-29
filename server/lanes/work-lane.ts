@@ -1,7 +1,6 @@
 import { realpath } from 'node:fs/promises';
-import path from 'node:path';
 import type { PrepareSessionGuardrails, SessionGuardrailsFacts } from '../../session/sessions.ts';
-import { errorMessage, isMissingFileError } from '../../shared/text.ts';
+import { errorMessage } from '../../shared/text.ts';
 import type { GuardrailsRole } from '../guardrails/core/guardrails-policy-core.ts';
 import { isWorktreeAdminDirOf } from '../guardrails/core/guardrails-roles-core.ts';
 import { runHardenedGit } from '../git/git-workspace.ts';
@@ -30,20 +29,6 @@ export function prepareRoleGuardrails(describeRole: (facts: SessionGuardrailsFac
       return { ok: false, reason: errorMessage(error) };
     }
   };
-}
-
-async function existingRealPath(candidate: string): Promise<string | null> {
-  try {
-    return await realpath(candidate);
-  } catch (error) {
-    if (!isMissingFileError(error)) throw error;
-    return null;
-  }
-}
-
-export async function existingRealPaths(candidates: readonly string[]): Promise<string[]> {
-  const realPaths = await Promise.all(candidates.filter((candidate) => path.isAbsolute(candidate)).map(existingRealPath));
-  return realPaths.filter((realPath) => realPath !== null);
 }
 
 async function readLaneCommonGitDir(cwd: string): Promise<string> {
