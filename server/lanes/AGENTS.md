@@ -27,6 +27,6 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 ### Lane PostHog MCP
 
 - A lane reaches PostHog only through the operator's own `mcp.posthog.com` server entry copied unchanged, since any URL or header change loses its stored OAuth login, and only behind the `posthogReadGate` hook tool.
-- Claude Code, Codex and Kimi Code all run a tool when a PreToolUse hook crashes, so the gate exits 2 on any error and `lane-mcp.ts` drops PostHog when its self-test does not deny a known write (`tests/lane-mcp.test.ts`).
+- Claude Code, Codex and Kimi Code all run a tool when a PreToolUse hook crashes, so the gate exits 2 on any error and `lane-mcp.ts` drops PostHog when its self-test does not deny a known write.
 - The `mcp__<name>__exec` allow rule rides in the same settings file as the gate hook, so a failed hook injection drops the permission with it; PostHog needs a hook router for that reason.
 - Known gap, accepted by the operator 2026-10-29: the sandbox allowlist opens `mcp.posthog.com` to the whole lane, so a lane that keeps a general shell can reach PostHog around the gate. Claude and its Bash children share one srt policy, and macOS refuses a nested sandbox, so closing it needs a sandbox split or a loopback relay, not a gate change.

@@ -98,4 +98,4 @@ export {
   ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, LANE_ENVIRONMENT_ARGS, buildLanePermissions,
   findPosthogServer, laneMcpConfig, laneMcpPosture, withAllowRules, withNetworkDomains,
 };
-export type { LaneMcpPosture, LaneMcpServer };
+export type { LaneMcpPosture };

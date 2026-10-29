@@ -45,5 +45,4 @@ function knownWriteHookInput(serverName: string): string {
   return JSON.stringify({ tool_name: posthogExecToolName(serverName), tool_input: { command: KNOWN_WRITE_COMMAND } });
 }
 
-export { POSTHOG_READ_GATE_DENIAL_PREFIX, decidePosthogExec, knownWriteHookInput, posthogExecToolName };
-export type { GateDecision };
+export { POSTHOG_READ_GATE_DENIAL_PREFIX, decidePosthogExec, knownWriteHookInput };

@@ -70,4 +70,3 @@ async function prepareLaneMcp(
 }
 
 export { prepareLaneMcp };
-export type { PreparedLaneMcp };
