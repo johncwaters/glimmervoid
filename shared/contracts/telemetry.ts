@@ -15,7 +15,7 @@ const TEAM_REVIEW_POST_REFUSAL_REASONS = Object.freeze([
 const RADAR_VERDICTS = Object.freeze(['ROOT_CAUSE', 'FIXED', 'NEEDS_HUMAN', 'TRANSIENT', 'ERROR'] as const);
 const RADAR_JOB_MODES = Object.freeze(['investigate', 'fix'] as const);
 const RADAR_ERROR_REASONS = Object.freeze(['agent-reported', 'no-result', 'invalid-result', 'timed-out', 'no-verdict', 'crashed', 'aborted', 'empty-fix', 'handoff-failed'] as const);
-const RADAR_HANDOFF_STEPS = Object.freeze(['commit-fix', 'read-diff', 'count-commits', 'push-branch', 'resolve-repo', 'open-pr'] as const);
+const RADAR_HANDOFF_STEPS = Object.freeze(['commit-fix', 'read-diff', 'count-commits'] as const);
 const OPERATOR_ACTIONS = Object.freeze([...new Set(Object.values(OPERATOR_ACTIONS_BY_SURFACE).flat())] as [OperatorAction, ...OperatorAction[]]);
 
 export const MAX_EXCEPTION_FRAMES = 64;
@@ -194,7 +194,7 @@ export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description:
   { name: 'team_review_settled', description: 'A team review draft was posted (approve, comment or approve-only) or discarded, with how many inline comments were drafted and how many were posted, plus the total action duration in milliseconds.' },
   { name: 'team_review_post_refused', description: 'Posting a team review was refused, with a reason from a fixed list and the total action duration in milliseconds. Never the error text.' },
   { name: 'radar_investigation_finished', description: 'A Radar investigation or fix run finished, with its verdict and mode, plus a reason from a fixed list when it ended in ERROR. Never the summary text.' },
-  { name: 'radar_fix_handoff_failed', description: 'Handing a Radar fix over as a pull request failed, with which step failed. Never the branch or the error text.' },
+  { name: 'radar_fix_handoff_failed', description: 'Committing or checking a Radar fix branch failed, with which step failed. Never the branch or the error text.' },
   { name: 'data_deletion_requested', description: 'Delete my data was confirmed in Settings > Privacy, with no properties. Sent under the old install id even when telemetry is off, unless the maintainers stopped all sending, and then the install id is replaced. PostHog deletes the person and every event under that id on receipt.' },
 ]);
 

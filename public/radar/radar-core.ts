@@ -72,8 +72,17 @@ interface RadarInvestigation {
   verdict?: unknown;
   mode?: unknown;
   prUrl?: unknown;
+  pendingFix?: unknown;
   at?: unknown;
   archived?: unknown;
+}
+
+function pendingFixOf(value: unknown): { branch: string; agentPrTitle: string; expiresAt: number } | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const fix = value as Record<string, unknown>;
+  const branch = textOr(fix.branch, '');
+  if (!branch) return null;
+  return { branch, agentPrTitle: textOr(fix.agentPrTitle, ''), expiresAt: Number.isFinite(Number(fix.expiresAt)) ? Number(fix.expiresAt) : 0 };
 }
 
 export interface RadarSnapshot {
@@ -467,6 +476,7 @@ export function investigationRows(snapshot: RadarSnapshot | null | undefined, lo
       verdict: textOr(record.verdict, 'ERROR').toUpperCase(),
       mode: textOr(record.mode, 'investigate'),
       prUrl: /^https:\/\/[^\s"'<>]{1,300}$/.test(textOr(record.prUrl, '')) ? textOr(record.prUrl, '') : '',
+      pendingFix: pendingFixOf(record.pendingFix),
       at: Number.isFinite(Number(record.at)) ? Number(record.at) : 0,
     }))
     .sort((a, b) => b.at - a.at);

@@ -89,6 +89,16 @@ export interface InvestigationRecord {
   at: number;
   archived: boolean;
   archivedAt?: number;
+  pendingFix?: PendingFix | null;
+}
+
+export interface PendingFix {
+  repoPath: string;
+  branch: string;
+  base: string | null;
+  agentPrTitle: string;
+  agentPrBody: string;
+  expiresAt: number;
 }
 
 interface ProjectLike {
@@ -130,7 +140,6 @@ const JOB_MODES: Readonly<Record<string, string>> = Object.freeze({ investigate:
 const FIX_VERDICTS: readonly string[] = Object.freeze(['FIXED', 'NEEDS_HUMAN', 'TRANSIENT', 'ERROR']);
 const MAX_PR_TITLE_CHARS = 120;
 const MAX_PR_BODY_CHARS = 4000;
-const PR_URL_RE = /^https:\/\/[^\s"'<>]{1,300}$/;
 
 function stripProtocol(host: unknown): string {
   return String(host || '').replace(/^https?:\/\//i, '').replace(/\/+$/, '');
@@ -327,12 +336,6 @@ function decideFixHandoff({
   return { ok: true };
 }
 
-function normalizePrUrl(text: unknown): string | null {
-  const lines = String(text ?? '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const hit = [...lines].reverse().find((line) => PR_URL_RE.test(line));
-  return hit || null;
-}
-
 function normalizePrTitle(text: unknown): string | null {
   const flat = String(text ?? '').replace(CONTROL_CHARS_RE, ' ').replace(/\s+/g, ' ').trim();
   if (!flat) return null;
@@ -350,9 +353,8 @@ function normalizePrBody(text: unknown): string | null {
   return cleaned.slice(0, MAX_PR_BODY_CHARS);
 }
 
-function fixDetailLine(reproduced: unknown): string {
-  if (reproduced === true) return 'reproduced, then fixed';
-  return 'fixed without a local reproduction';
+function fixDetailLine(): string {
+  return 'fix committed to a local branch, never run; approve or dismiss it in the dashboard';
 }
 
 function pingFor(
@@ -442,7 +444,7 @@ function normalizeInvestigations(log: unknown): InvestigationRecord[] {
 }
 
 function buildInvestigationRecord({
-  key, projectId, projectName, host, issueId, title, url, verdict, summaryLine, at, mode, prUrl,
+  key, projectId, projectName, host, issueId, title, url, verdict, summaryLine, at, mode, prUrl, pendingFix = null,
 }: {
   key?: unknown;
   projectId?: string | number | null;
@@ -456,6 +458,7 @@ function buildInvestigationRecord({
   at?: unknown;
   mode?: unknown;
   prUrl?: unknown;
+  pendingFix?: PendingFix | null;
 } = {}): InvestigationRecord {
   const stamp = stampOf(at);
   return {
@@ -473,6 +476,7 @@ function buildInvestigationRecord({
     prUrl: prUrl ? String(prUrl) : null,
     at: stamp,
     archived: false,
+    pendingFix,
   };
 }
 
@@ -718,4 +722,53 @@ function radarUntrustedItems(issue: PosthogIssue, exceptionEvents: readonly Reco
   ];
 }
 
-export { toCount, issueKey, issueUrl, classifyIssueChange, investigationTrigger, slotDeferredInvestigationChange, underlyingInvestigationChange, belowMinimumInvestigationChange, planInvestigations, decideJobMode, normalizeJobMode, decideFixHandoff, normalizePrUrl, normalizePrTitle, normalizePrBody, fixDetailLine, decideVanishedEntry, pingFor, nextState, summaryLineFromReportText, validateIssueRef, decideIssueAction, buildInvestigationRecord, appendInvestigation, markInvestigationArchived, pruneInvestigations, unarchivedInvestigations, validateInvestigationId, resolveIssueProject, isAbsolutePathish, projectParentDirs, pickDirectoryForProjectName, sanitizeSessionName, scrubForPaste, buildIssueSessionPrompt, radarUntrustedItems, RADAR_UNTRUSTED_SOURCE, RADAR_UNTRUSTED_ITEM_MAX_CHARS, RADAR_RESULT_FILENAME, RADAR_REPORT_FILENAME, RADAR_EXCEPTION_EVENTS_QUERY, JOB_MODES, FIX_VERDICTS, INVESTIGATIONS_KEY, DEFAULT_ARCHIVED_RETENTION_DAYS, DEFAULT_INTERVAL_MINUTES, DEFAULT_USER_ESCALATION_THRESHOLD, DEFAULT_MIN_USERS_TO_INVESTIGATE, DEFAULT_ENTRY_RETENTION_DAYS };
+const PENDING_FIX_TTL_MS = 7 * 86400000;
+
+function claimPendingFix(log: unknown, id: string): { fix: PendingFix | null; record: InvestigationRecord | null; log: InvestigationRecord[] } {
+  const kept = normalizeInvestigations(log);
+  const record = kept.find((candidate) => candidate.id === id) ?? null;
+  const fix = record?.pendingFix ?? null;
+  if (!fix) return { fix: null, record, log: kept };
+  return { fix, record, log: kept.map((candidate) => (candidate.id === id ? { ...candidate, pendingFix: null } : candidate)) };
+}
+
+function claimExpiredPendingFixes(log: unknown, nowMs: number): { fixes: PendingFix[]; log: InvestigationRecord[] } {
+  const kept = normalizeInvestigations(log);
+  const isExpired = (record: InvestigationRecord) => record.pendingFix != null && record.pendingFix.expiresAt <= nowMs;
+  const fixes = kept.filter(isExpired).flatMap((record) => (record.pendingFix ? [record.pendingFix] : []));
+  return { fixes, log: kept.map((record) => (isExpired(record) ? { ...record, pendingFix: null } : record)) };
+}
+
+function pendingFixesDropped(before: unknown, after: readonly InvestigationRecord[]): PendingFix[] {
+  const keptIds = new Set(after.filter((record) => record.pendingFix != null).map((record) => record.id));
+  return normalizeInvestigations(before).flatMap((record) => (record.pendingFix && !keptIds.has(record.id) ? [record.pendingFix] : []));
+}
+
+function approvedFixPrTitle(issueId: unknown): string {
+  return `fix: PostHog issue ${String(issueId ?? '').replace(/[^\w.-]+/g, '-')}`;
+}
+
+function approvedFixPrBody({ issueUrl, verdict }: { issueUrl: string; verdict: string }): string {
+  return [
+    'Automated fix from the Glimmervoid Radar lane, approved for a pull request by the operator.',
+    '',
+    `Issue: ${issueUrl}`,
+    `Fix lane verdict: ${verdict}`,
+    'Not run: the fix lane has no shell, so neither the fix nor any test it added was executed.',
+  ].join('\n');
+}
+
+function approvedFixSessionPrompt({ record, fix }: { record: InvestigationRecord; fix: PendingFix }): string {
+  const base = fix.base || 'the repository default branch';
+  return [
+    `The operator approved a Radar fix for PostHog issue ${record.issueId}. This session starts on local branch ${fix.branch}, forked from ${base}.`,
+    `Review the change with git diff ${base}...HEAD, run the project's tests, and fix anything they show.`,
+    `Then push this branch and open a pull request against ${base} with exactly this title and body:`,
+    '',
+    `Title: ${approvedFixPrTitle(record.issueId)}`,
+    '',
+    approvedFixPrBody({ issueUrl: record.url, verdict: record.verdict }),
+  ].join('\n');
+}
+
+export { toCount, issueKey, issueUrl, classifyIssueChange, investigationTrigger, slotDeferredInvestigationChange, underlyingInvestigationChange, belowMinimumInvestigationChange, planInvestigations, decideJobMode, normalizeJobMode, decideFixHandoff, normalizePrTitle, normalizePrBody, fixDetailLine, decideVanishedEntry, pingFor, nextState, summaryLineFromReportText, validateIssueRef, decideIssueAction, buildInvestigationRecord, appendInvestigation, markInvestigationArchived, pruneInvestigations, unarchivedInvestigations, validateInvestigationId, resolveIssueProject, isAbsolutePathish, projectParentDirs, pickDirectoryForProjectName, sanitizeSessionName, scrubForPaste, buildIssueSessionPrompt, claimPendingFix, claimExpiredPendingFixes, pendingFixesDropped, approvedFixSessionPrompt, PENDING_FIX_TTL_MS, radarUntrustedItems, RADAR_UNTRUSTED_SOURCE, RADAR_UNTRUSTED_ITEM_MAX_CHARS, RADAR_RESULT_FILENAME, RADAR_REPORT_FILENAME, RADAR_EXCEPTION_EVENTS_QUERY, JOB_MODES, FIX_VERDICTS, INVESTIGATIONS_KEY, DEFAULT_ARCHIVED_RETENTION_DAYS, DEFAULT_INTERVAL_MINUTES, DEFAULT_USER_ESCALATION_THRESHOLD, DEFAULT_MIN_USERS_TO_INVESTIGATE, DEFAULT_ENTRY_RETENTION_DAYS };

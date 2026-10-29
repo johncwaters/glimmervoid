@@ -91,7 +91,7 @@ Declare another agent under `customAgents` in `config.json` with an `id`, `label
 - **Usage.** Tokens and estimated cost from local Claude Code, Codex, Kimi Code and Grok transcripts, with optional budgets.
 - **Auto-resume.** Sessions live when Glimmervoid stopped come back with their conversation resumed.
 - **Remote access** (opt-in). Reach the dashboard from another device through single-use pairing links.
-- **Radar** (opt-in). Watches PostHog error tracking, pings Telegram on a spike, regression or new issue, and sends an agent to investigate. Optional auto-fix opens a pull request the agent can never push or merge itself.
+- **Radar** (opt-in). Watches PostHog error tracking, pings Telegram on a spike, regression or new issue, and sends an agent to investigate. Optional auto-fix leaves a local branch; a pull request opens only after you approve it.
 - **Team PR review** (opt-in). Drafts a review of each open pull request from a GitHub team in a guarded agent, optionally with your own review skill. Nothing posts until you choose Approve or Comment.
 
 ### Keyboard

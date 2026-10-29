@@ -4,7 +4,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { commitFixWork, createRadarWiring, pushFixBranch, readWorktreeGitPointer } from '../server/radar/radar-wiring.ts';
+import { checkFixBranch, commitFixWork, createRadarWiring, readWorktreeGitPointer } from '../server/radar/radar-wiring.ts';
+import { createRadarPoller } from '../server/radar/radar-poller.ts';
+import type { PendingFix } from '../server/radar/core/radar-lane-core.ts';
+import type { PosthogApi } from '../server/radar/posthog-api.ts';
 import { UNTRUSTED_PAYLOAD_FILENAME, UntrustedPayload } from '../shared/contracts/untrusted-payload.ts';
 import type { PosthogWorkspace } from '../server/radar/radar-wiring.ts';
 import { createSpawnGate } from '../server/spawn-gate.ts';
@@ -145,29 +148,23 @@ function fakeRun(script: Record<string, CliResult> = {}) {
 const CLEAN_SCRIPT: Record<string, CliResult> = {
   'git diff': { ok: true, out: 'src/app.js\0tests/app.test.js\0', err: '' },
   'git rev-list': { ok: true, out: '2', err: '' },
-  'git push': { ok: true, out: '', err: '' },
-  'gh repo': { ok: true, out: 'owner/repo', err: '' },
-  'gh pr': { ok: true, out: 'https://github.com/owner/repo/pull/42', err: '' },
 };
 
 async function handoff(script: Record<string, CliResult>, over: { workspace?: PosthogWorkspace } = {}) {
   const { run, calls } = fakeRun(script);
-  const res = await pushFixBranch({
-    run, repoPath: '/repo', workspace: WORKSPACE, prTitle: 'fix: guard it', prBody: 'body', ...over,
-  });
+  const res = await checkFixBranch({ run, workspace: WORKSPACE, ...over });
   return { res, calls };
 }
 
-test('pushFixBranch refuses a non-ASCII workflow path that unquoted name-only output would have C-quoted', async () => {
-  const { res, calls } = await handoff({
+test('checkFixBranch refuses a non-ASCII workflow path that unquoted name-only output would have C-quoted', async () => {
+  const { res } = await handoff({
     ...CLEAN_SCRIPT,
     'git diff': { ok: true, out: 'src/app.js\0.github/workflows/\u00e9 \t"x".yml\0', err: '' },
   });
   assert.equal(res.verdict, 'NEEDS_HUMAN');
-  assert.equal(calls.some((c) => c.key === 'git push'), false);
 });
 
-test('pushFixBranch refuses a real commit that renames a workflow out of .github/workflows', async () => {
+test('checkFixBranch refuses a real commit that renames a workflow out of .github/workflows', async () => {
   const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-ph-rename-'));
   const runGit = async (args: string[]) => (await execFileAsync('git', args, { cwd: repoDir, encoding: 'utf8' })).stdout.trim();
   try {
@@ -195,7 +192,7 @@ test('pushFixBranch refuses a real commit that renames a workflow out of .github
         return { ok: false, out: '', err: error instanceof Error ? error.message : String(error) };
       }
     };
-    const res = await pushFixBranch({ run, repoPath: repoDir, workspace: { ...WORKSPACE, cwd: repoDir, baseSha }, prTitle: 'fix', prBody: 'body' });
+    const res = await checkFixBranch({ run, workspace: { ...WORKSPACE, cwd: repoDir, baseSha } });
     assert.equal(res.verdict, 'NEEDS_HUMAN');
     assert.match(res.summary ?? '', /\.github\/workflows\/ci\.yml/);
     assert.deepEqual(outsideCalls, []);
@@ -204,8 +201,84 @@ test('pushFixBranch refuses a real commit that renames a workflow out of .github
   }
 });
 
-test('pushFixBranch refuses a diff that replaces .github with a bare entry such as a symlink', async () => {
-  const { res, calls } = await handoff({ ...CLEAN_SCRIPT, 'git diff': { ok: true, out: '.github\0', err: '' } });
+test('checkFixBranch refuses a diff that replaces .github with a bare entry such as a symlink', async () => {
+  const { res } = await handoff({ ...CLEAN_SCRIPT, 'git diff': { ok: true, out: '.github\0', err: '' } });
   assert.equal(res.verdict, 'NEEDS_HUMAN');
-  assert.equal(calls.some((c) => c.key === 'git push'), false);
+});
+
+test('an unapproved fix branch is released on dismiss and on expiry, and approval keeps it', async () => {
+  const nowMs = 1_000_000;
+  const fixFor = (branch: string, expiresAt: number): PendingFix => ({ repoPath: '/repo', branch, base: 'main', agentPrTitle: 't', agentPrBody: 'b', expiresAt });
+  const record = (id: string, pendingFix: PendingFix) => ({ id, key: id, issueId: id, verdict: 'FIXED', mode: 'fix', at: nowMs - 1, archived: false, pendingFix });
+  const released: string[] = [];
+  const timerHandle = setTimeout(() => {}, 0);
+  clearTimeout(timerHandle);
+  const poller = createRadarPoller({
+    api: {} as PosthogApi,
+    spawnInvestigation: async () => null,
+    readState: async () => ({ _investigations: [
+      record('expired', fixFor('glimmervoid/radar-fix/expired', nowMs - 1)),
+      record('dismissed', fixFor('glimmervoid/radar-fix/dismissed', nowMs + 1000)),
+      record('approved', fixFor('glimmervoid/radar-fix/approved', nowMs + 1000)),
+    ] }),
+    releasePendingFix: async (fix) => { released.push(fix.branch); },
+    setTimeoutFn: () => timerHandle,
+    setIntervalFn: () => timerHandle,
+    now: () => nowMs,
+  });
+  await poller.start();
+  await poller.tick();
+  assert.equal(poller.pendingFixFor('expired'), null);
+  assert.deepEqual(released, ['glimmervoid/radar-fix/expired']);
+
+  assert.equal((await poller.settlePendingFix('dismissed', { releaseBranch: true })).ok, true);
+  assert.equal((await poller.settlePendingFix('approved', { releaseBranch: false })).ok, true);
+  assert.equal((await poller.settlePendingFix('approved', { releaseBranch: false })).ok, false);
+  await poller.stop();
+  assert.deepEqual(released, ['glimmervoid/radar-fix/expired', 'glimmervoid/radar-fix/dismissed']);
+});
+
+test('a fix aborted while Glimmervoid commits it deletes its branch instead of keeping a fix no record holds', async () => {
+  const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-ph-abort-'));
+  const worktreeDir = path.join(repoDir, 'wt');
+  fs.mkdirSync(path.join(worktreeDir, 'admin'), { recursive: true });
+  fs.writeFileSync(path.join(worktreeDir, '.git'), 'gitdir: ./admin\n');
+  fs.writeFileSync(path.join(worktreeDir, 'admin', 'commondir'), '../..\n');
+  const controller = new AbortController();
+  const discarded: (string | null | undefined)[] = [];
+  const recording = recordingSessionFactory();
+  const wiring = createRadarWiring({
+    config: { posthog: { enabled: true, apiKey: 'phx_secret', repoPath: repoDir }, replayBufferKB: 256 },
+    ...inertWiringDeps(),
+    gitWorkspace: {
+      create: () => ({ isGit: true, cwd: worktreeDir, branch: 'glimmervoid/radar-fix/1-iss-abort', base: 'main', baseSha: 'deadbeef' }),
+      discard: ({ workspace }) => { discarded.push(workspace.branch); },
+    },
+    runCommand: async (_cmd, args) => {
+      if (args.includes('commit')) controller.abort();
+      if (args[0] === 'diff' && !args.includes('--cached')) return { ok: true, out: 'src/app.js\0', err: '' };
+      if (args[0] === 'rev-list') return { ok: true, out: '1', err: '' };
+      return { ok: !args.includes('--quiet'), out: '', err: '' };
+    },
+    makeSession: (options) => {
+      fs.writeFileSync(path.join(options.path, 'radar-result.json'), JSON.stringify({ verdict: 'FIXED', summary: 'guarded it' }));
+      const session = recording.makeSession(options);
+      session.start = async () => { setImmediate(() => session.emit('exit', { exitCode: 0 })); };
+      return session;
+    },
+    posthogApiFor: () => ({ runHogQL: async () => ({ ok: true, status: 200, body: { columns: [], results: [] } }) }),
+  });
+  try {
+    const result = await wiring._investigationSpawn({
+      key: 'k', issue: { issueId: 'iss-abort', title: 'TypeError' }, projectId: 1, projectName: 'web',
+      host: 'https://us.posthog.com', url: 'https://us.posthog.com/project/1/error_tracking/iss-abort',
+      mode: 'fix', timeoutMs: 1000, signal: controller.signal,
+    });
+    assert.equal(result?.verdict, 'ERROR', JSON.stringify(result));
+    assert.deepEqual(discarded, ['glimmervoid/radar-fix/1-iss-abort']);
+  } finally {
+    for (const session of recording.created) session.destroy();
+    await wiring.stopPoller();
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  }
 });

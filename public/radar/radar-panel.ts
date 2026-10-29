@@ -41,18 +41,7 @@ import type { InvestigationFinishedFrame, RadarIssue, RadarLoadPhase, RadarProje
 
 type RadarProjectEntry = RadarProjectAlert & { project: RadarProject };
 
-interface InvestigationRow {
-  id: string;
-  issueId: string;
-  projectLabel: string;
-  title: string;
-  summaryLine: string;
-  url: string;
-  verdict: string;
-  mode: string;
-  prUrl: string;
-  at: number;
-}
+type InvestigationRow = ReturnType<typeof investigationRows>[number];
 
 let _root: HTMLDivElement | null = null;
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -608,6 +597,14 @@ function buildInvestigationActions(row: InvestigationRow) {
       openIssueReport({ issueId: row.issueId, title: row.title });
     });
   }
+  if (row.pendingFix) {
+    addButton('Approve PR', 'Open a session on the fix branch that reviews, tests, pushes and opens the pull request', () => {
+      request(`approve-fix:${row.id}`, 'radar-approve-fix', { id: row.id }, 'Opening a session', (message) => `Session ${String(message.sessionName ?? '')} opened`);
+    });
+    addButton('Dismiss fix', 'Delete the local fix branch without opening a pull request', () => {
+      request(`dismiss-fix:${row.id}`, 'radar-dismiss-fix', { id: row.id }, 'Deleting the branch', () => 'Fix dismissed');
+    });
+  }
   addButton('Archive', 'Remove this investigation from the inbox', () => {
     request(
       `archive:${row.id}`,
@@ -645,6 +642,13 @@ function buildInvestigationRow(row: InvestigationRow) {
     pr.rel = 'noopener';
     pr.title = row.prUrl;
     copy.append(pr);
+  }
+
+  if (row.pendingFix) {
+    const waiting = el('span', 'radar-issue-summary');
+    const expiry = row.pendingFix.expiresAt > 0 ? `, deleted ${new Date(row.pendingFix.expiresAt).toLocaleDateString()} unless approved` : '';
+    waiting.textContent = `Fix waiting on local branch ${row.pendingFix.branch}${expiry}. Agent title: ${row.pendingFix.agentPrTitle || '(none)'}`;
+    copy.append(waiting);
   }
 
   item.append(verdict);

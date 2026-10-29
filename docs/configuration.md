@@ -99,7 +99,7 @@ The PostHog lane only starts when `posthog.host`, `posthog.apiKey`, `telegram.bo
 | `posthog.maxConcurrentInvestigations` | Max concurrent investigations | `2` | Maximum investigation sessions running together. |
 | `posthog.minUsersToInvestigate` | Min users to investigate | `1` | Minimum affected users for a new issue investigation. Regressions, worsening issues and eligible error spikes bypass this minimum. |
 | `posthog.trafficSpikeEnabled` | Traffic spike alerts | `true` | Ping when recent unique users exceed a project baseline. |
-| `posthog.autoFix` | Attempt fixes for major issues | `false` | Allow an isolated agent to fix an issue, push a branch and open a pull request. |
+| `posthog.autoFix` | Attempt fixes for major issues | `false` | Allow an agent to fix an issue onto a local branch; a pull request opens only after you approve it in the Radar tab. |
 | `posthog.investigationTimeoutSeconds` | Investigation timeout | `900` | Maximum time allowed for one investigation. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `posthog.userEscalationThreshold` | Escalation threshold | `25` | Affected-user count that escalates an issue. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `posthog.fixTimeoutSeconds` | Fix timeout | `1800` | Maximum time allowed for one fix session. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
@@ -293,7 +293,7 @@ Every event also carries `app_version`, `os_platform`, `node_major`, `install_fl
 | `team_review_settled` | `duration_ms`, `outcome`, `drafted_comment_count`, `posted_comment_count` | A team review draft was posted (approve, comment or approve-only) or discarded, with how many inline comments were drafted and how many were posted, plus the total action duration in milliseconds. |
 | `team_review_post_refused` | `duration_ms`, `reason` | Posting a team review was refused, with a reason from a fixed list and the total action duration in milliseconds. Never the error text. |
 | `radar_investigation_finished` | `verdict`, `mode`, `error_reason` | A Radar investigation or fix run finished, with its verdict and mode, plus a reason from a fixed list when it ended in ERROR. Never the summary text. |
-| `radar_fix_handoff_failed` | `step` | Handing a Radar fix over as a pull request failed, with which step failed. Never the branch or the error text. |
+| `radar_fix_handoff_failed` | `step` | Committing or checking a Radar fix branch failed, with which step failed. Never the branch or the error text. |
 | `data_deletion_requested` | none | Delete my data was confirmed in Settings > Privacy, with no properties. Sent under the old install id even when telemetry is off, unless the maintainers stopped all sending, and then the install id is replaced. PostHog deletes the person and every event under that id on receipt. |
 
 ## Browser preferences

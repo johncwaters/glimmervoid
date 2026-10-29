@@ -446,9 +446,9 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
       },
       {
         id: 'posthog-auto-fix', path: 'posthog.autoFix', title: 'Attempt fixes for major issues',
-        description: 'Allow an isolated agent to fix an issue, push a branch and open a pull request.',
+        description: 'Allow an agent to fix an issue onto a local branch; a pull request opens only after you approve it in the Radar tab.',
         control: 'toggle', keywords: ['automatic', 'pull request'], danger: true,
-        warning: 'Enabling this control lets PostHog fixes commit, push and open pull requests automatically.', defaultValue: false, ...MACHINE_NOW,
+        warning: 'Enabling this control lets an agent that read PostHog error data edit code onto a local branch; nothing is pushed until you approve it.', defaultValue: false, ...MACHINE_NOW,
       },
     ],
   },

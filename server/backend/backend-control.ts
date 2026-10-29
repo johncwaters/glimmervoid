@@ -7,7 +7,7 @@ import type { Session } from '../../session/sessions.ts';
 import type { ControlBroadcast, ControlSocket } from './backend-websockets.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
 import { registerControlHandlers } from '../control-handlers.ts';
-import type { BenchmarkControl, CommunityActionControl, ControlHandlerDeps, MyPrMergeControl, TeamReviewActionControl } from '../control-handlers.ts';
+import type { BenchmarkControl, CommunityActionControl, ControlHandlerDeps, MyPrMergeControl, RadarFixControl, TeamReviewActionControl } from '../control-handlers.ts';
 import type { ReplayLog } from '../core/control-replay-core.ts';
 import type { TelegramDeliveryControl } from '../core/telegram-delivery-core.ts';
 import type { PlanDecision } from '../../shared/contracts/plan-review.ts';
@@ -36,7 +36,7 @@ interface LaneReader {
   featureHints: NonNullable<ControlHandlerDeps['featureHints']>;
 }
 
-interface RadarControl {
+interface RadarControl extends RadarFixControl {
   getStatus: () => Record<string, unknown> | null;
   setIssueStatus: (args: { projectId: string; issueId: string; action: string }) => Promise<Record<string, unknown>>;
   archiveInvestigation: (args: { id: string }) => Promise<Record<string, unknown>>;
@@ -155,6 +155,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     getRadarStatus: () => posthog.getStatus(),
     posthogSetIssueStatus: (args) => posthog.setIssueStatus(args),
     radarArchiveInvestigation: (args) => posthog.archiveInvestigation(args),
+    radarFixes: posthog,
     getTeamReviewStatus: () => teamReview.getStatus(),
     getCommunityStatus: () => community.getStatus(),
     getMyPrsStatus: () => myPrs.getStatus(),

@@ -93,6 +93,11 @@ interface RadarLaneStatus {
 
 type TeamReviewActionOutcome = Omit<TeamReviewActionResult, 'key'>;
 
+interface RadarFixControl {
+  pendingFixFor: (id: string) => { record: radarLaneCore.InvestigationRecord; fix: radarLaneCore.PendingFix } | null;
+  settlePendingFix: (id: string, options: { releaseBranch: boolean }) => Promise<{ ok: boolean; error?: string }>;
+}
+
 interface CommunityActionControl {
   submitAction(request: CommunityActionRequest): Promise<Omit<CommunityActionResult, 'key'>>;
   sessionPromptFor(key: string): { ok: true; title: string; prompt: string } | { ok: false; error: string };
@@ -145,6 +150,7 @@ interface ControlHandlerDeps {
   posthogReportsDir?: string | null;
   posthogSetIssueStatus?: ((args: { projectId: string; issueId: string; action: string }) => Promise<Record<string, unknown>>) | null;
   radarArchiveInvestigation?: ((args: { id: string }) => Promise<Record<string, unknown>>) | null;
+  radarFixes?: RadarFixControl | null;
   getTeamReviewStatus?: (() => TeamReviewStatus | null) | null;
   getCommunityStatus?: (() => Record<string, unknown> | null) | null;
   community?: CommunityActionControl | null;
@@ -282,6 +288,8 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'open-team-review-session': () => ({ type: 'open-team-review-session-result', requestId, ok: false, error: message }),
     'radar-issue-action': () => ({ type: 'radar-issue-action-result', requestId, ok: false, error: message }),
     'radar-archive-investigation': () => ({ type: 'radar-archive-investigation-result', requestId, ok: false, error: message }),
+    'radar-approve-fix': () => ({ type: 'radar-approve-fix-result', requestId, ok: false, error: message }),
+    'radar-dismiss-fix': () => ({ type: 'radar-dismiss-fix-result', requestId, ok: false, error: message }),
     'telegram-test': () => ({ type: 'telegram-test-result', requestId, ok: false, error: message, telegramDelivery: null }),
     'team-review-action': () => ({ type: 'team-review-action-result', requestId, key: typeof msg?.key === 'string' ? msg.key : '', ok: false, error: message }),
     'community-action': () => ({ type: 'community-action-result', requestId, key: typeof msg?.key === 'string' ? msg.key : '', ok: false, error: message }),
@@ -359,6 +367,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
     posthogSetIssueStatus = null,
     radarArchiveInvestigation = null,
+    radarFixes = null,
     getTeamReviewStatus = null,
     getCommunityStatus = null,
     community = null,
@@ -1515,6 +1524,41 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     reply({ ok: res.ok === true, error: res.error || null });
   }
 
+  async function handleRadarApproveFix(msg: ClientMessageOf<'radar-approve-fix'>, ws: ControlSocket): Promise<void> {
+    const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'radar-approve-fix-result', { ok: false, error: null, ...payload });
+    const ref = radarLaneCore.validateInvestigationId(msg.id);
+    if (!ref.ok) { reply({ error: ref.error }); return; }
+    captureOperatorAction('radar', 'approve-fix');
+    if (!radarFixes) { reply({ error: 'PostHog monitoring is not running' }); return; }
+    const pending = radarFixes.pendingFixFor(ref.id);
+    if (!pending) { reply({ error: 'That investigation has no fix waiting for approval' }); return; }
+    const created = createProjectSession({
+      name: `Radar fix ${radarLaneCore.sanitizeSessionName(pending.record.projectName)} #${pending.record.issueId}`,
+      path: pending.fix.repoPath,
+      baseBranch: pending.fix.branch,
+      requireExistingPath: true,
+    });
+    if (!created.ok) { reply({ error: created.error }); return; }
+    const session = sessions.get(created.project.id);
+    if (!session) { reply({ error: `Session "${created.project.name}" is not loaded` }); return; }
+    const pasted = session.pasteTextWhenReady(radarLaneCore.approvedFixSessionPrompt(pending));
+    if (!pasted.ok) { reply({ error: `Could not write to "${session.name}" (${pasted.reason})` }); return; }
+    const settled = await radarFixes.settlePendingFix(ref.id, { releaseBranch: false });
+    if (!settled.ok) console.warn(`[control] radar-approve-fix: ${settled.error}`);
+    reply({ ok: true, sessionId: session.id, sessionName: session.name });
+    console.log(`[control] radar-approve-fix: investigation=${ref.id} -> session=${session.name}`);
+  }
+
+  async function handleRadarDismissFix(msg: ClientMessageOf<'radar-dismiss-fix'>, ws: ControlSocket): Promise<void> {
+    const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'radar-dismiss-fix-result', { ok: false, error: null, ...payload });
+    const ref = radarLaneCore.validateInvestigationId(msg.id);
+    if (!ref.ok) { reply({ error: ref.error }); return; }
+    captureOperatorAction('radar', 'dismiss-fix');
+    if (!radarFixes) { reply({ error: 'PostHog monitoring is not running' }); return; }
+    const res = await radarFixes.settlePendingFix(ref.id, { releaseBranch: true });
+    reply({ ok: res.ok === true, error: res.error || null });
+  }
+
   async function handleRequestUsageReport(msg: ClientMessageOf<'request-usage-report'>, ws: ControlSocket): Promise<void> {
     if (!requestUsageReport) {
       ws.send(JSON.stringify({ type: 'usage-report', requestId: msg.requestId || null, error: 'Usage tracking is not running' }));
@@ -1665,6 +1709,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'open-issue-session': (msg: ClientMessageOf<'open-issue-session'>, ws: ControlSocket) => issueOpenQueue.run(`${msg.repo.toLowerCase()}#${msg.issueNumber}`, () => handleOpenIssueSession(msg, ws)),
     'radar-issue-action': handleRadarIssueAction,
     'radar-archive-investigation': handleRadarArchiveInvestigation,
+    'radar-approve-fix': handleRadarApproveFix,
+    'radar-dismiss-fix': handleRadarDismissFix,
     'telegram-test': handleTelegramTest,
     'team-review-action': handleTeamReviewAction,
     'community-action': handleCommunityAction,
@@ -1985,4 +2031,4 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 export {
   registerControlHandlers,
 };
-export type { BenchmarkControl, CommunityActionControl, ControlHandlerDeps, MyPrMergeControl, TeamReviewActionControl };
+export type { BenchmarkControl, CommunityActionControl, ControlHandlerDeps, MyPrMergeControl, RadarFixControl, TeamReviewActionControl };

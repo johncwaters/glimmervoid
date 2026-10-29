@@ -21,7 +21,7 @@ import { nulSeparatedPaths } from '../git/core/git-changed-paths-core.ts';
 import * as core from './core/radar-lane-core.ts';
 import type { GuardrailsRole } from '../guardrails/core/guardrails-policy-core.ts';
 import { LANE_CREDENTIAL_ENV, workRole } from '../guardrails/core/guardrails-roles-core.ts';
-import type { PosthogIssue } from './core/radar-lane-core.ts';
+import type { InvestigationRecord, PendingFix, PosthogIssue } from './core/radar-lane-core.ts';
 import {
   awaitSessionExit, createJobResultFile, readResultFile, registerEphemeralSession,
 } from '../lanes/ephemeral-session.ts';
@@ -159,9 +159,6 @@ const HANDOFF_STEP_LABELS: Readonly<Record<RadarHandoffStep, string>> = Object.f
   'commit-fix': 'committing the fix',
   'read-diff': 'reading the branch diff',
   'count-commits': 'counting the branch commits',
-  'push-branch': 'pushing the fix branch',
-  'resolve-repo': 'resolving the repository',
-  'open-pr': 'opening the pull request',
 });
 
 interface RadarWiringOptions {
@@ -326,7 +323,7 @@ function buildFixPrompt(
     '- Tools: Read, Grep, Glob, Edit and Write. You have no shell: you cannot run code, tests or git, and nothing',
     '  you write is executed before a carbon unit reviews it.',
     '- Do not commit. Glimmervoid commits every change you leave in this worktree after you finish, except',
-    `  ${UNTRUSTED_PAYLOAD_FILENAME} and your result file, and a carbon unit approves the pull request.`,
+    `  ${UNTRUSTED_PAYLOAD_FILENAME} and your result file. A carbon unit decides whether a pull request is opened.`,
     '- NEVER edit anything under .github/workflows/ or the .git entry. Glimmervoid refuses a fix that does.',
     '- Work only in this worktree.',
     '',
@@ -343,7 +340,7 @@ function buildFixPrompt(
     '   - TRANSIENT: no code defect behind it (dependency blip, cancelled request).',
     '   - ERROR: you could not get there. Say why.',
     '   - `prTitle` is one conventional-commit-style line. `prBody` states: what breaks, the root cause, what you',
-    '     changed, and that neither the fix nor its test was run. Both are used verbatim on the pull request.',
+    '     changed, and that neither the fix nor its test was run. Both are shown to the operator only.',
     '   - Write your own one-line summary. Never copy fetched text into it verbatim.',
     '',
     'Style: terse. Short declarative sentences, every claim anchored to a file and line, no filler, no',
@@ -398,15 +395,10 @@ async function runCli(cmd: string, args: string[], cwd: string, execFileFn?: Exe
   return { ok: result.ok, out: result.out, err: result.err };
 }
 
-function handoffFailure(
-  step: RadarHandoffStep,
-  detail: unknown,
-  { pushed, branch }: { pushed: boolean; branch: string | null | undefined },
-): HandoffResult {
-  const where = pushed ? `branch ${branch} is pushed with no pull request` : `branch ${branch} was not pushed`;
+function handoffFailure(step: RadarHandoffStep, detail: unknown, branch: string | null | undefined): HandoffResult {
   const why = core.summaryLineFromReportText(detail);
   return {
-    verdict: 'ERROR', prUrl: null, summary: `fix handoff failed while ${HANDOFF_STEP_LABELS[step]}${why ? ` (${why})` : ''}; ${where}`,
+    verdict: 'ERROR', prUrl: null, summary: `fix handoff failed while ${HANDOFF_STEP_LABELS[step]}${why ? ` (${why})` : ''}; branch ${branch} was deleted`,
     errorReason: 'handoff-failed', failedStep: step,
   };
 }
@@ -417,21 +409,18 @@ function resultErrorReason(outcome: ResultFileOutcome): RadarErrorReason | undef
   return outcome.kind === 'missing' ? 'no-result' : 'invalid-result';
 }
 
-async function pushFixBranch(
-  { run = runCli, repoPath, workspace, prTitle, prBody }: {
+async function checkFixBranch(
+  { run = runCli, workspace }: {
     run?: (cmd: string, args: string[], cwd: string) => Promise<CliResult>;
-    repoPath: string;
     workspace: PosthogWorkspace;
-    prTitle: string;
-    prBody: string;
   },
 ): Promise<HandoffResult> {
   const branch = workspace.branch;
   const baseRef = workspace.baseSha || workspace.base;
   const changed = await run('git', ['diff', '-z', '--name-only', '--no-renames', `${baseRef}...HEAD`], workspace.cwd);
-  if (!changed.ok) return handoffFailure('read-diff', changed.err, { pushed: false, branch });
+  if (!changed.ok) return handoffFailure('read-diff', changed.err, branch);
   const ahead = await run('git', ['rev-list', '--count', `${baseRef}..HEAD`], workspace.cwd);
-  if (!ahead.ok) return handoffFailure('count-commits', ahead.err, { pushed: false, branch });
+  if (!ahead.ok) return handoffFailure('count-commits', ahead.err, branch);
 
   const decision = core.decideFixHandoff({
     changedFiles: nulSeparatedPaths(changed.out),
@@ -441,22 +430,7 @@ async function pushFixBranch(
     const verdict = decision.verdict ?? 'ERROR';
     return { verdict, prUrl: null, summary: decision.summary ?? null, ...(verdict === 'ERROR' ? { errorReason: 'empty-fix' as const } : {}) };
   }
-
-  const pushed = await run('git', ['push', 'origin', String(branch)], workspace.cwd);
-  if (!pushed.ok) return handoffFailure('push-branch', pushed.err, { pushed: false, branch });
-
-  const slug = await run('gh', ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'], repoPath);
-  if (!slug.ok || !slug.out) return handoffFailure('resolve-repo', slug.err, { pushed: true, branch });
-
-  const args = ['pr', 'create', '--repo', slug.out, '--head', String(branch), '--title', prTitle, '--body', prBody];
-  const base = workspace.base;
-  if (base && base !== 'HEAD') args.push('--base', base);
-  const created = await run('gh', args, repoPath);
-  if (!created.ok) return handoffFailure('open-pr', created.err, { pushed: true, branch });
-
-  const prUrl = core.normalizePrUrl(created.out);
-  if (prUrl) return { verdict: 'FIXED', prUrl, summary: null };
-  return { verdict: 'FIXED', prUrl: null, summary: `pull request opened for ${branch}, its url was not readable` };
+  return { verdict: 'FIXED', prUrl: null, summary: null };
 }
 
 async function readRegularFileText(filePath: string): Promise<string | null> {
@@ -485,11 +459,11 @@ async function commitFixWork(
   const git = (args: string[]) => run('git', ['-c', `core.hooksPath=${emptyHooksDir}`, '-c', 'core.fsmonitor=false', ...args], workspace.cwd);
   const branch = workspace.branch;
   const staged = await git(['add', '-A']);
-  if (!staged.ok) return handoffFailure('commit-fix', staged.err, { pushed: false, branch });
+  if (!staged.ok) return handoffFailure('commit-fix', staged.err, branch);
   const hasNothingStaged = await git(['diff', '--cached', '--quiet']);
   if (hasNothingStaged.ok) return null;
   const committed = await git(['commit', '--no-verify', '-m', message]);
-  if (!committed.ok) return handoffFailure('commit-fix', committed.err, { pushed: false, branch });
+  if (!committed.ok) return handoffFailure('commit-fix', committed.err, branch);
   return null;
 }
 
@@ -704,6 +678,7 @@ function createRadarWiring({
     const payloadPath = path.join(workspace.cwd, UNTRUSTED_PAYLOAD_FILENAME);
     let hooksScratch: JobResultFile | null = null;
     let cleanupLane: (() => Promise<void>) | null = null;
+    let isBranchKept = false;
     try {
       hooksScratch = await createResultFileFor('fix-', projectId, issueId);
       const gitPointerBefore = await readWorktreeGitPointer(workspace.cwd);
@@ -730,9 +705,8 @@ function createRadarWiring({
       await waitForExit(lane.sess, signal);
       const result = readFixResult(resultPath);
       await Promise.all([resultPath, payloadPath].map((controlFile) => fs.promises.rm(controlFile, { force: true })));
-      if (signal?.aborted) {
-        return { verdict: 'ERROR', summary: 'fix aborted before the branch was pushed', reproduced: false, prUrl: null, url, mode: core.JOB_MODES.fix, errorReason: 'aborted' as const };
-      }
+      const abortedResult = { verdict: 'ERROR', summary: 'fix aborted before its branch was kept', reproduced: false, prUrl: null, url, mode: core.JOB_MODES.fix, errorReason: 'aborted' as const };
+      if (signal?.aborted) return abortedResult;
       if (result.verdict !== 'FIXED') {
         return { verdict: result.verdict, summary: result.summary, reproduced: false, prUrl: null, url, mode: core.JOB_MODES.fix, errorReason: resultErrorReason(result) };
       }
@@ -740,15 +714,21 @@ function createRadarWiring({
       const prBody = String(result.prBody || fallbackPrBody({ issueUrl: promptUrl, summary: result.summary }));
       const pointerIntact = gitPointerBefore !== null && (await readWorktreeGitPointer(workspace.cwd)) === gitPointerBefore;
       const commitFailure = pointerIntact
-        ? await commitFixWork({ run: runCommand, workspace, message: prTitle, emptyHooksDir: path.dirname(hooksScratch.path) })
-        : handoffFailure('commit-fix', 'the fix changed the worktree git pointers', { pushed: false, branch: workspace.branch });
-      const handoff = commitFailure ?? await pushFixBranch({ run: runCommand, repoPath, workspace, prTitle, prBody });
+        ? await commitFixWork({ run: runCommand, workspace, message: fallbackPrTitle(issueId), emptyHooksDir: path.dirname(hooksScratch.path) })
+        : handoffFailure('commit-fix', 'the fix changed the worktree git pointers', workspace.branch);
+      const handoff = commitFailure ?? await checkFixBranch({ run: runCommand, workspace });
       if (handoff.failedStep) telemetry?.capture('radar_fix_handoff_failed', { step: handoff.failedStep });
+      if (signal?.aborted) return abortedResult;
+      const pendingFix = handoff.verdict === 'FIXED' && workspace.branch
+        ? { repoPath, branch: workspace.branch, base: workspace.base ?? null, agentPrTitle: prTitle, agentPrBody: prBody, expiresAt: Date.now() + core.PENDING_FIX_TTL_MS }
+        : null;
+      isBranchKept = pendingFix !== null;
       return {
         verdict: handoff.verdict,
         summary: handoff.summary || result.summary,
         reproduced: false,
-        prUrl: handoff.prUrl,
+        prUrl: null,
+        pendingFix,
         url,
         mode: core.JOB_MODES.fix,
         errorReason: handoff.errorReason,
@@ -767,7 +747,8 @@ function createRadarWiring({
     } finally {
       if (cleanupLane) await cleanupLane();
       if (hooksScratch) await hooksScratch.cleanup();
-      await Promise.resolve(gitWorkspace.discard({ projectPath: repoPath, workspace, cause: 'radar' }))
+      const discarded = isBranchKept ? { ...workspace, branch: null } : workspace;
+      await Promise.resolve(gitWorkspace.discard({ projectPath: repoPath, workspace: discarded, cause: 'radar' }))
         .catch((e: unknown) => console.warn(`[posthog-poller] fix worktree discard failed: ${errorMessage(e)}`));
     }
   }
@@ -881,6 +862,7 @@ function createRadarWiring({
         host: posthogConfig.host,
         resolveProjects: makeResolveProjects(api, config),
         spawnInvestigation: radarInvestigationSpawn,
+        releasePendingFix: deletePendingFixBranch,
         telemetry,
         telegram: (text: string) => { void sendTelegramMessage({ botToken, chatId, text, tag: 'posthog' }); },
         readState: readPosthogState,
@@ -920,6 +902,24 @@ function createRadarWiring({
     return { ok: true, status: decision.status };
   }
 
+  async function deletePendingFixBranch(fix: PendingFix): Promise<void> {
+    if (!gitWorkspace) return;
+    await gitWorkspace.discard({ projectPath: fix.repoPath, workspace: { isGit: true, cwd: '', branch: fix.branch }, cause: 'radar' });
+  }
+
+  function pendingFixFor(id: string): { record: InvestigationRecord; fix: PendingFix } | null {
+    return runner.getPoller()?.pendingFixFor(id) ?? null;
+  }
+
+  async function settlePendingFix(id: string, options: { releaseBranch: boolean }) {
+    const poller = runner.getPoller();
+    if (!poller) return { ok: false, error: 'PostHog monitoring is not running' };
+    const res = await poller.settlePendingFix(id, options);
+    if (!res.ok) return { ok: false, error: res.error };
+    runner.patchStatus({ investigations: res.investigations });
+    return { ok: true };
+  }
+
   async function archiveInvestigation({ id }: { id?: string } = {}) {
     const poller = runner.getPoller();
     if (!poller || !('archiveInvestigation' in poller) || typeof poller.archiveInvestigation !== 'function') {
@@ -938,10 +938,12 @@ function createRadarWiring({
     getStatus: runner.getStatus,
     setIssueStatus,
     archiveInvestigation,
+    pendingFixFor,
+    settlePendingFix,
     _makeInvestigationSession: makeInvestigationSession,
     _investigationSpawn: radarInvestigationSpawn,
   };
 }
 
-export { commitFixWork, createRadarWiring, pushFixBranch, readWorktreeGitPointer, runCli };
+export { checkFixBranch, commitFixWork, createRadarWiring, readWorktreeGitPointer, runCli };
 export type { PosthogWorkspace };

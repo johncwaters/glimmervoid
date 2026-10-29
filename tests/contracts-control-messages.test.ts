@@ -193,6 +193,8 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'my-pr-keep-mergeable-result', requestId: 'toggle-1', key: 'PostHog/wizard#1350', ok: true },
   { type: 'my-pr-merge-when-ready-result', requestId: 'queue-1', key: 'PostHog/wizard#1350', ok: true },
   { type: 'radar-archive-investigation-result', requestId: 'posthog-4', ok: true, error: null },
+  { type: 'radar-approve-fix-result', requestId: 'posthog-5', ok: true, error: null, sessionId: 'session-1', sessionName: 'Radar fix web #1' },
+  { type: 'radar-dismiss-fix-result', requestId: 'posthog-6', ok: false, error: 'That investigation has no fix waiting for approval' },
   { type: 'team-review-status', ts: NOW, configured: true, drafts: [{
     key: 'PostHog/wizard#1350', repo: 'PostHog/wizard', number: 1350, title: 'Improve agent detection',
     url: 'https://github.com/PostHog/wizard/pull/1350', author: 'teammate', requestSource: 'team', tier: 'stamp', reasons: ['12 counted lines in 1 files'],

@@ -1,6 +1,6 @@
 import type { InvestigationTrail } from '../core/investigation-trail-core.ts';
 import * as core from './core/radar-lane-core.ts';
-import type { InvestigationRecord, PosthogIssue, PosthogIssueChange, PosthogStateEntry } from './core/radar-lane-core.ts';
+import type { InvestigationRecord, PendingFix, PosthogIssue, PosthogIssueChange, PosthogStateEntry } from './core/radar-lane-core.ts';
 import * as recurrence from './core/radar-recurrence.ts';
 import type { RecurrenceDecision } from './core/radar-recurrence.ts';
 import * as traffic from '../core/traffic-spike-core.ts';
@@ -60,6 +60,7 @@ interface JobResult {
   mode?: unknown;
   reproduced?: unknown;
   prUrl?: unknown;
+  pendingFix?: PendingFix | null;
   errorReason?: RadarErrorReason;
 }
 
@@ -166,6 +167,7 @@ interface RadarPollerDependencies {
   trafficSpikeCooldownMinutes?: number;
   trafficSpikeBaselineDays?: number;
   waitForTrafficRetry?: () => Promise<void>;
+  releasePendingFix?: (fix: PendingFix) => Promise<void>;
 }
 
 interface RadarPoller {
@@ -173,6 +175,8 @@ interface RadarPoller {
   stop: () => Promise<void>;
   tick: () => Promise<void>;
   archiveInvestigation: (id?: string) => Promise<{ ok: boolean; error?: string; investigations?: InvestigationRecord[] }>;
+  pendingFixFor: (id: string) => { record: InvestigationRecord; fix: PendingFix } | null;
+  settlePendingFix: (id: string, options: { releaseBranch: boolean }) => Promise<{ ok: boolean; error?: string; investigations?: InvestigationRecord[] }>;
   investigations: () => InvestigationRecord[];
   _state: () => PosthogState;
 }
@@ -205,6 +209,7 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
     onTickComplete = () => {},
     onInvestigationActivity = () => {},
     now = () => Date.now(),
+    releasePendingFix = async () => {},
   } = deps;
 
   const intervalMinutes = deps.intervalMinutes || 15;
@@ -347,7 +352,7 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
       const ctx = {
         ...pingContext(change),
         summary: result?.summary,
-        detail: isFix && verdict === 'FIXED' ? core.fixDetailLine(result?.reproduced) : undefined,
+        detail: isFix && verdict === 'FIXED' ? core.fixDetailLine() : undefined,
         prUrl: isFix ? result?.prUrl : undefined,
       };
       if (kind === FIX_PING_KIND) pingAlways(kind, ctx);
@@ -367,7 +372,8 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
         ? { at: completedAt, verdict, reproduced: result?.reproduced === true, prUrl: result?.prUrl }
         : null,
     });
-    state[core.INVESTIGATIONS_KEY] = core.appendInvestigation(state[core.INVESTIGATIONS_KEY], core.buildInvestigationRecord({
+    const logBefore = state[core.INVESTIGATIONS_KEY];
+    const logAfter = core.appendInvestigation(logBefore, core.buildInvestigationRecord({
       key: change.key,
       projectId: change.projectId,
       projectName: change.projectName,
@@ -380,7 +386,10 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
       at: completedAt,
       mode,
       prUrl: isFix ? result?.prUrl : null,
+      pendingFix: isFix ? result?.pendingFix ?? null : null,
     }));
+    state[core.INVESTIGATIONS_KEY] = logAfter;
+    releaseFixes(core.pendingFixesDropped(logBefore, logAfter));
     activeRunIds.delete(change.key);
     cancelPendingActivity(change.key);
     const trail = trails.get(change.key);
@@ -459,12 +468,44 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
     return true;
   }
 
+  function releaseFixes(fixes: readonly PendingFix[]): void {
+    for (const fix of fixes) {
+      void releasePendingFix(fix).catch((e: unknown) => log.warn(`[posthog-poller] pending fix branch ${fix.branch} was not deleted: ${errorMessage(e)}`));
+    }
+  }
+
+  function releaseExpiredFixes(): boolean {
+    const expired = core.claimExpiredPendingFixes(state[core.INVESTIGATIONS_KEY], now());
+    if (expired.fixes.length === 0) return false;
+    state[core.INVESTIGATIONS_KEY] = expired.log;
+    releaseFixes(expired.fixes);
+    return true;
+  }
+
+  function pendingFixFor(id: string): { record: InvestigationRecord; fix: PendingFix } | null {
+    const record = core.unarchivedInvestigations(state[core.INVESTIGATIONS_KEY]).find((candidate) => candidate.id === id);
+    if (!record?.pendingFix || record.pendingFix.expiresAt <= now()) return null;
+    return { record, fix: record.pendingFix };
+  }
+
+  async function settlePendingFix(id: string, { releaseBranch }: { releaseBranch: boolean }) {
+    const claimed = core.claimPendingFix(state[core.INVESTIGATIONS_KEY], id);
+    if (!claimed.fix) return { ok: false, error: 'That investigation has no fix waiting for approval' };
+    state[core.INVESTIGATIONS_KEY] = claimed.log;
+    if (releaseBranch) releaseFixes([claimed.fix]);
+    await persist();
+    if (lastTickStatus) emitStatus(lastTickStatus.ts, lastTickStatus.projects);
+    return { ok: true, investigations: currentInvestigations() };
+  }
+
   async function archiveInvestigation(id?: string) {
     const ref = core.validateInvestigationId(id);
     if (!ref.ok) return { ok: false, error: ref.error };
-    const res = core.markInvestigationArchived(state[core.INVESTIGATIONS_KEY], ref.id, now());
+    const claimed = core.claimPendingFix(state[core.INVESTIGATIONS_KEY], ref.id);
+    const res = core.markInvestigationArchived(claimed.log, ref.id, now());
     if (!res.ok) return { ok: false, error: res.error };
     state[core.INVESTIGATIONS_KEY] = res.log;
+    if (claimed.fix) releaseFixes([claimed.fix]);
     await persist();
     return { ok: true, investigations: currentInvestigations() };
   }
@@ -780,6 +821,7 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
       if (res.dirty) dirty = true;
       summaries.push(res.summary);
     }
+    if (releaseExpiredFixes()) dirty = true;
     if (pruneInvestigationLog()) dirty = true;
     if (pruneSignatureRegistry()) dirty = true;
     if (dirty) await persist();
@@ -825,7 +867,7 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
   }
 
   return {
-    start, stop, tick: loop.tick, archiveInvestigation,
+    start, stop, tick: loop.tick, archiveInvestigation, pendingFixFor, settlePendingFix,
     investigations: currentInvestigations,
     _state: () => state,
   };
