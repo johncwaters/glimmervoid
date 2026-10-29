@@ -54,7 +54,7 @@ function withBackend(configExtras: Record<string, unknown>, fn: (scope: LaneScop
     process.env.GLIMMERVOID_CONFIG = cfgPath;
 
     const server = http.createServer();
-    const backend = createBackend(server, { staticDir: null, configReloadDebounceMs: 20 });
+    const backend = createBackend(server, { staticDir: null, configReloadDebounceMs: 20, isExperimentalBuild: true });
     server.on('request', backend.app);
     await listenOnLoopback(server);
     try {

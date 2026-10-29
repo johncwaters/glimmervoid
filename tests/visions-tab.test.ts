@@ -59,7 +59,7 @@ function withVisionsBackend(fn: (scope: VisionsScope) => Promise<void>) {
     process.env.GLIMMERVOID_CONFIG = cfgPath;
 
     const server = http.createServer();
-    const backend = createBackend(server, { staticDir: null });
+    const backend = createBackend(server, { staticDir: null, isExperimentalBuild: true });
     server.on('request', backend.app);
     await listenOnLoopback(server);
     const dash = await dashboardClient(boundPort(server));
@@ -166,7 +166,7 @@ test('a control client connecting with the lane off is told nothing about the vi
   process.env.GLIMMERVOID_CONFIG = cfgPath;
 
   const server = http.createServer();
-  const backend = createBackend(server, { staticDir: null });
+  const backend = createBackend(server, { staticDir: null, isExperimentalBuild: true });
   server.on('request', backend.app);
   await listenOnLoopback(server);
 

@@ -255,7 +255,7 @@ async function bootBackend(configPatch: Record<string, unknown>, { remotePort = 
 
   const entry: BootedBackend = { dir, backend: null, server: http.createServer(), remoteServer: null, port: null, remotePort };
   try {
-    entry.backend = createBackend(entry.server, { staticDir: null });
+    entry.backend = createBackend(entry.server, { staticDir: null, isExperimentalBuild: true });
   } finally {
     if (previousEnv == null) delete process.env.GLIMMERVOID_CONFIG;
     if (previousEnv != null) process.env.GLIMMERVOID_CONFIG = previousEnv;
@@ -405,7 +405,7 @@ test('visions is echoed by getSettings and applied as a restart-required setting
   const previousEnv = process.env.GLIMMERVOID_CONFIG;
   process.env.GLIMMERVOID_CONFIG = configPath;
   try {
-    const store = createConfigStore();
+    const store = createConfigStore({ isExperimentalBuild: true });
     assert.deepEqual(store.getSettings().visions, { enabled: true });
     store.applySettings({ projects: [], visions: { enabled: false } });
     assert.deepEqual(store.config.visions, { enabled: false });

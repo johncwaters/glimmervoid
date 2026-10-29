@@ -84,7 +84,7 @@ test.before(async () => {
   process.env.GLIMMERVOID_CONFIG = configPath;
 
   const localServer = http.createServer();
-  const backend = createBackend(localServer, { staticDir: null });
+  const backend = createBackend(localServer, { staticDir: null, isExperimentalBuild: true });
   localServer.on('request', backend.app);
   const localPort = await listenOnLoopback(localServer);
 

@@ -169,7 +169,7 @@ function withBackend(
     const seeded: Seeded = seed ? seed({ tmpDir, cfgPath }) : {};
 
     const server = http.createServer();
-    const backend = createBackend(server, { staticDir: null, ...(backendOptions ? backendOptions(seeded) : {}) });
+    const backend = createBackend(server, { staticDir: null, isExperimentalBuild: true, ...(backendOptions ? backendOptions(seeded) : {}) });
     server.on('request', backend.app);
     const port = await listenOnLoopback(server);
     const sockets: WebSocket[] = [];

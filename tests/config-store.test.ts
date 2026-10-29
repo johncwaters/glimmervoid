@@ -493,7 +493,7 @@ test('every block of the settings payload is picked through the registry spec, s
     assert.deepEqual(settings.telemetry, { enabled: false });
     assert.deepEqual(settings.usage, { enabled: true, budget: { dailyUsd: 5 } });
     assert.equal(block(store.config.visions).futureKey, 'kept-on-disk', 'the file keeps what the payload leaves out');
-  });
+  }, { isExperimentalBuild: true });
 });
 
 test('a config.json still carrying the retired postTurnChecks block loads and leaves it out of the payload', () => {

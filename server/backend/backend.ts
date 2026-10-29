@@ -68,6 +68,7 @@ interface CreateBackendOptions extends BackendLaneOptions {
   onRestart?: (() => void) | null;
   downloadUpdatesInBackground?: boolean;
   configReloadDebounceMs?: number;
+  isExperimentalBuild?: boolean;
 }
 
 const AGENT_INGRESS_HOST = '127.0.0.1';
@@ -83,7 +84,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     glimmervoid?: { posthogReleaseId?: unknown };
   };
 
-  const configStore = createConfigStore({ settingsDefaults, readTelemetryInstallId: () => telemetry.currentInstallId() });
+  const configStore = createConfigStore({ settingsDefaults, isExperimentalBuild: options.isExperimentalBuild, readTelemetryInstallId: () => telemetry.currentInstallId() });
   const { config } = configStore;
   applyCustomAgents(config);
   const port = process.env.GLIMMERVOID_PORT
