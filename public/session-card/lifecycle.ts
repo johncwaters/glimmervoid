@@ -693,6 +693,22 @@ export function markSessionSeen(sessionId: string) {
   sendControlMsg({ type: 'dismiss', id: sessionId, expectedState: ui.currentState });
 }
 
+const WATCHED_COMPLETION_HOLD_MS = 1500;
+const pendingWatchedDismissBySessionUi = new WeakMap<SessionUi, ReturnType<typeof setTimeout>>();
+
+function cancelWatchedCompletionDismiss(ui: SessionUi) {
+  clearTimeout(pendingWatchedDismissBySessionUi.get(ui));
+  pendingWatchedDismissBySessionUi.delete(ui);
+}
+
+function holdThenDismissWatchedCompletion(ui: SessionUi, sessionId: string) {
+  const timer = setTimeout(() => {
+    pendingWatchedDismissBySessionUi.delete(ui);
+    sendControlMsg({ type: 'dismiss', id: sessionId, expectedState: STATES.COMPLETE });
+  }, WATCHED_COMPLETION_HOLD_MS);
+  pendingWatchedDismissBySessionUi.set(ui, timer);
+}
+
 function isCompletionWatchedAt(ui: SessionUi, previousState: string, nextState: string) {
   const activeElement = document.activeElement;
   return isCompletionWatchedByOperator({
@@ -719,6 +735,7 @@ export function applyState(sessionId: unknown, nextState: unknown, stateSince: u
   if (state !== STATES.RUNNING) ui.awaitingBackgroundTasks = false;
 
   if (state !== prevState) {
+    cancelWatchedCompletionDismiss(ui);
     ui.stateSince = typeof stateSince === 'number' && Number.isFinite(stateSince) ? stateSince : Date.now();
     setRunningActivity(ui, state === STATES.RUNNING);
   }
@@ -734,7 +751,7 @@ export function applyState(sessionId: unknown, nextState: unknown, stateSince: u
 
   updateButtonVisibility(ui);
 
-  if (isCompletionWatchedAt(ui, prevState, state)) sendControlMsg({ type: 'dismiss', id: sessionIdOf(sessionId), expectedState: STATES.COMPLETE });
+  if (isCompletionWatchedAt(ui, prevState, state)) holdThenDismissWatchedCompletion(ui, sessionIdOf(sessionId));
 
   const isEnding = state === STATES.DONE || state === STATES.FAILED;
   const wasActive = prevState !== STATES.DONE && prevState !== STATES.FAILED && prevState !== STATES.INITIALIZING;
