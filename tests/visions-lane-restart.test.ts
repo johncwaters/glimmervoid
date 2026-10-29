@@ -12,6 +12,7 @@ import { dashboardClient, openRecordingSocket, waitForMessage } from './helpers/
 import type { DashboardClient } from './helpers/dashboard-ws.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { ingestLane, settleBackendShutdown, visionsLane } from './helpers/lanes.ts';
+import { waitForFsWatchToArm } from './helpers/wait-for.ts';
 import type { Backend } from './helpers/lanes.ts';
 
 const WAIT_MS = 5000;
@@ -143,6 +144,7 @@ test('project path changes and removals rebuild Visions with the current selecte
 }, async ({ backend, cfgPath }) => {
   const before = visionsLane(backend);
   assert.ok(before);
+  await waitForFsWatchToArm();
   const config = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
   const relocatedPath = path.dirname(cfgPath);
   config.projects[0].path = relocatedPath;

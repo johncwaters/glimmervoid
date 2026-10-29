@@ -632,10 +632,11 @@ test('watchForChanges rejects invalid and wiped config edits', async () => {
 
 test('watchForChanges ignores directory events for other files', async () => {
   await withWatchedStore({ projects: [] }, async ({ configPath, reloads, pendingReloadTimerCount }) => {
+    const reloadTimersBeforeSiblingWrites = pendingReloadTimerCount();
     fs.writeFileSync(`${configPath}.tmp.9999`, 'not the config', 'utf8');
     fs.writeFileSync(path.join(path.dirname(configPath), 'unrelated.json'), '{}', 'utf8');
     await sleep(SIBLING_EVENT_SETTLE_MS);
-    assert.equal(pendingReloadTimerCount(), 0, 'a sibling write schedules no reload');
+    assert.equal(pendingReloadTimerCount(), reloadTimersBeforeSiblingWrites, 'a sibling write schedules no reload');
     assert.equal(reloads.length, 0, 'a sibling write is not a config change');
   });
 });
