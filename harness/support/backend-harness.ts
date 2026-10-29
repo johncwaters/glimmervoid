@@ -3,7 +3,11 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
+import os from 'node:os';
 import { writeJsonAtomic } from '../../server/json-file.ts';
+import { projectHookPayload } from '../../session/core/hook-payload-projection.ts';
+import type { Session } from '../../session/sessions.ts';
+import type { HookPayload } from '../../shared/contracts/index.ts';
 
 import WebSocket from 'ws';
 
@@ -11,6 +15,81 @@ import { dashboardClient } from '../../tests/helpers/dashboard-ws.ts';
 
 const CLAUDE_CONFIG_DIRECTORY_NAME = 'claude-config';
 const CREDENTIALS_COPY_NAME = '.credentials.json';
+const PROBE_FIXTURE_DIRECTORY = path.join(import.meta.dirname, '..', '..', 'tests', 'fixtures');
+const PROBE_STEP_TIMEOUT_MS = 120000;
+
+export interface ProbeHookRecord {
+  event: string;
+  payload: HookPayload | null;
+}
+
+export interface ProbeFixtureTarget {
+  agentId: string;
+  tempDirectory: string;
+  keepDirectory: string;
+  shouldWriteFixtures: boolean;
+}
+
+function createProbeChecks() {
+  let passedCount = 0;
+  let failedCount = 0;
+  function check(label: string, condition: boolean): void {
+    if (condition) {
+      console.log(`  PASS  ${label}`);
+      passedCount += 1;
+      return;
+    }
+    console.error(`  FAIL  ${label}`);
+    failedCount += 1;
+  }
+  return { check, passed: () => passedCount, failed: () => failedCount };
+}
+
+function delay(timeoutMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, timeoutMs));
+}
+
+function waitForState(session: Session, states: string[], label: string, timeoutMs = PROBE_STEP_TIMEOUT_MS): Promise<string> {
+  const wantedStates = new Set(states);
+  if (wantedStates.has(session.state)) return Promise.resolve(session.state);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      session.off('state-change', onStateChange);
+      reject(new Error(`timed out waiting for ${label}, still ${session.state}`));
+    }, timeoutMs);
+    function onStateChange({ to }: { to: string }): void {
+      if (!wantedStates.has(to)) return;
+      clearTimeout(timer);
+      session.off('state-change', onStateChange);
+      resolve(to);
+    }
+    session.on('state-change', onStateChange);
+  });
+}
+
+function sanitizeProbeText(text: string, target: ProbeFixtureTarget): string {
+  const placeholder = `<${target.agentId}-probe>`;
+  const realTempDirectory = fs.realpathSync(target.tempDirectory);
+  const encodedProjectPrefix = realTempDirectory.replace(/[^A-Za-z0-9]/g, '-');
+  return text
+    .split(realTempDirectory).join(placeholder)
+    .split(target.tempDirectory).join(placeholder)
+    .split(encodedProjectPrefix).join(placeholder)
+    .split(os.homedir()).join('<home>');
+}
+
+function writeHookFixture(name: string, hooks: ProbeHookRecord[], target: ProbeFixtureTarget): string {
+  const header = { type: 'header', version: 2, records: 'signals', session: `fixture-${target.agentId}-${name}`, agent: target.agentId, startedAt: 0, config: { hooksInjected: true } };
+  const lines = [header, ...hooks.map((hook, index) => ({ type: 'hook', ts: index + 1, event: hook.event, payload: projectHookPayload(hook.payload) }))];
+  const directory = target.shouldWriteFixtures ? PROBE_FIXTURE_DIRECTORY : target.keepDirectory;
+  const destination = path.join(directory, `v2-${target.agentId}-${name}.jsonl`);
+  fs.writeFileSync(destination, `${sanitizeProbeText(lines.map((line) => JSON.stringify(line)).join('\n'), target)}\n`, 'utf8');
+  return destination;
+}
+
+function hookEventsOf(hooks: ProbeHookRecord[]): string[] {
+  return hooks.map((hook) => hook.event.toLowerCase());
+}
 
 async function listen(server: Server, port: number): Promise<void> {
   await new Promise<void>((resolve, reject) => {
@@ -79,10 +158,15 @@ function removeHarnessTempDirectory(tempDirectory: string): void {
 export {
   closeServer,
   connectControl,
+  createProbeChecks,
+  delay,
   findFreeHighPort,
+  hookEventsOf,
   listen,
   removeHarnessTempDirectory,
   safeTextTail,
+  waitForState,
+  writeHookFixture,
 };
 
 export interface IsolatedConfigOptions {
