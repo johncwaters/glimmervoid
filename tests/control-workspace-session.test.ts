@@ -10,6 +10,8 @@ import { Session } from '../session/sessions.ts';
 import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { git, hasGit } from './helpers/git-fixture.ts';
 import { waitFor } from './helpers/wait-for.ts';
+import { plainSession } from './helpers/fake-session.ts';
+import { STATES } from '../shared/states.ts';
 
 test('add-session persists the workspace folder and chosen repositories', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-control-workspace-'));
@@ -136,4 +138,22 @@ test('remove-session refuses a worktree with uncommitted work its badge has not 
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('remove-session asks before removing a session waiting for input, then removes it once confirmed', async () => {
+  const session = plainSession('waiting-session');
+  session.state = STATES.WAITING;
+  const config = { projects: [{ id: 'waiting-session', name: 'waiting-session', path: 'C:/repo' }] };
+  const control = connectControl<{ type: string; requestId?: string; ok?: boolean; error?: string | null; canDiscardWork?: boolean }>(createControlServer(controlDeps(config, { sessions: new Map([['waiting-session', session]]) })));
+  const replyTo = (requestId: string) => control.sent.find((frame) => frame.requestId === requestId);
+
+  control.send({ type: 'remove-session', id: 'waiting-session', requestId: 'unconfirmed' });
+  await waitFor(() => replyTo('unconfirmed') !== undefined, 'unconfirmed removal replied');
+  assert.deepEqual(replyTo('unconfirmed'), { type: 'remove-session-result', requestId: 'unconfirmed', ok: false, error: '"waiting-session" is waiting for your input. Removing it stops the agent mid-task.', canDiscardWork: true });
+  assert.deepEqual(config.projects.map((project) => project.id), ['waiting-session']);
+
+  control.send({ type: 'remove-session', id: 'waiting-session', requestId: 'confirmed', discardWork: true });
+  await waitFor(() => replyTo('confirmed') !== undefined, 'confirmed removal replied');
+  assert.equal(replyTo('confirmed')?.ok, true);
+  assert.deepEqual(config.projects, []);
 });

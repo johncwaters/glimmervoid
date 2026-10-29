@@ -673,6 +673,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     const [firstUnconfirmedKept, ...otherUnconfirmedKept] = keptPaths.filter((kept) => !confirmedKeptPaths.has(kept.path));
     if (firstUnconfirmedKept) return keptWorkRefusal(sess, firstUnconfirmedKept, otherUnconfirmedKept.length, keptPaths);
     if (sess.state === STATES.RUNNING) return refuseRemoval(`"${sess.name}" is working. Removing it stops the agent mid-task.`);
+    if (sess.state === STATES.WAITING) return refuseRemoval(`"${sess.name}" is waiting for your input. Removing it stops the agent mid-task.`);
     return null;
   }
 
