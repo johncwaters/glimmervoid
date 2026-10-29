@@ -1,4 +1,3 @@
-import { createNotifyGate, explainNotification } from '../session/core/notify-gate.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -12,6 +11,7 @@ import { CustomAgentDeclaration } from '../shared/contracts/index.ts';
 import { parseExitPlanModeHookPayload } from '../shared/contracts/plan-review.ts';
 import { Session } from '../session/sessions.ts';
 import { STATES } from '../shared/states.ts';
+import { replayThroughSession } from './helpers/session-replay.ts';
 
 const FIX = path.join(import.meta.dirname, 'fixtures');
 const FAST = { stabilizationMs: 40, conflictWindowMs: 20, dedupWindowMs: 10 };
@@ -201,41 +201,15 @@ for (const [fixture, expectedState, expectedNotifications] of [
     const { signals } = await replayDetection(records, FAST);
     assert.ok(signals.some((signal) => signal.signal === 'compaction-start'));
     assert.ok(signals.some((signal) => signal.signal === 'compaction-end'));
-    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
-    const session = new Session({ id: fixture, name: fixture, path: process.cwd(), statusConflictMs: 20, statusDedupMs: 10 });
-    t.after(() => session.destroy());
-    session.state = STATES.IDLE;
-    const gate = createNotifyGate();
-    const notifications: string[] = [];
-    const transitions: string[] = [];
-    let postTurnChecks = 0;
-    let isCompacting = false;
-    session.on('prompt-kind-change', (detail: { isCompacting: boolean }) => { isCompacting = detail.isCompacting; });
-    session.on('user-prompt', () => gate.reset());
-    session.on('post-turn-check', () => postTurnChecks++);
-    session.on('state-change', ({ to, event, detail }) => {
-      transitions.push(to);
-      const category = explainNotification(to, gate, event, { signal: detail?.signal, hookSeen: session.hookSeen }).category;
-      if (category) notifications.push(category);
-    });
-    let previousTimestamp = 0;
-    for (const record of records) {
-      const timestamp = record.ts ?? previousTimestamp;
-      t.mock.timers.tick(timestamp - previousTimestamp);
-      previousTimestamp = timestamp;
-      if (record.type === 'data' && record.data) session._titleSource.feed(record.data);
-      if (record.type !== 'hook' || !record.event) continue;
-      const signal = claudeCode.hooks.mapSignal(record.event, record.payload);
-      if (!signal) continue;
-      session.ingestHookSignal({ signal, source: 'hook', event: record.event, payload: record.payload, ts: Date.now() });
-      if (record.event === 'PreCompact') assert.equal(isCompacting, true);
-      if (record.event === 'PostCompact' || record.payload?.source === 'compact') assert.equal(isCompacting, false);
+    const outcome = replayThroughSession(fixture, t);
+    for (const { event, source, isCompacting } of outcome.compactingAfterEvent) {
+      if (event === 'PreCompact') assert.equal(isCompacting, true);
+      if (event === 'PostCompact' || source === 'compact') assert.equal(isCompacting, false);
     }
-    t.mock.timers.tick(2000);
-    assert.equal(session.state, expectedState);
-    assert.deepEqual(notifications, expectedNotifications);
-    assert.equal(postTurnChecks, expectedNotifications.length);
-    if (expectedState === STATES.COMPLETE) assert.deepEqual(transitions, [STATES.RUNNING, STATES.COMPLETE, STATES.RUNNING, STATES.COMPLETE]);
+    assert.equal(outcome.finalState, expectedState);
+    assert.deepEqual(outcome.notifications, expectedNotifications);
+    assert.equal(outcome.postTurnChecks, expectedNotifications.length);
+    if (expectedState === STATES.COMPLETE) assert.deepEqual(outcome.transitions, [STATES.RUNNING, STATES.COMPLETE, STATES.RUNNING, STATES.COMPLETE]);
   });
 }
 
