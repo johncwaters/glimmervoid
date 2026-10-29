@@ -4,10 +4,13 @@ import type { InstallPlatform } from './install-platform.ts';
 export type ConsentChoice = 'pending' | 'accepted' | 'declined';
 export type InstallLocation = 'hero' | 'install';
 export type CopyOutcome = 'copied' | 'selected';
+export type SendToDesktopOutcome = 'shared' | 'copied' | 'dismissed' | 'failed';
 type SiteEvent =
   | { event: 'install_command_copied'; properties: { platform: InstallPlatform; location: InstallLocation; outcome: CopyOutcome } }
   | { event: 'install_platform_picked'; properties: { platform: InstallPlatform; detected_platform: InstallPlatform | 'unknown'; location: InstallLocation } }
   | { event: 'landing_section_viewed'; properties: { section: string; order: number } }
+  | { event: 'github_star_clicked'; properties: { location: InstallLocation } }
+  | { event: 'send_to_desktop'; properties: { location: InstallLocation; outcome: SendToDesktopOutcome } }
   | { event: 'easter_egg_found'; properties: { egg: 'animal_flight'; animal: string } };
 
 const POSTHOG_PROJECT_TOKEN = 'phc_s68t9vWmeGcrWkx4NkLQaEiVZ9sMBxv8GjQBbAcix2Sf';

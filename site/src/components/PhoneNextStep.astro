@@ -1,0 +1,77 @@
+---
+import type { InstallLocation } from '../lib/analytics.ts';
+import { REPOSITORY_URL } from '../lib/product-facts.ts';
+
+interface Props {
+  location: InstallLocation;
+}
+
+const { location } = Astro.props;
+---
+<div class={`phone-next-step is-${location}`} data-phone-next-step data-location={location}>
+  <p class="phone-next-note">On a phone? Glimmervoid installs on your computer.</p>
+  <div class="phone-next-actions">
+    <a class="btn" href={REPOSITORY_URL} data-github-star>Star on GitHub</a>
+    <button class="btn" type="button" data-send-to-desktop>Send to my computer</button>
+  </div>
+  <span class="copy-status" data-send-status role="status"></span>
+</div>
+
+<style>
+  .phone-next-step { display: none; }
+  @media (max-width: 640px) and (pointer: coarse) {
+    .phone-next-step { display: flex; flex-direction: column; gap: 12px; width: 100%; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 14px; }
+    .phone-next-step.is-hero { align-items: center; text-align: center; }
+    .phone-next-step.is-install { margin-top: 12px; }
+  }
+  .phone-next-note { color: var(--text-dim); font-size: 14px; }
+  .phone-next-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+  .phone-next-step.is-hero .phone-next-actions { justify-content: center; }
+  .phone-next-actions .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; text-decoration: none; }
+  .phone-next-step .copy-status { min-width: 0; text-align: inherit; }
+</style>
+
+<script>
+  import { captureSiteEvent } from '../lib/analytics.ts';
+  import type { InstallLocation, SendToDesktopOutcome } from '../lib/analytics.ts';
+  import { copyText } from '../lib/dom.ts';
+
+  const SITE_URL = 'https://glimmervoid.dev/';
+  const STATUS_BY_OUTCOME: Readonly<Record<SendToDesktopOutcome, string>> = {
+    shared: 'Sent. Open it on your computer.',
+    copied: 'Link copied. Open it on your computer.',
+    dismissed: '',
+    failed: 'Open glimmervoid.dev on your computer.',
+  };
+
+  function isInstallLocation(value: string | undefined): value is InstallLocation {
+    return value === 'hero' || value === 'install';
+  }
+
+  function outcomeOfShareError(error: unknown): SendToDesktopOutcome {
+    return error instanceof DOMException && error.name === 'AbortError' ? 'dismissed' : 'failed';
+  }
+
+  async function sendSiteToDesktop(): Promise<SendToDesktopOutcome> {
+    if (!('share' in navigator)) return (await copyText(SITE_URL)) ? 'copied' : 'failed';
+    return navigator.share({ title: document.title, url: SITE_URL }).then((): SendToDesktopOutcome => 'shared', outcomeOfShareError);
+  }
+
+  for (const nextStep of document.querySelectorAll<HTMLElement>('[data-phone-next-step]')) {
+    const location = nextStep.dataset.location;
+    const githubStar = nextStep.querySelector<HTMLElement>('[data-github-star]');
+    const sendControl = nextStep.querySelector<HTMLButtonElement>('[data-send-to-desktop]');
+    const sendStatus = nextStep.querySelector<HTMLElement>('[data-send-status]');
+    if (!isInstallLocation(location) || !githubStar || !sendControl || !sendStatus) continue;
+    githubStar.addEventListener('click', () => captureSiteEvent({ event: 'github_star_clicked', properties: { location } }));
+    sendControl.addEventListener('click', () => {
+      sendControl.disabled = true;
+      sendStatus.textContent = '';
+      void sendSiteToDesktop().then((outcome) => {
+        sendControl.disabled = false;
+        sendStatus.textContent = STATUS_BY_OUTCOME[outcome];
+        captureSiteEvent({ event: 'send_to_desktop', properties: { location, outcome } });
+      });
+    });
+  }
+</script>
