@@ -51,6 +51,8 @@ npm run build
 npm start
 ```
 
+`npm ci` does not run on Windows, because a dev dependency supports only macOS and Linux: on Windows, install the package or build from source in WSL.
+
 To update, run `git pull --ff-only && npm ci && npm run build` and restart. The dashboard's update banner shows the right command for however you installed.
 
 ## Requirements

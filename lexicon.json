@@ -39,7 +39,7 @@
     },
     {
       "name": "agent adapter",
-      "definition": "The per-agent module (Claude Code, Codex, Kimi Code, Grok, custom CLI) that tells glimmervoid how to spawn, resume and read the status of one agent kind"
+      "definition": "The per-agent module (first-class: Claude Code, Codex, Kimi Code; best effort: Grok, custom CLI) that tells glimmervoid how to spawn, resume and read the status of one agent kind"
     },
     {
       "name": "visions",
