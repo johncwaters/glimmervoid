@@ -4,11 +4,8 @@ import type { ReviewAgentOffer, TeamReviewSandboxFacts } from '#shared/contracts
 interface SettingsSuggestion { value: string; label: string }
 type StoredValues = Readonly<Record<string, unknown>>;
 
-const REVIEWER_AGENT_PATH = 'teamReview.reviewer.agent';
 const REVIEWER_MODEL_PATH = 'teamReview.reviewer.model';
-const STAMP_AGENT_PATH = 'teamReview.stampReviewer.agent';
 const STAMP_MODEL_PATH = 'teamReview.stampReviewer.model';
-const DEFAULT_REVIEW_AGENT = 'claude';
 
 function readTeamReviewEnvironment(payloadValue: unknown): TeamReviewEnvironment | null {
   const parsed = TeamReviewEnvironment.safeParse(payloadValue);
@@ -20,16 +17,8 @@ function textAt(values: StoredValues, settingPath: string): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function reviewerAgentId(values: StoredValues): string {
-  return textAt(values, REVIEWER_AGENT_PATH) || DEFAULT_REVIEW_AGENT;
-}
-
-function stampAgentId(values: StoredValues): string {
-  return textAt(values, STAMP_AGENT_PATH) || reviewerAgentId(values);
-}
-
-function agentOffer(environment: TeamReviewEnvironment, agentId: string): ReviewAgentOffer | null {
-  return environment.agents.find((agent) => agent.id === agentId) ?? null;
+function reviewAgentOffer(environment: TeamReviewEnvironment): ReviewAgentOffer | null {
+  return environment.agents.at(0) ?? null;
 }
 
 function modelSuggestions(agent: ReviewAgentOffer | null): SettingsSuggestion[] {
@@ -48,22 +37,17 @@ function skillSuggestions(agent: ReviewAgentOffer | null): SettingsSuggestion[] 
 }
 
 const SUGGESTION_CATALOGS: Readonly<Record<string, (environment: TeamReviewEnvironment, values: StoredValues) => SettingsSuggestion[]>> = Object.freeze({
-  'review-skills': (environment, values) => skillSuggestions(agentOffer(environment, reviewerAgentId(values))),
-  'review-models': (environment, values) => modelSuggestions(agentOffer(environment, reviewerAgentId(values))),
-  'review-efforts': (environment, values) => effortSuggestions(agentOffer(environment, reviewerAgentId(values)), textAt(values, REVIEWER_MODEL_PATH)),
-  'review-stamp-models': (environment, values) => modelSuggestions(agentOffer(environment, stampAgentId(values))),
-  'review-stamp-efforts': (environment, values) => effortSuggestions(agentOffer(environment, stampAgentId(values)), textAt(values, STAMP_MODEL_PATH)),
+  'review-skills': (environment) => skillSuggestions(reviewAgentOffer(environment)),
+  'review-models': (environment) => modelSuggestions(reviewAgentOffer(environment)),
+  'review-efforts': (environment, values) => effortSuggestions(reviewAgentOffer(environment), textAt(values, REVIEWER_MODEL_PATH)),
+  'review-stamp-models': (environment) => modelSuggestions(reviewAgentOffer(environment)),
+  'review-stamp-efforts': (environment, values) => effortSuggestions(reviewAgentOffer(environment), textAt(values, STAMP_MODEL_PATH)),
 });
 
 function teamReviewSuggestions(catalogName: string, environment: TeamReviewEnvironment | null, values: StoredValues): SettingsSuggestion[] {
   const catalog = SUGGESTION_CATALOGS[catalogName];
   if (!catalog || !environment) return [];
   return catalog(environment, values);
-}
-
-function isReviewAgentOffered(environment: TeamReviewEnvironment | null, agentId: string): boolean {
-  if (agentId === '' || !environment) return true;
-  return agentOffer(environment, agentId)?.installed !== false;
 }
 
 function isSkillChoicePending(teamReviewBlock: unknown): boolean {
@@ -85,9 +69,9 @@ function teamReviewSandboxLines(sandbox: TeamReviewSandboxFacts): string[] {
     `Unreadable in your home folder: ${listOrNone(sandbox.unreadableHomeEntries.map((entry) => `~/${entry}`))}`,
     `Unreadable in a linked checkout: ${listOrNone(sandbox.unreadableCheckoutEntries)}`,
     `GitHub token: ${sandbox.githubTokenStripped ? 'removed from the environment' : 'passed through'}`,
-    `Claude Code tools allowed: ${listOrNone(sandbox.allowedTools)}; denied: ${listOrNone(sandbox.deniedTools)}. Codex CLI and Kimi Code run every tool, held only by this sandbox`,
-    `Thread replies: judged by the review agent, with ${listOrNone(sandbox.threadJudgeTools)} only on Claude Code`,
+    `Claude Code tools allowed: ${listOrNone(sandbox.allowedTools)}; denied: ${listOrNone(sandbox.deniedTools)}`,
+    `Thread replies: judged by Claude Code, with ${listOrNone(sandbox.threadJudgeTools)} only`,
   ];
 }
 
-export { isReviewAgentOffered, isSkillChoicePending, readTeamReviewEnvironment, teamReviewSandboxLines, teamReviewSuggestions };
+export { isSkillChoicePending, readTeamReviewEnvironment, teamReviewSandboxLines, teamReviewSuggestions };

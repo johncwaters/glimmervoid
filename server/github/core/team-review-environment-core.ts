@@ -6,10 +6,6 @@ const CLAUDE_MODELS: readonly ReviewModelOffer[] = Object.freeze(['opus', 'sonne
 })));
 const FRONTMATTER_FENCE = '---';
 const FOLDED_SCALAR = /^[>|][+-]?$/;
-const KIMI_MODEL_SECTION = /^\[models\."([^"]+)"\]\s*$/;
-const TOML_TABLE_HEADER = /^\[/;
-const TOML_KEY_VALUE = /^([A-Za-z0-9_]+)\s*=\s*(.+)$/;
-const TOML_STRING = /^"((?:[^"\\]|\\.)*)"/;
 
 interface SkillFrontmatter { name: string; description: string }
 
@@ -48,63 +44,9 @@ function parseSkillFrontmatter(markdown: string): SkillFrontmatter | null {
   return { name, description: readFrontmatterValue(lines, 'description') ?? '' };
 }
 
-function readTomlString(rawValue: string): string | null {
-  return TOML_STRING.exec(rawValue.trim())?.[1] ?? null;
-}
-
-function parseKimiModels(configToml: string): ReviewModelOffer[] {
-  const models: ReviewModelOffer[] = [];
-  let current: ReviewModelOffer | null = null;
-  for (const line of configToml.split(/\r?\n/).map((rawLine) => rawLine.trim())) {
-    const sectionMatch = KIMI_MODEL_SECTION.exec(line);
-    if (sectionMatch) {
-      current = { id: sectionMatch[1], label: sectionMatch[1], efforts: null, defaultEffort: null };
-      models.push(current);
-      continue;
-    }
-    if (TOML_TABLE_HEADER.test(line)) {
-      current = null;
-      continue;
-    }
-    const keyValue = TOML_KEY_VALUE.exec(line);
-    if (!current || !keyValue) continue;
-    const [, key, rawValue] = keyValue;
-    if (key === 'display_name') current.label = readTomlString(rawValue) ?? current.label;
-  }
-  return models;
-}
-
 function textField(record: Record<string, unknown>, key: string): string | null {
   const value = record[key];
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
-}
-
-function codexModelOffer(entry: unknown): ReviewModelOffer | null {
-  if (!entry || typeof entry !== 'object') return null;
-  const model = entry as Record<string, unknown>;
-  const slug = textField(model, 'slug');
-  if (!slug || model.visibility !== 'list') return null;
-  const levels = Array.isArray(model.supported_reasoning_levels) ? model.supported_reasoning_levels : [];
-  const efforts = levels
-    .map((level) => (level && typeof level === 'object' ? textField(level as Record<string, unknown>, 'effort') : null))
-    .filter((effort): effort is string => effort !== null);
-  return {
-    id: slug,
-    label: textField(model, 'display_name') ?? slug,
-    efforts: efforts.length > 0 ? efforts : null,
-    defaultEffort: textField(model, 'default_reasoning_level'),
-  };
-}
-
-function parseCodexModelCatalog(catalog: unknown): ReviewModelOffer[] {
-  if (!catalog || typeof catalog !== 'object') return [];
-  const models = (catalog as Record<string, unknown>).models;
-  if (!Array.isArray(models)) return [];
-  return models.map(codexModelOffer).filter((offer): offer is ReviewModelOffer => offer !== null);
-}
-
-function uniqueEfforts(models: readonly ReviewModelOffer[]): string[] {
-  return [...new Set(models.flatMap((model) => model.efforts ?? []))];
 }
 
 function enabledClaudePluginInstalls(installedPlugins: unknown, settings: unknown): { pluginName: string; installPath: string }[] {
@@ -121,5 +63,5 @@ function enabledClaudePluginInstalls(installedPlugins: unknown, settings: unknow
 
 export {
   CLAUDE_EFFORTS, CLAUDE_MODELS,
-  enabledClaudePluginInstalls, parseCodexModelCatalog, parseKimiModels, parseSkillFrontmatter, uniqueEfforts,
+  enabledClaudePluginInstalls, parseSkillFrontmatter,
 };

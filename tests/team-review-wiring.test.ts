@@ -7,7 +7,7 @@ import path from 'node:path';
 
 import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { git, hasGit } from './helpers/git-fixture.ts';
-import { REMERGE_OBJECTS_DIRNAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_POSTING_FILENAME, REVIEW_PROMPT_FILENAME, REVIEW_REPORT_FILENAME, } from '../server/github/core/team-review-core.ts';
+import { REMERGE_OBJECTS_DIRNAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_POSTING_FILENAME, REVIEW_PROMPT_FILENAME, REVIEW_REPORT_FILENAME, readTeamReviewSettings, } from '../server/github/core/team-review-core.ts';
 import type { ReviewTier } from '../server/github/core/team-review-core.ts';
 import { createTeamReviewPoller } from '../server/github/team-review-poller.ts';
 import type { SpawnReviewArgs } from '../server/github/team-review-poller.ts';
@@ -275,6 +275,18 @@ test('shutdown without a captured session removes the review directories', async
     assert.equal(removed.length, 1);
     assert.deepEqual(fs.readdirSync(workRoot), []);
     assert.deepEqual(fs.readdirSync(worktreeRoot), []);
+  } finally {
+    cleanup();
+  }
+});
+
+test('a small PR choice saved under a legacy Codex reviewer launches Claude without the Codex model', async () => {
+  const legacyTeamReview = { reviewer: { agent: 'codex', model: 'gpt-5-codex' }, stampReviewer: { model: 'gpt-5-mini' } };
+  const { dispatch, spawns, cleanup } = setup({ readReviewSetup: () => readTeamReviewSettings({ teamReview: legacyTeamReview }) });
+  try {
+    await dispatch(reviewArgs('stamp'));
+    assert.equal(spawns[0]?.agent, 'claude-code');
+    assert.equal(spawns[0]?.extraClaudeArgs.includes('--model'), false);
   } finally {
     cleanup();
   }

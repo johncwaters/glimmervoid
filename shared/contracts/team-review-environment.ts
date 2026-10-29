@@ -16,7 +16,7 @@ export const ReviewModelOffer = z.object({
 export type ReviewModelOffer = z.infer<typeof ReviewModelOffer>;
 
 export const ReviewAgentOffer = z.object({
-  id: z.enum(['claude', 'codex', 'kimi']),
+  id: z.literal('claude'),
   label: z.string().min(1),
   installed: z.boolean().nullable(),
   models: z.array(ReviewModelOffer),

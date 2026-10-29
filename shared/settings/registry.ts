@@ -48,7 +48,6 @@ export interface SettingsSetting {
   options?: readonly SettingsOption[];
   optionsFrom?: string;
   suggestionsFrom?: string;
-  availableFrom?: string;
   presentation?: SettingsChoicePresentation;
   listPlaceholder?: string;
   listEmptyText?: string;
@@ -483,13 +482,8 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
       },
       {
         id: 'team-review-skill', path: 'teamReview.skill', title: 'Review skill',
-        description: 'Skill the review agent follows for each review, picked from the skills that agent loads or typed by name. Leave empty for no skill: the agent reviews with whatever skills it has.',
-        control: 'text', keywords: ['skill', 'claude code', 'codex', 'kimi', 'pr review'], defaultValue: '', suggestionsFrom: 'review-skills', ...MACHINE_NOW,
-      },
-      {
-        id: 'team-review-reviewer-agent', path: 'teamReview.reviewer.agent', title: 'Review agent',
-        description: 'Agent CLI that drafts each review and judges replies to its threads.',
-        control: 'select', options: [{ value: 'claude', label: 'Claude Code' }, { value: 'codex', label: 'Codex CLI' }, { value: 'kimi', label: 'Kimi Code' }], availableFrom: 'review-agents', keywords: ['agent', 'reviewer', 'claude code'], defaultValue: 'claude', ...MACHINE_NOW,
+        description: 'Skill Claude Code follows for each review, picked from the skills it loads or typed by name. Leave empty for no skill: it reviews with whatever skills it has.',
+        control: 'text', keywords: ['skill', 'claude code', 'pr review'], defaultValue: '', suggestionsFrom: 'review-skills', ...MACHINE_NOW,
       },
       {
         id: 'team-review-reviewer-model', path: 'teamReview.reviewer.model', title: 'Review model',
@@ -502,18 +496,13 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
         control: 'text', keywords: ['effort', 'thinking', 'reasoning', 'reviewer'], defaultValue: '', suggestionsFrom: 'review-efforts', ...MACHINE_NOW,
       },
       {
-        id: 'team-review-stamp-reviewer-agent', path: 'teamReview.stampReviewer.agent', title: 'Small PR agent',
-        description: 'Agent for small pull requests. Same as review agent uses the review agent, model and effort above.',
-        control: 'select', options: [{ value: '', label: 'Same as review agent' }, { value: 'claude', label: 'Claude Code' }, { value: 'codex', label: 'Codex CLI' }, { value: 'kimi', label: 'Kimi Code' }], availableFrom: 'review-agents', keywords: ['stamp', 'small pull requests', 'agent'], defaultValue: '', ...MACHINE_NOW,
-      },
-      {
         id: 'team-review-stamp-reviewer-model', path: 'teamReview.stampReviewer.model', title: 'Small PR model',
-        description: 'Model for small pull requests. Leave empty to use the small PR agent default model.',
+        description: 'Model for small pull requests. With both small PR fields empty, small pull requests use the review model and effort above.',
         control: 'text', keywords: ['stamp', 'model', 'small pull requests'], defaultValue: '', suggestionsFrom: 'review-stamp-models', ...MACHINE_NOW,
       },
       {
         id: 'team-review-stamp-reviewer-effort', path: 'teamReview.stampReviewer.effort', title: 'Small PR effort',
-        description: 'Effort for small pull requests. Leave empty to use the small PR agent default effort.',
+        description: "Effort for small pull requests. Leave empty to use the model's own default effort.",
         control: 'text', keywords: ['stamp', 'effort', 'small pull requests'], defaultValue: '', suggestionsFrom: 'review-stamp-efforts', ...MACHINE_NOW,
       },
       {
@@ -536,7 +525,7 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
       },
       {
         id: 'team-review-sandbox-load-mcp-servers', path: 'teamReview.sandbox.loadMcpServers', title: 'Load my MCP servers',
-        description: 'Give a Claude Code review agent your own MCP servers instead of none. Codex CLI and Kimi Code always load the servers their own config names, so they review only with this on.',
+        description: 'Give the Claude Code review agent your own MCP servers instead of none.',
         control: 'toggle', keywords: ['sandbox', 'mcp', 'servers', 'tools'], danger: true,
         warning: 'Enabling this control gives the review agent, which reads untrusted pull request text, every tool your MCP servers expose.', defaultValue: false, ...MACHINE_NOW,
       },

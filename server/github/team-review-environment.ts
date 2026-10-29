@@ -3,9 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { cachedAgentResolvability } from '../../session/adapters/index.ts';
-import { realKimiHome } from '../../session/kimi-home.ts';
 import type { ReviewAgentOffer, ReviewModelOffer, ReviewSkillOffer, TeamReviewEnvironment } from '../../shared/contracts/team-review-environment.ts';
-import { codexHomeDir } from '../core/codex-credentials-core.ts';
 import * as environmentCore from './core/team-review-environment-core.ts';
 import { readTeamReviewSettings } from './core/team-review-core.ts';
 import type { TeamReviewSettingsSource } from './core/team-review-core.ts';
@@ -61,30 +59,8 @@ async function scanClaude(homeDir: string, env: NodeJS.ProcessEnv): Promise<Agen
   return { id: 'claude', models: [...environmentCore.CLAUDE_MODELS], efforts: [...environmentCore.CLAUDE_EFFORTS], skills: [...userSkills, ...pluginSkills.flat()] };
 }
 
-async function scanCodex(homeDir: string, env: NodeJS.ProcessEnv): Promise<AgentScan> {
-  const codexHome = codexHomeDir(env, homeDir);
-  const [catalog, codexSkills, codexSystemSkills, sharedAgentSkills] = await Promise.all([
-    readJsonOrNull(path.join(codexHome, 'models_cache.json')),
-    scanSkillFolder(path.join(codexHome, 'skills'), 'user'),
-    scanSkillFolder(path.join(codexHome, 'skills', '.system'), 'user'),
-    scanSkillFolder(path.join(homeDir, '.agents', 'skills'), 'user'),
-  ]);
-  const models = environmentCore.parseCodexModelCatalog(catalog);
-  return { id: 'codex', models, efforts: environmentCore.uniqueEfforts(models), skills: [...codexSkills, ...codexSystemSkills, ...sharedAgentSkills] };
-}
-
-async function scanKimi(homeDir: string, env: NodeJS.ProcessEnv): Promise<AgentScan> {
-  const kimiHome = realKimiHome(env, homeDir);
-  const [configToml, skills] = await Promise.all([
-    readTextOrNull(path.join(kimiHome, 'config.toml')),
-    scanSkillFolder(path.join(kimiHome, 'skills'), 'user'),
-  ]);
-  const models = configToml === null ? [] : environmentCore.parseKimiModels(configToml);
-  return { id: 'kimi', models, efforts: [], skills };
-}
-
 async function scanReviewAgents(homeDir: string, env: NodeJS.ProcessEnv): Promise<void> {
-  lastScan = await Promise.all([scanClaude(homeDir, env), scanCodex(homeDir, env), scanKimi(homeDir, env)]);
+  lastScan = [await scanClaude(homeDir, env)];
 }
 
 function refreshWhenStale(nowMs: number, homeDir: string, env: NodeJS.ProcessEnv): void {
@@ -104,10 +80,9 @@ function currentTeamReviewEnvironment(
 ): TeamReviewEnvironment {
   refreshWhenStale(nowMs, homeDir, env);
   const settings = readTeamReviewSettings(settingsSource);
-  const reviewAgents = [settings.reviewer.agent, ...(settings.stampReviewer ? [settings.stampReviewer.agent] : [])];
   return {
     agents: lastScan.map(agentOffer),
-    sandbox: describeTeamReviewSandbox(settings.sandbox, reviewAgents),
+    sandbox: describeTeamReviewSandbox(settings.sandbox),
   };
 }
 

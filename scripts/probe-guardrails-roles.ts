@@ -64,7 +64,7 @@ const { createRadarWiring, REPORT_DIR: POSTHOG_REPORT_DIR } = await import('../s
 const { MY_PRS_FIX_CHECKOUT_DIRNAME } = await import('../server/github/core/my-prs-core.ts');
 const { createGuardedPrStaging, keepMergeableRole } = await import('../server/github/my-prs-wiring.ts');
 const { createTeamReviewSpawn, describeTeamReviewRole, hooksPathPinnedSpawnEnv, teamReviewAcceptEditsPermissions, teamReviewClaudeArgs } = await import('../server/github/team-review-wiring.ts');
-const { DEFAULT_SANDBOX, reviewAgentAdapterId, reviewerAgentArgs } = await import('../server/github/core/team-review-core.ts');
+const { DEFAULT_SANDBOX, REVIEW_AGENT_ADAPTER_ID } = await import('../server/github/core/team-review-core.ts');
 const { communityAcceptEditsPermissions, communityClaudeArgs, communityRole, communitySpawnEnv } = await import('../server/community/community-wiring.ts');
 const { prepareGuardrailsLaunch } = await import('../server/guardrails/guardrails-launch.ts');
 const { createSessionGuardrails } = await import('../server/guardrails/session-guardrails.ts');
@@ -331,8 +331,7 @@ async function recordCheckResults(roleName: RoleName, resultsFile: string, expec
 
 async function probeTeamReview(roleRoot: string): Promise<void> {
   const roleName = 'team-review';
-  const reviewAgent = agentId === 'claude-code' ? 'claude' as const : agentId === 'codex' ? 'codex' as const : 'kimi' as const;
-  const reviewer = { agent: reviewAgent, model: reviewAgent === 'claude' ? 'sonnet' : null, effort: null };
+  const reviewer = { model: 'sonnet', effort: null };
   const cachedClone = path.join(probeHome, 'team-review-repos', 'probe', 'review-app');
   const checkoutPath = path.join(probeHome, 'team-review-worktrees', 'probe');
   const workDir = path.join(probeHome, 'team-review-work', 'probe');
@@ -375,12 +374,12 @@ async function probeTeamReview(roleRoot: string): Promise<void> {
   });
   try {
     await record(roleName, `${agentId} team review run`, async () => {
-      const promptLaunch = headlessPromptLaunch(reviewAgentAdapterId(reviewAgent), 'This is a guardrails contract probe. Run exactly this shell command once and do not work around a denial or retry: sh probe.sh. Then reply with the single word done.');
-      const agentArgs = reviewAgent === 'claude' ? teamReviewClaudeArgs(reviewer, DEFAULT_SANDBOX, { checkoutPath, linkedCheckout }) : reviewerAgentArgs(reviewer);
+      const promptLaunch = headlessPromptLaunch(REVIEW_AGENT_ADAPTER_ID, 'This is a guardrails contract probe. Run exactly this shell command once and do not work around a denial or retry: sh probe.sh. Then reply with the single word done.');
+      const agentArgs = teamReviewClaudeArgs(reviewer, DEFAULT_SANDBOX, { checkoutPath, linkedCheckout }, []);
       await spawnReview({
-        id: sessionId, name: sessionId, cwd: workDir, spawnEnv: hooksPathPinnedSpawnEnv(workDir), agent: reviewAgentAdapterId(reviewAgent),
+        id: sessionId, name: sessionId, cwd: workDir, spawnEnv: hooksPathPinnedSpawnEnv(workDir), agent: REVIEW_AGENT_ADAPTER_ID,
         extraClaudeArgs: [...agentArgs, ...promptLaunch.args], settingsPermissions: teamReviewAcceptEditsPermissions(),
-        guardrailsRole: await describeTeamReviewRole({ checkoutPath, cachedClone, linkedCheckout, reviewAgent }), signal: AbortSignal.timeout(AGENT_RUN_TIMEOUT_MS),
+        guardrailsRole: await describeTeamReviewRole({ checkoutPath, cachedClone, linkedCheckout }), signal: AbortSignal.timeout(AGENT_RUN_TIMEOUT_MS),
         initialPrompt: promptLaunch.initialPrompt,
       });
     });
@@ -390,12 +389,10 @@ async function probeTeamReview(roleRoot: string): Promise<void> {
       await assert.rejects(readFile(outsideFile), { code: 'ENOENT' });
       assert.equal(existsSync(codexHomeFile), false, 'the shared Codex home was written');
     });
-    if (reviewAgent === 'claude') {
-      await record(roleName, 'Stop hook reached the host listener', async () => {
-        assert.ok(hookRequests.some((requestUrl) => requestUrl.startsWith(`/hook/${sessionId}/stop?`)), `hook requests seen: ${hookRequests.join(' ')}`);
-      });
-      await record(roleName, 'the transcript landed in the session\'s own folder', () => expectOwnTranscript(workDir));
-    }
+    await record(roleName, 'Stop hook reached the host listener', async () => {
+      assert.ok(hookRequests.some((requestUrl) => requestUrl.startsWith(`/hook/${sessionId}/stop?`)), `hook requests seen: ${hookRequests.join(' ')}`);
+    });
+    await record(roleName, 'the transcript landed in the session\'s own folder', () => expectOwnTranscript(workDir));
     await record(roleName, 'policy, temp, home and placeholder files removed', async () => {
       assert.deepEqual(await leftoverLaunchFiles(workDir), []);
     });

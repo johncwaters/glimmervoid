@@ -10,27 +10,16 @@ import { positiveNumberOr } from '../../../shared/coerce.ts';
 import { GH_SEGMENT } from '../../../shared/contracts/github-ids.ts';
 import type { Config } from '../../../shared/contracts/config.ts';
 import { readGithubTeams } from './github-teams-core.ts';
-import { ReviewAgentId } from '../../../shared/contracts/browser-config.ts';
 import { UNTRUSTED_PAYLOAD_FILENAME, UNTRUSTED_PREAMBLE } from '../../../shared/contracts/untrusted-payload.ts';
 import type { UntrustedItem } from '../../../shared/contracts/untrusted-payload.ts';
 import { READ_ONLY_GIT_SUBCOMMANDS } from '../../lanes/core/lane-permissions-core.ts';
 import { sanitizeSessionName } from '../../radar/core/radar-lane-core.ts';
 import { bulletsIn, fencedUntrusted, isHeadingAmong, parsePostingFile, sectionAfter as sectionAmongHeadings, withoutControlCharacters } from '../../lanes/core/lane-report-core.ts';
 
-const DEFAULT_REVIEWER: ReviewerChoice = Object.freeze({ agent: 'claude', model: null, effort: null });
+const DEFAULT_REVIEWER: ReviewerChoice = Object.freeze({ model: null, effort: null });
 const DEFAULT_SANDBOX: TeamReviewSandboxSettings = Object.freeze({ extraDomains: [], openNetwork: false, loadMcpServers: false });
-const REVIEW_AGENT_ADAPTER_IDS: Readonly<Record<ReviewAgentId, string>> = Object.freeze({ claude: 'claude-code', codex: 'codex', kimi: 'kimi' });
-const CODEX_HEADLESS_ARGS: readonly string[] = Object.freeze(['exec', '--skip-git-repo-check']);
-const REVIEWER_AGENT_ARGS: Readonly<Record<ReviewAgentId, (choice: ReviewerChoice) => string[]>> = Object.freeze({
-  claude: ({ model, effort }) => [...(model ? ['--model', model] : []), ...(effort ? ['--effort', effort] : [])],
-  codex: ({ model, effort }) => [...CODEX_HEADLESS_ARGS, ...(model ? ['-m', model] : []), ...(effort ? ['-c', `model_reasoning_effort=${effort}`] : [])],
-  kimi: ({ model }) => (model ? ['-m', model] : []),
-});
-const SKILL_INVOCATIONS: Readonly<Record<ReviewAgentId, (skill: string) => string>> = Object.freeze({
-  claude: (skill) => `Invoke the ${skill} skill with the Skill tool`,
-  codex: (skill) => `Use your ${skill} skill`,
-  kimi: (skill) => `Use your ${skill} skill`,
-});
+const REVIEW_AGENT_ADAPTER_ID = 'claude-code';
+const CLAUDE_REVIEWER_AGENT = 'claude';
 const STAMP_MAX_LINES = 200;
 const STAMP_MAX_FILES = 10;
 const MAX_CONCURRENT_REVIEWS = 2;
@@ -97,7 +86,6 @@ interface TeamReviewSettings {
 }
 
 interface ReviewerChoice {
-  agent: ReviewAgentId;
   model: string | null;
   effort: string | null;
 }
@@ -114,16 +102,20 @@ function trimmedTextOrNull(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function readReviewerChoice(block: unknown, inheritedAgent: ReviewAgentId): ReviewerChoice | null {
+function legacyAgentOf(block: unknown): string | null {
+  if (!block || typeof block !== 'object') return null;
+  return trimmedTextOrNull((block as Record<string, unknown>).agent);
+}
+
+function readReviewerChoice(block: unknown, inheritedLegacyAgent: string | null): ReviewerChoice | null {
   if (!block || typeof block !== 'object') return null;
   const choice = block as Record<string, unknown>;
-  const chosenAgent = trimmedTextOrNull(choice.agent);
+  const legacyAgent = legacyAgentOf(block) ?? inheritedLegacyAgent;
+  if (legacyAgent !== null && legacyAgent !== CLAUDE_REVIEWER_AGENT) return null;
   const model = trimmedTextOrNull(choice.model);
   const effort = trimmedTextOrNull(choice.effort);
-  if (chosenAgent === null && model === null && effort === null) return null;
-  const parsedAgent = ReviewAgentId.safeParse(chosenAgent ?? inheritedAgent);
-  if (!parsedAgent.success) return null;
-  return { agent: parsedAgent.data, model, effort };
+  if (model === null && effort === null) return null;
+  return { model, effort };
 }
 
 function readSandboxSettings(block: unknown): TeamReviewSandboxSettings {
@@ -134,17 +126,8 @@ function readSandboxSettings(block: unknown): TeamReviewSandboxSettings {
   return { extraDomains, openNetwork: sandbox.openNetwork === true, loadMcpServers: sandbox.loadMcpServers === true };
 }
 
-function reviewerAgentArgs(choice: ReviewerChoice): string[] {
-  return REVIEWER_AGENT_ARGS[choice.agent](choice);
-}
-
-function reviewerRefusal(reviewer: ReviewerChoice, sandbox: TeamReviewSandboxSettings): string | null {
-  if (reviewer.agent === 'claude' || sandbox.loadMcpServers) return null;
-  return `${reviewer.agent} always loads your MCP servers, so it reviews only once Load my MCP servers is on`;
-}
-
-function reviewAgentAdapterId(agent: ReviewAgentId): string {
-  return REVIEW_AGENT_ADAPTER_IDS[agent];
+function reviewerAgentArgs({ model, effort }: ReviewerChoice): string[] {
+  return [...(model ? ['--model', model] : []), ...(effort ? ['--effort', effort] : [])];
 }
 
 function reviewerFor(settings: Pick<TeamReviewSettings, 'reviewer' | 'stampReviewer'>, tier: ReviewTier): ReviewerChoice {
@@ -156,7 +139,7 @@ function reviewerFor(settings: Pick<TeamReviewSettings, 'reviewer' | 'stampRevie
 function readTeamReviewSettings(config: TeamReviewSettingsSource): TeamReviewSettings {
   const block = config.teamReview;
   const teams = readGithubTeams(config);
-  const reviewer = readReviewerChoice(block?.reviewer, DEFAULT_REVIEWER.agent) ?? DEFAULT_REVIEWER;
+  const reviewer = readReviewerChoice(block?.reviewer, null) ?? DEFAULT_REVIEWER;
   const configuredOrg = typeof block?.org === 'string' ? block.org.trim() : '';
   return {
     enabled: block?.enabled !== false,
@@ -166,7 +149,7 @@ function readTeamReviewSettings(config: TeamReviewSettingsSource): TeamReviewSet
     skipIdleAfterDays: positiveNumberOr(block?.skipIdleAfterDays, DEFAULT_SKIP_IDLE_AFTER_DAYS),
     skill: typeof block?.skill === 'string' ? block.skill.trim() : '',
     reviewer,
-    stampReviewer: readReviewerChoice(block?.stampReviewer, reviewer.agent),
+    stampReviewer: readReviewerChoice(block?.stampReviewer, legacyAgentOf(block?.reviewer)),
     sandbox: readSandboxSettings(block?.sandbox),
     autoRebaseMyPrs: block?.autoRebaseMyPrs === true,
   };
@@ -995,10 +978,10 @@ function prSessionPrompt({ repo, detail, draft }: { repo: string; detail: PrDeta
   ].join('\n');
 }
 
-function reviewProcedure(reviewSkill: string, reviewAgent: ReviewAgentId): string[] {
+function reviewProcedure(reviewSkill: string): string[] {
   if (reviewSkill) {
     return [
-      `${SKILL_INVOCATIONS[reviewAgent](reviewSkill)} to review the range BASE_SHA..HEAD_SHA in the checkout,`,
+      `Invoke the ${reviewSkill} skill with the Skill tool to review the range BASE_SHA..HEAD_SHA in the checkout,`,
       'then translate its findings into the report format below.',
     ];
   }
@@ -1071,7 +1054,7 @@ function oneOf(values: readonly string[]): string {
 }
 
 function buildReviewPrompt({
-  candidate, detail, tier, reasons, checkoutPath, reportPath, postingPath, reviewSkill = '', reviewAgent = DEFAULT_REVIEWER.agent,
+  candidate, detail, tier, reasons, checkoutPath, reportPath, postingPath, reviewSkill = '',
   priorReview = null, newWork = null,
 }: {
   candidate: TeamReviewCandidate;
@@ -1082,7 +1065,6 @@ function buildReviewPrompt({
   reportPath: string;
   postingPath: string;
   reviewSkill?: string;
-  reviewAgent?: ReviewAgentId;
   priorReview?: PriorReview | null;
   newWork?: NewWorkPointer | null;
 }): string {
@@ -1119,7 +1101,7 @@ function buildReviewPrompt({
     '',
     ...priorReviewSection(priorReview, newWork, checkoutPath, head),
     'Procedure:',
-    ...reviewProcedure(reviewSkill, reviewAgent),
+    ...reviewProcedure(reviewSkill),
     '',
     `Report file: use the Write tool to write ${reportPath} with exactly this layout and nothing else:`,
     `- first line: HEAD_SHA: ${head}`,
@@ -1196,5 +1178,5 @@ function absolutePathReadRule(absolutePath: string): string {
   return `Read(/${posixPath}/**)`;
 }
 
-export { reviewSnapshotFromGithubPr, DEFAULT_REVIEWER, DEFAULT_SANDBOX, reviewAgentAdapterId, reviewerAgentArgs, reviewerFor, reviewerRefusal, MAX_CONCURRENT_REVIEWS, MAX_ASKED_FOR_REVIEWS, ASKED_FOR_FETCH_GRACE_MS, askedForRefusal, advanceAwakeElapsed, REVIEW_TIMEOUT_SECONDS, POLL_INTERVAL_MINUTES, DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, PROGRESS_EMIT_INTERVAL_MS, TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME, REMERGE_OBJECTS_DIRNAME, REVIEW_PROMPT_FILENAME, REVIEW_UNTRUSTED_ITEM_MAX_CHARS, remergeGitEnvPrefix, reviewUntrustedItems, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE, uiFilesOf, parseFindingLine, sectionAfter, fencedUntrusted, absolutePathReadRule, buildReviewPrompt, githubRepoSlugFromRemote, remoteMatchesGithubRepo, parsePostingPlan, parseReviewReport, canPost, commentableLines, draftsNewestFirst, earlierReviewToKeep, errorDraft, eventForAction, githubReviewsFrom, postedReviewBody, isPostableStatus, hasViewerReviewedAt, invalidComments, isUnreviewedDraft, isSameGithubReviews, shouldAutoReview, markDraftStale, notMineDraft, restoreDraftAtReviewedHead, applyReviewProgress, orgSearchPlans, readTeamReviewSettings, prBaseRef, prHeadRef, prKey, prSessionName, prSessionPrompt, priorReviewFor, readyDraft, reReviewResult, resumeDecision, resumeTimeoutMs, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr };
+export { reviewSnapshotFromGithubPr, DEFAULT_REVIEWER, DEFAULT_SANDBOX, REVIEW_AGENT_ADAPTER_ID, reviewerAgentArgs, reviewerFor, MAX_CONCURRENT_REVIEWS, MAX_ASKED_FOR_REVIEWS, ASKED_FOR_FETCH_GRACE_MS, askedForRefusal, advanceAwakeElapsed, REVIEW_TIMEOUT_SECONDS, POLL_INTERVAL_MINUTES, DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, PROGRESS_EMIT_INTERVAL_MS, TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME, REMERGE_OBJECTS_DIRNAME, REVIEW_PROMPT_FILENAME, REVIEW_UNTRUSTED_ITEM_MAX_CHARS, remergeGitEnvPrefix, reviewUntrustedItems, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE, uiFilesOf, parseFindingLine, sectionAfter, fencedUntrusted, absolutePathReadRule, buildReviewPrompt, githubRepoSlugFromRemote, remoteMatchesGithubRepo, parsePostingPlan, parseReviewReport, canPost, commentableLines, draftsNewestFirst, earlierReviewToKeep, errorDraft, eventForAction, githubReviewsFrom, postedReviewBody, isPostableStatus, hasViewerReviewedAt, invalidComments, isUnreviewedDraft, isSameGithubReviews, shouldAutoReview, markDraftStale, notMineDraft, restoreDraftAtReviewedHead, applyReviewProgress, orgSearchPlans, readTeamReviewSettings, prBaseRef, prHeadRef, prKey, prSessionName, prSessionPrompt, priorReviewFor, readyDraft, reReviewResult, resumeDecision, resumeTimeoutMs, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr };
 export type { CommentableLines, NewWorkPointer, NewWorkRange, ReviewerChoice, ReviewProgressEvent, ReviewTier, TeamReviewCandidate, TeamReviewSandboxSettings, TeamReviewSettings, TeamReviewSettingsSource };

@@ -14,7 +14,7 @@ import { createNotificationPermissionControl, ensureNotificationPermission, noti
 import { formatAgo } from '../poll-ago.ts';
 import { UPDATES_SECTION_ID } from '../radar/radar-core.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
-import { isReviewAgentOffered, isSkillChoicePending, readTeamReviewEnvironment, teamReviewSandboxLines, teamReviewSuggestions } from './team-review-settings-core.ts';
+import { isSkillChoicePending, readTeamReviewEnvironment, teamReviewSandboxLines, teamReviewSuggestions } from './team-review-settings-core.ts';
 import type { SettingsSection, SettingsSetting } from '#shared/settings/registry.ts';
 import { SETTINGS_MOVED_SETTINGS, SETTINGS_REGISTRY, SETTINGS_SECTION_ALIASES, settingsSectionsAvailableOn } from '#shared/settings/registry.ts';
 import type { SettingsSearchMatch, SettingsSearchResult } from '#shared/settings/registry-core.ts';
@@ -781,10 +781,7 @@ function renderSegmented(setting: SettingsSetting) {
 function renderSelect(setting: SettingsSetting) {
   const select = el('select', 'settings-view-input');
   select.setAttribute('aria-labelledby', setting.id);
-  const storedChoice = String(storedValue(setting));
-  const environment = setting.availableFrom ? readTeamReviewEnvironment(settingsPayload.teamReviewEnvironment) : null;
-  const offeredChoices = (setting.options ?? []).filter((choice) => !setting.availableFrom || choice.value === storedChoice || isReviewAgentOffered(environment, choice.value));
-  for (const choice of offeredChoices) {
+  for (const choice of setting.options ?? []) {
     const option = el('option', null, choice.label);
     option.value = choice.value;
     select.appendChild(option);

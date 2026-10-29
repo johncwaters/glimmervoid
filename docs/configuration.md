@@ -123,16 +123,14 @@ Draft reviews of teammates' pull requests for you to post from the Reviews tab.
 | `github.teams` | GitHub teams | `[]` | Teams to search for review requests and members, one org/slug per entry. Leave empty to fall back to the legacy teamReview.org and teamReview.team keys in config.json. |
 | `teamReview.reReviewAfterHours` | Re-review after | `24` | When a reviewed PR has a new head, review it again after this long since its last review. Re-run review runs it at any time. |
 | `teamReview.skipIdleAfterDays` | Skip PRs idle for | `14` | Leave pull requests without GitHub activity for this long out of automatic review. |
-| `teamReview.skill` | Review skill | `""` | Skill the review agent follows for each review, picked from the skills that agent loads or typed by name. Leave empty for no skill: the agent reviews with whatever skills it has. |
-| `teamReview.reviewer.agent` | Review agent | `"claude"` | Agent CLI that drafts each review and judges replies to its threads. |
+| `teamReview.skill` | Review skill | `""` | Skill Claude Code follows for each review, picked from the skills it loads or typed by name. Leave empty for no skill: it reviews with whatever skills it has. |
 | `teamReview.reviewer.model` | Review model | `""` | Model the review agent runs. Leave empty to use the agent's own default model. |
 | `teamReview.reviewer.effort` | Review effort | `""` | Effort level the review agent runs at. Leave empty to use the agent's own default effort. |
-| `teamReview.stampReviewer.agent` | Small PR agent | `""` | Agent for small pull requests. Same as review agent uses the review agent, model and effort above. |
-| `teamReview.stampReviewer.model` | Small PR model | `""` | Model for small pull requests. Leave empty to use the small PR agent default model. |
-| `teamReview.stampReviewer.effort` | Small PR effort | `""` | Effort for small pull requests. Leave empty to use the small PR agent default effort. |
+| `teamReview.stampReviewer.model` | Small PR model | `""` | Model for small pull requests. With both small PR fields empty, small pull requests use the review model and effort above. |
+| `teamReview.stampReviewer.effort` | Small PR effort | `""` | Effort for small pull requests. Leave empty to use the model's own default effort. |
 | `teamReview.sandbox.extraDomains` | Extra allowed domains | `[]` | Domains the review sandbox may reach on top of the agent API and api.github.com. |
 | `teamReview.sandbox.openNetwork` | Open network egress | `false` | Let the review sandbox reach any domain instead of the allowlist. |
-| `teamReview.sandbox.loadMcpServers` | Load my MCP servers | `false` | Give a Claude Code review agent your own MCP servers instead of none. Codex CLI and Kimi Code always load the servers their own config names, so they review only with this on. |
+| `teamReview.sandbox.loadMcpServers` | Load my MCP servers | `false` | Give the Claude Code review agent your own MCP servers instead of none. |
 | `teamReview.autoRebaseMyPrs` | Keep my pull requests rebased | `false` | On each poll, rebase your open, non-draft pull requests that are behind their base branch. A pull request with conflicts or checks still running is left alone, and a failed rebase is not retried until you push again. |
 | `teamReview.keepMergeableEnabled` | Keep mergeable | `true` | Offer Keep mergeable on your pull requests: a guarded agent repairs conflicts and failing checks and pushes the repair. Off hides the control and starts no repair; the pull requests you chose stay chosen for when you turn it back on. |
 | `teamReview.keepMergeableTimeoutMinutes` | Keep mergeable deadline | `30` | Longest a Keep mergeable repair session may run before it is stopped and nothing is pushed. |
