@@ -943,5 +943,5 @@ function createRadarWiring({
   };
 }
 
-export { REPORT_DIR, commitFixWork, createRadarWiring, pushFixBranch, readWorktreeGitPointer, runCli };
+export { commitFixWork, createRadarWiring, pushFixBranch, readWorktreeGitPointer, runCli };
 export type { PosthogWorkspace };
