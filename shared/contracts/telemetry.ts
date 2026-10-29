@@ -15,7 +15,7 @@ const TEAM_REVIEW_POST_REFUSAL_REASONS = Object.freeze([
 const RADAR_VERDICTS = Object.freeze(['ROOT_CAUSE', 'FIXED', 'NEEDS_HUMAN', 'TRANSIENT', 'ERROR'] as const);
 const RADAR_JOB_MODES = Object.freeze(['investigate', 'fix'] as const);
 const RADAR_ERROR_REASONS = Object.freeze(['agent-reported', 'no-result', 'invalid-result', 'timed-out', 'no-verdict', 'crashed', 'aborted', 'empty-fix', 'handoff-failed'] as const);
-const RADAR_HANDOFF_STEPS = Object.freeze(['read-diff', 'count-commits', 'push-branch', 'resolve-repo', 'open-pr'] as const);
+const RADAR_HANDOFF_STEPS = Object.freeze(['commit-fix', 'read-diff', 'count-commits', 'push-branch', 'resolve-repo', 'open-pr'] as const);
 const OPERATOR_ACTIONS = Object.freeze([...new Set(Object.values(OPERATOR_ACTIONS_BY_SURFACE).flat())] as [OperatorAction, ...OperatorAction[]]);
 
 export const MAX_EXCEPTION_FRAMES = 64;

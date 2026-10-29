@@ -1,4 +1,5 @@
 import { isWorkflowPath } from '../../git/core/git-changed-paths-core.ts';
+import type { UntrustedItem } from '../../../shared/contracts/untrusted-payload.ts';
 
 const DEFAULT_INTERVAL_MINUTES = 15;
 const DEFAULT_POSTHOG_HOST = 'https://us.posthog.com';
@@ -696,4 +697,25 @@ function buildIssueSessionPrompt({
   return lines.join('\n');
 }
 
-export { toCount, issueKey, issueUrl, classifyIssueChange, investigationTrigger, slotDeferredInvestigationChange, underlyingInvestigationChange, belowMinimumInvestigationChange, planInvestigations, decideJobMode, normalizeJobMode, decideFixHandoff, normalizePrUrl, normalizePrTitle, normalizePrBody, fixDetailLine, decideVanishedEntry, pingFor, nextState, summaryLineFromReportText, validateIssueRef, decideIssueAction, buildInvestigationRecord, appendInvestigation, markInvestigationArchived, pruneInvestigations, unarchivedInvestigations, validateInvestigationId, resolveIssueProject, isAbsolutePathish, projectParentDirs, pickDirectoryForProjectName, sanitizeSessionName, scrubForPaste, buildIssueSessionPrompt, JOB_MODES, FIX_VERDICTS, INVESTIGATIONS_KEY, DEFAULT_ARCHIVED_RETENTION_DAYS, DEFAULT_INTERVAL_MINUTES, DEFAULT_USER_ESCALATION_THRESHOLD, DEFAULT_MIN_USERS_TO_INVESTIGATE, DEFAULT_ENTRY_RETENTION_DAYS };
+const RADAR_UNTRUSTED_SOURCE = 'radar';
+const RADAR_UNTRUSTED_ITEM_MAX_CHARS = 20000;
+const RADAR_RESULT_FILENAME = 'radar-result.json';
+const RADAR_REPORT_FILENAME = 'radar-report.html';
+const RADAR_EXCEPTION_EVENT_LIMIT = 5;
+const RADAR_EXCEPTION_EVENTS_QUERY = [
+  'SELECT timestamp, properties.$exception_list, properties.$exception_types, properties.$exception_values,',
+  'properties.$current_url, properties.$lib, properties.$lib_version, properties.$browser, properties.$os, properties.$session_id',
+  "FROM events WHERE event = '$exception' AND properties.$exception_issue_id = {issueId}",
+  `AND timestamp > now() - INTERVAL 7 DAY ORDER BY timestamp DESC LIMIT ${RADAR_EXCEPTION_EVENT_LIMIT}`,
+].join(' ');
+
+function radarUntrustedItems(issue: PosthogIssue, exceptionEvents: readonly Record<string, unknown>[]): UntrustedItem[] {
+  const issueRef = String(issue.issueId ?? '');
+  const issueFacts = { title: issue.title ?? null, status: issue.status ?? null, occurrences: issue.occurrences ?? null, users: issue.users ?? null, lastSeen: issue.lastSeen ?? null };
+  return [
+    { kind: 'issue', ref: issueRef, text: JSON.stringify(issueFacts, null, 2) },
+    ...exceptionEvents.slice(0, RADAR_EXCEPTION_EVENT_LIMIT).map((event, index) => ({ kind: 'exception-event', ref: `${issueRef}#${index + 1}`, text: JSON.stringify(event, null, 2) })),
+  ];
+}
+
+export { toCount, issueKey, issueUrl, classifyIssueChange, investigationTrigger, slotDeferredInvestigationChange, underlyingInvestigationChange, belowMinimumInvestigationChange, planInvestigations, decideJobMode, normalizeJobMode, decideFixHandoff, normalizePrUrl, normalizePrTitle, normalizePrBody, fixDetailLine, decideVanishedEntry, pingFor, nextState, summaryLineFromReportText, validateIssueRef, decideIssueAction, buildInvestigationRecord, appendInvestigation, markInvestigationArchived, pruneInvestigations, unarchivedInvestigations, validateInvestigationId, resolveIssueProject, isAbsolutePathish, projectParentDirs, pickDirectoryForProjectName, sanitizeSessionName, scrubForPaste, buildIssueSessionPrompt, radarUntrustedItems, RADAR_UNTRUSTED_SOURCE, RADAR_UNTRUSTED_ITEM_MAX_CHARS, RADAR_RESULT_FILENAME, RADAR_REPORT_FILENAME, RADAR_EXCEPTION_EVENTS_QUERY, JOB_MODES, FIX_VERDICTS, INVESTIGATIONS_KEY, DEFAULT_ARCHIVED_RETENTION_DAYS, DEFAULT_INTERVAL_MINUTES, DEFAULT_USER_ESCALATION_THRESHOLD, DEFAULT_MIN_USERS_TO_INVESTIGATE, DEFAULT_ENTRY_RETENTION_DAYS };

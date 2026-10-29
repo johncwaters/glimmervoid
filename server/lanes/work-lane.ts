@@ -46,7 +46,7 @@ export async function existingRealPaths(candidates: readonly string[]): Promise<
   return realPaths.filter((realPath) => realPath !== null);
 }
 
-export async function readLaneCommonGitDir(cwd: string): Promise<string> {
+async function readLaneCommonGitDir(cwd: string): Promise<string> {
   const { stdout } = await runHardenedGit(['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd, timeout: 30_000 });
   return realpath(stdout.trim());
 }

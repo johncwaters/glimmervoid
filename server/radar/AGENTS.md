@@ -8,8 +8,8 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 
 ### Radar / PostHog Auto-Fix (opt-in)
 
-- The agent COMMITS; the server pushes and opens the PR. `FIX_DENY` denies `git push` and `gh` outright, since a prefix deny-list cannot constrain a push TARGET or a merge API call.
+- Issue data is untrusted: Glimmervoid fetches the issue and its recent exception events into `untrusted.json`, and neither session gets a shell, a network tool or the PostHog key; an investigation reads the repo read-only and may use the gated read-only PostHog MCP (`tests/backend-radar.test.ts`).
+- The fix lane only edits files; GLIMMERVOID commits with the repository's hooks and fsmonitor off and refuses a fix that rewrote the worktree `.git` entry or its admin `commondir`/`gitdir`, since an agent-planted hook or git pointer would run outside the lane (`commitFixWork`, `readWorktreeGitPointer`).
 - The server REFUSES the handoff when the diff touches `.github/workflows/`, making "never touches CI" structural; the PR url comes from `gh` stdout, never the agent.
 - The branch name carries a random discriminator: a deterministic one collides with a previous fix's pushed branch, burning the timeout on a regression after a fix.
-- Both sessions start inside the sandbox runtime with open network, because they fetch untrusted issue data (`radarLaneRole`): an investigation writes only its report and result folders, a fix also commits in its own worktree, and the repository's hooks and git config stay locked (`node scripts/probe-guardrails-roles.ts --role posthog`).
 - The live investigation view is the hook-derived trail plus the agent's narration read from its contained transcript at each tool call, never the PTY: `claude -p` writes nothing to its terminal until the final answer, so a terminal viewer would show a blank screen for the whole run.
