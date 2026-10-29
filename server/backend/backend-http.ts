@@ -142,7 +142,10 @@ interface BackendHttpDependencies {
   remoteListenerPort?: number | null;
   tokenMatches?: (presented: unknown) => boolean;
   openUrlOnHost?: HostUrlOpener;
-  hookRouter: { handle: (input: Record<string, unknown>) => HookRouterOutput };
+  hookRouter: {
+    handle: (input: Record<string, unknown>) => HookRouterOutput;
+    enrich?: (input: { glimmervoidId: string; event: string; token: string | null; payload: Record<string, unknown> }) => Promise<Record<string, unknown>>;
+  };
   getSession: (id: string) => Session | null;
   getUsage: () => { ingestStatusline: (payload: object) => void };
   getPlanReview?: () => PlanReviewHookPort | null;
@@ -446,10 +449,13 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
       if (SILENT_OVERSIZE_HOOK_EVENTS.has(hookEventName)) return;
       logger.warn(`[hook] ${hookEventName} body of ${declaredBytes} bytes is over the ${bodyCapBytes} byte cap and was refused`);
     };
-    void readCappedBody(req, bodyCapBytes, overCap).then((body) => {
+    void readCappedBody(req, bodyCapBytes, overCap).then(async (body) => {
       if (body === null) return;
-      const payload = parseJsonBody(body);
       const token = presentedToken(req);
+      const parsedPayload = parseJsonBody(body);
+      const payload = hookRouter.enrich
+        ? await hookRouter.enrich({ glimmervoidId: req.params.glimmervoidId, event: req.params.event, token, payload: parsedPayload })
+        : parsedPayload;
       const output = hookRouter.handle({
         glimmervoidId: req.params.glimmervoidId,
         event: req.params.event,

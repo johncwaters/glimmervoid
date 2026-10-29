@@ -13,7 +13,9 @@ import { buildAgentEnv } from "../core/spawn-env.ts";
 import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import { buildHookCommand } from "../core/hook-command-core.ts";
 import { supervisionLine } from "../core/session-routes.ts";
-import { codexHomes } from "../../server/usage/core/usage-scan-core.ts";
+import { codexHomes, codexSessionIdFromPath } from "../../server/usage/core/usage-scan-core.ts";
+import { openContainedFile } from "../../server/contained-file.ts";
+import { isRelevantRolloutLine, isTurnStartLine, turnEndedWithProposedPlan } from "../core/codex-plan-rollout-core.ts";
 import { codexHookPlanFor, LEGACY_HOOK_EVENTS, parseCodexVersion } from "../core/codex-version-core.ts";
 import type { CodexHookPlan, MatchedRelayHook } from "../core/codex-version-core.ts";
 import type {
@@ -29,6 +31,9 @@ const ID = "codex";
 const COMMAND_NAME = "codex";
 
 const RELAY_PATH = relayPath("hook-relay");
+const PLAN_PROPOSED_FIELD = "glimmervoid_plan_proposed";
+const ROLLOUT_CHUNK_BYTES = 1024 * 1024;
+const ROLLOUT_SCAN_LIMIT_BYTES = 64 * ROLLOUT_CHUNK_BYTES;
 const HOOK_TOOL_RELAY_PATH = relayPath("hook-tool-relay");
 
 const HOOK_EVENTS = LEGACY_HOOK_EVENTS;
@@ -61,6 +66,55 @@ function isRequestUserInput(event: string, payload?: HookPayload): boolean {
   return event === "pretooluse" && payload?.tool_name === REQUEST_USER_INPUT_TOOL_NAME;
 }
 
+function isProposedPlanStop(event: string, payload?: HookPayload): boolean {
+  return event === "stop" && payload?.[PLAN_PROPOSED_FIELD] === true;
+}
+
+async function readTurnRolloutLines(handle: fs.promises.FileHandle, fileSize: number, turnId: string): Promise<string[] | null> {
+  const scanFloor = Math.max(0, fileSize - ROLLOUT_SCAN_LIMIT_BYTES);
+  const relevantLines: string[] = [];
+  let chunkEnd = fileSize;
+  let carriedBytes = Buffer.alloc(0);
+  while (chunkEnd > scanFloor) {
+    const chunkStart = Math.max(scanFloor, chunkEnd - ROLLOUT_CHUNK_BYTES);
+    const chunk = Buffer.alloc(chunkEnd - chunkStart);
+    const { bytesRead } = await handle.read(chunk, 0, chunk.length, chunkStart);
+    const window = Buffer.concat([chunk.subarray(0, bytesRead), carriedBytes]);
+    const firstNewline = chunkStart === 0 ? -1 : window.indexOf(0x0a);
+    carriedBytes = window.subarray(0, firstNewline + 1);
+    const chunkLines = window.subarray(firstNewline + 1).toString("utf8").split("\n").filter(isRelevantRolloutLine);
+    relevantLines.unshift(...chunkLines);
+    if (chunkLines.some((line) => isTurnStartLine(line, turnId))) return relevantLines;
+    chunkEnd = chunkStart;
+  }
+  if (scanFloor > 0) console.warn(`codex rollout scan stopped at ${ROLLOUT_SCAN_LIMIT_BYTES} bytes without the start of turn ${turnId}`);
+  return relevantLines;
+}
+
+async function readTurnRolloutLinesFromCodexHome(transcriptPath: string, turnId: string, agentEnv: Record<string, string | undefined>): Promise<string[] | null> {
+  for (const codexHome of codexHomes(agentEnv, null)) {
+    const opened = await openContainedFile(path.resolve(transcriptPath), path.join(codexHome, "sessions"));
+    if (!opened.ok) continue;
+    const { handle, stat } = opened.file;
+    try {
+      return await readTurnRolloutLines(handle, stat.size, turnId);
+    } finally {
+      await handle.close();
+    }
+  }
+  return null;
+}
+
+async function enrichHookPayload(event: string, payload: HookPayload, agentEnv: Record<string, string | undefined>): Promise<HookPayload> {
+  if (String(event || "").toLowerCase() !== "stop") return payload;
+  const { transcript_path: transcriptPath, session_id: sessionId, turn_id: turnId } = payload;
+  if (typeof transcriptPath !== "string" || typeof sessionId !== "string" || typeof turnId !== "string") return payload;
+  if (codexSessionIdFromPath(transcriptPath) !== sessionId) return payload;
+  const rolloutLines = await readTurnRolloutLinesFromCodexHome(transcriptPath, turnId, agentEnv);
+  if (!rolloutLines || !turnEndedWithProposedPlan(rolloutLines, turnId)) return payload;
+  return { ...payload, [PLAN_PROPOSED_FIELD]: true };
+}
+
 function mapHookToSignal(event: string, payload?: HookPayload): string | null {
   const e = String(event || "").toLowerCase();
   switch (e) {
@@ -71,7 +125,7 @@ function mapHookToSignal(event: string, payload?: HookPayload): string | null {
     case "userpromptsubmit":
       return "resume";
     case "stop":
-      return "ready";
+      return isProposedPlanStop(e, payload) ? "awaiting-input" : "ready";
     case "permissionrequest":
       return "awaiting-input";
     case "precompact":
@@ -99,6 +153,7 @@ function mapHookPromptKind(event: string, payload?: HookPayload): string | null 
   const e = String(event || "").toLowerCase();
   if (e === "permissionrequest") return "permission";
   if (isRequestUserInput(e, payload)) return "elicitation";
+  if (isProposedPlanStop(e, payload)) return "plan";
   return null;
 }
 
@@ -234,6 +289,7 @@ const hooks: AgentHookProfile = {
   mapSignal: mapHookToSignal,
   mapConfidence: mapHookConfidence,
   mapPromptKind: mapHookPromptKind,
+  enrichPayload: enrichHookPayload,
   injection: {
     kind: "argv-config",
     relayPath: RELAY_PATH,

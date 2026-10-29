@@ -10,8 +10,10 @@ import { saneYoloHomeDir } from "../server/hook-tools.ts";
 import type { UserHook } from "./core/user-hooks-core.ts";
 import type { DecisionEntry } from "./core/decision-log.ts";
 import { hookProfileOf } from "./adapters/index.ts";
+import type { HookPayload } from "../shared/contracts/index.ts";
 import type {
   AgentAdapter,
+  AgentHookProfile,
   ArgvConfigInjection,
   GeneratedHomeInjection,
   HomeHooksFileInjection,
@@ -73,6 +75,12 @@ interface SessionHookLifecycle {
   hasSettings(): boolean;
   isRequiredGuardrailsMissing(): boolean;
   injectedReadablePaths(isSaneYoloActive: boolean): string[];
+}
+
+function payloadEnricherFor(hookProfile: AgentHookProfile | null, agentEnv: () => Record<string, string | undefined>) {
+  const enrichPayload = hookProfile?.enrichPayload;
+  if (!enrichPayload) return null;
+  return (event: string, payload: HookPayload) => enrichPayload(event, payload, agentEnv());
 }
 
 function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLifecycle {
@@ -178,6 +186,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
         onSignal: options.ingestSignal,
         onEvent: options.observeHook,
         hooks: hookProfileOf(options.adapter),
+        enrichPayload: payloadEnricherFor(hookProfileOf(options.adapter), options.agentEnv),
       });
       return { args, env: { [HOOK_URL_ENV]: hookUrl, ...hookToolEnv(isSaneYoloActive) }, isSaneYoloActive };
     } catch (error) {
@@ -323,6 +332,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
         onSignal: options.ingestSignal,
         onEvent: options.observeHook,
         hooks: hookProfileOf(options.adapter),
+        enrichPayload: payloadEnricherFor(hookProfileOf(options.adapter), options.agentEnv),
       });
       const isSaneYoloActive = saneYoloTool() !== undefined;
       return { args: buildSettingsArgs(nextSettingsHandle.settingsPath), env: hookToolEnv(isSaneYoloActive), isSaneYoloActive };

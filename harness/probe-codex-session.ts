@@ -326,7 +326,7 @@ async function main(): Promise<void> {
     await delay(1500);
     session.write('\r');
     await delay(2000);
-    session.write('Before anything else, call request_user_input exactly once to ask whether a README should be short or long, with the options short and long. Then present a one-step plan.');
+    session.write('Call request_user_input exactly once to ask whether a README should be short or long, with the options short and long. Then reply with only the chosen option and do not present a plan.');
     await delay(1500);
     session.write('\r');
     const questionHook = await waitForHook('PreToolUse request_user_input', questionStart, (hook) => hook.event.toLowerCase() === 'pretooluse');
@@ -347,9 +347,10 @@ async function main(): Promise<void> {
     const planStop = await waitForHook('the plan Stop', planStart, (hook) => hook.event.toLowerCase() === 'stop');
     check('the plan turn reached Stop', !!planStop);
     await delay(3000);
+    check('the proposed plan put the card in WAITING', session.state === 'WAITING');
     session.write('\r');
     const implementationStop = await waitForHook('the implementation Stop', planStart, (hook) => {
-      if (session.state === 'WAITING') session.write('y');
+      if (session.state === 'WAITING' && hook.event.toLowerCase() === 'permissionrequest') session.write('y');
       return hook !== planStop && hook.event.toLowerCase() === 'stop';
     });
     check('approving the plan ran the implementation turn to Stop', !!implementationStop);

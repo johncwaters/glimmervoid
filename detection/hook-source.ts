@@ -31,6 +31,14 @@ export interface HookRegistration {
   onSignal: (signal: HookSignal) => void;
   onEvent?: ((event: string, payload: Record<string, unknown>) => void) | null;
   hooks: HookProfile | null;
+  enrichPayload?: ((event: string, payload: HookPayload) => Promise<HookPayload>) | null;
+}
+
+interface HookEnrichRequest {
+  glimmervoidId: string;
+  event: string;
+  token: string | null;
+  payload: HookPayload;
 }
 
 interface HookHandleResult {
@@ -49,6 +57,7 @@ class HookRouter {
     onSignal: (signal: HookSignal) => void;
     onEvent: ((event: string, payload: Record<string, unknown>) => void) | null;
     hooks: HookProfile;
+    enrichPayload: ((event: string, payload: HookPayload) => Promise<HookPayload>) | null;
   }>;
 
   _recordOutcome: OutcomeRecorder;
@@ -58,14 +67,25 @@ class HookRouter {
     this._recordOutcome = recordOutcome;
   }
 
-  register(glimmervoidId: string, { token, onSignal, onEvent = null, hooks }: HookRegistration): void {
+  register(glimmervoidId: string, { token, onSignal, onEvent = null, hooks, enrichPayload = null }: HookRegistration): void {
     if (!glimmervoidId || !token || typeof onSignal !== 'function') {
       throw new Error('HookRouter.register requires glimmervoidId, token, onSignal');
     }
     if (!hooks) {
       throw new Error('HookRouter.register requires a hook profile; an agent that declares no hooks must not register');
     }
-    this._sessions.set(glimmervoidId, { token, onSignal, onEvent, hooks });
+    this._sessions.set(glimmervoidId, { token, onSignal, onEvent, hooks, enrichPayload });
+  }
+
+  async enrich({ glimmervoidId, event, token, payload }: HookEnrichRequest): Promise<HookPayload> {
+    const entry = this._sessions.get(glimmervoidId);
+    if (!entry?.enrichPayload || !token || token !== entry.token) return payload;
+    try {
+      return await entry.enrichPayload(event, payload);
+    } catch (err) {
+      console.warn(`[hook-source] enrichPayload threw for ${glimmervoidId}: ${errorMessage(err)}`);
+      return payload;
+    }
   }
 
   unregister(glimmervoidId: string): void {

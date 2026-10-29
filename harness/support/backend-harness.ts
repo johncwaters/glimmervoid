@@ -75,7 +75,13 @@ function sanitizeProbeText(text: string, target: ProbeFixtureTarget): string {
     .split(realTempDirectory).join(placeholder)
     .split(target.tempDirectory).join(placeholder)
     .split(encodedProjectPrefix).join(placeholder)
-    .split(os.homedir()).join('<home>');
+    .split(os.homedir()).join('<home>')
+    .replace(operatorUsernamePattern(), '<user>');
+}
+
+function operatorUsernamePattern(): RegExp {
+  const escapedUsername = os.userInfo().username.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+  return new RegExp(`\\b${escapedUsername}\\b`, 'g');
 }
 
 function writeHookFixture(name: string, hooks: ProbeHookRecord[], target: ProbeFixtureTarget): string {

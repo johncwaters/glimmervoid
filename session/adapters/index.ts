@@ -78,6 +78,7 @@ type HookInjection = SettingsFileInjection | ArgvConfigInjection | HomeHooksFile
 
 interface AgentHookProfile extends HookProfile {
   injection: HookInjection;
+  enrichPayload?(event: string, payload: HookPayload, agentEnv: Record<string, string | undefined>): Promise<HookPayload>;
 }
 
 interface AgentTitleProfile extends TitleProfile {
