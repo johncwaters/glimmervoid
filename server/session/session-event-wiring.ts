@@ -45,6 +45,7 @@ interface SessionEventDependencies {
   taskTitleRefiner?: { attachSession: (session: Session) => void; onTurnEnd: (session: Session) => void } | null;
   coherenceFeed?: { attachSession: (session: Session) => void; onTurnEnd: (session: Session) => void } | null;
   traceWiring?: { attachSession: (session: Session) => void } | null;
+  featureHints?: { attachSession: (session: Session) => void } | null;
   planReview?: {
     attachSession: (session: Session) => void;
     latestPlanTitle: (sessionId: string) => string | null;
@@ -104,6 +105,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     dependencies.taskTitleRefiner?.attachSession(session);
     dependencies.coherenceFeed?.attachSession(session);
     dependencies.planReview?.attachSession(session);
+    dependencies.featureHints?.attachSession(session);
     let pendingPromptKind: string | null = null;
     let pendingAgentNote: string | null = null;
     const notifyGate = createNotifyGate();

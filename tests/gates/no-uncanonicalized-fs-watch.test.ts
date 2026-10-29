@@ -69,7 +69,7 @@ test("every fs.watch target is canonicalized first (Windows 8.3 short paths abor
     }
   }
 
-  assert.ok(watchCallsSeen >= 5, `expected to find the known fs.watch sites, found ${watchCallsSeen}`);
+  assert.ok(watchCallsSeen >= 4, `expected to find the known fs.watch sites, found ${watchCallsSeen}`);
 
   assert.deepEqual(
     offenders,

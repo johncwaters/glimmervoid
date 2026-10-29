@@ -149,4 +149,4 @@ function compareEntries(a: LaneLedgerEntry, b: LaneLedgerEntry): number {
   return laneKey(a.vendor, a.sessionId).localeCompare(laneKey(b.vendor, b.sessionId));
 }
 
-export { FIVE_HOUR_WINDOW_MS, INTERACTIVE_LANE, SEVEN_DAY_WINDOW_MS, laneKey, laneMapFromLedger, laneRollup, laneRollupSince, planWindowStartsMs, pruneLedger };
+export { FIVE_HOUR_WINDOW_MS, INTERACTIVE_LANE, SEVEN_DAY_WINDOW_MS, laneMapFromLedger, laneRollup, laneRollupSince, planWindowStartsMs, pruneLedger };

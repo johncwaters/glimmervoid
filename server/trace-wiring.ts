@@ -11,8 +11,8 @@ import {
 } from '../shared/contracts/trace.ts';
 import { claudeProjectsDir } from '../session/core/conversation-history.ts';
 import { openContainedFile } from './contained-file.ts';
-import { applyRead, createTailState, isTailCurrent } from './ingest/core/ingest-tail-core.ts';
-import type { TailState } from './ingest/core/ingest-tail-core.ts';
+import { applyRead, createTailState, isTailCurrent } from './core/transcript-tail-core.ts';
+import type { TailState } from './core/transcript-tail-core.ts';
 import { traceRecordsFromTranscriptLine } from './core/trace-core.ts';
 import {
   LINE_BREAK,

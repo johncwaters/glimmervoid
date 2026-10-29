@@ -12,7 +12,7 @@ const MAX_RECENT_PROMPTS = 20;
 const MAX_SIGNALS_PER_FEATURE = 50;
 const MAX_TARGET_CHARS = 200;
 
-type SignalOrigin = 'agent-command' | 'agent-prompt' | 'shell';
+type SignalOrigin = 'agent-command' | 'agent-prompt';
 
 interface FeatureSignal {
   feature: HintFeature;
@@ -133,9 +133,9 @@ function signalsFromMatches(origin: SignalOrigin, text: string, ts: number, matc
   });
 }
 
-function classifyCommand(command: string, origin: 'agent-command' | 'shell', ts: number): FeatureSignal[] {
+function classifyCommand(command: string, ts: number): FeatureSignal[] {
   if (!command.trim()) return [];
-  return signalsFromMatches(origin, command, ts, (rule) => rule.matchCommand(command));
+  return signalsFromMatches('agent-command', command, ts, (rule) => rule.matchCommand(command));
 }
 
 function classifyPrompt(prompt: string, ts: number): FeatureSignal[] {
@@ -155,6 +155,36 @@ function noteRecentPrompt(recentPrompts: readonly RecentPrompt[], { prompt, sess
   const nextPrompts = [...freshPrompts, { normalizedPrompt, sessionId, ts }].slice(-MAX_RECENT_PROMPTS);
   const signals: FeatureSignal[] = isRepeatedAcrossSessions ? [{ feature: 'benchmarks', target: `repeated-prompt@${ts}`, ts }] : [];
   return { recentPrompts: nextPrompts, signals };
+}
+
+interface HookEventNotice {
+  event: string;
+  payload: Record<string, unknown>;
+}
+
+interface HookEventContext {
+  sessionId: string;
+  ts: number;
+  recentPrompts: readonly RecentPrompt[];
+}
+
+function bashCommandOf(payload: Record<string, unknown>): string | null {
+  if (payload.tool_name !== 'Bash') return null;
+  const toolInput = payload.tool_input;
+  if (typeof toolInput !== 'object' || toolInput === null || !('command' in toolInput)) return null;
+  return typeof toolInput.command === 'string' ? toolInput.command : null;
+}
+
+function signalsFromHookEvent({ event, payload }: HookEventNotice, { sessionId, ts, recentPrompts }: HookEventContext): { signals: FeatureSignal[]; recentPrompts: readonly RecentPrompt[] } {
+  const unchanged = { signals: [], recentPrompts };
+  const hookEvent = event.toLowerCase();
+  if (hookEvent === 'posttooluse') {
+    const command = bashCommandOf(payload);
+    return command ? { signals: classifyCommand(command, ts), recentPrompts } : unchanged;
+  }
+  if (hookEvent !== 'userpromptsubmit' || typeof payload.prompt !== 'string') return unchanged;
+  const repeated = noteRecentPrompt(recentPrompts, { prompt: payload.prompt, sessionId, ts });
+  return { signals: [...classifyPrompt(payload.prompt, ts), ...repeated.signals], recentPrompts: repeated.recentPrompts };
 }
 
 function withoutStaleHint(state: FeatureHintState, now: number): FeatureHintState {
@@ -221,7 +251,6 @@ function noteViewShown(state: FeatureHintState, view: string, now: number): Feat
 }
 
 export {
-  classifyCommand, classifyPrompt, decideHint, emptyFeatureHintState, noteRecentPrompt, noteViewShown,
-  recordSignals, settleHint, withoutStaleHint,
+  decideHint, emptyFeatureHintState, noteViewShown, recordSignals, settleHint, signalsFromHookEvent, withoutStaleHint,
 };
-export type { FeatureSignal, RecentPrompt };
+export type { FeatureSignal, HookEventNotice, RecentPrompt };

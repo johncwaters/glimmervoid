@@ -1,8 +1,7 @@
 import type { TraceRecord } from '../../shared/contracts/trace.ts';
 import { MAX_RAW_LINE_CHARS } from '../../shared/contracts/trace.ts';
-import { firstTextBlock, parseTimestamp } from '../ingest/core/ingest-agent-core.ts';
 import { parseJsonRecord } from './json-core.ts';
-import { rawTextOr } from '../../shared/coerce.ts';
+import { rawTextOr, textOr } from '../../shared/coerce.ts';
 
 const MAX_TRACE_BODY_CHARS = 65536;
 const MAX_TRACE_CALL_INPUT_CHARS = MAX_TRACE_BODY_CHARS * 2;
@@ -74,6 +73,28 @@ function parseTranscriptLine(rawLine: string): TranscriptLine | null {
   const parsed = parseJsonRecord(rawLine);
   if (!parsed) return null;
   return parsed as TranscriptLine;
+}
+
+function parseTimestamp(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    if (value > 0 && value < 1e12) return Math.floor(value * 1000);
+    if (value > 0) return Math.floor(value);
+    return null;
+  }
+  const text = textOr(value, null);
+  if (!text) return null;
+  const parsed = Date.parse(text);
+  if (!Number.isFinite(parsed)) return null;
+  return parsed;
+}
+
+function firstTextBlock(content: TranscriptContentBlock[]): string | null {
+  for (const block of content) {
+    if (block?.type !== 'text') continue;
+    const text = textOr(block.text, null);
+    if (text) return text;
+  }
+  return null;
 }
 
 function objectBlocks(content: unknown): TranscriptContentBlock[] {

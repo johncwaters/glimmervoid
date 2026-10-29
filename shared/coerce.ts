@@ -24,10 +24,4 @@ function coercedNumberOr(value: unknown, fallback: number): number {
   return number;
 }
 
-function positiveIntOr(value: unknown, fallback: number): number {
-  const number = Number(value);
-  if (!Number.isFinite(number) || number <= 0) return fallback;
-  return Math.floor(number);
-}
-
-export { coercedNumberOr, isRecord, numberOr, positiveIntOr, positiveNumberOr, rawTextOr, textOr };
+export { coercedNumberOr, isRecord, numberOr, positiveNumberOr, rawTextOr, textOr };

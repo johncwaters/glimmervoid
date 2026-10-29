@@ -347,6 +347,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     traceWiring,
     taskTitleRefiner: laneAssembly.taskTitleRefiner,
     coherenceFeed,
+    featureHints: laneAssembly.featureHints,
     planReview: laneAssembly.planReview,
     closeSessionDataClients,
     removeExitedSession: (id: string) => removeExitedSession?.(id),

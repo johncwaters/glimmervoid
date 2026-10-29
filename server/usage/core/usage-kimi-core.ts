@@ -58,4 +58,4 @@ function kimiDedupIdentity(entry: DedupIdentityEntry | null | undefined): string
   return `${entry.vendor}:${entry.sessionId}:${entry.messageId}:${entry.model}`;
 }
 
-export { KIMI_USAGE_FILENAME, kimiDedupIdentity, kimiSessionIdFromPath, parseKimiUsageLine };
+export { KIMI_USAGE_FILENAME, kimiDedupIdentity, parseKimiUsageLine };
