@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Sessions read a review in full**: `glimmervoid reviews <pr>` (a pull request url or `owner/repo#number`) gives a session the whole Reviews tab draft as JSON: verdict, summary, body, assessment, every inline comment with its severity and diff excerpt, GitHub threads and the earlier review. A review still queued or running reports its state instead, and a pull request not in the Reviews tab says to queue one with `glimmervoid review <pr>`. Ask a chat to run it instead of pasting the review in. `glimmervoid reviews` with no pull request lists the tab as before.
 
+### Changed
+
+- **`glimmervoid limits` prints JSON**: inside a session, `glimmervoid limits` now prints its JSON reply like every other session command, instead of text lines. `glimmervoid --help` still lists the session's limits as text. Every session command's reply is now checked against its contract before it is sent; one that breaks it comes back as `{"ok":false}` with a 500 and a `[agent-api]` line in the server log.
+
 ### Fixed
 
 - **Restart works after a Node upgrade**: when Homebrew (or another package manager) upgraded Node while Glimmervoid was running, the dashboard Restart button stopped the server and never brought it back, with nothing in the log. The replacement server now starts through the `node` on your PATH that the server booted from, such as `/opt/homebrew/bin/node`, so it follows the upgrade. If even that Node is gone, the server log says so with a `[lifecycle]` line and the process exits 1.

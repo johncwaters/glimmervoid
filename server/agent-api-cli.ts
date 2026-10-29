@@ -83,11 +83,6 @@ function limitsLines(replyText: string): string[] | null {
   return formatSessionLimits(limits.data);
 }
 
-function printableReply(verb: AgentApiVerb, replyText: string): string {
-  if (verb !== 'limits') return replyText;
-  return limitsLines(replyText)?.join('\n') ?? replyText;
-}
-
 type EndpointResolution = { ok: true; endpoint: URL; token: string } | { ok: false };
 
 function verbEndpoint(rawUrl: string, verb: AgentApiVerb): EndpointResolution {
@@ -326,7 +321,7 @@ async function runAgentApiCli(args: string[]): Promise<number> {
     return 1;
   }
   const reply = await postToAgentIngress({ endpoint: target.endpoint, token: target.token, body });
-  console.log(printableReply(verb, reply.text));
+  console.log(reply.text);
   return reply.hasSuccessStatus && bodySaysOk(reply.text) ? 0 : 1;
 }
 

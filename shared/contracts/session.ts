@@ -291,6 +291,32 @@ export const SessionLimits = z.object({
 
 export const AgentLimitsReply = SessionLimits.extend({ ok: z.literal(true) }).strict();
 
+export const AgentRefusal = z.object({ ok: z.literal(false), error: z.string(), reason: z.string().optional() }).strict();
+
+const AgentOkReply = z.object({ ok: z.literal(true) }).strict();
+
+export const AGENT_REPLY_SCHEMAS = Object.freeze({
+  push: z.union([z.object({ ok: z.literal(true), landedOn: z.string().nullable(), pushed: z.boolean(), note: z.string().optional() }).strict(), AgentRefusal]),
+  spawn: z.union([z.object({ ok: z.literal(true), sessionId: z.string(), name: z.string(), note: z.string() }).strict(), AgentRefusal]),
+  send: z.union([AgentOkReply, AgentRefusal]),
+  read: z.union([AgentReadReply, AgentRefusal]),
+  close: z.union([z.object({ ok: z.literal(true), closed: z.string() }).strict(), AgentRefusal]),
+  attention: z.union([AgentAttentionReply, AgentRefusal]),
+  board: z.union([z.object({ ok: z.literal(true), sessions: z.array(AgentBoardRow) }).strict(), AgentRefusal]),
+  edit: z.union([z.object({ ok: z.literal(true), path: z.string(), name: z.string() }).strict(), AgentRefusal]),
+  show: z.union([z.object({ ok: z.literal(true), shown: ShownFile.pick({ name: true, kind: true }).strict() }).strict(), AgentRefusal]),
+  review: z.union([z.object({ ok: z.literal(true), key: z.string(), status: z.enum(['queued', 'running']), note: z.string() }).strict(), AgentRefusal]),
+  reviews: z.union([AgentReviewsReply, AgentReviewDetailReply, AgentRefusal]),
+  prs: z.union([AgentPrsReply, AgentRefusal]),
+  'link-pr': z.union([z.object({ ok: z.literal(true), key: z.string(), url: z.string() }).strict(), AgentRefusal]),
+  settings: z.union([AgentSettingsReply, AgentRefusal]),
+  limits: z.union([AgentLimitsReply, AgentRefusal]),
+  answer: z.union([AgentOkReply, AgentRefusal]),
+}) satisfies { readonly [V in AgentApiVerb]: z.ZodType };
+
+export type AgentRefusal = z.infer<typeof AgentRefusal>;
+export type AgentReplyBodyOf<V extends AgentApiVerb> = z.infer<(typeof AGENT_REPLY_SCHEMAS)[V]>;
+
 export type AgentSpawnRequest = z.infer<typeof AgentSpawnRequest>;
 export type AgentSendRequest = z.infer<typeof AgentSendRequest>;
 export type AgentReadRequest = z.infer<typeof AgentReadRequest>;

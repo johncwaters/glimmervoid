@@ -13,7 +13,7 @@ import type { Session } from '../../session/sessions.ts';
 import { refocusReplyFor } from '../../session/core/refocus-core.ts';
 import type { RefocusContext } from '../../session/core/refocus-core.ts';
 import type { AgentApiPort } from '../agent-api-wiring.ts';
-import { decideAgentRequest, REFUSAL_REASON, REFUSAL_STATUS } from '../core/agent-api-core.ts';
+import { checkAgentReply, decideAgentRequest, REFUSAL_REASON, REFUSAL_STATUS } from '../core/agent-api-core.ts';
 import { SSH_SIGN_BODY_CAP_BYTES, SshSignRequest } from '../../shared/contracts/session.ts';
 import { decideHostAllowed } from '../core/host-policy.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -280,27 +280,33 @@ function declaredContentLength(req: Request): number | null {
   return Number.isFinite(declared) && declared >= 0 ? declared : null;
 }
 
-function answerShow({ req, res, session, shownFiles }: {
+function sendShowReply({ res, logger }: { res: Response; logger: Pick<Console, 'warn'> }, status: number, body: Record<string, unknown>): void {
+  if (res.headersSent) return;
+  const checked = checkAgentReply('show', { status, body });
+  if (!checked.ok) logger.warn(`[agent-api] show reply broke its contract: ${checked.issue}`);
+  res.status(checked.reply.status).json(checked.reply.body);
+}
+
+function answerShow({ req, res, session, shownFiles, logger }: {
   req: Request;
   res: Response;
   session: Session;
   shownFiles: ShownFilesPort;
+  logger: Pick<Console, 'warn'>;
 }): void {
+  const answer = (status: number, body: Record<string, unknown>) => sendShowReply({ res, logger }, status, body);
   const name = path.basename(decodeHeaderText(req.headers['x-glimmervoid-show-name']) ?? '');
   if (!name) {
-    res.status(400).json({ ok: false, error: 'show needs the file name in x-glimmervoid-show-name' });
+    answer(400, { ok: false, error: 'show needs the file name in x-glimmervoid-show-name' });
     return;
   }
   const caption = decodeHeaderText(req.headers['x-glimmervoid-show-caption'])?.slice(0, SHOWN_CAPTION_MAX_CHARS) ?? null;
   const declaredBytes = declaredContentLength(req);
   if (declaredBytes !== null && declaredBytes > SHOWN_FILE_CAP_BYTES) {
-    res.status(413).json({ ok: false, error: describeOverCap(name, declaredBytes) });
+    answer(413, { ok: false, error: describeOverCap(name, declaredBytes) });
     req.resume();
     return;
   }
-  const answer = (status: number, body: Record<string, unknown>) => {
-    if (!res.headersSent) res.status(status).json(body);
-  };
   void shownFiles.reserveIncomingPath(session.id).then(async (incomingPath) => {
     const outcome = await streamRequestToFile({ req, savedPath: incomingPath, capBytes: SHOWN_FILE_CAP_BYTES });
     if (!outcome.ok) {
@@ -506,10 +512,10 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
     const roleRefusal = agentApi.refuseRole(session, 'show');
     if (roleRefusal) {
       req.resume();
-      res.status(roleRefusal.status).json(roleRefusal.body);
+      sendShowReply({ res, logger }, roleRefusal.status, roleRefusal.body);
       return;
     }
-    answerShow({ req, res, session, shownFiles });
+    answerShow({ req, res, session, shownFiles, logger });
   });
 
   app.post('/agent/:glimmervoidId/:verb', (req, res) => {

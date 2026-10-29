@@ -1360,3 +1360,21 @@ test('reviews with a pull request hands a session the whole Reviews tab draft, o
     fixture.destroyAll();
   }
 });
+
+test('a reply that breaks its verb contract reaches the session as a 500 and never as the unchecked body', async () => {
+  const valid = TeamReviewStatus.parse({
+    type: 'team-review-status', ts: 1, configured: true, reason: null, inFlight: [], queued: [],
+    drafts: [{
+      key: 'acme/app#12', repo: 'acme/app', number: 12, title: 'Change', url: 'https://github.com/acme/app/pull/12', author: 'teammate',
+      tier: 'stamp', reasons: [], reviewedHead: 'a'.repeat(40), verdict: 'APPROVE', summary: 's', body: 'b', comments: [], status: 'ready',
+    }],
+  });
+  const teamReviewStatus: TeamReviewStatus = { ...valid, drafts: valid.drafts.map((draft) => ({ ...draft, reviewedHead: 'not a commit' })) };
+  const fixture = wiringFixture({ teamReviewStatus });
+  try {
+    const reply = await fixture.wiring.handle(fixture.parent, 'reviews', { pr: 'acme/app#12' });
+    assert.deepEqual(reply, { status: 500, body: { ok: false, error: 'glimmervoid built a reviews reply that breaks its contract' } });
+  } finally {
+    fixture.destroyAll();
+  }
+});

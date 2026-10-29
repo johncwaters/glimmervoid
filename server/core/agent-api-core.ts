@@ -4,9 +4,9 @@ import type { z } from 'zod';
 
 import { pullRequestKeyFromReference } from '../../shared/contracts/control-messages.ts';
 import {
-  AGENT_API_VERBS, AgentAnswerRequest, AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPullRequestRequest, AgentReadRequest, AgentReviewsRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest,
+  AGENT_API_VERBS, AGENT_REPLY_SCHEMAS, AgentAnswerRequest, AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPullRequestRequest, AgentReadRequest, AgentReviewsRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest,
 } from '../../shared/contracts/session.ts';
-import type { AgentApiVerb, AgentPrsReply, AgentReviewDetailReply, AgentReviewsReply } from '../../shared/contracts/session.ts';
+import type { AgentApiVerb, AgentPrsReply, AgentRefusal, AgentReplyBodyOf, AgentReviewDetailReply, AgentReviewsReply } from '../../shared/contracts/session.ts';
 import type { MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
 import type { TeamReviewStatus } from '../../shared/contracts/team-review.ts';
 import { COMMAND_ROUTES, NO_OWN_WORKTREE_REASON } from '../../session/core/session-routes.ts';
@@ -69,10 +69,17 @@ type AgentRequestRefusal = { ok: false; status: number; error: string };
 type AgentVerbRequest = { ok: true; verb: AgentApiVerb; request: AgentRequestOf<AgentApiVerb> } | AgentRequestRefusal;
 type RequestParser<Request> = (payload: Record<string, unknown>) => { ok: true; request: Request } | AgentRequestRefusal;
 
-interface AgentRoleRefusal {
+interface AgentRefusalReply {
   status: number;
-  body: { ok: false; reason?: string; error: string };
+  body: AgentRefusal;
 }
+
+interface AgentReplyOf<V extends AgentApiVerb> {
+  status: number;
+  body: AgentReplyBodyOf<V>;
+}
+
+const BROKEN_REPLY_STATUS = 500;
 
 const INVALID_BODY_STATUS = 400;
 const ROLE_REFUSED_STATUS = 403;
@@ -84,11 +91,6 @@ interface PushLanding {
   base?: string | null;
   pushed?: boolean;
   conflicts?: string[];
-}
-
-interface AgentPushReply {
-  status: number;
-  body: Record<string, unknown>;
 }
 
 const PUSH_REFUSAL_COPY: Readonly<Record<string, (landing: PushLanding) => string>> = Object.freeze({
@@ -139,7 +141,7 @@ function decideSpawnAllowance({ liveChildren, lifetimeSpawns, inFlight }: SpawnB
   return { ok: true };
 }
 
-function describeRoleRefusal(verb: AgentApiVerb, caller: SessionRoleFacts): AgentRoleRefusal | null {
+function describeRoleRefusal(verb: AgentApiVerb, caller: SessionRoleFacts): AgentRefusalReply | null {
   const route = COMMAND_ROUTES[verb](caller);
   if (route.answers) return null;
   if (route.code) return { status: PUSH_REFUSED_STATUS, body: { ok: false, reason: route.code, error: route.reason } };
@@ -200,6 +202,15 @@ const REQUEST_PARSERS: { readonly [V in AgentApiVerb]: RequestParser<AgentReques
   settings: bodyParser(AgentSettingsRequest),
 });
 
+type CheckedAgentReply = { ok: true; reply: AgentReplyOf<AgentApiVerb> } | { ok: false; reply: AgentRefusalReply; issue: string };
+
+function checkAgentReply(verb: AgentApiVerb, reply: { status: number; body: unknown }): CheckedAgentReply {
+  const checked = AGENT_REPLY_SCHEMAS[verb].safeParse(reply.body);
+  if (checked.success) return { ok: true, reply: { status: reply.status, body: checked.data } };
+  const issue = checked.error.issues[0]?.message ?? 'unknown issue';
+  return { ok: false, issue, reply: { status: BROKEN_REPLY_STATUS, body: { ok: false, error: `glimmervoid built a ${verb} reply that breaks its contract` } } };
+}
+
 function parseAgentVerb(verb: string, payload: Record<string, unknown>): AgentVerbRequest {
   if (!isAgentApiVerb(verb)) return { ok: false, status: REFUSAL_STATUS, error: REFUSAL_REASON };
   const parsed = REQUEST_PARSERS[verb](payload);
@@ -242,7 +253,7 @@ function describeKeptChildAttention(childName: string, worktree: ChildWorktree):
   return `${childName}, a session this one spawned, ended holding unpushed work: ${describeChildWorktree(worktree)}`;
 }
 
-function describePushLanding(landing: PushLanding): AgentPushReply {
+function describePushLanding(landing: PushLanding): AgentReplyOf<'push'> {
   if (!landing.merged) {
     const reason = landing.reason || 'unknown';
     const explain = PUSH_REFUSAL_COPY[reason];
@@ -389,5 +400,5 @@ function agentCommandHelpLines(): string[] {
   return Object.values(AGENT_COMMAND_HELP).map(({ usage, summary }) => `  ${usage.padEnd(Math.max(USAGE_COLUMN_WIDTH, usage.length + 1))}${summary}`);
 }
 
-export { decideAgentRequest, decideSpawnAllowance, deriveChildSessionName, describeChildEndNote, describeKeptChildAttention, describePushLanding, describeUnpushedCloseRefusal, describeRoleRefusal, isAgentApiVerb, parseAgentVerb, projectMyPrs, projectReviewDetail, projectReviews, MAX_LIVE_CHILDREN, REFUSAL_REASON, REFUSAL_STATUS, AGENT_COMMAND_HELP, agentCommandHelpLines };
-export type { AgentRequestOf, ChildEndCause, ChildWorktree };
+export { checkAgentReply, decideAgentRequest, decideSpawnAllowance, deriveChildSessionName, describeChildEndNote, describeKeptChildAttention, describePushLanding, describeUnpushedCloseRefusal, describeRoleRefusal, isAgentApiVerb, parseAgentVerb, projectMyPrs, projectReviewDetail, projectReviews, MAX_LIVE_CHILDREN, REFUSAL_REASON, REFUSAL_STATUS, AGENT_COMMAND_HELP, agentCommandHelpLines };
+export type { AgentRefusalReply, AgentReplyOf, AgentRequestOf, ChildEndCause, ChildWorktree };

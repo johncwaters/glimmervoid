@@ -15,10 +15,10 @@ import { manualPrLink } from '../session/core/session-pr-links-core.ts';
 import type { GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import type { ControlMessageRecord } from './core/control-replay-core.ts';
 import {
-  decideSpawnAllowance, deriveChildSessionName, describeChildEndNote, describeKeptChildAttention, describePushLanding, describeRoleRefusal,
+  checkAgentReply, decideSpawnAllowance, deriveChildSessionName, describeChildEndNote, describeKeptChildAttention, describePushLanding, describeRoleRefusal,
   describeUnpushedCloseRefusal, parseAgentVerb, projectMyPrs, projectReviewDetail, projectReviews,
 } from './core/agent-api-core.ts';
-import type { AgentRequestOf, ChildEndCause, ChildWorktree } from './core/agent-api-core.ts';
+import type { AgentRefusalReply, AgentReplyOf, AgentRequestOf, ChildEndCause, ChildWorktree } from './core/agent-api-core.ts';
 import {
   canSubmitWake, decideWake, describeQuestionNote, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, hasWakingUnread,
   openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldStopNoteWake, withdrawUnreadNote,
@@ -104,16 +104,16 @@ type SpawnOutcome =
   | { ok: true; sessionId: string; name: string }
   | { ok: false; status: number; error: string };
 
-interface AgentApiReply {
+interface AgentWireReply {
   status: number;
   body: Record<string, unknown>;
 }
 
-type AgentVerbHandlers = { readonly [V in AgentApiVerb]: (session: Session, request: AgentRequestOf<V>) => AgentApiReply | Promise<AgentApiReply> };
+type AgentVerbHandlers = { readonly [V in AgentApiVerb]: (session: Session, request: AgentRequestOf<V>) => AgentReplyOf<V> | Promise<AgentReplyOf<V>> };
 
 interface AgentApiPort {
-  handle(session: Session, verb: string, payload: Record<string, unknown>): Promise<AgentApiReply>;
-  refuseRole(session: Session, verb: AgentApiVerb): AgentApiReply | null;
+  handle(session: Session, verb: string, payload: Record<string, unknown>): Promise<AgentWireReply>;
+  refuseRole(session: Session, verb: AgentApiVerb): AgentRefusalReply | null;
   markChildWorktreeDiscard(childId: string): void;
 }
 
@@ -484,7 +484,7 @@ function createAgentApiWiring({
     };
   }
 
-  function attention(session: Session, request: AgentAttentionRequest): AgentApiReply {
+  function attention(session: Session, request: AgentAttentionRequest): AgentReplyOf<'attention'> {
     const reply: AgentAttentionReply = session.noteAttention(request.note);
     return { status: reply.ok ? 200 : 429, body: reply };
   }
@@ -509,15 +509,15 @@ function createAgentApiWiring({
     return { name: mapping.name, workspace: mapping.workspace, state: coderWorkspaceStatus(mapping.workspace) ?? 'unknown' };
   }
 
-  async function push(session: Session): Promise<AgentApiReply> {
+  async function push(session: Session): Promise<AgentReplyOf<'push'>> {
     return describePushLanding(await session.mergeAndContinue({ force: true }));
   }
 
-  function refusal(status: number, error: string): AgentApiReply {
+  function refusal(status: number, error: string): AgentRefusalReply {
     return { status, body: { ok: false, error } };
   }
 
-  async function review(pullRequestKey: string): Promise<AgentApiReply> {
+  async function review(pullRequestKey: string): Promise<AgentReplyOf<'review'>> {
     if (!operatorState) return refusal(503, 'team review is not available in this Glimmervoid');
     const separatorIndex = pullRequestKey.lastIndexOf('#');
     const outcome = await operatorState.requestReview({ repo: pullRequestKey.slice(0, separatorIndex), number: Number(pullRequestKey.slice(separatorIndex + 1)) });
@@ -525,7 +525,7 @@ function createAgentApiWiring({
     return { status: 200, body: { ...outcome, note: 'the review lands as a draft in the Reviews tab, and only the operator can post it' } };
   }
 
-  function reviews(pullRequestKey: string | null): AgentApiReply {
+  function reviews(pullRequestKey: string | null): AgentReplyOf<'reviews'> {
     if (!operatorState) return githubLanesUnavailable();
     const status = operatorState.teamReviewStatus();
     if (pullRequestKey === null) return { status: 200, body: projectReviews(status) };
@@ -534,33 +534,33 @@ function createAgentApiWiring({
     return { status: 200, body: detail };
   }
 
-  function linkPr(session: Session, pullRequestKey: string): AgentApiReply {
+  function linkPr(session: Session, pullRequestKey: string): AgentReplyOf<'link-pr'> {
     const link = manualPrLink(pullRequestKey, operatorState?.myPrsStatus()?.prs ?? [], Date.now());
     if (!link) return refusal(400, `not a GitHub pull request: ${pullRequestKey}`);
     session.linkPrManually(link);
     return { status: 200, body: { ok: true, key: `${link.repo}#${link.number}`, url: link.url } };
   }
 
-  function settings(request: AgentSettingsRequest): AgentApiReply {
+  function settings(request: AgentSettingsRequest): AgentReplyOf<'settings'> {
     if (!operatorState) return refusal(503, 'settings are not available in this Glimmervoid');
     const reply = operatorState.readSettings(request);
     return { status: reply.ok ? 200 : 400, body: reply };
   }
 
-  async function edit(session: Session, request: AgentEditRequest): Promise<AgentApiReply> {
+  async function edit(session: Session, request: AgentEditRequest): Promise<AgentReplyOf<'edit'>> {
     const reply = await sessionDocs.surface(session, request);
     if (!reply.ok) return { status: 400, body: reply };
     return { status: 200, body: { ok: true, path: reply.doc.path, name: reply.doc.name } };
   }
 
-  async function spawnReply(session: Session, request: AgentSpawnRequest): Promise<AgentApiReply> {
+  async function spawnReply(session: Session, request: AgentSpawnRequest): Promise<AgentReplyOf<'spawn'>> {
     const outcome = await spawn(session, request);
     if (!outcome.ok) return { status: outcome.status, body: { ok: false, error: outcome.error } };
     const note = `this session owns ${outcome.name} until the task is done: glimmervoid read ${outcome.sessionId} reads its messages, glimmervoid send ${outcome.sessionId} <text> steers it, and glimmervoid close ${outcome.sessionId} ends it and discards its worktree, refusing while it holds work that is not on the integration branch unless you add --discard`;
     return { status: 200, body: { ok: true, sessionId: outcome.sessionId, name: outcome.name, note } };
   }
 
-  function send(session: Session, { words }: AgentSendRequest): AgentApiReply {
+  function send(session: Session, { words }: AgentSendRequest): AgentReplyOf<'send'> {
     const at = Date.now();
     if (channelsByChildId.has(session.id)) {
       post(session.id, 'toParent', { author: 'child', text: words.join(' '), at, wakes: true });
@@ -576,7 +576,7 @@ function createAgentApiWiring({
     return { status: 200, body: { ok: true } };
   }
 
-  function read(session: Session, { child }: AgentReadRequest): AgentApiReply {
+  function read(session: Session, { child }: AgentReadRequest): AgentReplyOf<'read'> {
     if (channelsByChildId.has(session.id)) {
       const fromParent = drain(session.id, 'toChild');
       return { status: 200, body: { ok: true, channels: fromParent ? [fromParent] : [] } };
@@ -591,7 +591,7 @@ function createAgentApiWiring({
     return { status: 200, body: { ok: true, channels: fromChild ? [fromChild] : [] } };
   }
 
-  function answer(session: Session, request: AgentAnswerRequest): AgentApiReply {
+  function answer(session: Session, request: AgentAnswerRequest): AgentReplyOf<'answer'> {
     const owned = findChildOf(session, request.child);
     if (!owned.ok) return refusal(404, owned.error);
     const child = agentSessions.get(owned.channel.childId);
@@ -610,7 +610,7 @@ function createAgentApiWiring({
     return { status: 200, body: { ok: true } };
   }
 
-  async function close(session: Session, { child, discard = false }: AgentCloseRequest): Promise<AgentApiReply> {
+  async function close(session: Session, { child, discard = false }: AgentCloseRequest): Promise<AgentReplyOf<'close'>> {
     const owned = findChildOf(session, child);
     if (!owned.ok) return refusal(404, owned.error);
     const childSession = agentSessions.get(owned.channel.childId);
@@ -627,7 +627,7 @@ function createAgentApiWiring({
     return { status: 200, body: { ok: true, closed: owned.channel.childId } };
   }
 
-  function githubLanesUnavailable(): AgentApiReply {
+  function githubLanesUnavailable(): AgentRefusalReply {
     return refusal(503, 'GitHub lanes are not available in this Glimmervoid');
   }
 
@@ -650,24 +650,26 @@ function createAgentApiWiring({
     settings: (_session, request) => settings(request),
   };
 
-  function dispatch<V extends AgentApiVerb>(session: Session, verb: V, request: AgentRequestOf<V>): AgentApiReply | Promise<AgentApiReply> {
+  function dispatch<V extends AgentApiVerb>(session: Session, verb: V, request: AgentRequestOf<V>): AgentReplyOf<V> | Promise<AgentReplyOf<V>> {
     const handler: AgentVerbHandlers[V] = handlers[verb];
     return handler(session, request);
   }
 
-  async function handle(session: Session, verb: string, payload: Record<string, unknown>): Promise<AgentApiReply> {
+  async function handle(session: Session, verb: string, payload: Record<string, unknown>): Promise<AgentWireReply> {
     const parsed = parseAgentVerb(verb, payload);
     if (!parsed.ok) return { status: parsed.status, body: { ok: false, error: parsed.error } };
     const roleRefusal = describeRoleRefusal(parsed.verb, roleFactsOf(session));
     if (roleRefusal) return roleRefusal;
-    return dispatch(session, parsed.verb, parsed.request);
+    const checked = checkAgentReply(parsed.verb, await dispatch(session, parsed.verb, parsed.request));
+    if (!checked.ok) logger.warn(`[agent-api] ${parsed.verb} reply broke its contract: ${checked.issue}`);
+    return checked.reply;
   }
 
   function markChildWorktreeDiscard(childId: string): void {
     childIdsToDiscard.add(childId);
   }
 
-  function refuseRole(session: Session, verb: AgentApiVerb): AgentApiReply | null {
+  function refuseRole(session: Session, verb: AgentApiVerb): AgentRefusalReply | null {
     return describeRoleRefusal(verb, roleFactsOf(session));
   }
 
