@@ -1,8 +1,10 @@
 import { z } from 'zod';
 
+export const UNTRUSTED_REF_MAX_CHARS = 2048;
+
 export const UntrustedItem = z.strictObject({
   kind: z.string().min(1).max(64),
-  ref: z.string().max(2048),
+  ref: z.string().max(UNTRUSTED_REF_MAX_CHARS),
   text: z.string(),
 });
 export type UntrustedItem = z.infer<typeof UntrustedItem>;

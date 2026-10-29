@@ -4,7 +4,8 @@ import type { GithubLaneStore } from './github-store-wiring.ts';
 import { storeReadingLaneClock } from './github-store-wiring.ts';
 import { githubStoreRateLimitedError } from './github-store-poller.ts';
 import type { GithubStoreRead } from './github-store-poller.ts';
-import { viewerThreadTally, hasPresentableThreads, isThreadPlaceholderDraft, answeredViewerThreads, shouldAutoResolveThread, shouldJudgeThread, buildThreadJudgePrompt, parseThreadJudgeResult, threadJudgePatch, THREAD_JUDGE_BACKOFF_MS, THREAD_PLACEHOLDER_ERROR } from './core/team-review-threads-core.ts';
+import { viewerThreadTally, hasPresentableThreads, isThreadPlaceholderDraft, answeredViewerThreads, shouldAutoResolveThread, shouldJudgeThread, buildThreadJudgeRequest, parseThreadJudgeResult, threadJudgePatch, THREAD_JUDGE_BACKOFF_MS, THREAD_PLACEHOLDER_ERROR } from './core/team-review-threads-core.ts';
+import type { ThreadJudgeRequest } from './core/team-review-threads-core.ts';
 import * as core from './core/team-review-core.ts';
 import { GITHUB_RATE_LIMIT_WINDOW_MS } from './core/github-rate-limit-core.ts';
 import { secondaryRateLimitWaitMs } from '../lanes/core/lane-backoff.ts';
@@ -60,7 +61,7 @@ interface TeamReviewPollerDependencies {
   teams: TeamReviewSettings['teams'];
   github: TeamReviewGithub;
   store: GithubLaneStore;
-  judgeThread?: (prompt: string) => Promise<unknown>;
+  judgeThread?: (request: ThreadJudgeRequest) => Promise<unknown>;
   spawnReview: (args: SpawnReviewArgs) => Promise<ReviewOutcome>;
   discardResumable?: (record: ResumableReview) => Promise<void>;
   readState?: () => Promise<TeamReviewState>;
@@ -376,7 +377,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
           continue;
         }
         emitStatus();
-        const raw = await deps.judgeThread(buildThreadJudgePrompt(node, head, evidence.patch)).catch(() => null);
+        const raw = await deps.judgeThread(buildThreadJudgeRequest(node, head, evidence.patch)).catch(() => null);
         const judgement = parseThreadJudgeResult(raw);
         if (judgement && state[candidate.key] === entry && entry.liveHead === head && entry.threads?.includes(thread)) {
           thread.judgement = { ...judgement, head, lastReplyAt: thread.lastReplyAt, judgedAt: now() };
