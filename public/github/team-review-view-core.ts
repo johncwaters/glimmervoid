@@ -130,7 +130,7 @@ export function viewerThreadsText(tally: ViewerThreadTally | undefined): string 
   return `${tally.resolved} of ${tally.total} of your comments resolved`;
 }
 
-export function commentCountText(count: number): string {
+function commentCountText(count: number): string {
   return `${count} ${count === 1 ? 'comment' : 'comments'}`;
 }
 
