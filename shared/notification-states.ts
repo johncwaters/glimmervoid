@@ -17,7 +17,6 @@ export const NOTIFICATION_TRANSITIONS: Readonly<Record<NotificationState, Readon
   },
   [NOTIFICATION_STATES.PENDING]: {
     suppressed:        NOTIFICATION_STATES.SUPPRESSED,
-    debounced:         NOTIFICATION_STATES.IDLE,
     deliver:           NOTIFICATION_STATES.DELIVERED,
     acknowledge:       NOTIFICATION_STATES.IDLE,
     session_destroyed: NOTIFICATION_STATES.IDLE,

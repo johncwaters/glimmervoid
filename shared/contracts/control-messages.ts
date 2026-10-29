@@ -131,6 +131,13 @@ export const SessionCardFields = z.object({
 });
 export type SessionCardFields = z.infer<typeof SessionCardFields>;
 
+export const NotifyAlertGroup = z.object({
+  id: z.number().int().positive(),
+  isStart: z.boolean(),
+  sessionIds: z.array(z.string()).min(1),
+});
+export type NotifyAlertGroup = z.infer<typeof NotifyAlertGroup>;
+
 export const SessionStatusFields = z.object({
   transition: z.object({ from: SessionState, to: SessionState, event: z.string() }).optional(),
   skipPerms: z.boolean().optional(),
@@ -434,6 +441,7 @@ const serverVariants = [
     message: z.string(),
     escalationCount: z.number().int().nonnegative(),
     kind: z.literal('plan').optional(),
+    group: NotifyAlertGroup.optional(),
   }),
   loose('update-status', updateStatusShape),
   loose('update-progress', { journal: UpdateJournal }),

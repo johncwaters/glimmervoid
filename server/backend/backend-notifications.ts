@@ -16,6 +16,7 @@ import type { TelegramDeliveryStatus } from '../../shared/contracts/control-mess
 import { createHeartbeat } from '../ws-heartbeat.ts';
 
 const ESCALATION_INTERVAL_MS = 300000;
+const DEFAULT_ALERT_GROUP_WINDOW_MS = 3000;
 const DEFAULT_PHONE_ESCALATION_MS = 300000;
 const TELEGRAM_TEST_TEXT = 'Glimmervoid test message. Session notifications reach this chat.';
 
@@ -47,9 +48,10 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
     config, configStore, sessions, controlWss, dataWss, broadcastControl, recordOutcome = () => {}, logger,
   } = dependencies;
   const clientPresence = createClientPresence();
+  const alertGroupWindowMs = () => config.notifyDebounceMs ?? DEFAULT_ALERT_GROUP_WINDOW_MS;
   const notificationTimings = () => ({
     escalationIntervalMs: ESCALATION_INTERVAL_MS,
-    debounceMs: config.notifyDebounceMs ?? 3000,
+    alertGroupWindowMs: alertGroupWindowMs(),
     phoneEscalationMs: config.phoneEscalationMs ?? DEFAULT_PHONE_ESCALATION_MS,
   });
   const notificationManager = new NotificationManager({ ...notificationTimings(), recordOutcome });
@@ -83,7 +85,7 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
     recordOutcome,
     send: (entry) => sendAndRecordTelegram(entry.text),
   });
-  const telegramDigest = createTelegramDigest({ deliver: telegramOutbox.deliver });
+  const telegramDigest = createTelegramDigest({ deliver: telegramOutbox.deliver, windowMs: alertGroupWindowMs() });
   const sendTelegramNotification = createTelegramChannel({
     getConfig: () => config,
     getConnectionCount: () => clientPresence.connectionCount(),

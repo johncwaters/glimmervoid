@@ -4,7 +4,7 @@
 # channels
 
 ## Purpose
-Notification delivery adapters consumed by `notification-manager.ts`. Channels are dumb pipes: all debounce, suppression, and escalation logic lives in the NotificationManager, not here.
+Notification delivery adapters consumed by `notification-manager.ts`. Channels are dumb pipes: all grouping, suppression, and escalation logic lives in the NotificationManager, not here.
 
 ## Key Files
 

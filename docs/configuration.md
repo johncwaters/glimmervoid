@@ -83,7 +83,7 @@ Local transcript accounting and estimated-cost budgets.
 | `usage.costMode` | Cost mode | `"auto"` | Choose whether recorded costs, calculated costs or both can appear. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `usage.extraProjectsDirs` | Extra transcript folders | `[]` | Absolute paths of additional Claude projects folders the usage scan reads. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 
-### Visions
+### Visions (experimental)
 
 Editor-buffer findings, bounded model comments, and the machine-context ingest behind them.
 
@@ -240,7 +240,7 @@ Config-file-only detection, timing, worktree and process settings.
 | `worktreeRoot` | Worktree root | `""` | Directory that contains session worktrees. Existing worktrees are never relocated. Applies to new sessions. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
 | `worktreeShare` | Shared worktree paths | `[".env",".env.local",".claude"]` | Local paths copied or linked during worktree preparation. Applies to new sessions. **File-only.** Never editable from the dashboard by rule; edit it in config.json. |
 | `port` | Local port | `3000` | Port used by the local dashboard listener. Needs a server restart. **File-only.** Never editable from the dashboard by rule; edit it in config.json. |
-| `notifyDebounceMs` | Notification debounce | `3000` | Delay used to coalesce notification state changes. Applies to new sessions. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `notifyDebounceMs` | Notification grouping window | `3000` | Alerts from any session within this long of the first one fold into one sound, one desktop notification and one Telegram message. Applies to new sessions. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `phoneEscalationMs` | Phone escalation delay | `300000` | Delay before off-dashboard escalation. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `branchGc.enabled` | Branch cleanup | `true` | Enable cleanup of eligible session branches. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
 | `branchGc.worktrees` | Local worktree cleanup | `true` | Enable cleanup of eligible local worktrees. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |

@@ -5,14 +5,22 @@ import { NOTIFICATION_STATES as NS, NOTIFICATION_TRANSITIONS } from '../shared/n
 import { decidePhoneEscalation } from './core/phone-escalation-core.ts';
 import type { OutcomeRecorder } from '../shared/outcome-names.ts';
 import type { NotificationState } from '../shared/notification-states.ts';
+import type { NotifyAlertGroup } from '../shared/contracts/control-messages.ts';
 
 type NotificationKind = 'plan';
+
+interface AlertGroup {
+  id: number;
+  startedAtMs: number;
+  sessionIds: string[];
+}
 
 export interface NotificationContext {
   escalationCount: number;
   timestamp: number;
   phoneEscalation?: boolean;
   kind?: NotificationKind;
+  group?: NotifyAlertGroup;
 }
 
 interface ChannelDelivery {
@@ -47,7 +55,7 @@ interface NotificationEntry {
 
 interface NotificationManagerOptions {
   escalationIntervalMs?: number;
-  debounceMs?: number;
+  alertGroupWindowMs?: number;
   phoneEscalationMs?: number;
 }
 
@@ -61,16 +69,16 @@ class NotificationManager extends EventEmitter {
   _channels: RegisteredChannel[];
   _focusSuppressed: boolean;
   _escalationIntervalMs: number;
-  _debounceMs: number;
+  _alertGroupWindowMs: number;
   _phoneEscalationMs: number;
-  _recentCategories: Map<string, number>;
+  _alertGroup: AlertGroup | null;
   _recordOutcome: OutcomeRecorder;
   _now: () => number;
   _lastOperatorActivityMs: number | null;
 
   constructor({
     escalationIntervalMs = 300000,
-    debounceMs = 3000,
+    alertGroupWindowMs = 3000,
     phoneEscalationMs = 300000,
     recordOutcome = () => {},
     now = () => Date.now(),
@@ -80,9 +88,9 @@ class NotificationManager extends EventEmitter {
     this._channels = [];
     this._focusSuppressed = false;
     this._escalationIntervalMs = escalationIntervalMs;
-    this._debounceMs = debounceMs;
+    this._alertGroupWindowMs = alertGroupWindowMs;
     this._phoneEscalationMs = phoneEscalationMs;
-    this._recentCategories = new Map();
+    this._alertGroup = null;
     this._recordOutcome = recordOutcome;
     this._now = now;
     this._lastOperatorActivityMs = null;
@@ -142,9 +150,9 @@ class NotificationManager extends EventEmitter {
     this._markPhoneReached(entry);
   }
 
-  updateSettings({ escalationIntervalMs, debounceMs, phoneEscalationMs }: NotificationManagerOptions): void {
+  updateSettings({ escalationIntervalMs, alertGroupWindowMs, phoneEscalationMs }: NotificationManagerOptions): void {
     if (escalationIntervalMs != null) this._escalationIntervalMs = escalationIntervalMs;
-    if (debounceMs != null) this._debounceMs = debounceMs;
+    if (alertGroupWindowMs != null) this._alertGroupWindowMs = alertGroupWindowMs;
     if (phoneEscalationMs != null) this._phoneEscalationMs = phoneEscalationMs;
   }
 
@@ -154,7 +162,7 @@ class NotificationManager extends EventEmitter {
       this._clearPhoneTimer(entry);
     }
     this._entries.clear();
-    this._recentCategories.clear();
+    this._alertGroup = null;
     this._channels = [];
     this.removeAllListeners();
   }
@@ -216,10 +224,6 @@ class NotificationManager extends EventEmitter {
           this._transition(sessionName, 'suppressed');
           return;
         }
-        if (this._isDebounced(sessionName, entry.category)) {
-          this._transition(sessionName, 'debounced');
-          return;
-        }
         this._transition(sessionName, 'deliver');
         break;
 
@@ -228,10 +232,7 @@ class NotificationManager extends EventEmitter {
         break;
 
       case NS.DELIVERED:
-        if (entry.escalationCount === 0) {
-          this._recordCategory(sessionName, entry.category);
-        }
-        this._deliverViaChannels(sessionName, entry);
+        this._deliverToDashboard(sessionName, entry);
         if (entry.category === 'waiting') {
           this._armEscalation(sessionName, entry);
         }
@@ -240,7 +241,7 @@ class NotificationManager extends EventEmitter {
 
       case NS.ESCALATED:
         entry.escalationCount++;
-        this._deliverViaChannels(sessionName, entry);
+        this._deliverToDashboard(sessionName, entry);
         this._armEscalation(sessionName, entry);
         break;
 
@@ -314,10 +315,28 @@ class NotificationManager extends EventEmitter {
   }
 
 
+  _deliverToDashboard(sessionName: string, entry: NotificationEntry): void {
+    const group = this._placeInAlertGroup(sessionName);
+    this._deliverViaChannels(sessionName, entry, { group }, (channel) => !channel.offDashboard);
+  }
+
+  _placeInAlertGroup(sessionName: string): NotifyAlertGroup {
+    const nowMs = this._now();
+    const currentGroup = this._alertGroup;
+    const isCurrentGroupOpen = currentGroup !== null && nowMs - currentGroup.startedAtMs < this._alertGroupWindowMs;
+    if (!isCurrentGroupOpen) {
+      const startedGroup = { id: (currentGroup?.id ?? 0) + 1, startedAtMs: nowMs, sessionIds: [sessionName] };
+      this._alertGroup = startedGroup;
+      return { id: startedGroup.id, isStart: true, sessionIds: [...startedGroup.sessionIds] };
+    }
+    if (!currentGroup.sessionIds.includes(sessionName)) currentGroup.sessionIds = [...currentGroup.sessionIds, sessionName];
+    return { id: currentGroup.id, isStart: false, sessionIds: [...currentGroup.sessionIds] };
+  }
+
   _deliverViaChannels(
     sessionName: string,
     entry: NotificationEntry,
-    extraContext: { phoneEscalation?: boolean } | null = null,
+    extraContext: { phoneEscalation?: boolean; group?: NotifyAlertGroup } | null = null,
     channelFilter: ((channel: RegisteredChannel) => boolean) | null = null,
   ): void {
     const { category, message } = entry;
@@ -342,22 +361,6 @@ class NotificationManager extends EventEmitter {
     }
   }
 
-
-  _isDebounced(sessionName: string, category: string | null): boolean {
-    if (!category) return false;
-    const now = Date.now();
-    const lastFired = this._recentCategories.get(`${sessionName}\0${category}`);
-    return lastFired !== undefined && (now - lastFired) < this._debounceMs;
-  }
-
-  _recordCategory(sessionName: string, category: string | null): void {
-    if (!category) return;
-    const now = Date.now();
-    for (const [key, ts] of this._recentCategories) {
-      if (now - ts >= this._debounceMs) this._recentCategories.delete(key);
-    }
-    this._recentCategories.set(`${sessionName}\0${category}`, now);
-  }
 
 
   _clearTimer(entry: NotificationEntry): void {

@@ -818,8 +818,8 @@ const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     control: 'number', range: PORT_RANGE, unit: { label: 'port', storedPerDisplay: 1 }, keywords: ['server', 'listener'], defaultValue: 3000, takesEffect: 'restart', fileOnlyReason: BY_RULE, ...FILE_ONLY,
   },
   {
-    id: 'file-notify-debounce-ms', path: 'notifyDebounceMs', title: 'Notification debounce', group: 'machine-detection-sessions',
-    description: 'Delay used to coalesce notification state changes.',
+    id: 'file-notify-debounce-ms', path: 'notifyDebounceMs', title: 'Notification grouping window', group: 'machine-detection-sessions',
+    description: 'Alerts from any session within this long of the first one fold into one sound, one desktop notification and one Telegram message.',
     control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: SECONDS_STORED_AS_MS, keywords: ['timer', 'alerts'], defaultValue: 3000, takesEffect: 'new-sessions', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
   },
   {
