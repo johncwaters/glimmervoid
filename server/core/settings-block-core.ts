@@ -103,7 +103,7 @@ function valueError(path: string, spec: SettingsValueSpec, value: unknown): stri
   if (isNestedDeeperThan(value, MAX_SETTINGS_VALUE_DEPTH)) return `${path} is nested too deeply`;
   if (spec.valueKind) return null;
   if (spec.control === 'number') return typeof value === 'number' && Number.isFinite(value) ? null : `${path} must be a number`;
-  if (spec.control === 'list' || spec.control === 'projects') return isStringArray(value) ? null : `${path} must be an array of strings`;
+  if (spec.control === 'list') return isStringArray(value) ? null : `${path} must be an array of strings`;
   if (spec.control === 'json') return isRecord(value) || Array.isArray(value) ? null : `${path} must be an object`;
   return typeof value === 'string' ? null : `${path} must be a string`;
 }

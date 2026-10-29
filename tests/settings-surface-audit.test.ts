@@ -5,7 +5,6 @@ import { normalizeLegacyConfigNumbers } from '../shared/contracts/config-numbers
 import { SETTINGS_REGISTRY } from '../shared/settings/registry.ts';
 import type { SettingsSection, SettingsSetting } from '../shared/settings/registry.ts';
 import { SETTINGS_INDEX } from '../shared/settings/registry-core.ts';
-import { includesRepositoryRoot, projectSelectionChoices } from '../public/settings/settings-projects-core.ts';
 import {
   collectDirtyBlocks, hydrateFromSettings, secretEnvironmentSource, validateLocally,
 } from '../public/settings/settings-view-core.ts';
@@ -87,18 +86,5 @@ test('environment secret ownership excludes replacement edits and sibling saves 
     assert.equal(JSON.stringify(saved).includes('Configured'), false);
     assert.equal(JSON.stringify(saved).includes('secretSources'), false);
   }
-});
-
-test('project selection displays unavailable ids without duplicating configured choices', () => {
-  assert.deepEqual(projectSelectionChoices([{ id: 'available', name: 'Available' }], ['available', 'gone', 'gone']), [
-    { id: 'available', name: 'Available' }, { id: 'gone', name: 'Unavailable project (gone)' },
-  ]);
-});
-
-test('repository roots preserve case distinctions under the server path policy and still deduplicate aliases on Windows', () => {
-  assert.equal(includesRepositoryRoot(['/repos/Case'], '/repos/case', false), false);
-  assert.equal(includesRepositoryRoot(['/repos/Case'], '/repos/Case', false), true);
-  assert.equal(includesRepositoryRoot(['C:/repos/Case'], 'c:/repos/case', true), true);
-  assert.equal(includesRepositoryRoot(['C:/repos/Case'], 'C:/repos/Other', true), false);
 });
 

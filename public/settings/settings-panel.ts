@@ -52,7 +52,6 @@ import { FEATURE_SURFACE_RULES, OPTIONAL_FEATURE_SURFACES } from '../feature-sur
 import type { FeatureSurfaceRule } from '../feature-surfaces-core.ts';
 import { moveViewId, orderViewIds } from '../view-registry-core.ts';
 import type { ViewModule } from '../view-registry-core.ts';
-import { projectSelectionChoices } from './settings-projects-core.ts';
 import { appendShortcutChord, applyNextAttentionKeyCode, buildShortcutKeys, currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { isStreamerMode, onStreamerModeChanged, saveStreamerMode } from '../streamer-mode.ts';
 import { recordNextAttentionKey, shortcutChord, shortcutGroupsFor } from '../shortcuts-core.ts';
@@ -863,30 +862,6 @@ function buildTabOrderMove(setting: SettingsSetting, orderedViewIds: readonly st
   return button;
 }
 
-function renderProjects(setting: SettingsSetting) {
-  const wrapper = el('div', 'settings-view-projects');
-  const currentValue = storedValue(setting);
-  const selected = new Set<string>(Array.isArray(currentValue) ? currentValue : []);
-  const choices: { id: string; name: string }[] = Array.isArray(settingsPayload.projectChoices) ? settingsPayload.projectChoices : [];
-  if (choices.length === 0) wrapper.appendChild(el('div', 'settings-empty', 'No configured projects are available.'));
-  for (const project of projectSelectionChoices(choices, [...selected])) {
-    const label = el('label', 'settings-view-project-choice');
-    const input = el('input', 'settings-view-checkbox');
-    input.type = 'checkbox';
-    input.checked = selected.has(project.id);
-    input.addEventListener('change', () => {
-      const latestProjects = storedValue(setting);
-      const next = new Set<string>(Array.isArray(latestProjects) ? latestProjects : []);
-      if (input.checked) next.add(project.id);
-      if (!input.checked) next.delete(project.id);
-      commitSetting(setting, [...next]);
-    });
-    label.append(input, document.createTextNode(project.name));
-    wrapper.appendChild(label);
-  }
-  return wrapper;
-}
-
 function buildUpdateButton(label: string, onClick: () => void, { isPrimary = false, isEnabled = true } = {}) {
   const tone = isPrimary ? 'btn-dialog-confirm' : 'btn-dialog-cancel';
   const button = el('button', `btn-dialog ${tone} settings-update-button`, label);
@@ -1178,7 +1153,6 @@ function renderControl(setting: SettingsSetting) {
   if (setting.control === 'number') return renderNumber(setting);
   if (setting.control === 'select') return choicePresentation(setting) === 'segmented' ? renderSegmented(setting) : renderSelect(setting);
   if (setting.control === 'list') return renderList(setting);
-  if (setting.control === 'projects') return renderProjects(setting);
   if (setting.control === 'shortcut-key') return renderShortcutKey(setting);
   if (setting.control === 'tab-order') return renderTabOrder(setting);
   return renderInput(setting);

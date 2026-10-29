@@ -429,8 +429,7 @@ html[data-streamer] .settings-view-shell { grid-template-columns: minmax(0, 1fr)
   min-width: 2ch;
 }
 
-.settings-view-list,
-.settings-view-projects {
+.settings-view-list {
   display: flex;
   flex-direction: column;
   gap: 6px;

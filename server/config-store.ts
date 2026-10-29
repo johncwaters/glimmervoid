@@ -562,8 +562,6 @@ function createConfigStore({
 
       usage: pickBlock('usage', config.usage),
       telegram: pickBlock('telegram', config.telegram),
-
-      projectChoices: (config.projects || []).map((p) => ({ id: p.id, name: p.name, path: p.path })),
     };
   }
 

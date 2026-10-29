@@ -6,13 +6,11 @@ import {
   cloneValue, deleteValueAtPath, displayText, displayValue, formatDisplayNumber, hasScaledUnit, isReadOnlySetting, setValueAtPath, settingsOf, valueAtPath,
   settingsGroupOf, wireValue,
 } from '#shared/settings/registry-core.ts';
-import { projectSelectionChoices, unionProjectSelection } from './settings-projects-core.ts';
 
 export type SettingsValues = Record<string, unknown>;
 
 export interface SettingsPayload {
   prefs?: Record<string, unknown>;
-  projectChoices?: unknown;
   [key: string]: unknown;
 }
 
@@ -196,8 +194,6 @@ export function collectDirtyBlocks(sections: readonly SettingsSection[], origina
   if (changedSettings.length === 0) return {};
 
   const originalPayload = hydratedPayload(original) || {};
-  const projectChoices: { id?: unknown }[] = Array.isArray(originalPayload.projectChoices) ? originalPayload.projectChoices : [];
-  const renderedProjectIds = projectChoices.map((project) => project.id).filter((id): id is string => typeof id === 'string');
   const payload: SettingsPayload = {};
   const initializedBlocks = new Set();
 
@@ -214,17 +210,7 @@ export function collectDirtyBlocks(sections: readonly SettingsSection[], origina
         : {};
       initializedBlocks.add(topLevel);
     }
-    let value: unknown = wireValue(setting, edited[setting.path]);
-    if (setting.control === 'projects') {
-      const storedSelection = original[setting.path];
-      value = unionProjectSelection({
-        checked: Array.isArray(value) ? value : [],
-        stored: Array.isArray(storedSelection) ? storedSelection : [],
-        rendered: projectSelectionChoices(renderedProjectIds.map((id) => ({ id, name: id })),
-          Array.isArray(storedSelection) ? storedSelection : []).map((project) => project.id),
-      });
-    }
-    setValueAtPath(payload, setting.path, value);
+    setValueAtPath(payload, setting.path, wireValue(setting, edited[setting.path]));
   }
   for (const setting of settingsOf(sections)) {
     if (!isSecretSetting(setting)) continue;

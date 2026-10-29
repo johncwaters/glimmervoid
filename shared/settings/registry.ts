@@ -13,7 +13,7 @@ type SettingsScope = 'browser' | 'machine';
 type SettingsAccess = 'editable' | 'advanced' | 'readout' | 'file-only';
 export type SettingsEffect = 'now' | 'new-sessions' | 'restart';
 type SettingsLevel = 'browser' | 'machine' | 'lanes';
-type SettingsControl = 'toggle' | 'number' | 'text' | 'password' | 'select' | 'list' | 'projects' | 'json' | 'readonly' | 'shortcut-key' | 'tab-order';
+type SettingsControl = 'toggle' | 'number' | 'text' | 'password' | 'select' | 'list' | 'json' | 'readonly' | 'shortcut-key' | 'tab-order';
 export type SettingsChoicePresentation = 'segmented' | 'select';
 
 interface SettingsOption {

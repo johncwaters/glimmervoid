@@ -104,7 +104,7 @@ function parseSettingValue(setting: SettingsSetting, raw: string): Outcome<unkno
     return fail(`${setting.path} must be a boolean: true or false`);
   }
   if (setting.control === 'number') return parseNumberValue(setting, raw);
-  if (setting.control === 'list' || setting.control === 'projects') return parseListValue(setting.path, raw);
+  if (setting.control === 'list') return parseListValue(setting.path, raw);
   if (setting.control === 'json') {
     try {
       return succeed(JSON.parse(raw));
