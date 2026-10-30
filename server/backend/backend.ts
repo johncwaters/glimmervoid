@@ -448,6 +448,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     checkForUpdate: options.checkForUpdate || undefined,
     getUpdateJournal: () => updateApply.getJournal(),
     isRestartRequested: () => updateApply.isRestartRequested(),
+    getNpmGlobalInstall: () => updateApply.getNpmGlobalInstall(),
     getControlClientCount: () => controlWss.clients.size,
     broadcastControl,
     logger: console,

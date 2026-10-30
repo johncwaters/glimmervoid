@@ -3,6 +3,7 @@ import type { UpdateChannel, UpdateJournal, UpdateJournalSummary } from '../../s
 import type { ControlBroadcast } from './backend-websockets.ts';
 import type { UpdateApplyOutcome } from '../update-apply.ts';
 import { decideFastForward, decidePreflight } from '../core/update-apply-core.ts';
+import type { NpmGlobalInstall } from '../core/update-apply-core.ts';
 import { decideUpdateStatus, normalizeUpdateChannel, shortSha } from '../core/update-core.ts';
 import { checkForUpdate as defaultCheckForUpdate } from '../update-check.ts';
 import type { UpdateCheckStatus } from '../update-check.ts';
@@ -23,6 +24,7 @@ interface BackendUpdateDependencies {
   checkForUpdate: CheckForUpdate | undefined;
   getUpdateJournal?: () => UpdateJournal | null;
   isRestartRequested?: () => boolean;
+  getNpmGlobalInstall?: () => NpmGlobalInstall | null;
   getControlClientCount: () => number;
   broadcastControl: ControlBroadcast;
   logger: Pick<Console, 'log'>;
@@ -93,6 +95,7 @@ function createBackendUpdateCheck(dependencies: BackendUpdateDependencies): Back
       targetSha: recorded.latestSha,
       journalState: journal?.state || 'idle',
       restartRequested: dependencies.isRestartRequested?.() === true,
+      npmGlobalInstall: dependencies.getNpmGlobalInstall?.() ?? null,
     });
     if (!decision.ok) return { reason: decision.reason, message: decision.message };
     return null;

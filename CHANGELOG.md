@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Dashboard updates for npm installs**: if you installed Glimmervoid with `npm install -g` on macOS or Linux, Settings > Updates now downloads a new version in the background on your channel (Release or Experimental), the same way it already does for a git clone, and the next Restart or stop switches to it. You no longer need a terminal for this. Before switching, the downloaded version must print the right version number and pass `glimmervoid doctor`, and the previous version is kept until the new one is up. Glimmervoid installs into the folder it is running from, even when your npm is set to install somewhere else, using the npm that comes with the Node it runs on. If it cannot write to that folder (for example, you installed with `sudo`), Settings > Updates says so and shows the command to run. If the download fails, the run is marked failed with npm's output and the running version keeps working. Windows and `npx` runs still show their install command.
+
+### Changed
+
+- **`glimmervoid doctor` exits 1 when node-pty fails to load**, so scripts and the dashboard updater can tell a broken install from a working one.
+
 ## [0.48.2] - 2026-10-30
 
 ### Added

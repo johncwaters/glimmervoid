@@ -209,4 +209,4 @@ function isCheckFresh(lastCheckAt: unknown, nowMs: unknown, ttlMs: unknown): boo
 }
 
 export type { InstallFlavor };
-export { normalizeSha, normalizeUpdateChannel, shortSha, parseResolvedSha, decideInstallFlavor, buildUpdateCommand, compareSemver, parseRegistryLatest, pickNewestPublished, parseRegistryDeprecation, decideUpdateStatus, isCheckFresh };
+export { NODE_PTY_INSTALL_SCRIPT_FLAG, normalizeSha, normalizeUpdateChannel, shortSha, parseResolvedSha, decideInstallFlavor, buildUpdateCommand, compareSemver, parseRegistryLatest, pickNewestPublished, parseRegistryDeprecation, decideUpdateStatus, isCheckFresh };

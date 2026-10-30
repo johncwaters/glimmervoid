@@ -15,12 +15,15 @@ const QUARANTINED_DIST_NAME = 'broken-dist';
 const QUARANTINED_DEPENDENCIES_NAME = 'broken-node_modules';
 const SUPPORTED_UPDATE_REMOTE = 'origin';
 const LOWEST_SCHEDULING_PRIORITY = '19';
+const NPM_PACKAGE_FOLDER_NAME = 'glimmervoid';
+const NPM_GLOBAL_UPDATE_FOLDER_NAME = '.glimmervoid-update';
 
-type UpdateArtifact = 'dist' | 'node_modules';
+type UpdateArtifact = 'dist' | 'node_modules' | 'package';
 
 type PreflightRefusalReason =
   | 'unsupported-flavor'
   | 'unsupported-platform'
+  | 'install-not-writable'
   | 'channel-mismatch'
   | 'no-update-available'
   | 'dirty-tree'
@@ -51,6 +54,12 @@ interface PreflightFacts {
   targetSha: string | null;
   journalState: UpdateRunState;
   restartRequested: boolean;
+  npmGlobalInstall?: NpmGlobalInstall | null;
+}
+
+interface NpmGlobalInstall {
+  installFolder: string;
+  isWritable: boolean | null;
 }
 
 type PreflightDecision =
@@ -147,8 +156,8 @@ function decidePreflight(facts: PreflightFacts): PreflightDecision {
   if (facts.flavor === 'npx') {
     return { ok: false, reason: 'unsupported-flavor', message: 'Glimmervoid runs from the npx cache. Stop Glimmervoid and run the command shown.' };
   }
-  if (facts.flavor !== 'clone') {
-    return { ok: false, reason: 'unsupported-flavor', message: 'Use the install command because dashboard updates require a clone.' };
+  if (facts.flavor !== 'clone' && facts.flavor !== 'npm-global') {
+    return { ok: false, reason: 'unsupported-flavor', message: 'Use the install command because dashboard updates need a clone or an npm global install.' };
   }
   if (facts.platform === 'win32') {
     return { ok: false, reason: 'unsupported-platform', message: 'Use the install command because dashboard updates are unavailable on Windows.' };
@@ -159,6 +168,39 @@ function decidePreflight(facts: PreflightFacts): PreflightDecision {
   if (!facts.updateAvailable) {
     return { ok: false, reason: 'no-update-available', message: 'No update is available.' };
   }
+  if (facts.flavor === 'npm-global') return decideNpmGlobalPreflight(facts);
+  return decideClonePreflight(facts);
+}
+
+function decideRunPreflight(facts: PreflightFacts): PreflightDecision {
+  if (facts.journalState === 'running') {
+    return { ok: false, reason: 'already-running', message: 'Wait for the current update to finish.' };
+  }
+  if (facts.journalState === 'staged') {
+    return { ok: false, reason: 'already-staged', message: 'Restart to apply the staged update.' };
+  }
+  if (facts.restartRequested) {
+    return { ok: false, reason: 'restart-requested', message: 'Wait for the requested restart to finish.' };
+  }
+  return { ok: true, lockfileCheckNeeded: true };
+}
+
+function decideNpmGlobalPreflight(facts: PreflightFacts): PreflightDecision {
+  const install = facts.npmGlobalInstall;
+  if (!install) {
+    return { ok: false, reason: 'unsupported-flavor', message: 'Use the install command because this install is not in an npm global folder.' };
+  }
+  if (install.isWritable === false) {
+    return {
+      ok: false,
+      reason: 'install-not-writable',
+      message: `Use the install command because Glimmervoid cannot write to ${install.installFolder}.`,
+    };
+  }
+  return decideRunPreflight(facts);
+}
+
+function decideClonePreflight(facts: PreflightFacts): PreflightDecision {
   if (!facts.isTreeClean) {
     return { ok: false, reason: 'dirty-tree', message: 'Commit or discard the checkout changes before updating. Check for updates again.' };
   }
@@ -181,16 +223,7 @@ function decidePreflight(facts: PreflightFacts): PreflightDecision {
   if (normalizeSha(facts.headSha) === targetSha) {
     return { ok: false, reason: 'nothing-to-do', message: 'The checkout is already at the target. Check for updates again.' };
   }
-  if (facts.journalState === 'running') {
-    return { ok: false, reason: 'already-running', message: 'Wait for the current update to finish.' };
-  }
-  if (facts.journalState === 'staged') {
-    return { ok: false, reason: 'already-staged', message: 'Restart to apply the staged update.' };
-  }
-  if (facts.restartRequested) {
-    return { ok: false, reason: 'restart-requested', message: 'Wait for the requested restart to finish.' };
-  }
-  return { ok: true, lockfileCheckNeeded: true };
+  return decideRunPreflight(facts);
 }
 
 function decideFastForward({ canFastForward, isTargetAncestorOfHead }: {
@@ -242,13 +275,48 @@ function planHandOffRenames({
       { from: `${stagingPath}/node_modules`, to: `${root}/node_modules`, artifact: 'node_modules' },
     );
   }
+  return { renames, reversalsByFailureIndex: reversalsFor(renames) };
+}
+
+interface NpmGlobalLayout {
+  installFolder: string;
+  livePackagePath: string;
+  updatePath: string;
+  stagePrefix: string;
+  stagedPackagePath: string;
+  previousPackagePath: string;
+}
+
+function decideNpmGlobalLayout(packageRoot: string): NpmGlobalLayout | null {
+  const segments = packageRoot.replace(/\/+$/, '').split('/');
+  const [libName, nodeModulesName, packageName] = segments.slice(-3);
+  if (packageName !== NPM_PACKAGE_FOLDER_NAME || nodeModulesName !== 'node_modules' || libName !== 'lib') return null;
+  const installFolder = segments.slice(0, -1).join('/');
+  const updatePath = `${installFolder}/${NPM_GLOBAL_UPDATE_FOLDER_NAME}`;
+  const stagePrefix = `${updatePath}/stage`;
   return {
-    renames,
-    reversalsByFailureIndex: renames.map((_, failureIndex) => renames
-      .slice(0, failureIndex)
-      .reverse()
-      .map(({ from, to, artifact }) => ({ from: to, to: from, artifact }))),
+    installFolder,
+    livePackagePath: segments.join('/'),
+    updatePath,
+    stagePrefix,
+    stagedPackagePath: `${stagePrefix}/lib/node_modules/${NPM_PACKAGE_FOLDER_NAME}`,
+    previousPackagePath: `${updatePath}/previous`,
   };
+}
+
+function planNpmGlobalHandOffRenames(layout: NpmGlobalLayout): HandOffRenamePlan {
+  const renames: RenameOperation[] = [
+    { from: layout.livePackagePath, to: layout.previousPackagePath, artifact: 'package' },
+    { from: layout.stagedPackagePath, to: layout.livePackagePath, artifact: 'package' },
+  ];
+  return { renames, reversalsByFailureIndex: reversalsFor(renames) };
+}
+
+function reversalsFor(renames: RenameOperation[]): RenameOperation[][] {
+  return renames.map((_, failureIndex) => renames
+    .slice(0, failureIndex)
+    .reverse()
+    .map(({ from, to, artifact }) => ({ from: to, to: from, artifact })));
 }
 
 function appendTail(existingTail: readonly string[], output: string): string[] {
@@ -379,6 +447,7 @@ export {
   beginRun,
   beginStep,
   decideFastForward,
+  decideNpmGlobalLayout,
   decidePreflight,
   failRun,
   finishStep,
@@ -390,6 +459,7 @@ export {
   markStaged,
   markSucceeded,
   planHandOffRenames,
+  planNpmGlobalHandOffRenames,
   planSteps,
   PREVIOUS_DEPENDENCIES_BACKUP_NAME,
   PREVIOUS_DIST_BACKUP_NAME,
@@ -397,4 +467,4 @@ export {
   QUARANTINED_DIST_NAME,
   retireAtBoot,
 };
-export type { RenameOperation };
+export type { NpmGlobalInstall, NpmGlobalLayout, RenameOperation };

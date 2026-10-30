@@ -83,8 +83,8 @@ type OwnedCommandRunner = (parsed: ParsedRun) => Promise<number>;
 
 const OWNED_COMMAND_RUNNERS: Record<OwnedCommandName, OwnedCommandRunner> = {
   doctor: async () => {
-    await runDoctor();
-    return 0;
+    const isNodePtyLoading = await runDoctor();
+    return isNodePtyLoading ? 0 : 1;
   },
   pair: async ({ values }) => {
     const { runPairCli } = await import('../server/pair-cli.ts');
@@ -221,7 +221,7 @@ async function readDeclaredCustomAgents(): Promise<{ declared: readonly CustomAg
   }
 }
 
-async function runDoctor(): Promise<void> {
+async function runDoctor(): Promise<boolean> {
   const platform = process.platform;
   const homedir = os.homedir();
   const pathEnv = process.env.PATH || process.env.Path || '';
@@ -316,6 +316,7 @@ async function runDoctor(): Promise<void> {
   if (npmBin && !npmOn) {
     console.log(`\n${formatPathNotice({ installedBinDir: npmBin, onPathFlag: false, platform })}`);
   }
+  return nodePty.ok;
 }
 
 function resolveNpmGlobalPrefix(exec: typeof execSync): string | null {
