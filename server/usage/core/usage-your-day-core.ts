@@ -28,7 +28,6 @@ interface DayStats {
   sessionCount: number;
   activeMs: number;
   longestStretchMs: number;
-  longestStretchStartedAt: number;
   afterHoursMs: number;
   peakWaiting: number;
   peakJuggling: number;
@@ -64,16 +63,18 @@ function isHumanPromptContent(content: unknown): boolean {
   return content.some((block) => block && typeof block === 'object' && (block as { type?: unknown }).type === 'text');
 }
 
-function isTaskNotification(record: Record<string, unknown>): boolean {
+function isFromOperator(record: Record<string, unknown>): boolean {
+  if (record.entrypoint === 'sdk-cli') return false;
   const origin = record.origin as { kind?: unknown } | null | undefined;
-  const turnOrigin = record.turnOrigin as { kind?: unknown } | null | undefined;
-  return origin?.kind === 'task-notification' || turnOrigin?.kind === 'task_notification';
+  const turnOrigin = record.turnOrigin as { kind?: unknown } | string | null | undefined;
+  const originKinds = [turnOrigin, origin?.kind, typeof turnOrigin === 'object' ? turnOrigin?.kind : undefined].filter((kind) => typeof kind === 'string');
+  return originKinds.every((kind) => kind === 'human');
 }
 
 function parseClaudeActivityLine(line: string): ParsedActivity | null {
   if (!line.includes('"type":"user"') && !line.includes('"end_turn"')) return null;
   const record = parseJsonRecord(line);
-  if (!record || record.isSidechain === true || record.isMeta === true || record.isCompactSummary === true || isTaskNotification(record)) return null;
+  if (!record || record.isSidechain === true || record.isMeta === true || record.isCompactSummary === true || !isFromOperator(record)) return null;
   const ts = timestampOf(record.timestamp);
   if (ts === null) return null;
   const message = record.message && typeof record.message === 'object' ? record.message as Record<string, unknown> : null;
@@ -204,7 +205,6 @@ function dayStatsOf(day: string, dayEvents: readonly ActivityEvent[]): DayStats 
     sessionCount: new Set(prompts.map((prompt) => prompt.sessionId)).size,
     activeMs: stretches.reduce((total, stretch) => total + stretch.end - stretch.start, 0),
     longestStretchMs: longest.end - longest.start,
-    longestStretchStartedAt: longest.start,
     afterHoursMs,
     peakWaiting: replySamples.reduce((peak, sample) => Math.max(peak, sample.waitingDepth), 0),
     peakJuggling: juggling.count,
@@ -230,7 +230,7 @@ function sharpestHoursInsight(samples: readonly ReplySample[]): YourDayInsight |
   for (let startHour = 0; startHour < 24; startHour += 1) {
     const inWindow = samples.filter((sample) => {
       const hour = new Date(sample.ts).getHours();
-      return hour >= startHour && hour < startHour + SHARP_WINDOW_HOURS;
+      return (hour - startHour + 24) % 24 < SHARP_WINDOW_HOURS;
     });
     if (inWindow.length < MIN_SAMPLES_PER_WINDOW) continue;
     const windowMedian = median(inWindow.map((sample) => sample.replyMs));
@@ -246,8 +246,7 @@ function longestStretchInsight(yesterday: DayStats, usualStretchMs: number): You
   if (yesterday.longestStretchMs < MIN_LONG_STRETCH_MS) return null;
   const deviation = yesterday.longestStretchMs / Math.max(usualStretchMs, MINUTE_MS);
   if (deviation < MIN_DEVIATION) return null;
-  const breakByHour = new Date(yesterday.longestStretchStartedAt + MIN_LONG_STRETCH_MS).getHours() + 1;
-  return { kind: 'longestStretch', text: `${durationText(yesterday.longestStretchMs)} without a break. Break by ${hourText(breakByHour)}.`, deviation };
+  return { kind: 'longestStretch', text: `${durationText(yesterday.longestStretchMs)} without a break. Break every ${MIN_LONG_STRETCH_MS / MINUTE_MS}m.`, deviation };
 }
 
 function afterHoursInsight(yesterday: DayStats, usualAfterHoursMs: number): YourDayInsight | null {

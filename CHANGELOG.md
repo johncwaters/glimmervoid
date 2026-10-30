@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Phone dialogs stay above the keyboard**: on a phone, dialogs such as New board now open at the top of the screen instead of the middle, so the on-screen keyboard no longer covers the text box and its buttons.
+- **Your day times match your day**: Your day no longer counts prompts you did not type, such as Claude Code SDK sessions running on a timer, background task notifications and peer messages, so stretches end when you take a break and your reply hours, sharpest hours, time after 22:00 and the break tip come from your own prompts. The longest-stretch tip now says to break every 90 minutes instead of naming a clock time taken from yesterday, and a sharpest window that crosses midnight now counts the hours after midnight it names.
 
 ## [0.48.0] - 2026-10-29
 

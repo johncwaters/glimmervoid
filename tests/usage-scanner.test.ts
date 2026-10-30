@@ -334,7 +334,7 @@ test('budgetSpend shares the report rollups when retainDays already covers the m
   assert.equal(spend.monthUsd > 0, true);
 });
 
-test('yourDay recaps yesterday from Claude and Codex prompts and skips lane sessions', async () => {
+test('yourDay recaps yesterday from operator-typed Claude and Codex prompts and skips lane and automated sessions', async () => {
   const root = await makeTempRoot();
   const projectsDir = await makeProjectsDir(root);
   const at = (day: number, hour: number, minute = 0) => new Date(2026, 7, day, hour, minute).getTime();
@@ -346,6 +346,10 @@ test('yourDay recaps yesterday from Claude and Codex prompts and skips lane sess
   await writeLines(path.join(projectsDir, 'C--repo', 'focused.jsonl'), longStretchLines);
   await writeLines(path.join(projectsDir, 'C--repo', 'juggled.jsonl'), jugglingLines);
   await writeLines(path.join(projectsDir, 'C--repo', 'lane-review.jsonl'), laneLines);
+  const timerLines = Array.from({ length: 96 }, (_, index) => promptLine('sdk-timer', at(18, 0, index * 15), { entrypoint: 'sdk-cli', turnOrigin: 'sdk' }));
+  const notificationLines = [promptLine('focused', at(18, 21), { entrypoint: 'cli', turnOrigin: 'task_notification' })];
+  await writeLines(path.join(projectsDir, 'C--repo', 'sdk-timer.jsonl'), timerLines);
+  await writeLines(path.join(projectsDir, 'C--repo', 'focused-notified.jsonl'), notificationLines);
   await writeLines(path.join(projectsDir, 'C--repo', 'long-open.jsonl'), [promptLine('long-open', at(15, 11)), promptLine('long-open', at(18, 16))]);
   const codexSessionId = '01a14ecf-57c8-75c2-a17d-3f989a77596f';
   await writeLines(path.join(root, '.codex', 'sessions', '2026', '08', '18', `rollout-2026-08-18T17-00-00-${codexSessionId}.jsonl`), [
@@ -360,7 +364,7 @@ test('yourDay recaps yesterday from Claude and Codex prompts and skips lane sess
   assert.equal(yourDay?.yesterday.day, '2026-08-18');
   assert.equal(yourDay?.yesterday.sessionCount, 9);
   assert.deepEqual(yourDay?.insights.map((insight) => insight.kind).sort(), ['juggling', 'longestStretch']);
-  assert.ok(yourDay?.insights.some((insight) => insight.text.startsWith('3h 40m without a break.')));
+  assert.ok(yourDay?.insights.some((insight) => insight.text === '3h 40m without a break. Break every 90m.'));
   assert.ok(yourDay?.insights.every((insight) => !/operator/i.test(insight.text)));
   assert.equal(yourDay?.currentStretchStartedAt, null);
 });
@@ -478,8 +482,8 @@ test('scanner IO failure after catch-up makes lane spend read-failing until reco
   assert.equal(laneSpendStatus({ isTrackingEnabled: true, scan: scanner.stats() }), 'known');
 });
 
-function promptLine(sessionId: string, timestampMs: number): string {
-  return JSON.stringify({ type: 'user', sessionId, timestamp: new Date(timestampMs).toISOString(), isSidechain: false, message: { role: 'user', content: 'keep going' } });
+function promptLine(sessionId: string, timestampMs: number, origin: Record<string, unknown> = {}): string {
+  return JSON.stringify({ type: 'user', sessionId, timestamp: new Date(timestampMs).toISOString(), isSidechain: false, ...origin, message: { role: 'user', content: 'keep going' } });
 }
 
 function turnEndLine(sessionId: string, timestampMs: number): string {
