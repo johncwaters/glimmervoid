@@ -428,6 +428,6 @@ html[data-layout="phone"] .radar-row-headline {
   overflow-wrap: anywhere;
 }
 html[data-layout="phone"] .radar-tier-rows > .radar-pane { margin: 2px 0 8px; padding: 12px; }
-html[data-layout="phone"] .radar-action { padding: 6px 10px; }
+html[data-layout="phone"] .radar-action { min-height: 44px; padding: 0 12px; }
 html[data-layout="phone"] .radar-global-tick { margin-left: 0; }
 }

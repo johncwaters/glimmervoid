@@ -1435,7 +1435,7 @@ html[data-layout="phone"] .dialog-overlay {
   border-color: var(--accent);
 }
 
-html[data-streamer] :is(.radar-issue-title, .radar-issue-summary, .dialog-report-meta, .dialog-report-frame, .dialog-report-body, .dialog-trail-summary, .dialog-trail-detail) { visibility: hidden; }
+html[data-streamer] :is(.radar-issue-title, .radar-row-headline, .radar-row-progress, .radar-pane-headline, .radar-pane-text, .dialog-report-meta, .dialog-report-frame, .dialog-report-body, .dialog-trail-summary, .dialog-trail-detail) { visibility: hidden; }
 
 html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, .avatar) { visibility: hidden; }
 
@@ -2080,117 +2080,9 @@ html[data-layout="phone"] .view-panel {
   font-size: var(--type-body);
 }
 
-.radar-stat {
-  white-space: nowrap;
-  color: var(--text);
-}
-
-.radar-stat[data-tone="crit"] .radar-stat-value {
-  color: var(--state-failed);
-  font-weight: 700;
-}
-
-.radar-stat[data-tone="warn"] .radar-stat-value {
-  color: var(--state-waiting);
-  font-weight: 700;
-}
-
-.radar-stat-label {
-  color: var(--text-muted);
-  margin-left: 5px;
-  font-size: var(--type-meta);
-  text-transform: uppercase;
-  letter-spacing: 0.08em; font-weight: 700;
-}
-
-.radar-stat-value {
-  font-variant-numeric: tabular-nums;
-}
-
 @keyframes radar-skeleton-pulse {
   from { opacity: 0.35; }
   to { opacity: 0.8; }
-}
-
-.radar-issue-actions {
-  flex: 0 0 auto;
-  justify-self: end;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  opacity: 0.35;
-  transition: opacity var(--transition-fast);
-}
-
-.radar-issue:hover .radar-issue-actions,
-.radar-issue:focus-within .radar-issue-actions,
-.radar-investigation:hover .radar-issue-actions,
-.radar-investigation:focus-within .radar-issue-actions {
-  opacity: 1;
-}
-
-.radar-issue-action {
-  border: 1px solid var(--border-dim);
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: var(--type-meta);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  padding: 1px 6px;
-  cursor: pointer; font-weight: 700;
-}
-
-@media (hover: hover) {
-  .radar-issue-action:hover:not(:disabled) {
-    color: var(--text);
-    border-color: var(--accent-dim);
-  }
-}
-
-.radar-issue-action:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.radar-issue-action-status {
-  font-size: var(--type-meta);
-  color: var(--text-muted);
-  max-width: 260px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.radar-issue-action-status > .action-status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.radar-section {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.radar-section-head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  border-bottom: 1px solid var(--border-dim);
-  padding-bottom: 6px;
-}
-
-.radar-section-title {
-  margin: 0;
-  font-size: var(--type-meta);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-dim);
-}
-
-.radar-section-hint {
-  font-size: var(--type-meta);
-  color: var(--text-muted);
 }
 
 .pr-view {
@@ -4614,7 +4506,6 @@ html:not([data-layout="phone"]) .review-controls :is(.review-branch-sync-refresh
 
 
 @media (hover: none) {
-  .radar-issue-actions,
   .review-branch-sync-refresh { opacity: 1; }
 }
 
@@ -4888,14 +4779,6 @@ html[data-layout="phone"] .review-sidebar-body { overscroll-behavior: contain; }
 .phone-settings > .settings-view { flex: 1 1 auto; min-height: 0; }
 .phone-settings .settings-view-content { overscroll-behavior: contain; }
 html[data-layout="phone"] .usage-section-title { font-size: var(--type-meta); }
-html[data-layout="phone"] .radar-section { gap: 10px; }
-html[data-layout="phone"] .radar-section-head { flex-wrap: wrap; gap: 2px 8px; }
-html[data-layout="phone"] .radar-section-title { font-size: var(--type-meta); }
-html[data-layout="phone"] .radar-issue-action {
-  min-height: 44px;
-  padding: 0 12px;
-  font-size: var(--type-meta);
-}
 
 html[data-layout="phone"] .pr-view { display: block; overflow-y: auto; font-size: inherit; }
 html[data-layout="phone"] .pr-view[hidden] { display: none; }
