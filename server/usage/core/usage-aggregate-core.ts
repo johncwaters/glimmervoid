@@ -59,7 +59,8 @@ function buildUsageReport(
     tz?: string | null;
   } = {},
 ) {
-  const keptEntries = pruneEntries(entries, { now, retainDays }).kept;
+  const windowStartMs = startOfLocalDay(now, retainDays - 1);
+  const keptEntries = (entries || []).filter((entry) => entry.timestampMs >= windowStartMs);
   const totals = emptyTotals();
   const dailyByDay = new Map<string, DailyBucket>();
   const modelByName = new Map<string, ModelBucket>();
@@ -107,6 +108,11 @@ function serializeVendorTotals(map: Map<string, VendorTotals>): Record<string, V
     if (totals) wire[vendor] = { ...totals };
   }
   return wire;
+}
+
+function startOfLocalDay(ts: number, daysBack = 0): number {
+  const date = new Date(ts);
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() - daysBack).getTime();
 }
 
 function pruneEntries(
@@ -182,4 +188,4 @@ function serializeDailyBucket(bucket: DailyBucket): SerializedDailyBucket {
   };
 }
 
-export { buildUsageReport, pruneEntries, vendorOf };
+export { buildUsageReport, pruneEntries, startOfLocalDay, vendorOf };
