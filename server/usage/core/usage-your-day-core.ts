@@ -28,7 +28,6 @@ interface DayStats {
   sessionCount: number;
   activeMs: number;
   longestStretchMs: number;
-  afterHoursMs: number;
   peakWaiting: number;
   peakJuggling: number;
   peakJugglingAt: number;
@@ -41,13 +40,11 @@ const BREAK_MS = 15 * MINUTE_MS;
 const BASELINE_DAYS = 14;
 const MIN_ACTIVE_DAYS = 3;
 const JUGGLING_WINDOW_MS = 30 * MINUTE_MS;
-const AFTER_HOURS_START_HOUR = 22;
 const MIN_SAMPLES_PER_SIDE = 3;
 const MIN_SAMPLES_PER_WINDOW = 5;
 const SHARP_WINDOW_HOURS = 3;
 const MIN_DEVIATION = 1.2;
 const MIN_LONG_STRETCH_MS = 90 * MINUTE_MS;
-const MIN_AFTER_HOURS_MS = 20 * MINUTE_MS;
 const MIN_JUGGLING_SESSIONS = 5;
 const MAX_INSIGHTS = 3;
 const LANE_OF_INTERACTIVE_SESSIONS = 'interactive';
@@ -116,10 +113,6 @@ function median(values: readonly number[]): number {
 function startOfLocalDay(ts: number): number {
   const date = new Date(ts);
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-}
-
-function afterHoursStartOf(ts: number): number {
-  return startOfLocalDay(ts) + AFTER_HOURS_START_HOUR * HOUR_MS;
 }
 
 function hourText(hour: number): string {
@@ -196,8 +189,6 @@ function dayStatsOf(day: string, dayEvents: readonly ActivityEvent[]): DayStats 
   const prompts = dayEvents.filter((event) => event.kind === 'prompt');
   const stretches = splitStretches(prompts.map((prompt) => prompt.ts));
   const longest = stretches.reduce((best, stretch) => (stretch.end - stretch.start > best.end - best.start ? stretch : best), stretches[0] ?? { start: 0, end: 0 });
-  const afterHoursStart = prompts.length > 0 ? afterHoursStartOf(prompts[0].ts) : 0;
-  const afterHoursMs = stretches.reduce((total, stretch) => total + Math.max(0, stretch.end - Math.max(stretch.start, afterHoursStart)), 0);
   const replySamples = collectReplySamples(dayEvents, stretches);
   const juggling = peakJugglingOf(prompts);
   return {
@@ -205,7 +196,6 @@ function dayStatsOf(day: string, dayEvents: readonly ActivityEvent[]): DayStats 
     sessionCount: new Set(prompts.map((prompt) => prompt.sessionId)).size,
     activeMs: stretches.reduce((total, stretch) => total + stretch.end - stretch.start, 0),
     longestStretchMs: longest.end - longest.start,
-    afterHoursMs,
     peakWaiting: replySamples.reduce((peak, sample) => Math.max(peak, sample.waitingDepth), 0),
     peakJuggling: juggling.count,
     peakJugglingAt: juggling.at,
@@ -249,13 +239,6 @@ function longestStretchInsight(yesterday: DayStats, usualStretchMs: number): You
   return { kind: 'longestStretch', text: `${durationText(yesterday.longestStretchMs)} without a break. Break every ${MIN_LONG_STRETCH_MS / MINUTE_MS}m.`, deviation };
 }
 
-function afterHoursInsight(yesterday: DayStats, usualAfterHoursMs: number): YourDayInsight | null {
-  if (yesterday.afterHoursMs < MIN_AFTER_HOURS_MS) return null;
-  const deviation = yesterday.afterHoursMs / Math.max(usualAfterHoursMs, MIN_AFTER_HOURS_MS);
-  if (deviation < MIN_DEVIATION) return null;
-  return { kind: 'afterHours', text: `${durationText(yesterday.afterHoursMs)} after ${hourText(AFTER_HOURS_START_HOUR)}. Stop by ${hourText(AFTER_HOURS_START_HOUR)}.`, deviation };
-}
-
 function jugglingInsight(yesterday: DayStats, usualJuggling: number): YourDayInsight | null {
   if (yesterday.peakJuggling < MIN_JUGGLING_SESSIONS) return null;
   const deviation = yesterday.peakJuggling / Math.max(usualJuggling, 1);
@@ -293,7 +276,6 @@ function buildYourDay(events: readonly ActivityEvent[], { now, laneByKey = null 
     waitingThresholdInsight(replySamples),
     sharpestHoursInsight(replySamples),
     longestStretchInsight(yesterday, usualStretchMs),
-    afterHoursInsight(yesterday, median(baselineDays.map((day) => day.afterHoursMs))),
     jugglingInsight(yesterday, median(baselineDays.map((day) => day.peakJuggling))),
   ]
     .filter((insight): insight is YourDayInsight => insight !== null)
