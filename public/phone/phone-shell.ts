@@ -177,7 +177,7 @@ function wrapScreen(id: string, label: string, contentEl: HTMLElement | null | u
 function build() {
   if (shellEl) return;
 
-  boardScreen = createBoardScreen({ onSelectSession: openSession });
+  boardScreen = createBoardScreen({ onSelectSession: openSession, shownSessionId: () => terminalScreen?.getSessionId() ?? null });
   addActivityRenderer((ui, kind) => { if (active) boardScreen?.renderActivity(ui, kind); });
   terminalScreen = createTerminalScreen({ onBack: () => showScreen(BOARD), onShowChanges: () => showScreen(CHANGES) });
   reviewMountEl = el('div', 'phone-review');
@@ -236,6 +236,7 @@ function openSession(sessionId: string) {
   requestSessionOpen(sessionId, 'dormant-fallback');
   selectSession(sessionId);
   terminalScreen.show(sessionId);
+  isBoardStale = true;
   showScreen(TERMINAL);
 }
 

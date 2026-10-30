@@ -26,7 +26,7 @@ interface GroupRefs extends SessionGroupHeader {
   rows: HTMLDivElement;
 }
 
-export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: string) => void }) {
+export function createBoardScreen({ onSelectSession, shownSessionId }: { onSelectSession?: (id: string) => void; shownSessionId?: () => string | null }) {
   const screen = el('div', 'phone-board');
 
   const topBar = el('header', 'phone-topbar');
@@ -104,6 +104,7 @@ export function createBoardScreen({ onSelectSession }: { onSelectSession?: (id: 
     const rowDetails = rowState.get(row);
     if (!rowDetails) return;
     const { ui, state, name } = entry;
+    row.classList.toggle('focused', entry.id === shownSessionId?.());
     paintSessionRow(row, rowDetails.refs, { ui, state, name, mergeStatus: ui.card?.dataset.merge || '', attentionPosition });
   }
 
