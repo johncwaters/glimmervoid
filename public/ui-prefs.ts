@@ -21,7 +21,6 @@ interface UiPrefs extends FlyingAnimalsOptions {
   railWidth: number | null;
   reviewSidebarExpanded: boolean;
   prsQueueWidth: number | null;
-  prsQueueCollapsed: boolean;
   keptProjects: string[];
   traceHiddenKinds: string[];
   dismissedUpdate: string | null;
@@ -63,7 +62,6 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   railWidth: asNullableNumber,
   reviewSidebarExpanded: asBoolean(false),
   prsQueueWidth: asNullableNumber,
-  prsQueueCollapsed: asBoolean(false),
   keptProjects: asStringList,
   traceHiddenKinds: asStringList,
   dismissedUpdate: asNullableString,
@@ -130,8 +128,6 @@ export const setReviewSidebarExpanded = (expanded: boolean) => write('reviewSide
 
 export const getPrsQueueWidth = () => read('prsQueueWidth');
 export const setPrsQueueWidth = (px: number | null) => write('prsQueueWidth', px);
-export const isPrsQueueCollapsed = () => read('prsQueueCollapsed');
-export const setPrsQueueCollapsed = (collapsed: boolean) => write('prsQueueCollapsed', collapsed);
 
 export const getKeptProjects = () => read('keptProjects');
 export const setKeptProjects = (paths: string[]) => write('keptProjects', paths);

@@ -116,8 +116,8 @@ export function createGithubPollingControls(lane: GithubPollingRefreshRequest['l
     }
   });
   const visibilityObserver = new MutationObserver(updateCountdown);
-  visibilityObserver.observe(panel, { attributes: true, subtree: true, attributeFilter: ['hidden', 'data-queue-collapsed'] });
-  for (let ancestor: HTMLElement | null = panel.parentElement; ancestor; ancestor = ancestor.parentElement) visibilityObserver.observe(ancestor, { attributes: true, attributeFilter: ['hidden', 'data-queue-collapsed'] });
+  visibilityObserver.observe(panel, { attributes: true, subtree: true, attributeFilter: ['hidden'] });
+  for (let ancestor: HTMLElement | null = panel.parentElement; ancestor; ancestor = ancestor.parentElement) visibilityObserver.observe(ancestor, { attributes: true, attributeFilter: ['hidden'] });
   document.addEventListener('visibilitychange', updateCountdown);
   return { control, notice, update };
 }

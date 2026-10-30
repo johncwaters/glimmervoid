@@ -706,7 +706,7 @@ export function verdictRecommendation(verdict: ReviewDraft['verdict']): string {
 const AGENT_TEXT_SEPARATOR = ` ${String.fromCharCode(0xb7)} `;
 
 export function queueRowAgentText(draft: Pick<ReviewDraft, 'verdict' | 'comments' | 'body'>): string {
-  const action = `Agent: ${actionLabel(leadingDecision(draft.verdict)).toLowerCase()}`;
+  const action = actionLabel(leadingDecision(draft.verdict)).toLowerCase();
   const postedSeverities = [
     ...draft.comments.filter(isIncludedByDefault).map(commentSeverity),
     ...generalFindingsOf(draft.body).map((finding) => finding.severity).filter(isSeverityIncludedByDefault),

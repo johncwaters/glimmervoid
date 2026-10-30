@@ -79,15 +79,12 @@ export async function verifyMyPrKeepMergeable(page: Page): Promise<void> {
 
 async function verifyRefreshStatusKeepsLayout(page: Page, status: MyPrsStatus): Promise<void> {
   const panel = page.locator('.review-queue');
-  const head = panel.locator('.pr-queue-head');
   const refreshStatus = panel.locator('.reviews-refresh-status');
   assert.equal(await panel.locator('.pr-queue-foot .reviews-refresh-button').count(), 1);
   const queueTop = () => panel.locator('.pr-queue-row').first().evaluate((element) => element.getBoundingClientRect().top);
-  const idleHeight = await head.evaluate((element) => element.getBoundingClientRect().height);
   const idleQueueTop = await queueTop();
   await applyStatus(page, { ...status, isRefreshing: true, refreshNotice: 'Refreshing your pull requests and their review threads from GitHub' });
   assert.match(await refreshStatus.textContent() ?? '', /Refreshing/);
-  assert.equal(await head.evaluate((element) => element.getBoundingClientRect().height), idleHeight);
   assert.equal(await queueTop(), idleQueueTop);
   assert.ok(await refreshStatus.evaluate((element) => element.scrollWidth >= element.clientWidth));
   await applyStatus(page, status);

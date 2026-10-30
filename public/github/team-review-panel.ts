@@ -313,7 +313,6 @@ function createQueueRowTop(review: ReviewDraft | InFlightReview | QueuedReview, 
   const top = el('span', 'pr-queue-top');
   top.append(
     el('strong', 'pr-queue-ref', queueRowRefLabel(review.repo, review.number, hasMultipleRepos)),
-    el('strong', 'pr-queue-ref-compact', queueRowRefLabel(review.repo, review.number, false)),
     el('span', 'pr-queue-title', review.title),
   );
   return top;

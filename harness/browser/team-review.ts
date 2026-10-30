@@ -104,7 +104,7 @@ async function verifyRows(page: Page): Promise<void> {
   }
   const nits = rows.find((row) => row.key === 'Acme/app#2');
   assert.ok(nits);
-  assert.equal(nits.stateWord, `Agent: approve ${String.fromCharCode(0xb7)} 1 finding`);
+  assert.equal(nits.stateWord, `approve ${String.fromCharCode(0xb7)} 1 finding`);
   assert.doesNotMatch(nits.bottom ?? '', /since approval|drafted|resolved|Nits|Approve|Changes|Blocked/);
   assert.match(nits.title ?? '', /Acme\/app#2:.*\nWaits on you\n/s);
   assert.match(nits.accessibleName ?? '', /Nits, 2 comments/);
@@ -198,6 +198,9 @@ async function verifyCanonicalTeamPrFields(page: Page, layout: Layout, snapshot:
     assert.equal(await readRowMeaning(fallbackRow), 'Waits on you');
     assert.equal(await teamRow.locator('.author-org-tag').textContent(), 'external');
     assert.equal(await fallbackRow.locator('.author-org-tag').count(), 0);
+    await emitTeamReviewFrames(page, [frameFor({ ...pr, isAuthorOrgMember: true })]);
+    assert.equal(await teamRow.locator('.author-org-tag').isVisible(), false);
+    await emitTeamReviewFrames(page, [frameFor(pr)]);
     const teamGlyph = await teamRow.locator('.pr-queue-glyph').innerHTML();
     const teamIcon = await teamRow.locator('.pr-status-icon').evaluate((icon) => icon.outerHTML);
     const unchangedTeamRow = await teamRow.elementHandle();
@@ -253,24 +256,6 @@ async function verifyPhoneDetailScreen(page: Page, status: TeamReviewStatus): Pr
   await page.locator('.pr-queue-row[data-review-key="Acme/app#1"]').click();
   await root.locator('.review-queue-back').click();
   await pane.waitFor({ state: 'visible' });
-}
-
-async function verifyCollapsedRailShowsNumbers(page: Page): Promise<void> {
-  const discardedRow = page.locator('.pr-queue-row[data-review-key="Acme/app#6"]');
-  await page.locator('.review-queue .pr-queue-toggle').click();
-  const compactRef = discardedRow.locator('.pr-queue-ref-compact');
-  assert.ok(await compactRef.isVisible());
-  assert.equal(await compactRef.textContent(), '#6');
-  await page.waitForFunction(() => {
-    const ref = document.querySelector('.pr-queue-row[data-review-key="Acme/app#6"] .pr-queue-ref-compact');
-    return ref !== null && ref.scrollWidth <= ref.clientWidth && ref.getBoundingClientRect().width > 8;
-  }, undefined, { timeout: 2_000 });
-  assert.equal(await discardedRow.locator('.pr-queue-ref').isVisible(), false);
-  assert.equal(await discardedRow.locator('.pr-queue-title').isVisible(), false);
-  await page.locator('.review-queue .pr-queue-toggle').click();
-  await discardedRow.locator('.pr-queue-title').waitFor({ state: 'visible' });
-  assert.equal(await compactRef.isVisible(), false);
-  await verifyLayout(page);
 }
 
 async function verifyDecisionBarPinned(page: Page): Promise<void> {
@@ -781,13 +766,11 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout, sessionId
   const mixed = { ...status, drafts: [...status.drafts, createDraft(11, { key: 'Acme/docs#11', repo: 'Acme/docs' })] };
   await applyStatus(page, mixed);
   assert.equal(await nitsRow.locator('.pr-queue-ref').textContent(), 'Acme/app#2');
-  if (layout === 'desktop') await verifyCollapsedRailShowsNumbers(page);
   const progress = { ...mixed, inFlight: mixed.inFlight.map((review) => ({ ...review, toolCalls: 2 })) };
   await applyStatus(page, progress);
   assert.equal(await page.locator('.pr-queue-row[data-review-key="Acme/app#9"] .pr-queue-ref').textContent(), 'Acme/app#9');
   await applyStatus(page, status);
   assert.equal(await nitsRow.locator('.pr-queue-ref').textContent(), '#2');
-  if (layout === 'desktop') await verifyCollapsedRailShowsNumbers(page);
   await verifyUnchangedQueueKeepsRowNodes(page, status);
   await verifyQueueRebuildsAfterEmptyStatus(page, status);
   await verifyViewerThreadCounts(page, status);
