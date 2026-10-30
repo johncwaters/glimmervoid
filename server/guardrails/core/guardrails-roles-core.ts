@@ -31,11 +31,6 @@ interface SessionRoleFacts {
 const SESSION_VENDORS: readonly GuardrailsRoleVendor[] = Object.freeze(['claude', 'codex']);
 const GUARDED_SESSION_VENDORS: readonly GuardrailsRoleVendor[] = Object.freeze(['claude', 'kimi']);
 
-const LANE_CREDENTIAL_ENV: Readonly<Record<string, string>> = Object.freeze({
-  SSH_AUTH_SOCK: '', SSH_ASKPASS: '', GIT_ASKPASS: '', GIT_SSH_COMMAND: 'false', GIT_TERMINAL_PROMPT: '0',
-  GH_TOKEN: '', GITHUB_TOKEN: '', GH_ENTERPRISE_TOKEN: '', GITHUB_ENTERPRISE_TOKEN: '',
-});
-
 function judgeRole({ vendor, cwd, hookPort, readablePaths, agentSessionId }: JudgeRoleFacts): GuardrailsRole {
   return {
     vendors: [vendor],
@@ -83,6 +78,6 @@ function isWorktreeAdminDirOf({ adminDir, commonGitDir }: { adminDir: string; co
 }
 
 export {
-  isWorktreeAdminDirOf, judgeRole, LANE_CREDENTIAL_ENV, sessionRole,
+  isWorktreeAdminDirOf, judgeRole, sessionRole,
   workRole,
 };

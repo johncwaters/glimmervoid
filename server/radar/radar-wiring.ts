@@ -6,10 +6,10 @@ import path from 'node:path';
 
 import type { HookRouter } from '../../detection/hook-source.ts';
 import { Session } from '../../session/sessions.ts';
-import type { SessionOptions, SessionGuardrailsFacts } from '../../session/sessions.ts';
+import type { SessionOptions } from '../../session/sessions.ts';
 import { runGh, runGit } from '../git/git-exec.ts';
 import type { ExecFileFn, RunCommandOptions } from '../git/git-exec.ts';
-import { resolveHookTools as resolveSharedHookTools } from '../hook-tools.ts';
+import { resolveHookTools as resolveSharedHookTools, resolveRequiredSaneYoloHookTools } from '../hook-tools.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
 import { stableConfigKey } from '../core/config-secrets-core.ts';
 import { appendTrailStep, createInvestigationTrail, trailNotesFromTranscriptLines, trailStepFromHook } from '../core/investigation-trail-core.ts';
@@ -19,8 +19,6 @@ import { claudeProjectsDir } from '../../session/core/conversation-history.ts';
 import type { InvestigationTrail } from '../core/investigation-trail-core.ts';
 import { nulSeparatedPaths } from '../git/core/git-changed-paths-core.ts';
 import * as core from './core/radar-lane-core.ts';
-import type { GuardrailsRole } from '../guardrails/core/guardrails-policy-core.ts';
-import { LANE_CREDENTIAL_ENV, workRole } from '../guardrails/core/guardrails-roles-core.ts';
 import type { InvestigationRecord, PendingFix, PosthogIssue } from './core/radar-lane-core.ts';
 import {
   awaitSessionExit, createJobResultFile, readResultFile, registerEphemeralSession,
@@ -39,15 +37,13 @@ import { DEFAULT_POSTHOG_REPORT_DIR } from './radar-report.ts';
 import { sendTelegramMessage } from '../telegram-transport.ts';
 import { writeUntrustedPayload } from '../lanes/untrusted-payload.ts';
 import { prepareLaneMcp } from '../lanes/lane-mcp.ts';
-import { buildLanePermissions, LANE_CONFIG_EDIT_DENY_RULES, withAllowRules, withLaneMcp } from '../lanes/core/lane-permissions-core.ts';
+import { buildLanePermissions, LANE_CONFIG_EDIT_DENY_RULES, LANE_CREDENTIAL_ENV, withAllowRules } from '../lanes/core/lane-permissions-core.ts';
 import { absolutePathReadRule } from '../github/core/team-review-core.ts';
 import { UNTRUSTED_PAYLOAD_FILENAME, UNTRUSTED_PREAMBLE } from '../../shared/contracts/untrusted-payload.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import type { RadarErrorReason, RadarHandoffStep } from '../../shared/contracts/telemetry.ts';
 import type { Telemetry } from '../telemetry.ts';
 import { errorMessage } from '../../shared/text.ts';
-import { prepareRoleGuardrails } from '../lanes/work-lane.ts';
-import type { RoleGuardrailsDependencies } from '../lanes/work-lane.ts';
 import { isRecord } from '../../shared/coerce.ts';
 import { createCoalescedTimer } from '../../shared/coalesce-timer.ts';
 import type { OwnedPathOwner } from '../../shared/contracts/owned-paths.ts';
@@ -175,18 +171,9 @@ interface RadarWiringOptions {
   recordLane?: RecordLane | null;
   makeSession?: (options: SessionOptions) => Session;
   resolveHookTools?: typeof resolveSharedHookTools;
-  guardrails?: RoleGuardrailsDependencies;
   telemetry?: Pick<Telemetry, 'capture'> | null;
   posthogApiFor?: (connection: { host: string; apiKey: string }) => Pick<PosthogApi, 'runHogQL'>;
   prepareMcp?: typeof prepareLaneMcp;
-}
-
-interface RadarLaneAccess {
-  writableRoots: readonly string[];
-}
-
-function radarLaneRole(facts: SessionGuardrailsFacts, { writableRoots }: RadarLaneAccess): GuardrailsRole {
-  return workRole({ vendor: 'claude', cwd: facts.cwd, checkout: facts.cwd, readablePaths: facts.readablePaths, writablePaths: [...writableRoots], agentSessionId: facts.agentSessionId });
 }
 
 interface ResolvedProject {
@@ -535,7 +522,6 @@ function createRadarWiring({
   recordLane = null,
   makeSession = (options: SessionOptions) => new Session(options),
   resolveHookTools = resolveSharedHookTools,
-  guardrails = {},
   telemetry = null,
   posthogApiFor = createPosthogApi,
   prepareMcp = prepareLaneMcp,
@@ -549,23 +535,19 @@ function createRadarWiring({
   }
 
   async function makeInvestigationSession(
-    { id, name, path: cwd, initialPrompt, access, posture, onActivity = null }: {
+    { id, name, path: cwd, initialPrompt, posture, onActivity = null }: {
       id: string;
       name: string;
       path: string;
       initialPrompt: string;
-      access: RadarLaneAccess;
       posture: RadarToolPosture;
       onActivity?: ((trail: InvestigationTrail) => void) | null;
     },
   ): Promise<{ sess: Session; cleanup(): Promise<void> }> {
     const lanePermissions = buildLanePermissions({ denyTools: posture.denyTools, allowTools: posture.allowTools });
+    const sharedHookTools = hookRouter ? resolveRequiredSaneYoloHookTools(config.saneYoloUnreadablePaths ?? [], { resolve: resolveHookTools }) : [];
+    if (sharedHookTools === null) throw new Error('Sane YOLO is unavailable');
     const laneMcp = posture.withPosthogMcp && hookRouter ? await prepareMcp({ laneArgs: lanePermissions.args, agent: 'claude' }) : null;
-    const prepareGuardrails = prepareRoleGuardrails(async (facts) => withLaneMcp(
-      radarLaneRole({ ...facts, readablePaths: [...facts.readablePaths, ...(laneMcp?.readablePaths ?? [])] }, access),
-      laneMcp?.posture,
-    ), guardrails);
-    const sharedHookTools = resolveHookTools({ saneYolo: config.saneYolo, saneYoloUnreadablePaths: config.saneYoloUnreadablePaths });
     const sess = makeSession({
       id,
       name,
@@ -575,13 +557,13 @@ function createRadarWiring({
       extraClaudeArgs: [...radarClaudeArgs(posture, lanePermissions.args), ...(laneMcp?.posture.args ?? [])],
       initialPrompt,
       ephemeral: true,
+      requiresHooks: true,
       observeToolCalls: true,
       settingsPermissions: laneMcp ? withAllowRules(lanePermissions.permissions, laneMcp.posture.allowRules) : lanePermissions.permissions,
-      spawnEnv: prepareGuardrails === null ? null : { ...LANE_CREDENTIAL_ENV },
+      spawnEnv: { ...LANE_CREDENTIAL_ENV },
       replayBufferKB: config.replayBufferKB,
       hookRouter,
       getHookPort,
-      prepareGuardrails,
     });
     registerEphemeralSession({
       map: investigationSessions, id, sess, closeSessionDataClients, logPrefix: 'posthog', name, recordLane,
@@ -698,7 +680,6 @@ function createRadarWiring({
           baseBranch: workspace.base,
           eventsFetched,
         }),
-        access: { writableRoots: [] },
         posture: FIX_POSTURE,
         onActivity,
       });
@@ -787,7 +768,6 @@ function createRadarWiring({
         name: `PostHog ${projectName} #${issue.issueId}`,
         path: laneCwd,
         initialPrompt: prompt,
-        access: { writableRoots: [laneCwd] },
         posture: investigationPosture(repoPath),
         onActivity,
       });

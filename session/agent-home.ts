@@ -19,6 +19,15 @@ interface AgentHomeOptions {
   renderBlock: (operatorText: string) => string;
   homeDir?: string;
   platform?: NodeJS.Platform;
+  generatedHome?: string;
+}
+
+interface ScratchAgentHomeOptions {
+  env: AgentHomeEnv;
+  renderBlock: (operatorText: string) => string;
+  home: string;
+  configSuffix: string;
+  files: Readonly<Record<string, string>>;
 }
 
 function realAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv = process.env, homeDir: string = os.homedir()): string {
@@ -147,7 +156,7 @@ interface AgentHomeReading {
 
 function inspectAgentHome(profile: AgentHomeProfile, options: AgentHomeOptions): AgentHomeReading {
   const realHome = realAgentHome(profile, options.env, options.homeDir);
-  const generatedHome = generatedAgentHomePath(profile, options.env, options.homeDir);
+  const generatedHome = options.generatedHome ?? generatedAgentHomePath(profile, options.env, options.homeDir);
   try {
     return { generatedHome, realHome, plan: planFromDisk(profile, options, realHome, generatedHome) };
   } catch (error) {
@@ -260,7 +269,7 @@ function realFileStamps(realHome: string): Record<string, string> {
 }
 
 function prepareAgentHome(profile: AgentHomeProfile, options: AgentHomeOptions): { home: string } | { refusal: string } {
-  const generatedHome = generatedAgentHomePath(profile, options.env, options.homeDir);
+  const generatedHome = options.generatedHome ?? generatedAgentHomePath(profile, options.env, options.homeDir);
   try {
     fs.mkdirSync(generatedHome, { recursive: true, mode: GENERATED_HOME_MODE });
     fs.chmodSync(generatedHome, GENERATED_HOME_MODE);
@@ -296,6 +305,21 @@ function holdPreparedAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv, ren
   holdAgentHome(generatedHome);
   const prepared = prepareAgentHome(profile, { env, renderBlock });
   if ("refusal" in prepared) releaseAgentHome(generatedHome);
+  return prepared;
+}
+
+function prepareScratchAgentHome(profile: AgentHomeProfile, { env, renderBlock, home, configSuffix, files }: ScratchAgentHomeOptions): { home: string } | { refusal: string } {
+  const prepared = prepareAgentHome(profile, { env, renderBlock, generatedHome: home });
+  if ("refusal" in prepared) return prepared;
+  try {
+    for (const [name, text] of Object.entries(files)) {
+      fs.rmSync(path.join(home, name), { force: true });
+      fs.writeFileSync(path.join(home, name), text, { mode: GENERATED_FILE_MODE });
+    }
+    fs.appendFileSync(path.join(home, AGENT_HOME_CONFIG_NAME), configSuffix);
+  } catch (error) {
+    return { refusal: `${home} cannot take the lane files: ${errorMessage(error)}` };
+  }
   return prepared;
 }
 
@@ -396,5 +420,5 @@ function releaseUnheldAgentHomeSecrets(generatedHome: string): void {
   releaseSecretsUnlessHeldElsewhere(generatedHome, { whenLocksMissing: "keep" });
 }
 
-export { agentHomeLinkRefusal, describeAgentHome, generatedAgentHomePath, holdAgentHome, holdPreparedAgentHome, prepareAgentHome, realAgentHome, releaseAgentHome, releaseUnheldAgentHomeSecrets };
+export { agentHomeLinkRefusal, describeAgentHome, generatedAgentHomePath, holdAgentHome, holdPreparedAgentHome, prepareAgentHome, prepareScratchAgentHome, realAgentHome, releaseAgentHome, releaseUnheldAgentHomeSecrets };
 

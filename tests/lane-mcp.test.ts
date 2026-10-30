@@ -9,6 +9,7 @@ import { execFile } from '../server/child-process-safe.ts';
 import { prepareLaneMcp } from '../server/lanes/lane-mcp.ts';
 import { relayPath } from '../server/runtime-paths.ts';
 import codex from '../session/adapters/codex.ts';
+import kimi from '../session/adapters/kimi.ts';
 import { codexHookPlanFor } from '../session/core/codex-version-core.ts';
 import { HOOK_TOOLS } from '../session/core/hook-tools.ts';
 
@@ -110,19 +111,27 @@ test('a Codex lane approves PostHog calls only when the gate hook runs trusted o
   assert.equal(await prepareLaneMcp({ laneArgs: [], agent: 'codex' }, { listCodexServers: async () => [...codexServers, undisableableServer] }), null);
 });
 
-test('a Kimi lane gets a launch home with only the PostHog server and the gate hook, and none when its config cannot take the hook', async () => {
+test('a Kimi lane home holds only the PostHog server and the gate hook beside the Glimmervoid hooks, and refuses a config that cannot take hooks', async () => {
   const kimiHome = fs.mkdtempSync(path.join(os.tmpdir(), 'lane-mcp-kimi-'));
   fs.writeFileSync(path.join(kimiHome, 'mcp.json'), JSON.stringify({ mcpServers: { gauge: { url: 'https://gauge.example.com/mcp' }, posthog: operatorPosthogEntry } }));
   fs.writeFileSync(path.join(kimiHome, 'config.toml'), 'default_model = "k3"\n');
+  fs.writeFileSync(path.join(kimiHome, 'credentials'), 'login');
+  const injection = kimi.hooks.injection;
+  if (injection.kind !== 'generated-home') throw new Error('Kimi Code builds its generated home');
+  const env = { ...process.env, KIMI_CODE_HOME: kimiHome };
 
   const prepared = await prepareLaneMcp({ laneArgs: [], agent: 'kimi' }, { kimiHome });
-  assert.ok(prepared);
-  const laneFiles = prepared.posture.launchHomeFiles.kimi ?? {};
-  assert.deepEqual(JSON.parse(fs.readFileSync(laneFiles['mcp.json'] ?? '', 'utf8')), { mcpServers: { posthog: { ...operatorPosthogEntry, enabledTools: ['exec'] } } });
-  const laneConfig = fs.readFileSync(laneFiles['config.toml'] ?? '', 'utf8');
-  assert.match(laneConfig, /^default_model = "k3"\n\n\[\[hooks\]\]\nevent = "PreToolUse"\nmatcher = '\^mcp__posthog__'\ncommand = '.*posthog-read-gate.* posthog \|\| exit 2'\n$/);
+  assert.ok(prepared?.scratchAgentHome);
+  const built = injection.prepareScratchHome(env, prepared.scratchAgentHome);
+  assert.ok('home' in built);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(built.home, 'mcp.json'), 'utf8')), { mcpServers: { posthog: { ...operatorPosthogEntry, enabledTools: ['exec'] } } });
+  assert.equal(JSON.parse(fs.readFileSync(path.join(kimiHome, 'mcp.json'), 'utf8')).mcpServers.gauge.url, 'https://gauge.example.com/mcp');
+  assert.equal(fs.readFileSync(path.join(built.home, 'credentials'), 'utf8'), 'login');
+  const laneConfig = fs.readFileSync(path.join(built.home, 'config.toml'), 'utf8');
+  assert.match(laneConfig, /^default_model = "k3"\n/);
+  assert.match(laneConfig, /# <<< glimmervoid hooks <<<\n\n\[\[hooks\]\]\nevent = "PreToolUse"\nmatcher = '\^mcp__posthog__'\ncommand = '.*posthog-read-gate.* posthog \|\| exit 2'\n$/);
   await prepared.cleanup();
-  assert.equal(fs.existsSync(path.dirname(laneFiles['mcp.json'] ?? '')), false);
+  assert.equal(fs.existsSync(built.home), false);
 
   for (const renamedByKimi of ['posthog__prod', `posthog-${'x'.repeat(52)}`]) {
     fs.writeFileSync(path.join(kimiHome, 'mcp.json'), JSON.stringify({ mcpServers: { [renamedByKimi]: operatorPosthogEntry } }));
@@ -131,5 +140,8 @@ test('a Kimi lane gets a launch home with only the PostHog server and the gate h
 
   fs.writeFileSync(path.join(kimiHome, 'mcp.json'), JSON.stringify({ mcpServers: { posthog: operatorPosthogEntry } }));
   fs.writeFileSync(path.join(kimiHome, 'config.toml'), 'hooks = []\n');
-  assert.equal(await prepareLaneMcp({ laneArgs: [], agent: 'kimi' }, { kimiHome }), null);
+  const refusedLane = await prepareLaneMcp({ laneArgs: [], agent: 'kimi' }, { kimiHome });
+  assert.ok(refusedLane?.scratchAgentHome);
+  assert.ok('refusal' in injection.prepareScratchHome(env, refusedLane.scratchAgentHome));
+  await refusedLane.cleanup();
 });

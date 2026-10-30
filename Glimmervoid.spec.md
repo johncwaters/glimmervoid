@@ -31,9 +31,6 @@ A local agent orchestrator: a Node.js process that spawns and supervises coding 
 - prepare build: npm builds dist before packing or after a source install
   handler: scripts/prepare-build.js
   trust: operator
-- probe guardrails roles: the operator probes what each guardrails role allows on this host
-  handler: scripts/probe-guardrails-roles.ts
-  trust: operator
 - release: the operator cuts a versioned release from the changelog
   handler: scripts/release.ts
   trust: operator

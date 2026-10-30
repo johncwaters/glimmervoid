@@ -16,6 +16,7 @@ import type {
   AgentHookProfile,
   ArgvConfigInjection,
   GeneratedHomeInjection,
+  ScratchAgentHome,
   HomeHooksFileInjection,
   HookedAgentHome,
   ProjectConfigCandidate,
@@ -59,6 +60,8 @@ interface SessionHookOptions {
   holdsQuestionsForParent: boolean;
   getUserHooks?: (() => UserHook[]) | null;
   extraUserHooks?: UserHook[];
+  scratchAgentHome?: ScratchAgentHome | null;
+  requiresHooks: boolean;
   bypassHookTrust: boolean;
   effectiveCwd: () => string;
   agentEnv: () => Record<string, string | undefined>;
@@ -292,9 +295,9 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
 
   function injectGeneratedHomeHooks(port: number, injection: GeneratedHomeInjection): HookInjectionResult {
     releaseGeneratedHome();
-    const prepared = injection.prepareHome(process.env);
+    const prepared = options.scratchAgentHome ? injection.prepareScratchHome(process.env, options.scratchAgentHome) : injection.prepareHome(process.env);
     if ("refusal" in prepared) return { ...NO_HOOK_INJECTION, refusal: `${options.agentId} cannot start: ${prepared.refusal}` };
-    heldGeneratedHome = { releaseHome: injection.releaseHome, home: prepared.home };
+    if (!options.scratchAgentHome) heldGeneratedHome = { releaseHome: injection.releaseHome, home: prepared.home };
     const relayHooks = registerRelayHooks(port, [], saneYoloTool() !== undefined);
     if (relayHooks === NO_HOOK_INJECTION) {
       releaseGeneratedHome();
@@ -319,6 +322,13 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
   }
 
   function inject(): HookInjectionResult {
+    const injected = injectHooks();
+    if (!options.requiresHooks || injected.refusal || injected.isSaneYoloActive) return injected;
+    cleanup();
+    return { ...NO_HOOK_INJECTION, refusal: `${options.agentId} cannot start: Sane YOLO hooks could not be injected` };
+  }
+
+  function injectHooks(): HookInjectionResult {
     const hookProfile = hookProfileOf(options.adapter);
     if (!hookProfile || !options.hookRouter || !options.getHookPort) return NO_HOOK_INJECTION;
     const port = resolveListenerPort();

@@ -1,9 +1,14 @@
 import { isRecord } from '../../../shared/coerce.ts';
+import { HOOK_TOOLS } from '../../../session/core/hook-tools.ts';
 import type { ResolvedHookTool } from '../../../session/core/hook-tools.ts';
-import { definesHooksOutsideArrayTables } from '../../../session/core/agent-home-core.ts';
 import type { GuardrailsRole } from '../../guardrails/core/guardrails-policy-core.ts';
 
 const ACCEPT_EDITS_MODE = 'acceptEdits';
+
+const LANE_CREDENTIAL_ENV: Readonly<Record<string, string>> = Object.freeze({
+  SSH_AUTH_SOCK: '', SSH_ASKPASS: '', GIT_ASKPASS: '', GIT_SSH_COMMAND: 'false', GIT_TERMINAL_PROMPT: '0',
+  GH_TOKEN: '', GITHUB_TOKEN: '', GH_ENTERPRISE_TOKEN: '', GITHUB_ENTERPRISE_TOKEN: '',
+});
 
 const LANE_CONFIG_EDIT_DENY_RULES: readonly string[] = Object.freeze([
   'Edit(**/.git/**)',
@@ -59,7 +64,7 @@ interface LaneMcpPosture {
   hookTool: ResolvedHookTool;
   networkDomains: string[];
   bypassHookTrust: boolean;
-  launchHomeFiles: NonNullable<GuardrailsRole['launchHomeFiles']>;
+  laneHome: { configSuffix: string; files: Record<string, string> } | null;
 }
 
 function urlHostname(value: unknown): string | null {
@@ -107,7 +112,7 @@ function laneMcpPosture({ server, mcpConfigPath, gatePath, interpreterPath, lane
     hookTool,
     networkDomains: [POSTHOG_MCP_HOST, POSTHOG_OAUTH_HOST],
     bypassHookTrust: false,
-    launchHomeFiles: {},
+    laneHome: null,
   };
 }
 
@@ -123,7 +128,7 @@ function codexLaneMcpPosture({ server, otherServerNames, gatePath, interpreterPa
     hookTool,
     networkDomains: [POSTHOG_MCP_HOST, POSTHOG_OAUTH_HOST],
     bypassHookTrust: true,
-    launchHomeFiles: {},
+    laneHome: null,
   };
 }
 
@@ -131,29 +136,31 @@ function kimiLaneMcpConfig(server: LaneMcpServer): { mcpServers: Record<string, 
   return { mcpServers: { [server.name]: { ...server.entry, enabledTools: ['exec'] } } };
 }
 
-function kimiLaneConfigText(operatorConfigText: string, gateHook: { matcher: string; command: string }): string | null {
-  if (definesHooksOutsideArrayTables(operatorConfigText) || /['\r\n]/.test(gateHook.command)) return null;
-  const separator = operatorConfigText === '' || operatorConfigText.endsWith('\n') ? '' : '\n';
-  return `${operatorConfigText}${separator}\n[[hooks]]\nevent = "PreToolUse"\nmatcher = '${gateHook.matcher}'\ncommand = '${gateHook.command}'\n`;
+function kimiGateHookTable(gateHook: { matcher: string; command: string }): string | null {
+  if (/['\r\n]/.test(gateHook.command)) return null;
+  return `\n[[hooks]]\nevent = "PreToolUse"\nmatcher = '${gateHook.matcher}'\ncommand = '${gateHook.command}'\n`;
 }
 
 function keepsKimiToolName(serverName: string): boolean {
   return !serverName.includes('__') && `mcp__${serverName}__exec`.length <= KIMI_QUALIFIED_TOOL_NAME_MAX_LENGTH;
 }
 
-function kimiLaneMcpPosture({ server, mcpConfigPath, configPath, gatePath, interpreterPath }: {
-  server: LaneMcpServer; mcpConfigPath: string; configPath: string; gatePath: string; interpreterPath: string;
+function kimiLaneMcpPosture({ server, gatePath, interpreterPath }: {
+  server: LaneMcpServer; gatePath: string; interpreterPath: string;
 }): LaneMcpPosture | null {
   if (!keepsKimiToolName(server.name)) return null;
   const hookTool = gatedPosthogTool({ server, gatePath, interpreterPath });
   if (!hookTool) return null;
+  const gateHook = HOOK_TOOLS.posthogReadGate.claudeEntry(hookTool, '');
+  const gateHookTable = kimiGateHookTable({ matcher: gateHook.matcher, command: gateHook.hooks[0]?.command ?? '' });
+  if (gateHookTable === null) return null;
   return {
     args: [],
     allowRules: [],
     hookTool,
     networkDomains: [POSTHOG_MCP_HOST, POSTHOG_OAUTH_HOST],
     bypassHookTrust: false,
-    launchHomeFiles: { kimi: { 'mcp.json': mcpConfigPath, 'config.toml': configPath } },
+    laneHome: { configSuffix: gateHookTable, files: { 'mcp.json': `${JSON.stringify(kimiLaneMcpConfig(server), null, 2)}\n` } },
   };
 }
 
@@ -164,7 +171,7 @@ function withNetworkDomains(role: GuardrailsRole, domains: readonly string[]): G
 
 function withLaneMcp(role: GuardrailsRole, posture: LaneMcpPosture | undefined): GuardrailsRole {
   if (!posture) return role;
-  return { ...withNetworkDomains(role, posture.networkDomains), launchHomeFiles: { ...role.launchHomeFiles, ...posture.launchHomeFiles } };
+  return withNetworkDomains(role, posture.networkDomains);
 }
 
 function withAllowRules(permissions: Record<string, unknown>, allowRules: readonly string[]): Record<string, unknown> {
@@ -174,8 +181,8 @@ function withAllowRules(permissions: Record<string, unknown>, allowRules: readon
 }
 
 export {
-  ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, LANE_ENVIRONMENT_ARGS, READ_ONLY_GIT_SUBCOMMANDS, buildLanePermissions,
-  codexLaneMcpPosture, codexMcpServers, findPosthogServer, kimiLaneConfigText, kimiLaneMcpConfig, kimiLaneMcpPosture, laneMcpConfig, laneMcpPosture,
+  ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, LANE_CREDENTIAL_ENV, LANE_ENVIRONMENT_ARGS, READ_ONLY_GIT_SUBCOMMANDS, buildLanePermissions,
+  codexLaneMcpPosture, codexMcpServers, findPosthogServer, kimiLaneMcpPosture, laneMcpConfig, laneMcpPosture,
   readOnlyGitAllowRules, withAllowRules, withLaneMcp,
 };
 export type { LaneMcpPosture };

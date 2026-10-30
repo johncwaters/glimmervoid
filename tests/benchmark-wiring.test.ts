@@ -68,10 +68,6 @@ function runsRootFor(root: string): string {
   return `${root}-runs`;
 }
 
-function repoCacheRootFor(root: string): string {
-  return `${root}-repo-cache`;
-}
-
 function harness({ root, suite, cases, overrides = {} }: { root: string; suite: Record<string, unknown>; cases: Record<string, unknown>[]; overrides?: Partial<BenchmarkWiringOptions> }) {
   writeJson(path.join(root, 'ladder', 'suite.json'), suite);
   for (const benchmarkCase of cases) writeJson(path.join(root, 'ladder', 'cases', `${String(benchmarkCase.id)}.json`), benchmarkCase);
@@ -90,7 +86,6 @@ function harness({ root, suite, cases, overrides = {} }: { root: string; suite: 
       requestCompareCommits: async () => ({ isRateLimited: false, value: null }),
     },
     repoCache: { ensureRepo: async () => null, hydrateSince: async () => false },
-    repoCacheRoot: repoCacheRootFor(root),
     gitWorkspace: createGitWorkspace({}),
     spawnSubject: async (request) => {
       subjectRequests.push(request);
@@ -137,7 +132,6 @@ test('each arm env and the injected token reach only that arm subject spawn, and
   assert.equal(candidateSpawn?.spawnEnv.CODEX_HOME, undefined);
   assert.equal(candidateSpawn?.extraClaudeArgs.slice(1, 3).join(' '), '--model opus');
   assert.equal(baselineSpawn?.spawnEnv.GH_TOKEN, '');
-  assert.equal(baselineSpawn?.settingsGuardrails?.enabled, true);
   assert.ok(baselineSpawn?.extraClaudeArgs.includes('--strict-mcp-config'));
   assert.equal(judgeRequests.length, 2);
   assert.ok(judgeRequests.every((request) => request.model === 'opus' && !('spawnEnv' in request)));
@@ -212,8 +206,6 @@ test('a blobless cached checkout exposes only reviewed refs, keeps the base diff
         const prompt = fs.readFileSync(path.join(request.cwd, 'subject-prompt.md'), 'utf8');
         const checkoutPath = /Review (\S+) from/.exec(prompt)?.[1] ?? '';
         checkoutPaths.push(checkoutPath);
-        assert.deepEqual(request.settingsGuardrails?.filesystem.allowRead, [path.join(cachedRepo, '.git', 'objects')]);
-        assert.ok(request.settingsGuardrails?.filesystem.denyRead.includes(repoCacheRootFor(root)));
         assert.equal(request.cwd, path.join(path.dirname(checkoutPath), 'work'));
         assert.deepEqual(git(['for-each-ref', '--format=%(refname)'], checkoutPath).trim().split('\n'), ['refs/benchmark/base', 'refs/heads/review']);
         assert.equal(git(['remote'], checkoutPath).trim(), '');
@@ -241,44 +233,6 @@ test('a blobless cached checkout exposes only reviewed refs, keeps the base diff
   assert.equal(fs.existsSync(checkoutPaths[1]), false);
   assert.equal(git(['worktree', 'list', '--porcelain'], cachedRepo).includes(checkoutPaths[1]), false);
 });
-
-for (const [variant, alternatesText] of [['missing', null], ['whitespace-only', ' \n\n']] as const) {
-  test(`a staged checkout with a ${variant} alternates file is refused as invalid, removed, and never reaches a subject`, async (context) => {
-    const root = tempRoot();
-    context.after(() => {
-      for (const directory of [root, runsRootFor(root)]) fs.rmSync(directory, { recursive: true, force: true });
-    });
-    const stagedCheckoutPaths: string[] = [];
-    const { wiring, subjectRequests, statuses } = harness({
-      root,
-      suite: manualSuite({ workspace: { kind: 'pr-checkout' }, subject: { promptTemplate: CHECKOUT_PROMPT_TEMPLATE, output: 'review-findings', timeoutSeconds: 60 } }),
-      cases: [manualCase('case-1', { repo: 'Acme/gateway', number: 7, reviewedSha: 'b'.repeat(40), baseSha: 'a'.repeat(40), changedFiles: ['change.txt'] })],
-      overrides: {
-        repoCache: { ensureRepo: async () => path.join(root, 'cached-repo'), hydrateSince: async () => true },
-        gitWorkspace: {
-          ...createGitWorkspace({}),
-          stageIsolatedCheckout: async ({ checkoutPath = '' }) => {
-            stagedCheckoutPaths.push(checkoutPath);
-            const objectsInfoDir = path.join(checkoutPath, '.git', 'objects', 'info');
-            fs.mkdirSync(objectsInfoDir, { recursive: true });
-            if (alternatesText !== null) fs.writeFileSync(path.join(objectsInfoDir, 'alternates'), alternatesText);
-            return { ok: true };
-          },
-        },
-      },
-    });
-    const runId = await runToCompletion(wiring, statuses);
-    const run = BenchmarkRun.parse(JSON.parse(fs.readFileSync(path.join(root, 'ladder', 'runs', `${runId}.json`), 'utf8')));
-    assert.ok(run.cells.length > 0);
-    for (const cell of run.cells) {
-      assert.equal(cell.status, 'invalid');
-      assert.match(String(cell.error), /the staged checkout names no shared object store/);
-    }
-    assert.ok(stagedCheckoutPaths.length > 0);
-    for (const checkoutPath of stagedCheckoutPaths) assert.equal(fs.existsSync(checkoutPath), false);
-    assert.equal(subjectRequests.length, 0);
-  });
-}
 
 test('the subject Read permission rules deny every suite answer-key folder', async () => {
   const root = tempRoot();
@@ -334,26 +288,6 @@ test('a checkout subject is allowed to Read exactly its staged checkout', { skip
   allowedReadRules.forEach((rules, index) => {
     assert.deepEqual(rules, [absolutePathReadRule(checkoutPaths[index] ?? '')]);
   });
-});
-
-test('the subject guardrails cannot read the suite answer key or reach GitHub', async () => {
-  const root = tempRoot();
-  const { wiring, subjectRequests, statuses } = harness({ root, suite: manualSuite(), cases: [manualCase('case-1')] });
-  await runToCompletion(wiring, statuses);
-  const guardrails = subjectRequests[0]?.settingsGuardrails;
-  for (const folder of ['cases', 'candidates', 'runs']) assert.ok(guardrails?.filesystem.denyRead.includes(path.join(root, 'ladder', folder)), folder);
-  assert.deepEqual(guardrails?.excludedCommands, ['codex exec *']);
-  assert.ok(guardrails?.filesystem.denyRead.includes('~/.ssh'));
-  assert.equal(guardrails?.network.allowedDomains.some((domain) => /github/i.test(domain)), false);
-});
-
-test('a subject without a checkout hides the shared repo cache and re-allows no object store', async () => {
-  const root = tempRoot();
-  const { wiring, subjectRequests, statuses } = harness({ root, suite: manualSuite(), cases: [manualCase('case-1')] });
-  await runToCompletion(wiring, statuses);
-  const guardrails = subjectRequests[0]?.settingsGuardrails;
-  assert.ok(guardrails?.filesystem.denyRead.includes(repoCacheRootFor(root)));
-  assert.deepEqual(guardrails?.filesystem.allowRead, []);
 });
 
 test('the subject may run codex exec, write its dispatch prompt and read its answer while team review permissions allow nothing', async () => {

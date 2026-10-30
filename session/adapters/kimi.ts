@@ -10,7 +10,7 @@ import { KIMI_SANE_YOLO_FLAVOR } from "../core/sane-yolo.ts";
 import { resolveAgentCommand, buildAgentSpawnCommand } from "../core/spawn-command.ts";
 import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.ts";
 import { buildAgentEnv } from "../core/spawn-env.ts";
-import { holdPreparedAgentHome, realAgentHome, releaseAgentHome } from "../agent-home.ts";
+import { holdPreparedAgentHome, prepareScratchAgentHome, realAgentHome, releaseAgentHome } from "../agent-home.ts";
 import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import type {
   AgentAdapterShape,
@@ -18,6 +18,7 @@ import type {
   AgentHookProfile,
   AgentSpawnCommandOptions,
   AgentTitleProfile,
+  ScratchAgentHome,
 } from "./index.ts";
 import type { HookPayload } from "../../shared/contracts/index.ts";
 
@@ -150,6 +151,12 @@ function prepareHome(env: Record<string, string | undefined>): { home: string } 
   return holdPreparedAgentHome(KIMI_HOME_PROFILE, env, () => hooksBlock);
 }
 
+function prepareScratchHome(env: Record<string, string | undefined>, scratch: ScratchAgentHome): { home: string } | { refusal: string } {
+  const hooksBlock = expectedHooksBlock();
+  if (hooksBlock === null) return { refusal: "the hook relay path cannot be written into a kimi hooks block" };
+  return prepareScratchAgentHome(KIMI_HOME_PROFILE, { env, renderBlock: () => hooksBlock, ...scratch });
+}
+
 const WINDOWS_SHAPED_ROOT = /^(?:[A-Za-z]:\/|\/\/)/;
 const MAX_WORKSPACE_SLUG_LENGTH = 40;
 
@@ -233,6 +240,7 @@ const hooks: AgentHookProfile = {
     kind: "generated-home",
     homeEnvName: HOME_ENV_NAME,
     prepareHome,
+    prepareScratchHome,
     releaseHome: releaseAgentHome,
   },
 };

@@ -527,7 +527,6 @@ export {
   BLOCK_START,
   CODEX_HOME_PROFILE,
   KIMI_HOME_PROFILE,
-  definesHooksOutsideArrayTables,
   fileStampKey,
   planAgentHome,
   renderCodexHookTables,

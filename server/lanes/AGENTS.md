@@ -6,8 +6,8 @@ Lane spawning: the ephemeral judge lanes and the interactive work lane, with the
 
 | File | Rule |
 |------|------|
-| `lane-spawn.ts` | Ephemeral lane spawn on the lane-permissions seam; every lane is wrapped in the judge guardrails role (`server/guardrails/core/guardrails-roles-core.ts`), bar Windows |
-| `work-lane.ts` | Shared work guardrails helpers for interactive lanes |
+| `lane-spawn.ts` | Ephemeral lane spawn on the lane-permissions seam; a lane with a hook router refuses to start without the Sane YOLO hook, and every lane runs with `LANE_CREDENTIAL_ENV` emptied |
+| `work-lane.ts` | Reads the git folders of a lane's own checkout |
 | `lane-mcp.ts` | Read-only PostHog MCP posture shared by both lane spawn chokepoints |
 
 ## Invariants
@@ -30,5 +30,5 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - Claude Code, Codex and Kimi Code all run a tool when a PreToolUse hook crashes, so the gate exits 2 on any error and `lane-mcp.ts` drops PostHog when its self-test does not deny a known write.
 - The `mcp__<name>__exec` allow rule rides in the same settings file as the gate hook, so a failed hook injection drops the permission with it; PostHog needs a hook router for that reason.
 - Codex skips hooks passed with `-c` unless launched with `--dangerously-bypass-hook-trust`, and it fired PreToolUse on MCP calls only from 0.165.0 on, so its PostHog approval arg comes out of hook injection only beside the trusted gate on such a Codex; anywhere else a call still needs approval.
-- Kimi Code runs MCP calls in `-p` with no approval, so a Kimi Code lane reaches PostHog only through the guardrails launch home's `launchHomeFiles`, which point its `mcp.json` and `config.toml` at lane files holding only the PostHog entry and the gate hook, and only for a server name Kimi Code keeps unchanged in its tool names (no `__`, 64 characters), or its hook matcher never fires; unsandboxed, it gets no PostHog network route.
-- Known gap, accepted by the operator 2026-10-29: the sandbox allowlist opens `mcp.posthog.com` to the whole lane, so a lane that keeps a general shell can reach PostHog around the gate. Claude and its Bash children share one srt policy, and macOS refuses a nested sandbox, so closing it needs a sandbox split or a loopback relay, not a gate change.
+- Kimi Code runs MCP calls in `-p` with no approval, so a Kimi Code lane reaches PostHog only through a per-lane generated home (`prepareScratchAgentHome`) whose `mcp.json` holds only the PostHog entry and whose `config.toml` adds the gate hook, and only for a server name Kimi Code keeps unchanged in its tool names (no `__`, 64 characters), or its hook matcher never fires.
+- Known gap, accepted by the operator 2026-10-29: lanes run with no network sandbox, so a lane that keeps a general shell can reach PostHog around the gate; closing it needs a loopback relay, not a gate change.

@@ -13,10 +13,8 @@ import type { LaneSpawn } from './lanes/lane-spawn.ts';
 import type { GithubLaneStore } from './github/github-store-wiring.ts';
 import { githubStoreRateLimitedError } from './github/github-store-poller.ts';
 import type { GithubStoreRead } from './github/github-store-poller.ts';
-import { allowGuardedSpawn } from './guardrails/guardrails-deps.ts';
-import type { GuardrailsSpawnRefusal } from './guardrails/guardrails-deps.ts';
 import { TEAM_REVIEW_SESSION_DENY_RULES, hooksPathPinnedSpawnEnv, teamReviewAcceptEditsPermissions } from './github/team-review-wiring.ts';
-import type { LaneSettingsGuardrails, TeamReviewRepoCache, TeamReviewSpawn } from './github/team-review-wiring.ts';
+import type { TeamReviewRepoCache, TeamReviewSpawn } from './github/team-review-wiring.ts';
 import {
   BenchmarkCase, BenchmarkId, BenchmarkRun, BenchmarkStatus, BenchmarkSuite, PrCheckoutCaseInput,
 } from '../shared/contracts/benchmark.ts';
@@ -40,10 +38,6 @@ const PERSISTED_LINE_MAX_CHARS = 400;
 const REDACTED_SECRET = '[redacted]';
 const SUBJECT_UNREADABLE_SUITE_FOLDERS = Object.freeze(['cases', 'candidates', 'runs']);
 const SUBJECT_UNGUARDED_COMMANDS = Object.freeze(['codex exec *']);
-const SUBJECT_ALLOWED_DOMAINS = Object.freeze(['chatgpt.com', '*.chatgpt.com', 'auth.openai.com', 'api.openai.com', '*.openai.com']);
-const SUBJECT_DENY_READ_PATHS = Object.freeze(['~/.ssh', '~/.config/gh', '~/Library/Keychains', '~/.git-credentials']);
-const CODEX_HOME_PATH = '~/.codex';
-const CODEX_HOME_DENY_WRITE_PATHS = Object.freeze(['config.toml', 'AGENTS.md', 'skills', 'rules', 'prompts', 'hooks.json'].map((entry) => `${CODEX_HOME_PATH}/${entry}`));
 const CODEX_DISPATCH_FILE_ALLOW_RULES = Object.freeze(['Edit(//tmp/codex-dispatch-*.txt)', 'Read(//tmp/codex-dispatch-*.out)']);
 
 type ArmCommandRunner = (command: string, args: string[], options: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number; signal: AbortSignal }) => Promise<{ ok: boolean; stdout: string; stderr: string }>;
@@ -61,14 +55,12 @@ interface BenchmarkWiringOptions {
   broadcast: (status: BenchmarkStatusType) => void;
   store: Pick<GithubLaneStore, 'requestMergedPrs' | 'requestBenchmarkReviewData' | 'requestCompareCommits'>;
   repoCache: Pick<TeamReviewRepoCache, 'ensureRepo' | 'hydrateSince'>;
-  repoCacheRoot: string;
   gitWorkspace: BenchmarkGitWorkspace;
   spawnSubject: TeamReviewSpawn;
   spawnJudge: LaneSpawn;
   credentials: { resolveArmToken(cellTimeoutSeconds: number, signal?: AbortSignal): Promise<{ ok: true; token: string } | { ok: false; reason: string }> };
   claudeCommand: () => string | null;
   runArmCommand?: ArmCommandRunner;
-  guardrailsRefusal?: GuardrailsSpawnRefusal;
   baseEnv?: NodeJS.ProcessEnv;
   now?: () => number;
   randomSuffix?: () => string;
@@ -77,7 +69,6 @@ interface BenchmarkWiringOptions {
 
 interface StagedCase {
   checkoutPath: string | null;
-  sharedObjectsPath: string | null;
   caseDir: string;
   workDir: string;
   reviewedSha: string | null;
@@ -155,23 +146,6 @@ function benchmarkSubjectClaudeArgs(armExtraArgs: readonly string[], checkoutPat
   return ['-p', ...armExtraArgs, '--disallowedTools', ...TEAM_REVIEW_SESSION_DENY_RULES, ...readAllowArgs, '--strict-mcp-config'];
 }
 
-function benchmarkSubjectGuardrails(workDir: string, suiteDirectory: string, repoCacheRoot: string, sharedObjectsPath: string | null): LaneSettingsGuardrails {
-  return {
-    enabled: true,
-    failIfUnavailable: true,
-    allowUnsandboxedCommands: false,
-    enableWeakerNetworkIsolation: true,
-    excludedCommands: [...SUBJECT_UNGUARDED_COMMANDS],
-    network: { strictAllowlist: true, allowLocalBinding: true, allowAllUnixSockets: true, allowedDomains: [...SUBJECT_ALLOWED_DOMAINS] },
-    filesystem: {
-      allowWrite: [CODEX_HOME_PATH, workDir],
-      denyWrite: [...CODEX_HOME_DENY_WRITE_PATHS],
-      denyRead: [...SUBJECT_DENY_READ_PATHS, ...subjectUnreadableFolders(suiteDirectory), repoCacheRoot],
-      allowRead: sharedObjectsPath === null ? [] : [sharedObjectsPath],
-    },
-  };
-}
-
 function worktreeOwnerRepo(gitFileText: string): string | null {
   const gitDir = /^gitdir:\s*(.+)$/m.exec(gitFileText)?.[1]?.trim();
   if (!gitDir) return null;
@@ -197,9 +171,8 @@ async function readBoundedText(filePath: string): Promise<string | null> {
 }
 
 function createBenchmarkWiring({
-  benchmarksRoot, runsRoot, isEnabled, broadcast, store, repoCache, repoCacheRoot, gitWorkspace, spawnSubject, spawnJudge, credentials, claudeCommand,
+  benchmarksRoot, runsRoot, isEnabled, broadcast, store, repoCache, gitWorkspace, spawnSubject, spawnJudge, credentials, claudeCommand,
   runArmCommand = runArmCommandSafely,
-  guardrailsRefusal = allowGuardedSpawn,
   baseEnv = process.env,
   now = () => Date.now(),
   randomSuffix = () => randomBytes(4).toString('hex'),
@@ -372,7 +345,6 @@ function createBenchmarkWiring({
       if (!staged.checkoutPath) return;
       const checkoutPath = staged.checkoutPath;
       staged.checkoutPath = null;
-      staged.sharedObjectsPath = null;
       await removeDirectoryOrWarn(checkoutPath);
     }
 
@@ -391,14 +363,7 @@ function createBenchmarkWiring({
         await removeDirectoryOrWarn(checkoutPath);
         return { ok: false, reason: `could not stage a checkout: ${firstLine(created.err ?? '') || 'the isolated checkout failed'}` };
       }
-      const alternates = await fs.readFile(path.join(checkoutPath, '.git', 'objects', 'info', 'alternates'), 'utf8').catch(() => '');
-      const sharedObjectsPath = firstLine(alternates);
-      if (!sharedObjectsPath) {
-        await removeDirectoryOrWarn(checkoutPath);
-        return { ok: false, reason: 'the staged checkout names no shared object store' };
-      }
       staged.checkoutPath = checkoutPath;
-      staged.sharedObjectsPath = sharedObjectsPath;
       staged.reviewedSha = input.data.reviewedSha;
       return { ok: true };
     }
@@ -409,7 +374,7 @@ function createBenchmarkWiring({
       const caseDir = path.join(runDir, benchmarkCase.id);
       const workDir = path.join(caseDir, 'work');
       await fs.mkdir(workDir, { recursive: true });
-      const staged: StagedCase = { checkoutPath: null, sharedObjectsPath: null, caseDir, workDir, reviewedSha: null };
+      const staged: StagedCase = { checkoutPath: null, caseDir, workDir, reviewedSha: null };
       stagedCases.set(benchmarkCase.id, staged);
       return staged;
     }
@@ -499,7 +464,6 @@ function createBenchmarkWiring({
         spawnEnv: { ...baseSpawnEnv, ...(arm.env ?? {}), [OVERRIDE_TOKEN_ENV]: '', CLAUDE_CODE_OAUTH_TOKEN: token.token },
         extraClaudeArgs: benchmarkSubjectClaudeArgs(arm.extraArgs ?? [], staged.checkoutPath),
         settingsPermissions: benchmarkSubjectPermissions(suiteDirectory),
-        settingsGuardrails: benchmarkSubjectGuardrails(staged.workDir, suiteDirectory, repoCacheRoot, staged.sharedObjectsPath),
         signal: subjectController.signal,
         initialPrompt: SUBJECT_BOOTSTRAP_PROMPT,
       });
@@ -543,8 +507,6 @@ function createBenchmarkWiring({
   async function startRun(suiteId: string): Promise<Omit<BenchmarkActionResult, 'suiteId' | 'action'>> {
     await leftoverSweep;
     if (activeRun) return { ok: false, error: `A run of ${activeRun.suiteId} is already in flight` };
-    const guardrailsRefusalReason = guardrailsRefusal();
-    if (guardrailsRefusalReason !== null) return { ok: false, error: guardrailsRefusalReason };
     const loaded = await loadSuite(suiteId);
     if (!loaded.ok) return { ok: false, error: loaded.reason };
     const cases = await loadCases(suiteId, 'cases');

@@ -10,11 +10,12 @@ import { makeHostScratchDirectory } from '../host-scratch.ts';
 import { writeJsonAtomic } from '../json-file.ts';
 import { relayPath } from '../runtime-paths.ts';
 import codex from '../../session/adapters/codex.ts';
+import type { ScratchAgentHome } from '../../session/adapters/index.ts';
 import { realAgentHome } from '../../session/agent-home.ts';
 import { KIMI_HOME_PROFILE } from '../../session/core/agent-home-core.ts';
 import { HOOK_TOOLS } from '../../session/core/hook-tools.ts';
 import type { ResolvedHookTool } from '../../session/core/hook-tools.ts';
-import { codexLaneMcpPosture, codexMcpServers, findPosthogServer, kimiLaneConfigText, kimiLaneMcpConfig, kimiLaneMcpPosture, laneMcpConfig, laneMcpPosture } from './core/lane-permissions-core.ts';
+import { codexLaneMcpPosture, codexMcpServers, findPosthogServer, kimiLaneMcpPosture, laneMcpConfig, laneMcpPosture } from './core/lane-permissions-core.ts';
 import type { LaneMcpPosture } from './core/lane-permissions-core.ts';
 
 const LANE_MCP_DIR_PREFIX = 'glimmervoid-lane-settings-';
@@ -29,6 +30,7 @@ const BLOCKING_EXIT_CODE = 2;
 interface PreparedLaneMcp {
   posture: LaneMcpPosture;
   readablePaths: string[];
+  scratchAgentHome?: ScratchAgentHome;
   cleanup(): Promise<void>;
 }
 
@@ -70,31 +72,19 @@ async function prepareCodexLaneMcp(listCodexServers: () => Promise<unknown>, gat
   return { posture, readablePaths: [process.execPath], cleanup: async () => {} };
 }
 
-async function readOptionalText(filePath: string): Promise<string | null> {
-  return fsPromises.readFile(filePath, 'utf8').catch((error: NodeJS.ErrnoException) => (error.code === 'ENOENT' ? '' : null));
-}
-
 async function prepareKimiLaneMcp(kimiHome: string, gatePath: string): Promise<PreparedLaneMcp | null> {
   const kimiMcpConfig = await fsPromises.readFile(path.join(kimiHome, 'mcp.json'), 'utf8').then(JSON.parse, () => null);
   const server = findPosthogServer(isRecord(kimiMcpConfig) ? kimiMcpConfig.mcpServers : null);
-  const operatorConfigText = await readOptionalText(path.join(kimiHome, 'config.toml'));
-  if (!server || operatorConfigText === null) return null;
-  const configDirectory = await makeHostScratchDirectory(LANE_MCP_DIR_PREFIX);
-  const removeConfigDirectory = () => fsPromises.rm(configDirectory, { recursive: true, force: true }).catch(() => {});
-  const mcpConfigPath = path.join(configDirectory, 'mcp.json');
-  const configPath = path.join(configDirectory, 'config.toml');
-  const posture = kimiLaneMcpPosture({ server, mcpConfigPath, configPath, gatePath, interpreterPath: process.execPath });
-  const gateHook = posture ? HOOK_TOOLS.posthogReadGate.claudeEntry(posture.hookTool, '') : null;
-  const configText = gateHook ? kimiLaneConfigText(operatorConfigText, { matcher: gateHook.matcher, command: gateHook.hooks[0]?.command ?? '' }) : null;
-  try {
-    if (!posture || configText === null || !(await gateDeniesKnownWrite(posture.hookTool))) throw new Error('no gated PostHog for this lane');
-    await writeJsonAtomic(mcpConfigPath, kimiLaneMcpConfig(server), { mode: 0o600 });
-    await fsPromises.writeFile(configPath, configText, { mode: 0o600 });
-    return { posture, readablePaths: [configDirectory, process.execPath], cleanup: removeConfigDirectory };
-  } catch {
-    await removeConfigDirectory();
-    return null;
-  }
+  if (!server) return null;
+  const posture = kimiLaneMcpPosture({ server, gatePath, interpreterPath: process.execPath });
+  if (!posture?.laneHome || !(await gateDeniesKnownWrite(posture.hookTool))) return null;
+  const homeParent = await makeHostScratchDirectory(LANE_MCP_DIR_PREFIX);
+  return {
+    posture,
+    readablePaths: [homeParent, process.execPath],
+    scratchAgentHome: { home: path.join(homeParent, 'home'), ...posture.laneHome },
+    cleanup: () => fsPromises.rm(homeParent, { recursive: true, force: true }).catch(() => {}),
+  };
 }
 
 async function prepareLaneMcp(

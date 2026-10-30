@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { GlimmervoidConfig } from '../config-store.ts';
+import type { HookToolConfig } from '../hook-tools.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
 import { createJsonStateStore } from '../json-file.ts';
 import { createLaneRunner } from '../lanes/lane-runner.ts';
@@ -22,14 +23,10 @@ import type { CommunityActionRequest, CommunityActionResult, CommunityStateEntry
 import { errorMessage } from '../../shared/text.ts';
 import { createTeamReviewSpawn } from '../github/team-review-wiring.ts';
 import { absolutePathReadRule } from '../github/core/team-review-core.ts';
-import { LANE_CREDENTIAL_ENV } from '../guardrails/core/guardrails-roles-core.ts';
-import { judgeRole } from '../guardrails/core/guardrails-roles-core.ts';
-import type { GuardrailsRole } from '../guardrails/core/guardrails-policy-core.ts';
-import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES } from '../lanes/core/lane-permissions-core.ts';
+import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, LANE_CREDENTIAL_ENV } from '../lanes/core/lane-permissions-core.ts';
 import { firstLine, raceWithAbort } from '../lanes/ephemeral-session.ts';
 import type { RecordLane, SpawnGate } from '../lanes/ephemeral-session.ts';
 import type { HookRouter } from '../../detection/hook-source.ts';
-import type { SessionGuardrailsFacts } from '../../session/sessions.ts';
 
 const COMMUNITY_WORK_DIRNAME = 'community-work';
 const RESULT_MAX_BYTES = 1024 * 1024;
@@ -83,13 +80,6 @@ function communityAcceptEditsPermissions(): { deny: string[]; defaultMode: strin
   return { deny: [...COMMUNITY_DENY_RULES], defaultMode: ACCEPT_EDITS_MODE };
 }
 
-function communityRole(facts: SessionGuardrailsFacts): GuardrailsRole {
-  return {
-    ...judgeRole({ vendor: 'claude', cwd: facts.cwd, hookPort: facts.hookPort, agentSessionId: facts.agentSessionId, readablePaths: facts.readablePaths }),
-    network: { access: 'open' },
-  };
-}
-
 function communitySpawnEnv(workDir: string): Record<string, string> {
   return {
     ...LANE_CREDENTIAL_ENV,
@@ -121,9 +111,10 @@ interface CommunitySpawnDependencies {
   replayBufferKB?: number;
 }
 
-function createCommunityRunner({ spawnDependencies, homeDir, getSettings }: {
+function createCommunityRunner({ spawnDependencies, homeDir, getSettings, hookToolConfig }: {
   spawnDependencies: CommunitySpawnDependencies;
   homeDir: string;
+  hookToolConfig: HookToolConfig;
   getSettings: () => core.CommunitySettings;
 }) {
   const spawnSession = createTeamReviewSpawn({
@@ -135,6 +126,7 @@ function createCommunityRunner({ spawnDependencies, homeDir, getSettings }: {
     recordLane: spawnDependencies.recordLane ?? null,
     replayBufferKB: spawnDependencies.replayBufferKB,
     laneName: core.COMMUNITY_LANE_ID,
+    hookToolConfig,
   });
   const workRoot = path.join(homeDir, COMMUNITY_WORK_DIRNAME);
 
@@ -162,7 +154,6 @@ function createCommunityRunner({ spawnDependencies, homeDir, getSettings }: {
             spawnEnv: communitySpawnEnv(workDir),
             extraClaudeArgs: communityClaudeArgs(workDir),
             settingsPermissions: communityAcceptEditsPermissions(),
-            guardrailsRole: communityRole,
             signal: AbortSignal.any([signal, timeoutSignal]),
             initialPrompt: core.COMMUNITY_BOOTSTRAP_PROMPT,
           });
@@ -217,7 +208,7 @@ function createCommunityWiring({
 }: CommunityWiringOptions) {
   const stateIo = createCommunityStateIo(path.join(homeDir, core.COMMUNITY_STATE_FILENAME), log);
   const runItem = spawnDependencies
-    ? createCommunityRunner({ spawnDependencies, homeDir, getSettings: () => core.readCommunitySettings(config) })
+    ? createCommunityRunner({ spawnDependencies, homeDir, getSettings: () => core.readCommunitySettings(config), hookToolConfig: config })
     : undefined;
 
   function notifyDraftReady(entry: CommunityStateEntry): void {
@@ -285,6 +276,5 @@ function createCommunityWiring({
 }
 
 export {
-  communityAcceptEditsPermissions, communityClaudeArgs, communityRole, communitySpawnEnv,
   createCommunityStateIo, createCommunityWiring,
 };

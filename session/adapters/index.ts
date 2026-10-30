@@ -76,10 +76,17 @@ interface HomeHooksFileInjection {
   mayContributeHooks(configText: unknown): boolean;
 }
 
+interface ScratchAgentHome {
+  home: string;
+  configSuffix: string;
+  files: Readonly<Record<string, string>>;
+}
+
 interface GeneratedHomeInjection {
   kind: "generated-home";
   homeEnvName: string;
   prepareHome(env: Record<string, string | undefined>): { home: string } | { refusal: string };
+  prepareScratchHome(env: Record<string, string | undefined>, scratch: ScratchAgentHome): { home: string } | { refusal: string };
   releaseHome(home: string): void;
 }
 
@@ -269,4 +276,4 @@ export {
   resetCommandCache,
   setCustomAgents,
 };
-export type { AgentAdapter, AgentAdapterShape, AgentArgsOptions, AgentCapabilities, AgentCommandOptions, AgentHookProfile, AgentLaunchSession, AgentLaunchSessionOptions, AgentSpawnCommandOptions, AgentTitleProfile, ArgvConfigInjection, GeneratedHomeInjection, HomeHooksFileInjection, HookedAgentHome, ProjectConfigCandidate };
+export type { AgentAdapter, AgentAdapterShape, AgentArgsOptions, AgentCapabilities, AgentCommandOptions, AgentHookProfile, AgentLaunchSession, AgentLaunchSessionOptions, AgentSpawnCommandOptions, AgentTitleProfile, ArgvConfigInjection, GeneratedHomeInjection, HomeHooksFileInjection, HookedAgentHome, ProjectConfigCandidate, ScratchAgentHome };

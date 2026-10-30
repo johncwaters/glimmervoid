@@ -45,7 +45,7 @@ import type { CoherenceAttachment, ConfineCommand, ConfinedCommand } from '../se
 import type { CoherenceHooksState, ConversationAnswers, ConversationApproval, UnseenOutcome } from "../shared/contracts/session.ts";
 import { claudeAnswerReply, claudeApprovalFor, isHoldReleasedByHookEvent, parseClaudePermissionRequest } from "./core/claude-approval-core.ts";
 import type { ClaudeHookReply, ClaudePermissionRequest } from "./core/claude-approval-core.ts";
-import type { AgentAdapter, AgentCapabilities } from "./adapters/index.ts";
+import type { AgentAdapter, AgentCapabilities, ScratchAgentHome } from "./adapters/index.ts";
 
 import {
   TRANSITIONS,
@@ -265,6 +265,8 @@ interface SessionOptions {
   planLimits?: boolean;
   getUserHooks?: (() => UserHook[]) | null;
   extraUserHooks?: UserHook[];
+  scratchAgentHome?: ScratchAgentHome | null;
+  requiresHooks?: boolean;
   prepareCoherence?: ((cwd: string, confine: ConfineCommand | null) => Promise<CoherenceAttachment | null>) | null;
   ptySpawn?: PtySpawn | null;
   screenKeeperFactory?: ScreenKeeperFactory | null;
@@ -459,6 +461,8 @@ class Session extends EventEmitter {
 
     getUserHooks = null,
     extraUserHooks = [],
+    scratchAgentHome = null,
+    requiresHooks = false,
     prepareCoherence = null,
 
     ptySpawn = null,
@@ -626,6 +630,8 @@ class Session extends EventEmitter {
       holdsQuestionsForParent: this._holdsQuestionsForParent,
       getUserHooks,
       extraUserHooks,
+      scratchAgentHome,
+      requiresHooks: requiresHooks && hookRouter !== null,
       bypassHookTrust: this.bypassHookTrust,
       effectiveCwd: () => this.effectiveCwd(),
       agentEnv: () => this._buildSpawnEnv(),
@@ -2445,4 +2451,4 @@ function claudeCommand(): ResolvedCommand {
 }
 
 export { Session, claudeCommand };
-export type { ClaudeSessionIdEvent, PrepareSessionGuardrails, RemoteLaunch, SessionOptions, SessionPlanReviewPort, SessionGuardrailsFacts };
+export type { ClaudeSessionIdEvent, RemoteLaunch, SessionOptions, SessionPlanReviewPort, SessionGuardrailsFacts };

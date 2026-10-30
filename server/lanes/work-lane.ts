@@ -1,35 +1,6 @@
 import { realpath } from 'node:fs/promises';
-import type { PrepareSessionGuardrails, SessionGuardrailsFacts } from '../../session/sessions.ts';
-import { errorMessage } from '../../shared/text.ts';
-import type { GuardrailsRole } from '../guardrails/core/guardrails-policy-core.ts';
 import { isWorktreeAdminDirOf } from '../guardrails/core/guardrails-roles-core.ts';
 import { runHardenedGit } from '../git/git-workspace.ts';
-import { allowGuardedSpawn } from '../guardrails/guardrails-deps.ts';
-import type { GuardrailsSpawnRefusal } from '../guardrails/guardrails-deps.ts';
-import { prepareGuardrailsLaunch } from '../guardrails/guardrails-launch.ts';
-
-const UNWRAPPED_PLATFORM = 'win32';
-
-export type RoleGuardrailsDependencies = {
-  prepareGuardrails?: typeof prepareGuardrailsLaunch;
-  guardrailsRefusal?: GuardrailsSpawnRefusal;
-  platform?: NodeJS.Platform;
-};
-
-export function prepareRoleGuardrails(describeRole: (facts: SessionGuardrailsFacts) => GuardrailsRole | Promise<GuardrailsRole>, {
-  prepareGuardrails = prepareGuardrailsLaunch, guardrailsRefusal = allowGuardedSpawn, platform = process.platform,
-}: RoleGuardrailsDependencies = {}): PrepareSessionGuardrails | null {
-  if (platform === UNWRAPPED_PLATFORM) return null;
-  return async (facts) => {
-    const guardrailsRefusalReason = guardrailsRefusal();
-    if (guardrailsRefusalReason !== null) return { ok: false, reason: guardrailsRefusalReason };
-    try {
-      return await prepareGuardrails({ role: await describeRole(facts), launchId: facts.launchId });
-    } catch (error) {
-      return { ok: false, reason: errorMessage(error) };
-    }
-  };
-}
 
 async function readLaneCommonGitDir(cwd: string): Promise<string> {
   const { stdout } = await runHardenedGit(['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd, timeout: 30_000 });

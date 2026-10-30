@@ -247,10 +247,9 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       timeoutSeconds: () => keepMergeableTimeoutSeconds(config),
       repoCache: sharedRepoCache,
       log: logger,
-      guardrailsRefusal,
       spawnSession: createTeamReviewSpawn({
         reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-        replayBufferKB: config.replayBufferKB, laneName: 'my-prs',
+        replayBufferKB: config.replayBufferKB, laneName: 'my-prs', hookToolConfig: config,
       }),
     }),
   });
@@ -270,12 +269,11 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     spawnSession: createWorkflowSpawn({
       workRoot: workflowsWorkRoot,
       log: logger,
-      guardrailsRefusal,
       staging: createGuardedPrStaging({
         repoCache: sharedRepoCache,
         spawnSession: createTeamReviewSpawn({
           reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-          replayBufferKB: config.replayBufferKB, laneName: 'workflows',
+          replayBufferKB: config.replayBufferKB, laneName: 'workflows', hookToolConfig: config,
         }),
       }),
     }),
@@ -289,19 +287,17 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     broadcast: broadcastControl,
     store: githubStore.laneStore,
     repoCache: sharedRepoCache,
-    repoCacheRoot: sharedRepoCacheRoot,
     gitWorkspace,
     spawnSubject: createTeamReviewSpawn({
       reviewSessions: benchmarkSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-      replayBufferKB: config.replayBufferKB, laneName: 'benchmark',
+      replayBufferKB: config.replayBufferKB, laneName: 'benchmark', hookToolConfig: config,
     }),
     spawnJudge: createLaneSpawn({
       sessions: benchmarkSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-      replayBufferKB: config.replayBufferKB, laneName: 'benchmark', guardrailsRefusal, getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [],
+      replayBufferKB: config.replayBufferKB, laneName: 'benchmark', getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [],
     }),
     credentials: claudeCredentials,
     claudeCommand,
-    guardrailsRefusal,
     log: logger,
   });
 
@@ -340,7 +336,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     renameSession: dependencies.renameSessionFromTaskTitle,
     spawnLane: createLaneSpawn({
       sessions: taskTitleSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-      replayBufferKB: config.replayBufferKB, laneName: 'task-title', allowTools: TASK_TITLE_LANE_TOOLS, guardrailsRefusal, getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [],
+      replayBufferKB: config.replayBufferKB, laneName: 'task-title', allowTools: TASK_TITLE_LANE_TOOLS, getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [],
     }),
   });
 

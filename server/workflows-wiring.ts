@@ -15,8 +15,6 @@ import { createLaneRunner } from './lanes/lane-runner.ts';
 import type { SharedClock } from './lanes/lane-runner.ts';
 import type { createGuardedPrStaging } from './github/my-prs-wiring.ts';
 import { createPrGh } from './github/pr-gh.ts';
-import { allowGuardedSpawn } from './guardrails/guardrails-deps.ts';
-import type { GuardrailsSpawnRefusal } from './guardrails/guardrails-deps.ts';
 import { emptyGhConfigDir, makeTeamReviewWorkDir } from './github/team-review-wiring.ts';
 import { createWorkflowSessionQueue, createWorkflowsPoller } from './workflows-poller.ts';
 import type { SpawnSession, WorkflowsPoller, WorkflowsPollerDependencies } from './workflows-poller.ts';
@@ -47,10 +45,9 @@ function createWorkflowsStateIo(statePath: string, log: Pick<Console, 'warn'>) {
   };
 }
 
-export function createWorkflowSpawn({ staging, workRoot, makeWorkDir = makeTeamReviewWorkDir, log = console, guardrailsRefusal = allowGuardedSpawn }: {
+export function createWorkflowSpawn({ staging, workRoot, makeWorkDir = makeTeamReviewWorkDir, log = console }: {
   staging: ReturnType<typeof createGuardedPrStaging>;
   workRoot: string;
-  guardrailsRefusal?: GuardrailsSpawnRefusal;
   makeWorkDir?: typeof makeTeamReviewWorkDir;
   log?: Pick<Console, 'warn'>;
 }) {
@@ -58,8 +55,6 @@ export function createWorkflowSpawn({ staging, workRoot, makeWorkDir = makeTeamR
     if (signal.aborted) return;
     const pr = { key: prKey(event.pr.repo, event.pr.number), repo: event.pr.repo, number: event.pr.number, baseRefName: event.pr.baseRefName, headRefOid: event.pr.headRefOid };
     const warn = (message: string) => log.warn(`[${core.WORKFLOWS_LANE_ID}] ${rule.id} session for ${pr.key}: ${firstLine(message)}`);
-    const guardrailsRefusalReason = guardrailsRefusal();
-    if (guardrailsRefusalReason !== null) return warn(guardrailsRefusalReason);
     const workDir = await makeWorkDir(workRoot, pr.key);
     let pendingSession: Promise<unknown> | null = null;
     try {
@@ -69,7 +64,7 @@ export function createWorkflowSpawn({ staging, workRoot, makeWorkDir = makeTeamR
       await fs.writeFile(path.join(workDir.dir, core.WORKFLOW_PROMPT_FILENAME), core.workflowSpawnPrompt(action.promptTemplate, event, MY_PRS_FIX_CHECKOUT_DIRNAME), 'utf8');
       await fs.mkdir(emptyGhConfigDir(workDir.dir), { recursive: true });
       const outcome = await staging.runSession({
-        idPrefix: core.WORKFLOWS_LANE_ID, name: core.workflowSessionName({ rule, event }), workDir: workDir.dir, cachedClone: staged.projectPath, signal,
+        idPrefix: core.WORKFLOWS_LANE_ID, name: core.workflowSessionName({ rule, event }), workDir: workDir.dir, signal,
         onPending: (pending) => { pendingSession = pending; }, initialPrompt: core.WORKFLOW_BOOTSTRAP_PROMPT,
       });
       if (outcome === 'timed-out') warn('the session ran past its deadline');

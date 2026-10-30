@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileAsync, execFileSync } from '../server/child-process-safe.ts';
-import { guardedPrRole, createMyPrMergeabilityFix, createMyPrsStateIo, keepMergeableRole, sweepKeepMergeableLeftovers } from '../server/github/my-prs-wiring.ts';
+import { createMyPrMergeabilityFix, createMyPrsStateIo, sweepKeepMergeableLeftovers } from '../server/github/my-prs-wiring.ts';
 import { createRepoCache } from '../server/git/repo-cache.ts';
 import type { CommandResult } from '../server/git/repo-cache.ts';
 import { createTeamReviewSpawn, } from '../server/github/team-review-wiring.ts';
@@ -611,18 +611,6 @@ test('keep mergeable refuses a workflow file whose name git would print C-quoted
       await fs.rm(root, { recursive: true, force: true });
     }
   }));
-});
-
-test('a staged pull request session writes only its work folder and reads its cached clone, and only keep mergeable gets open network', () => {
-  const workDir = '/home/op/.glimmervoid/my-prs-work/wt';
-  const cachedClone = '/home/op/.glimmervoid/team-review-repos/Acme/app';
-  const facts = { launchId: 'launch-one', cwd: workDir, hookPort: 3911, readablePaths: ['/hook/settings'], writablePaths: [], agentSessionId: 'agent-session-one' };
-  const guardedRole = guardedPrRole(facts, cachedClone);
-  assert.deepEqual(guardedRole, {
-    vendors: ['claude'], vendorHome: { scope: 'launch', cwd: workDir, agentSessionId: 'agent-session-one' }, network: { access: 'allowlist', domains: [], hookPort: 3911 },
-    writableRoots: [workDir], lockedCheckouts: [], commitCheckouts: [], readDenied: [], readableWithinDenied: ['/hook/settings', cachedClone],
-  });
-  assert.deepEqual(keepMergeableRole(facts, cachedClone), { ...guardedRole, network: { access: 'open' } });
 });
 
 test('keep mergeable aborts a session past the deadline read from teamReview.keepMergeableTimeoutMinutes and pushes nothing', async () => {
