@@ -36,6 +36,7 @@ Commands:
   pair --list         List paired devices
   pair --revoke <id>  Revoke a paired device
   agent setup grok    Install the Grok hook relay, which does nothing outside Glimmervoid
+  why <file>:<line>   Name the session that made the commit owning a line (or pass a commit sha)
 
 Inside a Glimmervoid session:
 ${agentCommandHelpLines().join('\n')}
@@ -101,6 +102,10 @@ const OWNED_COMMAND_RUNNERS: Record<OwnedCommandName, OwnedCommandRunner> = {
   settings: async (parsed) => {
     const { runParsedSettingsCli } = await import('../server/settings-cli.ts');
     return runParsedSettingsCli(parsed);
+  },
+  why: async ({ positionals }) => {
+    const { runWhyCli } = await import('../server/why-cli.ts');
+    return runWhyCli({ targetArgument: positionals[0] ?? '' });
   },
   'ssh-sign': async ({ rawArgs }) => {
     const { runSshSignCli } = await import('../server/ssh-sign-cli.ts');

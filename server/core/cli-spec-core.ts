@@ -190,6 +190,12 @@ const OWNED_COMMAND_SPECS = {
       { name: 'schema', summary: 'Every setting: id, path, type, default, unit, effect and section (needs no config file)', options: [JSON_OPTION] },
     ],
   },
+  why: {
+    name: 'why',
+    summary: 'Name the session that made the commit owning a file line, or a commit, and what it was asked',
+    positionals: { usage: '<file>:<line> | <sha>', min: 1, max: 1 },
+    options: [CONFIG_OPTION],
+  },
   'ssh-sign': { name: 'ssh-sign', summary: "Sign a commit with the operator's forwarded ssh agent (git runs this)", isPassthrough: true },
 } as const satisfies Record<string, CommandSpec>;
 

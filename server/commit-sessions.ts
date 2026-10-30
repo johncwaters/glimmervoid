@@ -35,6 +35,13 @@ async function gitCommonDirectoryOf(directory: string, runGitFn: GitRunner = run
   return fs.promises.realpath(result.out).catch(() => result.out);
 }
 
+async function patchIdsOfBatch(shas: readonly string[], gitOptions: RunGitOptions, runGitFn: GitRunner = runGit): Promise<Map<string, string> | null> {
+  const patches = await runGitFn(['show', '--no-color', '--format=commit %H', '-p', ...shas], { ...gitOptions, trim: false });
+  if (!patches.ok) return null;
+  const patchIds = await runGitFn(['patch-id', '--stable'], { ...gitOptions, input: patches.out });
+  return patchIds.ok ? parsePatchIds(patchIds.out) : null;
+}
+
 async function readStoreText(storePath: string): Promise<string> {
   return fs.promises.readFile(storePath, 'utf8').catch(() => '');
 }
@@ -68,20 +75,13 @@ function createCommitSessions({ storeRoot, runGitFn = runGit, logger, nowFn = Da
     return recordedShas;
   }
 
-  async function patchIdsOfBatch(shas: readonly string[], gitOptions: RunGitOptions): Promise<Map<string, string> | null> {
-    const patches = await runGitFn(['show', '--no-color', '--format=commit %H', '-p', ...shas], { ...gitOptions, trim: false });
-    if (!patches.ok) return null;
-    const patchIds = await runGitFn(['patch-id', '--stable'], { ...gitOptions, input: patches.out });
-    return patchIds.ok ? parsePatchIds(patchIds.out) : null;
-  }
-
   async function patchIdsOf(commits: readonly ListedCommit[], gitOptions: RunGitOptions): Promise<Map<string, string>> {
     const shas = commits.map((commit) => commit.sha);
-    const batchPatchIds = await patchIdsOfBatch(shas, gitOptions);
+    const batchPatchIds = await patchIdsOfBatch(shas, gitOptions, runGitFn);
     if (batchPatchIds || shas.length === 1) return batchPatchIds ?? new Map();
     const patchIdBySha = new Map<string, string>();
     for (const sha of shas) {
-      const singlePatchId = (await patchIdsOfBatch([sha], gitOptions))?.get(sha);
+      const singlePatchId = (await patchIdsOfBatch([sha], gitOptions, runGitFn))?.get(sha);
       if (singlePatchId) patchIdBySha.set(sha, singlePatchId);
     }
     return patchIdBySha;
@@ -128,5 +128,5 @@ function createCommitSessions({ storeRoot, runGitFn = runGit, logger, nowFn = Da
 
 type CommitSessions = ReturnType<typeof createCommitSessions>;
 
-export { COMMIT_SESSIONS_FOLDER_NAME, createCommitSessions };
+export { COMMIT_SESSIONS_FOLDER_NAME, GIT_MAX_BUFFER, GIT_TIMEOUT_MS, createCommitSessions, gitCommonDirectoryOf, patchIdsOfBatch, readStoreText, storePathFor };
 export type { CommitSessions, GitRunner };

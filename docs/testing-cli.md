@@ -50,6 +50,7 @@ Commands:
   pair --list         List paired devices
   pair --revoke <id>  Revoke a paired device
   agent setup grok    Install the Grok hook relay, which does nothing outside Glimmervoid
+  why <file>:<line>   Name the session that made the commit owning a line (or pass a commit sha)
 
 Inside a Glimmervoid session:
   spawn <prompt>      Start a session on that prompt, with its own dashboard card, that this session owns until its task is done
