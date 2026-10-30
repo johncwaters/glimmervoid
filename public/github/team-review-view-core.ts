@@ -476,7 +476,49 @@ export function aboutPrParagraphs(assessment: ReviewAssessment | null | undefine
   return paragraphs;
 }
 
-export const LEGACY_SUMMARY_HINT = 'This review ran before plain summaries existed, so only its verdict and findings remain. Re-run review to get a plain summary.';
+export const HAND_CHECK_INLINE_PATH_LIMIT = 6;
+
+export interface HandCheckFolder { folder: string; fileNames: string[] }
+
+function sharedLeadingSegmentCount(segmentLists: readonly (readonly string[])[]): number {
+  const [firstSegments = []] = segmentLists;
+  let sharedCount = firstSegments.length;
+  for (const segments of segmentLists) {
+    let matchingCount = 0;
+    while (matchingCount < sharedCount && segments[matchingCount] === firstSegments[matchingCount]) matchingCount += 1;
+    sharedCount = matchingCount;
+  }
+  return sharedCount;
+}
+
+export function groupHandCheckPaths(paths: readonly string[]): HandCheckFolder[] {
+  const foldersByPath = new Map<string, { segments: string[]; fileNames: string[] }>();
+  for (const path of paths) {
+    const segments = path.split('/');
+    const fileName = segments.pop() ?? path;
+    const folderKey = segments.join('/');
+    const existing = foldersByPath.get(folderKey);
+    if (existing) {
+      existing.fileNames.push(fileName);
+      continue;
+    }
+    foldersByPath.set(folderKey, { segments, fileNames: [fileName] });
+  }
+  const folders = [...foldersByPath.values()];
+  const trimmedSegmentCount = Math.max(0, sharedLeadingSegmentCount(folders.map((folder) => folder.segments)) - 1);
+  return folders.map(({ segments, fileNames }) => {
+    const shownSegments = segments.slice(trimmedSegmentCount);
+    return { folder: shownSegments.length === 0 ? './' : `${shownSegments.join('/')}/`, fileNames };
+  });
+}
+
+export function handCheckPathSummary(pathCount: number, folderCount: number): string {
+  const files = pathCount === 1 ? 'file' : 'files';
+  const folders = folderCount === 1 ? 'folder' : 'folders';
+  return `${pathCount} ${files} in ${folderCount} ${folders}`;
+}
+
+export const LEGACY_SUMMARY_HINT ='This review ran before plain summaries existed, so only its verdict and findings remain. Re-run review to get a plain summary.';
 
 const REQUEUEABLE_STATUSES: ReadonlySet<ReviewDraft['status']> = new Set(['error', 'stale', 'discarded', 'posted']);
 

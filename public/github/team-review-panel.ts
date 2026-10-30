@@ -2,7 +2,7 @@ import { paintActionStatus } from '../action-status.ts';
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { subscribeTeamReview, teamReviewStatusView } from './team-review-store.ts';
 import type { TeamReviewChange } from './team-review-store.ts';
-import type { DiffExcerptLine, DraftComment, EarlierReview, FindingSeverity, InFlightReview, QueuedReview, ReviewDraft, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus as TeamReviewStatusType } from '#shared/contracts/team-review.ts';
+import type { DiffExcerptLine, DraftComment, EarlierReview, FindingSeverity, HandCheck, InFlightReview, QueuedReview, ReviewDraft, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus as TeamReviewStatusType } from '#shared/contracts/team-review.ts';
 import { nextRequestId, sendControlMsg } from '../control-ws.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { createAvatar, createReviewerStack, el, externalLink } from '../dom-helpers.ts';
@@ -14,7 +14,7 @@ import { createSettingsLink } from '../settings/settings-link.ts';
 import {
   TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, THREAD_COMMENT_PREVIEW_LINES, THREAD_REPLY_PREVIEW_LINES, threadBodyOverflowsPreview,
   answeredNonNitThreads, changedSinceReviewText, changedSinceReviewUrl, earlierReviewPreview, detailThreadItems, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, attentionDetail, buildActionRequest, buildNotMineRequest,
-  buildReadyDecisionRequest, checksText, commentLocation, detailActionLayout, isIncludedByDefault, isSelectionRequired, isSeverityIncludedByDefault, emptyStateText, generalFindingsOf, laneNotice, githubReviewItems, githubReviewTitle, groupDrafts, hasSelection, parseInlineSegments, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText,
+  buildReadyDecisionRequest, checksText, commentLocation, detailActionLayout, isIncludedByDefault, isSelectionRequired, isSeverityIncludedByDefault, emptyStateText, generalFindingsOf, groupHandCheckPaths, HAND_CHECK_INLINE_PATH_LIMIT, handCheckPathSummary, laneNotice, githubReviewItems, githubReviewTitle, groupDrafts, hasSelection, parseInlineSegments, LEGACY_SUMMARY_HINT, hasRequeueFooter, inFlightElapsedText, inFlightProgressText,
   leadingDecision, parseReviewComment, pickedDecisionText, postedOutcomeText, postingPreview, queueRowAgentText, reviewCommentPreview, shortCommentLocation, phaseLabel, pullRequestLabel, queuedDetailText, queueRowTitle, queueRowRefLabel, readyRowSignature, detailHeadingSignature,
   reviewProgressSteps, commentSeverity, detailMetaText, reviewScopeTitle, severityPresentation, planActionReply, queueRowGlyph, viewerThreadsText, hasAllViewerThreadsResolved, isPostedAwaitingViewer, verdictHeading, verdictRecommendation, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice,
 } from './team-review-view-core.ts';
@@ -458,9 +458,32 @@ function createHandChecks(draft: ReviewDraft): HTMLElement[] {
   const section = el('section', 'pr-hand-checks');
   section.setAttribute('aria-label', 'Check by hand');
   section.append(el('h3', 'pr-assessment-title', 'Check by hand'));
-  const items = handChecks.map((check) => (check.paths.length === 0 ? check.text : `${check.text}: ${check.paths.map((path) => `\`${path}\``).join(', ')}`));
-  section.append(createAssessmentList(items));
+  const list = el('ul', 'pr-assessment-list');
+  for (const check of handChecks) list.append(createHandCheckItem(check));
+  section.append(list);
   return [section];
+}
+
+function asCode(text: string): string {
+  return `\`${text}\``;
+}
+
+function createHandCheckItem(check: HandCheck): HTMLElement {
+  const item = el('li', null);
+  if (check.paths.length === 0) return appendInlineText(item, check.text);
+  if (check.paths.length <= HAND_CHECK_INLINE_PATH_LIMIT) return appendInlineText(item, `${check.text}: ${check.paths.map(asCode).join(', ')}`);
+  const folders = groupHandCheckPaths(check.paths);
+  const disclosure = el('details', 'pr-verdict-checked');
+  const folderList = el('ul', 'pr-assessment-list');
+  for (const { folder, fileNames } of folders) {
+    const folderItem = appendInlineText(el('li', null), asCode(folder));
+    folderItem.append(createAssessmentList(fileNames.map(asCode)));
+    folderList.append(folderItem);
+  }
+  disclosure.append(el('summary', null, handCheckPathSummary(check.paths.length, folders.length)), folderList);
+  appendInlineText(item, check.text);
+  item.append(disclosure);
+  return item;
 }
 
 function createAboutPr(draft: ReviewDraft): HTMLElement[] {
