@@ -34,7 +34,6 @@ interface TextDialogOptions {
 interface BoardsViewParts {
   list: HTMLElement;
   boardHead: HTMLElement;
-  boardTitle: HTMLElement;
   boardMeta: HTMLElement;
   presence: HTMLElement;
   toolbar: HTMLElement;
@@ -183,7 +182,6 @@ function paintHead(): void {
   parts.empty.hidden = Boolean(summary);
   parts.empty.textContent = hasBoards ? PICK_TEXT : EMPTY_TEXT;
   if (!summary) return;
-  parts.boardTitle.textContent = summary.title;
   parts.boardMeta.textContent = `v${summary.version}`;
   parts.presence.replaceChildren(...summary.connectedSessionIds.map((sessionId) => el('span', 'wb-presence-pill', sessionLabel(sessionId))));
   if (summary.connectedSessionIds.length === 0) parts.presence.append(el('span', 'wb-presence-none', 'no sessions connected'));
@@ -345,14 +343,12 @@ function mountBoardsView(panel: HTMLElement): void {
   const top = el('div', 'wb-top');
   const list = el('div', 'wb-board-list');
   list.setAttribute('aria-label', 'Boards');
-  top.append(list, toolbarButton('new board', newBoardFromDialog));
 
   const boardHead = el('div', 'wb-board-head');
   const titleRow = el('div', 'wb-title-row');
-  const boardTitle = el('h2', 'wb-board-title');
   const boardMeta = el('span', 'wb-board-meta');
   const presence = el('div', 'wb-presence');
-  titleRow.append(boardTitle, boardMeta, presence);
+  titleRow.append(boardMeta, presence);
   const toolbar = el('div', 'wb-toolbar');
   const buttons = {
     box: toolbarButton('box', addBoxFromDialog),
@@ -368,6 +364,7 @@ function mountBoardsView(panel: HTMLElement): void {
   buttons.fit.dataset.phoneVisible = '';
   toolbar.append(buttons.box, buttons.wire, buttons.note, buttons.frame, buttons.fit, buttons.remove, status.element);
   boardHead.append(titleRow, toolbar);
+  top.append(list, toolbarButton('new board', newBoardFromDialog), boardHead);
 
   const canvas = el('div', 'wb-canvas');
   const svg = document.createElementNS(SVG_NAMESPACE, 'svg');
@@ -385,8 +382,8 @@ function mountBoardsView(panel: HTMLElement): void {
   dockBar.append(dockQueued, sendToAgent, dockStatus.element);
   dock.append(dockBar);
 
-  panel.replaceChildren(top, boardHead, canvas, empty, dock);
-  parts = { list, boardHead, boardTitle, boardMeta, presence, toolbar, canvas, empty, dock, dockQueued, sendToAgent, buttons };
+  panel.replaceChildren(top, canvas, empty, dock);
+  parts = { list, boardHead, boardMeta, presence, toolbar, canvas, empty, dock, dockQueued, sendToAgent, buttons };
   const boardRenderer = createBoardRenderer(svg);
   renderer = boardRenderer;
   editor = createBoardEditor({

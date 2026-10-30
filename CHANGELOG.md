@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The Boards view header is one row.** Board tabs, the board's version, connected sessions and the toolbar now share a single line above the canvas instead of three, so the board gets more room. The open board's name shows on its selected tab rather than as a separate heading.
+
 ## [0.48.3] - 2026-10-30
 
 ### Added

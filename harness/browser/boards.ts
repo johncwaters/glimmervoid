@@ -19,7 +19,7 @@ export async function verifyBoards(page: Page, layout: Layout): Promise<void> {
   await panel.waitFor({ state: 'visible' });
   await panel.getByRole('button', { name: 'new board', exact: true }).click();
   await submitTextDialog(page, 'Board title', boardTitle, 'Create board');
-  await panel.locator('.wb-board-title', { hasText: boardTitle }).waitFor();
+  await panel.locator('.wb-board-tab[aria-pressed="true"]', { hasText: boardTitle }).waitFor();
   await panel.locator('.wb-svg').waitFor({ state: 'visible' });
   if (layout === 'desktop') {
     await panel.getByRole('button', { name: 'box', exact: true }).click();
@@ -52,7 +52,7 @@ export async function verifyBoardDock(page: Page, sessionId: string): Promise<vo
   const panel = page.locator('.boards-view');
   await panel.getByRole('button', { name: 'new board', exact: true }).click();
   await submitTextDialog(page, 'Board title', boardTitle, 'Create board');
-  await panel.locator('.wb-board-title', { hasText: boardTitle }).waitFor();
+  await panel.locator('.wb-board-tab[aria-pressed="true"]', { hasText: boardTitle }).waitFor();
   await page.locator('#tab-focus').click();
   const card = page.locator(`.session-card[data-id="${sessionId}"]`).first();
   await card.getByRole('button', { name: 'Session actions', exact: true }).click();
@@ -64,7 +64,7 @@ export async function verifyBoardDock(page: Page, sessionId: string): Promise<vo
   assert.equal((await boardChip.textContent())?.trim(), 'Board');
   assert.equal(await boardChip.locator('.pr-status-icon').count(), 1, 'the board chip carries an icon like a PR chip');
   await boardChip.click();
-  await panel.locator('.wb-board-title', { hasText: boardTitle }).waitFor();
+  await panel.locator('.wb-board-tab[aria-pressed="true"]', { hasText: boardTitle }).waitFor();
   await panel.locator(`.wb-dock .session-card[data-id="${sessionId}"]`).waitFor({ state: 'visible' });
   const canvasBox = await panel.locator('.wb-canvas').boundingBox();
   const dockBox = await panel.locator('.wb-dock').boundingBox();
