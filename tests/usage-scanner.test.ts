@@ -334,6 +334,25 @@ test('budgetSpend shares the report rollups when retainDays already covers the m
   assert.equal(spend.monthUsd > 0, true);
 });
 
+test('a report for N days covers today and the N-1 previous local calendar days, not a rolling window', async () => {
+  const root = await makeTempRoot();
+  const projectsDir = await makeProjectsDir(root);
+  const localIso = (day: number, hour: number) => new Date(2026, 7, day, hour).toISOString();
+  await writeLines(path.join(projectsDir, 'C--repo', 'session-a.jsonl'), [
+    usageLine({ messageId: 'm-before-window', requestId: 'r1', input: 1000, timestamp: localIso(17, 20) }),
+    usageLine({ messageId: 'm-yesterday', requestId: 'r2', input: 1000, timestamp: localIso(18, 1) }),
+    usageLine({ messageId: 'm-today', requestId: 'r3', input: 1000, timestamp: localIso(19, 9) }),
+  ]);
+  const scanner = makeScanner(root, { nowFn: () => new Date(2026, 7, 19, 12).getTime() });
+  await scanner.runPass();
+
+  const twoDays = scanner.buildReport({ days: 2 });
+  assert.deepEqual(twoDays.daily.map((row) => row.day), ['2026-08-18', '2026-08-19']);
+  assert.equal(twoDays.totals.tokens, 2000);
+  assert.equal(twoDays.totals.costUSD, twoDays.daily.reduce((sum, row) => sum + row.costUSD, 0));
+  assert.equal(scanner.buildReport({ days: 1 }).totals.tokens, 1000, 'one day is today only');
+});
+
 test('yourDay recaps yesterday from operator-typed Claude and Codex prompts and skips lane and automated sessions', async () => {
   const root = await makeTempRoot();
   const projectsDir = await makeProjectsDir(root);
