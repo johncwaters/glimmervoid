@@ -63,7 +63,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
       return;
     }
     const unitsPerPixel = Math.max(1, bounds.width / canvasWidth, bounds.height / canvasHeight);
-    viewBox = { x: bounds.x, y: bounds.y, width: canvasWidth * unitsPerPixel, height: canvasHeight * unitsPerPixel };
+    const viewWidth = canvasWidth * unitsPerPixel;
+    viewBox = { x: bounds.x - (viewWidth - bounds.width) / 2, y: bounds.y, width: viewWidth, height: canvasHeight * unitsPerPixel };
     applyViewBox();
   }
 

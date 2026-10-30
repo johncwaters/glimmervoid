@@ -9,6 +9,7 @@ const TITLE_LINE_HEIGHT = 20;
 const BODY_LINE_HEIGHT = 18;
 const NOTE_LINE_HEIGHT = 17;
 const MUTED_INDENT = 14;
+const COLUMN_TITLE_LINE_HEIGHT = 16;
 
 type LayerName = 'frames' | 'wires' | 'boxes' | 'notes';
 
@@ -114,11 +115,11 @@ function drawElement(element: LaidOutElement): SVGGElement {
 function drawChrome(layout: BoardLayout): SVGGElement {
   const chrome = svgNode('g', {}, 'wb-chrome');
   for (const column of layout.columns) {
-    if (!column.title) continue;
-    chrome.append(
-      svgText(column.title, column.x, 56, 'wb-column-title'),
-      svgNode('line', { x1: column.x, y1: 66, x2: column.x + column.width, y2: 66 }, 'wb-column-rule'),
-    );
+    if (column.titleLines.length === 0) continue;
+    column.titleLines.forEach((line, index) => {
+      chrome.append(svgText(line, column.x, column.titleBaselineY + index * COLUMN_TITLE_LINE_HEIGHT, 'wb-column-title'));
+    });
+    chrome.append(svgNode('line', { x1: column.x, y1: column.ruleY, x2: column.x + column.width, y2: column.ruleY }, 'wb-column-rule'));
   }
   for (const entry of layout.legend) {
     const swatch = svgNode('rect', { x: entry.x, y: entry.y, width: 14, height: 14, rx: 3 }, 'wb-legend-swatch');

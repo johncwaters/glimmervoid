@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`--help` works anywhere in an agent command**: `glimmervoid whiteboard new --help` created a board titled "--help" instead of printing help. A `--help`, `-h` or `--version` anywhere in an in-session command such as `whiteboard`, `spawn` or `send` now prints Glimmervoid's help or version, unless it comes after a `--`.
 - **Kimi Code K3.1 Pro and K3 are priced**: the Usage tab no longer reports "No price" for `kimi-code/k3.1-pro` and `kimi-code/k3` and counts their sessions as free. It now estimates them at Moonshot list price. `kimi-code/kimi-for-coding` (K2.8 Preview) has no published price, so it still shows as unpriced.
+- **Boards lay out without overlaps**: a note no longer covers boxes in the next column, because the gap after a column widens to fit its notes. A frame no longer cuts the box above it or climbs into the column header. Long column titles wrap inside their column instead of running into the next header. Fit now centers the board left to right instead of pinning it to the left edge.
 
 ## [0.48.1] - 2026-10-30
 
