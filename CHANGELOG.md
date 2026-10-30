@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Set up Community from the Community tab**: with the Community tab on but no PostHog personal API key saved, the tab now shows a setup card instead of the bare message "community.enabled but posthog.apiKey is missing". It walks you through four steps: paste your PostHog personal API key, confirm the PostHog project that holds the community questions (2 for PostHog's own), name the research skill the agent follows, and list the Discord channels to watch, with a note on the Discord bot events those channels need. The skill and Discord steps can be skipped. Each step saves straight to your settings and the community lane starts as soon as the key is saved, with no restart. Finish setup shows the question queue.
+
 ### Fixed
 
 - **Team review gives every source change a full review**: a pull request that changed fewer than 200 lines of source was triaged as small and its reviewer was told so, which invited a shallow pass. A 61-line change that loosened a command allowlist was approved with no comments, though it opened a hole. Now only a pull request that changes nothing but Markdown documentation and tests counts as small. The Small PR model and effort settings now apply only to those pull requests and are renamed to match. Every review now also has to say, for each check the pull request loosens, what that check now lets through, and for each changed shared value, who else reads it. On a first review, a claim in the pull request description that the code contradicts now becomes a finding on the draft instead of a note you only see in the assessment.

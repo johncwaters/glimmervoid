@@ -10,3 +10,4 @@
 .community-badge[data-tone="warn"] { color: var(--state-waiting); }
 .community-badge[data-tone="danger"] { color: var(--state-failed); }
 .community-badge[data-tone="muted"] { color: var(--text-dim); }
+.community-queue[data-setup="true"] > .pr-columns { display: none; }

@@ -22,6 +22,7 @@ import {
 import {
   canRerunCommunityEntry, canSetAsideCommunityEntry, communityBadge, communityCaughtUpText, communityEmptyText, communityItemLabel, communitySourceText, startSessionChoices,
 } from './community-view-core.ts';
+import { createCommunitySetupCard } from './community-setup-card.ts';
 
 let root: HTMLElement | null = null;
 let queueElement: HTMLElement | null = null;
@@ -34,6 +35,7 @@ let renderedSignature: string | null = null;
 let shownDetailSignature: string | null = null;
 let chosenSessionId = '';
 const rowsByKey = new Map<string, HTMLButtonElement>();
+let setupCard: ReturnType<typeof createCommunitySetupCard> | null = null;
 
 function startSessionCandidates() {
   return startSessionChoices([...sessionUIs].map(([id, ui]) => ({
@@ -312,8 +314,18 @@ function createGroupSection(group: QueueGroup<CommunityQueueItem>): HTMLElement 
   return section;
 }
 
+function syncSetupCard(): boolean {
+  if (!root || !setupCard) return false;
+  if (communityStatusView()?.configured === false && !setupCard.isOpen()) setupCard.open();
+  const isSetupShown = setupCard.isOpen();
+  root.dataset.setup = String(isSetupShown);
+  setupCard.element.hidden = !isSetupShown;
+  return isSetupShown;
+}
+
 function render(): void {
   if (!queueElement) return;
+  if (syncSetupCard()) return;
   currentGroups = communityQueue();
   selectedKey = chooseQueueSelection(currentGroups.filter((group) => group.id !== 'aside' || isSetAsideOpen), selectedKey);
   paintBanner();
@@ -351,7 +363,9 @@ function mountCommunity(parent: HTMLElement): void {
   });
   banner.classList.add('review-queue-banner');
   shell.queue.before(banner);
-  root.append(shell.columns);
+  setupCard = createCommunitySetupCard({ onFinish: render });
+  setupCard.element.hidden = true;
+  root.append(setupCard.element, shell.columns);
   root.dataset.detailOpen = 'false';
   attachCommunityView(() => !isPanelHidden(root));
   subscribeCommunity((change) => {

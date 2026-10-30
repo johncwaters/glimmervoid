@@ -211,7 +211,7 @@ export const OPERATOR_ACTIONS_BY_SURFACE = Object.freeze({
   usage: ['sort', 'range', 'period', 'expand', 'refresh'],
   issues: ['step', 'search', 'select', 'back', 'go-to-session', 'open-session', 'open-reviews', 'close', 'reopen', 'refresh'],
   radar: ['report', 'open-session', 'resolve', 'suppress', 'archive-investigation', 'approve-fix', 'dismiss-fix'],
-  onboarding: ['rescan', 'add-root-typed', 'add-root-suggested', 'add-session', 'open-shell', 'check-github-again', 'save-github-teams', 'save-review-skill'],
+  onboarding: ['rescan', 'add-root-typed', 'add-root-suggested', 'add-session', 'open-shell', 'check-github-again', 'save-github-teams', 'save-review-skill', 'save-community-key', 'save-community-project', 'save-community-skill', 'save-community-discord', 'finish-community-setup'],
   reviews: ['open-session', 'approve', 'approve-only', 'comment', 'request-changes', 'discard', 'requeue', 'resolve-thread', 'merge', 'keep-mergeable', 'merge-when-ready', 'refresh'],
   hints: ['shown', 'open', 'dismiss'],
   community: ['open-session', 'rerun', 'set-aside'],
