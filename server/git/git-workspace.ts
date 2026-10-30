@@ -25,7 +25,7 @@ import { DEFAULT_BRANCH_FALLBACKS, decideMarkerBase, defaultBranchFromRemoteHead
 import type { MarkerProbes } from '../core/integration-branch-core.ts';
 import { MERGE_DRIVER_KEY_PATTERN, driverEnumerationEnv, mergeProbeEnv, neutralGitConfigEnv } from '../core/merge-proof-core.ts';
 import type { MergeProbeEnvResult, MergeTreeOutcome } from '../core/merge-proof-core.ts';
-import type { CheckoutTreeState, IntegrationSyncOutcome } from '../core/integration-sync-core.ts';
+import type { BaseAncestry, CheckoutTreeState, IntegrationSyncOutcome } from '../core/integration-sync-core.ts';
 import { normalizeSha } from '../core/update-core.ts';
 import { isMissingFileError } from '../../shared/text.ts';
 import { runGit } from './git-exec.ts';
@@ -1379,15 +1379,23 @@ function createGitWorkspace(opts: {
   }): Promise<IntegrationSyncResult> {
     const current = await run(['rev-parse', '--verify', '--quiet', localRef], projectPath);
     const currentSha = current.ok && current.out ? current.out : localSha;
-    let ancestry: boolean | null = null;
+    let ancestry: BaseAncestry | null = null;
     if (currentSha && remoteSha && currentSha !== remoteSha) {
-      const probe = await isAncestor({ projectPath, ancestorSha: currentSha, descendantSha: remoteSha });
-      ancestry = probe.ok ? probe.isAncestor : null;
+      ancestry = (await probeBaseAncestry(projectPath, currentSha, remoteSha)).ancestry;
     }
     const checkout = await readRefusedCheckoutTree(projectPath, branch);
-    const { outcome } = classifyRefusedIntegrationSync({ currentSha, remoteSha, isAncestor: ancestry, checkoutTree: checkout.state });
+    const { outcome } = classifyRefusedIntegrationSync({ currentSha, remoteSha, ancestry, checkoutTree: checkout.state });
     if (outcome !== 'update-failed') return { outcome, from: currentSha, to: remoteSha };
     return { outcome, from: currentSha, to: remoteSha, error: firstGitErrorLine(err || checkout.error) };
+  }
+
+  async function probeBaseAncestry(projectPath: string, localSha: string, remoteSha: string): Promise<{ ancestry: BaseAncestry | null; error: string }> {
+    const forward = await isAncestor({ projectPath, ancestorSha: localSha, descendantSha: remoteSha });
+    if (!forward.ok) return { ancestry: null, error: forward.err ?? '' };
+    if (forward.isAncestor) return { ancestry: 'behind', error: '' };
+    const reverse = await isAncestor({ projectPath, ancestorSha: remoteSha, descendantSha: localSha });
+    if (reverse.ok && reverse.isAncestor) return { ancestry: 'ahead', error: '' };
+    return { ancestry: 'forked', error: '' };
   }
 
   async function readRefusedCheckoutTree(projectPath: string, branch: string): Promise<{ state: CheckoutTreeState | null; error: string }> {
@@ -1457,16 +1465,16 @@ function createGitWorkspace(opts: {
     const remote = await run(['rev-parse', '--verify', '--quiet', remoteRef], projectPath);
     const localSha = local.ok ? local.out : null;
     const remoteSha = remote.ok ? remote.out : null;
-    let ancestryVerdict: boolean | null = null;
+    let ancestry: BaseAncestry | null = null;
     let syncError = '';
     let checkedOut = false;
     let checkoutPath: string | null = null;
     let checkoutTree: CheckoutTreeState = 'unknown';
     if (localSha && remoteSha && localSha !== remoteSha) {
-      const ancestry = await isAncestor({ projectPath, ancestorSha: localSha, descendantSha: remoteSha });
-      ancestryVerdict = ancestry.ok ? ancestry.isAncestor : null;
-      if (!ancestry.ok) syncError = ancestry.err ?? '';
-      if (ancestryVerdict === true) {
+      const probe = await probeBaseAncestry(projectPath, localSha, remoteSha);
+      ancestry = probe.ancestry;
+      syncError = probe.error;
+      if (ancestry === 'behind') {
         const listed = await run(['worktree', 'list', '--porcelain'], projectPath);
         if (!listed.ok) syncError = listed.err ?? '';
         checkoutPath = listed.ok ? findWorktreeForBranch(listed.out, branch ?? '') : null;
@@ -1479,7 +1487,7 @@ function createGitWorkspace(opts: {
       }
     }
 
-    const decision = decideIntegrationSync({ localSha, remoteSha, isAncestor: ancestryVerdict, checkedOut, checkoutTree });
+    const decision = decideIntegrationSync({ localSha, remoteSha, ancestry, checkedOut, checkoutTree });
     if (decision.outcome === 'update-failed') {
       return { outcome: decision.outcome, from: localSha, to: remoteSha, error: firstGitErrorLine(syncError) };
     }

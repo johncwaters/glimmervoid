@@ -539,6 +539,7 @@ function createSessionWorktreeLifecycle({
 
   function forkSyncWarning(sync: IntegrationSyncResult | null, branch: string | null): string | null {
     if (!sync || !branch) return null;
+    if (sync.outcome === "ahead") return `base ${branch} is ahead of origin/${branch} (unpushed commits); forked from local`;
     if (sync.outcome === "diverged") return `base ${branch} has diverged from origin/${branch}; forked from local`;
     if (sync.outcome === "fetch-failed") return `could not fetch origin/${branch}; forked from local`;
     if (sync.outcome === "checked-out") {
