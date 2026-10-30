@@ -26,6 +26,7 @@ interface CommandSpec {
   subcommands?: readonly CommandSpec[];
   missingArgumentHint?: string | null;
   isPassthrough?: boolean;
+  notes?: string;
 }
 
 type ParsedValues = Record<string, string | boolean | undefined>;
@@ -65,10 +66,12 @@ function renderHelp(spec: CommandSpec, commandPath: readonly string[]): string {
   if (spec.subcommands) {
     sections.push(['Commands:', ...spec.subcommands.map(subcommandLine)].join('\n'));
     sections.push(`Run "${commandLabel(commandPath)} <command> --help" for a command's options.`);
-    return sections.join('\n\n');
   }
-  const options = [...(spec.options ?? []), HELP_OPTION];
-  sections.push(['Options:', ...options.map((option) => `${padColumn(optionLabel(option))}${option.summary}`)].join('\n'));
+  if (!spec.subcommands) {
+    const options = [...(spec.options ?? []), HELP_OPTION];
+    sections.push(['Options:', ...options.map((option) => `${padColumn(optionLabel(option))}${option.summary}`)].join('\n'));
+  }
+  if (spec.notes) sections.push(spec.notes);
   return sections.join('\n\n');
 }
 
@@ -104,6 +107,12 @@ function positionalCountProblem(spec: CommandSpec, positionals: readonly string[
   return `this command takes ${bounds.usage}, so ${extraWords} is not understood`;
 }
 
+function unknownOptionReason(spec: CommandSpec, commandPath: readonly string[], unknownOption: string): string {
+  const takesText = spec.positionals !== undefined && spec.positionals.max !== 0;
+  if (!takesText) return `unknown option ${unknownOption}`;
+  return `unknown option ${unknownOption}. Text that starts with a dash goes after --, as in ${commandLabel(commandPath)} -- ${unknownOption}`;
+}
+
 function strictlyParse(spec: CommandSpec, args: readonly string[]): { values: ParsedValues; positionals: string[] } | { error: string } {
   try {
     return parseArgs({ args: [...args], options: parseOptionsConfig(spec), strict: true, allowPositionals: true });
@@ -115,7 +124,7 @@ function strictlyParse(spec: CommandSpec, args: readonly string[]): { values: Pa
 function parseLeaf(spec: CommandSpec, args: readonly string[], commandPath: string[]): ParsedCommand {
   if (hasHelpBeforeTerminator(args)) return { kind: 'help', text: renderHelp(spec, commandPath) };
   const unknownOption = firstUnknownOption(spec, args);
-  if (unknownOption) return refusal(spec, commandPath, `unknown option ${unknownOption}. Quote text that starts with a dash, or put it after --.`);
+  if (unknownOption) return refusal(spec, commandPath, unknownOptionReason(spec, commandPath, unknownOption));
   const parsed = strictlyParse(spec, args);
   if ('error' in parsed) return refusal(spec, commandPath, parsed.error);
   const countProblem = positionalCountProblem(spec, parsed.positionals);
@@ -134,9 +143,65 @@ function parseCommand(spec: CommandSpec, args: readonly string[], commandPath: s
   return parseCommand(subcommand, rest, [...commandPath, subcommand.name]);
 }
 
+const CONFIG_OPTION: OptionSpec = { name: 'config', type: 'string', valueName: 'path', summary: 'Config file (default: ~/.glimmervoid/config.json)' };
+const PORT_OPTION: OptionSpec = { name: 'port', type: 'string', valueName: 'number', summary: 'Server port (default: 3000)' };
+const JSON_OPTION: OptionSpec = { name: 'json', type: 'boolean', summary: 'Machine-readable output' };
+const SETTING_PATH = { usage: '<path>', min: 1, max: 1 };
+
+const SETTINGS_NOTES = `<path> is a config.json key path such as posthog.trafficSpikeEnabled, or a setting id such as posthog-traffic-enabled.
+<value> is true or false for a toggle, a number, text, a comma-separated or JSON list, or JSON for a structured value.
+A number is in the unit config.json stores, as schema's Stored unit column names: set branchGc.intervalMs 21600000 means 21600000 ms.
+Where the dashboard shows another unit, get, list and set add it in parentheses, such as 30000 (30 seconds).
+A secret (a bot token or API key) is never set or unset here, since a value on the command line lands in shell history;
+change it in the dashboard settings or through its environment variable.`;
+
+const OWNED_COMMAND_SPECS = {
+  doctor: { name: 'doctor', summary: 'Check the install, PATH, agent CLIs and native module, then exit', options: [CONFIG_OPTION, PORT_OPTION] },
+  pair: {
+    name: 'pair',
+    summary: 'Mint a single-use pairing link for a remote device, or list and revoke paired devices',
+    options: [
+      { name: 'name', type: 'string', valueName: 'label', summary: 'Name for the device being paired' },
+      { name: 'list', type: 'boolean', summary: 'List paired devices' },
+      { name: 'revoke', type: 'string', valueName: 'id', summary: 'Revoke a paired device' },
+      CONFIG_OPTION,
+      PORT_OPTION,
+    ],
+  },
+  agent: {
+    name: 'agent',
+    summary: 'Set up an agent CLI to report to Glimmervoid',
+    subcommands: [{
+      name: 'setup',
+      summary: 'Install an agent hook relay',
+      subcommands: [{ name: 'grok', summary: 'Install the Grok hook relay, which does nothing outside Glimmervoid' }],
+    }],
+  },
+  settings: {
+    name: 'settings',
+    summary: 'Read and change config.json from the command line',
+    notes: SETTINGS_NOTES,
+    subcommands: [
+      { name: 'list', summary: 'Every config.json setting with its value and where the value comes from', options: [JSON_OPTION] },
+      { name: 'get', summary: 'One setting; a secret shows as configured or not configured, never its value', positionals: SETTING_PATH, options: [JSON_OPTION] },
+      { name: 'set', summary: 'Validate the whole file and write it; a running Glimmervoid reloads it', positionals: { usage: '<path> <value>', min: 2, max: 2 }, options: [JSON_OPTION] },
+      { name: 'unset', summary: 'Remove the key from config.json so the default applies', positionals: SETTING_PATH, options: [JSON_OPTION] },
+      { name: 'search', summary: 'Find settings by title, keyword, key path or section', positionals: { usage: '<text>', min: 1, max: null }, options: [JSON_OPTION] },
+      { name: 'schema', summary: 'Every setting: id, path, type, default, unit, effect and section (needs no config file)', options: [JSON_OPTION] },
+    ],
+  },
+  'ssh-sign': { name: 'ssh-sign', summary: "Sign a commit with the operator's forwarded ssh agent (git runs this)", isPassthrough: true },
+} as const satisfies Record<string, CommandSpec>;
+
+type OwnedCommandName = keyof typeof OWNED_COMMAND_SPECS;
+
+function isOwnedCommandName(name: string): name is OwnedCommandName {
+  return Object.hasOwn(OWNED_COMMAND_SPECS, name);
+}
+
 function renderOverviewLine(usage: string, summary: string): string {
   return `${padColumn(usage)}${summary}`;
 }
 
-export { parseCommand, renderOverviewLine };
-export type { CommandSpec, OptionSpec, ParsedCommand, PositionalSpec };
+export { OWNED_COMMAND_SPECS, isOwnedCommandName, parseCommand, renderOverviewLine };
+export type { CommandSpec, OptionSpec, OwnedCommandName, ParsedCommand, PositionalSpec };

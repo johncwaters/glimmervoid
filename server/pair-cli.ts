@@ -31,12 +31,6 @@ function readConfig(configPath: string): { remote?: unknown } | null {
   }
 }
 
-function argValue(args: string[], flag: string): string | null {
-  const idx = args.indexOf(flag);
-  if (idx === -1 || idx + 1 >= args.length) return null;
-  return args[idx + 1];
-}
-
 function buildPairUrl(remote: RemoteSettings, token: string): string {
   if (remote.publicHost) return `https://${remote.publicHost}/pair/${token}`;
   return `http://127.0.0.1:${remote.port}/pair/${token}`;
@@ -104,7 +98,13 @@ function runRevoke(store: PairingsStore, id: string): number {
   return 1;
 }
 
-function runPairCli(args: string[]): number {
+interface PairRequest {
+  isListing: boolean;
+  revokeDeviceId: string | null;
+  deviceName: string | null;
+}
+
+function runPairCli({ isListing, revokeDeviceId, deviceName }: PairRequest): number {
   const configPath = resolveConfigPath();
   const config = readConfig(configPath);
   if (!config) return 1;
@@ -112,19 +112,11 @@ function runPairCli(args: string[]): number {
   const store = createPairingsStore({ filePath: defaultPairingsPath(configPath) });
   const seenStore = createSeenStore({ filePath: defaultSeenPath(configPath) });
 
-  if (args.includes('--list')) return runList(store, seenStore);
-
-  if (args.includes('--revoke')) {
-    const id = argValue(args, '--revoke');
-    if (!id) {
-      console.error('Usage: glimmervoid pair --revoke <device-id>');
-      return 1;
-    }
-    return runRevoke(store, id);
-  }
+  if (isListing) return runList(store, seenStore);
+  if (revokeDeviceId !== null) return runRevoke(store, revokeDeviceId);
 
   store.prunePending();
-  return runMint(store, remote, argValue(args, '--name'));
+  return runMint(store, remote, deviceName);
 }
 
 export { runPairCli };

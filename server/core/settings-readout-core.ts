@@ -1,4 +1,3 @@
-import { parseArgs } from 'node:util';
 
 import { AGENT_URL_ENV, AgentSettingsRequest } from '../../shared/contracts/session.ts';
 import type { AgentSettingsReply } from '../../shared/contracts/session.ts';
@@ -9,6 +8,7 @@ import { FILE_ONLY_GROUPS, SETTINGS_REGISTRY } from '../../shared/settings/regis
 import type { SettingsSetting } from '../../shared/settings/registry.ts';
 import type { Config } from '../../shared/contracts/config.ts';
 import { renderTable } from './ascii-figure-core.ts';
+import type { ParsedCommand } from './cli-spec-core.ts';
 import { readEnvSecrets } from './config-secrets-core.ts';
 import { isSettingAvailable } from './experimental-gate-core.ts';
 
@@ -211,11 +211,9 @@ function readSettingsForAgent({ command, path }: AgentSettingsRequest, view: Con
   return { ok: true, ...getSetting(view, resolved.value) };
 }
 
-function settingsRequestForServer(commandArguments: readonly string[], env: NodeJS.ProcessEnv): AgentSettingsRequest | null {
+function settingsRequestForServer({ commandPath, positionals }: Extract<ParsedCommand, { kind: 'run' }>, env: NodeJS.ProcessEnv): AgentSettingsRequest | null {
   if (!env[AGENT_URL_ENV]) return null;
-  const { values, positionals } = parseArgs({ args: [...commandArguments], allowPositionals: true, strict: false });
-  if (values.help) return null;
-  const parsed = AgentSettingsRequest.safeParse({ command: positionals[0], ...(positionals[1] === undefined ? {} : { path: positionals[1] }) });
+  const parsed = AgentSettingsRequest.safeParse({ command: commandPath[1], ...(positionals[0] === undefined ? {} : { path: positionals[0] }) });
   return parsed.success ? parsed.data : null;
 }
 

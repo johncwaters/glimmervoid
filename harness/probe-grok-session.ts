@@ -204,7 +204,7 @@ async function main(args: string[] = process.argv.slice(2)): Promise<void> {
   process.env.GLIMMERVOID_CONFIG = configPath;
   process.env.GROK_HOME = makeProbeGrokHome(tempDirectory, resolvedBeforeIsolation.path);
   process.env.GROK_DEFAULT_SELECTED_PERMISSION = "allow_once";
-  const setupCode = runAgentSetupCli(["setup", "grok"]);
+  const setupCode = runAgentSetupCli();
   if (setupCode !== 0) throw new Error("The isolated Grok hook setup failed.");
 
   const server = http.createServer();

@@ -11,6 +11,8 @@ import { agentCommandHelpLines } from '../server/core/agent-api-core.ts';
 import { renderTable } from '../server/core/ascii-figure-core.ts';
 import { decideConfigPath, glimmervoidHomeDir } from '../server/core/config-path-core.ts';
 import { parseCommandLine } from '../server/core/command-line-core.ts';
+import { OWNED_COMMAND_SPECS, isOwnedCommandName, parseCommand } from '../server/core/cli-spec-core.ts';
+import type { OwnedCommandName, ParsedCommand } from '../server/core/cli-spec-core.ts';
 import { nodePtyRebuildHint } from '../server/core/node-pty-preflight-core.ts';
 import { firstLine } from '../server/core/text-core.ts';
 import { errorText } from '../shared/text.ts';
@@ -76,35 +78,58 @@ if (commandLine.globalOptions.port) {
 }
 
 type SubcommandRunner = (subcommandArgs: string[], subcommandName: string) => Promise<number>;
+type ParsedRun = Extract<ParsedCommand, { kind: 'run' }>;
+type OwnedCommandRunner = (parsed: ParsedRun) => Promise<number>;
 
-const OWN_SUBCOMMAND_RUNNERS: [string, SubcommandRunner][] = [
-  ['doctor', async () => {
+const OWNED_COMMAND_RUNNERS: Record<OwnedCommandName, OwnedCommandRunner> = {
+  doctor: async () => {
     await runDoctor();
     return 0;
-  }],
-  ['pair', async (subcommandArgs) => {
+  },
+  pair: async ({ values }) => {
     const { runPairCli } = await import('../server/pair-cli.ts');
-    return runPairCli(subcommandArgs);
-  }],
-  ['agent', async (subcommandArgs) => {
+    return runPairCli({
+      isListing: values.list === true,
+      revokeDeviceId: typeof values.revoke === 'string' ? values.revoke : null,
+      deviceName: typeof values.name === 'string' ? values.name : null,
+    });
+  },
+  agent: async () => {
     const { runAgentSetupCli } = await import('../server/agent-setup-cli.ts');
-    return runAgentSetupCli(subcommandArgs);
-  }],
-  ['settings', async (subcommandArgs) => {
-    const { runSettingsCli } = await import('../server/settings-cli.ts');
-    return runSettingsCli(subcommandArgs);
-  }],
-  ['ssh-sign', async (subcommandArgs) => {
+    return runAgentSetupCli();
+  },
+  settings: async (parsed) => {
+    const { runParsedSettingsCli } = await import('../server/settings-cli.ts');
+    return runParsedSettingsCli(parsed);
+  },
+  'ssh-sign': async ({ rawArgs }) => {
     const { runSshSignCli } = await import('../server/ssh-sign-cli.ts');
-    return runSshSignCli(subcommandArgs);
-  }],
-];
+    return runSshSignCli(rawArgs);
+  },
+};
 
-const ownSubcommandNames = new Set(OWN_SUBCOMMAND_RUNNERS.map(([name]) => name));
+function applyTrailingGlobalOptions({ values }: ParsedRun): void {
+  if (typeof values.config === 'string') process.env.GLIMMERVOID_CONFIG = values.config;
+  if (typeof values.port === 'string') process.env.GLIMMERVOID_PORT = values.port;
+}
+
+async function runOwnedCommand(name: OwnedCommandName, subcommandArgs: string[]): Promise<number> {
+  const parsed = parseCommand(OWNED_COMMAND_SPECS[name], subcommandArgs);
+  if (parsed.kind === 'help') {
+    console.log(parsed.text);
+    return 0;
+  }
+  if (parsed.kind === 'refused') {
+    console.error(parsed.text);
+    return 1;
+  }
+  applyTrailingGlobalOptions(parsed);
+  return OWNED_COMMAND_RUNNERS[name](parsed);
+}
 
 const SUBCOMMAND_RUNNERS = new Map<string, SubcommandRunner>([
-  ...OWN_SUBCOMMAND_RUNNERS,
-  ...AGENT_API_VERBS.filter((verb) => !ownSubcommandNames.has(verb)).map((verb): [string, SubcommandRunner] => [verb, async (subcommandArgs, subcommandName) => {
+  ...Object.keys(OWNED_COMMAND_SPECS).filter(isOwnedCommandName).map((name): [string, SubcommandRunner] => [name, (subcommandArgs) => runOwnedCommand(name, subcommandArgs)]),
+  ...AGENT_API_VERBS.filter((verb) => !isOwnedCommandName(verb)).map((verb): [string, SubcommandRunner] => [verb, async (subcommandArgs, subcommandName) => {
     const { runAgentApiCli } = await import('../server/agent-api-cli.ts');
     return runAgentApiCli([subcommandName, ...subcommandArgs]);
   }]),

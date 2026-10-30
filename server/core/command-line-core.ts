@@ -21,26 +21,10 @@ const GLOBAL_OPTIONS = {
   'no-open': { type: 'boolean' },
 } as const;
 
-const SUBCOMMANDS_HONORING_TRAILING_GLOBAL_OPTIONS: ReadonlySet<string> = new Set(['doctor', 'pair']);
-
-const OPTIONS_TAKING_A_VALUE: Record<string, 'configPath' | 'port'> = { '--config': 'configPath', '--port': 'port' };
-
 function commandNameIndex(argv: readonly string[]): number {
   const { tokens } = parseArgs({ args: [...argv], options: GLOBAL_OPTIONS, strict: false, allowPositionals: true, tokens: true });
   const firstPositional = tokens.find((token) => token.kind === 'positional');
   return firstPositional ? firstPositional.index : argv.length;
-}
-
-function scanTrailingGlobalOptions(subcommandArgs: readonly string[], globalOptions: GlobalOptions): GlobalOptions {
-  const scanned = { ...globalOptions };
-  for (let index = 0; index < subcommandArgs.length; index += 1) {
-    const valueKey = OPTIONS_TAKING_A_VALUE[subcommandArgs[index]];
-    const value = subcommandArgs[index + 1];
-    if (!valueKey || value === undefined) continue;
-    scanned[valueKey] = value;
-    index += 1;
-  }
-  return scanned;
 }
 
 type GlobalValues = { config?: string; port?: string; help?: boolean; version?: boolean; doctor?: boolean; 'no-open'?: boolean };
@@ -60,11 +44,9 @@ function parseCommandLine(argv: readonly string[]): ParsedCommandLine {
   const { values } = parsedGlobals;
   const name = argv[nameIndex];
   const subcommandArgs = argv.slice(nameIndex + 1);
-  const honorsTrailingGlobalOptions = name !== undefined && SUBCOMMANDS_HONORING_TRAILING_GLOBAL_OPTIONS.has(name);
-  if (values.help || (honorsTrailingGlobalOptions && (subcommandArgs.includes('--help') || subcommandArgs.includes('-h')))) return { kind: 'help' };
-  if (values.version || (honorsTrailingGlobalOptions && subcommandArgs.includes('--version'))) return { kind: 'version' };
-  const leadingGlobalOptions = { configPath: values.config ?? null, port: values.port ?? null };
-  const globalOptions = honorsTrailingGlobalOptions ? scanTrailingGlobalOptions(subcommandArgs, leadingGlobalOptions) : leadingGlobalOptions;
+  if (values.help) return { kind: 'help' };
+  if (values.version) return { kind: 'version' };
+  const globalOptions = { configPath: values.config ?? null, port: values.port ?? null };
   if (values.doctor) return { kind: 'subcommand', name: 'doctor', subcommandArgs: [], globalOptions };
   if (name === undefined) return { kind: 'server', globalOptions, isBrowserOpenSkipped: values['no-open'] === true };
   return { kind: 'subcommand', name, subcommandArgs, globalOptions };

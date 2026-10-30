@@ -7,7 +7,6 @@ import { errorMessage, isMissingFileError } from "../shared/text.ts";
 import { writeTextAtomicSync } from "./json-file.ts";
 import type { SyncFileSystem } from "./json-file.ts";
 
-const USAGE = "Usage: glimmervoid agent setup grok";
 
 type SetupFileSystem = Pick<
   typeof fs,
@@ -136,18 +135,14 @@ function runGrokSetup({ env, fileSystem, log, error }: Required<AgentSetupDeps>)
   return 0;
 }
 
-function runAgentSetupCli(args: string[], deps: AgentSetupDeps = {}): number {
+function runAgentSetupCli(deps: AgentSetupDeps = {}): number {
   const {
     env = process.env,
     fileSystem = fs,
     log = console.log,
     error = console.error,
   } = deps;
-  if (args[0] === "setup" && args[1] === "grok" && args.length === 2) {
-    return runGrokSetup({ env, fileSystem, log, error });
-  }
-  error(USAGE);
-  return 1;
+  return runGrokSetup({ env, fileSystem, log, error });
 }
 
-export { USAGE, runAgentSetupCli, inspectGrokAgentSetup };
+export { runAgentSetupCli, inspectGrokAgentSetup };

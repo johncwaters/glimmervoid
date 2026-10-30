@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import os from 'node:os';
-import { parseArgs } from 'node:util';
 
 import { isRecord } from '../shared/coerce.ts';
 import { BrowserConfig } from '../shared/contracts/config.ts';
@@ -14,6 +13,8 @@ import { errorCode, errorMessage } from '../shared/text.ts';
 import { IS_EXPERIMENTAL_BUILD, loadConfigFile, saveConfigFileOnce, validateConfig } from './config-store.ts';
 import type { GlimmervoidConfig } from './config-store.ts';
 import { renderTable } from './core/ascii-figure-core.ts';
+import { OWNED_COMMAND_SPECS, parseCommand } from './core/cli-spec-core.ts';
+import type { ParsedCommand } from './core/cli-spec-core.ts';
 import { isSettingAvailable } from './core/experimental-gate-core.ts';
 import { decideConfigPath, glimmervoidHomeDir } from './core/config-path-core.ts';
 import { ENV_SECRET_BINDINGS, readEnvSecrets, withEnvSecrets } from './core/config-secrets-core.ts';
@@ -22,23 +23,6 @@ import {
   renderSectionTables, requireConfigFileSetting, sectionOf, settingsRequestForServer, succeed, valueText,
 } from './core/settings-readout-core.ts';
 import type { ConfigFileView, Outcome } from './core/settings-readout-core.ts';
-
-const usage = `glimmervoid settings: read and change config.json from the command line
-
-  glimmervoid settings list                  every config.json setting with its value and where the value comes from
-  glimmervoid settings get <path>            one setting; a secret shows as configured or not configured, never its value
-  glimmervoid settings set <path> <value>    validate the whole file and write it; a running Glimmervoid reloads it
-  glimmervoid settings unset <path>          remove the key from config.json so the default applies
-  glimmervoid settings search <text>         find settings by title, keyword, key path or section
-  glimmervoid settings schema                every setting: id, path, type, default, unit, effect and section (needs no config file)
-
-  <path> is a config.json key path such as posthog.trafficSpikeEnabled, or a setting id such as posthog-traffic-enabled.
-  <value> is true or false for a toggle, a number, text, a comma-separated or JSON list, or JSON for a structured value.
-  A number is in the unit config.json stores, as schema's Stored unit column names: set branchGc.intervalMs 21600000 means 21600000 ms.
-  Where the dashboard shows another unit, get, list and set add it in parentheses, such as 30000 (30 seconds).
-  A secret (a bot token or API key) is never set or unset here, since a value on the command line lands in shell history;
-  change it in the dashboard settings or through its environment variable.
-  --json           machine-readable output`;
 
 const EFFECT_NOTES: Readonly<Record<SettingsSetting['takesEffect'], string>> = Object.freeze({
   now: 'A running Glimmervoid applies it without a restart.',
@@ -67,7 +51,7 @@ type CommandContext = {
 
 function requirePositional(positionals: readonly string[], index: number, name: string): string {
   const value = positionals[index];
-  if (value === undefined) throw new Error(`missing <${name}>\n\n${usage}`);
+  if (value === undefined) throw new Error(`missing <${name}>; run glimmervoid settings --help for the usage`);
   return value;
 }
 
@@ -293,7 +277,7 @@ const commands: Record<string, (context: CommandContext) => number> = {
   },
   search: (context) => {
     const query = context.positionals.slice(1).join(' ');
-    if (query.trim() === '') throw new Error(`missing <text>\n\n${usage}`);
+    if (query.trim() === '') throw new Error('missing <text>; run glimmervoid settings --help for the usage');
     const results = scoreSettingsSearch(SETTINGS_REGISTRY.sections, query, SETTINGS_REGISTRY.fileOnly)
       .filter((result) => isSettingAvailable(result.setting, IS_EXPERIMENTAL_BUILD));
     const rows = results.map((result) => [
@@ -321,24 +305,6 @@ const commands: Record<string, (context: CommandContext) => number> = {
   },
 };
 
-function runCommandLine(commandArguments: string[], io: SettingsCliIo): number {
-  const { values, positionals } = parseArgs({
-    args: commandArguments,
-    allowPositionals: true,
-    options: {
-      json: { type: 'boolean', default: false },
-      help: { type: 'boolean', short: 'h', default: false },
-    },
-  });
-  const commandName = positionals[0];
-  const command = commandName === undefined ? undefined : commands[commandName];
-  if (values.help || commandName === undefined || command === undefined) {
-    io.writeOutput(`${usage}\n`);
-    return values.help ? 0 : 1;
-  }
-  return command({ positionals, isJson: values.json, writeOutput: io.writeOutput });
-}
-
 function processIo(): SettingsCliIo {
   return {
     writeOutput: (text) => process.stdout.write(text),
@@ -346,9 +312,26 @@ function processIo(): SettingsCliIo {
   };
 }
 
-export async function runSettingsCli(commandArguments: string[], io: SettingsCliIo = processIo()): Promise<number> {
-  const serverRequest = settingsRequestForServer(commandArguments, process.env);
-  if (!serverRequest) return runSettingsCommand(commandArguments, io);
+type ParsedSettingsRun = Extract<ParsedCommand, { kind: 'run' }>;
+
+function runParsedSettingsCommand(parsed: ParsedSettingsRun, io: SettingsCliIo): number {
+  const commandName = parsed.commandPath[1] ?? '';
+  const command = commands[commandName];
+  if (!command) {
+    io.writeError(`settings: unknown command ${commandName}\n`);
+    return 1;
+  }
+  try {
+    return command({ positionals: [commandName, ...parsed.positionals], isJson: parsed.values.json === true, writeOutput: io.writeOutput });
+  } catch (error) {
+    io.writeError(`settings: ${errorMessage(error)}\n`);
+    return 1;
+  }
+}
+
+export async function runParsedSettingsCli(parsed: ParsedSettingsRun, io: SettingsCliIo = processIo()): Promise<number> {
+  const serverRequest = settingsRequestForServer(parsed, process.env);
+  if (!serverRequest) return runParsedSettingsCommand(parsed, io);
   const { askAgentApi } = await import('./agent-api-cli.ts');
   const reply = AgentSettingsReply.safeParse(await askAgentApi('settings', serverRequest).catch((error: unknown) => ({ ok: false, error: errorMessage(error) })));
   if (!reply.success) {
@@ -359,16 +342,19 @@ export async function runSettingsCli(commandArguments: string[], io: SettingsCli
     io.writeError(`settings: ${reply.data.error}\n`);
     return 1;
   }
-  const isJson = commandArguments.includes('--json');
-  io.writeOutput(`${isJson ? JSON.stringify(reply.data.readout, null, 2) : reply.data.text}\n`);
+  io.writeOutput(`${parsed.values.json === true ? JSON.stringify(reply.data.readout, null, 2) : reply.data.text}\n`);
   return 0;
 }
 
 export function runSettingsCommand(commandArguments: string[], io: SettingsCliIo = processIo()): number {
-  try {
-    return runCommandLine(commandArguments, io);
-  } catch (error) {
-    io.writeError(`settings: ${errorMessage(error)}\n`);
+  const parsed = parseCommand(OWNED_COMMAND_SPECS.settings, commandArguments);
+  if (parsed.kind === 'help') {
+    io.writeOutput(`${parsed.text}\n`);
+    return 0;
+  }
+  if (parsed.kind === 'refused') {
+    io.writeError(`${parsed.text}\n`);
     return 1;
   }
+  return runParsedSettingsCommand(parsed, io);
 }
