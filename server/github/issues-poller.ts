@@ -168,5 +168,5 @@ export function createIssuesPoller(dependencies: IssuesPollerDependencies) {
     return loop.refresh();
   }
 
-  return { start: () => loop.start(loadState), stop: loop.stop, tick: loop.tick, refresh };
+  return { start: () => loop.start(loadState), stop: loop.stop, tick: loop.tick, tickSoon: loop.tickSoon, refresh };
 }

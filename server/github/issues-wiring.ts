@@ -151,7 +151,7 @@ export function createIssuesWiring({ config, gitWorkspace, broadcast, hasSession
   }
   async function setIssueState(change: { repo: string; number: number; state: 'closed' | 'open' }): Promise<{ ok: boolean; err: string }> {
     const applied = await github.setIssueState(change);
-    if (applied.ok) runner.getPoller()?.tick();
+    if (applied.ok) runner.getPoller()?.tickSoon();
     return applied;
   }
   async function stopPoller(): Promise<void> {
