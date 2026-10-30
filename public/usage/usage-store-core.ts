@@ -3,18 +3,18 @@ import type { PlanLimitsVendor } from '#shared/contracts/control-messages.ts';
 import type { YourDay } from '#shared/contracts/your-day.ts';
 import { numberOr, textOr } from '#shared/coerce.ts';
 
-export interface UsageTokenLimit {
+interface UsageTokenLimit {
   max?: unknown;
   pct?: unknown;
 }
 
-export interface UsageProjection {
+interface UsageProjection {
   projectedTokens?: unknown;
   projectedCostUSD?: unknown;
   remainingMinutes?: unknown;
 }
 
-export interface UsageBurn {
+interface UsageBurn {
   tokensPerMinute?: unknown;
   tokensPerMinuteExCache?: unknown;
   costPerHour?: unknown;
@@ -109,13 +109,12 @@ export interface UsageSessionUsage {
 export const NO_VALUE = '-';
 
 const TOKEN_LIMIT_WARN_PCT = 80;
-export const RANGE_OPTIONS: readonly { value: string; label: string; days: number | null }[] = Object.freeze([
-  { value: '7', label: 'Last 7 days', days: 7 },
-  { value: '30', label: 'Last 30 days', days: 30 },
-  { value: '90', label: 'Last 90 days', days: 90 },
-  { value: 'all', label: 'All retained', days: null },
+export const RANGE_OPTIONS: readonly { value: string; label: string; days: number }[] = Object.freeze([
+  { value: 'day', label: 'Today', days: 1 },
+  { value: 'week', label: 'Last 7 days', days: 7 },
+  { value: 'month', label: 'Last 30 days', days: 30 },
 ]);
-export const DEFAULT_RANGE_VALUE = 'all';
+export const DEFAULT_RANGE_VALUE = 'week';
 
 function groupThousands(digits: string) {
   return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
@@ -159,7 +158,7 @@ export function formatTokens(value: unknown) {
   return `${sign}${trimTrailingZeros((abs / 1e9).toFixed(2))}B`;
 }
 
-export function tokenLimitTone(pct: unknown) {
+function tokenLimitTone(pct: unknown) {
   if (typeof pct !== 'number' || !Number.isFinite(pct)) return 'ok';
   if (pct >= 100) return 'crit';
   if (pct >= TOKEN_LIMIT_WARN_PCT) return 'warn';
@@ -172,14 +171,14 @@ function limitMax(tokenLimit: UsageTokenLimit | null | undefined) {
   return max;
 }
 
-export function limitPct(tokenLimit: UsageTokenLimit | null | undefined) {
+function limitPct(tokenLimit: UsageTokenLimit | null | undefined) {
   const max = limitMax(tokenLimit);
   const ratio = numberOr(tokenLimit?.pct, null);
   if (max === null || ratio === null) return null;
   return ratio * 100;
 }
 
-export function projectedLimitPct(projection: UsageProjection | null | undefined, tokenLimit: UsageTokenLimit | null | undefined) {
+function projectedLimitPct(projection: UsageProjection | null | undefined, tokenLimit: UsageTokenLimit | null | undefined) {
   const max = limitMax(tokenLimit);
   const projected = numberOr(projection?.projectedTokens, null);
   if (max === null || projected === null) return null;
@@ -200,7 +199,7 @@ export function budgetRowPct(row: UsageBudgetRow | null | undefined) {
   return pct;
 }
 
-export interface PlanWindow {
+interface PlanWindow {
   pct?: unknown;
   resetsAtMs?: unknown;
 }
@@ -233,7 +232,7 @@ function officialFiveHourPct(planLimits: PlanLimits | null | undefined) {
   return planWindowOf(planLimits, 'fiveHour')?.pct ?? null;
 }
 
-export function blockAttentionTone(report: UsageReport | null | undefined, planLimits: PlanLimits | null = null) {
+function blockAttentionTone(report: UsageReport | null | undefined, planLimits: PlanLimits | null = null) {
   const official = officialFiveHourPct(planLimits);
   if (official !== null) return tokenLimitTone(official);
   const current = tokenLimitTone(limitPct(report?.tokenLimit));
