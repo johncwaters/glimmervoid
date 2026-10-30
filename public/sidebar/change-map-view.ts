@@ -1,7 +1,9 @@
+import type { ConflictRisk } from '#shared/contracts/change-map.ts';
 import { el } from '../dom-helpers.ts';
 import type { ChangeMapView, FileHint, WorthALookGroup, WorthALookLine } from './change-map-core.ts';
 
 const WORTH_A_LOOK_VISIBLE_MAX = 5;
+const CONFLICT_RISK_LABEL: Record<ConflictRisk, string> = { high: 'High', medium: 'Medium', low: 'Low' };
 
 function worthALookRow(line: WorthALookLine, onOpenFile: (openPath: string) => void) {
   const row = el('button', 'review-look-line', line.path);
@@ -14,7 +16,13 @@ function worthALookRow(line: WorthALookLine, onOpenFile: (openPath: string) => v
 function worthALookGroup(group: WorthALookGroup, onOpenFile: (openPath: string) => void) {
   const groupEl = el('div', 'review-look-group');
   groupEl.dataset.kind = group.kind;
-  groupEl.append(el('p', 'review-look-text', group.heading));
+  const headingEl = el('p', 'review-look-text', group.heading);
+  if (group.conflictRisk) {
+    const riskTag = el('span', 'review-look-risk', `Conflict risk: ${CONFLICT_RISK_LABEL[group.conflictRisk]}`);
+    riskTag.dataset.risk = group.conflictRisk;
+    headingEl.append(' ', riskTag);
+  }
+  groupEl.append(headingEl);
   for (const line of group.lines) groupEl.append(worthALookRow(line, onOpenFile));
   return groupEl;
 }

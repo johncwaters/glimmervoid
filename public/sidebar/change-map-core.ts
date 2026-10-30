@@ -1,6 +1,7 @@
-import type { ChangeMap, ChangeMapFactKind, RepoChangeMap } from '#shared/contracts/change-map.ts';
+import type { ChangeMap, ChangeMapFactKind, ConflictRisk, RepoChangeMap } from '#shared/contracts/change-map.ts';
 
 const WIDE_BLAST_RADIUS_MIN = 10;
+const CONFLICT_RISK_RANK: Record<ConflictRisk, number> = { low: 0, medium: 1, high: 2 };
 
 export interface WorthALookLine {
   dedupeKey: string;
@@ -11,6 +12,7 @@ export interface WorthALookLine {
   openPath: string;
   heading: string;
   detail: string;
+  conflictRisk: ConflictRisk | null;
 }
 
 export interface WorthALookGroup {
@@ -18,6 +20,7 @@ export interface WorthALookGroup {
   kind: ChangeMapFactKind;
   severity: number;
   heading: string;
+  conflictRisk: ConflictRisk | null;
   lines: WorthALookLine[];
 }
 
@@ -78,6 +81,7 @@ function worthALookLines(repo: RepoChangeMap, providerByName: Map<string, Provid
       dedupeKey: linkKey, groupKey: linkKey, kind: 'link', severity: 6, path, openPath: `${pathOwner.sessionPathPrefix}${path}`,
       heading: `${repo.name} imports ${link.packageName} from ${link.providerRepo} in ${link.importerCount} ${importerNoun}`,
       detail,
+      conflictRisk: null,
     });
   }
   for (const collision of repo.collisions) lines.push({
@@ -85,7 +89,8 @@ function worthALookLines(repo: RepoChangeMap, providerByName: Map<string, Provid
     groupKey: `collision:${collision.otherSessionId}`, kind: 'collision', severity: 5,
     path: collision.path, openPath: `${repo.sessionPathPrefix}${collision.path}`,
     heading: `Also being changed in "${collision.otherSessionName}"`,
-    detail: 'Another live session is changing this file, so the two may conflict.',
+    detail: collision.conflictEvidence,
+    conflictRisk: collision.conflictRisk,
   });
   for (const gap of repo.coChangeGaps) {
     const totalCommits = gap.confidence > 0 ? Math.round(gap.support / gap.confidence) : 0;
@@ -95,6 +100,7 @@ function worthALookLines(repo: RepoChangeMap, providerByName: Map<string, Provid
       path: gap.path, openPath: `${repo.sessionPathPrefix}${gap.path}`,
       heading: `Usually changes with ${gap.partner}, which is not in this change`,
       detail: `${gap.support} of the ${totalCommits} commits that touched it also touched ${gap.partner}.`,
+      conflictRisk: null,
     });
   }
   return lines;
@@ -124,8 +130,17 @@ function byOpenPathOrder(left: WorthALookLine, right: WorthALookLine): number {
   return left.openPath.localeCompare(right.openPath) || left.dedupeKey.localeCompare(right.dedupeKey);
 }
 
+function conflictRiskRank(group: WorthALookGroup): number {
+  return group.conflictRisk === null ? -1 : CONFLICT_RISK_RANK[group.conflictRisk];
+}
+
 function byWorthALookOrder(left: WorthALookGroup, right: WorthALookGroup): number {
-  return right.severity - left.severity || left.heading.localeCompare(right.heading) || left.groupKey.localeCompare(right.groupKey);
+  return right.severity - left.severity || conflictRiskRank(right) - conflictRiskRank(left) || left.heading.localeCompare(right.heading) || left.groupKey.localeCompare(right.groupKey);
+}
+
+function higherConflictRisk(current: ConflictRisk | null, candidate: ConflictRisk | null): ConflictRisk | null {
+  if (current === null || candidate === null) return current ?? candidate;
+  return CONFLICT_RISK_RANK[candidate] > CONFLICT_RISK_RANK[current] ? candidate : current;
 }
 
 function groupWorthALookLines(lines: Iterable<WorthALookLine>): WorthALookGroup[] {
@@ -134,9 +149,12 @@ function groupWorthALookLines(lines: Iterable<WorthALookLine>): WorthALookGroup[
     const group = groupByKey.get(line.groupKey);
     if (group) {
       group.lines.push(line);
+      group.conflictRisk = higherConflictRisk(group.conflictRisk, line.conflictRisk);
       continue;
     }
-    groupByKey.set(line.groupKey, { groupKey: line.groupKey, kind: line.kind, severity: line.severity, heading: line.heading, lines: [line] });
+    groupByKey.set(line.groupKey, {
+      groupKey: line.groupKey, kind: line.kind, severity: line.severity, heading: line.heading, conflictRisk: line.conflictRisk, lines: [line],
+    });
   }
   const groups = [...groupByKey.values()];
   for (const group of groups) group.lines.sort(byOpenPathOrder);

@@ -4111,6 +4111,9 @@ html:not([data-layout="phone"]) .review-controls :is(.review-branch-sync-refresh
 .review-look-group[data-kind="collision"] { border-left-color: var(--state-failed); }
 .review-look-group[data-kind="link"] { border-left-color: var(--accent); }
 .review-look-text { margin: 0 0 2px; color: var(--text); font-size: var(--type-meta); line-height: 1.45; }
+.review-look-risk { display: inline-block; padding: 0 4px; border: 1px solid var(--border-dim); border-radius: 3px; color: var(--text-dim); font-size: var(--type-meta); line-height: 1.5; white-space: nowrap; }
+.review-look-risk[data-risk="high"] { border-color: var(--state-failed); color: var(--state-failed); }
+.review-look-risk[data-risk="medium"] { color: var(--text); }
 .review-look-line {
   width: 100%;
   min-width: 0;

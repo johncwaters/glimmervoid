@@ -344,9 +344,9 @@ interface NewWorkPointer extends NewWorkRange {
   scratchObjectsDir: string;
 }
 
-const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
+export const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 
-function diffHeaderPath(line: string, sidePrefix: string): string | null {
+export function diffHeaderPath(line: string, sidePrefix: string): string | null {
   const rawPath = line.slice(4).replace(/\r$/, '').replace(/\t.*$/, '');
   const unquoted = rawPath.startsWith('"') && rawPath.endsWith('"') ? rawPath.slice(1, -1) : rawPath;
   if (unquoted === '/dev/null') return null;

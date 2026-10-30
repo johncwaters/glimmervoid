@@ -93,7 +93,42 @@ test('change map joins git facts for a real repo into one contract-valid map', {
     const blast = repo.blastRadius.find((fact) => fact.path === 'server/a.ts');
     assert.deepEqual(blast?.directDependents, ['server/b.ts', 'tests/a.test.ts']);
     assert.deepEqual(blast?.dependentTests, ['tests/a.test.ts']);
-    assert.deepEqual(repo.collisions.map((fact) => [fact.path, fact.otherSessionName]), [['server/a.ts', 'Sibling']]);
+    assert.deepEqual(repo.collisions.map((fact) => [fact.path, fact.otherSessionName, fact.conflictRisk]), [['server/a.ts', 'Sibling', 'high']]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('collision rating diffs only shared paths, once per cache window, and never without a collision', { skip: !hasGit() }, async () => {
+  const { root, base } = createFixtureRepo();
+  const siblingRoot = path.join(root, 'not-a-real-sibling-worktree');
+  try {
+    const commonDir = path.resolve(root, git(['rev-parse', '--git-common-dir'], root).trim());
+    const zeroContextDiffs: string[][] = [];
+    let siblingChangedPath = 'server/a.ts';
+    let nowMs = 0;
+    const self = fixtureSession('self', 'Self', () => [scopeOf(root, base)]);
+    const sibling = fixtureSession('sibling', 'Sibling', () => [{ ...modifiedScope(siblingRoot, siblingChangedPath), base }]);
+    const service = createChangeMapService({
+      sessions: new Map<string, ChangeMapSession>([[self.id, self], [sibling.id, sibling]]),
+      nowFn: () => nowMs,
+      runGit: async (args, cwd) => {
+        if (args.includes('-U0')) zeroContextDiffs.push(args.slice(args.indexOf('--') + 1));
+        if (cwd !== siblingRoot) return git(args, cwd);
+        if (args.includes('--git-common-dir')) return commonDir;
+        return 'diff --git a/server/a.ts b/server/a.ts\n--- a/server/a.ts\n+++ b/server/a.ts\n@@ -40 +40 @@\n-old\n+new\n';
+      },
+    });
+    const rated = await service.build(self);
+    assert.deepEqual(rated.repos[0].collisions.map((fact) => [fact.path, fact.conflictRisk, fact.conflictEvidence]), [['server/a.ts', 'low', 'The closest edits are 39 lines apart.']]);
+    assert.deepEqual(zeroContextDiffs, [['server/a.ts'], ['server/a.ts']]);
+    await service.build(self);
+    assert.equal(zeroContextDiffs.length, 2);
+    nowMs += 60000;
+    siblingChangedPath = 'server/unshared.ts';
+    const unshared = await service.build(self);
+    assert.deepEqual(unshared.repos[0].collisions, []);
+    assert.equal(zeroContextDiffs.length, 2);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

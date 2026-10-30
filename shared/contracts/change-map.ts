@@ -64,11 +64,16 @@ export const BlastRadiusFact = z.strictObject({
 });
 export type BlastRadiusFact = z.infer<typeof BlastRadiusFact>;
 
+export const ConflictRisk = z.enum(['high', 'medium', 'low']);
+export type ConflictRisk = z.infer<typeof ConflictRisk>;
+
 export const CollisionFact = z.strictObject({
   factId,
   path: repoPath,
   otherSessionId: z.string().min(1),
   otherSessionName: z.string(),
+  conflictRisk: ConflictRisk,
+  conflictEvidence: z.string(),
 });
 export type CollisionFact = z.infer<typeof CollisionFact>;
 
