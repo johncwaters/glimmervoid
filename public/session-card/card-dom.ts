@@ -72,6 +72,11 @@ export function setCardCoherenceJournal(journal: CardCoherenceJournal) {
 }
 
 let openCardSessionSetup: ((sessionId: string) => void) | null = null;
+let openCardConnectBoard: ((sessionId: string) => void) | null = null;
+
+export function setCardConnectBoard(open: (sessionId: string) => void) {
+  openCardConnectBoard = open;
+}
 
 export function setCardSessionSetup(open: (sessionId: string) => void) {
   openCardSessionSetup = open;
@@ -172,6 +177,13 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
     btnSessionMenu.setAttribute('aria-expanded', 'false');
     openLinkPullRequestDialog(sessionId);
   };
+  const btnConnectBoard = buildMenuItem('Connect board...', 'Connect or disconnect whiteboards for this session', 'overflow-connect-board visible');
+  btnConnectBoard.setAttribute('aria-haspopup', 'dialog');
+  btnConnectBoard.onclick = () => {
+    sessionMenu.classList.remove('open');
+    btnSessionMenu.setAttribute('aria-expanded', 'false');
+    openCardConnectBoard?.(sessionId);
+  };
   const btnCoherenceJournal = buildMenuItem('Coherence journal', 'Decisions and notes this session recorded', 'overflow-coherence-journal');
   btnCoherenceJournal.setAttribute('aria-haspopup', 'dialog');
   const paintCoherenceJournalItem = () => btnCoherenceJournal.classList.toggle('visible', cardCoherenceJournal?.isReadable(sessionId) === true);
@@ -191,7 +203,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   };
   const btnDebug = buildMenuItem('Debug state', 'State transitions and detection signals', 'overflow-debug');
   const btnTrace = buildMenuItem('Trace', 'Turns, tool calls and thinking this session recorded', 'overflow-trace');
-  sessionMenu.append(btnRestart, btnWorkspaceRepos, btnCoherenceJournal, btnSessionSetup, btnLinkPr, btnDebug, btnTrace);
+  sessionMenu.append(btnRestart, btnWorkspaceRepos, btnCoherenceJournal, btnSessionSetup, btnLinkPr, btnConnectBoard, btnDebug, btnTrace);
   sessionMenuWrap.append(btnSessionMenu, sessionMenu);
 
   const btnRemove = el('button', 'btn-action btn-remove visible');

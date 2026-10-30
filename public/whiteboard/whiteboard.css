@@ -310,6 +310,25 @@
   stroke-width: 2.6;
 }
 
+.wb-dock {
+  display: flex;
+  flex-direction: column;
+  height: 38vh;
+  min-height: 180px;
+  max-height: 70vh;
+  resize: vertical;
+  overflow: hidden;
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-lg);
+}
+
+.wb-dock[hidden] { display: none; }
+
+.wb-dock > .wb-docked-card {
+  flex: 1;
+  min-height: 0;
+}
+
 [data-layout='phone'] .boards-view {
   padding: 8px;
 }

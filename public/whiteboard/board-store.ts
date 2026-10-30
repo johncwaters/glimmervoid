@@ -14,7 +14,7 @@ const boardListeners: BoardListener[] = [];
 let boardSummaries: BoardSummary[] = [];
 
 function notifyList(): void {
-  for (const listener of listListeners) listener();
+  for (const listener of [...listListeners]) listener();
 }
 
 function notifyBoard(boardId: string): void {
@@ -62,8 +62,12 @@ export function openBoard(boardId: string): Promise<void> {
   return fetchBoard(boardId);
 }
 
-export function onBoardListChanged(listener: () => void): void {
+export function onBoardListChanged(listener: () => void): () => void {
   listListeners.push(listener);
+  return () => {
+    const index = listListeners.indexOf(listener);
+    if (index >= 0) listListeners.splice(index, 1);
+  };
 }
 
 export function onBoardChanged(listener: BoardListener): void {
@@ -127,4 +131,30 @@ export async function sendBoardOps(boardId: string, ops: readonly Op[]): Promise
 export async function deleteBoard(boardId: string): Promise<{ ok: true } | { ok: false; error: string }> {
   const outcome = await runBoardCommand('whiteboard-delete', { boardId });
   return outcome.ok ? { ok: true } : outcome;
+}
+
+export async function connectSessionToBoard(boardId: string, sessionId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const outcome = await runBoardCommand('whiteboard-connect', { boardId, sessionId });
+  return outcome.ok ? { ok: true } : outcome;
+}
+
+export async function disconnectSessionFromBoard(boardId: string, sessionId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const outcome = await runBoardCommand('whiteboard-disconnect', { boardId, sessionId });
+  return outcome.ok ? { ok: true } : outcome;
+}
+
+export function boardsConnectedTo(sessionId: string): readonly BoardSummary[] {
+  return boardSummaries.filter((summary) => summary.connectedSessionIds.includes(sessionId));
+}
+
+let pendingOpenRequest: { boardId: string; dockSessionId: string | null } | null = null;
+
+export function requestOpenBoard(boardId: string, dockSessionId: string | null): void {
+  pendingOpenRequest = { boardId, dockSessionId };
+}
+
+export function takeOpenBoardRequest(): { boardId: string; dockSessionId: string | null } | null {
+  const request = pendingOpenRequest;
+  pendingOpenRequest = null;
+  return request;
 }

@@ -2,6 +2,7 @@ import './whiteboard.css';
 import type { Board, BoardSummary, Element, Op } from '#shared/contracts/whiteboard.ts';
 import { WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import { createActionStatus } from '../action-status.ts';
+import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
 import { el } from '../dom-helpers.ts';
 import { findSessionUi, sessionName } from '../session-card/card-registry.ts';
 import { buildDialogShell, openConfirmDialog } from '../session-card/modal.ts';
@@ -11,7 +12,7 @@ import type { BoardEditor } from './board-edit.ts';
 import { createBoardRenderer } from './board-render.ts';
 import type { BoardRenderer } from './board-render.ts';
 import {
-  boardSummariesOf, createBoard, deleteBoard, onBoardChanged, onBoardListChanged, openBoard, openBoardOf, sendBoardOps,
+  boardSummariesOf, createBoard, deleteBoard, onBoardChanged, onBoardListChanged, openBoard, openBoardOf, sendBoardOps, takeOpenBoardRequest,
 } from './board-store.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
@@ -38,6 +39,7 @@ interface BoardsViewParts {
   toolbar: HTMLElement;
   canvas: HTMLElement;
   empty: HTMLElement;
+  dock: HTMLElement;
   buttons: Record<'box' | 'wire' | 'note' | 'frame' | 'fit' | 'remove', HTMLButtonElement>;
 }
 
@@ -46,6 +48,7 @@ let parts: BoardsViewParts | null = null;
 let renderer: BoardRenderer | null = null;
 let editor: BoardEditor | null = null;
 let shouldFitOnNextRender = true;
+let dockedSessionId: string | null = null;
 const status = createActionStatus('action-status wb-status');
 
 function openTextDialog(options: TextDialogOptions): void {
@@ -341,9 +344,11 @@ function mountBoardsView(panel: HTMLElement): void {
   svg.setAttribute('preserveAspectRatio', 'xMidYMin meet');
   canvas.append(svg);
   const empty = el('p', 'wb-empty', EMPTY_TEXT);
+  const dock = el('div', 'wb-dock');
+  dock.hidden = true;
 
-  panel.replaceChildren(top, boardHead, canvas, empty);
-  parts = { list, boardHead, boardTitle, boardMeta, presence, toolbar, canvas, empty, buttons };
+  panel.replaceChildren(top, boardHead, canvas, empty, dock);
+  parts = { list, boardHead, boardTitle, boardMeta, presence, toolbar, canvas, empty, dock, buttons };
   const boardRenderer = createBoardRenderer(svg);
   renderer = boardRenderer;
   editor = createBoardEditor({
@@ -364,9 +369,33 @@ function mountBoardsView(panel: HTMLElement): void {
   paintList();
 }
 
+function isPhoneLayout(): boolean {
+  return document.documentElement.dataset.layout === 'phone';
+}
+
+function undockSession(): void {
+  if (dockedSessionId && getBorrowedCardId() === dockedSessionId) releaseCard();
+  dockedSessionId = null;
+  if (parts) parts.dock.hidden = true;
+}
+
+function dockSession(sessionId: string): void {
+  if (!parts || isPhoneLayout()) return;
+  const ui = findSessionUi(sessionId);
+  if (!ui) return;
+  dockedSessionId = sessionId;
+  parts.dock.hidden = false;
+  borrowCard(ui, sessionId, parts.dock, { className: 'wb-docked-card' });
+}
+
 function refreshBoardsView(): void {
+  const request = takeOpenBoardRequest();
+  if (request) {
+    selectBoard(request.boardId);
+    if (request.dockSessionId) dockSession(request.dockSessionId);
+  }
   paintList();
   if (selectedBoardId) void openBoard(selectedBoardId).then(paintBoard);
 }
 
-export const view: ViewModule<HTMLElement> = { mount: mountBoardsView, refresh: refreshBoardsView };
+export const view: ViewModule<HTMLElement> = { mount: mountBoardsView, refresh: refreshBoardsView, deactivate: undockSession };

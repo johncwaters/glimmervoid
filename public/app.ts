@@ -39,6 +39,7 @@ import { markStatusDirty, setStatusPainter } from './status-paint.ts';
 import { applyMyPrMergeResult, applyMyPrsStatus, refreshMyPrsSessionState } from './github/my-prs-store.ts';
 import { forgetSessionLinkedPrs, paintSessionPrChips, sessionRowPrSignals, setSessionLinkedPrs } from './github/session-pr-chips.ts';
 import { addSessionRowSignalSource } from './session-row.ts';
+import { openConnectBoardDialog, sessionRowBoardSignals, setBoardsViewOpener } from './whiteboard/board-chips.ts';
 import { nextRovingIndex, wrapIndex } from './roving-keys-core.ts';
 import { wirePopupMenuKeys } from './menu.ts';
 import { mountCelebrationTray } from './merge-celebration.ts';
@@ -48,7 +49,7 @@ import { applyIssueDetailResult, refreshIssuesSessionState, applyIssuesStatus, a
 
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID } from './radar/radar-core.ts';
 import { applyInvestigationActivity, applyInvestigationFinished, applyRadarStatus } from './radar/radar-store.ts';
-import { handleDebugStateRefresh, handleDebugStateResponse, setCardCoherenceJournal, setLinkedPrsPainter, setCardSessionSetup, setSessionSaneYolo } from './session-card/card-dom.ts';
+import { handleDebugStateRefresh, handleDebugStateResponse, setCardCoherenceJournal, setCardConnectBoard, setLinkedPrsPainter, setCardSessionSetup, setSessionSaneYolo } from './session-card/card-dom.ts';
 import { applySessionSetupResponse, openSessionSetup } from './session-setup/setup-dialog.ts';
 import { attentionTally, findSessionUi, sessionName, sessionUIs } from './session-card/card-registry.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
@@ -434,6 +435,9 @@ setBenchmarkRequestSender(sendControlMsg);
 setLinkedPrsPainter(paintSessionPrChips);
 addSessionRowSignalSource(sessionRowCoherenceSignals);
 addSessionRowSignalSource(sessionRowPrSignals);
+addSessionRowSignalSource(sessionRowBoardSignals);
+setCardConnectBoard(openConnectBoardDialog);
+setBoardsViewOpener(() => openView('boards'));
 setCardCoherenceJournal({ isReadable: isSessionJournalReadable, open: openCoherenceJournal });
 setCardSessionSetup(openSessionSetup);
 

@@ -45,3 +45,25 @@ export async function verifyBoards(page: Page, layout: Layout): Promise<void> {
   assert.equal(await panel.getByRole('button', { name: 'fit', exact: true }).isVisible(), true);
   assert.equal(await panel.getByRole('button', { name: boardTitle }).count(), 1);
 }
+
+export async function verifyBoardDock(page: Page, sessionId: string): Promise<void> {
+  const boardTitle = `Dock plan ${sessionId.slice(0, 8)}`;
+  await page.locator('#tab-boards').click();
+  const panel = page.locator('.boards-view');
+  await panel.getByRole('button', { name: 'new board', exact: true }).click();
+  await submitTextDialog(page, 'Board title', boardTitle, 'Create board');
+  await panel.locator('.wb-board-title', { hasText: boardTitle }).waitFor();
+  await page.locator('#tab-focus').click();
+  const card = page.locator(`.session-card[data-id="${sessionId}"]`).first();
+  await card.getByRole('button', { name: 'Session actions', exact: true }).click();
+  await card.locator('.overflow-connect-board').click();
+  await page.getByRole('combobox', { name: 'Board to connect', exact: true }).selectOption({ label: boardTitle });
+  await page.getByRole('button', { name: 'Connect', exact: true }).click();
+  const boardChip = page.locator(`.focus-rail .session-row[data-id="${sessionId}"]`).locator('.session-board-chip', { hasText: `board: ${boardTitle}` });
+  await boardChip.waitFor();
+  await boardChip.click();
+  await panel.locator('.wb-board-title', { hasText: boardTitle }).waitFor();
+  await panel.locator(`.wb-dock .session-card[data-id="${sessionId}"]`).waitFor({ state: 'visible' });
+  await page.locator('#tab-focus').click();
+  assert.equal(await panel.locator('.wb-dock .session-card').count(), 0, 'leaving the board hands the card back');
+}
