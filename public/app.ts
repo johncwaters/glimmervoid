@@ -428,6 +428,10 @@ function restoreUsageChip(sessionId: string) {
 }
 
 setUsageRequestSender(sendControlMsg);
+void import('./your-day-tip.ts').then(
+  (yourDayTip) => yourDayTip.startYourDayTips({ openUsage: () => openView('usage') }),
+  (error: unknown) => reportToServerLog('your-day-tip', `your day tips failed to load: ${describeFailure(error)}`),
+);
 setHooksRequestSender(sendControlMsg);
 setTraceRequestSender(sendControlMsg);
 setIssuesRequestSender(sendControlMsg);

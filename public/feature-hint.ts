@@ -37,13 +37,21 @@ function openHintedFeature(feature: HintFeature, host: FeatureHintHost) {
   if (settingTarget) host.openSetting(settingTarget.sectionId, settingTarget.settingId);
 }
 
-export function showFeatureHint(hint: FeatureHint, host: FeatureHintHost) {
-  if (shownHintCard?.isConnected) return;
-  if (!claimHint(hint)) return;
+interface HintCardActions {
+  text: string;
+  ariaLabel: string;
+  onOpen: () => void;
+  onDismiss: () => void;
+}
 
+export function isHintCardShown() {
+  return shownHintCard?.isConnected === true;
+}
+
+export function showHintCard({ text, ariaLabel, onOpen, onDismiss }: HintCardActions) {
   const hintCard = el('aside', 'feature-hint');
   hintCard.setAttribute('aria-live', 'polite');
-  hintCard.setAttribute('aria-label', 'Feature tip');
+  hintCard.setAttribute('aria-label', ariaLabel);
   const bubble = el('div', 'feature-hint-bubble');
   const showButton = el('button', 'btn-dialog btn-dialog-confirm', 'Show me');
   const dismissButton = el('button', 'btn-dialog btn-dialog-cancel', 'Nah');
@@ -51,22 +59,38 @@ export function showFeatureHint(hint: FeatureHint, host: FeatureHintHost) {
   dismissButton.type = 'button';
   const actions = el('div', 'feature-hint-actions');
   actions.append(dismissButton, showButton);
-  bubble.append(el('p', 'feature-hint-text', featureHintMessage(hint)), actions);
+  bubble.append(el('p', 'feature-hint-text', text), actions);
   const animal = pickRandomIncludedAnimal() ?? ANIMALS[0];
   hintCard.append(bubble, buildFlyingAnimalPreview(animal, 'feature-hint-animal'));
 
-  function closeHint(action: 'open' | 'dismiss') {
-    reportHintAction(hint.feature, action);
+  function closeHint() {
     hintCard.remove();
     shownHintCard = null;
   }
   showButton.addEventListener('click', () => {
-    closeHint('open');
-    openHintedFeature(hint.feature, host);
+    closeHint();
+    onOpen();
   });
-  dismissButton.addEventListener('click', () => closeHint('dismiss'));
+  dismissButton.addEventListener('click', () => {
+    closeHint();
+    onDismiss();
+  });
 
   document.body.append(hintCard);
   shownHintCard = hintCard;
+}
+
+export function showFeatureHint(hint: FeatureHint, host: FeatureHintHost) {
+  if (isHintCardShown()) return;
+  if (!claimHint(hint)) return;
+  showHintCard({
+    text: featureHintMessage(hint),
+    ariaLabel: 'Feature tip',
+    onOpen: () => {
+      reportHintAction(hint.feature, 'open');
+      openHintedFeature(hint.feature, host);
+    },
+    onDismiss: () => reportHintAction(hint.feature, 'dismiss'),
+  });
   reportHintAction(hint.feature, 'shown');
 }
