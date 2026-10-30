@@ -8,7 +8,7 @@ import {
 } from '../server/usage/core/usage-pricing-core.ts';
 import pricingSnapshot from '../server/data/claude-pricing.json' with { type: 'json' };
 
-test('the snapshot prices every current Claude 5.x model under its own key instead of an older fuzzy match', () => {
+test('the snapshot prices every current Claude 5.x and listed Kimi Code model under its own key instead of an older fuzzy match', () => {
   const table = normalizePricingTable(pricingSnapshot);
   const expectedInputRates: Record<string, number> = {
     'claude-haiku-5-5': 1e-7,
@@ -16,6 +16,8 @@ test('the snapshot prices every current Claude 5.x model under its own key inste
     'claude-sonnet-5-5': 0.000002,
     'claude-fable-5-1': 0.00001,
     'claude-mythos-5-1': 0.00001,
+    'kimi-code/k3.1-pro': 0.000002,
+    'kimi-code/k3': 0.000003,
   };
   for (const [model, inputRate] of Object.entries(expectedInputRates)) {
     const resolved = lookupModelPrice(table, model);

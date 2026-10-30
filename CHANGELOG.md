@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Kimi Code K3.1 Pro and K3 are priced**: the Usage tab no longer reports "No price" for `kimi-code/k3.1-pro` and `kimi-code/k3` and counts their sessions as free. It now estimates them at Moonshot list price. `kimi-code/kimi-for-coding` (K2.8 Preview) has no published price, so it still shows as unpriced.
+
 ## [0.48.1] - 2026-10-30
 
 ### Added

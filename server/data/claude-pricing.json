@@ -2,7 +2,7 @@
   "_meta": {
     "source": "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json",
     "fetchedAt": "2026-08-19T19:16:37.705Z",
-    "coverage": "anthropic (Claude Code) plus openai gpt-5 family (Codex CLI). Grok prices itself from its own transcripts and is deliberately absent."
+    "coverage": "anthropic (Claude Code) plus openai gpt-5 family (Codex CLI) plus moonshot list prices for Kimi Code models keyed by their wire.jsonl id (kimi-for-coding is a preview alias with no list price). Grok prices itself from its own transcripts and is deliberately absent."
   },
   "models": {
     "claude-3-5-haiku-20241022": {
@@ -616,6 +616,22 @@
       "cache_read_input_token_cost": 2e-7,
       "max_input_tokens": 1050000,
       "litellm_provider": "openai"
+    },
+    "kimi-code/k3": {
+      "input_cost_per_token": 0.000003,
+      "output_cost_per_token": 0.000015,
+      "cache_creation_input_token_cost": 0.000003,
+      "cache_read_input_token_cost": 3e-7,
+      "max_input_tokens": 1048576,
+      "litellm_provider": "moonshot"
+    },
+    "kimi-code/k3.1-pro": {
+      "input_cost_per_token": 0.000002,
+      "output_cost_per_token": 0.00001,
+      "cache_creation_input_token_cost": 0.000002,
+      "cache_read_input_token_cost": 2e-7,
+      "max_input_tokens": 1048576,
+      "litellm_provider": "moonshot"
     }
   }
 }
