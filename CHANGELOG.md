@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Set up Reviews from the Reviews tab**: with Team review on but no GitHub teams chosen, the Reviews tab, on desktop and phone, now shows a setup card instead of an empty queue that read "all clear". It checks that the GitHub CLI is signed in, showing your login or the `gh auth login` command with Check again. It then lists your GitHub teams as checkboxes, with a box to type `org/team-slug` for any team it cannot list. Save teams starts Team review and My PRs straight away.
 - **Pick a review skill from the Reviews tab**: until you choose which skill Team review runs, a one-line notice above the review queue offers your reviewer agent's skills, or No skill, with Save skill.
 
+### Changed
+
+- **Radar is one triage queue**: the Radar tab now lists live issues and unarchived investigations together in three tiers. NOW holds fixes waiting for your approval and calls only you can make, NEXT holds running investigations, failed runs and new or worsening issues nobody has looked at, and LATER holds quiet issues and explained ones waiting to be archived. An issue and its investigation share one row, headed by what the investigation found rather than the exception name, with a four-step bar showing how far it got (seen, investigating, verdict, fix staged). Select a row to see its detail pane with every action, the most useful one first, and a strip of the last 14 days of occurrences with the days it was investigated marked. Press J and K or the arrow keys to move, Enter for the first action and E to archive. **Archive transient** clears every transient investigation in LATER at once. Quiet projects, poll failures and stale projects move to one line at the bottom. On a phone the detail opens under the row you tap.
+
 ### Removed
 
 - **Your day after-22:00 tip**: Your day no longer shows the "time after 22:00" tip, whose wording read as a clock time rather than how long you worked late.
