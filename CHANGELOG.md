@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-10-29
+
 ### Added
 
 - **Whiteboards you and your sessions edit together**: the new Boards tab holds boards of boxes in columns, wires between them, frames around groups and sticky notes, drawn in Comic Mono. Create a board, add and drag boxes, wire two of them, pin a note or frame a group, and every change shows up live in every open dashboard. A session works the same board with `glimmervoid whiteboard` (`new`, `list`, `connect`, `get`, `put`, `resolve`), and `get` tells it in one line per element what someone else changed since it last looked. Boards live in `~/.glimmervoid/whiteboards/` and survive restarts; deleting one tells every connected session it is gone. Connect a session to a board from its card menu with **Connect board...**; the session's row then carries a `board:` chip, and clicking it opens the board with that session's card docked beneath it, so you can watch and steer the agent while the board changes. A connected session hears about other people's edits without asking: the chip and the dock show how many are queued, your next prompt to that session carries a one-line summary of each, and **send to agent** in the dock tells an idle agent to read the board. On a phone the board pans and pinches, and tapping a box pins a note on it.
