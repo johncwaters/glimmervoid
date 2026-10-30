@@ -21,7 +21,7 @@ export function createSignal(signal: Signal, { className = '', linkUrl, ariaLabe
     signalElement.dataset.tone = signal.look.tone;
     signalElement.append(createPrStatusIcon(signal.look.icon, signal.look.tone));
   }
-  signalElement.append(signal.text);
+  signalElement.append(el('span', 'signal-text', signal.text));
   if (onActivate) makeSignalActivatable(signalElement, onActivate, !linkUrl);
   return signalElement;
 }
@@ -67,11 +67,21 @@ function createSignalOverflow(ranked: RankedSignals<Signal>): HTMLElement | null
   return overflow;
 }
 
-export function paintSignalLine<Line extends ActivatableSignal>(slot: HTMLElement, signals: readonly Line[], buildSignal: (signal: Line) => HTMLElement = (signal) => createSignal(signal, signal)): void {
-  const signature = signalsSignature(signals);
+interface SignalLineOptions {
+  visibleCount?: number;
+  variant?: string;
+}
+
+export function paintSignalLine<Line extends ActivatableSignal>(
+  slot: HTMLElement,
+  signals: readonly Line[],
+  buildSignal: (signal: Line) => HTMLElement = (signal) => createSignal(signal, signal),
+  { visibleCount, variant = '' }: SignalLineOptions = {},
+): void {
+  const signature = `${variant}\n${signalsSignature(signals)}`;
   if (slot.dataset.signalSignature === signature) return;
   slot.dataset.signalSignature = signature;
-  const ranked = rankSignals(signals);
+  const ranked = rankSignals(signals, visibleCount);
   const signalElements = ranked.visible.map(buildSignal);
   const overflow = createSignalOverflow(ranked);
   if (overflow) signalElements.push(overflow);

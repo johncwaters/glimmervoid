@@ -203,8 +203,8 @@ function onPillActivate(id: string) {
 
 function paintPill(pill: FocusPill, { id, ui, state, name }: RosterRow, attentionPosition: number | null) {
   const mergeStatus = mergeStatusById.get(id) || 'none';
-  paintSessionRow(pill, pill._refs, { ui, state, name: name ?? '', mergeStatus: mergeStatus === 'none' ? '' : mergeStatus, attentionPosition });
   pill.classList.toggle('focused', id === getFocusedSessionId());
+  paintSessionRow(pill, pill._refs, { ui, state, name: name ?? '', mergeStatus: mergeStatus === 'none' ? '' : mergeStatus, attentionPosition });
   pill.classList.toggle('has-unopened-shown', hasUnopenedShownFiles(id));
   const isTabStop = id === railTabStopId;
   writeAttributeIfChanged(pill, 'aria-selected', String(isTabStop));

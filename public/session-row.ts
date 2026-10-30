@@ -8,13 +8,15 @@ import type { SessionUi } from './session-card/card-registry.ts';
 import { sessionElapsedText } from './session-card/session-tick.ts';
 import { SIGNAL_TIER } from './signal-core.ts';
 import type { Signal } from './signal-core.ts';
-import { paintSignalLine } from './signal.ts';
+import { createSignal, paintSignalLine } from './signal.ts';
 import { CLOSE_ICON_PATH, CLOUD_ICON_PATH, createLineIcon } from './svg-dom.ts';
 import type { ActivatableSignal } from './signal.ts';
 
 export type SessionRowRefs = ReturnType<typeof buildSessionRow>['refs'];
 type SessionRowSignalSource = (sessionId: string) => ActivatableSignal[];
-const sessionRowSignalSources: SessionRowSignalSource[] = [];
+type SessionRowSignalSlot = 'status' | 'links';
+const sessionRowSignalSources: { source: SessionRowSignalSource; slot: SessionRowSignalSlot }[] = [];
+const FOCUSED_LINK_LIMIT = 5;
 
 const PLAN_PROMPT_KIND = 'plan';
 
@@ -23,8 +25,8 @@ const MERGE_SIGNALS: Readonly<Record<string, Omit<Signal, 'key'>>> = {
   merging: { text: 'MERGING', hoverText: 'Merging', look: { icon: 'queued', tone: 'wait' }, tier: SIGNAL_TIER.waiting },
 };
 
-export function addSessionRowSignalSource(source: SessionRowSignalSource) {
-  sessionRowSignalSources.push(source);
+export function addSessionRowSignalSource(source: SessionRowSignalSource, slot: SessionRowSignalSlot = 'status') {
+  sessionRowSignalSources.push({ source, slot });
 }
 
 function mergeSignals(mergeStatus: string): ActivatableSignal[] {
@@ -32,16 +34,39 @@ function mergeSignals(mergeStatus: string): ActivatableSignal[] {
   return mergeSignal ? [{ ...mergeSignal, key: 'merge' }] : [];
 }
 
-function paintSessionRowSignals(slot: HTMLElement) {
-  const row = slot.closest<HTMLElement>('.session-row');
-  const sessionId = row?.dataset.id;
-  if (!row || !sessionId) return;
-  const signals = [...mergeSignals(row.dataset.merge ?? ''), ...sessionRowSignalSources.flatMap((source) => source(sessionId))];
-  paintSignalLine(slot, signals);
+function signalsFromSlot(sessionId: string, slot: SessionRowSignalSlot): ActivatableSignal[] {
+  return sessionRowSignalSources.filter((registered) => registered.slot === slot).flatMap((registered) => registered.source(sessionId));
+}
+
+function buildLinkListItem(signal: ActivatableSignal): HTMLElement {
+  const item = createSignal({ ...signal, text: signal.detailText ?? signal.text }, signal);
+  item.classList.add('session-row-link-item');
+  if (signal.stateText) item.append(el('span', 'session-row-link-state', signal.stateText));
+  return item;
+}
+
+function paintSessionRowLinks(row: HTMLElement, linksSlot: HTMLElement, sessionId: string) {
+  const links = signalsFromSlot(sessionId, 'links');
+  const isExpanded = row.classList.contains('focused');
+  linksSlot.toggleAttribute('data-expanded', isExpanded);
+  if (isExpanded) {
+    paintSignalLine(linksSlot, links, buildLinkListItem, { visibleCount: FOCUSED_LINK_LIMIT, variant: 'expanded' });
+    return;
+  }
+  paintSignalLine(linksSlot, links, undefined, { visibleCount: links.length, variant: 'line' });
+}
+
+function paintSessionRowSignals(row: HTMLElement) {
+  const sessionId = row.dataset.id;
+  const statusSlot = row.querySelector<HTMLElement>('.session-row-signals');
+  const linksSlot = row.querySelector<HTMLElement>('.session-row-links');
+  if (!sessionId || !statusSlot || !linksSlot) return;
+  paintSignalLine(statusSlot, [...mergeSignals(row.dataset.merge ?? ''), ...signalsFromSlot(sessionId, 'status')]);
+  paintSessionRowLinks(row, linksSlot, sessionId);
 }
 
 export function repaintSessionRowSignals() {
-  for (const slot of document.querySelectorAll<HTMLElement>('.session-row-signals')) paintSessionRowSignals(slot);
+  for (const row of document.querySelectorAll<HTMLElement>('.session-row')) paintSessionRowSignals(row);
 }
 
 export function buildSessionRow<Tag extends 'button' | 'div'>(tagName: Tag, extraClassName = '') {
@@ -54,7 +79,9 @@ export function buildSessionRow<Tag extends 'button' | 'div'>(tagName: Tag, extr
     + '<span class="session-row-meta">'
     + '<span class="session-row-label"></span>'
     + '<span class="session-row-signals" hidden></span>'
-    + '</span></span>'
+    + '</span>'
+    + '<span class="session-row-links" hidden></span>'
+    + '</span>'
     + '<span class="session-row-elapsed" aria-hidden="true"></span>'
     + '<span class="session-row-attention-tab" aria-hidden="true" hidden></span>';
   const refs = {
@@ -149,7 +176,7 @@ export function paintSessionRow(
   writeTextIfChanged(refs.task, ui.taskTitle ?? '');
   writeHiddenIfChanged(refs.task, !ui.taskTitle || ui.taskTitle === name);
   writeDataIfChanged(row, 'merge', mergeStatus);
-  paintSessionRowSignals(refs.signals);
+  paintSessionRowSignals(row);
   writeDataIfChanged(row, 'activity', ui._activity || '');
   writeTextIfChanged(refs.elapsed, sessionElapsedText(ui));
   const ownershipText = paintSessionRowOwnership(row, refs, ui);

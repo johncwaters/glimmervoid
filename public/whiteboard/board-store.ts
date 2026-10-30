@@ -12,6 +12,7 @@ const pendingFetchByBoardId = new Map<string, Promise<void>>();
 const listListeners: (() => void)[] = [];
 const boardListeners: BoardListener[] = [];
 let boardSummaries: BoardSummary[] = [];
+let boardsBySessionId = new Map<string, BoardSummary[]>();
 
 function notifyList(): void {
   for (const listener of [...listListeners]) listener();
@@ -74,8 +75,24 @@ export function onBoardChanged(listener: BoardListener): void {
   boardListeners.push(listener);
 }
 
+function indexBoardsBySession(): void {
+  const index = new Map<string, BoardSummary[]>();
+  for (const summary of boardSummaries) {
+    for (const sessionId of summary.connectedSessionIds) {
+      const sessionBoards = index.get(sessionId);
+      if (sessionBoards) {
+        sessionBoards.push(summary);
+        continue;
+      }
+      index.set(sessionId, [summary]);
+    }
+  }
+  boardsBySessionId = index;
+}
+
 export function applyWhiteboardsSnapshot(message: ServerMessageOf<'whiteboards-snapshot'>): void {
   boardSummaries = [...message.boards].sort((left, right) => right.updatedAt - left.updatedAt);
+  indexBoardsBySession();
   const versionByBoardId = new Map(boardSummaries.map((summary) => [summary.id, summary.version]));
   for (const [boardId, board] of [...openBoardsById]) {
     const knownVersion = versionByBoardId.get(boardId);
@@ -111,6 +128,7 @@ export function applyWhiteboardPatch(message: ServerMessageOf<'whiteboard-patch'
 export function applyWhiteboardRemoved(message: ServerMessageOf<'whiteboard-removed'>): void {
   openBoardsById.delete(message.boardId);
   boardSummaries = boardSummaries.filter((summary) => summary.id !== message.boardId);
+  indexBoardsBySession();
   notifyBoard(message.boardId);
   notifyList();
 }
@@ -149,7 +167,7 @@ export async function nudgeSessionAboutBoard(boardId: string, sessionId: string)
 }
 
 export function boardsConnectedTo(sessionId: string): readonly BoardSummary[] {
-  return boardSummaries.filter((summary) => summary.connectedSessionIds.includes(sessionId));
+  return boardsBySessionId.get(sessionId) ?? [];
 }
 
 let pendingOpenRequest: { boardId: string; dockSessionId: string | null } | null = null;

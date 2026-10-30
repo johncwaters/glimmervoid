@@ -25,7 +25,7 @@ function openBoardForSession(boardId: string, sessionId: string | null): void {
 function queuedEditsText(summary: BoardSummary, sessionId: string): string {
   const queuedCount = summary.queuedBySessionId[sessionId] ?? 0;
   if (queuedCount === 0) return '';
-  return `, ${queuedCount} queued`;
+  return `${queuedCount} queued`;
 }
 
 function boardSignal(summary: BoardSummary, sessionId: string, text: string): ActivatableSignal {
@@ -34,7 +34,9 @@ function boardSignal(summary: BoardSummary, sessionId: string, text: string): Ac
   return {
     key: `board:${summary.id}`,
     text,
-    hoverText: `${summary.title}${queuedText}. Open it with this session docked beside it`,
+    detailText: summary.title,
+    stateText: queuedText,
+    hoverText: `${summary.title}${queuedText ? `, ${queuedText}` : ''}. Open it with this session docked beside it`,
     look: { icon: 'board', tone },
     tier: tierForTone(tone),
     className: 'session-pr-chip session-board-chip',
@@ -44,11 +46,12 @@ function boardSignal(summary: BoardSummary, sessionId: string, text: string): Ac
 }
 
 function titledBoardSignal(summary: BoardSummary, sessionId: string): ActivatableSignal {
-  return boardSignal(summary, sessionId, `${summary.title}${queuedEditsText(summary, sessionId)}`);
+  const queuedText = queuedEditsText(summary, sessionId);
+  return boardSignal(summary, sessionId, queuedText ? `${summary.title}, ${queuedText}` : summary.title);
 }
 
 export function sessionRowBoardSignals(sessionId: string): ActivatableSignal[] {
-  return boardsConnectedTo(sessionId).map((summary) => boardSignal(summary, sessionId, 'Board'));
+  return boardsConnectedTo(sessionId).map((summary) => boardSignal(summary, sessionId, summary.title));
 }
 
 function createUnlinkableBoardChip(summary: BoardSummary, sessionId: string, onUnlinked: (error: string | null) => void): HTMLElement {

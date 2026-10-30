@@ -61,7 +61,7 @@ export async function verifyBoardDock(page: Page, sessionId: string): Promise<vo
   await page.getByRole('button', { name: 'Connect', exact: true }).click();
   const boardChip = page.locator(`.focus-rail .session-row[data-id="${sessionId}"]`).locator(`.session-board-chip[aria-label="Open board ${boardTitle}"]`);
   await boardChip.waitFor();
-  assert.equal((await boardChip.textContent())?.trim(), 'Board');
+  assert.equal((await boardChip.textContent())?.trim(), boardTitle);
   assert.equal(await boardChip.locator('.pr-status-icon').count(), 1, 'the board chip carries an icon like a PR chip');
   await boardChip.click();
   await panel.locator('.wb-board-tab[aria-pressed="true"]', { hasText: boardTitle }).waitFor();

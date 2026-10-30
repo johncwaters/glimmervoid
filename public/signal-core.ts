@@ -16,6 +16,8 @@ export interface Signal {
   key: string;
   text: string;
   hoverText: string;
+  detailText?: string;
+  stateText?: string;
   look: SignalLook | null;
   tier: SignalTier;
 }
@@ -30,16 +32,16 @@ export function tierForTone(tone: StateTone | undefined): SignalTier {
   return tone ? TIER_BY_TONE[tone] : SIGNAL_TIER.settled;
 }
 
-export function rankSignals<Ranked extends Signal>(signals: readonly Ranked[]): RankedSignals<Ranked> {
+export function rankSignals<Ranked extends Signal>(signals: readonly Ranked[], visibleCount = VISIBLE_SIGNALS): RankedSignals<Ranked> {
   const ranked = [...signals].sort((left, right) => left.tier - right.tier);
-  const hidden = ranked.slice(VISIBLE_SIGNALS);
+  const hidden = ranked.slice(visibleCount);
   return {
-    visible: ranked.slice(0, VISIBLE_SIGNALS),
+    visible: ranked.slice(0, visibleCount),
     overflowCount: hidden.length,
     overflowHoverText: hidden.map((signal) => `${signal.text} ${signal.hoverText}`).join('\n'),
   };
 }
 
 export function signalsSignature(signals: readonly Signal[]): string {
-  return signals.map((signal) => [signal.key, signal.text, signal.hoverText, signal.look?.icon, signal.look?.tone, signal.tier].join('|')).join('\n');
+  return signals.map((signal) => [signal.key, signal.text, signal.hoverText, signal.look?.icon, signal.look?.tone, signal.tier, signal.detailText, signal.stateText].join('|')).join('\n');
 }

@@ -439,7 +439,7 @@ setBenchmarkRequestSender(sendControlMsg);
 setLinkedPrsPainter(paintSessionPrChips);
 addSessionRowSignalSource(sessionRowCoherenceSignals);
 addSessionRowSignalSource(sessionRowPrSignals);
-addSessionRowSignalSource(sessionRowBoardSignals);
+addSessionRowSignalSource(sessionRowBoardSignals, 'links');
 setCardConnectBoard(openConnectBoardDialog);
 setBoardsViewOpener(() => openView('boards'));
 setCardCoherenceJournal({ isReadable: isSessionJournalReadable, open: openCoherenceJournal });
