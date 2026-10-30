@@ -91,7 +91,7 @@ const TRANSITIONS_ALLOWED_BY_STATE: Readonly<Record<UpdateRunState, readonly Upd
   idle: Object.freeze<UpdateTransitionName[]>(['begin-run']),
   running: Object.freeze<UpdateTransitionName[]>(['begin-step', 'finish-step', 'fail-run', 'mark-staged', 'mark-interrupted']),
   staged: Object.freeze<UpdateTransitionName[]>(['fail-run', 'mark-succeeded', 'mark-discarded']),
-  succeeded: Object.freeze<UpdateTransitionName[]>(['begin-run']),
+  succeeded: Object.freeze<UpdateTransitionName[]>(['begin-run', 'fail-run']),
   failed: Object.freeze<UpdateTransitionName[]>(['begin-run']),
   discarded: Object.freeze<UpdateTransitionName[]>(['begin-run']),
   interrupted: Object.freeze<UpdateTransitionName[]>(['begin-run']),
@@ -285,6 +285,7 @@ interface NpmGlobalLayout {
   stagePrefix: string;
   stagedPackagePath: string;
   previousPackagePath: string;
+  quarantinedPackagePath: string;
 }
 
 function decideNpmGlobalLayout(packageRoot: string): NpmGlobalLayout | null {
@@ -301,6 +302,7 @@ function decideNpmGlobalLayout(packageRoot: string): NpmGlobalLayout | null {
     stagePrefix,
     stagedPackagePath: `${stagePrefix}/lib/node_modules/${NPM_PACKAGE_FOLDER_NAME}`,
     previousPackagePath: `${updatePath}/previous`,
+    quarantinedPackagePath: `${updatePath}/broken`,
   };
 }
 

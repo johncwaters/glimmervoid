@@ -50,6 +50,8 @@ const MERGE_COMMAND_TIMEOUT_MS = 30_000;
 const INSTALL_TIMEOUT_MS = 15 * 60_000;
 const BUILD_TIMEOUT_MS = 10 * 60_000;
 const VERIFY_TIMEOUT_MS = 60_000;
+const SUCCESSOR_LISTEN_TIMEOUT_MS = 30_000;
+const SUCCESSOR_POLL_INTERVAL_MS = 500;
 const COMMAND_MAX_BUFFER = 16 * 1024 * 1024;
 const RESTORE_MARKER_NAME = 'restore.json';
 
@@ -108,6 +110,12 @@ interface CloneStagedDescriptor {
 
 type StagedDescriptor = CloneStagedDescriptor | NpmGlobalStagedDescriptor;
 
+interface SuccessorProcess {
+  once(event: 'exit', listener: () => void): unknown;
+}
+
+type SuccessorFate = 'exited' | 'listening' | 'still-starting';
+
 interface CommandOutcome {
   ok: boolean;
   output: string;
@@ -119,6 +127,7 @@ interface UpdateApplyLane {
   getJournal(): UpdateJournal;
   getNpmGlobalInstall(): NpmGlobalInstall | null;
   handOffStagedUpdate(): Promise<void>;
+  superviseSuccessor(successor: SuccessorProcess): Promise<boolean>;
   isRestartRequested(): boolean;
   noteRestartRequested(): void;
   startAfterListening(httpServer: ListeningServer): void;
@@ -160,6 +169,7 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
   const nodePath = dependencies.nodePath || stableNodePath;
   const npmPath = path.join(path.dirname(nodePath), 'npm');
   let isInstallWritable: boolean | null = null;
+  let hasSwappedNpmGlobalPackage = false;
   let journal = idleJournal(dependencies.getUpdateChannel());
   let stagedDescriptor: StagedDescriptor | null = null;
   let inFlight = false;
@@ -530,11 +540,86 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
           return;
         }
       }
+      hasSwappedNpmGlobalPackage = true;
       await publish(markSucceeded(journal, { now: clock() }), false);
       stagedDescriptor = null;
     } catch (error) {
       await publish(failRun(journal, { reason: errorText(error), now: clock(), atHandOff: true }), false);
     }
+  }
+
+  async function isPathPresent(candidatePath: string): Promise<boolean> {
+    try {
+      await fsPromises.access(candidatePath);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function awaitSuccessorFate(successor: SuccessorProcess, previousPackagePath: string): Promise<SuccessorFate> {
+    return new Promise((resolve) => {
+      const deadline = clock() + SUCCESSOR_LISTEN_TIMEOUT_MS;
+      let pollTimer: NodeJS.Timeout | null = null;
+      let isSettled = false;
+      const settle = (fate: SuccessorFate) => {
+        if (isSettled) return;
+        isSettled = true;
+        if (pollTimer) clearTimeout(pollTimer);
+        resolve(fate);
+      };
+      successor.once('exit', () => settle('exited'));
+      const poll = async () => {
+        if (isSettled) return;
+        if (!await isPathPresent(previousPackagePath)) {
+          settle('listening');
+          return;
+        }
+        if (clock() >= deadline) {
+          settle('still-starting');
+          return;
+        }
+        pollTimer = setTimeout(() => { void poll(); }, SUCCESSOR_POLL_INTERVAL_MS);
+      };
+      void poll();
+    });
+  }
+
+  async function restorePreviousPackage(layout: NpmGlobalLayout): Promise<string | null> {
+    try {
+      await fsPromises.rm(layout.quarantinedPackagePath, { recursive: true, force: true });
+      await fsPromises.rename(layout.livePackagePath, layout.quarantinedPackagePath);
+    } catch (error) {
+      return errorText(error);
+    }
+    try {
+      await fsPromises.rename(layout.previousPackagePath, layout.livePackagePath);
+      return null;
+    } catch (restoreError) {
+      try {
+        await fsPromises.rename(layout.quarantinedPackagePath, layout.livePackagePath);
+        return errorText(restoreError);
+      } catch (unquarantineError) {
+        return `${errorText(restoreError)}; moving the new version back also failed: ${errorText(unquarantineError)}`;
+      }
+    }
+  }
+
+  async function superviseSuccessor(successor: SuccessorProcess): Promise<boolean> {
+    if (!npmGlobalLayout || !hasSwappedNpmGlobalPackage) return false;
+    const fate = await awaitSuccessorFate(successor, npmGlobalLayout.previousPackagePath);
+    if (fate !== 'exited') return false;
+    if (!await isPathPresent(npmGlobalLayout.previousPackagePath)) return false;
+    const failedVersion = journal.toVersion || 'the new version';
+    const rollbackFailure = await restorePreviousPackage(npmGlobalLayout);
+    if (rollbackFailure) {
+      await publish(failRun(journal, { reason: `${failedVersion} exited before listening and the rollback failed: ${rollbackFailure}`, now: clock(), atHandOff: true }), false);
+      return false;
+    }
+    hasSwappedNpmGlobalPackage = false;
+    dependencies.logger.warn(`[update] ${failedVersion} exited before listening; restored the previous version`);
+    await publish(failRun(journal, { reason: `${failedVersion} exited before listening, so the previous version was restored`, now: clock(), atHandOff: true }), false);
+    return true;
   }
 
   async function performHandOff(descriptor: CloneStagedDescriptor): Promise<void> {
@@ -687,6 +772,7 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
     if (npmGlobalLayout) {
       await fsPromises.rm(npmGlobalLayout.stagePrefix, { recursive: true, force: true });
       await fsPromises.rm(npmGlobalLayout.previousPackagePath, { recursive: true, force: true });
+      await fsPromises.rm(npmGlobalLayout.quarantinedPackagePath, { recursive: true, force: true });
       return;
     }
     if (wasRunInFlight || await isStagingCheckoutPresent()) {
@@ -742,6 +828,7 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
     getJournal,
     getNpmGlobalInstall,
     handOffStagedUpdate,
+    superviseSuccessor,
     isRestartRequested,
     noteRestartRequested,
     startAfterListening,

@@ -22,7 +22,9 @@ interface ClosableServer {
   closeAllConnections?: () => void;
 }
 
-type RespawnFn = (file: string, args: string[], options: SpawnOptions) => Pick<ChildProcess, 'unref' | 'once'>;
+type RespawnedProcess = Pick<ChildProcess, 'unref' | 'once'>;
+type RespawnFn = (file: string, args: string[], options: SpawnOptions) => RespawnedProcess;
+type SuperviseSuccessor = (successor: Pick<ChildProcess, 'once'>) => Promise<boolean>;
 
 interface LifecycleOptions {
   shutdown: () => unknown;
@@ -39,6 +41,7 @@ interface LifecycleOptions {
   closeTimeoutMs?: number;
   beforeHandOff?: () => Promise<void>;
   beforeHandOffCapMs?: number;
+  superviseSuccessor?: SuperviseSuccessor;
 }
 
 interface Lifecycle {
@@ -93,6 +96,7 @@ function createLifecycle({
   closeTimeoutMs = 2000,
   beforeHandOff,
   beforeHandOffCapMs = 300_000,
+  superviseSuccessor,
 }: LifecycleOptions): Lifecycle {
   let requested = false;
   let handOffPrepared = false;
@@ -165,23 +169,33 @@ function createLifecycle({
         exit(SUPERVISED_RESTART_EXIT_CODE);
         return;
       }
-      const successor = spawn(stableNodePath, getArgv().slice(1), {
+      const successor = await spawnReplacement();
+      if (!successor) return;
+      const shouldStartRolledBackServer = superviseSuccessor ? await superviseSuccessor(successor) : false;
+      if (shouldStartRolledBackServer) {
+        const rolledBackServer = await spawnReplacement();
+        if (!rolledBackServer) return;
+        rolledBackServer.unref();
+      }
+      successor.unref();
+      exit(0);
+    }
+
+    async function spawnReplacement(): Promise<RespawnedProcess | null> {
+      const replacement = spawn(stableNodePath, getArgv().slice(1), {
         cwd: cwd(),
         stdio: 'ignore',
         detached: true,
         windowsHide: true,
       });
       const spawnError = await new Promise<Error | null>((resolve) => {
-        successor.once('spawn', () => resolve(null));
-        successor.once('error', resolve);
+        replacement.once('spawn', () => resolve(null));
+        replacement.once('error', resolve);
       });
-      if (spawnError) {
-        log(`[lifecycle] could not start the replacement server with ${stableNodePath}: ${stopFailureText(spawnError)}`);
-        exit(1);
-        return;
-      }
-      successor.unref();
-      exit(0);
+      if (!spawnError) return replacement;
+      log(`[lifecycle] could not start the replacement server with ${stableNodePath}: ${stopFailureText(spawnError)}`);
+      exit(1);
+      return null;
     }
 
     const handOffFinished = new Promise<void>((resolve, reject) => {

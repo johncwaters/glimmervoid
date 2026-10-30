@@ -547,6 +547,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     onRestart: options.onRestart || null,
     spawn,
     beforeHandOff: updateApply.handOffStagedUpdate,
+    superviseSuccessor: updateApply.superviseSuccessor,
   });
 
   ({ removeExitedSession } = createBackendControl({

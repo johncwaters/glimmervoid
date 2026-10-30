@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -114,6 +115,30 @@ test('an npm global install stages the channel version, swaps it in at hand-off,
     const successor = startLane(install);
     await successor.whenIdle();
     assert.equal(fs.existsSync(previousPackagePath), false);
+  } finally {
+    fs.rmSync(install.root, { recursive: true, force: true });
+  }
+});
+
+test('a restarted npm global update whose new server exits before listening is rolled back to the previous version', async () => {
+  const install = makeInstall();
+  try {
+    const lane = startLane(install);
+    await lane.applyUpdate();
+    await lane.handOffStagedUpdate();
+    assert.equal(installedVersion(install.packageRoot), TARGET_VERSION);
+
+    const successor = new EventEmitter();
+    const supervision = lane.superviseSuccessor(successor);
+    successor.emit('exit');
+    assert.equal(await supervision, true);
+    await lane.stop();
+
+    assert.equal(installedVersion(install.packageRoot), '1.0.0');
+    const journal = lane.getJournal();
+    assert.equal(journal.state, 'failed');
+    assert.equal(journal.failedAtHandOff, true);
+    assert.match(journal.reason || '', /exited before listening/);
   } finally {
     fs.rmSync(install.root, { recursive: true, force: true });
   }
