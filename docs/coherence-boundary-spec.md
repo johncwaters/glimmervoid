@@ -32,7 +32,7 @@ Delete:
 - factory tests and fixtures;
 - the experimental knowledge graph (`knowledge-graph/`, `server/knowledge-graph-cli.ts`, `glimmervoid kg`, `knowledgeGraph.*` config, `docs/knowledge-graph.md`), since its ticket side was Coherence work orders. It returns with the factory redo, built on the new ledger.
 
-Keep, because other lanes use them: guardrails roles and the policy builder, `server/lanes/`, the work lane, usage tracking. Anything whose only caller was the factory goes too, found by a zero-hit grep before deleting.
+Keep, because other lanes use them: `server/lanes/`, the work lane, usage tracking. Anything whose only caller was the factory goes too, found by a zero-hit grep before deleting.
 
 Full deletion, no compatibility layer: no config migration, no shims, no deprecated aliases, no tombstone docs. `docs/factory/` goes too; git history holds it for the redo.
 

@@ -61,7 +61,7 @@ To update, run `git pull --ff-only && npm ci && npm run build` and restart. The 
 - **Windows 11, Linux or macOS.** CI runs the suite on Linux and installs and starts the package on Windows; macOS is tested by hand.
 - **An agent CLI** on PATH: Claude Code, Codex, Kimi Code, Grok or another terminal agent.
 - **git** on PATH, for per-session worktrees.
-- **Linux only:** `build-essential` and `python3` to compile node-pty, plus `bubblewrap`, `socat` and `ripgrep` for session guardrails (`sudo apt install bubblewrap socat ripgrep`).
+- **Linux only:** `build-essential` and `python3` to compile node-pty.
 
 `glimmervoid doctor` checks all of these.
 
@@ -87,7 +87,7 @@ Declare another agent under `customAgents` in `config.json` with an `id`, `label
 - **Notifications.** Browser notifications when a session needs input, finishes or fails, with your own alert sounds if you like (drop `.ogg`, `.mp3`, `.wav`, `.m4a` or `.webm` files into `~/.glimmervoid/sounds/`). Telegram covers you when no dashboard is open.
 - **Phone layout.** Board, terminal and review screens, attention first, with a terminal that resizes around the keyboard.
 - **Plan review.** Read, edit and approve Claude Code plans from the dashboard or your phone.
-- **Guardrails.** Guarded Claude Code sessions on macOS and Linux (on unless a project or folder opts out) cannot touch credentials or Glimmervoid's own state, and Sane YOLO, once its hooks are installed and trusted, refuses commands like `git reset --hard` and `git push --force` in sessions that skip permission prompts.
+- **Guardrails.** Sane YOLO runs in every session and lane whose agent supports it, refusing commands like `git reset --hard` and `git push --force` and reads of credentials such as SSH keys and `.env` files. It catches accidents; it is not a sandbox.
 - **Usage.** Tokens and estimated cost from local Claude Code, Codex, Kimi Code and Grok transcripts, with optional budgets.
 - **Auto-resume.** Sessions live when Glimmervoid stopped come back with their conversation resumed.
 - **Remote access** (opt-in). Reach the dashboard from another device through single-use pairing links.

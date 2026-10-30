@@ -5,14 +5,13 @@ description: Stand up a remote Linux host that runs Glimmervoid as a service, re
 
 # Remote host setup
 
-You run on the operator's current Glimmervoid machine, outside the guardrails, with their ssh keys. You drive the new host over `ssh`. Every step that must happen on the operator's laptop or phone, or that needs an interactive login, you hand to the operator as an exact command and wait for them to confirm.
+You run on the operator's current Glimmervoid machine with their ssh keys. You drive the new host over `ssh`. Every step that must happen on the operator's laptop or phone, or that needs an interactive login, you hand to the operator as an exact command and wait for them to confirm.
 
 The end state:
 
 - Glimmervoid runs on the remote host as a systemd user service that survives logout and reboot.
 - The operator reaches its dashboard from the laptop, and from the phone through a paired device link.
 - Sessions on the host can sign commits through the operator's forwarded ssh agent.
-- Guarded sessions on the host can start their sandbox.
 
 ## Ground rules
 
@@ -33,25 +32,8 @@ The end state:
 
 - Node.js 22.18.0 or newer (`node --version`). If missing, propose a user-level install (nvm or fnm) rather than a system package, and note the absolute `node` path for the unit file.
 - Build tools for `node-pty`: `make`, `g++`, `python3`. On Debian or Ubuntu that is `sudo apt-get install -y build-essential python3`.
-- `git`, and `bubblewrap` (the `bwrap` binary) for the guardrails sandbox.
+- `git`.
 - The agent CLIs the operator chose: `npm install -g @anthropic-ai/claude-code` and or `npm install -g @openai/codex`. Logging in is interactive: hand the operator `ssh -t <host> claude` and `ssh -t <host> codex login` and wait.
-
-### Ubuntu sandbox prerequisite
-
-Ubuntu 23.10 and later set `kernel.apparmor_restrict_unprivileged_userns=1`, which makes `bwrap` fail with `setting up uid map: Permission denied` or `loopback: Failed RTM_NEWADDR`, and guarded sessions never start. Test it:
-
-```bash
-bwrap --ro-bind / / --dev /dev --unshare-net true && echo sandbox-ok
-```
-
-If it fails, propose the narrow fix, which grants user namespaces to `bwrap` only, and get the operator's approval for the `sudo` steps:
-
-```bash
-printf 'abi <abi/4.0>,\ninclude <tunables/global>\nprofile bwrap /usr/bin/bwrap flags=(unconfined) {\n  userns,\n}\n' | sudo tee /etc/apparmor.d/bwrap
-sudo apparmor_parser -r /etc/apparmor.d/bwrap
-```
-
-Revert by deleting `/etc/apparmor.d/bwrap` and reloading AppArmor. Do not disable the sysctl machine wide.
 
 ## 3. Install Glimmervoid
 
@@ -115,6 +97,5 @@ Finish only when each of these holds, and show the operator the evidence:
 2. `glimmervoid doctor` passes on the host.
 3. The operator opened the dashboard through the chosen route and sees it.
 4. If Tailscale was set up: a paired device loads the dashboard.
-5. If the sandbox check ran: it printed `sandbox-ok`.
 
 Then summarize for the operator: the host, the dashboard URL, which steps they still own (logins, keeping `ssh -A` open for signing), and how to undo each change you made.

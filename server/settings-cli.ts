@@ -178,7 +178,7 @@ function applyValidatedMutation(view: ConfigFileView, setting: SettingsSetting, 
 }
 
 function unreadableHomeMessage(homeDir: string, error: unknown): string {
-  return `cannot read the Glimmervoid home at ${homeDir} (${errorCode(error) ?? errorMessage(error)}). A session with guardrails cannot read it; run this command from a shell outside the session`;
+  return `cannot read the Glimmervoid home at ${homeDir} (${errorCode(error) ?? errorMessage(error)})`;
 }
 
 function homeReadError(homeDir: string): string | null {

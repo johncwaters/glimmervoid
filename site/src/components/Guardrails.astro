@@ -63,33 +63,28 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
           <tr>
             <td></td>
             <th scope="col" class="yes"><span class="column-name">Your sessions</span><span class="posture">Allowed unless blocked</span></th>
-            <th scope="col" class="no"><span class="column-name">Automated lanes</span><span class="posture">Blocked unless allowed</span></th>
+            <th scope="col" class="no"><span class="column-name">Automated lanes</span><span class="posture">Sane YOLO required</span></th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <th scope="row" class="aspect">Writes</th>
-            <td class="yes"><span class="verdict">Anywhere</span><span class="detail">Destructive commands such as <code>git reset --hard</code> are refused</span></td>
-            <td class="no"><span class="verdict">Their own folder</span><span class="detail">Not even git hooks</span></td>
+            <th scope="row" class="aspect">Commands</th>
+            <td class="yes"><span class="verdict">Run without prompts</span><span class="detail">Destructive commands such as <code>git reset --hard</code> are refused</span></td>
+            <td class="no"><span class="verdict">Same net, always on</span><span class="detail">A lane will not start without it</span></td>
           </tr>
           <tr>
             <th scope="row" class="aspect">Reads</th>
             <td class="yes"><span class="verdict">Everywhere</span><span class="detail">Except credentials and your <code>{UNREADABLE_PATHS_KEY}</code></span></td>
-            <td class="no"><span class="verdict">No credentials</span><span class="detail">Nor Glimmervoid's own files</span></td>
+            <td class="no"><span class="verdict">No credentials</span><span class="detail">SSH agent and GitHub token start empty</span></td>
           </tr>
           <tr>
-            <th scope="row" class="aspect">Network</th>
-            <td class="yes"><span class="verdict">Open</span></td>
-            <td class="no"><span class="verdict">Approved hosts only</span><span class="detail">Open for lanes that push a fix</span></td>
-          </tr>
-          <tr>
-            <th scope="row" class="aspect">Tools</th>
-            <td class="yes"><span class="verdict">Everything</span></td>
-            <td class="no"><span class="verdict">Their own terminal</span></td>
+            <th scope="row" class="aspect">Writes</th>
+            <td class="yes"><span class="verdict">Anywhere</span></td>
+            <td class="no"><span class="verdict">Codex lanes read only</span></td>
           </tr>
           <tr>
             <th scope="row" class="aspect">Turn off</th>
-            <td class="yes"><span class="verdict">Per project</span></td>
+            <td class="yes"><span class="verdict">In Settings</span></td>
             <td class="no"><span class="verdict">Never</span></td>
           </tr>
         </tbody>

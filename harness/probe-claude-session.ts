@@ -111,7 +111,7 @@ async function runProbe(tempDirectory: string): Promise<void> {
   try {
     session._extraClaudeArgs = ['--setting-sources', 'project,local', '--permission-mode', 'default'];
     await session.start();
-    if (session.state === 'FAILED') throw new Error('the claude session failed to spawn; run this probe from a terminal outside Glimmervoid guardrails');
+    if (session.state === 'FAILED') throw new Error('the claude session failed to spawn');
     check('the spawn used the claude-code adapter', session.agentId === 'claude-code');
     await delay(BOOT_SETTLE_MS);
     session.write('\r');

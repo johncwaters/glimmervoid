@@ -401,7 +401,7 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     summary: 'Create, connect to, read and edit a shared whiteboard the operator and connected sessions edit together',
     missingArgumentHint: 'glimmervoid whiteboard: run "glimmervoid whiteboard new <title>", "list", "connect <board>", "disconnect <board>", "get <board>", "put <board> <ops-json|->" or "resolve <board> <note>"',
   },
-  limits: { usage: 'limits', summary: 'List which of these commands answer here and what the guardrails block', missingArgumentHint: null },
+  limits: { usage: 'limits', summary: 'List which of these commands answer here and why the rest do not', missingArgumentHint: null },
 });
 
 function agentCommandHelpLines(): string[] {

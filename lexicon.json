@@ -31,7 +31,7 @@
     },
     {
       "name": "guardrails",
-      "definition": "The protection each guarded session runs inside (sandbox-runtime plus Safety Net), meant to stop accidents, not a hostile agent"
+      "definition": "Sane YOLO, the Safety Net hooks that refuse risky commands and credential reads in sessions and lanes; accident protection, never a sandbox"
     },
     {
       "name": "operator",

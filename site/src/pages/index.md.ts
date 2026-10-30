@@ -24,8 +24,8 @@ export const GET: APIRoute = ({ site }) => {
     '## Features',
     [
       '- Status: read from each agent\'s own lifecycle hooks, with the terminal title as a fallback, never from reading the screen. Every session that needs you gets a numbered place in line in the attention banner; tap the banner, or press Cmd+J on macOS and Alt+J elsewhere, to open the next one\'s terminal.',
-      '- Reviews, Team: your teammates\' pull requests get a review drafted by a sandboxed agent, and nothing posts to GitHub until you keep the comments you agree with and click Approve or Comment. Re-reviews after new commits raise only high findings. Opt-in.',
-      '- Reviews, Mine: every pull request you opened shows its merge readiness (checks, review, threads, conflicts, base). Per pull request you can turn on Merge when ready, which merges it once everything is green, and Keep mergeable, which has a sandboxed agent repair conflicts and failing checks.',
+      '- Reviews, Team: your teammates\' pull requests get a review drafted by an agent, and nothing posts to GitHub until you keep the comments you agree with and click Approve or Comment. Re-reviews after new commits raise only high findings. Opt-in.',
+      '- Reviews, Mine: every pull request you opened shows its merge readiness (checks, review, threads, conflicts, base). Per pull request you can turn on Merge when ready, which merges it once everything is green, and Keep mergeable, which has an agent repair conflicts and failing checks.',
       '- Worktrees: every session in a git repo runs in its own git worktree, so parallel agents never collide. One click merges a session\'s work back; a conflict goes back to the agent that wrote the code.',
       '- Helper agents: every session gets the `glimmervoid` CLI, so an agent can spawn a helper session, message it, and close it.',
       `- Guardrails: accident protection, not a security boundary, for ${SANE_YOLO_AGENT_LABELS}. Safe commands run without prompts; destructive ones such as \`git reset --hard\` are blocked.`,

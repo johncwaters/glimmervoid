@@ -63,7 +63,7 @@ function pushRoute({ isEphemeral, isSpawnedChild, hasOwnWorktree }: SessionRoleF
 function spawnRoute({ isEphemeral, isSpawnedChild }: SessionKindFacts): RouteVerdict {
   if (isSpawnedChild) return { answers: false, reason: 'a spawned session may not spawn another' };
   if (isEphemeral) {
-    return { answers: false, reason: "only an operator session may spawn a session, because the new session gets an operator session's guardrails, which can be wider than this one's" };
+    return { answers: false, reason: "only an operator session may spawn a session, because the new session gets an operator session's tools and permissions, which can be wider than this one's" };
   }
   return ANSWERS;
 }
