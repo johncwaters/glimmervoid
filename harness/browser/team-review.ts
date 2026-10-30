@@ -774,6 +774,8 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout, sessionId
   const handChecks = page.locator('.pr-detail .pr-hand-checks');
   assert.equal(await handChecks.locator('li').textContent(), 'Look at what these changed UI files render: public/header.css');
   assert.deepEqual(await page.locator('.pr-detail .pr-desk-column > :is(section, .pr-earlier-review)').evaluateAll((blocks) => blocks.map((block) => block.classList.contains('pr-earlier-review') ? 'Earlier review' : block.getAttribute('aria-label')).filter((label) => label === 'Verdict' || label === 'Check by hand' || label === 'Findings' || label === 'Earlier review')), ['Verdict', 'Check by hand', 'Findings', 'Earlier review']);
+  assert.deepEqual(await page.locator('.pr-detail .pr-desk-rail > *').evaluateAll((blocks) => blocks.map((block) => block.className)), ['pr-session-open', 'pr-will-post', 'pr-desk-facts', 'pr-about-box']);
+  assert.equal(await page.locator('.pr-detail .pr-detail-heading .pr-session-open').count(), 0);
   await showQueue(page);
   await nitsRow.click();
   const mixed = { ...status, drafts: [...status.drafts, createDraft(11, { key: 'Acme/docs#11', repo: 'Acme/docs' })] };

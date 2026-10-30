@@ -398,7 +398,8 @@ function createDetailHeading(review: ReviewDraft | InFlightReview, { hasFactsRai
   }
   const githubSummary = 'reviewedHead' in review ? createGithubReviewSummary(review, 'pr-detail-github', 20) : null;
   if (githubSummary) metadata.append(githubSummary);
-  heading.append(title, metadata, createOpenSessionControl(review));
+  heading.append(title, metadata);
+  if (!hasFactsRail) heading.append(createOpenSessionControl(review));
   if ('reviewedHead' in review && !hasFactsRail) {
     const tallyText = viewerThreadsText(review.viewerThreads);
     if (tallyText) {
@@ -790,7 +791,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   rail.setAttribute('aria-label', 'Decision');
   const threads = el('div');
   threads.dataset.reviewThreads = '';
-  column.append(createDetailHeading(draft, { hasFactsRail: true }), ...createAboutPr(draft));
+  column.append(createDetailHeading(draft, { hasFactsRail: true }));
   column.append(threads, createVerdictBlock(draft), ...createHandChecks(draft));
 
   const generalFindings = generalFindingsOf(draft.body);
@@ -811,7 +812,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   const willPostDetail = el('p', 'pr-will-post-detail');
   willPostDetail.setAttribute('aria-live', 'polite');
   willPost.append(el('h3', 'pr-assessment-title', 'Will post to GitHub'), willPostEvent, willPostDetail, note.section);
-  rail.append(willPost, createDeskFacts(draft));
+  rail.append(createOpenSessionControl(draft), willPost, createDeskFacts(draft), ...createAboutPr(draft));
   const selection = (): ReviewSelection => ({
     note: note.input.value,
     comments: draft.comments.filter((_comment, index) => includedComments.has(index)),

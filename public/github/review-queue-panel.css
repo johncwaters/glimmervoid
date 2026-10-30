@@ -234,6 +234,7 @@ html:not([data-layout="phone"]) .pr-desk > .pr-decision-bar { align-self: end; }
 .pr-comment-lead { color: var(--accent); }
 .pr-comment-lead-question { display: inline-flex; align-items: center; gap: 5px; color: var(--state-done); }
 .pr-session-open { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.pr-desk-rail > .pr-session-open { margin-top: 0; }
 
 .pr-progress-tracker {
   display: grid;
