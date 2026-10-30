@@ -125,8 +125,8 @@ Draft reviews of teammates' pull requests for you to post from the Reviews tab.
 | `teamReview.skill` | Review skill | `""` | Skill Claude Code follows for each review, picked from the skills it loads or typed by name. Leave empty for no skill: it reviews with whatever skills it has. |
 | `teamReview.reviewer.model` | Review model | `""` | Model the review agent runs. Leave empty to use the agent's own default model. |
 | `teamReview.reviewer.effort` | Review effort | `""` | Effort level the review agent runs at. Leave empty to use the agent's own default effort. |
-| `teamReview.stampReviewer.model` | Small PR model | `""` | Model for small pull requests. With both small PR fields empty, small pull requests use the review model and effort above. |
-| `teamReview.stampReviewer.effort` | Small PR effort | `""` | Effort for small pull requests. Leave empty to use the model's own default effort. |
+| `teamReview.stampReviewer.model` | Docs and tests PR model | `""` | Model for pull requests that change only Markdown docs and tests. With both of these fields empty, they use the review model and effort above. |
+| `teamReview.stampReviewer.effort` | Docs and tests PR effort | `""` | Effort for pull requests that change only Markdown docs and tests. Leave empty to use the model's own default effort. |
 | `teamReview.sandbox.loadMcpServers` | Load my MCP servers | `false` | Give the Claude Code review agent your own MCP servers instead of none. |
 | `teamReview.autoRebaseMyPrs` | Keep my pull requests rebased | `false` | On each poll, rebase your open, non-draft pull requests that are behind their base branch. A pull request with conflicts or checks still running is left alone, and a failed rebase is not retried until you push again. |
 | `teamReview.keepMergeableEnabled` | Keep mergeable | `true` | Offer Keep mergeable on your pull requests: a guarded agent repairs conflicts and failing checks and pushes the repair. Off hides the control and starts no repair; the pull requests you chose stay chosen for when you turn it back on. |

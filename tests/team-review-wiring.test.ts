@@ -7,7 +7,7 @@ import path from 'node:path';
 
 import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { git, hasGit } from './helpers/git-fixture.ts';
-import { REMERGE_OBJECTS_DIRNAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_POSTING_FILENAME, REVIEW_PROMPT_FILENAME, REVIEW_REPORT_FILENAME, readTeamReviewSettings, } from '../server/github/core/team-review-core.ts';
+import { REMERGE_OBJECTS_DIRNAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_POSTING_FILENAME, REVIEW_PROMPT_FILENAME, REVIEW_REPORT_FILENAME, readTeamReviewSettings, triagePr, } from '../server/github/core/team-review-core.ts';
 import type { ReviewTier } from '../server/github/core/team-review-core.ts';
 import { createTeamReviewPoller } from '../server/github/team-review-poller.ts';
 import type { SpawnReviewArgs } from '../server/github/team-review-poller.ts';
@@ -163,6 +163,18 @@ test('a review checkout whose gitignore lists node_modules with a trailing slash
 
 test('a session worktree still refuses a node_modules link its gitignore only matches as a directory', { skip: !hasGit() || process.platform === 'win32' }, async () => {
   assert.equal(await populateModulesIntoIgnoringCheckout(false), false);
+});
+
+test('only a pull request of docs and tests alone gets the stamp tier, however small its other changes are', () => {
+  const tierOf = (...paths: string[]) => triagePr(PrDetail.parse({
+    ...detail, additions: 9 * paths.length, deletions: 3 * paths.length,
+    files: paths.map((filePath) => ({ path: filePath, additions: 9, deletions: 3 })),
+  })).tier;
+  assert.equal(tierOf('src/agent/bash-fence.ts', 'src/agent/bash-fence.test.ts'), 'full');
+  for (const disguisedSourcePath of ['src/build/compile.ts', 'src/dist/index.ts', 'tools/generated/policy.py', 'requirements.txt', 'package-lock.json', 'docs/conf.py']) {
+    assert.equal(tierOf(disguisedSourcePath), 'full', disguisedSourcePath);
+  }
+  assert.equal(tierOf('src/agent/bash-fence.test.ts', 'README.md'), 'stamp');
 });
 
 test('review work dirs are created under the selected root', async () => {

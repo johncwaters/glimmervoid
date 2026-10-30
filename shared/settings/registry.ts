@@ -488,14 +488,14 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
         control: 'text', keywords: ['effort', 'thinking', 'reasoning', 'reviewer'], defaultValue: '', suggestionsFrom: 'review-efforts', ...MACHINE_NOW,
       },
       {
-        id: 'team-review-stamp-reviewer-model', path: 'teamReview.stampReviewer.model', title: 'Small PR model',
-        description: 'Model for small pull requests. With both small PR fields empty, small pull requests use the review model and effort above.',
-        control: 'text', keywords: ['stamp', 'model', 'small pull requests'], defaultValue: '', suggestionsFrom: 'review-stamp-models', ...MACHINE_NOW,
+        id: 'team-review-stamp-reviewer-model', path: 'teamReview.stampReviewer.model', title: 'Docs and tests PR model',
+        description: 'Model for pull requests that change only Markdown docs and tests. With both of these fields empty, they use the review model and effort above.',
+        control: 'text', keywords: ['stamp', 'model', 'small pull requests', 'docs', 'tests'], defaultValue: '', suggestionsFrom: 'review-stamp-models', ...MACHINE_NOW,
       },
       {
-        id: 'team-review-stamp-reviewer-effort', path: 'teamReview.stampReviewer.effort', title: 'Small PR effort',
-        description: "Effort for small pull requests. Leave empty to use the model's own default effort.",
-        control: 'text', keywords: ['stamp', 'effort', 'small pull requests'], defaultValue: '', suggestionsFrom: 'review-stamp-efforts', ...MACHINE_NOW,
+        id: 'team-review-stamp-reviewer-effort', path: 'teamReview.stampReviewer.effort', title: 'Docs and tests PR effort',
+        description: "Effort for pull requests that change only Markdown docs and tests. Leave empty to use the model's own default effort.",
+        control: 'text', keywords: ['stamp', 'effort', 'small pull requests', 'docs', 'tests'], defaultValue: '', suggestionsFrom: 'review-stamp-efforts', ...MACHINE_NOW,
       },
       {
         id: 'team-review-sandbox-load-mcp-servers', path: 'teamReview.sandbox.loadMcpServers', title: 'Load my MCP servers',

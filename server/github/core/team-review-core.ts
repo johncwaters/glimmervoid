@@ -20,8 +20,6 @@ import { bulletsIn, fencedUntrusted, isHeadingAmong, parsePostingFile, sectionAf
 const DEFAULT_REVIEWER: ReviewerChoice = Object.freeze({ model: null, effort: null });
 const REVIEW_AGENT_ADAPTER_ID = 'claude-code';
 const CLAUDE_REVIEWER_AGENT = 'claude';
-const STAMP_MAX_LINES = 200;
-const STAMP_MAX_FILES = 10;
 const MAX_CONCURRENT_REVIEWS = 2;
 const MAX_ASKED_FOR_REVIEWS = 20;
 const ASKED_FOR_FETCH_GRACE_MS = 60 * 60 * 1000;
@@ -255,20 +253,10 @@ function sensitivePathReason(filePath: string): string | null {
   return null;
 }
 
-function isExcludedFromSize(filePath: string): boolean {
-  const normalizedPath = filePath.toLowerCase();
-  const fileName = normalizedPath.split('/').at(-1) ?? '';
-  if (isDocsOrTests(filePath)) return true;
-  if (['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'uv.lock', 'cargo.lock', 'go.sum'].includes(fileName) || fileName.endsWith('.lock')) return true;
-  if (fileName.endsWith('.snap') || /(?:^|\/)__snapshots__\//.test(normalizedPath)) return true;
-  if (/(?:^|\/)(?:fixtures|__fixtures__|generated|dist|build)\//.test(normalizedPath)) return true;
-  return fileName.endsWith('.min.js');
-}
-
 function isDocsOrTests(filePath: string): boolean {
   const normalizedPath = filePath.toLowerCase();
   const fileName = normalizedPath.split('/').at(-1) ?? '';
-  if (/\.(?:md|mdx|txt|rst)$/.test(fileName) || /(?:^|\/)docs\//.test(normalizedPath)) return true;
+  if (/\.(?:md|mdx|rst)$/.test(fileName)) return true;
   return /(?:^|\/)(?:test|tests|__tests__|spec)\//.test(normalizedPath) || /(?:\.test\.|\.spec\.|_test\.)/.test(fileName);
 }
 
@@ -281,13 +269,9 @@ function triagePr(detail: PrDetail): { tier: 'stamp' | 'full'; reasons: string[]
     const reason = sensitivePathReason(file.path);
     if (reason) return { tier: 'full', reasons: [reason] };
   }
-  const countedFiles = detail.files.filter((file) => !isExcludedFromSize(file.path));
-  const countedLines = countedFiles.reduce((total, file) => total + file.additions + file.deletions, 0);
-  if (countedLines > STAMP_MAX_LINES) return { tier: 'full', reasons: [`${countedLines} counted lines over ${STAMP_MAX_LINES}`] };
-  if (countedFiles.length > STAMP_MAX_FILES) return { tier: 'full', reasons: [`${countedFiles.length} counted files over ${STAMP_MAX_FILES}`] };
-  if (countedFiles.length === 0 && detail.files.length > 0 && detail.files.every((file) => isDocsOrTests(file.path))) return { tier: 'stamp', reasons: ['docs and tests only'] };
-  if (countedFiles.length === 0) return { tier: 'stamp', reasons: ['no counted source files'] };
-  return { tier: 'stamp', reasons: [`${countedLines} counted lines in ${countedFiles.length} files`] };
+  if (detail.files.length === 0) return { tier: 'stamp', reasons: ['no changed files'] };
+  if (detail.files.every((file) => isDocsOrTests(file.path))) return { tier: 'stamp', reasons: ['docs and tests only'] };
+  return { tier: 'full', reasons: ['changes more than docs and tests'] };
 }
 
 function isPostableStatus(draft: ReviewDraft, event: PostedReviewEvent): boolean {
