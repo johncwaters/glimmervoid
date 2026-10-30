@@ -127,6 +127,10 @@
     {
       "name": "connect",
       "definition": "Link a session to a whiteboard so it is told what others changed on the board; the connection lives on the board record"
+    },
+    {
+      "name": "running",
+      "definition": "The session status meaning the agent is mid-turn and working, derived from hook events or the OSC-0 title; the Issues step for an issue with a live session"
     }
   ]
 }
