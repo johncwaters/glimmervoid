@@ -115,6 +115,11 @@ test('an agent builds a board of boxes, wires, frames, notes and ghost boxes, an
     { op: 'set', id: 'parse', fields: { at: { x: 40, y: 80 } } },
   ] });
   assert.equal(built.status, 200);
+  assert.equal(built.body.warnings, undefined);
+
+  const blocked = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'later', fields: { at: { x: 250, y: 100 } } }] });
+  assert.equal(blocked.status, 200);
+  assert.ok((blocked.body.warnings as string[] | undefined)?.includes('wire w1 runs through box later'), JSON.stringify(blocked.body));
 
   const removed = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'remove', id: 'store' }] });
   assert.equal(removed.status, 200);

@@ -1,6 +1,6 @@
 import type { Board } from '#shared/contracts/whiteboard.ts';
-import { elementSignature, layoutBoard } from './board-layout-core.ts';
-import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutFrame, LaidOutNote, LaidOutWire } from './board-layout-core.ts';
+import { elementSignature, layoutBoard } from '#shared/whiteboard-layout-core.ts';
+import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutFrame, LaidOutNote, LaidOutWire } from '#shared/whiteboard-layout-core.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const BOX_TEXT_INSET = 12;
@@ -83,9 +83,10 @@ function drawFrame(frame: LaidOutFrame): SVGGElement {
 function drawWire(wire: LaidOutWire): SVGGElement {
   const group = elementGroup(wire, `wb-wire wb-tone-${wire.tone}`);
   const hitArea = svgNode('path', { d: wire.path }, 'wb-wire-hit');
-  const line = svgNode('path', { d: wire.path, 'marker-end': 'url(#wb-arrow)' }, wire.isDashed ? 'wb-wire-line wb-dashed' : 'wb-wire-line');
+  const line = svgNode('path', wire.hasArrowhead ? { d: wire.path, 'marker-end': 'url(#wb-arrow)' } : { d: wire.path }, wire.isDashed ? 'wb-wire-line wb-dashed' : 'wb-wire-line');
   if (wire.strokeHex) line.style.stroke = wire.strokeHex;
   group.append(hitArea, line, svgNode('circle', { cx: wire.start.x, cy: wire.start.y, r: 3 }, 'wb-wire-dot'));
+  if (wire.joinAt) group.append(svgNode('circle', { cx: wire.joinAt.x, cy: wire.joinAt.y, r: 3 }, 'wb-wire-dot'));
   if (wire.label) group.append(svgText(wire.label, wire.labelAt.x, wire.labelAt.y, 'wb-wire-label'));
   return group;
 }

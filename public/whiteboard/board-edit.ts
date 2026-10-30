@@ -1,6 +1,6 @@
 import type { Board, Op } from '#shared/contracts/whiteboard.ts';
 import { el } from '../dom-helpers.ts';
-import type { Rect } from './board-layout-core.ts';
+import type { Rect } from '#shared/whiteboard-layout-core.ts';
 import type { BoardRenderer } from './board-render.ts';
 
 const DRAG_THRESHOLD_PX = 4;

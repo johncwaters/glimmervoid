@@ -9,6 +9,7 @@ import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
 import { applyOps, createBoard } from '../../shared/whiteboard-ops-core.ts';
 import type { Author } from '../../shared/whiteboard-ops-core.ts';
+import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
 import {
   changesForReader, connectSession, disconnectSession, markRead, nudgeLineFor, promptContextFor, recordPut, resolveBoardRef, summarizeBoard,
 } from '../core/whiteboard-store-core.ts';
@@ -194,7 +195,9 @@ function createWhiteboardWiring({
         type: 'whiteboard-patch', boardId, fromVersion: record.board.version, toVersion: next.board.version,
         author: { id: author.id, name: author.name }, updatedAt: next.board.updatedAt, ops: [...ops],
       };
-      return { ok: true, record: next, reply: { status: 200, body: { ok: true, version: next.board.version } }, patch };
+      const { warnings } = layoutBoard(next.board);
+      const body = { ok: true as const, version: next.board.version, ...(warnings.length > 0 ? { warnings } : {}) };
+      return { ok: true, record: next, reply: { status: 200, body }, patch };
     });
   }
 

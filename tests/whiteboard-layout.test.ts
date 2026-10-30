@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Board } from '../shared/contracts/whiteboard.ts';
-import { layoutBoard } from '../public/whiteboard/board-layout-core.ts';
-import type { LaidOutElement, Rect } from '../public/whiteboard/board-layout-core.ts';
+import { layoutBoard } from '../shared/whiteboard-layout-core.ts';
+import type { LaidOutElement, Rect } from '../shared/whiteboard-layout-core.ts';
 
 function box(id: string, column: string, order: number) {
   return { kind: 'box', id, title: `step ${id} with a longer title`, lines: [{ text: 'a body line long enough to wrap twice over' }], column, order };
@@ -59,4 +59,53 @@ test('notes, frames and wrapped column titles never draw over boxes they do not 
     if (!nextColumn) continue;
     for (const line of column.titleLines) assert.ok(column.x + line.length * 9 < nextColumn.x, `"${line}" runs into the next column`);
   }
+});
+
+function wire(id: string, from: string, to: string, extra: Record<string, unknown> = {}) {
+  return { kind: 'wire', id, from, to, ...extra };
+}
+
+const wiredBoard = Board.parse({
+  ...crowdedBoard,
+  elements: {
+    ...crowdedBoard.elements,
+    w1: wire('w1', 'a1', 'b2'), w2: wire('w2', 'a2', 'b2'), w3: wire('w3', 'b1', 'b2', { dashed: true }),
+    w4: wire('w4', 'a1', 'c3', { label: 'skips the adapters' }), w5: wire('w5', 'c2', 'a2', { tone: 'fail', label: 'refused' }),
+    w6: wire('w6', 'c1', 'c3'), w7: wire('w7', 'b2', 'c1', { label: 'yes' }),
+  },
+});
+
+function segmentsOfPath(path: string): { x1: number; y1: number; x2: number; y2: number }[] {
+  const segments: { x1: number; y1: number; x2: number; y2: number }[] = [];
+  let previous: { x: number; y: number } | null = null;
+  for (const [, command, x, y] of path.matchAll(/([ML]) (-?[\d.]+) (-?[\d.]+)/g)) {
+    const point = { x: Number(x), y: Number(y) };
+    if (command === 'L' && previous) segments.push({ x1: previous.x, y1: previous.y, x2: point.x, y2: point.y });
+    previous = point;
+  }
+  return segments;
+}
+
+test('wires run at right angles around boxes, and same-style wires into one box side share one arrowhead', () => {
+  const layout = layoutBoard(wiredBoard);
+  const wires = layout.elements.flatMap((element) => (element.kind === 'wire' ? [element] : []));
+  const boxes = layout.elements.flatMap((element) => (element.kind === 'box' ? [element] : []));
+  assert.equal(wires.length, 7);
+  for (const laidOut of wires) {
+    const stored = wiredBoard.elements[laidOut.id];
+    assert.ok(stored?.kind === 'wire');
+    for (const segment of segmentsOfPath(laidOut.path)) {
+      assert.ok(segment.x1 === segment.x2 || segment.y1 === segment.y2, `${laidOut.id} has a slanted segment`);
+      for (const box of boxes) {
+        if (box.id === stored.from || box.id === stored.to) continue;
+        const isInside = Math.max(segment.x1, segment.x2) > box.x + 2 && Math.min(segment.x1, segment.x2) < box.x + box.width - 2
+          && Math.max(segment.y1, segment.y2) > box.y + 2 && Math.min(segment.y1, segment.y2) < box.y + box.height - 2;
+        assert.ok(!isInside, `${laidOut.id} runs through ${box.id}`);
+      }
+    }
+  }
+  const arrowheadIds = wires.filter((laidOut) => laidOut.hasArrowhead).map((laidOut) => laidOut.id);
+  assert.ok(arrowheadIds.filter((id) => id === 'w1' || id === 'w2').length === 1, 'the solid wires into b2 share one arrowhead');
+  assert.ok(arrowheadIds.includes('w3') && arrowheadIds.includes('w5'), 'a wire of another style keeps its own arrowhead');
+  assert.deepEqual(layout.warnings.filter((warning) => warning.includes('runs through')), []);
 });

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const WHITEBOARD_LIMITS = Object.freeze({
-  elements: 1000, opsPerPut: 200, putBytes: 262_144, title: 80, line: 120, linesPerBox: 12, columns: 12, lanes: 12, noteText: 400, logEntries: 2000, promptContextLines: 20, promptContextCharacters: 6000, promptContextLineCharacters: 300,
+  elements: 1000, opsPerPut: 200, putBytes: 262_144, title: 80, line: 120, linesPerBox: 12, columns: 12, lanes: 12, noteText: 400, logEntries: 2000, promptContextLines: 20, promptContextCharacters: 6000, promptContextLineCharacters: 300, layoutWarnings: 20,
 });
 
 const LANE_COLORS = ['blue', 'green', 'orange', 'pink', 'cyan', 'yellow'] as const;
@@ -132,7 +132,7 @@ export const WhiteboardAgentReply = z.union([
   z.object({ ok: z.literal(true), board: BoardSummary, note: z.string() }).strict(),
   z.object({ ok: z.literal(true), boards: z.array(BoardSummary) }).strict(),
   z.object({ ok: z.literal(true), board: Board, changes: z.array(BoardChange) }).strict(),
-  z.object({ ok: z.literal(true), version: z.number().int() }).strict(),
+  z.object({ ok: z.literal(true), version: z.number().int(), warnings: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings).optional() }).strict(),
 ]);
 
 export type Box = z.infer<typeof Box>;

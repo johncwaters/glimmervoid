@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **`glimmervoid doctor` exits 1 when node-pty fails to load**, so scripts and the dashboard updater can tell a broken install from a working one.
+- **Board wires run at right angles** through channels between columns, not as curves. Wires of one style into the same side of a box merge into one trunk with a single arrowhead. A wire that skips a column or runs backward goes through a gap between boxes, or over the top of them, and never through a box. Labels sit where they touch no line, box or note. When a layout still has a crossing, a wire through a box or a label with no clear spot, the agent's `glimmervoid whiteboard put` reply lists it as a warning, so the agent can reorder its boxes.
 
 ## [0.48.2] - 2026-10-30
 
