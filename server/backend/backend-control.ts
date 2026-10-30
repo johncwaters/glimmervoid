@@ -23,6 +23,7 @@ import type { Telemetry } from '../telemetry.ts';
 import { errorMessage } from '../../shared/text.ts';
 import type { SessionDocsPort } from '../session/session-docs-wiring.ts';
 import type { ShownFilesPort } from '../session/shown-files-wiring.ts';
+import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
 import type { CoherenceSessionFeed } from '../coherence/coherence-session-feed.ts';
 
 interface SnapshotLane {
@@ -101,6 +102,7 @@ interface BackendControlDependencies {
   decidePlanReview: ((sessionId: string, decision: PlanDecision) => string | null) | null;
   sessionDocs: SessionDocsPort;
   shownFiles: ShownFilesPort;
+  whiteboards: Pick<WhiteboardPort, 'handleOperator' | 'snapshotMessage'>;
   coherenceFeed: CoherenceSessionFeed;
   serverBuild: () => string;
   telemetry: Pick<Telemetry, 'capture' | 'captureException' | 'captureClientError' | 'requestDataDeletion'>;
@@ -179,6 +181,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     readPlanRevision: dependencies.readPlanRevision,
     decidePlanReview: dependencies.decidePlanReview,
     sessionDocs: dependencies.sessionDocs,
+    whiteboards: dependencies.whiteboards,
     coherenceFeed: dependencies.coherenceFeed,
     coderEnv: laneAssembly.coderEnv,
     remoteRepoGit: laneAssembly.gitWorkspace,
@@ -205,6 +208,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
   sendLaneSnapshotOnConnect('session-docs', () => dependencies.sessionDocs);
   sendLaneSnapshotOnConnect('session-shown', () => dependencies.shownFiles);
   sendLaneSnapshotOnConnect('coherence-feed', () => dependencies.coherenceFeed);
+  sendLaneSnapshotOnConnect('whiteboards', () => dependencies.whiteboards);
 
   return { removeExitedSession: controlHandlers.removeExitedSession };
 }

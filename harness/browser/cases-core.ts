@@ -6,6 +6,7 @@ export type CardControl = 'plan-terminal';
 
 export type Step =
   | { kind: 'assert-issues'; viewer?: ViewerId }
+  | { kind: 'assert-boards'; viewer?: ViewerId }
   | { kind: 'assert-team-review'; viewer?: ViewerId }
   | { kind: 'open'; viewer?: ViewerId }
   | { kind: 'back'; viewer?: ViewerId }
@@ -164,6 +165,10 @@ export const SCENARIOS: readonly Scenario[] = [
   {
     name: 'issues',
     steps: [{ kind: 'assert-issues' }, { kind: 'shot', name: 'issues' }],
+  },
+  {
+    name: 'boards',
+    steps: [{ kind: 'assert-boards' }, { kind: 'shot', name: 'boards' }],
   },
   {
     name: 'team-review',

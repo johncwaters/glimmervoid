@@ -219,7 +219,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const sessionDocs = createSessionDocsWiring({ broadcastControl: broadcastControlFromWebSockets });
   const shownFilesWiring = createShownFilesWiring({ shownRoot: configSiblingPath(configStore.configPath, SHOWN_FOLDER_NAME), broadcastControl: broadcastControlFromWebSockets });
   shownFiles = shownFilesWiring;
-  const whiteboards = createWhiteboardWiring({ boardsRoot: configSiblingPath(configStore.configPath, WHITEBOARDS_FOLDER_NAME) });
+  const whiteboards = createWhiteboardWiring({ boardsRoot: configSiblingPath(configStore.configPath, WHITEBOARDS_FOLDER_NAME), broadcastControl: broadcastControlFromWebSockets });
   const coherenceFeed = createCoherenceSessionFeed({ broadcastControl: broadcastControlFromWebSockets });
 
   const sessions = new Map<string, Session>();
@@ -581,6 +581,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     decidePlanReview: laneAssembly.planReview?.decide ?? null,
     sessionDocs,
     shownFiles: shownFilesWiring,
+    whiteboards,
     coherenceFeed,
     serverBuild: () => serverBuild,
     telemetry,

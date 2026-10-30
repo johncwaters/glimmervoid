@@ -17,6 +17,7 @@ import { applyAgentLogins } from './agent-logins.ts';
 import { refreshFirstRunChecklist, revealFirstRunChecklist } from './onboarding/first-run-loader.ts';
 import { applySessionDocsChanged, applySessionDocsSnapshot } from './doc-editor.ts';
 import { applySessionShown, applySessionShownSnapshot, onShownFilesChanged } from './shown-files.ts';
+import { applyWhiteboardPatch, applyWhiteboardRemoved, applyWhiteboardsSnapshot } from './whiteboard/board-store.ts';
 import { applyCoherenceJournalResponse, applySessionCoherence, applySessionCoherenceSnapshot, forgetSessionCoherence, isSessionJournalReadable, openCoherenceJournal, sessionRowCoherenceSignals, setSessionCoherenceHooks } from './coherence/journal-drawer.ts';
 import { isRealInputOwningKey, observeHeaderHeight, queryTag, writeClipboardText } from './dom-helpers.ts';
 import { routeExternalAnchorsThroughHost } from './external-link.ts';
@@ -494,6 +495,9 @@ const messageHandlers = {
   'session-docs-snapshot': (msg) => applySessionDocsSnapshot(msg),
   'session-shown': (msg) => applySessionShown(msg),
   'session-shown-snapshot': (msg) => applySessionShownSnapshot(msg),
+  'whiteboards-snapshot': (msg) => applyWhiteboardsSnapshot(msg),
+  'whiteboard-patch': (msg) => applyWhiteboardPatch(msg),
+  'whiteboard-removed': (msg) => applyWhiteboardRemoved(msg),
   'session-coherence-hooks': (msg) => { setSessionCoherenceHooks(msg.id, msg.coherenceHooks); refreshRosterAndAttentionSurfaces(); },
   'session-coherence': (msg) => { applySessionCoherence(msg); refreshRosterAndAttentionSurfaces(); },
   'session-coherence-snapshot': (msg) => { applySessionCoherenceSnapshot(msg); refreshRosterAndAttentionSurfaces(); },

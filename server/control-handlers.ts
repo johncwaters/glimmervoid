@@ -67,6 +67,7 @@ import type { UpdateStatus } from './backend/backend-update.ts';
 import type { UpdateApplyOutcome } from './update-apply.ts';
 import type { PlanReadRequest, PlanReadResult } from './plan-review-wiring.ts';
 import type { SessionDocsPort } from './session/session-docs-wiring.ts';
+import type { WhiteboardPort } from './whiteboard/whiteboard-wiring.ts';
 import type { CoherenceSessionFeed } from './coherence/coherence-session-feed.ts';
 import type { TracePage, TracePageRequest } from './trace-wiring.ts';
 import { createChangeMapService } from './change-map/change-map-wiring.ts';
@@ -177,6 +178,7 @@ interface ControlHandlerDeps {
   readPlanRevision?: ((sessionId: string, request: PlanReadRequest) => Promise<PlanReadResult | null>) | null;
   decidePlanReview?: ((sessionId: string, decision: PlanDecision) => string | null) | null;
   sessionDocs?: SessionDocsPort | null;
+  whiteboards?: Pick<WhiteboardPort, 'handleOperator'> | null;
   coherenceFeed?: Pick<CoherenceSessionFeed, 'readJournal'> | null;
   telemetry?: (Pick<Telemetry, 'captureException' | 'captureClientError'> & Partial<Pick<Telemetry, 'capture' | 'requestDataDeletion'>>) | null;
   coderEnv?: Pick<ReturnType<typeof createCoderEnvWiring>, 'reserve' | 'provision' | 'renew' | 'availableEnvironments' | 'settleRemoval'> | null;
@@ -300,6 +302,10 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'benchmark-action': () => ({ type: 'benchmark-action-result', requestId, suiteId: typeof msg?.suiteId === 'string' ? msg.suiteId : '', action: typeof msg?.action === 'string' ? msg.action : 'run', ok: false, error: message }),
     'request-usage-report': () => ({ type: 'usage-report', requestId, error: message }),
     'request-hooks-report': () => ({ type: 'hooks-report', requestId, error: message }),
+    'whiteboard-create': () => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
+    'whiteboard-op': () => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
+    'whiteboard-delete': () => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
+    'whiteboard-get': () => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
     'save-hook': () => ({ type: 'save-hook-result', requestId, ok: false, error: message }),
     'add-session': () => ({ type: 'add-session-result', requestId, ok: false, error: message }),
     'quick-session': () => ({ type: 'add-session-result', requestId, ok: false, error: message }),
@@ -400,6 +406,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     readPlanRevision = null,
     decidePlanReview = null,
     sessionDocs = null,
+    whiteboards = null,
     coherenceFeed = null,
     coderEnv = null,
     remoteRepoGit = null,
@@ -1582,6 +1589,14 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       .map((project) => ({ id: project.id, name: project.name, agent: typeof project.agent === 'string' ? project.agent : DEFAULT_AGENT_ID }));
   }
 
+  async function answerWhiteboard(ws: ControlSocket, msg: ControlRequest, command: (port: WhiteboardPort['handleOperator']) => Promise<Record<string, unknown>>): Promise<void> {
+    if (!whiteboards) {
+      replyTo(ws, msg, 'whiteboard-result', { ok: false, error: 'Whiteboards are not available on this server.' });
+      return;
+    }
+    replyTo(ws, msg, 'whiteboard-result', { ...await command(whiteboards.handleOperator) });
+  }
+
   function handleRequestHooksReport(msg: ClientMessageOf<'request-hooks-report'>, ws: ControlSocket): void {
     replyTo(ws, msg, 'hooks-report', {
       ts: Date.now(),
@@ -1707,6 +1722,10 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'request-usage-report': handleRequestUsageReport,
     'request-hooks-report': handleRequestHooksReport,
     'save-hook': handleSaveHook,
+    'whiteboard-create': (msg: ClientMessageOf<'whiteboard-create'>, ws: ControlSocket) => answerWhiteboard(ws, msg, (port) => port.create(msg.title)),
+    'whiteboard-op': (msg: ClientMessageOf<'whiteboard-op'>, ws: ControlSocket) => answerWhiteboard(ws, msg, (port) => port.put(msg.boardId, msg.ops)),
+    'whiteboard-delete': (msg: ClientMessageOf<'whiteboard-delete'>, ws: ControlSocket) => answerWhiteboard(ws, msg, (port) => port.remove(msg.boardId)),
+    'whiteboard-get': (msg: ClientMessageOf<'whiteboard-get'>, ws: ControlSocket) => answerWhiteboard(ws, msg, (port) => port.get(msg.boardId)),
     'delete-hook': handleDeleteHook,
     'kill':             (msg: ClientMessageOf<'kill'>) => { const s = findSession(msg); if (s) s.killSession(); },
     'start-session':    handleStartSession,

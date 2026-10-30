@@ -3,8 +3,10 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 
 import { BoardRecord, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
-import type { Op, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
+import type { Board, BoardSummary, Op, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import type { AgentReplyBodyOf } from '../../shared/contracts/session.ts';
+import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
+import type { ControlMessageRecord } from '../core/control-replay-core.ts';
 import { applyOps, createBoard } from '../../shared/whiteboard-ops-core.ts';
 import type { Author } from '../../shared/whiteboard-ops-core.ts';
 import {
@@ -40,10 +42,23 @@ interface WhiteboardReply {
   body: AgentReplyBodyOf<'whiteboard'>;
 }
 
-type RecordChange = { ok: true; record: BoardRecord; reply: WhiteboardReply } | { ok: false; reply: WhiteboardReply };
+type WhiteboardPatch = ServerMessageOf<'whiteboard-patch'>;
+
+type RecordChange = { ok: true; record: BoardRecord; reply: WhiteboardReply; patch?: WhiteboardPatch } | { ok: false; reply: WhiteboardReply };
+
+type OperatorReply = {
+  ok: boolean;
+  error: string | null;
+  board?: Board;
+  summary?: BoardSummary;
+};
+
+const OPERATOR_AUTHOR: Author = Object.freeze({ id: 'operator', name: 'operator' });
+const DELETED_BOARD_TEXT = 'that board was deleted';
 
 interface WhiteboardWiringOptions {
   boardsRoot: string;
+  broadcastControl?: (message: ControlMessageRecord) => void;
   now?: () => number;
   newBoardId?: () => string;
   logger?: Pick<Console, 'warn'>;
@@ -52,6 +67,13 @@ interface WhiteboardWiringOptions {
 interface WhiteboardPort {
   loaded: Promise<void>;
   handleAgent(caller: WhiteboardCaller, request: WhiteboardAgentRequest): Promise<WhiteboardReply>;
+  handleOperator: {
+    create(title: string): Promise<OperatorReply>;
+    put(boardId: string, ops: readonly Op[]): Promise<OperatorReply>;
+    remove(boardId: string): Promise<OperatorReply>;
+    get(boardId: string): Promise<OperatorReply>;
+  };
+  snapshotMessage(): ServerMessageOf<'whiteboards-snapshot'>;
 }
 
 function refusal(status: number, error: string): WhiteboardReply {
@@ -63,10 +85,18 @@ function parseBoardRecord(raw: unknown): BoardRecord | null {
   return parsed.success ? parsed.data : null;
 }
 
+function operatorReplyOf(reply: WhiteboardReply): OperatorReply {
+  if (!reply.body.ok) return { ok: false, error: reply.body.error };
+  if ('board' in reply.body && 'changes' in reply.body) return { ok: true, error: null, board: reply.body.board };
+  if ('board' in reply.body) return { ok: true, error: null, summary: reply.body.board };
+  return { ok: true, error: null };
+}
+
 function createWhiteboardWiring({
-  boardsRoot, now = Date.now, newBoardId = () => crypto.randomUUID(), logger = console,
+  boardsRoot, broadcastControl = () => {}, now = Date.now, newBoardId = () => crypto.randomUUID(), logger = console,
 }: WhiteboardWiringOptions): WhiteboardPort {
   const recordsByBoardId = new Map<string, BoardRecord>();
+  const deletedBoardIds = new Set<string>();
   const writeQueue = createKeyedSerialQueue();
   const loaded = loadBoards();
 
@@ -83,14 +113,29 @@ function createWhiteboardWiring({
     }
   }
 
+  function boardFilePath(boardId: string): string {
+    return path.join(boardsRoot, `${boardId}${BOARD_FILE_EXTENSION}`);
+  }
+
   function writeRecord(record: BoardRecord): Promise<void> {
-    return writeJsonAtomic(path.join(boardsRoot, `${record.board.id}${BOARD_FILE_EXTENSION}`), record, { mode: BOARD_FILE_MODE, mkdir: true });
+    return writeJsonAtomic(boardFilePath(record.board.id), record, { mode: BOARD_FILE_MODE, mkdir: true });
+  }
+
+  function snapshotMessage(): ServerMessageOf<'whiteboards-snapshot'> {
+    return { type: 'whiteboards-snapshot', boards: [...recordsByBoardId.values()].map(summarizeBoard) };
+  }
+
+  function broadcastSummariesIfChanged(before: BoardRecord | null, after: BoardRecord | null): void {
+    const summaryBefore = before ? JSON.stringify(summarizeBoard(before)) : null;
+    const summaryAfter = after ? JSON.stringify(summarizeBoard(after)) : null;
+    if (summaryBefore === summaryAfter) return;
+    broadcastControl(snapshotMessage());
   }
 
   function changeRecord(boardId: string, change: (record: BoardRecord) => RecordChange): Promise<WhiteboardReply> {
     return writeQueue.run(boardId, async () => {
       const current = recordsByBoardId.get(boardId);
-      if (!current) return refusal(404, 'that board was deleted');
+      if (!current) return refusal(404, DELETED_BOARD_TEXT);
       const outcome = change(current);
       if (!outcome.ok) return outcome.reply;
       if (outcome.record === current) return outcome.reply;
@@ -102,20 +147,24 @@ function createWhiteboardWiring({
         logger.warn(`[whiteboard] board ${boardId} could not be saved: ${errorMessage(error)}`);
         return refusal(500, 'the board could not be saved, so nothing changed');
       }
+      if (outcome.patch) broadcastControl(outcome.patch);
+      broadcastSummariesIfChanged(current, outcome.record);
       return outcome.reply;
     });
   }
 
   function findBoardId(ref: string): { ok: true; boardId: string } | { ok: false; reply: WhiteboardReply } {
+    if (deletedBoardIds.has(ref)) return { ok: false, reply: refusal(404, DELETED_BOARD_TEXT) };
     const resolved = resolveBoardRef([...recordsByBoardId.values()].map((record) => record.board), ref);
     if ('error' in resolved) return { ok: false, reply: refusal(404, resolved.error) };
     return { ok: true, boardId: resolved.id };
   }
 
-  async function createBoardFor(caller: WhiteboardCaller, title: string): Promise<WhiteboardReply> {
+  async function createBoardFor(creator: WhiteboardCaller | null, title: string): Promise<WhiteboardReply> {
     const boardId = newBoardId();
     const nowMs = now();
-    const record: BoardRecord = { board: createBoard({ id: boardId, title, nowMs }), log: [], cursorBySessionId: { [caller.id]: 0 } };
+    const cursorBySessionId: Record<string, number> = creator ? { [creator.id]: 0 } : {};
+    const record: BoardRecord = { board: createBoard({ id: boardId, title, nowMs }), log: [], cursorBySessionId };
     recordsByBoardId.set(boardId, record);
     try {
       await writeQueue.run(boardId, () => writeRecord(record));
@@ -124,6 +173,7 @@ function createWhiteboardWiring({
       logger.warn(`[whiteboard] board ${boardId} could not be created: ${errorMessage(error)}`);
       return refusal(500, 'the board could not be saved, so it was not created');
     }
+    broadcastSummariesIfChanged(null, record);
     return { status: 200, body: { ok: true, board: summarizeBoard(record), note: PUT_GUIDE } };
   }
 
@@ -135,7 +185,11 @@ function createWhiteboardWiring({
       const result = applyOps(record.board, ops, author, now());
       if (!result.ok) return { ok: false, reply: refusal(400, `${result.error}, so nothing changed`) };
       const next = recordPut(record, result);
-      return { ok: true, record: next, reply: { status: 200, body: { ok: true, version: next.board.version } } };
+      const patch: WhiteboardPatch = {
+        type: 'whiteboard-patch', boardId, fromVersion: record.board.version, toVersion: next.board.version,
+        author: { id: author.id, name: author.name }, updatedAt: next.board.updatedAt, ops: [...ops],
+      };
+      return { ok: true, record: next, reply: { status: 200, body: { ok: true, version: next.board.version } }, patch };
     });
   }
 
@@ -150,6 +204,45 @@ function createWhiteboardWiring({
   function connectionReply(record: BoardRecord, note: string): WhiteboardReply {
     return { status: 200, body: { ok: true, board: summarizeBoard(record), note } };
   }
+
+  function removeBoard(boardId: string): Promise<WhiteboardReply> {
+    return writeQueue.run(boardId, async () => {
+      const current = recordsByBoardId.get(boardId);
+      if (!current) return refusal(404, DELETED_BOARD_TEXT);
+      try {
+        await fsp.rm(boardFilePath(boardId), { force: true });
+      } catch (error) {
+        logger.warn(`[whiteboard] board ${boardId} could not be deleted: ${errorMessage(error)}`);
+        return refusal(500, 'the board file could not be deleted, so the board is still here');
+      }
+      recordsByBoardId.delete(boardId);
+      deletedBoardIds.add(boardId);
+      broadcastControl({ type: 'whiteboard-removed', boardId });
+      broadcastSummariesIfChanged(current, null);
+      return { status: 200, body: { ok: true, version: current.board.version } };
+    });
+  }
+
+  async function operatorBoardCommand(boardId: string, command: (foundBoardId: string) => Promise<WhiteboardReply>): Promise<OperatorReply> {
+    await loaded;
+    const found = findBoardId(boardId);
+    if (!found.ok) return operatorReplyOf(found.reply);
+    return operatorReplyOf(await command(found.boardId));
+  }
+
+  const handleOperator: WhiteboardPort['handleOperator'] = {
+    create: async (title) => {
+      await loaded;
+      return operatorReplyOf(await createBoardFor(null, title));
+    },
+    put: (boardId, ops) => operatorBoardCommand(boardId, (foundBoardId) => putOps(foundBoardId, ops, OPERATOR_AUTHOR)),
+    remove: (boardId) => operatorBoardCommand(boardId, removeBoard),
+    get: (boardId) => operatorBoardCommand(boardId, async (foundBoardId) => {
+      const record = recordsByBoardId.get(foundBoardId);
+      if (!record) return refusal(404, DELETED_BOARD_TEXT);
+      return { status: 200, body: { ok: true, board: record.board, changes: [] } };
+    }),
+  };
 
   async function handleAgent(caller: WhiteboardCaller, request: WhiteboardAgentRequest): Promise<WhiteboardReply> {
     await loaded;
@@ -177,7 +270,7 @@ function createWhiteboardWiring({
     }
   }
 
-  return { loaded, handleAgent };
+  return { loaded, handleAgent, handleOperator, snapshotMessage };
 }
 
 export { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME };

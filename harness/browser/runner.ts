@@ -7,6 +7,7 @@ import { safeTextTail } from '../support/backend-harness.ts';
 import { heightWithKeyboardUp, layoutFor, needsSocketRoute } from './cases-core.ts';
 import type { CardControl, HarnessCase, Layout, ResolvedStep, Step, ViewerId, Viewport } from './cases-core.ts';
 import { expectedRows, parseStatusRow } from './frame-core.ts';
+import { verifyBoards } from './boards.ts';
 import { verifyIssues } from './issues.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
 import { CARD_REGISTRY_URL, boardRowIds, dispatchWindowBlur, dropDataSocket, pillIds, readDocumentEngagement, readGrid, readLayout, readSettingsHistory, readTerminalFocus, readTerminalWatch, scrollTerminalToTop, setDocumentEngagement, setFitMeasurement, watchTerminal } from './probe.ts';
@@ -888,6 +889,10 @@ export async function runCase({
     if (step.kind === 'assert-issues') {
       await verifyIssues(viewer.page, viewer.layout, sessionId);
       return passedOutcome('issues', 'queue filters, live states, descriptions, sessions and pane navigation verified');
+    }
+    if (step.kind === 'assert-boards') {
+      await verifyBoards(viewer.page, viewer.layout);
+      return passedOutcome('boards', 'board create, live box add and Comic Mono board text verified');
     }
     if (step.kind === 'assert-team-review') {
       await verifyTeamReviewRows(viewer.page, viewer.layout, sessionId);

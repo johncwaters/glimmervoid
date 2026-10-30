@@ -10,6 +10,7 @@ import { createBackend } from '../server/backend/backend.ts';
 import { AGENT_REPLY_SCHEMAS } from '../shared/contracts/session.ts';
 import { WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
+import { closeSocket, dashboardClient, openRecordingSocket, waitForMessage } from './helpers/dashboard-ws.ts';
 import type { Backend } from './helpers/lanes.ts';
 import { settleBackendShutdown } from './helpers/lanes.ts';
 
@@ -188,6 +189,21 @@ test('a put larger than other agent requests but inside the put limit lands, and
   const past = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: boxesOf(200, 'b') });
   assert.equal(past.status, 413);
   assert.match(String(past.body.error), /nothing changed/);
+});
+
+test('the operator deletes a board from the dashboard and a connected agent is told it was deleted', async () => {
+  const boardId = await newBoard('short lived');
+  const client = await dashboardClient(boundPort(running().server));
+  const control = await openRecordingSocket<{ type: string; requestId?: string; ok?: boolean; boardId?: string }>(client);
+  control.ws.send(JSON.stringify({ type: 'whiteboard-delete', boardId, requestId: 'delete-1' }));
+  const deleted = await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-result' && frame.requestId === 'delete-1', 'the delete reply');
+  assert.equal(deleted.ok, true);
+  await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-removed' && frame.boardId === boardId, 'the removal broadcast');
+  await closeSocket(control.ws);
+
+  const afterDelete = await whiteboard(PLANNER_ID, { sub: 'get', board: boardId });
+  assert.equal(afterDelete.status, 404);
+  assert.equal(afterDelete.body.error, 'that board was deleted');
 });
 
 test('boards and their connections survive a restart', async () => {

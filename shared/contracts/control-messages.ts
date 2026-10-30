@@ -25,6 +25,7 @@ import { LinkedPr, MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrMergeR
 import { GithubPrsFrame } from './github-prs.ts';
 import { BenchmarkActionRequest, BenchmarkActionResult, BenchmarkStatus } from './benchmark.ts';
 import { FeatureHint } from './feature-hints.ts';
+import { Board, BoardSummary, Op, WHITEBOARD_LIMITS } from './whiteboard.ts';
 
 export const CHANGES_POLL_INTERVAL_MS = 4_000;
 export const CHANGES_WATCH_LEASE_MS = 10_000;
@@ -201,7 +202,7 @@ const ClientLogReport = z.object({
 }).strict();
 
 const DASHBOARD_TELEMETRY_EVENTS = Object.freeze(['view_shown', 'operator_action', 'onboarding_step', 'header_error_shown'] as const);
-export const DASHBOARD_VIEWS = Object.freeze(['focus', 'prs', 'issues', 'usage', 'radar', 'community', 'hooks', 'trace', 'benchmarks', 'settings'] as const);
+export const DASHBOARD_VIEWS = Object.freeze(['focus', 'prs', 'issues', 'usage', 'radar', 'community', 'boards', 'hooks', 'trace', 'benchmarks', 'settings'] as const);
 export const OPERATOR_ACTIONS_BY_SURFACE = Object.freeze({
   usage: ['sort', 'range', 'period', 'expand', 'refresh'],
   issues: ['scope', 'filter', 'search', 'filters-toggle', 'select', 'back', 'go-to-session', 'open-session', 'refresh'],
@@ -288,6 +289,10 @@ const clientVariants = [
   loose('telegram-test', { requestId }),
   loose('request-usage-report', { requestId, days: z.unknown().optional(), force: z.unknown().optional() }),
   loose('request-hooks-report', { requestId }),
+  loose('whiteboard-create', { title: Board.shape.title, requestId }),
+  loose('whiteboard-op', { boardId: Board.shape.id, ops: z.array(Op).min(1).max(WHITEBOARD_LIMITS.opsPerPut), requestId }),
+  loose('whiteboard-delete', { boardId: Board.shape.id, requestId }),
+  loose('whiteboard-get', { boardId: Board.shape.id, requestId }),
 
   loose('save-hook', { hook: z.record(z.string(), z.unknown()), requestId }),
   loose('delete-hook', { id: z.string(), requestId }),
@@ -626,6 +631,17 @@ const serverVariants = [
     ts: timestamp,
   }),
   loose('client-trust', { trust: z.enum(['local', 'remote']) }),
+  loose('whiteboards-snapshot', { boards: z.array(BoardSummary) }),
+  loose('whiteboard-patch', {
+    boardId: z.string(),
+    fromVersion: z.number().int(),
+    toVersion: z.number().int(),
+    author: z.object({ id: z.string(), name: z.string() }),
+    updatedAt: z.number(),
+    ops: z.array(Op),
+  }),
+  loose('whiteboard-removed', { boardId: z.string() }),
+  loose('whiteboard-result', { requestId, ok: z.boolean(), error: optionalError, board: Board.optional(), summary: BoardSummary.optional() }),
   loose('shutting-down'),
   loose('restarting'),
   loose('feature-hint', { hint: FeatureHint }),
