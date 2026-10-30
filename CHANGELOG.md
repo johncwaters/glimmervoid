@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Team reviews start again**: since 0.48.1-next.303 every team review failed three times within seconds and wrote no report, because Claude read the review prompt as one more blocked-tool rule and started with no prompt. Claude sessions now always receive their prompt as the prompt, so team review and the Community lane run again. PRs whose review failed need re-queueing.
+- **Unpushed base no longer reads as diverged**: a session started while your local base branch held commits not yet pushed to origin now warns that the base is ahead of origin (unpushed commits) instead of saying it has diverged. A base that really forked from origin still says diverged.
 - **Usage ranges are calendar days**: Today, Last 7 days and Last 30 days now cover whole local days, today plus the days before it, so a period's total matches the sum of its daily bars instead of counting a rolling window that started mid-morning.
 - **Phone dialogs stay above the keyboard**: on a phone, dialogs such as New board now open at the top of the screen instead of the middle, so the on-screen keyboard no longer covers the text box and its buttons.
 - **Trace shows task notifications as notifications**: a background task finishing no longer appears in Trace as a prompt you typed, now that Claude Code records those turns in a newer format.

@@ -155,6 +155,27 @@ test('syncIntegrationBranch leaves a diverged local integration branch untouched
   }
 });
 
+test('syncIntegrationBranch reports a local integration branch with only unpushed commits as ahead, not diverged', { skip: !GIT }, async () => {
+  const fixture = createFixture();
+  try {
+    const remoteSha = git(['rev-parse', 'develop'], fixture.repo).trim();
+    git(['checkout', 'develop'], fixture.repo);
+    fs.writeFileSync(path.join(fixture.repo, 'unpushed.txt'), 'unpushed\n', 'utf8');
+    git(['add', '-A'], fixture.repo);
+    git(['commit', '-m', 'unpushed develop'], fixture.repo);
+    const localSha = git(['rev-parse', 'HEAD'], fixture.repo).trim();
+    git(['checkout', 'main'], fixture.repo);
+    const gitWorkspace = createGitWorkspace();
+
+    const synced = await gitWorkspace.syncIntegrationBranch({ projectPath: fixture.repo, branch: 'develop' });
+
+    assert.deepEqual(synced, { outcome: 'ahead', from: localSha, to: remoteSha });
+    assert.equal(git(['rev-parse', 'develop'], fixture.repo).trim(), localSha);
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test('syncIntegrationBranch fast-forwards a clean checked-out integration branch in its checkout', { skip: !GIT }, async () => {
   const fixture = createFixture();
   try {
