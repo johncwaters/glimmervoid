@@ -143,27 +143,6 @@ export function blockLabel(startTs: unknown) {
   return `${month} ${date.getDate()} ${localHourMinuteText(date)}`;
 }
 
-const COMPOSITION_PARTS = Object.freeze([
-  { key: 'input', label: 'input' },
-  { key: 'output', label: 'output' },
-  { key: 'cacheCreate', label: 'cache write' },
-  { key: 'cacheRead', label: 'cache read' },
-]);
-
-export function compositionParts(totals: UsageTotals | null | undefined) {
-  const parts = COMPOSITION_PARTS.map((spec) => {
-    const raw = Number(totals?.[spec.key as keyof UsageTotals]);
-    return { spec, tokens: Number.isFinite(raw) && raw > 0 ? raw : 0 };
-  });
-  const sum = parts.reduce((total, part) => total + part.tokens, 0);
-  if (sum <= 0) return [];
-  return parts.map((part) => {
-    const pct = percentOfTotal(part.tokens, sum) ?? 0;
-    const value = formatTokens(part.tokens);
-    return { key: part.spec.key, label: part.spec.label, value, pct, title: `${part.spec.label} ${value}, ${formatPercent(pct)}` };
-  });
-}
-
 const LANE_LABELS: Readonly<Record<string, string>> = Object.freeze({
   interactive: 'Interactive',
   'pr-review': 'PR review',
@@ -280,16 +259,14 @@ export function overheadLanesText(window: OverheadWindow) {
 
 const PR_REVIEWS_LANE = 'team-review';
 
-export function prReviewsSpendTile(report: UsageReport | null | undefined) {
-  if (!Array.isArray(report?.byLane)) return null;
+function prReviewsSentence(report: UsageReport | null | undefined) {
+  if (!Array.isArray(report?.byLane)) return '';
   const row = laneRows(report).find((candidate) => candidate.lane === PR_REVIEWS_LANE);
   const costUSD = numberOr(row?.costUSD, 0);
-  const tokens = numberOr(row?.tokens, 0);
-  const basis = shareBasis(report?.totals);
-  const share = percentOfTotal(basis === 'costUSD' ? costUSD : tokens, report?.totals?.[basis]);
-  const shareText = share === null ? '' : `${formatPercent(share)} of range ${basis === 'costUSD' ? 'cost' : 'tokens'}`;
-  const sub = [formatUsd(costUSD), shareText, laneSessionsText(row?.sessions)].filter(Boolean).join(', ');
-  return { label: laneLabel(PR_REVIEWS_LANE), value: formatTokens(tokens), sub };
+  if (costUSD <= 0) return '';
+  const share = percentOfTotal(costUSD, report?.totals?.costUSD);
+  const shareText = share === null ? '' : `, ${formatPercent(share)} of this period`;
+  return `PR reviews cost ${formatUsd(costUSD)}${shareText}.`;
 }
 
 export function laneSessionsText(sessions: unknown) {
@@ -304,24 +281,15 @@ function cacheSavings(savings: UsageSavings | null | undefined): CacheSavings | 
   return cache;
 }
 
-export function hasSavings(savings: UsageSavings | null | undefined) {
-  return cacheSavings(savings) !== null;
-}
-
-export function cacheSavingsTile(savings: UsageSavings | null | undefined) {
+function cacheSavingsSentence(savings: UsageSavings | null | undefined) {
   const cache = cacheSavings(savings);
-  if (!cache) return null;
-  const tokens = formatTokens(numberOr(cache.cacheReadTokens, 0));
+  if (!cache) return '';
+  const savedUSD = numberOr(cache.savedUSD, 0);
+  if (savedUSD <= 0) return '';
   const unpricedModels: unknown[] = Array.isArray(cache.unpricedModels) ? cache.unpricedModels : [];
-  const unpriced = unpricedModels.filter((model) => model);
-  const sub = `${tokens} cache read tokens`;
-  if (unpriced.length === 0) return { value: formatUsd(numberOr(cache.savedUSD, 0)), sub };
-
-  const noun = unpriced.length === 1 ? 'model' : 'models';
-  return {
-    value: formatUsd(numberOr(cache.savedUSD, 0)),
-    sub: `${sub}, a floor (${unpriced.length} unpriced ${noun})`,
-  };
+  const unpricedCount = unpricedModels.filter((model) => model).length;
+  const floorText = unpricedCount === 0 ? '' : `, at least, since ${unpricedCount} ${unpricedCount === 1 ? 'model has' : 'models have'} no price`;
+  return `Prompt caching saved ${formatUsd(savedUSD)}${floorText}, across ${formatTokens(numberOr(cache.cacheReadTokens, 0))} cache read tokens.`;
 }
 
 export function budgetScopeLabel(scope: unknown) {
@@ -613,7 +581,7 @@ export function modelRowPrefix(row: { vendor?: unknown } | null | undefined, tot
   return vendorLabel(row?.vendor);
 }
 
-export function vendorTotalsRows(totals: UsageTotals | null | undefined) {
+function vendorTotalsRows(totals: UsageTotals | null | undefined) {
   const byVendor = totals?.byVendor;
   if (!byVendor || typeof byVendor !== 'object') return [];
   return Object.keys(byVendor)
@@ -627,7 +595,7 @@ export function vendorTotalsRows(totals: UsageTotals | null | undefined) {
     }));
 }
 
-export function hasMultiVendorUsage(totals: UsageTotals | null | undefined) {
+function hasMultiVendorUsage(totals: UsageTotals | null | undefined) {
   const byVendor = totals?.byVendor;
   if (!byVendor || typeof byVendor !== 'object') return false;
   const vendors = Object.keys(byVendor).filter((vendor) => byVendor[vendor] && typeof byVendor[vendor] === 'object');
@@ -705,7 +673,7 @@ export function isGlimmervoidSessionRow(row: UsageWireRow | null | undefined) {
   return typeof row?.id === 'string' && row.id !== '';
 }
 
-export function sessionRowLabel(row: UsageWireRow | null | undefined) {
+function sessionRowLabel(row: UsageWireRow | null | undefined) {
   const label = textOr(row?.label, '');
   if (isGlimmervoidSessionRow(row) && label) return label;
   const project = projectBasename(row?.project);
@@ -775,16 +743,16 @@ export function ariaSortValue(current: SortState | null | undefined, key: string
   return current.dir === 'asc' ? 'ascending' : 'descending';
 }
 
-export const DEFAULT_SESSION_SORT: Readonly<SortState> = Object.freeze({ key: 'lastTs', dir: 'desc' });
-export const DEFAULT_MODEL_SORT: Readonly<SortState> = Object.freeze({ key: 'tokens', dir: 'desc' });
+const DEFAULT_SESSION_SORT: Readonly<SortState> = Object.freeze({ key: 'lastTs', dir: 'desc' });
+const DEFAULT_MODEL_SORT: Readonly<SortState> = Object.freeze({ key: 'tokens', dir: 'desc' });
+const COST_SORT: Readonly<SortState> = Object.freeze({ key: 'costUSD', dir: 'desc' });
 export const DEFAULT_DAY_SORT: Readonly<SortState> = Object.freeze({ key: 'day', dir: 'desc' });
 
-export function sortSessionRows(rows: unknown, sort: Readonly<SortState> = DEFAULT_SESSION_SORT) {
+function sortSessionRows(rows: unknown, sort: Readonly<SortState> = DEFAULT_SESSION_SORT) {
   return sortUsageRows(rows, sort.key, sort.dir, sessionRowLabel);
 }
 
-export function visibleSessionRows(sortedRows: unknown, expanded: boolean, limit: number = SESSION_ROW_LIMIT): { rows: UsageWireRow[]; hiddenCount: number } {
-  if (!Array.isArray(sortedRows)) return { rows: [], hiddenCount: 0 };
+export function visibleSessionRows<Row>(sortedRows: readonly Row[], expanded: boolean, limit: number = SESSION_ROW_LIMIT): { rows: readonly Row[]; hiddenCount: number } {
   const maxRows = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : SESSION_ROW_LIMIT;
   if (expanded || sortedRows.length <= maxRows) return { rows: sortedRows, hiddenCount: 0 };
   return {
@@ -993,7 +961,7 @@ export function rangeLabel(rangeValue: string) {
 }
 
 export function topModelSummary(report: UsageReport | null | undefined) {
-  const rows = sortModelRows(report?.models, { key: 'costUSD', dir: 'desc' });
+  const rows = sortModelRows(report?.models, COST_SORT);
   const top = rows[0];
   if (!top) return null;
   const basis = shareBasis(report?.totals);
@@ -1001,7 +969,7 @@ export function topModelSummary(report: UsageReport | null | undefined) {
 }
 
 export function sessionsSummary(report: UsageReport | null | undefined) {
-  const rows = sortSessionRows(report?.sessions, { key: 'costUSD', dir: 'desc' });
+  const rows = sortSessionRows(report?.sessions, COST_SORT);
   const top = rows[0];
   return { count: rows.length, topLabel: top ? sessionRowLabel(top) : '' };
 }
@@ -1042,4 +1010,130 @@ export function nextPaceResetMs(windows: readonly PaceWindow[]) {
     if (window.resetsAtMs === null) return earliest;
     return earliest === null ? window.resetsAtMs : Math.min(earliest, window.resetsAtMs);
   }, null);
+}
+
+interface PeriodBar {
+  day: string;
+  label: string;
+  costUSD: number;
+  isToday: boolean;
+}
+
+export interface PeriodSummary {
+  costUSD: number;
+  deltaPct: number | null;
+  averageUSD: number;
+  peakUSD: number;
+  bars: PeriodBar[];
+}
+
+interface ReportInsight {
+  text: string;
+  tone: 'ok' | 'warn';
+}
+
+interface RankedRow {
+  row: UsageWireRow;
+  label: string;
+  costUSD: number;
+  sharePct: number | null;
+  barPct: number;
+}
+
+function shiftedDayKey(dayKey: string, offsetDays: number) {
+  const date = parseDayKey(dayKey);
+  if (!date) return '';
+  date.setDate(date.getDate() + offsetDays);
+  return localDayKey(date);
+}
+
+function costByDayOf(daily: unknown) {
+  const rows: UsageWireRow[] = Array.isArray(daily) ? daily : [];
+  const costByDay = new Map<string, number>();
+  for (const row of rows) {
+    const day = String(row?.day ?? '');
+    if (!DAY_KEY_RE.test(day)) continue;
+    costByDay.set(day, (costByDay.get(day) ?? 0) + numberOr(row?.costUSD, 0));
+  }
+  return costByDay;
+}
+
+function periodBarLabel(day: string, days: number) {
+  const date = parseDayKey(day);
+  if (!date) return day;
+  if (days <= 7) return WEEKDAY_NAMES[date.getDay()];
+  return String(date.getDate());
+}
+
+export function periodSummary(daily: unknown, days: number, todayKey: string): PeriodSummary {
+  const costByDay = costByDayOf(daily);
+  const bars = periodDayKeys(todayKey, days).map((day) => ({ day, label: periodBarLabel(day, days), costUSD: costByDay.get(day) ?? 0, isToday: day === todayKey }));
+  const costUSD = bars.reduce((sum, bar) => sum + bar.costUSD, 0);
+  const previousDayKeys = periodDayKeys(shiftedDayKey(todayKey, -days), days);
+  const previousCostUSD = previousDayKeys.reduce((sum, day) => sum + (costByDay.get(day) ?? 0), 0);
+  const hasPreviousPeriod = previousDayKeys.some((day) => costByDay.has(day)) && previousCostUSD > 0;
+  return {
+    costUSD,
+    deltaPct: hasPreviousPeriod ? ((costUSD - previousCostUSD) / previousCostUSD) * 100 : null,
+    averageUSD: bars.length > 0 ? costUSD / bars.length : 0,
+    peakUSD: bars.reduce((peak, bar) => Math.max(peak, bar.costUSD), 0),
+    bars,
+  };
+}
+
+export function periodDeltaText(summary: PeriodSummary, days: number) {
+  if (summary.deltaPct === null) return '';
+  const previousPeriod = days === 1 ? 'yesterday' : `the ${days} days before`;
+  const roundedPct = Math.round(Math.abs(summary.deltaPct));
+  if (roundedPct === 0) return `About the same as ${previousPeriod}`;
+  return `${roundedPct}% ${summary.deltaPct < 0 ? 'less' : 'more'} than ${previousPeriod}`;
+}
+
+export function periodAverageText(summary: PeriodSummary) {
+  return `${formatUsd(summary.averageUSD)} a day on average`;
+}
+
+export function vendorSplitText(totals: UsageTotals | null | undefined) {
+  if (!hasMultiVendorUsage(totals)) return '';
+  return vendorTotalsRows(totals).map((row) => `${row.label} ${formatUsd(row.costUSD)}`).join(', ');
+}
+
+export function reportInsights(report: UsageReport | null | undefined): ReportInsight[] {
+  const yourDayInsights = report?.yourDay?.insights ?? [];
+  const insights: ReportInsight[] = yourDayInsights.map((insight) => ({ text: insight.text, tone: 'ok' }));
+  const anomaly = report?.anomaly;
+  if (hasAnomaly(anomaly)) insights.push({ text: anomalyLine(anomaly), tone: 'warn' });
+  for (const text of [cacheSavingsSentence(report?.savings), prReviewsSentence(report)]) {
+    if (text) insights.push({ text, tone: 'ok' });
+  }
+  return insights;
+}
+
+function rankedRows(rows: UsageWireRow[], totals: UsageTotals | null | undefined, labelOf: (row: UsageWireRow) => string): RankedRow[] {
+  const basis = shareBasis(totals);
+  const peak = rows.reduce((best, row) => Math.max(best, numberOr(row[basis], 0)), 0);
+  return rows.map((row) => ({
+    row,
+    label: labelOf(row),
+    costUSD: numberOr(row.costUSD, 0),
+    sharePct: percentOfTotal(row[basis], totals?.[basis]),
+    barPct: percentOfTotal(row[basis], peak) ?? 0,
+  }));
+}
+
+export function rankedModels(report: UsageReport | null | undefined) {
+  return rankedRows(sortModelRows(report?.models, COST_SORT), report?.totals, modelLabel);
+}
+
+export function rankedSessions(report: UsageReport | null | undefined) {
+  return rankedRows(sortSessionRows(report?.sessions, COST_SORT), report?.totals, sessionRowLabel);
+}
+
+export function modelTokenMix(row: UsageWireRow) {
+  return [
+    { label: 'Input', tokens: numberOr(row.input, 0) },
+    { label: 'Output', tokens: numberOr(row.output, 0) },
+    { label: 'Cache write', tokens: numberOr(row.cacheCreate, 0) },
+    { label: 'Cache read', tokens: numberOr(row.cacheRead, 0) },
+  ];
 }

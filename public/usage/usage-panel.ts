@@ -9,9 +9,7 @@ import type { UsageChange } from './usage-store.ts';
 import {
   DEFAULT_DAY_SORT,
   DEFAULT_DETAIL_SCREEN,
-  DEFAULT_MODEL_SORT,
   DEFAULT_PERIOD_VIEW,
-  DEFAULT_SESSION_SORT,
   HEATMAP_DAY_LABELS,
   LANE_SCOPE_HINT,
   OVERHEAD_SCOPE_HINT,
@@ -33,9 +31,7 @@ import {
   budgetRowText,
   budgetScopeLabel,
   budgetSummary,
-  cacheSavingsTile,
   claudeOnlyHint,
-  compositionParts,
   dailyRowForDay,
   dayRangeLabel,
   formatPercent,
@@ -45,8 +41,6 @@ import {
   glimmervoidOverhead,
   hasAnomaly,
   hasLaneAttribution,
-  hasMultiVendorUsage,
-  hasSavings,
   heatmapCells,
   heatmapCellTitle,
   historyDayCount,
@@ -60,46 +54,51 @@ import {
   missingPricingLine,
   modelLabel,
   modelRowPrefix,
+  modelTokenMix,
+  nextPaceResetMs,
   nextSortState,
   overheadLanesText,
   overheadPlanText,
   paceSubText,
   paceVerdict,
-  nextPaceResetMs,
   paceWindows,
   percentOfTotal,
+  periodAverageText,
   periodDayKeys,
+  periodDeltaText,
   periodLabel,
   periodRows,
+  periodSummary,
   planLimitAgeText,
   planLimitStaleNote,
-  prReviewsSpendTile,
   rangeDays,
   rangeLabel,
+  rankedModels,
+  rankedSessions,
   reportDayKey,
+  reportInsights,
   resetClockText,
   sessionOverflowText,
-  sessionRowLabel,
   sessionsSummary,
   shareBasis,
   shareLabel,
   sortDailyRows,
   sortModelRows,
-  sortSessionRows,
   topModelSummary,
   usageErrorLine,
   usageWarningLine,
-  vendorTotalsRows,
+  vendorSplitText,
   visibleSessionRows,
   yourDayHint,
 } from './usage-view-core.ts';
-import type { PaceWindow, PlanLimits, SortState, UsageDetailScreen, UsageScreen, UsageTotals, UsageWireRow } from './usage-view-core.ts';
+import type { PaceWindow, PeriodSummary, PlanLimits, SortState, UsageDetailScreen, UsageScreen, UsageWireRow } from './usage-view-core.ts';
 
 type FocusTarget =
   | { kind: 'sort'; table: string; key: string }
   | { kind: 'period'; view: string }
   | { kind: 'day'; day: string }
   | { kind: 'sessions-toggle' }
+  | { kind: 'model'; key: string }
   | { kind: 'range'; value: string }
   | { kind: 'back' }
   | { kind: 'drill'; screen: UsageDetailScreen };
@@ -123,8 +122,7 @@ let _usage = usageSnapshot();
 let _root: HTMLDivElement | null = null;
 
 let _daySort: SortState = DEFAULT_DAY_SORT;
-let _modelSort: SortState = DEFAULT_MODEL_SORT;
-let _sessionSort: SortState = DEFAULT_SESSION_SORT;
+const _expandedModels = new Set<string>();
 let _sessionsExpanded = false;
 let _focusAfterRender: FocusTarget | null = null;
 let _periodView: string = DEFAULT_PERIOD_VIEW;
@@ -514,14 +512,152 @@ function buildBackControl() {
 
 function buildReportScreen() {
   const screen = el('div', 'usage-screen');
-  screen.append(buildBackControl(), buildSection('Report', dayRangeLabel(periodDayKeys(reportDayKey(_usage.report), rangeDays(_usage.rangeValue)))), buildRangeSwitch());
-  const yourDay = buildYourDaySection();
-  if (yourDay) screen.append(yourDay);
-  screen.append(buildTotalsSection());
-  const savings = buildSavingsSection();
-  if (savings) screen.append(savings);
+  const days = rangeDays(_usage.rangeValue);
+  const todayKey = reportDayKey(_usage.report);
+  screen.append(buildBackControl(), buildSection('Report', dayRangeLabel(periodDayKeys(todayKey, days))), buildRangeSwitch());
+  screen.append(buildPeriodCard(periodSummary(_usage.report?.daily, days, todayKey), days));
+  const insights = buildInsightsSection();
+  if (insights) screen.append(insights);
   screen.append(buildModelsSection(), buildSessionsSection());
   return screen;
+}
+
+function buildPeriodCard(summary: PeriodSummary, days: number) {
+  const card = el('div', 'usage-period-card');
+  card.append(el('p', 'usage-eyebrow', rangeLabel(_usage.rangeValue)));
+  card.append(el('p', 'usage-period-total', formatUsd(summary.costUSD)));
+  const details = [periodDeltaText(summary, days), vendorSplitText(_usage.report?.totals), USAGE_CAVEAT_SHORT].filter(Boolean);
+  for (const detail of details) card.append(el('p', 'usage-meta', detail));
+  if (days > 1 && summary.costUSD > 0) card.append(buildPeriodBars(summary, days));
+  return card;
+}
+
+function buildPeriodBars(summary: PeriodSummary, days: number) {
+  const chart = el('div', 'usage-bars');
+  chart.dataset.days = String(days);
+  chart.setAttribute('role', 'img');
+  chart.setAttribute('aria-label', summary.bars.map((bar) => `${bar.day} ${formatUsd(bar.costUSD)}`).join(', '));
+  const plot = el('div', 'usage-bars-plot');
+  const labels = el('div', 'usage-bars-labels');
+  for (const bar of summary.bars) {
+    const fill = el('span', 'usage-bar-fill');
+    if (bar.isToday) fill.dataset.today = 'true';
+    fill.title = `${bar.day} ${formatUsd(bar.costUSD)}`;
+    fill.style.height = `${clampPct(percentOfTotal(bar.costUSD, summary.peakUSD) ?? 0)}%`;
+    plot.append(fill);
+    labels.append(el('span', 'usage-bar-label', bar.label));
+  }
+  const averagePct = percentOfTotal(summary.averageUSD, summary.peakUSD);
+  if (averagePct !== null) {
+    const line = el('span', 'usage-bars-average');
+    line.style.bottom = `${clampPct(averagePct)}%`;
+    plot.append(line);
+  }
+  chart.append(plot, labels, el('p', 'usage-meta', periodAverageText(summary)));
+  return chart;
+}
+
+function buildInsightsSection() {
+  const insights = reportInsights(_usage.report);
+  const yourDay = _usage.report?.yourDay;
+  if (insights.length === 0 && !yourDay) return null;
+  const section = buildSection('Insights', yourDay ? yourDayHint(yourDay, Date.now()) : '');
+  if (insights.length === 0) return section;
+  const list = el('ul', 'usage-insights');
+  for (const insight of insights) {
+    const item = el('li', 'usage-insight', insight.text);
+    item.dataset.tone = insight.tone;
+    list.append(item);
+  }
+  section.append(list);
+  return section;
+}
+
+function buildRankedBar(sharePct: number | null, barPct: number) {
+  const bar = el('span', 'usage-rank-bar');
+  bar.setAttribute('aria-hidden', 'true');
+  const fill = el('span', 'usage-rank-fill');
+  fill.style.width = `${clampPct(barPct)}%`;
+  bar.append(fill);
+  return { bar, shareText: sharePct === null ? '' : formatPercent(sharePct) };
+}
+
+function buildModelsSection() {
+  const totals = _usage.report?.totals || {};
+  const section = buildSection('By model', shareLabel(shareBasis(totals)));
+  const ranked = rankedModels(_usage.report);
+  if (ranked.length === 0) {
+    section.append(el('p', 'usage-empty', 'No models in this period.'));
+    return section;
+  }
+  const list = el('ul', 'usage-ranks');
+  for (const entry of ranked) {
+    const key = `${String(entry.row.vendor ?? '')}:${entry.label}`;
+    const isExpanded = _expandedModels.has(key);
+    const item = el('li', 'usage-rank');
+    const button = el('button', 'usage-rank-head');
+    button.type = 'button';
+    button.dataset.usageModel = key;
+    button.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+    const { bar, shareText } = buildRankedBar(entry.sharePct, entry.barPct);
+    const prefix = modelRowPrefix(entry.row, totals);
+    const name = el('span', 'usage-rank-label', entry.label);
+    if (prefix) name.prepend(el('span', 'usage-vendor-tag', prefix));
+    button.append(name, el('span', 'usage-rank-value', formatUsd(entry.costUSD)), el('span', 'usage-rank-share', shareText), bar);
+    button.addEventListener('click', () => {
+      reportUsageAction('expand');
+      _focusAfterRender = { kind: 'model', key };
+      if (isExpanded) _expandedModels.delete(key);
+      if (!isExpanded) _expandedModels.add(key);
+      render();
+    });
+    item.append(button);
+    if (isExpanded) item.append(buildTokenMix(entry.row));
+    list.append(item);
+  }
+  section.append(list);
+  return section;
+}
+
+function buildTokenMix(row: UsageWireRow) {
+  const mix = el('dl', 'usage-mix');
+  for (const part of modelTokenMix(row)) {
+    const pair = el('div', 'usage-mix-part');
+    pair.append(el('dt', null, part.label), el('dd', null, formatTokens(part.tokens)));
+    mix.append(pair);
+  }
+  return mix;
+}
+
+function buildSessionsSection() {
+  const totals = _usage.report?.totals || {};
+  const section = buildSection('By session', shareLabel(shareBasis(totals)));
+  const ranked = rankedSessions(_usage.report);
+  if (ranked.length === 0) {
+    section.append(el('p', 'usage-empty', 'No sessions in this period.'));
+    return section;
+  }
+  const visible = visibleSessionRows(ranked, _sessionsExpanded);
+  const list = el('ul', 'usage-ranks');
+  for (const entry of visible.rows) {
+    const item = el('li', 'usage-rank');
+    if (isGlimmervoidSessionRow(entry.row)) item.dataset.managed = 'true';
+    const head = el('div', 'usage-rank-head');
+    head.title = entry.row.project ? String(entry.row.project) : entry.label;
+    const { bar, shareText } = buildRankedBar(entry.sharePct, entry.barPct);
+    const ago = el('span', 'usage-rank-ago', '');
+    _ticker.track(ago, Number(entry.row.lastTs), formatAgo);
+    head.append(el('span', 'usage-rank-label', entry.label), el('span', 'usage-rank-value', formatUsd(entry.costUSD)), el('span', 'usage-rank-share', shareText), bar, ago);
+    item.append(head);
+    list.append(item);
+  }
+  section.append(list);
+  if (ranked.length > SESSION_ROW_LIMIT) section.append(buildSessionsOverflow(visible.hiddenCount));
+  _sessionsTsEl = el('p', 'usage-meta', '');
+  section.append(_sessionsTsEl);
+  paintSessionsTs();
+  _ticker.onTick(paintSessionsTs);
+  return section;
 }
 
 function buildHistoryScreen() {
@@ -587,17 +723,6 @@ function closeScreen() {
   _focusAfterRender = { kind: 'drill', screen: previous };
   _shouldScrollToTop = true;
   render();
-}
-
-function buildYourDaySection() {
-  const yourDay = _usage.report?.yourDay;
-  if (!yourDay) return null;
-  const section = buildSection('Your day', yourDayHint(yourDay, Date.now()));
-  if (yourDay.insights.length === 0) return section;
-  const insights = el('ul', 'usage-your-day-insights');
-  for (const insight of yourDay.insights) insights.append(el('li', 'usage-your-day-insight', insight.text));
-  section.append(insights);
-  return section;
 }
 
 function buildOverheadSection() {
@@ -683,73 +808,6 @@ function buildBlockHistorySection() {
     list.append(item);
   }
   section.append(list);
-  return section;
-}
-
-function buildTotalsSection() {
-  const totals = _usage.report?.totals || {};
-  const today = dailyRowForDay(_usage.report?.daily, reportDayKey(_usage.report));
-  const hint = [USAGE_CAVEAT_SHORT, _usage.report?.tz ? `TZ ${_usage.report.tz}` : ''].filter(Boolean).join(' ');
-  const section = buildSection('Totals', hint);
-  const tiles = el('div', 'usage-tiles');
-  tiles.append(buildTile('today', formatTokens(today?.tokens ?? 0), formatUsd(today?.costUSD ?? 0)).tile);
-  tiles.append(buildTile('range total', formatTokens(totals.tokens ?? 0), formatUsd(totals.costUSD ?? 0)).tile);
-  const prReviews = prReviewsSpendTile(_usage.report);
-  if (prReviews) tiles.append(buildTile(prReviews.label, prReviews.value, prReviews.sub).tile);
-  section.append(tiles);
-  const composition = buildCompositionRow(totals);
-  if (composition) section.append(composition);
-
-  const vendorRows = hasMultiVendorUsage(totals) ? vendorTotalsRows(totals) : [];
-  if (vendorRows.length > 0) {
-    const vendorTiles = el('div', 'usage-tiles usage-vendor-tiles');
-    for (const row of vendorRows) {
-      vendorTiles.append(buildTile(row.label, formatTokens(row.tokens), formatUsd(row.costUSD)).tile);
-    }
-    section.append(vendorTiles);
-  }
-  _sessionsTsEl = el('p', 'usage-meta', '');
-  section.append(_sessionsTsEl);
-  paintSessionsTs();
-  _ticker.onTick(paintSessionsTs);
-  return section;
-}
-
-function buildCompositionRow(totals: UsageTotals | null | undefined) {
-  const parts = compositionParts(totals);
-  if (parts.length === 0) return null;
-  const wrap = el('div', 'usage-compo');
-
-  const bar = el('div', 'usage-compo-bar');
-  bar.setAttribute('aria-hidden', 'true');
-  for (const part of parts) {
-    if (part.pct <= 0) continue;
-    const fill = el('span', 'usage-compo-fill');
-    fill.dataset.part = part.key;
-    fill.style.width = `${part.pct}%`;
-    fill.title = part.title;
-    bar.append(fill);
-  }
-  const legend = el('div', 'usage-compo-legend');
-  for (const part of parts) {
-    const item = el('span', 'usage-compo-item');
-    const swatch = el('span', 'usage-compo-swatch');
-    swatch.dataset.part = part.key;
-    item.append(swatch, el('span', 'usage-compo-label', part.label), el('span', 'usage-compo-value', part.value));
-    legend.append(item);
-  }
-  wrap.append(bar, legend);
-  return wrap;
-}
-
-function buildSavingsSection() {
-  const savings = _usage.report?.savings;
-  if (!hasSavings(savings)) return null;
-  const section = buildSection('Savings', '');
-  const tiles = el('div', 'usage-tiles');
-  const cache = cacheSavingsTile(savings);
-  if (cache) tiles.append(buildTile('Prompt cache', cache.value, cache.sub).tile);
-  section.append(tiles);
   return section;
 }
 
@@ -913,106 +971,6 @@ function buildBreakdownRow(models: UsageWireRow[]) {
   return breakdown;
 }
 
-function buildModelCell(row: UsageWireRow, totals: UsageTotals) {
-  const wrap = el('span', 'usage-model-name-wrap');
-  const prefix = modelRowPrefix(row, totals);
-  if (prefix) wrap.append(el('span', 'usage-vendor-tag', prefix));
-  wrap.append(el('span', null, modelLabel(row)));
-  return wrap;
-}
-
-function buildModelsSection() {
-  const rows = sortModelRows(_usage.report?.models, _modelSort);
-  const totals = _usage.report?.totals || {};
-  const basis = shareBasis(totals);
-  const section = buildSection('By model', shareLabel(basis));
-  if (rows.length === 0) {
-    section.append(el('p', 'usage-empty', 'No models.'));
-    return section;
-  }
-  const { wrap, body } = buildTable(
-    [
-      { label: 'Model', key: 'model' },
-      { label: 'Tokens', numeric: true, key: 'tokens' },
-      { label: 'Cost', numeric: true, key: 'costUSD' },
-      { label: 'Share', numeric: true },
-      { label: 'Input', numeric: true, key: 'input' },
-      { label: 'Output', numeric: true, key: 'output' },
-      { label: 'Cache write', numeric: true, key: 'cacheCreate' },
-      { label: 'Cache read', numeric: true, key: 'cacheRead' },
-    ],
-    _modelSort,
-    (key) => {
-      _modelSort = nextSortState(_modelSort, key);
-      render();
-    },
-    'model',
-  );
-  for (const row of rows) {
-    const tr = el('tr', 'usage-row');
-    appendCells(tr, [
-      { node: buildModelCell(row, totals), className: 'usage-model-cell', title: modelLabel(row) },
-      { text: formatTokens(row.tokens), numeric: true },
-      { text: formatUsd(row.costUSD), numeric: true },
-      { node: buildShareCell(percentOfTotal(row[basis], totals[basis])), className: 'usage-share-cell' },
-      { text: formatTokens(row.input), numeric: true },
-      { text: formatTokens(row.output), numeric: true },
-      { text: formatTokens(row.cacheCreate), numeric: true },
-      { text: formatTokens(row.cacheRead), numeric: true },
-    ]);
-    body.append(tr);
-  }
-  section.append(wrap);
-  return section;
-}
-
-function buildSessionsSection() {
-  const rows = sortSessionRows(_usage.report?.sessions, _sessionSort);
-  const visible = visibleSessionRows(rows, _sessionsExpanded);
-  const totals = _usage.report?.totals || {};
-  const basis = shareBasis(totals);
-  const section = buildSection('By session', shareLabel(basis));
-  if (rows.length === 0) {
-    section.append(el('p', 'usage-empty', 'No sessions.'));
-    return section;
-  }
-  const { wrap, body } = buildTable(
-    [
-      { label: 'Session', key: 'label' },
-      { label: 'Tokens', numeric: true, key: 'tokens' },
-      { label: 'Cost', numeric: true, key: 'costUSD' },
-      { label: 'Share', numeric: true },
-      { label: 'Last activity', numeric: true, key: 'lastTs' },
-    ],
-    _sessionSort,
-    (key) => {
-      _sessionSort = nextSortState(_sessionSort, key);
-      render();
-    },
-    'session',
-  );
-  for (const row of visible.rows) {
-    const tr = el('tr', 'usage-row');
-    if (isGlimmervoidSessionRow(row)) tr.dataset.managed = 'true';
-    const label = sessionRowLabel(row);
-    const agoCell = el('span', 'usage-ago', '');
-    appendCells(tr, [
-      { text: label, className: 'usage-session-cell', title: row.project ? String(row.project) : label },
-      { text: formatTokens(row.tokens), numeric: true },
-      { text: formatUsd(row.costUSD), numeric: true },
-      { node: buildShareCell(percentOfTotal(row[basis], totals[basis])), className: 'usage-share-cell' },
-      { node: agoCell, numeric: true },
-    ]);
-    _ticker.track(agoCell, Number(row.lastTs), formatAgo);
-    body.append(tr);
-  }
-  section.append(wrap);
-  if (rows.length > SESSION_ROW_LIMIT) {
-    section.append(buildSessionsOverflow(visible.hiddenCount));
-  }
-  return section;
-}
-
 function buildSessionsOverflow(hiddenCount: number) {
   const wrap = el('div', 'usage-overflow');
   const text = sessionOverflowText(hiddenCount);
@@ -1076,6 +1034,7 @@ function selectorForFocusTarget(target: FocusTarget) {
   if (target.kind === 'day') return `.usage-toggle[data-usage-day="${CSS.escape(target.day)}"]`;
   if (target.kind === 'period') return `.usage-period-button[data-period-view="${CSS.escape(target.view)}"]`;
   if (target.kind === 'sessions-toggle') return '.usage-toggle[data-usage-sessions-toggle="true"]';
+  if (target.kind === 'model') return `.usage-rank-head[data-usage-model="${CSS.escape(target.key)}"]`;
   if (target.kind === 'range') return `.usage-period-button[data-usage-range="${CSS.escape(target.value)}"]`;
   if (target.kind === 'back') return '.usage-back';
   if (target.kind === 'drill') return `.usage-drill[data-usage-screen="${CSS.escape(target.screen)}"]`;
