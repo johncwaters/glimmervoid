@@ -30,6 +30,9 @@ import { kimiDedupIdentity, parseKimiUsageLine } from './core/usage-kimi-core.ts
 import { FIVE_HOUR_WINDOW_MS, SEVEN_DAY_WINDOW_MS, laneRollup, laneRollupSince } from './core/usage-lane-core.ts';
 import type { PlanWindowStarts } from './core/usage-lane-core.ts';
 import { costForEntry, lookupModelPrice } from './core/usage-pricing-core.ts';
+import { activityKey, buildYourDay, parseClaudeActivityLine, parseCodexActivityLine, pruneActivity } from './core/usage-your-day-core.ts';
+import type { ActivityEvent, ParsedActivity } from './core/usage-your-day-core.ts';
+import type { YourDay } from '../../shared/contracts/your-day.ts';
 import type { ModelPrice } from './core/usage-pricing-core.ts';
 import {
   codexFallbackRoots,
@@ -440,6 +443,8 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   const primaryIndex = new Map<string, number>();
   const collisionIndex = new Map<string, number>();
   const entries: StoredEntry[] = [];
+  const activityByKey = new Map<string, ActivityEvent>();
+  let cachedYourDay: { computedForMinute: number; yourDay: YourDay | null } | null = null;
   const missingModels = new Set<string>();
   let claudeDirs: string[] = [];
   let dirs: string[] = [];
@@ -481,6 +486,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     isReportDirty = true;
     cachedRollupsByDays.clear();
     cachedSessionTotals = null;
+    cachedYourDay = null;
   }
 
   function recordJournal(action: FileJournalAction): void {
@@ -520,6 +526,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     primaryIndex.clear();
     collisionIndex.clear();
     entries.length = 0;
+    activityByKey.clear();
     missingModels.clear();
     markDirty();
   }
@@ -589,6 +596,16 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     return latestCodexRateLimitSnapshot;
   }
 
+  function noteActivity(vendor: string, activity: ParsedActivity, fallbackSessionId: string | null): void {
+    const sessionId = activity.sessionId ?? fallbackSessionId;
+    if (!sessionId) return;
+    const event: ActivityEvent = { vendor, sessionId, ts: activity.ts, kind: activity.kind };
+    const key = activityKey(event);
+    if (activityByKey.has(key)) return;
+    activityByKey.set(key, event);
+    cachedYourDay = null;
+  }
+
   function ingestVendorLine(parsed: UsageEntry | null, file: string): number {
     if (!parsed) return 0;
     const entry = stripIngestFields(priceEntry({ ...parsed, project: path.dirname(file) }));
@@ -607,12 +624,16 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   ): number {
     if (vendor === 'codex') {
       noteCodexRateLimits(parseCodexRateLimitsLine(line));
+      const codexActivity = parseCodexActivityLine(line);
+      if (codexActivity) noteActivity('codex', codexActivity, codexSessionIdFromPath(file));
       const parsedCodexEntry = parseCodexUsageLine(line, vendorState ?? createCodexUsageState());
       if (!parsedCodexEntry) return 0;
       return ingestVendorLine({ ...parsedCodexEntry, sessionId: codexSessionIdFromPath(file) }, file);
     }
     if (vendor === 'grok') return ingestVendorLine(parseGrokUsageLine(line), file);
     if (vendor === 'kimi') return ingestVendorLine(parseKimiUsageLine(line, file), file);
+    const activity = parseClaudeActivityLine(line);
+    if (activity) noteActivity('claude', activity, identityFromRelPath(relativeToProjects(file, claudeRoots)).sessionId);
     const parsed = parseUsageLine(line);
     if (!parsed) return 0;
     const relPath = relativeToProjects(file, claudeRoots);
@@ -729,6 +750,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   }
 
   function pruneStoredEntries(): void {
+    if (pruneActivity(activityByKey, nowFn())) cachedYourDay = null;
     const pruned = pruneEntries(entries, { now: nowFn(), retainDays: entryRetentionDays() });
     if (pruned.kept.length === entries.length) return;
     entries.length = 0;
@@ -871,6 +893,14 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     return lanes;
   }
 
+  function yourDayAt(now: number): YourDay | null {
+    const minute = Math.floor(now / 60_000);
+    if (cachedYourDay && cachedYourDay.computedForMinute === minute) return cachedYourDay.yourDay;
+    const yourDay = buildYourDay([...activityByKey.values()], { now, laneByKey: getRecordedLanes() });
+    cachedYourDay = { computedForMinute: minute, yourDay };
+    return yourDay;
+  }
+
   function buildLaneRows(reportRetainDays: number, now: number) {
     const lanes = getRecordedLanes();
     if (!lanes) return null;
@@ -920,6 +950,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
       anomaly: buildAnomaly(daily, blockSummary, activeBlock),
       budget: buildBudget(),
       byLane: buildLaneRows(reportRetainDays, now),
+      yourDay: yourDayAt(now),
       planWindowLanes: buildPlanWindowLanes(planWindowStarts, now),
       tokenLimit: blockSummary.tokenLimit,
       pricing: { missing: Array.from(missingModels).sort() },

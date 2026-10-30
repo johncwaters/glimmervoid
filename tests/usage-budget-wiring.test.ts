@@ -56,6 +56,7 @@ function fakeScanner(
       activeBlock: null,
       anomaly: { daily: null, burn: null },
       byLane: LANE_ROWS,
+      yourDay: null,
       planWindowLanes: PLAN_WINDOW_LANES,
       budget: BUDGET_BLOCK,
       tokenLimit: null,
