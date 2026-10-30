@@ -80,6 +80,12 @@
 .pr-severity-halo { filter: drop-shadow(0 0 4px var(--state-failed)); }
 
 .pr-detail-team { container: review-detail / inline-size; }
+html:not([data-layout="phone"]) .review-queue-detail { min-height: 100%; }
+html:not([data-layout="phone"]) :is(.pr-detail-team, .pr-detail-team > .pr-detail-body) { display: flex; flex: 1; flex-direction: column; }
+html:not([data-layout="phone"]) .pr-detail-body > .pr-detail { flex: 1; }
+html:not([data-layout="phone"]) .pr-detail-body > .pr-detail:not(.pr-desk) > .pr-footer { margin-top: auto; }
+html:not([data-layout="phone"]) .pr-detail-body > .pr-desk { grid-template-rows: auto auto 1fr; }
+html:not([data-layout="phone"]) .pr-desk > .pr-decision-bar { align-self: end; }
 .pr-desk-column,
 .pr-desk-rail { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
 .pr-will-post,
@@ -94,6 +100,7 @@
 .pr-verdict-recommendation { color: var(--text-head); font-size: var(--type-meta); }
 @container review-detail (min-width: 1100px) {
   .pr-desk-rail { position: sticky; top: 24px; }
+  html:not([data-layout="phone"]) .pr-detail-body > .pr-desk { grid-template-rows: auto 1fr; }
 }
 
 .pr-about-box,

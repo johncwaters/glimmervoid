@@ -272,6 +272,16 @@ async function verifyCollapsedRailShowsNumbers(page: Page): Promise<void> {
   await verifyLayout(page);
 }
 
+async function verifyDecisionBarPinned(page: Page): Promise<void> {
+  const viewport = page.viewportSize();
+  assert.ok(viewport);
+  await page.setViewportSize({ width: viewport.width, height: 2400 });
+  const hostBox = await page.locator('.review-queue .pr-detail-host').boundingBox();
+  const barBox = await page.locator('.pr-detail .pr-decision-bar').boundingBox();
+  await page.setViewportSize(viewport);
+  assert.ok(hostBox && barBox && Math.abs(hostBox.y + hostBox.height - (barBox.y + barBox.height)) <= 1);
+}
+
 async function readInReviewElapsedTexts(page: Page): Promise<{ row: string | null; detail: string | null }> {
   return page.evaluate(() => ({
     row: document.querySelector('.pr-queue-row[data-review-key="Acme/app#9"] .pr-queue-elapsed')?.textContent ?? null,
@@ -748,6 +758,7 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout, sessionId
   assert.equal(await page.locator('.pr-detail .pr-verdict-seal').textContent(), 'Approve with nits');
   assert.equal(await page.locator('.pr-detail .pr-verdict-seal svg').count(), 1);
   assert.ok(await page.locator('.pr-detail .pr-severity-meter').count() > 0);
+  if (layout === 'desktop') await verifyDecisionBarPinned(page);
   await showQueue(page);
   await page.locator('.pr-queue-row[data-review-key="Acme/app#3"]').click();
   const handChecks = page.locator('.pr-detail .pr-hand-checks');
