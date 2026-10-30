@@ -1,6 +1,6 @@
 export type PrStatusIcon =
   | 'merged' | 'draft' | 'conflict' | 'behind' | 'failed' | 'running' | 'passed' | 'ready' | 'changes-requested'
-  | 'thread' | 'reviewer' | 'your-turn' | 'queued' | 'discarded' | 'stale' | 'unknown' | 'none';
+  | 'thread' | 'reviewer' | 'your-turn' | 'queued' | 'discarded' | 'stale' | 'unknown' | 'none' | 'board';
 
 interface PrStatusLegendEntry { label: string; meaning: string }
 
@@ -22,4 +22,5 @@ export const PR_STATUS_LEGEND: Readonly<Record<PrStatusIcon, PrStatusLegendEntry
   discarded: { label: 'Discarded', meaning: 'Review discarded or dismissed.' },
   unknown: { label: 'Unknown', meaning: 'GitHub has not computed this yet.' },
   none: { label: 'None', meaning: 'Nothing applies, such as no checks or no review requested.' },
+  board: { label: 'Board', meaning: 'A whiteboard this session is connected to, amber while it has unread edits.' },
 };

@@ -6,6 +6,7 @@ import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
 import { el } from '../dom-helpers.ts';
 import { findSessionUi, sessionName } from '../session-card/card-registry.ts';
 import { buildDialogShell, openConfirmDialog } from '../session-card/modal.ts';
+import { setTerminalActiveViewer } from '../session-card/terminal.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import { createBoardEditor, newElementId } from './board-edit.ts';
 import type { BoardEditor } from './board-edit.ts';
@@ -425,6 +426,7 @@ function dockSession(sessionId: string): void {
   dockStatus.clear();
   paintDock();
   borrowCard(ui, sessionId, parts.dock, { className: 'wb-docked-card' });
+  setTerminalActiveViewer(ui, sessionId, true);
 }
 
 function refreshBoardsView(): void {

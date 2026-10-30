@@ -59,11 +59,22 @@ export async function verifyBoardDock(page: Page, sessionId: string): Promise<vo
   await card.locator('.overflow-connect-board').click();
   await page.getByRole('combobox', { name: 'Board to connect', exact: true }).selectOption({ label: boardTitle });
   await page.getByRole('button', { name: 'Connect', exact: true }).click();
-  const boardChip = page.locator(`.focus-rail .session-row[data-id="${sessionId}"]`).locator('.session-board-chip', { hasText: `board: ${boardTitle}` });
+  const boardChip = page.locator(`.focus-rail .session-row[data-id="${sessionId}"]`).locator(`.session-board-chip[aria-label="Open board ${boardTitle}"]`);
   await boardChip.waitFor();
+  assert.equal((await boardChip.textContent())?.trim(), 'Board');
+  assert.equal(await boardChip.locator('.pr-status-icon').count(), 1, 'the board chip carries an icon like a PR chip');
   await boardChip.click();
   await panel.locator('.wb-board-title', { hasText: boardTitle }).waitFor();
   await panel.locator(`.wb-dock .session-card[data-id="${sessionId}"]`).waitFor({ state: 'visible' });
+  const canvasBox = await panel.locator('.wb-canvas').boundingBox();
+  const dockBox = await panel.locator('.wb-dock').boundingBox();
+  assert.ok(canvasBox && dockBox);
+  assert.ok(dockBox.x >= canvasBox.x + canvasBox.width, 'the docked session sits to the right of the board');
+  assert.ok(Math.abs(dockBox.y - canvasBox.y) < 2 && Math.abs(dockBox.height - canvasBox.height) < 2, 'the board and the docked session share the full height');
+  await page.waitForFunction((id) => {
+    const docked = document.querySelector(`.wb-dock .session-card[data-id="${id}"]`);
+    return docked?.getAttribute('data-grid') === 'exact';
+  }, sessionId);
   await panel.locator('.wb-dock-queued', { hasText: 'has read every change' }).waitFor();
   await panel.locator('.wb-dock-bar').getByRole('button', { name: 'send to agent', exact: true }).click();
   await panel.locator('.wb-dock-bar .action-status', { hasText: 'sent' }).waitFor();

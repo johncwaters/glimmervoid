@@ -9,8 +9,9 @@
   --wb-note: #f5c26b;
   flex: 1;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 10px;
   padding: 12px clamp(10px, 1.6vw, 24px) 12px;
   font-family: var(--font-mono);
@@ -19,6 +20,15 @@
 }
 
 .boards-view[hidden] { display: none; }
+
+.boards-view:has(> .wb-dock:not([hidden])) { grid-template-columns: minmax(0, 1fr) auto; }
+
+.boards-view > .wb-top,
+.boards-view > .wb-board-head { grid-column: 1 / -1; }
+
+.boards-view > .wb-canvas { grid-column: 1; grid-row: 3; }
+
+.boards-view > .wb-empty { grid-column: 1; grid-row: 3; align-self: start; }
 
 .wb-top,
 .wb-title-row,
@@ -130,7 +140,6 @@
 
 .wb-canvas {
   position: relative;
-  flex: 1;
   min-height: 320px;
   border: 1px solid var(--border-dim);
   border-radius: var(--radius-lg);
@@ -311,12 +320,14 @@
 }
 
 .wb-dock {
+  grid-column: 2;
+  grid-row: 3;
   display: flex;
   flex-direction: column;
-  height: 38vh;
-  min-height: 180px;
-  max-height: 70vh;
-  resize: vertical;
+  width: 42vw;
+  min-width: 320px;
+  max-width: 70vw;
+  min-height: 0;
   overflow: hidden;
   border: 1px solid var(--border-dim);
   border-radius: var(--radius-lg);
@@ -326,6 +337,7 @@
 
 .wb-dock-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding: 4px 8px;
@@ -333,6 +345,8 @@
   font-size: var(--type-meta);
   color: var(--text-dim);
 }
+
+.wb-dock-bar .wb-button { flex: none; white-space: nowrap; }
 
 .wb-dock > .wb-docked-card {
   flex: 1;

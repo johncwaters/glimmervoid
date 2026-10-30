@@ -5,7 +5,7 @@ import { buildDialogShell, openConfirmDialog } from '../session-card/modal.ts';
 import { repaintSessionRowSignals } from '../session-row.ts';
 import { createSignal, paintSignalLine } from '../signal.ts';
 import type { ActivatableSignal } from '../signal.ts';
-import { SIGNAL_TIER } from '../signal-core.ts';
+import { tierForTone } from '../signal-core.ts';
 import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import {
   boardSummariesOf, boardsConnectedTo, connectSessionToBoard, disconnectSessionFromBoard, onBoardListChanged, requestOpenBoard,
@@ -22,31 +22,37 @@ function openBoardForSession(boardId: string, sessionId: string | null): void {
   openBoardsView();
 }
 
-function boardChipText(summary: BoardSummary, sessionId: string): string {
+function queuedEditsText(summary: BoardSummary, sessionId: string): string {
   const queuedCount = summary.queuedBySessionId[sessionId] ?? 0;
-  if (queuedCount === 0) return `board: ${summary.title}`;
-  return `board: ${summary.title}, ${queuedCount} queued`;
+  if (queuedCount === 0) return '';
+  return `, ${queuedCount} queued`;
 }
 
-function boardSignal(summary: BoardSummary, sessionId: string): ActivatableSignal {
+function boardSignal(summary: BoardSummary, sessionId: string, text: string): ActivatableSignal {
+  const queuedText = queuedEditsText(summary, sessionId);
+  const tone = queuedText ? 'warn' : 'muted';
   return {
     key: `board:${summary.id}`,
-    text: boardChipText(summary, sessionId),
-    hoverText: `Open ${summary.title} with this session docked beneath it`,
-    look: null,
-    tier: SIGNAL_TIER.settled,
+    text,
+    hoverText: `${summary.title}${queuedText}. Open it with this session docked beside it`,
+    look: { icon: 'board', tone },
+    tier: tierForTone(tone),
     className: 'session-pr-chip session-board-chip',
     ariaLabel: `Open board ${summary.title}`,
     onActivate: () => openBoardForSession(summary.id, sessionId),
   };
 }
 
+function titledBoardSignal(summary: BoardSummary, sessionId: string): ActivatableSignal {
+  return boardSignal(summary, sessionId, `${summary.title}${queuedEditsText(summary, sessionId)}`);
+}
+
 export function sessionRowBoardSignals(sessionId: string): ActivatableSignal[] {
-  return boardsConnectedTo(sessionId).map((summary) => boardSignal(summary, sessionId));
+  return boardsConnectedTo(sessionId).map((summary) => boardSignal(summary, sessionId, 'Board'));
 }
 
 function createUnlinkableBoardChip(summary: BoardSummary, sessionId: string, onUnlinked: (error: string | null) => void): HTMLElement {
-  const signal = boardSignal(summary, sessionId);
+  const signal = titledBoardSignal(summary, sessionId);
   const unlinkButton = el('button', 'session-pr-chip-unlink');
   unlinkButton.append(createLineIcon(CLOSE_ICON_PATH));
   unlinkButton.type = 'button';
@@ -88,7 +94,7 @@ export function openConnectBoardDialog(sessionId: string): void {
 
   function paint(): void {
     const connected = boardsConnectedTo(sessionId);
-    paintSignalLine(connectedChips, connected.map((summary) => boardSignal(summary, sessionId)), (signal) => {
+    paintSignalLine(connectedChips, connected.map((summary) => titledBoardSignal(summary, sessionId)), (signal) => {
       const summary = connected.find((candidate) => `board:${candidate.id}` === signal.key);
       return summary ? createUnlinkableBoardChip(summary, sessionId, showError) : createSignal(signal, signal);
     });
