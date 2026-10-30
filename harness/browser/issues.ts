@@ -6,7 +6,7 @@ import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts
 import { STATE_ICONS } from '../../shared/state-icons.ts';
 import type { Layout } from './cases-core.ts';
 
-type CapturedRequest = { type: string; requestId: string; repo: string; issueNumber: number };
+type CapturedRequest = { type: string; requestId: string; repo: string; issueNumber: number; state?: string };
 
 async function applyStatus(page: Page, status: IssuesStatus): Promise<void> {
   await page.evaluate(async (snapshot) => {
@@ -26,6 +26,14 @@ async function replyToDetail(page: Page, request: CapturedRequest, body: string 
     const panel: { applyIssueDetailResult(message: ServerMessageOf<'issue-detail-result'>): void } = await import(panelUrl);
     panel.applyIssueDetailResult(reply);
   }, { type: 'issue-detail-result' as const, requestId: request.requestId, ok: body !== null, body, error });
+}
+
+async function replyToStateChange(page: Page, request: CapturedRequest, error: string | null = null): Promise<void> {
+  await page.evaluate(async (reply) => {
+    const panelUrl = '/github/issues-store.ts';
+    const panel: { applySetIssueStateResult(message: ServerMessageOf<'set-issue-state-result'>): void } = await import(panelUrl);
+    panel.applySetIssueStateResult(reply);
+  }, { type: 'set-issue-state-result' as const, requestId: request.requestId, ok: error === null, error });
 }
 
 async function emitStateChange(page: Page, sessionId: string, state: string): Promise<void> {
@@ -227,4 +235,44 @@ export async function verifyIssues(page: Page, layout: Layout, sessionId: string
   }
   for (const request of (await capturedRequests(page)).filter((request) => request.type === 'issue-detail')) await replyToDetail(page, request, bodyText);
   assert.equal(await panel.locator('.issue-body').textContent(), bodyText);
+  const mergedOnly = { ...updatedStatus, issues: [{ ...updatedStatus.issues[0], pullRequests: [issue.pullRequests[1]] }, unassigned, viewOnly] };
+  await applyStatus(page, mergedOnly);
+  if (await linkedRow.isVisible()) await linkedRow.click();
+  const stateRequests = async () => (await capturedRequests(page)).filter((request) => request.type === 'set-issue-state');
+  const closeButton = panel.getByRole('button', { name: 'Close issue', exact: true });
+  await closeButton.click();
+  assert.equal(await closeButton.isDisabled(), true);
+  assert.match(await panel.locator('.issue-open-status').textContent() ?? '', /Closing issue/);
+  const closeRequest = (await stateRequests()).at(-1);
+  assert.ok(closeRequest);
+  assert.deepEqual([closeRequest.repo, closeRequest.issueNumber, closeRequest.state], ['Acme/app', 42, 'closed']);
+  await replyToStateChange(page, closeRequest, 'HTTP 403: Resource not accessible');
+  assert.match(await panel.locator('.issue-open-status').textContent() ?? '', /HTTP 403/);
+  await closeButton.click();
+  const retriedClose = (await stateRequests()).at(-1);
+  assert.ok(retriedClose);
+  await replyToStateChange(page, retriedClose);
+  await applyStatus(page, { ...mergedOnly, issues: [unassigned, viewOnly] });
+  assert.equal(await panel.locator('.issue-row[data-issue-key="Acme/app#42"]').count(), 0);
+  assert.equal(await panel.locator('.pr-detail-title h2').textContent(), issue.title);
+  assert.match(await panel.locator('.issue-open-status').textContent() ?? '', /Closed as completed/);
+  assert.equal(await closeButton.count(), 0);
+  await panel.getByRole('button', { name: 'Reopen', exact: true }).click();
+  const reopenRequest = (await stateRequests()).at(-1);
+  assert.ok(reopenRequest);
+  assert.equal(reopenRequest.state, 'open');
+  await replyToStateChange(page, reopenRequest);
+  await applyStatus(page, mergedOnly);
+  assert.equal(await closeButton.count(), 1);
+  assert.equal(await panel.locator('.issue-row[data-issue-key="Acme/app#42"]').count(), 1);
+  assert.equal(await panel.getByRole('button', { name: 'Go to session', exact: true }).count(), 1);
+  await page.evaluate(async (id) => {
+    const registryUrl = '/session-card/card-registry.ts';
+    const storeUrl = '/github/issues-store.ts';
+    const registry: { sessionUIs: Map<string, unknown> } = await import(registryUrl);
+    const store: { refreshIssuesSessionState(): void } = await import(storeUrl);
+    registry.sessionUIs.delete(id);
+    store.refreshIssuesSessionState();
+  }, sessionId);
+  assert.equal(await panel.getByRole('button', { name: 'Go to session', exact: true }).count(), 0);
 }

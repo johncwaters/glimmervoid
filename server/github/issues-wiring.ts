@@ -12,6 +12,7 @@ import type { SharedClock } from '../lanes/lane-runner.ts';
 import { createJsonStateStore } from '../json-file.ts';
 import { bootStaggerDelay } from '../boot-stagger.ts';
 import type { GithubLaneStore } from './github-store-wiring.ts';
+import type { PrGh } from './pr-gh.ts';
 import type { createGitWorkspace } from '../git/git-workspace.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { createSerialQueue } from '../spawn-gate.ts';
@@ -42,12 +43,13 @@ interface IssuesWiringOptions {
   broadcast: (status: IssuesStatusType) => void;
   hasSession: (id: string) => boolean;
   store: Pick<GithubLaneStore, 'requestRepoIssues' | 'requestIssueSearch' | 'requestIssueLinkedPullRequests' | 'setWatchedKeys' | 'requestViewer' | 'rateLimitWaitMs'>;
+  github: Pick<PrGh, 'setIssueState'>;
   homeDir?: string;
   clock?: SharedClock;
   log?: Pick<Console, 'warn'>;
 }
 
-export function createIssuesWiring({ config, gitWorkspace, broadcast, hasSession, store, homeDir = glimmervoidHomeDir(), clock, log = console }: IssuesWiringOptions) {
+export function createIssuesWiring({ config, gitWorkspace, broadcast, hasSession, store, github, homeDir = glimmervoidHomeDir(), clock, log = console }: IssuesWiringOptions) {
   const stateIo = createIssuesStateIo(path.join(homeDir, core.ISSUES_STATE_FILENAME), log);
   const teams = () => readGithubTeams(config).map((team) => `${team.org}/${team.slug}`);
   let cachedState = core.emptyIssuesState();
@@ -147,12 +149,17 @@ export function createIssuesWiring({ config, gitWorkspace, broadcast, hasSession
     broadcast(currentStatus());
     await saved;
   }
+  async function setIssueState(change: { repo: string; number: number; state: 'closed' | 'open' }): Promise<{ ok: boolean; err: string }> {
+    const applied = await github.setIssueState(change);
+    if (applied.ok) runner.getPoller()?.tick();
+    return applied;
+  }
   async function stopPoller(): Promise<void> {
     await runner.stopPoller();
     await stateWrites.idle();
   }
   return {
     startPoller, stopPoller, restartIfConfigChanged: runner.restartIfConfigChanged,
-    getStatus: currentStatus, refresh, projectRepoSlugs, getLinkedSessionId, linkSession,
+    getStatus: currentStatus, refresh, projectRepoSlugs, getLinkedSessionId, linkSession, setIssueState,
   };
 }

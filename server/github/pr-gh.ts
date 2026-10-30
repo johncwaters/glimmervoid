@@ -94,6 +94,7 @@ interface PrGh {
   notificationsSince(lastModified?: string): Promise<NotificationsSinceResult>;
   addPrLabel(label: { repo: string; number: number; name: string }): Promise<{ ok: boolean; err: string }>;
   commentOnPr(comment: { repo: string; number: number; body: string }): Promise<{ ok: boolean; err: string }>;
+  setIssueState(change: { repo: string; number: number; state: 'closed' | 'open' }): Promise<{ ok: boolean; err: string }>;
   behindCounts(prs: readonly PrHeadReference[]): Promise<Map<string, number>>;
   rebasePr(pullRequestId: string, expectedHeadSha: string): Promise<{ ok: boolean; err: string }>;
   mergePr(merge: { repo: string; number: number; headSha: string; method: MyPrMergeMethodType }): Promise<{ ok: true; kind: MyPrMergeKind } | { ok: false; err: string }>;
@@ -615,6 +616,15 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       if (!comment.success) return { ok: false, err: 'invalid comment body' };
       const response = await runGh(['pr', 'comment', String(number), '--repo', repo, '--body-file', '-'], comment.data, false, GH_WRITE_TIMEOUT_MS);
       return { ok: response.ok, err: response.ok ? '' : response.err.trim() || 'gh pr comment failed' };
+    },
+
+    async setIssueState({ repo, number, state }) {
+      if (!repoParts(repo) || !isPrNumber(number)) return { ok: false, err: 'invalid repository or issue number' };
+      const args = state === 'closed'
+        ? ['issue', 'close', String(number), '--repo', repo, '--reason', 'completed']
+        : ['issue', 'reopen', String(number), '--repo', repo];
+      const response = await runGh(args, undefined, false, GH_WRITE_TIMEOUT_MS);
+      return { ok: response.ok, err: response.ok ? '' : response.err.trim() || `gh issue ${args[1]} failed` };
     },
 
     async teamReviewThreads(prs) {

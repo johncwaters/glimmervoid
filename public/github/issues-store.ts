@@ -14,6 +14,17 @@ interface PendingOpenRequest {
   timeoutHandle: ReturnType<typeof setTimeout>;
 }
 
+interface PendingStateRequest {
+  issue: IssueRow;
+  state: 'closed' | 'open';
+  timeoutHandle: ReturnType<typeof setTimeout>;
+}
+
+interface IssueStateChange {
+  issue: IssueRow;
+  isClosed: boolean;
+}
+
 interface PendingDetailRequest {
   cacheKey: string;
   timeoutHandle: ReturnType<typeof setTimeout>;
@@ -28,7 +39,9 @@ let latestStatus: IssuesStatus | null = null;
 let issueByKey = new Map<string, IssueRow>();
 let requestSender: IssuesRequestSender | null = null;
 const openRequestById = new Map<string, PendingOpenRequest>();
-const openOutcomeByIssue = new Map<string, { text: string; tone: ActionStatusTone }>();
+const stateRequestById = new Map<string, PendingStateRequest>();
+let changedIssue: IssueStateChange | null = null;
+const outcomeByIssue = new Map<string, { text: string; tone: ActionStatusTone }>();
 const detailRequestById = new Map<string, PendingDetailRequest>();
 const bodyByCacheKey = new Map<string, string>();
 const bodyErrorByCacheKey = new Map<string, string>();
@@ -46,7 +59,7 @@ function abandonOpenRequest(requestId: string): void {
   const request = openRequestById.get(requestId);
   if (!request) return;
   openRequestById.delete(requestId);
-  openOutcomeByIssue.set(request.issueKey, { text: ISSUES_NO_REPLY_TEXT, tone: 'error' });
+  outcomeByIssue.set(request.issueKey, { text: ISSUES_NO_REPLY_TEXT, tone: 'error' });
   notifySubscribers('detail');
 }
 
@@ -68,14 +81,64 @@ export function subscribeIssues(subscriber: (change: IssuesChange) => void): voi
 
 export function selectIssue(issueKey: string | null): void {
   selectedKey = issueKey;
+  if (changedIssue && changedIssue.issue.key !== issueKey) changedIssue = null;
+}
+
+export function selectedIssue(): IssueRow | undefined {
+  if (!selectedKey) return undefined;
+  return issueByKey.get(selectedKey) ?? (changedIssue?.issue.key === selectedKey ? changedIssue.issue : undefined);
+}
+
+export function isIssueClosed(issue: IssueRow): boolean {
+  return changedIssue?.issue.key === issue.key && changedIssue.isClosed;
+}
+
+export function isChangingIssueState(issue: IssueRow): boolean {
+  return [...stateRequestById.values()].some((request) => request.issue.key === issue.key);
+}
+
+export function setIssueState(issue: IssueRow, state: 'closed' | 'open'): void {
+  if (isChangingIssueState(issue)) return;
+  const requestId = nextRequestId('set-issue-state');
+  if (!requestSender?.({ type: 'set-issue-state', requestId, repo: issue.repo, issueNumber: issue.number, state })) {
+    outcomeByIssue.set(issue.key, { text: NOT_CONNECTED_TEXT, tone: 'error' });
+    notifySubscribers('detail');
+    return;
+  }
+  stateRequestById.set(requestId, {
+    issue, state,
+    timeoutHandle: setTimeout(() => {
+      stateRequestById.delete(requestId);
+      outcomeByIssue.set(issue.key, { text: ISSUES_NO_REPLY_TEXT, tone: 'error' });
+      notifySubscribers('detail');
+    }, ISSUES_REQUEST_TIMEOUT_MS),
+  });
+  outcomeByIssue.set(issue.key, { text: state === 'closed' ? 'Closing issue.' : 'Reopening issue.', tone: 'busy' });
+  notifySubscribers('detail');
+}
+
+export function applySetIssueStateResult(message: ServerMessageOf<'set-issue-state-result'>): void {
+  const request = stateRequestById.get(message.requestId);
+  if (!request) return;
+  clearTimeout(request.timeoutHandle);
+  stateRequestById.delete(message.requestId);
+  const { issue, state } = request;
+  if (!message.ok) {
+    outcomeByIssue.set(issue.key, { text: message.error || `Could not ${state === 'closed' ? 'close' : 'reopen'} the issue.`, tone: 'error' });
+    notifySubscribers('detail');
+    return;
+  }
+  changedIssue = { issue, isClosed: state === 'closed' };
+  outcomeByIssue.set(issue.key, { text: state === 'closed' ? 'Closed as completed.' : 'Reopened.', tone: 'ok' });
+  notifySubscribers('detail');
 }
 
 export function isOpeningIssue(issue: IssueRow): boolean {
   return [...openRequestById.values()].some((request) => request.issueKey === issue.key);
 }
 
-export function openOutcomeOfIssue(issue: IssueRow): { text: string; tone: ActionStatusTone } | undefined {
-  return openOutcomeByIssue.get(issue.key);
+export function actionOutcomeOfIssue(issue: IssueRow): { text: string; tone: ActionStatusTone } | undefined {
+  return outcomeByIssue.get(issue.key);
 }
 
 export function issueBodyText(issue: IssueRow): string {
@@ -109,7 +172,7 @@ export function openIssueSession(issue: IssueRow): void {
   if (!projectId || isOpeningIssue(issue)) return;
   const requestId = nextRequestId('open-issue-session');
   if (!requestSender?.({ type: 'open-issue-session', requestId, projectId, repo: issue.repo, issueNumber: issue.number })) {
-    openOutcomeByIssue.set(issue.key, { text: NOT_CONNECTED_TEXT, tone: 'error' });
+    outcomeByIssue.set(issue.key, { text: NOT_CONNECTED_TEXT, tone: 'error' });
     notifySubscribers('detail');
     return;
   }
@@ -118,7 +181,7 @@ export function openIssueSession(issue: IssueRow): void {
     issueNumber: issue.number,
     timeoutHandle: setTimeout(() => abandonOpenRequest(requestId), ISSUES_REQUEST_TIMEOUT_MS),
   });
-  openOutcomeByIssue.set(issue.key, { text: 'Opening session.', tone: 'busy' });
+  outcomeByIssue.set(issue.key, { text: 'Opening session.', tone: 'busy' });
   notifySubscribers('detail');
 }
 
@@ -138,9 +201,14 @@ export function applyIssuesConnectionState(connected: boolean): void {
   if (connected) return;
   for (const request of openRequestById.values()) {
     clearTimeout(request.timeoutHandle);
-    openOutcomeByIssue.set(request.issueKey, { text: NOT_CONNECTED_TEXT, tone: 'error' });
+    outcomeByIssue.set(request.issueKey, { text: NOT_CONNECTED_TEXT, tone: 'error' });
   }
   openRequestById.clear();
+  for (const request of stateRequestById.values()) {
+    clearTimeout(request.timeoutHandle);
+    outcomeByIssue.set(request.issue.key, { text: NOT_CONNECTED_TEXT, tone: 'error' });
+  }
+  stateRequestById.clear();
   for (const request of detailRequestById.values()) {
     clearTimeout(request.timeoutHandle);
     bodyErrorByCacheKey.set(request.cacheKey, `${NOT_CONNECTED_TEXT} ${RELOAD_DESCRIPTION_HINT}`);
@@ -153,6 +221,7 @@ export function applyIssuesStatus(message: IssuesStatus): void {
   const previousSelected = latestStatus?.issues.find((issue) => issue.key === selectedKey);
   latestStatus = message;
   issueByKey = new Map(message.issues.map((issue) => [issue.key, issue]));
+  if (changedIssue && !changedIssue.isClosed && issueByKey.has(changedIssue.issue.key)) changedIssue = null;
   const selected = message.issues.find((issue) => issue.key === selectedKey);
   if (selected && selected.updatedAt !== previousSelected?.updatedAt) requestIssueBody(selected);
   notifySubscribers('status');
@@ -177,13 +246,13 @@ export function applyOpenIssueSessionResult(message: Record<string, unknown>): v
     const name = typeof message.sessionName === 'string' ? message.sessionName : `issue #${request.issueNumber}`;
     const suffix = message.pending === true ? ' Prompt queued.' : '';
     const outcome = message.existing === true ? 'already open' : 'created';
-    openOutcomeByIssue.set(key, { text: `Session "${name}" ${outcome}.${suffix}`, tone: 'ok' });
+    outcomeByIssue.set(key, { text: `Session "${name}" ${outcome}.${suffix}`, tone: 'ok' });
     const issue = latestStatus?.issues.find((candidate) => candidate.key === key);
     if (issue && typeof message.sessionId === 'string') issue.sessionId = message.sessionId;
     notifySubscribers('status');
     return;
   }
   const error = typeof message.error === 'string' && message.error ? message.error : 'Could not open session.';
-  openOutcomeByIssue.set(key, { text: error, tone: 'error' });
+  outcomeByIssue.set(key, { text: error, tone: 'error' });
   notifySubscribers('detail');
 }

@@ -91,7 +91,7 @@ interface BackendControlDependencies {
   teamReview: TeamReviewControl;
   community: CommunityControl;
   myPrs: MyPrMergeControl & { getStatus: () => MyPrsSnapshot };
-  issues: { getStatus: () => IssuesStatus; refresh: () => Promise<GithubPollingRefreshResult>; projectRepoSlugs: (projectId: string) => Promise<string[]>; getLinkedSessionId: (issueKey: string) => Promise<string | null>; linkSession: (issueKey: string, sessionId: string) => Promise<void> };
+  issues: { getStatus: () => IssuesStatus; refresh: () => Promise<GithubPollingRefreshResult>; projectRepoSlugs: (projectId: string) => Promise<string[]>; getLinkedSessionId: (issueKey: string) => Promise<string | null>; linkSession: (issueKey: string, sessionId: string) => Promise<void>; setIssueState: (change: { repo: string; number: number; state: 'closed' | 'open' }) => Promise<{ ok: boolean; err: string }> };
   benchmarks: BenchmarkControl;
   usage: UsageControl;
   readTracePage: ((glimmervoidSessionId: string, request: TracePageRequest) => Promise<TracePage>) | null;

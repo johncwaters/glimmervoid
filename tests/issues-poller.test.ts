@@ -115,7 +115,7 @@ test('issues wiring retries an unreadable cache and keeps links made while it wa
   const statePath = path.join(directory, 'issues-cache.json');
   const wiring = createIssuesWiring({
     config: { projects: [] }, homeDir: directory, hasSession: () => true, broadcast: () => {},
-    gitWorkspace: { originUrl: async () => null }, log: { warn() {} },
+    gitWorkspace: { originUrl: async () => null }, log: { warn() {} }, github: { setIssueState: async () => ({ ok: true, err: '' }) },
     store: {
       requestViewer: async () => ({ isRateLimited: false, value: null }),
       rateLimitWaitMs: async () => null,

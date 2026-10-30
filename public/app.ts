@@ -45,7 +45,7 @@ import { wirePopupMenuKeys } from './menu.ts';
 import { mountCelebrationTray } from './merge-celebration.ts';
 import { mountMuteButton } from './mute-button.ts';
 import { applyBenchmarkActionResult, applyBenchmarkStatus, setBenchmarkRequestSender } from './benchmark-store.ts';
-import { applyIssueDetailResult, refreshIssuesSessionState, applyIssuesStatus, applyOpenIssueSessionResult, setIssuesRequestSender } from './github/issues-store.ts';
+import { applyIssueDetailResult, refreshIssuesSessionState, applyIssuesStatus, applyOpenIssueSessionResult, applySetIssueStateResult, setIssuesRequestSender } from './github/issues-store.ts';
 
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID } from './radar/radar-core.ts';
 import { applyInvestigationActivity, applyInvestigationFinished, applyRadarStatus } from './radar/radar-store.ts';
@@ -551,6 +551,7 @@ const messageHandlers = {
   'issues-status':      (msg) => applyIssuesStatus(msg),
   'issue-detail-result': (msg) => applyIssueDetailResult(msg),
   'open-issue-session-result': (msg) => applyOpenIssueSessionResult(msg),
+  'set-issue-state-result': (msg) => applySetIssueStateResult(msg),
   'usage-sessions':     (msg) => { applyUsageSessionChips(msg.sessions); applyUsageSessions(msg); },
   'usage-report':       (msg) => { applyUsageReport(msg); refreshSettingsStatus(); },
 

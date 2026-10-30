@@ -169,6 +169,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'radar-open-session-result', requestId: 'posthog-2', ok: true, error: null, sessionId: 'session-1' },
   { type: 'issues-status', ts: NOW, configured: true, reason: null, lastSyncAt: NOW, issues: [{ key: 'acme/repo#42', repo: 'acme/repo', number: 42, title: 'Reconnect drops queued writes', labels: ['bug'], assignees: ['alice'], author: 'bob', comments: 1, url: 'https://github.com/acme/repo/issues/42', createdAt: '2026-09-13T10:00:00Z', updatedAt: '2026-09-13T10:00:00Z', sources: ['project', 'me'], teams: [], projectId: 'p1', sessionId: null, pullRequests: [] }] },
   { type: 'issue-detail-result', requestId: 'detail-1', ok: true, body: '<b>plain text</b>', error: null },
+  { type: 'set-issue-state-result', requestId: 'issues-3', ok: false, error: 'HTTP 403: Resource not accessible' },
   { type: 'open-issue-session-result', requestId: 'issues-2', ok: true, error: null, sessionId: 'session-2', sessionName: 'issue-42-fix-reconnect', pending: false },
   { type: 'open-team-review-session-result', requestId: 'team-review-2', ok: true, error: null, key: 'acme/app#7', sessionId: 'session-3', sessionName: 'pr-app-7-fix-login', pending: false, existing: false },
   { type: 'radar-issue-action-result', requestId: 'posthog-3', ok: true, error: null, status: 'resolved' },

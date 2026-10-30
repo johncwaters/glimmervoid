@@ -16,7 +16,7 @@ import { isModalOpen } from '../session-card/modal.ts';
 import { selectSession } from '../session-actions.ts';
 import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import type { ViewModule } from '../view-registry-core.ts';
-import { isOpeningIssue, issueBodyText, issuesSnapshot, openIssueSession, openOutcomeOfIssue, reportIssuesAction, requestIssueBody, selectIssue, subscribeIssues } from './issues-store.ts';
+import { actionOutcomeOfIssue, isChangingIssueState, isIssueClosed, isOpeningIssue, issueBodyText, issuesSnapshot, openIssueSession, reportIssuesAction, requestIssueBody, selectedIssue, selectIssue, setIssueState, subscribeIssues } from './issues-store.ts';
 import type { IssuesChange } from './issues-store.ts';
 
 type IssueRailScope = 'all' | IssueStep;
@@ -161,12 +161,20 @@ function openInReviewsButton(issue: IssueRow, status: HTMLElement): HTMLButtonEl
   });
 }
 
+function issueStateButton(issue: IssueRow, label: string, state: 'closed' | 'open'): HTMLButtonElement {
+  const button = actionButton(label, 'pr-action', () => setIssueState(issue, state));
+  button.disabled = isChangingIssueState(issue);
+  return button;
+}
+
 function primaryActions(issue: IssueRow, step: IssueStep, status: HTMLElement): HTMLElement[] {
+  if (isIssueClosed(issue)) return [issueStateButton(issue, 'Reopen', 'open')];
   const session = liveIssueSession(issue);
   const sessionButton = session && issue.sessionId ? goToSessionButton(issue.sessionId) : null;
   if (step === 'review') return [openInReviewsButton(issue, status), sessionButton].filter((button) => button !== null);
+  if (step === 'close') return [issueStateButton(issue, 'Close issue', 'closed'), sessionButton].filter((button) => button !== null);
   if (sessionButton) return [sessionButton];
-  if (step === 'close' || !issue.projectId) return [];
+  if (!issue.projectId) return [];
   const open = actionButton('Open session', 'pr-action', () => openIssueSessionUnlessLive(issue));
   open.disabled = isOpeningIssue(issue);
   return [open];
@@ -178,7 +186,7 @@ function buildDetailFooter(issue: IssueRow): HTMLElement {
   status.setAttribute('role', 'status');
   footer.append(...primaryActions(issue, issueStepOf(stepInputOf(issue)), status));
   footer.append(externalLink('pr-action pr-action-ghost', 'View on GitHub', issue.url));
-  const outcome = openOutcomeOfIssue(issue);
+  const outcome = actionOutcomeOfIssue(issue);
   const fallback = issue.projectId ? '' : `Add a project for ${issue.repo} in Settings to open sessions from here.`;
   paintActionStatus(status, outcome?.tone ?? null, outcome?.text ?? fallback);
   footer.append(status);
@@ -204,25 +212,35 @@ function createDetailAge(timestamp: string, nowMs: number): HTMLElement {
   return age;
 }
 
+function detailRenderKey(issue: IssueRow): string {
+  const liveSessionId = liveIssueSession(issue) ? issue.sessionId : null;
+  return `${issueTierOf(stepInputOf(issue))}:${liveSessionId ?? ''}`;
+}
+
+function renderDetailKeepingFocus(): void {
+  const focused = document.activeElement instanceof HTMLElement && detailHost?.contains(document.activeElement) ? document.activeElement : null;
+  const focusedLabel = focused?.textContent;
+  renderDetail();
+  if (!focusedLabel) return;
+  [...detailHost?.querySelectorAll<HTMLElement>('button, a') ?? []].find((control) => control.textContent === focusedLabel)?.focus({ preventScroll: true });
+}
+
 function refreshDetailSessionState(): void {
   const article = detailHost?.querySelector<HTMLElement>('.issues-detail');
-  const { selectedKey, issueByKey } = issuesSnapshot();
-  const issue = selectedKey ? issueByKey.get(selectedKey) : undefined;
+  const issue = selectedIssue();
   if (!article || !issue) return;
   const glyph = article.querySelector<HTMLElement>('.issues-facts .issues-state');
   if (glyph) syncIssueState(glyph, issue, true);
   const name = article.querySelector('.issues-session-name');
   const label = issueSessionLabel(issue);
   if (name && name.textContent !== label) name.textContent = label;
-  const tier = issueTierOf(stepInputOf(issue));
-  if (article.dataset.tier === tier) return;
-  renderDetail();
+  if (article.dataset.renderKey === detailRenderKey(issue)) return;
+  renderDetailKeepingFocus();
 }
 
 function renderDetail(): void {
   if (!detailHost) return;
-  const { latestStatus, selectedKey } = issuesSnapshot();
-  const issue = latestStatus?.issues.find((candidate) => candidate.key === selectedKey);
+  const issue = selectedIssue();
   if (!issue) {
     detailHost.replaceChildren(el('p', 'pr-empty', 'Pick an issue from the queue.'));
     return;
@@ -244,7 +262,7 @@ function renderDetail(): void {
   if (issue.sources.includes('me')) meta.append(el('span', 'issues-why', 'assigned to you'));
   for (const team of issue.teams) meta.append(el('span', null, `mentions ${team}`));
   const input = stepInputOf(issue);
-  article.dataset.tier = issueTierOf(input);
+  article.dataset.renderKey = detailRenderKey(issue);
   heading.append(title, meta, buildStepTrack(issueStepOf(input)));
   const facts = el('dl', 'issues-facts');
   buildFact(facts, 'Repository', [issue.repo]);
@@ -296,7 +314,7 @@ function renderQueue(): void {
   queue.replaceChildren(...tierIssues(visible).map((group) => buildTierSection(group.tier, group.inputs)));
   if (visible.length === 0) queue.append(el('p', 'pr-empty', emptyQueueText(issues.length, isIssueQueryActive(query))));
   if (focusedKey) [...queue.querySelectorAll<HTMLButtonElement>('[data-issue-key]')].find((row) => row.dataset.issueKey === focusedKey)?.focus({ preventScroll: true });
-  if (selectedKey && !issues.some((issue) => issue.key === selectedKey)) {
+  if (selectedKey && !selectedIssue()) {
     selectIssue(null);
     root.dataset.detailOpen = 'false';
   }
@@ -423,7 +441,7 @@ function refreshIssuesSessionState(): void {
 
 const RENDER_BY_CHANGE: Record<IssuesChange, () => void> = {
   status: render,
-  detail: renderDetail,
+  detail: renderDetailKeepingFocus,
   'session-state': refreshIssuesSessionState,
 };
 

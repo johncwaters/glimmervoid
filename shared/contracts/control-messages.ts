@@ -209,7 +209,7 @@ const DASHBOARD_TELEMETRY_EVENTS = Object.freeze(['view_shown', 'operator_action
 export const DASHBOARD_VIEWS = Object.freeze(['focus', 'prs', 'issues', 'usage', 'radar', 'community', 'boards', 'hooks', 'trace', 'benchmarks', 'settings'] as const);
 export const OPERATOR_ACTIONS_BY_SURFACE = Object.freeze({
   usage: ['sort', 'range', 'period', 'expand', 'refresh'],
-  issues: ['step', 'search', 'select', 'back', 'go-to-session', 'open-session', 'open-reviews', 'refresh'],
+  issues: ['step', 'search', 'select', 'back', 'go-to-session', 'open-session', 'open-reviews', 'close', 'reopen', 'refresh'],
   radar: ['report', 'open-session', 'resolve', 'suppress', 'archive-investigation', 'approve-fix', 'dismiss-fix'],
   onboarding: ['rescan', 'add-root-typed', 'add-root-suggested', 'add-session', 'open-shell', 'check-github-again', 'save-github-teams', 'save-review-skill'],
   reviews: ['open-session', 'approve', 'approve-only', 'comment', 'request-changes', 'discard', 'requeue', 'resolve-thread', 'merge', 'keep-mergeable', 'merge-when-ready', 'refresh'],
@@ -278,6 +278,7 @@ const clientVariants = [
   loose('radar-open-session', { projectId: z.union([z.string(), z.number()]), issueId: z.union([z.string(), z.number()]), requestId }),
   loose('issue-detail', { requestId: z.string().min(1), repo: IssueRepoSlug, issueNumber: z.number().int().positive() }),
   loose('open-issue-session', { requestId, projectId: z.string(), repo: IssueRepoSlug, issueNumber: z.number().int().positive() }),
+  loose('set-issue-state', { requestId: z.string().min(1), repo: IssueRepoSlug, issueNumber: z.number().int().positive(), state: z.enum(['closed', 'open']) }),
   loose('radar-issue-action', { projectId: z.union([z.string(), z.number()]), issueId: z.union([z.string(), z.number()]), action: z.string(), requestId }),
   loose('open-team-review-session', { requestId, key: PullRequestKey }),
   loose('team-review-action', { ...TeamReviewActionRequest.shape, requestId }).refine(hasRequiredActionHead, { message: 'only discard may omit head', path: ['head'] }),
@@ -540,6 +541,7 @@ const serverVariants = [
     pending: z.boolean().optional(),
   }),
   loose('issue-detail-result', { requestId: z.string().min(1), ok: z.boolean(), body: z.string().nullable(), error: z.string().nullable() }),
+  loose('set-issue-state-result', { requestId: z.string().min(1), ok: z.boolean(), error: optionalError }),
   loose('open-issue-session-result', {
     requestId,
     ok: z.boolean(),

@@ -30,6 +30,7 @@ const ALLOWED = new Set([
 const WRITE_METHODS = new Set([
   'addPrLabel',
   'commentOnPr',
+  'setIssueState',
   'rebasePr',
   'mergePr',
   'resolveReviewThread',

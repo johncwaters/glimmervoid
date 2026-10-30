@@ -157,7 +157,7 @@ interface ControlHandlerDeps {
   getMyPrsStatus?: (() => MyPrsSnapshot | null) | null;
   getIssuesStatus?: (() => IssuesStatus | null) | null;
   githubStore?: { snapshotMessage: () => GithubPrsFrame; getFreshness: () => GithubPrsFreshness } | null;
-  issues?: { refresh: () => Promise<GithubPollingRefreshResult>; getLinkedSessionId?: (issueKey: string) => Promise<string | null>; linkSession?: (issueKey: string, sessionId: string) => Promise<void> } | null;
+  issues?: { refresh: () => Promise<GithubPollingRefreshResult>; getLinkedSessionId?: (issueKey: string) => Promise<string | null>; linkSession?: (issueKey: string, sessionId: string) => Promise<void>; setIssueState?: (change: { repo: string; number: number; state: 'closed' | 'open' }) => Promise<{ ok: boolean; err: string }> } | null;
   teamReview?: TeamReviewActionControl | null;
   myPrs?: MyPrMergeControl | null;
   getBenchmarkStatus?: (() => BenchmarkStatus | null) | null;
@@ -288,6 +288,7 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'get-radar-report': () => ({ type: 'radar-report', requestId, ok: false, found: false, issueId: null, error: message }),
     'radar-open-session': () => ({ type: 'radar-open-session-result', requestId, ok: false, error: message }),
     'issue-detail': () => ({ type: 'issue-detail-result', requestId, ok: false, body: null, error: message }),
+    'set-issue-state': () => ({ type: 'set-issue-state-result', requestId, ok: false, error: message }),
     'open-issue-session': () => ({ type: 'open-issue-session-result', requestId, ok: false, error: message }),
     'open-team-review-session': () => ({ type: 'open-team-review-session-result', requestId, ok: false, error: message }),
     'radar-issue-action': () => ({ type: 'radar-issue-action-result', requestId, ok: false, error: message }),
@@ -1282,6 +1283,18 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     }
   }
 
+  async function handleSetIssueState(request: ClientMessageOf<'set-issue-state'>, ws: ControlSocket): Promise<void> {
+    captureOperatorAction('issues', request.state === 'closed' ? 'close' : 'reopen');
+    const setIssueState = issues?.setIssueState;
+    if (!setIssueState) { replyTo(ws, request, 'set-issue-state-result', { ok: false, error: 'Issues polling is not running.' }); return; }
+    try {
+      const applied = await setIssueState({ repo: request.repo, number: request.issueNumber, state: request.state });
+      replyTo(ws, request, 'set-issue-state-result', { ok: applied.ok, error: applied.ok ? null : applied.err });
+    } catch (error: unknown) {
+      replyTo(ws, request, 'set-issue-state-result', { ok: false, error: errorMessage(error) });
+    }
+  }
+
   async function handleOpenIssueSession(msg: ClientMessageOf<'open-issue-session'>, ws: ControlSocket): Promise<void> {
     const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'open-issue-session-result', { ok: false, error: null, ...payload });
     const project = findConfiguredProject(msg.projectId);
@@ -1724,6 +1737,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'get-radar-report': handleGetRadarReport,
     'radar-open-session': handleRadarOpenSession,
     'issue-detail': handleIssueDetail,
+    'set-issue-state': handleSetIssueState,
     'open-team-review-session': (msg: ClientMessageOf<'open-team-review-session'>, ws: ControlSocket) => prSessionOpenQueue.run(msg.key.toLowerCase(), () => handleOpenTeamReviewSession(msg, ws)),
     'open-issue-session': (msg: ClientMessageOf<'open-issue-session'>, ws: ControlSocket) => issueOpenQueue.run(`${msg.repo.toLowerCase()}#${msg.issueNumber}`, () => handleOpenIssueSession(msg, ws)),
     'radar-issue-action': handleRadarIssueAction,
