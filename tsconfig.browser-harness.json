@@ -14,7 +14,8 @@
   },
   "include": [
     "harness/browser/**/*.ts",
-    "server/ws-module.d.ts"
+    "server/ws-module.d.ts",
+    "server/fs-native-extensions-module.d.ts"
   ],
   "exclude": [
     "node_modules/**",
