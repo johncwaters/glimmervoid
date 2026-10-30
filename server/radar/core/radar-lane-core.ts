@@ -713,6 +713,37 @@ const RADAR_EXCEPTION_EVENTS_QUERY = [
   `AND timestamp > now() - INTERVAL 7 DAY ORDER BY timestamp DESC LIMIT ${RADAR_EXCEPTION_EVENT_LIMIT}`,
 ].join(' ');
 
+const DAILY_VOLUME_DAYS = 14;
+const DAILY_VOLUME_MAX_ISSUES = 100;
+
+function dailyVolumeQuery(projectId: unknown, issueIds: readonly unknown[]): string | null {
+  const validIds = [...new Set(issueIds.flatMap((issueId) => {
+    const ref = validateIssueRef({ projectId, issueId });
+    return ref.ok ? [ref.issueId] : [];
+  }))].slice(0, DAILY_VOLUME_MAX_ISSUES);
+  if (validIds.length === 0) return null;
+  return [
+    "SELECT properties.$exception_issue_id AS issue_id, dateDiff('day', toDate(timestamp), today()) AS days_ago, count() AS occurrences",
+    "FROM events WHERE event = '$exception'",
+    `AND properties.$exception_issue_id IN (${validIds.map((issueId) => `'${issueId}'`).join(', ')})`,
+    `AND timestamp >= toStartOfDay(now()) - INTERVAL ${DAILY_VOLUME_DAYS - 1} DAY`,
+    `GROUP BY issue_id, days_ago LIMIT ${DAILY_VOLUME_MAX_ISSUES * DAILY_VOLUME_DAYS}`,
+  ].join(' ');
+}
+
+function dailyVolumeSeries(rows: readonly Record<string, unknown>[]): Record<string, number[]> {
+  const seriesByIssueId = new Map<string, number[]>();
+  for (const row of rows) {
+    const issueId = String(row.issue_id ?? '');
+    const daysAgo = Number(row.days_ago);
+    if (!issueId || !Number.isInteger(daysAgo) || daysAgo < 0 || daysAgo >= DAILY_VOLUME_DAYS) continue;
+    const series = seriesByIssueId.get(issueId) ?? new Array<number>(DAILY_VOLUME_DAYS).fill(0);
+    series[DAILY_VOLUME_DAYS - 1 - daysAgo] += toCount(row.occurrences, 0);
+    seriesByIssueId.set(issueId, series);
+  }
+  return Object.fromEntries(seriesByIssueId);
+}
+
 function radarUntrustedItems(issue: PosthogIssue, exceptionEvents: readonly Record<string, unknown>[]): UntrustedItem[] {
   const issueRef = String(issue.issueId ?? '');
   const issueFacts = { title: issue.title ?? null, status: issue.status ?? null, occurrences: issue.occurrences ?? null, users: issue.users ?? null, lastSeen: issue.lastSeen ?? null };
@@ -771,4 +802,4 @@ function approvedFixSessionPrompt({ record, fix }: { record: InvestigationRecord
   ].join('\n');
 }
 
-export { toCount, issueKey, issueUrl, classifyIssueChange, investigationTrigger, slotDeferredInvestigationChange, underlyingInvestigationChange, belowMinimumInvestigationChange, planInvestigations, decideJobMode, normalizeJobMode, decideFixHandoff, normalizePrTitle, normalizePrBody, fixDetailLine, decideVanishedEntry, pingFor, nextState, summaryLineFromReportText, validateIssueRef, decideIssueAction, buildInvestigationRecord, appendInvestigation, markInvestigationArchived, pruneInvestigations, unarchivedInvestigations, validateInvestigationId, resolveIssueProject, isAbsolutePathish, projectParentDirs, pickDirectoryForProjectName, sanitizeSessionName, scrubForPaste, buildIssueSessionPrompt, claimPendingFix, claimExpiredPendingFixes, pendingFixesDropped, approvedFixSessionPrompt, PENDING_FIX_TTL_MS, radarUntrustedItems, RADAR_UNTRUSTED_SOURCE, RADAR_UNTRUSTED_ITEM_MAX_CHARS, RADAR_RESULT_FILENAME, RADAR_REPORT_FILENAME, RADAR_EXCEPTION_EVENTS_QUERY, JOB_MODES, FIX_VERDICTS, INVESTIGATIONS_KEY, DEFAULT_ARCHIVED_RETENTION_DAYS, DEFAULT_INTERVAL_MINUTES, DEFAULT_USER_ESCALATION_THRESHOLD, DEFAULT_MIN_USERS_TO_INVESTIGATE, DEFAULT_ENTRY_RETENTION_DAYS };
+export { toCount, issueKey, issueUrl, classifyIssueChange, investigationTrigger, slotDeferredInvestigationChange, underlyingInvestigationChange, belowMinimumInvestigationChange, planInvestigations, decideJobMode, normalizeJobMode, decideFixHandoff, normalizePrTitle, normalizePrBody, fixDetailLine, decideVanishedEntry, pingFor, nextState, summaryLineFromReportText, validateIssueRef, decideIssueAction, buildInvestigationRecord, appendInvestigation, markInvestigationArchived, pruneInvestigations, unarchivedInvestigations, validateInvestigationId, resolveIssueProject, isAbsolutePathish, projectParentDirs, pickDirectoryForProjectName, sanitizeSessionName, scrubForPaste, buildIssueSessionPrompt, claimPendingFix, claimExpiredPendingFixes, pendingFixesDropped, approvedFixSessionPrompt, PENDING_FIX_TTL_MS, radarUntrustedItems, dailyVolumeQuery, dailyVolumeSeries, RADAR_UNTRUSTED_SOURCE, RADAR_UNTRUSTED_ITEM_MAX_CHARS, RADAR_RESULT_FILENAME, RADAR_REPORT_FILENAME, RADAR_EXCEPTION_EVENTS_QUERY, JOB_MODES, FIX_VERDICTS, INVESTIGATIONS_KEY, DEFAULT_ARCHIVED_RETENTION_DAYS, DEFAULT_INTERVAL_MINUTES, DEFAULT_USER_ESCALATION_THRESHOLD, DEFAULT_MIN_USERS_TO_INVESTIGATE, DEFAULT_ENTRY_RETENTION_DAYS };

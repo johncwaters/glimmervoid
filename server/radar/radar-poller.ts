@@ -8,7 +8,7 @@ import type { TrafficState } from '../core/traffic-spike-core.ts';
 import { firstLine, raceWithAbort } from '../lanes/ephemeral-session.ts';
 import { createTickLoop } from '../lanes/lane-runner.ts';
 import type { TickOutcome } from '../lanes/lane-runner.ts';
-import { normalizeIssues, parseSpikeIssueIds } from './posthog-api.ts';
+import { extractRows, normalizeIssues, parseSpikeIssueIds } from './posthog-api.ts';
 import type { NormalizedIssue, PosthogApi } from './posthog-api.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { TELEMETRY_EVENT_SCHEMAS } from '../../shared/contracts/telemetry.ts';
@@ -122,6 +122,7 @@ interface ProjectSummary {
   host: string;
   lastTickAt: number;
   issues: IssueSummary[];
+  dailyVolumeByIssueId?: Record<string, number[]>;
   error?: string;
 }
 
@@ -665,6 +666,23 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
     };
   }
 
+  async function fetchDailyVolumes(projectId: string | number, projectName: string, liveIssueIds: readonly string[]): Promise<Record<string, number[]> | null> {
+    const investigatedIssueIds = currentInvestigations()
+      .filter((record) => String(record.projectId) === String(projectId))
+      .map((record) => record.issueId);
+    const query = core.dailyVolumeQuery(projectId, [...liveIssueIds, ...investigatedIssueIds]);
+    if (!query) return null;
+    try {
+      const res = await api.runHogQL(projectId, query);
+      if (res.ok) return core.dailyVolumeSeries(extractRows(res.body));
+      log.warn(`[posthog-poller] daily volume query failed for ${projectName}: ${res.error}`);
+      return null;
+    } catch (e) {
+      log.warn(`[posthog-poller] daily volume query failed for ${projectName}: ${errorMessage(e)}`);
+      return null;
+    }
+  }
+
   async function tickProject(project: PollerProject): Promise<{ dirty: boolean; summary: ProjectSummary }> {
     const { projectId } = project;
     const projectName = project.name || String(projectId);
@@ -772,6 +790,7 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
     }
 
     await tickTraffic(projectId, projectName, tickStartedAt);
+    const dailyVolumeByIssueId = await fetchDailyVolumes(projectId, projectName, changes.map((change) => change.issue.issueId));
 
     meta().lastTickAt[String(projectId)] = tickStartedAt;
 
@@ -798,6 +817,7 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
             ...issueStateFields(projectId, change.issue.issueId),
           };
         }),
+        ...(dailyVolumeByIssueId ? { dailyVolumeByIssueId } : {}),
       },
     };
   }
