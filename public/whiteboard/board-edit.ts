@@ -7,7 +7,7 @@ const DRAG_THRESHOLD_PX = 4;
 const MIN_VIEW_WIDTH = 200;
 const MAX_VIEW_WIDTH = 20000;
 const WHEEL_ZOOM_STEP = 1.1;
-const REMOVAL_ORDER = ['wire', 'note', 'frame', 'box'] as const;
+const REMOVAL_ORDER = ['wire', 'note', 'frame', 'box', 'unit'] as const;
 
 interface ViewPoint {
   x: number;
@@ -22,6 +22,7 @@ interface BoardEditorOptions {
   sendOps: (ops: Op[]) => Promise<boolean>;
   onSelectionChange: (selectedIds: ReadonlySet<string>) => void;
   onPhoneTapBox: (boxId: string) => void;
+  onOpenLinkedBoard: (boardId: string) => void;
 }
 
 type Gesture =
@@ -30,13 +31,18 @@ type Gesture =
   | { kind: 'pinch'; distance: number; viewWidth: number }
   | null;
 
-export function newElementId(kind: 'box' | 'wire' | 'note' | 'frame'): string {
+export function newElementId(kind: 'box' | 'wire' | 'note' | 'frame' | 'unit'): string {
   const entropy = Math.random().toString(36).slice(2, 8);
   return `${kind}-${Date.now().toString(36)}${entropy}`;
 }
 
 function isPhoneLayout(): boolean {
   return document.documentElement.dataset.layout === 'phone';
+}
+
+function linkedBoardIdOf(target: EventTarget | null): string | null {
+  if (!(target instanceof Element)) return null;
+  return target.closest<SVGElement>('[data-linked-board-id]')?.dataset.linkedBoardId ?? null;
 }
 
 export function createBoardEditor(options: BoardEditorOptions) {
@@ -139,6 +145,11 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function onPointerDown(event: PointerEvent): void {
     if (event.button !== 0 || titleInput) return;
+    const linkedBoardId = linkedBoardIdOf(event.target);
+    if (linkedBoardId) {
+      options.onOpenLinkedBoard(linkedBoardId);
+      return;
+    }
     activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     svg.setPointerCapture(event.pointerId);
     if (activePointers.size === 2) {
@@ -206,7 +217,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
       return;
     }
     const point = toViewPoint(event.clientX, event.clientY);
-    const at = { x: Math.round(drag.start.x + point.x - drag.origin.x), y: Math.round(drag.start.y + point.y - drag.origin.y) };
+    const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
+    const at = { x: Math.round(drag.start.x + point.x - drag.origin.x), y: Math.round(drag.start.y + point.y - drag.origin.y - pinnedOffsetY) };
     const isSent = await options.sendOps([{ op: 'set', id: drag.boxId, fields: { at } }]);
     if (!isSent) renderer.nodeOf(drag.boxId)?.removeAttribute('transform');
   }

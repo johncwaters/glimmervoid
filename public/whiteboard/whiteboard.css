@@ -228,6 +228,27 @@
   font-weight: 700;
 }
 
+.wb-unit { cursor: pointer; }
+
+.wb-unit-outline {
+  fill: #15122a;
+  stroke: var(--accent);
+  stroke-width: 1.6;
+}
+
+.wb-unit-label {
+  fill: var(--accent);
+  font-size: var(--type-meta);
+  font-weight: 700;
+}
+
+.wb-unit-link {
+  fill: var(--accent);
+  font-size: var(--type-meta);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .wb-frame-outline {
   fill: rgba(192, 132, 252, 0.04);
   stroke: var(--wb-line);
@@ -304,7 +325,8 @@
 
 .wb-element.is-selected .wb-box-outline,
 .wb-element.is-selected .wb-frame-outline,
-.wb-element.is-selected .wb-note-card {
+.wb-element.is-selected .wb-note-card,
+.wb-element.is-selected .wb-unit-outline {
   stroke: var(--accent);
   stroke-width: 2.4;
 }

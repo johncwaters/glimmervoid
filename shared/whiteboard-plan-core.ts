@@ -1,6 +1,6 @@
 import type { Board, Unit } from './contracts/whiteboard.ts';
 
-type PlanStep = { unitId: string; title: string; label: string; afterLabels: string[]; linkedBoardId: string | null };
+type PlanStep = { unitId: string; title: string; level: number; label: string; afterLabels: string[]; linkedBoardId: string | null };
 
 const LETTERS_IN_ALPHABET = 26;
 const FIRST_LETTER_CODE = 97;
@@ -54,6 +54,7 @@ function planSteps(board: Board): PlanStep[] {
   return orderedUnits.map((unit) => ({
     unitId: unit.id,
     title: unit.title,
+    level: levelById.get(unit.id) ?? 1,
     label: labelById.get(unit.id) ?? '',
     afterLabels: unit.after.flatMap((afterId) => labelById.get(afterId) ?? []),
     linkedBoardId: unit.linkedBoardId,

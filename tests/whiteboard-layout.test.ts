@@ -109,3 +109,37 @@ test('wires run at right angles around boxes, and same-style wires into one box 
   assert.ok(arrowheadIds.includes('w3') && arrowheadIds.includes('w5'), 'a wire of another style keeps its own arrowhead');
   assert.deepEqual(layout.warnings.filter((warning) => warning.includes('runs through')), []);
 });
+
+function unit(id: string, title: string, after: string[] = [], linkedBoardId: string | null = null) {
+  return { kind: 'unit', id, title, after, linkedBoardId };
+}
+
+test('units draw as a plan band above the freeform columns, one level per column with an arrow per dependency', () => {
+  const plannedBoard = Board.parse({
+    ...wiredBoard,
+    elements: {
+      ...wiredBoard.elements,
+      diff: unit('diff', 'Diff index'), endpoint: unit('endpoint', 'Search endpoint', ['diff']),
+      backfill: unit('backfill', 'Index backfill', ['diff'], 'backfill-board'), searchbox: unit('searchbox', 'Search box', ['endpoint', 'diff']),
+      pinned: { ...box('pinned', 'a', 9), at: { x: 40, y: 90 } },
+    },
+  });
+  const layout = layoutBoard(plannedBoard);
+  const units = layout.elements.flatMap((element) => (element.kind === 'unit' ? [element] : []));
+  const unitById = new Map(units.map((laidOut) => [laidOut.id, laidOut]));
+  assert.deepEqual(units.map((laidOut) => laidOut.label).sort(), ['1', '2a', '2b', '3']);
+  const [diff, endpoint, backfill, searchbox] = ['diff', 'endpoint', 'backfill', 'searchbox'].map((id) => unitById.get(id));
+  assert.ok(diff && endpoint && backfill && searchbox);
+  assert.ok(diff.x < endpoint.x && endpoint.x === backfill.x && endpoint.x < searchbox.x, 'each level is its own column, left to right');
+  assert.equal(backfill.linkedBoardId, 'backfill-board');
+  assert.equal(layout.plan?.arrowPaths.length, 4);
+  const bandBottom = Math.max(...units.map((laidOut) => laidOut.y + laidOut.height));
+  for (const column of layout.columns) assert.ok(column.titleBaselineY > bandBottom, `column ${column.id} starts inside the plan band`);
+  const placed = layout.elements.filter((element) => element.kind !== 'wire');
+  for (const laidOut of units) {
+    for (const other of placed) {
+      if (other.id !== laidOut.id) assert.ok(!overlaps(laidOut, other), `${laidOut.id} overlaps ${other.id}`);
+    }
+  }
+  assert.equal(layoutBoard(wiredBoard).plan, null);
+});

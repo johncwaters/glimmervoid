@@ -1,5 +1,6 @@
 import { WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
-import type { Board, Box, Element, Note, Wire } from './contracts/whiteboard.ts';
+import type { Board, Box, Element, Note, Unit, Wire } from './contracts/whiteboard.ts';
+import { planSteps } from './whiteboard-plan-core.ts';
 
 const MARGIN = 40;
 const COLUMN_HEADER_HEIGHT = 44;
@@ -44,6 +45,10 @@ const LABEL_CLEARANCE = 2;
 const BOX_CROSSING_COST = 100;
 const MAX_WIRES_FOR_PORT_SEARCH = 120;
 const MAX_ROOM_ATTEMPTS = 4;
+const PLAN_TITLE_BASELINE = 16;
+const PLAN_TITLE_HEIGHT = 30;
+const PLAN_BAND_GAP = 40;
+const UNIT_LABEL_HEIGHT = 18;
 const LABEL_SLIDE_FRACTIONS = [0.5, 0.35, 0.65, 0.2, 0.8];
 
 const LANE_HEX_BY_COLOR = Object.freeze({
@@ -101,7 +106,21 @@ interface LaidOutNote extends Rect {
   isResolved: boolean;
 }
 
-type LaidOutElement = LaidOutBox | LaidOutFrame | LaidOutWire | LaidOutNote;
+interface LaidOutUnit extends Rect {
+  kind: 'unit';
+  id: string;
+  label: string;
+  titleLines: string[];
+  bodyLines: string[];
+  linkedBoardId: string | null;
+}
+
+type LaidOutElement = LaidOutBox | LaidOutFrame | LaidOutWire | LaidOutNote | LaidOutUnit;
+
+interface PlanBand {
+  titleAt: { x: number; y: number };
+  arrowPaths: string[];
+}
 
 interface LaidOutColumn {
   id: string;
@@ -122,6 +141,8 @@ interface BoardLayout {
   elements: LaidOutElement[];
   legend: { label: string; hex: string; x: number; y: number }[];
   caption: { text: string; x: number; y: number } | null;
+  plan: PlanBand | null;
+  pinnedOffsetY: number;
   bounds: Rect;
   warnings: string[];
 }
@@ -1049,16 +1070,77 @@ function placeWithReservedRoom(board: Board, draftRouting: RoutingResult, room: 
   }
 }
 
+function unitShape(unit: Unit) {
+  const titleLines = wrapText(unit.title, TITLE_CHARS_PER_LINE);
+  const bodyLines = unit.lines.flatMap((line) => wrapText(line.text, BODY_CHARS_PER_LINE));
+  const linkLineCount = unit.linkedBoardId ? 1 : 0;
+  const height = BOX_PADDING * 2 + UNIT_LABEL_HEIGHT + titleLines.length * TITLE_LINE_HEIGHT + (bodyLines.length + linkLineCount) * BODY_LINE_HEIGHT;
+  return { titleLines, bodyLines, height };
+}
+
+function layoutUnits(board: Board): Map<string, LaidOutUnit> {
+  const unitsById = new Map<string, LaidOutUnit>();
+  const nextYByLevel = new Map<number, number>();
+  for (const step of planSteps(board)) {
+    const unit = board.elements[step.unitId];
+    if (unit?.kind !== 'unit') continue;
+    const shape = unitShape(unit);
+    const y = nextYByLevel.get(step.level) ?? MARGIN + PLAN_TITLE_HEIGHT;
+    nextYByLevel.set(step.level, y + shape.height + BOX_GAP);
+    unitsById.set(unit.id, {
+      kind: 'unit', id: unit.id, x: MARGIN + (step.level - 1) * (COLUMN_WIDTH + COLUMN_GAP), y, width: COLUMN_WIDTH, height: shape.height,
+      label: step.label, titleLines: shape.titleLines, bodyLines: shape.bodyLines, linkedBoardId: unit.linkedBoardId,
+    });
+  }
+  return unitsById;
+}
+
+function planArrowPath(from: LaidOutUnit, to: LaidOutUnit): string {
+  const start = { x: from.x + from.width, y: from.y + Math.round(from.height / 2) };
+  const end = { x: to.x, y: to.y + Math.round(to.height / 2) };
+  const bendX = to.x - Math.round(COLUMN_GAP / 2);
+  return pathOf(withoutBends([start, { x: bendX, y: start.y }, { x: bendX, y: end.y }, end]));
+}
+
+function planArrowPaths(board: Board, unitsById: ReadonlyMap<string, LaidOutUnit>): string[] {
+  return elementsOfKind(board, 'unit').flatMap((unit) => {
+    const to = unitsById.get(unit.id);
+    if (!to) return [];
+    return unit.after.flatMap((afterId) => {
+      const from = unitsById.get(afterId);
+      return from ? [planArrowPath(from, to)] : [];
+    });
+  });
+}
+
+function planBandBottom(unitsById: ReadonlyMap<string, LaidOutUnit>): number {
+  if (unitsById.size === 0) return MARGIN;
+  return Math.max(...[...unitsById.values()].map((unit) => unit.y + unit.height)) + PLAN_BAND_GAP;
+}
+
+function withPinnedBoxesShifted(board: Board, offsetY: number): Board {
+  if (offsetY === 0) return board;
+  const elements = Object.fromEntries(Object.entries(board.elements).map(([elementId, element]) => {
+    if (element.kind !== 'box' || !element.at) return [elementId, element];
+    return [elementId, { ...element, at: { x: element.at.x, y: element.at.y + offsetY } }];
+  }));
+  return { ...board, elements };
+}
+
 function topBandHeight(topTrackCount: number): number {
   return topTrackCount > 0 ? topTrackCount * TOP_TRACK_SPACING + TOP_BAND_PAD : 0;
 }
 
-function layoutBoard(board: Board): BoardLayout {
+function layoutBoard(storedBoard: Board): BoardLayout {
+  const unitsById = layoutUnits(storedBoard);
+  const freeformTop = planBandBottom(unitsById);
+  const pinnedOffsetY = freeformTop - MARGIN;
+  const board = withPinnedBoxesShifted(storedBoard, pinnedOffsetY);
   const stackHeightByBoxId = noteStackHeightByBoxId(board);
   const titleLinesByColumn = columnTitleLines(board);
   const extraHeaderHeight = headerExtraHeight(titleLinesByColumn);
-  const ruleY = MARGIN + COLUMN_RULE_OFFSET + extraHeaderHeight;
-  const headerBoxesTop = MARGIN + COLUMN_HEADER_HEIGHT + extraHeaderHeight;
+  const ruleY = freeformTop + COLUMN_RULE_OFFSET + extraHeaderHeight;
+  const headerBoxesTop = freeformTop + COLUMN_HEADER_HEIGHT + extraHeaderHeight;
   const reserves = gapReservesOf(board, stackHeightByBoxId);
   const draft = placeAndRoute(board, {
     gapWidths: gapWidthsOf(reserves, [], []), reserves, boxesTop: headerBoxesTop, contentTop: ruleY, stackHeightByBoxId,
@@ -1070,6 +1152,7 @@ function layoutBoard(board: Board): BoardLayout {
     ...placed.routing.wires,
     ...placed.boxesById.values(),
     ...placed.notes,
+    ...unitsById.values(),
   ];
   const contentBounds = boundsOf(elements, placed.routing.extent, columnLeftEdges, boxesTop);
   const legendTop = contentBounds.y + contentBounds.height;
@@ -1081,12 +1164,14 @@ function layoutBoard(board: Board): BoardLayout {
   const extraHeight = legend.length * LEGEND_ROW_HEIGHT + (caption ? 30 : 0) + (legend.length > 0 ? 12 : 0);
   return {
     columns: board.columns.map((column, index) => ({
-      id: column.id, titleLines: titleLinesByColumn[index] ?? [], titleBaselineY: MARGIN + COLUMN_TITLE_BASELINE,
+      id: column.id, titleLines: titleLinesByColumn[index] ?? [], titleBaselineY: freeformTop + COLUMN_TITLE_BASELINE,
       ruleY, x: columnLeftEdges[index] ?? MARGIN, width: COLUMN_WIDTH,
     })),
     elements,
     legend,
     caption,
+    pinnedOffsetY,
+    plan: unitsById.size > 0 ? { titleAt: { x: MARGIN, y: MARGIN + PLAN_TITLE_BASELINE }, arrowPaths: planArrowPaths(board, unitsById) } : null,
     bounds: { ...contentBounds, height: contentBounds.height + extraHeight },
     warnings: placed.routing.warnings,
   };
@@ -1097,4 +1182,4 @@ function elementSignature(element: LaidOutElement): string {
 }
 
 export { elementSignature, layoutBoard };
-export type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutFrame, LaidOutNote, LaidOutWire, Rect };
+export type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutFrame, LaidOutNote, LaidOutUnit, LaidOutWire, Rect };

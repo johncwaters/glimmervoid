@@ -42,7 +42,7 @@ interface BoardsViewParts {
   dock: HTMLElement;
   dockQueued: HTMLElement;
   sendToAgent: HTMLButtonElement;
-  buttons: Record<'box' | 'wire' | 'note' | 'frame' | 'fit' | 'remove', HTMLButtonElement>;
+  buttons: Record<'box' | 'wire' | 'note' | 'frame' | 'unit' | 'fit' | 'remove', HTMLButtonElement>;
 }
 
 let selectedBoardId: string | null = null;
@@ -152,6 +152,7 @@ function paintToolbar(): void {
   parts.buttons.wire.disabled = selectedBoxCount !== 2;
   parts.buttons.note.disabled = selectedBoxCount !== 1;
   parts.buttons.frame.disabled = selectedBoxCount === 0;
+  parts.buttons.unit.disabled = !board;
   parts.buttons.fit.disabled = !board;
   parts.buttons.remove.disabled = !board;
   parts.toolbar.dataset.selectedCount = String(selectedCount);
@@ -263,6 +264,22 @@ function addBoxFromDialog(): void {
   });
 }
 
+function addUnitFromDialog(): void {
+  const board = selectedBoard();
+  if (!board) return;
+  const otherBoards = boardSummariesOf().filter((summary) => summary.id !== board.id);
+  const linkOptions = [{ value: '', text: 'No linked board' }, ...otherBoards.map((summary) => ({ value: summary.id, text: summary.title }))];
+  openTextDialog({
+    title: 'Add a unit',
+    label: 'Unit title',
+    placeholder: 'index the diffs',
+    maxLength: WHITEBOARD_LIMITS.title,
+    confirmLabel: 'Add unit',
+    choices: otherBoards.length > 0 ? { label: 'Linked board', options: linkOptions } : undefined,
+    onSubmit: (title, linkedBoardId) => sendOpsFromDialog([{ op: 'add', element: { kind: 'unit', id: newElementId('unit'), title, lines: [], after: [], linkedBoardId: linkedBoardId || null } }]),
+  });
+}
+
 function addNoteOn(boxId: string): void {
   openTextDialog({
     title: 'Pin a note',
@@ -358,11 +375,12 @@ function mountBoardsView(panel: HTMLElement): void {
       if (box) addNoteOn(box.id);
     }),
     frame: toolbarButton('frame', addFrame),
+    unit: toolbarButton('unit', addUnitFromDialog),
     fit: toolbarButton('fit', () => editor?.fit()),
     remove: toolbarButton('delete board', confirmDeleteBoard, 'wb-button-danger'),
   };
   buttons.fit.dataset.phoneVisible = '';
-  toolbar.append(buttons.box, buttons.wire, buttons.note, buttons.frame, buttons.fit, buttons.remove, status.element);
+  toolbar.append(buttons.box, buttons.wire, buttons.note, buttons.frame, buttons.unit, buttons.fit, buttons.remove, status.element);
   boardHead.append(titleRow, toolbar);
   top.append(list, toolbarButton('new board', newBoardFromDialog), boardHead);
 
@@ -394,6 +412,7 @@ function mountBoardsView(panel: HTMLElement): void {
     sendOps,
     onSelectionChange: paintToolbar,
     onPhoneTapBox: addNoteOn,
+    onOpenLinkedBoard: selectBoard,
   });
 
   onBoardListChanged(paintList);

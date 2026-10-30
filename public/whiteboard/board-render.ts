@@ -1,6 +1,6 @@
 import type { Board } from '#shared/contracts/whiteboard.ts';
 import { elementSignature, layoutBoard } from '#shared/whiteboard-layout-core.ts';
-import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutFrame, LaidOutNote, LaidOutWire } from '#shared/whiteboard-layout-core.ts';
+import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutFrame, LaidOutNote, LaidOutUnit, LaidOutWire } from '#shared/whiteboard-layout-core.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const BOX_TEXT_INSET = 12;
@@ -10,8 +10,12 @@ const BODY_LINE_HEIGHT = 18;
 const NOTE_LINE_HEIGHT = 17;
 const MUTED_INDENT = 14;
 const COLUMN_TITLE_LINE_HEIGHT = 16;
+const UNIT_LABEL_BASELINE = 24;
+const UNIT_LABEL_HEIGHT = 18;
+const PLAN_TITLE = 'Plan';
+const LINKED_BOARD_TEXT = 'open linked board';
 
-type LayerName = 'frames' | 'wires' | 'boxes' | 'notes';
+type LayerName = 'frames' | 'wires' | 'boxes' | 'notes' | 'units';
 
 interface RenderedElement {
   signature: string;
@@ -101,8 +105,29 @@ function drawNote(note: LaidOutNote): SVGGElement {
   return group;
 }
 
-const LAYER_BY_KIND: Record<LaidOutElement['kind'], LayerName> = { frame: 'frames', wire: 'wires', box: 'boxes', note: 'notes' };
-const ELEMENT_KINDS = ['box', 'frame', 'wire', 'note'] as const;
+function drawUnit(unit: LaidOutUnit): SVGGElement {
+  const group = elementGroup(unit, 'wb-unit');
+  group.append(
+    svgNode('rect', { x: unit.x, y: unit.y, width: unit.width, height: unit.height, rx: 8 }, 'wb-unit-outline'),
+    svgText(unit.label, unit.x + BOX_TEXT_INSET, unit.y + UNIT_LABEL_BASELINE, 'wb-unit-label'),
+  );
+  const titleTop = unit.y + UNIT_LABEL_BASELINE + UNIT_LABEL_HEIGHT;
+  unit.titleLines.forEach((line, index) => {
+    group.append(svgText(line, unit.x + BOX_TEXT_INSET, titleTop + index * TITLE_LINE_HEIGHT, 'wb-box-title'));
+  });
+  const bodyTop = titleTop + unit.titleLines.length * TITLE_LINE_HEIGHT;
+  unit.bodyLines.forEach((line, index) => {
+    group.append(svgText(line, unit.x + BOX_TEXT_INSET, bodyTop + index * BODY_LINE_HEIGHT, 'wb-box-line'));
+  });
+  if (!unit.linkedBoardId) return group;
+  const link = svgText(LINKED_BOARD_TEXT, unit.x + BOX_TEXT_INSET, bodyTop + unit.bodyLines.length * BODY_LINE_HEIGHT, 'wb-unit-link');
+  link.dataset.linkedBoardId = unit.linkedBoardId;
+  group.append(link);
+  return group;
+}
+
+const LAYER_BY_KIND: Record<LaidOutElement['kind'], LayerName> = { frame: 'frames', wire: 'wires', box: 'boxes', note: 'notes', unit: 'units' };
+const ELEMENT_KINDS = ['box', 'frame', 'wire', 'note', 'unit'] as const;
 
 function drawElement(element: LaidOutElement): SVGGElement {
   switch (element.kind) {
@@ -110,11 +135,16 @@ function drawElement(element: LaidOutElement): SVGGElement {
     case 'frame': return drawFrame(element);
     case 'wire': return drawWire(element);
     case 'note': return drawNote(element);
+    case 'unit': return drawUnit(element);
   }
 }
 
 function drawChrome(layout: BoardLayout): SVGGElement {
   const chrome = svgNode('g', {}, 'wb-chrome');
+  if (layout.plan) {
+    chrome.append(svgText(PLAN_TITLE, layout.plan.titleAt.x, layout.plan.titleAt.y, 'wb-column-title'));
+    for (const arrowPath of layout.plan.arrowPaths) chrome.append(svgNode('path', { d: arrowPath, 'marker-end': 'url(#wb-arrow)' }, 'wb-wire-line'));
+  }
   for (const column of layout.columns) {
     if (column.titleLines.length === 0) continue;
     column.titleLines.forEach((line, index) => {
@@ -145,9 +175,10 @@ export function createBoardRenderer(svg: SVGSVGElement): BoardRenderer {
     wires: svgNode('g', {}, 'wb-layer'),
     boxes: svgNode('g', {}, 'wb-layer'),
     notes: svgNode('g', {}, 'wb-layer'),
+    units: svgNode('g', {}, 'wb-layer'),
   };
   let chrome = svgNode('g');
-  svg.replaceChildren(arrowDefinitions(), chrome, layers.frames, layers.wires, layers.boxes, layers.notes);
+  svg.replaceChildren(arrowDefinitions(), chrome, layers.frames, layers.wires, layers.boxes, layers.notes, layers.units);
   const renderedById = new Map<string, RenderedElement>();
   let currentLayout: BoardLayout | null = null;
   let selectedIds: ReadonlySet<string> = new Set();
