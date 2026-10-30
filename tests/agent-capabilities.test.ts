@@ -189,3 +189,9 @@ test('a kimi initial prompt is typed only into a folder kimi already trusts, nev
   fs.writeFileSync(path.join(kimiHome, 'workspace-trust', kimi.workspaceTrustKey(fs.realpathSync(process.cwd()))), '{}');
   assert.deepEqual(await typedIntoFreshSession('kimi-trusted'), ['\x1b[200~First kimi task[201~/auto\x1b[201~', '\r']);
 });
+
+test('a claude prompt after a variadic flag such as --disallowedTools stays the prompt instead of becoming one more rule', () => {
+  const prompt = 'Review this pull request';
+  const args = claudeCode.buildArgs({ extraArgs: ['-p', '--disallowedTools', 'Edit', 'WebFetch'], initialPrompt: prompt });
+  assert.deepEqual(args.slice(-4), ['Edit', 'WebFetch', '--', prompt]);
+});

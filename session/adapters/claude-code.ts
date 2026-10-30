@@ -187,7 +187,7 @@ function buildArgs({
     if (resumeSessionId && argument.startsWith("--session-id=")) continue;
     args.push(argument);
   }
-  if (initialPrompt != null) args.push(initialPrompt);
+  if (initialPrompt != null) args.push("--", initialPrompt);
   return args;
 }
 
