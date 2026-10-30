@@ -478,7 +478,7 @@ export function aboutPrParagraphs(assessment: ReviewAssessment | null | undefine
 
 export const HAND_CHECK_INLINE_PATH_LIMIT = 6;
 
-export interface HandCheckFolder { folder: string; fileNames: string[] }
+interface HandCheckFolder { folder: string; fileNames: string[] }
 
 function sharedLeadingSegmentCount(segmentLists: readonly (readonly string[])[]): number {
   const [firstSegments = []] = segmentLists;
