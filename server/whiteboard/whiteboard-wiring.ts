@@ -169,7 +169,7 @@ function createWhiteboardWiring({
     const boardId = newBoardId();
     const nowMs = now();
     const cursorBySessionId: Record<string, number> = creator ? { [creator.id]: 0 } : {};
-    const record: BoardRecord = { board: createBoard({ id: boardId, title, nowMs }), log: [], cursorBySessionId };
+    const record: BoardRecord = { board: createBoard({ id: boardId, title, nowMs }), log: [], cursorBySessionId, createdBy: creator?.id ?? null };
     recordsByBoardId.set(boardId, record);
     try {
       await writeQueue.run(boardId, () => writeRecord(record));
@@ -242,6 +242,13 @@ function createWhiteboardWiring({
     });
   }
 
+  function deleteOwnBoard(boardId: string, callerId: string): Promise<WhiteboardReply> {
+    if (recordsByBoardId.get(boardId)?.createdBy !== callerId) {
+      return Promise.resolve(refusal(403, 'a session deletes only a board it created, so this board is still here; the operator can delete it from the dashboard'));
+    }
+    return removeBoard(boardId);
+  }
+
   async function operatorBoardCommand(boardId: string, command: (foundBoardId: string) => Promise<WhiteboardReply>): Promise<OperatorReply> {
     await loaded;
     const found = findBoardId(boardId);
@@ -302,6 +309,7 @@ function createWhiteboardWiring({
       case 'get': return readBoard(found.boardId, caller.id);
       case 'put': return putOps(found.boardId, request.ops, author);
       case 'resolve': return putOps(found.boardId, [{ op: 'resolve', id: request.note }], author);
+      case 'delete': return deleteOwnBoard(found.boardId, caller.id);
     }
   }
 

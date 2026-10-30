@@ -40,7 +40,7 @@ function whiteboardBody({ commandPath, positionals }: ParsedArguments): Record<s
   const joined = joinedText(positionals);
   if (subcommand === 'list') return { sub: 'list' };
   if (subcommand === 'new') return joined ? { sub: 'new', title: joined } : null;
-  if (subcommand === 'connect' || subcommand === 'disconnect' || subcommand === 'get') return joined ? { sub: subcommand, board: joined } : null;
+  if (subcommand === 'connect' || subcommand === 'disconnect' || subcommand === 'get' || subcommand === 'delete') return joined ? { sub: subcommand, board: joined } : null;
   const [board, ...argumentWords] = positionals;
   if (!board || argumentWords.length === 0) return null;
   if (subcommand === 'resolve') return { sub: 'resolve', board, note: joinedText(argumentWords) };

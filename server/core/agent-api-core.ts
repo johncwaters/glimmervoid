@@ -363,6 +363,7 @@ const WHITEBOARD_SUBCOMMANDS: readonly CommandSpec[] = [
   { name: 'get', summary: 'Read a board and the changes since this session last read it', positionals: BOARD_REFERENCE },
   { name: 'put', summary: 'Apply a JSON op or array of ops to a board; - reads them from stdin', positionals: { usage: '<board> <ops-json|->', min: 2, max: null } },
   { name: 'resolve', summary: 'Mark a note on a board resolved', positionals: { usage: '<board> <note>', min: 2, max: null } },
+  { name: 'delete', summary: 'Delete a board this session created; the operator deletes any board from the dashboard', positionals: BOARD_REFERENCE },
 ];
 
 const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = Object.freeze({
@@ -435,9 +436,9 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
   },
   settings: { usage: 'settings list|get', summary: "Read Glimmervoid's settings; a secret shows only as configured or not", missingArgumentHint: null, isPassthrough: true },
   whiteboard: {
-    usage: 'whiteboard new|list|connect|disconnect|get|put|resolve',
+    usage: 'whiteboard new|list|connect|disconnect|get|put|resolve|delete',
     subcommands: WHITEBOARD_SUBCOMMANDS,
-    summary: 'Create, connect to, read and edit a shared whiteboard the operator and connected sessions edit together',
+    summary: 'Create, connect to, read, edit and delete a shared whiteboard the operator and connected sessions edit together',
     missingArgumentHint: null,
   },
   limits: { usage: 'limits', summary: 'List which of these commands answer here and why the rest do not', missingArgumentHint: null },

@@ -108,6 +108,7 @@ export const BoardRecord = z.object({
   board: Board,
   log: z.array(BoardChange),
   cursorBySessionId: z.record(z.string(), z.number().int()),
+  createdBy: z.string().nullable().default(null),
 }).strict();
 
 const BoardRef = z.string({ error: 'the board must be a string' }).min(1, { error: 'name the board by id or title' }).max(200);
@@ -124,7 +125,8 @@ export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
     ops: z.array(Op).min(1, { error: 'put needs at least one op' }).max(WHITEBOARD_LIMITS.opsPerPut, { error: `one put carries at most ${WHITEBOARD_LIMITS.opsPerPut} ops` }),
   }).strict(),
   z.object({ sub: z.literal('resolve'), board: BoardRef, note: ElementId }).strict(),
-], { error: 'whiteboard takes new, list, connect, disconnect, get, put or resolve' });
+  z.object({ sub: z.literal('delete'), board: BoardRef }).strict(),
+], { error: 'whiteboard takes new, list, connect, disconnect, get, put, resolve or delete' });
 
 export const WhiteboardAgentReply = z.union([
   z.object({ ok: z.literal(true), board: BoardSummary, note: z.string() }).strict(),

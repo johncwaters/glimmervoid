@@ -209,6 +209,17 @@ test('the operator deletes a board from the dashboard and a connected agent is t
   assert.equal(afterDelete.body.error, 'that board was deleted');
 });
 
+test('a session deletes a board it created and is refused a board another session created', async () => {
+  const boardId = await newBoard('agent made');
+  const refused = await whiteboard(BUILDER_ID, { sub: 'delete', board: boardId });
+  assert.equal(refused.status, 403);
+  assert.equal((await whiteboard(BUILDER_ID, { sub: 'get', board: boardId })).status, 200);
+
+  const deleted = await whiteboard(PLANNER_ID, { sub: 'delete', board: boardId });
+  assert.equal(deleted.status, 200);
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'get', board: boardId })).body.error, 'that board was deleted');
+});
+
 test('the operator connects and disconnects a session from the dashboard, and a removed session leaves every board', async () => {
   const boardId = await newBoard('operator links');
   const client = await dashboardClient(boundPort(running().server));
