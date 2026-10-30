@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Set up Reviews from the Reviews tab**: with Team review on but no GitHub teams chosen, the Reviews tab, on desktop and phone, now shows a setup card instead of an empty queue that read "all clear". It checks that the GitHub CLI is signed in, showing your login or the `gh auth login` command with Check again. It then lists your GitHub teams as checkboxes, with a box to type `org/team-slug` for any team it cannot list. Save teams starts Team review and My PRs straight away.
 - **Pick a review skill from the Reviews tab**: until you choose which skill Team review runs, a one-line notice above the review queue offers your reviewer agent's skills, or No skill, with Save skill.
+- **Usage tab opens on your pace**: the Usage tab now leads with one sentence saying whether any plan limit runs out before it resets, then each agent's 5-hour and weekly limit as a bar with a tick for how much of the window has gone, a hatched projection of where it ends at this pace, and the reset as a clock time such as "resets 08:09" instead of "resets in 161h 30m". Spend, Models, Sessions, History, Overhead and Budgets open as their own screens, beside the overview on desktop and behind Back on a phone. The Report screen switches between Today, Last 7 days and Last 30 days, compares the total with the period before, draws daily bars against the average, and ranks models and sessions by cost; tap a model for its input, output and cache tokens.
 
 ### Changed
 
@@ -19,10 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **Usage largest-block meter**: the Usage tab no longer shows the estimated "largest block" meter, which competed with the official plan limit and read as one. Sort controls on the model and session tables and the token mix bar are gone with the tables.
 - **Your day after-22:00 tip**: Your day no longer shows the "time after 22:00" tip, whose wording read as a clock time rather than how long you worked late.
 
 ### Fixed
 
+- **Usage ranges are calendar days**: Today, Last 7 days and Last 30 days now cover whole local days, today plus the days before it, so a period's total matches the sum of its daily bars instead of counting a rolling window that started mid-morning.
 - **Phone dialogs stay above the keyboard**: on a phone, dialogs such as New board now open at the top of the screen instead of the middle, so the on-screen keyboard no longer covers the text box and its buttons.
 - **Trace shows task notifications as notifications**: a background task finishing no longer appears in Trace as a prompt you typed, now that Claude Code records those turns in a newer format.
 - **Your day times match your day**: Your day no longer counts prompts you did not type, such as Claude Code SDK sessions running on a timer, background task notifications and peer messages, so stretches end when you take a break and your reply hours, sharpest hours and the break tip come from your own prompts. The longest-stretch tip now says to break every 90 minutes instead of naming a clock time taken from yesterday, and a sharpest window that crosses midnight now counts the hours after midnight it names.
