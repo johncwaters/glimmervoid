@@ -67,6 +67,7 @@ Inside a Glimmervoid session:
   prs                 List the operator's open pull requests with their checks, reviews and merge state
   link-pr <pr>        Link a pull request to this session's card
   settings list|get   Read Glimmervoid's settings; a secret shows only as configured or not
+  whiteboard new|list|connect|disconnect|get|put|resolve Create, connect to, read and edit a shared whiteboard the operator and connected sessions edit together
   limits              List which of these commands answer here and what the guardrails block
   ssh-sign            Sign a commit with the operator's forwarded ssh agent (git runs this)
 

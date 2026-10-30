@@ -109,6 +109,11 @@ function linkPrRoute(caller: SessionKindFacts): RouteVerdict {
   return { answers: false, reason: 'a lane session cannot link a pull request, because it has no card to show the link on' };
 }
 
+function whiteboardRoute(caller: SessionKindFacts): RouteVerdict {
+  if (hasOperatorCard(caller)) return ANSWERS;
+  return { answers: false, reason: 'a lane session cannot use a whiteboard, because a lane runs on input the operator has not vetted and has no card to show the board on' };
+}
+
 const COMMAND_ROUTES: Readonly<Record<AgentApiVerb, (facts: SessionRoleFacts) => RouteVerdict>> = Object.freeze({
   push: pushRoute,
   spawn: spawnRoute,
@@ -125,6 +130,7 @@ const COMMAND_ROUTES: Readonly<Record<AgentApiVerb, (facts: SessionRoleFacts) =>
   prs: operatorStateRoute,
   'link-pr': linkPrRoute,
   settings: operatorStateRoute,
+  whiteboard: whiteboardRoute,
   limits: () => ANSWERS,
 });
 

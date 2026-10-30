@@ -8,6 +8,7 @@ import {
 } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb, AgentPrsReply, AgentRefusal, AgentReplyBodyOf, AgentReviewDetailReply, AgentReviewsReply } from '../../shared/contracts/session.ts';
 import type { MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
+import { WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import type { TeamReviewStatus } from '../../shared/contracts/team-review.ts';
 import { COMMAND_ROUTES, NO_OWN_WORKTREE_REASON } from '../../session/core/session-routes.ts';
 import { extractPromptTaskTitle } from '../../session/core/task-title-core.ts';
@@ -62,6 +63,7 @@ interface AgentRequestByVerb {
   prs: EmptyRequest;
   'link-pr': PullRequestKeyRequest;
   settings: AgentSettingsRequest;
+  whiteboard: WhiteboardAgentRequest;
 }
 
 type AgentRequestOf<V extends AgentApiVerb> = AgentRequestByVerb[V];
@@ -200,6 +202,7 @@ const REQUEST_PARSERS: { readonly [V in AgentApiVerb]: RequestParser<AgentReques
   prs: parseEmptyBody,
   'link-pr': parsePullRequestBody,
   settings: bodyParser(AgentSettingsRequest),
+  whiteboard: bodyParser(WhiteboardAgentRequest),
 });
 
 type CheckedAgentReply = { ok: true; reply: AgentReplyOf<AgentApiVerb> } | { ok: false; reply: AgentRefusalReply; issue: string };
@@ -393,6 +396,11 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     missingArgumentHint: 'glimmervoid link-pr: this command needs a pull request, for example "glimmervoid link-pr acme/app#12"',
   },
   settings: { usage: 'settings list|get', summary: "Read Glimmervoid's settings; a secret shows only as configured or not", missingArgumentHint: null },
+  whiteboard: {
+    usage: 'whiteboard new|list|connect|disconnect|get|put|resolve',
+    summary: 'Create, connect to, read and edit a shared whiteboard the operator and connected sessions edit together',
+    missingArgumentHint: 'glimmervoid whiteboard: run "glimmervoid whiteboard new <title>", "list", "connect <board>", "disconnect <board>", "get <board>", "put <board> <ops-json|->" or "resolve <board> <note>"',
+  },
   limits: { usage: 'limits', summary: 'List which of these commands answer here and what the guardrails block', missingArgumentHint: null },
 });
 

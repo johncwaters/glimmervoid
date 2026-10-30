@@ -14,6 +14,7 @@ import { refuseRunningNodeLaunches } from '../stable-node-path.ts';
 import { createAgentIngressApp, createBackendHttpApp } from './backend-http.ts';
 import { createHostUrlOpener } from '../host-url-opener.ts';
 import { createAgentApiWiring } from '../agent-api-wiring.ts';
+import { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME } from '../whiteboard/whiteboard-wiring.ts';
 import { createRemoteSetupWiring } from '../remote-setup-wiring.ts';
 import type { AgentApiPort } from '../agent-api-wiring.ts';
 import { configFileViewOf, readSettingsForAgent } from '../core/settings-readout-core.ts';
@@ -218,6 +219,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const sessionDocs = createSessionDocsWiring({ broadcastControl: broadcastControlFromWebSockets });
   const shownFilesWiring = createShownFilesWiring({ shownRoot: configSiblingPath(configStore.configPath, SHOWN_FOLDER_NAME), broadcastControl: broadcastControlFromWebSockets });
   shownFiles = shownFilesWiring;
+  const whiteboards = createWhiteboardWiring({ boardsRoot: configSiblingPath(configStore.configPath, WHITEBOARDS_FOLDER_NAME) });
   const coherenceFeed = createCoherenceSessionFeed({ broadcastControl: broadcastControlFromWebSockets });
 
   const sessions = new Map<string, Session>();
@@ -315,6 +317,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       myPrsStatus: () => myPrs.getStatus(),
       readSettings: (request) => readSettingsForAgent(request, configFileViewOf(configStore.configPath, config, process.env, configStore.isExperimentalBuild)),
     },
+    whiteboards,
     coderWorkspaceStatus: (workspace) => laneAssembly.coderEnv.workspaceStatus(workspace),
     logger: console,
   });

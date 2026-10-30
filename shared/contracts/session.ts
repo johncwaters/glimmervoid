@@ -1,7 +1,9 @@
 import { z } from 'zod';
+
 import { STATES } from '../states.ts';
 import { LinkedPr, MyPr } from './my-prs.ts';
 import { InFlightReview, QueuedReview, ReviewDraft } from './team-review.ts';
+import { WhiteboardAgentReply } from './whiteboard.ts';
 
 export const TASK_TITLE_MAX_LENGTH = 120;
 export const SESSION_NAME_PATTERN = /^[a-zA-Z0-9_\-. ()]{1,64}$/;
@@ -109,7 +111,7 @@ export const SshSignReply = z.union([
 
 export type SshSignRequest = z.infer<typeof SshSignRequest>;
 export type SshSignReply = z.infer<typeof SshSignReply>;
-export const SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'board', 'edit', 'show', 'review', 'reviews', 'prs', 'link-pr', 'settings'] as const;
+export const SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'board', 'edit', 'show', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'whiteboard'] as const;
 export const AGENT_API_VERBS = [...SESSION_COMMANDS, 'limits', 'answer'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
 
@@ -306,6 +308,7 @@ export const AGENT_REPLY_SCHEMAS = Object.freeze({
   prs: z.union([AgentPrsReply, AgentRefusal]),
   'link-pr': z.union([z.object({ ok: z.literal(true), key: z.string(), url: z.string() }).strict(), AgentRefusal]),
   settings: z.union([AgentSettingsReply, AgentRefusal]),
+  whiteboard: z.union([WhiteboardAgentReply, AgentRefusal]),
   limits: z.union([AgentLimitsReply, AgentRefusal]),
   answer: z.union([AgentOkReply, AgentRefusal]),
 }) satisfies { readonly [V in AgentApiVerb]: z.ZodType };

@@ -26,6 +26,27 @@ function pullRequestBody(rest: string[]): Record<string, unknown> | null {
   return pullRequest ? { pr: pullRequest } : null;
 }
 
+function readOpsArgument(opsText: string): unknown {
+  if (opsText === '-') return parseJsonOrNull(fs.readFileSync(0, 'utf8'));
+  return parseJsonOrNull(opsText);
+}
+
+function whiteboardBody([subcommand, ...rest]: string[]): Record<string, unknown> | null {
+  const joined = rest.join(' ').trim();
+  if (subcommand === 'list') return { sub: 'list' };
+  if (subcommand === 'new' || subcommand === 'connect' || subcommand === 'disconnect' || subcommand === 'get') {
+    if (!joined) return null;
+    return subcommand === 'new' ? { sub: 'new', title: joined } : { sub: subcommand, board: joined };
+  }
+  const [board, ...argumentWords] = rest;
+  if (!board || argumentWords.length === 0) return null;
+  if (subcommand === 'resolve') return { sub: 'resolve', board, note: argumentWords.join(' ').trim() };
+  if (subcommand !== 'put') return null;
+  const ops = readOpsArgument(argumentWords.join(' '));
+  if (ops === null) return null;
+  return { sub: 'put', board, ops: Array.isArray(ops) ? ops : [ops] };
+}
+
 const BODY_BUILDERS: Record<Exclude<AgentApiVerb, 'show'>, BodyBuilder> = {
   spawn: (rest) => {
     const prompt = rest.join(' ').trim();
@@ -66,6 +87,7 @@ const BODY_BUILDERS: Record<Exclude<AgentApiVerb, 'show'>, BodyBuilder> = {
   prs: () => ({}),
   'link-pr': pullRequestBody,
   settings: ([command, settingPath]) => ({ command, ...(settingPath === undefined ? {} : { path: settingPath }) }),
+  whiteboard: whiteboardBody,
 };
 
 function bodySaysOk(text: string): boolean {

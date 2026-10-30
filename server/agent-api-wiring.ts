@@ -29,6 +29,7 @@ import type { RecordLane, SpawnGate } from './lanes/ephemeral-session.ts';
 import type { SessionSpawnOverrides } from './session/session-factory.ts';
 import type { SessionDocsPort } from './session/session-docs-wiring.ts';
 import type { MemoryAdmission } from './spawn-gate.ts';
+import type { WhiteboardPort } from './whiteboard/whiteboard-wiring.ts';
 import { errorMessage } from '../shared/text.ts';
 import { STATES } from '../shared/states.ts';
 import type { SessionState } from '../shared/states.ts';
@@ -70,6 +71,7 @@ interface AgentApiWiringOptions {
   sessionDocs: SessionDocsPort;
   memoryAdmission?: Pick<MemoryAdmission, 'describeShortfallNow'> | null;
   operatorState?: AgentOperatorStatePort | null;
+  whiteboards?: Pick<WhiteboardPort, 'handleAgent'> | null;
   coderWorkspaceStatus?: (workspace: string) => string | null;
   logger?: Pick<Console, 'warn'>;
   setTimeoutFn?: SetTimeoutFn;
@@ -122,6 +124,7 @@ function createAgentApiWiring({
   recordLane = null,
   memoryAdmission = null,
   operatorState = null,
+  whiteboards = null,
   coderWorkspaceStatus = () => null,
   logger = console,
   setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn,
@@ -643,6 +646,7 @@ function createAgentApiWiring({
     prs: () => (operatorState ? { status: 200, body: projectMyPrs(operatorState.myPrsStatus()) } : githubLanesUnavailable()),
     'link-pr': (session, { pullRequestKey }) => linkPr(session, pullRequestKey),
     settings: (_session, request) => settings(request),
+    whiteboard: (session, request) => (whiteboards ? whiteboards.handleAgent({ id: session.id, name: session.name }, request) : refusal(503, 'whiteboards are not available in this Glimmervoid')),
   };
 
   function dispatch<V extends AgentApiVerb>(session: Session, verb: V, request: AgentRequestOf<V>): AgentReplyOf<V> | Promise<AgentReplyOf<V>> {

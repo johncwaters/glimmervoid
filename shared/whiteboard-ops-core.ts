@@ -1,0 +1,203 @@
+import { Box, Frame, Note, Wire, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
+import type { Board, BoardChange, Element, Op } from './contracts/whiteboard.ts';
+
+type Author = { id: string; name: string };
+type ApplyResult = { ok: true; board: Board; changes: BoardChange[] } | { ok: false; error: string; opIndex: number };
+type OpOutcome = { ok: true } | { ok: false; error: string };
+
+const ELEMENT_SCHEMAS = Object.freeze({ box: Box, frame: Frame, wire: Wire, note: Note });
+const NOTE_PREVIEW_CHARS = 80;
+const OK: OpOutcome = { ok: true };
+
+function refuse(error: string): OpOutcome {
+  return { ok: false, error };
+}
+
+function isBox(board: Board, id: string): boolean {
+  return board.elements[id]?.kind === 'box';
+}
+
+function checkReferences(board: Board, element: Element): OpOutcome {
+  if (element.kind === 'box') return checkBoxReferences(board, element);
+  if (element.kind === 'wire') {
+    if (!isBox(board, element.from)) return refuse(`wire ${element.id} starts at ${element.from}, which is not a box`);
+    if (!isBox(board, element.to)) return refuse(`wire ${element.id} ends at ${element.to}, which is not a box`);
+    return OK;
+  }
+  if (element.kind === 'note') {
+    if (!isBox(board, element.on)) return refuse(`note ${element.id} is on ${element.on}, which is not a box`);
+    return OK;
+  }
+  const strangerId = element.contains.find((id) => !isBox(board, id));
+  if (strangerId) return refuse(`frame ${element.id} contains ${strangerId}, which is not a box`);
+  return OK;
+}
+
+function checkBoxReferences(board: Board, box: Box): OpOutcome {
+  if (!board.columns.some((column) => column.id === box.column)) {
+    return refuse(`box ${box.id} names column ${box.column}, which the board does not have, so add it with a columns op first`);
+  }
+  if (box.lane !== null && !board.lanes.some((lane) => lane.id === box.lane)) {
+    return refuse(`box ${box.id} names lane ${box.lane}, which the board does not have, so add it with a lanes op first`);
+  }
+  return OK;
+}
+
+function addElement(board: Board, element: Element, author: Author): OpOutcome {
+  if (board.elements[element.id]) return refuse(`an element with id ${element.id} already exists`);
+  if (Object.keys(board.elements).length >= WHITEBOARD_LIMITS.elements) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.elements} elements`);
+  const stored: Element = element.kind === 'note' ? { ...element, author: author.name, resolvedBy: null } : element;
+  const references = checkReferences(board, stored);
+  if (!references.ok) return references;
+  board.elements[element.id] = stored;
+  return OK;
+}
+
+function setFields(board: Board, id: string, fields: Record<string, unknown>): OpOutcome {
+  const existing = board.elements[id];
+  if (!existing) return refuse(`no element has id ${id}`);
+  if ('kind' in fields || 'id' in fields) return refuse('set cannot change an element kind or id; remove it and add a new one');
+  const parsed = ELEMENT_SCHEMAS[existing.kind].safeParse({ ...existing, ...fields });
+  if (!parsed.success) return refuse(`${id}: ${parsed.error.issues[0]?.message ?? 'invalid fields'}`);
+  const references = checkReferences(board, parsed.data);
+  if (!references.ok) return references;
+  board.elements[id] = parsed.data;
+  return OK;
+}
+
+function removeElement(board: Board, id: string): OpOutcome {
+  const existing = board.elements[id];
+  if (!existing) return refuse(`no element has id ${id}`);
+  delete board.elements[id];
+  if (existing.kind !== 'box') return OK;
+  for (const element of Object.values(board.elements)) removeDependent(board, element, id);
+  return OK;
+}
+
+function removeDependent(board: Board, element: Element, removedBoxId: string): void {
+  if (element.kind === 'wire' && (element.from === removedBoxId || element.to === removedBoxId)) {
+    delete board.elements[element.id];
+    return;
+  }
+  if (element.kind === 'note' && element.on === removedBoxId) {
+    delete board.elements[element.id];
+    return;
+  }
+  if (element.kind !== 'frame') return;
+  const contains = element.contains.filter((id) => id !== removedBoxId);
+  if (contains.length === 0) {
+    delete board.elements[element.id];
+    return;
+  }
+  board.elements[element.id] = { ...element, contains };
+}
+
+function resolveNote(board: Board, id: string, author: Author): OpOutcome {
+  const note = board.elements[id];
+  if (note?.kind !== 'note') return refuse(`no note has id ${id}`);
+  board.elements[id] = { ...note, resolvedBy: author.name };
+  return OK;
+}
+
+function replaceColumns(board: Board, columns: Board['columns']): OpOutcome {
+  const columnIds = new Set(columns.map((column) => column.id));
+  if (columnIds.size !== columns.length) return refuse('column ids must be unique');
+  const strandedBox = Object.values(board.elements).find((element) => element.kind === 'box' && !columnIds.has(element.column));
+  if (strandedBox) return refuse(`box ${strandedBox.id} is still in a removed column, so move or remove it first`);
+  board.columns = columns;
+  return OK;
+}
+
+function replaceLanes(board: Board, lanes: Board['lanes']): OpOutcome {
+  const laneIds = new Set(lanes.map((lane) => lane.id));
+  if (laneIds.size !== lanes.length) return refuse('lane ids must be unique');
+  board.lanes = lanes;
+  for (const element of Object.values(board.elements)) {
+    if (element.kind === 'box' && element.lane !== null && !laneIds.has(element.lane)) board.elements[element.id] = { ...element, lane: null };
+  }
+  return OK;
+}
+
+function applyOne(board: Board, op: Op, author: Author): OpOutcome {
+  switch (op.op) {
+    case 'add': return addElement(board, op.element, author);
+    case 'set': return setFields(board, op.id, op.fields);
+    case 'remove': return removeElement(board, op.id);
+    case 'resolve': return resolveNote(board, op.id, author);
+    case 'columns': return replaceColumns(board, op.columns);
+    case 'lanes': return replaceLanes(board, op.lanes);
+    case 'board':
+      if (op.title !== undefined) board.title = op.title;
+      if (op.caption !== undefined) board.caption = op.caption;
+      return OK;
+  }
+}
+
+function applyOps(board: Board, ops: readonly Op[], author: Author, nowMs: number): ApplyResult {
+  const draft = structuredClone(board);
+  const version = board.version + 1;
+  const changes: BoardChange[] = [];
+  for (const [opIndex, op] of ops.entries()) {
+    const elementId = changedElementId(op);
+    const previous = elementId === null ? undefined : draft.elements[elementId];
+    const outcome = applyOne(draft, op, author);
+    if (!outcome.ok) return { ok: false, error: `op ${opIndex + 1}: ${outcome.error}`, opIndex };
+    changes.push({ version, author: author.id, elementId, summary: `${author.name} ${describeOp(op, previous, draft)}` });
+  }
+  draft.version = version;
+  draft.updatedAt = nowMs;
+  return { ok: true, board: draft, changes };
+}
+
+function changedElementId(op: Op): string | null {
+  if (op.op === 'add') return op.element.id;
+  if (op.op === 'set' || op.op === 'remove' || op.op === 'resolve') return op.id;
+  return null;
+}
+
+function nameOf(board: Board, id: string, element: Element | undefined = board.elements[id]): string {
+  if (!element) return id;
+  if (element.kind === 'box' || element.kind === 'frame') return `"${element.title || id}"`;
+  if (element.kind === 'wire') return `wire ${nameOf(board, element.from)} to ${nameOf(board, element.to)}`;
+  return `note ${id}`;
+}
+
+function describeSet(op: Extract<Op, { op: 'set' }>, previous: Element | undefined, after: Board): string {
+  const fieldNames = Object.keys(op.fields);
+  const afterElement = after.elements[op.id];
+  if (fieldNames.length === 1 && fieldNames[0] === 'at') return `moved ${nameOf(after, op.id)}`;
+  if (previous?.kind === 'box' && afterElement?.kind === 'box' && fieldNames.length === 1 && fieldNames[0] === 'title') {
+    return `renamed "${previous.title}" to "${afterElement.title}"`;
+  }
+  return `changed ${fieldNames.join(', ')} of ${nameOf(after, op.id)}`;
+}
+
+function describeOp(op: Op, previous: Element | undefined, after: Board): string {
+  switch (op.op) {
+    case 'add': {
+      const element = op.element;
+      if (element.kind === 'note') return `note on ${nameOf(after, element.on)}: ${element.text.slice(0, NOTE_PREVIEW_CHARS)} (note ${element.id})`;
+      return `added ${element.kind} ${nameOf(after, element.id)}`;
+    }
+    case 'set': return describeSet(op, previous, after);
+    case 'remove': return `removed ${previous?.kind ?? 'element'} ${nameOf(after, op.id, previous)}`;
+    case 'resolve': return previous?.kind === 'note' ? `resolved note ${op.id} on ${nameOf(after, previous.on)}` : `resolved note ${op.id}`;
+    case 'columns': return `set the columns to ${op.columns.map((column) => column.title || column.id).join(', ') || 'none'}`;
+    case 'lanes': return `set the lanes to ${op.lanes.map((lane) => lane.label || lane.id).join(', ') || 'none'}`;
+    case 'board': return op.title === undefined ? 'changed the caption' : `renamed the board to "${op.title}"`;
+  }
+}
+
+function createBoard({ id, title, nowMs }: { id: string; title: string; nowMs: number }): Board {
+  return {
+    id, title, version: 0, caption: null,
+    columns: [{ id: 'main', title: '' }],
+    lanes: [],
+    elements: {},
+    createdAt: nowMs,
+    updatedAt: nowMs,
+  };
+}
+
+export { applyOps, createBoard };
+export type { ApplyResult, Author };
