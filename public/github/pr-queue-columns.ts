@@ -37,7 +37,7 @@ function resyncPrQueueLayouts(): void {
   }
 }
 
-export function createPrQueueHead(scopeTabs: HTMLElement | null, toggle?: HTMLElement): HTMLElement {
+function createPrQueueHead(scopeTabs: HTMLElement | null, toggle?: HTMLElement): HTMLElement {
   const head = el('div', 'pr-queue-head');
   if (scopeTabs) head.append(scopeTabs);
   if (toggle) head.append(toggle);

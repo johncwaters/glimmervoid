@@ -14,7 +14,7 @@ const ISSUE_TIER_ORDER: readonly IssueTier[] = ['needs', 'failed', 'close', 'rev
 interface IssueLinkedSession { state: string; stateSince: number }
 export interface IssueStepInput { issue: IssueRow; session: IssueLinkedSession | null; pullRequestStates: readonly IssuePullRequest['state'][] }
 interface IssueTierGroup { tier: IssueTier; inputs: IssueStepInput[] }
-export interface IssueQuery { steps: string[]; sources: string[]; repos: string[]; labels: string[]; has: string[]; isUnassignedOnly: boolean; text: string[] }
+interface IssueQuery { steps: string[]; sources: string[]; repos: string[]; labels: string[]; has: string[]; isUnassignedOnly: boolean; text: string[] }
 
 export function summarizeIssues(issues: IssueRow[]) {
   return { open: issues.length, labeled: issues.filter((issue) => issue.labels.length > 0).length };
