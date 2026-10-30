@@ -43,6 +43,7 @@ const LABEL_DESCENT = 3;
 const LABEL_CLEARANCE = 2;
 const BOX_CROSSING_COST = 100;
 const MAX_WIRES_FOR_PORT_SEARCH = 120;
+const MAX_ROOM_ATTEMPTS = 4;
 const LABEL_SLIDE_FRACTIONS = [0.5, 0.35, 0.65, 0.2, 0.8];
 
 const LANE_HEX_BY_COLOR = Object.freeze({
@@ -471,14 +472,15 @@ interface PortRequest {
   box: LaidOutBox;
   side: Side;
   groupKey: string;
+  wireId: string;
   farPoint: Point;
   assign: (point: Point) => void;
 }
 
 function portRequestsBySide(plans: readonly WirePlan[]): Map<string, PortRequest[]> {
   const requests: PortRequest[] = plans.flatMap((plan) => [
-    { box: plan.from, side: plan.exitSide, groupKey: `exit|${plan.styleKey}`, farPoint: centerOf(plan.to), assign: (point: Point) => { plan.start = point; } },
-    { box: plan.to, side: plan.entrySide, groupKey: plan.busKey ? `bus|${plan.busKey}` : `entry|${plan.wire.id}`, farPoint: centerOf(plan.from), assign: (point: Point) => { plan.end = point; } },
+    { box: plan.from, side: plan.exitSide, groupKey: `exit|${plan.styleKey}`, wireId: plan.wire.id, farPoint: centerOf(plan.to), assign: (point: Point) => { plan.start = point; } },
+    { box: plan.to, side: plan.entrySide, groupKey: plan.busKey ? `bus|${plan.busKey}` : `entry|${plan.wire.id}`, wireId: plan.wire.id, farPoint: centerOf(plan.from), assign: (point: Point) => { plan.end = point; } },
   ]);
   return groupedBy(requests, (request) => `${request.box.id}|${request.side}`);
 }
@@ -487,9 +489,10 @@ function defaultPortOrders(requestsBySide: ReadonlyMap<string, readonly PortRequ
   return new Map([...requestsBySide.entries()].map(([sideKey, sideRequests]) => {
     const groups = [...groupedBy(sideRequests, (request) => request.groupKey).entries()].map(([groupKey, members]) => ({
       groupKey,
+      firstWireId: members.map((member) => member.wireId).sort()[0] ?? groupKey,
       farCoordinate: members.reduce((sum, member) => sum + (isSideways(member.side) ? member.farPoint.y : member.farPoint.x), 0) / members.length,
     }));
-    const ordered = groups.sort((left, right) => left.farCoordinate - right.farCoordinate || left.groupKey.localeCompare(right.groupKey));
+    const ordered = groups.sort((left, right) => left.farCoordinate - right.farCoordinate || left.firstWireId.localeCompare(right.firstWireId) || left.groupKey.localeCompare(right.groupKey));
     return [sideKey, ordered.map((group) => group.groupKey)] as const;
   }));
 }
@@ -832,11 +835,26 @@ function segmentsCross(first: Segment, second: Segment): boolean {
   return isStrictlyBetween(vertical.from.x, horizontal.from.x, horizontal.to.x) && isStrictlyBetween(horizontal.from.y, vertical.from.y, vertical.to.y);
 }
 
+function segmentsOverlap(first: Segment, second: Segment): boolean {
+  if (isHorizontal(first) !== isHorizontal(second)) return false;
+  const isAlongX = isHorizontal(first);
+  const lineOf = (segment: Segment) => (isAlongX ? segment.from.y : segment.from.x);
+  const startOf = (segment: Segment) => Math.min(isAlongX ? segment.from.x : segment.from.y, isAlongX ? segment.to.x : segment.to.y);
+  const endOf = (segment: Segment) => Math.max(isAlongX ? segment.from.x : segment.from.y, isAlongX ? segment.to.x : segment.to.y);
+  return lineOf(first) === lineOf(second) && Math.min(endOf(first), endOf(second)) - Math.max(startOf(first), startOf(second)) > 1;
+}
+
+function isSharedFanOut(first: DrawnWire, second: DrawnWire): boolean {
+  return first.plan.styleKey === second.plan.styleKey && first.plan.start.x === second.plan.start.x && first.plan.start.y === second.plan.start.y;
+}
+
 function findCrossings(drawn: readonly DrawnWire[]): string[] {
   return drawn.flatMap((first, index) => drawn.slice(index + 1).flatMap((second) => {
     if (first.plan.busKey !== null && first.plan.busKey === second.plan.busKey) return [];
-    const doCross = first.segments.some((firstSegment) => second.segments.some((secondSegment) => segmentsCross(firstSegment, secondSegment)));
-    return doCross ? [`wire ${first.plan.wire.id} crosses wire ${second.plan.wire.id}`] : [];
+    const pairs = first.segments.flatMap((firstSegment) => second.segments.map((secondSegment) => [firstSegment, secondSegment] as const));
+    if (pairs.some(([firstSegment, secondSegment]) => segmentsCross(firstSegment, secondSegment))) return [`wire ${first.plan.wire.id} crosses wire ${second.plan.wire.id}`];
+    if (isSharedFanOut(first, second)) return [];
+    return pairs.some(([firstSegment, secondSegment]) => segmentsOverlap(firstSegment, secondSegment)) ? [`wire ${first.plan.wire.id} overlaps wire ${second.plan.wire.id}`] : [];
   }));
 }
 
@@ -1005,6 +1023,32 @@ function placeAndRoute(board: Board, placement: Placement): PlacedBoard {
   return { columnLeftEdges, boxesById, frames, notes, routing };
 }
 
+interface RoomInputs {
+  reserves: readonly GapReserve[];
+  headerBoxesTop: number;
+  contentTop: number;
+  stackHeightByBoxId: ReadonlyMap<string, number>;
+}
+
+function maxByIndex(first: readonly number[], second: readonly number[]): number[] {
+  return Array.from({ length: Math.max(first.length, second.length) }, (_, index) => Math.max(first[index] ?? 0, second[index] ?? 0));
+}
+
+function placeWithReservedRoom(board: Board, draftRouting: RoutingResult, room: RoomInputs): { placed: PlacedBoard; boxesTop: number } {
+  let reservedTracksByGap = draftRouting.tracksByGap;
+  let reservedTopTracks = draftRouting.topTrackCount;
+  for (let attempt = 1; ; attempt += 1) {
+    const gapWidths = gapWidthsOf(room.reserves, reservedTracksByGap, draftRouting.labelWidthByGap);
+    const boxesTop = room.headerBoxesTop + topBandHeight(reservedTopTracks);
+    const placed = placeAndRoute(board, { gapWidths, reserves: room.reserves, boxesTop, contentTop: room.contentTop, stackHeightByBoxId: room.stackHeightByBoxId });
+    const needsMoreTop = placed.routing.topTrackCount > reservedTopTracks;
+    const needsMoreTracks = placed.routing.tracksByGap.some((tracks, index) => tracks > (reservedTracksByGap[index] ?? 0));
+    if (attempt >= MAX_ROOM_ATTEMPTS || (!needsMoreTop && !needsMoreTracks)) return { placed, boxesTop };
+    reservedTopTracks = Math.max(reservedTopTracks, placed.routing.topTrackCount);
+    reservedTracksByGap = maxByIndex(reservedTracksByGap, placed.routing.tracksByGap);
+  }
+}
+
 function topBandHeight(topTrackCount: number): number {
   return topTrackCount > 0 ? topTrackCount * TOP_TRACK_SPACING + TOP_BAND_PAD : 0;
 }
@@ -1019,9 +1063,7 @@ function layoutBoard(board: Board): BoardLayout {
   const draft = placeAndRoute(board, {
     gapWidths: gapWidthsOf(reserves, [], []), reserves, boxesTop: headerBoxesTop, contentTop: ruleY, stackHeightByBoxId,
   });
-  const gapWidths = gapWidthsOf(reserves, draft.routing.tracksByGap, draft.routing.labelWidthByGap);
-  const boxesTop = headerBoxesTop + topBandHeight(draft.routing.topTrackCount);
-  const placed = placeAndRoute(board, { gapWidths, reserves, boxesTop, contentTop: ruleY, stackHeightByBoxId });
+  const { placed, boxesTop } = placeWithReservedRoom(board, draft.routing, { reserves, headerBoxesTop, contentTop: ruleY, stackHeightByBoxId });
   const { columnLeftEdges } = placed;
   const elements: LaidOutElement[] = [
     ...placed.frames,
