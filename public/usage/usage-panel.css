@@ -778,3 +778,23 @@ html[data-layout="phone"] .usage-block-label { min-width: 11ch; }
 html[data-layout="phone"] .usage-model-cell,
 html[data-layout="phone"] .usage-session-cell { max-width: 28ch; min-width: 18ch; white-space: normal; overflow-wrap: break-word; }
 }
+
+.usage-your-day-insights {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.usage-your-day-insight {
+  color: var(--text);
+  font-size: var(--type-body);
+}
+
+.usage-your-day-insight::before {
+  content: '\25C6';
+  color: var(--accent);
+  margin-right: 10px;
+}

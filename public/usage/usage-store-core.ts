@@ -1,5 +1,6 @@
 import { attentionSignature } from '../attention-ack-core.ts';
 import type { PlanLimitsVendor } from '#shared/contracts/control-messages.ts';
+import type { YourDay } from '#shared/contracts/your-day.ts';
 import { numberOr, textOr } from '#shared/coerce.ts';
 
 export interface UsageTokenLimit {
@@ -96,6 +97,7 @@ export interface UsageReport {
   savings?: UsageSavings;
   scan?: UsageScan;
   pricing?: { missing?: unknown; fetchedAt?: unknown; source?: unknown } | null;
+  yourDay?: YourDay | null;
 }
 
 export interface UsageSessionUsage {

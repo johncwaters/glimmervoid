@@ -1,6 +1,7 @@
 import { localDayKey, localHourMinuteText, twoUnitDurationText } from '#shared/display-text.ts';
 import { numberOr, textOr } from '#shared/coerce.ts';
 import { formatCount, formatTokens, formatUsd, limitPct, NO_VALUE, planWindowOf, projectedLimitPct, trimTrailingZeros, usageErrorLine } from './usage-store-core.ts';
+import type { YourDay } from '#shared/contracts/your-day.ts';
 import type { CacheSavings, PlanLimits, PlanLimitsVendor, PlanWindow, UsageAnomaly, UsageBlock, UsageBudgetRow, UsageBurn, UsageProjection, UsageReport, UsageSavings, UsageTokenLimit, UsageTotals } from './usage-store-core.ts';
 
 export { blockAttentionTone, budgetRowPct, budgetRows, formatTokens, formatUsd, limitPct, planWindowOf, RANGE_OPTIONS, tokenLimitTone, usageErrorLine } from './usage-store-core.ts';
@@ -123,6 +124,14 @@ function safeZoneFormat(ts: number, options: Intl.DateTimeFormatOptions) {
 export function formatMinutes(minutes: unknown) {
   if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes < 0) return NO_VALUE;
   return twoUnitDurationText(Math.round(minutes) * 60, { smallestUnit: 'm', dropsZeroRemainder: true });
+}
+
+export function yourDayHint(yourDay: YourDay, now: number) {
+  const yesterdayKey = localDayKey(now - 86_400_000);
+  const [, month, day] = yourDay.yesterday.day.split('-').map(Number);
+  const dayLabel = yourDay.yesterday.day === yesterdayKey ? 'yesterday' : `${MONTH_NAMES[month - 1]} ${day}`;
+  const sessionWord = yourDay.yesterday.sessionCount === 1 ? 'session' : 'sessions';
+  return `${dayLabel}: ${yourDay.yesterday.sessionCount} ${sessionWord}, ${formatMinutes(yourDay.yesterday.activeMs / 60_000)}`;
 }
 
 export function blockLabel(startTs: unknown) {

@@ -91,6 +91,7 @@ import {
   usageWarningLine,
   vendorTotalsRows,
   visibleSessionRows,
+  yourDayHint,
 } from './usage-view-core.ts';
 import type { PlanLimits, SortState, UsageTotals, UsageWireRow } from './usage-view-core.ts';
 
@@ -303,6 +304,17 @@ function buildHeaderSection() {
 
   const missing = missingPricingLine(_usage.report?.pricing?.missing);
   if (missing) section.append(el('p', 'usage-warning', missing));
+  return section;
+}
+
+function buildYourDaySection() {
+  const yourDay = _usage.report?.yourDay;
+  if (!yourDay) return null;
+  const section = buildSection('Your day', yourDayHint(yourDay, Date.now()));
+  if (yourDay.insights.length === 0) return section;
+  const insights = el('ul', 'usage-your-day-insights');
+  for (const insight of yourDay.insights) insights.append(el('li', 'usage-your-day-insight', insight.text));
+  section.append(insights);
   return section;
 }
 
@@ -917,6 +929,8 @@ function selectorForFocusTarget(target: FocusTarget) {
 
 function buildBody() {
   if (!_root) return;
+  const yourDay = isUsageUnavailable(_usage.report) ? null : buildYourDaySection();
+  if (yourDay) _root.append(yourDay);
   _root.append(buildHeaderSection());
 
   const plan = buildPlanLimitsSection();

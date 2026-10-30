@@ -365,6 +365,11 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
         control: 'toggle', keywords: ['tokens', 'cost'], defaultValue: true, status: 'usage-last-report', ...MACHINE_NOW,
       },
       {
+        id: 'usage-your-day', path: 'usage.yourDay', title: 'Your day',
+        description: 'Recap yesterday and suggest a pace for today from when you prompted sessions. Needs token usage tracking.',
+        control: 'toggle', keywords: ['burnout', 'breaks', 'pace', 'wellbeing'], defaultValue: true, ...MACHINE_NOW,
+      },
+      {
         id: 'usage-retain-days', path: 'usage.retainDays', title: 'Retain transcript detail',
         description: 'How long live transcript detail stays available. A monthly budget keeps detail from the start of the current month when that is longer.',
         control: 'number', range: USAGE_RETAIN_DAYS_RANGE, unit: DAYS, keywords: ['history', 'retention'], defaultValue: 90, ...MACHINE_NOW,
