@@ -1,10 +1,10 @@
 import { localDayKey, localHourMinuteText, twoUnitDurationText } from '#shared/display-text.ts';
 import { numberOr, textOr } from '#shared/coerce.ts';
-import { formatCount, formatTokens, formatUsd, limitPct, NO_VALUE, planWindowOf, projectedLimitPct, trimTrailingZeros, usageErrorLine } from './usage-store-core.ts';
+import { formatCount, formatTokens, formatUsd, NO_VALUE, planWindowOf, RANGE_OPTIONS, trimTrailingZeros, usageErrorLine } from './usage-store-core.ts';
 import type { YourDay } from '#shared/contracts/your-day.ts';
-import type { CacheSavings, PlanLimits, PlanLimitsVendor, PlanWindow, UsageAnomaly, UsageBlock, UsageBudgetRow, UsageBurn, UsageProjection, UsageReport, UsageSavings, UsageTokenLimit, UsageTotals } from './usage-store-core.ts';
+import type { CacheSavings, PlanLimits, PlanLimitsVendor, UsageAnomaly, UsageBlock, UsageBudgetRow, UsageReport, UsageSavings, UsageTotals } from './usage-store-core.ts';
 
-export { blockAttentionTone, budgetRowPct, budgetRows, formatTokens, formatUsd, limitPct, planWindowOf, RANGE_OPTIONS, tokenLimitTone, usageErrorLine } from './usage-store-core.ts';
+export { budgetRowPct, budgetRows, formatTokens, formatUsd, RANGE_OPTIONS, usageErrorLine } from './usage-store-core.ts';
 export type { PlanLimits, UsageTotals } from './usage-store-core.ts';
 
 interface UsageModelRow {
@@ -121,7 +121,7 @@ function safeZoneFormat(ts: number, options: Intl.DateTimeFormatOptions) {
   }
 }
 
-export function formatMinutes(minutes: unknown) {
+function formatMinutes(minutes: unknown) {
   if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes < 0) return NO_VALUE;
   return twoUnitDurationText(Math.round(minutes) * 60, { smallestUnit: 'm', dropsZeroRemainder: true });
 }
@@ -141,63 +141,6 @@ export function blockLabel(startTs: unknown) {
   const month = MONTH_NAMES[date.getMonth()];
   if (!month) return NO_VALUE;
   return `${month} ${date.getDate()} ${localHourMinuteText(date)}`;
-}
-
-export function burnTiles(burn: UsageBurn | null | undefined) {
-  if (!burn || typeof burn !== 'object') return [];
-  const tiles: { label: string; value: string; sub: string }[] = [];
-  if (Number.isFinite(burn.tokensPerMinute)) {
-    const sub = Number.isFinite(burn.tokensPerMinuteExCache)
-      ? `${formatTokens(burn.tokensPerMinuteExCache)} excluding cache`
-      : '';
-    tiles.push({ label: 'tokens per min', value: formatTokens(burn.tokensPerMinute), sub });
-  }
-  if (Number.isFinite(burn.costPerHour)) {
-    tiles.push({ label: 'cost per hour', value: formatUsd(burn.costPerHour), sub: '' });
-  }
-  return tiles;
-}
-
-export function projectionLine(projection: UsageProjection | null | undefined) {
-  if (!projection || typeof projection !== 'object') return '';
-  const totals: string[] = [];
-  if (Number.isFinite(projection.projectedTokens)) totals.push(`${formatTokens(projection.projectedTokens)} tokens`);
-  if (Number.isFinite(projection.projectedCostUSD)) totals.push(formatUsd(projection.projectedCostUSD));
-  const remaining = Number.isFinite(projection.remainingMinutes)
-    ? `${formatMinutes(projection.remainingMinutes)} left in this block`
-    : '';
-  if (totals.length === 0) return remaining;
-  const head = `-> ${totals.join(', ')} by block end`;
-  if (!remaining) return head;
-  return `${head}, ${remaining}`;
-}
-
-export function blockProgress(block: UsageBlock | null | undefined, now = Date.now()) {
-  const start = Number(block?.startTs);
-  const end = Number(block?.endTs);
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
-  const totalMinutes = (end - start) / 60000;
-  const elapsedMinutes = Math.min(Math.max((now - start) / 60000, 0), totalMinutes);
-  const remainingMinutes = Math.max(totalMinutes - elapsedMinutes, 0);
-  return {
-    totalMinutes,
-    elapsedMinutes,
-    remainingMinutes,
-    pct: Math.round((elapsedMinutes / totalMinutes) * 100),
-  };
-}
-
-export function tokenLimitLine(tokenLimit: UsageTokenLimit | null | undefined) {
-  const pct = limitPct(tokenLimit);
-  if (pct === null) return '';
-  return `${Math.round(pct)}% of ${formatTokens(tokenLimit?.max)} tokens, the largest completed block seen`;
-}
-
-export function projectionLimitLine(projection: UsageProjection | null | undefined, tokenLimit: UsageTokenLimit | null | undefined) {
-  const pct = projectedLimitPct(projection, tokenLimit);
-  if (pct === null) return '';
-  if (pct >= 100) return `On this burn rate the block ends past that reference, at ${Math.round(pct)}% of it.`;
-  return `On this burn rate the block ends at ${Math.round(pct)}% of that reference.`;
 }
 
 const COMPOSITION_PARTS = Object.freeze([
@@ -712,37 +655,6 @@ export const PLAN_LIMIT_VENDORS: readonly { vendor: PlanLimitsVendor; label: str
   { vendor: 'kimi', label: 'Kimi Code' },
 ]);
 
-export function planLimitsSectionHint(vendors: readonly PlanLimitsVendor[], totals: UsageTotals | null | undefined) {
-  const labels = PLAN_LIMIT_VENDORS.filter(({ vendor }) => vendors.includes(vendor)).map(({ label }) => label);
-  const provenance = `official, from ${labels.join(' and ')}`;
-  const isClaudeAlone = vendors.length === 1 && vendors[0] === 'claude';
-  const claudeOnly = isClaudeAlone ? claudeOnlyHint(totals) : '';
-  return claudeOnly ? `${provenance}, ${claudeOnly}` : provenance;
-}
-
-export function hasOfficialPlanLimits(planLimits: PlanLimits | null | undefined) {
-  return PLAN_WINDOWS.some((window) => planWindowOf(planLimits, window.key) !== null);
-}
-
-export function provenanceLabel(source: unknown) {
-  if (source === 'estimated') return 'estimated from the largest completed block';
-  return '';
-}
-
-export function planWindowUsedText(window: PlanWindow | null | undefined) {
-  const pct = numberOr(window?.pct, null);
-  if (pct === null) return NO_VALUE;
-  return `${formatPercent(pct)} used`;
-}
-
-export function resetCountdownText(resetsAtMs: unknown, now = Date.now()) {
-  const resetsAt = numberOr(resetsAtMs, null);
-  if (resetsAt === null || resetsAt <= 0) return '';
-  const remainingMinutes = (resetsAt - now) / 60000;
-  if (remainingMinutes <= 0) return 'resetting now';
-  return `resets in ${formatMinutes(remainingMinutes)}`;
-}
-
 export function planLimitAgeText(ts: unknown, now = Date.now()) {
   const stamped = numberOr(ts, null);
   if (stamped === null || stamped <= 0) return '';
@@ -910,4 +822,224 @@ export function blockHistoryRows(blocks: unknown, limit = 8) {
     costUSD: typeof block.costUSD === 'number' && Number.isFinite(block.costUSD) ? block.costUSD : 0,
     isActive: block.isActive === true,
   }));
+}
+
+type PaceTone = 'ok' | 'warn' | 'fail';
+
+export interface PaceWindow {
+  vendor: PlanLimitsVendor;
+  vendorLabel: string;
+  key: 'fiveHour' | 'sevenDay';
+  windowLabel: string;
+  usedPct: number;
+  elapsedPct: number | null;
+  projectedPct: number | null;
+  resetsAtMs: number | null;
+  tone: PaceTone;
+}
+
+interface PaceVerdict {
+  tone: PaceTone;
+  headline: string;
+  detail: string;
+}
+
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+const PACE_WINDOW_SPECS: Readonly<Record<'fiveHour' | 'sevenDay', { lengthMs: number; label: string }>> = Object.freeze({
+  fiveHour: { lengthMs: 5 * HOUR_MS, label: '5-hour' },
+  sevenDay: { lengthMs: 7 * DAY_MS, label: 'weekly' },
+});
+const PROJECTION_MIN_ELAPSED_PCT = 10;
+const PACE_WARN_PCT = 80;
+const PACE_FAIL_PCT = 100;
+const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function paceToneOf(usedPct: number, projectedPct: number | null): PaceTone {
+  if (usedPct >= PACE_FAIL_PCT) return 'fail';
+  if (usedPct >= PACE_WARN_PCT) return 'warn';
+  if (projectedPct !== null && projectedPct >= PACE_WARN_PCT) return 'warn';
+  return 'ok';
+}
+
+function elapsedShareOf(lengthMs: number, resetsAtMs: number | null, now: number) {
+  if (resetsAtMs === null || resetsAtMs <= 0) return null;
+  const startMs = resetsAtMs - lengthMs;
+  return Math.min(Math.max(((now - startMs) / lengthMs) * 100, 0), 100);
+}
+
+function paceWindow(vendor: PlanLimitsVendor, key: 'fiveHour' | 'sevenDay', planLimits: PlanLimits | null | undefined, now: number): PaceWindow | null {
+  const window = planWindowOf(planLimits, key);
+  if (!window || window.pct === null) return null;
+  if (window.resetsAtMs !== null && window.resetsAtMs <= now) return null;
+  const spec = PACE_WINDOW_SPECS[key];
+  const elapsedPct = elapsedShareOf(spec.lengthMs, window.resetsAtMs, now);
+  const canProject = elapsedPct !== null && elapsedPct >= PROJECTION_MIN_ELAPSED_PCT && window.pct < PACE_FAIL_PCT;
+  const projectedPct = canProject ? window.pct / (elapsedPct / 100) : null;
+  return {
+    vendor,
+    vendorLabel: PLAN_LIMIT_VENDORS.find((entry) => entry.vendor === vendor)?.label || vendor,
+    key,
+    windowLabel: spec.label,
+    usedPct: window.pct,
+    elapsedPct,
+    projectedPct,
+    resetsAtMs: window.resetsAtMs,
+    tone: paceToneOf(window.pct, projectedPct),
+  };
+}
+
+export function paceWindows(planLimitsByVendor: Readonly<Record<PlanLimitsVendor, PlanLimits | null>>, now: number): PaceWindow[] {
+  return PLAN_LIMIT_VENDORS.flatMap(({ vendor }) =>
+    PLAN_WINDOWS.map(({ key }) => paceWindow(vendor, key, planLimitsByVendor[vendor], now)).filter((window) => window !== null),
+  );
+}
+
+export function resetClockText(resetsAtMs: unknown, now: number) {
+  const resetsAt = numberOr(resetsAtMs, null);
+  if (resetsAt === null || resetsAt <= 0) return '';
+  const date = new Date(resetsAt);
+  const clock = localHourMinuteText(date);
+  if (localDayKey(resetsAt) === localDayKey(now)) return clock;
+  if (resetsAt - now < 7 * DAY_MS && date.getDay() !== new Date(now).getDay()) return `${WEEKDAY_NAMES[date.getDay()]} ${clock}`;
+  return `${MONTH_NAMES[date.getMonth()]} ${date.getDate()} ${clock}`;
+}
+
+function roundedPercentText(pct: number) {
+  return `${Math.round(pct)}%`;
+}
+
+function pacePressure(window: PaceWindow) {
+  return Math.max(window.usedPct, window.projectedPct ?? 0);
+}
+
+function roomSentence(windows: readonly PaceWindow[], excludedVendor: PlanLimitsVendor) {
+  const others = windows.filter((window) => window.vendor !== excludedVendor && window.key === 'fiveHour' && window.tone !== 'fail');
+  if (others.length === 0) return '';
+  const roomiest = [...others].sort((left, right) => left.usedPct - right.usedPct)[0];
+  return `${roomiest.vendorLabel} has ${roundedPercentText(100 - roomiest.usedPct)} of its 5-hour window left.`;
+}
+
+function untilResetText(resetsAtMs: number | null, now: number) {
+  const clock = resetClockText(resetsAtMs, now);
+  if (!clock || resetsAtMs === null) return 'until the window resets';
+  return `until ${clock}, in ${formatMinutes((resetsAtMs - now) / 60000)}`;
+}
+
+function reachedVerdict(window: PaceWindow, windows: readonly PaceWindow[], now: number): PaceVerdict {
+  const detail = [`${window.vendorLabel} sessions stop answering ${untilResetText(window.resetsAtMs, now)}. Their worktrees and conversations stay intact.`, roomSentence(windows, window.vendor)];
+  return { tone: 'fail', headline: `${window.vendorLabel} ${window.windowLabel} limit reached.`, detail: detail.filter(Boolean).join(' ') };
+}
+
+function tightVerdict(window: PaceWindow, now: number): PaceVerdict {
+  const clock = resetClockText(window.resetsAtMs, now);
+  const resetText = clock ? `, resets ${clock}` : '';
+  if (window.usedPct >= PACE_WARN_PCT) {
+    return { tone: 'warn', headline: `${window.vendorLabel} ${window.windowLabel} limit is at ${roundedPercentText(window.usedPct)}.`, detail: `Little room left before it resets${resetText}.` };
+  }
+  const by = clock ? ` by ${clock}` : '';
+  return {
+    tone: 'warn',
+    headline: `${window.vendorLabel} will be tight${by}.`,
+    detail: `At this pace its ${window.windowLabel} window ends at ${roundedPercentText(window.projectedPct ?? window.usedPct)}.`,
+  };
+}
+
+function overBudgetVerdict(row: UsageBudgetRow): PaceVerdict {
+  return { tone: 'warn', headline: `Over your ${budgetScopeLabel(row.scope) === 'today' ? 'daily' : 'monthly'} budget.`, detail: `${budgetRowText(row)} spent ${budgetScopeLabel(row.scope)}.` };
+}
+
+export function paceVerdict(windows: readonly PaceWindow[], budgets: readonly UsageBudgetRow[], todayCostUSD: number | null, now: number): PaceVerdict {
+  const reached = windows.find((window) => window.tone === 'fail');
+  if (reached) return reachedVerdict(reached, windows, now);
+  const tight = windows.filter((window) => window.tone === 'warn').sort((left, right) => pacePressure(right) - pacePressure(left))[0];
+  if (tight) return tightVerdict(tight, now);
+  const overBudget = budgets.find((row) => numberOr(row.pct, 0) >= 100);
+  if (overBudget) return overBudgetVerdict(overBudget);
+  if (windows.length === 0) {
+    const spent = todayCostUSD === null ? 'Nothing spent yet today.' : `${formatUsd(todayCostUSD)} spent today.`;
+    return { tone: 'ok', headline: spent, detail: 'No agent has reported a current plan limit, so this tab tracks estimated spend only.' };
+  }
+  const closest = [...windows].sort((left, right) => pacePressure(right) - pacePressure(left))[0];
+  const clock = resetClockText(closest.resetsAtMs, now);
+  return {
+    tone: 'ok',
+    headline: 'Every limit has room.',
+    detail: `Closest is ${closest.vendorLabel} ${closest.windowLabel} at ${roundedPercentText(closest.usedPct)}${clock ? `, resets ${clock}` : ''}.`,
+  };
+}
+
+export function paceSubText(window: PaceWindow) {
+  if (window.tone === 'fail') return 'limit reached';
+  if (window.projectedPct === null) return window.elapsedPct === null ? '' : 'too early to project';
+  return `about ${roundedPercentText(window.projectedPct)} at reset`;
+}
+
+export function lastActivityMs(blocks: unknown) {
+  const rows: UsageWireRow[] = Array.isArray(blocks) ? blocks : [];
+  return rows.reduce<number | null>((latest, block) => {
+    const ts = numberOr(block?.lastEntryTs, null);
+    if (ts === null || block?.isGap === true) return latest;
+    return latest === null ? ts : Math.max(latest, ts);
+  }, null);
+}
+
+export type UsageDetailScreen = 'report' | 'history' | 'overhead' | 'budgets';
+export type UsageScreen = 'overview' | UsageDetailScreen;
+export const DEFAULT_DETAIL_SCREEN: UsageDetailScreen = 'report';
+
+export function rangeLabel(rangeValue: string) {
+  return RANGE_OPTIONS.find((option) => option.value === rangeValue)?.label || '';
+}
+
+export function topModelSummary(report: UsageReport | null | undefined) {
+  const rows = sortModelRows(report?.models, { key: 'costUSD', dir: 'desc' });
+  const top = rows[0];
+  if (!top) return null;
+  const basis = shareBasis(report?.totals);
+  return { label: modelLabel(top), sharePct: percentOfTotal(top[basis], report?.totals?.[basis]) };
+}
+
+export function sessionsSummary(report: UsageReport | null | undefined) {
+  const rows = sortSessionRows(report?.sessions, { key: 'costUSD', dir: 'desc' });
+  const top = rows[0];
+  return { count: rows.length, topLabel: top ? sessionRowLabel(top) : '' };
+}
+
+export function glimmervoidLaneCostUSD(report: UsageReport | null | undefined) {
+  const lanes = laneRows(report).filter((row) => isGlimmervoidLane(row.lane));
+  if (lanes.length === 0) return null;
+  return lanes.reduce((sum, row) => sum + numberOr(row.costUSD, 0), 0);
+}
+
+export function budgetSummary(rows: readonly UsageBudgetRow[]) {
+  const overCount = rows.filter((row) => numberOr(row.pct, 0) >= 100).length;
+  const underCount = rows.length - overCount;
+  if (overCount === 0) return { value: `${underCount} of ${rows.length}`, detail: rows.length === 1 ? 'under its ceiling' : 'all under their ceilings' };
+  return { value: `${underCount} of ${rows.length}`, detail: overCount === 1 ? '1 over its ceiling' : `${overCount} over their ceilings` };
+}
+
+export function historyDayCount(daily: unknown) {
+  return dayKeysOf(daily).length;
+}
+
+export function periodDayKeys(todayKey: string, days: number) {
+  const today = parseDayKey(todayKey);
+  if (!today || days <= 0) return [];
+  return Array.from({ length: days }, (_, index) => {
+    const date = new Date(today);
+    date.setDate(today.getDate() - (days - 1 - index));
+    return localDayKey(date);
+  });
+}
+
+export function rangeDays(rangeValue: string) {
+  return RANGE_OPTIONS.find((option) => option.value === rangeValue)?.days ?? 7;
+}
+
+export function nextPaceResetMs(windows: readonly PaceWindow[]) {
+  return windows.reduce<number | null>((earliest, window) => {
+    if (window.resetsAtMs === null) return earliest;
+    return earliest === null ? window.resetsAtMs : Math.min(earliest, window.resetsAtMs);
+  }, null);
 }

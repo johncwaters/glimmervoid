@@ -8,6 +8,7 @@ import type { UsageChange } from './usage-store.ts';
 
 import {
   DEFAULT_DAY_SORT,
+  DEFAULT_DETAIL_SCREEN,
   DEFAULT_MODEL_SORT,
   DEFAULT_PERIOD_VIEW,
   DEFAULT_SESSION_SORT,
@@ -17,7 +18,6 @@ import {
   PERIOD_VIEWS,
   PLAN_LIMIT_VENDORS,
   PLAN_WINDOWS,
-  planLimitsSectionHint,
   RANGE_OPTIONS,
   SESSION_ROW_LIMIT,
   USAGE_CAVEAT_SHORT,
@@ -25,81 +25,84 @@ import {
   anomalyLine,
   anomalyTone,
   ariaSortValue,
-  claudeOnlyHint,
-  blockAttentionTone,
   blockHistoryRows,
   blockLabel,
-  blockProgress,
   budgetRowMeterLabel,
   budgetRowPct,
-  budgetRowText,
   budgetRows,
+  budgetRowText,
   budgetScopeLabel,
-  burnTiles,
+  budgetSummary,
   cacheSavingsTile,
+  claudeOnlyHint,
   compositionParts,
   dailyRowForDay,
   dayRangeLabel,
-  formatMinutes,
   formatPercent,
   formatTokens,
   formatUsd,
+  glimmervoidLaneCostUSD,
   glimmervoidOverhead,
   hasAnomaly,
   hasLaneAttribution,
   hasMultiVendorUsage,
-  hasOfficialPlanLimits,
   hasSavings,
-  heatmapCellTitle,
   heatmapCells,
+  heatmapCellTitle,
+  historyDayCount,
   historyNote,
   isGlimmervoidSessionRow,
   isUsageUnavailable,
   laneLabel,
   laneRows,
   laneSessionsText,
-  limitPct,
+  lastActivityMs,
   missingPricingLine,
   modelLabel,
   modelRowPrefix,
   nextSortState,
   overheadLanesText,
   overheadPlanText,
+  paceSubText,
+  paceVerdict,
+  nextPaceResetMs,
+  paceWindows,
   percentOfTotal,
+  periodDayKeys,
   periodLabel,
   periodRows,
   planLimitAgeText,
   planLimitStaleNote,
-  planWindowOf,
-  planWindowUsedText,
   prReviewsSpendTile,
-  projectionLimitLine,
-  projectionLine,
-  provenanceLabel,
+  rangeDays,
+  rangeLabel,
   reportDayKey,
-  resetCountdownText,
+  resetClockText,
   sessionOverflowText,
   sessionRowLabel,
+  sessionsSummary,
   shareBasis,
   shareLabel,
   sortDailyRows,
   sortModelRows,
   sortSessionRows,
-  tokenLimitLine,
-  tokenLimitTone,
+  topModelSummary,
   usageErrorLine,
   usageWarningLine,
   vendorTotalsRows,
   visibleSessionRows,
   yourDayHint,
 } from './usage-view-core.ts';
-import type { PlanLimits, SortState, UsageTotals, UsageWireRow } from './usage-view-core.ts';
+import type { PaceWindow, PlanLimits, SortState, UsageDetailScreen, UsageScreen, UsageTotals, UsageWireRow } from './usage-view-core.ts';
 
 type FocusTarget =
   | { kind: 'sort'; table: string; key: string }
   | { kind: 'period'; view: string }
   | { kind: 'day'; day: string }
-  | { kind: 'sessions-toggle' };
+  | { kind: 'sessions-toggle' }
+  | { kind: 'range'; value: string }
+  | { kind: 'back' }
+  | { kind: 'drill'; screen: UsageDetailScreen };
 
 interface TableHeading {
   label: string;
@@ -126,12 +129,14 @@ let _sessionsExpanded = false;
 let _focusAfterRender: FocusTarget | null = null;
 let _periodView: string = DEFAULT_PERIOD_VIEW;
 const _expandedDays = new Set<string>();
+let _screen: UsageScreen = 'overview';
+let _detailScreen: UsageDetailScreen = DEFAULT_DETAIL_SCREEN;
+let _shouldScrollToTop = false;
+let _resetRenderTimer: ReturnType<typeof setTimeout> | null = null;
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 let _reportAgeEl: HTMLParagraphElement | null = null;
 let _sessionsTsEl: HTMLParagraphElement | null = null;
-let _blockElapsedEl: HTMLSpanElement | null = null;
-let _blockRemainingEl: HTMLSpanElement | null = null;
-let _blockMeterEl: HTMLDivElement | null = null;
 let _refreshButtonEl: HTMLButtonElement | null = null;
 let _refreshStatusEl: HTMLSpanElement | null = null;
 
@@ -246,33 +251,8 @@ function paintSessionsTs() {
   _sessionsTsEl.textContent = Number.isFinite(ts) && ts > 0 ? `Sessions ${formatAgo(ts)}` : '';
 }
 
-function paintBlockProgress() {
-  const progress = blockProgress(_usage.report?.activeBlock);
-  if (!progress) return;
-  if (_blockElapsedEl?.isConnected) _blockElapsedEl.textContent = `${progress.pct}%`;
-  if (_blockRemainingEl?.isConnected) _blockRemainingEl.textContent = `${formatMinutes(progress.remainingMinutes)} left`;
-  if (_blockMeterEl?.isConnected) paintMeter(_blockMeterEl, progress.pct);
-}
-
-function buildControls() {
+function buildRefreshControls() {
   const controls = el('div', 'usage-controls');
-
-  const rangeLabel = el('label', 'usage-control');
-  rangeLabel.append(el('span', 'usage-control-label', 'Range'));
-  const select = el('select', 'usage-select');
-  for (const option of RANGE_OPTIONS) {
-    const opt = el('option', null, option.label);
-    opt.value = option.value;
-    select.append(opt);
-  }
-  select.value = _usage.rangeValue;
-  select.addEventListener('change', () => {
-    reportUsageAction('range');
-    setUsageRange(select.value);
-    requestUsageReport();
-  });
-  rangeLabel.append(select);
-
   const button = el('button', 'usage-refresh', 'Refresh');
   button.type = 'button';
   button.title = 'Re-read every transcript from the start';
@@ -280,31 +260,333 @@ function buildControls() {
     reportUsageAction('refresh');
     requestUsageReport({ force: true });
   });
-
   const status = el('span', 'usage-refresh-status', '');
   _refreshButtonEl = button;
   _refreshStatusEl = status;
   paintRefreshStatus();
-
-  controls.append(rangeLabel, button, status);
+  _reportAgeEl = el('p', 'usage-meta', '');
+  paintReportAge();
+  _ticker.onTick(paintReportAge);
+  controls.append(button, status, _reportAgeEl);
   return controls;
 }
 
-function buildHeaderSection() {
-  const section = buildSection('Usage', dayRangeLabel(_usage.report?.daily || []));
-  section.append(buildControls());
+function buildReportWarnings() {
+  const lines = [usageWarningLine(_usage.report), missingPricingLine(_usage.report?.pricing?.missing)].filter(Boolean);
+  return lines.map((line) => el('p', 'usage-warning', line));
+}
 
-  _reportAgeEl = el('p', 'usage-meta', '');
-  section.append(_reportAgeEl);
-  paintReportAge();
-  _ticker.onTick(paintReportAge);
+function todayCostUSD() {
+  if (!_usage.report) return null;
+  const today = dailyRowForDay(_usage.report.daily, reportDayKey(_usage.report));
+  return typeof today?.costUSD === 'number' && Number.isFinite(today.costUSD) ? today.costUSD : 0;
+}
 
-  const warning = usageWarningLine(_usage.report);
-  if (warning) section.append(el('p', 'usage-warning', warning));
+function buildVerdict(windows: readonly PaceWindow[], now: number) {
+  const verdict = paceVerdict(windows, budgetRows(_usage.report), todayCostUSD(), now);
+  const box = el('div', 'usage-verdict');
+  box.dataset.tone = verdict.tone;
+  box.append(el('p', 'usage-verdict-headline', verdict.headline), el('p', verdict.tone === 'ok' ? 'usage-verdict-detail' : 'usage-verdict-detail usage-warning', verdict.detail));
+  return box;
+}
 
-  const missing = missingPricingLine(_usage.report?.pricing?.missing);
-  if (missing) section.append(el('p', 'usage-warning', missing));
+function buildPaceSection(windows: readonly PaceWindow[], now: number) {
+  if (windows.length === 0) return null;
+  const section = el('section', 'usage-pace');
+  section.setAttribute('aria-label', 'Plan limits');
+  for (const { vendor, label } of PLAN_LIMIT_VENDORS) {
+    const vendorWindows = windows.filter((window) => window.vendor === vendor);
+    if (vendorWindows.length === 0) continue;
+    section.append(buildPaceVendor(label, _usage.planLimitsByVendor[vendor], vendorWindows, now));
+  }
+  section.append(buildPaceLegend());
   return section;
+}
+
+function buildPaceVendor(label: string, planLimits: PlanLimits | null, windows: readonly PaceWindow[], now: number) {
+  const group = el('div', 'usage-pace-vendor');
+  const head = el('div', 'usage-pace-vendor-head');
+  head.append(el('h3', 'usage-eyebrow', label));
+  const ageEl = el('span', 'usage-meta', '');
+  head.append(ageEl);
+  const paintAge = () => {
+    if (!ageEl.isConnected) return;
+    const age = planLimitAgeText(planLimits?.ts);
+    ageEl.textContent = age ? `official, ${age}` : 'official';
+  };
+  paintAge();
+  _ticker.onTick(paintAge);
+  group.append(head);
+  const stale = planLimitStaleNote(planLimits?.ts);
+  if (stale) {
+    const note = el('p', 'usage-meta', stale);
+    note.dataset.tone = 'warn';
+    group.append(note);
+  }
+  for (const window of windows) group.append(buildPaceWindow(window, now));
+  return group;
+}
+
+function buildPaceWindow(window: PaceWindow, now: number) {
+  const row = el('div', 'usage-pace-window');
+  row.dataset.tone = window.tone;
+  const head = el('div', 'usage-pace-head');
+  head.append(el('span', 'usage-pace-label', PLAN_WINDOWS.find((spec) => spec.key === window.key)?.label || window.windowLabel));
+  head.append(el('span', 'usage-pace-used', `${Math.round(window.usedPct)}%`));
+  const clock = resetClockText(window.resetsAtMs, now);
+  head.append(el('span', 'usage-pace-reset', clock ? `resets ${clock}` : ''));
+  row.append(head, buildPaceBar(window));
+  const sub = paceSubText(window);
+  if (sub) row.append(el('p', 'usage-pace-sub', sub));
+  return row;
+}
+
+function buildPaceBar(window: PaceWindow) {
+  const bar = el('div', 'usage-pacebar');
+  bar.setAttribute('role', 'img');
+  const usedPct = clampPct(window.usedPct);
+  const described = [`${Math.round(window.usedPct)}% used`];
+  const fill = el('span', 'usage-pacebar-fill');
+  fill.style.width = `${usedPct}%`;
+  bar.append(fill);
+  if (window.projectedPct !== null && window.projectedPct > window.usedPct) {
+    const projection = el('span', 'usage-pacebar-projection');
+    projection.style.left = `${usedPct}%`;
+    projection.style.width = `${clampPct(window.projectedPct) - usedPct}%`;
+    bar.append(projection);
+    described.push(`about ${Math.round(window.projectedPct)}% projected at reset`);
+  }
+  if (window.elapsedPct !== null) {
+    const tick = el('span', 'usage-pacebar-tick');
+    tick.style.left = `${clampPct(window.elapsedPct)}%`;
+    bar.append(tick);
+    described.push(`${Math.round(window.elapsedPct)}% of the window gone`);
+  }
+  bar.setAttribute('aria-label', `${window.vendorLabel} ${window.windowLabel} limit: ${described.join(', ')}`);
+  return bar;
+}
+
+function buildPaceLegend() {
+  const legend = el('div', 'usage-pace-legend');
+  legend.setAttribute('aria-hidden', 'true');
+  for (const [part, label] of [['fill', 'used'], ['projection', 'projected'], ['tick', 'time gone']]) {
+    const item = el('span', 'usage-pace-legend-item');
+    const swatch = el('span', 'usage-pace-swatch');
+    swatch.dataset.part = part;
+    item.append(swatch, el('span', null, label));
+    legend.append(item);
+  }
+  return legend;
+}
+
+function buildWindowCard(now: number) {
+  const card = el('section', 'usage-window');
+  const blockHours = _usage.report?.blockHours;
+  const hours = typeof blockHours === 'number' && Number.isFinite(blockHours) ? blockHours : 5;
+  card.append(el('h3', 'usage-eyebrow', `This ${hours}-hour window, Claude`));
+  const block = _usage.report?.activeBlock;
+  if (!block) {
+    card.append(buildIdleLine());
+    return card;
+  }
+  card.append(el('p', 'usage-window-figure', `${formatUsd(block.costUSD ?? 0)} so far`));
+  const rate = Number.isFinite(block.burn?.costPerHour) ? `${formatUsd(block.burn?.costPerHour)} an hour` : '';
+  card.append(el('p', 'usage-window-sub', [rate, `${formatTokens(block.tokens ?? 0)} tokens`].filter(Boolean).join(', ')));
+  const projectedCost = block.projection?.projectedCostUSD;
+  const endClock = resetClockText(block.endTs, now);
+  if (Number.isFinite(projectedCost) && endClock) card.append(el('p', 'usage-meta', `Heading for ${formatUsd(projectedCost)} by ${endClock}`));
+  const anomaly = buildAnomalyLine();
+  if (anomaly) card.append(anomaly);
+  return card;
+}
+
+function buildIdleLine() {
+  const lastTs = lastActivityMs(_usage.report?.blocks);
+  if (lastTs === null) return el('p', 'usage-empty', 'No Claude activity in this range. A window opens with the next Claude turn.');
+  const line = el('p', 'usage-empty', 'No window open. Last Claude activity ');
+  const ago = el('span', 'usage-ago', '');
+  _ticker.track(ago, lastTs, formatAgo);
+  line.append(ago, '.');
+  return line;
+}
+
+function buildDrillRow(screen: UsageDetailScreen, label: string, detail: string, value: string) {
+  const button = el('button', 'usage-drill');
+  button.type = 'button';
+  button.dataset.usageScreen = screen;
+  if (_detailScreen === screen) button.setAttribute('aria-current', 'true');
+  const text = el('span', 'usage-drill-text');
+  text.append(el('span', 'usage-drill-label', label));
+  if (detail) text.append(el('span', 'usage-drill-detail', detail));
+  button.append(text, el('span', 'usage-drill-value', value), el('span', 'usage-drill-chevron'));
+  button.addEventListener('click', () => openScreen(screen));
+  return button;
+}
+
+function buildDrillRows() {
+  const nav = el('nav', 'usage-drills');
+  nav.setAttribute('aria-label', 'Usage details');
+  const report = _usage.report;
+  const periodText = rangeLabel(_usage.rangeValue);
+  nav.append(buildDrillRow('report', 'Spend', `${periodText}, est. list price`, formatUsd(report?.totals?.costUSD ?? 0)));
+  const topModel = topModelSummary(report);
+  nav.append(buildDrillRow('report', 'Models', topModel ? `${topModel.label} leads` : 'none yet', topModel ? formatPercent(topModel.sharePct) : ''));
+  const sessions = sessionsSummary(report);
+  nav.append(buildDrillRow('report', 'Sessions', sessions.topLabel ? `top: ${sessions.topLabel}` : 'none yet', String(sessions.count)));
+  const dayCount = historyDayCount(report?.daily);
+  nav.append(buildDrillRow('history', 'History', 'daily heatmap, past windows', `${dayCount} ${dayCount === 1 ? 'day' : 'days'}`));
+  const overheadCost = glimmervoidLaneCostUSD(report);
+  if (overheadCost !== null || glimmervoidOverhead(report, _usage.planLimitsByVendor.claude).length > 0) {
+    nav.append(buildDrillRow('overhead', 'Glimmervoid overhead', 'sessions it spawns for its own work', overheadCost === null ? '' : formatUsd(overheadCost)));
+  }
+  const budgets = budgetRows(report);
+  if (budgets.length > 0) {
+    const summary = budgetSummary(budgets);
+    nav.append(buildDrillRow('budgets', 'Budgets', summary.detail, summary.value));
+  }
+  return nav;
+}
+
+function scheduleResetRender(windows: readonly PaceWindow[], now: number) {
+  if (_resetRenderTimer) clearTimeout(_resetRenderTimer);
+  _resetRenderTimer = null;
+  const nextResetMs = nextPaceResetMs(windows);
+  if (nextResetMs === null) return;
+  _resetRenderTimer = setTimeout(() => {
+    _resetRenderTimer = null;
+    render();
+  }, Math.min(nextResetMs - now + 1000, MAX_TIMER_DELAY_MS));
+}
+
+function buildOverview() {
+  const overview = el('div', 'usage-overview');
+  const now = Date.now();
+  const windows = paceWindows(_usage.planLimitsByVendor, now);
+  scheduleResetRender(windows, now);
+  if (isUsageUnavailable(_usage.report)) {
+    overview.append(buildUnavailableSection());
+    const pace = buildPaceSection(windows, now);
+    if (pace) overview.append(pace);
+    overview.append(buildRefreshControls());
+    return overview;
+  }
+  if (_usage.report) overview.append(buildVerdict(windows, now));
+  overview.append(...buildReportWarnings());
+  const pace = buildPaceSection(windows, now);
+  if (pace) overview.append(pace);
+  if (!_usage.report) {
+    overview.append(el('p', 'usage-empty', 'Waiting for the first usage scan. Figures appear once it finishes.'));
+    overview.append(buildRefreshControls());
+    return overview;
+  }
+  overview.append(buildWindowCard(now), buildDrillRows(), buildRefreshControls());
+  return overview;
+}
+
+function buildRangeSwitch() {
+  const group = el('div', 'usage-period');
+  group.setAttribute('role', 'group');
+  group.setAttribute('aria-label', 'Report period');
+  for (const option of RANGE_OPTIONS) {
+    const button = el('button', 'usage-period-button', PERIOD_VIEWS.find((view) => view.value === option.value)?.label || option.label);
+    button.type = 'button';
+    button.dataset.usageRange = option.value;
+    button.setAttribute('aria-pressed', option.value === _usage.rangeValue ? 'true' : 'false');
+    button.addEventListener('click', () => {
+      if (_usage.rangeValue === option.value) return;
+      reportUsageAction('period');
+      setUsageRange(option.value);
+      _focusAfterRender = { kind: 'range', value: option.value };
+      requestUsageReport();
+      render();
+    });
+    group.append(button);
+  }
+  return group;
+}
+
+function buildBackControl() {
+  const back = el('button', 'usage-back', 'Back');
+  back.type = 'button';
+  back.addEventListener('click', closeScreen);
+  return back;
+}
+
+function buildReportScreen() {
+  const screen = el('div', 'usage-screen');
+  screen.append(buildBackControl(), buildSection('Report', dayRangeLabel(periodDayKeys(reportDayKey(_usage.report), rangeDays(_usage.rangeValue)))), buildRangeSwitch());
+  const yourDay = buildYourDaySection();
+  if (yourDay) screen.append(yourDay);
+  screen.append(buildTotalsSection());
+  const savings = buildSavingsSection();
+  if (savings) screen.append(savings);
+  screen.append(buildModelsSection(), buildSessionsSection());
+  return screen;
+}
+
+function buildHistoryScreen() {
+  const screen = el('div', 'usage-screen');
+  screen.append(buildBackControl(), buildDailySection());
+  const blocks = buildBlockHistorySection();
+  if (blocks) screen.append(blocks);
+  return screen;
+}
+
+function buildOverheadScreen() {
+  const screen = el('div', 'usage-screen');
+  screen.append(buildBackControl(), buildOverheadSection() || buildNoOverhead());
+  return screen;
+}
+
+function buildBudgetsScreen() {
+  const screen = el('div', 'usage-screen');
+  screen.append(buildBackControl(), buildBudgetsSection() || buildNoBudgets());
+  return screen;
+}
+
+function buildNoOverhead() {
+  const section = buildSection('Glimmervoid overhead', '');
+  section.append(el('p', 'usage-empty', 'Glimmervoid spawned no sessions of its own in this range.'));
+  return section;
+}
+
+function buildNoBudgets() {
+  const section = buildSection('Budgets', 'your own ceilings');
+  const empty = el('p', 'usage-empty', 'No budgets set. ');
+  empty.append(createSettingsLink('machine-usage', 'usage-daily-budget', 'Budget settings'));
+  section.append(empty);
+  return section;
+}
+
+const DETAIL_BUILDERS: Readonly<Record<UsageDetailScreen, () => HTMLElement>> = Object.freeze({
+  report: buildReportScreen,
+  history: buildHistoryScreen,
+  overhead: buildOverheadScreen,
+  budgets: buildBudgetsScreen,
+});
+
+function buildDetail() {
+  const detail = el('div', 'usage-detail');
+  if (!_usage.report || isUsageUnavailable(_usage.report)) return detail;
+  detail.append(DETAIL_BUILDERS[_detailScreen]());
+  return detail;
+}
+
+function openScreen(screen: UsageDetailScreen) {
+  reportUsageAction('expand');
+  _screen = screen;
+  _detailScreen = screen;
+  _focusAfterRender = { kind: 'back' };
+  _shouldScrollToTop = true;
+  render();
+}
+
+function closeScreen() {
+  const previous = _detailScreen;
+  _screen = 'overview';
+  _focusAfterRender = { kind: 'drill', screen: previous };
+  _shouldScrollToTop = true;
+  render();
 }
 
 function buildYourDaySection() {
@@ -316,68 +598,6 @@ function buildYourDaySection() {
   for (const insight of yourDay.insights) insights.append(el('li', 'usage-your-day-insight', insight.text));
   section.append(insights);
   return section;
-}
-
-function buildPlanLimitsSection() {
-  const shownVendors = PLAN_LIMIT_VENDORS.filter(({ vendor }) => hasOfficialPlanLimits(_usage.planLimitsByVendor[vendor]));
-  if (shownVendors.length === 0) return null;
-  const section = buildSection('Plan limits', planLimitsSectionHint(shownVendors.map(({ vendor }) => vendor), _usage.report?.totals));
-  const isSideBySide = shownVendors.length > 1;
-  const columns = el('div', 'usage-plan-vendors');
-  for (const { vendor, label } of shownVendors) {
-    columns.append(buildVendorPlanLimits(_usage.planLimitsByVendor[vendor], isSideBySide ? label : null));
-  }
-  section.append(columns);
-  return section;
-}
-
-function buildVendorPlanLimits(planLimits: PlanLimits | null, vendorLabel: string | null) {
-  const column = el('div', 'usage-plan-vendor');
-  if (vendorLabel) column.append(el('p', 'usage-plan-vendor-label', vendorLabel));
-  const stale = planLimitStaleNote(planLimits?.ts);
-  if (stale) {
-    const note = el('p', 'usage-meta', stale);
-    note.dataset.tone = 'warn';
-    column.append(note);
-  }
-  const list = el('div', 'usage-plan');
-  for (const spec of PLAN_WINDOWS) {
-    const window = planWindowOf(planLimits, spec.key);
-    if (!window) continue;
-    list.append(buildPlanWindow(spec, window));
-  }
-  const ageEl = el('p', 'usage-meta', '');
-  column.append(list, ageEl);
-  const paintAge = () => {
-    if (!ageEl.isConnected) return;
-    const age = planLimitAgeText(planLimits?.ts);
-    ageEl.textContent = age ? `Plan ${age}` : '';
-  };
-  paintAge();
-  _ticker.onTick(paintAge);
-  return column;
-}
-
-function buildPlanWindow(spec: { key: 'fiveHour' | 'sevenDay'; label: string }, window: { pct: number | null; resetsAtMs: number | null }) {
-  const row = el('div', 'usage-plan-window');
-  const head = el('div', 'usage-plan-head');
-  head.append(el('span', 'usage-plan-label', spec.label));
-  head.append(el('span', 'usage-plan-used', planWindowUsedText(window)));
-  const countdown = el('span', 'usage-plan-reset', '');
-  head.append(countdown);
-  row.append(head);
-
-  if (Number.isFinite(window.pct)) {
-    row.append(buildMeter(window.pct, tokenLimitTone(window.pct), `${spec.label} plan limit used`));
-  }
-
-  const paint = () => {
-    if (!countdown.isConnected) return;
-    countdown.textContent = resetCountdownText(window.resetsAtMs);
-  };
-  paint();
-  _ticker.onTick(paint);
-  return row;
 }
 
 function buildOverheadSection() {
@@ -435,70 +655,6 @@ function buildLanesTable() {
   return wrap;
 }
 
-function buildActiveBlockSection() {
-  const block = _usage.report?.activeBlock;
-  const blockHours = _usage.report?.blockHours;
-  const hours = typeof blockHours === 'number' && Number.isFinite(blockHours) ? blockHours : 5;
-
-  const claudeOnly = claudeOnlyHint(_usage.report?.totals);
-  const section = buildSection('Current block', claudeOnly ? `${hours}h window, ${claudeOnly}` : `${hours}h window`);
-  if (!block) {
-    section.append(el('p', 'usage-empty', 'No active block.'));
-    const idleAnomalyLineEl = buildAnomalyLine();
-    if (idleAnomalyLineEl) section.append(idleAnomalyLineEl);
-    return section;
-  }
-
-  const tone = blockAttentionTone(_usage.report, _usage.planLimitsByVendor.claude);
-  const tiles = el('div', 'usage-tiles');
-  tiles.append(buildTile('block tokens', formatTokens(block.tokens ?? 0), formatUsd(block.costUSD ?? 0), tone).tile);
-  for (const spec of burnTiles(block.burn)) {
-    tiles.append(buildTile(spec.label, spec.value, spec.sub, tone).tile);
-  }
-
-  const progress = blockProgress(block);
-  if (progress) {
-    const elapsed = buildTile('elapsed', `${progress.pct}%`, `${formatMinutes(progress.remainingMinutes)} left`);
-    _blockElapsedEl = elapsed.valueEl;
-    _blockRemainingEl = elapsed.subEl;
-    tiles.append(elapsed.tile);
-  }
-  section.append(tiles);
-
-  if (progress) {
-    _blockMeterEl = buildMeter(progress.pct, 'ok', 'Elapsed share of the current block window');
-    section.append(_blockMeterEl);
-    _ticker.onTick(paintBlockProgress);
-  }
-
-  const projection = projectionLine(block.projection);
-  if (projection) {
-    const projectionEl = el('p', 'usage-projection', projection);
-    projectionEl.dataset.tone = tone;
-    section.append(projectionEl);
-  }
-  const anomalyLineEl = buildAnomalyLine();
-  if (anomalyLineEl) section.append(anomalyLineEl);
-
-  const limit = tokenLimitLine(_usage.report?.tokenLimit);
-  if (!limit) return section;
-
-  const currentPct = limitPct(_usage.report?.tokenLimit);
-  const heuristicTone = blockAttentionTone(_usage.report);
-  section.append(buildMeter(currentPct, heuristicTone, 'Share of the largest completed block seen, estimated'));
-  const limitLine = el('p', 'usage-meta', limit);
-  limitLine.dataset.tone = heuristicTone;
-  section.append(limitLine);
-  section.append(el('p', 'usage-provenance', provenanceLabel('estimated')));
-  const projected = projectionLimitLine(block.projection, _usage.report?.tokenLimit);
-  if (projected) {
-    const projectedEl = el('p', 'usage-meta', projected);
-    projectedEl.dataset.tone = heuristicTone;
-    section.append(projectedEl);
-  }
-  return section;
-}
-
 function buildAnomalyLine() {
   const anomaly = _usage.report?.anomaly;
   if (!hasAnomaly(anomaly)) return null;
@@ -535,9 +691,8 @@ function buildTotalsSection() {
   const today = dailyRowForDay(_usage.report?.daily, reportDayKey(_usage.report));
   const hint = [USAGE_CAVEAT_SHORT, _usage.report?.tz ? `TZ ${_usage.report.tz}` : ''].filter(Boolean).join(' ');
   const section = buildSection('Totals', hint);
-  const tone = blockAttentionTone(_usage.report, _usage.planLimitsByVendor.claude);
   const tiles = el('div', 'usage-tiles');
-  tiles.append(buildTile('today', formatTokens(today?.tokens ?? 0), formatUsd(today?.costUSD ?? 0), tone).tile);
+  tiles.append(buildTile('today', formatTokens(today?.tokens ?? 0), formatUsd(today?.costUSD ?? 0)).tile);
   tiles.append(buildTile('range total', formatTokens(totals.tokens ?? 0), formatUsd(totals.costUSD ?? 0)).tile);
   const prReviews = prReviewsSpendTile(_usage.report);
   if (prReviews) tiles.append(buildTile(prReviews.label, prReviews.value, prReviews.sub).tile);
@@ -886,9 +1041,6 @@ function buildUnavailableSection() {
 function clearRefs() {
   _reportAgeEl = null;
   _sessionsTsEl = null;
-  _blockElapsedEl = null;
-  _blockRemainingEl = null;
-  _blockMeterEl = null;
   _refreshButtonEl = null;
   _refreshStatusEl = null;
 }
@@ -903,7 +1055,8 @@ function render({ force = false }: { force?: boolean } = {}) {
   clearRefs();
   _root.textContent = '';
   buildBody();
-  if (scroller) scroller.scrollTop = scrollTop;
+  if (scroller) scroller.scrollTop = _shouldScrollToTop ? 0 : scrollTop;
+  _shouldScrollToTop = false;
   restoreFocusAfterRender();
 }
 
@@ -923,54 +1076,19 @@ function selectorForFocusTarget(target: FocusTarget) {
   if (target.kind === 'day') return `.usage-toggle[data-usage-day="${CSS.escape(target.day)}"]`;
   if (target.kind === 'period') return `.usage-period-button[data-period-view="${CSS.escape(target.view)}"]`;
   if (target.kind === 'sessions-toggle') return '.usage-toggle[data-usage-sessions-toggle="true"]';
+  if (target.kind === 'range') return `.usage-period-button[data-usage-range="${CSS.escape(target.value)}"]`;
+  if (target.kind === 'back') return '.usage-back';
+  if (target.kind === 'drill') return `.usage-drill[data-usage-screen="${CSS.escape(target.screen)}"]`;
   if (target.kind === 'sort') return `[data-usage-table="${CSS.escape(target.table)}"] .usage-sort[data-sort-key="${CSS.escape(target.key)}"]`;
   return null;
 }
 
 function buildBody() {
   if (!_root) return;
-  const yourDay = isUsageUnavailable(_usage.report) ? null : buildYourDaySection();
-  if (yourDay) _root.append(yourDay);
-  _root.append(buildHeaderSection());
-
-  const plan = buildPlanLimitsSection();
-  if (isUsageUnavailable(_usage.report)) {
-    if (plan) _root.append(plan);
-    _root.append(buildUnavailableSection());
-    return;
-  }
-  if (!_usage.report) {
-    if (plan) _root.append(plan);
-    _root.append(el('p', 'usage-empty', 'Waiting for scan.'));
-    return;
-  }
-  const ceilings = [plan, buildBudgetsSection()].filter((section) => section !== null);
-  _root.append(bandOf('usage-band-now', buildActiveBlockSection(), ceilings, { sideFirst: true }));
-  const spendSide = [buildSavingsSection()].filter((section) => section !== null);
-  _root.append(bandOf('usage-band-spend', buildTotalsSection(), spendSide));
-  const trendSide = [buildBlockHistorySection()].filter((section) => section !== null);
-  _root.append(bandOf('usage-band-trend', buildDailySection(), trendSide));
-  const overhead = buildOverheadSection();
-  if (overhead) _root.append(overhead);
-  _root.append(buildModelsSection(), buildSessionsSection());
-}
-
-function bandOf(
-  className: string,
-  main: HTMLElement,
-  sideSections: HTMLElement[],
-  { sideFirst = false }: { sideFirst?: boolean } = {},
-): HTMLElement {
-  if (sideSections.length === 0) return main;
-  const band = el('div', `usage-band ${className}`);
-  const col = el('div', 'usage-band-col');
-  for (const section of sideSections) col.append(section);
-  if (sideFirst) {
-    band.append(col, main);
-    return band;
-  }
-  band.append(main, col);
-  return band;
+  _root.dataset.screen = _screen;
+  const layout = el('div', 'usage-layout');
+  layout.append(buildOverview(), buildDetail());
+  _root.append(layout);
 }
 
 function paintRefreshStatus() {
