@@ -138,5 +138,5 @@ function renderOverviewLine(usage: string, summary: string): string {
   return `${padColumn(usage)}${summary}`;
 }
 
-export { parseCommand, renderHelp, renderOverviewLine };
-export type { CommandSpec, OptionSpec, ParsedCommand, ParsedValues, PositionalSpec };
+export { parseCommand, renderOverviewLine };
+export type { CommandSpec, OptionSpec, ParsedCommand, PositionalSpec };
