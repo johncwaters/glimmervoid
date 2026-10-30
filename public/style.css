@@ -3705,6 +3705,7 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 .session-row .session-row-links .signal { font-weight: 400; }
 .session-row-links .signal-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .session-row:has(> .session-row-main > .session-row-links[data-expanded]:not([hidden])) { align-items: flex-start; }
+.session-row:has(> .session-row-main > .session-row-links[data-expanded]:not([hidden])) > .session-row-glyph { height: 1lh; font-size: var(--type-meta); }
 .session-row-links[data-expanded] { flex-direction: column; align-items: stretch; gap: 3px; margin-top: 2px; padding-left: 8px; border-left: 1px solid var(--border); }
 .session-row-links[data-expanded] > .signal { width: 100%; }
 .session-row-links[data-expanded] .signal-text { flex: 1 1 auto; min-width: 8ch; }
