@@ -317,9 +317,11 @@ test('mergeBack (real git): Coherence journals land with committed work, other u
     fs.writeFileSync(path.join(hooksDirectory, 'pre-commit'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
     git(['config', 'core.hooksPath', hooksDirectory], repo);
 
+    const developBeforeMerge = git(['rev-parse', 'develop'], repo).trim();
     const merged = await gw.mergeBack({ projectPath: repo, workspace: ws, targetBranch: 'develop' });
     assert.equal(merged.reason, null);
     assert.equal(merged.merged, true);
+    assert.deepEqual(merged.landedRange, { fromSha: developBeforeMerge, toSha: git(['rev-parse', 'develop'], repo).trim() });
     assert.equal(fs.readFileSync(path.join(repo, 'committed.js'), 'utf8'), 'done\n');
     assert.equal(git(['show', 'develop:.coherence/journal/x.jsonl'], repo).replace(/\r\n/g, '\n'), committedDecision + uncommittedDecision);
     assert.equal(git(['show', 'develop:.coherence/runs/x.jsonl'], repo).replace(/\r\n/g, '\n'), committedActivity + uncommittedActivity);

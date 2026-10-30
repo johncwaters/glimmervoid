@@ -55,6 +55,7 @@ import { createAccountIdReader, createTelemetry } from '../telemetry.ts';
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
 import { createShownFilesWiring, SHOWN_FOLDER_NAME } from '../session/shown-files-wiring.ts';
 import { configSiblingPath } from '../pairings-store.ts';
+import { COMMIT_SESSIONS_FOLDER_NAME, createCommitSessions } from '../commit-sessions.ts';
 import type { ShownFilesPort } from '../session/shown-files-wiring.ts';
 import { createCoherenceSessionFeed } from '../coherence/coherence-session-feed.ts';
 import { buildSettingsPayload } from '../settings-payload.ts';
@@ -355,6 +356,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     notificationManager,
     attachSessionPrLink,
     traceWiring,
+    commitSessions: createCommitSessions({ storeRoot: configSiblingPath(configStore.configPath, COMMIT_SESSIONS_FOLDER_NAME), logger: console }),
     taskTitleRefiner: laneAssembly.taskTitleRefiner,
     coherenceFeed,
     featureHints: laneAssembly.featureHints,

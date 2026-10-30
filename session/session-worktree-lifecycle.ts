@@ -75,6 +75,7 @@ interface MergeResult {
   branch?: string | null;
   base?: string | null;
   kept?: boolean;
+  landedRange?: { fromSha: string; toSha: string } | null;
 }
 
 interface BranchSyncStatus {
@@ -228,6 +229,7 @@ interface WorktreeSignature {
   rebaseInProgress: boolean;
   headSha: string;
   targetSha: string | null;
+  baseRef: string | null;
 }
 
 type MergeEngineOutcome =
@@ -1031,10 +1033,11 @@ function createSessionWorktreeLifecycle({
     let behind = "0";
     let rebaseInProgress = false;
     let targetSha: string | null = null;
+    let baseRef: string | null = null;
     try {
       status = await run(["status", "--porcelain"]);
       head = (await run(["rev-parse", "HEAD"])).trim();
-      const { ref: baseRef } = await resolveVerifiedBaseRef(opts);
+      baseRef = (await resolveVerifiedBaseRef(opts)).ref;
       if (baseRef) ahead = (await run(["rev-list", "--count", `${baseRef}..HEAD`])).trim();
       const mergeTarget = effectiveIntegrationBranch() || lifecycleState.baseSha;
       const resolvedTarget = mergeTarget ? (await gitLookup(["rev-parse", "--verify", "--quiet", mergeTarget], opts))?.trim() ?? "" : "";
@@ -1052,7 +1055,7 @@ function createSessionWorktreeLifecycle({
     }
     lifecycleState.lastLoggedCheckFailure = null;
     const sig = crypto.createHash("sha1").update(`${status} ${head} ${ahead}`).digest("hex");
-    return { sig, dirty: status.trim() !== "", ahead, behind, rebaseInProgress, headSha: head, targetSha };
+    return { sig, dirty: status.trim() !== "", ahead, behind, rebaseInProgress, headSha: head, targetSha, baseRef };
   }
 
   async function runAutoRebase(trigger: string, signature: WorktreeSignature): Promise<void> {
@@ -1164,7 +1167,7 @@ function createSessionWorktreeLifecycle({
     if (session.isDestroyed || isMerging()) return;
     if (signature.sig === lifecycleState.lastSignature && !demoted) return;
     lifecycleState.lastSignature = signature.sig;
-    port.emit("worktree-changed", { id, sig: signature.sig });
+    port.emit("worktree-changed", { id, sig: signature.sig, headSha: signature.headSha, baseRef: signature.rebaseInProgress ? null : signature.baseRef });
   }
 
   async function runMergeEngine(
@@ -1183,6 +1186,7 @@ function createSessionWorktreeLifecycle({
       if (isolation && !workspaceApi.withGitIsolation) throw new Error("Merge requires Git isolation");
       const mergeResult = await (isolation && workspaceApi.withGitIsolation ? workspaceApi.withGitIsolation(isolation, merge) : merge());
       if (mergeResult.warning) port.emit("worktree-warning", { id, branch: effectiveIntegrationBranch(), notice: mergeResult.warning });
+      if (mergeResult.merged && mergeResult.landedRange) port.emit("commits-landed", { id, repoDir: currentProjectPath(), ...mergeResult.landedRange });
       return { result: mergeResult };
     } catch (error) {
       setMergeStatus("pending-review", { reason: errorMessage(error) });

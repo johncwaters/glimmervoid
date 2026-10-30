@@ -13,6 +13,7 @@ import { decideWasActiveFlip, decideWasWorkingFlip, isTurnWorkHookEvent } from '
 import { adapterBucket, classifySessionExit } from '../core/telemetry-core.ts';
 import { INTERACTIVE_LANE } from '../usage/core/usage-lane-core.ts';
 import type { Telemetry } from '../telemetry.ts';
+import type { CommitSessions } from '../commit-sessions.ts';
 import type { SessionEndCause, SessionExitKind } from '../../shared/contracts/telemetry.ts';
 import { errorMessage } from '../../shared/text.ts';
 
@@ -46,6 +47,7 @@ interface SessionEventDependencies {
   coherenceFeed?: { attachSession: (session: Session) => void; onTurnEnd: (session: Session) => void } | null;
   traceWiring?: { attachSession: (session: Session) => void } | null;
   featureHints?: { attachSession: (session: Session) => void } | null;
+  commitSessions?: Pick<CommitSessions, 'noteHeadChange'> | null;
   planReview?: {
     attachSession: (session: Session) => void;
     latestPlanTitle: (sessionId: string) => string | null;
@@ -352,8 +354,30 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       if (!session.ephemeral) persistProjectField('prLinks', prLinks);
       dependencies.broadcastControl({ type: 'session-prs', id: session.id, linkedPrs: prLinks.links });
     });
-    session.on('worktree-changed', ({ sig }: { sig: string }) => {
+    session.on('worktree-changed', ({ sig, headSha, baseRef }: { sig: string; headSha?: string; baseRef?: string | null }) => {
       dependencies.broadcastControl({ type: 'session-changed', id: session.id, sig });
+      const worktreeDir = session.worktreeDir;
+      if (!headSha || !worktreeDir || !session.hasOwnWorktree) return;
+      void dependencies.commitSessions?.noteHeadChange({
+        sessionId: session.id,
+        sessionName: session.name,
+        agent: session.agentId,
+        taskTitle: session.taskTitle,
+        worktreeDir,
+        headSha,
+        baseRef: baseRef ?? null,
+      });
+    });
+    session.on('commits-landed', ({ repoDir, fromSha, toSha }: { repoDir: string; fromSha: string; toSha: string }) => {
+      void dependencies.commitSessions?.noteHeadChange({
+        sessionId: session.id,
+        sessionName: session.name,
+        agent: session.agentId,
+        taskTitle: session.taskTitle,
+        worktreeDir: repoDir,
+        headSha: toSha,
+        baseRef: fromSha,
+      });
     });
     session.on('worktree-blocked', ({ branch, notice }: { branch: string | null; notice: unknown }) => {
       dependencies.broadcastControl({

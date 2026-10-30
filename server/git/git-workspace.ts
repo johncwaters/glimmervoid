@@ -107,7 +107,9 @@ type MergeOutcome = {
   rerereReplayed?: boolean;
   pushed?: boolean;
   warning?: string;
+  landedRange?: LandedRange | null;
 };
+type LandedRange = { fromSha: string; toSha: string };
 type RebaseOutcome = {
   ok: boolean;
   upToDate?: boolean;
@@ -812,6 +814,7 @@ function createGitWorkspace(opts: {
     conflicts?: string[];
     restoreConflict?: boolean;
     rerereReplayed?: boolean;
+    landedRange?: LandedRange | null;
   }> {
 
     const ahead = await run(['rev-list', '--count', `${target}..${branch}`], projectPath);
@@ -836,14 +839,17 @@ function createGitWorkspace(opts: {
     }
 
     const head = (await run(['rev-parse', '--abbrev-ref', 'HEAD'], projectPath)).out;
+    const targetShaBeforeLanding = (await run(['rev-parse', '--verify', '--quiet', `refs/heads/${target}`], projectPath)).out;
     const merged = await fastForwardTarget(projectPath, `refs/heads/${branch}`, target, head === target);
     if (!merged.ok) {
       await restoreSavedWork(wt, savedWork);
       return { committed: true, merged: false, reason: 'not-fast-forward', parked: true, rerereReplayed };
     }
 
+    const landedTipSha = (await run(['rev-parse', '--verify', '--quiet', `refs/heads/${target}`], projectPath)).out;
+    const landedRange = targetShaBeforeLanding && landedTipSha ? { fromSha: targetShaBeforeLanding, toSha: landedTipSha } : null;
     const restoreConflict = !(await restoreSavedWork(wt, savedWork));
-    return { committed: true, merged: true, reason: null, restoreConflict, rerereReplayed };
+    return { committed: true, merged: true, reason: null, restoreConflict, rerereReplayed, landedRange };
   }
 
   async function resolveMergeBack({ projectPath, workspace, targetBranch }: WorktreeArgs): Promise<{
@@ -937,6 +943,7 @@ function createGitWorkspace(opts: {
       reason: null,
       pushed,
       rerereReplayed: r.rerereReplayed === true,
+      landedRange: r.landedRange ?? null,
     }, warning);
   }
 
@@ -965,6 +972,7 @@ function createGitWorkspace(opts: {
     return includeWarning({
       merged: true, committed: true, branch, base: target, baseSha, kept: true, reason: null,
       pushed, restoreConflict: r.restoreConflict || false, rerereReplayed: r.rerereReplayed === true,
+      landedRange: r.landedRange ?? null,
     }, warning);
   }
 
