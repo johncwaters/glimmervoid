@@ -201,6 +201,7 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
     if (!npmGlobalLayout) return;
     try {
       await fsPromises.access(npmGlobalLayout.installFolder, fs.constants.W_OK);
+      await fsPromises.access(npmGlobalLayout.livePackagePath, fs.constants.W_OK);
       isInstallWritable = true;
     } catch {
       isInstallWritable = false;

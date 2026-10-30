@@ -177,3 +177,18 @@ test('an npm global install whose folder is not writable refuses before download
     fs.rmSync(install.root, { recursive: true, force: true });
   }
 });
+
+test('an npm global install whose package folder is not writable refuses before downloading', async () => {
+  const install = makeInstall();
+  fs.chmodSync(install.packageRoot, 0o555);
+  try {
+    const lane = startLane(install);
+    const outcome = await lane.applyUpdate();
+    await lane.stop();
+    assert.equal(outcome.reason, 'install-not-writable');
+    assert.equal(fs.existsSync(path.join(install.installFolder, '.glimmervoid-update', 'stage')), false);
+  } finally {
+    fs.chmodSync(install.packageRoot, 0o755);
+    fs.rmSync(install.root, { recursive: true, force: true });
+  }
+});
