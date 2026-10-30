@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { CHANGE_MAP_LIST_CAP, ChangeMap } from '../../shared/contracts/change-map.ts';
+import { ChangeMap } from '../../shared/contracts/change-map.ts';
 import type { ChangedFile, RepoChangeMap } from '../../shared/contracts/change-map.ts';
 import type { ChangeScope } from '../../session/session-worktree-lifecycle.ts';
 import { gitCommandFailure, runGit } from '../git/git-exec.ts';
@@ -16,7 +16,7 @@ import {
 } from './core/change-map-core.ts';
 import { CO_CHANGE_LOG_ARGS, computeCoChange, parseCoChangeLog } from '../core/co-change-core.ts';
 import type { CommitFiles } from '../core/co-change-core.ts';
-import { computeCollisions, computeSubsystems, parseZeroContextDiff, readAgentsTitle } from './core/change-ownership-core.ts';
+import { collisionCandidates, computeCollisions, computeSubsystems, parseZeroContextDiff, readAgentsTitle } from './core/change-ownership-core.ts';
 import type { FileEditsByPath } from './core/change-ownership-core.ts';
 import { buildImportGraph, computeBlastRadius, extractImportSpecifiers, extractPythonImportSpecifiers } from '../core/import-graph-core.ts';
 import { createTsconfigPathsResolver, parseTsconfigJsonc, resolveExtendsPath } from '../core/tsconfig-paths-core.ts';
@@ -36,6 +36,7 @@ const MAX_CACHED_COMMON_DIRS = 256;
 const MAX_MEMOIZED_REPO_FACTS = 64;
 const MAX_CACHED_STARTING_POINTS = 256;
 const MAX_CACHED_EDIT_READS = 64;
+const FULL_COMMIT_SHA = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 
 export interface ChangeMapSession {
   id: string;
@@ -257,13 +258,18 @@ export function createChangeMapService({
     return otherSessions;
   }
 
-  function sharedStartingPoint(root: string, selfBase: string | null, otherBase: string | null): Promise<string | null> {
+  function readStartingPoint(root: string, selfBase: string, otherBase: string): Promise<string | null> {
+    return runGit(['merge-base', selfBase, otherBase], root).then((output) => output.trim() || null, () => null);
+  }
+
+  function sharedStartingPoint(root: string, commonDir: string, selfBase: string | null, otherBase: string | null): Promise<string | null> {
     if (!selfBase || !otherBase) return Promise.resolve(null);
     if (selfBase === otherBase) return Promise.resolve(selfBase);
-    const basePairKey = [selfBase, otherBase].sort().join(':');
+    if (!FULL_COMMIT_SHA.test(selfBase) || !FULL_COMMIT_SHA.test(otherBase)) return readStartingPoint(root, selfBase, otherBase);
+    const basePairKey = `${commonDir}:${[selfBase, otherBase].sort().join(':')}`;
     const cached = startingPointByBasePair.get(basePairKey);
     if (cached) return cached;
-    const startingPoint = runGit(['merge-base', selfBase, otherBase], root).then((output) => output.trim() || null, () => null);
+    const startingPoint = readStartingPoint(root, selfBase, otherBase);
     rememberBounded(startingPointByBasePair, basePairKey, startingPoint, MAX_CACHED_STARTING_POINTS);
     void startingPoint.then((resolved) => {
       if (resolved === null) startingPointByBasePair.delete(basePairKey);
@@ -294,26 +300,33 @@ export function createChangeMapService({
 
   async function rateCollisions(scope: ChangeScope, commonDir: string, selfId: string, changedPaths: string[]) {
     const self = worktreeChangesOf(scope);
-    const changedPathSet = new Set(changedPaths);
     const otherSessions = await otherSessionsOn(commonDir, selfId);
-    const selfEditsByOtherSessionId = new Map<string, FileEditsByPath | null>();
-    const ratedOtherSessions = await Promise.all(otherSessions.map(async (otherSession) => {
-      const sharedPaths = [...new Set(otherSession.changedPaths)].filter((path) => changedPathSet.has(path)).sort().slice(0, CHANGE_MAP_LIST_CAP);
-      const otherWorktree = otherSession.worktrees.find((worktree) => worktree.changedPaths.some((path) => changedPathSet.has(path)));
-      if (sharedPaths.length === 0 || !otherWorktree) return { ...otherSession, editsByPath: null };
-      const startingPoint = await sharedStartingPoint(scope.root, self.base, otherWorktree.base);
+    const candidates = collisionCandidates({ changedPaths, otherSessions });
+    const sharedPathsByOtherSessionId = new Map<string, string[]>();
+    for (const candidate of candidates) {
+      const sharedPaths = sharedPathsByOtherSessionId.get(candidate.otherSessionId) ?? [];
+      sharedPaths.push(candidate.path);
+      sharedPathsByOtherSessionId.set(candidate.otherSessionId, sharedPaths);
+    }
+    const editsByOtherSessionId = new Map<string, { selfEditsByPath: FileEditsByPath | null; otherEditsByPath: FileEditsByPath | null }>();
+    await Promise.all(otherSessions.map(async (otherSession) => {
+      const sharedPaths = sharedPathsByOtherSessionId.get(otherSession.id);
+      const otherWorktree = sharedPaths && otherSession.worktrees.find((worktree) => sharedPaths.some((path) => worktree.changedPaths.includes(path)));
+      if (!sharedPaths || !otherWorktree) return;
+      const startingPoint = await sharedStartingPoint(scope.root, commonDir, self.base, otherWorktree.base);
       const [selfEditsByPath, otherEditsByPath] = await Promise.all([
         editsSince(self, startingPoint, sharedPaths),
         editsSince(otherWorktree, startingPoint, sharedPaths),
       ]);
-      selfEditsByOtherSessionId.set(otherSession.id, selfEditsByPath);
-      return { ...otherSession, editsByPath: otherEditsByPath };
+      editsByOtherSessionId.set(otherSession.id, { selfEditsByPath, otherEditsByPath });
     }));
     return computeCollisions({
       repoName: scope.name,
-      changedPaths,
-      otherSessions: ratedOtherSessions,
-      selfEditsFor: (otherSessionId) => selfEditsByOtherSessionId.get(otherSessionId) ?? null,
+      candidates,
+      editsFor: (candidate) => {
+        const edits = editsByOtherSessionId.get(candidate.otherSessionId);
+        return { selfEdits: edits?.selfEditsByPath?.get(candidate.path), otherEdits: edits?.otherEditsByPath?.get(candidate.path) };
+      },
     });
   }
 

@@ -134,6 +134,30 @@ test('collision rating diffs only shared paths, once per cache window, and never
   }
 });
 
+test('every collision shown past the cap is one that was compared line by line', { skip: !hasGit() }, async () => {
+  const { root, base } = createFixtureRepo();
+  const siblingRoot = path.join(root, 'not-a-real-sibling-worktree');
+  try {
+    const commonDir = path.resolve(root, git(['rev-parse', '--git-common-dir'], root).trim());
+    const sharedPaths = ['B.ts', ...Array.from({ length: 20 }, (_, index) => `a${String(index).padStart(2, '0')}.ts`)];
+    const sharedNameStatus = sharedPaths.map((sharedPath) => `M${nul}${sharedPath}${nul}`).join('');
+    const self = fixtureSession('self', 'Self', () => [{ ...modifiedScope(root, ''), base, uncommittedNameStatus: sharedNameStatus }]);
+    const sibling = fixtureSession('sibling', 'Sibling', () => [{ ...modifiedScope(siblingRoot, ''), base, uncommittedNameStatus: sharedNameStatus }]);
+    const service = createChangeMapService({
+      sessions: new Map<string, ChangeMapSession>([[self.id, self], [sibling.id, sibling]]),
+      runGit: async (args, cwd) => {
+        if (cwd !== siblingRoot) return git(args, cwd);
+        return args.includes('--git-common-dir') ? commonDir : '';
+      },
+    });
+    const { collisions } = (await service.build(self)).repos[0];
+    assert.equal(collisions.length, 20);
+    assert.deepEqual(collisions.filter((fact) => fact.conflictRisk === 'medium').map((fact) => fact.path), []);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('an edit that leaves the name-status unchanged still refreshes the memoized import graph', { skip: !hasGit() }, async () => {
   const { root, base } = createFixtureRepo();
   try {

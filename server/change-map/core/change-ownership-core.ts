@@ -140,30 +140,41 @@ function rateConflictRisk(selfEdits: FileEdits | undefined, otherEdits: FileEdit
   return { risk: 'low', evidence: `The closest edits are ${closest.gap} lines apart.` };
 }
 
-export function computeCollisions({ repoName, changedPaths, otherSessions, selfEditsFor }: {
-  repoName: string;
+interface CollisionCandidate {
+  path: string;
+  otherSessionId: string;
+  otherSessionName: string;
+}
+
+export function collisionCandidates({ changedPaths, otherSessions }: {
   changedPaths: string[];
-  otherSessions: { id: string; name: string; changedPaths: string[]; editsByPath: FileEditsByPath | null }[];
-  selfEditsFor: (otherSessionId: string) => FileEditsByPath | null;
-}): CollisionFact[] {
+  otherSessions: { id: string; name: string; changedPaths: string[] }[];
+}): CollisionCandidate[] {
   const changedPathSet = new Set(changedPaths);
-  const collisions: CollisionFact[] = [];
+  const candidates: CollisionCandidate[] = [];
   for (const otherSession of otherSessions) {
-    const selfEditsByPath = selfEditsFor(otherSession.id);
     for (const path of new Set(otherSession.changedPaths)) {
-      if (!changedPathSet.has(path)) continue;
-      const rating = rateConflictRisk(selfEditsByPath?.get(path), otherSession.editsByPath?.get(path));
-      collisions.push({
-        factId: changeMapFactId('collision', repoName, path, otherSession.id),
-        path,
-        otherSessionId: otherSession.id,
-        otherSessionName: otherSession.name,
-        conflictRisk: rating.risk,
-        conflictEvidence: rating.evidence,
-      });
+      if (changedPathSet.has(path)) candidates.push({ path, otherSessionId: otherSession.id, otherSessionName: otherSession.name });
     }
   }
-  return collisions.sort((left, right) => left.path.localeCompare(right.path)
+  return candidates.sort((left, right) => left.path.localeCompare(right.path)
     || left.otherSessionName.localeCompare(right.otherSessionName)
     || left.otherSessionId.localeCompare(right.otherSessionId)).slice(0, CHANGE_MAP_LIST_CAP);
+}
+
+export function computeCollisions({ repoName, candidates, editsFor }: {
+  repoName: string;
+  candidates: CollisionCandidate[];
+  editsFor: (candidate: CollisionCandidate) => { selfEdits: FileEdits | undefined; otherEdits: FileEdits | undefined };
+}): CollisionFact[] {
+  return candidates.map((candidate) => {
+    const { selfEdits, otherEdits } = editsFor(candidate);
+    const rating = rateConflictRisk(selfEdits, otherEdits);
+    return {
+      factId: changeMapFactId('collision', repoName, candidate.path, candidate.otherSessionId),
+      ...candidate,
+      conflictRisk: rating.risk,
+      conflictEvidence: rating.evidence,
+    };
+  });
 }
