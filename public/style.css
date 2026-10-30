@@ -1096,6 +1096,11 @@ body {
   overscroll-behavior: contain;
 }
 
+html[data-layout="phone"] .dialog-overlay {
+  align-items: flex-start;
+  padding-top: max(16px, env(safe-area-inset-top));
+}
+
 .dialog {
   background: var(--bg-card);
   border: 1px solid var(--border-hover);

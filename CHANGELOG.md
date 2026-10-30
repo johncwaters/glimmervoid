@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Phone dialogs stay above the keyboard**: on a phone, dialogs such as New board now open at the top of the screen instead of the middle, so the on-screen keyboard no longer covers the text box and its buttons.
+
 ## [0.48.0] - 2026-10-29
 
 ### Added
