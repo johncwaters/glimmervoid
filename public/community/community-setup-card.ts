@@ -140,7 +140,7 @@ export function createCommunitySetupCard({ onFinish }: { onFinish: () => void })
   }
 
   const keyStepBody = () => fieldStepBody({
-    advice: 'Glimmervoid reads new forum and Discord questions through your PostHog personal API key. Create one in PostHog under Settings, Personal API keys, with read access to the project that holds the questions.',
+    advice: 'Glimmervoid reads new forum and Discord questions through your PostHog personal API key. Create one in PostHog under Settings, Personal API keys. Community needs only the query:read scope on the project that holds the questions. PostHog error monitoring shares this key, so add error tracking read and write if you turn that on.',
     label: 'PERSONAL API KEY', inputId: 'community-setup-key', inputType: 'password', initialValue: '', placeholder: 'phx_',
     saveLabel: 'Save key', action: 'save-community-key', nextProgress: 'project', isSkippable: false,
     settingsPatch: (typedText) => (typedText.trim() ? { posthog: { apiKey: typedText.trim() } } : 'Paste a PostHog personal API key.'),
@@ -160,7 +160,7 @@ export function createCommunitySetupCard({ onFinish }: { onFinish: () => void })
     advice: 'The Claude Code skill the research agent follows for each question, typed by name. A skill that knows your docs and support playbook gives the best drafts. Skip to research with whatever skills the agent has.',
     label: 'SKILL', inputId: 'community-setup-skill', inputType: 'text', initialValue: savedCommunitySettings().skill, placeholder: 'skill name',
     saveLabel: 'Save skill', action: 'save-community-skill', nextProgress: 'discord', isSkippable: true,
-    settingsPatch: (typedText) => ({ community: { skill: typedText.trim() } }),
+    settingsPatch: (typedText) => ({ community: { skill: typedText.trim().replace(/^\//, '') } }),
   });
 
   const discordStepBody = () => fieldStepBody({

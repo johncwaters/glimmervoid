@@ -9,6 +9,8 @@ const COMMUNITY_ITEM_KEY_RE = /^(forum|discord):[A-Za-z0-9_-]{1,128}$/;
 
 export const DISCORD_CHANNEL_NAME_RE = /^[a-z0-9_-]{1,100}$/;
 
+export const SKILL_NAME_RE = /^[A-Za-z0-9:._-]{1,100}$/;
+
 export const CommunityItem = z.strictObject({
   key: z.string().regex(COMMUNITY_ITEM_KEY_RE),
   source: CommunitySource,
