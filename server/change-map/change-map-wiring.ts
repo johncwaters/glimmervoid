@@ -44,8 +44,22 @@ export interface ChangeMapSession {
   getChangeScopes(): Promise<ChangeScope[]>;
 }
 
+interface ChangeMapSessionSource {
+  values(): Iterable<ChangeMapSession>;
+  has(id: string): boolean;
+}
+
+export function joinSessionRegistries(...registries: ReadonlyMap<string, ChangeMapSession>[]): ChangeMapSessionSource {
+  return {
+    *values() {
+      for (const registry of registries) yield* registry.values();
+    },
+    has: (id) => registries.some((registry) => registry.has(id)),
+  };
+}
+
 interface ChangeMapServiceOptions {
-  sessions: Map<string, ChangeMapSession>;
+  sessions: ChangeMapSessionSource;
   runGit?: (args: string[], cwd: string) => Promise<string>;
   nowFn?: () => number;
 }

@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { ChangeMap } from '../shared/contracts/change-map.ts';
 import type { ChangeScope } from '../session/session-worktree-lifecycle.ts';
-import { createChangeMapService } from '../server/change-map/change-map-wiring.ts';
+import { createChangeMapService, joinSessionRegistries } from '../server/change-map/change-map-wiring.ts';
 import type { ChangeMapSession } from '../server/change-map/change-map-wiring.ts';
 import { git, hasGit } from './helpers/git-fixture.ts';
 
@@ -78,12 +78,12 @@ test('a failed git read under the default runner shows as a repo error, never as
   }
 });
 
-test('change map joins git facts for a real repo into one contract-valid map', { skip: !hasGit() }, async () => {
+test('change map joins git facts for a real repo into one contract-valid map, finding a sibling in another session registry', { skip: !hasGit() }, async () => {
   const { root, base } = createFixtureRepo();
   try {
     const self = fixtureSession('self', 'Self', () => [scopeOf(root, base)]);
     const sibling = fixtureSession('sibling', 'Sibling', () => [{ ...scopeOf(root, base), uncommittedNameStatus: `M${nul}server/a.ts${nul}` }]);
-    const sessions = new Map<string, ChangeMapSession>([[self.id, self], [sibling.id, sibling]]);
+    const sessions = joinSessionRegistries(new Map([[self.id, self]]), new Map([[sibling.id, sibling]]));
     const map = await createChangeMapService({ sessions }).build(self);
     assert.equal(ChangeMap.safeParse(map).success, true);
     const [repo] = map.repos;
