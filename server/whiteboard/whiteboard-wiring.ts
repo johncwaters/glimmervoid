@@ -72,7 +72,10 @@ interface WhiteboardPort {
     put(boardId: string, ops: readonly Op[]): Promise<OperatorReply>;
     remove(boardId: string): Promise<OperatorReply>;
     get(boardId: string): Promise<OperatorReply>;
+    connect(boardId: string, sessionId: string): Promise<OperatorReply>;
+    disconnect(boardId: string, sessionId: string): Promise<OperatorReply>;
   };
+  forgetSession(sessionId: string): Promise<void>;
   snapshotMessage(): ServerMessageOf<'whiteboards-snapshot'>;
 }
 
@@ -205,6 +208,20 @@ function createWhiteboardWiring({
     return { status: 200, body: { ok: true, board: summarizeBoard(record), note } };
   }
 
+  function connectBoard(boardId: string, sessionId: string): Promise<WhiteboardReply> {
+    return changeRecord(boardId, (record) => {
+      const next = connectSession(record, sessionId);
+      return { ok: true, record: next, reply: connectionReply(next, PUT_GUIDE) };
+    });
+  }
+
+  function disconnectBoard(boardId: string, sessionId: string): Promise<WhiteboardReply> {
+    return changeRecord(boardId, (record) => {
+      const next = disconnectSession(record, sessionId);
+      return { ok: true, record: next, reply: connectionReply(next, 'this session no longer gets summaries of changes to this board') };
+    });
+  }
+
   function removeBoard(boardId: string): Promise<WhiteboardReply> {
     return writeQueue.run(boardId, async () => {
       const current = recordsByBoardId.get(boardId);
@@ -242,7 +259,15 @@ function createWhiteboardWiring({
       if (!record) return refusal(404, DELETED_BOARD_TEXT);
       return { status: 200, body: { ok: true, board: record.board, changes: [] } };
     }),
+    connect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => connectBoard(foundBoardId, sessionId)),
+    disconnect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => disconnectBoard(foundBoardId, sessionId)),
   };
+
+  async function forgetSession(sessionId: string): Promise<void> {
+    await loaded;
+    const connectedBoardIds = [...recordsByBoardId].filter(([, record]) => sessionId in record.cursorBySessionId).map(([boardId]) => boardId);
+    await Promise.all(connectedBoardIds.map((boardId) => disconnectBoard(boardId, sessionId)));
+  }
 
   async function handleAgent(caller: WhiteboardCaller, request: WhiteboardAgentRequest): Promise<WhiteboardReply> {
     await loaded;
@@ -254,23 +279,15 @@ function createWhiteboardWiring({
     if (!found.ok) return found.reply;
     const author: Author = { id: caller.id, name: caller.name };
     switch (request.sub) {
-      case 'connect':
-        return changeRecord(found.boardId, (record) => {
-          const next = connectSession(record, caller.id);
-          return { ok: true, record: next, reply: connectionReply(next, PUT_GUIDE) };
-        });
-      case 'disconnect':
-        return changeRecord(found.boardId, (record) => {
-          const next = disconnectSession(record, caller.id);
-          return { ok: true, record: next, reply: connectionReply(next, 'this session no longer gets summaries of changes to this board') };
-        });
+      case 'connect': return connectBoard(found.boardId, caller.id);
+      case 'disconnect': return disconnectBoard(found.boardId, caller.id);
       case 'get': return readBoard(found.boardId, caller.id);
       case 'put': return putOps(found.boardId, request.ops, author);
       case 'resolve': return putOps(found.boardId, [{ op: 'resolve', id: request.note }], author);
     }
   }
 
-  return { loaded, handleAgent, handleOperator, snapshotMessage };
+  return { loaded, handleAgent, handleOperator, forgetSession, snapshotMessage };
 }
 
 export { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME };

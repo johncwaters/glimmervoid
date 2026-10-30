@@ -293,6 +293,8 @@ const clientVariants = [
   loose('whiteboard-op', { boardId: Board.shape.id, ops: z.array(Op).min(1).max(WHITEBOARD_LIMITS.opsPerPut), requestId }),
   loose('whiteboard-delete', { boardId: Board.shape.id, requestId }),
   loose('whiteboard-get', { boardId: Board.shape.id, requestId }),
+  loose('whiteboard-connect', { boardId: Board.shape.id, sessionId: z.string().min(1), requestId }),
+  loose('whiteboard-disconnect', { boardId: Board.shape.id, sessionId: z.string().min(1), requestId }),
 
   loose('save-hook', { hook: z.record(z.string(), z.unknown()), requestId }),
   loose('delete-hook', { id: z.string(), requestId }),

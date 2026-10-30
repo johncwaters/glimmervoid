@@ -306,6 +306,8 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'whiteboard-op': () => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
     'whiteboard-delete': () => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
     'whiteboard-get': () => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
+    'whiteboard-connect': () => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
+    'whiteboard-disconnect': () => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
     'save-hook': () => ({ type: 'save-hook-result', requestId, ok: false, error: message }),
     'add-session': () => ({ type: 'add-session-result', requestId, ok: false, error: message }),
     'quick-session': () => ({ type: 'add-session-result', requestId, ok: false, error: message }),
@@ -1726,6 +1728,11 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'whiteboard-op': (msg: ClientMessageOf<'whiteboard-op'>, ws: ControlSocket) => answerWhiteboard(ws, msg, (port) => port.put(msg.boardId, msg.ops)),
     'whiteboard-delete': (msg: ClientMessageOf<'whiteboard-delete'>, ws: ControlSocket) => answerWhiteboard(ws, msg, (port) => port.remove(msg.boardId)),
     'whiteboard-get': (msg: ClientMessageOf<'whiteboard-get'>, ws: ControlSocket) => answerWhiteboard(ws, msg, (port) => port.get(msg.boardId)),
+    'whiteboard-connect': (msg: ClientMessageOf<'whiteboard-connect'>, ws: ControlSocket) => answerWhiteboard(ws, msg, async (port) => {
+      if (!findSession({ id: msg.sessionId })) return { ok: false, error: 'That session is no longer on the dashboard.' };
+      return port.connect(msg.boardId, msg.sessionId);
+    }),
+    'whiteboard-disconnect': (msg: ClientMessageOf<'whiteboard-disconnect'>, ws: ControlSocket) => answerWhiteboard(ws, msg, (port) => port.disconnect(msg.boardId, msg.sessionId)),
     'delete-hook': handleDeleteHook,
     'kill':             (msg: ClientMessageOf<'kill'>) => { const s = findSession(msg); if (s) s.killSession(); },
     'start-session':    handleStartSession,

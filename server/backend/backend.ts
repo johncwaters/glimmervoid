@@ -215,7 +215,10 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     broadcastControl: broadcastControlFromWebSockets,
     closeSessionDataClients,
   } = webSockets;
-  broadcastControl = broadcastControlFromWebSockets;
+  broadcastControl = (message) => {
+    broadcastControlFromWebSockets(message);
+    if (message.type === 'session-removed' && typeof message.id === 'string') void whiteboards.forgetSession(message.id);
+  };
   const sessionDocs = createSessionDocsWiring({ broadcastControl: broadcastControlFromWebSockets });
   const shownFilesWiring = createShownFilesWiring({ shownRoot: configSiblingPath(configStore.configPath, SHOWN_FOLDER_NAME), broadcastControl: broadcastControlFromWebSockets });
   shownFiles = shownFilesWiring;

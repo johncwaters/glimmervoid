@@ -16,6 +16,7 @@ import { settleBackendShutdown } from './helpers/lanes.ts';
 
 const PLANNER_ID = 'whiteboard-planner';
 const BUILDER_ID = 'whiteboard-builder';
+const LEAVER_ID = 'whiteboard-leaver';
 
 interface BootedBackend {
   server: Server;
@@ -83,7 +84,7 @@ async function newBoard(title: string): Promise<string> {
 test.before(async () => {
   fixture.prevEnv = process.env.GLIMMERVOID_CONFIG;
   fixture.tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-whiteboard-'));
-  const projects = [PLANNER_ID, BUILDER_ID].map((id) => {
+  const projects = [PLANNER_ID, BUILDER_ID, LEAVER_ID].map((id) => {
     const projectDir = path.join(fixture.tmpDir, id);
     fs.mkdirSync(projectDir);
     return { id, name: id, path: projectDir };
@@ -204,6 +205,44 @@ test('the operator deletes a board from the dashboard and a connected agent is t
   const afterDelete = await whiteboard(PLANNER_ID, { sub: 'get', board: boardId });
   assert.equal(afterDelete.status, 404);
   assert.equal(afterDelete.body.error, 'that board was deleted');
+});
+
+test('the operator connects and disconnects a session from the dashboard, and a removed session leaves every board', async () => {
+  const boardId = await newBoard('operator links');
+  const client = await dashboardClient(boundPort(running().server));
+  const control = await openRecordingSocket<{ type: string; requestId?: string; ok?: boolean; error?: string; summary?: { connectedSessionIds: string[] }; boards?: { id: string; connectedSessionIds: string[] }[] }>(client);
+  try {
+    const command = async (message: Record<string, unknown> & { requestId: string }) => {
+      control.ws.send(JSON.stringify(message));
+      return waitForMessage(control.received, (frame) => frame.requestId === message.requestId, `the ${message.type} reply`);
+    };
+
+    const connected = await command({ type: 'whiteboard-connect', boardId, sessionId: BUILDER_ID, requestId: 'connect-builder' });
+    assert.equal(connected.ok, true);
+    assert.ok(connected.summary?.connectedSessionIds.includes(BUILDER_ID));
+    const moved = await command({ type: 'whiteboard-op', boardId, ops: [{ op: 'add', element: { kind: 'box', id: 'from-operator', title: 'Operator box', column: 'intake' } }], requestId: 'operator-op' });
+    assert.equal(moved.ok, true);
+    const builderView = await boardOf(BUILDER_ID, boardId);
+    assert.deepEqual(builderView.changes.map((change) => change.summary), ['operator added box "Operator box"']);
+
+    const disconnected = await command({ type: 'whiteboard-disconnect', boardId, sessionId: BUILDER_ID, requestId: 'disconnect-builder' });
+    assert.equal(disconnected.ok, true);
+    assert.equal(disconnected.summary?.connectedSessionIds.includes(BUILDER_ID), false);
+
+    const unknown = await command({ type: 'whiteboard-connect', boardId, sessionId: 'no-such-session', requestId: 'connect-unknown' });
+    assert.equal(unknown.ok, false);
+    assert.equal(unknown.error, 'That session is no longer on the dashboard.');
+
+    const leaverConnected = await command({ type: 'whiteboard-connect', boardId, sessionId: LEAVER_ID, requestId: 'connect-leaver' });
+    assert.ok(leaverConnected.summary?.connectedSessionIds.includes(LEAVER_ID));
+    const framesBeforeRemoval = control.received.length;
+    const removed = await command({ type: 'remove-session', id: LEAVER_ID, requestId: 'remove-leaver' });
+    assert.equal(removed.ok, true, String(removed.error));
+    await waitForMessage(control.received, (frame) => control.received.indexOf(frame) >= framesBeforeRemoval && frame.type === 'whiteboards-snapshot'
+      && frame.boards?.some((board) => board.id === boardId && !board.connectedSessionIds.includes(LEAVER_ID)) === true, 'the snapshot without the removed session');
+  } finally {
+    await closeSocket(control.ws);
+  }
 });
 
 test('boards and their connections survive a restart', async () => {
