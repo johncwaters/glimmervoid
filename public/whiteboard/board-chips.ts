@@ -30,7 +30,7 @@ function queuedEditsText(summary: BoardSummary, sessionId: string): string {
 
 function boardSignal(summary: BoardSummary, sessionId: string, text: string): ActivatableSignal {
   const queuedText = queuedEditsText(summary, sessionId);
-  const tone = queuedText ? 'warn' : 'muted';
+  const tone = queuedText ? 'wait' : 'muted';
   return {
     key: `board:${summary.id}`,
     text,
