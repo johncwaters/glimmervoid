@@ -51,7 +51,7 @@ import { PlanDecision } from '../shared/contracts/plan-review.ts';
 import type { UpdateJournal } from '../shared/contracts/update-journal.ts';
 import type { ChangeMap } from '../shared/contracts/change-map.ts';
 import { CLIENT_LOG_SCOPE_MAX_CHARS, CLIENT_LOG_TEXT_MAX_CHARS } from '../shared/contracts/control-messages.ts';
-import type { KeptWorkPath } from '../shared/contracts/control-messages.ts';
+import type { GithubTeam, KeptWorkPath } from '../shared/contracts/control-messages.ts';
 import { sanitizeOneLine, showHomeAsTilde } from './core/text-core.ts';
 import { TeamReviewActionRequest } from '../shared/contracts/team-review.ts';
 import { CommunityActionRequest } from '../shared/contracts/community.ts';
@@ -163,6 +163,8 @@ interface ControlHandlerDeps {
   getBenchmarkStatus?: (() => BenchmarkStatus | null) | null;
   benchmarks?: BenchmarkControl | null;
   requestIssue?: GithubLaneStore['requestIssue'];
+  requestViewer?: GithubLaneStore['requestViewer'];
+  requestViewerTeams?: GithubLaneStore['requestViewerTeams'];
   issueProjectRepos?: ((projectId: string) => Promise<string[]>) | null;
   serverBuild?: () => string | null;
   getUsageSessions?: (() => unknown) | null;
@@ -282,6 +284,7 @@ function requestValidationErrorReply(msg: Record<string, unknown> | null | undef
     'update-settings': () => ({ type: 'settings-error', requestId, message }),
     'scan-repo-roots': () => ({ type: 'repo-roots-scanned', requestId, directories: [], error: message }),
     'list-agents': () => ({ type: 'agents-listed', requestId, agents: [], error: message }),
+    'list-github-teams': () => ({ type: 'github-teams-listed', requestId, viewer: null, teams: [], error: message }),
     'get-radar-report': () => ({ type: 'radar-report', requestId, ok: false, found: false, issueId: null, error: message }),
     'radar-open-session': () => ({ type: 'radar-open-session-result', requestId, ok: false, error: message }),
     'issue-detail': () => ({ type: 'issue-detail-result', requestId, ok: false, body: null, error: message }),
@@ -389,6 +392,8 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     benchmarks = null,
 
     requestIssue = async () => ({ isRateLimited: false, value: { ok: false, issue: null, error: 'Issues polling is not running.' } }),
+    requestViewer = async () => ({ isRateLimited: false, value: null }),
+    requestViewerTeams = async () => ({ isRateLimited: false, value: null }),
     issueProjectRepos = null,
 
     serverBuild = () => null,
@@ -1248,6 +1253,17 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
 
   const issueOpenQueue = createKeyedSerialQueue();
 
+  async function handleListGithubTeams(request: ClientMessageOf<'list-github-teams'>, ws: ControlSocket): Promise<void> {
+    const reply = (payload: { viewer: string | null; teams: GithubTeam[]; error: string | null }) => replyTo(ws, request, 'github-teams-listed', payload);
+    const viewerRead = await requestViewer('priority');
+    if (viewerRead.isRateLimited) { reply({ viewer: null, teams: [], error: githubStoreRateLimitedError(viewerRead.waitMs, 'your GitHub login') }); return; }
+    if (!viewerRead.value) { reply({ viewer: null, teams: [], error: null }); return; }
+    const teamsRead = await requestViewerTeams('priority');
+    if (teamsRead.isRateLimited) { reply({ viewer: viewerRead.value, teams: [], error: githubStoreRateLimitedError(teamsRead.waitMs, 'your GitHub teams') }); return; }
+    if (!teamsRead.value) { reply({ viewer: viewerRead.value, teams: [], error: 'GitHub did not list your teams.' }); return; }
+    reply({ viewer: viewerRead.value, teams: teamsRead.value, error: null });
+  }
+
   async function handleIssueDetail(request: ClientMessageOf<'issue-detail'>, ws: ControlSocket): Promise<void> {
     try {
       const issueRead = await requestIssue(request.issueNumber, request.repo, 'priority');
@@ -1704,6 +1720,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     'update-settings':  handleUpdateSettings,
     'scan-repo-roots':  handleScanRepoRoots,
     'list-agents':      handleListAgents,
+    'list-github-teams': handleListGithubTeams,
     'get-radar-report': handleGetRadarReport,
     'radar-open-session': handleRadarOpenSession,
     'issue-detail': handleIssueDetail,

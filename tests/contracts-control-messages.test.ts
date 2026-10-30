@@ -149,6 +149,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'pong', requestId: 'ping-1' },
   { type: 'agent-logins', requestId: 'logins-1', logins: [{ agent: 'codex', state: 'connecting', source: null, verificationUrl: 'https://auth.openai.com/codex/device', userCode: 'WXYZ-12345', needsPastedCode: false, reason: null }] },
   { type: 'agents-listed', requestId: 'agents-1', agents: [{ id: 'claude-code', label: 'Claude Code', resolvable: true }] },
+  { type: 'github-teams-listed', requestId: 'teams-1', viewer: 'octocat', teams: [{ org: 'PostHog', slug: 'team-devex', name: 'DevEx' }], error: null },
   { type: 'repo-roots-scanned', requestId: 'roots-1', directories: [{ root: '/repo', projects: [{ name: 'glimmervoid', path: '/repo/glimmervoid' }] }] },
   { type: 'conversations', requestId: 'conversations-1', id: 'session-1', current: null, conversations: [{
     id: 'conversation-1',

@@ -21,7 +21,7 @@ interface GithubStoreWatch {
 }
 
 interface GithubStoreDependencies {
-  github: Pick<PrGh, 'searchPrsLight' | 'prsLightByKey' | 'prDetails' | 'notificationsSince' | 'behindCounts' | 'reviewThreadsBatch' | 'rateLimitWaitMs' | 'viewPr' | 'prDiff' | 'prHead'> & Partial<Pick<PrGh, 'teamReviewCompare' | 'teamReviewThreads' | 'listRepoIssues' | 'searchIssues' | 'issueLinkedPullRequests' | 'viewer' | 'teamProfile' | 'teamMembers' | 'viewIssue' | 'listMergedPrs' | 'benchmarkReviewData' | 'compareCommits'>>;
+  github: Pick<PrGh, 'searchPrsLight' | 'prsLightByKey' | 'prDetails' | 'notificationsSince' | 'behindCounts' | 'reviewThreadsBatch' | 'rateLimitWaitMs' | 'viewPr' | 'prDiff' | 'prHead'> & Partial<Pick<PrGh, 'teamReviewCompare' | 'teamReviewThreads' | 'listRepoIssues' | 'searchIssues' | 'issueLinkedPullRequests' | 'viewer' | 'viewerTeams' | 'teamProfile' | 'teamMembers' | 'viewIssue' | 'listMergedPrs' | 'benchmarkReviewData' | 'compareCommits'>>;
   now: () => number;
   isDashboardConnected: () => boolean;
   exclusive: SharedClock['exclusive'];
@@ -421,6 +421,10 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     }, null, () => viewerLogin !== null, mode, ['core']);
   }
 
+  function requestViewerTeams(mode: GithubStoreReadMode = 'wait') {
+    return requestRead(() => github.viewerTeams?.() ?? Promise.resolve(null), null, () => false, mode, ['core']);
+  }
+
   function requestTeamProfile(org: string, slug: string, mode: GithubStoreReadMode = 'wait') {
     return requestRead(() => github.teamProfile?.(org, slug) ?? Promise.resolve(null), null, () => false, mode, ['graphql']);
   }
@@ -502,7 +506,7 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
 
   return {
     events, registerWatch, unregisterWatch, setWatchedKeys, tick, requestRefresh, refreshWatches, getSnapshot,
-    requestViewer, requestTeamProfile, requestTeamMembers, requestIssue, requestMergedPrs, requestBenchmarkReviewData, requestCompareCommits,
+    requestViewer, requestViewerTeams, requestTeamProfile, requestTeamMembers, requestIssue, requestMergedPrs, requestBenchmarkReviewData, requestCompareCommits,
     rateLimitWaitMs: (nowMs: number, resources: readonly string[]) => github.rateLimitWaitMs(nowMs, resources),
     requestPrView, requestPrDiff, requestTeamReviewCompare, requestTeamReviewThreads,
     requestRepoIssues, requestIssueSearch, requestIssueLinkedPullRequests,

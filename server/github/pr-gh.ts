@@ -20,6 +20,7 @@ import type { TeamReviewThreadNode as ThreadNode, TeamReviewCompareFiles as Comp
 import { errorMessage } from '../../shared/text.ts';
 import { parseJsonOrNull } from '../core/json-core.ts';
 import { notificationSubjectPrKey } from './core/github-store-core.ts';
+import { GithubTeam } from '../../shared/contracts/control-messages.ts';
 
 type GhMergeFlag = '--merge' | '--squash' | '--rebase';
 
@@ -109,6 +110,7 @@ interface PrGh {
   issueLinkedPullRequests(keys: readonly string[]): Promise<Map<string, IssuePullRequest[]>>;
   viewIssue(issueNumber: number | string, repo?: string): Promise<GithubIssueDetail>;
   viewer(): Promise<string | null>;
+  viewerTeams(): Promise<GithubTeam[] | null>;
   teamMembers(org: string, team: string): Promise<string[] | null>;
   teamProfile(org: string, team: string): Promise<NonNullable<TeamReviewStatus['team']> | null>;
   viewPr(repo: string, number: number): Promise<PrDetailType | null>;
@@ -263,6 +265,7 @@ function benchmarkReviewDataQuery(prs: readonly PrReference[]): string {
 }
 const GH_LOGIN = z.string().regex(GH_SEGMENT);
 const GH_MEMBERS = z.array(GH_LOGIN);
+const GH_TEAMS = z.array(GithubTeam);
 const TEAM_PROFILE = z.object({ data: z.object({ organization: z.object({ team: z.object({ name: z.string(), avatarUrl: z.string().url() }).nullable() }).nullable() }), errors: z.array(z.unknown()).optional() });
 const TEAM_PROFILE_QUERY = 'query($org: String!, $slug: String!) { organization(login: $org) { team(slug: $slug) { name avatarUrl } } }';
 const SEARCH_PAGE_SIZE = 100;
@@ -823,6 +826,14 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       const response = await runGh(['api', 'user', '--jq', '.login']);
       if (!response.ok) return null;
       const parsed = GH_LOGIN.safeParse(response.out);
+      return parsed.success ? parsed.data : null;
+    },
+
+    async viewerTeams() {
+      const response = await runGh(['api', '--paginate', 'user/teams', '--jq', '.[] | {org: .organization.login, slug: .slug, name: .name}']);
+      if (!response.ok) return null;
+      const lines = response.out ? response.out.split(/\r?\n/).filter(Boolean) : [];
+      const parsed = GH_TEAMS.safeParse(lines.map((line) => parseJsonOrNull(line)));
       return parsed.success ? parsed.data : null;
     },
 

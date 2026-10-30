@@ -1,6 +1,7 @@
 import { IssueRepoSlug, IssuesStatus } from './issues.ts';
 import { GithubPollingRefreshRequest, GithubPollingRefreshResult } from './github-polling.ts';
 import { z } from 'zod';
+import { GH_SEGMENT } from './github-ids.ts';
 import {
   PLAN_BODY_CAP_BYTES,
   PLAN_COMMENTS_MAX,
@@ -35,6 +36,8 @@ const requestId = z.string().nullable().optional();
 const sessionId = z.string();
 export const KeptWorkPath = z.object({ path: z.string(), reason: z.string() }).strict();
 export type KeptWorkPath = z.infer<typeof KeptWorkPath>;
+export const GithubTeam = z.object({ org: z.string().regex(GH_SEGMENT), slug: z.string().regex(GH_SEGMENT), name: z.string() });
+export type GithubTeam = z.infer<typeof GithubTeam>;
 
 const PullRequestKey = SessionPrLinks.shape.unlinkedKeys.unwrap().element;
 
@@ -270,6 +273,7 @@ const clientVariants = [
   loose('update-settings', { settings: z.record(z.string(), z.unknown()), requestId }),
   loose('scan-repo-roots', { requestId, includeSuggestions: z.boolean().optional() }),
   loose('list-agents', { requestId, rescan: z.boolean().optional() }),
+  loose('list-github-teams', { requestId }),
   loose('get-radar-report', { issueId: z.union([z.string(), z.number()]), requestId }),
   loose('radar-open-session', { projectId: z.union([z.string(), z.number()]), issueId: z.union([z.string(), z.number()]), requestId }),
   loose('issue-detail', { requestId: z.string().min(1), repo: IssueRepoSlug, issueNumber: z.number().int().positive() }),
@@ -463,6 +467,7 @@ const serverVariants = [
     requestId,
     agents: z.array(openObject({ id: z.string(), label: z.string(), resolvable: z.boolean() })),
   }),
+  loose('github-teams-listed', { requestId, viewer: z.string().nullable(), teams: z.array(GithubTeam), error: z.string().nullable() }),
   loose('repo-roots-scanned', {
     requestId,
     directories: z.array(openObject({

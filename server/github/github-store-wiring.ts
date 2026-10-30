@@ -50,6 +50,7 @@ export function createGithubStoreWiring({ github, clock, now = Date.now, isDashb
     refreshWatches: poller.refreshWatches,
     requestRefresh: poller.requestRefresh,
     requestViewer: poller.requestViewer,
+    requestViewerTeams: poller.requestViewerTeams,
     requestTeamProfile: poller.requestTeamProfile,
     requestTeamMembers: poller.requestTeamMembers,
     requestIssue: poller.requestIssue,

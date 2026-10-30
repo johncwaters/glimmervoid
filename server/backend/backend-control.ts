@@ -31,7 +31,7 @@ interface SnapshotLane {
 }
 
 interface LaneReader {
-  githubStore: { snapshotMessage: () => GithubPrsFrame; getFreshness: () => GithubPrsFreshness; laneStore: Pick<GithubLaneStore, 'requestIssue'> };
+  githubStore: { snapshotMessage: () => GithubPrsFrame; getFreshness: () => GithubPrsFreshness; laneStore: Pick<GithubLaneStore, 'requestIssue' | 'requestViewer' | 'requestViewerTeams'> };
   coderEnv: NonNullable<ControlHandlerDeps['coderEnv']>;
   gitWorkspace: NonNullable<ControlHandlerDeps['remoteRepoGit']>;
   featureHints: NonNullable<ControlHandlerDeps['featureHints']>;
@@ -171,6 +171,8 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     issues,
     githubStore: laneAssembly.githubStore,
     requestIssue: laneAssembly.githubStore.laneStore.requestIssue,
+    requestViewer: laneAssembly.githubStore.laneStore.requestViewer,
+    requestViewerTeams: laneAssembly.githubStore.laneStore.requestViewerTeams,
     serverBuild: dependencies.serverBuild,
     telemetry: dependencies.telemetry,
     getUsageSessions: () => usage.getSessionsMessage(),
