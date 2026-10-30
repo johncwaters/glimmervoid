@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
-import { buildUsageReport, pruneEntries } from './core/usage-aggregate-core.ts';
+import { buildUsageReport, pruneEntries, startOfLocalDay } from './core/usage-aggregate-core.ts';
 import { localDayKey } from '../../shared/display-text.ts';
 import { dailyBaseline, detectBurnAnomaly, detectDailyAnomaly } from './core/usage-anomaly-core.ts';
 import { buildBlocks, burnRate, projectBlock } from './core/usage-blocks-core.ts';
@@ -457,9 +457,8 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   let activePass: Promise<PassResult> | null = null;
   let pendingForce = false;
   let pendingScopeDirs: string[] | null = null;
-  let isReportDirty = true;
   let resolutionError: string | null = null;
-  const cachedRollupsByDays = new Map<number | undefined, ReturnType<typeof buildRollups>>();
+  const cachedRollupsByRange = new Map<string, ReturnType<typeof buildRollups>>();
   let cachedSessionTotals: Map<string, SessionTotal> | null = null;
   let currentFileJournal: FileJournalAction[] | null = null;
   let currentFileGenerationRollup: Map<string, UsageGenerationRollupRow> | null = null;
@@ -483,8 +482,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   });
 
   function markDirty(): void {
-    isReportDirty = true;
-    cachedRollupsByDays.clear();
+    cachedRollupsByRange.clear();
     cachedSessionTotals = null;
     cachedYourDay = null;
   }
@@ -808,11 +806,11 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   }
 
   function cachedRollupsForDays(days: number | undefined, reportRetainDays: number) {
-    const cached = cachedRollupsByDays.get(days);
-    if (cached && !isReportDirty) return cached;
+    const rangeKey = `${days ?? 'all'}:${todayDayKey()}`;
+    const cached = cachedRollupsByRange.get(rangeKey);
+    if (cached) return cached;
     const rollups = buildRollups(reportRetainDays);
-    cachedRollupsByDays.set(days, rollups);
-    isReportDirty = false;
+    cachedRollupsByRange.set(rangeKey, rollups);
     return rollups;
   }
 
@@ -904,7 +902,8 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   function buildLaneRows(reportRetainDays: number, now: number) {
     const lanes = getRecordedLanes();
     if (!lanes) return null;
-    return laneRollup(entriesWithinDays(entries, { now, retainDays: reportRetainDays }), lanes);
+    const windowStartMs = startOfLocalDay(now, reportRetainDays - 1);
+    return laneRollup(entries.filter((entry) => entry.timestampMs >= windowStartMs), lanes);
   }
 
   function buildPlanWindowLanes(planWindowStarts: PlanWindowStarts | null | undefined, now: number) {
@@ -968,7 +967,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   }
 
   function sessionTotals(): Map<string, SessionTotal> {
-    if (cachedSessionTotals && !isReportDirty) return cloneSessionTotals(cachedSessionTotals);
+    if (cachedSessionTotals) return cloneSessionTotals(cachedSessionTotals);
     const totalsBySession = new Map<string, SessionTotal>();
     for (const entry of entries) {
       const key = isClaudeEntry(entry) ? entry.inlineSessionId : entry.sessionId;
