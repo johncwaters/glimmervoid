@@ -57,7 +57,7 @@ interface TranscriptLine {
   subtype?: unknown;
   message?: { content?: unknown };
   origin?: { kind?: unknown } | null;
-  turnOrigin?: { kind?: unknown } | null;
+  turnOrigin?: { kind?: unknown } | string | null;
   attachment?: {
     type?: unknown;
     commandMode?: unknown;
@@ -208,7 +208,8 @@ function everyTextBlockJoined(blocks: TranscriptContentBlock[]): string | null {
 }
 
 function isTaskNotificationLine(line: TranscriptLine): boolean {
-  return line.origin?.kind === 'task-notification' || line.turnOrigin?.kind === 'task_notification';
+  const turnOriginKind = typeof line.turnOrigin === 'string' ? line.turnOrigin : line.turnOrigin?.kind;
+  return line.origin?.kind === 'task-notification' || turnOriginKind === 'task_notification';
 }
 
 function mapUserLine(

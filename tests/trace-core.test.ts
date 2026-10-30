@@ -58,7 +58,13 @@ test('only operator messages are prompts: queued mid-turn ones count, task notif
     turnOrigin: { kind: 'task_notification' },
     message: { role: 'user', content: [{ type: 'text', text: '<task-notification></task-notification>' }] },
   });
+  const stringOriginNotification = JSON.stringify({
+    type: 'user',
+    turnOrigin: 'task_notification',
+    message: { role: 'user', content: [{ type: 'text', text: '<task-notification></task-notification>' }] },
+  });
   assert.deepEqual(traceRecordsFromTranscriptLine(deliveredNotification, context).map((record) => record.kind), ['expansion']);
+  assert.deepEqual(traceRecordsFromTranscriptLine(stringOriginNotification, context).map((record) => record.kind), ['expansion']);
   assert.deepEqual(traceRecordsFromTranscriptLine(legacyNotification, context).map((record) => record.kind), ['expansion']);
 });
 
