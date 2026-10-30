@@ -751,9 +751,9 @@ function createNoteField(onInput: () => void): { section: HTMLElement; input: HT
   input.id = `pr-note-${_noteFieldCount}`;
   input.rows = 2;
   input.spellcheck = true;
-  input.placeholder = 'Optional. Posts at the top of the review, above the automated-review label.';
+  input.placeholder = 'Optional';
   input.addEventListener('input', onInput);
-  const label = el('label', 'pr-section-heading', 'Your note');
+  const label = el('label', 'pr-section-heading', 'Note');
   label.htmlFor = input.id;
   section.append(label, input);
   return { section, input };

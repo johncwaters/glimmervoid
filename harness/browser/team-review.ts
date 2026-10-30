@@ -489,7 +489,7 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
     assert.equal(await currentFinding.count(), 1);
     await page.keyboard.press('x');
     assert.equal(await currentFinding.getAttribute('data-included'), 'false');
-    assert.match(await willPostDetail.textContent() ?? '', /^A bare approval at /);
+    assert.match(await willPostDetail.textContent() ?? '', /^At [0-9a-f]+\.$/);
     await page.keyboard.press('x');
     assert.equal(await currentFinding.getAttribute('data-included'), 'true');
     await page.keyboard.press('c');
@@ -546,10 +546,10 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
     await applyStatus(page, withDrafts([createDraft(1), createDraft(2), createDraft(3)]));
     await showQueue(page);
     await reviewRow(1).click();
-    assert.match(await willPostDetail.textContent() ?? '', /^no note, 1 in the review body, at /);
+    assert.match(await willPostDetail.textContent() ?? '', /^1 in the review body, at /);
     await findingChoice('Drop').click();
     assert.equal(await findingChoice('Drop').getAttribute('aria-pressed'), 'true');
-    assert.match(await willPostDetail.textContent() ?? '', /^A bare approval at /);
+    assert.match(await willPostDetail.textContent() ?? '', /^At [0-9a-f]+\.$/);
     assert.equal(await page.locator('.pr-detail button[data-action="comment"]').isDisabled(), true);
     await clickReviewAction(page, 'approve');
     assert.equal((JSON.parse(await page.evaluate(() => document.documentElement.dataset.teamReviewAction ?? '{}')) as { action?: string }).action, 'approve-only');

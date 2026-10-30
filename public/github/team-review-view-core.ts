@@ -648,10 +648,10 @@ function inlineCommentText(count: number): string {
 export function postingPreview(draft: Pick<ReviewDraft, 'reviewedHead'>, selection: ReviewSelection, control: ReadyDecisionControl): PostingPreview {
   const event = actionLabel(control);
   if (!hasSelection(selection)) {
-    return { event, detail: isSelectionRequired(control) ? 'Needs a ticked finding or a note.' : `A bare approval at ${shortSha(draft.reviewedHead)}, with no note or comments.` };
+    return { event, detail: isSelectionRequired(control) ? 'Needs a ticked finding or a note.' : `At ${shortSha(draft.reviewedHead)}.` };
   }
   const parts = [
-    selection.note.trim() ? 'your note' : 'no note',
+    ...(selection.note.trim() ? ['Note'] : []),
     ...(selection.comments.length > 0 ? [inlineCommentText(selection.comments.length)] : []),
     ...(selection.generalFindings.length > 0 ? [`${selection.generalFindings.length} in the review body`] : []),
   ];
