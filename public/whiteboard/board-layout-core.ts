@@ -337,4 +337,4 @@ function elementSignature(element: LaidOutElement): string {
 }
 
 export { elementSignature, layoutBoard };
-export type { BoardLayout, LaidOutBox, LaidOutColumn, LaidOutElement, LaidOutFrame, LaidOutNote, LaidOutWire, Rect };
+export type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutFrame, LaidOutNote, LaidOutWire, Rect };
