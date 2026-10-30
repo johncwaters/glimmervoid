@@ -1,4 +1,4 @@
-import { CommunityDraft, CommunityItem, CommunityState, CommunityVerdict, DISCORD_CHANNEL_NAME_RE } from '../../../shared/contracts/community.ts';
+import { CommunityDraft, CommunityItem, CommunityState, CommunityVerdict, DISCORD_CHANNEL_NAME_RE, SKILL_NAME_RE } from '../../../shared/contracts/community.ts';
 import type { CommunityAction, CommunityStateEntry } from '../../../shared/contracts/community.ts';
 import { resolvePosthogHost } from '../../radar/core/radar-lane-core.ts';
 import { bulletsIn, fencedUntrusted, parsePostingFile, sectionAfter, withoutControlCharacters } from '../../lanes/core/lane-report-core.ts';
@@ -25,7 +25,6 @@ const COMMUNITY_REPORT_HEADINGS = ['VERDICT:', 'GOAL:', 'CHECKED:', 'GAPS:', 'OV
 const MAX_REPORT_TEXT_CHARS = 4000;
 const MAX_REPORT_BULLETS = 50;
 const MAX_REPORT_BULLET_CHARS = 1000;
-const SKILL_NAME_RE = /^[A-Za-z0-9:._-]{1,100}$/;
 const DISCORD_SNOWFLAKE_RE = /^\d{1,30}$/;
 const DISCORD_CHANNEL_URL = 'https://discord.com/channels/';
 const DISCORD_AUTHOR = 'Discord member';

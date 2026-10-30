@@ -5,7 +5,7 @@ import type { SettingsRange } from '../settings-ranges.ts';
 import { USAGE_COST_MODES, USAGE_VENDOR_KEYS, USAGE_BUDGET_KEYS } from '../usage-config.ts';
 import { WorkflowsSettings } from './workflows.ts';
 import { repoParts } from './github-ids.ts';
-import { DISCORD_CHANNEL_NAME_RE } from './community.ts';
+import { DISCORD_CHANNEL_NAME_RE, SKILL_NAME_RE } from './community.ts';
 import { UpdateChannel } from './update-journal.ts';
 
 export const optionalBoolean = (field: string) => z.boolean({ error: `${field} must be a boolean` }).optional();
@@ -104,7 +104,7 @@ const IssuesSettings = optionalObject('issues', {
 
 const CommunitySettings = optionalObject('community', {
   enabled: optionalBoolean('community.enabled'),
-  skill: optionalString('community.skill', true),
+  skill: optionalString('community.skill', true).refine((value) => value == null || !value || SKILL_NAME_RE.test(value), { message: 'community.skill must be a skill name like answering-questions, made of letters, digits, colons, dots, underscores or dashes, with no leading /' }),
   projectId: optionalInteger('community.projectId', ranges.POSTHOG_PROJECT_ID_RANGE),
   intervalMinutes: optionalInteger('community.intervalMinutes', ranges.COMMUNITY_INTERVAL_MINUTES_RANGE),
   discordChannels: z.array(

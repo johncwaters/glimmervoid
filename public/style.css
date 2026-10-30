@@ -5728,7 +5728,7 @@ html[data-layout="phone"] .issues-content .pr-footer { margin-inline: 0; padding
   min-width: 0;
 }
 
-html:has(.first-run-checklist:not([hidden])) .btn-add-header {
+html:has(:is(.focus-empty, .phone-empty) > .first-run-checklist:not([hidden])) .btn-add-header {
   display: none;
 }
 
