@@ -69,7 +69,7 @@ export async function verifyBoardDock(page: Page, sessionId: string): Promise<vo
   const canvasBox = await panel.locator('.wb-canvas').boundingBox();
   const dockBox = await panel.locator('.wb-dock').boundingBox();
   assert.ok(canvasBox && dockBox);
-  assert.ok(dockBox.x >= canvasBox.x + canvasBox.width, 'the docked session sits to the right of the board');
+  assert.ok(canvasBox.x >= dockBox.x + dockBox.width, 'the board sits to the right of the docked session');
   assert.ok(Math.abs(dockBox.y - canvasBox.y) < 2 && Math.abs(dockBox.height - canvasBox.height) < 2, 'the board and the docked session share the full height');
   await page.waitForFunction((id) => {
     const docked = document.querySelector(`.wb-dock .session-card[data-id="${id}"]`);
