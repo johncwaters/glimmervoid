@@ -1,6 +1,7 @@
 import { localDayKey } from '../../../shared/display-text.ts';
 import type { YourDay, YourDayInsight } from '../../../shared/contracts/your-day.ts';
 import { parseJsonRecord } from '../../core/json-core.ts';
+import { startOfLocalDay } from './usage-aggregate-core.ts';
 
 type ActivityKind = 'prompt' | 'turnEnd';
 
@@ -108,11 +109,6 @@ function median(values: readonly number[]): number {
   const sorted = [...values].sort((left, right) => left - right);
   const middle = Math.floor(sorted.length / 2);
   return sorted.length % 2 === 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
-}
-
-function startOfLocalDay(ts: number): number {
-  const date = new Date(ts);
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 }
 
 function hourText(hour: number): string {
