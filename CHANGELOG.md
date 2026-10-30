@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Set up Reviews from the Reviews tab**: with Team review on but no GitHub teams chosen, the Reviews tab, on desktop and phone, now shows a setup card instead of an empty queue that read "all clear". It checks that the GitHub CLI is signed in, showing your login or the `gh auth login` command with Check again. It then lists your GitHub teams as checkboxes, with a box to type `org/team-slug` for any team it cannot list. Save teams starts Team review and My PRs straight away.
+
 ### Removed
 
 - **Your day after-22:00 tip**: Your day no longer shows the "time after 22:00" tip, whose wording read as a clock time rather than how long you worked late.

@@ -187,7 +187,6 @@ function autoRebaseReadiness(pr: MyPr, autoRebase: NonNullable<MyPr['autoRebase'
 
 export function emptyStateText(status: MyPrsStatusType | null): string {
   if (!status) return 'Waiting for your pull requests.';
-  if (!status.configured) return 'Enable Team review and set its GitHub organization in settings to see your pull requests.';
   if (status.error && status.prs.length === 0) return 'Pull requests will show here once GitHub answers.';
   return 'No open or recently merged pull requests found.';
 }

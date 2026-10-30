@@ -36,6 +36,14 @@
 .review-group-count { color: var(--text-muted); font-weight: 400; }
 .review-team-chip-slot { display: contents; }
 .review-queue-phone-bar { display: none; }
+.review-queue[data-setup="true"] > .pr-columns { display: none; }
+.review-queue > .review-setup { overflow-y: auto; }
+.review-setup-teams { display: flex; flex-direction: column; gap: 6px; }
+.review-setup-team { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: var(--type-meta); color: var(--text); cursor: pointer; }
+.review-setup-team > input { accent-color: var(--accent); }
+.review-setup-team-entry { color: var(--text-head); overflow-wrap: anywhere; }
+.review-setup-team-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
+.review-setup-foot { margin-top: 16px; }
 @media (prefers-reduced-motion: reduce) {
   .review-group-chevron { transition: none; }
 }

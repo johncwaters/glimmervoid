@@ -9,6 +9,7 @@ import { myPrsSnapshot } from './my-prs-store.ts';
 import type { LinkedLiveSession } from './my-prs-view-core.ts';
 import { emptyStateText as myPrsEmptyStateText, queueNotices as myPrsQueueNotices } from './my-prs-view-core.ts';
 import { createPrQueueColumns } from './pr-queue-columns.ts';
+import { createReviewSetupCard } from './review-setup-card.ts';
 import {
   QUEUE_ACTION_LABELS, QUEUE_ACTION_TONES, attentionCountsOf, attentionTilesOf, bannerTilesOf, caughtUpText, chooseQueueSelection, combinedPollingStatus, nextTurnKey,
   queueItemActivityEntry, queueItemByKey, reviewKeyActionOf, spansMultipleRepos, steppedRowKey, turnItems, turnPositionText,
@@ -34,6 +35,7 @@ let teamChipSlot: HTMLElement | null = null;
 let teamDetail: HTMLElement | null = null;
 let mineDetail: HTMLElement | null = null;
 let pollingControls: ReturnType<typeof createGithubPollingControls> | null = null;
+let setupCard: ReturnType<typeof createReviewSetupCard> | null = null;
 let currentGroups: QueueGroup[] = [];
 let selectedKey: string | null = null;
 let shownKey: string | null | undefined;
@@ -270,8 +272,19 @@ function rowsSignature(groups: readonly QueueGroup[], sessionsByPrKey: ReadonlyM
   return JSON.stringify([groups, [...sessionsByPrKey], selectedKey, isSetAsideOpen, reviewQueueUnseenSignature(), queueNoticeElements().map((notice) => notice.textContent)], (key, value) => (key === 'recentSteps' ? undefined : value));
 }
 
+function syncSetupCard(): boolean {
+  const isSetupNeeded = teamReviewStatusView()?.configured === false && myPrsSnapshot().status?.configured !== true;
+  if (!root || !setupCard) return isSetupNeeded;
+  const wasSetupShown = root.dataset.setup === 'true';
+  root.dataset.setup = String(isSetupNeeded);
+  setupCard.element.hidden = !isSetupNeeded;
+  if (isSetupNeeded && !wasSetupShown) void setupCard.load();
+  return isSetupNeeded;
+}
+
 function render(): void {
   if (!queueElement) return;
+  if (syncSetupCard()) return;
   const { sessionsByPrKey, status: myPrsStatus } = myPrsSnapshot();
   currentGroups = rebuildReviewQueue();
   syncTeamChip();
@@ -341,7 +354,9 @@ function mountReviewQueue(parent: HTMLElement): void {
   pollingControls = createGithubPollingControls(['team-review', 'my-prs'], root);
   teamChipSlot = el('span', 'review-team-chip-slot');
   shell.foot.append(teamChipSlot, pollingControls.control);
-  root.append(shell.columns);
+  setupCard = createReviewSetupCard();
+  setupCard.element.hidden = true;
+  root.append(setupCard.element, shell.columns);
   root.dataset.detailOpen = 'false';
   teamDetail = mountTeamReviewDetail(root, {
     onChange: queueRender,
