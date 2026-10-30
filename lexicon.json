@@ -123,6 +123,10 @@
     {
       "name": "community",
       "definition": "The experimental lane and dashboard tab that watches community sources for new community questions and drafts researched answers the operator posts by hand"
+    },
+    {
+      "name": "connect",
+      "definition": "Link a session to a whiteboard so it is told what others changed on the board; the connection lives on the board record"
     }
   ]
 }
