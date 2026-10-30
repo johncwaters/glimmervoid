@@ -1,5 +1,5 @@
 import type { UpdateJournal } from '#shared/contracts/update-journal.ts';
-import { sendControlMsg } from '../control-ws.ts';
+import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { applyAgentLogins } from '../agent-logins.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { IDLE_UPDATE_REQUEST, NOT_CONNECTED_TEXT, reduceUpdateRequest, updateErrorText } from '../updates-view-core.ts';
@@ -13,6 +13,8 @@ export type SettingsChange =
   | { kind: 'update'; frame: 'status' | 'progress' | 'error' | 'request' }
   | { kind: 'activate' }
   | { kind: 'return-to-list' };
+
+const TEAM_REVIEW_ENVIRONMENT_RETRY_MS = 2000;
 
 type FeatureTabView = Pick<PrimaryViewDefinition<unknown>, 'view' | 'label' | 'gate'>;
 
@@ -34,6 +36,7 @@ let featureTabViews: readonly FeatureTabView[] = [];
 let pendingActivation: SectionActivation | null = null;
 let phoneSettingsScreenProbe: () => string | null = () => null;
 let restartHandler = () => {};
+let isTeamReviewEnvironmentRequested = false;
 const phoneSettingsScreenListeners = new Set<() => void>();
 const listeners = new Set<(change: SettingsChange) => void>();
 
@@ -133,6 +136,16 @@ export function applySettingsBroadcast(freshSettings: unknown): void {
   settingsPayload = freshSettings as SettingsPayload;
   applyAgentLogins(settingsPayload.agentLogins);
   notify({ kind: 'broadcast' });
+}
+
+export function requestTeamReviewEnvironmentOnce(): void {
+  if (isTeamReviewEnvironmentRequested) return;
+  isTeamReviewEnvironmentRequested = true;
+  window.setTimeout(() => {
+    sendControlRequest('get-settings', {})
+      .then((message) => { if (message.settings) applySettingsBroadcast(message.settings); })
+      .catch(() => { isTeamReviewEnvironmentRequested = false; });
+  }, TEAM_REVIEW_ENVIRONMENT_RETRY_MS);
 }
 
 export function refreshSettingsStatus(): void {

@@ -86,7 +86,7 @@ import {
 import { usageStatusLines } from '../usage/usage-store.ts';
 import {
   applySettingsBroadcast, mergeSettingsPayload, notifyPhoneSettingsScreenChanged, requestUpdateApply, requestUpdateCheck, restartServer, setPhoneSettingsScreenProbe,
-  settingsFeatureTabViews, settingsPayloadSnapshot, settingsUpdateState, subscribeSettings, takePendingSettingsActivation, returnToSettingsList,
+  settingsFeatureTabViews, settingsPayloadSnapshot, settingsUpdateState, subscribeSettings, takePendingSettingsActivation, returnToSettingsList, requestTeamReviewEnvironmentOnce,
 } from './settings-store.ts';
 import type { SettingsChange } from './settings-store.ts';
 import { applySoundEnabled, onSoundEnabledChange } from '../mute-button.ts';
@@ -146,8 +146,6 @@ const ABOUT_SECTION: SettingsSection = Object.freeze({
   settings: [],
 });
 const TEAM_REVIEW_ENABLED_ID = 'team-review-enabled';
-const TEAM_REVIEW_ENVIRONMENT_RETRY_MS = 2000;
-let isTeamReviewEnvironmentRequested = false;
 const OPTION_CATALOGS: Readonly<Record<string, () => { id: string; label: string }[]>> = Object.freeze({
   sounds: () => soundOptions(),
   themes: getThemeList,
@@ -1112,16 +1110,6 @@ function buildRemoteSetupStatus() {
   setupButton.addEventListener('click', openRemoteSetupDialog);
   block.appendChild(setupButton);
   return block;
-}
-
-function requestTeamReviewEnvironmentOnce() {
-  if (isTeamReviewEnvironmentRequested) return;
-  isTeamReviewEnvironmentRequested = true;
-  window.setTimeout(() => {
-    sendControlRequest('get-settings', {})
-      .then((message) => { if (message.settings) applySettingsBroadcast(message.settings); })
-      .catch(() => { isTeamReviewEnvironmentRequested = false; });
-  }, TEAM_REVIEW_ENVIRONMENT_RETRY_MS);
 }
 
 function renderReadout(setting: SettingsSetting) {

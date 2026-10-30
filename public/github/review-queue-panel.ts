@@ -10,6 +10,8 @@ import type { LinkedLiveSession } from './my-prs-view-core.ts';
 import { emptyStateText as myPrsEmptyStateText, queueNotices as myPrsQueueNotices } from './my-prs-view-core.ts';
 import { createPrQueueColumns } from './pr-queue-columns.ts';
 import { createReviewSetupCard } from './review-setup-card.ts';
+import { createReviewSkillNotice } from './review-skill-notice.ts';
+import { subscribeSettings } from '../settings/settings-store.ts';
 import {
   QUEUE_ACTION_LABELS, QUEUE_ACTION_TONES, attentionCountsOf, attentionTilesOf, bannerTilesOf, caughtUpText, chooseQueueSelection, combinedPollingStatus, nextTurnKey,
   queueItemActivityEntry, queueItemByKey, reviewKeyActionOf, spansMultipleRepos, steppedRowKey, turnItems, turnPositionText,
@@ -36,6 +38,7 @@ let teamDetail: HTMLElement | null = null;
 let mineDetail: HTMLElement | null = null;
 let pollingControls: ReturnType<typeof createGithubPollingControls> | null = null;
 let setupCard: ReturnType<typeof createReviewSetupCard> | null = null;
+let skillNotice: ReturnType<typeof createReviewSkillNotice> | null = null;
 let currentGroups: QueueGroup[] = [];
 let selectedKey: string | null = null;
 let shownKey: string | null | undefined;
@@ -284,6 +287,7 @@ function syncSetupCard(): boolean {
 
 function render(): void {
   if (!queueElement) return;
+  skillNotice?.sync();
   if (syncSetupCard()) return;
   const { sessionsByPrKey, status: myPrsStatus } = myPrsSnapshot();
   currentGroups = rebuildReviewQueue();
@@ -350,7 +354,8 @@ function mountReviewQueue(parent: HTMLElement): void {
     rowFor: (id) => rowsByKey.get(id),
   }, buildNextAttentionKeys());
   banner.classList.add('review-queue-banner');
-  shell.queue.before(banner);
+  skillNotice = createReviewSkillNotice();
+  shell.queue.before(skillNotice.element, banner);
   pollingControls = createGithubPollingControls(['team-review', 'my-prs'], root);
   teamChipSlot = el('span', 'review-team-chip-slot');
   shell.foot.append(teamChipSlot, pollingControls.control);
@@ -366,6 +371,7 @@ function mountReviewQueue(parent: HTMLElement): void {
   mineDetail = mountMyPrsDetail({ onChange: queueRender }, queueNavigation);
   attachReviewQueueView({ isLooking: () => !isPanelHidden(root), selectedKey: () => selectedKey });
   subscribeReviewQueue(applyReviewQueueChange);
+  subscribeSettings((change) => { if (change.kind === 'broadcast') skillNotice?.sync(); });
   document.addEventListener('keydown', onReviewKey);
   render();
   revealPendingItem();

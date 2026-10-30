@@ -44,6 +44,10 @@
 .review-setup-team-entry { color: var(--text-head); overflow-wrap: anywhere; }
 .review-setup-team-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
 .review-setup-foot { margin-top: 16px; }
+.review-skill-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--border-dim); font-size: var(--type-meta); }
+.review-skill-notice[hidden] { display: none; }
+.review-skill-notice-label { color: var(--text-head); font-weight: 700; }
+.review-skill-notice-select { flex: 1 1 16ch; min-width: 0; padding: 4px 8px; font-size: var(--type-meta); }
 @media (prefers-reduced-motion: reduce) {
   .review-group-chevron { transition: none; }
 }
