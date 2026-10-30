@@ -117,7 +117,7 @@ export function mergeDisabledReason({
   state,
 }: MergeDisabledInputs): string | null {
   if (status === 'merging') return null;
-  if (!hasCommits) return live ? 'Nothing is committed yet. Merge opens once the session commits.' : null;
+  if (!hasCommits) return null;
   if (!live && (status === 'parked' || status === 'merged')) return 'Session ended.';
   if (!live) return null;
   if (status === 'parked') return null;
@@ -191,7 +191,8 @@ export function branchSyncActionTitle(sync: ReviewBranchSync | null | undefined,
 }
 
 export function shouldShowBranchSyncLabel(sync: ReviewBranchSync | null | undefined): boolean {
-  return sync?.state !== 'in-sync' || sync.fetched === false;
+  if (sync?.fetched === false) return true;
+  return sync?.state !== 'in-sync' && sync?.state !== 'no-upstream';
 }
 
 export function resyncOutcomeText(sync: ReviewBranchSync): string | null {
