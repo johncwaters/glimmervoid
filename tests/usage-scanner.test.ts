@@ -334,6 +334,37 @@ test('budgetSpend shares the report rollups when retainDays already covers the m
   assert.equal(spend.monthUsd > 0, true);
 });
 
+test('yourDay recaps yesterday from Claude and Codex prompts and skips lane sessions', async () => {
+  const root = await makeTempRoot();
+  const projectsDir = await makeProjectsDir(root);
+  const at = (day: number, hour: number, minute = 0) => new Date(2026, 7, day, hour, minute).getTime();
+  const baselineDayLines = [15, 16, 17].flatMap((day) => [promptLine(`baseline-${day}`, at(day, 9)), turnEndLine(`baseline-${day}`, at(day, 9, 1)), promptLine(`baseline-${day}`, at(day, 9, 30))]);
+  const longStretchLines = Array.from({ length: 23 }, (_, index) => promptLine('focused', at(18, 10, index * 10)));
+  const jugglingLines = Array.from({ length: 6 }, (_, index) => promptLine(`juggled-${index}`, at(18, 15, index * 5)));
+  const laneLines = Array.from({ length: 8 }, (_, index) => promptLine('lane-review', at(18, 20, index * 2)));
+  await writeLines(path.join(projectsDir, 'C--repo', 'baseline.jsonl'), baselineDayLines);
+  await writeLines(path.join(projectsDir, 'C--repo', 'focused.jsonl'), longStretchLines);
+  await writeLines(path.join(projectsDir, 'C--repo', 'juggled.jsonl'), jugglingLines);
+  await writeLines(path.join(projectsDir, 'C--repo', 'lane-review.jsonl'), laneLines);
+  await writeLines(path.join(projectsDir, 'C--repo', 'long-open.jsonl'), [promptLine('long-open', at(15, 11)), promptLine('long-open', at(18, 16))]);
+  const codexSessionId = '01a14ecf-57c8-75c2-a17d-3f989a77596f';
+  await writeLines(path.join(root, '.codex', 'sessions', '2026', '08', '18', `rollout-2026-08-18T17-00-00-${codexSessionId}.jsonl`), [
+    JSON.stringify({ timestamp: new Date(at(18, 17)).toISOString(), type: 'event_msg', payload: { type: 'user_message', message: 'fix it' } }),
+    JSON.stringify({ timestamp: new Date(at(18, 17, 5)).toISOString(), type: 'event_msg', payload: { type: 'task_complete' } }),
+  ]);
+  const scanner = makeScanner(root, { nowFn: () => at(19, 12), laneMap: () => new Map([['claude:lane-review', 'review']]) });
+
+  await scanner.runPass();
+  const { yourDay } = scanner.buildReport();
+
+  assert.equal(yourDay?.yesterday.day, '2026-08-18');
+  assert.equal(yourDay?.yesterday.sessionCount, 9);
+  assert.deepEqual(yourDay?.insights.map((insight) => insight.kind).sort(), ['juggling', 'longestStretch']);
+  assert.ok(yourDay?.insights.some((insight) => insight.text.startsWith('3h 40m without a break.')));
+  assert.ok(yourDay?.insights.every((insight) => !/operator/i.test(insight.text)));
+  assert.equal(yourDay?.currentStretchStartedAt, null);
+});
+
 function makeScanner(root: string, overrides: UsageScannerOptions = {}): Scanner {
   return createUsageScanner({
     env: { HOME: root },
@@ -446,3 +477,11 @@ test('scanner IO failure after catch-up makes lane spend read-failing until reco
   assert.equal((await scanner.runPass()).outcome, 'complete');
   assert.equal(laneSpendStatus({ isTrackingEnabled: true, scan: scanner.stats() }), 'known');
 });
+
+function promptLine(sessionId: string, timestampMs: number): string {
+  return JSON.stringify({ type: 'user', sessionId, timestamp: new Date(timestampMs).toISOString(), isSidechain: false, message: { role: 'user', content: 'keep going' } });
+}
+
+function turnEndLine(sessionId: string, timestampMs: number): string {
+  return JSON.stringify({ type: 'assistant', sessionId, timestamp: new Date(timestampMs).toISOString(), isSidechain: false, message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: 'done' }] } });
+}

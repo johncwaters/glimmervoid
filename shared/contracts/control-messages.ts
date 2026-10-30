@@ -17,6 +17,7 @@ import {
 } from './coherence.ts';
 import { CoherenceHooksState, SESSION_DOC_PATH_MAX_CHARS, SessionDoc, SessionSnapshot, ShownFile, SessionState, TaskTitle, UnseenOutcome } from './session.ts';
 import { TraceRecord } from './trace.ts';
+import { YourDay } from './your-day.ts';
 import { SessionSetup } from './session-setup.ts';
 import { UpdateChannel, UpdateJournal, UpdateJournalSummary } from './update-journal.ts';
 import { TeamReviewActionRequest, TeamReviewActionResult, TeamReviewStatus, hasRequiredActionHead } from './team-review.ts';
@@ -613,6 +614,7 @@ const serverVariants = [
     budget: z.unknown().optional(),
     savings: z.unknown().optional(),
     tokenLimit: z.unknown().nullable().optional(),
+    yourDay: YourDay.nullable().optional(),
     pricing: opaqueObject.optional(),
     scan: opaqueObject.optional(),
     warning: optionalError,
