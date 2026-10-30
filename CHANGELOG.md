@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.2] - 2026-10-30
+
 ### Added
 
 - **Set up Community from the Community tab**: with the Community tab on but no PostHog personal API key saved, the tab now shows a setup card instead of the bare message "community.enabled but posthog.apiKey is missing". It walks you through four steps: paste a PostHog personal API key, which for Community needs only the `query:read` scope on that one project (PostHog error monitoring shares the key and needs error tracking read and write), confirm the PostHog project that holds the community questions (2 for PostHog's own), name the research skill the agent follows, and list the Discord channels to watch, with a note on the Discord bot events those channels need. The skill and Discord steps can be skipped. Each step saves straight to your settings and the community lane starts as soon as the key is saved, with no restart. Finish setup shows the question queue.
