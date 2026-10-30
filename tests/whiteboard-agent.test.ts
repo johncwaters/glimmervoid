@@ -262,7 +262,7 @@ test('an agent plans units through the CLI in dependency order, a cycle is refus
   assert.equal(cycle.exitCode, 1);
   assert.match(cycle.printed, /dependency cycle: diff-index-schema, search-box, search-endpoint, diff-index-schema/);
 
-  const shown = await plan('show', boardId);
+  const shown = await plan('show', 'search', 'api');
   assert.equal(shown.exitCode, 0);
   const planLines = shown.printed.split('\n').slice(1, 6).map((line) => line.replace(/ +/g, ' ').trim());
   assert.deepEqual(planLines, [
@@ -377,4 +377,22 @@ test('a flood of edits to one box stays inside the prompt context bound and leav
   assert.match(promptContext, new RegExp(`run glimmervoid whiteboard get ${boardId} for the rest`));
   const read = await wiring.handleAgent(reader, { sub: 'get', board: boardId });
   assert.ok((read.body as { changes: unknown[] }).changes.length > 0, 'the clipped changes are still unread');
+});
+
+test('a board whose linked board vanished on restart still takes unrelated edits', async () => {
+  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'dangling-link-'));
+  const before = createWhiteboardWiring({ boardsRoot });
+  const planned = await before.handleOperator.create('planned');
+  const detail = await before.handleOperator.create('detail');
+  const plannedId = planned.summary?.id ?? '';
+  const detailId = detail.summary?.id ?? '';
+  const linked = await before.handleOperator.put(plannedId, z.array(Op).parse([{ op: 'add', element: { kind: 'unit', id: 'u1', title: 'Unit', linkedBoardId: detailId } }]));
+  assert.equal(linked.ok, true, linked.error ?? '');
+  fs.writeFileSync(path.join(boardsRoot, `${detailId}.json`), '{corrupt', 'utf8');
+
+  const after = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
+  const renamed = await after.handleOperator.put(plannedId, z.array(Op).parse([{ op: 'board', title: 'renamed' }]));
+  assert.equal(renamed.ok, true, renamed.error ?? '');
+  const relinked = await after.handleOperator.put(plannedId, z.array(Op).parse([{ op: 'add', element: { kind: 'unit', id: 'u2', title: 'Other', linkedBoardId: detailId } }]));
+  assert.equal(relinked.ok, false);
 });

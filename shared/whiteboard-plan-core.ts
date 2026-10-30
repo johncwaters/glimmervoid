@@ -85,4 +85,3 @@ function findDependencyCycle(board: Board): string[] | null {
 }
 
 export { findDependencyCycle, planSteps, unitsOf };
-export type { PlanStep };

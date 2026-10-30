@@ -379,7 +379,7 @@ function runPlanAction(parsed: ParsedArguments, boardRef: string): Promise<PlanR
 }
 
 async function runPlanCommand(parsed: ParsedArguments): Promise<number> {
-  const boardRef = parsed.positionals[0] ?? '';
+  const boardRef = parsed.commandPath[2] === 'show' ? joinedText(parsed.positionals) : parsed.positionals[0] ?? '';
   const reply = await runPlanAction(parsed, boardRef);
   if (!reply.ok) {
     console.log(JSON.stringify({ ok: false, error: reply.text }));

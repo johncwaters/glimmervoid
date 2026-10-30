@@ -193,7 +193,11 @@ function createWhiteboardWiring({
     return changeRecord(boardId, (record) => {
       const result = applyOps(record.board, ops, author, now());
       if (!result.ok) return { ok: false, reply: refusal(400, `${result.error}, so nothing changed`) };
-      const strandedUnit = unitsOf(result.board).find((unit) => unit.linkedBoardId !== null && !recordsByBoardId.has(unit.linkedBoardId));
+      const strandedUnit = unitsOf(result.board).find((unit) => {
+        const before = record.board.elements[unit.id];
+        const isNewLink = before?.kind !== 'unit' || before.linkedBoardId !== unit.linkedBoardId;
+        return isNewLink && unit.linkedBoardId !== null && !recordsByBoardId.has(unit.linkedBoardId);
+      });
       if (strandedUnit) return { ok: false, reply: refusal(400, `unit ${strandedUnit.id} links to board ${strandedUnit.linkedBoardId ?? ''}, which does not exist, so nothing changed`) };
       const next = recordPut(record, result);
       const patch: WhiteboardPatch = {
@@ -237,7 +241,11 @@ function createWhiteboardWiring({
       const ops: Op[] = unitsOf(record.board)
         .filter((unit) => unit.linkedBoardId === deletedBoardId)
         .map((unit) => ({ op: 'set', id: unit.id, fields: { linkedBoardId: null } }));
-      return ops.length === 0 ? [] : [putOps(record.board.id, ops, BOARD_DELETION_AUTHOR)];
+      if (ops.length === 0) return [];
+      const linkingBoardId = record.board.id;
+      return [putOps(linkingBoardId, ops, BOARD_DELETION_AUTHOR).then((reply) => {
+        if (!reply.body.ok) logger.warn(`[whiteboard] units on board ${linkingBoardId} still link to deleted board ${deletedBoardId}: ${reply.body.error}`);
+      })];
     });
     await Promise.all(unlinkPuts);
   }
