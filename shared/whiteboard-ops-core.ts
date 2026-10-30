@@ -53,11 +53,17 @@ function addElement(board: Board, element: Element, author: Author): OpOutcome {
   return OK;
 }
 
-function setFields(board: Board, id: string, fields: Record<string, unknown>): OpOutcome {
+function rewrittenNoteStamp(existing: Element, fields: Record<string, unknown>, author: Author): Record<string, unknown> {
+  if (existing.kind !== 'note' || !('text' in fields || 'on' in fields)) return {};
+  return { author: author.name, resolvedBy: null };
+}
+
+function setFields(board: Board, id: string, fields: Record<string, unknown>, author: Author): OpOutcome {
   const existing = board.elements[id];
   if (!existing) return refuse(`no element has id ${id}`);
   if ('kind' in fields || 'id' in fields) return refuse('set cannot change an element kind or id; remove it and add a new one');
-  const parsed = ELEMENT_SCHEMAS[existing.kind].safeParse({ ...existing, ...fields });
+  if ('author' in fields || 'resolvedBy' in fields) return refuse('set cannot change who wrote or resolved a note; resolve it with a resolve op');
+  const parsed = ELEMENT_SCHEMAS[existing.kind].safeParse({ ...existing, ...fields, ...rewrittenNoteStamp(existing, fields, author) });
   if (!parsed.success) return refuse(`${id}: ${parsed.error.issues[0]?.message ?? 'invalid fields'}`);
   const references = checkReferences(board, parsed.data);
   if (!references.ok) return references;
@@ -121,7 +127,7 @@ function replaceLanes(board: Board, lanes: Board['lanes']): OpOutcome {
 function applyOne(board: Board, op: Op, author: Author): OpOutcome {
   switch (op.op) {
     case 'add': return addElement(board, op.element, author);
-    case 'set': return setFields(board, op.id, op.fields);
+    case 'set': return setFields(board, op.id, op.fields, author);
     case 'remove': return removeElement(board, op.id);
     case 'resolve': return resolveNote(board, op.id, author);
     case 'columns': return replaceColumns(board, op.columns);

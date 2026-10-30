@@ -121,7 +121,7 @@ test('an agent builds a board of boxes, wires, frames, notes and ghost boxes, an
   assert.equal(board.elements.later?.ghost, true);
 });
 
-test('two writers keep both different fields, the later write of one field wins, and the overwritten writer is told on its next get', async () => {
+test('two writers keep both different fields, the later write of one field wins, and the overwritten writer gets every change to the element in one line', async () => {
   const boardId = await newBoard('shared edits');
   assert.equal((await whiteboard(BUILDER_ID, { sub: 'connect', board: 'shared edits' })).status, 200);
   await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'add', element: { kind: 'box', id: 'parse', title: 'Parse', column: 'intake' } }] });
@@ -135,8 +135,15 @@ test('two writers keep both different fields, the later write of one field wins,
   const plannerView = await boardOf(PLANNER_ID, boardId);
   assert.equal(plannerView.board.elements.parse?.title, 'Parse and store');
   assert.deepEqual(plannerView.board.elements.parse?.lines, [{ text: 'by the builder', muted: false }]);
-  assert.deepEqual(plannerView.changes.map((change) => change.summary), [`${BUILDER_ID} renamed "Parse feed" to "Parse and store"`]);
+  assert.deepEqual(plannerView.changes.map((change) => change.summary), [
+    `${BUILDER_ID} changed lines of "Parse feed"; ${BUILDER_ID} renamed "Parse feed" to "Parse and store"`,
+  ]);
   assert.deepEqual((await boardOf(PLANNER_ID, boardId)).changes, [], 'a get marks the summaries read');
+
+  await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'add', element: { kind: 'note', id: 'n1', on: 'parse', text: 'keep prod' } }] });
+  await whiteboard(BUILDER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'n1', fields: { text: 'drop prod' } }] });
+  const rewritten = (await boardOf(PLANNER_ID, boardId)).board.elements.n1;
+  assert.deepEqual([rewritten?.text, rewritten?.author], ['drop prod', BUILDER_ID], 'a rewritten note carries its rewriter as author');
 });
 
 test('a malformed or over-limit put is refused whole with a reason and the board is unchanged', async () => {
@@ -155,9 +162,32 @@ test('a malformed or over-limit put is refused whole with a reason and the board
   assert.equal(overLimit.status, 400);
   assert.match(String(overLimit.body.error), /at most 200 ops/);
 
+  const forgedNote = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
+    { op: 'add', element: { kind: 'box', id: 'target', title: 'Target', column: 'intake' } },
+    { op: 'add', element: { kind: 'note', id: 'n1', on: 'target', text: 'mine' } },
+    { op: 'set', id: 'n1', fields: { author: 'operator' } },
+  ] });
+  assert.equal(forgedNote.status, 400);
+  assert.match(String(forgedNote.body.error), /op 3: set cannot change who wrote or resolved a note/);
+
   const after = await boardOf(PLANNER_ID, boardId);
   assert.equal(after.board.version, before.board.version);
   assert.deepEqual(after.board.elements, {});
+});
+
+test('a put larger than other agent requests but inside the put limit lands, and one past the limit gets a reason', async () => {
+  const boardId = await newBoard('big puts');
+  const line = { text: 'x'.repeat(WHITEBOARD_LIMITS.line) };
+  const boxesOf = (count: number, prefix: string) => Array.from({ length: count }, (_, index) => ({
+    op: 'add', element: { kind: 'box', id: `${prefix}${index}`, title: 'Box', column: 'intake', lines: Array.from({ length: WHITEBOARD_LIMITS.linesPerBox }, () => line) },
+  }));
+
+  const inside = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: boxesOf(100, 'a') });
+  assert.equal(inside.status, 200);
+
+  const past = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: boxesOf(200, 'b') });
+  assert.equal(past.status, 413);
+  assert.match(String(past.body.error), /nothing changed/);
 });
 
 test('boards and their connections survive a restart', async () => {

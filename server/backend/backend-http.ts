@@ -15,6 +15,7 @@ import type { RefocusContext } from '../../session/core/refocus-core.ts';
 import type { AgentApiPort } from '../agent-api-wiring.ts';
 import { checkAgentReply, decideAgentRequest, REFUSAL_REASON, REFUSAL_STATUS } from '../core/agent-api-core.ts';
 import { SSH_SIGN_BODY_CAP_BYTES, SshSignRequest } from '../../shared/contracts/session.ts';
+import { WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import { decideHostAllowed } from '../core/host-policy.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { isSignableGitObject, parseSshPublicKey } from '../core/ssh-signing-core.ts';
@@ -45,6 +46,8 @@ import {
 } from '../core/upload-core.ts';
 
 const HOOK_BODY_CAP_BYTES = 64 * 1024;
+const AGENT_OVERSIZE_DRAIN_BYTES = 4 * 1024 * 1024;
+const AGENT_BODY_CAP_BYTES_BY_VERB: Readonly<Record<string, number>> = { whiteboard: WHITEBOARD_LIMITS.putBytes + HOOK_BODY_CAP_BYTES };
 const UNNAMED_HOOK_EVENT = 'an unknown event';
 const SILENT_OVERSIZE_HOOK_EVENTS: ReadonlySet<string> = new Set(['posttooluse', CONVERSATION_TOOL_RESULT_HOOK_EVENT]);
 const KNOWN_HOOK_EVENTS: ReadonlySet<string> = new Set([
@@ -78,28 +81,41 @@ function readCappedBody(
   req: Request,
   capBytes: number,
   onOversize: (declaredBytes: string) => void,
+  { drainBytes = 0 }: { drainBytes?: number } = {},
 ): Promise<string | null> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = [];
     let receivedBytes = 0;
     let settled = false;
+    let isOversize = false;
     const abandon = () => {
       if (settled) return;
       settled = true;
       resolve(null);
     };
+    const declaredBytes = () => String(req.headers['content-length'] || `at least ${receivedBytes}`);
     req.on('error', abandon);
     req.on('data', (chunk: Buffer) => {
       if (settled) return;
       receivedBytes += chunk.length;
-      chunks.push(chunk);
-      if (receivedBytes <= capBytes) return;
-      onOversize(String(req.headers['content-length'] || `at least ${receivedBytes}`));
+      if (receivedBytes <= capBytes) {
+        chunks.push(chunk);
+        return;
+      }
+      isOversize = true;
+      chunks.length = 0;
+      if (receivedBytes <= capBytes + drainBytes) return;
+      onOversize(declaredBytes());
       req.destroy();
       abandon();
     });
     req.on('end', () => {
       if (settled) return;
+      if (isOversize) {
+        onOversize(declaredBytes());
+        abandon();
+        return;
+      }
       settled = true;
       resolve(Buffer.concat(chunks).toString('utf8'));
     });
@@ -534,10 +550,17 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
       expectedToken: session?.agentToken ?? null,
       isLoopback: isLoopbackRequest(req),
     });
+    const bodyCapBytes = AGENT_BODY_CAP_BYTES_BY_VERB[verb] ?? HOOK_BODY_CAP_BYTES;
     const overCap = (declaredBytes: string) => {
-      logger.warn(`[agent] a ${declaredBytes} byte body is over the ${HOOK_BODY_CAP_BYTES} byte cap and was refused`);
+      logger.warn(`[agent] a ${declaredBytes} byte body is over the ${bodyCapBytes} byte cap and was refused`);
+      if (res.headersSent || req.destroyed) return;
+      if (!verdict.ok || !session) {
+        refuseAgentRequest(res);
+        return;
+      }
+      res.status(413).json({ ok: false, error: `a ${verb} request carries at most ${bodyCapBytes} bytes, so nothing changed` });
     };
-    void readCappedBody(req, HOOK_BODY_CAP_BYTES, overCap).then((body) => {
+    void readCappedBody(req, bodyCapBytes, overCap, { drainBytes: AGENT_OVERSIZE_DRAIN_BYTES }).then((body) => {
       if (body === null) return;
       if (!verdict.ok || !session) {
         refuseAgentRequest(res);

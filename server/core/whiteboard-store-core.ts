@@ -31,11 +31,18 @@ function changesForReader(record: BoardRecord, sessionId: string): BoardChange[]
   const cursor = record.cursorBySessionId[sessionId];
   if (cursor === undefined) return [];
   const unread = record.log.filter((change) => change.version > cursor && change.author !== sessionId);
-  const newestIndexByElementId = new Map<string, number>();
-  unread.forEach((change, index) => {
-    if (change.elementId !== null) newestIndexByElementId.set(change.elementId, index);
+  const mergedByElementId = new Map<string, { newest: BoardChange; summaries: Set<string> }>();
+  for (const change of unread) {
+    if (change.elementId === null) continue;
+    const summaries = mergedByElementId.get(change.elementId)?.summaries ?? new Set<string>();
+    mergedByElementId.set(change.elementId, { newest: change, summaries: summaries.add(change.summary) });
+  }
+  return unread.flatMap((change) => {
+    if (change.elementId === null) return [change];
+    const merged = mergedByElementId.get(change.elementId);
+    if (!merged || merged.newest !== change) return [];
+    return [{ ...change, summary: [...merged.summaries].join('; ') }];
   });
-  return unread.filter((change, index) => change.elementId === null || newestIndexByElementId.get(change.elementId) === index);
 }
 
 function markRead(record: BoardRecord, sessionId: string): BoardRecord {
