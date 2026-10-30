@@ -9,12 +9,17 @@ export function isBotAuthor(author: { __typename?: string; login: string } | nul
   return author.__typename === 'Bot' || author.login.toLowerCase().endsWith('[bot]');
 }
 
+export function isOrgMemberAssociation(authorAssociation: string | null | undefined): boolean | null {
+  if (!authorAssociation) return null;
+  return authorAssociation === 'MEMBER' || authorAssociation === 'OWNER';
+}
+
 export function normalizeGithubPr(node: GithubPrDetailNode, behindBy: number | null = null, threadNodes: readonly MyPrThreadNode[] = []): GithubPr {
   const myPr = toMyPr(node, behindBy, threadNodes);
   return {
     key: comparablePrKey(myPr), id: node.id,
     repo: myPr.repo, number: myPr.number, title: myPr.title, url: myPr.url,
-    author: node.author?.login ?? null, isAuthorBot: isBotAuthor(node.author), labels: node.labels.nodes.map((label) => label.name), commentCount: node.comments.totalCount,
+    author: node.author?.login ?? null, isAuthorBot: isBotAuthor(node.author), isAuthorOrgMember: isOrgMemberAssociation(node.authorAssociation), labels: node.labels.nodes.map((label) => label.name), commentCount: node.comments.totalCount,
     isDraft: myPr.isDraft, state: myPr.state,
     createdAt: myPr.createdAt, mergedAt: myPr.mergedAt, updatedAt: myPr.updatedAt,
     baseRefName: myPr.baseRefName, baseRefOid: myPr.baseRefOid,

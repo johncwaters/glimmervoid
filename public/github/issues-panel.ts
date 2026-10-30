@@ -2,7 +2,7 @@ import './issues-panel.css';
 import { paintActionStatus } from '../action-status.ts';
 import { githubPrByKey, subscribeGithubPrs } from './github-prs-store.ts';
 import { STATES } from '#shared/states.ts';
-import { el, externalLink, isPanelHidden, isRealInputOwningKey, stateChip } from '../dom-helpers.ts';
+import { createAuthorOrgTag, el, externalLink, isPanelHidden, isRealInputOwningKey, stateChip } from '../dom-helpers.ts';
 import { paintStatusIcon } from '../status-icon.ts';
 import { createGithubPollingControls } from './my-prs-panel.ts';
 import { createPrQueueFoot } from './pr-queue-columns.ts';
@@ -255,6 +255,8 @@ function renderDetail(): void {
   const nowMs = Date.now();
   const meta = el('div', 'pr-detail-meta');
   const opened = el('span', null, `opened by ${issue.author || 'unknown'} `);
+  const orgTag = createAuthorOrgTag(issue.isAuthorOrgMember, issue.repo);
+  if (orgTag) opened.append(orgTag, ' ');
   const updated = el('span', null, 'updated ');
   opened.append(createDetailAge(issue.createdAt, nowMs));
   updated.append(createDetailAge(issue.updatedAt, nowMs));

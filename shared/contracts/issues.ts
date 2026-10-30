@@ -22,7 +22,7 @@ export function issuePullRequestStateFromGithub({ state, isDraft }: { state: 'OP
 }
 const issueFields = {
   key: z.string(), repo: IssueRepoSlug, number: z.number().int().positive(), title: z.string(), url: z.string().url(),
-  labels: z.array(z.string()), assignees: z.array(z.string()), author: z.string(), comments: z.number().int().nonnegative(),
+  labels: z.array(z.string()), assignees: z.array(z.string()), author: z.string(), isAuthorOrgMember: z.boolean().nullable().default(null), comments: z.number().int().nonnegative(),
   createdAt: z.iso.datetime(), updatedAt: z.iso.datetime(),
 };
 export const IssueSource = z.enum(['project', 'me', 'team']);
@@ -43,7 +43,7 @@ export const GithubIssueResponse = z.object({
   number: issueFields.number, title: issueFields.title, html_url: issueFields.url, state: z.enum(['open', 'closed']),
   labels: z.array(z.union([z.string(), z.object({ name: z.string() })])),
   assignees: z.array(z.object({ login: z.string() })),
-  user: z.object({ login: z.string() }).nullable(), comments: issueFields.comments,
+  user: z.object({ login: z.string() }).nullable(), author_association: z.string().optional(), comments: issueFields.comments,
   created_at: issueFields.createdAt, updated_at: issueFields.updatedAt, repository_url: z.string().url().optional(),
   pull_request: z.unknown().optional(),
 });

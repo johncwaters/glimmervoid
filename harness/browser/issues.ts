@@ -61,7 +61,7 @@ export async function verifyIssues(page: Page, layout: Layout, sessionId: string
   const timestamp = Date.now();
   const issue: IssueRow = {
     key: 'Acme/app#42', repo: 'Acme/app', number: 42, title: 'Reconnect queued writes '.repeat(12), url: 'https://github.com/Acme/app/issues/42',
-    labels: ['bug', 'long-label-'.repeat(12)], assignees: ['me'], author: 'alice', comments: 4,
+    labels: ['bug', 'long-label-'.repeat(12)], assignees: ['me'], author: 'alice', isAuthorOrgMember: false, comments: 4,
     createdAt: new Date(timestamp - 172800000).toISOString(), updatedAt: new Date(timestamp - 360000).toISOString(),
     sources: ['project', 'me', 'team'], teams: ['Acme/platform'], projectId: 'project-1', sessionId,
     pullRequests: [{ number: 44, url: 'https://github.com/Acme/app/pull/44', title: 'Fix reconnect', state: 'draft' }, { number: 45, url: 'https://github.com/Acme/app/pull/45', title: 'Earlier fix', state: 'merged' }],

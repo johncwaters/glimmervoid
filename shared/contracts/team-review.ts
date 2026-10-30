@@ -125,6 +125,7 @@ const reviewPriorityShape = {
   requestSource: z.enum(['direct', 'team']).default('team'),
   isDraft: z.boolean().optional(),
   checksState: ReviewChecksState.nullable().optional(),
+  isAuthorOrgMember: z.boolean().nullable().optional(),
 };
 
 export const GithubReview = z.object({

@@ -157,7 +157,7 @@ async function verifyCanonicalTeamPrFields(page: Page, layout: Layout, snapshot:
   const timestamp = Date.now();
   const canonicalPr = GithubPr.parse({
     key: 'acme/app#1', id: 'PR_team_browser', repo: 'Acme/app', number: 1, title: 'Canonical team PR', url: 'https://github.com/Acme/app/pull/1',
-    author: 'teammate', isAuthorBot: false, labels: [], commentCount: 0,
+    author: 'teammate', isAuthorBot: false, isAuthorOrgMember: false, labels: [], commentCount: 0,
     isDraft: false, state: 'OPEN', createdAt: new Date(timestamp - 86400000).toISOString(), mergedAt: null, updatedAt: new Date(timestamp).toISOString(),
     baseRefName: 'main', baseRefOid: PREVIOUS_HEAD, headRefName: 'feature', headRefOid: REVIEWED_HEAD, isCrossRepository: false,
     isInMergeQueue: false, mergeMethod: 'SQUASH', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: null,
@@ -195,6 +195,8 @@ async function verifyCanonicalTeamPrFields(page: Page, layout: Layout, snapshot:
     assert.equal(await readRowMeaning(teamRow), stage);
     assert.equal(await root.locator('.pr-queue-row').first().getAttribute('data-review-key'), firstKey);
     assert.equal(await readRowMeaning(fallbackRow), 'Waits on you');
+    assert.equal(await teamRow.locator('.author-org-tag').textContent(), 'external');
+    assert.equal(await fallbackRow.locator('.author-org-tag').count(), 0);
     const teamGlyph = await teamRow.locator('.pr-queue-glyph').innerHTML();
     const teamIcon = await teamRow.locator('.pr-status-icon').evaluate((icon) => icon.outerHTML);
     const unchangedTeamRow = await teamRow.elementHandle();

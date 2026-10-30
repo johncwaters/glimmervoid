@@ -5,7 +5,7 @@ import type { TeamReviewChange } from './team-review-store.ts';
 import type { DiffExcerptLine, DraftComment, EarlierReview, FindingSeverity, HandCheck, InFlightReview, QueuedReview, ReviewDraft, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus as TeamReviewStatusType } from '#shared/contracts/team-review.ts';
 import { nextRequestId, sendControlMsg } from '../control-ws.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
-import { createAvatar, createReviewerStack, el, externalLink } from '../dom-helpers.ts';
+import { createAuthorOrgTag, createAvatar, createReviewerStack, el, externalLink } from '../dom-helpers.ts';
 import { createPollAgoTicker, formatAgo } from '../poll-ago.ts';
 import { createPrStatusIcon } from './pr-status-icon.ts';
 import { createSvgIcon as svgIcon, createSvgShape as svgShape } from '../svg-dom.ts';
@@ -232,9 +232,11 @@ function formatTimestampAge(timestampValue: number | string | null | undefined):
   return timestamp === null ? null : formatAgo(timestamp);
 }
 
-function createAuthor(login: string, cssPx: number, className: string): HTMLElement {
+function createAuthor(review: ReviewDraft | InFlightReview | QueuedReview, cssPx: number, className: string): HTMLElement {
   const author = el('span', className);
-  author.append(createAvatar({ login, cssPx }), el('span', 'pr-author-login', login));
+  author.append(createAvatar({ login: review.author, cssPx }), el('span', 'pr-author-login', review.author));
+  const orgTag = createAuthorOrgTag(review.isAuthorOrgMember, review.repo);
+  if (orgTag) author.append(orgTag);
   return author;
 }
 
@@ -288,7 +290,7 @@ export function createTeamQueueRow(review: ReviewDraft | InFlightReview | Queued
   const glyph = el('span', 'pr-queue-glyph');
   glyph.append(createPrStatusIcon(rowGlyph.icon, rowGlyph.tone));
   const bottom = el('span', 'pr-queue-bottom');
-  bottom.append(createRowStateWord(kind === 'ready' && 'reviewedHead' in review ? { tone: rowGlyph.tone, meaning: queueRowAgentText(review) } : rowGlyph), createAuthor(review.author, 16, 'pr-queue-author'));
+  bottom.append(createRowStateWord(kind === 'ready' && 'reviewedHead' in review ? { tone: rowGlyph.tone, meaning: queueRowAgentText(review) } : rowGlyph), createAuthor(review, 16, 'pr-queue-author'));
   if (review.requestSource === 'direct') {
     const directMarker = el('span', 'pr-queue-direct', '@');
     directMarker.title = 'Requested from you directly';
@@ -382,7 +384,7 @@ function createDetailHeading(review: ReviewDraft | InFlightReview, { hasFactsRai
   const title = el('div', 'pr-detail-title');
   title.append(pullRequestLink(review), el('h2', null, review.title));
   const metadata = el('div', 'pr-detail-meta');
-  metadata.append(createAuthor(review.author, 20, 'pr-detail-author'));
+  metadata.append(createAuthor(review, 20, 'pr-detail-author'));
   const scope = el('span', null, detailMetaText(review));
   scope.title = reviewScopeTitle(review);
   metadata.append(scope);
@@ -971,7 +973,7 @@ function createQueuedDetail(review: QueuedReview, runningCount: number): HTMLEle
   const title = el('div', 'pr-detail-title');
   title.append(pullRequestLink(review), el('h2', null, review.title));
   const metadata = el('div', 'pr-detail-meta');
-  metadata.append(createAuthor(review.author, 20, 'pr-detail-author'));
+  metadata.append(createAuthor(review, 20, 'pr-detail-author'));
   const openedAge = createAgeReadout('Opened', review.prCreatedAt);
   if (openedAge) metadata.append(openedAge);
   heading.append(title, metadata, createOpenSessionControl(review));

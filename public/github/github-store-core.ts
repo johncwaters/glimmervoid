@@ -184,6 +184,7 @@ export function joinTeamReviews(status: TeamReviewStatus | null, findGithubPr: (
       checksState: pr.rollupState,
       reviewDecision: decisionAsIfApprovalRequired(pr.reviewDecision, pr.opinionatedWriterReviewStates),
       isDraft: pr.isDraft,
+      isAuthorOrgMember: pr.isAuthorOrgMember,
       liveHead: pr.headRefOid,
       prStage: myPrFromGithubPr(pr).stage,
     };

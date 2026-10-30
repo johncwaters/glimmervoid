@@ -27,6 +27,15 @@ export function setStyleProperties(element: HTMLElement, properties: Iterable<re
   for (const [propertyName, value] of properties) element.style.setProperty(propertyName, value);
 }
 
+export function createAuthorOrgTag(isAuthorOrgMember: boolean | null | undefined, repo: string): HTMLElement | null {
+  if (isAuthorOrgMember === null || isAuthorOrgMember === undefined) return null;
+  const org = repo.split('/')[0] ?? '';
+  const tag = el('span', 'author-org-tag', isAuthorOrgMember ? org : 'external');
+  tag.dataset.orgMember = String(isAuthorOrgMember);
+  tag.title = isAuthorOrgMember ? `Member of the ${org} GitHub org` : `Not a member of the ${org} GitHub org`;
+  return tag;
+}
+
 export function createAvatar({ login, url, cssPx }: { login: string; url?: string | null; cssPx: number }): HTMLElement {
   const avatar = el('span', 'avatar');
   avatar.style.width = `${cssPx}px`;

@@ -19,7 +19,7 @@ import type { PrDetail as PrDetailType, ReviewComment as ReviewCommentType, Team
 import type { TeamReviewThreadNode as ThreadNode, TeamReviewCompareFiles as CompareFiles } from '../../shared/contracts/team-review.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { parseJsonOrNull } from '../core/json-core.ts';
-import { notificationSubjectPrKey } from './core/github-store-core.ts';
+import { isOrgMemberAssociation, notificationSubjectPrKey } from './core/github-store-core.ts';
 import { GithubTeam } from '../../shared/contracts/control-messages.ts';
 
 type GhMergeFlag = '--merge' | '--squash' | '--rebase';
@@ -181,7 +181,7 @@ const GITHUB_PRS_LIGHT_RESPONSE = z.object({ data: z.object({ search: z.object({
   pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }),
   nodes: z.array(GithubPrLightSearchNode),
 }) }), errors: z.array(z.unknown()).optional() });
-const GITHUB_PR_REVIEW_FIELDS = `author { __typename login }
+const GITHUB_PR_REVIEW_FIELDS = `author { __typename login } authorAssociation
   latestReviews(first: 20) { nodes { state submittedAt author { login } commit { oid } } }
   writerOpinionatedReviews: latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state } }`;
 const GITHUB_PR_DETAIL_REPOSITORY = z.object({ pullRequest: GithubPrDetailNode.nullable() }).nullable();
@@ -340,7 +340,7 @@ function parseGithubIssue(candidate: unknown, repository?: string): IssueUpdate 
   return IssueUpdate.parse({
     key: `${repo}#${issue.number}`, repo, number: issue.number, title: issue.title, url: issue.html_url,
     labels: issue.labels.map((label) => typeof label === 'string' ? label : label.name),
-    assignees: issue.assignees.map((assignee) => assignee.login), author: issue.user?.login ?? '', comments: issue.comments,
+    assignees: issue.assignees.map((assignee) => assignee.login), author: issue.user?.login ?? '', isAuthorOrgMember: isOrgMemberAssociation(issue.author_association), comments: issue.comments,
     createdAt: issue.created_at, updatedAt: issue.updated_at, state: issue.state,
   });
 }

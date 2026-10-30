@@ -14,7 +14,7 @@ import type { CachedIssueRow, IssuePullRequest, IssueUpdate, IssuesFetchResult, 
 const NOW = Date.parse('2026-10-10T12:00:00Z');
 const cached: CachedIssueRow = {
   key: 'acme/app#1', repo: 'acme/app', number: 1, title: 'Fix reconnect', url: 'https://github.com/acme/app/issues/1',
-  labels: [], assignees: ['alice'], author: 'bob', comments: 1, createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-10T00:00:00Z',
+  labels: [], assignees: ['alice'], author: 'bob', isAuthorOrgMember: null, comments: 1, createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-10T00:00:00Z',
   sources: ['team'], teams: ['acme/core'], projectId: null, pullRequests: [],
 };
 const { sources: _sources, teams: _teams, projectId: _projectId, ...issueFields } = cached;

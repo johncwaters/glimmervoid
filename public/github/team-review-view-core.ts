@@ -766,7 +766,7 @@ export function readyRowSignature(draft: ReviewDraft): string {
 }
 
 export function detailHeadingSignature(review: ReviewDraft | InFlightReview): string {
-  if (!('reviewedHead' in review)) return JSON.stringify([review.prCreatedAt, review.priorReviewedHead]);
-  return JSON.stringify([review.prCreatedAt, review.reviewedAt, review.postedAt, review.githubReviews, review.liveHead, review.priorReviewedHead, review.viewerThreads]);
+  if (!('reviewedHead' in review)) return JSON.stringify([review.prCreatedAt, review.priorReviewedHead, review.isAuthorOrgMember]);
+  return JSON.stringify([review.prCreatedAt, review.isAuthorOrgMember, review.reviewedAt, review.postedAt, review.githubReviews, review.liveHead, review.priorReviewedHead, review.viewerThreads]);
 }
 

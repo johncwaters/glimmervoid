@@ -28,6 +28,7 @@ export type GithubPrLightSearchNode = z.infer<typeof GithubPrLightSearchNode>;
 
 export const GithubPrDetailNode = MyPrSearchNode.extend({
   author: WorkflowSearchNode.shape.author.unwrap().extend({ __typename: z.string().optional() }).nullable(),
+  authorAssociation: z.string().optional(),
   labels: WorkflowSearchNode.shape.labels,
   comments: WorkflowSearchNode.shape.comments,
   latestReviews: z.object({ nodes: z.array(MyPrSearchNode.shape.latestReviews.shape.nodes.element.extend({
@@ -40,7 +41,7 @@ export type GithubPrDetailNode = z.infer<typeof GithubPrDetailNode>;
 export const GithubPr = z.strictObject({
   key: GithubPrKey, id: MyPrSearchNode.shape.id,
   repo: MyPr.shape.repo, number: MyPr.shape.number, title: MyPr.shape.title, url: MyPr.shape.url,
-  author: WorkflowPr.shape.author, isAuthorBot: z.boolean(), labels: WorkflowPr.shape.labels, commentCount: WorkflowPr.shape.commentCount,
+  author: WorkflowPr.shape.author, isAuthorBot: z.boolean(), isAuthorOrgMember: z.boolean().nullable(), labels: WorkflowPr.shape.labels, commentCount: WorkflowPr.shape.commentCount,
   isDraft: MyPr.shape.isDraft, state: MyPr.shape.state,
   createdAt: MyPr.shape.createdAt, mergedAt: MyPr.shape.mergedAt, updatedAt: MyPr.shape.updatedAt,
   baseRefName: MyPr.shape.baseRefName, baseRefOid: MyPr.shape.baseRefOid,
