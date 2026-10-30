@@ -4106,32 +4106,29 @@ html:not([data-layout="phone"]) .review-controls :is(.review-branch-sync-refresh
 
 .review-look { margin-bottom: 18px; }
 .review-group-label { margin: 0 0 6px; color: var(--text-dim); font-size: var(--type-meta); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
-.review-look-list { display: grid; gap: 2px; }
+.review-look-list { display: grid; gap: 6px; }
+.review-look-group { display: grid; gap: 1px; padding: 4px 0 4px 8px; border-left: 2px solid var(--border); }
+.review-look-group[data-kind="collision"] { border-left-color: var(--state-failed); }
+.review-look-group[data-kind="link"] { border-left-color: var(--accent); }
+.review-look-text { margin: 0 0 2px; color: var(--text); font-size: var(--type-meta); line-height: 1.45; }
 .review-look-line {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
   width: 100%;
   min-width: 0;
-  padding: 5px 8px;
+  padding: 2px 6px;
   border: 0;
-  border-left: 2px solid var(--border);
-  border-radius: 0 4px 4px 0;
+  border-radius: 4px;
   background: transparent;
-  color: inherit;
-  font: inherit;
+  color: var(--text-head);
+  font: 700 var(--type-meta) var(--font-mono);
   text-align: left;
+  overflow-wrap: anywhere;
   cursor: pointer;
   transition: background var(--transition-fast);
 }
-.review-look-line[data-kind="collision"] { border-left-color: var(--state-failed); }
-.review-look-line[data-kind="link"] { border-left-color: var(--accent); }
 @media (hover: hover) {
   .review-look-line:hover { background: var(--bg-card); }
 }
 .review-look-line:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.review-look-file { color: var(--text-head); font: 700 var(--type-meta) var(--font-mono); overflow-wrap: anywhere; }
-.review-look-text { color: var(--text); font-size: var(--type-meta); line-height: 1.45; }
 .review-look-more { display: flex; align-items: center; gap: 8px; margin-top: 4px; padding-left: 10px; color: var(--text-muted); font-size: var(--type-meta); }
 .review-look-show-all { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .review-look-show-all:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

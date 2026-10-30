@@ -4,12 +4,21 @@ const WIDE_BLAST_RADIUS_MIN = 10;
 
 export interface WorthALookLine {
   dedupeKey: string;
+  groupKey: string;
   kind: ChangeMapFactKind;
   severity: number;
   path: string;
   openPath: string;
-  text: string;
+  heading: string;
   detail: string;
+}
+
+export interface WorthALookGroup {
+  groupKey: string;
+  kind: ChangeMapFactKind;
+  severity: number;
+  heading: string;
+  lines: WorthALookLine[];
 }
 
 export interface FileHint {
@@ -23,7 +32,7 @@ interface ChangeMapRepoRef {
 }
 
 export interface ChangeMapView {
-  worthALook: WorthALookLine[];
+  worthALook: WorthALookGroup[];
   hintsByOpenPath: Map<string, FileHint[]>;
   repos: ChangeMapRepoRef[];
   errors: string[];
@@ -64,24 +73,27 @@ function worthALookLines(repo: RepoChangeMap, providerByName: Map<string, Provid
       : `Uses ${link.versionSpec} from the registry, so ${link.providerRepo} changes reach it only after a publish.`;
     if (link.providerChangedPathCount > 0) detail += ` ${link.providerRepo} changed ${link.providerChangedPathCount} ${providerNoun} in ${link.packageDir || 'the repository root'}.`;
     if (link.changedImporterCount > 0) detail += ` ${link.changedImporterCount} importing ${changedImporterNoun} changed here.`;
+    const linkKey = `link:${link.providerRepo}:${link.packageName}:${repo.name}`;
     lines.push({
-      dedupeKey: `link:${link.providerRepo}:${link.packageName}:${repo.name}`, kind: 'link', severity: 6, path, openPath: `${pathOwner.sessionPathPrefix}${path}`,
-      text: `${repo.name} imports ${link.packageName} from ${link.providerRepo} in ${link.importerCount} ${importerNoun}`,
+      dedupeKey: linkKey, groupKey: linkKey, kind: 'link', severity: 6, path, openPath: `${pathOwner.sessionPathPrefix}${path}`,
+      heading: `${repo.name} imports ${link.packageName} from ${link.providerRepo} in ${link.importerCount} ${importerNoun}`,
       detail,
     });
   }
   for (const collision of repo.collisions) lines.push({
-    dedupeKey: `collision:${repo.sessionPathPrefix}${collision.path}:${collision.otherSessionId}`, kind: 'collision', severity: 5,
+    dedupeKey: `collision:${repo.sessionPathPrefix}${collision.path}:${collision.otherSessionId}`,
+    groupKey: `collision:${collision.otherSessionId}`, kind: 'collision', severity: 5,
     path: collision.path, openPath: `${repo.sessionPathPrefix}${collision.path}`,
-    text: `Also being changed in "${collision.otherSessionName}"`,
+    heading: `Also being changed in "${collision.otherSessionName}"`,
     detail: 'Another live session is changing this file, so the two may conflict.',
   });
   for (const gap of repo.coChangeGaps) {
     const totalCommits = gap.confidence > 0 ? Math.round(gap.support / gap.confidence) : 0;
     lines.push({
-      dedupeKey: `co-change:${repo.sessionPathPrefix}${gap.path}:${gap.partner}`, kind: 'co-change', severity: 4,
+      dedupeKey: `co-change:${repo.sessionPathPrefix}${gap.path}:${gap.partner}`,
+      groupKey: `co-change:${repo.sessionPathPrefix}${gap.partner}`, kind: 'co-change', severity: 4,
       path: gap.path, openPath: `${repo.sessionPathPrefix}${gap.path}`,
-      text: `Usually changes with ${gap.partner}, which is not in this change`,
+      heading: `Usually changes with ${gap.partner}, which is not in this change`,
       detail: `${gap.support} of the ${totalCommits} commits that touched it also touched ${gap.partner}.`,
     });
   }
@@ -108,8 +120,27 @@ function collectHints(repo: RepoChangeMap, hintsByOpenPath: Map<string, FileHint
   }
 }
 
-function byWorthALookOrder(left: WorthALookLine, right: WorthALookLine): number {
-  return right.severity - left.severity || left.openPath.localeCompare(right.openPath) || left.dedupeKey.localeCompare(right.dedupeKey);
+function byOpenPathOrder(left: WorthALookLine, right: WorthALookLine): number {
+  return left.openPath.localeCompare(right.openPath) || left.dedupeKey.localeCompare(right.dedupeKey);
+}
+
+function byWorthALookOrder(left: WorthALookGroup, right: WorthALookGroup): number {
+  return right.severity - left.severity || left.heading.localeCompare(right.heading) || left.groupKey.localeCompare(right.groupKey);
+}
+
+function groupWorthALookLines(lines: Iterable<WorthALookLine>): WorthALookGroup[] {
+  const groupByKey = new Map<string, WorthALookGroup>();
+  for (const line of lines) {
+    const group = groupByKey.get(line.groupKey);
+    if (group) {
+      group.lines.push(line);
+      continue;
+    }
+    groupByKey.set(line.groupKey, { groupKey: line.groupKey, kind: line.kind, severity: line.severity, heading: line.heading, lines: [line] });
+  }
+  const groups = [...groupByKey.values()];
+  for (const group of groups) group.lines.sort(byOpenPathOrder);
+  return groups.sort(byWorthALookOrder);
 }
 
 export function buildChangeMapView(map: ChangeMap): ChangeMapView {
@@ -130,7 +161,7 @@ export function buildChangeMapView(map: ChangeMap): ChangeMapView {
     if (repo.error) errors.push(map.repos.length > 1 ? `${repo.name}: ${repo.error}` : repo.error);
   }
   return {
-    worthALook: [...lineByDedupeKey.values()].sort(byWorthALookOrder),
+    worthALook: groupWorthALookLines(lineByDedupeKey.values()),
     hintsByOpenPath,
     repos: map.repos.map((repo) => ({ name: repo.name, sessionPathPrefix: repo.sessionPathPrefix })),
     errors,
