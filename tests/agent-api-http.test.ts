@@ -9,7 +9,7 @@ import type { Server } from 'node:http';
 
 import { createBackend } from '../server/backend/backend.ts';
 import { createAgentApiWiring } from '../server/agent-api-wiring.ts';
-import { ensureSessionTempFolder } from '../server/guardrails/guardrails-launch.ts';
+import { ensureSessionTempFolder } from '../server/session-temp/session-temp.ts';
 import { createSessionDocsWiring } from '../server/session/session-docs-wiring.ts';
 import { createMemoryAdmission, createSpawnGate } from '../server/spawn-gate.ts';
 import { memoryReserveBytes } from '../server/core/memory-admission-core.ts';
@@ -582,10 +582,7 @@ test('the shared session card projection carries exactly the session-added paylo
 
 test('limits tells a session which commands answer and its boundary', async () => {
   const fixture = wiringFixture({ coderWorkspaceStatus: (workspace) => (workspace === 'gv-0123456789ab' ? 'running' : null) });
-  const guardedLane = new Session({
-    id: 'review-lane', name: 'review', path: process.cwd(), ephemeral: true, ptySpawn: () => fakePty(),
-    prepareGuardrails: async () => ({ ok: false, reason: 'never launched' }),
-  });
+  const ephemeralLane = new Session({ id: 'review-lane', name: 'review', path: process.cwd(), ephemeral: true, ptySpawn: () => fakePty() });
   const remote = new Session({ id: 'remote', name: 'remote', path: process.cwd(), ptySpawn: () => fakePty() });
   fixture.config.projects.push({ id: 'remote', name: 'remote', path: process.cwd(), environment: { name: 'dev', workspace: 'gv-0123456789ab', remotePort: 45000, branch: 'main' } });
   const limitsOf = async (session: Session) => {
@@ -600,24 +597,24 @@ test('limits tells a session which commands answer and its boundary', async () =
       ...['spawn', 'send', 'read', 'close', 'attention', 'board', 'edit', 'show', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'whiteboard'].map((name) => ({ name, answers: true })),
     ]);
     assert.deepEqual([operatorLimits.boundary, operatorLimits.environment], ['none', null]);
-    const laneLimits = await limitsOf(guardedLane);
+    const laneLimits = await limitsOf(ephemeralLane);
     assert.deepEqual(laneLimits.commands.map(({ name, answers }) => [name, answers]), [
       ['push', false], ['spawn', false], ['send', false], ['read', false], ['close', false], ['attention', false], ['board', true], ['edit', false], ['show', false],
       ['review', false], ['reviews', false], ['prs', false], ['link-pr', false], ['settings', false], ['whiteboard', false],
     ]);
     const refusedCalls: [Session, AgentLimitsReply, string, Record<string, unknown>][] = [
       [fixture.parent, operatorLimits, 'push', {}],
-      [guardedLane, laneLimits, 'push', {}],
-      [guardedLane, laneLimits, 'spawn', { prompt: 'help me' }],
-      [guardedLane, laneLimits, 'send', { words: ['hello'] }],
-      [guardedLane, laneLimits, 'read', {}],
-      [guardedLane, laneLimits, 'close', { child: 'anyone' }],
-      [guardedLane, laneLimits, 'attention', { note: 'look' }],
-      [guardedLane, laneLimits, 'edit', { path: 'notes.md' }],
-      [guardedLane, laneLimits, 'review', { pr: 'acme/app#12' }],
-      [guardedLane, laneLimits, 'reviews', {}],
-      [guardedLane, laneLimits, 'link-pr', { pr: 'acme/app#12' }],
-      [guardedLane, laneLimits, 'settings', { command: 'list' }],
+      [ephemeralLane, laneLimits, 'push', {}],
+      [ephemeralLane, laneLimits, 'spawn', { prompt: 'help me' }],
+      [ephemeralLane, laneLimits, 'send', { words: ['hello'] }],
+      [ephemeralLane, laneLimits, 'read', {}],
+      [ephemeralLane, laneLimits, 'close', { child: 'anyone' }],
+      [ephemeralLane, laneLimits, 'attention', { note: 'look' }],
+      [ephemeralLane, laneLimits, 'edit', { path: 'notes.md' }],
+      [ephemeralLane, laneLimits, 'review', { pr: 'acme/app#12' }],
+      [ephemeralLane, laneLimits, 'reviews', {}],
+      [ephemeralLane, laneLimits, 'link-pr', { pr: 'acme/app#12' }],
+      [ephemeralLane, laneLimits, 'settings', { command: 'list' }],
     ];
     for (const [session, limits, command, payload] of refusedCalls) {
       const refusal = await fixture.wiring.handle(session, command, payload);
@@ -627,7 +624,7 @@ test('limits tells a session which commands answer and its boundary', async () =
     assert.deepEqual([remoteLimits.boundary, remoteLimits.environment], ['workspace', { name: 'dev', workspace: 'gv-0123456789ab', state: 'running' }]);
     assert.ok(formatSessionLimits(remoteLimits).includes('  environment: dev, workspace gv-0123456789ab, running'));
   } finally {
-    guardedLane.destroy();
+    ephemeralLane.destroy();
     remote.destroy();
     fixture.destroyAll();
   }

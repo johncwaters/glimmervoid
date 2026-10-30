@@ -264,7 +264,6 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 | `GLIMMERVOID_AGENT_URL` | internal | Set by Glimmervoid in each session environment; `glimmervoid push`, `spawn`, `attention` and `board` read it. Not an operator setting. |
 | `GLIMMERVOID_CODEX_REMOTE_TOKEN` | internal | Set by Glimmervoid in the environment of a Codex session that runs in a Coder workspace; the Codex TUI sends it as the bearer token to the forwarded app-server. Not an operator setting. |
 | `GLIMMERVOID_SIGN_URL` | internal | Set by Glimmervoid in each operator session environment; `glimmervoid ssh-sign`, which git runs to sign a commit, posts there so the server signs with the operator's forwarded ssh agent. Not an operator setting. |
-| `GLIMMERVOID_HOOK_VIA_GUARDRAILS_PROXY` | internal | Set by Glimmervoid inside guardrails whose network is a domain list, so the hook relays post through the guardrails proxy and nowhere else. Not an operator setting. |
 
 ## Telemetry
 

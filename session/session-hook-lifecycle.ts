@@ -50,7 +50,6 @@ interface SessionHookOptions {
   getHookPort: (() => number | null) | null;
   hooksBaseDir: string | undefined;
   settingsPermissions: Record<string, unknown> | null;
-  settingsGuardrails: Record<string, unknown> | null;
   detectScheduledWakeups: boolean;
   observeToolCalls: boolean;
   enableProjectMcp: boolean;
@@ -78,8 +77,6 @@ interface SessionHookLifecycle {
   listenerPort(): number | null;
   hasInjection(): boolean;
   hasSettings(): boolean;
-  isRequiredGuardrailsMissing(): boolean;
-  injectedReadablePaths(isSaneYoloActive: boolean): string[];
 }
 
 function payloadEnricherFor(hookProfile: AgentHookProfile | null, agentEnv: () => Record<string, string | undefined>) {
@@ -104,15 +101,6 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
 
   function hookToolEnv(isSaneYoloActive: boolean): Record<string, string> {
     return Object.assign({}, ...injectedHookTools(isSaneYoloActive).map((tool) => HOOK_TOOLS[tool.id].env(tool, saneYoloHomeDir())));
-  }
-
-  function injectedReadablePaths(isSaneYoloActive: boolean): string[] {
-    if (token === null) return [];
-    return [
-      ...(settingsHandle === null ? [] : [path.dirname(settingsHandle.settingsPath)]),
-      ...injectedHookTools(isSaneYoloActive).map((tool) => tool.binPath),
-      ...(isSaneYoloActive ? [saneYoloHomeDir()] : []),
-    ];
   }
 
   function releaseGeneratedHome(): void {
@@ -350,7 +338,6 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
         glimmervoidId: options.id,
         baseDir: options.hooksBaseDir,
         permissions: options.settingsPermissions,
-        guardrails: options.settingsGuardrails,
         detectScheduledWakeups: options.detectScheduledWakeups,
         observeToolCalls: options.observeToolCalls,
         enableProjectMcp: options.enableProjectMcp,
@@ -389,8 +376,6 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
     listenerPort: resolveListenerPort,
     hasInjection: () => token !== null,
     hasSettings: () => settingsHandle !== null,
-    isRequiredGuardrailsMissing: () => options.settingsGuardrails !== null && settingsHandle === null,
-    injectedReadablePaths,
   };
 }
 

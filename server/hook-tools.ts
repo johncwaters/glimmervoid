@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { saneYoloFiles } from '../session/core/sane-yolo.ts';
 import { glimmervoidHomeDir } from './core/config-path-core.ts';
-import { GUARDRAILS_TEMP_FOLDER } from './guardrails/core/guardrails-policy-core.ts';
+import { SESSION_TEMP_FOLDER } from './session-temp/session-temp.ts';
 import { resolvePackageBin } from './runtime-paths.ts';
 import { writeTextAtomicSync } from './json-file.ts';
 import { isMissingFileError } from '../shared/text.ts';
@@ -21,7 +21,7 @@ function saneYoloHomeDir(): string {
 }
 
 function writeSaneYoloPolicy(homeDir: string, unreadablePaths: readonly string[], glimmervoidHome = currentGlimmervoidHome()): void {
-  const policyFiles = saneYoloFiles(path.join(glimmervoidHome, GUARDRAILS_TEMP_FOLDER), unreadablePaths);
+  const policyFiles = saneYoloFiles(path.join(glimmervoidHome, SESSION_TEMP_FOLDER), unreadablePaths);
   const policyKey = JSON.stringify(policyFiles);
   if (writtenPolicyByHome.get(homeDir) === policyKey) return;
   for (const [relativePath, contents] of Object.entries(policyFiles)) {

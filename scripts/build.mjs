@@ -14,7 +14,6 @@ const REQUIRED_OUTPUTS = [
   'session/command-hook-relay.js',
   'session/statusline-relay.js',
   'session/hook-tool-relay.js',
-  'session/guardrails-open-launcher.js',
   'session/remote-setup/SKILL.md',
   'session/remote-setup/glimmervoid.service',
   'scripts/postinstall-path-check.js',

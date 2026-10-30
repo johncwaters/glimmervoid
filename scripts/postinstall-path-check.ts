@@ -2,8 +2,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 
 import { formatPathNotice, npmGlobalBinDir, onPath } from '../bin/path-doctor.ts';
-import { guardrailsInstallNotice } from '../server/guardrails/core/guardrails-deps-core.ts';
-import { probeGuardrailsDependencies } from '../server/guardrails/guardrails-deps.ts';
 
 function openInstallTerminal(): number | null {
   if (process.env.npm_lifecycle_event !== 'postinstall') return null;
@@ -36,16 +34,7 @@ function printPathNotice(): void {
   writeInstallNotice(`\n${formatPathNotice({ installedBinDir: binDir, onPathFlag, platform })}\n\n`);
 }
 
-function printGuardrailsNotice(): void {
-  const notice = guardrailsInstallNotice(probeGuardrailsDependencies());
-  if (notice !== null) writeInstallNotice(`${notice}\n`);
-}
-
 try {
   printPathNotice();
-} catch {
-}
-try {
-  printGuardrailsNotice();
 } catch {
 }

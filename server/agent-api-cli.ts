@@ -8,9 +8,6 @@ import { resolveHookTarget } from '../session/core/hook-relay-core.ts';
 import { formatSessionLimits } from '../session/core/session-routes.ts';
 import { AgentLimitsReply, AGENT_URL_ENV, SHOWN_CAPTION_MAX_CHARS, SHOWN_FILE_CAP_BYTES } from '../shared/contracts/session.ts';
 import type { AgentApiVerb } from '../shared/contracts/session.ts';
-import { errorCode } from '../shared/text.ts';
-import { decideGuardrailsProxy } from '../session/core/guardrails-proxy-core.ts';
-import type { GuardrailsProxy } from '../session/core/guardrails-proxy-core.ts';
 import { AGENT_COMMAND_HELP, isAgentApiVerb } from './core/agent-api-core.ts';
 import { parseJsonOrNull } from './core/json-core.ts';
 import { describeOverCap } from './core/shown-files-core.ts';
@@ -163,21 +160,6 @@ function requestOverHttp(target: HttpTarget, deadline: AbortSignal | null, sendB
   });
 }
 
-function guardrailsProxyTarget(guardrailsProxy: GuardrailsProxy, endpoint: URL, headers: Record<string, string>): HttpTarget {
-  const proxyHeaders: Record<string, string> = guardrailsProxy.authorization ? { 'proxy-authorization': guardrailsProxy.authorization } : {};
-  return { hostname: guardrailsProxy.hostname, port: String(guardrailsProxy.port), path: endpoint.href, headers: { ...headers, ...proxyHeaders, host: endpoint.host } };
-}
-
-function postThroughGuardrailsProxy(guardrailsProxy: GuardrailsProxy, { endpoint, headers, bodyText, deadline }: AgentPost): Promise<AgentReply> {
-  const target = guardrailsProxyTarget(guardrailsProxy, endpoint, { ...headers, 'content-length': String(Buffer.byteLength(bodyText)) });
-  return requestOverHttp(target, deadline, (request) => request.end(bodyText));
-}
-
-function wasConnectionRefused(error: unknown): boolean {
-  if (errorCode(error) === 'ECONNREFUSED') return true;
-  return errorCode((error as { cause?: unknown } | null)?.cause) === 'ECONNREFUSED';
-}
-
 interface AgentIngressCall {
   endpoint: URL;
   token: string;
@@ -192,14 +174,7 @@ async function postToAgentIngress({ endpoint, token, body, deadline = null }: Ag
     bodyText: JSON.stringify(body),
     deadline,
   };
-  try {
-    return await postDirectly(post);
-  } catch (error) {
-    if (!wasConnectionRefused(error)) throw error;
-    const guardrailsProxy = decideGuardrailsProxy(process.env);
-    if (!guardrailsProxy) throw error;
-    return postThroughGuardrailsProxy(guardrailsProxy, post);
-  }
+  return postDirectly(post);
 }
 
 async function sessionLimitsHelpLines({ timeoutMs = HELP_LIMITS_TIMEOUT_MS }: { timeoutMs?: number } = {}): Promise<string[]> {
@@ -276,14 +251,7 @@ function streamFileBody(filePath: string): (request: http.ClientRequest) => void
 async function postFileToShow(endpoint: URL, token: string, file: FileToShow, caption: string | null): Promise<AgentReply> {
   const headers = showHeaders(token, file, caption);
   const directTarget: HttpTarget = { hostname: endpoint.hostname, port: endpoint.port, path: `${endpoint.pathname}${endpoint.search}`, headers };
-  try {
-    return await requestOverHttp(directTarget, null, streamFileBody(file.filePath));
-  } catch (error) {
-    if (!wasConnectionRefused(error)) throw error;
-    const guardrailsProxy = decideGuardrailsProxy(process.env);
-    if (!guardrailsProxy) throw error;
-    return requestOverHttp(guardrailsProxyTarget(guardrailsProxy, endpoint, headers), null, streamFileBody(file.filePath));
-  }
+  return requestOverHttp(directTarget, null, streamFileBody(file.filePath));
 }
 
 function replyError(replyText: string): string {

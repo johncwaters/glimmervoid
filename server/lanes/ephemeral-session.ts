@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import type { Session } from '../../session/sessions.ts';
-import { removeSessionTempFolder } from '../guardrails/guardrails-launch.ts';
+import { removeSessionTempFolder } from '../session-temp/session-temp.ts';
 import { awaitBounded } from '../core/shutdown-core.ts';
 import { firstLine } from '../core/text-core.ts';
 import { DEFAULT_TIMER_FNS, unrefTimer } from '../../shared/timer-deps.ts';

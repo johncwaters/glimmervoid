@@ -37,7 +37,6 @@ test('a parent reads and answers held child questions through the agent API or r
     makeSession: (project, _config, overrides) => factory.makeSession({
       ...project,
       spawnCommand: { path: process.execPath, kind: 'exe' },
-      prepareGuardrails: null,
       ...overrides,
     }),
     wireSessionEvents: () => {},

@@ -1,7 +1,6 @@
 import type { GithubPr } from '../../../shared/contracts/github-prs.ts';
 import type { MyPr, MyPrAutoRebase, MyPrCheckContext, MyPrKeepMergeableAttemptRecord, MyPrSearchNode, MyPrsSnapshot, MyPrsStatus, MyPrStage, MyPrThread, MyPrThreadNode } from '../../../shared/contracts/my-prs.ts';
 import { ACCEPT_EDITS_MODE, LANE_ENVIRONMENT_ARGS } from '../../lanes/core/lane-permissions-core.ts';
-import { GUARDRAILS_PLACEHOLDER_NAMES } from '../../guardrails/core/guardrails-policy-core.ts';
 import { prKey } from './team-review-core.ts';
 import type { TeamReviewSettings, TeamReviewSettingsSource } from './team-review-core.ts';
 import { KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE } from '../../../shared/settings-ranges.ts';
@@ -198,10 +197,6 @@ export function keepMergeablePermissions(): { deny: string[]; defaultMode: strin
 
 export function keepMergeableClaudeArgs(): string[] {
   return ['-p', '--allowedTools', ...MY_PRS_FIX_ALLOW_RULES, '--disallowedTools', ...MY_PRS_FIX_DENY_RULES, ...LANE_ENVIRONMENT_ARGS];
-}
-
-export function keepMergeableExcludeLines(): string {
-  return `\n${GUARDRAILS_PLACEHOLDER_NAMES.map((placeholderName) => `/${placeholderName}`).join('\n')}\n`;
 }
 
 function keepMergeablePushUrl(repo: string): string | null {

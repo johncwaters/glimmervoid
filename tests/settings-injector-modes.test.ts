@@ -25,17 +25,6 @@ test('the written settings still contain the hooks the session needs', () => {
   }
 });
 
-test('a guardrails block is written verbatim as the top-level Claude Code sandbox key and is absent when none is given', () => {
-  const base = { port: 3000, glimmervoidId: 'guarded', token: 'tok' };
-  const guardrails = { enabled: true, network: { strictAllowlist: true, allowedDomains: ['api.openai.com'] } };
-  const settings = buildHookSettings({ ...base, guardrails, permissions: { deny: ['WebFetch'] } });
-  assert.deepEqual(settings.sandbox, guardrails);
-  assert.deepEqual(settings.permissions, { deny: ['WebFetch'] });
-  assert.ok(settings.hooks.Stop, 'the hooks stay in the same file');
-  assert.equal('sandbox' in buildHookSettings(base), false);
-  assert.equal('sandbox' in buildHookSettings({ ...base, guardrails: null }), false);
-});
-
 test('allow rules are written beside deny rules and the mode, and no permissions key appears without any', () => {
   const base = { port: 3000, glimmervoidId: 'allowed', token: 'tok' };
   const permissions = { allow: ['Bash(codex exec *)', 'Edit(//tmp/codex-dispatch-*.txt)'], deny: ['WebFetch'], defaultMode: 'acceptEdits' };

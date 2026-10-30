@@ -111,13 +111,7 @@ test('a turn that breaks a covered invariant or the spec check reaches the opera
   const setFixture = (runVerdict: string, specExitCode: number) => writeFile(path.join(worktree, 'coherence-fixture.json'), JSON.stringify({ runVerdict, specExitCode }));
   await setFixture('pass', 0);
   await writeFile(path.join(worktree, 'coherence.config.json'), '{}');
-  const confinedRuns: string[] = [];
-  let disposedConfinements = 0;
-  const confine = async (command: { file: string; args: string[] }) => {
-    confinedRuns.push(command.args.slice(1).join(' '));
-    return { ...command, env: {}, dispose: async () => { disposedConfinements += 1; } };
-  };
-  const attachment = await resolveCoherence({ worktree, host: 'claude', isSettingOn: true, confine });
+  const attachment = await resolveCoherence({ worktree, host: 'claude', isSettingOn: true });
   assert.ok(attachment);
   const notes: string[] = [];
   const reruns = new EventEmitter();
@@ -147,8 +141,6 @@ test('a turn that breaks a covered invariant or the spec check reaches the opera
   const cliCalls = (await readFile(path.join(worktree, 'coherence-calls.jsonl'), 'utf8')).trim().split('\n')
     .map((line) => (JSON.parse(line) as { args: string[] }).args.join(' '));
   assert.deepEqual(cliCalls.filter((args) => args.startsWith('run --form')), ['run --form totality-oracle --session s-verdicts --agent glimmervoid --json --invariant server/lane/lane boundary']);
-  assert.deepEqual(confinedRuns, cliCalls);
-  assert.equal(disposedConfinements, confinedRuns.length);
   await turnEnd('export const stillBroken = 1;\n');
   assert.deepEqual(notes, [
     "Coherence invariant server/lane/lane boundary still fails after the agent's turn; its test: only the lane runs it",

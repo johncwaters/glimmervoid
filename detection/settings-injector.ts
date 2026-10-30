@@ -48,7 +48,6 @@ interface HookSettings {
   permissions?: SessionPermissions;
   enableAllProjectMcpServers?: boolean;
   statusLine?: { type: string; command: string };
-  sandbox?: Record<string, unknown>;
   awaySummaryEnabled?: boolean;
 }
 
@@ -58,7 +57,6 @@ interface BuildHookSettingsOptions {
   token: string;
   timeoutSec?: number;
   permissions?: SessionPermissions | null;
-  guardrails?: Record<string, unknown> | null;
   detectScheduledWakeups?: boolean;
   observeToolCalls?: boolean;
   enableProjectMcp?: boolean;
@@ -158,7 +156,7 @@ function buildRemoteCommandHookCommand({ nodePath, postUrl }: { nodePath: string
   return `${shellQuote(nodePath)} -e ${shellQuote(inlineRelay)} ${shellQuote(postUrl)}`;
 }
 
-function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, guardrails = null, detectScheduledWakeups = true, observeToolCalls = false, enableProjectMcp = false, hookTools = [], planLimits = false, planReview = false, holdsQuestionsForParent = false, userSettingsPath = null, relayPath = RELAY_PATH, commandHookRelayPath = COMMAND_HOOK_RELAY_PATH, hookToolRelayPath = HOOK_TOOL_RELAY_PATH, userHooks = [], remoteNodePath = null }: BuildHookSettingsOptions): HookSettings {
+function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, detectScheduledWakeups = true, observeToolCalls = false, enableProjectMcp = false, hookTools = [], planLimits = false, planReview = false, holdsQuestionsForParent = false, userSettingsPath = null, relayPath = RELAY_PATH, commandHookRelayPath = COMMAND_HOOK_RELAY_PATH, hookToolRelayPath = HOOK_TOOL_RELAY_PATH, userHooks = [], remoteNodePath = null }: BuildHookSettingsOptions): HookSettings {
   if (!port || !glimmervoidId || !token) {
     throw new Error('buildHookSettings requires port, glimmervoidId, token');
   }
@@ -229,9 +227,6 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
     if (allowRules.length > 0) settings.permissions.allow = allowRules;
     if (denyRules.length > 0) settings.permissions.deny = denyRules;
     if (defaultMode) settings.permissions.defaultMode = defaultMode;
-  }
-  if (guardrails) {
-    settings.sandbox = guardrails;
   }
   if (enableProjectMcp) {
     settings.enableAllProjectMcpServers = true;

@@ -11,7 +11,7 @@ import { diffProjects, machineSkipsPermissionsByDefault, shouldStartAfterModify 
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import type { SessionWorktree, WorktreeArgs } from '../git/git-workspace.ts';
 import { errorMessage } from '../../shared/text.ts';
-import { removeSessionTempFolder } from '../guardrails/guardrails-launch.ts';
+import { removeSessionTempFolder } from '../session-temp/session-temp.ts';
 import { generatedAgentHomePath, releaseUnheldAgentHomeSecrets } from '../../session/agent-home.ts';
 import { CODEX_HOME_PROFILE, KIMI_HOME_PROFILE } from '../../session/core/agent-home-core.ts';
 

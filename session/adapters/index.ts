@@ -107,21 +107,9 @@ interface AgentArgsOptions {
   resumeSessionId?: string | null;
   extraArgs?: string[];
   initialPrompt?: string | null;
-  hasOuterGuardrails?: boolean;
   hasOperatorInstructions?: boolean;
   canRunHelpCommand?: boolean;
   canSpawn?: boolean;
-}
-
-interface AgentLaunchSessionOptions {
-  resumeSessionId: string | null;
-  extraArgs: readonly string[];
-  generatedId: string;
-}
-
-interface AgentLaunchSession {
-  agentSessionId: string;
-  extraArgs: string[];
 }
 
 interface AgentSpawnCommandOptions {
@@ -153,7 +141,6 @@ interface AgentAdapter {
   settingsArgs?(settingsPath: string): string[];
   operatorConfigPath?(env: SpawnEnv): string | null;
   setsOperatorInstructions?(operatorConfigText: string): boolean;
-  launchSessionId?(options: AgentLaunchSessionOptions): AgentLaunchSession;
   isWorkspaceTrusted?(cwd: string, env: SpawnEnv): boolean;
   sessionIdOf?(payload: HookPayload): unknown;
 }
@@ -276,4 +263,4 @@ export {
   resetCommandCache,
   setCustomAgents,
 };
-export type { AgentAdapter, AgentAdapterShape, AgentArgsOptions, AgentCapabilities, AgentCommandOptions, AgentHookProfile, AgentLaunchSession, AgentLaunchSessionOptions, AgentSpawnCommandOptions, AgentTitleProfile, ArgvConfigInjection, GeneratedHomeInjection, HomeHooksFileInjection, HookedAgentHome, ProjectConfigCandidate, ScratchAgentHome };
+export type { AgentAdapter, AgentAdapterShape, AgentArgsOptions, AgentCapabilities, AgentCommandOptions, AgentHookProfile, AgentSpawnCommandOptions, AgentTitleProfile, ArgvConfigInjection, GeneratedHomeInjection, HomeHooksFileInjection, HookedAgentHome, ProjectConfigCandidate, ScratchAgentHome };

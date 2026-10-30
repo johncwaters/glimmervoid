@@ -1,4 +1,4 @@
-import { resolveCoherence, type ConfineCommand } from '../coherence/coherence-runtime.ts';
+import { resolveCoherence } from '../coherence/coherence-runtime.ts';
 import type { ResolvedHookTool } from '../../session/core/hook-tools.ts';
 import path from 'node:path';
 
@@ -15,11 +15,11 @@ import type { GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import { machineSkipsPermissionsByDefault, projectSkipsPermissions } from './core/session-registry-core.ts';
 import { remoteCheckoutDirectory } from '../coder/core/coder-env-core.ts';
-import { ensureSessionTempFolder } from '../guardrails/guardrails-launch.ts';
+import { ensureSessionTempFolder } from '../session-temp/session-temp.ts';
 import { resolveUsageConfig } from '../usage/usage-wiring.ts';
 
 type SessionSpawnOverrides = Pick<SessionOptions,
-  'requireWorktree' | 'gitWorkspace' | 'settingsPermissions' | 'settingsGuardrails' | 'prepareGuardrails' | 'hookTools' | 'dangerouslySkipPermissions' | 'agent' | 'agentDepth' | 'ownerId' | 'holdsQuestionsForParent' | 'ephemeral' | 'initialPrompt' | 'extraClaudeArgs' | 'extraUserHooks' | 'prependPathDirs' | 'spawnEnv'>;
+  'requireWorktree' | 'gitWorkspace' | 'settingsPermissions' | 'hookTools' | 'dangerouslySkipPermissions' | 'agent' | 'agentDepth' | 'ownerId' | 'holdsQuestionsForParent' | 'ephemeral' | 'initialPrompt' | 'extraClaudeArgs' | 'extraUserHooks' | 'prependPathDirs' | 'spawnEnv'>;
 
 interface SessionFactoryDependencies {
   configStore: { configPath: string };
@@ -93,8 +93,8 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
     const skipPermissions = projectSkipsPermissions(project, machineSkipsPermissionsByDefault(config));
     const hookToolConfig = (currentConfig: GlimmervoidConfig): GlimmervoidConfig => project.saneYolo === true ? { ...currentConfig, saneYolo: true } : currentConfig;
     const originalHookTools = dependencies.resolveHookTools(hookToolConfig(config));
-    const prepareCoherence = overrides.ephemeral ? null : (cwd: string, confine: ConfineCommand | null) => resolveCoherence({
-      worktree: cwd, confine, host: getAdapter(overrides.agent ?? project.agent)?.usageVendor,
+    const prepareCoherence = overrides.ephemeral ? null : (cwd: string) => resolveCoherence({
+      worktree: cwd, host: getAdapter(overrides.agent ?? project.agent)?.usageVendor,
       isSettingOn: (dependencies.getConfig?.() ?? config).coherence?.enabled === true,
     });
     const builtMapping = project.environment;

@@ -150,9 +150,6 @@ export function createGuardedPrStaging({
       if (signal.aborted) return stopped;
       if (!staged.ok) return { error: `could not stage the checkout ${staged.err}` };
     }
-    const excludePath = path.join(checkoutPath, '.git', 'info', 'exclude');
-    await fs.mkdir(path.dirname(excludePath), { recursive: true });
-    await fs.appendFile(excludePath, core.keepMergeableExcludeLines(), 'utf8');
     return { projectPath, baseSha: baseSha.data };
   }
 

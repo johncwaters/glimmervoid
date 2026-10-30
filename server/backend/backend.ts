@@ -41,7 +41,7 @@ import { normalizeUpdateChannel } from '../core/update-core.ts';
 import { detectInstallFlavor } from '../update-check.ts';
 import type { CheckForUpdate } from './backend-update.ts';
 import { createBackendSessionRuntime } from './backend-session-runtime.ts';
-import { sweepOrphanedGuardrailsLaunches } from '../guardrails/guardrails-launch.ts';
+import { deleteRetiredGuardrailsFolders } from '../session-temp/retired-guardrails.ts';
 import { warnWhenGitIsTooOld } from '../git/git-version.ts';
 import { createOutcomesLane } from '../outcomes-wiring.ts';
 import { createUpdateApplyLane } from '../update-apply.ts';
@@ -381,7 +381,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   sessionRegistry.initialize();
   const reconcileProjectsOnReload = sessionRegistry.applyConfigReload;
 
-  void sweepOrphanedGuardrailsLaunches();
+  void deleteRetiredGuardrailsFolders(glimmervoidHomeDir());
   void reconcileOwnedPaths({
     ledger: laneAssembly.ownedPaths,
     configuredSessionIds: new Set(config.projects.map((project) => project.id)),

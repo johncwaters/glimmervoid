@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import kimi from '../session/adapters/kimi.ts';
 import { BLOCK_END, BLOCK_START, KIMI_HOME_PROFILE, renderCodexHooksBlock } from '../session/core/agent-home-core.ts';
-import { loadFileLocks } from '../server/guardrails/session-temp-locks.ts';
+import { loadFileLocks } from '../server/session-temp/session-temp-locks.ts';
 import { generatedAgentHomePath, holdAgentHome, prepareAgentHome, releaseAgentHome, releaseUnheldAgentHomeSecrets } from '../session/agent-home.ts';
 
 const OPERATOR_CONFIG = 'default_model = "kimi-code/k3.1-pro"\r\n\n[models."kimi-code/k3.1-pro"]\ndisplay_name = "K3.1 Pro"\n';

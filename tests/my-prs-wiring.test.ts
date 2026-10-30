@@ -8,7 +8,6 @@ import { createMyPrMergeabilityFix, createMyPrsStateIo, sweepKeepMergeableLeftov
 import { createRepoCache } from '../server/git/repo-cache.ts';
 import type { CommandResult } from '../server/git/repo-cache.ts';
 import { createTeamReviewSpawn, } from '../server/github/team-review-wiring.ts';
-import { GUARDRAILS_PLACEHOLDER_NAMES } from '../server/guardrails/core/guardrails-policy-core.ts';
 import type { TeamReviewSpawn } from '../server/github/team-review-wiring.ts';
 import {
   MY_PRS_FIX_BASE_BRANCH, MY_PRS_FIX_CHECKOUT_DIRNAME, keepMergeableTimeoutSeconds,
@@ -313,34 +312,6 @@ test('keep mergeable refuses to re-sign and push a session commit whose author n
     assert.match(repairOutcome.reason ?? '', /could not sign the session commits .*author that is not valid UTF-8/);
     assert.deepEqual(harness.pushes, []);
     assert.deepEqual(await remoteRefs(harness.originDir), remoteRefsBefore);
-  } finally {
-    await fs.rm(root, { recursive: true, force: true });
-  }
-});
-
-test('keep mergeable excludes guardrails stub files from the checkout so a git add -A never pushes them', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-stubs-'));
-  const spawnSession = createTeamReviewSpawn({
-    reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
-    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', recordLane: () => {},
-    makeSession: (options) => {
-      const session = new Session(options);
-      session.start = async () => {
-        const checkoutPath = path.join(options.path, MY_PRS_FIX_CHECKOUT_DIRNAME);
-        for (const placeholderName of GUARDRAILS_PLACEHOLDER_NAMES) await fs.writeFile(path.join(checkoutPath, placeholderName), '');
-        await resolveConflictAndCommit(checkoutPath);
-        session.emit('exit');
-      };
-      return session;
-    },
-  });
-  try {
-    const harness = await fixHarness(root, { spawnSession });
-    await harness.fix(conflictingPr(harness.headSha), new AbortController().signal);
-    assert.equal(harness.pushes.length, 1);
-    const pushedSha = (harness.pushes[0].at(-1) ?? '').split(':')[0];
-    const pushedFiles = (await git(['ls-tree', '-r', '--name-only', pushedSha], harness.cachedRepo)).split('\n');
-    assert.deepEqual(pushedFiles.sort(), ['.github/workflows/ci.yml', 'shared.txt']);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

@@ -1,7 +1,6 @@
 import type { GitIsolationOptions } from '../server/git/core/git-invocation-core.ts';
 import { awaitBounded } from "../server/core/shutdown-core.ts";
 import { errorMessage, isMissingFileError } from "../shared/text.ts";
-import { randomUUID } from "node:crypto";
 import { createCompactionTracking, observeCompaction, finishCompaction, isCompactionEndingSignal, suppressCompactionSignal, mapCompactionActivityEvent, isIdleCompactionActivity } from "./core/compaction-core.ts";
 import { isCompactionRestoreEvent } from "../shared/compaction-restore-events.ts";
 import type { CompactionTracking } from "./core/compaction-core.ts";
@@ -41,7 +40,7 @@ import { startCodexAppServerBridge, startCoderPortForward } from "./codex-app-se
 import { remoteCodexAppServerScript } from "./core/codex-app-server-core.ts";
 import type { CodexAppServerBridge } from "./codex-app-server-bridge.ts";
 import { CODEX_REMOTE_TOKEN_ENV, remoteTuiArgs, splitCodexRemoteLaunch } from "./core/codex-remote-launch-core.ts";
-import type { CoherenceAttachment, ConfineCommand, ConfinedCommand } from '../server/coherence/coherence-runtime.ts';
+import type { CoherenceAttachment } from '../server/coherence/coherence-runtime.ts';
 import type { CoherenceHooksState, ConversationAnswers, ConversationApproval, UnseenOutcome } from "../shared/contracts/session.ts";
 import { claudeAnswerReply, claudeApprovalFor, isHoldReleasedByHookEvent, parseClaudePermissionRequest } from "./core/claude-approval-core.ts";
 import type { ClaudeHookReply, ClaudePermissionRequest } from "./core/claude-approval-core.ts";
@@ -72,9 +71,7 @@ import type { ScreenSnapshot } from "./session-output.ts";
 import type { ScreenKeeperFactory } from "./screen-keeper.ts";
 import { createSessionHookLifecycle } from "./session-hook-lifecycle.ts";
 import type { HookRouterPort } from "./session-hook-lifecycle.ts";
-import type { GuardrailsLaunch, GuardrailsLaunchResult } from "../server/guardrails/guardrails-launch.ts";
 import { createSessionWorktreeLifecycle } from "./session-worktree-lifecycle.ts";
-import { signalWindowChangeBelow } from "./window-change-signal.ts";
 import type { GitWorkspace } from "./session-worktree-lifecycle.ts";
 import { createSessionBackgroundTracking } from "./session-background-tracking.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
@@ -87,8 +84,6 @@ const MAX_PENDING_ATTENTION_NOTES = 5;
 const PTY_PROMPT_SETTLE_MS = 1500;
 const PTY_PROMPT_SUBMIT_DELAY_MS = 300;
 const PASTE_BREAKING_CONTROL_BYTES = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
-const GUARDRAILS_UNAPPLIED_ERROR = "guardrail settings could not be applied, session not started";
-const GUARDRAILS_REFUSED_PREFIX = "session not started, the guardrails refused: ";
 const SPAWN_FAILURE_TEXT_BY_REASON: Record<string, string> = {
   spawn_cwd_missing: "The session folder no longer exists. Re-add the session on a folder that exists.",
 };
@@ -100,18 +95,6 @@ function describeSpawnFailure(detail: unknown): string {
   const reason = "reason" in detail && typeof detail.reason === "string" ? detail.reason : "";
   return SPAWN_FAILURE_TEXT_BY_REASON[reason] ?? SPAWN_FAILURE_FALLBACK_TEXT;
 }
-const INNER_GUARDRAILS_OFF = Object.freeze({ enabled: false });
-
-function settingsGuardrailsForHooks(
-  adapter: AgentAdapter,
-  hasOuterGuardrails: boolean,
-  requestedSettingsGuardrails: Record<string, unknown> | null,
-): Record<string, unknown> | null {
-  if (!hasOuterGuardrails) return requestedSettingsGuardrails;
-  if (typeof adapter.settingsArgs !== "function") return null;
-  return INNER_GUARDRAILS_OFF;
-}
-
 function signalablePid(pid: unknown): number | null {
   const parsed = Number(pid);
   if (!Number.isInteger(parsed)) return null;
@@ -184,17 +167,6 @@ type KillProc = (
 
 type SignalProc = (pid: number, signal: NodeJS.Signals | 0) => void;
 
-interface SessionGuardrailsFacts {
-  launchId: string;
-  cwd: string;
-  hookPort: number | null;
-  readablePaths: string[];
-  writablePaths: string[];
-  agentSessionId: string | null;
-}
-
-type PrepareSessionGuardrails = (facts: SessionGuardrailsFacts) => Promise<GuardrailsLaunchResult>;
-
 type RemoteLaunchStep = { ok: true } | { ok: false; reason: string };
 
 interface RemoteLaunch {
@@ -254,8 +226,6 @@ interface SessionOptions {
   ephemeral?: boolean;
   resumeSessionId?: string | null;
   settingsPermissions?: Record<string, unknown> | null;
-  settingsGuardrails?: Record<string, unknown> | null;
-  prepareGuardrails?: PrepareSessionGuardrails | null;
   getRemoteLaunch?: (() => RemoteLaunch | null) | null;
   spawnEnv?: Record<string, string> | null;
   prependPathDirs?: string[];
@@ -267,7 +237,7 @@ interface SessionOptions {
   extraUserHooks?: UserHook[];
   scratchAgentHome?: ScratchAgentHome | null;
   requiresHooks?: boolean;
-  prepareCoherence?: ((cwd: string, confine: ConfineCommand | null) => Promise<CoherenceAttachment | null>) | null;
+  prepareCoherence?: ((cwd: string) => Promise<CoherenceAttachment | null>) | null;
   ptySpawn?: PtySpawn | null;
   screenKeeperFactory?: ScreenKeeperFactory | null;
   killProc?: KillProc | null;
@@ -367,7 +337,7 @@ class Session extends EventEmitter {
   _isSaneYoloActive: boolean;
   _planLimits: boolean;
   _planReviewPort: SessionPlanReviewPort | null;
-  _prepareCoherence: ((cwd: string, confine: ConfineCommand | null) => Promise<CoherenceAttachment | null>) | null;
+  _prepareCoherence: ((cwd: string) => Promise<CoherenceAttachment | null>) | null;
   coherenceHooks: CoherenceHooksState | null;
   coherenceAttachment: CoherenceAttachment | null;
   _coherenceHooksRefresh: Promise<void> | null;
@@ -383,10 +353,8 @@ class Session extends EventEmitter {
   _agentLifetimeSpawns: number;
   _agentSpawnsInFlight: number;
   _ptySpawn: PtySpawn;
-  _prepareGuardrails: PrepareSessionGuardrails | null;
   _getRemoteLaunch: () => RemoteLaunch | null;
   _hasRespawnedForAuth: boolean;
-  _guardrailsLaunch: GuardrailsLaunch | null;
   _requiresWorktree: boolean;
   _killProc: KillProc;
   _signalProc: SignalProc;
@@ -445,8 +413,6 @@ class Session extends EventEmitter {
     prLinks = undefined,
 
     settingsPermissions = null,
-    settingsGuardrails = null,
-    prepareGuardrails = null,
     getRemoteLaunch = null,
 
     spawnEnv = null,
@@ -620,7 +586,6 @@ class Session extends EventEmitter {
       getHookPort,
       hooksBaseDir,
       settingsPermissions,
-      settingsGuardrails: settingsGuardrailsForHooks(this._adapter, prepareGuardrails !== null, settingsGuardrails),
       detectScheduledWakeups,
       observeToolCalls: observeToolCalls === true,
       enableProjectMcp: !!enableProjectMcp,
@@ -655,10 +620,8 @@ class Session extends EventEmitter {
       assertLaunchable(file);
       return pty.spawn(file, args, opts);
     });
-    this._prepareGuardrails = prepareGuardrails;
     this._getRemoteLaunch = getRemoteLaunch ?? (() => null);
     this._hasRespawnedForAuth = false;
-    this._guardrailsLaunch = null;
 
     this._killProc = killProc || ((args, opts, cb) => execFile("taskkill", args, opts, cb));
     this._signalProc = signalProc || ((pid, signal) => process.kill(pid, signal));
@@ -1555,7 +1518,7 @@ class Session extends EventEmitter {
 
     if (this._prepareCoherence) {
       this._coherenceHooksGeneration += 1;
-      this.coherenceAttachment = await this._prepareCoherence(this.effectiveCwd(), this._prepareGuardrails ? (command) => this._confineCommand(command) : null);
+      this.coherenceAttachment = await this._prepareCoherence(this.effectiveCwd());
       this.coherenceHooks = this.coherenceAttachment?.hooks ?? null;
       if (isStartSuperseded()) return;
       this.emit('coherence-hooks-change', this.coherenceHooks);
@@ -1589,10 +1552,6 @@ class Session extends EventEmitter {
       return;
     }
     this._isSaneYoloActive = remoteLaunch === null && hookInjection.isSaneYoloActive;
-    if (this._hooks.isRequiredGuardrailsMissing()) {
-      this._abandonSpawn(new Error(GUARDRAILS_UNAPPLIED_ERROR));
-      return;
-    }
     const settingsArgs = [...hookInjection.args];
 
     this._titleQuiet = this._adapter.titleProfile.quietUntilFirstPrompt === true && this._hooks.hasInjection() && !isRemoteCodex;
@@ -1626,17 +1585,12 @@ class Session extends EventEmitter {
     }
 
     this._suppressResumeCapture = false;
-    const isSpawnGuarded = remoteLaunch === null && this._prepareGuardrails !== null;
-    const launchSession = isSpawnGuarded
-      ? this._adapter.launchSessionId?.({ resumeSessionId: spawnResumeSessionId, extraArgs: this._extraClaudeArgs, generatedId: randomUUID() }) ?? null
-      : null;
     const launchPrompt = spawnResumeSessionId && resumePrompt ? resumePrompt : this._initialPrompt;
     const agentArgs = this._adapter.buildArgs({
       dangerouslySkipPermissions: this.dangerouslySkipPermissions,
       resumeSessionId: spawnResumeSessionId,
-      extraArgs: launchSession?.extraArgs ?? this._extraClaudeArgs,
+      extraArgs: this._extraClaudeArgs,
       initialPrompt: launchPrompt,
-      hasOuterGuardrails: isSpawnGuarded,
       hasOperatorInstructions: this._hasOperatorInstructions(env),
       canRunHelpCommand: this._canRunHelpCommand,
       canSpawn: !this.ephemeral,
@@ -1651,14 +1605,13 @@ class Session extends EventEmitter {
       await this._stopCodexBridge();
       return;
     }
-    const spawnCommand = await this._spawnCommandFor({ remoteLaunch, isRemoteCodex, settingsArgs, agentArgs, bridgedLaunch, agentSessionId: launchSession?.agentSessionId ?? null });
+    const spawnCommand = await this._spawnCommandFor({ remoteLaunch, isRemoteCodex, settingsArgs, agentArgs, bridgedLaunch });
     if (!spawnCommand) {
       await this._stopCodexBridge();
       return;
     }
     if (isStartSuperseded()) {
       this._hooks.cleanup();
-      this._disposeGuardrailsLaunch(this._guardrailsLaunch);
       await this._stopCodexBridge();
       return;
     }
@@ -1666,7 +1619,6 @@ class Session extends EventEmitter {
     const { file, args } = spawnCommand;
 
     const ptySize = this._output.ptySize();
-    const guardrailsLaunch = this._guardrailsLaunch;
     try {
       this.ptyProcess = this._ptySpawn(file, args, {
         name: "xterm-256color",
@@ -1686,7 +1638,7 @@ class Session extends EventEmitter {
     const spawnCwdExists = fs.existsSync(this.effectiveCwd());
     if (!this.transition("spawn_success", { spawnCwdExists })) {
       this.ptyProcess.onExit(({ exitCode, signal }) =>
-        this._handleSpawnedPtyExit(guardrailsLaunch, exitCode, signal),
+        this._handleSpawnedPtyExit(exitCode, signal),
       );
       this._isSaneYoloActive = false;
       this._hooks.cleanup();
@@ -1714,7 +1666,7 @@ class Session extends EventEmitter {
 
     this.ptyProcess.onData((data) => this._handlePtyData(data));
     this.ptyProcess.onExit(({ exitCode, signal }) =>
-      this._handleSpawnedPtyExit(guardrailsLaunch, exitCode, signal),
+      this._handleSpawnedPtyExit(exitCode, signal),
     );
     this._deliverPtyInitialPrompt(launchPrompt, env);
     this._pendingPromptSupervisionLine = this._can("promptContextSupervision") && this._canRunHelpCommand
@@ -1809,7 +1761,6 @@ class Session extends EventEmitter {
   _abandonSpawn(cause: unknown): void {
     this._isSaneYoloActive = false;
     this._hooks.cleanup();
-    this._disposeGuardrailsLaunch(this._guardrailsLaunch);
     void this._stopCodexBridge();
     this._releaseClaudeHolds(() => true);
     this.transition("spawn_fail", { error: errorMessage(cause) });
@@ -1826,13 +1777,12 @@ class Session extends EventEmitter {
     }
   }
 
-  async _spawnCommandFor({ remoteLaunch, isRemoteCodex, settingsArgs, agentArgs, bridgedLaunch, agentSessionId }: {
+  async _spawnCommandFor({ remoteLaunch, isRemoteCodex, settingsArgs, agentArgs, bridgedLaunch }: {
     remoteLaunch: RemoteLaunch | null;
     isRemoteCodex: boolean;
     settingsArgs: string[];
     agentArgs: string[];
     bridgedLaunch: { tuiArgs: string[]; token: string } | null;
-    agentSessionId: string | null;
   }): Promise<SpawnCommand | null> {
     if (remoteLaunch !== null && !isRemoteCodex) return this._remoteSpawnCommand(remoteLaunch, agentArgs);
     const command = this._adapter.buildSpawnCommand({
@@ -1841,8 +1791,7 @@ class Session extends EventEmitter {
       settingsArgs: bridgedLaunch ? [] : settingsArgs,
       agentArgs: bridgedLaunch?.tuiArgs ?? agentArgs,
     });
-    if (isRemoteCodex) return { file: command.file, args: command.args, env: {} };
-    return this._guardedSpawnCommand(command, agentSessionId);
+    return { file: command.file, args: command.args, env: {} };
   }
 
   async _startRemoteCodexBridge(remote: RemoteLaunch, agentArgs: string[], env: SpawnEnv): Promise<{ tuiArgs: string[]; token: string } | null> {
@@ -1941,65 +1890,6 @@ class Session extends EventEmitter {
     return this.forceRestart({ resumePrompt: AUTO_CONTINUE_PROMPT });
   }
 
-  async _guardedSpawnCommand(command: { file: string; args: string[] }, agentSessionId: string | null): Promise<SpawnCommand | null> {
-    if (!this._prepareGuardrails) return { ...command, env: {} };
-    const wrapped = await this._wrapInGuardrails(this._prepareGuardrails, command, agentSessionId)
-      .catch((error: unknown) => new Error(`${GUARDRAILS_REFUSED_PREFIX}${errorMessage(error)}`));
-    if (this._destroyed) {
-      this._hooks.cleanup();
-      this._disposeGuardrailsLaunch(this._guardrailsLaunch);
-      return null;
-    }
-    if (wrapped instanceof Error) {
-      this._abandonSpawn(wrapped);
-      return null;
-    }
-    return wrapped;
-  }
-
-  async _wrapInGuardrails(prepareGuardrails: PrepareSessionGuardrails, command: { file: string; args: string[] }, agentSessionId: string | null): Promise<SpawnCommand> {
-    const prepared = await prepareGuardrails({
-      launchId: randomUUID(),
-      cwd: this.effectiveCwd(),
-      hookPort: this._hooks.hasInjection() ? this._hooks.listenerPort() : null,
-      readablePaths: [
-        ...this._hooks.injectedReadablePaths(this._isSaneYoloActive),
-        ...(this._commitSigningProgram === null ? [] : [this._commitSigningProgram]),
-      ],
-      writablePaths: [],
-      agentSessionId,
-    });
-    if (!prepared.ok) throw new Error(prepared.reason);
-    this._disposeGuardrailsLaunch(this._guardrailsLaunch);
-    this._guardrailsLaunch = prepared.launch;
-    const wrapped = await prepared.launch.wrap(command.file, command.args, { hasTerminal: true });
-    return { ...wrapped, env: prepared.launch.env, cwd: prepared.launch.cwd };
-  }
-
-  async _confineCommand(command: { file: string; args: string[] }): Promise<ConfinedCommand> {
-    if (!this._prepareGuardrails) throw new Error('this session has no guardrails to confine a command in');
-    const prepared = await this._prepareGuardrails({
-      launchId: randomUUID(), cwd: this.effectiveCwd(), hookPort: null, readablePaths: [], writablePaths: [], agentSessionId: null,
-    });
-    if (!prepared.ok) throw new Error(prepared.reason);
-    const { launch } = prepared;
-    try {
-      const wrapped = await launch.wrap(command.file, command.args, { hasTerminal: false });
-      return { ...wrapped, env: launch.env, ...(launch.cwd === undefined ? {} : { cwd: launch.cwd }), dispose: () => launch.dispose() };
-    } catch (error) {
-      await launch.dispose();
-      throw error;
-    }
-  }
-
-  _disposeGuardrailsLaunch(launch: GuardrailsLaunch | null): void {
-    if (!launch || launch !== this._guardrailsLaunch) return;
-    this._guardrailsLaunch = null;
-    launch.dispose().catch((error) => {
-      console.warn(`[session ${this.id}] guardrails cleanup failed: ${errorMessage(error)}`);
-    });
-  }
-
   _guardPtyInputSocket(): void {
     try {
       this.ptyProcess?._agent?.inSocket?.on("error", (err) => {
@@ -2078,8 +1968,7 @@ class Session extends EventEmitter {
     return stateTransitions?.[event] === STATES.FAILED;
   }
 
-  _handleSpawnedPtyExit(guardrailsLaunch: GuardrailsLaunch | null, exitCode: number, signal: ExitSignal): Promise<void> {
-    this._disposeGuardrailsLaunch(guardrailsLaunch);
+  _handleSpawnedPtyExit(exitCode: number, signal: ExitSignal): Promise<void> {
     void this._stopCodexBridge();
     this._releaseClaudeHolds(() => true);
     return this._handlePtyExit(exitCode, signal);
@@ -2182,7 +2071,6 @@ class Session extends EventEmitter {
       try {
         this.ptyProcess.resize(cols, rows);
       } catch {}
-      if (this._guardrailsLaunch && this._platform === "linux") void signalWindowChangeBelow(this.ptyProcess.pid);
     }
     this._resizeSeq += 1;
     this.emit("resize", { cols, rows, seq: this._resizeSeq });
@@ -2422,7 +2310,6 @@ class Session extends EventEmitter {
     this._clearPendingPaste();
 
     this._hooks.cleanup();
-    this._disposeGuardrailsLaunch(this._guardrailsLaunch);
     void this._stopCodexBridge();
     this._releaseClaudeHolds(() => true);
 

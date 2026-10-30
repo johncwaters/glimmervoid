@@ -35,7 +35,6 @@ export const ENVIRONMENT_VARIABLES: readonly EnvironmentVariable[] = Object.free
   { name: 'GLIMMERVOID_AGENT_URL', audience: 'internal', description: 'Set by Glimmervoid in each session environment; `glimmervoid push`, `spawn`, `attention` and `board` read it. Not an operator setting.' },
   { name: 'GLIMMERVOID_CODEX_REMOTE_TOKEN', audience: 'internal', description: 'Set by Glimmervoid in the environment of a Codex session that runs in a Coder workspace; the Codex TUI sends it as the bearer token to the forwarded app-server. Not an operator setting.' },
   { name: 'GLIMMERVOID_SIGN_URL', audience: 'internal', description: 'Set by Glimmervoid in each operator session environment; `glimmervoid ssh-sign`, which git runs to sign a commit, posts there so the server signs with the operator\'s forwarded ssh agent. Not an operator setting.' },
-  { name: 'GLIMMERVOID_HOOK_VIA_GUARDRAILS_PROXY', audience: 'internal', description: 'Set by Glimmervoid inside guardrails whose network is a domain list, so the hook relays post through the guardrails proxy and nowhere else. Not an operator setting.' },
 ]);
 
 export const UNLISTED_KEY_NOTES: Readonly<Record<string, string>> = Object.freeze({

@@ -410,15 +410,6 @@ function buildEnv(baseEnv: SpawnEnv, extraEnv: SpawnEnv | null | undefined, opti
 const UPDATE_CHECK_ARGS = ["-c", "check_for_update_on_startup=false"];
 
 const SKIP_PERMISSIONS_ARGS = ["-a", "never", "-s", "workspace-write"];
-const OUTER_GUARDRAILS_ARGS = ["-s", "danger-full-access"];
-const OUTER_GUARDRAILS_SKIP_PERMISSIONS_ARGS = ["-a", "never", ...OUTER_GUARDRAILS_ARGS];
-
-function permissionArgs(dangerouslySkipPermissions: boolean, hasOuterGuardrails: boolean): string[] {
-  if (hasOuterGuardrails && dangerouslySkipPermissions) return OUTER_GUARDRAILS_SKIP_PERMISSIONS_ARGS;
-  if (hasOuterGuardrails) return OUTER_GUARDRAILS_ARGS;
-  if (dangerouslySkipPermissions) return SKIP_PERMISSIONS_ARGS;
-  return [];
-}
 
 const OPERATOR_CONFIG_FILE_NAME = "config.toml";
 const DEVELOPER_INSTRUCTIONS_KEY = "developer_instructions";
@@ -443,7 +434,6 @@ function buildArgs({
   resumeSessionId = null,
   extraArgs = [],
   initialPrompt = null,
-  hasOuterGuardrails = false,
   hasOperatorInstructions = false,
   canRunHelpCommand = true,
   canSpawn = false,
@@ -453,7 +443,7 @@ function buildArgs({
     args.push("-c", `${DEVELOPER_INSTRUCTIONS_KEY}='''${supervisionLine({ canSpawn })}'''`);
   }
   if (resumeSessionId) args.push("resume", resumeSessionId);
-  args.push(...permissionArgs(dangerouslySkipPermissions, hasOuterGuardrails));
+  if (dangerouslySkipPermissions) args.push(...SKIP_PERMISSIONS_ARGS);
   if (extraArgs.length > 0) args.push(...extraArgs);
   if (initialPrompt != null) args.push(initialPrompt);
   return args;

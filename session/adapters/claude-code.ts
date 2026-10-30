@@ -6,7 +6,7 @@ import { supervisionLine } from "../core/session-routes.ts";
 import { buildAgentEnv } from "../core/spawn-env.ts";
 import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import { execFileSync } from "../../server/child-process-safe.ts";
-import type { AgentAdapterShape, AgentArgsOptions, AgentHookProfile, AgentLaunchSession, AgentLaunchSessionOptions, AgentSpawnCommandOptions } from "./index.ts";
+import type { AgentAdapterShape, AgentArgsOptions, AgentHookProfile, AgentSpawnCommandOptions } from "./index.ts";
 import { PLAN_TOOL_NAME } from "../../shared/contracts/index.ts";
 import { ASK_USER_QUESTION_TOOL_NAME } from "../../shared/contracts/session.ts";
 import type { HookPayload } from "../../shared/contracts/index.ts";
@@ -159,21 +159,6 @@ function buildEnv(baseEnv: SpawnEnv, extraEnv: SpawnEnv | null | undefined, opti
 
 const settingsArgs = (settingsPath: string): string[] => ["--settings", settingsPath];
 
-const SESSION_ID_FLAG = "--session-id";
-
-function requestedSessionId(extraArgs: readonly string[]): string | null {
-  const flagIndex = extraArgs.indexOf(SESSION_ID_FLAG);
-  if (flagIndex !== -1) return extraArgs[flagIndex + 1] ?? null;
-  const assignment = extraArgs.find((argument) => argument.startsWith(`${SESSION_ID_FLAG}=`));
-  return assignment ? assignment.slice(SESSION_ID_FLAG.length + 1) : null;
-}
-
-function launchSessionId({ resumeSessionId, extraArgs, generatedId }: AgentLaunchSessionOptions): AgentLaunchSession {
-  const knownSessionId = resumeSessionId ?? requestedSessionId(extraArgs);
-  if (knownSessionId) return { agentSessionId: knownSessionId, extraArgs: [...extraArgs] };
-  return { agentSessionId: generatedId, extraArgs: [...extraArgs, SESSION_ID_FLAG, generatedId] };
-}
-
 const APPEND_SYSTEM_PROMPT_FLAG = "--append-system-prompt";
 const APPEND_SYSTEM_PROMPT_FILE_FLAG = "--append-system-prompt-file";
 const APPENDED_SYSTEM_PROMPT_FLAGS = Object.freeze([APPEND_SYSTEM_PROMPT_FLAG, APPEND_SYSTEM_PROMPT_FILE_FLAG]);
@@ -219,7 +204,6 @@ const claudeCode = {
   buildEnv,
   buildArgs,
   settingsArgs,
-  launchSessionId,
   capabilities: {
     hooks: true,
     awaitingInput: true,

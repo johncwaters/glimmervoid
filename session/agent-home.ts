@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { glimmervoidHomeDir } from "../server/core/config-path-core.ts";
-import { loadFileLocks } from "../server/guardrails/session-temp-locks.ts";
+import { loadFileLocks } from "../server/session-temp/session-temp-locks.ts";
 import { writeTextAtomicSync } from "../server/json-file.ts";
 import { errorMessage, isMissingFileError } from "../shared/text.ts";
 import { AGENT_HOME_BASE_NAME, AGENT_HOME_CONFIG_NAME, AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_IN_USE_LOCK_NAME, AGENT_HOME_SOURCES_NAME, fileStampKey, planAgentHome } from "./core/agent-home-core.ts";
@@ -420,5 +420,5 @@ function releaseUnheldAgentHomeSecrets(generatedHome: string): void {
   releaseSecretsUnlessHeldElsewhere(generatedHome, { whenLocksMissing: "keep" });
 }
 
-export { agentHomeLinkRefusal, describeAgentHome, generatedAgentHomePath, holdAgentHome, holdPreparedAgentHome, prepareAgentHome, prepareScratchAgentHome, realAgentHome, releaseAgentHome, releaseUnheldAgentHomeSecrets };
+export { describeAgentHome, generatedAgentHomePath, holdAgentHome, holdPreparedAgentHome, prepareAgentHome, prepareScratchAgentHome, realAgentHome, releaseAgentHome, releaseUnheldAgentHomeSecrets };
 

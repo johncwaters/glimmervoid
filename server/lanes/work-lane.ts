@@ -1,6 +1,10 @@
 import { realpath } from 'node:fs/promises';
-import { isWorktreeAdminDirOf } from '../guardrails/core/guardrails-roles-core.ts';
+import path from 'node:path';
 import { runHardenedGit } from '../git/git-workspace.ts';
+
+function isWorktreeAdminDirOf({ adminDir, commonGitDir }: { adminDir: string; commonGitDir: string }): boolean {
+  return path.dirname(path.resolve(adminDir)) === path.resolve(commonGitDir, 'worktrees');
+}
 
 async function readLaneCommonGitDir(cwd: string): Promise<string> {
   const { stdout } = await runHardenedGit(['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd, timeout: 30_000 });

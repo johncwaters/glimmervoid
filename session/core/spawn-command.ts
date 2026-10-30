@@ -2,7 +2,6 @@ import path from "node:path";
 
 type PathLookupOptions = { encoding: 'utf8'; stdio: ['ignore', 'pipe', 'ignore']; timeout: number };
 
-type PathLookupExec = (command: string, options: PathLookupOptions) => string;
 
 type PathLookupExecFile = (file: string, args: readonly string[], options: PathLookupOptions) => string;
 
@@ -44,18 +43,17 @@ const PATH_PROBE_OPTIONS: PathLookupOptions = {
 };
 
 interface PathProbe {
-  shellCommand: string;
   file: string;
   args: readonly string[];
 }
 
 function pathProbesFor(name: string, platform: NodeJS.Platform): PathProbe[] {
   if (platform === "win32") {
-    return [{ shellCommand: `where ${name}`, file: "where", args: [name] }];
+    return [{ file: "where", args: [name] }];
   }
   return [
-    { shellCommand: `which -a ${name}`, file: "which", args: ["-a", name] },
-    { shellCommand: `sh -c "command -v ${name}"`, file: "sh", args: ["-c", 'command -v "$1"', "sh", name] },
+    { file: "which", args: ["-a", name] },
+    { file: "sh", args: ["-c", 'command -v "$1"', "sh", name] },
   ];
 }
 
@@ -74,16 +72,6 @@ function resolveCommandMatches(
     if (matches.length > 0) return matches;
   }
   return [];
-}
-
-function resolvePathCommandMatches(
-  name: string,
-  { platform, exec }: { platform: NodeJS.Platform; exec: PathLookupExec },
-): string[] {
-  return resolveCommandMatches(name, {
-    platform,
-    runProbe: (probe) => exec(probe.shellCommand, PATH_PROBE_OPTIONS),
-  });
 }
 
 function resolveArgvCommandMatches(
@@ -161,5 +149,5 @@ function buildAgentSpawnCommand(
   return { file: "cmd.exe", args: ["/c", name, ...childArgs] };
 }
 
-export { resolveArgvCommandMatches, resolvePathCommandMatches, resolveAgentCommand, buildAgentSpawnCommand };
+export { resolveArgvCommandMatches, resolveAgentCommand, buildAgentSpawnCommand };
 export type { PathLookupExecFile, ResolvedCommand };

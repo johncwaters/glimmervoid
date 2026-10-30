@@ -18,16 +18,6 @@ import { stableNodePath } from '../stable-node-path.ts';
 
 type CoherenceHealOutcome = { status: 'not-needed' | 'healed' } | { status: 'failed'; reason: string };
 
-export interface ConfinedCommand {
-  file: string;
-  args: string[];
-  env: Record<string, string>;
-  cwd?: string;
-  dispose(): Promise<void>;
-}
-
-export type ConfineCommand = (command: { file: string; args: string[] }) => Promise<ConfinedCommand>;
-
 export interface CoherenceAttachment {
   hooks: CoherenceHooksState;
   version: string | null;
@@ -38,8 +28,8 @@ export interface CoherenceAttachment {
   readJournal(sessionId: string): Promise<CoherenceJournalOutput>;
 }
 
-export async function resolveCoherence({ worktree, host, isSettingOn, confine = null, codexEnv = process.env, timeoutMs = 20_000, verdictTimeoutMs = 600_000 }: {
-  worktree: string; host: string | null | undefined; isSettingOn: boolean; confine?: ConfineCommand | null; codexEnv?: NodeJS.ProcessEnv; timeoutMs?: number; verdictTimeoutMs?: number;
+export async function resolveCoherence({ worktree, host, isSettingOn, codexEnv = process.env, timeoutMs = 20_000, verdictTimeoutMs = 600_000 }: {
+  worktree: string; host: string | null | undefined; isSettingOn: boolean; codexEnv?: NodeJS.ProcessEnv; timeoutMs?: number; verdictTimeoutMs?: number;
 }): Promise<CoherenceAttachment | null> {
   if (!isSettingOn || (host !== 'claude' && host !== 'codex')) return null;
   const env = { ...buildAllowlistedChildEnv(process.env, process.platform), COHERENCE_NO_UPDATE_CHECK: '1' };
@@ -47,13 +37,7 @@ export async function resolveCoherence({ worktree, host, isSettingOn, confine = 
   let version: string | null = null;
   let unavailable: CoherenceHooksState | null = null;
   async function runScript(script: string, args: string[], timeout = timeoutMs): Promise<string> {
-    if (!confine) return (await execFileAsync(stableNodePath, [script, ...args], { cwd: worktree, env, timeout, maxBuffer: 16 * 1024 * 1024 })).stdout;
-    const confined = await confine({ file: stableNodePath, args: [script, ...args] });
-    try {
-      return (await execFileAsync(confined.file, confined.args, { cwd: confined.cwd ?? worktree, env: { ...env, ...confined.env }, timeout, maxBuffer: 16 * 1024 * 1024 })).stdout;
-    } finally {
-      await confined.dispose();
-    }
+    return (await execFileAsync(stableNodePath, [script, ...args], { cwd: worktree, env, timeout, maxBuffer: 16 * 1024 * 1024 })).stdout;
   }
   async function run(args: string[], timeout = timeoutMs): Promise<string> {
     if (!cliScript) throw new Error('Coherence is not installed');
