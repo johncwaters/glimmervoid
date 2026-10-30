@@ -28,7 +28,6 @@ import { createLaneSpawn } from '../lanes/lane-spawn.ts';
 import { createPlanReviewWiring } from '../plan-review-wiring.ts';
 import { createRadarWiring } from '../radar/radar-wiring.ts';
 import { createCommunityWiring } from '../community/community-wiring.ts';
-import type { GuardrailsSpawnRefusal } from '../guardrails/guardrails-deps.ts';
 import { createMemoryAdmission, createSpawnGate } from '../spawn-gate.ts';
 import { readMemoryHeadroom } from '../memory-probe.ts';
 import { memoryReserveBytes } from '../core/memory-admission-core.ts';
@@ -64,7 +63,6 @@ interface BackendLaneDependencies {
   configStore: ConfigStore;
   sessions: Map<string, Session>;
   agentSessions: Map<string, Session>;
-  guardrailsRefusal: GuardrailsSpawnRefusal;
   reviewSessions: Map<string, Session>;
   investigationSessions: Map<string, Session>;
   closeSessionDataClients: (id: string) => void;
@@ -89,7 +87,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     configStore,
     sessions,
     agentSessions,
-    guardrailsRefusal,
     reviewSessions,
     investigationSessions,
     closeSessionDataClients,
@@ -231,7 +228,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     clock: githubClock,
     repoCacheRoot: sharedRepoCacheRoot,
     repoCache: sharedRepoCache,
-    guardrailsRefusal,
     telemetry: laneTelemetry,
   });
   const sessionPrLink = createSessionPrLinkWiring({ store: githubStore.laneStore, git: gitWorkspace, log: logger });

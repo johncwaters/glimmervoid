@@ -14,7 +14,7 @@ interface SettingsPayloadOptions {
   telegramDelivery?: TelegramDeliveryStatus | null;
   coderEnvironments?: CoderEnvironmentOffer[] | null;
   agentLogins?: AgentLoginStatus[] | null;
-  readTeamReviewEnvironment?: (settingsSource: Partial<TeamReviewSettingsSource>) => TeamReviewEnvironment;
+  readTeamReviewEnvironment?: () => TeamReviewEnvironment;
 }
 
 function summarizeCustomAgents(declarations: readonly CustomAgentDeclaration[]): CustomAgentSummaryRow[] {
@@ -38,7 +38,7 @@ function buildSettingsPayload({
     telegramDelivery,
     coderEnvironments,
     agentLogins,
-    teamReviewEnvironment: readTeamReviewEnvironment(configStore.config),
+    teamReviewEnvironment: readTeamReviewEnvironment(),
   };
 }
 

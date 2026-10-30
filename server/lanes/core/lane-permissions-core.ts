@@ -1,7 +1,6 @@
 import { isRecord } from '../../../shared/coerce.ts';
 import { HOOK_TOOLS } from '../../../session/core/hook-tools.ts';
 import type { ResolvedHookTool } from '../../../session/core/hook-tools.ts';
-import type { GuardrailsRole } from '../../guardrails/core/guardrails-policy-core.ts';
 
 const ACCEPT_EDITS_MODE = 'acceptEdits';
 
@@ -46,7 +45,6 @@ function buildLanePermissions({
 }
 
 const POSTHOG_MCP_HOST = 'mcp.posthog.com';
-const POSTHOG_OAUTH_HOST = 'oauth.posthog.com';
 const MCP_SERVER_NAME_RE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const CODEX_MCP_SERVER_NAME_RE = /^[A-Za-z0-9_-]+$/;
 const KIMI_QUALIFIED_TOOL_NAME_MAX_LENGTH = 64;
@@ -62,7 +60,6 @@ interface LaneMcpPosture {
   args: string[];
   allowRules: string[];
   hookTool: ResolvedHookTool;
-  networkDomains: string[];
   bypassHookTrust: boolean;
   laneHome: { configSuffix: string; files: Record<string, string> } | null;
 }
@@ -110,7 +107,6 @@ function laneMcpPosture({ server, mcpConfigPath, gatePath, interpreterPath, lane
     args: loadsOnlyListedServers ? ['--mcp-config', mcpConfigPath] : [],
     allowRules: [`mcp__${server.name}__exec`],
     hookTool,
-    networkDomains: [POSTHOG_MCP_HOST, POSTHOG_OAUTH_HOST],
     bypassHookTrust: false,
     laneHome: null,
   };
@@ -126,7 +122,6 @@ function codexLaneMcpPosture({ server, otherServerNames, gatePath, interpreterPa
     args: ['-c', `mcp_servers.${server.name}.enabled_tools=["exec"]`, ...disabledServerArgs],
     allowRules: [],
     hookTool,
-    networkDomains: [POSTHOG_MCP_HOST, POSTHOG_OAUTH_HOST],
     bypassHookTrust: true,
     laneHome: null,
   };
@@ -158,20 +153,9 @@ function kimiLaneMcpPosture({ server, gatePath, interpreterPath }: {
     args: [],
     allowRules: [],
     hookTool,
-    networkDomains: [POSTHOG_MCP_HOST, POSTHOG_OAUTH_HOST],
     bypassHookTrust: false,
     laneHome: { configSuffix: gateHookTable, files: { 'mcp.json': `${JSON.stringify(kimiLaneMcpConfig(server), null, 2)}\n` } },
   };
-}
-
-function withNetworkDomains(role: GuardrailsRole, domains: readonly string[]): GuardrailsRole {
-  if (role.network.access !== 'allowlist' || domains.length === 0) return role;
-  return { ...role, network: { ...role.network, domains: [...new Set([...role.network.domains, ...domains])] } };
-}
-
-function withLaneMcp(role: GuardrailsRole, posture: LaneMcpPosture | undefined): GuardrailsRole {
-  if (!posture) return role;
-  return withNetworkDomains(role, posture.networkDomains);
 }
 
 function withAllowRules(permissions: Record<string, unknown>, allowRules: readonly string[]): Record<string, unknown> {
@@ -183,6 +167,6 @@ function withAllowRules(permissions: Record<string, unknown>, allowRules: readon
 export {
   ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, LANE_CREDENTIAL_ENV, LANE_ENVIRONMENT_ARGS, READ_ONLY_GIT_SUBCOMMANDS, buildLanePermissions,
   codexLaneMcpPosture, codexMcpServers, findPosthogServer, kimiLaneMcpPosture, laneMcpConfig, laneMcpPosture,
-  readOnlyGitAllowRules, withAllowRules, withLaneMcp,
+  readOnlyGitAllowRules, withAllowRules,
 };
 export type { LaneMcpPosture };

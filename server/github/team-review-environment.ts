@@ -5,9 +5,6 @@ import path from 'node:path';
 import { cachedAgentResolvability } from '../../session/adapters/index.ts';
 import type { ReviewAgentOffer, ReviewModelOffer, ReviewSkillOffer, TeamReviewEnvironment } from '../../shared/contracts/team-review-environment.ts';
 import * as environmentCore from './core/team-review-environment-core.ts';
-import { readTeamReviewSettings } from './core/team-review-core.ts';
-import type { TeamReviewSettingsSource } from './core/team-review-core.ts';
-import { describeTeamReviewSandbox } from './team-review-wiring.ts';
 
 const SCAN_FRESH_FOR_MS = 60_000;
 const SKILL_FILE_NAME = 'SKILL.md';
@@ -75,14 +72,11 @@ function agentOffer(scan: AgentScan): ReviewAgentOffer {
 }
 
 function currentTeamReviewEnvironment(
-  settingsSource: TeamReviewSettingsSource,
   { nowMs = Date.now(), homeDir = os.homedir(), env = process.env }: { nowMs?: number; homeDir?: string; env?: NodeJS.ProcessEnv } = {},
 ): TeamReviewEnvironment {
   refreshWhenStale(nowMs, homeDir, env);
-  const settings = readTeamReviewSettings(settingsSource);
   return {
     agents: lastScan.map(agentOffer),
-    sandbox: describeTeamReviewSandbox(settings.sandbox),
   };
 }
 

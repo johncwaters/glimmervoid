@@ -304,13 +304,6 @@ function blockedCredentialHomeEntries(role: GuardrailsRole): string[] {
   return credentialHomeEntries.filter((entry) => !STANDARD_LEVEL_USABLE_CREDENTIAL_ENTRIES.includes(entry));
 }
 
-function describeRoleSandbox(role: GuardrailsRole): { agentApiDomains: string[]; unreadableHomeEntries: string[] } {
-  return {
-    agentApiDomains: unique(role.vendors.flatMap((vendor) => VENDOR_PROFILES[vendor].apiDomains)),
-    unreadableHomeEntries: blockedCredentialHomeEntries(role),
-  };
-}
-
 function credentialWriteBlocks(role: GuardrailsRole, host: GuardrailsHostPaths): string[] {
   const credentialHomeEntries = blockedCredentialHomeEntries(role);
   return [...homePaths(host, credentialHomeEntries), ...relocatedXdgConfigPaths(host, credentialHomeEntries)];
@@ -435,5 +428,5 @@ function buildGuardrailsLaunchPlan(role: GuardrailsRole, host: GuardrailsHost): 
   };
 }
 
-export { buildGuardrailsLaunchPlan, describeRoleSandbox, lockedClaudeMountPoints, GUARDRAILS_PLACEHOLDER_NAMES, GUARDRAILS_TEMP_FOLDER, guardrailsPlaceholderPaths, guardrailsPolicyProbePaths, standardWriteBlockCandidates };
+export { buildGuardrailsLaunchPlan, lockedClaudeMountPoints, GUARDRAILS_PLACEHOLDER_NAMES, GUARDRAILS_TEMP_FOLDER, guardrailsPlaceholderPaths, guardrailsPolicyProbePaths, standardWriteBlockCandidates };
 export type { GuardrailsHost, GuardrailsHostPaths, GuardrailsLaunchPlan, GuardrailsNetworkAccess, GuardrailsRole };

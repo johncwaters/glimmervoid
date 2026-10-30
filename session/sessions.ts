@@ -2451,4 +2451,4 @@ function claudeCommand(): ResolvedCommand {
 }
 
 export { Session, claudeCommand };
-export type { ClaudeSessionIdEvent, RemoteLaunch, SessionOptions, SessionPlanReviewPort, SessionGuardrailsFacts };
+export type { ClaudeSessionIdEvent, RemoteLaunch, SessionOptions, SessionPlanReviewPort };

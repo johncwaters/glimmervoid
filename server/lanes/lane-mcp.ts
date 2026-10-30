@@ -29,7 +29,6 @@ const BLOCKING_EXIT_CODE = 2;
 
 interface PreparedLaneMcp {
   posture: LaneMcpPosture;
-  readablePaths: string[];
   scratchAgentHome?: ScratchAgentHome;
   cleanup(): Promise<void>;
 }
@@ -69,7 +68,7 @@ async function prepareCodexLaneMcp(listCodexServers: () => Promise<unknown>, gat
   const otherServerNames = Object.keys(servers).filter((name) => name !== server.name);
   const posture = codexLaneMcpPosture({ server, otherServerNames, gatePath, interpreterPath: process.execPath });
   if (!posture || !(await gateDeniesKnownWrite(posture.hookTool))) return null;
-  return { posture, readablePaths: [process.execPath], cleanup: async () => {} };
+  return { posture, cleanup: async () => {} };
 }
 
 async function prepareKimiLaneMcp(kimiHome: string, gatePath: string): Promise<PreparedLaneMcp | null> {
@@ -81,7 +80,6 @@ async function prepareKimiLaneMcp(kimiHome: string, gatePath: string): Promise<P
   const homeParent = await makeHostScratchDirectory(LANE_MCP_DIR_PREFIX);
   return {
     posture,
-    readablePaths: [homeParent, process.execPath],
     scratchAgentHome: { home: path.join(homeParent, 'home'), ...posture.laneHome },
     cleanup: () => fsPromises.rm(homeParent, { recursive: true, force: true }).catch(() => {}),
   };
@@ -111,7 +109,7 @@ async function prepareLaneMcp(
     await removeConfigDirectory();
     return null;
   }
-  return { posture, readablePaths: [configDirectory, process.execPath], cleanup: removeConfigDirectory };
+  return { posture, cleanup: removeConfigDirectory };
 }
 
 export { prepareLaneMcp };

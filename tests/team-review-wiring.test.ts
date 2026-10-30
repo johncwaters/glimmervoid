@@ -11,7 +11,7 @@ import { REMERGE_OBJECTS_DIRNAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT,
 import type { ReviewTier } from '../server/github/core/team-review-core.ts';
 import { createTeamReviewPoller } from '../server/github/team-review-poller.ts';
 import type { SpawnReviewArgs } from '../server/github/team-review-poller.ts';
-import { createTeamReviewDispatcher, createTeamReviewWiring, createTeamReviewStateIo, makeTeamReviewWorkDir, sweepLeftoverCheckouts, teamReviewRole, hooksPathPinnedSpawnEnv, } from '../server/github/team-review-wiring.ts';
+import { createTeamReviewDispatcher, createTeamReviewWiring, createTeamReviewStateIo, makeTeamReviewWorkDir, sweepLeftoverCheckouts, hooksPathPinnedSpawnEnv, } from '../server/github/team-review-wiring.ts';
 import type { TeamReviewDispatchOptions, TeamReviewSpawn } from '../server/github/team-review-wiring.ts';
 import { PrDetail, ReviewDraft } from '../shared/contracts/team-review.ts';
 import { UNTRUSTED_PAYLOAD_FILENAME, UNTRUSTED_PREAMBLE, UntrustedPayload } from '../shared/contracts/untrusted-payload.ts';
@@ -35,10 +35,6 @@ const DIFF = 'diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n
 
 type SpawnCall = Parameters<TeamReviewSpawn>[0] & { workDir: string; workDirFiles: string[]; prompt: string; untrustedPayloadText: string | null };
 const CACHED_CLONE = '/cache/Acme/app';
-const ROLE_FACTS = { launchId: 'launch-one', cwd: '/review/work', hookPort: 3911, readablePaths: ['/hook/settings'], writablePaths: [], agentSessionId: null };
-function roleOf(spawn: Pick<SpawnCall, 'guardrailsRole'> | undefined) {
-  return spawn?.guardrailsRole?.(ROLE_FACTS);
-}
 
 function reportText(head = HEAD) {
   return [
@@ -322,7 +318,6 @@ test('resume uses the saved cwd and session with the remaining timeout without s
     const remergeEnvPrefix = `GIT_OBJECT_DIRECTORY=${path.join(workDir, REMERGE_OBJECTS_DIRNAME)} GIT_ALTERNATE_OBJECT_DIRECTORIES=${path.join(CACHED_CLONE, '.git', 'objects')}`;
     assert.ok(reviewArgsSpawned.includes(`Bash(${remergeEnvPrefix} git -C ${worktreePath} range-diff:*)`));
     assert.equal(spawns[0]?.workDirFiles.includes('tmp'), false);
-    assert.deepEqual(roleOf(spawns[0]), teamReviewRole(ROLE_FACTS, { checkoutPath: worktreePath, cachedClone: CACHED_CLONE, unreadablePaths: [] }));
     assert.deepEqual(timeouts, [78000]);
   } finally {
     cleanup();

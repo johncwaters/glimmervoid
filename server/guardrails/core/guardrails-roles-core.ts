@@ -3,14 +3,6 @@ import type { GuardrailsRole } from './guardrails-policy-core.ts';
 
 type GuardrailsRoleVendor = GuardrailsRole['vendors'][number];
 
-interface JudgeRoleFacts {
-  vendor: GuardrailsRoleVendor;
-  cwd: string;
-  hookPort: number | null;
-  readablePaths: readonly string[];
-  agentSessionId: string | null;
-}
-
 interface WorkRoleFacts {
   vendor: GuardrailsRoleVendor;
   cwd: string;
@@ -30,19 +22,6 @@ interface SessionRoleFacts {
 
 const SESSION_VENDORS: readonly GuardrailsRoleVendor[] = Object.freeze(['claude', 'codex']);
 const GUARDED_SESSION_VENDORS: readonly GuardrailsRoleVendor[] = Object.freeze(['claude', 'kimi']);
-
-function judgeRole({ vendor, cwd, hookPort, readablePaths, agentSessionId }: JudgeRoleFacts): GuardrailsRole {
-  return {
-    vendors: [vendor],
-    vendorHome: { scope: 'launch', cwd, agentSessionId },
-    network: { access: 'allowlist', domains: [], hookPort },
-    writableRoots: [cwd],
-    lockedCheckouts: [],
-    commitCheckouts: [],
-    readDenied: [],
-    readableWithinDenied: [...readablePaths],
-  };
-}
 
 function workRole({ vendor, cwd, checkout, readablePaths, writablePaths = [], agentSessionId }: WorkRoleFacts): GuardrailsRole {
   return {
@@ -78,6 +57,6 @@ function isWorktreeAdminDirOf({ adminDir, commonGitDir }: { adminDir: string; co
 }
 
 export {
-  isWorktreeAdminDirOf, judgeRole, sessionRole,
+  isWorktreeAdminDirOf, sessionRole,
   workRole,
 };

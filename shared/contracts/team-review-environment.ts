@@ -25,22 +25,7 @@ export const ReviewAgentOffer = z.object({
 }).strict();
 export type ReviewAgentOffer = z.infer<typeof ReviewAgentOffer>;
 
-export const TeamReviewSandboxFacts = z.object({
-  networkOpen: z.boolean(),
-  networkDomains: z.array(z.string()),
-  agentApiDomains: z.array(z.string()),
-  mcpLoaded: z.boolean(),
-  unreadableHomeEntries: z.array(z.string()),
-  unreadableCheckoutEntries: z.array(z.string()),
-  githubTokenStripped: z.boolean(),
-  allowedTools: z.array(z.string()),
-  deniedTools: z.array(z.string()),
-  threadJudgeTools: z.array(z.string()),
-}).strict();
-export type TeamReviewSandboxFacts = z.infer<typeof TeamReviewSandboxFacts>;
-
 export const TeamReviewEnvironment = z.object({
   agents: z.array(ReviewAgentOffer),
-  sandbox: TeamReviewSandboxFacts,
 }).strict();
 export type TeamReviewEnvironment = z.infer<typeof TeamReviewEnvironment>;

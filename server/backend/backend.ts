@@ -40,7 +40,6 @@ import { normalizeUpdateChannel } from '../core/update-core.ts';
 import { detectInstallFlavor } from '../update-check.ts';
 import type { CheckForUpdate } from './backend-update.ts';
 import { createBackendSessionRuntime } from './backend-session-runtime.ts';
-import { checkGuardrailsDependencies } from '../guardrails/guardrails-deps.ts';
 import { sweepOrphanedGuardrailsLaunches } from '../guardrails/guardrails-launch.ts';
 import { warnWhenGitIsTooOld } from '../git/git-version.ts';
 import { createOutcomesLane } from '../outcomes-wiring.ts';
@@ -144,7 +143,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   let agentApi: AgentApiPort | null = null;
   let shownFiles: ShownFilesPort | null = null;
   let gitWorkspace: ReturnType<typeof createBackendLanes>['gitWorkspace'] | null = null;
-  const guardrailsRefusal = checkGuardrailsDependencies({ log: console });
   warnWhenGitIsTooOld({ log: console });
   const sessionRuntime = createBackendSessionRuntime({
     config,
@@ -262,7 +260,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const laneAssembly = createBackendLanes({
     config,
     claudeCredentials: sessionRuntime.claudeCredentials,
-    guardrailsRefusal,
     configStore,
     sessions,
     agentSessions,

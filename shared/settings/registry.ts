@@ -493,27 +493,9 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
         control: 'text', keywords: ['stamp', 'effort', 'small pull requests'], defaultValue: '', suggestionsFrom: 'review-stamp-efforts', ...MACHINE_NOW,
       },
       {
-        id: 'team-review-sandbox', path: 'status:team-review-sandbox', title: 'Review sandbox',
-        description: 'What the review agent can reach and read, from the same values each review launches with.',
-        control: 'readonly', keywords: ['sandbox', 'network', 'egress', 'mcp', 'credentials', 'tools', 'restricted'], status: 'team-review-sandbox', ...READOUT,
-      },
-      {
-        id: 'team-review-sandbox-extra-domains', path: 'teamReview.sandbox.extraDomains', title: 'Extra allowed domains',
-        description: 'Domains the review sandbox may reach on top of the agent API and api.github.com.',
-        control: 'list', keywords: ['sandbox', 'network', 'egress', 'allowlist'], danger: true,
-        warning: 'The review runs code from the pull request under review. Every domain added here is a place that code can send what it reads.',
-        listPlaceholder: 'registry.npmjs.org', listEmptyText: 'No extra domains.', defaultValue: [], ...MACHINE_NOW,
-      },
-      {
-        id: 'team-review-sandbox-open-network', path: 'teamReview.sandbox.openNetwork', title: 'Open network egress',
-        description: 'Let the review sandbox reach any domain instead of the allowlist.',
-        control: 'toggle', keywords: ['sandbox', 'network', 'egress', 'open'], danger: true,
-        warning: 'Enabling this control lets code from the pull request under review reach any address, including the Glimmervoid dashboard on this machine, which it can use to start sessions outside the sandbox. Treat it as running the pull request author\'s code as you, unsandboxed.', defaultValue: false, ...MACHINE_NOW,
-      },
-      {
         id: 'team-review-sandbox-load-mcp-servers', path: 'teamReview.sandbox.loadMcpServers', title: 'Load my MCP servers',
         description: 'Give the Claude Code review agent your own MCP servers instead of none.',
-        control: 'toggle', keywords: ['sandbox', 'mcp', 'servers', 'tools'], danger: true,
+        control: 'toggle', keywords: ['mcp', 'servers', 'tools'], danger: true,
         warning: 'Enabling this control gives the review agent, which reads untrusted pull request text, every tool your MCP servers expose.', defaultValue: false, ...MACHINE_NOW,
       },
       {

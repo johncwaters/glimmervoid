@@ -9,18 +9,18 @@ import path from 'node:path';
 
 import type { HookRouter } from '../../detection/hook-source.ts';
 import { Session } from '../../session/sessions.ts';
-import type { SessionOptions, SessionGuardrailsFacts } from '../../session/sessions.ts';
+import type { SessionOptions } from '../../session/sessions.ts';
 import { type AwakeStopwatch, createAwakeTimeoutFn, startAwakeStopwatch } from '../awake-timer.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
 import { resolveHookTools as resolveSharedHookTools, resolveRequiredSaneYoloHookTools } from '../hook-tools.ts';
 import type { HookToolConfig } from '../hook-tools.ts';
 import { trailStepFromHook } from '../core/investigation-trail-core.ts';
-import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, LANE_CREDENTIAL_ENV, readOnlyGitAllowRules, withAllowRules, withLaneMcp } from '../lanes/core/lane-permissions-core.ts';
+import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, LANE_CREDENTIAL_ENV, readOnlyGitAllowRules, withAllowRules } from '../lanes/core/lane-permissions-core.ts';
 import { writeUntrustedPayload } from '../lanes/untrusted-payload.ts';
 import { prepareLaneMcp } from '../lanes/lane-mcp.ts';
 import { DEFAULT_AGENT_ID } from '../../session/adapters/index.ts';
 import * as core from './core/team-review-core.ts';
-import type { CommentableLines, NewWorkPointer, ReviewerChoice, TeamReviewCandidate, TeamReviewSandboxSettings, TeamReviewSettings, TeamReviewSettingsSource } from './core/team-review-core.ts';
+import type { CommentableLines, NewWorkPointer, ReviewerChoice, TeamReviewCandidate, TeamReviewSettings, TeamReviewSettingsSource } from './core/team-review-core.ts';
 import {
   awaitSessionExit, drainPending, firstLine, raceWithAbort,
   registerEphemeralSession,
@@ -45,13 +45,6 @@ import type { TeamReviewReapOptions } from './team-review-reaper.ts';
 import { createTeamReviewPoller } from './team-review-poller.ts';
 import { bootStaggerDelay } from '../boot-stagger.ts';
 import type { DraftExpectation, DraftPatch, NotMineOutcome, ReviewOutcome, SpawnReviewArgs, TeamReviewGithub, TeamReviewPoller } from './team-review-poller.ts';
-import { allowGuardedSpawn } from '../guardrails/guardrails-deps.ts';
-import { judgeRole } from '../guardrails/core/guardrails-roles-core.ts';
-import { prepareGuardrailsLaunch } from '../guardrails/guardrails-launch.ts';
-import { describeRoleSandbox } from '../guardrails/core/guardrails-policy-core.ts';
-import type { GuardrailsRole } from '../guardrails/core/guardrails-policy-core.ts';
-import type { TeamReviewSandboxFacts } from '../../shared/contracts/team-review-environment.ts';
-import type { GuardrailsSpawnRefusal } from '../guardrails/guardrails-deps.ts';
 import type {
   PostingPlan, PrDetail, PriorReview, ResumableReview, ReviewComment, ReviewResult, ReviewDraft, TeamReviewActionRequest, TeamReviewActionResult,
   TeamReviewState as TeamReviewStateType, TeamReviewStateEntry as TeamReviewStateEntryType, TeamReviewStatus as TeamReviewStatusType,
@@ -75,11 +68,6 @@ const TEAM_REVIEW_DENY_RULES = Object.freeze([
   'WebSearch',
 ]);
 const TEAM_REVIEW_SESSION_DENY_RULES = Object.freeze([...TEAM_REVIEW_DENY_RULES, ...LANE_CONFIG_EDIT_DENY_RULES]);
-const TEAM_REVIEW_EXTRA_DOMAINS = Object.freeze(['api.github.com']);
-const TEAM_REVIEW_GIT_READOUT_RULE = 'Bash(git -C <checkout> <read-only subcommand>)';
-const SANDBOX_RUNTIME_UNSUPPORTED_PLATFORM = 'win32';
-const LINKED_CHECKOUT_UNREADABLE_ENTRY = /^(?:\.env(?:\..*)?|\.claude)$/;
-const LINKED_CHECKOUT_UNREADABLE_NAMES = Object.freeze(['.env', '.env.*', '.claude']);
 const RESULT_MAX_BYTES = 1024 * 1024;
 const EMPTY_GH_CONFIG_DIRNAME = 'gh-config';
 const PUSH_DISABLED_URL = 'https://push-disabled.invalid/';
@@ -94,21 +82,6 @@ interface TeamReviewWiringConfig extends TeamReviewSettingsSource {
   projects?: { path: string }[];
   repoRoots?: string[];
 }
-
-type LaneSettingsGuardrails = {
-  enabled: true;
-  failIfUnavailable: true;
-  allowUnsandboxedCommands: false;
-  enableWeakerNetworkIsolation: true;
-  network: { strictAllowlist: true; allowLocalBinding: true; allowAllUnixSockets: true; allowedDomains: string[] };
-  filesystem: { allowWrite: string[]; denyWrite: string[]; denyRead: string[]; allowRead?: string[] };
-  excludedCommands?: string[];
-};
-
-type DescribeGuardrailsRole = (facts: SessionGuardrailsFacts) => GuardrailsRole;
-type TeamReviewConfinement =
-  | { settingsGuardrails?: LaneSettingsGuardrails; guardrailsRole?: undefined }
-  | { guardrailsRole: DescribeGuardrailsRole; settingsGuardrails?: undefined };
 
 interface TeamReviewRepoCache {
   listRepos(): Promise<string[]>;
@@ -139,7 +112,7 @@ type PrSessionCheckout =
   | { ok: true; repo: string; detail: PrDetail; draft: ReviewDraft | null; checkoutPath: string; baseBranch: string; isConfiguredProject: boolean }
   | { ok: false; error: string };
 
-type TeamReviewSpawn = (options: TeamReviewConfinement & {
+type TeamReviewSpawn = (options: {
   id: string;
   name: string;
   cwd: string;
@@ -198,7 +171,6 @@ interface TeamReviewWiringOptions {
   spawnSession?: TeamReviewSpawn;
   createPoller?: typeof createTeamReviewPoller;
   reapProcesses?: TeamReviewReap;
-  guardrailsRefusal?: GuardrailsSpawnRefusal;
   clock?: SharedClock;
   requestPrRefresh?: (key: string) => void;
   telemetry?: Pick<Telemetry, 'capture'> | null;
@@ -259,64 +231,15 @@ function teamReviewReadAllowRules({ checkoutPath, linkedCheckout }: { checkoutPa
   return readableDirectories.map(core.absolutePathReadRule);
 }
 
-type TeamReviewSetup = Pick<TeamReviewSettings, 'skill' | 'reviewer' | 'stampReviewer' | 'sandbox'>;
+type TeamReviewSetup = Pick<TeamReviewSettings, 'skill' | 'reviewer' | 'stampReviewer' | 'loadMcpServers'>;
 
 const DEFAULT_TEAM_REVIEW_SETUP: TeamReviewSetup = Object.freeze({
-  skill: '', reviewer: core.DEFAULT_REVIEWER, stampReviewer: null, sandbox: core.DEFAULT_SANDBOX,
+  skill: '', reviewer: core.DEFAULT_REVIEWER, stampReviewer: null, loadMcpServers: false,
 });
 
-interface TeamReviewRoleFacts {
-  checkoutPath: string;
-  cachedClone: string;
-  unreadablePaths: readonly string[];
-  sandbox?: TeamReviewSandboxSettings;
-}
-
-function teamReviewNetwork(sandbox: TeamReviewSandboxSettings, hookPort: number | null): GuardrailsRole['network'] {
-  if (sandbox.openNetwork) return { access: 'open' };
-  return { access: 'allowlist', domains: [...TEAM_REVIEW_EXTRA_DOMAINS, ...sandbox.extraDomains], hookPort };
-}
-
-function teamReviewRole(facts: SessionGuardrailsFacts, { checkoutPath, cachedClone, unreadablePaths, sandbox = core.DEFAULT_SANDBOX }: TeamReviewRoleFacts): GuardrailsRole {
-  return {
-    ...judgeRole({ vendor: 'claude', cwd: facts.cwd, hookPort: facts.hookPort, agentSessionId: facts.agentSessionId, readablePaths: [...facts.readablePaths, checkoutPath, cachedClone] }),
-    vendors: ['claude', 'codex'],
-    network: teamReviewNetwork(sandbox, facts.hookPort),
-    readDenied: [...unreadablePaths],
-  };
-}
-
-function describeTeamReviewSandbox(sandbox: TeamReviewSandboxSettings): TeamReviewSandboxFacts {
-  const role = teamReviewRole({ launchId: '', cwd: '', hookPort: null, readablePaths: [], writablePaths: [], agentSessionId: null }, { checkoutPath: '', cachedClone: '', unreadablePaths: [], sandbox });
-  return {
-    networkOpen: role.network.access === 'open',
-    networkDomains: role.network.access === 'allowlist' ? [...role.network.domains] : [],
-    ...describeRoleSandbox(role),
-    mcpLoaded: sandbox.loadMcpServers,
-    unreadableCheckoutEntries: [...LINKED_CHECKOUT_UNREADABLE_NAMES],
-    githubTokenStripped: true,
-    allowedTools: [TEAM_REVIEW_GIT_READOUT_RULE, 'Read'],
-    deniedTools: [...TEAM_REVIEW_SESSION_DENY_RULES],
-    threadJudgeTools: [...THREAD_JUDGE_TOOLS],
-  };
-}
-
-async function describeTeamReviewRole({ checkoutPath, cachedClone, linkedCheckout, sandbox = core.DEFAULT_SANDBOX }: {
-  checkoutPath: string; cachedClone: string; linkedCheckout: string | null; sandbox?: TeamReviewSandboxSettings;
-}): Promise<DescribeGuardrailsRole> {
-  const unreadablePaths = await linkedCheckoutUnreadablePaths(linkedCheckout);
-  return (facts) => teamReviewRole(facts, { checkoutPath, cachedClone, unreadablePaths, sandbox });
-}
-
-async function linkedCheckoutUnreadablePaths(linkedCheckout: string | null): Promise<string[]> {
-  if (linkedCheckout === null) return [];
-  const entryNames = await fs.readdir(linkedCheckout);
-  return entryNames.filter((entryName) => LINKED_CHECKOUT_UNREADABLE_ENTRY.test(entryName)).map((entryName) => path.join(linkedCheckout, entryName));
-}
-
-function teamReviewClaudeArgs(reviewer: ReviewerChoice, sandbox: TeamReviewSandboxSettings, readable: { checkoutPath: string; linkedCheckout: string | null }, gitEnvPrefixes: readonly string[]): string[] {
+function teamReviewClaudeArgs(reviewer: ReviewerChoice, loadMcpServers: boolean, readable: { checkoutPath: string; linkedCheckout: string | null }, gitEnvPrefixes: readonly string[]): string[] {
   return [
-    '-p', '--allowedTools', ...readOnlyGitAllowRules(readable.checkoutPath, gitEnvPrefixes), ...teamReviewReadAllowRules(readable), ...(sandbox.loadMcpServers ? [] : ['--strict-mcp-config']),
+    '-p', '--allowedTools', ...readOnlyGitAllowRules(readable.checkoutPath, gitEnvPrefixes), ...teamReviewReadAllowRules(readable), ...(loadMcpServers ? [] : ['--strict-mcp-config']),
     '--disallowedTools', ...TEAM_REVIEW_SESSION_DENY_RULES, ...core.reviewerAgentArgs(reviewer),
   ];
 }
@@ -631,8 +554,8 @@ function createTeamReviewDispatcher({
   }
 
   function spawnWithTimeout(
-    { candidate, detail, tier, reasons, reportProgress, resume, priorReview, signal: cancelSignal, timeoutMs, workDir, checkoutPath, cachedClone, linkedCheckout, reportPath, postingPath, commentable, gitEnvPrefixes, onPending, onSessionId }: SpawnReviewArgs & {
-      timeoutMs: number; workDir: string; checkoutPath: string; cachedClone: string; linkedCheckout: string | null; reportPath: string; postingPath: string; commentable: CommentableLines | null; gitEnvPrefixes: readonly string[];
+    { candidate, detail, tier, reasons, reportProgress, resume, priorReview, signal: cancelSignal, timeoutMs, workDir, checkoutPath, linkedCheckout, reportPath, postingPath, commentable, gitEnvPrefixes, onPending, onSessionId }: SpawnReviewArgs & {
+      timeoutMs: number; workDir: string; checkoutPath: string; linkedCheckout: string | null; reportPath: string; postingPath: string; commentable: CommentableLines | null; gitEnvPrefixes: readonly string[];
       onPending: (pending: Promise<unknown>) => void;
       onSessionId: (id: string) => void;
     },
@@ -655,9 +578,8 @@ function createTeamReviewDispatcher({
         cwd: workDir,
         spawnEnv: hooksPathPinnedSpawnEnv(workDir),
         agent: core.REVIEW_AGENT_ADAPTER_ID,
-        extraClaudeArgs: [...teamReviewClaudeArgs(reviewer, setup.sandbox, { checkoutPath, linkedCheckout }, gitEnvPrefixes), ...promptLaunch.args],
+        extraClaudeArgs: [...teamReviewClaudeArgs(reviewer, setup.loadMcpServers, { checkoutPath, linkedCheckout }, gitEnvPrefixes), ...promptLaunch.args],
         settingsPermissions: teamReviewAcceptEditsPermissions(),
-        guardrailsRole: await describeTeamReviewRole({ checkoutPath, cachedClone, linkedCheckout, sandbox: setup.sandbox }),
         signal: AbortSignal.any([signal, shutdownSignal, cancelSignal].filter((candidate): candidate is AbortSignal => candidate instanceof AbortSignal)),
         onSessionId,
         resumeSessionId,
@@ -722,7 +644,7 @@ function createTeamReviewDispatcher({
             reportProgress({ kind: 'phase', phase: 'reviewing', tier, reasons, timeoutSeconds: timeoutBudgetMs / 1000 });
             resources.awakeStopwatch = startAwakeStopwatch({ now });
             return spawnWithTimeout({
-              ...args, timeoutMs: timeoutBudgetMs, workDir: args.resume.workDir, checkoutPath: args.resume.worktreePath, cachedClone: projectPath, linkedCheckout: await resumedLinkedCheckout(candidate.repo, args.resume.worktreePath),
+              ...args, timeoutMs: timeoutBudgetMs, workDir: args.resume.workDir, checkoutPath: args.resume.worktreePath, linkedCheckout: await resumedLinkedCheckout(candidate.repo, args.resume.worktreePath),
               reportPath: path.join(args.resume.workDir, core.REVIEW_REPORT_FILENAME),
               postingPath: path.join(args.resume.workDir, core.REVIEW_POSTING_FILENAME),
               commentable: diff === null ? null : core.commentableLines(diff),
@@ -785,7 +707,7 @@ function createTeamReviewDispatcher({
       reportProgress({ kind: 'phase', phase: 'reviewing', tier, reasons, timeoutSeconds });
       resources.awakeStopwatch = startAwakeStopwatch({ now });
       return await spawnWithTimeout({
-        ...args, resume: undefined, timeoutMs: timeoutBudgetMs, workDir, checkoutPath: worktreePath, cachedClone: staged.projectPath, linkedCheckout, reportPath, postingPath, commentable: diff === null ? null : core.commentableLines(diff),
+        ...args, resume: undefined, timeoutMs: timeoutBudgetMs, workDir, checkoutPath: worktreePath, linkedCheckout, reportPath, postingPath, commentable: diff === null ? null : core.commentableLines(diff),
         gitEnvPrefixes: newWork ? [core.remergeGitEnvPrefix(newWork)] : [],
         onPending: (pending) => { pendingSession = pending; },
         onSessionId: (id) => { sessionId = id; },
@@ -834,9 +756,7 @@ function createTeamReviewSpawn({
   laneName = core.TEAM_REVIEW_LANE_ID,
   hookToolConfig = null,
   resolveHookTools = resolveSharedHookTools,
-  prepareGuardrails = prepareGuardrailsLaunch,
   prepareMcp = prepareLaneMcp,
-  platform = process.platform,
 }: {
   reviewSessions: Map<string, unknown>;
   closeSessionDataClients: (id: string) => void;
@@ -849,12 +769,9 @@ function createTeamReviewSpawn({
   laneName?: string;
   hookToolConfig?: HookToolConfig | null;
   resolveHookTools?: typeof resolveSharedHookTools;
-  prepareGuardrails?: typeof prepareGuardrailsLaunch;
   prepareMcp?: typeof prepareLaneMcp;
-  platform?: NodeJS.Platform;
 }): TeamReviewSpawn {
-  return async function spawnTeamReviewSession({ id, name, cwd, spawnEnv, extraClaudeArgs, settingsPermissions, settingsGuardrails, guardrailsRole, signal, onToolStep, onSessionId, resumeSessionId, initialPrompt, agent, extraUserHooks, prependPathDirs }) {
-    if (guardrailsRole !== undefined && platform === SANDBOX_RUNTIME_UNSUPPORTED_PLATFORM) throw new Error(`${laneName} lane needs the sandbox runtime, which does not run on ${platform}`);
+  return async function spawnTeamReviewSession({ id, name, cwd, spawnEnv, extraClaudeArgs, settingsPermissions, signal, onToolStep, onSessionId, resumeSessionId, initialPrompt, agent, extraUserHooks, prependPathDirs }) {
     const skipPermissions = settingsPermissions.defaultMode === 'bypassPermissions';
     const sharedHookTools = hookRouter ? resolveRequiredSaneYoloHookTools(hookToolConfig?.saneYoloUnreadablePaths ?? [], { resolve: resolveHookTools }) : [];
     if (sharedHookTools === null) throw new Error(`${laneName} lane cannot start: Sane YOLO is unavailable`);
@@ -877,11 +794,6 @@ function createTeamReviewSpawn({
       requiresHooks: true,
       observeToolCalls: onToolStep !== undefined,
       settingsPermissions: laneMcp ? withAllowRules(settingsPermissions, laneMcp.posture.allowRules) : settingsPermissions,
-      settingsGuardrails: settingsGuardrails ?? null,
-      prepareGuardrails: guardrailsRole === undefined ? null : (facts) => prepareGuardrails({
-        role: withLaneMcp(guardrailsRole({ ...facts, readablePaths: [...facts.readablePaths, ...(laneMcp?.readablePaths ?? [])] }), laneMcp?.posture),
-        launchId: facts.launchId,
-      }),
       replayBufferKB,
       hookRouter,
       getHookPort,
@@ -1155,7 +1067,6 @@ function createTeamReviewWiring({
   }),
   createPoller = createTeamReviewPoller,
   reapProcesses = reapTeamReviewProcesses,
-  guardrailsRefusal = allowGuardedSpawn,
   clock,
   requestPrRefresh,
   telemetry = null,
@@ -1199,7 +1110,6 @@ function createTeamReviewWiring({
         github, store,
         spawnReview: trackReview,
         judgeThread: createThreadJudge(createLaneSpawn({ laneName: 'team-review', getSaneYoloUnreadablePaths: () => config.saneYoloUnreadablePaths ?? [], sessions: reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane, replayBufferKB: config.replayBufferKB, allowTools: THREAD_JUDGE_TOOLS }), () => core.readTeamReviewSettings(config).reviewer, shutdownController.signal),
-        guardrailsRefusal,
         beforeStart: (keepPaths) => sweepLeftoverCheckouts({ worktreeRoot, workRoot, keepPaths, repoCache, gitWorkspace, reapProcesses, log }),
         discardResumable: async (record) => {
           if (!isOwnedResumable(record, { workRoot, worktreeRoot })) return;
@@ -1340,6 +1250,6 @@ function createTeamReviewWiring({
   };
 }
 
-export { TEAM_REVIEW_SESSION_DENY_RULES, createTeamReviewDispatcher, describeTeamReviewSandbox, createTeamReviewSpawn, createTeamReviewStateIo, createTeamReviewWiring, makeTeamReviewWorkDir, emptyGhConfigDir, hooksPathPinnedSpawnEnv, sweepLeftoverCheckouts, teamReviewAcceptEditsPermissions, teamReviewRole };
+export { TEAM_REVIEW_SESSION_DENY_RULES, createTeamReviewDispatcher, createTeamReviewSpawn, createTeamReviewStateIo, createTeamReviewWiring, makeTeamReviewWorkDir, emptyGhConfigDir, hooksPathPinnedSpawnEnv, sweepLeftoverCheckouts, teamReviewAcceptEditsPermissions };
 export { readTeamReviewSettings } from './core/team-review-core.ts';
 export type { PrSessionCheckout, TeamReviewDispatchOptions, TeamReviewGitWorkspace, TeamReviewRepoCache, TeamReviewSpawn };

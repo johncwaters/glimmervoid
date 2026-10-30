@@ -31,16 +31,6 @@ function missingBinariesPhrase(report: GuardrailsDependencyReport): string {
   return `${namesList(report.missingBinaries)} ${report.missingBinaries.length === 1 ? 'is' : 'are'} not on PATH`;
 }
 
-function guardrailsSpawnRefusal(report: GuardrailsDependencyReport): string | null {
-  if (report.missingBinaries.length === 0) return null;
-  return `not started: the guardrails need ${namesList(report.requiredBinaries)}, and ${missingBinariesPhrase(report)}. ${report.installHint}`;
-}
-
-function guardrailsBootWarning(report: GuardrailsDependencyReport): string | null {
-  if (report.missingBinaries.length === 0) return null;
-  return `[guardrails] ${missingBinariesPhrase(report)}, so ${GUARDED_WORK} will refuse to start. ${report.installHint}`;
-}
-
 function guardrailsDoctorRows(report: GuardrailsDependencyReport): [string, string][] {
   if (report.requiredBinaries.length === 0) return [['guardrails', `nothing to check on ${report.platform}`]];
   const binaryRows: [string, string][] = report.requiredBinaries.map((binary) => [binary, report.missingBinaries.includes(binary) ? 'MISSING' : 'found']);
@@ -53,5 +43,5 @@ function guardrailsInstallNotice(report: GuardrailsDependencyReport): string | n
   return `glimmervoid: ${missingBinariesPhrase(report)}; ${GUARDED_WORK} need ${namesList(report.requiredBinaries)}. ${report.installHint}`;
 }
 
-export { requiredGuardrailsBinaries, guardrailsBootWarning, guardrailsDependencyReport, guardrailsDoctorRows, guardrailsInstallNotice, guardrailsSpawnRefusal };
+export { requiredGuardrailsBinaries, guardrailsDependencyReport, guardrailsDoctorRows, guardrailsInstallNotice };
 export type { GuardrailsDependencyReport };

@@ -1,5 +1,5 @@
 import { TeamReviewEnvironment } from '#shared/contracts/team-review-environment.ts';
-import type { ReviewAgentOffer, TeamReviewSandboxFacts } from '#shared/contracts/team-review-environment.ts';
+import type { ReviewAgentOffer } from '#shared/contracts/team-review-environment.ts';
 
 interface SettingsSuggestion { value: string; label: string }
 type StoredValues = Readonly<Record<string, unknown>>;
@@ -55,23 +55,4 @@ function isSkillChoicePending(teamReviewBlock: unknown): boolean {
   return typeof (teamReviewBlock as Record<string, unknown>).skill !== 'string';
 }
 
-function listOrNone(entries: readonly string[]): string {
-  return entries.length > 0 ? entries.join(', ') : 'none';
-}
-
-function teamReviewSandboxLines(sandbox: TeamReviewSandboxFacts): string[] {
-  const network = sandbox.networkOpen
-    ? 'Network: open, any address including this machine'
-    : `Network: allowlist, the agent API (${listOrNone(sandbox.agentApiDomains)}) plus ${listOrNone(sandbox.networkDomains)}`;
-  return [
-    network,
-    `MCP servers: ${sandbox.mcpLoaded ? 'your own servers load' : 'none load'}`,
-    `Unreadable in your home folder: ${listOrNone(sandbox.unreadableHomeEntries.map((entry) => `~/${entry}`))}`,
-    `Unreadable in a linked checkout: ${listOrNone(sandbox.unreadableCheckoutEntries)}`,
-    `GitHub token: ${sandbox.githubTokenStripped ? 'removed from the environment' : 'passed through'}`,
-    `Claude Code tools allowed: ${listOrNone(sandbox.allowedTools)}; denied: ${listOrNone(sandbox.deniedTools)}`,
-    `Thread replies: judged by Claude Code, with ${listOrNone(sandbox.threadJudgeTools)} only`,
-  ];
-}
-
-export { isSkillChoicePending, readTeamReviewEnvironment, teamReviewSandboxLines, teamReviewSuggestions };
+export { isSkillChoicePending, readTeamReviewEnvironment, teamReviewSuggestions };

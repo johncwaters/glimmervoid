@@ -163,7 +163,7 @@ test('keep mergeable pushes the commit on the keep-mergeable branch even when th
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-detached-'));
   const spawnSession = createTeamReviewSpawn({
     reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
-    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', platform: 'linux', recordLane: () => {},
+    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', recordLane: () => {},
     makeSession: (options) => {
       const session = new Session(options);
       session.start = async () => {
@@ -192,7 +192,7 @@ test('keep mergeable hands off a repair over pull request history whose file con
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-partial-'));
   const spawnSession = createTeamReviewSpawn({
     reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
-    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', platform: 'linux', recordLane: () => {},
+    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', recordLane: () => {},
     makeSession: (options) => {
       const session = new Session(options);
       session.start = async () => {
@@ -219,7 +219,7 @@ test('keep mergeable re-signs the session commits in the trusted handoff when th
   const sessionShas: string[] = [];
   const spawnSession = createTeamReviewSpawn({
     reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
-    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', platform: 'linux', recordLane: () => {},
+    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', recordLane: () => {},
     makeSession: (options) => {
       const session = new Session(options);
       session.start = async () => {
@@ -257,7 +257,7 @@ test('keep mergeable refuses to re-sign and push a session commit whose message 
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-sign-latin1-'));
   const spawnSession = createTeamReviewSpawn({
     reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
-    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', platform: 'linux', recordLane: () => {},
+    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', recordLane: () => {},
     makeSession: (options) => {
       const session = new Session(options);
       session.start = async () => {
@@ -288,7 +288,7 @@ test('keep mergeable refuses to re-sign and push a session commit whose author n
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-sign-latin1-author-'));
   const spawnSession = createTeamReviewSpawn({
     reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
-    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', platform: 'linux', recordLane: () => {},
+    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', recordLane: () => {},
     makeSession: (options) => {
       const session = new Session(options);
       session.start = async () => {
@@ -322,7 +322,7 @@ test('keep mergeable excludes guardrails stub files from the checkout so a git a
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-stubs-'));
   const spawnSession = createTeamReviewSpawn({
     reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
-    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', platform: 'linux', recordLane: () => {},
+    spawnGate: { run: async (task) => task() }, laneName: 'my-prs', recordLane: () => {},
     makeSession: (options) => {
       const session = new Session(options);
       session.start = async () => {

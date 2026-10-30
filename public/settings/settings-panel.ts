@@ -14,7 +14,7 @@ import { createNotificationPermissionControl, ensureNotificationPermission, noti
 import { formatAgo } from '../poll-ago.ts';
 import { UPDATES_SECTION_ID } from '../radar/radar-core.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
-import { isSkillChoicePending, readTeamReviewEnvironment, teamReviewSandboxLines, teamReviewSuggestions } from './team-review-settings-core.ts';
+import { isSkillChoicePending, readTeamReviewEnvironment, teamReviewSuggestions } from './team-review-settings-core.ts';
 import type { SettingsSection, SettingsSetting } from '#shared/settings/registry.ts';
 import { SETTINGS_MOVED_SETTINGS, SETTINGS_REGISTRY, SETTINGS_SECTION_ALIASES, settingsSectionsAvailableOn } from '#shared/settings/registry.ts';
 import type { SettingsSearchMatch, SettingsSearchResult } from '#shared/settings/registry-core.ts';
@@ -551,7 +551,9 @@ async function saveTeamReviewEnabledWithoutSkill(enabledSetting: SettingsSetting
 
 function attachSuggestions(setting: SettingsSetting, input: HTMLInputElement) {
   if (!setting.suggestionsFrom) return;
-  const suggestions = teamReviewSuggestions(setting.suggestionsFrom, readTeamReviewEnvironment(settingsPayload.teamReviewEnvironment), storedValues);
+  const environment = readTeamReviewEnvironment(settingsPayload.teamReviewEnvironment);
+  if (environment?.agents.length === 0) requestTeamReviewEnvironmentOnce();
+  const suggestions = teamReviewSuggestions(setting.suggestionsFrom, environment, storedValues);
   const listId = `${setting.id}-suggestions`;
   document.getElementById(listId)?.remove();
   const datalist = el('datalist');
@@ -1122,25 +1124,12 @@ function requestTeamReviewEnvironmentOnce() {
   }, TEAM_REVIEW_ENVIRONMENT_RETRY_MS);
 }
 
-function buildTeamReviewSandboxStatus() {
-  const block = el('div', 'settings-view-status-block');
-  const environment = readTeamReviewEnvironment(settingsPayload.teamReviewEnvironment);
-  if (!environment) {
-    block.appendChild(el('div', 'settings-readonly', 'Not available'));
-    return block;
-  }
-  if (environment.agents.length === 0) requestTeamReviewEnvironmentOnce();
-  for (const line of teamReviewSandboxLines(environment.sandbox)) block.appendChild(el('div', 'settings-readonly', line));
-  return block;
-}
-
 function renderReadout(setting: SettingsSetting) {
   if (setting.status === 'agent-logins') return buildAgentLoginsStatus();
   if (setting.status === 'remote-setup') return buildRemoteSetupStatus();
   if (setting.status === 'update-actions') return buildUpdateStatusBlock();
   if (setting.status === 'custom-agents') return buildCustomAgentsStatus();
   if (setting.status === 'workflows') return buildWorkflowsStatus();
-  if (setting.status === 'team-review-sandbox') return buildTeamReviewSandboxStatus();
   return el('div', 'settings-readonly', 'Not available');
 }
 

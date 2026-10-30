@@ -15,8 +15,6 @@ import { createTickLoop } from '../lanes/lane-runner.ts';
 import type { SharedClock, TickOutcome } from '../lanes/lane-runner.ts';
 import type { PrGh } from './pr-gh.ts';
 import type { Telemetry } from '../telemetry.ts';
-import { allowGuardedSpawn } from '../guardrails/guardrails-deps.ts';
-import type { GuardrailsSpawnRefusal } from '../guardrails/guardrails-deps.ts';
 import { hasStandingViewerApproval, ReviewDraft } from '../../shared/contracts/team-review.ts';
 import type {
   InFlightReview, PrDetail, PriorReview, ResumableReview, ReviewDraft as ReviewDraftType, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
@@ -67,7 +65,6 @@ interface TeamReviewPollerDependencies {
   readState?: () => Promise<TeamReviewState>;
   writeState?: (state: TeamReviewState) => Promise<void>;
   beforeStart?: (keepPaths: ReadonlySet<string>) => Promise<void>;
-  guardrailsRefusal?: GuardrailsSpawnRefusal;
   setIntervalFn?: SetIntervalFn;
   clearIntervalFn?: ClearIntervalFn;
   clock?: SharedClock;
@@ -89,7 +86,7 @@ const REQUEUEABLE_STATUSES: ReadonlySet<ReviewDraftType['status']> = new Set(['e
 function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   const {
     org, teams, github, store, spawnReview, discardResumable = async () => {},
-    readState = async () => ({}), writeState = async () => {}, beforeStart = async () => {}, guardrailsRefusal = allowGuardedSpawn,
+    readState = async () => ({}), writeState = async () => {}, beforeStart = async () => {},
     setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn, clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn,
     setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn, clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
     log = console, telemetry = null, onTickComplete = () => {}, now = () => Date.now(),
@@ -152,7 +149,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     cancelPendingProgressEmit();
     lastEmitAt = now();
     onTickComplete({ ...core.teamReviewStatus({
-      ts: now(), configured: true, reason: guardrailsRefusal(), team: teamProfile, drafts: core.draftsNewestFirst(state), inFlight: inFlightReviews(),
+      ts: now(), configured: true, team: teamProfile, drafts: core.draftsNewestFirst(state), inFlight: inFlightReviews(),
       queued: waitingForSlot.filter((candidate) => !state[candidate.key]?.inFlight),
     }), error: pollingError, ...loop.scheduleStatus() });
   }
@@ -351,7 +348,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
         if (!resolution.ok) thread.resolveError = resolution.err || 'GitHub refused to resolve the thread';
       }
       if (reconcileThreadPlaceholder(entry, candidate, head)) isDirty = true;
-      if (!deps.judgeThread || guardrailsRefusal() !== null) continue;
+      if (!deps.judgeThread) continue;
       const pending = threads.filter((thread) => shouldJudgeThread(thread, head, now()))
         .sort((left, right) => (left.judgeAttempt?.retryAt ?? 0) - (right.judgeAttempt?.retryAt ?? 0));
       if (pending.length === 0) continue;
@@ -505,12 +502,6 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     return isDirty;
   }
 
-  async function startReviewsUnlessGuardrailsRefused(queue: TeamReviewCandidate[]): Promise<boolean> {
-    if (guardrailsRefusal() === null) return startReviews(queue);
-    waitingForSlot = [];
-    return false;
-  }
-
   async function collectCandidates(): Promise<{ candidates: TeamReviewCandidate[]; isComplete: boolean } | null> {
     const firstTeam = teams[0];
     if (!firstTeam) {
@@ -635,7 +626,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   }
 
   function canStartReview(): boolean {
-    return guardrailsRefusal() === null && inFlightKeys().length < maxConcurrentReviews;
+    return inFlightKeys().length < maxConcurrentReviews;
   }
 
   function queuedHeadsSignature(queue: readonly TeamReviewCandidate[]): string {
@@ -678,7 +669,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     const isPruned = await pruneDeparted(new Set(candidates.map((candidate) => candidate.key)), isComplete);
     if (isPruned) watchAskedFor();
     const planned = headsToReview(candidates);
-    const isStarted = await startReviewsUnlessGuardrailsRefused(planned.queue);
+    const isStarted = await startReviews(planned.queue);
     const areThreadsChanged = tickRateLimitWaitMs === null ? await handleAnsweredThreads(candidates) : false;
     if (isPruned || planned.isDirty || areThreadsChanged || isStarted) await persist();
     if (tickRateLimitWaitMs !== null) {

@@ -71,7 +71,6 @@ export const GithubSettings = z.object({
   ).optional(),
 }, { error: 'github must be an object' }).nullable().optional();
 
-const SANDBOX_DOMAIN_PATTERN = /^(?:\*\.(?=[^.]+\.[^.]+))?(?:[a-z0-9-]+\.)+[a-z0-9-]+(?::\d{1,5})?$/i;
 const reviewerChoiceSettings = (field: string) => optionalObject(field, {
   model: optionalString(`${field}.model`, true),
   effort: optionalString(`${field}.effort`, true),
@@ -89,8 +88,6 @@ const TeamReviewSettings = optionalObject('teamReview', {
   reviewer: reviewerChoiceSettings('teamReview.reviewer'),
   stampReviewer: reviewerChoiceSettings('teamReview.stampReviewer'),
   sandbox: optionalObject('teamReview.sandbox', {
-    extraDomains: z.array(z.string({ error: 'teamReview.sandbox.extraDomains must be an array of domain strings' }).trim().regex(SANDBOX_DOMAIN_PATTERN, { error: 'teamReview.sandbox.extraDomains entries must be bare domains like registry.npmjs.org or *.example.com, with no scheme or path' }), { error: 'teamReview.sandbox.extraDomains must be an array of domain strings' }).optional(),
-    openNetwork: optionalBoolean('teamReview.sandbox.openNetwork'),
     loadMcpServers: optionalBoolean('teamReview.sandbox.loadMcpServers'),
   }),
   reReviewAfterHours: optionalNumber('teamReview.reReviewAfterHours'),
