@@ -3707,8 +3707,8 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 .session-row:has(> .session-row-main > .session-row-links[data-expanded]:not([hidden])) { align-items: flex-start; }
 .session-row-links[data-expanded] { flex-direction: column; align-items: stretch; gap: 3px; margin-top: 2px; padding-left: 8px; border-left: 1px solid var(--border); }
 .session-row-links[data-expanded] > .signal { width: 100%; }
-.session-row-links[data-expanded] .signal-text { flex: 1 1 auto; }
-.session-row-link-state { flex: none; margin-left: 6px; color: var(--text-muted); }
+.session-row-links[data-expanded] .signal-text { flex: 1 1 auto; min-width: 8ch; }
+.session-row-link-state { flex: 0 1 auto; min-width: 0; margin-left: 6px; overflow: hidden; text-overflow: ellipsis; color: var(--text-muted); }
 .session-row-links[data-expanded] > .signal-overflow::after { content: ' more'; }
 .session-row .signal { display: inline-flex; align-items: center; gap: 3px; padding: 0; border: none; font-family: var(--font-mono); font-size: var(--type-meta); font-weight: 700; line-height: 14px; white-space: nowrap; cursor: pointer; }
 .session-row .signal .pr-status-icon { width: 11px; height: 11px; }

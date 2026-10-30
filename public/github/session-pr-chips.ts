@@ -7,7 +7,7 @@ import { openConfirmDialog } from '../session-card/modal.ts';
 import { sendForSession } from '../session-actions.ts';
 import { setMyPrsSessionLinks } from './my-prs-store.ts';
 import { showPrInReviewQueue } from './review-queue-store.ts';
-import { repaintSessionRowSignals } from '../session-row.ts';
+import { repaintSessionRowSignals, repaintSessionRowSignalsFor } from '../session-row.ts';
 import { createSignal, paintSignalLine } from '../signal.ts';
 import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import type { ActivatableSignal } from '../signal.ts';
@@ -69,13 +69,13 @@ function repaintSlots(slots: Iterable<HTMLElement>): void {
     const sessionId = slot.dataset.prChipsFor;
     if (sessionId) paintSessionPrChips(slot, sessionId);
   }
-  repaintSessionRowSignals();
 }
 
 export function setSessionLinkedPrs(sessionId: string, linkedPrs: unknown): void {
   const parsedLinks = SessionPrLinks.shape.links.safeParse(linkedPrs ?? []);
   linksBySessionId.set(sessionId, parsedLinks.success ? parsedLinks.data : []);
   repaintSlots(slotsFor(sessionId));
+  repaintSessionRowSignalsFor(sessionId);
   setMyPrsSessionLinks(linksBySessionId);
 }
 
@@ -84,4 +84,7 @@ export function forgetSessionLinkedPrs(sessionId: string): void {
   setMyPrsSessionLinks(linksBySessionId);
 }
 
-subscribeGithubPrs(() => repaintSlots(document.querySelectorAll<HTMLElement>('[data-pr-chips-for]')));
+subscribeGithubPrs(() => {
+  repaintSlots(document.querySelectorAll<HTMLElement>('[data-pr-chips-for]'));
+  repaintSessionRowSignals();
+});

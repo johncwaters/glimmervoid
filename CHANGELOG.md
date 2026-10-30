@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Focus rail rows name their linked boards.** A session's connected boards now show by title on their own line under the task, instead of a row of identical "Board" chips, and status like PARKED keeps its own line. The session you have focused lists its links one per line with any queued edits, up to five, with the rest on hover.
+- **Focus rail rows name their linked boards and pull requests.** A session's connected boards show by title and its pull requests by number on their own line under the task, instead of a row of identical "Board" chips mixed in with status, and status like PARKED keeps its own line. The session you have focused lists its links one per line, with each pull request's title and stage and each board's queued edits, up to five, with the rest on hover.
 - **The Boards view header is one row.** Board tabs, the board's version, connected sessions and the toolbar now share a single line above the canvas instead of three, so the board gets more room. The open board's name shows on its selected tab rather than as a separate heading.
 
 ## [0.48.3] - 2026-10-30

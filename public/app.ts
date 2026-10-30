@@ -438,7 +438,7 @@ setIssuesRequestSender(sendControlMsg);
 setBenchmarkRequestSender(sendControlMsg);
 setLinkedPrsPainter(paintSessionPrChips);
 addSessionRowSignalSource(sessionRowCoherenceSignals);
-addSessionRowSignalSource(sessionRowPrSignals);
+addSessionRowSignalSource(sessionRowPrSignals, 'links');
 addSessionRowSignalSource(sessionRowBoardSignals, 'links');
 setCardConnectBoard(openConnectBoardDialog);
 setBoardsViewOpener(() => openView('boards'));

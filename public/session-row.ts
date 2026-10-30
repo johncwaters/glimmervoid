@@ -69,6 +69,10 @@ export function repaintSessionRowSignals() {
   for (const row of document.querySelectorAll<HTMLElement>('.session-row')) paintSessionRowSignals(row);
 }
 
+export function repaintSessionRowSignalsFor(sessionId: string) {
+  for (const row of document.querySelectorAll<HTMLElement>(`.session-row[data-id="${CSS.escape(sessionId)}"]`)) paintSessionRowSignals(row);
+}
+
 export function buildSessionRow<Tag extends 'button' | 'div'>(tagName: Tag, extraClassName = '') {
   const row = el(tagName, `session-row ${extraClassName}`.trim());
   row.innerHTML = '<span class="session-row-glyph" aria-hidden="true"></span>'
