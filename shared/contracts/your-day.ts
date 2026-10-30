@@ -2,8 +2,7 @@ import { z } from 'zod';
 
 const nonNegativeInt = z.number().int().nonnegative();
 
-export const YourDayInsightKind = z.enum(['waitingThreshold', 'sharpestHours', 'longestStretch', 'afterHours', 'juggling']);
-export type YourDayInsightKind = z.infer<typeof YourDayInsightKind>;
+const YourDayInsightKind = z.enum(['waitingThreshold', 'sharpestHours', 'longestStretch', 'afterHours', 'juggling']);
 
 export const YourDayInsight = z.object({
   kind: YourDayInsightKind,

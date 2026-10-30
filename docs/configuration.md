@@ -67,6 +67,7 @@ Local transcript accounting and estimated-cost budgets.
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
 | `usage.enabled` | Track token usage | `true` | Read local CLI transcripts and roll them into the Usage view and session chips. |
+| `usage.yourDay` | Your day | `true` | Recap yesterday and suggest a pace for today from when you prompted sessions. Needs token usage tracking. |
 | `usage.retainDays` | Retain transcript detail | `90` | How long live transcript detail stays available. A monthly budget keeps detail from the start of the current month when that is longer. |
 | `usage.budget.dailyUsd` | Daily budget | `null` | Estimated daily spend alert threshold. Alerts at 50%, 75% and 100% do not stop spending. Zero or below disables the threshold. |
 | `usage.budget.monthlyUsd` | Monthly budget | `null` | Estimated monthly spend alert threshold. Alerts at 50%, 75% and 100% do not stop spending. Zero or below disables the threshold. |
