@@ -60,6 +60,7 @@ import { createCoherenceSessionFeed } from '../coherence/coherence-session-feed.
 import { buildSettingsPayload } from '../settings-payload.ts';
 import { glimmervoidHomeDir as resolveGlimmervoidHomeDir, isOperatorHomeUnderTest } from '../core/config-path-core.ts';
 import { decideIsDevInstall, parsePosthogReleaseId } from '../core/telemetry-core.ts';
+import { promptContextReplyOf } from '../../session/core/refocus-core.ts';
 
 interface CreateBackendOptions extends BackendLaneOptions {
   staticDir?: string | null;
@@ -168,7 +169,14 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       taskTitle: getSessionAny(glimmervoidId)?.refocusTaskTitle ?? null,
       latestPlanTitle: laneAssembly.planReview?.latestPlanTitle(glimmervoidId) ?? null,
     }),
-    takePromptSupervision: (glimmervoidId) => getSessionAny(glimmervoidId)?.takePromptSupervisionLine() ?? null,
+    takePromptSupervision: (glimmervoidId) => {
+      const session = getSessionAny(glimmervoidId);
+      const replyShape = session?.promptContextReply() ?? null;
+      if (!session || !replyShape) return null;
+      const promptMessages = [session.takePromptSupervisionLine(), whiteboards.takePromptContext(glimmervoidId)];
+      const deliverable = promptMessages.filter((promptMessage) => promptMessage !== null);
+      return deliverable.length === 0 ? null : promptContextReplyOf(replyShape, deliverable.join('\n\n'));
+    },
     getAgentApi: () => agentApi,
     getShownFiles: () => shownFiles,
     sshSigner,

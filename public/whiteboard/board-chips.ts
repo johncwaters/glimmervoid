@@ -22,10 +22,16 @@ function openBoardForSession(boardId: string, sessionId: string | null): void {
   openBoardsView();
 }
 
+function boardChipText(summary: BoardSummary, sessionId: string): string {
+  const queuedCount = summary.queuedBySessionId[sessionId] ?? 0;
+  if (queuedCount === 0) return `board: ${summary.title}`;
+  return `board: ${summary.title}, ${queuedCount} queued`;
+}
+
 function boardSignal(summary: BoardSummary, sessionId: string): ActivatableSignal {
   return {
     key: `board:${summary.id}`,
-    text: `board: ${summary.title}`,
+    text: boardChipText(summary, sessionId),
     hoverText: `Open ${summary.title} with this session docked beneath it`,
     look: null,
     tier: SIGNAL_TIER.settled,

@@ -489,6 +489,7 @@ const codex = {
     skipPermissionsFlag: true,
     headless: true,
   },
+  promptContextReply: "additional-context",
 } satisfies AgentAdapterShape;
 
 export { readHostCodexVersion };

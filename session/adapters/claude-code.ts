@@ -215,6 +215,7 @@ const claudeCode = {
     skipPermissionsFlag: true,
     headless: true,
   },
+  promptContextReply: "additional-context",
   isBrailleChar,
   isSpinnerChar,
   isKnownIdleChar,

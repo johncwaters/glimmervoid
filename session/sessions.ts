@@ -11,6 +11,7 @@ import { buildPersistedTaskTitle, cleanTaskPrompt, extractHookTaskTitle, extract
 import type { PersistedTaskTitle } from "../shared/contracts/config.ts";
 import type { SessionEndCause } from "../shared/contracts/telemetry.ts";
 import type { LinkedPr, SessionPrLinks } from "../shared/contracts/my-prs.ts";
+import type { PromptContextReply } from "../shared/contracts/refocus.ts";
 import { mergeSessionPrLink, seedSessionPrLinks, withManualPrLink, withoutPrLink } from "./core/session-pr-links-core.ts";
 import type { TaskTitleRefinementResult, TaskTitleSources } from "./core/task-title-core.ts";
 import { readTranscriptTaskTitle } from "./session-task-title.ts";
@@ -1277,9 +1278,12 @@ class Session extends EventEmitter {
 
   pasteText(text: string) { return this._output.pasteText(text); }
 
-  pasteTextWhenReady(text: string, { timeoutMs = 120000 }: { timeoutMs?: number } = {}) {
-    return this._output.pasteTextWhenReady(text, { timeoutMs });
+  pasteTextWhenReady(text: string, { timeoutMs = 120000, submit = false }: { timeoutMs?: number; submit?: boolean } = {}) {
+    const pastableText = text.replaceAll(PASTE_BREAKING_CONTROL_BYTES, "");
+    return this._output.pasteTextWhenReady(pastableText, { timeoutMs, submitDelayMs: submit ? PTY_PROMPT_SUBMIT_DELAY_MS : null });
   }
+
+  hasPendingPaste(): boolean { return this._output.hasPendingPaste(); }
 
   _clearPendingPaste(): void { this._output.clearPendingPaste(); }
 
@@ -1672,6 +1676,10 @@ class Session extends EventEmitter {
     this._pendingPromptSupervisionLine = this._can("promptContextSupervision") && this._canRunHelpCommand
       ? supervisionLine({ canSpawn: !this.ephemeral })
       : null;
+  }
+
+  promptContextReply(): PromptContextReply | null {
+    return this._adapter.promptContextReply ?? null;
   }
 
   takePromptSupervisionLine(): string | null {

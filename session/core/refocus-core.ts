@@ -1,4 +1,5 @@
 import { SessionStartHookResponse, UserPromptSubmitHookResponse } from '../../shared/contracts/refocus.ts';
+import type { PromptContextReply } from '../../shared/contracts/refocus.ts';
 
 interface RefocusContext {
   taskTitle: string | null;
@@ -10,7 +11,7 @@ interface RefocusReplyInput {
   event: string;
   payload: Record<string, unknown>;
   readContext: () => RefocusContext;
-  takePromptSupervision?: () => string | null;
+  takePromptSupervision?: () => UserPromptSubmitHookResponse | null;
 }
 
 function buildRefocusReminder({ taskTitle, latestPlanTitle }: RefocusContext): string | null {
@@ -21,9 +22,13 @@ function buildRefocusReminder({ taskTitle, latestPlanTitle }: RefocusContext): s
   return `Context was just compacted. ${intentParts.join(' ')} Before your next step, check it still serves this intent and drop work that does not.`;
 }
 
-function promptSupervisionReply(takePromptSupervision: (() => string | null) | undefined): UserPromptSubmitHookResponse | null {
-  const message = takePromptSupervision?.() ?? null;
-  return message === null ? null : { message };
+function promptContextReplyOf(shape: PromptContextReply, text: string): UserPromptSubmitHookResponse {
+  if (shape === 'message') return { message: text };
+  return { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: text } };
+}
+
+function promptSupervisionReply(takePromptSupervision: (() => UserPromptSubmitHookResponse | null) | undefined): UserPromptSubmitHookResponse | null {
+  return takePromptSupervision?.() ?? null;
 }
 
 function refocusReplyFor({ accepted, event, payload, readContext, takePromptSupervision }: RefocusReplyInput): SessionStartHookResponse | UserPromptSubmitHookResponse | null {
@@ -58,5 +63,5 @@ function promptSupervisionOutput(body: string | null): string | null {
   }
 }
 
-export { refocusReplyFor, sessionStartContextOutput, promptSupervisionOutput };
+export { promptContextReplyOf, refocusReplyFor, sessionStartContextOutput, promptSupervisionOutput };
 export type { RefocusContext };

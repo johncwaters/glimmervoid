@@ -278,6 +278,7 @@ const kimi = {
     ptyInitialPrompt: true,
     promptContextSupervision: true,
   },
+  promptContextReply: "message",
 } satisfies AgentAdapterShape;
 
 export default kimi;

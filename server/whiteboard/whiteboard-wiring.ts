@@ -10,7 +10,7 @@ import type { ControlMessageRecord } from '../core/control-replay-core.ts';
 import { applyOps, createBoard } from '../../shared/whiteboard-ops-core.ts';
 import type { Author } from '../../shared/whiteboard-ops-core.ts';
 import {
-  changesForReader, connectSession, disconnectSession, markRead, recordPut, resolveBoardRef, summarizeBoard,
+  changesForReader, connectSession, disconnectSession, markRead, nudgeLineFor, promptContextFor, recordPut, resolveBoardRef, summarizeBoard,
 } from '../core/whiteboard-store-core.ts';
 import { loadJsonStateFile, writeJsonAtomic } from '../json-file.ts';
 import { createKeyedSerialQueue } from '../spawn-gate.ts';
@@ -74,8 +74,10 @@ interface WhiteboardPort {
     get(boardId: string): Promise<OperatorReply>;
     connect(boardId: string, sessionId: string): Promise<OperatorReply>;
     disconnect(boardId: string, sessionId: string): Promise<OperatorReply>;
+    nudgeLine(boardId: string): string | null;
   };
   forgetSession(sessionId: string): Promise<void>;
+  takePromptContext(sessionId: string): string | null;
   snapshotMessage(): ServerMessageOf<'whiteboards-snapshot'>;
 }
 
@@ -261,12 +263,28 @@ function createWhiteboardWiring({
     }),
     connect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => connectBoard(foundBoardId, sessionId)),
     disconnect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => disconnectBoard(foundBoardId, sessionId)),
+    nudgeLine: (boardId) => {
+      const record = recordsByBoardId.get(boardId);
+      return record ? nudgeLineFor(record.board) : null;
+    },
   };
 
   async function forgetSession(sessionId: string): Promise<void> {
     await loaded;
     const connectedBoardIds = [...recordsByBoardId].filter(([, record]) => sessionId in record.cursorBySessionId).map(([boardId]) => boardId);
     await Promise.all(connectedBoardIds.map((boardId) => disconnectBoard(boardId, sessionId)));
+  }
+
+  function takePromptContext(sessionId: string): string | null {
+    const context = promptContextFor([...recordsByBoardId.values()], sessionId);
+    if (!context) return null;
+    for (const { boardId, version } of context.readThrough) {
+      void changeRecord(boardId, (record) => {
+        const next = markRead(record, sessionId, version);
+        return { ok: true, record: next, reply: { status: 200, body: { ok: true, version: next.board.version } } };
+      });
+    }
+    return context.text;
   }
 
   async function handleAgent(caller: WhiteboardCaller, request: WhiteboardAgentRequest): Promise<WhiteboardReply> {
@@ -287,7 +305,7 @@ function createWhiteboardWiring({
     }
   }
 
-  return { loaded, handleAgent, handleOperator, forgetSession, snapshotMessage };
+  return { loaded, handleAgent, handleOperator, forgetSession, takePromptContext, snapshotMessage };
 }
 
 export { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME };

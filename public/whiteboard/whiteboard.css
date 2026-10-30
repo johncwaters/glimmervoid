@@ -324,6 +324,16 @@
 
 .wb-dock[hidden] { display: none; }
 
+.wb-dock-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-dim);
+  font-size: var(--type-meta);
+  color: var(--text-dim);
+}
+
 .wb-dock > .wb-docked-card {
   flex: 1;
   min-height: 0;

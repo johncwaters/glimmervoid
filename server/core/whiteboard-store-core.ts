@@ -45,14 +45,87 @@ function changesForReader(record: BoardRecord, sessionId: string): BoardChange[]
   });
 }
 
-function markRead(record: BoardRecord, sessionId: string): BoardRecord {
-  if (!(sessionId in record.cursorBySessionId)) return record;
-  return pruneLog({ ...record, cursorBySessionId: { ...record.cursorBySessionId, [sessionId]: record.board.version } });
+function markRead(record: BoardRecord, sessionId: string, throughVersion: number = record.board.version): BoardRecord {
+  const cursor = record.cursorBySessionId[sessionId];
+  if (cursor === undefined || cursor >= throughVersion) return record;
+  return pruneLog({ ...record, cursorBySessionId: { ...record.cursorBySessionId, [sessionId]: throughVersion } });
 }
 
 function summarizeBoard(record: BoardRecord): BoardSummary {
   const { id, title, version, updatedAt } = record.board;
-  return { id, title, version, updatedAt, connectedSessionIds: Object.keys(record.cursorBySessionId) };
+  const sessionIds = Object.keys(record.cursorBySessionId);
+  const queuedBySessionId = Object.fromEntries(sessionIds.map((sessionId) => [sessionId, changesForReader(record, sessionId).length]));
+  return { id, title, version, updatedAt, connectedSessionIds: sessionIds, queuedBySessionId };
+}
+
+interface PromptContext {
+  text: string;
+  readThrough: { boardId: string; version: number }[];
+}
+
+interface PromptContextDraft {
+  lines: string[];
+  characterCount: number;
+}
+
+function hasRoomFor(draft: PromptContextDraft, addedLines: readonly string[]): boolean {
+  const addedCharacters = addedLines.reduce((total, line) => total + line.length + 1, 0);
+  return draft.lines.length + addedLines.length <= WHITEBOARD_LIMITS.promptContextLines
+    && draft.characterCount + addedCharacters <= WHITEBOARD_LIMITS.promptContextCharacters;
+}
+
+function appendLines(draft: PromptContextDraft, addedLines: readonly string[]): void {
+  for (const line of addedLines) {
+    draft.lines.push(line);
+    draft.characterCount += line.length + 1;
+  }
+}
+
+function summaryLineOf(change: BoardChange): string {
+  const line = `- ${change.summary}`;
+  if (line.length <= WHITEBOARD_LIMITS.promptContextLineCharacters) return line;
+  return `${line.slice(0, WHITEBOARD_LIMITS.promptContextLineCharacters - 3)}...`;
+}
+
+function appendBoardChanges(draft: PromptContextDraft, board: Board, changes: readonly BoardChange[]): boolean {
+  const header = `Board "${board.title}" (${board.id}) changed since your last read:`;
+  const pointer = `run glimmervoid whiteboard get ${board.id} for the rest`;
+  if (!hasRoomFor(draft, [header, pointer])) {
+    const brief = `Board "${board.title}" (${board.id}) has ${changes.length} unread changes: run glimmervoid whiteboard get ${board.id}`;
+    if (hasRoomFor(draft, [brief])) appendLines(draft, [brief]);
+    return false;
+  }
+  appendLines(draft, [header]);
+  let isComplete = true;
+  for (const [index, change] of changes.entries()) {
+    const line = summaryLineOf(change);
+    const isClipped = line !== `- ${change.summary}`;
+    const needsPointerRoom = index < changes.length - 1 || isClipped;
+    if (!hasRoomFor(draft, needsPointerRoom ? [line, pointer] : [line])) {
+      isComplete = false;
+      break;
+    }
+    appendLines(draft, [line]);
+    if (isClipped) isComplete = false;
+  }
+  if (!isComplete) appendLines(draft, [pointer]);
+  return isComplete;
+}
+
+function promptContextFor(records: readonly BoardRecord[], sessionId: string): PromptContext | null {
+  const draft: PromptContextDraft = { lines: [], characterCount: 0 };
+  const readThrough: PromptContext['readThrough'] = [];
+  for (const record of records) {
+    const changes = changesForReader(record, sessionId);
+    if (changes.length === 0) continue;
+    if (appendBoardChanges(draft, record.board, changes)) readThrough.push({ boardId: record.board.id, version: record.board.version });
+  }
+  if (draft.lines.length === 0) return null;
+  return { text: draft.lines.join('\n'), readThrough };
+}
+
+function nudgeLineFor(board: Board): string {
+  return `The operator changed board "${board.title}"; run glimmervoid whiteboard get ${board.id}`;
 }
 
 function resolveBoardRef(boards: readonly Board[], ref: string): Board | { error: string } {
@@ -65,4 +138,4 @@ function resolveBoardRef(boards: readonly Board[], ref: string): Board | { error
   return { error: `no board is called ${ref}, so run glimmervoid whiteboard list to see the boards` };
 }
 
-export { changesForReader, connectSession, disconnectSession, markRead, recordPut, resolveBoardRef, summarizeBoard };
+export { changesForReader, connectSession, disconnectSession, markRead, nudgeLineFor, promptContextFor, recordPut, resolveBoardRef, summarizeBoard };

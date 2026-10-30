@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const WHITEBOARD_LIMITS = Object.freeze({
-  elements: 1000, opsPerPut: 200, putBytes: 262_144, title: 80, line: 120, linesPerBox: 12, columns: 12, lanes: 12, noteText: 400, logEntries: 2000,
+  elements: 1000, opsPerPut: 200, putBytes: 262_144, title: 80, line: 120, linesPerBox: 12, columns: 12, lanes: 12, noteText: 400, logEntries: 2000, promptContextLines: 20, promptContextCharacters: 6000, promptContextLineCharacters: 300,
 });
 
 const LANE_COLORS = ['blue', 'green', 'orange', 'pink', 'cyan', 'yellow'] as const;
@@ -101,6 +101,7 @@ export const BoardSummary = z.object({
   version: z.number().int(),
   updatedAt: z.number(),
   connectedSessionIds: z.array(z.string()),
+  queuedBySessionId: z.record(z.string(), z.number().int()),
 }).strict();
 
 export const BoardRecord = z.object({

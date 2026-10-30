@@ -13,6 +13,7 @@ import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.
 import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import type { TaskTitleVocabulary } from "../core/task-title-core.ts";
 import type { CustomAgentDeclaration, HookPayload } from "../../shared/contracts/index.ts";
+import type { PromptContextReply } from "../../shared/contracts/refocus.ts";
 
 interface AgentCapabilities {
   hooks: boolean;
@@ -28,6 +29,7 @@ interface AgentCapabilities {
   ptyInitialPrompt?: boolean;
   promptContextSupervision?: boolean;
 }
+
 
 interface ProjectConfigCandidate {
   relPath: string;
@@ -134,6 +136,7 @@ interface AgentAdapter {
   titleProfile: AgentTitleProfile;
   hooks: AgentHookProfile | null;
   capabilities: AgentCapabilities;
+  promptContextReply?: PromptContextReply;
   resolveCommand(options?: AgentCommandOptions): ResolvedCommand;
   buildSpawnCommand(options: AgentSpawnCommandOptions): { file: string; args: string[] };
   buildEnv(baseEnv: SpawnEnv, extraEnv: SpawnEnv | null | undefined, options?: AgentEnvOptions): SpawnEnv;

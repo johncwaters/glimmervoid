@@ -64,6 +64,7 @@ interface SessionOutput {
   pasteText(text: string): PasteResult;
   pasteTextWhenReady(text: string, options?: PasteWhenReadyOptions): PasteResult;
   clearPendingPaste(): void;
+  hasPendingPaste(): boolean;
   rememberSize(cols: number, rows: number): boolean;
   ptySize(): { cols: number; rows: number };
   disposeScreenKeeper(): void;
@@ -203,6 +204,7 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
     pasteText,
     pasteTextWhenReady,
     clearPendingPaste,
+    hasPendingPaste: () => pendingPaste !== null,
     rememberSize,
     ptySize,
     disposeScreenKeeper,

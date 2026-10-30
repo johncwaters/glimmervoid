@@ -15,6 +15,7 @@ import { Readable } from 'node:stream';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
 import { settleBackendShutdown } from './helpers/lanes.ts';
+import type { UserPromptSubmitHookResponse } from '../shared/contracts/refocus.ts';
 
 const SESSION_ID = 'hook-route-session';
 
@@ -279,8 +280,11 @@ test('refocus lookups run only for accepted compact SessionStart and preserve pl
   }
 });
 
-test('the first accepted UserPromptSubmit of a launch prints the supervision line for the agent, and only that once', async () => {
-  const pendingLines = ['You run under Glimmervoid.'];
+test('an accepted UserPromptSubmit prints the pending prompt context in the shape its agent reads, and only once', async () => {
+  const pendingReplies: UserPromptSubmitHookResponse[] = [
+    { message: 'You run under Glimmervoid.' },
+    { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: 'Board "Plan" changed since your last read:' } },
+  ];
   const app = createBackendHttpApp({
     staticDir: null,
     configStore: { configPath: path.join(ctx().tmpDir, 'config.json') },
@@ -292,7 +296,7 @@ test('the first accepted UserPromptSubmit of a launch prints the supervision lin
     hookRouter: { handle: (input) => ({ status: input.token === 'accepted' ? 200 : 403, reason: 'test' }) },
     getSession: () => null,
     getUsage: () => ({ ingestStatusline: () => {} }),
-    takePromptSupervision: () => pendingLines.shift() ?? null,
+    takePromptSupervision: () => pendingReplies.shift() ?? null,
   });
   const server = http.createServer(app);
   await listenOnLoopback(server);
@@ -307,6 +311,9 @@ test('the first accepted UserPromptSubmit of a launch prints the supervision lin
     assert.equal(await relayedOutput('UserPromptSubmit', 'rejected'), '');
     assert.equal(await relayedOutput('Stop', 'accepted'), '');
     assert.deepEqual(JSON.parse(await relayedOutput('UserPromptSubmit', 'accepted')), { message: 'You run under Glimmervoid.' });
+    assert.deepEqual(JSON.parse(await relayedOutput('UserPromptSubmit', 'accepted')), {
+      hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: 'Board "Plan" changed since your last read:' },
+    });
     assert.equal(await relayedOutput('UserPromptSubmit', 'accepted'), '');
   } finally {
     server.closeAllConnections();

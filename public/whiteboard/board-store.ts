@@ -143,6 +143,11 @@ export async function disconnectSessionFromBoard(boardId: string, sessionId: str
   return outcome.ok ? { ok: true } : outcome;
 }
 
+export async function nudgeSessionAboutBoard(boardId: string, sessionId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const outcome = await runBoardCommand('whiteboard-nudge', { boardId, sessionId });
+  return outcome.ok ? { ok: true } : outcome;
+}
+
 export function boardsConnectedTo(sessionId: string): readonly BoardSummary[] {
   return boardSummaries.filter((summary) => summary.connectedSessionIds.includes(sessionId));
 }

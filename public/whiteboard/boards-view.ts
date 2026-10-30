@@ -12,7 +12,7 @@ import type { BoardEditor } from './board-edit.ts';
 import { createBoardRenderer } from './board-render.ts';
 import type { BoardRenderer } from './board-render.ts';
 import {
-  boardSummariesOf, createBoard, deleteBoard, onBoardChanged, onBoardListChanged, openBoard, openBoardOf, sendBoardOps, takeOpenBoardRequest,
+  boardSummariesOf, createBoard, deleteBoard, nudgeSessionAboutBoard, onBoardChanged, onBoardListChanged, openBoard, openBoardOf, sendBoardOps, takeOpenBoardRequest,
 } from './board-store.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
@@ -40,6 +40,8 @@ interface BoardsViewParts {
   canvas: HTMLElement;
   empty: HTMLElement;
   dock: HTMLElement;
+  dockQueued: HTMLElement;
+  sendToAgent: HTMLButtonElement;
   buttons: Record<'box' | 'wire' | 'note' | 'frame' | 'fit' | 'remove', HTMLButtonElement>;
 }
 
@@ -50,6 +52,7 @@ let editor: BoardEditor | null = null;
 let shouldFitOnNextRender = true;
 let dockedSessionId: string | null = null;
 const status = createActionStatus('action-status wb-status');
+const dockStatus = createActionStatus('action-status wb-status');
 
 function openTextDialog(options: TextDialogOptions): void {
   const { dialog, close, actions, btnCancel } = buildDialogShell({ title: options.title });
@@ -184,6 +187,35 @@ function paintHead(): void {
   parts.presence.replaceChildren(...summary.connectedSessionIds.map((sessionId) => el('span', 'wb-presence-pill', sessionLabel(sessionId))));
   if (summary.connectedSessionIds.length === 0) parts.presence.append(el('span', 'wb-presence-none', 'no sessions connected'));
   paintToolbar();
+  paintDock();
+}
+
+function dockQueuedText(summary: BoardSummary | null, sessionId: string): string {
+  const name = sessionLabel(sessionId);
+  if (!summary?.connectedSessionIds.includes(sessionId)) return `${name} is not connected to this board`;
+  const queuedCount = summary.queuedBySessionId[sessionId] ?? 0;
+  if (queuedCount === 0) return `${name} has read every change`;
+  return `${queuedCount} board ${queuedCount === 1 ? 'edit' : 'edits'} queued for ${name}`;
+}
+
+function paintDock(): void {
+  if (!parts || !dockedSessionId) return;
+  const summary = selectedSummary();
+  parts.dockQueued.textContent = dockQueuedText(summary, dockedSessionId);
+  parts.sendToAgent.disabled = !summary?.connectedSessionIds.includes(dockedSessionId);
+}
+
+async function sendBoardNudge(): Promise<void> {
+  if (!parts || !selectedBoardId || !dockedSessionId) return;
+  parts.sendToAgent.disabled = true;
+  dockStatus.show('busy', 'sending');
+  const outcome = await nudgeSessionAboutBoard(selectedBoardId, dockedSessionId);
+  paintDock();
+  if (!outcome.ok) {
+    dockStatus.show('error', outcome.error);
+    return;
+  }
+  dockStatus.show('ok', 'sent; the agent reads the board when it is ready');
 }
 
 function paintBoard(): void {
@@ -346,9 +378,14 @@ function mountBoardsView(panel: HTMLElement): void {
   const empty = el('p', 'wb-empty', EMPTY_TEXT);
   const dock = el('div', 'wb-dock');
   dock.hidden = true;
+  const dockQueued = el('span', 'wb-dock-queued');
+  const sendToAgent = toolbarButton('send to agent', () => void sendBoardNudge());
+  const dockBar = el('div', 'wb-dock-bar');
+  dockBar.append(dockQueued, sendToAgent, dockStatus.element);
+  dock.append(dockBar);
 
   panel.replaceChildren(top, boardHead, canvas, empty, dock);
-  parts = { list, boardHead, boardTitle, boardMeta, presence, toolbar, canvas, empty, dock, buttons };
+  parts = { list, boardHead, boardTitle, boardMeta, presence, toolbar, canvas, empty, dock, dockQueued, sendToAgent, buttons };
   const boardRenderer = createBoardRenderer(svg);
   renderer = boardRenderer;
   editor = createBoardEditor({
@@ -385,6 +422,8 @@ function dockSession(sessionId: string): void {
   if (!ui) return;
   dockedSessionId = sessionId;
   parts.dock.hidden = false;
+  dockStatus.clear();
+  paintDock();
   borrowCard(ui, sessionId, parts.dock, { className: 'wb-docked-card' });
 }
 

@@ -12,6 +12,7 @@ import { parseJsonRecord } from '../core/json-core.ts';
 import type { Session } from '../../session/sessions.ts';
 import { refocusReplyFor } from '../../session/core/refocus-core.ts';
 import type { RefocusContext } from '../../session/core/refocus-core.ts';
+import type { UserPromptSubmitHookResponse } from '../../shared/contracts/refocus.ts';
 import type { AgentApiPort } from '../agent-api-wiring.ts';
 import { checkAgentReply, decideAgentRequest, REFUSAL_REASON, REFUSAL_STATUS } from '../core/agent-api-core.ts';
 import { SSH_SIGN_BODY_CAP_BYTES, SshSignRequest } from '../../shared/contracts/session.ts';
@@ -166,7 +167,7 @@ interface BackendHttpDependencies {
   getUsage: () => { ingestStatusline: (payload: object) => void };
   getPlanReview?: () => PlanReviewHookPort | null;
   refocusContextFor?: (glimmervoidId: string) => RefocusContext;
-  takePromptSupervision?: (glimmervoidId: string) => string | null;
+  takePromptSupervision?: (glimmervoidId: string) => UserPromptSubmitHookResponse | null;
   getAgentApi?: () => AgentApiPort | null;
   getShownFiles?: () => ShownFilesPort | null;
   sshSigner?: Pick<SshSigner, 'signWithAgent'> | null;

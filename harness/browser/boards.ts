@@ -64,6 +64,9 @@ export async function verifyBoardDock(page: Page, sessionId: string): Promise<vo
   await boardChip.click();
   await panel.locator('.wb-board-title', { hasText: boardTitle }).waitFor();
   await panel.locator(`.wb-dock .session-card[data-id="${sessionId}"]`).waitFor({ state: 'visible' });
+  await panel.locator('.wb-dock-queued', { hasText: 'has read every change' }).waitFor();
+  await panel.locator('.wb-dock-bar').getByRole('button', { name: 'send to agent', exact: true }).click();
+  await panel.locator('.wb-dock-bar .action-status', { hasText: 'sent' }).waitFor();
   await page.locator('#tab-focus').click();
   assert.equal(await panel.locator('.wb-dock .session-card').count(), 0, 'leaving the board hands the card back');
 }
