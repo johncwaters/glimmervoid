@@ -15,7 +15,7 @@ type ScanState = GlobalOptions & { wantsHelp: boolean; wantsVersion: boolean; wa
 
 const SUBCOMMANDS_HONORING_TRAILING_GLOBAL_OPTIONS: ReadonlySet<string> = new Set(['doctor', 'pair']);
 
-const SUBCOMMANDS_HONORING_A_LEADING_HELP_OR_VERSION: ReadonlySet<string> = new Set(AGENT_API_VERBS);
+const AGENT_VERBS_HONORING_HELP_OR_VERSION: ReadonlySet<string> = new Set(AGENT_API_VERBS);
 
 const OPTIONS_TAKING_A_VALUE: Record<string, 'configPath' | 'port'> = { '--config': 'configPath', '--port': 'port' };
 
@@ -45,10 +45,11 @@ function scanTrailingGlobalOptions(subcommandArgs: readonly string[], state: Sca
   }
 }
 
-function scanLeadingHelpOrVersion(subcommandArgs: readonly string[], state: ScanState): void {
-  const firstArgument = subcommandArgs[0];
-  if (firstArgument === '--help' || firstArgument === '-h') state.wantsHelp = true;
-  if (firstArgument === '--version') state.wantsVersion = true;
+function scanHelpOrVersionBeforeTerminator(subcommandArgs: readonly string[], state: ScanState): void {
+  const terminatorIndex = subcommandArgs.indexOf('--');
+  const flagArguments = terminatorIndex === -1 ? subcommandArgs : subcommandArgs.slice(0, terminatorIndex);
+  if (flagArguments.includes('--help') || flagArguments.includes('-h')) state.wantsHelp = true;
+  if (flagArguments.includes('--version')) state.wantsVersion = true;
 }
 
 function parseCommandLine(argv: readonly string[]): ParsedCommandLine {
@@ -58,7 +59,7 @@ function parseCommandLine(argv: readonly string[]): ParsedCommandLine {
   const name = argv[index];
   const subcommandArgs = argv.slice(index + 1);
   if (name !== undefined && SUBCOMMANDS_HONORING_TRAILING_GLOBAL_OPTIONS.has(name)) scanTrailingGlobalOptions(subcommandArgs, state);
-  if (name !== undefined && SUBCOMMANDS_HONORING_A_LEADING_HELP_OR_VERSION.has(name)) scanLeadingHelpOrVersion(subcommandArgs, state);
+  if (name !== undefined && AGENT_VERBS_HONORING_HELP_OR_VERSION.has(name)) scanHelpOrVersionBeforeTerminator(subcommandArgs, state);
   if (state.wantsHelp) return { kind: 'help' };
   if (state.wantsVersion) return { kind: 'version' };
   const globalOptions = { configPath: state.configPath, port: state.port };

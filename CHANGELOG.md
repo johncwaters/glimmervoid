@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`--help` works anywhere in an agent command**: `glimmervoid whiteboard new --help` created a board titled "--help" instead of printing help. A `--help`, `-h` or `--version` anywhere in an in-session command such as `whiteboard`, `spawn` or `send` now prints Glimmervoid's help or version, unless it comes after a `--`.
 - **Kimi Code K3.1 Pro and K3 are priced**: the Usage tab no longer reports "No price" for `kimi-code/k3.1-pro` and `kimi-code/k3` and counts their sessions as free. It now estimates them at Moonshot list price. `kimi-code/kimi-for-coding` (K2.8 Preview) has no published price, so it still shows as unpriced.
 
 ## [0.48.1] - 2026-10-30
