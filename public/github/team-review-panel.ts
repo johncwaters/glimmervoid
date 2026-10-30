@@ -583,7 +583,7 @@ function createCommentContent({ body, severity, location: locationText, location
   const content = el('details', 'pr-comment-content');
   const header = el('summary', 'pr-comment-header');
   const parsed = parseReviewComment(body);
-  if (severity) header.append(createSeverityMeter(severity));
+  if (severity) header.append(createSeverityMeter(severity), el('span', 'pr-severity-word', severity.toLowerCase()));
   const location = el('span', 'pr-comment-location', locationText);
   location.title = locationTitle;
   header.append(location);
@@ -637,34 +637,22 @@ function inReviewEarlierDetails(review: InFlightReview): HTMLElement[] {
   return [element];
 }
 
-function createPostChoice(label: string, onChoose: () => void): HTMLButtonElement {
-  const button = el('button', 'pr-post-choice', label);
-  button.type = 'button';
-  button.addEventListener('click', onChoose);
-  return button;
-}
-
 function createTickableFinding(content: FindingContent, included: Set<number>, index: number, onToggle: () => void): HTMLElement {
   const card = el('article', 'pr-comment-card');
-  const toggle = el('div', 'pr-post-toggle');
-  toggle.setAttribute('role', 'group');
-  toggle.setAttribute('aria-label', `Post or drop the finding on ${content.locationTitle}`);
-  const paint = () => {
-    const isIncluded = included.has(index);
-    post.setAttribute('aria-pressed', String(isIncluded));
-    drop.setAttribute('aria-pressed', String(!isIncluded));
-    card.dataset.included = String(isIncluded);
-  };
-  const choose = (isIncluded: boolean) => {
-    if (isIncluded) included.add(index);
-    if (!isIncluded) included.delete(index);
-    paint();
+  const toggle = el('label', 'pr-post-toggle');
+  const checkbox = el('input', 'pr-post-checkbox');
+  checkbox.type = 'checkbox';
+  checkbox.title = `Post the finding on ${content.locationTitle}`;
+  checkbox.checked = included.has(index);
+  card.dataset.included = String(checkbox.checked);
+  checkbox.addEventListener('change', () => {
+    if (checkbox.checked) included.add(index);
+    if (!checkbox.checked) included.delete(index);
+    card.dataset.included = String(checkbox.checked);
+    card.querySelector<HTMLElement>('.pr-comment-header')?.focus({ preventScroll: true });
     onToggle();
-  };
-  const post = createPostChoice('Post', () => choose(true));
-  const drop = createPostChoice('Drop', () => choose(false));
-  toggle.append(post, drop);
-  paint();
+  });
+  toggle.append(checkbox, el('span', null, 'Post'));
   card.append(toggle, createCommentContent(content));
   return card;
 }
@@ -738,7 +726,7 @@ function createDecisionBar(draft: Pick<ReviewDraft, 'status' | 'postedEvent' | '
 function createFindingKeysHint(): HTMLElement {
   const hint = el('span', 'pr-finding-keys');
   hint.setAttribute('aria-hidden', 'true');
-  hint.append(el('kbd', 'review-shortcut', 'N'), el('kbd', 'review-shortcut', 'P'), ' move', el('kbd', 'review-shortcut', 'X'), ' post or drop');
+  hint.append(el('kbd', 'review-shortcut', 'N'), el('kbd', 'review-shortcut', 'P'), ' move', el('kbd', 'review-shortcut', 'Enter'), ' open', el('kbd', 'review-shortcut', 'X'), ' post or drop');
   return hint;
 }
 
@@ -803,7 +791,6 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   const threads = el('div');
   threads.dataset.reviewThreads = '';
   column.append(createDetailHeading(draft, { hasFactsRail: true }), ...createAboutPr(draft));
-  if (draft.earlierReview) column.append(createEarlierReviewDetails(draft.earlierReview, false));
   column.append(threads, createVerdictBlock(draft), ...createHandChecks(draft));
 
   const generalFindings = generalFindingsOf(draft.body);
@@ -871,7 +858,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   function focusCurrentFinding(): void {
     const card = findingCards[currentFindingIndex];
     for (const [index, findingCard] of findingCards.entries()) findingCard.dataset.current = String(index === currentFindingIndex);
-    card.querySelector<HTMLButtonElement>('.pr-post-choice[aria-pressed="true"]')?.focus({ preventScroll: true });
+    card.querySelector<HTMLElement>('.pr-comment-header')?.focus({ preventScroll: true });
     card.scrollIntoView({ block: 'nearest' });
   }
   function moveFinding(step: 1 | -1): boolean {
@@ -882,9 +869,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   }
   function toggleCurrentFinding(): boolean {
     if (currentFindingIndex === -1 && !moveFinding(1)) return false;
-    const card = findingCards[currentFindingIndex];
-    const nextChoice = card.dataset.included === 'true' ? 'Drop' : 'Post';
-    [...card.querySelectorAll<HTMLButtonElement>('.pr-post-choice')].find((button) => button.textContent === nextChoice)?.click();
+    findingCards[currentFindingIndex].querySelector<HTMLInputElement>('.pr-post-checkbox')?.click();
     focusCurrentFinding();
     return true;
   }
@@ -948,6 +933,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   for (const [index, finding] of generalFindings.entries()) findingCards.push(createTickableFinding(generalFindingContent(finding), includedGeneral, index, onEdit));
   findings.append(...findingCards);
   if (findingCount > 0) column.append(findings);
+  if (draft.earlierReview) column.append(createEarlierReviewDetails(draft.earlierReview, false));
   detail.append(column, rail, bar.footer);
   refreshThreadDetails(detail, draft);
   paintDecision();

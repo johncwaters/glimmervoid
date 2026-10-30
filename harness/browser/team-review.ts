@@ -46,6 +46,7 @@ function createStatus(): TeamReviewStatus {
       createDraft(3, {
         verdict: 'REQUEST CHANGES',
         assessment: { goal: 'Fix the header.', change: 'Moves the header.', checked: [], gaps: [], handChecks: [{ text: 'Look at what these changed UI files render', paths: ['public/header.css'], isFallback: true }] },
+        earlierReview: { head: PREVIOUS_HEAD, verdict: 'APPROVE', summary: 'Earlier pass', wasPosted: true, comments: [] },
       }),
       createDraft(4, { verdict: 'BLOCKED' }),
       createDraft(5, { status: 'error', error: 'Review timed out' }),
@@ -481,7 +482,7 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
   const withDrafts = (drafts: ReviewDraft[]) => ({ ...snapshot, drafts, inFlight: [], queued: [] });
   const barStatus = page.locator('.pr-detail .pr-decision-bar > .pr-action-status');
   const willPostDetail = page.locator('.pr-detail .pr-will-post-detail');
-  const findingChoice = (label: 'Post' | 'Drop') => page.locator('.pr-detail').getByRole('button', { name: label, exact: true });
+  const postCheckbox = page.locator('.pr-detail').getByRole('checkbox', { name: 'Post', exact: true });
   const caughtUpTitle = page.locator('.pr-detail-host .pr-caught-up-title');
   const caughtUpDetailText = page.locator('.pr-detail-host .pr-caught-up-detail');
   try {
@@ -497,6 +498,11 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
     await page.keyboard.press('n');
     const currentFinding = page.locator('.pr-detail .pr-comment-card[data-current="true"]');
     assert.equal(await currentFinding.count(), 1);
+    const currentFindingBody = currentFinding.locator('details.pr-comment-content');
+    await page.keyboard.press('Enter');
+    assert.equal(await currentFindingBody.evaluate((details) => (details as HTMLDetailsElement).open), true);
+    await page.keyboard.press(' ');
+    assert.equal(await currentFindingBody.evaluate((details) => (details as HTMLDetailsElement).open), false);
     await page.keyboard.press('x');
     assert.equal(await currentFinding.getAttribute('data-included'), 'false');
     assert.match(await willPostDetail.textContent() ?? '', /^At [0-9a-f]+\.$/);
@@ -557,14 +563,18 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
     await showQueue(page);
     await reviewRow(1).click();
     assert.match(await willPostDetail.textContent() ?? '', /^1 in the review body, at /);
-    await findingChoice('Drop').click();
-    assert.equal(await findingChoice('Drop').getAttribute('aria-pressed'), 'true');
+    await postCheckbox.click();
+    assert.equal(await postCheckbox.isChecked(), false);
+    await page.keyboard.press('x');
+    assert.equal(await postCheckbox.isChecked(), true);
+    await page.keyboard.press('x');
+    assert.equal(await postCheckbox.isChecked(), false);
     assert.match(await willPostDetail.textContent() ?? '', /^At [0-9a-f]+\.$/);
     assert.equal(await page.locator('.pr-detail button[data-action="comment"]').isDisabled(), true);
     await clickReviewAction(page, 'approve');
     assert.equal((JSON.parse(await page.evaluate(() => document.documentElement.dataset.teamReviewAction ?? '{}')) as { action?: string }).action, 'approve-only');
     await replyToCapturedAction(page, false);
-    await findingChoice('Post').click();
+    await postCheckbox.click();
     await showQueue(page);
     await reviewRow(3).click();
     assert.equal(await barStatus.textContent(), '');
@@ -763,7 +773,7 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout, sessionId
   await page.locator('.pr-queue-row[data-review-key="Acme/app#3"]').click();
   const handChecks = page.locator('.pr-detail .pr-hand-checks');
   assert.equal(await handChecks.locator('li').textContent(), 'Look at what these changed UI files render: public/header.css');
-  assert.deepEqual(await page.locator('.pr-detail .pr-desk-column > section').evaluateAll((sections) => sections.map((section) => section.getAttribute('aria-label')).filter((label) => label === 'Verdict' || label === 'Check by hand' || label === 'Findings')), ['Verdict', 'Check by hand', 'Findings']);
+  assert.deepEqual(await page.locator('.pr-detail .pr-desk-column > :is(section, .pr-earlier-review)').evaluateAll((blocks) => blocks.map((block) => block.classList.contains('pr-earlier-review') ? 'Earlier review' : block.getAttribute('aria-label')).filter((label) => label === 'Verdict' || label === 'Check by hand' || label === 'Findings' || label === 'Earlier review')), ['Verdict', 'Check by hand', 'Findings', 'Earlier review']);
   await showQueue(page);
   await nitsRow.click();
   const mixed = { ...status, drafts: [...status.drafts, createDraft(11, { key: 'Acme/docs#11', repo: 'Acme/docs' })] };

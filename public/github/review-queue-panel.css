@@ -213,11 +213,11 @@ html:not([data-layout="phone"]) .pr-desk > .pr-decision-bar { align-self: end; }
 .pr-comment-card[data-included="false"] { opacity: 0.55; }
 .pr-comment-card[data-current="true"] { border-color: var(--accent); }
 .pr-comment-card:has(> .pr-post-toggle) { grid-template-columns: auto minmax(0, 1fr); }
-.pr-post-toggle { display: inline-flex; align-self: start; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-.pr-post-choice { min-height: 22px; padding: 0 8px; border: 0; background: transparent; color: var(--text-muted); font: 700 var(--type-meta)/1 var(--font-mono); cursor: pointer; }
-.pr-post-choice + .pr-post-choice { border-left: 1px solid var(--border); }
-.pr-post-choice[aria-pressed="true"] { background: color-mix(in oklab, var(--accent) 16%, transparent); color: var(--accent); }
-.pr-comment-card[data-included="false"] .pr-post-choice[aria-pressed="true"] { background: var(--bg-surface); color: var(--text-head); }
+.pr-post-toggle { display: inline-flex; align-items: center; align-self: start; gap: 6px; min-height: 22px; color: var(--text-muted); font: 700 var(--type-meta)/1 var(--font-mono); cursor: pointer; }
+.pr-post-checkbox { margin: 0; accent-color: var(--accent); cursor: pointer; }
+.pr-comment-card[data-included="true"] .pr-post-toggle { color: var(--accent); }
+.pr-comment-card[data-included="false"] .pr-comment-location { text-decoration: line-through; }
+.pr-severity-word { flex: none; color: var(--text-dim); }
 .pr-comment-content { min-width: 0; }
 .pr-comment-header { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 22px; font-size: var(--type-meta); }
 .pr-comment-paragraphs { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; }
@@ -259,7 +259,7 @@ html:not([data-layout="phone"]) .pr-desk > .pr-decision-bar { align-self: end; }
 html[data-layout="phone"] .review-queue-phone-bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 12px; padding: 4px 16px; border-bottom: 1px solid var(--border-dim); background: var(--bg); }
 html[data-layout="phone"] .review-queue-position { color: var(--text-dim); font-size: var(--type-meta); }
 html[data-layout="phone"] .pr-changed-since-link { display: inline-flex; align-items: center; min-height: 44px; }
-html[data-layout="phone"] .pr-post-choice { min-width: 44px; min-height: 44px; }
+html[data-layout="phone"] .pr-post-toggle { min-height: 44px; }
 html[data-layout="phone"] .pr-comment-header { min-height: 44px; }
 html[data-layout="phone"] .pr-body-input { font-size: var(--type-title); }
 html[data-layout="phone"] .pr-progress-tracker { gap: 6px; }
