@@ -652,6 +652,10 @@ export function needsTeamReview(scenario: Scenario): boolean {
   return scenario.steps.some((step) => step.kind === 'assert-team-review');
 }
 
+export function needsIssues(scenario: Scenario): boolean {
+  return scenario.steps.some((step) => step.kind === 'assert-issues');
+}
+
 function scenarioRunsOnViewport(scenario: Scenario, viewport: Viewport, layout: Layout, proveFailure: boolean): boolean {
   if (scenario.proveFailure === true && !proveFailure) return false;
   if (scenario.phoneOnly === true && layout !== 'phone') return false;

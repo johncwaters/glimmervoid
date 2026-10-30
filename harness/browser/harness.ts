@@ -10,7 +10,7 @@ import type { Browser } from 'playwright-core';
 import { resolveWorktreeGitDir } from '../../detection/worktree-watch.ts';
 import { isolateTranscriptHomes } from '../../tests/helpers/transcript-homes.ts';
 import { findFreeHighPort, removeHarnessTempDirectory, safeTextTail } from '../support/backend-harness.ts';
-import { casesFor, needsTeamReview } from './cases-core.ts';
+import { casesFor, needsIssues, needsTeamReview } from './cases-core.ts';
 import type { HarnessCase } from './cases-core.ts';
 import {
   EXIT_HARNESS_ERROR,
@@ -134,6 +134,7 @@ function writeConfigDocument(configPath: string, port: number, cases: HarnessCas
     projects,
     teams: [],
     teamReview: { enabled: cases.some((harnessCase) => needsTeamReview(harnessCase.scenario)) },
+    issues: { enabled: cases.some((harnessCase) => needsIssues(harnessCase.scenario)) },
     repoRoots: [],
     autoResume: false,
     worktreeAutoRebase: false,

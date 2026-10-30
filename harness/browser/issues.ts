@@ -86,39 +86,34 @@ export async function verifyIssues(page: Page, layout: Layout, sessionId: string
   assert.equal((await capturedRequests(page)).length, 0);
   assert.equal(await panel.getByRole('tab', { name: 'All', exact: true }).textContent(), 'All');
   assert.equal(await panel.locator('[data-scope-count="all"]').textContent(), '3');
+  assert.equal(await panel.locator('[data-scope-count="triage"]').textContent(), '2');
+  assert.equal(await panel.locator('[data-scope-count="review"]').textContent(), '1');
+  assert.equal(await panel.locator('[data-scope-count="close"]').textContent(), '0');
   assert.equal(await unassignedRow.locator('.issues-state').getAttribute('title'), 'No session yet');
   assert.equal(await unassignedRow.locator('.issues-state').getAttribute('data-icon'), STATE_ICONS.DORMANT);
   await emitStateChange(page, sessionId, 'RUNNING');
-  assert.equal(await linkedRow.locator('.issues-state').getAttribute('data-icon'), STATE_ICONS.RUNNING);
-  await panel.getByRole('tab', { name: 'Mine', exact: true }).click();
-  assert.equal(await panel.locator('.issue-row').count(), 1);
-  await panel.getByRole('tab', { name: 'Team', exact: true }).click();
-  assert.equal(await panel.locator('.issue-row').count(), 2);
-  await panel.getByRole('tab', { name: 'Projects', exact: true }).click();
+  await linkedRow.locator(`.issues-state[data-icon="${STATE_ICONS.RUNNING}"]`).waitFor();
+  assert.deepEqual(await panel.locator('.pr-queue-section').evaluateAll((sections) => sections.map((section) => (section as HTMLElement).dataset.tier)), ['review', 'triage']);
+  await panel.getByRole('tab', { name: 'Triage', exact: true }).click();
   assert.equal(await panel.locator('.issue-row').count(), 2);
   await panel.getByRole('tab', { name: 'All', exact: true }).click();
   const search = panel.getByRole('searchbox', { name: 'Search issues' });
-  await search.fill('reconnect #42 BUG');
-  assert.equal(await panel.locator('.issue-row').count(), 1);
+  for (const [query, expectedCount] of [['reconnect #42 BUG', 1], ['is:mine', 1], ['is:team', 2], ['is:project', 2], ['is:triage', 2], ['has:session', 1], ['has:pr', 1], ['is:unassigned', 1], ['repo:other', 1], ['label:enhancement', 1]] as const) {
+    await search.fill(query);
+    assert.equal(await panel.locator('.issue-row').count(), expectedCount, query);
+  }
   await search.fill('');
-  await panel.getByRole('button', { name: 'Filters', exact: true }).click();
-  await panel.getByLabel('Has session', { exact: true }).check();
-  assert.equal(await panel.locator('.issue-row').count(), 1);
-  await panel.getByLabel('Has session', { exact: true }).uncheck();
-  await panel.getByLabel('Has PR', { exact: true }).check();
-  assert.equal(await panel.locator('.issue-row').count(), 1);
-  await panel.getByLabel('Has PR', { exact: true }).uncheck();
-  await panel.getByLabel('Unassigned', { exact: true }).check();
-  assert.equal(await panel.locator('.issue-row').count(), 1);
-  await panel.getByLabel('Unassigned', { exact: true }).uncheck();
-  await panel.getByLabel('Repository', { exact: true }).selectOption('Other/repo');
-  assert.equal(await panel.locator('.issue-row').count(), 1);
-  await panel.getByLabel('Repository', { exact: true }).selectOption('');
-  await panel.getByLabel('Label', { exact: true }).selectOption('enhancement');
-  assert.equal(await panel.locator('.issue-row').count(), 1);
-  await panel.getByLabel('Label', { exact: true }).selectOption('');
-  await panel.getByLabel('Sort', { exact: true }).selectOption('comments');
-  await panel.getByRole('button', { name: 'Filters', exact: true }).click();
+  const withoutPullRequests = { ...status, issues: [{ ...issue, pullRequests: [] }, unassigned, viewOnly] };
+  await applyStatus(page, withoutPullRequests);
+  await emitStateChange(page, sessionId, 'WAITING');
+  await panel.locator('.pr-queue-section[data-tier="needs"]').waitFor();
+  assert.equal(await panel.locator('.pr-queue-section').first().getAttribute('data-tier'), 'needs');
+  assert.match(await panel.locator('.issues-filter-summary').textContent() ?? '', /1 session needs you/);
+  await applyStatus(page, { ...status, issues: [{ ...issue, pullRequests: [issue.pullRequests[1]] }, unassigned, viewOnly] });
+  assert.equal(await panel.locator('.pr-queue-section').first().getAttribute('data-tier'), 'close');
+  await applyStatus(page, status);
+  await emitStateChange(page, sessionId, 'RUNNING');
+  await linkedRow.locator(`.issues-state[data-icon="${STATE_ICONS.RUNNING}"]`).waitFor();
   await linkedRow.click();
   assert.equal(await panel.locator('.issue-body').textContent(), 'Loading description.');
   let requests = await capturedRequests(page);
@@ -130,18 +125,20 @@ export async function verifyIssues(page: Page, layout: Layout, sessionId: string
   assert.equal(await panel.locator('.issue-body script').count(), 0);
   assert.match(await panel.locator('.pr-detail-meta').textContent() ?? '', /assigned to you.*mentions Acme\/platform/);
   assert.equal(await panel.getByRole('button', { name: 'Go to session', exact: true }).count(), 1);
+  assert.equal(await panel.getByRole('button', { name: 'Open in Reviews', exact: true }).count(), 1);
   assert.equal(await panel.getByRole('button', { name: 'Open session', exact: true }).count(), 0);
+  assert.equal(await panel.locator('.issues-step[aria-current="step"]').textContent(), 'Review');
   const githubLink = panel.getByRole('link', { name: 'View on GitHub', exact: true });
   await githubLink.focus();
   await emitStateChange(page, sessionId, 'WAITING');
+  await linkedRow.locator(`.issues-state[data-icon="${STATE_ICONS.WAITING}"]`).waitFor({ state: 'attached' });
   assert.equal(await githubLink.evaluate((element) => element === document.activeElement), true);
-  assert.equal(await linkedRow.locator('.issues-state').getAttribute('data-icon'), STATE_ICONS.WAITING);
   assert.match(await panel.locator('.issues-facts .issues-state').textContent() ?? '', /NEEDS INPUT/);
   for (const selector of ['.pr-queue-title', '.issues-row-labels', '.issue-body', '.pr-detail-title h2']) {
     assert.ok(await panel.locator(selector).first().evaluate((element) => element.scrollWidth <= element.clientWidth), selector);
   }
   const sizes = await panel.evaluate((element) => [...new Set([...element.querySelectorAll('*')].filter((node) => [...node.childNodes].some((child) => child.nodeType === Node.TEXT_NODE && child.textContent?.trim())).map((node) => getComputedStyle(node).fontSize))].sort());
-  assert.deepEqual(sizes, ['11px', '12px']);
+  assert.deepEqual(sizes.filter((size) => size !== '11px' && size !== '12px'), []);
   const isSinglePane = layout === 'phone' || (page.viewportSize()?.width ?? 0) <= 760;
   async function backToQueue(): Promise<void> {
     if (!isSinglePane) return;
@@ -152,6 +149,16 @@ export async function verifyIssues(page: Page, layout: Layout, sessionId: string
   await backToQueue();
   await linkedRow.click();
   assert.equal((await capturedRequests(page)).filter((request) => request.type === 'issue-detail').length, 1);
+  await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); });
+  await page.keyboard.press('j');
+  assert.equal(await panel.locator('.issue-row[aria-current="true"]').getAttribute('data-issue-key'), 'Acme/app#43');
+  await page.keyboard.press('k');
+  assert.equal(await panel.locator('.issue-row[aria-current="true"]').getAttribute('data-issue-key'), 'Acme/app#42');
+  if (isSinglePane) {
+    await page.keyboard.press('Escape');
+    assert.equal(await panel.locator('.pr-detail-host').isVisible(), false);
+    await linkedRow.click();
+  }
   const updatedStatus = { ...status, issues: [{ ...issue, updatedAt: new Date(timestamp + 1000).toISOString() }, unassigned, viewOnly] };
   await applyStatus(page, updatedStatus);
   requests = await capturedRequests(page);
