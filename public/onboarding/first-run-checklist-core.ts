@@ -89,4 +89,4 @@ function rootsToAutoSave(configuredRoots: readonly string[], suggestions: readon
 }
 
 export { canOpenShell, decideFirstRunSteps, decideOnboardingStepReports, onboardingStepReportKey, agentSummaryText, gitRepoCountText, rootsToAutoSave, withRepoRootsAdded, UPCOMING_STEPS };
-export type { FirstRunStepState, FirstRunSteps };
+export type { FirstRunSteps };

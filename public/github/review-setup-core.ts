@@ -25,4 +25,3 @@ function teamsToSave(checkedEntries: ReadonlySet<string>, typedText: string): st
 }
 
 export { decideReviewSetupSteps, teamOptionsOf, teamsToSave };
-export type { GithubTeamOption, ReviewSetupSteps, SetupStepState };
