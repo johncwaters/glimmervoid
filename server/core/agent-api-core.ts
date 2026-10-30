@@ -9,6 +9,8 @@ import {
 import type { AgentApiVerb, AgentPrsReply, AgentRefusal, AgentReplyBodyOf, AgentReviewDetailReply, AgentReviewsReply } from '../../shared/contracts/session.ts';
 import type { MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
 import { WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
+import { renderOverviewLine } from './cli-spec-core.ts';
+import type { CommandSpec, OptionSpec, PositionalSpec } from './cli-spec-core.ts';
 import type { TeamReviewStatus } from '../../shared/contracts/team-review.ts';
 import { COMMAND_ROUTES, NO_OWN_WORKTREE_REASON } from '../../session/core/session-routes.ts';
 import { extractPromptTaskTitle } from '../../session/core/task-title-core.ts';
@@ -332,81 +334,123 @@ function deriveChildSessionName(
 }
 
 
-const USAGE_COLUMN_WIDTH = 20;
 
 interface AgentCommandHelp {
   usage: string;
   summary: string;
   missingArgumentHint: string | null;
+  positionals?: PositionalSpec;
+  options?: readonly OptionSpec[];
+  subcommands?: readonly CommandSpec[];
+  isPassthrough?: boolean;
 }
+
+function requiredText(usage: string): PositionalSpec {
+  return { usage, min: 1, max: null };
+}
+
+function optionalText(usage: string): PositionalSpec {
+  return { usage, min: 0, max: null };
+}
+
+const BOARD_REFERENCE = requiredText('<board>');
+
+const WHITEBOARD_SUBCOMMANDS: readonly CommandSpec[] = [
+  { name: 'new', summary: 'Create a board; this session is its creator and gets summaries of its changes', positionals: requiredText('<title>'), missingArgumentHint: 'a new board needs a title, for example "glimmervoid whiteboard new release plan"' },
+  { name: 'list', summary: 'List the boards with their connected sessions' },
+  { name: 'connect', summary: 'Get summaries of changes to a board in this session', positionals: BOARD_REFERENCE },
+  { name: 'disconnect', summary: 'Stop getting summaries of changes to a board', positionals: BOARD_REFERENCE },
+  { name: 'get', summary: 'Read a board and the changes since this session last read it', positionals: BOARD_REFERENCE },
+  { name: 'put', summary: 'Apply a JSON op or array of ops to a board; - reads them from stdin', positionals: { usage: '<board> <ops-json|->', min: 2, max: null } },
+  { name: 'resolve', summary: 'Mark a note on a board resolved', positionals: { usage: '<board> <note>', min: 2, max: null } },
+];
 
 const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = Object.freeze({
   spawn: {
     usage: 'spawn <prompt>',
+    positionals: requiredText('<prompt>'),
     summary: 'Start a session on that prompt, with its own dashboard card, that this session owns until its task is done',
-    missingArgumentHint: 'glimmervoid spawn: this command needs text, for example "glimmervoid spawn check the failing test"',
+    missingArgumentHint: 'this command needs text, for example "glimmervoid spawn check the failing test"',
   },
   send: {
     usage: 'send [child] <text>',
+    positionals: requiredText('[child] <text>'),
     summary: 'Message a session this one spawned; a spawned session messages its parent with send <text>',
-    missingArgumentHint: 'glimmervoid send: this command needs text, for example "glimmervoid send the tests pass" or, to a spawned session, "glimmervoid send <child> fix the failing test"',
+    missingArgumentHint: 'this command needs text, for example "glimmervoid send the tests pass" or, to a spawned session, "glimmervoid send <child> fix the failing test"',
   },
   read: {
     usage: 'read [child]',
+    positionals: optionalText('[child]'),
     summary: "Read what this session's spawned sessions sent; a spawned session reads its parent's messages",
     missingArgumentHint: null,
   },
   close: {
     usage: 'close <child>',
+    positionals: requiredText('<child>'),
+    options: [{ name: 'discard', type: 'boolean', summary: 'Close it even though it holds unpushed work, which is lost' }],
     summary: 'End a session this one spawned and discard its worktree; refused while it holds unpushed work unless --discard',
-    missingArgumentHint: 'glimmervoid close: this command needs the spawned session, for example "glimmervoid close <child>"',
+    missingArgumentHint: 'this command needs the spawned session, for example "glimmervoid close <child>"',
   },
   answer: {
     usage: 'answer <child> <json>|--operator',
+    positionals: { usage: '<child> [json]', min: 1, max: 2 },
+    options: [{ name: 'operator', type: 'boolean', summary: 'Pass the question to the operator instead of answering it' }],
     summary: "Answer a spawned session's held question, or pass it to the operator with --operator",
-    missingArgumentHint: 'glimmervoid answer: this command needs a child and a JSON object of answers, or --operator',
+    missingArgumentHint: 'this command needs a child and a JSON object of answers, or --operator',
   },
   attention: {
     usage: 'attention <note>',
+    positionals: requiredText('<note>'),
     summary: 'Flag this session as needing the operator',
-    missingArgumentHint: 'glimmervoid attention: this command needs text, for example "glimmervoid attention check the failing test"',
+    missingArgumentHint: 'this command needs text, for example "glimmervoid attention check the failing test"',
   },
   board: { usage: 'board', summary: 'List the live sessions', missingArgumentHint: null },
   push: { usage: 'push', summary: "Land this session's commits on the integration branch and push it", missingArgumentHint: null },
   edit: {
     usage: 'edit <path>',
+    positionals: requiredText('<path>'),
     summary: 'Open a text file for the operator to edit in the dashboard',
-    missingArgumentHint: 'glimmervoid edit: this command needs a file path, for example "glimmervoid edit drafts/post.md"',
+    missingArgumentHint: 'this command needs a file path, for example "glimmervoid edit drafts/post.md"',
   },
   show: {
     usage: 'show <path>... [--caption <text>]',
+    positionals: requiredText('<path>...'),
+    options: [{ name: 'caption', type: 'string', valueName: 'text', summary: 'A caption shown with the files' }],
     summary: "Show the operator an image, video or HTML page on this session's card",
-    missingArgumentHint: 'glimmervoid show: this command needs a file path, for example "glimmervoid show out/diagram.png --caption \'the new layout\'"',
+    missingArgumentHint: 'this command needs a file path, for example "glimmervoid show out/diagram.png --caption \'the new layout\'"',
   },
   review: {
     usage: 'review <pr>',
+    positionals: requiredText('<pr>'),
     summary: 'Queue a team review of a pull request; the draft waits in the Reviews tab for the operator to post',
-    missingArgumentHint: 'glimmervoid review: this command needs a pull request, for example "glimmervoid review https://github.com/acme/app/pull/12" or "glimmervoid review acme/app#12"',
+    missingArgumentHint: 'this command needs a pull request, for example "glimmervoid review https://github.com/acme/app/pull/12" or "glimmervoid review acme/app#12"',
   },
-  reviews: { usage: 'reviews [pr]', summary: 'List the Reviews tab: reviews running, queued and drafted; with a pull request, read its draft in full', missingArgumentHint: null },
+  reviews: { usage: 'reviews [pr]', positionals: optionalText('[pr]'), summary: 'List the Reviews tab: reviews running, queued and drafted; with a pull request, read its draft in full', missingArgumentHint: null },
   prs: { usage: 'prs', summary: "List the operator's open pull requests with their checks, reviews and merge state", missingArgumentHint: null },
   'link-pr': {
     usage: 'link-pr <pr>',
+    positionals: requiredText('<pr>'),
     summary: "Link a pull request to this session's card",
-    missingArgumentHint: 'glimmervoid link-pr: this command needs a pull request, for example "glimmervoid link-pr acme/app#12"',
+    missingArgumentHint: 'this command needs a pull request, for example "glimmervoid link-pr acme/app#12"',
   },
-  settings: { usage: 'settings list|get', summary: "Read Glimmervoid's settings; a secret shows only as configured or not", missingArgumentHint: null },
+  settings: { usage: 'settings list|get', summary: "Read Glimmervoid's settings; a secret shows only as configured or not", missingArgumentHint: null, isPassthrough: true },
   whiteboard: {
     usage: 'whiteboard new|list|connect|disconnect|get|put|resolve',
+    subcommands: WHITEBOARD_SUBCOMMANDS,
     summary: 'Create, connect to, read and edit a shared whiteboard the operator and connected sessions edit together',
-    missingArgumentHint: 'glimmervoid whiteboard: run "glimmervoid whiteboard new <title>", "list", "connect <board>", "disconnect <board>", "get <board>", "put <board> <ops-json|->" or "resolve <board> <note>"',
+    missingArgumentHint: null,
   },
   limits: { usage: 'limits', summary: 'List which of these commands answer here and why the rest do not', missingArgumentHint: null },
 });
 
 function agentCommandHelpLines(): string[] {
-  return Object.values(AGENT_COMMAND_HELP).map(({ usage, summary }) => `  ${usage.padEnd(Math.max(USAGE_COLUMN_WIDTH, usage.length + 1))}${summary}`);
+  return Object.values(AGENT_COMMAND_HELP).map(({ usage, summary }) => renderOverviewLine(usage, summary));
 }
 
-export { checkAgentReply, decideAgentRequest, decideSpawnAllowance, deriveChildSessionName, describeChildEndNote, describeKeptChildAttention, describePushLanding, describeUnpushedCloseRefusal, describeRoleRefusal, isAgentApiVerb, parseAgentVerb, projectMyPrs, projectReviewDetail, projectReviews, MAX_LIVE_CHILDREN, REFUSAL_REASON, REFUSAL_STATUS, AGENT_COMMAND_HELP, agentCommandHelpLines };
+function agentCommandSpec(verb: AgentApiVerb): CommandSpec {
+  const { summary, missingArgumentHint, positionals, options, subcommands, isPassthrough } = AGENT_COMMAND_HELP[verb];
+  return { name: verb, summary, missingArgumentHint, positionals, options, subcommands, isPassthrough };
+}
+
+export { checkAgentReply, decideAgentRequest, decideSpawnAllowance, deriveChildSessionName, describeChildEndNote, describeKeptChildAttention, describePushLanding, describeUnpushedCloseRefusal, describeRoleRefusal, isAgentApiVerb, parseAgentVerb, projectMyPrs, projectReviewDetail, projectReviews, MAX_LIVE_CHILDREN, REFUSAL_REASON, REFUSAL_STATUS, AGENT_COMMAND_HELP, agentCommandHelpLines, agentCommandSpec };
 export type { AgentRefusalReply, AgentReplyOf, AgentRequestOf, ChildEndCause, ChildWorktree };

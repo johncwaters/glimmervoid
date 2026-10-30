@@ -56,6 +56,12 @@ if (commandLine.kind === 'help') {
   process.exit(0);
 }
 
+if (commandLine.kind === 'refused') {
+  console.error(commandLine.text);
+  await drainOutput();
+  process.exit(1);
+}
+
 if (commandLine.kind === 'version') {
   console.log(pkg.version);
   process.exit(0);

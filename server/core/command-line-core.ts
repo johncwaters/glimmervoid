@@ -1,4 +1,4 @@
-import { AGENT_API_VERBS } from '../../shared/contracts/session.ts';
+import { parseArgs } from 'node:util';
 
 type GlobalOptions = {
   configPath: string | null;
@@ -8,63 +8,65 @@ type GlobalOptions = {
 type ParsedCommandLine =
   | { kind: 'help' }
   | { kind: 'version' }
+  | { kind: 'refused'; text: string }
   | { kind: 'server'; globalOptions: GlobalOptions; isBrowserOpenSkipped: boolean }
   | { kind: 'subcommand'; name: string; subcommandArgs: string[]; globalOptions: GlobalOptions };
 
-type ScanState = GlobalOptions & { wantsHelp: boolean; wantsVersion: boolean; wantsDoctor: boolean; wantsNoOpen: boolean };
+const GLOBAL_OPTIONS = {
+  config: { type: 'string' },
+  port: { type: 'string' },
+  help: { type: 'boolean', short: 'h' },
+  version: { type: 'boolean' },
+  doctor: { type: 'boolean' },
+  'no-open': { type: 'boolean' },
+} as const;
 
 const SUBCOMMANDS_HONORING_TRAILING_GLOBAL_OPTIONS: ReadonlySet<string> = new Set(['doctor', 'pair']);
 
-const AGENT_VERBS_HONORING_HELP_OR_VERSION: ReadonlySet<string> = new Set(AGENT_API_VERBS);
-
 const OPTIONS_TAKING_A_VALUE: Record<string, 'configPath' | 'port'> = { '--config': 'configPath', '--port': 'port' };
 
-function scanGlobalOption(argv: readonly string[], index: number, state: ScanState): number {
-  const token = argv[index];
-  const valueKey = OPTIONS_TAKING_A_VALUE[token];
-  if (valueKey) {
-    const value = argv[index + 1];
-    if (value !== undefined) state[valueKey] = value;
-    return index + 2;
-  }
-  if (token === '--help' || token === '-h') state.wantsHelp = true;
-  if (token === '--version') state.wantsVersion = true;
-  if (token === '--doctor') state.wantsDoctor = true;
-  if (token === '--no-open') state.wantsNoOpen = true;
-  return index + 1;
+function commandNameIndex(argv: readonly string[]): number {
+  const { tokens } = parseArgs({ args: [...argv], options: GLOBAL_OPTIONS, strict: false, allowPositionals: true, tokens: true });
+  const firstPositional = tokens.find((token) => token.kind === 'positional');
+  return firstPositional ? firstPositional.index : argv.length;
 }
 
-function scanTrailingGlobalOptions(subcommandArgs: readonly string[], state: ScanState): void {
-  let index = 0;
-  while (index < subcommandArgs.length) {
-    if (!subcommandArgs[index].startsWith('-')) {
-      index += 1;
-      continue;
-    }
-    index = scanGlobalOption(subcommandArgs, index, state);
+function scanTrailingGlobalOptions(subcommandArgs: readonly string[], globalOptions: GlobalOptions): GlobalOptions {
+  const scanned = { ...globalOptions };
+  for (let index = 0; index < subcommandArgs.length; index += 1) {
+    const valueKey = OPTIONS_TAKING_A_VALUE[subcommandArgs[index]];
+    const value = subcommandArgs[index + 1];
+    if (!valueKey || value === undefined) continue;
+    scanned[valueKey] = value;
+    index += 1;
   }
+  return scanned;
 }
 
-function scanHelpOrVersionBeforeTerminator(subcommandArgs: readonly string[], state: ScanState): void {
-  const terminatorIndex = subcommandArgs.indexOf('--');
-  const flagArguments = terminatorIndex === -1 ? subcommandArgs : subcommandArgs.slice(0, terminatorIndex);
-  if (flagArguments.includes('--help') || flagArguments.includes('-h')) state.wantsHelp = true;
-  if (flagArguments.includes('--version')) state.wantsVersion = true;
+type GlobalValues = { config?: string; port?: string; help?: boolean; version?: boolean; doctor?: boolean; 'no-open'?: boolean };
+
+function parseGlobalValues(leadingArgs: string[]): { ok: true; values: GlobalValues } | { ok: false; text: string } {
+  try {
+    return { ok: true, values: parseArgs({ args: leadingArgs, options: GLOBAL_OPTIONS, strict: true, allowPositionals: false }).values };
+  } catch (error) {
+    return { ok: false, text: `glimmervoid: ${error instanceof Error ? error.message : String(error)}\nRun glimmervoid --help for the commands and options.` };
+  }
 }
 
 function parseCommandLine(argv: readonly string[]): ParsedCommandLine {
-  const state: ScanState = { configPath: null, port: null, wantsHelp: false, wantsVersion: false, wantsDoctor: false, wantsNoOpen: false };
-  let index = 0;
-  while (index < argv.length && argv[index].startsWith('-')) index = scanGlobalOption(argv, index, state);
-  const name = argv[index];
-  const subcommandArgs = argv.slice(index + 1);
-  if (name !== undefined && SUBCOMMANDS_HONORING_TRAILING_GLOBAL_OPTIONS.has(name)) scanTrailingGlobalOptions(subcommandArgs, state);
-  if (name !== undefined && AGENT_VERBS_HONORING_HELP_OR_VERSION.has(name)) scanHelpOrVersionBeforeTerminator(subcommandArgs, state);
-  if (state.wantsHelp) return { kind: 'help' };
-  if (state.wantsVersion) return { kind: 'version' };
-  const globalOptions = { configPath: state.configPath, port: state.port };
-  if (state.wantsDoctor) return { kind: 'subcommand', name: 'doctor', subcommandArgs: [], globalOptions };
-  if (name === undefined) return { kind: 'server', globalOptions, isBrowserOpenSkipped: state.wantsNoOpen };
+  const nameIndex = commandNameIndex(argv);
+  const parsedGlobals = parseGlobalValues(argv.slice(0, nameIndex));
+  if (!parsedGlobals.ok) return { kind: 'refused', text: parsedGlobals.text };
+  const { values } = parsedGlobals;
+  const name = argv[nameIndex];
+  const subcommandArgs = argv.slice(nameIndex + 1);
+  const honorsTrailingGlobalOptions = name !== undefined && SUBCOMMANDS_HONORING_TRAILING_GLOBAL_OPTIONS.has(name);
+  if (values.help || (honorsTrailingGlobalOptions && (subcommandArgs.includes('--help') || subcommandArgs.includes('-h')))) return { kind: 'help' };
+  if (values.version || (honorsTrailingGlobalOptions && subcommandArgs.includes('--version'))) return { kind: 'version' };
+  const leadingGlobalOptions = { configPath: values.config ?? null, port: values.port ?? null };
+  const globalOptions = honorsTrailingGlobalOptions ? scanTrailingGlobalOptions(subcommandArgs, leadingGlobalOptions) : leadingGlobalOptions;
+  if (values.doctor) return { kind: 'subcommand', name: 'doctor', subcommandArgs: [], globalOptions };
+  if (name === undefined) return { kind: 'server', globalOptions, isBrowserOpenSkipped: values['no-open'] === true };
   return { kind: 'subcommand', name, subcommandArgs, globalOptions };
 }
 

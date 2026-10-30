@@ -8,7 +8,9 @@ import { resolveHookTarget } from '../session/core/hook-relay-core.ts';
 import { formatSessionLimits } from '../session/core/session-routes.ts';
 import { AgentLimitsReply, AGENT_URL_ENV, SHOWN_CAPTION_MAX_CHARS, SHOWN_FILE_CAP_BYTES } from '../shared/contracts/session.ts';
 import type { AgentApiVerb } from '../shared/contracts/session.ts';
-import { AGENT_COMMAND_HELP, isAgentApiVerb } from './core/agent-api-core.ts';
+import { AGENT_COMMAND_HELP, agentCommandSpec, isAgentApiVerb } from './core/agent-api-core.ts';
+import { parseCommand } from './core/cli-spec-core.ts';
+import type { ParsedCommand } from './core/cli-spec-core.ts';
 import { parseJsonOrNull } from './core/json-core.ts';
 import { describeOverCap } from './core/shown-files-core.ts';
 
@@ -16,10 +18,15 @@ const AGENT_PATH_PREFIX = '/agent/';
 const HELP_LIMITS_TIMEOUT_MS = 2000;
 const HELP_LIMITS_UNKNOWN_LINE = 'This session: Glimmervoid did not report its limits, so run glimmervoid limits to see why';
 
-type BodyBuilder = (rest: string[]) => Record<string, unknown> | null;
+type ParsedArguments = Extract<ParsedCommand, { kind: 'run' }>;
+type BodyBuilder = (parsed: ParsedArguments) => Record<string, unknown> | null;
 
-function pullRequestBody(rest: string[]): Record<string, unknown> | null {
-  const pullRequest = rest.join(' ').trim();
+function joinedText(words: readonly string[]): string {
+  return words.join(' ').trim();
+}
+
+function pullRequestBody({ positionals }: ParsedArguments): Record<string, unknown> | null {
+  const pullRequest = joinedText(positionals);
   return pullRequest ? { pr: pullRequest } : null;
 }
 
@@ -28,62 +35,64 @@ function readOpsArgument(opsText: string): unknown {
   return parseJsonOrNull(opsText);
 }
 
-function whiteboardBody([subcommand, ...rest]: string[]): Record<string, unknown> | null {
-  const joined = rest.join(' ').trim();
+function whiteboardBody({ commandPath, positionals }: ParsedArguments): Record<string, unknown> | null {
+  const subcommand = commandPath[1];
+  const joined = joinedText(positionals);
   if (subcommand === 'list') return { sub: 'list' };
-  if (subcommand === 'new' || subcommand === 'connect' || subcommand === 'disconnect' || subcommand === 'get') {
-    if (!joined) return null;
-    return subcommand === 'new' ? { sub: 'new', title: joined } : { sub: subcommand, board: joined };
-  }
-  const [board, ...argumentWords] = rest;
+  if (subcommand === 'new') return joined ? { sub: 'new', title: joined } : null;
+  if (subcommand === 'connect' || subcommand === 'disconnect' || subcommand === 'get') return joined ? { sub: subcommand, board: joined } : null;
+  const [board, ...argumentWords] = positionals;
   if (!board || argumentWords.length === 0) return null;
-  if (subcommand === 'resolve') return { sub: 'resolve', board, note: argumentWords.join(' ').trim() };
+  if (subcommand === 'resolve') return { sub: 'resolve', board, note: joinedText(argumentWords) };
   if (subcommand !== 'put') return null;
   const ops = readOpsArgument(argumentWords.join(' '));
   if (ops === null) return null;
   return { sub: 'put', board, ops: Array.isArray(ops) ? ops : [ops] };
 }
 
+function answerBody({ values, positionals }: ParsedArguments): Record<string, unknown> | null {
+  const [child, answerText, ...extra] = positionals;
+  if (!child?.trim() || extra.length > 0) return null;
+  if (values.operator === true) return answerText === undefined ? { child, toOperator: true } : null;
+  if (answerText === undefined) return null;
+  const answers: unknown = parseJsonOrNull(answerText);
+  if (typeof answers !== 'object' || answers === null || Array.isArray(answers)) return null;
+  if (!Object.values(answers).every((answer) => typeof answer === 'string')) return null;
+  return { child, answers };
+}
+
 const BODY_BUILDERS: Record<Exclude<AgentApiVerb, 'show'>, BodyBuilder> = {
-  spawn: (rest) => {
-    const prompt = rest.join(' ').trim();
+  spawn: ({ positionals }) => {
+    const prompt = joinedText(positionals);
     return prompt ? { prompt } : null;
   },
-  send: (rest) => (rest.join(' ').trim() ? { words: rest } : null),
-  read: (rest) => {
-    const child = rest.join(' ').trim();
+  send: ({ positionals }) => (joinedText(positionals) ? { words: positionals } : null),
+  read: ({ positionals }) => {
+    const child = joinedText(positionals);
     return child ? { child } : {};
   },
-  close: (rest) => {
-    const discard = rest.includes('--discard');
-    const child = rest.filter((word) => word !== '--discard').join(' ').trim();
+  close: ({ values, positionals }) => {
+    const child = joinedText(positionals);
     if (!child) return null;
-    return discard ? { child, discard } : { child };
+    return values.discard === true ? { child, discard: true } : { child };
   },
-  answer: ([child, answerText, ...extra]) => {
-    if (!child?.trim() || !answerText || extra.length > 0) return null;
-    if (answerText === '--operator') return { child, toOperator: true };
-    const answers: unknown = parseJsonOrNull(answerText);
-    if (typeof answers !== 'object' || answers === null || Array.isArray(answers)) return null;
-    if (!Object.values(answers).every((answer) => typeof answer === 'string')) return null;
-    return { child, answers };
-  },
-  attention: (rest) => {
-    const note = rest.join(' ').trim();
+  answer: answerBody,
+  attention: ({ positionals }) => {
+    const note = joinedText(positionals);
     return note ? { note } : null;
   },
   board: () => ({}),
   push: () => ({}),
-  edit: (rest) => {
-    const docPath = rest.join(' ').trim();
+  edit: ({ positionals }) => {
+    const docPath = joinedText(positionals);
     return docPath ? { path: path.resolve(docPath) } : null;
   },
   limits: () => ({}),
   review: pullRequestBody,
-  reviews: (rest) => pullRequestBody(rest) ?? {},
+  reviews: (parsed) => pullRequestBody(parsed) ?? {},
   prs: () => ({}),
   'link-pr': pullRequestBody,
-  settings: ([command, settingPath]) => ({ command, ...(settingPath === undefined ? {} : { path: settingPath }) }),
+  settings: ({ positionals: [command, settingPath] }) => ({ command, ...(settingPath === undefined ? {} : { path: settingPath }) }),
   whiteboard: whiteboardBody,
 };
 
@@ -201,24 +210,9 @@ interface FileToShow {
   sizeBytes: number;
 }
 
-function parseShowArguments(words: string[]): ShowRequest | null {
-  const filePaths: string[] = [];
-  let caption: string | null = null;
-  for (let index = 0; index < words.length; index += 1) {
-    const word = words[index];
-    if (word === '--caption') {
-      caption = words[index + 1] ?? '';
-      index += 1;
-      continue;
-    }
-    if (word.startsWith('--caption=')) {
-      caption = word.slice('--caption='.length);
-      continue;
-    }
-    filePaths.push(word);
-  }
-  if (filePaths.length === 0) return null;
-  return { filePaths, caption: caption?.trim().slice(0, SHOWN_CAPTION_MAX_CHARS) || null };
+function showRequestOf({ values, positionals }: ParsedArguments): ShowRequest {
+  const caption = typeof values.caption === 'string' ? values.caption.trim().slice(0, SHOWN_CAPTION_MAX_CHARS) : '';
+  return { filePaths: positionals, caption: caption || null };
 }
 
 async function statFileToShow(filePath: string): Promise<FileToShow | string> {
@@ -260,12 +254,8 @@ function replyError(replyText: string): string {
   return typeof error === 'string' ? error : `Glimmervoid answered ${replyText || 'nothing'}`;
 }
 
-async function runShowCommand(words: string[]): Promise<number> {
-  const request = parseShowArguments(words);
-  if (!request) {
-    console.error(AGENT_COMMAND_HELP.show.missingArgumentHint ?? 'glimmervoid show: this command needs a file path');
-    return 1;
-  }
+async function runShowCommand(parsed: ParsedArguments): Promise<number> {
+  const request = showRequestOf(parsed);
   const target = sessionEndpoint('show');
   if (!target.ok) {
     console.error(target.error);
@@ -299,10 +289,19 @@ async function runAgentApiCli(args: string[]): Promise<number> {
     console.error(`glimmervoid: ${verb || 'that'} is not an agent command`);
     return 1;
   }
-  if (verb === 'show') return runShowCommand(args.slice(1));
-  const body = BODY_BUILDERS[verb](args.slice(1));
+  const parsed = parseCommand(agentCommandSpec(verb), args.slice(1));
+  if (parsed.kind === 'help') {
+    console.log(parsed.text);
+    return 0;
+  }
+  if (parsed.kind === 'refused') {
+    console.error(parsed.text);
+    return 1;
+  }
+  if (verb === 'show') return runShowCommand(parsed);
+  const body = BODY_BUILDERS[verb](parsed);
   if (!body) {
-    console.error(AGENT_COMMAND_HELP[verb].missingArgumentHint ?? `glimmervoid ${verb}: this command needs an argument`);
+    console.error(`glimmervoid ${parsed.commandPath.join(' ')}: ${AGENT_COMMAND_HELP[verb].missingArgumentHint ?? 'those arguments are not understood'}; run it with --help for its usage`);
     return 1;
   }
   const target = sessionEndpoint(verb);
