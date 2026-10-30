@@ -93,6 +93,51 @@ function writeHookFixture(name: string, hooks: ProbeHookRecord[], target: ProbeF
   return destination;
 }
 
+const WHITEBOARD_PROBE_BOX_TITLE = 'Lanternfish';
+const WHITEBOARD_PROBE_ANSWER = 'HSIFNRETNAL';
+const WHITEBOARD_PROBE_PROMPT = 'Glimmervoid may have attached context to this prompt saying a box was added to a whiteboard. Reply with only that box title spelled backwards in capital letters, or NONE if you were told nothing. Run no tools.';
+const SHOULD_RUN_ONLY_WHITEBOARD_PROBE = process.argv.includes('--only-whiteboard');
+
+interface WhiteboardProbeSession {
+  id: string;
+  agentToken: string | null;
+}
+
+function whiteboardWriterIdFor(readerId: string): string {
+  return `${readerId}-board-writer`;
+}
+
+function whiteboardWriterProject(readerId: string, projectDirectory: string, agent: string): Record<string, unknown> {
+  return { id: whiteboardWriterIdFor(readerId), name: 'board writer', path: projectDirectory, agent, dangerouslySkipPermissions: false };
+}
+
+async function callWhiteboard(baseUrl: string, session: WhiteboardProbeSession, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  if (!session.agentToken) throw new Error(`${session.id} has no agent token`);
+  const response = await fetch(`${baseUrl}/agent/${session.id}/whiteboard`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${session.agentToken}` },
+    body: JSON.stringify(body),
+  });
+  const reply: Record<string, unknown> = await response.json();
+  if (reply.ok !== true) throw new Error(`whiteboard ${String(body.sub)} was refused: ${String(reply.error)}`);
+  return reply;
+}
+
+async function queueWhiteboardEditFor(baseUrl: string, reader: WhiteboardProbeSession, writer: WhiteboardProbeSession): Promise<void> {
+  const created = await callWhiteboard(baseUrl, writer, { sub: 'new', title: 'Probe board' });
+  const boardId = typeof created.board === 'object' && created.board !== null && 'id' in created.board ? created.board.id : null;
+  if (typeof boardId !== 'string') throw new Error('whiteboard new answered without a board id');
+  await callWhiteboard(baseUrl, reader, { sub: 'connect', board: boardId });
+  await callWhiteboard(baseUrl, writer, { sub: 'put', board: boardId, ops: [
+    { op: 'columns', columns: [{ id: 'intake', title: 'Intake' }] },
+    { op: 'add', element: { kind: 'box', id: 'probe-box', title: WHITEBOARD_PROBE_BOX_TITLE, column: 'intake' } },
+  ] });
+}
+
+function screenShowsWhiteboardAnswer(screenText: string): boolean {
+  return stripVTControlCharacters(screenText).replace(/\s+/g, '').includes(WHITEBOARD_PROBE_ANSWER);
+}
+
 function hookEventsOf(hooks: ProbeHookRecord[]): string[] {
   return hooks.map((hook) => hook.event.toLowerCase());
 }
@@ -170,9 +215,15 @@ export {
   hookEventsOf,
   listen,
   removeHarnessTempDirectory,
+  queueWhiteboardEditFor,
   safeTextTail,
   sanitizeProbeText,
+  screenShowsWhiteboardAnswer,
+  SHOULD_RUN_ONLY_WHITEBOARD_PROBE,
   waitForState,
+  whiteboardWriterIdFor,
+  whiteboardWriterProject,
+  WHITEBOARD_PROBE_PROMPT,
   writeHookFixture,
 };
 

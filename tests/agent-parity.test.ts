@@ -82,6 +82,13 @@ const PARITY_SCENARIOS: readonly ParityScenario[] = [
     fixtureByAgent: { 'claude-code': 'v2-claude-code-session-clear.jsonl', codex: 'v2-codex-session-clear.jsonl', kimi: 'v2-kimi-session-clear.jsonl' },
     requiresClearReset: true,
   },
+  {
+    name: 'whiteboard-prompt-context',
+    expectedFinalState: STATES.COMPLETE,
+    expectedCompleteNotifications: 1,
+    waitingNotification: 'forbidden',
+    fixtureByAgent: { 'claude-code': 'v2-claude-code-whiteboard-prompt-context.jsonl', codex: 'v2-codex-whiteboard-prompt-context.jsonl', kimi: 'v2-kimi-whiteboard-prompt-context.jsonl' },
+  },
 ];
 
 const FIXTURES_PINNED_ELSEWHERE: ReadonlySet<string> = new Set([

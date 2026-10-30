@@ -7,7 +7,10 @@ import path from 'node:path';
 import { createBackend } from '../server/backend/backend.ts';
 import type { Session } from '../session/sessions.ts';
 import type { HookPayload } from '../shared/contracts/index.ts';
-import { createProbeChecks, delay, hookEventsOf, waitForState, writeHookFixture } from './support/backend-harness.ts';
+import {
+  createProbeChecks, delay, hookEventsOf, queueWhiteboardEditFor, screenShowsWhiteboardAnswer, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, waitForState,
+  whiteboardWriterIdFor, whiteboardWriterProject, WHITEBOARD_PROBE_PROMPT, writeHookFixture,
+} from './support/backend-harness.ts';
 import type { ProbeFixtureTarget, ProbeHookRecord } from './support/backend-harness.ts';
 
 const SESSION_ID = 'claude-probe-session';
@@ -24,7 +27,7 @@ function writeProbeConfig(configPath: string, projectDirectory: string): void {
       path: projectDirectory,
       agent: 'claude-code',
       dangerouslySkipPermissions: false,
-    }],
+    }, whiteboardWriterProject(SESSION_ID, projectDirectory, 'claude-code')],
     teams: [],
     repoRoots: [],
     autoResume: false,
@@ -46,6 +49,8 @@ async function runProbe(tempDirectory: string): Promise<void> {
   const backend = createBackend(server, { staticDir: null });
   server.on('request', backend.app);
   await new Promise<void>((resolve) => { server.listen(0, '127.0.0.1', () => resolve()); });
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`;
   const registeredSession: Session | null = backend.getSession(SESSION_ID);
   if (!registeredSession) throw new Error(`the probe config did not produce a session named ${SESSION_ID}`);
   const session: Session = registeredSession;
@@ -114,8 +119,19 @@ async function runProbe(tempDirectory: string): Promise<void> {
     if (session.state === 'FAILED') throw new Error('the claude session failed to spawn');
     check('the spawn used the claude-code adapter', session.agentId === 'claude-code');
     await delay(BOOT_SETTLE_MS);
+    session.write('\x1b[B');
+    await delay(500);
     session.write('\r');
     await delay(3000);
+
+    const writer = backend.getSession(whiteboardWriterIdFor(SESSION_ID));
+    if (!writer) throw new Error('the probe config did not produce the board writer session');
+    await queueWhiteboardEditFor(baseUrl, session, writer);
+    const whiteboardOutputOffset = session.getOutputOffset();
+    const whiteboardHooks = await runScenario('whiteboard-prompt-context', () => submit(WHITEBOARD_PROBE_PROMPT), pressEnter);
+    check('UserPromptSubmit reached the hooks', hookEventsOf(whiteboardHooks).includes('userpromptsubmit'));
+    check('the queued board edit reached the model with the prompt', screenShowsWhiteboardAnswer(session.getBufferSince(whiteboardOutputOffset).data));
+    if (SHOULD_RUN_ONLY_WHITEBOARD_PROBE) return;
 
     const turnHooks = await runScenario('turn-complete', () => submit('Reply with the single word copperheron and nothing else.'), pressEnter);
     check('a plain turn ended on Stop', hookEventsOf(turnHooks).includes('stop'));

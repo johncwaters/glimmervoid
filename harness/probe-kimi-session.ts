@@ -10,7 +10,10 @@ import { generatedAgentHomePath } from "../session/agent-home.ts";
 import { KIMI_HOME_PROFILE } from "../session/core/agent-home-core.ts";
 import type { Session } from "../session/sessions.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
-import { createProbeChecks, delay, hookEventsOf, waitForState, writeHookFixture } from "./support/backend-harness.ts";
+import {
+  createProbeChecks, delay, hookEventsOf, queueWhiteboardEditFor, screenShowsWhiteboardAnswer, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, waitForState,
+  whiteboardWriterIdFor, whiteboardWriterProject, WHITEBOARD_PROBE_PROMPT, writeHookFixture,
+} from "./support/backend-harness.ts";
 import type { ProbeFixtureTarget, ProbeHookRecord } from "./support/backend-harness.ts";
 
 interface SpawnCall {
@@ -49,7 +52,7 @@ function writeProbeConfig(configPath: string, projectDirectory: string): void {
       path: projectDirectory,
       agent: "kimi",
       dangerouslySkipPermissions: false,
-    }],
+    }, whiteboardWriterProject(SESSION_ID, projectDirectory, "kimi")],
     teams: [],
     repoRoots: [],
     autoResume: false,
@@ -71,6 +74,8 @@ async function runProbe(tempDirectory: string): Promise<void> {
   const backend = createBackend(server, { staticDir: null });
   server.on("request", backend.app);
   await new Promise<void>((resolve) => { server.listen(0, "127.0.0.1", () => resolve()); });
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
   const registeredSession: Session | null = backend.getSession(SESSION_ID);
   if (!registeredSession) throw new Error(`the probe config did not produce a session named ${SESSION_ID}`);
   const session: Session = registeredSession;
@@ -189,6 +194,15 @@ async function runProbe(tempDirectory: string): Promise<void> {
     check("PermissionRequest preceded the turn's Stop", approvalEvents.indexOf("permissionrequest") >= 0 && approvalEvents.indexOf("permissionrequest") < approvalEvents.lastIndexOf("stop"));
     const capturedId = session._resumeSessionId;
     check("the captured session id is session_<uuid>", /^session_[0-9a-f-]{36}$/.test(String(capturedId || "")));
+
+    const writer = backend.getSession(whiteboardWriterIdFor(SESSION_ID));
+    if (!writer) throw new Error("the probe config did not produce the board writer session");
+    await queueWhiteboardEditFor(baseUrl, session, writer);
+    const whiteboardOutputOffset = session.getOutputOffset();
+    const whiteboardHooks = await runScenario("whiteboard-prompt-context", WHITEBOARD_PROBE_PROMPT, approveOnce);
+    check("UserPromptSubmit reached the hooks", hookEventsOf(whiteboardHooks).includes("userpromptsubmit"));
+    check("the queued board edit reached the model with the prompt", screenShowsWhiteboardAnswer(session.getBufferSince(whiteboardOutputOffset).data));
+    if (SHOULD_RUN_ONLY_WHITEBOARD_PROBE) return;
 
     const questionHooks = await runScenario("ask-question", "Use the AskUserQuestion tool to ask me whether I prefer red or blue, then reply with only my answer.", pickFirstOption);
     const questionEvents = hookEventsOf(questionHooks);

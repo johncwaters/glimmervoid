@@ -10,7 +10,10 @@ import { spawn } from '../server/child-process-safe.ts';
 import type { HookPayload } from '../shared/contracts/index.ts';
 import codex from '../session/adapters/codex.ts';
 import type { Session } from '../session/sessions.ts';
-import { createProbeChecks, delay, sanitizeProbeText, waitForState, writeHookFixture } from './support/backend-harness.ts';
+import {
+  createProbeChecks, delay, queueWhiteboardEditFor, sanitizeProbeText, screenShowsWhiteboardAnswer, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, waitForState,
+  whiteboardWriterIdFor, whiteboardWriterProject, WHITEBOARD_PROBE_PROMPT, writeHookFixture,
+} from './support/backend-harness.ts';
 import type { ProbeFixtureTarget, ProbeHookRecord } from './support/backend-harness.ts';
 
 interface SpawnCall {
@@ -69,7 +72,7 @@ function writeProbeConfig(configPath: string, projectDir: string): void {
       agent: 'codex',
       dangerouslySkipPermissions: false,
       codexBypassHookTrust: false,
-    }],
+    }, whiteboardWriterProject(SESSION_ID, projectDir, 'codex')],
     teams: [],
     repoRoots: [],
     autoResume: false,
@@ -197,7 +200,7 @@ function captureBridgeInPlanMode(projectDir: string): Promise<BridgeLine[]> {
 }
 
 async function main(): Promise<void> {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-codex-probe-'));
+  const tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-codex-probe-')));
   const projectDir = path.join(tmpDir, 'project');
   fs.mkdirSync(projectDir);
   const configPath = path.join(tmpDir, 'config.json');
@@ -211,6 +214,8 @@ async function main(): Promise<void> {
   const backend = createBackend(server, { staticDir: null });
   server.on('request', backend.app);
   await new Promise<void>((resolve) => { server.listen(0, '127.0.0.1', () => resolve()); });
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`;
 
   const session: Session | null = backend.getSession(SESSION_ID);
   if (!session) throw new Error(`the probe config did not produce a session named ${SESSION_ID}`);
@@ -255,8 +260,24 @@ async function main(): Promise<void> {
     await waitForState(session, ['RUNNING', 'IDLE'], 'first output');
     check('the session reached a live state after spawn', session.state !== 'DORMANT');
 
-    console.log('\nFirst turn:');
+    console.log('\nWhiteboard prompt context:');
     await delay(6000);
+    const writer = backend.getSession(whiteboardWriterIdFor(SESSION_ID));
+    if (!writer) throw new Error('the probe config did not produce the board writer session');
+    await queueWhiteboardEditFor(baseUrl, session, writer);
+    const whiteboardStart = hookRecords.length;
+    const whiteboardOutputOffset = session.getOutputOffset();
+    session.write(WHITEBOARD_PROBE_PROMPT);
+    await delay(1500);
+    session.write('\r');
+    await waitForState(session, ['COMPLETE'], 'the whiteboard turn to finish');
+    await delay(3000);
+    writeScenario('whiteboard-prompt-context', whiteboardStart);
+    check('UserPromptSubmit reached the hooks', hookRecords.slice(whiteboardStart).some((hook) => hook.event.toLowerCase() === 'userpromptsubmit'));
+    check('the queued board edit reached the model with the prompt', screenShowsWhiteboardAnswer(session.getBufferSince(whiteboardOutputOffset).data));
+    if (SHOULD_RUN_ONLY_WHITEBOARD_PROBE) return;
+
+    console.log('\nFirst turn:');
     const firstTurnStart = hookRecords.length;
     session.write(PROMPT);
     await delay(1500);
