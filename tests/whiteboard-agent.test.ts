@@ -8,7 +8,8 @@ import type { Server } from 'node:http';
 import { z } from 'zod';
 
 import { createBackend } from '../server/backend/backend.ts';
-import { AGENT_REPLY_SCHEMAS } from '../shared/contracts/session.ts';
+import { AGENT_REPLY_SCHEMAS, AGENT_URL_ENV } from '../shared/contracts/session.ts';
+import { runAgentApiCli } from '../server/agent-api-cli.ts';
 import { Op, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { closeSocket, dashboardClient, openRecordingSocket, waitForMessage } from './helpers/dashboard-ws.ts';
@@ -223,6 +224,64 @@ test('a session deletes a board it created and is refused a board another sessio
   const deleted = await whiteboard(PLANNER_ID, { sub: 'delete', board: boardId });
   assert.equal(deleted.status, 200);
   assert.equal((await whiteboard(PLANNER_ID, { sub: 'get', board: boardId })).body.error, 'that board was deleted');
+});
+
+async function runPlannerCli(context: test.TestContext, args: string[]): Promise<{ exitCode: number; printed: string }> {
+  const { base, backend } = running();
+  const printedLines: string[] = [];
+  context.mock.method(console, 'log', (line: string) => { printedLines.push(line); });
+  const previousAgentUrl = process.env[AGENT_URL_ENV];
+  process.env[AGENT_URL_ENV] = `${base}/agent/${PLANNER_ID}?t=${backend.getSession(PLANNER_ID)?.agentToken ?? ''}`;
+  try {
+    const exitCode = await runAgentApiCli(args);
+    return { exitCode, printed: printedLines.join('\n') };
+  } finally {
+    context.mock.restoreAll();
+    if (previousAgentUrl === undefined) delete process.env[AGENT_URL_ENV];
+    if (previousAgentUrl !== undefined) process.env[AGENT_URL_ENV] = previousAgentUrl;
+  }
+}
+
+test('an agent plans units through the CLI in dependency order, a cycle is refused, and deleting a linked board unlinks its unit', async (context) => {
+  const boardId = await newBoard('search api');
+  const detailBoardId = await newBoard('backfill design');
+  const plan = (...args: string[]) => runPlannerCli(context, ['whiteboard', 'plan', ...args]);
+
+  assert.equal((await plan('add', boardId, 'Diff index schema')).exitCode, 0);
+  assert.equal((await plan('add', boardId, 'Search endpoint', '--after', 'diff-index-schema')).exitCode, 0);
+  assert.equal((await plan('add', boardId, 'Index backfill', '--after', 'diff-index-schema', '--link', 'backfill design')).exitCode, 0);
+  assert.equal((await plan('add', boardId, 'Search box')).exitCode, 0);
+  assert.equal((await plan('after', boardId, 'search-box', 'search-endpoint')).exitCode, 0);
+
+  const clash = await plan('add', boardId, 'Search box');
+  assert.equal(clash.exitCode, 1);
+  assert.match(clash.printed, /already exists/);
+  assert.equal((await plan('add', boardId, 'Search box', '--id', 'search-box-2')).exitCode, 0);
+
+  const cycle = await plan('after', boardId, 'diff-index-schema', 'search-box');
+  assert.equal(cycle.exitCode, 1);
+  assert.match(cycle.printed, /dependency cycle: diff-index-schema, search-box, search-endpoint, diff-index-schema/);
+
+  const shown = await plan('show', boardId);
+  assert.equal(shown.exitCode, 0);
+  const planLines = shown.printed.split('\n').slice(1, 6).map((line) => line.replace(/ +/g, ' ').trim());
+  assert.deepEqual(planLines, [
+    '1a diff-index-schema Diff index schema',
+    '1b search-box-2 Search box',
+    '2a index-backfill Index backfill after 1a board "backfill design"',
+    '2b search-endpoint Search endpoint after 1a',
+    '3 search-box Search box after 2b',
+  ]);
+
+  const deleted = await whiteboard(PLANNER_ID, { sub: 'delete', board: detailBoardId });
+  assert.equal(deleted.status, 200);
+  const { board, changes } = await boardOf(PLANNER_ID, boardId);
+  assert.equal(board.elements['index-backfill']?.linkedBoardId, null);
+  assert.ok(changes.some((change) => change.summary === 'Glimmervoid unlinked "Index backfill" from its board'), JSON.stringify(changes));
+
+  const removed = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'remove', id: 'search-endpoint' }] });
+  assert.equal(removed.status, 200);
+  assert.deepEqual((await boardOf(PLANNER_ID, boardId)).board.elements['search-box']?.after, []);
 });
 
 test('the operator connects and disconnects a session from the dashboard, and a removed session leaves every board', async () => {

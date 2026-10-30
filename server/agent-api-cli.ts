@@ -8,6 +8,9 @@ import { resolveHookTarget } from '../session/core/hook-relay-core.ts';
 import { formatSessionLimits } from '../session/core/session-routes.ts';
 import { AgentLimitsReply, AGENT_URL_ENV, SHOWN_CAPTION_MAX_CHARS, SHOWN_FILE_CAP_BYTES } from '../shared/contracts/session.ts';
 import type { AgentApiVerb } from '../shared/contracts/session.ts';
+import { WhiteboardAgentReply } from '../shared/contracts/whiteboard.ts';
+import type { Board, BoardChange, BoardSummary, Op } from '../shared/contracts/whiteboard.ts';
+import { planSteps } from '../shared/whiteboard-plan-core.ts';
 import { AGENT_COMMAND_HELP, agentCommandSpec, isAgentApiVerb } from './core/agent-api-core.ts';
 import { parseCommand } from './core/cli-spec-core.ts';
 import type { ParsedCommand } from './core/cli-spec-core.ts';
@@ -283,6 +286,109 @@ async function runShowCommand(parsed: ParsedArguments): Promise<number> {
   return 0;
 }
 
+const MAX_UNIT_ID_LENGTH = 40;
+
+type PlanReply = { ok: boolean; text: string };
+
+function unitIdFromTitle(title: string): string {
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+/, '').slice(0, MAX_UNIT_ID_LENGTH).replace(/-+$/, '');
+  return slug || 'unit';
+}
+
+function commaSeparatedIds(text: string | boolean | undefined): string[] {
+  if (typeof text !== 'string') return [];
+  return text.split(',').map((id) => id.trim()).filter(Boolean);
+}
+
+async function askWhiteboard(body: Record<string, unknown>): Promise<WhiteboardAgentReply | string> {
+  const reply: unknown = await askAgentApi('whiteboard', body);
+  const parsed = WhiteboardAgentReply.safeParse(reply);
+  if (parsed.success) return parsed.data;
+  const error = typeof reply === 'object' && reply !== null ? (reply as { error?: unknown }).error : null;
+  return typeof error === 'string' ? error : 'Glimmervoid gave no usable answer';
+}
+
+async function listBoards(): Promise<BoardSummary[] | string> {
+  const reply = await askWhiteboard({ sub: 'list' });
+  if (typeof reply === 'string') return reply;
+  return 'boards' in reply ? reply.boards : 'Glimmervoid did not list the boards';
+}
+
+async function resolveLinkedBoardId(ref: string): Promise<{ boardId: string } | { error: string }> {
+  const boards = await listBoards();
+  if (typeof boards === 'string') return { error: boards };
+  const byId = boards.find((board) => board.id === ref);
+  if (byId) return { boardId: byId.id };
+  const byTitle = boards.filter((board) => board.title.toLowerCase() === ref.trim().toLowerCase());
+  if (byTitle.length === 1 && byTitle[0]) return { boardId: byTitle[0].id };
+  if (byTitle.length > 1) return { error: `${byTitle.length} boards are titled "${ref}", so link it by id` };
+  return { error: `no board is called ${ref}, so run glimmervoid whiteboard list to see the boards` };
+}
+
+async function putPlanOps(boardRef: string, ops: Op[], doneText: string): Promise<PlanReply> {
+  const reply = await askWhiteboard({ sub: 'put', board: boardRef, ops });
+  if (typeof reply === 'string') return { ok: false, text: reply };
+  return { ok: true, text: doneText };
+}
+
+async function addUnit({ values, positionals }: ParsedArguments, boardRef: string): Promise<PlanReply> {
+  const title = joinedText(positionals.slice(1));
+  const unitId = typeof values.id === 'string' ? values.id : unitIdFromTitle(title);
+  const linkRef = typeof values.link === 'string' ? values.link : null;
+  const link = linkRef === null ? { boardId: null } : await resolveLinkedBoardId(linkRef);
+  if ('error' in link) return { ok: false, text: link.error };
+  const ops: Op[] = [{ op: 'add', element: { kind: 'unit', id: unitId, title, lines: [], after: commaSeparatedIds(values.after), linkedBoardId: link.boardId } }];
+  return putPlanOps(boardRef, ops, `added unit ${unitId} "${title}"; run glimmervoid whiteboard plan show ${boardRef} for the order`);
+}
+
+function setUnitAfter(boardRef: string, unitId: string, afterIds: string[]): Promise<PlanReply> {
+  const ops: Op[] = [{ op: 'set', id: unitId, fields: { after: afterIds } }];
+  const doneText = afterIds.length === 0 ? `${unitId} now comes after nothing` : `${unitId} now comes after ${afterIds.join(', ')}`;
+  return putPlanOps(boardRef, ops, doneText);
+}
+
+function formatPlan(board: Board, boards: readonly BoardSummary[], changes: readonly BoardChange[]): string {
+  const steps = planSteps(board);
+  if (steps.length === 0) return `Board "${board.title}" has no plan yet; add a unit with glimmervoid whiteboard plan add ${board.id} <title>`;
+  const titleById = new Map(boards.map((summary) => [summary.id, summary.title]));
+  const labelWidth = Math.max(...steps.map((step) => step.label.length));
+  const idWidth = Math.max(...steps.map((step) => step.unitId.length));
+  const lines = [`Plan on "${board.title}" (${steps.length} ${steps.length === 1 ? 'unit' : 'units'})`];
+  for (const step of steps) {
+    const after = step.afterLabels.length > 0 ? `  after ${step.afterLabels.join(', ')}` : '';
+    const link = step.linkedBoardId === null ? '' : `  board "${titleById.get(step.linkedBoardId) ?? step.linkedBoardId}"`;
+    lines.push(`${step.label.padEnd(labelWidth)}  ${step.unitId.padEnd(idWidth)}  ${step.title}${after}${link}`);
+  }
+  if (changes.length > 0) lines.push('', 'Changes since this session last read the board:', ...changes.map((change) => `- ${change.summary}`));
+  return lines.join('\n');
+}
+
+async function showPlan(boardRef: string): Promise<PlanReply> {
+  const reply = await askWhiteboard({ sub: 'get', board: boardRef });
+  if (typeof reply === 'string') return { ok: false, text: reply };
+  if (!('changes' in reply)) return { ok: false, text: 'Glimmervoid did not return the board' };
+  const boards = await listBoards();
+  return { ok: true, text: formatPlan(reply.board, typeof boards === 'string' ? [] : boards, reply.changes) };
+}
+
+function runPlanAction(parsed: ParsedArguments, boardRef: string): Promise<PlanReply> {
+  const action = parsed.commandPath[2];
+  if (action === 'add') return addUnit(parsed, boardRef);
+  if (action === 'after') return setUnitAfter(boardRef, parsed.positionals[1] ?? '', parsed.positionals.slice(2));
+  return showPlan(boardRef);
+}
+
+async function runPlanCommand(parsed: ParsedArguments): Promise<number> {
+  const boardRef = parsed.positionals[0] ?? '';
+  const reply = await runPlanAction(parsed, boardRef);
+  if (!reply.ok) {
+    console.log(JSON.stringify({ ok: false, error: reply.text }));
+    return 1;
+  }
+  console.log(reply.text);
+  return 0;
+}
+
 async function runAgentApiCli(args: string[]): Promise<number> {
   const verb = args[0];
   if (!verb || !isAgentApiVerb(verb)) {
@@ -299,6 +405,7 @@ async function runAgentApiCli(args: string[]): Promise<number> {
     return 1;
   }
   if (verb === 'show') return runShowCommand(parsed);
+  if (verb === 'whiteboard' && parsed.commandPath[1] === 'plan') return runPlanCommand(parsed);
   const body = BODY_BUILDERS[verb](parsed);
   if (!body) {
     console.error(`glimmervoid ${parsed.commandPath.join(' ')}: ${AGENT_COMMAND_HELP[verb].missingArgumentHint ?? 'those arguments are not understood'}; run it with --help for its usage`);

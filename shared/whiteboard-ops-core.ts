@@ -1,11 +1,12 @@
-import { Box, Frame, Note, Wire, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
+import { Box, Frame, Note, Unit, Wire, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Board, BoardChange, Element, Op } from './contracts/whiteboard.ts';
+import { findDependencyCycle, unitsOf } from './whiteboard-plan-core.ts';
 
 type Author = { id: string; name: string };
 type ApplyResult = { ok: true; board: Board; changes: BoardChange[] } | { ok: false; error: string; opIndex: number };
 type OpOutcome = { ok: true } | { ok: false; error: string };
 
-const ELEMENT_SCHEMAS = Object.freeze({ box: Box, frame: Frame, wire: Wire, note: Note });
+const ELEMENT_SCHEMAS = Object.freeze({ box: Box, frame: Frame, wire: Wire, note: Note, unit: Unit });
 const NOTE_PREVIEW_CHARS = 80;
 const OK: OpOutcome = { ok: true };
 
@@ -19,6 +20,7 @@ function isBox(board: Board, id: string): boolean {
 
 function checkReferences(board: Board, element: Element): OpOutcome {
   if (element.kind === 'box') return checkBoxReferences(board, element);
+  if (element.kind === 'unit') return checkUnitReferences(board, element);
   if (element.kind === 'wire') {
     if (!isBox(board, element.from)) return refuse(`wire ${element.id} starts at ${element.from}, which is not a box`);
     if (!isBox(board, element.to)) return refuse(`wire ${element.id} ends at ${element.to}, which is not a box`);
@@ -28,6 +30,7 @@ function checkReferences(board: Board, element: Element): OpOutcome {
     if (!isBox(board, element.on)) return refuse(`note ${element.id} is on ${element.on}, which is not a box`);
     return OK;
   }
+  if (element.kind !== 'frame') return OK;
   const strangerId = element.contains.find((id) => !isBox(board, id));
   if (strangerId) return refuse(`frame ${element.id} contains ${strangerId}, which is not a box`);
   return OK;
@@ -43,9 +46,17 @@ function checkBoxReferences(board: Board, box: Box): OpOutcome {
   return OK;
 }
 
+function checkUnitReferences(board: Board, unit: Unit): OpOutcome {
+  if (unit.after.includes(unit.id)) return refuse(`unit ${unit.id} cannot come after itself`);
+  const strangerId = unit.after.find((id) => board.elements[id]?.kind !== 'unit');
+  if (strangerId) return refuse(`unit ${unit.id} comes after ${strangerId}, which is not a unit on this board`);
+  return OK;
+}
+
 function addElement(board: Board, element: Element, author: Author): OpOutcome {
   if (board.elements[element.id]) return refuse(`an element with id ${element.id} already exists`);
   if (Object.keys(board.elements).length >= WHITEBOARD_LIMITS.elements) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.elements} elements`);
+  if (element.kind === 'unit' && unitsOf(board).length >= WHITEBOARD_LIMITS.units) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.units} units`);
   const stored: Element = element.kind === 'note' ? { ...element, author: author.name, resolvedBy: null } : element;
   const references = checkReferences(board, stored);
   if (!references.ok) return references;
@@ -75,6 +86,12 @@ function removeElement(board: Board, id: string): OpOutcome {
   const existing = board.elements[id];
   if (!existing) return refuse(`no element has id ${id}`);
   delete board.elements[id];
+  if (existing.kind === 'unit') {
+    for (const unit of unitsOf(board)) {
+      if (unit.after.includes(id)) board.elements[unit.id] = { ...unit, after: unit.after.filter((afterId) => afterId !== id) };
+    }
+    return OK;
+  }
   if (existing.kind !== 'box') return OK;
   for (const element of Object.values(board.elements)) removeDependent(board, element, id);
   return OK;
@@ -150,6 +167,8 @@ function applyOps(board: Board, ops: readonly Op[], author: Author, nowMs: numbe
     if (!outcome.ok) return { ok: false, error: `op ${opIndex + 1}: ${outcome.error}`, opIndex };
     changes.push({ version, author: author.id, elementId, summary: `${author.name} ${describeOp(op, previous, draft)}` });
   }
+  const cycle = findDependencyCycle(draft);
+  if (cycle) return { ok: false, error: `that makes a dependency cycle: ${cycle.join(', ')}`, opIndex: ops.length - 1 };
   draft.version = version;
   draft.updatedAt = nowMs;
   return { ok: true, board: draft, changes };
@@ -163,15 +182,22 @@ function changedElementId(op: Op): string | null {
 
 function nameOf(board: Board, id: string, element: Element | undefined = board.elements[id]): string {
   if (!element) return id;
-  if (element.kind === 'box' || element.kind === 'frame') return `"${element.title || id}"`;
+  if (element.kind === 'box' || element.kind === 'frame' || element.kind === 'unit') return `"${element.title || id}"`;
   if (element.kind === 'wire') return `wire ${nameOf(board, element.from)} to ${nameOf(board, element.to)}`;
   return `note ${id}`;
+}
+
+function describeUnitAfter(board: Board, unitId: string, afterIds: readonly string[]): string {
+  if (afterIds.length === 0) return `cleared what ${nameOf(board, unitId)} comes after`;
+  return `set ${nameOf(board, unitId)} to come after ${afterIds.map((afterId) => nameOf(board, afterId)).join(', ')}`;
 }
 
 function describeSet(op: Extract<Op, { op: 'set' }>, previous: Element | undefined, after: Board): string {
   const fieldNames = Object.keys(op.fields);
   const afterElement = after.elements[op.id];
   if (fieldNames.length === 1 && fieldNames[0] === 'at') return `moved ${nameOf(after, op.id)}`;
+  if (fieldNames.length === 1 && fieldNames[0] === 'linkedBoardId') return afterElement?.kind === 'unit' && afterElement.linkedBoardId === null ? `unlinked ${nameOf(after, op.id)} from its board` : `linked ${nameOf(after, op.id)} to a board`;
+  if (fieldNames.length === 1 && fieldNames[0] === 'after' && afterElement?.kind === 'unit') return describeUnitAfter(after, afterElement.id, afterElement.after);
   if (previous?.kind === 'box' && afterElement?.kind === 'box' && fieldNames.length === 1 && fieldNames[0] === 'title') {
     return `renamed "${previous.title}" to "${afterElement.title}"`;
   }

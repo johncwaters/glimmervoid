@@ -355,6 +355,22 @@ function optionalText(usage: string): PositionalSpec {
 
 const BOARD_REFERENCE = requiredText('<board>');
 
+const PLAN_SUBCOMMANDS: readonly CommandSpec[] = [
+  {
+    name: 'add',
+    summary: 'Add a unit of work to the plan on a board; a unit is any size, from one ticket to a whole pull request',
+    positionals: { usage: '<board> <title>', min: 2, max: null },
+    options: [
+      { name: 'after', type: 'string', valueName: 'units', summary: 'Comma-separated ids of the units this one comes after' },
+      { name: 'link', type: 'string', valueName: 'board', summary: 'Another board, by id or title, that holds this unit\'s detail' },
+      { name: 'id', type: 'string', valueName: 'id', summary: 'The unit id, when the one made from its title is taken' },
+    ],
+    missingArgumentHint: 'plan add needs a board and a title, for example "glimmervoid whiteboard plan add release-plan Diff index schema"',
+  },
+  { name: 'after', summary: 'Set which units a unit comes after; naming none clears them. A dependency cycle is refused', positionals: { usage: '<board> <unit> [<unit>...]', min: 2, max: null }, missingArgumentHint: 'plan after needs a board and a unit' },
+  { name: 'show', summary: 'Print the plan on a board in dependency order; units that can run in parallel share a number, as 2a and 2b', positionals: BOARD_REFERENCE },
+];
+
 const WHITEBOARD_SUBCOMMANDS: readonly CommandSpec[] = [
   { name: 'new', summary: 'Create a board; this session is its creator and gets summaries of its changes', positionals: requiredText('<title>'), missingArgumentHint: 'a new board needs a title, for example "glimmervoid whiteboard new release plan"' },
   { name: 'list', summary: 'List the boards with their connected sessions' },
@@ -364,6 +380,7 @@ const WHITEBOARD_SUBCOMMANDS: readonly CommandSpec[] = [
   { name: 'put', summary: 'Apply a JSON op or array of ops to a board; - reads them from stdin', positionals: { usage: '<board> <ops-json|->', min: 2, max: null } },
   { name: 'resolve', summary: 'Mark a note on a board resolved', positionals: { usage: '<board> <note>', min: 2, max: null } },
   { name: 'delete', summary: 'Delete a board this session created; the operator deletes any board from the dashboard', positionals: BOARD_REFERENCE },
+  { name: 'plan', summary: 'Lay out units of work on a board in dependency order, beside its free drawing', subcommands: PLAN_SUBCOMMANDS, missingArgumentHint: null },
 ];
 
 const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = Object.freeze({
@@ -436,9 +453,9 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
   },
   settings: { usage: 'settings list|get', summary: "Read Glimmervoid's settings; a secret shows only as configured or not", missingArgumentHint: null, isPassthrough: true },
   whiteboard: {
-    usage: 'whiteboard new|list|connect|disconnect|get|put|resolve|delete',
+    usage: 'whiteboard new|list|connect|disconnect|get|put|resolve|delete|plan',
     subcommands: WHITEBOARD_SUBCOMMANDS,
-    summary: 'Create, connect to, read, edit and delete a shared whiteboard the operator and connected sessions edit together',
+    summary: 'Create, connect to, read, edit, plan on and delete a shared whiteboard the operator and connected sessions edit together',
     missingArgumentHint: null,
   },
   limits: { usage: 'limits', summary: 'List which of these commands answer here and why the rest do not', missingArgumentHint: null },

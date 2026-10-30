@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Plans on whiteboards**: a session can lay out units of work on any board, in dependency order, with `glimmervoid whiteboard plan add`, `plan after` and `plan show`. A unit is any size, from one ticket to a whole pull request. It can come after other units, and it can link to another board that holds its detail. `plan show` numbers the units in order, and units that can run in parallel share a number, as 2a and 2b. A dependency cycle is refused with the loop it would make. Deleting a linked board unlinks its units and tells the sessions connected to them. The board's free drawing is untouched.
+
 ### Changed
 
 - **The Boards view header is one row.** Board tabs, the board's version, connected sessions and the toolbar now share a single line above the canvas instead of three, so the board gets more room. The open board's name shows on its selected tab rather than as a separate heading.

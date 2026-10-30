@@ -10,6 +10,7 @@ import type { ControlMessageRecord } from '../core/control-replay-core.ts';
 import { applyOps, createBoard } from '../../shared/whiteboard-ops-core.ts';
 import type { Author } from '../../shared/whiteboard-ops-core.ts';
 import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
+import { unitsOf } from '../../shared/whiteboard-plan-core.ts';
 import {
   changesForReader, connectSession, disconnectSession, markRead, nudgeLineFor, promptContextFor, recordPut, resolveBoardRef, summarizeBoard,
 } from '../core/whiteboard-store-core.ts';
@@ -28,7 +29,8 @@ const PUT_GUIDE = [
   '{"op":"add","element":{"kind":"box","id":"parse","title":"Parse","column":"intake","lane":"pr1","lines":[{"text":"reads the feed"},{"text":"skips drafts","muted":true}]}},',
   '{"op":"add","element":{"kind":"wire","id":"w1","from":"parse","to":"store","dashed":true,"label":"on retry"}},',
   '{"op":"set","id":"parse","fields":{"title":"Parse feed"}},{"op":"remove","id":"w1"}]\'.',
-  'Element kinds: box (title, column, lines, lane, ghost, order), wire (from, to, dashed, tone plain|fail|join|lane, label), frame (title, contains), note (on, text).',
+  'Element kinds: box (title, column, lines, lane, ghost, order), wire (from, to, dashed, tone plain|fail|join|lane, label), frame (title, contains), note (on, text), unit (title, lines, after, linkedBoardId).',
+  'Units lay out work in dependency order: glimmervoid whiteboard plan add|after|show edits and reads them.',
   'Columns place boxes, so never send pixel positions. A put is applied whole or refused whole.',
   'glimmervoid whiteboard get <board> returns the board and a one-line summary of each change others made since this session last read it.',
 ].join(' ');
@@ -55,6 +57,7 @@ type OperatorReply = {
 };
 
 const OPERATOR_AUTHOR: Author = Object.freeze({ id: 'operator', name: 'operator' });
+const BOARD_DELETION_AUTHOR: Author = Object.freeze({ id: 'glimmervoid', name: 'Glimmervoid' });
 const DELETED_BOARD_TEXT = 'that board was deleted';
 
 interface WhiteboardWiringOptions {
@@ -190,6 +193,8 @@ function createWhiteboardWiring({
     return changeRecord(boardId, (record) => {
       const result = applyOps(record.board, ops, author, now());
       if (!result.ok) return { ok: false, reply: refusal(400, `${result.error}, so nothing changed`) };
+      const strandedUnit = unitsOf(result.board).find((unit) => unit.linkedBoardId !== null && !recordsByBoardId.has(unit.linkedBoardId));
+      if (strandedUnit) return { ok: false, reply: refusal(400, `unit ${strandedUnit.id} links to board ${strandedUnit.linkedBoardId ?? ''}, which does not exist, so nothing changed`) };
       const next = recordPut(record, result);
       const patch: WhiteboardPatch = {
         type: 'whiteboard-patch', boardId, fromVersion: record.board.version, toVersion: next.board.version,
@@ -227,7 +232,23 @@ function createWhiteboardWiring({
     });
   }
 
-  function removeBoard(boardId: string): Promise<WhiteboardReply> {
+  async function clearLinksTo(deletedBoardId: string): Promise<void> {
+    const unlinkPuts = [...recordsByBoardId.values()].flatMap((record) => {
+      const ops: Op[] = unitsOf(record.board)
+        .filter((unit) => unit.linkedBoardId === deletedBoardId)
+        .map((unit) => ({ op: 'set', id: unit.id, fields: { linkedBoardId: null } }));
+      return ops.length === 0 ? [] : [putOps(record.board.id, ops, BOARD_DELETION_AUTHOR)];
+    });
+    await Promise.all(unlinkPuts);
+  }
+
+  async function removeBoard(boardId: string): Promise<WhiteboardReply> {
+    const reply = await removeBoardRecord(boardId);
+    if (reply.body.ok) await clearLinksTo(boardId);
+    return reply;
+  }
+
+  function removeBoardRecord(boardId: string): Promise<WhiteboardReply> {
     return writeQueue.run(boardId, async () => {
       const current = recordsByBoardId.get(boardId);
       if (!current) return refusal(404, DELETED_BOARD_TEXT);

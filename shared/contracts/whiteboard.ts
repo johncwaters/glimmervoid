@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const WHITEBOARD_LIMITS = Object.freeze({
-  elements: 1000, opsPerPut: 200, putBytes: 262_144, title: 80, line: 120, linesPerBox: 12, columns: 12, lanes: 12, noteText: 400, logEntries: 2000, promptContextLines: 20, promptContextCharacters: 6000, promptContextLineCharacters: 300, layoutWarnings: 20,
+  elements: 1000, opsPerPut: 200, putBytes: 262_144, title: 80, line: 120, linesPerBox: 12, columns: 12, lanes: 12, noteText: 400, logEntries: 2000, promptContextLines: 20, promptContextCharacters: 6000, promptContextLineCharacters: 300, layoutWarnings: 20, units: 40, unitDependencies: 12, linesPerUnit: 4,
 });
 
 const LANE_COLORS = ['blue', 'green', 'orange', 'pink', 'cyan', 'yellow'] as const;
@@ -56,7 +56,16 @@ export const Note = z.object({
   resolvedBy: z.string().max(200).nullable().default(null),
 }).strict();
 
-export const Element = z.discriminatedUnion('kind', [Box, Frame, Wire, Note], { error: 'an element kind is box, frame, wire or note' });
+export const Unit = z.object({
+  kind: z.literal('unit'),
+  id: ElementId,
+  title: Title.min(1, { error: 'a unit needs a title' }),
+  lines: z.array(BoxLine).max(WHITEBOARD_LIMITS.linesPerUnit, { error: `a unit holds at most ${WHITEBOARD_LIMITS.linesPerUnit} lines` }).default([]),
+  after: z.array(ElementId).max(WHITEBOARD_LIMITS.unitDependencies, { error: `a unit comes after at most ${WHITEBOARD_LIMITS.unitDependencies} units` }).default([]),
+  linkedBoardId: z.string().min(1).max(64).nullable().default(null),
+}).strict();
+
+export const Element = z.discriminatedUnion('kind', [Box, Frame, Wire, Note, Unit], { error: 'an element kind is box, frame, wire, note or unit' });
 
 const BoardColumns = z.array(z.object({ id: ElementId, title: z.string().max(60) }).strict())
   .max(WHITEBOARD_LIMITS.columns, { error: `a board has at most ${WHITEBOARD_LIMITS.columns} columns` });
@@ -139,6 +148,7 @@ export type Box = z.infer<typeof Box>;
 export type Frame = z.infer<typeof Frame>;
 export type Wire = z.infer<typeof Wire>;
 export type Note = z.infer<typeof Note>;
+export type Unit = z.infer<typeof Unit>;
 export type Element = z.infer<typeof Element>;
 export type Board = z.infer<typeof Board>;
 export type Op = z.infer<typeof Op>;
