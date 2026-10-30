@@ -64,10 +64,16 @@ test('capture spends no git call on an unmoved HEAD, and why finds the session o
     const change = { sessionId: 'session-1', sessionName: 'demo', agent: 'claude', taskTitle: 'Add files', worktreeDir, baseRef: 'main' };
 
     const firstGit = countingGit();
-    const commitSessions = createCommitSessions({ storeRoot, runGitFn: firstGit.runGitFn, logger: console, nowFn: () => 1 });
+    const captureWarnings: string[] = [];
+    const commitSessions = createCommitSessions({ storeRoot, runGitFn: firstGit.runGitFn, logger: { warn: (text: string) => captureWarnings.push(text) }, nowFn: () => 1 });
     const firstSha = commitFile(worktreeDir, 'first.txt');
+    fs.writeFileSync(storeRoot, 'a file where the store folder belongs');
     await commitSessions.noteHeadChange({ ...change, headSha: firstSha });
-    assert.deepEqual(firstGit.subcommands, ['rev-parse', 'log', 'show', 'patch-id']);
+    assert.equal(captureWarnings.length, 1);
+    fs.rmSync(storeRoot);
+    firstGit.subcommands.length = 0;
+    await commitSessions.noteHeadChange({ ...change, headSha: firstSha });
+    assert.deepEqual(firstGit.subcommands, ['log', 'show', 'patch-id']);
     const firstPatch = git(['show', firstSha], worktreeDir);
     const expectedPatchId = (await runGit(['patch-id', '--stable'], { cwd: worktreeDir, input: firstPatch })).out.split(' ')[0];
     const [firstRecord] = storedRecords(storeRoot);
@@ -102,6 +108,10 @@ test('capture spends no git call on an unmoved HEAD, and why finds the session o
     git(['rebase', '-q', 'main'], worktreeDir);
     assert.notEqual(git(['rev-parse', 'HEAD~1'], worktreeDir).trim(), firstSha);
     const configPath = path.join(sandbox, 'config.json');
+    const missingStoreErrors: string[] = [];
+    const missingStoreExit = await runWhyCli({ targetArgument: 'first.txt:1', cwd: worktreeDir, configPath: path.join(sandbox, 'elsewhere', 'config.json'), writeOutput: (text) => missingStoreErrors.push(text), writeError: (text) => missingStoreErrors.push(text) });
+    assert.equal(missingStoreExit, 1);
+    assert.match(missingStoreErrors.join('\n'), /no commit-session records for this repository at .*elsewhere/);
 
     const rebasedLine = await askWhy('first.txt:1', worktreeDir, configPath);
     assert.deepEqual(rebasedLine.subcommands, ['rev-parse', 'blame', 'show', 'patch-id']);

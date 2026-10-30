@@ -94,10 +94,12 @@ function createCommitSessions({ storeRoot, runGitFn = runGit, logger, nowFn = Da
     const gitOptions: RunGitOptions = { cwd: change.worktreeDir, timeoutMs: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER };
     const listed = await runGitFn(['log', '--no-merges', `--format=${COMMIT_LOG_FORMAT}`, `${change.baseRef}..${change.headSha}`], gitOptions);
     if (!listed.ok) return;
-    lastCapturedHeadBySessionId.set(change.sessionId, change.headSha);
     const recordedShas = await recordedShasFor(change.sessionId, storePath);
     const newCommits = parseCommitLog(listed.out).filter((commit) => !recordedShas.has(commit.sha));
-    if (newCommits.length === 0) return;
+    if (newCommits.length === 0) {
+      lastCapturedHeadBySessionId.set(change.sessionId, change.headSha);
+      return;
+    }
     const patchIdBySha = await patchIdsOf(newCommits, gitOptions);
     const shasWithoutPatchId = newCommits.filter((commit) => !patchIdBySha.has(commit.sha)).map((commit) => commit.sha.slice(0, 12));
     if (shasWithoutPatchId.length > 0) logger.warn(`[commit-sessions] no patch-id for ${shasWithoutPatchId.join(', ')} in ${change.sessionId}; a rebased copy will not trace back`);
@@ -113,6 +115,7 @@ function createCommitSessions({ storeRoot, runGitFn = runGit, logger, nowFn = Da
       recordedAt,
     }));
     await appendJsonLines(storePath, records, { mkdir: true, mode: 0o600 });
+    lastCapturedHeadBySessionId.set(change.sessionId, change.headSha);
     for (const record of records) recordedShas.add(record.sha);
   }
 
@@ -128,5 +131,5 @@ function createCommitSessions({ storeRoot, runGitFn = runGit, logger, nowFn = Da
 
 type CommitSessions = ReturnType<typeof createCommitSessions>;
 
-export { COMMIT_SESSIONS_FOLDER_NAME, GIT_MAX_BUFFER, GIT_TIMEOUT_MS, createCommitSessions, gitCommonDirectoryOf, patchIdsOfBatch, readStoreText, storePathFor };
+export { COMMIT_SESSIONS_FOLDER_NAME, GIT_MAX_BUFFER, GIT_TIMEOUT_MS, createCommitSessions, gitCommonDirectoryOf, patchIdsOfBatch, storePathFor };
 export type { CommitSessions, GitRunner };

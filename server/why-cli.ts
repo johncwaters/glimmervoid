@@ -4,7 +4,7 @@ import { firstLine } from './core/text-core.ts';
 import { findRecord, formatWhy, lastPromptBefore, parseCommitLog, parseWhyTarget } from './core/commit-session-core.ts';
 import type { ListedCommit } from './core/commit-session-core.ts';
 import {
-  COMMIT_SESSIONS_FOLDER_NAME, GIT_MAX_BUFFER, GIT_TIMEOUT_MS, gitCommonDirectoryOf, patchIdsOfBatch, readStoreText, storePathFor,
+  COMMIT_SESSIONS_FOLDER_NAME, GIT_MAX_BUFFER, GIT_TIMEOUT_MS, gitCommonDirectoryOf, patchIdsOfBatch, storePathFor,
 } from './commit-sessions.ts';
 import type { GitRunner } from './commit-sessions.ts';
 import { runGit } from './git/git-exec.ts';
@@ -80,10 +80,15 @@ async function runWhyCli({
     return 0;
   }
   const storeRoot = configSiblingPath(configPath, COMMIT_SESSIONS_FOLDER_NAME);
-  const storeText = await readStoreText(storePathFor(storeRoot, gitCommonDirectory));
+  const storePath = storePathFor(storeRoot, gitCommonDirectory);
+  const storeText = await fs.promises.readFile(storePath, 'utf8').catch(() => null);
+  if (!storeText) {
+    writeError(`glimmervoid why: no commit-session records for this repository at ${storePath}; a moved checkout or a different --config looks here, or no session has committed in it yet`);
+    return 1;
+  }
   const { sha, committedAt } = blamed.commit;
-  let record = storeText ? findRecord(storeText, { sha }) : null;
-  if (storeText && !record) {
+  let record = findRecord(storeText, { sha });
+  if (!record) {
     const patchId = (await patchIdsOfBatch([sha], { cwd, timeoutMs: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER }, runGitFn))?.get(sha);
     record = patchId ? findRecord(storeText, { patchId }) : null;
   }
