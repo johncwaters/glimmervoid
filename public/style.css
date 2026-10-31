@@ -4623,6 +4623,7 @@ html[data-layout="phone"] :is(.session-group-add, .session-group-forget)::after 
 
 html[data-layout="phone"] .session-row { min-height: 56px; }
 html[data-layout="phone"] .session-row-remove { flex-basis: 44px; min-width: 44px; min-height: 44px; }
+html[data-layout="phone"] .session-row-item:has(> .session-row.focused) { outline: none; }
 
 .phone-terminal { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 
