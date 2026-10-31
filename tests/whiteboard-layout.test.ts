@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { Board } from '../shared/contracts/whiteboard.ts';
 import { layoutBoard } from '../shared/whiteboard-layout-core.ts';
 import { applyOps } from '../shared/whiteboard-ops-core.ts';
+import { EMPTY_HISTORY, UNDO_LIMIT, inverseOps, recordEdit, takeStep } from '../shared/whiteboard-undo-core.ts';
+import type { Op } from '../shared/contracts/whiteboard.ts';
 import type { LaidOutElement, Rect } from '../shared/whiteboard-layout-core.ts';
 
 function box(id: string, column: string, order: number) {
@@ -284,4 +286,33 @@ test('styled lines carry their markers, a panel sits clear right of every box, a
   assert.ok(besidePanel.every((element) => panel.x > element.x + element.width), `panel at ${panel.x} overlaps a box or note`);
   assert.deepEqual(layout.legend.map((row) => row.label), ['gives up', 'retry', 'merges back']);
   assert.equal(layout.warnings.filter((warning) => warning.includes('panel')).length, 0, layout.warnings.join('\n'));
+});
+
+test('undoing an operator edit restores the board it started from, cascades and column moves included, and the history keeps only the newest entries', () => {
+  const author = { id: 'operator', name: 'operator' };
+  const decision = { kind: 'box', id: 'gate', title: 'gate', column: 'c', shape: 'decision', outputs: [{ id: 'ok', label: 'ok' }] };
+  const before = applyOps(crowdedBoard, [
+    { op: 'add', element: Board.shape.elements.valueType.parse(decision) },
+    { op: 'add', element: Board.shape.elements.valueType.parse({ kind: 'wire', id: 'w1', from: 'gate', to: 'c1', fromOutput: 'ok' }) },
+    { op: 'resolve', id: 'n2' },
+  ], author, 1);
+  assert.ok(before.ok);
+  const edits: Op[] = [
+    { op: 'remove', id: 'b1' },
+    { op: 'set', id: 'gate', fields: { outputs: [], shape: 'box', title: 'renamed' } },
+    { op: 'columns', columns: [{ id: 'a', title: 'Triggers' }, { id: 'z', title: 'merged' }], move: { b: 'z', c: 'z' } },
+    { op: 'board', title: 'renamed board', legend: [{ tone: 'fail', dashed: false, back: false, label: 'gives up' }] },
+  ];
+  const edited = applyOps(before.board, [{ op: 'remove', id: 'w1' }, ...edits], author, 2);
+  assert.ok(edited.ok);
+  const undone = applyOps(edited.board, inverseOps(before.board, [{ op: 'remove', id: 'w1' }, ...edits]), author, 3);
+  assert.ok(undone.ok, undone.ok ? '' : undone.error);
+  const withoutNoteAuthors = (board: Board) => Object.fromEntries(Object.entries(board.elements).map(([id, element]) => [id, element.kind === 'note' ? { ...element, author: '' } : element]));
+  const comparable = (board: Board) => ({ title: board.title, columns: board.columns, legend: board.legend, elements: withoutNoteAuthors(board) });
+  assert.deepEqual(comparable(undone.board), comparable(before.board));
+
+  let history = EMPTY_HISTORY;
+  for (let index = 0; index <= UNDO_LIMIT; index += 1) history = recordEdit(history, [{ op: 'remove', id: `edit-${index}` }]);
+  assert.equal(history.undo.length, UNDO_LIMIT);
+  assert.deepEqual(takeStep(history, 'undo')?.entry, [{ op: 'remove', id: `edit-${UNDO_LIMIT}` }]);
 });

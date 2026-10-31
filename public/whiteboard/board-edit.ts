@@ -1,4 +1,5 @@
-import type { Board, Op } from '#shared/contracts/whiteboard.ts';
+import type { Board, Element as BoardElement, Op } from '#shared/contracts/whiteboard.ts';
+import type { UndoDirection } from '#shared/whiteboard-undo-core.ts';
 import { el } from '../dom-helpers.ts';
 import type { Rect } from '#shared/whiteboard-layout-core.ts';
 import type { BoardRenderer } from './board-render.ts';
@@ -8,6 +9,10 @@ const MIN_VIEW_WIDTH = 200;
 const MAX_VIEW_WIDTH = 20000;
 const WHEEL_ZOOM_STEP = 1.1;
 const REMOVAL_ORDER = ['wire', 'note', 'frame', 'box', 'panel', 'unit'] as const;
+const TOOL_BY_KEY: Readonly<Record<string, BoardTool>> = { v: 'select', r: 'box', d: 'decision', p: 'panel', a: 'wire' };
+
+type BoardTool = 'select' | 'box' | 'decision' | 'panel' | 'wire';
+type PlacementTool = Extract<BoardTool, 'box' | 'decision' | 'panel'>;
 
 interface ViewPoint {
   x: number;
@@ -24,6 +29,8 @@ interface BoardEditorOptions {
   onPhoneTapBox: (boxId: string) => void;
   onOpenLinkedBoard: (boardId: string) => void;
   onConnectBoxes: (fromBoxId: string, toBoxId: string) => void;
+  onToolChange: (tool: BoardTool) => void;
+  onHistoryStep: (direction: UndoDirection) => void;
 }
 
 type Gesture =
@@ -33,7 +40,7 @@ type Gesture =
   | { kind: 'pinch'; distance: number; viewWidth: number }
   | null;
 
-export function newElementId(kind: 'box' | 'wire' | 'note' | 'frame' | 'unit'): string {
+export function newElementId(kind: BoardElement['kind']): string {
   const entropy = Math.random().toString(36).slice(2, 8);
   return `${kind}-${Date.now().toString(36)}${entropy}`;
 }
@@ -44,6 +51,22 @@ function isPhoneLayout(): boolean {
 
 function portOf(target: EventTarget | null): SVGCircleElement | null {
   return target instanceof SVGCircleElement && target.classList.contains('wb-port') ? target : null;
+}
+
+function isPlacementTool(tool: BoardTool): tool is PlacementTool {
+  return tool === 'box' || tool === 'decision' || tool === 'panel';
+}
+
+function placedElement(tool: PlacementTool, board: Board, at: ViewPoint): BoardElement {
+  if (tool === 'panel') {
+    const lastOrder = Math.max(-1, ...Object.values(board.elements).map((element) => (element.kind === 'panel' ? element.order : -1)));
+    return { kind: 'panel', id: newElementId('panel'), title: 'Panel', lines: [], order: lastOrder + 1 };
+  }
+  const isDecision = tool === 'decision';
+  return {
+    kind: 'box', id: newElementId('box'), title: isDecision ? 'Decision' : 'Box', lines: [], lane: null, ghost: false, column: null, near: null, order: 0, at,
+    shape: isDecision ? 'decision' : 'box', outputs: isDecision ? [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }] : [],
+  };
 }
 
 function linkedBoardIdOf(target: EventTarget | null): string | null {
@@ -59,6 +82,14 @@ export function createBoardEditor(options: BoardEditorOptions) {
   let gesture: Gesture = null;
   let titleInput: HTMLInputElement | null = null;
   let previewFrameId: number | null = null;
+  let activeTool: BoardTool = 'select';
+  let pendingTitleEditId: string | null = null;
+
+  function setTool(tool: BoardTool): void {
+    activeTool = tool;
+    svg.dataset.tool = tool;
+    options.onToolChange(tool);
+  }
 
   function applyViewBox(): void {
     svg.setAttribute('viewBox', `${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`);
@@ -200,9 +231,18 @@ export function createBoardEditor(options: BoardEditorOptions) {
       return;
     }
     const hit = renderer.elementFromTarget(event.target);
+    if (isPlacementTool(activeTool)) {
+      void placeElement(activeTool, toViewPoint(event.clientX, event.clientY));
+      return;
+    }
     const port = portOf(event.target);
     if (hit?.kind === 'box' && port && !isPhoneLayout()) {
-      startWire(event.pointerId, hit.id, port);
+      startWire(event.pointerId, hit.id, { x: port.cx.baseVal.value, y: port.cy.baseVal.value });
+      return;
+    }
+    const wireToolRect = activeTool === 'wire' && hit?.kind === 'box' ? boxRectOf(hit.id) : null;
+    if (hit && wireToolRect) {
+      startWire(event.pointerId, hit.id, { x: wireToolRect.x + wireToolRect.width / 2, y: wireToolRect.y + wireToolRect.height / 2 });
       return;
     }
     const boxRect = hit?.kind === 'box' && !isPhoneLayout() ? boxRectOf(hit.id) : null;
@@ -220,8 +260,27 @@ export function createBoardEditor(options: BoardEditorOptions) {
     gesture = { kind: 'pan', pointerId: event.pointerId, lastClient: { x: event.clientX, y: event.clientY }, hasMoved: false, tappedBoxId };
   }
 
-  function startWire(pointerId: number, fromBoxId: string, port: SVGCircleElement): void {
-    const start = { x: port.cx.baseVal.value, y: port.cy.baseVal.value };
+  async function placeElement(tool: PlacementTool, point: ViewPoint): Promise<void> {
+    setTool('select');
+    const board = options.currentBoard();
+    if (!board) return;
+    const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
+    const element = placedElement(tool, board, { x: Math.round(point.x), y: Math.round(point.y - pinnedOffsetY) });
+    pendingTitleEditId = element.id;
+    const isSent = await options.sendOps([{ op: 'add', element }]);
+    if (!isSent) pendingTitleEditId = null;
+    if (isSent) setSelection(new Set([element.id]));
+    openPendingTitleEdit();
+  }
+
+  function openPendingTitleEdit(): void {
+    if (!pendingTitleEditId || !renderer.nodeOf(pendingTitleEditId)) return;
+    const elementId = pendingTitleEditId;
+    pendingTitleEditId = null;
+    editTitle(elementId);
+  }
+
+  function startWire(pointerId: number, fromBoxId: string, start: ViewPoint): void {
     const draftLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     draftLine.setAttribute('class', 'wb-wire-line wb-dashed wb-wire-draft');
     draftLine.setAttribute('d', `M ${start.x} ${start.y} L ${start.x} ${start.y}`);
@@ -322,6 +381,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     }
     if (finished?.kind === 'wire') {
       endWire(finished, finished.pointerId === event.pointerId);
+      if (activeTool === 'wire') setTool('select');
       return;
     }
     if (finished?.kind !== 'pan' || finished.hasMoved) return;
@@ -355,19 +415,19 @@ export function createBoardEditor(options: BoardEditorOptions) {
     openInput?.remove();
   }
 
-  function editTitle(boxId: string): void {
+  function editTitle(elementId: string): void {
     const board = options.currentBoard();
-    const box = board?.elements[boxId];
-    const node = renderer.nodeOf(boxId);
-    if (box?.kind !== 'box' || !node) return;
+    const titled = board?.elements[elementId];
+    const node = renderer.nodeOf(elementId);
+    if ((titled?.kind !== 'box' && titled?.kind !== 'panel') || !node) return;
     closeTitleInput();
     const canvasRect = canvas.getBoundingClientRect();
     const boxRect = node.getBoundingClientRect();
     const input = el('input', 'wb-title-input');
     input.type = 'text';
-    input.value = box.title;
+    input.value = titled.title;
     input.maxLength = 80;
-    input.setAttribute('aria-label', 'Box title');
+    input.setAttribute('aria-label', titled.kind === 'panel' ? 'Panel title' : 'Box title');
     input.style.left = `${boxRect.left - canvasRect.left}px`;
     input.style.top = `${boxRect.top - canvasRect.top}px`;
     input.style.width = `${Math.max(160, boxRect.width)}px`;
@@ -385,8 +445,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
       const title = input.value.trim();
       closeTitleInput();
       svg.focus();
-      if (!title || title === box.title) return;
-      void options.sendOps([{ op: 'set', id: boxId, fields: { title } }]);
+      if (!title || title === titled.title) return;
+      void options.sendOps([{ op: 'set', id: elementId, fields: { title } }]);
     });
     input.addEventListener('blur', closeTitleInput);
     input.focus();
@@ -396,7 +456,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   function onDoubleClick(event: MouseEvent): void {
     if (isPhoneLayout()) return;
     const hit = renderer.elementFromTarget(document.elementFromPoint(event.clientX, event.clientY));
-    if (hit?.kind !== 'box') return;
+    if (hit?.kind !== 'box' && hit?.kind !== 'panel') return;
     editTitle(hit.id);
   }
 
@@ -412,12 +472,26 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function onKeyDown(event: KeyboardEvent): void {
     if (event.target !== svg) return;
+    if ((event.metaKey || event.ctrlKey) && !event.altKey && event.code === 'KeyZ') {
+      event.preventDefault();
+      options.onHistoryStep(event.shiftKey ? 'redo' : 'undo');
+      return;
+    }
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
     if (event.key === 'Delete' || event.key === 'Backspace') {
       event.preventDefault();
       removeSelected();
       return;
     }
-    if (event.key === 'Escape') setSelection(new Set());
+    const tool = TOOL_BY_KEY[event.key.toLowerCase()];
+    if (tool && !event.shiftKey) {
+      event.preventDefault();
+      setTool(tool);
+      return;
+    }
+    if (event.key !== 'Escape') return;
+    setSelection(new Set());
+    setTool('select');
   }
 
   svg.tabIndex = 0;
@@ -436,7 +510,11 @@ export function createBoardEditor(options: BoardEditorOptions) {
     pruneSelection,
     previewOf,
     closeTitleInput,
+    setTool,
+    openPendingTitleEdit,
+    focusCanvas: () => svg.focus(),
   };
 }
 
 export type BoardEditor = ReturnType<typeof createBoardEditor>;
+export type { BoardTool };

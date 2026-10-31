@@ -9,7 +9,9 @@ import { buildDialogShell, openConfirmDialog } from '../session-card/modal.ts';
 import { setTerminalActiveViewer } from '../session-card/terminal.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import { createBoardEditor, newElementId } from './board-edit.ts';
-import type { BoardEditor } from './board-edit.ts';
+import type { BoardEditor, BoardTool } from './board-edit.ts';
+import { EMPTY_HISTORY, inverseOps, recordEdit, recordStep, takeStep } from '#shared/whiteboard-undo-core.ts';
+import type { UndoDirection, UndoHistory } from '#shared/whiteboard-undo-core.ts';
 import { createBoardRenderer } from './board-render.ts';
 import type { BoardRenderer } from './board-render.ts';
 import {
@@ -19,6 +21,13 @@ import {
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const EMPTY_TEXT = 'No boards yet. Make one here, or have an agent run glimmervoid whiteboard new <title>.';
 const PICK_TEXT = 'Pick a board above.';
+const TOOL_BUTTONS: readonly { tool: BoardTool; label: string; key: string }[] = [
+  { tool: 'select', label: 'select', key: 'V' },
+  { tool: 'box', label: 'box', key: 'R' },
+  { tool: 'decision', label: 'decision', key: 'D' },
+  { tool: 'panel', label: 'panel', key: 'P' },
+  { tool: 'wire', label: 'wire', key: 'A' },
+];
 
 interface TextDialogOptions {
   title: string;
@@ -42,7 +51,8 @@ interface BoardsViewParts {
   dock: HTMLElement;
   dockQueued: HTMLElement;
   sendToAgent: HTMLButtonElement;
-  buttons: Record<'box' | 'wire' | 'note' | 'frame' | 'unit' | 'fit' | 'remove', HTMLButtonElement>;
+  buttons: Record<'note' | 'frame' | 'unit' | 'fit' | 'remove', HTMLButtonElement>;
+  toolButtons: ReadonlyMap<BoardTool, HTMLButtonElement>;
 }
 
 let selectedBoardId: string | null = null;
@@ -53,6 +63,7 @@ let shouldFitOnNextRender = true;
 let dockedSessionId: string | null = null;
 const status = createActionStatus('action-status wb-status');
 const dockStatus = createActionStatus('action-status wb-status');
+const historyByBoardId = new Map<string, UndoHistory>();
 
 function openTextDialog(options: TextDialogOptions): void {
   const { dialog, close, actions, btnCancel } = buildDialogShell({ title: options.title });
@@ -113,9 +124,32 @@ function selectedSummary(): BoardSummary | null {
   return boardSummariesOf().find((summary) => summary.id === selectedBoardId) ?? null;
 }
 
+async function sendRecordedOps(boardId: string, ops: Op[]): Promise<{ ok: true } | { ok: false; error: string }> {
+  const before = selectedBoard();
+  const outcome = await sendBoardOps(boardId, ops);
+  if (outcome.ok && before?.id === boardId) historyByBoardId.set(boardId, recordEdit(historyByBoardId.get(boardId) ?? EMPTY_HISTORY, inverseOps(before, ops)));
+  return outcome;
+}
+
+async function stepHistory(direction: UndoDirection): Promise<void> {
+  const boardId = selectedBoardId;
+  const board = selectedBoard();
+  if (!boardId || !board) return;
+  const step = takeStep(historyByBoardId.get(boardId) ?? EMPTY_HISTORY, direction);
+  if (!step) return;
+  historyByBoardId.set(boardId, step.history);
+  const outcome = await sendBoardOps(boardId, step.entry);
+  if (!outcome.ok) {
+    status.show('error', `could not ${direction} that change, so it was dropped: ${outcome.error}`);
+    return;
+  }
+  status.clear();
+  historyByBoardId.set(boardId, recordStep(historyByBoardId.get(boardId) ?? EMPTY_HISTORY, direction, inverseOps(board, step.entry)));
+}
+
 async function sendOps(ops: Op[]): Promise<boolean> {
   if (!selectedBoardId || ops.length === 0) return false;
-  const outcome = await sendBoardOps(selectedBoardId, ops);
+  const outcome = await sendRecordedOps(selectedBoardId, ops);
   if (outcome.ok) {
     status.clear();
     return true;
@@ -126,7 +160,7 @@ async function sendOps(ops: Op[]): Promise<boolean> {
 
 async function sendOpsFromDialog(ops: Op[]): Promise<string | null> {
   if (!selectedBoardId) return 'No board is open.';
-  const outcome = await sendBoardOps(selectedBoardId, ops);
+  const outcome = await sendRecordedOps(selectedBoardId, ops);
   return outcome.ok ? null : outcome.error;
 }
 
@@ -148,8 +182,7 @@ function paintToolbar(): void {
   const board = selectedBoard();
   const selectedBoxCount = selectedElementsOfKind('box').length;
   const selectedCount = editor?.selectedIds().size ?? 0;
-  parts.buttons.box.disabled = !board;
-  parts.buttons.wire.disabled = selectedBoxCount !== 2;
+  for (const button of parts.toolButtons.values()) button.disabled = !board;
   parts.buttons.note.disabled = selectedBoxCount !== 1;
   parts.buttons.frame.disabled = selectedBoxCount === 0;
   parts.buttons.unit.disabled = !board;
@@ -227,6 +260,7 @@ function paintBoard(): void {
   }
   editor?.pruneSelection(board);
   renderer.render(editor?.previewOf(board) ?? board);
+  editor?.openPendingTitleEdit();
   if (shouldFitOnNextRender) {
     editor?.fit();
     shouldFitOnNextRender = false;
@@ -244,24 +278,6 @@ function selectBoard(boardId: string): void {
   status.clear();
   paintList();
   void openBoard(boardId).then(paintBoard);
-}
-
-function addBoxFromDialog(): void {
-  const board = selectedBoard();
-  if (!board) return;
-  const selectedBox = selectedElementsOfKind('box')[0];
-  const columnOptions = board.columns.map((column) => ({ value: column.id, text: column.title || column.id }));
-  const preferredColumn = selectedBox?.column;
-  if (preferredColumn) columnOptions.sort((left, right) => Number(right.value === preferredColumn) - Number(left.value === preferredColumn));
-  openTextDialog({
-    title: 'Add a box',
-    label: 'Box title',
-    placeholder: 'parse the feed',
-    maxLength: WHITEBOARD_LIMITS.title,
-    confirmLabel: 'Add box',
-    choices: columnOptions.length > 1 ? { label: 'Column', options: columnOptions } : undefined,
-    onSubmit: (title, column) => sendOpsFromDialog([{ op: 'add', element: { kind: 'box', id: newElementId('box'), title, column: column ?? columnOptions[0]?.value ?? 'main', lines: [], lane: null, ghost: false, near: null, order: 0, at: null, shape: 'box', outputs: [] } }]),
-  });
 }
 
 function addUnitFromDialog(): void {
@@ -297,13 +313,6 @@ function connectBoxes(fromBoxId: string, toBoxId: string): void {
   const isAlreadyWired = Object.values(board.elements).some((element) => element.kind === 'wire' && element.from === fromBoxId && element.to === toBoxId);
   if (isAlreadyWired) return;
   void sendOps([{ op: 'add', element: { kind: 'wire', id: newElementId('wire'), from: fromBoxId, to: toBoxId, fromOutput: null, dashed: false, tone: 'plain', label: null, fromSide: null, toSide: null, back: false } }]);
-}
-
-function addWire(): void {
-  const [from, to] = selectedElementsOfKind('box');
-  if (!from || !to) return;
-  editor?.clearSelection();
-  connectBoxes(from.id, to.id);
 }
 
 function addFrame(): void {
@@ -364,6 +373,23 @@ function toolbarButton(label: string, onClick: () => void, extraClass = ''): HTM
   return button;
 }
 
+function toolButton(tool: BoardTool, label: string, key: string): HTMLButtonElement {
+  const button = toolbarButton(label, () => {
+    editor?.setTool(tool);
+    editor?.focusCanvas();
+  }, 'wb-tool');
+  const keyHint = el('span', 'wb-tool-key', key);
+  keyHint.setAttribute('aria-hidden', 'true');
+  button.prepend(keyHint);
+  button.setAttribute('aria-pressed', String(tool === 'select'));
+  button.setAttribute('aria-keyshortcuts', key);
+  return button;
+}
+
+function paintActiveTool(activeTool: BoardTool): void {
+  for (const [tool, button] of parts?.toolButtons ?? []) button.setAttribute('aria-pressed', String(tool === activeTool));
+}
+
 function mountBoardsView(panel: HTMLElement): void {
   const top = el('div', 'wb-top');
   const list = el('div', 'wb-board-list');
@@ -375,9 +401,12 @@ function mountBoardsView(panel: HTMLElement): void {
   const presence = el('div', 'wb-presence');
   titleRow.append(boardMeta, presence);
   const toolbar = el('div', 'wb-toolbar');
+  const toolButtons = new Map(TOOL_BUTTONS.map(({ tool, label, key }) => [tool, toolButton(tool, label, key)]));
+  const toolGroup = el('div', 'wb-tools');
+  toolGroup.setAttribute('role', 'group');
+  toolGroup.setAttribute('aria-label', 'Drawing tools');
+  toolGroup.append(...toolButtons.values());
   const buttons = {
-    box: toolbarButton('box', addBoxFromDialog),
-    wire: toolbarButton('wire', addWire),
     note: toolbarButton('note', () => {
       const [box] = selectedElementsOfKind('box');
       if (box) addNoteOn(box.id);
@@ -388,7 +417,7 @@ function mountBoardsView(panel: HTMLElement): void {
     remove: toolbarButton('delete board', confirmDeleteBoard, 'wb-button-danger'),
   };
   buttons.fit.dataset.phoneVisible = '';
-  toolbar.append(buttons.box, buttons.wire, buttons.note, buttons.frame, buttons.unit, buttons.fit, buttons.remove, status.element);
+  toolbar.append(toolGroup, buttons.note, buttons.frame, buttons.unit, buttons.fit, buttons.remove, status.element);
   boardHead.append(titleRow, toolbar);
   top.append(list, toolbarButton('new board', newBoardFromDialog), boardHead);
 
@@ -409,7 +438,7 @@ function mountBoardsView(panel: HTMLElement): void {
   dock.append(dockBar);
 
   panel.replaceChildren(top, canvas, empty, dock);
-  parts = { list, boardHead, boardMeta, presence, toolbar, canvas, empty, dock, dockQueued, sendToAgent, buttons };
+  parts = { list, boardHead, boardMeta, presence, toolbar, canvas, empty, dock, dockQueued, sendToAgent, buttons, toolButtons };
   const boardRenderer = createBoardRenderer(svg);
   renderer = boardRenderer;
   editor = createBoardEditor({
@@ -422,6 +451,8 @@ function mountBoardsView(panel: HTMLElement): void {
     onPhoneTapBox: addNoteOn,
     onOpenLinkedBoard: selectBoard,
     onConnectBoxes: connectBoxes,
+    onToolChange: paintActiveTool,
+    onHistoryStep: (direction) => void stepHistory(direction),
   });
 
   onBoardListChanged(paintList);

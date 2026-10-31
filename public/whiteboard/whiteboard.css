@@ -99,6 +99,31 @@
   opacity: 0.55;
 }
 
+.wb-tools {
+  display: inline-flex;
+  gap: 4px;
+  padding-right: 8px;
+  border-right: 1px solid var(--border);
+}
+
+.wb-tool[aria-pressed='true'] {
+  border-color: var(--accent-dim);
+  color: var(--text-head);
+  font-weight: 700;
+}
+
+.wb-tool-key {
+  color: var(--text-muted);
+  font-size: var(--type-meta);
+}
+
+.wb-svg[data-tool='box'],
+.wb-svg[data-tool='decision'],
+.wb-svg[data-tool='panel'],
+.wb-svg[data-tool='wire'] {
+  cursor: crosshair;
+}
+
 .wb-button-danger:hover:not(:disabled) {
   border-color: var(--state-failed);
   color: var(--state-failed);
@@ -466,6 +491,10 @@
 
 [data-layout='phone'] .wb-toolbar .wb-button[data-phone-visible] {
   display: inline-flex;
+}
+
+[data-layout='phone'] .wb-tools {
+  display: none;
 }
 
 [data-layout='phone'] .wb-port {

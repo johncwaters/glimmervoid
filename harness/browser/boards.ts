@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict';
-import type { Page } from 'playwright-core';
+import type { Locator, Page } from 'playwright-core';
 import type { Layout } from './cases-core.ts';
+
+async function placeBoxWithTool(page: Page, panel: Locator, offset: { x: number; y: number }, title: string): Promise<void> {
+  const canvasBox = await panel.locator('.wb-canvas').boundingBox();
+  assert.ok(canvasBox);
+  await page.mouse.click(canvasBox.x + offset.x, canvasBox.y + offset.y);
+  const titleInput = page.getByRole('textbox', { name: 'Box title', exact: true });
+  await titleInput.fill(title);
+  await page.keyboard.press('Enter');
+  await panel.locator('.wb-box-title', { hasText: title }).waitFor();
+}
 
 async function submitTextDialog(page: Page, label: string, value: string, confirmLabel: string): Promise<void> {
   await page.getByRole('textbox', { name: label, exact: true }).fill(value);
@@ -23,8 +33,9 @@ export async function verifyBoards(page: Page, layout: Layout): Promise<void> {
   await panel.locator('.wb-svg').waitFor({ state: 'visible' });
   if (layout === 'desktop') {
     await panel.getByRole('button', { name: 'box', exact: true }).click();
-    await submitTextDialog(page, 'Box title', 'Parse feed', 'Add box');
-    await panel.locator('.wb-box-title', { hasText: 'Parse feed' }).waitFor();
+    assert.equal(await panel.getByRole('button', { name: 'box', exact: true }).getAttribute('aria-pressed'), 'true');
+    await placeBoxWithTool(page, panel, { x: 60, y: 60 }, 'Parse feed');
+    assert.equal(await panel.getByRole('button', { name: 'select', exact: true }).getAttribute('aria-pressed'), 'true', 'the tool returns to select after one placement');
     const isComicMonoLoaded = await page.evaluate(async () => {
       await document.fonts.ready;
       return document.fonts.check('700 16px ComicMono');
@@ -41,8 +52,9 @@ export async function verifyBoards(page: Page, layout: Layout): Promise<void> {
     await page.getByRole('textbox', { name: 'Box title', exact: true }).fill('Parse and store');
     await page.keyboard.press('Enter');
     await panel.locator('.wb-box-title', { hasText: 'Parse and store' }).waitFor();
-    await panel.getByRole('button', { name: 'box', exact: true }).click();
-    await submitTextDialog(page, 'Box title', 'Index rows', 'Add box');
+    await panel.locator('.wb-svg').focus();
+    await page.keyboard.press('r');
+    await placeBoxWithTool(page, panel, { x: 60, y: 260 }, 'Index rows');
     const sourceBox = panel.locator('.wb-box', { hasText: 'Parse and store' });
     const targetBox = panel.locator('.wb-box', { hasText: 'Index rows' });
     await targetBox.waitFor();
@@ -70,6 +82,15 @@ export async function verifyBoards(page: Page, layout: Layout): Promise<void> {
     await page.mouse.up();
     await page.waitForFunction((before) => document.querySelector('.boards-view .wb-board-meta')?.textContent !== before, versionBeforeDrop);
     assert.equal(await wireLine.getAttribute('d'), draggingPath, 'the wire lands where the drag preview routed it');
+    await panel.locator('.wb-svg').focus();
+    const versionBeforeUndo = await panel.locator('.wb-board-meta').textContent();
+    await page.keyboard.press('ControlOrMeta+z');
+    await page.waitForFunction((before) => document.querySelector('.boards-view .wb-board-meta')?.textContent !== before, versionBeforeUndo);
+    assert.equal(await wireLine.getAttribute('d'), restingPath, 'undo puts the dragged box back');
+    const versionBeforeRedo = await panel.locator('.wb-board-meta').textContent();
+    await page.keyboard.press('ControlOrMeta+Shift+z');
+    await page.waitForFunction((before) => document.querySelector('.boards-view .wb-board-meta')?.textContent !== before, versionBeforeRedo);
+    assert.equal(await wireLine.getAttribute('d'), draggingPath, 'redo moves it again');
   }
   assert.equal(await panel.getByRole('button', { name: 'fit', exact: true }).isVisible(), true);
   assert.equal(await panel.getByRole('button', { name: boardTitle }).count(), 1);
