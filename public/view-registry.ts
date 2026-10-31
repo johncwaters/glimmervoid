@@ -14,7 +14,7 @@ import { setSettingsRestartHandler } from './settings/settings-store.ts';
 import { applyTeamReviewConnectionState } from './github/team-review-store.ts';
 import { applyTraceConnectionState, openTraceForSession } from './trace-store.ts';
 import { setOpenInReview } from './whiteboard/board-store.ts';
-import { BENCH_ICON_PATH, BOARDS_ICON_PATH, COMMUNITY_ICON_PATH, FOCUS_ICON_PATH, HOOKS_ICON_PATH, ISSUES_ICON_PATH, RADAR_ICON_PATH, REVIEWS_ICON_PATH, SETTINGS_ICON_PATH, TRACE_ICON_PATH, USAGE_ICON_PATH } from './svg-dom.ts';
+import { BENCH_ICON_PATH, BOARDS_ICON_PATH, COMMUNITY_ICON_PATH, createLineIcon, FOCUS_ICON_PATH, HOOKS_ICON_PATH, ISSUES_ICON_PATH, RADAR_ICON_PATH, REVIEWS_ICON_PATH, SETTINGS_ICON_PATH, TRACE_ICON_PATH, USAGE_ICON_PATH } from './svg-dom.ts';
 import { acknowledgeUsageAttention, applyUsageConnectionState, setUsageActivityCallback } from './usage/usage-store.ts';
 import { createViewLoader, shouldReloadAfterPreloadError, viewAttentionState } from './view-registry-core.ts';
 import type { PrimaryView, PrimaryViewDefinition, ViewAttention, ViewModule } from './view-registry-core.ts';
@@ -111,6 +111,7 @@ export function createDashboardViews(actions: ViewRegistryActions): DashboardVie
   const main = queryTag(document, '#app-main', 'main');
   const views = definitions.map((definition) => {
     const tab = el('button', 'header-tab', definition.label);
+    tab.prepend(createLineIcon(definition.iconPath));
     tab.id = `tab-${definition.view}`;
     tab.type = 'button';
     tab.draggable = true;

@@ -185,22 +185,33 @@ body {
   text-transform: uppercase;
 }
 
-.header-title::before {
-  content: '\25b8 ';
-  color: var(--accent);
+.header-title { display: inline-flex; align-items: center; gap: 0.5em; }
+.header-mark {
+  flex: none;
+  width: 1em;
+  height: 1em;
+  overflow: visible;
 }
+.header-mark-frame {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 11;
+  stroke-linejoin: miter;
+  stroke-linecap: butt;
+}
+.header-mark-light { fill: var(--accent); }
 
-:is(.header-brand, .phone-topbar):has(.header-connection[data-reconnected]) .header-title::before {
+:is(.header-brand, .phone-topbar):has(.header-connection[data-reconnected]) .header-mark-light {
   animation: header-reconnected-pulse 1.4s ease-in-out 2;
 }
 
 @keyframes header-reconnected-pulse {
-  0%, 100% { color: var(--accent); text-shadow: none; }
-  50%      { color: var(--state-running); text-shadow: 0 0 6px color-mix(in oklab, var(--state-running) 45%, transparent); }
+  0%, 100% { fill: var(--accent); filter: none; }
+  50%      { fill: var(--state-running); filter: drop-shadow(0 0 6px color-mix(in oklab, var(--state-running) 45%, transparent)); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :is(.header-brand, .phone-topbar):has(.header-connection[data-reconnected]) .header-title::before { animation: none; }
+  :is(.header-brand, .phone-topbar):has(.header-connection[data-reconnected]) .header-mark-light { animation: none; }
 }
 
 .header-status {
@@ -2996,12 +3007,15 @@ html[data-layout="phone"] .trace-section-hint { flex-basis: 100%; font-size: var
   font-weight: 400;
   color: var(--text-dim);
   min-height: calc(var(--header-control-height) - 8px);
-  padding: 0 14px;
+  padding: 0 12px 0 10px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 7px;
   transition: color var(--transition-med), background var(--transition-med), border-color var(--transition-med), box-shadow var(--transition-med);
 }
+.header-tab .line-icon { opacity: 0.85; }
+.header-tab[aria-selected="true"] .line-icon { opacity: 1; color: var(--accent); }
 .header-tab[hidden] { display: none; }
 .header-tab[data-drop-target="true"] { border-color: var(--accent); }
 @media (hover: hover) {
