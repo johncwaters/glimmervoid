@@ -36,9 +36,9 @@ interface AnchorFacts {
   changes: ChangeFacts | null;
 }
 
-type ChangeReview = Pick<BoardReview, 'unitWarnings' | 'uncoveredPaths' | 'worthALookPaths'>;
+type ChangeReview = Pick<BoardReview, 'unitWarnings' | 'uncoveredPaths' | 'worthALookPaths' | 'flaggedUnitIds' | 'notChecked'>;
 
-const NO_CHANGE_REVIEW: ChangeReview = Object.freeze({ unitWarnings: [], uncoveredPaths: [], worthALookPaths: [] });
+const NO_CHANGE_REVIEW: ChangeReview = Object.freeze({ unitWarnings: [], uncoveredPaths: [], worthALookPaths: [], flaggedUnitIds: [], notChecked: null });
 
 const REF_PATTERN = /^([^#\s]+)(?:#L([1-9]\d*)(?:-L([1-9]\d*))?)?$/;
 
@@ -111,11 +111,29 @@ function unreviewedWarning(codeSessionId: string | null): string {
   return `refs on this board were not checked: code session ${codeSessionId} is not running`;
 }
 
+function missingCodeSessionText(codeSessionId: string | null): string {
+  if (codeSessionId === null) return 'this board has no code session';
+  return `code session ${codeSessionId} is not running`;
+}
+
 function refPathsOf(sites: readonly AnchorSite[]): Set<string> {
   return new Set(sites.flatMap((site) => {
     const parsed = parseRef(site.ref);
     return 'path' in parsed ? [parsed.path] : [];
   }));
+}
+
+function elementRefPaths(element: Element): Set<string> {
+  return refPathsOf(sitesOfElement(element));
+}
+
+function refsOfElement(element: Element): string[] {
+  return [...new Set(sitesOfElement(element).map((site) => site.ref))];
+}
+
+function refPathOf(ref: string): string | null {
+  const parsed = parseRef(ref);
+  return 'path' in parsed ? parsed.path : null;
 }
 
 function unitWarningsOf(unit: Unit, unitPaths: ReadonlySet<string>, changedByPath: ReadonlyMap<string, ChangedPath>): string[] {
@@ -133,22 +151,30 @@ function unitWarningsOf(unit: Unit, unitPaths: ReadonlySet<string>, changedByPat
 
 function changeReviewOf(board: Board, sites: readonly AnchorSite[], changes: ChangeFacts | null): ChangeReview {
   if (!changes) return NO_CHANGE_REVIEW;
-  if (changes.error) return { ...NO_CHANGE_REVIEW, unitWarnings: [`the code session changes could not be read: ${changes.error}`] };
+  if (changes.error) {
+    const unreadText = `the code session changes could not be read: ${changes.error}`;
+    return { ...NO_CHANGE_REVIEW, unitWarnings: [unreadText], notChecked: unreadText };
+  }
   const refPaths = refPathsOf(sites);
   const changedByPath = new Map(changes.changedPaths.map((changed) => [changed.path, changed]));
-  const unitWarnings = Object.values(board.elements).flatMap((element) => {
-    if (element.kind !== 'unit') return [];
-    return unitWarningsOf(element, refPathsOf(sitesOfElement(element)), changedByPath);
-  });
+  const warningsByUnitId = new Map(Object.values(board.elements).flatMap((element) => (
+    element.kind === 'unit' ? [[element.id, unitWarningsOf(element, elementRefPaths(element), changedByPath)] as const] : []
+  )));
+  const unitWarnings = [...warningsByUnitId.values()].flat();
+  const flaggedUnitIds = [...warningsByUnitId].flatMap(([unitId, warnings]) => (warnings.length > 0 ? [unitId] : []));
   const uncoveredPaths = [...changedByPath.keys()].filter((changedPath) => !refPaths.has(changedPath)).sort();
   const worthALookPaths = [...new Set(changes.worthALookPaths)].filter((worthPath) => refPaths.has(worthPath));
-  return { unitWarnings: cappedWarnings(unitWarnings), uncoveredPaths: uncoveredPaths.slice(0, WHITEBOARD_LIMITS.layoutWarnings), worthALookPaths: worthALookPaths.slice(0, WHITEBOARD_LIMITS.layoutWarnings) };
+  return { unitWarnings: cappedWarnings(unitWarnings), uncoveredPaths: uncoveredPaths.slice(0, WHITEBOARD_LIMITS.layoutWarnings), worthALookPaths: worthALookPaths.slice(0, WHITEBOARD_LIMITS.layoutWarnings), flaggedUnitIds, notChecked: null };
 }
 
 function reviewBoard(board: Board, facts: AnchorFacts | null): BoardReview {
   const { codeSessionId } = board;
   const sites = anchorSitesOf(board);
-  if (!facts) return { codeSessionId, anchorWarnings: sites.length === 0 ? [] : [unreviewedWarning(codeSessionId)], ...NO_CHANGE_REVIEW };
+  if (!facts) {
+    const hasAnythingToCheck = sites.length > 0 || Object.values(board.elements).some((element) => element.kind === 'unit');
+    const notChecked = hasAnythingToCheck ? missingCodeSessionText(codeSessionId) : null;
+    return { codeSessionId, anchorWarnings: sites.length === 0 ? [] : [unreviewedWarning(codeSessionId)], ...NO_CHANGE_REVIEW, notChecked };
+  }
   const anchorWarnings = sites.flatMap((site) => {
     const problem = siteProblem(site, facts);
     return problem ? [`ref ${site.ref} on ${site.where}: ${problem}`] : [];
@@ -156,5 +182,5 @@ function reviewBoard(board: Board, facts: AnchorFacts | null): BoardReview {
   return { codeSessionId, anchorWarnings: cappedWarnings(anchorWarnings), ...changeReviewOf(board, sites, facts.changes) };
 }
 
-export { referencedPaths, reviewBoard };
+export { referencedPaths, refPathOf, refsOfElement, reviewBoard };
 export type { ChangeFacts, FileFact };

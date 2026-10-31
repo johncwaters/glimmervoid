@@ -665,7 +665,7 @@ export function needsIssues(scenario: Scenario): boolean {
 }
 
 export function needsGitOrigin(scenario: Scenario): boolean {
-  return scenario.steps.some((step) => step.kind === 'assert-review-merge');
+  return scenario.steps.some((step) => step.kind === 'assert-review-merge' || step.kind === 'assert-board-dock');
 }
 
 function scenarioRunsOnViewport(scenario: Scenario, viewport: Viewport, layout: Layout, proveFailure: boolean): boolean {

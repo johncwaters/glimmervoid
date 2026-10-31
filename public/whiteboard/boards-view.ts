@@ -1,5 +1,6 @@
 import './whiteboard.css';
-import type { Board, BoardSummary, Element, Op } from '#shared/contracts/whiteboard.ts';
+import type { Board, BoardReview, BoardSummary, Element, Op } from '#shared/contracts/whiteboard.ts';
+import { refPathOf, refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 import { WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import { createActionStatus } from '../action-status.ts';
 import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
@@ -17,7 +18,7 @@ import type { BoardInspector } from './board-inspect.ts';
 import { createBoardRenderer } from './board-render.ts';
 import type { BoardRenderer } from './board-render.ts';
 import {
-  boardSummariesOf, createBoard, deleteBoard, nudgeSessionAboutBoard, onBoardChanged, onBoardListChanged, openBoard, openBoardOf, sendBoardOps, takeOpenBoardRequest,
+  boardSummariesOf, createBoard, deleteBoard, nudgeSessionAboutBoard, onBoardChanged, onBoardListChanged, openBoard, openBoardOf, openFileInReview, requestBoardReview, sendBoardOps, takeOpenBoardRequest,
 } from './board-store.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
@@ -55,6 +56,7 @@ interface BoardsViewParts {
   sendToAgent: HTMLButtonElement;
   buttons: Record<'note' | 'frame' | 'unit' | 'fit' | 'remove', HTMLButtonElement>;
   toolButtons: ReadonlyMap<BoardTool, HTMLButtonElement>;
+  uncovered: HTMLElement;
 }
 
 let selectedBoardId: string | null = null;
@@ -64,6 +66,9 @@ let editor: BoardEditor | null = null;
 let inspector: BoardInspector | null = null;
 let shouldFitOnNextRender = true;
 let dockedSessionId: string | null = null;
+let shownReview: { boardId: string; review: BoardReview } | null = null;
+let reviewFailure: { boardId: string; error: string } | null = null;
+let reviewRequestKey: string | null = null;
 const status = createActionStatus('action-status wb-status');
 const dockStatus = createActionStatus('action-status wb-status');
 const historyByBoardId = new Map<string, UndoHistory>();
@@ -277,6 +282,63 @@ async function sendBoardNudge(): Promise<void> {
   dockStatus.show('ok', 'sent; the agent reads the board when it is ready');
 }
 
+function worthALookIdsOf(board: Board, worthALookPaths: readonly string[]): Set<string> {
+  const worthALook = new Set(worthALookPaths);
+  return new Set(Object.values(board.elements)
+    .filter((element) => refsOfElement(element).some((ref) => worthALook.has(refPathOf(ref) ?? '')))
+    .map((element) => element.id));
+}
+
+function openRefInReview(ref: string): void {
+  const codeSessionId = selectedBoard()?.codeSessionId;
+  const openPath = refPathOf(ref);
+  if (!codeSessionId || !openPath) return;
+  openFileInReview(codeSessionId, openPath);
+}
+
+function uncoveredRow(codeSessionId: string, openPath: string): HTMLButtonElement {
+  const row = el('button', 'wb-uncovered-file', openPath);
+  row.type = 'button';
+  row.addEventListener('click', () => openFileInReview(codeSessionId, openPath));
+  return row;
+}
+
+function paintReview(): void {
+  if (!parts || !renderer) return;
+  const board = selectedBoard();
+  const review = board && shownReview?.boardId === board.id ? shownReview.review : null;
+  renderer.setReviewMarks({
+    worthALookIds: board && review ? worthALookIdsOf(board, review.worthALookPaths) : new Set(),
+    flaggedUnitIds: new Set(review?.flaggedUnitIds ?? []),
+  });
+  const failure = board && reviewFailure?.boardId === board.id ? `the board review could not be loaded: ${reviewFailure.error}` : null;
+  const notice = failure ?? review?.notChecked ?? null;
+  const codeSessionId = review?.codeSessionId ?? null;
+  const uncoveredPaths = codeSessionId ? review?.uncoveredPaths ?? [] : [];
+  parts.uncovered.hidden = !notice && uncoveredPaths.length === 0;
+  const noticeLines = notice ? [el('p', 'wb-uncovered-notice', `Not checked: ${notice}`)] : [];
+  const fileRows = codeSessionId ? uncoveredPaths.map((openPath) => uncoveredRow(codeSessionId, openPath)) : [];
+  parts.uncovered.replaceChildren(el('h3', 'wb-uncovered-heading', 'Not on the board'), ...noticeLines, ...fileRows);
+}
+
+function requestReviewOf(board: Board): void {
+  const requestKey = `${board.id}@${board.version}`;
+  if (reviewRequestKey === requestKey) return;
+  reviewRequestKey = requestKey;
+  void requestBoardReview(board.id).then((outcome) => {
+    if (reviewRequestKey !== requestKey) return;
+    if (!outcome.ok) {
+      reviewRequestKey = null;
+      reviewFailure = { boardId: board.id, error: outcome.error };
+      paintReview();
+      return;
+    }
+    reviewFailure = null;
+    shownReview = { boardId: board.id, review: outcome.review };
+    paintReview();
+  });
+}
+
 function paintBoard(): void {
   if (!renderer) return;
   const board = selectedBoard();
@@ -284,8 +346,10 @@ function paintBoard(): void {
     renderer.clear();
     return;
   }
+  requestReviewOf(board);
   editor?.pruneSelection(board);
   renderer.render(editor?.previewOf(board) ?? board);
+  paintReview();
   editor?.openPendingTitleEdit();
   if (shouldFitOnNextRender) {
     editor?.fit();
@@ -467,7 +531,10 @@ function mountBoardsView(panel: HTMLElement): void {
   svg.setAttribute('aria-label', 'Whiteboard');
   svg.setAttribute('preserveAspectRatio', 'xMidYMin meet');
   const inspectPanel = el('aside', 'wb-inspect');
-  canvas.append(svg, inspectPanel);
+  const uncovered = el('aside', 'wb-uncovered');
+  uncovered.setAttribute('aria-label', 'Not on the board');
+  uncovered.hidden = true;
+  canvas.append(svg, inspectPanel, uncovered);
   const empty = el('p', 'wb-empty', EMPTY_TEXT);
   const dock = el('div', 'wb-dock');
   dock.hidden = true;
@@ -478,10 +545,10 @@ function mountBoardsView(panel: HTMLElement): void {
   dock.append(dockBar);
 
   panel.replaceChildren(top, canvas, empty, dock);
-  parts = { list, boardHead, boardMeta, presence, toolbar, canvas, empty, dock, dockQueued, sendToAgent, buttons, toolButtons };
+  parts = { list, boardHead, boardMeta, presence, toolbar, canvas, empty, dock, dockQueued, sendToAgent, buttons, toolButtons, uncovered };
   const boardRenderer = createBoardRenderer(svg);
   renderer = boardRenderer;
-  inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices });
+  inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, openRef: openRefInReview });
   editor = createBoardEditor({
     svg,
     canvas,
@@ -533,6 +600,7 @@ function refreshBoardsView(): void {
     if (request.dockSessionId) dockSession(request.dockSessionId);
   }
   paintList();
+  reviewRequestKey = null;
   if (selectedBoardId) void openBoard(selectedBoardId).then(paintBoard);
 }
 

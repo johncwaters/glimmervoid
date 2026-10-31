@@ -17,7 +17,7 @@ const MERGE_ENABLED_TIMEOUT_MS = 20000;
 const OUTCOME_TIMEOUT_MS = 30000;
 const PUSH_REFUSED_WARNING = 'Merged into main, but origin refused the push, so origin/main does not have it yet. Resync the base branch to push it.';
 
-async function pollFor<T>(label: string, timeoutMs: number, read: () => Promise<T | null>): Promise<T> {
+export async function pollFor<T>(label: string, timeoutMs: number, read: () => Promise<T | null>): Promise<T> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const value = await read();
@@ -27,7 +27,7 @@ async function pollFor<T>(label: string, timeoutMs: number, read: () => Promise<
   throw new Error(`timed out after ${timeoutMs}ms waiting for ${label}`);
 }
 
-async function findSessionWorktree(projectDirectory: string): Promise<string | null> {
+export async function findSessionWorktree(projectDirectory: string): Promise<string | null> {
   const projectRealPath = await fs.realpath(projectDirectory);
   const listing = await git(projectDirectory, ['worktree', 'list', '--porcelain']);
   const worktreePaths = listing.split('\n').filter((line) => line.startsWith('worktree ')).map((line) => line.slice('worktree '.length));
@@ -37,7 +37,7 @@ async function findSessionWorktree(projectDirectory: string): Promise<string | n
   return null;
 }
 
-async function commitFile(repositoryPath: string, fileName: string, content: string, message: string): Promise<void> {
+export async function commitFile(repositoryPath: string, fileName: string, content: string, message: string): Promise<void> {
   await fs.writeFile(path.join(repositoryPath, fileName), content, 'utf8');
   await git(repositoryPath, ['add', fileName]);
   await git(repositoryPath, ['commit', '-m', message]);

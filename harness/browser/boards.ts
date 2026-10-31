@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import type { Locator, Page } from 'playwright-core';
 import type { Layout } from './cases-core.ts';
+import { commitFile, findSessionWorktree, pollFor } from './review-merge.ts';
+
+const UNCOVERED_FILE_NAME = 'board-uncovered.txt';
+const WORKTREE_TIMEOUT_MS = 15000;
+const REVIEW_TIMEOUT_MS = 20000;
 
 async function placeBoxWithTool(page: Page, panel: Locator, offset: { x: number; y: number }, title: string): Promise<void> {
   const canvasBox = await panel.locator('.wb-canvas').boundingBox();
@@ -161,7 +166,7 @@ export async function verifyBoards(page: Page, layout: Layout): Promise<void> {
   assert.equal(await panel.getByRole('button', { name: boardTitle }).count(), 1);
 }
 
-export async function verifyBoardDock(page: Page, sessionId: string): Promise<void> {
+export async function verifyBoardDock(page: Page, sessionId: string, projectDirectory: string): Promise<void> {
   const boardTitle = `Dock plan ${sessionId.slice(0, 8)}`;
   await page.locator('#tab-boards').click();
   const panel = page.locator('.boards-view');
@@ -176,6 +181,8 @@ export async function verifyBoardDock(page: Page, sessionId: string): Promise<vo
   await page.getByRole('button', { name: 'Connect', exact: true }).click();
   const boardChip = page.locator(`.focus-rail .session-row[data-id="${sessionId}"]`).locator(`.session-board-chip[aria-label="Open board ${boardTitle}"]`);
   await boardChip.waitFor();
+  const worktreePath = await pollFor('the session worktree', WORKTREE_TIMEOUT_MS, () => findSessionWorktree(projectDirectory));
+  await commitFile(worktreePath, UNCOVERED_FILE_NAME, 'changed outside any board ref\n', 'test: a change no board ref covers');
   assert.equal((await boardChip.textContent())?.trim(), boardTitle);
   assert.equal(await boardChip.locator('.pr-status-icon').count(), 1, 'the board chip carries an icon like a PR chip');
   await boardChip.click();
@@ -193,6 +200,24 @@ export async function verifyBoardDock(page: Page, sessionId: string): Promise<vo
   await panel.locator('.wb-dock-queued', { hasText: 'has read every change' }).waitFor();
   await panel.locator('.wb-dock-bar').getByRole('button', { name: 'send to agent', exact: true }).click();
   await panel.locator('.wb-dock-bar .action-status', { hasText: 'sent' }).waitFor();
-  await page.locator('#tab-focus').click();
+  const uncoveredFile = panel.getByRole('complementary', { name: 'Not on the board' }).getByRole('button', { name: UNCOVERED_FILE_NAME, exact: true });
+  await uncoveredFile.waitFor({ timeout: REVIEW_TIMEOUT_MS });
+  await panel.getByRole('button', { name: 'unit', exact: true }).click();
+  await submitTextDialog(page, 'Unit title', 'Uncovered change', 'Add unit');
+  const unitOnBoard = panel.locator('.wb-unit', { hasText: 'Uncovered change' });
+  await unitOnBoard.locator('.wb-box-title').click();
+  const inspect = panel.locator('.wb-inspect');
+  await inspect.getByRole('button', { name: 'Add a ref to this unit', exact: true }).click();
+  await inspect.getByRole('textbox', { name: 'Ref 1', exact: true }).fill(UNCOVERED_FILE_NAME);
+  await page.keyboard.press('Enter');
+  await panel.locator('.wb-unit.is-flagged', { hasText: 'Uncovered change' }).waitFor({ timeout: REVIEW_TIMEOUT_MS });
+  await panel.getByRole('complementary', { name: 'Not on the board' }).waitFor({ state: 'hidden' });
+  await unitOnBoard.locator('.wb-box-title').click();
+  await inspect.getByRole('heading', { name: 'Board', exact: true }).waitFor();
+  await unitOnBoard.locator('.wb-box-title').click();
+  await inspect.getByRole('heading', { name: 'In review', exact: true }).waitFor();
+  await inspect.getByRole('button', { name: `Open ${UNCOVERED_FILE_NAME} in review`, exact: true }).click();
+  await page.locator('#tab-focus[aria-selected="true"]').waitFor();
+  await page.locator(`#review-sidebar:not([data-collapsed]) .review-file[data-path="${UNCOVERED_FILE_NAME}"]`).waitFor({ timeout: REVIEW_TIMEOUT_MS });
   assert.equal(await panel.locator('.wb-dock .session-card').count(), 0, 'leaving the board hands the card back');
 }

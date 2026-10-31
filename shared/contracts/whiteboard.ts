@@ -200,6 +200,8 @@ export const BoardReview = z.object({
   unitWarnings: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings),
   uncoveredPaths: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings),
   worthALookPaths: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings),
+  flaggedUnitIds: z.array(ElementId).max(WHITEBOARD_LIMITS.units),
+  notChecked: z.string().nullable(),
 }).strict();
 
 export const WhiteboardAgentReply = z.union([

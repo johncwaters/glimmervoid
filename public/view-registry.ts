@@ -13,6 +13,7 @@ import { onDebugModeChanged } from './session-card/card-dom.ts';
 import { setSettingsRestartHandler } from './settings/settings-store.ts';
 import { applyTeamReviewConnectionState } from './github/team-review-store.ts';
 import { applyTraceConnectionState, openTraceForSession } from './trace-store.ts';
+import { setOpenInReview } from './whiteboard/board-store.ts';
 import { acknowledgeUsageAttention, applyUsageConnectionState, setUsageActivityCallback } from './usage/usage-store.ts';
 import { createViewLoader, shouldReloadAfterPreloadError, viewAttentionState } from './view-registry-core.ts';
 import type { PrimaryView, PrimaryViewDefinition, ViewAttention, ViewModule } from './view-registry-core.ts';
@@ -21,6 +22,7 @@ interface ViewRegistryActions {
   onRestart: () => void;
   openTerminal: (id: string) => void;
   openPlan: (id: string) => void;
+  openReviewFile: (id: string, openPath: string) => void;
   openReviews: () => boolean;
   setPhoneAttention: (view: string, attention: ViewAttention) => void;
 }
@@ -87,6 +89,7 @@ export function reloadOnceIfBundleRetired(entryChunkUrl: string, readStorage: ()
 export function createDashboardViews(actions: ViewRegistryActions): DashboardView[] {
   setReviewQueueNavigation({ openTerminal: actions.openTerminal, openReviews: actions.openReviews });
   setSettingsRestartHandler(actions.onRestart);
+  setOpenInReview(actions.openReviewFile);
   const definitions: PrimaryViewDefinition<HTMLElement>[] = [
     { view: 'focus', label: 'Focus', panelClass: 'focus-view', hasOwnPhoneScreen: true, hasPanelChrome: false, hasReviewSidebar: true, module: { mount: () => mountFocusView({ rail: document.getElementById('focus-rail'), center: document.getElementById('focus-center'), resizer: document.getElementById('focus-rail-resizer') }), activate: activateFocusView, deactivate: deactivateFocusView } },
     { view: 'prs', label: 'Reviews', glyph: '\u21c5', panelClass: 'pr-view', gate: { fromSettings: FEATURE_SURFACE_RULES.teamReview }, load: () => import('./github/review-queue-panel.ts').then((panel) => panel.view), refreshOn: ['shown'], attention: { subscribe: setReviewQueueActivityCallback, acknowledge: acknowledgeReviewQueueAttention }, onConnectionChange: (isConnected) => {

@@ -559,6 +559,12 @@ function openFileFromWorthALook(path: string) {
   scrollToPendingFile();
 }
 
+export function openReviewFile(path: string) {
+  panelEl?.toggleAttribute('data-collapsed', false);
+  setReviewSidebarExpanded(true);
+  openFileFromWorthALook(path);
+}
+
 function showAllWorthALook() {
   isWorthALookShowingAll = true;
   render();

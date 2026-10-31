@@ -7,8 +7,9 @@ import { resolvePlanTarget } from '../plan/plan-link.ts';
 import { nextRovingIndex, wrapIndex } from '../roving-keys-core.ts';
 import { activateSettingsSection, setFeatureTabViews } from '../settings/settings-store.ts';
 import { isSettingsHash } from '../settings/settings-link.ts';
-import { mountReviewSidebar } from '../sidebar/review-sidebar.ts';
+import { mountReviewSidebar, openReviewFile } from '../sidebar/review-sidebar.ts';
 import { setTraceNavigate } from '../trace-store.ts';
+import { hasSession } from '../session-card/lifecycle.ts';
 import { getActiveView as getSavedActiveView, setActiveView } from '../ui-prefs.ts';
 import { getActiveView, uiState } from '../ui-state-core.ts';
 import { createDashboardViews, mountEagerViews, mountedViewModule, showView } from '../view-registry.ts';
@@ -41,6 +42,13 @@ const VIEW_TABS = createDashboardViews({
     centerSessionQuietly(id);
   },
   openPlan: (id) => { activateView('focus'); openPlanInFocus(id); },
+  openReviewFile: (id, openPath) => {
+    if (!hasSession(id)) return;
+    if (showPhoneSession(id)) return;
+    activateView('focus');
+    centerSessionQuietly(id);
+    openReviewFile(openPath);
+  },
   openReviews: () => {
     if (!isViewAvailable('prs')) return false;
     if (showPhoneScreen('prs')) return true;

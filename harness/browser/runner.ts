@@ -898,7 +898,7 @@ export async function runCase({
       return passedOutcome('boards', 'board create, live box add and Comic Mono board text verified');
     }
     if (step.kind === 'assert-board-dock') {
-      await verifyBoardDock(viewer.page, sessionId);
+      await verifyBoardDock(viewer.page, sessionId, projectDirectory);
       return passedOutcome('board-dock', 'connect board from the card menu, board chip opens the board with the card docked');
     }
     if (step.kind === 'assert-team-review') {

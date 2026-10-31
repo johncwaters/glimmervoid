@@ -10,12 +10,21 @@ interface RenderedElement {
   node: SVGGElement;
 }
 
+interface ReviewMarks {
+  worthALookIds: ReadonlySet<string>;
+  flaggedUnitIds: ReadonlySet<string>;
+}
+
+const NO_REVIEW_MARKS: ReviewMarks = { worthALookIds: new Set(), flaggedUnitIds: new Set() };
+const LOOK_MARKER_RADIUS = 9;
+
 interface BoardRenderer {
   render(board: Board): BoardLayout;
   layout(): BoardLayout | null;
   elementFromTarget(target: EventTarget | null): { id: string; kind: LaidOutElement['kind'] } | null;
   nodeOf(elementId: string): SVGGElement | null;
   setSelection(selectedIds: ReadonlySet<string>): void;
+  setReviewMarks(marks: ReviewMarks): void;
   clear(): void;
 }
 
@@ -53,9 +62,39 @@ export function createBoardRenderer(svg: SVGSVGElement): BoardRenderer {
   const renderedById = new Map<string, RenderedElement>();
   let currentLayout: BoardLayout | null = null;
   let selectedIds: ReadonlySet<string> = new Set();
+  let reviewMarks = NO_REVIEW_MARKS;
 
   function paintSelection(elementId: string, node: SVGGElement): void {
     node.classList.toggle('is-selected', selectedIds.has(elementId));
+  }
+
+  function lookMarker(element: Exclude<LaidOutElement, { kind: 'wire' }>): SVGGElement {
+    const marker = svgNode('g', 'wb-look-marker');
+    const centerX = element.x + element.width;
+    const centerY = element.y;
+    const circle = svgNode('circle');
+    circle.setAttribute('cx', String(centerX));
+    circle.setAttribute('cy', String(centerY));
+    circle.setAttribute('r', String(LOOK_MARKER_RADIUS));
+    const mark = svgNode('text');
+    mark.setAttribute('x', String(centerX));
+    mark.setAttribute('y', String(centerY + 4));
+    mark.setAttribute('text-anchor', 'middle');
+    mark.textContent = '!';
+    const label = svgNode('title');
+    label.textContent = 'worth a look in review';
+    marker.append(label, circle, mark);
+    return marker;
+  }
+
+  function paintReviewMarks(element: LaidOutElement, node: SVGGElement): void {
+    node.classList.toggle('is-flagged', reviewMarks.flaggedUnitIds.has(element.id));
+    const existingMarker = node.querySelector(':scope > .wb-look-marker');
+    if (element.kind === 'wire' || !reviewMarks.worthALookIds.has(element.id)) {
+      existingMarker?.remove();
+      return;
+    }
+    if (!existingMarker) node.append(lookMarker(element));
   }
 
   function render(board: Board): BoardLayout {
@@ -71,6 +110,7 @@ export function createBoardRenderer(svg: SVGSVGElement): BoardRenderer {
       if (rendered?.signature === signature) continue;
       const node = nodeFromMarkup(elementMarkup(element));
       paintSelection(element.id, node);
+      paintReviewMarks(element, node);
       if (rendered) rendered.node.replaceWith(node);
       if (!rendered) layers[LAYER_BY_KIND[element.kind]].append(node);
       renderedById.set(element.id, { signature, node });
@@ -98,6 +138,14 @@ export function createBoardRenderer(svg: SVGSVGElement): BoardRenderer {
     for (const [elementId, rendered] of renderedById) paintSelection(elementId, rendered.node);
   }
 
+  function setReviewMarks(marks: ReviewMarks): void {
+    reviewMarks = marks;
+    for (const element of currentLayout?.elements ?? []) {
+      const node = renderedById.get(element.id)?.node;
+      if (node) paintReviewMarks(element, node);
+    }
+  }
+
   function clear(): void {
     for (const rendered of renderedById.values()) rendered.node.remove();
     renderedById.clear();
@@ -113,6 +161,7 @@ export function createBoardRenderer(svg: SVGSVGElement): BoardRenderer {
     elementFromTarget,
     nodeOf: (elementId) => renderedById.get(elementId)?.node ?? null,
     setSelection,
+    setReviewMarks,
     clear,
   };
 }

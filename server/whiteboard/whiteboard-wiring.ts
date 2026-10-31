@@ -69,6 +69,7 @@ type OperatorReply = {
   error: string | null;
   board?: Board;
   summary?: BoardSummary;
+  review?: BoardReview;
 };
 
 const GLIMMERVOID_AUTHOR: Author = Object.freeze({ id: 'glimmervoid', name: 'Glimmervoid' });
@@ -96,6 +97,7 @@ interface WhiteboardPort {
     put(boardId: string, ops: readonly Op[]): Promise<OperatorReply>;
     remove(boardId: string): Promise<OperatorReply>;
     get(boardId: string): Promise<OperatorReply>;
+    review(boardId: string): Promise<OperatorReply>;
     connect(boardId: string, sessionId: string): Promise<OperatorReply>;
     disconnect(boardId: string, sessionId: string): Promise<OperatorReply>;
     nudgeLine(boardId: string): string | null;
@@ -351,6 +353,12 @@ function createWhiteboardWiring({
       if (!record) return refusal(404, DELETED_BOARD_TEXT);
       return { status: 200, body: { ok: true, board: record.board, changes: [] } };
     }),
+    review: async (boardId) => {
+      await loaded;
+      const record = recordsByBoardId.get(boardId);
+      if (!record) return { ok: false, error: DELETED_BOARD_TEXT };
+      return { ok: true, error: null, review: await reviewFor(record.board, { readsChanges: true }) };
+    },
     connect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => connectBoard(foundBoardId, sessionId)),
     disconnect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => disconnectBoard(foundBoardId, sessionId)),
     nudgeLine: (boardId) => {

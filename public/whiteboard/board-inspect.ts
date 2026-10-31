@@ -2,6 +2,7 @@ import type { Board, Box, Element as BoardElement, Frame, Note, Op, Panel, Unit,
 import { AnchorRef, BOX_CHANGES, UNIT_STATUSES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import type { BoardLayout } from '#shared/whiteboard-layout-core.ts';
 import { el } from '../dom-helpers.ts';
+import { refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 
 type BoxLine = Box['lines'][number];
 type LegendEntry = Board['legend'][number];
@@ -15,6 +16,7 @@ interface BoardInspectorOptions {
   layout: () => BoardLayout | null;
   sendOps: (ops: Op[]) => Promise<boolean>;
   codeSessionChoices: () => readonly Choice[];
+  openRef: (ref: string) => void;
 }
 
 const MAX_OUTPUTS = 8;
@@ -375,6 +377,21 @@ function elementSections(board: Board, element: BoardElement, latestBoard: () =>
   }
 }
 
+function openInReviewSection(board: Board, element: BoardElement, openRef: (ref: string) => void): HTMLElement[] {
+  const refs = refsOfElement(element);
+  if (refs.length === 0) return [];
+  const hasCodeSession = board.codeSessionId !== null;
+  const rows = refs.map((ref, index) => {
+    const row = el('div', 'wb-inspect-row wb-inspect-review-row');
+    const openButton = actionButton(`review-${index}`, 'open in review', () => openRef(ref), `Open ${ref} in review`);
+    openButton.disabled = !hasCodeSession;
+    row.append(el('code', 'wb-inspect-ref', ref), openButton);
+    return row;
+  });
+  const hint = hasCodeSession ? [] : [el('p', 'wb-inspect-hint', 'Set the board code session to open refs in review.')];
+  return [heading('In review'), ...rows, ...hint];
+}
+
 function isTypingIn(container: HTMLElement): boolean {
   const active = document.activeElement;
   return container.contains(active) && active instanceof HTMLInputElement && active.type === 'text';
@@ -392,7 +409,7 @@ export function createBoardInspector(options: BoardInspectorOptions) {
     const [selectedId] = selectedIds;
     const element = selectedId === undefined ? undefined : board.elements[selectedId];
     if (!element) return boardSections(board, options.currentBoard, send, options.codeSessionChoices());
-    return elementSections(board, element, options.currentBoard, options.layout(), send);
+    return [...elementSections(board, element, options.currentBoard, options.layout(), send), ...openInReviewSection(board, element, options.openRef)];
   }
 
   function paint(selectedIds: ReadonlySet<string>): void {

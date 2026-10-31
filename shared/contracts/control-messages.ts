@@ -27,7 +27,7 @@ import { LinkedPr, MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrMergeR
 import { GithubPrsFrame } from './github-prs.ts';
 import { BenchmarkActionRequest, BenchmarkActionResult, BenchmarkStatus } from './benchmark.ts';
 import { FeatureHint } from './feature-hints.ts';
-import { Board, BoardSummary, Op, WHITEBOARD_LIMITS } from './whiteboard.ts';
+import { Board, BoardReview, BoardSummary, Op, WHITEBOARD_LIMITS } from './whiteboard.ts';
 
 export const CHANGES_POLL_INTERVAL_MS = 4_000;
 export const CHANGES_WATCH_LEASE_MS = 10_000;
@@ -299,6 +299,7 @@ const clientVariants = [
   loose('whiteboard-op', { boardId: Board.shape.id, ops: z.array(Op).min(1).max(WHITEBOARD_LIMITS.opsPerPut), requestId }),
   loose('whiteboard-delete', { boardId: Board.shape.id, requestId }),
   loose('whiteboard-get', { boardId: Board.shape.id, requestId }),
+  loose('whiteboard-review', { boardId: Board.shape.id, requestId }),
   loose('whiteboard-connect', { boardId: Board.shape.id, sessionId: z.string().min(1), requestId }),
   loose('whiteboard-disconnect', { boardId: Board.shape.id, sessionId: z.string().min(1), requestId }),
   loose('whiteboard-nudge', { boardId: Board.shape.id, sessionId: z.string().min(1), requestId }),
@@ -652,7 +653,7 @@ const serverVariants = [
     ops: z.array(Op),
   }),
   loose('whiteboard-removed', { boardId: z.string() }),
-  loose('whiteboard-result', { requestId, ok: z.boolean(), error: optionalError, board: Board.optional(), summary: BoardSummary.optional() }),
+  loose('whiteboard-result', { requestId, ok: z.boolean(), error: optionalError, board: Board.optional(), summary: BoardSummary.optional(), review: BoardReview.optional() }),
   loose('shutting-down'),
   loose('restarting'),
   loose('feature-hint', { hint: FeatureHint }),

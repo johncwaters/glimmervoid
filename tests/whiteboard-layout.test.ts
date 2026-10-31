@@ -148,7 +148,7 @@ test('units draw as a plan band above the freeform columns, one level per column
   assert.equal(layoutBoard(wiredBoard).plan, null);
 });
 
-test('a unit status that disagrees with the code session changes warns, and changed files no ref covers come back as uncovered', () => {
+test('a unit status that disagrees with the code session changes warns, changed files no ref covers come back as uncovered, and an unread code session says it was not checked', () => {
   const reviewedBoard = Board.parse({
     id: 'reviewed', title: 'reviewed', version: 1, caption: null, createdAt: 0, updatedAt: 0, lanes: [], columns: [], codeSessionId: 'builder',
     elements: {
@@ -180,7 +180,11 @@ test('a unit status that disagrees with the code session changes warns, and chan
     ],
     uncoveredPaths: ['src/stray.ts'],
     worthALookPaths: ['src/parse.ts'],
+    flaggedUnitIds: ['early', 'shipped', 'quiet'],
+    notChecked: null,
   });
+  assert.equal(reviewBoard(reviewedBoard, { fileFactByPath, changes: { ...changes, error: 'git diff failed' } }).notChecked, 'the code session changes could not be read: git diff failed');
+  assert.equal(reviewBoard(reviewedBoard, null).notChecked, 'code session builder is not running');
 
   const manyStrayChanges = { ...changes, changedPaths: Array.from({ length: 25 }, (_, index) => ({ path: `src/stray-${index}.ts`, isCommitted: true })) };
   const { uncoveredPaths } = reviewBoard(reviewedBoard, { fileFactByPath, changes: manyStrayChanges });

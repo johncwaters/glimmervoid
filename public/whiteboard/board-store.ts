@@ -1,5 +1,5 @@
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
-import type { Board, BoardSummary, Op } from '#shared/contracts/whiteboard.ts';
+import type { Board, BoardReview, BoardSummary, Op } from '#shared/contracts/whiteboard.ts';
 import { applyOps } from '#shared/whiteboard-ops-core.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
@@ -164,6 +164,22 @@ export async function disconnectSessionFromBoard(boardId: string, sessionId: str
 export async function nudgeSessionAboutBoard(boardId: string, sessionId: string): Promise<{ ok: true } | { ok: false; error: string }> {
   const outcome = await runBoardCommand('whiteboard-nudge', { boardId, sessionId });
   return outcome.ok ? { ok: true } : outcome;
+}
+
+export async function requestBoardReview(boardId: string): Promise<{ ok: true; review: BoardReview } | { ok: false; error: string }> {
+  const outcome = await runBoardCommand('whiteboard-review', { boardId });
+  if (!outcome.ok) return outcome;
+  return outcome.reply.review ? { ok: true, review: outcome.reply.review } : { ok: false, error: 'Glimmervoid did not return the board review.' };
+}
+
+let openInReview: ((sessionId: string, openPath: string) => void) | null = null;
+
+export function setOpenInReview(callback: (sessionId: string, openPath: string) => void): void {
+  openInReview = callback;
+}
+
+export function openFileInReview(sessionId: string, openPath: string): void {
+  openInReview?.(sessionId, openPath);
 }
 
 export function boardsConnectedTo(sessionId: string): readonly BoardSummary[] {
