@@ -121,7 +121,7 @@ test('a claude-code recording differs only by the header agent field', async () 
 
 test('a non-default agent stamps its decision records, so a recording says which vocabulary it holds', async () => {
   const recorderBase = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-cap-rec2-'));
-  const { session } = makeSession({ id: 'rec2', name: 'rec2', adapter: agentWithout('statusLine') });
+  const { session } = makeSession({ id: 'rec2', name: 'rec2', adapter: agentWithout('planLimits') });
   const recorder = new SessionRecorder({ name: 'rec2', baseDir: recorderBase, recordData: false });
   session.setRecorder(recorder);
   try {

@@ -292,7 +292,7 @@ const grok = {
     awaitingInput: true,
     backgroundAgents: true,
     resume: true,
-    statusLine: false,
+    planLimits: false,
     saneYolo: true,
     compactQuiet: false,
     skipPermissionsFlag: true,

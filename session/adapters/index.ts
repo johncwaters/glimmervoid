@@ -20,7 +20,7 @@ interface AgentCapabilities {
   awaitingInput: boolean;
   backgroundAgents: boolean;
   resume: boolean;
-  statusLine: boolean;
+  planLimits: boolean;
   saneYolo: boolean;
   compactQuiet: boolean;
   skipPermissionsFlag: boolean;

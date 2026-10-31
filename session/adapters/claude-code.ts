@@ -197,7 +197,7 @@ const claudeCode = {
     awaitingInput: true,
     backgroundAgents: true,
     resume: true,
-    statusLine: true,
+    planLimits: true,
     saneYolo: true,
     compactQuiet: true,
     skipPermissionsFlag: true,

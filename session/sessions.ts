@@ -583,7 +583,7 @@ class Session extends EventEmitter {
     this._prependPathDirs = prependPathDirs;
     this._hookTools = hookTools.filter((tool) => this._can(HOOK_TOOLS[tool.id].capability));
     this._isSaneYoloActive = false;
-    this._planLimits = planLimits === true && this._can("statusLine");
+    this._planLimits = planLimits === true && this._can("planLimits");
     this._planReviewPort = planReviewPort;
     this._prepareCoherence = prepareCoherence;
     this.coherenceHooks = null;

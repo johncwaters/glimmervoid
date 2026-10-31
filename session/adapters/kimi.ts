@@ -269,7 +269,7 @@ const kimi = {
     awaitingInput: true,
     backgroundAgents: true,
     resume: true,
-    statusLine: false,
+    planLimits: true,
     saneYolo: true,
     compactQuiet: true,
     skipPermissionsFlag: true,
