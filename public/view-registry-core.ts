@@ -27,7 +27,7 @@ type ViewSource<PanelElement> =
 interface ViewDefinitionFields {
   view: string;
   label: string;
-  glyph?: string | null;
+  iconPath: string;
   panelClass: string;
   gate?: ViewGate;
   attention?: ViewAttentionSource;
@@ -35,6 +35,7 @@ interface ViewDefinitionFields {
   onAvailabilityChange?: (isAvailable: boolean) => void;
   onConnectionChange?: (isConnected: boolean) => void;
   hasOwnPhoneScreen?: boolean;
+  isPhoneNavScreen?: boolean;
   hasPanelChrome?: boolean;
   hasReviewSidebar?: boolean;
 }

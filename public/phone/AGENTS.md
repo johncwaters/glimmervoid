@@ -4,7 +4,7 @@
 # phone
 
 ## Purpose
-The phone layout: the Board (labelled Focus, matching the desktop tab) and Terminal behind a bottom nav, plus one More screen per desktop tab, rendered ONLY under `[data-layout="phone"]`. The More screens are DERIVED from the desktop tab list (`phone-panels-core.ts`), never listed here, because a hand-kept second list can omit a desktop tab from the phone. It is a first-class layout, not a narrowed desktop: the desktop shell is `display:none` on a phone, and the phone shell borrows the elements that own live state instead of rebuilding them.
+The phone layout: the Board (labelled Focus, matching the desktop tab), Terminal and each view flagged `isPhoneNavScreen` behind a bottom nav, plus one More screen per other desktop tab, rendered ONLY under `[data-layout="phone"]`. The More screens are DERIVED from the desktop tab list (`phone-panels-core.ts`), never listed here, because a hand-kept second list can omit a desktop tab from the phone. It is a first-class layout, not a narrowed desktop: the desktop shell is `display:none` on a phone, and the phone shell borrows the elements that own live state instead of rebuilding them.
 
 The job it serves is triage, per `PRODUCT.md`: scan the board, find the session that needs a carbon unit, open it, act, go back.
 

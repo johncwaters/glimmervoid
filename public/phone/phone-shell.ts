@@ -6,6 +6,7 @@ import { addActivityRenderer } from '../session-card/activity.ts';
 import { attentionTally, sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import { showSessionPlanFace } from '../session-card/lifecycle.ts';
 import { reparentReviewPanel } from '../sidebar/review-sidebar.ts';
+import { createLineIcon, FOCUS_ICON_PATH, MORE_ICON_PATH, TERMINAL_ICON_PATH } from '../svg-dom.ts';
 import { uiState } from '../ui-state-core.ts';
 import { createBoardScreen } from './board-screen.ts';
 import type { PhonePanel } from './phone-panels-core.ts';
@@ -19,7 +20,7 @@ const PARENT_SCREEN_BY_ID: Readonly<Record<string, string>> = Object.freeze({ [C
 interface PhoneScreenSpec {
   id: string;
   label: string;
-  glyph: string;
+  iconPath: string;
 }
 
 interface PhoneShellHooks {
@@ -31,8 +32,8 @@ interface PhoneShellHooks {
 }
 
 const NAV_SCREENS: readonly PhoneScreenSpec[] = Object.freeze([
-  { id: BOARD, label: 'Focus', glyph: '▤' },
-  { id: TERMINAL, label: 'Terminal', glyph: '▸' },
+  { id: BOARD, label: 'Focus', iconPath: FOCUS_ICON_PATH },
+  { id: TERMINAL, label: 'Terminal', iconPath: TERMINAL_ICON_PATH },
 ]);
 let panels: PhonePanel<AdoptableElement>[] = [];
 const panelMountElById = new Map<string, HTMLDivElement>();
@@ -83,10 +84,11 @@ function syncVisualViewport() {
   shellEl.removeAttribute('data-keyboard');
 }
 
-function buildNavButton(label: string, glyph: string, itemClass = 'phone-nav-item', dotClass = 'phone-nav-dot') {
+function buildNavButton(label: string, iconPath: string, itemClass = 'phone-nav-item', dotClass = 'phone-nav-dot') {
   const btn = el('button', itemClass);
   btn.type = 'button';
-  const glyphEl = el('span', 'phone-nav-glyph', glyph);
+  const glyphEl = el('span', 'phone-nav-glyph');
+  glyphEl.appendChild(createLineIcon(iconPath));
   glyphEl.setAttribute('aria-hidden', 'true');
   btn.append(glyphEl, el('span', 'phone-nav-label', label));
   const dot = el('span', dotClass);
@@ -112,6 +114,10 @@ function syncMoreAttention() {
   for (const panel of panels) {
     if (unavailableScreenIds.has(panel.id)) continue;
     const attention = screenAttentionById.get(panel.id) || false;
+    if (panel.isNavScreen) {
+      applyDotAttention(dotOf(navButtonById.get(panel.id)), attention);
+      continue;
+    }
     nestedLevels.push(attention);
     applyDotAttention(dotOf(menuButtonById.get(panel.id)), attention);
   }
@@ -122,7 +128,8 @@ function buildMoreMenu() {
   const menu = el('div', 'phone-nav-more-menu');
   menu.hidden = true;
   for (const panel of panels) {
-    const btn = buildNavButton(panel.label, panel.glyph, 'phone-nav-menu-item', 'phone-nav-dot phone-nav-menu-dot');
+    if (panel.isNavScreen) continue;
+    const btn = buildNavButton(panel.label, panel.iconPath, 'phone-nav-menu-item', 'phone-nav-dot phone-nav-menu-dot');
     btn.dataset.screen = panel.id;
     btn.hidden = unavailableScreenIds.has(panel.id);
     btn.addEventListener('click', () => {
@@ -149,7 +156,7 @@ function buildNav() {
   const nav = el('nav', 'phone-nav');
   nav.setAttribute('aria-label', 'Screens');
   for (const screen of NAV_SCREENS) {
-    const btn = buildNavButton(screen.label, screen.glyph);
+    const btn = buildNavButton(screen.label, screen.iconPath);
     btn.dataset.screen = screen.id;
     btn.addEventListener('click', () => {
       if (screen.id === TERMINAL && uiState.snapshot().phoneScreen === TERMINAL) showTerminalFaceOfShownSession();
@@ -158,7 +165,16 @@ function buildNav() {
     navButtonById.set(screen.id, btn);
     nav.appendChild(btn);
   }
-  moreButtonEl = buildNavButton('More', String.fromCharCode(0x22ef));
+  for (const panel of panels) {
+    if (!panel.isNavScreen) continue;
+    const btn = buildNavButton(panel.label, panel.iconPath);
+    btn.dataset.screen = panel.id;
+    btn.hidden = unavailableScreenIds.has(panel.id);
+    btn.addEventListener('click', () => showScreen(panel.id));
+    navButtonById.set(panel.id, btn);
+    nav.appendChild(btn);
+  }
+  moreButtonEl = buildNavButton('More', MORE_ICON_PATH);
   moreButtonEl.setAttribute('aria-expanded', 'false');
   moreButtonEl.addEventListener('click', () => setMoreMenuOpen(!isMoreMenuOpen()));
   nav.appendChild(moreButtonEl);
@@ -488,8 +504,8 @@ export function showPhoneScreen(screenId: string) {
 export function setPhoneScreenAvailable(screenId: string, isAvailable: boolean) {
   if (isAvailable) unavailableScreenIds.delete(screenId);
   if (!isAvailable) unavailableScreenIds.add(screenId);
-  const menuButton = menuButtonById.get(screenId);
-  if (menuButton) menuButton.hidden = !isAvailable;
+  const screenButton = menuButtonById.get(screenId) ?? navButtonById.get(screenId);
+  if (screenButton) screenButton.hidden = !isAvailable;
   const section = screenElById.get(screenId);
   if (section && !isAvailable) section.hidden = true;
   syncMoreAttention();

@@ -1,19 +1,23 @@
 import type { PrimaryView } from '../view-registry-core.ts';
 
-type DesktopView<PanelElement> = Pick<PrimaryView<PanelElement>, 'view' | 'label' | 'glyph' | 'el' | 'hasOwnPhoneScreen'>;
+type DesktopView<PanelElement> = Pick<PrimaryView<PanelElement>, 'view' | 'label' | 'iconPath' | 'el' | 'hasOwnPhoneScreen' | 'isPhoneNavScreen'>;
 
 export interface PhonePanel<PanelElement> {
   id: string;
   label: string;
-  glyph: string;
+  iconPath: string;
+  isNavScreen: boolean;
   el: PanelElement;
 }
 
 export function phonePanelsFromDesktopViews<PanelElement>(desktopViews: readonly DesktopView<PanelElement>[]): PhonePanel<PanelElement>[] {
   return desktopViews
     .filter((desktopView) => !desktopView.hasOwnPhoneScreen)
-    .map((desktopView) => {
-      const label = desktopView.label.trim();
-      return { id: desktopView.view, label, glyph: desktopView.glyph || label.charAt(0).toUpperCase(), el: desktopView.el };
-    });
+    .map((desktopView) => ({
+      id: desktopView.view,
+      label: desktopView.label.trim(),
+      iconPath: desktopView.iconPath,
+      isNavScreen: desktopView.isPhoneNavScreen === true,
+      el: desktopView.el,
+    }));
 }

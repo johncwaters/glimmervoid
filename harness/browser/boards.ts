@@ -25,8 +25,12 @@ async function submitTextDialog(page: Page, label: string, value: string, confir
 export async function verifyBoards(page: Page, layout: Layout): Promise<void> {
   await page.locator('#loading-screen').waitFor({ state: 'hidden' });
   if (layout === 'phone') {
-    await page.getByRole('button', { name: 'More', exact: true }).click();
-    await page.getByRole('button', { name: 'Boards', exact: true }).click();
+    const navButtonLabels = await page.locator('.phone-nav > .phone-nav-item:not([hidden]) .phone-nav-label').allTextContents();
+    assert.deepEqual(navButtonLabels, ['Focus', 'Terminal', 'Boards', 'More']);
+    assert.equal(await page.locator('.phone-nav-more-menu [data-screen="boards"]').count(), 0);
+    const boardsNavButton = page.locator('.phone-nav > .phone-nav-item[data-screen="boards"]');
+    await boardsNavButton.click();
+    assert.equal(await boardsNavButton.getAttribute('aria-current'), 'page');
   }
   if (layout === 'desktop') await page.locator('#tab-boards').click();
   const boardTitle = `Ingest plan ${layout}`;
