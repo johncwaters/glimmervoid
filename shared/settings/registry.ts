@@ -939,6 +939,11 @@ export function isExperimentalSetting(setting: Pick<SettingsSetting, 'keywords'>
   return setting.keywords.includes(EXPERIMENTAL_KEYWORD);
 }
 
+export function isExperimentalSection(section: Pick<SettingsSection, 'settings'>): boolean {
+  const enableSetting = section.settings[0];
+  return enableSetting !== undefined && isExperimentalSetting(enableSetting);
+}
+
 export function settingsSectionsAvailableOn(sections: readonly SettingsSection[], isExperimentalBuild: boolean): readonly SettingsSection[] {
   if (isExperimentalBuild) return sections;
   return sections.flatMap((section) => {

@@ -16,7 +16,9 @@ import { UPDATES_SECTION_ID } from '../radar/radar-core.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import { isSkillChoicePending, readTeamReviewEnvironment, teamReviewSuggestions } from './team-review-settings-core.ts';
 import type { SettingsSection, SettingsSetting } from '#shared/settings/registry.ts';
-import { SETTINGS_MOVED_SETTINGS, SETTINGS_REGISTRY, SETTINGS_SECTION_ALIASES, settingsSectionsAvailableOn } from '#shared/settings/registry.ts';
+import {
+  isExperimentalSection, isExperimentalSetting, SETTINGS_MOVED_SETTINGS, SETTINGS_REGISTRY, SETTINGS_SECTION_ALIASES, settingsSectionsAvailableOn,
+} from '#shared/settings/registry.ts';
 import type { SettingsSearchMatch, SettingsSearchResult } from '#shared/settings/registry-core.ts';
 import { parseSettingsHash, scoreSettingsSearch } from '#shared/settings/registry-core.ts';
 import {
@@ -1086,7 +1088,7 @@ function buildUsageStatus() {
 function buildAgentLoginsStatus() {
   const block = el('div', 'settings-view-status-block');
   if ((pendingSaveById.get('remote-sessions') ?? storedValues.remoteSessions) !== true) {
-    block.appendChild(el('div', 'settings-readonly', 'Turn on Remote Coder sessions (experimental) to connect agent logins for them.'));
+    block.appendChild(el('div', 'settings-readonly', 'Turn on Remote Coder sessions to connect agent logins for them.'));
     return block;
   }
   for (const agent of ['claude-code', 'codex'] as const) {
@@ -1229,6 +1231,10 @@ function buildNotificationPermissionSlot(setting: SettingsSetting) {
   return permissionControl.element;
 }
 
+function buildExperimentalTag() {
+  return el('span', 'settings-view-experimental-tag', 'Experimental');
+}
+
 function buildChip(kind: string, text: string) {
   const chip = el('span', 'settings-view-chip', text);
   chip.dataset.chip = kind;
@@ -1259,6 +1265,7 @@ function renderSettingHeading(setting: SettingsSetting) {
   const section = sectionOfSetting(setting);
   const heading = el('h2', 'settings-view-setting-title', setting.title);
   heading.id = setting.id;
+  if (isExperimentalSetting(setting) && !isExperimentalSection(pageSectionOf(SETTINGS_VIEW_MAP, section.id) ?? section)) heading.append(' ', buildExperimentalTag());
   heading.addEventListener('click', () => replaceSettingsHash(section.id, setting.id));
   const copy = el('button', 'settings-view-copy-link', '#');
   copy.setAttribute('aria-label', 'Copy link');
@@ -1511,9 +1518,12 @@ function renderContent() {
   title.addEventListener('click', () => replaceSettingsHash(selectedPage.id));
   const titleRow = el('div', 'settings-view-section-title-row');
   titleRow.appendChild(title);
+  const isExperimentalPage = isExperimentalSection(selectedPage);
+  if (isExperimentalPage) title.append(' ', buildExperimentalTag());
   const pageScope = pageScopeOf(pageSettings(selectedPage));
   if (pageScope) titleRow.appendChild(buildChip('scope', SCOPE_LABELS[pageScope]));
   header.append(titleRow, el('p', 'settings-view-section-description', selectedPage.description));
+  if (isExperimentalPage) header.appendChild(el('p', 'settings-view-warning settings-view-experimental-caution', 'Experimental: this may change or break between releases.'));
   contentEl.appendChild(header);
 
   if (selectedPage.id === SHORTCUTS_PAGE_ID) {
@@ -1706,6 +1716,7 @@ function renderNavigation() {
     for (const section of navigationGroup.sections) {
       const button = el('button', 'settings-view-nav-item', section.title);
       button.type = 'button';
+      if (isExperimentalSection(section)) button.append(' ', buildExperimentalTag());
       button.dataset.settingsSection = section.id;
       button.addEventListener('click', () => selectSection(section.id, { focusContent: isPhoneLayout() }));
       group.appendChild(button);

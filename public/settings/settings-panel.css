@@ -612,6 +612,39 @@ html[data-streamer] .settings-view-shell { grid-template-columns: minmax(0, 1fr)
   font: var(--type-meta) var(--font-mono);
 }
 
+.settings-view-experimental-tag {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 5px;
+  border: 1px solid color-mix(in oklab, var(--state-waiting) 55%, transparent);
+  border-radius: 2px;
+  color: var(--state-waiting);
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.5;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.settings-view-nav-item:has(.settings-view-experimental-tag) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.settings-view-nav-item .settings-view-experimental-tag {
+  flex-shrink: 0;
+  margin-left: 0;
+  padding: 0 3px;
+}
+
+.settings-view-experimental-caution {
+  margin: 12px 0 0;
+}
+
 .settings-view-warning {
   grid-column: 1 / -1;
   padding: 7px 10px;
