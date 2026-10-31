@@ -4392,6 +4392,12 @@ html:not([data-layout="phone"]) .review-controls :is(.review-branch-sync-refresh
   flex-shrink: 0;
 }
 
+[data-layout="phone"] .settings-view .settings-update-details-summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+
 [data-layout="phone"] .settings-view .settings-view-tab-order-move {
   width: 44px;
   height: 44px;

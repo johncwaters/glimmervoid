@@ -812,7 +812,8 @@ html[data-streamer] .settings-view-shell { grid-template-columns: minmax(0, 1fr)
   color: var(--text-muted);
 }
 
-.settings-update-summary[data-tone="security"] {
+.settings-update-summary[data-tone="security"],
+.settings-update-summary[data-tone="failed"] {
   color: var(--state-failed);
 }
 
@@ -863,6 +864,50 @@ html[data-streamer] .settings-view-shell { grid-template-columns: minmax(0, 1fr)
   color: var(--text);
   font-family: var(--font-mono);
   font-size: var(--type-meta);
+}
+
+.settings-update-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-update-details:not([open]) {
+  gap: 0;
+}
+
+.settings-update-details-summary {
+  width: fit-content;
+  color: var(--text-muted);
+  font-size: var(--type-meta);
+  cursor: pointer;
+  list-style: none;
+}
+
+.settings-update-details-summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-update-details-summary::before {
+  content: "+";
+  margin-inline-end: 1ch;
+}
+
+.settings-update-details[open] > .settings-update-details-summary::before {
+  content: "-";
+}
+
+@media (hover: hover) {
+  .settings-update-details-summary:hover {
+    color: var(--text-head);
+  }
+}
+
+.settings-update-failure-detail {
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  overflow-wrap: anywhere;
 }
 
 .settings-update-steps {

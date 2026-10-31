@@ -969,7 +969,9 @@ function buildUpdateProgress() {
   const panel = el('div', 'settings-update-progress');
   panel.dataset.state = projection.state;
   panel.setAttribute('role', 'status');
-  if (projection.terminalLine) panel.appendChild(el('div', 'settings-update-terminal', projection.terminalLine));
+  const isFailed = projection.state === 'failed';
+  if (projection.terminalLine) panel.appendChild(el('div', isFailed ? 'dialog-error' : 'settings-update-terminal', projection.terminalLine));
+  const record = isFailed ? buildUpdateFailureDetails(panel, projection.failureDetail) : panel;
   const list = el('ol', 'settings-update-steps');
   for (const step of projection.steps) {
     const item = el('li', 'settings-update-step');
@@ -980,18 +982,26 @@ function buildUpdateProgress() {
     );
     list.appendChild(item);
   }
-  panel.appendChild(list);
+  record.appendChild(list);
   if (projection.outputTail.length === 0) return panel;
   const output = el('pre', 'settings-update-output', projection.outputTail.join('\n'));
   if (projection.outputStepId) output.dataset.step = projection.outputStepId;
   if (!projection.outputStepLabel) {
-    panel.appendChild(output);
+    record.appendChild(output);
     return panel;
   }
   const caption = `Output from ${projection.outputStepLabel}`;
   output.setAttribute('aria-label', caption);
-  panel.append(el('div', 'settings-update-output-label', caption), output);
+  record.append(el('div', 'settings-update-output-label', caption), output);
   return panel;
+}
+
+function buildUpdateFailureDetails(panel: HTMLElement, failureDetail: string | null) {
+  const details = el('details', 'settings-update-details');
+  details.appendChild(el('summary', 'settings-update-details-summary', 'Show details'));
+  if (failureDetail) details.appendChild(el('div', 'settings-update-failure-detail', failureDetail));
+  panel.appendChild(details);
+  return details;
 }
 
 function buildLatestUpdateFact() {

@@ -33,6 +33,7 @@ interface UpdateProgressStep {
 interface UpdateProgressProjection {
   state: UpdateRunState;
   terminalLine: string | null;
+  failureDetail: string | null;
   steps: UpdateProgressStep[];
   outputTail: string[];
   outputStepId: string | null;
@@ -52,6 +53,12 @@ const UPDATE_STEP_LABELS: Readonly<Record<string, string>> = Object.freeze({
   install: 'Install dependencies',
   'link-deps': 'Link dependencies',
   build: 'Build',
+});
+
+const UPDATE_FAILURE_TEXT: Readonly<Record<string, string>> = Object.freeze({
+  'handoff-preflight-failed': 'The checkout changed after the update downloaded.',
+  'handoff-queue-admission-timed-out': 'Git stayed busy too long to install it.',
+  'staging-head-mismatch': 'The download did not match the release.',
 });
 
 const CHECK_FAILURE_TEXT: Readonly<Record<string, string>> = Object.freeze({
@@ -167,8 +174,24 @@ function reasonSuffix(reason: unknown): string {
 
 const QUIET_PROGRESS_STATES: ReadonlySet<UpdateRunState> = new Set<UpdateRunState>(['idle', 'staged', 'succeeded', 'discarded']);
 
+function failureReasonKey(reason: string | null): string {
+  return (reason ?? '').split(/[:;]/, 1)[0] ?? '';
+}
+
+function failedProgressLine(journal: UpdateJournal): string {
+  const knownCause = UPDATE_FAILURE_TEXT[failureReasonKey(journal.reason)];
+  const failedStep = journal.steps.find((step) => step.status === 'failed');
+  const isHandOffFailure = journal.failedAtHandOff === true;
+  const handOffCause = isHandOffFailure ? 'It stopped while switching to the new version.' : null;
+  const cause = knownCause ?? (failedStep ? `It stopped at ${stepLabel(failedStep.id)}.` : handOffCause);
+  const isCurrentVersionUntouched = knownCause !== undefined || !isHandOffFailure;
+  return ['Update failed.', cause, isCurrentVersionUntouched ? 'Your current version is still running.' : null]
+    .filter((part) => part !== null)
+    .join(' ');
+}
+
 function terminalProgressLine(journal: UpdateJournal): string | null {
-  if (journal.state === 'failed') return `Update failed${reasonSuffix(journal.reason)}.`;
+  if (journal.state === 'failed') return failedProgressLine(journal);
   if (journal.state === 'interrupted') return `Update interrupted${reasonSuffix(journal.reason)}.`;
   return null;
 }
@@ -192,6 +215,7 @@ export function projectUpdateProgress(journal: UpdateJournal | null | undefined)
   return {
     state: journal.state,
     terminalLine: terminalProgressLine(journal),
+    failureDetail: journal.state === 'failed' ? textOr(journal.reason, null) : null,
     steps: journal.steps.map((step) => ({
       id: step.id,
       label: stepLabel(step.id),
@@ -205,7 +229,7 @@ export function projectUpdateProgress(journal: UpdateJournal | null | undefined)
 
 const AUTO_CHECK_STALE_MS = 10 * 60_000;
 
-type UpdateSummaryTone = 'unknown' | 'current' | 'available' | 'running' | 'staged' | 'security';
+type UpdateSummaryTone = 'unknown' | 'current' | 'available' | 'running' | 'staged' | 'security' | 'failed';
 
 interface UpdateSummary {
   tone: UpdateSummaryTone;
@@ -229,6 +253,7 @@ export function updateSummary(
     const checkedOut = versionLabel(status.latest, status.latestSha) || 'The latest release';
     return { tone: 'staged', headline: `${checkedOut} is already checked out. Restart to run it.` };
   }
+  if (status.updateAvailable && runState === 'failed') return { tone: 'failed', headline: `${target} did not install.` };
   if (status.updateAvailable) return { tone: 'available', headline: 'Update available.' };
   const reason = textOr(status.reason, '');
   if (reason) return { tone: 'unknown', headline: checkFailureText(reason) };
