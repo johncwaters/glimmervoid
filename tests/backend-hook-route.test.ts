@@ -320,3 +320,29 @@ test('an accepted UserPromptSubmit prints the pending prompt context in the shap
     await closeServer(server);
   }
 });
+
+test('a Claude tool hook names a Glimmervoid command once, and never one the session already ran', async () => {
+  const { base, token } = ctx();
+  async function postToolHook(event: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const response = await fetch(`${base}/hook/${SESSION_ID}/${event}?t=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      headers: { 'content-type': 'application/json' },
+    });
+    assert.equal(response.status, 200);
+    return await response.json() as Record<string, unknown>;
+  }
+  const recordedHooks = fs.readFileSync(path.join(import.meta.dirname, 'fixtures', 'v2-claude-code-command-hint.jsonl'), 'utf8')
+    .split('\n').filter(Boolean).map((line) => JSON.parse(line) as { event?: string; payload?: Record<string, unknown> });
+  const screenshotCall = recordedHooks.find((record) => record.event === 'posttooluse')?.payload;
+  assert.ok(screenshotCall, 'the live capture holds the PostToolUse of the image-writing shell call');
+  const firstReply = await postToolHook('PostToolUse', screenshotCall);
+  assert.deepEqual(firstReply.hookSpecificOutput, {
+    hookEventName: 'PostToolUse',
+    additionalContext: "Glimmervoid: glimmervoid show <path> puts an image, video or HTML file on this session's card for the operator.",
+  });
+  assert.equal((await postToolHook('PostToolUse', screenshotCall)).hookSpecificOutput, undefined);
+  ctx().session.noteCommandRan('push');
+  const failedPush = { tool_name: 'Bash', tool_input: { command: 'git push origin HEAD' }, error: 'Exit code 1' };
+  assert.equal((await postToolHook('PostToolUseFailure', failedPush)).hookSpecificOutput, undefined);
+});

@@ -10,9 +10,9 @@ import { PLAN_HOOK_EVENT, PLAN_RESULT_HOOK_EVENT } from '../../shared/contracts/
 import { CONVERSATION_PERMISSION_HOOK_EVENT, CONVERSATION_TOOL_RESULT_HOOK_EVENT } from '../../shared/contracts/session.ts';
 import { parseJsonRecord } from '../core/json-core.ts';
 import type { Session } from '../../session/sessions.ts';
-import { refocusReplyFor } from '../../session/core/refocus-core.ts';
+import { refocusReplyFor, toolHookContextReplyOf } from '../../session/core/refocus-core.ts';
 import type { RefocusContext } from '../../session/core/refocus-core.ts';
-import type { UserPromptSubmitHookResponse } from '../../shared/contracts/refocus.ts';
+import type { ToolHookContextResponse, UserPromptSubmitHookResponse } from '../../shared/contracts/refocus.ts';
 import type { AgentApiPort } from '../agent-api-wiring.ts';
 import { checkAgentReply, decideAgentRequest, REFUSAL_REASON, REFUSAL_STATUS } from '../core/agent-api-core.ts';
 import { SSH_SIGN_BODY_CAP_BYTES, SshSignRequest } from '../../shared/contracts/session.ts';
@@ -50,11 +50,12 @@ const HOOK_BODY_CAP_BYTES = 64 * 1024;
 const AGENT_OVERSIZE_DRAIN_BYTES = 4 * 1024 * 1024;
 const AGENT_BODY_CAP_BYTES_BY_VERB: Readonly<Record<string, number>> = { whiteboard: WHITEBOARD_LIMITS.putBytes + HOOK_BODY_CAP_BYTES };
 const UNNAMED_HOOK_EVENT = 'an unknown event';
-const SILENT_OVERSIZE_HOOK_EVENTS: ReadonlySet<string> = new Set(['posttooluse', CONVERSATION_TOOL_RESULT_HOOK_EVENT]);
+const SILENT_OVERSIZE_HOOK_EVENTS: ReadonlySet<string> = new Set(['posttooluse', 'posttoolusefailure', CONVERSATION_TOOL_RESULT_HOOK_EVENT]);
 const KNOWN_HOOK_EVENTS: ReadonlySet<string> = new Set([
   ...HOOK_EVENTS.map((event) => event.toLowerCase()),
   'pretooluse',
   'posttooluse',
+  'posttoolusefailure',
   'statusline',
   PLAN_HOOK_EVENT,
   PLAN_RESULT_HOOK_EVENT,
@@ -456,6 +457,14 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
     logger = console,
   } = dependencies;
 
+  function toolHookHintReply(glimmervoidId: string, event: string, payload: Record<string, unknown>): ToolHookContextResponse | null {
+    const session = getSession(glimmervoidId);
+    const agentApi = getAgentApi();
+    if (!session || !agentApi) return null;
+    const hint = session.takeCommandHint(event, payload, (command) => agentApi.refuseRole(session, command) === null);
+    return hint === null ? null : toolHookContextReplyOf(hint);
+  }
+
   app.post('/hook/:glimmervoidId/:event', (req, res) => {
     if (!isLoopbackRequest(req)) {
       recordOutcome('hookRejectedNonLoopback');
@@ -491,7 +500,8 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
         readContext: () => refocusContextFor(req.params.glimmervoidId),
         takePromptSupervision: () => takePromptSupervision(req.params.glimmervoidId),
       });
-      const reply: Record<string, unknown> = { ok: output.status === 200, reason: output.reason, ...refocusReply };
+      const toolHint = output.status === 200 ? toolHookHintReply(req.params.glimmervoidId, req.params.event, payload) : null;
+      const reply: Record<string, unknown> = { ok: output.status === 200, reason: output.reason, ...refocusReply, ...toolHint };
       const answer = (decision: Record<string, unknown> | null) => {
         if (res.headersSent || res.writableEnded || res.destroyed) return;
         res.status(output.status).json(decision ? { ...reply, ...decision } : reply);
@@ -540,6 +550,7 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
       sendShowReply({ res, logger }, roleRefusal.status, roleRefusal.body);
       return;
     }
+    session.noteCommandRan('show');
     answerShow({ req, res, session, shownFiles, logger });
   });
 

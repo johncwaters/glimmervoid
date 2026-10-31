@@ -1,4 +1,6 @@
 import { SessionStartHookResponse, UserPromptSubmitHookResponse } from '../../shared/contracts/refocus.ts';
+import type { ToolHookContextResponse } from '../../shared/contracts/refocus.ts';
+import type { CommandHint } from './session-routes.ts';
 import type { PromptContextReply } from '../../shared/contracts/refocus.ts';
 
 interface RefocusContext {
@@ -63,5 +65,11 @@ function promptSupervisionOutput(body: string | null): string | null {
   }
 }
 
-export { promptContextReplyOf, refocusReplyFor, sessionStartContextOutput, promptSupervisionOutput };
+const TOOL_HOOK_EVENT_NAMES = { posttooluse: 'PostToolUse', posttoolusefailure: 'PostToolUseFailure' } as const;
+
+function toolHookContextReplyOf({ event, text }: CommandHint): ToolHookContextResponse {
+  return { hookSpecificOutput: { hookEventName: TOOL_HOOK_EVENT_NAMES[event], additionalContext: text } };
+}
+
+export { toolHookContextReplyOf, promptContextReplyOf, refocusReplyFor, sessionStartContextOutput, promptSupervisionOutput };
 export type { RefocusContext };

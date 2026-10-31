@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 
 import { createBackend } from '../server/backend/backend.ts';
 import type { Session } from '../session/sessions.ts';
@@ -16,6 +17,9 @@ import type { ProbeFixtureTarget, ProbeHookRecord } from './support/backend-harn
 const SESSION_ID = 'claude-probe-session';
 const BOOT_SETTLE_MS = 10000;
 const SHOULD_WRITE_FIXTURES = process.argv.includes('--write-fixtures');
+const SHOULD_RUN_ONLY_HINT_PROBE = process.argv.includes('--only-hints');
+const HINT_PROBE_PROMPT = "Run the shell command: printf x > hint-probe.png . Then quote verbatim every sentence beginning with 'Glimmervoid:' that reached you with that tool result, or reply none.";
+const SHOW_HINT_MARKER = 'glimmervoidshow<path>';
 
 const { check, passed, failed } = createProbeChecks();
 
@@ -123,6 +127,14 @@ async function runProbe(tempDirectory: string): Promise<void> {
     await delay(500);
     session.write('\r');
     await delay(3000);
+
+    if (SHOULD_RUN_ONLY_HINT_PROBE) {
+      const hintOutputOffset = session.getOutputOffset();
+      const hintHooks = await runScenario('command-hint', () => submit(HINT_PROBE_PROMPT), pressEnter);
+      check('the Bash PostToolUse reached the hooks', hookEventsOf(hintHooks).includes('posttooluse'));
+      check('the show hint reached the model with the tool result', stripVTControlCharacters(session.getBufferSince(hintOutputOffset).data).replace(/\s+/g, '').includes(SHOW_HINT_MARKER));
+      return;
+    }
 
     const writer = backend.getSession(whiteboardWriterIdFor(SESSION_ID));
     if (!writer) throw new Error('the probe config did not produce the board writer session');

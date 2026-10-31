@@ -1,5 +1,6 @@
 import { SESSION_COMMANDS } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb, SessionCommand, SessionLimits } from '../../shared/contracts/session.ts';
+import { isRecord } from '../../shared/coerce.ts';
 
 const SUPERVISION_LINE = "Glimmervoid supervises this session. Run glimmervoid --help for the commands it gives you and this session's limits.";
 const SPAWN_LINE = 'To delegate work that edits files or runs long, use glimmervoid spawn rather than an in-process subagent: the spawned session gets its own dashboard card the operator can watch. An in-process subagent stays fine for a quick read-only lookup.';
@@ -134,6 +135,101 @@ const COMMAND_ROUTES: Readonly<Record<AgentApiVerb, (facts: SessionRoleFacts) =>
   limits: () => ANSWERS,
 });
 
+type HintedCommand = 'show' | 'spawn' | 'push' | 'settings' | 'review';
+type ToolHookEvent = 'posttooluse' | 'posttoolusefailure';
+
+interface ToolHookFacts {
+  event: ToolHookEvent;
+  toolName: string;
+  toolInput: Record<string, unknown>;
+}
+
+interface HintGate {
+  answers: (command: HintedCommand) => boolean;
+  hintedCommands: ReadonlySet<string>;
+  ranCommands: ReadonlySet<string>;
+}
+
+interface CommandHint {
+  command: HintedCommand;
+  event: ToolHookEvent;
+  text: string;
+}
+
+const SHOWABLE_PATH = /\.(png|jpe?g|gif|webp|svg|mp4|webm|html?)(?=$|[\s'"`)|;&,])/i;
+const FILE_WRITING_TOOLS: ReadonlySet<string> = new Set(['Write', 'Edit']);
+const SHELL_TOOLS: ReadonlySet<string> = new Set(['Bash']);
+const SUBAGENT_TOOLS: ReadonlySet<string> = new Set(['Agent', 'Task']);
+const GIT_PUSH = /\bgit\s+push\b/;
+const PR_REVIEW = /\bgh\s+pr\s+review\b/;
+const GLIMMERVOID_CONFIG = /\.glimmervoid[\\/]config\.json\b/;
+
+function shellCommandOf({ toolName, toolInput }: ToolHookFacts): string | null {
+  if (!SHELL_TOOLS.has(toolName)) return null;
+  return typeof toolInput.command === 'string' ? toolInput.command : null;
+}
+
+function filePathOf({ toolName, toolInput }: ToolHookFacts): string | null {
+  if (!FILE_WRITING_TOOLS.has(toolName)) return null;
+  return typeof toolInput.file_path === 'string' ? toolInput.file_path : null;
+}
+
+function namesShowableFile(facts: ToolHookFacts): boolean {
+  if (facts.event !== 'posttooluse') return false;
+  const named = filePathOf(facts) ?? shellCommandOf(facts);
+  return named !== null && SHOWABLE_PATH.test(named);
+}
+
+function startsSubagent(facts: ToolHookFacts): boolean {
+  return facts.event === 'posttooluse' && SUBAGENT_TOOLS.has(facts.toolName);
+}
+
+function failsGitPush(facts: ToolHookFacts): boolean {
+  if (facts.event !== 'posttoolusefailure') return false;
+  return GIT_PUSH.test(shellCommandOf(facts) ?? '');
+}
+
+function touchesGlimmervoidConfig(facts: ToolHookFacts): boolean {
+  const named = filePathOf(facts) ?? shellCommandOf(facts);
+  return named !== null && GLIMMERVOID_CONFIG.test(named);
+}
+
+function runsPullRequestReview(facts: ToolHookFacts): boolean {
+  if (facts.event !== 'posttooluse') return false;
+  return PR_REVIEW.test(shellCommandOf(facts) ?? '');
+}
+
+const COMMAND_HINTS: Readonly<Record<HintedCommand, { firesOn: (facts: ToolHookFacts) => boolean; text: string }>> = Object.freeze({
+  show: { firesOn: namesShowableFile, text: 'Glimmervoid: glimmervoid show <path> puts an image, video or HTML file on this session\'s card for the operator.' },
+  spawn: { firesOn: startsSubagent, text: 'Glimmervoid: for work that edits files or runs long, glimmervoid spawn <prompt> gives it its own dashboard card; an in-process subagent stays fine for a quick read-only lookup.' },
+  push: { firesOn: failsGitPush, text: "Glimmervoid: glimmervoid push lands this session's commits on the integration branch and pushes it." },
+  settings: { firesOn: touchesGlimmervoidConfig, text: "Glimmervoid: glimmervoid settings get <key> reads Glimmervoid's settings without opening config.json." },
+  review: { firesOn: runsPullRequestReview, text: 'Glimmervoid: glimmervoid review <pr> queues a team review whose draft waits in the Reviews tab for the operator to post.' },
+});
+
+const HINTED_COMMANDS = Object.keys(COMMAND_HINTS) as HintedCommand[];
+const TOOL_HOOK_EVENTS: ReadonlySet<string> = new Set<ToolHookEvent>(['posttooluse', 'posttoolusefailure']);
+
+function isToolHookEvent(event: string): event is ToolHookEvent {
+  return TOOL_HOOK_EVENTS.has(event);
+}
+
+function toolHookFactsOf(event: string, payload: Record<string, unknown>): ToolHookFacts | null {
+  const normalizedEvent = event.toLowerCase();
+  if (!isToolHookEvent(normalizedEvent)) return null;
+  if (typeof payload.tool_name !== 'string') return null;
+  return { event: normalizedEvent, toolName: payload.tool_name, toolInput: isRecord(payload.tool_input) ? payload.tool_input : {} };
+}
+
+function hintFor(facts: ToolHookFacts, gate: HintGate): CommandHint | null {
+  const command = HINTED_COMMANDS.find((candidate) => !gate.hintedCommands.has(candidate)
+    && !gate.ranCommands.has(candidate)
+    && COMMAND_HINTS[candidate].firesOn(facts)
+    && gate.answers(candidate));
+  if (command === undefined) return null;
+  return { command, event: facts.event, text: COMMAND_HINTS[command].text };
+}
+
 function commandLimit(name: SessionCommand, facts: SessionRoleFacts): SessionCommandLimit {
   const verdict = COMMAND_ROUTES[name](facts);
   if (verdict.answers) return { name, answers: true };
@@ -162,5 +258,6 @@ function formatSessionLimits(limits: SessionLimits): string[] {
   return ['This session:', ...commandLines, ...boundaryLines(limits)];
 }
 
-export { supervisionLine, permitsHelpCommand, COMMAND_ROUTES, describeSessionLimits, formatSessionLimits, NO_OWN_WORKTREE_REASON };
+export type { CommandHint, HintedCommand };
+export { supervisionLine, permitsHelpCommand, toolHookFactsOf, hintFor, COMMAND_ROUTES, describeSessionLimits, formatSessionLimits, NO_OWN_WORKTREE_REASON };
 export type { SessionRoleFacts };

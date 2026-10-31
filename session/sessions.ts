@@ -27,7 +27,8 @@ import type { SessionState } from "../shared/states.ts";
 import { unrefTimer } from "../shared/timer-deps.ts";
 import { AGENT_ATTENTION_NOTE_SEPARATOR, AGENT_URL_ENV } from "../shared/contracts/session.ts";
 import { commitSigningEnv } from "./core/commit-signing-env.ts";
-import { permitsHelpCommand, supervisionLine } from "./core/session-routes.ts";
+import { hintFor, permitsHelpCommand, supervisionLine, toolHookFactsOf } from "./core/session-routes.ts";
+import type { CommandHint, HintedCommand } from "./core/session-routes.ts";
 import { ASK_USER_QUESTION_TOOL_NAME, type AgentAttentionReply } from "../shared/contracts/session.ts";
 import { buildHookSettings, generateToken } from "../detection/settings-injector.ts";
 import { createOscTitleSource } from "../detection/osc-title-source.ts";
@@ -328,6 +329,8 @@ class Session extends EventEmitter {
   _spawnCommand: ResolvedCommand | null;
   _initialPrompt: string | null;
   _pendingPromptSupervisionLine: string | null;
+  _hintedCommands: Set<string>;
+  _ranCommands: Set<string>;
   _extraClaudeArgs: string[];
   _resumeSessionId: string | null;
   readonly workspaceRepos: string[] | null;
@@ -563,6 +566,8 @@ class Session extends EventEmitter {
     this._requiresWorktree = requireWorktree;
     this._initialPrompt = initialPrompt;
     this._pendingPromptSupervisionLine = null;
+    this._hintedCommands = new Set();
+    this._ranCommands = new Set();
     this._extraClaudeArgs = Array.isArray(extraClaudeArgs) ? extraClaudeArgs : [];
     this._resumeSessionId = resumeSessionId || null;
     this.workspaceRepos = workspaceRepos ? [...workspaceRepos] : null;
@@ -1684,6 +1689,19 @@ class Session extends EventEmitter {
 
   promptContextReply(): PromptContextReply | null {
     return this._adapter.promptContextReply ?? null;
+  }
+
+  noteCommandRan(command: string): void {
+    this._ranCommands.add(command);
+  }
+
+  takeCommandHint(event: string, payload: Record<string, unknown>, answers: (command: HintedCommand) => boolean): CommandHint | null {
+    if (!this._can("toolHookContext")) return null;
+    const facts = toolHookFactsOf(event, payload);
+    if (facts === null) return null;
+    const hint = hintFor(facts, { answers, hintedCommands: this._hintedCommands, ranCommands: this._ranCommands });
+    if (hint !== null) this._hintedCommands.add(hint.command);
+    return hint;
   }
 
   takePromptSupervisionLine(): string | null {

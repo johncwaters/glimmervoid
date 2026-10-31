@@ -95,6 +95,8 @@ const HOOK_EVENTS = ['SessionStart', 'SessionEnd', 'UserPromptSubmit', 'Stop', '
 const WAKEUP_TOOL_MATCHER = 'ScheduleWakeup|CronCreate|CronDelete';
 const PLAN_TOOL_MATCHER = PLAN_TOOL_NAME;
 const PR_LINK_TOOL_MATCHER = 'Bash';
+const COMMAND_HINT_TOOL_MATCHER = 'Write|Edit|Agent|Task';
+const FAILED_SHELL_TOOL_MATCHER = 'Bash';
 
 const RELAY_PATH = relayPath('statusline-relay');
 const COMMAND_HOOK_RELAY_PATH = relayPath('command-hook-relay');
@@ -190,7 +192,7 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
   }
   const sharedPostToolUseMatchers: string[] = [];
   if (detectScheduledWakeups) sharedPostToolUseMatchers.push(WAKEUP_TOOL_MATCHER);
-  sharedPostToolUseMatchers.push(PR_LINK_TOOL_MATCHER, ASK_USER_QUESTION_TOOL_NAME);
+  sharedPostToolUseMatchers.push(PR_LINK_TOOL_MATCHER, ASK_USER_QUESTION_TOOL_NAME, COMMAND_HINT_TOOL_MATCHER);
   const sharedPostToolUseUrl = hookUrl('PostToolUse');
   const postToolUse: SettingsHookEntry[] = sharedPostToolUseMatchers
     .map((matcher) => ({ matcher, hooks: [{ type: 'http', url: sharedPostToolUseUrl, timeout: timeoutSec }] }));
@@ -209,6 +211,7 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
   if (postToolUse.length > 0) {
     hooks.PostToolUse = postToolUse;
   }
+  hooks.PostToolUseFailure = [{ matcher: FAILED_SHELL_TOOL_MATCHER, hooks: [{ type: 'http', url: hookUrl('PostToolUseFailure'), timeout: timeoutSec }] }];
   const preToolUse: SettingsHookEntry[] = [];
   if (observeToolCalls) {
     preToolUse.push({ hooks: [{ type: 'http', url: hookUrl('PreToolUse'), timeout: timeoutSec }] });
@@ -257,6 +260,8 @@ function describeBuiltinHooks(
   if (planReview) rows.push({ event: 'PermissionRequest', matcher: PLAN_TOOL_MATCHER, purpose: 'Plan review: POST the plan to the Glimmervoid plan endpoint' });
   if (detectScheduledWakeups) rows.push({ event: 'PostToolUse', matcher: WAKEUP_TOOL_MATCHER, purpose: 'Scheduled wakeup tracking' });
   rows.push({ event: 'PostToolUse', matcher: PR_LINK_TOOL_MATCHER, purpose: 'Pull request linking: read the git operation a shell command reports' });
+  rows.push({ event: 'PostToolUse', matcher: COMMAND_HINT_TOOL_MATCHER, purpose: 'Command hints: name a Glimmervoid command once, when a tool call shows it applies' });
+  rows.push({ event: 'PostToolUseFailure', matcher: FAILED_SHELL_TOOL_MATCHER, purpose: 'Command hints: name glimmervoid push once, when a git push fails' });
   rows.push({ event: 'PostToolUse', matcher: ASK_USER_QUESTION_TOOL_NAME, purpose: 'Status detection: leave Needs input once a question is answered' });
   if (planReview) rows.push({ event: 'PostToolUse', matcher: PLAN_TOOL_MATCHER, purpose: 'Plan review: record the approved plan' });
   if (holdsQuestionsForParent) {

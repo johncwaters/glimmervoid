@@ -659,6 +659,7 @@ function createAgentApiWiring({
     if (!parsed.ok) return { status: parsed.status, body: { ok: false, error: parsed.error } };
     const roleRefusal = describeRoleRefusal(parsed.verb, roleFactsOf(session));
     if (roleRefusal) return roleRefusal;
+    session.noteCommandRan(parsed.verb);
     const checked = checkAgentReply(parsed.verb, await dispatch(session, parsed.verb, parsed.request));
     if (!checked.ok) logger.warn(`[agent-api] ${parsed.verb} reply broke its contract: ${checked.issue}`);
     return checked.reply;

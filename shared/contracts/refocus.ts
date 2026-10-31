@@ -16,6 +16,15 @@ export const UserPromptSubmitHookResponse = z.union([
 
 export type UserPromptSubmitHookResponse = z.infer<typeof UserPromptSubmitHookResponse>;
 
+export const ToolHookContextResponse = z.object({
+  hookSpecificOutput: z.object({
+    hookEventName: z.enum(['PostToolUse', 'PostToolUseFailure']),
+    additionalContext: z.string(),
+  }),
+});
+
+export type ToolHookContextResponse = z.infer<typeof ToolHookContextResponse>;
+
 export const PromptContextReply = z.enum(['message', 'additional-context']);
 
 export type PromptContextReply = z.infer<typeof PromptContextReply>;
