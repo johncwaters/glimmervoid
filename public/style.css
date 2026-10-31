@@ -4385,7 +4385,7 @@ html:not([data-layout="phone"]) .review-controls :is(.review-branch-sync-refresh
   cursor: not-allowed;
 }
 
-[data-layout="phone"] .settings-view :is(.settings-view-toggle-wrap, .settings-update-buttons) {
+[data-layout="phone"] .settings-view :is(.settings-view-toggle-wrap, .settings-update-buttons, .settings-telegram-test, .settings-telemetry-data) {
   flex-direction: column;
   align-items: stretch;
 }

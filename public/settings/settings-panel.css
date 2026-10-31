@@ -1050,22 +1050,28 @@ html[data-streamer] .settings-view-shell { grid-template-columns: minmax(0, 1fr)
   grid-template-columns: minmax(0, 1fr) 56px;
 }
 
-[data-layout="phone"] .settings-view-setting:has(> .settings-view-setting-control > .settings-view-toggle-wrap > .settings-view-switch) > .settings-view-setting-control {
+[data-layout="phone"] .settings-view-setting:has(> .settings-view-setting-control > .settings-view-toggle-wrap > .settings-view-switch) > :is(.settings-view-setting-text, .settings-view-setting-control) {
   display: contents;
 }
 
 [data-layout="phone"] .settings-view-setting-control > .settings-view-toggle-wrap:has(> .settings-view-switch) {
   grid-column: 2;
   grid-row: 1;
-  align-self: start;
+  align-self: center;
 }
 
+[data-layout="phone"] .settings-view-setting:has(> .settings-view-setting-control > .settings-view-toggle-wrap > .settings-view-switch) > :not(.settings-view-setting-text, .settings-view-setting-control),
+[data-layout="phone"] .settings-view-setting:has(> .settings-view-setting-control > .settings-view-toggle-wrap > .settings-view-switch) > .settings-view-setting-text > :not(.settings-view-setting-heading),
 [data-layout="phone"] .settings-view-setting-control:has(> .settings-view-toggle-wrap > .settings-view-switch) > :not(.settings-view-toggle-wrap) {
   grid-column: 1 / -1;
 }
 
 [data-layout="phone"] .settings-view-setting-control {
   align-self: stretch;
+}
+
+[data-layout="phone"] .settings-view-unit {
+  min-width: 14ch;
 }
 
 .flying-animals-gallery {

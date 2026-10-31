@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Phone settings line up across every section.** Switch descriptions and status notes now use the full row width, number fields end at the same edge whatever their unit, and the Telegram test and Delete my data buttons run full width like the rest.
 - **Phone settings toggles line up and rows stop jumping.** Each switch now sits beside its setting's title instead of on its own line below the description, and the line below it that holds the restore-default button and the save status keeps its space, so a row no longer grows or shrinks after you change it.
 - **Session menu items drop their trailing dots.** Restart, Edit repositories, Link pull request and Connect board no longer end in `...`, on desktop and phone.
 
