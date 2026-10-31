@@ -1,5 +1,5 @@
 import type { Board, Box, Element as BoardElement, Frame, Note, Op, Panel, Unit, Wire } from '#shared/contracts/whiteboard.ts';
-import { AnchorRef, BOX_CHANGES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
+import { AnchorRef, BOX_CHANGES, UNIT_STATUSES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import type { BoardLayout } from '#shared/whiteboard-layout-core.ts';
 import { el } from '../dom-helpers.ts';
 
@@ -33,6 +33,7 @@ const LINE_STYLE_CHOICES = choicesOf(LINE_STYLES);
 const TONE_CHOICES = choicesOf(TONES);
 const SHAPE_CHOICES = choicesOf(['box', 'decision'] satisfies Box['shape'][]);
 const CHANGE_CHOICES = choicesOf(BOX_CHANGES);
+const UNIT_STATUS_CHOICES = choicesOf(UNIT_STATUSES);
 const SIDE_CHOICES: readonly Choice[] = [{ value: '', text: 'auto' }, ...choicesOf(['left', 'right', 'top', 'bottom'])];
 const DEFAULT_OUTPUTS: Box['outputs'] = [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }];
 
@@ -339,6 +340,10 @@ function unitSections(unit: Unit, latest: () => BoardElement | undefined, set: F
   };
   return [
     heading('Unit'),
+    fieldRow('Status', selectField('unit-status', UNIT_STATUS_CHOICES, unit.status, (status) => {
+      const chosen = UNIT_STATUSES.find((candidate) => candidate === status);
+      if (chosen) set({ status: chosen });
+    })),
     refsEditor('this unit', unit.refs, latestRefs, (refs) => set({ refs })),
     el('p', 'wb-inspect-hint', 'Agents edit units with glimmervoid whiteboard plan.'),
   ];

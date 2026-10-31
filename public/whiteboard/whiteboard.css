@@ -332,6 +332,14 @@
   font-weight: 700;
 }
 
+.wb-unit-status {
+  fill: var(--text-muted);
+  font-size: var(--type-meta);
+}
+
+.wb-unit-building { fill: var(--state-waiting); }
+.wb-unit-landed { fill: var(--state-running); }
+
 .wb-unit-link {
   fill: var(--accent);
   font-size: var(--type-meta);

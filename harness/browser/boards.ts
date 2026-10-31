@@ -149,6 +149,13 @@ export async function verifyBoards(page: Page, layout: Layout): Promise<void> {
     await page.keyboard.press('Enter');
     await panel.locator('.wb-box', { hasText: 'second edited' }).waitFor();
     assert.equal(await panel.locator('.wb-box', { hasText: 'first edited' }).count(), 1, 'a second line edit keeps the first one');
+    await panel.getByRole('button', { name: 'unit', exact: true }).click();
+    await submitTextDialog(page, 'Unit title', 'Index the diffs', 'Add unit');
+    const unitOnBoard = panel.locator('.wb-unit', { hasText: 'Index the diffs' });
+    await unitOnBoard.locator('.wb-unit-status', { hasText: 'planned' }).waitFor();
+    await unitOnBoard.locator('.wb-box-title').click();
+    await inspect.getByRole('combobox', { name: 'Status', exact: true }).selectOption('landed');
+    await unitOnBoard.locator('.wb-unit-status.wb-unit-landed', { hasText: 'landed' }).waitFor();
   }
   assert.equal(await panel.getByRole('button', { name: 'fit', exact: true }).isVisible(), true);
   assert.equal(await panel.getByRole('button', { name: boardTitle }).count(), 1);

@@ -1,6 +1,6 @@
 import type { ConflictRisk } from '#shared/contracts/change-map.ts';
 import { el } from '../dom-helpers.ts';
-import type { ChangeMapView, FileHint, WorthALookGroup, WorthALookLine } from './change-map-core.ts';
+import type { ChangeMapView, FileHint, WorthALookGroup, WorthALookLine } from '#shared/change-map-view-core.ts';
 
 const WORTH_A_LOOK_VISIBLE_MAX = 5;
 const CONFLICT_RISK_LABEL: Record<ConflictRisk, string> = { high: 'High', medium: 'Medium', low: 'Low' };

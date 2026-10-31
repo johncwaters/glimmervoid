@@ -58,6 +58,9 @@ svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospac
 .wb-lane-pill-text { font-size: 12px; font-weight: 700; }
 .wb-unit-outline { fill: #15122a; stroke: #c084fc; stroke-width: 1.6; }
 .wb-unit-label, .wb-unit-link { fill: #c084fc; font-size: 12px; font-weight: 700; }
+.wb-unit-status { fill: #a79fc4; font-size: 11px; }
+.wb-unit-building { fill: #f59e0b; }
+.wb-unit-landed { fill: #22c55e; }
 .wb-frame-outline { fill: rgba(192, 132, 252, 0.04); stroke: #4a4268; stroke-width: 1.4; stroke-dasharray: 10 6; }
 .wb-frame-title { fill: #a79fc4; font-size: 12px; font-weight: 700; }
 .wb-loop .wb-frame-outline { stroke: #c084fc; }
@@ -224,6 +227,7 @@ function unitMarkup(unit: LaidOutUnit): string {
   const parts = [
     tag('rect', { x: unit.x, y: unit.y, width: unit.width, height: unit.height, rx: 8, class: 'wb-unit-outline' }),
     text(unit.label, unit.x + BOX_TEXT_INSET, unit.y + UNIT_LABEL_BASELINE, 'wb-unit-label'),
+    text(unit.status, unit.x + unit.width - BOX_TEXT_INSET, unit.y + UNIT_LABEL_BASELINE, `wb-unit-status wb-unit-${unit.status}`, { 'text-anchor': 'end' }),
   ];
   const titleTop = unit.y + UNIT_LABEL_BASELINE + UNIT_LABEL_HEIGHT;
   unit.titleLines.forEach((line, index) => {

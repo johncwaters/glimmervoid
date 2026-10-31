@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Board } from '../shared/contracts/whiteboard.ts';
+import { reviewBoard } from '../shared/whiteboard-anchor-core.ts';
 import { layoutBoard } from '../shared/whiteboard-layout-core.ts';
 import { applyOps } from '../shared/whiteboard-ops-core.ts';
 import { EMPTY_HISTORY, UNDO_LIMIT, inverseOps, recordEdit, takeStep } from '../shared/whiteboard-undo-core.ts';
@@ -145,6 +146,46 @@ test('units draw as a plan band above the freeform columns, one level per column
     }
   }
   assert.equal(layoutBoard(wiredBoard).plan, null);
+});
+
+test('a unit status that disagrees with the code session changes warns, and changed files no ref covers come back as uncovered', () => {
+  const reviewedBoard = Board.parse({
+    id: 'reviewed', title: 'reviewed', version: 1, caption: null, createdAt: 0, updatedAt: 0, lanes: [], columns: [], codeSessionId: 'builder',
+    elements: {
+      early: { kind: 'unit', id: 'early', title: 'Started too soon', status: 'planned', refs: ['src/parse.ts#L4'] },
+      shipped: { kind: 'unit', id: 'shipped', title: 'Shipped', status: 'landed', refs: ['./src/save.ts', 'src//index.ts'] },
+      quiet: { kind: 'unit', id: 'quiet', title: 'Not started', status: 'landed', refs: ['src/later.ts'] },
+      parse: { kind: 'box', id: 'parse', title: 'Parse', column: 'intake', refs: ['src/parse.ts'] },
+    },
+  });
+  const fileFactByPath = new Map(['src/parse.ts', 'src/save.ts', 'src/index.ts', 'src/later.ts'].map((filePath) => [filePath, { lineCount: 10 }]));
+  const changes = {
+    changedPaths: [
+      { path: 'src/parse.ts', isCommitted: false },
+      { path: 'src/save.ts', isCommitted: true },
+      { path: 'src/index.ts', isCommitted: false },
+      { path: 'src/stray.ts', isCommitted: true },
+    ],
+    worthALookPaths: ['src/parse.ts', 'src/stray.ts'],
+    error: null,
+  };
+
+  assert.deepEqual(reviewBoard(reviewedBoard, { fileFactByPath, changes }), {
+    codeSessionId: 'builder',
+    anchorWarnings: [],
+    unitWarnings: [
+      'unit early is planned but src/parse.ts already changed',
+      'unit shipped is landed but src/index.ts has uncommitted changes',
+      'unit quiet is landed but src/later.ts is unchanged',
+    ],
+    uncoveredPaths: ['src/stray.ts'],
+    worthALookPaths: ['src/parse.ts'],
+  });
+
+  const manyStrayChanges = { ...changes, changedPaths: Array.from({ length: 25 }, (_, index) => ({ path: `src/stray-${index}.ts`, isCommitted: true })) };
+  const { uncoveredPaths } = reviewBoard(reviewedBoard, { fileFactByPath, changes: manyStrayChanges });
+  assert.equal(uncoveredPaths.length, 20);
+  assert.ok(uncoveredPaths.every((uncoveredPath) => uncoveredPath.startsWith('src/stray-')), uncoveredPaths.join(', '));
 });
 
 test('laned boxes stack in their own labeled row band and a near box sits beside its target', () => {

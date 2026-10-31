@@ -117,6 +117,7 @@ interface LaidOutUnit extends Rect {
   kind: 'unit';
   id: string;
   label: string;
+  status: Unit['status'];
   titleLines: string[];
   bodyLines: LaidOutLine[];
   linkedBoardId: string | null;
@@ -613,7 +614,7 @@ function layoutUnits(board: Board): Map<string, LaidOutUnit> {
     nextYByLevel.set(step.level, y + shape.height + BOX_GAP);
     unitsById.set(unit.id, {
       kind: 'unit', id: unit.id, x: MARGIN + (step.level - 1) * (COLUMN_WIDTH + COLUMN_GAP), y, width: COLUMN_WIDTH, height: shape.height,
-      label: step.label, titleLines: shape.titleLines, bodyLines: shape.bodyLines, linkedBoardId: unit.linkedBoardId,
+      label: step.label, status: unit.status, titleLines: shape.titleLines, bodyLines: shape.bodyLines, linkedBoardId: unit.linkedBoardId,
     });
   }
   return unitsById;

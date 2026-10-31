@@ -1,4 +1,4 @@
-import type { ChangeMap, ChangeMapFactKind, ConflictRisk, RepoChangeMap } from '#shared/contracts/change-map.ts';
+import type { ChangeMap, ChangeMapFactKind, ConflictRisk, RepoChangeMap } from './contracts/change-map.ts';
 
 const WIDE_BLAST_RADIUS_MIN = 10;
 const CONFLICT_RISK_RANK: Record<ConflictRisk, number> = { low: 0, medium: 1, high: 2 };

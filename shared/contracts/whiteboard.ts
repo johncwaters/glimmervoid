@@ -28,6 +28,8 @@ const Point = z.object({ x: z.number(), y: z.number() }).strict();
 
 export const BOX_CHANGES = ['none', 'added', 'removed', 'relabeled'] as const;
 
+export const UNIT_STATUSES = ['planned', 'building', 'landed'] as const;
+
 const Side = z.enum(['left', 'right', 'top', 'bottom']);
 
 const Near = z.object({
@@ -96,6 +98,7 @@ export const Unit = z.object({
   title: Title.min(1, { error: 'a unit needs a title' }),
   lines: z.array(BoxLine).max(WHITEBOARD_LIMITS.linesPerUnit, { error: `a unit holds at most ${WHITEBOARD_LIMITS.linesPerUnit} lines` }).default([]),
   refs: AnchorRefs,
+  status: z.enum(UNIT_STATUSES).default('planned'),
   after: z.array(ElementId).max(WHITEBOARD_LIMITS.unitDependencies, { error: `a unit comes after at most ${WHITEBOARD_LIMITS.unitDependencies} units` }).default([]),
   linkedBoardId: z.string().min(1).max(64).nullable().default(null),
 }).strict();
@@ -194,6 +197,9 @@ export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
 export const BoardReview = z.object({
   codeSessionId: z.string().nullable(),
   anchorWarnings: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings),
+  unitWarnings: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings),
+  uncoveredPaths: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings),
+  worthALookPaths: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings),
 }).strict();
 
 export const WhiteboardAgentReply = z.union([

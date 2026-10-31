@@ -71,6 +71,7 @@ import type { WhiteboardPort } from './whiteboard/whiteboard-wiring.ts';
 import type { CoherenceSessionFeed } from './coherence/coherence-session-feed.ts';
 import type { TracePage, TracePageRequest } from './trace-wiring.ts';
 import { createChangeMapService, joinSessionRegistries } from './change-map/change-map-wiring.ts';
+import type { ChangeMapService } from './change-map/change-map-wiring.ts';
 import { createChangesWatch } from './changes-watch.ts';
 import type { Telemetry } from './telemetry.ts';
 import { DashboardTelemetryReport } from '../shared/contracts/telemetry.ts';
@@ -125,6 +126,7 @@ interface BenchmarkControl {
 interface ControlHandlerDeps {
   sessions: Map<string, Session>;
   agentSessions?: Map<string, Session>;
+  changeMaps?: ChangeMapService;
   markChildWorktreeDiscard?: ((childId: string) => void) | null;
 
   makeSession?: (project: ProjectEntry, config: GlimmervoidConfig) => Session;
@@ -423,7 +425,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     remoteSetup = null,
   } = deps;
 
-  const changeMaps = createChangeMapService({ sessions: joinSessionRegistries(sessions, agentSessions) });
+  const changeMaps = deps.changeMaps ?? createChangeMapService({ sessions: joinSessionRegistries(sessions, agentSessions) });
   const changesWatch = createChangesWatch<ControlSocket>({
     findSession: (id) => sessions.get(id) ?? agentSessions.get(id) ?? null,
     isHolderOpen: (ws) => ws.readyState === 1,

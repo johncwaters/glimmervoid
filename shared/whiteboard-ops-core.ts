@@ -269,6 +269,7 @@ function describeSet(op: Extract<Op, { op: 'set' }>, previous: Element | undefin
   if (fieldNames.length === 1 && fieldNames[0] === 'at') return `moved ${nameOf(after, op.id)}`;
   if (fieldNames.length === 1 && fieldNames[0] === 'linkedBoardId') return afterElement?.kind === 'unit' && afterElement.linkedBoardId === null ? `unlinked ${nameOf(after, op.id)} from its board` : `linked ${nameOf(after, op.id)} to a board`;
   if (fieldNames.length === 1 && fieldNames[0] === 'after' && afterElement?.kind === 'unit') return describeUnitAfter(after, afterElement.id, afterElement.after);
+  if (fieldNames.length === 1 && fieldNames[0] === 'status' && afterElement?.kind === 'unit') return `marked ${nameOf(after, op.id)} ${afterElement.status}`;
   if (previous?.kind === 'box' && afterElement?.kind === 'box' && fieldNames.length === 1 && fieldNames[0] === 'title') {
     return `renamed "${previous.title}" to "${afterElement.title}"`;
   }

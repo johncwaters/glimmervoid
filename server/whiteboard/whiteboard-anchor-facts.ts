@@ -2,7 +2,10 @@ import path from 'node:path';
 
 import { openContainedFile } from '../contained-file.ts';
 import type { ContainmentRefusal } from '../core/trace-tail-core.ts';
-import type { AnchorFacts, FileFact } from '../../shared/whiteboard-anchor-core.ts';
+import { buildChangeMapView } from '../../shared/change-map-view-core.ts';
+import type { ChangeMap } from '../../shared/contracts/change-map.ts';
+import type { ChangeFacts, FileFact } from '../../shared/whiteboard-anchor-core.ts';
+import { errorMessage } from '../../shared/text.ts';
 
 const MAX_ANCHOR_FILE_BYTES = 512 * 1024;
 const NEWLINE_BYTE = 0x0a;
@@ -36,12 +39,27 @@ async function fileFactOf(root: string, refPath: string): Promise<FileFact> {
   }
 }
 
-async function readAnchorFacts(root: string, refPaths: readonly string[]): Promise<AnchorFacts> {
+async function readFileFacts(root: string, refPaths: readonly string[]): Promise<Map<string, FileFact>> {
   const fileFactByPath = new Map<string, FileFact>();
   for (const refPath of refPaths) {
     fileFactByPath.set(refPath, await fileFactOf(root, refPath));
   }
-  return { fileFactByPath };
+  return fileFactByPath;
 }
 
-export { readAnchorFacts };
+function changeFactsOf(map: ChangeMap): ChangeFacts | null {
+  if (map.repos.length === 0 && !map.error) return null;
+  const changedPaths = map.repos.flatMap((repo) => repo.files.map((file) => ({ path: `${repo.sessionPathPrefix}${file.path}`, isCommitted: file.isCommitted })));
+  const worthALookPaths = buildChangeMapView(map).worthALook.flatMap((group) => group.lines.map((line) => line.openPath));
+  return { changedPaths, worthALookPaths, error: map.error ?? null };
+}
+
+async function readChangeFacts(buildChangeMap: () => Promise<ChangeMap>): Promise<ChangeFacts | null> {
+  try {
+    return changeFactsOf(await buildChangeMap());
+  } catch (error) {
+    return { changedPaths: [], worthALookPaths: [], error: errorMessage(error) };
+  }
+}
+
+export { readChangeFacts, readFileFacts };

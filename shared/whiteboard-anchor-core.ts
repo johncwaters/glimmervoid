@@ -1,4 +1,5 @@
-import type { Board, BoardReview, Box, Element } from './contracts/whiteboard.ts';
+import { WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
+import type { Board, BoardReview, Box, Element, Unit } from './contracts/whiteboard.ts';
 import { cappedWarnings } from './whiteboard-route-core.ts';
 
 const MAX_REFERENCED_PATHS = 64;
@@ -19,14 +20,34 @@ interface AnchorSite {
 
 type FileFact = { lineCount: number | null } | { problem: string };
 
+interface ChangedPath {
+  path: string;
+  isCommitted: boolean;
+}
+
+interface ChangeFacts {
+  changedPaths: readonly ChangedPath[];
+  worthALookPaths: readonly string[];
+  error: string | null;
+}
+
 interface AnchorFacts {
   fileFactByPath: ReadonlyMap<string, FileFact>;
+  changes: ChangeFacts | null;
 }
+
+type ChangeReview = Pick<BoardReview, 'unitWarnings' | 'uncoveredPaths' | 'worthALookPaths'>;
+
+const NO_CHANGE_REVIEW: ChangeReview = Object.freeze({ unitWarnings: [], uncoveredPaths: [], worthALookPaths: [] });
 
 const REF_PATTERN = /^([^#\s]+)(?:#L([1-9]\d*)(?:-L([1-9]\d*))?)?$/;
 
 function isAbsoluteRefPath(refPath: string): boolean {
   return refPath.startsWith('/') || refPath.startsWith('\\') || /^[A-Za-z]:/.test(refPath);
+}
+
+function canonicalRefPath(refPath: string): string {
+  return refPath.split('/').filter((segment) => segment !== '' && segment !== '.').join('/');
 }
 
 function parseRef(ref: string): ParsedRef | { error: string } {
@@ -38,7 +59,7 @@ function parseRef(ref: string): ParsedRef | { error: string } {
   const startLine = match[2] ? Number(match[2]) : null;
   const endLine = match[3] ? Number(match[3]) : startLine;
   if (startLine !== null && endLine !== null && endLine < startLine) return { error: 'the line range ends before it starts' };
-  return { path: refPath, startLine, endLine };
+  return { path: canonicalRefPath(refPath), startLine, endLine };
 }
 
 function lineSites(elementName: string, elementId: string, lines: readonly BoxLine[]): AnchorSite[] {
@@ -90,17 +111,50 @@ function unreviewedWarning(codeSessionId: string | null): string {
   return `refs on this board were not checked: code session ${codeSessionId} is not running`;
 }
 
+function refPathsOf(sites: readonly AnchorSite[]): Set<string> {
+  return new Set(sites.flatMap((site) => {
+    const parsed = parseRef(site.ref);
+    return 'path' in parsed ? [parsed.path] : [];
+  }));
+}
+
+function unitWarningsOf(unit: Unit, unitPaths: ReadonlySet<string>, changedByPath: ReadonlyMap<string, ChangedPath>): string[] {
+  if (unit.status === 'planned') {
+    const startedPath = [...unitPaths].find((unitPath) => changedByPath.has(unitPath));
+    return startedPath ? [`unit ${unit.id} is planned but ${startedPath} already changed`] : [];
+  }
+  if (unit.status !== 'landed') return [];
+  return [...unitPaths].flatMap((unitPath) => {
+    const changed = changedByPath.get(unitPath);
+    if (!changed) return [`unit ${unit.id} is landed but ${unitPath} is unchanged`];
+    return changed.isCommitted ? [] : [`unit ${unit.id} is landed but ${unitPath} has uncommitted changes`];
+  });
+}
+
+function changeReviewOf(board: Board, sites: readonly AnchorSite[], changes: ChangeFacts | null): ChangeReview {
+  if (!changes) return NO_CHANGE_REVIEW;
+  if (changes.error) return { ...NO_CHANGE_REVIEW, unitWarnings: [`the code session changes could not be read: ${changes.error}`] };
+  const refPaths = refPathsOf(sites);
+  const changedByPath = new Map(changes.changedPaths.map((changed) => [changed.path, changed]));
+  const unitWarnings = Object.values(board.elements).flatMap((element) => {
+    if (element.kind !== 'unit') return [];
+    return unitWarningsOf(element, refPathsOf(sitesOfElement(element)), changedByPath);
+  });
+  const uncoveredPaths = [...changedByPath.keys()].filter((changedPath) => !refPaths.has(changedPath)).sort();
+  const worthALookPaths = [...new Set(changes.worthALookPaths)].filter((worthPath) => refPaths.has(worthPath));
+  return { unitWarnings: cappedWarnings(unitWarnings), uncoveredPaths: uncoveredPaths.slice(0, WHITEBOARD_LIMITS.layoutWarnings), worthALookPaths: worthALookPaths.slice(0, WHITEBOARD_LIMITS.layoutWarnings) };
+}
+
 function reviewBoard(board: Board, facts: AnchorFacts | null): BoardReview {
   const { codeSessionId } = board;
   const sites = anchorSitesOf(board);
-  if (sites.length === 0) return { codeSessionId, anchorWarnings: [] };
-  if (!facts) return { codeSessionId, anchorWarnings: [unreviewedWarning(codeSessionId)] };
+  if (!facts) return { codeSessionId, anchorWarnings: sites.length === 0 ? [] : [unreviewedWarning(codeSessionId)], ...NO_CHANGE_REVIEW };
   const anchorWarnings = sites.flatMap((site) => {
     const problem = siteProblem(site, facts);
     return problem ? [`ref ${site.ref} on ${site.where}: ${problem}`] : [];
   });
-  return { codeSessionId, anchorWarnings: cappedWarnings(anchorWarnings) };
+  return { codeSessionId, anchorWarnings: cappedWarnings(anchorWarnings), ...changeReviewOf(board, sites, facts.changes) };
 }
 
 export { referencedPaths, reviewBoard };
-export type { AnchorFacts, FileFact };
+export type { ChangeFacts, FileFact };

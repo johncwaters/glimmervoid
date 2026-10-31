@@ -268,15 +268,18 @@ test('an agent plans units through the CLI in dependency order, a cycle is refus
   assert.equal(cycle.exitCode, 1);
   assert.match(cycle.printed, /dependency cycle: diff-index-schema, search-box, search-endpoint, diff-index-schema/);
 
+  assert.equal((await plan('status', boardId, 'diff-index-schema', 'shipped')).exitCode, 1);
+  assert.equal((await plan('status', boardId, 'diff-index-schema', 'landed')).exitCode, 0);
+
   const shown = await plan('show', 'search', 'api');
   assert.equal(shown.exitCode, 0);
   const planLines = shown.printed.split('\n').slice(1, 6).map((line) => line.replace(/ +/g, ' ').trim());
   assert.deepEqual(planLines, [
-    '1a diff-index-schema Diff index schema',
-    '1b search-box-2 Search box',
-    '2a index-backfill Index backfill after 1a board "backfill design"',
-    '2b search-endpoint Search endpoint after 1a',
-    '3 search-box Search box after 2b',
+    '1a diff-index-schema landed Diff index schema',
+    '1b search-box-2 planned Search box',
+    '2a index-backfill planned Index backfill after 1a board "backfill design"',
+    '2b search-endpoint planned Search endpoint after 1a',
+    '3 search-box planned Search box after 2b',
   ]);
 
   const deleted = await whiteboard(PLANNER_ID, { sub: 'delete', board: detailBoardId });
@@ -355,7 +358,7 @@ test('refs are checked in the code session worktree: a missing file, a line past
   const laidOut = await runPlannerCli(context, ['whiteboard', 'get', boardId, '--layout']);
   assert.equal(laidOut.exitCode, 0);
   const { review } = JSON.parse(laidOut.printed) as { review: unknown };
-  assert.deepEqual(review, { codeSessionId: PLANNER_ID, anchorWarnings: expectedWarnings });
+  assert.deepEqual(review, { codeSessionId: PLANNER_ID, anchorWarnings: expectedWarnings, unitWarnings: [], uncoveredPaths: [], worthALookPaths: [] });
 });
 
 test('a board with no code session takes the first session that connects, and only the other sessions hear of it', async () => {

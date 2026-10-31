@@ -11,7 +11,6 @@ The review sidebar: the single home for the worktree review gate of the selected
 | File | Description |
 |------|-------------|
 | `review-sidebar.ts` | DOM module: summary, per-file collapsible diff markup, Merge/Discard actions |
-| `change-map-core.ts` | Pure Change Map facts to Worth a look lines and file row hints |
 | `change-map-view.ts` | Worth a look and file hint DOM |
 | `diff-core.ts` | Pure unified-diff parser: `git diff` text -> file sections with hunks and typed lines; no DOM |
 | `selection.ts` | Single source of truth for the selected session id, with subscriber notification; shared by grid clicks and Focus pill focusing |

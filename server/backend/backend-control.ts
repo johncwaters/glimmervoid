@@ -25,6 +25,7 @@ import type { SessionDocsPort } from '../session/session-docs-wiring.ts';
 import type { ShownFilesPort } from '../session/shown-files-wiring.ts';
 import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
 import type { CoherenceSessionFeed } from '../coherence/coherence-session-feed.ts';
+import type { ChangeMapService } from '../change-map/change-map-wiring.ts';
 
 interface SnapshotLane {
   snapshotMessage: () => Record<string, unknown>;
@@ -103,6 +104,7 @@ interface BackendControlDependencies {
   sessionDocs: SessionDocsPort;
   shownFiles: ShownFilesPort;
   whiteboards: Pick<WhiteboardPort, 'handleOperator' | 'snapshotMessage'>;
+  changeMaps: ChangeMapService;
   coherenceFeed: CoherenceSessionFeed;
   serverBuild: () => string;
   telemetry: Pick<Telemetry, 'capture' | 'captureException' | 'captureClientError' | 'requestDataDeletion'>;
@@ -184,6 +186,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     decidePlanReview: dependencies.decidePlanReview,
     sessionDocs: dependencies.sessionDocs,
     whiteboards: dependencies.whiteboards,
+    changeMaps: dependencies.changeMaps,
     coherenceFeed: dependencies.coherenceFeed,
     coderEnv: laneAssembly.coderEnv,
     remoteRepoGit: laneAssembly.gitWorkspace,

@@ -15,6 +15,7 @@ import { createAgentIngressApp, createBackendHttpApp } from './backend-http.ts';
 import { createHostUrlOpener } from '../host-url-opener.ts';
 import { createAgentApiWiring } from '../agent-api-wiring.ts';
 import { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME } from '../whiteboard/whiteboard-wiring.ts';
+import { createChangeMapService, joinSessionRegistries } from '../change-map/change-map-wiring.ts';
 import { createRemoteSetupWiring } from '../remote-setup-wiring.ts';
 import type { AgentApiPort } from '../agent-api-wiring.ts';
 import { configFileViewOf, readSettingsForAgent } from '../core/settings-readout-core.ts';
@@ -234,12 +235,16 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const whiteboards = createWhiteboardWiring({
     boardsRoot: configSiblingPath(configStore.configPath, WHITEBOARDS_FOLDER_NAME),
     broadcastControl: broadcastControlFromWebSockets,
-    codeRootOf: (sessionId) => getSessionAny(sessionId)?.effectiveCwd() ?? null,
+    codeContextOf: (sessionId) => {
+      const session = getSessionAny(sessionId);
+      return session ? { root: session.effectiveCwd(), buildChangeMap: () => changeMaps.build(session) } : null;
+    },
   });
   const coherenceFeed = createCoherenceSessionFeed({ broadcastControl: broadcastControlFromWebSockets });
 
   const sessions = new Map<string, Session>();
   const agentSessions = new Map<string, Session>();
+  const changeMaps = createChangeMapService({ sessions: joinSessionRegistries(sessions, agentSessions) });
   const health = createBackendHealth({
     sessions,
     getAllSessions: () => allLiveSessions(),
@@ -601,6 +606,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     sessionDocs,
     shownFiles: shownFilesWiring,
     whiteboards,
+    changeMaps,
     coherenceFeed,
     serverBuild: () => serverBuild,
     telemetry,

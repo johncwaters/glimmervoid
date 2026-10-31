@@ -12,7 +12,8 @@ import type { Author } from '../../shared/whiteboard-ops-core.ts';
 import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
 import { referencedPaths, reviewBoard } from '../../shared/whiteboard-anchor-core.ts';
 import { cappedWarnings } from '../../shared/whiteboard-route-core.ts';
-import { readAnchorFacts } from './whiteboard-anchor-facts.ts';
+import { readChangeFacts, readFileFacts } from './whiteboard-anchor-facts.ts';
+import type { ChangeMap } from '../../shared/contracts/change-map.ts';
 import { unitsOf } from '../../shared/whiteboard-plan-core.ts';
 import {
   changesForReader, connectSession, disconnectSession, markRead, nudgeLineFor, promptContextFor, recordPut, resolveBoardRef, summarizeBoard,
@@ -32,10 +33,11 @@ const PUT_GUIDE = [
   '{"op":"add","element":{"kind":"box","id":"parse","title":"Parse","column":"intake","lane":"pr1","lines":[{"text":"reads the feed"},{"text":"skips drafts","muted":true}]}},',
   '{"op":"add","element":{"kind":"wire","id":"w1","from":"parse","to":"store","dashed":true,"label":"on retry"}},',
   '{"op":"set","id":"parse","fields":{"title":"Parse feed"}},{"op":"remove","id":"w1"}]\'.',
-  'Element kinds: box (title, column, lane, near, at, lines, change none|added|removed|relabeled, was, order, shape box|decision, outputs), wire (from, to, fromOutput, dashed, tone plain|fail|join|lane, label, fromSide and toSide left|right|top|bottom, back), frame (title, contains, loop), note (on, text), unit (title, lines, after, linkedBoardId), panel (title, lines, order) for side notes such as prior art, stacked right of the board.',
+  'Element kinds: box (title, column, lane, near, at, lines, refs, change none|added|removed|relabeled, was, order, shape box|decision, outputs), wire (from, to, fromOutput, dashed, tone plain|fail|join|lane, label, fromSide and toSide left|right|top|bottom, back), frame (title, contains, loop), note (on, text, ref), unit (title, lines, refs, status, after, linkedBoardId), panel (title, lines, order) for side notes such as prior art, stacked right of the board.',
   'A line takes style text|code|item|numbered|kv; kv needs a key, as in {"style":"kv","key":"timeout","text":"30s"}, and numbered lines count up through each run.',
   'Units lay out work in dependency order: glimmervoid whiteboard plan add|after|show edits and reads them.',
   'Place a box by column and lane, which make a grid of columns and lane row bands; or near another box with near {"of":"parse","side":"right|left|top|bottom","gap":60}; or at {"x","y"} pixels as a last resort.',
+  'A unit takes status planned|building|landed; a planned unit whose ref files already changed, or a landed one whose ref files are unchanged or uncommitted, comes back as a warning.',
   'Point a box or unit at code with refs ["path", "path#L12", "path#L12-L30"], relative to the board code session worktree (codeSessionId, the creating session by default); any line or note takes one ref. A ref that names no file or runs past the end comes back as a warning.',
   'Mark what a change does to a box with change: added and removed for parts it brings or takes away, relabeled with was set to the old title for a rename.',
   'A decision is a box with shape:"decision" and outputs [{id, label}] drawn as rows in that order; a wire with fromOutput set to an output id leaves from that row, so each branch starts at its own named exit.',
@@ -43,7 +45,7 @@ const PUT_GUIDE = [
   'The legend lists every wire style in use on its own; a board op with legend [{tone, dashed, back, label}] renames an entry or adds one.',
   'A columns op takes move {"old-column":"new-column"} to carry boxes when it drops or renames a column. A put is applied whole or refused whole.',
   'glimmervoid whiteboard get <board> returns the board and a one-line summary of each change others made since this session last read it;',
-  'add --layout to see where every box, wire and label landed and which refs need fixing, or run glimmervoid whiteboard render <board> --out board.svg to draw it as the dashboard does.',
+  'add --layout to see where every box, wire and label landed, which refs need fixing, which changed files no ref covers and which referenced files the review tab calls worth a look, or run glimmervoid whiteboard render <board> --out board.svg to draw it as the dashboard does.',
 ].join(' ');
 
 interface WhiteboardCaller {
@@ -78,7 +80,12 @@ interface WhiteboardWiringOptions {
   now?: () => number;
   newBoardId?: () => string;
   logger?: Pick<Console, 'warn'>;
-  codeRootOf?: (sessionId: string) => string | null;
+  codeContextOf?: (sessionId: string) => CodeContext | null;
+}
+
+interface CodeContext {
+  root: string;
+  buildChangeMap: () => Promise<ChangeMap>;
 }
 
 interface WhiteboardPort {
@@ -115,7 +122,7 @@ function operatorReplyOf(reply: WhiteboardReply): OperatorReply {
 }
 
 function createWhiteboardWiring({
-  boardsRoot, broadcastControl = () => {}, now = Date.now, newBoardId = () => crypto.randomUUID(), logger = console, codeRootOf = () => null,
+  boardsRoot, broadcastControl = () => {}, now = Date.now, newBoardId = () => crypto.randomUUID(), logger = console, codeContextOf = () => null,
 }: WhiteboardWiringOptions): WhiteboardPort {
   const recordsByBoardId = new Map<string, BoardRecord>();
   const deletedBoardIds = new Set<string>();
@@ -230,19 +237,21 @@ function createWhiteboardWiring({
     return { ok: true, record: next, patch };
   }
 
-  async function reviewFor(board: Board): Promise<BoardReview> {
-    const root = board.codeSessionId ? codeRootOf(board.codeSessionId) : null;
-    if (!root) return reviewBoard(board, null);
-    return reviewBoard(board, await readAnchorFacts(root, referencedPaths(board)));
+  async function reviewFor(board: Board, { readsChanges }: { readsChanges: boolean }): Promise<BoardReview> {
+    const codeContext = board.codeSessionId ? codeContextOf(board.codeSessionId) : null;
+    if (!codeContext) return reviewBoard(board, null);
+    const fileFactByPath = await readFileFacts(codeContext.root, referencedPaths(board));
+    const changes = readsChanges ? await readChangeFacts(codeContext.buildChangeMap) : null;
+    return reviewBoard(board, { fileFactByPath, changes });
   }
 
   async function reviewedPut(boardId: string, ops: readonly Op[], author: Author): Promise<WhiteboardReply> {
     const reply = await putOps(boardId, ops, author);
     const board = recordsByBoardId.get(boardId)?.board;
     if (!reply.body.ok || !('version' in reply.body) || !board) return reply;
-    const { anchorWarnings } = await reviewFor(board);
-    if (anchorWarnings.length === 0) return reply;
-    return { status: reply.status, body: { ...reply.body, warnings: cappedWarnings([...reply.body.warnings ?? [], ...anchorWarnings]) } };
+    const { anchorWarnings, unitWarnings } = await reviewFor(board, { readsChanges: unitsOf(board).length > 0 });
+    if (anchorWarnings.length === 0 && unitWarnings.length === 0) return reply;
+    return { status: reply.status, body: { ...reply.body, warnings: cappedWarnings([...reply.body.warnings ?? [], ...anchorWarnings, ...unitWarnings]) } };
   }
 
   async function readBoard(boardId: string, readerId: string, { isPeek, wantsReview }: { isPeek: boolean; wantsReview: boolean }): Promise<WhiteboardReply> {
@@ -252,7 +261,7 @@ function createWhiteboardWiring({
       return { ok: true, record: next, reply: { status: 200, body: { ok: true, board: record.board, changes } } };
     });
     if (!wantsReview || !reply.body.ok || !('changes' in reply.body)) return reply;
-    return { status: reply.status, body: { ...reply.body, review: await reviewFor(reply.body.board) } };
+    return { status: reply.status, body: { ...reply.body, review: await reviewFor(reply.body.board, { readsChanges: true }) } };
   }
 
   function connectionReply(record: BoardRecord, note: string): WhiteboardReply {

@@ -8,7 +8,7 @@ import { resolveHookTarget } from '../session/core/hook-relay-core.ts';
 import { formatSessionLimits } from '../session/core/session-routes.ts';
 import { AgentLimitsReply, AGENT_URL_ENV, SHOWN_CAPTION_MAX_CHARS, SHOWN_FILE_CAP_BYTES } from '../shared/contracts/session.ts';
 import type { AgentApiVerb } from '../shared/contracts/session.ts';
-import { WhiteboardAgentReply } from '../shared/contracts/whiteboard.ts';
+import { UNIT_STATUSES, WhiteboardAgentReply } from '../shared/contracts/whiteboard.ts';
 import type { Board, BoardChange, BoardReview, BoardSummary, Op } from '../shared/contracts/whiteboard.ts';
 import { layoutBoard } from '../shared/whiteboard-layout-core.ts';
 import type { BoardLayout } from '../shared/whiteboard-layout-core.ts';
@@ -350,7 +350,7 @@ async function addUnit({ values, positionals }: ParsedArguments, boardRef: strin
   const linkRef = typeof values.link === 'string' ? values.link : null;
   const link = linkRef === null ? { boardId: null } : await resolveLinkedBoardId(linkRef);
   if ('error' in link) return { ok: false, text: link.error };
-  const ops: Op[] = [{ op: 'add', element: { kind: 'unit', id: unitId, title, lines: [], refs: [], after: commaSeparatedIds(values.after), linkedBoardId: link.boardId } }];
+  const ops: Op[] = [{ op: 'add', element: { kind: 'unit', id: unitId, title, lines: [], refs: [], status: 'planned', after: commaSeparatedIds(values.after), linkedBoardId: link.boardId } }];
   return putPlanOps(boardRef, ops, `added unit ${unitId} "${title}"; run glimmervoid whiteboard plan show ${boardRef} for the order`);
 }
 
@@ -360,17 +360,24 @@ function setUnitAfter(boardRef: string, unitId: string, afterIds: string[]): Pro
   return putPlanOps(boardRef, ops, doneText);
 }
 
+function setUnitStatus(boardRef: string, unitId: string, statusText: string): Promise<PlanReply> {
+  const status = UNIT_STATUSES.find((candidate) => candidate === statusText);
+  if (!status) return Promise.resolve({ ok: false, text: `a unit status is ${UNIT_STATUSES.join(', ')}, not ${statusText}` });
+  return putPlanOps(boardRef, [{ op: 'set', id: unitId, fields: { status } }], `${unitId} is now ${status}; run glimmervoid whiteboard get ${boardRef} --layout to check it against the code session changes`);
+}
+
 function formatPlan(board: Board, boards: readonly BoardSummary[], changes: readonly BoardChange[]): string {
   const steps = planSteps(board);
   if (steps.length === 0) return `Board "${board.title}" has no plan yet; add a unit with glimmervoid whiteboard plan add ${board.id} <title>`;
   const titleById = new Map(boards.map((summary) => [summary.id, summary.title]));
   const labelWidth = Math.max(...steps.map((step) => step.label.length));
   const idWidth = Math.max(...steps.map((step) => step.unitId.length));
+  const statusWidth = Math.max(...steps.map((step) => step.status.length));
   const lines = [`Plan on "${board.title}" (${steps.length} ${steps.length === 1 ? 'unit' : 'units'})`];
   for (const step of steps) {
     const after = step.afterLabels.length > 0 ? `  after ${step.afterLabels.join(', ')}` : '';
     const link = step.linkedBoardId === null ? '' : `  board "${titleById.get(step.linkedBoardId) ?? step.linkedBoardId}"`;
-    lines.push(`${step.label.padEnd(labelWidth)}  ${step.unitId.padEnd(idWidth)}  ${step.title}${after}${link}`);
+    lines.push(`${step.label.padEnd(labelWidth)}  ${step.unitId.padEnd(idWidth)}  ${step.status.padEnd(statusWidth)}  ${step.title}${after}${link}`);
   }
   if (changes.length > 0) lines.push('', 'Changes since this session last read the board:', ...changes.map((change) => `- ${change.summary}`));
   return lines.join('\n');
@@ -388,6 +395,7 @@ function runPlanAction(parsed: ParsedArguments, boardRef: string): Promise<PlanR
   const action = parsed.commandPath[2];
   if (action === 'add') return addUnit(parsed, boardRef);
   if (action === 'after') return setUnitAfter(boardRef, parsed.positionals[1] ?? '', parsed.positionals.slice(2));
+  if (action === 'status') return setUnitStatus(boardRef, parsed.positionals[1] ?? '', parsed.positionals[2] ?? '');
   return showPlan(boardRef);
 }
 

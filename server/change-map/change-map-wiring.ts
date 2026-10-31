@@ -200,6 +200,8 @@ function changedFilesOf(scope: ChangeScope) {
   );
 }
 
+export type ChangeMapService = ReturnType<typeof createChangeMapService>;
+
 export function createChangeMapService({
   sessions,
   runGit = runGitAsync,

@@ -368,6 +368,7 @@ const PLAN_SUBCOMMANDS: readonly CommandSpec[] = [
     missingArgumentHint: 'plan add needs a board and a title, for example "glimmervoid whiteboard plan add release-plan Diff index schema"',
   },
   { name: 'after', summary: 'Set which units a unit comes after; naming none clears them. A dependency cycle is refused', positionals: { usage: '<board> <unit> [<unit>...]', min: 2, max: null }, missingArgumentHint: 'plan after needs a board and a unit' },
+  { name: 'status', summary: 'Mark a unit planned, building or landed; Glimmervoid checks the mark against the code session changes', positionals: { usage: '<board> <unit> <planned|building|landed>', min: 3, max: 3 }, missingArgumentHint: 'plan status needs a board, a unit and a status, for example "glimmervoid whiteboard plan status release-plan diff-index landed"' },
   { name: 'show', summary: 'Print the plan on a board in dependency order; units that can run in parallel share a number, as 2a and 2b', positionals: BOARD_REFERENCE },
 ];
 

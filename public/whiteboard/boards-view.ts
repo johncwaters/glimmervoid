@@ -318,7 +318,7 @@ function addUnitFromDialog(): void {
     maxLength: WHITEBOARD_LIMITS.title,
     confirmLabel: 'Add unit',
     choices: otherBoards.length > 0 ? { label: 'Linked board', options: linkOptions } : undefined,
-    onSubmit: (title, linkedBoardId) => sendOpsFromDialog([{ op: 'add', element: { kind: 'unit', id: newElementId('unit'), title, lines: [], refs: [], after: [], linkedBoardId: linkedBoardId || null } }]),
+    onSubmit: (title, linkedBoardId) => sendOpsFromDialog([{ op: 'add', element: { kind: 'unit', id: newElementId('unit'), title, lines: [], refs: [], status: 'planned', after: [], linkedBoardId: linkedBoardId || null } }]),
   });
 }
 
