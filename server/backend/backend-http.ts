@@ -276,6 +276,7 @@ function receiveUpload({ req, res, sess, dir, filename, savedPath, logger }: {
       return;
     }
     if (!sess.hasLivePty) {
+      logger.warn(`[upload] session ${sess.id} refused: session has no live terminal, after ${outcome.sizeBytes} bytes`);
       answer(409, { error: 'session has no live terminal' });
       fsp.unlink(savedPath).catch(() => {});
       return;
@@ -665,24 +666,27 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
 
   const uploadsRoot = configSiblingPath(configStore.configPath, 'uploads');
   app.post('/upload/:sessionId', (req, res) => {
+    const declaredBytes = declaredContentLength(req);
+    const refuse = (sessionLabel: string, status: number, error: string) => {
+      logger.warn(`[upload] session ${sessionLabel} refused: ${error}, declared ${declaredBytes ?? 'unknown'} bytes`);
+      res.status(status).json({ error });
+    };
     const sess = getSession(req.params.sessionId);
     if (!sess || !isSafePathSegment(sess.id)) {
-      res.status(404).json({ error: 'unknown session' });
+      refuse(JSON.stringify(req.params.sessionId), 404, 'unknown session');
       return;
     }
     const typeVerdict = decideUploadType(req.headers['content-type'], req.headers['x-glimmervoid-upload-name']);
     if (!typeVerdict.ok) {
-      res.status(typeVerdict.status).json({ error: typeVerdict.error });
+      refuse(sess.id, typeVerdict.status, typeVerdict.error);
       return;
     }
     if (!sess.hasLivePty) {
-      res.status(409).json({ error: 'session has no live terminal' });
+      refuse(sess.id, 409, 'session has no live terminal');
       return;
     }
-    const declaredBytes = declaredContentLength(req);
     if (declaredBytes !== null && exceedsUploadCap(declaredBytes)) {
-      logger.warn(`[upload] session ${sess.id} refused: over-cap, declared ${declaredBytes} bytes`);
-      res.status(413).json({ error: UPLOAD_OVER_CAP_ERROR });
+      refuse(sess.id, 413, UPLOAD_OVER_CAP_ERROR);
       req.resume();
       return;
     }
