@@ -1018,6 +1018,32 @@ body {
   }
 }
 
+.overflow-restart {
+  color: var(--state-waiting);
+}
+
+.overflow-restart:focus-visible {
+  background: color-mix(in oklab, var(--state-waiting) 10%, transparent);
+}
+@media (hover: hover) {
+  .overflow-restart:hover {
+    background: color-mix(in oklab, var(--state-waiting) 10%, transparent);
+  }
+}
+
+.overflow-remove {
+  color: var(--state-failed);
+}
+
+.overflow-remove:focus-visible {
+  background: color-mix(in oklab, var(--state-failed) 10%, transparent);
+}
+@media (hover: hover) {
+  .overflow-remove:hover {
+    background: color-mix(in oklab, var(--state-failed) 10%, transparent);
+  }
+}
+
 .line-icon {
   flex: none;
   width: 14px;

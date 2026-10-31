@@ -203,7 +203,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   };
   const btnDebug = buildMenuItem('Debug state', 'overflow-debug');
   const btnTrace = buildMenuItem('Trace', 'overflow-trace');
-  sessionMenu.append(btnRestart, btnWorkspaceRepos, btnCoherenceJournal, btnSessionSetup, btnLinkPr, btnConnectBoard, btnDebug, btnTrace);
+  sessionMenu.append(btnWorkspaceRepos, btnCoherenceJournal, btnSessionSetup, btnLinkPr, btnConnectBoard, btnDebug, btnTrace, btnRestart);
   sessionMenuWrap.append(btnSessionMenu, sessionMenu);
 
   const btnRemove = el('button', 'btn-action btn-remove visible');
