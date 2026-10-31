@@ -1,7 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <title>Glimmervoid</title>
-  <rect width="32" height="32" rx="6" fill="#0a0810"/>
-  <rect x="1" y="1" width="30" height="30" rx="5" fill="none" stroke="#2a2440" stroke-width="1"/>
-  <!-- Terminal prompt: ▸ cursor aesthetic from Glimmervoid loading screen -->
-  <path d="M10 8 L22 16 L10 24Z" fill="#c084fc"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><title>Glimmervoid</title><rect width="32" height="32" rx="6" fill="#0a0810"/><rect x="1" y="1" width="30" height="30" rx="5" fill="none" stroke="#2a2440" stroke-width="1"/><g transform="translate(2.4 2.4) scale(0.272)"><path d="M33 29L50 12L67 29M71 33L88 50L71 67M67 71L50 88L33 71M29 67L12 50L29 33" fill="none" stroke="#e8e0ff" stroke-width="14" stroke-linejoin="miter" stroke-linecap="butt"/><path d="M50 39L61 50L50 61L39 50Z" fill="#c084fc"/></g></svg>

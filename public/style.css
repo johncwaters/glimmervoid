@@ -798,21 +798,6 @@ body {
   width: 110px;
 }
 
-.flying-animal-preview.loading-animal {
-  width: 300px;
-  height: 120px;
-}
-
-.loading-animal .flying-animal-preview-stage {
-  top: 41px;
-  left: calc(72% - var(--nyan-width) / 2);
-  transform: scale(2);
-}
-
-.loading-animal .nyan-trail {
-  width: 120px;
-}
-
 .terminal-connecting-label {
   font-family: var(--font-mono);
   font-size: var(--type-body);
@@ -3595,16 +3580,48 @@ html[data-layout="phone"] .shown-thumb { width: 64px; height: 48px; }
 .session-row.focused .session-row-name { font-weight: 700; }
 
 .session-row-glyph, .phone-terminal-glyph { flex: 0 0 12px; display: grid; place-items: center; width: 12px; height: 12px; color: var(--st, var(--text-muted)); }
-.status-icon { display: grid; width: 100%; height: 100%; }
-.status-icon > svg { grid-area: 1 / 1; display: block; width: 100%; height: 100%; overflow: visible; }
-.status-icon-spin, .status-icon-ping { transform-origin: 50% 50%; }
-.status-icon-ping { opacity: 0; }
-@media (prefers-reduced-motion: no-preference) {
-  .status-icon-spin { animation: status-icon-spin 1s linear infinite; }
-  .status-icon-ping { animation: status-icon-ping 1.6s ease-out infinite; }
+@property --status-icon-blend { syntax: '<percentage>'; inherits: true; initial-value: 100%; }
+.status-icon {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  color: color-mix(in oklch, var(--status-icon-from, currentColor) calc(100% - var(--status-icon-blend)), currentColor var(--status-icon-blend));
 }
-@keyframes status-icon-spin { to { transform: rotate(360deg); } }
-@keyframes status-icon-ping { 0% { transform: scale(1); opacity: .7; } 100% { transform: scale(1.9); opacity: 0; } }
+.status-icon > svg { grid-area: 1 / 1; display: block; width: 100%; height: 100%; overflow: visible; transform-origin: 50% 50%; }
+.status-icon-spin, .status-icon-spin-blur, .status-icon-ping, .status-icon-beat, .status-icon-look { transform-origin: 50% 50%; }
+.status-icon-ping, .status-icon-spin-blur { opacity: 0; }
+[data-activity="quiet"] .status-icon-beat { opacity: 0.45; transition: opacity 400ms ease; }
+@media (prefers-reduced-motion: no-preference) {
+  .status-icon-spin { animation: status-icon-spin 2.6s infinite; }
+  .status-icon-spin-blur { animation: status-icon-spin-blur 2.6s infinite; }
+  .status-icon-look { animation: status-icon-look 5.6s cubic-bezier(0.65, 0, 0.35, 1) infinite; }
+  svg > .status-icon-ping { animation: status-icon-ping 1.6s ease-out infinite; }
+}
+@keyframes status-icon-spin {
+  0%, 14% { transform: rotate(0deg); animation-timing-function: cubic-bezier(0.6, 0, 1, 1); }
+  36% { opacity: 1; }
+  50% { transform: rotate(250deg); animation-timing-function: linear; }
+  52%, 66% { opacity: 0.25; }
+  78% { transform: rotate(610deg); animation-timing-function: cubic-bezier(0, 0, 0.4, 1); }
+  84% { opacity: 1; }
+  100% { transform: rotate(720deg); opacity: 1; }
+}
+@keyframes status-icon-spin-blur {
+  0%, 14% { transform: rotate(0deg); opacity: 0; animation-timing-function: cubic-bezier(0.6, 0, 1, 1); }
+  36% { opacity: 0; }
+  50% { transform: rotate(250deg); animation-timing-function: linear; }
+  52%, 66% { opacity: 0.85; }
+  78% { transform: rotate(610deg); animation-timing-function: cubic-bezier(0, 0, 0.4, 1); }
+  84% { opacity: 0; }
+  100% { transform: rotate(720deg); opacity: 0; }
+}
+@keyframes status-icon-look {
+  0%, 8% { transform: translateX(0); }
+  20%, 36% { transform: translateX(-17%); }
+  52%, 68% { transform: translateX(17%); }
+  80%, 100% { transform: translateX(0); }
+}
+@keyframes status-icon-ping { 0% { transform: scale(1); opacity: .75; } 100% { transform: scale(1.75); opacity: 0; } }
 .session-row-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .session-row-name {
   font-size: var(--type-meta);

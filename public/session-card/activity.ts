@@ -14,16 +14,16 @@ const render = (ui: SessionUi, kind: ActivityRenderKind) => { for (const fn of r
 const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
 
 export function pulseActivityGlyph(glyph: HTMLElement | null | undefined) {
-  if (reducedMotion?.matches || document.hidden) return;
-  if (!glyph?.animate) return;
-  glyph.animate(
-    [
-      { transform: 'scale(1)', opacity: 0.65 },
-      { transform: 'scale(1.35)', opacity: 1, offset: 0.3 },
-      { transform: 'scale(1)', opacity: 0.9 },
-    ],
-    { duration: 300, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+  if (reducedMotion?.matches || document.hidden || !glyph) return;
+  const beat = glyph.querySelector('.status-icon-beat:not([data-leaving])');
+  const ping = glyph.querySelector('.status-icon-ping:not([data-leaving])');
+  beat?.animate(
+    [{ transform: 'scale(1)' }, { transform: 'scale(1.16)', offset: 0.3 }, { transform: 'scale(1)' }],
+    { duration: 300, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', composite: 'add' },
   );
+  if (!ping) return;
+  for (const animation of ping.getAnimations()) animation.cancel();
+  ping.animate([{ transform: 'scale(1)', opacity: 0.75 }, { transform: 'scale(1.75)', opacity: 0 }], { duration: 650, easing: 'ease-out' });
 }
 
 export function noteSessionOutput(ui: SessionUi | null | undefined) {

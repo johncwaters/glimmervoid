@@ -1,10 +1,11 @@
 ---
+import { BRAND_ACCENT, BRAND_MARK_VIEWBOX, brandMarkMarkup } from '../../../shared/brand-mark.ts';
 import { sitePath } from '../lib/site-path.ts';
 
 const home = sitePath('');
 ---
 <nav class="top" aria-label="Site">
-  <a class="wordmark" href={home}><span>&#x25b8;</span>GLIMMERVOID</a>
+  <a class="wordmark" href={home}><svg class="wordmark-mark" viewBox={BRAND_MARK_VIEWBOX} aria-hidden="true" set:html={brandMarkMarkup({ frame: 'currentColor', light: BRAND_ACCENT })}></svg>GLIMMERVOID</a>
   <ul>
     <li><a href="https://github.com/johncwaters/glimmervoid">GitHub</a></li>
     <li><a class="nav-install" href={`${home}#install`}>Install</a></li>
@@ -14,7 +15,7 @@ const home = sitePath('');
 <style>
   nav.top { display: flex; gap: 16px; align-items: center; justify-content: space-between; padding-block: 16px; }
   .wordmark { flex: none; display: inline-flex; align-items: center; min-height: 44px; font-weight: 700; letter-spacing: 0.1em; color: var(--text-head); text-decoration: none; font-size: 16px; }
-  .wordmark span { color: var(--accent); }
+  .wordmark-mark { flex: none; width: 20px; height: 20px; margin-right: 10px; overflow: visible; }
   nav.top ul { list-style: none; margin: 0; padding: 0; display: flex; align-items: center; gap: 8px; }
   nav.top ul a { display: inline-flex; align-items: center; min-height: 44px; padding-inline: 12px; font-size: 15px; color: var(--text-dim); text-decoration: none; border-radius: 4px; }
   nav.top ul a:hover { color: var(--text-head); }

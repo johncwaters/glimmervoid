@@ -2,7 +2,6 @@ import { clearHeaderError, reportHeaderError } from '../action-status.ts';
 import { decideAppReveal, MAX_REVEAL_WAIT_MS } from '../app-reveal-core.ts';
 import { sendControlRequest, setConnectionStateCallback } from '../control-ws.ts';
 import { queryTag } from '../dom-helpers.ts';
-import { buildFlyingAnimalPreview, pickRandomIncludedAnimal } from '../flying-animal-preview.ts';
 import { revealFlyingAnimals } from '../flying-animals.ts';
 import { refreshFirstRunChecklist, revealFirstRunChecklist } from '../onboarding/first-run-loader.ts';
 import { applyPlanConnectionState } from '../session-card/lifecycle.ts';
@@ -11,6 +10,7 @@ import { preloadShownFaceWhenIdle } from '../shown-files.ts';
 import { getActiveView } from '../ui-state-core.ts';
 import { prefetchViewsWhenIdle, reloadOnceIfBundleRetired } from '../view-registry.ts';
 import { applyDashboardSettings } from './dashboard-settings.ts';
+import { playLoadingUnlock } from './loading-unlock.ts';
 import { activateSettingsHash } from './hash-routes.ts';
 import { disablePowerButton } from './power-menu.ts';
 import { VIEW_TABS, refreshViewsIfVisible, resendUnsentShownView } from './view-tabs.ts';
@@ -27,13 +27,6 @@ const shutdownStatus = queryTag(document, '#shutdown-status', 'div');
 let appRevealed = false;
 let controlConnectedAt: number | null = null;
 let hasReceivedSnapshot = false;
-
-function showLoadingAnimal() {
-  const animal = pickRandomIncludedAnimal();
-  const spinner = loadingScreen.querySelector('.loading-spinner');
-  if (!animal || !spinner) return;
-  spinner.replaceWith(buildFlyingAnimalPreview(animal, 'loading-animal'));
-}
 
 function revealAppWhenTerminalsLive() {
   if (appRevealed || controlConnectedAt === null) return;
@@ -53,14 +46,19 @@ function noteSnapshotReceived() {
 function revealApp() {
   if (appRevealed) return;
   appRevealed = true;
-  loadingScreen.classList.add('fade-out');
   prefetchViewsWhenIdle(VIEW_TABS);
   preloadShownFaceWhenIdle();
   revealFlyingAnimals();
   revealFirstRunChecklist();
+  playLoadingUnlock(loadingScreen).then(fadeOutLoadingScreen, fadeOutLoadingScreen);
+}
 
+function fadeOutLoadingScreen() {
+  loadingScreen.classList.add('fade-out');
   const removeLoading = () => loadingScreen.remove();
-  loadingScreen.addEventListener('transitionend', removeLoading, { once: true });
+  loadingScreen.addEventListener('transitionend', (event) => {
+    if (event.target === loadingScreen) removeLoading();
+  });
   setTimeout(removeLoading, 1000);
 }
 
@@ -180,7 +178,6 @@ function onConnectionStateChanged(state: string, label: string) {
 }
 
 function mountConnectionScreen() {
-  showLoadingAnimal();
   onTerminalLinkChange(revealAppWhenTerminalsLive);
   setConnectionStateCallback(onConnectionStateChanged);
 }
