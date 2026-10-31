@@ -712,15 +712,44 @@ async function runClick(
   return passedOutcome('control-clicked', `clicked ${control}`);
 }
 
-async function sendControlMessage(viewer: Viewer, controlMessage: Record<string, unknown>): Promise<void> {
-  await viewer.page.evaluate(async (message) => {
+async function sendControlMessage(viewer: Viewer, controlMessage: Record<string, unknown>): Promise<Record<string, unknown> | null> {
+  return viewer.page.evaluate(async (message) => {
     const tokenResponse = await fetch('/control-token');
     const { token } = await tokenResponse.json();
     const controlSocket = new WebSocket(`ws://${location.host}/control?token=${encodeURIComponent(token)}`);
     await new Promise((resolve) => controlSocket.addEventListener('open', resolve));
+    const requestId = message.requestId;
+    const reply = typeof requestId === 'string'
+      ? new Promise<Record<string, unknown>>((resolve) => {
+        controlSocket.addEventListener('message', (event) => {
+          const frame = JSON.parse(event.data);
+          if (frame.requestId === requestId) resolve(frame);
+        });
+      })
+      : null;
     controlSocket.send(JSON.stringify(message));
+    const answer = reply ? await reply : null;
     controlSocket.close();
+    return answer;
   }, controlMessage);
+}
+
+async function runRemoveSession(viewer: Viewer, sessionId: string): Promise<StepOutcome> {
+  const removal = { type: 'remove-session', id: sessionId, discardWork: true };
+  const firstReply = await sendControlMessage(viewer, { ...removal, requestId: 'harness-remove' });
+  if (firstReply?.ok === true) return passedOutcome('session-removed', 'removed on the first request');
+  const confirmedReply = await sendControlMessage(viewer, { ...removal, requestId: 'harness-remove-confirm' });
+  if (confirmedReply?.ok === true) return passedOutcome('session-removed', `removed after confirming: ${String(firstReply?.error)}`);
+  return failedOutcome('session-removed', `the server kept the session: ${String(confirmedReply?.error)}`);
+}
+
+async function runExpectSessionGone(viewer: Viewer, sessionId: string, deadlines: Deadlines): Promise<StepOutcome> {
+  const rosterEntry = viewer.page.locator(rosterSelector(viewer, sessionId));
+  const gone = await pollUntil(async () => {
+    if (await rosterEntry.count() === 0) return { ok: true, detail: 'the session is no longer listed' };
+    return { ok: false, detail: `${sessionId} is still listed` };
+  }, { label: `session gone for viewer ${viewer.id}`, timeoutMs: deadlines.reattachMs, intervalMs: deadlines.pollIntervalMs });
+  return outcomeFor('session-gone', gone);
 }
 
 async function runRenameSession(viewer: Viewer, sessionId: string, newName: string, deadlines: Deadlines): Promise<StepOutcome> {
@@ -965,6 +994,8 @@ export async function runCase({
     if (step.kind === 'watch-terminal') return runWatchTerminal(viewer, sessionId, tickAtWatchByViewer);
     if (step.kind === 'expect-terminal-untouched') return runExpectTerminalUntouched(viewer, sessionId, step.durationMs);
     if (step.kind === 'expect-revealed') return runExpectRevealed(viewer, sessionId, tickAtWatchByViewer.get(viewer.id) ?? null, deadlines);
+    if (step.kind === 'remove-session') return runRemoveSession(viewer, sessionId);
+    if (step.kind === 'expect-session-gone') return runExpectSessionGone(viewer, sessionId, deadlines);
     if (step.kind === 'rename-session') return runRenameSession(viewer, sessionId, `${step.newName} ${sessionId.slice(0, 8)}`, deadlines);
     if (step.kind === 'load-deep-history') return runLoadDeepHistory(viewer, sessionId, deadlines);
     const shot = await takeShot(viewer, artifacts, key, step.name);

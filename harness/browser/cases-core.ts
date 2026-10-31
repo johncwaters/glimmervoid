@@ -42,6 +42,8 @@ export type Step =
   | { kind: 'expect-revealed'; viewer?: ViewerId }
   | { kind: 'load-deep-history'; viewer?: ViewerId }
   | { kind: 'rename-session'; newName: string; viewer?: ViewerId }
+  | { kind: 'remove-session'; viewer?: ViewerId }
+  | { kind: 'expect-session-gone'; viewer?: ViewerId }
   | { kind: 'shot'; name: string; viewer?: ViewerId };
 
 export type ResolvedStep = Exclude<Step, { kind: 'resize-by' }>;
@@ -117,6 +119,24 @@ const RESIZE_STORM_STEPS: readonly Step[] = [
 ];
 
 export const SCENARIOS: readonly Scenario[] = [
+  {
+    name: 'phone-wake-prunes-removed',
+    phoneOnly: true,
+    companionViewport: 'desktop-1280',
+    viewports: ['phone-393'],
+    steps: [
+      { kind: 'open', viewer: 'a' },
+      { kind: 'settle', viewer: 'a' },
+      { kind: 'back', viewer: 'a' },
+      { kind: 'shot', name: 'before', viewer: 'a' },
+      { kind: 'suspend', viewer: 'a' },
+      { kind: 'remove-session', viewer: 'b' },
+      { kind: 'wait', durationMs: 11000 },
+      { kind: 'foreground', viewer: 'a' },
+      { kind: 'expect-session-gone', viewer: 'a' },
+      { kind: 'shot', name: 'after', viewer: 'a' },
+    ],
+  },
   {
     name: 'phone-resume-desktop-grid',
     phoneOnly: true,
