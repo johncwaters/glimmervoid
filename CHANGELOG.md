@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Phone settings toggles line up and rows stop jumping.** Each switch now sits beside its setting's title instead of on its own line below the description, and the Reset and save status line keeps its space, so a row no longer grows or shrinks when Reset appears.
 - **Session menu items drop their trailing dots.** Restart, Edit repositories, Link pull request and Connect board no longer end in `...`, on desktop and phone.
 
 - **Telemetry counts command hints.** Two new events, `command_hint_shown` and `command_hint_followed`, carry only which Glimmervoid command an agent was pointed at and which kind of agent, never the tool call, so the maintainers can tell which one-time hints actually help. `GLIMMERVOID_TELEMETRY=0` and Settings > Privacy turn them off with the rest.

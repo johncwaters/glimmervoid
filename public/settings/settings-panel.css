@@ -1042,9 +1042,26 @@ html[data-streamer] .settings-view-shell { grid-template-columns: minmax(0, 1fr)
 }
 
 [data-layout="phone"] .settings-view-setting {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px 16px;
+}
+
+[data-layout="phone"] .settings-view-setting:has(> .settings-view-setting-control > .settings-view-toggle-wrap > .settings-view-switch) {
+  grid-template-columns: minmax(0, 1fr) 56px;
+}
+
+[data-layout="phone"] .settings-view-setting:has(> .settings-view-setting-control > .settings-view-toggle-wrap > .settings-view-switch) > .settings-view-setting-control {
+  display: contents;
+}
+
+[data-layout="phone"] .settings-view-setting-control > .settings-view-toggle-wrap:has(> .settings-view-switch) {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
+}
+
+[data-layout="phone"] .settings-view-setting-control:has(> .settings-view-toggle-wrap > .settings-view-switch) > :not(.settings-view-toggle-wrap) {
+  grid-column: 1 / -1;
 }
 
 [data-layout="phone"] .settings-view-setting-control {

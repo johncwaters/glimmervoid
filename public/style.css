@@ -4385,9 +4385,25 @@ html:not([data-layout="phone"]) .review-controls :is(.review-branch-sync-refresh
   cursor: not-allowed;
 }
 
-[data-layout="phone"] .settings-view :is(.settings-view-control-foot, .settings-view-toggle-wrap, .settings-update-buttons) {
+[data-layout="phone"] .settings-view :is(.settings-view-toggle-wrap, .settings-update-buttons) {
   flex-direction: column;
   align-items: stretch;
+}
+
+[data-layout="phone"] .settings-view .settings-view-control-foot {
+  min-height: 44px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+[data-layout="phone"] .settings-view .settings-view-control-foot[hidden] {
+  display: flex;
+  visibility: hidden;
+}
+
+[data-layout="phone"] .settings-view .settings-view-control-foot .settings-view-reset {
+  width: auto;
 }
 
 [data-layout="phone"] .settings-view label {
