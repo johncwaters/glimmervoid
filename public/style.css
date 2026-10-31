@@ -3630,7 +3630,6 @@ html[data-layout="phone"] .shown-thumb { width: 64px; height: 48px; }
 .status-icon > svg { grid-area: 1 / 1; display: block; width: 100%; height: 100%; overflow: visible; transform-origin: 50% 50%; }
 .status-icon-spin, .status-icon-spin-blur, .status-icon-ping, .status-icon-beat, .status-icon-look { transform-origin: 50% 50%; }
 .status-icon-ping, .status-icon-spin-blur { opacity: 0; }
-[data-activity="quiet"] .status-icon-beat { opacity: 0.45; transition: opacity 400ms ease; }
 @media (prefers-reduced-motion: no-preference) {
   .status-icon-spin { animation: status-icon-spin 2.6s infinite; }
   .status-icon-spin-blur { animation: status-icon-spin-blur 2.6s infinite; }
