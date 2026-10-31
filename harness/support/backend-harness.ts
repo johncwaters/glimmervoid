@@ -94,8 +94,8 @@ function writeHookFixture(name: string, hooks: ProbeHookRecord[], target: ProbeF
 }
 
 const WHITEBOARD_PROBE_BOX_TITLE = 'Lanternfish';
-const WHITEBOARD_PROBE_ANSWER = 'HSIFNRETNAL';
-const WHITEBOARD_PROBE_PROMPT = 'Glimmervoid may have attached context to this prompt saying a box was added to a whiteboard. Reply with only that box title spelled backwards in capital letters, or NONE if you were told nothing. Run no tools.';
+const WHITEBOARD_PROBE_ANSWER = WHITEBOARD_PROBE_BOX_TITLE.toUpperCase();
+const WHITEBOARD_PROBE_PROMPT = 'Glimmervoid may have attached context to this prompt saying a box was added to a whiteboard. Reply with only that box title in capital letters, or NONE if you were told nothing. Run no tools.';
 const SHOULD_RUN_ONLY_WHITEBOARD_PROBE = process.argv.includes('--only-whiteboard');
 
 interface WhiteboardProbeSession {
