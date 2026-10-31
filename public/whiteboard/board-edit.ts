@@ -23,10 +23,12 @@ interface BoardEditorOptions {
   onSelectionChange: (selectedIds: ReadonlySet<string>) => void;
   onPhoneTapBox: (boxId: string) => void;
   onOpenLinkedBoard: (boardId: string) => void;
+  onConnectBoxes: (fromBoxId: string, toBoxId: string) => void;
 }
 
 type Gesture =
   | { kind: 'drag'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean }
+  | { kind: 'wire'; pointerId: number; fromBoxId: string; start: ViewPoint; draftLine: SVGPathElement; targetBoxId: string | null }
   | { kind: 'pan'; pointerId: number; lastClient: ViewPoint; hasMoved: boolean; tappedBoxId: string | null }
   | { kind: 'pinch'; distance: number; viewWidth: number }
   | null;
@@ -38,6 +40,10 @@ export function newElementId(kind: 'box' | 'wire' | 'note' | 'frame' | 'unit'): 
 
 function isPhoneLayout(): boolean {
   return document.documentElement.dataset.layout === 'phone';
+}
+
+function portOf(target: EventTarget | null): SVGCircleElement | null {
+  return target instanceof SVGCircleElement && target.classList.contains('wb-port') ? target : null;
 }
 
 function linkedBoardIdOf(target: EventTarget | null): string | null {
@@ -176,6 +182,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   function startPinch(): void {
+    if (gesture?.kind === 'wire') endWire(gesture, false);
     gesture = { kind: 'pinch', distance: pinchDistance(), viewWidth: viewBox.width };
   }
 
@@ -193,6 +200,11 @@ export function createBoardEditor(options: BoardEditorOptions) {
       return;
     }
     const hit = renderer.elementFromTarget(event.target);
+    const port = portOf(event.target);
+    if (hit?.kind === 'box' && port && !isPhoneLayout()) {
+      startWire(event.pointerId, hit.id, port);
+      return;
+    }
     const boxRect = hit?.kind === 'box' && !isPhoneLayout() ? boxRectOf(hit.id) : null;
     if (hit && boxRect) {
       const origin = toViewPoint(event.clientX, event.clientY);
@@ -206,6 +218,36 @@ export function createBoardEditor(options: BoardEditorOptions) {
     }
     const tappedBoxId = hit?.kind === 'box' ? hit.id : null;
     gesture = { kind: 'pan', pointerId: event.pointerId, lastClient: { x: event.clientX, y: event.clientY }, hasMoved: false, tappedBoxId };
+  }
+
+  function startWire(pointerId: number, fromBoxId: string, port: SVGCircleElement): void {
+    const start = { x: port.cx.baseVal.value, y: port.cy.baseVal.value };
+    const draftLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    draftLine.setAttribute('class', 'wb-wire-line wb-dashed wb-wire-draft');
+    draftLine.setAttribute('d', `M ${start.x} ${start.y} L ${start.x} ${start.y}`);
+    svg.append(draftLine);
+    gesture = { kind: 'wire', pointerId, fromBoxId, start, draftLine, targetBoxId: null };
+  }
+
+  function markWireTarget(wire: Extract<Gesture, { kind: 'wire' }>, targetBoxId: string | null): void {
+    if (wire.targetBoxId) renderer.nodeOf(wire.targetBoxId)?.classList.remove('is-wire-target');
+    wire.targetBoxId = targetBoxId;
+    if (targetBoxId) renderer.nodeOf(targetBoxId)?.classList.add('is-wire-target');
+  }
+
+  function moveWire(wire: Extract<Gesture, { kind: 'wire' }>, event: PointerEvent): void {
+    const point = toViewPoint(event.clientX, event.clientY);
+    wire.draftLine.setAttribute('d', `M ${wire.start.x} ${wire.start.y} L ${point.x} ${point.y}`);
+    const hit = renderer.elementFromTarget(document.elementFromPoint(event.clientX, event.clientY));
+    const isOtherBox = hit?.kind === 'box' && hit.id !== wire.fromBoxId;
+    markWireTarget(wire, isOtherBox ? hit.id : null);
+  }
+
+  function endWire(wire: Extract<Gesture, { kind: 'wire' }>, shouldConnect: boolean): void {
+    const targetBoxId = wire.targetBoxId;
+    markWireTarget(wire, null);
+    wire.draftLine.remove();
+    if (shouldConnect && targetBoxId) options.onConnectBoxes(wire.fromBoxId, targetBoxId);
   }
 
   function moveDrag(drag: Extract<Gesture, { kind: 'drag' }>, event: PointerEvent): void {
@@ -245,6 +287,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
       moveDrag(gesture, event);
       return;
     }
+    if (gesture?.kind === 'wire' && gesture.pointerId === event.pointerId) {
+      moveWire(gesture, event);
+      return;
+    }
     if (gesture?.kind === 'pan' && gesture.pointerId === event.pointerId) movePan(gesture, event);
   }
 
@@ -274,6 +320,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
       void finishDrag(finished, event);
       return;
     }
+    if (finished?.kind === 'wire') {
+      endWire(finished, finished.pointerId === event.pointerId);
+      return;
+    }
     if (finished?.kind !== 'pan' || finished.hasMoved) return;
     if (finished.tappedBoxId && isPhoneLayout()) {
       options.onPhoneTapBox(finished.tappedBoxId);
@@ -285,6 +335,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   function onPointerCancel(event: PointerEvent): void {
     activePointers.delete(event.pointerId);
     const wasDragging = gesture?.kind === 'drag';
+    if (gesture?.kind === 'wire') endWire(gesture, false);
     gesture = null;
     if (wasDragging) paintPreview();
   }

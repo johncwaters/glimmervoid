@@ -14,6 +14,7 @@ const UNIT_LABEL_BASELINE = 24;
 const UNIT_LABEL_HEIGHT = 18;
 const PLAN_TITLE = 'Plan';
 const LINKED_BOARD_TEXT = 'open linked board';
+const PORT_RADIUS = 5;
 
 type LayerName = 'frames' | 'wires' | 'boxes' | 'notes' | 'units';
 
@@ -56,6 +57,11 @@ function drawBox(box: LaidOutBox): SVGGElement {
   const outline = svgNode('rect', { x: box.x, y: box.y, width: box.width, height: box.height, rx: 8 }, 'wb-box-outline');
   if (box.lane) outline.style.stroke = box.lane.hex;
   group.append(outline);
+  const midX = box.x + box.width / 2;
+  const midY = box.y + box.height / 2;
+  for (const [cx, cy] of [[midX, box.y], [box.x + box.width, midY], [midX, box.y + box.height], [box.x, midY]] as const) {
+    group.append(svgNode('circle', { cx, cy, r: PORT_RADIUS }, 'wb-port'));
+  }
   box.titleLines.forEach((line, index) => {
     group.append(svgText(line, box.x + BOX_TEXT_INSET, box.y + TITLE_BASELINE + index * TITLE_LINE_HEIGHT, 'wb-box-title'));
   });

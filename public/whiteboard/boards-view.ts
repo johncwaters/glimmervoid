@@ -291,11 +291,19 @@ function addNoteOn(boxId: string): void {
   });
 }
 
+function connectBoxes(fromBoxId: string, toBoxId: string): void {
+  const board = selectedBoard();
+  if (!board || fromBoxId === toBoxId) return;
+  const isAlreadyWired = Object.values(board.elements).some((element) => element.kind === 'wire' && element.from === fromBoxId && element.to === toBoxId);
+  if (isAlreadyWired) return;
+  void sendOps([{ op: 'add', element: { kind: 'wire', id: newElementId('wire'), from: fromBoxId, to: toBoxId, dashed: false, tone: 'plain', label: null } }]);
+}
+
 function addWire(): void {
   const [from, to] = selectedElementsOfKind('box');
   if (!from || !to) return;
   editor?.clearSelection();
-  void sendOps([{ op: 'add', element: { kind: 'wire', id: newElementId('wire'), from: from.id, to: to.id, dashed: false, tone: 'plain', label: null } }]);
+  connectBoxes(from.id, to.id);
 }
 
 function addFrame(): void {
@@ -413,6 +421,7 @@ function mountBoardsView(panel: HTMLElement): void {
     onSelectionChange: paintToolbar,
     onPhoneTapBox: addNoteOn,
     onOpenLinkedBoard: selectBoard,
+    onConnectBoxes: connectBoxes,
   });
 
   onBoardListChanged(paintList);

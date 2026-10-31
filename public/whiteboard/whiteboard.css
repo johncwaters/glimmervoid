@@ -331,6 +331,25 @@
   stroke-width: 2.4;
 }
 
+.wb-port {
+  fill: var(--wb-board);
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  cursor: crosshair;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.wb-box:hover .wb-port,
+.wb-element.is-selected .wb-port { opacity: 1; }
+
+.wb-wire-draft { stroke: var(--accent); }
+
+.wb-element.is-wire-target .wb-box-outline {
+  stroke: var(--accent);
+  stroke-width: 2.4;
+}
+
 .wb-element.is-selected .wb-wire-line {
   stroke: var(--accent);
   stroke-width: 2.6;
@@ -380,6 +399,10 @@
 
 [data-layout='phone'] .wb-toolbar .wb-button[data-phone-visible] {
   display: inline-flex;
+}
+
+[data-layout='phone'] .wb-port {
+  display: none;
 }
 
 [data-layout='phone'] .wb-canvas {
