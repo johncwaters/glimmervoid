@@ -57,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A shell session looks like a shell.** In the Focus rail and on the phone Board, a shell session now shows a terminal icon in a muted color, and SHELL in its hover text, in place of the yellow pause icon that made it look like an idle agent session.
 - **A removed session no longer lingers on the phone.** A session removed while the phone was asleep or offline now disappears from the dashboard as soon as it reconnects, instead of staying listed until a page refresh.
 - **The session menu fits on a phone.** The session actions menu ran off the left edge of a phone screen. Its items now show their names only, without the grey line under each, on desktop too.
 - **Rendering a board no longer hides changes from the agent.** `glimmervoid whiteboard render` and `glimmervoid whiteboard get --layout` used to mark the board read without printing what others changed, so an operator edit made just before a render never reached the agent's next `get` or next prompt. Both now leave the board unread.

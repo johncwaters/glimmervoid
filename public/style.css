@@ -3800,6 +3800,7 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 :is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="INITIALIZING"] { --st: var(--state-starting); }
 :is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="DORMANT"] { --st: var(--text-muted); }
 .session-row[data-merge="parked"] { --st: var(--state-failed); }
+.session-row[data-shell] { --st: var(--text-muted); }
 .session-row:is([data-state="WAITING"], [data-state="FAILED"], [data-state="COMPLETE"], [data-merge="parked"]) {
   --tint: color-mix(in oklch, var(--st) 12%, transparent);
 }

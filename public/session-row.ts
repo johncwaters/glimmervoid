@@ -5,6 +5,7 @@ import { paintCardOwnership, remoteWorkspaceHoverText } from './session-card/car
 import { attentionTally, sessionName, sessionUIs } from './session-card/card-registry.ts';
 import { paintStatusIcon } from './status-icon.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
+import { SHELL_AGENT_ID } from './session-card/agent-core.ts';
 import { sessionElapsedText } from './session-card/session-tick.ts';
 import { SIGNAL_TIER } from './signal-core.ts';
 import type { Signal } from './signal-core.ts';
@@ -134,6 +135,24 @@ export function paintSessionRowStatus(
   return statusLabel;
 }
 
+const SHELL_LABEL = 'SHELL';
+
+function paintShellRowMark(row: HTMLElement, refs: Pick<SessionRowRefs, 'glyph' | 'label'>) {
+  writeDataIfChanged(row, 'state', '');
+  writeDataIfChanged(row, 'prompt', '');
+  row.removeAttribute('data-monitoring');
+  paintStatusIcon(refs.glyph, 'shell');
+  writeTextIfChanged(refs.label, SHELL_LABEL);
+  return SHELL_LABEL;
+}
+
+function paintSessionRowMark(row: HTMLElement, refs: SessionRowRefs, ui: SessionUi, state: string) {
+  const isShell = ui.agent === SHELL_AGENT_ID;
+  row.toggleAttribute('data-shell', isShell);
+  if (isShell) return paintShellRowMark(row, refs);
+  return paintSessionRowStatus(row, refs, state, ui.awaitingBackgroundTasks, ui.pendingPromptKind);
+}
+
 function paintSessionRowCloud(cloud: HTMLElement, remoteWorkspace: string | undefined): string | null {
   writeHiddenIfChanged(cloud, !remoteWorkspace);
   if (!remoteWorkspace) return null;
@@ -174,7 +193,7 @@ export function paintSessionRow(
   refs: SessionRowRefs,
   { ui, state, name, mergeStatus, attentionPosition }: { ui: SessionUi; state: string; name: string; mergeStatus: string; attentionPosition: number | null },
 ) {
-  const statusLabel = paintSessionRowStatus(row, refs, state, ui.awaitingBackgroundTasks, ui.pendingPromptKind);
+  const statusLabel = paintSessionRowMark(row, refs, ui, state);
   writeTextIfChanged(refs.name, name);
   const cloudText = paintSessionRowCloud(refs.cloud, ui.card.dataset.remoteWorkspace);
   writeTextIfChanged(refs.task, ui.taskTitle ?? '');

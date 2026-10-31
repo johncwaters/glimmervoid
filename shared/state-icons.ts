@@ -1,7 +1,7 @@
 import type { SessionState } from './states.ts';
 import { STATES } from './states.ts';
 
-export type StatusIcon = 'not-started' | 'starting' | 'working' | 'monitoring' | 'needs-input' | 'idle' | 'complete' | 'exited' | 'failed';
+export type StatusIcon = 'not-started' | 'starting' | 'working' | 'monitoring' | 'needs-input' | 'idle' | 'complete' | 'exited' | 'failed' | 'shell';
 
 interface StatusIconShape {
   tag: 'circle' | 'path' | 'rect';
@@ -62,5 +62,8 @@ export const STATUS_ICON_SHAPES: Readonly<Record<StatusIcon, readonly StatusIcon
   ],
   failed: [
     { tag: 'path', attributes: { d: 'M3.5 3.5l9 9M12.5 3.5l-9 9', ...stroke('2') } },
+  ],
+  shell: [
+    { tag: 'path', attributes: { d: 'M3 4.5L6.5 8L3 11.5 M8.5 11.5h4.5', ...stroke('1.8') } },
   ],
 });
