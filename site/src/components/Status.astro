@@ -3,17 +3,17 @@ import { STATE_ICONS, STATUS_ICON_SHAPES } from '../../../shared/state-icons.ts'
 import { BADGE_LABELS, STATES } from '../../../shared/states.ts';
 import { AGENT_CARDS } from '../lib/product-facts.ts';
 
-const TIER_DETAILS_BY_SUPPORT: Readonly<Record<string, { mark: 'full' | 'half' | 'ring'; meaning: string }>> = {
-  'Full support': { mark: 'full', meaning: 'Status from hooks, plus the status line.' },
-  'Hook status': { mark: 'half', meaning: "Status from the agent's own hooks." },
-  'Title status': { mark: 'ring', meaning: 'Status from the terminal title.' },
+const TIER_MARKS_BY_SUPPORT: Readonly<Record<string, 'full' | 'half' | 'ring'>> = {
+  'Full support': 'full',
+  'Hook status': 'half',
+  'Title status': 'ring',
 };
 const OTHER_CLI_CARD = { monogram: '..', label: 'Any other CLI', support: 'Title status' };
 const agentCardsBySupport = Map.groupBy([...AGENT_CARDS, OTHER_CLI_CARD], ({ support }) => support);
 const AGENT_SUPPORT_TIERS = [...agentCardsBySupport].map(([support, cards]) => {
-  const tierDetails = TIER_DETAILS_BY_SUPPORT[support];
-  if (!tierDetails) throw new Error(`site/src/components/Status.astro has no tier details for ${support}`);
-  return { support, cards, ...tierDetails };
+  const mark = TIER_MARKS_BY_SUPPORT[support];
+  if (!mark) throw new Error(`site/src/components/Status.astro has no tier mark for ${support}`);
+  return { support, cards, mark };
 });
 
 const SHOWN_STATES = [STATES.RUNNING, STATES.WAITING, STATES.COMPLETE, STATES.FAILED];
@@ -76,7 +76,7 @@ function terminalVariantsFor(task: string) {
     </div>
   </figure>
   <ul class="agent-tiers reveal" aria-label="Supported agents">
-    {AGENT_SUPPORT_TIERS.map(({ support, cards, mark, meaning }) => (
+    {AGENT_SUPPORT_TIERS.map(({ support, cards, mark }) => (
       <li class="agent-tier" data-mark={mark}>
         <h3 class="agent-tier-head">
           <svg class="tier-mark" viewBox="0 0 16 16" aria-hidden="true">
@@ -89,7 +89,6 @@ function terminalVariantsFor(task: string) {
         <ul class="agent-chips">
           {cards.map(({ monogram, label }) => <li><span class="agent-monogram" aria-hidden="true">{monogram}</span>{label}</li>)}
         </ul>
-        <p class="agent-tier-meaning">{meaning}</p>
       </li>
     ))}
   </ul>
@@ -273,7 +272,6 @@ function terminalVariantsFor(task: string) {
   .agent-chips li { display: flex; align-items: center; gap: 10px; }
   .agent-monogram { display: inline-grid; place-items: center; width: 28px; height: 22px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--text-head); }
   .agent-tier[data-mark="full"] .agent-monogram { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
-  .agent-tier-meaning { margin: auto 0 0; font-size: 13px; color: var(--text-dim); }
   [data-state="RUNNING"] { color: var(--state-running); }
   [data-state="WAITING"] { color: var(--state-waiting); }
   [data-state="COMPLETE"] { color: var(--state-complete); }
