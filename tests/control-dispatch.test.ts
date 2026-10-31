@@ -2,6 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { mergeHandlerGroups } from '../server/control/core/control-dispatch-core.ts';
 import { createReplayLog } from '../server/core/control-replay-core.ts';
 import type { ReplayLog } from '../server/core/control-replay-core.ts';
 import type { ControlConnection } from './helpers/control-harness.ts';
@@ -116,4 +117,11 @@ test('a caller that declares no build sends null rather than omitting the field'
   const server = createControlServer(controlDeps({ projects: [] }));
   const { sent } = connectControl<DispatchFrame>(server);
   assert.equal(sent[0].serverBuild, null, 'an absent field would read as "unchanged" to the client');
+});
+
+test('a message type two handler groups claim is refused at registration instead of dispatching to whichever merged last', () => {
+  assert.throws(
+    () => mergeHandlerGroups([{ handlers: { ping: () => 'server' } }, { handlers: { ping: () => 'whiteboard' } }]),
+    /ping is claimed by two handler groups/,
+  );
 });

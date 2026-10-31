@@ -11,7 +11,8 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 |------|-------------|
 | `backend/` | Express + WebSocket server factory and its wiring, one concern per file |
 | `session/` | Session construction, config reconciliation, one-time event wiring, docs and trace |
-| `control-handlers.ts` | Control-WebSocket message handlers (kill, restart, rename, settings) |
+| `control-handlers.ts` | Control-WebSocket shell: deps types, group assembly, dispatch and the connection listener |
+| `control/` | Control plane by operator surface: `control/control-context.ts` (helpers every group shares), `control/core/control-dispatch-core.ts` (pure group merge and invalid-request replies), `control/handlers/` (one group per surface, each owning its handlers, invalid-request replies and connect frames; never imports another group) |
 | `server-lifecycle.ts` | Boot/shutdown helpers; restart strategy in `core/restart-strategy.ts` |
 | `ws-sender.ts` | Data-WebSocket sender: batching and backpressure |
 | `data/claude-pricing.json` | Bundled LiteLLM pricing snapshot |

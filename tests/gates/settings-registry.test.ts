@@ -299,12 +299,17 @@ const PER_BLOCK_KEY_LIST = /^(?:export )?const [A-Z][A-Z0-9_]*_KEYS\b/m;
 const DASHBOARD_PATH_LIST = /DASHBOARD_SETTING_PATHS/;
 
 test('the control handlers and the config store declare no per-block settings key list and no dashboard path list', () => {
-  for (const file of ['server/control-handlers.ts', 'server/config-store.ts']) {
-    const source = fs.readFileSync(path.join(ROOT, file), 'utf8');
+  for (const absolutePath of controlPlaneSourceFiles()) {
+    const file = path.relative(ROOT, absolutePath);
+    const source = fs.readFileSync(absolutePath, 'utf8');
     assert.equal(PER_BLOCK_KEY_LIST.test(source), false, `${file} declares a settings key list; the registry block spec is the only per-block list`);
     assert.equal(DASHBOARD_PATH_LIST.test(source), false, `${file} names DASHBOARD_SETTING_PATHS; the registry is the dashboard allow-list`);
   }
 });
+
+function controlPlaneSourceFiles(): string[] {
+  return [path.join(ROOT, 'server/control-handlers.ts'), path.join(ROOT, 'server/config-store.ts'), ...browserSourceFiles(path.join(ROOT, 'server/control'))];
+}
 
 const KNOWN_LINK_IDS: Readonly<Record<string, string>> = Object.freeze({
   UPDATES_SECTION_ID, UPDATES_ACTIONS_SETTING_ID, TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID,
