@@ -11,7 +11,7 @@ import { KIMI_HOME_PROFILE } from "../session/core/agent-home-core.ts";
 import type { Session } from "../session/sessions.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
 import {
-  createProbeChecks, delay, hookEventsOf, QUEUED_HINT_PROBE_PROMPT, queueWhiteboardEditFor, screenShowsSpawnHint, screenShowsWhiteboardAnswer,
+  createProbeChecks, delay, hookEventsOf, QUEUED_HINT_PROBE_PROMPT, queueWhiteboardEditFor, screenShowsSpawnHint, screenShowsStartLine, screenShowsWhiteboardAnswer,
   SHOULD_RUN_ONLY_HINT_PROBE, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, SPAWN_HINT_PROBE_PROMPT, waitForState,
   whiteboardWriterIdFor, whiteboardWriterProject, WHITEBOARD_PROBE_PROMPT, writeHookFixture,
 } from "./support/backend-harness.ts";
@@ -186,6 +186,8 @@ async function runProbe(tempDirectory: string): Promise<void> {
 
     console.log("\nRespawn into the trusted folder:");
     ptyWrites.length = 0;
+    if (SHOULD_RUN_ONLY_HINT_PROBE) session._initialPrompt = "Run the shell command: touch ./kimi-probe-approval.txt and then repeat word for word every sentence beginning with 'Glimmervoid' that you received with this message, or say none.";
+    const firstPromptOffset = session.getOutputOffset();
     check("restart requested a fresh spawn", session.restart());
     const approvalHooks = await runScenario("approval-turn", null, approveOnce);
     check("the initial prompt was pasted without operator input", ptyWrites.some((text) => text.includes("kimi-probe-approval.txt")));
@@ -197,6 +199,7 @@ async function runProbe(tempDirectory: string): Promise<void> {
     check("the captured session id is session_<uuid>", /^session_[0-9a-f-]{36}$/.test(String(capturedId || "")));
 
     if (SHOULD_RUN_ONLY_HINT_PROBE) {
+      check("the start line reached the model with the first prompt", screenShowsStartLine(session.getBufferSince(firstPromptOffset).data));
       const spawnHooks = await runScenario("command-hint", SPAWN_HINT_PROBE_PROMPT, approveOnce, 20000);
       check("the Agent PostToolUse reached the hooks", spawnHooks.some((hook) => hook.event.toLowerCase() === "posttooluse" && hook.payload?.tool_name === "Agent"));
       const queuedHintOffset = session.getOutputOffset();

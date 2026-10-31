@@ -378,9 +378,14 @@ test('a Kimi agent that starts a subagent gets the spawn hint with its next prom
     assert.equal(response.status, 200);
     return await response.json() as Record<string, unknown>;
   }
-  const recordedAgentCall = fs.readFileSync(path.join(import.meta.dirname, 'fixtures', 'v2-kimi-subagent.jsonl'), 'utf8')
-    .split('\n').filter(Boolean).map((line) => JSON.parse(line) as { event?: string; payload?: Record<string, unknown> })
+  function recordedKimiHooks(fixture: string): { event?: string; payload?: Record<string, unknown> }[] {
+    return fs.readFileSync(path.join(import.meta.dirname, 'fixtures', fixture), 'utf8')
+      .split('\n').filter(Boolean).map((line) => JSON.parse(line) as { event?: string; payload?: Record<string, unknown> });
+  }
+  const recordedAgentCall = recordedKimiHooks('v2-kimi-command-hint.jsonl')
     .find((record) => record.event === 'posttooluse' && record.payload?.tool_name === 'Agent')?.payload;
+  const recordedNextPrompt = recordedKimiHooks('v2-kimi-command-hint-delivery.jsonl').find((record) => record.event === 'userpromptsubmit')?.payload;
+  assert.ok(recordedNextPrompt, 'the live capture holds the UserPromptSubmit that carried the queued hint');
   assert.ok(recordedAgentCall, 'the live capture holds the PostToolUse of the Agent tool call');
   const mainAgentCallAsKimiSendsIt = { ...recordedAgentCall, agent_id: 'main' };
   const commandHintOutcomes: string[] = [];
@@ -388,7 +393,7 @@ test('a Kimi agent that starts a subagent gets the spawn hint with its next prom
   assert.equal((await postKimiHook('PostToolUse', mainAgentCallAsKimiSendsIt)).hookSpecificOutput, undefined);
   kimiSession.noteCommandRan('spawn');
   assert.deepEqual(commandHintOutcomes, []);
-  const promptReply = await postKimiHook('UserPromptSubmit', { prompt: 'next' });
+  const promptReply = await postKimiHook('UserPromptSubmit', recordedNextPrompt);
   assert.match(String(promptReply.message), /glimmervoid spawn <prompt> gives it its own dashboard card/);
   assert.equal((await postKimiHook('UserPromptSubmit', { prompt: 'again' })).message, undefined);
   assert.deepEqual(commandHintOutcomes, ['spawn shown']);
