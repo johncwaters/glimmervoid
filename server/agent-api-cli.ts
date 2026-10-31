@@ -426,7 +426,7 @@ function summarizeLayout(layout: BoardLayout) {
 }
 
 async function fetchBoard(boardRef: string): Promise<Board | string> {
-  const reply = await askWhiteboard({ sub: 'get', board: boardRef });
+  const reply = await askWhiteboard({ sub: 'get', board: boardRef, peek: true });
   if (typeof reply === 'string') return reply;
   if (!('changes' in reply)) return 'Glimmervoid did not return the board';
   return reply.board;

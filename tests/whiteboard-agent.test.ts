@@ -284,7 +284,7 @@ test('an agent plans units through the CLI in dependency order, a cycle is refus
   assert.deepEqual((await boardOf(PLANNER_ID, boardId)).board.elements['search-box']?.after, []);
 });
 
-test('an agent puts ops from a file, reads the laid-out positions and renders the board to an SVG file', async (context) => {
+test('an agent puts ops from a file, reads the laid-out positions and renders the board to an SVG file, and neither read consumes changes others made', async (context) => {
   const boardId = await newBoard('see it');
   const opsPath = path.join(fixture.tmpDir, 'see-it-ops.json');
   fs.writeFileSync(opsPath, JSON.stringify([
@@ -296,6 +296,8 @@ test('an agent puts ops from a file, reads the laid-out positions and renders th
   const cli = (...args: string[]) => runPlannerCli(context, ['whiteboard', ...args]);
 
   assert.equal((await cli('put', boardId, '--file', opsPath)).exitCode, 0);
+  const builderEdit = await whiteboard(BUILDER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'save', fields: { title: 'Save rows' } }] });
+  assert.equal(builderEdit.status, 200);
 
   const laidOut = await cli('get', boardId, '--layout');
   assert.equal(laidOut.exitCode, 0);
@@ -311,6 +313,9 @@ test('an agent puts ops from a file, reads the laid-out positions and renders th
   assert.match(svgText, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
   assert.match(svgText, /Parse &lt;feed&gt;/);
   assert.match(svgText, /data-element-id="w1"/);
+
+  const { changes } = await boardOf(PLANNER_ID, boardId);
+  assert.deepEqual(changes.map((change) => change.summary), [`${BUILDER_ID} renamed "Save" to "Save rows"`]);
 });
 
 test('a columns op with a move map carries boxes in one put, removing a box pins the boxes near it, and a box with no place is refused', async () => {

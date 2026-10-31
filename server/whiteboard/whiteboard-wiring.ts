@@ -215,10 +215,10 @@ function createWhiteboardWiring({
     });
   }
 
-  function readBoard(boardId: string, readerId: string): Promise<WhiteboardReply> {
+  function readBoard(boardId: string, readerId: string, isPeek: boolean): Promise<WhiteboardReply> {
     return changeRecord(boardId, (record) => {
       const changes = changesForReader(record, readerId);
-      const next = record.cursorBySessionId[readerId] === record.board.version ? record : markRead(record, readerId);
+      const next = isPeek || record.cursorBySessionId[readerId] === record.board.version ? record : markRead(record, readerId);
       return { ok: true, record: next, reply: { status: 200, body: { ok: true, board: record.board, changes } } };
     });
   }
@@ -343,7 +343,7 @@ function createWhiteboardWiring({
     switch (request.sub) {
       case 'connect': return connectBoard(found.boardId, caller.id);
       case 'disconnect': return disconnectBoard(found.boardId, caller.id);
-      case 'get': return readBoard(found.boardId, caller.id);
+      case 'get': return readBoard(found.boardId, caller.id, request.peek === true);
       case 'put': return putOps(found.boardId, request.ops, author);
       case 'resolve': return putOps(found.boardId, [{ op: 'resolve', id: request.note }], author);
       case 'delete': return deleteOwnBoard(found.boardId, caller.id);

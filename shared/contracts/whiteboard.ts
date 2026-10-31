@@ -166,7 +166,7 @@ export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
   z.object({ sub: z.literal('list') }).strict(),
   z.object({ sub: z.literal('connect'), board: BoardRef }).strict(),
   z.object({ sub: z.literal('disconnect'), board: BoardRef }).strict(),
-  z.object({ sub: z.literal('get'), board: BoardRef }).strict(),
+  z.object({ sub: z.literal('get'), board: BoardRef, peek: z.boolean().optional() }).strict(),
   z.object({
     sub: z.literal('put'),
     board: BoardRef,
