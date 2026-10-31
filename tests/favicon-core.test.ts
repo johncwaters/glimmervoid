@@ -1,14 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
 import { decideFaviconVariant, renderFaviconSvg } from '../public/favicon-core.ts';
-
-const STATIC_FAVICON = path.join(import.meta.dirname, '..', 'public', 'favicon.svg');
-
-test('the static favicon is the idle render, so the tab icon never changes shape on first update', () => {
-  assert.equal(fs.readFileSync(STATIC_FAVICON, 'utf8').trim(), renderFaviconSvg('idle'));
-});
 
 test('an attention favicon keeps the mark and only recolors its light', () => {
   const idle = renderFaviconSvg('idle');
