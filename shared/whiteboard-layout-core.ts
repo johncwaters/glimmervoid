@@ -1,4 +1,6 @@
-import type { Board, Box, Element, Note, Unit, Wire } from './contracts/whiteboard.ts';
+import type { Board, Box, Element, Note, Panel, Unit, Wire } from './contracts/whiteboard.ts';
+
+type BoxLine = Box['lines'][number];
 import { planSteps } from './whiteboard-plan-core.ts';
 import { cappedWarnings, labelWidthOf, pathOf, rectsOverlap, routeWires, unionOf, withoutBends } from './whiteboard-route-core.ts';
 import type { Point } from './whiteboard-route-core.ts';
@@ -12,6 +14,8 @@ const BOX_PADDING = 12;
 const TITLE_LINE_HEIGHT = 20;
 const BODY_LINE_HEIGHT = 18;
 const OUTPUT_ROW_HEIGHT = 28;
+const MAX_KEY_INDENT_CHARS = 12;
+const ITEM_INDENT_CHARS = 2;
 const TITLE_CHARS_PER_LINE = 20;
 const BODY_CHARS_PER_LINE = 26;
 const LANE_PILL_HEIGHT = 20;
@@ -61,7 +65,7 @@ interface LaidOutBox extends Rect {
   kind: 'box';
   id: string;
   titleLines: string[];
-  bodyLines: { text: string; muted: boolean }[];
+  bodyLines: LaidOutLine[];
   lane: LaidOutLane | null;
   showsLanePill: boolean;
   isGhost: boolean;
@@ -112,11 +116,36 @@ interface LaidOutUnit extends Rect {
   id: string;
   label: string;
   titleLines: string[];
-  bodyLines: string[];
+  bodyLines: LaidOutLine[];
   linkedBoardId: string | null;
 }
 
-type LaidOutElement = LaidOutBox | LaidOutFrame | LaidOutWire | LaidOutNote | LaidOutUnit;
+interface LaidOutLine {
+  text: string;
+  muted: boolean;
+  style: BoxLine['style'];
+  marker: string | null;
+  indentChars: number;
+  isFirstRow: boolean;
+}
+
+interface LaidOutPanel extends Rect {
+  kind: 'panel';
+  id: string;
+  titleLines: string[];
+  bodyLines: LaidOutLine[];
+}
+
+type LegendSwatch = { kind: 'lane'; hex: string } | { kind: 'wire'; tone: Wire['tone']; isDashed: boolean; isBack: boolean };
+
+interface LegendRow {
+  label: string;
+  x: number;
+  y: number;
+  swatch: LegendSwatch;
+}
+
+type LaidOutElement = LaidOutBox | LaidOutFrame | LaidOutWire | LaidOutNote | LaidOutUnit | LaidOutPanel;
 
 interface PlanBand {
   titleAt: { x: number; y: number };
@@ -151,7 +180,7 @@ interface BoardLayout {
   columns: LaidOutColumn[];
   bands: LaidOutBand[];
   elements: LaidOutElement[];
-  legend: { label: string; hex: string; x: number; y: number }[];
+  legend: LegendRow[];
   caption: { text: string; x: number; y: number } | null;
   plan: PlanBand | null;
   pinnedOffsetY: number;
@@ -179,6 +208,28 @@ function wrapText(text: string, charsPerLine: number): string[] {
   return lines.length > 0 ? lines : [''];
 }
 
+function rowsOfLine(line: BoxLine, numberInRun: number): LaidOutLine[] {
+  const mutedIndentChars = line.muted ? 2 : 0;
+  const marker = line.style === 'numbered' ? `${numberInRun}.` : line.style === 'kv' ? line.key : null;
+  const rowOf = (text: string, index: number, indentChars: number, rowMarker: string | null): LaidOutLine => ({
+    text, muted: line.muted, style: line.style, marker: index === 0 ? rowMarker : null, indentChars, isFirstRow: index === 0,
+  });
+  if (marker && marker.length + 1 > MAX_KEY_INDENT_CHARS) {
+    const valueRows = wrapText(line.text, BODY_CHARS_PER_LINE - mutedIndentChars - ITEM_INDENT_CHARS).map((text) => rowOf(text, 1, ITEM_INDENT_CHARS, null));
+    return [rowOf('', 0, 0, marker), ...valueRows];
+  }
+  const indentChars = line.style === 'item' ? ITEM_INDENT_CHARS : marker ? marker.length + 1 : 0;
+  return wrapText(line.text, BODY_CHARS_PER_LINE - mutedIndentChars - indentChars - (line.style === 'code' ? 1 : 0)).map((text, index) => rowOf(text, index, indentChars, marker));
+}
+
+function laidOutLines(lines: readonly BoxLine[]): LaidOutLine[] {
+  let numberInRun = 0;
+  return lines.flatMap((line) => {
+    numberInRun = line.style === 'numbered' ? numberInRun + 1 : 0;
+    return rowsOfLine(line, numberInRun);
+  });
+}
+
 function laneOf(board: Board, box: Box): LaidOutLane | null {
   const lane = board.lanes.find((candidate) => candidate.id === box.lane);
   if (!lane) return null;
@@ -191,7 +242,7 @@ function isGridBox(box: Box): box is Box & { column: string } {
 
 function boxShape(board: Board, box: Box) {
   const titleLines = wrapText(box.title, TITLE_CHARS_PER_LINE);
-  const bodyLines = box.lines.flatMap((line) => wrapText(line.text, BODY_CHARS_PER_LINE - (line.muted ? 2 : 0)).map((text) => ({ text, muted: line.muted })));
+  const bodyLines = laidOutLines(box.lines);
   const lane = laneOf(board, box);
   const showsLanePill = lane !== null && !isGridBox(box);
   const headerHeight = BOX_PADDING * 2 + titleLines.length * TITLE_LINE_HEIGHT + bodyLines.length * BODY_LINE_HEIGHT + (showsLanePill ? LANE_PILL_HEIGHT + 6 : 0);
@@ -381,6 +432,21 @@ function placeNearBoxes(board: Board, boxesTop: number, boxesById: Map<string, L
   for (const box of nearBoxes) place(box, new Set());
 }
 
+function layoutPanels(board: Board, besidePanels: readonly Rect[], columnLeftEdges: readonly number[], boxesTop: number): LaidOutPanel[] {
+  const columnsRight = (columnLeftEdges.at(-1) ?? MARGIN) + COLUMN_WIDTH;
+  const x = Math.max(columnsRight, ...besidePanels.map((rect) => rect.x + rect.width)) + COLUMN_GAP;
+  const panels = elementsOfKind(board, 'panel').sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
+  let nextY = boxesTop;
+  return panels.map((panel: Panel): LaidOutPanel => {
+    const titleLines = wrapText(panel.title, TITLE_CHARS_PER_LINE);
+    const bodyLines = laidOutLines(panel.lines);
+    const height = BOX_PADDING * 2 + titleLines.length * TITLE_LINE_HEIGHT + bodyLines.length * BODY_LINE_HEIGHT;
+    const laidOut: LaidOutPanel = { kind: 'panel', id: panel.id, x: Math.round(x), y: nextY, width: COLUMN_WIDTH, height, titleLines, bodyLines };
+    nextY += height + BOX_GAP;
+    return laidOut;
+  });
+}
+
 function layoutBoxes(board: Board, columnLeftEdges: readonly number[], boxesTop: number, stackHeightByBoxId: ReadonlyMap<string, number>): PlacedBoxes {
   const boxesById = new Map<string, LaidOutBox>();
   const warnings: string[] = [];
@@ -442,6 +508,7 @@ interface PlacedBoard {
   placementWarnings: string[];
   frames: LaidOutFrame[];
   notes: LaidOutNote[];
+  panels: LaidOutPanel[];
   routing: ReturnType<typeof routeWires>;
   tracksByGap: number[];
   labelWidthByGap: number[];
@@ -467,9 +534,10 @@ function labelWidthByGapOf(routing: ReturnType<typeof routeWires>, columnLeftEdg
   return gapSpansOf(columnLeftEdges).map((span) => Math.max(0, ...routing.wires.flatMap((wire) => (wire.label && wire.labelAt.x > span.left && wire.labelAt.x < span.right ? [labelWidthOf(wire.label)] : []))));
 }
 
-function overlapWarnings(boxesById: ReadonlyMap<string, LaidOutBox>, frames: readonly LaidOutFrame[], board: Board): string[] {
+function overlapWarnings(boxesById: ReadonlyMap<string, LaidOutBox>, panels: readonly LaidOutPanel[], frames: readonly LaidOutFrame[], board: Board): string[] {
   const boxes = [...boxesById.values()];
-  const boxOverlaps = boxes.flatMap((first, index) => boxes.slice(index + 1).flatMap((second) => (rectsOverlap(first, second) ? [`box ${first.id} overlaps box ${second.id}`] : [])));
+  const solids: (LaidOutBox | LaidOutPanel)[] = [...boxes, ...panels];
+  const boxOverlaps = solids.flatMap((first, index) => solids.slice(index + 1).flatMap((second) => (rectsOverlap(first, second) ? [`${first.kind} ${first.id} overlaps ${second.kind} ${second.id}`] : [])));
   const containedIdsByFrameId = new Map(elementsOfKind(board, 'frame').map((frame) => [frame.id, new Set(frame.contains)]));
   const coveredTitles = frames.flatMap((frame) => boxes.flatMap((box) => {
     const titleStrip = { x: frame.x, y: frame.y, width: frame.width, height: FRAME_TITLE_HEIGHT };
@@ -483,15 +551,16 @@ function placeAndRoute(board: Board, placement: Placement): PlacedBoard {
   const { boxesById, bands, warnings: nearWarnings } = layoutBoxes(board, columnLeftEdges, placement.boxesTop, placement.stackHeightByBoxId);
   const frames = layoutFrames(board, boxesById);
   const notes = layoutNotes(board, boxesById);
+  const panels = layoutPanels(board, [...boxesById.values(), ...notes], columnLeftEdges, placement.boxesTop);
   const routing = routeWires({
-    wires: elementsOfKind(board, 'wire'), boxesById,
+    wires: elementsOfKind(board, 'wire'), boxesById, panels,
     softObstacles: [...notes, ...frames.map((frame) => ({ x: frame.x, y: frame.y, width: frame.width, height: FRAME_TITLE_HEIGHT }))],
     loopFrames: frames.filter((frame) => frame.isLoop),
     contentTop: placement.contentTop,
   });
   return {
-    columnLeftEdges, boxesById, bands, frames, notes, routing,
-    placementWarnings: [...nearWarnings, ...overlapWarnings(boxesById, frames, board)],
+    columnLeftEdges, boxesById, bands, frames, notes, panels, routing,
+    placementWarnings: [...nearWarnings, ...overlapWarnings(boxesById, panels, frames, board)],
     tracksByGap: tracksByGapOf(routing, columnLeftEdges),
     labelWidthByGap: labelWidthByGapOf(routing, columnLeftEdges),
   };
@@ -524,7 +593,7 @@ function placeWithReservedRoom(board: Board, room: RoomInputs): PlacedBoard {
 
 function unitShape(unit: Unit) {
   const titleLines = wrapText(unit.title, TITLE_CHARS_PER_LINE);
-  const bodyLines = unit.lines.flatMap((line) => wrapText(line.text, BODY_CHARS_PER_LINE));
+  const bodyLines = laidOutLines(unit.lines);
   const linkLineCount = unit.linkedBoardId ? 1 : 0;
   const height = BOX_PADDING * 2 + UNIT_LABEL_HEIGHT + titleLines.length * TITLE_LINE_HEIGHT + (bodyLines.length + linkLineCount) * BODY_LINE_HEIGHT;
   return { titleLines, bodyLines, height };
@@ -579,6 +648,35 @@ function withPinnedBoxesShifted(board: Board, offsetY: number): Board {
   return { ...board, elements };
 }
 
+const WIRE_STYLE_WORDS: Readonly<Record<Wire['tone'], string | null>> = { plain: null, fail: 'failure path', join: 'joins', lane: null };
+
+function wireStyleKey(tone: Wire['tone'], isDashed: boolean, isBack: boolean): string {
+  return `${tone}|${isDashed}|${isBack}`;
+}
+
+function defaultWireStyleLabel(tone: Wire['tone'], isDashed: boolean, isBack: boolean): string | null {
+  const words = [WIRE_STYLE_WORDS[tone], isBack ? 'returns to an earlier step' : null, isDashed && !isBack ? 'optional' : null].filter((word) => word !== null);
+  return words.length > 0 ? words.join(', ') : null;
+}
+
+function legendEntriesOf(board: Board): { label: string; swatch: LegendSwatch }[] {
+  const laneEntries = board.lanes.map((lane) => ({ label: lane.label || lane.id, swatch: { kind: 'lane' as const, hex: LANE_HEX_BY_COLOR[lane.color] } }));
+  const customLabelByKey = new Map(board.legend.map((entry) => [wireStyleKey(entry.tone, entry.dashed || entry.back, entry.back), entry.label]));
+  const usedKeys = new Set<string>();
+  const wireEntries = elementsOfKind(board, 'wire').flatMap((wire) => {
+    const isDashed = wire.dashed || wire.back;
+    const key = wireStyleKey(wire.tone, isDashed, wire.back);
+    const label = customLabelByKey.get(key) ?? defaultWireStyleLabel(wire.tone, isDashed, wire.back);
+    if (usedKeys.has(key) || label === null) return [];
+    usedKeys.add(key);
+    return [{ key, label, swatch: { kind: 'wire' as const, tone: wire.tone, isDashed, isBack: wire.back } }];
+  }).sort((left, right) => left.key.localeCompare(right.key));
+  const unusedCustomEntries = board.legend
+    .filter((entry) => !usedKeys.has(wireStyleKey(entry.tone, entry.dashed || entry.back, entry.back)))
+    .map((entry) => ({ label: entry.label, swatch: { kind: 'wire' as const, tone: entry.tone, isDashed: entry.dashed || entry.back, isBack: entry.back } }));
+  return [...laneEntries, ...wireEntries.map(({ label, swatch }) => ({ label, swatch })), ...unusedCustomEntries];
+}
+
 function layoutBoard(storedBoard: Board): BoardLayout {
   const unitsById = layoutUnits(storedBoard);
   const freeformTop = planBandBottom(unitsById);
@@ -597,13 +695,12 @@ function layoutBoard(storedBoard: Board): BoardLayout {
     ...placed.routing.wires,
     ...placed.boxesById.values(),
     ...placed.notes,
+    ...placed.panels,
     ...unitsById.values(),
   ];
   const contentBounds = boundsOf(elements, placed.routing.extent, columnLeftEdges, boxesTop);
   const legendTop = contentBounds.y + contentBounds.height;
-  const legend = board.lanes.map((lane, index) => ({
-    label: lane.label || lane.id, hex: LANE_HEX_BY_COLOR[lane.color], x: MARGIN, y: legendTop + index * LEGEND_ROW_HEIGHT,
-  }));
+  const legend = legendEntriesOf(board).map((entry, index): LegendRow => ({ ...entry, x: MARGIN, y: legendTop + index * LEGEND_ROW_HEIGHT }));
   const captionTop = legendTop + legend.length * LEGEND_ROW_HEIGHT + (legend.length > 0 ? 12 : 0);
   const caption = board.caption ? { text: board.caption, x: MARGIN, y: captionTop } : null;
   const extraHeight = legend.length * LEGEND_ROW_HEIGHT + (caption ? 30 : 0) + (legend.length > 0 ? 12 : 0);
@@ -628,4 +725,4 @@ function elementSignature(element: LaidOutElement): string {
 }
 
 export { elementSignature, layoutBoard };
-export type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutFrame, LaidOutNote, LaidOutUnit, LaidOutWire, Rect };
+export type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutPanel, LaidOutUnit, LaidOutWire, Rect };

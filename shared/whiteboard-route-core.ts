@@ -1,6 +1,6 @@
 import { WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Wire } from './contracts/whiteboard.ts';
-import type { LaidOutBox, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
+import type { LaidOutBox, LaidOutPanel, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
 
 type Side = 'left' | 'right' | 'top' | 'bottom';
 
@@ -44,6 +44,7 @@ const REVERSE_DIRECTION = [1, 0, 3, 2];
 interface RouteInput {
   wires: readonly Wire[];
   boxesById: ReadonlyMap<string, LaidOutBox>;
+  panels: readonly LaidOutPanel[];
   softObstacles: readonly Rect[];
   loopFrames: readonly Rect[];
   contentTop: number;
@@ -581,7 +582,7 @@ function backInteriorOf(plan: WirePlan, loopFrames: readonly Rect[]): Rect | nul
 }
 
 function routeAll(plans: readonly WirePlan[], input: RouteInput, budget: SearchBudget): DrawnWire[] {
-  const hardRects = [...input.boxesById.values()];
+  const hardRects = [...input.boxesById.values(), ...input.panels];
   const grid = buildGrid(plans, hardRects, input.softObstacles, input.contentTop);
   const buffers = grid ? createSearchBuffers(grid) : null;
   const usage: RouteUsage = { usageByEdge: new Map(), usageByNodeAndAxis: new Map() };
@@ -692,11 +693,11 @@ function findCrossings(drawn: readonly DrawnWire[]): string[] {
 }
 
 function findBoxCrossings(drawn: readonly DrawnWire[], input: RouteInput): string[] {
-  const boxes = [...input.boxesById.values()];
-  return drawn.flatMap((wire) => boxes.flatMap((box) => {
-    if (box.id === wire.plan.from.id || box.id === wire.plan.to.id) return [];
-    const inset = inflated(box, -2);
-    return wire.segments.some((segment) => segmentHitsRect(segment, inset)) ? [`wire ${wire.plan.wire.id} runs through box ${box.id}`] : [];
+  const solids: (LaidOutBox | LaidOutPanel)[] = [...input.boxesById.values(), ...input.panels];
+  return drawn.flatMap((wire) => solids.flatMap((solid) => {
+    if (solid.id === wire.plan.from.id || solid.id === wire.plan.to.id) return [];
+    const inset = inflated(solid, -2);
+    return wire.segments.some((segment) => segmentHitsRect(segment, inset)) ? [`wire ${wire.plan.wire.id} runs through ${solid.kind} ${solid.id}`] : [];
   }));
 }
 

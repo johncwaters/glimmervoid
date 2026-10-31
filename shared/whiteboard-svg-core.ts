@@ -1,5 +1,5 @@
 import { escapeMarkup } from './escape-markup.ts';
-import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutFrame, LaidOutNote, LaidOutUnit, LaidOutWire } from './whiteboard-layout-core.ts';
+import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutPanel, LaidOutUnit, LaidOutWire } from './whiteboard-layout-core.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const BOX_TEXT_INSET = 12;
@@ -20,6 +20,11 @@ const LOOP_BADGE_INSET = 20;
 const DECISION_POINT_INSET = 12;
 const OUTPUT_LABEL_BASELINE_OFFSET = 4;
 const OUTPUT_DOT_RADIUS = 3;
+const MONO_CHAR_WIDTH = 7.2;
+const CODE_BAND_RISE = 13;
+const CODE_BAND_HEIGHT = 17;
+const ITEM_DOT_RADIUS = 2.2;
+const LEGEND_SAMPLE_WIDTH = 28;
 
 const STANDALONE_STYLE = `
 svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospace; }
@@ -34,6 +39,13 @@ svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospac
 .wb-box-title { fill: #e6e0f5; font-size: 16px; font-weight: 700; }
 .wb-box-line { fill: #e6e0f5; font-size: 12px; }
 .wb-box-line.wb-muted { fill: #a79fc4; }
+.wb-line-code { fill: #c4b5fd; }
+.wb-code-band { fill: #221d3a; }
+.wb-line-marker { fill: #a79fc4; font-size: 12px; }
+.wb-line-key { fill: #a79fc4; font-size: 12px; font-weight: 700; }
+.wb-item-dot { fill: #a79fc4; }
+.wb-panel-outline { fill: #110f20; stroke: #4a4268; stroke-width: 1.4; }
+.wb-panel-rule { stroke: #4a4268; stroke-width: 1; }
 .wb-output-divider { stroke: #4a4268; stroke-width: 1; }
 .wb-output-label { fill: #e6e0f5; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 .wb-output-dot { fill: #a79fc4; }
@@ -105,6 +117,36 @@ function outputRowsMarkup(box: LaidOutBox): string[] {
   });
 }
 
+function lineClassOf(line: LaidOutLine): string {
+  if (line.style === 'code') return 'wb-box-line wb-line-code';
+  return line.muted ? 'wb-box-line wb-muted' : 'wb-box-line';
+}
+
+function lineRowMarkup(line: LaidOutLine, left: number, width: number, baseline: number): string[] {
+  const rowLeft = left + BOX_TEXT_INSET + (line.muted ? MUTED_INDENT : 0);
+  const parts: string[] = [];
+  if (line.style === 'code') parts.push(tag('rect', { x: rowLeft - 4, y: baseline - CODE_BAND_RISE, width: left + width - BOX_TEXT_INSET + 4 - rowLeft + 4, height: CODE_BAND_HEIGHT, rx: 3, class: 'wb-code-band' }));
+  if (line.style === 'item' && line.isFirstRow) parts.push(tag('circle', { cx: rowLeft + 4, cy: baseline - 4, r: ITEM_DOT_RADIUS, class: 'wb-item-dot' }));
+  if (line.marker !== null) parts.push(text(line.marker, rowLeft, baseline, line.style === 'kv' ? 'wb-line-key' : 'wb-line-marker'));
+  if (line.text) parts.push(text(line.text, rowLeft + line.indentChars * MONO_CHAR_WIDTH, baseline, lineClassOf(line)));
+  return parts;
+}
+
+function bodyLinesMarkup(lines: readonly LaidOutLine[], left: number, width: number, top: number): string[] {
+  return lines.flatMap((line, index) => lineRowMarkup(line, left, width, top + index * BODY_LINE_HEIGHT));
+}
+
+function panelMarkup(panel: LaidOutPanel): string {
+  const parts = [tag('rect', { x: panel.x, y: panel.y, width: panel.width, height: panel.height, rx: 6, class: 'wb-panel-outline' })];
+  panel.titleLines.forEach((line, index) => {
+    parts.push(text(line, panel.x + BOX_TEXT_INSET, panel.y + TITLE_BASELINE + index * TITLE_LINE_HEIGHT, 'wb-box-title'));
+  });
+  const bodyTop = panel.y + TITLE_BASELINE + panel.titleLines.length * TITLE_LINE_HEIGHT;
+  if (panel.bodyLines.length > 0) parts.push(tag('line', { x1: panel.x + BOX_TEXT_INSET, y1: bodyTop - 12, x2: panel.x + panel.width - BOX_TEXT_INSET, y2: bodyTop - 12, class: 'wb-panel-rule' }));
+  parts.push(...bodyLinesMarkup(panel.bodyLines, panel.x, panel.width, bodyTop));
+  return elementGroup(panel, 'wb-panel', parts);
+}
+
 function boxOutlineMarkup(box: LaidOutBox): string {
   if (box.shape === 'decision') return tag('path', { d: decisionOutlinePath(box), class: 'wb-box-outline', style: laneStroke(box.lane?.hex) });
   return tag('rect', { x: box.x, y: box.y, width: box.width, height: box.height, rx: 8, class: 'wb-box-outline', style: laneStroke(box.lane?.hex) });
@@ -121,10 +163,7 @@ function boxMarkup(box: LaidOutBox): string {
     parts.push(text(line, box.x + BOX_TEXT_INSET, box.y + TITLE_BASELINE + index * TITLE_LINE_HEIGHT, 'wb-box-title'));
   });
   const bodyTop = box.y + TITLE_BASELINE + box.titleLines.length * TITLE_LINE_HEIGHT;
-  box.bodyLines.forEach((line, index) => {
-    const x = box.x + BOX_TEXT_INSET + (line.muted ? MUTED_INDENT : 0);
-    parts.push(text(line.text, x, bodyTop + index * BODY_LINE_HEIGHT, line.muted ? 'wb-box-line wb-muted' : 'wb-box-line'));
-  });
+  parts.push(...bodyLinesMarkup(box.bodyLines, box.x, box.width, bodyTop));
   if (box.lane && box.showsLanePill) {
     const pillY = box.y + box.headerHeight - 28;
     const pillWidth = Math.min(box.width - BOX_TEXT_INSET * 2, 16 + box.lane.label.length * 8);
@@ -182,9 +221,7 @@ function unitMarkup(unit: LaidOutUnit): string {
     parts.push(text(line, unit.x + BOX_TEXT_INSET, titleTop + index * TITLE_LINE_HEIGHT, 'wb-box-title'));
   });
   const bodyTop = titleTop + unit.titleLines.length * TITLE_LINE_HEIGHT;
-  unit.bodyLines.forEach((line, index) => {
-    parts.push(text(line, unit.x + BOX_TEXT_INSET, bodyTop + index * BODY_LINE_HEIGHT, 'wb-box-line'));
-  });
+  parts.push(...bodyLinesMarkup(unit.bodyLines, unit.x, unit.width, bodyTop));
   if (unit.linkedBoardId) {
     parts.push(text(LINKED_BOARD_TEXT, unit.x + BOX_TEXT_INSET, bodyTop + unit.bodyLines.length * BODY_LINE_HEIGHT, 'wb-unit-link', { 'data-linked-board-id': unit.linkedBoardId }));
   }
@@ -198,6 +235,7 @@ function elementMarkup(element: LaidOutElement): string {
     case 'wire': return wireMarkup(element);
     case 'note': return noteMarkup(element);
     case 'unit': return unitMarkup(element);
+    case 'panel': return panelMarkup(element);
   }
 }
 
@@ -218,14 +256,21 @@ function chromeMarkup(layout: BoardLayout): string {
     });
     parts.push(tag('line', { x1: column.x, y1: column.ruleY, x2: column.x + column.width, y2: column.ruleY, class: 'wb-column-rule' }));
   }
-  for (const entry of layout.legend) {
-    parts.push(
-      tag('rect', { x: entry.x, y: entry.y, width: 14, height: 14, rx: 3, class: 'wb-legend-swatch', style: `fill:${entry.hex}` }),
-      text(entry.label, entry.x + 22, entry.y + 12, 'wb-legend-text'),
-    );
-  }
+  for (const entry of layout.legend) parts.push(legendRowMarkup(entry));
   if (layout.caption) parts.push(text(layout.caption.text, layout.caption.x, layout.caption.y + 16, 'wb-caption'));
   return tag('g', { class: 'wb-chrome' }, parts.join(''));
+}
+
+function legendSwatchMarkup(entry: BoardLayout['legend'][number]): string {
+  const { swatch } = entry;
+  if (swatch.kind === 'lane') return tag('rect', { x: entry.x, y: entry.y, width: 14, height: 14, rx: 3, class: 'wb-legend-swatch', style: `fill:${swatch.hex}` });
+  const sample = tag('path', { d: `M${entry.x},${entry.y + 7} H${entry.x + LEGEND_SAMPLE_WIDTH}`, 'marker-end': 'url(#wb-arrow)', class: swatch.isDashed ? 'wb-wire-line wb-dashed' : 'wb-wire-line' });
+  return tag('g', { class: swatch.isBack ? `wb-back wb-tone-${swatch.tone}` : `wb-tone-${swatch.tone}` }, sample);
+}
+
+function legendRowMarkup(entry: BoardLayout['legend'][number]): string {
+  const labelX = entry.x + (entry.swatch.kind === 'lane' ? 22 : LEGEND_SAMPLE_WIDTH + 12);
+  return legendSwatchMarkup(entry) + text(entry.label, labelX, entry.y + 12, 'wb-legend-text');
 }
 
 function arrowDefinitionsMarkup(): string {
@@ -233,7 +278,7 @@ function arrowDefinitionsMarkup(): string {
   return tag('defs', {}, tag('marker', { id: 'wb-arrow', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 8, markerHeight: 8, orient: 'auto-start-reverse' }, arrowhead));
 }
 
-const LAYER_ORDER: readonly LaidOutElement['kind'][] = ['frame', 'wire', 'box', 'note', 'unit'];
+const LAYER_ORDER: readonly LaidOutElement['kind'][] = ['frame', 'wire', 'box', 'panel', 'note', 'unit'];
 
 function boardSvgDocument(layout: BoardLayout): string {
   const { x, y, width, height } = layout.bounds;

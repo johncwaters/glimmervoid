@@ -255,3 +255,33 @@ test('a decision draws its outputs as rows in order and each output wire leaves 
   const plainWithOutputs = applyOps(decisionBoard, [{ op: 'set', id: 'stop', fields: { outputs: [{ id: 'x', label: 'x' }] } }], author, 0);
   assert.equal(plainWithOutputs.ok ? '' : plainWithOutputs.error, 'op 1: box stop has outputs, which only a decision has, so set shape to decision');
 });
+
+test('styled lines carry their markers, a panel sits clear right of every box, and the legend names the wire styles in use with custom labels winning', () => {
+  const styledBoard = Board.parse({
+    id: 'styled', title: 'styled', version: 1, caption: null, createdAt: 0, updatedAt: 0, lanes: [],
+    columns: [{ id: 'a', title: 'A' }, { id: 'b', title: 'B' }],
+    legend: [{ tone: 'fail', label: 'gives up' }, { tone: 'plain', back: true, label: 'retry' }, { tone: 'join', label: 'merges back' }],
+    elements: {
+      first: { kind: 'box', id: 'first', title: 'First', column: 'a', lines: [
+        { text: 'parse', style: 'numbered' }, { text: 'store', style: 'numbered' }, { text: 'a break' }, { text: 'again', style: 'numbered' },
+        { text: '30s', style: 'kv', key: 'timeout' }, { text: 'npm test', style: 'code' }, { text: 'one point', style: 'item' },
+      ] },
+      second: { kind: 'box', id: 'second', title: 'Second', column: 'b', at: { x: 700, y: 200 } },
+      aside: { kind: 'note', id: 'aside', on: 'second', text: 'a note that reaches right past the box edge' },
+      prior: { kind: 'panel', id: 'prior', title: 'Prior art', lines: [{ text: 'the old router', style: 'item' }] },
+      w1: { kind: 'wire', id: 'w1', from: 'first', to: 'second', tone: 'fail' },
+      w2: { kind: 'wire', id: 'w2', from: 'second', to: 'first', back: true },
+    },
+  });
+  assert.throws(() => Board.parse({ ...styledBoard, elements: { ...styledBoard.elements, first: { ...styledBoard.elements.first, lines: [{ text: 'x', style: 'kv' }] } } }), /a kv line needs a key/);
+  const layout = layoutBoard(styledBoard);
+  const first = layout.elements.find((element) => element.id === 'first');
+  assert.ok(first?.kind === 'box');
+  assert.deepEqual(first.bodyLines.map((line) => line.marker), ['1.', '2.', null, '1.', 'timeout', null, null]);
+  const panel = layout.elements.find((element) => element.id === 'prior');
+  assert.ok(panel?.kind === 'panel');
+  const besidePanel = layout.elements.filter((element) => element.kind === 'box' || element.kind === 'note');
+  assert.ok(besidePanel.every((element) => panel.x > element.x + element.width), `panel at ${panel.x} overlaps a box or note`);
+  assert.deepEqual(layout.legend.map((row) => row.label), ['gives up', 'retry', 'merges back']);
+  assert.equal(layout.warnings.filter((warning) => warning.includes('panel')).length, 0, layout.warnings.join('\n'));
+});

@@ -1,4 +1,4 @@
-import { Box, Frame, Note, Unit, Wire, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
+import { Box, Frame, Note, Panel, Unit, Wire, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Board, BoardChange, Element, Op } from './contracts/whiteboard.ts';
 import { layoutBoard } from './whiteboard-layout-core.ts';
 import { findDependencyCycle, unitsOf } from './whiteboard-plan-core.ts';
@@ -7,7 +7,7 @@ type Author = { id: string; name: string };
 type ApplyResult = { ok: true; board: Board; changes: BoardChange[] } | { ok: false; error: string; opIndex: number };
 type OpOutcome = { ok: true } | { ok: false; error: string };
 
-const ELEMENT_SCHEMAS = Object.freeze({ box: Box, frame: Frame, wire: Wire, note: Note, unit: Unit });
+const ELEMENT_SCHEMAS = Object.freeze({ box: Box, frame: Frame, wire: Wire, note: Note, unit: Unit, panel: Panel });
 const NOTE_PREVIEW_CHARS = 80;
 const OK: OpOutcome = { ok: true };
 
@@ -210,6 +210,7 @@ function applyOne(board: Board, op: Op, author: Author): OpOutcome {
     case 'board':
       if (op.title !== undefined) board.title = op.title;
       if (op.caption !== undefined) board.caption = op.caption;
+      if (op.legend !== undefined) board.legend = op.legend;
       return OK;
   }
 }
@@ -240,7 +241,7 @@ function changedElementId(op: Op): string | null {
 
 function nameOf(board: Board, id: string, element: Element | undefined = board.elements[id]): string {
   if (!element) return id;
-  if (element.kind === 'box' || element.kind === 'frame' || element.kind === 'unit') return `"${element.title || id}"`;
+  if (element.kind === 'box' || element.kind === 'frame' || element.kind === 'unit' || element.kind === 'panel') return `"${element.title || id}"`;
   if (element.kind === 'wire') return `wire ${nameOf(board, element.from)} to ${nameOf(board, element.to)}`;
   return `note ${id}`;
 }
@@ -262,6 +263,12 @@ function describeSet(op: Extract<Op, { op: 'set' }>, previous: Element | undefin
   return `changed ${fieldNames.join(', ')} of ${nameOf(after, op.id)}`;
 }
 
+function describeBoardOp(op: Extract<Op, { op: 'board' }>): string {
+  if (op.title !== undefined) return `renamed the board to "${op.title}"`;
+  if (op.caption !== undefined) return 'changed the caption';
+  return 'set the legend';
+}
+
 function describeOp(op: Op, previous: Element | undefined, after: Board): string {
   switch (op.op) {
     case 'add': {
@@ -274,7 +281,7 @@ function describeOp(op: Op, previous: Element | undefined, after: Board): string
     case 'resolve': return previous?.kind === 'note' ? `resolved note ${op.id} on ${nameOf(after, previous.on)}` : `resolved note ${op.id}`;
     case 'columns': return `set the columns to ${op.columns.map((column) => column.title || column.id).join(', ') || 'none'}`;
     case 'lanes': return `set the lanes to ${op.lanes.map((lane) => lane.label || lane.id).join(', ') || 'none'}`;
-    case 'board': return op.title === undefined ? 'changed the caption' : `renamed the board to "${op.title}"`;
+    case 'board': return describeBoardOp(op);
   }
 }
 
@@ -283,6 +290,7 @@ function createBoard({ id, title, nowMs }: { id: string; title: string; nowMs: n
     id, title, version: 0, caption: null,
     columns: [{ id: 'main', title: '' }],
     lanes: [],
+    legend: [],
     elements: {},
     createdAt: nowMs,
     updatedAt: nowMs,

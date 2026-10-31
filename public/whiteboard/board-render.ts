@@ -37,8 +37,8 @@ function nodeFromMarkup(trustedMarkup: string): SVGGElement {
   return node;
 }
 
-const LAYER_BY_KIND: Record<LaidOutElement['kind'], LayerName> = { frame: 'frames', wire: 'wires', box: 'boxes', note: 'notes', unit: 'units' };
-const ELEMENT_KINDS = ['box', 'frame', 'wire', 'note', 'unit'] as const;
+const LAYER_BY_KIND: Record<LaidOutElement['kind'], LayerName> = { frame: 'frames', wire: 'wires', box: 'boxes', panel: 'boxes', note: 'notes', unit: 'units' };
+const ELEMENT_KINDS = ['box', 'frame', 'wire', 'note', 'unit', 'panel'] as const;
 
 export function createBoardRenderer(svg: SVGSVGElement): BoardRenderer {
   const layers: Record<LayerName, SVGGElement> = {

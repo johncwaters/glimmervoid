@@ -229,6 +229,36 @@
 
 .wb-box-line.wb-muted { fill: var(--wb-ink-dim); }
 
+.wb-line-code { fill: #c4b5fd; }
+
+.wb-code-band { fill: #221d3a; }
+
+.wb-line-marker {
+  fill: var(--wb-ink-dim);
+  font-size: var(--type-meta);
+}
+
+.wb-line-key {
+  fill: var(--wb-ink-dim);
+  font-size: var(--type-meta);
+  font-weight: 700;
+}
+
+.wb-item-dot { fill: var(--wb-ink-dim); }
+
+.wb-panel { cursor: pointer; }
+
+.wb-panel-outline {
+  fill: #110f20;
+  stroke: var(--wb-line);
+  stroke-width: 1.4;
+}
+
+.wb-panel-rule {
+  stroke: var(--wb-line);
+  stroke-width: 1;
+}
+
 .wb-output-divider {
   stroke: var(--wb-line);
   stroke-width: 1;
@@ -362,7 +392,8 @@
 .wb-element.is-selected .wb-box-outline,
 .wb-element.is-selected .wb-frame-outline,
 .wb-element.is-selected .wb-note-card,
-.wb-element.is-selected .wb-unit-outline {
+.wb-element.is-selected .wb-unit-outline,
+.wb-element.is-selected .wb-panel-outline {
   stroke: var(--accent);
   stroke-width: 2.4;
 }

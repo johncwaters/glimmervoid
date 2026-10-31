@@ -14,7 +14,9 @@ const Title = z.string().max(WHITEBOARD_LIMITS.title, { error: `a title is at mo
 const BoxLine = z.object({
   text: z.string().max(WHITEBOARD_LIMITS.line, { error: `a box line is at most ${WHITEBOARD_LIMITS.line} characters` }),
   muted: z.boolean().default(false),
-}).strict();
+  style: z.enum(['text', 'code', 'item', 'numbered', 'kv']).default('text'),
+  key: z.string().max(40, { error: 'a line key is at most 40 characters' }).nullable().default(null),
+}).strict().refine((line) => line.style !== 'kv' || Boolean(line.key), { error: 'a kv line needs a key' });
 
 const Point = z.object({ x: z.number(), y: z.number() }).strict();
 
@@ -86,7 +88,22 @@ export const Unit = z.object({
   linkedBoardId: z.string().min(1).max(64).nullable().default(null),
 }).strict();
 
-export const Element = z.discriminatedUnion('kind', [Box, Frame, Wire, Note, Unit], { error: 'an element kind is box, frame, wire, note or unit' });
+export const Panel = z.object({
+  kind: z.literal('panel'),
+  id: ElementId,
+  title: Title.min(1, { error: 'a panel needs a title' }),
+  lines: z.array(BoxLine).max(WHITEBOARD_LIMITS.linesPerBox, { error: `a panel holds at most ${WHITEBOARD_LIMITS.linesPerBox} lines` }).default([]),
+  order: z.number().int().default(0),
+}).strict();
+
+export const Element = z.discriminatedUnion('kind', [Box, Frame, Wire, Note, Unit, Panel], { error: 'an element kind is box, frame, wire, note, unit or panel' });
+
+const LegendEntries = z.array(z.object({
+  tone: Wire.shape.tone,
+  dashed: z.boolean().default(false),
+  back: z.boolean().default(false),
+  label: z.string().min(1, { error: 'a legend entry needs a label' }).max(40, { error: 'a legend label is at most 40 characters' }),
+}).strict()).max(12, { error: 'a legend has at most 12 entries' });
 
 const BoardColumns = z.array(z.object({ id: ElementId, title: z.string().max(60) }).strict())
   .max(WHITEBOARD_LIMITS.columns, { error: `a board has at most ${WHITEBOARD_LIMITS.columns} columns` });
@@ -101,6 +118,7 @@ export const Board = z.object({
   caption: z.string().max(400).nullable(),
   columns: BoardColumns,
   lanes: BoardLanes,
+  legend: LegendEntries.default([]),
   elements: z.record(ElementId, Element)
     .refine((elements) => Object.keys(elements).length <= WHITEBOARD_LIMITS.elements, { error: `a board holds at most ${WHITEBOARD_LIMITS.elements} elements` })
     .refine((elements) => Object.entries(elements).every(([id, element]) => element.id === id), { error: 'every element is stored under its own id' }),
@@ -115,7 +133,7 @@ export const Op = z.discriminatedUnion('op', [
   z.object({ op: z.literal('resolve'), id: ElementId }).strict(),
   z.object({ op: z.literal('columns'), columns: BoardColumns, move: z.record(ElementId, ElementId).default({}) }).strict(),
   z.object({ op: z.literal('lanes'), lanes: BoardLanes }).strict(),
-  z.object({ op: z.literal('board'), title: Title.min(1).optional(), caption: z.string().max(400).nullable().optional() }).strict(),
+  z.object({ op: z.literal('board'), title: Title.min(1).optional(), caption: z.string().max(400).nullable().optional(), legend: LegendEntries.optional() }).strict(),
 ], { error: 'an op is add, set, remove, resolve, columns, lanes or board' });
 
 export const BoardChange = z.object({
@@ -170,6 +188,7 @@ export type Frame = z.infer<typeof Frame>;
 export type Wire = z.infer<typeof Wire>;
 export type Note = z.infer<typeof Note>;
 export type Unit = z.infer<typeof Unit>;
+export type Panel = z.infer<typeof Panel>;
 export type Element = z.infer<typeof Element>;
 export type Board = z.infer<typeof Board>;
 export type Op = z.infer<typeof Op>;

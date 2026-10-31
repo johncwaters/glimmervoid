@@ -144,7 +144,7 @@ test('two writers keep both different fields, the later write of one field wins,
 
   const plannerView = await boardOf(PLANNER_ID, boardId);
   assert.equal(plannerView.board.elements.parse?.title, 'Parse and store');
-  assert.deepEqual(plannerView.board.elements.parse?.lines, [{ text: 'by the builder', muted: false }]);
+  assert.deepEqual(plannerView.board.elements.parse?.lines, [{ text: 'by the builder', muted: false, style: 'text', key: null }]);
   assert.deepEqual(plannerView.changes.map((change) => change.summary), [
     `${BUILDER_ID} changed lines of "Parse feed"; ${BUILDER_ID} renamed "Parse feed" to "Parse and store"`,
   ]);
