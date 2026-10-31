@@ -17,7 +17,7 @@ import type { SessionPrChip } from './session-pr-chips-core.ts';
 const linksBySessionId = new Map<string, readonly LinkedPr[]>();
 
 function slotsFor(sessionId: string): NodeListOf<HTMLElement> {
-  return document.querySelectorAll<HTMLElement>(`[data-pr-chips-for="${CSS.escape(sessionId)}"]`);
+  return document.querySelectorAll<HTMLElement>(`[data-pr-rows-for="${CSS.escape(sessionId)}"]`);
 }
 
 type PrSignal = SessionPrChip & ActivatableSignal;
@@ -36,8 +36,7 @@ export function sessionRowPrSignals(sessionId: string): PrSignal[] {
   }));
 }
 
-function createUnlinkableChip(chip: PrSignal, sessionId: string): HTMLElement {
-  const chipLink = createSignal(chip, chip);
+function createUnlinkButton(chip: PrSignal, sessionId: string): HTMLButtonElement {
   const unlinkButton = el('button', 'session-pr-chip-unlink');
   unlinkButton.append(createLineIcon(CLOSE_ICON_PATH));
   unlinkButton.type = 'button';
@@ -54,20 +53,28 @@ function createUnlinkableChip(chip: PrSignal, sessionId: string): HTMLElement {
       onConfirm: () => { sendForSession(sessionId, { type: 'unlink-session-pr', id: sessionId, key: chip.key }); },
     });
   });
-  const chipItem = el('span', 'session-pr-chip-item');
-  chipItem.append(chipLink, unlinkButton);
-  return chipItem;
+  return unlinkButton;
 }
 
-export function paintSessionPrChips(slot: HTMLElement, sessionId: string): void {
-  slot.dataset.prChipsFor = sessionId;
-  paintSignalLine(slot, sessionRowPrSignals(sessionId), (chip) => createUnlinkableChip(chip, sessionId));
+function createLinkedPrRow(chip: PrSignal, sessionId: string): HTMLElement {
+  const rowLink = createSignal({ ...chip, text: chip.key }, { ...chip, className: 'linked-pr-row-link' });
+  if (chip.prTitle) rowLink.append(el('span', 'linked-pr-row-title', chip.prTitle));
+  if (chip.stateText) rowLink.append(el('span', 'linked-pr-row-stage', chip.stateText));
+  const row = el('li', 'linked-pr-row');
+  row.append(rowLink, createUnlinkButton(chip, sessionId));
+  return row;
+}
+
+export function paintSessionPrRows(list: HTMLElement, sessionId: string): void {
+  list.dataset.prRowsFor = sessionId;
+  const signals = sessionRowPrSignals(sessionId);
+  paintSignalLine(list, signals, (chip) => createLinkedPrRow(chip, sessionId), { visibleCount: signals.length });
 }
 
 function repaintSlots(slots: Iterable<HTMLElement>): void {
   for (const slot of slots) {
-    const sessionId = slot.dataset.prChipsFor;
-    if (sessionId) paintSessionPrChips(slot, sessionId);
+    const sessionId = slot.dataset.prRowsFor;
+    if (sessionId) paintSessionPrRows(slot, sessionId);
   }
 }
 
@@ -85,6 +92,6 @@ export function forgetSessionLinkedPrs(sessionId: string): void {
 }
 
 subscribeGithubPrs(() => {
-  repaintSlots(document.querySelectorAll<HTMLElement>('[data-pr-chips-for]'));
+  repaintSlots(document.querySelectorAll<HTMLElement>('[data-pr-rows-for]'));
   repaintSessionRowSignals();
 });

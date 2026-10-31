@@ -171,7 +171,8 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const btnRestart = buildMenuItem('Restart', 'overflow-restart');
   btnRestart.setAttribute('aria-haspopup', 'dialog');
   const btnWorkspaceRepos = buildMenuItem('Edit repositories', 'overflow-workspace-repos');
-  const btnLinkPr = buildMenuItem('Link pull request', 'overflow-link-pr visible');
+  const btnLinkPr = buildMenuItem('Pull requests', 'overflow-link-pr visible');
+  btnLinkPr.setAttribute('aria-haspopup', 'dialog');
   btnLinkPr.onclick = () => {
     sessionMenu.classList.remove('open');
     btnSessionMenu.setAttribute('aria-expanded', 'false');
@@ -262,8 +263,8 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 }
 
 function openLinkPullRequestDialog(sessionId: string) {
-  const { dialog, close, actions, btnCancel } = buildDialogShell({ title: 'Link pull request' });
-  const hint = el('p', 'dialog-message', 'Paste a GitHub pull request URL or owner/repo#number.');
+  const { dialog, close, actions, btnCancel } = buildDialogShell({ title: 'Pull requests' });
+  const hint = el('p', 'dialog-message', 'Link one by pasting a GitHub pull request URL or owner/repo#number.');
   const input = el('input', 'dialog-input');
   input.type = 'text';
   input.placeholder = 'owner/repo#123';
@@ -272,7 +273,8 @@ function openLinkPullRequestDialog(sessionId: string) {
   input.setAttribute('aria-label', 'Pull request URL or owner/repo#number');
   const errorEl = el('div', 'dialog-error');
   errorEl.setAttribute('role', 'alert');
-  const linkedPrsEl = el('div', 'session-pr-chips dialog-linked-prs');
+  const linkedPrsEl = el('ul', 'linked-pr-rows');
+  linkedPrsEl.setAttribute('aria-label', 'Linked pull requests');
   linkedPrsEl.hidden = true;
   paintLinkedPrs?.(linkedPrsEl, sessionId);
   const btnLink = el('button', 'btn-dialog btn-dialog-confirm', 'Link');

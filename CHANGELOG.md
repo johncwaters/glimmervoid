@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Linked pull requests are readable in the session menu.** Link pull request in the session menu is now Pull requests, and its dialog lists each linked pull request on its own row with its status icon, `owner/repo#number`, title and stage, such as Checks failing, instead of a bare `#number` chip. Tap a row to show it in Reviews; the x at its end still unlinks it.
 - **Restart sits near the bottom of the session menu.** In the ... menu on a session, Restart now sits second from the bottom in amber, just above Remove session, which is now red, so neither is the first thing under your thumb.
 - **Radar on the phone reads as separate cards.** Each error is now its own bordered card with a chevron on the right, so you can tell where one ends and the next begins and that it can be tapped. Tapping one turns its chevron down and opens its details inside the same card, outlined in the accent color, with the full title shown once instead of twice.
 - **Phone settings line up across every section.** Switch descriptions and status notes now use the full row width, number fields end at the same edge whatever their unit, and the Telegram test and Delete my data buttons run full width like the rest.

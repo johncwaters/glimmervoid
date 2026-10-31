@@ -135,6 +135,13 @@
     {
       "name": "boards",
       "definition": "The whiteboard view: diagrams and plan units that sessions and the operator draw together, one tab on desktop and one bottom nav button on the phone."
+    },
+    {
+      "name": "pull request",
+      "definition": "A GitHub pull request a session is linked to, shown on its card and in Reviews",
+      "aliases": [
+        "pull"
+      ]
     }
   ]
 }
