@@ -17,6 +17,9 @@ const PORT_RADIUS = 5;
 const BAND_LABEL_BASELINE = 17;
 const LOOP_BADGE_RADIUS = 6;
 const LOOP_BADGE_INSET = 20;
+const DECISION_POINT_INSET = 12;
+const OUTPUT_LABEL_BASELINE_OFFSET = 4;
+const OUTPUT_DOT_RADIUS = 3;
 
 const STANDALONE_STYLE = `
 svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospace; }
@@ -31,6 +34,9 @@ svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospac
 .wb-box-title { fill: #e6e0f5; font-size: 16px; font-weight: 700; }
 .wb-box-line { fill: #e6e0f5; font-size: 12px; }
 .wb-box-line.wb-muted { fill: #a79fc4; }
+.wb-output-divider { stroke: #4a4268; stroke-width: 1; }
+.wb-output-label { fill: #e6e0f5; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.wb-output-dot { fill: #a79fc4; }
 .wb-lane-pill { fill: transparent; stroke-width: 1.2; }
 .wb-lane-pill-text { font-size: 12px; font-weight: 700; }
 .wb-unit-outline { fill: #15122a; stroke: #c084fc; stroke-width: 1.6; }
@@ -79,8 +85,33 @@ function laneStroke(hex: string | undefined): string | null {
   return hex ? `stroke:${hex}` : null;
 }
 
+function decisionOutlinePath(box: LaidOutBox): string {
+  const right = box.x + box.width;
+  const headerMidY = box.y + box.headerHeight / 2;
+  const top = `M${box.x + DECISION_POINT_INSET},${box.y} H${right - DECISION_POINT_INSET} L${right},${headerMidY}`;
+  if (box.outputs.length === 0) return `${top} L${right - DECISION_POINT_INSET},${box.y + box.height} H${box.x + DECISION_POINT_INSET} L${box.x},${headerMidY} Z`;
+  return `${top} V${box.y + box.height} H${box.x} V${headerMidY} Z`;
+}
+
+function outputRowsMarkup(box: LaidOutBox): string[] {
+  return box.outputs.flatMap((output) => {
+    const rowHalfHeight = (box.height - box.headerHeight) / box.outputs.length / 2;
+    const rowTop = output.port.y - rowHalfHeight;
+    return [
+      tag('line', { x1: box.x, y1: rowTop, x2: box.x + box.width, y2: rowTop, class: 'wb-output-divider' }),
+      text(output.label, box.x + BOX_TEXT_INSET, output.port.y + OUTPUT_LABEL_BASELINE_OFFSET, 'wb-output-label'),
+      tag('circle', { cx: output.port.x, cy: output.port.y, r: OUTPUT_DOT_RADIUS, class: 'wb-output-dot' }),
+    ];
+  });
+}
+
+function boxOutlineMarkup(box: LaidOutBox): string {
+  if (box.shape === 'decision') return tag('path', { d: decisionOutlinePath(box), class: 'wb-box-outline', style: laneStroke(box.lane?.hex) });
+  return tag('rect', { x: box.x, y: box.y, width: box.width, height: box.height, rx: 8, class: 'wb-box-outline', style: laneStroke(box.lane?.hex) });
+}
+
 function boxMarkup(box: LaidOutBox): string {
-  const parts = [tag('rect', { x: box.x, y: box.y, width: box.width, height: box.height, rx: 8, class: 'wb-box-outline', style: laneStroke(box.lane?.hex) })];
+  const parts = [boxOutlineMarkup(box), ...outputRowsMarkup(box)];
   const midX = box.x + box.width / 2;
   const midY = box.y + box.height / 2;
   for (const [cx, cy] of [[midX, box.y], [box.x + box.width, midY], [midX, box.y + box.height], [box.x, midY]] as const) {
@@ -95,7 +126,7 @@ function boxMarkup(box: LaidOutBox): string {
     parts.push(text(line.text, x, bodyTop + index * BODY_LINE_HEIGHT, line.muted ? 'wb-box-line wb-muted' : 'wb-box-line'));
   });
   if (box.lane && box.showsLanePill) {
-    const pillY = box.y + box.height - 28;
+    const pillY = box.y + box.headerHeight - 28;
     const pillWidth = Math.min(box.width - BOX_TEXT_INSET * 2, 16 + box.lane.label.length * 8);
     parts.push(
       tag('rect', { x: box.x + BOX_TEXT_INSET, y: pillY, width: pillWidth, height: 18, rx: 9, class: 'wb-lane-pill', style: laneStroke(box.lane.hex) }),

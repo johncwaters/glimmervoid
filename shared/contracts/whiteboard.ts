@@ -26,6 +26,11 @@ const Near = z.object({
   gap: z.number().int().min(0).max(400).default(60),
 }).strict();
 
+const Output = z.object({
+  id: ElementId,
+  label: z.string().min(1, { error: 'an output needs a label' }).max(30, { error: 'an output label is at most 30 characters' }),
+}).strict();
+
 export const Box = z.object({
   kind: z.literal('box'),
   id: ElementId,
@@ -37,6 +42,8 @@ export const Box = z.object({
   near: Near.nullable().default(null),
   order: z.number().int().default(0),
   at: Point.nullable().default(null),
+  shape: z.enum(['box', 'decision']).default('box'),
+  outputs: z.array(Output).max(8, { error: 'a decision has at most 8 outputs' }).default([]),
 }).strict();
 
 export const Frame = z.object({
@@ -52,6 +59,7 @@ export const Wire = z.object({
   id: ElementId,
   from: ElementId,
   to: ElementId,
+  fromOutput: ElementId.nullable().default(null),
   dashed: z.boolean().default(false),
   tone: z.enum(['plain', 'fail', 'join', 'lane']).default('plain'),
   label: z.string().max(40, { error: 'a wire label is at most 40 characters' }).nullable().default(null),

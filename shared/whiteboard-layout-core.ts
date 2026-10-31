@@ -11,6 +11,7 @@ const BOX_GAP = 30;
 const BOX_PADDING = 12;
 const TITLE_LINE_HEIGHT = 20;
 const BODY_LINE_HEIGHT = 18;
+const OUTPUT_ROW_HEIGHT = 28;
 const TITLE_CHARS_PER_LINE = 20;
 const BODY_CHARS_PER_LINE = 26;
 const LANE_PILL_HEIGHT = 20;
@@ -64,6 +65,15 @@ interface LaidOutBox extends Rect {
   lane: LaidOutLane | null;
   showsLanePill: boolean;
   isGhost: boolean;
+  shape: Box['shape'];
+  headerHeight: number;
+  outputs: LaidOutOutput[];
+}
+
+interface LaidOutOutput {
+  id: string;
+  label: string;
+  port: Point;
 }
 
 interface LaidOutFrame extends Rect {
@@ -184,8 +194,9 @@ function boxShape(board: Board, box: Box) {
   const bodyLines = box.lines.flatMap((line) => wrapText(line.text, BODY_CHARS_PER_LINE - (line.muted ? 2 : 0)).map((text) => ({ text, muted: line.muted })));
   const lane = laneOf(board, box);
   const showsLanePill = lane !== null && !isGridBox(box);
-  const height = BOX_PADDING * 2 + titleLines.length * TITLE_LINE_HEIGHT + bodyLines.length * BODY_LINE_HEIGHT + (showsLanePill ? LANE_PILL_HEIGHT + 6 : 0);
-  return { titleLines, bodyLines, lane, showsLanePill, height };
+  const headerHeight = BOX_PADDING * 2 + titleLines.length * TITLE_LINE_HEIGHT + bodyLines.length * BODY_LINE_HEIGHT + (showsLanePill ? LANE_PILL_HEIGHT + 6 : 0);
+  const outputs = box.shape === 'decision' ? box.outputs : [];
+  return { titleLines, bodyLines, lane, showsLanePill, headerHeight, outputs, height: headerHeight + outputs.length * OUTPUT_ROW_HEIGHT };
 }
 
 function elementsOfKind<Kind extends Element['kind']>(board: Board, kind: Kind): Extract<Element, { kind: Kind }>[] {
@@ -293,6 +304,11 @@ function laidOutBox(board: Board, box: Box, position: Point): LaidOutBox {
   return {
     kind: 'box', id: box.id, x: position.x, y: position.y, width: COLUMN_WIDTH, height: shape.height,
     titleLines: shape.titleLines, bodyLines: shape.bodyLines, lane: shape.lane, showsLanePill: shape.showsLanePill, isGhost: box.ghost,
+    shape: box.shape, headerHeight: shape.headerHeight,
+    outputs: shape.outputs.map((output, index) => ({
+      id: output.id, label: output.label,
+      port: { x: position.x + COLUMN_WIDTH, y: position.y + shape.headerHeight + index * OUTPUT_ROW_HEIGHT + OUTPUT_ROW_HEIGHT / 2 },
+    })),
   };
 }
 
@@ -357,9 +373,10 @@ function placeNearBoxes(board: Board, boxesTop: number, boxesById: Map<string, L
     const targetBox = canFollow ? place(target, new Set([...chainIds, box.id])) : undefined;
     if (!targetBox) warnings.push(`box ${box.id} sits near ${box.near.of}, which is not placed on the board`);
     const height = boxShape(board, box).height;
-    const placed = laidOutBox(board, box, targetBox ? nearPosition(targetBox, box.near, height) : freeOrigin(boxesById, boxesTop));
-    boxesById.set(box.id, { ...placed, x: Math.round(placed.x), y: Math.round(placed.y) });
-    return boxesById.get(box.id);
+    const position = targetBox ? nearPosition(targetBox, box.near, height) : freeOrigin(boxesById, boxesTop);
+    const placed = laidOutBox(board, box, { x: Math.round(position.x), y: Math.round(position.y) });
+    boxesById.set(box.id, placed);
+    return placed;
   };
   for (const box of nearBoxes) place(box, new Set());
 }

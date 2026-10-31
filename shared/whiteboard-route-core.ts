@@ -66,6 +66,7 @@ interface WirePlan {
   entrySide: Side;
   busKey: string | null;
   exitKey: string;
+  outputPort: Point | null;
   start: Point;
   end: Point;
 }
@@ -211,13 +212,15 @@ function planWires(input: RouteInput): WirePlan[] {
     const to = input.boxesById.get(wire.to);
     if (!from || !to) return [];
     const sides = defaultSides(from, to, wire.back);
-    const exitSide = wire.fromSide ?? sides.exitSide;
+    const output = from.outputs.find((candidate) => candidate.id === wire.fromOutput);
+    const exitSide = output ? 'right' : wire.fromSide ?? sides.exitSide;
     const entrySide = wire.toSide ?? sides.entrySide;
     const strokeHex = wire.tone === 'lane' ? from.lane?.hex ?? null : null;
     const styleKey = `${wire.dashed || wire.back}|${wire.tone}|${strokeHex}`;
+    const exitKey = output ? `${from.id}|output ${output.id}|${styleKey}` : `${from.id}|${exitSide}|${styleKey}`;
     return [{
-      wire, from, to, strokeHex, styleKey, exitSide, entrySide, busKey: null, exitKey: `${from.id}|${exitSide}|${styleKey}`,
-      start: centerOf(from), end: centerOf(to),
+      wire, from, to, strokeHex, styleKey, exitSide, entrySide, busKey: null, exitKey, outputPort: output?.port ?? null,
+      start: output?.port ?? centerOf(from), end: centerOf(to),
     }];
   });
   const busKeyOf = (plan: WirePlan) => `${plan.to.id}|${plan.entrySide}|${plan.styleKey}`;
@@ -259,8 +262,8 @@ interface PortRequest {
 
 function portRequestsBySide(plans: readonly WirePlan[]): Map<string, PortRequest[]> {
   const requests: PortRequest[] = plans.flatMap((plan) => [
-    { box: plan.from, side: plan.exitSide, groupKey: `exit|${plan.styleKey}`, wireId: plan.wire.id, farPoint: centerOf(plan.to), assign: (point: Point) => { plan.start = point; } },
-    { box: plan.to, side: plan.entrySide, groupKey: plan.busKey ? `bus|${plan.busKey}` : `entry|${plan.wire.id}`, wireId: plan.wire.id, farPoint: centerOf(plan.from), assign: (point: Point) => { plan.end = point; } },
+    ...(plan.outputPort ? [] : [{ box: plan.from, side: plan.exitSide, groupKey: `exit|${plan.styleKey}`, wireId: plan.wire.id, farPoint: centerOf(plan.to), assign: (point: Point) => { plan.start = point; } }]),
+    { box: plan.to, side: plan.entrySide, groupKey: plan.busKey ? `bus|${plan.busKey}` : `entry|${plan.wire.id}`, wireId: plan.wire.id, farPoint: plan.outputPort ?? centerOf(plan.from), assign: (point: Point) => { plan.end = point; } },
   ]);
   return groupedBy(requests, (request) => `${request.box.id}|${request.side}`);
 }
@@ -313,7 +316,7 @@ function alignLonePorts(plans: readonly WirePlan[], groupOrderBySide: ReadonlyMa
       plan.end = alignedAlong(plan.end, plan.entrySide, plan.to, plan.start);
       continue;
     }
-    if (isLonePort(plan.from, plan.exitSide) && memberCountByExitKey.get(plan.exitKey) === 1) plan.start = alignedAlong(plan.start, plan.exitSide, plan.from, plan.end);
+    if (plan.outputPort === null && isLonePort(plan.from, plan.exitSide) && memberCountByExitKey.get(plan.exitKey) === 1) plan.start = alignedAlong(plan.start, plan.exitSide, plan.from, plan.end);
   }
 }
 

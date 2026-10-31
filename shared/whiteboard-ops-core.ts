@@ -25,7 +25,7 @@ function checkReferences(board: Board, element: Element): OpOutcome {
   if (element.kind === 'wire') {
     if (!isBox(board, element.from)) return refuse(`wire ${element.id} starts at ${element.from}, which is not a box`);
     if (!isBox(board, element.to)) return refuse(`wire ${element.id} ends at ${element.to}, which is not a box`);
-    return OK;
+    return checkWireOutput(board, element);
   }
   if (element.kind === 'note') {
     if (!isBox(board, element.on)) return refuse(`note ${element.id} is on ${element.on}, which is not a box`);
@@ -37,7 +37,26 @@ function checkReferences(board: Board, element: Element): OpOutcome {
   return OK;
 }
 
+function checkWireOutput(board: Board, wire: Wire): OpOutcome {
+  if (wire.fromOutput === null) return OK;
+  const from = board.elements[wire.from];
+  if (from?.kind !== 'box' || from.shape !== 'decision') return refuse(`wire ${wire.id} starts at output ${wire.fromOutput}, but ${wire.from} is not a decision`);
+  if (!from.outputs.some((output) => output.id === wire.fromOutput)) return refuse(`wire ${wire.id} starts at output ${wire.fromOutput}, which decision ${wire.from} does not have`);
+  return OK;
+}
+
+function checkBoxOutputs(board: Board, box: Box): OpOutcome {
+  if (box.shape !== 'decision' && box.outputs.length > 0) return refuse(`box ${box.id} has outputs, which only a decision has, so set shape to decision`);
+  const outputIds = new Set(box.outputs.map((output) => output.id));
+  if (outputIds.size !== box.outputs.length) return refuse(`box ${box.id} has two outputs with the same id`);
+  const strandedWire = Object.values(board.elements).find((element) => element.kind === 'wire' && element.from === box.id && element.fromOutput !== null && !outputIds.has(element.fromOutput));
+  if (strandedWire?.kind === 'wire') return refuse(`wire ${strandedWire.id} still starts at output ${strandedWire.fromOutput} of ${box.id}, so change or remove that wire first`);
+  return OK;
+}
+
 function checkBoxReferences(board: Board, box: Box): OpOutcome {
+  const outputs = checkBoxOutputs(board, box);
+  if (!outputs.ok) return outputs;
   if (box.column === null && box.near === null && box.at === null) {
     return refuse(`box ${box.id} needs a place: a column, near another box, or at a point`);
   }

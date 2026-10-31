@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Board } from '../shared/contracts/whiteboard.ts';
 import { layoutBoard } from '../shared/whiteboard-layout-core.ts';
+import { applyOps } from '../shared/whiteboard-ops-core.ts';
 import type { LaidOutElement, Rect } from '../shared/whiteboard-layout-core.ts';
 
 function box(id: string, column: string, order: number) {
@@ -218,4 +219,39 @@ test('a board with more wires than one routing pass can place draws the rest as 
   const layout = layoutBoard(Board.parse({ id: 'dense', title: 'dense', version: 1, caption: null, createdAt: 0, updatedAt: 0, lanes: [], columns, elements }));
   assert.ok(layout.warnings.some((warning) => warning.includes('more wires than fit in one routing pass')), layout.warnings.join('\n'));
   assert.equal(layout.elements.filter((element) => element.kind === 'wire').length, 600);
+});
+
+test('a decision draws its outputs as rows in order and each output wire leaves from its own row, while a stray output is refused', () => {
+  const decisionBoard = Board.parse({
+    id: 'decide', title: 'decide', version: 1, caption: null, createdAt: 0, updatedAt: 0, lanes: [],
+    columns: [{ id: 'a', title: 'In' }, { id: 'b', title: 'Out' }],
+    elements: {
+      classify: { kind: 'box', id: 'classify', title: 'Classify', column: 'a', shape: 'decision', outputs: [{ id: 'failed', label: 'failed' }, { id: 'clean', label: 'clean' }] },
+      stop: { kind: 'box', id: 'stop', title: 'Stop', column: 'b', order: 0 },
+      go: { kind: 'box', id: 'go', title: 'Continue', column: 'b', order: 1 },
+      w1: { kind: 'wire', id: 'w1', from: 'classify', to: 'go', fromOutput: 'clean' },
+      w2: { kind: 'wire', id: 'w2', from: 'classify', to: 'stop', fromOutput: 'failed', tone: 'fail' },
+    },
+  });
+  const layout = layoutBoard(decisionBoard);
+  const decision = layout.elements.find((element) => element.id === 'classify');
+  assert.ok(decision?.kind === 'box');
+  const [failedOutput, cleanOutput] = decision.outputs;
+  assert.deepEqual(decision.outputs.map((output) => output.id), ['failed', 'clean']);
+  assert.ok(failedOutput && cleanOutput && failedOutput.port.y < cleanOutput.port.y);
+  const wireStart = (wireId: string) => {
+    const wire = layout.elements.find((element) => element.id === wireId);
+    assert.ok(wire?.kind === 'wire');
+    return wire.start;
+  };
+  assert.deepEqual(wireStart('w2'), failedOutput.port);
+  assert.deepEqual(wireStart('w1'), cleanOutput.port);
+  assert.equal(layout.warnings.filter((warning) => warning.includes('runs through')).length, 0, layout.warnings.join('\n'));
+  const author = { id: 'agent', name: 'agent' };
+  const missingOutput = applyOps(decisionBoard, [{ op: 'add', element: Board.shape.elements.valueType.parse({ kind: 'wire', id: 'w3', from: 'classify', to: 'stop', fromOutput: 'maybe' }) }], author, 0);
+  assert.equal(missingOutput.ok ? '' : missingOutput.error, 'op 1: wire w3 starts at output maybe, which decision classify does not have');
+  const droppedOutput = applyOps(decisionBoard, [{ op: 'set', id: 'classify', fields: { outputs: [{ id: 'failed', label: 'failed' }] } }], author, 0);
+  assert.equal(droppedOutput.ok ? '' : droppedOutput.error, 'op 1: wire w1 still starts at output clean of classify, so change or remove that wire first');
+  const plainWithOutputs = applyOps(decisionBoard, [{ op: 'set', id: 'stop', fields: { outputs: [{ id: 'x', label: 'x' }] } }], author, 0);
+  assert.equal(plainWithOutputs.ok ? '' : plainWithOutputs.error, 'op 1: box stop has outputs, which only a decision has, so set shape to decision');
 });

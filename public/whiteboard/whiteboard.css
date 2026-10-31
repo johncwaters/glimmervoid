@@ -229,6 +229,21 @@
 
 .wb-box-line.wb-muted { fill: var(--wb-ink-dim); }
 
+.wb-output-divider {
+  stroke: var(--wb-line);
+  stroke-width: 1;
+}
+
+.wb-output-label {
+  fill: var(--wb-ink);
+  font-size: var(--type-meta);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.wb-output-dot { fill: var(--wb-ink-dim); pointer-events: none; }
+
 .wb-lane-pill {
   fill: transparent;
   stroke-width: 1.2;

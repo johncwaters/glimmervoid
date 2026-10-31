@@ -260,7 +260,7 @@ function addBoxFromDialog(): void {
     maxLength: WHITEBOARD_LIMITS.title,
     confirmLabel: 'Add box',
     choices: columnOptions.length > 1 ? { label: 'Column', options: columnOptions } : undefined,
-    onSubmit: (title, column) => sendOpsFromDialog([{ op: 'add', element: { kind: 'box', id: newElementId('box'), title, column: column ?? columnOptions[0]?.value ?? 'main', lines: [], lane: null, ghost: false, near: null, order: 0, at: null } }]),
+    onSubmit: (title, column) => sendOpsFromDialog([{ op: 'add', element: { kind: 'box', id: newElementId('box'), title, column: column ?? columnOptions[0]?.value ?? 'main', lines: [], lane: null, ghost: false, near: null, order: 0, at: null, shape: 'box', outputs: [] } }]),
   });
 }
 
@@ -296,7 +296,7 @@ function connectBoxes(fromBoxId: string, toBoxId: string): void {
   if (!board || fromBoxId === toBoxId) return;
   const isAlreadyWired = Object.values(board.elements).some((element) => element.kind === 'wire' && element.from === fromBoxId && element.to === toBoxId);
   if (isAlreadyWired) return;
-  void sendOps([{ op: 'add', element: { kind: 'wire', id: newElementId('wire'), from: fromBoxId, to: toBoxId, dashed: false, tone: 'plain', label: null, fromSide: null, toSide: null, back: false } }]);
+  void sendOps([{ op: 'add', element: { kind: 'wire', id: newElementId('wire'), from: fromBoxId, to: toBoxId, fromOutput: null, dashed: false, tone: 'plain', label: null, fromSide: null, toSide: null, back: false } }]);
 }
 
 function addWire(): void {
