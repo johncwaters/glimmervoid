@@ -228,7 +228,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
     type: 'whiteboard-result', requestId: 'wb-1', ok: true, error: null,
     board: {
       id: 'board-1', title: 'Ingest plan', version: 1, caption: null, columns: [{ id: 'now', title: 'Now' }], lanes: [],
-      elements: { parse: { kind: 'box', id: 'parse', title: 'Parse feed', lines: [], lane: null, ghost: false, column: 'now', order: 0, at: null } },
+      elements: { parse: { kind: 'box', id: 'parse', title: 'Parse feed', lines: [], lane: null, ghost: false, column: 'now', near: null, order: 0, at: null } },
       createdAt: NOW, updatedAt: NOW,
     },
     summary: { id: 'board-1', title: 'Ingest plan', version: 1, updatedAt: NOW, connectedSessionIds: [], queuedBySessionId: {} },
