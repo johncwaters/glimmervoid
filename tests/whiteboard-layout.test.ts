@@ -174,3 +174,48 @@ test('laned boxes stack in their own labeled row band and a near box sits beside
   assert.ok(layout.warnings.includes('box stray sits near gone, which is not placed on the board'));
   assert.deepEqual(layout.warnings.filter((warning) => warning.includes('runs through')), []);
 });
+
+test('wires keep their named sides, a back wire returns around the outside of the flow, and overlaps and crowding warn by name', () => {
+  const loopBoard = Board.parse({
+    id: 'loop', title: 'loop', version: 1, caption: null, createdAt: 0, updatedAt: 0, lanes: [],
+    columns: [{ id: 'a', title: 'Read' }, { id: 'b', title: 'Check' }, { id: 'c', title: 'Write' }],
+    elements: {
+      read: box('read', 'a', 0), check: box('check', 'b', 0), write: box('write', 'c', 0),
+      aside: { kind: 'box', id: 'aside', title: 'Aside', near: { of: 'write', side: 'bottom' } },
+      first: { kind: 'box', id: 'first', title: 'First', at: { x: 900, y: 600 } }, second: { kind: 'box', id: 'second', title: 'Second', at: { x: 920, y: 610 } },
+      f1: { kind: 'frame', id: 'f1', title: 'each page', contains: ['read', 'check', 'write'], loop: true },
+      w1: wire('w1', 'read', 'check'), w2: wire('w2', 'check', 'write'),
+      w3: wire('w3', 'write', 'read', { back: true, label: 'next page' }),
+      w4: wire('w4', 'read', 'check', { fromSide: 'bottom', toSide: 'bottom' }),
+      w5: wire('w5', 'read', 'aside'),
+    },
+  });
+  const layout = layoutBoard(loopBoard);
+  const boxById = new Map(layout.elements.flatMap((element) => (element.kind === 'box' ? [[element.id, element] as const] : [])));
+  const wireById = new Map(layout.elements.flatMap((element) => (element.kind === 'wire' ? [[element.id, element] as const] : [])));
+  const [read, check, write] = ['read', 'check', 'write'].map((id) => boxById.get(id));
+  const sided = wireById.get('w4');
+  const back = wireById.get('w3');
+  assert.ok(read && check && write && sided && back);
+  assert.equal(sided.start.y, read.y + read.height);
+  assert.equal(sided.end.y, check.y + check.height);
+  assert.ok(back.isBack && back.isDashed);
+  const flowBottom = Math.max(read.y + read.height, check.y + check.height, write.y + write.height);
+  const flowTop = Math.min(read.y, check.y, write.y);
+  const innerPoints = segmentsOfPath(back.path).flatMap((segment) => [{ x: segment.x1, y: segment.y1 }, { x: segment.x2, y: segment.y2 }])
+    .filter((point) => point.y !== back.start.y && point.y !== back.end.y);
+  assert.ok(innerPoints.every((point) => point.y > flowBottom || point.y < flowTop), `the back wire cuts through the forward flow: ${back.path}`);
+  assert.ok(layout.elements.some((element) => element.kind === 'frame' && element.isLoop));
+  assert.deepEqual(layout.warnings.filter((warning) => warning.includes('runs through')), []);
+  assert.ok(layout.warnings.includes('box first overlaps box second'), layout.warnings.join('; '));
+});
+
+test('a board with more wires than one routing pass can place draws the rest as dog-legs and says so', () => {
+  const columns = Array.from({ length: 12 }, (_, index) => ({ id: `c${index}`, title: `column ${index}` }));
+  const elements: Record<string, unknown> = {};
+  for (let index = 0; index < 170; index += 1) elements[`b${index}`] = { kind: 'box', id: `b${index}`, title: `box ${index}`, lines: [], column: `c${index % 12}`, order: Math.floor(index / 12) };
+  for (let index = 0; index < 600; index += 1) elements[`w${index}`] = { kind: 'wire', id: `w${index}`, from: `b${(index * 7) % 170}`, to: `b${(index * 13 + 5) % 170}` };
+  const layout = layoutBoard(Board.parse({ id: 'dense', title: 'dense', version: 1, caption: null, createdAt: 0, updatedAt: 0, lanes: [], columns, elements }));
+  assert.ok(layout.warnings.some((warning) => warning.includes('more wires than fit in one routing pass')), layout.warnings.join('\n'));
+  assert.equal(layout.elements.filter((element) => element.kind === 'wire').length, 600);
+});

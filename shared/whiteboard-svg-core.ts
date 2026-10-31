@@ -15,6 +15,8 @@ const PLAN_TITLE = 'Plan';
 const LINKED_BOARD_TEXT = 'open linked board';
 const PORT_RADIUS = 5;
 const BAND_LABEL_BASELINE = 17;
+const LOOP_BADGE_RADIUS = 6;
+const LOOP_BADGE_INSET = 20;
 
 const STANDALONE_STYLE = `
 svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospace; }
@@ -35,6 +37,9 @@ svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospac
 .wb-unit-label, .wb-unit-link { fill: #c084fc; font-size: 12px; font-weight: 700; }
 .wb-frame-outline { fill: rgba(192, 132, 252, 0.04); stroke: #4a4268; stroke-width: 1.4; stroke-dasharray: 10 6; }
 .wb-frame-title { fill: #a79fc4; font-size: 12px; font-weight: 700; }
+.wb-loop .wb-frame-outline { stroke: #c084fc; }
+.wb-loop-badge { fill: none; stroke: #c084fc; stroke-width: 1.6; }
+.wb-back .wb-wire-line { stroke: #c084fc; }
 .wb-wire-hit, .wb-port { display: none; }
 .wb-wire-line { fill: none; stroke: #a79fc4; stroke-width: 1.6; }
 .wb-wire-line.wb-dashed { stroke-dasharray: 7 6; }
@@ -100,11 +105,20 @@ function boxMarkup(box: LaidOutBox): string {
   return elementGroup(box, box.isGhost ? 'wb-box wb-ghost' : 'wb-box', parts);
 }
 
+function loopBadgeMarkup(frame: LaidOutFrame): string {
+  const centerX = frame.x + frame.width - LOOP_BADGE_INSET;
+  const centerY = frame.y + LOOP_BADGE_RADIUS + 6;
+  const arc = `M ${centerX + LOOP_BADGE_RADIUS} ${centerY} A ${LOOP_BADGE_RADIUS} ${LOOP_BADGE_RADIUS} 0 1 1 ${centerX} ${centerY - LOOP_BADGE_RADIUS}`;
+  return tag('path', { d: arc, 'marker-end': 'url(#wb-arrow)', class: 'wb-loop-badge' });
+}
+
 function frameMarkup(frame: LaidOutFrame): string {
-  return elementGroup(frame, 'wb-frame', [
+  const parts = [
     tag('rect', { x: frame.x, y: frame.y, width: frame.width, height: frame.height, rx: 12, class: 'wb-frame-outline' }),
     text(frame.title, frame.x + 14, frame.y + 18, 'wb-frame-title'),
-  ]);
+  ];
+  if (frame.isLoop) parts.push(loopBadgeMarkup(frame));
+  return elementGroup(frame, frame.isLoop ? 'wb-frame wb-loop' : 'wb-frame', parts);
 }
 
 function wireMarkup(wire: LaidOutWire): string {
@@ -115,7 +129,7 @@ function wireMarkup(wire: LaidOutWire): string {
   ];
   if (wire.joinAt) parts.push(tag('circle', { cx: wire.joinAt.x, cy: wire.joinAt.y, r: 3, class: 'wb-wire-dot' }));
   if (wire.label) parts.push(text(wire.label, wire.labelAt.x, wire.labelAt.y, 'wb-wire-label'));
-  return elementGroup(wire, `wb-wire wb-tone-${wire.tone}`, parts);
+  return elementGroup(wire, wire.isBack ? `wb-wire wb-back wb-tone-${wire.tone}` : `wb-wire wb-tone-${wire.tone}`, parts);
 }
 
 function noteMarkup(note: LaidOutNote): string {

@@ -44,6 +44,7 @@ export const Frame = z.object({
   id: ElementId,
   title: Title,
   contains: z.array(ElementId).min(1, { error: 'a frame contains at least one box' }),
+  loop: z.boolean().default(false),
 }).strict();
 
 export const Wire = z.object({
@@ -54,6 +55,9 @@ export const Wire = z.object({
   dashed: z.boolean().default(false),
   tone: z.enum(['plain', 'fail', 'join', 'lane']).default('plain'),
   label: z.string().max(40, { error: 'a wire label is at most 40 characters' }).nullable().default(null),
+  fromSide: Side.nullable().default(null),
+  toSide: Side.nullable().default(null),
+  back: z.boolean().default(false),
 }).strict();
 
 export const Note = z.object({

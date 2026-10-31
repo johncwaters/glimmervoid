@@ -296,7 +296,7 @@ function connectBoxes(fromBoxId: string, toBoxId: string): void {
   if (!board || fromBoxId === toBoxId) return;
   const isAlreadyWired = Object.values(board.elements).some((element) => element.kind === 'wire' && element.from === fromBoxId && element.to === toBoxId);
   if (isAlreadyWired) return;
-  void sendOps([{ op: 'add', element: { kind: 'wire', id: newElementId('wire'), from: fromBoxId, to: toBoxId, dashed: false, tone: 'plain', label: null } }]);
+  void sendOps([{ op: 'add', element: { kind: 'wire', id: newElementId('wire'), from: fromBoxId, to: toBoxId, dashed: false, tone: 'plain', label: null, fromSide: null, toSide: null, back: false } }]);
 }
 
 function addWire(): void {
@@ -316,7 +316,7 @@ function addFrame(): void {
     maxLength: WHITEBOARD_LIMITS.title,
     confirmLabel: 'Add frame',
     onSubmit: async (title) => {
-      const error = await sendOpsFromDialog([{ op: 'add', element: { kind: 'frame', id: newElementId('frame'), title, contains } }]);
+      const error = await sendOpsFromDialog([{ op: 'add', element: { kind: 'frame', id: newElementId('frame'), title, contains, loop: false } }]);
       if (!error) editor?.clearSelection();
       return error;
     },
