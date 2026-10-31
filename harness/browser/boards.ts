@@ -91,6 +91,26 @@ export async function verifyBoards(page: Page, layout: Layout): Promise<void> {
     await page.keyboard.press('ControlOrMeta+Shift+z');
     await page.waitForFunction((before) => document.querySelector('.boards-view .wb-board-meta')?.textContent !== before, versionBeforeRedo);
     assert.equal(await wireLine.getAttribute('d'), draggingPath, 'redo moves it again');
+    const inspect = panel.locator('.wb-inspect');
+    await page.keyboard.press('Escape');
+    await inspect.getByRole('heading', { name: 'Board', exact: true }).waitFor();
+    await targetBox.locator('.wb-box-outline').click();
+    await inspect.getByRole('heading', { name: 'Box', exact: true }).waitFor();
+    await inspect.getByRole('combobox', { name: 'Shape', exact: true }).selectOption('decision');
+    await panel.locator('.wb-box', { hasText: 'Index rows' }).locator('.wb-output-label').first().waitFor();
+    await inspect.getByRole('heading', { name: 'Decision', exact: true }).waitFor();
+    assert.equal(await inspect.getByRole('textbox', { name: 'Output yes label', exact: true }).inputValue(), 'yes');
+    await inspect.getByRole('button', { name: 'Add a line to this box', exact: true }).click();
+    await inspect.getByRole('textbox', { name: 'Line 1 text', exact: true }).waitFor();
+    await inspect.getByRole('button', { name: 'Add a line to this box', exact: true }).click();
+    await inspect.getByRole('textbox', { name: 'Line 2 text', exact: true }).waitFor();
+    await inspect.getByRole('textbox', { name: 'Line 1 text', exact: true }).fill('first edited');
+    await page.keyboard.press('Enter');
+    await panel.locator('.wb-box', { hasText: 'first edited' }).waitFor();
+    await inspect.getByRole('textbox', { name: 'Line 2 text', exact: true }).fill('second edited');
+    await page.keyboard.press('Enter');
+    await panel.locator('.wb-box', { hasText: 'second edited' }).waitFor();
+    assert.equal(await panel.locator('.wb-box', { hasText: 'first edited' }).count(), 1, 'a second line edit keeps the first one');
   }
   assert.equal(await panel.getByRole('button', { name: 'fit', exact: true }).isVisible(), true);
   assert.equal(await panel.getByRole('button', { name: boardTitle }).count(), 1);

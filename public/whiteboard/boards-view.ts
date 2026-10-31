@@ -12,6 +12,8 @@ import { createBoardEditor, newElementId } from './board-edit.ts';
 import type { BoardEditor, BoardTool } from './board-edit.ts';
 import { EMPTY_HISTORY, inverseOps, recordEdit, recordStep, takeStep } from '#shared/whiteboard-undo-core.ts';
 import type { UndoDirection, UndoHistory } from '#shared/whiteboard-undo-core.ts';
+import { createBoardInspector } from './board-inspect.ts';
+import type { BoardInspector } from './board-inspect.ts';
 import { createBoardRenderer } from './board-render.ts';
 import type { BoardRenderer } from './board-render.ts';
 import {
@@ -59,6 +61,7 @@ let selectedBoardId: string | null = null;
 let parts: BoardsViewParts | null = null;
 let renderer: BoardRenderer | null = null;
 let editor: BoardEditor | null = null;
+let inspector: BoardInspector | null = null;
 let shouldFitOnNextRender = true;
 let dockedSessionId: string | null = null;
 const status = createActionStatus('action-status wb-status');
@@ -189,6 +192,7 @@ function paintToolbar(): void {
   parts.buttons.fit.disabled = !board;
   parts.buttons.remove.disabled = !board;
   parts.toolbar.dataset.selectedCount = String(selectedCount);
+  inspector?.paint(editor?.selectedIds() ?? new Set());
 }
 
 function paintList(): void {
@@ -427,7 +431,8 @@ function mountBoardsView(panel: HTMLElement): void {
   svg.setAttribute('role', 'img');
   svg.setAttribute('aria-label', 'Whiteboard');
   svg.setAttribute('preserveAspectRatio', 'xMidYMin meet');
-  canvas.append(svg);
+  const inspectPanel = el('aside', 'wb-inspect');
+  canvas.append(svg, inspectPanel);
   const empty = el('p', 'wb-empty', EMPTY_TEXT);
   const dock = el('div', 'wb-dock');
   dock.hidden = true;
@@ -441,6 +446,7 @@ function mountBoardsView(panel: HTMLElement): void {
   parts = { list, boardHead, boardMeta, presence, toolbar, canvas, empty, dock, dockQueued, sendToAgent, buttons, toolButtons };
   const boardRenderer = createBoardRenderer(svg);
   renderer = boardRenderer;
+  inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps });
   editor = createBoardEditor({
     svg,
     canvas,
