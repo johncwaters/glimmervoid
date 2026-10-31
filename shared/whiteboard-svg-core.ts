@@ -14,12 +14,15 @@ const UNIT_LABEL_HEIGHT = 18;
 const PLAN_TITLE = 'Plan';
 const LINKED_BOARD_TEXT = 'open linked board';
 const PORT_RADIUS = 5;
+const BAND_LABEL_BASELINE = 17;
 
 const STANDALONE_STYLE = `
 svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospace; }
 .wb-backdrop { fill: #0d0b16; }
 .wb-column-title { fill: #a79fc4; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 .wb-column-rule { stroke: #4a4268; stroke-width: 1; stroke-dasharray: 2 5; }
+.wb-band-rule { stroke: #2a2440; stroke-width: 1; }
+.wb-band-label { font-size: 12px; font-weight: 700; }
 .wb-box-outline { fill: #15122a; stroke: #a79fc4; stroke-width: 1.6; }
 .wb-ghost { opacity: 0.6; }
 .wb-ghost .wb-box-outline { fill: transparent; stroke-dasharray: 7 5; }
@@ -86,7 +89,7 @@ function boxMarkup(box: LaidOutBox): string {
     const x = box.x + BOX_TEXT_INSET + (line.muted ? MUTED_INDENT : 0);
     parts.push(text(line.text, x, bodyTop + index * BODY_LINE_HEIGHT, line.muted ? 'wb-box-line wb-muted' : 'wb-box-line'));
   });
-  if (box.lane) {
+  if (box.lane && box.showsLanePill) {
     const pillY = box.y + box.height - 28;
     const pillWidth = Math.min(box.width - BOX_TEXT_INSET * 2, 16 + box.lane.label.length * 8);
     parts.push(
@@ -158,6 +161,10 @@ function chromeMarkup(layout: BoardLayout): string {
   if (layout.plan) {
     parts.push(text(PLAN_TITLE, layout.plan.titleAt.x, layout.plan.titleAt.y, 'wb-column-title'));
     for (const arrowPath of layout.plan.arrowPaths) parts.push(tag('path', { d: arrowPath, 'marker-end': 'url(#wb-arrow)', class: 'wb-wire-line' }));
+  }
+  for (const band of layout.bands) {
+    parts.push(tag('line', { x1: band.x, y1: band.y, x2: band.x + band.width, y2: band.y, class: 'wb-band-rule' }));
+    if (band.label) parts.push(text(band.label, band.x, band.y + BAND_LABEL_BASELINE, 'wb-band-label', { style: `fill:${band.hex}` }));
   }
   for (const column of layout.columns) {
     if (column.titleLines.length === 0) continue;

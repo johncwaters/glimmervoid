@@ -260,7 +260,7 @@ function addBoxFromDialog(): void {
     maxLength: WHITEBOARD_LIMITS.title,
     confirmLabel: 'Add box',
     choices: columnOptions.length > 1 ? { label: 'Column', options: columnOptions } : undefined,
-    onSubmit: (title, column) => sendOpsFromDialog([{ op: 'add', element: { kind: 'box', id: newElementId('box'), title, column: column ?? columnOptions[0]?.value ?? 'main', lines: [], lane: null, ghost: false, order: 0, at: null } }]),
+    onSubmit: (title, column) => sendOpsFromDialog([{ op: 'add', element: { kind: 'box', id: newElementId('box'), title, column: column ?? columnOptions[0]?.value ?? 'main', lines: [], lane: null, ghost: false, near: null, order: 0, at: null } }]),
   });
 }
 

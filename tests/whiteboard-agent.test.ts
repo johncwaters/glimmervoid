@@ -313,6 +313,37 @@ test('an agent puts ops from a file, reads the laid-out positions and renders th
   assert.match(svgText, /data-element-id="w1"/);
 });
 
+test('a columns op with a move map carries boxes in one put, removing a box pins the boxes near it, and a box with no place is refused', async () => {
+  const boardId = await newBoard('regroup');
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
+    { op: 'add', element: { kind: 'box', id: 'parse', title: 'Parse', column: 'intake' } },
+    { op: 'add', element: { kind: 'box', id: 'save', title: 'Save', column: 'apply' } },
+  ] })).status, 200);
+
+  const unmoved = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'columns', columns: [{ id: 'read', title: 'Read' }] }] });
+  assert.equal(unmoved.status, 400);
+  assert.match(String(unmoved.body.error), /box \w+ is still in removed column/);
+
+  const moved = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'columns', columns: [{ id: 'read', title: 'Read' }], move: { intake: 'read', apply: 'read' } }] });
+  assert.equal(moved.status, 200);
+  const { board } = await boardOf(PLANNER_ID, boardId);
+  assert.equal(board.elements.parse?.column, 'read');
+  assert.equal(board.elements.save?.column, 'read');
+
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
+    { op: 'add', element: { kind: 'box', id: 'aside', title: 'Aside', near: { of: 'save', side: 'right' } } },
+    { op: 'remove', id: 'save' },
+    { op: 'set', id: 'aside', fields: { title: 'Aside, kept' } },
+  ] })).status, 200);
+  const afterRemove = (await boardOf(PLANNER_ID, boardId)).board.elements.aside;
+  assert.equal(afterRemove?.near, null);
+  assert.ok(afterRemove?.at, 'a box near a removed box is pinned where it stood');
+
+  const placeless = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'add', element: { kind: 'box', id: 'lost', title: 'Lost' } }] });
+  assert.equal(placeless.status, 400);
+  assert.match(String(placeless.body.error), /needs a place/);
+});
+
 test('the operator connects and disconnects a session from the dashboard, and a removed session leaves every board', async () => {
   const boardId = await newBoard('operator links');
   const client = await dashboardClient(boundPort(running().server));

@@ -18,6 +18,14 @@ const BoxLine = z.object({
 
 const Point = z.object({ x: z.number(), y: z.number() }).strict();
 
+const Side = z.enum(['left', 'right', 'top', 'bottom']);
+
+const Near = z.object({
+  of: ElementId,
+  side: Side,
+  gap: z.number().int().min(0).max(400).default(60),
+}).strict();
+
 export const Box = z.object({
   kind: z.literal('box'),
   id: ElementId,
@@ -25,7 +33,8 @@ export const Box = z.object({
   lines: z.array(BoxLine).max(WHITEBOARD_LIMITS.linesPerBox, { error: `a box holds at most ${WHITEBOARD_LIMITS.linesPerBox} lines` }).default([]),
   lane: ElementId.nullable().default(null),
   ghost: z.boolean().default(false),
-  column: ElementId,
+  column: ElementId.nullable().default(null),
+  near: Near.nullable().default(null),
   order: z.number().int().default(0),
   at: Point.nullable().default(null),
 }).strict();
@@ -92,7 +101,7 @@ export const Op = z.discriminatedUnion('op', [
   z.object({ op: z.literal('set'), id: ElementId, fields: z.record(z.string(), z.unknown()) }).strict(),
   z.object({ op: z.literal('remove'), id: ElementId }).strict(),
   z.object({ op: z.literal('resolve'), id: ElementId }).strict(),
-  z.object({ op: z.literal('columns'), columns: BoardColumns }).strict(),
+  z.object({ op: z.literal('columns'), columns: BoardColumns, move: z.record(ElementId, ElementId).default({}) }).strict(),
   z.object({ op: z.literal('lanes'), lanes: BoardLanes }).strict(),
   z.object({ op: z.literal('board'), title: Title.min(1).optional(), caption: z.string().max(400).nullable().optional() }).strict(),
 ], { error: 'an op is add, set, remove, resolve, columns, lanes or board' });

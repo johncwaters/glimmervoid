@@ -29,9 +29,10 @@ const PUT_GUIDE = [
   '{"op":"add","element":{"kind":"box","id":"parse","title":"Parse","column":"intake","lane":"pr1","lines":[{"text":"reads the feed"},{"text":"skips drafts","muted":true}]}},',
   '{"op":"add","element":{"kind":"wire","id":"w1","from":"parse","to":"store","dashed":true,"label":"on retry"}},',
   '{"op":"set","id":"parse","fields":{"title":"Parse feed"}},{"op":"remove","id":"w1"}]\'.',
-  'Element kinds: box (title, column, lines, lane, ghost, order), wire (from, to, dashed, tone plain|fail|join|lane, label), frame (title, contains), note (on, text), unit (title, lines, after, linkedBoardId).',
+  'Element kinds: box (title, column, lane, near, at, lines, ghost, order), wire (from, to, dashed, tone plain|fail|join|lane, label), frame (title, contains), note (on, text), unit (title, lines, after, linkedBoardId).',
   'Units lay out work in dependency order: glimmervoid whiteboard plan add|after|show edits and reads them.',
-  'Columns place boxes, so never send pixel positions. A put is applied whole or refused whole.',
+  'Place a box by column and lane, which make a grid of columns and lane row bands; or near another box with near {"of":"parse","side":"right|left|top|bottom","gap":60}; or at {"x","y"} pixels as a last resort.',
+  'A columns op takes move {"old-column":"new-column"} to carry boxes when it drops or renames a column. A put is applied whole or refused whole.',
   'glimmervoid whiteboard get <board> returns the board and a one-line summary of each change others made since this session last read it;',
   'add --layout to see where every box, wire and label landed, or run glimmervoid whiteboard render <board> --out board.svg to draw it as the dashboard does.',
 ].join(' ');

@@ -143,3 +143,34 @@ test('units draw as a plan band above the freeform columns, one level per column
   }
   assert.equal(layoutBoard(wiredBoard).plan, null);
 });
+
+test('laned boxes stack in their own labeled row band and a near box sits beside its target', () => {
+  const lanedBoard = Board.parse({
+    id: 'laned', title: 'laned', version: 1, caption: null, createdAt: 0, updatedAt: 0,
+    columns: [{ id: 'a', title: 'Intake' }, { id: 'b', title: 'Apply' }],
+    lanes: [{ id: 'main', label: 'Main', color: 'blue' }, { id: 'exits', label: 'Exits', color: 'orange' }],
+    elements: {
+      plain: box('plain', 'a', 0),
+      parse: { ...box('parse', 'a', 1), lane: 'main' }, apply: { ...box('apply', 'b', 1), lane: 'main' },
+      stop: { ...box('stop', 'b', 2), lane: 'exits' },
+      aside: { kind: 'box', id: 'aside', title: 'Prior art', near: { of: 'stop', side: 'right' } },
+      stray: { kind: 'box', id: 'stray', title: 'Stray', near: { of: 'gone', side: 'left' } },
+      w1: wire('w1', 'parse', 'stop'),
+    },
+  });
+  const layout = layoutBoard(lanedBoard);
+  const boxById = new Map(layout.elements.flatMap((element) => (element.kind === 'box' ? [[element.id, element] as const] : [])));
+  assert.deepEqual(layout.bands.map((band) => band.label), ['', 'Main', 'Exits']);
+  const [unlaned, main, exits] = layout.bands;
+  assert.ok(unlaned && main && exits);
+  const plain = boxById.get('plain');
+  const parse = boxById.get('parse');
+  const stop = boxById.get('stop');
+  const aside = boxById.get('aside');
+  assert.ok(plain && parse && stop && aside);
+  assert.ok(plain.y + plain.height <= main.y && parse.y > main.y && parse.y + parse.height <= exits.y && stop.y > exits.y, 'each lane is its own row band, top to bottom');
+  assert.equal(aside.x, stop.x + stop.width + 60);
+  assert.equal(aside.y + aside.height / 2, stop.y + stop.height / 2);
+  assert.ok(layout.warnings.includes('box stray sits near gone, which is not placed on the board'));
+  assert.deepEqual(layout.warnings.filter((warning) => warning.includes('runs through')), []);
+});

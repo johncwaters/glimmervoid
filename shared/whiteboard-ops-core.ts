@@ -1,5 +1,6 @@
 import { Box, Frame, Note, Unit, Wire, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Board, BoardChange, Element, Op } from './contracts/whiteboard.ts';
+import { layoutBoard } from './whiteboard-layout-core.ts';
 import { findDependencyCycle, unitsOf } from './whiteboard-plan-core.ts';
 
 type Author = { id: string; name: string };
@@ -37,13 +38,32 @@ function checkReferences(board: Board, element: Element): OpOutcome {
 }
 
 function checkBoxReferences(board: Board, box: Box): OpOutcome {
-  if (!board.columns.some((column) => column.id === box.column)) {
+  if (box.column === null && box.near === null && box.at === null) {
+    return refuse(`box ${box.id} needs a place: a column, near another box, or at a point`);
+  }
+  if (box.column !== null && !board.columns.some((column) => column.id === box.column)) {
     return refuse(`box ${box.id} names column ${box.column}, which the board does not have, so add it with a columns op first`);
   }
   if (box.lane !== null && !board.lanes.some((lane) => lane.id === box.lane)) {
     return refuse(`box ${box.id} names lane ${box.lane}, which the board does not have, so add it with a lanes op first`);
   }
+  if (box.near === null) return OK;
+  if (box.near.of === box.id) return refuse(`box ${box.id} cannot sit near itself`);
+  if (!isBox(board, box.near.of)) return refuse(`box ${box.id} sits near ${box.near.of}, which is not a box`);
+  if (nearChainReaches(board, box.near.of, box.id)) return refuse(`box ${box.id} sits near ${box.near.of}, which already sits near ${box.id}, so they would place each other`);
   return OK;
+}
+
+function nearChainReaches(board: Board, startId: string, soughtId: string): boolean {
+  const visitedIds = new Set<string>();
+  let currentId: string | undefined = startId;
+  while (currentId !== undefined && !visitedIds.has(currentId)) {
+    if (currentId === soughtId) return true;
+    visitedIds.add(currentId);
+    const current: Element | undefined = board.elements[currentId];
+    currentId = current?.kind === 'box' ? current.near?.of : undefined;
+  }
+  return false;
 }
 
 function checkUnitReferences(board: Board, unit: Unit): OpOutcome {
@@ -85,6 +105,7 @@ function setFields(board: Board, id: string, fields: Record<string, unknown>, au
 function removeElement(board: Board, id: string): OpOutcome {
   const existing = board.elements[id];
   if (!existing) return refuse(`no element has id ${id}`);
+  if (existing.kind === 'box') pinBoxesNear(board, id);
   delete board.elements[id];
   if (existing.kind === 'unit') {
     for (const unit of unitsOf(board)) {
@@ -95,6 +116,17 @@ function removeElement(board: Board, id: string): OpOutcome {
   if (existing.kind !== 'box') return OK;
   for (const element of Object.values(board.elements)) removeDependent(board, element, id);
   return OK;
+}
+
+function pinBoxesNear(board: Board, removedBoxId: string): void {
+  const nearBoxes = Object.values(board.elements).flatMap((element) => (element.kind === 'box' && element.near?.of === removedBoxId ? [element] : []));
+  if (nearBoxes.length === 0) return;
+  const layout = layoutBoard(board);
+  for (const box of nearBoxes) {
+    const laidOut = layout.elements.find((element) => element.id === box.id);
+    if (!laidOut || laidOut.kind !== 'box') continue;
+    board.elements[box.id] = { ...box, near: null, at: { x: laidOut.x, y: laidOut.y - layout.pinnedOffsetY } };
+  }
 }
 
 function removeDependent(board: Board, element: Element, removedBoxId: string): void {
@@ -122,11 +154,18 @@ function resolveNote(board: Board, id: string, author: Author): OpOutcome {
   return OK;
 }
 
-function replaceColumns(board: Board, columns: Board['columns']): OpOutcome {
+function replaceColumns(board: Board, columns: Board['columns'], moveByColumnId: Readonly<Record<string, string>>): OpOutcome {
   const columnIds = new Set(columns.map((column) => column.id));
   if (columnIds.size !== columns.length) return refuse('column ids must be unique');
-  const strandedBox = Object.values(board.elements).find((element) => element.kind === 'box' && !columnIds.has(element.column));
-  if (strandedBox) return refuse(`box ${strandedBox.id} is still in a removed column, so move or remove it first`);
+  const strayTarget = Object.entries(moveByColumnId).find(([, targetId]) => !columnIds.has(targetId));
+  if (strayTarget) return refuse(`move sends column ${strayTarget[0]} to ${strayTarget[1]}, which is not in the new columns`);
+  const movedBoxes = Object.values(board.elements).flatMap((element) => {
+    if (element.kind !== 'box' || element.column === null) return [];
+    return [{ ...element, column: Object.hasOwn(moveByColumnId, element.column) ? moveByColumnId[element.column] ?? element.column : element.column }];
+  });
+  const strandedBox = movedBoxes.find((box) => box.column !== null && !columnIds.has(box.column));
+  if (strandedBox) return refuse(`box ${strandedBox.id} is still in removed column ${strandedBox.column}, so name it in move or remove the box first`);
+  for (const box of movedBoxes) board.elements[box.id] = box;
   board.columns = columns;
   return OK;
 }
@@ -147,7 +186,7 @@ function applyOne(board: Board, op: Op, author: Author): OpOutcome {
     case 'set': return setFields(board, op.id, op.fields, author);
     case 'remove': return removeElement(board, op.id);
     case 'resolve': return resolveNote(board, op.id, author);
-    case 'columns': return replaceColumns(board, op.columns);
+    case 'columns': return replaceColumns(board, op.columns, op.move);
     case 'lanes': return replaceLanes(board, op.lanes);
     case 'board':
       if (op.title !== undefined) board.title = op.title;

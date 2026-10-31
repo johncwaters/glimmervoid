@@ -194,6 +194,17 @@
   stroke-dasharray: 2 5;
 }
 
+.wb-band-rule {
+  stroke: var(--wb-line);
+  stroke-width: 1;
+  opacity: 0.6;
+}
+
+.wb-band-label {
+  font-size: var(--type-meta);
+  font-weight: 700;
+}
+
 .wb-box { cursor: move; }
 
 .wb-box-outline {
