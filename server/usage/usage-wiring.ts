@@ -673,7 +673,6 @@ function createUsageWiring({
       planWindowLanes: report.planWindowLanes,
       budget: report.budget,
       savings,
-      tokenLimit: report.tokenLimit,
       yourDay: cfg.yourDay ? report.yourDay : null,
       pricing: { source: pricing.source, fetchedAt: pricing.fetchedAt, missing: report.pricing.missing },
       scan: {

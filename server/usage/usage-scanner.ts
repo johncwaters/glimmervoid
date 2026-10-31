@@ -27,7 +27,7 @@ import {
 import type { UsageEntry, UsageGenerationRollupRow } from './core/usage-entry-core.ts';
 import { grokDedupIdentity, parseGrokUsageLine } from './core/usage-grok-core.ts';
 import { kimiDedupIdentity, parseKimiUsageLine } from './core/usage-kimi-core.ts';
-import { FIVE_HOUR_WINDOW_MS, SEVEN_DAY_WINDOW_MS, laneRollup, laneRollupSince } from './core/usage-lane-core.ts';
+import { SEVEN_DAY_WINDOW_MS, laneRollup, laneRollupSince } from './core/usage-lane-core.ts';
 import type { PlanWindowStarts } from './core/usage-lane-core.ts';
 import { costForEntry, lookupModelPrice } from './core/usage-pricing-core.ts';
 import { activityKey, buildYourDay, parseClaudeActivityLine, parseCodexActivityLine, pruneActivity } from './core/usage-your-day-core.ts';
@@ -71,7 +71,6 @@ const LINE_YIELD_INTERVAL = 5000;
 const FILE_YIELD_INTERVAL = 64;
 const SYNTHETIC_PRIMARY = Symbol('syntheticPrimary');
 const ANOMALY_BASELINE_DAYS = 30;
-const MS_PER_HOUR = 60 * 60 * 1000;
 
 const noopLogger = Object.freeze({ warn: () => {} });
 
@@ -910,7 +909,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     const lanes = getRecordedLanes();
     if (!lanes) return null;
     const claudeEntries = entries.filter((entry) => isClaudeEntry(entry));
-    const fiveHourStartMs = planWindowStarts?.fiveHour ?? buildBlocks(claudeEntries, { blockHours: FIVE_HOUR_WINDOW_MS / MS_PER_HOUR, now }).activeBlock?.startTs ?? null;
+    const fiveHourStartMs = planWindowStarts?.fiveHour ?? null;
     const sevenDayStartMs = planWindowStarts?.sevenDay ?? now - SEVEN_DAY_WINDOW_MS;
     const retainedSinceMs = now - entryRetentionDays() * 24 * 60 * 60 * 1000;
     const rollupWhenRetained = (windowStartMs: number | null) => (
@@ -951,7 +950,6 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
       byLane: buildLaneRows(reportRetainDays, now),
       yourDay: yourDayAt(now),
       planWindowLanes: buildPlanWindowLanes(planWindowStarts, now),
-      tokenLimit: blockSummary.tokenLimit,
       pricing: { missing: Array.from(missingModels).sort() },
       scan: {
         dirs: dirs.slice(),

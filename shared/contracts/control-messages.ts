@@ -621,7 +621,6 @@ const serverVariants = [
     planWindowLanes: z.unknown().nullable().optional(),
     budget: z.unknown().optional(),
     savings: z.unknown().optional(),
-    tokenLimit: z.unknown().nullable().optional(),
     yourDay: YourDay.nullable().optional(),
     pricing: opaqueObject.optional(),
     scan: opaqueObject.optional(),

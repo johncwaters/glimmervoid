@@ -201,30 +201,6 @@
 
 .usage-pace-swatch[data-part="tick"] { width: 2px; background: var(--text-head); }
 
-.usage-window {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 12px 14px;
-  border: 1px solid var(--border-dim);
-  border-radius: var(--radius);
-}
-
-.usage-window-figure {
-  margin: 4px 0 0;
-  font-size: var(--type-display);
-  font-weight: 700;
-  color: var(--text-head);
-  font-variant-numeric: tabular-nums;
-}
-
-.usage-window-sub {
-  margin: 0;
-  font-size: var(--type-meta);
-  color: var(--text-dim);
-  font-variant-numeric: tabular-nums;
-}
-
 .usage-drills {
   display: flex;
   flex-direction: column;
@@ -773,10 +749,6 @@ html[data-layout="phone"] .usage-content:not([data-screen="overview"]) .usage-ov
 
 .usage-share-cell {
   text-align: right;
-}
-
-.usage-ago {
-  font-variant-numeric: tabular-nums;
 }
 
 .usage-blocks {

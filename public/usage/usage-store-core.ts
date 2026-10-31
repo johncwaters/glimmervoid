@@ -3,23 +3,6 @@ import type { PlanLimitsVendor } from '#shared/contracts/control-messages.ts';
 import type { YourDay } from '#shared/contracts/your-day.ts';
 import { numberOr, textOr } from '#shared/coerce.ts';
 
-interface UsageTokenLimit {
-  max?: unknown;
-  pct?: unknown;
-}
-
-interface UsageProjection {
-  projectedTokens?: unknown;
-  projectedCostUSD?: unknown;
-  remainingMinutes?: unknown;
-}
-
-interface UsageBurn {
-  tokensPerMinute?: unknown;
-  tokensPerMinuteExCache?: unknown;
-  costPerHour?: unknown;
-}
-
 export interface UsageBlock {
   startTs?: unknown;
   endTs?: unknown;
@@ -27,8 +10,6 @@ export interface UsageBlock {
   costUSD?: unknown;
   isActive?: unknown;
   isGap?: unknown;
-  burn?: UsageBurn;
-  projection?: UsageProjection;
 }
 
 export interface UsageBudgetRow {
@@ -85,8 +66,6 @@ export interface UsageReport {
   byLane?: unknown;
   planWindowLanes?: { fiveHour?: unknown; sevenDay?: unknown } | null;
   budget?: { rows?: unknown } | null;
-  tokenLimit?: UsageTokenLimit | null;
-  activeBlock?: UsageBlock | null;
   anomaly?: UsageAnomaly | null;
   daily?: unknown;
   blocks?: unknown;
@@ -158,31 +137,11 @@ export function formatTokens(value: unknown) {
   return `${sign}${trimTrailingZeros((abs / 1e9).toFixed(2))}B`;
 }
 
-function tokenLimitTone(pct: unknown) {
+function planWindowTone(pct: unknown) {
   if (typeof pct !== 'number' || !Number.isFinite(pct)) return 'ok';
   if (pct >= 100) return 'crit';
   if (pct >= TOKEN_LIMIT_WARN_PCT) return 'warn';
   return 'ok';
-}
-
-function limitMax(tokenLimit: UsageTokenLimit | null | undefined) {
-  const max = numberOr(tokenLimit?.max, null);
-  if (max === null || max <= 0) return null;
-  return max;
-}
-
-function limitPct(tokenLimit: UsageTokenLimit | null | undefined) {
-  const max = limitMax(tokenLimit);
-  const ratio = numberOr(tokenLimit?.pct, null);
-  if (max === null || ratio === null) return null;
-  return ratio * 100;
-}
-
-function projectedLimitPct(projection: UsageProjection | null | undefined, tokenLimit: UsageTokenLimit | null | undefined) {
-  const max = limitMax(tokenLimit);
-  const projected = numberOr(projection?.projectedTokens, null);
-  if (max === null || projected === null) return null;
-  return (projected / max) * 100;
 }
 
 const BUDGET_ATTENTION_PCT = 90;
@@ -228,21 +187,9 @@ export function planLimitsVendorOf(planLimits: PlanLimits | null | undefined): P
   return 'claude';
 }
 
-function officialFiveHourPct(planLimits: PlanLimits | null | undefined) {
-  return planWindowOf(planLimits, 'fiveHour')?.pct ?? null;
-}
-
-function blockAttentionTone(report: UsageReport | null | undefined, planLimits: PlanLimits | null = null) {
-  const official = officialFiveHourPct(planLimits);
-  if (official !== null) return tokenLimitTone(official);
-  const current = tokenLimitTone(limitPct(report?.tokenLimit));
-  if (current !== 'ok') return current;
-  return tokenLimitTone(projectedLimitPct(report?.activeBlock?.projection, report?.tokenLimit));
-}
-
 export function usageAttentionSignature(report: UsageReport | null | undefined, planLimits: PlanLimits | null = null) {
   const parts: string[] = [];
-  const tone = blockAttentionTone(report, planLimits);
+  const tone = planWindowTone(planWindowOf(planLimits, 'fiveHour')?.pct);
   if (tone !== 'ok') parts.push(`block:${tone}`);
   if (report?.anomaly?.daily) parts.push('anomaly:daily');
   if (report?.anomaly?.burn) parts.push('anomaly:burn');

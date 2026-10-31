@@ -549,16 +549,11 @@ function burnAnomalySentence(burn: UsageAnomaly['burn']) {
   return `This block is burning ${formatRatio(burn.ratio)} the usual rate: ${formatTokens(burn.current)} tokens per minute against ${formatTokens(burn.baseline)}.`;
 }
 
-export function anomalyLine(anomaly: UsageAnomaly | null | undefined) {
+function anomalyLine(anomaly: UsageAnomaly | null | undefined) {
   return [dailyAnomalySentence(anomaly?.daily), burnAnomalySentence(anomaly?.burn)].filter(Boolean).join(' ');
 }
 
-export function anomalyTone(anomaly: UsageAnomaly | null | undefined) {
-  if (anomaly?.daily || anomaly?.burn) return 'warn';
-  return 'ok';
-}
-
-export function hasAnomaly(anomaly: UsageAnomaly | null | undefined) {
+function hasAnomaly(anomaly: UsageAnomaly | null | undefined) {
   return Boolean(anomaly?.daily || anomaly?.burn);
 }
 
@@ -881,11 +876,20 @@ function pacePressure(window: PaceWindow) {
   return Math.max(window.usedPct, window.projectedPct ?? 0);
 }
 
+function tightestWindowByVendor(windows: readonly PaceWindow[]) {
+  const tightestByVendor = new Map<PlanLimitsVendor, PaceWindow>();
+  for (const window of windows) {
+    const tightest = tightestByVendor.get(window.vendor);
+    if (!tightest || window.usedPct > tightest.usedPct) tightestByVendor.set(window.vendor, window);
+  }
+  return [...tightestByVendor.values()];
+}
+
 function roomSentence(windows: readonly PaceWindow[], excludedVendor: PlanLimitsVendor) {
-  const others = windows.filter((window) => window.vendor !== excludedVendor && window.key === 'fiveHour' && window.tone !== 'fail');
+  const others = tightestWindowByVendor(windows).filter((window) => window.vendor !== excludedVendor && window.tone !== 'fail');
   if (others.length === 0) return '';
   const roomiest = [...others].sort((left, right) => left.usedPct - right.usedPct)[0];
-  return `${roomiest.vendorLabel} has ${roundedPercentText(100 - roomiest.usedPct)} of its 5-hour window left.`;
+  return `${roomiest.vendorLabel} has ${roundedPercentText(100 - roomiest.usedPct)} of its ${roomiest.windowLabel} window left.`;
 }
 
 function untilResetText(resetsAtMs: number | null, now: number) {
@@ -941,15 +945,6 @@ export function paceSubText(window: PaceWindow) {
   if (window.tone === 'fail') return 'limit reached';
   if (window.projectedPct === null) return window.elapsedPct === null ? '' : 'too early to project';
   return `about ${roundedPercentText(window.projectedPct)} at reset`;
-}
-
-export function lastActivityMs(blocks: unknown) {
-  const rows: UsageWireRow[] = Array.isArray(blocks) ? blocks : [];
-  return rows.reduce<number | null>((latest, block) => {
-    const ts = numberOr(block?.lastEntryTs, null);
-    if (ts === null || block?.isGap === true) return latest;
-    return latest === null ? ts : Math.max(latest, ts);
-  }, null);
 }
 
 export type UsageDetailScreen = 'report' | 'history' | 'overhead' | 'budgets';

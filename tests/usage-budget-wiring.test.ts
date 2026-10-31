@@ -59,7 +59,6 @@ function fakeScanner(
       yourDay: null,
       planWindowLanes: PLAN_WINDOW_LANES,
       budget: BUDGET_BLOCK,
-      tokenLimit: null,
       pricing: { missing: [] },
       scan: { dirs: [], files: 0, entries: 0, lastScanMs: 0, partial: false, outcome: 'complete', ioFailures: 0, resolutionError: null },
     }),

@@ -20,8 +20,6 @@ import {
   SESSION_ROW_LIMIT,
   USAGE_CAVEAT_SHORT,
   USAGE_DISABLED_HINT,
-  anomalyLine,
-  anomalyTone,
   ariaSortValue,
   blockHistoryRows,
   blockLabel,
@@ -39,7 +37,6 @@ import {
   formatUsd,
   glimmervoidLaneCostUSD,
   glimmervoidOverhead,
-  hasAnomaly,
   hasLaneAttribution,
   heatmapCells,
   heatmapCellTitle,
@@ -50,7 +47,6 @@ import {
   laneLabel,
   laneRows,
   laneSessionsText,
-  lastActivityMs,
   missingPricingLine,
   modelLabel,
   modelRowPrefix,
@@ -377,37 +373,6 @@ function buildPaceLegend() {
   return legend;
 }
 
-function buildWindowCard(now: number) {
-  const card = el('section', 'usage-window');
-  const blockHours = _usage.report?.blockHours;
-  const hours = typeof blockHours === 'number' && Number.isFinite(blockHours) ? blockHours : 5;
-  card.append(el('h3', 'usage-eyebrow', `This ${hours}-hour window, Claude`));
-  const block = _usage.report?.activeBlock;
-  if (!block) {
-    card.append(buildIdleLine());
-    return card;
-  }
-  card.append(el('p', 'usage-window-figure', `${formatUsd(block.costUSD ?? 0)} so far`));
-  const rate = Number.isFinite(block.burn?.costPerHour) ? `${formatUsd(block.burn?.costPerHour)} an hour` : '';
-  card.append(el('p', 'usage-window-sub', [rate, `${formatTokens(block.tokens ?? 0)} tokens`].filter(Boolean).join(', ')));
-  const projectedCost = block.projection?.projectedCostUSD;
-  const endClock = resetClockText(block.endTs, now);
-  if (Number.isFinite(projectedCost) && endClock) card.append(el('p', 'usage-meta', `Heading for ${formatUsd(projectedCost)} by ${endClock}`));
-  const anomaly = buildAnomalyLine();
-  if (anomaly) card.append(anomaly);
-  return card;
-}
-
-function buildIdleLine() {
-  const lastTs = lastActivityMs(_usage.report?.blocks);
-  if (lastTs === null) return el('p', 'usage-empty', 'No Claude activity in this range. A window opens with the next Claude turn.');
-  const line = el('p', 'usage-empty', 'No window open. Last Claude activity ');
-  const ago = el('span', 'usage-ago', '');
-  _ticker.track(ago, lastTs, formatAgo);
-  line.append(ago, '.');
-  return line;
-}
-
 function buildDrillRow(screen: UsageDetailScreen, label: string, detail: string, value: string) {
   const button = el('button', 'usage-drill');
   button.type = 'button';
@@ -477,7 +442,7 @@ function buildOverview() {
     overview.append(buildRefreshControls());
     return overview;
   }
-  overview.append(buildWindowCard(now), buildDrillRows(), buildRefreshControls());
+  overview.append(buildDrillRows(), buildRefreshControls());
   return overview;
 }
 
@@ -778,14 +743,6 @@ function buildLanesTable() {
     body.append(tr);
   }
   return wrap;
-}
-
-function buildAnomalyLine() {
-  const anomaly = _usage.report?.anomaly;
-  if (!hasAnomaly(anomaly)) return null;
-  const line = el('p', 'usage-meta', anomalyLine(anomaly));
-  line.dataset.tone = anomalyTone(anomaly);
-  return line;
 }
 
 function buildBlockHistorySection() {

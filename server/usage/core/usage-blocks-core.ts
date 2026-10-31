@@ -22,7 +22,7 @@ const HOUR_MS = 60 * 60 * 1000;
 function buildBlocks(
   entriesAsc: UsageEntryLike[] | null | undefined,
   { blockHours = 5, now = Date.now() }: { blockHours?: number; now?: number } = {},
-): { blocks: UsageBlock[]; activeBlock: UsageBlock | null; tokenLimit: { max: number; pct: number; warn: boolean } | null } {
+): { blocks: UsageBlock[]; activeBlock: UsageBlock | null } {
   const duration = blockHours * HOUR_MS;
   const blocks: UsageBlock[] = [];
   let current: UsageBlock | null = null;
@@ -56,12 +56,7 @@ function buildBlocks(
   }
 
   const activeBlock = blocks.find((block) => block.isActive) || null;
-  const completedBlocks = blocks.filter((block) => !block.isGap && !block.isActive);
-  const max = completedBlocks.reduce((best, block) => Math.max(best, block.tokens), 0);
-  const tokenLimit = max > 0 && activeBlock
-    ? { max, pct: activeBlock.tokens / max, warn: activeBlock.tokens / max >= 0.8 }
-    : null;
-  return { blocks, activeBlock, tokenLimit };
+  return { blocks, activeBlock };
 }
 
 function burnRate(
