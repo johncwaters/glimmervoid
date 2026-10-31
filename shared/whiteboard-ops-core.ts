@@ -10,6 +10,16 @@ type OpOutcome = { ok: true } | { ok: false; error: string };
 const ELEMENT_SCHEMAS = Object.freeze({ box: Box, frame: Frame, wire: Wire, note: Note, unit: Unit, panel: Panel });
 const NOTE_PREVIEW_CHARS = 80;
 const OK: OpOutcome = { ok: true };
+const OPERATOR_AUTHOR: Author = Object.freeze({ id: 'operator', name: 'operator' });
+
+function canKeepNoteStamps(author: Author): boolean {
+  return author.id === OPERATOR_AUTHOR.id;
+}
+
+function storedNote(note: Note, author: Author): Note {
+  if (!canKeepNoteStamps(author)) return { ...note, author: author.name, resolvedBy: null };
+  return { ...note, author: note.author === '' ? author.name : note.author };
+}
 
 function refuse(error: string): OpOutcome {
   return { ok: false, error };
@@ -96,7 +106,7 @@ function addElement(board: Board, element: Element, author: Author): OpOutcome {
   if (board.elements[element.id]) return refuse(`an element with id ${element.id} already exists`);
   if (Object.keys(board.elements).length >= WHITEBOARD_LIMITS.elements) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.elements} elements`);
   if (element.kind === 'unit' && unitsOf(board).length >= WHITEBOARD_LIMITS.units) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.units} units`);
-  const stored: Element = element.kind === 'note' ? { ...element, author: author.name, resolvedBy: null } : element;
+  const stored: Element = element.kind === 'note' ? storedNote(element, author) : element;
   const references = checkReferences(board, stored);
   if (!references.ok) return references;
   board.elements[element.id] = stored;
@@ -112,8 +122,8 @@ function setFields(board: Board, id: string, fields: Record<string, unknown>, au
   const existing = board.elements[id];
   if (!existing) return refuse(`no element has id ${id}`);
   if ('kind' in fields || 'id' in fields) return refuse('set cannot change an element kind or id; remove it and add a new one');
-  if ('author' in fields || 'resolvedBy' in fields) return refuse('set cannot change who wrote or resolved a note; resolve it with a resolve op');
-  const parsed = ELEMENT_SCHEMAS[existing.kind].safeParse({ ...existing, ...fields, ...rewrittenNoteStamp(existing, fields, author) });
+  if (!canKeepNoteStamps(author) && ('author' in fields || 'resolvedBy' in fields)) return refuse('set cannot change who wrote or resolved a note; resolve it with a resolve op');
+  const parsed = ELEMENT_SCHEMAS[existing.kind].safeParse({ ...existing, ...rewrittenNoteStamp(existing, fields, author), ...fields });
   if (!parsed.success) return refuse(`${id}: ${parsed.error.issues[0]?.message ?? 'invalid fields'}`);
   const references = checkReferences(board, parsed.data);
   if (!references.ok) return references;
@@ -297,5 +307,5 @@ function createBoard({ id, title, nowMs }: { id: string; title: string; nowMs: n
   };
 }
 
-export { applyOps, createBoard };
+export { OPERATOR_AUTHOR, applyOps, createBoard };
 export type { ApplyResult, Author };

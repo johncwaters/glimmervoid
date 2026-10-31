@@ -3,9 +3,9 @@ import type { Board, BoardSummary, Element, Op } from '#shared/contracts/whitebo
 import { WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import { createActionStatus } from '../action-status.ts';
 import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
-import { el } from '../dom-helpers.ts';
+import { el, isRealInputOwningKey } from '../dom-helpers.ts';
 import { findSessionUi, sessionName } from '../session-card/card-registry.ts';
-import { buildDialogShell, openConfirmDialog } from '../session-card/modal.ts';
+import { buildDialogShell, isModalOpen, openConfirmDialog } from '../session-card/modal.ts';
 import { setTerminalActiveViewer } from '../session-card/terminal.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import { createBoardEditor, newElementId } from './board-edit.ts';
@@ -67,6 +67,7 @@ let dockedSessionId: string | null = null;
 const status = createActionStatus('action-status wb-status');
 const dockStatus = createActionStatus('action-status wb-status');
 const historyByBoardId = new Map<string, UndoHistory>();
+let historyQueue: Promise<unknown> = Promise.resolve();
 
 function openTextDialog(options: TextDialogOptions): void {
   const { dialog, close, actions, btnCancel } = buildDialogShell({ title: options.title });
@@ -127,14 +128,28 @@ function selectedSummary(): BoardSummary | null {
   return boardSummariesOf().find((summary) => summary.id === selectedBoardId) ?? null;
 }
 
-async function sendRecordedOps(boardId: string, ops: Op[]): Promise<{ ok: true } | { ok: false; error: string }> {
+function inHistoryOrder<Outcome>(task: () => Promise<Outcome>): Promise<Outcome> {
+  const queued = historyQueue.then(task);
+  historyQueue = queued.catch(() => undefined);
+  return queued;
+}
+
+function sendRecordedOps(boardId: string, ops: Op[]): Promise<{ ok: true } | { ok: false; error: string }> {
+  return inHistoryOrder(() => sendAndRecord(boardId, ops));
+}
+
+async function sendAndRecord(boardId: string, ops: Op[]): Promise<{ ok: true } | { ok: false; error: string }> {
   const before = selectedBoard();
   const outcome = await sendBoardOps(boardId, ops);
   if (outcome.ok && before?.id === boardId) historyByBoardId.set(boardId, recordEdit(historyByBoardId.get(boardId) ?? EMPTY_HISTORY, inverseOps(before, ops)));
   return outcome;
 }
 
-async function stepHistory(direction: UndoDirection): Promise<void> {
+function stepHistory(direction: UndoDirection): Promise<void> {
+  return inHistoryOrder(() => runHistoryStep(direction));
+}
+
+async function runHistoryStep(direction: UndoDirection): Promise<void> {
   const boardId = selectedBoardId;
   const board = selectedBoard();
   if (!boardId || !board) return;
@@ -394,6 +409,19 @@ function paintActiveTool(activeTool: BoardTool): void {
   for (const [tool, button] of parts?.toolButtons ?? []) button.setAttribute('aria-pressed', String(tool === activeTool));
 }
 
+function historyDirectionOf(event: KeyboardEvent): UndoDirection | null {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey || event.code !== 'KeyZ') return null;
+  return event.shiftKey ? 'redo' : 'undo';
+}
+
+function onHistoryKey(panel: HTMLElement, event: KeyboardEvent): void {
+  const direction = historyDirectionOf(event);
+  if (!direction || !panel.checkVisibility() || isModalOpen() || isRealInputOwningKey(event)) return;
+  if (document.activeElement?.classList.contains('xterm-helper-textarea')) return;
+  event.preventDefault();
+  void stepHistory(direction);
+}
+
 function mountBoardsView(panel: HTMLElement): void {
   const top = el('div', 'wb-top');
   const list = el('div', 'wb-board-list');
@@ -458,9 +486,9 @@ function mountBoardsView(panel: HTMLElement): void {
     onOpenLinkedBoard: selectBoard,
     onConnectBoxes: connectBoxes,
     onToolChange: paintActiveTool,
-    onHistoryStep: (direction) => void stepHistory(direction),
   });
 
+  document.addEventListener('keydown', (event) => onHistoryKey(panel, event));
   onBoardListChanged(paintList);
   onBoardChanged((boardId) => {
     if (boardId !== selectedBoardId) return;

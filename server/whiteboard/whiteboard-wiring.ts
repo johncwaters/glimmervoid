@@ -7,7 +7,7 @@ import type { Board, BoardSummary, Op, WhiteboardAgentRequest } from '../../shar
 import type { AgentReplyBodyOf } from '../../shared/contracts/session.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
-import { applyOps, createBoard } from '../../shared/whiteboard-ops-core.ts';
+import { OPERATOR_AUTHOR, applyOps, createBoard } from '../../shared/whiteboard-ops-core.ts';
 import type { Author } from '../../shared/whiteboard-ops-core.ts';
 import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
 import { unitsOf } from '../../shared/whiteboard-plan-core.ts';
@@ -62,7 +62,6 @@ type OperatorReply = {
   summary?: BoardSummary;
 };
 
-const OPERATOR_AUTHOR: Author = Object.freeze({ id: 'operator', name: 'operator' });
 const BOARD_DELETION_AUTHOR: Author = Object.freeze({ id: 'glimmervoid', name: 'Glimmervoid' });
 const DELETED_BOARD_TEXT = 'that board was deleted';
 

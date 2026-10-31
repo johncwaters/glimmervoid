@@ -1,5 +1,4 @@
 import type { Board, Element as BoardElement, Op } from '#shared/contracts/whiteboard.ts';
-import type { UndoDirection } from '#shared/whiteboard-undo-core.ts';
 import { el } from '../dom-helpers.ts';
 import type { Rect } from '#shared/whiteboard-layout-core.ts';
 import type { BoardRenderer } from './board-render.ts';
@@ -30,7 +29,6 @@ interface BoardEditorOptions {
   onOpenLinkedBoard: (boardId: string) => void;
   onConnectBoxes: (fromBoxId: string, toBoxId: string) => void;
   onToolChange: (tool: BoardTool) => void;
-  onHistoryStep: (direction: UndoDirection) => void;
 }
 
 type Gesture =
@@ -472,11 +470,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function onKeyDown(event: KeyboardEvent): void {
     if (event.target !== svg) return;
-    if ((event.metaKey || event.ctrlKey) && !event.altKey && event.code === 'KeyZ') {
-      event.preventDefault();
-      options.onHistoryStep(event.shiftKey ? 'redo' : 'undo');
-      return;
-    }
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     if (event.key === 'Delete' || event.key === 'Backspace') {
       event.preventDefault();

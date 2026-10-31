@@ -1,15 +1,14 @@
 import type { Board, Element, Op } from './contracts/whiteboard.ts';
-import { applyOps } from './whiteboard-ops-core.ts';
+import { OPERATOR_AUTHOR, applyOps } from './whiteboard-ops-core.ts';
 
 type UndoDirection = 'undo' | 'redo';
 type UndoHistory = Readonly<Record<UndoDirection, readonly Op[][]>>;
 
 const UNDO_LIMIT = 100;
 const EMPTY_HISTORY: UndoHistory = Object.freeze({ undo: [], redo: [] });
-const LOCAL_AUTHOR = Object.freeze({ id: 'operator', name: 'operator' });
 const EARLY_ADD_KINDS: ReadonlySet<Element['kind']> = new Set(['box', 'unit', 'panel']);
 const REMOVAL_ORDER: readonly Element['kind'][] = ['wire', 'note', 'frame', 'box', 'panel', 'unit'];
-const UNSETTABLE_FIELDS: ReadonlySet<string> = new Set(['kind', 'id', 'author', 'resolvedBy']);
+const UNSETTABLE_FIELDS: ReadonlySet<string> = new Set(['kind', 'id']);
 
 function isSameValue(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
@@ -35,11 +34,9 @@ function inDependencyOrder(elements: readonly Element[]): Element[] {
 
 function changedFields(current: Element, target: Element): Record<string, unknown> {
   const currentFields: Record<string, unknown> = { ...current };
-  return Object.fromEntries(Object.entries(target).filter(([field, value]) => !UNSETTABLE_FIELDS.has(field) && !isSameValue(currentFields[field], value)));
-}
-
-function wasResolvedSince(current: Element | undefined, target: Element): boolean {
-  return target.kind === 'note' && target.resolvedBy !== null && (current?.kind !== 'note' || current.resolvedBy === null);
+  const changed = Object.fromEntries(Object.entries(target).filter(([field, value]) => !UNSETTABLE_FIELDS.has(field) && !isSameValue(currentFields[field], value)));
+  if (target.kind !== 'note' || Object.keys(changed).length === 0) return changed;
+  return { ...changed, author: target.author, resolvedBy: target.resolvedBy };
 }
 
 function boardFieldOps(current: Board, target: Board): Op[] {
@@ -69,7 +66,6 @@ function restoringOps(current: Board, target: Board): Op[] {
     const fields = changedFields(existing, element);
     return Object.keys(fields).length === 0 ? [] : [{ op: 'set', id: element.id, fields }];
   });
-  const resolveOps: Op[] = targetElements.filter((element) => wasResolvedSince(current.elements[element.id], element)).map((element) => ({ op: 'resolve', id: element.id }));
   const { widen, narrow } = columnOps(current, target);
   return [
     ...(isSameValue(current.lanes, target.lanes) ? [] : [{ op: 'lanes', lanes: target.lanes } satisfies Op]),
@@ -78,14 +74,13 @@ function restoringOps(current: Board, target: Board): Op[] {
     ...added.filter((element) => EARLY_ADD_KINDS.has(element.kind)).map((element): Op => ({ op: 'add', element })),
     ...setOps,
     ...added.filter((element) => !EARLY_ADD_KINDS.has(element.kind)).map((element): Op => ({ op: 'add', element })),
-    ...resolveOps,
     ...narrow,
     ...boardFieldOps(current, target),
   ];
 }
 
 function inverseOps(before: Board, ops: readonly Op[]): Op[] {
-  const applied = applyOps(before, ops, LOCAL_AUTHOR, before.updatedAt);
+  const applied = applyOps(before, ops, OPERATOR_AUTHOR, before.updatedAt);
   if (!applied.ok) return [];
   return restoringOps(applied.board, before);
 }

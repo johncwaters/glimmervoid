@@ -288,28 +288,39 @@ test('styled lines carry their markers, a panel sits clear right of every box, a
   assert.equal(layout.warnings.filter((warning) => warning.includes('panel')).length, 0, layout.warnings.join('\n'));
 });
 
-test('undoing an operator edit restores the board it started from, cascades and column moves included, and the history keeps only the newest entries', () => {
+test('undoing an operator edit restores the board it started from, note authors, cascades and column moves included, while agents cannot forge a note author, and the history keeps only the newest entries', () => {
   const author = { id: 'operator', name: 'operator' };
   const decision = { kind: 'box', id: 'gate', title: 'gate', column: 'c', shape: 'decision', outputs: [{ id: 'ok', label: 'ok' }] };
   const before = applyOps(crowdedBoard, [
     { op: 'add', element: Board.shape.elements.valueType.parse(decision) },
     { op: 'add', element: Board.shape.elements.valueType.parse({ kind: 'wire', id: 'w1', from: 'gate', to: 'c1', fromOutput: 'ok' }) },
+    { op: 'set', id: 'n1', fields: { author: 'agent-c' } },
+    { op: 'set', id: 'n2', fields: { author: 'agent-c' } },
     { op: 'resolve', id: 'n2' },
   ], author, 1);
   assert.ok(before.ok);
+  const agentNote = Board.shape.elements.valueType.parse({ kind: 'note', id: 'n3', on: 'gate', text: 'agent finding', author: 'forged' });
+  const noted = applyOps(before.board, [{ op: 'add', element: agentNote }], { id: 'session-uuid', name: 'agent-a' }, 1);
+  assert.ok(noted.ok);
+  assert.equal(noted.board.elements.n3?.kind === 'note' && noted.board.elements.n3.author, 'agent-a');
+  const forged = applyOps(noted.board, [{ op: 'set', id: 'n3', fields: { author: 'operator', resolvedBy: 'operator' } }], { id: 'session-uuid', name: 'agent-a' }, 1);
+  assert.equal(forged.ok, false);
+  const resolved = applyOps(noted.board, [{ op: 'resolve', id: 'n3' }], { id: 'other-uuid', name: 'agent-b' }, 1);
+  assert.ok(resolved.ok);
+  const start = resolved.board;
   const edits: Op[] = [
+    { op: 'set', id: 'n3', fields: { text: 'rewritten by the operator' } },
     { op: 'remove', id: 'b1' },
     { op: 'set', id: 'gate', fields: { outputs: [], shape: 'box', title: 'renamed' } },
     { op: 'columns', columns: [{ id: 'a', title: 'Triggers' }, { id: 'z', title: 'merged' }], move: { b: 'z', c: 'z' } },
     { op: 'board', title: 'renamed board', legend: [{ tone: 'fail', dashed: false, back: false, label: 'gives up' }] },
   ];
-  const edited = applyOps(before.board, [{ op: 'remove', id: 'w1' }, ...edits], author, 2);
+  const edited = applyOps(start, [{ op: 'remove', id: 'w1' }, ...edits], author, 2);
   assert.ok(edited.ok);
-  const undone = applyOps(edited.board, inverseOps(before.board, [{ op: 'remove', id: 'w1' }, ...edits]), author, 3);
+  const undone = applyOps(edited.board, inverseOps(start, [{ op: 'remove', id: 'w1' }, ...edits]), author, 3);
   assert.ok(undone.ok, undone.ok ? '' : undone.error);
-  const withoutNoteAuthors = (board: Board) => Object.fromEntries(Object.entries(board.elements).map(([id, element]) => [id, element.kind === 'note' ? { ...element, author: '' } : element]));
-  const comparable = (board: Board) => ({ title: board.title, columns: board.columns, legend: board.legend, elements: withoutNoteAuthors(board) });
-  assert.deepEqual(comparable(undone.board), comparable(before.board));
+  const comparable = (board: Board) => ({ title: board.title, columns: board.columns, legend: board.legend, elements: board.elements });
+  assert.deepEqual(comparable(undone.board), comparable(start));
 
   let history = EMPTY_HISTORY;
   for (let index = 0; index <= UNDO_LIMIT; index += 1) history = recordEdit(history, [{ op: 'remove', id: `edit-${index}` }]);
