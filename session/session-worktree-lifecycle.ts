@@ -39,6 +39,8 @@ import { createSessionWorkspaceMembers } from "./session-workspace-members.ts";
 import type { WorkspaceMemberGit } from "./session-workspace-members.ts";
 import type { OwnedPathOwner } from "../shared/contracts/owned-paths.ts";
 import type { KeptWorkPath } from "../shared/contracts/control-messages.ts";
+import type { SeedDependencies } from "../server/git/dependency-clone.ts";
+import { describeDependencyCloneSkip, describeStaleDirs } from "../server/git/core/dependency-clone-core.ts";
 
 const WORKTREE_CHECK_DEBOUNCE_MS = 400;
 const GIT_NOT_FOUND_EXIT_CODE = 1;
@@ -161,6 +163,7 @@ interface WorktreeLifecycleOptions {
   worktreeRoot?: string | null;
   worktreeShare?: string[] | null;
   workspaceRepos?: string[] | null;
+  seedDependencies?: SeedDependencies | null;
   sessionName?: string;
   port: SessionPort;
 }
@@ -300,6 +303,7 @@ function createSessionWorktreeLifecycle({
   worktreeRoot = null,
   worktreeShare = null,
   workspaceRepos = null,
+  seedDependencies = null,
   sessionName = id,
   port,
 }: WorktreeLifecycleOptions) {
@@ -571,6 +575,7 @@ function createSessionWorktreeLifecycle({
     const provisioned = await setup.members.provision();
     if (provisioned.ok) {
       lifecycleState.provisionedMembers = provisioned.members;
+      for (const member of provisioned.members) await seedWorktreeDependencies(member.repoPath, member.dir, member.base ?? null);
       return true;
     }
     port.emit("worktree-blocked", { id, branch: setup.members.branch, notice: provisioned.error });
@@ -587,6 +592,7 @@ function createSessionWorktreeLifecycle({
         shareList: worktreeShare,
       })).catch(() => {});
       if (fresh) await syncFreshWorktree();
+      await seedWorktreeDependencies(currentProjectPath(), lifecycleState.worktreeDir, effectiveIntegrationBranch());
       return true;
     }
     const baseBranch = await resolveBaseForStart();
@@ -639,6 +645,7 @@ function createSessionWorktreeLifecycle({
           branch: workspace.branch,
           base: effectiveIntegrationBranch(),
         });
+        await seedWorktreeDependencies(currentProjectPath(), lifecycleState.worktreeDir, effectiveIntegrationBranch());
         return true;
       }
       lifecycleState.worktreeNotice = `session branch already checked out at ${workspace.conflictPath}; running in place`;
@@ -660,7 +667,24 @@ function createSessionWorktreeLifecycle({
     const syncWarning = forkSyncWarning(initialSync, workspace.base || baseBranch);
     if (syncWarning) port.emit("worktree-warning", { id, branch: workspace.base || null, notice: syncWarning });
     port.emit("worktree-ready", { id, worktreeDir: workspace.cwd, branch: workspace.branch, base: workspace.base || null });
+    await seedWorktreeDependencies(currentProjectPath(), workspace.cwd, workspace.base || null);
     return true;
+  }
+
+  async function seedWorktreeDependencies(mainCheckout: string, worktreeDir: string, branch: string | null): Promise<void> {
+    if (!seedDependencies) return;
+    const outcome = await seedDependencies({ mainCheckout, worktreeDir });
+    if (outcome.action === "cloned") {
+      console.log(`[session ${id}] cloned node_modules into ${worktreeDir} (${outcome.dirs.join(", ")}) in ${outcome.elapsedMs}ms`);
+      if (!outcome.staleDirs.length) return;
+      const staleNotice = describeStaleDirs(outcome.staleDirs);
+      console.log(`[session ${id}] ${staleNotice}`);
+      port.emit("worktree-warning", { id, branch, notice: staleNotice });
+      return;
+    }
+    const reason = describeDependencyCloneSkip(outcome.reason);
+    console.log(`[session ${id}] did not clone node_modules into ${worktreeDir}: ${reason}`);
+    if (outcome.notify) port.emit("worktree-warning", { id, branch, notice: reason });
   }
 
   async function hasUnmergedWork(): Promise<boolean> {

@@ -23,6 +23,7 @@ export const ConfigUpdate = z.object({
   branchGc: BranchGcControlSettings,
   worktreeAutoRebase: optionalBoolean('worktreeAutoRebase'),
   worktreeSyncOnStart: optionalBoolean('worktreeSyncOnStart'),
+  worktreeCloneDependencies: optionalBoolean('worktreeCloneDependencies'),
   worktreeRerere: optionalBoolean('worktreeRerere'),
   workflows: WorkflowsSettingsUpdate.optional(),
 }).omit({ port: true, worktreeShare: true }).strict();
@@ -190,6 +191,7 @@ export const Config = z.object({
   detectScheduledWakeups: optionalBoolean('detectScheduledWakeups'),
   worktreeAutoRebase: optionalBoolean('worktreeAutoRebase'),
   worktreeSyncOnStart: optionalBoolean('worktreeSyncOnStart'),
+  worktreeCloneDependencies: optionalBoolean('worktreeCloneDependencies'),
   worktreeRerere: optionalBoolean('worktreeRerere'),
   hooks: z.unknown().optional(),
   remote: z.object({
@@ -238,12 +240,14 @@ export const RUNTIME_CONFIG_SCALAR_KEYS = Object.freeze([
   ...CONFIG_SCALAR_KEYS,
   'worktreeAutoRebase',
   'worktreeSyncOnStart',
+  'worktreeCloneDependencies',
   'worktreeRerere',
 ]);
 export const HIDDEN_CONFIG_KEYS = Object.freeze([
   'detectScheduledWakeups',
   'worktreeAutoRebase',
   'worktreeSyncOnStart',
+  'worktreeCloneDependencies',
   'worktreeRerere',
   'hooks',
   'remote',

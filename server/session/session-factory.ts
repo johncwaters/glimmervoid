@@ -11,6 +11,7 @@ import type { RemoteLaunch, SessionOptions, SessionPlanReviewPort } from '../../
 import { getAdapter } from '../../session/adapters/index.ts';
 import { SHELL_AGENT_ID } from '../../shared/contracts/config.ts';
 import { DEFAULT_CONFIG } from '../config-store.ts';
+import { seedWorktreeDependencies } from '../git/dependency-clone.ts';
 import type { GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import { machineSkipsPermissionsByDefault, projectSkipsPermissions } from './core/session-registry-core.ts';
@@ -121,6 +122,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       liveWorktreeReview: config.liveWorktreeReview !== false,
       worktreeRoot: config.worktreeRoot || path.join(path.dirname(path.resolve(project.path)), '.glimmervoid-worktrees'),
       worktreeShare: config.worktreeShare || DEFAULT_CONFIG.worktreeShare,
+      seedDependencies: config.worktreeCloneDependencies === false ? null : seedWorktreeDependencies,
       detectBackgroundAgents: config.detectBackgroundAgents,
       detectScheduledWakeups: config.detectScheduledWakeups,
       hookTools: originalHookTools,

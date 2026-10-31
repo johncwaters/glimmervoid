@@ -73,6 +73,7 @@ import type { ScreenKeeperFactory } from "./screen-keeper.ts";
 import { createSessionHookLifecycle } from "./session-hook-lifecycle.ts";
 import type { HookRouterPort } from "./session-hook-lifecycle.ts";
 import { createSessionWorktreeLifecycle } from "./session-worktree-lifecycle.ts";
+import type { SeedDependencies } from "../server/git/dependency-clone.ts";
 import type { GitWorkspace } from "./session-worktree-lifecycle.ts";
 import { createSessionBackgroundTracking } from "./session-background-tracking.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
@@ -253,6 +254,7 @@ interface SessionOptions {
   worktreeRoot?: string | null;
   worktreeShare?: string[] | null;
   workspaceRepos?: string[];
+  seedDependencies?: SeedDependencies | null;
   agentDepth?: number;
   ownerId?: string | null;
   commitSigningProgram?: string | null;
@@ -454,6 +456,7 @@ class Session extends EventEmitter {
     worktreeRoot = null,
     worktreeShare = null,
     workspaceRepos = undefined,
+    seedDependencies = null,
 
     agentDepth = 0,
     ownerId = null,
@@ -641,6 +644,7 @@ class Session extends EventEmitter {
       worktreeRoot,
       worktreeShare,
       workspaceRepos,
+      seedDependencies,
       sessionName: name,
       port: {
         projectPath: () => this.path,

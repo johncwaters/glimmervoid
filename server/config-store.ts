@@ -89,6 +89,7 @@ const DEFAULT_CONFIG = {
 
   worktreeAutoRebase: true,
   worktreeSyncOnStart: true,
+  worktreeCloneDependencies: true,
 
   worktreeRerere: true,
   branchGc: {
