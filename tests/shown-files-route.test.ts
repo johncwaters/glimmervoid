@@ -146,6 +146,19 @@ test('show refuses another kind of file and a file over the cap, storing nothing
   });
   assert.equal(overCapStatus, 413);
 
+  const chunkedOverCapStatus = await new Promise<number>((resolve, reject) => {
+    const request = http.request(`${ctx().base}/agent/${SESSION_ID}/show`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${session?.agentToken}`, 'transfer-encoding': 'chunked', 'x-glimmervoid-show-name': 'render.mp4' },
+    }, (response) => {
+      response.resume();
+      resolve(response.statusCode ?? 0);
+    });
+    request.on('error', reject);
+    request.end(Buffer.alloc(SHOWN_FILE_CAP_BYTES + 1024 * 1024, 0x41));
+  });
+  assert.equal(chunkedOverCapStatus, 413);
+
   assert.equal(readShownIndex().length, before);
   assert.deepEqual(fs.readdirSync(shownDir()).filter((name) => name.startsWith('.incoming-')), []);
 });

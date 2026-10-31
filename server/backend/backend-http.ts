@@ -195,7 +195,7 @@ async function sweepSessionUploads(dir: string, justWritten: string): Promise<vo
 
 type StreamToFileOutcome =
   | { ok: true; sizeBytes: number }
-  | { ok: false; reason: 'over-cap' | 'write-failed' | 'aborted' };
+  | { ok: false; reason: 'over-cap' | 'write-failed' | 'aborted'; bytesReceived: number };
 
 function streamRequestToFile({ req, savedPath, capBytes }: {
   req: Request;
@@ -204,72 +204,73 @@ function streamRequestToFile({ req, savedPath, capBytes }: {
 }): Promise<StreamToFileOutcome> {
   return new Promise((resolve) => {
     const writeStream = fs.createWriteStream(savedPath, { mode: 0o600 });
+    const writeStreamClosed = new Promise((resolveClosed) => writeStream.once('close', resolveClosed));
     let bytesReceived = 0;
     let settled = false;
-    const settle = (outcome: StreamToFileOutcome) => {
+    const fail = (reason: 'over-cap' | 'write-failed' | 'aborted') => {
       if (settled) return;
       settled = true;
-      resolve(outcome);
+      const outcome: StreamToFileOutcome = { ok: false, reason, bytesReceived };
+      void writeStreamClosed
+        .then(() => fsp.unlink(savedPath).catch(() => {}))
+        .then(() => resolve(outcome));
     };
-    let discardWanted = false;
-    let streamClosed = false;
-    const unlinkPartial = () => {
-      fsp.unlink(savedPath).catch(() => {});
+    const stopWritingAndDrain = () => {
+      req.unpipe(writeStream);
+      writeStream.destroy();
+      req.resume();
     };
-    const discardPartial = () => {
-      discardWanted = true;
-      if (streamClosed) unlinkPartial();
-    };
-    writeStream.on('close', () => {
-      streamClosed = true;
-      if (discardWanted) unlinkPartial();
-    });
     writeStream.on('error', () => {
-      settle({ ok: false, reason: 'write-failed' });
-      discardPartial();
+      stopWritingAndDrain();
+      fail('write-failed');
+    });
+    writeStream.on('finish', () => {
+      if (settled) return;
+      settled = true;
+      resolve({ ok: true, sizeBytes: bytesReceived });
     });
     req.on('data', (chunk: Buffer) => {
       bytesReceived += chunk.length;
-      if (!exceedsUploadCap(bytesReceived, capBytes)) return;
-      settle({ ok: false, reason: 'over-cap' });
-      req.destroy();
+      if (settled || !exceedsUploadCap(bytesReceived, capBytes)) return;
+      stopWritingAndDrain();
+      fail('over-cap');
+    });
+    req.on('error', () => {
       writeStream.destroy();
-      discardPartial();
+      fail('aborted');
     });
-    pipeline(req, writeStream, (error) => {
-      if (error) {
-        settle({ ok: false, reason: 'aborted' });
-        discardPartial();
-        return;
-      }
-      if (settled) {
-        discardPartial();
-        return;
-      }
-      settle({ ok: true, sizeBytes: bytesReceived });
+    req.on('close', () => {
+      if (req.complete) return;
+      writeStream.destroy();
+      fail('aborted');
     });
+    req.pipe(writeStream);
   });
 }
 
+const UPLOAD_OVER_CAP_ERROR = `file is larger than ${MAX_UPLOAD_BYTES / (1024 * 1024)}mb`;
+
 const UPLOAD_FAILURE_REPLIES = {
-  'over-cap': { status: 413, error: 'file is too large' },
+  'over-cap': { status: 413, error: UPLOAD_OVER_CAP_ERROR },
   'write-failed': { status: 500, error: 'could not store the upload' },
   aborted: { status: 400, error: 'upload failed' },
 } as const;
 
-function receiveUpload({ req, res, sess, dir, filename, savedPath }: {
+function receiveUpload({ req, res, sess, dir, filename, savedPath, logger }: {
   req: Request;
   res: Response;
   sess: Session;
   dir: string;
   filename: string;
   savedPath: string;
+  logger: Pick<Console, 'warn'>;
 }): void {
   const answer = (status: number, body: Record<string, unknown>) => {
     if (!res.headersSent) res.status(status).json(body);
   };
   void streamRequestToFile({ req, savedPath, capBytes: MAX_UPLOAD_BYTES }).then((outcome) => {
     if (!outcome.ok) {
+      logger.warn(`[upload] session ${sess.id} refused: ${outcome.reason} after ${outcome.bytesReceived} bytes`);
       const failure = UPLOAD_FAILURE_REPLIES[outcome.reason];
       answer(failure.status, { error: failure.error });
       return;
@@ -678,6 +679,13 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
       res.status(409).json({ error: 'session has no live terminal' });
       return;
     }
+    const declaredBytes = declaredContentLength(req);
+    if (declaredBytes !== null && exceedsUploadCap(declaredBytes)) {
+      logger.warn(`[upload] session ${sess.id} refused: over-cap, declared ${declaredBytes} bytes`);
+      res.status(413).json({ error: UPLOAD_OVER_CAP_ERROR });
+      req.resume();
+      return;
+    }
 
     const dir = path.join(uploadsRoot, sess.id);
     const filename = buildUploadFilename({
@@ -691,11 +699,15 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
     req.on('error', markAbortedBeforeReceive);
     fsp.mkdir(dir, { recursive: true, mode: 0o700 })
       .then(() => {
-        if (abortedBeforeReceive || req.destroyed) return;
+        if (abortedBeforeReceive || req.destroyed) {
+          logger.warn(`[upload] session ${sess.id} refused: aborted before any bytes`);
+          return;
+        }
         req.off('error', markAbortedBeforeReceive);
-        receiveUpload({ req, res, sess, dir, filename, savedPath });
+        receiveUpload({ req, res, sess, dir, filename, savedPath, logger });
       })
       .catch(() => {
+        logger.warn(`[upload] session ${sess.id} refused: could not create ${dir}`);
         if (!res.headersSent) res.status(500).json({ error: 'could not store the upload' });
       });
   });

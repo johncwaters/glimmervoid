@@ -220,28 +220,81 @@ test('an image is saved under the config dir and its path is bracket-pasted into
   fs.rmSync(path.join(uploadsDirFor(SESSION_ID), plantedName));
 });
 
-test('a body past the 15MB cap is refused and the server survives', async () => {
+function postChunkedUpload(sessionId: string, totalBytes: number): Promise<{ status: number; body: unknown }> {
+  return new Promise((resolve, reject) => {
+    const request = http.request({
+      host: '127.0.0.1', port: boundPort(ctx().server), method: 'POST', path: `/upload/${sessionId}`,
+      headers: { 'content-type': 'image/png', 'transfer-encoding': 'chunked' },
+    }, (response) => {
+      const chunks: Buffer[] = [];
+      response.on('data', (chunk: Buffer) => chunks.push(chunk));
+      response.on('end', () => resolve({ status: response.statusCode ?? 0, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) }));
+    });
+    request.on('error', reject);
+    const chunk = Buffer.alloc(1024 * 1024, 0x41);
+    let bytesSent = 0;
+    const writeMore = () => {
+      while (bytesSent < totalBytes) {
+        bytesSent += chunk.length;
+        if (!request.write(chunk)) {
+          request.once('drain', writeMore);
+          return;
+        }
+      }
+      request.end();
+    };
+    writeMore();
+  });
+}
+
+function postDeclaredUploadAndKeepSending(sessionId: string, totalBytes: number): Promise<{ statusLine: string; socketError: string | null }> {
+  return new Promise((resolve) => {
+    const socket = net.connect(boundPort(ctx().server), '127.0.0.1');
+    const chunk = Buffer.alloc(1024 * 1024, 0x41);
+    let responseText = '';
+    let socketError: string | null = null;
+    socket.on('error', (error: NodeJS.ErrnoException) => { socketError = error.code ?? error.message; });
+    socket.on('close', () => resolve({ statusLine: responseText.split('\r\n')[0] ?? '', socketError }));
+    socket.once('data', async (firstResponseBytes: Buffer) => {
+      responseText = firstResponseBytes.toString('utf8');
+      for (let bytesSent = 0; bytesSent < totalBytes && !socket.destroyed; bytesSent += chunk.length) {
+        if (!socket.write(chunk)) await new Promise((resolveDrain) => socket.once('drain', resolveDrain));
+        await new Promise((resolveTick) => setTimeout(resolveTick, 5));
+      }
+      socket.end();
+    });
+    socket.write(
+      `POST /upload/${sessionId} HTTP/1.1\r\n`
+      + 'Host: 127.0.0.1\r\n'
+      + 'content-type: image/png\r\n'
+      + `content-length: ${totalBytes}\r\n\r\n`,
+    );
+  });
+}
+
+test('a body past the 15MB cap gets its 413 reason instead of a reset, declared or chunked', async () => {
   attachFakePty();
   const before = listUploads(SESSION_ID).length;
-  const big = Buffer.alloc(MAX_UPLOAD_BYTES + 1024, 0x41);
+  const overCapReply = { error: 'file is larger than 15mb' };
 
-  await fetch(`${ctx().base}/upload/${SESSION_ID}`, {
-    method: 'POST', body: big, headers: { 'content-type': 'image/png' },
-  })
-    .then(async (res) => {
-      assert.notEqual(res.status, 200, 'oversize never yields 200');
-      if (res.status !== 413) return;
-      assert.deepEqual(await res.json(), { error: 'file is too large' });
-    })
-    .catch(() => {  });
+  const declared = await fetch(`${ctx().base}/upload/${SESSION_ID}`, {
+    method: 'POST', body: Buffer.alloc(MAX_UPLOAD_BYTES + 1024, 0x41), headers: { 'content-type': 'image/png' },
+  });
+  assert.equal(declared.status, 413);
+  assert.deepEqual(await declared.json(), overCapReply);
 
-  assert.deepEqual(ptyWrites, [], 'an aborted upload never pastes');
+  const chunked = await postChunkedUpload(SESSION_ID, MAX_UPLOAD_BYTES + 4 * 1024 * 1024);
+  assert.deepEqual(chunked, { status: 413, body: overCapReply });
+
+  const keptSending = await postDeclaredUploadAndKeepSending(SESSION_ID, MAX_UPLOAD_BYTES + 4 * 1024 * 1024);
+  assert.deepEqual(keptSending, { statusLine: 'HTTP/1.1 413 Payload Too Large', socketError: null }, 'a client still sending after the 413 is drained, not reset');
+
+  assert.deepEqual(ptyWrites, [], 'an over-cap upload never pastes');
   assert.equal(await waitForUploadCount(SESSION_ID, before), before, 'the partial file was removed');
-
-  const after = await fetchAfterReset(`${ctx().base}/upload/no-such-session`, {
+  const after = await fetch(`${ctx().base}/upload/no-such-session`, {
     method: 'POST', body: 'x', headers: { 'content-type': 'image/png' },
   });
-  assert.equal(after.status, 404, 'server is still alive and routing after the aborted request');
+  assert.equal(after.status, 404, 'server is still alive and routing after the refused uploads');
 });
 
 function sendHeadersThenReset(sessionId: string): Promise<void> {

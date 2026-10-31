@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Usage follows Claude's move to a weekly-only limit.** Anthropic is removing the 5-hour limit from Ultra (formerly Max 20x) in stages. The Usage tab now shows a Claude 5-hour meter only while Claude Code itself still reports one, and no longer estimates one from local transcripts: the "This 5-hour window, Claude" card on the overview is gone, the Overhead 5-hour row and the Usage tab's warning colour follow only the reported window, and the reported weekly window keeps its meter. When one agent hits its limit, the suggestion of another agent to switch to now weighs each agent's tightest reported window, 5-hour or weekly.
 - **The Boards view header is one row.** Board tabs, the board's version, connected sessions and the toolbar now share a single line above the canvas instead of three, so the board gets more room. The open board's name shows on its selected tab rather than as a separate heading.
 
+### Fixed
+
+- **Dropping a file over 15 MB on a session says so.** The upload used to fail with "HTTP 502" when the dashboard reached Glimmervoid through a proxy or port forward, because the server cut the connection before replying. It now replies "file is larger than 15mb" straight away, and `glimmervoid show` over its limit gets its own message instead of a reset. Each refused upload also leaves an `[upload]` line in the server log naming the session, the reason and the size.
+
 ## [0.48.3] - 2026-10-30
 
 ### Added
