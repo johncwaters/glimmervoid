@@ -4392,6 +4392,12 @@ html:not([data-layout="phone"]) .review-controls :is(.review-branch-sync-refresh
   flex-shrink: 0;
 }
 
+[data-layout="phone"] .settings-view .settings-view-tab-order-move {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+}
+
 [data-layout="phone"] .settings-view .settings-view-switch {
   --switch-track-inset: 7px;
   --switch-knob-size: 24px;

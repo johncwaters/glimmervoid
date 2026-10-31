@@ -10,6 +10,10 @@ import { loadCustomSounds, playAlertSound, resolveSoundId, soundOptions } from '
 import { sendControlRequest } from '../control-ws.ts';
 import { el, writeClipboardText } from '../dom-helpers.ts';
 import { BACK_ICON_PATH, createLineIcon } from '../svg-dom.ts';
+
+const MOVE_UP_ICON_PATH = 'M4 10L8 6L12 10';
+const MOVE_DOWN_ICON_PATH = 'M4 6L8 10L12 6';
+const GRIP_ICON_PATH = 'M6 4h0.01M10 4h0.01M6 8h0.01M10 8h0.01M6 12h0.01M10 12h0.01';
 import { createNotificationPermissionControl, ensureNotificationPermission, notificationsSupported } from '../notifications.ts';
 import { formatAgo } from '../poll-ago.ts';
 import { UPDATES_SECTION_ID } from '../radar/radar-core.ts';
@@ -826,28 +830,64 @@ function renderList(setting: SettingsSetting) {
 }
 
 let lastTabOrderMoveKey: string | null = null;
+let draggedTabOrderViewId: string | null = null;
 
 function renderTabOrder(setting: SettingsSetting) {
-  const orderedViewIds = orderViewIds(settingsFeatureTabViews().map((view) => view.view), listValue(storedValue(setting)));
+  const featureTabViews = settingsFeatureTabViews();
+  const labelByViewId = new Map(featureTabViews.map((view) => [view.view, view.label]));
+  const orderedViewIds = orderViewIds(featureTabViews.map((view) => view.view), listValue(storedValue(setting)));
   const list = el('ol', 'settings-view-tab-order');
   list.setAttribute('aria-labelledby', setting.id);
   for (const [index, viewId] of orderedViewIds.entries()) {
-    const label = settingsFeatureTabViews().find((view) => view.view === viewId)?.label ?? viewId;
+    const label = labelByViewId.get(viewId) ?? viewId;
     const item = el('li', 'settings-view-tab-order-item');
+    const grip = el('span', 'settings-view-tab-order-grip');
+    grip.setAttribute('aria-hidden', 'true');
+    grip.appendChild(createLineIcon(GRIP_ICON_PATH, '2.4'));
     item.append(
+      grip,
       el('span', 'settings-view-tab-order-label', label),
-      buildTabOrderMove(setting, orderedViewIds, viewId, index - 1, 'Move up', `Move ${label} up`),
-      buildTabOrderMove(setting, orderedViewIds, viewId, index + 1, 'Move down', `Move ${label} down`),
+      buildTabOrderMove(setting, orderedViewIds, viewId, index - 1, 'up', `Move ${label} up`),
+      buildTabOrderMove(setting, orderedViewIds, viewId, index + 1, 'down', `Move ${label} down`),
     );
+    makeTabOrderItemDraggable(setting, item, orderedViewIds, viewId, index);
     list.append(item);
   }
   return list;
 }
 
-function buildTabOrderMove(setting: SettingsSetting, orderedViewIds: readonly string[], viewId: string, targetIndex: number, label: string, accessibleName: string) {
-  const moveKey = `${viewId}:${label}`;
-  const button = el('button', 'btn-dialog btn-dialog-cancel', label);
+function makeTabOrderItemDraggable(setting: SettingsSetting, item: HTMLElement, orderedViewIds: readonly string[], viewId: string, index: number) {
+  item.draggable = true;
+  item.addEventListener('dragstart', (event) => {
+    draggedTabOrderViewId = viewId;
+    event.dataTransfer?.setData('text/plain', viewId);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+  });
+  item.addEventListener('dragend', () => { draggedTabOrderViewId = null; });
+  item.addEventListener('dragover', (event) => {
+    if (!draggedTabOrderViewId || draggedTabOrderViewId === viewId) return;
+    event.preventDefault();
+    item.dataset.dropTarget = orderedViewIds.indexOf(draggedTabOrderViewId) < index ? 'after' : 'before';
+  });
+  item.addEventListener('dragleave', () => delete item.dataset.dropTarget);
+  item.addEventListener('drop', (event) => {
+    event.preventDefault();
+    delete item.dataset.dropTarget;
+    const movedViewId = draggedTabOrderViewId;
+    draggedTabOrderViewId = null;
+    if (!movedViewId || movedViewId === viewId) return;
+    commitSetting(setting, moveViewId(orderedViewIds, movedViewId, index));
+  });
+}
+
+function buildTabOrderMove(
+  setting: SettingsSetting, orderedViewIds: readonly string[], viewId: string, targetIndex: number, direction: 'up' | 'down', accessibleName: string,
+) {
+  const moveKey = `${viewId}:${direction}`;
+  const button = el('button', 'settings-view-tab-order-move');
+  button.appendChild(createLineIcon(direction === 'up' ? MOVE_UP_ICON_PATH : MOVE_DOWN_ICON_PATH));
   button.type = 'button';
+  button.title = accessibleName;
   button.setAttribute('aria-label', accessibleName);
   button.disabled = targetIndex < 0 || targetIndex >= orderedViewIds.length;
   if (moveKey === lastTabOrderMoveKey) button.dataset.restoresFocus = 'true';
