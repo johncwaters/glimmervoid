@@ -191,6 +191,7 @@ function applyStatus(id: string, next: string) {
     mapById.delete(id);
     if (id === getSelectedId()) requestChangeMap(id);
   }
+  if (prev === 'merging' && next !== 'merging' && id === getSelectedId() && !isWorkspaceSession(id)) requestBranchSync(id);
   if (id === getSelectedId()) render();
 }
 
@@ -293,6 +294,11 @@ function applyResyncResult(id: string, payload: BranchSync) {
       render();
     }, 5000);
   }
+}
+
+export function notifyWorktreeReady(id: unknown) {
+  const key = sessionIdOf(id);
+  if (key && key === getSelectedId() && !isWorkspaceSession(key)) requestBranchSync(key);
 }
 
 export function notifyWorktreeChanged(id: unknown) {

@@ -62,7 +62,7 @@ import { loadPageToken } from './ws-token.ts';
 import { superviseConnection } from './connection-supervisor.ts';
 import { rebuildWebglGlyphAtlases } from './session-card/webgl-pool.ts';
 import { activateSettingsSection, applySettingsBroadcast, applySettingsProjects, applySettingsUpdateProgress, applySettingsUpdateStatus, canReturnToSettingsList, applySettingsUpdateError, onPhoneSettingsScreenChanged, refreshSettingsStatus, returnToSettingsList, setFeatureTabViews } from './settings/settings-store.ts';
-import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, refreshReviewSidebar, releaseReviewMergeRequest, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync, setReviewDiffError, setSessionChangeMap } from './sidebar/review-sidebar.ts';
+import { forgetReviewSession, mergeSelectedSession, mountReviewSidebar, notifyWorktreeChanged, notifyWorktreeReady, refreshReviewSidebar, releaseReviewMergeRequest, resolveSelectedSession, resyncSelectedSession, setReviewBranchSync, setReviewDiffError, setSessionChangeMap } from './sidebar/review-sidebar.ts';
 import { decideReloadOnBuild } from './server-build-core.ts';
 import { openAddSessionDialog, requestSessionRemoval, selectSession, setAddedSessionRevealer, spawnQuickSession } from './session-actions.ts';
 import { getSelectedId, setSelectedId } from './sidebar/selection.ts';
@@ -487,7 +487,7 @@ const messageHandlers = {
   'session-merge-status': (msg) => { setSessionMergeStatus(msg.id, msg.mergeStatus, msg.reason); setFocusMergeStatus(msg.id, msg.mergeStatus); refreshAttentionSurfaces(); },
   'session-worktree-blocked': (msg) => { reportHeaderError({ source: WORKTREE_ERROR_SOURCE, sessionId: msg.id, message: `${msg.session}: ${msg.notice || 'The integration branch was not found. Check the integration branch in Settings, then restart the session.'}` }); },
   'session-worktree-warning': (msg) => { reportHeaderError({ source: WORKTREE_WARNING_SOURCE, sessionId: msg.id, message: `${msg.session}: ${msg.notice || 'The base branch could not be synced. The session keeps working on its current base.'}` }); },
-  'session-worktree-ready': (msg) => { clearHeaderError(WORKTREE_ERROR_SOURCE, msg.id); setSessionEffectiveBase(msg.id, msg.base); },
+  'session-worktree-ready': (msg) => { clearHeaderError(WORKTREE_ERROR_SOURCE, msg.id); setSessionEffectiveBase(msg.id, msg.base); notifyWorktreeReady(msg.id); },
   'session-diff':       (msg) => { setSessionDiff(msg.id, msg); },
   'session-diff-error': (msg) => { setReviewDiffError(msg.id, msg.message); },
   'change-map':         (msg) => setSessionChangeMap(msg.id, msg.map),
