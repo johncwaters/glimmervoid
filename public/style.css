@@ -1006,6 +1006,7 @@ body {
   font-weight: 400;
   cursor: pointer;
   text-align: left;
+  white-space: nowrap;
   transition: background var(--transition-fast);
 }
 
@@ -1017,20 +1018,6 @@ body {
 
 .session-overflow-menu > .popup-menu-item:not(.visible) {
   display: none;
-}
-
-.popup-menu-item:has(.popup-menu-item-hint) {
-  align-items: flex-start;
-  flex-direction: column;
-  gap: 3px;
-  white-space: nowrap;
-}
-
-.popup-menu-item-hint {
-  color: var(--text-muted);
-  font-size: var(--type-meta);
-  font-weight: 400;
-  letter-spacing: normal;
 }
 
 .overflow-restart-fresh {

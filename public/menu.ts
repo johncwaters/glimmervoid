@@ -2,12 +2,10 @@ import { el } from './dom-helpers.ts';
 import { nextRovingIndex } from './roving-keys-core.ts';
 import { isModalOpen } from './session-card/modal.ts';
 
-export function buildMenuItem(label: string, hint: string, className: string) {
-  const button = el('button', `popup-menu-item ${className}`);
+export function buildMenuItem(label: string, className: string) {
+  const button = el('button', `popup-menu-item ${className}`, label);
   button.type = 'button';
   button.setAttribute('role', 'menuitem');
-  button.setAttribute('aria-label', label);
-  button.append(el('span', 'popup-menu-item-label', label), el('span', 'popup-menu-item-hint', hint));
   return button;
 }
 

@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The session menu fits on a phone.** The session actions menu ran off the left edge of a phone screen. Its items now show their names only, without the grey line under each, on desktop too.
 - **Rendering a board no longer hides changes from the agent.** `glimmervoid whiteboard render` and `glimmervoid whiteboard get --layout` used to mark the board read without printing what others changed, so an operator edit made just before a render never reached the agent's next `get` or next prompt. Both now leave the board unread.
 - **The Review tab's branch line stays current.** It used to read "Base branch: no upstream" when a session's worktree was still being set up as you opened it, and it kept its old ahead and behind counts after a Merge. It now checks again once the worktree is ready and after every Merge.
 - **Dropping a file over 15 MB on a session says so.** The upload used to fail with "HTTP 502" when the dashboard reached Glimmervoid through a proxy or port forward, because the server cut the connection before replying. It now replies "file is larger than 15mb" straight away, and `glimmervoid show` over its limit gets its own message instead of a reset. Each refused upload also leaves an `[upload]` line in the server log naming the session, the reason and the size.

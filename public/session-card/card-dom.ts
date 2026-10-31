@@ -168,23 +168,23 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   sessionMenu.setAttribute('role', 'menu');
   btnSessionMenu.setAttribute('aria-controls', sessionMenu.id);
 
-  const btnRestart = buildMenuItem('Restart...', 'Into this conversation, a fresh one, or an earlier one', 'overflow-restart');
+  const btnRestart = buildMenuItem('Restart...', 'overflow-restart');
   btnRestart.setAttribute('aria-haspopup', 'dialog');
-  const btnWorkspaceRepos = buildMenuItem('Edit repositories...', 'Add or remove repositories in this workspace', 'overflow-workspace-repos');
-  const btnLinkPr = buildMenuItem('Link pull request...', 'Link or unlink pull requests for this session', 'overflow-link-pr visible');
+  const btnWorkspaceRepos = buildMenuItem('Edit repositories...', 'overflow-workspace-repos');
+  const btnLinkPr = buildMenuItem('Link pull request...', 'overflow-link-pr visible');
   btnLinkPr.onclick = () => {
     sessionMenu.classList.remove('open');
     btnSessionMenu.setAttribute('aria-expanded', 'false');
     openLinkPullRequestDialog(sessionId);
   };
-  const btnConnectBoard = buildMenuItem('Connect board...', 'Connect or disconnect whiteboards for this session', 'overflow-connect-board visible');
+  const btnConnectBoard = buildMenuItem('Connect board...', 'overflow-connect-board visible');
   btnConnectBoard.setAttribute('aria-haspopup', 'dialog');
   btnConnectBoard.onclick = () => {
     sessionMenu.classList.remove('open');
     btnSessionMenu.setAttribute('aria-expanded', 'false');
     openCardConnectBoard?.(sessionId);
   };
-  const btnCoherenceJournal = buildMenuItem('Coherence journal', 'Decisions and notes this session recorded', 'overflow-coherence-journal');
+  const btnCoherenceJournal = buildMenuItem('Coherence journal', 'overflow-coherence-journal');
   btnCoherenceJournal.setAttribute('aria-haspopup', 'dialog');
   const paintCoherenceJournalItem = () => btnCoherenceJournal.classList.toggle('visible', cardCoherenceJournal?.isReadable(sessionId) === true);
   btnSessionMenu.onclick = paintCoherenceJournalItem;
@@ -194,15 +194,15 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
     btnSessionMenu.setAttribute('aria-expanded', 'false');
     cardCoherenceJournal?.open(sessionId);
   };
-  const btnSessionSetup = buildMenuItem('Session setup', 'MCP servers, plugins and hooks this session loaded', 'overflow-session-setup visible');
+  const btnSessionSetup = buildMenuItem('Session setup', 'overflow-session-setup visible');
   btnSessionSetup.setAttribute('aria-haspopup', 'dialog');
   btnSessionSetup.onclick = () => {
     sessionMenu.classList.remove('open');
     btnSessionMenu.setAttribute('aria-expanded', 'false');
     openCardSessionSetup?.(sessionId);
   };
-  const btnDebug = buildMenuItem('Debug state', 'State transitions and detection signals', 'overflow-debug');
-  const btnTrace = buildMenuItem('Trace', 'Turns, tool calls and thinking this session recorded', 'overflow-trace');
+  const btnDebug = buildMenuItem('Debug state', 'overflow-debug');
+  const btnTrace = buildMenuItem('Trace', 'overflow-trace');
   sessionMenu.append(btnRestart, btnWorkspaceRepos, btnCoherenceJournal, btnSessionSetup, btnLinkPr, btnConnectBoard, btnDebug, btnTrace);
   sessionMenuWrap.append(btnSessionMenu, sessionMenu);
 
