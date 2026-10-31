@@ -565,6 +565,16 @@
 .wb-uncovered-file:hover,
 .wb-uncovered-file:focus-visible { color: var(--accent); }
 
+.wb-inspect-review {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wb-inspect-review:empty {
+  display: none;
+}
+
 .wb-inspect-ref {
   flex: 1;
   min-width: 0;

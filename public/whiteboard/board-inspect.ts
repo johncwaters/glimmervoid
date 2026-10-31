@@ -377,7 +377,7 @@ function elementSections(board: Board, element: BoardElement, latestBoard: () =>
   }
 }
 
-function openInReviewSection(board: Board, element: BoardElement, openRef: (ref: string) => void): HTMLElement[] {
+function openInReviewRows(board: Board, element: BoardElement, openRef: (ref: string) => void): HTMLElement[] {
   const refs = refsOfElement(element);
   if (refs.length === 0) return [];
   const hasCodeSession = board.codeSessionId !== null;
@@ -392,6 +392,12 @@ function openInReviewSection(board: Board, element: BoardElement, openRef: (ref:
   return [heading('In review'), ...rows, ...hint];
 }
 
+function openInReviewSection(board: Board, element: BoardElement, openRef: (ref: string) => void): HTMLElement {
+  const section = el('div', 'wb-inspect-review');
+  section.append(...openInReviewRows(board, element, openRef));
+  return section;
+}
+
 function isTypingIn(container: HTMLElement): boolean {
   const active = document.activeElement;
   return container.contains(active) && active instanceof HTMLInputElement && active.type === 'text';
@@ -404,19 +410,35 @@ export function createBoardInspector(options: BoardInspectorOptions) {
   let paintedSelectedIds: ReadonlySet<string> = new Set();
   let isRepainting = false;
 
+  function soleSelectedElement(board: Board, selectedIds: ReadonlySet<string>): BoardElement | undefined {
+    if (selectedIds.size !== 1) return undefined;
+    const [selectedId] = selectedIds;
+    return selectedId === undefined ? undefined : board.elements[selectedId];
+  }
+
+  function repaintReviewWhileTyping(board: Board, selectedIds: ReadonlySet<string>): void {
+    const element = soleSelectedElement(board, selectedIds);
+    const reviewSection = container.querySelector<HTMLElement>('.wb-inspect-review');
+    if (!element || !reviewSection) return;
+    reviewSection.replaceChildren(...openInReviewRows(board, element, options.openRef));
+  }
+
   function sectionsFor(board: Board, selectedIds: ReadonlySet<string>): HTMLElement[] {
     if (selectedIds.size > 1) return [heading(`${selectedIds.size} selected`)];
-    const [selectedId] = selectedIds;
-    const element = selectedId === undefined ? undefined : board.elements[selectedId];
+    const element = soleSelectedElement(board, selectedIds);
     if (!element) return boardSections(board, options.currentBoard, send, options.codeSessionChoices());
-    return [...elementSections(board, element, options.currentBoard, options.layout(), send), ...openInReviewSection(board, element, options.openRef)];
+    return [...elementSections(board, element, options.currentBoard, options.layout(), send), openInReviewSection(board, element, options.openRef)];
   }
 
   function paint(selectedIds: ReadonlySet<string>): void {
     paintedSelectedIds = selectedIds;
     const board = options.currentBoard();
     container.hidden = !board;
-    if (!board || isTypingIn(container)) return;
+    if (!board) return;
+    if (isTypingIn(container)) {
+      repaintReviewWhileTyping(board, selectedIds);
+      return;
+    }
     const active = document.activeElement;
     const focusedField = active instanceof HTMLElement && container.contains(active) ? active.dataset.field : undefined;
     isRepainting = true;

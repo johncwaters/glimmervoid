@@ -212,10 +212,6 @@ export async function verifyBoardDock(page: Page, sessionId: string, projectDire
   await page.keyboard.press('Enter');
   await panel.locator('.wb-unit.is-flagged', { hasText: 'Uncovered change' }).waitFor({ timeout: REVIEW_TIMEOUT_MS });
   await panel.getByRole('complementary', { name: 'Not on the board' }).waitFor({ state: 'hidden' });
-  await unitOnBoard.locator('.wb-box-title').click();
-  await inspect.getByRole('heading', { name: 'Board', exact: true }).waitFor();
-  await unitOnBoard.locator('.wb-box-title').click();
-  await inspect.getByRole('heading', { name: 'In review', exact: true }).waitFor();
   await inspect.getByRole('button', { name: `Open ${UNCOVERED_FILE_NAME} in review`, exact: true }).click();
   await page.locator('#tab-focus[aria-selected="true"]').waitFor();
   await page.locator(`#review-sidebar:not([data-collapsed]) .review-file[data-path="${UNCOVERED_FILE_NAME}"]`).waitFor({ timeout: REVIEW_TIMEOUT_MS });
