@@ -225,8 +225,8 @@ function paintBoard(): void {
     renderer.clear();
     return;
   }
-  renderer.render(board);
   editor?.pruneSelection(board);
+  renderer.render(editor?.previewOf(board) ?? board);
   if (shouldFitOnNextRender) {
     editor?.fit();
     shouldFitOnNextRender = false;

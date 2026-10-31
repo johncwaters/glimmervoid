@@ -41,6 +41,28 @@ export async function verifyBoards(page: Page, layout: Layout): Promise<void> {
     await page.getByRole('textbox', { name: 'Box title', exact: true }).fill('Parse and store');
     await page.keyboard.press('Enter');
     await panel.locator('.wb-box-title', { hasText: 'Parse and store' }).waitFor();
+    await panel.getByRole('button', { name: 'box', exact: true }).click();
+    await submitTextDialog(page, 'Box title', 'Index rows', 'Add box');
+    const sourceBox = panel.locator('.wb-box', { hasText: 'Parse and store' });
+    const targetBox = panel.locator('.wb-box', { hasText: 'Index rows' });
+    await targetBox.waitFor();
+    await sourceBox.click();
+    await targetBox.click({ modifiers: ['Shift'] });
+    await panel.getByRole('button', { name: 'wire', exact: true }).click();
+    const wireLine = panel.locator('.wb-wire .wb-wire-line').first();
+    await wireLine.waitFor({ state: 'attached' });
+    const restingPath = await wireLine.getAttribute('d');
+    const targetOutline = await targetBox.boundingBox();
+    assert.ok(targetOutline);
+    await page.mouse.move(targetOutline.x + targetOutline.width / 2, targetOutline.y + targetOutline.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(targetOutline.x + targetOutline.width / 2 + 260, targetOutline.y + targetOutline.height / 2 + 40, { steps: 8 });
+    await page.waitForFunction((before) => document.querySelector('.boards-view .wb-wire .wb-wire-line')?.getAttribute('d') !== before, restingPath);
+    const draggingPath = await wireLine.getAttribute('d');
+    const versionBeforeDrop = await panel.locator('.wb-board-meta').textContent();
+    await page.mouse.up();
+    await page.waitForFunction((before) => document.querySelector('.boards-view .wb-board-meta')?.textContent !== before, versionBeforeDrop);
+    assert.equal(await wireLine.getAttribute('d'), draggingPath, 'the wire lands where the drag preview routed it');
   }
   assert.equal(await panel.getByRole('button', { name: 'fit', exact: true }).isVisible(), true);
   assert.equal(await panel.getByRole('button', { name: boardTitle }).count(), 1);

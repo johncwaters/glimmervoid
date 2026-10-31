@@ -26,7 +26,7 @@ interface BoardEditorOptions {
 }
 
 type Gesture =
-  | { kind: 'drag'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; hasMoved: boolean; isAdditive: boolean }
+  | { kind: 'drag'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean }
   | { kind: 'pan'; pointerId: number; lastClient: ViewPoint; hasMoved: boolean; tappedBoxId: string | null }
   | { kind: 'pinch'; distance: number; viewWidth: number }
   | null;
@@ -52,6 +52,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   let viewBox: Rect = { x: 0, y: 0, width: 1000, height: 600 };
   let gesture: Gesture = null;
   let titleInput: HTMLInputElement | null = null;
+  let previewFrameId: number | null = null;
 
   function applyViewBox(): void {
     svg.setAttribute('viewBox', `${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`);
@@ -121,7 +122,42 @@ export function createBoardEditor(options: BoardEditorOptions) {
     setSelection(next);
   }
 
+  function draggedAt(drag: Extract<Gesture, { kind: 'drag' }>): ViewPoint {
+    return {
+      x: Math.round(drag.start.x + drag.latest.x - drag.origin.x),
+      y: Math.round(drag.start.y + drag.latest.y - drag.origin.y - drag.pinnedOffsetY),
+    };
+  }
+
+  function withBoxAt(board: Board, boxId: string, at: ViewPoint): Board {
+    const box = board.elements[boxId];
+    if (box?.kind !== 'box') return board;
+    return { ...board, elements: { ...board.elements, [boxId]: { ...box, at } } };
+  }
+
+  function previewOf(board: Board): Board {
+    if (gesture?.kind !== 'drag' || !gesture.hasMoved) return board;
+    return withBoxAt(board, gesture.boxId, draggedAt(gesture));
+  }
+
+  function cancelPreviewFrame(): void {
+    if (previewFrameId !== null) cancelAnimationFrame(previewFrameId);
+    previewFrameId = null;
+  }
+
+  function paintPreview(): void {
+    cancelPreviewFrame();
+    const board = options.currentBoard();
+    if (board) renderer.render(previewOf(board));
+  }
+
+  function requestPreviewFrame(): void {
+    if (previewFrameId !== null) return;
+    previewFrameId = requestAnimationFrame(paintPreview);
+  }
+
   function pruneSelection(board: Board | null): void {
+    if (gesture?.kind === 'drag' && board?.elements[gesture.boxId]?.kind !== 'box') gesture = null;
     const surviving = new Set([...selectedIds].filter((elementId) => board?.elements[elementId]));
     if (surviving.size === selectedIds.size) return;
     setSelection(surviving);
@@ -159,7 +195,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const hit = renderer.elementFromTarget(event.target);
     const boxRect = hit?.kind === 'box' && !isPhoneLayout() ? boxRectOf(hit.id) : null;
     if (hit && boxRect) {
-      gesture = { kind: 'drag', pointerId: event.pointerId, boxId: hit.id, origin: toViewPoint(event.clientX, event.clientY), start: boxRect, hasMoved: false, isAdditive: event.shiftKey };
+      const origin = toViewPoint(event.clientX, event.clientY);
+      const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
+      gesture = { kind: 'drag', pointerId: event.pointerId, boxId: hit.id, origin, start: boxRect, pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: event.shiftKey };
       return;
     }
     if (hit && !isPhoneLayout()) {
@@ -172,11 +210,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function moveDrag(drag: Extract<Gesture, { kind: 'drag' }>, event: PointerEvent): void {
     const point = toViewPoint(event.clientX, event.clientY);
-    const deltaX = point.x - drag.origin.x;
-    const deltaY = point.y - drag.origin.y;
-    if (!drag.hasMoved && Math.hypot(deltaX, deltaY) < DRAG_THRESHOLD_PX * viewUnitsPerPixel()) return;
+    if (!drag.hasMoved && Math.hypot(point.x - drag.origin.x, point.y - drag.origin.y) < DRAG_THRESHOLD_PX * viewUnitsPerPixel()) return;
     drag.hasMoved = true;
-    renderer.nodeOf(drag.boxId)?.setAttribute('transform', `translate(${deltaX} ${deltaY})`);
+    drag.latest = point;
+    requestPreviewFrame();
   }
 
   function movePan(pan: Extract<Gesture, { kind: 'pan' }>, event: PointerEvent): void {
@@ -216,11 +253,13 @@ export function createBoardEditor(options: BoardEditorOptions) {
       toggleSelected(drag.boxId, drag.isAdditive);
       return;
     }
-    const point = toViewPoint(event.clientX, event.clientY);
-    const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
-    const at = { x: Math.round(drag.start.x + point.x - drag.origin.x), y: Math.round(drag.start.y + point.y - drag.origin.y - pinnedOffsetY) };
+    cancelPreviewFrame();
+    drag.latest = toViewPoint(event.clientX, event.clientY);
+    const at = draggedAt(drag);
+    const board = options.currentBoard();
+    if (board) renderer.render(withBoxAt(board, drag.boxId, at));
     const isSent = await options.sendOps([{ op: 'set', id: drag.boxId, fields: { at } }]);
-    if (!isSent) renderer.nodeOf(drag.boxId)?.removeAttribute('transform');
+    if (!isSent) paintPreview();
   }
 
   function onPointerUp(event: PointerEvent): void {
@@ -245,8 +284,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function onPointerCancel(event: PointerEvent): void {
     activePointers.delete(event.pointerId);
-    if (gesture?.kind === 'drag') renderer.nodeOf(gesture.boxId)?.removeAttribute('transform');
+    const wasDragging = gesture?.kind === 'drag';
     gesture = null;
+    if (wasDragging) paintPreview();
   }
 
   function onWheel(event: WheelEvent): void {
@@ -343,6 +383,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     selectedIds: (): ReadonlySet<string> => selectedIds,
     clearSelection: () => setSelection(new Set()),
     pruneSelection,
+    previewOf,
     closeTitleInput,
   };
 }
