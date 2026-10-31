@@ -10,7 +10,10 @@ import { AgentLimitsReply, AGENT_URL_ENV, SHOWN_CAPTION_MAX_CHARS, SHOWN_FILE_CA
 import type { AgentApiVerb } from '../shared/contracts/session.ts';
 import { WhiteboardAgentReply } from '../shared/contracts/whiteboard.ts';
 import type { Board, BoardChange, BoardSummary, Op } from '../shared/contracts/whiteboard.ts';
+import { layoutBoard } from '../shared/whiteboard-layout-core.ts';
+import type { BoardLayout } from '../shared/whiteboard-layout-core.ts';
 import { planSteps } from '../shared/whiteboard-plan-core.ts';
+import { boardSvgDocument } from '../shared/whiteboard-svg-core.ts';
 import { AGENT_COMMAND_HELP, agentCommandSpec, isAgentApiVerb } from './core/agent-api-core.ts';
 import { parseCommand } from './core/cli-spec-core.ts';
 import type { ParsedCommand } from './core/cli-spec-core.ts';
@@ -33,22 +36,32 @@ function pullRequestBody({ positionals }: ParsedArguments): Record<string, unkno
   return pullRequest ? { pr: pullRequest } : null;
 }
 
-function readOpsArgument(opsText: string): unknown {
+function readTextFileOrEmpty(filePath: string): string {
+  try {
+    return fs.readFileSync(path.resolve(filePath), 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+function readOpsArgument(opsText: string, opsFilePath: string | null): unknown {
+  if (opsFilePath !== null) return opsText ? null : parseJsonOrNull(readTextFileOrEmpty(opsFilePath));
   if (opsText === '-') return parseJsonOrNull(fs.readFileSync(0, 'utf8'));
   return parseJsonOrNull(opsText);
 }
 
-function whiteboardBody({ commandPath, positionals }: ParsedArguments): Record<string, unknown> | null {
+function whiteboardBody({ commandPath, positionals, values }: ParsedArguments): Record<string, unknown> | null {
   const subcommand = commandPath[1];
   const joined = joinedText(positionals);
   if (subcommand === 'list') return { sub: 'list' };
   if (subcommand === 'new') return joined ? { sub: 'new', title: joined } : null;
   if (subcommand === 'connect' || subcommand === 'disconnect' || subcommand === 'get' || subcommand === 'delete') return joined ? { sub: subcommand, board: joined } : null;
   const [board, ...argumentWords] = positionals;
-  if (!board || argumentWords.length === 0) return null;
+  const opsFilePath = typeof values.file === 'string' ? values.file : null;
+  if (!board || (argumentWords.length === 0 && opsFilePath === null)) return null;
   if (subcommand === 'resolve') return { sub: 'resolve', board, note: joinedText(argumentWords) };
   if (subcommand !== 'put') return null;
-  const ops = readOpsArgument(argumentWords.join(' '));
+  const ops = readOpsArgument(argumentWords.join(' '), opsFilePath);
   if (ops === null) return null;
   return { sub: 'put', board, ops: Array.isArray(ops) ? ops : [ops] };
 }
@@ -389,6 +402,64 @@ async function runPlanCommand(parsed: ParsedArguments): Promise<number> {
   return 0;
 }
 
+function pointsOfPath(pathData: string): { x: number; y: number }[] {
+  return [...pathData.matchAll(/[ML] (-?[\d.]+) (-?[\d.]+)/g)].map((match) => ({ x: Number(match[1]), y: Number(match[2]) }));
+}
+
+function rectOf(element: { x: number; y: number; width: number; height: number }) {
+  return { x: element.x, y: element.y, width: element.width, height: element.height };
+}
+
+function summarizeLayout(layout: BoardLayout) {
+  const placed = layout.elements.flatMap((element) => (element.kind === 'wire' ? [] : [{ kind: element.kind, id: element.id, ...rectOf(element) }]));
+  const wires = layout.elements.flatMap((element) => (element.kind === 'wire'
+    ? [{ id: element.id, points: pointsOfPath(element.path), label: element.label, labelAt: element.label ? element.labelAt : null }]
+    : []));
+  return {
+    ok: true,
+    bounds: layout.bounds,
+    columns: layout.columns.map((column) => ({ id: column.id, x: column.x, width: column.width })),
+    elements: placed,
+    wires,
+    warnings: layout.warnings,
+  };
+}
+
+async function fetchBoard(boardRef: string): Promise<Board | string> {
+  const reply = await askWhiteboard({ sub: 'get', board: boardRef });
+  if (typeof reply === 'string') return reply;
+  if (!('changes' in reply)) return 'Glimmervoid did not return the board';
+  return reply.board;
+}
+
+async function runLayoutCommand(parsed: ParsedArguments): Promise<number> {
+  const isRender = parsed.commandPath[1] === 'render';
+  const outPath = typeof parsed.values.out === 'string' ? parsed.values.out : null;
+  if (isRender && outPath === null) {
+    console.log(JSON.stringify({ ok: false, error: 'render needs --out <path>, for example "glimmervoid whiteboard render flow --out flow.svg"' }));
+    return 1;
+  }
+  const board = await fetchBoard(joinedText(parsed.positionals));
+  if (typeof board === 'string') {
+    console.log(JSON.stringify({ ok: false, error: board }));
+    return 1;
+  }
+  const layout = layoutBoard(board);
+  if (outPath === null) {
+    console.log(JSON.stringify(summarizeLayout(layout)));
+    return 0;
+  }
+  const absoluteOutPath = path.resolve(outPath);
+  await fs.promises.writeFile(absoluteOutPath, boardSvgDocument(layout));
+  console.log(JSON.stringify({ ok: true, wrote: absoluteOutPath, width: layout.bounds.width, height: layout.bounds.height, warnings: layout.warnings }));
+  return 0;
+}
+
+function isLayoutCommand(parsed: ParsedArguments): boolean {
+  const subcommand = parsed.commandPath[1];
+  return subcommand === 'render' || (subcommand === 'get' && parsed.values.layout === true);
+}
+
 async function runAgentApiCli(args: string[]): Promise<number> {
   const verb = args[0];
   if (!verb || !isAgentApiVerb(verb)) {
@@ -406,6 +477,7 @@ async function runAgentApiCli(args: string[]): Promise<number> {
   }
   if (verb === 'show') return runShowCommand(parsed);
   if (verb === 'whiteboard' && parsed.commandPath[1] === 'plan') return runPlanCommand(parsed);
+  if (verb === 'whiteboard' && isLayoutCommand(parsed)) return runLayoutCommand(parsed);
   const body = BODY_BUILDERS[verb](parsed);
   if (!body) {
     console.error(`glimmervoid ${parsed.commandPath.join(' ')}: ${AGENT_COMMAND_HELP[verb].missingArgumentHint ?? 'those arguments are not understood'}; run it with --help for its usage`);

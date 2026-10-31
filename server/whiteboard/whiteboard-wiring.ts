@@ -23,7 +23,7 @@ const BOARD_FILE_EXTENSION = '.json';
 const BOARD_FILE_MODE = 0o600;
 
 const PUT_GUIDE = [
-  'glimmervoid whiteboard put <board> <ops> takes a JSON array of ops, or - to read it from stdin, for example',
+  'glimmervoid whiteboard put <board> <ops> takes a JSON array of ops, - to read it from stdin, or --file <path> to read it from a file, for example',
   '\'[{"op":"columns","columns":[{"id":"intake","title":"Intake"}]},',
   '{"op":"lanes","lanes":[{"id":"pr1","label":"PR 1","color":"blue"}]},',
   '{"op":"add","element":{"kind":"box","id":"parse","title":"Parse","column":"intake","lane":"pr1","lines":[{"text":"reads the feed"},{"text":"skips drafts","muted":true}]}},',
@@ -32,7 +32,8 @@ const PUT_GUIDE = [
   'Element kinds: box (title, column, lines, lane, ghost, order), wire (from, to, dashed, tone plain|fail|join|lane, label), frame (title, contains), note (on, text), unit (title, lines, after, linkedBoardId).',
   'Units lay out work in dependency order: glimmervoid whiteboard plan add|after|show edits and reads them.',
   'Columns place boxes, so never send pixel positions. A put is applied whole or refused whole.',
-  'glimmervoid whiteboard get <board> returns the board and a one-line summary of each change others made since this session last read it.',
+  'glimmervoid whiteboard get <board> returns the board and a one-line summary of each change others made since this session last read it;',
+  'add --layout to see where every box, wire and label landed, or run glimmervoid whiteboard render <board> --out board.svg to draw it as the dashboard does.',
 ].join(' ');
 
 interface WhiteboardCaller {

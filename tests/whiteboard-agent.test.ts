@@ -284,6 +284,35 @@ test('an agent plans units through the CLI in dependency order, a cycle is refus
   assert.deepEqual((await boardOf(PLANNER_ID, boardId)).board.elements['search-box']?.after, []);
 });
 
+test('an agent puts ops from a file, reads the laid-out positions and renders the board to an SVG file', async (context) => {
+  const boardId = await newBoard('see it');
+  const opsPath = path.join(fixture.tmpDir, 'see-it-ops.json');
+  fs.writeFileSync(opsPath, JSON.stringify([
+    { op: 'columns', columns: [{ id: 'intake', title: 'Intake' }, { id: 'store', title: 'Store' }] },
+    { op: 'add', element: { kind: 'box', id: 'parse', title: 'Parse <feed>', column: 'intake' } },
+    { op: 'add', element: { kind: 'box', id: 'save', title: 'Save', column: 'store' } },
+    { op: 'add', element: { kind: 'wire', id: 'w1', from: 'parse', to: 'save', label: 'rows' } },
+  ]));
+  const cli = (...args: string[]) => runPlannerCli(context, ['whiteboard', ...args]);
+
+  assert.equal((await cli('put', boardId, '--file', opsPath)).exitCode, 0);
+
+  const laidOut = await cli('get', boardId, '--layout');
+  assert.equal(laidOut.exitCode, 0);
+  const layout = JSON.parse(laidOut.printed) as { elements: { id: string; x: number; width: number }[]; wires: { id: string; points: { x: number }[] }[] };
+  const parse = layout.elements.find((element) => element.id === 'parse');
+  const save = layout.elements.find((element) => element.id === 'save');
+  assert.ok(parse && save && parse.x + parse.width < save.x, laidOut.printed);
+  assert.ok((layout.wires.find((wire) => wire.id === 'w1')?.points.length ?? 0) >= 2, laidOut.printed);
+
+  const svgPath = path.join(fixture.tmpDir, 'see-it.svg');
+  assert.equal((await cli('render', boardId, '--out', svgPath)).exitCode, 0);
+  const svgText = fs.readFileSync(svgPath, 'utf8');
+  assert.match(svgText, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
+  assert.match(svgText, /Parse &lt;feed&gt;/);
+  assert.match(svgText, /data-element-id="w1"/);
+});
+
 test('the operator connects and disconnects a session from the dashboard, and a removed session leaves every board', async () => {
   const boardId = await newBoard('operator links');
   const client = await dashboardClient(boundPort(running().server));
