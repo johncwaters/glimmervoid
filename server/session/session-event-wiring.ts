@@ -10,6 +10,7 @@ import { STATES } from '../../shared/states.ts';
 import type { SessionState } from '../../shared/states.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
 import { decideWasActiveFlip, decideWasWorkingFlip, isTurnWorkHookEvent } from './core/session-registry-core.ts';
+import type { HintedCommand } from '../../session/core/session-routes.ts';
 import { adapterBucket, classifySessionExit } from '../core/telemetry-core.ts';
 import { INTERACTIVE_LANE } from '../usage/core/usage-lane-core.ts';
 import type { Telemetry } from '../telemetry.ts';
@@ -304,6 +305,9 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       if (agentNoteForCopy !== null) pendingAgentNote = null;
     });
 
+    session.on('command-hint', ({ command, outcome }: { command: HintedCommand; outcome: 'shown' | 'followed' }) => {
+      dependencies.telemetry?.capture(outcome === 'shown' ? 'command_hint_shown' : 'command_hint_followed', { command, adapter: adapterBucket(session.agentId) });
+    });
     session.on('agent-attention', ({ note }: { note: string }) => {
       pendingAgentNote = pendingAgentNote === null ? note : `${pendingAgentNote}${AGENT_ATTENTION_NOTE_SEPARATOR}${note}`;
     });

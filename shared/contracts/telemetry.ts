@@ -3,6 +3,7 @@ import { BUILTIN_AGENT_IDS } from './config.ts';
 import { DASHBOARD_VIEWS, ONBOARDING_STEP_STATES, ONBOARDING_STEPS, OPERATOR_ACTIONS_BY_SURFACE, OPERATOR_SURFACES, TELEMETRY_TEXT_MAX_CHARS } from './control-messages.ts';
 import type { OperatorAction, OperatorSurface } from './control-messages.ts';
 import { HintFeature } from './feature-hints.ts';
+import { SESSION_COMMANDS } from './session.ts';
 
 const TELEMETRY_ADAPTERS = Object.freeze([...BUILTIN_AGENT_IDS, 'custom'] as const);
 const SESSION_END_CAUSES = Object.freeze(['removed', 'replaced', 'server_stopped'] as const);
@@ -52,6 +53,11 @@ const SessionEndedProperties = z.object({
   adapter: z.enum(TELEMETRY_ADAPTERS),
   exit_kind: z.enum(SESSION_EXIT_KINDS),
   duration_seconds: nonNegativeInteger,
+}).strict();
+
+const CommandHintProperties = z.object({
+  command: z.enum(SESSION_COMMANDS),
+  adapter: z.enum(TELEMETRY_ADAPTERS),
 }).strict();
 
 const ViewShownProperties = z.object({
@@ -164,6 +170,8 @@ export const TELEMETRY_EVENT_SCHEMAS = Object.freeze({
   session_ended: SessionEndedProperties,
   $exception: ExceptionProperties,
   $ai_generation: AiGenerationProperties,
+  command_hint_shown: CommandHintProperties,
+  command_hint_followed: CommandHintProperties,
   view_shown: ViewShownProperties,
   operator_action: OperatorActionProperties,
   onboarding_step: OnboardingStepProperties,
@@ -186,6 +194,8 @@ export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description:
   { name: 'session_ended', description: 'A session ended: how it exited, or that it was removed, replaced by a settings change or stopped with the server, and how long it ran, in whole seconds.' },
   { name: '$exception', description: 'An error in the server or the dashboard: its type, an error code when it has one, and stack frames with file paths cut to the package or URL path. Never the error message. Each distinct error is sent once per run, and a crash is sent on the next start.' },
   { name: '$ai_generation', description: 'Per agent session and model, after each usage scan, for usage recorded in the last 24 hours: token counts, the model name and estimated cost, under a one-way hash of the session. A model name outside the shipped pricing table is sent as unknown. No prompts or output.' },
+  { name: 'command_hint_shown', description: 'An agent was handed a one-time line naming a Glimmervoid command when its tool call made the command fit, with which command and which kind of agent. Never the tool call.' },
+  { name: 'command_hint_followed', description: 'An agent ran a Glimmervoid command it had been handed a one-time line about earlier in the same conversation, with which command and which kind of agent.' },
   { name: 'view_shown', description: 'A dashboard tab opened, on desktop or phone, with which tab. Sent on every open.' },
   { name: 'operator_action', description: 'An action taken in the Usage, Issues, Radar or Reviews tab, the first-run checklist or a feature hint: which surface and which action, from a fixed list, and for a feature hint which tab it pointed at. Never which repository, pull request, issue or session it was taken on.' },
   { name: 'onboarding_step', description: 'The first-run checklist moved a step to current or done, with which step. Sent once per change while the page is open.' },

@@ -322,8 +322,10 @@ test('an accepted UserPromptSubmit prints the pending prompt context in the shap
   }
 });
 
-test('a tool hook names a Glimmervoid command once per conversation to the main agent, and never one the session already ran', async () => {
+test('a tool hook names a Glimmervoid command once per conversation to the main agent, never one the session already ran, and reports it shown and followed', async () => {
   const { base, token } = ctx();
+  const commandHintOutcomes: string[] = [];
+  ctx().session.on('command-hint', ({ command, outcome }: { command: string; outcome: string }) => commandHintOutcomes.push(`${command} ${outcome}`));
   async function postToolHook(event: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
     const response = await fetch(`${base}/hook/${SESSION_ID}/${event}?t=${encodeURIComponent(token)}`, {
       method: 'POST',
@@ -344,6 +346,9 @@ test('a tool hook names a Glimmervoid command once per conversation to the main 
     additionalContext: "Glimmervoid: glimmervoid show <path> puts an image, video or HTML file on this session's card for the operator.",
   });
   assert.equal((await postToolHook('PostToolUse', screenshotCall)).hookSpecificOutput, undefined);
+  ctx().session.noteCommandRan('show');
+  ctx().session.noteCommandRan('show');
+  assert.deepEqual(commandHintOutcomes, ['show shown', 'show followed']);
   ctx().session.noteCommandRan('push');
   const failedPush = { tool_name: 'Bash', tool_input: { command: 'git push origin HEAD' }, error: 'Exit code 1' };
   assert.equal((await postToolHook('PostToolUseFailure', failedPush)).hookSpecificOutput, undefined);
@@ -358,7 +363,7 @@ test('a tool hook names a Glimmervoid command once per conversation to the main 
   assert.deepEqual(JSON.parse(relayedToCodex), { hookSpecificOutput: firstReply.hookSpecificOutput }, 'a cleared conversation gets the hint again, and the command relay hands it to Codex');
 });
 
-test('a Kimi agent that starts a subagent gets the spawn hint with its next prompt, since Kimi ignores tool hook output', async () => {
+test('a Kimi agent that starts a subagent gets the spawn hint with its next prompt, since Kimi ignores tool hook output, and only a run after that prompt counts as following it', async () => {
   const { base } = ctx();
   const kimiSession = ctx().backend.getSession(KIMI_SESSION_ID);
   assert.ok(kimiSession);
@@ -378,10 +383,15 @@ test('a Kimi agent that starts a subagent gets the spawn hint with its next prom
     .find((record) => record.event === 'posttooluse' && record.payload?.tool_name === 'Agent')?.payload;
   assert.ok(recordedAgentCall, 'the live capture holds the PostToolUse of the Agent tool call');
   const mainAgentCallAsKimiSendsIt = { ...recordedAgentCall, agent_id: 'main' };
+  const commandHintOutcomes: string[] = [];
+  kimiSession.on('command-hint', ({ command, outcome }: { command: string; outcome: string }) => commandHintOutcomes.push(`${command} ${outcome}`));
   assert.equal((await postKimiHook('PostToolUse', mainAgentCallAsKimiSendsIt)).hookSpecificOutput, undefined);
+  kimiSession.noteCommandRan('spawn');
+  assert.deepEqual(commandHintOutcomes, []);
   const promptReply = await postKimiHook('UserPromptSubmit', { prompt: 'next' });
   assert.match(String(promptReply.message), /glimmervoid spawn <prompt> gives it its own dashboard card/);
   assert.equal((await postKimiHook('UserPromptSubmit', { prompt: 'again' })).message, undefined);
+  assert.deepEqual(commandHintOutcomes, ['spawn shown']);
 });
 
 test('a Claude conversation gets the Glimmervoid start line with its first prompt after /clear, once, whatever its launch arguments', async () => {

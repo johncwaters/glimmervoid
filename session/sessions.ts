@@ -329,9 +329,10 @@ class Session extends EventEmitter {
   _spawnCommand: ResolvedCommand | null;
   _initialPrompt: string | null;
   _pendingPromptSupervisionLine: string | null;
-  _hintedCommands: Set<string>;
+  _hintedCommands: Set<HintedCommand>;
+  _shownHintCommands: Set<HintedCommand>;
   _ranCommands: Set<string>;
-  _queuedCommandHintTexts: string[];
+  _queuedCommandHints: CommandHint[];
   _extraClaudeArgs: string[];
   _resumeSessionId: string | null;
   readonly workspaceRepos: string[] | null;
@@ -568,8 +569,9 @@ class Session extends EventEmitter {
     this._initialPrompt = initialPrompt;
     this._pendingPromptSupervisionLine = null;
     this._hintedCommands = new Set();
+    this._shownHintCommands = new Set();
     this._ranCommands = new Set();
-    this._queuedCommandHintTexts = [];
+    this._queuedCommandHints = [];
     this._extraClaudeArgs = Array.isArray(extraClaudeArgs) ? extraClaudeArgs : [];
     this._resumeSessionId = resumeSessionId || null;
     this.workspaceRepos = workspaceRepos ? [...workspaceRepos] : null;
@@ -945,8 +947,9 @@ class Session extends EventEmitter {
 
   _forgetCommandHints(): void {
     this._hintedCommands.clear();
+    this._shownHintCommands.clear();
     this._ranCommands.clear();
-    this._queuedCommandHintTexts = [];
+    this._queuedCommandHints = [];
   }
 
   _captureClaudeSessionId(
@@ -1702,7 +1705,14 @@ class Session extends EventEmitter {
   }
 
   noteCommandRan(command: string): void {
+    const followedHint = this._ranCommands.has(command) ? undefined : [...this._shownHintCommands].find((shown) => shown === command);
     this._ranCommands.add(command);
+    if (followedHint !== undefined) this._noteCommandHint(followedHint, "followed");
+  }
+
+  _noteCommandHint(command: HintedCommand, outcome: "shown" | "followed"): void {
+    if (outcome === "shown") this._shownHintCommands.add(command);
+    this.emit("command-hint", { command, outcome });
   }
 
   takeCommandHint(event: string, payload: Record<string, unknown>, answers: (command: HintedCommand) => boolean): CommandHint | null {
@@ -1711,15 +1721,20 @@ class Session extends EventEmitter {
     const hint = hintFor(facts, { answers, hintedCommands: this._hintedCommands, ranCommands: this._ranCommands });
     if (hint === null) return null;
     this._hintedCommands.add(hint.command);
-    if (this._can("toolHookContext")) return hint;
-    this._queuedCommandHintTexts.push(hint.text);
-    return null;
+    if (!this._can("toolHookContext")) {
+      this._queuedCommandHints.push(hint);
+      return null;
+    }
+    this._noteCommandHint(hint.command, "shown");
+    return hint;
   }
 
   takePromptNotes(): string[] {
-    const notes = [this._pendingPromptSupervisionLine, ...this._queuedCommandHintTexts].filter((note) => note !== null);
+    const queuedHints = this._queuedCommandHints;
+    const notes = [this._pendingPromptSupervisionLine, ...queuedHints.map((hint) => hint.text)].filter((note) => note !== null);
     this._pendingPromptSupervisionLine = null;
-    this._queuedCommandHintTexts = [];
+    this._queuedCommandHints = [];
+    for (const hint of queuedHints) this._noteCommandHint(hint.command, "shown");
     return notes;
   }
 
