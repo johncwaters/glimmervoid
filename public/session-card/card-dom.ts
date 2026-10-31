@@ -211,6 +211,9 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   btnRemove.type = 'button';
   btnRemove.title = 'Remove session';
   btnRemove.setAttribute('aria-label', 'Remove session');
+  const btnRemoveMenuItem = buildMenuItem('Remove session', 'overflow-remove visible');
+  btnRemoveMenuItem.onclick = () => btnRemove.click();
+  sessionMenu.append(btnRemoveMenuItem);
 
   const btnPlan = el('button', 'btn-action btn-face-plan', 'Plan');
   btnPlan.type = 'button';

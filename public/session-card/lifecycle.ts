@@ -248,7 +248,7 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
   wirePopupMenuKeys({
     trigger: ui.btnSessionMenu,
     menu: ui.sessionMenu,
-    menuItems: () => [...ui.sessionMenu.querySelectorAll<HTMLElement>('.popup-menu-item.visible')],
+    menuItems: () => [...ui.sessionMenu.querySelectorAll<HTMLElement>('.popup-menu-item.visible')].filter((item) => item.checkVisibility()),
     isOpen: () => ui.sessionMenu.classList.contains('open'),
     open: openSessionMenu,
     close: () => closeSessionMenu(ui),

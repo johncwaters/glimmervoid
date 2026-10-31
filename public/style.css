@@ -3537,6 +3537,9 @@ html[data-layout="phone"] .doc-editor-body { padding: 12px; }
 }
 html[data-layout="phone"] .card-face-tab { min-width: 44px; height: 36px; justify-content: center; }
 html[data-layout="phone"] .card-face-tab-label { display: none; }
+html[data-layout="phone"] .card-face-tab:not(.card-face-tab-shown) { display: none; }
+html[data-layout="phone"] .session-actions .btn-remove { display: none; }
+html:not([data-layout="phone"]) .overflow-remove { display: none; }
 html[data-layout="phone"] .card-face-tab .line-icon { width: 18px; height: 18px; }
 html[data-layout="phone"] .phone-terminal:has(.session-card[data-face="shown"]) .phone-key-strip { display: none; }
 html[data-layout="phone"] .shown-stage { padding: 8px 44px; }

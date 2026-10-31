@@ -151,7 +151,10 @@ function buildNav() {
   for (const screen of NAV_SCREENS) {
     const btn = buildNavButton(screen.label, screen.glyph);
     btn.dataset.screen = screen.id;
-    btn.addEventListener('click', () => showScreen(screen.id));
+    btn.addEventListener('click', () => {
+      if (screen.id === TERMINAL && uiState.snapshot().phoneScreen === TERMINAL) showTerminalFaceOfShownSession();
+      showScreen(screen.id);
+    });
     navButtonById.set(screen.id, btn);
     nav.appendChild(btn);
   }
@@ -359,6 +362,12 @@ function applyScreen(screenId: string) {
     return;
   }
   terminalScreen.unview();
+}
+
+function showTerminalFaceOfShownSession() {
+  const shownSessionId = terminalScreen?.getSessionId();
+  if (!shownSessionId) return;
+  sessionUIs.get(shownSessionId)?._showTerminalFace?.();
 }
 
 function canShowScreen(screenId: string) {
