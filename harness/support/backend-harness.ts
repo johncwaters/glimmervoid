@@ -138,6 +138,14 @@ function screenShowsWhiteboardAnswer(screenText: string): boolean {
   return stripVTControlCharacters(screenText).replace(/\s+/g, '').includes(WHITEBOARD_PROBE_ANSWER);
 }
 
+const SHOULD_RUN_ONLY_HINT_PROBE = process.argv.includes('--only-hints');
+const HINT_PROBE_PROMPT = "Run the shell command: echo hint-probe.png . Then quote verbatim every sentence beginning with 'Glimmervoid:' that reached you with that tool result, or reply none.";
+const SHOW_HINT_MARKER = 'glimmervoidshow<path>';
+
+function screenShowsShowHint(screenText: string): boolean {
+  return stripVTControlCharacters(screenText).replace(/\s+/g, '').includes(SHOW_HINT_MARKER);
+}
+
 function hookEventsOf(hooks: ProbeHookRecord[]): string[] {
   return hooks.map((hook) => hook.event.toLowerCase());
 }
@@ -212,13 +220,16 @@ export {
   createProbeChecks,
   delay,
   findFreeHighPort,
+  HINT_PROBE_PROMPT,
   hookEventsOf,
   listen,
   removeHarnessTempDirectory,
   queueWhiteboardEditFor,
   safeTextTail,
   sanitizeProbeText,
+  screenShowsShowHint,
   screenShowsWhiteboardAnswer,
+  SHOULD_RUN_ONLY_HINT_PROBE,
   SHOULD_RUN_ONLY_WHITEBOARD_PROBE,
   waitForState,
   whiteboardWriterIdFor,

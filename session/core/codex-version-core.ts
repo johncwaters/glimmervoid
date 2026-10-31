@@ -3,6 +3,7 @@ import { compareSemver } from '../../server/core/update-core.ts';
 interface MatchedRelayHook {
   event: string;
   matcher: string;
+  isAsync?: boolean;
 }
 
 interface CodexHookPlan {
@@ -18,7 +19,7 @@ const LEGACY_HOOK_EVENTS = ['SessionStart', 'SessionEnd', 'UserPromptSubmit', 'S
 const EXTENDED_HOOK_EVENTS = [...LEGACY_HOOK_EVENTS, 'PreCompact', 'PostCompact', 'SubagentStart', 'SubagentStop'];
 const EXTENDED_MATCHED_RELAY_HOOKS: readonly MatchedRelayHook[] = [
   { event: 'PreToolUse', matcher: 'request_user_input' },
-  { event: 'PostToolUse', matcher: 'Bash' },
+  { event: 'PostToolUse', matcher: 'Bash', isAsync: true },
   { event: 'PostToolUse', matcher: 'request_user_input' },
 ];
 

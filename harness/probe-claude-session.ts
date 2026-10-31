@@ -3,13 +3,13 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { stripVTControlCharacters } from 'node:util';
 
 import { createBackend } from '../server/backend/backend.ts';
 import type { Session } from '../session/sessions.ts';
 import type { HookPayload } from '../shared/contracts/index.ts';
 import {
-  createProbeChecks, delay, hookEventsOf, queueWhiteboardEditFor, screenShowsWhiteboardAnswer, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, waitForState,
+  createProbeChecks, delay, HINT_PROBE_PROMPT, hookEventsOf, queueWhiteboardEditFor, screenShowsShowHint, screenShowsWhiteboardAnswer,
+  SHOULD_RUN_ONLY_HINT_PROBE, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, waitForState,
   whiteboardWriterIdFor, whiteboardWriterProject, WHITEBOARD_PROBE_PROMPT, writeHookFixture,
 } from './support/backend-harness.ts';
 import type { ProbeFixtureTarget, ProbeHookRecord } from './support/backend-harness.ts';
@@ -17,9 +17,6 @@ import type { ProbeFixtureTarget, ProbeHookRecord } from './support/backend-harn
 const SESSION_ID = 'claude-probe-session';
 const BOOT_SETTLE_MS = 10000;
 const SHOULD_WRITE_FIXTURES = process.argv.includes('--write-fixtures');
-const SHOULD_RUN_ONLY_HINT_PROBE = process.argv.includes('--only-hints');
-const HINT_PROBE_PROMPT = "Run the shell command: printf x > hint-probe.png . Then quote verbatim every sentence beginning with 'Glimmervoid:' that reached you with that tool result, or reply none.";
-const SHOW_HINT_MARKER = 'glimmervoidshow<path>';
 
 const { check, passed, failed } = createProbeChecks();
 
@@ -132,7 +129,7 @@ async function runProbe(tempDirectory: string): Promise<void> {
       const hintOutputOffset = session.getOutputOffset();
       const hintHooks = await runScenario('command-hint', () => submit(HINT_PROBE_PROMPT), pressEnter);
       check('the Bash PostToolUse reached the hooks', hookEventsOf(hintHooks).includes('posttooluse'));
-      check('the show hint reached the model with the tool result', stripVTControlCharacters(session.getBufferSince(hintOutputOffset).data).replace(/\s+/g, '').includes(SHOW_HINT_MARKER));
+      check('the show hint reached the model with the tool result', screenShowsShowHint(session.getBufferSince(hintOutputOffset).data));
       return;
     }
 

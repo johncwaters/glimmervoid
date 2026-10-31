@@ -321,7 +321,7 @@ test('an accepted UserPromptSubmit prints the pending prompt context in the shap
   }
 });
 
-test('a Claude tool hook names a Glimmervoid command once per conversation to the main agent, and never one the session already ran', async () => {
+test('a tool hook names a Glimmervoid command once per conversation to the main agent, and never one the session already ran', async () => {
   const { base, token } = ctx();
   async function postToolHook(event: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
     const response = await fetch(`${base}/hook/${SESSION_ID}/${event}?t=${encodeURIComponent(token)}`, {
@@ -347,5 +347,12 @@ test('a Claude tool hook names a Glimmervoid command once per conversation to th
   const failedPush = { tool_name: 'Bash', tool_input: { command: 'git push origin HEAD' }, error: 'Exit code 1' };
   assert.equal((await postToolHook('PostToolUseFailure', failedPush)).hookSpecificOutput, undefined);
   await postToolHook('SessionStart', { source: 'clear' });
-  assert.ok((await postToolHook('PostToolUse', screenshotCall)).hookSpecificOutput, 'a cleared conversation never saw the hint, so it gets it again');
+  const codexEchoCall = fs.readFileSync(path.join(import.meta.dirname, 'fixtures', 'v2-codex-command-hint.jsonl'), 'utf8')
+    .split('\n').filter(Boolean).map((line) => JSON.parse(line) as { event?: string; payload?: Record<string, unknown> })
+    .find((record) => record.event === 'posttooluse')?.payload;
+  let relayedToCodex = '';
+  await relayHook(['PostToolUse'], Readable.from([Buffer.from(JSON.stringify(codexEchoCall), 'utf8')]), {
+    GLIMMERVOID_HOOK_URL: `${base}/hook/${SESSION_ID}?t=${encodeURIComponent(token)}`,
+  }, { write: (text: string) => { relayedToCodex += text; } });
+  assert.deepEqual(JSON.parse(relayedToCodex), { hookSpecificOutput: firstReply.hookSpecificOutput }, 'a cleared conversation gets the hint again, and the command relay hands it to Codex');
 });

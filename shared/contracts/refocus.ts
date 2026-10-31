@@ -25,6 +25,8 @@ export const ToolHookContextResponse = z.object({
 
 export type ToolHookContextResponse = z.infer<typeof ToolHookContextResponse>;
 
+export const RelayedHookContext = z.union([UserPromptSubmitHookResponse, ToolHookContextResponse]);
+
 export const PromptContextReply = z.enum(['message', 'additional-context']);
 
 export type PromptContextReply = z.infer<typeof PromptContextReply>;

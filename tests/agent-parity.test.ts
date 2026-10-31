@@ -93,6 +93,7 @@ const PARITY_SCENARIOS: readonly ParityScenario[] = [
 
 const FIXTURES_PINNED_ELSEWHERE: ReadonlySet<string> = new Set([
   'v2-claude-code-command-hint.jsonl',
+  'v2-codex-command-hint.jsonl',
   'v2-complete-stop.jsonl',
   'v2-conflict-stop-then-notify.jsonl',
   'v2-background-monitor-stop.jsonl',

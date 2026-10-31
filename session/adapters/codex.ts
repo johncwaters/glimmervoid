@@ -229,10 +229,11 @@ function buildHookArgs({
     }
     groupsByEvent.set(event, [`{hooks=[{type='command',command='${command}'}]}`]);
   }
-  for (const { event, matcher } of relayedMatchedHooks) {
+  for (const { event, matcher, isAsync } of relayedMatchedHooks) {
     const command = buildHookCommand(relayPath, event);
     if (!command) return null;
-    const group = `{matcher='${matcher}',hooks=[{type='command',command='${command}'}]}`;
+    const asyncField = isAsync ? ",async=true" : "";
+    const group = `{matcher='${matcher}',hooks=[{type='command',command='${command}'${asyncField}}]}`;
     if (event === "PreToolUse") {
       preToolUseGroups.push(group);
       continue;
@@ -305,10 +306,10 @@ function codexHomeHooks(plan: CodexHookPlan = hookPlanForInstalledCodex()): Code
     if (!command) return null;
     hooks.push({ event, matcher: null, command });
   }
-  for (const { event, matcher } of plan.matchedRelayHooks) {
+  for (const { event, matcher, isAsync } of plan.matchedRelayHooks) {
     const command = buildHookCommand(RELAY_PATH, event);
     if (!command) return null;
-    hooks.push({ event, matcher, command });
+    hooks.push({ event, matcher, command, isAsync });
   }
   const saneYoloCommand = buildHookCommand(HOOK_TOOL_RELAY_PATH, "saneYolo", [CODEX_SANE_YOLO_FLAVOR]);
   if (!saneYoloCommand) return null;
@@ -488,6 +489,7 @@ const codex = {
     compactQuiet: true,
     skipPermissionsFlag: true,
     headless: true,
+    toolHookContext: true,
   },
   promptContextReply: "additional-context",
 } satisfies AgentAdapterShape;

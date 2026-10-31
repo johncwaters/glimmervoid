@@ -11,7 +11,8 @@ import type { HookPayload } from '../shared/contracts/index.ts';
 import codex from '../session/adapters/codex.ts';
 import type { Session } from '../session/sessions.ts';
 import {
-  createProbeChecks, delay, queueWhiteboardEditFor, sanitizeProbeText, screenShowsWhiteboardAnswer, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, waitForState,
+  createProbeChecks, delay, HINT_PROBE_PROMPT, queueWhiteboardEditFor, sanitizeProbeText, screenShowsShowHint, screenShowsWhiteboardAnswer,
+  SHOULD_RUN_ONLY_HINT_PROBE, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, waitForState,
   whiteboardWriterIdFor, whiteboardWriterProject, WHITEBOARD_PROBE_PROMPT, writeHookFixture,
 } from './support/backend-harness.ts';
 import type { ProbeFixtureTarget, ProbeHookRecord } from './support/backend-harness.ts';
@@ -260,6 +261,32 @@ async function main(): Promise<void> {
     await waitForState(session, ['RUNNING', 'IDLE'], 'first output');
     check('the session reached a live state after spawn', session.state !== 'DORMANT');
 
+    const runTurn = async (prompt: string, label: string): Promise<void> => {
+      session.write(prompt);
+      await delay(1500);
+      session.write('\r');
+      await waitForState(session, ['RUNNING', 'WAITING'], `${label} to start`);
+      while ((await waitForState(session, ['COMPLETE', 'WAITING'], `${label} to finish`)) === 'WAITING') {
+        console.log(`  [approve] ${label}`);
+        await delay(1500);
+        session.write('y');
+        await waitForState(session, ['RUNNING', 'COMPLETE'], `${label} to resume after approval`);
+      }
+    };
+
+    if (SHOULD_RUN_ONLY_HINT_PROBE) {
+      console.log('\nCommand hint:');
+      await delay(6000);
+      const hintStart = hookRecords.length;
+      const hintOutputOffset = session.getOutputOffset();
+      await runTurn(HINT_PROBE_PROMPT, 'the hint turn');
+      await delay(3000);
+      writeScenario('command-hint', hintStart);
+      check('the Bash PostToolUse reached the hooks', hookRecords.slice(hintStart).some((hook) => hook.event.toLowerCase() === 'posttooluse'));
+      check('the show hint reached the model with the tool result', screenShowsShowHint(session.getBufferSince(hintOutputOffset).data));
+      return;
+    }
+
     console.log('\nWhiteboard prompt context:');
     await delay(6000);
     const writer = backend.getSession(whiteboardWriterIdFor(SESSION_ID));
@@ -287,19 +314,6 @@ async function main(): Promise<void> {
     writeScenario('turn-complete', firstTurnStart);
     check('the first turn answered with the sentinel', answers.at(-1)?.toLowerCase() === SENTINEL_WORD);
     console.log(`  [answer:first] ${answers.at(-1) || '(none)'}`);
-
-    const runTurn = async (prompt: string, label: string): Promise<void> => {
-      session.write(prompt);
-      await delay(1500);
-      session.write('\r');
-      await waitForState(session, ['RUNNING', 'WAITING'], `${label} to start`);
-      while ((await waitForState(session, ['COMPLETE', 'WAITING'], `${label} to finish`)) === 'WAITING') {
-        console.log(`  [approve] ${label}`);
-        await delay(1500);
-        session.write('y');
-        await waitForState(session, ['RUNNING', 'COMPLETE'], `${label} to resume after approval`);
-      }
-    };
 
     async function waitForHook(label: string, since: number, matches: (hook: ProbeHookRecord) => boolean, timeoutMs = STEP_TIMEOUT_MS): Promise<ProbeHookRecord | null> {
       const deadline = Date.now() + timeoutMs;

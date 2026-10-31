@@ -1,5 +1,5 @@
-import { SessionStartHookResponse, UserPromptSubmitHookResponse } from '../../shared/contracts/refocus.ts';
-import type { ToolHookContextResponse } from '../../shared/contracts/refocus.ts';
+import { RelayedHookContext, SessionStartHookResponse } from '../../shared/contracts/refocus.ts';
+import type { ToolHookContextResponse, UserPromptSubmitHookResponse } from '../../shared/contracts/refocus.ts';
 import type { CommandHint } from './session-routes.ts';
 import type { PromptContextReply } from '../../shared/contracts/refocus.ts';
 
@@ -54,10 +54,10 @@ function sessionStartContextOutput(body: string | null): string | null {
   }
 }
 
-function promptSupervisionOutput(body: string | null): string | null {
+function relayedHookContextOutput(body: string | null): string | null {
   if (body === null) return null;
   try {
-    const parsedResponse = UserPromptSubmitHookResponse.safeParse(JSON.parse(body));
+    const parsedResponse = RelayedHookContext.safeParse(JSON.parse(body));
     if (!parsedResponse.success) return null;
     return JSON.stringify(parsedResponse.data);
   } catch {
@@ -71,5 +71,5 @@ function toolHookContextReplyOf({ event, text }: CommandHint): ToolHookContextRe
   return { hookSpecificOutput: { hookEventName: TOOL_HOOK_EVENT_NAMES[event], additionalContext: text } };
 }
 
-export { toolHookContextReplyOf, promptContextReplyOf, refocusReplyFor, sessionStartContextOutput, promptSupervisionOutput };
+export { toolHookContextReplyOf, promptContextReplyOf, refocusReplyFor, sessionStartContextOutput, relayedHookContextOutput };
 export type { RefocusContext };

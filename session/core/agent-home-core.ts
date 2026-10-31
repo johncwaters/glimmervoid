@@ -421,12 +421,14 @@ interface CodexHomeHook {
   event: string;
   matcher: string | null;
   command: string;
+  isAsync?: boolean;
 }
 
 function codexHookTables(hook: CodexHomeHook): string[] {
   const lines = [`[[hooks.${hook.event}]]`];
   if (hook.matcher !== null) lines.push(`matcher = '${hook.matcher}'`);
   lines.push(`[[hooks.${hook.event}.hooks]]`, `type = "command"`, `command = '${hook.command}'`);
+  if (hook.isAsync) lines.push("async = true");
   return lines;
 }
 
