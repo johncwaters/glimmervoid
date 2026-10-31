@@ -337,6 +337,7 @@ for (const method of ['mergeBack', 'mergeKeep'] as const) {
       });
       assert.equal(merged.merged, true);
       assert.equal(merged.pushed, true);
+      assert.equal(merged.warning, undefined);
       assert.equal(git(['rev-parse', 'main'], fixture.repositoryPath).trim(), git(['ls-remote', 'origin', 'refs/heads/main'], fixture.repositoryPath).trim().split(/\s/)[0]);
       assert.equal(fs.readFileSync(path.join(fixture.repositoryPath, 'remote.txt'), 'utf8'), 'remote\n');
       assert.equal(fs.readFileSync(path.join(fixture.repositoryPath, 'session.txt'), 'utf8'), 'session\n');
@@ -388,6 +389,7 @@ for (const method of ['mergeBack', 'mergeKeep'] as const) {
       });
       assert.equal(merged.merged, true);
       assert.equal(merged.pushed, false);
+      assert.equal(merged.warning, 'Merged into main, but origin refused the push, so origin/main does not have it yet. Resync the base branch to push it.');
       assert.equal(git(['rev-list', '--count', 'origin/main..main'], fixture.repositoryPath).trim(), '1');
       if (method === 'mergeKeep') await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created, cause: 'session' });
     } finally {

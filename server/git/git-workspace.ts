@@ -540,18 +540,28 @@ function createGitWorkspace(opts: {
     return { ...classified, state: 'in-sync', fetched: true };
   }
 
-  async function pushBaseToOrigin(projectPath: string, branch: string): Promise<boolean> {
-    if (!(await hasOriginRemote(projectPath))) return false;
+  async function pushBaseToOrigin(projectPath: string, branch: string): Promise<{ pushed: boolean; warning: string | null }> {
+    if (!(await hasOriginRemote(projectPath))) return { pushed: false, warning: null };
     const classified = await classifyBaseAgainstOrigin(projectPath, branch);
+    if (classified.state === 'diverged') {
+      return { pushed: false, warning: `Merged into ${branch}, but origin/${branch} moved on, so it was not pushed. Resync ${branch} with origin/${branch} by hand.` };
+    }
     const decision = decideResyncAction(classified.state, false);
     const command = buildResyncCommand(decision, {
       upstream: classified.upstream, branch, remote: 'origin',
     });
-    if (!command) return false;
-    return (await run(command.args, projectPath, {
+    if (!command) return { pushed: false, warning: null };
+    const pushed = (await run(command.args, projectPath, {
       timeout: command.timeoutMs,
       env: { GIT_TERMINAL_PROMPT: '0' },
     })).ok;
+    if (pushed) return { pushed, warning: null };
+    return { pushed, warning: `Merged into ${branch}, but origin refused the push, so origin/${branch} does not have it yet. Resync the base branch to push it.` };
+  }
+
+  function joinWarnings(...warnings: (string | null)[]): string | null {
+    const presentWarnings = warnings.filter((warning): warning is string => !!warning);
+    return presentWarnings.length > 0 ? presentWarnings.join(' ') : null;
   }
 
   function mergeSyncWarning(baseSync: BaseSyncResult, branch: string): string | null {
@@ -934,17 +944,17 @@ function createGitWorkspace(opts: {
       return includeWarning({ merged: false, committed: true, branch, base: target, reason: r.reason, parked: true, conflicts: r.conflicts || [] }, warning);
     }
     await tearDownWorktree(projectPath, wt, branch);
-    const pushed = await pushBaseToOrigin(projectPath, target);
+    const push = await pushBaseToOrigin(projectPath, target);
     return includeWarning({
       merged: true,
       committed: true,
       branch: null,
       base: target,
       reason: null,
-      pushed,
+      pushed: push.pushed,
       rerereReplayed: r.rerereReplayed === true,
       landedRange: r.landedRange ?? null,
-    }, warning);
+    }, joinWarnings(warning, push.warning));
   }
 
   async function mergeKeepBody({ projectPath, workspace, targetBranch }: WorktreeArgs): Promise<MergeOutcome> {
@@ -968,12 +978,12 @@ function createGitWorkspace(opts: {
     }
 
     const baseSha = (await run(['rev-parse', target], projectPath)).out || workspace?.baseSha || null;
-    const pushed = await pushBaseToOrigin(projectPath, target);
+    const push = await pushBaseToOrigin(projectPath, target);
     return includeWarning({
       merged: true, committed: true, branch, base: target, baseSha, kept: true, reason: null,
-      pushed, restoreConflict: r.restoreConflict || false, rerereReplayed: r.rerereReplayed === true,
+      pushed: push.pushed, restoreConflict: r.restoreConflict || false, rerereReplayed: r.rerereReplayed === true,
       landedRange: r.landedRange ?? null,
-    }, warning);
+    }, joinWarnings(warning, push.warning));
   }
 
   async function rebaseOnlyBody({ projectPath, workspace, targetBranch }: WorktreeArgs): Promise<RebaseOutcome> {
