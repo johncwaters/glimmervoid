@@ -9,6 +9,7 @@ import type { CardControl, HarnessCase, Layout, ResolvedStep, Step, ViewerId, Vi
 import { expectedRows, parseStatusRow } from './frame-core.ts';
 import { verifyBoardDock, verifyBoards } from './boards.ts';
 import { verifyIssues } from './issues.ts';
+import { verifyReviewMerge } from './review-merge.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
 import { CARD_REGISTRY_URL, boardRowIds, dispatchWindowBlur, dropDataSocket, pillIds, readDocumentEngagement, readGrid, readLayout, readSettingsHistory, readTerminalFocus, readTerminalWatch, scrollTerminalToTop, setDocumentEngagement, setFitMeasurement, watchTerminal } from './probe.ts';
 import type { GridReading } from './probe.ts';
@@ -33,6 +34,7 @@ export interface RunCaseOptions {
   browser: Browser;
   harnessCase: HarnessCase;
   sessionId: string;
+  projectDirectory: string;
   baseUrl: string;
   artifacts: ArtifactPaths;
   deadlines: Deadlines;
@@ -839,6 +841,7 @@ export async function runCase({
   browser,
   harnessCase,
   sessionId,
+  projectDirectory,
   baseUrl,
   artifacts,
   deadlines,
@@ -901,6 +904,10 @@ export async function runCase({
     if (step.kind === 'assert-team-review') {
       await verifyTeamReviewRows(viewer.page, viewer.layout, sessionId);
       return passedOutcome('team-review-rows', 'quiet rows, accessible names, repo refs and detail presentation verified');
+    }
+    if (step.kind === 'assert-review-merge') {
+      await verifyReviewMerge(viewer.page, projectDirectory);
+      return passedOutcome('review-merge', 'Merge disabled with a stable label once clicked, commit landed on origin main, review emptied');
     }
     if (step.kind === 'open') return runOpen(viewer, sessionId, deadlines);
     if (step.kind === 'back') return runBack(viewer, sessionId, deadlines);

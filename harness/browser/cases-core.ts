@@ -9,6 +9,7 @@ export type Step =
   | { kind: 'assert-boards'; viewer?: ViewerId }
   | { kind: 'assert-board-dock'; viewer?: ViewerId }
   | { kind: 'assert-team-review'; viewer?: ViewerId }
+  | { kind: 'assert-review-merge'; viewer?: ViewerId }
   | { kind: 'open'; viewer?: ViewerId }
   | { kind: 'back'; viewer?: ViewerId }
   | { kind: 'assert-settings-back'; viewer?: ViewerId }
@@ -179,6 +180,11 @@ export const SCENARIOS: readonly Scenario[] = [
   {
     name: 'team-review',
     steps: [{ kind: 'assert-team-review' }, { kind: 'shot', name: 'team-review' }],
+  },
+  {
+    name: 'review-merge',
+    viewports: ['desktop-1280'],
+    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'type', text: 'stop' }, { kind: 'assert-review-merge' }, { kind: 'shot', name: 'merged' }],
   },
   {
     name: 'rename-repaints-roster',
@@ -654,6 +660,10 @@ export function needsTeamReview(scenario: Scenario): boolean {
 
 export function needsIssues(scenario: Scenario): boolean {
   return scenario.steps.some((step) => step.kind === 'assert-issues');
+}
+
+export function needsGitOrigin(scenario: Scenario): boolean {
+  return scenario.steps.some((step) => step.kind === 'assert-review-merge');
 }
 
 function scenarioRunsOnViewport(scenario: Scenario, viewport: Viewport, layout: Layout, proveFailure: boolean): boolean {

@@ -10,7 +10,8 @@ import type { Browser } from 'playwright-core';
 import { resolveWorktreeGitDir } from '../../detection/worktree-watch.ts';
 import { isolateTranscriptHomes } from '../../tests/helpers/transcript-homes.ts';
 import { findFreeHighPort, removeHarnessTempDirectory, safeTextTail } from '../support/backend-harness.ts';
-import { casesFor, needsIssues, needsTeamReview } from './cases-core.ts';
+import { createProject } from '../site-capture/isolated-glimmervoid.ts';
+import { casesFor, needsGitOrigin, needsIssues, needsTeamReview } from './cases-core.ts';
 import type { HarnessCase } from './cases-core.ts';
 import {
   EXIT_HARNESS_ERROR,
@@ -324,6 +325,9 @@ async function main(): Promise<number> {
   try {
     const projectDirs = cases.map((_, index) => path.join(tempDirectory, 'projects', `case-${index}`));
     for (const projectDirectory of projectDirs) fs.mkdirSync(projectDirectory, { recursive: true });
+    for (const [index, harnessCase] of cases.entries()) {
+      if (needsGitOrigin(harnessCase.scenario)) await createProject(tempDirectory, `case-${index}`);
+    }
     const sessionIds = cases.map(() => crypto.randomUUID());
     const port = await findFreeHighPort();
     const configPath = path.join(tempDirectory, 'config.json');
@@ -360,7 +364,7 @@ async function main(): Promise<number> {
       const deadlines = index === 0
         ? { ...DEFAULT_DEADLINES, pageReadyMs: COLD_START_PAGE_READY_MS }
         : DEFAULT_DEADLINES;
-      const record = await runCase({ browser, harnessCase, sessionId, baseUrl, artifacts, deadlines });
+      const record = await runCase({ browser, harnessCase, sessionId, projectDirectory: projectDirs[index] ?? '', baseUrl, artifacts, deadlines });
       records.push(record);
       console.log(`${record.outcome.padEnd(7)} ${record.viewport} / ${record.scenario} (${record.durationMs}ms)`);
     }
