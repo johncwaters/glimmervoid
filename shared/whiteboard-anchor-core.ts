@@ -102,5 +102,5 @@ function reviewBoard(board: Board, facts: AnchorFacts | null): BoardReview {
   return { codeSessionId, anchorWarnings: cappedWarnings(anchorWarnings) };
 }
 
-export { anchorSitesOf, parseRef, referencedPaths, reviewBoard };
-export type { AnchorFacts, AnchorSite, FileFact, ParsedRef };
+export { referencedPaths, reviewBoard };
+export type { AnchorFacts, FileFact };
