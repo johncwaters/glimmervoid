@@ -4269,8 +4269,12 @@ html:not([data-layout="phone"]) .review-controls :is(.review-branch-sync-refresh
   display: flex;
   min-height: 18px;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 8px;
+}
+
+.settings-view-control-foot[hidden] {
+  display: none;
 }
 
 .settings-view-input {
@@ -4386,6 +4390,16 @@ html:not([data-layout="phone"]) .review-controls :is(.review-branch-sync-refresh
   min-width: 20px;
   min-height: 20px;
   flex-shrink: 0;
+}
+
+[data-layout="phone"] .settings-view .settings-view-switch {
+  --switch-track-inset: 7px;
+  --switch-knob-size: 24px;
+  --switch-travel: 26px;
+  width: 56px;
+  min-width: 56px;
+  height: 44px;
+  align-self: flex-end;
 }
 
 [data-layout="phone"] .settings-view .settings-view-copy-link {

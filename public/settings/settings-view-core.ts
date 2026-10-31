@@ -41,7 +41,7 @@ const PATHS_SUMMARIZED_IN_PAYLOAD: ReadonlySet<string> = new Set(['customAgents'
 const INTEGER_TOLERANCE = 1e-9;
 const LANES_HEADING = 'Lanes';
 
-export const EFFECT_LABELS: Readonly<Record<SettingsEffect, string>> = Object.freeze({
+const EFFECT_LABELS: Readonly<Record<SettingsEffect, string>> = Object.freeze({
   now: 'Applies now',
   'new-sessions': 'New sessions',
   restart: 'After restart',
@@ -51,6 +51,33 @@ export const SCOPE_LABELS: Readonly<Record<SettingsSetting['scope'], string>> = 
   browser: 'This browser',
   machine: 'This machine',
 });
+
+type SettingsScope = SettingsSetting['scope'];
+
+interface SettingsRowChip {
+  kind: 'scope' | 'effect';
+  text: string;
+}
+
+export function pageScopeOf(settings: readonly SettingsSetting[]): SettingsScope | null {
+  const countByScope = new Map<SettingsScope, number>();
+  for (const setting of settings) countByScope.set(setting.scope, (countByScope.get(setting.scope) ?? 0) + 1);
+  let commonestScope: SettingsScope | null = null;
+  let commonestCount = 0;
+  for (const [scope, count] of countByScope) {
+    if (count <= commonestCount) continue;
+    commonestScope = scope;
+    commonestCount = count;
+  }
+  return commonestScope;
+}
+
+export function rowChipsOf(setting: SettingsSetting, pageScope: SettingsScope | null): SettingsRowChip[] {
+  const chips: SettingsRowChip[] = [];
+  if (setting.scope !== pageScope) chips.push({ kind: 'scope', text: SCOPE_LABELS[setting.scope] });
+  if (setting.takesEffect !== 'now') chips.push({ kind: 'effect', text: EFFECT_LABELS[setting.takesEffect] });
+  return chips;
+}
 
 export function secretEnvironmentSource(setting: SettingsSetting, payload: SettingsPayload): string | null {
   const sources = payload.secretSources;

@@ -20,7 +20,6 @@ import { SETTINGS_MOVED_SETTINGS, SETTINGS_REGISTRY, SETTINGS_SECTION_ALIASES, s
 import type { SettingsSearchMatch, SettingsSearchResult } from '#shared/settings/registry-core.ts';
 import { parseSettingsHash, scoreSettingsSearch } from '#shared/settings/registry-core.ts';
 import {
-  EFFECT_LABELS,
   SCOPE_LABELS,
   childSectionsOf,
   choicePresentation,
@@ -33,10 +32,12 @@ import {
   listValue,
   needsDangerConfirmation,
   numberDraftOf,
+  pageScopeOf,
   pageSectionOf,
   phoneSettingsScreenOf,
   resetConfirmationOf,
   resetValueOf,
+  rowChipsOf,
   secretEnvironmentSource,
   settingSavePayload,
   settingsNavigationGroupsOf,
@@ -489,21 +490,19 @@ function toggleStateText(isOn: boolean) {
 
 function renderToggle(setting: SettingsSetting) {
   const wrapper = el('div', 'settings-view-toggle-wrap');
-  const label = el('label', 'settings-view-toggle');
-  const input = el('input', 'settings-view-checkbox');
+  const input = el('input', 'settings-view-switch');
   input.type = 'checkbox';
+  input.setAttribute('role', 'switch');
   input.checked = storedValue(setting) === true;
   if (setting.id === 'desktop-notifications' && !notificationsSupported()) {
     input.checked = false;
     input.disabled = true;
   }
   input.setAttribute('aria-labelledby', setting.id);
-  const state = el('span', 'settings-view-toggle-state', toggleStateText(input.checked));
   input.addEventListener('change', () => {
     const next = input.checked;
     if (needsDangerConfirmation(setting, next)) {
       input.checked = false;
-      state.textContent = toggleStateText(false);
       openConfirmDialog({
         title: setting.title,
         message: setting.warning ?? '',
@@ -513,11 +512,9 @@ function renderToggle(setting: SettingsSetting) {
       });
       return;
     }
-    state.textContent = toggleStateText(next);
     commitSetting(setting, next);
   });
-  label.append(input, state);
-  wrapper.appendChild(label);
+  wrapper.appendChild(input);
   return wrapper;
 }
 
@@ -793,8 +790,8 @@ function renderSelect(setting: SettingsSetting) {
 
 function listHintText(setting: SettingsSetting, entries: readonly string[]) {
   const format = setting.valueKind === 'posthog-projects'
-    ? 'One project id per line, or none for no project. Shift+Enter adds a line.'
-    : 'One entry per line. Shift+Enter adds a line.';
+    ? 'One project id per line, or none. Shift+Enter for a new line.'
+    : 'One per line. Shift+Enter for a new line.';
   if (entries.length > 0 || !setting.listEmptyText) return format;
   return `${setting.listEmptyText} ${format}`;
 }
@@ -1273,9 +1270,14 @@ function renderSettingHeading(setting: SettingsSetting) {
   return row;
 }
 
-function renderChips(setting: SettingsSetting) {
+function pageScopeOfSetting(setting: SettingsSetting) {
+  const page = pageSectionOf(SETTINGS_VIEW_MAP, sectionOfSetting(setting).id);
+  return page ? pageScopeOf(pageSettings(page)) : null;
+}
+
+function renderChips(setting: SettingsSetting, pageScope: SettingsSetting['scope'] | null) {
   const chips = el('div', 'settings-view-chips');
-  chips.append(buildChip('scope', SCOPE_LABELS[setting.scope]), buildChip('effect', EFFECT_LABELS[setting.takesEffect]));
+  for (const chip of rowChipsOf(setting, pageScope)) chips.appendChild(buildChip(chip.kind, chip.text));
   return chips;
 }
 
@@ -1314,7 +1316,9 @@ function applyFootState(row: Element, setting: SettingsSetting) {
     if (!saveStatus) delete status.dataset.tone;
   }
   const reset = row.querySelector<HTMLButtonElement>('.settings-view-reset');
-  if (reset) reset.disabled = !canReset(setting);
+  if (reset) reset.hidden = !canReset(setting);
+  const foot = row.querySelector<HTMLElement>('.settings-view-control-foot');
+  if (foot) foot.hidden = !saveStatus && !canReset(setting);
   const existingError = row.querySelector<HTMLElement>('.settings-view-field-error');
   const error = fieldErrorById.get(setting.id);
   if (existingError && !error) existingError.remove();
@@ -1327,7 +1331,9 @@ function renderRow(setting: SettingsSetting) {
   article.dataset.settingId = setting.id;
   if (setting.control === 'readonly') article.dataset.readout = 'true';
   const text = el('div', 'settings-view-setting-text');
-  text.append(renderSettingHeading(setting), el('p', 'settings-view-setting-description', setting.description), renderChips(setting));
+  text.append(renderSettingHeading(setting), el('p', 'settings-view-setting-description', setting.description));
+  const chips = renderChips(setting, pageScopeOfSetting(setting));
+  if (chips.childElementCount > 0) text.appendChild(chips);
   const control = el('div', 'settings-view-setting-control');
   control.appendChild(renderControl(setting));
   if (setting.control !== 'readonly') control.appendChild(renderControlFoot(setting));
@@ -1503,7 +1509,11 @@ function renderContent() {
   const title = el('h1', 'settings-view-section-title', selectedPage.title);
   title.tabIndex = -1;
   title.addEventListener('click', () => replaceSettingsHash(selectedPage.id));
-  header.append(title, el('p', 'settings-view-section-description', selectedPage.description));
+  const titleRow = el('div', 'settings-view-section-title-row');
+  titleRow.appendChild(title);
+  const pageScope = pageScopeOf(pageSettings(selectedPage));
+  if (pageScope) titleRow.appendChild(buildChip('scope', SCOPE_LABELS[pageScope]));
+  header.append(titleRow, el('p', 'settings-view-section-description', selectedPage.description));
   contentEl.appendChild(header);
 
   if (selectedPage.id === SHORTCUTS_PAGE_ID) {
@@ -1609,7 +1619,7 @@ function appendFileOnlyDetails(row: HTMLElement, result: SettingsSearchResult) {
   if (currentText !== null) row.appendChild(el('span', 'settings-view-search-current', currentText));
   row.append(
     el('span', 'settings-view-search-default', defaultText),
-    renderChips(result.setting),
+    renderChips(result.setting, null),
     el('p', 'settings-view-list-hint', 'Edit in config.json or with glimmervoid settings set.'),
   );
   if (jsonFragment === null) return;
