@@ -42,7 +42,7 @@ const PARITY_SCENARIOS: readonly ParityScenario[] = [
     expectedFinalState: STATES.COMPLETE,
     expectedCompleteNotifications: 1,
     waitingNotification: 'required',
-    fixtureByAgent: { 'claude-code': 'v2-claude-code-permission-wait.jsonl', codex: 'v2-codex-approval-turn.jsonl', kimi: 'v2-kimi-approval-turn.jsonl' },
+    fixtureByAgent: { 'claude-code': 'v2-claude-code-permission-wait.jsonl', codex: 'v2-codex-permission-wait.jsonl', kimi: 'v2-kimi-approval-turn.jsonl' },
   },
   {
     name: 'plan-wait',
@@ -92,6 +92,7 @@ const PARITY_SCENARIOS: readonly ParityScenario[] = [
 ];
 
 const FIXTURES_PINNED_ELSEWHERE: ReadonlySet<string> = new Set([
+  'v2-codex-approval-turn.jsonl',
   'v2-claude-code-command-hint.jsonl',
   'v2-codex-command-hint.jsonl',
   'v2-kimi-command-hint.jsonl',

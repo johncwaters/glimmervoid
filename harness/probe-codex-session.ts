@@ -211,7 +211,9 @@ function captureBridgeInPlanMode(projectDir: string): Promise<BridgeLine[]> {
 }
 
 async function main(): Promise<void> {
-  const tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-codex-probe-')));
+  const probeRoot = path.join(os.homedir(), '.cache', 'glimmervoid-probes');
+  fs.mkdirSync(probeRoot, { recursive: true });
+  const tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(probeRoot, 'codex-')));
   const projectDir = path.join(tmpDir, 'project');
   fs.mkdirSync(projectDir);
   const configPath = path.join(tmpDir, 'config.json');
@@ -350,7 +352,22 @@ async function main(): Promise<void> {
     const bashHook = await waitForHook('PostToolUse Bash', bashStart, isSentinelEchoHook);
     check('a PostToolUse hook fired for the shell command', !!bashHook);
     check('the PostToolUse payload names the Bash tool', payloadField(bashHook, 'tool_name') === 'Bash');
+    check('the plain Bash turn ran inside the Codex sandbox without asking permission', !hookRecords.slice(bashStart).some((hook) => hook.event.toLowerCase() === 'permissionrequest'));
     writeScenario('posttooluse-bash', bashStart);
+
+    console.log('\nPermission wait:');
+    const permissionStart = hookRecords.length;
+    let permissionTurnWaited = false;
+    const notePermissionWait = ({ to }: { to: string }): void => { if (to === 'WAITING') permissionTurnWaited = true; };
+    session.on('state-change', notePermissionWait);
+    await runTurn('run the shell command `touch ./codex-probe-approval.txt` with sandbox_permissions set to require_escalated and the justification "parity probe", then reply with the single word done', 'the permission turn');
+    session.off('state-change', notePermissionWait);
+    await delay(3000);
+    const permissionEvents = hookRecords.slice(permissionStart).map((hook) => hook.event.toLowerCase());
+    check('the escalated command raised PermissionRequest', permissionEvents.includes('permissionrequest'));
+    check('the PermissionRequest put the card in WAITING', permissionTurnWaited);
+    check('the turn reached Stop after the approval', permissionEvents.lastIndexOf('stop') > permissionEvents.indexOf('permissionrequest'));
+    writeScenario('permission-wait', permissionStart);
 
     console.log('\nSubagent turn:');
     const subagentStart = hookRecords.length;
