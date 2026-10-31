@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Radar on the phone reads as separate cards.** Each error is now its own bordered card with a chevron on the right, so you can tell where one ends and the next begins and that it can be tapped. Tapping one turns its chevron down and opens its details inside the same card, outlined in the accent color, with the full title shown once instead of twice.
 - **Phone settings line up across every section.** Switch descriptions and status notes now use the full row width, number fields end at the same edge whatever their unit, and the Telegram test and Delete my data buttons run full width like the rest.
 - **Coherence's Structure reading stops failing on this repo.** The pinned `@posthog/coherence` moves from 1.8.0 to 1.12.0. On 1.8.0 one TypeScript server error sank the whole reading, so a session's start and every stop after an edit cold-loaded a 1.6 GB TypeScript server for about a minute and kept nothing. On 1.12.0 the file the server cannot answer is named and the rest of the reading is kept, so an unchanged tree skips the reading and a one-file edit takes about 8 s. It adds `web-tree-sitter` as a development dependency.
 - **Phone settings toggles line up and rows stop jumping.** Each switch now sits beside its setting's title instead of on its own line below the description, and the line below it that holds the restore-default button and the save status keeps its space, so a row no longer grows or shrinks after you change it.
