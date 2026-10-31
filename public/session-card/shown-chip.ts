@@ -1,7 +1,7 @@
 import type { IMarker, Terminal } from '@xterm/xterm';
 import type { ShownFile } from '#shared/contracts/session.ts';
 import { el } from '../dom-helpers.ts';
-import { openShownLightbox, shownThumbnailUrl } from '../shown-files.ts';
+import { openShownFace, shownThumbnailUrl } from '../shown-files.ts';
 import { findSessionUi } from './card-registry.ts';
 
 const CHIP_WIDTH_CELLS = 22;
@@ -44,7 +44,7 @@ function buildChipContent(sessionId: string, file: ShownFile): HTMLButtonElement
   chip.append(el('span', 'shown-chip-name', file.pageTitle ?? file.name));
   chip.addEventListener('click', (event) => {
     event.stopPropagation();
-    openShownLightbox(sessionId, file.id);
+    openShownFace(sessionId, file.id);
   });
   return chip;
 }

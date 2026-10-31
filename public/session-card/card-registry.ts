@@ -4,6 +4,7 @@ import type { Terminal } from '@xterm/xterm';
 import type { PlanReviewState } from '#shared/contracts/plan-review.ts';
 import type { UnseenOutcome } from '#shared/contracts/session.ts';
 import type { createPlanFace } from '../plan/plan-face.ts';
+import type { createShownFace } from '../shown-face.ts';
 import type { SessionCardFace } from './face-core.ts';
 import type { TerminalGrid } from './grid-core.ts';
 import { createAttentionTally } from '../focus-view/attention-core.ts';
@@ -11,6 +12,7 @@ import { createAttentionTally } from '../focus-view/attention-core.ts';
 type SessionCardElement = HTMLDivElement & { _cardHostClass?: string };
 
 type PlanFaceController = ReturnType<typeof createPlanFace>;
+type ShownFaceController = ReturnType<typeof createShownFace>;
 
 export interface SessionUi {
   term: Terminal | null;
@@ -38,8 +40,9 @@ export interface SessionUi {
   btnTrace: HTMLButtonElement;
   btnPlan: HTMLButtonElement;
   btnDocs: HTMLButtonElement;
-  btnShown: HTMLButtonElement;
-  shownUnopenedDot: HTMLSpanElement;
+  btnTerminalTab: HTMLButtonElement;
+  btnShownTab: HTMLButtonElement;
+  shownUnopenedCount: HTMLSpanElement;
   btnRemove: HTMLButtonElement;
   debugOverlay: HTMLDivElement | null;
   debugOpen: boolean;
@@ -52,6 +55,7 @@ export interface SessionUi {
   pendingPromptKind: string | null;
   planReviewState: PlanReviewState;
   planFace: PlanFaceController;
+  shownFace: ShownFaceController | null;
   effectiveBase?: string;
   activeAgents?: number;
   awaitingBackgroundTasks?: boolean;
@@ -78,6 +82,7 @@ export interface SessionUi {
   _setBorrowed?: (isBorrowed: boolean) => void;
   _showPreferredFace?: () => void;
   _showTerminalFace?: () => void;
+  _showShownFace?: (fileId: string | null) => void;
 }
 
 export const sessionUIs = new Map<string, SessionUi>();

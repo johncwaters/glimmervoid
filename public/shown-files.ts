@@ -5,16 +5,17 @@ import { describeFailure } from './client-error-core.ts';
 import { reportToServerLog } from './control-ws.ts';
 import { findSessionUi } from './session-card/card-registry.ts';
 
-type ShownLightbox = typeof import('./shown-lightbox.ts');
+type ShownFaceModule = typeof import('./shown-face.ts');
 
 type ShownFilesChangedListener = (sessionId: string, files: readonly ShownFile[]) => void;
 
+const PRELOAD_FALLBACK_DELAY_MS = 2000;
+
 const shownFilesBySessionId = new Map<string, ShownFile[]>();
-const sessionIdsWithUnopenedFiles = new Set<string>();
+const unopenedCountBySessionId = new Map<string, number>();
 const changedListeners: ShownFilesChangedListener[] = [];
 const liveArrivalListeners: ShownFilesChangedListener[] = [];
-let loadedLightbox: ShownLightbox | null = null;
-let pendingLightboxLoad: Promise<ShownLightbox | null> | null = null;
+let pendingFaceModuleLoad: Promise<ShownFaceModule | null> | null = null;
 let hasReceivedSnapshot = false;
 
 export function shownFilesOf(sessionId: string): ShownFile[] {
@@ -25,8 +26,8 @@ function hasShownFiles(sessionId: string): boolean {
   return shownFilesOf(sessionId).length > 0;
 }
 
-export function hasUnopenedShownFiles(sessionId: string): boolean {
-  return sessionIdsWithUnopenedFiles.has(sessionId);
+export function unopenedShownCountOf(sessionId: string): number {
+  return unopenedCountBySessionId.get(sessionId) ?? 0;
 }
 
 export function shownThumbnailUrl(sessionId: string, file: ShownFile): string | null {
@@ -42,37 +43,49 @@ export function onShownFilesArrivedLive(listener: ShownFilesChangedListener): vo
   liveArrivalListeners.push(listener);
 }
 
-export function paintShownButton(sessionId: string): void {
+export function paintShownTabs(sessionId: string): void {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
-  ui.btnShown.classList.toggle('visible', hasShownFiles(sessionId));
-  ui.shownUnopenedDot.hidden = !hasUnopenedShownFiles(sessionId);
+  const isEmpty = !hasShownFiles(sessionId);
+  ui.btnShownTab.classList.toggle('is-empty', isEmpty);
+  ui.btnShownTab.setAttribute('aria-disabled', String(isEmpty));
+  const unopenedCount = unopenedShownCountOf(sessionId);
+  ui.shownUnopenedCount.hidden = unopenedCount === 0;
+  ui.shownUnopenedCount.textContent = String(unopenedCount);
 }
 
 export function markShownFilesOpened(sessionId: string): void {
-  if (!sessionIdsWithUnopenedFiles.delete(sessionId)) return;
-  paintShownButton(sessionId);
+  if (!unopenedCountBySessionId.delete(sessionId)) return;
+  paintShownTabs(sessionId);
   for (const listener of changedListeners) listener(sessionId, []);
 }
 
-function loadLightbox(): Promise<ShownLightbox | null> {
-  pendingLightboxLoad ??= import('./shown-lightbox.ts').then(
-    (lightbox) => {
-      loadedLightbox = lightbox;
-      return lightbox;
-    },
+export function loadShownFaceModule(): Promise<ShownFaceModule | null> {
+  pendingFaceModuleLoad ??= import('./shown-face.ts').then(
+    (faceModule) => faceModule,
     (error: unknown) => {
-      pendingLightboxLoad = null;
+      pendingFaceModuleLoad = null;
       reportToServerLog('shown-files', `shown file viewer failed to load: ${describeFailure(error)}`);
       return null;
     },
   );
-  return pendingLightboxLoad;
+  return pendingFaceModuleLoad;
 }
 
-export function openShownLightbox(sessionId: string, fileId: string | null = null): void {
+export function preloadShownFaceWhenIdle(): void {
+  const preload = () => {
+    void loadShownFaceModule();
+  };
+  if ('requestIdleCallback' in window) {
+    window.requestIdleCallback(preload);
+    return;
+  }
+  setTimeout(preload, PRELOAD_FALLBACK_DELAY_MS);
+}
+
+export function openShownFace(sessionId: string, fileId: string | null = null): void {
   if (!hasShownFiles(sessionId)) return;
-  void loadLightbox().then((lightbox) => lightbox?.openShownLightbox(sessionId, fileId));
+  findSessionUi(sessionId)?._showShownFace?.(fileId);
 }
 
 function keepNewest(files: readonly ShownFile[]): ShownFile[] {
@@ -80,11 +93,12 @@ function keepNewest(files: readonly ShownFile[]): ShownFile[] {
 }
 
 function applyArrivedFiles(sessionId: string, arrivedFiles: readonly ShownFile[]): void {
+  const ui = findSessionUi(sessionId);
+  ui?.shownFace?.applyArrivals();
   if (arrivedFiles.length === 0) return;
-  const isLightboxOpenOnSession = loadedLightbox?.isLightboxOpenOn(sessionId) ?? false;
-  if (!isLightboxOpenOnSession) sessionIdsWithUnopenedFiles.add(sessionId);
-  paintShownButton(sessionId);
-  if (isLightboxOpenOnSession) loadedLightbox?.repaintLightboxOn(sessionId);
+  const isFaceOpenOnSession = ui?.face === 'shown';
+  if (!isFaceOpenOnSession) unopenedCountBySessionId.set(sessionId, unopenedShownCountOf(sessionId) + arrivedFiles.length);
+  paintShownTabs(sessionId);
   for (const listener of changedListeners) listener(sessionId, arrivedFiles);
 }
 
@@ -104,11 +118,10 @@ export function applySessionShownSnapshot(message: ServerMessageOf<'session-show
   shownFilesBySessionId.clear();
   for (const [sessionId, files] of Object.entries(message.sessions)) shownFilesBySessionId.set(sessionId, keepNewest(files));
   for (const sessionId of new Set([...previousFilesBySessionId.keys(), ...shownFilesBySessionId.keys()])) {
-    if (!hasShownFiles(sessionId)) sessionIdsWithUnopenedFiles.delete(sessionId);
+    if (!hasShownFiles(sessionId)) unopenedCountBySessionId.delete(sessionId);
     const knownIds = new Set((previousFilesBySessionId.get(sessionId) ?? []).map((file) => file.id));
     const arrivedFiles = isReconnect ? shownFilesOf(sessionId).filter((file) => !knownIds.has(file.id)) : [];
-    paintShownButton(sessionId);
+    paintShownTabs(sessionId);
     applyArrivedFiles(sessionId, arrivedFiles);
-    loadedLightbox?.repaintLightboxOn(sessionId);
   }
 }

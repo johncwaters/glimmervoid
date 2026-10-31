@@ -11,7 +11,7 @@ import { escapeMarkup } from '#shared/escape-markup.ts';
 import { el } from '../dom-helpers.ts';
 import { buildMenuItem } from '../menu.ts';
 import { refreshHoverTip, installHoverTips } from '../hover-tip.ts';
-import { BOLT_ICON_PATH, CLOSE_ICON_PATH, createLineIcon, createSvgIcon, createSvgShape, MORE_ICON_PATH, SHIELD_ICON_PATH, SHIELDED_BOLT_FILL_PATH, USAGE_ICON_PATH } from '../svg-dom.ts';
+import { BOLT_ICON_PATH, CLOSE_ICON_PATH, createLineIcon, createSvgIcon, createSvgShape, IMAGE_ICON_PATH, MORE_ICON_PATH, SHIELD_ICON_PATH, SHIELDED_BOLT_FILL_PATH, TERMINAL_ICON_PATH, USAGE_ICON_PATH } from '../svg-dom.ts';
 import type { CardOptions } from './card-options-core.ts';
 import { buildDialogShell } from './modal.ts';
 import type { SessionUi } from './card-registry.ts';
@@ -220,15 +220,27 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   btnDocs.type = 'button';
   btnDocs.title = 'Open docs the agent surfaced';
 
-  const btnShown = el('button', 'btn-action btn-face-plan btn-shown', 'Shown');
-  btnShown.type = 'button';
-  btnShown.title = 'Open files the agent showed you';
+  const faceTabs = el('div', 'card-face-tabs');
+  faceTabs.setAttribute('role', 'tablist');
+  faceTabs.setAttribute('aria-label', 'Card view');
+  const btnTerminalTab = el('button', 'card-face-tab');
+  btnTerminalTab.type = 'button';
+  btnTerminalTab.title = 'Terminal';
+  btnTerminalTab.setAttribute('aria-label', 'Terminal');
+  btnTerminalTab.append(createLineIcon(TERMINAL_ICON_PATH), el('span', 'card-face-tab-label', 'Terminal'));
+  btnTerminalTab.setAttribute('role', 'tab');
+  const btnShownTab = el('button', 'card-face-tab card-face-tab-shown');
+  btnShownTab.type = 'button';
+  btnShownTab.setAttribute('role', 'tab');
+  btnShownTab.title = 'Files the agent showed you';
+  btnShownTab.setAttribute('aria-label', 'Shown');
+  btnShownTab.append(createLineIcon(IMAGE_ICON_PATH), el('span', 'card-face-tab-label', 'Shown'));
+  const shownUnopenedCount = el('span', 'shown-unopened-count');
+  shownUnopenedCount.hidden = true;
+  shownUnopenedCount.title = 'Shown files you have not opened';
+  faceTabs.append(btnTerminalTab, btnShownTab, shownUnopenedCount);
 
-  const shownUnopenedDot = el('span', 'shown-unopened-dot');
-  shownUnopenedDot.hidden = true;
-  shownUnopenedDot.title = 'New shown file';
-
-  actions.append(shownUnopenedDot, btnShown, btnDocs, btnPlan, sessionMenuWrap, btnRemove);
+  actions.append(faceTabs, btnDocs, btnPlan, sessionMenuWrap, btnRemove);
   const tags = el('div', 'session-card-tags');
   const usageBadge = buildTagIcon('usage-badge', 'Usage');
   usageBadge.append(createLineIcon(USAGE_ICON_PATH, '2.2'));
@@ -243,7 +255,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   card.append(header, termWrap);
 
-  return { card, header, nameEl, taskTitleEl, btnRestart, btnSessionMenu, btnWorkspaceRepos, tags, btnTrace, btnRemove, btnPlan, btnDocs, btnShown, shownUnopenedDot, btnDebug, sessionMenu, termWrap };
+  return { card, header, nameEl, taskTitleEl, btnRestart, btnSessionMenu, btnWorkspaceRepos, tags, btnTrace, btnRemove, btnPlan, btnDocs, btnTerminalTab, btnShownTab, shownUnopenedCount, btnDebug, sessionMenu, termWrap };
 }
 
 function openLinkPullRequestDialog(sessionId: string) {

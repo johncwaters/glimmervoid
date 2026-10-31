@@ -16,7 +16,7 @@ import { connectControl, onControlMessage, reportToServerLog, sendControlMsg, se
 import { applyAgentLogins } from './agent-logins.ts';
 import { refreshFirstRunChecklist, revealFirstRunChecklist } from './onboarding/first-run-loader.ts';
 import { applySessionDocsChanged, applySessionDocsSnapshot } from './doc-editor.ts';
-import { applySessionShown, applySessionShownSnapshot, onShownFilesChanged } from './shown-files.ts';
+import { applySessionShown, applySessionShownSnapshot, onShownFilesChanged, preloadShownFaceWhenIdle } from './shown-files.ts';
 import { applyWhiteboardPatch, applyWhiteboardRemoved, applyWhiteboardsSnapshot } from './whiteboard/board-store.ts';
 import { applyCoherenceJournalResponse, applySessionCoherence, applySessionCoherenceSnapshot, forgetSessionCoherence, isSessionJournalReadable, openCoherenceJournal, sessionRowCoherenceSignals, setSessionCoherenceHooks } from './coherence/journal-drawer.ts';
 import { isRealInputOwningKey, observeHeaderHeight, queryTag, writeClipboardText } from './dom-helpers.ts';
@@ -139,6 +139,7 @@ function revealApp() {
   appRevealed = true;
   loadingScreen.classList.add('fade-out');
   prefetchViewsWhenIdle(VIEW_TABS);
+  preloadShownFaceWhenIdle();
   revealFlyingAnimals();
   revealFirstRunChecklist();
 

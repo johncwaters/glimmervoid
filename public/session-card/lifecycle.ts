@@ -4,7 +4,7 @@ import type { UnseenOutcome } from '#shared/contracts/session.ts';
 import type { SessionState } from '#shared/states.ts';
 import { KILLABLE_STATES, RESTARTABLE_STATES, STATES } from '#shared/states.ts';
 import { hasSessionDocs, openDocEditor } from '../doc-editor.ts';
-import { onShownFilesArrivedLive, openShownLightbox, paintShownButton } from '../shown-files.ts';
+import { loadShownFaceModule, markShownFilesOpened, onShownFilesArrivedLive, paintShownTabs, shownFilesOf } from '../shown-files.ts';
 import { placeShownChips } from './shown-chip.ts';
 import { describeFailure } from '../client-error-core.ts';
 import { reportToServerLog, sendControlMsg } from '../control-ws.ts';
@@ -73,6 +73,7 @@ function loadResumeDialog(): Promise<ResumeDialogModule | null> {
 }
 
 type PlanFaceModule = typeof import('../plan/plan-face.ts');
+type ShownFaceModule = typeof import('../shown-face.ts');
 type PlanFaceController = ReturnType<PlanFaceModule['createPlanFace']>;
 type PlanFaceDeps = Parameters<PlanFaceModule['createPlanFace']>[0];
 type PlanFaceUpdate = Parameters<PlanFaceController['update']>[0];
@@ -157,6 +158,8 @@ function updateButtonVisibility(ui: SessionUi) {
   ui.btnWorkspaceRepos.classList.toggle('visible', ui.card.dataset.workspace !== undefined);
   ui.btnTrace.classList.toggle('visible', isDebugModeEnabled());
   ui.btnPlan.classList.toggle('visible', decidePlanHeaderAction(ui) !== 'hidden');
+  ui.btnTerminalTab.setAttribute('aria-selected', String(ui.face === 'terminal'));
+  ui.btnShownTab.setAttribute('aria-selected', String(ui.face === 'shown'));
 }
 
 function closeSessionMenu(ui: SessionUi) {
@@ -203,9 +206,14 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
     openDocEditor(sessionId);
   });
 
-  ui.btnShown.addEventListener('click', () => {
+  ui.btnTerminalTab.addEventListener('click', () => {
     closeSessionMenu(ui);
-    openShownLightbox(sessionId);
+    ui._showTerminalFace?.();
+  });
+
+  ui.btnShownTab.addEventListener('click', () => {
+    closeSessionMenu(ui);
+    showSessionShownFace(sessionId, null);
   });
 
   ui.btnPlan.addEventListener('click', () => {
@@ -329,6 +337,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     sessionUi.card.dataset.face = 'terminal';
     sessionUi.termWrap.hidden = false;
     sessionUi.planFace.hide();
+    sessionUi.shownFace?.hide();
     updateButtonVisibility(sessionUi);
     ensureTerminalReady(sessionUi, id);
   }
@@ -368,8 +377,9 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     btnTrace: dom.btnTrace,
     btnPlan: dom.btnPlan,
     btnDocs: dom.btnDocs,
-    btnShown: dom.btnShown,
-    shownUnopenedDot: dom.shownUnopenedDot,
+    btnTerminalTab: dom.btnTerminalTab,
+    btnShownTab: dom.btnShownTab,
+    shownUnopenedCount: dom.shownUnopenedCount,
     btnRemove: dom.btnRemove,
     debugOverlay: null,
     debugOpen: false,
@@ -381,9 +391,11 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     pendingPromptKind: null,
     planReviewState: { reviews: [] },
     planFace,
+    shownFace: null,
   };
   sessionUi._ensureTerminalReady = () => ensureTerminalReady(sessionUi, id);
   sessionUi._showTerminalFace = showTerminalFace;
+  sessionUi._showShownFace = (fileId) => showSessionShownFace(id, fileId);
   sessionUi._showPreferredFace = () => {
     if (preferredFaceFor(sessionUi) === 'plan') {
       showSessionPlanFace(id);
@@ -405,7 +417,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
   wireCardEvents(sessionUi, id);
   updateButtonVisibility(sessionUi);
   sessionUi.btnDocs.classList.toggle('visible', hasSessionDocs(id));
-  paintShownButton(id);
+  paintShownTabs(id);
 
   if (state === STATES.RUNNING) setRunningActivity(sessionUi, true);
 
@@ -439,10 +451,39 @@ export function showSessionPlanFace(sessionId: unknown) {
   ui.face = 'plan';
   ui.card.dataset.face = 'plan';
   ui.termWrap.hidden = true;
+  ui.shownFace?.hide();
   ui.planFace.show(sessionIdOf(sessionId));
   updateButtonVisibility(ui);
   syncTerminalOutputFlow(ui, sessionIdOf(sessionId));
   return true;
+}
+
+function switchToShownFace(ui: SessionUi, faceModule: ShownFaceModule, sessionId: string, fileId: string | null) {
+  if (findSessionUi(sessionId) !== ui || !ui.isBorrowed) return;
+  if (!ui.shownFace) {
+    ui.shownFace = faceModule.createShownFace({ sessionId });
+    ui.card.append(ui.shownFace.el);
+  }
+  ui.face = 'shown';
+  ui.card.dataset.face = 'shown';
+  ui.termWrap.hidden = true;
+  ui.planFace.hide();
+  ui.shownFace.show(fileId);
+  markShownFilesOpened(sessionId);
+  updateButtonVisibility(ui);
+  syncTerminalOutputFlow(ui, sessionId);
+}
+
+function showSessionShownFace(sessionId: string, fileId: string | null) {
+  const ui = findSessionUi(sessionId);
+  if (!ui?.isBorrowed || shownFilesOf(sessionId).length === 0) return;
+  void loadShownFaceModule().then((faceModule) => {
+    if (!faceModule) {
+      reportSessionProblem(sessionId, 'The shown files view did not load. Open it again to retry.');
+      return;
+    }
+    switchToShownFace(ui, faceModule, sessionId, fileId);
+  });
 }
 
 export function setSessionHasPlan(sessionId: unknown, hasPlan: unknown) {
