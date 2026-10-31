@@ -11,7 +11,7 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 | File | Description |
 |------|-------------|
 | `index.html` | Dashboard shell (Tailwind utility classes) |
-| `app.ts` | Thin boot entry: wires modules, owns the document-level Alt+key shortcut dispatch |
+| `app.ts` | Boot entry: the store wiring and the connect tail, calling one `boot/` module per surface in dependency order |
 | `control-ws.ts` | Control WebSocket client: connection, reconnect, request/response |
 | `reconnect-backoff.ts` | Pure `nextReconnectDelayMs(attempt, random)`: the ONE retry delay for both WS clients (500ms doubling to a 30s cap, jittered to 50-100%) |
 | `dialogs.ts` | Add Session and investigation-report dialog factories |
@@ -28,7 +28,7 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 | `trace-panel.ts` / `trace-view-core.ts` | Trace tab: one session's recorded trace paged over `session-trace`, over a pure core owning turn grouping and row labels |
 | `theme.ts` | Theme definitions applied as CSS custom properties; terminal theme derived at runtime |
 | `ui-prefs.ts` / `local-store.ts` | THE localStorage home for UI state (sound, theme, active view, rail and sidebar widths), over quota-safe wrappers. Each key is declared once in `ui-prefs.ts`'s `PREFS` table with its default and normalizer; the accessors are one line each. The review sidebar's width keeps its own storage key so an existing install's saved width survives |
-| `shortcuts-core.ts` | Pure catalog of dashboard shortcuts matched by `KeyboardEvent.code` under Cmd (Mac) or Alt, plus the help list groups; `app.ts` dispatch, the xterm pass-through and the help list all read it |
+| `shortcuts-core.ts` | Pure catalog of dashboard shortcuts matched by `KeyboardEvent.code` under Cmd (Mac) or Alt, plus the help list groups; `boot/shortcuts-dispatch.ts`, the xterm pass-through and the help list all read it |
 | `shortcuts.ts` | DOM shell for `shortcuts-core.ts`: platform detection from the user agent, `kbd` chord rendering |
 | `form-factor-core.ts` | Pure `decideLayout({ coarse, narrowWidth })` -> `'phone' \| 'desktop'`: the one predicate choosing between the two first-class layouts |
 | `form-factor.ts` | Its IO shell: evaluates the two media queries, stamps `<html data-layout>`, notifies subscribers on a live flip |
@@ -44,6 +44,7 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 
 | Directory | Purpose |
 |-----------|---------|
+| `boot/` | The boot surfaces, called from `app.ts` in this order: connection screen, session frames, message dispatch, banners, header controls, hash routes, header trays, view tabs, layout switch, power menu, shortcut dispatch, viewer focus, client errors; plus `handlers/` (one control message handler group per surface, merged by the pure `boot/core/message-dispatch-core.ts`, which refuses a type two groups claim; the dispatch gate reads both wire ends the same way) |
 | `session-card/` | Session card modules: terminal, lifecycle, DOM, naming, WebGL pool (see `session-card/AGENTS.md`) |
 | `focus-view/` | Focus view: roster rail + centered card, attention queue (see `focus-view/AGENTS.md`) |
 | `phone/` | Phone layout: the Board (labelled Focus) and Terminal behind a bottom nav, plus one More screen per desktop tab, rendered only under `[data-layout="phone"]` (see `phone/AGENTS.md`) |
