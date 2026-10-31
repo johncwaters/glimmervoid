@@ -1,6 +1,6 @@
 import type { GitIsolationOptions } from '../server/git/core/git-invocation-core.ts';
 import { awaitBounded } from "../server/core/shutdown-core.ts";
-import { errorMessage, isMissingFileError } from "../shared/text.ts";
+import { errorMessage } from "../shared/text.ts";
 import { createCompactionTracking, observeCompaction, finishCompaction, isCompactionEndingSignal, suppressCompactionSignal, mapCompactionActivityEvent, isIdleCompactionActivity } from "./core/compaction-core.ts";
 import { isCompactionRestoreEvent } from "../shared/compaction-restore-events.ts";
 import type { CompactionTracking } from "./core/compaction-core.ts";
@@ -331,6 +331,7 @@ class Session extends EventEmitter {
   _pendingPromptSupervisionLine: string | null;
   _hintedCommands: Set<string>;
   _ranCommands: Set<string>;
+  _queuedCommandHintTexts: string[];
   _extraClaudeArgs: string[];
   _resumeSessionId: string | null;
   readonly workspaceRepos: string[] | null;
@@ -568,6 +569,7 @@ class Session extends EventEmitter {
     this._pendingPromptSupervisionLine = null;
     this._hintedCommands = new Set();
     this._ranCommands = new Set();
+    this._queuedCommandHintTexts = [];
     this._extraClaudeArgs = Array.isArray(extraClaudeArgs) ? extraClaudeArgs : [];
     this._resumeSessionId = resumeSessionId || null;
     this.workspaceRepos = workspaceRepos ? [...workspaceRepos] : null;
@@ -938,11 +940,13 @@ class Session extends EventEmitter {
     this.backgroundTracking.resetTurnEvidence();
     this._setPendingPromptKind(null);
     this._forgetCommandHints();
+    this._armPromptSupervisionLine();
   }
 
   _forgetCommandHints(): void {
     this._hintedCommands.clear();
     this._ranCommands.clear();
+    this._queuedCommandHintTexts = [];
   }
 
   _captureClaudeSessionId(
@@ -1611,9 +1615,6 @@ class Session extends EventEmitter {
       resumeSessionId: spawnResumeSessionId,
       extraArgs: this._extraClaudeArgs,
       initialPrompt: launchPrompt,
-      hasOperatorInstructions: this._hasOperatorInstructions(env),
-      canRunHelpCommand: this._canRunHelpCommand,
-      canSpawn: !this.ephemeral,
     });
 
     const bridgedLaunch = isRemoteCodex && remoteLaunch !== null
@@ -1689,9 +1690,11 @@ class Session extends EventEmitter {
       this._handleSpawnedPtyExit(exitCode, signal),
     );
     this._deliverPtyInitialPrompt(launchPrompt, env);
-    this._pendingPromptSupervisionLine = this._can("promptContextSupervision") && this._canRunHelpCommand
-      ? supervisionLine({ canSpawn: !this.ephemeral })
-      : null;
+    this._armPromptSupervisionLine();
+  }
+
+  _armPromptSupervisionLine(): void {
+    this._pendingPromptSupervisionLine = this._canRunHelpCommand ? supervisionLine({ canSpawn: !this.ephemeral }) : null;
   }
 
   promptContextReply(): PromptContextReply | null {
@@ -1703,18 +1706,21 @@ class Session extends EventEmitter {
   }
 
   takeCommandHint(event: string, payload: Record<string, unknown>, answers: (command: HintedCommand) => boolean): CommandHint | null {
-    if (!this._can("toolHookContext")) return null;
     const facts = toolHookFactsOf(event, payload);
     if (facts === null) return null;
     const hint = hintFor(facts, { answers, hintedCommands: this._hintedCommands, ranCommands: this._ranCommands });
-    if (hint !== null) this._hintedCommands.add(hint.command);
-    return hint;
+    if (hint === null) return null;
+    this._hintedCommands.add(hint.command);
+    if (this._can("toolHookContext")) return hint;
+    this._queuedCommandHintTexts.push(hint.text);
+    return null;
   }
 
-  takePromptSupervisionLine(): string | null {
-    const line = this._pendingPromptSupervisionLine;
+  takePromptNotes(): string[] {
+    const notes = [this._pendingPromptSupervisionLine, ...this._queuedCommandHintTexts].filter((note) => note !== null);
     this._pendingPromptSupervisionLine = null;
-    return line;
+    this._queuedCommandHintTexts = [];
+    return notes;
   }
 
   _deliverPtyInitialPrompt(prompt: string | null, env: SpawnEnv): void {
@@ -1804,15 +1810,6 @@ class Session extends EventEmitter {
     this.emit("error", cause);
   }
 
-  _hasOperatorInstructions(env: SpawnEnv): boolean {
-    const operatorConfigPath = this._adapter.operatorConfigPath?.(env) ?? null;
-    if (operatorConfigPath === null) return false;
-    try {
-      return this._adapter.setsOperatorInstructions?.(fs.readFileSync(operatorConfigPath, "utf8")) === true;
-    } catch (error) {
-      return !isMissingFileError(error);
-    }
-  }
 
   async _spawnCommandFor({ remoteLaunch, isRemoteCodex, settingsArgs, agentArgs, bridgedLaunch }: {
     remoteLaunch: RemoteLaunch | null;
@@ -1851,7 +1848,7 @@ class Session extends EventEmitter {
     if (!running.ok) return running;
     const version = await remote.codexVersion();
     if (version === null) return { ok: false, reason: "the host codex version could not be read, so the workspace cannot install a matching codex" };
-    const launch = splitCodexRemoteLaunch(agentArgs);
+    const launch = splitCodexRemoteLaunch(agentArgs, this._canRunHelpCommand ? supervisionLine({ canSpawn: !this.ephemeral }) : null);
     const bridge = await this._startCodexBridge({
       command: { file: "coder", argsBeforeAppServer: [] },
       configArgs: launch.appServerConfigArgs,

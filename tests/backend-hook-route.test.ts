@@ -18,6 +18,7 @@ import { settleBackendShutdown } from './helpers/lanes.ts';
 import type { UserPromptSubmitHookResponse } from '../shared/contracts/refocus.ts';
 
 const SESSION_ID = 'hook-route-session';
+const KIMI_SESSION_ID = 'hook-route-kimi-session';
 
 interface HookRouteContext {
   tmpDir: string;
@@ -42,7 +43,7 @@ test.before(async () => {
   fs.mkdirSync(projectDir);
   const cfgPath = path.join(tmpDir, 'config.json');
   fs.writeFileSync(cfgPath, JSON.stringify({
-    projects: [{ id: SESSION_ID, name: 'hook route', path: projectDir }],
+    projects: [{ id: SESSION_ID, name: 'hook route', path: projectDir }, { id: KIMI_SESSION_ID, name: 'hook route kimi', path: projectDir, agent: 'kimi' }],
     teams: [],
     repoRoots: [],
     autoResume: false,
@@ -356,3 +357,47 @@ test('a tool hook names a Glimmervoid command once per conversation to the main 
   }, { write: (text: string) => { relayedToCodex += text; } });
   assert.deepEqual(JSON.parse(relayedToCodex), { hookSpecificOutput: firstReply.hookSpecificOutput }, 'a cleared conversation gets the hint again, and the command relay hands it to Codex');
 });
+
+test('a Kimi agent that starts a subagent gets the spawn hint with its next prompt, since Kimi ignores tool hook output', async () => {
+  const { base } = ctx();
+  const kimiSession = ctx().backend.getSession(KIMI_SESSION_ID);
+  assert.ok(kimiSession);
+  kimiSession._hooks.inject();
+  const kimiToken = kimiSession._hooks.token();
+  async function postKimiHook(event: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const response = await fetch(`${base}/hook/${KIMI_SESSION_ID}/${event}?t=${encodeURIComponent(String(kimiToken))}`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      headers: { 'content-type': 'application/json' },
+    });
+    assert.equal(response.status, 200);
+    return await response.json() as Record<string, unknown>;
+  }
+  const recordedAgentCall = fs.readFileSync(path.join(import.meta.dirname, 'fixtures', 'v2-kimi-subagent.jsonl'), 'utf8')
+    .split('\n').filter(Boolean).map((line) => JSON.parse(line) as { event?: string; payload?: Record<string, unknown> })
+    .find((record) => record.event === 'posttooluse' && record.payload?.tool_name === 'Agent')?.payload;
+  assert.ok(recordedAgentCall, 'the live capture holds the PostToolUse of the Agent tool call');
+  const mainAgentCallAsKimiSendsIt = { ...recordedAgentCall, agent_id: 'main' };
+  assert.equal((await postKimiHook('PostToolUse', mainAgentCallAsKimiSendsIt)).hookSpecificOutput, undefined);
+  const promptReply = await postKimiHook('UserPromptSubmit', { prompt: 'next' });
+  assert.match(String(promptReply.message), /glimmervoid spawn <prompt> gives it its own dashboard card/);
+  assert.equal((await postKimiHook('UserPromptSubmit', { prompt: 'again' })).message, undefined);
+});
+
+test('a Claude conversation gets the Glimmervoid start line with its first prompt after /clear, once, whatever its launch arguments', async () => {
+  const { base, token } = ctx();
+  async function postHook(event: string, payload: Record<string, unknown>): Promise<{ hookSpecificOutput?: { additionalContext?: string } }> {
+    const response = await fetch(`${base}/hook/${SESSION_ID}/${event}?t=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      headers: { 'content-type': 'application/json' },
+    });
+    assert.equal(response.status, 200);
+    return await response.json() as { hookSpecificOutput?: { additionalContext?: string } };
+  }
+  await postHook('SessionStart', { source: 'clear' });
+  const firstPromptReply = await postHook('UserPromptSubmit', { prompt: 'first' });
+  assert.match(String(firstPromptReply.hookSpecificOutput?.additionalContext), /^Glimmervoid supervises this session\./);
+  assert.equal((await postHook('UserPromptSubmit', { prompt: 'second' })).hookSpecificOutput, undefined);
+});
+

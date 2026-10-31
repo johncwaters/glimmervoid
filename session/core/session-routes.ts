@@ -208,6 +208,8 @@ const COMMAND_HINTS: Readonly<Record<HintedCommand, { firesOn: (facts: ToolHookF
 });
 
 const HINTED_COMMANDS = Object.keys(COMMAND_HINTS) as HintedCommand[];
+const KIMI_MAIN_AGENT_ID = 'main';
+
 const TOOL_HOOK_EVENTS: ReadonlySet<string> = new Set<ToolHookEvent>(['posttooluse', 'posttoolusefailure']);
 
 function isToolHookEvent(event: string): event is ToolHookEvent {
@@ -218,7 +220,7 @@ function toolHookFactsOf(event: string, payload: Record<string, unknown>): ToolH
   const normalizedEvent = event.toLowerCase();
   if (!isToolHookEvent(normalizedEvent)) return null;
   if (typeof payload.tool_name !== 'string') return null;
-  if (typeof payload.agent_id === 'string') return null;
+  if (typeof payload.agent_id === 'string' && payload.agent_id !== KIMI_MAIN_AGENT_ID) return null;
   return { event: normalizedEvent, toolName: payload.tool_name, toolInput: isRecord(payload.tool_input) ? payload.tool_input : {} };
 }
 

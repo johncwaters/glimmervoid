@@ -8,8 +8,8 @@ interface CodexRemoteLaunch {
   tuiArgs: string[];
 }
 
-export function splitCodexRemoteLaunch(launchArgs: readonly string[]): CodexRemoteLaunch {
-  const appServerConfigArgs: string[] = [];
+export function splitCodexRemoteLaunch(launchArgs: readonly string[], startLine: string | null): CodexRemoteLaunch {
+  const appServerConfigArgs: string[] = startLine === null ? [] : [CONFIG_FLAG, `developer_instructions='''${startLine}'''`];
   const tuiArgs: string[] = [];
   for (let index = 0; index < launchArgs.length; index += 1) {
     const launchArg = launchArgs[index];

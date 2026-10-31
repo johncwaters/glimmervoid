@@ -11,7 +11,8 @@ import { KIMI_HOME_PROFILE } from "../session/core/agent-home-core.ts";
 import type { Session } from "../session/sessions.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
 import {
-  createProbeChecks, delay, hookEventsOf, queueWhiteboardEditFor, screenShowsWhiteboardAnswer, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, waitForState,
+  createProbeChecks, delay, hookEventsOf, QUEUED_HINT_PROBE_PROMPT, queueWhiteboardEditFor, screenShowsSpawnHint, screenShowsWhiteboardAnswer,
+  SHOULD_RUN_ONLY_HINT_PROBE, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, SPAWN_HINT_PROBE_PROMPT, waitForState,
   whiteboardWriterIdFor, whiteboardWriterProject, WHITEBOARD_PROBE_PROMPT, writeHookFixture,
 } from "./support/backend-harness.ts";
 import type { ProbeFixtureTarget, ProbeHookRecord } from "./support/backend-harness.ts";
@@ -194,6 +195,15 @@ async function runProbe(tempDirectory: string): Promise<void> {
     check("PermissionRequest preceded the turn's Stop", approvalEvents.indexOf("permissionrequest") >= 0 && approvalEvents.indexOf("permissionrequest") < approvalEvents.lastIndexOf("stop"));
     const capturedId = session._resumeSessionId;
     check("the captured session id is session_<uuid>", /^session_[0-9a-f-]{36}$/.test(String(capturedId || "")));
+
+    if (SHOULD_RUN_ONLY_HINT_PROBE) {
+      const spawnHooks = await runScenario("command-hint", SPAWN_HINT_PROBE_PROMPT, approveOnce, 20000);
+      check("the Agent PostToolUse reached the hooks", spawnHooks.some((hook) => hook.event.toLowerCase() === "posttooluse" && hook.payload?.tool_name === "Agent"));
+      const queuedHintOffset = session.getOutputOffset();
+      await runScenario("command-hint-delivery", QUEUED_HINT_PROBE_PROMPT, approveOnce);
+      check("the queued spawn hint reached the model with the next prompt", screenShowsSpawnHint(session.getBufferSince(queuedHintOffset).data));
+      return;
+    }
 
     const writer = backend.getSession(whiteboardWriterIdFor(SESSION_ID));
     if (!writer) throw new Error("the probe config did not produce the board writer session");

@@ -8,7 +8,7 @@ import { createBackend } from '../server/backend/backend.ts';
 import type { Session } from '../session/sessions.ts';
 import type { HookPayload } from '../shared/contracts/index.ts';
 import {
-  createProbeChecks, delay, HINT_PROBE_PROMPT, hookEventsOf, queueWhiteboardEditFor, screenShowsShowHint, screenShowsWhiteboardAnswer,
+  createProbeChecks, delay, HINT_PROBE_PROMPT, hookEventsOf, queueWhiteboardEditFor, screenShowsShowHint, screenShowsStartLine, screenShowsWhiteboardAnswer,
   SHOULD_RUN_ONLY_HINT_PROBE, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, waitForState,
   whiteboardWriterIdFor, whiteboardWriterProject, WHITEBOARD_PROBE_PROMPT, writeHookFixture,
 } from './support/backend-harness.ts';
@@ -130,6 +130,7 @@ async function runProbe(tempDirectory: string): Promise<void> {
       const hintHooks = await runScenario('command-hint', () => submit(HINT_PROBE_PROMPT), pressEnter);
       check('the Bash PostToolUse reached the hooks', hookEventsOf(hintHooks).includes('posttooluse'));
       check('the show hint reached the model with the tool result', screenShowsShowHint(session.getBufferSince(hintOutputOffset).data));
+      check('the start line reached the model with the first prompt', screenShowsStartLine(session.getBufferSince(hintOutputOffset).data));
       return;
     }
 

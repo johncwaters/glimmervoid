@@ -175,7 +175,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       const session = getSessionAny(glimmervoidId);
       const replyShape = session?.promptContextReply() ?? null;
       if (!session || !replyShape) return null;
-      const promptMessages = [session.takePromptSupervisionLine(), whiteboards.takePromptContext(glimmervoidId)];
+      const promptMessages = [...session.takePromptNotes(), whiteboards.takePromptContext(glimmervoidId)];
       const deliverable = promptMessages.filter((promptMessage) => promptMessage !== null);
       return deliverable.length === 0 ? null : promptContextReplyOf(replyShape, deliverable.join('\n\n'));
     },

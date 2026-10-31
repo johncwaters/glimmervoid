@@ -27,7 +27,6 @@ interface AgentCapabilities {
   headless: boolean;
   subagentTurnStops?: boolean;
   ptyInitialPrompt?: boolean;
-  promptContextSupervision?: boolean;
   toolHookContext?: boolean;
 }
 
@@ -110,9 +109,6 @@ interface AgentArgsOptions {
   resumeSessionId?: string | null;
   extraArgs?: string[];
   initialPrompt?: string | null;
-  hasOperatorInstructions?: boolean;
-  canRunHelpCommand?: boolean;
-  canSpawn?: boolean;
 }
 
 interface AgentSpawnCommandOptions {
@@ -144,7 +140,6 @@ interface AgentAdapter {
   buildArgs(options?: AgentArgsOptions): string[];
   settingsArgs?(settingsPath: string): string[];
   operatorConfigPath?(env: SpawnEnv): string | null;
-  setsOperatorInstructions?(operatorConfigText: string): boolean;
   isWorkspaceTrusted?(cwd: string, env: SpawnEnv): boolean;
   sessionIdOf?(payload: HookPayload): unknown;
 }

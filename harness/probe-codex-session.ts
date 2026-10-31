@@ -11,7 +11,7 @@ import type { HookPayload } from '../shared/contracts/index.ts';
 import codex from '../session/adapters/codex.ts';
 import type { Session } from '../session/sessions.ts';
 import {
-  createProbeChecks, delay, HINT_PROBE_PROMPT, queueWhiteboardEditFor, sanitizeProbeText, screenShowsShowHint, screenShowsWhiteboardAnswer,
+  createProbeChecks, delay, HINT_PROBE_PROMPT, queueWhiteboardEditFor, sanitizeProbeText, screenShowsShowHint, screenShowsStartLine, screenShowsWhiteboardAnswer,
   SHOULD_RUN_ONLY_HINT_PROBE, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, waitForState,
   whiteboardWriterIdFor, whiteboardWriterProject, WHITEBOARD_PROBE_PROMPT, writeHookFixture,
 } from './support/backend-harness.ts';
@@ -39,6 +39,16 @@ interface BridgeLine {
 
 let terminalTail = '';
 const { check, passed, failed } = createProbeChecks();
+
+function rolloutDeveloperTexts(sessionsDirectory: string): string[] {
+  const rolloutPaths = fs.readdirSync(sessionsDirectory, { recursive: true, encoding: 'utf8' })
+    .filter((relativePath) => path.basename(relativePath).startsWith('rollout-') && relativePath.endsWith('.jsonl'));
+  return rolloutPaths.flatMap((relativePath) => fs.readFileSync(path.join(sessionsDirectory, relativePath), 'utf8').split('\n').filter(Boolean).flatMap((line) => {
+    const record = JSON.parse(line) as { payload?: { type?: string; role?: string; content?: Array<{ text?: string }> } };
+    if (record.payload?.type !== 'message' || record.payload.role !== 'developer') return [];
+    return (record.payload.content ?? []).map((part) => part.text ?? '');
+  }));
+}
 
 function makeProbeCodexHome(tmpDir: string, projectDir: string): string {
   const codexHome = path.join(tmpDir, 'codex-home');
@@ -278,12 +288,14 @@ async function main(): Promise<void> {
       console.log('\nCommand hint:');
       await delay(6000);
       const hintStart = hookRecords.length;
-      const hintOutputOffset = session.getOutputOffset();
       await runTurn(HINT_PROBE_PROMPT, 'the hint turn');
       await delay(3000);
       writeScenario('command-hint', hintStart);
       check('the Bash PostToolUse reached the hooks', hookRecords.slice(hintStart).some((hook) => hook.event.toLowerCase() === 'posttooluse'));
-      check('the show hint reached the model with the tool result', screenShowsShowHint(session.getBufferSince(hintOutputOffset).data));
+      const developerTexts = rolloutDeveloperTexts(path.join(glimmervoidHome, 'agent-homes', 'codex', 'sessions'));
+      check('the show hint reached the model with the tool result', developerTexts.some((text) => screenShowsShowHint(text)));
+      check('the start line reached the model with the first prompt', developerTexts.some((text) => screenShowsStartLine(text)));
+      check('no launch argument carried the start line', !spawnCalls.some((call) => call.args.some((argument) => screenShowsStartLine(argument))));
       return;
     }
 

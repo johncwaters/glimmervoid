@@ -139,11 +139,27 @@ function screenShowsWhiteboardAnswer(screenText: string): boolean {
 }
 
 const SHOULD_RUN_ONLY_HINT_PROBE = process.argv.includes('--only-hints');
-const HINT_PROBE_PROMPT = "Run the shell command: echo hint-probe.png . Then quote verbatim every sentence beginning with 'Glimmervoid:' that reached you with that tool result, or reply none.";
+const HINT_PROBE_PROMPT = "Run the shell command: echo hint-probe.png . Then quote verbatim every sentence beginning with 'Glimmervoid' that reached you with this message or with that tool result, or reply none.";
+const SPAWN_HINT_PROBE_PROMPT = "Use the Agent tool to start one subagent that replies with the single word ok. Wait for it, then reply with the single word done.";
+const QUEUED_HINT_PROBE_PROMPT = "Quote verbatim every sentence beginning with 'Glimmervoid:' that reached you with this message, or reply none.";
 const SHOW_HINT_MARKER = 'glimmervoidshow<path>';
+const SPAWN_HINT_MARKER = 'glimmervoidspawn<prompt>';
+const START_LINE_MARKER = 'Glimmervoidsupervisesthissession';
+
+function screenShows(screenText: string, marker: string): boolean {
+  return stripVTControlCharacters(screenText).replace(/\s+/g, '').includes(marker);
+}
 
 function screenShowsShowHint(screenText: string): boolean {
-  return stripVTControlCharacters(screenText).replace(/\s+/g, '').includes(SHOW_HINT_MARKER);
+  return screenShows(screenText, SHOW_HINT_MARKER);
+}
+
+function screenShowsSpawnHint(screenText: string): boolean {
+  return screenShows(screenText, SPAWN_HINT_MARKER);
+}
+
+function screenShowsStartLine(screenText: string): boolean {
+  return screenShows(screenText, START_LINE_MARKER);
 }
 
 function hookEventsOf(hooks: ProbeHookRecord[]): string[] {
@@ -222,12 +238,16 @@ export {
   findFreeHighPort,
   HINT_PROBE_PROMPT,
   hookEventsOf,
+  QUEUED_HINT_PROBE_PROMPT,
+  SPAWN_HINT_PROBE_PROMPT,
   listen,
   removeHarnessTempDirectory,
   queueWhiteboardEditFor,
   safeTextTail,
   sanitizeProbeText,
   screenShowsShowHint,
+  screenShowsSpawnHint,
+  screenShowsStartLine,
   screenShowsWhiteboardAnswer,
   SHOULD_RUN_ONLY_HINT_PROBE,
   SHOULD_RUN_ONLY_WHITEBOARD_PROBE,

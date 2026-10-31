@@ -12,7 +12,6 @@ import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.
 import { buildAgentEnv } from "../core/spawn-env.ts";
 import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import { buildHookCommand } from "../core/hook-command-core.ts";
-import { supervisionLine } from "../core/session-routes.ts";
 import { codexHomes, codexSessionIdFromPath } from "../../server/usage/core/usage-scan-core.ts";
 import { openContainedFile } from "../../server/contained-file.ts";
 import { isRelevantRolloutLine, isTurnStartLine, turnEndedWithProposedPlan } from "../core/codex-plan-rollout-core.ts";
@@ -413,8 +412,6 @@ const UPDATE_CHECK_ARGS = ["-c", "check_for_update_on_startup=false"];
 const SKIP_PERMISSIONS_ARGS = ["-a", "never", "-s", "workspace-write"];
 
 const OPERATOR_CONFIG_FILE_NAME = "config.toml";
-const DEVELOPER_INSTRUCTIONS_KEY = "developer_instructions";
-const DEVELOPER_INSTRUCTIONS_DECLARATION_RE = /^[^\S\r\n]*["']?developer_instructions["']?[^\S\r\n]*=/m;
 
 function operatorConfigPath(env: SpawnEnv): string | null {
   const [codexHome] = codexHomes(env, null);
@@ -422,27 +419,13 @@ function operatorConfigPath(env: SpawnEnv): string | null {
   return path.join(codexHome, OPERATOR_CONFIG_FILE_NAME);
 }
 
-function setsOperatorInstructions(operatorConfigText: string): boolean {
-  return DEVELOPER_INSTRUCTIONS_DECLARATION_RE.test(operatorConfigText);
-}
-
-function isDeveloperInstructionsOverride(launchArgument: string): boolean {
-  return launchArgument.startsWith(`${DEVELOPER_INSTRUCTIONS_KEY}=`);
-}
-
 function buildArgs({
   dangerouslySkipPermissions = false,
   resumeSessionId = null,
   extraArgs = [],
   initialPrompt = null,
-  hasOperatorInstructions = false,
-  canRunHelpCommand = true,
-  canSpawn = false,
 }: AgentArgsOptions = {}): string[] {
   const args = [...UPDATE_CHECK_ARGS];
-  if (canRunHelpCommand && !hasOperatorInstructions && !extraArgs.some(isDeveloperInstructionsOverride)) {
-    args.push("-c", `${DEVELOPER_INSTRUCTIONS_KEY}='''${supervisionLine({ canSpawn })}'''`);
-  }
   if (resumeSessionId) args.push("resume", resumeSessionId);
   if (dangerouslySkipPermissions) args.push(...SKIP_PERMISSIONS_ARGS);
   if (extraArgs.length > 0) args.push(...extraArgs);
@@ -463,7 +446,6 @@ const codex = {
   buildEnv,
   buildArgs,
   operatorConfigPath,
-  setsOperatorInstructions,
   buildHookArgs,
   buildHookCommand,
   mayContributeHooks,
