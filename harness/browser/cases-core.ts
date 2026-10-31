@@ -4,12 +4,14 @@ export type ViewerId = 'a' | 'b';
 
 export type CardControl = 'plan-terminal';
 
+export type UpstreamVariant = 'none' | 'conflict' | 'diverged' | 'push-rejected';
+
 export type Step =
   | { kind: 'assert-issues'; viewer?: ViewerId }
   | { kind: 'assert-boards'; viewer?: ViewerId }
   | { kind: 'assert-board-dock'; viewer?: ViewerId }
   | { kind: 'assert-team-review'; viewer?: ViewerId }
-  | { kind: 'assert-review-merge'; viewer?: ViewerId }
+  | { kind: 'assert-review-merge'; upstream: UpstreamVariant; viewer?: ViewerId }
   | { kind: 'open'; viewer?: ViewerId }
   | { kind: 'back'; viewer?: ViewerId }
   | { kind: 'assert-settings-back'; viewer?: ViewerId }
@@ -181,11 +183,11 @@ export const SCENARIOS: readonly Scenario[] = [
     name: 'team-review',
     steps: [{ kind: 'assert-team-review' }, { kind: 'shot', name: 'team-review' }],
   },
-  {
-    name: 'review-merge',
+  ...(['none', 'conflict', 'diverged', 'push-rejected'] as const).map((upstream): Scenario => ({
+    name: upstream === 'none' ? 'review-merge' : `review-merge-${upstream}`,
     viewports: ['desktop-1280'],
-    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'type', text: 'stop' }, { kind: 'assert-review-merge' }, { kind: 'shot', name: 'merged' }],
-  },
+    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'type', text: 'stop' }, { kind: 'assert-review-merge', upstream }, { kind: 'shot', name: 'merged' }],
+  })),
   {
     name: 'rename-repaints-roster',
     viewports: ['desktop-1280', 'phone-393'],

@@ -906,8 +906,8 @@ export async function runCase({
       return passedOutcome('team-review-rows', 'quiet rows, accessible names, repo refs and detail presentation verified');
     }
     if (step.kind === 'assert-review-merge') {
-      await verifyReviewMerge(viewer.page, projectDirectory);
-      return passedOutcome('review-merge', 'Merge disabled with a stable label once clicked, commit landed on origin main, review emptied');
+      await verifyReviewMerge(viewer.page, projectDirectory, step.upstream);
+      return passedOutcome('review-merge', `upstream ${step.upstream}: Merge disabled with a stable label once clicked, then the expected Review, header and origin state`);
     }
     if (step.kind === 'open') return runOpen(viewer, sessionId, deadlines);
     if (step.kind === 'back') return runBack(viewer, sessionId, deadlines);
