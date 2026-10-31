@@ -218,6 +218,7 @@ function toolHookFactsOf(event: string, payload: Record<string, unknown>): ToolH
   const normalizedEvent = event.toLowerCase();
   if (!isToolHookEvent(normalizedEvent)) return null;
   if (typeof payload.tool_name !== 'string') return null;
+  if (typeof payload.agent_id === 'string') return null;
   return { event: normalizedEvent, toolName: payload.tool_name, toolInput: isRecord(payload.tool_input) ? payload.tool_input : {} };
 }
 

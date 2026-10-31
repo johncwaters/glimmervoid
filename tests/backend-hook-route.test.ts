@@ -321,7 +321,7 @@ test('an accepted UserPromptSubmit prints the pending prompt context in the shap
   }
 });
 
-test('a Claude tool hook names a Glimmervoid command once, and never one the session already ran', async () => {
+test('a Claude tool hook names a Glimmervoid command once per conversation to the main agent, and never one the session already ran', async () => {
   const { base, token } = ctx();
   async function postToolHook(event: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
     const response = await fetch(`${base}/hook/${SESSION_ID}/${event}?t=${encodeURIComponent(token)}`, {
@@ -336,6 +336,7 @@ test('a Claude tool hook names a Glimmervoid command once, and never one the ses
     .split('\n').filter(Boolean).map((line) => JSON.parse(line) as { event?: string; payload?: Record<string, unknown> });
   const screenshotCall = recordedHooks.find((record) => record.event === 'posttooluse')?.payload;
   assert.ok(screenshotCall, 'the live capture holds the PostToolUse of the image-writing shell call');
+  assert.equal((await postToolHook('PostToolUse', { ...screenshotCall, agent_id: 'a07da649a7e1aee27' })).hookSpecificOutput, undefined);
   const firstReply = await postToolHook('PostToolUse', screenshotCall);
   assert.deepEqual(firstReply.hookSpecificOutput, {
     hookEventName: 'PostToolUse',
@@ -345,4 +346,6 @@ test('a Claude tool hook names a Glimmervoid command once, and never one the ses
   ctx().session.noteCommandRan('push');
   const failedPush = { tool_name: 'Bash', tool_input: { command: 'git push origin HEAD' }, error: 'Exit code 1' };
   assert.equal((await postToolHook('PostToolUseFailure', failedPush)).hookSpecificOutput, undefined);
+  await postToolHook('SessionStart', { source: 'clear' });
+  assert.ok((await postToolHook('PostToolUse', screenshotCall)).hookSpecificOutput, 'a cleared conversation never saw the hint, so it gets it again');
 });

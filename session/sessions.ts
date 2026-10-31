@@ -937,6 +937,12 @@ class Session extends EventEmitter {
     this.backgroundTracking.clearGateHeldReady();
     this.backgroundTracking.resetTurnEvidence();
     this._setPendingPromptKind(null);
+    this._forgetCommandHints();
+  }
+
+  _forgetCommandHints(): void {
+    this._hintedCommands.clear();
+    this._ranCommands.clear();
   }
 
   _captureClaudeSessionId(
@@ -1227,6 +1233,7 @@ class Session extends EventEmitter {
     this.setResumeConversation(null);
     this._transcriptPath = null;
     this._resetAutomaticTaskTitle();
+    this._forgetCommandHints();
     this.emit("resume-cleared", { id: this.id });
   }
 
