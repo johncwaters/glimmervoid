@@ -754,6 +754,7 @@ async function runExpectSessionGone(viewer: Viewer, sessionId: string, deadlines
 
 async function runRenameSession(viewer: Viewer, sessionId: string, newName: string, deadlines: Deadlines): Promise<StepOutcome> {
   await sendControlMessage(viewer, { type: 'rename-session', id: sessionId, newName });
+  if (viewer.layout === 'phone') await viewer.page.locator(PHONE_BACK_SELECTOR).first().click();
   const rosterName = viewer.page.locator(`${rosterSelector(viewer, sessionId)} .session-row-name`).first();
   const repainted = await pollUntil(async () => {
     const shownName = await rosterName.textContent();
