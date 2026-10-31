@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Session menu items drop their trailing dots.** Restart, Edit repositories, Link pull request and Connect board no longer end in `...`, on desktop and phone.
+
 - **Telemetry counts command hints.** Two new events, `command_hint_shown` and `command_hint_followed`, carry only which Glimmervoid command an agent was pointed at and which kind of agent, never the tool call, so the maintainers can tell which one-time hints actually help. `GLIMMERVOID_TELEMETRY=0` and Settings > Privacy turn them off with the rest.
 
 - **`glimmervoid --help` says when to use each session command.** Every line under Inside a Glimmervoid session now ends with when the command fits, such as `show` after making a screenshot or HTML page you should see, so an agent reading help picks the right command instead of only learning what each one does.

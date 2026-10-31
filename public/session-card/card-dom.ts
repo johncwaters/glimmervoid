@@ -168,16 +168,16 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   sessionMenu.setAttribute('role', 'menu');
   btnSessionMenu.setAttribute('aria-controls', sessionMenu.id);
 
-  const btnRestart = buildMenuItem('Restart...', 'overflow-restart');
+  const btnRestart = buildMenuItem('Restart', 'overflow-restart');
   btnRestart.setAttribute('aria-haspopup', 'dialog');
-  const btnWorkspaceRepos = buildMenuItem('Edit repositories...', 'overflow-workspace-repos');
-  const btnLinkPr = buildMenuItem('Link pull request...', 'overflow-link-pr visible');
+  const btnWorkspaceRepos = buildMenuItem('Edit repositories', 'overflow-workspace-repos');
+  const btnLinkPr = buildMenuItem('Link pull request', 'overflow-link-pr visible');
   btnLinkPr.onclick = () => {
     sessionMenu.classList.remove('open');
     btnSessionMenu.setAttribute('aria-expanded', 'false');
     openLinkPullRequestDialog(sessionId);
   };
-  const btnConnectBoard = buildMenuItem('Connect board...', 'overflow-connect-board visible');
+  const btnConnectBoard = buildMenuItem('Connect board', 'overflow-connect-board visible');
   btnConnectBoard.setAttribute('aria-haspopup', 'dialog');
   btnConnectBoard.onclick = () => {
     sessionMenu.classList.remove('open');
