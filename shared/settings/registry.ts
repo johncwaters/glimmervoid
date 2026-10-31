@@ -708,7 +708,7 @@ const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
   },
   {
     id: 'file-worktree-clone-dependencies', path: 'worktreeCloneDependencies', title: 'Worktree dependency clone', group: 'machine-detection-sessions',
-    description: "On macOS, clone the main checkout's node_modules into a new session worktree when it matches the worktree's lockfile.",
+    description: "On macOS, clone the main checkout's node_modules into a session worktree that starts without one, when it matches the worktree's lockfile.",
     control: 'toggle', keywords: ['node_modules', 'npm', 'pnpm', 'install'], defaultValue: true, takesEffect: 'new-sessions', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
   },
   {

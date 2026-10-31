@@ -78,32 +78,44 @@ test('a main checkout install that no longer matches the worktree lockfile is no
   assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules')), false);
 });
 
-test('a nested package whose own install no longer matches its lockfile is left out of the clone', { skip: !CAN_CLONE }, async () => {
-  const { mainCheckout, worktreeDir } = makeRepoWithWorktree();
-  const mainSite = path.join(mainCheckout, 'site');
-  fs.mkdirSync(path.join(mainSite, 'node_modules', 'left-pad'), { recursive: true });
-  fs.writeFileSync(path.join(mainSite, 'package.json'), '{"name":"site"}\n');
-  fs.writeFileSync(path.join(mainSite, 'package-lock.json'), lockfileWith('1.3.0'));
-  git(['add', '-A'], mainCheckout);
-  git(['commit', '-m', 'site'], mainCheckout);
-  fs.writeFileSync(path.join(mainSite, 'node_modules', '.package-lock.json'), installedStateWith('1.1.0'));
-  git(['merge', '--ff-only', 'main'], worktreeDir);
+test('a nested package whose own install cannot be shown to match its lockfile is left out of the clone', { skip: !CAN_CLONE }, async (t) => {
+  const staleInstalls: [string, string, string | null][] = [
+    ['npm install behind its lockfile', 'package-lock.json', installedStateWith('1.1.0')],
+    ['yarn lockfile', 'yarn.lock', null],
+  ];
+  for (const [installKind, lockfileName, installedState] of staleInstalls) {
+    await t.test(installKind, async () => {
+      const { mainCheckout, worktreeDir } = makeRepoWithWorktree();
+      const mainSite = path.join(mainCheckout, 'site');
+      fs.mkdirSync(path.join(mainSite, 'node_modules', 'left-pad'), { recursive: true });
+      fs.writeFileSync(path.join(mainSite, 'package.json'), '{"name":"site"}\n');
+      fs.writeFileSync(path.join(mainSite, lockfileName), lockfileWith('1.3.0'));
+      git(['add', '-A'], mainCheckout);
+      git(['commit', '-m', 'site'], mainCheckout);
+      if (installedState) fs.writeFileSync(path.join(mainSite, 'node_modules', '.package-lock.json'), installedState);
+      git(['merge', '--ff-only', 'main'], worktreeDir);
 
-  const outcome = await seedWorktreeDependencies({ mainCheckout, worktreeDir });
+      const outcome = await seedWorktreeDependencies({ mainCheckout, worktreeDir });
 
-  assert.equal(outcome.action, 'cloned');
-  assert.deepEqual(outcome.action === 'cloned' ? outcome.staleDirs : null, ['site']);
-  assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules', 'left-pad')), true);
-  assert.equal(fs.existsSync(path.join(worktreeDir, 'site', 'node_modules')), false);
+      assert.equal(outcome.action, 'cloned');
+      assert.deepEqual(outcome.action === 'cloned' ? outcome.staleDirs : null, ['site']);
+      assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules', 'left-pad')), true);
+      assert.equal(fs.existsSync(path.join(worktreeDir, 'site', 'node_modules')), false);
+    });
+  }
 });
 
-test('a main checkout install holding an npm link to an absolute path is not cloned', { skip: !CAN_CLONE }, async () => {
-  const { mainCheckout, worktreeDir } = makeRepoWithWorktree();
-  fs.symlinkSync(path.join(mainCheckout, 'package.json'), path.join(mainCheckout, 'node_modules', 'linked'));
+test('a main checkout install linking outside the repository is not cloned', { skip: !CAN_CLONE }, async (t) => {
+  for (const [linkKind, linkTarget] of [['absolute', '/usr/bin'], ['relative', '../../../linked-src']]) {
+    await t.test(linkKind, async () => {
+      const { mainCheckout, worktreeDir } = makeRepoWithWorktree();
+      fs.symlinkSync(linkTarget, path.join(mainCheckout, 'node_modules', 'linked'));
 
-  const outcome = await seedWorktreeDependencies({ mainCheckout, worktreeDir });
+      const outcome = await seedWorktreeDependencies({ mainCheckout, worktreeDir });
 
-  assert.deepEqual(outcome, { action: 'skip', reason: 'absolute-link', notify: true });
-  assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules')), false);
-  assert.deepEqual(fs.readdirSync(path.dirname(worktreeDir)).sort(), ['main', 'session-worktree']);
+      assert.deepEqual(outcome, { action: 'skip', reason: 'outside-link', notify: true });
+      assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules')), false);
+      assert.deepEqual(fs.readdirSync(path.dirname(worktreeDir)).sort(), ['main', 'session-worktree']);
+    });
+  }
 });

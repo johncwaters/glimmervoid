@@ -4,6 +4,8 @@ import { runCommand, runGit } from './git-exec.ts';
 import { createSerialQueue } from '../spawn-gate.ts';
 import {
   CLONED_CACHE_DIRS,
+  KNOWN_LOCKFILES,
+  isLinkInsideCheckout,
   LOCKFILE_BY_KIND,
   packageDirsFromTrackedFiles,
   planDependencyClone,
@@ -14,6 +16,7 @@ import type { DependencyCloneSkip, DependencyLock, LockKind, NestedPackageDir } 
 
 const CLONE_TIMEOUT_MS = 10 * 60_000;
 const NODE_MODULES = 'node_modules';
+const LINK_LIST_MAX_BYTES = 64 * 1024 * 1024;
 
 type DependencyCloneOutcome = DependencyCloneSkip | { action: 'cloned'; dirs: string[]; staleDirs: string[]; elapsedMs: number };
 export type SeedDependencies = (args: { mainCheckout: string; worktreeDir: string }) => Promise<DependencyCloneOutcome>;
@@ -76,22 +79,33 @@ async function cloneDependencies(mainCheckout: string, worktreeDir: string): Pro
   return { action: 'cloned', dirs: landedDirs, staleDirs: plan.staleDirs, elapsedMs: Math.round(performance.now() - startedAt) };
 }
 
-type StagedDir = { sourcePath: string; stagingPath: string };
+type StagedDir = { relativeDir: string; sourcePath: string; stagingPath: string };
 
-async function stageAll(stagedDirs: readonly StagedDir[], markerPath: string): Promise<'failed' | 'absolute-link' | 'torn' | null> {
-  for (const { sourcePath, stagingPath } of stagedDirs) {
+async function stageAll(stagedDirs: readonly StagedDir[], markerPath: string): Promise<'failed' | 'outside-link' | 'torn' | null> {
+  for (const { relativeDir, sourcePath, stagingPath } of stagedDirs) {
     await removeTree(stagingPath);
     const cloned = await runCommand('cp', ['-Rc', sourcePath, stagingPath], { timeoutMs: CLONE_TIMEOUT_MS });
     if (!cloned.ok) return 'failed';
     for (const cacheDir of CLONED_CACHE_DIRS) await removeTree(path.join(stagingPath, cacheDir));
-    const absoluteLinks = await runCommand('find', [stagingPath, '-type', 'l', '-lname', '/*', '-print', '-quit'], { timeoutMs: CLONE_TIMEOUT_MS });
-    if (!absoluteLinks.ok) return 'failed';
-    if (absoluteLinks.out) return 'absolute-link';
+    const linkCheck = await findLinkOutsideCheckout(relativeDir, stagingPath);
+    if (linkCheck) return linkCheck;
   }
   for (const { sourcePath } of stagedDirs) {
     const changedDuringClone = await runCommand('find', [sourcePath, '-cnewer', markerPath, '-print', '-quit'], { timeoutMs: CLONE_TIMEOUT_MS });
     if (!changedDuringClone.ok) return 'failed';
     if (changedDuringClone.out) return 'torn';
+  }
+  return null;
+}
+
+async function findLinkOutsideCheckout(relativeDir: string, stagingPath: string): Promise<'failed' | 'outside-link' | null> {
+  const links = await runCommand('find', [stagingPath, '-type', 'l', '-print0'], { timeoutMs: CLONE_TIMEOUT_MS, maxBuffer: LINK_LIST_MAX_BYTES, trim: false });
+  if (!links.ok) return 'failed';
+  for (const linkPath of links.out.split('\0').filter(Boolean)) {
+    const linkTarget = await fsp.readlink(linkPath).catch(() => null);
+    if (linkTarget === null) return 'failed';
+    const linkPathInCheckout = path.join(relativeDir, NODE_MODULES, path.relative(stagingPath, linkPath));
+    if (!isLinkInsideCheckout(linkPathInCheckout, linkTarget)) return 'outside-link';
   }
   return null;
 }
@@ -114,9 +128,24 @@ async function listNestedPackageDirs(mainCheckout: string, worktreeDir: string):
     if (relativeDir === '.') continue;
     if (await pathExists(path.join(worktreeDir, relativeDir, NODE_MODULES))) continue;
     if (!(await pathExists(path.join(mainCheckout, relativeDir, NODE_MODULES)))) continue;
-    nestedDirs.push({ dir: relativeDir, ownLock: await readLock(path.join(mainCheckout, relativeDir), path.join(worktreeDir, relativeDir)) });
+    const mainPackageDir = path.join(mainCheckout, relativeDir);
+    const worktreePackageDir = path.join(worktreeDir, relativeDir);
+    nestedDirs.push({
+      dir: relativeDir,
+      ownLock: await readLock(mainPackageDir, worktreePackageDir),
+      hasAnyLockfile: await hasAnyLockfile([mainPackageDir, worktreePackageDir]),
+    });
   }
   return nestedDirs;
+}
+
+async function hasAnyLockfile(packageDirs: readonly string[]): Promise<boolean> {
+  for (const packageDir of packageDirs) {
+    for (const lockfile of KNOWN_LOCKFILES) {
+      if (await pathExists(path.join(packageDir, lockfile))) return true;
+    }
+  }
+  return false;
 }
 
 async function discardStaged(stagedDirs: readonly StagedDir[]): Promise<void> {
