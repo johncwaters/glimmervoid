@@ -3475,7 +3475,7 @@ html[data-layout="phone"] .doc-editor .plan-control { min-height: 40px; }
 html[data-layout="phone"] .doc-editor-actions { flex: 1 1 100%; justify-content: flex-end; }
 html[data-layout="phone"] .doc-editor-status { margin-right: auto; }
 html[data-layout="phone"] .doc-editor-body { padding: 12px; }
-.card-face-tabs { display: inline-flex; align-items: center; gap: 2px; }
+.card-face-tabs { position: relative; display: inline-flex; align-items: center; gap: 2px; }
 .card-face-tab { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border: 1px solid transparent; border-radius: 3px; background: transparent; color: var(--text-muted); font-family: var(--font-mono); font-size: var(--type-meta); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; }
 .card-face-tab .line-icon { width: 13px; height: 13px; }
 .card-face-tab[aria-selected="true"] { border-color: var(--border-hover); color: var(--text-head); }
@@ -3484,7 +3484,7 @@ html[data-layout="phone"] .doc-editor-body { padding: 12px; }
 @media (hover: hover) {
   .card-face-tab:not(.is-empty):hover { color: var(--text-head); background: color-mix(in srgb, var(--text) 8%, transparent); }
 }
-.shown-unopened-count { min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--accent); color: var(--bg); font-family: var(--font-mono); font-size: var(--type-meta); font-weight: 700; line-height: 16px; text-align: center; }
+.shown-unopened-count { position: absolute; top: -3px; right: -12px; pointer-events: none; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--accent); color: var(--bg); font-family: var(--font-mono); font-size: var(--type-meta); font-weight: 700; line-height: 16px; text-align: center; }
 .shown-unopened-count[hidden] { display: none; }
 .session-row-shown { display: inline-flex; flex-shrink: 0; align-items: center; gap: 2px; color: var(--accent); font-size: var(--type-meta); font-weight: 700; }
 .session-row-shown[hidden] { display: none; }
@@ -3538,6 +3538,7 @@ html[data-layout="phone"] .doc-editor-body { padding: 12px; }
 html[data-layout="phone"] .card-face-tab { min-width: 44px; height: 36px; justify-content: center; }
 html[data-layout="phone"] .card-face-tab-label { display: none; }
 html[data-layout="phone"] .card-face-tab:not(.card-face-tab-shown) { display: none; }
+html[data-layout="phone"] .shown-unopened-count { top: -2px; right: -2px; }
 html[data-layout="phone"] .session-actions .btn-remove { display: none; }
 html:not([data-layout="phone"]) .overflow-remove { display: none; }
 html[data-layout="phone"] .card-face-tab .line-icon { width: 18px; height: 18px; }
