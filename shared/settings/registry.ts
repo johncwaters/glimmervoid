@@ -199,13 +199,13 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
       {
         id: 'alert-sounds-enabled', path: 'pref:soundEnabled', title: 'Alert sounds',
         legacyIds: [{ sectionId: 'browser-appearance', settingId: 'alert-sounds-enabled' }],
-        description: 'Play a sound when a session needs you. Same as the note button in the header.',
+        description: 'Play a sound when a session needs you, like the note button in the header.',
         control: 'toggle', keywords: ['audio', 'mute', 'sound', 'notification'], defaultValue: true, ...BROWSER_NOW,
       },
       {
         id: 'alert-sound', path: 'pref:soundId', title: 'Alert sound',
         legacyIds: [{ sectionId: 'browser-appearance', settingId: 'alert-sound' }],
-        description: 'Sound played when a session needs you. Drop your own files in ~/.glimmervoid/sounds/ to add them.',
+        description: 'Sound played when a session needs you, including files you add to ~/.glimmervoid/sounds/.',
         control: 'select', optionsFrom: 'sounds', keywords: ['audio', 'notification', 'custom'], defaultValue: 'chime', ...BROWSER_NOW,
       },
       {
@@ -231,7 +231,7 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
       },
       {
         id: 'telegram-chat-id', path: 'telegram.chatId', title: 'Chat id',
-        description: 'Chat the bot posts to. Message the bot, then read message.chat.id from its getUpdates page.',
+        description: 'Chat the bot posts to, read as message.chat.id from its getUpdates page after you message it.',
         control: 'text', keywords: ['destination', 'channel'], defaultValue: '', ...MACHINE_NOW,
       },
       {
@@ -255,7 +255,7 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
       },
       {
         id: 'tab-order', path: 'viewTabOrder', title: 'Tab order',
-        description: 'Order of the dashboard tabs. You can also drag tabs in the header.',
+        description: 'Order of the dashboard tabs, also set by dragging tabs in the header.',
         control: 'tab-order', keywords: ['tabs', 'order', 'rearrange', 'reorder', 'header', 'more', 'menu'], defaultValue: [], ...MACHINE_NOW,
       },
       {
@@ -312,7 +312,7 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
       },
       {
         id: 'sane-yolo-unreadable-paths', path: 'saneYoloUnreadablePaths', title: 'Unreadable folders',
-        description: 'Extra files and folders agents may not read. ~ means your home folder.',
+        description: 'Extra files and folders agents may not read, where ~ is your home folder.',
         control: 'list', keywords: ['guardrails', 'secrets', 'credentials', 'sane yolo'], defaultValue: [],
         listPlaceholder: '~/folder', listEmptyText: 'Only the built-in credential list is unreadable.', ...MACHINE_NEW_SESSIONS,
       },
@@ -366,7 +366,7 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
       },
       {
         id: 'usage-your-day', path: 'usage.yourDay', title: 'Your day',
-        description: 'Recap yesterday and suggest a pace for today. Needs usage tracking.',
+        description: 'Recap yesterday and suggest a pace for today when usage tracking is on.',
         control: 'toggle', keywords: ['burnout', 'breaks', 'pace', 'wellbeing'], defaultValue: true, ...MACHINE_NOW,
       },
       {
@@ -376,13 +376,13 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
       },
       {
         id: 'usage-daily-budget', path: 'usage.budget.dailyUsd', title: 'Daily budget',
-        description: 'Alert at 50%, 75% and 100% of this estimated daily spend. Zero turns it off.',
+        description: 'Alert at 50%, 75% and 100% of this estimated daily spend, or never at zero.',
         control: 'number', range: USAGE_BUDGET_RANGE, unit: USD, keywords: ['spend', 'alert'], defaultValue: null,
         integer: false, nullable: true, zeroIsNull: true, step: 0.01, ...MACHINE_NOW,
       },
       {
         id: 'usage-monthly-budget', path: 'usage.budget.monthlyUsd', title: 'Monthly budget',
-        description: 'Alert at 50%, 75% and 100% of this estimated monthly spend. Zero turns it off.',
+        description: 'Alert at 50%, 75% and 100% of this estimated monthly spend, or never at zero.',
         control: 'number', range: USAGE_BUDGET_RANGE, unit: USD, keywords: ['spend', 'alert'], defaultValue: null,
         integer: false, nullable: true, zeroIsNull: true, step: 0.01, ...MACHINE_NOW,
       },
@@ -412,7 +412,7 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
       },
       {
         id: 'posthog-projects', path: 'posthog.projects', title: 'Projects',
-        description: 'Project ids to watch, one per line. Empty watches all; none watches none.',
+        description: 'Project ids to watch, where empty watches all and none watches none.',
         control: 'list', keywords: ['project ids', 'filter'], defaultValue: 'all', valueKind: 'posthog-projects',
         listPlaceholder: 'Project id', listEmptyText: 'Every project the key can read.', ...MACHINE_NOW,
       },
@@ -438,7 +438,7 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
       },
       {
         id: 'posthog-auto-fix', path: 'posthog.autoFix', title: 'Attempt fixes for major issues',
-        description: 'Let an agent fix an issue on a local branch. A pull request opens only after you approve it.',
+        description: 'Let an agent fix an issue on a local branch, opening a pull request only after you approve.',
         control: 'toggle', keywords: ['automatic', 'pull request'], danger: true,
         warning: 'Enabling this control lets an agent that read PostHog error data edit code onto a local branch; nothing is pushed until you approve it.', defaultValue: false, ...MACHINE_NOW,
       },
@@ -453,7 +453,7 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
     settings: [
       {
         id: 'team-review-enabled', path: 'teamReview.enabled', title: 'Enable team review',
-        description: 'Draft a review of each open team pull request. Nothing posts until you approve or comment.',
+        description: 'Draft a review of each open team pull request, posting nothing until you approve or comment.',
         control: 'toggle', keywords: ['pull requests', 'github'], defaultValue: true, ...MACHINE_NOW,
       },
       {
@@ -474,17 +474,17 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
       },
       {
         id: 'team-review-skill', path: 'teamReview.skill', title: 'Review skill',
-        description: 'Skill Claude Code follows for each review. Empty uses no skill.',
+        description: 'Skill Claude Code follows for each review, or none when empty.',
         control: 'text', keywords: ['skill', 'claude code', 'pr review'], defaultValue: '', suggestionsFrom: 'review-skills', ...MACHINE_NOW,
       },
       {
         id: 'team-review-reviewer-model', path: 'teamReview.reviewer.model', title: 'Review model',
-        description: "Model for reviews. Empty uses the agent's default.",
+        description: "Model for reviews, or the agent's default when empty.",
         control: 'text', keywords: ['model', 'opus', 'sonnet', 'reviewer'], defaultValue: '', suggestionsFrom: 'review-models', ...MACHINE_NOW,
       },
       {
         id: 'team-review-reviewer-effort', path: 'teamReview.reviewer.effort', title: 'Review effort',
-        description: "Effort for reviews. Empty uses the agent's default.",
+        description: "Effort for reviews, or the agent's default when empty.",
         control: 'text', keywords: ['effort', 'thinking', 'reasoning', 'reviewer'], defaultValue: '', suggestionsFrom: 'review-efforts', ...MACHINE_NOW,
       },
       {
@@ -545,7 +545,7 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
       },
       {
         id: 'workflows-rules', path: 'status:workflow-rules', title: 'Workflow rules',
-        description: 'Turn each rule on or off. Rules are written in config.json.',
+        description: 'Turn each workflow rule on or off.',
         control: 'readonly', keywords: ['pull requests', 'automation', 'github', 'rules'], status: 'workflows', ...READOUT,
       },
     ],
@@ -559,7 +559,7 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
     settings: [
       {
         id: 'benchmarks-enabled', path: 'benchmarks.enabled', title: 'Enable benchmarks',
-        description: 'Show the Bench tab. Nothing runs until you start it there.',
+        description: 'Show the Bench tab, where nothing runs until you start it.',
         control: 'toggle', keywords: ['eval', 'arms', 'recall', 'compare'], defaultValue: false, ...MACHINE_NOW,
       },
     ],
@@ -572,7 +572,7 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
     settings: [
       {
         id: 'coherence-enabled', path: 'coherence.enabled', title: 'Show session Coherence',
-        description: "Show each session's Coherence hook status and decisions. Needs @posthog/coherence 1.8 or newer.",
+        description: "Show each session's Coherence hook status and decisions (needs @posthog/coherence 1.8 or newer).",
         control: 'toggle', keywords: ['experimental', 'coherence', 'journal', 'decisions'], defaultValue: false, ...MACHINE_NOW,
       },
     ],
@@ -603,7 +603,7 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
       },
       {
         id: 'community-skill', path: 'community.skill', title: 'Research skill',
-        description: 'Skill the research agent follows. Empty uses no skill.',
+        description: 'Skill the research agent follows, or none when empty.',
         control: 'text', keywords: ['skill', 'answering', 'claude code'], defaultValue: '', ...MACHINE_NOW,
       },
       {
@@ -618,7 +618,7 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
       },
       {
         id: 'community-discord-channels', path: 'community.discordChannels', title: 'Discord channels',
-        description: 'Discord channels to watch for questions, without the #. Empty skips Discord.',
+        description: 'Discord channels to watch for questions, without the #, or none to skip Discord.',
         control: 'list', keywords: ['discord', 'channels', 'allowlist'], defaultValue: [], ...MACHINE_NOW,
       },
     ],

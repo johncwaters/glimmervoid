@@ -23,7 +23,7 @@ One bot for session, review and PostHog alerts.
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
 | `telegram.botToken` | Bot token | `""` | Token from @BotFather in Telegram (send /newbot). |
-| `telegram.chatId` | Chat id | `""` | Chat the bot posts to. Message the bot, then read message.chat.id from its getUpdates page. |
+| `telegram.chatId` | Chat id | `""` | Chat the bot posts to, read as message.chat.id from its getUpdates page after you message it. |
 | `telegramNotifications` | Send session notifications | `false` | Alert in Telegram when no dashboard is open, or when an alert sits unacknowledged. |
 
 ### Sessions
@@ -33,7 +33,7 @@ How sessions start and where projects are found.
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
 | `autoResume` | Auto-resume sessions on startup | `true` | Resume sessions that were live when Glimmervoid last stopped or crashed. |
-| `viewTabOrder` | Tab order | `[]` | Order of the dashboard tabs. You can also drag tabs in the header. |
+| `viewTabOrder` | Tab order | `[]` | Order of the dashboard tabs, also set by dragging tabs in the header. |
 | `remoteSessions` | Remote Coder sessions | `false` | Offer Coder workspaces when adding a session. |
 | `streamerMode` | Streamer mode | `false` | Hide sensitive details while screen sharing. |
 | `repoRoots` | Repository roots | `[]` | Folders scanned for projects when adding a session. |
@@ -48,7 +48,7 @@ What Sane YOLO blocks and what unattended work may do.
 |-----|---------|---------|-------|
 | `skipPermissionsByDefault` | Skip permission prompts by default | `false` | Skip agent permission prompts for projects that set no choice. |
 | `saneYolo` | Sane YOLO | `true` | Block catastrophic commands and credential reads in every session that supports it. Applies to new sessions. |
-| `saneYoloUnreadablePaths` | Unreadable folders | `[]` | Extra files and folders agents may not read. ~ means your home folder. Applies to new sessions. |
+| `saneYoloUnreadablePaths` | Unreadable folders | `[]` | Extra files and folders agents may not read, where ~ is your home folder. Applies to new sessions. |
 | `branchGc.deleteUnmerged` | Delete unmerged branches | `false` | Also delete stale remote branches with no proof they were merged. |
 
 ### Updates
@@ -67,10 +67,10 @@ Token accounting and estimated-cost budgets.
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
 | `usage.enabled` | Track token usage | `true` | Read local agent transcripts for the Usage tab and session cards. |
-| `usage.yourDay` | Your day | `true` | Recap yesterday and suggest a pace for today. Needs usage tracking. |
+| `usage.yourDay` | Your day | `true` | Recap yesterday and suggest a pace for today when usage tracking is on. |
 | `usage.retainDays` | Retain transcript detail | `90` | How long detailed usage is kept. |
-| `usage.budget.dailyUsd` | Daily budget | `null` | Alert at 50%, 75% and 100% of this estimated daily spend. Zero turns it off. |
-| `usage.budget.monthlyUsd` | Monthly budget | `null` | Alert at 50%, 75% and 100% of this estimated monthly spend. Zero turns it off. |
+| `usage.budget.dailyUsd` | Daily budget | `null` | Alert at 50%, 75% and 100% of this estimated daily spend, or never at zero. |
+| `usage.budget.monthlyUsd` | Monthly budget | `null` | Alert at 50%, 75% and 100% of this estimated monthly spend, or never at zero. |
 | `usage.vendors.codex` | Track Codex usage | `true` | Include local Codex CLI transcripts in usage reports. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `usage.vendors.grok` | Track Grok usage | `true` | Include local Grok CLI transcripts in usage reports. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `usage.vendors.kimi` | Track Kimi Code usage | `true` | Include local Kimi Code transcripts in usage reports. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
@@ -93,12 +93,12 @@ The PostHog lane only starts when `posthog.host`, `posthog.apiKey`, `telegram.bo
 | `posthog.enabled` | Enable PostHog monitoring | `false` | Watch PostHog error tracking and investigate issues that move. |
 | `posthog.host` | Host | `"https://us.posthog.com"` | PostHog cloud or self-hosted URL. |
 | `posthog.apiKey` | Personal API key | `""` | Personal API key with read access to your projects. |
-| `posthog.projects` | Projects | `"all"` | Project ids to watch, one per line. Empty watches all; none watches none. |
+| `posthog.projects` | Projects | `"all"` | Project ids to watch, where empty watches all and none watches none. |
 | `posthog.intervalMinutes` | Poll interval | `15` | Time between PostHog checks. |
 | `posthog.maxConcurrentInvestigations` | Max concurrent investigations | `2` | Most investigations running at once. |
 | `posthog.minUsersToInvestigate` | Min users to investigate | `1` | Fewest affected users before a new issue is investigated. |
 | `posthog.trafficSpikeEnabled` | Traffic spike alerts | `true` | Alert when unique users jump above normal. |
-| `posthog.autoFix` | Attempt fixes for major issues | `false` | Let an agent fix an issue on a local branch. A pull request opens only after you approve it. |
+| `posthog.autoFix` | Attempt fixes for major issues | `false` | Let an agent fix an issue on a local branch, opening a pull request only after you approve. |
 | `posthog.investigationTimeoutSeconds` | Investigation timeout | `900` | Maximum time allowed for one investigation. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `posthog.userEscalationThreshold` | Escalation threshold | `25` | Affected-user count that escalates an issue. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `posthog.fixTimeoutSeconds` | Fix timeout | `1800` | Maximum time allowed for one fix session. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
@@ -118,13 +118,13 @@ Draft reviews of teammates' pull requests for you to post.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `teamReview.enabled` | Enable team review | `true` | Draft a review of each open team pull request. Nothing posts until you approve or comment. |
+| `teamReview.enabled` | Enable team review | `true` | Draft a review of each open team pull request, posting nothing until you approve or comment. |
 | `github.teams` | GitHub teams | `[]` | GitHub teams whose review requests are drafted, as org/team-slug. |
 | `teamReview.reReviewAfterHours` | Re-review after | `24` | Review a pull request again after a new push, once this much time has passed. |
 | `teamReview.skipIdleAfterDays` | Skip PRs idle for | `14` | Skip pull requests with no activity for this long. |
-| `teamReview.skill` | Review skill | `""` | Skill Claude Code follows for each review. Empty uses no skill. |
-| `teamReview.reviewer.model` | Review model | `""` | Model for reviews. Empty uses the agent's default. |
-| `teamReview.reviewer.effort` | Review effort | `""` | Effort for reviews. Empty uses the agent's default. |
+| `teamReview.skill` | Review skill | `""` | Skill Claude Code follows for each review, or none when empty. |
+| `teamReview.reviewer.model` | Review model | `""` | Model for reviews, or the agent's default when empty. |
+| `teamReview.reviewer.effort` | Review effort | `""` | Effort for reviews, or the agent's default when empty. |
 | `teamReview.stampReviewer.model` | Docs and tests PR model | `""` | Model for pull requests that only touch docs and tests. |
 | `teamReview.stampReviewer.effort` | Docs and tests PR effort | `""` | Effort for pull requests that only touch docs and tests. |
 | `teamReview.sandbox.loadMcpServers` | Load my MCP servers | `false` | Give the review agent your own MCP servers. |
@@ -152,7 +152,7 @@ Compare agent setups on frozen benchmark cases.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `benchmarks.enabled` | Enable benchmarks | `false` | Show the Bench tab. Nothing runs until you start it there. |
+| `benchmarks.enabled` | Enable benchmarks | `false` | Show the Bench tab, where nothing runs until you start it. |
 
 ### Coherence
 
@@ -160,7 +160,7 @@ Coherence hook status and decision journal per session.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `coherence.enabled` | Show session Coherence | `false` | Show each session's Coherence hook status and decisions. Needs @posthog/coherence 1.8 or newer. |
+| `coherence.enabled` | Show session Coherence | `false` | Show each session's Coherence hook status and decisions (needs @posthog/coherence 1.8 or newer). |
 
 ### Issues
 
@@ -177,10 +177,10 @@ Research new posthog.com community questions and draft replies.
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
 | `community.enabled` | Show the Community tab | `false` | Research new community questions and draft a reply for each. |
-| `community.skill` | Research skill | `""` | Skill the research agent follows. Empty uses no skill. |
+| `community.skill` | Research skill | `""` | Skill the research agent follows, or none when empty. |
 | `community.projectId` | PostHog project | `2` | PostHog project holding the community forum and Discord data. |
 | `community.intervalMinutes` | Poll interval | `5` | Time between community checks. |
-| `community.discordChannels` | Discord channels | `[]` | Discord channels to watch for questions, without the #. Empty skips Discord. |
+| `community.discordChannels` | Discord channels | `[]` | Discord channels to watch for questions, without the #, or none to skip Discord. |
 
 ### Privacy
 
@@ -309,7 +309,7 @@ Stored in each browser, not in `config.json`, so every device keeps its own. Cha
 | Flight duration: maximum | `11.5` | Longest flight, for slower animals. |
 | Size multiplier | `1` | Scale applied on top of the viewport size. |
 | Show on phone layout | `true` | Allow flights on the phone layout. |
-| Alert sounds | `true` | Play a sound when a session needs you. Same as the note button in the header. |
-| Alert sound | `"chime"` | Sound played when a session needs you. Drop your own files in ~/.glimmervoid/sounds/ to add them. |
+| Alert sounds | `true` | Play a sound when a session needs you, like the note button in the header. |
+| Alert sound | `"chime"` | Sound played when a session needs you, including files you add to ~/.glimmervoid/sounds/. |
 | Desktop notifications | `true` | Notify you when a session needs you and the dashboard is in the background. |
 | Jump to the next session needing you | `"KeyJ"` | Key held with Cmd on a Mac, or Alt elsewhere, to jump to the next session that needs you. |
