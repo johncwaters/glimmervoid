@@ -338,6 +338,7 @@ function deriveChildSessionName(
 interface AgentCommandHelp {
   usage: string;
   summary: string;
+  whenToUse: string;
   missingArgumentHint: string | null;
   positionals?: PositionalSpec;
   options?: readonly OptionSpec[];
@@ -404,24 +405,28 @@ const WHITEBOARD_SUBCOMMANDS: readonly CommandSpec[] = [
 
 const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = Object.freeze({
   spawn: {
+    whenToUse: 'Use it for work that edits files or runs long; an in-process subagent stays fine for a quick read-only lookup',
     usage: 'spawn <prompt>',
     positionals: requiredText('<prompt>'),
     summary: 'Start a session on that prompt, with its own dashboard card, that this session owns until its task is done',
     missingArgumentHint: 'this command needs text, for example "glimmervoid spawn check the failing test"',
   },
   send: {
+    whenToUse: 'Use it to steer a spawned session, or to report back to the parent',
     usage: 'send [child] <text>',
     positionals: requiredText('[child] <text>'),
     summary: 'Message a session this one spawned; a spawned session messages its parent with send <text>',
     missingArgumentHint: 'this command needs text, for example "glimmervoid send the tests pass" or, to a spawned session, "glimmervoid send <child> fix the failing test"',
   },
   read: {
+    whenToUse: 'Use it when a spawned session or the parent has messaged this session',
     usage: 'read [child]',
     positionals: optionalText('[child]'),
     summary: "Read what this session's spawned sessions sent; a spawned session reads its parent's messages",
     missingArgumentHint: null,
   },
   close: {
+    whenToUse: "Use it once a spawned session's work has landed or is no longer wanted",
     usage: 'close <child>',
     positionals: requiredText('<child>'),
     options: [{ name: 'discard', type: 'boolean', summary: 'Close it even though it holds unpushed work, which is lost' }],
@@ -429,6 +434,7 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     missingArgumentHint: 'this command needs the spawned session, for example "glimmervoid close <child>"',
   },
   answer: {
+    whenToUse: 'Use it when a spawned session waits on a question this session can settle',
     usage: 'answer <child> <json>|--operator',
     positionals: { usage: '<child> [json]', min: 1, max: 2 },
     options: [{ name: 'operator', type: 'boolean', summary: 'Pass the question to the operator instead of answering it' }],
@@ -436,20 +442,23 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     missingArgumentHint: 'this command needs a child and a JSON object of answers, or --operator',
   },
   attention: {
+    whenToUse: 'Use it when the task is blocked on the operator, such as a refused call a retry will not change',
     usage: 'attention <note>',
     positionals: requiredText('<note>'),
     summary: 'Flag this session as needing the operator',
     missingArgumentHint: 'this command needs text, for example "glimmervoid attention check the failing test"',
   },
-  board: { usage: 'board', summary: 'List the live sessions', missingArgumentHint: null },
-  push: { usage: 'push', summary: "Land this session's commits on the integration branch and push it", missingArgumentHint: null },
+  board: { usage: 'board', whenToUse: 'Use it to see what other sessions are working on before touching shared code', summary: 'List the live sessions', missingArgumentHint: null },
+  push: { usage: 'push', whenToUse: "Use it when this session's commits are ready to land", summary: "Land this session's commits on the integration branch and push it", missingArgumentHint: null },
   edit: {
+    whenToUse: 'Use it when the operator should write or correct text, such as a plan or a prompt',
     usage: 'edit <path>',
     positionals: requiredText('<path>'),
     summary: 'Open a text file for the operator to edit in the dashboard',
     missingArgumentHint: 'this command needs a file path, for example "glimmervoid edit drafts/post.md"',
   },
   show: {
+    whenToUse: 'Use it after making a screenshot, chart, recording or HTML page the operator should see',
     usage: 'show <path>... [--caption <text>]',
     positionals: requiredText('<path>...'),
     options: [{ name: 'caption', type: 'string', valueName: 'text', summary: 'A caption shown with the files' }],
@@ -457,31 +466,34 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     missingArgumentHint: 'this command needs a file path, for example "glimmervoid show out/diagram.png --caption \'the new layout\'"',
   },
   review: {
+    whenToUse: 'Use it instead of gh pr review when a pull request needs a review the operator posts',
     usage: 'review <pr>',
     positionals: requiredText('<pr>'),
     summary: 'Queue a team review of a pull request; the draft waits in the Reviews tab for the operator to post',
     missingArgumentHint: 'this command needs a pull request, for example "glimmervoid review https://github.com/acme/app/pull/12" or "glimmervoid review acme/app#12"',
   },
-  reviews: { usage: 'reviews [pr]', positionals: optionalText('[pr]'), summary: 'List the Reviews tab: reviews running, queued and drafted; with a pull request, read its draft in full', missingArgumentHint: null },
-  prs: { usage: 'prs', summary: "List the operator's open pull requests with their checks, reviews and merge state", missingArgumentHint: null },
+  reviews: { usage: 'reviews [pr]', whenToUse: 'Use it to follow a queued review or read its draft', positionals: optionalText('[pr]'), summary: 'List the Reviews tab: reviews running, queued and drafted; with a pull request, read its draft in full', missingArgumentHint: null },
+  prs: { usage: 'prs', whenToUse: "Use it to find which of the operator's pull requests need work", summary: "List the operator's open pull requests with their checks, reviews and merge state", missingArgumentHint: null },
   'link-pr': {
+    whenToUse: "Use it after opening a pull request for this session's work",
     usage: 'link-pr <pr>',
     positionals: requiredText('<pr>'),
     summary: "Link a pull request to this session's card",
     missingArgumentHint: 'this command needs a pull request, for example "glimmervoid link-pr acme/app#12"',
   },
-  settings: { usage: 'settings list|get', summary: "Read Glimmervoid's settings; a secret shows only as configured or not", missingArgumentHint: null, isPassthrough: true },
+  settings: { usage: 'settings list|get', whenToUse: 'Use it instead of reading config.json', summary: "Read Glimmervoid's settings; a secret shows only as configured or not", missingArgumentHint: null, isPassthrough: true },
   whiteboard: {
+    whenToUse: 'Use it to plan or explain a design with the operator or other sessions',
     usage: 'whiteboard new|list|connect|disconnect|get|put|render|resolve|delete|plan',
     subcommands: WHITEBOARD_SUBCOMMANDS,
     summary: 'Create, connect to, read, edit, plan on and delete a shared whiteboard the operator and connected sessions edit together',
     missingArgumentHint: null,
   },
-  limits: { usage: 'limits', summary: 'List which of these commands answer here and why the rest do not', missingArgumentHint: null },
+  limits: { usage: 'limits', whenToUse: 'Use it when a command is refused, to see why', summary: 'List which of these commands answer here and why the rest do not', missingArgumentHint: null },
 });
 
 function agentCommandHelpLines(): string[] {
-  return Object.values(AGENT_COMMAND_HELP).map(({ usage, summary }) => renderOverviewLine(usage, summary));
+  return Object.values(AGENT_COMMAND_HELP).map(({ usage, summary, whenToUse }) => renderOverviewLine(usage, `${summary}. ${whenToUse}`));
 }
 
 function agentCommandSpec(verb: AgentApiVerb): CommandSpec {

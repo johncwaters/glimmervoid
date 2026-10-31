@@ -53,23 +53,23 @@ Commands:
   why <file>:<line>   Name the session that made the commit owning a line (or pass a commit sha)
 
 Inside a Glimmervoid session:
-  spawn <prompt>      Start a session on that prompt, with its own dashboard card, that this session owns until its task is done
-  send [child] <text> Message a session this one spawned; a spawned session messages its parent with send <text>
-  read [child]        Read what this session's spawned sessions sent; a spawned session reads its parent's messages
-  close <child>       End a session this one spawned and discard its worktree; refused while it holds unpushed work unless --discard
-  answer <child> <json>|--operator Answer a spawned session's held question, or pass it to the operator with --operator
-  attention <note>    Flag this session as needing the operator
-  board               List the live sessions
-  push                Land this session's commits on the integration branch and push it
-  edit <path>         Open a text file for the operator to edit in the dashboard
-  show <path>... [--caption <text>] Show the operator an image, video or HTML page on this session's card
-  review <pr>         Queue a team review of a pull request; the draft waits in the Reviews tab for the operator to post
-  reviews [pr]        List the Reviews tab: reviews running, queued and drafted; with a pull request, read its draft in full
-  prs                 List the operator's open pull requests with their checks, reviews and merge state
-  link-pr <pr>        Link a pull request to this session's card
-  settings list|get   Read Glimmervoid's settings; a secret shows only as configured or not
-  whiteboard new|list|connect|disconnect|get|put|render|resolve|delete|plan Create, connect to, read, edit, plan on and delete a shared whiteboard the operator and connected sessions edit together
-  limits              List which of these commands answer here and why the rest do not
+  spawn <prompt>      Start a session on that prompt, with its own dashboard card, that this session owns until its task is done. Use it for work that edits files or runs long; an in-process subagent stays fine for a quick read-only lookup
+  send [child] <text> Message a session this one spawned; a spawned session messages its parent with send <text>. Use it to steer a spawned session, or to report back to the parent
+  read [child]        Read what this session's spawned sessions sent; a spawned session reads its parent's messages. Use it when a spawned session or the parent has messaged this session
+  close <child>       End a session this one spawned and discard its worktree; refused while it holds unpushed work unless --discard. Use it once a spawned session's work has landed or is no longer wanted
+  answer <child> <json>|--operator Answer a spawned session's held question, or pass it to the operator with --operator. Use it when a spawned session waits on a question this session can settle
+  attention <note>    Flag this session as needing the operator. Use it when the task is blocked on the operator, such as a refused call a retry will not change
+  board               List the live sessions. Use it to see what other sessions are working on before touching shared code
+  push                Land this session's commits on the integration branch and push it. Use it when this session's commits are ready to land
+  edit <path>         Open a text file for the operator to edit in the dashboard. Use it when the operator should write or correct text, such as a plan or a prompt
+  show <path>... [--caption <text>] Show the operator an image, video or HTML page on this session's card. Use it after making a screenshot, chart, recording or HTML page the operator should see
+  review <pr>         Queue a team review of a pull request; the draft waits in the Reviews tab for the operator to post. Use it instead of gh pr review when a pull request needs a review the operator posts
+  reviews [pr]        List the Reviews tab: reviews running, queued and drafted; with a pull request, read its draft in full. Use it to follow a queued review or read its draft
+  prs                 List the operator's open pull requests with their checks, reviews and merge state. Use it to find which of the operator's pull requests need work
+  link-pr <pr>        Link a pull request to this session's card. Use it after opening a pull request for this session's work
+  settings list|get   Read Glimmervoid's settings; a secret shows only as configured or not. Use it instead of reading config.json
+  whiteboard new|list|connect|disconnect|get|put|render|resolve|delete|plan Create, connect to, read, edit, plan on and delete a shared whiteboard the operator and connected sessions edit together. Use it to plan or explain a design with the operator or other sessions
+  limits              List which of these commands answer here and why the rest do not. Use it when a command is refused, to see why
   ssh-sign            Sign a commit with the operator's forwarded ssh agent (git runs this)
 
 Options:

@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`glimmervoid --help` says when to use each session command.** Every line under Inside a Glimmervoid session now ends with when the command fits, such as `show` after making a screenshot or HTML page you should see, so an agent reading help picks the right command instead of only learning what each one does.
+
 - **The Glimmervoid start line now arrives with the first prompt for every agent.** Claude Code and Codex used to receive it as a launch argument (`--append-system-prompt`, `developer_instructions`), which Glimmervoid skipped whenever your own launch arguments or Codex `config.toml` set one, so those sessions never learned Glimmervoid was there. Every Claude Code, Codex and Kimi Code session now gets it with its first prompt, and again after `/clear`, whatever you set.
 
 - **The open session is quieter on the phone Board**: the row of the session you last opened kept a purple outline that looked like it needed you. On phones it now keeps only its raised background and bold name. The desktop Focus rail is unchanged.
