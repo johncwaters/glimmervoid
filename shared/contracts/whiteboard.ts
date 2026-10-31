@@ -20,6 +20,8 @@ const BoxLine = z.object({
 
 const Point = z.object({ x: z.number(), y: z.number() }).strict();
 
+export const BOX_CHANGES = ['none', 'added', 'removed', 'relabeled'] as const;
+
 const Side = z.enum(['left', 'right', 'top', 'bottom']);
 
 const Near = z.object({
@@ -39,7 +41,8 @@ export const Box = z.object({
   title: Title.min(1, { error: 'a box needs a title' }),
   lines: z.array(BoxLine).max(WHITEBOARD_LIMITS.linesPerBox, { error: `a box holds at most ${WHITEBOARD_LIMITS.linesPerBox} lines` }).default([]),
   lane: ElementId.nullable().default(null),
-  ghost: z.boolean().default(false),
+  change: z.enum(BOX_CHANGES).default('none'),
+  was: Title.nullable().default(null),
   column: ElementId.nullable().default(null),
   near: Near.nullable().default(null),
   order: z.number().int().default(0),

@@ -104,12 +104,12 @@ test.after(async () => {
   if (fixture.prevEnv != null) process.env.GLIMMERVOID_CONFIG = fixture.prevEnv;
 });
 
-test('an agent builds a board of boxes, wires, frames, notes and ghost boxes, and removing a box takes its wires and notes', async () => {
+test('an agent builds a board of boxes, wires, frames, notes and boxes marked added, and removing a box takes its wires and notes', async () => {
   const boardId = await newBoard('knowledge writer');
   const built = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
     { op: 'add', element: { kind: 'box', id: 'parse', title: 'Parse', column: 'intake', lane: 'pr1', lines: [{ text: 'reads the feed' }, { text: 'skips drafts', muted: true }] } },
     { op: 'add', element: { kind: 'box', id: 'store', title: 'Store', column: 'apply' } },
-    { op: 'add', element: { kind: 'box', id: 'later', title: 'Later', column: 'apply', ghost: true } },
+    { op: 'add', element: { kind: 'box', id: 'later', title: 'Later', column: 'apply', change: 'added' } },
     { op: 'add', element: { kind: 'wire', id: 'w1', from: 'parse', to: 'store', dashed: true, label: 'on retry' } },
     { op: 'add', element: { kind: 'frame', id: 'core', title: 'Core', contains: ['parse', 'store'] } },
     { op: 'add', element: { kind: 'note', id: 'n1', on: 'store', text: 'what about retries?' } },
@@ -128,7 +128,7 @@ test('an agent builds a board of boxes, wires, frames, notes and ghost boxes, an
   assert.deepEqual(Object.keys(board.elements).sort(), ['core', 'later', 'parse']);
   assert.deepEqual(board.elements.core?.contains, ['parse']);
   assert.deepEqual(board.elements.parse?.at, { x: 40, y: 80 });
-  assert.equal(board.elements.later?.ghost, true);
+  assert.equal(board.elements.later?.change, 'added');
 });
 
 test('two writers keep both different fields, the later write of one field wins, and the overwritten writer gets every change to the element in one line', async () => {
@@ -179,6 +179,12 @@ test('a malformed or over-limit put is refused whole with a reason and the board
   ] });
   assert.equal(forgedNote.status, 400);
   assert.match(String(forgedNote.body.error), /op 3: set cannot change who wrote or resolved a note/);
+
+  const unnamedRename = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
+    { op: 'add', element: { kind: 'box', id: 'renamed', title: 'New name', column: 'intake', change: 'relabeled' } },
+  ] });
+  assert.equal(unnamedRename.status, 400);
+  assert.match(String(unnamedRename.body.error), /box renamed is relabeled, so give its old title in was/);
 
   const after = await boardOf(PLANNER_ID, boardId);
   assert.equal(after.board.version, before.board.version);
@@ -292,6 +298,7 @@ test('an agent puts ops from a file, reads the laid-out positions and renders th
     { op: 'add', element: { kind: 'box', id: 'parse', title: 'Parse <feed>', column: 'intake' } },
     { op: 'add', element: { kind: 'box', id: 'save', title: 'Save', column: 'store' } },
     { op: 'add', element: { kind: 'wire', id: 'w1', from: 'parse', to: 'save', label: 'rows' } },
+    { op: 'add', element: { kind: 'box', id: 'index', title: 'Index rows', column: 'store', change: 'relabeled', was: 'Cache rows' } },
   ]));
   const cli = (...args: string[]) => runPlannerCli(context, ['whiteboard', ...args]);
 
@@ -313,6 +320,9 @@ test('an agent puts ops from a file, reads the laid-out positions and renders th
   assert.match(svgText, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
   assert.match(svgText, /Parse &lt;feed&gt;/);
   assert.match(svgText, /data-element-id="w1"/);
+  assert.match(svgText, /class="wb-element wb-box wb-change-relabeled"/);
+  assert.match(svgText, /class="wb-box-was"[^>]*>Cache rows</);
+  assert.match(svgText, /renamed, old title struck through/);
 
   const { changes } = await boardOf(PLANNER_ID, boardId);
   assert.deepEqual(changes.map((change) => change.summary), [`${BUILDER_ID} renamed "Save" to "Save rows"`]);

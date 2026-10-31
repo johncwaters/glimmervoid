@@ -1,3 +1,4 @@
+import { BOX_CHANGES } from './contracts/whiteboard.ts';
 import type { Board, Box, Element, Note, Panel, Unit, Wire } from './contracts/whiteboard.ts';
 
 type BoxLine = Box['lines'][number];
@@ -68,7 +69,8 @@ interface LaidOutBox extends Rect {
   bodyLines: LaidOutLine[];
   lane: LaidOutLane | null;
   showsLanePill: boolean;
-  isGhost: boolean;
+  change: Box['change'];
+  wasLines: string[];
   shape: Box['shape'];
   headerHeight: number;
   outputs: LaidOutOutput[];
@@ -136,7 +138,7 @@ interface LaidOutPanel extends Rect {
   bodyLines: LaidOutLine[];
 }
 
-type LegendSwatch = { kind: 'lane'; hex: string } | { kind: 'wire'; tone: Wire['tone']; isDashed: boolean; isBack: boolean };
+type LegendSwatch = { kind: 'lane'; hex: string } | { kind: 'wire'; tone: Wire['tone']; isDashed: boolean; isBack: boolean } | { kind: 'change'; change: Exclude<Box['change'], 'none'> };
 
 interface LegendRow {
   label: string;
@@ -242,12 +244,13 @@ function isGridBox(box: Box): box is Box & { column: string } {
 
 function boxShape(board: Board, box: Box) {
   const titleLines = wrapText(box.title, TITLE_CHARS_PER_LINE);
+  const wasLines = box.change === 'relabeled' && box.was ? wrapText(box.was, TITLE_CHARS_PER_LINE) : [];
   const bodyLines = laidOutLines(box.lines);
   const lane = laneOf(board, box);
   const showsLanePill = lane !== null && !isGridBox(box);
-  const headerHeight = BOX_PADDING * 2 + titleLines.length * TITLE_LINE_HEIGHT + bodyLines.length * BODY_LINE_HEIGHT + (showsLanePill ? LANE_PILL_HEIGHT + 6 : 0);
+  const headerHeight = BOX_PADDING * 2 + (wasLines.length + titleLines.length) * TITLE_LINE_HEIGHT + bodyLines.length * BODY_LINE_HEIGHT + (showsLanePill ? LANE_PILL_HEIGHT + 6 : 0);
   const outputs = box.shape === 'decision' ? box.outputs : [];
-  return { titleLines, bodyLines, lane, showsLanePill, headerHeight, outputs, height: headerHeight + outputs.length * OUTPUT_ROW_HEIGHT };
+  return { titleLines, wasLines, bodyLines, lane, showsLanePill, headerHeight, outputs, height: headerHeight + outputs.length * OUTPUT_ROW_HEIGHT };
 }
 
 function elementsOfKind<Kind extends Element['kind']>(board: Board, kind: Kind): Extract<Element, { kind: Kind }>[] {
@@ -354,7 +357,7 @@ function laidOutBox(board: Board, box: Box, position: Point): LaidOutBox {
   const shape = boxShape(board, box);
   return {
     kind: 'box', id: box.id, x: position.x, y: position.y, width: COLUMN_WIDTH, height: shape.height,
-    titleLines: shape.titleLines, bodyLines: shape.bodyLines, lane: shape.lane, showsLanePill: shape.showsLanePill, isGhost: box.ghost,
+    titleLines: shape.titleLines, bodyLines: shape.bodyLines, lane: shape.lane, showsLanePill: shape.showsLanePill, change: box.change, wasLines: shape.wasLines,
     shape: box.shape, headerHeight: shape.headerHeight,
     outputs: shape.outputs.map((output, index) => ({
       id: output.id, label: output.label,
@@ -659,6 +662,13 @@ function defaultWireStyleLabel(tone: Wire['tone'], isDashed: boolean, isBack: bo
   return words.length > 0 ? words.join(', ') : null;
 }
 
+const CHANGE_LEGEND_LABELS: Readonly<Record<Exclude<Box['change'], 'none'>, string>> = { added: 'added by this change', removed: 'removed by this change', relabeled: 'renamed, old title struck through' };
+
+function changeEntriesOf(board: Board): { label: string; swatch: LegendSwatch }[] {
+  const usedChanges = new Set(elementsOfKind(board, 'box').map((box) => box.change));
+  return BOX_CHANGES.flatMap((change) => (change === 'none' || !usedChanges.has(change) ? [] : [{ label: CHANGE_LEGEND_LABELS[change], swatch: { kind: 'change' as const, change } }]));
+}
+
 function legendEntriesOf(board: Board): { label: string; swatch: LegendSwatch }[] {
   const laneEntries = board.lanes.map((lane) => ({ label: lane.label || lane.id, swatch: { kind: 'lane' as const, hex: LANE_HEX_BY_COLOR[lane.color] } }));
   const customLabelByKey = new Map(board.legend.map((entry) => [wireStyleKey(entry.tone, entry.dashed || entry.back, entry.back), entry.label]));
@@ -674,7 +684,7 @@ function legendEntriesOf(board: Board): { label: string; swatch: LegendSwatch }[
   const unusedCustomEntries = board.legend
     .filter((entry) => !usedKeys.has(wireStyleKey(entry.tone, entry.dashed || entry.back, entry.back)))
     .map((entry) => ({ label: entry.label, swatch: { kind: 'wire' as const, tone: entry.tone, isDashed: entry.dashed || entry.back, isBack: entry.back } }));
-  return [...laneEntries, ...wireEntries.map(({ label, swatch }) => ({ label, swatch })), ...unusedCustomEntries];
+  return [...laneEntries, ...wireEntries.map(({ label, swatch }) => ({ label, swatch })), ...unusedCustomEntries, ...changeEntriesOf(board)];
 }
 
 function layoutBoard(storedBoard: Board): BoardLayout {

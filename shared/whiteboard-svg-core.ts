@@ -34,8 +34,13 @@ svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospac
 .wb-band-rule { stroke: #2a2440; stroke-width: 1; }
 .wb-band-label { font-size: 12px; font-weight: 700; }
 .wb-box-outline { fill: #15122a; stroke: #a79fc4; stroke-width: 1.6; }
-.wb-ghost { opacity: 0.6; }
-.wb-ghost .wb-box-outline { fill: transparent; stroke-dasharray: 7 5; }
+.wb-change-added .wb-box-outline { stroke: #22c55e; stroke-dasharray: 7 5; }
+.wb-change-removed { opacity: 0.6; }
+.wb-change-removed .wb-box-outline { fill: transparent; stroke: #ef4444; stroke-dasharray: 7 5; }
+.wb-change-removed .wb-box-title { text-decoration: line-through; }
+.wb-change-relabeled .wb-box-outline { stroke: #f5c26b; }
+.wb-box-was { fill: #a79fc4; font-size: 16px; text-decoration: line-through; }
+.wb-legend-swatch.wb-box-outline { stroke-width: 1.6; }
 .wb-box-title { fill: #e6e0f5; font-size: 16px; font-weight: 700; }
 .wb-box-line { fill: #e6e0f5; font-size: 12px; }
 .wb-box-line.wb-muted { fill: #a79fc4; }
@@ -159,10 +164,14 @@ function boxMarkup(box: LaidOutBox): string {
   for (const [cx, cy] of [[midX, box.y], [box.x + box.width, midY], [midX, box.y + box.height], [box.x, midY]] as const) {
     parts.push(tag('circle', { cx, cy, r: PORT_RADIUS, class: 'wb-port' }));
   }
-  box.titleLines.forEach((line, index) => {
-    parts.push(text(line, box.x + BOX_TEXT_INSET, box.y + TITLE_BASELINE + index * TITLE_LINE_HEIGHT, 'wb-box-title'));
+  box.wasLines.forEach((line, index) => {
+    parts.push(text(line, box.x + BOX_TEXT_INSET, box.y + TITLE_BASELINE + index * TITLE_LINE_HEIGHT, 'wb-box-was'));
   });
-  const bodyTop = box.y + TITLE_BASELINE + box.titleLines.length * TITLE_LINE_HEIGHT;
+  const titleTop = box.y + TITLE_BASELINE + box.wasLines.length * TITLE_LINE_HEIGHT;
+  box.titleLines.forEach((line, index) => {
+    parts.push(text(line, box.x + BOX_TEXT_INSET, titleTop + index * TITLE_LINE_HEIGHT, 'wb-box-title'));
+  });
+  const bodyTop = titleTop + box.titleLines.length * TITLE_LINE_HEIGHT;
   parts.push(...bodyLinesMarkup(box.bodyLines, box.x, box.width, bodyTop));
   if (box.lane && box.showsLanePill) {
     const pillY = box.y + box.headerHeight - 28;
@@ -172,7 +181,7 @@ function boxMarkup(box: LaidOutBox): string {
       text(box.lane.label, box.x + BOX_TEXT_INSET + 8, pillY + 13, 'wb-lane-pill-text', { style: `fill:${box.lane.hex}` }),
     );
   }
-  return elementGroup(box, box.isGhost ? 'wb-box wb-ghost' : 'wb-box', parts);
+  return elementGroup(box, box.change === 'none' ? 'wb-box' : `wb-box wb-change-${box.change}`, parts);
 }
 
 function loopBadgeMarkup(frame: LaidOutFrame): string {
@@ -264,6 +273,7 @@ function chromeMarkup(layout: BoardLayout): string {
 function legendSwatchMarkup(entry: BoardLayout['legend'][number]): string {
   const { swatch } = entry;
   if (swatch.kind === 'lane') return tag('rect', { x: entry.x, y: entry.y, width: 14, height: 14, rx: 3, class: 'wb-legend-swatch', style: `fill:${swatch.hex}` });
+  if (swatch.kind === 'change') return tag('g', { class: `wb-change-${swatch.change}` }, tag('rect', { x: entry.x, y: entry.y, width: LEGEND_SAMPLE_WIDTH, height: 14, rx: 3, class: 'wb-legend-swatch wb-box-outline' }));
   const sample = tag('path', { d: `M${entry.x},${entry.y + 7} H${entry.x + LEGEND_SAMPLE_WIDTH}`, 'marker-end': 'url(#wb-arrow)', class: swatch.isDashed ? 'wb-wire-line wb-dashed' : 'wb-wire-line' });
   return tag('g', { class: swatch.isBack ? `wb-back wb-tone-${swatch.tone}` : `wb-tone-${swatch.tone}` }, sample);
 }

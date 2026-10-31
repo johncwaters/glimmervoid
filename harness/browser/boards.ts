@@ -123,6 +123,12 @@ export async function verifyBoards(page: Page, layout: Layout): Promise<void> {
     await panel.locator('.wb-box-title', { hasText: 'Index first' }).waitFor({ timeout: 3000 });
     await page.keyboard.press('ControlOrMeta+Shift+z');
     await panel.locator('.wb-box-title', { hasText: 'Index second' }).waitFor({ timeout: 3000 });
+    await inspect.getByRole('combobox', { name: 'Change', exact: true }).selectOption('relabeled');
+    await panel.locator('.wb-box-was', { hasText: 'Index second' }).waitFor();
+    await titleField.fill('Index rows by day');
+    await page.keyboard.press('Enter');
+    await panel.locator('.wb-change-relabeled .wb-box-title', { hasText: 'Index rows by day' }).waitFor();
+    await panel.locator('.wb-legend-text', { hasText: 'renamed, old title struck through' }).waitFor();
     await inspect.getByRole('button', { name: 'Add a line to this box', exact: true }).click();
     await inspect.getByRole('textbox', { name: 'Line 1 text', exact: true }).waitFor();
     await inspect.getByRole('button', { name: 'Add a line to this box', exact: true }).click();

@@ -67,6 +67,7 @@ function checkBoxOutputs(board: Board, box: Box): OpOutcome {
 function checkBoxReferences(board: Board, box: Box): OpOutcome {
   const outputs = checkBoxOutputs(board, box);
   if (!outputs.ok) return outputs;
+  if (box.change === 'relabeled' && !box.was) return refuse(`box ${box.id} is relabeled, so give its old title in was`);
   if (box.column === null && box.near === null && box.at === null) {
     return refuse(`box ${box.id} needs a place: a column, near another box, or at a point`);
   }

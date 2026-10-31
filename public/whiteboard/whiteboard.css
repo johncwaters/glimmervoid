@@ -238,8 +238,17 @@
   stroke-width: 1.6;
 }
 
-.wb-ghost { opacity: 0.6; }
-.wb-ghost .wb-box-outline { fill: transparent; stroke-dasharray: 7 5; }
+.wb-change-added .wb-box-outline { stroke: var(--state-running); stroke-dasharray: 7 5; }
+.wb-change-removed { opacity: 0.6; }
+.wb-change-removed .wb-box-outline { fill: transparent; stroke: var(--state-failed); stroke-dasharray: 7 5; }
+.wb-change-removed .wb-box-title { text-decoration: line-through; }
+.wb-change-relabeled .wb-box-outline { stroke: var(--wb-note); }
+
+.wb-box-was {
+  fill: var(--wb-ink-dim);
+  font-size: var(--type-title);
+  text-decoration: line-through;
+}
 
 .wb-box-title {
   fill: var(--wb-ink);

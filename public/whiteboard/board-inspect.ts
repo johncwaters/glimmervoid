@@ -1,5 +1,5 @@
 import type { Board, Box, Element as BoardElement, Frame, Op, Panel, Wire } from '#shared/contracts/whiteboard.ts';
-import { WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
+import { BOX_CHANGES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import type { BoardLayout } from '#shared/whiteboard-layout-core.ts';
 import { el } from '../dom-helpers.ts';
 
@@ -28,6 +28,7 @@ const TONES: readonly Wire['tone'][] = ['plain', 'fail', 'join', 'lane'];
 const LINE_STYLE_CHOICES = choicesOf(LINE_STYLES);
 const TONE_CHOICES = choicesOf(TONES);
 const SHAPE_CHOICES = choicesOf(['box', 'decision'] satisfies Box['shape'][]);
+const CHANGE_CHOICES = choicesOf(BOX_CHANGES);
 const SIDE_CHOICES: readonly Choice[] = [{ value: '', text: 'auto' }, ...choicesOf(['left', 'right', 'top', 'bottom'])];
 const DEFAULT_OUTPUTS: Box['outputs'] = [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }];
 
@@ -194,6 +195,13 @@ function boxSections(board: Board, box: Box, latest: () => BoardElement | undefi
     if (shape === 'decision') set({ shape, outputs: outputs.length > 0 ? outputs : DEFAULT_OUTPUTS });
     if (shape === 'box') set({ shape, outputs: [] });
   };
+  const commitChange = (change: string) => {
+    if (change === 'relabeled') {
+      set({ change, was: latestBox()?.was ?? box.title });
+      return;
+    }
+    set({ change, was: null });
+  };
   return [
     heading(box.shape === 'decision' ? 'Decision' : 'Box'),
     fieldRow('Title', textField('title', box.title, WHITEBOARD_LIMITS.title, (title) => {
@@ -202,6 +210,10 @@ function boxSections(board: Board, box: Box, latest: () => BoardElement | undefi
     fieldRow('Shape', selectField('shape', SHAPE_CHOICES, box.shape, commitShape)),
     fieldRow('Column', selectField('column', columnChoices, placementOf(box), commitPlacement)),
     fieldRow('Lane', selectField('lane', laneChoices, box.lane ?? '', (lane) => set({ lane: lane || null }))),
+    fieldRow('Change', selectField('change', CHANGE_CHOICES, box.change, commitChange)),
+    ...(box.change === 'relabeled' ? [fieldRow('Was', textField('was', box.was ?? '', WHITEBOARD_LIMITS.title, (was) => {
+      if (was.trim()) set({ was: was.trim() });
+    }))] : []),
     ...(box.shape === 'decision' ? [outputsEditor(box, () => latestBox()?.outputs ?? null, set)] : []),
     linesEditor('this box', box.lines, () => latestBox()?.lines ?? null, (lines) => set({ lines })),
   ];
