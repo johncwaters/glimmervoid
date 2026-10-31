@@ -11,11 +11,17 @@ const ElementId = z.string({ error: 'an id must be a string' })
 
 const Title = z.string().max(WHITEBOARD_LIMITS.title, { error: `a title is at most ${WHITEBOARD_LIMITS.title} characters` });
 
+export const AnchorRef = z.string().min(1).max(200, { error: 'a ref is at most 200 characters' })
+  .regex(/^[^#\s]+(#L[1-9]\d*(-L[1-9]\d*)?)?$/, { error: 'a ref is path, path#L12 or path#L12-L30' });
+
+const AnchorRefs = z.array(AnchorRef).max(8, { error: 'an element carries at most 8 refs' }).default([]);
+
 const BoxLine = z.object({
   text: z.string().max(WHITEBOARD_LIMITS.line, { error: `a box line is at most ${WHITEBOARD_LIMITS.line} characters` }),
   muted: z.boolean().default(false),
   style: z.enum(['text', 'code', 'item', 'numbered', 'kv']).default('text'),
   key: z.string().max(40, { error: 'a line key is at most 40 characters' }).nullable().default(null),
+  ref: AnchorRef.nullable().default(null),
 }).strict().refine((line) => line.style !== 'kv' || Boolean(line.key), { error: 'a kv line needs a key' });
 
 const Point = z.object({ x: z.number(), y: z.number() }).strict();
@@ -41,6 +47,7 @@ export const Box = z.object({
   title: Title.min(1, { error: 'a box needs a title' }),
   lines: z.array(BoxLine).max(WHITEBOARD_LIMITS.linesPerBox, { error: `a box holds at most ${WHITEBOARD_LIMITS.linesPerBox} lines` }).default([]),
   lane: ElementId.nullable().default(null),
+  refs: AnchorRefs,
   change: z.enum(BOX_CHANGES).default('none'),
   was: Title.nullable().default(null),
   column: ElementId.nullable().default(null),
@@ -78,6 +85,7 @@ export const Note = z.object({
   id: ElementId,
   on: ElementId,
   text: z.string().min(1, { error: 'a note needs text' }).max(WHITEBOARD_LIMITS.noteText, { error: `a note is at most ${WHITEBOARD_LIMITS.noteText} characters` }),
+  ref: AnchorRef.nullable().default(null),
   author: z.string().max(200).default(''),
   resolvedBy: z.string().max(200).nullable().default(null),
 }).strict();
@@ -87,6 +95,7 @@ export const Unit = z.object({
   id: ElementId,
   title: Title.min(1, { error: 'a unit needs a title' }),
   lines: z.array(BoxLine).max(WHITEBOARD_LIMITS.linesPerUnit, { error: `a unit holds at most ${WHITEBOARD_LIMITS.linesPerUnit} lines` }).default([]),
+  refs: AnchorRefs,
   after: z.array(ElementId).max(WHITEBOARD_LIMITS.unitDependencies, { error: `a unit comes after at most ${WHITEBOARD_LIMITS.unitDependencies} units` }).default([]),
   linkedBoardId: z.string().min(1).max(64).nullable().default(null),
 }).strict();
@@ -114,6 +123,8 @@ const BoardColumns = z.array(z.object({ id: ElementId, title: z.string().max(60)
 const BoardLanes = z.array(z.object({ id: ElementId, label: z.string().max(60), color: z.enum(LANE_COLORS) }).strict())
   .max(WHITEBOARD_LIMITS.lanes, { error: `a board has at most ${WHITEBOARD_LIMITS.lanes} lanes` });
 
+const CodeSessionId = z.string().min(1).max(64);
+
 export const Board = z.object({
   id: z.string().min(1).max(64),
   title: Title.min(1),
@@ -122,6 +133,7 @@ export const Board = z.object({
   columns: BoardColumns,
   lanes: BoardLanes,
   legend: LegendEntries.default([]),
+  codeSessionId: CodeSessionId.nullable().default(null),
   elements: z.record(ElementId, Element)
     .refine((elements) => Object.keys(elements).length <= WHITEBOARD_LIMITS.elements, { error: `a board holds at most ${WHITEBOARD_LIMITS.elements} elements` })
     .refine((elements) => Object.entries(elements).every(([id, element]) => element.id === id), { error: 'every element is stored under its own id' }),
@@ -136,7 +148,7 @@ export const Op = z.discriminatedUnion('op', [
   z.object({ op: z.literal('resolve'), id: ElementId }).strict(),
   z.object({ op: z.literal('columns'), columns: BoardColumns, move: z.record(ElementId, ElementId).default({}) }).strict(),
   z.object({ op: z.literal('lanes'), lanes: BoardLanes }).strict(),
-  z.object({ op: z.literal('board'), title: Title.min(1).optional(), caption: z.string().max(400).nullable().optional(), legend: LegendEntries.optional() }).strict(),
+  z.object({ op: z.literal('board'), title: Title.min(1).optional(), caption: z.string().max(400).nullable().optional(), legend: LegendEntries.optional(), codeSessionId: CodeSessionId.nullable().optional() }).strict(),
 ], { error: 'an op is add, set, remove, resolve, columns, lanes or board' });
 
 export const BoardChange = z.object({
@@ -169,7 +181,7 @@ export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
   z.object({ sub: z.literal('list') }).strict(),
   z.object({ sub: z.literal('connect'), board: BoardRef }).strict(),
   z.object({ sub: z.literal('disconnect'), board: BoardRef }).strict(),
-  z.object({ sub: z.literal('get'), board: BoardRef, peek: z.boolean().optional() }).strict(),
+  z.object({ sub: z.literal('get'), board: BoardRef, peek: z.boolean().optional(), review: z.boolean().optional() }).strict(),
   z.object({
     sub: z.literal('put'),
     board: BoardRef,
@@ -179,10 +191,15 @@ export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
   z.object({ sub: z.literal('delete'), board: BoardRef }).strict(),
 ], { error: 'whiteboard takes new, list, connect, disconnect, get, put, resolve or delete' });
 
+export const BoardReview = z.object({
+  codeSessionId: z.string().nullable(),
+  anchorWarnings: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings),
+}).strict();
+
 export const WhiteboardAgentReply = z.union([
   z.object({ ok: z.literal(true), board: BoardSummary, note: z.string() }).strict(),
   z.object({ ok: z.literal(true), boards: z.array(BoardSummary) }).strict(),
-  z.object({ ok: z.literal(true), board: Board, changes: z.array(BoardChange) }).strict(),
+  z.object({ ok: z.literal(true), board: Board, changes: z.array(BoardChange), review: BoardReview.optional() }).strict(),
   z.object({ ok: z.literal(true), version: z.number().int(), warnings: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings).optional() }).strict(),
 ]);
 
@@ -196,6 +213,7 @@ export type Element = z.infer<typeof Element>;
 export type Board = z.infer<typeof Board>;
 export type Op = z.infer<typeof Op>;
 export type BoardChange = z.infer<typeof BoardChange>;
+export type BoardReview = z.infer<typeof BoardReview>;
 export type BoardSummary = z.infer<typeof BoardSummary>;
 export type BoardRecord = z.infer<typeof BoardRecord>;
 export type WhiteboardAgentRequest = z.infer<typeof WhiteboardAgentRequest>;

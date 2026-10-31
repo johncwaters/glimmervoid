@@ -187,6 +187,13 @@ function sessionLabel(sessionId: string): string {
   return ui ? sessionName(ui) : 'closed session';
 }
 
+function codeSessionChoices(): { value: string; text: string }[] {
+  const connectedSessionIds = selectedSummary()?.connectedSessionIds ?? [];
+  const codeSessionId = selectedBoard()?.codeSessionId;
+  const sessionIds = codeSessionId && !connectedSessionIds.includes(codeSessionId) ? [codeSessionId, ...connectedSessionIds] : connectedSessionIds;
+  return sessionIds.map((sessionId) => ({ value: sessionId, text: sessionLabel(sessionId) }));
+}
+
 function selectedElementsOfKind<Kind extends Element['kind']>(kind: Kind): Extract<Element, { kind: Kind }>[] {
   const board = selectedBoard();
   const selectedIds = editor?.selectedIds() ?? new Set<string>();
@@ -311,7 +318,7 @@ function addUnitFromDialog(): void {
     maxLength: WHITEBOARD_LIMITS.title,
     confirmLabel: 'Add unit',
     choices: otherBoards.length > 0 ? { label: 'Linked board', options: linkOptions } : undefined,
-    onSubmit: (title, linkedBoardId) => sendOpsFromDialog([{ op: 'add', element: { kind: 'unit', id: newElementId('unit'), title, lines: [], after: [], linkedBoardId: linkedBoardId || null } }]),
+    onSubmit: (title, linkedBoardId) => sendOpsFromDialog([{ op: 'add', element: { kind: 'unit', id: newElementId('unit'), title, lines: [], refs: [], after: [], linkedBoardId: linkedBoardId || null } }]),
   });
 }
 
@@ -322,7 +329,7 @@ function addNoteOn(boxId: string): void {
     placeholder: 'what about retries?',
     maxLength: WHITEBOARD_LIMITS.noteText,
     confirmLabel: 'Pin note',
-    onSubmit: (text) => sendOpsFromDialog([{ op: 'add', element: { kind: 'note', id: newElementId('note'), on: boxId, text, author: '', resolvedBy: null } }]),
+    onSubmit: (text) => sendOpsFromDialog([{ op: 'add', element: { kind: 'note', id: newElementId('note'), on: boxId, text, ref: null, author: '', resolvedBy: null } }]),
   });
 }
 
@@ -474,7 +481,7 @@ function mountBoardsView(panel: HTMLElement): void {
   parts = { list, boardHead, boardMeta, presence, toolbar, canvas, empty, dock, dockQueued, sendToAgent, buttons, toolButtons };
   const boardRenderer = createBoardRenderer(svg);
   renderer = boardRenderer;
-  inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps });
+  inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices });
   editor = createBoardEditor({
     svg,
     canvas,

@@ -231,7 +231,11 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const sessionDocs = createSessionDocsWiring({ broadcastControl: broadcastControlFromWebSockets });
   const shownFilesWiring = createShownFilesWiring({ shownRoot: configSiblingPath(configStore.configPath, SHOWN_FOLDER_NAME), broadcastControl: broadcastControlFromWebSockets });
   shownFiles = shownFilesWiring;
-  const whiteboards = createWhiteboardWiring({ boardsRoot: configSiblingPath(configStore.configPath, WHITEBOARDS_FOLDER_NAME), broadcastControl: broadcastControlFromWebSockets });
+  const whiteboards = createWhiteboardWiring({
+    boardsRoot: configSiblingPath(configStore.configPath, WHITEBOARDS_FOLDER_NAME),
+    broadcastControl: broadcastControlFromWebSockets,
+    codeRootOf: (sessionId) => getSessionAny(sessionId)?.effectiveCwd() ?? null,
+  });
   const coherenceFeed = createCoherenceSessionFeed({ broadcastControl: broadcastControlFromWebSockets });
 
   const sessions = new Map<string, Session>();

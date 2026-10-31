@@ -1,5 +1,5 @@
-import type { Board, Box, Element as BoardElement, Frame, Op, Panel, Wire } from '#shared/contracts/whiteboard.ts';
-import { BOX_CHANGES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
+import type { Board, Box, Element as BoardElement, Frame, Note, Op, Panel, Unit, Wire } from '#shared/contracts/whiteboard.ts';
+import { AnchorRef, BOX_CHANGES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import type { BoardLayout } from '#shared/whiteboard-layout-core.ts';
 import { el } from '../dom-helpers.ts';
 
@@ -14,6 +14,7 @@ interface BoardInspectorOptions {
   currentBoard: () => Board | null;
   layout: () => BoardLayout | null;
   sendOps: (ops: Op[]) => Promise<boolean>;
+  codeSessionChoices: () => readonly Choice[];
 }
 
 const MAX_OUTPUTS = 8;
@@ -22,6 +23,9 @@ const MAX_OUTPUT_LABEL = 30;
 const MAX_WIRE_LABEL = 40;
 const MAX_LINE_KEY = 40;
 const MAX_CAPTION = 400;
+const MAX_REF = 200;
+const MAX_REFS = 8;
+const NEW_REF = 'README.md';
 const FREE_PLACEMENT = '';
 const LINE_STYLES: readonly BoxLine['style'][] = ['text', 'code', 'item', 'numbered', 'kv'];
 const TONES: readonly Wire['tone'][] = ['plain', 'fail', 'join', 'lane'];
@@ -116,6 +120,42 @@ function listEditing<Item>(latestItems: LatestItems<Item>, commitItems: (items: 
   };
 }
 
+function validRefOf(text: string): string | null {
+  const ref = text.trim();
+  return AnchorRef.safeParse(ref).success ? ref : null;
+}
+
+function optionalRefField(field: string, ref: string | null, commit: (ref: string | null) => void, accessibleName: string): HTMLInputElement {
+  const input = textField(field, ref ?? '', MAX_REF, (text) => {
+    if (!text.trim()) {
+      commit(null);
+      return;
+    }
+    const nextRef = validRefOf(text);
+    if (nextRef) commit(nextRef);
+  }, accessibleName);
+  input.placeholder = 'ref: path#L12';
+  return input;
+}
+
+function refsEditor(owner: string, refs: readonly string[], latestRefs: LatestItems<string>, commitRefs: (refs: string[]) => void): HTMLElement {
+  const editing = listEditing(latestRefs, commitRefs);
+  const rows = refs.map((ref, index) => {
+    const row = el('div', 'wb-inspect-row');
+    row.append(
+      textField(`ref-${index}`, ref, MAX_REF, (text) => {
+        const nextRef = validRefOf(text);
+        if (nextRef) editing.edit(index, () => nextRef);
+      }, `Ref ${index + 1}`),
+      actionButton(`ref-${index}-remove`, 'remove', () => editing.remove(index), `Remove ref ${ref}`),
+    );
+    return row;
+  });
+  const addRef = actionButton('ref-add', 'add ref', () => editing.append(() => NEW_REF), `Add a ref to ${owner}`);
+  addRef.disabled = refs.length >= MAX_REFS;
+  return listSection('Refs', rows, addRef);
+}
+
 function lineWithStyle(line: BoxLine, style: BoxLine['style']): BoxLine {
   if (style === 'kv') return { ...line, style, key: line.key || 'key' };
   return { ...line, style };
@@ -137,11 +177,12 @@ function linesEditor(owner: string, lines: readonly BoxLine[], latestLines: Late
     }
     row.append(
       textField(`line-${index}-text`, line.text, WHITEBOARD_LIMITS.line, (text) => editing.edit(index, (latestLine) => ({ ...latestLine, text })), `Line ${lineNumber} text`),
+      optionalRefField(`line-${index}-ref`, line.ref, (ref) => editing.edit(index, (latestLine) => ({ ...latestLine, ref })), `Line ${lineNumber} ref`),
       actionButton(`line-${index}-remove`, 'remove', () => editing.remove(index), `Remove line ${lineNumber}`),
     );
     return row;
   });
-  const addLine = actionButton('line-add', 'add line', () => editing.append(() => ({ text: 'new line', muted: false, style: 'text', key: null })), `Add a line to ${owner}`);
+  const addLine = actionButton('line-add', 'add line', () => editing.append(() => ({ text: 'new line', muted: false, style: 'text', key: null, ref: null })), `Add a line to ${owner}`);
   addLine.disabled = lines.length >= WHITEBOARD_LIMITS.linesPerBox;
   return listSection('Lines', rows, addLine);
 }
@@ -215,6 +256,7 @@ function boxSections(board: Board, box: Box, latest: () => BoardElement | undefi
       if (was.trim()) set({ was: was.trim() });
     }))] : []),
     ...(box.shape === 'decision' ? [outputsEditor(box, () => latestBox()?.outputs ?? null, set)] : []),
+    refsEditor('this box', box.refs, () => latestBox()?.refs ?? null, (refs) => set({ refs })),
     linesEditor('this box', box.lines, () => latestBox()?.lines ?? null, (lines) => set({ lines })),
   ];
 }
@@ -282,13 +324,35 @@ function legendEditor(legend: readonly LegendEntry[], latestLegend: LatestItems<
   return listSection('Legend', rows, addEntry);
 }
 
-function boardSections(board: Board, latestBoard: () => Board | null, send: (ops: Op[]) => void): HTMLElement[] {
+function noteSections(note: Note, set: FieldCommit): HTMLElement[] {
+  return [
+    heading('Note'),
+    fieldRow('Ref', optionalRefField('ref', note.ref, (ref) => set({ ref }), 'Ref')),
+    el('p', 'wb-inspect-hint', 'Edit a note from its box.'),
+  ];
+}
+
+function unitSections(unit: Unit, latest: () => BoardElement | undefined, set: FieldCommit): HTMLElement[] {
+  const latestRefs = () => {
+    const element = latest();
+    return element?.kind === 'unit' ? element.refs : null;
+  };
+  return [
+    heading('Unit'),
+    refsEditor('this unit', unit.refs, latestRefs, (refs) => set({ refs })),
+    el('p', 'wb-inspect-hint', 'Agents edit units with glimmervoid whiteboard plan.'),
+  ];
+}
+
+function boardSections(board: Board, latestBoard: () => Board | null, send: (ops: Op[]) => void, codeSessionChoices: readonly Choice[]): HTMLElement[] {
+  const codeSessionOptions = [{ value: '', text: 'none' }, ...codeSessionChoices];
   return [
     heading('Board'),
     fieldRow('Title', textField('board-title', board.title, WHITEBOARD_LIMITS.title, (title) => {
       if (title.trim()) send([{ op: 'board', title: title.trim() }]);
     })),
     fieldRow('Caption', textField('board-caption', board.caption ?? '', MAX_CAPTION, (caption) => send([{ op: 'board', caption: caption.trim() || null }]))),
+    fieldRow('Code session', selectField('board-code-session', codeSessionOptions, board.codeSessionId ?? '', (sessionId) => send([{ op: 'board', codeSessionId: sessionId || null }]))),
     legendEditor(board.legend, () => latestBoard()?.legend ?? null, (legend) => send([{ op: 'board', legend }])),
   ];
 }
@@ -301,8 +365,8 @@ function elementSections(board: Board, element: BoardElement, latestBoard: () =>
     case 'wire': return wireSections(board, element, set);
     case 'frame': return frameSections(element, set);
     case 'panel': return panelSections(element, latest, set);
-    case 'note': return [heading('Note'), el('p', 'wb-inspect-hint', 'Edit a note from its box.')];
-    case 'unit': return [heading('Unit'), el('p', 'wb-inspect-hint', 'Agents edit units with glimmervoid whiteboard plan.')];
+    case 'note': return noteSections(element, set);
+    case 'unit': return unitSections(element, latest, set);
   }
 }
 
@@ -322,7 +386,7 @@ export function createBoardInspector(options: BoardInspectorOptions) {
     if (selectedIds.size > 1) return [heading(`${selectedIds.size} selected`)];
     const [selectedId] = selectedIds;
     const element = selectedId === undefined ? undefined : board.elements[selectedId];
-    if (!element) return boardSections(board, options.currentBoard, send);
+    if (!element) return boardSections(board, options.currentBoard, send, options.codeSessionChoices());
     return elementSections(board, element, options.currentBoard, options.layout(), send);
   }
 

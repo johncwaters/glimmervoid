@@ -94,6 +94,7 @@ export async function verifyBoards(page: Page, layout: Layout): Promise<void> {
     const inspect = panel.locator('.wb-inspect');
     await page.keyboard.press('Escape');
     await inspect.getByRole('heading', { name: 'Board', exact: true }).waitFor();
+    await inspect.getByRole('combobox', { name: 'Code session', exact: true }).waitFor();
     await targetBox.locator('.wb-box-outline').click();
     await inspect.getByRole('heading', { name: 'Box', exact: true }).waitFor();
     await inspect.getByRole('combobox', { name: 'Shape', exact: true }).selectOption('decision');
@@ -129,6 +130,14 @@ export async function verifyBoards(page: Page, layout: Layout): Promise<void> {
     await page.keyboard.press('Enter');
     await panel.locator('.wb-change-relabeled .wb-box-title', { hasText: 'Index rows by day' }).waitFor();
     await panel.locator('.wb-legend-text', { hasText: 'renamed, old title struck through' }).waitFor();
+    await inspect.getByRole('button', { name: 'Add a ref to this box', exact: true }).click();
+    const refField = inspect.getByRole('textbox', { name: 'Ref 1', exact: true });
+    await refField.fill('src/feed.ts#L2');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.querySelector<HTMLInputElement>('.boards-view .wb-inspect [data-field="ref-0"]')?.value === 'src/feed.ts#L2');
+    await inspect.getByRole('combobox', { name: 'Change', exact: true }).focus();
+    await page.keyboard.press('ControlOrMeta+z');
+    await page.waitForFunction(() => document.querySelector<HTMLInputElement>('.boards-view .wb-inspect [data-field="ref-0"]')?.value === 'README.md');
     await inspect.getByRole('button', { name: 'Add a line to this box', exact: true }).click();
     await inspect.getByRole('textbox', { name: 'Line 1 text', exact: true }).waitFor();
     await inspect.getByRole('button', { name: 'Add a line to this box', exact: true }).click();

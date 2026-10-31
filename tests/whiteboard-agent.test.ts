@@ -144,7 +144,7 @@ test('two writers keep both different fields, the later write of one field wins,
 
   const plannerView = await boardOf(PLANNER_ID, boardId);
   assert.equal(plannerView.board.elements.parse?.title, 'Parse and store');
-  assert.deepEqual(plannerView.board.elements.parse?.lines, [{ text: 'by the builder', muted: false, style: 'text', key: null }]);
+  assert.deepEqual(plannerView.board.elements.parse?.lines, [{ text: 'by the builder', muted: false, style: 'text', key: null, ref: null }]);
   assert.deepEqual(plannerView.changes.map((change) => change.summary), [
     `${BUILDER_ID} changed lines of "Parse feed"; ${BUILDER_ID} renamed "Parse feed" to "Parse and store"`,
   ]);
@@ -328,6 +328,49 @@ test('an agent puts ops from a file, reads the laid-out positions and renders th
   assert.deepEqual(changes.map((change) => change.summary), [`${BUILDER_ID} renamed "Save" to "Save rows"`]);
 });
 
+test('refs are checked in the code session worktree: a missing file, a line past the end and a path leaving the worktree land as warnings that get --layout repeats', async (context) => {
+  const worktree = path.join(fixture.tmpDir, PLANNER_ID);
+  fs.mkdirSync(path.join(worktree, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(worktree, 'src', 'feed.ts'), 'one\ntwo\nthree\n');
+  fs.writeFileSync(path.join(fixture.tmpDir, 'outside.ts'), 'secret\n');
+  fs.symlinkSync(path.join(fixture.tmpDir, 'outside.ts'), path.join(worktree, 'src', 'escape.ts'));
+  const boardId = await newBoard('anchored');
+
+  const put = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
+    { op: 'add', element: {
+      kind: 'box', id: 'parse', title: 'Parse', column: 'intake', refs: ['src/feed.ts#L2-L3', 'src/gone.ts', 'src/feed.ts#L9'],
+      lines: [{ text: 'readFeed()', style: 'code', ref: '../outside.ts' }],
+    } },
+    { op: 'add', element: { kind: 'note', id: 'n1', on: 'parse', text: 'what about drafts?', ref: 'src/escape.ts' } },
+  ] });
+  const expectedWarnings = [
+    'ref src/gone.ts on box parse: no such file',
+    'ref src/feed.ts#L9 on box parse: the file has 3 lines',
+    'ref ../outside.ts on line 1 of box parse: a path with .. is never read; name the file relative to the code session worktree',
+    'ref src/escape.ts on note n1: the path leads outside the code session worktree, so it was not read',
+  ];
+  assert.equal(put.status, 200);
+  assert.deepEqual(put.body.warnings, expectedWarnings);
+
+  const laidOut = await runPlannerCli(context, ['whiteboard', 'get', boardId, '--layout']);
+  assert.equal(laidOut.exitCode, 0);
+  const { review } = JSON.parse(laidOut.printed) as { review: unknown };
+  assert.deepEqual(review, { codeSessionId: PLANNER_ID, anchorWarnings: expectedWarnings });
+});
+
+test('a board with no code session takes the first session that connects, and only the other sessions hear of it', async () => {
+  const boardId = await newBoard('unclaimed');
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'board', codeSessionId: null }] })).status, 200);
+
+  assert.equal((await whiteboard(BUILDER_ID, { sub: 'connect', board: boardId })).status, 200);
+
+  const builderRead = await boardOf(BUILDER_ID, boardId);
+  assert.equal((builderRead.board as { codeSessionId?: string }).codeSessionId, BUILDER_ID);
+  assert.deepEqual(builderRead.changes, []);
+  const plannerRead = await boardOf(PLANNER_ID, boardId);
+  assert.deepEqual(plannerRead.changes.map((change) => change.summary), [`Glimmervoid set the code session to ${BUILDER_ID}`]);
+});
+
 test('a columns op with a move map carries boxes in one put, removing a box pins the boxes near it, and a box with no place is refused', async () => {
   const boardId = await newBoard('regroup');
   assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
@@ -431,6 +474,9 @@ test('the next prompt carries what others changed and marks it read, so the next
   assert.deepEqual((read.body as { changes: { summary: string }[] }).changes.map((change) => change.summary), ['operator renamed "Parse" to "Parse feed"']);
   assert.equal(wiring.takePromptContext(agent.id), null);
   assert.equal(wiring.snapshotMessage().boards.find((board) => board.id === boardId)?.queuedBySessionId[agent.id], 0);
+
+  await wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'add', element: { kind: 'note', id: 'n1', on: 'parse', text: 'handle drafts', ref: 'src/feed.ts#L12' } }]));
+  assert.equal(wiring.takePromptContext(agent.id), `Board "Prompt plan" (${boardId}) changed since your last read:\n- operator note on "Parse feed" at src/feed.ts#L12: handle drafts (note n1)`);
 });
 
 test('a flood of edits to one box stays inside the prompt context bound and leaves the board unread for the next get', async () => {

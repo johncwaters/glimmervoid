@@ -9,7 +9,7 @@ import { formatSessionLimits } from '../session/core/session-routes.ts';
 import { AgentLimitsReply, AGENT_URL_ENV, SHOWN_CAPTION_MAX_CHARS, SHOWN_FILE_CAP_BYTES } from '../shared/contracts/session.ts';
 import type { AgentApiVerb } from '../shared/contracts/session.ts';
 import { WhiteboardAgentReply } from '../shared/contracts/whiteboard.ts';
-import type { Board, BoardChange, BoardSummary, Op } from '../shared/contracts/whiteboard.ts';
+import type { Board, BoardChange, BoardReview, BoardSummary, Op } from '../shared/contracts/whiteboard.ts';
 import { layoutBoard } from '../shared/whiteboard-layout-core.ts';
 import type { BoardLayout } from '../shared/whiteboard-layout-core.ts';
 import { planSteps } from '../shared/whiteboard-plan-core.ts';
@@ -350,7 +350,7 @@ async function addUnit({ values, positionals }: ParsedArguments, boardRef: strin
   const linkRef = typeof values.link === 'string' ? values.link : null;
   const link = linkRef === null ? { boardId: null } : await resolveLinkedBoardId(linkRef);
   if ('error' in link) return { ok: false, text: link.error };
-  const ops: Op[] = [{ op: 'add', element: { kind: 'unit', id: unitId, title, lines: [], after: commaSeparatedIds(values.after), linkedBoardId: link.boardId } }];
+  const ops: Op[] = [{ op: 'add', element: { kind: 'unit', id: unitId, title, lines: [], refs: [], after: commaSeparatedIds(values.after), linkedBoardId: link.boardId } }];
   return putPlanOps(boardRef, ops, `added unit ${unitId} "${title}"; run glimmervoid whiteboard plan show ${boardRef} for the order`);
 }
 
@@ -425,11 +425,11 @@ function summarizeLayout(layout: BoardLayout) {
   };
 }
 
-async function fetchBoard(boardRef: string): Promise<Board | string> {
-  const reply = await askWhiteboard({ sub: 'get', board: boardRef, peek: true });
+async function fetchReviewedBoard(boardRef: string): Promise<{ board: Board; review: BoardReview | null } | string> {
+  const reply = await askWhiteboard({ sub: 'get', board: boardRef, peek: true, review: true });
   if (typeof reply === 'string') return reply;
   if (!('changes' in reply)) return 'Glimmervoid did not return the board';
-  return reply.board;
+  return { board: reply.board, review: reply.review ?? null };
 }
 
 async function runLayoutCommand(parsed: ParsedArguments): Promise<number> {
@@ -439,19 +439,19 @@ async function runLayoutCommand(parsed: ParsedArguments): Promise<number> {
     console.log(JSON.stringify({ ok: false, error: 'render needs --out <path>, for example "glimmervoid whiteboard render flow --out flow.svg"' }));
     return 1;
   }
-  const board = await fetchBoard(joinedText(parsed.positionals));
-  if (typeof board === 'string') {
-    console.log(JSON.stringify({ ok: false, error: board }));
+  const fetched = await fetchReviewedBoard(joinedText(parsed.positionals));
+  if (typeof fetched === 'string') {
+    console.log(JSON.stringify({ ok: false, error: fetched }));
     return 1;
   }
-  const layout = layoutBoard(board);
+  const layout = layoutBoard(fetched.board);
   if (outPath === null) {
-    console.log(JSON.stringify(summarizeLayout(layout)));
+    console.log(JSON.stringify({ ...summarizeLayout(layout), review: fetched.review }));
     return 0;
   }
   const absoluteOutPath = path.resolve(outPath);
   await fs.promises.writeFile(absoluteOutPath, boardSvgDocument(layout));
-  console.log(JSON.stringify({ ok: true, wrote: absoluteOutPath, width: layout.bounds.width, height: layout.bounds.height, warnings: layout.warnings }));
+  console.log(JSON.stringify({ ok: true, wrote: absoluteOutPath, width: layout.bounds.width, height: layout.bounds.height, warnings: layout.warnings, review: fetched.review }));
   return 0;
 }
 

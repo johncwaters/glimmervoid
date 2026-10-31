@@ -313,13 +313,13 @@ test('undoing an operator edit restores the board it started from, note authors,
     { op: 'remove', id: 'b1' },
     { op: 'set', id: 'gate', fields: { outputs: [], shape: 'box', title: 'renamed' } },
     { op: 'columns', columns: [{ id: 'a', title: 'Triggers' }, { id: 'z', title: 'merged' }], move: { b: 'z', c: 'z' } },
-    { op: 'board', title: 'renamed board', legend: [{ tone: 'fail', dashed: false, back: false, label: 'gives up' }] },
+    { op: 'board', title: 'renamed board', legend: [{ tone: 'fail', dashed: false, back: false, label: 'gives up' }], codeSessionId: 'builder-session' },
   ];
   const edited = applyOps(start, [{ op: 'remove', id: 'w1' }, ...edits], author, 2);
   assert.ok(edited.ok);
   const undone = applyOps(edited.board, inverseOps(start, [{ op: 'remove', id: 'w1' }, ...edits]), author, 3);
   assert.ok(undone.ok, undone.ok ? '' : undone.error);
-  const comparable = (board: Board) => ({ title: board.title, columns: board.columns, legend: board.legend, elements: board.elements });
+  const comparable = (board: Board) => ({ title: board.title, columns: board.columns, legend: board.legend, codeSessionId: board.codeSessionId, elements: board.elements });
   assert.deepEqual(comparable(undone.board), comparable(start));
 
   let history = EMPTY_HISTORY;

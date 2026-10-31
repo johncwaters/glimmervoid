@@ -3,13 +3,16 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 
 import { BoardRecord, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
-import type { Board, BoardSummary, Op, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
+import type { Board, BoardReview, BoardSummary, Op, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import type { AgentReplyBodyOf } from '../../shared/contracts/session.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
 import { OPERATOR_AUTHOR, applyOps, createBoard } from '../../shared/whiteboard-ops-core.ts';
 import type { Author } from '../../shared/whiteboard-ops-core.ts';
 import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
+import { referencedPaths, reviewBoard } from '../../shared/whiteboard-anchor-core.ts';
+import { cappedWarnings } from '../../shared/whiteboard-route-core.ts';
+import { readAnchorFacts } from './whiteboard-anchor-facts.ts';
 import { unitsOf } from '../../shared/whiteboard-plan-core.ts';
 import {
   changesForReader, connectSession, disconnectSession, markRead, nudgeLineFor, promptContextFor, recordPut, resolveBoardRef, summarizeBoard,
@@ -33,13 +36,14 @@ const PUT_GUIDE = [
   'A line takes style text|code|item|numbered|kv; kv needs a key, as in {"style":"kv","key":"timeout","text":"30s"}, and numbered lines count up through each run.',
   'Units lay out work in dependency order: glimmervoid whiteboard plan add|after|show edits and reads them.',
   'Place a box by column and lane, which make a grid of columns and lane row bands; or near another box with near {"of":"parse","side":"right|left|top|bottom","gap":60}; or at {"x","y"} pixels as a last resort.',
+  'Point a box or unit at code with refs ["path", "path#L12", "path#L12-L30"], relative to the board code session worktree (codeSessionId, the creating session by default); any line or note takes one ref. A ref that names no file or runs past the end comes back as a warning.',
   'Mark what a change does to a box with change: added and removed for parts it brings or takes away, relabeled with was set to the old title for a rename.',
   'A decision is a box with shape:"decision" and outputs [{id, label}] drawn as rows in that order; a wire with fromOutput set to an output id leaves from that row, so each branch starts at its own named exit.',
   'Wires route around every box on their own; set fromSide or toSide to pick where one attaches, back:true for a return edge that loops around the outside, and loop:true on a frame to mark what repeats.',
   'The legend lists every wire style in use on its own; a board op with legend [{tone, dashed, back, label}] renames an entry or adds one.',
   'A columns op takes move {"old-column":"new-column"} to carry boxes when it drops or renames a column. A put is applied whole or refused whole.',
   'glimmervoid whiteboard get <board> returns the board and a one-line summary of each change others made since this session last read it;',
-  'add --layout to see where every box, wire and label landed, or run glimmervoid whiteboard render <board> --out board.svg to draw it as the dashboard does.',
+  'add --layout to see where every box, wire and label landed and which refs need fixing, or run glimmervoid whiteboard render <board> --out board.svg to draw it as the dashboard does.',
 ].join(' ');
 
 interface WhiteboardCaller {
@@ -56,6 +60,8 @@ type WhiteboardPatch = ServerMessageOf<'whiteboard-patch'>;
 
 type RecordChange = { ok: true; record: BoardRecord; reply: WhiteboardReply; patch?: WhiteboardPatch } | { ok: false; reply: WhiteboardReply };
 
+type AppliedOps = { ok: true; record: BoardRecord; patch: WhiteboardPatch } | { ok: false; error: string };
+
 type OperatorReply = {
   ok: boolean;
   error: string | null;
@@ -63,7 +69,7 @@ type OperatorReply = {
   summary?: BoardSummary;
 };
 
-const BOARD_DELETION_AUTHOR: Author = Object.freeze({ id: 'glimmervoid', name: 'Glimmervoid' });
+const GLIMMERVOID_AUTHOR: Author = Object.freeze({ id: 'glimmervoid', name: 'Glimmervoid' });
 const DELETED_BOARD_TEXT = 'that board was deleted';
 
 interface WhiteboardWiringOptions {
@@ -72,6 +78,7 @@ interface WhiteboardWiringOptions {
   now?: () => number;
   newBoardId?: () => string;
   logger?: Pick<Console, 'warn'>;
+  codeRootOf?: (sessionId: string) => string | null;
 }
 
 interface WhiteboardPort {
@@ -108,7 +115,7 @@ function operatorReplyOf(reply: WhiteboardReply): OperatorReply {
 }
 
 function createWhiteboardWiring({
-  boardsRoot, broadcastControl = () => {}, now = Date.now, newBoardId = () => crypto.randomUUID(), logger = console,
+  boardsRoot, broadcastControl = () => {}, now = Date.now, newBoardId = () => crypto.randomUUID(), logger = console, codeRootOf = () => null,
 }: WhiteboardWiringOptions): WhiteboardPort {
   const recordsByBoardId = new Map<string, BoardRecord>();
   const deletedBoardIds = new Set<string>();
@@ -179,7 +186,8 @@ function createWhiteboardWiring({
     const boardId = newBoardId();
     const nowMs = now();
     const cursorBySessionId: Record<string, number> = creator ? { [creator.id]: 0 } : {};
-    const record: BoardRecord = { board: createBoard({ id: boardId, title, nowMs }), log: [], cursorBySessionId, createdBy: creator?.id ?? null };
+    const board = createBoard({ id: boardId, title, nowMs, codeSessionId: creator?.id ?? null });
+    const record: BoardRecord = { board, log: [], cursorBySessionId, createdBy: creator?.id ?? null };
     recordsByBoardId.set(boardId, record);
     try {
       await writeQueue.run(boardId, () => writeRecord(record));
@@ -197,31 +205,54 @@ function createWhiteboardWiring({
       return Promise.resolve(refusal(413, `one put carries at most ${WHITEBOARD_LIMITS.putBytes} bytes of ops, so nothing changed`));
     }
     return changeRecord(boardId, (record) => {
-      const result = applyOps(record.board, ops, author, now());
-      if (!result.ok) return { ok: false, reply: refusal(400, `${result.error}, so nothing changed`) };
-      const strandedUnit = unitsOf(result.board).find((unit) => {
-        const before = record.board.elements[unit.id];
-        const isNewLink = before?.kind !== 'unit' || before.linkedBoardId !== unit.linkedBoardId;
-        return isNewLink && unit.linkedBoardId !== null && !recordsByBoardId.has(unit.linkedBoardId);
-      });
-      if (strandedUnit) return { ok: false, reply: refusal(400, `unit ${strandedUnit.id} links to board ${strandedUnit.linkedBoardId ?? ''}, which does not exist, so nothing changed`) };
-      const next = recordPut(record, result);
-      const patch: WhiteboardPatch = {
-        type: 'whiteboard-patch', boardId, fromVersion: record.board.version, toVersion: next.board.version,
-        author: { id: author.id, name: author.name }, updatedAt: next.board.updatedAt, ops: [...ops],
-      };
-      const { warnings } = layoutBoard(next.board);
-      const body = { ok: true as const, version: next.board.version, ...(warnings.length > 0 ? { warnings } : {}) };
-      return { ok: true, record: next, reply: { status: 200, body }, patch };
+      const applied = applyOpsToRecord(record, ops, author);
+      if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
+      const { warnings } = layoutBoard(applied.record.board);
+      const body = { ok: true as const, version: applied.record.board.version, ...(warnings.length > 0 ? { warnings } : {}) };
+      return { ok: true, record: applied.record, reply: { status: 200, body }, patch: applied.patch };
     });
   }
 
-  function readBoard(boardId: string, readerId: string, isPeek: boolean): Promise<WhiteboardReply> {
-    return changeRecord(boardId, (record) => {
+  function applyOpsToRecord(record: BoardRecord, ops: readonly Op[], author: Author): AppliedOps {
+    const result = applyOps(record.board, ops, author, now());
+    if (!result.ok) return result;
+    const strandedUnit = unitsOf(result.board).find((unit) => {
+      const before = record.board.elements[unit.id];
+      const isNewLink = before?.kind !== 'unit' || before.linkedBoardId !== unit.linkedBoardId;
+      return isNewLink && unit.linkedBoardId !== null && !recordsByBoardId.has(unit.linkedBoardId);
+    });
+    if (strandedUnit) return { ok: false, error: `unit ${strandedUnit.id} links to board ${strandedUnit.linkedBoardId ?? ''}, which does not exist` };
+    const next = recordPut(record, result);
+    const patch: WhiteboardPatch = {
+      type: 'whiteboard-patch', boardId: record.board.id, fromVersion: record.board.version, toVersion: next.board.version,
+      author: { id: author.id, name: author.name }, updatedAt: next.board.updatedAt, ops: [...ops],
+    };
+    return { ok: true, record: next, patch };
+  }
+
+  async function reviewFor(board: Board): Promise<BoardReview> {
+    const root = board.codeSessionId ? codeRootOf(board.codeSessionId) : null;
+    if (!root) return reviewBoard(board, null);
+    return reviewBoard(board, await readAnchorFacts(root, referencedPaths(board)));
+  }
+
+  async function reviewedPut(boardId: string, ops: readonly Op[], author: Author): Promise<WhiteboardReply> {
+    const reply = await putOps(boardId, ops, author);
+    const board = recordsByBoardId.get(boardId)?.board;
+    if (!reply.body.ok || !('version' in reply.body) || !board) return reply;
+    const { anchorWarnings } = await reviewFor(board);
+    if (anchorWarnings.length === 0) return reply;
+    return { status: reply.status, body: { ...reply.body, warnings: cappedWarnings([...reply.body.warnings ?? [], ...anchorWarnings]) } };
+  }
+
+  async function readBoard(boardId: string, readerId: string, { isPeek, wantsReview }: { isPeek: boolean; wantsReview: boolean }): Promise<WhiteboardReply> {
+    const reply = await changeRecord(boardId, (record) => {
       const changes = changesForReader(record, readerId);
       const next = isPeek || record.cursorBySessionId[readerId] === record.board.version ? record : markRead(record, readerId);
       return { ok: true, record: next, reply: { status: 200, body: { ok: true, board: record.board, changes } } };
     });
+    if (!wantsReview || !reply.body.ok || !('changes' in reply.body)) return reply;
+    return { status: reply.status, body: { ...reply.body, review: await reviewFor(reply.body.board) } };
   }
 
   function connectionReply(record: BoardRecord, note: string): WhiteboardReply {
@@ -230,8 +261,13 @@ function createWhiteboardWiring({
 
   function connectBoard(boardId: string, sessionId: string): Promise<WhiteboardReply> {
     return changeRecord(boardId, (record) => {
-      const next = connectSession(record, sessionId);
-      return { ok: true, record: next, reply: connectionReply(next, PUT_GUIDE) };
+      const claimed = record.board.codeSessionId === null ? applyOpsToRecord(record, [{ op: 'board', codeSessionId: sessionId }], GLIMMERVOID_AUTHOR) : null;
+      if (!claimed?.ok) {
+        const next = connectSession(record, sessionId);
+        return { ok: true, record: next, reply: connectionReply(next, PUT_GUIDE) };
+      }
+      const next = connectSession(claimed.record, sessionId);
+      return { ok: true, record: next, reply: connectionReply(next, PUT_GUIDE), patch: claimed.patch };
     });
   }
 
@@ -249,7 +285,7 @@ function createWhiteboardWiring({
         .map((unit) => ({ op: 'set', id: unit.id, fields: { linkedBoardId: null } }));
       if (ops.length === 0) return [];
       const linkingBoardId = record.board.id;
-      return [putOps(linkingBoardId, ops, BOARD_DELETION_AUTHOR).then((reply) => {
+      return [putOps(linkingBoardId, ops, GLIMMERVOID_AUTHOR).then((reply) => {
         if (!reply.body.ok) logger.warn(`[whiteboard] units on board ${linkingBoardId} still link to deleted board ${deletedBoardId}: ${reply.body.error}`);
       })];
     });
@@ -344,8 +380,8 @@ function createWhiteboardWiring({
     switch (request.sub) {
       case 'connect': return connectBoard(found.boardId, caller.id);
       case 'disconnect': return disconnectBoard(found.boardId, caller.id);
-      case 'get': return readBoard(found.boardId, caller.id, request.peek === true);
-      case 'put': return putOps(found.boardId, request.ops, author);
+      case 'get': return readBoard(found.boardId, caller.id, { isPeek: request.peek === true, wantsReview: request.review === true });
+      case 'put': return reviewedPut(found.boardId, request.ops, author);
       case 'resolve': return putOps(found.boardId, [{ op: 'resolve', id: request.note }], author);
       case 'delete': return deleteOwnBoard(found.boardId, caller.id);
     }

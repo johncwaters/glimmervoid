@@ -222,6 +222,7 @@ function applyOne(board: Board, op: Op, author: Author): OpOutcome {
       if (op.title !== undefined) board.title = op.title;
       if (op.caption !== undefined) board.caption = op.caption;
       if (op.legend !== undefined) board.legend = op.legend;
+      if (op.codeSessionId !== undefined) board.codeSessionId = op.codeSessionId;
       return OK;
   }
 }
@@ -277,6 +278,7 @@ function describeSet(op: Extract<Op, { op: 'set' }>, previous: Element | undefin
 function describeBoardOp(op: Extract<Op, { op: 'board' }>): string {
   if (op.title !== undefined) return `renamed the board to "${op.title}"`;
   if (op.caption !== undefined) return 'changed the caption';
+  if (op.codeSessionId !== undefined) return op.codeSessionId === null ? 'cleared the code session' : `set the code session to ${op.codeSessionId}`;
   return 'set the legend';
 }
 
@@ -284,7 +286,7 @@ function describeOp(op: Op, previous: Element | undefined, after: Board): string
   switch (op.op) {
     case 'add': {
       const element = op.element;
-      if (element.kind === 'note') return `note on ${nameOf(after, element.on)}: ${element.text.slice(0, NOTE_PREVIEW_CHARS)} (note ${element.id})`;
+      if (element.kind === 'note') return `note on ${nameOf(after, element.on)}${element.ref ? ` at ${element.ref}` : ''}: ${element.text.slice(0, NOTE_PREVIEW_CHARS)} (note ${element.id})`;
       return `added ${element.kind} ${nameOf(after, element.id)}`;
     }
     case 'set': return describeSet(op, previous, after);
@@ -296,12 +298,13 @@ function describeOp(op: Op, previous: Element | undefined, after: Board): string
   }
 }
 
-function createBoard({ id, title, nowMs }: { id: string; title: string; nowMs: number }): Board {
+function createBoard({ id, title, nowMs, codeSessionId = null }: { id: string; title: string; nowMs: number; codeSessionId?: string | null }): Board {
   return {
     id, title, version: 0, caption: null,
     columns: [{ id: 'main', title: '' }],
     lanes: [],
     legend: [],
+    codeSessionId,
     elements: {},
     createdAt: nowMs,
     updatedAt: nowMs,

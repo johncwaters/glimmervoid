@@ -62,7 +62,7 @@ function placedElement(tool: PlacementTool, board: Board, at: ViewPoint): BoardE
   }
   const isDecision = tool === 'decision';
   return {
-    kind: 'box', id: newElementId('box'), title: isDecision ? 'Decision' : 'Box', lines: [], lane: null, change: 'none', was: null, column: null, near: null, order: 0, at,
+    kind: 'box', id: newElementId('box'), title: isDecision ? 'Decision' : 'Box', lines: [], lane: null, refs: [], change: 'none', was: null, column: null, near: null, order: 0, at,
     shape: isDecision ? 'decision' : 'box', outputs: isDecision ? [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }] : [],
   };
 }

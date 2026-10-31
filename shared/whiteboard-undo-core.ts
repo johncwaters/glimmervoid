@@ -44,6 +44,7 @@ function boardFieldOps(current: Board, target: Board): Op[] {
     ...(current.title === target.title ? {} : { title: target.title }),
     ...(current.caption === target.caption ? {} : { caption: target.caption }),
     ...(isSameValue(current.legend, target.legend) ? {} : { legend: target.legend }),
+    ...(current.codeSessionId === target.codeSessionId ? {} : { codeSessionId: target.codeSessionId }),
   };
   return Object.keys(fields).length === 0 ? [] : [{ op: 'board', ...fields }];
 }
