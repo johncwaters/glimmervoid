@@ -52,4 +52,23 @@ function readPackageBin(packageName: string, binName: string): string | null {
   }
 }
 
-export { resolvePackageBin };
+let ffmpegPath: string | null | undefined;
+
+function resolveFfmpegPath(): string | null {
+  if (ffmpegPath !== undefined) return ffmpegPath;
+  ffmpegPath = readFfmpegPath();
+  return ffmpegPath;
+}
+
+function readFfmpegPath(): string | null {
+  try {
+    const require = createRequire(path.join(packageRoot, 'package.json'));
+    const exported: unknown = require('ffmpeg-static');
+    if (typeof exported !== 'string') return null;
+    return fs.statSync(exported).isFile() ? exported : null;
+  } catch {
+    return null;
+  }
+}
+
+export { resolveFfmpegPath, resolvePackageBin };

@@ -29,6 +29,11 @@ export function hasUnopenedShownFiles(sessionId: string): boolean {
   return sessionIdsWithUnopenedFiles.has(sessionId);
 }
 
+export function shownThumbnailUrl(sessionId: string, file: ShownFile): string | null {
+  if (!file.hasThumbnail) return null;
+  return `/shown/${encodeURIComponent(sessionId)}/${encodeURIComponent(`${file.id}.thumb.webp`)}`;
+}
+
 export function onShownFilesChanged(listener: ShownFilesChangedListener): void {
   changedListeners.push(listener);
 }

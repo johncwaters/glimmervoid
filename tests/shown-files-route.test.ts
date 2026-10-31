@@ -5,6 +5,9 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import type { Server } from 'node:http';
+import { createRequire } from 'node:module';
+import { promisify } from 'node:util';
+import { execFile } from 'node:child_process';
 
 import { createBackend } from '../server/backend/backend.ts';
 import { runAgentApiCli } from '../server/agent-api-cli.ts';
@@ -14,8 +17,10 @@ import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.
 import type { Backend } from './helpers/lanes.ts';
 import { settleBackendShutdown } from './helpers/lanes.ts';
 
+const execFileAsync = promisify(execFile);
+const ffmpegPath: unknown = createRequire(import.meta.url)('ffmpeg-static');
 const SESSION_ID = 'a0000000-0000-4000-8000-0000000000a7';
-const PNG_BYTES = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8cfc0f01f0005000201a0a5a3f20000000049454e44ae426082', 'hex');
+const PNG_BYTES = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000970485973000003e8000003e801b57b526b0000000d494441540899636060606000000005000187a14ed40000000049454e44ae426082', 'hex');
 
 interface ShowContext {
   tmpDir: string;
@@ -171,6 +176,22 @@ test('only the newest shown files per session are kept on disk and in the index'
   const kept = readShownIndex();
   assert.equal(kept.length, SHOWN_FILES_KEPT_PER_SESSION);
   assert.ok(kept.every((file) => file.kind === 'image'), 'the oldest file, the page, was the one dropped');
+  assert.ok(kept.every((file) => file.hasThumbnail), 'every kept image has a thumbnail');
   const storedFiles = fs.readdirSync(shownDir()).filter((name) => name !== 'index.json');
-  assert.deepEqual(storedFiles.sort(), kept.map((file) => file.id).sort());
+  assert.deepEqual(storedFiles.sort(), kept.flatMap((file) => [file.id, `${file.id}.thumb.webp`]).sort());
+});
+
+test('a shown video gets a small WebP poster served beside it', async () => {
+  const videoPath = path.join(ctx().workDir, 'clip.mp4');
+  await execFileAsync(String(ffmpegPath), ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc=size=1280x720:rate=10', '-t', '1', '-pix_fmt', 'yuv420p', '-y', videoPath]);
+  assert.equal(await quietly(() => runAgentApiCli(['show', videoPath])), 0);
+  const video = readShownIndex().at(-1);
+  assert.equal(video?.kind, 'video');
+  assert.equal(video?.hasThumbnail, true);
+  const response = await fetch(`${ctx().base}/shown/${SESSION_ID}/${video.id}.thumb.webp`);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('content-type'), 'image/webp');
+  const { default: sharp } = await import('sharp');
+  const poster = await sharp(Buffer.from(await response.arrayBuffer())).metadata();
+  assert.ok(Math.max(poster.width ?? 0, poster.height ?? 0) <= 320, 'the poster fits in 320 px');
 });

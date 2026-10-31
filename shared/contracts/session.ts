@@ -263,6 +263,7 @@ export const ShownFile = z.object({
   sizeBytes: z.number().int().nonnegative(),
   pageTitle: z.string().nullable(),
   shownAt: z.number().finite(),
+  hasThumbnail: z.boolean().default(false),
 }).strict();
 
 export type ShownFile = z.infer<typeof ShownFile>;

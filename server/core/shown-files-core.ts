@@ -3,6 +3,8 @@ import path from 'node:path';
 import { SHOWN_FILE_CAP_BYTES } from '../../shared/contracts/session.ts';
 import type { ShownFile, ShownFileKind } from '../../shared/contracts/session.ts';
 
+type ThumbnailRecipe = 'image' | 'video-poster' | 'none';
+
 type ShownKindVerdict =
   | { ok: true; kind: ShownFileKind; mime: string; extension: string }
   | { ok: false; error: string };
@@ -14,6 +16,8 @@ interface ShownFormat {
 }
 
 const SHOWN_SNIFF_BYTES = 64 * 1024;
+const SHOWN_THUMBNAIL_MAX_EDGE_PX = 320;
+const THUMBNAIL_SUFFIX = '.thumb.webp';
 const PAGE_TITLE_MAX_CHARS = 200;
 const BYTES_PER_MEGABYTE = 1024 * 1024;
 const ACCEPTED_KINDS_TEXT = 'PNG, JPEG, WebP, GIF, SVG, MP4, WebM or HTML';
@@ -103,4 +107,19 @@ function filesAfterRetention(files: readonly ShownFile[], droppedIds: readonly s
   return files.filter((file) => !dropped.has(file.id));
 }
 
-export { decideShownKind, describeOverCap, filesAfterRetention, readPageTitle, shownMimeForFilename, SHOWN_SNIFF_BYTES };
+const THUMBNAIL_RECIPE_BY_KIND: Record<ShownFileKind, ThumbnailRecipe> = { image: 'image', video: 'video-poster', page: 'none' };
+
+function thumbnailRecipeFor(kind: ShownFileKind): ThumbnailRecipe {
+  return THUMBNAIL_RECIPE_BY_KIND[kind];
+}
+
+function thumbnailFilenameOf(fileId: string): string {
+  return `${fileId}${THUMBNAIL_SUFFIX}`;
+}
+
+function thumbnailOwnerIdOf(filename: string): string | null {
+  return filename.endsWith(THUMBNAIL_SUFFIX) ? filename.slice(0, -THUMBNAIL_SUFFIX.length) : null;
+}
+
+export { decideShownKind, describeOverCap, filesAfterRetention, readPageTitle, shownMimeForFilename, thumbnailFilenameOf, thumbnailOwnerIdOf, thumbnailRecipeFor, SHOWN_SNIFF_BYTES, SHOWN_THUMBNAIL_MAX_EDGE_PX };
+export type { ThumbnailRecipe };

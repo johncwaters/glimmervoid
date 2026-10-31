@@ -1,7 +1,7 @@
 import type { IMarker, Terminal } from '@xterm/xterm';
 import type { ShownFile } from '#shared/contracts/session.ts';
 import { el } from '../dom-helpers.ts';
-import { openShownLightbox } from '../shown-files.ts';
+import { openShownLightbox, shownThumbnailUrl } from '../shown-files.ts';
 import { findSessionUi } from './card-registry.ts';
 
 const CHIP_WIDTH_CELLS = 22;
@@ -32,14 +32,15 @@ function buildChipContent(sessionId: string, file: ShownFile): HTMLButtonElement
   chip.type = 'button';
   chip.title = file.caption ?? file.pageTitle ?? file.name;
   chip.setAttribute('aria-label', `Open ${file.name}`);
-  if (file.kind === 'image') {
+  const thumbnailUrl = shownThumbnailUrl(sessionId, file);
+  if (thumbnailUrl) {
     const thumbnail = el('img', 'shown-chip-thumb');
-    thumbnail.src = `/shown/${encodeURIComponent(sessionId)}/${encodeURIComponent(file.id)}`;
+    thumbnail.src = thumbnailUrl;
     thumbnail.alt = '';
     thumbnail.decoding = 'async';
     chip.append(thumbnail);
   }
-  if (file.kind !== 'image') chip.append(el('span', 'shown-chip-kind', KIND_LABELS[file.kind]));
+  if (!thumbnailUrl) chip.append(el('span', 'shown-chip-kind', KIND_LABELS[file.kind]));
   chip.append(el('span', 'shown-chip-name', file.pageTitle ?? file.name));
   chip.addEventListener('click', (event) => {
     event.stopPropagation();

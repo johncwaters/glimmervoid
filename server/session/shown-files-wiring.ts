@@ -6,10 +6,11 @@ import { z } from 'zod';
 
 import { SHOWN_FILES_KEPT_PER_SESSION, ShownFile } from '../../shared/contracts/session.ts';
 import { buildUploadFilename, isSafePathSegment, planUploadRetention } from '../core/upload-core.ts';
-import { decideShownKind, filesAfterRetention, readPageTitle, shownMimeForFilename, SHOWN_SNIFF_BYTES } from '../core/shown-files-core.ts';
+import { decideShownKind, filesAfterRetention, readPageTitle, shownMimeForFilename, thumbnailFilenameOf, thumbnailOwnerIdOf, thumbnailRecipeFor, SHOWN_SNIFF_BYTES } from '../core/shown-files-core.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
 import { parseJsonOrNull } from '../core/json-core.ts';
 import { createKeyedSerialQueue } from '../spawn-gate.ts';
+import { makeShownThumbnail } from './shown-thumbnails.ts';
 
 const SHOWN_FOLDER_NAME = 'shown';
 const INDEX_FILENAME = 'index.json';
@@ -40,7 +41,7 @@ interface ServableShownFile {
 interface ShownFilesPort {
   reserveIncomingPath(sessionId: string): Promise<string>;
   admit(session: ShownSession, arrival: ShownArrival): Promise<AdmitReply>;
-  findServable(sessionId: string, fileId: string): ServableShownFile | null;
+  findServable(sessionId: string, filename: string): ServableShownFile | null;
   snapshotMessage(): Record<string, unknown>;
 }
 
@@ -75,6 +76,7 @@ function createShownFilesWiring({ shownRoot, broadcastControl, now = Date.now }:
 }): ShownFilesPort & { loaded: Promise<void> } {
   const filesBySessionId = new Map<string, ShownFile[]>();
   const indexQueue = createKeyedSerialQueue();
+  const thumbnailSizeByPath = new Map<string, number>();
 
   function sessionDir(sessionId: string): string {
     return path.join(shownRoot, sessionId);
@@ -86,7 +88,15 @@ function createShownFilesWiring({ shownRoot, broadcastControl, now = Date.now }:
       if (!isSafePathSegment(sessionId)) continue;
       const files = await readSessionIndex(path.join(sessionDir(sessionId), INDEX_FILENAME));
       if (files.length > 0 && !filesBySessionId.has(sessionId)) filesBySessionId.set(sessionId, files);
+      for (const file of files) if (file.hasThumbnail) await recordThumbnailSize(path.join(sessionDir(sessionId), thumbnailFilenameOf(file.id)));
     }
+  }
+
+  async function recordThumbnailSize(thumbnailPath: string): Promise<boolean> {
+    const stats = await fsp.stat(thumbnailPath).catch(() => null);
+    if (!stats) return false;
+    thumbnailSizeByPath.set(thumbnailPath, stats.size);
+    return true;
   }
 
   async function reserveIncomingPath(sessionId: string): Promise<string> {
@@ -103,7 +113,9 @@ function createShownFilesWiring({ shownRoot, broadcastControl, now = Date.now }:
     const kept = filesAfterRetention(withNewest, droppedIds);
     await writeSessionIndex(path.join(dir, INDEX_FILENAME), kept);
     filesBySessionId.set(sessionId, kept);
-    await Promise.all(droppedIds.map((droppedId) => fsp.unlink(path.join(dir, droppedId)).catch(() => {})));
+    const droppedFilenames = droppedIds.flatMap((droppedId) => [droppedId, thumbnailFilenameOf(droppedId)]);
+    for (const droppedId of droppedIds) thumbnailSizeByPath.delete(path.join(dir, thumbnailFilenameOf(droppedId)));
+    await Promise.all(droppedFilenames.map((droppedFilename) => fsp.unlink(path.join(dir, droppedFilename)).catch(() => {})));
   }
 
   async function admit(session: ShownSession, arrival: ShownArrival): Promise<AdmitReply> {
@@ -115,7 +127,10 @@ function createShownFilesWiring({ shownRoot, broadcastControl, now = Date.now }:
     }
     const shownAt = now();
     const fileId = buildUploadFilename({ now: shownAt, randomSuffix: crypto.randomBytes(4).toString('hex'), extension: verdict.extension });
-    await fsp.rename(arrival.incomingPath, path.join(sessionDir(session.id), fileId));
+    const storedPath = path.join(sessionDir(session.id), fileId);
+    await fsp.rename(arrival.incomingPath, storedPath);
+    const thumbnailPath = path.join(sessionDir(session.id), thumbnailFilenameOf(fileId));
+    const hasThumbnail = await makeShownThumbnail(thumbnailRecipeFor(verdict.kind), storedPath, thumbnailPath) && await recordThumbnailSize(thumbnailPath);
     const file: ShownFile = {
       id: fileId,
       name: arrival.name,
@@ -125,18 +140,31 @@ function createShownFilesWiring({ shownRoot, broadcastControl, now = Date.now }:
       sizeBytes: arrival.sizeBytes,
       pageTitle: verdict.kind === 'page' ? readPageTitle(firstChunk) : null,
       shownAt,
+      hasThumbnail,
     };
     await indexQueue.run(session.id, () => recordAdmitted(session.id, file));
     broadcastControl({ type: 'session-shown', id: session.id, files: [file] });
     return { ok: true, file };
   }
 
-  function findServable(sessionId: string, fileId: string): ServableShownFile | null {
-    if (!isSafePathSegment(sessionId) || !isSafePathSegment(fileId)) return null;
-    const file = filesBySessionId.get(sessionId)?.find((shown) => shown.id === fileId);
-    const mime = shownMimeForFilename(fileId);
+  function findServable(sessionId: string, filename: string): ServableShownFile | null {
+    if (!isSafePathSegment(sessionId) || !isSafePathSegment(filename)) return null;
+    const thumbnailOwnerId = thumbnailOwnerIdOf(filename);
+    if (thumbnailOwnerId !== null) return findServableThumbnail(sessionId, thumbnailOwnerId, filename);
+    const file = filesBySessionId.get(sessionId)?.find((shown) => shown.id === filename);
+    const mime = shownMimeForFilename(filename);
     if (!file || !mime) return null;
-    return { path: path.join(sessionDir(sessionId), fileId), mime, sizeBytes: file.sizeBytes };
+    return { path: path.join(sessionDir(sessionId), filename), mime, sizeBytes: file.sizeBytes };
+  }
+
+  function findServableThumbnail(sessionId: string, ownerId: string, filename: string): ServableShownFile | null {
+    const owner = filesBySessionId.get(sessionId)?.find((shown) => shown.id === ownerId);
+    const mime = shownMimeForFilename(filename);
+    if (!owner?.hasThumbnail || !mime) return null;
+    const thumbnailPath = path.join(sessionDir(sessionId), filename);
+    const sizeBytes = thumbnailSizeByPath.get(thumbnailPath);
+    if (sizeBytes === undefined) return null;
+    return { path: thumbnailPath, mime, sizeBytes };
   }
 
   function snapshotMessage(): Record<string, unknown> {
