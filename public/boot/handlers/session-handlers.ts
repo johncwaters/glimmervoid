@@ -1,8 +1,7 @@
-import { clearHeaderErrorsForSession } from '../../action-status.ts';
-import { forgetSessionCoherence, setSessionCoherenceHooks } from '../../coherence/journal-drawer.ts';
+import { setSessionCoherenceHooks } from '../../coherence/journal-drawer.ts';
 import { refreshFavicon } from '../../favicon.ts';
 import { setFocusMergeStatus } from '../../focus-view/focus-view.ts';
-import { forgetSessionLinkedPrs, setSessionLinkedPrs } from '../../github/session-pr-chips.ts';
+import { setSessionLinkedPrs } from '../../github/session-pr-chips.ts';
 import { alertFromNotify } from '../../notifications.ts';
 import { noteKnownProjectPath } from '../../project-registry.ts';
 import { requestSessionRemoval } from '../../session-actions.ts';
@@ -14,13 +13,13 @@ import { applySessionSetupResponse } from '../../session-setup/setup-dialog.ts';
 import { forgetReviewSession, releaseReviewMergeRequest } from '../../sidebar/review-sidebar.ts';
 import { getSelectedId, setSelectedId } from '../../sidebar/selection.ts';
 import type { DashboardHandlerTable } from '../core/message-dispatch-core.ts';
-import { carryOverClientSessionFields, handleSessionStatus, refreshAttentionSurfaces, refreshRosterAndAttentionSurfaces, restoreUsageChip, syncTraceSessionsFromCards } from '../session-frames.ts';
+import { carryOverClientSessionFields, forgetSession, handleSessionStatus, refreshAttentionSurfaces, refreshRosterAndAttentionSurfaces, restoreUsageChip, syncTraceSessionsFromCards } from '../session-frames.ts';
 
 const messageHandlers = {
   'session-status':     (msg) => handleSessionStatus(msg),
   'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); setSessionLinkedPrs(msg.id, msg.linkedPrs); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent); restoreUsageChip(msg.id); } refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-close-confirm': (msg) => { requestSessionRemoval(msg.id); },
-  'session-removed':    (msg) => { clearHeaderErrorsForSession(msg.id); removeSessionCard(msg.id); forgetSessionCoherence(msg.id); forgetReviewSession(msg.id); forgetSessionLinkedPrs(msg.id); refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
+  'session-removed':    (msg) => { forgetSession(msg.id); refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-title': (msg) => { setSessionTaskTitle(msg.id, msg.taskTitle, msg.isCustom); refreshRosterAndAttentionSurfaces(); },
   'session-prs': (msg) => setSessionLinkedPrs(msg.id, msg.linkedPrs),
   'session-renamed':    (msg) => { renameSessionCard(msg.id, msg.newName); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },

@@ -1,11 +1,12 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { STATES } from '#shared/states.ts';
-import { setSessionCoherenceHooks } from '../coherence/journal-drawer.ts';
+import { clearHeaderErrorsForSession } from '../action-status.ts';
+import { forgetSessionCoherence, setSessionCoherenceHooks } from '../coherence/journal-drawer.ts';
 import { refreshFavicon } from '../favicon.ts';
 import { refreshFocusRoster, restoreFocusedSession } from '../focus-view/focus-view.ts';
 import { refreshIssuesSessionState } from '../github/issues-store.ts';
 import { refreshMyPrsSessionState } from '../github/my-prs-store.ts';
-import { setSessionLinkedPrs } from '../github/session-pr-chips.ts';
+import { forgetSessionLinkedPrs, setSessionLinkedPrs } from '../github/session-pr-chips.ts';
 import { refreshPhoneBoard } from '../phone/phone-shell-gate.ts';
 import { noteKnownProjectPath } from '../project-registry.ts';
 import { decideReloadOnBuild } from '../server-build-core.ts';
@@ -17,7 +18,7 @@ import { applyState, createSessionCard, hasSession, removeSessionCard, seedSessi
 import { reconnectDataWs } from '../session-card/terminal.ts';
 import { applySettingsProjects } from '../settings/settings-store.ts';
 import { onShownFilesChanged } from '../shown-files.ts';
-import { refreshReviewSidebar } from '../sidebar/review-sidebar.ts';
+import { forgetReviewSession, refreshReviewSidebar } from '../sidebar/review-sidebar.ts';
 import { markStatusDirty, setStatusPainter } from '../status-paint.ts';
 import { setTraceSessions } from '../trace-store.ts';
 import { noteSnapshotReceived } from './connection-screen.ts';
@@ -54,8 +55,23 @@ function noteServerBuild(serverBuild: unknown) {
   if (decision.reload) location.reload();
 }
 
-function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
+function forgetSession(sessionId: string) {
+  clearHeaderErrorsForSession(sessionId);
+  removeSessionCard(sessionId);
+  forgetSessionCoherence(sessionId);
+  forgetReviewSession(sessionId);
+  forgetSessionLinkedPrs(sessionId);
+}
 
+function forgetSessionsMissingFromSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
+  const liveSessionIds = new Set(rows.map((row) => row.id));
+  for (const cachedSessionId of [...sessionUIs.keys()]) {
+    if (!liveSessionIds.has(cachedSessionId)) forgetSession(cachedSessionId);
+  }
+}
+
+function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
+  forgetSessionsMissingFromSnapshot(rows);
   applySettingsProjects(rows.filter((session) => !session.ephemeral).map((session) => ({
     id: session.id,
     name: session.name,
@@ -195,6 +211,7 @@ function restoreUsageChip(sessionId: string) {
 export {
   applyUsageSessionChips,
   carryOverClientSessionFields,
+  forgetSession,
   handleSessionStatus,
   handleSnapshot,
   noteServerBuild,
