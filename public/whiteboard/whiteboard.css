@@ -83,14 +83,22 @@
   box-shadow: var(--shadow-xl);
 }
 
-.wb-island-board {
+.wb-island-board { padding-right: 10px; }
+
+.wb-top-left {
+  position: absolute;
   top: 10px;
   left: 10px;
-  max-width: calc(100% - 20px);
-  padding-right: 10px;
+  right: calc(min(360px, 100% - 20px) + 18px);
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+  pointer-events: none;
 }
 
-.wb-island-tools { bottom: 10px; }
+.wb-top-left > * { pointer-events: auto; }
 
 .wb-bottom-left {
   position: absolute;
@@ -108,7 +116,8 @@
 
 .wb-bottom-left > * { pointer-events: auto; }
 
-.wb-bottom-left > .wb-island { position: static; }
+.wb-bottom-left > .wb-island,
+.wb-top-left > .wb-island { position: static; }
 
 .wb-island[hidden] { display: none; }
 
@@ -119,11 +128,7 @@
   color: var(--text-dim);
 }
 
-.wb-island-tools {
-  left: 50%;
-  translate: -50% 0;
-  flex-wrap: nowrap;
-}
+.wb-island-tools { flex-wrap: nowrap; }
 
 .wb-icon-button {
   position: relative;
@@ -670,6 +675,21 @@
 [data-layout='phone'] .wb-island-view .wb-icon-button:not([data-phone-visible]),
 [data-layout='phone'] .wb-island-tools {
   display: none;
+}
+
+[data-layout='phone'] .wb-top-left { display: contents; }
+
+[data-layout='phone'] .wb-top-left > .wb-island-board {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  max-width: calc(100% - 20px);
+}
+
+[data-layout='phone'] .wb-top-left > .wb-island-view {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
 }
 
 [data-layout='phone'] .wb-inspect {

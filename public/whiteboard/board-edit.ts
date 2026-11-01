@@ -93,21 +93,14 @@ export function createBoardEditor(options: BoardEditorOptions) {
     svg.setAttribute('viewBox', `${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`);
   }
 
-  function visibleIslandRect(selector: string): DOMRect | null {
-    const island = canvas.querySelector<HTMLElement>(selector);
-    if (!island?.checkVisibility()) return null;
-    return island.getBoundingClientRect();
-  }
-
   function islandFreeBand(): { topPx: number; heightPx: number } {
     const svgRect = svg.getBoundingClientRect();
-    const titleIslandRect = visibleIslandRect('.wb-island-board');
-    const bottomIslandTops = ['.wb-island-tools', '.wb-bottom-left'].flatMap((selector) => {
-      const rect = visibleIslandRect(selector);
-      return rect ? [rect.top] : [];
-    });
-    const topPx = titleIslandRect ? Math.max(0, titleIslandRect.bottom - svgRect.top) : 0;
-    const bottomPx = Math.min(svgRect.height, ...bottomIslandTops.map((top) => top - svgRect.top));
+    const islandRects = [...canvas.querySelectorAll<HTMLElement>('.wb-island')].filter((island) => island.checkVisibility()).map((island) => island.getBoundingClientRect());
+    const midlinePx = svgRect.top + svgRect.height / 2;
+    const upperIslandBottoms = islandRects.filter((rect) => rect.top + rect.height / 2 < midlinePx).map((rect) => rect.bottom - svgRect.top);
+    const lowerIslandTops = islandRects.filter((rect) => rect.top + rect.height / 2 >= midlinePx).map((rect) => rect.top - svgRect.top);
+    const topPx = Math.max(0, ...upperIslandBottoms);
+    const bottomPx = Math.min(svgRect.height, ...lowerIslandTops);
     const heightPx = bottomPx - topPx;
     if (heightPx < svgRect.height / 2) return { topPx: 0, heightPx: svgRect.height };
     return { topPx, heightPx };

@@ -637,10 +637,12 @@ function mountBoardsView(panel: HTMLElement): void {
   const agentIsland = island('wb-island-agent', 'Docked session', sendToAgent, dockQueued, dockStatus.element);
   agentIsland.hidden = true;
   const bottomLeftStack = el('div', 'wb-bottom-left');
-  bottomLeftStack.append(agentIsland, viewIsland);
+  bottomLeftStack.append(agentIsland);
+  const topLeftRow = el('div', 'wb-top-left');
+  topLeftRow.append(boardIsland, viewIsland, toolsIsland);
   const topRightStack = el('div', 'wb-top-right');
   topRightStack.append(buildBoardAttentionBanner({ dockedSessionId: () => dockedSessionId, isBoardOpen: () => selectedBoardId !== null, dockBesideOpenBoard }), inspectPanel);
-  canvas.append(svg, topRightStack, boardIsland, bottomLeftStack, toolsIsland);
+  canvas.append(svg, topRightStack, topLeftRow, bottomLeftStack);
   const emptyText = el('p', 'wb-empty-text', EMPTY_TEXT);
   const empty = el('div', 'wb-empty');
   empty.append(emptyText, toolbarButton('new board', newBoardFromDialog));
