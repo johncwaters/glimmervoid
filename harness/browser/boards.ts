@@ -265,8 +265,6 @@ export async function verifyBoardDock(page: Page, sessionId: string, projectDire
   assert.ok(agentBox.y + agentBox.height <= fitBox.y && Math.abs(agentBox.x - (canvasBox.x + 10)) < 2, 'the docked session island sits bottom left on the board, just above fit');
   await agentIsland.getByRole('button', { name: 'send to agent', exact: true }).click();
   await agentIsland.locator('.action-status', { hasText: 'sent' }).waitFor();
-  const uncoveredFile = panel.getByRole('complementary', { name: 'Not on the board' }).getByRole('button', { name: UNCOVERED_FILE_NAME, exact: true });
-  await uncoveredFile.waitFor({ timeout: REVIEW_TIMEOUT_MS });
   await panel.getByRole('button', { name: 'unit', exact: true }).click();
   await submitTextDialog(page, 'Unit title', 'Uncovered change', 'Add unit');
   const unitOnBoard = panel.locator('.wb-unit', { hasText: 'Uncovered change' });
@@ -281,7 +279,6 @@ export async function verifyBoardDock(page: Page, sessionId: string, projectDire
   await inspect.getByRole('textbox', { name: 'Ref 1', exact: true }).fill(UNCOVERED_FILE_NAME);
   await page.keyboard.press('Enter');
   await panel.locator('.wb-unit.is-flagged', { hasText: 'Uncovered change' }).waitFor({ timeout: REVIEW_TIMEOUT_MS });
-  await panel.getByRole('complementary', { name: 'Not on the board' }).waitFor({ state: 'hidden' });
   await panel.getByRole('button', { name: 'fit', exact: true }).click();
   const titleIslandBox = await panel.getByRole('toolbar', { name: 'Board', exact: true }).boundingBox();
   const fittedUnitBox = await unitOnBoard.boundingBox();

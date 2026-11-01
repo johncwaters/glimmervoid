@@ -586,50 +586,6 @@
 
 .wb-inspect[hidden] { display: none; }
 
-.wb-uncovered {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-width: 320px;
-  max-height: 40vh;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-card);
-}
-
-.wb-uncovered[hidden] { display: none; }
-
-.wb-uncovered-heading {
-  margin: 0 0 2px;
-  color: var(--text-head);
-  font-size: var(--type-meta);
-  font-weight: 700;
-}
-
-.wb-uncovered-notice {
-  margin: 0;
-  color: var(--state-waiting);
-  font-size: var(--type-meta);
-}
-
-.wb-uncovered-file {
-  padding: 2px 0;
-  border: 0;
-  background: none;
-  color: var(--text);
-  font: inherit;
-  font-size: var(--type-meta);
-  text-align: left;
-  overflow-wrap: anywhere;
-  cursor: pointer;
-}
-
-.wb-uncovered-file:hover,
-.wb-uncovered-file:focus-visible { color: var(--accent); }
-
 .wb-inspect-review {
   display: flex;
   flex-direction: column;

@@ -70,7 +70,6 @@ interface BoardsViewParts {
   sendToAgent: HTMLButtonElement;
   buttons: Record<'note' | 'frame' | 'unit' | 'fit' | 'undo' | 'redo', HTMLButtonElement>;
   toolButtons: ReadonlyMap<BoardTool, HTMLButtonElement>;
-  uncovered: HTMLElement;
 }
 
 let selectedBoardId: string | null = null;
@@ -81,7 +80,6 @@ let inspector: BoardInspector | null = null;
 let shouldFitOnNextRender = true;
 let dockedSessionId: string | null = null;
 let shownReview: { boardId: string; review: BoardReview } | null = null;
-let reviewFailure: { boardId: string; error: string } | null = null;
 let reviewRequestKey: string | null = null;
 const status = createActionStatus('action-status wb-status');
 const dockStatus = createActionStatus('action-status wb-status');
@@ -392,13 +390,6 @@ function openRefInReview(ref: string): void {
   openFileInReview(codeSessionId, openPath);
 }
 
-function uncoveredRow(codeSessionId: string, openPath: string): HTMLButtonElement {
-  const row = el('button', 'wb-uncovered-file', openPath);
-  row.type = 'button';
-  row.addEventListener('click', () => openFileInReview(codeSessionId, openPath));
-  return row;
-}
-
 function paintReview(): void {
   if (!parts || !renderer) return;
   const board = selectedBoard();
@@ -407,14 +398,6 @@ function paintReview(): void {
     worthALookIds: board && review ? worthALookIdsOf(board, review.worthALookPaths) : new Set(),
     flaggedUnitIds: new Set(review?.flaggedUnitIds ?? []),
   });
-  const failure = board && reviewFailure?.boardId === board.id ? `the board review could not be loaded: ${reviewFailure.error}` : null;
-  const notice = failure ?? review?.notChecked ?? null;
-  const codeSessionId = review?.codeSessionId ?? null;
-  const uncoveredPaths = codeSessionId ? review?.uncoveredPaths ?? [] : [];
-  parts.uncovered.hidden = !notice && uncoveredPaths.length === 0;
-  const noticeLines = notice ? [el('p', 'wb-uncovered-notice', `Not checked: ${notice}`)] : [];
-  const fileRows = codeSessionId ? uncoveredPaths.map((openPath) => uncoveredRow(codeSessionId, openPath)) : [];
-  parts.uncovered.replaceChildren(el('h3', 'wb-uncovered-heading', 'Not on the board'), ...noticeLines, ...fileRows);
 }
 
 function requestReviewOf(board: Board): void {
@@ -425,11 +408,8 @@ function requestReviewOf(board: Board): void {
     if (reviewRequestKey !== requestKey) return;
     if (!outcome.ok) {
       reviewRequestKey = null;
-      reviewFailure = { boardId: board.id, error: outcome.error };
-      paintReview();
       return;
     }
-    reviewFailure = null;
     shownReview = { boardId: board.id, review: outcome.review };
     paintReview();
   });
@@ -652,15 +632,12 @@ function mountBoardsView(panel: HTMLElement): void {
   svg.setAttribute('aria-label', 'Whiteboard');
   svg.setAttribute('preserveAspectRatio', 'xMidYMin meet');
   const inspectPanel = el('aside', 'wb-inspect');
-  const uncovered = el('aside', 'wb-uncovered');
-  uncovered.setAttribute('aria-label', 'Not on the board');
-  uncovered.hidden = true;
   const dockQueued = el('span', 'wb-dock-queued');
   const sendToAgent = iconButton('send to agent', SEND_TO_CHAT_ICON_PATH, () => void sendBoardNudge());
   const agentIsland = island('wb-island-agent', 'Docked session', sendToAgent, dockQueued, dockStatus.element);
   agentIsland.hidden = true;
   const bottomLeftStack = el('div', 'wb-bottom-left');
-  bottomLeftStack.append(uncovered, agentIsland, viewIsland);
+  bottomLeftStack.append(agentIsland, viewIsland);
   const topRightStack = el('div', 'wb-top-right');
   topRightStack.append(buildBoardAttentionBanner({ dockedSessionId: () => dockedSessionId, isBoardOpen: () => selectedBoardId !== null, dockBesideOpenBoard }), inspectPanel);
   canvas.append(svg, topRightStack, boardIsland, bottomLeftStack, toolsIsland);
@@ -671,7 +648,7 @@ function mountBoardsView(panel: HTMLElement): void {
   dock.hidden = true;
 
   panel.replaceChildren(canvas, empty, dock);
-  parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, canvas, empty, emptyText, dock, agentIsland, dockQueued, sendToAgent, buttons, toolButtons, uncovered };
+  parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, canvas, empty, emptyText, dock, agentIsland, dockQueued, sendToAgent, buttons, toolButtons };
   const boardRenderer = createBoardRenderer(svg);
   renderer = boardRenderer;
   inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, openRef: openRefInReview });
