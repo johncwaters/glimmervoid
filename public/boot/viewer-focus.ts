@@ -1,23 +1,9 @@
-import { createCoalescedTimer } from '#shared/coalesce-timer.ts';
 import { getBorrowedCardId } from '../card-host.ts';
-import { sendControlMsg } from '../control-ws.ts';
 import { getPhoneSessionId } from '../phone/phone-shell-gate.ts';
 import { findSessionUi } from '../session-card/card-registry.ts';
 import { markSessionSeen } from '../session-card/lifecycle.ts';
-import { syncGridOnEngagementEdge } from '../session-card/terminal.ts';
+import { reportViewedSessions, syncGridOnEngagementEdge } from '../session-card/terminal.ts';
 import { rebuildWebglGlyphAtlases } from '../session-card/webgl-pool.ts';
-
-const focusStateTimer = createCoalescedTimer({
-  mode: 'trailing',
-  delayMs: 150,
-  run: () => {
-    sendControlMsg({ type: 'focus-change', focused: document.hasFocus() });
-  },
-});
-
-function sendFocusState() {
-  focusStateTimer.schedule();
-}
 
 function markShownPhoneSessionSeen() {
   const shownPhoneSessionId = getPhoneSessionId();
@@ -27,7 +13,7 @@ function markShownPhoneSessionSeen() {
 }
 
 function noteViewerFocusEdge() {
-  sendFocusState();
+  reportViewedSessions();
   syncGridOnEngagementEdge(findSessionUi(getBorrowedCardId()));
   markShownPhoneSessionSeen();
 }
@@ -47,4 +33,4 @@ function wireViewerFocus() {
   });
 }
 
-export { markShownPhoneSessionSeen, sendFocusState, wireViewerFocus };
+export { markShownPhoneSessionSeen, reportViewedSessions as sendFocusState, wireViewerFocus };

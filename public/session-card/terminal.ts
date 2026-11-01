@@ -31,6 +31,7 @@ import { installTerminalSecretMask, resetTerminalSecretMask } from './terminal-s
 import { decideTerminalLinkState } from './terminal-link-core.ts';
 import { uploadFilesToSession } from '../session-upload.ts';
 import { reportToServerLog, sendControlMsg } from '../control-ws.ts';
+import { createCoalescedTimer } from '#shared/coalesce-timer.ts';
 import { describeDataAttach, FAST_TERMINAL_CLOSE_MS, LOGGED_FAST_CLOSE_COUNTS } from '#shared/contracts/data-messages.ts';
 import { wireTouchScroll } from './touch-scroll.ts';
 import { reacquireWebglIfStale, releaseWebgl, tryLoadWebGL } from './webgl-pool.ts';
@@ -785,6 +786,7 @@ function setupTerminal(termWrap: HTMLElement, ui: SessionUi, xtermRuntime: Xterm
   ui._setActiveViewer = (isActive: boolean) => {
     if (isActiveViewer === isActive) return;
     isActiveViewer = isActive;
+    reportViewedSessions();
     cancelSettle();
     owedClaim = null;
     if (isActive) reacquireWebglIfStale(ui);
@@ -997,7 +999,11 @@ export function ensureTerminalSetup(ui: SessionUi, sessionId: string) {
   sessionUisAwaitingXterm.add(ui);
   let isActiveViewerRequested = ui._isActiveViewer?.() === true;
   ui._isActiveViewer = () => isActiveViewerRequested;
-  ui._setActiveViewer = (isActive: boolean) => { isActiveViewerRequested = isActive; };
+  ui._setActiveViewer = (isActive: boolean) => {
+    if (isActiveViewerRequested === isActive) return;
+    isActiveViewerRequested = isActive;
+    reportViewedSessions();
+  };
   ensureConnectingOverlay(ui.termWrap);
   refreshTerminalLink(ui);
   loadXtermRuntime().then((xtermRuntime) => {
@@ -1029,6 +1035,21 @@ export function ensureTerminalReady(ui: SessionUi | null | undefined, sessionId:
   if (!term) return;
   term.refresh(0, term.rows - 1);
   syncGridOnEngagementEdge(ui);
+}
+
+const viewedSessionsReportTimer = createCoalescedTimer({
+  mode: 'trailing',
+  delayMs: 150,
+  run: () => sendControlMsg({ type: 'focus-change', viewedSessionIds: viewedSessionIds() }),
+});
+
+function viewedSessionIds(): string[] {
+  if (!document.hasFocus()) return [];
+  return [...sessionUIs].filter(([, ui]) => ui._isActiveViewer?.() === true).map(([sessionId]) => sessionId);
+}
+
+export function reportViewedSessions() {
+  viewedSessionsReportTimer.schedule();
 }
 
 export function setTerminalActiveViewer(ui: SessionUi | null | undefined, sessionId: string, isActive: boolean) {

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Alert sounds play again while you work in the dashboard.** With the dashboard focused, an alert from any session other than the one you are looking at plays your alert sound, once per burst. An alert from the session you are looking at (centered in Focus, open on the phone Terminal screen, or on a board) stays silent and counts as seen, so no desktop notification or Telegram ping follows for it later. With the dashboard in the background, alerts work as before.
 - **Boards give the canvas the whole view.** The row of tabs and buttons above a board is gone; its controls now float over the canvas. The drawing tools, note, frame and unit sit in a bar at the bottom center as icons with their shortcut letter, and fit sits bottom left with new undo and redo buttons. The menu button at the top left switches boards and holds new board, board settings (caption, code session and legend) and delete board. Click the board title beside it to rename the board: Enter saves, Escape cancels. With nothing selected, a board shows no properties panel; select an element to edit it as before.
 
 ## [0.49.0] - 2026-10-31

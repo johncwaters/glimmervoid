@@ -150,7 +150,10 @@ function showAlertGroupBanner(msg: ServerMessageOf<'notify'>, group: NotifyAlert
 }
 
 export function alertFromNotify(msg: ServerMessageOf<'notify'>) {
-  if (document.hasFocus()) return;
+  if (document.hasFocus()) {
+    if (msg.group?.isStart !== false && isSoundEnabled()) playAlertChime();
+    return;
+  }
   const group = msg.group;
   if (canShowDesktopNotification()) {
     if (group) {
