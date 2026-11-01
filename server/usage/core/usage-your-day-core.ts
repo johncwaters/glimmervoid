@@ -124,6 +124,10 @@ function durationText(ms: number): string {
   return `${hours}h ${minutes}m`;
 }
 
+function ratioText(ratio: number): string {
+  return `${ratio.toFixed(1)}x`;
+}
+
 function splitStretches(promptTimes: readonly number[]): Array<{ start: number; end: number }> {
   const stretches: Array<{ start: number; end: number }> = [];
   for (const ts of promptTimes) {
@@ -205,7 +209,7 @@ function waitingThresholdInsight(samples: readonly ReplySample[]): YourDayInsigh
     if (calm.length < MIN_SAMPLES_PER_SIDE || crowded.length < MIN_SAMPLES_PER_SIDE) continue;
     const slowdown = median(crowded) / Math.max(median(calm), 1);
     if (slowdown < 2) continue;
-    return { kind: 'waitingThreshold', text: `Slower past ${threshold} waiting. Keep it to ${threshold}.`, deviation: slowdown };
+    return { kind: 'waitingThreshold', text: `Replies took ${ratioText(slowdown)} longer once more than ${threshold} sessions waited on you.`, deviation: slowdown };
   }
   return null;
 }
@@ -225,14 +229,15 @@ function sharpestHoursInsight(samples: readonly ReplySample[]): YourDayInsight |
   if (!best) return null;
   const quickness = overallMedian / Math.max(best.medianMs, 1);
   if (quickness < MIN_DEVIATION) return null;
-  return { kind: 'sharpestHours', text: `Sharpest ${hourText(best.startHour)} to ${hourText(best.startHour + SHARP_WINDOW_HOURS)}. Hard work first.`, deviation: quickness };
+  return { kind: 'sharpestHours', text: `You replied to agents fastest ${hourText(best.startHour)} to ${hourText(best.startHour + SHARP_WINDOW_HOURS)}, ${ratioText(quickness)} your usual pace.`, deviation: quickness };
 }
 
 function longestStretchInsight(yesterday: DayStats, usualStretchMs: number): YourDayInsight | null {
   if (yesterday.longestStretchMs < MIN_LONG_STRETCH_MS) return null;
   const deviation = yesterday.longestStretchMs / Math.max(usualStretchMs, MINUTE_MS);
   if (deviation < MIN_DEVIATION) return null;
-  return { kind: 'longestStretch', text: `${durationText(yesterday.longestStretchMs)} without a break. Break every ${MIN_LONG_STRETCH_MS / MINUTE_MS}m.`, deviation };
+  const comparedToUsual = usualStretchMs >= MINUTE_MS ? `, ${ratioText(deviation)} your usual` : '';
+  return { kind: 'longestStretch', text: `Yesterday you went ${durationText(yesterday.longestStretchMs)} without a break${comparedToUsual}.`, deviation };
 }
 
 function jugglingInsight(yesterday: DayStats, usualJuggling: number): YourDayInsight | null {
@@ -240,7 +245,7 @@ function jugglingInsight(yesterday: DayStats, usualJuggling: number): YourDayIns
   const deviation = yesterday.peakJuggling / Math.max(usualJuggling, 1);
   if (deviation < MIN_DEVIATION) return null;
   const peakHour = new Date(yesterday.peakJugglingAt).getHours();
-  return { kind: 'juggling', text: `Bounced between ${yesterday.peakJuggling} sessions at ${hourText(peakHour)}. Finish one first.`, deviation };
+  return { kind: 'juggling', text: `Yesterday at ${hourText(peakHour)} you switched between ${yesterday.peakJuggling} sessions within ${JUGGLING_WINDOW_MS / MINUTE_MS}m.`, deviation };
 }
 
 function buildYourDay(events: readonly ActivityEvent[], { now, laneByKey = null }: { now: number; laneByKey?: ReadonlyMap<string, string> | null }): YourDay | null {

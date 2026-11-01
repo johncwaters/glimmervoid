@@ -383,7 +383,7 @@ test('yourDay recaps yesterday from operator-typed Claude and Codex prompts and 
   assert.equal(yourDay?.yesterday.day, '2026-08-18');
   assert.equal(yourDay?.yesterday.sessionCount, 9);
   assert.deepEqual(yourDay?.insights.map((insight) => insight.kind).sort(), ['juggling', 'longestStretch']);
-  assert.ok(yourDay?.insights.some((insight) => insight.text === '3h 40m without a break. Break every 90m.'));
+  assert.ok(yourDay?.insights.some((insight) => insight.text === 'Yesterday you went 3h 40m without a break.'));
   assert.ok(yourDay?.insights.every((insight) => !/operator/i.test(insight.text)));
   assert.equal(yourDay?.currentStretchStartedAt, null);
 });
