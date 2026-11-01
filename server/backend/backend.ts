@@ -267,7 +267,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     logger: console,
   });
   const {
-    handleClientFocus,
+    acknowledgeSeenAlert,
     heartbeat,
     investigationSessions,
     notificationManager,
@@ -580,7 +580,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     applySettingsReload,
     requestShutdown,
     requestRestart,
-    handleClientFocus,
+    acknowledgeSeenAlert,
     buildHealthSnapshot,
     getUpdateStatus: updateCheck.getStatus,
     getUpdateJournal: updateApply.getJournal,

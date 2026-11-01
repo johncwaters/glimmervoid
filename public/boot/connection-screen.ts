@@ -14,7 +14,6 @@ import { playLoadingUnlock } from './loading-unlock.ts';
 import { activateSettingsHash } from './hash-routes.ts';
 import { disablePowerButton } from './power-menu.ts';
 import { VIEW_TABS, refreshViewsIfVisible, resendUnsentShownView } from './view-tabs.ts';
-import { sendFocusState } from './viewer-focus.ts';
 
 const connectionEl = queryTag(document, '#connection-status', 'span');
 const connectionLabel = queryTag(connectionEl, '.connection-label', 'span');
@@ -143,7 +142,6 @@ function onControlConnected() {
     setTimeout(revealApp, MAX_REVEAL_WAIT_MS);
   }
   revealAppWhenTerminalsLive();
-  sendFocusState();
 
   refreshViewsIfVisible('connected');
 

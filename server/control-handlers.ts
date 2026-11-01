@@ -101,7 +101,7 @@ interface ControlHandlerDeps {
   applySettingsReload: (config: GlimmervoidConfig) => void;
   requestShutdown?: (() => unknown) | null;
   requestRestart?: (() => unknown) | null;
-  handleClientFocus?: ((socket: ControlSocket, viewedSessionIds: readonly string[]) => void) | null;
+  acknowledgeSeenAlert?: ((sessionId: string) => void) | null;
   buildHealthSnapshot?: (() => unknown) | null;
   getUpdateStatus?: (() => UpdateStatus | null) | null;
   getUpdateJournal?: (() => UpdateJournal | null) | null;

@@ -2,7 +2,7 @@ import { getBorrowedCardId } from '../card-host.ts';
 import { getPhoneSessionId } from '../phone/phone-shell-gate.ts';
 import { findSessionUi } from '../session-card/card-registry.ts';
 import { markSessionSeen } from '../session-card/lifecycle.ts';
-import { reportViewedSessions, syncGridOnEngagementEdge } from '../session-card/terminal.ts';
+import { syncGridOnEngagementEdge } from '../session-card/terminal.ts';
 import { rebuildWebglGlyphAtlases } from '../session-card/webgl-pool.ts';
 
 function markShownPhoneSessionSeen() {
@@ -13,7 +13,6 @@ function markShownPhoneSessionSeen() {
 }
 
 function noteViewerFocusEdge() {
-  reportViewedSessions();
   syncGridOnEngagementEdge(findSessionUi(getBorrowedCardId()));
   markShownPhoneSessionSeen();
 }
@@ -33,4 +32,4 @@ function wireViewerFocus() {
   });
 }
 
-export { markShownPhoneSessionSeen, reportViewedSessions as sendFocusState, wireViewerFocus };
+export { markShownPhoneSessionSeen, wireViewerFocus };

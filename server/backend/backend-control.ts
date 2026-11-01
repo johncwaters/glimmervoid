@@ -4,7 +4,7 @@ import type { GithubPollingRefreshResult, GithubPrsFreshness } from '../../share
 import type { GithubPrsFrame } from '../../shared/contracts/github-prs.ts';
 import type { WebSocket, WebSocketServer } from 'ws';
 import type { Session } from '../../session/sessions.ts';
-import type { ControlBroadcast, ControlSocket } from './backend-websockets.ts';
+import type { ControlBroadcast } from './backend-websockets.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
 import { registerControlHandlers } from '../control-handlers.ts';
 import type { BenchmarkControl, CommunityActionControl, ControlHandlerDeps, MyPrMergeControl, RadarFixControl, TeamReviewActionControl } from '../control-handlers.ts';
@@ -78,7 +78,7 @@ interface BackendControlDependencies {
   applySettingsReload: (config: GlimmervoidConfig) => void;
   requestShutdown: () => unknown;
   requestRestart: () => unknown;
-  handleClientFocus: (socket: ControlSocket, viewedSessionIds: readonly string[]) => void;
+  acknowledgeSeenAlert: (sessionId: string) => void;
   buildHealthSnapshot: () => Record<string, unknown>;
   getUpdateStatus: () => UpdateStatus | null;
   getUpdateJournal: () => UpdateJournal;
@@ -146,7 +146,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     applySettingsReload: dependencies.applySettingsReload,
     requestShutdown: dependencies.requestShutdown,
     requestRestart: dependencies.requestRestart,
-    handleClientFocus: dependencies.handleClientFocus,
+    acknowledgeSeenAlert: dependencies.acknowledgeSeenAlert,
     buildHealthSnapshot: dependencies.buildHealthSnapshot,
     getUpdateStatus: dependencies.getUpdateStatus,
     getUpdateJournal: dependencies.getUpdateJournal,

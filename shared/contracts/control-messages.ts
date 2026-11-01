@@ -308,7 +308,7 @@ const clientVariants = [
   loose('delete-hook', { id: z.string(), requestId }),
   loose('shutdown'),
   loose('restart-server'),
-  loose('focus-change', { viewedSessionIds: z.array(z.string()).default([]) }),
+  loose('alert-seen', { id: sessionId }),
   loose('request-health-snapshot'),
   loose('request-telemetry-deletion', { requestId }),
   loose('update-check'),

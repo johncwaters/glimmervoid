@@ -7,7 +7,6 @@ import { createTelegramDigest } from '../../notifications/telegram-digest.ts';
 import { createTelegramOutbox } from '../../notifications/telegram-outbox.ts';
 import type { Session } from '../../session/sessions.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
-import { createClientPresence } from '../core/client-presence.ts';
 import type { OutcomeRecorder } from '../../shared/outcome-names.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import { sendTelegramMessage } from '../telegram-transport.ts';
@@ -28,7 +27,7 @@ interface NotificationConfig {
 }
 
 interface NotificationWsServer {
-  clients: Iterable<WebSocket>;
+  clients: ReadonlySet<WebSocket>;
   on(event: 'connection', listener: (socket: WebSocket) => void): unknown;
 }
 
@@ -47,7 +46,6 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
   const {
     config, configStore, sessions, controlWss, dataWss, broadcastControl, recordOutcome = () => {}, logger,
   } = dependencies;
-  const clientPresence = createClientPresence();
   const alertGroupWindowMs = () => config.notifyDebounceMs ?? DEFAULT_ALERT_GROUP_WINDOW_MS;
   const notificationTimings = () => ({
     escalationIntervalMs: ESCALATION_INTERVAL_MS,
@@ -88,7 +86,7 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
   const telegramDigest = createTelegramDigest({ deliver: telegramOutbox.deliver, windowMs: alertGroupWindowMs() });
   const sendTelegramNotification = createTelegramChannel({
     getConfig: () => config,
-    getConnectionCount: () => clientPresence.connectionCount(),
+    getConnectionCount: () => controlWss.clients.size,
     getActiveAgentCount: (sessionId: string) => sessions.get(sessionId)?.toSnapshot().activeAgents || 0,
     getSessionName: (sessionId: string) => sessions.get(sessionId)?.name,
     outbox: telegramDigest,
@@ -109,19 +107,9 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
   });
   void telegramOutbox.replay();
 
-  notificationManager.setSessionInViewCheck(clientPresence.isSessionInView);
-
-  function handleClientFocus(socket: WebSocket, viewedSessionIds: readonly string[]): void {
-    clientPresence.setViewedSessions(socket, viewedSessionIds);
-  }
-
   controlWss.on('connection', (socket) => {
-    clientPresence.connect(socket);
     socket.on('error', (error) => {
       logger.warn(`[control-ws] Error: ${error.message}`);
-    });
-    socket.on('close', () => {
-      clientPresence.disconnect(socket);
     });
   });
 
@@ -143,7 +131,7 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
 
   return {
     applySettings,
-    handleClientFocus,
+    acknowledgeSeenAlert: (sessionId: string) => notificationManager.acknowledge(sessionId),
     heartbeat,
     investigationSessions,
     notificationManager,

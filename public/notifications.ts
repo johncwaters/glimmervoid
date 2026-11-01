@@ -1,7 +1,7 @@
 import type { NotifyAlertGroup, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { clearHeaderError, reportHeaderError } from './action-status.ts';
 import { describeFailure } from './client-error-core.ts';
-import { reportToServerLog } from './control-ws.ts';
+import { reportToServerLog, sendControlMsg } from './control-ws.ts';
 import { alertGroupBannerOptions, desktopNotificationOptions, foldAlertGroupLines } from './desktop-notification-core.ts';
 import { el } from './dom-helpers.ts';
 import { claimKey, claimNotification } from './notify-dedupe-core.ts';
@@ -149,9 +149,27 @@ function showAlertGroupBanner(msg: ServerMessageOf<'notify'>, group: NotifyAlert
   }
 }
 
+let soundedGroupId: number | null = null;
+
+function claimGroupSound(group: NotifyAlertGroup | undefined): boolean {
+  if (!group) return true;
+  if (group.id === soundedGroupId) return false;
+  soundedGroupId = group.id;
+  return true;
+}
+
+function alertWhileFocused(msg: ServerMessageOf<'notify'>) {
+  if (sessionUIs.get(msg.session)?._isActiveViewer?.() === true) {
+    sendControlMsg({ type: 'alert-seen', id: msg.session });
+    return;
+  }
+  if (!claimGroupSound(msg.group)) return;
+  if (isSoundEnabled()) playAlertChime();
+}
+
 export function alertFromNotify(msg: ServerMessageOf<'notify'>) {
   if (document.hasFocus()) {
-    if (msg.group?.isStart !== false && isSoundEnabled()) playAlertChime();
+    alertWhileFocused(msg);
     return;
   }
   const group = msg.group;
