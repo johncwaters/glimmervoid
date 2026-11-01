@@ -26,6 +26,7 @@ const MAX_EXPANSIONS = 20_000;
 const MAX_TOTAL_EXPANSIONS = 400_000;
 const MAX_BENDS = 6;
 const MAX_WIRES_FOR_PORT_SEARCH = 12;
+const PROBE_EXPANSIONS = 3_000;
 const PORT_SPACING = 14;
 const PORT_INSET = 8;
 const BOX_CROSSING_COST = 100;
@@ -198,71 +199,143 @@ function hasHorizontalGap(first: Rect, second: Rect): boolean {
   return second.x >= first.x + first.width || second.x + second.width <= first.x;
 }
 
-interface VerticalSpan {
-  top: number;
-  bottom: number;
-}
-
-interface DefaultSides {
+interface SidePair {
   exitSide: Side;
   entrySide: Side;
-  facingEntrySide: Side | null;
 }
 
-function acrossGapSides(from: LaidOutBox, to: LaidOutBox, startSpan: VerticalSpan): DefaultSides {
-  const exitSide: Side = centerOf(to).x > centerOf(from).x ? 'right' : 'left';
-  const facingEntrySide: Side = exitSide === 'right' ? 'left' : 'right';
-  if (startSpan.bottom < to.y) return { exitSide, entrySide: 'top', facingEntrySide };
-  if (startSpan.top > to.y + to.height) return { exitSide, entrySide: 'bottom', facingEntrySide };
-  return { exitSide, entrySide: facingEntrySide, facingEntrySide: null };
+function facingSides(from: LaidOutBox, to: LaidOutBox, isBack: boolean): SidePair {
+  if (from.id === to.id) return { exitSide: 'right', entrySide: 'top' };
+  if (isBack) return { exitSide: 'bottom', entrySide: 'bottom' };
+  const fromCenter = centerOf(from);
+  const toCenter = centerOf(to);
+  if (hasHorizontalGap(from, to)) return toCenter.x > fromCenter.x ? { exitSide: 'right', entrySide: 'left' } : { exitSide: 'left', entrySide: 'right' };
+  return toCenter.y > fromCenter.y ? { exitSide: 'bottom', entrySide: 'top' } : { exitSide: 'top', entrySide: 'bottom' };
 }
 
-function defaultSides(from: LaidOutBox, to: LaidOutBox, isBack: boolean, startSpan: VerticalSpan): DefaultSides {
-  if (from.id === to.id) return { exitSide: 'right', entrySide: 'top', facingEntrySide: null };
-  if (isBack) return { exitSide: 'bottom', entrySide: 'bottom', facingEntrySide: null };
-  if (hasHorizontalGap(from, to)) return acrossGapSides(from, to, startSpan);
-  return centerOf(to).y > centerOf(from).y
-    ? { exitSide: 'bottom', entrySide: 'top', facingEntrySide: null }
-    : { exitSide: 'top', entrySide: 'bottom', facingEntrySide: null };
+const ALL_SIDES: readonly Side[] = ['right', 'left', 'bottom', 'top'];
+
+function candidateSidePairs(plan: WirePlan, facing: SidePair): SidePair[] {
+  const { wire, from, to } = plan;
+  if (wire.back || from.id === to.id) return [facing];
+  const exitSides = plan.outputPort || wire.fromSide ? [plan.exitSide] : [facing.exitSide, ...ALL_SIDES.filter((side) => side !== facing.exitSide)];
+  const entrySides = wire.toSide ? [wire.toSide] : [facing.entrySide, ...ALL_SIDES.filter((side) => side !== facing.entrySide)];
+  return exitSides.flatMap((exitSide) => entrySides.map((entrySide) => ({ exitSide, entrySide })));
 }
 
-function isTurnBlocked(plan: WirePlan, input: RouteInput): boolean {
-  const startY = plan.outputPort?.y ?? centerOf(plan.from).y;
-  const startX = plan.exitSide === 'right' ? plan.from.x + plan.from.width : plan.from.x;
-  const corner = { x: centerOf(plan.to).x, y: startY };
-  const entryY = plan.entrySide === 'top' ? plan.to.y : plan.to.y + plan.to.height;
-  const turn = [{ from: { x: startX, y: startY }, to: corner }, { from: corner, to: { x: corner.x, y: entryY } }];
-  const obstacles = [...input.boxesById.values()].filter((box) => box.id !== plan.from.id && box.id !== plan.to.id).map((box) => inflated(box, CLEARANCE));
-  return turn.some((segment) => obstacles.some((obstacle) => segmentHitsRect(segment, obstacle)));
+function probeOf(plan: WirePlan, pair: SidePair): WirePlan {
+  const centeredStart = plan.outputPort ?? portPositions(plan.from, pair.exitSide, 1)[0] ?? centerOf(plan.from);
+  const centeredEnd = portPositions(plan.to, pair.entrySide, 1)[0] ?? centerOf(plan.to);
+  if (!isFacing(pair.exitSide, pair.entrySide)) return { ...plan, ...pair, start: centeredStart, end: centeredEnd };
+  const alignedEnd = alignedAlong(centeredEnd, pair.entrySide, plan.to, centeredStart);
+  const start = alignedEnd === centeredEnd && !plan.outputPort ? alignedAlong(centeredStart, pair.exitSide, plan.from, centeredEnd) : centeredStart;
+  return { ...plan, ...pair, start, end: alignedEnd };
 }
 
-function isJoiningFacingBus(plan: WirePlan, facingEntrySide: Side, plans: readonly WirePlan[]): boolean {
-  return plans.some((other) => other !== plan && other.to.id === plan.to.id && other.styleKey === plan.styleKey && other.entrySide === facingEntrySide);
+interface ProbeScore {
+  turnsAndCrossings: number;
+  cost: number;
+}
+
+interface ProbedRoute {
+  segments: Segment[];
+  bends: number;
+  cost: number;
+}
+
+function isBetterProbe(candidate: ProbeScore, best: ProbeScore): boolean {
+  return candidate.turnsAndCrossings < best.turnsAndCrossings || (candidate.turnsAndCrossings === best.turnsAndCrossings && candidate.cost < best.cost);
+}
+
+function probeRoute(grid: Grid, probe: WirePlan, buffers: SearchBuffers): ProbedRoute | null {
+  const usage: RouteUsage = { usageByEdge: new Map(), usageByNodeAndAxis: new Map() };
+  const states = searchGrid(grid, probe, usage, null, buffers, { remainingExpansions: PROBE_EXPANSIONS });
+  const goalState = states?.at(-1);
+  const cost = goalState === undefined ? Infinity : buffers.bestCost[goalState] ?? Infinity;
+  resetSearchBuffers(buffers);
+  if (!states || cost === Infinity) return null;
+  const points = withoutBends(states.map((state) => {
+    const node = state >> 2;
+    const xIndex = node % grid.xs.length;
+    return { x: grid.xs[xIndex] ?? 0, y: grid.ys[(node - xIndex) / grid.xs.length] ?? 0 };
+  }));
+  return { segments: segmentsOf(points), bends: Math.max(points.length - 2, 0), cost };
+}
+
+function scoreOf(route: ProbedRoute, otherRoutes: readonly ProbedRoute[]): ProbeScore {
+  const crossings = otherRoutes.filter((other) => other.segments.some((otherSegment) => route.segments.some((segment) => segmentsCross(segment, otherSegment)))).length;
+  return { turnsAndCrossings: route.bends + crossings, cost: route.cost };
+}
+
+function chooseSidesBySearch(plans: readonly WirePlan[], facingByPlan: ReadonlyMap<WirePlan, SidePair>, input: RouteInput): void {
+  const pairsByPlan = new Map(plans.map((plan) => {
+    const facing = facingByPlan.get(plan) ?? { exitSide: plan.exitSide, entrySide: plan.entrySide };
+    return [plan, candidateSidePairs(plan, facing)] as const;
+  }));
+  if (![...pairsByPlan.values()].some((pairs) => pairs.length > 1)) return;
+  const probes = [...pairsByPlan].flatMap(([plan, pairs]) => pairs.map((pair) => probeOf(plan, pair)));
+  const grid = buildGrid(probes, [...input.boxesById.values(), ...input.panels], input.softObstacles, input.contentTop);
+  if (!grid) return;
+  const buffers = createSearchBuffers(grid);
+  const baselineByPlan = new Map(plans.flatMap((plan) => {
+    const [facing] = pairsByPlan.get(plan) ?? [];
+    const route = facing ? probeRoute(grid, probeOf(plan, facing), buffers) : null;
+    return route ? [[plan, route] as const] : [];
+  }));
+  for (const [plan, pairs] of pairsByPlan) {
+    const baseline = baselineByPlan.get(plan);
+    if (pairs.length < 2 || !baseline) continue;
+    const otherRoutes = [...baselineByPlan].flatMap(([other, route]) => other === plan ? [] : [route]);
+    let best = { pair: pairs[0], score: scoreOf(baseline, otherRoutes) };
+    for (const pair of pairs.slice(1)) {
+      const route = probeRoute(grid, probeOf(plan, pair), buffers);
+      const score = route ? scoreOf(route, otherRoutes) : null;
+      if (score && isBetterProbe(score, best.score)) best = { pair, score };
+    }
+    if (!best.pair) continue;
+    plan.exitSide = best.pair.exitSide;
+    plan.entrySide = best.pair.entrySide;
+  }
+}
+
+function joinFacingBuses(plans: readonly WirePlan[], facingByPlan: ReadonlyMap<WirePlan, SidePair>): void {
+  const isEnteringFacing = (plan: WirePlan) => plan.entrySide === facingByPlan.get(plan)?.entrySide;
+  for (let hasChanged = true; hasChanged;) {
+    hasChanged = false;
+    for (const plan of plans) {
+      const facing = facingByPlan.get(plan);
+      if (!facing || isEnteringFacing(plan) || plan.wire.toSide) continue;
+      const isFacingBusTaken = plans.some((other) => other !== plan && other.to.id === plan.to.id && other.styleKey === plan.styleKey && other.entrySide === facing.entrySide && isEnteringFacing(other));
+      if (!isFacingBusTaken) continue;
+      plan.exitSide = plan.outputPort || plan.wire.fromSide ? plan.exitSide : facing.exitSide;
+      plan.entrySide = facing.entrySide;
+      hasChanged = true;
+    }
+  }
 }
 
 function planWires(input: RouteInput): WirePlan[] {
-  const facingEntrySideByPlan = new Map<WirePlan, Side>();
+  const facingByPlan = new Map<WirePlan, SidePair>();
   const plans = input.wires.flatMap((wire): WirePlan[] => {
     const from = input.boxesById.get(wire.from);
     const to = input.boxesById.get(wire.to);
     if (!from || !to) return [];
+    const facing = facingSides(from, to, wire.back);
     const output = from.outputs.find((candidate) => candidate.id === wire.fromOutput);
-    const startSpan = output ? { top: output.port.y, bottom: output.port.y } : { top: from.y, bottom: from.y + from.height };
-    const sides = defaultSides(from, to, wire.back, startSpan);
-    const exitSide = output ? 'right' : wire.fromSide ?? sides.exitSide;
-    const entrySide = wire.toSide ?? sides.entrySide;
     const strokeHex = wire.tone === 'lane' ? from.lane?.hex ?? null : null;
-    const styleKey = `${wire.dashed || wire.back}|${wire.tone}|${strokeHex}`;
-    const exitKey = output ? `${from.id}|output ${output.id}|${styleKey}` : `${from.id}|${exitSide}|${styleKey}`;
     const plan: WirePlan = {
-      wire, from, to, strokeHex, styleKey, exitSide, entrySide, busKey: null, exitKey, outputPort: output?.port ?? null,
-      start: output?.port ?? centerOf(from), end: centerOf(to),
+      wire, from, to, strokeHex, styleKey: `${wire.dashed || wire.back}|${wire.tone}|${strokeHex}`,
+      exitSide: output ? 'right' : wire.fromSide ?? facing.exitSide, entrySide: wire.toSide ?? facing.entrySide,
+      busKey: null, exitKey: '', outputPort: output?.port ?? null, start: output?.port ?? centerOf(from), end: centerOf(to),
     };
-    if (!wire.toSide && sides.facingEntrySide) facingEntrySideByPlan.set(plan, sides.facingEntrySide);
+    facingByPlan.set(plan, facing);
     return [plan];
   });
-  for (const [plan, facingEntrySide] of facingEntrySideByPlan) {
-    if (plan.wire.fromSide || isTurnBlocked(plan, input) || isJoiningFacingBus(plan, facingEntrySide, plans)) plan.entrySide = facingEntrySide;
+  chooseSidesBySearch(plans, facingByPlan, input);
+  joinFacingBuses(plans, facingByPlan);
+  for (const plan of plans) {
+    const outputId = plan.wire.fromOutput;
+    plan.exitKey = plan.outputPort && outputId ? `${plan.from.id}|output ${outputId}|${plan.styleKey}` : `${plan.from.id}|${plan.exitSide}|${plan.styleKey}`;
   }
   const busKeyOf = (plan: WirePlan) => `${plan.to.id}|${plan.entrySide}|${plan.styleKey}`;
   const memberCountByBusKey = new Map<string, number>();

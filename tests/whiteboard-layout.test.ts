@@ -239,6 +239,9 @@ test('wires keep their named sides, a back wire returns around the outside of th
       low: { kind: 'box', id: 'low', title: 'Low', at: { x: 1300, y: 900 } }, w6: wire('w6', 'write', 'low'),
       tall: { kind: 'box', id: 'tall', title: 'Tall', lines: [{ text: 'one' }, { text: 'two' }, { text: 'three' }, { text: 'four' }], at: { x: 1800, y: 1300 } },
       short: { kind: 'box', id: 'short', title: 'Short', at: { x: 2200, y: 1340 } }, w7: wire('w7', 'tall', 'short'),
+      walled: { kind: 'box', id: 'walled', title: 'Walled', at: { x: 1800, y: 2000 } },
+      wall: { kind: 'box', id: 'wall', title: 'Wall', lines: [{ text: 'one' }, { text: 'two' }, { text: 'three' }, { text: 'four' }, { text: 'five' }, { text: 'six' }], at: { x: 2040, y: 1900 } },
+      over: { kind: 'box', id: 'over', title: 'Over', at: { x: 2300, y: 1600 } }, w8: { ...wire('w8', 'walled', 'over'), toSide: 'bottom' },
     },
   });
   const layout = layoutBoard(loopBoard);
@@ -254,6 +257,9 @@ test('wires keep their named sides, a back wire returns around the outside of th
   const level = wireById.get('w7');
   assert.ok(level);
   assert.equal(segmentsOfPath(level.path).length, 1, `a wire between boxes that share a height runs straight: ${level.path}`);
+  const walled = wireById.get('w8');
+  assert.ok(walled);
+  assert.ok(segmentsOfPath(walled.path).length <= 3, `a wire whose facing side is walled off leaves from the side that turns least: ${walled.path}`);
   assert.equal(sided.start.y, read.y + read.height);
   assert.equal(sided.end.y, check.y + check.height);
   assert.ok(back.isBack && back.isDashed);

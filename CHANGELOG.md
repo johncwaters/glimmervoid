@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Board arrows skip a needless turn.** An arrow to a box that sits wholly above or below where it starts now turns once into that box's top or bottom instead of running across, down and across again into its side. It keeps the side entry when the one-turn path would cross another box, or when other arrows of the same style already share that side. An arrow between two boxes that share some height now runs straight across instead of stepping down a few pixels into the second box.
+- **Board arrows skip a needless turn.** Each arrow without a named side now leaves and enters from whichever sides give the fewest turns, so an arrow to a box wholly above or below turns once into its top or bottom, an arrow whose facing side is walled off by another box leaves from a clear side instead of looping around the board, and an arrow between two boxes that share some height runs straight across. Arrows of the same style into one box side still share an arrowhead.
 
 - **Fit shows the whole board again.** Fit used to pin the board to the top of the canvas, so the top row hid under the board title and the space at the bottom sat empty. It now fits the board into the space between the title and the bottom controls and centers it there.
 
