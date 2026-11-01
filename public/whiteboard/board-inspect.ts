@@ -351,10 +351,11 @@ function unitSections(unit: Unit, latest: () => BoardElement | undefined, set: F
   ];
 }
 
-function boardSections(board: Board, latestBoard: () => Board | null, send: (ops: Op[]) => void, codeSessionChoices: readonly Choice[]): HTMLElement[] {
+function boardSections(board: Board, latestBoard: () => Board | null, send: (ops: Op[]) => void, codeSessionChoices: readonly Choice[], close: () => void): HTMLElement[] {
   const codeSessionOptions = [{ value: '', text: 'none' }, ...codeSessionChoices];
   return [
     heading('Board'),
+    actionButton('board-settings-close', 'close', close, 'Close board settings'),
     fieldRow('Title', textField('board-title', board.title, WHITEBOARD_LIMITS.title, (title) => {
       if (title.trim()) send([{ op: 'board', title: title.trim() }]);
     })),
@@ -409,6 +410,7 @@ export function createBoardInspector(options: BoardInspectorOptions) {
   const send = (ops: Op[]) => void options.sendOps(ops);
   let paintedSelectedIds: ReadonlySet<string> = new Set();
   let isRepainting = false;
+  let isShowingBoardSettings = false;
 
   function soleSelectedElement(board: Board, selectedIds: ReadonlySet<string>): BoardElement | undefined {
     if (selectedIds.size !== 1) return undefined;
@@ -426,15 +428,16 @@ export function createBoardInspector(options: BoardInspectorOptions) {
   function sectionsFor(board: Board, selectedIds: ReadonlySet<string>): HTMLElement[] {
     if (selectedIds.size > 1) return [heading(`${selectedIds.size} selected`)];
     const element = soleSelectedElement(board, selectedIds);
-    if (!element) return boardSections(board, options.currentBoard, send, options.codeSessionChoices());
+    if (!element) return boardSections(board, options.currentBoard, send, options.codeSessionChoices(), closeBoardSettings);
     return [...elementSections(board, element, options.currentBoard, options.layout(), send), openInReviewSection(board, element, options.openRef)];
   }
 
   function paint(selectedIds: ReadonlySet<string>): void {
     paintedSelectedIds = selectedIds;
+    if (selectedIds.size > 0) isShowingBoardSettings = false;
     const board = options.currentBoard();
-    container.hidden = !board;
-    if (!board) return;
+    container.hidden = !board || (selectedIds.size === 0 && !isShowingBoardSettings);
+    if (!board || container.hidden) return;
     if (isTypingIn(container)) {
       repaintReviewWhileTyping(board, selectedIds);
       return;
@@ -447,12 +450,30 @@ export function createBoardInspector(options: BoardInspectorOptions) {
     isRepainting = false;
   }
 
+  function openBoardSettings(): void {
+    isShowingBoardSettings = true;
+    paint(paintedSelectedIds);
+    container.querySelector<HTMLElement>('[data-field="board-caption"]')?.focus();
+  }
+
+  function closeBoardSettings(): void {
+    if (!isShowingBoardSettings) return;
+    isShowingBoardSettings = false;
+    paint(paintedSelectedIds);
+  }
+
+  container.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !isShowingBoardSettings) return;
+    event.preventDefault();
+    closeBoardSettings();
+  });
+
   container.addEventListener('focusout', (event) => {
-    if (isRepainting || (event.relatedTarget instanceof Node && container.contains(event.relatedTarget))) return;
+    if (isRepainting || container.hidden || (event.relatedTarget instanceof Node && container.contains(event.relatedTarget))) return;
     queueMicrotask(() => paint(paintedSelectedIds));
   });
 
-  return { paint };
+  return { paint, openBoardSettings, closeBoardSettings };
 }
 
 export type BoardInspector = ReturnType<typeof createBoardInspector>;

@@ -124,11 +124,6 @@
   cursor: crosshair;
 }
 
-.wb-button-danger:hover:not(:disabled) {
-  border-color: var(--state-failed);
-  color: var(--state-failed);
-}
-
 .wb-board-head {
   display: flex;
   flex-wrap: wrap;
@@ -140,6 +135,17 @@
 .wb-board-head[hidden] { display: none; }
 
 .wb-board-meta { color: var(--text-muted); }
+
+.wb-board-tab-rename {
+  width: 18ch;
+  border-color: var(--accent);
+  color: var(--text-head);
+  cursor: text;
+}
+
+.wb-board-tab-rename:focus-visible { outline: none; }
+
+.wb-board-menu-danger { color: var(--state-failed); }
 
 .wb-presence {
   display: flex;

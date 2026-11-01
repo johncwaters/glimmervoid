@@ -17,6 +17,15 @@ async function placeBoxWithTool(page: Page, panel: Locator, offset: { x: number;
   await panel.locator('.wb-box-title', { hasText: title }).waitFor();
 }
 
+async function renameSelectedTab(page: Page, panel: Locator, currentTitle: string, typedTitle: string, finishKey: 'Enter' | 'Escape'): Promise<void> {
+  await panel.locator('.wb-board-tab[aria-pressed="true"]', { hasText: currentTitle }).click();
+  await panel.getByRole('textbox', { name: 'Board title', exact: true }).fill(typedTitle);
+  await page.keyboard.press(finishKey);
+  const expectedTitle = finishKey === 'Enter' ? typedTitle : currentTitle;
+  await panel.getByRole('button', { name: expectedTitle, exact: true, pressed: true }).waitFor();
+  assert.equal(await panel.getByRole('textbox', { name: 'Board title', exact: true }).count(), 0);
+}
+
 async function submitTextDialog(page: Page, label: string, value: string, confirmLabel: string): Promise<void> {
   await page.getByRole('textbox', { name: label, exact: true }).fill(value);
   await page.getByRole('button', { name: confirmLabel, exact: true }).click();
@@ -41,6 +50,11 @@ export async function verifyBoards(page: Page, layout: Layout): Promise<void> {
   await panel.locator('.wb-board-tab[aria-pressed="true"]', { hasText: boardTitle }).waitFor();
   await panel.locator('.wb-svg').waitFor({ state: 'visible' });
   if (layout === 'desktop') {
+    assert.equal(await panel.locator('.wb-inspect').isVisible(), false, 'no properties panel covers the canvas with nothing selected');
+    const renamedTitle = `${boardTitle} renamed`;
+    await renameSelectedTab(page, panel, boardTitle, renamedTitle, 'Enter');
+    await renameSelectedTab(page, panel, renamedTitle, 'discarded title', 'Escape');
+    await renameSelectedTab(page, panel, renamedTitle, boardTitle, 'Enter');
     await panel.getByRole('button', { name: 'box', exact: true }).click();
     assert.equal(await panel.getByRole('button', { name: 'box', exact: true }).getAttribute('aria-pressed'), 'true');
     await placeBoxWithTool(page, panel, { x: 60, y: 60 }, 'Parse feed');
@@ -102,8 +116,16 @@ export async function verifyBoards(page: Page, layout: Layout): Promise<void> {
     assert.equal(await wireLine.getAttribute('d'), draggingPath, 'redo moves it again');
     const inspect = panel.locator('.wb-inspect');
     await page.keyboard.press('Escape');
+    await inspect.waitFor({ state: 'hidden' });
+    await panel.getByRole('button', { name: 'board', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'board settings', exact: true }).click();
     await inspect.getByRole('heading', { name: 'Board', exact: true }).waitFor();
     await inspect.getByRole('combobox', { name: 'Code session', exact: true }).waitFor();
+    await page.keyboard.press('Escape');
+    await inspect.waitFor({ state: 'hidden' });
+    await panel.getByRole('button', { name: 'board', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'delete board', exact: true }).waitFor();
+    await page.keyboard.press('Escape');
     await targetBox.locator('.wb-box-outline').click();
     await inspect.getByRole('heading', { name: 'Box', exact: true }).waitFor();
     await inspect.getByRole('combobox', { name: 'Shape', exact: true }).selectOption('decision');
@@ -165,6 +187,9 @@ export async function verifyBoards(page: Page, layout: Layout): Promise<void> {
     await unitOnBoard.locator('.wb-box-title').click();
     await inspect.getByRole('combobox', { name: 'Status', exact: true }).selectOption('landed');
     await unitOnBoard.locator('.wb-unit-status.wb-unit-landed', { hasText: 'landed' }).waitFor();
+    await panel.getByRole('button', { name: 'board', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'board settings', exact: true }).click();
+    await inspect.getByRole('heading', { name: 'Board', exact: true }).waitFor({ timeout: 3000 });
   }
   assert.equal(await panel.getByRole('button', { name: 'fit', exact: true }).isVisible(), true);
   assert.equal(await panel.getByRole('button', { name: boardTitle }).count(), 1);

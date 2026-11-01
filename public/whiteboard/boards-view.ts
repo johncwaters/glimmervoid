@@ -5,6 +5,7 @@ import { WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import { createActionStatus } from '../action-status.ts';
 import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
+import { buildMenuItem, wirePopupMenuKeys } from '../menu.ts';
 import { findSessionUi, sessionName } from '../session-card/card-registry.ts';
 import { buildDialogShell, isModalOpen, openConfirmDialog } from '../session-card/modal.ts';
 import { setTerminalActiveViewer } from '../session-card/terminal.ts';
@@ -24,6 +25,7 @@ import {
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const EMPTY_TEXT = 'No boards yet. Make one here, or have an agent run glimmervoid whiteboard new <title>.';
 const PICK_TEXT = 'Pick a board above.';
+const TAB_RENAME_CLASS = 'wb-board-tab-rename';
 const TOOL_BUTTONS: readonly { tool: BoardTool; label: string; key: string }[] = [
   { tool: 'select', label: 'select', key: 'V' },
   { tool: 'box', label: 'box', key: 'R' },
@@ -54,7 +56,7 @@ interface BoardsViewParts {
   dock: HTMLElement;
   dockQueued: HTMLElement;
   sendToAgent: HTMLButtonElement;
-  buttons: Record<'note' | 'frame' | 'unit' | 'fit' | 'remove', HTMLButtonElement>;
+  buttons: Record<'note' | 'frame' | 'unit' | 'fit' | 'boardMenu', HTMLButtonElement>;
   toolButtons: ReadonlyMap<BoardTool, HTMLButtonElement>;
   uncovered: HTMLElement;
 }
@@ -217,7 +219,7 @@ function paintToolbar(): void {
   parts.buttons.frame.disabled = selectedBoxCount === 0;
   parts.buttons.unit.disabled = !board;
   parts.buttons.fit.disabled = !board;
-  parts.buttons.remove.disabled = !board;
+  parts.buttons.boardMenu.disabled = !board;
   parts.toolbar.dataset.selectedCount = String(selectedCount);
   inspector?.paint(editor?.selectedIds() ?? new Set());
 }
@@ -227,15 +229,91 @@ function paintList(): void {
   const summaries = boardSummariesOf();
   if (selectedBoardId && !summaries.some((summary) => summary.id === selectedBoardId)) selectedBoardId = null;
   if (!selectedBoardId && summaries[0]) selectBoard(summaries[0].id);
-  parts.list.replaceChildren(...summaries.map((summary) => {
-    const button = el('button', 'wb-board-tab', summary.title);
-    button.type = 'button';
-    button.setAttribute('aria-pressed', String(summary.id === selectedBoardId));
-    if (summary.connectedSessionIds.length > 0) button.append(el('span', 'wb-board-tab-count', String(summary.connectedSessionIds.length)));
-    button.addEventListener('click', () => selectBoard(summary.id));
-    return button;
-  }));
+  if (!parts.list.querySelector(`.${TAB_RENAME_CLASS}`)) parts.list.replaceChildren(...summaries.map(boardTab));
   paintHead();
+}
+
+function boardTab(summary: BoardSummary): HTMLButtonElement {
+  const isSelected = summary.id === selectedBoardId;
+  const button = el('button', 'wb-board-tab', summary.title);
+  button.type = 'button';
+  button.setAttribute('aria-pressed', String(isSelected));
+  if (isSelected) button.title = 'Click to rename';
+  if (summary.connectedSessionIds.length > 0) button.append(el('span', 'wb-board-tab-count', String(summary.connectedSessionIds.length)));
+  button.addEventListener('click', () => {
+    if (summary.id === selectedBoardId) {
+      startTabRename(button, summary);
+      return;
+    }
+    selectBoard(summary.id);
+  });
+  return button;
+}
+
+function startTabRename(tab: HTMLButtonElement, summary: BoardSummary): void {
+  const input = el('input', `wb-board-tab ${TAB_RENAME_CLASS}`);
+  input.type = 'text';
+  input.value = summary.title;
+  input.maxLength = WHITEBOARD_LIMITS.title;
+  input.setAttribute('aria-label', 'Board title');
+  tab.replaceWith(input);
+  input.focus();
+  input.select();
+  let isFinished = false;
+
+  function finish(shouldSave: boolean): void {
+    if (isFinished) return;
+    isFinished = true;
+    const newTitle = input.value.trim();
+    input.remove();
+    paintList();
+    if (shouldSave && newTitle && newTitle !== summary.title) void sendOps([{ op: 'board', title: newTitle }]);
+  }
+
+  input.addEventListener('blur', () => finish(true));
+  input.addEventListener('keydown', (event) => {
+    event.stopPropagation();
+    if (event.key !== 'Enter' && event.key !== 'Escape') return;
+    event.preventDefault();
+    finish(event.key === 'Enter');
+  });
+}
+
+function buildBoardMenu(onBoardSettings: () => void): { menuRoot: HTMLElement; trigger: HTMLButtonElement } {
+  const menuRoot = el('div', 'session-overflow wb-board-menu');
+  const menu = el('div', 'popup-menu session-overflow-menu');
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', 'Board');
+  const isOpen = () => menu.classList.contains('open');
+  const setOpen = (shouldOpen: boolean) => {
+    menu.classList.toggle('open', shouldOpen);
+    trigger.setAttribute('aria-expanded', String(shouldOpen));
+  };
+  const trigger = toolbarButton('board', () => setOpen(!isOpen()));
+  trigger.setAttribute('aria-haspopup', 'menu');
+  trigger.setAttribute('aria-expanded', 'false');
+  const menuItem = (label: string, onChoose: () => void, extraClass = '') => {
+    const item = buildMenuItem(label, `visible ${extraClass}`.trim());
+    item.addEventListener('click', () => {
+      setOpen(false);
+      onChoose();
+    });
+    return item;
+  };
+  menu.append(menuItem('board settings', onBoardSettings), menuItem('delete board', confirmDeleteBoard, 'wb-board-menu-danger'));
+  menuRoot.append(trigger, menu);
+  wirePopupMenuKeys({
+    trigger,
+    menu,
+    menuItems: () => [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')],
+    isOpen,
+    open: () => setOpen(true),
+    close: () => setOpen(false),
+  });
+  document.addEventListener('click', (event) => {
+    if (isOpen() && event.target instanceof Node && !menuRoot.contains(event.target)) setOpen(false);
+  });
+  return { menuRoot, trigger };
 }
 
 function paintHead(): void {
@@ -364,6 +442,7 @@ function selectBoard(boardId: string): void {
   shouldFitOnNextRender = true;
   editor?.clearSelection();
   editor?.closeTitleInput();
+  inspector?.closeBoardSettings();
   renderer?.clear();
   status.clear();
   paintList();
@@ -509,6 +588,10 @@ function mountBoardsView(panel: HTMLElement): void {
   toolGroup.setAttribute('role', 'group');
   toolGroup.setAttribute('aria-label', 'Drawing tools');
   toolGroup.append(...toolButtons.values());
+  const boardMenu = buildBoardMenu(() => {
+    editor?.clearSelection();
+    inspector?.openBoardSettings();
+  });
   const buttons = {
     note: toolbarButton('note', () => {
       const [box] = selectedElementsOfKind('box');
@@ -517,10 +600,10 @@ function mountBoardsView(panel: HTMLElement): void {
     frame: toolbarButton('frame', addFrame),
     unit: toolbarButton('unit', addUnitFromDialog),
     fit: toolbarButton('fit', () => editor?.fit()),
-    remove: toolbarButton('delete board', confirmDeleteBoard, 'wb-button-danger'),
+    boardMenu: boardMenu.trigger,
   };
   buttons.fit.dataset.phoneVisible = '';
-  toolbar.append(toolGroup, buttons.note, buttons.frame, buttons.unit, buttons.fit, buttons.remove, status.element);
+  toolbar.append(toolGroup, buttons.note, buttons.frame, buttons.unit, buttons.fit, boardMenu.menuRoot, status.element);
   boardHead.append(titleRow, toolbar);
   top.append(list, toolbarButton('new board', newBoardFromDialog), boardHead);
 

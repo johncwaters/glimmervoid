@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Boards no longer hide behind the properties panel.** With nothing selected, a board shows no properties panel, so the whole canvas is visible. Select an element to edit it as before. Rename a board by clicking its tab once it is open: Enter saves, Escape cancels. The new board menu at the end of the toolbar holds board settings (caption, code session and legend) and delete board.
+
 ## [0.49.0] - 2026-10-31
 
 ### Added
