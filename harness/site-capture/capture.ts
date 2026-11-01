@@ -1,8 +1,11 @@
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import type { Page } from 'playwright-core';
-import type { z } from 'zod';
+import type { Locator, Page } from 'playwright-core';
+import type WebSocket from 'ws';
+import { z } from 'zod';
+import { ServerMessage } from '../../shared/contracts/control-messages.ts';
 import { writeJsonAtomic } from '../../server/json-file.ts';
 import { resolveFfmpegPath } from '../../server/runtime-paths.ts';
 import { isolateTranscriptHomes } from '../../tests/helpers/transcript-homes.ts';
@@ -14,10 +17,16 @@ import { ReplayStatus, parseCaptureRecording, redactRecording, validateManifest 
 import type { ReplayEnvironment } from './manifest-core.ts';
 
 const replayAgentPath = path.join(import.meta.dirname, 'replay-agent.ts');
+const glimmervoidCliPath = path.resolve(import.meta.dirname, '../../bin/glimmervoid.ts');
+const cursorGlideMs = 650;
+const replayAgentMemoryReserveMB = 128;
+const demoHomeDirectory = '/home/demo';
 const webFramesPerSecond = 60;
 const posterShotName = 'hero';
 const socialCrop = { width: 1000, height: 300 };
 const readmeGif = { width: 960, height: 600, framesPerSecond: 4 };
+
+type CaptureSessionEntry = ReplayEnvironment['manifest']['sessions'][number];
 
 interface ScreencastFrame {
   fileName: string;
@@ -53,6 +62,50 @@ async function refreshReview(page: Page, sessionId: string): Promise<void> {
   }, { moduleUrl: '/control-ws.ts', id: sessionId });
 }
 
+async function showCursor(page: Page, viewport: { width: number; height: number }): Promise<void> {
+  await page.evaluate(({ startX, startY, glideMs }) => {
+    const cursor = document.createElement('div');
+    cursor.id = 'site-capture-cursor';
+    cursor.style.cssText = `position:fixed;left:0;top:0;z-index:2147483647;pointer-events:none;transform:translate(${startX}px,${startY}px);transition:transform ${glideMs}ms cubic-bezier(.45,0,.2,1)`;
+    cursor.innerHTML = '<span class="site-capture-cursor-ring" style="position:absolute;left:-14px;top:-14px;width:28px;height:28px;border-radius:50%;border:2px solid #b9a8ff;opacity:0;transform:scale(.4)"></span>'
+      + '<svg width="22" height="26" viewBox="0 0 22 26" style="display:block;filter:drop-shadow(0 2px 3px rgba(0,0,0,.55))"><path d="M2 2 L2 21 L7.2 16.4 L10.6 24 L14 22.6 L10.7 15 L18 15 Z" fill="#fff" stroke="#111" stroke-width="1.6" stroke-linejoin="round"/></svg>';
+    document.body.append(cursor);
+  }, { startX: Math.round(viewport.width * 0.62), startY: Math.round(viewport.height * 0.58), glideMs: cursorGlideMs });
+}
+
+async function glideCursorTo(target: Locator): Promise<void> {
+  const box = await target.boundingBox();
+  if (!box) throw new Error('cursor target has no box');
+  await target.page().evaluate(({ x, y }) => {
+    const cursor = document.getElementById('site-capture-cursor');
+    if (cursor) cursor.style.transform = `translate(${x}px,${y}px)`;
+  }, { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) });
+  await sleep(cursorGlideMs, undefined, { signal: cancellation.signal });
+  await target.page().evaluate(() => {
+    const ring = document.querySelector<HTMLElement>('#site-capture-cursor .site-capture-cursor-ring');
+    ring?.animate([{ opacity: 0.9, transform: 'scale(.4)' }, { opacity: 0, transform: 'scale(1.6)' }], { duration: 420, easing: 'ease-out' });
+  });
+  await sleep(120, undefined, { signal: cancellation.signal });
+}
+
+function mapSpawnedChildren(socket: WebSocket, children: CaptureSessionEntry[], sessionIds: Map<string, string>, environment: ReplayEnvironment, mapPath: string): void {
+  const pendingChildren = [...children];
+  socket.on('message', (raw: Buffer) => {
+    const parsedFrame = ServerMessage.safeParse(JSON.parse(raw.toString()));
+    if (!parsedFrame.success || parsedFrame.data.type !== 'session-added') return;
+    const card = parsedFrame.data;
+    if (!card.ownerId || environment.sessionsById[card.id]) return;
+    const parentName = [...sessionIds].find(([, id]) => id === card.ownerId)?.[0];
+    const childIndex = pendingChildren.findIndex((child) => child.spawnedBy === parentName);
+    const child = pendingChildren[childIndex];
+    if (!child) return;
+    pendingChildren.splice(childIndex, 1);
+    sessionIds.set(child.name, card.id);
+    environment.sessionsById[card.id] = child;
+    void writeJsonAtomic(mapPath, environment).then(() => console.log(`session: ${child.name} spawned by ${parentName}`));
+  });
+}
+
 async function readStatuses(environment: ReplayEnvironment): Promise<(z.infer<typeof ReplayStatus> | null)[]> {
   return Promise.all(Object.keys(environment.sessionsById).map(async (sessionId) => {
     const statusText = await fs.readFile(path.join(environment.tempDirectory, `${sessionId}.status.json`), 'utf8').catch((error: NodeJS.ErrnoException) => {
@@ -80,6 +133,7 @@ async function startScreencast(page: Page, framesDirectory: string, viewport: { 
   const frames: ScreencastFrame[] = [];
   let pendingWrites: Promise<void> = Promise.resolve();
   let isStopping = false;
+  let screencastError: unknown = null;
   cdpSession.on('Page.screencastFrame', (frame) => {
     if (isStopping) return;
     const fileName = `frame-${String(frames.length).padStart(6, '0')}.png`;
@@ -87,7 +141,7 @@ async function startScreencast(page: Page, framesDirectory: string, viewport: { 
     pendingWrites = pendingWrites
       .then(() => fs.writeFile(path.join(framesDirectory, fileName), Buffer.from(frame.data, 'base64')))
       .then(() => cdpSession.send('Page.screencastFrameAck', { sessionId: frame.sessionId }))
-      .then(() => undefined);
+      .then(() => undefined, (error: unknown) => { screencastError ??= error; });
   });
   await cdpSession.send('Page.startScreencast', {
     format: 'png', everyNthFrame: 1, maxWidth: viewport.width, maxHeight: viewport.height,
@@ -97,6 +151,7 @@ async function startScreencast(page: Page, framesDirectory: string, viewport: { 
       isStopping = true;
       await cdpSession.send('Page.stopScreencast');
       await pendingWrites;
+      if (screencastError) throw screencastError;
       await cdpSession.detach();
       return frames;
     },
@@ -124,10 +179,10 @@ async function runFfmpeg(ffmpegPath: string, args: string[]): Promise<void> {
 async function encodeWebOutputs(concatPath: string, outputDirectory: string): Promise<void> {
   const ffmpegPath = resolveFfmpegPath();
   if (!ffmpegPath) throw new Error('ffmpeg-static is not installed');
-  const frameInput = ['-f', 'concat', '-safe', '0', '-i', concatPath];
+  const frameInput = ['-reinit_filter', '0', '-f', 'concat', '-safe', '0', '-i', concatPath];
   const webVideoFilter = `fps=${webFramesPerSecond},format=yuv420p`;
   const encodes: { fileName: string; args: string[]; isVideo?: boolean }[] = [
-    { fileName: 'dashboard.webm', isVideo: true, args: [...frameInput, '-vf', webVideoFilter, '-an', '-c:v', 'libaom-av1', '-crf', '22', '-b:v', '0', '-cpu-used', '3', '-row-mt', '1', '-g', '600'] },
+    { fileName: 'dashboard.webm', isVideo: true, args: [...frameInput, '-vf', webVideoFilter, '-an', '-c:v', 'libaom-av1', '-crf', '22', '-b:v', '0', '-cpu-used', '3', '-row-mt', '0', '-g', '600'] },
     { fileName: 'dashboard.mp4', isVideo: true, args: [...frameInput, '-vf', webVideoFilter, '-an', '-c:v', 'libx264', '-preset', 'veryslow', '-tune', 'animation', '-crf', '17', '-profile:v', 'high', '-level:v', '4.2', '-g', '600', '-movflags', '+faststart'] },
     {
       fileName: 'glimmervoid-demo.gif',
@@ -164,6 +219,8 @@ async function main(): Promise<void> {
   const options = parseArguments(process.argv.slice(2));
   const manifestDirectory = path.dirname(options.manifestPath);
   const manifest = validateManifest(JSON.parse(await fs.readFile(options.manifestPath, 'utf8')));
+  const operatorHomeDirectory = os.homedir();
+  manifest.redactions.push({ from: operatorHomeDirectory, to: demoHomeDirectory.length <= operatorHomeDirectory.length ? demoHomeDirectory : '~' });
   manifest.sessions = await Promise.all(manifest.sessions.map(async (session) => {
     const recording = path.resolve(manifestDirectory, session.recording);
     const records = redactRecording(parseCaptureRecording(await fs.readFile(recording, 'utf8')), manifest.redactions);
@@ -172,8 +229,11 @@ async function main(): Promise<void> {
       await fs.access(patch);
       if (!records.some((record) => record.type === 'hook' && record.event === session.patchAtEvent)) throw new Error(`patch event ${session.patchAtEvent} missing in ${session.name}`);
     }
-    return { ...session, recording, patch };
+    const glimmervoidCalls = session.glimmervoidCalls ? path.resolve(manifestDirectory, session.glimmervoidCalls) : undefined;
+    if (glimmervoidCalls) await fs.access(glimmervoidCalls);
+    return { ...session, recording, patch, glimmervoidCalls };
   }));
+  if (manifest.shownFiles) manifest.shownFiles = path.resolve(manifestDirectory, manifest.shownFiles);
   manifest.projects = Object.fromEntries(Object.entries(manifest.projects).map(([projectName, seedDirectory]) => [projectName, path.resolve(manifestDirectory, seedDirectory)]));
   await fs.mkdir(options.outputDirectory, { recursive: true });
   await runIsolatedDashboard({
@@ -193,16 +253,20 @@ async function main(): Promise<void> {
       projectPaths.set(session.project, await createProject(tempDirectory, directoryName, seedDirectory));
     }
     const { port, configPath } = await prepareIsolatedEnvironment({ tempDirectory, repoRoots: [...projectPaths.values()], recordSessions: false });
+    const isolatedConfig = z.record(z.string(), z.unknown()).parse(JSON.parse(await fs.readFile(configPath, 'utf8')));
+    await writeJsonAtomic(configPath, { ...isolatedConfig, sessionMemoryReserveMB: replayAgentMemoryReserveMB });
     const mapPath = path.join(tempDirectory, 'replay-map.json');
     await writeJsonAtomic(mapPath, environment);
     process.env.GLIMMERVOID_SITE_CAPTURE_MAP = mapPath;
     const shimDirectory = path.join(tempDirectory, 'shim');
     await fs.mkdir(shimDirectory);
     await fs.writeFile(path.join(shimDirectory, 'claude'), `#!/bin/sh\nexec ${quoteShell(process.execPath)} ${quoteShell(replayAgentPath)} --site-capture-owner ${quoteShell(tempDirectory)} "$@"\n`, { mode: 0o755 });
+    await fs.writeFile(path.join(shimDirectory, 'glimmervoid'), `#!/bin/sh\nexec ${quoteShell(process.execPath)} ${quoteShell(glimmervoidCliPath)} "$@"\n`, { mode: 0o755 });
     process.env.PATH = `${shimDirectory}${path.delimiter}${savedPath}`;
     const { socket } = await startServer(port, configPath);
     const sessionIds = new Map<string, string>();
-    for (const session of manifest.sessions) {
+    mapSpawnedChildren(socket, manifest.sessions.filter((session) => session.spawnedBy), sessionIds, environment, mapPath);
+    for (const session of manifest.sessions.filter((candidate) => !candidate.spawnedBy)) {
       const projectPath = projectPaths.get(session.project);
       if (!projectPath) throw new Error(`missing project ${session.project}`);
       const sessionId = await addSession(socket, session.name, projectPath);
@@ -212,7 +276,8 @@ async function main(): Promise<void> {
       console.log(`session: ${session.name} (${session.project})`);
     }
     const page = await openDashboard(port, { viewport: manifest.viewport });
-    for (const sessionId of sessionIds.values()) await selectSession(page, sessionId);
+    const addedSessionIds = [...sessionIds.values()];
+    for (const sessionId of addedSessionIds) await selectSession(page, sessionId);
     const firstId = sessionIds.values().next().value;
     if (firstId) await selectSession(page, firstId);
     const readyDeadline = Date.now() + 30_000;
@@ -222,14 +287,21 @@ async function main(): Promise<void> {
     }
     const framesDirectory = path.join(options.outputDirectory, 'frames');
     await fs.rm(framesDirectory, { recursive: true, force: true });
+    await showCursor(page, manifest.viewport);
     const screencast = await startScreencast(page, framesDirectory, manifest.viewport);
     const startAt = Date.now() + 250;
     await writeJsonAtomic(path.join(tempDirectory, 'start.json'), { startAt });
     for (const shot of [...manifest.shots].sort((first, second) => first.atMs - second.atMs)) {
       await waitUntil(startAt + shot.atMs, environment);
+      if (shot.press) {
+        await page.keyboard.press(shot.press);
+        console.log(`press: ${shot.press}`);
+      }
       if (shot.selectSession) {
         const sessionId = sessionIds.get(shot.selectSession);
         if (!sessionId) throw new Error(`unknown session ${shot.selectSession}`);
+        const railRow = page.locator(`.focus-rail button.session-row[data-id="${sessionId}"]`);
+        if (await railRow.isVisible()) await glideCursorTo(railRow);
         await selectSession(page, sessionId);
         await refreshReview(page, sessionId);
         const session = environment.sessionsById[sessionId];
@@ -243,6 +315,17 @@ async function main(): Promise<void> {
           }
         }
       }
+      if (shot.click) {
+        const clickScopeId = shot.clickIn ? sessionIds.get(shot.clickIn) : undefined;
+        if (shot.clickIn && !clickScopeId) throw new Error(`session ${shot.clickIn} is not on the board`);
+        const clickScope = clickScopeId ? page.locator(`[data-id="${clickScopeId}"]`) : page.locator('body');
+        const clickTarget = clickScope.locator(shot.click).locator('visible=true').first();
+        await clickTarget.waitFor({ state: 'visible', timeout: 10_000 });
+        await glideCursorTo(clickTarget);
+        await clickTarget.click();
+        console.log(`click: ${shot.click}${shot.clickIn ? ` in ${shot.clickIn}` : ''}`);
+      }
+      if (!shot.name) continue;
       const shotPath = path.join(options.outputDirectory, `${shot.name}.png`);
       await page.screenshot({ path: shotPath });
       console.log(`shot: ${shotPath} (${(await fs.stat(shotPath)).size} bytes)`);
@@ -255,7 +338,7 @@ async function main(): Promise<void> {
     await closeBrowserContext();
     console.log(`screencast: ${frames.length} frames`);
     const concatPath = path.join(framesDirectory, 'window.ffconcat');
-    await fs.writeFile(concatPath, concatFrameWindow(frames, startAt, startAt + manifest.videoMs));
+    await fs.writeFile(concatPath, concatFrameWindow(frames, startAt + manifest.videoStartMs, startAt + manifest.videoMs));
     await encodeWebOutputs(concatPath, options.outputDirectory);
   });
 }

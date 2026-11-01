@@ -14,6 +14,36 @@ process.once('SIGTERM', () => cancellation.abort());
 process.once('SIGINT', () => cancellation.abort());
 const keepAlive = setInterval(() => {}, 60_000);
 let statusPath: string | undefined;
+const GlimmervoidCall = z.strictObject({ ts: z.number().finite(), args: z.array(z.string()).min(1), exitCode: z.number().int() });
+type GlimmervoidCall = z.infer<typeof GlimmervoidCall>;
+const dashboardChangingVerbs = new Set(['spawn', 'show', 'whiteboard']);
+
+async function readGlimmervoidCalls(callLogPath: string | undefined): Promise<GlimmervoidCall[]> {
+  if (!callLogPath) return [];
+  const lines = (await fs.readFile(callLogPath, 'utf8')).split('\n').filter((line) => line.trim().length > 0);
+  return lines.map((line) => GlimmervoidCall.parse(JSON.parse(line)))
+    .filter((call) => call.exitCode === 0 && dashboardChangingVerbs.has(call.args[0] ?? ''));
+}
+
+async function restoreShownFiles(call: GlimmervoidCall, shownFilesDirectory: string | undefined, worktreePath: string): Promise<void> {
+  if (!shownFilesDirectory || call.args[0] !== 'show') return;
+  const keptNames = new Set(await fs.readdir(shownFilesDirectory));
+  for (const argument of call.args.slice(1)) {
+    if (argument.startsWith('-') || !keptNames.has(path.basename(argument))) continue;
+    const targetPath = path.resolve(worktreePath, argument);
+    if (path.relative(worktreePath, targetPath).startsWith('..')) throw new Error(`shown file ${argument} resolves outside the worktree`);
+    await fs.mkdir(path.dirname(targetPath), { recursive: true });
+    await fs.copyFile(path.join(shownFilesDirectory, path.basename(argument)), targetPath);
+  }
+}
+
+async function replayGlimmervoidCall(call: GlimmervoidCall, shownFilesDirectory: string | undefined): Promise<void> {
+  const worktreePath = await fs.realpath(process.cwd());
+  await restoreShownFiles(call, shownFilesDirectory, worktreePath);
+  await runCommand('glimmervoid', call.args, { cwd: worktreePath, signal: cancellation.signal, timeout: 30_000 }).catch((error: Error & { stderr?: string }) => {
+    throw new Error(`glimmervoid ${call.args[0]} failed: ${error.stderr?.trim() || error.message}`);
+  });
+}
 
 async function runReplay(): Promise<void> {
   if (process.stdin.isTTY) process.stdin.setRawMode(true);
@@ -36,7 +66,12 @@ async function runReplay(): Promise<void> {
   if (!session) throw new Error('recording missing for injected session id');
   const records = redactRecording(parseCaptureRecording(await fs.readFile(session.recording, 'utf8')), environment.manifest.redactions);
   const firstResize = records.find((record) => record.type === 'resize');
-  const timeline = compressTimeline(records, environment.manifest.speed, environment.manifest.maxIdleGapMs);
+  const calls = await readGlimmervoidCalls(session.glimmervoidCalls);
+  const timedEvents = [
+    ...records.map((record) => ({ ts: record.ts, record, call: undefined })),
+    ...calls.map((call) => ({ ts: call.ts, record: undefined, call })),
+  ].sort((first, second) => (first.ts ?? 0) - (second.ts ?? 0));
+  const timeline = compressTimeline(timedEvents, environment.manifest.speed, session.maxIdleGapMs ?? environment.manifest.maxIdleGapMs);
   await writeJsonAtomic(statusPath, { phase: 'ready' });
   const startPath = path.join(environment.tempDirectory, 'start.json');
   while (!(await fs.stat(startPath).catch((error: NodeJS.ErrnoException) => {
@@ -44,14 +79,17 @@ async function runReplay(): Promise<void> {
     throw error;
   }))) await sleep(20, undefined, { signal: cancellation.signal });
   const { startAt } = z.strictObject({ startAt: z.number().finite() }).parse(JSON.parse(await fs.readFile(startPath, 'utf8')));
+  const timelineStartAt = session.spawnedBy ? Date.now() : startAt + session.startAtMs;
   const warning = firstResize && (process.stdout.columns !== firstResize.cols || process.stdout.rows !== firstResize.rows)
     ? `PTY size ${process.stdout.columns}x${process.stdout.rows} differs from recording ${firstResize.cols}x${firstResize.rows}`
     : undefined;
   if (warning) process.stderr.write(`WARNING: ${warning}\n`);
   let hasAppliedPatch = false;
   const replaySessionId = crypto.randomUUID();
-  for (const { record, atMs } of timeline) {
-    await sleep(Math.max(0, startAt + atMs - Date.now()), undefined, { signal: cancellation.signal });
+  for (const { record: { record, call }, atMs } of timeline) {
+    await sleep(Math.max(0, timelineStartAt + atMs - Date.now()), undefined, { signal: cancellation.signal });
+    if (call) { await replayGlimmervoidCall(call, environment.manifest.shownFiles); continue; }
+    if (!record) continue;
     if (record.type === 'data' && typeof record.data === 'string') {
       const output = record.data;
       await new Promise<void>((resolve, reject) => process.stdout.write(output, (error) => {

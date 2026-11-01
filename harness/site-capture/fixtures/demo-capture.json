@@ -1,27 +1,146 @@
 {
-  "viewport": { "width": 1440, "height": 900 },
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
   "speed": 1.5,
   "maxIdleGapMs": 1200,
-  "projects": { "web": "demo/web", "billing": "demo/billing", "ui": "demo/ui", "api": "demo/api" },
+  "projects": {
+    "web": "demo/web",
+    "billing": "demo/billing",
+    "ui": "demo/ui",
+    "api": "demo/api"
+  },
   "redactions": [
-    { "from": "john@johncwaters.com", "to": "demo@example.com" },
-    { "from": "/home/jwaters", "to": "/home/demo" },
-    { "from": "John C. Waters", "to": "Demo Developer" },
-    { "from": "johncwaters", "to": "demo" },
-    { "from": "jwaters", "to": "demo" },
-    { "from": "John", "to": "Demo" },
-    { "from": "Waters", "to": "Doe" }
+    {
+      "from": "john@johncwaters.com",
+      "to": "demo@example.com"
+    },
+    {
+      "from": "John C. Waters",
+      "to": "Demo Developer"
+    },
+    {
+      "from": "johncwaters",
+      "to": "demo"
+    },
+    {
+      "from": "jwaters",
+      "to": "demo"
+    },
+    {
+      "from": "John",
+      "to": "Demo"
+    },
+    {
+      "from": "Waters",
+      "to": "Doe"
+    }
   ],
   "sessions": [
-    { "name": "flaky-upload-test", "project": "web", "recording": "../recordings/flaky-upload-test.jsonl", "patch": "../recordings/flaky-upload-test.patch", "patchAtEvent": "stop" },
-    { "name": "migrate-billing-schema", "project": "billing", "recording": "../recordings/migrate-billing-schema.jsonl" },
-    { "name": "rename-color-token", "project": "ui", "recording": "../recordings/rename-color-token.jsonl", "patch": "../recordings/rename-color-token.patch", "patchAtEvent": "stop" },
-    { "name": "bump-node-22", "project": "api", "recording": "../recordings/bump-node-22.jsonl", "patch": "../recordings/bump-node-22.patch", "patchAtEvent": "stop" }
+    {
+      "name": "rename-color-token",
+      "project": "ui",
+      "recording": "../recordings/rename-color-token.jsonl",
+      "patch": "../recordings/rename-color-token.patch",
+      "patchAtEvent": "stop",
+      "startAtMs": -12000
+    },
+    {
+      "name": "migrate-billing-schema",
+      "project": "billing",
+      "recording": "../recordings/migrate-billing-schema.jsonl",
+      "startAtMs": -10500
+    },
+    {
+      "name": "soak-test",
+      "project": "api",
+      "recording": "../recordings/soak-test.jsonl",
+      "startAtMs": -7000,
+      "maxIdleGapMs": 20000
+    },
+    {
+      "name": "bump-node-22",
+      "project": "api",
+      "recording": "../recordings/bump-node-22.jsonl",
+      "patch": "../recordings/bump-node-22.patch",
+      "patchAtEvent": "stop",
+      "startAtMs": -2000
+    },
+    {
+      "name": "flaky-upload-test",
+      "project": "web",
+      "recording": "../recordings/flaky-upload-test.jsonl",
+      "patch": "../recordings/flaky-upload-test.patch",
+      "patchAtEvent": "stop",
+      "startAtMs": 0
+    },
+    {
+      "name": "audit-images",
+      "project": "web",
+      "recording": "../recordings/audit-images.jsonl",
+      "glimmervoidCalls": "../recordings/audit-images.glimmervoid-calls.jsonl",
+      "startAtMs": -26000
+    },
+    {
+      "name": "compress-images",
+      "project": "web",
+      "recording": "../recordings/audit-images.child-1.jsonl",
+      "spawnedBy": "audit-images"
+    },
+    {
+      "name": "bundle-size-chart",
+      "project": "ui",
+      "recording": "../recordings/bundle-size-chart.jsonl",
+      "glimmervoidCalls": "../recordings/bundle-size-chart.glimmervoid-calls.jsonl",
+      "startAtMs": 4000
+    },
+    {
+      "name": "invoice-rounding",
+      "project": "billing",
+      "recording": "../recordings/invoice-rounding.jsonl",
+      "glimmervoidCalls": "../recordings/invoice-rounding.glimmervoid-calls.jsonl",
+      "startAtMs": 2000
+    }
   ],
   "shots": [
-    { "atMs": 10900, "name": "hero", "selectSession": "rename-color-token" },
-    { "atMs": 12300, "name": "needs-input", "selectSession": "migrate-billing-schema" },
-    { "atMs": 13500, "name": "review", "selectSession": "flaky-upload-test" }
+    {
+      "atMs": 3500,
+      "name": "hero"
+    },
+    {
+      "atMs": 4500,
+      "press": "Alt+KeyJ"
+    },
+    {
+      "atMs": 15000,
+      "selectSession": "bundle-size-chart"
+    },
+    {
+      "atMs": 16200,
+      "click": ".card-face-tab-shown",
+      "clickIn": "bundle-size-chart"
+    },
+    {
+      "atMs": 19500,
+      "press": "Alt+KeyJ"
+    },
+    {
+      "atMs": 21500,
+      "click": ".session-board-chip",
+      "clickIn": "invoice-rounding"
+    },
+    {
+      "atMs": 27500,
+      "click": "#tab-focus"
+    },
+    {
+      "atMs": 28500,
+      "name": "review",
+      "selectSession": "flaky-upload-test"
+    }
   ],
-  "videoMs": 14000
+  "videoMs": 32000,
+  "shownFiles": "../recordings/shown-files",
+  "videoStartMs": 2500
 }
