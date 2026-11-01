@@ -133,36 +133,36 @@ test('a missing, wrong or misshapen credential gets the unknown-session refusal'
   }
 });
 
-test('a Claude Code session spawns with the MCP config and its credential in the environment, never in argv', async () => {
-  const hooksBaseDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-mcp-spawn-'));
-  const spawnCalls: { args: string[]; env: Record<string, string | undefined> }[] = [];
-  const session = new Session({
-    id: 'mcp-spawn',
-    name: 'mcp spawn',
-    path: process.cwd(),
-    spawnCommand: { path: process.execPath, kind: 'exe' },
-    hookRouter: new HookRouter(),
-    getHookPort: () => 41234,
-    hooksBaseDir,
-    ptySpawn: (_file, args, options) => { spawnCalls.push({ args, env: options.env ?? {} }); return fakePty(); },
+for (const agent of ['claude-code', 'codex']) {
+  test(`a ${agent} session spawns with the MCP server url in argv and its credential only in the environment`, async () => {
+    const hooksBaseDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-mcp-spawn-'));
+    const spawnCalls: { args: string[]; env: Record<string, string | undefined> }[] = [];
+    const session = new Session({
+      id: `mcp-spawn-${agent}`,
+      name: `mcp spawn ${agent}`,
+      path: process.cwd(),
+      agent,
+      spawnCommand: { path: process.execPath, kind: 'exe' },
+      hookRouter: new HookRouter(),
+      getHookPort: () => 41234,
+      hooksBaseDir,
+      ptySpawn: (_file, args, options) => { spawnCalls.push({ args, env: options.env ?? {} }); return fakePty(); },
+    });
+    try {
+      await session.start();
+      const [spawnCall] = spawnCalls;
+      assert.ok(spawnCall, 'the session spawned its agent');
+      assert.ok(session.agentToken);
+      assert.equal(spawnCall.env[MCP_CREDENTIAL_ENV], mcpCredentialFor(`mcp-spawn-${agent}`, session.agentToken));
+      assert.ok(spawnCall.args.some((argument) => argument.includes('http://127.0.0.1:41234/mcp')), spawnCall.args.join(' '));
+      assert.ok(spawnCall.args.some((argument) => argument.includes(MCP_CREDENTIAL_ENV)), spawnCall.args.join(' '));
+      assert.ok(!spawnCall.args.some((argument) => argument.includes(session.agentToken ?? 'unset')));
+    } finally {
+      session.destroy();
+      await fsp.rm(hooksBaseDir, { recursive: true, force: true });
+    }
   });
-  try {
-    await session.start();
-    const [spawnCall] = spawnCalls;
-    assert.ok(spawnCall, 'the session spawned its agent');
-    assert.ok(session.agentToken);
-    const credential = mcpCredentialFor('mcp-spawn', session.agentToken);
-    assert.equal(spawnCall.env[MCP_CREDENTIAL_ENV], credential);
-    const mcpConfigIndex = spawnCall.args.indexOf('--mcp-config');
-    assert.ok(mcpConfigIndex >= 0, spawnCall.args.join(' '));
-    const mcpConfig = JSON.parse(spawnCall.args[mcpConfigIndex + 1] ?? '');
-    assert.equal(mcpConfig.mcpServers.glimmervoid.url, 'http://127.0.0.1:41234/mcp');
-    assert.ok(!spawnCall.args.some((argument) => argument.includes(session.agentToken ?? 'unset')));
-  } finally {
-    session.destroy();
-    await fsp.rm(hooksBaseDir, { recursive: true, force: true });
-  }
-});
+}
 
 const ONE_PIXEL_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
 

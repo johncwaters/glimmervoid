@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME } from "../../mcp/core/agent-config.ts";
 import { buildHookCommand } from "./hook-command-core.ts";
 
 type BlockClassification = "absent" | "current" | "managed-stale" | "foreign" | "conflicting";
@@ -145,6 +146,7 @@ interface AgentHomeProfile {
   defaultHomeFolderName: string;
   hooksConflict(operatorText: string): string | null;
   sessionOnlyTablePrefixes: readonly string[];
+  generatedFileNames: readonly string[];
   isPrivateEntryName(name: string, platform: NodeJS.Platform): boolean;
 }
 
@@ -353,7 +355,7 @@ function planEntryLink(real: RealAgentHomeEntry, generated: GeneratedAgentHomeEn
 }
 
 function isKeptOutOfLinks(name: string, inputs: AgentHomeInputs): boolean {
-  return GENERATED_ONLY_NAMES.has(name) || inputs.profile.isPrivateEntryName(name, inputs.platform);
+  return GENERATED_ONLY_NAMES.has(name) || inputs.profile.generatedFileNames.includes(name) || inputs.profile.isPrivateEntryName(name, inputs.platform);
 }
 
 function planAgentHome(inputs: AgentHomeInputs): AgentHomePlan {
@@ -392,6 +394,7 @@ const KIMI_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   defaultHomeFolderName: ".kimi-code",
   hooksConflict: (operatorText: string) => definesHooksOutsideArrayTables(operatorText) ? "it defines hooks as a key or [hooks] table, which a [[hooks]] block cannot extend" : null,
   sessionOnlyTablePrefixes: Object.freeze(["[[hooks#"]),
+  generatedFileNames: Object.freeze([KIMI_MCP_CONFIG_NAME, KIMI_MCP_BASE_NAME]),
   isPrivateEntryName: () => false,
 });
 
@@ -414,6 +417,7 @@ const CODEX_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   defaultHomeFolderName: ".codex",
   hooksConflict: (operatorText: string) => definesCodexHooksOutsideArrayTables(operatorText) ? "it defines hooks as a key or a [hooks] table other than [hooks.state], which [[hooks.<event>]] tables cannot extend" : null,
   sessionOnlyTablePrefixes: Object.freeze(["[[hooks.", "[hooks.state."]),
+  generatedFileNames: Object.freeze([]),
   isPrivateEntryName: (name: string, platform: NodeJS.Platform) => platform === "win32" && CODEX_SQLITE_NAME_PATTERN.test(name),
 });
 

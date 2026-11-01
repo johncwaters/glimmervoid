@@ -20,6 +20,7 @@ interface AgentHomeOptions {
   homeDir?: string;
   platform?: NodeJS.Platform;
   generatedHome?: string;
+  generatedFiles?: Readonly<Record<string, string>>;
 }
 
 interface ScratchAgentHomeOptions {
@@ -288,6 +289,13 @@ function prepareAgentHome(profile: AgentHomeProfile, options: AgentHomeOptions):
       keptPrivateNames.add(step.name);
     }
   }
+  for (const [name, text] of Object.entries(options.generatedFiles ?? {})) {
+    try {
+      writeTextAtomicSync(path.join(generatedHome, name), text, { mode: GENERATED_FILE_MODE, enforceMode: true });
+    } catch (error) {
+      return { refusal: `${path.join(generatedHome, name)} cannot be written: ${errorMessage(error)}` };
+    }
+  }
   const realHome = realAgentHome(profile, options.env, options.homeDir);
   try {
     writeTextAtomicSync(path.join(generatedHome, AGENT_HOME_SOURCES_NAME), `${JSON.stringify(realFileStamps(realHome), null, 2)}\n`, { mode: GENERATED_FILE_MODE });
@@ -297,13 +305,13 @@ function prepareAgentHome(profile: AgentHomeProfile, options: AgentHomeOptions):
   return { home: generatedHome };
 }
 
-function holdPreparedAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv, renderBlock: (operatorText: string) => string): { home: string } | { refusal: string } {
+function holdPreparedAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv, renderBlock: (operatorText: string) => string, renderGeneratedFiles: () => Readonly<Record<string, string>> = () => ({})): { home: string } | { refusal: string } {
   const generatedHome = generatedAgentHomePath(profile, env);
   if (path.resolve(realAgentHome(profile, env)) === path.resolve(generatedHome)) return { refusal: `${profile.homeEnvName} already points at the generated home ${generatedHome}` };
   const linkRefusal = agentHomeLinkRefusal(generatedHome);
   if (linkRefusal !== null) return { refusal: linkRefusal };
   holdAgentHome(generatedHome);
-  const prepared = prepareAgentHome(profile, { env, renderBlock });
+  const prepared = prepareAgentHome(profile, { env, renderBlock, generatedFiles: renderGeneratedFiles() });
   if ("refusal" in prepared) releaseAgentHome(generatedHome);
   return prepared;
 }

@@ -5,12 +5,13 @@ import path from "node:path";
 import { execFileSync } from "../../server/child-process-safe.ts";
 import { relayPath } from "../../server/runtime-paths.ts";
 import { ASK_USER_QUESTION_TOOL_NAME } from "../../shared/contracts/session.ts";
+import { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME, kimiMcpFiles } from "../../mcp/core/agent-config.ts";
 import { KIMI_HOME_PROFILE, renderKimiHooksBlock } from "../core/agent-home-core.ts";
 import { KIMI_SANE_YOLO_FLAVOR } from "../core/sane-yolo.ts";
 import { resolveAgentCommand, buildAgentSpawnCommand } from "../core/spawn-command.ts";
 import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.ts";
 import { buildAgentEnv } from "../core/spawn-env.ts";
-import { holdPreparedAgentHome, prepareScratchAgentHome, realAgentHome, releaseAgentHome } from "../agent-home.ts";
+import { generatedAgentHomePath, holdPreparedAgentHome, prepareScratchAgentHome, realAgentHome, releaseAgentHome } from "../agent-home.ts";
 import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import type {
   AgentAdapterShape,
@@ -18,6 +19,7 @@ import type {
   AgentHookProfile,
   AgentSpawnCommandOptions,
   AgentTitleProfile,
+  GeneratedHomeLaunch,
   ScratchAgentHome,
 } from "./index.ts";
 import type { HookPayload } from "../../shared/contracts/index.ts";
@@ -155,10 +157,37 @@ function describeInstalledHooks(): InstalledHooks {
   return { version: null, isBestEffort: false, hooks: [...relayedHooks, ...matchedToolHooks, ...saneYoloHooks] };
 }
 
-function prepareHome(env: Record<string, string | undefined>): { home: string } | { refusal: string } {
+function readTextOrNull(filePath: string): string | null {
+  try {
+    return fs.readFileSync(filePath, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+function isPlainFile(filePath: string): boolean {
+  try {
+    return fs.lstatSync(filePath, { throwIfNoEntry: false })?.isFile() === true;
+  } catch {
+    return false;
+  }
+}
+
+function mcpFilesFor(env: Record<string, string | undefined>, listenerPort: number): Record<string, string> {
+  const generatedHome = generatedAgentHomePath(KIMI_HOME_PROFILE, env);
+  const generatedMcpPath = path.join(generatedHome, KIMI_MCP_CONFIG_NAME);
+  return kimiMcpFiles({
+    realMcpJson: readTextOrNull(path.join(realAgentHome(KIMI_HOME_PROFILE, env), KIMI_MCP_CONFIG_NAME)),
+    generatedMcpJson: isPlainFile(generatedMcpPath) ? readTextOrNull(generatedMcpPath) : null,
+    baseMcpJson: readTextOrNull(path.join(generatedHome, KIMI_MCP_BASE_NAME)),
+    listenerPort,
+  });
+}
+
+function prepareHome(env: Record<string, string | undefined>, { listenerPort }: GeneratedHomeLaunch): { home: string } | { refusal: string } {
   const hooksBlock = expectedHooksBlock();
   if (hooksBlock === null) return { refusal: HOOKS_BLOCK_REFUSAL };
-  return holdPreparedAgentHome(KIMI_HOME_PROFILE, env, () => hooksBlock);
+  return holdPreparedAgentHome(KIMI_HOME_PROFILE, env, () => hooksBlock, () => mcpFilesFor(env, listenerPort));
 }
 
 function prepareScratchHome(env: Record<string, string | undefined>, scratch: ScratchAgentHome): { home: string } | { refusal: string } {

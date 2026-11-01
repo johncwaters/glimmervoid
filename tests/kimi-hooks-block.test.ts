@@ -181,16 +181,69 @@ test('a kimi spawn heals a file kimi replaced and adopts a private folder once t
   });
 });
 
-test('a kimi spawn refuses a generated home a session swapped for a symlink and writes nothing through it', () => {
+test('a kimi spawn refuses a generated home a session swapped for a symlink or a file and writes nothing through it', () => {
   withKimiHomes(({ env }) => {
     const generatedHome = generatedAgentHomePath(KIMI_HOME_PROFILE, env);
     const swapTarget = path.join(path.dirname(env.GLIMMERVOID_HOME), 'swap-target');
     fs.mkdirSync(swapTarget);
     fs.mkdirSync(path.dirname(generatedHome), { recursive: true });
     fs.symlinkSync(swapTarget, generatedHome);
-    const prepared = kimi.hooks.injection.kind === 'generated-home' ? kimi.hooks.injection.prepareHome(env) : null;
+    const prepared = kimi.hooks.injection.kind === 'generated-home' ? kimi.hooks.injection.prepareHome(env, { listenerPort: 41234 }) : null;
     assert.ok(prepared && 'refusal' in prepared);
     assert.deepEqual(fs.readdirSync(swapTarget), []);
+    fs.unlinkSync(generatedHome);
+    fs.writeFileSync(generatedHome, '');
+    const preparedOverFile = kimi.hooks.injection.kind === 'generated-home' ? kimi.hooks.injection.prepareHome(env, { listenerPort: 41234 }) : null;
+    assert.ok(preparedOverFile && 'refusal' in preparedOverFile);
+  });
+});
+
+test('a kimi spawn loads the operator MCP servers beside the Glimmervoid server, keeps a server a session added, and leaves the real mcp.json alone', () => {
+  withKimiHomes(({ realHome, env }) => {
+    const operatorMcpJson = JSON.stringify({ mcpServers: { docs: { transport: 'http', url: 'https://docs.example/mcp' } } });
+    fs.writeFileSync(path.join(realHome, 'mcp.json'), operatorMcpJson);
+    const generatedHome = generatedAgentHomePath(KIMI_HOME_PROFILE, env);
+    fs.mkdirSync(generatedHome, { recursive: true });
+    fs.writeFileSync(path.join(generatedHome, 'mcp.json'), JSON.stringify({ mcpServers: { legacy: { transport: 'http', url: 'https://legacy.example/mcp' } } }));
+    assert.equal(kimi.hooks.injection.kind, 'generated-home');
+    if (kimi.hooks.injection.kind !== 'generated-home') return;
+    const prepared = kimi.hooks.injection.prepareHome(env, { listenerPort: 41234 });
+    assert.ok('home' in prepared, 'refusal' in prepared ? prepared.refusal : '');
+    try {
+      const generatedMcp = JSON.parse(fs.readFileSync(path.join(prepared.home, 'mcp.json'), 'utf8'));
+      assert.deepEqual(Object.keys(generatedMcp.mcpServers).sort(), ['docs', 'glimmervoid', 'legacy']);
+      assert.equal(generatedMcp.mcpServers.glimmervoid.url, 'http://127.0.0.1:41234/mcp');
+      assert.equal(generatedMcp.mcpServers.glimmervoid.bearerTokenEnvVar, 'GLIMMERVOID_MCP_TOKEN');
+      assert.equal(fs.readFileSync(path.join(realHome, 'mcp.json'), 'utf8'), operatorMcpJson);
+
+      generatedMcp.mcpServers.notes = { transport: 'http', url: 'https://notes.example/mcp' };
+      fs.writeFileSync(path.join(prepared.home, 'mcp.json'), JSON.stringify(generatedMcp));
+      const operatorEditedMcpJson = JSON.stringify({ mcpServers: { docs: { transport: 'http', url: 'https://docs.example/v2/mcp' } } });
+      fs.writeFileSync(path.join(realHome, 'mcp.json'), operatorEditedMcpJson);
+      kimi.hooks.injection.releaseHome(prepared.home);
+      const preparedAgain = kimi.hooks.injection.prepareHome(env, { listenerPort: 41234 });
+      assert.ok('home' in preparedAgain, 'refusal' in preparedAgain ? preparedAgain.refusal : '');
+      const regeneratedMcp = JSON.parse(fs.readFileSync(path.join(preparedAgain.home, 'mcp.json'), 'utf8'));
+      assert.deepEqual(Object.keys(regeneratedMcp.mcpServers).sort(), ['docs', 'glimmervoid', 'legacy', 'notes']);
+      assert.equal(regeneratedMcp.mcpServers.docs.url, 'https://docs.example/v2/mcp');
+      assert.equal(fs.readFileSync(path.join(realHome, 'mcp.json'), 'utf8'), operatorEditedMcpJson);
+
+      regeneratedMcp.mcpServers.docs.url = 'https://docs.example/session/mcp';
+      fs.writeFileSync(path.join(preparedAgain.home, 'mcp.json'), JSON.stringify(regeneratedMcp));
+      fs.writeFileSync(path.join(realHome, 'mcp.json'), '{ "mcpServers": {');
+      kimi.hooks.injection.releaseHome(preparedAgain.home);
+      const preparedWhileMalformed = kimi.hooks.injection.prepareHome(env, { listenerPort: 41234 });
+      assert.ok('home' in preparedWhileMalformed, 'refusal' in preparedWhileMalformed ? preparedWhileMalformed.refusal : '');
+      fs.writeFileSync(path.join(realHome, 'mcp.json'), operatorEditedMcpJson);
+      kimi.hooks.injection.releaseHome(preparedWhileMalformed.home);
+      const preparedAfterRepair = kimi.hooks.injection.prepareHome(env, { listenerPort: 41234 });
+      assert.ok('home' in preparedAfterRepair, 'refusal' in preparedAfterRepair ? preparedAfterRepair.refusal : '');
+      const repairedMcp = JSON.parse(fs.readFileSync(path.join(preparedAfterRepair.home, 'mcp.json'), 'utf8'));
+      assert.deepEqual(Object.keys(repairedMcp.mcpServers).sort(), ['docs', 'glimmervoid', 'legacy', 'notes']);
+      assert.equal(repairedMcp.mcpServers.docs.url, 'https://docs.example/session/mcp');
+    } finally {
+      kimi.hooks.injection.releaseHome(prepared.home);
+    }
   });
 });
 

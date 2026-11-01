@@ -84,10 +84,14 @@ interface ScratchAgentHome {
   files: Readonly<Record<string, string>>;
 }
 
+interface GeneratedHomeLaunch {
+  listenerPort: number;
+}
+
 interface GeneratedHomeInjection {
   kind: "generated-home";
   homeEnvName: string;
-  prepareHome(env: Record<string, string | undefined>): { home: string } | { refusal: string };
+  prepareHome(env: Record<string, string | undefined>, launch: GeneratedHomeLaunch): { home: string } | { refusal: string };
   prepareScratchHome(env: Record<string, string | undefined>, scratch: ScratchAgentHome): { home: string } | { refusal: string };
   releaseHome(home: string): void;
 }
@@ -263,4 +267,4 @@ export {
   resetCommandCache,
   setCustomAgents,
 };
-export type { AgentAdapter, AgentAdapterShape, AgentArgsOptions, AgentCapabilities, AgentCommandOptions, AgentHookProfile, AgentSpawnCommandOptions, AgentTitleProfile, ArgvConfigInjection, GeneratedHomeInjection, HomeHooksFileInjection, HookedAgentHome, ProjectConfigCandidate, ScratchAgentHome };
+export type { AgentAdapter, AgentAdapterShape, AgentArgsOptions, AgentCapabilities, AgentCommandOptions, AgentHookProfile, AgentSpawnCommandOptions, AgentTitleProfile, ArgvConfigInjection, GeneratedHomeInjection, GeneratedHomeLaunch, HomeHooksFileInjection, HookedAgentHome, ProjectConfigCandidate, ScratchAgentHome };
