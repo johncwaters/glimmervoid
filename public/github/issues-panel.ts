@@ -241,7 +241,7 @@ function issuePageRenderKey(issue: IssueRow): string {
   const liveSessionId = liveIssueSession(issue) ? issue.sessionId : null;
   const input = stepInputOf(issue);
   const status = issueStatusOf(input);
-  return `${status.group}:${status.icon.icon}:${status.text}:${issueWaitStartMs(input)}:${liveSessionId ?? ''}`;
+  return `${status.group}:${status.icon.icon}:${status.text}:${liveSessionId ?? ''}`;
 }
 
 function renderIssuePage(): void {
@@ -265,6 +265,11 @@ function renderIssuePage(): void {
   pageHost.replaceChildren(article);
 }
 
+function restartStatusAge(issue: IssueRow): void {
+  const statusAge = pageHost?.querySelector<HTMLElement>('.issues-status-age');
+  if (statusAge) statusAge.dataset.issueAge = new Date(issueWaitStartMs(stepInputOf(issue))).toISOString();
+}
+
 function renderIssuePageKeepingFocus(): void {
   const focused = document.activeElement instanceof HTMLElement && pageHost?.contains(document.activeElement) ? document.activeElement : null;
   const focusedLabel = focused?.textContent;
@@ -284,7 +289,7 @@ function render(): void {
   hasStaleSessionState = false;
   syncPageVisibility();
   renderList();
-  renderIssuePage();
+  renderIssuePageKeepingFocus();
   pollingControls?.update(issuesSnapshot().latestStatus);
   updateAges();
 }
@@ -408,6 +413,7 @@ function refreshIssuesSessionState(): void {
   const issue = selectedIssue();
   const article = pageHost?.querySelector<HTMLElement>('.issues-page');
   if (page.kind === 'issue' && issue && article?.dataset.renderKey !== issuePageRenderKey(issue)) renderIssuePageKeepingFocus();
+  if (page.kind === 'issue' && issue) restartStatusAge(issue);
   updateAges();
 }
 

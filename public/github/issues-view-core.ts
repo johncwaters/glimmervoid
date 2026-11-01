@@ -35,7 +35,7 @@ export function issueStepOf({ issue, session, pullRequestStates }: IssueStepInpu
   return 'triage';
 }
 
-export function issueGroupOf(input: IssueStepInput): IssueGroup {
+function issueGroupOf(input: IssueStepInput): IssueGroup {
   const step = issueStepOf(input);
   if (step !== 'running' || !input.session) return step;
   if (input.session.state === STATES.FAILED) return 'failed';
