@@ -113,7 +113,7 @@ function createServerHandlers(_context: ControlContext, deps: ControlHandlerDeps
     'restart-server': handleRestart,
     'update-check': handleUpdateCheck,
     'update-apply': handleUpdateApply,
-    'focus-change': (msg: ClientMessageOf<'focus-change'>, ws: ControlSocket) => { if (handleClientFocus) handleClientFocus(ws, !!msg.focused); },
+    'focus-change': (msg: ClientMessageOf<'focus-change'>, ws: ControlSocket) => { if (handleClientFocus) handleClientFocus(ws, msg.viewedSessionIds); },
     'client-error': (msg: ClientMessageOf<'client-error'>) => {
       if (typeof msg.name !== 'string' || typeof msg.stack !== 'string') return;
       deps.telemetry?.captureClientError({ name: msg.name, stack: msg.stack });

@@ -1,14 +1,9 @@
 interface ClientPresence {
   connect: (key: unknown) => void;
   disconnect: (key: unknown) => void;
-  setFocus: (key: unknown, focused: boolean) => void;
+  setViewedSessions: (key: unknown, viewedSessionIds: readonly string[]) => void;
   connectionCount: () => number;
-  shouldSuppress: () => boolean;
-}
-
-function decideFocusSuppression(focusStates: unknown): boolean {
-  if (!Array.isArray(focusStates) || focusStates.length === 0) return false;
-  return focusStates.every(Boolean);
+  isSessionInView: (sessionId: string) => boolean;
 }
 
 function decideOffDashboardDelivery(connectionCount: number): boolean {
@@ -16,27 +11,34 @@ function decideOffDashboardDelivery(connectionCount: number): boolean {
 }
 
 function createClientPresence(): ClientPresence {
-  const focusedByConnection = new Map<unknown, boolean>();
+  const viewedSessionIdsByConnection = new Map<unknown, ReadonlySet<string>>();
 
   function connect(key: unknown): void {
-    if (focusedByConnection.has(key)) return;
-    focusedByConnection.set(key, false);
+    if (viewedSessionIdsByConnection.has(key)) return;
+    viewedSessionIdsByConnection.set(key, new Set());
   }
 
   function disconnect(key: unknown): void {
-    focusedByConnection.delete(key);
+    viewedSessionIdsByConnection.delete(key);
   }
 
-  function setFocus(key: unknown, focused: boolean): void {
-    focusedByConnection.set(key, !!focused);
+  function setViewedSessions(key: unknown, viewedSessionIds: readonly string[]): void {
+    viewedSessionIdsByConnection.set(key, new Set(viewedSessionIds));
+  }
+
+  function isSessionInView(sessionId: string): boolean {
+    for (const viewedSessionIds of viewedSessionIdsByConnection.values()) {
+      if (viewedSessionIds.has(sessionId)) return true;
+    }
+    return false;
   }
 
   return {
     connect,
     disconnect,
-    setFocus,
-    connectionCount: () => focusedByConnection.size,
-    shouldSuppress: () => decideFocusSuppression([...focusedByConnection.values()]),
+    setViewedSessions,
+    connectionCount: () => viewedSessionIdsByConnection.size,
+    isSessionInView,
   };
 }
 

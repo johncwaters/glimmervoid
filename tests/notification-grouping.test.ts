@@ -54,3 +54,17 @@ test('the phone channel hears about an alert only once it has sat unacknowledged
   assert.deepEqual(phoneCalls.map(({ sessionId, context }) => [sessionId, context.phoneEscalation]), [['api', true]]);
   notificationManager.destroy();
 });
+
+test('an alert for a session the operator is viewing is acknowledged on arrival while other sessions still deliver', async () => {
+  const { notificationManager, dashboardCalls, phoneCalls } = createManagerWithChannels({ nowMs: () => Date.now(), phoneEscalationMs: 20 });
+  notificationManager.setSessionInViewCheck((sessionId) => sessionId === 'api');
+
+  notificationManager.trigger('api', 'waiting', 'api needs input');
+  notificationManager.trigger('web', 'waiting', 'web needs input');
+  await delay(60);
+
+  assert.deepEqual(dashboardCalls.map(({ sessionId }) => sessionId), ['web']);
+  assert.deepEqual(phoneCalls.map(({ sessionId }) => sessionId), ['web']);
+  assert.equal(notificationManager.getNotificationState('api'), 'IDLE');
+  notificationManager.destroy();
+});

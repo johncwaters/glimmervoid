@@ -109,24 +109,19 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
   });
   void telegramOutbox.replay();
 
-  function updateNotifySuppression(): void {
-    notificationManager.setFocusSuppressed(clientPresence.shouldSuppress());
-  }
+  notificationManager.setSessionInViewCheck(clientPresence.isSessionInView);
 
-  function handleClientFocus(socket: WebSocket, focused: boolean): void {
-    clientPresence.setFocus(socket, focused);
-    updateNotifySuppression();
+  function handleClientFocus(socket: WebSocket, viewedSessionIds: readonly string[]): void {
+    clientPresence.setViewedSessions(socket, viewedSessionIds);
   }
 
   controlWss.on('connection', (socket) => {
     clientPresence.connect(socket);
-    updateNotifySuppression();
     socket.on('error', (error) => {
       logger.warn(`[control-ws] Error: ${error.message}`);
     });
     socket.on('close', () => {
       clientPresence.disconnect(socket);
-      updateNotifySuppression();
     });
   });
 

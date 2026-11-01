@@ -2,7 +2,6 @@
 export const NOTIFICATION_STATES = Object.freeze({
   IDLE:         'IDLE',
   PENDING:      'PENDING',
-  SUPPRESSED:   'SUPPRESSED',
   DELIVERED:    'DELIVERED',
   ESCALATED:    'ESCALATED',
   ESCALATED_PHONE: 'ESCALATED_PHONE',
@@ -16,15 +15,7 @@ export const NOTIFICATION_TRANSITIONS: Readonly<Record<NotificationState, Readon
     trigger:           NOTIFICATION_STATES.PENDING,
   },
   [NOTIFICATION_STATES.PENDING]: {
-    suppressed:        NOTIFICATION_STATES.SUPPRESSED,
     deliver:           NOTIFICATION_STATES.DELIVERED,
-    acknowledge:       NOTIFICATION_STATES.IDLE,
-    session_destroyed: NOTIFICATION_STATES.IDLE,
-  },
-  [NOTIFICATION_STATES.SUPPRESSED]: {
-    trigger:           NOTIFICATION_STATES.PENDING,
-    unsuppress:        NOTIFICATION_STATES.PENDING,
-    phone_escalation:  NOTIFICATION_STATES.ESCALATED_PHONE,
     acknowledge:       NOTIFICATION_STATES.IDLE,
     session_destroyed: NOTIFICATION_STATES.IDLE,
   },

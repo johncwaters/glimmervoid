@@ -67,7 +67,7 @@ interface NotificationManagerDependencies extends NotificationManagerOptions {
 class NotificationManager extends EventEmitter {
   _entries: Map<string, NotificationEntry>;
   _channels: RegisteredChannel[];
-  _focusSuppressed: boolean;
+  _isSessionInView: (sessionName: string) => boolean;
   _escalationIntervalMs: number;
   _alertGroupWindowMs: number;
   _phoneEscalationMs: number;
@@ -86,7 +86,7 @@ class NotificationManager extends EventEmitter {
     super();
     this._entries = new Map();
     this._channels = [];
-    this._focusSuppressed = false;
+    this._isSessionInView = () => false;
     this._escalationIntervalMs = escalationIntervalMs;
     this._alertGroupWindowMs = alertGroupWindowMs;
     this._phoneEscalationMs = phoneEscalationMs;
@@ -110,15 +110,8 @@ class NotificationManager extends EventEmitter {
     this._channels.push({ name, fn, offDashboard, canEscalate });
   }
 
-  setFocusSuppressed(val: unknown): void {
-    const was = this._focusSuppressed;
-    this._focusSuppressed = !!val;
-    if (was && !this._focusSuppressed) {
-      for (const name of [...this._entries.keys()]) {
-        const entry = this._entries.get(name);
-        if (entry && entry.state === NS.SUPPRESSED) this._transition(name, 'unsuppress');
-      }
-    }
+  setSessionInViewCheck(isSessionInView: (sessionName: string) => boolean): void {
+    this._isSessionInView = isSessionInView;
   }
 
   trigger(sessionName: string, category: string, message: string, kind: NotificationKind | null = null): boolean {
@@ -220,15 +213,11 @@ class NotificationManager extends EventEmitter {
         this._clearPhoneTimer(entry);
         entry.hasReachedPhone = false;
         entry.pendingSinceMs = this._now();
-        if (this._focusSuppressed) {
-          this._transition(sessionName, 'suppressed');
+        if (this._isSessionInView(sessionName)) {
+          this._transition(sessionName, 'acknowledge');
           return;
         }
         this._transition(sessionName, 'deliver');
-        break;
-
-      case NS.SUPPRESSED:
-        this._armPhoneEscalation(sessionName, entry);
         break;
 
       case NS.DELIVERED:

@@ -78,7 +78,7 @@ interface BackendControlDependencies {
   applySettingsReload: (config: GlimmervoidConfig) => void;
   requestShutdown: () => unknown;
   requestRestart: () => unknown;
-  handleClientFocus: (socket: ControlSocket, focused: boolean) => void;
+  handleClientFocus: (socket: ControlSocket, viewedSessionIds: readonly string[]) => void;
   buildHealthSnapshot: () => Record<string, unknown>;
   getUpdateStatus: () => UpdateStatus | null;
   getUpdateJournal: () => UpdateJournal;
