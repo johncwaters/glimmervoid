@@ -10,6 +10,9 @@ import type { ViteDevServer } from 'vite';
 import type WebSocket from 'ws';
 import { z } from 'zod';
 import { SessionCardFields } from '../../shared/contracts/control-messages.ts';
+import { Op } from '../../shared/contracts/whiteboard.ts';
+import { applyOps, createBoard } from '../../shared/whiteboard-ops-core.ts';
+import { writeJsonAtomic } from '../../server/json-file.ts';
 import { CARD_REGISTRY_URL, readGrid } from '../browser/probe.ts';
 import type { GridReading } from '../browser/probe.ts';
 import { connectControl, removeHarnessTempDirectory } from '../support/backend-harness.ts';
@@ -232,6 +235,18 @@ export async function runIsolatedDashboard(options: IsolatedDashboardOptions, ru
     process.off('SIGINT', onSignal);
     process.off('SIGTERM', onSignal);
   }
+}
+
+const WhiteboardSeed = z.strictObject({ id: z.string().min(1), title: z.string().min(1), ops: z.array(Op).min(1) });
+
+export async function seedWhiteboard(configPath: string, seedPath: string): Promise<void> {
+  const seed = WhiteboardSeed.parse(JSON.parse(await fs.readFile(seedPath, 'utf8')));
+  const seededAtMs = Date.now();
+  const applied = applyOps(createBoard({ id: seed.id, title: seed.title, nowMs: seededAtMs }), seed.ops, { id: 'site-capture', name: 'site-capture' }, seededAtMs);
+  if (!applied.ok) throw new Error(`board seed ${seedPath} op ${applied.opIndex + 1}: ${applied.error}`);
+  const boardsDirectory = path.join(path.dirname(configPath), 'whiteboards');
+  await fs.mkdir(boardsDirectory, { recursive: true });
+  await writeJsonAtomic(path.join(boardsDirectory, `${seed.id}.json`), { board: applied.board, log: [], cursorBySessionId: {}, createdBy: null });
 }
 
 export { prepareIsolatedEnvironment } from '../support/backend-harness.ts';

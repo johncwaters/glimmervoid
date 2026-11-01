@@ -65,8 +65,9 @@
       "project": "billing",
       "dangerouslySkipPermissions": true,
       "maxMinutes": 5,
-      "task": "Sketch the invoice total flow on a shared whiteboard before touching code. Run these three commands exactly, one at a time: glimmervoid whiteboard new \"Invoice rounding\" then glimmervoid whiteboard put \"Invoice rounding\" '[{\"op\":\"add\",\"element\":{\"kind\":\"box\",\"id\":\"lines\",\"title\":\"Invoice lines\",\"lines\":[{\"text\":\"price x quantity\"}],\"at\":{\"x\":80,\"y\":120}}},{\"op\":\"add\",\"element\":{\"kind\":\"box\",\"id\":\"tax\",\"title\":\"Tax\",\"lines\":[{\"text\":\"subtotal x rate\"}],\"near\":{\"of\":\"lines\",\"side\":\"right\"}}}]' then glimmervoid whiteboard put \"Invoice rounding\" '[{\"op\":\"add\",\"element\":{\"kind\":\"box\",\"id\":\"round\",\"title\":\"Round to cents\",\"shape\":\"decision\",\"lines\":[{\"text\":\"half-up or half-even?\"}],\"near\":{\"of\":\"tax\",\"side\":\"right\"}}},{\"op\":\"add\",\"element\":{\"kind\":\"wire\",\"id\":\"w1\",\"from\":\"lines\",\"to\":\"tax\"}},{\"op\":\"add\",\"element\":{\"kind\":\"wire\",\"id\":\"w2\",\"from\":\"tax\",\"to\":\"round\"}}]'. Then read src/invoice.js and ask me with the AskUserQuestion tool whether totals should round half-up or half-even (banker's rounding), and wait for my answer."
+      "task": "The shared whiteboard \"Invoice total\" already maps how billing computes a total. Connect to it with: glimmervoid whiteboard connect \"Invoice total\", then read it with: glimmervoid whiteboard get \"Invoice total\" --layout. Then add a rounding step to it by running exactly: glimmervoid whiteboard put \"Invoice total\" --file board/add-rounding.json. Read src/invoice.js, then ask me with the AskUserQuestion tool whether totals should round half-up or half-even (banker's rounding), with Half-up as the first option. After I answer, run exactly one of: glimmervoid whiteboard put \"Invoice total\" --file board/half-up.json (for half-up) or glimmervoid whiteboard put \"Invoice total\" --file board/half-even.json (for half-even). Then reply with one line naming the rule. Do not edit any code."
     }
   ],
-  "effort": "low"
+  "effort": "low",
+  "boardSeed": "demo-board.json"
 }

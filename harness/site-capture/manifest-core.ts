@@ -36,10 +36,11 @@ export const CaptureManifest = z.strictObject({
   redactions: z.array(Redaction).default([]),
   sessions: z.array(CaptureSession).min(1),
   shownFiles: z.string().min(1).optional(),
+  boardSeed: z.string().min(1).optional(),
   shots: z.array(z.strictObject({
     atMs: z.number().finite().nonnegative(),
     name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/).optional(),
-    selectSession: z.string().optional(),
+    pressUntilFocused: z.string().optional(),
     press: z.string().regex(/^[A-Za-z0-9+]+$/).optional(),
     click: z.string().min(1).optional(),
     clickIn: z.string().optional(),
@@ -66,8 +67,8 @@ export const CaptureManifest = z.strictObject({
     if (shot.clickIn !== undefined && !sessionNames.has(shot.clickIn)) context.addIssue({ code: 'custom', path: ['shots', index, 'clickIn'], message: 'unknown session name' });
     if (shot.clickIn !== undefined && shot.click === undefined) context.addIssue({ code: 'custom', path: ['shots', index, 'clickIn'], message: 'clickIn needs click' });
     if (shot.atMs > manifest.videoMs) context.addIssue({ code: 'custom', path: ['shots', index, 'atMs'], message: 'shot must fall within videoMs' });
-    if (shot.selectSession !== undefined && !sessionNames.has(shot.selectSession)) {
-      context.addIssue({ code: 'custom', path: ['shots', index, 'selectSession'], message: 'unknown session name' });
+    if (shot.pressUntilFocused !== undefined && !sessionNames.has(shot.pressUntilFocused)) {
+      context.addIssue({ code: 'custom', path: ['shots', index, 'pressUntilFocused'], message: 'unknown session name' });
     }
   }
 });
@@ -85,6 +86,7 @@ const RecordSession = z.strictObject({
 export const RecordManifest = z.strictObject({
   viewport,
   model: z.string().regex(/^[A-Za-z0-9._-]+$/).default('sonnet'),
+  boardSeed: z.string().min(1).optional(),
   effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('medium'),
   projects: projectSeeds,
   sessions: z.array(RecordSession).min(1),
@@ -223,6 +225,21 @@ export function parseCaptureRecording(text: string): ReplayRecord[] {
   if (agent !== null && agent !== 'claude-code') throw new Error('site capture requires a Claude Code recording');
   if (!records.some((record) => record.type === 'data')) throw new Error('recording has no terminal data');
   return records;
+}
+
+const StateOrInputRecord = z.object({ type: z.string(), ts: z.number().finite().optional(), to: z.string().optional(), data: z.string().optional() });
+
+export function findEnterAnswerTimestamps(text: string): number[] {
+  const answerTimestamps: number[] = [];
+  let latestStateReached: string | undefined;
+  for (const line of text.split(/\r?\n/).filter((line) => line.trim().length > 0)) {
+    const record = StateOrInputRecord.parse(JSON.parse(line));
+    if (record.type === 'state') { latestStateReached = record.to; continue; }
+    if (record.type !== 'input' || record.data !== '\r' || record.ts === undefined || latestStateReached !== STATES.WAITING) continue;
+    answerTimestamps.push(record.ts);
+    latestStateReached = undefined;
+  }
+  return answerTimestamps;
 }
 
 const terminalEscapeSequence = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[@-Z\\-_]/g;

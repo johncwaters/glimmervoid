@@ -14,7 +14,7 @@ import { dashboardClient, openSocket } from '../../tests/helpers/dashboard-ws.ts
 import { safeTextTail } from '../support/backend-harness.ts';
 import {
   addSession, cancellation, createProject, git, listProcessesMentioning, prepareIsolatedEnvironment, quoteShell, readSessionGrid,
-  refuseUnsupportedLaunch, runIsolatedDashboard, selectSession,
+  refuseUnsupportedLaunch, runIsolatedDashboard, seedWhiteboard, selectSession,
 } from './isolated-glimmervoid.ts';
 import { classifyClaudeStartup, hasRunSettled, isRecordingClosed, validateRecordManifest } from './manifest-core.ts';
 import type { RecordManifest } from './manifest-core.ts';
@@ -48,6 +48,7 @@ const agentHomeDirectoryName = 'agent-home';
 const claudeCredentialsFileName = '.credentials.json';
 const claudeGlobalConfigFileName = '.claude.json';
 const shownFilesDirectoryName = 'shown-files';
+const maxEnterAnswersPerSession = 3;
 const glimmervoidCliPath = path.resolve(import.meta.dirname, '../../bin/glimmervoid.ts');
 const glimmervoidCallLogPath = path.join(import.meta.dirname, 'glimmervoid-call-log.ts');
 const demoSettingsRelativePath = path.join('.claude', 'settings.local.json');
@@ -215,6 +216,19 @@ async function waitForSettledRun(progress: SessionProgress, maxMinutes: number):
   return false;
 }
 
+async function answerWaitsWithEnter(inputSocket: WebSocket, progress: SessionProgress, maxMinutes: number): Promise<void> {
+  let answerCount = 0;
+  while (progress.statesSeen.at(-1) === STATES.WAITING && answerCount < maxEnterAnswersPerSession) {
+    await sleep(1500, undefined, { signal: cancellation.signal });
+    const statesBeforeAnswer = progress.statesSeen.length;
+    await sendInput(inputSocket, '\r');
+    answerCount += 1;
+    if (!await waitFor(() => progress.statesSeen.length > statesBeforeAnswer, 30_000)) throw new Error('Enter did not move the waiting session on');
+    const isSettled = await waitForSettledRun(progress, maxMinutes);
+    console.log(`  answered with Enter, run ${isSettled ? 'settled' : 'hit maxMinutes'} as ${progress.statesSeen.at(-1)}`);
+  }
+}
+
 async function exportCommits(projectPath: string, branch: string | null, patchPath: string): Promise<string[]> {
   await fs.rm(patchPath, { force: true });
   if (!branch) return [];
@@ -295,6 +309,8 @@ async function recordSession(context: RecordContext, session: RecordSession): Pr
     await submitTask(inputSocket, progress);
     const isSettled = await waitForSettledRun(progress, session.maxMinutes);
     console.log(`  run ${isSettled ? 'settled' : 'hit maxMinutes'} as ${progress.statesSeen.at(-1)} after ${Math.round((Date.now() - startedAt) / 1000)}s`);
+    if (!isSettled) await context.page.screenshot({ path: path.join(context.outputDirectory, `${session.name}.unsettled.png`) });
+    await answerWaitsWithEnter(inputSocket, progress, session.maxMinutes);
     childIds = await waitForSpawnedChildren(context, sessionIdsBefore, sessionId, session.maxMinutes);
     await sleep(2000, undefined, { signal: cancellation.signal });
     const commitSubjects = await exportCommits(projectPath, progress.branch, path.join(context.outputDirectory, `${session.name}.patch`));
@@ -357,6 +373,7 @@ async function main(): Promise<void> {
     const demoSettings = { skipDangerousModePermissionPrompt: true, permissions: { deny: demoDeniedPermissions } };
     await fs.writeFile(demoSettingsPath, `${JSON.stringify(demoSettings, null, 2)}\n`);
     const { port, configPath } = await prepareIsolatedEnvironment({ tempDirectory, repoRoots: [...projectPaths.values()], recordSessions: true });
+    if (manifest.boardSeed) await seedWhiteboard(configPath, path.resolve(manifestDirectory, manifest.boardSeed));
     processNeedles = [tempDirectory, `127.0.0.1:${port}`];
     const wrapperDirectory = path.join(tempDirectory, 'bin');
     await fs.mkdir(wrapperDirectory);

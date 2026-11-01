@@ -1,0 +1,44 @@
+[
+  {
+    "op": "set",
+    "id": "round",
+    "fields": {
+      "lines": [
+        {
+          "text": "half-up, per line item"
+        }
+      ]
+    }
+  },
+  {
+    "op": "set",
+    "id": "total",
+    "fields": {
+      "title": "Rounded total",
+      "change": "relabeled",
+      "was": "Invoice total",
+      "lines": [
+        {
+          "text": "sum of rounded rows + tax",
+          "style": "code"
+        }
+      ]
+    }
+  },
+  {
+    "op": "set",
+    "id": "fix-drift",
+    "fields": {
+      "status": "building"
+    }
+  },
+  {
+    "op": "add",
+    "element": {
+      "kind": "note",
+      "id": "rule",
+      "on": "round",
+      "text": "Chosen: half-up, matches what customers expect"
+    }
+  }
+]

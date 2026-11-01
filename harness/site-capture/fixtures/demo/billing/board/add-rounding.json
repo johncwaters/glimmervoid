@@ -1,0 +1,67 @@
+[
+  {
+    "op": "add",
+    "element": {
+      "kind": "box",
+      "id": "round",
+      "title": "Round to cents",
+      "shape": "decision",
+      "change": "added",
+      "lines": [
+        {
+          "text": "half-up or half-even?"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "cents",
+          "label": "cents"
+        }
+      ],
+      "at": {
+        "x": 400,
+        "y": 300
+      }
+    }
+  },
+  {
+    "op": "remove",
+    "id": "tax-total"
+  },
+  {
+    "op": "remove",
+    "id": "export-total"
+  },
+  {
+    "op": "add",
+    "element": {
+      "kind": "wire",
+      "id": "tax-round",
+      "from": "tax",
+      "to": "round",
+      "fromOutput": "domestic",
+      "label": "amount"
+    }
+  },
+  {
+    "op": "add",
+    "element": {
+      "kind": "wire",
+      "id": "export-round",
+      "from": "tax",
+      "to": "round",
+      "fromOutput": "export",
+      "dashed": true
+    }
+  },
+  {
+    "op": "add",
+    "element": {
+      "kind": "wire",
+      "id": "round-total",
+      "from": "round",
+      "to": "total",
+      "fromOutput": "cents"
+    }
+  }
+]

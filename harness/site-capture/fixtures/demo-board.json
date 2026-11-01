@@ -1,0 +1,209 @@
+{
+  "id": "invoice-total",
+  "title": "Invoice total",
+  "ops": [
+    {
+      "op": "board",
+      "caption": "How billing turns line items into the total a customer pays"
+    },
+    {
+      "op": "add",
+      "element": {
+        "kind": "box",
+        "id": "items",
+        "title": "Line items",
+        "lines": [
+          {
+            "text": "price x quantity",
+            "style": "code"
+          },
+          {
+            "text": "per product row",
+            "muted": true
+          }
+        ],
+        "at": {
+          "x": 40,
+          "y": 60
+        }
+      }
+    },
+    {
+      "op": "add",
+      "element": {
+        "kind": "box",
+        "id": "discounts",
+        "title": "Discounts",
+        "lines": [
+          {
+            "text": "coupon",
+            "style": "item"
+          },
+          {
+            "text": "volume tier",
+            "style": "item"
+          }
+        ],
+        "at": {
+          "x": 400,
+          "y": 60
+        }
+      }
+    },
+    {
+      "op": "add",
+      "element": {
+        "kind": "box",
+        "id": "subtotal",
+        "title": "Subtotal",
+        "lines": [
+          {
+            "text": "sum of rows minus discounts"
+          }
+        ],
+        "at": {
+          "x": 760,
+          "y": 60
+        }
+      }
+    },
+    {
+      "op": "add",
+      "element": {
+        "kind": "box",
+        "id": "tax",
+        "title": "Tax",
+        "shape": "decision",
+        "lines": [
+          {
+            "text": "region rate",
+            "key": "rate",
+            "style": "kv"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "domestic",
+            "label": "domestic"
+          },
+          {
+            "id": "export",
+            "label": "export, 0%"
+          }
+        ],
+        "at": {
+          "x": 760,
+          "y": 300
+        }
+      }
+    },
+    {
+      "op": "add",
+      "element": {
+        "kind": "box",
+        "id": "total",
+        "title": "Invoice total",
+        "lines": [
+          {
+            "text": "Math.round((subtotal + tax) * 100) / 100",
+            "style": "code"
+          }
+        ],
+        "at": {
+          "x": 40,
+          "y": 300
+        }
+      }
+    },
+    {
+      "op": "add",
+      "element": {
+        "kind": "wire",
+        "id": "items-discounts",
+        "from": "items",
+        "to": "discounts"
+      }
+    },
+    {
+      "op": "add",
+      "element": {
+        "kind": "wire",
+        "id": "discounts-subtotal",
+        "from": "discounts",
+        "to": "subtotal"
+      }
+    },
+    {
+      "op": "add",
+      "element": {
+        "kind": "wire",
+        "id": "subtotal-tax",
+        "from": "subtotal",
+        "to": "tax"
+      }
+    },
+    {
+      "op": "add",
+      "element": {
+        "kind": "wire",
+        "id": "tax-total",
+        "from": "tax",
+        "to": "total",
+        "fromOutput": "domestic",
+        "label": "amount"
+      }
+    },
+    {
+      "op": "add",
+      "element": {
+        "kind": "wire",
+        "id": "export-total",
+        "from": "tax",
+        "to": "total",
+        "fromOutput": "export",
+        "dashed": true
+      }
+    },
+    {
+      "op": "add",
+      "element": {
+        "kind": "panel",
+        "id": "source",
+        "title": "src/invoice.js",
+        "lines": [
+          {
+            "text": "export function invoiceTotal(rows, rate)",
+            "style": "code"
+          },
+          {
+            "text": "rounds once, at the very end",
+            "muted": true
+          }
+        ]
+      }
+    },
+    {
+      "op": "add",
+      "element": {
+        "kind": "note",
+        "id": "drift",
+        "on": "total",
+        "text": "Support: some totals come out one cent high on .5 amounts"
+      }
+    },
+    {
+      "op": "add",
+      "element": {
+        "kind": "unit",
+        "id": "fix-drift",
+        "title": "Fix the cent drift",
+        "lines": [
+          {
+            "text": "pick a rounding rule"
+          }
+        ],
+        "status": "planned"
+      }
+    }
+  ]
+}
