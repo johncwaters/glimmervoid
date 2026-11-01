@@ -14,7 +14,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 | `vite.server.config.ts`, `scripts/build.mjs` | The node bundles, and the orchestrator that owns `dist/` |
 | `server/runtime-paths.ts` | The ONLY derivation of where a shipped asset lives (pure core in `server/core/runtime-paths.ts`); nothing else may guess from `import.meta` |
 | `package.json`, `biome.json`, `socket.yml` | Runtime/dev config; package, lint and scan policy |
-| `DESIGN.md`, `DESIGN.json`, `PRODUCT.md` | Visual system and product definition |
+| `brand-bible/`, `DESIGN.md` | Brand source of truth, validated by the auditing-brand skill; component and state rationale |
 | `docs/`, `bin/` | Design records and npm CLI |
 | `Glimmervoid.spec.md`, `*.spec.md`, `coherence.config.json`, `lexicon.json` | Coherence: the entry spec at the root, a component spec beside each unit's code, its config and vocabulary; `npm test` fails on a spec or lexicon problem |
 | `server/` | Backend runtime and lanes (`server/AGENTS.md`) |

@@ -89,13 +89,4 @@ function decideAcknowledge(
   return { shouldAcknowledge: isLeavingNotifiedState || isAcknowledgeDeferred, isAcknowledgeDeferred: false };
 }
 
-function decideNotification(
-  to: string,
-  gate: NotifyGate,
-  event?: string,
-  opts?: NotifyOptions | null,
-): string | null {
-  return explainNotification(to, gate, event, opts).category;
-}
-
-export { createNotifyGate, decideAcknowledge, decideNotification, explainNotification };
+export { createNotifyGate, decideAcknowledge, explainNotification };

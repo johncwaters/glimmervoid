@@ -14,12 +14,12 @@ const dashboardMarkup = readRepoFile('public/index.html');
 const shellInlineStylesheet = withoutComments(styleBlocks(dashboardMarkup));
 const loginPageStylesheet = styleBlocks(readRepoFile('server/remote-auth.ts'));
 const tailwindStylesheet = readRepoFile('public/tailwind.css');
-const designDoc = readRepoFile('DESIGN.md');
+const typographyBible = readRepoFile('brand-bible/typography.yaml');
 
 const TYPE_TOKEN_BY_ROLE = { label: 'meta', meta: 'meta', body: 'body', title: 'title', display: 'display' } as const;
 const TYPE_TOKENS = new Set(['var(--type-meta)', 'var(--type-body)', 'var(--type-title)', 'var(--type-display)']);
 const LITERAL_SIZE_TOKENS = new Map([['12px', 'var(--type-meta)'], ['14px', 'var(--type-body)'], ['16px', 'var(--type-title)'], ['20px', 'var(--type-display)']]);
-const DESIGN_FONT_WEIGHTS = new Set(['400', '700']);
+const BIBLE_FONT_WEIGHTS = new Set(['400', '700']);
 const LABEL_TRACKING = '0.08em';
 const DISPLAY_TRACKING = '0.1em';
 const UNTRACKED_VALUES = new Set(['0', 'normal', 'inherit']);
@@ -63,10 +63,9 @@ function typeTokenValues(): Map<string, string> {
   return new Map([...dashboardStylesheet.matchAll(/--type-([a-z]+):\s*([^;]+);/g)].map((match) => [match[1], match[2].trim()]));
 }
 
-function designDocRoleSizes(): Map<string, string> {
-  const typographyBlock = designDoc.match(/^typography:\n((?: {2}.*\n)+)/m)?.[1] ?? '';
-  const roleBlocks = [...typographyBlock.matchAll(/^ {2}([a-z]+):\n((?: {4}.*\n)+)/gm)];
-  return new Map(roleBlocks.map((match) => [match[1], match[2].match(/fontSize:\s*"([^"]+)"/)?.[1] ?? '']));
+function bibleRoleSizes(): Map<string, string> {
+  const scaleBlock = typographyBible.match(/^scale:\n((?: {2}.*\n)+)/m)?.[1] ?? '';
+  return new Map([...scaleBlock.matchAll(/^ {2}([a-z]+):.*\bsizePx: (\d+)/gm)].map((match) => [match[1], `${match[2]}px`]));
 }
 
 test('every dashboard font size is a type token', () => {
@@ -74,11 +73,11 @@ test('every dashboard font size is a type token', () => {
   assert.deepEqual(offScale, []);
 });
 
-test('the type tokens carry the DESIGN.md typography sizes, role for role', () => {
+test('the type tokens carry the brand bible typography sizes, role for role', () => {
   const tokenValues = typeTokenValues();
-  const designSizes = Object.fromEntries(designDocRoleSizes());
+  const bibleSizes = Object.fromEntries(bibleRoleSizes());
   const tokenSizes = Object.fromEntries(Object.entries(TYPE_TOKEN_BY_ROLE).map(([role, token]) => [role, tokenValues.get(token) ?? '']));
-  assert.deepEqual(designSizes, tokenSizes);
+  assert.deepEqual(bibleSizes, tokenSizes);
 });
 
 test('the dashboard shell and the login page set sizes only on the type scale', () => {
@@ -96,8 +95,8 @@ test('Tailwind text sizes are only the type roles, and no markup or script reach
   assert.deepEqual(strayUtilities, []);
 });
 
-test('every dashboard font weight is regular or bold, as DESIGN.md defines', () => {
-  const offScale = styleRules(dashboardStylesheet).flatMap((rule) => declaredWeights(rule).filter((weight) => !DESIGN_FONT_WEIGHTS.has(weight)).map((weight) => `${rule.selector}: ${weight}`));
+test('every dashboard font weight is regular or bold, as the brand bible defines', () => {
+  const offScale = styleRules(dashboardStylesheet).flatMap((rule) => declaredWeights(rule).filter((weight) => !BIBLE_FONT_WEIGHTS.has(weight)).map((weight) => `${rule.selector}: ${weight}`));
   assert.deepEqual(offScale, []);
 });
 
