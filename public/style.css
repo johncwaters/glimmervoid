@@ -3565,7 +3565,7 @@ html[data-layout="phone"] .doc-editor-body { padding: 12px; }
 .shown-stage.is-zoomed > .shown-stage-media { cursor: grab; }
 .shown-stage.is-zoomed:active > .shown-stage-media { cursor: grabbing; }
 .shown-stage:has(> .shown-stage-frame:not([hidden])) { padding: 0; overscroll-behavior: contain; }
-.shown-stage-frame { width: 100%; height: 100%; border: 0; background: #fff; }
+.shown-stage-frame { width: 100%; height: 100%; border: 0; background: #fff; touch-action: pan-x pan-y; }
 .shown-step { position: absolute; top: 50%; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; margin-top: -18px; padding: 0; border: 1px solid var(--border); border-radius: 50%; background: var(--bg-card); color: var(--text); cursor: pointer; }
 .shown-step-previous { left: 8px; }
 .shown-step-next { right: 8px; }

@@ -106,8 +106,9 @@ test.after(async () => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-test('a shown page is served sandboxed, so its scripts cannot read the control token', async () => {
-  const pagePath = writeWorkFile('index.html', '<!doctype html><html><head><title>Card prototypes</title></head><body><script>1</script></body></html>');
+test('a shown page is served sandboxed and whole with the zoom bridge after it, so its scripts cannot read the control token', async () => {
+  const pageMarkup = '<!doctype html><html><head><title>Card prototypes</title></head><body><script>1</script></body></html>';
+  const pagePath = writeWorkFile('index.html', pageMarkup);
   assert.equal(await quietly(() => runAgentApiCli(['show', pagePath, '--caption', 'the layouts'])), 0);
 
   const page = readShownIndex().at(-1);
@@ -123,6 +124,14 @@ test('a shown page is served sandboxed, so its scripts cannot read the control t
   assert.match(policy, /^sandbox allow-scripts\b/);
   assert.doesNotMatch(policy, /allow-same-origin/);
   assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+  const servedBody = Buffer.from(await response.arrayBuffer());
+  assert.equal(Number(response.headers.get('content-length')), servedBody.byteLength);
+  assert.ok(servedBody.subarray(0, Buffer.byteLength(pageMarkup)).equals(Buffer.from(pageMarkup)), 'the page bytes come first, unchanged');
+  assert.match(servedBody.subarray(Buffer.byteLength(pageMarkup)).toString('utf8'), /^\n<script>[\s\S]*glimmervoidShownZoom[\s\S]*<\/script>\n$/);
+
+  const rangedResponse = await fetch(`${ctx().base}/shown/${SESSION_ID}/${page.id}`, { headers: { range: 'bytes=0-9' } });
+  assert.equal(rangedResponse.status, 200);
+  assert.equal((await rangedResponse.arrayBuffer()).byteLength, servedBody.byteLength);
 
   const tokenFromSandboxedPage = await fetch(`${ctx().base}/control-token`, { headers: { origin: 'null' } });
   assert.equal(tokenFromSandboxedPage.status, 403);

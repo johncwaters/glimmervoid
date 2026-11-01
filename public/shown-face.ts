@@ -67,12 +67,21 @@ function preDecodeImage(url: string): void {
 }
 
 type ZoomableMedia = HTMLImageElement | HTMLVideoElement;
+type PageZoomCommand = 'in' | 'out' | 'fit';
+const PAGE_ZOOM_MESSAGE_KEY = 'glimmervoidShownZoom';
 type StageGesture =
   | { kind: 'pinch'; startView: ZoomView; startMidpoint: ZoomPoint; startDistance: number }
   | { kind: 'pan'; pointerId: number; origin: ZoomPoint; last: ZoomPoint; isPanning: boolean };
 
 function isZoomableMedia(media: HTMLElement | null | undefined): media is ZoomableMedia {
   return media instanceof HTMLImageElement || media instanceof HTMLVideoElement;
+}
+
+function reportedPageZoomScaleOf(data: unknown): number | null {
+  if (typeof data !== 'object' || data === null || !(PAGE_ZOOM_MESSAGE_KEY in data)) return null;
+  const reportedScale: unknown = Reflect.get(data, PAGE_ZOOM_MESSAGE_KEY);
+  if (typeof reportedScale !== 'number' || !Number.isFinite(reportedScale)) return null;
+  return reportedScale;
 }
 
 function gestureScaleOf(event: Event): number | null {
@@ -240,7 +249,7 @@ export function createShownFace({ sessionId }: { sessionId: string }) {
   }
 
   function syncZoomControls(): void {
-    zoomControls.hidden = !isZoomableMedia(shownMedia());
+    zoomControls.hidden = !shownMedia();
     zoomPercent.textContent = zoomPercentText(zoomView.scale);
     btnZoomOut.disabled = !isZoomedIn(zoomView.scale);
     btnZoomFit.disabled = !isZoomedIn(zoomView.scale);
@@ -253,6 +262,21 @@ export function createShownFace({ sessionId }: { sessionId: string }) {
     if (isZoomableMedia(media)) media.style.transform = isZoomedIn(zoomView.scale) ? `translate(${zoomView.offsetX}px, ${zoomView.offsetY}px) scale(${zoomView.scale})` : '';
     stage.classList.toggle('is-zoomed', isZoomedIn(zoomView.scale));
     syncZoomControls();
+  }
+
+  function sendPageZoom(command: PageZoomCommand): boolean {
+    const media = shownMedia();
+    if (!(media instanceof HTMLIFrameElement)) return false;
+    media.contentWindow?.postMessage({ [PAGE_ZOOM_MESSAGE_KEY]: command }, '*');
+    return true;
+  }
+
+  function onPageZoomReport(event: MessageEvent): void {
+    const media = shownMedia();
+    if (!(media instanceof HTMLIFrameElement) || event.source !== media.contentWindow) return;
+    const reportedScale = reportedPageZoomScaleOf(event.data);
+    if (reportedScale === null) return;
+    applyZoom({ scale: reportedScale, offsetX: 0, offsetY: 0 });
   }
 
   function zoomAroundFocal(targetScale: number, focalFromCenter: ZoomPoint): void {
@@ -273,6 +297,7 @@ export function createShownFace({ sessionId }: { sessionId: string }) {
     for (const media of warmStageByFileId.values()) if (isZoomableMedia(media)) media.style.transform = '';
     stageGesture = null;
     activePointers.clear();
+    sendPageZoom('fit');
     applyZoom(FIT_VIEW);
   }
 
@@ -347,7 +372,7 @@ export function createShownFace({ sessionId }: { sessionId: string }) {
     }
     if (finished?.kind === 'pan' && finished.isPanning) {
       lastTap = null;
-      swallowNextClick();
+      if (event.pointerType !== 'touch') swallowNextClick();
       return;
     }
     if (event.type === 'pointerup' && event.pointerType === 'touch') noteTouchTap(event);
@@ -423,9 +448,18 @@ export function createShownFace({ sessionId }: { sessionId: string }) {
     paint();
   }
 
-  btnZoomOut.addEventListener('click', () => zoomAroundFocal(zoomView.scale / BUTTON_ZOOM_FACTOR, { x: 0, y: 0 }));
-  btnZoomIn.addEventListener('click', () => zoomAroundFocal(zoomView.scale * BUTTON_ZOOM_FACTOR, { x: 0, y: 0 }));
-  btnZoomFit.addEventListener('click', () => applyZoom(FIT_VIEW));
+  btnZoomOut.addEventListener('click', () => {
+    if (sendPageZoom('out')) return;
+    zoomAroundFocal(zoomView.scale / BUTTON_ZOOM_FACTOR, { x: 0, y: 0 });
+  });
+  btnZoomIn.addEventListener('click', () => {
+    if (sendPageZoom('in')) return;
+    zoomAroundFocal(zoomView.scale * BUTTON_ZOOM_FACTOR, { x: 0, y: 0 });
+  });
+  btnZoomFit.addEventListener('click', () => {
+    if (sendPageZoom('fit')) return;
+    applyZoom(FIT_VIEW);
+  });
   stage.addEventListener('pointerdown', onStagePointerDown);
   stage.addEventListener('pointermove', onStagePointerMove);
   stage.addEventListener('pointerup', onStagePointerEnd);
@@ -457,11 +491,14 @@ export function createShownFace({ sessionId }: { sessionId: string }) {
     show(fileId: string | null) {
       selectedFileId = fileId;
       face.hidden = false;
+      window.addEventListener('message', onPageZoomReport);
       paint();
       if (!face.contains(document.activeElement)) face.focus({ preventScroll: true });
     },
     hide() {
       face.hidden = true;
+      zoomedFileId = null;
+      window.removeEventListener('message', onPageZoomReport);
       for (const video of stage.querySelectorAll('video')) video.pause();
     },
     applyArrivals() {

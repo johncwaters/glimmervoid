@@ -32,9 +32,9 @@ import { mountCustomSoundRoutes } from '../custom-sounds-routes.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import { clientDir } from '../runtime-paths.ts';
 import { decideByteRange } from '../core/custom-sounds-core.ts';
-import { describeOverCap } from '../core/shown-files-core.ts';
+import { describeOverCap, isShownPageMime, SHOWN_PAGE_ZOOM_BRIDGE } from '../core/shown-files-core.ts';
 import { SHOWN_CAPTION_MAX_CHARS, SHOWN_FILE_CAP_BYTES } from '../../shared/contracts/session.ts';
-import type { ShownFilesPort } from '../session/shown-files-wiring.ts';
+import type { ServableShownFile, ShownFilesPort } from '../session/shown-files-wiring.ts';
 import {
   MAX_UPLOAD_BYTES,
   buildUploadFilename,
@@ -350,6 +350,17 @@ function answerShow({ req, res, session, shownFiles, logger }: {
 
 const SHOWN_FILE_SANDBOX_POLICY = 'sandbox allow-scripts allow-popups allow-modals allow-forms';
 
+async function* withZoomBridgeAppended(pageChunks: AsyncIterable<Buffer>): AsyncGenerator<Buffer> {
+  yield* pageChunks;
+  yield SHOWN_PAGE_ZOOM_BRIDGE;
+}
+
+function servePageWithZoomBridge(res: Response, servable: ServableShownFile): void {
+  res.setHeader('Content-Type', servable.mime);
+  res.setHeader('Content-Length', String(servable.sizeBytes + SHOWN_PAGE_ZOOM_BRIDGE.byteLength));
+  pipeline(fs.createReadStream(servable.path), withZoomBridgeAppended, res, () => {});
+}
+
 function serveShownFile(req: Request, res: Response, shownFiles: ShownFilesPort | null): void {
   const servable = shownFiles?.findServable(req.params.sessionId, req.params.filename) ?? null;
   if (!servable) {
@@ -359,6 +370,10 @@ function serveShownFile(req: Request, res: Response, shownFiles: ShownFilesPort 
   res.setHeader('Content-Security-Policy', SHOWN_FILE_SANDBOX_POLICY);
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Cache-Control', 'private, max-age=604800, immutable');
+  if (isShownPageMime(servable.mime)) {
+    servePageWithZoomBridge(res, servable);
+    return;
+  }
   res.setHeader('Accept-Ranges', 'bytes');
   const byteRange = decideByteRange(req.headers.range, servable.sizeBytes);
   if (byteRange.kind === 'unsatisfiable') {

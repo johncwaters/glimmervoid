@@ -32,7 +32,7 @@ type AdmitReply =
   | { ok: true; file: ShownFile }
   | { ok: false; status: number; error: string };
 
-interface ServableShownFile {
+export interface ServableShownFile {
   path: string;
   mime: string;
   sizeBytes: number;
