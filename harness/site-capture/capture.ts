@@ -4,13 +4,29 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import type { Page } from 'playwright-core';
 import type { z } from 'zod';
 import { writeJsonAtomic } from '../../server/json-file.ts';
+import { resolveFfmpegPath } from '../../server/runtime-paths.ts';
 import { isolateTranscriptHomes } from '../../tests/helpers/transcript-homes.ts';
 import { safeTextTail } from '../support/backend-harness.ts';
-import { addSession, cancellation, createProject, listProcessesMentioning, prepareIsolatedEnvironment, quoteShell, refuseUnsupportedLaunch, runIsolatedDashboard, selectSession } from './isolated-glimmervoid.ts';
+import {
+  addSession, cancellation, createProject, listProcessesMentioning, prepareIsolatedEnvironment, quoteShell, refuseUnsupportedLaunch, runCommand, runIsolatedDashboard, selectSession,
+} from './isolated-glimmervoid.ts';
 import { ReplayStatus, parseCaptureRecording, redactRecording, validateManifest } from './manifest-core.ts';
 import type { ReplayEnvironment } from './manifest-core.ts';
 
 const replayAgentPath = path.join(import.meta.dirname, 'replay-agent.ts');
+const webFramesPerSecond = 60;
+const posterShotName = 'hero';
+const socialCrop = { width: 1000, height: 300 };
+const readmeGif = { width: 960, height: 600, framesPerSecond: 4 };
+
+interface ScreencastFrame {
+  fileName: string;
+  capturedAtMs: number;
+}
+
+interface Screencast {
+  stop(): Promise<ScreencastFrame[]>;
+}
 
 function parseArguments(argv: string[]): { manifestPath: string; outputDirectory: string; executablePath?: string } {
   const manifestPath = argv[0];
@@ -56,6 +72,82 @@ async function waitUntil(atMs: number, environment: ReplayEnvironment): Promise<
     await sleep(Math.min(100, atMs - Date.now()), undefined, { signal: cancellation.signal });
   }
   await readStatuses(environment);
+}
+
+async function startScreencast(page: Page, framesDirectory: string, viewport: { width: number; height: number }): Promise<Screencast> {
+  await fs.mkdir(framesDirectory, { recursive: true });
+  const cdpSession = await page.context().newCDPSession(page);
+  const frames: ScreencastFrame[] = [];
+  let pendingWrites: Promise<void> = Promise.resolve();
+  let isStopping = false;
+  cdpSession.on('Page.screencastFrame', (frame) => {
+    if (isStopping) return;
+    const fileName = `frame-${String(frames.length).padStart(6, '0')}.png`;
+    frames.push({ fileName, capturedAtMs: (frame.metadata.timestamp ?? Date.now() / 1000) * 1000 });
+    pendingWrites = pendingWrites
+      .then(() => fs.writeFile(path.join(framesDirectory, fileName), Buffer.from(frame.data, 'base64')))
+      .then(() => cdpSession.send('Page.screencastFrameAck', { sessionId: frame.sessionId }))
+      .then(() => undefined);
+  });
+  await cdpSession.send('Page.startScreencast', {
+    format: 'png', everyNthFrame: 1, maxWidth: viewport.width, maxHeight: viewport.height,
+  });
+  return {
+    stop: async () => {
+      isStopping = true;
+      await cdpSession.send('Page.stopScreencast');
+      await pendingWrites;
+      await cdpSession.detach();
+      return frames;
+    },
+  };
+}
+
+function concatFrameWindow(frames: ScreencastFrame[], startAtMs: number, endAtMs: number): string {
+  const firstIndex = Math.max(0, frames.findLastIndex((frame) => frame.capturedAtMs <= startAtMs));
+  const windowFrames = frames.slice(firstIndex).filter((frame) => frame.capturedAtMs < endAtMs);
+  if (windowFrames.length === 0) throw new Error('the screencast produced no frames inside the replay window');
+  const lines = ['ffconcat version 1.0'];
+  for (const [index, frame] of windowFrames.entries()) {
+    const shownFromMs = Math.max(frame.capturedAtMs, startAtMs);
+    const shownUntilMs = windowFrames[index + 1]?.capturedAtMs ?? endAtMs;
+    lines.push(`file '${frame.fileName}'`, `duration ${((shownUntilMs - shownFromMs) / 1000).toFixed(6)}`);
+  }
+  lines.push(`file '${windowFrames.at(-1)?.fileName}'`);
+  return `${lines.join('\n')}\n`;
+}
+
+async function runFfmpeg(ffmpegPath: string, args: string[]): Promise<void> {
+  await runCommand(ffmpegPath, ['-hide_banner', '-loglevel', 'error', '-y', ...args], { maxBuffer: 16 * 1024 * 1024, signal: cancellation.signal });
+}
+
+async function encodeWebOutputs(concatPath: string, outputDirectory: string): Promise<void> {
+  const ffmpegPath = resolveFfmpegPath();
+  if (!ffmpegPath) throw new Error('ffmpeg-static is not installed');
+  const frameInput = ['-f', 'concat', '-safe', '0', '-i', concatPath];
+  const webVideoFilter = `fps=${webFramesPerSecond},format=yuv420p`;
+  const encodes: { fileName: string; args: string[]; isVideo?: boolean }[] = [
+    { fileName: 'dashboard.webm', isVideo: true, args: [...frameInput, '-vf', webVideoFilter, '-an', '-c:v', 'libaom-av1', '-crf', '22', '-b:v', '0', '-cpu-used', '3', '-row-mt', '1', '-g', '600'] },
+    { fileName: 'dashboard.mp4', isVideo: true, args: [...frameInput, '-vf', webVideoFilter, '-an', '-c:v', 'libx264', '-preset', 'veryslow', '-tune', 'animation', '-crf', '17', '-profile:v', 'high', '-level:v', '4.2', '-g', '600', '-movflags', '+faststart'] },
+    {
+      fileName: 'glimmervoid-demo.gif',
+      args: [...frameInput, '-vf', `fps=${readmeGif.framesPerSecond},scale=${readmeGif.width}:${readmeGif.height}:flags=lanczos,split[frames][copy];[copy]palettegen=stats_mode=diff[palette];[frames][palette]paletteuse=diff_mode=rectangle`],
+    },
+  ];
+  const posterShotPath = path.join(outputDirectory, `${posterShotName}.png`);
+  const hasPosterShot = await fs.access(posterShotPath).then(() => true, () => false);
+  if (hasPosterShot) {
+    encodes.push(
+      { fileName: `${posterShotName}.webp`, args: ['-i', posterShotPath, '-c:v', 'libwebp', '-quality', '85', '-frames:v', '1'] },
+      { fileName: 'dashboard-top.png', args: ['-i', posterShotPath, '-vf', `crop=${socialCrop.width}:${socialCrop.height}:0:0`, '-frames:v', '1'] },
+    );
+  }
+  for (const encode of encodes) {
+    const outputPath = path.join(outputDirectory, encode.fileName);
+    await runFfmpeg(ffmpegPath, [...encode.args, outputPath]);
+    if (encode.isVideo) await runFfmpeg(ffmpegPath, ['-xerror', '-i', outputPath, '-f', 'null', '-']);
+    console.log(`encoded: ${outputPath} (${(await fs.stat(outputPath)).size} bytes)`);
+  }
 }
 
 async function waitForReplayExit(tempDirectory: string): Promise<void> {
@@ -119,7 +211,7 @@ async function main(): Promise<void> {
       await writeJsonAtomic(mapPath, environment);
       console.log(`session: ${session.name} (${session.project})`);
     }
-    const page = await openDashboard(port, { viewport: manifest.viewport, recordVideo: { dir: path.join(tempDirectory, 'video'), size: manifest.viewport } });
+    const page = await openDashboard(port, { viewport: manifest.viewport });
     for (const sessionId of sessionIds.values()) await selectSession(page, sessionId);
     const firstId = sessionIds.values().next().value;
     if (firstId) await selectSession(page, firstId);
@@ -128,6 +220,9 @@ async function main(): Promise<void> {
       if (Date.now() >= readyDeadline) throw new Error('replay agents did not become ready within 30s');
       await sleep(50, undefined, { signal: cancellation.signal });
     }
+    const framesDirectory = path.join(options.outputDirectory, 'frames');
+    await fs.rm(framesDirectory, { recursive: true, force: true });
+    const screencast = await startScreencast(page, framesDirectory, manifest.viewport);
     const startAt = Date.now() + 250;
     await writeJsonAtomic(path.join(tempDirectory, 'start.json'), { startAt });
     for (const shot of [...manifest.shots].sort((first, second) => first.atMs - second.atMs)) {
@@ -156,12 +251,12 @@ async function main(): Promise<void> {
     const finalStatuses = await readStatuses(environment);
     for (const status of finalStatuses) if (status?.warning) console.warn(status.warning);
     console.log(`replay: ${finalStatuses.filter((status) => status?.phase === 'complete').length} of ${finalStatuses.length} completed`);
-    const video = page.video();
-    if (!video) throw new Error('Playwright did not create a video');
+    const frames = await screencast.stop();
     await closeBrowserContext();
-    const videoPath = path.join(options.outputDirectory, 'capture.webm');
-    await video.saveAs(videoPath);
-    console.log(`video: ${videoPath} (${(await fs.stat(videoPath)).size} bytes)`);
+    console.log(`screencast: ${frames.length} frames`);
+    const concatPath = path.join(framesDirectory, 'window.ffconcat');
+    await fs.writeFile(concatPath, concatFrameWindow(frames, startAt, startAt + manifest.videoMs));
+    await encodeWebOutputs(concatPath, options.outputDirectory);
   });
 }
 
