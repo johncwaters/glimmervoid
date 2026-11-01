@@ -1,6 +1,6 @@
 import { HOOK_TOOLS, mergeCodexPreToolUse } from '../core/hook-tools.ts';
 import type { ResolvedHookTool } from '../core/hook-tools.ts';
-import type { UserHook } from '../core/user-hooks-core.ts';
+import type { InstalledHooks, UserHook } from '../core/user-hooks-core.ts';
 
 import fs from "node:fs";
 import path from "node:path";
@@ -268,7 +268,9 @@ function buildHookArgs({
   return args;
 }
 
+const HOOKS_BLOCK_REFUSAL = "the hook relay path cannot be written into a codex hooks block";
 let installedHookPlan: CodexHookPlan | null = null;
+let installedVersion: string | null = null;
 
 function probeInstalledCodexVersion(): string | null {
   const versionCommand = buildSpawnCommand({ platform: process.platform, resolved: resolveCommand(), agentArgs: ["--version"] });
@@ -289,8 +291,16 @@ async function readHostCodexVersion(): Promise<string | null> {
   }
 }
 
+function installedCodexVersion(): string | null {
+  installedVersion ??= probeInstalledCodexVersion();
+  return installedVersion;
+}
+
 function hookPlanForInstalledCodex(): CodexHookPlan {
-  installedHookPlan ??= codexHookPlanFor(probeInstalledCodexVersion());
+  if (installedHookPlan) return installedHookPlan;
+  const version = installedCodexVersion();
+  if (version === null) return codexHookPlanFor(null);
+  installedHookPlan = codexHookPlanFor(version);
   return installedHookPlan;
 }
 
@@ -310,10 +320,24 @@ function codexHomeHooks(plan: CodexHookPlan = hookPlanForInstalledCodex()): Code
     if (!command) return null;
     hooks.push({ event, matcher, command, isAsync });
   }
-  const saneYoloCommand = buildHookCommand(HOOK_TOOL_RELAY_PATH, "saneYolo", [CODEX_SANE_YOLO_FLAVOR]);
+  const saneYoloCommand = saneYoloHookCommand();
   if (!saneYoloCommand) return null;
   hooks.push({ event: "PreToolUse", matcher: "Bash", command: saneYoloCommand });
   return hooks;
+}
+
+function saneYoloHookCommand(): string | null {
+  return buildHookCommand(HOOK_TOOL_RELAY_PATH, "saneYolo", [CODEX_SANE_YOLO_FLAVOR]);
+}
+
+function describeInstalledHooks(): InstalledHooks {
+  const version = installedCodexVersion();
+  if (version === null) return { unavailableReason: "Codex was not found, or codex --version printed no version, so its hook set is unknown.", isBestEffort: false };
+  const homeHooks = codexHomeHooks();
+  if (!homeHooks) return { unavailableReason: HOOKS_BLOCK_REFUSAL, isBestEffort: false };
+  const saneYoloCommand = saneYoloHookCommand();
+  const hooks = homeHooks.map((hook) => ({ event: hook.event, matcher: hook.matcher, route: hook.command === saneYoloCommand ? "saneYolo" : null }));
+  return { version, isBestEffort: false, hooks };
 }
 
 const trustedHashesByHookTables = new Map<string, readonly string[]>();
@@ -346,7 +370,7 @@ function readTrust(): Promise<void> {
 
 function prepareHome(env: Record<string, string | undefined>): { home: string; isTrusted: boolean } | { refusal: string } {
   const hooks = codexHomeHooks();
-  if (!hooks) return { refusal: "the hook relay path cannot be written into a codex hooks block" };
+  if (!hooks) return { refusal: HOOKS_BLOCK_REFUSAL };
   const trustedHashes = trustedHashesByHookTables.get(renderCodexHookTables(hooks)) ?? null;
   const realHome = realAgentHome(CODEX_HOME_PROFILE, env);
   const generatedHome = generatedAgentHomePath(CODEX_HOME_PROFILE, env);
@@ -360,6 +384,7 @@ const hooks: AgentHookProfile = {
   mapConfidence: mapHookConfidence,
   mapPromptKind: mapHookPromptKind,
   enrichPayload: enrichHookPayload,
+  describeInstalledHooks,
   injection: {
     kind: "argv-config",
     relayPath: RELAY_PATH,

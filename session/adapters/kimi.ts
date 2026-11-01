@@ -21,6 +21,7 @@ import type {
   ScratchAgentHome,
 } from "./index.ts";
 import type { HookPayload } from "../../shared/contracts/index.ts";
+import type { InstalledHooks } from "../core/user-hooks-core.ts";
 
 const ID = "kimi";
 const COMMAND_NAME = "kimi";
@@ -42,6 +43,7 @@ const HOOK_EVENTS: readonly string[] = Object.freeze([
 const TOOL_EVENTS: readonly string[] = Object.freeze(["PreToolUse", "PostToolUse"]);
 const SUBAGENT_TOOL_NAME = "Agent";
 const MATCHED_TOOL_NAMES: readonly string[] = Object.freeze([ASK_USER_QUESTION_TOOL_NAME, SUBAGENT_TOOL_NAME]);
+const HOOKS_BLOCK_REFUSAL = "the hook relay path cannot be written into a kimi hooks block";
 const SANE_YOLO_TOOL_NAMES: readonly string[] = Object.freeze(["Bash", "Read", "ReadMediaFile", "Write", "Edit", "Glob", "Grep"]);
 
 const envProfile: AgentEnvProfile = {
@@ -145,15 +147,23 @@ function expectedHooksBlock(): string | null {
   });
 }
 
+function describeInstalledHooks(): InstalledHooks {
+  if (expectedHooksBlock() === null) return { unavailableReason: HOOKS_BLOCK_REFUSAL, isBestEffort: false };
+  const relayedHooks = HOOK_EVENTS.map((event) => ({ event, matcher: null, route: null }));
+  const matchedToolHooks = TOOL_EVENTS.flatMap((event) => MATCHED_TOOL_NAMES.map((toolName) => ({ event, matcher: `^${toolName}$`, route: null })));
+  const saneYoloHooks = SANE_YOLO_TOOL_NAMES.map((toolName) => ({ event: "PreToolUse", matcher: `^${toolName}$`, route: "saneYolo" }));
+  return { version: null, isBestEffort: false, hooks: [...relayedHooks, ...matchedToolHooks, ...saneYoloHooks] };
+}
+
 function prepareHome(env: Record<string, string | undefined>): { home: string } | { refusal: string } {
   const hooksBlock = expectedHooksBlock();
-  if (hooksBlock === null) return { refusal: "the hook relay path cannot be written into a kimi hooks block" };
+  if (hooksBlock === null) return { refusal: HOOKS_BLOCK_REFUSAL };
   return holdPreparedAgentHome(KIMI_HOME_PROFILE, env, () => hooksBlock);
 }
 
 function prepareScratchHome(env: Record<string, string | undefined>, scratch: ScratchAgentHome): { home: string } | { refusal: string } {
   const hooksBlock = expectedHooksBlock();
-  if (hooksBlock === null) return { refusal: "the hook relay path cannot be written into a kimi hooks block" };
+  if (hooksBlock === null) return { refusal: HOOKS_BLOCK_REFUSAL };
   return prepareScratchAgentHome(KIMI_HOME_PROFILE, { env, renderBlock: () => hooksBlock, ...scratch });
 }
 
@@ -236,6 +246,7 @@ const hooks: AgentHookProfile = {
   mapConfidence: mapHookConfidence,
   mapPromptKind: mapHookPromptKind,
   mapPayload: mapHookPayload,
+  describeInstalledHooks,
   injection: {
     kind: "generated-home",
     homeEnvName: HOME_ENV_NAME,

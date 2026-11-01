@@ -18,6 +18,7 @@ import type {
   AgentTitleProfile,
 } from "./index.ts";
 import type { HookPayload } from "../../shared/contracts/index.ts";
+import type { InstalledHooks } from "../core/user-hooks-core.ts";
 
 const ID = "grok";
 const COMMAND_NAME = "grok";
@@ -236,11 +237,17 @@ function buildArgs({
   return args;
 }
 
+function describeInstalledHooks(): InstalledHooks {
+  const relayedHooks = HOOK_EVENTS.map((event) => ({ event, matcher: null, route: null }));
+  return { version: null, isBestEffort: true, hooks: [...relayedHooks, { event: "PreToolUse", matcher: null, route: "saneYolo" }] };
+}
+
 const hooks: AgentHookProfile = {
   mapSignal: mapHookToSignal,
   mapConfidence: mapHookConfidence,
   mapPromptKind: mapHookPromptKind,
   mapPayload: mapHookPayload,
+  describeInstalledHooks,
   injection: {
     kind: "home-hooks-file",
     setupCommand: "glimmervoid agent setup grok",
