@@ -27,6 +27,7 @@ import { buildSessionGroupHeader, paintSessionGroupHeader } from './roster-group
 import { buildAttentionBanner, paintAttentionBanner, pressAttentionBanner, sendAttentionTileToRow, tetherAttentionTile } from '../attention-banner.ts';
 import { buildSessionRow, paintSessionRow, wrapSessionRow } from '../session-row.ts';
 import { unopenedShownCountOf } from '../shown-files.ts';
+import { openNewestBoardDocked } from '../whiteboard/board-chips.ts';
 
 type RosterRow = SessionRow<SessionUi, string | null>;
 
@@ -185,7 +186,7 @@ function buildPill(id: string) {
   button.type = 'button';
   button.dataset.id = id;
   button.setAttribute('role', 'option');
-  button.addEventListener('click', () => onPillActivate(id));
+  button.addEventListener('click', () => onPillPick(id));
   button.addEventListener('pointerenter', () => { if (railHeadEl) tetherAttentionTile(railHeadEl, id); });
   button.addEventListener('pointerleave', () => { if (railHeadEl) tetherAttentionTile(railHeadEl, null); });
 
@@ -199,9 +200,23 @@ function buildPill(id: string) {
   return Object.assign(button, { _refs: refs, _row: item, _shownCount: shownCount });
 }
 
-function onPillActivate(id: string) {
+function onPillPick(id: string) {
   const ui = requestSessionOpen(id);
   if (!ui) return;
+  if (openNewestBoardDocked(id)) {
+    markSessionSeen(id);
+    selectSession(id);
+    return;
+  }
+  centerOpenedSession(ui, id);
+}
+
+function onPillCycle(id: string) {
+  const ui = requestSessionOpen(id);
+  if (ui) centerOpenedSession(ui, id);
+}
+
+function centerOpenedSession(ui: SessionUi, id: string) {
   focusSession(id);
   focusTerminalAfterSettle(ui, id);
 }
@@ -450,14 +465,14 @@ export function openPlanInFocus(id: string) {
 export function focusNthInRail(n: number) {
   if (!active) return;
   const id = railVisibleIds()[n - 1];
-  if (id) onPillActivate(id);
+  if (id) onPillPick(id);
 }
 
 export function focusAdjacentInRail(dir: number) {
   if (!active) return;
   const id = pickAdjacent(railVisibleIds(), railTabStopId, dir);
   if (id == null) return;
-  onPillActivate(id);
+  onPillCycle(id);
   pillById.get(id)?.scrollIntoView({ block: 'nearest' });
 }
 

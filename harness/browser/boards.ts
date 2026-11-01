@@ -290,4 +290,8 @@ export async function verifyBoardDock(page: Page, sessionId: string, projectDire
   await page.locator('#tab-focus[aria-selected="true"]').waitFor();
   await page.locator(`#review-sidebar:not([data-collapsed]) .review-file[data-path="${UNCOVERED_FILE_NAME}"]`).waitFor({ timeout: REVIEW_TIMEOUT_MS });
   assert.equal(await panel.locator('.wb-dock .session-card').count(), 0, 'leaving the board hands the card back');
+  await page.locator(`.focus-rail .session-row[data-id="${sessionId}"] .session-row-glyph`).first().click();
+  await page.locator('#tab-boards[aria-selected="true"]').waitFor();
+  await openBoardTitle(panel, boardTitle).waitFor();
+  await panel.locator(`.wb-dock .session-card[data-id="${sessionId}"]`).waitFor({ state: 'visible' });
 }

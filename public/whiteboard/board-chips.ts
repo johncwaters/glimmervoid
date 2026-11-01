@@ -1,6 +1,7 @@
 import type { BoardSummary } from '#shared/contracts/whiteboard.ts';
 import { createActionStatus } from '../action-status.ts';
 import { el } from '../dom-helpers.ts';
+import { isPhoneLayout } from '../form-factor.ts';
 import { buildDialogShell, openConfirmDialog } from '../session-card/modal.ts';
 import { repaintSessionRowSignals } from '../session-row.ts';
 import { createSignal, paintSignalLine } from '../signal.ts';
@@ -20,6 +21,14 @@ export function setBoardsViewOpener(open: () => void): void {
 function openBoardForSession(boardId: string, sessionId: string | null): void {
   requestOpenBoard(boardId, sessionId);
   openBoardsView();
+}
+
+export function openNewestBoardDocked(sessionId: string): boolean {
+  if (isPhoneLayout()) return false;
+  const [newestBoard] = boardsConnectedTo(sessionId);
+  if (!newestBoard) return false;
+  openBoardForSession(newestBoard.id, sessionId);
+  return true;
 }
 
 function queuedEditsText(summary: BoardSummary, sessionId: string): string {
