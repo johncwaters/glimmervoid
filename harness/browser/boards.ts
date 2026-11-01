@@ -277,6 +277,15 @@ export async function verifyBoardDock(page: Page, sessionId: string, projectDire
   await page.keyboard.press('Enter');
   await panel.locator('.wb-unit.is-flagged', { hasText: 'Uncovered change' }).waitFor({ timeout: REVIEW_TIMEOUT_MS });
   await panel.getByRole('complementary', { name: 'Not on the board' }).waitFor({ state: 'hidden' });
+  await panel.getByRole('button', { name: 'fit', exact: true }).click();
+  const titleIslandBox = await panel.getByRole('toolbar', { name: 'Board', exact: true }).boundingBox();
+  const fittedUnitBox = await unitOnBoard.boundingBox();
+  const fitIslandBox = await panel.getByRole('toolbar', { name: 'View', exact: true }).boundingBox();
+  assert.ok(titleIslandBox && fittedUnitBox && fitIslandBox);
+  const spaceAboveUnitPx = fittedUnitBox.y - (titleIslandBox.y + titleIslandBox.height);
+  const spaceBelowUnitPx = fitIslandBox.y - (fittedUnitBox.y + fittedUnitBox.height);
+  assert.ok(spaceAboveUnitPx > 0 && spaceBelowUnitPx > 0, 'fit keeps the board between the title island and the bottom islands');
+  assert.ok(Math.abs(spaceAboveUnitPx - spaceBelowUnitPx) < (spaceAboveUnitPx + spaceBelowUnitPx) / 2, 'fit centers the board between the islands');
   await inspect.getByRole('button', { name: `Open ${UNCOVERED_FILE_NAME} in review`, exact: true }).click();
   await page.locator('#tab-focus[aria-selected="true"]').waitFor();
   await page.locator(`#review-sidebar:not([data-collapsed]) .review-file[data-path="${UNCOVERED_FILE_NAME}"]`).waitFor({ timeout: REVIEW_TIMEOUT_MS });

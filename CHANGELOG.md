@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Fit shows the whole board again.** Fit used to pin the board to the top of the canvas, so the top row hid under the board title and the space at the bottom sat empty. It now fits the board into the space between the title and the bottom controls and centers it there.
+
 - **The Shown count no longer covers the session menu button.** When a session has shown files you have not opened, the count beside the Shown tab used to sit on top of the card's menu button. The header now leaves room for it.
 
 ## [0.49.0] - 2026-10-31

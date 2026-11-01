@@ -93,6 +93,26 @@ export function createBoardEditor(options: BoardEditorOptions) {
     svg.setAttribute('viewBox', `${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`);
   }
 
+  function visibleIslandRect(selector: string): DOMRect | null {
+    const island = canvas.querySelector<HTMLElement>(selector);
+    if (!island?.checkVisibility()) return null;
+    return island.getBoundingClientRect();
+  }
+
+  function islandFreeBand(): { topPx: number; heightPx: number } {
+    const svgRect = svg.getBoundingClientRect();
+    const titleIslandRect = visibleIslandRect('.wb-island-board');
+    const bottomIslandTops = ['.wb-island-tools', '.wb-bottom-left'].flatMap((selector) => {
+      const rect = visibleIslandRect(selector);
+      return rect ? [rect.top] : [];
+    });
+    const topPx = titleIslandRect ? Math.max(0, titleIslandRect.bottom - svgRect.top) : 0;
+    const bottomPx = Math.min(svgRect.height, ...bottomIslandTops.map((top) => top - svgRect.top));
+    const heightPx = bottomPx - topPx;
+    if (heightPx < svgRect.height / 2) return { topPx: 0, heightPx: svgRect.height };
+    return { topPx, heightPx };
+  }
+
   function fit(): void {
     const layout = renderer.layout();
     if (!layout) return;
@@ -104,9 +124,17 @@ export function createBoardEditor(options: BoardEditorOptions) {
       applyViewBox();
       return;
     }
-    const unitsPerPixel = Math.max(1, bounds.width / canvasWidth, bounds.height / canvasHeight);
+    const band = islandFreeBand();
+    const unitsPerPixel = Math.max(1, bounds.width / canvasWidth, bounds.height / band.heightPx);
     const viewWidth = canvasWidth * unitsPerPixel;
-    viewBox = { x: bounds.x - (viewWidth - bounds.width) / 2, y: bounds.y, width: viewWidth, height: canvasHeight * unitsPerPixel };
+    const boardCenterY = bounds.y + bounds.height / 2;
+    const bandCenterPx = band.topPx + band.heightPx / 2;
+    viewBox = {
+      x: bounds.x - (viewWidth - bounds.width) / 2,
+      y: boardCenterY - bandCenterPx * unitsPerPixel,
+      width: viewWidth,
+      height: canvasHeight * unitsPerPixel,
+    };
     applyViewBox();
   }
 
