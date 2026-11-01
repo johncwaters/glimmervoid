@@ -9,6 +9,7 @@ import { REFUSAL_REASON, REFUSAL_STATUS, decideAgentRequest } from '../server/co
 import type { ShownFilesPort } from '../server/session/shown-files-wiring.ts';
 import type { Session } from '../session/sessions.ts';
 import { parsePresentedCredential } from './core/credentials.ts';
+import { boardReplyWithoutCommandGuide, settingsListForMcp, spawnReplyForMcp } from './core/replies.ts';
 import { SERVER_INSTRUCTIONS } from './core/instructions.ts';
 import { showByPath } from './show.ts';
 import { boardPictureResult, boardReplyWithReading } from './whiteboard.ts';
@@ -51,6 +52,13 @@ interface CallTarget {
 
 type PresentedReply = AgentReply | ToolImageResult;
 
+function reshapedReply(reshape: (body: Record<string, unknown>) => Record<string, unknown>) {
+  return async ({ session, agentApi }: CallTarget, verb: AgentApiVerb, payload: Record<string, unknown>): Promise<AgentReply> => {
+    const reply = await agentApi.handle(session, verb, payload);
+    return { status: reply.status, body: reshape(reply.body) };
+  };
+}
+
 function showPathRequest(payload: Record<string, unknown>) {
   return {
     requestedPath: typeof payload.path === 'string' ? payload.path : '',
@@ -63,6 +71,9 @@ const PRESENTERS: Readonly<Record<Presenter, (target: CallTarget, verb: AgentApi
   'show-by-path': ({ session, agentApi, getShownFiles }, _verb, payload) => showByPath(session, agentApi, getShownFiles(), showPathRequest(payload)),
   'board-with-reading': ({ session, agentApi }, _verb, payload) => boardReplyWithReading(session, agentApi, payload),
   'board-picture': ({ session, agentApi }, _verb, payload) => boardPictureResult(session, agentApi, payload),
+  'spawn-reply': reshapedReply(spawnReplyForMcp),
+  'board-without-command-guide': reshapedReply(boardReplyWithoutCommandGuide),
+  'settings-list': reshapedReply(settingsListForMcp),
 };
 
 function toolResultOf(presented: PresentedReply) {

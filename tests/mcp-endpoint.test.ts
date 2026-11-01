@@ -10,6 +10,7 @@ import type { Server } from 'node:http';
 import { createBackend } from '../server/backend/backend.ts';
 import { REFUSAL_REASON } from '../server/core/agent-api-core.ts';
 import { mcpCredentialFor } from '../mcp/core/credentials.ts';
+import { spawnReplyForMcp } from '../mcp/core/replies.ts';
 import { boardPicture } from '../mcp/core/board-reading.ts';
 import { Board } from '../shared/contracts/whiteboard.ts';
 import { MCP_CREDENTIAL_ENV } from '../mcp/core/agent-config.ts';
@@ -106,6 +107,7 @@ test('a session without its own worktree lists every grouped tool but push and r
   assert.deepEqual(toolNames, ['attention', 'review', 'session', 'settings', 'show', 'whiteboard']);
   const sessionTool = tools.find((tool: { name: string }) => tool.name === 'session');
   assert.ok(sessionTool.inputSchema.properties.action.enum.includes('spawn'));
+  assert.match(sessionTool.inputSchema.properties.agent.description, /claude-code, codex/);
   const showTool = tools.find((tool: { name: string }) => tool.name === 'show');
   assert.equal(showTool.inputSchema.properties.action, undefined);
 
@@ -114,6 +116,15 @@ test('a session without its own worktree lists every grouped tool but push and r
   const structured = called.structuredContent;
   assert.ok(typeof structured === 'object' && structured !== null && 'sessions' in structured && Array.isArray(structured.sessions));
   assert.ok(structured.sessions.some((row: { id: string }) => row.id === SESSION_ID));
+
+  const settingsListed = await resultOf(await callMcp('tools/call', { name: 'settings', arguments: { action: 'list' } }, credential));
+  assert.notEqual(settingsListed.isError, true, JSON.stringify(settingsListed));
+  const settingsReply = settingsListed.structuredContent;
+  assert.ok(typeof settingsReply === 'object' && settingsReply !== null && 'text' in settingsReply && typeof settingsReply.text === 'string');
+  const settingsText = settingsReply.text;
+  assert.ok(settingsText.split('\n').every((line) => / = .+ \(.+\)$/.test(line)), settingsText.slice(0, 300));
+  assert.ok(settingsText.includes('autoResume = '));
+  assert.equal(spawnReplyForMcp({ ok: true, sessionId: 'child-1', name: 'child' }).note?.toString().includes('glimmervoid '), false);
 });
 
 test('a refused verb comes back as a tool error the agent can read', async () => {
@@ -183,6 +194,7 @@ test('a whiteboard put that renames its board still returns its plan steps, get 
   const { credential } = bootedBackend();
   const created = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'new', title: 'mcp plan' } }, credential));
   assert.notEqual(created.isError, true, JSON.stringify(created));
+  assert.equal(JSON.stringify(created).includes('glimmervoid whiteboard put'), false);
   const ops = [
     { op: 'board', title: 'mcp plan renamed' },
     { op: 'add', element: { kind: 'unit', id: 'schema', title: 'Add the schema' } },

@@ -5,6 +5,7 @@ import {
 } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb } from '../../shared/contracts/session.ts';
 import { Op } from '../../shared/contracts/whiteboard.ts';
+import { BUILTIN_AGENT_IDS, SHELL_AGENT_ID } from '../../shared/contracts/config.ts';
 
 type ToolArguments = Record<string, unknown>;
 
@@ -12,7 +13,7 @@ interface CallContext {
   resolveSessionPath(requestedPath: string): string;
 }
 
-type Presenter = 'agent-reply' | 'show-by-path' | 'board-with-reading' | 'board-picture';
+type Presenter = 'agent-reply' | 'show-by-path' | 'board-with-reading' | 'board-picture' | 'spawn-reply' | 'board-without-command-guide' | 'settings-list';
 
 interface ActionRoute {
   verb: AgentApiVerb;
@@ -37,6 +38,8 @@ interface GroupedTool {
 }
 
 type ToolCallRoute = { ok: true; verb: AgentApiVerb; presenter: Presenter; payload: Record<string, unknown> } | { ok: false; error: string };
+
+const SPAWNABLE_AGENT_IDS = BUILTIN_AGENT_IDS.filter((agentId) => agentId !== SHELL_AGENT_ID).join(', ');
 
 const ChildField = z.string().min(1).max(300).describe('The spawned session, by the id or name spawn returned');
 const BoardField = z.string().min(1).max(200).describe('The board, by id or title');
@@ -82,7 +85,7 @@ const SESSION_TOOL: GroupedTool = {
   fields: {
     prompt: AgentSpawnRequest.shape.prompt.optional().describe('spawn: the task for the new session'),
     name: AgentSpawnRequest.shape.name.describe('spawn: a display name for the new session'),
-    agent: AgentSpawnRequest.shape.agent.describe('spawn: the agent CLI to run, such as claude, codex or kimi; defaults to this session\'s'),
+    agent: AgentSpawnRequest.shape.agent.describe(`spawn: the agent to run, one of ${SPAWNABLE_AGENT_IDS} or a custom agent id; defaults to this session's`),
     child: ChildField.optional(),
     text: z.string().min(1).max(20000).optional().describe('send: the message'),
     discard: AgentCloseRequest.shape.discard.describe('close: drop the child\'s unpushed work instead of refusing'),
@@ -91,7 +94,7 @@ const SESSION_TOOL: GroupedTool = {
     path: AgentEditRequest.shape.path.optional().describe('edit: the file, absolute or relative to this session\'s directory'),
   },
   actions: {
-    spawn: routeTo('spawn', ['prompt', 'name', 'agent']),
+    spawn: { ...routeTo('spawn', ['prompt', 'name', 'agent']), presenter: 'spawn-reply' },
     send: { verb: 'send', toPayload: sendPayload },
     read: routeTo('read', ['child']),
     close: routeTo('close', ['child', 'discard']),
@@ -118,11 +121,11 @@ const WHITEBOARD_TOOL: GroupedTool = {
   },
   actions: {
     list: whiteboardRoute('list', []),
-    new: whiteboardRoute('new', ['title']),
+    new: whiteboardRoute('new', ['title'], 'board-without-command-guide'),
     get: whiteboardRoute('get', ['board', 'peek', 'review'], 'board-with-reading'),
     view: boardPictureRoute(),
     put: whiteboardRoute('put', ['board', 'ops'], 'board-with-reading'),
-    connect: whiteboardRoute('connect', ['board']),
+    connect: whiteboardRoute('connect', ['board'], 'board-without-command-guide'),
     disconnect: whiteboardRoute('disconnect', ['board']),
     resolve: whiteboardRoute('resolve', ['board', 'note']),
     delete: whiteboardRoute('delete', ['board']),
@@ -187,7 +190,7 @@ const SETTINGS_TOOL: GroupedTool = {
   loadsUpfront: false,
   fields: { path: AgentSettingsRequest.shape.path.describe('get: the dotted setting path') },
   actions: {
-    list: { verb: 'settings', toPayload: () => ({ command: 'list' }) },
+    list: { verb: 'settings', presenter: 'settings-list', toPayload: () => ({ command: 'list' }) },
     get: { verb: 'settings', toPayload: (toolArguments) => ({ command: 'get', ...definedEntries(toolArguments, ['path']) }) },
   },
 };
