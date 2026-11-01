@@ -145,7 +145,6 @@ interface AgentAdapter {
   buildArgs(options?: AgentArgsOptions): string[];
   settingsArgs?(settingsPath: string): string[];
   operatorConfigPath?(env: SpawnEnv): string | null;
-  isWorkspaceTrusted?(cwd: string, env: SpawnEnv): boolean;
   sessionIdOf?(payload: HookPayload): unknown;
 }
 

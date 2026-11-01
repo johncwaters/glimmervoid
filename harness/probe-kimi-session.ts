@@ -5,9 +5,6 @@ import os from "node:os";
 import path from "node:path";
 
 import { createBackend } from "../server/backend/backend.ts";
-import kimi from "../session/adapters/kimi.ts";
-import { generatedAgentHomePath } from "../session/agent-home.ts";
-import { KIMI_HOME_PROFILE } from "../session/core/agent-home-core.ts";
 import type { Session } from "../session/sessions.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
 import {
@@ -176,15 +173,11 @@ async function runProbe(tempDirectory: string): Promise<void> {
     await session.start();
     check("the spawn used the kimi adapter", session.agentId === "kimi");
     await delay(BOOT_SETTLE_MS);
-    check("the folder starts untrusted", !kimi.isWorkspaceTrusted(projectDirectory, { ...process.env, KIMI_CODE_HOME: generatedAgentHomePath(KIMI_HOME_PROFILE) }));
-    check("nothing was typed into the trust dialog", ptyWrites.length === 0);
-    session.write("\r");
-    await delay(3000);
-    check("kimi's own trust record matches the computed key", kimi.isWorkspaceTrusted(projectDirectory, { ...process.env, KIMI_CODE_HOME: generatedAgentHomePath(KIMI_HOME_PROFILE) }));
+    check("the initial prompt was pasted into a fresh folder without operator input", ptyWrites.some((text) => text.includes("kimi-probe-approval.txt")));
     session.kill();
     await waitForState(session, ["DONE", "FAILED"], "untrusted PTY reap");
 
-    console.log("\nRespawn into the trusted folder:");
+    console.log("\nRespawn:");
     ptyWrites.length = 0;
     if (SHOULD_RUN_ONLY_HINT_PROBE) session._initialPrompt = "Run the shell command: touch ./kimi-probe-approval.txt and then repeat word for word every sentence beginning with 'Glimmervoid' that you received with this message, or say none.";
     const firstPromptOffset = session.getOutputOffset();

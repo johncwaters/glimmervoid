@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -50,7 +49,7 @@ const SANE_YOLO_TOOL_NAMES: readonly string[] = Object.freeze(["Bash", "Read", "
 
 const envProfile: AgentEnvProfile = {
   scrub: [],
-  set: { KIMI_CODE_NO_AUTO_UPDATE: "1" },
+  set: { KIMI_CODE_NO_AUTO_UPDATE: "1", KIMI_CODE_TRUST_WORKSPACE: "1" },
 };
 
 function isAskUserQuestion(payload?: HookPayload): boolean {
@@ -196,39 +195,6 @@ function prepareScratchHome(env: Record<string, string | undefined>, scratch: Sc
   return prepareScratchAgentHome(KIMI_HOME_PROFILE, { env, renderBlock: () => hooksBlock, ...scratch });
 }
 
-const WINDOWS_SHAPED_ROOT = /^(?:[A-Za-z]:\/|\/\/)/;
-const MAX_WORKSPACE_SLUG_LENGTH = 40;
-
-function slugifyWorkspaceName(name: string): string {
-  const slug = name.toLowerCase().replaceAll(/[^a-z0-9._-]+/g, "-").replaceAll(/^-+|-+$/g, "")
-    .slice(0, MAX_WORKSPACE_SLUG_LENGTH).replaceAll(/^-+|-+$/g, "");
-  return slug === "" || slug === "." || slug === ".." ? "workspace" : slug;
-}
-
-function workspaceTrustKey(cwd: string): string {
-  const resolved = path.resolve(cwd).replaceAll("\\", "/");
-  const trimmed = resolved.replace(/\/+$/, "");
-  const root = (WINDOWS_SHAPED_ROOT.test(resolved) ? trimmed.toLowerCase() : trimmed) || resolved;
-  const normalized = root.replace(/\/+$/, "");
-  const slug = slugifyWorkspaceName(normalized.split("/").pop() ?? normalized);
-  const hash = createHash("sha256").update(normalized).digest("hex").slice(0, 12);
-  return `wd_${slug}_${hash}`;
-}
-
-function physicalPathOf(cwd: string): string | null {
-  try {
-    return fs.realpathSync(cwd);
-  } catch {
-    return null;
-  }
-}
-
-function isWorkspaceTrusted(cwd: string, env: Record<string, string | undefined> = process.env): boolean {
-  const physicalCwd = physicalPathOf(cwd);
-  if (physicalCwd === null) return false;
-  return fs.existsSync(path.join(realAgentHome(KIMI_HOME_PROFILE, env), "workspace-trust", workspaceTrustKey(physicalCwd)));
-}
-
 function resolveCommand(
   { platform, execFile = execFileSync, pathExists = fs.existsSync }: {
     platform?: NodeJS.Platform;
@@ -298,8 +264,6 @@ const kimi = {
   buildEnv,
   buildArgs,
   sessionIdOf,
-  isWorkspaceTrusted,
-  workspaceTrustKey,
   mapHookToSignal,
   mapHookPayload,
   configFilePath,

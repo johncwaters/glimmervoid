@@ -1697,7 +1697,7 @@ class Session extends EventEmitter {
     this.ptyProcess.onExit(({ exitCode, signal }) =>
       this._handleSpawnedPtyExit(exitCode, signal),
     );
-    this._deliverPtyInitialPrompt(launchPrompt, env);
+    this._deliverPtyInitialPrompt(launchPrompt);
     this._armPromptSupervisionLine();
   }
 
@@ -1750,13 +1750,8 @@ class Session extends EventEmitter {
     return notes;
   }
 
-  _deliverPtyInitialPrompt(prompt: string | null, env: SpawnEnv): void {
+  _deliverPtyInitialPrompt(prompt: string | null): void {
     if (!prompt || !this._can("ptyInitialPrompt")) return;
-    const cwd = this.effectiveCwd();
-    if (this._adapter.isWorkspaceTrusted?.(cwd, env) !== true) {
-      console.log(`[session ${this.id}] ${this._adapter.label} has not trusted ${cwd} yet, so the initial prompt waits for the operator to trust the folder and type it`);
-      return;
-    }
     const pastablePrompt = prompt.replaceAll(PASTE_BREAKING_CONTROL_BYTES, "");
     this._output.pasteTextWhenReady(pastablePrompt, { settleMs: PTY_PROMPT_SETTLE_MS, submitDelayMs: PTY_PROMPT_SUBMIT_DELAY_MS });
   }
