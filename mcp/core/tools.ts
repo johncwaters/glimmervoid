@@ -12,8 +12,11 @@ interface CallContext {
   resolveSessionPath(requestedPath: string): string;
 }
 
+type Presenter = 'agent-reply' | 'show-by-path' | 'board-with-reading' | 'board-picture';
+
 interface ActionRoute {
   verb: AgentApiVerb;
+  presenter?: Presenter;
   toPayload(toolArguments: ToolArguments, context: CallContext): Record<string, unknown>;
 }
 
@@ -33,7 +36,7 @@ interface GroupedTool {
   actions: Readonly<Record<string, ActionRoute>>;
 }
 
-type ToolCallRoute = { ok: true; verb: AgentApiVerb; payload: Record<string, unknown> } | { ok: false; error: string };
+type ToolCallRoute = { ok: true; verb: AgentApiVerb; presenter: Presenter; payload: Record<string, unknown> } | { ok: false; error: string };
 
 const ChildField = z.string().min(1).max(300).describe('The spawned session, by the id or name spawn returned');
 const BoardField = z.string().min(1).max(200).describe('The board, by id or title');
@@ -62,8 +65,12 @@ function editPayload(toolArguments: ToolArguments, context: CallContext): Record
   return { path: context.resolveSessionPath(toolArguments.path) };
 }
 
-function whiteboardRoute(sub: string, keys: readonly string[]): ActionRoute {
-  return { verb: 'whiteboard', toPayload: (toolArguments) => ({ sub, ...definedEntries(toolArguments, keys) }) };
+function whiteboardRoute(sub: string, keys: readonly string[], presenter: Presenter = 'agent-reply'): ActionRoute {
+  return { verb: 'whiteboard', presenter, toPayload: (toolArguments) => ({ sub, ...definedEntries(toolArguments, keys) }) };
+}
+
+function boardPictureRoute(): ActionRoute {
+  return { verb: 'whiteboard', presenter: 'board-picture', toPayload: (toolArguments) => ({ sub: 'get', peek: true, ...definedEntries(toolArguments, ['board']) }) };
 }
 
 const SESSION_TOOL: GroupedTool = {
@@ -98,7 +105,7 @@ const SESSION_TOOL: GroupedTool = {
 const WHITEBOARD_TOOL: GroupedTool = {
   name: 'whiteboard',
   title: 'Glimmervoid whiteboards',
-  description: 'Draw diagrams, architecture maps and plans on a shared whiteboard the operator sees and edits on the dashboard; prefer it to a diagram in chat. new creates a board, list names them, get reads one with what changed since this session last read it, put applies element ops (add, set, remove; a unit element is a plan step), connect and disconnect follow a board\'s changes, resolve closes a note, delete removes a board this session created.',
+  description: 'Draw diagrams, architecture maps and plans on a shared whiteboard the operator sees and edits on the dashboard; prefer it to a diagram in chat. new creates a board, list names them, get reads one with what changed since this session last read it, view returns a picture of it as the operator sees it, put applies element ops (add, set, remove; a unit element is a plan step); get and put also return the plan steps in build order and any layout warnings to fix, connect and disconnect follow a board\'s changes, resolve closes a note, delete removes a board this session created.',
   annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
   loadsUpfront: true,
   fields: {
@@ -106,14 +113,15 @@ const WHITEBOARD_TOOL: GroupedTool = {
     title: z.string().min(1).max(200).optional().describe('new: the board title'),
     ops: z.array(Op).min(1).optional().describe('put: the element ops to apply'),
     note: z.string().min(1).max(200).optional().describe('resolve: the note element id'),
-    peek: z.boolean().optional().describe('get: read without marking changes as seen'),
+    peek: z.boolean().optional().describe('get: read without marking changes as seen; view never marks them'),
     review: z.boolean().optional().describe('get: include the plan review against the code session'),
   },
   actions: {
     list: whiteboardRoute('list', []),
     new: whiteboardRoute('new', ['title']),
-    get: whiteboardRoute('get', ['board', 'peek', 'review']),
-    put: whiteboardRoute('put', ['board', 'ops']),
+    get: whiteboardRoute('get', ['board', 'peek', 'review'], 'board-with-reading'),
+    view: boardPictureRoute(),
+    put: whiteboardRoute('put', ['board', 'ops'], 'board-with-reading'),
     connect: whiteboardRoute('connect', ['board']),
     disconnect: whiteboardRoute('disconnect', ['board']),
     resolve: whiteboardRoute('resolve', ['board', 'note']),
@@ -168,7 +176,7 @@ const SHOW_TOOL: GroupedTool = {
     path: z.string().min(1).max(4096).describe('The file, absolute or relative to this session\'s directory'),
     caption: z.string().min(1).max(500).optional().describe('A short line shown with the file'),
   },
-  actions: { show: routeTo('show', ['path', 'caption']) },
+  actions: { show: { ...routeTo('show', ['path', 'caption']), presenter: 'show-by-path' } },
 };
 
 const SETTINGS_TOOL: GroupedTool = {
@@ -207,8 +215,8 @@ function routeToolCall(tool: GroupedTool, toolArguments: ToolArguments, context:
   }
   const route = tool.actions[requestedAction];
   if (route === undefined) return { ok: false, error: `${tool.name} takes action ${actionNames.join(', ')}` };
-  return { ok: true, verb: route.verb, payload: route.toPayload(toolArguments, context) };
+  return { ok: true, verb: route.verb, presenter: route.presenter ?? 'agent-reply', payload: route.toPayload(toolArguments, context) };
 }
 
 export { GROUPED_TOOLS, allowedActionNames, inputSchemaFor, routeToolCall };
-export type { CallContext, GroupedTool, ToolArguments, ToolCallRoute };
+export type { CallContext, GroupedTool, Presenter, ToolArguments, ToolCallRoute };

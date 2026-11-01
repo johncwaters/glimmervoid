@@ -4,6 +4,10 @@ type ToolTextResult = {
   isError?: boolean;
 };
 
+type ToolImageResult = {
+  content: ({ type: 'image'; data: string; mimeType: string } | { type: 'text'; text: string })[];
+};
+
 function errorTextOf(body: Record<string, unknown>): string {
   return typeof body.error === 'string' && body.error ? body.error : 'Glimmervoid refused the request';
 }
@@ -18,4 +22,4 @@ function toolErrorResult(message: string): ToolTextResult {
 }
 
 export { toolErrorResult, toolResultFromReply };
-export type { ToolTextResult };
+export type { ToolImageResult, ToolTextResult };

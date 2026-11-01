@@ -11,10 +11,11 @@ import type { Session } from '../session/sessions.ts';
 import { parsePresentedCredential } from './core/credentials.ts';
 import { SERVER_INSTRUCTIONS } from './core/instructions.ts';
 import { showByPath } from './show.ts';
-import type { ShowReply } from './show.ts';
+import { boardPictureResult, boardReplyWithReading } from './whiteboard.ts';
+import type { ToolImageResult } from './core/tool-result.ts';
 import { toolErrorResult, toolResultFromReply } from './core/tool-result.ts';
 import { GROUPED_TOOLS, allowedActionNames, inputSchemaFor, routeToolCall } from './core/tools.ts';
-import type { CallContext, GroupedTool, ToolArguments } from './core/tools.ts';
+import type { CallContext, GroupedTool, Presenter, ToolArguments } from './core/tools.ts';
 import type { AgentApiVerb } from '../shared/contracts/session.ts';
 
 const MCP_ROUTE = '/mcp';
@@ -30,6 +31,8 @@ interface AgentMcpDependencies {
   logger: Pick<Console, 'warn'>;
 }
 
+type AgentReply = { status: number; body: Record<string, unknown> };
+
 type AuthenticatedRequest = Request & { auth?: { token: string; clientId: string; scopes: string[] } };
 
 function refuse(res: Response): void {
@@ -40,11 +43,30 @@ function callContextFor(session: Session): CallContext {
   return { resolveSessionPath: (requestedPath) => path.resolve(session.effectiveCwd(), requestedPath) };
 }
 
-function runRoutedVerb(session: Session, agentApi: AgentApiPort, getShownFiles: () => ShownFilesPort | null, verb: AgentApiVerb, payload: Record<string, unknown>): Promise<ShowReply> {
-  if (verb !== 'show') return agentApi.handle(session, verb, payload);
-  const requestedPath = typeof payload.path === 'string' ? payload.path : '';
-  const caption = typeof payload.caption === 'string' ? payload.caption : null;
-  return showByPath(session, agentApi, getShownFiles(), { requestedPath, caption });
+interface CallTarget {
+  session: Session;
+  agentApi: AgentApiPort;
+  getShownFiles(): ShownFilesPort | null;
+}
+
+type PresentedReply = AgentReply | ToolImageResult;
+
+function showPathRequest(payload: Record<string, unknown>) {
+  return {
+    requestedPath: typeof payload.path === 'string' ? payload.path : '',
+    caption: typeof payload.caption === 'string' ? payload.caption : null,
+  };
+}
+
+const PRESENTERS: Readonly<Record<Presenter, (target: CallTarget, verb: AgentApiVerb, payload: Record<string, unknown>) => Promise<PresentedReply>>> = {
+  'agent-reply': ({ session, agentApi }, verb, payload) => agentApi.handle(session, verb, payload),
+  'show-by-path': ({ session, agentApi, getShownFiles }, _verb, payload) => showByPath(session, agentApi, getShownFiles(), showPathRequest(payload)),
+  'board-with-reading': ({ session, agentApi }, _verb, payload) => boardReplyWithReading(session, agentApi, payload),
+  'board-picture': ({ session, agentApi }, _verb, payload) => boardPictureResult(session, agentApi, payload),
+};
+
+function toolResultOf(presented: PresentedReply) {
+  return 'content' in presented ? presented : toolResultFromReply(presented);
 }
 
 function registerGroupedTool(server: McpServer, tool: GroupedTool, session: Session, agentApi: AgentApiPort, getShownFiles: () => ShownFilesPort | null): void {
@@ -59,8 +81,7 @@ function registerGroupedTool(server: McpServer, tool: GroupedTool, session: Sess
   }, async (toolArguments: ToolArguments) => {
     const route = routeToolCall(tool, toolArguments, callContextFor(session));
     if (!route.ok) return toolErrorResult(route.error);
-    const reply = await runRoutedVerb(session, agentApi, getShownFiles, route.verb, route.payload);
-    return toolResultFromReply(reply);
+    return toolResultOf(await PRESENTERS[route.presenter]({ session, agentApi, getShownFiles }, route.verb, route.payload));
   });
 }
 
