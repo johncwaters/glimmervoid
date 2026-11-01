@@ -90,10 +90,34 @@
   padding-right: 10px;
 }
 
-.wb-island-view,
 .wb-island-tools { bottom: 10px; }
 
-.wb-island-view { left: 10px; }
+.wb-bottom-left {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: calc(100% - 20px);
+  max-height: calc(100% - 70px);
+  pointer-events: none;
+}
+
+.wb-bottom-left > * { pointer-events: auto; }
+
+.wb-bottom-left > .wb-island { position: static; }
+
+.wb-island[hidden] { display: none; }
+
+.wb-island-agent {
+  flex-wrap: nowrap;
+  padding-right: 10px;
+  font-size: var(--type-meta);
+  color: var(--text-dim);
+}
 
 .wb-island-tools {
   left: 50%;
@@ -541,19 +565,6 @@
 
 .wb-dock[hidden] { display: none; }
 
-.wb-dock-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--border-dim);
-  font-size: var(--type-meta);
-  color: var(--text-dim);
-}
-
-.wb-dock-bar .wb-button { flex: none; white-space: nowrap; }
-
 .wb-dock > .wb-docked-card {
   flex: 1;
   min-height: 0;
@@ -580,15 +591,12 @@
 .wb-inspect[hidden] { display: none; }
 
 .wb-uncovered {
-  position: absolute;
-  bottom: 60px;
-  left: 10px;
-  z-index: 1;
   display: flex;
   flex-direction: column;
   gap: 4px;
   max-width: 320px;
-  max-height: 40%;
+  max-height: 40vh;
+  min-height: 0;
   overflow-y: auto;
   padding: 10px 12px;
   border: 1px solid var(--border);

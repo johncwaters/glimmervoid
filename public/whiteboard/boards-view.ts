@@ -29,6 +29,7 @@ const PICK_TEXT = 'Pick a board above.';
 const TITLE_RENAME_CLASS = 'wb-board-title-rename';
 const MENU_ICON_PATH = 'M2.5 4h11M2.5 8h11M2.5 12h11';
 const NOTE_ICON_PATH = 'M3 2.5h7l3 3v8H3z M10 2.5v3h3';
+const SEND_TO_CHAT_ICON_PATH = 'M13.5 8H3 M7 4L3 8l4 4';
 const FRAME_ICON_PATH = 'M2.5 4.5h11v9h-11z M2.5 4.5v-2h5v2';
 const UNIT_ICON_PATH = 'M6 4.5h7.5 M6 8h7.5 M6 11.5h7.5 M2.5 4.5h0.01 M2.5 8h0.01 M2.5 11.5h0.01';
 const FIT_ICON_PATH = 'M2.5 6V2.5H6 M10 2.5h3.5V6 M13.5 10v3.5H10 M6 13.5H2.5V10';
@@ -63,6 +64,7 @@ interface BoardsViewParts {
   empty: HTMLElement;
   emptyText: HTMLElement;
   dock: HTMLElement;
+  agentIsland: HTMLElement;
   dockQueued: HTMLElement;
   sendToAgent: HTMLButtonElement;
   buttons: Record<'note' | 'frame' | 'unit' | 'fit' | 'undo' | 'redo', HTMLButtonElement>;
@@ -652,20 +654,21 @@ function mountBoardsView(panel: HTMLElement): void {
   const uncovered = el('aside', 'wb-uncovered');
   uncovered.setAttribute('aria-label', 'Not on the board');
   uncovered.hidden = true;
-  canvas.append(svg, inspectPanel, uncovered, boardIsland, viewIsland, toolsIsland);
+  const dockQueued = el('span', 'wb-dock-queued');
+  const sendToAgent = iconButton('send to agent', SEND_TO_CHAT_ICON_PATH, () => void sendBoardNudge());
+  const agentIsland = island('wb-island-agent', 'Docked session', sendToAgent, dockQueued, dockStatus.element);
+  agentIsland.hidden = true;
+  const bottomLeftStack = el('div', 'wb-bottom-left');
+  bottomLeftStack.append(uncovered, agentIsland, viewIsland);
+  canvas.append(svg, inspectPanel, boardIsland, bottomLeftStack, toolsIsland);
   const emptyText = el('p', 'wb-empty-text', EMPTY_TEXT);
   const empty = el('div', 'wb-empty');
   empty.append(emptyText, toolbarButton('new board', newBoardFromDialog));
   const dock = el('div', 'wb-dock');
   dock.hidden = true;
-  const dockQueued = el('span', 'wb-dock-queued');
-  const sendToAgent = toolbarButton('send to agent', () => void sendBoardNudge());
-  const dockBar = el('div', 'wb-dock-bar');
-  dockBar.append(dockQueued, sendToAgent, dockStatus.element);
-  dock.append(dockBar);
 
   panel.replaceChildren(canvas, empty, dock);
-  parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, canvas, empty, emptyText, dock, dockQueued, sendToAgent, buttons, toolButtons, uncovered };
+  parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, canvas, empty, emptyText, dock, agentIsland, dockQueued, sendToAgent, buttons, toolButtons, uncovered };
   const boardRenderer = createBoardRenderer(svg);
   renderer = boardRenderer;
   inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, openRef: openRefInReview });
@@ -698,7 +701,9 @@ function isPhoneLayout(): boolean {
 function undockSession(): void {
   if (dockedSessionId && getBorrowedCardId() === dockedSessionId) releaseCard();
   dockedSessionId = null;
-  if (parts) parts.dock.hidden = true;
+  if (!parts) return;
+  parts.dock.hidden = true;
+  parts.agentIsland.hidden = true;
 }
 
 function dockSession(sessionId: string): void {
@@ -707,6 +712,7 @@ function dockSession(sessionId: string): void {
   if (!ui) return;
   dockedSessionId = sessionId;
   parts.dock.hidden = false;
+  parts.agentIsland.hidden = false;
   dockStatus.clear();
   paintDock();
   borrowCard(ui, sessionId, parts.dock, { className: 'wb-docked-card' });

@@ -257,9 +257,14 @@ export async function verifyBoardDock(page: Page, sessionId: string, projectDire
     const docked = document.querySelector(`.wb-dock .session-card[data-id="${id}"]`);
     return docked?.getAttribute('data-grid') === 'exact';
   }, sessionId);
-  await panel.locator('.wb-dock-queued', { hasText: 'has read every change' }).waitFor();
-  await panel.locator('.wb-dock-bar').getByRole('button', { name: 'send to agent', exact: true }).click();
-  await panel.locator('.wb-dock-bar .action-status', { hasText: 'sent' }).waitFor();
+  const agentIsland = panel.getByRole('toolbar', { name: 'Docked session', exact: true });
+  await agentIsland.locator('.wb-dock-queued', { hasText: 'has read every change' }).waitFor();
+  const agentBox = await agentIsland.boundingBox();
+  const fitBox = await panel.getByRole('button', { name: 'fit', exact: true }).boundingBox();
+  assert.ok(agentBox && fitBox);
+  assert.ok(agentBox.y + agentBox.height <= fitBox.y && Math.abs(agentBox.x - (canvasBox.x + 10)) < 2, 'the docked session island sits bottom left on the board, just above fit');
+  await agentIsland.getByRole('button', { name: 'send to agent', exact: true }).click();
+  await agentIsland.locator('.action-status', { hasText: 'sent' }).waitFor();
   const uncoveredFile = panel.getByRole('complementary', { name: 'Not on the board' }).getByRole('button', { name: UNCOVERED_FILE_NAME, exact: true });
   await uncoveredFile.waitFor({ timeout: REVIEW_TIMEOUT_MS });
   await panel.getByRole('button', { name: 'unit', exact: true }).click();
