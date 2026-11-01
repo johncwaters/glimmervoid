@@ -12,6 +12,7 @@ import { mergeSelectedSession, resolveSelectedSession, resyncSelectedSession } f
 import { getSelectedId } from '../sidebar/selection.ts';
 import { toggleStreamerMode } from '../streamer-mode.ts';
 import { getActiveView } from '../ui-state-core.ts';
+import { jumpToNextAttentionOnBoard } from '../whiteboard/board-attention.ts';
 import { activateView, focusViewTabIfFocused, stepViewTab } from './view-tabs.ts';
 
 function focusedTerminalSessionId() {
@@ -61,6 +62,7 @@ function runDashboardShortcut({ action, step }: ResolvedDashboardShortcut) {
         return true;
       }
       if (getActiveView() === 'prs' && jumpToNextReview()) return true;
+      if (getActiveView() === 'boards' && jumpToNextAttentionOnBoard()) return true;
       activateFocusOnNextAttention(() => activateView('focus'));
       return true;
     case 'rail-step':

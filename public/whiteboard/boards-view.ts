@@ -11,6 +11,7 @@ import { buildDialogShell, isModalOpen, openConfirmDialog } from '../session-car
 import { setTerminalActiveViewer } from '../session-card/terminal.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import type { ViewModule } from '../view-registry-core.ts';
+import { buildBoardAttentionBanner, refreshBoardAttention } from './board-attention.ts';
 import { createBoardEditor, newElementId } from './board-edit.ts';
 import type { BoardEditor, BoardTool } from './board-edit.ts';
 import { EMPTY_HISTORY, inverseOps, recordEdit, recordStep, takeStep } from '#shared/whiteboard-undo-core.ts';
@@ -660,7 +661,9 @@ function mountBoardsView(panel: HTMLElement): void {
   agentIsland.hidden = true;
   const bottomLeftStack = el('div', 'wb-bottom-left');
   bottomLeftStack.append(uncovered, agentIsland, viewIsland);
-  canvas.append(svg, inspectPanel, boardIsland, bottomLeftStack, toolsIsland);
+  const topRightStack = el('div', 'wb-top-right');
+  topRightStack.append(buildBoardAttentionBanner({ dockedSessionId: () => dockedSessionId, isBoardOpen: () => selectedBoardId !== null, dockBesideOpenBoard }), inspectPanel);
+  canvas.append(svg, topRightStack, boardIsland, bottomLeftStack, toolsIsland);
   const emptyText = el('p', 'wb-empty-text', EMPTY_TEXT);
   const empty = el('div', 'wb-empty');
   empty.append(emptyText, toolbarButton('new board', newBoardFromDialog));
@@ -704,6 +707,7 @@ function undockSession(): void {
   if (!parts) return;
   parts.dock.hidden = true;
   parts.agentIsland.hidden = true;
+  refreshBoardAttention();
 }
 
 function dockSession(sessionId: string): void {
@@ -717,6 +721,13 @@ function dockSession(sessionId: string): void {
   paintDock();
   borrowCard(ui, sessionId, parts.dock, { className: 'wb-docked-card' });
   setTerminalActiveViewer(ui, sessionId, true);
+  refreshBoardAttention();
+}
+
+function dockBesideOpenBoard(sessionId: string): boolean {
+  if (!selectedBoardId) return false;
+  dockSession(sessionId);
+  return dockedSessionId === sessionId;
 }
 
 function refreshBoardsView(): void {

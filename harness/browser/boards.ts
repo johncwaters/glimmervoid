@@ -272,6 +272,11 @@ export async function verifyBoardDock(page: Page, sessionId: string, projectDire
   const unitOnBoard = panel.locator('.wb-unit', { hasText: 'Uncovered change' });
   await unitOnBoard.locator('.wb-box-title').click();
   const inspect = panel.locator('.wb-inspect');
+  const attentionBannerBox = await panel.locator('.wb-attention').boundingBox();
+  const inspectBox = await inspect.boundingBox();
+  assert.ok(attentionBannerBox && inspectBox);
+  assert.ok(Math.abs(attentionBannerBox.x + attentionBannerBox.width - (canvasBox.x + canvasBox.width - 10)) < 2, 'the attention banner sits top right on the board');
+  assert.ok(attentionBannerBox.y + attentionBannerBox.height <= inspectBox.y, 'the unit inspector sits below the attention banner');
   await inspect.getByRole('button', { name: 'Add a ref to this unit', exact: true }).click();
   await inspect.getByRole('textbox', { name: 'Ref 1', exact: true }).fill(UNCOVERED_FILE_NAME);
   await page.keyboard.press('Enter');
@@ -294,4 +299,21 @@ export async function verifyBoardDock(page: Page, sessionId: string, projectDire
   await page.locator('#tab-boards[aria-selected="true"]').waitFor();
   await openBoardTitle(panel, boardTitle).waitFor();
   await panel.locator(`.wb-dock .session-card[data-id="${sessionId}"]`).waitFor({ state: 'visible' });
+  await verifyBoardAttentionJump(page, panel, sessionId);
+}
+
+async function verifyBoardAttentionJump(page: Page, panel: Locator, sessionId: string): Promise<void> {
+  await panel.locator(`.wb-dock .session-card[data-id="${sessionId}"] .xterm`).click();
+  await page.keyboard.type('ask');
+  await page.keyboard.press('Enter');
+  await panel.locator(`.wb-dock .session-card[data-id="${sessionId}"][data-state="WAITING"]`).waitFor();
+  const attentionTile = panel.locator(`.wb-attention .attention-tile[data-id="${sessionId}"]`);
+  assert.equal(await attentionTile.count(), 0, 'the banner leaves out the docked session');
+  await page.locator('#tab-hooks').click();
+  await page.locator('#tab-boards').click();
+  await attentionTile.waitFor();
+  assert.equal(await panel.locator('.wb-dock .session-card').count(), 0, 'opening Boards from its tab docks nothing');
+  await page.keyboard.press('Alt+KeyJ');
+  await panel.locator(`.wb-dock .session-card[data-id="${sessionId}"]`).waitFor({ state: 'visible' });
+  assert.equal(await page.locator('#tab-boards[aria-selected="true"]').count(), 1, 'Alt+J in Boards docks the next session without leaving the board');
 }

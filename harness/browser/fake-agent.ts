@@ -154,6 +154,10 @@ function dispatch(command: string): void {
     requestPlanReview();
     return;
   }
+  if (command === 'ask') {
+    postHook('permissionrequest', { hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'ls' } });
+    return;
+  }
   if (command === 'stop') {
     postHook('stop', { hook_event_name: 'Stop', stop_hook_active: false });
     setTitle(IDLE_GLYPH, 'idle');
