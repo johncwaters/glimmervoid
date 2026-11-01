@@ -10,7 +10,7 @@ import { shellQuote } from '../session/core/hook-command-core.ts';
 import { HOOK_TOOLS } from '../session/core/hook-tools.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { appendUserHooks } from '../session/core/user-hooks-core.ts';
-import type { UserHook } from '../session/core/user-hooks-core.ts';
+import type { InstalledHookFlags, InstalledHooks, UserHook } from '../session/core/user-hooks-core.ts';
 import { PLAN_HOOK_EVENT, PLAN_RESULT_HOOK_EVENT, PLAN_TOOL_NAME } from '../shared/contracts/plan-review.ts';
 import { ASK_USER_QUESTION_TOOL_NAME, CONVERSATION_PERMISSION_HOOK_EVENT, CONVERSATION_TOOL_RESULT_HOOK_EVENT } from '../shared/contracts/session.ts';
 import { safePathSegment } from '../shared/paths.ts';
@@ -252,28 +252,24 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
   return settings;
 }
 
-function describeBuiltinHooks(
-  { detectScheduledWakeups = true, observeToolCalls = false, hookTools = [], planReview = false, holdsQuestionsForParent = false }:
-    { detectScheduledWakeups?: boolean; observeToolCalls?: boolean; hookTools?: ResolvedHookTool[]; planReview?: boolean; holdsQuestionsForParent?: boolean } = {},
-): { event: string; matcher: string | null; purpose: string }[] {
-  const rows = HOOK_EVENTS.map((event) => ({ event, matcher: null as string | null, purpose: 'Status detection: POST to the Glimmervoid hook router' }));
-  if (planReview) rows.push({ event: 'PermissionRequest', matcher: PLAN_TOOL_MATCHER, purpose: 'Plan review: POST the plan to the Glimmervoid plan endpoint' });
-  if (detectScheduledWakeups) rows.push({ event: 'PostToolUse', matcher: WAKEUP_TOOL_MATCHER, purpose: 'Scheduled wakeup tracking' });
-  rows.push({ event: 'PostToolUse', matcher: PR_LINK_TOOL_MATCHER, purpose: 'Pull request linking: read the git operation a shell command reports' });
-  rows.push({ event: 'PostToolUse', matcher: COMMAND_HINT_TOOL_MATCHER, purpose: 'Command hints: name a Glimmervoid command once, when a tool call shows it applies' });
-  rows.push({ event: 'PostToolUseFailure', matcher: FAILED_SHELL_TOOL_MATCHER, purpose: 'Command hints: name glimmervoid push once, when a git push fails' });
-  rows.push({ event: 'PostToolUse', matcher: ASK_USER_QUESTION_TOOL_NAME, purpose: 'Status detection: leave Needs input once a question is answered' });
-  if (planReview) rows.push({ event: 'PostToolUse', matcher: PLAN_TOOL_MATCHER, purpose: 'Plan review: record the approved plan' });
-  if (holdsQuestionsForParent) {
-    rows.push({ event: 'PermissionRequest', matcher: ASK_USER_QUESTION_TOOL_NAME, purpose: 'Spawned session: hold a question so the parent can answer it' });
-    rows.push({ event: 'PostToolUse', matcher: ASK_USER_QUESTION_TOOL_NAME, purpose: 'Spawned session: release a held question the terminal answered' });
-  }
-  if (observeToolCalls) rows.push({ event: 'PreToolUse', matcher: null, purpose: 'Investigation trail: POST every tool call to the Glimmervoid hook router' });
-  for (const tool of hookTools) {
-    const descriptor = HOOK_TOOLS[tool.id];
-    rows.push({ event: 'PreToolUse', matcher: descriptor.claudeEntry(tool, HOOK_TOOL_RELAY_PATH).matcher, purpose: descriptor.purpose });
-  }
-  return rows;
+const DESCRIBE_SESSION_ID = 'describe';
+const HOOK_ROUTE_RE = /\/hook\/describe\/([a-z-]+)/;
+
+function routeOf(handler: SettingsHookHandler, hookTools: readonly ResolvedHookTool[]): string | null {
+  const target = handler.url ?? handler.command ?? '';
+  const endpoint = HOOK_ROUTE_RE.exec(target)?.[1];
+  if (endpoint !== undefined) return endpoint;
+  return hookTools.find((tool) => target.includes(toForwardSlashes(tool.binPath)))?.id ?? null;
+}
+
+function describeInstalledClaudeHooks(flags: InstalledHookFlags): InstalledHooks {
+  const settings = buildHookSettings({ port: 1, glimmervoidId: DESCRIBE_SESSION_ID, token: DESCRIBE_SESSION_ID, ...flags });
+  const hooks = Object.entries(settings.hooks).flatMap(([event, entries]) => entries.flatMap((entry) => entry.hooks.map((handler) => ({
+    event,
+    matcher: entry.matcher ?? null,
+    route: routeOf(handler, flags.hookTools),
+  }))));
+  return { version: null, isBestEffort: false, hooks };
 }
 
 function writeSessionSettings({ glimmervoidId, token, baseDir = DEFAULT_BASE_DIR, ...rest }: WriteSessionSettingsOptions) {
@@ -331,4 +327,4 @@ function sweepOrphans(baseDir: string = DEFAULT_BASE_DIR, maxAgeMs: number = 24 
   return removed;
 }
 
-export { buildHookSettings, describeBuiltinHooks, writeSessionSettings, sweepOrphans, generateToken, HOOK_EVENTS, DEFAULT_TIMEOUT_SEC, PLAN_HOLD_RELEASE_MS, FILE_MODE, RELAY_PATH, COMMAND_HOOK_RELAY_PATH, NO_CHAIN };
+export { buildHookSettings, describeInstalledClaudeHooks, writeSessionSettings, sweepOrphans, generateToken, HOOK_EVENTS, DEFAULT_TIMEOUT_SEC, PLAN_HOLD_RELEASE_MS, FILE_MODE, RELAY_PATH, COMMAND_HOOK_RELAY_PATH, NO_CHAIN };

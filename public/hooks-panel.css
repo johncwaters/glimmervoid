@@ -255,6 +255,19 @@
 .hooks-builtin-summary::-webkit-details-marker { display: none; }
 .hooks-builtin-summary > .hooks-section-title::before { content: "+ "; color: var(--text-muted); }
 .hooks-builtin[open] > .hooks-builtin-summary > .hooks-section-title::before { content: "- "; }
+.hooks-agent-groups { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.hooks-agent-group-summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: var(--type-meta);
+  color: var(--text-muted);
+  font-weight: 700;
+  padding: 4px 0;
+}
+.hooks-agent-group-summary::-webkit-details-marker { display: none; }
+.hooks-agent-group-summary::before { content: "+ "; }
+.hooks-agent-group[open] > .hooks-agent-group-summary::before { content: "- "; }
+html[data-layout="phone"] .hooks-agent-group-summary { min-height: 44px; display: flex; align-items: center; }
 
 .hooks-form {
   display: flex;

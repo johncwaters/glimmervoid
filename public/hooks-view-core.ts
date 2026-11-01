@@ -1,5 +1,6 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { MAX_TIMEOUT_SEC } from '#shared/contracts/hooks.ts';
+import type { AgentHookGroup, InstalledHookRow } from '#shared/contracts/hooks.ts';
 export const HOOKS_HINT = 'Claude Code hooks injected into every session Glimmervoid spawns.';
 export const HOOKS_LOADING_TEXT = 'Loading hooks';
 export const HOOKS_EMPTY_TEXT = 'No hooks yet. A hook runs a command, or calls a URL, when a Claude Code event fires in a Glimmervoid session. Start from one of these, or add your own.';
@@ -17,6 +18,12 @@ const FILTER_MIN_COUNT = 4;
 export const HOOKS_APPLY_NOTE = 'A change reaches a session at its next start or restart. Claude Code sessions only; Codex and Grok sessions do not read this file.';
 export const BUILTIN_TITLE = "Glimmervoid's own hooks";
 export const BUILTIN_HINT = 'Always present, read-only. Status detection depends on them.';
+
+export function agentGroupTitle(group: AgentHookGroup): string {
+  const versionSuffix = group.version === null ? '' : ` ${group.version}`;
+  const effortSuffix = group.isBestEffort ? ', best effort' : '';
+  return `${group.label}${versionSuffix}${effortSuffix} (${group.rows.length})`;
+}
 export const YOUR_HOOKS_TITLE = 'Your hooks';
 export const NEW_HOOK_TITLE = 'New hook';
 export const EDIT_HOOK_TITLE = 'Edit hook';
@@ -40,15 +47,9 @@ export type HookRecord = {
 
 export type HookEvent = Pick<NonNullable<ServerMessageOf<'hooks-report'>['events']>[number], 'name' | 'description'> & Partial<Pick<NonNullable<ServerMessageOf<'hooks-report'>['events']>[number], 'matcher' | 'http'>>;
 
-export interface HookBuiltinRow {
-  event: string;
-  purpose: string;
-  matcher?: string | null;
-}
-
 export type HookProject = Pick<NonNullable<ServerMessageOf<'hooks-report'>['projects']>[number], 'id' | 'name'> & Partial<Pick<NonNullable<ServerMessageOf<'hooks-report'>['projects']>[number], 'agent'>>;
 
-export type HooksReport = Pick<ServerMessageOf<'hooks-report'>, 'hooks' | 'builtin' | 'events' | 'projects' | 'limits' | 'error' | 'requestId'>;
+export type HooksReport = Pick<ServerMessageOf<'hooks-report'>, 'hooks' | 'builtinByAgent' | 'events' | 'projects' | 'limits' | 'error' | 'requestId'>;
 
 export interface HookDraft {
   id: string | null;
@@ -82,7 +83,7 @@ export const HOOK_TEMPLATES: readonly HookTemplate[] = Object.freeze([
   { id: 'log', label: 'Log every prompt', summary: 'UserPromptSubmit, appends JSON', draft: { name: 'Log every prompt', event: 'UserPromptSubmit', matcher: '', type: 'command', command: 'cat >> ~/.claude/prompts.jsonl' } },
 ]);
 
-const EMPTY_REPORT = Object.freeze({ hooks: [], builtin: [], events: [] });
+const EMPTY_REPORT = Object.freeze({ hooks: [], builtinByAgent: [], events: [] });
 
 export function isHooksUnavailable(report: HooksReport | null | undefined) {
   return !report || typeof report.error === 'string';
@@ -93,13 +94,14 @@ export function hooksErrorLine(report: HooksReport | null | undefined) {
   return report.error;
 }
 
-function listOf(report: HooksReport | null | undefined, key: 'hooks' | 'builtin' | 'events'): unknown[] {
+function listOf(report: HooksReport | null | undefined, key: 'hooks' | 'builtinByAgent' | 'events'): unknown[] {
   const value = report?.[key];
   return Array.isArray(value) ? value : EMPTY_REPORT[key];
 }
 
 export const hooksOf = (report: HooksReport | null | undefined) => listOf(report, 'hooks') as HookRecord[];
-export const builtinOf = (report: HooksReport | null | undefined) => listOf(report, 'builtin') as HookBuiltinRow[];
+export const builtinGroupsOf = (report: HooksReport | null | undefined) => listOf(report, 'builtinByAgent') as AgentHookGroup[];
+export const builtinCountOf = (report: HooksReport | null | undefined) => builtinGroupsOf(report).reduce((total, group) => total + group.rows.length, 0);
 export const eventsOf = (report: HooksReport | null | undefined) => listOf(report, 'events') as HookEvent[];
 
 export function maxTimeoutOf(report: { limits?: Partial<NonNullable<HooksReport['limits']>> | null } | null | undefined) {
@@ -113,7 +115,7 @@ export function totalsChips(report: HooksReport | null | undefined): { label: st
   return [
     { label: 'yours', value: String(hooks.length), tone: null },
     { label: 'enabled', value: String(enabled), tone: hooks.length > 0 && enabled === 0 ? 'warn' : null },
-    { label: 'built in', value: String(builtinOf(report).length), tone: null },
+    { label: 'built in', value: String(builtinCountOf(report)), tone: null },
   ];
 }
 
@@ -198,12 +200,12 @@ export function scopeLabel(hook: HookRecord, projects: HookProject[]) {
   return names.join(', ');
 }
 
-export function eventChipText(hook: Pick<HookBuiltinRow, 'event' | 'matcher'>) {
+export function eventChipText(hook: { event: string; matcher?: string | null }) {
   if (!hook.matcher) return hook.event;
   return `${hook.event} / ${hook.matcher}`;
 }
 
-export function builtinLine(row: HookBuiltinRow) {
+export function builtinLine(row: InstalledHookRow) {
   return eventChipText(row);
 }
 

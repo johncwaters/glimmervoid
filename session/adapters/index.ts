@@ -1,5 +1,5 @@
 import type { ResolvedHookTool } from '../core/hook-tools.ts';
-import type { UserHook } from '../core/user-hooks-core.ts';
+import type { InstalledHookFlags, InstalledHooks, UserHook } from '../core/user-hooks-core.ts';
 import claudeCode from "./claude-code.ts";
 import codex from "./codex.ts";
 import grok from "./grok.ts";
@@ -96,6 +96,7 @@ type HookInjection = SettingsFileInjection | ArgvConfigInjection | HomeHooksFile
 
 interface AgentHookProfile extends HookProfile {
   injection: HookInjection;
+  describeInstalledHooks?(flags: InstalledHookFlags): InstalledHooks;
   enrichPayload?(event: string, payload: HookPayload, agentEnv: Record<string, string | undefined>): Promise<HookPayload>;
 }
 

@@ -6,10 +6,11 @@ import { ConfigUpdate, RUNTIME_CONFIG_SCALAR_KEYS, configIssueMessage } from '..
 import type { ClientMessageOf } from '../../../shared/contracts/index.ts';
 import { isRecord } from '../../../shared/coerce.ts';
 import { errorCode, errorMessage } from '../../../shared/text.ts';
-import { describeBuiltinHooks } from '../../../detection/settings-injector.ts';
-import { DEFAULT_AGENT_ID, describeAgentResolvability, listAgentIds, resetCommandCache } from '../../../session/adapters/index.ts';
+import type { AgentHookGroup } from '../../../shared/contracts/hooks.ts';
+import { DEFAULT_AGENT_ID, describeAgentResolvability, getAdapter, listAgentIds, resetCommandCache } from '../../../session/adapters/index.ts';
 import type { ResolvedHookTool } from '../../../session/core/hook-tools.ts';
-import { HOOK_EVENT_CATALOG, ID_RE as HOOK_ID_RE, MAX_TIMEOUT_SEC as HOOK_MAX_TIMEOUT_SEC, normalizeHook, rawStoredHooks, readStoredHooks, removeHook, upsertHook } from '../../../session/core/user-hooks-core.ts';
+import type { InstalledHookFlags } from '../../../session/core/user-hooks-core.ts';
+import { agentHookGroupOf, HOOK_EVENT_CATALOG, ID_RE as HOOK_ID_RE, MAX_TIMEOUT_SEC as HOOK_MAX_TIMEOUT_SEC, normalizeHook, rawStoredHooks, readStoredHooks, removeHook, upsertHook } from '../../../session/core/user-hooks-core.ts';
 import type { ControlSocket } from '../../backend/backend-websockets.ts';
 import { ABORT_CONFIG_SAVE } from '../../config-store.ts';
 import type { ProjectEntry } from '../../config-store.ts';
@@ -242,15 +243,22 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     replyTo(ws, msg, 'telegram-test-result', { ok: sendResult.ok, error: sendResult.error, telegramDelivery: telegramDelivery.status() });
   }
 
-  function builtinHooksReport() {
+  function builtinHookGroups(): AgentHookGroup[] {
     const hookTools: ResolvedHookTool[] = [];
     const saneYoloPath = config.saneYolo !== false ? resolvePackageBin('cc-safety-net', 'cc-safety-net') : null;
     if (saneYoloPath) hookTools.push({ id: 'saneYolo', binPath: saneYoloPath });
-    return describeBuiltinHooks({
+    const flags: InstalledHookFlags = {
       detectScheduledWakeups: config.detectScheduledWakeups !== false,
+      observeToolCalls: false,
       hookTools,
       planReview: config.planReview?.enabled !== false,
       holdsQuestionsForParent: true,
+    };
+    return listAgentIds().flatMap((agentId) => {
+      const adapter = getAdapter(agentId);
+      const describeInstalledHooks = adapter?.hooks?.describeInstalledHooks;
+      if (!adapter || !describeInstalledHooks) return [];
+      return [agentHookGroupOf(adapter.id, adapter.label, describeInstalledHooks(flags))];
     });
   }
 
@@ -266,7 +274,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     replyTo(ws, msg, 'hooks-report', {
       ts: Date.now(),
       hooks: readStoredHooks(config.hooks),
-      builtin: builtinHooksReport(),
+      builtinByAgent: builtinHookGroups(),
       events: HOOK_EVENT_CATALOG,
       projects: hooksReportProjects(),
 
