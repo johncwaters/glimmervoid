@@ -11,7 +11,7 @@ import { resolveFfmpegPath } from '../../server/runtime-paths.ts';
 import { isolateTranscriptHomes } from '../../tests/helpers/transcript-homes.ts';
 import { safeTextTail } from '../support/backend-harness.ts';
 import {
-  addSession, cancellation, createProject, listProcessesMentioning, prepareIsolatedEnvironment, quoteShell, refuseUnsupportedLaunch, runCommand, runIsolatedDashboard, selectSession,
+  addSession, cancellation, createProject, listProcessesMentioning, prepareIsolatedEnvironment, quoteShell, refuseUnsupportedLaunch, runCommand, runIsolatedDashboard, seedWhiteboard, selectSession,
 } from './isolated-glimmervoid.ts';
 import { ReplayStatus, parseCaptureRecording, redactRecording, validateManifest } from './manifest-core.ts';
 import type { ReplayEnvironment } from './manifest-core.ts';
@@ -54,12 +54,18 @@ function parseArguments(argv: string[]): { manifestPath: string; outputDirectory
   return { manifestPath: path.resolve(manifestPath), outputDirectory, executablePath };
 }
 
-async function refreshReview(page: Page, sessionId: string): Promise<void> {
-  await page.evaluate(async ({ moduleUrl, id }) => {
-    const imported: unknown = await import(moduleUrl);
-    const controlModule = imported as { sendControlMsg(message: { type: string; id: string }): void };
-    for (const type of ['request-session-diff', 'request-change-map', 'request-branch-sync']) controlModule.sendControlMsg({ type, id });
-  }, { moduleUrl: '/control-ws.ts', id: sessionId });
+const maxAltJPressesToReachSession = 8;
+
+async function pressAltJUntilFocused(page: Page, sessionIds: ReadonlyMap<string, string>, sessionName: string): Promise<void> {
+  const sessionId = sessionIds.get(sessionName);
+  if (!sessionId) throw new Error(`unknown session ${sessionName}`);
+  const focusedPill = page.locator(`.focus-rail .session-row.focused[data-id="${sessionId}"]`);
+  for (let pressCount = 1; pressCount <= maxAltJPressesToReachSession; pressCount += 1) {
+    await page.keyboard.press('Alt+KeyJ');
+    console.log(`press: Alt+KeyJ toward ${sessionName}`);
+    if (await focusedPill.waitFor({ timeout: 900 }).then(() => true, () => false)) return;
+  }
+  throw new Error(`Alt+J never reached ${sessionName}`);
 }
 
 async function showCursor(page: Page, viewport: { width: number; height: number }): Promise<void> {
@@ -253,6 +259,7 @@ async function main(): Promise<void> {
       projectPaths.set(session.project, await createProject(tempDirectory, directoryName, seedDirectory));
     }
     const { port, configPath } = await prepareIsolatedEnvironment({ tempDirectory, repoRoots: [...projectPaths.values()], recordSessions: false });
+    if (manifest.boardSeed) await seedWhiteboard(configPath, path.resolve(manifestDirectory, manifest.boardSeed));
     const isolatedConfig = z.record(z.string(), z.unknown()).parse(JSON.parse(await fs.readFile(configPath, 'utf8')));
     await writeJsonAtomic(configPath, { ...isolatedConfig, sessionMemoryReserveMB: replayAgentMemoryReserveMB });
     const mapPath = path.join(tempDirectory, 'replay-map.json');
@@ -297,24 +304,7 @@ async function main(): Promise<void> {
         await page.keyboard.press(shot.press);
         console.log(`press: ${shot.press}`);
       }
-      if (shot.selectSession) {
-        const sessionId = sessionIds.get(shot.selectSession);
-        if (!sessionId) throw new Error(`unknown session ${shot.selectSession}`);
-        const railRow = page.locator(`.focus-rail button.session-row[data-id="${sessionId}"]`);
-        if (await railRow.isVisible()) await glideCursorTo(railRow);
-        await selectSession(page, sessionId);
-        await refreshReview(page, sessionId);
-        const session = environment.sessionsById[sessionId];
-        const status = ReplayStatus.parse(JSON.parse(await fs.readFile(path.join(tempDirectory, `${sessionId}.status.json`), 'utf8')));
-        if (session?.patch && status.patchApplied) {
-          const diffButton = page.locator('.review-view-option', { hasText: 'Diff' });
-          if (await diffButton.isVisible()) {
-            await diffButton.click();
-            await page.locator('.review-sidebar-body .review-file').first().waitFor({ timeout: 10_000 });
-            console.log(`review: real committed diff visible for ${shot.selectSession}`);
-          }
-        }
-      }
+      if (shot.pressUntilFocused) await pressAltJUntilFocused(page, sessionIds, shot.pressUntilFocused);
       if (shot.click) {
         const clickScopeId = shot.clickIn ? sessionIds.get(shot.clickIn) : undefined;
         if (shot.clickIn && !clickScopeId) throw new Error(`session ${shot.clickIn} is not on the board`);

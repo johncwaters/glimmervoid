@@ -109,38 +109,51 @@
       "name": "hero"
     },
     {
-      "atMs": 4500,
-      "press": "Alt+KeyJ"
+      "atMs": 8700,
+      "pressUntilFocused": "migrate-billing-schema",
+      "name": "needs-input"
     },
     {
-      "atMs": 15000,
-      "selectSession": "bundle-size-chart"
+      "atMs": 10200,
+      "press": "Enter"
     },
     {
-      "atMs": 16200,
-      "click": ".card-face-tab-shown",
-      "clickIn": "bundle-size-chart"
+      "atMs": 15600,
+      "pressUntilFocused": "invoice-rounding"
     },
     {
-      "atMs": 19500,
-      "press": "Alt+KeyJ"
-    },
-    {
-      "atMs": 21500,
+      "atMs": 16800,
       "click": ".session-board-chip",
       "clickIn": "invoice-rounding"
     },
     {
-      "atMs": 27500,
-      "click": "#tab-focus"
+      "atMs": 18200,
+      "click": ".wb-docked-card .xterm-screen"
     },
     {
-      "atMs": 28500,
-      "name": "review",
-      "selectSession": "flaky-upload-test"
+      "atMs": 19000,
+      "press": "Enter"
+    },
+    {
+      "atMs": 23200,
+      "click": ".wb-island-view .wb-icon-button[aria-label=\"fit\"]"
+    },
+    {
+      "atMs": 24000,
+      "pressUntilFocused": "bundle-size-chart"
+    },
+    {
+      "atMs": 25500,
+      "click": ".card-face-tab-shown",
+      "clickIn": "bundle-size-chart"
+    },
+    {
+      "atMs": 30500,
+      "name": "review"
     }
   ],
-  "videoMs": 32000,
+  "videoMs": 33000,
   "shownFiles": "../recordings/shown-files",
+  "boardSeed": "demo-board.json",
   "videoStartMs": 2500
 }

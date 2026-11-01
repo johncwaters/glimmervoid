@@ -6,7 +6,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 import { writeJsonAtomic } from '../../server/json-file.ts';
-import { ReplayEnvironment, compressTimeline, findHookEndpoint, parseCaptureRecording, redactRecording } from './manifest-core.ts';
+import { ReplayEnvironment, compressTimeline, findEnterAnswerTimestamps, findHookEndpoint, parseCaptureRecording, redactRecording } from './manifest-core.ts';
 
 const runCommand = promisify(execFile);
 const cancellation = new AbortController();
@@ -45,8 +45,29 @@ async function replayGlimmervoidCall(call: GlimmervoidCall, shownFilesDirectory:
   });
 }
 
+function createEnterGate(): () => Promise<void> {
+  let unansweredEnterPresses = 0;
+  let releaseWaitingAnswer: (() => void) | undefined;
+  process.stdin.on('data', (chunk: Buffer) => {
+    if (!chunk.includes(13)) return;
+    unansweredEnterPresses += 1;
+    releaseWaitingAnswer?.();
+  });
+  return async () => {
+    while (unansweredEnterPresses === 0) {
+      await new Promise<void>((resolve, reject) => {
+        releaseWaitingAnswer = resolve;
+        cancellation.signal.addEventListener('abort', () => reject(cancellation.signal.reason), { once: true });
+      });
+      releaseWaitingAnswer = undefined;
+    }
+    unansweredEnterPresses -= 1;
+  };
+}
+
 async function runReplay(): Promise<void> {
   if (process.stdin.isTTY) process.stdin.setRawMode(true);
+  const waitForEnterPress = createEnterGate();
   const argv = process.argv.slice(2);
   const settingsIndex = argv.indexOf('--settings');
   const settingsPath = argv.find((argument) => argument.startsWith('--settings='))?.slice('--settings='.length)
@@ -64,12 +85,14 @@ async function runReplay(): Promise<void> {
   }
   const session = environment.sessionsById[endpoint.sessionId];
   if (!session) throw new Error('recording missing for injected session id');
-  const records = redactRecording(parseCaptureRecording(await fs.readFile(session.recording, 'utf8')), environment.manifest.redactions);
+  const recordingText = await fs.readFile(session.recording, 'utf8');
+  const records = redactRecording(parseCaptureRecording(recordingText), environment.manifest.redactions);
   const firstResize = records.find((record) => record.type === 'resize');
   const calls = await readGlimmervoidCalls(session.glimmervoidCalls);
   const timedEvents = [
-    ...records.map((record) => ({ ts: record.ts, record, call: undefined })),
-    ...calls.map((call) => ({ ts: call.ts, record: undefined, call })),
+    ...records.map((record) => ({ ts: record.ts, record, call: undefined, isEnterAnswer: false })),
+    ...calls.map((call) => ({ ts: call.ts, record: undefined, call, isEnterAnswer: false })),
+    ...findEnterAnswerTimestamps(recordingText).map((ts) => ({ ts, record: undefined, call: undefined, isEnterAnswer: true })),
   ].sort((first, second) => (first.ts ?? 0) - (second.ts ?? 0));
   const timeline = compressTimeline(timedEvents, environment.manifest.speed, session.maxIdleGapMs ?? environment.manifest.maxIdleGapMs);
   await writeJsonAtomic(statusPath, { phase: 'ready' });
@@ -79,15 +102,21 @@ async function runReplay(): Promise<void> {
     throw error;
   }))) await sleep(20, undefined, { signal: cancellation.signal });
   const { startAt } = z.strictObject({ startAt: z.number().finite() }).parse(JSON.parse(await fs.readFile(startPath, 'utf8')));
-  const timelineStartAt = session.spawnedBy ? Date.now() : startAt + session.startAtMs;
+  let timelineStartAt = session.spawnedBy ? Date.now() : startAt + session.startAtMs;
   const warning = firstResize && (process.stdout.columns !== firstResize.cols || process.stdout.rows !== firstResize.rows)
     ? `PTY size ${process.stdout.columns}x${process.stdout.rows} differs from recording ${firstResize.cols}x${firstResize.rows}`
     : undefined;
   if (warning) process.stderr.write(`WARNING: ${warning}\n`);
   let hasAppliedPatch = false;
   const replaySessionId = crypto.randomUUID();
-  for (const { record: { record, call }, atMs } of timeline) {
+  for (const { record: { record, call, isEnterAnswer }, atMs } of timeline) {
     await sleep(Math.max(0, timelineStartAt + atMs - Date.now()), undefined, { signal: cancellation.signal });
+    if (isEnterAnswer) {
+      const pausedAt = Date.now();
+      await waitForEnterPress();
+      timelineStartAt += Date.now() - pausedAt;
+      continue;
+    }
     if (call) { await replayGlimmervoidCall(call, environment.manifest.shownFiles); continue; }
     if (!record) continue;
     if (record.type === 'data' && typeof record.data === 'string') {
