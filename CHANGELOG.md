@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Boards give the canvas the whole view.** The row of tabs and buttons above a board is gone; its controls now float over the canvas. The drawing tools, note, frame and unit sit in a bar at the bottom center as icons with their shortcut letter, and fit sits bottom left with new undo and redo buttons. The menu button at the top left switches boards and holds new board, board settings (caption, code session and legend) and delete board. Click the board title beside it to rename the board: Enter saves, Escape cancels. With nothing selected, a board shows no properties panel; select an element to edit it as before.
 - **The docked session's board status floats on the board.** With a session docked beside a board, the line saying it has read every change (or how many edits are queued for it) and the send to agent button now sit bottom left on the canvas, just above fit, undo and redo, instead of in a strip above the docked card. Send to agent is a small arrow icon pointing at the docked chat.
 
+### Fixed
+
+- **The Shown count no longer covers the session menu button.** When a session has shown files you have not opened, the count beside the Shown tab used to sit on top of the card's menu button. The header now leaves room for it.
+
 ## [0.49.0] - 2026-10-31
 
 ### Added

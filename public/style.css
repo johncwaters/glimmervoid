@@ -3541,6 +3541,7 @@ html[data-layout="phone"] .doc-editor-body { padding: 12px; }
 }
 .shown-unopened-count { position: absolute; top: -3px; right: -12px; pointer-events: none; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--accent); color: var(--bg); font-family: var(--font-mono); font-size: var(--type-meta); font-weight: 700; line-height: 16px; text-align: center; }
 .shown-unopened-count[hidden] { display: none; }
+html:not([data-layout="phone"]) .card-face-tabs:has(> .shown-unopened-count:not([hidden])) { margin-right: 10px; }
 .session-row-shown { display: inline-flex; flex-shrink: 0; align-items: center; gap: 2px; color: var(--accent); font-size: var(--type-meta); font-weight: 700; }
 .session-row-shown[hidden] { display: none; }
 .session-row-shown .line-icon { width: 12px; height: 12px; }
