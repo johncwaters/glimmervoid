@@ -211,7 +211,7 @@ const COMMAND_HINTS: Readonly<Record<ToolHintedCommand, { firesOn: (facts: ToolH
 });
 
 const HINTED_COMMANDS = Object.keys(COMMAND_HINTS) as ToolHintedCommand[];
-const DRAWING_REQUEST = /\b(graph|diagram|flowchart|whiteboard|draw|sketch|visuali[sz]e|architecture|state machine|chart|flow|map|mermaid|layout)\b/i;
+const DRAWING_REQUEST = /\b(?:(?:graph|diagram|flowchart|whiteboard|drawing|architecture|state machine|chart|flow|map|layout)s?|draw(?:s|n)?|sketch(?:es|ing)?|visuali[sz](?:e|es|ing)|mapping|mermaid)\b/i;
 const WHITEBOARD_HINT_TEXT = "Glimmervoid: glimmervoid whiteboard new <title> draws a graph or diagram on a shared board on the operator's dashboard, where the operator can see and edit it; prefer it to a diagram in chat.";
 
 function promptTextOf(prompt: unknown): string {
