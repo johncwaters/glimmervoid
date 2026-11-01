@@ -6,12 +6,16 @@ import type { Express, Request, Response } from 'express';
 
 import type { AgentApiPort } from '../server/agent-api-wiring.ts';
 import { REFUSAL_REASON, REFUSAL_STATUS, decideAgentRequest } from '../server/core/agent-api-core.ts';
+import type { ShownFilesPort } from '../server/session/shown-files-wiring.ts';
 import type { Session } from '../session/sessions.ts';
 import { parsePresentedCredential } from './core/credentials.ts';
 import { SERVER_INSTRUCTIONS } from './core/instructions.ts';
+import { showByPath } from './show.ts';
+import type { ShowReply } from './show.ts';
 import { toolErrorResult, toolResultFromReply } from './core/tool-result.ts';
 import { GROUPED_TOOLS, allowedActionNames, inputSchemaFor, routeToolCall } from './core/tools.ts';
 import type { CallContext, GroupedTool, ToolArguments } from './core/tools.ts';
+import type { AgentApiVerb } from '../shared/contracts/session.ts';
 
 const MCP_ROUTE = '/mcp';
 const SERVER_NAME = 'glimmervoid';
@@ -21,6 +25,7 @@ const LOADS_UPFRONT_META_KEY = 'anthropic/alwaysLoad';
 interface AgentMcpDependencies {
   getSession(id: string): Session | null;
   getAgentApi(): AgentApiPort | null;
+  getShownFiles(): ShownFilesPort | null;
   isLoopback(req: Request): boolean;
   logger: Pick<Console, 'warn'>;
 }
@@ -35,7 +40,14 @@ function callContextFor(session: Session): CallContext {
   return { resolveSessionPath: (requestedPath) => path.resolve(session.effectiveCwd(), requestedPath) };
 }
 
-function registerGroupedTool(server: McpServer, tool: GroupedTool, session: Session, agentApi: AgentApiPort): void {
+function runRoutedVerb(session: Session, agentApi: AgentApiPort, getShownFiles: () => ShownFilesPort | null, verb: AgentApiVerb, payload: Record<string, unknown>): Promise<ShowReply> {
+  if (verb !== 'show') return agentApi.handle(session, verb, payload);
+  const requestedPath = typeof payload.path === 'string' ? payload.path : '';
+  const caption = typeof payload.caption === 'string' ? payload.caption : null;
+  return showByPath(session, agentApi, getShownFiles(), { requestedPath, caption });
+}
+
+function registerGroupedTool(server: McpServer, tool: GroupedTool, session: Session, agentApi: AgentApiPort, getShownFiles: () => ShownFilesPort | null): void {
   const actionNames = allowedActionNames(tool, (verb) => agentApi.refuseRole(session, verb) === null);
   if (actionNames.length === 0) return;
   server.registerTool(tool.name, {
@@ -47,14 +59,14 @@ function registerGroupedTool(server: McpServer, tool: GroupedTool, session: Sess
   }, async (toolArguments: ToolArguments) => {
     const route = routeToolCall(tool, toolArguments, callContextFor(session));
     if (!route.ok) return toolErrorResult(route.error);
-    const reply = await agentApi.handle(session, route.verb, route.payload);
+    const reply = await runRoutedVerb(session, agentApi, getShownFiles, route.verb, route.payload);
     return toolResultFromReply(reply);
   });
 }
 
-function buildSessionServer(session: Session, agentApi: AgentApiPort): McpServer {
+function buildSessionServer(session: Session, agentApi: AgentApiPort, getShownFiles: () => ShownFilesPort | null): McpServer {
   const server = new McpServer({ name: SERVER_NAME, version: TOOL_SURFACE_VERSION }, { instructions: SERVER_INSTRUCTIONS });
-  for (const tool of GROUPED_TOOLS) registerGroupedTool(server, tool, session, agentApi);
+  for (const tool of GROUPED_TOOLS) registerGroupedTool(server, tool, session, agentApi, getShownFiles);
   return server;
 }
 
@@ -75,7 +87,7 @@ function mountAgentMcp(app: Express, dependencies: AgentMcpDependencies): void {
     const session = authInfo ? dependencies.getSession(authInfo.clientId) : null;
     const agentApi = dependencies.getAgentApi();
     if (!session || !agentApi) throw new Error('the MCP request lost its session');
-    return buildSessionServer(session, agentApi);
+    return buildSessionServer(session, agentApi, dependencies.getShownFiles);
   }, { onerror: (error) => dependencies.logger.warn(`[mcp] ${error.message}`) });
   const nodeHandler = toNodeHandler(handler, { onerror: (error) => dependencies.logger.warn(`[mcp] ${error.message}`) });
   const answer = (req: AuthenticatedRequest, res: Response) => {

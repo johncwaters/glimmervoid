@@ -158,6 +158,19 @@ const ATTENTION_TOOL: GroupedTool = {
   actions: { attention: routeTo('attention', ['note']) },
 };
 
+const SHOW_TOOL: GroupedTool = {
+  name: 'show',
+  title: 'Glimmervoid show',
+  description: 'Put an image, video, PDF or HTML page on this session\'s dashboard card so the operator can see it, such as a screenshot, a rendered chart or a report. Glimmervoid reads the file by its path, so it must be on this machine and under 200 MB.',
+  annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+  loadsUpfront: false,
+  fields: {
+    path: z.string().min(1).max(4096).describe('The file, absolute or relative to this session\'s directory'),
+    caption: z.string().min(1).max(500).optional().describe('A short line shown with the file'),
+  },
+  actions: { show: routeTo('show', ['path', 'caption']) },
+};
+
 const SETTINGS_TOOL: GroupedTool = {
   name: 'settings',
   title: 'Glimmervoid settings',
@@ -171,7 +184,7 @@ const SETTINGS_TOOL: GroupedTool = {
   },
 };
 
-const GROUPED_TOOLS: readonly GroupedTool[] = Object.freeze([SESSION_TOOL, WHITEBOARD_TOOL, REVIEW_TOOL, PUSH_TOOL, ATTENTION_TOOL, SETTINGS_TOOL]);
+const GROUPED_TOOLS: readonly GroupedTool[] = Object.freeze([SESSION_TOOL, WHITEBOARD_TOOL, REVIEW_TOOL, SHOW_TOOL, PUSH_TOOL, ATTENTION_TOOL, SETTINGS_TOOL]);
 
 function allowedActionNames(tool: GroupedTool, isVerbAllowed: (verb: AgentApiVerb) => boolean): string[] {
   return Object.entries(tool.actions).filter(([, route]) => isVerbAllowed(route.verb)).map(([actionName]) => actionName);
@@ -179,7 +192,7 @@ function allowedActionNames(tool: GroupedTool, isVerbAllowed: (verb: AgentApiVer
 
 function inputSchemaFor(tool: GroupedTool, actionNames: readonly string[]): z.ZodObject {
   const [firstAction, ...otherActions] = actionNames;
-  if (firstAction === undefined) return z.object(tool.fields);
+  if (firstAction === undefined || Object.keys(tool.actions).length === 1) return z.object(tool.fields);
   return z.object({
     action: z.enum([firstAction, ...otherActions]).describe('What to do'),
     ...tool.fields,

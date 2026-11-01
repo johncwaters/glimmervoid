@@ -26,6 +26,7 @@ interface BootedBackend {
   backend: Backend;
   mcpUrl: string;
   credential: string;
+  projectDir: string;
 }
 
 const booted: { context: BootedBackend | null; previousConfigPath: string | undefined } = { context: null, previousConfigPath: undefined };
@@ -50,7 +51,7 @@ async function boot(): Promise<BootedBackend> {
   assert.ok(session, 'the boot loop created the configured session');
   session._hooks.inject();
   assert.ok(session.agentToken, 'the session was minted an agent token');
-  return { tmpDir, server, backend, mcpUrl: `http://127.0.0.1:${boundPort(server)}/mcp`, credential: mcpCredentialFor(SESSION_ID, session.agentToken) };
+  return { tmpDir, server, backend, projectDir, mcpUrl: `http://127.0.0.1:${boundPort(server)}/mcp`, credential: mcpCredentialFor(SESSION_ID, session.agentToken) };
 }
 
 let nextRequestId = 1;
@@ -100,9 +101,11 @@ test('a session without its own worktree lists every grouped tool but push and r
   const tools = listed.tools;
   assert.ok(Array.isArray(tools));
   const toolNames = tools.map((tool: { name: string }) => tool.name).sort();
-  assert.deepEqual(toolNames, ['attention', 'review', 'session', 'settings', 'whiteboard']);
+  assert.deepEqual(toolNames, ['attention', 'review', 'session', 'settings', 'show', 'whiteboard']);
   const sessionTool = tools.find((tool: { name: string }) => tool.name === 'session');
   assert.ok(sessionTool.inputSchema.properties.action.enum.includes('spawn'));
+  const showTool = tools.find((tool: { name: string }) => tool.name === 'show');
+  assert.equal(showTool.inputSchema.properties.action, undefined);
 
   const called = await resultOf(await callMcp('tools/call', { name: 'session', arguments: { action: 'board' } }, credential));
   assert.notEqual(called.isError, true, JSON.stringify(called));
@@ -156,5 +159,20 @@ test('a Claude Code session spawns with the MCP config and its credential in the
   } finally {
     session.destroy();
     await fsp.rm(hooksBaseDir, { recursive: true, force: true });
+  }
+});
+
+const ONE_PIXEL_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+
+test('show reads a file by a path relative to the session and refuses a path that is not a file', async () => {
+  const { credential, projectDir } = bootedBackend();
+  fs.writeFileSync(path.join(projectDir, 'pixel.png'), ONE_PIXEL_PNG);
+  const shown = await resultOf(await callMcp('tools/call', { name: 'show', arguments: { path: 'pixel.png', caption: 'one pixel' } }, credential));
+  assert.notEqual(shown.isError, true, JSON.stringify(shown));
+  assert.deepEqual(shown.structuredContent, { ok: true, shown: { name: 'pixel.png', kind: 'image' } });
+
+  for (const requestedPath of ['missing.png', '.']) {
+    const refused = await resultOf(await callMcp('tools/call', { name: 'show', arguments: { path: requestedPath } }, credential));
+    assert.equal(refused.isError, true, requestedPath);
   }
 });

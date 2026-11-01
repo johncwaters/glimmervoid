@@ -570,7 +570,7 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
     });
   });
 
-  mountAgentMcp(app, { getSession, getAgentApi, isLoopback: isLoopbackRequest, logger });
+  mountAgentMcp(app, { getSession, getAgentApi, getShownFiles, isLoopback: isLoopbackRequest, logger });
 
   app.post('/agent/:glimmervoidId/show', (req, res) => {
     const agentApi = getAgentApi();
