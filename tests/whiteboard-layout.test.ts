@@ -237,6 +237,8 @@ test('wires keep their named sides, a back wire returns around the outside of th
       w4: wire('w4', 'read', 'check', { fromSide: 'bottom', toSide: 'bottom' }),
       w5: wire('w5', 'read', 'aside'),
       low: { kind: 'box', id: 'low', title: 'Low', at: { x: 1300, y: 900 } }, w6: wire('w6', 'write', 'low'),
+      tall: { kind: 'box', id: 'tall', title: 'Tall', lines: [{ text: 'one' }, { text: 'two' }, { text: 'three' }, { text: 'four' }], at: { x: 1800, y: 1300 } },
+      short: { kind: 'box', id: 'short', title: 'Short', at: { x: 2200, y: 1340 } }, w7: wire('w7', 'tall', 'short'),
     },
   });
   const layout = layoutBoard(loopBoard);
@@ -249,6 +251,9 @@ test('wires keep their named sides, a back wire returns around the outside of th
   const downward = wireById.get('w6');
   assert.ok(read && check && write && sided && back && low && downward);
   assert.deepEqual([downward.end.y, segmentsOfPath(downward.path).length], [low.y, 2], `a wire to a box wholly below it turns once into its top: ${downward.path}`);
+  const level = wireById.get('w7');
+  assert.ok(level);
+  assert.equal(segmentsOfPath(level.path).length, 1, `a wire between boxes that share a height runs straight: ${level.path}`);
   assert.equal(sided.start.y, read.y + read.height);
   assert.equal(sided.end.y, check.y + check.height);
   assert.ok(back.isBack && back.isDashed);

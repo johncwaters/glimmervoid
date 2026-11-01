@@ -353,8 +353,9 @@ function alignLonePorts(plans: readonly WirePlan[], groupOrderBySide: ReadonlyMa
   const memberCountByExitKey = new Map([...groupedBy(plans, (plan) => plan.exitKey)].map(([exitKey, members]) => [exitKey, members.length]));
   for (const plan of plans) {
     if (plan.from.id === plan.to.id || !isFacing(plan.exitSide, plan.entrySide)) continue;
-    if (plan.busKey === null && isLonePort(plan.to, plan.entrySide)) {
-      plan.end = alignedAlong(plan.end, plan.entrySide, plan.to, plan.start);
+    const alignedEnd = plan.busKey === null && isLonePort(plan.to, plan.entrySide) ? alignedAlong(plan.end, plan.entrySide, plan.to, plan.start) : plan.end;
+    if (alignedEnd !== plan.end) {
+      plan.end = alignedEnd;
       continue;
     }
     if (plan.outputPort === null && isLonePort(plan.from, plan.exitSide) && memberCountByExitKey.get(plan.exitKey) === 1) plan.start = alignedAlong(plan.start, plan.exitSide, plan.from, plan.end);
