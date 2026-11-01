@@ -32,7 +32,7 @@ import { mountCustomSoundRoutes } from '../custom-sounds-routes.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import { clientDir } from '../runtime-paths.ts';
 import { decideByteRange } from '../core/custom-sounds-core.ts';
-import { describeOverCap, isShownPageMime, SHOWN_PAGE_ZOOM_BRIDGE } from '../core/shown-files-core.ts';
+import { describeOverCap, isShownPageMime, leavesVisibleRawTextOpen, SHOWN_PAGE_ZOOM_BRIDGE, SHOWN_SNIFF_BYTES } from '../core/shown-files-core.ts';
 import { SHOWN_CAPTION_MAX_CHARS, SHOWN_FILE_CAP_BYTES } from '../../shared/contracts/session.ts';
 import type { ServableShownFile, ShownFilesPort } from '../session/shown-files-wiring.ts';
 import {
@@ -355,10 +355,35 @@ async function* withZoomBridgeAppended(pageChunks: AsyncIterable<Buffer>): Async
   yield SHOWN_PAGE_ZOOM_BRIDGE;
 }
 
-function servePageWithZoomBridge(res: Response, servable: ServableShownFile): void {
+async function readPageTail(servable: ServableShownFile): Promise<string> {
+  const handle = await fsp.open(servable.path, 'r');
+  try {
+    const tailStart = Math.max(0, servable.sizeBytes - SHOWN_SNIFF_BYTES);
+    const tailBuffer = Buffer.alloc(servable.sizeBytes - tailStart);
+    const { bytesRead } = await handle.read(tailBuffer, 0, tailBuffer.byteLength, tailStart);
+    return tailBuffer.subarray(0, bytesRead).toString('utf8');
+  } finally {
+    await handle.close().catch(() => {});
+  }
+}
+
+function streamPage(res: Response, servable: ServableShownFile, pageTail: string): void {
   res.setHeader('Content-Type', servable.mime);
+  if (leavesVisibleRawTextOpen(pageTail)) {
+    res.setHeader('Content-Length', String(servable.sizeBytes));
+    pipeline(fs.createReadStream(servable.path), res, () => {});
+    return;
+  }
   res.setHeader('Content-Length', String(servable.sizeBytes + SHOWN_PAGE_ZOOM_BRIDGE.byteLength));
   pipeline(fs.createReadStream(servable.path), withZoomBridgeAppended, res, () => {});
+}
+
+function servePageWithZoomBridge(res: Response, servable: ServableShownFile): void {
+  readPageTail(servable)
+    .then((pageTail) => streamPage(res, servable, pageTail))
+    .catch(() => {
+      if (!res.headersSent) res.status(404).end();
+    });
 }
 
 function serveShownFile(req: Request, res: Response, shownFiles: ShownFilesPort | null): void {

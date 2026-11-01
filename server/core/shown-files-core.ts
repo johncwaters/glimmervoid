@@ -107,6 +107,14 @@ function isShownPageMime(mime: string): boolean {
   return mime === PAGE.mime;
 }
 
+const RAW_TEXT_TAGS_THAT_SHOW_THEIR_CONTENT = ['textarea', 'xmp'] as const;
+
+function leavesVisibleRawTextOpen(pageTail: string): boolean {
+  const lowerTail = pageTail.toLowerCase();
+  if (lowerTail.includes('<plaintext')) return true;
+  return RAW_TEXT_TAGS_THAT_SHOW_THEIR_CONTENT.some((tag) => lowerTail.lastIndexOf(`<${tag}`) > lowerTail.lastIndexOf(`</${tag}`));
+}
+
 function startsWithBytes(chunk: Buffer, signature: Buffer, offset = 0): boolean {
   return chunk.length >= offset + signature.length && chunk.subarray(offset, offset + signature.length).equals(signature);
 }
@@ -189,5 +197,5 @@ function thumbnailOwnerIdOf(filename: string): string | null {
   return filename.endsWith(THUMBNAIL_SUFFIX) ? filename.slice(0, -THUMBNAIL_SUFFIX.length) : null;
 }
 
-export { decideShownKind, describeOverCap, filesAfterRetention, isShownPageMime, readPageTitle, shownMimeForFilename, thumbnailFilenameOf, thumbnailOwnerIdOf, thumbnailRecipeFor, SHOWN_PAGE_ZOOM_BRIDGE, SHOWN_SNIFF_BYTES, SHOWN_THUMBNAIL_MAX_EDGE_PX };
+export { decideShownKind, describeOverCap, filesAfterRetention, isShownPageMime, leavesVisibleRawTextOpen, readPageTitle, shownMimeForFilename, thumbnailFilenameOf, thumbnailOwnerIdOf, thumbnailRecipeFor, SHOWN_PAGE_ZOOM_BRIDGE, SHOWN_SNIFF_BYTES, SHOWN_THUMBNAIL_MAX_EDGE_PX };
 export type { ThumbnailRecipe };

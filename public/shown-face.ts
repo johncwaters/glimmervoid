@@ -67,7 +67,7 @@ function preDecodeImage(url: string): void {
 }
 
 type ZoomableMedia = HTMLImageElement | HTMLVideoElement;
-type PageZoomCommand = 'in' | 'out' | 'fit';
+type PageZoomCommand = 'in' | 'out' | 'fit' | 'report';
 const PAGE_ZOOM_MESSAGE_KEY = 'glimmervoidShownZoom';
 type StageGesture =
   | { kind: 'pinch'; startView: ZoomView; startMidpoint: ZoomPoint; startDistance: number }
@@ -75,6 +75,10 @@ type StageGesture =
 
 function isZoomableMedia(media: HTMLElement | null | undefined): media is ZoomableMedia {
   return media instanceof HTMLImageElement || media instanceof HTMLVideoElement;
+}
+
+function postPageZoom(frame: HTMLIFrameElement, command: PageZoomCommand): void {
+  frame.contentWindow?.postMessage({ [PAGE_ZOOM_MESSAGE_KEY]: command }, '*');
 }
 
 function reportedPageZoomScaleOf(data: unknown): number | null {
@@ -162,6 +166,7 @@ export function createShownFace({ sessionId }: { sessionId: string }) {
   let lastPointerType = 'mouse';
   let safariGestureStartView: ZoomView | null = null;
   const activePointers = new Map<number, ZoomPoint>();
+  const pageFramesWithLiveBridge = new WeakSet<HTMLIFrameElement>();
 
   function selectedFile(): ShownFile | null {
     const files = shownFilesOf(sessionId);
@@ -229,6 +234,7 @@ export function createShownFace({ sessionId }: { sessionId: string }) {
     const media = existing ?? buildStageMedia(sessionId, file);
     warmStageByFileId.delete(file.id);
     warmStageByFileId.set(file.id, media);
+    if (!existing && media instanceof HTMLIFrameElement) media.addEventListener('load', () => postPageZoom(media, 'report'));
     if (!existing) stage.append(media);
     for (const [fileId, other] of warmStageByFileId) other.hidden = fileId !== file.id;
     for (const sibling of stage.querySelectorAll('video')) if (sibling !== media) sibling.pause();
@@ -249,7 +255,8 @@ export function createShownFace({ sessionId }: { sessionId: string }) {
   }
 
   function syncZoomControls(): void {
-    zoomControls.hidden = !shownMedia();
+    const media = shownMedia();
+    zoomControls.hidden = !media || (media instanceof HTMLIFrameElement && !pageFramesWithLiveBridge.has(media));
     zoomPercent.textContent = zoomPercentText(zoomView.scale);
     btnZoomOut.disabled = !isZoomedIn(zoomView.scale);
     btnZoomFit.disabled = !isZoomedIn(zoomView.scale);
@@ -267,7 +274,7 @@ export function createShownFace({ sessionId }: { sessionId: string }) {
   function sendPageZoom(command: PageZoomCommand): boolean {
     const media = shownMedia();
     if (!(media instanceof HTMLIFrameElement)) return false;
-    media.contentWindow?.postMessage({ [PAGE_ZOOM_MESSAGE_KEY]: command }, '*');
+    postPageZoom(media, command);
     return true;
   }
 
@@ -276,6 +283,7 @@ export function createShownFace({ sessionId }: { sessionId: string }) {
     if (!(media instanceof HTMLIFrameElement) || event.source !== media.contentWindow) return;
     const reportedScale = reportedPageZoomScaleOf(event.data);
     if (reportedScale === null) return;
+    pageFramesWithLiveBridge.add(media);
     applyZoom({ scale: reportedScale, offsetX: 0, offsetY: 0 });
   }
 
@@ -298,6 +306,7 @@ export function createShownFace({ sessionId }: { sessionId: string }) {
     stageGesture = null;
     activePointers.clear();
     sendPageZoom('fit');
+    sendPageZoom('report');
     applyZoom(FIT_VIEW);
   }
 

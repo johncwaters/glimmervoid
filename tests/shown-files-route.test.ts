@@ -137,6 +137,18 @@ test('a shown page is served sandboxed and whole with the zoom bridge after it, 
   assert.equal(tokenFromSandboxedPage.status, 403);
 });
 
+test('a shown page that ends inside an open textarea is served without the zoom bridge, so its source never shows as page text', async () => {
+  const pageMarkup = '<!doctype html><html><body><p>notes</p><textarea>draft';
+  const pagePath = writeWorkFile('open-textarea.html', pageMarkup);
+  assert.equal(await quietly(() => runAgentApiCli(['show', pagePath])), 0);
+  const page = readShownIndex().at(-1);
+  assert.ok(page);
+
+  const response = await fetch(`${ctx().base}/shown/${SESSION_ID}/${page.id}`);
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), pageMarkup);
+});
+
 test('show refuses another kind of file and a file over the cap, storing nothing', async () => {
   const before = readShownIndex().length;
   const notesPath = writeWorkFile('notes.txt', 'plain text');
