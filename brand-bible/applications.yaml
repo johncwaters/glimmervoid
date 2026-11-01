@@ -1,0 +1,21 @@
+- id: dashboard
+  kind: product-ui
+  files: [public/**]
+- id: cli
+  kind: cli
+  files: [bin/**, server/*-cli.ts]
+- id: readme
+  kind: readme
+  files: [README.md]
+- id: site
+  kind: docs-site
+  files: [site/src/**]
+- id: og-image
+  kind: og-image
+  files: [site/public/capture/og.png]
+- id: favicon
+  kind: favicon
+  files: [public/favicon.svg, public/favicon.ts, public/favicon-core.ts, site/public/favicon-192.png]
+- id: social
+  kind: social
+  files: [marketing/**]

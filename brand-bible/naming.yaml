@@ -1,0 +1,49 @@
+productName: Glimmervoid
+allowedForms:
+  - form: Glimmervoid
+    where: prose
+  - form: GLIMMERVOID
+    where: prose
+  - form: glimmervoid
+    where: cli
+  - form: glimmervoid
+    where: package
+  - form: glimmervoid.dev
+    where: url
+  - form: glimmervoid
+    where: code
+forbiddenForms:
+  - GlimmerVoid
+  - Glimmer Void
+  - glimmer-void
+  - GV
+tagline: Mission control that ships.
+descriptions:
+  short: Mission control that ships, for Claude Code, Codex and Kimi Code.
+  medium: A calm operator console for watching and steering many live agent sessions, each in its own git worktree.
+  long: Glimmervoid is mission control that ships. Not a terminal multiplexer, it spawns Claude Code, Codex, Kimi Code and Grok sessions in their own git worktrees, streams their live terminals to a browser dashboard, and asks for the operator's attention only when a session needs input, finishes or fails.
+glossary:
+  - term: session
+    definition: One supervised agent process that glimmervoid spawns in a PTY, keyed by a stable UUID and shown on the dashboard.
+    forbiddenAliases: [terminal, tab, pane]
+  - term: operator
+    definition: The one carbon unit who runs glimmervoid and its dashboard and answers its sessions.
+    forbiddenAliases: [admin, account]
+  - term: worktree
+    definition: The git worktree glimmervoid creates for one session from the integration branch, so concurrent sessions never share a working tree.
+    forbiddenAliases: [workspace, sandbox]
+  - term: lane
+    definition: A background job glimmervoid runs beside operator sessions on its own schedule, such as team review, Radar, benchmarks or usage.
+    forbiddenAliases: [worker, daemon]
+  - term: attention
+    definition: Which sessions need the operator now, ranked from their status, and the surfaces that show it.
+    forbiddenAliases: [alerts, inbox]
+  - term: waiting
+    definition: The session status meaning the agent stopped and needs the operator.
+    forbiddenAliases: [blocked, paused]
+  - term: guardrails
+    definition: Sane YOLO, the Safety Net hooks that refuse risky commands and credential reads in sessions and lanes; accident protection, never a sandbox.
+    forbiddenAliases: [sandbox, sandboxed]
+  - term: boards
+    definition: The whiteboard view, where sessions and the operator draw diagrams and plan units together.
+    forbiddenAliases: [canvas]

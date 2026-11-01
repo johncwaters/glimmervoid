@@ -1,0 +1,4 @@
+minContrastText: 4.5
+minContrastLarge: 3
+focusRing: 2px solid var(--accent) with an offset; never removed without a replacement.
+minTargetPx: 44

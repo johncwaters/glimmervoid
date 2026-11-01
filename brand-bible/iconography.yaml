@@ -1,0 +1,9 @@
+source:
+  library: Hand-drawn in shared/state-icons.ts and shared/brand-mark.ts
+  license: MIT (this repository)
+viewBox: 0 0 16 16
+strokeWidth: 1.8
+fill: none
+linecap: butt
+linejoin: miter
+sizesPx: [12, 14, 16]

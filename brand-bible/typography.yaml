@@ -1,0 +1,23 @@
+families:
+  - id: mono
+    family: CommitMono
+    files:
+      - public/fonts/commit-mono-400-regular-core.woff2
+      - public/fonts/commit-mono-400-regular.woff2
+      - public/fonts/commit-mono-700-regular-core.woff2
+      - public/fonts/commit-mono-700-regular.woff2
+    license: SIL OFL 1.1 (assets/fonts/CommitMono-OFL.txt)
+    fallback: [Cascadia Code, Fira Code, Consolas, Menlo, monospace]
+scale:
+  meta: { token: type-meta, sizePx: 12, lineHeight: 1.55, weight: 400, trackingEm: 0, case: none }
+  label: { token: type-meta, sizePx: 12, lineHeight: 1.2, weight: 700, trackingEm: 0.08, case: uppercase }
+  body: { token: type-body, sizePx: 14, lineHeight: 1.5, weight: 400, trackingEm: 0, case: none }
+  title: { token: type-title, sizePx: 16, lineHeight: 1.3, weight: 700, trackingEm: 0, case: none }
+  display: { token: type-display, sizePx: 20, lineHeight: 1.2, weight: 700, trackingEm: 0.1, case: uppercase }
+weights: [400, 700]
+minSizePx: 12
+features:
+  calt: on
+literalSizesAllowedIn:
+  - public/style.css
+  - public/tailwind.css

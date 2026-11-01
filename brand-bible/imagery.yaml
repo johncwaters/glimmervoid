@@ -1,0 +1,15 @@
+direction:
+  lighting: Dark rooms lit by the screen; the only light source is the console itself.
+  composition: Real dashboard captures, cropped to the one session that needs the operator; never a wall of thirty panes.
+  colorTreatment: Untouched product colors on the violet-black canvas; no gradients, no color grading.
+  subjects: The live dashboard, terminal output and the brand mark.
+  postProcessing: None beyond crop and scale; captures come from the running app with real or replayed sessions.
+  stock: Never.
+formats: [webp, avif, png, svg]
+maxBytes: 400000
+mascots:
+  allowed: true
+  where:
+    - public/animals/**
+    - public/*animal*.ts
+  why: The flying animals are a shipped optional feature the operator turns on; scoping them keeps the console itself free of mascotry.

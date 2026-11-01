@@ -1,0 +1,20 @@
+durationsMs:
+  fast: 150
+  med: 250
+  leave: 200
+  arrive: 480
+easings:
+  ease-out-quart: cubic-bezier(0.22, 1, 0.36, 1)
+  ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1)
+  ease-in-expo: cubic-bezier(0.7, 0, 0.84, 0)
+reducedMotion: required
+logoAnimation: While connecting the brackets scan; when the dashboard is ready the mark spins once like a vault dial, the brackets clamp, the light comes on and the mark bursts away.
+rules:
+  - rule: Motion only answers a real state change (running, waiting, failed, connecting) or direct input.
+    why: Motion that means nothing teaches the operator to ignore the motion that does.
+  - rule: The waiting card breathes, a finished card flashes once, and a failed card glows once; none of them loop forever.
+    why: A pulse that runs for minutes reads as noise, not as a signal.
+  - rule: Animate transform and opacity only; never shift layout.
+    why: The terminal must never jump under the operator's eyes.
+  - rule: Under prefers-reduced-motion, animation and transitions stop.
+    why: Reduced motion is honored strictly, not softened.

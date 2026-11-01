@@ -1,0 +1,17 @@
+radius:
+  radius: 4
+  radius-lg: 5
+  pill: 2
+spacing:
+  xs: 6
+  sm: 8
+  md: 12
+  lg: 16
+  xl: 24
+shadows:
+  shadow-sm: 0 2px 8px color-mix(in srgb, var(--shadow-tint) 55%, transparent)
+  shadow-md: 0 4px 12px color-mix(in srgb, var(--shadow-tint) 55%, transparent)
+  shadow-lg: 0 8px 24px color-mix(in srgb, var(--shadow-tint) 65%, transparent)
+  shadow-xl: 0 8px 24px color-mix(in srgb, var(--shadow-tint) 80%, transparent)
+  state-glow-waiting: 0 0 0 1px var(--state-waiting), 0 0 10px color-mix(in oklab, var(--state-waiting) 55%, transparent)
+restingShadow: false

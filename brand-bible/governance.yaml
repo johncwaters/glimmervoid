@@ -1,0 +1,13 @@
+owner: John C. Waters
+reviewers: []
+reviewEveryMonths: 6
+exemptions:
+  - paths: [public/whiteboard/**, shared/whiteboard-svg-core.ts]
+    kinds: [font-family]
+    why: ComicMono is the whiteboard's hand-drawn face, scoped to boards so diagrams read as sketches, not chrome.
+  - paths: [public/**/posthog*, site/src/**/posthog*]
+    kinds: [color]
+    why: Third-party logos keep their owners' colors.
+  - paths: [site/public/used-by/**]
+    kinds: [color, asset]
+    why: Logos of projects using glimmervoid belong to their owners.

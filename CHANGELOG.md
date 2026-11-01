@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Every theme's text colors pass AA contrast.** The Midnight accent is a shade lighter. Compleated's status colors are a shade darker. PostHog Light's muted text and waiting color are darker, and a few status colors in Rainbow Unicorns and PostHog Dark are lighter. Text in these colors now reads at 4.5:1 or better on cards, including on the faint status tint behind a failed session's reason line. The change is barely visible.
 - **Board arrows skip a needless turn.** Each arrow without a named side now leaves and enters from whichever sides give the fewest turns, so an arrow to a box wholly above or below turns once into its top or bottom, an arrow whose facing side is walled off by another box leaves from a clear side instead of looping around the board, and an arrow between two boxes that share some height runs straight across. Arrows of the same style into one box side still share an arrowhead.
 
 - **Fit shows the whole board again.** Fit used to pin the board to the top of the canvas, so the top row hid under the board title and the space at the bottom sat empty. It now fits the board into the space between the title and the bottom controls and centers it there.

@@ -1,0 +1,30 @@
+mark:
+  file: shared/brand-mark.ts
+  viewBox: -4 -4 108 108
+  pathData:
+    - M33 29L50 12L67 29
+    - M71 33L88 50L71 67
+    - M67 71L50 88L33 71
+    - M29 67L12 50L29 33
+    - M50 39L61 50L50 61L39 50Z
+variants:
+  - id: mark-only
+    file: shared/brand-mark.ts
+    use: The wordmark glyph in the site nav and dashboard header, and the loading screen.
+  - id: favicon
+    file: public/favicon.svg
+    use: Browser tab; the light turns amber or red when a session needs the operator or failed.
+  - id: app-icon
+    file: site/public/apple-touch-icon.png
+    use: Home screen icon for the site and paired phones.
+clearSpaceRatio: 0.25
+minSizePx: 12
+colorways:
+  - foreground: text-head
+    background: bg
+  - foreground: accent
+    background: bg
+misuse:
+  - Never fill the brackets or round their joins; they are mitered strokes.
+  - Never recolor the brackets with a state color; only the light carries state.
+  - Never add a gradient, glow or drop shadow to the mark at rest.

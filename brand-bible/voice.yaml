@@ -1,0 +1,48 @@
+traits: [Even, Technical, Unsentimental]
+tone:
+  - context: Session status
+    tone: Reports the state plainly and stops.
+    example: Needs input.
+  - context: Errors
+    tone: States what failed and what the operator can do, with no apology.
+    example: Push failed. The remote rejected the branch; rebase and push again.
+  - context: Marketing site
+    tone: Confident and concrete, still monospace, still no hype.
+    example: Mission control that ships.
+formality: neutral
+headingCase: sentence
+vocabulary:
+  banned:
+    - term: sandbox
+      insteadUse: guardrails
+      why: Guardrails are accident protection, not isolation; calling them a sandbox promises a boundary that does not exist.
+    - term: terminal multiplexer
+      why: Glimmervoid positions against multiplexers; the phrase appears only in the negation "Not a terminal multiplexer".
+    - term: AI-powered
+      why: Hype that every agent tool claims; it says nothing about what the console does.
+    - term: magic
+      why: State is structural and explained, never magic.
+  preferred:
+    - term: operator
+      over: [user, admin]
+    - term: session
+      over: [terminal, tab, pane]
+    - term: needs input
+      over: [blocked, stuck]
+characters:
+  - char: "\u2014"
+    action: banned
+    replacement: ":"
+  - char: "\u2013"
+    action: banned
+    replacement: "-"
+  - char: "\u2026"
+    action: banned
+    replacement: "..."
+examples:
+  - onBrand: Needs input.
+    offBrand: Hey! Your agent is waiting for you!
+    why: The console reports; it does not cheer or exclaim.
+  - onBrand: Push failed. The remote rejected the branch.
+    offBrand: Oops, something went wrong.
+    why: Name what failed so the operator can act on it.

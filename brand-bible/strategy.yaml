@@ -1,0 +1,54 @@
+mission: Let one operator ship features with many coding agents at once without watching any of them, missing the moment one needs a carbon unit, or second-guessing what the board shows.
+vision: Running a dozen agents feels like running one, because the only session on screen is the one that needs you.
+values:
+  - name: Earned signal
+    definition: Every color and every motion means a real state change, so the operator can act on the board without re-checking.
+  - name: Honesty over reassurance
+    definition: State comes from machine-emitted signals; an unknown is shown as unknown, never as a confident guess.
+  - name: Restraint
+    definition: One accent and one typeface carry the whole interface; the terminal output is the product and the chrome recedes.
+positioning:
+  audience: A single power user running many coding agents (Claude Code, Codex and Kimi Code as equals, Grok best effort) on Windows, macOS or a Linux server, often late and often tired.
+  offer: A local background process that spawns and supervises agent sessions in their own git worktrees, streams their terminals to a browser dashboard, and notifies through the browser and Telegram.
+  differentiator: An orchestrator, not a harness or a terminal multiplexer. It runs the agent CLIs unmodified, derives status from hooks rather than screen scraping, and brings forward only the session that needs the operator.
+audiences:
+  - name: Operator
+    needs: Ship features start to finish with many agent sessions at once, never missing a session that waits on input, finishes or fails.
+    context: A 27-inch monitor in a dim room at 2am with several live terminals in view, or a paired phone away from the desk. Not browsing; shipping.
+personality:
+  - trait: Precise
+    notTrait: Approximate
+  - trait: Quiet
+    notTrait: Loud
+  - trait: Uncanny
+    notTrait: Cute
+  - trait: Unsentimental
+    notTrait: Reassuring
+archetype: The Phyrexian Console, a machine intelligence watching its constructs through the night.
+antiReferences:
+  - name: The generic AI-SaaS dashboard
+    why: Gradient heroes, rounded glass cards, purple-to-blue gradients and Inter are what the domain predicts; if the domain could predict the look, it is wrong.
+  - name: The IDE or VS Code clone
+    why: Glimmervoid is a monitor, not an editor; it watches sessions and does not pretend to be a workspace.
+  - name: The toy aesthetic
+    why: Cartoonish rounding and primary-color palettes undercut a control room the operator must trust at 2am.
+  - name: The safe corporate committee look
+    why: IBM-blue enterprise blandness carries no point of view and no identity.
+  - name: Decoration that means nothing
+    why: Gradient text, glassmorphism, side-stripe accents and resting shadows spend signal on nothing and teach the operator to ignore it.
+principles:
+  - name: Earned signal
+    rule: Every color and every motion means a real state change; a red on screen is a real failure.
+    why: A signal that means nothing teaches the operator to ignore the board, and the felt goal is "I trust the board".
+  - name: The terminal is the product
+    rule: Chrome recedes so live output holds the eye; a pixel that carries no data and guides no eye to data is cut.
+    why: The interface earns its keep by disappearing behind the agent output the operator actually reads.
+  - name: Quiet by default, loud only on change
+    rule: The resting state is calm and still; a glow, pulse or notification appears only when a session needs a carbon unit.
+    why: An operator watching many sessions can only notice change against a still surface.
+  - name: State is structural, never guessed
+    rule: Status comes from agent hooks with an OSC-0 title fallback, never from scraping the rendered screen; an unknown shows as unknown.
+    why: A confident guess that turns out wrong costs the trust the whole product rests on.
+  - name: One voice
+    rule: A single accent and a single typeface family carry the interface; hierarchy comes from weight, tracking, color and case.
+    why: Restraint is the identity, and a second hue or a louder font competes with the terminal.

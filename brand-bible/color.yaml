@@ -1,0 +1,302 @@
+tokens:
+  state-monitoring:
+    value: "#60a5fa"
+    role: state
+    name: Signal Sky
+    use: A turn ended while background tasks still run.
+  state-running:
+    value: "#22c55e"
+    role: state
+    name: Signal Green
+    use: Working.
+  state-waiting:
+    value: "#f59e0b"
+    role: state
+    name: Signal Amber
+    use: Needs input, needs attention, setup required.
+  state-failed:
+    value: "#ef4444"
+    role: state
+    name: Signal Red
+    use: Failed, disconnected, destructive.
+  state-initializing:
+    value: "#6b7280"
+    role: state
+    name: Signal Slate
+    use: Unused since worktree setup displays as Starting.
+  state-idle:
+    value: "#eab308"
+    role: state
+    name: Signal Gold
+    use: Idle.
+  bg:
+    value: "#0a0810"
+    role: surface
+    name: Near-Black Violet
+    use: Base canvas behind everything.
+  bg-card:
+    value: "#100e18"
+    role: surface
+    name: Ink Violet
+    use: Card and panel fills and the terminal pane.
+  bg-header:
+    value: "#0c0a14"
+    role: surface
+    name: Shadow Violet
+    use: The sticky header bar.
+  bg-surface:
+    value: "#16122a"
+    role: surface
+    name: Deep Violet Slate
+    use: Inset surfaces and inputs.
+  border:
+    value: "#2a2440"
+    role: border
+    name: Violet Border
+    use: Component edges.
+  border-dim:
+    value: "#1e1a32"
+    role: border
+    name: Dim Violet Border
+    use: Quiet internal dividers.
+  border-hover:
+    value: "#3e3660"
+    role: border
+    name: Lifted Violet Border
+    use: "Hover and elevated surfaces: menus, tooltips, dialogs."
+  text:
+    value: "#c8c0e0"
+    role: text
+    name: Soft Lavender Grey
+    use: Default body text.
+  text-dim:
+    value: "#8d82b9"
+    role: text
+    name: Muted Lavender
+    use: Secondary text and descriptions.
+  text-head:
+    value: "#e8e0ff"
+    role: text
+    name: Bright Lavender White
+    use: Headings and emphasized text.
+  text-muted:
+    value: "#8579b1"
+    role: text
+    name: Faint Lavender
+    use: Tertiary labels and captions, the quietest legible text.
+  accent:
+    value: "#c084fc"
+    role: brand
+    name: Iridescent Orchid
+    use: "The one accent: primary actions, selection, focus rings, the active tab underline, the wordmark glyph."
+  accent-dim:
+    value: "#9656d6"
+    role: brand
+    name: Deep Orchid
+    use: Accent borders, CTA strokes and pulse low points where full accent would shout.
+  state-done:
+    value: "#67e8f9"
+    role: state
+    name: Signal Cyan
+    use: "Exited: the agent process ended."
+  state-starting:
+    value: "#f472b6"
+    role: state
+    name: Signal Pink
+    use: Starting, including worktree preparation.
+  state-complete:
+    value: "#34d399"
+    role: state
+    name: Signal Emerald
+    use: A finished turn not yet looked at; also success such as merged branches and passing checks.
+  state-dormant:
+    value: "#5a527a"
+    role: state
+    name: Dormant Violet
+    use: A session not started yet.
+  perms-warn:
+    value: "#d97706"
+    role: state
+    name: Permissions Amber
+    use: The SANE YOLO chip on sessions spawned with skipped permission prompts.
+themes:
+  golgari:
+    label: Golgari (Green/Black)
+    mode: dark
+    overrides:
+      state-monitoring: "#22d3ee"
+      bg: "#060b08"
+      bg-card: "#0a120e"
+      bg-header: "#081009"
+      bg-surface: "#0e1a12"
+      border: "#1a2e1f"
+      border-dim: "#122016"
+      border-hover: "#2a4a32"
+      text: "#b8ccbe"
+      text-dim: "#6a9070"
+      text-head: "#dceede"
+      text-muted: "#7a9a80"
+      accent: "#2dd4a0"
+      accent-dim: "#1a9a6e"
+      state-done: "#94a3b8"
+      state-starting: "#a78bfa"
+  midnight:
+    label: Midnight (Blue/Purple)
+    mode: dark
+    overrides:
+      state-monitoring: "#22d3ee"
+      bg: "#080816"
+      bg-card: "#0e0e20"
+      bg-header: "#0b0b1a"
+      bg-surface: "#131328"
+      border: "#1c1c38"
+      border-dim: "#141430"
+      border-hover: "#2a2a50"
+      text: "#b8b8d4"
+      text-dim: "#8585b3"
+      text-head: "#dcdcf0"
+      text-muted: "#7c7ca9"
+      accent: "#5674f7"
+      accent-dim: "#3a54c0"
+      state-done: "#94a3b8"
+      state-starting: "#a855f7"
+      state-complete: "#60a5fa"
+  phyrexian:
+    label: Phyrexian (Iridescent)
+    mode: dark
+    overrides: {}
+  compleated:
+    label: Compleated (Light)
+    mode: light
+    overrides:
+      bg: "#ece8e0"
+      bg-card: "#f7f4ee"
+      bg-header: "#f0ece4"
+      bg-surface: "#e4e0d6"
+      border: "#b8b0a0"
+      border-dim: "#ccc6b8"
+      border-hover: "#908878"
+      text: "#2a2622"
+      text-dim: "#5a5448"
+      text-head: "#0e0c0a"
+      text-muted: "#676157"
+      accent: "#0e0c0a"
+      accent-dim: "#2a2622"
+      state-running: "#157838"
+      state-waiting: "#a94e08"
+      state-failed: "#cd2323"
+      state-monitoring: "#0e728d"
+      state-done: "#5a697e"
+      state-idle: "#995d07"
+      state-starting: "#7c3aed"
+      state-complete: "#047a55"
+  unicorn:
+    label: Rainbow Unicorns (Dark)
+    mode: dark
+    overrides:
+      bg: "#191022"
+      bg-card: "#201730"
+      bg-header: "#1c1329"
+      bg-surface: "#281c3c"
+      border: "#3a2c52"
+      border-dim: "#2a2040"
+      border-hover: "#55407a"
+      text: "#d4c8e6"
+      text-dim: "#9a88b8"
+      text-head: "#ede4fa"
+      text-muted: "#a897c4"
+      accent: "#e8a3c4"
+      accent-dim: "#c4739e"
+      state-running: "#42d780"
+      state-waiting: "#f79f3b"
+      state-failed: "#f15e4d"
+      state-monitoring: "#2dd4bf"
+      state-done: "#f153a8"
+      state-initializing: "#8f87a6"
+      state-idle: "#bcb02f"
+      state-starting: "#a17ef1"
+      state-complete: "#34baf4"
+  posthog-light:
+    label: PostHog (Light)
+    mode: light
+    overrides:
+      bg: "#eeefe9"
+      bg-card: "#fdfdf8"
+      bg-header: "#eeefe9"
+      bg-surface: "#e5e7e0"
+      border: "#bfc1b7"
+      border-dim: "#d2d3cc"
+      border-hover: "#9ea096"
+      text: "#23251d"
+      text-dim: "#65675e"
+      text-head: "#111111"
+      text-muted: "#66685f"
+      accent: "#c03300"
+      accent-dim: "#8e2600"
+      state-running: "#237a36"
+      state-waiting: "#936412"
+      state-failed: "#8c0d3b"
+      state-monitoring: "#0e7490"
+      state-done: "#3e6b9e"
+      state-initializing: "#73756b"
+      state-idle: "#835c19"
+      state-starting: "#a621c8"
+      state-complete: "#34796f"
+  posthog-dark:
+    label: PostHog (Dark)
+    mode: dark
+    overrides:
+      bg: "#1e1f23"
+      bg-card: "#25262b"
+      bg-header: "#232429"
+      bg-surface: "#2d2e37"
+      border: "#3e424f"
+      border-dim: "#32343f"
+      border-hover: "#626674"
+      text: "#edeef4"
+      text-dim: "#aeb3c2"
+      text-head: "#fafafa"
+      text-muted: "#9ea096"
+      accent: "#f87a4c"
+      accent-dim: "#f54e00"
+      state-running: "#36c46f"
+      state-waiting: "#f7a501"
+      state-failed: "#f46767"
+      state-monitoring: "#22d3ee"
+      state-done: "#589df8"
+      state-initializing: "#8f8f8c"
+      state-idle: "#ffce5c"
+      state-starting: "#9a81ff"
+      state-complete: "#29dbbb"
+defaultTheme: phyrexian
+pairs:
+  - { foreground: text, background: bg, minContrast: 4.5 }
+  - { foreground: text, background: bg-card, minContrast: 4.5 }
+  - { foreground: text, background: bg-surface, minContrast: 4.5 }
+  - { foreground: text-dim, background: bg, minContrast: 4.5 }
+  - { foreground: text-dim, background: bg-card, minContrast: 4.5 }
+  - { foreground: text-dim, background: bg-surface, minContrast: 4.5 }
+  - { foreground: text-muted, background: bg, minContrast: 4.5 }
+  - { foreground: text-muted, background: bg-card, minContrast: 4.5 }
+  - { foreground: text-muted, background: bg-surface, minContrast: 4.5 }
+  - { foreground: text-head, background: bg, minContrast: 4.5 }
+  - { foreground: text-head, background: bg-card, minContrast: 4.5 }
+  - { foreground: text-head, background: bg-surface, minContrast: 4.5 }
+  - { foreground: accent, background: bg, minContrast: 4.5 }
+  - { foreground: accent, background: bg-card, minContrast: 4.5 }
+  - { foreground: accent, background: bg-surface, minContrast: 4.5 }
+  - { foreground: state-running, background: bg-card, minContrast: 4.5 }
+  - { foreground: state-waiting, background: bg-card, minContrast: 4.5 }
+  - { foreground: state-failed, background: bg-card, minContrast: 4.5 }
+  - { foreground: state-done, background: bg-card, minContrast: 4.5 }
+  - { foreground: state-idle, background: bg-card, minContrast: 4.5 }
+  - { foreground: state-starting, background: bg-card, minContrast: 4.5 }
+  - { foreground: state-complete, background: bg-card, minContrast: 4.5 }
+  - { foreground: state-monitoring, background: bg-card, minContrast: 4.5 }
+literalColorsAllowedIn:
+  - public/theme.ts
+  - public/style.css
+  - site/src/styles/global.css
+  - shared/brand-mark.ts
+  - public/favicon.svg
+  - public/favicon-core.ts
