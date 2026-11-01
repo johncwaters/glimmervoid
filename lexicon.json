@@ -142,6 +142,10 @@
       "aliases": [
         "pull"
       ]
+    },
+    {
+      "name": "trust",
+      "definition": "An agent CLI's own record that a folder may run its project config and tools without asking, such as Kimi Code's Trust this folder? dialog, which Glimmervoid pre-grants for the sessions it spawns"
     }
   ]
 }
