@@ -1,0 +1,12 @@
+{
+  "bundle": "app.js",
+  "totalKb": 412,
+  "modules": [
+    { "name": "react-dom", "kb": 131 },
+    { "name": "charting", "kb": 96 },
+    { "name": "date-fns", "kb": 61 },
+    { "name": "app code", "kb": 58 },
+    { "name": "icons", "kb": 39 },
+    { "name": "styles", "kb": 27 }
+  ]
+}

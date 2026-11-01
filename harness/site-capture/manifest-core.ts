@@ -22,6 +22,10 @@ const CaptureSession = z.strictObject({
   recording: z.string().min(1),
   patch: z.string().min(1).optional(),
   patchAtEvent: z.string().regex(/^[A-Za-z]+$/).default('Stop'),
+  startAtMs: z.number().finite().default(0),
+  spawnedBy: sessionName.optional(),
+  glimmervoidCalls: z.string().min(1).optional(),
+  maxIdleGapMs: z.number().finite().nonnegative().optional(),
 });
 
 export const CaptureManifest = z.strictObject({
@@ -31,11 +35,16 @@ export const CaptureManifest = z.strictObject({
   maxIdleGapMs: z.number().finite().nonnegative().default(2500),
   redactions: z.array(Redaction).default([]),
   sessions: z.array(CaptureSession).min(1),
+  shownFiles: z.string().min(1).optional(),
   shots: z.array(z.strictObject({
     atMs: z.number().finite().nonnegative(),
-    name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/),
+    name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/).optional(),
     selectSession: z.string().optional(),
+    press: z.string().regex(/^[A-Za-z0-9+]+$/).optional(),
+    click: z.string().min(1).optional(),
+    clickIn: z.string().optional(),
   })).default([]),
+  videoStartMs: z.number().finite().nonnegative().default(0),
   videoMs: z.number().finite().positive(),
 }).superRefine((manifest, context) => {
   const sessionNames = new Set<string>();
@@ -43,10 +52,19 @@ export const CaptureManifest = z.strictObject({
     if (sessionNames.has(session.name)) context.addIssue({ code: 'custom', path: ['sessions', index, 'name'], message: 'duplicate session name' });
     sessionNames.add(session.name);
   }
+  for (const [index, session] of manifest.sessions.entries()) {
+    const parent = manifest.sessions.find((candidate) => candidate.name === session.spawnedBy);
+    if (session.spawnedBy !== undefined && (!parent || parent.spawnedBy !== undefined)) {
+      context.addIssue({ code: 'custom', path: ['sessions', index, 'spawnedBy'], message: 'spawnedBy must name a session the capture adds' });
+    }
+  }
+  if (manifest.videoStartMs >= manifest.videoMs) context.addIssue({ code: 'custom', path: ['videoStartMs'], message: 'videoStartMs must fall before videoMs' });
   const shotNames = new Set<string>();
   for (const [index, shot] of manifest.shots.entries()) {
-    if (shotNames.has(shot.name)) context.addIssue({ code: 'custom', path: ['shots', index, 'name'], message: 'duplicate shot name' });
-    shotNames.add(shot.name);
+    if (shot.name !== undefined && shotNames.has(shot.name)) context.addIssue({ code: 'custom', path: ['shots', index, 'name'], message: 'duplicate shot name' });
+    if (shot.name !== undefined) shotNames.add(shot.name);
+    if (shot.clickIn !== undefined && !sessionNames.has(shot.clickIn)) context.addIssue({ code: 'custom', path: ['shots', index, 'clickIn'], message: 'unknown session name' });
+    if (shot.clickIn !== undefined && shot.click === undefined) context.addIssue({ code: 'custom', path: ['shots', index, 'clickIn'], message: 'clickIn needs click' });
     if (shot.atMs > manifest.videoMs) context.addIssue({ code: 'custom', path: ['shots', index, 'atMs'], message: 'shot must fall within videoMs' });
     if (shot.selectSession !== undefined && !sessionNames.has(shot.selectSession)) {
       context.addIssue({ code: 'custom', path: ['shots', index, 'selectSession'], message: 'unknown session name' });
@@ -67,6 +85,7 @@ const RecordSession = z.strictObject({
 export const RecordManifest = z.strictObject({
   viewport,
   model: z.string().regex(/^[A-Za-z0-9._-]+$/).default('sonnet'),
+  effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('medium'),
   projects: projectSeeds,
   sessions: z.array(RecordSession).min(1),
   outputDirectory: z.string().min(1).default('../recordings'),

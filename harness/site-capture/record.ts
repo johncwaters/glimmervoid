@@ -5,6 +5,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import type { Page } from 'playwright-core';
 import type WebSocket from 'ws';
 import { z } from 'zod';
+import { safePathSegment } from '../../shared/paths.ts';
 import { ServerMessage, SessionCardFields } from '../../shared/contracts/control-messages.ts';
 import { SessionState as SessionStateSchema } from '../../shared/contracts/session.ts';
 import { STATES } from '../../shared/states.ts';
@@ -34,6 +35,7 @@ interface RecordContext {
   outputDirectory: string;
   progressById: Map<string, SessionProgress>;
   terminalSize: { cols: number; rows: number } | null;
+  runCallLogPath: string;
 }
 
 const StatusFields = z.object({ id: SessionCardFields.shape.id, transition: z.object({ to: SessionStateSchema }).optional() });
@@ -45,24 +47,29 @@ const harnessClaudeConfigDirectoryName = 'claude-config';
 const agentHomeDirectoryName = 'agent-home';
 const claudeCredentialsFileName = '.credentials.json';
 const claudeGlobalConfigFileName = '.claude.json';
+const shownFilesDirectoryName = 'shown-files';
+const glimmervoidCliPath = path.resolve(import.meta.dirname, '../../bin/glimmervoid.ts');
+const glimmervoidCallLogPath = path.join(import.meta.dirname, 'glimmervoid-call-log.ts');
 const demoSettingsRelativePath = path.join('.claude', 'settings.local.json');
 const demoDeniedPermissions = [
   'Bash(git push:*)', 'Bash(rm -rf:*)', 'Bash(curl:*)', 'Bash(wget:*)', 'Bash(ssh:*)', 'Bash(scp:*)', 'Bash(env)', 'Bash(printenv:*)',
   'Read(~/.ssh/**)', 'Read(~/.aws/**)', 'Read(~/.config/gh/**)', 'Read(~/.npmrc)', 'Read(~/.claude/**)',
 ];
 
-function parseArguments(argv: string[]): { manifestPath: string; executablePath?: string } {
+function parseArguments(argv: string[]): { manifestPath: string; executablePath?: string; onlySessionNames?: Set<string> } {
   const manifestPath = argv[0];
-  if (!manifestPath || manifestPath.startsWith('--')) throw new Error('usage: site:record <record-manifest.json> [--executable <Chrome path>]');
+  if (!manifestPath || manifestPath.startsWith('--')) throw new Error('usage: site:record <record-manifest.json> [--executable <Chrome path>] [--only <session,...>]');
   let executablePath = process.env.CHROME_PATH;
+  let onlySessionNames: Set<string> | undefined;
   for (let index = 1; index < argv.length; index += 2) {
     const flag = argv[index];
     const value = argv[index + 1];
     if (!value || value.startsWith('--')) throw new Error(`missing value for ${flag}`);
     if (flag === '--executable') { executablePath = path.resolve(value); continue; }
+    if (flag === '--only') { onlySessionNames = new Set(value.split(',').map((name) => name.trim()).filter(Boolean)); continue; }
     throw new Error(`unknown argument ${flag}`);
   }
-  return { manifestPath: path.resolve(manifestPath), executablePath };
+  return { manifestPath: path.resolve(manifestPath), executablePath, onlySessionNames };
 }
 
 async function findExecutableOnPath(commandName: string, searchPath: string): Promise<string> {
@@ -128,6 +135,7 @@ function trackControlFrames(socket: WebSocket, progressById: Map<string, Session
     const frame = parsedFrame.data;
     if (frame.type === 'session-status') {
       const status = StatusFields.parse(frame);
+      if (!progressById.has(status.id)) progressById.set(status.id, { statesSeen: [], branch: null });
       const progress = progressById.get(status.id);
       if (!progress || !status.transition) return;
       progress.statesSeen.push(status.transition.to);
@@ -216,19 +224,39 @@ async function exportCommits(projectPath: string, branch: string | null, patchPa
   return subjects;
 }
 
-async function collectRecording(recordingsDirectory: string, previousRecordings: Set<string>, recordingCopyPath: string): Promise<void> {
+async function collectRecordings(
+  recordingsDirectory: string, previousRecordings: Set<string>, outputDirectory: string, session: RecordSession, expectedRecordingCount: number,
+): Promise<string[]> {
+  const parentPrefix = `${safePathSegment(session.name)}-`;
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
-    const newRecordings = [...await listRecordingFiles(recordingsDirectory)].filter((name) => !previousRecordings.has(name));
-    if (newRecordings.length > 1) throw new Error(`expected one new recording, found ${newRecordings.join(', ')}`);
-    const recordingName = newRecordings[0];
-    if (recordingName && await hasFooter(path.join(recordingsDirectory, recordingName))) {
-      await fs.copyFile(path.join(recordingsDirectory, recordingName), recordingCopyPath);
-      return;
+    const newRecordings = [...await listRecordingFiles(recordingsDirectory)].filter((name) => !previousRecordings.has(name)).sort();
+    const closedRecordings = await Promise.all(newRecordings.map((name) => hasFooter(path.join(recordingsDirectory, name))));
+    if (newRecordings.length >= expectedRecordingCount && closedRecordings.every(Boolean)) {
+      const parentRecordings = newRecordings.filter((name) => name.startsWith(parentPrefix));
+      if (parentRecordings.length !== 1) throw new Error(`expected one recording named ${parentPrefix}*, found ${newRecordings.join(', ')}`);
+      const childRecordings = newRecordings.filter((name) => !name.startsWith(parentPrefix));
+      const copyPlan = [
+        { from: parentRecordings[0] ?? '', to: `${session.name}.jsonl` },
+        ...childRecordings.map((name, index) => ({ from: name, to: `${session.name}.child-${index + 1}.jsonl` })),
+      ];
+      for (const { from, to } of copyPlan) await fs.copyFile(path.join(recordingsDirectory, from), path.join(outputDirectory, to));
+      return copyPlan.map(({ to }) => path.join(outputDirectory, to));
     }
     await sleep(250, undefined, { signal: cancellation.signal });
   }
-  throw new Error('session recording did not close within 20s');
+  throw new Error('session recordings did not close within 20s');
+}
+
+async function waitForSpawnedChildren(context: RecordContext, sessionIdsBefore: Set<string>, parentId: string, maxMinutes: number): Promise<string[]> {
+  const childIds = [...context.progressById.keys()].filter((id) => id !== parentId && !sessionIdsBefore.has(id));
+  for (const childId of childIds) {
+    const progress = context.progressById.get(childId);
+    if (!progress) continue;
+    const isSettled = await waitForSettledRun(progress, maxMinutes);
+    console.log(`  spawned child ${childId} ${isSettled ? 'settled' : 'hit maxMinutes'} as ${progress.statesSeen.at(-1)}`);
+  }
+  return childIds;
 }
 
 async function selectSessionAtTerminalSize(page: Page, sessionId: string, expectedSize: { cols: number; rows: number } | null): Promise<{ cols: number; rows: number }> {
@@ -249,6 +277,9 @@ async function recordSession(context: RecordContext, session: RecordSession): Pr
   const startedAt = Date.now();
   console.log(`session: ${session.name} (${session.project}, ${session.dangerouslySkipPermissions ? 'skip permissions' : 'default permissions'})`);
   const previousRecordings = await listRecordingFiles(context.recordingsDirectory);
+  await fs.rm(context.runCallLogPath, { force: true });
+  const sessionIdsBefore = new Set(context.progressById.keys());
+  let childIds: string[] = [];
   const sessionId = await addSession(context.socket, session.name, projectPath, session.dangerouslySkipPermissions);
   const progress: SessionProgress = { statesSeen: [], branch: null };
   context.progressById.set(sessionId, progress);
@@ -264,18 +295,28 @@ async function recordSession(context: RecordContext, session: RecordSession): Pr
     await submitTask(inputSocket, progress);
     const isSettled = await waitForSettledRun(progress, session.maxMinutes);
     console.log(`  run ${isSettled ? 'settled' : 'hit maxMinutes'} as ${progress.statesSeen.at(-1)} after ${Math.round((Date.now() - startedAt) / 1000)}s`);
+    childIds = await waitForSpawnedChildren(context, sessionIdsBefore, sessionId, session.maxMinutes);
     await sleep(2000, undefined, { signal: cancellation.signal });
     const commitSubjects = await exportCommits(projectPath, progress.branch, path.join(context.outputDirectory, `${session.name}.patch`));
     if (commitSubjects.length === 0) console.warn(`  warning: ${session.name} produced no commits, so no patch was written`);
     if (commitSubjects.length > 0) console.log(`  commits: ${commitSubjects.join(' | ')}`);
   } finally {
-    context.socket.send(JSON.stringify({ type: 'kill', id: sessionId }));
+    for (const id of [...childIds, sessionId]) context.socket.send(JSON.stringify({ type: 'kill', id }));
     inputSocket.terminate();
   }
-  const recordingCopyPath = path.join(context.outputDirectory, `${session.name}.jsonl`);
-  await collectRecording(context.recordingsDirectory, previousRecordings, recordingCopyPath);
-  context.socket.send(JSON.stringify({ type: 'remove-session', id: sessionId }));
-  console.log(`  recording: ${recordingCopyPath} (${(await fs.stat(recordingCopyPath)).size} bytes)`);
+  const recordingPaths = await collectRecordings(context.recordingsDirectory, previousRecordings, context.outputDirectory, session, 1 + childIds.length);
+  for (const id of [...childIds, sessionId]) context.socket.send(JSON.stringify({ type: 'remove-session', id }));
+  const sessionCallLogPath = path.join(context.outputDirectory, `${session.name}.glimmervoid-calls.jsonl`);
+  await fs.rm(sessionCallLogPath, { force: true });
+  const callLogText = await fs.readFile(context.runCallLogPath, 'utf8').catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return '';
+    throw error;
+  });
+  if (callLogText) {
+    await fs.writeFile(sessionCallLogPath, callLogText);
+    console.log(`  glimmervoid calls: ${callLogText.trim().split('\n').length}`);
+  }
+  for (const recordingPath of recordingPaths) console.log(`  recording: ${recordingPath} (${(await fs.stat(recordingPath)).size} bytes)`);
 }
 
 async function waitForAgentExit(processNeedles: string[]): Promise<void> {
@@ -319,7 +360,7 @@ async function main(): Promise<void> {
     processNeedles = [tempDirectory, `127.0.0.1:${port}`];
     const wrapperDirectory = path.join(tempDirectory, 'bin');
     await fs.mkdir(wrapperDirectory);
-    const isolationArguments = ['--setting-sources', 'project,local', '--strict-mcp-config', '--model', manifest.model].map(quoteShell).join(' ');
+    const isolationArguments = ['--setting-sources', 'project,local', '--strict-mcp-config', '--model', manifest.model, '--effort', manifest.effort].map(quoteShell).join(' ');
     const wrapperScript = [
       '#!/bin/sh',
       `HOME=${quoteShell(path.join(tempDirectory, agentHomeDirectoryName))}`,
@@ -330,14 +371,22 @@ async function main(): Promise<void> {
       `exec ${quoteShell(realClaudePath)} ${isolationArguments} $permission_mode_arguments "$@"`,
     ].join('\n');
     await fs.writeFile(path.join(wrapperDirectory, 'claude'), `${wrapperScript}\n`, { mode: 0o755 });
+    const shownFilesDirectory = path.join(outputDirectory, shownFilesDirectoryName);
+    const runCallLogPath = path.join(tempDirectory, 'glimmervoid-calls.jsonl');
+    await fs.mkdir(shownFilesDirectory, { recursive: true });
+    const callLogArguments = [process.execPath, glimmervoidCallLogPath, runCallLogPath, shownFilesDirectory, glimmervoidCliPath].map(quoteShell).join(' ');
+    const glimmervoidWrapperScript = `#!/bin/sh\nexec ${callLogArguments} "$@"`;
+    await fs.writeFile(path.join(wrapperDirectory, 'glimmervoid'), `${glimmervoidWrapperScript}\n`, { mode: 0o755 });
     process.env.PATH = `${wrapperDirectory}${path.delimiter}${savedPath}`;
     const { socket } = await startServer(port, configPath);
     const progressById = new Map<string, SessionProgress>();
     trackControlFrames(socket, progressById);
     const page = await openDashboard(port, { viewport: manifest.viewport });
     const recordingsDirectory = path.join(path.dirname(configPath), 'recordings');
-    const context: RecordContext = { page, socket, port, projectPaths, recordingsDirectory, outputDirectory, progressById, terminalSize: null };
-    for (const session of manifest.sessions) await recordSession(context, session);
+    const context: RecordContext = { page, socket, port, projectPaths, recordingsDirectory, outputDirectory, progressById, terminalSize: null, runCallLogPath };
+    const sessionsToRecord = manifest.sessions.filter((session) => !options.onlySessionNames || options.onlySessionNames.has(session.name));
+    if (sessionsToRecord.length === 0) throw new Error('--only matched no session in the manifest');
+    for (const session of sessionsToRecord) await recordSession(context, session);
   });
 }
 

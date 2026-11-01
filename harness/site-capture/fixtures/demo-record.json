@@ -1,6 +1,9 @@
 {
-  "viewport": { "width": 1440, "height": 900 },
-  "model": "sonnet",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "model": "haiku",
   "projects": {
     "web": "demo/web",
     "billing": "demo/billing",
@@ -35,6 +38,35 @@
       "dangerouslySkipPermissions": true,
       "maxMinutes": 4,
       "task": "Bump this service from Node 20 to Node 22: update .nvmrc, the engines field in package.json, the CI workflow and the Dockerfile base image, then commit with a conventional commit message."
+    },
+    {
+      "name": "soak-test",
+      "project": "api",
+      "dangerouslySkipPermissions": true,
+      "maxMinutes": 4,
+      "task": "Start the load soak with the Bash tool using run_in_background: node scripts/soak.js (it runs about 90 seconds). Say in one line that it is running and end your turn right away without waiting or checking on it. When it finishes, report its last line."
+    },
+    {
+      "name": "audit-images",
+      "project": "web",
+      "dangerouslySkipPermissions": true,
+      "maxMinutes": 6,
+      "task": "List the images under public/images with their sizes in bytes. Then run exactly: node -e \"setTimeout(() => console.log('host settled'), 35000)\" in the foreground (the host needs 35 seconds before another session can start). Then hand the cleanup to a separate session by running exactly: glimmervoid spawn \"Shrink the three largest SVGs under public/images by deleting XML comments and metadata elements and rounding coordinates to one decimal, then commit with a conventional commit message\" and then end your turn with a one line summary. Do not wait for the spawned session."
+    },
+    {
+      "name": "bundle-size-chart",
+      "project": "ui",
+      "dangerouslySkipPermissions": true,
+      "maxMinutes": 5,
+      "task": "Read build/stats.json and write reports/bundle-size.html: a self-contained page with a horizontal bar chart of module sizes in kB as inline SVG, dark background (#0f1115), light text, bars in #7c5cff, the total in the heading. Then run exactly: glimmervoid show reports/bundle-size.html --caption \"Bundle size by module\" and finish with one line."
+    },
+    {
+      "name": "invoice-rounding",
+      "project": "billing",
+      "dangerouslySkipPermissions": true,
+      "maxMinutes": 5,
+      "task": "Sketch the invoice total flow on a shared whiteboard before touching code. Run these three commands exactly, one at a time: glimmervoid whiteboard new \"Invoice rounding\" then glimmervoid whiteboard put \"Invoice rounding\" '[{\"op\":\"add\",\"element\":{\"kind\":\"box\",\"id\":\"lines\",\"title\":\"Invoice lines\",\"lines\":[{\"text\":\"price x quantity\"}],\"at\":{\"x\":80,\"y\":120}}},{\"op\":\"add\",\"element\":{\"kind\":\"box\",\"id\":\"tax\",\"title\":\"Tax\",\"lines\":[{\"text\":\"subtotal x rate\"}],\"near\":{\"of\":\"lines\",\"side\":\"right\"}}}]' then glimmervoid whiteboard put \"Invoice rounding\" '[{\"op\":\"add\",\"element\":{\"kind\":\"box\",\"id\":\"round\",\"title\":\"Round to cents\",\"shape\":\"decision\",\"lines\":[{\"text\":\"half-up or half-even?\"}],\"near\":{\"of\":\"tax\",\"side\":\"right\"}}},{\"op\":\"add\",\"element\":{\"kind\":\"wire\",\"id\":\"w1\",\"from\":\"lines\",\"to\":\"tax\"}},{\"op\":\"add\",\"element\":{\"kind\":\"wire\",\"id\":\"w2\",\"from\":\"tax\",\"to\":\"round\"}}]'. Then read src/invoice.js and ask me with the AskUserQuestion tool whether totals should round half-up or half-even (banker's rounding), and wait for my answer."
     }
-  ]
+  ],
+  "effort": "low"
 }

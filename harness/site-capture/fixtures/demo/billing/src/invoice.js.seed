@@ -1,0 +1,5 @@
+export function invoiceTotal(lines, taxRate) {
+  const subtotal = lines.reduce((sum, line) => sum + line.price * line.quantity, 0);
+  const tax = subtotal * taxRate;
+  return Math.round((subtotal + tax) * 100) / 100;
+}
