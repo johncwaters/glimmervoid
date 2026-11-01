@@ -5,7 +5,7 @@ import path from 'node:path';
 import { CALL_IMPORT, EXPORT_FROM, STATIC_IMPORT } from '../../server/core/import-graph-core.ts';
 
 const ROOT = path.join(import.meta.dirname, '../..');
-const CORE_DIRECTORY_ROOTS = new Set(['server', 'session', 'notifications', 'detection']);
+const CORE_DIRECTORY_ROOTS = new Set(['server', 'session', 'notifications', 'detection', 'mcp']);
 const CORE_SUFFIX_ROOTS = new Set(['server', 'shared', 'public']);
 const SCANNED_ROOTS = [...new Set([...CORE_DIRECTORY_ROOTS, ...CORE_SUFFIX_ROOTS])];
 const SOURCE_EXTENSIONS = new Set(['.js', '.cjs', '.mjs', '.ts', '.cts', '.mts']);

@@ -31,6 +31,7 @@ import { hintFor, permitsHelpCommand, promptHintFor, supervisionLine, toolHookFa
 import type { CommandHint, HintedCommand, PromptHint } from "./core/session-routes.ts";
 import { ASK_USER_QUESTION_TOOL_NAME, type AgentAttentionReply } from "../shared/contracts/session.ts";
 import { buildHookSettings, generateToken } from "../detection/settings-injector.ts";
+import { mcpLaunchFor } from "../mcp/core/agent-config.ts";
 import { createOscTitleSource } from "../detection/osc-title-source.ts";
 import { createStatusSource } from "../detection/status-source.ts";
 import type { MetaStatusSignal, ResolvedStatusSignal } from "../detection/status-source.ts";
@@ -1580,13 +1581,16 @@ class Session extends EventEmitter {
       return;
     }
     this._isSaneYoloActive = remoteLaunch === null && hookInjection.isSaneYoloActive;
-    const settingsArgs = [...hookInjection.args];
+    const mcpLaunch = remoteLaunch === null
+      ? mcpLaunchFor({ agentId: this.agentId, listenerPort: this._hooks.listenerPort(), sessionId: this.id, agentToken: this._agentToken })
+      : { args: [], env: {} };
+    const settingsArgs = [...hookInjection.args, ...mcpLaunch.args];
 
     this._titleQuiet = this._adapter.titleProfile.quietUntilFirstPrompt === true && this._hooks.hasInjection() && !isRemoteCodex;
     this._armTitleQuietFallback();
 
     this._titleSource.setContext({ cwdBasename: path.basename(this.effectiveCwd()) });
-    const injectedEnv = { ...hookInjection.env, ...this._agentApiEnv(), ...this._commitSigningEnv() };
+    const injectedEnv = { ...hookInjection.env, ...this._agentApiEnv(), ...mcpLaunch.env, ...this._commitSigningEnv() };
     const spawnExtraEnv = Object.keys(injectedEnv).length > 0
       ? { ...(this._spawnEnv || {}), ...injectedEnv }
       : this._spawnEnv;

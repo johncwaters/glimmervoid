@@ -14,6 +14,7 @@ import { refocusReplyFor, toolHookContextReplyOf } from '../../session/core/refo
 import type { RefocusContext } from '../../session/core/refocus-core.ts';
 import type { ToolHookContextResponse, UserPromptSubmitHookResponse } from '../../shared/contracts/refocus.ts';
 import type { AgentApiPort } from '../agent-api-wiring.ts';
+import { mountAgentMcp } from '../../mcp/server.ts';
 import { checkAgentReply, decideAgentRequest, REFUSAL_REASON, REFUSAL_STATUS } from '../core/agent-api-core.ts';
 import { SSH_SIGN_BODY_CAP_BYTES, SshSignRequest } from '../../shared/contracts/session.ts';
 import { WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
@@ -568,6 +569,8 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
       heldDecision.then(answer, () => { answer(null); });
     });
   });
+
+  mountAgentMcp(app, { getSession, getAgentApi, isLoopback: isLoopbackRequest, logger });
 
   app.post('/agent/:glimmervoidId/show', (req, res) => {
     const agentApi = getAgentApi();

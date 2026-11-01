@@ -17,6 +17,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 | `brand-bible/`, `DESIGN.md` | Brand source of truth, validated by the auditing-brand skill; component and state rationale |
 | `docs/`, `bin/` | Design records and npm CLI |
 | `Glimmervoid.spec.md`, `*.spec.md`, `coherence.config.json`, `lexicon.json` | Coherence: the entry spec at the root, a component spec beside each unit's code, its config and vocabulary; `npm test` fails on a spec or lexicon problem |
+| `mcp/` | Agent MCP endpoint; all MCP code (`mcp/AGENTS.md`) |
 | `server/` | Backend runtime and lanes (`server/AGENTS.md`) |
 | `server/child-process-safe.ts` | The ONLY importer of `node:child_process` |
 | `server/git/git-workspace.ts` | The ONLY module allowed to run `git worktree` |
@@ -98,10 +99,6 @@ Each subsystem states its own rules beside its code, so a rule is loaded when th
 - `npm run build` / `npm start` - whole package to `dist/` (dashboard, node bundles); the built server entry
 - `npm test` - the `node:test` suite; `npm run test:container` adds the Docker remote-mode run
 
-## Platform and Runtime
-
-Windows 11, Linux and macOS. Node floor and module split are stated under Working In This Directory.
-
 ## Dependencies
 
 Runtime: `express`, `ws` (no Socket.IO and no abstraction over WebSockets, ever), `node-pty` (a real PTY; needs C++ build tools, VS Build Tools on Windows), and browser-only `@xterm/xterm` with `@xterm/addon-fit` and `@xterm/addon-webgl`.
@@ -109,6 +106,8 @@ Runtime: `express`, `ws` (no Socket.IO and no abstraction over WebSockets, ever)
 `@xterm/headless` with `@xterm/addon-serialize` keeps a server-side screen per live session (`session/screen-keeper.ts`). `zod` defines every wire and persisted shape. `cc-safety-net` backs Sane YOLO, the risky-command catcher. `sharp` and `ffmpeg-static` make the small WebP thumbnails of shown files. Glimmervoid runs each repository's own `@posthog/coherence` CLI and takes no runtime dependency on it.
 
 `fs-native-extensions` gives the kernel file locks (`fcntl` OFD, `flock`, `LockFileEx`) that mark a session temp folder in use, because Node core has no file lock and the kernel drops one when its holder dies, which a pid record cannot tell from pid reuse. A load failure leaves folders to the 7-day age gate.
+
+`@modelcontextprotocol/server` and `@modelcontextprotocol/node` serve the agent MCP endpoint, the one integration every agent CLI speaks.
 
 Dev: the toolchain in `package.json`.
 
