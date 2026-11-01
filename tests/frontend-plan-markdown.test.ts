@@ -101,3 +101,15 @@ test('a fenced code info string renders at most one safe language class', async 
   const codeClasses = Array.from(root.querySelectorAll('code')).map((node) => node.className);
   assert.deepEqual(codeClasses, ['language-js', 'language-plan', '']);
 });
+
+test('GitHub issue text keeps intraword underscores, links bare URLs and shows img tags as a placeholder', () => {
+  const [paragraph] = parsePlanMarkdown('?order_by=_created_by see https://github.com/a/b/pull/1. <img src="https://x.test/y.png"><br>');
+  assert.deepEqual(paragraph, {
+    type: 'paragraph',
+    children: [
+      { type: 'text', text: '?order_by=_created_by see ' },
+      { type: 'link', href: 'https://github.com/a/b/pull/1', children: [{ type: 'text', text: 'https://github.com/a/b/pull/1' }] },
+      { type: 'text', text: '. (image)' },
+    ],
+  });
+});

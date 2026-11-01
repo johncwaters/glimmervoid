@@ -1,5 +1,6 @@
 import { parseAtxHeading } from '#shared/contracts/plan-review.ts';
 import { normalizedHttpUrl } from '#shared/http-url.ts';
+import { findUrls } from '../session-card/link-detect-core.ts';
 
 export type PlanInline =
   | { type: 'text'; text: string }
@@ -77,17 +78,56 @@ function emphasisMarkerAt(source: string, cursor: number): string | null {
   return null;
 }
 
+const wordCharPattern = /[\p{L}\p{N}_]/u;
+const htmlTagPattern = /<\/?([A-Za-z][A-Za-z0-9-]*)(?:\s[^<>]*)?\/?>/y;
+const DROPPED_HTML_TAGS: ReadonlySet<string> = new Set(['br', 'p', 'div', 'span', 'details', 'summary', 'sub', 'sup', 'kbd', 'picture', 'source', 'center', 'b', 'i', 'em', 'strong', 'hr']);
+const IMAGE_PLACEHOLDER = '(image)';
+
+function isWordCharAt(source: string, index: number): boolean {
+  const char = source[index];
+  return char !== undefined && wordCharPattern.test(char);
+}
+
+function isUnderscoreRunOpenerAt(source: string, cursor: number): boolean {
+  return !isWordCharAt(source, cursor - 1);
+}
+
+function underscoreCloserFinder(source: string, marker: string) {
+  return firstIndexFinder(source, marker, (index) => !isWordCharAt(source, index + marker.length));
+}
+
+function htmlTagAt(source: string, cursor: number): { name: string; end: number } | null {
+  if (source[cursor] !== '<') return null;
+  htmlTagPattern.lastIndex = cursor;
+  const match = htmlTagPattern.exec(source);
+  const name = match?.[1]?.toLowerCase();
+  if (!match || !name) return null;
+  if (name !== 'img' && !DROPPED_HTML_TAGS.has(name)) return null;
+  return { name, end: cursor + match[0].length };
+}
+
 function findClosingMarker(source: string, marker: string, from: number) {
   const index = source.indexOf(marker, from);
   return index > from ? index : -1;
 }
 
-function firstIndexFinder(source: string, needle: string) {
-  let firstKnownIndex = source.indexOf(needle);
+function closingMarkerIndex(source: string, marker: string, from: number, underscoreCloserAtOrAfter: (from: number) => number) {
+  if (!marker.startsWith('_')) return findClosingMarker(source, marker, from);
+  const index = underscoreCloserAtOrAfter(from);
+  return index > from ? index : -1;
+}
+
+function firstIndexFinder(source: string, needle: string, isMatchAt: (index: number) => boolean = () => true) {
+  const firstMatchAt = (from: number) => {
+    let index = source.indexOf(needle, from);
+    while (index !== -1 && !isMatchAt(index)) index = source.indexOf(needle, index + 1);
+    return index;
+  };
+  let firstKnownIndex = firstMatchAt(0);
   return function firstIndexAtOrAfter(from: number): number {
     if (firstKnownIndex === -1) return -1;
     if (firstKnownIndex >= from) return firstKnownIndex;
-    firstKnownIndex = source.indexOf(needle, from);
+    firstKnownIndex = firstMatchAt(from);
     return firstKnownIndex;
   };
 }
@@ -123,16 +163,38 @@ function planLinkAt(
 }
 
 function parsePlanInline(source: string): PlanInline[] {
+  return parseInlineSpan(source, false);
+}
+
+function parseInlineSpan(source: string, isInsideLink: boolean): PlanInline[] {
   const nodes: PlanInline[] = [];
   const closeBracketAtOrAfter = firstIndexFinder(source, ']');
+  const strongUnderscoreCloserAtOrAfter = underscoreCloserFinder(source, '__');
+  const emphasisUnderscoreCloserAtOrAfter = underscoreCloserFinder(source, '_');
+  const bareUrlByStart = new Map(isInsideLink ? [] : findUrls(source).map((found) => [found.start, found]));
   let cursor = 0;
   while (cursor < source.length) {
     const link = planLinkAt(source, cursor, closeBracketAtOrAfter);
     if (link) {
       const href = normalizedHttpUrl(link.target.trim());
-      if (href) nodes.push({ type: 'link', href, children: parsePlanInline(link.label) });
+      if (href) nodes.push({ type: 'link', href, children: parseInlineSpan(link.label, true) });
       if (!href) appendText(nodes, link.label);
       cursor = link.end;
+      continue;
+    }
+
+    const bareUrl = bareUrlByStart.get(cursor);
+    const bareHref = bareUrl ? normalizedHttpUrl(bareUrl.url) : null;
+    if (bareUrl && bareHref) {
+      nodes.push({ type: 'link', href: bareHref, children: [{ type: 'text', text: bareUrl.url }] });
+      cursor = bareUrl.end;
+      continue;
+    }
+
+    const htmlTag = htmlTagAt(source, cursor);
+    if (htmlTag) {
+      if (htmlTag.name === 'img') appendText(nodes, IMAGE_PLACEHOLDER);
+      cursor = htmlTag.end;
       continue;
     }
 
@@ -146,12 +208,17 @@ function parsePlanInline(source: string): PlanInline[] {
     }
 
     const strongMarker = strongMarkerAt(source, cursor);
+    if (strongMarker === '__' && !isUnderscoreRunOpenerAt(source, cursor)) {
+      appendText(nodes, '__');
+      cursor += 2;
+      continue;
+    }
     if (strongMarker) {
-      const closing = findClosingMarker(source, strongMarker, cursor + strongMarker.length);
+      const closing = closingMarkerIndex(source, strongMarker, cursor + strongMarker.length, strongUnderscoreCloserAtOrAfter);
       if (closing !== -1) {
         nodes.push({
           type: 'strong',
-          children: parsePlanInline(source.slice(cursor + strongMarker.length, closing)),
+          children: parseInlineSpan(source.slice(cursor + strongMarker.length, closing), isInsideLink),
         });
         cursor = closing + strongMarker.length;
         continue;
@@ -159,10 +226,15 @@ function parsePlanInline(source: string): PlanInline[] {
     }
 
     const emphasisMarker = emphasisMarkerAt(source, cursor);
+    if (emphasisMarker === '_' && !isUnderscoreRunOpenerAt(source, cursor)) {
+      appendText(nodes, '_');
+      cursor++;
+      continue;
+    }
     if (emphasisMarker) {
-      const closing = findClosingMarker(source, emphasisMarker, cursor + 1);
+      const closing = closingMarkerIndex(source, emphasisMarker, cursor + 1, emphasisUnderscoreCloserAtOrAfter);
       if (closing !== -1) {
-        nodes.push({ type: 'emphasis', children: parsePlanInline(source.slice(cursor + 1, closing)) });
+        nodes.push({ type: 'emphasis', children: parseInlineSpan(source.slice(cursor + 1, closing), isInsideLink) });
         cursor = closing + 1;
         continue;
       }
