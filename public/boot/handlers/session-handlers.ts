@@ -4,7 +4,7 @@ import { setFocusMergeStatus } from '../../focus-view/focus-view.ts';
 import { setSessionLinkedPrs } from '../../github/session-pr-chips.ts';
 import { alertFromNotify } from '../../notifications.ts';
 import { noteKnownProjectPath } from '../../project-registry.ts';
-import { requestSessionRemoval } from '../../session-actions.ts';
+import { requestSessionRemovalNow } from '../../session-actions.ts';
 import { handleDebugStateRefresh, handleDebugStateResponse } from '../../session-card/card-dom.ts';
 import { buildSessionCardOptions } from '../../session-card/card-options-core.ts';
 import { attentionTally, sessionUIs } from '../../session-card/card-registry.ts';
@@ -18,7 +18,7 @@ import { carryOverClientSessionFields, forgetSession, handleSessionStatus, refre
 const messageHandlers = {
   'session-status':     (msg) => handleSessionStatus(msg),
   'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); setSessionLinkedPrs(msg.id, msg.linkedPrs); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent); restoreUsageChip(msg.id); } refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
-  'session-close-confirm': (msg) => { requestSessionRemoval(msg.id); },
+  'session-close-confirm': (msg) => { requestSessionRemovalNow(msg.id); },
   'session-removed':    (msg) => { forgetSession(msg.id); refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-title': (msg) => { setSessionTaskTitle(msg.id, msg.taskTitle, msg.isCustom); refreshRosterAndAttentionSurfaces(); },
   'session-prs': (msg) => setSessionLinkedPrs(msg.id, msg.linkedPrs),

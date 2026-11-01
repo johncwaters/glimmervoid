@@ -10,7 +10,7 @@ import type { SessionGroupHeader } from '../focus-view/roster-group-header.ts';
 import { buildSessionGroupHeader, paintSessionGroupHeader } from '../focus-view/roster-group-header.ts';
 import { showFirstRunChecklist } from '../onboarding/first-run-loader.ts';
 import { emptyProjectKeys, forgetProject } from '../project-registry.ts';
-import { quickAddSession, readSessionRows, requestSessionRemoval } from '../session-actions.ts';
+import { quickAddSession, readSessionRows, requestSessionRemoval, undoPendingClose } from '../session-actions.ts';
 import type { ActivityRenderKind } from '../session-card/activity.ts';
 import { pulseActivityGlyph } from '../session-card/activity.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
@@ -78,7 +78,7 @@ export function createBoardScreen({ onSelectSession, shownSessionId }: { onSelec
     row.type = 'button';
     row.dataset.id = id;
     row.addEventListener('click', () => selectSession(id));
-    const { item } = wrapSessionRow(row, () => requestSessionRemoval(id));
+    const { item } = wrapSessionRow(row, () => requestSessionRemoval(id), () => undoPendingClose(id));
     item.setAttribute('role', 'listitem');
     rowState.set(row, { refs, item });
     return row;

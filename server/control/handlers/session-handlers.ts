@@ -304,6 +304,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       lastRemovalRefusalBySessionId.set(sess.id, refusal.error);
       return refusal;
     }
+    if (msg.checkOnly === true) return { ok: true };
 
     if (agentSessions.get(sess.id) === sess) {
       if (isDiscardingWork) markChildWorktreeDiscard?.(sess.id);

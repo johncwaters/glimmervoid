@@ -3,6 +3,7 @@ import { el, query, stateChip } from './dom-helpers.ts';
 import { describeOwnership } from './focus-view/attention-core.ts';
 import { paintCardOwnership, remoteWorkspaceHoverText } from './session-card/card-dom.ts';
 import { attentionTally, sessionName, sessionUIs } from './session-card/card-registry.ts';
+import { CLOSING_ROW_STATE, SESSION_CLOSE_UNDO_WINDOW_MS } from './session-actions.ts';
 import { paintStatusIcon } from './status-icon.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { SHELL_AGENT_ID } from './session-card/agent-core.ts';
@@ -103,7 +104,7 @@ export function buildSessionRow<Tag extends 'button' | 'div'>(tagName: Tag, extr
   return { row, refs };
 }
 
-export function wrapSessionRow(row: HTMLElement, onRemove: () => void) {
+export function wrapSessionRow(row: HTMLElement, onRemove: () => void, onUndoRemove: () => void) {
   const item = el('div', 'session-row-item');
   const removeButton = el('button', 'session-row-remove');
   removeButton.append(createLineIcon(CLOSE_ICON_PATH));
@@ -114,7 +115,16 @@ export function wrapSessionRow(row: HTMLElement, onRemove: () => void) {
     event.stopPropagation();
     onRemove();
   });
-  item.append(row, removeButton);
+  const undoButton = el('button', 'session-row-undo', 'Undo');
+  undoButton.type = 'button';
+  undoButton.addEventListener('click', (event) => {
+    event.stopPropagation();
+    onUndoRemove();
+  });
+  const closeCountdown = el('span', 'session-row-close-countdown');
+  closeCountdown.setAttribute('aria-hidden', 'true');
+  closeCountdown.style.animationDuration = `${SESSION_CLOSE_UNDO_WINDOW_MS}ms`;
+  item.append(row, removeButton, undoButton, closeCountdown);
   return { item, removeButton };
 }
 
@@ -194,6 +204,7 @@ export function paintSessionRow(
   { ui, state, name, mergeStatus, attentionPosition }: { ui: SessionUi; state: string; name: string; mergeStatus: string; attentionPosition: number | null },
 ) {
   const statusLabel = paintSessionRowMark(row, refs, ui, state);
+  row.closest<HTMLElement>('.session-row-item')?.toggleAttribute('data-closing', state === CLOSING_ROW_STATE);
   writeTextIfChanged(refs.name, name);
   const cloudText = paintSessionRowCloud(refs.cloud, ui.card.dataset.remoteWorkspace);
   writeTextIfChanged(refs.task, ui.taskTitle ?? '');

@@ -5,7 +5,7 @@ import { createLineIcon, IMAGE_ICON_PATH } from '../svg-dom.ts';
 import { renderStatusLegend } from '../status-legend.ts';
 import { showFirstRunChecklist } from '../onboarding/first-run-loader.ts';
 import { emptyProjectKeys, forgetProject } from '../project-registry.ts';
-import { getRestorableSessionId, quickAddSession, readSessionRows, requestSessionOpen, requestSessionRemoval, selectSession } from '../session-actions.ts';
+import { getRestorableSessionId, isSessionShown, quickAddSession, readSessionRows, requestSessionOpen, requestSessionRemoval, selectSession, undoPendingClose } from '../session-actions.ts';
 import { markSessionSeen, showSessionPlanFace } from '../session-card/lifecycle.ts';
 import type { ActivityRenderKind } from '../session-card/activity.ts';
 import { addActivityRenderer, pulseActivityGlyph } from '../session-card/activity.ts';
@@ -190,7 +190,7 @@ function buildPill(id: string) {
   button.addEventListener('pointerenter', () => { if (railHeadEl) tetherAttentionTile(railHeadEl, id); });
   button.addEventListener('pointerleave', () => { if (railHeadEl) tetherAttentionTile(railHeadEl, null); });
 
-  const { item, removeButton } = wrapSessionRow(button, () => requestSessionRemoval(id));
+  const { item, removeButton } = wrapSessionRow(button, () => requestSessionRemoval(id), () => undoPendingClose(id));
   item.setAttribute('role', 'presentation');
   removeButton.tabIndex = -1;
   const shownCount = el('span', 'session-row-shown');
@@ -323,7 +323,7 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
   lastRailOrder = visibleOrder(groups, NO_COLLAPSED);
 
   const staleFocusedId = getFocusedSessionId();
-  if (staleFocusedId && !sessionUIs.has(staleFocusedId)) {
+  if (staleFocusedId && !isSessionShown(staleFocusedId)) {
     uiState.dispatch('focusSession', null);
     railTabStopId = null;
     const neighborId = pickNeighborOfRemoved(previousRailOrder, staleFocusedId);
@@ -345,8 +345,8 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
 }
 
 function pickNeighborOfRemoved(previousRailOrder: readonly string[], removedId: string) {
-  const survivorsAndRemoved = previousRailOrder.filter((id) => id === removedId || sessionUIs.has(id));
-  if (survivorsAndRemoved.length < 2) return lastRailOrder.find((id) => sessionUIs.has(id)) ?? null;
+  const survivorsAndRemoved = previousRailOrder.filter((id) => id === removedId || isSessionShown(id));
+  if (survivorsAndRemoved.length < 2) return lastRailOrder.find((id) => isSessionShown(id)) ?? null;
   const isRemovedLast = survivorsAndRemoved.indexOf(removedId) === survivorsAndRemoved.length - 1;
   return pickAdjacent(survivorsAndRemoved, removedId, isRemovedLast ? -1 : 1);
 }

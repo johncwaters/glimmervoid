@@ -3841,6 +3841,43 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
   .session-row-remove:hover { color: var(--state-failed); }
 }
 .session-row-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; }
+.session-row-undo {
+  display: none;
+  flex: 0 0 auto;
+  align-self: center;
+  margin-right: 8px;
+  padding: 4px 10px;
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--accent-dim);
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--type-meta);
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .session-row-undo:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+}
+.session-row-undo:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.session-row-close-countdown {
+  display: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: var(--accent);
+  transform-origin: left center;
+  pointer-events: none;
+}
+.session-row-item[data-closing] > .session-row { opacity: 0.45; }
+.session-row-item[data-closing] > .session-row-remove { display: none; }
+.session-row-item[data-closing] > .session-row-undo { display: inline-flex; align-items: center; }
+.session-row-item[data-closing] > .session-row-close-countdown { display: block; animation: session-row-close-drain linear forwards; }
+@keyframes session-row-close-drain {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
 
 :is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="RUNNING"] { --st: var(--state-running); }
 :is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="RUNNING"][data-monitoring] { --st: var(--state-monitoring); }
@@ -4747,6 +4784,7 @@ html[data-layout="phone"] :is(.session-group-add, .session-group-forget)::after 
 
 html[data-layout="phone"] .session-row { min-height: 56px; }
 html[data-layout="phone"] .session-row-remove { flex-basis: 44px; min-width: 44px; min-height: 44px; }
+html[data-layout="phone"] .session-row-undo { min-height: 44px; }
 html[data-layout="phone"] .session-row-item:has(> .session-row.focused) { outline: none; }
 
 .phone-terminal { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }

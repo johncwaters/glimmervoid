@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Undo a session close.** Closing a session that would lose nothing (the X on its row, Delete in the Focus list, Cmd+K or Alt+K, its actions menu, or the X on the phone Board) now leaves its row in place for 8 seconds, dimmed and marked Closing, with an Undo button and a thin line draining beneath it. Press Undo, or Cmd+Z on a Mac and Ctrl+Z elsewhere while you are not typing in a terminal or field, and the session stays as it was and reopens if it was the one you had open. Otherwise it closes when the line runs out. A close that would lose work still asks first, as before, and a session whose agent quits on its own still closes without the wait.
+
 ### Changed
 
 - **Boards show which sessions need you.** The Alt+J banner from the Focus list now floats at the top right of a board, showing a tile for every other session waiting on you, failed or finished. Hover a tile for the session's name. Click the banner or press Alt+J to dock the next one beside the board without leaving it; with no board open, Alt+J switches to Focus as before. A selected element's properties now sit just below the banner.

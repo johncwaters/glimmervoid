@@ -102,7 +102,7 @@ test('quick-session copies a workspace session under the next free name, without
   }
 });
 
-test('remove-session refuses a worktree with uncommitted work its badge has not seen, even on a discard nobody confirmed, then removes it once clean', { skip: !hasGit() }, async () => {
+test('remove-session refuses a worktree with uncommitted work its badge has not seen, even on a discard nobody confirmed, then reports it closable to a check without removing it, then removes it once clean', { skip: !hasGit() }, async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-control-remove-'));
   try {
     const repo = path.join(root, 'repo');
@@ -130,6 +130,11 @@ test('remove-session refuses a worktree with uncommitted work its badge has not 
     assert.deepEqual(config.projects.map((project) => project.id), ['remove-probe-session']);
 
     fs.rmSync(path.join(worktreeDir, 'unsaved.txt'));
+    control.send({ type: 'remove-session', id: 'remove-probe-session', requestId: 'clean-check', checkOnly: true });
+    await waitFor(() => replyTo('clean-check') !== undefined, 'clean check replied', 10000);
+    assert.equal(replyTo('clean-check')?.ok, true);
+    assert.deepEqual(config.projects.map((project) => project.id), ['remove-probe-session']);
+
     control.send({ type: 'remove-session', id: 'remove-probe-session', requestId: 'clean' });
     await waitFor(() => replyTo('clean') !== undefined, 'clean removal replied', 10000);
     assert.equal(replyTo('clean')?.ok, true);

@@ -5,13 +5,14 @@ import { buildSessionRows } from './focus-view/attention-core.ts';
 import type { SessionOpenStatePolicy } from './session-actions-core.ts';
 import { decideSessionOpenAction, pickRestorableSessionId } from './session-actions-core.ts';
 import { sendSessionAction } from './session-card/card-dom.ts';
-import type { ServerMessage } from '#shared/contracts/control-messages.ts';
+import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { SHELL_AGENT_ID } from './session-card/agent-core.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { sessionName, sessionUIs } from './session-card/card-registry.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
 import { suggestSessionName } from './session-card/naming.ts';
-import { setSelectedId } from './sidebar/selection.ts';
+import { getSelectedId, setSelectedId } from './sidebar/selection.ts';
+import { markStatusDirty } from './status-paint.ts';
 import { getLastFocusedSessionId, setLastFocusedSessionId } from './ui-prefs.ts';
 import { NOT_CONNECTED_TEXT } from './updates-view-core.ts';
 
@@ -36,7 +37,7 @@ export function readSessionRows(): SessionRow<SessionUi>[];
 export function readSessionRows<Name extends string | null>(nameOf: (ui: SessionUi) => Name): SessionRow<SessionUi, Name>[];
 export function readSessionRows(nameOf: (ui: SessionUi) => string | null = sessionName) {
   const operatorSessions = [...sessionUIs];
-  return buildSessionRows(operatorSessions, nameOf);
+  return buildSessionRows(operatorSessions, nameOf).map((row) => (pendingCloseById.has(row.id) ? { ...row, state: CLOSING_ROW_STATE, unseenOutcome: null } : row));
 }
 
 export function sendForSession(id: string, message: Record<string, unknown>): boolean {
@@ -129,27 +130,98 @@ export function spawnQuickSession(sourceId: string) {
 const SESSION_REMOVAL_TIMEOUT_MS = 65 * 60_000;
 const REMOVE_SESSION_ERROR_SOURCE = 'Remove session';
 
+function reportRemovalRefusal(ui: SessionUi, id: string, reply: ServerMessageOf<'remove-session-result'>) {
+  if (!reply.canDiscardWork) {
+    reportHeaderError({ source: REMOVE_SESSION_ERROR_SOURCE, sessionId: id, message: `"${sessionName(ui)}" was not removed: ${reply.error ?? 'the server gave no reason'}. Try Remove again from its actions menu.` });
+    return;
+  }
+  openConfirmDialog({
+    title: 'Remove Session',
+    message: reply.error ?? `Remove session "${sessionName(ui)}"?`,
+    confirmLabel: 'Remove',
+    danger: true,
+    onConfirm: () => { void requestCheckedSessionRemoval(ui, id, true, (reply.keptPaths ?? []).map((kept) => kept.path)); },
+  });
+}
+
+function reportRemovalFailure(ui: SessionUi, id: string, reason: unknown, timeoutMs: number) {
+  reportHeaderError({ source: REMOVE_SESSION_ERROR_SOURCE, sessionId: id, message: `"${sessionName(ui)}" was not removed: ${requestFailureText(reason, timeoutMs)} Try Remove again from its actions menu.` });
+}
+
 async function requestCheckedSessionRemoval(ui: SessionUi, id: string, discardWork: boolean, confirmedKeptPaths: string[] = []) {
   try {
     const reply = await sendControlRequest('remove-session', { id, discardWork, confirmedKeptPaths }, { timeoutMs: SESSION_REMOVAL_TIMEOUT_MS });
     if (reply.type !== 'remove-session-result' || reply.ok) return;
-    if (!reply.canDiscardWork) {
-      reportHeaderError({ source: REMOVE_SESSION_ERROR_SOURCE, sessionId: id, message: `"${sessionName(ui)}" was not removed: ${reply.error ?? 'the server gave no reason'}. Try Remove again from its actions menu.` });
+    reportRemovalRefusal(ui, id, reply);
+  } catch (reason) {
+    reportRemovalFailure(ui, id, reason, SESSION_REMOVAL_TIMEOUT_MS);
+  }
+}
+
+export const SESSION_CLOSE_UNDO_WINDOW_MS = 8000;
+export const CLOSING_ROW_STATE = 'CLOSING';
+
+const pendingCloseById = new Map<string, { timer: number; wasOpen: boolean }>();
+
+export function isSessionShown(id: string) {
+  return sessionUIs.has(id) && !pendingCloseById.has(id);
+}
+
+function settlePendingClose(id: string) {
+  const pendingClose = pendingCloseById.get(id);
+  if (!pendingClose) return null;
+  window.clearTimeout(pendingClose.timer);
+  pendingCloseById.delete(id);
+  markStatusDirty(id);
+  return pendingClose;
+}
+
+function finishPendingClose(id: string) {
+  if (!settlePendingClose(id)) return;
+  const ui = sessionUIs.get(id);
+  if (ui) void requestCheckedSessionRemoval(ui, id, false);
+}
+
+function beginPendingClose(id: string) {
+  if (pendingCloseById.has(id)) return;
+  const timer = window.setTimeout(() => finishPendingClose(id), SESSION_CLOSE_UNDO_WINDOW_MS);
+  pendingCloseById.set(id, { timer, wasOpen: getSelectedId() === id });
+  markStatusDirty(id);
+}
+
+export function undoPendingClose(id: string) {
+  const pendingClose = settlePendingClose(id);
+  if (!pendingClose) return false;
+  if (pendingClose.wasOpen && sessionUIs.has(id)) revealSessionInView(id);
+  return true;
+}
+
+export function undoNewestPendingClose() {
+  const newestPendingId = [...pendingCloseById.keys()].at(-1);
+  return newestPendingId === undefined ? false : undoPendingClose(newestPendingId);
+}
+
+async function requestUndoableSessionRemoval(ui: SessionUi, id: string) {
+  try {
+    const reply = await sendControlRequest('remove-session', { id, checkOnly: true }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
+    if (reply.type !== 'remove-session-result') return;
+    if (reply.ok) {
+      beginPendingClose(id);
       return;
     }
-    openConfirmDialog({
-      title: 'Remove Session',
-      message: reply.error ?? `Remove session "${sessionName(ui)}"?`,
-      confirmLabel: 'Remove',
-      danger: true,
-      onConfirm: () => { void requestCheckedSessionRemoval(ui, id, true, (reply.keptPaths ?? []).map((kept) => kept.path)); },
-    });
+    reportRemovalRefusal(ui, id, reply);
   } catch (reason) {
-    reportHeaderError({ source: REMOVE_SESSION_ERROR_SOURCE, sessionId: id, message: `"${sessionName(ui)}" was not removed: ${requestFailureText(reason, SESSION_REMOVAL_TIMEOUT_MS)} Try Remove again from its actions menu.` });
+    reportRemovalFailure(ui, id, reason, DEFAULT_REPLY_TIMEOUT_MS);
   }
 }
 
 export function requestSessionRemoval(id: string) {
+  const ui = sessionUIs.get(id);
+  if (!ui || pendingCloseById.has(id)) return;
+  void requestUndoableSessionRemoval(ui, id);
+}
+
+export function requestSessionRemovalNow(id: string) {
   const ui = sessionUIs.get(id);
   if (!ui) return;
   void requestCheckedSessionRemoval(ui, id, false);

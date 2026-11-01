@@ -256,7 +256,7 @@ const clientVariants = [
     requestId,
   }),
   loose('quick-session', { id: sessionId, requestId }),
-  loose('remove-session', { id: sessionId, force: z.unknown().optional(), discardWork: z.boolean().optional(), confirmedKeptPaths: z.array(z.string()).optional(), requestId }),
+  loose('remove-session', { id: sessionId, force: z.unknown().optional(), checkOnly: z.boolean().optional(), discardWork: z.boolean().optional(), confirmedKeptPaths: z.array(z.string()).optional(), requestId }),
   loose('list-conversations', { id: sessionId, requestId }),
   loose('resume-conversation', { id: sessionId, conversationId: z.string() }),
   loose('rename-session', { id: sessionId, newName: z.string() }),

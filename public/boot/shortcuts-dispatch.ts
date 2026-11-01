@@ -2,7 +2,7 @@ import { isRealInputOwningKey } from '../dom-helpers.ts';
 import { activateFocusOnNextAttention, centerSessionQuietly, focusAdjacentInRail, focusNextAttention, focusNthInRail, isFocusActive } from '../focus-view/focus-view.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { jumpToNextReview } from '../github/review-queue-store.ts';
-import { requestSessionRemoval, selectSession, setAddedSessionRevealer, spawnQuickSession } from '../session-actions.ts';
+import { requestSessionRemoval, selectSession, setAddedSessionRevealer, spawnQuickSession, undoNewestPendingClose } from '../session-actions.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { isModalOpen } from '../session-card/modal.ts';
 import { currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from '../shortcuts.ts';
@@ -83,12 +83,22 @@ function runDashboardShortcut({ action, step }: ResolvedDashboardShortcut) {
   }
 }
 
+function isUndoCloseKey(event: KeyboardEvent) {
+  if (event.code !== 'KeyZ' || event.altKey || event.shiftKey) return false;
+  return SHORTCUT_PLATFORM === 'mac' ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+}
+
 function wireDashboardShortcuts() {
   setAddedSessionRevealer(revealSpawnedSession);
   document.addEventListener('keydown', (e) => {
     if (e.repeat) return;
     if (isRealInputOwningKey(e)) return;
     const isTerminalFocused = document.activeElement?.classList.contains('xterm-helper-textarea') ?? false;
+    if (!isTerminalFocused && isUndoCloseKey(e) && !isModalOpen() && undoNewestPendingClose()) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      return;
+    }
     const shortcut = resolveDashboardShortcut(e, SHORTCUT_PLATFORM, { isTerminalFocused }, currentNextAttentionKeyCode());
     if (!shortcut) return;
     if (isModalOpen()) return;
