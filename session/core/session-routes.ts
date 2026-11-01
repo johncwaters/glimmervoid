@@ -135,7 +135,8 @@ const COMMAND_ROUTES: Readonly<Record<AgentApiVerb, (facts: SessionRoleFacts) =>
   limits: () => ANSWERS,
 });
 
-type HintedCommand = 'show' | 'spawn' | 'push' | 'settings' | 'review';
+type ToolHintedCommand = 'show' | 'spawn' | 'push' | 'settings' | 'review';
+type HintedCommand = ToolHintedCommand | 'whiteboard';
 type ToolHookEvent = 'posttooluse' | 'posttoolusefailure';
 
 interface ToolHookFacts {
@@ -149,6 +150,8 @@ interface HintGate {
   hintedCommands: ReadonlySet<string>;
   ranCommands: ReadonlySet<string>;
 }
+
+type PromptHint = Pick<CommandHint, 'command' | 'text'>;
 
 interface CommandHint {
   command: HintedCommand;
@@ -199,7 +202,7 @@ function runsPullRequestReview(facts: ToolHookFacts): boolean {
   return PR_REVIEW.test(shellCommandOf(facts) ?? '');
 }
 
-const COMMAND_HINTS: Readonly<Record<HintedCommand, { firesOn: (facts: ToolHookFacts) => boolean; text: string }>> = Object.freeze({
+const COMMAND_HINTS: Readonly<Record<ToolHintedCommand, { firesOn: (facts: ToolHookFacts) => boolean; text: string }>> = Object.freeze({
   show: { firesOn: namesShowableFile, text: 'Glimmervoid: glimmervoid show <path> puts an image, video or HTML file on this session\'s card for the operator.' },
   spawn: { firesOn: startsSubagent, text: 'Glimmervoid: for work that edits files or runs long, glimmervoid spawn <prompt> gives it its own dashboard card; an in-process subagent stays fine for a quick read-only lookup.' },
   push: { firesOn: failsGitPush, text: "Glimmervoid: glimmervoid push lands this session's commits on the integration branch and pushes it." },
@@ -207,7 +210,22 @@ const COMMAND_HINTS: Readonly<Record<HintedCommand, { firesOn: (facts: ToolHookF
   review: { firesOn: runsPullRequestReview, text: 'Glimmervoid: glimmervoid review <pr> queues a team review whose draft waits in the Reviews tab for the operator to post.' },
 });
 
-const HINTED_COMMANDS = Object.keys(COMMAND_HINTS) as HintedCommand[];
+const HINTED_COMMANDS = Object.keys(COMMAND_HINTS) as ToolHintedCommand[];
+const DRAWING_REQUEST = /\b(graph|diagram|flowchart|whiteboard|draw|sketch|visuali[sz]e|architecture|state machine|chart|flow|map|mermaid|layout)\b/i;
+const WHITEBOARD_HINT_TEXT = "Glimmervoid: glimmervoid whiteboard new <title> draws a graph or diagram on a shared board on the operator's dashboard, where the operator can see and edit it; prefer it to a diagram in chat.";
+
+function promptTextOf(prompt: unknown): string {
+  if (typeof prompt === 'string') return prompt;
+  if (!Array.isArray(prompt)) return '';
+  return prompt.filter((part) => isRecord(part) && part.type === 'text' && typeof part.text === 'string').map((part) => part.text).join('\n');
+}
+
+function promptHintFor(prompt: unknown, gate: Omit<HintGate, 'answers'>): PromptHint | null {
+  if (gate.hintedCommands.has('whiteboard') || gate.ranCommands.has('whiteboard')) return null;
+  if (!DRAWING_REQUEST.test(promptTextOf(prompt))) return null;
+  return { command: 'whiteboard', text: WHITEBOARD_HINT_TEXT };
+}
+
 const KIMI_MAIN_AGENT_ID = 'main';
 
 const TOOL_HOOK_EVENTS: ReadonlySet<string> = new Set<ToolHookEvent>(['posttooluse', 'posttoolusefailure']);
@@ -261,6 +279,6 @@ function formatSessionLimits(limits: SessionLimits): string[] {
   return ['This session:', ...commandLines, ...boundaryLines(limits)];
 }
 
-export type { CommandHint, HintedCommand };
-export { supervisionLine, permitsHelpCommand, toolHookFactsOf, hintFor, COMMAND_ROUTES, describeSessionLimits, formatSessionLimits, NO_OWN_WORKTREE_REASON };
+export type { CommandHint, HintedCommand, PromptHint };
+export { supervisionLine, permitsHelpCommand, toolHookFactsOf, hintFor, promptHintFor, COMMAND_ROUTES, describeSessionLimits, formatSessionLimits, NO_OWN_WORKTREE_REASON };
 export type { SessionRoleFacts };

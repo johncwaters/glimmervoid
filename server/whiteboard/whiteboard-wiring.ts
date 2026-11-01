@@ -104,6 +104,7 @@ interface WhiteboardPort {
   };
   forgetSession(sessionId: string): Promise<void>;
   takePromptContext(sessionId: string): string | null;
+  isConnected(sessionId: string): boolean;
   snapshotMessage(): ServerMessageOf<'whiteboards-snapshot'>;
 }
 
@@ -373,6 +374,10 @@ function createWhiteboardWiring({
     await Promise.all(connectedBoardIds.map((boardId) => disconnectBoard(boardId, sessionId)));
   }
 
+  function isConnected(sessionId: string): boolean {
+    return [...recordsByBoardId.values()].some((record) => sessionId in record.cursorBySessionId);
+  }
+
   function takePromptContext(sessionId: string): string | null {
     const context = promptContextFor([...recordsByBoardId.values()], sessionId);
     if (!context) return null;
@@ -404,7 +409,7 @@ function createWhiteboardWiring({
     }
   }
 
-  return { loaded, handleAgent, handleOperator, forgetSession, takePromptContext, snapshotMessage };
+  return { loaded, handleAgent, handleOperator, forgetSession, takePromptContext, isConnected, snapshotMessage };
 }
 
 export { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME };

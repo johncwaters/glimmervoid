@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { customAgentFingerprint, resolveAdapter, setCustomAgents } from '../../session/adapters/index.ts';
 import type { Session } from '../../session/sessions.ts';
+import type { HintedCommand } from '../../session/core/session-routes.ts';
 import { createConfigStore, DEFAULT_CONFIG, generateProjectId, ensureProjectIds, glimmervoidHomeDir } from '../config-store.ts';
 import { reconcileOwnedPaths } from '../owned-paths-ledger.ts';
 import type { GlimmervoidConfig } from '../config-store.ts';
@@ -175,7 +176,9 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       const session = getSessionAny(glimmervoidId);
       const replyShape = session?.promptContextReply() ?? null;
       if (!session || !replyShape) return null;
-      const promptMessages = [...session.takePromptNotes(), whiteboards.takePromptContext(glimmervoidId)];
+      const isConnectedToBoard = whiteboards.isConnected(glimmervoidId);
+      const keepsHint = (command: HintedCommand) => (agentApi?.refuseRole(session, command) ?? null) === null && !(command === 'whiteboard' && isConnectedToBoard);
+      const promptMessages = [...session.takePromptNotes(keepsHint), whiteboards.takePromptContext(glimmervoidId)];
       const deliverable = promptMessages.filter((promptMessage) => promptMessage !== null);
       return deliverable.length === 0 ? null : promptContextReplyOf(replyShape, deliverable.join('\n\n'));
     },

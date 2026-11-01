@@ -27,8 +27,8 @@ import type { SessionState } from "../shared/states.ts";
 import { unrefTimer } from "../shared/timer-deps.ts";
 import { AGENT_ATTENTION_NOTE_SEPARATOR, AGENT_URL_ENV } from "../shared/contracts/session.ts";
 import { commitSigningEnv } from "./core/commit-signing-env.ts";
-import { hintFor, permitsHelpCommand, supervisionLine, toolHookFactsOf } from "./core/session-routes.ts";
-import type { CommandHint, HintedCommand } from "./core/session-routes.ts";
+import { hintFor, permitsHelpCommand, promptHintFor, supervisionLine, toolHookFactsOf } from "./core/session-routes.ts";
+import type { CommandHint, HintedCommand, PromptHint } from "./core/session-routes.ts";
 import { ASK_USER_QUESTION_TOOL_NAME, type AgentAttentionReply } from "../shared/contracts/session.ts";
 import { buildHookSettings, generateToken } from "../detection/settings-injector.ts";
 import { createOscTitleSource } from "../detection/osc-title-source.ts";
@@ -332,7 +332,7 @@ class Session extends EventEmitter {
   _hintedCommands: Set<HintedCommand>;
   _shownHintCommands: Set<HintedCommand>;
   _ranCommands: Set<string>;
-  _queuedCommandHints: CommandHint[];
+  _queuedCommandHints: PromptHint[];
   _extraClaudeArgs: string[];
   _resumeSessionId: string | null;
   readonly workspaceRepos: string[] | null;
@@ -876,6 +876,7 @@ class Session extends EventEmitter {
 
     if (hookEvent === "userpromptsubmit") {
       const prompt = raw.payload?.prompt;
+      this._queuePromptHint(prompt);
       if (!this._taskTitleSources.promptTitle) {
         this._taskTitleSources.promptTitle = extractPromptTaskTitle(prompt);
         this._updateTaskTitle();
@@ -1729,8 +1730,15 @@ class Session extends EventEmitter {
     return hint;
   }
 
-  takePromptNotes(): string[] {
-    const queuedHints = this._queuedCommandHints;
+  _queuePromptHint(prompt: unknown): void {
+    const hint = promptHintFor(prompt, { hintedCommands: this._hintedCommands, ranCommands: this._ranCommands });
+    if (hint === null) return;
+    this._hintedCommands.add(hint.command);
+    this._queuedCommandHints.push(hint);
+  }
+
+  takePromptNotes(keepsHint: (command: HintedCommand) => boolean): string[] {
+    const queuedHints = this._queuedCommandHints.filter((hint) => keepsHint(hint.command));
     const notes = [this._pendingPromptSupervisionLine, ...queuedHints.map((hint) => hint.text)].filter((note) => note !== null);
     this._pendingPromptSupervisionLine = null;
     this._queuedCommandHints = [];
