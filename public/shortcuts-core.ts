@@ -153,7 +153,7 @@ export function resolveDashboardShortcut(
 }
 
 export function escapesFocusedTerminal(shortcut: ResolvedDashboardShortcut, activeView: string | undefined) {
-  return activeView === 'focus' || shortcut.action === 'quick-session';
+  return activeView === 'focus' || activeView === 'boards' || shortcut.action === 'quick-session';
 }
 
 function shortcutModifierCaption(platform: ShortcutPlatform, shortcut?: DashboardShortcut) {
