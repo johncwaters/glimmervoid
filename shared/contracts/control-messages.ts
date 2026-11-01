@@ -1,6 +1,7 @@
 import { IssueRepoSlug, IssuesStatus } from './issues.ts';
 import { GithubPollingRefreshRequest, GithubPollingRefreshResult } from './github-polling.ts';
 import { z } from 'zod';
+import { AgentHookGroup } from './hooks.ts';
 import { GH_SEGMENT } from './github-ids.ts';
 import {
   PLAN_BODY_CAP_BYTES,
@@ -349,7 +350,7 @@ const serverVariants = [
     requestId,
     ts: optionalTimestamp,
     hooks: z.array(opaqueObject).optional(),
-    builtin: z.array(opaqueObject).optional(),
+    builtinByAgent: z.array(AgentHookGroup).optional(),
     events: z.array(openObject({ name: z.string(), matcher: nullableString, description: z.string(), http: z.boolean().optional() })).optional(),
     projects: z.array(openObject({ id: z.string(), name: z.string(), agent: z.string() })).optional(),
     limits: openObject({ maxTimeoutSec: z.number().int().positive() }).optional(),

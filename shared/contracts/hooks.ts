@@ -25,6 +25,23 @@ export const UserHook = z.object({
   projects: z.array(z.string()).optional(),
 }).passthrough();
 
+export const InstalledHookRow = z.object({
+  event: z.string(),
+  matcher: z.string().nullable(),
+  purpose: z.string(),
+});
+
+export const AgentHookGroup = z.object({
+  agentId: z.string(),
+  label: z.string(),
+  isBestEffort: z.boolean(),
+  version: z.string().nullable(),
+  unavailableReason: z.string().nullable(),
+  rows: z.array(InstalledHookRow),
+});
+
 export type HookPayload = z.infer<typeof HookPayload>;
+export type InstalledHookRow = z.infer<typeof InstalledHookRow>;
+export type AgentHookGroup = z.infer<typeof AgentHookGroup>;
 export type UserHook = z.infer<typeof UserHook>;
 export type HookEnvelope = z.infer<typeof HookEnvelope>;

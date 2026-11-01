@@ -9,6 +9,7 @@ import type { AgentAdapterShape, AgentArgsOptions, AgentHookProfile, AgentSpawnC
 import { PLAN_TOOL_NAME } from "../../shared/contracts/index.ts";
 import { ASK_USER_QUESTION_TOOL_NAME } from "../../shared/contracts/session.ts";
 import type { HookPayload } from "../../shared/contracts/index.ts";
+import { describeInstalledClaudeHooks } from "../../detection/settings-injector.ts";
 
 const ID = "claude-code";
 const COMMAND_NAME = "claude";
@@ -124,6 +125,7 @@ const hooks: AgentHookProfile = {
   mapPromptKind: mapHookPromptKind,
   mapPromptToolName: mapHookPromptToolName,
   injection: { kind: "settings-file" },
+  describeInstalledHooks: describeInstalledClaudeHooks,
 };
 
 function resolveCommand(

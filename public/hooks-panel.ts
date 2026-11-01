@@ -28,8 +28,10 @@ import {
   SHORTCUT_HINT,
   TEMPLATES_LABEL,
   YOUR_HOOKS_TITLE,
+  agentGroupTitle,
+  builtinCountOf,
+  builtinGroupsOf,
   builtinLine,
-  builtinOf,
   deleteConfirmText,
   draftProblem,
   duplicateName,
@@ -58,7 +60,8 @@ import {
   totalsChips,
   typeLabel,
 } from './hooks-view-core.ts';
-import type { HookBuiltinRow, HookDraft, HookEvent, HookProject, HookRecord } from './hooks-view-core.ts';
+import type { AgentHookGroup, InstalledHookRow } from '#shared/contracts/hooks.ts';
+import type { HookDraft, HookEvent, HookProject, HookRecord } from './hooks-view-core.ts';
 import { hooksSnapshot, requestHooksReport, subscribeHooks } from './hooks-store.ts';
 import type { ViewModule, ViewRefreshReason } from './view-registry-core.ts';
 
@@ -427,7 +430,7 @@ function buildRow(hook: HookRecord, { grouped = false }: { grouped?: boolean } =
   return row;
 }
 
-function buildBuiltinRow(entry: HookBuiltinRow) {
+function buildBuiltinRow(entry: InstalledHookRow) {
   const row = el('article', 'hooks-row hooks-row-builtin');
   const main = el('div', 'hooks-row-main');
   main.append(el('span', 'hooks-row-event', builtinLine(entry)), el('p', 'hooks-row-meta', entry.purpose));
@@ -497,13 +500,23 @@ function buildYoursSection() {
   return section;
 }
 
+function buildAgentGroup(group: AgentHookGroup) {
+  const details = el('details', 'hooks-agent-group');
+  details.append(el('summary', 'hooks-agent-group-summary', agentGroupTitle(group)));
+  const list = el('div', 'hooks-list');
+  if (group.unavailableReason !== null) list.append(el('p', 'hooks-row-meta', group.unavailableReason));
+  for (const entry of group.rows) list.append(buildBuiltinRow(entry));
+  details.append(list);
+  return details;
+}
+
 function buildBuiltinSection() {
   const details = el('details', 'hooks-builtin');
   const summary = el('summary', 'hooks-builtin-summary');
-  summary.append(el('span', 'hooks-section-title', `${BUILTIN_TITLE} (${builtinOf(_hooks.report).length})`), el('span', 'hooks-section-hint', BUILTIN_HINT));
-  const list = el('div', 'hooks-list');
-  for (const entry of builtinOf(_hooks.report)) list.append(buildBuiltinRow(entry));
-  details.append(summary, list);
+  summary.append(el('span', 'hooks-section-title', `${BUILTIN_TITLE} (${builtinCountOf(_hooks.report)})`), el('span', 'hooks-section-hint', BUILTIN_HINT));
+  const groups = el('div', 'hooks-agent-groups');
+  for (const group of builtinGroupsOf(_hooks.report)) groups.append(buildAgentGroup(group));
+  details.append(summary, groups);
   return details;
 }
 

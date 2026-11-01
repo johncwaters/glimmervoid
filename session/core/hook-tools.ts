@@ -70,5 +70,9 @@ function mergeCodexPreToolUse(groups: readonly string[]): string[] {
   return ['-c', `hooks.PreToolUse=[${groups.join(',')}]`];
 }
 
-export { HOOK_TOOLS, mergeCodexPreToolUse };
+function isHookToolId(name: string): name is HookToolId {
+  return Object.hasOwn(HOOK_TOOLS, name);
+}
+
+export { HOOK_TOOLS, isHookToolId, mergeCodexPreToolUse };
 export type { ResolvedHookTool };

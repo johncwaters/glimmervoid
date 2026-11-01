@@ -239,7 +239,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   {
     type: 'hooks-report', requestId: 'r1', ts: NOW,
     hooks: [{ id: 'h1', name: 'lint', event: 'PostToolUse', matcher: 'Edit', type: 'command', command: 'npm run lint', enabled: true }],
-    builtin: [{ event: 'Stop', matcher: null, purpose: 'Status detection' }],
+    builtinByAgent: [{ agentId: 'claude-code', label: 'Claude Code', isBestEffort: false, version: null, unavailableReason: null, rows: [{ event: 'Stop', matcher: null, purpose: 'Status detection: the turn finished' }] }],
     events: [{ name: 'PostToolUse', matcher: 'tool name (regex)', description: 'After a tool succeeds.' }],
     projects: [{ id: 'p1', name: 'glimmervoid', agent: 'claude-code' }],
     limits: { maxTimeoutSec: 600 },

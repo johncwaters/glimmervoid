@@ -1,5 +1,10 @@
 import { isRecord, textOr } from '../../shared/coerce.ts';
 import { HTTP_URL_RE, MAX_TIMEOUT_SEC } from '../../shared/contracts/hooks.ts';
+import type { AgentHookGroup } from '../../shared/contracts/hooks.ts';
+import { PLAN_HOOK_EVENT, PLAN_RESULT_HOOK_EVENT } from '../../shared/contracts/plan-review.ts';
+import { CONVERSATION_PERMISSION_HOOK_EVENT, CONVERSATION_TOOL_RESULT_HOOK_EVENT } from '../../shared/contracts/session.ts';
+import { HOOK_TOOLS, isHookToolId } from './hook-tools.ts';
+import type { ResolvedHookTool } from './hook-tools.ts';
 
 const MAX_NAME_LENGTH = 64;
 const MAX_MATCHER_LENGTH = 200;
@@ -253,7 +258,70 @@ function appendUserHooks(hooksBlock: HooksBlock, userHooks: readonly UserHook[])
   return hooksBlock;
 }
 
+interface InstalledHook {
+  event: string;
+  matcher: string | null;
+  route: string | null;
+}
+
+interface InstalledHookFlags {
+  detectScheduledWakeups: boolean;
+  observeToolCalls: boolean;
+  planReview: boolean;
+  holdsQuestionsForParent: boolean;
+  hookTools: ResolvedHookTool[];
+}
+
+type InstalledHooks = { version: string | null; isBestEffort: boolean; hooks: InstalledHook[] } | { unavailableReason: string; isBestEffort: boolean };
+
+const BUILTIN_PURPOSE_BY_ROUTE: Readonly<Record<string, string>> = Object.freeze({
+  [PLAN_HOOK_EVENT]: 'Plan review: hold the plan for the operator to approve',
+  [PLAN_RESULT_HOOK_EVENT]: 'Plan review: record the approved plan',
+  [CONVERSATION_PERMISSION_HOOK_EVENT]: 'Spawned session: hold a question so the parent can answer it',
+  [CONVERSATION_TOOL_RESULT_HOOK_EVENT]: 'Spawned session: release a held question the terminal answered',
+});
+
+const BUILTIN_PURPOSE_BY_EVENT: Readonly<Record<string, string>> = Object.freeze({
+  SessionStart: 'Status detection and session identity; carries the refocus reminder after a compaction',
+  SessionEnd: 'Status detection: the agent ended',
+  UserPromptSubmit: 'Status detection: a turn started; carries the start line, prompt hints and board changes',
+  Stop: 'Status detection: the turn finished',
+  StopFailure: 'Status detection: the turn ended with an API error',
+  StopCancelled: 'Status detection: the turn was cancelled',
+  Interrupt: 'Status detection: the operator interrupted the turn',
+  Notification: 'Status detection: the agent is waiting on the operator',
+  PermissionRequest: 'Status detection: a permission prompt is open',
+  PermissionResult: 'Status detection: a permission prompt was answered',
+  SubagentStart: 'Status detection: hold completion while a subagent runs',
+  SubagentStop: 'Status detection: a subagent finished',
+  TaskCreated: 'Status detection: a background task started',
+  TaskCompleted: 'Status detection: a background task finished',
+  TeammateIdle: 'Status detection: an agent-team teammate went idle',
+  PreCompact: 'Status detection: context compaction started',
+  PostCompact: 'Status detection: context compaction finished',
+  PreToolUse: 'Tool calls: questions, subagents and the investigation trail',
+  PostToolUse: 'Tool results: answered questions, scheduled wakeups, pull request links and command hints',
+  PostToolUseFailure: 'Command hints: name glimmervoid push once, when a git push fails',
+});
+
+function builtinHookPurpose({ event, route }: InstalledHook): string | null {
+  if (route !== null && isHookToolId(route)) return HOOK_TOOLS[route].purpose;
+  if (route !== null && Object.hasOwn(BUILTIN_PURPOSE_BY_ROUTE, route)) return BUILTIN_PURPOSE_BY_ROUTE[route] ?? null;
+  return BUILTIN_PURPOSE_BY_EVENT[event] ?? null;
+}
+
+const MISSING_PURPOSE = 'No description';
+
+function agentHookGroupOf(agentId: string, label: string, installed: InstalledHooks): AgentHookGroup {
+  if ('unavailableReason' in installed) {
+    return { agentId, label, isBestEffort: installed.isBestEffort, version: null, unavailableReason: installed.unavailableReason, rows: [] };
+  }
+  const rows = installed.hooks.map((hook) => ({ event: hook.event, matcher: hook.matcher, purpose: builtinHookPurpose(hook) ?? MISSING_PURPOSE }));
+  return { agentId, label, isBestEffort: installed.isBestEffort, version: installed.version, unavailableReason: null, rows };
+}
+
 export {
+  agentHookGroupOf,
   HOOK_EVENT_CATALOG,
   ID_RE,
   MAX_TIMEOUT_SEC,
@@ -265,4 +333,4 @@ export {
   hooksForProject,
   appendUserHooks,
 };
-export type { UserHook };
+export type { InstalledHookFlags, InstalledHooks, UserHook };
