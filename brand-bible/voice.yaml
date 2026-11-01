@@ -9,6 +9,18 @@ tone:
   - context: Marketing site
     tone: Confident and concrete, still monospace, still no hype.
     example: Mission control that ships.
+  - context: Notifications
+    tone: Names the session and the state, nothing else; the operator decides from the name alone.
+    example: auth-refactor needs attention
+  - context: Empty states
+    tone: Says plainly that nothing needs the operator, and how something would appear.
+    example: No boards yet. Make one here, or have an agent run glimmervoid whiteboard new <title>.
+  - context: CLI output
+    tone: Names the setting or file at fault and why the command cannot go on, prefixed glimmervoid where it is an error.
+    example: remote.port is not set, so a pairing link cannot be built.
+  - context: Changelog
+    tone: Leads with a bold sentence of what the operator now sees, then how it behaves, in the present tense.
+    example: "**Boards show which sessions need you.** The Alt+J banner from the Focus list now floats at the top right of a board."
 formality: neutral
 headingCase: sentence
 vocabulary:
@@ -40,6 +52,9 @@ characters:
     action: banned
     replacement: "..."
 examples:
+  - onBrand: No community question needs you right now.
+    offBrand: All caught up! Nothing to see here.
+    why: An empty state reports the fact without celebrating it.
   - onBrand: Needs input.
     offBrand: Hey! Your agent is waiting for you!
     why: The console reports; it does not cheer or exclaim.

@@ -10,7 +10,13 @@ mark:
 variants:
   - id: mark-only
     file: shared/brand-mark.ts
-    use: The wordmark glyph in the site nav and dashboard header, and the loading screen.
+    use: The mark alone in the dashboard header and the loading screen, and the glyph inside the horizontal lockup.
+  - id: wordmark
+    file: site/src/components/Nav.astro
+    use: GLIMMERVOID set uppercase in CommitMono 700 with 0.1em tracking; never mixed case, never another face.
+  - id: horizontal
+    file: site/src/components/Nav.astro
+    use: The mark left of the wordmark, mark height matching the cap height plus clear space; the site nav lockup.
   - id: favicon
     file: public/favicon.svg
     use: Browser tab; the light turns amber or red when a session needs the operator or failed.
@@ -25,6 +31,7 @@ colorways:
   - foreground: accent
     background: bg
 misuse:
+  - Never set the wordmark in mixed case or a typeface other than CommitMono.
   - Never fill the brackets or round their joins; they are mitered strokes.
   - Never recolor the brackets with a state color; only the light carries state.
   - Never add a gradient, glow or drop shadow to the mark at rest.

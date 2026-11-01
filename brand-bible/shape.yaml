@@ -2,6 +2,7 @@ radius:
   radius: 4
   radius-lg: 5
   pill: 2
+  round: 999
 spacing:
   xs: 6
   sm: 8

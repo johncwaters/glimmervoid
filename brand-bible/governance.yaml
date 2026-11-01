@@ -11,3 +11,6 @@ exemptions:
   - paths: [site/public/used-by/**]
     kinds: [color, asset]
     why: Logos of projects using glimmervoid belong to their owners.
+  - paths: [public/merge-celebration/**, public/*animal*.ts, public/nyan*.ts, site/src/lib/animal-*.ts, site/src/components/Animals.astro]
+    kinds: [motion]
+    why: Merge celebrations, flying animals and the nyan cat are choreography, art-directed timing rather than state signals; their rules inside public/style.css stay flagged until they move to their own stylesheets.
