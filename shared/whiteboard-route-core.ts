@@ -198,32 +198,72 @@ function hasHorizontalGap(first: Rect, second: Rect): boolean {
   return second.x >= first.x + first.width || second.x + second.width <= first.x;
 }
 
-function defaultSides(from: LaidOutBox, to: LaidOutBox, isBack: boolean): { exitSide: Side; entrySide: Side } {
-  if (from.id === to.id) return { exitSide: 'right', entrySide: 'top' };
-  if (isBack) return { exitSide: 'bottom', entrySide: 'bottom' };
-  const fromCenter = centerOf(from);
-  const toCenter = centerOf(to);
-  if (hasHorizontalGap(from, to)) return toCenter.x > fromCenter.x ? { exitSide: 'right', entrySide: 'left' } : { exitSide: 'left', entrySide: 'right' };
-  return toCenter.y > fromCenter.y ? { exitSide: 'bottom', entrySide: 'top' } : { exitSide: 'top', entrySide: 'bottom' };
+interface VerticalSpan {
+  top: number;
+  bottom: number;
+}
+
+interface DefaultSides {
+  exitSide: Side;
+  entrySide: Side;
+  facingEntrySide: Side | null;
+}
+
+function acrossGapSides(from: LaidOutBox, to: LaidOutBox, startSpan: VerticalSpan): DefaultSides {
+  const exitSide: Side = centerOf(to).x > centerOf(from).x ? 'right' : 'left';
+  const facingEntrySide: Side = exitSide === 'right' ? 'left' : 'right';
+  if (startSpan.bottom < to.y) return { exitSide, entrySide: 'top', facingEntrySide };
+  if (startSpan.top > to.y + to.height) return { exitSide, entrySide: 'bottom', facingEntrySide };
+  return { exitSide, entrySide: facingEntrySide, facingEntrySide: null };
+}
+
+function defaultSides(from: LaidOutBox, to: LaidOutBox, isBack: boolean, startSpan: VerticalSpan): DefaultSides {
+  if (from.id === to.id) return { exitSide: 'right', entrySide: 'top', facingEntrySide: null };
+  if (isBack) return { exitSide: 'bottom', entrySide: 'bottom', facingEntrySide: null };
+  if (hasHorizontalGap(from, to)) return acrossGapSides(from, to, startSpan);
+  return centerOf(to).y > centerOf(from).y
+    ? { exitSide: 'bottom', entrySide: 'top', facingEntrySide: null }
+    : { exitSide: 'top', entrySide: 'bottom', facingEntrySide: null };
+}
+
+function isTurnBlocked(plan: WirePlan, input: RouteInput): boolean {
+  const startY = plan.outputPort?.y ?? centerOf(plan.from).y;
+  const startX = plan.exitSide === 'right' ? plan.from.x + plan.from.width : plan.from.x;
+  const corner = { x: centerOf(plan.to).x, y: startY };
+  const entryY = plan.entrySide === 'top' ? plan.to.y : plan.to.y + plan.to.height;
+  const turn = [{ from: { x: startX, y: startY }, to: corner }, { from: corner, to: { x: corner.x, y: entryY } }];
+  const obstacles = [...input.boxesById.values()].filter((box) => box.id !== plan.from.id && box.id !== plan.to.id).map((box) => inflated(box, CLEARANCE));
+  return turn.some((segment) => obstacles.some((obstacle) => segmentHitsRect(segment, obstacle)));
+}
+
+function isJoiningFacingBus(plan: WirePlan, facingEntrySide: Side, plans: readonly WirePlan[]): boolean {
+  return plans.some((other) => other !== plan && other.to.id === plan.to.id && other.styleKey === plan.styleKey && other.entrySide === facingEntrySide);
 }
 
 function planWires(input: RouteInput): WirePlan[] {
+  const facingEntrySideByPlan = new Map<WirePlan, Side>();
   const plans = input.wires.flatMap((wire): WirePlan[] => {
     const from = input.boxesById.get(wire.from);
     const to = input.boxesById.get(wire.to);
     if (!from || !to) return [];
-    const sides = defaultSides(from, to, wire.back);
     const output = from.outputs.find((candidate) => candidate.id === wire.fromOutput);
+    const startSpan = output ? { top: output.port.y, bottom: output.port.y } : { top: from.y, bottom: from.y + from.height };
+    const sides = defaultSides(from, to, wire.back, startSpan);
     const exitSide = output ? 'right' : wire.fromSide ?? sides.exitSide;
     const entrySide = wire.toSide ?? sides.entrySide;
     const strokeHex = wire.tone === 'lane' ? from.lane?.hex ?? null : null;
     const styleKey = `${wire.dashed || wire.back}|${wire.tone}|${strokeHex}`;
     const exitKey = output ? `${from.id}|output ${output.id}|${styleKey}` : `${from.id}|${exitSide}|${styleKey}`;
-    return [{
+    const plan: WirePlan = {
       wire, from, to, strokeHex, styleKey, exitSide, entrySide, busKey: null, exitKey, outputPort: output?.port ?? null,
       start: output?.port ?? centerOf(from), end: centerOf(to),
-    }];
+    };
+    if (!wire.toSide && sides.facingEntrySide) facingEntrySideByPlan.set(plan, sides.facingEntrySide);
+    return [plan];
   });
+  for (const [plan, facingEntrySide] of facingEntrySideByPlan) {
+    if (plan.wire.fromSide || isTurnBlocked(plan, input) || isJoiningFacingBus(plan, facingEntrySide, plans)) plan.entrySide = facingEntrySide;
+  }
   const busKeyOf = (plan: WirePlan) => `${plan.to.id}|${plan.entrySide}|${plan.styleKey}`;
   const memberCountByBusKey = new Map<string, number>();
   for (const plan of plans) memberCountByBusKey.set(busKeyOf(plan), (memberCountByBusKey.get(busKeyOf(plan)) ?? 0) + 1);

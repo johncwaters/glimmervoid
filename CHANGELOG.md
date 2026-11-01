@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Board arrows skip a needless turn.** An arrow to a box that sits wholly above or below where it starts now turns once into that box's top or bottom instead of running across, down and across again into its side. It keeps the side entry when the one-turn path would cross another box, or when other arrows of the same style already share that side.
+
 - **Fit shows the whole board again.** Fit used to pin the board to the top of the canvas, so the top row hid under the board title and the space at the bottom sat empty. It now fits the board into the space between the title and the bottom controls and centers it there.
 
 - **The Shown count no longer covers the session menu button.** When a session has shown files you have not opened, the count beside the Shown tab used to sit on top of the card's menu button. The header now leaves room for it.

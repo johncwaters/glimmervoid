@@ -236,6 +236,7 @@ test('wires keep their named sides, a back wire returns around the outside of th
       w3: wire('w3', 'write', 'read', { back: true, label: 'next page' }),
       w4: wire('w4', 'read', 'check', { fromSide: 'bottom', toSide: 'bottom' }),
       w5: wire('w5', 'read', 'aside'),
+      low: { kind: 'box', id: 'low', title: 'Low', at: { x: 1300, y: 900 } }, w6: wire('w6', 'write', 'low'),
     },
   });
   const layout = layoutBoard(loopBoard);
@@ -244,7 +245,10 @@ test('wires keep their named sides, a back wire returns around the outside of th
   const [read, check, write] = ['read', 'check', 'write'].map((id) => boxById.get(id));
   const sided = wireById.get('w4');
   const back = wireById.get('w3');
-  assert.ok(read && check && write && sided && back);
+  const low = boxById.get('low');
+  const downward = wireById.get('w6');
+  assert.ok(read && check && write && sided && back && low && downward);
+  assert.deepEqual([downward.end.y, segmentsOfPath(downward.path).length], [low.y, 2], `a wire to a box wholly below it turns once into its top: ${downward.path}`);
   assert.equal(sided.start.y, read.y + read.height);
   assert.equal(sided.end.y, check.y + check.height);
   assert.ok(back.isBack && back.isDashed);
