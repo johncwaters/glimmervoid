@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-10-31
+
 ### Added
 
 - **Zoom into shown files on the card.** In the Shown viewer, pinch on a phone, or use Ctrl or Cmd with the scroll wheel or a trackpad pinch on desktop, to zoom an image, video or HTML page up to 8x around your fingers or pointer. A zoomed page stays clickable and scrollable. The rest of the dashboard stays at its normal size. Drag or scroll to move around a zoomed file, and double-tap or double-click an image to switch between fit and 2x; a video keeps its own double-click for fullscreen. Zoom out, Fit and Zoom in buttons sit next to the caption with the current zoom percent beside them. Each file opens fitted, and switching files resets the zoom.
