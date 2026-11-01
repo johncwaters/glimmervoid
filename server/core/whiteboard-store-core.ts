@@ -1,6 +1,7 @@
 import { WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import type { Board, BoardChange, BoardRecord, BoardSummary } from '../../shared/contracts/whiteboard.ts';
 import type { ApplyResult } from '../../shared/whiteboard-ops-core.ts';
+import type { AgentNote } from '../../shared/contracts/hooks.ts';
 
 function lowestCursor(record: BoardRecord): number {
   const cursors = Object.values(record.cursorBySessionId);
@@ -87,8 +88,20 @@ function summaryLineOf(change: BoardChange): string {
   return `${line.slice(0, WHITEBOARD_LIMITS.promptContextLineCharacters - 3)}...`;
 }
 
+function boardChangesHeader({ title, id }: Pick<Board, 'title' | 'id'>): string {
+  return `Board "${title}" (${id}) changed since your last read:`;
+}
+
+const BOARD_CONTEXT_NOTE: AgentNote = {
+  name: 'Board changes',
+  carriedBy: 'UserPromptSubmit',
+  firesWhen: 'a board the session is connected to changed since its last read',
+  text: `${boardChangesHeader({ title: '<title>', id: '<board id>' })} <one line per change>`,
+  isTemplate: true,
+};
+
 function appendBoardChanges(draft: PromptContextDraft, board: Board, changes: readonly BoardChange[]): boolean {
-  const header = `Board "${board.title}" (${board.id}) changed since your last read:`;
+  const header = boardChangesHeader(board);
   const pointer = `run glimmervoid whiteboard get ${board.id} for the rest`;
   if (!hasRoomFor(draft, [header, pointer])) {
     const brief = `Board "${board.title}" (${board.id}) has ${changes.length} unread changes: run glimmervoid whiteboard get ${board.id}`;
@@ -138,4 +151,4 @@ function resolveBoardRef(boards: readonly Board[], ref: string): Board | { error
   return { error: `no board is called ${ref}, so run glimmervoid whiteboard list to see the boards` };
 }
 
-export { changesForReader, connectSession, disconnectSession, markRead, nudgeLineFor, promptContextFor, recordPut, resolveBoardRef, summarizeBoard };
+export { BOARD_CONTEXT_NOTE, changesForReader, connectSession, disconnectSession, markRead, nudgeLineFor, promptContextFor, recordPut, resolveBoardRef, summarizeBoard };

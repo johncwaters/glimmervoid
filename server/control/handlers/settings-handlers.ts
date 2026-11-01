@@ -7,6 +7,9 @@ import type { ClientMessageOf } from '../../../shared/contracts/index.ts';
 import { isRecord } from '../../../shared/coerce.ts';
 import { errorCode, errorMessage } from '../../../shared/text.ts';
 import type { AgentHookGroup } from '../../../shared/contracts/hooks.ts';
+import { routeAgentNotes } from '../../../session/core/session-routes.ts';
+import { REFOCUS_NOTE } from '../../../session/core/refocus-core.ts';
+import { BOARD_CONTEXT_NOTE } from '../../core/whiteboard-store-core.ts';
 import { DEFAULT_AGENT_ID, describeAgentResolvability, getAdapter, listAgentIds, resetCommandCache } from '../../../session/adapters/index.ts';
 import type { ResolvedHookTool } from '../../../session/core/hook-tools.ts';
 import type { InstalledHookFlags } from '../../../session/core/user-hooks-core.ts';
@@ -275,6 +278,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
       ts: Date.now(),
       hooks: readStoredHooks(config.hooks),
       builtinByAgent: builtinHookGroups(),
+      agentNotes: [...routeAgentNotes(), BOARD_CONTEXT_NOTE, REFOCUS_NOTE],
       events: HOOK_EVENT_CATALOG,
       projects: hooksReportProjects(),
 

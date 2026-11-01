@@ -1,6 +1,6 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { MAX_TIMEOUT_SEC } from '#shared/contracts/hooks.ts';
-import type { AgentHookGroup, InstalledHookRow } from '#shared/contracts/hooks.ts';
+import type { AgentHookGroup, AgentNote, InstalledHookRow } from '#shared/contracts/hooks.ts';
 export const HOOKS_HINT = 'Claude Code hooks injected into every session Glimmervoid spawns.';
 export const HOOKS_LOADING_TEXT = 'Loading hooks';
 export const HOOKS_EMPTY_TEXT = 'No hooks yet. A hook runs a command, or calls a URL, when a Claude Code event fires in a Glimmervoid session. Start from one of these, or add your own.';
@@ -18,6 +18,13 @@ const FILTER_MIN_COUNT = 4;
 export const HOOKS_APPLY_NOTE = 'A change reaches a session at its next start or restart. Claude Code sessions only; Codex and Grok sessions do not read this file.';
 export const BUILTIN_TITLE = "Glimmervoid's own hooks";
 export const BUILTIN_HINT = 'Always present, read-only. Status detection depends on them.';
+
+export const AGENT_NOTES_TITLE = 'What Glimmervoid adds to the agent';
+export const AGENT_NOTES_HINT = 'Text sent to the agent through the hooks above; the start line and each hint go at most once per conversation. A row marked template is filled in per session.';
+
+export function agentNoteMeta(note: AgentNote): string {
+  return `${note.carriedBy}, when ${note.firesWhen}${note.isTemplate ? ' (template)' : ''}`;
+}
 
 export function agentGroupTitle(group: AgentHookGroup): string {
   const versionSuffix = group.version === null ? '' : ` ${group.version}`;
@@ -49,7 +56,7 @@ export type HookEvent = Pick<NonNullable<ServerMessageOf<'hooks-report'>['events
 
 export type HookProject = Pick<NonNullable<ServerMessageOf<'hooks-report'>['projects']>[number], 'id' | 'name'> & Partial<Pick<NonNullable<ServerMessageOf<'hooks-report'>['projects']>[number], 'agent'>>;
 
-export type HooksReport = Pick<ServerMessageOf<'hooks-report'>, 'hooks' | 'builtinByAgent' | 'events' | 'projects' | 'limits' | 'error' | 'requestId'>;
+export type HooksReport = Pick<ServerMessageOf<'hooks-report'>, 'hooks' | 'builtinByAgent' | 'agentNotes' | 'events' | 'projects' | 'limits' | 'error' | 'requestId'>;
 
 export interface HookDraft {
   id: string | null;
@@ -83,7 +90,7 @@ export const HOOK_TEMPLATES: readonly HookTemplate[] = Object.freeze([
   { id: 'log', label: 'Log every prompt', summary: 'UserPromptSubmit, appends JSON', draft: { name: 'Log every prompt', event: 'UserPromptSubmit', matcher: '', type: 'command', command: 'cat >> ~/.claude/prompts.jsonl' } },
 ]);
 
-const EMPTY_REPORT = Object.freeze({ hooks: [], builtinByAgent: [], events: [] });
+const EMPTY_REPORT = Object.freeze({ hooks: [], builtinByAgent: [], agentNotes: [], events: [] });
 
 export function isHooksUnavailable(report: HooksReport | null | undefined) {
   return !report || typeof report.error === 'string';
@@ -94,12 +101,13 @@ export function hooksErrorLine(report: HooksReport | null | undefined) {
   return report.error;
 }
 
-function listOf(report: HooksReport | null | undefined, key: 'hooks' | 'builtinByAgent' | 'events'): unknown[] {
+function listOf(report: HooksReport | null | undefined, key: 'hooks' | 'builtinByAgent' | 'agentNotes' | 'events'): unknown[] {
   const value = report?.[key];
   return Array.isArray(value) ? value : EMPTY_REPORT[key];
 }
 
 export const hooksOf = (report: HooksReport | null | undefined) => listOf(report, 'hooks') as HookRecord[];
+export const agentNotesOf = (report: HooksReport | null | undefined) => listOf(report, 'agentNotes') as AgentNote[];
 export const builtinGroupsOf = (report: HooksReport | null | undefined) => listOf(report, 'builtinByAgent') as AgentHookGroup[];
 export const builtinCountOf = (report: HooksReport | null | undefined) => builtinGroupsOf(report).reduce((total, group) => total + group.rows.length, 0);
 export const eventsOf = (report: HooksReport | null | undefined) => listOf(report, 'events') as HookEvent[];

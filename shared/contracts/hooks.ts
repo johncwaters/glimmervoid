@@ -40,7 +40,16 @@ export const AgentHookGroup = z.object({
   rows: z.array(InstalledHookRow),
 });
 
+export const AgentNote = z.object({
+  name: z.string(),
+  carriedBy: z.string(),
+  firesWhen: z.string(),
+  text: z.string(),
+  isTemplate: z.boolean(),
+});
+
 export type HookPayload = z.infer<typeof HookPayload>;
+export type AgentNote = z.infer<typeof AgentNote>;
 export type InstalledHookRow = z.infer<typeof InstalledHookRow>;
 export type AgentHookGroup = z.infer<typeof AgentHookGroup>;
 export type UserHook = z.infer<typeof UserHook>;

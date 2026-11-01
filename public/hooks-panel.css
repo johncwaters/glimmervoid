@@ -178,6 +178,15 @@
 
 .hooks-row-meta[data-tone="warn"] { color: var(--state-waiting); }
 
+.hooks-note-text {
+  display: block;
+  margin-top: 4px;
+  font-size: var(--type-meta);
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .hooks-row-builtin .hooks-row-main { flex-direction: row; align-items: baseline; gap: 10px; }
 
 .hooks-row-actions {

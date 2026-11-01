@@ -1,6 +1,7 @@
 import { SESSION_COMMANDS } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb, SessionCommand, SessionLimits } from '../../shared/contracts/session.ts';
 import { isRecord } from '../../shared/coerce.ts';
+import type { AgentNote } from '../../shared/contracts/hooks.ts';
 
 const SUPERVISION_LINE = "Glimmervoid supervises this session. Run glimmervoid --help for the commands it gives you and this session's limits.";
 const SPAWN_LINE = 'To delegate work that edits files or runs long, use glimmervoid spawn rather than an in-process subagent: the spawned session gets its own dashboard card the operator can watch. An in-process subagent stays fine for a quick read-only lookup.';
@@ -279,6 +280,23 @@ function formatSessionLimits(limits: SessionLimits): string[] {
   return ['This session:', ...commandLines, ...boundaryLines(limits)];
 }
 
+const NEXT_PROMPT_FALLBACK = ', or the next UserPromptSubmit where the agent has no tool hook context';
+
+const COMMAND_HINT_TRIGGERS: Readonly<Record<ToolHintedCommand, { carriedBy: string; firesWhen: string }>> = Object.freeze({
+  show: { carriedBy: `PostToolUse${NEXT_PROMPT_FALLBACK}`, firesWhen: 'a tool call names an image, video or HTML file' },
+  spawn: { carriedBy: `PostToolUse${NEXT_PROMPT_FALLBACK}`, firesWhen: 'the agent starts an in-process subagent' },
+  push: { carriedBy: `PostToolUseFailure${NEXT_PROMPT_FALLBACK}`, firesWhen: 'a git push fails' },
+  settings: { carriedBy: `PostToolUse or PostToolUseFailure${NEXT_PROMPT_FALLBACK}`, firesWhen: "a tool call touches Glimmervoid's config.json" },
+  review: { carriedBy: `PostToolUse${NEXT_PROMPT_FALLBACK}`, firesWhen: 'the agent runs a pull request review' },
+});
+
+function routeAgentNotes(): AgentNote[] {
+  const startLine: AgentNote = { name: 'Start line', carriedBy: 'UserPromptSubmit', firesWhen: 'the first prompt of a conversation, when the agent may run glimmervoid --help', text: supervisionLine({ canSpawn: true }), isTemplate: false };
+  const commandHints = HINTED_COMMANDS.map((command) => ({ name: `${command} hint`, ...COMMAND_HINT_TRIGGERS[command], text: COMMAND_HINTS[command].text, isTemplate: false }));
+  const whiteboardHint: AgentNote = { name: 'whiteboard hint', carriedBy: 'UserPromptSubmit', firesWhen: 'a prompt asks for a graph, diagram or drawing and the session is not connected to a board', text: WHITEBOARD_HINT_TEXT, isTemplate: false };
+  return [startLine, ...commandHints, whiteboardHint];
+}
+
 export type { CommandHint, HintedCommand, PromptHint };
-export { supervisionLine, permitsHelpCommand, toolHookFactsOf, hintFor, promptHintFor, COMMAND_ROUTES, describeSessionLimits, formatSessionLimits, NO_OWN_WORKTREE_REASON };
+export { routeAgentNotes, supervisionLine, permitsHelpCommand, toolHookFactsOf, hintFor, promptHintFor, COMMAND_ROUTES, describeSessionLimits, formatSessionLimits, NO_OWN_WORKTREE_REASON };
 export type { SessionRoleFacts };

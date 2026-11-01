@@ -28,7 +28,11 @@ import {
   SHORTCUT_HINT,
   TEMPLATES_LABEL,
   YOUR_HOOKS_TITLE,
+  AGENT_NOTES_HINT,
+  AGENT_NOTES_TITLE,
   agentGroupTitle,
+  agentNoteMeta,
+  agentNotesOf,
   builtinCountOf,
   builtinGroupsOf,
   builtinLine,
@@ -60,7 +64,7 @@ import {
   totalsChips,
   typeLabel,
 } from './hooks-view-core.ts';
-import type { AgentHookGroup, InstalledHookRow } from '#shared/contracts/hooks.ts';
+import type { AgentHookGroup, AgentNote, InstalledHookRow } from '#shared/contracts/hooks.ts';
 import type { HookDraft, HookEvent, HookProject, HookRecord } from './hooks-view-core.ts';
 import { hooksSnapshot, requestHooksReport, subscribeHooks } from './hooks-store.ts';
 import type { ViewModule, ViewRefreshReason } from './view-registry-core.ts';
@@ -520,6 +524,25 @@ function buildBuiltinSection() {
   return details;
 }
 
+function buildAgentNoteRow(note: AgentNote) {
+  const row = el('article', 'hooks-row hooks-row-builtin');
+  const main = el('div', 'hooks-row-main');
+  main.append(el('span', 'hooks-row-event', note.name), el('p', 'hooks-row-meta', agentNoteMeta(note)), el('code', 'hooks-note-text', note.text));
+  row.append(main);
+  return row;
+}
+
+function buildAgentNotesSection() {
+  const details = el('details', 'hooks-builtin');
+  const summary = el('summary', 'hooks-builtin-summary');
+  const notes = agentNotesOf(_hooks.report);
+  summary.append(el('span', 'hooks-section-title', `${AGENT_NOTES_TITLE} (${notes.length})`), el('span', 'hooks-section-hint', AGENT_NOTES_HINT));
+  const list = el('div', 'hooks-list');
+  for (const note of notes) list.append(buildAgentNoteRow(note));
+  details.append(summary, list);
+  return details;
+}
+
 function buildBody() {
   const content = el('div', 'hooks-content');
   if (!_hooks.report) {
@@ -532,7 +555,7 @@ function buildBody() {
   }
   content.append(buildTotalsSection());
   if (_editorEl) content.append(_editorEl);
-  content.append(buildYoursSection(), buildBuiltinSection());
+  content.append(buildYoursSection(), buildBuiltinSection(), buildAgentNotesSection());
   return content;
 }
 

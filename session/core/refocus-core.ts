@@ -2,6 +2,7 @@ import { RelayedHookContext, SessionStartHookResponse } from '../../shared/contr
 import type { ToolHookContextResponse, UserPromptSubmitHookResponse } from '../../shared/contracts/refocus.ts';
 import type { CommandHint } from './session-routes.ts';
 import type { PromptContextReply } from '../../shared/contracts/refocus.ts';
+import type { AgentNote } from '../../shared/contracts/hooks.ts';
 
 interface RefocusContext {
   taskTitle: string | null;
@@ -16,13 +17,30 @@ interface RefocusReplyInput {
   takePromptSupervision?: () => UserPromptSubmitHookResponse | null;
 }
 
-function buildRefocusReminder({ taskTitle, latestPlanTitle }: RefocusContext): string | null {
+function refocusIntentParts({ taskTitle, latestPlanTitle }: RefocusContext): string[] {
   const intentParts: string[] = [];
   if (taskTitle?.trim()) intentParts.push(`Current task: "${taskTitle}".`);
   if (latestPlanTitle?.trim()) intentParts.push(`Latest plan: "${latestPlanTitle}".`);
-  if (intentParts.length === 0) return null;
-  return `Context was just compacted. ${intentParts.join(' ')} Before your next step, check it still serves this intent and drop work that does not.`;
+  return intentParts;
 }
+
+function buildRefocusReminder(context: RefocusContext): string | null {
+  const intentParts = refocusIntentParts(context);
+  if (intentParts.length === 0) return null;
+  return compactedReminder(intentParts.join(' '));
+}
+
+function compactedReminder(intent: string): string {
+  return `Context was just compacted. ${intent} Before your next step, check it still serves this intent and drop work that does not.`;
+}
+
+const REFOCUS_NOTE: AgentNote = {
+  name: 'Refocus after compaction',
+  carriedBy: 'SessionStart',
+  firesWhen: 'the agent compacted its context and the session has a task title or plan',
+  text: compactedReminder(refocusIntentParts({ taskTitle: '<task title>', latestPlanTitle: '<latest plan>' }).join(' ')),
+  isTemplate: true,
+};
 
 function promptContextReplyOf(shape: PromptContextReply, text: string): UserPromptSubmitHookResponse {
   if (shape === 'message') return { message: text };
@@ -71,5 +89,5 @@ function toolHookContextReplyOf({ event, text }: CommandHint): ToolHookContextRe
   return { hookSpecificOutput: { hookEventName: TOOL_HOOK_EVENT_NAMES[event], additionalContext: text } };
 }
 
-export { toolHookContextReplyOf, promptContextReplyOf, refocusReplyFor, sessionStartContextOutput, relayedHookContextOutput };
+export { REFOCUS_NOTE, toolHookContextReplyOf, promptContextReplyOf, refocusReplyFor, sessionStartContextOutput, relayedHookContextOutput };
 export type { RefocusContext };
