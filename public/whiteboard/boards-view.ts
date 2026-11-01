@@ -9,6 +9,7 @@ import { buildMenuItem, wirePopupMenuKeys } from '../menu.ts';
 import { findSessionUi, sessionName } from '../session-card/card-registry.ts';
 import { buildDialogShell, isModalOpen, openConfirmDialog } from '../session-card/modal.ts';
 import { setTerminalActiveViewer } from '../session-card/terminal.ts';
+import { createLineIcon } from '../svg-dom.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import { createBoardEditor, newElementId } from './board-edit.ts';
 import type { BoardEditor, BoardTool } from './board-edit.ts';
@@ -25,13 +26,20 @@ import {
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const EMPTY_TEXT = 'No boards yet. Make one here, or have an agent run glimmervoid whiteboard new <title>.';
 const PICK_TEXT = 'Pick a board above.';
-const TAB_RENAME_CLASS = 'wb-board-tab-rename';
-const TOOL_BUTTONS: readonly { tool: BoardTool; label: string; key: string }[] = [
-  { tool: 'select', label: 'select', key: 'V' },
-  { tool: 'box', label: 'box', key: 'R' },
-  { tool: 'decision', label: 'decision', key: 'D' },
-  { tool: 'panel', label: 'panel', key: 'P' },
-  { tool: 'wire', label: 'wire', key: 'A' },
+const TITLE_RENAME_CLASS = 'wb-board-title-rename';
+const MENU_ICON_PATH = 'M2.5 4h11M2.5 8h11M2.5 12h11';
+const NOTE_ICON_PATH = 'M3 2.5h7l3 3v8H3z M10 2.5v3h3';
+const FRAME_ICON_PATH = 'M2.5 4.5h11v9h-11z M2.5 4.5v-2h5v2';
+const UNIT_ICON_PATH = 'M6 4.5h7.5 M6 8h7.5 M6 11.5h7.5 M2.5 4.5h0.01 M2.5 8h0.01 M2.5 11.5h0.01';
+const FIT_ICON_PATH = 'M2.5 6V2.5H6 M10 2.5h3.5V6 M13.5 10v3.5H10 M6 13.5H2.5V10';
+const UNDO_ICON_PATH = 'M5.5 3.5l-3 3l3 3 M2.5 6.5h7a3.5 3.5 0 0 1 0 7H7';
+const REDO_ICON_PATH = 'M10.5 3.5l3 3l-3 3 M13.5 6.5h-7a3.5 3.5 0 0 0 0 7H9';
+const TOOL_BUTTONS: readonly { tool: BoardTool; label: string; key: string; iconPath: string }[] = [
+  { tool: 'select', label: 'select', key: 'V', iconPath: 'M4 2.5l8.5 5.8l-4 0.7l2.2 4.3l-1.5 0.8l-2.2-4.3L4 12.5z' },
+  { tool: 'box', label: 'box', key: 'R', iconPath: 'M2.5 4h11v8h-11z' },
+  { tool: 'decision', label: 'decision', key: 'D', iconPath: 'M8 2l6 6l-6 6l-6-6z' },
+  { tool: 'panel', label: 'panel', key: 'P', iconPath: 'M2.5 3h11v10h-11z M2.5 6h11' },
+  { tool: 'wire', label: 'wire', key: 'A', iconPath: 'M2.5 13.5L13 3 M8.5 3H13v4.5' },
 ];
 
 interface TextDialogOptions {
@@ -46,17 +54,18 @@ interface TextDialogOptions {
 }
 
 interface BoardsViewParts {
-  list: HTMLElement;
-  boardHead: HTMLElement;
+  boardIsland: HTMLElement;
+  boardMenu: ReturnType<typeof buildBoardMenu>;
+  boardTitle: HTMLButtonElement;
   boardMeta: HTMLElement;
   presence: HTMLElement;
-  toolbar: HTMLElement;
   canvas: HTMLElement;
   empty: HTMLElement;
+  emptyText: HTMLElement;
   dock: HTMLElement;
   dockQueued: HTMLElement;
   sendToAgent: HTMLButtonElement;
-  buttons: Record<'note' | 'frame' | 'unit' | 'fit' | 'boardMenu', HTMLButtonElement>;
+  buttons: Record<'note' | 'frame' | 'unit' | 'fit' | 'undo' | 'redo', HTMLButtonElement>;
   toolButtons: ReadonlyMap<BoardTool, HTMLButtonElement>;
   uncovered: HTMLElement;
 }
@@ -213,14 +222,10 @@ function paintToolbar(): void {
   if (!parts) return;
   const board = selectedBoard();
   const selectedBoxCount = selectedElementsOfKind('box').length;
-  const selectedCount = editor?.selectedIds().size ?? 0;
   for (const button of parts.toolButtons.values()) button.disabled = !board;
   parts.buttons.note.disabled = selectedBoxCount !== 1;
   parts.buttons.frame.disabled = selectedBoxCount === 0;
-  parts.buttons.unit.disabled = !board;
-  parts.buttons.fit.disabled = !board;
-  parts.buttons.boardMenu.disabled = !board;
-  parts.toolbar.dataset.selectedCount = String(selectedCount);
+  for (const button of [parts.buttons.unit, parts.buttons.fit, parts.buttons.undo, parts.buttons.redo]) button.disabled = !board;
   inspector?.paint(editor?.selectedIds() ?? new Set());
 }
 
@@ -229,44 +234,34 @@ function paintList(): void {
   const summaries = boardSummariesOf();
   if (selectedBoardId && !summaries.some((summary) => summary.id === selectedBoardId)) selectedBoardId = null;
   if (!selectedBoardId && summaries[0]) selectBoard(summaries[0].id);
-  if (!parts.list.querySelector(`.${TAB_RENAME_CLASS}`)) parts.list.replaceChildren(...summaries.map(boardTab));
+  parts.boardMenu.paintBoards(summaries);
   paintHead();
 }
 
-function boardTab(summary: BoardSummary): HTMLButtonElement {
-  const isSelected = summary.id === selectedBoardId;
-  const button = el('button', 'wb-board-tab', summary.title);
-  button.type = 'button';
-  button.setAttribute('aria-pressed', String(isSelected));
-  if (isSelected) button.title = 'Click to rename';
-  if (summary.connectedSessionIds.length > 0) button.append(el('span', 'wb-board-tab-count', String(summary.connectedSessionIds.length)));
-  button.addEventListener('click', () => {
-    if (summary.id === selectedBoardId) {
-      startTabRename(button, summary);
-      return;
-    }
-    selectBoard(summary.id);
-  });
-  return button;
+function isRenamingTitle(): boolean {
+  return Boolean(parts?.boardIsland.querySelector(`.${TITLE_RENAME_CLASS}`));
 }
 
-function startTabRename(tab: HTMLButtonElement, summary: BoardSummary): void {
-  const input = el('input', `wb-board-tab ${TAB_RENAME_CLASS}`);
+function startTitleRename(): void {
+  const summary = selectedSummary();
+  if (!parts || !summary || isRenamingTitle()) return;
+  const { boardTitle } = parts;
+  const input = el('input', TITLE_RENAME_CLASS);
   input.type = 'text';
   input.value = summary.title;
   input.maxLength = WHITEBOARD_LIMITS.title;
   input.setAttribute('aria-label', 'Board title');
-  tab.replaceWith(input);
+  boardTitle.replaceWith(input);
   input.focus();
   input.select();
   let isFinished = false;
 
   function finish(shouldSave: boolean): void {
-    if (isFinished) return;
+    if (isFinished || !summary) return;
     isFinished = true;
     const newTitle = input.value.trim();
-    input.remove();
-    paintList();
+    input.replaceWith(boardTitle);
+    paintHead();
     if (shouldSave && newTitle && newTitle !== summary.title) void sendOps([{ op: 'board', title: newTitle }]);
   }
 
@@ -279,33 +274,52 @@ function startTabRename(tab: HTMLButtonElement, summary: BoardSummary): void {
   });
 }
 
-function buildBoardMenu(onBoardSettings: () => void): { menuRoot: HTMLElement; trigger: HTMLButtonElement } {
+function boardMenuItem(summary: BoardSummary): HTMLButtonElement {
+  const item = buildMenuItem(summary.title, 'visible wb-board-menu-board');
+  item.setAttribute('role', 'menuitemradio');
+  item.setAttribute('aria-checked', String(summary.id === selectedBoardId));
+  const sessionCount = summary.connectedSessionIds.length;
+  if (sessionCount > 0) item.append(el('span', 'wb-board-menu-count', String(sessionCount)));
+  item.addEventListener('click', () => selectBoard(summary.id));
+  return item;
+}
+
+function buildBoardMenu(onBoardSettings: () => void) {
   const menuRoot = el('div', 'session-overflow wb-board-menu');
   const menu = el('div', 'popup-menu session-overflow-menu');
   menu.setAttribute('role', 'menu');
-  menu.setAttribute('aria-label', 'Board');
+  menu.setAttribute('aria-label', 'Board menu');
   const isOpen = () => menu.classList.contains('open');
   const setOpen = (shouldOpen: boolean) => {
+    boardSettingsItem.classList.toggle('visible', !isPhoneLayout());
     menu.classList.toggle('open', shouldOpen);
     trigger.setAttribute('aria-expanded', String(shouldOpen));
   };
-  const trigger = toolbarButton('board', () => setOpen(!isOpen()));
+  const trigger = iconButton('board menu', MENU_ICON_PATH, () => setOpen(!isOpen()));
   trigger.setAttribute('aria-haspopup', 'menu');
   trigger.setAttribute('aria-expanded', 'false');
-  const menuItem = (label: string, onChoose: () => void, extraClass = '') => {
+  const actionItem = (label: string, onChoose: () => void, extraClass = '') => {
     const item = buildMenuItem(label, `visible ${extraClass}`.trim());
-    item.addEventListener('click', () => {
-      setOpen(false);
-      onChoose();
-    });
+    item.addEventListener('click', onChoose);
     return item;
   };
-  menu.append(menuItem('board settings', onBoardSettings), menuItem('delete board', confirmDeleteBoard, 'wb-board-menu-danger'));
+  const divider = el('div', 'menu-divider');
+  divider.setAttribute('role', 'separator');
+  const boardSettingsItem = actionItem('board settings', onBoardSettings);
+  const actionItems = [
+    divider,
+    actionItem('new board', newBoardFromDialog),
+    boardSettingsItem,
+    actionItem('delete board', confirmDeleteBoard, 'wb-board-menu-danger'),
+  ];
+  menu.addEventListener('click', (event) => {
+    if (event.target instanceof HTMLElement && event.target.closest('[role^="menuitem"]')) setOpen(false);
+  });
   menuRoot.append(trigger, menu);
   wirePopupMenuKeys({
     trigger,
     menu,
-    menuItems: () => [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')],
+    menuItems: () => [...menu.querySelectorAll<HTMLElement>('.visible[role^="menuitem"]')],
     isOpen,
     open: () => setOpen(true),
     close: () => setOpen(false),
@@ -313,18 +327,19 @@ function buildBoardMenu(onBoardSettings: () => void): { menuRoot: HTMLElement; t
   document.addEventListener('click', (event) => {
     if (isOpen() && event.target instanceof Node && !menuRoot.contains(event.target)) setOpen(false);
   });
-  return { menuRoot, trigger };
+  const paintBoards = (summaries: readonly BoardSummary[]) => menu.replaceChildren(...summaries.map(boardMenuItem), ...actionItems);
+  return { menuRoot, trigger, paintBoards };
 }
 
 function paintHead(): void {
   if (!parts) return;
   const summary = selectedSummary();
   const hasBoards = boardSummariesOf().length > 0;
-  parts.boardHead.hidden = !summary;
   parts.canvas.hidden = !summary;
   parts.empty.hidden = Boolean(summary);
-  parts.empty.textContent = hasBoards ? PICK_TEXT : EMPTY_TEXT;
+  parts.emptyText.textContent = hasBoards ? PICK_TEXT : EMPTY_TEXT;
   if (!summary) return;
+  parts.boardTitle.textContent = summary.title;
   parts.boardMeta.textContent = `v${summary.version}`;
   parts.presence.replaceChildren(...summary.connectedSessionIds.map((sessionId) => el('span', 'wb-presence-pill', sessionLabel(sessionId))));
   if (summary.connectedSessionIds.length === 0) parts.presence.append(el('span', 'wb-presence-none', 'no sessions connected'));
@@ -535,24 +550,45 @@ function newBoardFromDialog(): void {
   });
 }
 
-function toolbarButton(label: string, onClick: () => void, extraClass = ''): HTMLButtonElement {
-  const button = el('button', `wb-button ${extraClass}`.trim(), label);
+function toolbarButton(label: string, onClick: () => void): HTMLButtonElement {
+  const button = el('button', 'wb-button', label);
   button.type = 'button';
   button.addEventListener('click', onClick);
   return button;
 }
 
-function toolButton(tool: BoardTool, label: string, key: string): HTMLButtonElement {
-  const button = toolbarButton(label, () => {
+function iconButton(label: string, iconPath: string, onClick: () => void, key?: string): HTMLButtonElement {
+  const button = el('button', 'wb-icon-button');
+  button.type = 'button';
+  button.setAttribute('aria-label', label);
+  button.title = key ? `${label} (${key})` : label;
+  button.append(createLineIcon(iconPath, '1.5'));
+  if (key) {
+    const keyHint = el('span', 'wb-tool-key', key);
+    keyHint.setAttribute('aria-hidden', 'true');
+    button.append(keyHint);
+    button.setAttribute('aria-keyshortcuts', key);
+  }
+  button.addEventListener('click', onClick);
+  return button;
+}
+
+function toolButton(tool: BoardTool, label: string, key: string, iconPath: string): HTMLButtonElement {
+  const button = iconButton(label, iconPath, () => {
     editor?.setTool(tool);
     editor?.focusCanvas();
-  }, 'wb-tool');
-  const keyHint = el('span', 'wb-tool-key', key);
-  keyHint.setAttribute('aria-hidden', 'true');
-  button.prepend(keyHint);
+  }, key);
+  button.classList.add('wb-tool');
   button.setAttribute('aria-pressed', String(tool === 'select'));
-  button.setAttribute('aria-keyshortcuts', key);
   return button;
+}
+
+function island(className: string, label: string, ...children: HTMLElement[]): HTMLElement {
+  const container = el('div', `wb-island ${className}`);
+  container.setAttribute('role', 'toolbar');
+  container.setAttribute('aria-label', label);
+  container.append(...children);
+  return container;
 }
 
 function paintActiveTool(activeTool: BoardTool): void {
@@ -573,39 +609,38 @@ function onHistoryKey(panel: HTMLElement, event: KeyboardEvent): void {
 }
 
 function mountBoardsView(panel: HTMLElement): void {
-  const top = el('div', 'wb-top');
-  const list = el('div', 'wb-board-list');
-  list.setAttribute('aria-label', 'Boards');
-
-  const boardHead = el('div', 'wb-board-head');
-  const titleRow = el('div', 'wb-title-row');
-  const boardMeta = el('span', 'wb-board-meta');
-  const presence = el('div', 'wb-presence');
-  titleRow.append(boardMeta, presence);
-  const toolbar = el('div', 'wb-toolbar');
-  const toolButtons = new Map(TOOL_BUTTONS.map(({ tool, label, key }) => [tool, toolButton(tool, label, key)]));
-  const toolGroup = el('div', 'wb-tools');
-  toolGroup.setAttribute('role', 'group');
-  toolGroup.setAttribute('aria-label', 'Drawing tools');
-  toolGroup.append(...toolButtons.values());
   const boardMenu = buildBoardMenu(() => {
     editor?.clearSelection();
     inspector?.openBoardSettings();
   });
+  boardMenu.trigger.dataset.phoneVisible = '';
+  const boardTitle = el('button', 'wb-board-title');
+  boardTitle.type = 'button';
+  boardTitle.title = 'Click to rename';
+  boardTitle.addEventListener('click', startTitleRename);
+  const boardMeta = el('span', 'wb-board-meta');
+  const presence = el('div', 'wb-presence');
+  const boardIsland = island('wb-island-board', 'Board', boardMenu.menuRoot, boardTitle, boardMeta, presence, status.element);
+
+  const toolButtons = new Map(TOOL_BUTTONS.map(({ tool, label, key, iconPath }) => [tool, toolButton(tool, label, key, iconPath)]));
+  const toolGroup = el('div', 'wb-tools');
+  toolGroup.setAttribute('role', 'group');
+  toolGroup.setAttribute('aria-label', 'Drawing tools');
+  toolGroup.append(...toolButtons.values());
   const buttons = {
-    note: toolbarButton('note', () => {
+    note: iconButton('note', NOTE_ICON_PATH, () => {
       const [box] = selectedElementsOfKind('box');
       if (box) addNoteOn(box.id);
     }),
-    frame: toolbarButton('frame', addFrame),
-    unit: toolbarButton('unit', addUnitFromDialog),
-    fit: toolbarButton('fit', () => editor?.fit()),
-    boardMenu: boardMenu.trigger,
+    frame: iconButton('frame', FRAME_ICON_PATH, addFrame),
+    unit: iconButton('unit', UNIT_ICON_PATH, addUnitFromDialog),
+    fit: iconButton('fit', FIT_ICON_PATH, () => editor?.fit()),
+    undo: iconButton('undo', UNDO_ICON_PATH, () => void stepHistory('undo')),
+    redo: iconButton('redo', REDO_ICON_PATH, () => void stepHistory('redo')),
   };
   buttons.fit.dataset.phoneVisible = '';
-  toolbar.append(toolGroup, buttons.note, buttons.frame, buttons.unit, buttons.fit, boardMenu.menuRoot, status.element);
-  boardHead.append(titleRow, toolbar);
-  top.append(list, toolbarButton('new board', newBoardFromDialog), boardHead);
+  const toolsIsland = island('wb-island-tools', 'Board tools', toolGroup, buttons.note, buttons.frame, buttons.unit);
+  const viewIsland = island('wb-island-view', 'View', buttons.fit, buttons.undo, buttons.redo);
 
   const canvas = el('div', 'wb-canvas');
   const svg = document.createElementNS(SVG_NAMESPACE, 'svg');
@@ -617,8 +652,10 @@ function mountBoardsView(panel: HTMLElement): void {
   const uncovered = el('aside', 'wb-uncovered');
   uncovered.setAttribute('aria-label', 'Not on the board');
   uncovered.hidden = true;
-  canvas.append(svg, inspectPanel, uncovered);
-  const empty = el('p', 'wb-empty', EMPTY_TEXT);
+  canvas.append(svg, inspectPanel, uncovered, boardIsland, viewIsland, toolsIsland);
+  const emptyText = el('p', 'wb-empty-text', EMPTY_TEXT);
+  const empty = el('div', 'wb-empty');
+  empty.append(emptyText, toolbarButton('new board', newBoardFromDialog));
   const dock = el('div', 'wb-dock');
   dock.hidden = true;
   const dockQueued = el('span', 'wb-dock-queued');
@@ -627,8 +664,8 @@ function mountBoardsView(panel: HTMLElement): void {
   dockBar.append(dockQueued, sendToAgent, dockStatus.element);
   dock.append(dockBar);
 
-  panel.replaceChildren(top, canvas, empty, dock);
-  parts = { list, boardHead, boardMeta, presence, toolbar, canvas, empty, dock, dockQueued, sendToAgent, buttons, toolButtons, uncovered };
+  panel.replaceChildren(canvas, empty, dock);
+  parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, canvas, empty, emptyText, dock, dockQueued, sendToAgent, buttons, toolButtons, uncovered };
   const boardRenderer = createBoardRenderer(svg);
   renderer = boardRenderer;
   inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, openRef: openRefInReview });
