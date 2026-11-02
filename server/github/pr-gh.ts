@@ -1,70 +1,33 @@
-import { GithubIssueResponse, GithubIssuePullRequestsRepository, IssueKey, IssueUpdate, IssuesSearchResponse, issuePullRequestStateFromGithub } from '../../shared/contracts/issues.ts';
-import type { IssuePullRequest, IssuesFetchResult } from '../../shared/contracts/issues.ts';
-import { comparablePrKey, GithubPrDetailNode, GithubPrLightSearchNode } from '../../shared/contracts/github-prs.ts';
+import { GithubIssuePullRequestsRepository, IssueKey, IssuesSearchResponse, issuePullRequestStateFromGithub } from '../../shared/contracts/issues.ts';
+import type { IssuePullRequest, IssuesFetchResult, IssueUpdate } from '../../shared/contracts/issues.ts';
+import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
 import type { GithubPrDetailNode as GithubPrDetailNodeType, GithubPrLightSearchNode as GithubPrLightSearchNodeType } from '../../shared/contracts/github-prs.ts';
 import { runCommand } from '../git/git-exec.ts';
 import type { CommandResult } from '../git/git-exec.ts';
 import { GH_SEGMENT, NODE_ID_RE, repoParts } from '../../shared/contracts/github-ids.ts';
 import { GithubRateLimitResources, githubRateLimitWaitMs } from './core/github-rate-limit-core.ts';
-import { secondaryRateLimitWaitMs } from '../lanes/core/lane-backoff.ts';
 import { z } from 'zod';
 import { CommitSha, TeamReviewThreadCommentsResponse, TeamReviewThreadsRepository, TeamReviewResolveResponse, ReviewThreadId, TeamReviewCompareFiles, PrDetail, PostedReviewEvent, ReviewComment } from '../../shared/contracts/team-review.ts';
 import { CommitComparison, MergedPrListing, MinedPrReviewData } from '../../shared/contracts/benchmark.ts';
 import type { CommitComparison as CommitComparisonType, MergedPrListing as MergedPrListingType, MinedPrReviewData as MinedPrReviewDataType } from '../../shared/contracts/benchmark.ts';
-import { MyPrCheckContext, MyPrCheckContextsResponse, MyPrMergeMethod, MyPrMergeStateResponse, MyPrThreadNode, MyPrThreadsResponse } from '../../shared/contracts/my-prs.ts';
+import { MyPrCheckContext, MyPrCheckContextsResponse, MyPrMergeMethod, MyPrThreadNode, MyPrThreadsResponse } from '../../shared/contracts/my-prs.ts';
 import type { MyPrMergeKind, MyPrMergeMethod as MyPrMergeMethodType, MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode as MyPrThreadNodeType } from '../../shared/contracts/my-prs.ts';
 import { WorkflowCommentBody, WorkflowLabelName } from '../../shared/contracts/workflows.ts';
 import type { PrDetail as PrDetailType, ReviewComment as ReviewCommentType, TeamReviewStatus } from '../../shared/contracts/team-review.ts';
-
 import type { TeamReviewThreadNode as ThreadNode, TeamReviewCompareFiles as CompareFiles } from '../../shared/contracts/team-review.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { parseJsonOrNull } from '../core/json-core.ts';
-import { isOrgMemberAssociation, notificationSubjectPrKey } from './core/github-store-core.ts';
-import { GithubTeam } from '../../shared/contracts/control-messages.ts';
+import { notificationSubjectPrKey } from './core/github-store-core.ts';
+import type { GithubTeam } from '../../shared/contracts/control-messages.ts';
+import { MERGED_PRS_QUERY, MY_PR_CHECK_CONTEXTS_QUERY, MY_PR_MERGE_STATE_QUERY, MY_PR_THREADS_QUERY, REBASE_PR_MUTATION, RESOLVE_THREAD_MUTATION, REVIEW_THREAD_FIELDS, TEAM_PROFILE_QUERY, TEAM_THREAD_COMMENT_FIELDS, TEAM_THREAD_FIELDS, behindCountsQuery, benchmarkReviewDataQuery, githubPrDetailsQuery, githubPrsLightByKeyQuery, githubPrsLightSearchQuery, issueLinkedPullRequestsQuery, reviewThreadsBatchQuery, teamThreadsQuery } from './pr-gh/pr-gh-queries.ts';
+import type { PrHeadReference, PrReference } from './pr-gh/pr-gh-queries.ts';
+import { COMPARE_RESPONSE, CREATED_REVIEW, GH_LOGIN, GH_MEMBERS, GH_TEAMS, GITHUB_NOTIFICATIONS, GITHUB_PRS_LIGHT_RESPONSE, GITHUB_PR_DETAIL_REPOSITORY, GITHUB_PR_LIGHT_REPOSITORY, GRAPHQL_BEHIND_REPOSITORY, GRAPHQL_NOT_FOUND_ERROR, GRAPHQL_RESPONSE, GRAPHQL_THREADS_REPOSITORY, MERGED_PRS_RESPONSE, PR_DIFF, TEAM_PROFILE } from './pr-gh/pr-gh-responses.ts';
+import { aliasesOfErrors, conditionalGetResult, isPrNumber, isPullRequest, mergeKindFromPrState, normalizeIssue, parseGithubIssue, reviewSnapshotKey, uniqueValidPrs } from './pr-gh/pr-gh-parsing.ts';
+import type { ConditionalGetResult, GithubIssue, GithubIssueRow, RestValidators } from './pr-gh/pr-gh-parsing.ts';
 
 type GhMergeFlag = '--merge' | '--squash' | '--rebase';
 
 const GH_MERGE_FLAGS: Readonly<Record<MyPrMergeMethodType, GhMergeFlag>> = { MERGE: '--merge', SQUASH: '--squash', REBASE: '--rebase' };
-
-const MY_PR_MERGE_STATE_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
-  repository(owner: $owner, name: $name) { pullRequest(number: $number) { state isInMergeQueue autoMergeRequest { enabledAt } } }
-}`;
-
-interface GithubIssueLabelRow {
-  name?: unknown;
-  color?: unknown;
-}
-
-interface GithubIssueRow {
-  number?: unknown;
-  title?: unknown;
-  body?: unknown;
-  labels?: unknown;
-  url?: unknown;
-  updatedAt?: unknown;
-}
-
-interface GithubIssueLabel {
-  name: string;
-  color: string;
-}
-
-interface GithubIssue {
-  number: number;
-  title: string;
-  body: string;
-  labels: GithubIssueLabel[];
-  url: string;
-  updatedAt: string;
-}
-
-
-interface PrReference {
-  repo: string;
-  number: number;
-}
-
-type PrHeadReference = PrReference & { headSha: string };
 
 interface GithubIssueDetail {
   ok: boolean;
@@ -72,17 +35,6 @@ interface GithubIssueDetail {
   error: string;
 }
 
-interface RestValidators {
-  etag?: string;
-  lastModified?: string;
-}
-
-type RestMetadata = RestValidators & { pollIntervalSeconds?: number };
-type ConditionalGetResult =
-  | ({ kind: 'unchanged' } & RestMetadata)
-  | ({ kind: 'ok'; body: unknown } & RestMetadata)
-  | { kind: 'forbidden'; message: string }
-  | { kind: 'error'; message: string };
 type NotificationsSinceResult = Exclude<ConditionalGetResult, { kind: 'ok' }>
   | { kind: 'ok'; prKeys: string[]; lastModified?: string; pollIntervalSeconds?: number };
 
@@ -137,273 +89,18 @@ function run(cmd: string, args: string[], cwd: string, input?: string, preserveO
   });
 }
 
-function mergeKindFromPrState(prStateJson: string): MyPrMergeKind {
-  const parsed = MyPrMergeStateResponse.safeParse(parseJsonOrNull(prStateJson));
-  if (!parsed.success || parsed.data.errors?.length) return 'unconfirmed';
-  const pullRequest = parsed.data.data.repository?.pullRequest;
-  if (!pullRequest) return 'unconfirmed';
-  if (pullRequest.state === 'MERGED') return 'merged';
-  if (pullRequest.state !== 'OPEN') return 'unconfirmed';
-  if (pullRequest.isInMergeQueue) return 'queued';
-  if (pullRequest.autoMergeRequest !== null) return 'auto-merge';
-  return 'unconfirmed';
-}
-
-const HEX_LABEL_COLOR = /^[0-9a-f]{6}$/i;
-const CHECK_CONTEXT_FIELDS = '__typename ... on CheckRun { name conclusion status startedAt checkSuite { app { databaseId } workflowRun { workflow { databaseId } } } } ... on StatusContext { context state }';
-const MY_PR_CHECK_CONTEXTS_QUERY = `query($id: ID!, $cursor: String!) { node(id: $id) { ... on StatusCheckRollup { contexts(first: 100, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { ${CHECK_CONTEXT_FIELDS} } } } } }`;
 const MAX_CHECK_CONTEXT_PAGES = 10;
-const MY_PR_FIELDS_FRAGMENT = `fragment myPrFields on PullRequest {
-  __typename id number title url isDraft state createdAt mergedAt updatedAt baseRefName baseRefOid headRefName isCrossRepository headRefOid isInMergeQueue mergeable mergeStateStatus reviewDecision
-  repository { nameWithOwner viewerDefaultMergeMethod }
-  commits(last: 1) { nodes { commit { statusCheckRollup { id state contexts(first: 100) { pageInfo { hasNextPage endCursor } nodes { ${CHECK_CONTEXT_FIELDS} } } } } } }
-  reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { isResolved } }
-  reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug avatarUrl organization { login } } } } }
-  latestOpinionatedReviews(first: 20) { nodes { state } }
-  latestReviews(first: 20) { nodes { state submittedAt author { login } } }
-}`;
-const WORKFLOW_PR_FIELDS_FRAGMENT = `fragment workflowPrFields on PullRequest {
-  author { login } labels(first: 50) { nodes { name } } comments { totalCount }
-}`;
 
-const GITHUB_PR_LIGHT_FIELDS = `
-  repository { nameWithOwner } number updatedAt headRefOid state
-  commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
-  reviewDecision mergeable`;
-function githubPrsLightSearchQuery(maxMembers = 50): string {
-  return `query($searchQuery: String!, $cursor: String) {
-  search(type: ISSUE, first: ${maxMembers}, query: $searchQuery, after: $cursor) { issueCount pageInfo { hasNextPage endCursor } nodes { ... on PullRequest { ${GITHUB_PR_LIGHT_FIELDS} } } }
-}`;
-}
-const GITHUB_PR_LIGHT_REPOSITORY = z.object({ pullRequest: GithubPrLightSearchNode.nullable() }).nullable();
-const GITHUB_PRS_LIGHT_RESPONSE = z.object({ data: z.object({ search: z.object({
-  issueCount: z.number().int().nonnegative(),
-  pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }),
-  nodes: z.array(GithubPrLightSearchNode),
-}) }), errors: z.array(z.unknown()).optional() });
-const GITHUB_PR_REVIEW_FIELDS = `author { __typename login } authorAssociation
-  latestReviews(first: 20) { nodes { state submittedAt author { login } commit { oid } } }
-  writerOpinionatedReviews: latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state } }`;
-const GITHUB_PR_DETAIL_REPOSITORY = z.object({ pullRequest: GithubPrDetailNode.nullable() }).nullable();
-const GITHUB_NOTIFICATIONS = z.array(z.object({ subject: z.object({ type: z.string(), url: z.string().nullable() }) }));
 const MAX_GITHUB_PR_SEARCH_PAGES = 20;
 
-function githubPrsLightByKeyQuery(prs: readonly PrReference[]): string {
-  const fields = prs.map((pr, index) => {
-    const [owner, name] = repoParts(pr.repo) ?? ['', ''];
-    return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { ${GITHUB_PR_LIGHT_FIELDS} } }`;
-  });
-  return `query { ${fields.join(' ')} }`;
-}
-
-function githubPrDetailsQuery(prs: readonly PrReference[]): string {
-  const fields = prs.map((pr, index) => {
-    const [owner, name] = repoParts(pr.repo) ?? ['', ''];
-    return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { ...myPrFields ...workflowPrFields ${GITHUB_PR_REVIEW_FIELDS} } }`;
-  });
-  return `query { ${fields.join(' ')} }\n${MY_PR_FIELDS_FRAGMENT}\n${WORKFLOW_PR_FIELDS_FRAGMENT}`;
-}
-
-const REBASE_PR_MUTATION = `mutation($id: ID!, $head: GitObjectID!) {
-  updatePullRequestBranch(input: { pullRequestId: $id, expectedHeadOid: $head, updateMethod: REBASE }) { pullRequest { headRefOid } }
-}`;
-const RESOLVE_THREAD_MUTATION = `mutation($id: ID!) {
-  resolveReviewThread(input: { threadId: $id }) { thread { id isResolved } }
-}`;
-const TEAM_THREAD_COMMENT_FIELDS = `pageInfo { hasNextPage endCursor } nodes { body author { login } viewerDidAuthor createdAt url originalCommit { oid } }`;
-const TEAM_THREAD_FIELDS = `id path line isResolved viewerCanResolve comments(first: 100) { ${TEAM_THREAD_COMMENT_FIELDS} }`;
-
-function teamThreadsQuery(prs: readonly PrReference[]): string {
-  return reviewThreadsBatchQuery(prs).replaceAll(REVIEW_THREAD_FIELDS, TEAM_THREAD_FIELDS).replaceAll('pageInfo { hasNextPage }', 'pageInfo { hasNextPage endCursor }');
-}
-
-const REVIEW_THREAD_FIELDS = `isResolved isOutdated path line
-    firstComment: comments(first: 1) { totalCount nodes { author { login } bodyText url createdAt } }
-    lastComment: comments(last: 1) { nodes { author { login } createdAt } }`;
-const MY_PR_THREADS_QUERY = `query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
-  repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100, after: $cursor) { pageInfo { hasNextPage endCursor } nodes {
-    ${REVIEW_THREAD_FIELDS}
-  } } } }
-}`;
-const GRAPHQL_THREADS_REPOSITORY = z.object({ pullRequest: z.object({
-  reviewThreads: z.object({ pageInfo: z.object({ hasNextPage: z.boolean() }), nodes: z.array(z.unknown()) }),
-}).nullable() });
-
-function reviewThreadsBatchQuery(prs: readonly PrReference[]): string {
-  const fields = prs.map((pr, index) => {
-    const [owner, name] = repoParts(pr.repo) ?? ['', ''];
-    return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { ${REVIEW_THREAD_FIELDS} } } } }`;
-  });
-  return `query { ${fields.join(' ')} }`;
-}
 const MERGED_PRS_PAGE_SIZE = 50;
-const MERGED_PRS_QUERY = `query($searchQuery: String!, $first: Int!, $cursor: String) {
-  search(type: ISSUE, query: $searchQuery, first: $first, after: $cursor) { pageInfo { hasNextPage endCursor } nodes {
-    ... on PullRequest { number title url mergedAt reviewThreads { totalCount } reviews { totalCount } }
-  } }
-}`;
-const MERGED_PRS_RESPONSE = z.object({ data: z.object({ search: z.object({
-  pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }),
-  nodes: z.array(z.unknown()),
-}) }) });
 const BENCHMARK_REVIEW_BATCH_SIZE = 10;
 const COMPARE_FILE_LIST_CAP = 300;
-const COMPARE_RESPONSE = z.object({ mergeBaseSha: CommitSha, changedFiles: z.array(z.string().min(1)), fileCount: z.number().int().nonnegative() });
 
-function benchmarkReviewDataQuery(prs: readonly PrReference[]): string {
-  const fields = prs.map((pr, index) => {
-    const [owner, name] = repoParts(pr.repo) ?? ['', ''];
-    return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) {
-      author { __typename login } baseRefOid
-      reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { path line originalLine
-        comments(first: 1) { nodes { databaseId author { __typename login } body createdAt originalCommit { oid } } } } }
-      reviews(first: 100) { pageInfo { hasNextPage } nodes { databaseId author { __typename login } body submittedAt commit { oid } } }
-      timelineItems(first: 100, itemTypes: [BASE_REF_CHANGED_EVENT, BASE_REF_FORCE_PUSHED_EVENT]) { pageInfo { hasNextPage } nodes {
-        __typename ... on BaseRefChangedEvent { createdAt } ... on BaseRefForcePushedEvent { createdAt beforeCommit { oid } } } }
-    } }`;
-  });
-  return `query { ${fields.join(' ')} }`;
-}
-const GH_LOGIN = z.string().regex(GH_SEGMENT);
-const GH_MEMBERS = z.array(GH_LOGIN);
-const GH_TEAMS = z.array(GithubTeam);
-const TEAM_PROFILE = z.object({ data: z.object({ organization: z.object({ team: z.object({ name: z.string(), avatarUrl: z.string().url() }).nullable() }).nullable() }), errors: z.array(z.unknown()).optional() });
-const TEAM_PROFILE_QUERY = 'query($org: String!, $slug: String!) { organization(login: $org) { team(slug: $slug) { name avatarUrl } } }';
 const SEARCH_PAGE_SIZE = 100;
 const MAX_SEARCH_PAGES = 5;
 const MAX_REVIEW_THREAD_PAGES = 5;
-const PR_DIFF_MAX_BYTES = 2 * 1024 * 1024;
-const CREATED_REVIEW = z.object({ id: z.number().int().positive() }).passthrough();
 const REVIEW_SNAPSHOT_BATCH_SIZE = 25;
-const GRAPHQL_BEHIND_REPOSITORY = z.object({
-  pullRequest: z.object({ baseRef: z.object({ compare: z.object({ behindBy: z.number().int().nonnegative() }).nullable() }).nullable() }).nullable(),
-});
-const GRAPHQL_RESPONSE = z.object({ data: z.record(z.string(), z.unknown()).nullable(), errors: z.array(z.unknown()).optional() }).passthrough();
-const GRAPHQL_ERROR_ALIAS = z.object({ path: z.tuple([z.string()]).rest(z.union([z.string(), z.number()])) });
-const GRAPHQL_NOT_FOUND_ERROR = GRAPHQL_ERROR_ALIAS.extend({ type: z.literal('NOT_FOUND') });
-const PR_DIFF = z.string().refine((diff) => Buffer.byteLength(diff, 'utf8') <= PR_DIFF_MAX_BYTES);
-
-function aliasesOfErrors(errors: readonly unknown[]): Set<string> | null {
-  const aliases = new Set<string>();
-  for (const error of errors) {
-    const parsed = GRAPHQL_ERROR_ALIAS.safeParse(error);
-    if (!parsed.success) return null;
-    aliases.add(parsed.data.path[0]);
-  }
-  return aliases;
-}
-
-function isPrNumber(number: number): boolean {
-  return Number.isSafeInteger(number) && number > 0;
-}
-
-function reviewSnapshotKey(repo: string, number: number): string {
-  return `${repo}#${number}`;
-}
-
-function issueLinkedPullRequestsQuery(issues: readonly PrReference[]): string {
-  const fields = issues.map((issue, index) => {
-    const [owner, name] = repoParts(issue.repo) ?? ['', ''];
-    return `pr${index}: repository(owner: "${owner}", name: "${name}") { issue(number: ${issue.number}) { closedByPullRequestsReferences(first: 5, includeClosedPrs: true) { nodes { number url title state isDraft } } } }`;
-  });
-  return `query { ${fields.join(' ')} }`;
-}
-
-function behindCountsQuery(prs: readonly PrHeadReference[]): string {
-  const fields = prs.map((pr, index) => {
-    const [owner, name] = repoParts(pr.repo) ?? ['', ''];
-    return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { baseRef { compare(headRef: "${pr.headSha}") { behindBy } } } }`;
-  });
-  return `query { ${fields.join(' ')} }`;
-}
-
-function uniqueValidPrs(prs: readonly PrReference[]): PrReference[] {
-  const byKey = new Map<string, PrReference>();
-  for (const pr of prs) {
-    if (!repoParts(pr.repo) || !isPrNumber(pr.number)) continue;
-    byKey.set(reviewSnapshotKey(pr.repo, pr.number), { repo: pr.repo, number: pr.number });
-  }
-  return [...byKey.values()];
-}
-
-function isPullRequest(candidate: unknown): boolean {
-  const parsed = z.object({ pull_request: z.unknown().optional() }).safeParse(candidate);
-  return parsed.success && parsed.data.pull_request !== undefined;
-}
-
-function parseGithubIssue(candidate: unknown, repository?: string): IssueUpdate | null {
-  const parsed = GithubIssueResponse.safeParse(candidate);
-  if (!parsed.success) return null;
-  const issue = parsed.data;
-  const repo = repository ?? (issue.repository_url ? new URL(issue.repository_url).pathname.replace(/^\/repos\//, '') : '');
-  if (!repoParts(repo)) return null;
-  return IssueUpdate.parse({
-    key: `${repo}#${issue.number}`, repo, number: issue.number, title: issue.title, url: issue.html_url,
-    labels: issue.labels.map((label) => typeof label === 'string' ? label : label.name),
-    assignees: issue.assignees.map((assignee) => assignee.login), author: issue.user?.login ?? '', isAuthorOrgMember: isOrgMemberAssociation(issue.author_association), comments: issue.comments,
-    createdAt: issue.created_at, updatedAt: issue.updated_at, state: issue.state,
-  });
-}
-
-function normalizeIssueLabel(candidate: unknown): GithubIssueLabel | null {
-  if (!candidate || typeof candidate !== 'object') return null;
-  const label = candidate as GithubIssueLabelRow;
-  const name = typeof label.name === 'string' ? label.name.trim() : '';
-  if (!name) return null;
-  const color = typeof label.color === 'string' ? label.color.trim() : '';
-  return { name, color: HEX_LABEL_COLOR.test(color) ? color : '' };
-}
-
-function normalizeIssue(row: GithubIssueRow): GithubIssue | null {
-  const number = typeof row.number === 'number' && Number.isInteger(row.number) && row.number > 0 ? row.number : 0;
-  if (number === 0) return null;
-  const labels = Array.isArray(row.labels)
-    ? row.labels.map(normalizeIssueLabel).filter((label): label is GithubIssueLabel => label !== null)
-    : [];
-  return {
-    number,
-    title: typeof row.title === 'string' ? row.title.trim() : '',
-    body: typeof row.body === 'string' ? row.body : '',
-    labels,
-    url: typeof row.url === 'string' ? row.url : '',
-    updatedAt: typeof row.updatedAt === 'string' ? row.updatedAt : '',
-  };
-}
-
-function conditionalGetResult(response: CommandResult): ConditionalGetResult {
-  const statusLine = /^HTTP\/\d+(?:\.\d+)?\s+(\d{3})(?:\s|$)/.exec(response.out);
-  if (!statusLine) return { kind: 'error', message: response.err.trim() || 'invalid gh HTTP response' };
-  const status = Number(statusLine[1]);
-  const headerBoundary = /\r?\n\r?\n/.exec(response.out);
-  const headerText = headerBoundary ? response.out.slice(0, headerBoundary.index) : response.out;
-  const headers = new Map<string, string>();
-  for (const line of headerText.split(/\r?\n/).slice(1)) {
-    const colonIndex = line.indexOf(':');
-    if (colonIndex < 1) continue;
-    headers.set(line.slice(0, colonIndex).trim().toLowerCase(), line.slice(colonIndex + 1).trim());
-  }
-  const etag = headers.get('etag');
-  const lastModified = headers.get('last-modified');
-  const pollInterval = headers.get('x-poll-interval');
-  const pollIntervalSeconds = pollInterval && /^\d+$/.test(pollInterval) ? Number(pollInterval) : NaN;
-  const metadata: RestMetadata = {
-    ...(etag === undefined ? {} : { etag }),
-    ...(lastModified === undefined ? {} : { lastModified }),
-    ...(Number.isSafeInteger(pollIntervalSeconds) ? { pollIntervalSeconds } : {}),
-  };
-  if (status === 304) return { kind: 'unchanged', ...metadata };
-  const message = response.err.trim() || `gh HTTP ${status}`;
-  const isRateLimited = headers.get('x-ratelimit-remaining') === '0' || headers.has('retry-after') || secondaryRateLimitWaitMs(message) !== null;
-  if (status === 401 || (status === 403 && !isRateLimited)) return { kind: 'forbidden', message };
-  if (status !== 200 || !response.ok) return { kind: 'error', message };
-  if (!headerBoundary) return { kind: 'error', message: 'invalid gh HTTP response' };
-  try {
-    const body: unknown = JSON.parse(response.out.slice(headerBoundary.index + headerBoundary[0].length));
-    return { kind: 'ok', body, ...metadata };
-  } catch (error) {
-    return { kind: 'error', message: errorMessage(error) };
-  }
-}
 
 function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
   async function runGh(args: string[], input?: string, preserveOutput = false, timeoutMs = GH_READ_TIMEOUT_MS): Promise<CommandResult> {
