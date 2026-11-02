@@ -7,12 +7,14 @@ export const WHITEBOARD_LIMITS = Object.freeze({
 const LANE_COLORS = ['blue', 'green', 'orange', 'pink', 'cyan', 'yellow'] as const;
 
 const ElementId = z.string({ error: 'an id must be a string' })
-  .regex(/^[a-z0-9][a-z0-9-]{0,39}$/, { error: 'an id is 1 to 40 lowercase letters, digits or dashes, starting with a letter or digit' });
+  .regex(/^[a-z0-9][a-z0-9-]{0,39}$/, { error: 'an id is 1 to 40 lowercase letters, digits or dashes, starting with a letter or digit' })
+  .meta({ id: 'ElementId' });
 
 const Title = z.string().max(WHITEBOARD_LIMITS.title, { error: `a title is at most ${WHITEBOARD_LIMITS.title} characters` });
 
 export const AnchorRef = z.string().min(1).max(200, { error: 'a ref is at most 200 characters' })
-  .regex(/^[^#\s]+(#L[1-9]\d*(-L[1-9]\d*)?)?$/, { error: 'a ref is path, path#L12 or path#L12-L30' });
+  .regex(/^[^#\s]+(#L[1-9]\d*(-L[1-9]\d*)?)?$/, { error: 'a ref is path, path#L12 or path#L12-L30' })
+  .meta({ id: 'AnchorRef', description: 'a code location: path, path#L12 or path#L12-L30' });
 
 const AnchorRefs = z.array(AnchorRef).max(8, { error: 'an element carries at most 8 refs' }).default([]);
 
@@ -22,70 +24,70 @@ const BoxLine = z.object({
   style: z.enum(['text', 'code', 'item', 'numbered', 'kv']).default('text'),
   key: z.string().max(40, { error: 'a line key is at most 40 characters' }).nullable().default(null),
   ref: AnchorRef.nullable().default(null),
-}).strict().refine((line) => line.style !== 'kv' || Boolean(line.key), { error: 'a kv line needs a key' });
+}).strict().refine((line) => line.style !== 'kv' || Boolean(line.key), { error: 'a kv line needs a key' }).meta({ id: 'BoxLine' });
 
-const Point = z.object({ x: z.number(), y: z.number() }).strict();
+const Point = z.object({ x: z.number(), y: z.number() }).strict().meta({ id: 'Point' });
 
 export const BOX_CHANGES = ['none', 'added', 'removed', 'relabeled'] as const;
 
 export const UNIT_STATUSES = ['planned', 'building', 'landed'] as const;
 
-const Side = z.enum(['left', 'right', 'top', 'bottom']);
+const Side = z.enum(['left', 'right', 'top', 'bottom']).meta({ id: 'Side' });
 
 const Near = z.object({
   of: ElementId,
   side: Side,
   gap: z.number().int().min(0).max(400).default(60),
-}).strict();
+}).strict().meta({ id: 'Near' });
 
 const Output = z.object({
   id: ElementId,
   label: z.string().min(1, { error: 'an output needs a label' }).max(30, { error: 'an output label is at most 30 characters' }),
-}).strict();
+}).strict().meta({ id: 'Output' });
 
 export const Box = z.object({
   kind: z.literal('box'),
   id: ElementId,
   title: Title.min(1, { error: 'a box needs a title' }),
   lines: z.array(BoxLine).max(WHITEBOARD_LIMITS.linesPerBox, { error: `a box holds at most ${WHITEBOARD_LIMITS.linesPerBox} lines` }).default([]),
-  lane: ElementId.nullable().default(null),
+  lane: ElementId.nullable().default(null).describe('a lane id from a lanes op'),
   refs: AnchorRefs,
-  change: z.enum(BOX_CHANGES).default('none'),
-  was: Title.nullable().default(null),
-  column: ElementId.nullable().default(null),
-  near: Near.nullable().default(null),
-  order: z.number().int().default(0),
-  at: Point.nullable().default(null),
-  shape: z.enum(['box', 'decision']).default('box'),
-  outputs: z.array(Output).max(8, { error: 'a decision has at most 8 outputs' }).default([]),
-}).strict();
+  change: z.enum(BOX_CHANGES).default('none').describe('marks the box in a diff'),
+  was: Title.nullable().default(null).describe('the old title, required when change is relabeled'),
+  column: ElementId.nullable().default(null).describe('place: a column id from a columns op'),
+  near: Near.nullable().default(null).describe('place: beside another box'),
+  order: z.number().int().default(0).describe('position in its column, lowest first'),
+  at: Point.nullable().default(null).describe('place: a point on the board'),
+  shape: z.enum(['box', 'decision']).default('box').describe('decision draws a diamond with outputs'),
+  outputs: z.array(Output).max(8, { error: 'a decision has at most 8 outputs' }).default([]).describe('decision branches; a wire leaves one through fromOutput'),
+}).strict().describe('a box needs one place: column, near or at');
 
 export const Frame = z.object({
   kind: z.literal('frame'),
   id: ElementId,
   title: Title,
-  contains: z.array(ElementId).min(1, { error: 'a frame contains at least one box' }),
+  contains: z.array(ElementId).min(1, { error: 'a frame contains at least one box' }).describe('the box ids it encloses'),
   loop: z.boolean().default(false),
 }).strict();
 
 export const Wire = z.object({
   kind: z.literal('wire'),
   id: ElementId,
-  from: ElementId,
-  to: ElementId,
-  fromOutput: ElementId.nullable().default(null),
+  from: ElementId.describe('the element id it starts at'),
+  to: ElementId.describe('the element id it ends at'),
+  fromOutput: ElementId.nullable().default(null).describe('the output id of a decision from'),
   dashed: z.boolean().default(false),
   tone: z.enum(['plain', 'fail', 'join', 'lane']).default('plain'),
   label: z.string().max(40, { error: 'a wire label is at most 40 characters' }).nullable().default(null),
   fromSide: Side.nullable().default(null),
   toSide: Side.nullable().default(null),
-  back: z.boolean().default(false),
+  back: z.boolean().default(false).describe('a return edge, drawn against the flow'),
 }).strict();
 
 export const Note = z.object({
   kind: z.literal('note'),
   id: ElementId,
-  on: ElementId,
+  on: ElementId.describe('the element id it is pinned to'),
   text: z.string().min(1, { error: 'a note needs text' }).max(WHITEBOARD_LIMITS.noteText, { error: `a note is at most ${WHITEBOARD_LIMITS.noteText} characters` }),
   ref: AnchorRef.nullable().default(null),
   author: z.string().max(200).default(''),
@@ -99,8 +101,8 @@ export const Unit = z.object({
   lines: z.array(BoxLine).max(WHITEBOARD_LIMITS.linesPerUnit, { error: `a unit holds at most ${WHITEBOARD_LIMITS.linesPerUnit} lines` }).default([]),
   refs: AnchorRefs,
   status: z.enum(UNIT_STATUSES).default('planned'),
-  after: z.array(ElementId).max(WHITEBOARD_LIMITS.unitDependencies, { error: `a unit comes after at most ${WHITEBOARD_LIMITS.unitDependencies} units` }).default([]),
-  linkedBoardId: z.string().min(1).max(64).nullable().default(null),
+  after: z.array(ElementId).max(WHITEBOARD_LIMITS.unitDependencies, { error: `a unit comes after at most ${WHITEBOARD_LIMITS.unitDependencies} units` }).default([]).describe('the unit ids built before it'),
+  linkedBoardId: z.string().min(1).max(64).nullable().default(null).describe('a board holding this step in detail'),
 }).strict();
 
 export const Panel = z.object({
@@ -146,10 +148,10 @@ export const Board = z.object({
 
 export const Op = z.discriminatedUnion('op', [
   z.object({ op: z.literal('add'), element: Element }).strict(),
-  z.object({ op: z.literal('set'), id: ElementId, fields: z.record(z.string(), z.unknown()) }).strict(),
+  z.object({ op: z.literal('set'), id: ElementId, fields: z.record(z.string(), z.unknown()).describe('the element fields to change, as in {"title":"Gateway"}') }).strict(),
   z.object({ op: z.literal('remove'), id: ElementId }).strict(),
-  z.object({ op: z.literal('resolve'), id: ElementId }).strict(),
-  z.object({ op: z.literal('columns'), columns: BoardColumns, move: z.record(ElementId, ElementId).default({}) }).strict(),
+  z.object({ op: z.literal('resolve'), id: ElementId.describe('a note id') }).strict(),
+  z.object({ op: z.literal('columns'), columns: BoardColumns.describe('every column, in order'), move: z.record(ElementId, ElementId).default({}).describe('element id to its new column id') }).strict(),
   z.object({ op: z.literal('lanes'), lanes: BoardLanes }).strict(),
   z.object({ op: z.literal('board'), title: Title.min(1).optional(), caption: z.string().max(400).nullable().optional(), legend: LegendEntries.optional(), codeSessionId: CodeSessionId.nullable().optional() }).strict(),
 ], { error: 'an op is add, set, remove, resolve, columns, lanes or board' });
