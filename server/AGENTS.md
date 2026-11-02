@@ -36,6 +36,7 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 
 ## For AI Agents
 - Resolve a shipped asset only through `runtime-paths.ts`, never `import.meta.dirname` or a `..` offset: the same module runs from a source checkout and from `dist/`.
+- Before saying no newer build exists, read the install's channel in `~/.glimmervoid/update-check.json` (experimental takes the newer of npm `next` and `latest`, so `npm view glimmervoid version` alone misleads) and the `[update]` lines in `~/.glimmervoid/logs/server.log`, which name a staged build and a rollback.
 - See root `AGENTS.md` for architecture and conventions.
 
 ## Invariants
