@@ -741,7 +741,7 @@ test('closing a child holding unpushed work is refused until --discard, which di
     const refused = await fixture.wiring.handle(fixture.parent, 'close', { child: childId });
     assert.equal(refused.status, 409);
     const refusalText = String(refused.body.error);
-    for (const fragment of [worktree.branch, worktree.worktreeDir, 'glimmervoid push', `glimmervoid close ${childId} --discard`]) {
+    for (const fragment of [worktree.branch, worktree.worktreeDir, 'push', `session send to child ${childId}`, 'discard']) {
       assert.ok(refusalText.includes(fragment), `the refusal names ${fragment}`);
     }
     assert.equal(fixture.agentSessions.has(childId), true, 'a refused close leaves the child running');
@@ -1336,7 +1336,7 @@ test('reviews with a pull request hands a session the whole Reviews tab draft, o
 
     const missing = await reviewOf('acme/app#99');
     assert.equal(missing.status, 404);
-    assert.match(String(missing.body.error), /glimmervoid review acme\/app#99/);
+    assert.match(String(missing.body.error), /review action review for pr acme\/app#99/);
     assert.equal((await reviewOf('not a pull request')).status, 400);
   } finally {
     fixture.destroyAll();

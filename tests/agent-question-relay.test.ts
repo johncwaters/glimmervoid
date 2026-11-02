@@ -145,7 +145,7 @@ test('a parent reads and answers held child questions through the agent API or r
     assert.match(unparsedNote, new RegExp(`glimmervoid answer ${child.id} --operator`));
     const unparsedRefused = await post('answer', { child: child.id, answers: { 'Question 1?': 'yes' } });
     assert.equal(unparsedRefused.status, 409);
-    assert.match((await unparsedRefused.json()).error, /--operator/);
+    assert.match((await unparsedRefused.json()).error, /toOperator set/);
     assert.equal(await runAgentApiCli(['answer', child.id, '--operator']), 0);
     assert.equal(await heldUnparsed, null);
     assert.equal(parent.holdClaudePermission(payload, new AbortController().signal), null);

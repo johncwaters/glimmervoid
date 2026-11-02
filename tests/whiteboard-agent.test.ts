@@ -498,7 +498,7 @@ test('a flood of edits to one box stays inside the prompt context bound and leav
 
   const promptContext = wiring.takePromptContext(reader.id) ?? '';
   assert.ok(promptContext.length <= WHITEBOARD_LIMITS.promptContextCharacters, `the context is ${promptContext.length} characters`);
-  assert.match(promptContext, new RegExp(`run glimmervoid whiteboard get ${boardId} for the rest`));
+  assert.match(promptContext, new RegExp(`read the rest with whiteboard get ${boardId}`));
   const read = await wiring.handleAgent(reader, { sub: 'get', board: boardId });
   assert.ok((read.body as { changes: unknown[] }).changes.length > 0, 'the clipped changes are still unread');
 });

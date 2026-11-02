@@ -233,7 +233,7 @@ function describeChildWorktree({ worktreeDir, branch }: ChildWorktree): string {
 }
 
 function describeUnpushedCloseRefusal(childName: string, childId: string, worktree: ChildWorktree): string {
-  return `${childName} holds work that is not on the integration branch (${describeChildWorktree(worktree)}), so it was not closed. Ask it to land the work with glimmervoid push (glimmervoid send ${childId} <text>), or run glimmervoid close ${childId} --discard to end it and throw the work away`;
+  return `${childName} holds work that is not on the integration branch (${describeChildWorktree(worktree)}), so it was not closed. Ask it to land the work with push (session send to child ${childId}), or close it with discard set to end it and throw the work away`;
 }
 
 type ChildEndCause = 'exited' | 'operator' | 'parent-closed' | 'parent-ended';

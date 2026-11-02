@@ -528,7 +528,7 @@ function createAgentApiWiring({
     const status = operatorState.teamReviewStatus();
     if (pullRequestKey === null) return { status: 200, body: projectReviews(status) };
     const detail = projectReviewDetail(status, pullRequestKey);
-    if (!detail) return refusal(404, `${pullRequestKey} is not in the Reviews tab, so run glimmervoid review ${pullRequestKey} to queue one`);
+    if (!detail) return refusal(404, `${pullRequestKey} is not in the Reviews tab, so queue one with review action review for pr ${pullRequestKey}`);
     return { status: 200, body: detail };
   }
 
@@ -600,7 +600,7 @@ function createAgentApiWiring({
       if (typeof approval.requestId !== 'string' || !child.releaseQuestionHold(approval.requestId)) return refusal(409, 'the question is no longer held');
       return { status: 200, body: { ok: true } };
     }
-    if (approval.isSummaryTruncated) return refusal(409, `${owned.channel.childName}'s question is too large to answer here; pass it to the operator with glimmervoid answer ${request.child} --operator`);
+    if (approval.isSummaryTruncated) return refusal(409, `${owned.channel.childName}'s question is too large to answer here; pass it to the operator with session answer, child ${request.child} and toOperator set`);
     if (!child.answerConversationApproval(approval.requestId, request.answers)) {
       const expectedQuestions = (approval.questions ?? []).map((question) => question.question);
       return refusal(409, `answers must match the expected question texts: ${JSON.stringify(expectedQuestions)}`);

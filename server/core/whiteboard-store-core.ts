@@ -102,9 +102,9 @@ const BOARD_CONTEXT_NOTE: AgentNote = {
 
 function appendBoardChanges(draft: PromptContextDraft, board: Board, changes: readonly BoardChange[]): boolean {
   const header = boardChangesHeader(board);
-  const pointer = `run glimmervoid whiteboard get ${board.id} for the rest`;
+  const pointer = `read the rest with whiteboard get ${board.id}`;
   if (!hasRoomFor(draft, [header, pointer])) {
-    const brief = `Board "${board.title}" (${board.id}) has ${changes.length} unread changes: run glimmervoid whiteboard get ${board.id}`;
+    const brief = `Board "${board.title}" (${board.id}) has ${changes.length} unread changes: read them with whiteboard get ${board.id}`;
     if (hasRoomFor(draft, [brief])) appendLines(draft, [brief]);
     return false;
   }
@@ -138,7 +138,7 @@ function promptContextFor(records: readonly BoardRecord[], sessionId: string): P
 }
 
 function nudgeLineFor(board: Board): string {
-  return `The operator changed board "${board.title}"; run glimmervoid whiteboard get ${board.id}`;
+  return `The operator changed board "${board.title}"; read it with whiteboard get ${board.id}`;
 }
 
 function resolveBoardRef(boards: readonly Board[], ref: string): Board | { error: string } {
@@ -148,7 +148,7 @@ function resolveBoardRef(boards: readonly Board[], ref: string): Board | { error
   const byTitle = boards.filter((board) => board.title.toLowerCase() === wantedTitle);
   if (byTitle.length === 1 && byTitle[0]) return byTitle[0];
   if (byTitle.length > 1) return { error: `${byTitle.length} boards are titled "${ref}", so name it by id: ${byTitle.map((board) => board.id).join(', ')}` };
-  return { error: `no board is called ${ref}, so run glimmervoid whiteboard list to see the boards` };
+  return { error: `no board is called ${ref}: whiteboard list names the boards, and whiteboard new creates one` };
 }
 
 export { BOARD_CONTEXT_NOTE, changesForReader, connectSession, disconnectSession, markRead, nudgeLineFor, promptContextFor, recordPut, resolveBoardRef, summarizeBoard };
