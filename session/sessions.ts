@@ -1,5 +1,4 @@
 import type { GitIsolationOptions } from '../server/git/core/git-invocation-core.ts';
-import { awaitBounded } from "../server/core/shutdown-core.ts";
 import { errorMessage } from "../shared/text.ts";
 import { createCompactionTracking, observeCompaction, finishCompaction, isCompactionEndingSignal, suppressCompactionSignal, mapCompactionActivityEvent, isIdleCompactionActivity } from "./core/compaction-core.ts";
 import { isCompactionRestoreEvent } from "../shared/compaction-restore-events.ts";
@@ -25,28 +24,23 @@ import { requireExecutableSpawnHelper } from "../server/node-pty-preflight.ts";
 import { STATES, KILLABLE_STATES, RESTARTABLE_STATES } from "../shared/states.ts";
 import type { SessionState } from "../shared/states.ts";
 import { unrefTimer } from "../shared/timer-deps.ts";
-import { AGENT_ATTENTION_NOTE_SEPARATOR, AGENT_URL_ENV } from "../shared/contracts/session.ts";
-import { commitSigningEnv } from "./core/commit-signing-env.ts";
+import { AGENT_ATTENTION_NOTE_SEPARATOR } from "../shared/contracts/session.ts";
 import { hintFor, permitsHelpCommand, promptHintFor, supervisionLine, toolHookFactsOf } from "./core/session-routes.ts";
 import type { CommandHint, HintedCommand, PromptHint } from "./core/session-routes.ts";
 import { ASK_USER_QUESTION_TOOL_NAME, type AgentAttentionReply } from "../shared/contracts/session.ts";
-import { buildHookSettings, generateToken } from "../detection/settings-injector.ts";
+import { generateToken } from "../detection/settings-injector.ts";
 import { mcpLaunchFor } from "../mcp/core/agent-config.ts";
 import { createOscTitleSource } from "../detection/osc-title-source.ts";
 import { createStatusSource } from "../detection/status-source.ts";
 import type { MetaStatusSignal, ResolvedStatusSignal } from "../detection/status-source.ts";
 import type { HookSignal } from "../detection/hook-source.ts";
 import type { ResolvedCommand } from "./core/spawn-command.ts";
-import type { SpawnEnv } from "./core/spawn-env.ts";
 import { DEFAULT_AGENT_ID, resolveAdapter, commandFor } from "./adapters/index.ts";
-import { startCodexAppServerBridge, startCoderPortForward } from "./codex-app-server-bridge.ts";
-import { remoteCodexAppServerScript } from "./core/codex-app-server-core.ts";
-import type { CodexAppServerBridge } from "./codex-app-server-bridge.ts";
-import { CODEX_REMOTE_TOKEN_ENV, remoteTuiArgs, splitCodexRemoteLaunch } from "./core/codex-remote-launch-core.ts";
+import { startCodexAppServerBridge } from "./codex-app-server-bridge.ts";
+import { CODEX_REMOTE_TOKEN_ENV } from "./core/codex-remote-launch-core.ts";
 import type { CoherenceAttachment } from '../server/coherence/coherence-runtime.ts';
 import type { CoherenceHooksState, ConversationAnswers, ConversationApproval, UnseenOutcome } from "../shared/contracts/session.ts";
-import { claudeAnswerReply, claudeApprovalFor, isHoldReleasedByHookEvent, parseClaudePermissionRequest } from "./core/claude-approval-core.ts";
-import type { ClaudeHookReply, ClaudePermissionRequest } from "./core/claude-approval-core.ts";
+import type { ClaudeHookReply } from "./core/claude-approval-core.ts";
 import type { AgentAdapter, AgentCapabilities, ScratchAgentHome } from "./adapters/index.ts";
 
 import {
@@ -62,9 +56,7 @@ import { decideExitTransition } from "./core/exit-transition.ts";
 import type { ExitSignal } from "./core/exit-transition.ts";
 import * as agentTracker from "./core/agent-tracker.ts";
 import { DEFAULT_GATE_RELEASE_SETTLE_MS } from "./core/gate-release.ts";
-import { isConversationReplacedAtStartup, resolveResumeTarget, shouldAdoptReportedResumeId, AUTO_CONTINUE_PROMPT, RESUME_ID_RE } from "./core/auto-resume.ts";
-import { CLAUDE_TOKEN_ALIAS_ENV, CLAUDE_TOKEN_ALIASES, CODER_SSH_ENV, coderSshArgs, coderSshExecArgs, encodeCoderSshEnv, remoteLaunchScript } from "./core/remote-launch-core.ts";
-import { safePathSegment } from "../shared/paths.ts";
+import { isConversationReplacedAtStartup, resolveResumeTarget, shouldAdoptReportedResumeId, RESUME_ID_RE } from "./core/auto-resume.ts";
 import { projectSessionSnapshots } from "./core/snapshot-projection.ts";
 import type { UserHook } from "./core/user-hooks-core.ts";
 import type { DecisionEntry } from "./core/decision-log.ts";
@@ -77,13 +69,15 @@ import type { HookRouterPort } from "./session-hook-lifecycle.ts";
 import { createSessionWorktreeLifecycle } from "./session-worktree-lifecycle.ts";
 import type { SeedDependencies } from "../server/git/dependency-clone.ts";
 import type { GitWorkspace } from "./session-worktree-lifecycle.ts";
+import { createSessionApprovalHolds } from "./session-approval-holds.ts";
+import type { SessionApprovalHolds } from "./session-approval-holds.ts";
 import { createSessionBackgroundTracking } from "./session-background-tracking.ts";
+import { createSessionLaunch } from "./session-launch.ts";
+import type { RemoteLaunch, SessionLaunch } from "./session-launch.ts";
+import { createSessionProcessReaper } from "./session-process-reaper.ts";
+import type { KillProc, SessionProcessReaper, SignalProc } from "./session-process-reaper.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
 
-const KILL_POLL_INTERVAL_MS = 200;
-const KILL_MAX_WAIT_MS = 3000;
-
-const KILL_REAP_MAX_WAIT_MS = 2400;
 const MAX_PENDING_ATTENTION_NOTES = 5;
 const PTY_PROMPT_SETTLE_MS = 1500;
 const PTY_PROMPT_SUBMIT_DELAY_MS = 300;
@@ -99,13 +93,6 @@ function describeSpawnFailure(detail: unknown): string {
   const reason = "reason" in detail && typeof detail.reason === "string" ? detail.reason : "";
   return SPAWN_FAILURE_TEXT_BY_REASON[reason] ?? SPAWN_FAILURE_FALLBACK_TEXT;
 }
-function signalablePid(pid: unknown): number | null {
-  const parsed = Number(pid);
-  if (!Number.isInteger(parsed)) return null;
-  if (parsed < 2) return null;
-  return parsed;
-}
-
 function nextPendingPromptToolName(
   currentKind: string | null,
   currentToolName: string | null,
@@ -121,18 +108,11 @@ function nextPendingPromptToolName(
 
 const DISMISSIBLE_STATES: Set<SessionState> = new Set([STATES.WAITING, STATES.COMPLETE]);
 
-
-interface ClaudeApprovalHold {
-  request: ClaudePermissionRequest;
-  approval: ConversationApproval;
-  resolve: (reply: ClaudeHookReply | null) => void;
-}
-
 interface SessionPlanReviewPort {
   hasPlan: (sessionId: string) => boolean;
 }
 
-type TimerField = "_killPollTimer" | "_killReapTimer" | "_titleQuietFallbackTimer";
+type TimerField = "_titleQuietFallbackTimer";
 
 interface SessionRecorderPort {
   writeHeader(config: { agent?: string | null; cols?: number; rows?: number } & Record<string, unknown>): void;
@@ -162,39 +142,6 @@ type PtySpawn = (
   args: string[],
   options: pty.IPtyForkOptions | pty.IWindowsPtyForkOptions,
 ) => SessionPty;
-
-type KillProc = (
-  args: string[],
-  options: Record<string, unknown>,
-  callback: (error: unknown, stdout?: string, stderr?: string) => void,
-) => unknown;
-
-type SignalProc = (pid: number, signal: NodeJS.Signals | 0) => void;
-
-type RemoteLaunchStep = { ok: true } | { ok: false; reason: string };
-
-interface RemoteLaunch {
-  workspace: string;
-  remotePort: number;
-  checkoutDirectory: string;
-  nodePath: string;
-  ensureRunning: () => Promise<RemoteLaunchStep>;
-  describeExit: () => Promise<string | null>;
-  uploadFile: (file: { remotePath: string; contents: string; mode: number }) => Promise<void>;
-  claudeToken: () => Promise<{ ok: true; token: string } | { ok: false; reason: string }>;
-  codexVersion: () => Promise<string | null>;
-  codexLoginParams: () => Promise<unknown>;
-  codexRefreshResult: () => Promise<unknown>;
-}
-
-const REMOTE_CODEX_STARTUP_TIMEOUT_MS = 300_000;
-
-interface SpawnCommand {
-  file: string;
-  args: string[];
-  env: Record<string, string>;
-  cwd?: string;
-}
 
 interface SessionOptions {
   customTitle?: string;
@@ -295,22 +242,15 @@ class Session extends EventEmitter {
   usageVendor: string;
   bypassHookTrust: boolean;
   _holdsQuestionsForParent: boolean;
-  _startCodexBridge: typeof startCodexAppServerBridge;
-  _codexBridge: CodexAppServerBridge | null;
-  _conversationApproval: ConversationApproval | null;
-  _claudeApprovalHolds: ClaudeApprovalHold[];
-  _nextClaudeApprovalNumber: number;
+  _launch: SessionLaunch;
+  _approvals: SessionApprovalHolds;
   backgroundTracking: ReturnType<typeof createSessionBackgroundTracking>;
   worktreeLifecycle: ReturnType<typeof createSessionWorktreeLifecycle>;
 
   _receivedFirstOutput: boolean;
   _hasPromptSinceSpawn: boolean;
-  _killPollTimer: NodeJS.Timeout | null;
-  _killReapTimer: NodeJS.Timeout | null;
   _titleQuietFallbackTimer: NodeJS.Timeout | null;
-  _resolveKillReap: (() => void) | null;
-  _killReap: Promise<void> | null;
-  _exitReap: Promise<void> | null;
+  _reaper: SessionProcessReaper;
   _destroyed: boolean;
   _pendingRestart: boolean;
   _finishing: boolean;
@@ -363,10 +303,7 @@ class Session extends EventEmitter {
   _agentSpawnsInFlight: number;
   _ptySpawn: PtySpawn;
   _getRemoteLaunch: () => RemoteLaunch | null;
-  _hasRespawnedForAuth: boolean;
   _requiresWorktree: boolean;
-  _killProc: KillProc;
-  _signalProc: SignalProc;
   _platform: NodeJS.Platform;
   _startPending: Promise<void> | null;
   _resizeSeq: number;
@@ -491,14 +428,6 @@ class Session extends EventEmitter {
     this.unseenOutcome = null;
     this._receivedFirstOutput = false;
     this._hasPromptSinceSpawn = false;
-    this._killPollTimer = null;
-    this._killReapTimer = null;
-
-    this._resolveKillReap = null;
-
-    this._killReap = null;
-
-    this._exitReap = null;
     this._destroyed = false;
     this._pendingRestart = false;
 
@@ -532,11 +461,11 @@ class Session extends EventEmitter {
     this.usageVendor = this._adapter.usageVendor || "claude";
     this.bypassHookTrust = bypassHookTrust === true;
     this._holdsQuestionsForParent = holdsQuestionsForParent;
-    this._startCodexBridge = startCodexBridge;
-    this._codexBridge = null;
-    this._conversationApproval = null;
-    this._claudeApprovalHolds = [];
-    this._nextClaudeApprovalNumber = 1;
+    this._approvals = createSessionApprovalHolds({
+      agentId: this.agentId,
+      holdsQuestionsForParent,
+      port: { emit: (event, detail) => this.emit(event, detail) },
+    });
     this._titleQuietFallbackMs = titleQuietFallbackMs;
     this._titleQuietFallbackTimer = null;
 
@@ -613,10 +542,10 @@ class Session extends EventEmitter {
       requiresHooks: requiresHooks && hookRouter !== null,
       bypassHookTrust: this.bypassHookTrust,
       effectiveCwd: () => this.effectiveCwd(),
-      agentEnv: () => this._buildSpawnEnv(),
+      agentEnv: () => this._launch.buildEnv(),
       ingestSignal: (raw) => this.ingestHookSignal(raw),
       observeHook: (event, payload) => {
-        this._releaseClaudeHoldsAfterHookEvent(event, payload);
+        this._approvals.releaseAfterHookEvent(event, payload);
         this.emit("hook-event", { event, payload });
       },
       recordDecision: (entry) => this._recordDecision(entry),
@@ -635,10 +564,38 @@ class Session extends EventEmitter {
       return pty.spawn(file, args, opts);
     });
     this._getRemoteLaunch = getRemoteLaunch ?? (() => null);
-    this._hasRespawnedForAuth = false;
+    this._launch = createSessionLaunch({
+      id: this.id,
+      adapter: this._adapter,
+      platform,
+      startCodexBridge,
+      getRemoteLaunch: this._getRemoteLaunch,
+      hooks: this._hooks,
+      port: {
+        name: () => this.name,
+        promptSupervisionLine: () => this._canRunHelpCommand ? supervisionLine({ canSpawn: !this.ephemeral }) : null,
+        effectiveCwd: () => this.effectiveCwd(),
+        spawnEnv: () => this._spawnEnv,
+        spawnCommand: () => this._spawnCommand,
+        agentToken: () => this._agentToken,
+        commitSigningToken: () => this._commitSigningToken,
+        commitSigningProgram: () => this._commitSigningProgram,
+        isDestroyed: () => this._destroyed,
+        abandonSpawn: (cause) => this._abandonSpawn(cause),
+        emit: (event, detail) => this.emit(event, detail),
+        forceRestart: (options) => this.forceRestart(options),
+      },
+    });
 
-    this._killProc = killProc || ((args, opts, cb) => execFile("taskkill", args, opts, cb));
-    this._signalProc = signalProc || ((pid, signal) => process.kill(pid, signal));
+    this._reaper = createSessionProcessReaper({
+      platform,
+      killProc: killProc || ((args, opts, cb) => execFile("taskkill", args, opts, cb)),
+      signalProc: signalProc || ((pid, signal) => process.kill(pid, signal)),
+      port: {
+        isDestroyed: () => this._destroyed,
+        emitError: (err) => this._emitError(err),
+      },
+    });
     this._platform = platform;
 
     this._startPending = null;
@@ -818,7 +775,7 @@ class Session extends EventEmitter {
   ingestHookSignal(raw: HookSignal): void {
     if (this._destroyed) return;
     if (raw?.signal === "auth-failed") {
-      if (this._respawnAfterAuthFailure()) return;
+      if (this._launch.respawnAfterAuthFailure()) return;
       this.ingestHookSignal({ ...raw, signal: "awaiting-input" });
       return;
     }
@@ -826,7 +783,7 @@ class Session extends EventEmitter {
       this.ingestHookSignal({ ...raw, payload: { ...raw.payload, source: "clear" } });
       return;
     }
-    if (raw?.signal === "ready" && String(raw.event || "").toLowerCase() === "stop") this._hasRespawnedForAuth = false;
+    if (raw?.signal === "ready" && String(raw.event || "").toLowerCase() === "stop") this._launch.noteTurnStopped();
     this._hookSeen = true;
     if (this._recorder && raw?.event) {
       this._recorder.writeHook(raw.event, raw.payload);
@@ -1120,6 +1077,42 @@ class Session extends EventEmitter {
     return this.ptyProcess ? this.ptyProcess.pid : null;
   }
 
+  get _killPollTimer(): NodeJS.Timeout | null {
+    return this._reaper.killPollTimer;
+  }
+
+  get _killReapTimer(): NodeJS.Timeout | null {
+    return this._reaper.killReapTimer;
+  }
+
+  get _killReap(): Promise<void> | null {
+    return this._reaper.killReap;
+  }
+
+  set _killReap(reap: Promise<void> | null) {
+    this._reaper.killReap = reap;
+  }
+
+  _awaitPendingReaps(): Promise<void> | null {
+    return this._reaper.awaitPendingReaps();
+  }
+
+  get _conversationApproval(): ConversationApproval | null {
+    return this._approvals.conversationApproval;
+  }
+
+  holdClaudePermission(payload: unknown, abandoned: AbortSignal): Promise<ClaudeHookReply | null> | null {
+    return this._approvals.hold(payload, abandoned);
+  }
+
+  answerConversationApproval(requestId: number | string, answers: ConversationAnswers): boolean {
+    return this._approvals.answer(requestId, answers);
+  }
+
+  releaseQuestionHold(requestId: string): boolean {
+    return this._approvals.release(requestId);
+  }
+
   get hookSeen(): boolean {
     return this._hookSeen;
   }
@@ -1132,27 +1125,8 @@ class Session extends EventEmitter {
     return this._agentToken;
   }
 
-  _agentApiEnv(): Record<string, string> {
-    if (!this._agentToken) return {};
-    const port = this._hooks.listenerPort();
-    if (!port) return {};
-    const url = `http://127.0.0.1:${port}/agent/${encodeURIComponent(this.id)}?t=${encodeURIComponent(this._agentToken)}`;
-    return { [AGENT_URL_ENV]: url };
-  }
-
   get commitSigningToken(): string | null {
     return this._commitSigningToken;
-  }
-
-  _commitSigningEnv(): Record<string, string> {
-    if (this._getRemoteLaunch() !== null) return {};
-    return commitSigningEnv({
-      port: this._hooks.listenerPort(),
-      sessionId: this.id,
-      token: this._commitSigningToken,
-      signingProgram: this._commitSigningProgram,
-      inheritedConfigParameters: this._spawnEnv?.GIT_CONFIG_PARAMETERS ?? process.env.GIT_CONFIG_PARAMETERS,
-    });
   }
 
   agentSpawnBudget(): { liveChildren: number; lifetimeSpawns: number; inFlight: number; depth: number } {
@@ -1281,15 +1255,6 @@ class Session extends EventEmitter {
   refreshGitContext() { return this.worktreeLifecycle.refreshGitContext(); }
 
   effectiveCwd(): string { return this.worktreeLifecycle.effectiveCwd(); }
-
-  _spawnCwdSpellings(): string[] {
-    const spawnCwd = this.effectiveCwd();
-    try {
-      return Array.from(new Set([spawnCwd, fs.realpathSync.native(spawnCwd)]));
-    } catch {
-      return [spawnCwd];
-    }
-  }
 
   _provisionWorktree({ fresh = false }: { fresh?: boolean } = {}) { return this.worktreeLifecycle.provision({ fresh }); }
 
@@ -1520,11 +1485,11 @@ class Session extends EventEmitter {
       console.warn(`[session:${this.name}] start() called while PTY exists - killing previous PTY first`);
       const oldPid = this.ptyProcess.pid;
 
-      this._killReap = this._reapTreeOnce(oldPid);
+      this._reaper.killReap = this._reaper.reapTreeOnce(oldPid);
       this.ptyProcess = null;
     }
 
-    const pendingReaps = this._awaitPendingReaps();
+    const pendingReaps = this._reaper.awaitPendingReaps();
     if (pendingReaps) await pendingReaps;
     if (this._destroyed) return;
 
@@ -1590,12 +1555,12 @@ class Session extends EventEmitter {
     this._armTitleQuietFallback();
 
     this._titleSource.setContext({ cwdBasename: path.basename(this.effectiveCwd()) });
-    const injectedEnv = { ...hookInjection.env, ...this._agentApiEnv(), ...mcpLaunch.env, ...this._commitSigningEnv() };
+    const injectedEnv = { ...hookInjection.env, ...this._launch.agentApiEnv(), ...mcpLaunch.env, ...this._launch.commitSigningEnv() };
     const spawnExtraEnv = Object.keys(injectedEnv).length > 0
       ? { ...(this._spawnEnv || {}), ...injectedEnv }
       : this._spawnEnv;
 
-    const env = this._buildSpawnEnv({
+    const env = this._launch.buildEnv({
       prependPathDirs: this._prependPathDirs,
       extraEnv: spawnExtraEnv,
     });
@@ -1607,7 +1572,7 @@ class Session extends EventEmitter {
         resumeSessionId: configuredResumeSessionId,
         transcriptPath: this._transcriptPath,
         projectsDirs: projectDirCandidates(env, [], os.homedir()),
-        cwds: this._spawnCwdSpellings(),
+        cwds: this._launch.spawnCwdSpellings(),
         isTranscriptRemote: remoteLaunch !== null,
       }, fs.existsSync);
       spawnResumeSessionId = resumeTarget.resumeSessionId;
@@ -1626,22 +1591,22 @@ class Session extends EventEmitter {
     });
 
     const bridgedLaunch = isRemoteCodex && remoteLaunch !== null
-      ? await this._startRemoteCodexBridge(remoteLaunch, agentArgs, env)
+      ? await this._launch.startRemoteCodexBridge(remoteLaunch, agentArgs, env)
       : null;
     if (isRemoteCodex && !bridgedLaunch) return;
     if (isStartSuperseded()) {
       this._hooks.cleanup();
-      await this._stopCodexBridge();
+      await this._launch.stopCodexBridge();
       return;
     }
-    const spawnCommand = await this._spawnCommandFor({ remoteLaunch, isRemoteCodex, settingsArgs, agentArgs, bridgedLaunch });
+    const spawnCommand = await this._launch.spawnCommandFor({ remoteLaunch, isRemoteCodex, settingsArgs, agentArgs, bridgedLaunch });
     if (!spawnCommand) {
-      await this._stopCodexBridge();
+      await this._launch.stopCodexBridge();
       return;
     }
     if (isStartSuperseded()) {
       this._hooks.cleanup();
-      await this._stopCodexBridge();
+      await this._launch.stopCodexBridge();
       return;
     }
     if (bridgedLaunch) env[CODEX_REMOTE_TOKEN_ENV] = bridgedLaunch.token;
@@ -1756,194 +1721,13 @@ class Session extends EventEmitter {
     this._output.pasteTextWhenReady(pastablePrompt, { settleMs: PTY_PROMPT_SETTLE_MS, submitDelayMs: PTY_PROMPT_SUBMIT_DELAY_MS });
   }
 
-  async _stopCodexBridge(): Promise<void> {
-    const bridge = this._codexBridge;
-    if (!bridge) return;
-    this._codexBridge = null;
-    await bridge.stop().catch((error: unknown) => console.warn(`[session:${this.name}] codex app-server stop failed: ${errorMessage(error)}`));
-  }
-
-  _setConversationApproval(approval: ConversationApproval | null): void {
-    this._conversationApproval = approval;
-    this._emitConversationChange();
-  }
-
-  _emitConversationChange(): void {
-    this.emit("conversation-change", { conversationApproval: this._conversationApproval });
-  }
-
-  holdClaudePermission(payload: unknown, abandoned: AbortSignal): Promise<ClaudeHookReply | null> | null {
-    if (this.agentId !== "claude-code") return null;
-    const request = parseClaudePermissionRequest(payload);
-    if (!request) return null;
-    if (!this._holdsQuestionsForParent || request.toolName !== ASK_USER_QUESTION_TOOL_NAME) return null;
-    this._releaseClaudeHolds((hold) => hold.request.agentKey === request.agentKey);
-    const requestId = `claude-${this._nextClaudeApprovalNumber}`;
-    this._nextClaudeApprovalNumber += 1;
-    return new Promise((resolve) => {
-      const hold: ClaudeApprovalHold = { request, approval: claudeApprovalFor(request, requestId), resolve };
-      this._claudeApprovalHolds.push(hold);
-      abandoned.addEventListener("abort", () => this._releaseClaudeHolds((candidate) => candidate === hold), { once: true });
-      this._showFirstClaudeApproval();
-    });
-  }
-
-  _releaseClaudeHoldsAfterHookEvent(event: string, payload: Record<string, unknown>): void {
-    if (this._claudeApprovalHolds.length === 0) return;
-    this._releaseClaudeHolds((hold) => isHoldReleasedByHookEvent(hold.request, event, payload));
-  }
-
-  _releaseClaudeHolds(isReleased: (hold: ClaudeApprovalHold) => boolean): void {
-    const released = this._claudeApprovalHolds.filter(isReleased);
-    if (released.length === 0) return;
-    this._claudeApprovalHolds = this._claudeApprovalHolds.filter((hold) => !released.includes(hold));
-    for (const hold of released) hold.resolve(null);
-    this._showFirstClaudeApproval();
-  }
-
-  _showFirstClaudeApproval(): void {
-    this._setConversationApproval(this._claudeApprovalHolds[0]?.approval ?? null);
-  }
-
-  answerConversationApproval(requestId: number | string, answers: ConversationAnswers): boolean {
-    const hold = this._claudeApprovalHolds.find((candidate) => candidate.approval.requestId === requestId);
-    if (!hold) return false;
-    const reply = claudeAnswerReply(hold.request, hold.approval, answers);
-    if (!reply) return false;
-    this._claudeApprovalHolds = this._claudeApprovalHolds.filter((candidate) => candidate !== hold);
-    hold.resolve(reply);
-    this._showFirstClaudeApproval();
-    return true;
-  }
-
-  releaseQuestionHold(requestId: string): boolean {
-    const hold = this._claudeApprovalHolds.find((candidate) => candidate.approval.requestId === requestId);
-    if (!hold) return false;
-    this._releaseClaudeHolds((candidate) => candidate === hold);
-    return true;
-  }
-
   _abandonSpawn(cause: unknown): void {
     this._isSaneYoloActive = false;
     this._hooks.cleanup();
-    void this._stopCodexBridge();
-    this._releaseClaudeHolds(() => true);
+    void this._launch.stopCodexBridge();
+    this._approvals.releaseAll();
     this.transition("spawn_fail", { error: errorMessage(cause) });
     this.emit("error", cause);
-  }
-
-
-  async _spawnCommandFor({ remoteLaunch, isRemoteCodex, settingsArgs, agentArgs, bridgedLaunch }: {
-    remoteLaunch: RemoteLaunch | null;
-    isRemoteCodex: boolean;
-    settingsArgs: string[];
-    agentArgs: string[];
-    bridgedLaunch: { tuiArgs: string[]; token: string } | null;
-  }): Promise<SpawnCommand | null> {
-    if (remoteLaunch !== null && !isRemoteCodex) return this._remoteSpawnCommand(remoteLaunch, agentArgs);
-    const command = this._adapter.buildSpawnCommand({
-      platform: this._platform,
-      resolved: this._spawnCommand || commandFor(this._adapter),
-      settingsArgs: bridgedLaunch ? [] : settingsArgs,
-      agentArgs: bridgedLaunch?.tuiArgs ?? agentArgs,
-    });
-    return { file: command.file, args: command.args, env: {} };
-  }
-
-  async _startRemoteCodexBridge(remote: RemoteLaunch, agentArgs: string[], env: SpawnEnv): Promise<{ tuiArgs: string[]; token: string } | null> {
-    await this._stopCodexBridge();
-    const prepared = await this._prepareRemoteCodexBridge(remote, agentArgs, env).catch((error: unknown) => ({ ok: false as const, reason: errorMessage(error) }));
-    if (this._destroyed) {
-      this._hooks.cleanup();
-      await this._stopCodexBridge();
-      return null;
-    }
-    if (!prepared.ok) {
-      this._abandonSpawn(new Error(`Coder workspace ${remote.workspace}: ${prepared.reason}`));
-      return null;
-    }
-    return prepared.launch;
-  }
-
-  async _prepareRemoteCodexBridge(remote: RemoteLaunch, agentArgs: string[], env: SpawnEnv): Promise<{ ok: true; launch: { tuiArgs: string[]; token: string } } | { ok: false; reason: string }> {
-    const running = await remote.ensureRunning();
-    if (!running.ok) return running;
-    const version = await remote.codexVersion();
-    if (version === null) return { ok: false, reason: "the host codex version could not be read, so the workspace cannot install a matching codex" };
-    const launch = splitCodexRemoteLaunch(agentArgs, this._canRunHelpCommand ? supervisionLine({ canSpawn: !this.ephemeral }) : null);
-    const bridge = await this._startCodexBridge({
-      command: { file: "coder", argsBeforeAppServer: [] },
-      configArgs: launch.appServerConfigArgs,
-      cwd: this.effectiveCwd(),
-      env: { ...env },
-      tokenParentDirectory: os.tmpdir(),
-      startupTimeoutMs: REMOTE_CODEX_STARTUP_TIMEOUT_MS,
-      remote: {
-        launch: (appServerArgs) => {
-          const script = remoteCodexAppServerScript({ version, workingDirectory: remote.checkoutDirectory, appServerArgs });
-          const sshArgs = script === null ? null : coderSshExecArgs({ workspace: remote.workspace, remoteCommand: script });
-          if (sshArgs === null) throw new Error("the remote Codex app-server command could not be built");
-          return { file: "coder", args: sshArgs };
-        },
-        forward: (remotePort) => startCoderPortForward({ workspace: remote.workspace, remotePort }),
-        login: remote.codexLoginParams,
-        refreshLogin: remote.codexRefreshResult,
-      },
-    });
-    this._attachCodexBridge(bridge);
-    return { ok: true, launch: { tuiArgs: remoteTuiArgs(bridge.url, launch.tuiArgs), token: bridge.token } };
-  }
-
-  _attachCodexBridge(bridge: CodexAppServerBridge): void {
-    this._codexBridge = bridge;
-    bridge.on("records", (records: unknown) => this.emit("conversation-records", { records }));
-    bridge.on("error", (error: unknown) => console.warn(`[session:${this.name}] codex app-server bridge: ${errorMessage(error)}`));
-    bridge.on("exit", () => {
-      if (this._codexBridge !== bridge) return;
-      this._codexBridge = null;
-    });
-  }
-
-  async _remoteSpawnCommand(remote: RemoteLaunch, agentArgs: string[]): Promise<SpawnCommand | null> {
-    const prepared = await this._prepareRemoteSpawn(remote, agentArgs).catch((error: unknown) => ({ ok: false as const, reason: errorMessage(error) }));
-    if (this._destroyed) {
-      this._hooks.cleanup();
-      return null;
-    }
-    if (!prepared.ok) {
-      this._abandonSpawn(new Error(`Coder workspace ${remote.workspace}: ${prepared.reason}`));
-      return null;
-    }
-    return prepared.spawnCommand;
-  }
-
-  async _prepareRemoteSpawn(remote: RemoteLaunch, agentArgs: string[]): Promise<{ ok: true; spawnCommand: SpawnCommand } | { ok: false; reason: string }> {
-    const hookToken = this._hooks.token();
-    const ingressPort = this._hooks.listenerPort();
-    if (hookToken === null || ingressPort === null) return { ok: false, reason: "hooks are unavailable, so the remote session could not report its status" };
-    const running = await remote.ensureRunning();
-    if (!running.ok) return running;
-    const login = await remote.claudeToken();
-    if (!login.ok) return login;
-    const settingsPath = path.posix.join(path.posix.dirname(remote.checkoutDirectory), ".glimmervoid-sessions", safePathSegment(this.id), "settings.json");
-    const settings = buildHookSettings({ port: remote.remotePort, glimmervoidId: this.id, token: hookToken, remoteNodePath: remote.nodePath });
-    await remote.uploadFile({ remotePath: settingsPath, contents: JSON.stringify(settings), mode: 0o600 });
-    const remoteCommand = remoteLaunchScript({
-      workingDirectory: remote.checkoutDirectory,
-      argv: ["claude", ...(this._adapter.settingsArgs?.(settingsPath) ?? []), ...agentArgs],
-      tokenAliases: CLAUDE_TOKEN_ALIASES,
-    });
-    const sshArgs = remoteCommand === null ? null : coderSshArgs({ workspace: remote.workspace, remotePort: remote.remotePort, ingressPort, remoteCommand });
-    const sshEnv = encodeCoderSshEnv({ [CLAUDE_TOKEN_ALIAS_ENV]: login.token });
-    if (sshArgs === null || sshEnv === null) return { ok: false, reason: "the remote launch command could not be built" };
-    return { ok: true, spawnCommand: { file: "coder", args: sshArgs, env: { [CODER_SSH_ENV]: sshEnv } } };
-  }
-
-  _respawnAfterAuthFailure(): boolean {
-    if (this._getRemoteLaunch() === null || this._hasRespawnedForAuth) return false;
-    this._hasRespawnedForAuth = true;
-    console.warn(`[session:${this.name}] the remote Claude token was refused; respawning once with a fresh token`);
-    return this.forceRestart({ resumePrompt: AUTO_CONTINUE_PROMPT });
   }
 
   _guardPtyInputSocket(): void {
@@ -1988,13 +1772,6 @@ class Session extends EventEmitter {
     }, { unref: true });
   }
 
-  _buildSpawnEnv({ extraEnv = this._spawnEnv, ...options }: {
-    extraEnv?: Record<string, string> | null;
-    prependPathDirs?: readonly string[];
-  } = {}) {
-    return this._adapter.buildEnv(process.env, extraEnv, options);
-  }
-
   _handlePtyData(data: string): void {
     if (this._destroyed) return;
     if (this._recorder) {
@@ -2025,8 +1802,8 @@ class Session extends EventEmitter {
   }
 
   _handleSpawnedPtyExit(exitCode: number, signal: ExitSignal): Promise<void> {
-    void this._stopCodexBridge();
-    this._releaseClaudeHolds(() => true);
+    void this._launch.stopCodexBridge();
+    this._approvals.releaseAll();
     return this._handlePtyExit(exitCode, signal);
   }
 
@@ -2040,7 +1817,7 @@ class Session extends EventEmitter {
     this.ptyProcess = null;
 
     if (pid) {
-      this._exitReap = this._reapTreeOnce(pid);
+      this._reaper.exitReap = this._reaper.reapTreeOnce(pid);
     }
 
     const { event, detail } = decideExitTransition(this.state, exitCode, signal, this._receivedFirstOutput);
@@ -2132,132 +1909,15 @@ class Session extends EventEmitter {
     this.emit("resize", { cols, rows, seq: this._resizeSeq });
   }
 
-  _taskkill(pid: number | null, opts: Record<string, unknown> = {}): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this._killProc(["/PID", String(Number(pid)), "/T", "/F"], { ...opts }, (err: unknown) => {
-        if (err) return reject(err);
-        resolve();
-      });
-    });
-  }
-
   _emitError(err: unknown): void {
     if (this.listenerCount("error") > 0) this.emit("error", err);
-  }
-
-  _killProcessGroup(pid: number | null, signal: NodeJS.Signals = "SIGKILL"): void {
-    const target = signalablePid(pid);
-    if (target === null) return;
-    try {
-      this._signalProc(-target, signal);
-    } catch (err) {
-      const code = err && typeof err === "object" && "code" in err ? (err as { code: unknown }).code : undefined;
-      if (err && code !== "ESRCH") this._emitError(err);
-    }
-  }
-
-  _isProcessAlive(pid: number | null): boolean {
-    const target = signalablePid(pid);
-    if (target === null) return false;
-    const probeTarget = this._platform === "win32" ? target : -target;
-    try {
-      this._signalProc(probeTarget, 0);
-      return true;
-    } catch {
-
-      return false;
-    }
-  }
-
-  _reapTreeOnce(pid: number | null): Promise<void> | null {
-    if (this._platform === "win32") {
-      return this._taskkill(pid, { timeout: KILL_REAP_MAX_WAIT_MS })
-        .catch(() => {});
-    }
-    if (this._resolveKillReap) return this._killReap;
-    return this._reapProcessGroup(pid);
-  }
-
-  _awaitPendingReaps(): Promise<void> | null {
-    const pending = [this._killReap, this._exitReap].filter((reap) => reap !== null);
-    if (pending.length === 0) return null;
-
-    return awaitBounded(pending, { capMs: KILL_REAP_MAX_WAIT_MS }).then(() => {});
-  }
-
-  _reapProcessGroup(pid: number | null, { maxWaitMs = KILL_REAP_MAX_WAIT_MS }: { maxWaitMs?: number } = {}): Promise<void> {
-    this._killProcessGroup(pid);
-    return this._awaitProcessGone(pid, maxWaitMs);
-  }
-
-  _awaitProcessGone(pid: number | null, maxWaitMs: number): Promise<void> {
-
-    if (this._resolveKillReap) this._resolveKillReap();
-    return new Promise((resolve) => {
-      const settle = (): void => {
-        this._clearTimer("_killReapTimer");
-        this._resolveKillReap = null;
-        resolve();
-      };
-      this._resolveKillReap = settle;
-      let waited = 0;
-
-      const poll = (): void => {
-        if (!this._isProcessAlive(pid)) {
-          settle();
-          return;
-        }
-        waited += KILL_POLL_INTERVAL_MS;
-        if (waited >= maxWaitMs) {
-          settle();
-          return;
-        }
-        this._armTimer("_killReapTimer", KILL_POLL_INTERVAL_MS, poll);
-      };
-
-      poll();
-    });
   }
 
   kill(): void {
     if (!this.ptyProcess) return;
 
     this._ptyAlive = false;
-    const pid = this.ptyProcess.pid;
-
-    if (this._platform === "win32") {
-
-      const killReap = this._taskkill(pid);
-      this._killReap = killReap;
-      killReap.catch((err: unknown) => this._emitError(err));
-    }
-    if (this._platform !== "win32") {
-
-      this._killReap = this._reapProcessGroup(pid);
-    }
-
-    this._forceKillAfterTimeout(pid);
-  }
-
-  _forceKillAfterTimeout(pid: number): void {
-    let elapsed = 0;
-    const poll = (): void => {
-      if (this._destroyed) return;
-      if (!this._isProcessAlive(pid)) return;
-      elapsed += KILL_POLL_INTERVAL_MS;
-      if (elapsed >= KILL_MAX_WAIT_MS) {
-
-        if (this._platform === "win32") {
-          this._taskkill(pid).catch((err: unknown) => this._emitError(err));
-          return;
-        }
-        this._killProcessGroup(pid);
-        return;
-      }
-      this._armTimer("_killPollTimer", KILL_POLL_INTERVAL_MS, poll);
-    };
-
-    this._armTimer("_killPollTimer", KILL_POLL_INTERVAL_MS, poll);
+    this._reaper.kill(this.ptyProcess.pid);
   }
 
   dismiss(): boolean {
@@ -2366,12 +2026,12 @@ class Session extends EventEmitter {
     this._clearPendingPaste();
 
     this._hooks.cleanup();
-    void this._stopCodexBridge();
-    this._releaseClaudeHolds(() => true);
+    void this._launch.stopCodexBridge();
+    this._approvals.releaseAll();
 
     this.kill();
 
-    this._clearTimer("_killPollTimer");
+    this._reaper.clearKillPoll();
     this._clearTimer("_titleQuietFallbackTimer");
 
     this.backgroundTracking.clearGateHeldReady();
