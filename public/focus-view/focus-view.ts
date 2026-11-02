@@ -28,6 +28,8 @@ import { buildAttentionBanner, paintAttentionBanner, pressAttentionBanner, sendA
 import { buildSessionRow, paintSessionRow, wrapSessionRow } from '../session-row.ts';
 import { unopenedShownCountOf } from '../shown-files.ts';
 import { openNewestBoardDocked } from '../whiteboard/board-chips.ts';
+import type { PaneLayout } from './pane-layout.ts';
+import { createPaneLayout } from './pane-layout.ts';
 
 type RosterRow = SessionRow<SessionUi, string | null>;
 
@@ -43,6 +45,7 @@ let railEl: HTMLElement | null = null;
 let railHeadEl: HTMLElement | null = null;
 let centerEl: HTMLElement | null = null;
 let cardSlotEl: HTMLElement | null = null;
+let paneLayout: PaneLayout | null = null;
 let emptyEl: HTMLElement | null = null;
 let emptyTitleEl: HTMLElement | null = null;
 let emptyDescEl: HTMLElement | null = null;
@@ -132,8 +135,9 @@ export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | 
   emptyTitleEl = emptyEl.querySelector<HTMLElement>('.focus-empty-title');
   emptyDescEl = emptyEl.querySelector<HTMLElement>('.focus-empty-desc');
 
-  cardSlotEl = el('div', 'focus-card-slot');
-  mountedCenter.append(emptyEl, cardSlotEl);
+  paneLayout = createPaneLayout();
+  cardSlotEl = paneLayout.bodyOf('terminal');
+  mountedCenter.append(emptyEl, paneLayout.element);
 
   mountedRail.addEventListener('keydown', onRailKeydown);
 }
@@ -413,8 +417,17 @@ function flashAttention(id: string) {
 
 function borrowToCenter(ui: SessionUi, id: string) {
   if (!cardSlotEl) return;
-  borrowCard(ui, id, cardSlotEl, { className: 'focus-centered' });
+  borrowCard(ui, id, cardSlotEl, { className: 'focus-centered', onRelease: () => paneLayout?.setStripHost('terminal', null) });
+  const header = ui.card.querySelector<HTMLElement>(':scope > .session-card-header');
+  if (header) paneLayout?.setStripHost('terminal', { parent: header, before: header.querySelector(':scope > .session-actions') });
+  paneLayout?.setTabTitle('terminal', terminalTabTitle(ui));
   setTerminalActiveViewer(ui, id, true);
+}
+
+function terminalTabTitle(ui: SessionUi) {
+  const agentText = ui.agent ? `Agent: ${ui.agent}` : '';
+  const worktreeText = ui.card.dataset.worktree === undefined ? 'No worktree' : 'Runs in its own worktree';
+  return [agentText, worktreeText].filter(Boolean).join('. ');
 }
 
 function releaseCenter() {
@@ -441,6 +454,7 @@ function updateCenter() {
   const has = !!(centeredId && sessionUIs.has(centeredId));
   const hasSessions = sessionUIs.size > 0;
   writeHiddenIfChanged(emptyEl, has);
+  if (paneLayout) writeHiddenIfChanged(paneLayout.element, !has);
   showFirstRunChecklist(emptyEl, !hasSessions);
   writeHiddenIfChanged(emptyTitleEl, !hasSessions);
   writeHiddenIfChanged(emptyDescEl, !hasSessions);

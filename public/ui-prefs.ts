@@ -1,7 +1,9 @@
 import { FLYING_ANIMALS_DEFAULTS, normalizeExcludedSprites, normalizeFlyingAnimalsOptions } from './flying-animals-core.ts';
 import type { FlyingAnimalsOptions } from './flying-animals-core.ts';
 import { DEFAULT_SOUND_ID } from './alert-sound-core.ts';
+import type { FocusLayout } from '#shared/contracts/focus-layout.ts';
 import { getJSON, setJSON } from './local-store.ts';
+import { parseFocusLayout } from './focus-view/pane-layout-core.ts';
 import { DEFAULT_NEXT_ATTENTION_KEY_CODE, isNextAttentionKeyCode } from './shortcuts-core.ts';
 
 const STORAGE_KEY = 'glimmervoid-ui-prefs';
@@ -20,6 +22,7 @@ interface UiPrefs extends FlyingAnimalsOptions {
   lastFocusedSessionId: string | null;
   railWidth: number | null;
   reviewSidebarExpanded: boolean;
+  focusLayout: FocusLayout;
   prsQueueWidth: number | null;
   keptProjects: string[];
   traceHiddenKinds: string[];
@@ -61,6 +64,7 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   lastFocusedSessionId: asNullableString,
   railWidth: asNullableNumber,
   reviewSidebarExpanded: asBoolean(false),
+  focusLayout: parseFocusLayout,
   prsQueueWidth: asNullableNumber,
   keptProjects: asStringList,
   traceHiddenKinds: asStringList,
@@ -125,6 +129,9 @@ export const setRailWidth = (px: number | null) => write('railWidth', px);
 
 export const isReviewSidebarExpanded = () => read('reviewSidebarExpanded');
 export const setReviewSidebarExpanded = (expanded: boolean) => write('reviewSidebarExpanded', expanded);
+
+export const getFocusLayout = () => read('focusLayout');
+export const setFocusLayout = (layout: FocusLayout) => write('focusLayout', layout);
 
 export const getPrsQueueWidth = () => read('prsQueueWidth');
 export const setPrsQueueWidth = (px: number | null) => write('prsQueueWidth', px);

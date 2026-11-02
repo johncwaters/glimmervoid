@@ -7,7 +7,9 @@ export function getBorrowedCardId() {
   return uiState.snapshot().borrowedCardId;
 }
 
-export function borrowCard(ui: SessionUi | null | undefined, sessionId: string, slotEl: HTMLElement | null | undefined, { className }: { className?: string } = {}) {
+let runOnRelease: (() => void) | null = null;
+
+export function borrowCard(ui: SessionUi | null | undefined, sessionId: string, slotEl: HTMLElement | null | undefined, { className, onRelease }: { className?: string; onRelease?: () => void } = {}) {
   if (!ui?.card || !slotEl) return;
   const borrowedId = getBorrowedCardId();
   if (borrowedId && borrowedId !== sessionId) releaseCard();
@@ -18,6 +20,7 @@ export function borrowCard(ui: SessionUi | null | undefined, sessionId: string, 
   if (className) card.classList.add(className);
 
   adoptElement(card, slotEl);
+  runOnRelease = onRelease ?? null;
   uiState.dispatch('borrowCard', sessionId);
 
   ui._ensureTerminalReady?.();
@@ -27,6 +30,9 @@ export function borrowCard(ui: SessionUi | null | undefined, sessionId: string, 
 
 export function releaseCard() {
   const releasedId = getBorrowedCardId();
+  const releaseHook = runOnRelease;
+  runOnRelease = null;
+  releaseHook?.();
   uiState.dispatch('borrowCard', null);
   if (!releasedId) return null;
 

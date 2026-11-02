@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Focus session header has a Terminal tab.** In Focus, the session's header row now holds a Terminal tab before its buttons. Hovering it shows the agent and whether the session runs in its own worktree.
 - **Sane YOLO has its own Settings section.** The `Sane YOLO and unattended` section is now `Sane YOLO` and holds only the permission settings: skipping permission prompts, Sane YOLO, and unreadable folders. `Delete unmerged branches` moved to Sessions. Old links to either still open the right place.
 - **The animal gallery waits until you open it.** In Settings, Appearance, the gallery of animals now sits behind an `Animal gallery` toggle under the `Flying animals` switch, so opening Settings no longer loads every animal.
 - **Theme names follow one pattern.** The theme picker now shows `Golgari (Dark)`, `Midnight (Dark)` and `Phyrexian (Dark)`, matching the other themes, instead of naming their colours.
