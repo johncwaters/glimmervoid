@@ -25,6 +25,7 @@ export const ConfigUpdate = z.object({
   worktreeSyncOnStart: optionalBoolean('worktreeSyncOnStart'),
   worktreeCloneDependencies: optionalBoolean('worktreeCloneDependencies'),
   worktreeRerere: optionalBoolean('worktreeRerere'),
+  shareCommitProvenance: optionalBoolean('shareCommitProvenance'),
   workflows: WorkflowsSettingsUpdate.optional(),
 }).omit({ port: true, worktreeShare: true }).strict();
 const AGENT_ID_RE = /^[a-z][a-z0-9-]{1,31}$/;
@@ -193,6 +194,7 @@ export const Config = z.object({
   worktreeSyncOnStart: optionalBoolean('worktreeSyncOnStart'),
   worktreeCloneDependencies: optionalBoolean('worktreeCloneDependencies'),
   worktreeRerere: optionalBoolean('worktreeRerere'),
+  shareCommitProvenance: optionalBoolean('shareCommitProvenance'),
   hooks: z.unknown().optional(),
   remote: z.object({
     enabled: z.boolean().optional(),
@@ -242,6 +244,7 @@ export const RUNTIME_CONFIG_SCALAR_KEYS = Object.freeze([
   'worktreeSyncOnStart',
   'worktreeCloneDependencies',
   'worktreeRerere',
+  'shareCommitProvenance',
 ]);
 export const HIDDEN_CONFIG_KEYS = Object.freeze([
   'detectScheduledWakeups',
@@ -249,6 +252,7 @@ export const HIDDEN_CONFIG_KEYS = Object.freeze([
   'worktreeSyncOnStart',
   'worktreeCloneDependencies',
   'worktreeRerere',
+  'shareCommitProvenance',
   'hooks',
   'remote',
   'projects',

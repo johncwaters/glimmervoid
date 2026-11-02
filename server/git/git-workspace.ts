@@ -88,6 +88,7 @@ function createGitWorkspace(opts: {
   glimmervoidHome?: string;
   ownedPaths?: OwnedPathsRecorder;
   removalGuard?: RemovalGuardOptions;
+  provenanceNotesRef?: (projectPath: string) => Promise<string | null>;
 } = {}) {
 
   const rawGit: GitRunner = opts.git || (async (args, cwd, extra) => {
@@ -476,6 +477,7 @@ function createGitWorkspace(opts: {
 
   const context: GitWorkspaceContext = {
     git, run, runInProject, runUntrusted, log, rerereEnabled, serialized, admitted,
+    provenanceNotesRef: opts.provenanceNotesRef ?? (() => Promise.resolve(null)),
     worktrees: { listWorktreePorcelain: (projectPath) => run(['worktree', 'list', '--porcelain'], projectPath), lockReusedHomeWorktrees, tearDownWorktree },
   };
   const origin = createOriginOps(context);
