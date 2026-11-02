@@ -1,7 +1,7 @@
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { queryTag } from '../dom-helpers.ts';
 import type { FeatureSurfaceSettings } from '../feature-surfaces-core.ts';
-import { centerSessionQuietly, openPlanInFocus } from '../focus-view/focus-view.ts';
+import { centerSessionQuietly, openPlanInFocus, openRequestedBoardInFocus } from '../focus-view/focus-view.ts';
 import { isPhoneShellActive, orderPhonePanels, setPhoneScreenAttention, setPhoneScreenAvailable, showPhoneScreen, showPhoneSession } from '../phone/phone-shell-gate.ts';
 import { resolvePlanTarget } from '../plan/plan-link.ts';
 import { nextRovingIndex, wrapIndex } from '../roving-keys-core.ts';
@@ -27,6 +27,12 @@ function openSettings(section?: string) {
 function openView(view: string) {
   if (showPhoneScreen(view)) return;
   activateView(view);
+}
+
+function openBoardsSurface() {
+  if (showPhoneScreen('boards')) return;
+  activateView('focus');
+  openRequestedBoardInFocus();
 }
 
 function clearSettingsHash() {
@@ -284,6 +290,7 @@ export {
   focusViewTabIfFocused,
   isViewAvailable,
   mountViewTabs,
+  openBoardsSurface,
   openSettings,
   openView,
   refreshViewOnShow,

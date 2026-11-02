@@ -7,7 +7,7 @@ import { safeTextTail } from '../support/backend-harness.ts';
 import { heightWithKeyboardUp, layoutFor, needsSocketRoute } from './cases-core.ts';
 import type { CardControl, HarnessCase, Layout, ResolvedStep, Step, ViewerId, Viewport } from './cases-core.ts';
 import { expectedRows, parseStatusRow } from './frame-core.ts';
-import { verifyBoardDock, verifyBoards } from './boards.ts';
+import { verifyBoardPane, verifyBoards } from './boards.ts';
 import { verifyIssues } from './issues.ts';
 import { verifyReviewMerge } from './review-merge.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
@@ -924,12 +924,12 @@ export async function runCase({
       return passedOutcome('issues', 'queue filters, live states, descriptions, sessions and pane navigation verified');
     }
     if (step.kind === 'assert-boards') {
-      await verifyBoards(viewer.page, viewer.layout);
+      await verifyBoards(viewer.page, viewer.layout, sessionId);
       return passedOutcome('boards', 'board create, live box add and Comic Mono board text verified');
     }
-    if (step.kind === 'assert-board-dock') {
-      await verifyBoardDock(viewer.page, sessionId, projectDirectory);
-      return passedOutcome('board-dock', 'connect board from the card menu, board chip opens the board with the card docked');
+    if (step.kind === 'assert-board-pane') {
+      await verifyBoardPane(viewer.page, sessionId, projectDirectory);
+      return passedOutcome('board-pane', 'connect board from the card menu, board chip opens the Board tab in Focus above the terminal');
     }
     if (step.kind === 'assert-team-review') {
       await verifyTeamReviewRows(viewer.page, viewer.layout, sessionId);

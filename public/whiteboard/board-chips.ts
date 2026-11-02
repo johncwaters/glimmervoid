@@ -1,7 +1,6 @@
 import type { BoardSummary } from '#shared/contracts/whiteboard.ts';
 import { createActionStatus } from '../action-status.ts';
 import { el } from '../dom-helpers.ts';
-import { isPhoneLayout } from '../form-factor.ts';
 import { buildDialogShell, openConfirmDialog } from '../session-card/modal.ts';
 import { repaintSessionRowSignals } from '../session-row.ts';
 import { createSignal, paintSignalLine } from '../signal.ts';
@@ -23,14 +22,6 @@ function openBoardForSession(boardId: string, sessionId: string | null): void {
   openBoardsView();
 }
 
-export function openNewestBoardDocked(sessionId: string): boolean {
-  if (isPhoneLayout()) return false;
-  const [newestBoard] = boardsConnectedTo(sessionId);
-  if (!newestBoard) return false;
-  openBoardForSession(newestBoard.id, sessionId);
-  return true;
-}
-
 function queuedEditsText(summary: BoardSummary, sessionId: string): string {
   const queuedCount = summary.queuedBySessionId[sessionId] ?? 0;
   if (queuedCount === 0) return '';
@@ -45,7 +36,7 @@ function boardSignal(summary: BoardSummary, sessionId: string, text: string): Ac
     text,
     detailText: summary.title,
     stateText: queuedText,
-    hoverText: `${summary.title}${queuedText ? `, ${queuedText}` : ''}. Open it with this session docked beside it`,
+    hoverText: `${summary.title}${queuedText ? `, ${queuedText}` : ''}. Open it beside this session`,
     look: { icon: 'board', tone },
     tier: tierForTone(tone),
     className: 'session-pr-chip session-board-chip',

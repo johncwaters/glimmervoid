@@ -186,13 +186,18 @@ export function boardsConnectedTo(sessionId: string): readonly BoardSummary[] {
   return boardsBySessionId.get(sessionId) ?? [];
 }
 
-let pendingOpenRequest: { boardId: string; dockSessionId: string | null } | null = null;
-
-export function requestOpenBoard(boardId: string, dockSessionId: string | null): void {
-  pendingOpenRequest = { boardId, dockSessionId };
+interface OpenBoardRequest {
+  boardId: string;
+  sessionId: string | null;
 }
 
-export function takeOpenBoardRequest(): { boardId: string; dockSessionId: string | null } | null {
+let pendingOpenRequest: OpenBoardRequest | null = null;
+
+export function requestOpenBoard(boardId: string, sessionId: string | null): void {
+  pendingOpenRequest = { boardId, sessionId };
+}
+
+export function takeOpenBoardRequest(): OpenBoardRequest | null {
   const request = pendingOpenRequest;
   pendingOpenRequest = null;
   return request;

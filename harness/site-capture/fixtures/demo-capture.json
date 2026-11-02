@@ -128,7 +128,7 @@
     },
     {
       "atMs": 18200,
-      "click": ".wb-docked-card .xterm-screen"
+      "click": "#focus-pane-terminal .xterm-screen"
     },
     {
       "atMs": 19000,

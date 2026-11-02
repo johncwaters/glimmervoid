@@ -2,7 +2,7 @@ import { describeFailure } from './client-error-core.ts';
 import { reportToServerLog } from './control-ws.ts';
 import { el, queryTag } from './dom-helpers.ts';
 import { FEATURE_SURFACE_RULES } from './feature-surfaces-core.ts';
-import { activateFocusView, deactivateFocusView, mountFocusView } from './focus-view/focus-view.ts';
+import { activateFocusView, deactivateFocusView, mountFocusView, reopenFocusBoard } from './focus-view/focus-view.ts';
 import { applyBenchmarkConnectionState } from './benchmark-store.ts';
 import { applyIssuesConnectionState } from './github/issues-store.ts';
 import { applyMyPrsConnectionState } from './github/my-prs-store.ts';
@@ -92,7 +92,7 @@ export function createDashboardViews(actions: ViewRegistryActions): DashboardVie
   setSettingsRestartHandler(actions.onRestart);
   setOpenInReview(actions.openReviewFile);
   const definitions: PrimaryViewDefinition<HTMLElement>[] = [
-    { view: 'focus', label: 'Focus', iconPath: FOCUS_ICON_PATH, panelClass: 'focus-view', hasOwnPhoneScreen: true, hasPanelChrome: false, hasReviewSidebar: true, module: { mount: () => mountFocusView({ rail: document.getElementById('focus-rail'), center: document.getElementById('focus-center'), resizer: document.getElementById('focus-rail-resizer') }), activate: activateFocusView, deactivate: deactivateFocusView } },
+    { view: 'focus', label: 'Focus', iconPath: FOCUS_ICON_PATH, panelClass: 'focus-view', hasOwnPhoneScreen: true, hasPanelChrome: false, hasReviewSidebar: true, refreshOn: ['connected'], module: { mount: () => mountFocusView({ rail: document.getElementById('focus-rail'), center: document.getElementById('focus-center'), resizer: document.getElementById('focus-rail-resizer') }), activate: activateFocusView, deactivate: deactivateFocusView, refresh: reopenFocusBoard } },
     { view: 'prs', label: 'Reviews', iconPath: REVIEWS_ICON_PATH, panelClass: 'pr-view', gate: { fromSettings: FEATURE_SURFACE_RULES.teamReview }, load: () => import('./github/review-queue-panel.ts').then((panel) => panel.view), refreshOn: ['shown'], attention: { subscribe: setReviewQueueActivityCallback, acknowledge: acknowledgeReviewQueueAttention }, onConnectionChange: (isConnected) => {
       applyMyPrsConnectionState(isConnected);
       applyTeamReviewConnectionState(isConnected);
@@ -101,7 +101,7 @@ export function createDashboardViews(actions: ViewRegistryActions): DashboardVie
     { view: 'usage', label: 'Usage', iconPath: USAGE_ICON_PATH, panelClass: 'usage-view', gate: { fromSettings: FEATURE_SURFACE_RULES.usage }, load: () => import('./usage/usage-panel.ts').then((panel) => panel.view), attention: { subscribe: setUsageActivityCallback, acknowledge: acknowledgeUsageAttention }, onConnectionChange: applyUsageConnectionState, refreshOn: ['shown', 'connected', 'usage-sessions'] },
     { view: 'radar', label: 'Radar', iconPath: RADAR_ICON_PATH, panelClass: 'radar-view', gate: { fromSettings: FEATURE_SURFACE_RULES.posthog }, load: () => import('./radar/radar-panel.ts').then((panel) => panel.view), attention: { subscribe: setRadarActivityCallback, acknowledge: acknowledgeRadarAttention } },
     { view: 'community', label: 'Community', iconPath: COMMUNITY_ICON_PATH, panelClass: 'community-view', gate: { fromSettings: FEATURE_SURFACE_RULES.community }, load: () => import('./community/community-panel.ts').then((panel) => panel.view), refreshOn: ['shown'], attention: { subscribe: setCommunityActivityCallback, acknowledge: acknowledgeCommunityAttention }, onConnectionChange: applyCommunityConnectionState },
-    { view: 'boards', label: 'Boards', iconPath: BOARDS_ICON_PATH, isPhoneNavScreen: true, panelClass: 'boards-view', hasPanelChrome: false, load: () => import('./whiteboard/boards-view.ts').then((panel) => panel.view), refreshOn: ['shown', 'connected'] },
+    { view: 'boards', label: 'Boards', iconPath: BOARDS_ICON_PATH, isPhoneNavScreen: true, isPhoneOnly: true, panelClass: 'boards-screen', hasPanelChrome: false, load: () => import('./whiteboard/boards-view.ts').then((panel) => panel.view), refreshOn: ['shown', 'connected'] },
     { view: 'hooks', label: 'Hooks', iconPath: HOOKS_ICON_PATH, panelClass: 'hooks-view', load: () => import('./hooks-panel.ts').then((panel) => panel.view), refreshOn: ['shown', 'connected', 'hooks-updated'] },
     { view: 'trace', label: 'Trace', iconPath: TRACE_ICON_PATH, panelClass: 'trace-view', gate: { subscribe: onDebugModeChanged }, load: () => import('./trace-panel.ts').then((panel) => panel.view), refreshOn: ['shown'], onAvailabilityChange: (isAvailable) => setRadarTraceOpener(isAvailable ? openTraceForSession : null), onConnectionChange: applyTraceConnectionState },
     { view: 'benchmarks', label: 'Bench', iconPath: BENCH_ICON_PATH, panelClass: 'bench-view', gate: { fromSettings: FEATURE_SURFACE_RULES.benchmarks }, load: () => import('./benchmark-panel.ts').then((panel) => panel.view), onConnectionChange: applyBenchmarkConnectionState },
@@ -128,7 +128,7 @@ export function createDashboardViews(actions: ViewRegistryActions): DashboardVie
     panel.setAttribute('aria-labelledby', tab.id);
     panel.hidden = true;
     if (!panel.parentElement) main.append(panel);
-    tab.hidden = definition.gate !== undefined;
+    tab.hidden = definition.gate !== undefined || definition.isPhoneOnly === true;
     panel.classList.toggle('view-panel', definition.hasPanelChrome !== false);
     if (definition.attention) {
       const dot = el('span', 'tab-activity');

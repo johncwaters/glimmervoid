@@ -29,7 +29,7 @@ import { loadPageToken } from './ws-token.ts';
 
 import { wireViewerFocus } from './boot/viewer-focus.ts';
 import { wirePowerActions } from './boot/power-menu.ts';
-import { mountViewTabs, openView, refreshViewsIfVisible } from './boot/view-tabs.ts';
+import { mountViewTabs, openBoardsSurface, openView, refreshViewsIfVisible } from './boot/view-tabs.ts';
 import { wireHashRouting } from './boot/hash-routes.ts';
 import { mountHeaderControls, mountHeaderTrays } from './boot/header-controls.ts';
 import { mountTelemetryBanner } from './boot/banners.ts';
@@ -71,7 +71,7 @@ addSessionRowSignalSource(sessionRowCoherenceSignals);
 addSessionRowSignalSource(sessionRowPrSignals, 'links');
 addSessionRowSignalSource(sessionRowBoardSignals, 'links');
 setCardConnectBoard(openConnectBoardDialog);
-setBoardsViewOpener(() => openView('boards'));
+setBoardsViewOpener(openBoardsSurface);
 setCardCoherenceJournal({ isReadable: isSessionJournalReadable, open: openCoherenceJournal });
 setCardSessionSetup(openSessionSetup);
 

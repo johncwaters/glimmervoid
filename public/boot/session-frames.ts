@@ -16,7 +16,6 @@ import { attentionTally, sessionName, sessionUIs } from '../session-card/card-re
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { applyState, createSessionCard, hasSession, removeSessionCard, seedSessionMergeStatus, setSessionAgent, setSessionAgents, setSessionEffectiveBase, setSessionFailureReason, setSessionHasPlan, setSessionPrompt, setSessionTaskTitle, setSessionUnseenOutcome, setSessionUsage, updateAttentionTitle } from '../session-card/lifecycle.ts';
 import { reconnectDataWs } from '../session-card/terminal.ts';
-import { refreshBoardAttention } from '../whiteboard/board-attention.ts';
 import { applySettingsProjects } from '../settings/settings-store.ts';
 import { onShownFilesChanged } from '../shown-files.ts';
 import { forgetReviewSession, refreshReviewSidebar } from '../sidebar/review-sidebar.ts';
@@ -32,7 +31,6 @@ function refreshAttentionSurfaces() {
   refreshIssuesSessionState();
   refreshMyPrsSessionState();
   refreshPhoneBoard();
-  refreshBoardAttention();
 }
 
 function refreshRosterAndAttentionSurfaces() {

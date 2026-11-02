@@ -60,7 +60,7 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   sessionUsageChips: asBoolean(false),
   phoneArrowPad: asBoolean(false),
   nextAttentionKeyCode: (value: unknown): string => (isNextAttentionKeyCode(value) ? value : DEFAULT_NEXT_ATTENTION_KEY_CODE),
-  activeView: asString('focus'),
+  activeView: (value: unknown): string => (typeof value === 'string' && value !== 'boards' ? value : 'focus'),
   lastFocusedSessionId: asNullableString,
   railWidth: asNullableNumber,
   reviewSidebarExpanded: asBoolean(false),

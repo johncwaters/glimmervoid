@@ -9,7 +9,7 @@ export type UpstreamVariant = 'none' | 'conflict' | 'diverged' | 'push-rejected'
 export type Step =
   | { kind: 'assert-issues'; viewer?: ViewerId }
   | { kind: 'assert-boards'; viewer?: ViewerId }
-  | { kind: 'assert-board-dock'; viewer?: ViewerId }
+  | { kind: 'assert-board-pane'; viewer?: ViewerId }
   | { kind: 'assert-team-review'; viewer?: ViewerId }
   | { kind: 'assert-review-merge'; upstream: UpstreamVariant; viewer?: ViewerId }
   | { kind: 'open'; viewer?: ViewerId }
@@ -195,9 +195,9 @@ export const SCENARIOS: readonly Scenario[] = [
     steps: [{ kind: 'assert-boards' }, { kind: 'shot', name: 'boards' }],
   },
   {
-    name: 'board-dock',
+    name: 'board-pane',
     viewports: ['desktop-1280'],
-    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'assert-board-dock' }, { kind: 'shot', name: 'board-dock' }],
+    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'assert-board-pane' }, { kind: 'shot', name: 'board-pane' }],
   },
   {
     name: 'team-review',
@@ -685,7 +685,7 @@ export function needsIssues(scenario: Scenario): boolean {
 }
 
 export function needsGitOrigin(scenario: Scenario): boolean {
-  return scenario.steps.some((step) => step.kind === 'assert-review-merge' || step.kind === 'assert-board-dock');
+  return scenario.steps.some((step) => step.kind === 'assert-review-merge' || step.kind === 'assert-board-pane');
 }
 
 function scenarioRunsOnViewport(scenario: Scenario, viewport: Viewport, layout: Layout, proveFailure: boolean): boolean {

@@ -3,15 +3,12 @@ import type { Board, BoardReview, BoardSummary, Element, Op } from '#shared/cont
 import { refPathOf, refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 import { WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import { createActionStatus } from '../action-status.ts';
-import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
 import { buildMenuItem, wirePopupMenuKeys } from '../menu.ts';
 import { findSessionUi, sessionName } from '../session-card/card-registry.ts';
 import { buildDialogShell, isModalOpen, openConfirmDialog } from '../session-card/modal.ts';
-import { setTerminalActiveViewer } from '../session-card/terminal.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import type { ViewModule } from '../view-registry-core.ts';
-import { buildBoardAttentionBanner, refreshBoardAttention } from './board-attention.ts';
 import { createBoardEditor, newElementId } from './board-edit.ts';
 import type { BoardEditor, BoardTool } from './board-edit.ts';
 import { EMPTY_HISTORY, inverseOps, recordEdit, recordStep, takeStep } from '#shared/whiteboard-undo-core.ts';
@@ -61,12 +58,13 @@ interface BoardsViewParts {
   boardTitle: HTMLButtonElement;
   boardMeta: HTMLElement;
   presence: HTMLElement;
+  host: HTMLElement;
+  chrome: HTMLElement;
   canvas: HTMLElement;
   empty: HTMLElement;
   emptyText: HTMLElement;
-  dock: HTMLElement;
   agentIsland: HTMLElement;
-  dockQueued: HTMLElement;
+  queuedForSession: HTMLElement;
   sendToAgent: HTMLButtonElement;
   buttons: Record<'note' | 'frame' | 'unit' | 'fit' | 'undo' | 'redo', HTMLButtonElement>;
   toolButtons: ReadonlyMap<BoardTool, HTMLButtonElement>;
@@ -78,11 +76,11 @@ let renderer: BoardRenderer | null = null;
 let editor: BoardEditor | null = null;
 let inspector: BoardInspector | null = null;
 let shouldFitOnNextRender = true;
-let dockedSessionId: string | null = null;
+let pairedSessionId: string | null = null;
 let shownReview: { boardId: string; review: BoardReview } | null = null;
 let reviewRequestKey: string | null = null;
 const status = createActionStatus('action-status wb-status');
-const dockStatus = createActionStatus('action-status wb-status');
+const pairedStatus = createActionStatus('action-status wb-status');
 const historyByBoardId = new Map<string, UndoHistory>();
 let historyQueue: Promise<unknown> = Promise.resolve();
 
@@ -234,7 +232,8 @@ function paintList(): void {
   if (!parts) return;
   const summaries = boardSummariesOf();
   if (selectedBoardId && !summaries.some((summary) => summary.id === selectedBoardId)) selectedBoardId = null;
-  if (!selectedBoardId && summaries[0]) selectBoard(summaries[0].id);
+  const fallbackBoard = summaries.find((summary) => pairedSessionId !== null && summary.connectedSessionIds.includes(pairedSessionId)) ?? summaries[0];
+  if (!selectedBoardId && fallbackBoard) selectBoard(fallbackBoard.id);
   parts.boardMenu.paintBoards(summaries);
   paintHead();
 }
@@ -345,10 +344,10 @@ function paintHead(): void {
   parts.presence.replaceChildren(...summary.connectedSessionIds.map((sessionId) => el('span', 'wb-presence-pill', sessionLabel(sessionId))));
   if (summary.connectedSessionIds.length === 0) parts.presence.append(el('span', 'wb-presence-none', 'no sessions connected'));
   paintToolbar();
-  paintDock();
+  paintPairedSession();
 }
 
-function dockQueuedText(summary: BoardSummary | null, sessionId: string): string {
+function queuedForSessionText(summary: BoardSummary | null, sessionId: string): string {
   const name = sessionLabel(sessionId);
   if (!summary?.connectedSessionIds.includes(sessionId)) return `${name} is not connected to this board`;
   const queuedCount = summary.queuedBySessionId[sessionId] ?? 0;
@@ -356,24 +355,26 @@ function dockQueuedText(summary: BoardSummary | null, sessionId: string): string
   return `${queuedCount} board ${queuedCount === 1 ? 'edit' : 'edits'} queued for ${name}`;
 }
 
-function paintDock(): void {
-  if (!parts || !dockedSessionId) return;
+function paintPairedSession(): void {
+  if (!parts) return;
+  parts.agentIsland.hidden = !pairedSessionId;
+  if (!pairedSessionId) return;
   const summary = selectedSummary();
-  parts.dockQueued.textContent = dockQueuedText(summary, dockedSessionId);
-  parts.sendToAgent.disabled = !summary?.connectedSessionIds.includes(dockedSessionId);
+  parts.queuedForSession.textContent = queuedForSessionText(summary, pairedSessionId);
+  parts.sendToAgent.disabled = !summary?.connectedSessionIds.includes(pairedSessionId);
 }
 
 async function sendBoardNudge(): Promise<void> {
-  if (!parts || !selectedBoardId || !dockedSessionId) return;
+  if (!parts || !selectedBoardId || !pairedSessionId) return;
   parts.sendToAgent.disabled = true;
-  dockStatus.show('busy', 'sending');
-  const outcome = await nudgeSessionAboutBoard(selectedBoardId, dockedSessionId);
-  paintDock();
+  pairedStatus.show('busy', 'sending');
+  const outcome = await nudgeSessionAboutBoard(selectedBoardId, pairedSessionId);
+  paintPairedSession();
   if (!outcome.ok) {
-    dockStatus.show('error', outcome.error);
+    pairedStatus.show('error', outcome.error);
     return;
   }
-  dockStatus.show('ok', 'sent; the agent reads the board when it is ready');
+  pairedStatus.show('ok', 'sent; the agent reads the board when it is ready');
 }
 
 function worthALookIdsOf(board: Board, worthALookPaths: readonly string[]): Set<string> {
@@ -583,15 +584,17 @@ function historyDirectionOf(event: KeyboardEvent): UndoDirection | null {
   return event.shiftKey ? 'redo' : 'undo';
 }
 
-function onHistoryKey(panel: HTMLElement, event: KeyboardEvent): void {
+function onHistoryKey(host: HTMLElement, event: KeyboardEvent): void {
   const direction = historyDirectionOf(event);
-  if (!direction || !panel.checkVisibility() || isModalOpen() || isRealInputOwningKey(event)) return;
+  if (!direction || !host.checkVisibility() || isModalOpen() || isRealInputOwningKey(event)) return;
   if (document.activeElement?.classList.contains('xterm-helper-textarea')) return;
   event.preventDefault();
   void stepHistory(direction);
 }
 
-function mountBoardsView(panel: HTMLElement): void {
+export function mountBoardHost(): HTMLElement {
+  if (parts) return parts.host;
+  const host = el('div', 'boards-view');
   const boardMenu = buildBoardMenu(() => {
     editor?.clearSelection();
     inspector?.openBoardSettings();
@@ -632,25 +635,23 @@ function mountBoardsView(panel: HTMLElement): void {
   svg.setAttribute('aria-label', 'Whiteboard');
   svg.setAttribute('preserveAspectRatio', 'xMidYMin meet');
   const inspectPanel = el('aside', 'wb-inspect');
-  const dockQueued = el('span', 'wb-dock-queued');
+  const queuedForSession = el('span', 'wb-session-queued');
   const sendToAgent = iconButton('send to agent', SEND_TO_CHAT_ICON_PATH, () => void sendBoardNudge());
-  const agentIsland = island('wb-island-agent', 'Docked session', sendToAgent, dockQueued, dockStatus.element);
+  const agentIsland = island('wb-island-agent', 'Session', sendToAgent, queuedForSession, pairedStatus.element);
   agentIsland.hidden = true;
   const bottomLeftStack = el('div', 'wb-bottom-left');
   bottomLeftStack.append(agentIsland);
-  const topLeftRow = el('div', 'wb-top-left');
-  topLeftRow.append(boardIsland, viewIsland, toolsIsland);
+  const chrome = el('div', 'wb-top-left');
+  chrome.append(boardIsland, viewIsland, toolsIsland);
   const topRightStack = el('div', 'wb-top-right');
-  topRightStack.append(buildBoardAttentionBanner({ dockedSessionId: () => dockedSessionId, isBoardOpen: () => selectedBoardId !== null }), inspectPanel);
-  canvas.append(svg, topRightStack, topLeftRow, bottomLeftStack);
+  topRightStack.append(inspectPanel);
+  canvas.append(svg, topRightStack, chrome, bottomLeftStack);
   const emptyText = el('p', 'wb-empty-text', EMPTY_TEXT);
   const empty = el('div', 'wb-empty');
   empty.append(emptyText, toolbarButton('new board', newBoardFromDialog));
-  const dock = el('div', 'wb-dock');
-  dock.hidden = true;
 
-  panel.replaceChildren(canvas, empty, dock);
-  parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, canvas, empty, emptyText, dock, agentIsland, dockQueued, sendToAgent, buttons, toolButtons };
+  host.replaceChildren(canvas, empty);
+  parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, sendToAgent, buttons, toolButtons };
   const boardRenderer = createBoardRenderer(svg);
   renderer = boardRenderer;
   inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, openRef: openRefInReview });
@@ -667,51 +668,53 @@ function mountBoardsView(panel: HTMLElement): void {
     onToolChange: paintActiveTool,
   });
 
-  document.addEventListener('keydown', (event) => onHistoryKey(panel, event));
+  document.addEventListener('keydown', (event) => onHistoryKey(host, event));
   onBoardListChanged(paintList);
   onBoardChanged((boardId) => {
     if (boardId !== selectedBoardId) return;
     paintBoard();
   });
   paintList();
+  return host;
 }
 
 function isPhoneLayout(): boolean {
   return document.documentElement.dataset.layout === 'phone';
 }
 
-function undockSession(): void {
-  if (dockedSessionId && getBorrowedCardId() === dockedSessionId) releaseCard();
-  dockedSessionId = null;
+export function placeBoardChrome(stripSlot: HTMLElement | null): void {
   if (!parts) return;
-  parts.dock.hidden = true;
-  parts.agentIsland.hidden = true;
-  refreshBoardAttention();
+  const target = stripSlot ?? parts.canvas;
+  if (parts.chrome.parentElement !== target) target.append(parts.chrome);
 }
 
-function dockSession(sessionId: string): void {
-  if (!parts || isPhoneLayout()) return;
-  const ui = findSessionUi(sessionId);
-  if (!ui) return;
-  dockedSessionId = sessionId;
-  parts.dock.hidden = false;
-  parts.agentIsland.hidden = false;
-  dockStatus.clear();
-  paintDock();
-  borrowCard(ui, sessionId, parts.dock, { className: 'wb-docked-card' });
-  setTerminalActiveViewer(ui, sessionId, true);
-  refreshBoardAttention();
+export function showBoardBeside(boardId: string | null, sessionId: string | null): void {
+  if (sessionId !== pairedSessionId) pairedStatus.clear();
+  pairedSessionId = sessionId;
+  if (boardId) selectBoard(boardId);
+  paintPairedSession();
 }
 
-function refreshBoardsView(): void {
-  const request = takeOpenBoardRequest();
-  if (request) {
-    selectBoard(request.boardId);
-    if (request.dockSessionId) dockSession(request.dockSessionId);
-  }
+export function reopenSelectedBoard(): void {
   paintList();
   reviewRequestKey = null;
   if (selectedBoardId) void openBoard(selectedBoardId).then(paintBoard);
 }
 
-export const view: ViewModule<HTMLElement> = { mount: mountBoardsView, refresh: refreshBoardsView, deactivate: undockSession };
+let boardsScreen: HTMLElement | null = null;
+
+function mountBoardsScreen(panel: HTMLElement): void {
+  boardsScreen = panel;
+  panel.replaceChildren(mountBoardHost());
+}
+
+function refreshBoardsScreen(): void {
+  const host = mountBoardHost();
+  if (boardsScreen && host.parentElement !== boardsScreen) boardsScreen.replaceChildren(host);
+  placeBoardChrome(null);
+  const request = takeOpenBoardRequest();
+  showBoardBeside(request?.boardId ?? null, null);
+  reopenSelectedBoard();
+}
+
+export const view: ViewModule<HTMLElement> = { mount: mountBoardsScreen, refresh: refreshBoardsScreen };

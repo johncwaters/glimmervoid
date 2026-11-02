@@ -43,12 +43,53 @@ function openBoardTitle(panel: Locator, boardTitle: string): Locator {
   return panel.locator('.wb-board-title', { hasText: boardTitle });
 }
 
+async function runBoardControl(page: Page, type: string, payload: Record<string, string>): Promise<string | null> {
+  return page.evaluate(async ({ type, payload }) => {
+    const tokenReply: unknown = await fetch('/control-token', { credentials: 'same-origin', cache: 'no-store' }).then((response) => response.json());
+    const token = typeof tokenReply === 'object' && tokenReply !== null && 'token' in tokenReply && typeof tokenReply.token === 'string' ? tokenReply.token : '';
+    const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+    const socket = new WebSocket(`${scheme}://${location.host}/control?token=${encodeURIComponent(token)}`);
+    const requestId = `harness-${type}-${Date.now()}`;
+    return new Promise<string | null>((resolve, reject) => {
+      socket.addEventListener('open', () => socket.send(JSON.stringify({ type, requestId, ...payload })));
+      socket.addEventListener('error', () => reject(new Error(`${type} could not reach the control socket`)));
+      socket.addEventListener('message', (event) => {
+        const reply: unknown = JSON.parse(String(event.data));
+        if (typeof reply !== 'object' || reply === null || !('requestId' in reply) || reply.requestId !== requestId) return;
+        socket.close();
+        if ('ok' in reply && reply.ok === true) {
+          const summary = 'summary' in reply && typeof reply.summary === 'object' && reply.summary !== null ? reply.summary : null;
+          resolve(summary && 'id' in summary && typeof summary.id === 'string' ? summary.id : null);
+          return;
+        }
+        reject(new Error(`${type} was refused: ${JSON.stringify(reply)}`));
+      });
+    });
+  }, { type, payload });
+}
+
+async function createBoardOverControl(page: Page, boardTitle: string): Promise<string> {
+  const boardId = await runBoardControl(page, 'whiteboard-create', { title: boardTitle });
+  assert.ok(boardId, 'the server created the board');
+  return boardId;
+}
+
+async function showBoardInFocus(page: Page, sessionId: string, boardTitle: string): Promise<Locator> {
+  await page.locator(`.focus-rail .session-row[data-id="${sessionId}"] .session-row-glyph`).first().click();
+  const boardTab = page.locator('.pane-tab[data-tab="board"]');
+  await boardTab.click();
+  await page.locator('.pane-tab[data-tab="board"][aria-selected="true"]').waitFor();
+  const center = page.locator('#focus-center');
+  await openBoardTitle(center, boardTitle).waitFor();
+  return center;
+}
+
 async function submitTextDialog(page: Page, label: string, value: string, confirmLabel: string): Promise<void> {
   await page.getByRole('textbox', { name: label, exact: true }).fill(value);
   await page.getByRole('button', { name: confirmLabel, exact: true }).click();
 }
 
-export async function verifyBoards(page: Page, layout: Layout): Promise<void> {
+export async function verifyBoards(page: Page, layout: Layout, sessionId: string): Promise<void> {
   await page.locator('#loading-screen').waitFor({ state: 'hidden' });
   if (layout === 'phone') {
     const navButtonLabels = await page.locator('.phone-nav > .phone-nav-item:not([hidden]) .phone-nav-label').allTextContents();
@@ -58,11 +99,10 @@ export async function verifyBoards(page: Page, layout: Layout): Promise<void> {
     await boardsNavButton.click();
     assert.equal(await boardsNavButton.getAttribute('aria-current'), 'page');
   }
-  if (layout === 'desktop') await page.locator('#tab-boards').click();
   const boardTitle = `Ingest plan ${layout}`;
-  const panel = page.locator('.boards-view');
+  const panel = layout === 'desktop' ? await openDesktopBoard(page, sessionId, boardTitle) : page.locator('.boards-view');
   await panel.waitFor({ state: 'visible' });
-  await createBoardFromView(page, panel, boardTitle);
+  if (layout === 'phone') await createBoardFromView(page, panel, boardTitle);
   await panel.locator('.wb-svg').waitFor({ state: 'visible' });
   if (layout === 'phone') {
     await panel.getByRole('button', { name: 'board menu', exact: true }).click();
@@ -78,7 +118,7 @@ export async function verifyBoards(page: Page, layout: Layout): Promise<void> {
     const titleIslandBounds = await panel.getByRole('toolbar', { name: 'Board', exact: true }).boundingBox();
     const viewIslandBounds = await panel.getByRole('toolbar', { name: 'View', exact: true }).boundingBox();
     assert.ok(titleIslandBounds && viewIslandBounds);
-    assert.ok(toolsIslandBounds.y < canvasBounds.y + canvasBounds.height / 2 && viewIslandBounds.y < canvasBounds.y + canvasBounds.height / 2, 'the view controls and tools float at the top of the canvas');
+    assert.ok(toolsIslandBounds.y + toolsIslandBounds.height <= canvasBounds.y && viewIslandBounds.y + viewIslandBounds.height <= canvasBounds.y, 'the view controls and tools sit in the Board tab strip above the canvas');
     assert.ok(titleIslandBounds.x + titleIslandBounds.width <= viewIslandBounds.x && viewIslandBounds.x + viewIslandBounds.width <= toolsIslandBounds.x, 'fit, undo and redo, then the tools, follow the title island');
     const renamedTitle = `${boardTitle} renamed`;
     await renameOpenBoard(page, panel, boardTitle, renamedTitle, 'Enter');
@@ -132,24 +172,24 @@ export async function verifyBoards(page: Page, layout: Layout): Promise<void> {
     const draggingPath = await wireLine.getAttribute('d');
     const versionBeforeDrop = await panel.locator('.wb-board-meta').textContent();
     await page.mouse.up();
-    await page.waitForFunction((before) => document.querySelector('.boards-view .wb-board-meta')?.textContent !== before, versionBeforeDrop);
+    await page.waitForFunction((before) => document.querySelector('.wb-board-meta')?.textContent !== before, versionBeforeDrop);
     assert.equal(await wireLine.getAttribute('d'), draggingPath, 'the wire lands where the drag preview routed it');
     await panel.locator('.wb-svg').focus();
     const versionBeforeUndo = await panel.locator('.wb-board-meta').textContent();
     await page.keyboard.press('ControlOrMeta+z');
-    await page.waitForFunction((before) => document.querySelector('.boards-view .wb-board-meta')?.textContent !== before, versionBeforeUndo);
+    await page.waitForFunction((before) => document.querySelector('.wb-board-meta')?.textContent !== before, versionBeforeUndo);
     assert.equal(await wireLine.getAttribute('d'), restingPath, 'undo puts the dragged box back');
     const versionBeforeRedo = await panel.locator('.wb-board-meta').textContent();
     await page.keyboard.press('ControlOrMeta+Shift+z');
-    await page.waitForFunction((before) => document.querySelector('.boards-view .wb-board-meta')?.textContent !== before, versionBeforeRedo);
+    await page.waitForFunction((before) => document.querySelector('.wb-board-meta')?.textContent !== before, versionBeforeRedo);
     assert.equal(await wireLine.getAttribute('d'), draggingPath, 'redo moves it again');
     const versionBeforeUndoButton = await panel.locator('.wb-board-meta').textContent();
     await panel.getByRole('button', { name: 'undo', exact: true }).click();
-    await page.waitForFunction((before) => document.querySelector('.boards-view .wb-board-meta')?.textContent !== before, versionBeforeUndoButton);
+    await page.waitForFunction((before) => document.querySelector('.wb-board-meta')?.textContent !== before, versionBeforeUndoButton);
     assert.equal(await wireLine.getAttribute('d'), restingPath, 'the undo button steps back like Ctrl+Z');
     const versionBeforeRedoButton = await panel.locator('.wb-board-meta').textContent();
     await panel.getByRole('button', { name: 'redo', exact: true }).click();
-    await page.waitForFunction((before) => document.querySelector('.boards-view .wb-board-meta')?.textContent !== before, versionBeforeRedoButton);
+    await page.waitForFunction((before) => document.querySelector('.wb-board-meta')?.textContent !== before, versionBeforeRedoButton);
     assert.equal(await wireLine.getAttribute('d'), draggingPath, 'the redo button steps forward again');
     await panel.locator('.wb-svg').focus();
     const inspect = panel.locator('.wb-inspect');
@@ -161,7 +201,7 @@ export async function verifyBoards(page: Page, layout: Layout): Promise<void> {
     await page.keyboard.press('Escape');
     await inspect.waitFor({ state: 'hidden' });
     await panel.getByRole('button', { name: 'board menu', exact: true }).click();
-    await page.getByRole('menuitemradio', { name: boardTitle, exact: true }).waitFor();
+    await page.getByRole('menuitemradio', { name: boardTitle }).waitFor();
     await page.getByRole('menuitem', { name: 'delete board', exact: true }).waitFor();
     await page.keyboard.press('Escape');
     await targetBox.locator('.wb-box-outline').click();
@@ -172,7 +212,7 @@ export async function verifyBoards(page: Page, layout: Layout): Promise<void> {
     const versionBeforePanelUndo = await panel.locator('.wb-board-meta').textContent();
     await inspect.getByRole('combobox', { name: 'Shape', exact: true }).focus();
     await page.keyboard.press('ControlOrMeta+z');
-    await page.waitForFunction((before) => document.querySelector('.boards-view .wb-board-meta')?.textContent !== before, versionBeforePanelUndo);
+    await page.waitForFunction((before) => document.querySelector('.wb-board-meta')?.textContent !== before, versionBeforePanelUndo);
     await inspect.getByRole('heading', { name: 'Box', exact: true }).waitFor();
     assert.equal(await panel.locator('.wb-box', { hasText: 'Index rows' }).locator('.wb-output-label').count(), 0, 'undo right after a panel change takes the decision back');
     await page.keyboard.press('ControlOrMeta+Shift+z');
@@ -229,20 +269,28 @@ export async function verifyBoards(page: Page, layout: Layout): Promise<void> {
     await inspect.getByRole('heading', { name: 'Board', exact: true }).waitFor({ timeout: 3000 });
   }
   assert.equal(await panel.getByRole('button', { name: 'fit', exact: true }).isVisible(), true);
-  assert.equal(await panel.getByRole('button', { name: boardTitle }).count(), 1);
+  assert.equal(await panel.getByRole('button', { name: boardTitle, exact: true }).count(), 1);
 }
 
-export async function verifyBoardDock(page: Page, sessionId: string, projectDirectory: string): Promise<void> {
-  const boardTitle = `Dock plan ${sessionId.slice(0, 8)}`;
-  await page.locator('#tab-boards').click();
-  const panel = page.locator('.boards-view');
-  await createBoardFromView(page, panel, boardTitle);
-  await page.locator('#tab-focus').click();
+async function openDesktopBoard(page: Page, sessionId: string, boardTitle: string): Promise<Locator> {
+  assert.equal(await page.locator('#tab-boards').isVisible(), false, 'Boards has no desktop header tab; boards live in Focus');
+  const boardId = await createBoardOverControl(page, boardTitle);
+  await runBoardControl(page, 'whiteboard-connect', { boardId, sessionId });
+  return showBoardInFocus(page, sessionId, boardTitle);
+}
+
+export async function verifyBoardPane(page: Page, sessionId: string, projectDirectory: string): Promise<void> {
+  const boardTitle = `Pane plan ${sessionId.slice(0, 8)}`;
+  await createBoardOverControl(page, boardTitle);
+  await page.locator(`.focus-rail .session-row[data-id="${sessionId}"] .session-row-glyph`).first().click();
   const card = page.locator(`.session-card[data-id="${sessionId}"]`).first();
+  await card.waitFor({ state: 'visible' });
+  assert.equal(await page.locator('.pane-tab[data-tab="board"]').count(), 0, 'a session with no board shows Terminal only');
   await card.getByRole('button', { name: 'Session actions', exact: true }).click();
   await card.locator('.overflow-connect-board').click();
   await page.getByRole('combobox', { name: 'Board to connect', exact: true }).selectOption({ label: boardTitle });
   await page.getByRole('button', { name: 'Connect', exact: true }).click();
+  await page.locator('.pane-tab[data-tab="board"]').waitFor();
   const boardChip = page.locator(`.focus-rail .session-row[data-id="${sessionId}"]`).locator(`.session-board-chip[aria-label="Open board ${boardTitle}"]`);
   await boardChip.waitFor();
   const worktreePath = await pollFor('the session worktree', WORKTREE_TIMEOUT_MS, () => findSessionWorktree(projectDirectory));
@@ -250,22 +298,19 @@ export async function verifyBoardDock(page: Page, sessionId: string, projectDire
   assert.equal((await boardChip.textContent())?.trim(), boardTitle);
   assert.equal(await boardChip.locator('.pr-status-icon').count(), 1, 'the board chip carries an icon like a PR chip');
   await boardChip.click();
+  const panel = page.locator('#focus-center');
   await openBoardTitle(panel, boardTitle).waitFor();
-  await panel.locator(`.wb-dock .session-card[data-id="${sessionId}"]`).waitFor({ state: 'visible' });
+  await page.locator('.pane-tab[data-tab="board"][aria-selected="true"]').waitFor();
   const canvasBox = await panel.locator('.wb-canvas').boundingBox();
-  const dockBox = await panel.locator('.wb-dock').boundingBox();
-  assert.ok(canvasBox && dockBox);
-  assert.ok(canvasBox.x >= dockBox.x + dockBox.width, 'the board sits to the right of the docked session');
-  assert.ok(Math.abs(dockBox.y - canvasBox.y) < 2 && Math.abs(dockBox.height - canvasBox.height) < 2, 'the board and the docked session share the full height');
-  await page.waitForFunction((id) => {
-    const docked = document.querySelector(`.wb-dock .session-card[data-id="${id}"]`);
-    return docked?.getAttribute('data-grid') === 'exact';
-  }, sessionId);
-  const agentIsland = panel.getByRole('toolbar', { name: 'Docked session', exact: true });
-  await agentIsland.locator('.wb-dock-queued', { hasText: 'has read every change' }).waitFor();
+  const cardBox = await card.boundingBox();
+  assert.ok(canvasBox && cardBox);
+  assert.ok(canvasBox.y + canvasBox.height <= cardBox.y, 'the default layout puts the board above the terminal');
+  await page.waitForFunction((id) => document.querySelector(`#focus-pane-terminal .session-card[data-id="${id}"]`)?.getAttribute('data-grid') === 'exact', sessionId);
+  const agentIsland = panel.getByRole('toolbar', { name: 'Session', exact: true });
+  await agentIsland.locator('.wb-session-queued', { hasText: 'has read every change' }).waitFor();
   const agentBox = await agentIsland.boundingBox();
   assert.ok(agentBox);
-  assert.ok(Math.abs(agentBox.y + agentBox.height - (canvasBox.y + canvasBox.height - 10)) < 2 && Math.abs(agentBox.x - (canvasBox.x + 10)) < 2, 'the docked session island sits bottom left on the board');
+  assert.ok(Math.abs(agentBox.y + agentBox.height - (canvasBox.y + canvasBox.height - 10)) < 2 && Math.abs(agentBox.x - (canvasBox.x + 10)) < 2, 'the session island sits bottom left on the board');
   await agentIsland.getByRole('button', { name: 'send to agent', exact: true }).click();
   await agentIsland.locator('.action-status', { hasText: 'sent' }).waitFor();
   await panel.getByRole('button', { name: 'unit', exact: true }).click();
@@ -273,47 +318,46 @@ export async function verifyBoardDock(page: Page, sessionId: string, projectDire
   const unitOnBoard = panel.locator('.wb-unit', { hasText: 'Uncovered change' });
   await unitOnBoard.locator('.wb-box-title').click();
   const inspect = panel.locator('.wb-inspect');
-  const attentionBannerBox = await panel.locator('.wb-attention').boundingBox();
-  const inspectBox = await inspect.boundingBox();
-  assert.ok(attentionBannerBox && inspectBox);
-  assert.ok(Math.abs(attentionBannerBox.x + attentionBannerBox.width - (canvasBox.x + canvasBox.width - 10)) < 2, 'the attention banner sits top right on the board');
-  assert.ok(attentionBannerBox.y + attentionBannerBox.height <= inspectBox.y, 'the unit inspector sits below the attention banner');
   await inspect.getByRole('button', { name: 'Add a ref to this unit', exact: true }).click();
   await inspect.getByRole('textbox', { name: 'Ref 1', exact: true }).fill(UNCOVERED_FILE_NAME);
   await page.keyboard.press('Enter');
   await panel.locator('.wb-unit.is-flagged', { hasText: 'Uncovered change' }).waitFor({ timeout: REVIEW_TIMEOUT_MS });
   await panel.getByRole('button', { name: 'fit', exact: true }).click();
-  const topRowBox = await panel.locator('.wb-top-left').boundingBox();
   const fittedUnitBox = await unitOnBoard.boundingBox();
-  const dockIslandBox = await agentIsland.boundingBox();
-  assert.ok(topRowBox && fittedUnitBox && dockIslandBox);
-  const spaceAboveUnitPx = fittedUnitBox.y - (topRowBox.y + topRowBox.height);
-  const spaceBelowUnitPx = dockIslandBox.y - (fittedUnitBox.y + fittedUnitBox.height);
-  assert.ok(spaceAboveUnitPx > 0 && spaceBelowUnitPx > 0, 'fit keeps the board between the top row and the docked session island');
-  assert.ok(Math.abs(spaceAboveUnitPx - spaceBelowUnitPx) < (spaceAboveUnitPx + spaceBelowUnitPx) / 2, 'fit centers the board between the islands');
+  const islandBox = await agentIsland.boundingBox();
+  assert.ok(fittedUnitBox && islandBox);
+  const spaceAboveUnitPx = fittedUnitBox.y - canvasBox.y;
+  const spaceBelowUnitPx = islandBox.y - (fittedUnitBox.y + fittedUnitBox.height);
+  assert.ok(spaceAboveUnitPx > 0 && spaceBelowUnitPx > 0, 'fit keeps the board clear of the session island');
   await inspect.getByRole('button', { name: `Open ${UNCOVERED_FILE_NAME} in review`, exact: true }).click();
   await page.locator('#tab-focus[aria-selected="true"]').waitFor();
   await page.locator(`#review-sidebar:not([data-collapsed]) .review-file[data-path="${UNCOVERED_FILE_NAME}"]`).waitFor({ timeout: REVIEW_TIMEOUT_MS });
-  assert.equal(await panel.locator('.wb-dock .session-card').count(), 0, 'leaving the board hands the card back');
-  await page.locator(`.focus-rail .session-row[data-id="${sessionId}"] .session-row-glyph`).first().click();
-  await page.locator('#tab-boards[aria-selected="true"]').waitFor();
-  await openBoardTitle(panel, boardTitle).waitFor();
-  await panel.locator(`.wb-dock .session-card[data-id="${sessionId}"]`).waitFor({ state: 'visible' });
-  await verifyBoardAttentionJump(page, panel, sessionId);
+  await verifyBoardPaneFallsBackToSessionBoard(page, panel, sessionId, boardTitle);
 }
 
-async function verifyBoardAttentionJump(page: Page, panel: Locator, sessionId: string): Promise<void> {
-  await panel.locator(`.wb-dock .session-card[data-id="${sessionId}"] .xterm`).click();
-  await page.keyboard.type('ask');
-  await page.keyboard.press('Enter');
-  await panel.locator(`.wb-dock .session-card[data-id="${sessionId}"][data-state="WAITING"]`).waitFor();
-  const attentionTile = panel.locator(`.wb-attention .attention-tile[data-id="${sessionId}"]`);
-  assert.equal(await attentionTile.count(), 0, 'the banner leaves out the docked session');
-  await page.locator('#tab-hooks').click();
-  await page.locator('#tab-boards').click();
-  await attentionTile.waitFor();
-  assert.equal(await panel.locator('.wb-dock .session-card').count(), 0, 'opening Boards from its tab docks nothing');
-  await page.keyboard.press('Alt+KeyJ');
-  await panel.locator(`.wb-dock .session-card[data-id="${sessionId}"]`).waitFor({ state: 'visible' });
-  assert.equal(await page.locator('#tab-boards[aria-selected="true"]').count(), 1, 'Alt+J in Boards docks the next session without leaving the board');
+async function verifyBoardPaneFallsBackToSessionBoard(page: Page, panel: Locator, sessionId: string, shownBoardTitle: string): Promise<void> {
+  const secondTitle = `Second plan ${sessionId.slice(0, 8)}`;
+  const secondBoardId = await createBoardOverControl(page, secondTitle);
+  await runBoardControl(page, 'whiteboard-connect', { boardId: secondBoardId, sessionId });
+  const unrelatedTitle = `Unrelated plan ${sessionId.slice(0, 8)}`;
+  await createBoardOverControl(page, unrelatedTitle);
+  await panel.getByRole('button', { name: 'board menu', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: shownBoardTitle }).click();
+  await openBoardTitle(panel, shownBoardTitle).waitFor();
+  await openBoardMenuItem(page, panel, 'delete board');
+  await page.getByRole('button', { name: 'Delete board', exact: true }).click();
+  await openBoardTitle(panel, secondTitle).waitFor();
+  assert.equal(await page.locator('.pane-tab[data-tab="board"]').count(), 1, 'the session keeps its Board tab while it has a board');
+  await panel.getByRole('button', { name: 'board menu', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: unrelatedTitle }).click();
+  await openBoardTitle(panel, unrelatedTitle).waitFor();
+  const laterTitle = `Later plan ${sessionId.slice(0, 8)}`;
+  await createBoardOverControl(page, laterTitle);
+  await panel.getByRole('button', { name: 'board menu', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: laterTitle }).waitFor();
+  await page.keyboard.press('Escape');
+  assert.equal(await openBoardTitle(panel, unrelatedTitle).count(), 1, 'a board the operator picked stays open when the board list changes');
+  await openBoardMenuItem(page, panel, 'delete board');
+  await page.getByRole('button', { name: 'Delete board', exact: true }).click();
+  await openBoardTitle(panel, secondTitle).waitFor();
 }

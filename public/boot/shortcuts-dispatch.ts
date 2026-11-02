@@ -12,7 +12,6 @@ import { mergeSelectedSession, resolveSelectedSession, resyncSelectedSession } f
 import { getSelectedId } from '../sidebar/selection.ts';
 import { toggleStreamerMode } from '../streamer-mode.ts';
 import { getActiveView } from '../ui-state-core.ts';
-import { jumpToNextAttentionOnBoard, setBoardAttentionFocusOpener } from '../whiteboard/board-attention.ts';
 import { activateView, focusViewTabIfFocused, stepViewTab } from './view-tabs.ts';
 
 function focusedTerminalSessionId() {
@@ -62,7 +61,6 @@ function runDashboardShortcut({ action, step }: ResolvedDashboardShortcut) {
         return true;
       }
       if (getActiveView() === 'prs' && jumpToNextReview()) return true;
-      if (getActiveView() === 'boards' && jumpToNextAttentionOnBoard()) return true;
       activateFocusOnNextAttention(() => activateView('focus'));
       return true;
     case 'rail-step':
@@ -90,7 +88,6 @@ function isUndoCloseKey(event: KeyboardEvent) {
 
 function wireDashboardShortcuts() {
   setAddedSessionRevealer(revealSpawnedSession);
-  setBoardAttentionFocusOpener((sessionId) => activateFocusOnNextAttention(() => activateView('focus'), sessionId));
   document.addEventListener('keydown', (e) => {
     if (e.repeat) return;
     if (isRealInputOwningKey(e)) return;

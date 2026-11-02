@@ -27,7 +27,7 @@ export interface PaneLayout {
   trailSlot: HTMLElement;
   bodyOf: (tab: PaneTab) => HTMLElement;
   setTabTools: (tab: PaneTab, tools: HTMLElement | null) => void;
-  setTabTitle: (tab: PaneTab, title: string) => void;
+  setTabTitle: (tab: PaneTab, readTitle: () => string) => void;
   setStripHost: (tab: PaneTab, host: StripHost | null) => void;
   showTabs: (shownTabs: ReadonlySet<PaneTab>) => void;
   showTab: (tab: PaneTab) => void;
@@ -49,6 +49,7 @@ export function createPaneLayout(): PaneLayout {
   const bodyByTab: Record<PaneTab, HTMLElement> = { terminal: buildBody('terminal'), board: buildBody('board') };
   const tabButtonByTab: Record<PaneTab, HTMLButtonElement> = { terminal: buildTabButton('terminal'), board: buildTabButton('board') };
   const toolsByTab = new Map<PaneTab, HTMLElement>();
+  const titleReaderByTab = new Map<PaneTab, () => string>();
   const stripHostByTab = new Map<PaneTab, StripHost>();
   const groupParts: GroupParts[] = [buildGroup(0), buildGroup(1)];
 
@@ -68,6 +69,11 @@ export function createPaneLayout(): PaneLayout {
     button.setAttribute('role', 'tab');
     button.setAttribute('aria-controls', `focus-pane-${tab}`);
     button.addEventListener('click', () => commit(activateTab(layout, tab)));
+    const refreshTitle = () => {
+      button.title = titleReaderByTab.get(tab)?.() ?? '';
+    };
+    button.addEventListener('pointerenter', refreshTitle);
+    button.addEventListener('focus', refreshTitle);
     button.addEventListener('dragstart', (event) => {
       draggedTab = tab;
       event.dataTransfer?.setData(DRAG_MIME, tab);
@@ -225,8 +231,9 @@ export function createPaneLayout(): PaneLayout {
       if (!tools) toolsByTab.delete(tab);
       render();
     },
-    setTabTitle: (tab, title) => {
-      tabButtonByTab[tab].title = title;
+    setTabTitle: (tab, readTitle) => {
+      titleReaderByTab.set(tab, readTitle);
+      tabButtonByTab[tab].title = readTitle();
     },
     setStripHost: (tab, host) => {
       if (host) stripHostByTab.set(tab, host);

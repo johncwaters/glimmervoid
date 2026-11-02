@@ -36,6 +36,7 @@ interface ViewDefinitionFields {
   onConnectionChange?: (isConnected: boolean) => void;
   hasOwnPhoneScreen?: boolean;
   isPhoneNavScreen?: boolean;
+  isPhoneOnly?: boolean;
   hasPanelChrome?: boolean;
   hasReviewSidebar?: boolean;
 }
