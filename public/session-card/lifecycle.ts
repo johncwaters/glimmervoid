@@ -405,6 +405,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
   };
   sessionUi._setBorrowed = (isBorrowed) => {
     sessionUi.isBorrowed = isBorrowed;
+    dom.card.toggleAttribute('data-borrowed', isBorrowed);
     updateButtonVisibility(sessionUi);
   };
   dom.card.append(planFace.el);

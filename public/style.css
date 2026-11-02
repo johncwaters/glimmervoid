@@ -3891,7 +3891,7 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 
 .focus-card-slot:empty { flex: 0 0 auto; }
 
-:is(.focus-center .session-card.focus-centered, .wb-dock > .wb-docked-card) {
+.session-card[data-borrowed] {
   flex: 1 1 auto;
   width: 100%;
   height: 100%;
@@ -3902,33 +3902,33 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
   box-shadow: none;
 }
 
-:is(.focus-center .session-card.focus-centered, .wb-dock > .wb-docked-card)::after { display: none; }
+.session-card[data-borrowed]::after { display: none; }
 
-:is(.focus-center .session-card.focus-centered, .wb-dock > .wb-docked-card).completion-flash { animation: none; }
+.session-card[data-borrowed].completion-flash { animation: none; }
 
-:is(.focus-center .session-card.focus-centered, .wb-dock > .wb-docked-card) .session-card-header {
+.session-card[data-borrowed] .session-card-header {
   min-height: 40px;
   padding: 0 8px 0 14px;
   position: relative;
 }
 
-:is(.focus-center .session-card.focus-centered, .wb-dock > .wb-docked-card) .session-name {
+.session-card[data-borrowed] .session-name {
   font-size: var(--type-meta);
   font-weight: 700;
   color: var(--text-head);
 }
 
-:is(.focus-center .session-card.focus-centered, .wb-dock > .wb-docked-card) .session-task-title {
+.session-card[data-borrowed] .session-task-title {
   font-size: var(--type-body);
 }
 
-:is(.focus-center .session-card.focus-centered, .wb-dock > .wb-docked-card) .session-card-header:has(.session-task-title:not(:empty)) .session-name {
+.session-card[data-borrowed] .session-card-header:has(.session-task-title:not(:empty)) .session-name {
   font-weight: 400;
   color: var(--text-muted);
 }
 
 
-:is(.focus-center .session-card.focus-centered, .wb-dock > .wb-docked-card) .session-card-header::after {
+.session-card[data-borrowed] .session-card-header::after {
   content: '';
   position: absolute;
   left: 0;
@@ -3940,23 +3940,23 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
   pointer-events: none;
   transition: opacity var(--transition-med);
 }
-:is(.focus-centered, .wb-docked-card)[data-state="WAITING"] .session-card-header { --focus-st: var(--state-waiting); }
-:is(.focus-centered, .wb-docked-card)[data-state="FAILED"]  .session-card-header { --focus-st: var(--state-failed); }
-:is(.focus-centered, .wb-docked-card)[data-state="DONE"]    .session-card-header { --focus-st: var(--state-done); }
-:is(.focus-centered, .wb-docked-card)[data-state="WAITING"] .session-card-header::after,
-:is(.focus-centered, .wb-docked-card)[data-state="FAILED"]  .session-card-header::after { opacity: 1; }
+.session-card[data-borrowed][data-state="WAITING"] .session-card-header { --focus-st: var(--state-waiting); }
+.session-card[data-borrowed][data-state="FAILED"]  .session-card-header { --focus-st: var(--state-failed); }
+.session-card[data-borrowed][data-state="DONE"]    .session-card-header { --focus-st: var(--state-done); }
+.session-card[data-borrowed][data-state="WAITING"] .session-card-header::after,
+.session-card[data-borrowed][data-state="FAILED"]  .session-card-header::after { opacity: 1; }
 @media (prefers-reduced-motion: no-preference) {
-  :is(.focus-centered, .wb-docked-card)[data-state="WAITING"] .session-card-header::after {
+  .session-card[data-borrowed][data-state="WAITING"] .session-card-header::after {
     animation: focus-toolbar-breathe 2.4s ease-in-out 3;
   }
-  :is(.focus-center .session-card.focus-centered, .wb-dock > .wb-docked-card).completion-flash[data-state="DONE"] .session-card-header::after {
+  .session-card[data-borrowed].completion-flash[data-state="DONE"] .session-card-header::after {
     animation: focus-toolbar-flash 900ms ease-out;
   }
 }
 @keyframes focus-toolbar-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 @keyframes focus-toolbar-flash { 0% { opacity: 1; } 100% { opacity: 0; } }
 
-:is(.focus-center .session-card.focus-centered, .wb-dock > .wb-docked-card) .terminal-wrap .xterm { padding: 4px 6px 0; }
+.session-card[data-borrowed] .terminal-wrap .xterm { padding: 4px 6px 0; }
 
 .focus-empty { margin: auto; text-align: center; color: var(--text-dim); }
 .focus-empty-title { font-size: var(--type-body); font-weight: 700; color: var(--text-head); margin: 0 0 4px; }
@@ -4849,19 +4849,8 @@ html[data-layout="phone"] .session-row-item:has(> .session-row.focused) { outlin
 }
 .phone-card-slot[hidden] { display: none; }
 
-.phone-card-slot .session-card.phone-centered {
-  flex: 1 1 auto;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
-}
-.phone-card-slot .session-card.phone-centered::after { display: none; }
-.phone-card-slot .session-card.phone-centered.completion-flash { animation: none; }
-
 .phone-card-slot .session-card.phone-centered .session-card-header { display: none; }
+.phone-card-slot .session-card.phone-centered .terminal-wrap .xterm { padding: 0; }
 
 .phone-terminal-badge .tag-icon { position: relative; }
 .phone-terminal-badge .tag-icon::after { content: ""; position: absolute; inset: -12px -2px; }
