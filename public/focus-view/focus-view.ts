@@ -683,7 +683,7 @@ export function focusAdjacentInRail(dir: number) {
   if (!active) return;
   const cyclableIds = railVisibleIds().filter((railId) => railId === railTabStopId || isSessionShown(railId));
   const id = pickAdjacent(cyclableIds, railTabStopId, dir);
-  if (id == null) return;
+  if (id == null || !isSessionShown(id)) return;
   onPillCycle(id);
   pillById.get(id)?.scrollIntoView({ block: 'nearest' });
 }
