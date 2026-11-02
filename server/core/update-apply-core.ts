@@ -469,4 +469,4 @@ export {
   QUARANTINED_DIST_NAME,
   retireAtBoot,
 };
-export type { NpmGlobalInstall, NpmGlobalLayout, RenameOperation };
+export type { NpmGlobalInstall, NpmGlobalLayout, PreflightDecision, RenameOperation };

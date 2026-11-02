@@ -33,7 +33,7 @@ import {
   QUARANTINED_DIST_NAME,
   retireAtBoot,
 } from './core/update-apply-core.ts';
-import type { NpmGlobalInstall, NpmGlobalLayout, RenameOperation } from './core/update-apply-core.ts';
+import type { NpmGlobalInstall, NpmGlobalLayout, PreflightDecision, RenameOperation } from './core/update-apply-core.ts';
 import { NODE_PTY_INSTALL_SCRIPT_FLAG } from './core/update-core.ts';
 import { stableNodePath } from './stable-node-path.ts';
 import type { GitWorkspaceInstance } from './git/git-workspace.ts';
@@ -115,6 +115,11 @@ interface SuccessorProcess {
 }
 
 type SuccessorFate = 'exited' | 'listening' | 'still-starting';
+
+interface CheckoutTargetProbe {
+  fastForward: PreflightDecision;
+  lockfileChanged: boolean;
+}
 
 interface CommandOutcome {
   ok: boolean;
@@ -281,6 +286,25 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
     return refusal(reason, message);
   }
 
+  async function probeCheckoutAgainstTarget(headSha: string, targetSha: string): Promise<CheckoutTargetProbe> {
+    const fastForwardProbe = await gitCommand(['merge-base', '--is-ancestor', headSha, targetSha]);
+    const alreadyCheckedOutProbe = fastForwardProbe.ok
+      ? null
+      : await gitCommand(['merge-base', '--is-ancestor', targetSha, headSha]);
+    const fastForward = decideFastForward({
+      canFastForward: fastForwardProbe.ok,
+      isTargetAncestorOfHead: alreadyCheckedOutProbe?.ok === true,
+    });
+    if (!fastForward.ok) return { fastForward, lockfileChanged: false };
+    return { fastForward, lockfileChanged: await hasLockfileChanged(headSha, targetSha) };
+  }
+
+  async function hasLockfileChanged(fromSha: string, toSha: string): Promise<boolean> {
+    const lockfileDiff = await gitCommand(['diff', '--name-only', `${fromSha}..${toSha}`, '--', 'package-lock.json']);
+    if (!lockfileDiff.ok) throw new Error(`lockfile-check-failed: ${lockfileDiff.reason}`);
+    return lockfileDiff.output.split(/\r?\n/).some((name) => name.trim() === 'package-lock.json');
+  }
+
   async function stageUpdate(): Promise<UpdateApplyOutcome> {
     const status = dependencies.getUpdateStatus();
     const channel = dependencies.getUpdateChannel();
@@ -331,30 +355,15 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
         projectPath: dependencies.packageRoot,
         timeoutMs: FETCH_TIMEOUT_MS,
       }));
-      const fastForwardProbe = await gitCommand(['merge-base', '--is-ancestor', tree.headSha, status.latestSha]);
-      let isTargetAncestorOfHead = false;
-      if (!fastForwardProbe.ok) {
-        const alreadyCheckedOutProbe = await gitCommand([
-          'merge-base', '--is-ancestor', status.latestSha, tree.headSha,
-        ]);
-        isTargetAncestorOfHead = alreadyCheckedOutProbe.ok;
-      }
-      const fastForward = decideFastForward({
-        canFastForward: fastForwardProbe.ok,
-        isTargetAncestorOfHead,
-      });
-      if (!fastForward.ok) return failAndClean(fastForward.reason, fastForward.message);
+      const checkoutProbe = await probeCheckoutAgainstTarget(tree.headSha, status.latestSha);
+      if (!checkoutProbe.fastForward.ok) return failAndClean(checkoutProbe.fastForward.reason, checkoutProbe.fastForward.message);
+      const lockfileChanged = checkoutProbe.lockfileChanged;
       await runWorkspaceStep('stage', () => dependencies.gitWorkspace.stageDetachedWorktree({
         projectPath: dependencies.packageRoot,
         worktreePath: stagingPath,
         sha: status.latestSha || undefined,
         owner: 'lane:update-apply',
       }));
-      const lockfileDiff = await gitCommand([
-        'diff', '--name-only', `${tree.headSha}..${status.latestSha}`, '--', 'package-lock.json',
-      ]);
-      if (!lockfileDiff.ok) throw new Error(`lockfile-check-failed: ${lockfileDiff.reason}`);
-      const lockfileChanged = lockfileDiff.output.split(/\r?\n/).some((name) => name.trim() === 'package-lock.json');
       await publish(replaceRemainingStepPlan(lockfileChanged));
       if (lockfileChanged) {
         await runCommandStep('install', 'npm', ['ci'], stagingPath, INSTALL_TIMEOUT_MS);
@@ -623,6 +632,21 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
     return true;
   }
 
+  async function rebuildStagingAt(descriptor: CloneStagedDescriptor, headSha: string): Promise<string | null> {
+    if (await hasLockfileChanged(descriptor.fromSha, headSha)) return 'handoff-preflight-failed';
+    const checkout = await gitCommand(['checkout', '--quiet', '--detach', headSha], descriptor.stagingPath);
+    if (!checkout.ok) return `handoff-rebuild-failed: ${checkout.reason}`;
+    if (descriptor.lockfileChanged) {
+      const stagingDependenciesPath = path.join(descriptor.stagingPath, 'node_modules');
+      await fsPromises.rm(stagingDependenciesPath, { recursive: true, force: true });
+      await fsPromises.symlink(path.join(dependencies.packageRoot, 'node_modules'), stagingDependenciesPath, 'dir');
+    }
+    const throttled = lowPriorityCommand({ file: 'npm', args: ['run', 'build'], platform: dependencies.platform || process.platform });
+    const build = await command(throttled.file, throttled.args, descriptor.stagingPath, BUILD_TIMEOUT_MS);
+    if (!build.ok) return `handoff-rebuild-failed: ${build.reason}`;
+    return null;
+  }
+
   async function performHandOff(descriptor: CloneStagedDescriptor): Promise<void> {
     let mergeMovedHead = false;
     let sampledHead: string | null = null;
@@ -641,27 +665,47 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
         await failHandOff('handoff-queue-admission-timed-out', false, null, null);
         return;
       }
-      if (!tree.ok || tree.dirty || tree.headSha !== descriptor.fromSha) {
+      if (!tree.ok || tree.dirty || !tree.headSha) {
         await failHandOff('handoff-preflight-failed', false, null, tree.headSha);
         return;
       }
-      const merged = await dependencies.gitWorkspace.mergeFastForwardTo({
-        projectPath: dependencies.packageRoot,
-        expectedHead: descriptor.fromSha,
-        sha: descriptor.targetSha,
-        admissionTimeoutMs: HANDOFF_QUEUE_ADMISSION_TIMEOUT_MS,
-        timeoutMs: MERGE_COMMAND_TIMEOUT_MS,
-      });
-      if (!merged.ok) {
-        await failHandOff(merged.err || merged.out || merged.outcome, false, null, merged.sampledHead);
-        return;
+      const handOffHead = tree.headSha;
+      let isCheckoutPastTarget = false;
+      if (handOffHead !== descriptor.fromSha) {
+        const checkoutProbe = await probeCheckoutAgainstTarget(handOffHead, descriptor.targetSha);
+        isCheckoutPastTarget = checkoutProbe.fastForward.ok === false && checkoutProbe.fastForward.reason === 'target-already-checked-out';
+        const isBorrowedDependencyMismatch = !descriptor.lockfileChanged && checkoutProbe.lockfileChanged;
+        if (!isCheckoutPastTarget && (!checkoutProbe.fastForward.ok || isBorrowedDependencyMismatch)) {
+          await failHandOff('handoff-preflight-failed', false, null, handOffHead);
+          return;
+        }
       }
-      mergeMovedHead = merged.sampledHead !== descriptor.targetSha;
-      sampledHead = merged.sampledHead;
+      if (isCheckoutPastTarget) {
+        const rebuildFailure = await rebuildStagingAt(descriptor, handOffHead);
+        if (rebuildFailure) {
+          await failHandOff(rebuildFailure, false, null, handOffHead);
+          return;
+        }
+      }
+      if (!isCheckoutPastTarget) {
+        const merged = await dependencies.gitWorkspace.mergeFastForwardTo({
+          projectPath: dependencies.packageRoot,
+          expectedHead: handOffHead,
+          sha: descriptor.targetSha,
+          admissionTimeoutMs: HANDOFF_QUEUE_ADMISSION_TIMEOUT_MS,
+          timeoutMs: MERGE_COMMAND_TIMEOUT_MS,
+        });
+        if (!merged.ok) {
+          await failHandOff(merged.err || merged.out || merged.outcome, false, null, merged.sampledHead);
+          return;
+        }
+        mergeMovedHead = merged.sampledHead !== descriptor.targetSha;
+        sampledHead = merged.sampledHead;
+      }
       const plan = planHandOffRenames({
         root: dependencies.packageRoot,
         stagingPath: descriptor.stagingPath,
-        lockfileChanged: descriptor.lockfileChanged,
+        lockfileChanged: descriptor.lockfileChanged && !isCheckoutPastTarget,
       });
       for (let renameIndex = 0; renameIndex < plan.renames.length; renameIndex += 1) {
         const rename = plan.renames[renameIndex];
