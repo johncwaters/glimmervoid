@@ -357,15 +357,18 @@ body {
   display: none;
 }
 
-.header-brand:has(.header-connection:is([data-state="connected"], [data-state="connecting"])) {
-  gap: 0;
-}
-
-.header-brand .header-connection[data-state="connecting"] .connection-dot {
+.header-brand .connection-dot {
   position: absolute;
   top: 50%;
   left: 8px;
   translate: 0 -50%;
+}
+
+.header-brand .connection-label {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  line-height: 1;
 }
 
 .header-connection[data-state="disconnected"] .connection-dot {
@@ -2988,7 +2991,6 @@ html[data-layout="phone"] .trace-section-hint { flex-basis: 100%; font-size: var
 .header-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
   flex-shrink: 0;
 }
 
