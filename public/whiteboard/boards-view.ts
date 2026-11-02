@@ -641,7 +641,7 @@ function mountBoardsView(panel: HTMLElement): void {
   const topLeftRow = el('div', 'wb-top-left');
   topLeftRow.append(boardIsland, viewIsland, toolsIsland);
   const topRightStack = el('div', 'wb-top-right');
-  topRightStack.append(buildBoardAttentionBanner({ dockedSessionId: () => dockedSessionId, isBoardOpen: () => selectedBoardId !== null, dockBesideOpenBoard }), inspectPanel);
+  topRightStack.append(buildBoardAttentionBanner({ dockedSessionId: () => dockedSessionId, isBoardOpen: () => selectedBoardId !== null }), inspectPanel);
   canvas.append(svg, topRightStack, topLeftRow, bottomLeftStack);
   const emptyText = el('p', 'wb-empty-text', EMPTY_TEXT);
   const empty = el('div', 'wb-empty');
@@ -701,12 +701,6 @@ function dockSession(sessionId: string): void {
   borrowCard(ui, sessionId, parts.dock, { className: 'wb-docked-card' });
   setTerminalActiveViewer(ui, sessionId, true);
   refreshBoardAttention();
-}
-
-function dockBesideOpenBoard(sessionId: string): boolean {
-  if (!selectedBoardId) return false;
-  dockSession(sessionId);
-  return dockedSessionId === sessionId;
 }
 
 function refreshBoardsView(): void {

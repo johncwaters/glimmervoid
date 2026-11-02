@@ -49,6 +49,7 @@ let emptyDescEl: HTMLElement | null = null;
 
 let active = false;
 let isAttentionJumpActivating = false;
+let attentionJumpTargetId: string | null = null;
 const mergeStatusById = new Map<string, string>();
 const pillById = new Map<string, FocusPill>();
 
@@ -200,14 +201,17 @@ function buildPill(id: string) {
   return Object.assign(button, { _refs: refs, _row: item, _shownCount: shownCount });
 }
 
+function openBesideItsBoard(id: string) {
+  if (!openNewestBoardDocked(id)) return false;
+  markSessionSeen(id);
+  selectSession(id);
+  return true;
+}
+
 function onPillPick(id: string) {
   const ui = requestSessionOpen(id);
   if (!ui) return;
-  if (openNewestBoardDocked(id)) {
-    markSessionSeen(id);
-    selectSession(id);
-    return;
-  }
+  if (openBesideItsBoard(id)) return;
   centerOpenedSession(ui, id);
 }
 
@@ -369,12 +373,12 @@ export function focusNextAttention() {
 
 function openAttentionSession(id: string) {
   if (!active) return;
+  requestSessionOpen(id);
+  if (openBesideItsBoard(id)) return;
   pillById.get(id)?.scrollIntoView({ block: 'nearest' });
   if (railHeadEl) sendAttentionTileToRow(railHeadEl, id, () => flashAttention(id));
-  const ui = sessionUIs.get(id);
-  requestSessionOpen(id);
   focusSession(id);
-  focusTerminalAfterSettle(ui, id);
+  focusTerminalAfterSettle(sessionUIs.get(id), id);
 }
 
 function focusTerminalAfterSettle(ui: SessionUi | null | undefined, id: string) {
@@ -488,6 +492,10 @@ export function activateFocusView() {
   releaseCenter();
   railTabStopId = null;
   refreshFocusRoster();
+  if (isAttentionJumpActivating && attentionJumpTargetId) {
+    openAttentionSession(attentionJumpTargetId);
+    return;
+  }
   if (isAttentionJumpActivating && attentionLine().length > 0) {
     focusNextAttention();
     return;
@@ -496,12 +504,14 @@ export function activateFocusView() {
   restoreFocusedSession();
 }
 
-export function activateFocusOnNextAttention(activateFocus: () => void) {
+export function activateFocusOnNextAttention(activateFocus: () => void, targetSessionId: string | null = null) {
   isAttentionJumpActivating = true;
+  attentionJumpTargetId = targetSessionId;
   try {
     activateFocus();
   } finally {
     isAttentionJumpActivating = false;
+    attentionJumpTargetId = null;
   }
 }
 
