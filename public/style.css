@@ -3511,9 +3511,11 @@ html[data-layout="phone"] .plan-editor { font-size: var(--type-title); }
 .doc-markup-group { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .doc-markup-input { min-width: 18ch; text-transform: none; letter-spacing: 0; }
 .doc-markup-hint { flex: 1 1 24ch; min-width: 0; color: var(--text-muted); font-size: var(--type-meta); }
-.doc-markup-sheet { display: grid; grid-template-columns: minmax(0, 1fr) 22ch; gap: 0; border-radius: var(--radius); background: var(--pen-paper); color: var(--pen-text); box-shadow: inset 0 0 0 1px var(--border); }
-.doc-markup-paper { padding: 28px 24px 28px 32px; border-right: 2px solid color-mix(in srgb, var(--pen-ink) 35%, transparent); font-family: Georgia, 'Times New Roman', serif; font-size: var(--type-title); line-height: 2.3; white-space: pre-wrap; overflow-wrap: anywhere; }
-.doc-markup-margin { position: relative; }
+.doc-markup-paper { padding-block: 28px; border-radius: var(--radius); background: var(--pen-paper); color: var(--pen-text); box-shadow: inset 0 0 0 1px var(--border); }
+.doc-markup-chunk { content-visibility: auto; contain-intrinsic-size: auto calc(var(--type-title) * 2.3 * 40); }
+.doc-markup-row { display: grid; grid-template-columns: minmax(0, 1fr) 22ch; }
+.doc-markup-line { min-height: calc(var(--type-title) * 2.3); padding: 0 24px 0 32px; border-right: 2px solid color-mix(in srgb, var(--pen-ink) 35%, transparent); font-family: Georgia, 'Times New Roman', serif; font-size: var(--type-title); line-height: 2.3; white-space: pre-wrap; overflow-wrap: anywhere; }
+.doc-markup-row-margin { position: relative; }
 .doc-markup-mark { cursor: pointer; border-radius: 2px; }
 .doc-markup-mark:focus-visible, .doc-markup-mark.is-selected { outline: 2px dashed var(--pen-ink); outline-offset: 2px; }
 .doc-markup-mark del { color: inherit; text-decoration: line-through 2px var(--pen-ink); }
@@ -3530,8 +3532,8 @@ html[data-layout="phone"] .plan-editor { font-size: var(--type-title); }
 .doc-markup-end-note { padding: 12px 16px; border: 2px solid var(--pen-ink); border-radius: 10px 14px 9px 16px; background: var(--pen-paper); color: var(--pen-ink); font-family: 'ComicMono', var(--font-mono); }
 .doc-markup-end-note .doc-markup-code { border: 0; padding: 0; }
 .doc-markup-end-note p { margin: 6px 0 0; white-space: pre-wrap; }
-html[data-layout="phone"] .doc-markup-sheet { grid-template-columns: minmax(0, 1fr) 14ch; }
-html[data-layout="phone"] .doc-markup-paper { padding: 20px 12px 20px 16px; }
+html[data-layout="phone"] .doc-markup-row { grid-template-columns: minmax(0, 1fr) 14ch; }
+html[data-layout="phone"] .doc-markup-line { padding: 0 12px 0 16px; }
 html[data-layout="phone"] .doc-editor { width: 100vw; height: 100dvh; border: 0; border-radius: 0; }
 html[data-layout="phone"] .doc-editor-header { padding-top: max(8px, env(safe-area-inset-top)); }
 html[data-layout="phone"] .doc-editor .plan-control { min-height: 40px; }

@@ -10,7 +10,7 @@ interface MarginNote {
   body: string;
 }
 
-interface TextSegment {
+export interface TextSegment {
   kind: 'text';
   start: number;
   text: string;
@@ -26,21 +26,24 @@ export interface MarkSegment {
   note: MarginNote | null;
 }
 
-export type MarkupSegment = TextSegment | MarkSegment;
+type MarkupSegment = TextSegment | MarkSegment;
 
 export interface SourceSelection {
   start: number;
   end: number;
 }
 
-const TRAILING_NOTE = String.raw`(?:\{>>([\s\S]*?)<<\})?`;
-const CRITIC_MARKUP_PATTERN = new RegExp([
-  String.raw`\{--([\s\S]*?)--\}${TRAILING_NOTE}`,
-  String.raw`\{\+\+([\s\S]*?)\+\+\}${TRAILING_NOTE}`,
-  String.raw`\{~~([\s\S]*?)~>([\s\S]*?)~~\}${TRAILING_NOTE}`,
-  String.raw`\{==([\s\S]*?)==\}${TRAILING_NOTE}`,
-  String.raw`\{>>([\s\S]*?)<<\}`,
-].join('|'), 'g');
+const NOTE_OPENER = '{>>';
+const NOTE_CLOSER = '<<}';
+const SUBSTITUTION_SEPARATOR = '~>';
+const MARK_OPENERS = [
+  { opener: '{--', closer: '--}', markKind: 'deletion' },
+  { opener: '{++', closer: '++}', markKind: 'insertion' },
+  { opener: '{~~', closer: '~~}', markKind: 'substitution' },
+  { opener: '{==', closer: '==}', markKind: 'highlight' },
+  { opener: NOTE_OPENER, closer: NOTE_CLOSER, markKind: 'comment' },
+] as const;
+const MARKUP_DELIMITERS = [...MARK_OPENERS.flatMap(({ opener, closer }) => [opener, closer]), SUBSTITUTION_SEPARATOR];
 const MARGIN_CODE_PATTERN = new RegExp(`^(${MARGIN_CODES.join('|')}):\\s*`, 'i');
 
 function isMarginCode(candidate: string): candidate is MarginCode {
@@ -48,38 +51,80 @@ function isMarginCode(candidate: string): candidate is MarginCode {
 }
 
 function parseMarginNote(rawNote: string | undefined): MarginNote | null {
-  if (rawNote === undefined) return null;
+  if (rawNote === undefined || rawNote.trim() === '') return null;
   const codeMatch = MARGIN_CODE_PATTERN.exec(rawNote);
   const code = codeMatch?.[1]?.toLowerCase() ?? '';
   if (!codeMatch || !isMarginCode(code)) return { code: null, body: rawNote.trim() };
   return { code, body: rawNote.slice(codeMatch[0].length).trim() };
 }
 
-function markFromMatch(match: RegExpExecArray): MarkSegment {
-  const start = match.index;
-  const end = start + match[0].length;
-  const base = { kind: 'mark' as const, start, end };
-  if (match[1] !== undefined) return { ...base, markKind: 'deletion', oldText: match[1], newText: '', note: parseMarginNote(match[2]) };
-  if (match[3] !== undefined) return { ...base, markKind: 'insertion', oldText: '', newText: match[3], note: parseMarginNote(match[4]) };
-  if (match[5] !== undefined) return { ...base, markKind: 'substitution', oldText: match[5], newText: match[6] ?? '', note: parseMarginNote(match[7]) };
-  if (match[8] !== undefined) return { ...base, markKind: 'highlight', oldText: match[8], newText: '', note: parseMarginNote(match[9]) };
-  return { ...base, markKind: 'comment', oldText: '', newText: '', note: parseMarginNote(match[10]) };
+function createTokenFinder(source: string) {
+  const lastSearchByToken = new Map<string, { searchedFrom: number; foundAt: number }>();
+  return (token: string, from: number): number => {
+    const lastSearch = lastSearchByToken.get(token);
+    const isLastSearchValid = lastSearch !== undefined && lastSearch.searchedFrom <= from && (lastSearch.foundAt === -1 || lastSearch.foundAt >= from);
+    if (isLastSearchValid) return lastSearch.foundAt;
+    const foundAt = source.indexOf(token, from);
+    lastSearchByToken.set(token, { searchedFrom: from, foundAt });
+    return foundAt;
+  };
+}
+
+type TokenFinder = ReturnType<typeof createTokenFinder>;
+
+function readTrailingNote(source: string, findToken: TokenFinder, markEnd: number): { rawNote: string | undefined; end: number } {
+  if (!source.startsWith(NOTE_OPENER, markEnd)) return { rawNote: undefined, end: markEnd };
+  const noteCloseAt = findToken(NOTE_CLOSER, markEnd + NOTE_OPENER.length);
+  if (noteCloseAt === -1) return { rawNote: undefined, end: markEnd };
+  return { rawNote: source.slice(markEnd + NOTE_OPENER.length, noteCloseAt), end: noteCloseAt + NOTE_CLOSER.length };
+}
+
+function readSubstitution(source: string, findToken: TokenFinder, bodyStart: number): { oldText: string; newText: string; closeAt: number } | null {
+  const separatorAt = findToken(SUBSTITUTION_SEPARATOR, bodyStart);
+  if (separatorAt === -1) return null;
+  const closeAt = findToken('~~}', separatorAt + SUBSTITUTION_SEPARATOR.length);
+  if (closeAt === -1) return null;
+  return { oldText: source.slice(bodyStart, separatorAt), newText: source.slice(separatorAt + SUBSTITUTION_SEPARATOR.length, closeAt), closeAt };
+}
+
+function readMarkAt(source: string, findToken: TokenFinder, start: number): MarkSegment | null {
+  const markOpener = MARK_OPENERS.find(({ opener }) => source.startsWith(opener, start));
+  if (!markOpener) return null;
+  const bodyStart = start + markOpener.opener.length;
+  if (markOpener.markKind === 'substitution') {
+    const substitution = readSubstitution(source, findToken, bodyStart);
+    if (!substitution) return null;
+    const trailingNote = readTrailingNote(source, findToken, substitution.closeAt + markOpener.closer.length);
+    return { kind: 'mark', markKind: 'substitution', start, end: trailingNote.end, oldText: substitution.oldText, newText: substitution.newText, note: parseMarginNote(trailingNote.rawNote) };
+  }
+  const closeAt = findToken(markOpener.closer, bodyStart);
+  if (closeAt === -1) return null;
+  const body = source.slice(bodyStart, closeAt);
+  const bodyEnd = closeAt + markOpener.closer.length;
+  if (markOpener.markKind === 'comment') return { kind: 'mark', markKind: 'comment', start, end: bodyEnd, oldText: '', newText: '', note: parseMarginNote(body) };
+  const trailingNote = readTrailingNote(source, findToken, bodyEnd);
+  const isInsertion = markOpener.markKind === 'insertion';
+  return { kind: 'mark', markKind: markOpener.markKind, start, end: trailingNote.end, oldText: isInsertion ? '' : body, newText: isInsertion ? body : '', note: parseMarginNote(trailingNote.rawNote) };
 }
 
 export function parseCriticMarkup(source: string): MarkupSegment[] {
   const segments: MarkupSegment[] = [];
+  const findToken = createTokenFinder(source);
   let copiedUpTo = 0;
-  for (const match of source.matchAll(CRITIC_MARKUP_PATTERN)) {
-    if (match.index > copiedUpTo) segments.push({ kind: 'text', start: copiedUpTo, text: source.slice(copiedUpTo, match.index) });
-    segments.push(markFromMatch(match));
-    copiedUpTo = match.index + match[0].length;
+  let braceAt = source.indexOf('{');
+  while (braceAt !== -1) {
+    const mark = readMarkAt(source, findToken, braceAt);
+    if (!mark) {
+      braceAt = source.indexOf('{', braceAt + 1);
+      continue;
+    }
+    if (mark.start > copiedUpTo) segments.push({ kind: 'text', start: copiedUpTo, text: source.slice(copiedUpTo, mark.start) });
+    segments.push(mark);
+    copiedUpTo = mark.end;
+    braceAt = source.indexOf('{', mark.end);
   }
   if (copiedUpTo < source.length) segments.push({ kind: 'text', start: copiedUpTo, text: source.slice(copiedUpTo) });
   return segments;
-}
-
-export function marksOf(segments: MarkupSegment[]): MarkSegment[] {
-  return segments.filter((segment): segment is MarkSegment => segment.kind === 'mark');
 }
 
 export function isEndNote(mark: MarkSegment): boolean {
@@ -110,8 +155,13 @@ function markupFor(action: OperatorMarkAction, selectedText: string, operatorTex
   }
 }
 
-export function canApplyOperatorMark(action: OperatorMarkAction, selection: SourceSelection | null, operatorText: string): boolean {
+export function holdsMarkupDelimiter(text: string): boolean {
+  return MARKUP_DELIMITERS.some((delimiter) => text.includes(delimiter));
+}
+
+export function canApplyOperatorMark(source: string, action: OperatorMarkAction, selection: SourceSelection | null, operatorText: string): boolean {
   if (!selection) return false;
+  if (holdsMarkupDelimiter(source.slice(selection.start, selection.end)) || holdsMarkupDelimiter(operatorText)) return false;
   const hasSelectedText = selection.end > selection.start;
   const hasOperatorText = operatorText.trim().length > 0;
   switch (action) {
@@ -122,9 +172,15 @@ export function canApplyOperatorMark(action: OperatorMarkAction, selection: Sour
   }
 }
 
-export function applyOperatorMark(source: string, action: OperatorMarkAction, selection: SourceSelection, operatorText: string): string {
+export function applyOperatorMark(source: string, action: OperatorMarkAction, selection: SourceSelection, operatorText: string): string | null {
   const selectedText = source.slice(selection.start, selection.end);
-  return source.slice(0, selection.start) + markupFor(action, selectedText, operatorText) + source.slice(selection.end);
+  const wouldAbsorbNextNote = action !== 'note' && source.startsWith(NOTE_OPENER, selection.end);
+  const noteTerminator = wouldAbsorbNextNote ? `${NOTE_OPENER}${NOTE_CLOSER}` : '';
+  const insertedMarkup = markupFor(action, selectedText, operatorText) + noteTerminator;
+  const markedSource = source.slice(0, selection.start) + insertedMarkup + source.slice(selection.end);
+  const operatorMarkEnd = selection.start + insertedMarkup.length;
+  const isOperatorMarkWhole = parseCriticMarkup(markedSource).some((segment) => segment.kind === 'mark' && segment.start === selection.start && segment.end === operatorMarkEnd);
+  return isOperatorMarkWhole ? markedSource : null;
 }
 
 export function agentPromptFor(docPath: string, openMarkCount: number): string {

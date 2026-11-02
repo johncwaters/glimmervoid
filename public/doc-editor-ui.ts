@@ -2,8 +2,8 @@ import { DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from './action-status.ts
 import { sendControlRequest } from './control-ws.ts';
 import { docsOf } from './doc-editor.ts';
 import { el, writeClipboardText } from './dom-helpers.ts';
-import { agentPromptFor, applyOperatorMark, canApplyOperatorMark, isEndNote, marksOf, parseCriticMarkup, resolveMark } from './doc-markup-core.ts';
-import type { MarkDecision, MarkSegment, MarkupSegment, OperatorMarkAction, SourceSelection } from './doc-markup-core.ts';
+import { agentPromptFor, applyOperatorMark, canApplyOperatorMark, holdsMarkupDelimiter, isEndNote, parseCriticMarkup, resolveMark } from './doc-markup-core.ts';
+import type { MarkDecision, MarkSegment, OperatorMarkAction, SourceSelection, TextSegment } from './doc-markup-core.ts';
 import { parsePlanMarkdown } from './plan/plan-markdown-core.ts';
 import { renderPlanBlocks } from './plan/plan-render.ts';
 import { isStreamerMode } from './streamer-mode.ts';
@@ -69,10 +69,15 @@ function renderPreview(editor: OpenEditor) {
   editor.preview.replaceChildren(renderPlanBlocks(parsePlanMarkdown(editor.textarea.value)));
 }
 
+interface MarkupRow {
+  line: HTMLElement;
+  margin: HTMLElement;
+  notesWithAnchors: Array<{ note: HTMLElement; anchor: HTMLElement }>;
+}
+
 interface MarkupPane {
   root: HTMLElement;
   paper: HTMLElement;
-  margin: HTMLElement;
   endNotes: HTMLElement;
   operatorText: HTMLInputElement;
   toolButtons: Map<OperatorMarkAction, HTMLButtonElement>;
@@ -81,9 +86,13 @@ interface MarkupPane {
   btnCopyPrompt: HTMLButtonElement;
   hint: HTMLElement;
   marginResizeObserver: ResizeObserver;
+  rowObserver: IntersectionObserver | null;
+  rowsByElement: Map<Element, MarkupRow>;
+  visibleRows: Set<MarkupRow>;
   selection: SourceSelection | null;
-  selectedMark: MarkSegment | null;
-  openMarkCount: number;
+  marks: MarkSegment[];
+  elementsByMarkIndex: HTMLElement[][];
+  selectedMarkIndex: number | null;
 }
 
 const OPERATOR_MARK_LABELS: ReadonlyArray<readonly [OperatorMarkAction, string]> = [
@@ -136,18 +145,15 @@ function buildMarkupPane(): MarkupPane {
   decideGroup.append(btnAccept, btnReject);
   tools.append(addGroup, decideGroup, btnCopyPrompt, hint);
   const paper = el('div', 'doc-markup-paper');
-  const margin = el('div', 'doc-markup-margin');
-  margin.setAttribute('aria-hidden', 'true');
-  const sheet = el('div', 'doc-markup-sheet');
-  sheet.append(paper, margin);
   const endNotes = el('div', 'doc-markup-end');
   const root = el('div', 'doc-markup');
   root.hidden = true;
-  root.append(buildInkFilter(), tools, sheet, endNotes);
+  root.append(buildInkFilter(), tools, paper, endNotes);
   const pane: MarkupPane = {
-    root, paper, margin, endNotes, operatorText, toolButtons, btnAccept, btnReject, btnCopyPrompt, hint,
-    marginResizeObserver: new ResizeObserver(() => placeMarginNotes(pane)),
-    selection: null, selectedMark: null, openMarkCount: 0,
+    root, paper, endNotes, operatorText, toolButtons, btnAccept, btnReject, btnCopyPrompt, hint,
+    marginResizeObserver: new ResizeObserver(() => placeRowNotes([...pane.visibleRows])),
+    rowObserver: null, rowsByElement: new Map(), visibleRows: new Set(),
+    selection: null, marks: [], elementsByMarkIndex: [], selectedMarkIndex: null,
   };
   pane.marginResizeObserver.observe(paper);
   return pane;
@@ -161,9 +167,9 @@ function describeMark(mark: MarkSegment) {
   return parts.join(' ');
 }
 
-function buildMarkElement(mark: MarkSegment) {
+function buildMarkElement(mark: MarkSegment, markIndex: number) {
   const wrapper = el('span', `doc-markup-mark doc-markup-${mark.markKind}`);
-  wrapper.dataset.markStart = String(mark.start);
+  wrapper.dataset.markIndex = String(markIndex);
   wrapper.tabIndex = 0;
   wrapper.setAttribute('role', 'button');
   wrapper.setAttribute('aria-label', describeMark(mark));
@@ -180,7 +186,6 @@ function buildMarkElement(mark: MarkSegment) {
 
 function buildMarginNote(mark: MarkSegment) {
   const note = el('div', 'doc-markup-note');
-  note.dataset.markStart = String(mark.start);
   note.dataset.code = mark.note?.code ?? '';
   if (mark.note?.code === 'good') note.append(buildCheckMark());
   if (mark.note?.code && mark.note.code !== 'good') note.append(el('span', 'doc-markup-code', MARGIN_CODE_LABELS[mark.note.code] ?? mark.note.code));
@@ -188,9 +193,9 @@ function buildMarginNote(mark: MarkSegment) {
   return note;
 }
 
-function buildEndNote(mark: MarkSegment) {
+function buildEndNote(mark: MarkSegment, markIndex: number) {
   const note = el('div', 'doc-markup-end-note doc-markup-mark');
-  note.dataset.markStart = String(mark.start);
+  note.dataset.markIndex = String(markIndex);
   note.tabIndex = 0;
   note.setAttribute('role', 'button');
   note.setAttribute('aria-label', `End note: ${mark.note?.body ?? ''}`);
@@ -198,41 +203,134 @@ function buildEndNote(mark: MarkSegment) {
   return note;
 }
 
-function buildSegmentElement(segment: MarkupSegment) {
-  if (segment.kind === 'mark') return buildMarkElement(segment);
-  const text = el('span', 'doc-markup-text', segment.text);
-  text.dataset.start = String(segment.start);
-  return text;
+function buildTextElement(text: string, sourceStart: number, segmentStart: number) {
+  const textElement = el('span', 'doc-markup-text', text);
+  textElement.dataset.start = String(sourceStart);
+  textElement.dataset.segmentStart = String(segmentStart);
+  return textElement;
+}
+
+function buildRow(): MarkupRow & { row: HTMLElement } {
+  const line = el('div', 'doc-markup-line');
+  const margin = el('div', 'doc-markup-row-margin');
+  margin.setAttribute('aria-hidden', 'true');
+  const row = el('div', 'doc-markup-row');
+  row.append(line, margin);
+  return { row, line, margin, notesWithAnchors: [] };
+}
+
+function appendTextLines(rows: Array<MarkupRow & { row: HTMLElement }>, segment: TextSegment) {
+  let sourceOffset = segment.start;
+  segment.text.split('\n').forEach((lineText, lineIndex) => {
+    if (lineIndex > 0) rows.push(buildRow());
+    if (lineText) rows.at(-1)?.line.append(buildTextElement(lineText, sourceOffset, segment.start));
+    sourceOffset += lineText.length + 1;
+  });
+}
+
+const ROWS_PER_CHUNK = 40;
+
+function chunkRows(rowElements: HTMLElement[]) {
+  const chunks: HTMLElement[] = [];
+  for (let chunkStart = 0; chunkStart < rowElements.length; chunkStart += ROWS_PER_CHUNK) {
+    const chunk = el('div', 'doc-markup-chunk');
+    chunk.append(...rowElements.slice(chunkStart, chunkStart + ROWS_PER_CHUNK));
+    chunks.push(chunk);
+  }
+  return chunks;
+}
+
+function rowObserverFor(pane: MarkupPane) {
+  pane.rowObserver ??= new IntersectionObserver((entries) => {
+    const rowsToPlace: MarkupRow[] = [];
+    for (const entry of entries) {
+      const row = pane.rowsByElement.get(entry.target);
+      if (!row) continue;
+      if (!entry.isIntersecting) {
+        pane.visibleRows.delete(row);
+        continue;
+      }
+      pane.visibleRows.add(row);
+      rowsToPlace.push(row);
+    }
+    placeRowNotes(rowsToPlace);
+  }, { root: pane.root.closest('.doc-editor-body'), rootMargin: '600px 0px' });
+  return pane.rowObserver;
 }
 
 function renderMarkup(editor: OpenEditor) {
   const pane = editor.markup;
-  const segments = parseCriticMarkup(editor.textarea.value);
-  const marks = marksOf(segments);
-  const endNoteMarks = marks.filter(isEndNote);
-  pane.paper.replaceChildren(...segments.filter((segment) => segment.kind === 'text' || !isEndNote(segment)).map(buildSegmentElement));
-  pane.margin.replaceChildren(...marks.filter((mark) => mark.note && !isEndNote(mark)).map(buildMarginNote));
-  pane.endNotes.replaceChildren(...endNoteMarks.map(buildEndNote));
-  pane.endNotes.hidden = endNoteMarks.length === 0;
-  pane.openMarkCount = marks.length;
-  pane.selectedMark = null;
+  const rowObserver = rowObserverFor(pane);
+  rowObserver.disconnect();
+  const rows = [buildRow()];
+  const endNoteElements: HTMLElement[] = [];
+  pane.marks = [];
+  pane.elementsByMarkIndex = [];
+  pane.rowsByElement.clear();
+  pane.visibleRows.clear();
+  for (const segment of parseCriticMarkup(editor.textarea.value)) {
+    if (segment.kind === 'text') {
+      appendTextLines(rows, segment);
+      continue;
+    }
+    const markIndex = pane.marks.push(segment) - 1;
+    if (isEndNote(segment)) {
+      const endNote = buildEndNote(segment, markIndex);
+      endNoteElements.push(endNote);
+      pane.elementsByMarkIndex.push([endNote]);
+      continue;
+    }
+    const currentRow = rows[rows.length - 1];
+    const markElement = buildMarkElement(segment, markIndex);
+    currentRow?.line.append(markElement);
+    pane.elementsByMarkIndex.push([markElement]);
+    if (!segment.note || !currentRow) continue;
+    const marginNote = buildMarginNote(segment);
+    pane.elementsByMarkIndex[markIndex]?.push(marginNote);
+    currentRow.margin.append(marginNote);
+    currentRow.notesWithAnchors.push({ note: marginNote, anchor: markElement });
+  }
+  pane.paper.replaceChildren(...chunkRows(rows.map(({ row }) => row)));
+  for (const markupRow of rows) {
+    if (markupRow.notesWithAnchors.length === 0) continue;
+    pane.rowsByElement.set(markupRow.row, markupRow);
+    rowObserver.observe(markupRow.row);
+  }
+  pane.endNotes.replaceChildren(...endNoteElements);
+  pane.endNotes.hidden = endNoteElements.length === 0;
+  pane.selectedMarkIndex = null;
   pane.selection = null;
-  requestAnimationFrame(() => placeMarginNotes(pane));
   paintMarkupTools(editor);
 }
 
-function placeMarginNotes(pane: MarkupPane) {
-  if (pane.root.hidden) return;
-  const marginTop = pane.margin.getBoundingClientRect().top;
-  let nextFreeTop = 0;
-  for (const note of pane.margin.querySelectorAll<HTMLElement>('.doc-markup-note')) {
-    const anchor = pane.paper.querySelector(`[data-mark-start="${note.dataset.markStart}"]`);
-    const anchorTop = anchor ? anchor.getBoundingClientRect().top - marginTop : nextFreeTop;
-    const top = Math.max(anchorTop, nextFreeTop);
-    note.style.top = `${top}px`;
-    nextFreeTop = top + note.offsetHeight + 6;
+function placeRowNotes(rows: MarkupRow[]) {
+  const measuredRows = rows.map((row) => {
+    const marginTop = row.margin.getBoundingClientRect().top;
+    return {
+      row,
+      measuredNotes: row.notesWithAnchors.map(({ note, anchor }) => ({ note, anchorTop: anchor.getBoundingClientRect().top - marginTop, height: note.offsetHeight })),
+    };
+  });
+  for (const { row, measuredNotes } of measuredRows) {
+    let nextFreeTop = 0;
+    for (const { note, anchorTop, height } of measuredNotes) {
+      const top = Math.max(anchorTop, nextFreeTop);
+      note.style.top = `${top}px`;
+      nextFreeTop = top + height + 6;
+    }
+    row.margin.style.minHeight = `${nextFreeTop}px`;
   }
-  pane.margin.style.minHeight = `${nextFreeTop}px`;
+}
+
+function selectedMarkOf(pane: MarkupPane) {
+  return pane.selectedMarkIndex === null ? null : pane.marks[pane.selectedMarkIndex] ?? null;
+}
+
+function selectMarkIndex(pane: MarkupPane, markIndex: number | null) {
+  const previousIndex = pane.selectedMarkIndex;
+  for (const element of previousIndex === null ? [] : pane.elementsByMarkIndex[previousIndex] ?? []) element.classList.remove('is-selected');
+  pane.selectedMarkIndex = markIndex;
+  for (const element of markIndex === null ? [] : pane.elementsByMarkIndex[markIndex] ?? []) element.classList.add('is-selected');
 }
 
 function isMarkupLocked(editor: OpenEditor) {
@@ -243,31 +341,39 @@ function paintMarkupTools(editor: OpenEditor) {
   const pane = editor.markup;
   const isLocked = isMarkupLocked(editor);
   const canAddMarks = !isLocked && !isStreamerMode();
-  for (const [action, button] of pane.toolButtons) button.disabled = !canAddMarks || !canApplyOperatorMark(action, pane.selection, pane.operatorText.value);
+  const source = editor.textarea.value;
+  for (const [action, button] of pane.toolButtons) button.disabled = !canAddMarks || !canApplyOperatorMark(source, action, pane.selection, pane.operatorText.value);
   pane.operatorText.disabled = !canAddMarks;
-  pane.btnAccept.disabled = isLocked || !pane.selectedMark;
-  pane.btnReject.disabled = isLocked || !pane.selectedMark;
-  pane.btnCopyPrompt.disabled = isLocked || editor.hasUnsavedChanges || pane.openMarkCount === 0;
-  for (const markElement of pane.root.querySelectorAll<HTMLElement>('.doc-markup-mark, .doc-markup-note')) {
-    markElement.classList.toggle('is-selected', markElement.dataset.markStart === String(pane.selectedMark?.start));
-  }
+  const hasSelectedMark = pane.selectedMarkIndex !== null;
+  pane.btnAccept.disabled = isLocked || !hasSelectedMark;
+  pane.btnReject.disabled = isLocked || !hasSelectedMark;
+  pane.btnCopyPrompt.disabled = isLocked || editor.hasUnsavedChanges || pane.marks.length === 0;
   pane.hint.textContent = markupHintFor(editor);
 }
 
 function markupHintFor(editor: OpenEditor) {
   const pane = editor.markup;
-  if (pane.selectedMark) return describeMark(pane.selectedMark);
+  const selectedMark = selectedMarkOf(pane);
+  const openMarkCount = pane.marks.length;
+  if (selectedMark) return describeMark(selectedMark);
   if (isStreamerMode()) return 'Adding marks is off in streamer mode.';
-  if (editor.hasUnsavedChanges && pane.openMarkCount > 0) return `${pane.openMarkCount} open marks. Save before copying the agent prompt.`;
-  if (pane.openMarkCount > 0) return `${pane.openMarkCount} open marks. Click one to accept or reject it.`;
+  if (isSelectionBlockedByDelimiter(editor)) return 'That text holds CriticMarkup characters. Change it in Edit mode.';
+  if (editor.hasUnsavedChanges && openMarkCount > 0) return `${openMarkCount} open marks. Save before copying the agent prompt.`;
+  if (openMarkCount > 0) return `${openMarkCount} open marks. Click one to accept or reject it.`;
   return 'Select text to strike, replace or note it; click between words to insert.';
 }
 
-function sourceOffsetAt(node: Node, offset: number): { span: HTMLElement; sourceOffset: number } | null {
+function isSelectionBlockedByDelimiter(editor: OpenEditor) {
+  const selection = editor.markup.selection;
+  if (!selection) return false;
+  return holdsMarkupDelimiter(editor.textarea.value.slice(selection.start, selection.end)) || holdsMarkupDelimiter(editor.markup.operatorText.value);
+}
+
+function sourceOffsetAt(node: Node, offset: number): { segmentStart: string | undefined; sourceOffset: number } | null {
   if (node.nodeType !== Node.TEXT_NODE) return null;
   const span = node.parentElement?.closest<HTMLElement>('.doc-markup-text');
   if (!span) return null;
-  return { span, sourceOffset: Number(span.dataset.start) + offset };
+  return { segmentStart: span.dataset.segmentStart, sourceOffset: Number(span.dataset.start) + offset };
 }
 
 function readSourceSelection(pane: MarkupPane): SourceSelection | null {
@@ -277,7 +383,7 @@ function readSourceSelection(pane: MarkupPane): SourceSelection | null {
   if (!pane.paper.contains(range.commonAncestorContainer)) return null;
   const start = sourceOffsetAt(range.startContainer, range.startOffset);
   const end = sourceOffsetAt(range.endContainer, range.endOffset);
-  if (!start || !end || start.span !== end.span) return null;
+  if (!start || !end || start.segmentStart !== end.segmentStart) return null;
   return { start: start.sourceOffset, end: end.sourceOffset };
 }
 
@@ -288,21 +394,26 @@ function replaceDocText(editor: OpenEditor, nextText: string) {
 }
 
 function decideSelectedMark(editor: OpenEditor, decision: MarkDecision) {
-  const mark = editor.markup.selectedMark;
+  const mark = selectedMarkOf(editor.markup);
   if (!mark || isMarkupLocked(editor)) return;
   replaceDocText(editor, resolveMark(editor.textarea.value, mark, decision));
 }
 
 function addOperatorMark(editor: OpenEditor, action: OperatorMarkAction) {
   const pane = editor.markup;
-  if (!pane.selection || !canApplyOperatorMark(action, pane.selection, pane.operatorText.value)) return;
-  replaceDocText(editor, applyOperatorMark(editor.textarea.value, action, pane.selection, pane.operatorText.value));
+  if (!pane.selection || !canApplyOperatorMark(editor.textarea.value, action, pane.selection, pane.operatorText.value)) return;
+  const markedSource = applyOperatorMark(editor.textarea.value, action, pane.selection, pane.operatorText.value);
+  if (markedSource === null) {
+    setStatus(editor, 'An unclosed CriticMarkup mark earlier in the doc would swallow this one. Fix it in Edit mode.', 'warn');
+    return;
+  }
+  replaceDocText(editor, markedSource);
   pane.operatorText.value = '';
   paintMarkupTools(editor);
 }
 
 async function copyAgentPrompt(editor: OpenEditor) {
-  const pendingWrite = writeClipboardText(agentPromptFor(editor.docPath, editor.markup.openMarkCount));
+  const pendingWrite = writeClipboardText(agentPromptFor(editor.docPath, editor.markup.marks.length));
   if (!pendingWrite) {
     setStatus(editor, 'This browser blocks clipboard writes here.', 'warn');
     return;
@@ -316,8 +427,8 @@ async function copyAgentPrompt(editor: OpenEditor) {
 }
 
 function selectMarkAt(editor: OpenEditor, markElement: HTMLElement) {
-  const markStart = Number(markElement.dataset.markStart);
-  editor.markup.selectedMark = marksOf(parseCriticMarkup(editor.textarea.value)).find((mark) => mark.start === markStart) ?? null;
+  const markIndex = Number(markElement.dataset.markIndex);
+  selectMarkIndex(editor.markup, editor.markup.marks[markIndex] ? markIndex : null);
   editor.markup.selection = null;
   paintMarkupTools(editor);
 }
@@ -332,7 +443,7 @@ function wireMarkupPane(editor: OpenEditor) {
   };
   const trackTextSelection = () => {
     pane.selection = readSourceSelection(pane);
-    if (pane.selection) pane.selectedMark = null;
+    if (pane.selection) selectMarkIndex(pane, null);
     paintMarkupTools(editor);
   };
   for (const surface of [pane.paper, pane.endNotes]) {
@@ -475,6 +586,7 @@ export function openDocEditor(sessionId: string) {
     close: () => {
       openEditor = null;
       markup.marginResizeObserver.disconnect();
+      markup.rowObserver?.disconnect();
       modal.close();
     },
   };
