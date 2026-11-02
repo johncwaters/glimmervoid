@@ -37,7 +37,7 @@ const Side = z.enum(['left', 'right', 'top', 'bottom']).meta({ id: 'Side' });
 const Near = z.object({
   of: ElementId,
   side: Side,
-  gap: z.number().int().min(0).max(400).default(60),
+  gap: z.number().int().min(0).default(60),
 }).strict().meta({ id: 'Near' });
 
 const Output = z.object({
