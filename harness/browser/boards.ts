@@ -288,6 +288,7 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   const card = page.locator(`.session-card[data-id="${sessionId}"]`).first();
   await card.waitFor({ state: 'visible' });
   assert.equal(await page.locator('.pane-tab[data-tab="board"]').count(), 0, 'a session with no board shows Terminal only');
+  await verifyPaneTerminalTabOwnsTheFace(page, card);
   await card.getByRole('button', { name: 'Session actions', exact: true }).click();
   await card.locator('.overflow-connect-board').click();
   await page.getByRole('combobox', { name: 'Board to connect', exact: true }).selectOption({ label: boardTitle });
@@ -409,4 +410,18 @@ async function verifyRailArrowsReachBoardRows(page: Page): Promise<void> {
   assert.ok(await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.dataset.id !== undefined), 'ArrowUp from the first BOARD row reaches a session row');
   await page.keyboard.press('ArrowDown');
   assert.equal(await page.evaluate(() => document.activeElement instanceof HTMLElement ? document.activeElement.dataset.boardId ?? null : null), firstBoardId, 'ArrowDown from the last session row reaches the first BOARD row');
+}
+
+async function verifyPaneTerminalTabOwnsTheFace(page: Page, card: Locator): Promise<void> {
+  assert.equal(await card.locator('.card-face-tab:not(.card-face-tab-shown)').isVisible(), false, 'a centered card shows Terminal once, on the pane tab');
+  const sessionId = await card.getAttribute('data-id');
+  const isPlanShown = await page.evaluate(async (id) => {
+    const lifecycleUrl = '/session-card/lifecycle.ts';
+    const lifecycle: { setSessionHasPlan(id: unknown, hasPlan: unknown): void; showSessionPlanFace(id: unknown): boolean } = await import(lifecycleUrl);
+    lifecycle.setSessionHasPlan(id, true);
+    return lifecycle.showSessionPlanFace(id);
+  }, sessionId);
+  assert.equal(isPlanShown, true, 'the centered card switches to its Plan face');
+  await page.locator('.pane-tab[data-tab="terminal"]').click();
+  await page.waitForFunction(() => document.querySelector('#focus-pane-terminal .session-card')?.getAttribute('data-face') === 'terminal');
 }

@@ -3516,6 +3516,7 @@ html[data-layout="phone"] .doc-editor-body { padding: 12px; }
 .card-face-tab[aria-selected="true"] { border-color: var(--border-hover); color: var(--text-head); }
 .card-face-tab.is-empty { opacity: 0.4; cursor: default; }
 .card-face-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.session-card.focus-centered .card-face-tab:not(.card-face-tab-shown) { display: none; }
 @media (hover: hover) {
   .card-face-tab:not(.is-empty):hover { color: var(--text-head); background: color-mix(in srgb, var(--text) 8%, transparent); }
 }

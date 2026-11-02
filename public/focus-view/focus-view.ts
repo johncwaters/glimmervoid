@@ -164,6 +164,7 @@ export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | 
   emptyDescEl = emptyEl.querySelector<HTMLElement>('.focus-empty-desc');
 
   paneLayout = createPaneLayout();
+  paneLayout.element.addEventListener('click', showTerminalFaceOnTerminalTab);
   cardSlotEl = paneLayout.bodyOf('terminal');
   boardToolsSlot = el('div', 'pane-board-tools');
   boardsGroup = buildBoardsGroup();
@@ -528,6 +529,13 @@ function borrowToCenter(ui: SessionUi, id: string) {
   if (header) paneLayout?.setStripHost('terminal', { parent: header, before: header.querySelector(':scope > .session-actions') });
   paneLayout?.setTabTitle('terminal', () => terminalTabTitle(ui));
   setTerminalActiveViewer(ui, id, true);
+}
+
+function showTerminalFaceOnTerminalTab(event: MouseEvent) {
+  if (!(event.target instanceof Element) || !event.target.closest('.pane-tab[data-tab="terminal"]')) return;
+  const centeredId = getFocusedSessionId();
+  const ui = centeredId ? sessionUIs.get(centeredId) : null;
+  if (ui && ui.face !== 'terminal') ui._showTerminalFace?.();
 }
 
 function terminalTabTitle(ui: SessionUi) {
