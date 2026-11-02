@@ -11,8 +11,12 @@ import { REMERGE_OBJECTS_DIRNAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT,
 import type { ReviewTier } from '../server/github/core/team-review-core.ts';
 import { createTeamReviewPoller } from '../server/github/team-review-poller.ts';
 import type { SpawnReviewArgs } from '../server/github/team-review-poller.ts';
-import { createTeamReviewDispatcher, createTeamReviewWiring, createTeamReviewStateIo, makeTeamReviewWorkDir, sweepLeftoverCheckouts, hooksPathPinnedSpawnEnv, } from '../server/github/team-review-wiring.ts';
-import type { TeamReviewDispatchOptions, TeamReviewSpawn } from '../server/github/team-review-wiring.ts';
+import { createTeamReviewDispatcher } from '../server/github/team-review-dispatcher.ts';
+import { createTeamReviewWiring, createTeamReviewStateIo } from '../server/github/team-review-wiring.ts';
+import { makeTeamReviewWorkDir, hooksPathPinnedSpawnEnv } from '../server/github/team-review-spawn.ts';
+import { sweepLeftoverCheckouts } from '../server/github/team-review-checkouts.ts';
+import type { TeamReviewDispatchOptions } from '../server/github/team-review-dispatcher.ts';
+import type { TeamReviewSpawn } from '../server/github/team-review-spawn.ts';
 import { PrDetail, ReviewDraft } from '../shared/contracts/team-review.ts';
 import { UNTRUSTED_PAYLOAD_FILENAME, UNTRUSTED_PREAMBLE, UntrustedPayload } from '../shared/contracts/untrusted-payload.ts';
 import type { ResumableReview, ReviewDraft as ReviewDraftType } from '../shared/contracts/team-review.ts';

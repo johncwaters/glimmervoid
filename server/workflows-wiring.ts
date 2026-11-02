@@ -15,7 +15,7 @@ import { createLaneRunner } from './lanes/lane-runner.ts';
 import type { SharedClock } from './lanes/lane-runner.ts';
 import type { createGuardedPrStaging } from './github/my-prs-wiring.ts';
 import { createPrGh } from './github/pr-gh.ts';
-import { emptyGhConfigDir, makeTeamReviewWorkDir } from './github/team-review-wiring.ts';
+import { emptyGhConfigDir, makeTeamReviewWorkDir } from './github/team-review-spawn.ts';
 import { createWorkflowSessionQueue, createWorkflowsPoller } from './workflows-poller.ts';
 import type { SpawnSession, WorkflowsPoller, WorkflowsPollerDependencies } from './workflows-poller.ts';
 

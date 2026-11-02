@@ -13,8 +13,9 @@ import type { LaneSpawn } from './lanes/lane-spawn.ts';
 import type { GithubLaneStore } from './github/github-store-wiring.ts';
 import { githubStoreRateLimitedError } from './github/github-store-poller.ts';
 import type { GithubStoreRead } from './github/github-store-poller.ts';
-import { TEAM_REVIEW_SESSION_DENY_RULES, hooksPathPinnedSpawnEnv, teamReviewAcceptEditsPermissions } from './github/team-review-wiring.ts';
-import type { TeamReviewRepoCache, TeamReviewSpawn } from './github/team-review-wiring.ts';
+import { TEAM_REVIEW_SESSION_DENY_RULES, hooksPathPinnedSpawnEnv, teamReviewAcceptEditsPermissions } from './github/team-review-spawn.ts';
+import type { TeamReviewRepoCache } from './github/team-review-checkouts.ts';
+import type { TeamReviewSpawn } from './github/team-review-spawn.ts';
 import {
   BenchmarkCase, BenchmarkId, BenchmarkRun, BenchmarkStatus, BenchmarkSuite, PrCheckoutCaseInput,
 } from '../shared/contracts/benchmark.ts';

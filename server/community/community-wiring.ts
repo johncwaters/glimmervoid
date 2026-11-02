@@ -21,7 +21,7 @@ import { decideTelegramNotification } from '../../notifications/channels/telegra
 import { CommunityState } from '../../shared/contracts/community.ts';
 import type { CommunityActionRequest, CommunityActionResult, CommunityStateEntry } from '../../shared/contracts/community.ts';
 import { errorMessage } from '../../shared/text.ts';
-import { createTeamReviewSpawn } from '../github/team-review-wiring.ts';
+import { createTeamReviewSpawn } from '../github/team-review-spawn.ts';
 import { absolutePathReadRule } from '../github/core/team-review-core.ts';
 import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, LANE_CREDENTIAL_ENV } from '../lanes/core/lane-permissions-core.ts';
 import { firstLine, raceWithAbort } from '../lanes/ephemeral-session.ts';

@@ -7,8 +7,8 @@ import { execFileAsync, execFileSync } from '../server/child-process-safe.ts';
 import { createMyPrMergeabilityFix, createMyPrsStateIo, sweepKeepMergeableLeftovers } from '../server/github/my-prs-wiring.ts';
 import { createRepoCache } from '../server/git/repo-cache.ts';
 import type { CommandResult } from '../server/git/repo-cache.ts';
-import { createTeamReviewSpawn, } from '../server/github/team-review-wiring.ts';
-import type { TeamReviewSpawn } from '../server/github/team-review-wiring.ts';
+import { createTeamReviewSpawn } from '../server/github/team-review-spawn.ts';
+import type { TeamReviewSpawn } from '../server/github/team-review-spawn.ts';
 import {
   MY_PRS_FIX_BASE_BRANCH, MY_PRS_FIX_CHECKOUT_DIRNAME, keepMergeableTimeoutSeconds,
 } from '../server/github/core/my-prs-core.ts';
