@@ -54,7 +54,7 @@ function paintSessionRowLinks(row: HTMLElement, linksSlot: HTMLElement, sessionI
   linksSlot.toggleAttribute('data-expanded', isExpanded);
   if (!isExpanded) {
     linksSlot.removeAttribute('data-links-revealed');
-    paintSignalLine(linksSlot, links, undefined, { visibleCount: links.length, variant: 'line' });
+    paintSignalLine(linksSlot, links, undefined, { variant: 'line' });
     return;
   }
   if (linksSlot.hasAttribute('data-links-revealed')) {

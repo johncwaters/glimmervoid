@@ -3817,8 +3817,7 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 .session-row-signals[hidden] { display: none; }
 .session-row-links { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; color: var(--text-muted); }
 .session-row-links[hidden] { display: none; }
-.session-row-links:not([data-expanded]) > .signal { flex: 0 100 auto; min-width: 0; }
-.session-row-links:not([data-expanded]) > .signal:first-child { flex: 0 1 auto; min-width: 10ch; }
+.session-row-links:not([data-expanded]) > .signal { flex: 0 1 auto; min-width: 6ch; }
 .session-row-links:not([data-expanded]) > .signal + .signal::before { content: '\00B7'; margin-right: 3px; color: var(--border-hover); }
 .session-row .session-row-links .signal { font-weight: 400; }
 .session-row-links .signal-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
