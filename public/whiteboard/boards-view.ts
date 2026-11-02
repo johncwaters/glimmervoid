@@ -341,16 +341,17 @@ function paintHead(): void {
   if (!summary) return;
   parts.boardTitle.textContent = summary.title;
   parts.boardMeta.textContent = `v${summary.version}`;
-  paintPresence(summary.connectedSessionIds.map(sessionLabel));
   paintToolbar();
   paintPairedSession();
 }
 
-function paintPresence(connectedNames: readonly string[]): void {
+function paintPresence(connectedSessionIds: readonly string[]): void {
   if (!parts) return;
+  const connectedNames = connectedSessionIds.map(sessionLabel);
+  const pillNames = connectedSessionIds.filter((sessionId) => sessionId !== pairedSessionId).map(sessionLabel);
   const connectedCount = el('span', connectedNames.length === 0 ? 'wb-presence-count wb-presence-none' : 'wb-presence-count wb-presence-pill', `${connectedNames.length} connected`);
   connectedCount.title = connectedNames.join(', ');
-  parts.presence.replaceChildren(...connectedNames.map((name) => el('span', 'wb-presence-pill', name)), connectedCount);
+  parts.presence.replaceChildren(...pillNames.map((name) => el('span', 'wb-presence-pill', name)), connectedCount);
   if (connectedNames.length === 0) parts.presence.prepend(el('span', 'wb-presence-none', 'no sessions connected'));
   fitPresenceToStrip();
 }
@@ -373,11 +374,18 @@ function queuedForSessionText(summary: BoardSummary | null, sessionId: string): 
 
 function paintPairedSession(): void {
   if (!parts) return;
+  const summary = selectedSummary();
+  paintPresence(summary?.connectedSessionIds ?? []);
   parts.agentIsland.hidden = !pairedSessionId;
   if (!pairedSessionId) return;
-  const summary = selectedSummary();
+  parts.agentIsland.toggleAttribute('data-idle', !hasNewsForPairedSession(summary, pairedSessionId));
   parts.queuedForSession.textContent = queuedForSessionText(summary, pairedSessionId);
   parts.sendToAgent.disabled = !summary?.connectedSessionIds.includes(pairedSessionId);
+}
+
+function hasNewsForPairedSession(summary: BoardSummary | null, sessionId: string): boolean {
+  if (!summary?.connectedSessionIds.includes(sessionId)) return true;
+  return (summary.queuedBySessionId[sessionId] ?? 0) > 0;
 }
 
 async function sendBoardNudge(): Promise<void> {

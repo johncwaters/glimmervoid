@@ -317,15 +317,19 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   assert.ok(canvasBox.y + canvasBox.height <= cardBox.y, 'the default layout puts the board above the terminal');
   await page.waitForFunction((id) => document.querySelector(`#focus-pane-terminal .session-card[data-id="${id}"]`)?.getAttribute('data-grid') === 'exact', sessionId);
   const agentIsland = panel.getByRole('toolbar', { name: 'Session', exact: true });
-  await agentIsland.locator('.wb-session-queued', { hasText: 'has read every change' }).waitFor();
+  assert.equal(await agentIsland.isVisible(), false, 'the session island stays hidden while the session has read every change');
+  const centeredSessionName = await card.getAttribute('data-session');
+  assert.ok(centeredSessionName);
+  assert.equal(await panel.locator('.wb-presence-pill', { hasText: centeredSessionName }).count(), 0, 'the strip does not repeat the centered session as a presence pill');
+  await panel.getByRole('button', { name: 'unit', exact: true }).click();
+  await submitTextDialog(page, 'Unit title', 'Uncovered change', 'Add unit');
+  const unitOnBoard = panel.locator('.wb-unit', { hasText: 'Uncovered change' });
+  await agentIsland.locator('.wb-session-queued', { hasText: 'queued for' }).waitFor();
   const agentBox = await agentIsland.boundingBox();
   assert.ok(agentBox);
   assert.ok(Math.abs(agentBox.y + agentBox.height - (canvasBox.y + canvasBox.height - 10)) < 2 && Math.abs(agentBox.x - (canvasBox.x + 10)) < 2, 'the session island sits bottom left on the board');
   await agentIsland.getByRole('button', { name: 'send to agent', exact: true }).click();
   await agentIsland.locator('.action-status', { hasText: 'sent' }).waitFor();
-  await panel.getByRole('button', { name: 'unit', exact: true }).click();
-  await submitTextDialog(page, 'Unit title', 'Uncovered change', 'Add unit');
-  const unitOnBoard = panel.locator('.wb-unit', { hasText: 'Uncovered change' });
   await unitOnBoard.locator('.wb-box-title').click();
   const inspect = panel.locator('.wb-inspect');
   await inspect.getByRole('button', { name: 'Add a ref to this unit', exact: true }).click();
@@ -435,29 +439,22 @@ async function verifyPaneTerminalTabOwnsTheFace(page: Page, card: Locator): Prom
 
 async function verifyBoardStripFitsNarrowWidth(page: Page, panel: Locator, boardTitle: string): Promise<void> {
   const presence = panel.locator('.pane-board-tools .wb-presence');
-  const connectedCount = presence.locator('.wb-presence-count');
-  await presence.locator('.wb-presence-pill:not(.wb-presence-count)').first().waitFor();
-  assert.equal(await connectedCount.isVisible(), false, 'a wide strip names each connected session');
+  await openBoardTitle(panel, boardTitle).waitFor();
+  assert.equal(await presence.locator('.wb-presence-pill:not(.wb-presence-count)').count(), 0, 'the strip names no pill for the only connected session, the one centered beside it');
   const wideViewport = page.viewportSize();
   assert.ok(wideViewport);
   await page.setViewportSize({ width: NARROW_VIEWPORT_WIDTH_PX, height: wideViewport.height });
-  await connectedCount.waitFor();
-  assert.equal(await connectedCount.textContent(), '1 connected');
-  assert.ok((await connectedCount.getAttribute('title'))?.length, 'the count names the connected sessions in its title');
   const strip = panel.locator('.pane-strip:has(.pane-board-tools)');
   assert.equal(await panel.locator('.pane-board-tools .wb-island-board').evaluate((boardIsland) => boardIsland.scrollWidth <= boardIsland.clientWidth), true, 'the collapsed board island fits without overlapping the tools');
   const stripBox = await strip.boundingBox();
   const titleBox = await openBoardTitle(panel, boardTitle).boundingBox();
-  const countBox = await connectedCount.boundingBox();
   const lastToolBox = await panel.getByRole('button', { name: 'unit', exact: true }).boundingBox();
   const trailBox = await strip.locator('.pane-trail').boundingBox();
   assert.ok(stripBox, 'strip box');
   assert.ok(titleBox, 'title box');
-  assert.ok(countBox, 'count box');
   assert.ok(lastToolBox, 'unit box');
-  assert.ok(titleBox.width >= MIN_TITLE_WIDTH_PX && countBox.width > 0, 'the board title and the connected count stay on the narrow strip');
+  assert.ok(titleBox.width >= MIN_TITLE_WIDTH_PX, 'the board title stays on the narrow strip');
   assert.ok(lastToolBox.y >= stripBox.y && lastToolBox.y + lastToolBox.height <= stripBox.y + stripBox.height, 'every board tool stays inside the one-row strip');
   assert.ok(!trailBox || lastToolBox.x + lastToolBox.width <= trailBox.x, 'the board tools stay clear of the review bar');
   await page.setViewportSize(wideViewport);
-  await connectedCount.waitFor({ state: 'hidden' });
 }

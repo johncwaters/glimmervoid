@@ -150,6 +150,8 @@
 
 .wb-island[hidden] { display: none; }
 
+.wb-island-agent[data-idle] { visibility: hidden; }
+
 .wb-island-agent {
   flex-wrap: nowrap;
   padding-right: 10px;

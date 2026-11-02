@@ -72,6 +72,8 @@ function linkedBoardIdOf(target: EventTarget | null): string | null {
   return target.closest<SVGElement>('[data-linked-board-id]')?.dataset.linkedBoardId ?? null;
 }
 
+const MAX_FIT_ZOOM = 2;
+
 export function createBoardEditor(options: BoardEditorOptions) {
   const { svg, canvas, renderer } = options;
   const activePointers = new Map<number, ViewPoint>();
@@ -121,7 +123,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
     }
     isFitOwedOnceSized = false;
     const band = islandFreeBand();
-    const unitsPerPixel = Math.max(1, bounds.width / canvasWidth, bounds.height / band.heightPx);
+    const maxZoom = layout.elements.length === 0 ? 1 : MAX_FIT_ZOOM;
+    const unitsPerPixel = Math.max(1 / maxZoom, bounds.width / canvasWidth, bounds.height / band.heightPx);
     const viewWidth = canvasWidth * unitsPerPixel;
     const boardCenterY = bounds.y + bounds.height / 2;
     const bandCenterPx = band.topPx + band.heightPx / 2;
