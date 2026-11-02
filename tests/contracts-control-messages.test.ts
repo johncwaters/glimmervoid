@@ -178,7 +178,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'community-action-result', requestId: 'community-1', key: 'forum:4', ok: false, error: 'The research run for this question is still going' },
   { type: 'open-community-session-result', requestId: 'community-2', ok: true, error: null, key: 'forum:4', sessionId: 'session-9', sessionName: 'Community: Send events from a server', pending: false },
   { type: 'community-status', ts: NOW, configured: true, intervalMinutes: 5, error: null, entries: [{
-    item: { key: 'forum:4', source: 'forum', title: 'Send events from a server', body: 'How do I send events from a server?', url: 'https://posthog.com/questions/question-4', author: 'Asker', channel: null, createdAt: '2026-10-28T12:01:00Z' },
+    item: { key: 'forum:4', source: 'forum', title: 'Send events from a server', body: 'How do I send events from a server?', url: 'https://posthog.com/forum/p/question-4', author: 'Asker', channel: 'ask-the-hogs', tags: ['API & SDKs'], createdAt: '2026-10-28T12:01:00Z' },
     status: 'ready', verdict: 'HIGH', summary: 'The docs answer it.', goal: 'Send events from a server', checked: ['the capture docs show the endpoint'], gaps: [],
     draft: { body: 'Use the capture endpoint.', publicLinks: ['https://posthog.com/docs'] }, attempts: 1, seenAt: '2026-10-28T12:05:00Z', finishedAt: '2026-10-28T12:06:00Z',
   }] },

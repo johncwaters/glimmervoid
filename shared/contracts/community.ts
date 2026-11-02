@@ -18,7 +18,8 @@ export const CommunityItem = z.strictObject({
   body: z.string().max(20000),
   url: z.url(),
   author: z.string().max(100),
-  channel: z.string().max(100).nullable(),
+  channel: z.string().regex(DISCORD_CHANNEL_NAME_RE).nullable(),
+  tags: z.array(z.string().max(100)).max(20).default([]),
   createdAt: z.string(),
 });
 export type CommunityItem = z.infer<typeof CommunityItem>;

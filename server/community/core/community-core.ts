@@ -11,7 +11,9 @@ const DEFAULT_PROJECT_ID = 2;
 const DEFAULT_INTERVAL_MINUTES = 5;
 const SOURCE_ROW_LIMIT = 50;
 const ENTRY_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
-const FORUM_QUESTION_URL = 'https://posthog.com/questions/';
+const FORUM_QUESTION_URL = 'https://posthog.com/forum/p/';
+const MAX_FORUM_TAGS = 20;
+const MAX_FORUM_LABEL_CHARS = 100;
 const MAX_TITLE_CHARS = 300;
 const MAX_BODY_CHARS = 20000;
 const MAX_AUTHOR_CHARS = 100;
@@ -134,6 +136,22 @@ function forumAuthor(profile: unknown): string {
   return typeof firstName === 'string' && firstName.trim() ? firstName.trim().slice(0, MAX_AUTHOR_CHARS) : 'unknown';
 }
 
+function forumLabel(relation: unknown): string | null {
+  const label = recordOf(recordOf(relation).attributes).label;
+  return typeof label === 'string' && label.trim() ? label.trim().slice(0, MAX_FORUM_LABEL_CHARS) : null;
+}
+
+function forumTopicSlug(relation: unknown): string | null {
+  const slug = recordOf(recordOf(relation).attributes).slug;
+  return typeof slug === 'string' && DISCORD_CHANNEL_NAME_RE.test(slug) ? slug : null;
+}
+
+function forumTags(relation: unknown): string[] {
+  const tagRelations = recordOf(relation).data;
+  if (!Array.isArray(tagRelations)) return [];
+  return tagRelations.map(forumLabel).filter((label): label is string => label !== null).slice(0, MAX_FORUM_TAGS);
+}
+
 function forumItemFromRow(row: Record<string, unknown>): CommunityItem | null {
   const attributes = parsedAttributes(row.attributes);
   const permalink = typeof attributes.permalink === 'string' ? attributes.permalink : '';
@@ -146,7 +164,8 @@ function forumItemFromRow(row: Record<string, unknown>): CommunityItem | null {
     body: String(attributes.body ?? '').slice(0, MAX_BODY_CHARS),
     url: `${FORUM_QUESTION_URL}${encodeURIComponent(permalink)}`,
     author: forumAuthor(attributes.profile),
-    channel: null,
+    channel: forumTopicSlug(recordOf(attributes.forumTopic).data),
+    tags: forumTags(attributes.forumTags),
     createdAt: new Date(createdAt).toISOString(),
   });
   return parsed.success ? parsed.data : null;

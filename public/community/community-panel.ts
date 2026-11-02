@@ -77,6 +77,7 @@ function createHeading(entry: CommunityStateEntry): HTMLElement {
   const askedAtMs = Date.parse(entry.item.createdAt);
   metadata.append(el('span', null, entry.item.author), el('span', null, communitySourceText(entry)));
   if (!Number.isNaN(askedAtMs)) metadata.append(el('span', null, `Asked ${formatAgo(askedAtMs)}`));
+  for (const tag of entry.item.tags) metadata.append(el('span', 'author-org-tag', tag));
   heading.append(title, metadata);
   return heading;
 }
