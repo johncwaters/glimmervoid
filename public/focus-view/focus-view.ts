@@ -366,6 +366,7 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
 
   const staleFocusedId = getFocusedSessionId();
   if (staleFocusedId && !isSessionShown(staleFocusedId)) {
+    closeReviewOverlay();
     uiState.dispatch('focusSession', null);
     railTabStopId = null;
     const neighborId = pickNeighborOfRemoved(previousRailOrder, staleFocusedId);
@@ -438,7 +439,6 @@ function paintBoardRows(group: ReturnType<typeof buildBoardsGroup>) {
 
 function centerBoard(boardId: string) {
   if (!active) return;
-  closeReviewOverlay();
   releaseCenter();
   centeredBoardId = boardId;
   pairedBoardId = null;
@@ -599,6 +599,7 @@ export function openRequestedBoardInFocus() {
 }
 
 function releaseCenter() {
+  closeReviewOverlay();
   const centeredId = getFocusedSessionId();
   if (!centeredId) return;
   if (getBorrowedCardId() === centeredId) releaseCard();
@@ -713,7 +714,6 @@ export function restoreFocusedSession() {
 
 export function deactivateFocusView() {
   if (!active) return;
-  closeReviewOverlay();
   releaseCenter();
   railTabStopId = null;
   active = false;
