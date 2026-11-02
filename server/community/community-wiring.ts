@@ -31,6 +31,7 @@ import type { HookRouter } from '../../detection/hook-source.ts';
 const COMMUNITY_WORK_DIRNAME = 'community-work';
 const RESULT_MAX_BYTES = 1024 * 1024;
 const EMPTY_GH_CONFIG_DIRNAME = 'gh-config';
+const LINKED_PAGE_TIMEOUT_MS = 10_000;
 const COMMUNITY_WEB_TOOLS = Object.freeze(['WebSearch']);
 const COMMUNITY_BASH_ALLOW_RULES = Object.freeze([
   'Bash(gh search issues:*)', 'Bash(gh search prs:*)', 'Bash(gh search code:*)', 'Bash(gh issue view:*)', 'Bash(gh pr view:*)',
@@ -101,6 +102,41 @@ async function readBoundedFile(filePath: string): Promise<string | null> {
   }
 }
 
+async function readCappedText(response: Response, maxBytes: number): Promise<{ text: string; isCutShort: boolean }> {
+  if (!response.body) return { text: '', isCutShort: false };
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  for await (const chunk of response.body) {
+    chunks.push(chunk);
+    totalBytes += chunk.byteLength;
+    if (totalBytes > maxBytes) {
+      await response.body.cancel().catch(() => {});
+      return { text: Buffer.concat(chunks).subarray(0, maxBytes).toString('utf8'), isCutShort: true };
+    }
+  }
+  return { text: Buffer.concat(chunks).toString('utf8'), isCutShort: false };
+}
+
+async function fetchLinkedPage(target: core.LinkedPageTarget, signal: AbortSignal): Promise<core.LinkedPageResult> {
+  try {
+    const response = await fetch(target.rawUrl, { redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(LINKED_PAGE_TIMEOUT_MS)]) });
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => {});
+      return { target, failure: `HTTP ${response.status}` };
+    }
+    const { text, isCutShort } = await readCappedText(response, core.MAX_LINKED_PAGE_BYTES);
+    return { target, text, isCutShort };
+  } catch (error) {
+    return { target, failure: firstLine(errorMessage(error)) || 'the request failed' };
+  }
+}
+
+async function fetchLinkedPages(item: CommunityStateEntry['item'], signal: AbortSignal) {
+  const { fetchable, unfetchableLinks } = core.scanLinkedPages(item.title, item.body);
+  const results = await Promise.all(fetchable.map((target) => fetchLinkedPage(target, signal)));
+  return core.linkedPageItems(results, unfetchableLinks);
+}
+
 interface CommunitySpawnDependencies {
   investigationSessions: Map<string, unknown>;
   closeSessionDataClients: (id: string) => void;
@@ -139,7 +175,8 @@ function createCommunityRunner({ spawnDependencies, homeDir, getSettings, hookTo
     const failed = (error: string): core.CommunityRunResult => ({ report: null, posting: null, error });
     try {
       await fs.mkdir(path.join(workDir, EMPTY_GH_CONFIG_DIRNAME));
-      const { prompt, untrustedItems } = core.buildCommunityRequest({ item: entry.item, skill: settings.skill, reportPath, postingPath });
+      const linkedPages = await fetchLinkedPages(entry.item, signal);
+      const { prompt, untrustedItems } = core.buildCommunityRequest({ item: entry.item, skill: settings.skill, reportPath, postingPath, linkedPages });
       await writeUntrustedPayload(workDir, { trust: 'untrusted', source: core.COMMUNITY_UNTRUSTED_SOURCE, fetchedAt: new Date().toISOString(), items: untrustedItems }, core.MAX_BODY_CHARS);
       await fs.writeFile(path.join(workDir, core.COMMUNITY_PROMPT_FILENAME), prompt);
       return await raceWithAbort<core.CommunityRunResult>({
@@ -158,7 +195,8 @@ function createCommunityRunner({ spawnDependencies, homeDir, getSettings, hookTo
             initialPrompt: core.COMMUNITY_BOOTSTRAP_PROMPT,
           });
           if (signal.aborted || timeoutSignal.aborted) return undefined;
-          return { report: await readBoundedFile(reportPath), posting: await readBoundedFile(postingPath), error: null };
+          const hasUnreadLinkedPage = linkedPages.some((linkedPage) => linkedPage.kind === 'linked-page-unread');
+          return { report: await readBoundedFile(reportPath), posting: await readBoundedFile(postingPath), error: null, hasUnreadLinkedPage };
         },
       });
     } catch (error) {

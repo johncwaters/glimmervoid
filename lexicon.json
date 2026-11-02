@@ -146,6 +146,10 @@
     {
       "name": "trust",
       "definition": "An agent CLI's own record that a folder may run its project config and tools without asking, such as Kimi Code's Trust this folder? dialog, which Glimmervoid pre-grants for the sessions it spawns"
+    },
+    {
+      "name": "verdict",
+      "definition": "A community research run's confidence in its draft (HIGH, MEDIUM, LOW or FAILED); only a finished HIGH run with a draft notifies, and an unread linked page caps it at MEDIUM"
     }
   ]
 }

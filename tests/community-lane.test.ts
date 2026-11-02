@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createCommunityPoller } from '../server/community/community-poller.ts';
 import type { SourceRows } from '../server/community/community-poller.ts';
-import { buildCommunityRequest, forumItemsFromRows, JUDGE_PROMPT_FILENAME, JUDGE_RESULT_FILENAME } from '../server/community/core/community-core.ts';
+import { buildCommunityRequest, forumItemsFromRows, JUDGE_PROMPT_FILENAME, JUDGE_RESULT_FILENAME, entryFromRun, linkedPageItems, scanLinkedPages } from '../server/community/core/community-core.ts';
 import type { CommunityRunResult } from '../server/community/core/community-core.ts';
 import { CommunityItem } from '../shared/contracts/community.ts';
 import type { CommunityStateEntry } from '../shared/contracts/community.ts';
@@ -255,8 +255,44 @@ test('community research and judge runs read public text only from untrusted.jso
   assert.equal(judgePrompt.includes(injected), false);
   assert.deepEqual(UntrustedPayload.parse(JSON.parse(judgePayloadText)).items, [{ kind: 'discord-message', ref: item.key, text: injected }]);
 
-  const research = buildCommunityRequest({ item, skill: 'answering', reportPath: 'report.md', postingPath: 'posting.json' });
+  const linkedPages = linkedPageItems([
+    { target: { link: 'https://github.com/o/r', rawUrl: 'https://raw.githubusercontent.com/o/r/HEAD/README.md' }, text: injected, isCutShort: false },
+    { target: { link: 'https://github.com/o/r/blob/main/a.md', rawUrl: 'https://raw.githubusercontent.com/o/r/main/a.md' }, failure: 'HTTP 404' },
+  ], []);
+  const research = buildCommunityRequest({ item, skill: 'answering', reportPath: 'report.md', postingPath: 'posting.json', linkedPages });
   assert.ok(research.prompt.includes(UNTRUSTED_PREAMBLE));
   assert.equal(research.prompt.includes(injected), false);
-  assert.deepEqual(research.untrustedItems.map((untrusted) => untrusted.kind), ['question-title', 'question-body']);
+  assert.equal(research.prompt.includes('github.com/o/r'), false);
+  assert.deepEqual(research.untrustedItems.map((untrusted) => untrusted.kind), ['question-title', 'question-body', 'linked-page', 'linked-page-unread']);
+});
+
+test('community research fetches only raw GitHub URLs it builds from the question, names every other GitHub link as unread, and caps a HIGH verdict', () => {
+  const body = [
+    'Repo: https://github.com/owner/project. Demo: https://github.com/owner/project/blob/main/docs/DEMO.md',
+    'Again https://github.com/owner/project and raw https://raw.githubusercontent.com/o/r/main/x.md',
+    'Not fetched: https://github.com.evil.example/o/r https://github.com/o/r/tree/main http://github.com/o/r https://github.com/o/r/blob/main/../../x',
+    'https://github.com:8443/o/r https://evil.example/o/r https://github.com/a/b HTTPS://GitHub.com/c/d',
+    'https://gist.github.com/u/abc and bare github.com/e/f, but not notgithub.com/g/h',
+  ].join('\n');
+  const scan = scanLinkedPages('', body);
+  assert.deepEqual(scan.fetchable.map((target) => target.rawUrl), [
+    'https://raw.githubusercontent.com/owner/project/HEAD/README.md',
+    'https://raw.githubusercontent.com/owner/project/main/docs/DEMO.md',
+    'https://raw.githubusercontent.com/o/r/main/x.md',
+    'https://raw.githubusercontent.com/a/b/HEAD/README.md',
+  ]);
+  assert.deepEqual(scan.unfetchableLinks, ['https://github.com/o/r/tree/main', 'http://github.com/o/r', 'https://github.com/o/r/blob/main/../../x', 'https://github.com/c/d', 'https://gist.github.com/u/abc', 'https://github.com/e/f']);
+  const cutTitleScan = scanLinkedPages('See https://github.com/owner/project/blob/main/src/recordi', 'See https://github.com/owner/project/blob/main/src/recording.ts');
+  assert.deepEqual(cutTitleScan, { fetchable: [{ link: 'https://github.com/owner/project/blob/main/src/recording.ts', rawUrl: 'https://raw.githubusercontent.com/owner/project/main/src/recording.ts' }], unfetchableLinks: [] });
+  assert.deepEqual(scanLinkedPages('Bug in https://github.com/acme/app', 'Repro: https://github.com/acme/app-fork/blob/main/x.ts').fetchable.map((target) => target.link), ['https://github.com/acme/app-fork/blob/main/x.ts', 'https://github.com/acme/app']);
+  assert.ok(linkedPageItems([], scan.unfetchableLinks).every((item) => item.kind === 'linked-page-unread'));
+
+  const item = CommunityItem.parse({
+    key: 'forum:1', source: 'forum', title: 'My project', body, url: 'https://posthog.com/forum/p/1', author: 'Forum member', channel: 'ask-the-hogs', createdAt: '2026-10-29T10:00:00.000Z',
+  });
+  const queued: CommunityStateEntry = { item, status: 'running', verdict: null, summary: '', goal: '', checked: [], gaps: [], draft: null, attempts: 1, seenAt: '2026-10-29T10:00:00.000Z', finishedAt: null };
+  const capped = entryFromRun(queued, { report: HIGH_REPORT, posting: null, error: null, hasUnreadLinkedPage: true }, '2026-10-29T11:00:00.000Z').entry;
+  assert.equal(capped.verdict, 'MEDIUM');
+  assert.match(capped.gaps[0] ?? '', /lowered the verdict/);
+  assert.equal(entryFromRun(queued, { report: HIGH_REPORT, posting: null, error: null }, '2026-10-29T11:00:00.000Z').entry.verdict, 'HIGH');
 });
