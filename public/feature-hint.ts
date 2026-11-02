@@ -54,7 +54,7 @@ export function showHintCard({ text, ariaLabel, onOpen, onDismiss }: HintCardAct
   hintCard.setAttribute('aria-label', ariaLabel);
   const bubble = el('div', 'feature-hint-bubble');
   const showButton = el('button', 'btn-dialog btn-dialog-confirm', 'Show me');
-  const dismissButton = el('button', 'btn-dialog btn-dialog-cancel', 'Nah');
+  const dismissButton = el('button', 'btn-dialog btn-dialog-cancel', 'Dismiss');
   showButton.type = 'button';
   dismissButton.type = 'button';
   const actions = el('div', 'feature-hint-actions');
