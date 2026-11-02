@@ -50,7 +50,6 @@ Commands:
   pair --list         List paired devices
   pair --revoke <id>  Revoke a paired device
   agent setup grok    Install the Grok hook relay, which does nothing outside Glimmervoid
-  why <file>:<line>   Name the session that made the commit owning a line (or pass a commit sha)
 
 Inside a Glimmervoid session:
   spawn <prompt>      Start a session on that prompt, with its own dashboard card, that this session owns until its task is done. Use it for work that edits files or runs long; an in-process subagent stays fine for a quick read-only lookup
@@ -68,6 +67,7 @@ Inside a Glimmervoid session:
   prs                 List the operator's open pull requests with their checks, reviews and merge state. Use it to find which of the operator's pull requests need work
   link-pr <pr>        Link a pull request to this session's card. Use it after opening a pull request for this session's work
   settings list|get   Read Glimmervoid's settings; a secret shows only as configured or not. Use it instead of reading config.json
+  why <file>:<line>   Name the session, agent, task and prompt that made the commit owning a line (or pass a commit sha). Use it before changing code another session wrote, to learn what that session was asked
   whiteboard new|list|connect|disconnect|get|put|render|resolve|delete|plan Create, connect to, read, edit, plan on and delete a shared whiteboard the operator and connected sessions edit together. Use it to plan or explain a design with the operator or other sessions
   limits              List which of these commands answer here and why the rest do not. Use it when a command is refused, to see why
   ssh-sign            Sign a commit with the operator's forwarded ssh agent (git runs this)

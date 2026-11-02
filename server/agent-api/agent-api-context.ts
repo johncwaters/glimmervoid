@@ -11,6 +11,7 @@ import type { SessionSpawnOverrides } from '../session/session-factory.ts';
 import type { SessionDocsPort } from '../session/session-docs-wiring.ts';
 import type { MemoryAdmission } from '../spawn-gate.ts';
 import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
+import type { WhyLookup } from '../why-lookup.ts';
 import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from '../../shared/timer-deps.ts';
 
 const AGENT_LANE_TAG = 'agent-spawn';
@@ -45,6 +46,7 @@ interface AgentApiWiringOptions {
   memoryAdmission?: Pick<MemoryAdmission, 'describeShortfallNow'> | null;
   operatorState?: AgentOperatorStatePort | null;
   whiteboards?: Pick<WhiteboardPort, 'handleAgent'> | null;
+  lookupWhy?: ((request: { target: string; cwd: string }) => Promise<WhyLookup>) | null;
   coderWorkspaceStatus?: (workspace: string) => string | null;
   logger?: Pick<Console, 'warn'>;
   setTimeoutFn?: SetTimeoutFn;

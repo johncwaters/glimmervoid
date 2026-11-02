@@ -105,7 +105,7 @@ test('a session without its own worktree lists every grouped tool but push and r
   const tools = listed.tools;
   assert.ok(Array.isArray(tools));
   const toolNames = tools.map((tool: { name: string }) => tool.name).sort();
-  assert.deepEqual(toolNames, ['attention', 'review', 'session', 'settings', 'show', 'whiteboard']);
+  assert.deepEqual(toolNames, ['attention', 'review', 'session', 'settings', 'show', 'whiteboard', 'why']);
   const sessionTool = tools.find((tool: { name: string }) => tool.name === 'session');
   assert.ok(sessionTool.inputSchema.properties.action.enum.includes('spawn'));
   assert.match(sessionTool.inputSchema.properties.agent.description, /claude-code, codex/);
@@ -117,6 +117,10 @@ test('a session without its own worktree lists every grouped tool but push and r
   const structured = called.structuredContent;
   assert.ok(typeof structured === 'object' && structured !== null && 'sessions' in structured && Array.isArray(structured.sessions));
   assert.ok(structured.sessions.some((row: { id: string }) => row.id === SESSION_ID));
+
+  const whyOutsideCheckout = await resultOf(await callMcp('tools/call', { name: 'why', arguments: { target: 'notes.md:1' } }, credential));
+  assert.equal(whyOutsideCheckout.isError, true);
+  assert.match(JSON.stringify(whyOutsideCheckout.content), /is not inside a git checkout/);
 
   const settingsListed = await resultOf(await callMcp('tools/call', { name: 'settings', arguments: { action: 'list' } }, credential));
   assert.notEqual(settingsListed.isError, true, JSON.stringify(settingsListed));

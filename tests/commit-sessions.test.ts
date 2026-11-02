@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { hasGit, git } from './helpers/git-fixture.ts';
 import { createCommitSessions, repoNotesRefFor } from '../server/commit-sessions.ts';
-import { runWhyCli } from '../server/why-cli.ts';
+import { lookupWhy } from '../server/why-lookup.ts';
 import type { GitRunner } from '../server/commit-sessions.ts';
 import { runGit } from '../server/git/git-exec.ts';
 import { createGitWorkspace } from '../server/git/git-workspace.ts';
@@ -27,12 +27,11 @@ function commitFile(worktreeDir: string, fileName: string): string {
   return git(['rev-parse', 'HEAD'], worktreeDir).trim();
 }
 
-async function askWhy(targetArgument: string, cwd: string, configPath: string): Promise<{ answer: string; subcommands: string[] }> {
+async function askWhy(target: string, cwd: string, configPath: string): Promise<{ answer: string; subcommands: string[] }> {
   const { runGitFn, subcommands } = countingGit();
-  const outputs: string[] = [];
-  const exitCode = await runWhyCli({ targetArgument, cwd, configPath, runGitFn, writeOutput: (text) => outputs.push(text), writeError: (text) => outputs.push(text) });
-  assert.equal(exitCode, 0, outputs.join('\n'));
-  return { answer: outputs.join('\n'), subcommands };
+  const lookup = await lookupWhy({ target, cwd, configPath, runGitFn });
+  assert.ok(lookup.ok, lookup.ok ? '' : lookup.error);
+  return { answer: lookup.text, subcommands };
 }
 
 function unrelatedStoreRows(rowCount: number): string {
@@ -132,10 +131,9 @@ test('capture spends no git call on an unmoved HEAD, and why finds the session o
     await commitSessions.noteHeadChange({ ...change, sessionId: 'session-3', agent: 'codex', baseRef: 'main~1', headSha: secondSha });
     const originalAfterRecapture = await askWhy(firstSha, repoDir, elsewhereConfigPath);
     assert.ok(originalAfterRecapture.answer.endsWith(sharedSessionLine), originalAfterRecapture.answer);
-    const missingStoreErrors: string[] = [];
-    const missingStoreExit = await runWhyCli({ targetArgument: 'base.txt:1', cwd: worktreeDir, configPath: elsewhereConfigPath, writeOutput: (text) => missingStoreErrors.push(text), writeError: (text) => missingStoreErrors.push(text) });
-    assert.equal(missingStoreExit, 1);
-    assert.match(missingStoreErrors.join('\n'), /no commit-session records for this repository at .*elsewhere/);
+    const missingStore = await lookupWhy({ target: 'base.txt:1', cwd: worktreeDir, configPath: elsewhereConfigPath });
+    assert.ok(!missingStore.ok && missingStore.status === 404);
+    assert.match(missingStore.error, /no commit-session records for this repository at .*elsewhere/);
 
     const rebasedLine = await askWhy('first.txt:1', worktreeDir, configPath);
     assert.deepEqual(rebasedLine.subcommands, ['rev-parse', 'blame', 'show', 'patch-id']);

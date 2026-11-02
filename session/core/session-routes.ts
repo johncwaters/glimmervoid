@@ -132,6 +132,7 @@ const COMMAND_ROUTES: Readonly<Record<AgentApiVerb, (facts: SessionRoleFacts) =>
   prs: operatorStateRoute,
   'link-pr': linkPrRoute,
   settings: operatorStateRoute,
+  why: () => ANSWERS,
   whiteboard: whiteboardRoute,
   limits: () => ANSWERS,
 });

@@ -4,7 +4,7 @@ import type { z } from 'zod';
 
 import { pullRequestKeyFromReference } from '../../shared/contracts/control-messages.ts';
 import {
-  AGENT_API_VERBS, AGENT_REPLY_SCHEMAS, AgentAnswerRequest, AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPullRequestRequest, AgentReadRequest, AgentReviewsRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest,
+  AGENT_API_VERBS, AGENT_REPLY_SCHEMAS, AgentAnswerRequest, AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPullRequestRequest, AgentReadRequest, AgentReviewsRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest, AgentWhyRequest,
 } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb, AgentPrsReply, AgentRefusal, AgentReplyBodyOf, AgentReviewDetailReply, AgentReviewsReply } from '../../shared/contracts/session.ts';
 import type { MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
@@ -65,6 +65,7 @@ interface AgentRequestByVerb {
   prs: EmptyRequest;
   'link-pr': PullRequestKeyRequest;
   settings: AgentSettingsRequest;
+  why: AgentWhyRequest;
   whiteboard: WhiteboardAgentRequest;
 }
 
@@ -204,6 +205,7 @@ const REQUEST_PARSERS: { readonly [V in AgentApiVerb]: RequestParser<AgentReques
   prs: parseEmptyBody,
   'link-pr': parsePullRequestBody,
   settings: bodyParser(AgentSettingsRequest),
+  why: bodyParser(AgentWhyRequest),
   whiteboard: bodyParser(WhiteboardAgentRequest),
 });
 
@@ -482,6 +484,13 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     missingArgumentHint: 'this command needs a pull request, for example "glimmervoid link-pr acme/app#12"',
   },
   settings: { usage: 'settings list|get', whenToUse: 'Use it instead of reading config.json', summary: "Read Glimmervoid's settings; a secret shows only as configured or not", missingArgumentHint: null, isPassthrough: true },
+  why: {
+    whenToUse: 'Use it before changing code another session wrote, to learn what that session was asked',
+    usage: 'why <file>:<line>',
+    positionals: requiredText('<file>:<line>'),
+    summary: 'Name the session, agent, task and prompt that made the commit owning a line (or pass a commit sha)',
+    missingArgumentHint: 'this command needs a line or a commit, for example "glimmervoid why server/index.ts:12" or "glimmervoid why 86f8f05"',
+  },
   whiteboard: {
     whenToUse: 'Use it to plan or explain a design with the operator or other sessions',
     usage: 'whiteboard new|list|connect|disconnect|get|put|render|resolve|delete|plan',

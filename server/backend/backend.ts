@@ -64,6 +64,7 @@ import { buildSettingsPayload } from '../settings-payload.ts';
 import { glimmervoidHomeDir as resolveGlimmervoidHomeDir, isOperatorHomeUnderTest } from '../core/config-path-core.ts';
 import { decideIsDevInstall, parsePosthogReleaseId } from '../core/telemetry-core.ts';
 import { promptContextReplyOf } from '../../session/core/refocus-core.ts';
+import { lookupWhy } from '../why-lookup.ts';
 
 interface CreateBackendOptions extends BackendLaneOptions {
   staticDir?: string | null;
@@ -345,6 +346,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       readSettings: (request) => readSettingsForAgent(request, configFileViewOf(configStore.configPath, config, process.env, configStore.isExperimentalBuild)),
     },
     whiteboards,
+    lookupWhy: (request) => lookupWhy({ ...request, configPath: configStore.configPath }),
     coderWorkspaceStatus: (workspace) => laneAssembly.coderEnv.workspaceStatus(workspace),
     logger: console,
   });

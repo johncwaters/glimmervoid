@@ -111,7 +111,7 @@ export const SshSignReply = z.union([
 
 export type SshSignRequest = z.infer<typeof SshSignRequest>;
 export type SshSignReply = z.infer<typeof SshSignReply>;
-export const SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'board', 'edit', 'show', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'whiteboard'] as const;
+export const SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'board', 'edit', 'show', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard'] as const;
 export const AGENT_API_VERBS = [...SESSION_COMMANDS, 'limits', 'answer'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
 
@@ -195,6 +195,10 @@ const AGENT_SETTINGS_COMMANDS = ['list', 'get'] as const;
 export const AgentSettingsRequest = z.object({
   command: z.enum(AGENT_SETTINGS_COMMANDS, { error: 'command must be list or get' }),
   path: z.string({ error: 'path must be a string' }).min(1, { error: 'path must not be empty' }).max(200, { error: 'path must be at most 200 characters' }).optional(),
+}).strict();
+
+export const AgentWhyRequest = z.object({
+  target: z.string({ error: 'target must be a string' }).min(1, { error: 'target must not be empty' }).max(4200, { error: 'target must be at most 4200 characters' }),
 }).strict();
 
 export const AgentSettingsReply = z.union([
@@ -309,6 +313,7 @@ export const AGENT_REPLY_SCHEMAS = Object.freeze({
   prs: z.union([AgentPrsReply, AgentRefusal]),
   'link-pr': z.union([z.object({ ok: z.literal(true), key: z.string(), url: z.string() }).strict(), AgentRefusal]),
   settings: z.union([AgentSettingsReply, AgentRefusal]),
+  why: z.union([z.object({ ok: z.literal(true), text: z.string() }).strict(), AgentRefusal]),
   whiteboard: z.union([WhiteboardAgentReply, AgentRefusal]),
   limits: z.union([AgentLimitsReply, AgentRefusal]),
   answer: z.union([AgentOkReply, AgentRefusal]),
@@ -331,6 +336,7 @@ export type AgentAttentionReply = z.infer<typeof AgentAttentionReply>;
 export type AgentBoardRow = z.infer<typeof AgentBoardRow>;
 export type AgentPullRequestRequest = z.infer<typeof AgentPullRequestRequest>;
 export type AgentSettingsRequest = z.infer<typeof AgentSettingsRequest>;
+export type AgentWhyRequest = z.infer<typeof AgentWhyRequest>;
 export type AgentSettingsReply = z.infer<typeof AgentSettingsReply>;
 export type AgentReviewsRequest = z.infer<typeof AgentReviewsRequest>;
 export type AgentReviewsReply = z.infer<typeof AgentReviewsReply>;

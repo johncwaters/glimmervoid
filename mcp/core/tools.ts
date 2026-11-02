@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import {
-  AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPullRequestRequest, AgentSettingsRequest, AgentSpawnRequest,
+  AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPullRequestRequest, AgentSettingsRequest, AgentSpawnRequest, AgentWhyRequest,
 } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb } from '../../shared/contracts/session.ts';
 import { Op } from '../../shared/contracts/whiteboard.ts';
@@ -204,7 +204,16 @@ const SETTINGS_TOOL: GroupedTool = {
   },
 };
 
-const GROUPED_TOOLS: readonly GroupedTool[] = Object.freeze([SESSION_TOOL, WHITEBOARD_TOOL, REVIEW_TOOL, SHOW_TOOL, PUSH_TOOL, ATTENTION_TOOL, SETTINGS_TOOL]);
+const WHY_TOOL: GroupedTool = {
+  name: 'why',
+  title: 'Glimmervoid why',
+  description: 'Name the Glimmervoid session, agent, task and prompt that made a line or commit. target is <file>:<line>, relative to this session\'s directory, or a commit sha.',
+  loadsUpfront: true,
+  fields: { target: AgentWhyRequest.shape.target.describe('<file>:<line> or a commit sha') },
+  actions: { why: routeTo('why', ['target'], { required: ['target'], hints: READS }) },
+};
+
+const GROUPED_TOOLS: readonly GroupedTool[] = Object.freeze([SESSION_TOOL, WHITEBOARD_TOOL, REVIEW_TOOL, SHOW_TOOL, PUSH_TOOL, ATTENTION_TOOL, SETTINGS_TOOL, WHY_TOOL]);
 
 function allowedActionNames(tool: GroupedTool, isVerbAllowed: (verb: AgentApiVerb) => boolean): string[] {
   return Object.entries(tool.actions).filter(([, route]) => isVerbAllowed(route.verb)).map(([actionName]) => actionName);

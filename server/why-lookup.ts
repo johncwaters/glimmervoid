@@ -15,13 +15,13 @@ const TRACES_FOLDER_NAME = 'traces';
 const UNCOMMITTED_SHA = /^0{40}$/;
 const SAFE_SESSION_ID = /^[A-Za-z0-9-]+$/;
 
-interface WhyCliOptions {
-  targetArgument: string;
-  cwd?: string;
-  configPath?: string | null;
+type WhyLookup = { ok: true; text: string } | { ok: false; status: 400 | 404; error: string };
+
+interface WhyLookupOptions {
+  target: string;
+  cwd: string;
+  configPath: string | null;
   runGitFn?: GitRunner;
-  writeOutput?: (text: string) => void;
-  writeError?: (text: string) => void;
 }
 
 type BlamedCommit = { commit: ListedCommit; location: string } | { failure: string } | { uncommittedLocation: string };
@@ -41,7 +41,7 @@ async function blamedCommit(target: { file: string; line: number } | { sha: stri
     return commit ? { commit, location: commit.sha.slice(0, 12) } : { failure: `no commit ${target.sha}: ${firstLine(listed.err)}` };
   }
   const location = `${target.file}:${target.line}`;
-  const blamed = await runGitFn(['blame', '--porcelain', '-L', `${target.line},${target.line}`, '--', target.file], gitOptions);
+  const blamed = await runGitFn(['blame', '--porcelain', '-L', `${target.line},${target.line}`, '--', path.basename(target.file)], gitOptions);
   if (!blamed.ok) return { failure: `cannot blame ${location}: ${firstLine(blamed.err)}` };
   if (UNCOMMITTED_SHA.test(blamed.out.slice(0, 40))) return { uncommittedLocation: location };
   const commit = parseBlame(blamed.out);
@@ -53,33 +53,23 @@ async function readTraceText(storeRoot: string, sessionId: string): Promise<stri
   return fs.promises.readFile(path.join(path.dirname(storeRoot), TRACES_FOLDER_NAME, `${sessionId}.jsonl`), 'utf8').catch(() => '');
 }
 
-async function runWhyCli({
-  targetArgument,
-  cwd = process.cwd(),
-  configPath = process.env.GLIMMERVOID_CONFIG ? path.resolve(process.env.GLIMMERVOID_CONFIG) : null,
-  runGitFn = runGit,
-  writeOutput = (text) => console.log(text),
-  writeError = (text) => console.error(text),
-}: WhyCliOptions): Promise<number> {
+async function findLocalRecord(storeText: string, sha: string, patchIdOfCommit: () => Promise<string | null>): Promise<CommitSessionRecord | null> {
+  if (!storeText) return null;
+  const bySha = findRecord(storeText, { sha });
+  if (bySha) return bySha;
+  const patchId = await patchIdOfCommit();
+  return patchId ? findRecord(storeText, { patchId }) : null;
+}
+
+async function lookupWhy({ target: targetArgument, cwd: sessionDirectory, configPath, runGitFn = runGit }: WhyLookupOptions): Promise<WhyLookup> {
   const target = parseWhyTarget(targetArgument);
-  if ('error' in target) {
-    writeError(`glimmervoid why: ${target.error}`);
-    return 1;
-  }
+  if ('error' in target) return { ok: false, status: 400, error: target.error };
+  const cwd = 'file' in target ? path.dirname(path.resolve(sessionDirectory, target.file)) : sessionDirectory;
   const gitCommonDirectory = await gitCommonDirectoryOf(cwd, runGitFn);
-  if (!gitCommonDirectory) {
-    writeError('glimmervoid why: run it inside a git checkout');
-    return 1;
-  }
+  if (!gitCommonDirectory) return { ok: false, status: 400, error: `${cwd} is not inside a git checkout` };
   const blamed = await blamedCommit(target, cwd, runGitFn);
-  if ('failure' in blamed) {
-    writeError(`glimmervoid why: ${blamed.failure}`);
-    return 1;
-  }
-  if ('uncommittedLocation' in blamed) {
-    writeOutput(`${blamed.uncommittedLocation}\nnot committed yet`);
-    return 0;
-  }
+  if ('failure' in blamed) return { ok: false, status: 404, error: blamed.failure };
+  if ('uncommittedLocation' in blamed) return { ok: true, text: `${blamed.uncommittedLocation}\nnot committed yet` };
   const storeRoot = configSiblingPath(configPath, COMMIT_SESSIONS_FOLDER_NAME);
   const storePath = storePathFor(storeRoot, gitCommonDirectory);
   const storeText = await fs.promises.readFile(storePath, 'utf8').catch(() => '');
@@ -92,24 +82,14 @@ async function runWhyCli({
   const record = await findLocalRecord(storeText, sha, patchIdOfCommit);
   if (record) {
     const prompt = lastPromptBefore(await readTraceText(storeRoot, record.sessionId), record.committedAt);
-    writeOutput(formatWhy({ location: blamed.location, sha, committedAt, record, prompt }));
-    return 0;
+    return { ok: true, text: formatWhy({ location: blamed.location, sha, committedAt, record, prompt }) };
   }
   const sharedNote = await findSharedNote(cwd, { sha, patchId: await patchIdOfCommit() }, runGitFn);
   if (!storeText && !sharedNote) {
-    writeError(`glimmervoid why: no commit-session records for this repository at ${storePath}; a moved checkout or a different --config looks here, or no session has committed in it yet`);
-    return 1;
+    return { ok: false, status: 404, error: `no commit-session records for this repository at ${storePath}; a moved checkout or a different --config looks here, or no session has committed in it yet` };
   }
-  writeOutput(formatWhy({ location: blamed.location, sha, committedAt, record: null, sharedNote, prompt: null }));
-  return 0;
+  return { ok: true, text: formatWhy({ location: blamed.location, sha, committedAt, record: null, sharedNote, prompt: null }) };
 }
 
-async function findLocalRecord(storeText: string, sha: string, patchIdOfCommit: () => Promise<string | null>): Promise<CommitSessionRecord | null> {
-  if (!storeText) return null;
-  const bySha = findRecord(storeText, { sha });
-  if (bySha) return bySha;
-  const patchId = await patchIdOfCommit();
-  return patchId ? findRecord(storeText, { patchId }) : null;
-}
-
-export { runWhyCli };
+export { lookupWhy };
+export type { WhyLookup };

@@ -31,6 +31,12 @@ function joinedText(words: readonly string[]): string {
   return words.join(' ').trim();
 }
 
+function absoluteWhyTarget(target: string): string {
+  const separatorAt = target.lastIndexOf(':');
+  if (separatorAt <= 0) return target;
+  return `${path.resolve(target.slice(0, separatorAt))}${target.slice(separatorAt)}`;
+}
+
 function pullRequestBody({ positionals }: ParsedArguments): Record<string, unknown> | null {
   const pullRequest = joinedText(positionals);
   return pullRequest ? { pr: pullRequest } : null;
@@ -109,6 +115,7 @@ const BODY_BUILDERS: Record<Exclude<AgentApiVerb, 'show'>, BodyBuilder> = {
   prs: () => ({}),
   'link-pr': pullRequestBody,
   settings: ({ positionals: [command, settingPath] }) => ({ command, ...(settingPath === undefined ? {} : { path: settingPath }) }),
+  why: ({ positionals: [target] }) => (target ? { target: absoluteWhyTarget(target) } : null),
   whiteboard: whiteboardBody,
 };
 

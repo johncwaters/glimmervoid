@@ -11,7 +11,7 @@ import type { ChildChannels } from './child-channels.ts';
 import type { AgentSpawner } from './agent-spawn.ts';
 
 function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn }: AgentSpawner) {
-  const { config, agentSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, coderWorkspaceStatus, channelsByChildId, childIdsToDiscard } = runtime;
+  const { config, agentSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, coderWorkspaceStatus, channelsByChildId, childIdsToDiscard } = runtime;
   const { noteEndCause, post, drain, ownedChannels, findChildOf } = channels;
 
   function roleFactsOf(session: Session): SessionRoleFacts {
@@ -83,6 +83,13 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     if (!operatorState) return refusal(503, 'settings are not available in this Glimmervoid');
     const reply = operatorState.readSettings(request);
     return { status: reply.ok ? 200 : 400, body: reply };
+  }
+
+  async function why(session: Session, target: string): Promise<AgentReplyOf<'why'>> {
+    if (!lookupWhy) return refusal(503, 'why is not available in this Glimmervoid');
+    const lookup = await lookupWhy({ target, cwd: session.effectiveCwd() });
+    if (!lookup.ok) return refusal(lookup.status, lookup.error);
+    return { status: 200, body: { ok: true, text: lookup.text } };
   }
 
   async function edit(session: Session, request: AgentEditRequest): Promise<AgentReplyOf<'edit'>> {
@@ -186,6 +193,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     prs: () => (operatorState ? { status: 200, body: projectMyPrs(operatorState.myPrsStatus()) } : githubLanesUnavailable()),
     'link-pr': (session, { pullRequestKey }) => linkPr(session, pullRequestKey),
     settings: (_session, request) => settings(request),
+    why: (session, { target }) => why(session, target),
     whiteboard: (session, request) => (whiteboards ? whiteboards.handleAgent({ id: session.id, name: session.name }, request) : refusal(503, 'whiteboards are not available in this Glimmervoid')),
   };
 
