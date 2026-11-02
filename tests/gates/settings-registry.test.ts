@@ -309,7 +309,7 @@ test('the control handlers and the config store declare no per-block settings ke
 });
 
 function controlPlaneSourceFiles(): string[] {
-  return [path.join(ROOT, 'server/control-handlers.ts'), path.join(ROOT, 'server/config-store.ts'), ...browserSourceFiles(path.join(ROOT, 'server/control'))];
+  return [path.join(ROOT, 'server/control-handlers.ts'), path.join(ROOT, 'server/config-store.ts'), ...browserSourceFiles(path.join(ROOT, 'server/config')), ...browserSourceFiles(path.join(ROOT, 'server/control'))];
 }
 
 const KNOWN_LINK_IDS: Readonly<Record<string, string>> = Object.freeze({
