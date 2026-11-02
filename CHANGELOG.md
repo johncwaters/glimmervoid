@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The animal gallery waits until you open it.** In Settings, Appearance, the gallery of animals now sits behind an `Animal gallery` toggle under the `Flying animals` switch, so opening Settings no longer loads every animal.
 - **Theme names follow one pattern.** The theme picker now shows `Golgari (Dark)`, `Midnight (Dark)` and `Phyrexian (Dark)`, matching the other themes, instead of naming their colours.
 - **Every theme follows the same template.** Each theme now changes only its colours, and the rest is worked out the same way for all of them: status row tints use one strength, and the terminal uses one shared set of colours for dark themes and one for light themes, picking up the theme's text, card and accent colours. Rainbow Unicorns and both PostHog themes now use the shared terminal colours instead of their own, the Compleated terminal now matches its card colour, and the faint background behind a Done row now takes the Done colour in every theme, so it turns grey in Golgari, Midnight and Compleated.
 - **A terminal beside a board matches the session view.** A session docked beside a whiteboard now has the same header as the Focus session view: the taller bar, the bold session name that dims when a task title shows, and the colored top stripe for waiting, failed and done. The card no longer draws its own border inside the dock.

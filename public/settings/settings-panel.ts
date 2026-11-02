@@ -190,6 +190,7 @@ let SETTINGS_VIEW_MAP = buildSettingsViewMap();
 let isSettingsViewMapExperimental = isExperimentalBuildPayload(settingsPayloadSnapshot());
 
 let isAdvancedSettingsExpanded = false;
+let isAnimalGalleryExpanded = false;
 
 let rootEl: HTMLElement | null = null;
 let settingsViewVisibilityObserver: IntersectionObserver | null = null;
@@ -1533,6 +1534,27 @@ function renderStreamerPlaceholder(container: HTMLElement) {
 
 onStreamerModeChanged(() => renderContent());
 
+function renderAnimalGalleryToggle() {
+  const disclosure = el('div', 'settings-view-advanced');
+  const toggle = el('button', 'dialog-advanced-toggle', 'Animal gallery');
+  toggle.type = 'button';
+  toggle.setAttribute('aria-controls', 'settings-view-animal-gallery-panel');
+  const panel = el('div', 'dialog-advanced-panel settings-view-advanced-panel');
+  panel.id = 'settings-view-animal-gallery-panel';
+  const showExpandedState = () => {
+    toggle.setAttribute('aria-expanded', String(isAnimalGalleryExpanded));
+    panel.hidden = !isAnimalGalleryExpanded;
+    if (isAnimalGalleryExpanded && panel.childElementCount === 0) panel.append(renderFlyingAnimalsGallery());
+  };
+  toggle.addEventListener('click', () => {
+    isAnimalGalleryExpanded = !isAnimalGalleryExpanded;
+    showExpandedState();
+  });
+  showExpandedState();
+  disclosure.append(toggle, panel);
+  return disclosure;
+}
+
 function renderSubsectionHeader(section: SettingsSection) {
   const header = el('header', 'settings-view-subsection');
   const title = el('h2', 'settings-view-subsection-title', section.title);
@@ -1544,7 +1566,7 @@ function renderSubsectionHeader(section: SettingsSection) {
 function renderPart(stack: HTMLElement, part: SettingsSection) {
   for (const setting of part.settings.filter((entry) => entry.access !== 'advanced')) {
     stack.appendChild(renderRow(setting));
-    if (setting.id === FLYING_ANIMALS_SETTING_ID) stack.appendChild(renderFlyingAnimalsGallery());
+    if (setting.id === FLYING_ANIMALS_SETTING_ID) stack.appendChild(renderAnimalGalleryToggle());
   }
   const advancedSettings = part.settings.filter((entry) => entry.access === 'advanced');
   if (advancedSettings.length > 0) stack.append(renderAdvancedSettings(advancedSettings));
