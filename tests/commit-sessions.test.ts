@@ -200,6 +200,9 @@ test('a merge pushes the shared notes, a re-clone keeps pushing them, and why on
     assert.ok(firstAnswer.subcommands.includes('fetch'), firstAnswer.subcommands.join(' '));
     const secondAnswer = await askWhy('again.txt:1', readerCloneDir, readerConfigPath);
     assert.match(secondAnswer.answer, sharedSessionLineOf('codex'));
+    fs.renameSync(remoteDir, `${remoteDir}.offline`);
+    const offlineAnswer = await askWhy('again.txt:1', readerCloneDir, readerConfigPath);
+    assert.match(offlineAnswer.answer, sharedSessionLineOf('codex'));
   } finally {
     fs.rmSync(sandbox, { recursive: true, force: true });
   }

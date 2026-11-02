@@ -78,8 +78,7 @@ async function findSharedNote(cwd: string, commit: { sha: string; patchId: strin
   const gitOptions: RunGitOptions = { cwd, timeoutMs: GIT_TIMEOUT_MS };
   const localNote = await findNoteUnder(NOTES_REF_PREFIX, commit, gitOptions, runGitFn);
   if (localNote) return localNote;
-  const fetched = await runGitFn(['fetch', '--quiet', '--no-tags', 'origin', NOTES_FETCH_REFSPEC], { cwd, timeoutMs: GIT_FETCH_TIMEOUT_MS });
-  if (!fetched.ok) return null;
+  await runGitFn(['fetch', '--quiet', '--no-tags', 'origin', NOTES_FETCH_REFSPEC], { cwd, timeoutMs: GIT_FETCH_TIMEOUT_MS });
   return findNoteUnder(FETCHED_NOTES_REF_PREFIX, commit, gitOptions, runGitFn);
 }
 

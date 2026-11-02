@@ -530,7 +530,7 @@ function createSessionWorktreeLifecycle({
       if (isolation && !workspaceApi.withGitIsolation) throw new Error("Merge requires Git isolation");
       const mergeResult = await (isolation && workspaceApi.withGitIsolation ? workspaceApi.withGitIsolation(isolation, merge) : merge());
       if (mergeResult.warning) port.emit("worktree-warning", { id, branch: effectiveIntegrationBranch(), notice: mergeResult.warning });
-      if (mergeResult.merged && mergeResult.landedRange) port.emit("commits-landed", { id, repoDir: currentProjectPath(), ...mergeResult.landedRange });
+      if (mergeResult.merged && mergeResult.landedRange) port.emit("commits-landed", { id, repoDir: currentProjectPath(), basePushed: mergeResult.pushed === true, ...mergeResult.landedRange });
       return { result: mergeResult };
     } catch (error) {
       setMergeStatus("pending-review", { reason: errorMessage(error) });

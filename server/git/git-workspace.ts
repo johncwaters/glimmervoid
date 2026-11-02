@@ -500,6 +500,7 @@ function createGitWorkspace(opts: {
     rebaseOnly: serialized(rebaseOnlyBody),
     populate: serialized(populateShare),
     originUrl: serialized(originUrl),
+    pushProvenanceNotes: serialized(origin.pushProvenanceNotes),
     removeWorktreeByPath: admitted(removeWorktreeByPathBody, (args: RemovalArgs): QueuedGitResult => ({
       ok: false,
       out: '',

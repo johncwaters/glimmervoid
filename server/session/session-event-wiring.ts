@@ -49,6 +49,7 @@ interface SessionEventDependencies {
   traceWiring?: { attachSession: (session: Session) => void } | null;
   featureHints?: { attachSession: (session: Session) => void } | null;
   commitSessions?: Pick<CommitSessions, 'noteHeadChange'> | null;
+  pushProvenanceNotes?: (repoDir: string) => Promise<void>;
   planReview?: {
     attachSession: (session: Session) => void;
     latestPlanTitle: (sessionId: string) => string | null;
@@ -372,8 +373,9 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         baseRef: baseRef ?? null,
       });
     });
-    session.on('commits-landed', ({ repoDir, fromSha, toSha }: { repoDir: string; fromSha: string; toSha: string }) => {
-      void dependencies.commitSessions?.noteHeadChange({
+    const captureLandedCommits = async ({ repoDir, fromSha, toSha, basePushed }: { repoDir: string; fromSha: string; toSha: string; basePushed: boolean }) => {
+      if (!dependencies.commitSessions) return;
+      await dependencies.commitSessions.noteHeadChange({
         sessionId: session.id,
         sessionName: session.name,
         agent: session.agentId,
@@ -382,6 +384,10 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         headSha: toSha,
         baseRef: fromSha,
       });
+      if (basePushed) await dependencies.pushProvenanceNotes?.(repoDir);
+    };
+    session.on('commits-landed', ({ repoDir, fromSha, toSha, basePushed }: { repoDir: string; fromSha: string; toSha: string; basePushed?: boolean }) => {
+      void captureLandedCommits({ repoDir, fromSha, toSha, basePushed: basePushed === true });
     });
     session.on('worktree-blocked', ({ branch, notice }: { branch: string | null; notice: unknown }) => {
       dependencies.broadcastControl({

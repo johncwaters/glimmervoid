@@ -267,7 +267,7 @@ function createOriginOps(context: GitWorkspaceContext) {
     }
   }
 
-  return { detectDefaultBranch, migrateMarkerBase, hasOriginRemote, originUrl, synchronizeBaseWithOrigin, pushBaseToOrigin, ensureLocalBranch, fetchOriginBody, seedBranchFromOriginBody, isAncestor, listRemoteBranches, listIntegrationTips };
+  return { detectDefaultBranch, migrateMarkerBase, hasOriginRemote, originUrl, synchronizeBaseWithOrigin, pushBaseToOrigin, pushProvenanceNotes, ensureLocalBranch, fetchOriginBody, seedBranchFromOriginBody, isAncestor, listRemoteBranches, listIntegrationTips };
 }
 
 type OriginOps = ReturnType<typeof createOriginOps>;

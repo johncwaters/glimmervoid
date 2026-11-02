@@ -376,6 +376,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       logger: console,
       writerIdFn: provenanceWriterId,
     }),
+    pushProvenanceNotes: (repoDir: string) => assembledGitWorkspace.pushProvenanceNotes(repoDir),
     taskTitleRefiner: laneAssembly.taskTitleRefiner,
     coherenceFeed,
     featureHints: laneAssembly.featureHints,
