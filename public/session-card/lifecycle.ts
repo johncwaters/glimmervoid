@@ -1,273 +1,39 @@
-import type { ServerMessage } from '#shared/contracts/control-messages.ts';
-import type { PlanDraftPush } from '#shared/contracts/plan-review.ts';
 import type { UnseenOutcome } from '#shared/contracts/session.ts';
-import type { SessionState } from '#shared/states.ts';
-import { KILLABLE_STATES, RESTARTABLE_STATES, STATES } from '#shared/states.ts';
-import { hasSessionDocs, openDocEditor } from '../doc-editor.ts';
-import { loadShownFaceModule, markShownFilesOpened, onShownFilesArrivedLive, paintShownTabs, shownFilesOf } from '../shown-files.ts';
+import { STATES } from '#shared/states.ts';
+import { hasSessionDocs } from '../doc-editor.ts';
+import { onShownFilesArrivedLive, paintShownTabs } from '../shown-files.ts';
 import { placeShownChips } from './shown-chip.ts';
-import { describeFailure } from '../client-error-core.ts';
-import { reportToServerLog, sendControlMsg } from '../control-ws.ts';
-import { el, isMonitoringState } from '../dom-helpers.ts';
+import { sendControlMsg } from '../control-ws.ts';
+import { isMonitoringState } from '../dom-helpers.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { setHealthMonitorDebugMode } from '../health-monitor.ts';
 import { refreshHoverTip } from '../hover-tip.ts';
-import type { PlanResponse } from '../plan/plan-face.ts';
-import { createPlanHash } from '../plan/plan-link.ts';
-import { isApprovedReview, mergePlanChanged } from '../plan/plan-view-core.ts';
-import type { PlanChangedMessage } from '../plan/plan-view-core.ts';
-import { isCompletionWatchedByOperator } from '../session-actions-core.ts';
 import { seedMergeStatus, setMergeStatus } from '../review/review-store.ts';
-import { setSelectedId } from '../review/selection.ts';
-import { openTraceForSession } from '../trace-store.ts';
 import type { UsageSessionUsage } from '../usage/usage-store-core.ts';
 import { sessionChipText, sessionChipTitle } from '../usage/usage-store-core.ts';
 import { setRunningActivity } from './activity.ts';
 import type { CardOptions } from './card-dom.ts';
-import { buildCardDOM, closeDebugOverlay, isDebugModeEnabled, isRenameInProgress, makeTitleEditable, openDebugOverlay, paintTaskTitle, sessionActionStatus, setDebugMode, startInlineRename, startInlineTitleEdit } from './card-dom.ts';
+import { buildCardDOM, closeDebugOverlay, paintTaskTitle, setDebugMode } from './card-dom.ts';
 import type { SessionUi } from './card-registry.ts';
 import { syncLiveSession } from './session-tick.ts';
 import { attentionTally, container, findSessionUi, sessionIdOf, sessionUIs } from './card-registry.ts';
-import { decidePlanHeaderAction, preferredBorrowedFace } from './face-core.ts';
-import type { SessionCardFace } from './face-core.ts';
-import { requestSessionRemoval } from '../session-actions.ts';
-import { openWorkspaceReposDialog } from './workspace-repos-dialog.ts';
-import { reportHeaderError } from '../action-status.ts';
 import { needsAttention, sessionAttentionTier, tallyAdd, tallyRemove, titleAlertCount } from '../focus-view/attention-core.ts';
 import { closeSessionNotifications } from '../notifications.ts';
-
 import { ensureTerminalReady, ensureTerminalSetup } from './terminal.ts';
-import { closeDataWs, syncTerminalOutputFlow } from './terminal-data-socket.ts';
+import { closeDataWs } from './terminal-data-socket.ts';
 import { setTerminalCursorBlink } from './terminal-setup.ts';
 import { releaseWebgl } from './webgl-pool.ts';
 import { currentTerminalFontFamily } from '../mono-font.ts';
 import { applyTerminalFontFamily } from '../mono-font-core.ts';
-import { wirePopupMenuKeys } from '../menu.ts';
-
+import { createDeferredPlanFace, loadedPlanFaceModule } from './deferred-loads.ts';
+import { reportSessionProblem } from './card-problems.ts';
+import { preferredFaceFor, showPlanFaceWhenPreferred, showSessionPlanFace, showSessionShownFace, updateButtonVisibility } from './card-faces.ts';
+import { wireCardEvents } from './card-events.ts';
+import { cancelWatchedCompletionDismiss, holdThenDismissWatchedCompletion, isCompletionWatchedAt } from './watched-completion.ts';
 
 const asText = (value: unknown) => (value == null ? '' : String(value));
 
-const isKillable = (state: string) => KILLABLE_STATES.includes(state as SessionState);
-const isRestartable = (state: string) => RESTARTABLE_STATES.includes(state as SessionState);
-
-
-
 onShownFilesArrivedLive(placeShownChips);
-
-type ResumeDialogModule = typeof import('./resume-dialog.ts');
-
-let pendingResumeDialogLoad: Promise<ResumeDialogModule | null> | null = null;
-
-function loadResumeDialog(): Promise<ResumeDialogModule | null> {
-  pendingResumeDialogLoad ??= import('./resume-dialog.ts').catch((error: unknown) => {
-    pendingResumeDialogLoad = null;
-    reportToServerLog('resume-dialog', `restart dialog failed to load: ${describeFailure(error)}`);
-    return null;
-  });
-  return pendingResumeDialogLoad;
-}
-
-type PlanFaceModule = typeof import('../plan/plan-face.ts');
-type ShownFaceModule = typeof import('../shown-face.ts');
-type PlanFaceController = ReturnType<PlanFaceModule['createPlanFace']>;
-type PlanFaceDeps = Parameters<PlanFaceModule['createPlanFace']>[0];
-type PlanFaceUpdate = Parameters<PlanFaceController['update']>[0];
-
-let loadedPlanFaceModule: PlanFaceModule | null = null;
-let planFaceModuleLoad: Promise<PlanFaceModule | null> | null = null;
-
-function loadPlanFaceModule(): Promise<PlanFaceModule | null> {
-  planFaceModuleLoad ??= import('../plan/plan-face.ts').then(
-    (planFaceModule) => {
-      loadedPlanFaceModule = planFaceModule;
-      return planFaceModule;
-    },
-    () => {
-      planFaceModuleLoad = null;
-      return null;
-    },
-  );
-  return planFaceModuleLoad;
-}
-
-function createDeferredPlanFace(deps: PlanFaceDeps): PlanFaceController {
-  const placeholder = el('section', 'plan-face');
-  placeholder.hidden = true;
-  let face: PlanFaceController | null = null;
-  let isLoading = false;
-  let shownSessionId: string | null = null;
-  const pendingUpdate: PlanFaceUpdate = {};
-  const pendingDraftsByAgent = new Map<PlanDraftPush['agentId'], PlanDraftPush>();
-
-  function adoptLoadedModule(planFaceModule: PlanFaceModule | null) {
-    isLoading = false;
-    if (deps.signal?.aborted) return;
-    if (!planFaceModule) {
-      deps.reportProblem('The plan view did not load. Open the plan again to retry.');
-      if (shownSessionId !== null) deps.showTerminal();
-      shownSessionId = null;
-      return;
-    }
-    const loadedFace = planFaceModule.createPlanFace(deps);
-    placeholder.replaceWith(loadedFace.el);
-    loadedFace.update(pendingUpdate);
-    for (const draft of pendingDraftsByAgent.values()) loadedFace.update({ draft });
-    pendingDraftsByAgent.clear();
-    face = loadedFace;
-    if (shownSessionId !== null) loadedFace.show(shownSessionId);
-  }
-
-  return {
-    get el() {
-      return face?.el ?? placeholder;
-    },
-    show(id: string) {
-      if (face) {
-        face.show(id);
-        return;
-      }
-      shownSessionId = id;
-      if (isLoading) return;
-      isLoading = true;
-      void loadPlanFaceModule().then(adoptLoadedModule);
-    },
-    hide() {
-      shownSessionId = null;
-      face?.hide();
-    },
-    update(next: PlanFaceUpdate) {
-      if (face) {
-        face.update(next);
-        return;
-      }
-      if (next.state) pendingUpdate.state = next.state;
-      if (typeof next.isConnected === 'boolean') pendingUpdate.isConnected = next.isConnected;
-      if (next.draft) pendingDraftsByAgent.set(next.draft.agentId, next.draft);
-    },
-  };
-}
-
-function updateButtonVisibility(ui: SessionUi) {
-  const state = ui.currentState;
-  ui.btnRestart.classList.toggle('visible', isKillable(state) || isRestartable(state) || state === STATES.DORMANT);
-  ui.btnWorkspaceRepos.classList.toggle('visible', ui.card.dataset.workspace !== undefined);
-  ui.btnTrace.classList.toggle('visible', isDebugModeEnabled());
-  ui.btnPlan.classList.toggle('visible', decidePlanHeaderAction(ui) !== 'hidden');
-  ui.btnTerminalTab.setAttribute('aria-selected', String(ui.face === 'terminal'));
-  ui.btnShownTab.setAttribute('aria-selected', String(ui.face === 'shown'));
-}
-
-function closeSessionMenu(ui: SessionUi) {
-  ui.sessionMenu.classList.remove('open');
-  ui.btnSessionMenu.setAttribute('aria-expanded', 'false');
-}
-
-function wireCardEvents(ui: SessionUi, sessionId: string) {
-  makeTitleEditable(ui.taskTitleEl, () => startInlineTitleEdit(ui, sessionId));
-  ui.nameEl.addEventListener('dblclick', (e) => {
-    e.preventDefault();
-    startInlineRename(ui, sessionId);
-  });
-
-  ui.nameEl.addEventListener('click', () => {
-    if (isRenameInProgress(ui.nameEl)) return;
-    setSelectedId(sessionId);
-  });
-
-  ui.nameEl.addEventListener('keydown', (event) => {
-    if (event.target !== ui.nameEl) return;
-    if (event.key !== 'F2' && event.key !== 'Enter') return;
-    event.preventDefault();
-    startInlineRename(ui, sessionId);
-  });
-
-  ui.btnRestart.addEventListener('click', () => {
-    closeSessionMenu(ui);
-    void loadResumeDialog().then((resumeDialog) => resumeDialog?.openRestartDialog(sessionId, { readState: () => ui.currentState, canListEarlier: ui.card.dataset.ephemeral === undefined }));
-  });
-
-  ui.btnWorkspaceRepos.addEventListener('click', () => {
-    closeSessionMenu(ui);
-    openWorkspaceReposDialog(sessionId);
-  });
-
-  ui.btnTrace.addEventListener('click', () => {
-    closeSessionMenu(ui);
-    openTraceForSession(sessionId);
-  });
-
-  ui.btnDocs.addEventListener('click', () => {
-    closeSessionMenu(ui);
-    openDocEditor(sessionId);
-  });
-
-  ui.btnTerminalTab.addEventListener('click', () => {
-    closeSessionMenu(ui);
-    ui._showTerminalFace?.();
-  });
-
-  ui.btnShownTab.addEventListener('click', () => {
-    closeSessionMenu(ui);
-    showSessionShownFace(sessionId, null);
-  });
-
-  ui.btnPlan.addEventListener('click', () => {
-    const action = decidePlanHeaderAction(ui);
-    if (action === 'hidden') return;
-    if (action === 'face') { showSessionPlanFace(sessionId); return; }
-    location.hash = createPlanHash(sessionId);
-  });
-
-  ui.btnRemove.addEventListener('click', () => {
-    closeSessionMenu(ui);
-    requestSessionRemoval(sessionId);
-  });
-
-  function openSessionMenu() {
-    for (const [, other] of sessionUIs) {
-      if (other !== ui) closeSessionMenu(other);
-    }
-    ui.sessionMenu.classList.add('open');
-    ui.btnSessionMenu.setAttribute('aria-expanded', 'true');
-  }
-
-  ui.btnSessionMenu.addEventListener('click', (event) => {
-    event.stopPropagation();
-    if (ui.sessionMenu.classList.contains('open')) {
-      closeSessionMenu(ui);
-      return;
-    }
-    openSessionMenu();
-  });
-
-  wirePopupMenuKeys({
-    trigger: ui.btnSessionMenu,
-    menu: ui.sessionMenu,
-    menuItems: () => [...ui.sessionMenu.querySelectorAll<HTMLElement>('.popup-menu-item.visible')].filter((item) => item.checkVisibility()),
-    isOpen: () => ui.sessionMenu.classList.contains('open'),
-    open: openSessionMenu,
-    close: () => closeSessionMenu(ui),
-    signal: ui.abortController.signal,
-  });
-
-  document.addEventListener('click', (event) => {
-    const clicked = event.target instanceof Node ? event.target : null;
-    if (!ui.sessionMenu.contains(clicked) && clicked !== ui.btnSessionMenu) closeSessionMenu(ui);
-  }, { signal: ui.abortController.signal });
-
-  ui.btnDebug.addEventListener('click', (e) => {
-    e.stopPropagation();
-    closeSessionMenu(ui);
-    openDebugOverlay(ui, sessionId);
-  });
-
-  document.addEventListener('click', (e) => {
-    const clicked = e.target instanceof Node ? e.target : null;
-    if (ui.debugOpen && !ui.card.contains(clicked)) {
-      closeDebugOverlay(ui);
-    }
-  }, { signal: ui.abortController.signal });
-}
 
 export function setSessionTaskTitle(id: unknown, title: unknown, isCustom: unknown) {
   const ui = findSessionUi(id);
@@ -425,113 +191,6 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
   return sessionUi;
 }
 
-type SessionPlanChangedMessage = PlanChangedMessage;
-type SessionPlanDraftMessage = PlanDraftPush;
-
-function preferredFaceFor(ui: SessionUi): SessionCardFace {
-  const hasOpenReview = ui.planReviewState.reviews.some((review) => review.state === 'open');
-  const hasApprovedReview = ui.planReviewState.reviews.some(isApprovedReview);
-  return preferredBorrowedFace({ hasPlan: ui.hasPlan, pendingPromptKind: ui.pendingPromptKind, hasOpenReview, hasApprovedReview });
-}
-
-function showPlanFaceWhenPreferred(sessionId: unknown) {
-  const ui = findSessionUi(sessionId);
-  if (!ui?.isBorrowed) return false;
-  if (preferredFaceFor(ui) !== 'plan') return false;
-  return showSessionPlanFace(sessionId);
-}
-
-export function showSessionPlanFace(sessionId: unknown) {
-  const ui = findSessionUi(sessionId);
-  if (!ui?.isBorrowed || !ui.hasPlan) return false;
-  ui.face = 'plan';
-  ui.card.dataset.face = 'plan';
-  ui.termWrap.hidden = true;
-  ui.shownFace?.hide();
-  ui.planFace.show(sessionIdOf(sessionId));
-  updateButtonVisibility(ui);
-  syncTerminalOutputFlow(ui, sessionIdOf(sessionId));
-  return true;
-}
-
-function switchToShownFace(ui: SessionUi, faceModule: ShownFaceModule, sessionId: string, fileId: string | null) {
-  if (findSessionUi(sessionId) !== ui || !ui.isBorrowed) return;
-  if (!ui.shownFace) {
-    ui.shownFace = faceModule.createShownFace({ sessionId });
-    ui.card.append(ui.shownFace.el);
-  }
-  ui.face = 'shown';
-  ui.card.dataset.face = 'shown';
-  ui.termWrap.hidden = true;
-  ui.planFace.hide();
-  ui.shownFace.show(fileId);
-  markShownFilesOpened(sessionId);
-  updateButtonVisibility(ui);
-  syncTerminalOutputFlow(ui, sessionId);
-}
-
-function showSessionShownFace(sessionId: string, fileId: string | null) {
-  const ui = findSessionUi(sessionId);
-  if (!ui?.isBorrowed || shownFilesOf(sessionId).length === 0) return;
-  void loadShownFaceModule().then((faceModule) => {
-    if (!faceModule) {
-      reportSessionProblem(sessionId, 'The shown files view did not load. Open it again to retry.');
-      return;
-    }
-    switchToShownFace(ui, faceModule, sessionId, fileId);
-  });
-}
-
-export function setSessionHasPlan(sessionId: unknown, hasPlan: unknown) {
-  const ui = findSessionUi(sessionId);
-  if (!ui) return;
-  ui.hasPlan = hasPlan === true;
-  updateButtonVisibility(ui);
-  showPlanFaceWhenPreferred(sessionId);
-}
-
-export function applySessionPlanChanged(message: SessionPlanChangedMessage) {
-  const ui = findSessionUi(message.id);
-  if (!ui) return;
-  ui.planReviewState = mergePlanChanged(ui.planReviewState, message);
-  ui.hasPlan = message.hasPlan;
-  ui.planFace.update({ state: ui.planReviewState });
-  updateButtonVisibility(ui);
-  showPlanFaceWhenPreferred(message.id);
-}
-
-export function applySessionPlanDraft(notice: SessionPlanDraftMessage) {
-  const ui = findSessionUi(notice.id);
-  if (!ui) return;
-  ui.planFace.update({ draft: notice });
-}
-
-export function applySessionPlanResponse(response: PlanResponse) {
-  const ui = findSessionUi(response.id);
-  if (!ui) return;
-  ui.planReviewState = { reviews: response.reviews };
-  ui.hasPlan = true;
-  ui.planFace.update({ response });
-  updateButtonVisibility(ui);
-}
-
-export function applySessionPlanError(message: ServerMessage): boolean {
-  if (message.type !== 'error' && message.type !== 'session-error') return false;
-  if (message.scope !== 'plan' && message.scope !== 'plan-decision') return false;
-  const ui = findSessionUi(message.id);
-  if (!ui) return false;
-  if (message.scope === 'plan') {
-    ui.planFace.update({ requestFailed: true });
-    return true;
-  }
-  ui.planFace.update({ decisionRefused: true, refusalText: message.message });
-  return true;
-}
-
-export function applyPlanConnectionState(isConnected: boolean) {
-  for (const [, ui] of sessionUIs) ui.planFace.update({ isConnected });
-}
-
 export function setSessionEffectiveBase(sessionId: unknown, base: unknown) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
@@ -652,27 +311,6 @@ function _handleEndedTransition(ui: SessionUi, wasActive: boolean, state: string
   ui.term.write(`\r\n\r\n\x1b[2m${color}  ${label}\x1b[0m\r\n\r\n\x1b[2m  Open the session actions menu and choose Restart to start a new session.\x1b[0m\r\n`);
 }
 
-export function reportSessionProblem(sessionId: unknown, message: string) {
-  const ui = findSessionUi(sessionId);
-  if (!ui) { reportHeaderError({ source: 'Session', sessionId: typeof sessionId === 'string' ? sessionId : undefined, message }); return; }
-  sessionActionStatus(ui).show('error', message);
-}
-
-export function setSessionFailureReason(sessionId: unknown, failureReason: string | null | undefined) {
-  const ui = findSessionUi(sessionId);
-  if (!ui) return;
-  const existingLine = ui.card.querySelector<HTMLElement>(':scope > .session-failure-reason');
-  const shouldShow = ui.currentState === STATES.FAILED && !!failureReason;
-  if (!shouldShow) {
-    existingLine?.remove();
-    return;
-  }
-  const reasonLine = existingLine ?? el('p', 'session-failure-reason');
-  reasonLine.setAttribute('role', 'status');
-  reasonLine.textContent = failureReason;
-  if (!existingLine) ui.termWrap.before(reasonLine);
-}
-
 function _handleRestartTransition(ui: SessionUi, prevState: string) {
   if (!ui.term) return;
   if (prevState === STATES.DONE || prevState === STATES.FAILED) {
@@ -687,35 +325,6 @@ export function markSessionSeen(sessionId: string) {
   if (document.visibilityState !== 'visible') return;
   if (!isPhoneLayout() && !document.hasFocus()) return;
   sendControlMsg({ type: 'dismiss', id: sessionId, expectedState: ui.currentState });
-}
-
-const WATCHED_COMPLETION_HOLD_MS = 1500;
-const pendingWatchedDismissBySessionUi = new WeakMap<SessionUi, ReturnType<typeof setTimeout>>();
-
-function cancelWatchedCompletionDismiss(ui: SessionUi) {
-  clearTimeout(pendingWatchedDismissBySessionUi.get(ui));
-  pendingWatchedDismissBySessionUi.delete(ui);
-}
-
-function holdThenDismissWatchedCompletion(ui: SessionUi, sessionId: string) {
-  const timer = setTimeout(() => {
-    pendingWatchedDismissBySessionUi.delete(ui);
-    sendControlMsg({ type: 'dismiss', id: sessionId, expectedState: STATES.COMPLETE });
-  }, WATCHED_COMPLETION_HOLD_MS);
-  pendingWatchedDismissBySessionUi.set(ui, timer);
-}
-
-function isCompletionWatchedAt(ui: SessionUi, previousState: string, nextState: string) {
-  const activeElement = document.activeElement;
-  return isCompletionWatchedByOperator({
-    previousState,
-    nextState,
-    isPhoneLayout: isPhoneLayout(),
-    isDocumentVisible: document.visibilityState === 'visible',
-    isDocumentFocused: document.hasFocus(),
-    isActiveViewer: ui._isActiveViewer?.() === true,
-    hasFocusInsideTerminal: activeElement instanceof Node && ui.termWrap.contains(activeElement),
-  });
 }
 
 export function applyState(sessionId: unknown, nextState: unknown, stateSince: unknown) {

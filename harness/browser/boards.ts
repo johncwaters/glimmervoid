@@ -427,10 +427,10 @@ async function verifyPaneTerminalTabOwnsTheFace(page: Page, card: Locator): Prom
   assert.equal(await card.locator('.card-face-tabs > .card-face-tab:not(.card-face-tab-shown)').isVisible(), false, 'a centered card shows Terminal once, on the pane tab');
   const sessionId = await card.getAttribute('data-id');
   const isPlanShown = await page.evaluate(async (id) => {
-    const lifecycleUrl = '/session-card/lifecycle.ts';
-    const lifecycle: { setSessionHasPlan(id: unknown, hasPlan: unknown): void; showSessionPlanFace(id: unknown): boolean } = await import(lifecycleUrl);
-    lifecycle.setSessionHasPlan(id, true);
-    return lifecycle.showSessionPlanFace(id);
+    const cardFacesUrl = '/session-card/card-faces.ts';
+    const cardFaces: { setSessionHasPlan(id: unknown, hasPlan: unknown): void; showSessionPlanFace(id: unknown): boolean } = await import(cardFacesUrl);
+    cardFaces.setSessionHasPlan(id, true);
+    return cardFaces.showSessionPlanFace(id);
   }, sessionId);
   assert.equal(isPlanShown, true, 'the centered card switches to its Plan face');
   await page.locator('.pane-tab[data-tab="terminal"]').click();

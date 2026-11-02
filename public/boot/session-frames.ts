@@ -14,7 +14,9 @@ import { handleDebugStateRefresh, setSessionSaneYolo } from '../session-card/car
 import { buildSessionCardOptions } from '../session-card/card-options-core.ts';
 import { attentionTally, sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
-import { applyState, createSessionCard, hasSession, removeSessionCard, seedSessionMergeStatus, setSessionAgent, setSessionAgents, setSessionEffectiveBase, setSessionFailureReason, setSessionHasPlan, setSessionPrompt, setSessionTaskTitle, setSessionUnseenOutcome, setSessionUsage, updateAttentionTitle } from '../session-card/lifecycle.ts';
+import { applyState, createSessionCard, hasSession, removeSessionCard, seedSessionMergeStatus, setSessionAgent, setSessionAgents, setSessionEffectiveBase, setSessionPrompt, setSessionTaskTitle, setSessionUnseenOutcome, setSessionUsage, updateAttentionTitle } from '../session-card/lifecycle.ts';
+import { setSessionFailureReason } from '../session-card/card-problems.ts';
+import { setSessionHasPlan } from '../session-card/card-faces.ts';
 import { reconnectDataWs } from '../session-card/terminal-data-socket.ts';
 import { applySettingsProjects } from '../settings/settings-store.ts';
 import { onShownFilesChanged } from '../shown-files.ts';

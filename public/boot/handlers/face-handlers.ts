@@ -1,6 +1,6 @@
 import { applyCoherenceJournalResponse, applySessionCoherence, applySessionCoherenceSnapshot, setSessionCoherenceHooks } from '../../coherence/journal-drawer.ts';
 import { applySessionDocsChanged, applySessionDocsSnapshot } from '../../doc-editor.ts';
-import { applySessionPlanChanged, applySessionPlanDraft, applySessionPlanResponse } from '../../session-card/lifecycle.ts';
+import { applySessionPlanChanged, applySessionPlanDraft, applySessionPlanResponse } from '../../session-card/card-faces.ts';
 import { applySessionShown, applySessionShownSnapshot } from '../../shown-files.ts';
 import { applyTraceChanged, applyTraceResponse } from '../../trace-store.ts';
 import type { DashboardHandlerTable } from '../core/message-dispatch-core.ts';

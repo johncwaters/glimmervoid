@@ -4,7 +4,7 @@ import { jumpTargetCount, pickStrongestAttention } from '../focus-view/attention
 import { getRestorableSessionId, requestSessionOpen, selectSession } from '../session-actions.ts';
 import { addActivityRenderer } from '../session-card/activity.ts';
 import { attentionTally, sessionName, sessionUIs } from '../session-card/card-registry.ts';
-import { showSessionPlanFace } from '../session-card/lifecycle.ts';
+import { showSessionPlanFace } from '../session-card/card-faces.ts';
 import { closeReviewFile, hasOpenReviewFile, onReviewLevelChange, placeReviewScreen } from '../review/review-reader.ts';
 import { createLineIcon, FOCUS_ICON_PATH, MORE_ICON_PATH, TERMINAL_ICON_PATH } from '../svg-dom.ts';
 import { uiState } from '../ui-state-core.ts';
