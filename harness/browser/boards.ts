@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import type { Locator, Page } from 'playwright-core';
 import type { Layout } from './cases-core.ts';
-import { commitFile, findSessionWorktree, pollFor } from './review-merge.ts';
+import { git } from '../site-capture/isolated-glimmervoid.ts';
+import { commitFile, findSessionWorktree, pollFor, readOriginFile } from './review-merge.ts';
 
 const UNCOVERED_FILE_NAME = 'board-uncovered.txt';
+const MERGE_SETTLE_MS = 1500;
 const WORKTREE_TIMEOUT_MS = 15000;
 const REVIEW_TIMEOUT_MS = 20000;
 
@@ -335,10 +337,10 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   await page.keyboard.press('Escape');
   await page.locator('.review-reader').waitFor({ state: 'detached' });
   await verifyBoardPaneFallsBackToSessionBoard(page, panel, sessionId, boardTitle);
-  await verifySessionlessBoardRows(page, panel, sessionId);
+  await verifySessionlessBoardRows(page, panel, sessionId, projectDirectory);
 }
 
-async function verifySessionlessBoardRows(page: Page, panel: Locator, sessionId: string): Promise<void> {
+async function verifySessionlessBoardRows(page: Page, panel: Locator, sessionId: string, projectDirectory: string): Promise<void> {
   const laterTitle = `Later plan ${sessionId.slice(0, 8)}`;
   const laterRow = page.locator('.focus-board-list .session-row', { hasText: laterTitle });
   await laterRow.waitFor();
@@ -347,6 +349,8 @@ async function verifySessionlessBoardRows(page: Page, panel: Locator, sessionId:
   await laterRow.click();
   await openBoardTitle(panel, laterTitle).waitFor();
   await page.locator('.pane-tab[data-tab="terminal"]').waitFor({ state: 'hidden' });
+  await verifyMergeShortcutIgnoredWhileBoardCentered(page, projectDirectory);
+  await verifyRailArrowsReachBoardRows(page);
   await panel.getByRole('button', { name: 'board menu', exact: true }).click();
   await page.getByRole('menuitemradio', { name: `Second plan ${sessionId.slice(0, 8)}` }).click();
   await openBoardTitle(panel, `Second plan ${sessionId.slice(0, 8)}`).waitFor();
@@ -387,4 +391,22 @@ async function verifyBoardPaneFallsBackToSessionBoard(page: Page, panel: Locator
   await openBoardMenuItem(page, panel, 'delete board');
   await page.getByRole('button', { name: 'Delete board', exact: true }).click();
   await openBoardTitle(panel, secondTitle).waitFor();
+}
+
+async function verifyMergeShortcutIgnoredWhileBoardCentered(page: Page, projectDirectory: string): Promise<void> {
+  const originPath = (await git(projectDirectory, ['remote', 'get-url', 'origin'])).trim();
+  await page.keyboard.press('Alt+KeyI');
+  await page.waitForTimeout(MERGE_SETTLE_MS);
+  assert.equal(await page.getByRole('dialog').count(), 0, 'the merge shortcut asks nothing while a board is centered');
+  assert.equal(await readOriginFile(originPath, UNCOVERED_FILE_NAME), null, 'the merge shortcut merges nothing while a board is centered');
+}
+
+async function verifyRailArrowsReachBoardRows(page: Page): Promise<void> {
+  const firstBoardRow = page.locator('.focus-board-list button.session-row[data-board-id]').first();
+  const firstBoardId = await firstBoardRow.getAttribute('data-board-id');
+  await firstBoardRow.focus();
+  await page.keyboard.press('ArrowUp');
+  assert.ok(await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.dataset.id !== undefined), 'ArrowUp from the first BOARD row reaches a session row');
+  await page.keyboard.press('ArrowDown');
+  assert.equal(await page.evaluate(() => document.activeElement instanceof HTMLElement ? document.activeElement.dataset.boardId ?? null : null), firstBoardId, 'ArrowDown from the last session row reaches the first BOARD row');
 }

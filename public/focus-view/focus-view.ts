@@ -210,11 +210,20 @@ function onRailKeydown(e: KeyboardEvent) {
   if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
   if (e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
 
-  const id = pickAdjacent(railVisibleIds(), railTabStopId, e.key === 'ArrowDown' ? 1 : -1);
-  if (id == null) return;
+  const rows = railRowsInOrder();
+  const currentRow = rows.find((row) => row === e.target) ?? (railTabStopId ? pillById.get(railTabStopId) : null);
+  const currentIndex = currentRow ? rows.indexOf(currentRow) : -1;
+  const nextIndex = pickAdjacent(rows.map((_, index) => String(index)), currentIndex === -1 ? null : String(currentIndex), e.key === 'ArrowDown' ? 1 : -1);
+  const nextRow = nextIndex == null ? null : rows[Number(nextIndex)];
+  if (!nextRow) return;
   e.preventDefault();
-  setRailTabStop(id);
-  pillById.get(id)?.focus();
+  if (nextRow.dataset.id) setRailTabStop(nextRow.dataset.id);
+  nextRow.focus();
+}
+
+function railRowsInOrder() {
+  if (!railEl) return [];
+  return [...railEl.querySelectorAll<HTMLElement>('button.session-row[data-id], button.session-row[data-board-id]')];
 }
 
 function orderedSessions() {
