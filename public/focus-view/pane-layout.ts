@@ -2,7 +2,7 @@ import type { FocusLayout, PaneTab } from '#shared/contracts/focus-layout.ts';
 import { el } from '../dom-helpers.ts';
 import { getFocusLayout, setFocusLayout } from '../ui-prefs.ts';
 import type { VisibleLayout } from './pane-layout-core.ts';
-import { activateTab, dropZoneAt, moveTab, resizeSplit, trailGroupIndex, visibleLayout } from './pane-layout-core.ts';
+import { activateTab, dropZoneAt, groupsOf, moveTab, resizeSplit, trailGroupIndex, visibleLayout } from './pane-layout-core.ts';
 
 const TAB_LABELS: Record<PaneTab, string> = { terminal: 'Terminal', board: 'Board' };
 const PANE_TABS: readonly PaneTab[] = ['terminal', 'board'];
@@ -29,7 +29,7 @@ export interface PaneLayout {
   setTabTools: (tab: PaneTab, tools: HTMLElement | null) => void;
   setTabTitle: (tab: PaneTab, readTitle: () => string) => void;
   setStripHost: (tab: PaneTab, host: StripHost | null) => void;
-  showTabs: (shownTabs: ReadonlySet<PaneTab>) => void;
+  showTabs: (shownTabs: ReadonlySet<PaneTab>, options?: { holdSplit?: boolean }) => void;
   showTab: (tab: PaneTab) => void;
 }
 
@@ -38,6 +38,7 @@ export function createPaneLayout(): PaneLayout {
   let shownTabs: ReadonlySet<PaneTab> = new Set<PaneTab>(['terminal']);
   let shown: VisibleLayout = visibleLayout(layout, shownTabs);
   let draggedTab: PaneTab | null = null;
+  let isSplitHeld = false;
 
   const element = el('div', 'pane-layout');
   const trailSlot = el('div', 'pane-trail');
@@ -68,7 +69,7 @@ export function createPaneLayout(): PaneLayout {
     button.dataset.tab = tab;
     button.setAttribute('role', 'tab');
     button.setAttribute('aria-controls', `focus-pane-${tab}`);
-    button.addEventListener('click', () => commit(activateTab(layout, tab)));
+    button.addEventListener('click', () => onTabClick(tab));
     const refreshTitle = () => {
       button.title = titleReaderByTab.get(tab)?.() ?? '';
     };
@@ -127,6 +128,29 @@ export function createPaneLayout(): PaneLayout {
     for (const { group } of groupParts) delete group.dataset.dropZone;
   }
 
+  function onTabClick(tab: PaneTab) {
+    if (isSplitHeld && tab === 'terminal') return;
+    releaseHeldSplitAndCommit(activateTab(layout, tab));
+  }
+
+  function releaseHeldSplitAndCommit(next: FocusLayout) {
+    if (!isSplitHeld) {
+      commit(next);
+      return;
+    }
+    isSplitHeld = false;
+    if (next !== layout) {
+      commit(next);
+      return;
+    }
+    render();
+  }
+
+  function heldLayoutOf(storedLayout: FocusLayout): FocusLayout {
+    const terminalGroupIndex = groupsOf(storedLayout).findIndex((group) => group.tabs.includes('terminal'));
+    return activateTab(moveTab(storedLayout, 'board', terminalGroupIndex, 'join'), 'terminal');
+  }
+
   function commit(next: FocusLayout) {
     if (next === layout) return;
     layout = next;
@@ -153,7 +177,8 @@ export function createPaneLayout(): PaneLayout {
   }
 
   function render() {
-    shown = visibleLayout(layout, shownTabs);
+    shown = visibleLayout(isSplitHeld ? heldLayoutOf(layout) : layout, shownTabs);
+    for (const tab of PANE_TABS) tabButtonByTab[tab].draggable = !isSplitHeld;
     for (const tab of PANE_TABS) {
       if (!shownTabs.has(tab)) bodyByTab[tab].hidden = true;
     }
@@ -240,10 +265,11 @@ export function createPaneLayout(): PaneLayout {
       if (!host) stripHostByTab.delete(tab);
       render();
     },
-    showTabs: (nextShownTabs) => {
+    showTabs: (nextShownTabs, options) => {
       shownTabs = nextShownTabs;
+      isSplitHeld = options?.holdSplit === true;
       render();
     },
-    showTab: (tab) => commit(activateTab(layout, tab)),
+    showTab: (tab) => releaseHeldSplitAndCommit(activateTab(layout, tab)),
   };
 }

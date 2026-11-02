@@ -82,6 +82,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   let previewFrameId: number | null = null;
   let activeTool: BoardTool = 'select';
   let pendingTitleEditId: string | null = null;
+  let isFitOwedOnceSized = false;
 
   function setTool(tool: BoardTool): void {
     activeTool = tool;
@@ -115,8 +116,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (canvasWidth === 0 || canvasHeight === 0) {
       viewBox = { ...bounds };
       applyViewBox();
+      isFitOwedOnceSized = true;
       return;
     }
+    isFitOwedOnceSized = false;
     const band = islandFreeBand();
     const unitsPerPixel = Math.max(1, bounds.width / canvasWidth, bounds.height / band.heightPx);
     const viewWidth = canvasWidth * unitsPerPixel;
@@ -516,6 +519,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
   svg.addEventListener('wheel', onWheel, { passive: false });
   svg.addEventListener('dblclick', onDoubleClick);
   svg.addEventListener('keydown', onKeyDown);
+  new ResizeObserver(() => {
+    if (isFitOwedOnceSized && svg.clientWidth > 0 && svg.clientHeight > 0) fit();
+  }).observe(svg);
 
   return {
     fit,
