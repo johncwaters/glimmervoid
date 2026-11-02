@@ -70,7 +70,7 @@ async function prepareUpstream(upstream: UpstreamVariant, projectDirectory: stri
   if (upstream === 'push-rejected') await refusePushesTo(originPath);
 }
 
-async function readOriginFile(originPath: string, fileName: string): Promise<string | null> {
+export async function readOriginFile(originPath: string, fileName: string): Promise<string | null> {
   const entry = await git(originPath, ['ls-tree', 'main', '--', fileName]);
   if (entry.trim() === '') return null;
   return git(originPath, ['show', `main:${fileName}`]);
