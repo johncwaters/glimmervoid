@@ -16,7 +16,7 @@ import { setHooksRequestSender } from './hooks-store.ts';
 import { whenBundledMonoFontLoads } from './mono-font.ts';
 import { setCardCoherenceJournal, setCardConnectBoard, setCardSessionSetup, setLinkedPrsPainter } from './session-card/card-dom.ts';
 import { refreshTerminalFonts } from './session-card/lifecycle.ts';
-import { prewarmDataSocket } from './session-card/terminal.ts';
+import { prewarmDataSocket } from './session-card/terminal-data-socket.ts';
 import { addSessionRowSignalSource } from './session-row.ts';
 import { openSessionSetup } from './session-setup/setup-dialog.ts';
 import { onStreamerModeChanged } from './streamer-mode.ts';

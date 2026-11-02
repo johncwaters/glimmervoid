@@ -5,7 +5,7 @@ import { queryTag } from '../dom-helpers.ts';
 import { revealFlyingAnimals } from '../flying-animals.ts';
 import { refreshFirstRunChecklist, revealFirstRunChecklist } from '../onboarding/first-run-loader.ts';
 import { applyPlanConnectionState } from '../session-card/lifecycle.ts';
-import { countShownConnectingTerminals, onTerminalLinkChange } from '../session-card/terminal.ts';
+import { countShownConnectingTerminals, onTerminalLinkChange } from '../session-card/terminal-data-socket.ts';
 import { preloadShownFaceWhenIdle } from '../shown-files.ts';
 import { getActiveView } from '../ui-state-core.ts';
 import { prefetchViewsWhenIdle, reloadOnceIfBundleRetired } from '../view-registry.ts';

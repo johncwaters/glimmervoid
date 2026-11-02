@@ -2,7 +2,8 @@ import { HANDSHAKE_DEADLINE_MS, decideConnectionActions } from './connection-sup
 import type { ConnectionAction, ConnectionEvent, SupervisorState } from './connection-supervisor-core.ts';
 import { abandonControlSocket, onControlSocketChange, probeControl, replaceControlSocket } from './control-ws.ts';
 import { startWakeTimeline, noteWakeMark, noteNetworkMark } from './wake-timeline.ts';
-import { closeEveryTerminalUntilShown, holdTerminalInputDuringWakeCheck, reconnectShownTerminals, releaseHeldTerminalInput } from './session-card/terminal.ts';
+import { holdTerminalInputDuringWakeCheck, releaseHeldTerminalInput } from './session-card/terminal.ts';
+import { closeEveryTerminalUntilShown, reconnectShownTerminals } from './session-card/terminal-data-socket.ts';
 
 let supervisorState: SupervisorState = { isVisible: document.visibilityState === 'visible', isFrozen: false, isProbing: false, isReplacing: false };
 let hiddenSinceMs = document.visibilityState === 'visible' ? null : Date.now();

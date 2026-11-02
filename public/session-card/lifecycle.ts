@@ -36,13 +36,9 @@ import { reportHeaderError } from '../action-status.ts';
 import { needsAttention, sessionAttentionTier, tallyAdd, tallyRemove, titleAlertCount } from '../focus-view/attention-core.ts';
 import { closeSessionNotifications } from '../notifications.ts';
 
-import {
-  closeDataWs,
-  ensureTerminalReady,
-  ensureTerminalSetup,
-  setTerminalCursorBlink,
-  syncTerminalOutputFlow,
-} from './terminal.ts';
+import { ensureTerminalReady, ensureTerminalSetup } from './terminal.ts';
+import { closeDataWs, syncTerminalOutputFlow } from './terminal-data-socket.ts';
+import { setTerminalCursorBlink } from './terminal-setup.ts';
 import { releaseWebgl } from './webgl-pool.ts';
 import { currentTerminalFontFamily } from '../mono-font.ts';
 import { applyTerminalFontFamily } from '../mono-font-core.ts';

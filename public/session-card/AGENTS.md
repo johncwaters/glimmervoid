@@ -14,9 +14,12 @@ Session card modules, decomposed from the old monolithic session-card.js. Each s
 | `lifecycle.ts` | `createSessionCard`, `removeSessionCard`, `applyState`, the tab title count over `focus-view/attention-core.ts` counts |
 | `agent-core.ts` | Pure `decideAgentPicker` and `decideAgentAvailability`: which agents the spawn picker offers and whether any can spawn |
 | `card-dom.ts` | Card builder, badge, inline rename, confirm dialog, debug overlay |
-| `terminal.ts` | xterm.js setup, data WebSocket, OSC-52 clipboard, key handling (consults `../shortcuts-core.ts` for which shortcuts bubble), phone soft-keyboard input takeover |
+| `terminal.ts` | Terminal shell: IO wiring, setup on demand, wake-check input hold, viewer API |
+| `terminal-setup.ts` | xterm.js setup and key handling (consults `../shortcuts-core.ts` for which shortcuts bubble) |
+| `terminal-data-socket.ts` | Data WebSocket: prewarm, connect, reconnect, output flow, link state, scroll restore |
+| `terminal-input.ts`, `terminal-notices.ts` | Input queue and phone soft-keyboard takeover; notices and OSC-52 clipboard |
 | `grid-core.ts` | Pure `decideGridActions` (resize, claim, unview, follower flag; a non-finite or non-positive proposal claims nothing, and an unengaged document claims nothing) plus `decideGridEngagementEdge` (none, resync or rebid on a focus/visibility edge) and `readDataFrame` (text bytes versus a binary `pty-size` frame, first frame of a connection is the attach) |
-| `ime-core.ts` | Pure soft-keyboard edit to terminal bytes: shared-prefix diff of xterm's helper textarea, plus the inputType/keydown predicates the takeover in `terminal.ts` gates on |
+| `ime-core.ts` | Pure soft-keyboard edit to terminal bytes: shared-prefix diff of xterm's helper textarea, plus the inputType/keydown predicates the takeover in `terminal-input.ts` gates on |
 | `activity.ts` | Working-session heartbeat from output ARRIVAL timing only (no content reads); paints liveness/quiet on the Focus rail pill |
 | `session-tick.ts` | Shared 1s tick: working-heartbeat poll and tick subscribers (rail and phone elapsed clocks); no per-session timers |
 | `naming.ts` | Session name suggestion over `shared/session-naming.ts` |
