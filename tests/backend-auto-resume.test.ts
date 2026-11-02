@@ -168,6 +168,38 @@ test('runAutoResume spawns a picked session with --resume <id>, continues one th
   }
 });
 
+test('a session spawns with --resume <id> when the transcript lives under another project folder', async () => {
+  const calls: SpawnCall[] = [];
+  const resumeSessionId = '9b1e5c52-6d0a-4c7e-9a43-2f6f1d8e7a10';
+  const otherFolder = path.join(claudeConfigDir, 'projects', encodeProjectDir(path.join(os.tmpdir(), 'another-checkout')));
+  fs.mkdirSync(otherFolder, { recursive: true });
+  fs.writeFileSync(path.join(otherFolder, `${resumeSessionId}.jsonl`), '', 'utf8');
+  const session = fakeSession('elsewhere', resumeSessionId, calls);
+  const cfg = autoResumeConfig([{ id: 'elsewhere', wasActive: true, wasWorking: false, resumeSessionId }], true);
+  try {
+    await runAutoResume(new Map([['elsewhere', session]]), cfg, createSpawnGate());
+    assert.equal(calls.length, 1);
+    const args = calls[0]?.args ?? [];
+    assert.equal(args[args.indexOf('--resume') + 1], resumeSessionId);
+  } finally {
+    session.destroy();
+  }
+});
+
+test('a session spawns without --resume when no project folder holds the transcript', async () => {
+  const calls: SpawnCall[] = [];
+  const resumeSessionId = '7c2f6d63-1e0b-4d8f-8b54-3a7a2e9f8b21';
+  const session = fakeSession('nowhere', resumeSessionId, calls);
+  const cfg = autoResumeConfig([{ id: 'nowhere', wasActive: true, wasWorking: false, resumeSessionId }], true);
+  try {
+    await runAutoResume(new Map([['nowhere', session]]), cfg, createSpawnGate());
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.args.includes('--resume'), false);
+  } finally {
+    session.destroy();
+  }
+});
+
 test('runAutoResume spawns nothing when autoResume is false (kill switch)', async () => {
   const calls: SpawnCall[] = [];
   const picked = fakeSession('picked', '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5', calls);

@@ -93,6 +93,14 @@ const SPAWN_FAILURE_TEXT_BY_REASON: Record<string, string> = {
 };
 const SPAWN_FAILURE_FALLBACK_TEXT = "The agent could not be started. The server log has the cause.";
 
+function listSubdirectoryNames(directory: string): string[] {
+  try {
+    return fs.readdirSync(directory, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+}
+
 function describeSpawnFailure(detail: unknown): string {
   if (typeof detail !== "object" || detail === null) return SPAWN_FAILURE_FALLBACK_TEXT;
   if ("error" in detail && typeof detail.error === "string" && detail.error) return detail.error;
@@ -1609,7 +1617,7 @@ class Session extends EventEmitter {
         projectsDirs: projectDirCandidates(env, [], os.homedir()),
         cwds: this._spawnCwdSpellings(),
         isTranscriptRemote: remoteLaunch !== null,
-      }, fs.existsSync);
+      }, fs.existsSync, listSubdirectoryNames);
       spawnResumeSessionId = resumeTarget.resumeSessionId;
       if (configuredResumeSessionId && !spawnResumeSessionId) {
         console.warn(`[session:${this.name}] spawning without the stale resume id ${configuredResumeSessionId} because no transcript exists at any of: ${resumeTarget.checkedTranscriptPaths.join(", ")}`);

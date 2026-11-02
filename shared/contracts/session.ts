@@ -6,6 +6,7 @@ import { InFlightReview, QueuedReview, ReviewDraft } from './team-review.ts';
 import { WhiteboardAgentReply } from './whiteboard.ts';
 
 export const TASK_TITLE_MAX_LENGTH = 120;
+export const CONVERSATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/;
 export const SESSION_NAME_PATTERN = /^[a-zA-Z0-9_\-. ()]{1,64}$/;
 export const SESSION_NAME_RULE_TEXT = 'Session name may only contain letters, numbers, spaces, dashes, dots, underscores, and parentheses (max 64 chars)';
 export const TASK_TITLE_CONTROL_CHARACTERS = /[\x00-\x1f\x7f-\x9f]/;

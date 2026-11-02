@@ -89,7 +89,7 @@ Declare another agent under `customAgents` in `config.json` with an `id`, `label
 - **Plan review.** Read, edit and approve Claude Code plans from the dashboard or your phone.
 - **Guardrails.** Sane YOLO runs in every session and lane whose agent supports it, refusing commands like `git reset --hard` and `git push --force` and reads of credentials such as SSH keys and `.env` files. It catches accidents; it is not a sandbox.
 - **Usage.** Tokens and estimated cost from local Claude Code, Codex, Kimi Code and Grok transcripts, with optional budgets.
-- **Auto-resume.** Sessions live when Glimmervoid stopped come back with their conversation resumed.
+- **Auto-resume.** Sessions live when Glimmervoid stopped come back with their conversation resumed. Paste a conversation id in + Session to start a new session on an earlier chat.
 - **Remote access** (opt-in). Reach the dashboard from another device through single-use pairing links.
 - **Radar** (opt-in). Watches PostHog error tracking, pings Telegram on a spike, regression or new issue, and sends an agent to investigate. Optional auto-fix leaves a local branch; a pull request opens only after you approve it.
 - **Team PR review** (opt-in). Drafts a review of each open pull request from a GitHub team in a guarded agent, optionally with your own review skill. Nothing posts until you choose Approve or Comment.

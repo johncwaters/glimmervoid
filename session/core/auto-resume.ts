@@ -1,8 +1,9 @@
 import path from "node:path";
 
+import { CONVERSATION_ID_PATTERN } from "../../shared/contracts/session.ts";
 import { encodeProjectDir } from "./conversation-history.ts";
 
-const RESUME_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/;
+const RESUME_ID_RE = CONVERSATION_ID_PATTERN;
 const AUTO_RESUME_IDLE_CUTOFF_MS = 24 * 60 * 60 * 1000;
 const AUTO_CONTINUE_PROMPT = "Glimmervoid restarted while you were working and resumed this conversation. This is not a new request from the user: carry on with the task you were working on. Any tool call, background command, monitor or subagent that was running was stopped and its outcome is unknown, so check the current state, such as files, git status and running processes, before relying on it or repeating it, and start again any background work the task still needs. Do not recap or ask for confirmation. If the task was already finished, say so in one line.";
 
@@ -80,9 +81,26 @@ function transcriptPathCandidates(
   return Array.from(new Set(candidates));
 }
 
+function findTranscriptForConversation(
+  { resumeSessionId, projectsDirs }: { resumeSessionId: string; projectsDirs: readonly string[] },
+  fileExists: (transcriptPath: string) => boolean,
+  listProjectDirs: (projectsDir: string) => string[],
+): string | null {
+  if (!RESUME_ID_RE.test(resumeSessionId)) return null;
+  const transcriptFileName = `${resumeSessionId}.jsonl`;
+  for (const projectsDir of projectsDirs) {
+    for (const projectDir of listProjectDirs(projectsDir)) {
+      const candidate = path.join(projectsDir, projectDir, transcriptFileName);
+      if (fileExists(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
 function resolveResumeTarget(
   options: ResumeTargetOptions,
   fileExists: (transcriptPath: string) => boolean,
+  listProjectDirs?: (projectsDir: string) => string[],
 ): ResumeTarget {
   if (!options.resumeSessionId) {
     return { resumeSessionId: null, transcriptPath: null, checkedTranscriptPaths: [] };
@@ -96,6 +114,17 @@ function resolveResumeTarget(
     checkedTranscriptPaths.push(candidate);
     if (!fileExists(candidate)) continue;
     return { resumeSessionId: options.resumeSessionId, transcriptPath: candidate, checkedTranscriptPaths };
+  }
+  if (listProjectDirs) {
+    const found = findTranscriptForConversation(
+      { resumeSessionId: options.resumeSessionId, projectsDirs: options.projectsDirs },
+      fileExists,
+      listProjectDirs,
+    );
+    if (found) return { resumeSessionId: options.resumeSessionId, transcriptPath: found, checkedTranscriptPaths };
+    for (const projectsDir of options.projectsDirs) {
+      checkedTranscriptPaths.push(path.join(projectsDir, "*", `${options.resumeSessionId}.jsonl`));
+    }
   }
   return { resumeSessionId: null, transcriptPath: candidates[0] || null, checkedTranscriptPaths };
 }
@@ -125,4 +154,4 @@ function resumePromptFor(project: AutoResumeProject | undefined): string | null 
   return project?.wasWorking === true ? AUTO_CONTINUE_PROMPT : null;
 }
 
-export { isConversationReplacedAtStartup, pickAutoResume, resolveResumeTarget, resumePromptFor, shouldAdoptReportedResumeId, AUTO_CONTINUE_PROMPT, RESUME_ID_RE };
+export { findTranscriptForConversation, isConversationReplacedAtStartup, pickAutoResume, resolveResumeTarget, resumePromptFor, shouldAdoptReportedResumeId, AUTO_CONTINUE_PROMPT, RESUME_ID_RE };

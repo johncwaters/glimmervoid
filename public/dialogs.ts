@@ -5,6 +5,7 @@ import { sendControlRequest } from './control-ws.ts';
 import { CoderEnvironmentOffers, ConnectableAgent } from '#shared/contracts/control-messages.ts';
 import type { AgentLoginStatus, CoderEnvironmentOffer, ServerMessage } from '#shared/contracts/control-messages.ts';
 import { agentLoginOf, applyAgentLogins, onAgentLoginsChanged } from './agent-logins.ts';
+import { CONVERSATION_ID_PATTERN } from '#shared/contracts/session.ts';
 import { el, query, queryTag } from './dom-helpers.ts';
 import { createRepoRootsAdder } from './onboarding/repo-roots-adder.ts';
 import { createSandboxedFrame } from './sandboxed-frame.ts';
@@ -240,6 +241,7 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
   const pathInput = queryTag(dialog, '#add-session-path', 'input');
   const pathLabelEl = query(dialog, '#add-session-path-label');
   const skipPermsCheckbox = queryTag(dialog, '#add-session-skip-perms', 'input');
+  const resumeInput = queryTag(dialog, '#add-session-resume', 'input');
   const saneYoloHelpLink = queryTag(dialog, '#add-session-sane-yolo-help', 'a');
   const saneYoloUnavailableEl = query(dialog, '#add-session-sane-yolo-unavailable');
   const errorEl = query(dialog, '#add-session-error');
@@ -477,6 +479,11 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
       requestAddSession({ name: suggestSessionName(name), path: projectPath, agent: SHELL_AGENT_ID });
       return;
     }
+    const resumeSessionId = resumeInput.value.trim();
+    if (resumeSessionId && !CONVERSATION_ID_PATTERN.test(resumeSessionId)) {
+      errorEl.textContent = 'That is not a conversation id. Paste the id shown by the agent, such as 4a3d4462-4cf7-4a23-8f00-ccec89a48ba5.';
+      return;
+    }
     if (isWorkspaceMode) {
       const repos = [...workspaceListEl.querySelectorAll<HTMLInputElement>('input:checked')].map((checkbox) => checkbox.value);
       if (!name || repos.length < 2) {
@@ -491,6 +498,7 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
         saneYolo: skipPermsCheckbox.checked,
       };
       if (selectedAgentId && selectedAgentId !== DEFAULT_AGENT_ID) message.agent = selectedAgentId;
+      if (resumeSessionId) message.resumeSessionId = resumeSessionId;
       requestAddSession(message);
       return;
     }
@@ -506,6 +514,7 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
     };
     if (selectedAgentId && selectedAgentId !== DEFAULT_AGENT_ID) message.agent = selectedAgentId;
     if (selectedEnvironment) message.environment = selectedEnvironment.name;
+    if (resumeSessionId) message.resumeSessionId = resumeSessionId;
     requestAddSession(message);
   }
 
