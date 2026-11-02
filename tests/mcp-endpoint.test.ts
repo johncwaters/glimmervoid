@@ -59,11 +59,12 @@ async function boot(): Promise<BootedBackend> {
 
 let nextRequestId = 1;
 
-function callMcp(method: string, params: Record<string, unknown>, credential: string | null): Promise<Response> {
+function callMcp(method: string, params: Record<string, unknown>, credential: string | null, extraHeaders: Record<string, string> = {}): Promise<Response> {
   const headers: Record<string, string> = {
     'content-type': 'application/json',
     accept: 'application/json, text/event-stream',
     'mcp-protocol-version': '2025-06-18',
+    ...extraHeaders,
   };
   if (credential !== null) headers.authorization = `Bearer ${credential}`;
   nextRequestId += 1;
@@ -142,6 +143,24 @@ test('a missing, wrong or misshapen credential gets the unknown-session refusal'
     assert.equal(response.status, 404, String(presented));
     assert.deepEqual(await response.json(), { ok: false, error: REFUSAL_REASON });
   }
+  const fromForeignPage = await callMcp('tools/list', {}, credential, { origin: 'https://attacker.example' });
+  assert.equal(fromForeignPage.status, 404);
+});
+
+test('a call missing a field or carrying another action\'s field is refused naming the action and the fields', async () => {
+  const { credential } = bootedBackend();
+  const cases: [Record<string, unknown>, string][] = [
+    [{ action: 'send', child: 'helper' }, 'session send needs text'],
+    [{ action: 'close' }, 'session close needs child'],
+    [{ action: 'limits', text: 'hello' }, 'session limits takes no other fields, so drop text'],
+  ];
+  for (const [toolArguments, expectedError] of cases) {
+    const called = await resultOf(await callMcp('tools/call', { name: 'session', arguments: toolArguments }, credential));
+    assert.equal(called.isError, true);
+    assert.deepEqual(called.content, [{ type: 'text', text: expectedError }]);
+  }
+  const putWithTitle = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'put', board: 'flow', title: 'Flow' } }, credential));
+  assert.deepEqual(putWithTitle.content, [{ type: 'text', text: 'whiteboard put takes board and ops, so drop title' }]);
 });
 
 for (const agent of ['claude-code', 'codex']) {

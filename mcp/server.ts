@@ -15,7 +15,7 @@ import { showByPath } from './show.ts';
 import { boardPictureResult, boardReplyWithReading } from './whiteboard.ts';
 import type { ToolImageResult } from './core/tool-result.ts';
 import { toolErrorResult, toolResultFromReply } from './core/tool-result.ts';
-import { GROUPED_TOOLS, allowedActionNames, inputSchemaFor, routeToolCall } from './core/tools.ts';
+import { GROUPED_TOOLS, allowedActionNames, combinedAnnotations, inputSchemaFor, routeToolCall } from './core/tools.ts';
 import type { CallContext, GroupedTool, Presenter, ToolArguments } from './core/tools.ts';
 import type { AgentApiVerb } from '../shared/contracts/session.ts';
 
@@ -29,6 +29,7 @@ interface AgentMcpDependencies {
   getAgentApi(): AgentApiPort | null;
   getShownFiles(): ShownFilesPort | null;
   isLoopback(req: Request): boolean;
+  isOriginAllowed(req: Request): boolean;
   logger: Pick<Console, 'warn'>;
 }
 
@@ -40,8 +41,11 @@ function refuse(res: Response): void {
   res.status(REFUSAL_STATUS).json({ ok: false, error: REFUSAL_REASON });
 }
 
-function callContextFor(session: Session): CallContext {
-  return { resolveSessionPath: (requestedPath) => path.resolve(session.effectiveCwd(), requestedPath) };
+function callContextFor(session: Session, agentApi: AgentApiPort): CallContext {
+  return {
+    resolveSessionPath: (requestedPath) => path.resolve(session.effectiveCwd(), requestedPath),
+    ownsSpawnedSessions: agentApi.refuseRole(session, 'close') === null,
+  };
 }
 
 interface CallTarget {
@@ -87,17 +91,17 @@ function registerGroupedTool(server: McpServer, tool: GroupedTool, session: Sess
     title: tool.title,
     description: tool.description,
     inputSchema: inputSchemaFor(tool, actionNames),
-    annotations: tool.annotations,
+    annotations: combinedAnnotations(tool, actionNames),
     _meta: { [LOADS_UPFRONT_META_KEY]: tool.loadsUpfront },
   }, async (toolArguments: ToolArguments) => {
-    const route = routeToolCall(tool, toolArguments, callContextFor(session));
+    const route = routeToolCall(tool, toolArguments, callContextFor(session, agentApi));
     if (!route.ok) return toolErrorResult(route.error);
     return toolResultOf(await PRESENTERS[route.presenter]({ session, agentApi, getShownFiles }, route.verb, route.payload));
   });
 }
 
 function buildSessionServer(session: Session, agentApi: AgentApiPort, getShownFiles: () => ShownFilesPort | null): McpServer {
-  const server = new McpServer({ name: SERVER_NAME, version: TOOL_SURFACE_VERSION }, { instructions: SERVER_INSTRUCTIONS });
+  const server = new McpServer({ name: SERVER_NAME, version: TOOL_SURFACE_VERSION }, { instructions: SERVER_INSTRUCTIONS, capabilities: { tools: { listChanged: false } } });
   for (const tool of GROUPED_TOOLS) registerGroupedTool(server, tool, session, agentApi, getShownFiles);
   return server;
 }
@@ -123,7 +127,7 @@ function mountAgentMcp(app: Express, dependencies: AgentMcpDependencies): void {
   }, { onerror: (error) => dependencies.logger.warn(`[mcp] ${error.message}`) });
   const nodeHandler = toNodeHandler(handler, { onerror: (error) => dependencies.logger.warn(`[mcp] ${error.message}`) });
   const answer = (req: AuthenticatedRequest, res: Response) => {
-    const session = authenticatedSession(req, dependencies);
+    const session = dependencies.isOriginAllowed(req) ? authenticatedSession(req, dependencies) : null;
     if (!session || !dependencies.getAgentApi()) {
       req.resume();
       refuse(res);
