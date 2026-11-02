@@ -92,7 +92,10 @@ async function verifyOutcome(page: Page, upstream: UpstreamVariant, originPath: 
     assert.equal(await reader.getByRole('button', { name: 'Merge', exact: true }).isVisible(), false, 'a merge conflict offers no Merge');
   }
   if (upstream === 'diverged') await waitForReaderStatus(page, 'Parked: base branch diverged');
-  if (upstream === 'push-rejected') await page.getByText(PUSH_REFUSED_WARNING).waitFor({ timeout: OUTCOME_TIMEOUT_MS });
+  if (upstream === 'push-rejected') {
+    await page.getByText(PUSH_REFUSED_WARNING).waitFor({ timeout: OUTCOME_TIMEOUT_MS });
+    await page.locator('#header-status-dismiss').click();
+  }
   assert.equal((await git(originPath, ['rev-parse', 'main'])).trim(), originHeadBeforeClick, 'origin main is unchanged');
 }
 
@@ -134,6 +137,21 @@ export async function verifyReviewMerge(page: Page, projectDirectory: string, up
   assert.deepEqual(mergeButtonAfterClick, { isDisabled: true, label: 'Merge' });
   await verifyOutcome(page, upstream, originPath, originHeadBeforeClick);
   await closeChangesReader(page, sessionId);
+  await verifySwitchToFinishedSessionClosesChanges(page, sessionId);
+}
+
+async function verifySwitchToFinishedSessionClosesChanges(page: Page, sessionId: string): Promise<void> {
+  const railSessionIds = await page.locator('.focus-rail button.session-row[data-id]').evaluateAll((rows) => rows.map((row) => row.getAttribute('data-id')));
+  const otherSessionId = railSessionIds[railSessionIds.indexOf(sessionId) - 1];
+  if (!otherSessionId) return;
+  const otherRow = page.locator(`.focus-rail button.session-row[data-id="${otherSessionId}"]`);
+  await page.locator('.review-bar').getByRole('button', { name: 'Changes', exact: true }).click();
+  await page.locator('.review-reader[data-placement="overlay"]').waitFor();
+  await otherRow.click();
+  await page.locator('.review-reader').waitFor({ state: 'detached' });
+  await page.waitForFunction((id) => document.activeElement?.closest('.session-card')?.getAttribute('data-id') === id, otherSessionId);
+  await page.locator(`.focus-rail button.session-row[data-id="${sessionId}"]`).click();
+  await page.locator(`#focus-pane-terminal .session-card[data-id="${sessionId}"]`).waitFor();
 }
 
 export async function verifyPhoneChanges(page: Page, projectDirectory: string): Promise<void> {
