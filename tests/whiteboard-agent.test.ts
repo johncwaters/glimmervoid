@@ -10,7 +10,7 @@ import { z } from 'zod';
 import { createBackend } from '../server/backend/backend.ts';
 import { AGENT_REPLY_SCHEMAS, AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import { runAgentApiCli } from '../server/agent-api-cli.ts';
-import { Op, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
+import { Board, Op, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { closeSocket, dashboardClient, openRecordingSocket, waitForMessage } from './helpers/dashboard-ws.ts';
 import type { Backend } from './helpers/lanes.ts';
@@ -69,7 +69,9 @@ async function whiteboard(sessionId: string, body: Record<string, unknown>): Pro
 async function boardOf(sessionId: string, boardId: string) {
   const reply = await whiteboard(sessionId, { sub: 'get', board: boardId });
   assert.equal(reply.status, 200);
-  return reply.body as { board: { version: number; elements: Record<string, Record<string, unknown>> }; changes: { summary: string }[] };
+  const body = reply.body as { board: unknown; changes: { summary: string }[] };
+  const board: { version: number; elements: Record<string, Record<string, unknown>> } = Board.parse(body.board);
+  return { ...body, board };
 }
 
 async function newBoard(title: string): Promise<string> {

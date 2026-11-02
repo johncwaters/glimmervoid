@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 
-import { BoardRecord, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
+import { BoardRecord, sparseBoardRecord, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import type { Board, BoardReview, BoardSummary, Op, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import type { AgentReplyBodyOf } from '../../shared/contracts/session.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
@@ -150,7 +150,7 @@ function createWhiteboardWiring({
   }
 
   function writeRecord(record: BoardRecord): Promise<void> {
-    return writeJsonAtomic(boardFilePath(record.board.id), record, { mode: BOARD_FILE_MODE, mkdir: true });
+    return writeJsonAtomic(boardFilePath(record.board.id), sparseBoardRecord(record), { mode: BOARD_FILE_MODE, mkdir: true });
   }
 
   function snapshotMessage(): ServerMessageOf<'whiteboards-snapshot'> {

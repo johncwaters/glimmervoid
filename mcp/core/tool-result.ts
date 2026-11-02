@@ -1,3 +1,5 @@
+import { sparseBoardReply } from '../../shared/contracts/whiteboard.ts';
+
 type ToolTextResult = {
   content: { type: 'text'; text: string }[];
   structuredContent?: Record<string, unknown>;
@@ -14,7 +16,8 @@ function errorTextOf(body: Record<string, unknown>): string {
 
 function toolResultFromReply(reply: { status: number; body: Record<string, unknown> }): ToolTextResult {
   if (reply.body.ok !== true) return { content: [{ type: 'text', text: errorTextOf(reply.body) }], isError: true };
-  return { content: [{ type: 'text', text: JSON.stringify(reply.body) }], structuredContent: reply.body };
+  const wireBody = sparseBoardReply(reply.body);
+  return { content: [{ type: 'text', text: JSON.stringify(wireBody) }], structuredContent: wireBody };
 }
 
 function toolErrorResult(message: string): ToolTextResult {

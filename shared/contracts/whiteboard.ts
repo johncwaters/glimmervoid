@@ -213,6 +213,45 @@ export const WhiteboardAgentReply = z.union([
   z.object({ ok: z.literal(true), version: z.number().int(), warnings: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings).optional() }).strict(),
 ]);
 
+function isDefaultValue(value: unknown, defaultValue: unknown): boolean {
+  return JSON.stringify(value) === JSON.stringify(defaultValue);
+}
+
+function matchingOption(options: readonly z.core.$ZodType[], value: unknown): z.core.$ZodType | null {
+  return options.find((option) => z.safeParse(option, value).success) ?? null;
+}
+
+function withoutDefaults(schema: z.core.$ZodType, value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+  if (schema instanceof z.core.$ZodDefault || schema instanceof z.core.$ZodNullable || schema instanceof z.core.$ZodOptional) return withoutDefaults(schema._zod.def.innerType, value);
+  if (schema instanceof z.core.$ZodArray && Array.isArray(value)) return value.map((item) => withoutDefaults(schema._zod.def.element, item));
+  if (schema instanceof z.core.$ZodUnion) {
+    const option = matchingOption(schema._zod.def.options, value);
+    return option ? withoutDefaults(option, value) : value;
+  }
+  if (typeof value !== 'object' || Array.isArray(value)) return value;
+  if (schema instanceof z.core.$ZodRecord) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, withoutDefaults(schema._zod.def.valueType, item)]));
+  if (!(schema instanceof z.core.$ZodObject)) return value;
+  const shape: Readonly<Record<string, z.core.$ZodType>> = schema._zod.def.shape;
+  const sparseEntries = Object.entries(value).flatMap(([key, item]) => {
+    const fieldSchema = shape[key];
+    if (!fieldSchema) return [[key, item]];
+    if (fieldSchema instanceof z.core.$ZodDefault && isDefaultValue(item, fieldSchema._zod.def.defaultValue)) return [];
+    return [[key, withoutDefaults(fieldSchema, item)]];
+  });
+  return Object.fromEntries(sparseEntries);
+}
+
+export function sparseBoardRecord(record: BoardRecord): unknown {
+  return withoutDefaults(BoardRecord, record);
+}
+
+export function sparseBoardReply<Body extends object>(body: Body): Body | Record<string, unknown> {
+  if (!('changes' in body) || !('board' in body)) return body;
+  const board = Board.safeParse(body.board);
+  return board.success ? { ...body, board: withoutDefaults(Board, board.data) } : body;
+}
+
 export type Box = z.infer<typeof Box>;
 export type Frame = z.infer<typeof Frame>;
 export type Wire = z.infer<typeof Wire>;

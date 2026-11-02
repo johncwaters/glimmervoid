@@ -8,6 +8,7 @@ import type { Express, Request, RequestHandler, Response } from 'express';
 import { HOOK_EVENTS } from '../../detection/settings-injector.ts';
 import { PLAN_HOOK_EVENT, PLAN_RESULT_HOOK_EVENT } from '../../shared/contracts/plan-review.ts';
 import { CONVERSATION_PERMISSION_HOOK_EVENT, CONVERSATION_TOOL_RESULT_HOOK_EVENT } from '../../shared/contracts/session.ts';
+import { sparseBoardReply } from '../../shared/contracts/whiteboard.ts';
 import { parseJsonRecord } from '../core/json-core.ts';
 import type { Session } from '../../session/sessions.ts';
 import { refocusReplyFor, toolHookContextReplyOf } from '../../session/core/refocus-core.ts';
@@ -431,7 +432,7 @@ function answerAgentVerb({ res, agentApi, session, verb, payload }: {
   payload: Record<string, unknown>;
 }): void {
   void agentApi.handle(session, verb, payload).then(
-    (reply) => { res.status(reply.status).json(reply.body); },
+    (reply) => { res.status(reply.status).json(sparseBoardReply(reply.body)); },
     () => { res.status(500).json({ ok: false, error: 'could not answer the request' }); },
   );
 }
