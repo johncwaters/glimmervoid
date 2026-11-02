@@ -23,6 +23,7 @@ interface RemoteOnContext {
   backend: Backend;
   localPort: number;
   remotePort: number;
+  remoteListeningWhenRestartRan: boolean[];
 }
 
 const booted: { context: RemoteOnContext | null } = { context: null };
@@ -102,15 +103,19 @@ test.before(async () => {
   process.env.GLIMMERVOID_CONFIG = cfgPath;
 
   const localServer = http.createServer();
-  const backend = createBackend(localServer, { staticDir: path.join(import.meta.dirname, '..', 'public') });
+  const remoteServer = http.createServer();
+  const remoteListeningWhenRestartRan: boolean[] = [];
+  const backend = createBackend(localServer, {
+    staticDir: path.join(import.meta.dirname, '..', 'public'),
+    onRestart: () => { remoteListeningWhenRestartRan.push(remoteServer.listening); },
+  });
   localServer.on('request', backend.app);
   const localPort = await listenOnLoopback(localServer);
 
-  const remoteServer = http.createServer();
   backend.remote.attach(remoteServer);
   await listenOnLoopback(remoteServer, remotePort);
 
-  booted.context = { tmpDir, prevEnv, localServer, remoteServer, backend, localPort, remotePort };
+  booted.context = { tmpDir, prevEnv, localServer, remoteServer, backend, localPort, remotePort, remoteListeningWhenRestartRan };
 });
 
 test.after(async () => {
@@ -236,4 +241,13 @@ test('a traversal dressed as a pair path does not escape the pairing gate', asyn
     const res = await fetch(`http://127.0.0.1:${remotePort}${target}`);
     assert.equal(res.status, 401, `${target} must be judged as the resource it resolves to`);
   }
+});
+
+test('a Restart frees the remote listener port before the replacement server starts', async () => {
+  const { backend, remotePort, remoteListeningWhenRestartRan } = ctx();
+  await backend.requestRestart();
+  assert.deepEqual(remoteListeningWhenRestartRan, [false]);
+  const replacement = net.createServer();
+  await listenOnLoopback(replacement, remotePort);
+  await closeServer(replacement);
 });

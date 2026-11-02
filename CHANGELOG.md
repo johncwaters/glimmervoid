@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Updates apply on Restart with remote access on.** With `remote.enabled` set, Restart left the remote listener holding its port, so the new version could not start, and Glimmervoid put the old version back. An update looked installed but never took effect. Restart, Shutdown and Ctrl+C now free every port before the next server starts. To move off 0.49.0 or earlier with remote access on, stop Glimmervoid and start it again once, because the old version still holds the port on Restart.
 - **Restart under launchd.** A server launchd runs with `GLIMMERVOID_SUPERVISOR=launchd` set now exits on Restart so launchd starts it again, the way a systemd unit does. Before, it started its own replacement, which launchd then fought for the port.
 - **The waiting and failed line shows on an open session.** The thin colored line along the top of an open session's terminal, in the Focus view, now stays on while the session waits for you or has failed. Before, the failed line never appeared and the waiting line faded out after a few seconds.
 - **Every linked item on a focused session row can be reached.** A selected row in Focus or on the phone Board lists up to five linked boards and sessions, then +N more. That +N more was only a hover hint, so on a phone the rest could not be seen. Tap or click it now to list the rest in the row; the row goes back to five once you select another session.

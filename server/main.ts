@@ -4,7 +4,6 @@ import type { Server } from 'node:http';
 import { isIPv6 } from 'node:net';
 
 import { createBackend } from './backend/backend.ts';
-import { spawn } from './child-process-safe.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { parseCommandLine } from './core/command-line-core.ts';
 import { decideConfigPath } from './core/config-path-core.ts';
@@ -13,7 +12,6 @@ import { FIRST_RUN_NOTICE } from './core/telemetry-core.ts';
 import { buildTitleClearSequence, buildTitleSequence } from './core/terminal-title.ts';
 import { sweepOrphanedHostScratch } from './host-scratch.ts';
 import { createHostUrlOpener } from './host-url-opener.ts';
-import { createLifecycle } from './server-lifecycle.ts';
 
 const bind = decideBindHost({
   envHost: process.env.GLIMMERVOID_HOST,
@@ -37,7 +35,7 @@ function isBootRefusal(error: unknown): error is Error {
 
 function createBackendOrExit(): ReturnType<typeof createBackend> {
   try {
-    return createBackend(server, { staticDir: 'auto', downloadUpdatesInBackground: true });
+    return createBackend(server, { staticDir: 'auto', downloadUpdatesInBackground: true, exit: exitWithClearedTerminalTitle });
   } catch (err) {
     if (!isBootRefusal(err)) throw err;
     console.error(err.message);
@@ -47,7 +45,7 @@ function createBackendOrExit(): ReturnType<typeof createBackend> {
 
 const backend = createBackendOrExit();
 
-const { shutdown, handOffStagedUpdate, port, app, telemetry, version } = backend;
+const { requestShutdown, port, app, telemetry, version } = backend;
 server.on('request', app);
 
 function writeTerminalTitle(sequence: string): void {
@@ -117,7 +115,6 @@ server.listen(port, bind.host, () => {
   }
 });
 
-const remoteServers: Server[] = [];
 if (backend.remote.enabled) {
   const remoteServer = http.createServer();
   backend.remote.attach(remoteServer);
@@ -136,22 +133,12 @@ if (backend.remote.enabled) {
     const publicHost = backend.remote.publicHost || '(remote.publicHost not set)';
     console.log(`  proxy target for ${publicHost}; pair a device with: glimmervoid pair`);
   });
-  remoteServers.push(remoteServer);
 }
 
 function exitWithClearedTerminalTitle(code?: number): never {
   writeTerminalTitle(buildTitleClearSequence());
   process.exit(code);
 }
-
-const { requestShutdown } = createLifecycle({
-  shutdown,
-  httpServer: server,
-  extraServers: remoteServers,
-  spawn,
-  exit: exitWithClearedTerminalTitle,
-  beforeHandOff: handOffStagedUpdate,
-});
 
 function handleShutdownSignal(signal: string): void {
   console.log(`\n${signal} received - shutting down...`);

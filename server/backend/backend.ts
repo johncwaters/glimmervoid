@@ -70,6 +70,7 @@ interface CreateBackendOptions extends BackendLaneOptions {
   settingsDefaults?: Record<string, unknown>;
   checkForUpdate?: CheckForUpdate | null;
   onRestart?: (() => void) | null;
+  exit?: (code?: number) => unknown;
   downloadUpdatesInBackground?: boolean;
   configReloadDebounceMs?: number;
   isExperimentalBuild?: boolean;
@@ -554,11 +555,13 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     controlWss,
     dataWss,
   });
+  const lifecycleServers: Server[] = [agentIngressServer];
   const { requestShutdown, requestRestart } = createLifecycle({
     shutdown,
     httpServer,
-    extraServers: [agentIngressServer],
+    extraServers: lifecycleServers,
     onRestart: options.onRestart || null,
+    exit: options.exit,
     spawn,
     beforeHandOff: updateApply.handOffStagedUpdate,
     superviseSuccessor: updateApply.superviseSuccessor,
@@ -631,6 +634,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
 
   return {
     shutdown,
+    requestShutdown,
+    requestRestart,
     handOffStagedUpdate: updateApply.handOffStagedUpdate,
     port,
     app,
@@ -646,6 +651,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       attach(remoteHttpServer: Server) {
         remoteHttpServer.on('request', app);
         remoteHttpServer.on('upgrade', handleUpgrade);
+        lifecycleServers.push(remoteHttpServer);
       },
     },
   };
