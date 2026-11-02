@@ -10,7 +10,7 @@ import { openExternalUrl } from '../external-link.ts';
 import { createPrQueueColumns } from '../github/pr-queue-columns.ts';
 import { attentionCountsOf, chooseQueueSelection, communityActivityEntry, labeledAttentionTiles, queueItemByKey, reviewKeyActionOf, steppedRowKey, turnItems } from '../github/review-queue-core.ts';
 import type { CommunityQueueItem, QueueGroup } from '../github/review-queue-core.ts';
-import { createCaughtUpBanner } from '../github/team-review-panel.ts';
+import { createCaughtUpBanner } from '../github/team-review-queue-row.ts';
 import { reviewQueueNavigation } from '../github/review-queue-store.ts';
 import { formatAgo } from '../poll-ago.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';

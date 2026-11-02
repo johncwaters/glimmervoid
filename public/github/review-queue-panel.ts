@@ -22,8 +22,9 @@ import {
   subscribeReviewQueue, takePendingReveal,
 } from './review-queue-store.ts';
 import type { ReviewQueueChange } from './review-queue-store.ts';
+import { createCaughtUpBanner, createTeamQueueRow, paintQueueRowTitle } from './team-review-queue-row.ts';
 import {
-  createCaughtUpBanner, createTeamQueueRow, mountTeamReviewDetail, paintQueueRowTitle, refreshTeamReviewAges, releaseTeamReviewSelection, resetTeamQueueTickers, runTeamReviewKey, showTeamReview, takePostedReceipt, teamReviewEmptyState,
+  mountTeamReviewDetail, refreshTeamReviewAges, releaseTeamReviewSelection, resetTeamQueueTickers, runTeamReviewKey, showTeamReview, takePostedReceipt, teamReviewEmptyState,
   teamReviewLaneNotices,
 } from './team-review-panel.ts';
 import { teamReviewStatusView } from './team-review-store.ts';
