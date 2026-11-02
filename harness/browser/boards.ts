@@ -291,11 +291,15 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   await card.waitFor({ state: 'visible' });
   assert.equal(await page.locator('.pane-tab[data-tab="board"]').count(), 0, 'a session with no board shows Terminal only');
   await verifyPaneTerminalTabOwnsTheFace(page, card);
+  const terminalPane = page.locator('#focus-pane-terminal');
+  const terminalBoundsBeforeBoard = await terminalPane.boundingBox();
   await card.getByRole('button', { name: 'Session actions', exact: true }).click();
   await card.locator('.overflow-connect-board').click();
   await page.getByRole('combobox', { name: 'Board to connect', exact: true }).selectOption({ label: boardTitle });
   await page.getByRole('button', { name: 'Connect', exact: true }).click();
   await page.locator('.pane-tab[data-tab="board"]').waitFor();
+  assert.equal(await page.locator('.pane-tab[data-tab="terminal"]').getAttribute('aria-selected'), 'true', 'a board arriving for the centered session joins as a tab and leaves Terminal showing');
+  assert.deepEqual(await terminalPane.boundingBox(), terminalBoundsBeforeBoard, 'a board arriving for the centered session leaves the terminal its size');
   const boardChip = page.locator(`.focus-rail .session-row[data-id="${sessionId}"]`).locator(`.session-board-chip[aria-label="Open board ${boardTitle}"]`);
   await boardChip.waitFor();
   const worktreePath = await pollFor('the session worktree', WORKTREE_TIMEOUT_MS, () => findSessionWorktree(projectDirectory));
