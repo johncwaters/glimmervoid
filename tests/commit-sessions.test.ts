@@ -59,13 +59,15 @@ test('capture spends no git call on an unmoved HEAD, and why finds the session o
     git(['init', '-q', '-b', 'main'], repoDir);
     git(['config', 'user.email', 'test@example.com'], repoDir);
     git(['config', 'user.name', 'Test'], repoDir);
+    git(['config', 'commit.gpgsign', 'false'], repoDir);
     commitFile(repoDir, 'base.txt');
     git(['worktree', 'add', '-q', '-b', 'session-branch', worktreeDir], repoDir);
     const change = { sessionId: 'session-1', sessionName: 'demo', agent: 'claude', taskTitle: 'Add files', worktreeDir, baseRef: 'main' };
 
     const firstGit = countingGit();
     const captureWarnings: string[] = [];
-    const commitSessions = createCommitSessions({ storeRoot, runGitFn: firstGit.runGitFn, logger: { warn: (text: string) => captureWarnings.push(text) }, nowFn: () => 1 });
+    const writerId = '0f8e3c2a-1b4d-4e5f-8a9b-0c1d2e3f4a5b';
+    const commitSessions = createCommitSessions({ storeRoot, runGitFn: firstGit.runGitFn, logger: { warn: (text: string) => captureWarnings.push(text) }, nowFn: () => 1, writerIdFn: () => Promise.resolve(writerId) });
     const firstSha = commitFile(worktreeDir, 'first.txt');
     fs.writeFileSync(storeRoot, 'a file where the store folder belongs');
     await commitSessions.noteHeadChange({ ...change, headSha: firstSha });
@@ -73,7 +75,7 @@ test('capture spends no git call on an unmoved HEAD, and why finds the session o
     fs.rmSync(storeRoot);
     firstGit.subcommands.length = 0;
     await commitSessions.noteHeadChange({ ...change, headSha: firstSha });
-    assert.deepEqual(firstGit.subcommands, ['log', 'show', 'patch-id']);
+    assert.deepEqual(firstGit.subcommands, ['log', 'show', 'patch-id', 'notes', 'notes', 'notes', 'notes']);
     const firstPatch = git(['show', firstSha], worktreeDir);
     const expectedPatchId = (await runGit(['patch-id', '--stable'], { cwd: worktreeDir, input: firstPatch })).out.split(' ')[0];
     const [firstRecord] = storedRecords(storeRoot);
@@ -88,7 +90,12 @@ test('capture spends no git call on an unmoved HEAD, and why finds the session o
 
     const secondSha = commitFile(worktreeDir, 'second.txt');
     await commitSessions.noteHeadChange({ ...change, headSha: secondSha });
-    assert.deepEqual(firstGit.subcommands, ['log', 'show', 'patch-id']);
+    assert.deepEqual(firstGit.subcommands, ['log', 'show', 'patch-id', 'notes', 'notes']);
+    const sharedNoteTexts = git(['notes', '--ref', `refs/notes/glimmervoid/${writerId}`, 'list'], repoDir).trim().split('\n')
+      .map((line) => git(['cat-file', 'blob', line.split(' ')[0] ?? ''], repoDir).trim());
+    assert.equal(new Set(sharedNoteTexts).size, 1);
+    assert.match(sharedNoteTexts[0] ?? '', /^\{"v":1,"sessionId":"[0-9a-f]{16}","agent":"custom"\}$/);
+    assert.equal(sharedNoteTexts.length, 4);
     assert.deepEqual(storedRecords(storeRoot).map((record) => record.sha), [firstSha, secondSha]);
 
     const restartedGit = countingGit();
@@ -108,15 +115,29 @@ test('capture spends no git call on an unmoved HEAD, and why finds the session o
     git(['rebase', '-q', 'main'], worktreeDir);
     assert.notEqual(git(['rev-parse', 'HEAD~1'], worktreeDir).trim(), firstSha);
     const configPath = path.join(sandbox, 'config.json');
+    const elsewhereConfigPath = path.join(sandbox, 'elsewhere', 'config.json');
+    const sharedOnly = await askWhy('first.txt:1', worktreeDir, elsewhereConfigPath);
+    const sharedSessionLine = /\nsession {2}custom {2}[0-9a-f]{8} {2}\(shared record; task and prompt stay on the machine that made it\)$/.exec(sharedOnly.answer)?.[0];
+    assert.ok(sharedSessionLine, sharedOnly.answer);
+    git(['switch', '-q', '-c', 'backport', 'main~1'], repoDir);
+    git(['cherry-pick', '-x', firstSha], repoDir);
+    await commitSessions.noteHeadChange({ ...change, sessionId: 'cherry-2', agent: 'codex', worktreeDir: repoDir, baseRef: 'backport~1', headSha: git(['rev-parse', 'HEAD'], repoDir).trim() });
+    git(['switch', '-q', 'main'], repoDir);
+    const rebasedAfterCherryPick = await askWhy('first.txt:1', worktreeDir, elsewhereConfigPath);
+    assert.ok(rebasedAfterCherryPick.answer.endsWith(sharedSessionLine), rebasedAfterCherryPick.answer);
+    await commitSessions.noteHeadChange({ ...change, sessionId: 'session-3', agent: 'codex', baseRef: 'main~1', headSha: secondSha });
+    const originalAfterRecapture = await askWhy(firstSha, repoDir, elsewhereConfigPath);
+    assert.ok(originalAfterRecapture.answer.endsWith(sharedSessionLine), originalAfterRecapture.answer);
     const missingStoreErrors: string[] = [];
-    const missingStoreExit = await runWhyCli({ targetArgument: 'first.txt:1', cwd: worktreeDir, configPath: path.join(sandbox, 'elsewhere', 'config.json'), writeOutput: (text) => missingStoreErrors.push(text), writeError: (text) => missingStoreErrors.push(text) });
+    const missingStoreExit = await runWhyCli({ targetArgument: 'base.txt:1', cwd: worktreeDir, configPath: elsewhereConfigPath, writeOutput: (text) => missingStoreErrors.push(text), writeError: (text) => missingStoreErrors.push(text) });
     assert.equal(missingStoreExit, 1);
     assert.match(missingStoreErrors.join('\n'), /no commit-session records for this repository at .*elsewhere/);
 
     const rebasedLine = await askWhy('first.txt:1', worktreeDir, configPath);
     assert.deepEqual(rebasedLine.subcommands, ['rev-parse', 'blame', 'show', 'patch-id']);
     assert.match(rebasedLine.answer, /^first\.txt:1 {2}[0-9a-f]{7} {2}/);
-    assert.match(rebasedLine.answer, /\nsession {2}demo \(claude\) {2}session-\ntask {5}Add files\nasked {4}"add the first file" \(/);
+    const sharedSessionIdPrefix = /[0-9a-f]{8}/.exec(sharedSessionLine)?.[0];
+    assert.match(rebasedLine.answer, new RegExp(`\\nsession {2}demo \\(claude\\) {2}${sharedSessionIdPrefix}\\ntask {5}Add files\\nasked {4}"add the first file" \\(`));
 
     const directCommit = await askWhy(secondSha, repoDir, configPath);
     assert.deepEqual(directCommit.subcommands, ['rev-parse', 'log']);

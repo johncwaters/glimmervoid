@@ -9,7 +9,7 @@
     "maxSize": 2097152,
     "includes": [
       "**",
-      "!!**/.claude",
+      "!!.claude",
       "!!**/dist",
       "!!**/node_modules",
       "!**/*.d.ts"
