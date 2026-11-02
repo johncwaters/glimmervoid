@@ -341,10 +341,26 @@ function paintHead(): void {
   if (!summary) return;
   parts.boardTitle.textContent = summary.title;
   parts.boardMeta.textContent = `v${summary.version}`;
-  parts.presence.replaceChildren(...summary.connectedSessionIds.map((sessionId) => el('span', 'wb-presence-pill', sessionLabel(sessionId))));
-  if (summary.connectedSessionIds.length === 0) parts.presence.append(el('span', 'wb-presence-none', 'no sessions connected'));
+  paintPresence(summary.connectedSessionIds.map(sessionLabel));
   paintToolbar();
   paintPairedSession();
+}
+
+function paintPresence(connectedNames: readonly string[]): void {
+  if (!parts) return;
+  const connectedCount = el('span', connectedNames.length === 0 ? 'wb-presence-count wb-presence-none' : 'wb-presence-count wb-presence-pill', `${connectedNames.length} connected`);
+  connectedCount.title = connectedNames.join(', ');
+  parts.presence.replaceChildren(...connectedNames.map((name) => el('span', 'wb-presence-pill', name)), connectedCount);
+  if (connectedNames.length === 0) parts.presence.prepend(el('span', 'wb-presence-none', 'no sessions connected'));
+  fitPresenceToStrip();
+}
+
+function fitPresenceToStrip(): void {
+  if (!parts) return;
+  const { boardIsland, presence } = parts;
+  delete presence.dataset.collapsed;
+  if (!boardIsland.closest('.pane-board-tools') || boardIsland.scrollWidth <= boardIsland.clientWidth) return;
+  presence.dataset.collapsed = '';
 }
 
 function queuedForSessionText(summary: BoardSummary | null, sessionId: string): string {
@@ -655,6 +671,7 @@ export function mountBoardHost(): HTMLElement {
   empty.append(emptyText, toolbarButton('new board', newBoardFromDialog));
 
   host.replaceChildren(canvas, empty);
+  new ResizeObserver(fitPresenceToStrip).observe(host);
   parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, sendToAgent, buttons, toolButtons };
   const boardRenderer = createBoardRenderer(svg);
   renderer = boardRenderer;
@@ -690,6 +707,7 @@ export function placeBoardChrome(stripSlot: HTMLElement | null): void {
   if (!parts) return;
   const target = stripSlot ?? parts.canvas;
   if (parts.chrome.parentElement !== target) target.append(parts.chrome);
+  fitPresenceToStrip();
 }
 
 export function showBoardBeside(boardId: string | null, sessionId: string | null): void {

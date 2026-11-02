@@ -6,6 +6,8 @@ import { commitFile, findSessionWorktree, pollFor, readOriginFile } from './revi
 
 const UNCOVERED_FILE_NAME = 'board-uncovered.txt';
 const MERGE_SETTLE_MS = 1500;
+const NARROW_VIEWPORT_WIDTH_PX = 1100;
+const MIN_TITLE_WIDTH_PX = 40;
 const WORKTREE_TIMEOUT_MS = 15000;
 const REVIEW_TIMEOUT_MS = 20000;
 
@@ -304,6 +306,7 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   const panel = page.locator('#focus-center');
   await openBoardTitle(panel, boardTitle).waitFor();
   await page.locator('.pane-tab[data-tab="board"][aria-selected="true"]').waitFor();
+  await verifyBoardStripFitsNarrowWidth(page, panel, boardTitle);
   const canvasBox = await panel.locator('.wb-canvas').boundingBox();
   const cardBox = await card.boundingBox();
   assert.ok(canvasBox && cardBox);
@@ -413,7 +416,7 @@ async function verifyRailArrowsReachBoardRows(page: Page): Promise<void> {
 }
 
 async function verifyPaneTerminalTabOwnsTheFace(page: Page, card: Locator): Promise<void> {
-  assert.equal(await card.locator('.card-face-tab:not(.card-face-tab-shown)').isVisible(), false, 'a centered card shows Terminal once, on the pane tab');
+  assert.equal(await card.locator('.card-face-tabs > .card-face-tab:not(.card-face-tab-shown)').isVisible(), false, 'a centered card shows Terminal once, on the pane tab');
   const sessionId = await card.getAttribute('data-id');
   const isPlanShown = await page.evaluate(async (id) => {
     const lifecycleUrl = '/session-card/lifecycle.ts';
@@ -424,4 +427,33 @@ async function verifyPaneTerminalTabOwnsTheFace(page: Page, card: Locator): Prom
   assert.equal(isPlanShown, true, 'the centered card switches to its Plan face');
   await page.locator('.pane-tab[data-tab="terminal"]').click();
   await page.waitForFunction(() => document.querySelector('#focus-pane-terminal .session-card')?.getAttribute('data-face') === 'terminal');
+}
+
+async function verifyBoardStripFitsNarrowWidth(page: Page, panel: Locator, boardTitle: string): Promise<void> {
+  const presence = panel.locator('.pane-board-tools .wb-presence');
+  const connectedCount = presence.locator('.wb-presence-count');
+  await presence.locator('.wb-presence-pill:not(.wb-presence-count)').first().waitFor();
+  assert.equal(await connectedCount.isVisible(), false, 'a wide strip names each connected session');
+  const wideViewport = page.viewportSize();
+  assert.ok(wideViewport);
+  await page.setViewportSize({ width: NARROW_VIEWPORT_WIDTH_PX, height: wideViewport.height });
+  await connectedCount.waitFor();
+  assert.equal(await connectedCount.textContent(), '1 connected');
+  assert.ok((await connectedCount.getAttribute('title'))?.length, 'the count names the connected sessions in its title');
+  const strip = panel.locator('.pane-strip:has(.pane-board-tools)');
+  assert.equal(await panel.locator('.pane-board-tools .wb-island-board').evaluate((boardIsland) => boardIsland.scrollWidth <= boardIsland.clientWidth), true, 'the collapsed board island fits without overlapping the tools');
+  const stripBox = await strip.boundingBox();
+  const titleBox = await openBoardTitle(panel, boardTitle).boundingBox();
+  const countBox = await connectedCount.boundingBox();
+  const lastToolBox = await panel.getByRole('button', { name: 'unit', exact: true }).boundingBox();
+  const trailBox = await strip.locator('.pane-trail').boundingBox();
+  assert.ok(stripBox, 'strip box');
+  assert.ok(titleBox, 'title box');
+  assert.ok(countBox, 'count box');
+  assert.ok(lastToolBox, 'unit box');
+  assert.ok(titleBox.width >= MIN_TITLE_WIDTH_PX && countBox.width > 0, 'the board title and the connected count stay on the narrow strip');
+  assert.ok(lastToolBox.y >= stripBox.y && lastToolBox.y + lastToolBox.height <= stripBox.y + stripBox.height, 'every board tool stays inside the one-row strip');
+  assert.ok(!trailBox || lastToolBox.x + lastToolBox.width <= trailBox.x, 'the board tools stay clear of the review bar');
+  await page.setViewportSize(wideViewport);
+  await connectedCount.waitFor({ state: 'hidden' });
 }

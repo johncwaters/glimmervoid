@@ -10,10 +10,10 @@ export function createReviewBar({ onOpenChanges }: { onOpenChanges: () => void }
   const element = el('div', 'review-bar');
   const status = el('span', 'review-bar-status');
   status.setAttribute('role', 'status');
-  const changesButton = el('button', 'review-bar-button', 'Changes');
+  const changesButton = el('button', 'card-face-tab review-bar-changes', 'Changes');
   changesButton.type = 'button';
   changesButton.addEventListener('click', onOpenChanges);
-  const mergeButton = el('button', 'review-bar-button review-bar-merge', 'Merge');
+  const mergeButton = el('button', 'card-face-tab review-bar-merge', 'Merge');
   mergeButton.type = 'button';
   element.append(status, changesButton, mergeButton);
   let sessionId: string | null = null;
@@ -26,8 +26,11 @@ export function createReviewBar({ onOpenChanges }: { onOpenChanges: () => void }
     const review = sessionId ? reviewOf(sessionId) : null;
     element.hidden = review === null;
     if (!review) return;
-    status.textContent = review.notice ?? review.sentence;
-    mergeButton.hidden = !review.isMergeShown;
+    const statusText = review.notice ?? review.sentence;
+    status.textContent = statusText;
+    status.title = statusText;
+    mergeButton.hidden = review.isWorkspace;
+    mergeButton.classList.toggle('is-slot-held', !review.isMergeShown);
     mergeButton.disabled = !review.isMergeEnabled;
     mergeButton.title = review.mergeTitle;
   }

@@ -76,6 +76,11 @@ export async function readOriginFile(originPath: string, fileName: string): Prom
   return git(originPath, ['show', `main:${fileName}`]);
 }
 
+async function readReviewBarPlaces(page: Page): Promise<number[]> {
+  await page.locator('.review-bar:not([hidden])').waitFor();
+  return page.evaluate(() => ['.pane-tab[data-tab="terminal"]', '.review-bar-changes', '.review-bar-merge'].map((selector) => document.querySelector(selector)?.getBoundingClientRect().left ?? -1));
+}
+
 async function waitForReaderStatus(page: Page, sentence: string): Promise<void> {
   await page.locator('.review-reader .review-reader-status', { hasText: sentence }).waitFor({ timeout: OUTCOME_TIMEOUT_MS });
 }
@@ -121,6 +126,7 @@ export async function verifyReviewMerge(page: Page, projectDirectory: string, up
   const worktreePath = await pollFor('the session worktree', WORKTREE_TIMEOUT_MS, () => findSessionWorktree(projectDirectory));
   const originPath = (await git(projectDirectory, ['remote', 'get-url', 'origin'])).trim();
   assert.equal(await readOriginFile(originPath, MERGED_FILE_NAME), null, 'origin main starts without the merged file');
+  const placesBeforeChanges = await readReviewBarPlaces(page);
   await commitFile(worktreePath, MERGED_FILE_NAME, MERGED_FILE_CONTENT, 'test: land a file through the change reader');
   await prepareUpstream(upstream, projectDirectory, originPath);
   const originHeadBeforeClick = (await git(originPath, ['rev-parse', 'main'])).trim();
@@ -128,6 +134,7 @@ export async function verifyReviewMerge(page: Page, projectDirectory: string, up
   assert.ok(sessionId, 'a session is centered in Focus');
 
   await page.locator('.review-bar-merge:enabled').waitFor({ timeout: MERGE_ENABLED_TIMEOUT_MS });
+  assert.deepEqual(await readReviewBarPlaces(page), placesBeforeChanges, 'Terminal, Changes and Merge hold their place while the review status changes');
   await openChangesReader(page);
   const mergeButtonAfterClick = await page.evaluate(() => {
     const mergeButton = document.querySelector<HTMLButtonElement>('.review-reader .review-btn-primary');

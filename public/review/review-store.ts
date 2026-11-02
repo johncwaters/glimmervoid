@@ -21,6 +21,7 @@ export interface SessionReview extends ReviewView {
   diffError: string | null;
   changeMapView: ChangeMapView | null;
   notice: string | null;
+  isWorkspace: boolean;
 }
 
 const NOTICE_MS = 5000;
@@ -100,6 +101,7 @@ export function reviewOf(sessionId: string): SessionReview | null {
     diffError,
     changeMapView: changeMapViewOf(mapById.get(sessionId)),
     notice: notice?.sessionId === sessionId ? notice.text : null,
+    isWorkspace: isWorkspaceSession(sessionId),
   };
 }
 
