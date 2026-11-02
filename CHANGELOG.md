@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Theme names say light or dark.** Every theme in the picker is now labelled Dark or Light after its name, so Golgari, Midnight and Phyrexian read Golgari (Dark), Midnight (Dark) and Phyrexian (Dark) instead of naming their colours.
 - **A terminal beside a board matches the session view.** A session docked beside a whiteboard now has the same header as the Focus session view: the taller bar, the bold session name that dims when a task title shows, and the colored top stripe for waiting, failed and done. The card no longer draws its own border inside the dock.
 - **Alt+J leaves the board for the next session.** On Boards, Alt+J (Cmd+J on a Mac) or a click on the attention banner no longer docks the next session needing you beside the board you are on. A session connected to a board now opens beside its own newest board, and any other session opens in Focus with its terminal ready to type in. Alt+J and the banner in Focus now do the same, so a session with a board always opens beside it, as picking it from the Focus list already did.
 - **A session can spawn up to 100 sessions over its life.** The lifetime limit rose from 10, so a session that runs an evaluation or a long fan-out no longer stops partway. At most 3 spawned sessions still run at once.
