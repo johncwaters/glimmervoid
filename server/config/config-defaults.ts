@@ -64,6 +64,7 @@ const DEFAULT_CONFIG = {
   worktreeCloneDependencies: true,
 
   worktreeRerere: true,
+  shareCommitProvenance: true,
   branchGc: {
     enabled: true,
     worktrees: true,

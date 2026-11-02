@@ -4,10 +4,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { hasGit, git } from './helpers/git-fixture.ts';
-import { createCommitSessions } from '../server/commit-sessions.ts';
+import { createCommitSessions, repoNotesRefFor } from '../server/commit-sessions.ts';
 import { runWhyCli } from '../server/why-cli.ts';
 import type { GitRunner } from '../server/commit-sessions.ts';
 import { runGit } from '../server/git/git-exec.ts';
+import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { CommitSessionRecord } from '../shared/contracts/commit-session.ts';
 
 function countingGit(): { runGitFn: GitRunner; subcommands: string[] } {
@@ -91,7 +92,10 @@ test('capture spends no git call on an unmoved HEAD, and why finds the session o
     const secondSha = commitFile(worktreeDir, 'second.txt');
     await commitSessions.noteHeadChange({ ...change, headSha: secondSha });
     assert.deepEqual(firstGit.subcommands, ['log', 'show', 'patch-id', 'notes', 'notes']);
-    const sharedNoteTexts = git(['notes', '--ref', `refs/notes/glimmervoid/${writerId}`, 'list'], repoDir).trim().split('\n')
+    const repoNotesRef = await repoNotesRefFor(repoDir, writerId);
+    assert.ok(repoNotesRef);
+    assert.ok(!repoNotesRef.includes(writerId));
+    const sharedNoteTexts = git(['notes', '--ref', repoNotesRef, 'list'], repoDir).trim().split('\n')
       .map((line) => git(['cat-file', 'blob', line.split(' ')[0] ?? ''], repoDir).trim());
     assert.equal(new Set(sharedNoteTexts).size, 1);
     assert.match(sharedNoteTexts[0] ?? '', /^\{"v":1,"sessionId":"[0-9a-f]{16}","agent":"custom"\}$/);
@@ -146,6 +150,56 @@ test('capture spends no git call on an unmoved HEAD, and why finds the session o
     const unrelatedLine = await askWhy('base.txt:1', repoDir, configPath);
     assert.match(unrelatedLine.answer, /^base\.txt:1 {2}[0-9a-f]{7} {2}.*\nno Glimmervoid session made this commit$/);
     assert.equal(git(['status', '--porcelain'], repoDir), '');
+  } finally {
+    fs.rmSync(sandbox, { recursive: true, force: true });
+  }
+});
+
+test('a merge pushes the shared notes, a re-clone keeps pushing them, and why on a fresh clone fetches them to name the agent', { skip: !hasGit() }, async () => {
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'gv-shared-provenance-'));
+  const remoteDir = path.join(sandbox, 'origin.git');
+  const writerCloneDir = path.join(sandbox, 'writer');
+  const readerCloneDir = path.join(sandbox, 'reader');
+  const writerId = '0f8e3c2a-1b4d-4e5f-8a9b-0c1d2e3f4a5b';
+  const sharedSessionLineOf = (agent: string) => new RegExp(`\\nsession {2}${agent} {2}[0-9a-f]{8} {2}\\(shared record; task and prompt stay on the machine that made it\\)$`);
+  const gitWorkspace = createGitWorkspace({ log: { warn() {} }, provenanceNotesRef: (projectPath) => repoNotesRefFor(projectPath, writerId) });
+  const cloneWriter = () => {
+    git(['clone', '-q', remoteDir, writerCloneDir], sandbox);
+    git(['config', 'user.email', 'test@example.com'], writerCloneDir);
+    git(['config', 'user.name', 'Test'], writerCloneDir);
+    git(['config', 'commit.gpgsign', 'false'], writerCloneDir);
+  };
+  const mergeSessionCommit = async (fileName: string, agent: string) => {
+    const workspace = await gitWorkspace.create({ owner: 'lane:test', projectPath: writerCloneDir, teamId: 'session', label: `shared-${agent}`, baseBranch: 'main' });
+    const sessionSha = commitFile(workspace.cwd, fileName);
+    const commitSessions = createCommitSessions({ storeRoot: path.join(sandbox, 'commit-sessions'), logger: { warn() {} }, writerIdFn: () => Promise.resolve(writerId) });
+    await commitSessions.noteHeadChange({ sessionId: `session-${agent}`, sessionName: agent, agent, taskTitle: 'Share it', worktreeDir: workspace.cwd, headSha: sessionSha, baseRef: 'main' });
+    const merged = await gitWorkspace.mergeKeep({ projectPath: writerCloneDir, workspace, targetBranch: null });
+    assert.equal(merged.pushed, true);
+    await gitWorkspace.discard({ projectPath: writerCloneDir, workspace, cause: 'session' });
+  };
+  try {
+    git(['init', '-q', '--bare', '-b', 'main', remoteDir], sandbox);
+    cloneWriter();
+    commitFile(writerCloneDir, 'base.txt');
+    git(['push', '-q', 'origin', 'main'], writerCloneDir);
+    await mergeSessionCommit('shared.txt', 'kimi');
+    const pushedNotesRefs = git(['ls-remote', 'origin', 'refs/notes/glimmervoid/*'], writerCloneDir);
+    assert.match(pushedNotesRefs, /refs\/notes\/glimmervoid\//);
+    assert.ok(!pushedNotesRefs.includes(writerId), pushedNotesRefs);
+
+    fs.rmSync(writerCloneDir, { recursive: true, force: true });
+    cloneWriter();
+    await mergeSessionCommit('again.txt', 'codex');
+    assert.equal(git(['ls-remote', 'origin', 'refs/notes/glimmervoid/*'], writerCloneDir).trim().split('\n').length, 1);
+
+    git(['clone', '-q', remoteDir, readerCloneDir], sandbox);
+    const readerConfigPath = path.join(sandbox, 'reader-config', 'config.json');
+    const firstAnswer = await askWhy('shared.txt:1', readerCloneDir, readerConfigPath);
+    assert.match(firstAnswer.answer, sharedSessionLineOf('kimi'));
+    assert.ok(firstAnswer.subcommands.includes('fetch'), firstAnswer.subcommands.join(' '));
+    const secondAnswer = await askWhy('again.txt:1', readerCloneDir, readerConfigPath);
+    assert.match(secondAnswer.answer, sharedSessionLineOf('codex'));
   } finally {
     fs.rmSync(sandbox, { recursive: true, force: true });
   }

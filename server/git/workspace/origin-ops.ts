@@ -1,4 +1,5 @@
 import { matchedPrefix, usablePrefixes } from '../../core/branch-gc-core.ts';
+import { FETCHED_NOTES_REF_PREFIX, NOTES_COMMIT_IDENTITY, NOTES_REF_PREFIX } from '../../core/commit-session-core.ts';
 import type { RemoteBranchTip } from '../../core/branch-gc-core.ts';
 import { GIT_FETCH_TIMEOUT_MS, parseLeftRightCount, decideBranchSyncState, decideResyncAction, buildResyncCommand, firstGitErrorLine } from '../../core/branch-sync-core.ts';
 import { DEFAULT_BRANCH_FALLBACKS, decideMarkerBase, defaultBranchFromRemoteHead, markerProbeCommands } from '../../core/integration-branch-core.ts';
@@ -7,7 +8,7 @@ import { REMOTE_BRANCH_LISTING_MAX_BUFFER, REMOTE_REF_PREFIX, UNPROBED_MARKER, e
 import type { BaseClassification, BaseSyncResult, GitExtraOptions, GitResult, GitWorkspaceContext, IntegrationTip, ResolvedMarkerBase, WorktreeArgs } from './workspace-context.ts';
 
 function createOriginOps(context: GitWorkspaceContext) {
-  const { git, run, log } = context;
+  const { git, run, log, provenanceNotesRef } = context;
   const { listWorktreePorcelain } = context.worktrees;
 
   async function detectDefaultBranch({ projectPath }: { projectPath: string }): Promise<string | null> {
@@ -113,8 +114,27 @@ function createOriginOps(context: GitWorkspaceContext) {
       timeout: command.timeoutMs,
       env: { GIT_TERMINAL_PROMPT: '0' },
     })).ok;
-    if (pushed) return { pushed, warning: null };
-    return { pushed, warning: `Merged into ${branch}, but origin refused the push, so origin/${branch} does not have it yet. Resync the base branch to push it.` };
+    if (!pushed) return { pushed, warning: `Merged into ${branch}, but origin refused the push, so origin/${branch} does not have it yet. Resync the base branch to push it.` };
+    await pushProvenanceNotes(projectPath);
+    return { pushed, warning: null };
+  }
+
+  async function pushProvenanceNotes(projectPath: string): Promise<void> {
+    const notesRef = await provenanceNotesRef(projectPath).catch(() => null);
+    if (!notesRef) return;
+    const hasNotes = await run(['rev-parse', '--verify', '--quiet', notesRef], projectPath);
+    if (!hasNotes.ok) return;
+    const originCopyRef = `${FETCHED_NOTES_REF_PREFIX}${notesRef.slice(NOTES_REF_PREFIX.length)}`;
+    const fetchedOriginCopy = await run(['fetch', '--quiet', '--no-tags', 'origin', `+${notesRef}:${originCopyRef}`], projectPath, {
+      timeout: GIT_FETCH_TIMEOUT_MS,
+      env: { GIT_TERMINAL_PROMPT: '0' },
+    });
+    if (fetchedOriginCopy.ok) await run(['notes', '--ref', notesRef, 'merge', '--quiet', '-s', 'theirs', originCopyRef], projectPath, { env: NOTES_COMMIT_IDENTITY });
+    const pushedNotes = await run(['push', '--no-verify', 'origin', `${notesRef}:${notesRef}`], projectPath, {
+      timeout: GIT_FETCH_TIMEOUT_MS,
+      env: { GIT_TERMINAL_PROMPT: '0' },
+    });
+    if (!pushedNotes.ok) log.warn(`[git-workspace] could not push the shared commit notes to origin: ${firstGitErrorLine(pushedNotes.err || pushedNotes.out)}`);
   }
 
   async function ensureLocalBranch(projectPath: string, baseBranch: string): Promise<string | null> {

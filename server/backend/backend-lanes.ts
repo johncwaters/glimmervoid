@@ -53,6 +53,7 @@ import { createTraceWiring } from '../trace-wiring.ts';
 import { createTraceChangeBroadcast } from '../trace-control.ts';
 import { createUploadsWiring } from '../uploads-wiring.ts';
 import { errorMessage } from '../../shared/text.ts';
+import { repoNotesRefFor } from '../commit-sessions.ts';
 
 interface BackendLaneOptions {
   branchGcWiringOptions?: Record<string, unknown>;
@@ -79,6 +80,7 @@ interface BackendLaneDependencies {
   notificationManager: { trigger(sessionName: string, category: string, message: string): unknown };
   telemetry: Telemetry;
   logger: Console;
+  provenanceWriterId: () => Promise<string>;
   renameSessionFromTaskTitle?: (session: Session, proposedName: string) => void;
 }
 
@@ -100,6 +102,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     notificationManager,
     telemetry,
     logger,
+    provenanceWriterId,
   } = dependencies;
   const memoryAdmission = createMemoryAdmission({
     readHeadroom: () => readMemoryHeadroom(),
@@ -112,7 +115,8 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     ...config.projects.map((project) => project.id),
     ...allLiveSessions().map((session) => session.id),
   ].flatMap((sessionId) => [sessionId, sanitizeWorktreeName(sessionId)]));
-  const gitWorkspace = createGitWorkspace({ rerere: config.worktreeRerere !== false, ownedPaths, removalGuard: { protectedSessionIds }, log: logger });
+  const provenanceNotesRef = async (projectPath: string): Promise<string | null> => (configStore.config.shareCommitProvenance === false ? null : repoNotesRefFor(projectPath, await provenanceWriterId()));
+  const gitWorkspace = createGitWorkspace({ rerere: config.worktreeRerere !== false, ownedPaths, removalGuard: { protectedSessionIds }, log: logger, provenanceNotesRef });
   const gitWorkspaceSync = createGitWorkspaceSync({ ownedPaths, removalGuard: { protectedSessionIds }, log: logger });
   const laneLedger = createLaneLedger({
     ledgerPath: configSiblingPath(configStore.configPath, 'usage-lanes.json'),

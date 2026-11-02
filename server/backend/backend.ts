@@ -284,8 +284,10 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     return sessions.get(id) || agentSessions.get(id) || null;
   }
 
+  const provenanceWriterId = createProvenanceWriterId(configSiblingPath(configStore.configPath, PROVENANCE_WRITER_FILE_NAME), console);
   const laneAssembly = createBackendLanes({
     config,
+    provenanceWriterId,
     claudeCredentials: sessionRuntime.claudeCredentials,
     configStore,
     sessions,
@@ -372,7 +374,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     commitSessions: createCommitSessions({
       storeRoot: configSiblingPath(configStore.configPath, COMMIT_SESSIONS_FOLDER_NAME),
       logger: console,
-      writerIdFn: createProvenanceWriterId(configSiblingPath(configStore.configPath, PROVENANCE_WRITER_FILE_NAME), console),
+      writerIdFn: provenanceWriterId,
     }),
     taskTitleRefiner: laneAssembly.taskTitleRefiner,
     coherenceFeed,

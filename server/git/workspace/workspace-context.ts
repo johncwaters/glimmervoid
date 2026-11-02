@@ -292,6 +292,7 @@ type GitWorkspaceContext = {
   runUntrusted(args: string[], cwd: string, isolation: GitIsolationOptions): Promise<GitResult>;
   log: Pick<Console, 'warn'>;
   rerereEnabled: boolean;
+  provenanceNotesRef(projectPath: string): Promise<string | null>;
   serialized<TArgs, TResult>(body: (args: TArgs) => Promise<TResult>): (args: TArgs) => Promise<TResult>;
   admitted<TArgs extends { admissionTimeoutMs?: number }, TResult>(body: (args: TArgs) => Promise<TResult>, refuse: (args: TArgs) => TResult): (args: TArgs) => Promise<TResult>;
   worktrees: WorktreePort;

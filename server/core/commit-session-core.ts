@@ -12,6 +12,11 @@ const SHORT_SHA_LENGTH = 7;
 const MAX_PROMPT_CHARS = 200;
 const PROMPT_MARKER = '"kind":"prompt"';
 const NOTES_REF_PREFIX = 'refs/notes/glimmervoid/';
+const FETCHED_NOTES_REF_PREFIX = 'refs/notes/origin/glimmervoid/';
+const NOTES_FETCH_REFSPEC = `+${NOTES_REF_PREFIX}*:${FETCHED_NOTES_REF_PREFIX}*`;
+const NOTES_COMMIT_IDENTITY = Object.freeze({
+  GIT_AUTHOR_NAME: 'Glimmervoid', GIT_AUTHOR_EMAIL: 'provenance@glimmervoid.invalid', GIT_COMMITTER_NAME: 'Glimmervoid', GIT_COMMITTER_EMAIL: 'provenance@glimmervoid.invalid',
+});
 const WRITER_ID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 const SharedProvenanceNote = z.object({
@@ -52,6 +57,12 @@ function parsePatchIds(patchIdOutput: string): Map<string, string> {
 
 function writerNotesRef(writerId: string): string | null {
   return WRITER_ID_SHAPE.test(writerId) ? `${NOTES_REF_PREFIX}${writerId}` : null;
+}
+
+function repoNotesRefOf(machineWriterId: string, gitCommonDirectory: string): string | null {
+  if (!writerNotesRef(machineWriterId)) return null;
+  const digest = crypto.createHmac('sha256', machineWriterId).update(gitCommonDirectory).digest('hex');
+  return writerNotesRef(`${digest.slice(0, 8)}-${digest.slice(8, 12)}-${digest.slice(12, 16)}-${digest.slice(16, 20)}-${digest.slice(20, 32)}`);
 }
 
 function opaqueSessionIdOf(sessionId: string): string {
@@ -167,7 +178,7 @@ function recordedShasOf(storeText: string, sessionId: string): Set<string> {
 }
 
 export {
-  COMMIT_LOG_FORMAT, NOTES_REF_PREFIX, encodeNote, findRecord, formatWhy, lastPromptBefore, noteKeysOf,
-  parseCommitLog, parseNote, parsePatchIds, parseWhyTarget, recordedShasOf, repoKeyOf, writerNotesRef,
+  COMMIT_LOG_FORMAT, FETCHED_NOTES_REF_PREFIX, NOTES_COMMIT_IDENTITY, NOTES_FETCH_REFSPEC, NOTES_REF_PREFIX, encodeNote, findRecord, formatWhy, lastPromptBefore, noteKeysOf,
+  parseCommitLog, parseNote, parsePatchIds, parseWhyTarget, recordedShasOf, repoKeyOf, repoNotesRefOf, writerNotesRef,
 };
 export type { ListedCommit, SharedProvenanceNote };
