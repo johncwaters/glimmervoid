@@ -4,7 +4,7 @@ import { HookRouter } from '../../detection/hook-source.ts';
 import { sweepOrphans } from '../../detection/settings-injector.ts';
 import { hooksForProject } from '../../session/core/user-hooks-core.ts';
 import type { SessionPlanReviewPort } from '../../session/sessions.ts';
-import type { GitWorkspace } from '../../session/session-worktree-lifecycle.ts';
+import type { GitWorkspace } from '../../session/worktree/worktree-lifecycle-context.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
 import type { ConfigStore, GlimmervoidConfig } from '../config-store.ts';
 import type { OutcomeRecorder } from '../../shared/outcome-names.ts';

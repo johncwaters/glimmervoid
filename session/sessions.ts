@@ -68,7 +68,7 @@ import { createSessionHookLifecycle } from "./session-hook-lifecycle.ts";
 import type { HookRouterPort } from "./session-hook-lifecycle.ts";
 import { createSessionWorktreeLifecycle } from "./session-worktree-lifecycle.ts";
 import type { SeedDependencies } from "../server/git/dependency-clone.ts";
-import type { GitWorkspace } from "./session-worktree-lifecycle.ts";
+import type { GitWorkspace } from "./worktree/worktree-lifecycle-context.ts";
 import { createSessionApprovalHolds } from "./session-approval-holds.ts";
 import type { SessionApprovalHolds } from "./session-approval-holds.ts";
 import { createSessionBackgroundTracking } from "./session-background-tracking.ts";

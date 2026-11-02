@@ -5,7 +5,7 @@ import path from 'node:path';
 import type { HookRouter } from '../../detection/hook-source.ts';
 import type { UserHook } from '../../session/core/user-hooks-core.ts';
 import { createRecorder } from '../../session/session-recorder.ts';
-import type { GitWorkspace } from '../../session/session-worktree-lifecycle.ts';
+import type { GitWorkspace } from '../../session/worktree/worktree-lifecycle-context.ts';
 import { Session } from '../../session/sessions.ts';
 import type { RemoteLaunch, SessionOptions, SessionPlanReviewPort } from '../../session/sessions.ts';
 import { getAdapter } from '../../session/adapters/index.ts';

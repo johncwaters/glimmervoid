@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { ChangeMap } from '../shared/contracts/change-map.ts';
-import type { ChangeScope } from '../session/session-worktree-lifecycle.ts';
+import type { ChangeScope } from '../session/worktree/worktree-lifecycle-context.ts';
 import { createChangeMapService, joinSessionRegistries } from '../server/change-map/change-map-wiring.ts';
 import type { ChangeMapSession } from '../server/change-map/change-map-wiring.ts';
 import { git, hasGit } from './helpers/git-fixture.ts';
