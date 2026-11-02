@@ -51,11 +51,20 @@ function paintSessionRowLinks(row: HTMLElement, linksSlot: HTMLElement, sessionI
   const links = signalsFromSlot(sessionId, 'links');
   const isExpanded = row.classList.contains('focused');
   linksSlot.toggleAttribute('data-expanded', isExpanded);
-  if (isExpanded) {
-    paintSignalLine(linksSlot, links, buildLinkListItem, { visibleCount: FOCUSED_LINK_LIMIT, variant: 'expanded' });
+  if (!isExpanded) {
+    linksSlot.removeAttribute('data-links-revealed');
+    paintSignalLine(linksSlot, links, undefined, { visibleCount: links.length, variant: 'line' });
     return;
   }
-  paintSignalLine(linksSlot, links, undefined, { visibleCount: links.length, variant: 'line' });
+  if (linksSlot.hasAttribute('data-links-revealed')) {
+    paintSignalLine(linksSlot, links, buildLinkListItem, { visibleCount: links.length, variant: 'revealed' });
+    return;
+  }
+  const revealHiddenLinks = () => {
+    linksSlot.setAttribute('data-links-revealed', '');
+    paintSessionRowLinks(row, linksSlot, sessionId);
+  };
+  paintSignalLine(linksSlot, links, buildLinkListItem, { visibleCount: FOCUSED_LINK_LIMIT, variant: 'expanded', onRevealOverflow: revealHiddenLinks });
 }
 
 function paintSessionRowSignals(row: HTMLElement) {

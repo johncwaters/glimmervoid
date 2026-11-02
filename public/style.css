@@ -3799,6 +3799,7 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 .session-row-links[data-expanded] .signal-text { flex: 1 1 auto; min-width: 8ch; }
 .session-row-link-state { flex: 0 1 auto; min-width: 0; margin-left: 6px; overflow: hidden; text-overflow: ellipsis; color: var(--text-muted); }
 .session-row-links[data-expanded] > .signal-overflow::after { content: ' more'; }
+.session-row-links[data-expanded] > .signal-overflow { cursor: pointer; }
 .session-row .signal { display: inline-flex; align-items: center; gap: 3px; padding: 0; border: none; font-family: var(--font-mono); font-size: var(--type-meta); font-weight: 700; line-height: 14px; white-space: nowrap; cursor: pointer; }
 .session-row .signal .pr-status-icon { width: 11px; height: 11px; }
 @media (hover: hover) {

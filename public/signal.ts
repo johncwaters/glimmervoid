@@ -60,30 +60,32 @@ function removeNestedKeyboardStops(slot: HTMLElement, signalElements: readonly H
   }
 }
 
-function createSignalOverflow(ranked: RankedSignals<Signal>): HTMLElement | null {
+function createSignalOverflow(ranked: RankedSignals<Signal>, onRevealOverflow: (() => void) | undefined): HTMLElement | null {
   if (ranked.overflowCount === 0) return null;
   const overflow = el('span', 'signal-overflow', `+${ranked.overflowCount}`);
   overflow.title = ranked.overflowHoverText;
+  if (onRevealOverflow) makeSignalActivatable(overflow, onRevealOverflow, true);
   return overflow;
 }
 
 interface SignalLineOptions {
   visibleCount?: number;
   variant?: string;
+  onRevealOverflow?: () => void;
 }
 
 export function paintSignalLine<Line extends ActivatableSignal>(
   slot: HTMLElement,
   signals: readonly Line[],
   buildSignal: (signal: Line) => HTMLElement = (signal) => createSignal(signal, signal),
-  { visibleCount, variant = '' }: SignalLineOptions = {},
+  { visibleCount, variant = '', onRevealOverflow }: SignalLineOptions = {},
 ): void {
   const signature = `${variant}\n${signalsSignature(signals)}`;
   if (slot.dataset.signalSignature === signature) return;
   slot.dataset.signalSignature = signature;
   const ranked = rankSignals(signals, visibleCount);
   const signalElements = ranked.visible.map(buildSignal);
-  const overflow = createSignalOverflow(ranked);
+  const overflow = createSignalOverflow(ranked, onRevealOverflow);
   if (overflow) signalElements.push(overflow);
   removeNestedKeyboardStops(slot, signalElements);
   slot.hidden = signalElements.length === 0;
