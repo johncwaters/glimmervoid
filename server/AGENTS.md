@@ -18,6 +18,7 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 | `data/claude-pricing.json` | Bundled LiteLLM pricing snapshot |
 | `spawn-gate.ts` | Process-wide async serialization of `pty.spawn` initiation (ConPTY wedge avoidance) |
 | `lanes/` | Ephemeral and interactive lane spawning, logging and status (`lanes/AGENTS.md`) |
+| `trace/` | Session trace lane behind the `trace-wiring.ts` shell: one context, then record store, checkpoints, transcript drain, subagent capture and session binding factories, each importing only those before it |
 | `usage/` | Usage lane: transcript scanner, pricing loader, lane ledger and wiring (`usage/AGENTS.md`) |
 | `github/` | GitHub lanes: issues, my PRs, team PR review and its reaper and thread judge, `gh` queries, the shared clock and rate limit (`github/AGENTS.md`) |
 | `radar/` | Radar lane: the PostHog API client, poller, wiring and report, with its cores (`radar/AGENTS.md`) |
