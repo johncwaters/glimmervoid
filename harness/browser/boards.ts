@@ -333,6 +333,31 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   await page.locator('#tab-focus[aria-selected="true"]').waitFor();
   await page.locator(`#review-sidebar:not([data-collapsed]) .review-file[data-path="${UNCOVERED_FILE_NAME}"]`).waitFor({ timeout: REVIEW_TIMEOUT_MS });
   await verifyBoardPaneFallsBackToSessionBoard(page, panel, sessionId, boardTitle);
+  await verifySessionlessBoardRows(page, panel, sessionId);
+}
+
+async function verifySessionlessBoardRows(page: Page, panel: Locator, sessionId: string): Promise<void> {
+  const laterTitle = `Later plan ${sessionId.slice(0, 8)}`;
+  const laterRow = page.locator('.focus-board-list .session-row', { hasText: laterTitle });
+  await laterRow.waitFor();
+  assert.equal(await laterRow.locator('.session-row-label').textContent(), 'BOARD', 'a board with no session shows a BOARD row');
+  assert.equal(await page.locator('.focus-board-list .session-row', { hasText: `Second plan ${sessionId.slice(0, 8)}` }).count(), 0, 'a board connected to a session has no BOARD row');
+  await laterRow.click();
+  await openBoardTitle(panel, laterTitle).waitFor();
+  await page.locator('.pane-tab[data-tab="terminal"]').waitFor({ state: 'hidden' });
+  await panel.getByRole('button', { name: 'board menu', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: `Second plan ${sessionId.slice(0, 8)}` }).click();
+  await openBoardTitle(panel, `Second plan ${sessionId.slice(0, 8)}`).waitFor();
+  await laterRow.click();
+  await openBoardTitle(panel, laterTitle).waitFor();
+  const railTitle = `Rail plan ${sessionId.slice(0, 8)}`;
+  await page.getByRole('button', { name: 'New board', exact: true }).click();
+  await submitTextDialog(page, 'Board title', railTitle, 'Create board');
+  await openBoardTitle(panel, railTitle).waitFor();
+  await page.locator('.focus-board-list .session-row.focused', { hasText: railTitle }).waitFor();
+  await page.locator(`.focus-rail .session-row[data-id="${sessionId}"] .session-row-glyph`).first().click();
+  await page.locator('.pane-tab[data-tab="terminal"]').waitFor();
+  assert.equal(await page.locator('.focus-board-list .session-row.focused').count(), 0, 'picking a session leaves the board row');
 }
 
 async function verifyBoardPaneFallsBackToSessionBoard(page: Page, panel: Locator, sessionId: string, shownBoardTitle: string): Promise<void> {

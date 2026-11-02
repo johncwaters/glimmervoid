@@ -74,3 +74,15 @@ export function visibleOrder<Row extends { id: string }>(
   }
   return ids;
 }
+
+interface RailBoard {
+  id: string;
+  title: string;
+  connectedSessionIds: readonly string[];
+}
+
+export function sessionlessBoards<Board extends RailBoard>(boards: readonly Board[], isLiveSession: (sessionId: string) => boolean): Board[] {
+  return boards
+    .filter((board) => !board.connectedSessionIds.some(isLiveSession))
+    .sort((left, right) => left.title.localeCompare(right.title, undefined, { numeric: true, sensitivity: 'base' }) || left.id.localeCompare(right.id));
+}

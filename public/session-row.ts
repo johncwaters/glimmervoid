@@ -12,6 +12,7 @@ import { SIGNAL_TIER } from './signal-core.ts';
 import type { Signal } from './signal-core.ts';
 import { createSignal, paintSignalLine } from './signal.ts';
 import { CLOSE_ICON_PATH, CLOUD_ICON_PATH, createLineIcon } from './svg-dom.ts';
+import { createPrStatusIcon } from './github/pr-status-icon.ts';
 import type { ActivatableSignal } from './signal.ts';
 
 export type SessionRowRefs = ReturnType<typeof buildSessionRow>['refs'];
@@ -163,6 +164,20 @@ function paintShellRowMark(row: HTMLElement, refs: Pick<SessionRowRefs, 'glyph' 
   paintStatusIcon(refs.glyph, 'shell');
   writeTextIfChanged(refs.label, SHELL_LABEL);
   return SHELL_LABEL;
+}
+
+const BOARD_LABEL = 'BOARD';
+
+export function paintBoardRow(row: HTMLElement, refs: SessionRowRefs, title: string) {
+  writeDataIfChanged(row, 'state', '');
+  writeDataIfChanged(row, 'prompt', '');
+  row.toggleAttribute('data-board', true);
+  if (!refs.glyph.firstChild) refs.glyph.append(createPrStatusIcon('board'));
+  writeTextIfChanged(refs.name, title);
+  writeTextIfChanged(refs.label, BOARD_LABEL);
+  const accessibleLabel = `${title}, ${BOARD_LABEL}`;
+  writeAttributeIfChanged(row, 'aria-label', accessibleLabel);
+  writeAttributeIfChanged(row, 'title', accessibleLabel);
 }
 
 function paintSessionRowMark(row: HTMLElement, refs: SessionRowRefs, ui: SessionUi, state: string) {

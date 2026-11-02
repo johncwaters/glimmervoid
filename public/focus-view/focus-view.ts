@@ -21,15 +21,15 @@ import { uiState } from '../ui-state-core.ts';
 import type { AttentionTile, SessionRow } from './attention-core.ts';
 import { countAttentionByKind, orderAttentionLine, orderRoster, pickAdjacent } from './attention-core.ts';
 import type { RosterGroup } from './roster-groups-core.ts';
-import { groupRoster, visibleOrder } from './roster-groups-core.ts';
+import { groupRoster, sessionlessBoards, visibleOrder } from './roster-groups-core.ts';
 import type { SessionGroupHeader } from './roster-group-header.ts';
 import { buildSessionGroupHeader, paintSessionGroupHeader } from './roster-group-header.ts';
 import { buildAttentionBanner, paintAttentionBanner, pressAttentionBanner, sendAttentionTileToRow, tetherAttentionTile } from '../attention-banner.ts';
-import { buildSessionRow, paintSessionRow, wrapSessionRow } from '../session-row.ts';
+import { buildSessionRow, paintBoardRow, paintSessionRow, wrapSessionRow } from '../session-row.ts';
 import { unopenedShownCountOf } from '../shown-files.ts';
 import { describeFailure } from '../client-error-core.ts';
 import { reportToServerLog } from '../control-ws.ts';
-import { boardsConnectedTo, onBoardListChanged, takeOpenBoardRequest } from '../whiteboard/board-store.ts';
+import { boardSummariesOf, boardsConnectedTo, onBoardListChanged, takeOpenBoardRequest } from '../whiteboard/board-store.ts';
 import type { PaneTab } from '#shared/contracts/focus-layout.ts';
 import type { PaneLayout } from './pane-layout.ts';
 import { createPaneLayout } from './pane-layout.ts';
@@ -40,10 +40,13 @@ type BoardsViewModule = typeof import('../whiteboard/boards-view.ts');
 
 const TERMINAL_ONLY: ReadonlySet<PaneTab> = new Set<PaneTab>(['terminal']);
 const TERMINAL_AND_BOARD: ReadonlySet<PaneTab> = new Set<PaneTab>(['terminal', 'board']);
+const BOARD_ONLY: ReadonlySet<PaneTab> = new Set<PaneTab>(['board']);
 
 const projectPathOf = (row: RosterRow) => row.ui.path;
 
 type FocusPill = ReturnType<typeof buildPill>;
+
+type BoardRow = ReturnType<typeof buildBoardRow>;
 
 type GroupList = HTMLDivElement & { _lastOrderKey?: string };
 
@@ -59,7 +62,10 @@ let boardsViewLoad: Promise<BoardsViewModule> | null = null;
 let loadedBoardsView: BoardsViewModule | null = null;
 let boardPairedSessionId: string | null = null;
 let pairedBoardId: string | null = null;
-let isBoardTabShown: boolean | null = null;
+let shownPaneTabs: ReadonlySet<PaneTab> | null = null;
+let centeredBoardId: string | null = null;
+let boardsGroup: ReturnType<typeof buildBoardsGroup> | null = null;
+const boardRowById = new Map<string, BoardRow>();
 let emptyEl: HTMLElement | null = null;
 let emptyTitleEl: HTMLElement | null = null;
 let emptyDescEl: HTMLElement | null = null;
@@ -152,10 +158,14 @@ export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | 
   paneLayout = createPaneLayout();
   cardSlotEl = paneLayout.bodyOf('terminal');
   boardToolsSlot = el('div', 'pane-board-tools');
+  boardsGroup = buildBoardsGroup();
   paneLayout.setTabTools('board', boardToolsSlot);
   mountedCenter.append(emptyEl, paneLayout.element);
   onBoardListChanged(() => {
-    if (active) paintBoardPane();
+    if (!active) return;
+    const wasBoardCentered = centeredBoardId !== null;
+    refreshFocusRoster();
+    if (wasBoardCentered && centeredBoardId === null) restoreFocusedSession();
   });
 
   mountedRail.addEventListener('keydown', onRailKeydown);
@@ -316,6 +326,9 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
     placeList(group.rows, list);
   }
 
+  if (boardsGroup && (!groupsAlreadyInPlace || boardsGroup.header.parentElement !== mountedRail)) mountedRail.append(boardsGroup.header, boardsGroup.list);
+  if (boardsGroup) paintBoardRows(boardsGroup);
+
   for (const [key, groupHeader] of [...groupHeaderById]) {
     if (!presentKeys.has(key)) {
       groupHeader.header.remove();
@@ -362,6 +375,67 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
   }
   paintBoardPane();
   updateRailHead(order, attentionTiles);
+}
+
+function buildBoardsGroup() {
+  const header = el('div', 'session-group-header focus-boards-header');
+  const count = el('span', 'session-group-count');
+  const rule = el('span', 'session-group-rule');
+  rule.setAttribute('aria-hidden', 'true');
+  const addButton = el('button', 'session-group-add', '+');
+  addButton.type = 'button';
+  addButton.title = 'New board';
+  addButton.setAttribute('aria-label', 'New board');
+  addButton.addEventListener('click', createBoardFromRail);
+  header.append(el('span', 'session-group-label', 'Boards'), count, rule, addButton);
+  const list = el('div', 'focus-rail-list focus-board-list');
+  list.setAttribute('role', 'group');
+  list.setAttribute('aria-label', 'Boards with no session');
+  return { header, count, list };
+}
+
+function buildBoardRow(boardId: string) {
+  const { row: button, refs } = buildSessionRow('button');
+  button.type = 'button';
+  button.dataset.boardId = boardId;
+  button.addEventListener('click', () => centerBoard(boardId));
+  const item = el('div', 'session-row-item');
+  item.append(button);
+  return Object.assign(button, { _refs: refs, _row: item });
+}
+
+function paintBoardRows(group: ReturnType<typeof buildBoardsGroup>) {
+  const summaries = boardSummariesOf();
+  if (centeredBoardId && !summaries.some((summary) => summary.id === centeredBoardId)) centeredBoardId = null;
+  const boards = sessionlessBoards(summaries, (sessionId) => sessionUIs.has(sessionId));
+  const shownIds = new Set(boards.map((board) => board.id));
+  for (const [boardId, row] of boardRowById) {
+    if (shownIds.has(boardId)) continue;
+    row._row.remove();
+    boardRowById.delete(boardId);
+  }
+  for (const board of boards) {
+    let row = boardRowById.get(board.id);
+    if (!row) { row = buildBoardRow(board.id); boardRowById.set(board.id, row); }
+    paintBoardRow(row, row._refs, board.title);
+    row.classList.toggle('focused', board.id === centeredBoardId);
+  }
+  placeRowsInOrder(group.list, boards.flatMap((board) => boardRowById.get(board.id)?._row ?? []));
+  writeTextIfChanged(group.count, String(boards.length));
+  writeAttributeIfChanged(group.count, 'title', `${boards.length} ${boards.length === 1 ? 'board' : 'boards'} with no session`);
+}
+
+function centerBoard(boardId: string) {
+  if (!active) return;
+  releaseCenter();
+  centeredBoardId = boardId;
+  pairedBoardId = null;
+  setRailTabStop(null);
+  refreshFocusRoster();
+}
+
+function createBoardFromRail() {
+  loadBoardsView().then((boardsView) => boardsView.createBoardFromDialog(centerBoard), reportBoardsViewLoadFailure);
 }
 
 function pickNeighborOfRemoved(previousRailOrder: readonly string[], removedId: string) {
@@ -449,19 +523,37 @@ function loadBoardsView() {
   return boardsViewLoad;
 }
 
-function showBoardTab(isShown: boolean) {
-  if (!paneLayout || isBoardTabShown === isShown) return;
-  isBoardTabShown = isShown;
-  paneLayout.showTabs(isShown ? TERMINAL_AND_BOARD : TERMINAL_ONLY);
+function reportBoardsViewLoadFailure(error: unknown) {
+  boardsViewLoad = null;
+  reportToServerLog('focus', `the board pane failed to load: ${describeFailure(error)}`);
+}
+
+function showPaneTabs(tabs: ReadonlySet<PaneTab>) {
+  if (!paneLayout || shownPaneTabs === tabs) return;
+  shownPaneTabs = tabs;
+  paneLayout.showTabs(tabs);
+}
+
+function paintBoardOnlyPane(boardId: string) {
+  showPaneTabs(BOARD_ONLY);
+  const isNewSubject = boardPairedSessionId !== null || pairedBoardId !== boardId;
+  boardPairedSessionId = null;
+  pairedBoardId = boardId;
+  loadBoardsView().then((boardsView) => placeBoardPane(boardsView, null, isNewSubject ? boardId : null), reportBoardsViewLoadFailure);
 }
 
 function paintBoardPane(requestedBoardId: string | null = null) {
+  if (centeredBoardId) {
+    paintBoardOnlyPane(centeredBoardId);
+    return;
+  }
   const centeredId = getFocusedSessionId();
   const connectedBoards = centeredId ? boardsConnectedTo(centeredId) : [];
   const [newestBoard] = connectedBoards;
-  showBoardTab(Boolean(newestBoard));
+  showPaneTabs(newestBoard ? TERMINAL_AND_BOARD : TERMINAL_ONLY);
   if (!centeredId || !newestBoard) {
     boardPairedSessionId = null;
+    pairedBoardId = null;
     return;
   }
   const isPairedBoardConnected = connectedBoards.some((board) => board.id === pairedBoardId);
@@ -469,16 +561,10 @@ function paintBoardPane(requestedBoardId: string | null = null) {
   boardPairedSessionId = centeredId;
   const boardId = isNewPairing ? requestedBoardId ?? newestBoard.id : null;
   if (boardId) pairedBoardId = boardId;
-  loadBoardsView().then(
-    (boardsView) => placeBoardPane(boardsView, centeredId, boardId),
-    (error: unknown) => {
-      boardsViewLoad = null;
-      reportToServerLog('focus', `the board pane failed to load: ${describeFailure(error)}`);
-    },
-  );
+  loadBoardsView().then((boardsView) => placeBoardPane(boardsView, centeredId, boardId), reportBoardsViewLoadFailure);
 }
 
-function placeBoardPane(boardsView: BoardsViewModule, sessionId: string, boardId: string | null) {
+function placeBoardPane(boardsView: BoardsViewModule, sessionId: string | null, boardId: string | null) {
   if (!paneLayout || getFocusedSessionId() !== sessionId) return;
   const boardBody = paneLayout.bodyOf('board');
   const host = boardsView.mountBoardHost();
@@ -488,7 +574,7 @@ function placeBoardPane(boardsView: BoardsViewModule, sessionId: string, boardId
 }
 
 export function reopenFocusBoard() {
-  if (!active || !boardPairedSessionId) return;
+  if (!active || (!boardPairedSessionId && !centeredBoardId)) return;
   loadedBoardsView?.reopenSelectedBoard();
 }
 
@@ -513,6 +599,7 @@ function focusSession(id: string) {
   selectSession(id);
   if (id === getFocusedSessionId()) return;
   releaseCenter();
+  centeredBoardId = null;
   uiState.dispatch('focusSession', id);
   railTabStopId = id;
   refreshFocusRoster();
@@ -521,7 +608,7 @@ function focusSession(id: string) {
 function updateCenter() {
   if (!emptyEl || !emptyTitleEl || !emptyDescEl) return;
   const centeredId = getFocusedSessionId();
-  const has = !!(centeredId && sessionUIs.has(centeredId));
+  const has = Boolean(centeredBoardId) || Boolean(centeredId && sessionUIs.has(centeredId));
   const hasSessions = sessionUIs.size > 0;
   writeHiddenIfChanged(emptyEl, has);
   if (paneLayout) writeHiddenIfChanged(paneLayout.element, !has);
@@ -600,7 +687,7 @@ export function activateFocusOnNextAttention(activateFocus: () => void, targetSe
 }
 
 export function restoreFocusedSession() {
-  if (!active || getFocusedSessionId()) return;
+  if (!active || getFocusedSessionId() || centeredBoardId) return;
   const id = getRestorableSessionId();
   if (!id) return;
   focusSession(id);

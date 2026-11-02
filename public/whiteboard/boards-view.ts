@@ -519,6 +519,10 @@ function confirmDeleteBoard(): void {
 }
 
 function newBoardFromDialog(): void {
+  createBoardFromDialog(selectBoard);
+}
+
+export function createBoardFromDialog(onCreated: (boardId: string) => void): void {
   openTextDialog({
     title: 'New board',
     label: 'Board title',
@@ -528,7 +532,7 @@ function newBoardFromDialog(): void {
     onSubmit: async (title) => {
       const outcome = await createBoard(title);
       if (!outcome.ok) return outcome.error;
-      selectBoard(outcome.boardId);
+      onCreated(outcome.boardId);
       return null;
     },
   });

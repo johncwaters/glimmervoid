@@ -27,11 +27,28 @@
 
 .pane-body > .boards-view { padding: 0; }
 
+.pane-body > .boards-view > .wb-canvas { min-height: 0; }
+
 .pane-board-tools { display: flex; align-items: center; min-width: 0; }
 
 .pane-board-tools > .wb-top-left { position: static; flex-wrap: nowrap; align-items: center; gap: 4px; pointer-events: auto; }
 
 .pane-board-tools .wb-island { padding: 0; border: 0; background: none; box-shadow: none; }
+
+.pane-board-tools > .wb-top-left { min-width: 0; }
+
+.pane-board-tools .wb-island { flex-wrap: nowrap; min-width: 0; }
+
+.pane-board-tools .wb-island-board { flex: 0 1 auto; overflow: hidden; }
+
+.pane-board-tools .wb-island-view,
+.pane-board-tools .wb-island-tools { flex: none; }
+
+.pane-board-tools .wb-presence { flex: 0 4 auto; flex-wrap: nowrap; min-width: 0; overflow: hidden; }
+
+.pane-board-tools .wb-presence-pill { white-space: nowrap; }
+
+.pane-board-tools .wb-board-title { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
 .boards-view > .wb-canvas { grid-column: 1; grid-row: 1; }
 
