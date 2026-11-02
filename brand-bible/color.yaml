@@ -121,7 +121,7 @@ tokens:
     use: The SANE YOLO chip on sessions spawned with skipped permission prompts.
 themes:
   golgari:
-    label: Golgari (Green/Black)
+    label: Golgari (Dark)
     mode: dark
     overrides:
       state-monitoring: "#22d3ee"
@@ -141,7 +141,7 @@ themes:
       state-done: "#94a3b8"
       state-starting: "#a78bfa"
   midnight:
-    label: Midnight (Blue/Purple)
+    label: Midnight (Dark)
     mode: dark
     overrides:
       state-monitoring: "#22d3ee"
@@ -162,7 +162,7 @@ themes:
       state-starting: "#a855f7"
       state-complete: "#60a5fa"
   phyrexian:
-    label: Phyrexian (Iridescent)
+    label: Phyrexian (Dark)
     mode: dark
     overrides: {}
   compleated:

@@ -38,7 +38,7 @@ interface ThemeDefinition {
 
 const THEMES: Record<string, ThemeDefinition> = {
   golgari: {
-    label: 'Golgari (Green/Black)',
+    label: 'Golgari (Dark)',
     colors: {
       '--bg':          '#060b08',
       '--bg-card':     '#0a120e',
@@ -77,7 +77,7 @@ const THEMES: Record<string, ThemeDefinition> = {
   },
 
   midnight: {
-    label: 'Midnight (Blue/Purple)',
+    label: 'Midnight (Dark)',
     colors: {
       '--bg':          '#080816',
       '--bg-card':     '#0e0e20',
@@ -115,7 +115,7 @@ const THEMES: Record<string, ThemeDefinition> = {
     },
   },
   phyrexian: {
-    label: 'Phyrexian (Iridescent)',
+    label: 'Phyrexian (Dark)',
     colors: {
       '--bg':          '#0a0810',
       '--bg-card':     '#100e18',
