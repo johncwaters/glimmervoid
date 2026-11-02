@@ -17,7 +17,7 @@ import { extractPromptTaskTitle } from '../../session/core/task-title-core.ts';
 import type { SessionRoleFacts } from '../../session/core/session-routes.ts';
 
 const MAX_LIVE_CHILDREN = 3;
-const MAX_LIFETIME_SPAWNS = 10;
+const MAX_LIFETIME_SPAWNS = 100;
 const MAX_SPAWNS_IN_FLIGHT = 1;
 
 const REFUSAL_STATUS = 404;
