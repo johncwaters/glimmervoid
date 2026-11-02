@@ -676,12 +676,13 @@ export function openPlanInFocus(id: string) {
 export function focusNthInRail(n: number) {
   if (!active) return;
   const id = railVisibleIds()[n - 1];
-  if (id) onPillPick(id);
+  if (id && isSessionShown(id)) onPillPick(id);
 }
 
 export function focusAdjacentInRail(dir: number) {
   if (!active) return;
-  const id = pickAdjacent(railVisibleIds(), railTabStopId, dir);
+  const cyclableIds = railVisibleIds().filter((railId) => railId === railTabStopId || isSessionShown(railId));
+  const id = pickAdjacent(cyclableIds, railTabStopId, dir);
   if (id == null) return;
   onPillCycle(id);
   pillById.get(id)?.scrollIntoView({ block: 'nearest' });
