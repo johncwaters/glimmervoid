@@ -4,6 +4,7 @@ import { mcpCredentialFor } from './credentials.ts';
 const MCP_CREDENTIAL_ENV = 'GLIMMERVOID_MCP_TOKEN';
 const MCP_SERVER_NAME = 'glimmervoid';
 const MCP_TOOL_TIMEOUT_SECONDS = 600;
+const CODEX_TOOL_INPUT_SCHEMA_MAX_BYTES = 16384;
 const KIMI_MCP_CONFIG_NAME = 'mcp.json';
 const KIMI_MCP_BASE_NAME = '.glimmervoid-mcp-base.json';
 
@@ -40,6 +41,7 @@ function codexMcpArgs(url: string): string[] {
     `bearer_token_env_var=${JSON.stringify(MCP_CREDENTIAL_ENV)}`,
     'default_tools_approval_mode="approve"',
     `tool_timeout_sec=${MCP_TOOL_TIMEOUT_SECONDS}`,
+    `tool_input_schema_max_bytes=${CODEX_TOOL_INPUT_SCHEMA_MAX_BYTES}`,
   ];
   return settings.flatMap((setting) => ['-c', `mcp_servers.${MCP_SERVER_NAME}.${setting}`]);
 }
