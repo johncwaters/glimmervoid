@@ -85,7 +85,7 @@ const DEFAULT_CONFIG = {
 
   worktreeRoot: '',
 
-  worktreeShare: ['.env', '.env.local', '.claude'],
+  worktreeShare: ['.env*', '.claude'],
 
   worktreeAutoRebase: true,
   worktreeSyncOnStart: true,

@@ -33,6 +33,7 @@ import { glimmervoidHomeDir } from '../config-store.ts';
 import type { OwnedPathOwner } from '../../shared/contracts/owned-paths.ts';
 import type { OwnedPathsLedgerHandle } from '../owned-paths-ledger.ts';
 import type { RemovalCause, RemovalKind, RemovalRecord } from '../../shared/contracts/removal-record.ts';
+import { expandShareList } from '../core/share-list-core.ts';
 import { decideRemovalKeep, isRecencyProbeNeeded, sessionIdFromOwner } from '../core/removal-guard-core.ts';
 import type { RemovalOwnershipFacts } from '../core/removal-guard-core.ts';
 import { appendRemovalRecord, appendRemovalRecordSync, removalsJournalPath } from '../removal-journal.ts';
@@ -660,11 +661,12 @@ function createGitWorkspace(opts: {
 
   async function populateShare({ projectPath, wtDir, shareList, keepTrackableLinks = false }: WorktreeArgs): Promise<void> {
     if (!wtDir) return;
+    const expandedShareList = await expandShareListIn(projectPath, shareList);
     const projectRealPath = await fs.promises.realpath(projectPath).catch(() => null);
-    if (projectRealPath) removeWorktreeLinks(wtDir, { projectRealPath, shareList: shareList ?? [] });
-    if (!shareList || !shareList.length) return;
+    if (projectRealPath) removeWorktreeLinks(wtDir, { projectRealPath, shareList: expandedShareList });
+    if (!expandedShareList.length) return;
     const ignored: string[] = [];
-    for (const rel of shareList) {
+    for (const rel of expandedShareList) {
       if (rel && !String(rel).includes('..') && (await run(['check-ignore', '-q', '--', rel], projectPath)).ok) {
         ignored.push(rel);
       }
@@ -1194,7 +1196,7 @@ function createGitWorkspace(opts: {
   }
 
   async function removeSharedLinks(wtDir: string, shareList: string[] | null | undefined): Promise<void> {
-    for (const rel of shareList ?? []) {
+    for (const rel of await expandShareListIn(wtDir, shareList)) {
       if (!rel || String(rel).includes('..')) continue;
       const linkPath = path.join(wtDir, rel);
       const stat = await fsp.lstat(linkPath).catch(() => null);
@@ -1869,6 +1871,11 @@ function statUnlessMissingSync(targetPath: string): fs.Stats | 'missing' | null 
 }
 
 type RetiredShareLinks = { projectRealPath: string; shareList: readonly string[] };
+
+async function expandShareListIn(directory: string, shareList: string[] | null | undefined): Promise<string[]> {
+  if (!shareList?.length) return [];
+  return expandShareList(shareList, await fsp.readdir(directory).catch(() => []));
+}
 
 function isRetiredShareLink(linkPath: string, name: string, keep: RetiredShareLinks): boolean {
   if (keep.shareList.includes(name)) return false;

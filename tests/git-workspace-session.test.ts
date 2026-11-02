@@ -740,15 +740,23 @@ function initRepoWithLocalContext(ignoreText = 'node_modules\n.omc\n.env\n') {
   return repo;
 }
 
-test('create (worktreeBase + shareList, POSIX): dirs are SYMLINKED in, files copied, and teardown never follows the link', { skip: !GIT || WIN }, async () => {
-  const repo = initRepoWithLocalContext();
+test('create (worktreeBase + shareList, POSIX): dirs are SYMLINKED in, files copied, a root wildcard shares ignored env files except production, and teardown never follows the link', { skip: !GIT || WIN }, async () => {
+  const repo = initRepoWithLocalContext('node_modules\n.omc\n.env*\n!.env.example\n');
+  fs.writeFileSync(path.join(repo, '.env.development.local'), 'DEV=1\n', 'utf8');
+  fs.writeFileSync(path.join(repo, '.env.production.local'), 'PROD=1\n', 'utf8');
+  fs.writeFileSync(path.join(repo, '.env.example'), 'TEMPLATE=1\n', 'utf8');
+  git(['add', '.env.example'], repo);
+  git(['commit', '-m', 'env template'], repo);
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-wtroot-'));
   try {
     const gw = createGitWorkspace();
     const ws = await gw.create({ owner: 'lane:test',
       projectPath: repo, teamId: 'session', label: 'posixctx', baseBranch: 'develop',
-      worktreeBase: base, shareList: ['node_modules', '.omc', '.env', 'tracked.txt', '.absent'],
+      worktreeBase: base, shareList: ['node_modules', '.omc', '.env*', 'tracked.txt', '.absent'],
     });
+    assert.equal(fs.readFileSync(path.join(ws.cwd, '.env.development.local'), 'utf8'), 'DEV=1\n', 'an ignored env mode file is copied in');
+    assert.ok(!fs.existsSync(path.join(ws.cwd, '.env.production.local')), 'a wildcard never shares a production file');
+    assert.equal(fs.readFileSync(path.join(ws.cwd, '.env.example'), 'utf8'), 'TEMPLATE=1\n', 'the tracked template comes from the checkout, untouched');
     assert.equal(ws.isGit, true);
     assert.ok(ws.cwd.startsWith(base), 'worktree lives under the configured base');
 

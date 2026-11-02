@@ -729,8 +729,8 @@ const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
   },
   {
     id: 'file-worktree-share', path: 'worktreeShare', title: 'Shared worktree paths', group: 'machine-detection-sessions',
-    description: 'Local paths copied or linked during worktree preparation.',
-    control: 'list', keywords: ['files', 'context'], defaultValue: ['.env', '.env.local', '.claude'], takesEffect: 'new-sessions', fileOnlyReason: BY_RULE, ...FILE_ONLY,
+    description: 'Local paths copied or linked during worktree preparation. A * matches names at the project root, never one containing production; name such a file in full to share it.',
+    control: 'list', keywords: ['files', 'context', 'env'], defaultValue: ['.env*', '.claude'], takesEffect: 'new-sessions', fileOnlyReason: BY_RULE, ...FILE_ONLY,
   },
   {
     id: 'file-port', path: 'port', title: 'Local port', group: 'machine-detection-sessions',
