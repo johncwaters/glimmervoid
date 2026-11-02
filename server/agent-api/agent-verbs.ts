@@ -1,0 +1,195 @@
+import { describeSessionLimits } from '../../session/core/session-routes.ts';
+import type { SessionRoleFacts } from '../../session/core/session-routes.ts';
+import type { Session } from '../../session/sessions.ts';
+import type { AgentAnswerRequest, AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentCloseRequest, AgentEditRequest, AgentLimitsReply, AgentReadRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest, SessionLimits } from '../../shared/contracts/session.ts';
+import { manualPrLink } from '../../session/core/session-pr-links-core.ts';
+import { describePushLanding, describeUnpushedCloseRefusal, projectMyPrs, projectReviewDetail, projectReviews } from '../core/agent-api-core.ts';
+import type { AgentRefusalReply, AgentReplyOf } from '../core/agent-api-core.ts';
+import { AGENT_LANE_TAG } from './agent-api-context.ts';
+import type { AgentApiRuntime, AgentVerbHandlers } from './agent-api-context.ts';
+import type { ChildChannels } from './child-channels.ts';
+import type { AgentSpawner } from './agent-spawn.ts';
+
+function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn }: AgentSpawner) {
+  const { config, agentSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, coderWorkspaceStatus, channelsByChildId, childIdsToDiscard } = runtime;
+  const { noteEndCause, post, drain, ownedChannels, findChildOf } = channels;
+
+  function roleFactsOf(session: Session): SessionRoleFacts {
+    return {
+      isEphemeral: session.ephemeral,
+      isSpawnedChild: agentSessions.has(session.id) && session.id.startsWith(`${AGENT_LANE_TAG}-`),
+      hasOwnWorktree: session.hasOwnWorktree,
+    };
+  }
+
+  function attention(session: Session, request: AgentAttentionRequest): AgentReplyOf<'attention'> {
+    const reply: AgentAttentionReply = session.noteAttention(request.note);
+    return { status: reply.ok ? 200 : 429, body: reply };
+  }
+
+  function board(): AgentBoardRow[] {
+    return listBoardSessions().map((session) => ({
+      id: session.id,
+      name: session.name,
+      agent: session.agentId,
+      state: session.state,
+      ephemeral: session.ephemeral,
+    }));
+  }
+
+  function limits(session: Session): AgentLimitsReply {
+    return { ok: true, ...describeSessionLimits({ ...roleFactsOf(session), environment: environmentOf(session) }) };
+  }
+
+  function environmentOf(session: Session): SessionLimits['environment'] {
+    const mapping = config.projects.find((project) => project.id === session.id)?.environment;
+    if (!mapping) return null;
+    return { name: mapping.name, workspace: mapping.workspace, state: coderWorkspaceStatus(mapping.workspace) ?? 'unknown' };
+  }
+
+  async function push(session: Session): Promise<AgentReplyOf<'push'>> {
+    return describePushLanding(await session.mergeAndContinue({ force: true }));
+  }
+
+  function refusal(status: number, error: string): AgentRefusalReply {
+    return { status, body: { ok: false, error } };
+  }
+
+  async function review(pullRequestKey: string): Promise<AgentReplyOf<'review'>> {
+    if (!operatorState) return refusal(503, 'team review is not available in this Glimmervoid');
+    const separatorIndex = pullRequestKey.lastIndexOf('#');
+    const outcome = await operatorState.requestReview({ repo: pullRequestKey.slice(0, separatorIndex), number: Number(pullRequestKey.slice(separatorIndex + 1)) });
+    if (!outcome.ok) return refusal(409, outcome.error);
+    return { status: 200, body: { ...outcome, note: 'the review lands as a draft in the Reviews tab, and only the operator can post it' } };
+  }
+
+  function reviews(pullRequestKey: string | null): AgentReplyOf<'reviews'> {
+    if (!operatorState) return githubLanesUnavailable();
+    const status = operatorState.teamReviewStatus();
+    if (pullRequestKey === null) return { status: 200, body: projectReviews(status) };
+    const detail = projectReviewDetail(status, pullRequestKey);
+    if (!detail) return refusal(404, `${pullRequestKey} is not in the Reviews tab, so queue one with review action review for pr ${pullRequestKey}`);
+    return { status: 200, body: detail };
+  }
+
+  function linkPr(session: Session, pullRequestKey: string): AgentReplyOf<'link-pr'> {
+    const link = manualPrLink(pullRequestKey, operatorState?.myPrsStatus()?.prs ?? [], Date.now());
+    if (!link) return refusal(400, `not a GitHub pull request: ${pullRequestKey}`);
+    session.linkPrManually(link);
+    return { status: 200, body: { ok: true, key: `${link.repo}#${link.number}`, url: link.url } };
+  }
+
+  function settings(request: AgentSettingsRequest): AgentReplyOf<'settings'> {
+    if (!operatorState) return refusal(503, 'settings are not available in this Glimmervoid');
+    const reply = operatorState.readSettings(request);
+    return { status: reply.ok ? 200 : 400, body: reply };
+  }
+
+  async function edit(session: Session, request: AgentEditRequest): Promise<AgentReplyOf<'edit'>> {
+    const reply = await sessionDocs.surface(session, request);
+    if (!reply.ok) return { status: 400, body: reply };
+    return { status: 200, body: { ok: true, path: reply.doc.path, name: reply.doc.name } };
+  }
+
+  async function spawnReply(session: Session, request: AgentSpawnRequest): Promise<AgentReplyOf<'spawn'>> {
+    const outcome = await spawn(session, request);
+    if (!outcome.ok) return { status: outcome.status, body: { ok: false, error: outcome.error } };
+    const note = `this session owns ${outcome.name} until the task is done: glimmervoid read ${outcome.sessionId} reads its messages, glimmervoid send ${outcome.sessionId} <text> steers it, and glimmervoid close ${outcome.sessionId} ends it and discards its worktree, refusing while it holds work that is not on the integration branch unless you add --discard`;
+    return { status: 200, body: { ok: true, sessionId: outcome.sessionId, name: outcome.name, note } };
+  }
+
+  function send(session: Session, { words }: AgentSendRequest): AgentReplyOf<'send'> {
+    const at = Date.now();
+    if (channelsByChildId.has(session.id)) {
+      post(session.id, 'toParent', { author: 'child', text: words.join(' '), at, wakes: true });
+      return { status: 200, body: { ok: true } };
+    }
+    const [target = '', ...textWords] = words;
+    const text = textWords.join(' ').trim();
+    if (!text) return refusal(400, 'send needs the spawned session and the text, for example glimmervoid send <child> fix the failing test');
+    const owned = findChildOf(session, target);
+    if (!owned.ok) return refusal(404, owned.error);
+    if (!agentSessions.has(owned.channel.childId)) return refusal(409, `${owned.channel.childName} has ended, so nothing was sent`);
+    post(owned.channel.childId, 'toChild', { author: 'parent', text, at, wakes: true });
+    return { status: 200, body: { ok: true } };
+  }
+
+  function read(session: Session, { child }: AgentReadRequest): AgentReplyOf<'read'> {
+    if (channelsByChildId.has(session.id)) {
+      const fromParent = drain(session.id, 'toChild');
+      return { status: 200, body: { ok: true, channels: fromParent ? [fromParent] : [] } };
+    }
+    if (child === undefined) {
+      const channels = ownedChannels(session).flatMap((channel) => drain(channel.childId, 'toParent') ?? []);
+      return { status: 200, body: { ok: true, channels } };
+    }
+    const owned = findChildOf(session, child);
+    if (!owned.ok) return refusal(404, owned.error);
+    const fromChild = drain(owned.channel.childId, 'toParent');
+    return { status: 200, body: { ok: true, channels: fromChild ? [fromChild] : [] } };
+  }
+
+  function answer(session: Session, request: AgentAnswerRequest): AgentReplyOf<'answer'> {
+    const owned = findChildOf(session, request.child);
+    if (!owned.ok) return refusal(404, owned.error);
+    const child = agentSessions.get(owned.channel.childId);
+    if (!child) return refusal(409, `${owned.channel.childName} has already ended`);
+    const approval = child._conversationApproval;
+    if (approval?.kind !== 'question') return refusal(409, `${owned.channel.childName} has no held question`);
+    if ('toOperator' in request) {
+      if (typeof approval.requestId !== 'string' || !child.releaseQuestionHold(approval.requestId)) return refusal(409, 'the question is no longer held');
+      return { status: 200, body: { ok: true } };
+    }
+    if (approval.isSummaryTruncated) return refusal(409, `${owned.channel.childName}'s question is too large to answer here; pass it to the operator with session answer, child ${request.child} and toOperator set`);
+    if (!child.answerConversationApproval(approval.requestId, request.answers)) {
+      const expectedQuestions = (approval.questions ?? []).map((question) => question.question);
+      return refusal(409, `answers must match the expected question texts: ${JSON.stringify(expectedQuestions)}`);
+    }
+    return { status: 200, body: { ok: true } };
+  }
+
+  async function close(session: Session, { child, discard = false }: AgentCloseRequest): Promise<AgentReplyOf<'close'>> {
+    const owned = findChildOf(session, child);
+    if (!owned.ok) return refusal(404, owned.error);
+    const childSession = agentSessions.get(owned.channel.childId);
+    const alreadyEnded = refusal(409, `${owned.channel.childName} has already ended`);
+    if (!childSession) return alreadyEnded;
+    const worktree = childSession.getWorktreeCarry();
+    if (!discard && worktree && await childSession.hasUnmergedWork()) {
+      return refusal(409, describeUnpushedCloseRefusal(owned.channel.childName, owned.channel.childId, worktree));
+    }
+    if (agentSessions.get(owned.channel.childId) !== childSession) return alreadyEnded;
+    if (discard) childIdsToDiscard.add(childSession.id);
+    noteEndCause(childSession.id, 'parent-closed');
+    childSession.destroy();
+    return { status: 200, body: { ok: true, closed: owned.channel.childId } };
+  }
+
+  function githubLanesUnavailable(): AgentRefusalReply {
+    return refusal(503, 'GitHub lanes are not available in this Glimmervoid');
+  }
+
+  const handlers: AgentVerbHandlers = {
+    spawn: spawnReply,
+    send,
+    read,
+    close,
+    answer,
+    attention,
+    board: () => ({ status: 200, body: { ok: true, sessions: board() } }),
+    push,
+    edit,
+    show: () => refusal(400, 'show sends the file itself; run glimmervoid show <path>'),
+    limits: (session) => ({ status: 200, body: limits(session) }),
+    review: (_session, { pullRequestKey }) => review(pullRequestKey),
+    reviews: (_session, { pullRequestKey }) => reviews(pullRequestKey),
+    prs: () => (operatorState ? { status: 200, body: projectMyPrs(operatorState.myPrsStatus()) } : githubLanesUnavailable()),
+    'link-pr': (session, { pullRequestKey }) => linkPr(session, pullRequestKey),
+    settings: (_session, request) => settings(request),
+    whiteboard: (session, request) => (whiteboards ? whiteboards.handleAgent({ id: session.id, name: session.name }, request) : refusal(503, 'whiteboards are not available in this Glimmervoid')),
+  };
+
+  return { handlers, roleFactsOf };
+}
+
+export { createAgentVerbHandlers };
