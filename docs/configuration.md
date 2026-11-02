@@ -28,7 +28,7 @@ One bot for session, review and PostHog alerts.
 
 ### Sessions
 
-How sessions start and where projects are found.
+How sessions start, where projects are found, and branch cleanup.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
@@ -37,19 +37,19 @@ How sessions start and where projects are found.
 | `remoteSessions` | Remote Coder sessions | `false` | Offer Coder workspaces when adding a session. |
 | `streamerMode` | Streamer mode | `false` | Hide sensitive details while screen sharing. |
 | `repoRoots` | Repository roots | `[]` | Folders scanned for projects when adding a session. |
+| `branchGc.deleteUnmerged` | Delete unmerged branches | `false` | Also delete stale remote branches with no proof they were merged. |
 | `debugMode` | Debug mode | `false` | Show session-card diagnostics for state, transitions and detection signals. **File-only.** A diagnostic switch kept out of the Settings view; change it in config.json while investigating. |
 | `sessionMemoryReserveMB` | Session memory reserve | `600` | Free memory an automatic session start waits for; 0 starts sessions without checking. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 
-### Sane YOLO and unattended
+### Sane YOLO
 
-What Sane YOLO blocks and what unattended work may do.
+What agents may do without asking, and what Sane YOLO blocks.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
 | `skipPermissionsByDefault` | Skip permission prompts by default | `false` | Skip agent permission prompts for projects that set no choice. |
 | `saneYolo` | Sane YOLO | `true` | Block catastrophic commands and credential reads in every session that supports it. Applies to new sessions. |
 | `saneYoloUnreadablePaths` | Unreadable folders | `[]` | Extra files and folders agents may not read, where ~ is your home folder. Applies to new sessions. |
-| `branchGc.deleteUnmerged` | Delete unmerged branches | `false` | Also delete stale remote branches with no proof they were merged. |
 
 ### Updates
 

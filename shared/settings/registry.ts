@@ -245,7 +245,7 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
     id: 'machine-sessions',
     level: 'machine',
     title: 'Sessions',
-    description: 'How sessions start and where projects are found.',
+    description: 'How sessions start, where projects are found, and branch cleanup.',
     legacyIds: ['machine-general', 'general', 'machine-repositories', 'repos', 'repositories'],
     settings: [
       {
@@ -289,13 +289,21 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
         description: 'Start a session that helps you run Glimmervoid on another Linux machine over ssh.',
         control: 'readonly', keywords: ['remote', 'ssh', 'server', 'devbox', 'tailscale', 'pair', 'host'], status: 'remote-setup', ...READOUT,
       },
+      {
+        id: 'branch-gc-delete-unmerged', path: 'branchGc.deleteUnmerged', title: 'Delete unmerged branches',
+        description: 'Also delete stale remote branches with no proof they were merged.',
+        control: 'toggle', keywords: ['git', 'cleanup', 'orphan'], danger: true,
+        warning: 'Enabling this control lets branch cleanup delete stale remote branches without merge proof.',
+        legacyIds: [{ sectionId: 'machine-safety', settingId: 'branch-gc-delete-unmerged' }],
+        defaultValue: false, ...MACHINE_NOW,
+      },
     ],
   },
   {
     id: 'machine-safety',
     level: 'machine',
-    title: 'Sane YOLO and unattended',
-    description: 'What Sane YOLO blocks and what unattended work may do.',
+    title: 'Sane YOLO',
+    description: 'What agents may do without asking, and what Sane YOLO blocks.',
     legacyIds: ['machine-guardrails', 'lanes-unattended', 'unattended'],
     settings: [
       {
@@ -315,13 +323,6 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
         description: 'Extra files and folders agents may not read, where ~ is your home folder.',
         control: 'list', keywords: ['guardrails', 'secrets', 'credentials', 'sane yolo'], defaultValue: [],
         listPlaceholder: '~/folder', listEmptyText: 'Only the built-in credential list is unreadable.', ...MACHINE_NEW_SESSIONS,
-      },
-      {
-        id: 'branch-gc-delete-unmerged', path: 'branchGc.deleteUnmerged', title: 'Delete unmerged branches',
-        description: 'Also delete stale remote branches with no proof they were merged.',
-        control: 'toggle', keywords: ['git', 'cleanup', 'orphan'], danger: true,
-        warning: 'Enabling this control lets branch cleanup delete stale remote branches without merge proof.',
-        defaultValue: false, ...MACHINE_NOW,
       },
     ],
   },
