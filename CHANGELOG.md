@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Restart under launchd.** A server launchd runs with `GLIMMERVOID_SUPERVISOR=launchd` set now exits on Restart so launchd starts it again, the way a systemd unit does. Before, it started its own replacement, which launchd then fought for the port.
 - **The waiting and failed line shows on an open session.** The thin colored line along the top of an open session's terminal, in the Focus view, now stays on while the session waits for you or has failed. Before, the failed line never appeared and the waiting line faded out after a few seconds.
 - **Every linked item on a focused session row can be reached.** A selected row in Focus or on the phone Board lists up to five linked boards and sessions, then +N more. That +N more was only a hover hint, so on a phone the rest could not be seen. Tap or click it now to list the rest in the row; the row goes back to five once you select another session.
 - **Every theme's text colors pass AA contrast.** Fourteen status, accent and muted text colors across the Midnight, Compleated, unicorn and PostHog themes moved a shade lighter or darker, so text in those colors now reads at 4.5:1 or better on cards, including on the faint status tint behind a failed session's reason line. The change is barely visible.

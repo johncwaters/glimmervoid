@@ -165,7 +165,7 @@ function createLifecycle({
 
     async function handOffAndExit(): Promise<void> {
       if (strategy === 'exit-for-supervisor') {
-        log(`[lifecycle] Supervised by systemd - exiting ${SUPERVISED_RESTART_EXIT_CODE} so the supervisor restarts the unit`);
+        log(`[lifecycle] Supervised by systemd or launchd - exiting ${SUPERVISED_RESTART_EXIT_CODE} so the supervisor restarts the unit`);
         exit(SUPERVISED_RESTART_EXIT_CODE);
         return;
       }
