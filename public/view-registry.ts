@@ -9,7 +9,7 @@ import { applyMyPrsConnectionState } from './github/my-prs-store.ts';
 import { acknowledgeReviewQueueAttention, setReviewQueueActivityCallback, setReviewQueueNavigation } from './github/review-queue-store.ts';
 import { acknowledgeRadarAttention, setRadarActivityCallback, setRadarTraceOpener } from './radar/radar-store.ts';
 import { acknowledgeCommunityAttention, applyCommunityConnectionState, setCommunityActivityCallback } from './community/community-store.ts';
-import { onDebugModeChanged } from './session-card/card-dom.ts';
+import { onDebugModeChanged } from './session-card/card-debug.ts';
 import { setSettingsRestartHandler } from './settings/settings-store.ts';
 import { applyTeamReviewConnectionState } from './github/team-review-store.ts';
 import { applyTraceConnectionState, openTraceForSession } from './trace-store.ts';

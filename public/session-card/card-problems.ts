@@ -1,6 +1,6 @@
 import { STATES } from '#shared/states.ts';
 import { el } from '../dom-helpers.ts';
-import { sessionActionStatus } from './card-dom.ts';
+import { sessionActionStatus } from './card-actions.ts';
 import { findSessionUi } from './card-registry.ts';
 import { reportHeaderError } from '../action-status.ts';
 

@@ -5,7 +5,7 @@ import type { ActionStatus } from '../action-status.ts';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText, requestWithStatus } from '../action-status.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
-import { sendSessionAction } from './card-dom.ts';
+import { sendSessionAction } from './card-actions.ts';
 import { sessionUIs } from './card-registry.ts';
 import type { SessionUi } from './card-registry.ts';
 import { buildDialogShell, openConfirmDialog } from './modal.ts';

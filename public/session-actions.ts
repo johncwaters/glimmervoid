@@ -4,7 +4,7 @@ import type { SessionRow } from './focus-view/attention-core.ts';
 import { buildSessionRows } from './focus-view/attention-core.ts';
 import type { SessionOpenStatePolicy } from './session-actions-core.ts';
 import { decideSessionOpenAction, pickRestorableSessionId } from './session-actions-core.ts';
-import { sendSessionAction } from './session-card/card-dom.ts';
+import { sendSessionAction } from './session-card/card-actions.ts';
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { SHELL_AGENT_ID } from './session-card/agent-core.ts';
 import type { SessionUi } from './session-card/card-registry.ts';

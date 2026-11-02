@@ -6,7 +6,7 @@ import { loadShownFaceModule, markShownFilesOpened, shownFilesOf } from '../show
 import type { PlanResponse } from '../plan/plan-face.ts';
 import { isApprovedReview, mergePlanChanged } from '../plan/plan-view-core.ts';
 import type { PlanChangedMessage } from '../plan/plan-view-core.ts';
-import { isDebugModeEnabled } from './card-dom.ts';
+import { isDebugModeEnabled } from './card-debug.ts';
 import type { SessionUi } from './card-registry.ts';
 import { findSessionUi, sessionIdOf, sessionUIs } from './card-registry.ts';
 import { decidePlanHeaderAction, preferredBorrowedFace } from './face-core.ts';

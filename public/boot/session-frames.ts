@@ -10,7 +10,8 @@ import { forgetSessionLinkedPrs, setSessionLinkedPrs } from '../github/session-p
 import { refreshPhoneBoard } from '../phone/phone-shell-gate.ts';
 import { noteKnownProjectPath } from '../project-registry.ts';
 import { decideReloadOnBuild } from '../server-build-core.ts';
-import { handleDebugStateRefresh, setSessionSaneYolo } from '../session-card/card-dom.ts';
+import { setSessionSaneYolo } from '../session-card/card-dom.ts';
+import { handleDebugStateRefresh } from '../session-card/card-debug.ts';
 import { buildSessionCardOptions } from '../session-card/card-options-core.ts';
 import { attentionTally, sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';

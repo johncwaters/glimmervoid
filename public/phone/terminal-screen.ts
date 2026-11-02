@@ -2,7 +2,7 @@ import { STATES } from '#shared/states.ts';
 import { createActionStatus } from '../action-status.ts';
 import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
 import { adoptElement, el, queryTag, releaseElement } from '../dom-helpers.ts';
-import { isRenameInProgress, makeTitleEditable, paintTaskTitle, startInlineRename, startInlineTitleEdit } from '../session-card/card-dom.ts';
+import { isRenameInProgress, makeTitleEditable, paintTaskTitle, startInlineRename, startInlineTitleEdit } from '../session-card/card-titles.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { markSessionSeen } from '../session-card/lifecycle.ts';

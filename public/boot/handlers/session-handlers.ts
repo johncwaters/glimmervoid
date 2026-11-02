@@ -5,7 +5,7 @@ import { setSessionLinkedPrs } from '../../github/session-pr-chips.ts';
 import { alertFromNotify } from '../../notifications.ts';
 import { noteKnownProjectPath } from '../../project-registry.ts';
 import { requestSessionRemovalNow } from '../../session-actions.ts';
-import { handleDebugStateRefresh, handleDebugStateResponse } from '../../session-card/card-dom.ts';
+import { handleDebugStateRefresh, handleDebugStateResponse } from '../../session-card/card-debug.ts';
 import { buildSessionCardOptions } from '../../session-card/card-options-core.ts';
 import { attentionTally, sessionUIs } from '../../session-card/card-registry.ts';
 import { createSessionCard, hasSession, removeSessionCard, renameSessionCard, setSessionAgent, setSessionMergeStatus, setSessionTaskTitle, setSessionWorktree } from '../../session-card/lifecycle.ts';

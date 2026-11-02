@@ -13,7 +13,8 @@ Session card modules, decomposed from the old monolithic session-card.js. Each s
 | `card-registry.ts` | Shared state owner: `sessionUIs` Map + `container` DOM singleton |
 | `lifecycle.ts` | `createSessionCard`, `removeSessionCard`, `applyState`, the tab title count over `focus-view/attention-core.ts` counts |
 | `agent-core.ts` | Pure `decideAgentPicker` and `decideAgentAvailability`: which agents the spawn picker offers and whether any can spawn |
-| `card-dom.ts` | Card builder, badge, inline rename, confirm dialog, debug overlay |
+| `card-dom.ts` | Card builder, badges, injected painters, link pull request dialog |
+| `card-actions.ts`, `card-titles.ts`, `card-debug.ts` | Session action send with its status line; inline title and rename editing; debug mode and the debug overlay |
 | `terminal.ts` | Terminal shell: IO wiring, setup on demand, wake-check input hold, viewer API |
 | `terminal-setup.ts` | xterm.js setup and key handling (consults `../shortcuts-core.ts` for which shortcuts bubble) |
 | `terminal-data-socket.ts` | Data WebSocket: prewarm, connect, reconnect, output flow, link state, scroll restore |
