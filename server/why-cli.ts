@@ -4,8 +4,9 @@ import { firstLine } from './core/text-core.ts';
 import { findRecord, formatWhy, lastPromptBefore, parseCommitLog, parseWhyTarget } from './core/commit-session-core.ts';
 import type { ListedCommit } from './core/commit-session-core.ts';
 import {
-  COMMIT_SESSIONS_FOLDER_NAME, GIT_MAX_BUFFER, GIT_TIMEOUT_MS, gitCommonDirectoryOf, patchIdsOfBatch, storePathFor,
+  COMMIT_SESSIONS_FOLDER_NAME, GIT_MAX_BUFFER, GIT_TIMEOUT_MS, findSharedNote, gitCommonDirectoryOf, patchIdsOfBatch, storePathFor,
 } from './commit-sessions.ts';
+import type { CommitSessionRecord } from '../shared/contracts/commit-session.ts';
 import type { GitRunner } from './commit-sessions.ts';
 import { runGit } from './git/git-exec.ts';
 import { configSiblingPath } from './pairings-store.ts';
@@ -81,20 +82,34 @@ async function runWhyCli({
   }
   const storeRoot = configSiblingPath(configPath, COMMIT_SESSIONS_FOLDER_NAME);
   const storePath = storePathFor(storeRoot, gitCommonDirectory);
-  const storeText = await fs.promises.readFile(storePath, 'utf8').catch(() => null);
-  if (!storeText) {
+  const storeText = await fs.promises.readFile(storePath, 'utf8').catch(() => '');
+  const { sha, committedAt } = blamed.commit;
+  let patchId: string | null | undefined;
+  const patchIdOfCommit = async (): Promise<string | null> => {
+    if (patchId === undefined) patchId = (await patchIdsOfBatch([sha], { cwd, timeoutMs: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER }, runGitFn))?.get(sha) ?? null;
+    return patchId;
+  };
+  const record = await findLocalRecord(storeText, sha, patchIdOfCommit);
+  if (record) {
+    const prompt = lastPromptBefore(await readTraceText(storeRoot, record.sessionId), record.committedAt);
+    writeOutput(formatWhy({ location: blamed.location, sha, committedAt, record, prompt }));
+    return 0;
+  }
+  const sharedNote = await findSharedNote(cwd, { sha, patchId: await patchIdOfCommit() }, runGitFn);
+  if (!storeText && !sharedNote) {
     writeError(`glimmervoid why: no commit-session records for this repository at ${storePath}; a moved checkout or a different --config looks here, or no session has committed in it yet`);
     return 1;
   }
-  const { sha, committedAt } = blamed.commit;
-  let record = findRecord(storeText, { sha });
-  if (!record) {
-    const patchId = (await patchIdsOfBatch([sha], { cwd, timeoutMs: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER }, runGitFn))?.get(sha);
-    record = patchId ? findRecord(storeText, { patchId }) : null;
-  }
-  const prompt = record ? lastPromptBefore(await readTraceText(storeRoot, record.sessionId), record.committedAt) : null;
-  writeOutput(formatWhy({ location: blamed.location, sha, committedAt, record, prompt }));
+  writeOutput(formatWhy({ location: blamed.location, sha, committedAt, record: null, sharedNote, prompt: null }));
   return 0;
+}
+
+async function findLocalRecord(storeText: string, sha: string, patchIdOfCommit: () => Promise<string | null>): Promise<CommitSessionRecord | null> {
+  if (!storeText) return null;
+  const bySha = findRecord(storeText, { sha });
+  if (bySha) return bySha;
+  const patchId = await patchIdOfCommit();
+  return patchId ? findRecord(storeText, { patchId }) : null;
 }
 
 export { runWhyCli };

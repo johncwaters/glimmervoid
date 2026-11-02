@@ -1,14 +1,26 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { CommitSessionRecord } from '../../shared/contracts/commit-session.ts';
+import { BUILTIN_AGENT_IDS } from '../../shared/contracts/config.ts';
 import { TraceRecord } from '../../shared/contracts/trace.ts';
+import { adapterBucket } from './telemetry-core.ts';
 
 const COMMIT_LOG_FORMAT = '%H %ct';
 const REPO_KEY_HASH_LENGTH = 12;
 const SHORT_SHA_LENGTH = 7;
 const MAX_PROMPT_CHARS = 200;
 const PROMPT_MARKER = '"kind":"prompt"';
+const NOTES_REF_PREFIX = 'refs/notes/glimmervoid/';
+const WRITER_ID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+const SharedProvenanceNote = z.object({
+  v: z.literal(1),
+  sessionId: z.string().regex(/^[0-9a-f]{16}$/),
+  agent: z.enum([...BUILTIN_AGENT_IDS, 'custom']),
+}).strict();
+
+type SharedProvenanceNote = z.infer<typeof SharedProvenanceNote>;
 
 interface ListedCommit {
   sha: string;
@@ -38,6 +50,37 @@ function parsePatchIds(patchIdOutput: string): Map<string, string> {
   return patchIdBySha;
 }
 
+function writerNotesRef(writerId: string): string | null {
+  return WRITER_ID_SHAPE.test(writerId) ? `${NOTES_REF_PREFIX}${writerId}` : null;
+}
+
+function opaqueSessionIdOf(sessionId: string): string {
+  return crypto.createHash('sha256').update(sessionId).digest('hex').slice(0, 16);
+}
+
+function encodeNote(record: Pick<CommitSessionRecord, 'sessionId' | 'agent'>): string {
+  const note: SharedProvenanceNote = { v: 1, sessionId: opaqueSessionIdOf(record.sessionId), agent: adapterBucket(record.agent) };
+  return JSON.stringify(note);
+}
+
+function parseNote(noteText: string): SharedProvenanceNote | null {
+  try {
+    const parsed = SharedProvenanceNote.safeParse(JSON.parse(noteText));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+function blobObjectIdOf(content: string): string {
+  const body = Buffer.from(content, 'utf8');
+  return crypto.createHash('sha1').update(`blob ${body.length}\0`).update(body).digest('hex');
+}
+
+function noteKeysOf(commit: { sha: string; patchId: string | null }): string[] {
+  return commit.patchId ? [commit.sha, blobObjectIdOf(commit.patchId)] : [commit.sha];
+}
+
 type WhyTarget = { file: string; line: number } | { sha: string } | { error: string };
 
 interface WhyAnswer {
@@ -45,6 +88,7 @@ interface WhyAnswer {
   sha: string;
   committedAt: number;
   record: CommitSessionRecord | null;
+  sharedNote?: SharedProvenanceNote | null;
   prompt: { text: string; ts: number } | null;
 }
 
@@ -103,9 +147,10 @@ function localTime(ms: number): string {
 
 function formatWhy(answer: WhyAnswer): string {
   const heading = `${answer.location}  ${answer.sha.slice(0, SHORT_SHA_LENGTH)}  ${localDay(answer.committedAt)} ${localTime(answer.committedAt)}`;
-  const { record } = answer;
+  const { record, sharedNote } = answer;
+  if (!record && sharedNote) return `${heading}\nsession  ${sharedNote.agent}  ${sharedNote.sessionId.slice(0, 8)}  (shared record; task and prompt stay on the machine that made it)`;
   if (!record) return `${heading}\nno Glimmervoid session made this commit`;
-  const lines = [heading, `session  ${record.sessionName} (${record.agent})  ${record.sessionId.slice(0, 8)}`];
+  const lines = [heading, `session  ${record.sessionName} (${record.agent})  ${opaqueSessionIdOf(record.sessionId).slice(0, 8)}`];
   if (record.taskTitle) lines.push(`task     ${record.taskTitle}`);
   if (answer.prompt) lines.push(`asked    ${JSON.stringify(answer.prompt.text)} (${localTime(answer.prompt.ts)})`);
   return lines.join('\n');
@@ -121,5 +166,8 @@ function recordedShasOf(storeText: string, sessionId: string): Set<string> {
   return recordedShas;
 }
 
-export { COMMIT_LOG_FORMAT, findRecord, formatWhy, lastPromptBefore, parseCommitLog, parsePatchIds, parseWhyTarget, recordedShasOf, repoKeyOf };
-export type { ListedCommit };
+export {
+  COMMIT_LOG_FORMAT, NOTES_REF_PREFIX, encodeNote, findRecord, formatWhy, lastPromptBefore, noteKeysOf,
+  parseCommitLog, parseNote, parsePatchIds, parseWhyTarget, recordedShasOf, repoKeyOf, writerNotesRef,
+};
+export type { ListedCommit, SharedProvenanceNote };

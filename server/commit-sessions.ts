@@ -2,16 +2,24 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { CommitSessionRecord } from '../shared/contracts/commit-session.ts';
 import { errorMessage } from '../shared/text.ts';
-import { COMMIT_LOG_FORMAT, parseCommitLog, parsePatchIds, recordedShasOf, repoKeyOf } from './core/commit-session-core.ts';
-import type { ListedCommit } from './core/commit-session-core.ts';
+import {
+  COMMIT_LOG_FORMAT, NOTES_REF_PREFIX, encodeNote, noteKeysOf, parseCommitLog, parseNote, parsePatchIds, recordedShasOf, repoKeyOf, writerNotesRef,
+} from './core/commit-session-core.ts';
+import type { ListedCommit, SharedProvenanceNote } from './core/commit-session-core.ts';
 import { runGit } from './git/git-exec.ts';
 import type { RunGitOptions } from './git/git-exec.ts';
-import { appendJsonLines } from './json-file.ts';
+import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
+import { appendJsonLines, createJsonStateStore } from './json-file.ts';
 import { createKeyedSerialQueue } from './spawn-gate.ts';
 
 const COMMIT_SESSIONS_FOLDER_NAME = 'commit-sessions';
+const PROVENANCE_WRITER_FILE_NAME = 'provenance-writer.json';
 const GIT_TIMEOUT_MS = 20_000;
 const GIT_MAX_BUFFER = 64 * 1024 * 1024;
+const NOTES_COMMIT_IDENTITY = {
+  GIT_AUTHOR_NAME: 'Glimmervoid', GIT_AUTHOR_EMAIL: 'provenance@glimmervoid.invalid', GIT_COMMITTER_NAME: 'Glimmervoid', GIT_COMMITTER_EMAIL: 'provenance@glimmervoid.invalid',
+};
 
 interface SessionHeadChange {
   sessionId: string;
@@ -46,11 +54,57 @@ async function readStoreText(storePath: string): Promise<string> {
   return fs.promises.readFile(storePath, 'utf8').catch(() => '');
 }
 
-function createCommitSessions({ storeRoot, runGitFn = runGit, logger, nowFn = Date.now }: {
+async function notesRefsUnder(prefix: string, gitOptions: RunGitOptions, runGitFn: GitRunner): Promise<string[]> {
+  const listed = await runGitFn(['for-each-ref', '--format=%(refname)', prefix], gitOptions);
+  return listed.ok ? listed.out.split('\n').filter(Boolean) : [];
+}
+
+async function findNoteUnder(prefix: string, commit: { sha: string; patchId: string | null }, gitOptions: RunGitOptions, runGitFn: GitRunner): Promise<SharedProvenanceNote | null> {
+  const noteRefs = await notesRefsUnder(prefix, gitOptions, runGitFn);
+  for (const noteKey of noteKeysOf(commit)) {
+    for (const noteRef of noteRefs) {
+      const shown = await runGitFn(['notes', '--ref', noteRef, 'show', noteKey], gitOptions);
+      const note = shown.ok ? parseNote(shown.out) : null;
+      if (note) return note;
+    }
+  }
+  return null;
+}
+
+async function findSharedNote(cwd: string, commit: { sha: string; patchId: string | null }, runGitFn: GitRunner = runGit): Promise<SharedProvenanceNote | null> {
+  return findNoteUnder(NOTES_REF_PREFIX, commit, { cwd, timeoutMs: GIT_TIMEOUT_MS }, runGitFn);
+}
+
+const ProvenanceWriterState = z.object({ writerId: z.string().refine((writerId) => writerNotesRef(writerId) !== null) }).strict();
+
+function createProvenanceWriterId(filePath: string, logger: Pick<Console, 'warn'>): () => Promise<string> {
+  let writerId: string | null = null;
+  const stateStore = createJsonStateStore<z.infer<typeof ProvenanceWriterState>>({
+    name: 'provenance writer id',
+    filePath,
+    parse: (raw) => {
+      const parsed = ProvenanceWriterState.safeParse(raw);
+      return parsed.success ? parsed.data : null;
+    },
+    adopt: (loaded) => { writerId = writerId ?? loaded?.writerId ?? null; },
+    warn: (message, fields) => logger.warn(`[commit-sessions] ${message} ${JSON.stringify(fields)}`),
+  });
+  return async () => {
+    await stateStore.load();
+    if (writerId) return writerId;
+    const freshState = { writerId: randomUUID() };
+    writerId = freshState.writerId;
+    await stateStore.write(freshState, () => JSON.stringify(freshState, null, 2));
+    return writerId;
+  };
+}
+
+function createCommitSessions({ storeRoot, runGitFn = runGit, logger, nowFn = Date.now, writerIdFn = () => Promise.resolve(null) }: {
   storeRoot: string;
   runGitFn?: GitRunner;
   logger: Pick<Console, 'warn'>;
   nowFn?: () => number;
+  writerIdFn?: () => Promise<string | null>;
 }) {
   const lastCapturedHeadBySessionId = new Map<string, string>();
   const recordedShasBySessionId = new Map<string, Set<string>>();
@@ -114,15 +168,38 @@ function createCommitSessions({ storeRoot, runGitFn = runGit, logger, nowFn = Da
       committedAt: commit.committedAt,
       recordedAt,
     }));
+    await writeNotes(records, gitOptions);
     await appendJsonLines(storePath, records, { mkdir: true, mode: 0o600 });
     lastCapturedHeadBySessionId.set(change.sessionId, change.headSha);
     for (const record of records) recordedShas.add(record.sha);
   }
 
-  function noteHeadChange(change: SessionHeadChange): Promise<void> {
+  async function addNoteKeepingFirst(noteRef: string, note: string, noteKey: string, gitOptions: RunGitOptions): Promise<boolean> {
+    const added = await runGitFn(['notes', '--ref', noteRef, 'add', '-m', note, noteKey], { ...gitOptions, env: NOTES_COMMIT_IDENTITY });
+    if (added.ok) return true;
+    const existing = await runGitFn(['notes', '--ref', noteRef, 'show', noteKey], gitOptions);
+    return existing.ok;
+  }
+
+  async function writeNotes(records: readonly CommitSessionRecord[], gitOptions: RunGitOptions): Promise<void> {
+    const noteRef = writerNotesRef((await writerIdFn()) ?? '');
+    if (!noteRef) return;
+    const failedShas: string[] = [];
+    for (const record of records) {
+      const note = encodeNote(record);
+      const [shaKey, patchIdKey] = noteKeysOf(record);
+      const isShaNoteWritten = await addNoteKeepingFirst(noteRef, note, shaKey ?? record.sha, gitOptions);
+      const isPatchIdNoteWritten = !patchIdKey || await addNoteKeepingFirst(noteRef, note, patchIdKey, gitOptions);
+      if (!isShaNoteWritten || !isPatchIdNoteWritten) failedShas.push(record.sha.slice(0, 12));
+    }
+    if (failedShas.length > 0) logger.warn(`[commit-sessions] could not write the shared note for ${failedShas.join(', ')}`);
+  }
+
+  async function noteHeadChange(change: SessionHeadChange): Promise<void> {
     const { baseRef } = change;
-    if (!baseRef) return Promise.resolve();
-    return captureQueue.run(change.sessionId, () => capture({ ...change, baseRef }))
+    if (!baseRef) return;
+    const repoKey = (await storePathOf(change.worktreeDir).catch(() => null)) ?? change.worktreeDir;
+    return captureQueue.run(repoKey, () => capture({ ...change, baseRef }))
       .catch((error: unknown) => logger.warn(`[commit-sessions] capture failed for ${change.sessionId}: ${errorMessage(error)}`));
   }
 
@@ -131,5 +208,7 @@ function createCommitSessions({ storeRoot, runGitFn = runGit, logger, nowFn = Da
 
 type CommitSessions = ReturnType<typeof createCommitSessions>;
 
-export { COMMIT_SESSIONS_FOLDER_NAME, GIT_MAX_BUFFER, GIT_TIMEOUT_MS, createCommitSessions, gitCommonDirectoryOf, patchIdsOfBatch, storePathFor };
+export {
+  COMMIT_SESSIONS_FOLDER_NAME, GIT_MAX_BUFFER, PROVENANCE_WRITER_FILE_NAME, createProvenanceWriterId, GIT_TIMEOUT_MS, createCommitSessions, findSharedNote, gitCommonDirectoryOf, patchIdsOfBatch, storePathFor,
+};
 export type { CommitSessions, GitRunner };
