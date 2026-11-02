@@ -7,7 +7,7 @@ import { git } from '../site-capture/isolated-glimmervoid.ts';
 import type { UpstreamVariant } from './cases-core.ts';
 
 const MERGED_FILE_NAME = 'review-merge.txt';
-const MERGED_FILE_CONTENT = 'landed through the Review tab Merge button\n';
+const MERGED_FILE_CONTENT = 'landed through the change reader Merge button\n';
 const UPSTREAM_CONFLICTING_CONTENT = 'written on origin while the session worked\n';
 const UPSTREAM_FILE_NAME = 'upstream.txt';
 const LOCAL_ONLY_FILE_NAME = 'local-only.txt';
@@ -76,53 +76,84 @@ async function readOriginFile(originPath: string, fileName: string): Promise<str
   return git(originPath, ['show', `main:${fileName}`]);
 }
 
-async function waitForReviewHeadline(page: Page, headline: string): Promise<void> {
-  await page.locator('#review-sidebar .review-status-text', { hasText: headline }).waitFor({ timeout: OUTCOME_TIMEOUT_MS });
-}
-
-async function waitForBranchSync(page: Page, label: string): Promise<void> {
-  await page.locator('#review-sidebar .review-branch-sync-label', { hasText: label }).waitFor({ timeout: OUTCOME_TIMEOUT_MS });
+async function waitForReaderStatus(page: Page, sentence: string): Promise<void> {
+  await page.locator('.review-reader .review-reader-status', { hasText: sentence }).waitFor({ timeout: OUTCOME_TIMEOUT_MS });
 }
 
 async function verifyOutcome(page: Page, upstream: UpstreamVariant, originPath: string, originHeadBeforeClick: string): Promise<void> {
-  const sidebar = page.locator('#review-sidebar');
+  const reader = page.locator('.review-reader');
   if (upstream === 'none') {
     assert.equal(await pollFor('the commit on origin main', OUTCOME_TIMEOUT_MS, () => readOriginFile(originPath, MERGED_FILE_NAME)), MERGED_FILE_CONTENT);
-    await sidebar.locator('.review-empty-title', { hasText: 'No changes yet' }).waitFor({ timeout: OUTCOME_TIMEOUT_MS });
-    await waitForBranchSync(page, 'main: in sync with origin/main');
+    await reader.locator('.review-empty-title', { hasText: 'No changes yet' }).waitFor({ timeout: OUTCOME_TIMEOUT_MS });
     return;
   }
   if (upstream === 'conflict') {
-    await waitForReviewHeadline(page, 'Parked: merge conflict');
-    await sidebar.getByRole('button', { name: 'Resolve', exact: true }).waitFor({ timeout: OUTCOME_TIMEOUT_MS });
+    await waitForReaderStatus(page, 'Parked: merge conflict');
+    assert.equal(await reader.getByRole('button', { name: 'Merge', exact: true }).isVisible(), false, 'a merge conflict offers no Merge');
   }
-  if (upstream === 'diverged') await waitForReviewHeadline(page, 'Parked: base branch diverged');
-  if (upstream === 'push-rejected') {
-    await page.getByText(PUSH_REFUSED_WARNING).waitFor({ timeout: OUTCOME_TIMEOUT_MS });
-    await waitForBranchSync(page, 'main: 1 ahead of origin/main');
-  }
+  if (upstream === 'diverged') await waitForReaderStatus(page, 'Parked: base branch diverged');
+  if (upstream === 'push-rejected') await page.getByText(PUSH_REFUSED_WARNING).waitFor({ timeout: OUTCOME_TIMEOUT_MS });
   assert.equal((await git(originPath, ['rev-parse', 'main'])).trim(), originHeadBeforeClick, 'origin main is unchanged');
+}
+
+async function openChangesReader(page: Page): Promise<void> {
+  await page.locator('.review-bar').getByRole('button', { name: 'Changes', exact: true }).click();
+  const reader = page.locator('.review-reader[data-placement="overlay"]');
+  await reader.waitFor();
+  await reader.locator(`.review-reader-file[data-path="${MERGED_FILE_NAME}"][aria-current="true"]`).waitFor({ timeout: MERGE_ENABLED_TIMEOUT_MS });
+  await reader.locator('.review-reader-diff .review-line-add', { hasText: MERGED_FILE_CONTENT.trim() }).waitFor();
+  assert.equal(await page.locator('#focus-rail').isVisible(), true, 'the rail stays beside the change reader');
+  await page.keyboard.press('j');
+  await reader.locator(`.review-reader-file[data-path="${MERGED_FILE_NAME}"][aria-current="true"]`).waitFor();
+}
+
+async function closeChangesReader(page: Page, sessionId: string): Promise<void> {
+  await page.locator('.review-reader').focus();
+  await page.keyboard.press('Escape');
+  await page.locator('.review-reader').waitFor({ state: 'detached' });
+  assert.equal(await page.locator(`#focus-pane-terminal .session-card[data-id="${sessionId}"]`).isVisible(), true, 'closing the reader leaves the terminal where it was');
 }
 
 export async function verifyReviewMerge(page: Page, projectDirectory: string, upstream: UpstreamVariant): Promise<void> {
   const worktreePath = await pollFor('the session worktree', WORKTREE_TIMEOUT_MS, () => findSessionWorktree(projectDirectory));
   const originPath = (await git(projectDirectory, ['remote', 'get-url', 'origin'])).trim();
   assert.equal(await readOriginFile(originPath, MERGED_FILE_NAME), null, 'origin main starts without the merged file');
-  await commitFile(worktreePath, MERGED_FILE_NAME, MERGED_FILE_CONTENT, 'test: land a file through the Review tab');
+  await commitFile(worktreePath, MERGED_FILE_NAME, MERGED_FILE_CONTENT, 'test: land a file through the change reader');
   await prepareUpstream(upstream, projectDirectory, originPath);
   const originHeadBeforeClick = (await git(originPath, ['rev-parse', 'main'])).trim();
+  const sessionId = await page.locator('#focus-pane-terminal .session-card').getAttribute('data-id');
+  assert.ok(sessionId, 'a session is centered in Focus');
 
-  const sidebar = page.locator('#review-sidebar');
-  if (await sidebar.getAttribute('data-collapsed') !== null) {
-    await sidebar.getByRole('button', { name: 'Open review', exact: true }).click();
-  }
-  await page.locator('#review-merge-btn:enabled').waitFor({ timeout: MERGE_ENABLED_TIMEOUT_MS });
-
+  await page.locator('.review-bar-merge:enabled').waitFor({ timeout: MERGE_ENABLED_TIMEOUT_MS });
+  await openChangesReader(page);
   const mergeButtonAfterClick = await page.evaluate(() => {
-    document.querySelector<HTMLButtonElement>('#review-merge-btn')?.click();
-    const mergeButton = document.querySelector<HTMLButtonElement>('#review-merge-btn');
-    return { isDisabled: mergeButton?.disabled ?? null, label: mergeButton?.firstChild?.textContent?.trim() ?? null };
+    const mergeButton = document.querySelector<HTMLButtonElement>('.review-reader .review-btn-primary');
+    mergeButton?.click();
+    return { isDisabled: mergeButton?.disabled ?? null, label: mergeButton?.textContent?.trim() ?? null };
   });
   assert.deepEqual(mergeButtonAfterClick, { isDisabled: true, label: 'Merge' });
   await verifyOutcome(page, upstream, originPath, originHeadBeforeClick);
+  await closeChangesReader(page, sessionId);
+}
+
+export async function verifyPhoneChanges(page: Page, projectDirectory: string): Promise<void> {
+  const worktreePath = await pollFor('the session worktree', WORKTREE_TIMEOUT_MS, () => findSessionWorktree(projectDirectory));
+  await commitFile(worktreePath, MERGED_FILE_NAME, MERGED_FILE_CONTENT, 'test: read a file on the phone Changes screen');
+  const changesScreen = page.locator('.phone-screen[data-screen="changes"]');
+  const terminalScreen = page.locator('.phone-screen[data-screen="terminal"]');
+  const reader = changesScreen.locator('.review-reader');
+  await page.locator('.phone-changes').click();
+  await reader.locator(`.review-reader-file[data-path="${MERGED_FILE_NAME}"]`).waitFor({ timeout: MERGE_ENABLED_TIMEOUT_MS });
+  assert.equal(await reader.getAttribute('data-level'), 'list', 'Changes opens on the file list');
+  await reader.locator(`.review-reader-file[data-path="${MERGED_FILE_NAME}"]`).click();
+  await reader.locator('.review-reader-diff .review-line-add', { hasText: MERGED_FILE_CONTENT.trim() }).waitFor();
+  assert.equal(await reader.getAttribute('data-level'), 'diff');
+  assert.equal(await reader.locator('.review-reader-files').isVisible(), false, 'the file list hides while a diff is open');
+  await page.evaluate(() => history.back());
+  await reader.locator('.review-reader-files').waitFor();
+  assert.equal(await reader.getAttribute('data-level'), 'list', 'back closes the diff');
+  assert.equal(await changesScreen.isVisible(), true, 'back from a diff stays on Changes');
+  await page.evaluate(() => history.back());
+  await terminalScreen.waitFor();
+  assert.equal(await changesScreen.isVisible(), false, 'back from the list returns to the terminal');
 }

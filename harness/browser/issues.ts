@@ -210,7 +210,7 @@ export async function verifyIssues(page: Page, layout: Layout, sessionId: string
   await linkedRow.click();
   await panel.getByRole('button', { name: 'Open session', exact: true }).click();
   assert.equal(await page.evaluate(async () => {
-    const selectionUrl = '/sidebar/selection.ts';
+    const selectionUrl = '/review/selection.ts';
     const selection: { getSelectedId(): string | null } = await import(selectionUrl);
     return selection.getSelectedId();
   }), sessionId);

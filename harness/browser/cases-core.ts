@@ -12,6 +12,7 @@ export type Step =
   | { kind: 'assert-board-pane'; viewer?: ViewerId }
   | { kind: 'assert-team-review'; viewer?: ViewerId }
   | { kind: 'assert-review-merge'; upstream: UpstreamVariant; viewer?: ViewerId }
+  | { kind: 'assert-phone-changes'; viewer?: ViewerId }
   | { kind: 'open'; viewer?: ViewerId }
   | { kind: 'back'; viewer?: ViewerId }
   | { kind: 'assert-settings-back'; viewer?: ViewerId }
@@ -237,6 +238,11 @@ export const SCENARIOS: readonly Scenario[] = [
       { kind: 'settle' },
       { kind: 'shot', name: 'reopened' },
     ],
+  },
+  {
+    name: 'phone-changes-back',
+    viewports: ['phone-393'],
+    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'assert-phone-changes' }, { kind: 'shot', name: 'changes-list' }],
   },
   {
     name: 'phone-settings-back',
@@ -685,7 +691,7 @@ export function needsIssues(scenario: Scenario): boolean {
 }
 
 export function needsGitOrigin(scenario: Scenario): boolean {
-  return scenario.steps.some((step) => step.kind === 'assert-review-merge' || step.kind === 'assert-board-pane');
+  return scenario.steps.some((step) => step.kind === 'assert-review-merge' || step.kind === 'assert-board-pane' || step.kind === 'assert-phone-changes');
 }
 
 function scenarioRunsOnViewport(scenario: Scenario, viewport: Viewport, layout: Layout, proveFailure: boolean): boolean {

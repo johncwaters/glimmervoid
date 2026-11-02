@@ -331,7 +331,9 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   assert.ok(spaceAboveUnitPx > 0 && spaceBelowUnitPx > 0, 'fit keeps the board clear of the session island');
   await inspect.getByRole('button', { name: `Open ${UNCOVERED_FILE_NAME} in review`, exact: true }).click();
   await page.locator('#tab-focus[aria-selected="true"]').waitFor();
-  await page.locator(`#review-sidebar:not([data-collapsed]) .review-file[data-path="${UNCOVERED_FILE_NAME}"]`).waitFor({ timeout: REVIEW_TIMEOUT_MS });
+  await page.locator(`.review-reader .review-reader-file[data-path="${UNCOVERED_FILE_NAME}"][aria-current="true"]`).waitFor({ timeout: REVIEW_TIMEOUT_MS });
+  await page.keyboard.press('Escape');
+  await page.locator('.review-reader').waitFor({ state: 'detached' });
   await verifyBoardPaneFallsBackToSessionBoard(page, panel, sessionId, boardTitle);
   await verifySessionlessBoardRows(page, panel, sessionId);
 }

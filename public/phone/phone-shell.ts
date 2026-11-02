@@ -5,7 +5,7 @@ import { getRestorableSessionId, requestSessionOpen, selectSession } from '../se
 import { addActivityRenderer } from '../session-card/activity.ts';
 import { attentionTally, sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import { showSessionPlanFace } from '../session-card/lifecycle.ts';
-import { reparentReviewPanel } from '../sidebar/review-sidebar.ts';
+import { closeReviewFile, hasOpenReviewFile, onReviewLevelChange, placeReviewScreen } from '../review/review-reader.ts';
 import { createLineIcon, FOCUS_ICON_PATH, MORE_ICON_PATH, TERMINAL_ICON_PATH } from '../svg-dom.ts';
 import { uiState } from '../ui-state-core.ts';
 import { createBoardScreen } from './board-screen.ts';
@@ -200,6 +200,7 @@ function build() {
   addActivityRenderer((ui, kind) => { if (active) boardScreen?.renderActivity(ui, kind); });
   terminalScreen = createTerminalScreen({ onBack: () => showScreen(BOARD), onShowChanges: () => showScreen(CHANGES) });
   reviewMountEl = el('div', 'phone-review');
+  onReviewLevelChange(syncPhoneHistory);
 
   const screens = el('div', 'phone-screens');
   const contentByScreenId: Record<string, HTMLElement | null> = {
@@ -241,12 +242,20 @@ function buildChangesScreen(mountEl: HTMLDivElement) {
   const topBar = el('header', 'phone-topbar phone-changes-bar');
   const backButton = el('button', 'phone-back', BACK_GLYPH);
   backButton.type = 'button';
-  backButton.setAttribute('aria-label', 'Back to terminal');
-  backButton.addEventListener('click', () => showScreen(TERMINAL));
+  backButton.setAttribute('aria-label', 'Back');
+  backButton.addEventListener('click', goBackFromChanges);
   changesSessionNameEl = el('span', 'phone-changes-session');
   topBar.append(backButton, el('span', 'phone-changes-title', 'Changes'), changesSessionNameEl);
   changesScreen.append(topBar, mountEl);
   return changesScreen;
+}
+
+function goBackFromChanges() {
+  if (hasOpenReviewFile()) {
+    closeReviewFile();
+    return;
+  }
+  showScreen(TERMINAL);
 }
 
 function openSession(sessionId: string) {
@@ -262,14 +271,15 @@ function openSession(sessionId: string) {
 interface PhoneHistoryState {
   glimmervoidScreen?: unknown;
   glimmervoidNested?: unknown;
+  glimmervoidDepth?: unknown;
 }
 
 function rootScreenOf(screenId: string) {
   return PARENT_SCREEN_BY_ID[screenId] ?? screenId;
 }
 
-function historyStateFor(screenId: string, isNested: boolean) {
-  if (isNested) return { glimmervoidScreen: screenId, glimmervoidNested: true };
+function historyStateFor(screenId: string, depth: number) {
+  if (depth > 1) return { glimmervoidScreen: screenId, glimmervoidNested: true, glimmervoidDepth: depth };
   return { glimmervoidScreen: rootScreenOf(screenId) };
 }
 
@@ -280,18 +290,33 @@ function screenIdFromHistoryState(state: unknown): string | null {
 
 function historyDepthOf(state: unknown) {
   if (!screenIdFromHistoryState(state)) return 0;
-  return (state as PhoneHistoryState).glimmervoidNested === true ? 2 : 1;
+  const { glimmervoidDepth, glimmervoidNested } = state as PhoneHistoryState;
+  if (typeof glimmervoidDepth === 'number' && Number.isInteger(glimmervoidDepth) && glimmervoidDepth > 1) return glimmervoidDepth;
+  return glimmervoidNested === true ? 2 : 1;
+}
+
+function canGoBackWithin(screenId: string) {
+  if (screenId === CHANGES) return hasOpenReviewFile();
+  return hooks.canGoBack?.(screenId) ?? false;
+}
+
+function goBackWithin(screenId: string) {
+  if (screenId === CHANGES) {
+    closeReviewFile();
+    return;
+  }
+  hooks.onBack?.(screenId);
 }
 
 function desiredHistoryDepth(screenId: string) {
   if (screenId === BOARD) return 0;
-  if (PARENT_SCREEN_BY_ID[screenId]) return 2;
-  return hooks.canGoBack?.(screenId) ? 2 : 1;
+  const screenDepth = PARENT_SCREEN_BY_ID[screenId] ? 2 : 1;
+  return canGoBackWithin(screenId) ? screenDepth + 1 : screenDepth;
 }
 
-function isCurrentHistoryStateFor(screenId: string, isNested: boolean) {
-  const expectedScreenId = isNested ? screenId : rootScreenOf(screenId);
-  return screenIdFromHistoryState(history.state) === expectedScreenId && historyDepthOf(history.state) === (isNested ? 2 : 1);
+function isCurrentHistoryStateFor(screenId: string, depth: number) {
+  const expectedScreenId = depth > 1 ? screenId : rootScreenOf(screenId);
+  return screenIdFromHistoryState(history.state) === expectedScreenId && historyDepthOf(history.state) === depth;
 }
 
 export function syncPhoneHistory() {
@@ -304,15 +329,10 @@ export function syncPhoneHistory() {
     pushedHistoryDepth = desiredDepth;
     return;
   }
-  const isTopNested = pushedHistoryDepth === 2;
-  if (pushedHistoryDepth > 0 && !isCurrentHistoryStateFor(screenId, isTopNested)) history.replaceState(historyStateFor(screenId, isTopNested), '');
-  if (pushedHistoryDepth === 0 && desiredDepth > 0) {
-    history.pushState(historyStateFor(screenId, false), '');
-    pushedHistoryDepth = 1;
-  }
-  if (pushedHistoryDepth === 1 && desiredDepth === 2) {
-    history.pushState(historyStateFor(screenId, true), '');
-    pushedHistoryDepth = 2;
+  if (pushedHistoryDepth > 0 && !isCurrentHistoryStateFor(screenId, pushedHistoryDepth)) history.replaceState(historyStateFor(screenId, pushedHistoryDepth), '');
+  while (pushedHistoryDepth < desiredDepth) {
+    pushedHistoryDepth += 1;
+    history.pushState(historyStateFor(screenId, pushedHistoryDepth), '');
   }
 }
 
@@ -339,8 +359,8 @@ function onPopState(event: PopStateEvent) {
   const targetScreenId = target && canShowScreen(target) ? target : BOARD;
   pushedHistoryDepth = historyDepthOf(event.state);
   const currentScreenId = uiState.snapshot().phoneScreen;
-  const isLeavingNestedScreen = pushedHistoryDepth < 2 && targetScreenId === currentScreenId && hooks.canGoBack?.(currentScreenId);
-  if (isLeavingNestedScreen) hooks.onBack?.(currentScreenId);
+  const isLeavingNestedScreen = targetScreenId === currentScreenId && canGoBackWithin(currentScreenId) && pushedHistoryDepth < desiredHistoryDepth(currentScreenId);
+  if (isLeavingNestedScreen) goBackWithin(currentScreenId);
   applyScreen(targetScreenId);
   syncPhoneHistory();
 }
@@ -422,7 +442,7 @@ export function activatePhoneShell({ sessionId, linkedScreenId }: { sessionId?: 
   active = true;
   shellEl.hidden = false;
   for (const control of (hooks.headerControls || [])) adoptElement(control, boardScreen.topBarEl);
-  reparentReviewPanel(reviewMountEl);
+  placeReviewScreen(reviewMountEl);
   for (const panel of panels) {
     adoptElement(panel.el, panelMountElById.get(panel.id));
     panel.el.hidden = false;
@@ -448,7 +468,7 @@ export function deactivatePhoneShell() {
   if (!shellEl || !terminalScreen) throw new Error('Phone shell is not built');
   active = false;
   terminalScreen.clear();
-  reparentReviewPanel(null);
+  placeReviewScreen(null);
   for (const panel of panels) releaseElement(panel.el);
   for (const control of (hooks.headerControls || [])) releaseElement(control);
   setMoreMenuOpen(false);

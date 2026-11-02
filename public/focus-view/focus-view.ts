@@ -33,6 +33,9 @@ import { boardSummariesOf, boardsConnectedTo, onBoardListChanged, takeOpenBoardR
 import type { PaneTab } from '#shared/contracts/focus-layout.ts';
 import type { PaneLayout } from './pane-layout.ts';
 import { createPaneLayout } from './pane-layout.ts';
+import type { ReviewBar } from '../review/review-bar.ts';
+import { createReviewBar } from '../review/review-bar.ts';
+import { closeReviewOverlay, openReviewOverlay } from '../review/review-reader.ts';
 
 type RosterRow = SessionRow<SessionUi, string | null>;
 
@@ -58,6 +61,7 @@ let centerEl: HTMLElement | null = null;
 let cardSlotEl: HTMLElement | null = null;
 let paneLayout: PaneLayout | null = null;
 let boardToolsSlot: HTMLElement | null = null;
+let reviewBar: ReviewBar | null = null;
 let boardsViewLoad: Promise<BoardsViewModule> | null = null;
 let loadedBoardsView: BoardsViewModule | null = null;
 let boardPairedSessionId: string | null = null;
@@ -128,6 +132,10 @@ export function isFocusActive() { return active; }
 
 export function getFocusedSessionId() { return uiState.snapshot().focusedSessionId; }
 
+export function isBoardCentered() {
+  return active && centeredBoardId !== null;
+}
+
 export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | null; center: HTMLElement | null; resizer: HTMLElement | null }) {
   railEl = rail;
   centerEl = center;
@@ -160,6 +168,8 @@ export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | 
   boardToolsSlot = el('div', 'pane-board-tools');
   boardsGroup = buildBoardsGroup();
   paneLayout.setTabTools('board', boardToolsSlot);
+  reviewBar = createReviewBar({ onOpenChanges: () => openChangesInFocus() });
+  paneLayout.trailSlot.append(reviewBar.element);
   mountedCenter.append(emptyEl, paneLayout.element);
   onBoardListChanged(() => {
     if (!active) return;
@@ -373,6 +383,7 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
     const ui = sessionUIs.get(centeredId);
     if (ui && ui.card.parentElement !== cardSlotEl) borrowToCenter(ui, centeredId);
   }
+  reviewBar?.showSession(centeredBoardId ? null : centeredId);
   paintBoardPane();
   updateRailHead(order, attentionTiles);
 }
@@ -427,6 +438,7 @@ function paintBoardRows(group: ReturnType<typeof buildBoardsGroup>) {
 
 function centerBoard(boardId: string) {
   if (!active) return;
+  closeReviewOverlay();
   releaseCenter();
   centeredBoardId = boardId;
   pairedBoardId = null;
@@ -626,6 +638,12 @@ export function setFocusMergeStatus(id: unknown, mergeStatus: unknown) {
   if (active) refreshFocusRoster();
 }
 
+export function openChangesInFocus(path: string | null = null) {
+  const centeredId = getFocusedSessionId();
+  if (!active || !centerEl || centeredBoardId || !centeredId) return;
+  openReviewOverlay(centerEl, { path, onClosed: () => focusTerminalAfterSettle(sessionUIs.get(centeredId), centeredId) });
+}
+
 export function centerSessionQuietly(id: string) {
   if (!active || !sessionUIs.has(id)) return;
   focusSession(id);
@@ -695,6 +713,7 @@ export function restoreFocusedSession() {
 
 export function deactivateFocusView() {
   if (!active) return;
+  closeReviewOverlay();
   releaseCenter();
   railTabStopId = null;
   active = false;

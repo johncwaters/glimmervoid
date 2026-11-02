@@ -38,7 +38,6 @@ interface ViewDefinitionFields {
   isPhoneNavScreen?: boolean;
   isPhoneOnly?: boolean;
   hasPanelChrome?: boolean;
-  hasReviewSidebar?: boolean;
 }
 
 export type PrimaryViewDefinition<PanelElement> = ViewDefinitionFields & ViewSource<PanelElement>;

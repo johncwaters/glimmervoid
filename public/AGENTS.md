@@ -4,7 +4,7 @@
 # public
 
 ## Purpose
-The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR on 5173, production build to `dist/`). Renders session cards with xterm.js terminals, primary views including Settings, a review sidebar, dialogs, themes, and notifications. ANSI is parsed in the browser for display and in the server keeper for attach, because raw bytes are only correct at the width that produced them.
+The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR on 5173, production build to `dist/`). Renders session cards with xterm.js terminals, primary views including Settings, a change reader, dialogs, themes, and notifications. ANSI is parsed in the browser for display and in the server keeper for attach, because raw bytes are only correct at the width that produced them.
 
 ## Key Files
 
@@ -27,7 +27,7 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 | `hooks-panel.ts` / `hooks-view-core.ts` | Hooks tab: operator Claude Code hooks (`request-hooks-report`, `save-hook`, `delete-hook`) over a pure core owning every string and draft rule |
 | `trace-panel.ts` / `trace-view-core.ts` | Trace tab: one session's recorded trace paged over `session-trace`, over a pure core owning turn grouping and row labels |
 | `theme.ts` | Theme definitions applied as CSS custom properties; terminal theme derived at runtime |
-| `ui-prefs.ts` / `local-store.ts` | THE localStorage home for UI state (sound, theme, active view, rail and sidebar widths), over quota-safe wrappers. Each key is declared once in `ui-prefs.ts`'s `PREFS` table with its default and normalizer; the accessors are one line each. The review sidebar's width keeps its own storage key so an existing install's saved width survives |
+| `ui-prefs.ts` / `local-store.ts` | THE localStorage home for UI state (sound, theme, active view, rail width, Focus pane layout), over quota-safe wrappers. Each key is declared once in `ui-prefs.ts`'s `PREFS` table with its default and normalizer; the accessors are one line each |
 | `shortcuts-core.ts` | Pure catalog of dashboard shortcuts matched by `KeyboardEvent.code` under Cmd (Mac) or Alt, plus the help list groups; `boot/shortcuts-dispatch.ts`, the xterm pass-through and the help list all read it |
 | `shortcuts.ts` | DOM shell for `shortcuts-core.ts`: platform detection from the user agent, `kbd` chord rendering |
 | `form-factor-core.ts` | Pure `decideLayout({ coarse, narrowWidth })` -> `'phone' \| 'desktop'`: the one predicate choosing between the two first-class layouts |
@@ -49,7 +49,7 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 | `focus-view/` | Focus view: roster rail + centered card, attention queue (see `focus-view/AGENTS.md`) |
 | `phone/` | Phone layout: the Board (labelled Focus) and Terminal behind a bottom nav, plus one More screen per desktop tab, rendered only under `[data-layout="phone"]` (see `phone/AGENTS.md`) |
 | `plan/` | Safe plan parsing and the session card's shared plan face (see `plan/AGENTS.md`) |
-| `sidebar/` | Review sidebar: diff rendering, selection, merge actions (see `sidebar/AGENTS.md`) |
+| `review/` | Worktree review: `review-store.ts` owns per-session merge state and sends the merge, discard and diff control messages; the change reader and the Focus review bar only render it. `selection.ts` is the one source of the selected session |
 | `usage/` | Usage tab: the DOM shell and its pure formatting core |
 | `github/` | GitHub views: issues, my PRs, team review, the PR queue and status icons, and the shared polling retry text |
 | `settings/` | Settings view: the DOM shell over the shared registry, pure search, hash, draft and phone-screen rules, and `settings-link.ts`, the one builder for `#settings/` and `#settings?q=` links |

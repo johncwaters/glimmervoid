@@ -17,9 +17,8 @@ import { createPlanHash } from '../plan/plan-link.ts';
 import { isApprovedReview, mergePlanChanged } from '../plan/plan-view-core.ts';
 import type { PlanChangedMessage } from '../plan/plan-view-core.ts';
 import { isCompletionWatchedByOperator } from '../session-actions-core.ts';
-import { seedReviewMergeStatus, setReviewDiff, setReviewMergeStatus } from '../sidebar/review-sidebar.ts';
-import type { SessionDiffPayload } from '../sidebar/review-copy-core.ts';
-import { setSelectedId } from '../sidebar/selection.ts';
+import { seedMergeStatus, setMergeStatus } from '../review/review-store.ts';
+import { setSelectedId } from '../review/selection.ts';
 import { openTraceForSession } from '../trace-store.ts';
 import type { UsageSessionUsage } from '../usage/usage-store-core.ts';
 import { sessionChipText, sessionChipTitle } from '../usage/usage-store-core.ts';
@@ -609,18 +608,14 @@ export function setSessionMergeStatus(sessionId: unknown, mergeStatus: unknown, 
   const ui = findSessionUi(sessionId);
   const ms = asText(mergeStatus) || 'none';
   if (ui) applyMergeDataset(ui.card, ms);
-  setReviewMergeStatus(sessionIdOf(sessionId), ms, asText(reason) || null);
+  setMergeStatus(sessionIdOf(sessionId), ms, asText(reason) || null);
 }
 
 export function seedSessionMergeStatus(sessionId: unknown, mergeStatus: unknown, reason: unknown = null) {
   const ui = findSessionUi(sessionId);
   const ms = asText(mergeStatus) || 'none';
   if (ui) applyMergeDataset(ui.card, ms);
-  seedReviewMergeStatus(sessionIdOf(sessionId), ms, asText(reason) || null);
-}
-
-export function setSessionDiff(sessionId: unknown, payload: SessionDiffPayload | null) {
-  setReviewDiff(sessionIdOf(sessionId), payload);
+  seedMergeStatus(sessionIdOf(sessionId), ms, asText(reason) || null);
 }
 
 export function renameSessionCard(sessionId: unknown, newName: unknown) {

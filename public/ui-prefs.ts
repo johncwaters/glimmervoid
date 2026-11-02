@@ -7,7 +7,6 @@ import { parseFocusLayout } from './focus-view/pane-layout-core.ts';
 import { DEFAULT_NEXT_ATTENTION_KEY_CODE, isNextAttentionKeyCode } from './shortcuts-core.ts';
 
 const STORAGE_KEY = 'glimmervoid-ui-prefs';
-const SIDEBAR_WIDTH_KEY = 'glimmervoid:sidebar-width';
 
 interface UiPrefs extends FlyingAnimalsOptions {
   soundEnabled: boolean;
@@ -21,7 +20,6 @@ interface UiPrefs extends FlyingAnimalsOptions {
   activeView: string;
   lastFocusedSessionId: string | null;
   railWidth: number | null;
-  reviewSidebarExpanded: boolean;
   focusLayout: FocusLayout;
   prsQueueWidth: number | null;
   keptProjects: string[];
@@ -63,7 +61,6 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   activeView: (value: unknown): string => (typeof value === 'string' && value !== 'boards' ? value : 'focus'),
   lastFocusedSessionId: asNullableString,
   railWidth: asNullableNumber,
-  reviewSidebarExpanded: asBoolean(false),
   focusLayout: parseFocusLayout,
   prsQueueWidth: asNullableNumber,
   keptProjects: asStringList,
@@ -127,9 +124,6 @@ export const setActiveView = (view: string) => write('activeView', view);
 export const getRailWidth = () => read('railWidth');
 export const setRailWidth = (px: number | null) => write('railWidth', px);
 
-export const isReviewSidebarExpanded = () => read('reviewSidebarExpanded');
-export const setReviewSidebarExpanded = (expanded: boolean) => write('reviewSidebarExpanded', expanded);
-
 export const getFocusLayout = () => read('focusLayout');
 export const setFocusLayout = (layout: FocusLayout) => write('focusLayout', layout);
 
@@ -169,9 +163,6 @@ export const setUsageAttentionAck = (signature: string) => write('usageAttention
 
 export const getLastFocusedSessionId = () => read('lastFocusedSessionId');
 export const setLastFocusedSessionId = (id: string | null) => write('lastFocusedSessionId', id);
-
-export const getSidebarWidth = () => asNullableNumber(getJSON(SIDEBAR_WIDTH_KEY, null));
-export const setSidebarWidth = (px: number | null) => setJSON(SIDEBAR_WIDTH_KEY, asNullableNumber(px));
 
 export const setFlyingAnimalsMinGapSeconds = (value: number) => write('flyingAnimalsMinGapSeconds', value);
 

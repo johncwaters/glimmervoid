@@ -1,13 +1,12 @@
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { queryTag } from '../dom-helpers.ts';
 import type { FeatureSurfaceSettings } from '../feature-surfaces-core.ts';
-import { centerSessionQuietly, openPlanInFocus, openRequestedBoardInFocus } from '../focus-view/focus-view.ts';
+import { centerSessionQuietly, openChangesInFocus, openPlanInFocus, openRequestedBoardInFocus } from '../focus-view/focus-view.ts';
 import { isPhoneShellActive, orderPhonePanels, setPhoneScreenAttention, setPhoneScreenAvailable, showPhoneScreen, showPhoneSession } from '../phone/phone-shell-gate.ts';
 import { resolvePlanTarget } from '../plan/plan-link.ts';
 import { nextRovingIndex, wrapIndex } from '../roving-keys-core.ts';
 import { activateSettingsSection, setFeatureTabViews } from '../settings/settings-store.ts';
 import { isSettingsHash } from '../settings/settings-link.ts';
-import { mountReviewSidebar, openReviewFile } from '../sidebar/review-sidebar.ts';
 import { setTraceNavigate } from '../trace-store.ts';
 import { hasSession } from '../session-card/lifecycle.ts';
 import { getActiveView as getSavedActiveView, setActiveView } from '../ui-prefs.ts';
@@ -53,7 +52,7 @@ const VIEW_TABS = createDashboardViews({
     if (showPhoneSession(id)) return;
     activateView('focus');
     centerSessionQuietly(id);
-    openReviewFile(openPath);
+    openChangesInFocus(openPath);
   },
   openReviews: () => {
     if (!isViewAvailable('prs')) return false;
@@ -121,7 +120,6 @@ function activateView(view: string, { section, setting, persist = true }: Activa
   if (persist) savedViewAwaitingSurface = null;
 
   document.body.dataset.activeView = view;
-  document.body.dataset.reviewSidebarHidden = String(viewTab.hasReviewSidebar !== true);
 
   if (persist) setActiveView(view);
   for (const v of VIEW_TABS) {
@@ -261,7 +259,6 @@ function restoreDesktopViews() {
 
 function mountViewTabs() {
   setFeatureTabViews(VIEW_TABS);
-  mountReviewSidebar({ panel: document.getElementById('review-sidebar') });
   mountEagerViews(VIEW_TABS);
 
   for (const viewTab of VIEW_TABS) {

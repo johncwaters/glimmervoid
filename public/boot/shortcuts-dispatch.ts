@@ -1,5 +1,5 @@
 import { isRealInputOwningKey } from '../dom-helpers.ts';
-import { activateFocusOnNextAttention, centerSessionQuietly, focusAdjacentInRail, focusNextAttention, focusNthInRail, isFocusActive } from '../focus-view/focus-view.ts';
+import { activateFocusOnNextAttention, centerSessionQuietly, focusAdjacentInRail, focusNextAttention, focusNthInRail, isBoardCentered, isFocusActive } from '../focus-view/focus-view.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { jumpToNextReview } from '../github/review-queue-store.ts';
 import { requestSessionRemoval, selectSession, setAddedSessionRevealer, spawnQuickSession, undoNewestPendingClose } from '../session-actions.ts';
@@ -8,8 +8,8 @@ import { isModalOpen } from '../session-card/modal.ts';
 import { currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { resolveDashboardShortcut } from '../shortcuts-core.ts';
 import type { ResolvedDashboardShortcut } from '../shortcuts-core.ts';
-import { mergeSelectedSession, resolveSelectedSession, resyncSelectedSession } from '../sidebar/review-sidebar.ts';
-import { getSelectedId } from '../sidebar/selection.ts';
+import { mergeSession } from '../review/review-store.ts';
+import { getSelectedId } from '../review/selection.ts';
 import { toggleStreamerMode } from '../streamer-mode.ts';
 import { getActiveView } from '../ui-state-core.ts';
 import { activateView, focusViewTabIfFocused, stepViewTab } from './view-tabs.ts';
@@ -36,18 +36,18 @@ function addSessionLikeTheFocusedOne() {
 
 function runDashboardShortcut({ action, step }: ResolvedDashboardShortcut) {
   switch (action) {
-    case 'merge':
-      mergeSelectedSession();
+    case 'merge': {
+      const selectedSessionId = getSelectedId();
+      if (!selectedSessionId || isBoardCentered()) return false;
+      mergeSession(selectedSessionId);
       return true;
+    }
     case 'close-session': {
       const selectedSessionId = getSelectedId();
       if (!selectedSessionId) return false;
       requestSessionRemoval(selectedSessionId);
       return true;
     }
-    case 'resolve-or-resync':
-      if (!resolveSelectedSession()) resyncSelectedSession();
-      return true;
     case 'new-session':
       document.getElementById('btn-add-session-header')?.click();
       return true;

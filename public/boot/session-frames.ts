@@ -18,7 +18,7 @@ import { applyState, createSessionCard, hasSession, removeSessionCard, seedSessi
 import { reconnectDataWs } from '../session-card/terminal.ts';
 import { applySettingsProjects } from '../settings/settings-store.ts';
 import { onShownFilesChanged } from '../shown-files.ts';
-import { forgetReviewSession, refreshReviewSidebar } from '../sidebar/review-sidebar.ts';
+import { forgetReview, refreshReview } from '../review/review-store.ts';
 import { markStatusDirty, setStatusPainter } from '../status-paint.ts';
 import { setTraceSessions } from '../trace-store.ts';
 import { noteSnapshotReceived } from './connection-screen.ts';
@@ -59,7 +59,7 @@ function forgetSession(sessionId: string) {
   clearHeaderErrorsForSession(sessionId);
   removeSessionCard(sessionId);
   forgetSessionCoherence(sessionId);
-  forgetReviewSession(sessionId);
+  forgetReview(sessionId);
   forgetSessionLinkedPrs(sessionId);
 }
 
@@ -155,13 +155,13 @@ function applySessionTransition(msg: SessionStatusMessage, transition: SessionTr
   const previousState = sessionUIs.get(String(msg.id))?.currentState;
   if (transition.to === STATES.DORMANT && previousState !== STATES.DORMANT) {
     rebuildAsDormantCard(msg);
-    refreshReviewSidebar(msg.id);
+    refreshReview(msg.id);
     return;
   }
   applyState(msg.id, transition.to, msg.timestamp);
   setSessionFailureReason(msg.id, msg.failureReason);
   if (msg.saneYolo !== undefined) setSessionSaneYolo(msg.id, msg.saneYolo);
-  refreshReviewSidebar(msg.id);
+  refreshReview(msg.id);
   if (isLeavingEndedState(previousState, transition.to)) reconnectDataWs(msg.id);
 }
 

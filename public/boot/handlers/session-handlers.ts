@@ -10,8 +10,8 @@ import { buildSessionCardOptions } from '../../session-card/card-options-core.ts
 import { attentionTally, sessionUIs } from '../../session-card/card-registry.ts';
 import { applySessionPlanError, createSessionCard, hasSession, removeSessionCard, renameSessionCard, reportSessionProblem, setSessionAgent, setSessionMergeStatus, setSessionTaskTitle, setSessionWorktree } from '../../session-card/lifecycle.ts';
 import { applySessionSetupResponse } from '../../session-setup/setup-dialog.ts';
-import { forgetReviewSession, releaseReviewMergeRequest } from '../../sidebar/review-sidebar.ts';
-import { getSelectedId, setSelectedId } from '../../sidebar/selection.ts';
+import { forgetReview, releaseMergeRequest } from '../../review/review-store.ts';
+import { getSelectedId, setSelectedId } from '../../review/selection.ts';
 import type { DashboardHandlerTable } from '../core/message-dispatch-core.ts';
 import { carryOverClientSessionFields, forgetSession, handleSessionStatus, refreshAttentionSurfaces, refreshRosterAndAttentionSurfaces, restoreUsageChip, syncTraceSessionsFromCards } from '../session-frames.ts';
 
@@ -30,7 +30,7 @@ const messageHandlers = {
     const wasSelected = getSelectedId() === String(msg.id);
     setSessionCoherenceHooks(msg.id, null);
     removeSessionCard(msg.id);
-    forgetReviewSession(msg.id);
+    forgetReview(msg.id);
     setSessionLinkedPrs(msg.id, msg.linkedPrs);
     createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg));
     if (wasSelected) setSelectedId(String(msg.id));
@@ -48,7 +48,7 @@ const messageHandlers = {
 
   'notify':             (msg) => { alertFromNotify(msg); handleDebugStateRefresh(msg.session); },
   'session-error':      (msg) => {
-    releaseReviewMergeRequest(msg.id);
+    releaseMergeRequest(msg.id);
     if (applySessionPlanError(msg)) return;
     reportSessionProblem(msg.id, msg.message);
   },

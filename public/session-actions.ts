@@ -11,7 +11,7 @@ import type { SessionUi } from './session-card/card-registry.ts';
 import { sessionName, sessionUIs } from './session-card/card-registry.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
 import { suggestSessionName } from './session-card/naming.ts';
-import { getSelectedId, setSelectedId } from './sidebar/selection.ts';
+import { getSelectedId, setSelectedId } from './review/selection.ts';
 import { markStatusDirty } from './status-paint.ts';
 import { getLastFocusedSessionId, setLastFocusedSessionId } from './ui-prefs.ts';
 import { NOT_CONNECTED_TEXT } from './updates-view-core.ts';

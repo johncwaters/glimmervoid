@@ -29,6 +29,6 @@ The Focus view: a watch-and-steer layout with a persistent left roster rail (one
 ## Dependencies
 
 ### Internal
-- `../session-card/` (cards, activity flags), `../sidebar/selection.ts` (focusing selects in the review sidebar), `../app.ts` (shortcut dispatch)
+- `../session-card/` (cards, activity flags), `../review/selection.ts` (focusing selects the session the review bar and change reader show), `../app.ts` (shortcut dispatch)
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->

@@ -9,7 +9,7 @@ import type { CardControl, HarnessCase, Layout, ResolvedStep, Step, ViewerId, Vi
 import { expectedRows, parseStatusRow } from './frame-core.ts';
 import { verifyBoardPane, verifyBoards } from './boards.ts';
 import { verifyIssues } from './issues.ts';
-import { verifyReviewMerge } from './review-merge.ts';
+import { verifyPhoneChanges, verifyReviewMerge } from './review-merge.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
 import { CARD_REGISTRY_URL, boardRowIds, dispatchWindowBlur, dropDataSocket, pillIds, readDocumentEngagement, readGrid, readLayout, readSettingsHistory, readTerminalFocus, readTerminalWatch, scrollTerminalToTop, setDocumentEngagement, setFitMeasurement, watchTerminal } from './probe.ts';
 import type { GridReading } from './probe.ts';
@@ -938,6 +938,10 @@ export async function runCase({
     if (step.kind === 'assert-review-merge') {
       await verifyReviewMerge(viewer.page, projectDirectory, step.upstream);
       return passedOutcome('review-merge', `upstream ${step.upstream}: Merge disabled with a stable label once clicked, then the expected Review, header and origin state`);
+    }
+    if (step.kind === 'assert-phone-changes') {
+      await verifyPhoneChanges(viewer.page, projectDirectory);
+      return passedOutcome('phone-changes-back', 'a tapped file opens its diff, back returns to the file list, back again returns to the terminal');
     }
     if (step.kind === 'open') return runOpen(viewer, sessionId, deadlines);
     if (step.kind === 'back') return runBack(viewer, sessionId, deadlines);
