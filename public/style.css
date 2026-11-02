@@ -298,7 +298,7 @@ body {
 
 .sr-only,
 .phone-topbar .connection-label,
-.header-connection[data-state="connected"] .connection-label {
+.header-connection:is([data-state="connected"], [data-state="connecting"]) .connection-label {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -357,8 +357,15 @@ body {
   display: none;
 }
 
-.header-brand:has(.header-connection[data-state="connected"]) {
+.header-brand:has(.header-connection:is([data-state="connected"], [data-state="connecting"])) {
   gap: 0;
+}
+
+.header-brand .header-connection[data-state="connecting"] .connection-dot {
+  position: absolute;
+  top: 50%;
+  left: 8px;
+  translate: 0 -50%;
 }
 
 .header-connection[data-state="disconnected"] .connection-dot {
