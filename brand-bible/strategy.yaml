@@ -15,6 +15,9 @@ audiences:
   - name: Operator
     needs: Ship features start to finish with many agent sessions at once, never missing a session that waits on input, finishes or fails.
     context: A 27-inch monitor in a dim room at 2am with several live terminals in view, or a paired phone away from the desk. Not browsing; shipping.
+  - name: Newer operator
+    needs: The same single operator in their first weeks, on the way to running many sessions at once, learning what each screen, control and state means without reading the docs first.
+    context: Often a laptop screen and a few live sessions; reads labels, tips and empty states closely and picks up the shortcuts later. Plain words and visible explanations serve them, in the same precise, quiet voice.
 personality:
   - trait: Precise
     notTrait: Approximate
