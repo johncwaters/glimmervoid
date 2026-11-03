@@ -65,7 +65,7 @@ interface TeamReviewWiringOptions {
 function teamReviewShouldStart(config: TeamReviewWiringConfig): LaneRunnerGate {
   const settings = core.readTeamReviewSettings(config);
   if (!settings.enabled) return { start: false };
-  if (!settings.org || settings.teams.length === 0) return { start: false, reason: 'Team review needs an organization and at least one GitHub team' };
+  if (!settings.org) return { start: false, reason: 'Team review needs a GitHub organization or team' };
   if (!laneAccessConfigOf(config).readToken) return { start: false, reason: TEAM_REVIEW_READ_TOKEN_REQUIRED };
   const envBlocker = laneAccessEnvBlocker(process.env);
   if (envBlocker) return { start: false, reason: `Team review cannot read GitHub while ${envBlocker} is set in Glimmervoid's environment` };

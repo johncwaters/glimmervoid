@@ -891,3 +891,44 @@ test('a pull request session starts from the main checkout under a repo root eve
     fs.rmSync(homeDir, { recursive: true, force: true });
   }
 });
+
+test('an organization with no team starts team review watching only review requests to the operator in that organization', async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-org-only-test-'));
+  const teamReads: string[] = [];
+  const githubStore = emptyGithubStore({
+    async viewer() { return 'me'; },
+    async teamProfile(org, slug) { teamReads.push(`profile:${org}/${slug}`); return null; },
+    async teamMembers(org, slug) { teamReads.push(`members:${org}/${slug}`); return []; },
+  });
+  const registeredQualifiers: string[] = [];
+  const searchSettled = deferredSignal();
+  const wiring = createTeamReviewWiring({
+    config: { github: { readToken: 'read-token' }, teamReview: { enabled: true, org: 'Acme' } },
+    store: { ...githubStore, registerWatch: (watch) => { registeredQualifiers.push(watch.qualifiers); githubStore.registerWatch(watch); searchSettled.resolve(); } },
+    reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
+    spawnGate: { run: async (task) => task() }, homeDir, log: { warn: () => {} }, reapProcesses: async () => {},
+    github: {},
+    repoCache: {
+      listRepos: async () => [], ensureRepo: async () => null,
+      fetchPr: async () => ({ ok: false, headSha: null, err: '' }), hydrateTree: async () => ({ ok: true, err: '' }), hydrateRange: async () => ({ ok: false, err: '' }), hydrateSince: async () => false, isolateNewWork: async () => ({ ok: false, reason: '' }),
+    },
+    gitWorkspace: {
+      stageDetachedWorktree: async () => ({ ok: false }), removeWorktreeByPath: async () => ({ ok: false }),
+      pruneWorktrees: async () => ({ ok: true }), originUrl: async () => null, populate: async () => {},
+    },
+    createPoller: (dependencies) => createTeamReviewPoller({
+      ...dependencies, beforeStart: async () => {}, firstTickDelayMs: () => 0,
+      onTickComplete: (status) => { dependencies.onTickComplete?.(status); if (status.error) searchSettled.reject(new Error(status.error)); },
+    }),
+  });
+  try {
+    assert.equal(wiring.getStatus().configured, true);
+    wiring.startPoller();
+    await searchSettled.promise;
+    assert.deepEqual(registeredQualifiers, ['is:open draft:false org:Acme user-review-requested:@me']);
+    assert.deepEqual(teamReads, []);
+  } finally {
+    await wiring.stopPoller();
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  }
+});
