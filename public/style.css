@@ -3573,7 +3573,6 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 .focus-center { position: relative; }
 .review-bar { flex: 1 1 auto; display: flex; align-items: center; gap: 2px; min-width: 0; }
 .review-bar[data-slot-held] { visibility: hidden; }
-.review-bar > [data-action="merge-session"][data-slot-held] { visibility: hidden; }
 
 .review-reader { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg-surface); }
 .review-reader[hidden] { display: none; }
