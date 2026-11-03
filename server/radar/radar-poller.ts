@@ -293,8 +293,6 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
   function spawnWithTimeout(args: Omit<SpawnInvestigationArgs, 'signal'>): Promise<JobResult> {
     return raceWithAbort<JobResult>({
       timeoutMs: args.timeoutMs,
-      setTimeoutFn,
-      clearTimeoutFn,
       onTimeout: () => {
         const what = args.mode === core.JOB_MODES.fix ? 'fix' : 'investigation';
         return { verdict: 'ERROR', summary: `${what} timed out`, mode: args.mode, errorReason: 'timed-out' };

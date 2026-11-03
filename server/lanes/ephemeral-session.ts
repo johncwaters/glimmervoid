@@ -7,6 +7,7 @@ import { removeSessionTempFolder } from '../session-temp/session-temp.ts';
 import { awaitBounded } from '../core/shutdown-core.ts';
 import { firstLine } from '../core/text-core.ts';
 import { DEFAULT_TIMER_FNS, unrefTimer } from '../../shared/timer-deps.ts';
+import { createAwakeTimeoutFn } from '../awake-timer.ts';
 import type { ClearTimeoutFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
 
 const JOB_RESULT_FILENAME = 'result.json';
@@ -51,7 +52,7 @@ async function awaitSessionExit(sess: Session, { signal = null, spawnGate = null
 
 async function raceWithAbort<T>({
   start, timeoutMs, onTimeout, onEmpty,
-  setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn, clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
+  setTimeoutFn = createAwakeTimeoutFn(), clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
   onPending = null,
 }: {
   start: (signal: AbortSignal) => Promise<T | null | undefined>;
