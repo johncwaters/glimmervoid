@@ -837,18 +837,6 @@ body {
   gap: 4px;
 }
 
-.flying-animal-preview.terminal-connecting-animal {
-  width: 180px;
-}
-
-.terminal-connecting-animal .flying-animal-preview-stage {
-  left: calc(70% - var(--nyan-width) / 2);
-}
-
-.terminal-connecting-animal .nyan-trail {
-  width: 110px;
-}
-
 .terminal-connecting-label {
   font-family: var(--font-mono);
   font-size: var(--type-body);

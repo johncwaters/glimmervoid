@@ -2,7 +2,7 @@ export type BrandMarkSide = 'top' | 'right' | 'bottom' | 'left';
 
 export const BRAND_MARK_VIEWBOX = '-4 -4 108 108';
 
-const BRAND_MARK_BRACKETS: ReadonlyArray<{ side: BrandMarkSide; d: string }> = Object.freeze([
+export const BRAND_MARK_BRACKETS: ReadonlyArray<{ side: BrandMarkSide; d: string }> = Object.freeze([
   { side: 'top', d: 'M33 29L50 12L67 29' },
   { side: 'right', d: 'M71 33L88 50L71 67' },
   { side: 'bottom', d: 'M67 71L50 88L33 71' },

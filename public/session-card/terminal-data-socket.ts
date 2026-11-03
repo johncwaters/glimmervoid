@@ -16,7 +16,8 @@ import { resetTerminalSecretMask } from './terminal-secret-mask.ts';
 import { decideTerminalLinkState } from './terminal-link-core.ts';
 import { reportToServerLog } from '../control-ws.ts';
 import { describeDataAttach, FAST_TERMINAL_CLOSE_MS, LOGGED_FAST_CLOSE_COUNTS } from '#shared/contracts/data-messages.ts';
-import { buildFlyingAnimalPreview, pickRandomIncludedAnimal } from '../flying-animal-preview.ts';
+import { BRAND_MARK_BRACKETS, BRAND_MARK_VIEWBOX } from '#shared/brand-mark.ts';
+import { createSvgShape } from '../svg-dom.ts';
 import { isScrolledAwayFromLatest } from './terminal-notices.ts';
 import { isInputHeldForWakeCheck, sendQueuedInput } from './terminal-input.ts';
 
@@ -97,20 +98,17 @@ function findConnectingOverlay(termWrap: HTMLElement) {
   return termWrap.querySelector(':scope > .terminal-connecting');
 }
 
+function buildConnectingMark() {
+  const mark = createSvgShape('svg', { class: 'loading-mark', viewBox: BRAND_MARK_VIEWBOX, 'aria-hidden': 'true' });
+  for (const { side, d } of BRAND_MARK_BRACKETS) mark.append(createSvgShape('path', { class: 'loading-mark-bracket', 'data-side': side, d }));
+  return mark;
+}
+
 function ensureConnectingOverlay(termWrap: HTMLElement) {
   if (findConnectingOverlay(termWrap)) return;
   const overlay = el('div', 'terminal-connecting');
-  overlay.append(el('span', 'terminal-connecting-label', 'Connecting'));
+  overlay.append(buildConnectingMark(), el('span', 'terminal-connecting-label', 'Connecting'));
   termWrap.append(overlay);
-}
-
-function swapConnectingAnimal(termWrap: HTMLElement) {
-  const overlay = findConnectingOverlay(termWrap);
-  if (!overlay) return;
-  overlay.querySelector(':scope > .terminal-connecting-animal')?.remove();
-  const animal = pickRandomIncludedAnimal();
-  if (!animal) return;
-  overlay.prepend(buildFlyingAnimalPreview(animal, 'terminal-connecting-animal'));
 }
 
 const terminalLinkSubscribers = new Set<() => void>();
@@ -143,9 +141,7 @@ function refreshTerminalLink(ui: SessionUi) {
     notifyTerminalLinkSubscribers();
     return;
   }
-  const isStartingToConnect = linkState === 'connecting' && ui.card.dataset.link !== 'connecting';
   ui.card.dataset.link = linkState;
-  if (isStartingToConnect) swapConnectingAnimal(ui.termWrap);
   notifyTerminalLinkSubscribers();
 }
 
