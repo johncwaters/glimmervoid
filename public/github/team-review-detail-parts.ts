@@ -1,4 +1,5 @@
 import { paintActionStatus } from '../action-status.ts';
+import { button } from '../ui/button.ts';
 import type { DiffExcerptLine, DraftComment, EarlierReview, FindingSeverity, HandCheck, InFlightReview, QueuedReview, ReviewDraft, TeamReviewAction, TeamReviewActionRequest } from '#shared/contracts/team-review.ts';
 import { nextRequestId, sendControlMsg } from '../control-ws.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
@@ -13,13 +14,6 @@ const ACTION_REPLY_TIMEOUT_MS = 120000;
 
 const ACTION_NO_REPLY_TEXT = `The server did not answer within ${ACTION_REPLY_TIMEOUT_MS / 1000} s. Check GitHub before trying again.`;
 
-function appendShortcutKey(button: HTMLButtonElement, key: string): void {
-  const keyCap = el('kbd', 'review-shortcut', key);
-  keyCap.setAttribute('aria-hidden', 'true');
-  button.append(keyCap);
-  button.setAttribute('aria-keyshortcuts', key);
-}
-
 let _inReviewEarlierDetails: { key: string; head: string; element: HTMLElement } | null = null;
 
 const OPEN_SESSION_LABEL = 'Open in session';
@@ -30,8 +24,8 @@ function showSettledSessionOpen(key: string, text: string, tone: 'error' | null)
   for (const status of document.querySelectorAll<HTMLElement>('.pr-session-open-status')) {
     if (status.dataset.reviewKey !== key) continue;
     paintActionStatus(status, tone, text);
-    const button = status.parentElement?.querySelector<HTMLButtonElement>('.pr-session-open-button');
-    if (button) button.disabled = false;
+    const openButton = status.parentElement?.querySelector<HTMLButtonElement>('[data-action="open-session"]');
+    if (openButton) openButton.disabled = false;
   }
 }
 
@@ -57,18 +51,15 @@ function openReviewSession(key: string, button: HTMLButtonElement, status: HTMLE
 
 function createOpenSessionControl(review: Pick<ReviewDraft, 'key'>): HTMLElement {
   const row = el('div', 'pr-session-open');
-  const button = el('button', 'pr-action pr-session-open-button', OPEN_SESSION_LABEL);
-  button.type = 'button';
-  appendShortcutKey(button, 'O');
   const opening = _sessionOpenByKey.get(review.key);
-  button.disabled = Boolean(opening?.requestId);
+  const openButton = button({ variant: 'primary', label: OPEN_SESSION_LABEL, action: 'open-session', shortcutKey: 'O', disabled: Boolean(opening?.requestId) });
   const status = el('span', 'pr-action-status pr-session-open-status', opening?.text ?? '');
   status.dataset.reviewKey = review.key;
   if (opening) paintActionStatus(status, opening.tone, opening.text);
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
-  button.addEventListener('click', () => openReviewSession(review.key, button, status));
-  row.append(button, status);
+  openButton.addEventListener('click', () => openReviewSession(review.key, openButton, status));
+  row.append(openButton, status);
   return row;
 }
 
@@ -370,34 +361,29 @@ function sendAction(origin: DetailOrigin, review: Pick<ReviewDraft, 'key' | 'rep
 
 function createNotMineFooter(review: QueuedReview | InFlightReview): HTMLElement {
   const footer = el('footer', 'pr-footer');
-  const button = createFooterButton('discard', () => {
+  const discardButton = createFooterButton('discard', () => {
     if (_pendingActions.has(review.key)) return;
-    button.disabled = true;
+    discardButton.disabled = true;
     paintActionStatus(status, 'busy', actionProgressText('discard'));
     if (sendAction('other', review, buildNotMineRequest(review.key), settle)) return;
     settle(false, NOT_CONNECTED_TEXT);
   });
   const isPending = _pendingActions.has(review.key);
-  button.disabled = isPending;
+  discardButton.disabled = isPending;
   const status = el('span', 'pr-action-status');
   if (isPending) paintActionStatus(status, 'busy', actionProgressText('discard'));
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
   const settle: SettleAction = (isDone, text, tone = isDone ? 'ok' : 'error') => {
-    button.disabled = isDone;
+    discardButton.disabled = isDone;
     paintActionStatus(status, tone, text);
   };
-  footer.append(button, status);
+  footer.append(discardButton, status);
   return footer;
 }
 
 function createFooterButton(action: TeamReviewAction, runAction: (action: TeamReviewAction) => void, isSecondary = false, shortcutKey?: string): HTMLButtonElement {
-  const button = el('button', isSecondary ? 'pr-action pr-action-ghost' : 'pr-action', actionLabel(action));
-  button.type = 'button';
-  if (shortcutKey) appendShortcutKey(button, shortcutKey);
-  button.dataset.action = action;
-  button.addEventListener('click', () => runAction(action));
-  return button;
+  return button({ variant: isSecondary ? 'secondary' : 'primary', label: actionLabel(action), action, shortcutKey, onClick: () => runAction(action) });
 }
 
 interface DecisionBar {

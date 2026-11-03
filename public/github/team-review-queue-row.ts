@@ -1,4 +1,5 @@
 import type { FindingSeverity, InFlightReview, QueuedReview, ReviewDraft } from '#shared/contracts/team-review.ts';
+import { createPressable } from '../ui/pressable.ts';
 import { createAuthorOrgTag, createAvatar, createReviewerStack, el, externalLink } from '../dom-helpers.ts';
 import { formatAgo } from '../poll-ago.ts';
 import { createPrStatusIcon } from './pr-status-icon.ts';
@@ -164,8 +165,7 @@ function streamerQueueRowTitle(review: ReviewDraft | InFlightReview | QueuedRevi
 }
 
 function createTeamQueueRow(review: ReviewDraft | InFlightReview | QueuedReview, kind: QueueRowKind, hasMultipleRepos: boolean): HTMLButtonElement {
-  const row = el('button', 'pr-queue-row pr-queue-row-quiet');
-  row.type = 'button';
+  const row = createPressable('pr-queue-row pr-queue-row-quiet');
   row.dataset.reviewKey = review.key;
   const approvalContext = 'reviewedHead' in review ? viewerApprovalContext(review) : null;
   const title = () => isStreamerMode() ? streamerQueueRowTitle(review, kind) : queueRowTitle(review, kind, {

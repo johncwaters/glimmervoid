@@ -1,3 +1,4 @@
+import { el } from '../dom-helpers.ts';
 import { installHoverTips } from '../hover-tip.ts';
 import { createPressable } from './pressable.ts';
 
@@ -10,6 +11,7 @@ type IconButtonOptions = { variant: 'icon'; label: string; icon: SVGElement };
 type ButtonOptions = (LabelledButtonOptions | IconButtonOptions) & {
   size?: ButtonSize;
   action?: string;
+  shortcutKey?: string;
   onClick?: (event: MouseEvent) => void;
   disabled?: boolean;
   hidden?: boolean;
@@ -27,8 +29,16 @@ export function button(options: ButtonOptions): HTMLButtonElement {
     installHoverTips();
   }
   if (options.variant !== 'icon') element.append(options.label);
+  if (options.shortcutKey) appendShortcutKey(element, options.shortcutKey);
   element.disabled = options.disabled ?? false;
   element.hidden = options.hidden ?? false;
   if (options.onClick) element.addEventListener('click', options.onClick);
   return element;
+}
+
+function appendShortcutKey(element: HTMLButtonElement, shortcutKey: string) {
+  const keyCap = el('kbd', 'ui-button-shortcut', shortcutKey);
+  keyCap.setAttribute('aria-hidden', 'true');
+  element.append(keyCap);
+  element.setAttribute('aria-keyshortcuts', shortcutKey);
 }

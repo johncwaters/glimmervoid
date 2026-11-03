@@ -1,4 +1,6 @@
 import { celebrateMergedPrs, myPrsSnapshot, subscribeMyPrs } from './my-prs-store.ts';
+import { createPressable } from '../ui/pressable.ts';
+import { button } from '../ui/button.ts';
 import type { MyPrsChange } from './my-prs-store.ts';
 import { hasGithubPollingCountdown, githubPollingAgeText, githubPollingErrorNotice, githubPollingRefreshText } from './github-polling-retry-core.ts';
 import type { GithubPollingStatus } from './github-polling-retry-core.ts';
@@ -64,12 +66,11 @@ const MERGE_DISCONNECTED_TEXT = `${NOT_CONNECTED_TEXT} Check GitHub before tryin
 export function createGithubPollingControls(lane: GithubPollingRefreshRequest['lane'] | readonly GithubPollingRefreshRequest['lane'][], panel: HTMLElement) {
   const lanes = typeof lane === 'string' ? [lane] : lane;
   const control = el('div', 'reviews-refresh-control');
-  const button = el('button', 'pr-action pr-action-ghost reviews-refresh-button', 'Refresh');
-  button.type = 'button';
+  const refreshButton = button({ variant: 'secondary', label: 'Refresh', action: 'refresh-github' });
   const progress = el('span', 'reviews-refresh-status');
   progress.setAttribute('role', 'status');
   const notice = el('p', 'my-pr-error reviews-retry-notice');
-  control.append(button, progress);
+  control.append(refreshButton, progress);
   let currentStatus: GithubPollingStatus | null = null;
   let isPending = false;
   let outcomeText = '';
@@ -94,11 +95,11 @@ export function createGithubPollingControls(lane: GithubPollingRefreshRequest['l
   function update(status: GithubPollingStatus | null): void {
     if (status !== currentStatus) outcomeText = '';
     currentStatus = status;
-    button.disabled = isPending || !!status?.isRefreshing || !status?.configured;
+    refreshButton.disabled = isPending || !!status?.isRefreshing || !status?.configured;
     updateCountdown();
   }
 
-  button.addEventListener('click', async () => {
+  refreshButton.addEventListener('click', async () => {
     if (isPending) return;
     isPending = true;
     outcomeText = '';
@@ -148,17 +149,15 @@ function createMergeControl(pr: MyPr): HTMLElement | null {
   const state = mergeControlState(pr, mergeAttempts.get(pr.key));
   if (!state.isVisible) return null;
   const control = el('footer', 'pr-footer pr-decision-bar');
-  const button = el('button', 'pr-action', 'Merge');
-  button.type = 'button';
-  button.disabled = state.isDisabled;
+  const mergeButton = button({ variant: 'primary', label: 'Merge', action: 'merge', disabled: state.isDisabled });
   const status = el('span', 'pr-action-status', state.statusText);
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
   paintActionStatus(status, state.tone, state.statusText);
-  button.addEventListener('click', () => {
+  mergeButton.addEventListener('click', () => {
     openConfirmDialog({ title: 'Merge pull request', message: mergeConfirmMessage(pr), confirmLabel: 'Merge', onConfirm: () => sendMerge(pr) });
   });
-  control.append(button, status);
+  control.append(mergeButton, status);
   return control;
 }
 
@@ -166,15 +165,13 @@ function createToggleControl(pr: MyPr, toggle: PrToggle): HTMLElement | null {
   const state = toggle.controlState(pr, toggle.pendingKeys.has(pr.key), toggle.errorsByKey.get(pr.key), toggle.isFeatureEnabled(latest));
   if (!state.isVisible) return null;
   const control = el('div', 'my-pr-merge');
-  const button = el('button', 'pr-action', toggle.label);
-  button.type = 'button';
-  button.disabled = state.isDisabled;
-  button.setAttribute('aria-pressed', String(state.isPressed));
+  const toggleButton = button({ variant: 'primary', label: toggle.label, disabled: state.isDisabled });
+  toggleButton.setAttribute('aria-pressed', String(state.isPressed));
   const indicator = el('span', 'pr-action-status', state.statusText);
   paintActionStatus(indicator, state.tone, state.statusText);
   indicator.setAttribute('role', 'status');
   indicator.setAttribute('aria-live', 'polite');
-  button.addEventListener('click', async () => {
+  toggleButton.addEventListener('click', async () => {
     if (toggle.pendingKeys.has(pr.key)) return;
     toggle.pendingKeys.add(pr.key);
     toggle.errorsByKey.delete(pr.key);
@@ -189,7 +186,7 @@ function createToggleControl(pr: MyPr, toggle: PrToggle): HTMLElement | null {
       render();
     }
   });
-  control.append(button, indicator);
+  control.append(toggleButton, indicator);
   return control;
 }
 
@@ -313,14 +310,13 @@ function createStackSection(pr: MyPr): HTMLElement | null {
 }
 
 function createStackMapRow(row: MyPrStackRow, isOpenPr: boolean): HTMLElement {
-  const mapRow = isOpenPr ? el('div', 'my-pr-stack-row') : el('button', 'my-pr-stack-row');
+  const mapRow = isOpenPr ? el('div', 'my-pr-stack-row') : createPressable('my-pr-stack-row');
   mapRow.style.setProperty('--stack-depth', String(row.depth));
   mapRow.append(el('strong', 'pr-queue-ref', row.pr.key), el('span', 'pr-queue-title', row.pr.title), stageChip(row.pr, { hasGlyph: true }));
   if (isOpenPr) {
     mapRow.setAttribute('aria-current', 'true');
     return mapRow;
   }
-  mapRow.setAttribute('type', 'button');
   mapRow.addEventListener('click', () => showPrInReviewQueue(row.pr.key));
   return mapRow;
 }
@@ -381,8 +377,7 @@ export function repaintSessionPills(): void {
 }
 
 export function createMyPrQueueRow(pr: MyPr, stackRow: MyPrStackRow, linkedSessions: readonly LinkedLiveSession[] | undefined): { group: HTMLElement; row: HTMLButtonElement } {
-  const row = el('button', 'pr-queue-row');
-  row.type = 'button';
+  const row = createPressable('pr-queue-row');
   row.dataset.prKey = pr.key;
   row.title = `${pr.key}: ${stageLabel(pr.stage)}`;
   const glyph = el('span', 'pr-queue-glyph');

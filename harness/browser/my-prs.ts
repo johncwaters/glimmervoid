@@ -13,7 +13,7 @@ async function applyStatus(page: Page, status: MyPrsStatus): Promise<void> {
 }
 
 export async function showQueue(page: Page): Promise<void> {
-  const back = page.locator('.review-queue .review-queue-back');
+  const back = page.locator('.review-queue [data-action="back-to-queue"]');
   if (await back.isVisible()) await back.click();
 }
 
@@ -80,7 +80,7 @@ export async function verifyMyPrKeepMergeable(page: Page): Promise<void> {
 async function verifyRefreshStatusKeepsLayout(page: Page, status: MyPrsStatus): Promise<void> {
   const panel = page.locator('.review-queue');
   const refreshStatus = panel.locator('.reviews-refresh-status');
-  assert.equal(await panel.locator('.pr-queue-foot .reviews-refresh-button').count(), 1);
+  assert.equal(await panel.locator('.pr-queue-foot [data-action="refresh-github"]').count(), 1);
   const queueTop = () => panel.locator('.pr-queue-row').first().evaluate((element) => element.getBoundingClientRect().top);
   const idleQueueTop = await queueTop();
   await applyStatus(page, { ...status, isRefreshing: true, refreshNotice: 'Refreshing your pull requests and their review threads from GitHub' });
@@ -147,7 +147,7 @@ async function verifyCanonicalPrStages(page: Page, status: MyPrsStatus, initialP
     assert.equal(await row.locator('.pr-queue-title').textContent(), canonicalPr.title);
     assert.equal(await row.getAttribute('title'), `Acme/app#1322: ${expectedStage}`);
     assert.equal(await panel.locator('.pr-queue-row[data-pr-key]').count(), 1);
-    assert.equal(await panel.locator('.my-pr-automation .pr-action', { hasText: 'Keep mergeable' }).getAttribute('aria-pressed'), 'true');
+    assert.equal(await panel.locator('.my-pr-automation button', { hasText: 'Keep mergeable' }).getAttribute('aria-pressed'), 'true');
     const isPhone = await page.locator('html').getAttribute('data-layout') === 'phone';
     if (isPhone) await page.getByRole('button', { name: 'Focus', exact: true }).click();
     if (!isPhone) {

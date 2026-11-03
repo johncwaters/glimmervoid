@@ -1,4 +1,6 @@
 import './review-queue-panel.css';
+import { createPressable } from '../ui/pressable.ts';
+import { button } from '../ui/button.ts';
 import { buildAttentionBanner, paintAttentionBanner } from '../attention-banner.ts';
 import { createAvatar, el, isPanelHidden, isRealInputOwningKey } from '../dom-helpers.ts';
 import { isModalOpen } from '../session-card/modal.ts';
@@ -227,11 +229,10 @@ function createGroupHeading(group: QueueGroup): HTMLElement {
     heading.append(el('span', null, group.title), count);
     return heading;
   }
-  const toggle = el('button', 'review-group-toggle');
+  const toggle = createPressable('review-group-toggle');
   const chevron = el('span', 'review-group-chevron', String.fromCharCode(0x25b8));
   chevron.setAttribute('aria-hidden', 'true');
   toggle.append(chevron, group.title);
-  toggle.type = 'button';
   toggle.setAttribute('aria-expanded', String(isSetAsideOpen));
   toggle.addEventListener('click', () => {
     isSetAsideOpen = !isSetAsideOpen;
@@ -342,9 +343,7 @@ function mountReviewQueue(parent: HTMLElement): void {
   queueElement = shell.queue;
   detailHost = el('div', 'review-queue-detail');
   const phoneBar = el('div', 'review-queue-phone-bar');
-  const back = el('button', 'pr-action pr-action-ghost review-queue-back', 'Back to queue');
-  back.type = 'button';
-  back.addEventListener('click', returnToReviewQueue);
+  const back = button({ variant: 'secondary', label: 'Back to queue', action: 'back-to-queue', onClick: returnToReviewQueue });
   turnPosition = el('span', 'review-queue-position');
   phoneBar.append(back, turnPosition);
   shell.detail.append(phoneBar, detailHost);

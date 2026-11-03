@@ -119,7 +119,7 @@ function clearReceipts(nextReviewKey: string | null = null): void {
 function runTeamReviewKey(action: ReviewDetailKeyAction): boolean {
   if (!_detail || !_selectedKey) return false;
   if (action === 'open-session') {
-    const openButton = _detail.querySelector<HTMLButtonElement>('.pr-session-open-button');
+    const openButton = _detail.querySelector<HTMLButtonElement>('[data-action="open-session"]');
     if (!openButton || openButton.disabled) return false;
     openButton.click();
     return true;

@@ -112,6 +112,7 @@ Every action button is `button()` from `public/ui/button.ts` (look in `public/ui
 - **Variants:** primary (orchid outline, the one forward action in a group), secondary (base border, Cancel, Edit, Copy), danger (red-tinted outline, an action that loses work, always behind a confirm), quiet (no border, a low-stakes extra), icon (square, glyph only, label carried as the accessible name and hover tip).
 - **Sizes:** default for dialogs and panels, small for dense rows and card chrome. The phone layout draws default buttons 44px tall and small ones 32px; on a coarse pointer an invisible extension brings any smaller button's hit area to 44px.
 - **No state in the button:** the label never changes and nothing renders inside it while work runs; disable it and put progress or a new-output dot beside it.
+- **Pressed and shortcut:** a button that toggles or marks the picked choice carries `aria-pressed`, drawn with an orchid fill; a keyboard shortcut shows as a key cap after the label, hidden on the phone, which has no keyboard.
 - **Layout belongs to the parent:** `button()` takes no class, so spacing, alignment and placement come from the container.
 
 ### Inputs / Fields

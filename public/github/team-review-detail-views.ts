@@ -1,4 +1,5 @@
 import { paintActionStatus } from '../action-status.ts';
+import { button } from '../ui/button.ts';
 import type { InFlightReview, QueuedReview, ReviewDraft, TeamReviewAction } from '#shared/contracts/team-review.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { el, externalLink } from '../dom-helpers.ts';
@@ -73,6 +74,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
     settle(false, NOT_CONNECTED_TEXT);
   };
   const bar = createDecisionBar(draft, runAction, '', READY_DESK_SHORTCUTS);
+  const decisionButtons = bar.buttons.filter((barButton) => ['approve', 'comment', 'request-changes'].includes(barButton.dataset.action ?? ''));
   function paintControls(): void {
     const isCommentReady = hasSelection(selection());
     for (const button of bar.buttons) button.disabled = isBusy || (isSelectionRequired(button.dataset.action) && !isCommentReady);
@@ -91,7 +93,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
     paintControls();
   }
   function paintPick(): void {
-    for (const button of bar.buttons) button.dataset.picked = String(button.dataset.action === pickedControl);
+    for (const decisionButton of decisionButtons) decisionButton.setAttribute('aria-pressed', String(decisionButton.dataset.action === pickedControl));
   }
   function focusCurrentFinding(): void {
     const card = findingCards[currentFindingIndex];
@@ -175,6 +177,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   detail.append(column, rail, bar.footer);
   refreshThreadDetails(detail, draft);
   paintDecision();
+  paintPick();
   return { signature: readyRowSignature(draft), element: detail, settle, showReceipt, clearReceipt, runKey };
 }
 
@@ -280,16 +283,14 @@ function createThreadDetails(draft: ReviewDraft): HTMLElement[] {
     if (age) reply.append(age);
     const status = el('span', 'pr-action-status');
     status.setAttribute('role', 'status');
-    const button = el('button', 'pr-action', 'Resolve');
-    button.type = 'button';
-    button.disabled = !item.canResolve || _pendingActions.has(draft.key);
+    const resolveButton = button({ variant: 'primary', label: 'Resolve', action: 'resolve-thread', disabled: !item.canResolve || _pendingActions.has(draft.key) });
     const settle = (isDone: boolean, text: string) => {
-      button.disabled = isDone || !item.canResolve;
+      resolveButton.disabled = isDone || !item.canResolve;
       paintActionStatus(status, isDone ? 'ok' : 'error', text);
     };
-    button.addEventListener('click', () => {
+    resolveButton.addEventListener('click', () => {
       if (_pendingActions.has(draft.key)) return;
-      button.disabled = true;
+      resolveButton.disabled = true;
       paintActionStatus(status, 'busy', actionProgressText('resolve-thread'));
       if (sendAction('other', draft, buildActionRequest(draft, 'resolve-thread', '', [], item.thread.id), settle)) return;
       settle(false, NOT_CONNECTED_TEXT);
@@ -297,7 +298,7 @@ function createThreadDetails(draft: ReviewDraft): HTMLElement[] {
     row.append(reply);
     if (item.thread.lastReplyBody) row.append(createThreadBody(item.thread.lastReplyBody, false, item.thread.lastReplyTruncated === true, item.thread.url));
     const footer = el('footer', 'pr-thread-footer');
-    footer.append(status, button);
+    footer.append(status, resolveButton);
     row.append(footer);
     if (item.thread.resolveError) row.append(el('p', 'pr-attention-detail', item.thread.resolveError));
     list.append(row);

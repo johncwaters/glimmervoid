@@ -247,14 +247,14 @@ async function verifyPhoneDetailScreen(page: Page, status: TeamReviewStatus): Pr
   const barBox = await root.locator('.pr-decision-bar').boundingBox();
   const navBox = await page.locator('.phone-nav').boundingBox();
   assert.ok(barBox && navBox && barBox.y + barBox.height <= navBox.y + 1);
-  const buttonRows = await root.locator('.pr-decision-bar > .pr-action').evaluateAll((buttons) => new Set(buttons.map((button) => Math.round(button.getBoundingClientRect().top))).size);
+  const buttonRows = await root.locator('.pr-decision-bar > button').evaluateAll((buttons) => new Set(buttons.map((button) => Math.round(button.getBoundingClientRect().top))).size);
   assert.equal(buttonRows, 3);
   await page.goBack();
   await pane.waitFor({ state: 'visible' });
   assert.equal(await root.getAttribute('data-detail-open'), 'false');
   assert.ok(await root.isVisible());
   await page.locator('.pr-queue-row[data-review-key="Acme/app#1"]').click();
-  await root.locator('.review-queue-back').click();
+  await root.locator('[data-action="back-to-queue"]').click();
   await pane.waitFor({ state: 'visible' });
 }
 
@@ -472,7 +472,7 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
   const caughtUpDetailText = page.locator('.pr-detail-host .pr-caught-up-detail');
   try {
     const sentActionName = async () => (JSON.parse(await page.evaluate(() => document.documentElement.dataset.teamReviewAction ?? '{}')) as { action?: string }).action;
-    const pickedActions = () => page.locator('.pr-detail .pr-decision-bar > .pr-action[data-picked="true"]').evaluateAll((buttons) => buttons.map((button) => button.getAttribute('data-action')));
+    const pickedActions = () => page.locator('.pr-detail .pr-decision-bar > button[aria-pressed="true"]').evaluateAll((buttons) => buttons.map((button) => button.getAttribute('data-action')));
     await applyStatus(page, withDrafts([createDraft(1, { summary: 'Keyed' }), createDraft(2), createDraft(3)]));
     await showQueue(page);
     await reviewRow(1).click();
@@ -690,7 +690,7 @@ async function verifyOpenInSession(page: Page, layout: Layout, snapshot: TeamRev
       await applyStatus(page, snapshot);
       await showQueue(page);
       await page.locator(`.pr-queue-row[data-review-key="Acme/app#${number}"]`).click();
-      const openButton = page.locator('.pr-detail .pr-session-open-button').and(page.getByRole('button', { name: 'Open in session', exact: true }));
+      const openButton = page.locator('.pr-detail [data-action="open-session"]').and(page.getByRole('button', { name: 'Open in session', exact: true }));
       assert.equal(await openButton.getAttribute('aria-keyshortcuts'), 'O');
       const openStatus = page.locator('.pr-detail .pr-session-open-status');
       assert.equal(await openButton.count(), 1);
