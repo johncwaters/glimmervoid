@@ -2227,7 +2227,6 @@ html[data-layout="phone"] .view-panel {
 .pr-queue-row > .pr-queue-unseen { top: 4px; right: 4px; }
 html:not([data-layout="phone"]) .pr-queue { gap: 12px; }
 html:not([data-layout="phone"]) .pr-queue-row:not(.pr-queue-row-compact) { min-height: 40px; padding-block: 4px; row-gap: 1px; }
-.attention-banner.review-queue-banner { flex: 0 0 auto; width: auto; margin: var(--rail-inset-block) var(--rail-inset-inline) 8px; }
 .review-queue-detail, .pr-detail-team, .pr-detail-mine { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .pr-queue-glyph { grid-column: 1; grid-row: 1 / -1; align-self: center; display: grid; place-items: center; }
 .pr-queue-top, .pr-queue-bottom { grid-column: 2; }
@@ -4039,7 +4038,7 @@ html[data-layout="phone"] .phone-shell[hidden] { display: none; }
 html[data-layout="phone"] .phone-board-group-rows:empty { display: none; }
 html[data-layout="phone"] .attention-banner { position: relative; flex: 0 0 auto; width: auto; margin: 0 8px 8px; }
 html[data-layout="phone"] .attention-banner-jump-row { min-height: 44px; }
-html[data-layout="phone"] .review-queue-banner .attention-banner-jump { display: none; }
+html[data-layout="phone"] .review-group-heading .shortcut-keys { display: none; }
 html[data-layout="phone"] .phone-board-list { padding: 8px; }
 html[data-layout="phone"] .session-group-header { min-height: 44px; margin-top: 0; }
 

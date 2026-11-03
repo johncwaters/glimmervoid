@@ -2,7 +2,7 @@ import type { CommunityStateEntry } from '#shared/contracts/community.ts';
 import type { MyPr, MyPrStage } from '#shared/contracts/my-prs.ts';
 import type { InFlightReview, QueuedReview, ReviewDraft } from '#shared/contracts/team-review.ts';
 import { attentionSignature } from '../attention-ack-core.ts';
-import type { AttentionCounts, AttentionKind, AttentionTile } from '../focus-view/attention-core.ts';
+import type { AttentionKind, AttentionTile } from '../focus-view/attention-core.ts';
 import type { GithubPollingStatus } from './github-polling-retry-core.ts';
 import type { StateTone } from '../state-tone-core.ts';
 import { comparablePrKey } from '#shared/contracts/github-prs.ts';
@@ -191,20 +191,12 @@ function itemLabel(item: QueueItem): string {
   return pullRequestLabel(item.review.repo, item.review.number);
 }
 
-export function labeledAttentionTiles<Item extends KeyedQueueItem>(groups: readonly QueueGroup<Item>[], labelOf: (item: Item) => string): AttentionTile[] {
+function labeledAttentionTiles<Item extends KeyedQueueItem>(groups: readonly QueueGroup<Item>[], labelOf: (item: Item) => string): AttentionTile[] {
   return turnItems(groups).map((item) => ({ id: item.key, kind: item.attention ?? 'waiting', name: labelOf(item) }));
 }
 
 export function attentionTilesOf(groups: readonly QueueGroup[]): AttentionTile[] {
   return labeledAttentionTiles(groups, itemLabel);
-}
-
-export function attentionCountsOf(tiles: readonly AttentionTile[]): AttentionCounts {
-  return {
-    waitingCount: tiles.filter((tile) => tile.kind === 'waiting').length,
-    finishedCount: tiles.filter((tile) => tile.kind === 'finished').length,
-    failedCount: tiles.filter((tile) => tile.kind === 'failed').length,
-  };
 }
 
 export function bannerTilesOf(groups: readonly QueueGroup[], selectedKey: string | null): AttentionTile[] {

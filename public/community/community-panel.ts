@@ -3,14 +3,13 @@ import './community-panel.css';
 import type { CommunityAction, CommunityStateEntry } from '#shared/contracts/community.ts';
 import { createActionStatus, requestWithStatus } from '../action-status.ts';
 import type { ActionStatus } from '../action-status.ts';
-import { buildAttentionBanner, paintAttentionBanner } from '../attention-banner.ts';
 import { el, isPanelHidden, isRealInputOwningKey, writeClipboardText } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { isExternalHttpUrl } from '../external-link-core.ts';
 import { openExternalUrl } from '../external-link.ts';
 import { createPrQueueColumns } from '../github/pr-queue-columns.ts';
-import { attentionCountsOf, chooseQueueSelection, communityActivityEntry, labeledAttentionTiles, queueItemByKey, reviewKeyActionOf, steppedRowKey, turnItems } from '../github/review-queue-core.ts';
+import { chooseQueueSelection, communityActivityEntry, queueItemByKey, reviewKeyActionOf, steppedRowKey, turnItems } from '../github/review-queue-core.ts';
 import type { CommunityQueueItem, QueueGroup } from '../github/review-queue-core.ts';
 import { createCaughtUpBanner } from '../github/team-review-queue-row.ts';
 import { reviewQueueNavigation } from '../github/review-queue-store.ts';
@@ -29,7 +28,6 @@ import { createCommunitySetupCard } from './community-setup-card.ts';
 let root: HTMLElement | null = null;
 let queueElement: HTMLElement | null = null;
 let detailHost: HTMLElement | null = null;
-let banner: HTMLElement | null = null;
 let currentGroups: QueueGroup<CommunityQueueItem>[] = [];
 let selectedKey: string | null = null;
 let isSetAsideOpen = false;
@@ -203,12 +201,6 @@ function markSeen(item: CommunityQueueItem, row: HTMLButtonElement): void {
   row.querySelector('.pr-queue-unseen')?.remove();
 }
 
-function paintBanner(): void {
-  if (!banner) return;
-  const tiles = labeledAttentionTiles(currentGroups, communityItemLabel);
-  paintAttentionBanner(banner, attentionCountsOf(tiles), tiles.filter((tile) => tile.id !== selectedKey));
-}
-
 function selectItem(key: string): void {
   selectedKey = key;
   for (const [rowKey, row] of rowsByKey) row.setAttribute('aria-current', String(rowKey === key));
@@ -216,7 +208,6 @@ function selectItem(key: string): void {
   const row = rowsByKey.get(key);
   if (item && row) markSeen(item, row);
   showSelectedDetail();
-  paintBanner();
   if (root) root.dataset.detailOpen = 'true';
 }
 
@@ -313,7 +304,6 @@ function render(): void {
   if (syncSetupCard()) return;
   currentGroups = communityQueue();
   selectedKey = chooseQueueSelection(currentGroups.filter((group) => group.id !== 'aside' || isSetAsideOpen), selectedKey);
-  paintBanner();
   const signature = JSON.stringify([currentGroups, selectedKey, isSetAsideOpen, communityUnseenSignature(), communityStatusView()?.error ?? null]);
   if (signature !== renderedSignature) {
     renderedSignature = signature;
@@ -336,15 +326,6 @@ function mountCommunity(parent: HTMLElement): void {
   const phoneBar = el('div', 'review-queue-phone-bar');
   phoneBar.append(button({ variant: 'secondary', label: 'Back to queue', action: 'back-to-queue', onClick: returnToQueue }));
   shell.detail.append(phoneBar, detailHost);
-  banner = buildAttentionBanner({
-    onJump: () => {
-      const headKey = labeledAttentionTiles(currentGroups, communityItemLabel).find((tile) => tile.id !== selectedKey)?.id;
-      if (headKey) revealItem(headKey);
-    },
-    rowFor: (id) => rowsByKey.get(id),
-  });
-  banner.classList.add('review-queue-banner');
-  shell.queue.before(banner);
   setupCard = createCommunitySetupCard({ onFinish: render });
   setupCard.element.hidden = true;
   root.append(setupCard.element, shell.columns);

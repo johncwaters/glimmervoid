@@ -1,7 +1,6 @@
 import './review-queue-panel.css';
 import { createPressable } from '../ui/pressable.ts';
 import { button } from '../ui/button.ts';
-import { buildAttentionBanner, paintAttentionBanner } from '../attention-banner.ts';
 import { createAvatar, el, isPanelHidden, isRealInputOwningKey } from '../dom-helpers.ts';
 import { isModalOpen } from '../session-card/modal.ts';
 import { buildNextAttentionKeys } from '../shortcuts.ts';
@@ -15,12 +14,12 @@ import { createReviewSetupCard } from './review-setup-card.ts';
 import { createReviewSkillNotice } from './review-skill-notice.ts';
 import { subscribeSettings } from '../settings/settings-store.ts';
 import {
-  QUEUE_ACTION_LABELS, QUEUE_ACTION_TONES, attentionCountsOf, attentionTilesOf, bannerTilesOf, caughtUpText, chooseQueueSelection, combinedPollingStatus, nextTurnKey,
+  QUEUE_ACTION_LABELS, QUEUE_ACTION_TONES, caughtUpText, chooseQueueSelection, combinedPollingStatus, nextTurnKey,
   queueItemActivityEntry, queueItemByKey, reviewKeyActionOf, spansMultipleRepos, steppedRowKey, turnItems, turnPositionText,
 } from './review-queue-core.ts';
 import type { QueueGroup, QueueItem, ReviewKeyAction } from './review-queue-core.ts';
 import {
-  attachReviewQueueView, isQueueEntryUnseen, jumpToNextReview, markQueueEntrySeen, rebuildReviewQueue, returnToReviewQueue, reviewQueueNavigation, reviewQueueUnseenSignature, setReviewDetailScreenOpen,
+  attachReviewQueueView, isQueueEntryUnseen, markQueueEntrySeen, rebuildReviewQueue, returnToReviewQueue, reviewQueueNavigation, reviewQueueUnseenSignature, setReviewDetailScreenOpen,
   subscribeReviewQueue, takePendingReveal,
 } from './review-queue-store.ts';
 import type { ReviewQueueChange } from './review-queue-store.ts';
@@ -34,7 +33,6 @@ import { teamReviewStatusView } from './team-review-store.ts';
 let root: HTMLElement | null = null;
 let queueElement: HTMLElement | null = null;
 let detailHost: HTMLElement | null = null;
-let banner: HTMLElement | null = null;
 let turnPosition: HTMLElement | null = null;
 let teamChipSlot: HTMLElement | null = null;
 let teamDetail: HTMLElement | null = null;
@@ -118,16 +116,9 @@ function selectItem(key: string, { isFromQueue }: { isFromQueue: boolean }): voi
   const row = rowsByKey.get(key);
   if (item && row) markSeen(item, row);
   showSelectedDetail('clear');
-  paintBanner();
+  paintTurnPosition();
   setDetailScreenOpen(true);
   if (isFromQueue && document.documentElement.dataset.layout === 'phone') detailHost?.parentElement?.scrollIntoView({ block: 'start' });
-}
-
-function paintBanner(): void {
-  paintTurnPosition();
-  if (!banner) return;
-  const tiles = bannerTilesOf(currentGroups, selectedKey);
-  paintAttentionBanner(banner, attentionCountsOf(attentionTilesOf(currentGroups)), tiles);
 }
 
 function revealItem(key: string): void {
@@ -225,6 +216,10 @@ function createItemRow(item: QueueItem, isTurn: boolean, hasMultipleRepos: boole
 function createGroupHeading(group: QueueGroup): HTMLElement {
   const heading = el('h3', 'pr-section-heading review-group-heading');
   const count = el('span', 'review-group-count', String(group.items.length));
+  if (group.id === 'turn') {
+    heading.append(el('span', null, group.title), count, buildNextAttentionKeys());
+    return heading;
+  }
   if (group.id !== 'aside') {
     heading.append(el('span', null, group.title), count);
     return heading;
@@ -296,7 +291,7 @@ function render(): void {
   syncTeamChip();
   pollingControls?.update(combinedPollingStatus([teamReviewStatusView(), myPrsStatus]));
   if (!isCaughtUp) selectedKey = chooseQueueSelection(currentGroups, selectedKey);
-  paintBanner();
+  paintTurnPosition();
   const signature = rowsSignature(currentGroups, sessionsByPrKey);
   if (signature !== renderedSignature) {
     renderedSignature = signature;
@@ -347,15 +342,8 @@ function mountReviewQueue(parent: HTMLElement): void {
   turnPosition = el('span', 'review-queue-position');
   phoneBar.append(back, turnPosition);
   shell.detail.append(phoneBar, detailHost);
-  banner = buildAttentionBanner({
-    onJump: () => {
-      jumpToNextReview();
-    },
-    rowFor: (id) => rowsByKey.get(id),
-  }, buildNextAttentionKeys());
-  banner.classList.add('review-queue-banner');
   skillNotice = createReviewSkillNotice();
-  shell.queue.before(skillNotice.element, banner);
+  shell.queue.before(skillNotice.element);
   pollingControls = createGithubPollingControls(['team-review', 'my-prs'], root);
   teamChipSlot = el('span', 'review-team-chip-slot');
   shell.foot.append(teamChipSlot, pollingControls.control);
