@@ -79,7 +79,10 @@ test('a lane gets the operator PostHog server unchanged only when the gate self-
   assert.equal(await prepareLaneMcp({ laneArgs }, { readClaudeConfig: async () => { throw new Error('no config'); } }), null);
   const allowsEverything = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'lane-mcp-')), 'allow.mjs');
   fs.writeFileSync(allowsEverything, 'process.exit(0);\n');
-  assert.equal(await prepareLaneMcp({ laneArgs }, { readClaudeConfig, gatePath: allowsEverything }), null);
+  const warnings: string[] = [];
+  assert.equal(await prepareLaneMcp({ laneArgs }, { readClaudeConfig, gatePath: allowsEverything, warn: (message) => warnings.push(message) }), null);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0] ?? '', /self-test failed \(it allowed a known write\), so this lane runs without PostHog/);
 });
 
 test('the installed gate hook blocks when its interpreter cannot run the gate', async () => {

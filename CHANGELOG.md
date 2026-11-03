@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Lanes say when they run without PostHog.** When PostHog is set up but its read-only safety check fails, a background lane such as Community or Radar now logs a warning that it is running without PostHog. Before, it just ran without PostHog and said nothing.
 - **Community research tries a timed-out question once more.** A research run that hits its 20 minute limit, such as one started while the computer was asleep, now goes back in the queue by itself. Only a second timeout shows the error, and Re-run still works after that.
 - **Community skips page comment threads.** Comments left under a posthog.com blog, docs or handbook page no longer show up in the Community tab as forum questions. Their link opened a "This is a comment thread, not a forum post" page, and research had no way to read the page they were about.
 - **Boards stay readable when fitted.** Fit no longer shrinks a large board until its text is too small to read in a short pane. It stops at a size where box text stays readable, starts from the board's top left, and you pan to see the rest. Boards that already fit at a readable size look the same as before.
