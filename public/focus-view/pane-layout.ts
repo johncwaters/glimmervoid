@@ -61,14 +61,15 @@ export function createPaneLayout(): PaneLayout {
   }
 
   function buildTabButton(tab: PaneTab): HTMLButtonElement {
-    const button = createPressable('pane-tab', TAB_LABELS[tab]);
+    const button = createPressable('pane-tab');
+    button.append(tab === 'terminal' ? el('span', 'sr-only', TAB_LABELS[tab]) : TAB_LABELS[tab]);
     button.draggable = true;
     button.dataset.tab = tab;
     button.setAttribute('role', 'tab');
     button.setAttribute('aria-controls', `focus-pane-${tab}`);
     button.addEventListener('click', () => onTabClick(tab));
     const refreshTitle = () => {
-      button.title = titleReaderByTab.get(tab)?.() ?? '';
+      button.title = [TAB_LABELS[tab], titleReaderByTab.get(tab)?.() ?? ''].filter(Boolean).join('. ');
     };
     button.addEventListener('pointerenter', refreshTitle);
     button.addEventListener('focus', refreshTitle);
