@@ -34,11 +34,10 @@ export function paintSessionGroupHeader(refs: SessionGroupHeader, group: RosterG
   const isEmpty = group.rows.length === 0;
   writeDataIfChanged(header, 'path', group.key);
   writeDataIfChanged(header, 'label', group.label);
-  writeAttributeIfChanged(header, 'title', group.title);
   header.toggleAttribute('data-empty', isEmpty);
   writeTextIfChanged(label, group.label);
+  writeAttributeIfChanged(label, 'title', group.title);
   writeTextIfChanged(count, String(group.rows.length));
-  writeAttributeIfChanged(count, 'title', `${group.rows.length} ${group.rows.length === 1 ? 'session' : 'sessions'}`);
   writeHiddenIfChanged(addButton, isPathless);
   writeHiddenIfChanged(forgetButton, isPathless || !isEmpty);
 }

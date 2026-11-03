@@ -172,7 +172,6 @@ export function paintBoardRow(row: HTMLElement, refs: SessionRowRefs, title: str
   writeTextIfChanged(refs.label, BOARD_LABEL);
   const accessibleLabel = `${title}, ${BOARD_LABEL}`;
   writeAttributeIfChanged(row, 'aria-label', accessibleLabel);
-  writeAttributeIfChanged(row, 'title', accessibleLabel);
 }
 
 function paintSessionRowMark(row: HTMLElement, refs: SessionRowRefs, ui: SessionUi, state: string) {
@@ -236,6 +235,5 @@ export function paintSessionRow(
   paintSessionRowAttentionTab(row, refs.attentionTab, attentionPosition);
   const accessibleLabel = [name, cloudText, ui.taskTitle, statusLabel, ownershipText, attentionPositionText(attentionPosition)].filter(Boolean).join(', ');
   writeAttributeIfChanged(row, 'aria-label', accessibleLabel);
-  writeAttributeIfChanged(row, 'title', accessibleLabel);
   return statusLabel;
 }
