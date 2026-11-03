@@ -28,19 +28,18 @@ const EMPTY_TEXT = 'No boards yet. Make one here, or have an agent run glimmervo
 const PICK_TEXT = 'Pick a board above.';
 const TITLE_RENAME_CLASS = 'wb-board-title-rename';
 const MENU_ICON_PATH = 'M2.5 4h11M2.5 8h11M2.5 12h11';
-const NOTE_ICON_PATH = 'M3 2.5h7l3 3v8H3z M10 2.5v3h3';
 const SEND_TO_CHAT_ICON_PATH = 'M13.5 8H3 M7 4L3 8l4 4';
-const FRAME_ICON_PATH = 'M2.5 4.5h11v9h-11z M2.5 4.5v-2h5v2';
-const UNIT_ICON_PATH = 'M6 4.5h7.5 M6 8h7.5 M6 11.5h7.5 M2.5 4.5h0.01 M2.5 8h0.01 M2.5 11.5h0.01';
+const MORE_ICON_PATH = 'M4.5 6.5L8 10l3.5-3.5';
+const MENU_GAP_PX = 4;
 const FIT_ICON_PATH = 'M2.5 6V2.5H6 M10 2.5h3.5V6 M13.5 10v3.5H10 M6 13.5H2.5V10';
 const UNDO_ICON_PATH = 'M5.5 3.5l-3 3l3 3 M2.5 6.5h7a3.5 3.5 0 0 1 0 7H7';
 const REDO_ICON_PATH = 'M10.5 3.5l3 3l-3 3 M13.5 6.5h-7a3.5 3.5 0 0 0 0 7H9';
-const TOOL_BUTTONS: readonly { tool: BoardTool; label: string; key: string; iconPath: string }[] = [
-  { tool: 'select', label: 'select', key: 'V', iconPath: 'M4 2.5l8.5 5.8l-4 0.7l2.2 4.3l-1.5 0.8l-2.2-4.3L4 12.5z' },
-  { tool: 'box', label: 'box', key: 'R', iconPath: 'M2.5 4h11v8h-11z' },
-  { tool: 'decision', label: 'decision', key: 'D', iconPath: 'M8 2l6 6l-6 6l-6-6z' },
-  { tool: 'panel', label: 'panel', key: 'P', iconPath: 'M2.5 3h11v10h-11z M2.5 6h11' },
-  { tool: 'wire', label: 'wire', key: 'A', iconPath: 'M2.5 13.5L13 3 M8.5 3H13v4.5' },
+const TOOL_BUTTONS: readonly { tool: BoardTool; label: string; key: string; iconPath: string; hint: string | null }[] = [
+  { tool: 'select', label: 'select', key: 'V', iconPath: 'M4 2.5l8.5 5.8l-4 0.7l2.2 4.3l-1.5 0.8l-2.2-4.3L4 12.5z', hint: null },
+  { tool: 'box', label: 'box', key: 'R', iconPath: 'M2.5 4h11v8h-11z', hint: 'Click the board to place a box. Esc to cancel.' },
+  { tool: 'decision', label: 'decision', key: 'D', iconPath: 'M8 2l6 6l-6 6l-6-6z', hint: 'Click the board to place a decision. Esc to cancel.' },
+  { tool: 'panel', label: 'panel', key: 'P', iconPath: 'M2.5 3h11v10h-11z M2.5 6h11', hint: 'Click the board to place a panel. Esc to cancel.' },
+  { tool: 'wire', label: 'wire', key: 'A', iconPath: 'M2.5 13.5L13 3 M8.5 3H13v4.5', hint: 'Drag from one box to another to connect them. Esc to cancel.' },
 ];
 
 interface TextDialogOptions {
@@ -70,6 +69,7 @@ interface BoardsViewParts {
   sendToAgent: HTMLButtonElement;
   buttons: Record<'note' | 'frame' | 'unit' | 'fit' | 'undo' | 'redo', HTMLButtonElement>;
   toolButtons: ReadonlyMap<BoardTool, HTMLButtonElement>;
+  toolHint: HTMLElement;
 }
 
 let selectedBoardId: string | null = null;
@@ -332,6 +332,57 @@ function buildBoardMenu(onBoardSettings: () => void) {
   return { menuRoot, trigger, paintBoards };
 }
 
+function buildMoreMenu(menuItems: readonly HTMLButtonElement[]): HTMLElement {
+  const menuRoot = el('div', 'session-overflow wb-more-menu');
+  const menu = el('div', 'popup-menu session-overflow-menu wb-more-menu-popup');
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', 'More tools');
+  const isOpen = () => menu.classList.contains('open');
+  const setOpen = (shouldOpen: boolean) => {
+    menu.classList.toggle('open', shouldOpen);
+    trigger.setAttribute('aria-expanded', String(shouldOpen));
+    if (shouldOpen) placeMenuAtTrigger(menu, trigger);
+  };
+  const trigger = button({ variant: 'quiet', size: 'small', label: 'more', icon: createLineIcon(MORE_ICON_PATH, '1.5'), action: 'open-more-tools', onClick: () => setOpen(!isOpen()) });
+  trigger.classList.add('wb-more-trigger');
+  trigger.setAttribute('aria-haspopup', 'menu');
+  trigger.setAttribute('aria-expanded', 'false');
+  menu.append(...menuItems);
+  menu.addEventListener('click', (event) => {
+    if (event.target instanceof HTMLElement && event.target.closest('[role="menuitem"]')) setOpen(false);
+  });
+  menuRoot.append(trigger);
+  document.body.append(menu);
+  wirePopupMenuKeys({
+    trigger,
+    menu,
+    menuItems: () => [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)')],
+    isOpen,
+    open: () => setOpen(true),
+    close: () => setOpen(false),
+  });
+  document.addEventListener('click', (event) => {
+    if (isOpen() && event.target instanceof Node && !menuRoot.contains(event.target) && !menu.contains(event.target)) setOpen(false);
+  });
+  window.addEventListener('resize', () => setOpen(false));
+  return menuRoot;
+}
+
+function placeMenuAtTrigger(menu: HTMLElement, trigger: HTMLElement): void {
+  const triggerRect = trigger.getBoundingClientRect();
+  const isRoomBelow = triggerRect.bottom + MENU_GAP_PX + menu.offsetHeight <= window.innerHeight;
+  menu.style.right = `${Math.max(0, window.innerWidth - triggerRect.right)}px`;
+  menu.style.top = isRoomBelow ? `${triggerRect.bottom + MENU_GAP_PX}px` : 'auto';
+  menu.style.bottom = isRoomBelow ? 'auto' : `${window.innerHeight - triggerRect.top + MENU_GAP_PX}px`;
+}
+
+function moreMenuItem(label: string, action: string, onChoose: () => void): HTMLButtonElement {
+  const item = buildMenuItem(label, 'visible');
+  item.dataset.action = action;
+  item.addEventListener('click', onChoose);
+  return item;
+}
+
 function paintHead(): void {
   if (!parts) return;
   const summary = selectedSummary();
@@ -561,7 +612,8 @@ function iconButton(label: string, iconPath: string, action: string, onClick: ()
 function toolButton(tool: BoardTool, label: string, key: string, iconPath: string): HTMLButtonElement {
   const toolOption = createPressable('wb-tool');
   toolOption.setAttribute('aria-label', label);
-  toolOption.title = `${label} (${key})`;
+  toolOption.dataset.tipLabel = label;
+  toolOption.dataset.tipDetail = key;
   const keyHint = el('span', 'wb-tool-key', key);
   keyHint.setAttribute('aria-hidden', 'true');
   toolOption.append(createLineIcon(iconPath, '1.5'), keyHint);
@@ -583,7 +635,11 @@ function island(className: string, label: string, ...children: HTMLElement[]): H
 }
 
 function paintActiveTool(activeTool: BoardTool): void {
-  for (const [tool, button] of parts?.toolButtons ?? []) button.setAttribute('aria-pressed', String(tool === activeTool));
+  if (!parts) return;
+  for (const [tool, button] of parts.toolButtons) button.setAttribute('aria-pressed', String(tool === activeTool));
+  const hint = TOOL_BUTTONS.find(({ tool }) => tool === activeTool)?.hint ?? null;
+  parts.toolHint.textContent = hint ?? '';
+  parts.toolHint.hidden = hint === null;
 }
 
 function historyDirectionOf(event: KeyboardEvent): UndoDirection | null {
@@ -620,18 +676,23 @@ export function mountBoardHost(): HTMLElement {
   toolGroup.setAttribute('aria-label', 'Drawing tools');
   toolGroup.append(...toolButtons.values());
   const buttons = {
-    note: iconButton('note', NOTE_ICON_PATH, 'add-note', () => {
+    note: moreMenuItem('note on box', 'add-note', () => {
       const [box] = selectedElementsOfKind('box');
       if (box) addNoteOn(box.id);
     }),
-    frame: iconButton('frame', FRAME_ICON_PATH, 'add-frame', addFrame),
-    unit: iconButton('unit', UNIT_ICON_PATH, 'add-unit', addUnitFromDialog),
+    frame: moreMenuItem('frame selected boxes', 'add-frame', addFrame),
+    unit: moreMenuItem('plan step', 'add-unit', addUnitFromDialog),
     fit: iconButton('fit', FIT_ICON_PATH, 'fit-board', () => editor?.fit()),
     undo: iconButton('undo', UNDO_ICON_PATH, 'undo-board-edit', () => void stepHistory('undo')),
     redo: iconButton('redo', REDO_ICON_PATH, 'redo-board-edit', () => void stepHistory('redo')),
   };
   buttons.fit.dataset.phoneVisible = '';
-  const toolsIsland = island('wb-island-tools', 'Board tools', toolGroup, buttons.note, buttons.frame, buttons.unit);
+  const toolDivider = el('span', 'wb-divider');
+  toolDivider.setAttribute('aria-hidden', 'true');
+  const toolsIsland = island('wb-island-tools', 'Board tools', toolGroup, toolDivider, buildMoreMenu([buttons.note, buttons.frame, buttons.unit]));
+  const toolHint = el('p', 'wb-tool-hint');
+  toolHint.setAttribute('aria-live', 'polite');
+  toolHint.hidden = true;
   const viewIsland = island('wb-island-view', 'View', buttons.fit, buttons.undo, buttons.redo);
 
   const canvas = el('div', 'wb-canvas');
@@ -648,7 +709,7 @@ export function mountBoardHost(): HTMLElement {
   const bottomLeftStack = el('div', 'wb-bottom-left');
   bottomLeftStack.append(agentIsland);
   const chrome = el('div', 'wb-top-left');
-  chrome.append(boardIsland, viewIsland, toolsIsland);
+  chrome.append(boardIsland, viewIsland, toolsIsland, toolHint);
   const topRightStack = el('div', 'wb-top-right');
   topRightStack.append(inspectPanel);
   canvas.append(svg, topRightStack, chrome, bottomLeftStack);
@@ -657,7 +718,7 @@ export function mountBoardHost(): HTMLElement {
   empty.append(emptyText, button({ variant: 'secondary', label: 'new board', action: 'new-board', onClick: newBoardFromDialog }));
 
   host.replaceChildren(canvas, empty);
-  parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, sendToAgent, buttons, toolButtons };
+  parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, sendToAgent, buttons, toolButtons, toolHint };
   const boardRenderer = createBoardRenderer(svg);
   renderer = boardRenderer;
   inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, openRef: openRefInReview });
