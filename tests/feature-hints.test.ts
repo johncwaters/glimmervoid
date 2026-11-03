@@ -39,12 +39,27 @@ const DEFAULT_ON_FEATURES_OFF = { teamReview: { enabled: false }, usage: { enabl
 
 function startHints(statePath: string, clock: Clock, config: { current: unknown } = { current: DEFAULT_ON_FEATURES_OFF }) {
   const broadcastHints: FeatureHint[] = [];
+  const starHintBroadcasts: { type: 'star-hint' }[] = [];
   const featureHints = createFeatureHintsWiring({
     statePath, log: { warn: () => {} }, now: () => clock.nowMs, currentConfig: () => config.current,
-    broadcast: (message) => { broadcastHints.push(message.hint); },
+    broadcast: (message) => {
+      if (message.type === 'star-hint') {
+        starHintBroadcasts.push(message);
+        return;
+      }
+      broadcastHints.push(message.hint);
+    },
   });
   test.after(() => featureHints.stop());
-  return { featureHints, broadcastHints };
+  return { featureHints, broadcastHints, starHintBroadcasts };
+}
+
+function pendingFeatureHint(featureHints: ReturnType<typeof createFeatureHintsWiring>): FeatureHint | null {
+  return featureHints.pendingHintMessages().find((message) => message.type === 'feature-hint')?.hint ?? null;
+}
+
+function pendingStarHintCount(featureHints: ReturnType<typeof createFeatureHintsWiring>): number {
+  return featureHints.pendingHintMessages().filter((message) => message.type === 'star-hint').length;
 }
 
 function attachedSession(featureHints: { attachSession: (session: HookedSession) => void }, id: string, options: { ephemeral?: boolean } = {}): HookedSession {
@@ -72,7 +87,7 @@ test('Bash commands reviewing three distinct PRs raise one Reviews hint that a s
   codex.runCommand('gh pr view --json title 420');
   await firstRun.featureHints.idle();
   assert.deepEqual(firstRun.broadcastHints, [{ feature: 'teamReview', distinctTargetCount: 3, raisedAt: START_MS }]);
-  assert.deepEqual(firstRun.featureHints.pendingHintMessage()?.hint, { feature: 'teamReview', distinctTargetCount: 3, raisedAt: START_MS });
+  assert.deepEqual(pendingFeatureHint(firstRun.featureHints), { feature: 'teamReview', distinctTargetCount: 3, raisedAt: START_MS });
 
   await firstRun.featureHints.settle('teamReview', 'dismissed');
   await firstRun.featureHints.stop();
@@ -81,7 +96,7 @@ test('Bash commands reviewing three distinct PRs raise one Reviews hint that a s
   const claude = attachedSession(restarted.featureHints, 'session-b');
   for (const prNumber of [501, 502, 503, 504]) claude.runCommand(`gh pr review ${prNumber} --approve`);
   await restarted.featureHints.idle();
-  assert.equal(restarted.featureHints.pendingHintMessage(), null);
+  assert.equal(pendingFeatureHint(restarted.featureHints), null);
   assert.deepEqual(restarted.broadcastHints, []);
 });
 
@@ -101,7 +116,7 @@ test('a feature left on by its default never hints, and turning one on drops its
   assert.equal(broadcastHints.length, 1);
 
   config.current = {};
-  assert.equal(featureHints.pendingHintMessage(), null);
+  assert.equal(pendingFeatureHint(featureHints), null);
 });
 
 test('only the Bash tool counts, and a torn-down session stops counting', async () => {
@@ -142,7 +157,7 @@ test('opening the hinted tab settles its hint so the next feature can surface', 
   for (const prNumber of [1, 2, 3]) session.runCommand(`gh pr view ${prNumber}`);
   await featureHints.idle();
   await featureHints.noteViewShown('prs');
-  assert.equal(featureHints.pendingHintMessage(), null);
+  assert.equal(pendingFeatureHint(featureHints), null);
 
   session.runCommand('ccusage daily');
   session.runCommand('ccusage monthly');
@@ -207,5 +222,37 @@ test('an Issues hint saved before it went experimental never replays after a res
   fs.writeFileSync(statePath, JSON.stringify({ signalsByFeature: {}, settledByFeature: {}, lastShownAtByView: {}, pendingHint: savedIssuesHint }));
   const { featureHints } = startHints(statePath, clock);
   await featureHints.idle();
-  assert.equal(featureHints.pendingHintMessage(), null);
+  assert.equal(pendingFeatureHint(featureHints), null);
+});
+
+test('the fifth operator prompt raises one star hint that replays until settled, and lane prompts never count', async () => {
+  const statePath = tempStatePath();
+  const clock = { nowMs: START_MS };
+  const firstRun = startHints(statePath, clock);
+  const operatorSession = attachedSession(firstRun.featureHints, 'session-a');
+  const laneSession = attachedSession(firstRun.featureHints, 'lane', { ephemeral: true });
+
+  for (const prompt of ['one', 'two', 'three', 'four']) operatorSession.submitPrompt(prompt);
+  for (const prompt of ['lane one', 'lane two', 'lane three']) laneSession.submitPrompt(prompt);
+  operatorSession.submitPrompt('   ');
+  await firstRun.featureHints.idle();
+  assert.equal(firstRun.starHintBroadcasts.length, 0);
+
+  operatorSession.submitPrompt('five');
+  operatorSession.submitPrompt('six');
+  await firstRun.featureHints.idle();
+  assert.equal(firstRun.starHintBroadcasts.length, 1);
+  await firstRun.featureHints.stop();
+
+  const restarted = startHints(statePath, clock);
+  await restarted.featureHints.idle();
+  assert.equal(pendingStarHintCount(restarted.featureHints), 1);
+  await restarted.featureHints.settleStar('dismissed');
+  await restarted.featureHints.stop();
+
+  const settledRun = startHints(statePath, clock);
+  attachedSession(settledRun.featureHints, 'session-b').submitPrompt('seven');
+  await settledRun.featureHints.idle();
+  assert.equal(pendingStarHintCount(settledRun.featureHints), 0);
+  assert.equal(settledRun.starHintBroadcasts.length, 0);
 });

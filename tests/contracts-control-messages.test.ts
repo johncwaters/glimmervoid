@@ -255,6 +255,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'set-workspace-repos-result', requestId: 'r5', id: 'session-1', ok: false, error: 'two has uncommitted changes. Commit or discard them before removing it from the workspace.' },
   { type: 'hooks-updated', count: 1 },
   { type: 'feature-hint', hint: { feature: 'teamReview', distinctTargetCount: 3, raisedAt: 1761740000000 } },
+  { type: 'star-hint' },
 ];
 
 test('real server payloads round-trip through every server contract variant', () => {
@@ -312,7 +313,7 @@ test('a manual link resolves against my PRs, and an unlink removes it and blocks
 });
 
 test('server variants read by the browser validate more than their type name', () => {
-  const intentionallyOpaque = new Set(['shutting-down', 'restarting']);
+  const intentionallyOpaque = new Set(['shutting-down', 'restarting', 'star-hint']);
   for (const option of ServerMessage.options) {
     const type = option.shape.type.value;
     if (intentionallyOpaque.has(type)) continue;

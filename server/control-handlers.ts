@@ -151,7 +151,7 @@ interface ControlHandlerDeps {
   agentConnect?: Pick<ReturnType<typeof createAgentConnect>, 'logins' | 'refresh' | 'start' | 'cancel' | 'submitCode'> | null;
   remoteSetup?: { start: (agent: RemoteSetupAgent) => Promise<RemoteSetupOutcome> } | null;
   remoteRepoGit?: Pick<GitWorkspaceInstance, 'originUrl' | 'detectDefaultBranch'> | null;
-  featureHints?: Pick<FeatureHintsWiring, 'noteViewShown' | 'settle' | 'pendingHintMessage'> | null;
+  featureHints?: Pick<FeatureHintsWiring, 'noteViewShown' | 'settle' | 'settleStar' | 'pendingHintMessages'> | null;
 }
 
 function parseSinceParam(url: string | undefined): number | null {

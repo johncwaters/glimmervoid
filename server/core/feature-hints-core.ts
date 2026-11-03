@@ -1,5 +1,5 @@
-import { HINT_FEATURES, HINT_VIEW_BY_FEATURE } from '../../shared/contracts/feature-hints.ts';
-import type { FeatureHint, FeatureHintState, HintFeature, HintOutcome } from '../../shared/contracts/feature-hints.ts';
+import { HINT_FEATURES, HINT_VIEW_BY_FEATURE, STAR_HINT_PROMPT_THRESHOLD } from '../../shared/contracts/feature-hints.ts';
+import type { FeatureHint, FeatureHintState, HintFeature, HintOutcome, StarHintOutcome } from '../../shared/contracts/feature-hints.ts';
 import { isExperimentalSetting } from '../../shared/settings/registry.ts';
 import { SETTINGS_INDEX, valueAtPath } from '../../shared/settings/registry-core.ts';
 
@@ -126,7 +126,7 @@ function isFeatureHintable(feature: HintFeature, isFeatureEnabled: IsFeatureEnab
 }
 
 function emptyFeatureHintState(): FeatureHintState {
-  return { signalsByFeature: {}, settledByFeature: {}, lastShownAtByView: {}, pendingHint: null };
+  return { signalsByFeature: {}, settledByFeature: {}, lastShownAtByView: {}, pendingHint: null, starHintPromptCount: 0, starHintOutcome: null };
 }
 
 function fingerprintOf(text: string): string {
@@ -184,6 +184,24 @@ function bashCommandOf(payload: Record<string, unknown>): string | null {
   const toolInput = payload.tool_input;
   if (typeof toolInput !== 'object' || toolInput === null || !('command' in toolInput)) return null;
   return typeof toolInput.command === 'string' ? toolInput.command : null;
+}
+
+function isOperatorPromptEvent({ event, payload }: HookEventNotice): boolean {
+  return event.toLowerCase() === 'userpromptsubmit' && typeof payload.prompt === 'string' && payload.prompt.trim() !== '';
+}
+
+function countStarHintPrompt(state: FeatureHintState): FeatureHintState {
+  if (state.starHintOutcome !== null || state.starHintPromptCount >= STAR_HINT_PROMPT_THRESHOLD) return state;
+  return { ...state, starHintPromptCount: state.starHintPromptCount + 1 };
+}
+
+function isStarHintPending(state: FeatureHintState): boolean {
+  return state.starHintOutcome === null && state.starHintPromptCount >= STAR_HINT_PROMPT_THRESHOLD;
+}
+
+function settleStarHint(state: FeatureHintState, outcome: StarHintOutcome): FeatureHintState {
+  if (state.starHintOutcome !== null) return state;
+  return { ...state, starHintOutcome: outcome };
 }
 
 function signalsFromHookEvent({ event, payload }: HookEventNotice, { sessionId, ts, recentPrompts }: HookEventContext): { signals: FeatureSignal[]; recentPrompts: readonly RecentPrompt[] } {
@@ -262,6 +280,7 @@ function noteViewShown(state: FeatureHintState, view: string, now: number): Feat
 }
 
 export {
-  decideHint, emptyFeatureHintState, isHintFeatureEnabledIn, noteViewShown, recordSignals, settleHint, signalsFromHookEvent, withoutStaleHint,
+  countStarHintPrompt, decideHint, emptyFeatureHintState, isHintFeatureEnabledIn, isOperatorPromptEvent, isStarHintPending, noteViewShown, recordSignals,
+  settleHint, settleStarHint, signalsFromHookEvent, withoutStaleHint,
 };
 export type { FeatureSignal, HookEventNotice, IsFeatureEnabled, RecentPrompt };

@@ -1,8 +1,10 @@
 import './feature-hint.css';
 import type { FeatureHint, HintFeature } from '#shared/contracts/feature-hints.ts';
 import { HINT_VIEW_BY_FEATURE } from '#shared/contracts/feature-hints.ts';
+import { REPO_SLUG } from '#shared/repo.ts';
 import { sendControlMsg } from './control-ws.ts';
 import { el } from './dom-helpers.ts';
+import { openExternalUrl } from './external-link.ts';
 import { featureHintMessage, featureSettingTarget } from './feature-hint-core.ts';
 import { buildFlyingAnimalPreview, pickRandomIncludedAnimal } from './flying-animal-preview.ts';
 import { claimKey, claimNotification } from './notify-dedupe-core.ts';
@@ -20,9 +22,9 @@ function reportHintAction(feature: HintFeature, action: 'shown' | 'open' | 'dism
   sendControlMsg({ type: 'dashboard-telemetry', event: 'operator_action', properties: { surface: 'hints', action, feature } });
 }
 
-function claimHint(hint: FeatureHint) {
+function claimCard(category: string, cardKey: string) {
   try {
-    return claimNotification(localStorage, claimKey('feature-hint', `${hint.feature}-${hint.raisedAt}`), Date.now());
+    return claimNotification(localStorage, claimKey(category, cardKey), Date.now());
   } catch {
     return true;
   }
@@ -40,6 +42,7 @@ function openHintedFeature(feature: HintFeature, host: FeatureHintHost) {
 interface HintCardActions {
   text: string;
   ariaLabel: string;
+  openLabel?: string;
   onOpen: () => void;
   onDismiss: () => void;
 }
@@ -48,12 +51,12 @@ export function isHintCardShown() {
   return shownHintCard?.isConnected === true;
 }
 
-export function showHintCard({ text, ariaLabel, onOpen, onDismiss }: HintCardActions) {
+export function showHintCard({ text, ariaLabel, openLabel = 'Show me', onOpen, onDismiss }: HintCardActions) {
   const hintCard = el('aside', 'feature-hint');
   hintCard.setAttribute('aria-live', 'polite');
   hintCard.setAttribute('aria-label', ariaLabel);
   const bubble = el('div', 'feature-hint-bubble');
-  const showButton = el('button', 'btn-dialog btn-dialog-confirm', 'Show me');
+  const showButton = el('button', 'btn-dialog btn-dialog-confirm', openLabel);
   const dismissButton = el('button', 'btn-dialog btn-dialog-cancel', 'Dismiss');
   showButton.type = 'button';
   dismissButton.type = 'button';
@@ -82,7 +85,7 @@ export function showHintCard({ text, ariaLabel, onOpen, onDismiss }: HintCardAct
 
 export function showFeatureHint(hint: FeatureHint, host: FeatureHintHost) {
   if (isHintCardShown()) return;
-  if (!claimHint(hint)) return;
+  if (!claimCard('feature-hint', `${hint.feature}-${hint.raisedAt}`)) return;
   showHintCard({
     text: featureHintMessage(hint),
     ariaLabel: 'Feature tip',
@@ -93,4 +96,24 @@ export function showFeatureHint(hint: FeatureHint, host: FeatureHintHost) {
     onDismiss: () => reportHintAction(hint.feature, 'dismiss'),
   });
   reportHintAction(hint.feature, 'shown');
+}
+
+function reportStarHintAction(action: 'shown' | 'open' | 'dismiss') {
+  sendControlMsg({ type: 'dashboard-telemetry', event: 'operator_action', properties: { surface: 'star', action } });
+}
+
+export function showStarHint() {
+  if (isHintCardShown()) return;
+  if (!claimCard('star-hint', 'card')) return;
+  showHintCard({
+    text: 'Enjoying Glimmervoid? A star on GitHub helps other people find it.',
+    ariaLabel: 'Star Glimmervoid on GitHub',
+    openLabel: 'Star on GitHub',
+    onOpen: () => {
+      reportStarHintAction('open');
+      openExternalUrl(`https://github.com/${REPO_SLUG}`);
+    },
+    onDismiss: () => reportStarHintAction('dismiss'),
+  });
+  reportStarHintAction('shown');
 }

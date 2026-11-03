@@ -15,6 +15,10 @@ export const HINT_VIEW_BY_FEATURE = Object.freeze({
 const HINT_OUTCOMES = Object.freeze(['opened', 'dismissed'] as const);
 export type HintOutcome = (typeof HINT_OUTCOMES)[number];
 
+export const STAR_HINT_PROMPT_THRESHOLD = 5;
+const STAR_HINT_OUTCOMES = Object.freeze(['starred', 'dismissed'] as const);
+export type StarHintOutcome = (typeof STAR_HINT_OUTCOMES)[number];
+
 const timestamp = z.number().int().nonnegative();
 
 export const FeatureHint = z.object({
@@ -31,5 +35,7 @@ export const FeatureHintState = z.object({
   settledByFeature: z.partialRecord(HintFeature, z.enum(HINT_OUTCOMES)),
   lastShownAtByView: z.partialRecord(z.string().min(1).max(40), timestamp),
   pendingHint: FeatureHint.nullable(),
+  starHintPromptCount: z.number().int().min(0).max(STAR_HINT_PROMPT_THRESHOLD).default(0),
+  starHintOutcome: z.enum(STAR_HINT_OUTCOMES).nullable().default(null),
 }).strict();
 export type FeatureHintState = z.infer<typeof FeatureHintState>;

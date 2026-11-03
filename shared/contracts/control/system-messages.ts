@@ -27,4 +27,5 @@ export const systemServerVariants = [
   loose('shutting-down'),
   loose('restarting'),
   loose('feature-hint', { hint: FeatureHint }),
+  loose('star-hint'),
 ] as const;

@@ -190,12 +190,13 @@ export const OPERATOR_ACTIONS_BY_SURFACE = Object.freeze({
   onboarding: ['rescan', 'add-root-typed', 'add-root-suggested', 'add-session', 'open-shell', 'check-github-again', 'save-github-teams', 'save-review-skill', 'save-community-key', 'save-community-project', 'save-community-skill', 'save-community-discord', 'finish-community-setup'],
   reviews: ['open-session', 'approve', 'approve-only', 'comment', 'request-changes', 'discard', 'requeue', 'resolve-thread', 'merge', 'keep-mergeable', 'merge-when-ready', 'refresh'],
   hints: ['shown', 'open', 'dismiss'],
+  star: ['shown', 'open', 'dismiss'],
   community: ['open-session', 'rerun', 'set-aside'],
 } as const);
 export const ONBOARDING_STEPS = Object.freeze(['agent', 'repo_roots', 'first_session'] as const);
 export const ONBOARDING_STEP_STATES = Object.freeze(['current', 'done'] as const);
 export type OnboardingStepReport = { step: (typeof ONBOARDING_STEPS)[number]; state: (typeof ONBOARDING_STEP_STATES)[number] };
-export const OPERATOR_SURFACES = Object.freeze(['usage', 'issues', 'radar', 'onboarding', 'reviews', 'hints', 'community'] as const);
+export const OPERATOR_SURFACES = Object.freeze(['usage', 'issues', 'radar', 'onboarding', 'reviews', 'hints', 'star', 'community'] as const);
 export type OperatorSurface = (typeof OPERATOR_SURFACES)[number];
 export type OperatorAction = { [Surface in OperatorSurface]: (typeof OPERATOR_ACTIONS_BY_SURFACE)[Surface][number] }[OperatorSurface];
 export type OperatorActionOf<Surface extends OperatorSurface> = (typeof OPERATOR_ACTIONS_BY_SURFACE)[Surface][number];

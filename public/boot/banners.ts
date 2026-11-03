@@ -136,4 +136,11 @@ function showFeatureHintCard(hint: FeatureHint) {
   );
 }
 
-export { mountTelemetryBanner, showFeatureHintCard, showPostTurnLeftoversBanner, showUpdateBanner, syncTelemetryBanner };
+function showStarHintCard() {
+  void import('../feature-hint.ts').then(
+    (featureHint) => featureHint.showStarHint(),
+    (error: unknown) => reportToServerLog('star-hint', `star card failed to load: ${describeFailure(error)}`),
+  );
+}
+
+export { mountTelemetryBanner, showFeatureHintCard, showPostTurnLeftoversBanner, showStarHintCard, showUpdateBanner, syncTelemetryBanner };

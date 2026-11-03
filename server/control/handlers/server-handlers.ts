@@ -37,7 +37,13 @@ function createServerHandlers(_context: ControlContext, deps: ControlHandlerDeps
       void featureHints.noteViewShown(report.properties.view);
       return;
     }
-    if (report.event !== 'operator_action' || report.properties.surface !== 'hints' || !report.properties.feature) return;
+    if (report.event !== 'operator_action') return;
+    if (report.properties.surface === 'star') {
+      if (report.properties.action === 'open') void featureHints.settleStar('starred');
+      if (report.properties.action === 'dismiss') void featureHints.settleStar('dismissed');
+      return;
+    }
+    if (report.properties.surface !== 'hints' || !report.properties.feature) return;
     if (report.properties.action === 'open') void featureHints.settle(report.properties.feature, 'opened');
     if (report.properties.action === 'dismiss') void featureHints.settle(report.properties.feature, 'dismissed');
   }
@@ -98,8 +104,7 @@ function createServerHandlers(_context: ControlContext, deps: ControlHandlerDeps
     if (updateJournal) frames.push({ type: 'update-progress', journal: updateJournal });
     const postTurnLeftoversNotice = getPostTurnLeftoversNotice?.() ?? null;
     if (postTurnLeftoversNotice) frames.push(postTurnLeftoversNotice);
-    const featureHintMessage = featureHints?.pendingHintMessage() ?? null;
-    if (featureHintMessage) frames.push(featureHintMessage);
+    frames.push(...(featureHints?.pendingHintMessages() ?? []));
     return frames;
   }
 

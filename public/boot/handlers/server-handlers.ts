@@ -9,7 +9,7 @@ import { applySessionPlanError } from '../../session-card/card-faces.ts';
 import { reportSessionProblem } from '../../session-card/card-problems.ts';
 import { applySettingsUpdateError, applySettingsUpdateProgress, applySettingsUpdateStatus } from '../../settings/settings-store.ts';
 import { applyTraceError } from '../../trace-store.ts';
-import { showFeatureHintCard, showPostTurnLeftoversBanner, showUpdateBanner } from '../banners.ts';
+import { showFeatureHintCard, showPostTurnLeftoversBanner, showStarHintCard, showUpdateBanner } from '../banners.ts';
 import { SERVER_ERROR_SOURCE, showServerGoingDown } from '../connection-screen.ts';
 import type { DashboardHandlerTable } from '../core/message-dispatch-core.ts';
 import { applyDashboardSettings } from '../dashboard-settings.ts';
@@ -27,6 +27,7 @@ const messageHandlers = {
   'update-progress':    (msg) => applySettingsUpdateProgress(msg.journal),
   'post-turn-leftovers': (msg) => showPostTurnLeftoversBanner(msg),
   'feature-hint':       (msg) => showFeatureHintCard(msg.hint),
+  'star-hint':          () => showStarHintCard(),
   'error':              (msg) => {
     const isUpdateErrorShownInline = applySettingsUpdateError(msg);
     const isTraceErrorShownInline = applyTraceError(msg);

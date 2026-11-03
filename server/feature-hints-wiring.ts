@@ -1,13 +1,16 @@
 import type { EventEmitter } from 'node:events';
 import { FeatureHintState } from '../shared/contracts/feature-hints.ts';
-import type { FeatureHint, HintFeature, HintOutcome } from '../shared/contracts/feature-hints.ts';
+import type { FeatureHint, HintFeature, HintOutcome, StarHintOutcome } from '../shared/contracts/feature-hints.ts';
 import { createJsonStateStore } from './json-file.ts';
 import * as core from './core/feature-hints-core.ts';
 import type { FeatureSignal, HookEventNotice, RecentPrompt } from './core/feature-hints-core.ts';
 
+type FeatureHintMessage = { type: 'feature-hint'; hint: FeatureHint };
+type StarHintMessage = { type: 'star-hint' };
+
 interface FeatureHintsWiringOptions {
   statePath: string | null;
-  broadcast: (message: { type: 'feature-hint'; hint: FeatureHint }) => void;
+  broadcast: (message: FeatureHintMessage | StarHintMessage) => void;
   log: Pick<Console, 'warn'>;
   currentConfig: () => unknown;
   now?: () => number;
@@ -35,10 +38,12 @@ function createFeatureHintsWiring({ statePath, broadcast, log, currentConfig, no
   function update(nextStateOf: (current: FeatureHintState) => FeatureHintState): Promise<void> {
     return loaded.then(() => {
       if (isStopped) return;
+      const wasStarHintPending = core.isStarHintPending(state);
       const nextState = core.withoutStaleHint(nextStateOf(state), now(), isFeatureEnabled);
       const hint = core.decideHint(nextState, now(), isFeatureEnabled);
       state = hint ? { ...nextState, pendingHint: hint } : nextState;
       if (hint) broadcast({ type: 'feature-hint', hint });
+      if (!wasStarHintPending && core.isStarHintPending(state)) broadcast({ type: 'star-hint' });
       const persistedState = state;
       return store.write(persistedState, () => `${JSON.stringify(persistedState, null, 2)}\n`);
     });
@@ -56,6 +61,7 @@ function createFeatureHintsWiring({ statePath, broadcast, log, currentConfig, no
       const classified = core.signalsFromHookEvent(notice, { sessionId: session.id, ts: now(), recentPrompts });
       recentPrompts = classified.recentPrompts;
       void recordSignals(classified.signals);
+      if (core.isOperatorPromptEvent(notice)) void update(core.countStarHintPrompt);
     }
     function detach(): void {
       session.off('hook-event', onHookEvent);
@@ -73,9 +79,15 @@ function createFeatureHintsWiring({ statePath, broadcast, log, currentConfig, no
     return update((current) => core.settleHint(current, feature, outcome));
   }
 
-  function pendingHintMessage(): { type: 'feature-hint'; hint: FeatureHint } | null {
+  function settleStar(outcome: StarHintOutcome): Promise<void> {
+    return update((current) => core.settleStarHint(current, outcome));
+  }
+
+  function pendingHintMessages(): (FeatureHintMessage | StarHintMessage)[] {
     const pendingHint = core.withoutStaleHint(state, now(), isFeatureEnabled).pendingHint;
-    return pendingHint ? { type: 'feature-hint', hint: pendingHint } : null;
+    const featureHintMessages: FeatureHintMessage[] = pendingHint ? [{ type: 'feature-hint', hint: pendingHint }] : [];
+    const starHintMessages: StarHintMessage[] = core.isStarHintPending(state) ? [{ type: 'star-hint' }] : [];
+    return [...featureHintMessages, ...starHintMessages];
   }
 
   function idle(): Promise<void> {
@@ -87,7 +99,7 @@ function createFeatureHintsWiring({ statePath, broadcast, log, currentConfig, no
     await idle();
   }
 
-  return { attachSession, noteViewShown, settle, pendingHintMessage, stop, idle };
+  return { attachSession, noteViewShown, settle, settleStar, pendingHintMessages, stop, idle };
 }
 
 type FeatureHintsWiring = ReturnType<typeof createFeatureHintsWiring>;
