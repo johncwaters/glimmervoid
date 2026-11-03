@@ -259,7 +259,7 @@ export const LANES_COMMUNITY: SettingsSection = {
     {
       id: 'community-interval', path: 'community.intervalMinutes', title: 'Poll interval',
       description: 'Time between community checks.',
-      control: 'number', integer: true, range: COMMUNITY_INTERVAL_MINUTES_RANGE, unit: MINUTES, keywords: ['refresh', 'schedule'], defaultValue: 5, ...MACHINE_NOW,
+      control: 'number', integer: true, range: COMMUNITY_INTERVAL_MINUTES_RANGE, unit: MINUTES, keywords: ['refresh', 'schedule'], defaultValue: 30, ...MACHINE_NOW,
     },
     {
       id: 'community-discord-channels', path: 'community.discordChannels', title: 'Discord channels',

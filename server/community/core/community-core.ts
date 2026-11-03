@@ -9,7 +9,7 @@ import type { UntrustedItem } from '../../../shared/contracts/untrusted-payload.
 const COMMUNITY_LANE_ID = 'community';
 const COMMUNITY_STATE_FILENAME = 'community-state.json';
 const DEFAULT_PROJECT_ID = 2;
-const DEFAULT_INTERVAL_MINUTES = 5;
+const DEFAULT_INTERVAL_MINUTES = 30;
 const SOURCE_ROW_LIMIT = 50;
 const ENTRY_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 const FORUM_QUESTION_URL = 'https://posthog.com/forum/p/';

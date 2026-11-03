@@ -189,7 +189,7 @@ Research new posthog.com community questions and draft replies.
 | `community.enabled` | Show the Community tab | `false` | Research new community questions and draft a reply for each. |
 | `community.skill` | Research skill | `""` | Skill the research agent follows, or none when empty. |
 | `community.projectId` | PostHog project | `2` | PostHog project holding the community forum and Discord data. |
-| `community.intervalMinutes` | Poll interval | `5` | Time between community checks. |
+| `community.intervalMinutes` | Poll interval | `30` | Time between community checks. |
 | `community.discordChannels` | Discord channels | `[]` | Discord channels to watch for questions, without the #, or none to skip Discord. |
 
 ### Privacy
