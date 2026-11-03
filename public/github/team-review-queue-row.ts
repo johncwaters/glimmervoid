@@ -4,7 +4,7 @@ import { createAuthorOrgTag, createAvatar, createReviewerStack, el, externalLink
 import { formatAgo } from '../poll-ago.ts';
 import { createPrStatusIcon } from './pr-status-icon.ts';
 import { createSvgIcon as svgIcon, createSvgShape as svgShape } from '../svg-dom.ts';
-import { githubReviewItems, githubReviewTitle, inFlightElapsedText, queueRowAgentText, phaseLabel, pullRequestLabel, queueRowTitle, queueRowRefLabel, severityPresentation, queueRowGlyph, verdictHeading, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice } from './team-review-view-core.ts';
+import { githubReviewItems, githubReviewTitle, inFlightElapsedText, queueRowAgentParts, phaseLabel, pullRequestLabel, queueRowTitle, queueRowRefLabel, severityPresentation, queueRowGlyph, verdictHeading, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice } from './team-review-view-core.ts';
 import type { QueueRowKind } from './team-review-view-core.ts';
 import { isStreamerMode, onStreamerModeChanged } from '../streamer-mode.ts';
 import { _ageTicker, _progressTicker, _root, _view } from './team-review-panel-state.ts';
@@ -209,7 +209,7 @@ function createTeamQueueRow(review: ReviewDraft | InFlightReview | QueuedReview,
   const glyph = el('span', 'pr-queue-glyph');
   glyph.append(createPrStatusIcon(rowGlyph.icon, rowGlyph.tone));
   const bottom = el('span', 'pr-queue-bottom');
-  bottom.append(createRowStateWord(kind === 'ready' && 'reviewedHead' in review ? { tone: rowGlyph.tone, meaning: queueRowAgentText(review) } : rowGlyph), createAuthor(review, 16, 'pr-queue-author'));
+  bottom.append(...createRowState(review, kind, rowGlyph), createAuthor(review, 16, 'pr-queue-author'));
   if (review.requestSource === 'direct') {
     const directMarker = el('span', 'pr-queue-direct', '@');
     directMarker.title = 'Requested from you directly';
@@ -220,6 +220,12 @@ function createTeamQueueRow(review: ReviewDraft | InFlightReview | QueuedReview,
   const githubSummary = kind === 'inReview' || kind === 'queued' ? null : createGithubReviewSummary(review as ReviewDraft, 'pr-queue-reviewers', 16, kind !== 'posted');
   if (githubSummary) bottom.append(githubSummary);
   return row;
+}
+
+function createRowState(review: ReviewDraft | InFlightReview | QueuedReview, kind: QueueRowKind, rowGlyph: { tone: string; meaning: string }): HTMLSpanElement[] {
+  if (kind !== 'ready' || !('reviewedHead' in review)) return [createRowStateWord(rowGlyph)];
+  const { verdictWord, findingsSuffix } = queueRowAgentParts(review);
+  return [createRowStateWord({ tone: rowGlyph.tone, meaning: verdictWord }), el('span', 'pr-queue-findings', findingsSuffix)];
 }
 
 function createRowStateWord(rowGlyph: { tone: string; meaning: string }): HTMLSpanElement {

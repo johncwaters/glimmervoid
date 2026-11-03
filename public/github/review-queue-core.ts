@@ -4,7 +4,6 @@ import type { InFlightReview, QueuedReview, ReviewDraft } from '#shared/contract
 import { attentionSignature } from '../attention-ack-core.ts';
 import type { AttentionKind, AttentionTile } from '../focus-view/attention-core.ts';
 import type { GithubPollingStatus } from './github-polling-retry-core.ts';
-import type { StateTone } from '../state-tone-core.ts';
 import { comparablePrKey } from '#shared/contracts/github-prs.ts';
 import { classifyReviewPriority, hasFailedKeepMergeableRepair, pullRequestLabel, sectionStackedMyPrs } from './github-store-core.ts';
 import type { MyPrStackRow, QueueRowKind, TeamReviewSections } from './github-store-core.ts';
@@ -54,10 +53,6 @@ const QUEUE_STATE_ORDER = [
 type QueueState = typeof QUEUE_STATE_ORDER[number]['state'];
 
 const QUEUE_STATE_ROWS: ReadonlyMap<QueueState, QueueStateRow & { rank: number }> = new Map(QUEUE_STATE_ORDER.map((row, rank) => [row.state, { ...row, rank }]));
-
-export const QUEUE_ACTION_LABELS: Readonly<Record<QueueAction, string>> = { fix: 'Fix', review: 'Review', reply: 'Reply', update: 'Update', merge: 'Merge' };
-
-export const QUEUE_ACTION_TONES: Readonly<Record<QueueAction, StateTone>> = { fix: 'danger', review: 'wait', reply: 'warn', update: 'muted', merge: 'ok' };
 
 const GROUP_TITLES: Readonly<Record<QueueGroupId, string>> = {
   turn: 'Your turn', working: 'Agent working', waiting: 'Waiting on others', aside: 'Set aside',
