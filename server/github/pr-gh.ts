@@ -63,7 +63,7 @@ interface PrGh {
   issueLinkedPullRequests(keys: readonly string[]): Promise<Map<string, IssuePullRequest[]>>;
   viewIssue(issueNumber: number | string, repo?: string): Promise<GithubIssueDetail>;
   viewer(): Promise<string | null>;
-  viewerTeams(): Promise<GithubTeam[] | null>;
+  viewerTeams(): Promise<{ teams: GithubTeam[]; orgs: string[] } | null>;
   teamMembers(org: string, team: string): Promise<string[] | null>;
   teamProfile(org: string, team: string): Promise<NonNullable<TeamReviewStatus['team']> | null>;
   viewPr(repo: string, number: number): Promise<PrDetailType | null>;
@@ -541,7 +541,11 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       if (!response.ok) return null;
       const lines = response.out ? response.out.split(/\r?\n/).filter(Boolean) : [];
       const parsed = GH_TEAMS.safeParse(lines.map((line) => parseJsonOrNull(line)));
-      return parsed.success ? parsed.data : null;
+      if (!parsed.success) return null;
+      const orgsResponse = await runGh(['api', '--paginate', 'user/orgs', '--jq', '.[].login']);
+      const orgLogins = orgsResponse.ok && orgsResponse.out ? orgsResponse.out.split(/\r?\n/).filter(Boolean) : [];
+      const parsedOrgs = GH_MEMBERS.safeParse(orgLogins);
+      return { teams: parsed.data, orgs: parsedOrgs.success ? parsedOrgs.data : [] };
     },
 
     async teamMembers(org, team) {

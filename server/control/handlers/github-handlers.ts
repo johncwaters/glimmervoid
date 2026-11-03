@@ -50,14 +50,14 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
   const prSessionOpenQueue = createKeyedSerialQueue();
 
   async function handleListGithubTeams(request: ClientMessageOf<'list-github-teams'>, ws: ControlSocket): Promise<void> {
-    const reply = (payload: { viewer: string | null; teams: GithubTeam[]; error: string | null }) => replyTo(ws, request, 'github-teams-listed', payload);
+    const reply = (payload: { viewer: string | null; teams: GithubTeam[]; orgs: string[]; error: string | null }) => replyTo(ws, request, 'github-teams-listed', payload);
     const viewerRead = await requestViewer('priority');
-    if (viewerRead.isRateLimited) { reply({ viewer: null, teams: [], error: githubStoreRateLimitedError(viewerRead.waitMs, 'your GitHub login') }); return; }
-    if (!viewerRead.value) { reply({ viewer: null, teams: [], error: null }); return; }
+    if (viewerRead.isRateLimited) { reply({ viewer: null, teams: [], orgs: [], error: githubStoreRateLimitedError(viewerRead.waitMs, 'your GitHub login') }); return; }
+    if (!viewerRead.value) { reply({ viewer: null, teams: [], orgs: [], error: null }); return; }
     const teamsRead = await requestViewerTeams('priority');
-    if (teamsRead.isRateLimited) { reply({ viewer: viewerRead.value, teams: [], error: githubStoreRateLimitedError(teamsRead.waitMs, 'your GitHub teams') }); return; }
-    if (!teamsRead.value) { reply({ viewer: viewerRead.value, teams: [], error: 'GitHub did not list your teams.' }); return; }
-    reply({ viewer: viewerRead.value, teams: teamsRead.value, error: null });
+    if (teamsRead.isRateLimited) { reply({ viewer: viewerRead.value, teams: [], orgs: [], error: githubStoreRateLimitedError(teamsRead.waitMs, 'your GitHub teams') }); return; }
+    if (!teamsRead.value) { reply({ viewer: viewerRead.value, teams: [], orgs: [], error: 'GitHub did not list your teams.' }); return; }
+    reply({ viewer: viewerRead.value, teams: teamsRead.value.teams, orgs: teamsRead.value.orgs, error: null });
   }
 
   async function handleIssueDetail(request: ClientMessageOf<'issue-detail'>, ws: ControlSocket): Promise<void> {
@@ -263,7 +263,7 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
   } satisfies ControlHandlerTable;
 
   const invalidReplies = {
-    'list-github-teams': (_msg, requestId, message) => ({ type: 'github-teams-listed', requestId, viewer: null, teams: [], error: message }),
+    'list-github-teams': (_msg, requestId, message) => ({ type: 'github-teams-listed', requestId, viewer: null, teams: [], orgs: [], error: message }),
     'issue-detail': (_msg, requestId, message) => ({ type: 'issue-detail-result', requestId, ok: false, body: null, error: message }),
     'set-issue-state': (_msg, requestId, message) => ({ type: 'set-issue-state-result', requestId, ok: false, error: message }),
     'open-issue-session': (_msg, requestId, message) => ({ type: 'open-issue-session-result', requestId, ok: false, error: message }),
