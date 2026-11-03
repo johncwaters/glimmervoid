@@ -1,18 +1,10 @@
 import { el } from '../dom-helpers.ts';
+import { button } from '../ui/button.ts';
 import { formatAgo } from '../poll-ago.ts';
 import { requestUpdateApply, requestUpdateCheck, restartServer, settingsUpdateState } from './settings-store.ts';
 import { installedUpdateText, lastUpdateCheckText, latestUpdateDetails, projectUpdateProgress, shouldAutoCheckUpdates, shouldShowLatestUpdate, updateControls, updateSummary } from '../updates-view-core.ts';
 import type { UpdateActionId } from '../updates-view-core.ts';
 import { setAutoUpdateCheckAwaitingStatus, settingsPayload } from './settings-panel-state.ts';
-
-function buildUpdateButton(label: string, onClick: () => void, { isPrimary = false, isEnabled = true } = {}) {
-  const tone = isPrimary ? 'btn-dialog-confirm' : 'btn-dialog-cancel';
-  const button = el('button', `btn-dialog ${tone} settings-update-button`, label);
-  button.type = 'button';
-  button.disabled = !isEnabled;
-  button.addEventListener('click', onClick);
-  return button;
-}
 
 function buildUpdateActionStatus(reason: string | null) {
   const status = el('span', 'settings-update-action-status', reason ?? '');
@@ -43,9 +35,9 @@ function checkUpdatesIfStale() {
 }
 
 function buildUpdateAction(action: UpdateActionId) {
-  if (action === 'update') return buildUpdateButton('Update', requestUpdateApply, { isPrimary: true });
-  if (action === 'restart') return buildUpdateButton('Restart', restartServer, { isPrimary: true });
-  return buildUpdateButton('Check for updates', requestUpdateCheck, { isEnabled: !settingsUpdateState().isCheckInFlight });
+  if (action === 'update') return button({ variant: 'primary', label: 'Update', action: 'apply-update', onClick: requestUpdateApply });
+  if (action === 'restart') return button({ variant: 'primary', label: 'Restart', action: 'restart-server', onClick: restartServer });
+  return button({ variant: 'secondary', label: 'Check for updates', action: 'check-for-updates', disabled: settingsUpdateState().isCheckInFlight, onClick: requestUpdateCheck });
 }
 
 function buildUpdateActions() {

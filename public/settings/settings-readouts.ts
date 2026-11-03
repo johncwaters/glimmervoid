@@ -3,6 +3,7 @@ import { TelegramDeliveryStatus } from '#shared/contracts/control-messages.ts';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText, requestWithStatus } from '../action-status.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { el, writeClipboardText } from '../dom-helpers.ts';
+import { button } from '../ui/button.ts';
 import { createNotificationPermissionControl } from '../notifications.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import type { SettingsSetting } from '#shared/settings/registry.ts';
@@ -138,9 +139,7 @@ function buildAgentLoginsStatus() {
   }
   for (const agent of ['claude-code', 'codex'] as const) {
     const row = el('div', 'settings-telegram-test');
-    const connectButton = el('button', 'btn-dialog btn-dialog-cancel', 'Connect');
-    connectButton.type = 'button';
-    connectButton.addEventListener('click', () => openAgentConnectDialog(agent));
+    const connectButton = button({ variant: 'secondary', label: 'Connect', action: 'connect-agent-login', onClick: () => openAgentConnectDialog(agent) });
     row.append(el('div', 'settings-readonly', agentLoginSummary(agentLoginOf(agent), agent)), connectButton);
     block.appendChild(row);
   }
@@ -149,10 +148,7 @@ function buildAgentLoginsStatus() {
 
 function buildRemoteSetupStatus() {
   const block = el('div', 'settings-view-status-block');
-  const setupButton = el('button', 'btn-dialog btn-dialog-cancel', 'Set up remote host');
-  setupButton.type = 'button';
-  setupButton.addEventListener('click', openRemoteSetupDialog);
-  block.appendChild(setupButton);
+  block.appendChild(button({ variant: 'secondary', label: 'Set up remote host', action: 'set-up-remote-host', onClick: openRemoteSetupDialog }));
   return block;
 }
 
@@ -203,8 +199,7 @@ function buildTelegramDeliverySlot() {
   const slot = el('div', 'settings-view-status-slot settings-telegram-delivery');
   const deliveryLines = el('div', 'settings-telegram-delivery-lines');
   renderTelegramDeliveryLines(deliveryLines);
-  const testButton = el('button', 'btn-dialog btn-dialog-cancel', 'Send test message');
-  testButton.type = 'button';
+  const testButton = button({ variant: 'secondary', label: 'Send test message', action: 'send-telegram-test' });
   const testStatus = createActionStatus('settings-telegram-test-status');
   testButton.addEventListener('click', async () => {
     testButton.disabled = true;
@@ -239,16 +234,17 @@ async function requestTelemetryDeletion() {
   telemetryDeletionStatus.show('error', 'Not sent: PostHog did not take the request. Try again later.');
 }
 
-const telemetryDeletionButton = el('button', 'btn-dialog btn-dialog-cancel', 'Delete my data');
-telemetryDeletionButton.type = 'button';
-telemetryDeletionButton.addEventListener('click', () => {
-  openConfirmDialog({
+const telemetryDeletionButton = button({
+  variant: 'danger',
+  label: 'Delete my data',
+  action: 'delete-telemetry-data',
+  onClick: () => openConfirmDialog({
     title: 'Delete your usage data?',
     message: 'We delete everything collected under this install. New usage starts under a new id.',
     confirmLabel: 'Delete my data',
     danger: true,
     onConfirm: () => { void requestTelemetryDeletion(); },
-  });
+  }),
 });
 
 const telemetryDeletionStatus = createActionStatus('settings-telemetry-deletion-status');
@@ -283,16 +279,15 @@ function clipboardCopyStatus(text: string, copiedText: string): Promise<string> 
 }
 
 function appendCopyControl(
-  container: HTMLElement, button: HTMLButtonElement, { copiedText, textToCopy }: { copiedText: string; textToCopy: () => string },
+  container: HTMLElement, copyButton: HTMLButtonElement, { copiedText, textToCopy }: { copiedText: string; textToCopy: () => string },
 ) {
   const status = el('span', 'settings-view-copy-status');
   status.setAttribute('role', 'status');
-  button.type = 'button';
-  button.addEventListener('click', async () => {
+  copyButton.addEventListener('click', async () => {
     status.textContent = await clipboardCopyStatus(textToCopy(), copiedText);
     setTimeout(() => { status.textContent = ''; }, COPY_STATUS_MS);
   });
-  container.append(button, status);
+  container.append(copyButton, status);
 }
 
 export { SAVED_STATUS_MS, appendCopyControl, buildChip, buildExperimentalTag, buildStatusSlot, externalLink, renderReadout };

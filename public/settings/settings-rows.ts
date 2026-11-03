@@ -1,4 +1,5 @@
 import { el } from '../dom-helpers.ts';
+import { button } from '../ui/button.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import type { SettingsSetting } from '#shared/settings/registry.ts';
 import { isExperimentalSection, isExperimentalSetting } from '#shared/settings/registry.ts';
@@ -16,7 +17,7 @@ function renderSettingHeading(setting: SettingsSetting) {
   heading.id = setting.id;
   if (isExperimentalSetting(setting) && !isExperimentalSection(pageSectionOf(viewMap, section.id) ?? section)) heading.append(' ', buildExperimentalTag());
   heading.addEventListener('click', () => replaceSettingsHash(section.id, setting.id));
-  const copy = el('button', 'settings-view-copy-link', '#');
+  const copy = button({ variant: 'quiet', size: 'small', label: '#', action: 'copy-setting-link' });
   copy.setAttribute('aria-label', 'Copy link');
   row.appendChild(heading);
   appendCopyControl(row, copy, {
@@ -47,8 +48,7 @@ function renderControlFoot(setting: SettingsSetting) {
   const foot = el('div', 'settings-view-control-foot');
   const status = el('span', 'settings-view-save-status');
   status.setAttribute('role', 'status');
-  const reset = el('button', 'settings-view-reset', 'Reset');
-  reset.type = 'button';
+  const reset = button({ variant: 'quiet', size: 'small', label: 'Reset', action: 'reset-setting' });
   reset.title = 'Reset to the default value';
   reset.addEventListener('click', () => {
     const value = resetValueOf(setting);
@@ -71,7 +71,7 @@ function applyFootState(row: Element, setting: SettingsSetting) {
     if (saveStatus) status.dataset.tone = saveStatus.tone;
     if (!saveStatus) delete status.dataset.tone;
   }
-  const reset = row.querySelector<HTMLButtonElement>('.settings-view-reset');
+  const reset = row.querySelector<HTMLButtonElement>('[data-action="reset-setting"]');
   if (reset) reset.hidden = !canReset(setting);
   const foot = row.querySelector<HTMLElement>('.settings-view-control-foot');
   if (foot) foot.hidden = !saveStatus && !canReset(setting);

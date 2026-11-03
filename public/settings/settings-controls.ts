@@ -1,5 +1,7 @@
 import type { SettingsRange } from '#shared/settings-ranges.ts';
 import { el } from '../dom-helpers.ts';
+import { button } from '../ui/button.ts';
+import { createPressable } from '../ui/pressable.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import { notificationsSupported } from '../notifications.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
@@ -79,8 +81,7 @@ function attachSuggestions(setting: SettingsSetting, input: HTMLInputElement) {
 function renderShortcutKey(setting: SettingsSetting) {
   const wrapper = el('div', 'settings-view-shortcut-key');
   const chord = buildShortcutKeys(shortcutChord('next-attention', SHORTCUT_PLATFORM, String(storedValue(setting))));
-  const record = el('button', 'btn-dialog btn-dialog-cancel', 'Record');
-  record.type = 'button';
+  const record = button({ variant: 'secondary', label: 'Record', action: 'record-shortcut-key' });
   const prompt = el('span', 'settings-view-shortcut-key-prompt');
   prompt.setAttribute('role', 'status');
   record.addEventListener('click', () => recordShortcutKey(setting, wrapper, record, prompt));
@@ -266,12 +267,11 @@ function renderSegmented(setting: SettingsSetting) {
   group.setAttribute('aria-labelledby', setting.id);
   const choices = setting.options ?? [];
   for (const choice of choices) {
-    const button = el('button', 'settings-view-segment', choice.label);
-    button.type = 'button';
-    button.dataset.value = choice.value;
-    button.setAttribute('role', 'radio');
-    button.addEventListener('click', () => chooseSegment(setting, group, choice.value));
-    group.appendChild(button);
+    const segment = createPressable('settings-view-segment', choice.label);
+    segment.dataset.value = choice.value;
+    segment.setAttribute('role', 'radio');
+    segment.addEventListener('click', () => chooseSegment(setting, group, choice.value));
+    group.appendChild(segment);
   }
   group.addEventListener('keydown', (event) => {
     const step = SEGMENT_STEP_BY_KEY[event.key];
@@ -389,18 +389,20 @@ function buildTabOrderMove(
   setting: SettingsSetting, orderedViewIds: readonly string[], viewId: string, targetIndex: number, direction: 'up' | 'down', accessibleName: string,
 ) {
   const moveKey = `${viewId}:${direction}`;
-  const button = el('button', 'settings-view-tab-order-move');
-  button.appendChild(createLineIcon(direction === 'up' ? MOVE_UP_ICON_PATH : MOVE_DOWN_ICON_PATH));
-  button.type = 'button';
-  button.title = accessibleName;
-  button.setAttribute('aria-label', accessibleName);
-  button.disabled = targetIndex < 0 || targetIndex >= orderedViewIds.length;
-  if (moveKey === lastTabOrderMoveKey) button.dataset.restoresFocus = 'true';
-  button.addEventListener('click', () => {
-    lastTabOrderMoveKey = moveKey;
-    commitSetting(setting, moveViewId(orderedViewIds, viewId, targetIndex));
+  const moveButton = button({
+    variant: 'icon',
+    size: 'small',
+    label: accessibleName,
+    icon: createLineIcon(direction === 'up' ? MOVE_UP_ICON_PATH : MOVE_DOWN_ICON_PATH),
+    action: `move-tab-${direction}`,
+    disabled: targetIndex < 0 || targetIndex >= orderedViewIds.length,
+    onClick: () => {
+      lastTabOrderMoveKey = moveKey;
+      commitSetting(setting, moveViewId(orderedViewIds, viewId, targetIndex));
+    },
   });
-  return button;
+  if (moveKey === lastTabOrderMoveKey) moveButton.dataset.restoresFocus = 'true';
+  return moveButton;
 }
 
 function renderControl(setting: SettingsSetting) {

@@ -914,9 +914,6 @@ body {
 .settings-about-link:focus-visible,
 .settings-view-nav-item:focus-visible,
 .settings-view-search-open:focus-visible,
-.settings-view-reset:focus-visible,
-.settings-view-copy-json:focus-visible,
-.settings-view-back:focus-visible,
 .settings-view-checkbox:focus-visible,
 .dialog-advanced-toggle:focus-visible,
 .menu-item:focus-visible,
@@ -3948,7 +3945,7 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
   background: var(--bg);
 }
 
-.settings-view-back {
+.settings-view [data-action="back-to-settings-list"] {
   display: none;
 }
 
@@ -4020,35 +4017,17 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
   100% { background: transparent; }
 }
 
-[data-layout="phone"] .settings-view .settings-view-back:not([hidden]) {
+[data-layout="phone"] .settings-view [data-action="back-to-settings-list"]:not([hidden]) {
   display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  width: auto;
   align-self: flex-start;
-  margin-inline-start: -8px;
-  padding: 0 12px 0 8px;
-  border: none;
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--accent);
-  font-family: var(--font-mono);
-  font-size: var(--type-body);
-  cursor: pointer;
 }
 
-@media (hover: hover) {
-  [data-layout="phone"] .settings-view .settings-view-back:hover {
-    color: var(--text-head);
-  }
-}
-
-[data-layout="phone"] .settings-view :is(button, input, select, textarea, a) {
+[data-layout="phone"] .settings-view :is(.settings-view-nav-item, .settings-view-search-open, .settings-view-segment, .dialog-advanced-toggle, input, select, textarea, a) {
   min-height: 44px;
   min-width: 44px;
 }
 
-[data-layout="phone"] .settings-view :is(button, input, select, textarea) {
+[data-layout="phone"] .settings-view :is(.settings-view-nav-item, .settings-view-search-open, .settings-view-segment, .dialog-advanced-toggle, input, select, textarea) {
   width: 100%;
 }
 
@@ -4056,18 +4035,13 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
   font-size: var(--type-title);
 }
 
-[data-layout="phone"] .settings-view :is(button, input, select, textarea, a):focus-visible {
+[data-layout="phone"] .settings-view :is(.settings-view-nav-item, .settings-view-search-open, .settings-view-segment, .dialog-advanced-toggle, input, select, textarea, a):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-[data-layout="phone"] .settings-view :is(button, a):active {
+[data-layout="phone"] .settings-view :is(.settings-view-nav-item, .settings-view-search-open, .settings-view-segment, .dialog-advanced-toggle, a):active {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
-}
-
-[data-layout="phone"] .settings-view button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
 }
 
 [data-layout="phone"] .settings-view :is(.settings-view-toggle-wrap, .settings-update-buttons, .settings-telegram-test, .settings-telemetry-data) {
@@ -4085,10 +4059,6 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 [data-layout="phone"] .settings-view .settings-view-control-foot[hidden] {
   display: flex;
   visibility: hidden;
-}
-
-[data-layout="phone"] .settings-view .settings-view-control-foot .settings-view-reset {
-  width: auto;
 }
 
 [data-layout="phone"] .settings-view label {
@@ -4110,12 +4080,6 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
   min-height: 44px;
 }
 
-[data-layout="phone"] .settings-view .settings-view-tab-order-move {
-  width: 44px;
-  height: 44px;
-  flex-shrink: 0;
-}
-
 [data-layout="phone"] .settings-view .settings-view-switch {
   --switch-track-inset: 7px;
   --switch-knob-size: 24px;
@@ -4124,11 +4088,6 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
   min-width: 56px;
   height: 44px;
   align-self: flex-end;
-}
-
-[data-layout="phone"] .settings-view .settings-view-copy-link {
-  width: 44px;
-  flex-shrink: 0;
 }
 
 [data-layout="phone"] .settings-view a {

@@ -4,6 +4,8 @@ import { isPhoneLayout, onLayoutChange } from '../form-factor.ts';
 import { REPO_SLUG } from '#shared/repo.ts';
 import { loadCustomSounds, resolveSoundId } from '../alert-sound.ts';
 import { el } from '../dom-helpers.ts';
+import { button } from '../ui/button.ts';
+import { createPressable } from '../ui/pressable.ts';
 import { BACK_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { UPDATES_SECTION_ID } from '../radar/radar-core.ts';
 import type { SettingsSection, SettingsSetting } from '#shared/settings/registry.ts';
@@ -125,21 +127,22 @@ function syncSoundEnabledValue(enabled: boolean) {
 }
 
 function renderFlyingAnimalsReset() {
-  const reset = el('button', 'btn-dialog btn-dialog-cancel', 'Reset all to defaults');
-  reset.type = 'button';
-  reset.addEventListener('click', () => {
-    resetFlyingAnimalsAdvanced();
-    hydrate(settingsPayload);
-    applyFlyingAnimals(isFlyingAnimalsEnabled());
-    renderContent();
+  return button({
+    variant: 'secondary',
+    label: 'Reset all to defaults',
+    action: 'reset-flying-animals',
+    onClick: () => {
+      resetFlyingAnimalsAdvanced();
+      hydrate(settingsPayload);
+      applyFlyingAnimals(isFlyingAnimalsEnabled());
+      renderContent();
+    },
   });
-  return reset;
 }
 
 function renderAdvancedSettings(advancedSettings: SettingsSetting[]) {
   const advanced = el('div', 'settings-view-advanced');
-  const toggle = el('button', 'dialog-advanced-toggle settings-view-advanced-toggle', 'Advanced');
-  toggle.type = 'button';
+  const toggle = createPressable('dialog-advanced-toggle settings-view-advanced-toggle', 'Advanced');
   toggle.setAttribute('aria-expanded', String(isAdvancedSettingsExpanded));
   toggle.setAttribute('aria-controls', 'settings-view-advanced-panel');
   const panel = el('div', 'dialog-advanced-panel settings-view-advanced-panel');
@@ -158,8 +161,7 @@ function renderAdvancedSettings(advancedSettings: SettingsSetting[]) {
 
 function renderStreamerPlaceholder(container: HTMLElement) {
   const placeholder = el('div', 'settings-view-streamer-placeholder');
-  const turnOff = el('button', 'btn-dialog btn-dialog-confirm', 'Turn off streamer mode');
-  turnOff.type = 'button';
+  const turnOff = button({ variant: 'primary', label: 'Turn off streamer mode', action: 'turn-off-streamer-mode' });
   const status = el('span', 'settings-view-copy-status', '');
   status.setAttribute('role', 'status');
   turnOff.addEventListener('click', async () => {
@@ -177,8 +179,7 @@ onStreamerModeChanged(() => renderContent());
 
 function renderAnimalGalleryToggle() {
   const disclosure = el('div', 'settings-view-advanced');
-  const toggle = el('button', 'dialog-advanced-toggle', 'Animal gallery');
-  toggle.type = 'button';
+  const toggle = createPressable('dialog-advanced-toggle', 'Animal gallery');
   toggle.setAttribute('aria-controls', 'settings-view-animal-gallery-panel');
   const panel = el('div', 'dialog-advanced-panel settings-view-advanced-panel');
   panel.id = 'settings-view-animal-gallery-panel';
@@ -296,9 +297,9 @@ function selectSection(
 }
 
 function markCurrentSection(container: Element | null) {
-  for (const button of container?.querySelectorAll<HTMLElement>('[data-settings-section]') || []) {
-    const selected = button.dataset.settingsSection === selectedPage.id;
-    button.setAttribute('aria-current', selected ? 'page' : 'false');
+  for (const navItem of container?.querySelectorAll<HTMLElement>('[data-settings-section]') || []) {
+    const selected = navItem.dataset.settingsSection === selectedPage.id;
+    navItem.setAttribute('aria-current', selected ? 'page' : 'false');
   }
 }
 
@@ -347,7 +348,7 @@ function appendFileOnlyDetails(row: HTMLElement, result: SettingsSearchResult) {
   );
   if (jsonFragment === null) return;
   const actions = el('div', 'settings-view-control-foot');
-  appendCopyControl(actions, el('button', 'settings-view-copy-json', 'Copy as JSON'), { copiedText: 'JSON copied', textToCopy: () => jsonFragment });
+  appendCopyControl(actions, button({ variant: 'quiet', size: 'small', label: 'Copy as JSON', action: 'copy-json' }), { copiedText: 'JSON copied', textToCopy: () => jsonFragment });
   row.appendChild(actions);
 }
 
@@ -375,8 +376,7 @@ function renderSearchContent() {
     row.appendChild(highlightedSearchText('p', 'settings-view-search-breadcrumb', breadcrumb, result, 'section'));
     const title = highlightedSearchText('span', 'settings-view-setting-title', result.setting.title, result, 'title');
     if (hasSection(result)) {
-      const open = el('button', 'settings-view-search-open');
-      open.type = 'button';
+      const open = createPressable('settings-view-search-open');
       open.appendChild(title);
       open.addEventListener('click', () => chooseSearchResult(result));
       row.appendChild(open);
@@ -427,12 +427,11 @@ function renderNavigation() {
     const group = el('div', 'settings-view-nav-group');
     if (navigationGroup.heading) group.appendChild(el('div', 'settings-view-nav-heading', navigationGroup.heading));
     for (const section of navigationGroup.sections) {
-      const button = el('button', 'settings-view-nav-item', section.title);
-      button.type = 'button';
-      if (isExperimentalSection(section)) button.append(' ', buildExperimentalTag());
-      button.dataset.settingsSection = section.id;
-      button.addEventListener('click', () => selectSection(section.id, { focusContent: isPhoneLayout() }));
-      group.appendChild(button);
+      const navItem = createPressable('settings-view-nav-item', section.title);
+      if (isExperimentalSection(section)) navItem.append(' ', buildExperimentalTag());
+      navItem.dataset.settingsSection = section.id;
+      navItem.addEventListener('click', () => selectSection(section.id, { focusContent: isPhoneLayout() }));
+      group.appendChild(navItem);
     }
     navigationEl.appendChild(group);
   }
@@ -470,7 +469,7 @@ function handleNavigationKeydown(event: KeyboardEvent) {
   if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
   if (!navigationEl) return;
   const buttons = [...navigationEl.querySelectorAll('[data-settings-section]')]
-    .filter((button): button is HTMLElement => button instanceof HTMLElement);
+    .filter((navItem): navItem is HTMLElement => navItem instanceof HTMLElement);
   const activeElement = document.activeElement;
   if (!(activeElement instanceof HTMLElement)) return;
   const currentIndex = buttons.indexOf(activeElement);
@@ -493,12 +492,15 @@ function mountSettingsView(container: HTMLElement) {
   navigationEl = el('nav', 'settings-view-nav');
   navigationEl.setAttribute('role', 'navigation');
   navigationEl.setAttribute('aria-label', 'Settings sections');
-  backButtonEl = el('button', 'settings-view-back', 'Settings');
-  backButtonEl.prepend(createLineIcon(BACK_ICON_PATH));
-  backButtonEl.type = 'button';
-  backButtonEl.hidden = true;
+  backButtonEl = button({
+    variant: 'secondary',
+    label: 'Settings',
+    icon: createLineIcon(BACK_ICON_PATH),
+    action: 'back-to-settings-list',
+    hidden: true,
+    onClick: returnToSettingsList,
+  });
   backButtonEl.setAttribute('aria-label', 'Back to settings sections');
-  backButtonEl.addEventListener('click', returnToSettingsList);
   const content = el('div', 'settings-view-content');
   content.setAttribute('aria-live', 'polite');
   setContentEl(content);

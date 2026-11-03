@@ -396,27 +396,6 @@ html[data-streamer] .settings-view-shell { grid-template-columns: minmax(0, 1fr)
   color: var(--state-failed);
 }
 
-.settings-view-reset,
-.settings-view-copy-json {
-  flex-shrink: 0;
-  padding: 1px 6px;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--type-meta);
-  cursor: pointer;
-}
-
-@media (hover: hover) {
-  .settings-view-reset:hover:not(:disabled),
-  .settings-view-copy-json:hover {
-    border-color: var(--border);
-    color: var(--accent);
-  }
-}
-
 
 .settings-view-segmented {
   display: inline-flex;
@@ -470,24 +449,8 @@ html[data-streamer] .settings-view-shell { grid-template-columns: minmax(0, 1fr)
   gap: 7px;
 }
 
-.settings-view-copy-link {
-  padding: 1px 5px;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--type-meta);
-  cursor: pointer;
-}
-
 @media (hover: hover) {
-  .settings-view-copy-link:hover {
-    border-color: var(--border);
-    color: var(--accent);
-  }
-
-  .settings-view-setting:not(:hover) .settings-view-setting-heading:not(:focus-within) .settings-view-copy-link {
+  .settings-view-setting:not(:hover) .settings-view-setting-heading:not(:focus-within) > [data-action="copy-setting-link"] {
     opacity: 0;
   }
 }
@@ -554,37 +517,6 @@ html[data-streamer] .settings-view-shell { grid-template-columns: minmax(0, 1fr)
   color: var(--text);
   font-family: var(--font-mono);
   font-size: var(--type-meta);
-}
-
-.settings-view-tab-order-move {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--text-dim);
-  cursor: pointer;
-}
-
-@media (hover: hover) {
-  .settings-view-tab-order-move:hover:not(:disabled) {
-    border-color: var(--border);
-    color: var(--accent);
-  }
-}
-
-.settings-view-tab-order-move:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-.settings-view-tab-order-move:disabled {
-  opacity: 0.25;
-  cursor: default;
 }
 
 .settings-view-list-input {
@@ -757,6 +689,10 @@ html[data-streamer] .settings-view-shell { grid-template-columns: minmax(0, 1fr)
   background: var(--bg-surface);
 }
 
+.settings-view-status-block > [data-action="set-up-remote-host"] {
+  align-self: flex-start;
+}
+
 .settings-view-status-slot {
   margin-top: 12px;
 }
@@ -815,11 +751,6 @@ html[data-streamer] .settings-view-shell { grid-template-columns: minmax(0, 1fr)
 .settings-update-summary[data-tone="security"],
 .settings-update-summary[data-tone="failed"] {
   color: var(--state-failed);
-}
-
-.settings-update-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.4;
 }
 
 .settings-update-action-status {
