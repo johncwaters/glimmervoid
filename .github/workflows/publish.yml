@@ -12,12 +12,12 @@ permissions:
   id-token: write
 
 jobs:
-  test:
-    if: startsWith(github.ref, 'refs/tags/v')
-    uses: ./.github/workflows/test.yml
-
   publish:
-    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
     concurrency:
       group: publish-${{ github.ref }}
       cancel-in-progress: false
@@ -32,6 +32,16 @@ jobs:
           node-version-file: .nvmrc
           registry-url: https://registry.npmjs.org
           cache: npm
+      - name: tagged commit passed test.yml
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PASSED=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow test.yml --event workflow_dispatch --commit "$GITHUB_SHA" --status success --limit 1 --json databaseId --jq length)
+          if [ "$PASSED" != "1" ]; then
+            echo "::error::no successful test.yml run on $GITHUB_SHA; release with npm run release, which runs test.yml before tagging"
+            exit 1
+          fi
       - name: tag matches package.json version
         shell: bash
         run: |
