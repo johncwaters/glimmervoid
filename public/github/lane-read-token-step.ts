@@ -8,12 +8,11 @@ import { applySettingsBroadcast, settingsPayloadSnapshot } from '../settings/set
 const READ_TOKEN_PATH = 'github.readToken' as const;
 const FINE_GRAINED_TOKEN_URL = 'https://github.com/settings/personal-access-tokens/new?name=Glimmervoid+lanes+read-only&description=Read-only+GitHub+access+for+Glimmervoid+Community%2C+Team+review+and+Radar+research&expires_in=90&contents=read&issues=read&pull_requests=read';
 const TOKEN_SETTINGS = [
-  'Resource owner: your own account for public repositories, or the organization that owns the private ones it reads. One token reads private repositories of one owner, and an organization may need to approve it first.',
-  'Repository access: Public repositories when every repository it reads is public, otherwise Only select repositories with each one it reads.',
-  'Repository permissions: Contents, Issues and Pull requests, each Read-only. Metadata Read-only comes with them.',
-  'Account permissions: none.',
-  'Expiration: 90 days. Once it expires, the lane can no longer read GitHub until you save a new token here.',
-];
+  { label: 'Permissions', value: 'Contents, Issues, Pull requests: Read-only', note: 'filled in' },
+  { label: 'Expiration', value: '90 days', note: 'filled in' },
+  { label: 'Repository access', value: 'Public repositories, or Only select for private ones', note: 'you choose' },
+  { label: 'Resource owner', value: 'You, or the organization that owns private ones', note: 'you choose' },
+] as const;
 const READ_TOKEN_ACTION: OperatorActionOf<'onboarding'> = 'save-lane-read-token';
 
 function hasConfiguredSecret(secretPath: 'github.readToken' | 'posthog.apiKey'): boolean {
@@ -78,10 +77,16 @@ function laneReadTokenStepBody({ laneWork, onSaved }: { laneWork: string; onSave
     void save();
   });
   actions.append(saveButton, status.element);
-  const advice = el('p', 'first-run-step-text', `${laneWork} Its agent runs gh and reads GitHub pages with this token, never with your own gh login. Create a fine-grained token with exactly these settings. The link fills in everything except resource owner and repository access, which you choose. `);
+  const advice = el('p', 'first-run-step-text', `${laneWork} It uses this token, never your own gh login. `);
   advice.append(externalLink('settings-link', 'Create a token on GitHub', FINE_GRAINED_TOKEN_URL));
-  const settingsList = el('ul', 'first-run-step-text');
-  for (const setting of TOKEN_SETTINGS) settingsList.append(el('li', '', setting));
+  const settingsList = el('dl', 'lane-token-settings');
+  for (const setting of TOKEN_SETTINGS) {
+    settingsList.append(
+      el('dt', 'lane-token-setting-label', setting.label),
+      el('dd', 'lane-token-setting-value', setting.value),
+      el('dd', 'lane-token-setting-note', setting.note),
+    );
+  }
   return [advice, settingsList, label, input, actions];
 }
 

@@ -5147,6 +5147,31 @@ html:has(:is(.focus-empty, .phone-empty) > .first-run-checklist:not([hidden])) [
   color: var(--state-waiting);
 }
 
+.lane-token-settings {
+  display: grid;
+  grid-template-columns: max-content 1fr max-content;
+  column-gap: 16px;
+  row-gap: 6px;
+  margin: 0;
+  font-size: var(--type-meta);
+  line-height: 1.5;
+}
+
+.lane-token-setting-label {
+  color: var(--text-muted);
+}
+
+.lane-token-setting-value {
+  margin: 0;
+  color: var(--text-head);
+}
+
+.lane-token-setting-note {
+  margin: 0;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
 .first-run-step-body {
   display: flex;
   flex-direction: column;
