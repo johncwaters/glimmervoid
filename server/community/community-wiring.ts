@@ -22,26 +22,15 @@ import { decideTelegramNotification } from '../../notifications/channels/telegra
 import { CommunityState } from '../../shared/contracts/community.ts';
 import type { CommunityActionRequest, CommunityActionResult, CommunityStateEntry } from '../../shared/contracts/community.ts';
 import { errorMessage } from '../../shared/text.ts';
-import { createTeamReviewSpawn } from '../github/team-review-spawn.ts';
+import { TEAM_REVIEW_SESSION_DENY_RULES, createTeamReviewSpawn } from '../github/team-review-spawn.ts';
 import { absolutePathReadRule } from '../github/core/team-review-core.ts';
-import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, LANE_CREDENTIAL_ENV, laneAccessConfigOf } from '../lanes/core/lane-permissions-core.ts';
+import { ACCEPT_EDITS_MODE, laneAccessConfigOf } from '../lanes/core/lane-permissions-core.ts';
 import { firstLine, raceWithAbort } from '../lanes/ephemeral-session.ts';
 import type { RecordLane, SpawnGate } from '../lanes/ephemeral-session.ts';
 import type { HookRouter } from '../../detection/hook-source.ts';
 
 const COMMUNITY_WORK_DIRNAME = 'community-work';
 const RESULT_MAX_BYTES = 1024 * 1024;
-const EMPTY_GH_CONFIG_DIRNAME = 'gh-config';
-const LINKED_PAGE_TIMEOUT_MS = 10_000;
-const COMMUNITY_WEB_TOOLS = Object.freeze(['WebSearch']);
-const COMMUNITY_BASH_ALLOW_RULES = Object.freeze([
-  'Bash(gh search issues:*)', 'Bash(gh search prs:*)', 'Bash(gh search code:*)', 'Bash(gh issue view:*)', 'Bash(gh pr view:*)',
-]);
-const COMMUNITY_DENY_RULES = Object.freeze([
-  'Bash(gh api:*)', 'Bash(gh auth:*)', 'Bash(env:*)', 'Bash(printenv:*)', 'Bash(echo:*)', 'Bash(curl:*)', 'Bash(wget:*)', 'Bash(git push:*)',
-  'Bash(gh pr create:*)', 'Bash(gh pr comment:*)', 'Bash(gh pr review:*)', 'Bash(gh issue create:*)', 'Bash(gh issue comment:*)',
-  'Edit', 'NotebookEdit', 'WebFetch', ...LANE_CONFIG_EDIT_DENY_RULES,
-]);
 
 function createCommunityStateIo(statePath: string, log: Pick<Console, 'warn'>) {
   let loaded = core.emptyCommunityState();
@@ -75,18 +64,15 @@ function hogQLRows(api: PosthogApi, projectId: number, query: string, values: Re
 
 function communityClaudeArgs(workDir: string): string[] {
   const workDirReadRules = ['Read', 'Glob', 'Grep'].map((tool) => absolutePathReadRule(workDir).replace(/^Read/, tool));
-  return ['-p', '--allowedTools', ...COMMUNITY_BASH_ALLOW_RULES, ...workDirReadRules, ...COMMUNITY_WEB_TOOLS, '--disallowedTools', ...COMMUNITY_DENY_RULES];
+  return ['-p', '--allowedTools', ...workDirReadRules, '--disallowedTools', ...TEAM_REVIEW_SESSION_DENY_RULES];
 }
 
 function communityAcceptEditsPermissions(): { deny: string[]; defaultMode: string } {
-  return { deny: [...COMMUNITY_DENY_RULES], defaultMode: ACCEPT_EDITS_MODE };
+  return { deny: [...TEAM_REVIEW_SESSION_DENY_RULES], defaultMode: ACCEPT_EDITS_MODE };
 }
 
-function communitySpawnEnv(workDir: string): Record<string, string> {
+function communitySpawnEnv(): Record<string, string> {
   return {
-    ...LANE_CREDENTIAL_ENV,
-    GH_CONFIG_DIR: path.join(workDir, EMPTY_GH_CONFIG_DIRNAME),
-    GH_PROMPT_DISABLED: '1',
     GLIMMERVOID_POSTHOG_API_KEY: '',
     GLIMMERVOID_TELEGRAM_BOT_TOKEN: '',
     CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '0',
@@ -101,41 +87,6 @@ async function readBoundedFile(filePath: string): Promise<string | null> {
   } catch {
     return null;
   }
-}
-
-async function readCappedText(response: Response, maxBytes: number): Promise<{ text: string; isCutShort: boolean }> {
-  if (!response.body) return { text: '', isCutShort: false };
-  const chunks: Uint8Array[] = [];
-  let totalBytes = 0;
-  for await (const chunk of response.body) {
-    chunks.push(chunk);
-    totalBytes += chunk.byteLength;
-    if (totalBytes > maxBytes) {
-      await response.body.cancel().catch(() => {});
-      return { text: Buffer.concat(chunks).subarray(0, maxBytes).toString('utf8'), isCutShort: true };
-    }
-  }
-  return { text: Buffer.concat(chunks).toString('utf8'), isCutShort: false };
-}
-
-async function fetchLinkedPage(target: core.LinkedPageTarget, signal: AbortSignal): Promise<core.LinkedPageResult> {
-  try {
-    const response = await fetch(target.rawUrl, { redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(LINKED_PAGE_TIMEOUT_MS)]) });
-    if (!response.ok) {
-      await response.body?.cancel().catch(() => {});
-      return { target, failure: `HTTP ${response.status}` };
-    }
-    const { text, isCutShort } = await readCappedText(response, core.MAX_LINKED_PAGE_BYTES);
-    return { target, text, isCutShort };
-  } catch (error) {
-    return { target, failure: firstLine(errorMessage(error)) || 'the request failed' };
-  }
-}
-
-async function fetchLinkedPages(item: CommunityStateEntry['item'], signal: AbortSignal) {
-  const { fetchable, unfetchableLinks } = core.scanLinkedPages(item.title, item.body);
-  const results = await Promise.all(fetchable.map((target) => fetchLinkedPage(target, signal)));
-  return core.linkedPageItems(results, unfetchableLinks);
 }
 
 interface CommunitySpawnDependencies {
@@ -177,9 +128,7 @@ function createCommunityRunner({ spawnDependencies, homeDir, getSettings, hookTo
     const postingPath = path.join(workDir, core.COMMUNITY_POSTING_FILENAME);
     const failed = (error: string): core.CommunityRunResult => ({ report: null, posting: null, error });
     try {
-      await fs.mkdir(path.join(workDir, EMPTY_GH_CONFIG_DIRNAME));
-      const linkedPages = await fetchLinkedPages(entry.item, signal);
-      const { prompt, untrustedItems } = core.buildCommunityRequest({ item: entry.item, skill: settings.skill, reportPath, postingPath, linkedPages });
+      const { prompt, untrustedItems } = core.buildCommunityRequest({ item: entry.item, skill: settings.skill, reportPath, postingPath });
       await writeUntrustedPayload(workDir, { trust: 'untrusted', source: core.COMMUNITY_UNTRUSTED_SOURCE, fetchedAt: new Date().toISOString(), items: untrustedItems }, core.MAX_BODY_CHARS);
       await fs.writeFile(path.join(workDir, core.COMMUNITY_PROMPT_FILENAME), prompt);
       return await raceWithAbort<core.CommunityRunResult>({
@@ -191,15 +140,14 @@ function createCommunityRunner({ spawnDependencies, homeDir, getSettings, hookTo
             id: `${core.COMMUNITY_LANE_ID}:${entry.item.key}`,
             name: `Community ${entry.item.key}`,
             cwd: workDir,
-            spawnEnv: communitySpawnEnv(workDir),
+            spawnEnv: communitySpawnEnv(),
             extraClaudeArgs: communityClaudeArgs(workDir),
             settingsPermissions: communityAcceptEditsPermissions(),
             signal: AbortSignal.any([signal, timeoutSignal]),
             initialPrompt: core.COMMUNITY_BOOTSTRAP_PROMPT,
           });
           if (signal.aborted || timeoutSignal.aborted) return undefined;
-          const hasUnreadLinkedPage = linkedPages.some((linkedPage) => linkedPage.kind === 'linked-page-unread');
-          return { report: await readBoundedFile(reportPath), posting: await readBoundedFile(postingPath), error: null, hasUnreadLinkedPage };
+          return { report: await readBoundedFile(reportPath), posting: await readBoundedFile(postingPath), error: null };
         },
       });
     } catch (error) {
@@ -265,9 +213,9 @@ function createCommunityWiring({
 
   const runner = createLaneRunner({
     tag: core.COMMUNITY_LANE_ID,
-    gate: () => core.communityGate(config),
-    cfgKey: () => stableConfigKey({ community: config.community ?? null, posthog: core.readPosthogConnection(config) }),
-    emptyStatus: () => ({ ...emptyLaneStatus('community-status', core.communityGate(config)), entries: [] }),
+    gate: () => core.communityGate(config, process.env),
+    cfgKey: () => stableConfigKey({ community: config.community ?? null, posthog: core.readPosthogConnection(config), hasReadToken: Boolean(laneAccessConfigOf(config).readToken) }),
+    emptyStatus: () => ({ ...emptyLaneStatus('community-status', core.communityGate(config, process.env)), entries: [] }),
     broadcast,
     createPoller: ({ onTickComplete }) => {
       const connection = core.readPosthogConnection(config);

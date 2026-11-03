@@ -149,7 +149,7 @@
     },
     {
       "name": "verdict",
-      "definition": "A community research run's confidence in its draft (HIGH, MEDIUM, LOW or FAILED); only a finished HIGH run with a draft notifies, and an unread linked page caps it at MEDIUM"
+      "definition": "A community research run's confidence in its draft (HIGH, MEDIUM, LOW or FAILED); only a finished HIGH run with a draft notifies"
     }
   ]
 }
