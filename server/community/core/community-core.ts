@@ -160,6 +160,25 @@ function forumTags(relation: unknown): string[] {
   return tagRelations.map(forumLabel).filter((label): label is string => label !== null).slice(0, MAX_FORUM_TAGS);
 }
 
+function isForumPost(attributes: Record<string, unknown>): boolean {
+  const topic = recordOf(attributes.forumTopic).data;
+  return Boolean(topic) && typeof topic === 'object' && !Array.isArray(topic);
+}
+
+function forumRowCreatedAt(row: Record<string, unknown>): string | null {
+  const createdAt = parsedAttributes(row.attributes).createdAt;
+  if (typeof createdAt !== 'string' || Number.isNaN(Date.parse(createdAt))) return null;
+  return new Date(createdAt).toISOString();
+}
+
+function lastForumRowCreatedAt(rows: readonly Record<string, unknown>[]): string | null {
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const createdAt = forumRowCreatedAt(rows[index] ?? {});
+    if (createdAt) return createdAt;
+  }
+  return null;
+}
+
 function forumItemFromRow(row: Record<string, unknown>): CommunityItem | null {
   const attributes = parsedAttributes(row.attributes);
   const permalink = typeof attributes.permalink === 'string' ? attributes.permalink : '';
@@ -179,9 +198,11 @@ function forumItemFromRow(row: Record<string, unknown>): CommunityItem | null {
   return parsed.success ? parsed.data : null;
 }
 
-function forumItemsFromRows(rows: readonly Record<string, unknown>[]): { items: CommunityItem[]; droppedRows: number } {
-  const items = rows.map(forumItemFromRow).filter((item): item is CommunityItem => item !== null);
-  return { items, droppedRows: rows.length - items.length };
+function forumItemsFromRows(rows: readonly Record<string, unknown>[]): { items: CommunityItem[]; droppedRows: number; newestRowAt: string | null } {
+  const isPageCommentThread = (row: Record<string, unknown>) => forumRowCreatedAt(row) !== null && !isForumPost(parsedAttributes(row.attributes));
+  const postRows = rows.filter((row) => !isPageCommentThread(row));
+  const items = postRows.map(forumItemFromRow).filter((item): item is CommunityItem => item !== null);
+  return { items, droppedRows: postRows.length - items.length, newestRowAt: lastForumRowCreatedAt(rows) };
 }
 
 function queuedEntry(item: CommunityItem, nowIso: string): CommunityStateEntry {

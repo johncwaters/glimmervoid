@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Community skips page comment threads.** Comments left under a posthog.com blog, docs or handbook page no longer show up in the Community tab as forum questions. Their link opened a "This is a comment thread, not a forum post" page, and research had no way to read the page they were about.
 - **Boards stay readable when fitted.** Fit no longer shrinks a large board until its text is too small to read in a short pane. It stops at a size where box text stays readable, starts from the board's top left, and you pan to see the rest. Boards that already fit at a readable size look the same as before.
 - **Board legends explain plan step colors.** A board with plan steps now lists planned, building and landed in its legend, each with the color its steps use, so the status words on the steps read at a glance. Boards without plan steps keep the legend as it was.
 - **Boards sit on their own sheet.** A board now draws on its own sheet, one shade off the page in every theme and inside a thin border, so it no longer blends into the terminal and the chrome around it. Board boxes, text and lines follow your dashboard theme, light themes included, and a board with nothing on it says so in the middle, with how to place the first box or ask a session to draw there.
