@@ -64,6 +64,7 @@ export const BRANCH_GC_CONTROL_BOOLEAN_KEYS = Object.freeze(['enabled', 'deleteU
 export const BRANCH_GC_CONTROL_NUMERIC_KEYS = Object.freeze(['staleDays', 'intervalMs']);
 
 export const GithubSettings = z.object({
+  readToken: optionalString('github.readToken', true),
   teams: z.array(
     z.string({ error: 'github.teams must be an array of org/slug strings' })
       .refine((team) => repoParts(team) !== null, { message: 'github.teams entries must be org/slug with valid GitHub segments' }),
@@ -184,6 +185,15 @@ const createUsageSettings = (isAbsolutePath: (directory: string) => boolean) => 
     .optional(),
 });
 
+const LANE_FETCH_DOMAIN_RE = /^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/;
+const LanesSettings = optionalObject('lanes', {
+  fetchDomains: z.array(
+    z.string({ error: 'lanes.fetchDomains must be an array of domain names' }).trim().toLowerCase()
+      .regex(LANE_FETCH_DOMAIN_RE, { error: 'lanes.fetchDomains entries must be bare domain names such as docs.example.com' }),
+    { error: 'lanes.fetchDomains must be an array of domain names' },
+  ).optional(),
+});
+
 const TelegramSettings = optionalObject('telegram', {
   botToken: optionalString('telegram.botToken', true),
   chatId: optionalString('telegram.chatId', true),
@@ -237,6 +247,7 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   taskTitle: TaskTitleSettings,
   branchGc: BranchGcSettings,
   github: GithubSettings,
+  lanes: LanesSettings,
   teamReview: TeamReviewSettings,
   benchmarks: BenchmarksSettings,
   coherence: CoherenceSettings,

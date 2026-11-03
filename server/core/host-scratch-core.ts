@@ -1,6 +1,7 @@
 export const HOST_SCRATCH_PREFIXES = [
   'check-',
   'glimmervoid-lane-settings-',
+  'glimmervoid-lane-gh-',
 ] as const;
 
 export type HostScratchPrefix = (typeof HOST_SCRATCH_PREFIXES)[number];

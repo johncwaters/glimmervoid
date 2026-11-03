@@ -15,6 +15,7 @@ type ConfigBlocks = Record<string, unknown>;
 const ENV_SECRET_BINDINGS: readonly EnvSecretBinding[] = Object.freeze([
   { blockName: 'posthog', secretKey: 'apiKey', environmentVariable: 'GLIMMERVOID_POSTHOG_API_KEY' },
   { blockName: 'telegram', secretKey: 'botToken', environmentVariable: 'GLIMMERVOID_TELEGRAM_BOT_TOKEN' },
+  { blockName: 'github', secretKey: 'readToken', environmentVariable: 'GLIMMERVOID_GITHUB_READ_TOKEN' },
 ]);
 
 function readEnvSecrets(env: Record<string, string | undefined>): ResolvedEnvSecret[] {
