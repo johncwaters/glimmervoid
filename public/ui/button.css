@@ -69,6 +69,11 @@
   border-color: var(--border-hover);
 }
 
+html:not([data-layout="phone"]) .ui-button[data-size="small"]:is([data-variant="icon"], [data-variant="outline-icon"]) {
+  --button-height: 28px;
+  --button-glyph-size: 14px;
+}
+
 @media (hover: hover) {
   .ui-button[data-variant="primary"]:hover:not(:disabled) {
     border-color: var(--accent);
