@@ -468,7 +468,7 @@ function tierLabel(tier: ReviewDraft['tier']): string {
 }
 
 export function detailMetaText(review: Pick<ReviewDraft, 'tier' | 'priorReviewedHead'>): string {
-  if (review.priorReviewedHead) return `${tierLabel(review.tier)} review of changes since your last review`;
+  if (review.priorReviewedHead) return `${tierLabel(review.tier)} review of changes since the earlier review`;
   return `${tierLabel(review.tier)} review`;
 }
 
