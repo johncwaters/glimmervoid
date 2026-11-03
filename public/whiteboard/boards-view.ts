@@ -70,6 +70,7 @@ interface BoardsViewParts {
   buttons: Record<'note' | 'frame' | 'unit' | 'fit' | 'undo' | 'redo', HTMLButtonElement>;
   toolButtons: ReadonlyMap<BoardTool, HTMLButtonElement>;
   toolHint: HTMLElement;
+  emptyBoardHint: HTMLElement;
 }
 
 let selectedBoardId: string | null = null;
@@ -488,11 +489,13 @@ function paintBoard(): void {
   const board = selectedBoard();
   if (!board) {
     renderer.clear();
+    if (parts) parts.emptyBoardHint.hidden = true;
     return;
   }
   requestReviewOf(board);
   editor?.pruneSelection(board);
   renderer.render(editor?.previewOf(board) ?? board);
+  if (parts) parts.emptyBoardHint.hidden = Object.keys(board.elements).length > 0;
   paintReview();
   editor?.openPendingTitleEdit();
   if (shouldFitOnNextRender) {
@@ -712,13 +715,21 @@ export function mountBoardHost(): HTMLElement {
   chrome.append(boardIsland, viewIsland, toolsIsland, toolHint);
   const topRightStack = el('div', 'wb-top-right');
   topRightStack.append(inspectPanel);
-  canvas.append(svg, topRightStack, chrome, bottomLeftStack);
+  const emptyBoardHint = el('div', 'wb-empty-board');
+  emptyBoardHint.hidden = true;
+  const emptyBoardHow = el('p', 'wb-empty-board-desc');
+  emptyBoardHow.append(
+    el('span', 'wb-empty-board-keys', 'Pick box (R) and click the board to place one, or ask a session to draw here.'),
+    el('span', 'wb-empty-board-touch', 'Ask a session to draw here.'),
+  );
+  emptyBoardHint.append(el('p', 'wb-empty-board-title', 'This board is empty.'), emptyBoardHow);
+  canvas.append(svg, emptyBoardHint, topRightStack, chrome, bottomLeftStack);
   const emptyText = el('p', 'wb-empty-text', EMPTY_TEXT);
   const empty = el('div', 'wb-empty');
   empty.append(emptyText, button({ variant: 'secondary', label: 'new board', action: 'new-board', onClick: newBoardFromDialog }));
 
   host.replaceChildren(canvas, empty);
-  parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, sendToAgent, buttons, toolButtons, toolHint };
+  parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, sendToAgent, buttons, toolButtons, toolHint, emptyBoardHint };
   const boardRenderer = createBoardRenderer(svg);
   renderer = boardRenderer;
   inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, openRef: openRefInReview });
