@@ -2,10 +2,10 @@
 
 .boards-view {
   --wb-font: 'ComicMono', var(--font-mono);
-  --wb-board: #0d0b16;
-  --wb-ink: #e6e0f5;
-  --wb-ink-dim: #a79fc4;
-  --wb-line: #4a4268;
+  --wb-board: var(--bg-surface);
+  --wb-ink: var(--text-head);
+  --wb-ink-dim: var(--text-dim);
+  --wb-line: var(--border-hover);
   --wb-note: #f5c26b;
   flex: 1;
   min-height: 0;
@@ -269,15 +269,45 @@
   container: wb-canvas / inline-size;
   position: relative;
   min-height: 320px;
-  border: 1px solid var(--border-dim);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background:
-    radial-gradient(circle at 1px 1px, #1d1930 1px, transparent 0) 0 0 / 22px 22px,
+    radial-gradient(circle at 1px 1px, var(--border) 1px, transparent 0) 0 0 / 22px 22px,
     var(--wb-board);
   overflow: hidden;
 }
 
 .wb-canvas[hidden] { display: none; }
+
+.wb-empty-board {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  padding: 24px;
+  text-align: center;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
+.wb-empty-board[hidden] { display: none; }
+
+.wb-empty-board-title {
+  margin: 0 0 4px;
+  color: var(--text-head);
+  font-size: var(--type-body);
+  font-weight: 700;
+}
+
+.wb-empty-board-desc {
+  max-width: 44ch;
+  margin: 0;
+  font-size: var(--type-meta);
+}
+
+.wb-empty-board-touch { display: none; }
+
+[data-layout='phone'] .wb-empty-board-touch { display: inline; }
 
 .wb-svg {
   display: block;
@@ -347,7 +377,7 @@
 .wb-box { cursor: move; }
 
 .wb-box-outline {
-  fill: #15122a;
+  fill: var(--wb-board);
   stroke: var(--wb-ink-dim);
   stroke-width: 1.6;
 }
@@ -377,9 +407,9 @@
 
 .wb-box-line.wb-muted { fill: var(--wb-ink-dim); }
 
-.wb-line-code { fill: #c4b5fd; }
+.wb-line-code { fill: var(--accent); }
 
-.wb-code-band { fill: #221d3a; }
+.wb-code-band { fill: color-mix(in oklab, var(--accent) 14%, var(--wb-board)); }
 
 .wb-line-marker {
   fill: var(--wb-ink-dim);
@@ -397,7 +427,7 @@
 .wb-panel { cursor: pointer; }
 
 .wb-panel-outline {
-  fill: #110f20;
+  fill: color-mix(in oklab, var(--wb-board) 80%, var(--bg));
   stroke: var(--wb-line);
   stroke-width: 1.4;
 }
@@ -435,7 +465,7 @@
 .wb-unit { cursor: pointer; }
 
 .wb-unit-outline {
-  fill: #15122a;
+  fill: var(--wb-board);
   stroke: var(--accent);
   stroke-width: 1.6;
 }
@@ -462,7 +492,7 @@
 }
 
 .wb-frame-outline {
-  fill: rgba(192, 132, 252, 0.04);
+  fill: color-mix(in srgb, var(--accent) 4%, transparent);
   stroke: var(--wb-line);
   stroke-width: 1.4;
   stroke-dasharray: 10 6;
@@ -677,7 +707,8 @@
 
 [data-layout='phone'] .wb-island-view > button:not([data-phone-visible]),
 [data-layout='phone'] .wb-island-tools,
-[data-layout='phone'] .wb-tool-hint {
+[data-layout='phone'] .wb-tool-hint,
+[data-layout='phone'] .wb-empty-board-keys {
   display: none;
 }
 
