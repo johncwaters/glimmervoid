@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Boxes on a board can hold a picture.** A session runs `glimmervoid whiteboard attach <image>` (or the whiteboard tool's attach action) with a PNG, JPEG, WebP or GIF file, then puts a box with the image it gets back, and the board draws the picture under the box's lines. Pictures are shrunk to at most 1600 pixels, stripped of their metadata, and stored once beside your boards however many boxes show them. The board picture a session views includes them too. SVG files are refused.
+- **Boxes on a board can hold a picture.** A session runs `glimmervoid whiteboard attach <image>` (or the whiteboard tool's attach action) with a PNG, JPEG, WebP or GIF file, then puts a box with the image it gets back, and the board draws the picture under the box's lines. Pictures are shrunk to at most 1600 pixels, stripped of their metadata, and stored once beside your boards however many boxes show them. You can add one yourself too: paste a picture onto an open board, or drop image files on it, and each lands in a new box where you dropped it. The board picture a session views includes them too. SVG files are refused.
 
 ### Changed
 

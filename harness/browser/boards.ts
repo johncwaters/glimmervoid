@@ -24,6 +24,30 @@ async function placeBoxWithTool(page: Page, panel: Locator, offset: { x: number;
   await panel.locator('.wb-box-title', { hasText: title }).waitFor();
 }
 
+async function verifyDroppedPicture(panel: Locator): Promise<void> {
+  await panel.locator('.wb-canvas').evaluate(async (canvas) => {
+    const painted = document.createElement('canvas');
+    painted.width = 400;
+    painted.height = 200;
+    const pen = painted.getContext('2d');
+    if (pen) pen.fillStyle = '#c084fc';
+    pen?.fillRect(0, 0, 400, 200);
+    const pngBlob = await new Promise<Blob | null>((resolve) => painted.toBlob(resolve, 'image/png'));
+    if (!pngBlob) throw new Error('the browser painted no png');
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([pngBlob], 'dropped-shot.png', { type: 'image/png' }));
+    const canvasRect = canvas.getBoundingClientRect();
+    canvas.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer, clientX: canvasRect.left + 420, clientY: canvasRect.top + 80 }));
+  });
+  const picture = panel.locator('image.wb-image');
+  await picture.waitFor();
+  await panel.locator('.wb-box-title', { hasText: 'dropped-shot' }).waitFor();
+  const servedStatus = await picture.evaluate(async (node) => (await fetch(node.getAttribute('href') ?? '')).status);
+  assert.equal(servedStatus, 200, 'a dropped picture draws from the served asset');
+  await panel.getByRole('button', { name: 'undo', exact: true }).click();
+  await picture.waitFor({ state: 'detached' });
+}
+
 async function renameOpenBoard(page: Page, panel: Locator, currentTitle: string, typedTitle: string, finishKey: 'Enter' | 'Escape'): Promise<void> {
   await panel.locator('.wb-board-title', { hasText: currentTitle }).click();
   await panel.getByRole('textbox', { name: 'Board title', exact: true }).fill(typedTitle);
@@ -145,6 +169,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await placeBoxWithTool(page, panel, { x: 60, y: 60 }, 'Parse feed');
     assert.equal(await panel.getByRole('button', { name: 'select', exact: true }).getAttribute('aria-pressed'), 'true', 'the tool returns to select after one placement');
     assert.equal(await toolHint.isVisible(), false, 'the hint line hides once the select tool is back');
+    await verifyDroppedPicture(panel);
     await panel.getByRole('button', { name: 'more', exact: true }).click();
     const moreMenu = page.getByRole('menu', { name: 'More tools', exact: true });
     assert.deepEqual(await moreMenu.getByRole('menuitem').allTextContents(), ['note on box', 'frame selected boxes', 'plan step']);

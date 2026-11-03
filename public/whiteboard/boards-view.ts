@@ -20,7 +20,7 @@ import type { BoardInspector } from './board-inspect.ts';
 import { createBoardRenderer } from './board-render.ts';
 import type { BoardRenderer } from './board-render.ts';
 import {
-  boardSummariesOf, createBoard, deleteBoard, nudgeSessionAboutBoard, onBoardChanged, onBoardListChanged, openBoard, openBoardOf, openFileInReview, requestBoardReview, sendBoardOps, takeOpenBoardRequest,
+  boardSummariesOf, createBoard, deleteBoard, nudgeSessionAboutBoard, onBoardChanged, onBoardListChanged, openBoard, openBoardOf, openFileInReview, requestBoardReview, sendBoardOps, takeOpenBoardRequest, uploadBoardImage,
 } from './board-store.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
@@ -30,6 +30,7 @@ const TITLE_RENAME_CLASS = 'wb-board-title-rename';
 const SEND_TO_CHAT_ICON_PATH = 'M13.5 8H3 M7 4L3 8l4 4';
 const MORE_ICON_PATH = 'M4.5 6.5L8 10l3.5-3.5';
 const MENU_GAP_PX = 4;
+const STACKED_IMAGE_OFFSET_PX = 32;
 const FIT_ICON_PATH = 'M2.5 6V2.5H6 M10 2.5h3.5V6 M13.5 10v3.5H10 M6 13.5H2.5V10';
 const UNDO_ICON_PATH = 'M5.5 3.5l-3 3l3 3 M2.5 6.5h7a3.5 3.5 0 0 1 0 7H7';
 const REDO_ICON_PATH = 'M10.5 3.5l3 3l-3 3 M13.5 6.5h-7a3.5 3.5 0 0 0 0 7H9';
@@ -657,6 +658,59 @@ function onHistoryKey(host: HTMLElement, event: KeyboardEvent): void {
   void stepHistory(direction);
 }
 
+function imageFilesOf(transfer: DataTransfer | null): File[] {
+  return [...(transfer?.files ?? [])].filter((file) => file.type.startsWith('image/'));
+}
+
+function titleOfImageFile(file: File): string {
+  return (file.name.replace(/\.[^.]+$/, '') || 'Picture').slice(0, WHITEBOARD_LIMITS.title);
+}
+
+async function addImageFiles(files: readonly File[], clientPoint: { x: number; y: number } | null): Promise<void> {
+  if (!selectedBoardId || files.length === 0) return;
+  status.show('busy', files.length === 1 ? `adding ${files[0]?.name}` : `adding ${files.length} pictures`);
+  for (const [index, file] of files.entries()) {
+    const stored = await uploadBoardImage(file);
+    if (!stored.ok) {
+      status.show('error', stored.error);
+      return;
+    }
+    const offset = index * STACKED_IMAGE_OFFSET_PX;
+    const stackedPoint = clientPoint ? { x: clientPoint.x + offset, y: clientPoint.y + offset } : null;
+    const image = { asset: stored.asset, width: stored.width, height: stored.height, alt: file.name.slice(0, WHITEBOARD_LIMITS.line) };
+    const isPlaced = await editor?.placeImageBox(titleOfImageFile(file), image, stackedPoint);
+    if (!isPlaced) return;
+  }
+  status.clear();
+}
+
+function wireImageDrops(host: HTMLElement, canvas: HTMLElement): void {
+  canvas.addEventListener('dragover', (event) => {
+    if (!selectedBoardId || !event.dataTransfer?.types.includes('Files')) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+  });
+  canvas.addEventListener('drop', (event) => {
+    const files = imageFilesOf(event.dataTransfer);
+    if (files.length === 0) return;
+    event.preventDefault();
+    void addImageFiles(files, { x: event.clientX, y: event.clientY });
+  });
+  document.addEventListener('paste', (event) => {
+    if (!host.checkVisibility() || isModalOpen() || isTextEntryFocused()) return;
+    const files = imageFilesOf(event.clipboardData);
+    if (files.length === 0) return;
+    event.preventDefault();
+    void addImageFiles(files, null);
+  });
+}
+
+function isTextEntryFocused(): boolean {
+  const focused = document.activeElement;
+  if (focused?.classList.contains('xterm-helper-textarea')) return true;
+  return focused instanceof HTMLInputElement || focused instanceof HTMLTextAreaElement || (focused instanceof HTMLElement && focused.isContentEditable);
+}
+
 export function mountBoardHost(): HTMLElement {
   if (parts) return parts.host;
   const host = el('div', 'boards-view');
@@ -746,6 +800,7 @@ export function mountBoardHost(): HTMLElement {
   });
 
   document.addEventListener('keydown', (event) => onHistoryKey(host, event));
+  wireImageDrops(host, canvas);
   onBoardListChanged(paintList);
   onBoardChanged((boardId) => {
     if (boardId !== selectedBoardId) return;

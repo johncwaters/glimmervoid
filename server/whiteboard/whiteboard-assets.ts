@@ -13,6 +13,7 @@ const ASSET_WEBP_QUALITY = 85;
 const ASSET_FILE_MODE = 0o600;
 const ASSET_EXTENSION = '.webp';
 const ASSET_FILENAME_RE = /^([0-9a-f]{64})\.webp$/;
+const INCOMING_PREFIX = '.incoming-';
 const ACCEPTED_TEXT = 'PNG, JPEG, WebP or GIF';
 const OPEN_WITHOUT_BLOCKING_ON_A_PIPE = fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0);
 
@@ -21,7 +22,8 @@ type IngestOutcome = { ok: true; asset: string; width: number; height: number } 
 interface WhiteboardAssetStore {
   loaded: Promise<void>;
   has(assetId: string): boolean;
-  ingestFile(sourcePath: string): Promise<IngestOutcome>;
+  ingestFile(sourcePath: string, name?: string): Promise<IngestOutcome>;
+  reserveIncomingPath(): Promise<string>;
   ingestBuffer(bytes: Buffer, name: string): Promise<IngestOutcome>;
   filePathOf(assetId: string): string | null;
   dataUriOf(assetId: string, drawnWidth: number, drawnHeight: number): Promise<string | null>;
@@ -56,11 +58,13 @@ async function readRegularFileCapped(sourcePath: string): Promise<Buffer | Inges
 function createWhiteboardAssetStore({ boardsRoot, logger = console }: { boardsRoot: string; logger?: Pick<Console, 'warn'> }): WhiteboardAssetStore {
   const assetsRoot = path.join(boardsRoot, ASSETS_FOLDER_NAME);
   const storedAssetIds = new Set<string>();
-  const loaded = fsp.readdir(assetsRoot).then((filenames) => {
+  const loaded = fsp.readdir(assetsRoot).then(async (filenames) => {
     for (const filename of filenames) {
       const assetId = assetIdOfFilename(filename);
       if (assetId) storedAssetIds.add(assetId);
     }
+    const abandonedIncomingNames = filenames.filter((filename) => filename.startsWith(INCOMING_PREFIX));
+    await Promise.all(abandonedIncomingNames.map((filename) => fsp.rm(path.join(assetsRoot, filename), { force: true }).catch(() => {})));
   }, () => {});
 
   async function store(normalized: Buffer): Promise<string> {
@@ -102,10 +106,16 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console }: { boardsRo
     }
   }
 
-  async function ingestFile(sourcePath: string): Promise<IngestOutcome> {
+  async function ingestFile(sourcePath: string, name = path.basename(sourcePath)): Promise<IngestOutcome> {
     const bytes = await readRegularFileCapped(sourcePath);
     if (!Buffer.isBuffer(bytes)) return bytes;
-    return ingestBuffer(bytes, path.basename(sourcePath));
+    return ingestBuffer(bytes, name);
+  }
+
+  async function reserveIncomingPath(): Promise<string> {
+    await loaded;
+    await fsp.mkdir(assetsRoot, { recursive: true, mode: 0o700 });
+    return path.join(assetsRoot, `${INCOMING_PREFIX}${crypto.randomBytes(8).toString('hex')}`);
   }
 
   function filePathOf(assetId: string): string | null {
@@ -125,8 +135,8 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console }: { boardsRo
     return drawn ? `data:image/png;base64,${drawn.toString('base64')}` : null;
   }
 
-  return { loaded, has: (assetId) => storedAssetIds.has(assetId), ingestFile, ingestBuffer, filePathOf, dataUriOf };
+  return { loaded, has: (assetId) => storedAssetIds.has(assetId), ingestFile, ingestBuffer, reserveIncomingPath, filePathOf, dataUriOf };
 }
 
-export { assetIdOfFilename, createWhiteboardAssetStore };
+export { ASSET_INPUT_CAP_BYTES, assetIdOfFilename, createWhiteboardAssetStore };
 export type { WhiteboardAssetStore };

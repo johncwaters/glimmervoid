@@ -358,6 +358,11 @@ test('an agent attaches a picture once by content, a box draws it from the serve
   assert.equal(served.status, 200);
   assert.equal(served.headers.get('content-type'), 'image/webp');
   assert.equal((await fetch(`${running().base}/whiteboards/assets/${'0'.repeat(64)}.webp`)).status, 404);
+  const pasted = await fetch(`${running().base}/whiteboards/assets`, { method: 'POST', body: fs.readFileSync(path.join(plannerDir, 'shot.png')), headers: { 'content-type': 'image/png', 'x-glimmervoid-upload-name': 'shot.png' } });
+  assert.deepEqual(await pasted.json(), { ok: true, ...image });
+  const crossSite = await fetch(`${running().base}/whiteboards/assets`, { method: 'POST', body: fs.readFileSync(path.join(plannerDir, 'shot.png')), headers: { 'content-type': 'text/plain', origin: 'https://evil.example', 'x-glimmervoid-upload-name': 'shot.png' } });
+  assert.equal(crossSite.status, 403);
+  assert.deepEqual(fs.readdirSync(path.join(fixture.tmpDir, 'whiteboards', 'assets')), [`${image.asset}.webp`]);
 
   const unstored = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'login', fields: { image: { ...image, asset: 'f'.repeat(64) } } }] });
   assert.equal(unstored.status, 400);

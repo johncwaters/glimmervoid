@@ -34,11 +34,11 @@ import { configSiblingPath } from '../pairings-store.ts';
 import { clientDir } from '../runtime-paths.ts';
 import type { ShownFilesPort } from '../session/shown-files-wiring.ts';
 import type { WhiteboardAssetStore } from '../whiteboard/whiteboard-assets.ts';
-import { assetIdOfFilename } from '../whiteboard/whiteboard-assets.ts';
+import { ASSET_INPUT_CAP_BYTES, assetIdOfFilename } from '../whiteboard/whiteboard-assets.ts';
 import { WHITEBOARD_ASSET_ROUTE } from '../../shared/contracts/whiteboard.ts';
 import { buildUploadFilename, decideUploadType, exceedsUploadCap, imageMimeForUploadFilename, isSafePathSegment } from '../core/upload-core.ts';
-import { declaredContentLength, parseJsonBody, readCappedBody } from './http/backend-http-body.ts';
-import { UPLOAD_OVER_CAP_ERROR, receiveUpload } from './http/backend-http-uploads.ts';
+import { declaredContentLength, decodeHeaderText, parseJsonBody, readCappedBody } from './http/backend-http-body.ts';
+import { UPLOAD_FAILURE_REPLIES, UPLOAD_OVER_CAP_ERROR, receiveUpload, streamRequestToFile } from './http/backend-http-uploads.ts';
 import { answerShow, sendShowReply, serveShownFile } from './http/backend-http-shown-files.ts';
 import { serveClientDir } from './http/backend-http-static.ts';
 
@@ -182,6 +182,28 @@ function answerOpenExternal({ req, res, remoteListenerPort, listenerPortsFor, to
 
 type AgentIngressDependencies = Pick<BackendHttpDependencies,
   'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'getPlanReview' | 'refocusContextFor' | 'takePromptSupervision' | 'getAgentApi' | 'getShownFiles' | 'getWhiteboardAssets' | 'sshSigner' | 'recordOutcome' | 'logger'>;
+
+async function receiveBoardImage({ req, assets, name }: { req: Request; assets: WhiteboardAssetStore; name: string }): ReturnType<WhiteboardAssetStore['ingestFile']> {
+  const declaredBytes = declaredContentLength(req);
+  const overCap = { ok: false as const, status: 413, error: `${name} is larger than the ${ASSET_INPUT_CAP_BYTES / (1024 * 1024)} MB a board image takes` };
+  if (declaredBytes !== null && declaredBytes > ASSET_INPUT_CAP_BYTES) {
+    req.resume();
+    return overCap;
+  }
+  let isAbortedBeforeReceive = false;
+  const markAbortedBeforeReceive = () => { isAbortedBeforeReceive = true; };
+  req.on('error', markAbortedBeforeReceive);
+  const incomingPath = await assets.reserveIncomingPath();
+  req.off('error', markAbortedBeforeReceive);
+  if (isAbortedBeforeReceive || req.destroyed) return { ok: false, ...UPLOAD_FAILURE_REPLIES.aborted };
+  try {
+    const received = await streamRequestToFile({ req, savedPath: incomingPath, capBytes: ASSET_INPUT_CAP_BYTES });
+    if (!received.ok) return received.reason === 'over-cap' ? overCap : { ok: false, ...UPLOAD_FAILURE_REPLIES[received.reason] };
+    return await assets.ingestFile(incomingPath, name);
+  } finally {
+    await fsp.rm(incomingPath, { force: true }).catch(() => {});
+  }
+}
 
 function mountHostAllowList(app: Express, allowedHosts: string[]): void {
   app.use((req, res, next) => {
@@ -510,6 +532,34 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
 
   app.get('/shown/:sessionId/:filename', (req, res) => {
     serveShownFile(req, res, dependencies.getShownFiles?.() ?? null);
+  });
+
+  app.post(WHITEBOARD_ASSET_ROUTE, (req, res) => {
+    const assets = dependencies.getWhiteboardAssets?.() ?? null;
+    const name = path.basename(decodeHeaderText(req.headers['x-glimmervoid-upload-name']) ?? '');
+    const answer = (status: number, body: Record<string, unknown>) => {
+      if (!res.headersSent) res.status(status).json(body);
+    };
+    const origin = req.headers.origin;
+    if (origin && !decideOriginAllowed(origin, remote.allowedOrigins, { listenerPorts: listenerPortsFor(req.socket) })) {
+      answer(403, { ok: false, error: 'origin not allowed' });
+      req.resume();
+      return;
+    }
+    if (!name) {
+      answer(400, { ok: false, error: 'a board image needs its file name in x-glimmervoid-upload-name' });
+      req.resume();
+      return;
+    }
+    if (!assets) {
+      answer(503, { ok: false, error: 'boards are not ready yet' });
+      req.resume();
+      return;
+    }
+    void receiveBoardImage({ req, assets, name }).then(
+      (outcome) => outcome.ok ? answer(200, { ok: true, asset: outcome.asset, width: outcome.width, height: outcome.height }) : answer(outcome.status, { ok: false, error: outcome.error }),
+      () => answer(500, { ok: false, error: `${name} could not be stored` }),
+    );
   });
 
   app.get(`${WHITEBOARD_ASSET_ROUTE}/:filename`, (req, res) => {
