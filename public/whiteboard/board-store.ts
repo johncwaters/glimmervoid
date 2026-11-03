@@ -1,7 +1,7 @@
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
-import type { Board, BoardReview, BoardSummary, Op } from '#shared/contracts/whiteboard.ts';
+import type { Board, BoardReview, BoardSummary, BoxMedia, Op } from '#shared/contracts/whiteboard.ts';
 import { applyOps } from '#shared/whiteboard-ops-core.ts';
-import { WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
+import { BoardMediaUploadReply, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
 
@@ -154,20 +154,16 @@ export async function sendBoardOps(boardId: string, ops: readonly Op[]): Promise
   return outcome.ok ? { ok: true } : outcome;
 }
 
-export async function uploadBoardImage(file: File): Promise<{ ok: true; asset: string; width: number; height: number } | { ok: false; error: string }> {
+export async function uploadBoardMedia(file: File): Promise<{ ok: true; media: BoxMedia } | { ok: false; error: string }> {
   const headers: Record<string, string> = { 'x-glimmervoid-upload-name': encodeURIComponent(file.name) };
   if (file.type) headers['content-type'] = file.type;
   const response = await fetch(WHITEBOARD_ASSET_ROUTE, { method: 'POST', body: file, headers }).catch(() => null);
   if (!response) return { ok: false, error: `${file.name} was not added because the server did not answer` };
   const reply: unknown = await response.json().catch(() => null);
-  if (isStoredImageReply(reply)) return { ok: true, asset: reply.asset, width: reply.width, height: reply.height };
+  const stored = BoardMediaUploadReply.safeParse(reply);
+  if (stored.success) return { ok: true, media: stored.data.media };
   const error = reply && typeof reply === 'object' && 'error' in reply && typeof reply.error === 'string' ? reply.error : `${file.name} was not added (HTTP ${response.status})`;
   return { ok: false, error };
-}
-
-function isStoredImageReply(reply: unknown): reply is { asset: string; width: number; height: number } {
-  if (!reply || typeof reply !== 'object') return false;
-  return 'asset' in reply && typeof reply.asset === 'string' && 'width' in reply && typeof reply.width === 'number' && 'height' in reply && typeof reply.height === 'number';
 }
 
 export async function deleteBoard(boardId: string): Promise<{ ok: true } | { ok: false; error: string }> {

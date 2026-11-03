@@ -34,6 +34,7 @@ interface BoardEditorOptions {
 }
 
 export interface PressedImage {
+  boxId: string | null;
   href: string;
   alt: string;
 }
@@ -85,7 +86,8 @@ function pressedImageOf(target: EventTarget | null): PressedImage | null {
   const image = target.closest<SVGImageElement>('image.wb-image');
   const href = image?.getAttribute('href');
   if (!image || !href) return null;
-  return { href, alt: image.querySelector('title')?.textContent ?? '' };
+  const boxId = image.closest<SVGElement>('[data-element-id]')?.dataset.elementId ?? null;
+  return { boxId, href, alt: image.querySelector('title')?.textContent ?? '' };
 }
 
 function isResizeHandle(target: EventTarget | null): boolean {

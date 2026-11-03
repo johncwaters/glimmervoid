@@ -59,6 +59,9 @@ async function verifyDroppedPicture(panel: Locator): Promise<void> {
   const picture = panel.locator('image.wb-image');
   await picture.waitFor();
   await panel.locator('.wb-box-title', { hasText: 'dropped-shot' }).waitFor();
+  const servedStatus = await picture.evaluate(async (node) => (await fetch(node.getAttribute('href') ?? '')).status);
+  assert.equal(servedStatus, 200, 'a dropped picture draws from the served asset');
+  assert.match(await picture.getAttribute('href') ?? '', /\/[0-9a-f]{64}\.preview\.webp$/, 'a dropped png wider than 1024 draws from its preview');
   const previewWidth = await picture.evaluate(async (node) => {
     const preview = new Image();
     preview.src = node.getAttribute('href') ?? '';
@@ -72,6 +75,7 @@ async function verifyDroppedPicture(panel: Locator): Promise<void> {
   await enlarged.waitFor();
   const naturalWidth = await enlarged.evaluate(async (node) => (node instanceof HTMLImageElement ? node.decode().then(() => node.naturalWidth) : 0));
   assert.equal(naturalWidth, 2400, 'a clicked picture opens the original at its own size');
+  assert.ok(await enlarged.evaluate((node) => node instanceof HTMLImageElement && node.src.endsWith('.png')), 'a clicked picture opens the original png');
   assert.ok(await enlarged.evaluate((node) => node.getBoundingClientRect().width > window.innerWidth * 0.8), 'the viewer scales a picture up to fill the screen');
   await panel.page().keyboard.press('Escape');
   await viewer.waitFor({ state: 'detached' });

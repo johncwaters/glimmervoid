@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Boxes on a board can hold a video or an HTML page, and SVG pictures.** `glimmervoid whiteboard attach <path>` (or the whiteboard tool's attach action) now also takes SVG, MP4, WebM and HTML files, up to 200 MB, and returns the media to put on a box. The board draws a video's first frame under the box's lines; for now an HTML page, or a video whose first frame cannot be read, shows as a labelled placeholder. Pasting or dropping these files on an open board works too. An attach is refused, so you can attach it again, when the machine ran out of disk space or open files while making a photo's smaller copy or a video's first frame, ran out of memory while making a photo's copy, could not start ffmpeg for lack of memory or processes, or stopped or timed out reading a video's first frame; a video ffmpeg cannot read, or that crashes it, is kept without a first frame.
+
 ### Changed
 
+- A file attached to a board is now kept exactly as given and is the stored copy itself, served from `/whiteboards/assets/<id><ext>` with its own type, so you can download it or use it elsewhere; only a photo larger than 1024 pixels also gets a smaller copy for drawing. Boards saved by 0.51.0 with a picture on them cannot be read by this release and are set aside as unreadable, and the full size copies 0.51.0 kept beside its pictures are left on disk unused.
 - Your pull requests in Reviews now list review comments as one deduplicated list: threads from different reviewers or bots on the same file within three lines of each other show as one item naming every reviewer, each with a priority tag.
 - Each review item on your pull request now has Fix locally, which sends the comment to the live session linked to that pull request, and Dismiss, which posts your typed reason as a reply under your GitHub login and resolves the thread. Handled items move to a Handled list on the pull request, and a dismissed comment stays hidden after new pushes unless its text changes.
 - Rules in `prFlows.rules` and `prFlows.repoRules` in config.json now handle review items on your pull requests with no click: the first rule matching an item's source, priority, paths or text dismisses it with the rule's reason or pastes it into the linked session, unsubmitted so you read it before pressing Enter, on the next poll. Each one lands in the Handled list naming its rule, where Undo reopens the item (and its thread on GitHub) and keeps rules off it. The Dismiss form's Save as rule adds a rule for that reviewer and file, and a rule config.json cannot use shows as a warning on the pull request.

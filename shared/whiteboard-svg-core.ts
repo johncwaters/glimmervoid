@@ -87,7 +87,7 @@ svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospac
 
 type AttributeValue = string | number;
 
-type AssetHref = (assetId: string) => string | null;
+type AssetHref = (media: LaidOutMedia) => string | null;
 
 const NO_ASSET_HREF: AssetHref = () => null;
 
@@ -169,7 +169,7 @@ function boxOutlineMarkup(box: LaidOutBox): string {
 }
 
 function mediaMarkup(media: LaidOutMedia, assetHref: AssetHref): string[] {
-  const href = assetHref(media.asset);
+  const href = assetHref(media);
   const placeholderText = media.alt || media.kind;
   const label = tag('title', {}, escapeMarkup(placeholderText));
   if (href) return [tag('image', { href, x: media.x, y: media.y, width: media.width, height: media.height, preserveAspectRatio: 'xMidYMid meet', class: 'wb-image' }, label)];
