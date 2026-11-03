@@ -92,6 +92,7 @@ interface GitWorkspace {
   mergeBack: (args: WorkspaceArgs) => MergeResult | Promise<MergeResult>;
   mergeKeep: (args: WorkspaceArgs) => MergeResult | Promise<MergeResult>;
   rebaseOnly: (args: WorkspaceArgs) => Promise<RebaseResult>;
+  resolveRebaseTarget?: (args: WorkspaceArgs) => Promise<string | null>;
   syncIntegrationBranch?: (args: WorkspaceArgs) => Promise<IntegrationSyncResult>;
   detectDefaultBranch?: (options: { projectPath: string }) => Promise<string | null>;
   ensureWorkspaceMember?: GitWorkspaceInstance["ensureWorkspaceMember"];
@@ -190,6 +191,7 @@ interface WorktreeSignature {
   dirty: boolean;
   ahead: string;
   behind: string;
+  rebaseBehind: string;
   rebaseInProgress: boolean;
   headSha: string;
   targetSha: string | null;

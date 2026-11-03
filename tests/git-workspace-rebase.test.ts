@@ -76,6 +76,35 @@ test('rebaseOnly (real git): replays the worktree onto a moved develop and leave
   } finally { fs.rmSync(repo, { recursive: true, force: true }); }
 });
 
+test('rebaseOnly (real git): a develop holding unpushed commits rebases onto origin/develop and leaves them out', { skip: !GIT }, async () => {
+  const repo = initRepoOnDevelop();
+  const origin = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-rebase-origin-'));
+  try {
+    git(['init', '--bare'], origin);
+    git(['remote', 'add', 'origin', origin], repo);
+    git(['push', '-q', 'origin', 'develop'], repo);
+    const gw = createGitWorkspace();
+    const ws = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'fresh', baseBranch: 'develop' });
+    commitFile(repo, 'pushed.js', 'pushed\n', 'develop advances on origin');
+    git(['push', '-q', 'origin', 'develop'], repo);
+    const pushedSha = git(['rev-parse', 'develop'], repo).trim();
+    commitFile(repo, 'promoted.js', 'promoted\n', 'another session promotes before its push');
+
+    const r = await gw.rebaseOnly({ projectPath: repo, workspace: ws, targetBranch: 'develop' });
+    assert.equal(r.ok, true);
+    assert.equal(r.rebased, true);
+    assert.equal(r.baseSha, pushedSha);
+    assert.ok(fs.existsSync(path.join(ws.cwd, 'pushed.js')));
+    assert.ok(!fs.existsSync(path.join(ws.cwd, 'promoted.js')));
+    assert.equal(git(['rev-list', '--count', `${pushedSha}..HEAD`], ws.cwd).trim(), '0');
+
+    await gw.discard({ projectPath: repo, workspace: ws, cause: 'session' });
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(origin, { recursive: true, force: true });
+  }
+});
+
 test('rebaseOnly (real git): a worktree already on top of develop is upToDate and rewrites nothing', { skip: !GIT }, async () => {
   const repo = initRepoOnDevelop();
   try {

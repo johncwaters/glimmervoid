@@ -375,6 +375,7 @@ function createSessionWorktreeLifecycle({
     let head: string;
     let ahead = "0";
     let behind = "0";
+    let rebaseBehind = "0";
     let rebaseInProgress = false;
     let targetSha: string | null = null;
     let baseRef: string | null = null;
@@ -388,6 +389,14 @@ function createSessionWorktreeLifecycle({
       if (resolvedTarget) {
         targetSha = resolvedTarget;
         behind = (await run(["rev-list", "--count", `HEAD..${mergeTarget}`])).trim();
+        rebaseBehind = behind;
+      }
+      const rebaseTargetSha = gitWorkspace?.resolveRebaseTarget && lifecycleState.workspace
+        ? await gitWorkspace.resolveRebaseTarget({ projectPath: currentProjectPath(), workspace: lifecycleState.workspace, targetBranch: effectiveIntegrationBranch() })
+        : null;
+      if (rebaseTargetSha) {
+        targetSha = rebaseTargetSha;
+        rebaseBehind = (await run(["rev-list", "--count", `HEAD..${rebaseTargetSha}`])).trim();
       }
       const rebaseMerge = (await run(["rev-parse", "--git-path", "rebase-merge"])).trim();
       const rebaseApply = (await run(["rev-parse", "--git-path", "rebase-apply"])).trim();
@@ -399,7 +408,7 @@ function createSessionWorktreeLifecycle({
     }
     lifecycleState.lastLoggedCheckFailure = null;
     const sig = crypto.createHash("sha1").update(`${status} ${head} ${ahead}`).digest("hex");
-    return { sig, dirty: status.trim() !== "", ahead, behind, rebaseInProgress, headSha: head, targetSha, baseRef };
+    return { sig, dirty: status.trim() !== "", ahead, behind, rebaseBehind, rebaseInProgress, headSha: head, targetSha, baseRef };
   }
 
   async function runAutoRebase(trigger: string, signature: WorktreeSignature): Promise<void> {
@@ -414,7 +423,7 @@ function createSessionWorktreeLifecycle({
       hasLivePty: session.hasLivePty,
       mergeStatus: lifecycleState.mergeStatus,
       dirty: signature.dirty,
-      behind: signature.behind,
+      behind: signature.rebaseBehind,
       rebaseInProgress: signature.rebaseInProgress,
       teardownPending: session.isTeardownPending,
       currentKey,
