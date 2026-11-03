@@ -53,7 +53,7 @@ export function isApprovalDecision(decision: PlanDecisionKind | null): boolean {
   return decision === 'approve' || decision === 'approve-accept-edits';
 }
 
-export function isApprovedReview(review: PlanReview): boolean {
+function isApprovedReview(review: PlanReview): boolean {
   const isSettled = review.state === 'decided' || review.state === 'closed';
   return isSettled && isApprovalDecision(review.lastDecision);
 }

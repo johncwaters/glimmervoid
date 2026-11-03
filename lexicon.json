@@ -150,6 +150,10 @@
     {
       "name": "verdict",
       "definition": "A community research run's confidence in its draft (HIGH, MEDIUM, LOW or FAILED); only a finished HIGH run with a draft notifies, and an unread linked page caps it at MEDIUM"
+    },
+    {
+      "name": "docs",
+      "definition": "Text files a session hands the operator with glimmervoid edit, opened full screen from the card's Docs button to read, edit and save back"
     }
   ]
 }

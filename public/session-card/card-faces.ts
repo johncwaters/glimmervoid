@@ -4,13 +4,12 @@ import type { SessionState } from '#shared/states.ts';
 import { KILLABLE_STATES, RESTARTABLE_STATES, STATES } from '#shared/states.ts';
 import { loadShownFaceModule, markShownFilesOpened, shownFilesOf } from '../shown-files.ts';
 import type { PlanResponse } from '../plan/plan-face.ts';
-import { isApprovedReview, mergePlanChanged } from '../plan/plan-view-core.ts';
+import { mergePlanChanged } from '../plan/plan-view-core.ts';
 import type { PlanChangedMessage } from '../plan/plan-view-core.ts';
 import { isDebugModeEnabled } from './card-debug.ts';
 import type { SessionUi } from './card-registry.ts';
 import { findSessionUi, sessionIdOf, sessionUIs } from './card-registry.ts';
-import { decidePlanHeaderAction, preferredBorrowedFace } from './face-core.ts';
-import type { SessionCardFace } from './face-core.ts';
+import { decidePlanHeaderAction } from './face-core.ts';
 import { syncTerminalOutputFlow } from './terminal-data-socket.ts';
 import { reportSessionProblem } from './card-problems.ts';
 
@@ -32,19 +31,6 @@ function updateButtonVisibility(ui: SessionUi) {
 
 type SessionPlanChangedMessage = PlanChangedMessage;
 type SessionPlanDraftMessage = PlanDraftPush;
-
-function preferredFaceFor(ui: SessionUi): SessionCardFace {
-  const hasOpenReview = ui.planReviewState.reviews.some((review) => review.state === 'open');
-  const hasApprovedReview = ui.planReviewState.reviews.some(isApprovedReview);
-  return preferredBorrowedFace({ hasPlan: ui.hasPlan, pendingPromptKind: ui.pendingPromptKind, hasOpenReview, hasApprovedReview });
-}
-
-function showPlanFaceWhenPreferred(sessionId: unknown) {
-  const ui = findSessionUi(sessionId);
-  if (!ui?.isBorrowed) return false;
-  if (preferredFaceFor(ui) !== 'plan') return false;
-  return showSessionPlanFace(sessionId);
-}
 
 export function showSessionPlanFace(sessionId: unknown) {
   const ui = findSessionUi(sessionId);
@@ -92,7 +78,6 @@ export function setSessionHasPlan(sessionId: unknown, hasPlan: unknown) {
   if (!ui) return;
   ui.hasPlan = hasPlan === true;
   updateButtonVisibility(ui);
-  showPlanFaceWhenPreferred(sessionId);
 }
 
 export function applySessionPlanChanged(message: SessionPlanChangedMessage) {
@@ -102,7 +87,6 @@ export function applySessionPlanChanged(message: SessionPlanChangedMessage) {
   ui.hasPlan = message.hasPlan;
   ui.planFace.update({ state: ui.planReviewState });
   updateButtonVisibility(ui);
-  showPlanFaceWhenPreferred(message.id);
 }
 
 export function applySessionPlanDraft(notice: SessionPlanDraftMessage) {
@@ -137,4 +121,4 @@ export function applyPlanConnectionState(isConnected: boolean) {
   for (const [, ui] of sessionUIs) ui.planFace.update({ isConnected });
 }
 
-export { preferredFaceFor, showPlanFaceWhenPreferred, showSessionShownFace, updateButtonVisibility };
+export { showSessionShownFace, updateButtonVisibility };

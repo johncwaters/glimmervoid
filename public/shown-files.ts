@@ -10,6 +10,7 @@ type ShownFaceModule = typeof import('./shown-face.ts');
 type ShownFilesChangedListener = (sessionId: string, files: readonly ShownFile[]) => void;
 
 const PRELOAD_FALLBACK_DELAY_MS = 2000;
+export const SHOWN_TAB_TITLE = 'Files the agent showed you';
 
 const shownFilesBySessionId = new Map<string, ShownFile[]>();
 const unopenedCountBySessionId = new Map<string, number>();
@@ -52,6 +53,7 @@ export function paintShownTabs(sessionId: string): void {
   const unopenedCount = unopenedShownCountOf(sessionId);
   ui.shownUnopenedCount.hidden = unopenedCount === 0;
   ui.shownUnopenedCount.textContent = String(unopenedCount);
+  ui.btnShownTab.title = unopenedCount === 0 ? SHOWN_TAB_TITLE : `${SHOWN_TAB_TITLE}, ${unopenedCount} not opened yet`;
 }
 
 export function markShownFilesOpened(sessionId: string): void {

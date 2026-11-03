@@ -29,7 +29,7 @@ import { currentTerminalFontFamily } from '../mono-font.ts';
 import { applyTerminalFontFamily } from '../mono-font-core.ts';
 import { createDeferredPlanFace, loadedPlanFaceModule } from './deferred-loads.ts';
 import { reportSessionProblem } from './card-problems.ts';
-import { preferredFaceFor, showPlanFaceWhenPreferred, showSessionPlanFace, showSessionShownFace, updateButtonVisibility } from './card-faces.ts';
+import { showSessionShownFace, updateButtonVisibility } from './card-faces.ts';
 import { wireCardEvents } from './card-events.ts';
 import { cancelWatchedCompletionDismiss, holdThenDismissWatchedCompletion, isCompletionWatchedAt } from './watched-completion.ts';
 
@@ -159,13 +159,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
   sessionUi._ensureTerminalReady = () => ensureTerminalReady(sessionUi, id);
   sessionUi._showTerminalFace = showTerminalFace;
   sessionUi._showShownFace = (fileId) => showSessionShownFace(id, fileId);
-  sessionUi._showPreferredFace = () => {
-    if (preferredFaceFor(sessionUi) === 'plan') {
-      showSessionPlanFace(id);
-      return;
-    }
-    showTerminalFace();
-  };
+  sessionUi._showPreferredFace = showTerminalFace;
   sessionUi._setBorrowed = (isBorrowed) => {
     sessionUi.isBorrowed = isBorrowed;
     dom.card.toggleAttribute('data-borrowed', isBorrowed);
@@ -245,7 +239,6 @@ export function setSessionPrompt(sessionId: unknown, kind: unknown) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
   ui.pendingPromptKind = typeof kind === 'string' ? kind : null;
-  showPlanFaceWhenPreferred(sessionId);
 }
 
 export function setSessionUnseenOutcome(sessionId: unknown, unseenOutcome: UnseenOutcome | null | undefined) {

@@ -10,6 +10,7 @@ import type { CardOptions } from './card-options-core.ts';
 import { buildDialogShell } from './modal.ts';
 import { findSessionUi } from './card-registry.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
+import { SHOWN_TAB_TITLE } from '../shown-files.ts';
 import { paintTaskTitle } from './card-titles.ts';
 import { button } from '../ui/button.ts';
 import { createPressable } from '../ui/pressable.ts';
@@ -166,7 +167,9 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const btnRemove = button({ variant: 'icon', size: 'small', label: 'Remove session', icon: createLineIcon(CLOSE_ICON_PATH), action: 'remove-session' });
   const btnRemoveMenuItem = buildMenuItem('Remove session', 'overflow-remove visible');
   btnRemoveMenuItem.onclick = () => btnRemove.click();
-  sessionMenu.append(btnRemoveMenuItem);
+  const removeDivider = el('div', 'menu-divider');
+  removeDivider.setAttribute('role', 'separator');
+  sessionMenu.append(removeDivider, btnRemoveMenuItem);
 
   const btnPlan = button({ variant: 'quiet', size: 'small', label: 'Plan', action: 'show-plan', hidden: true });
   const btnDocs = button({ variant: 'quiet', size: 'small', label: 'Docs', action: 'open-docs', hidden: true });
@@ -181,15 +184,14 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   btnTerminalTab.setAttribute('role', 'tab');
   const btnShownTab = createPressable('card-face-tab card-face-tab-shown');
   btnShownTab.setAttribute('role', 'tab');
-  btnShownTab.title = 'Files the agent showed you';
+  btnShownTab.title = SHOWN_TAB_TITLE;
   btnShownTab.setAttribute('aria-label', 'Shown');
   btnShownTab.append(createLineIcon(IMAGE_ICON_PATH), el('span', 'card-face-tab-label', 'Shown'));
   const shownUnopenedCount = el('span', 'shown-unopened-count');
   shownUnopenedCount.hidden = true;
-  shownUnopenedCount.title = 'Shown files you have not opened';
   faceTabs.append(btnTerminalTab, btnShownTab, shownUnopenedCount);
 
-  actions.append(faceTabs, btnDocs, btnPlan, sessionMenuWrap, btnRemove);
+  actions.append(faceTabs, sessionMenuWrap);
   const tags = el('div', 'session-card-tags');
   const usageBadge = buildTagIcon('usage-badge', 'Usage');
   usageBadge.append(createLineIcon(USAGE_ICON_PATH, '2.2'));
