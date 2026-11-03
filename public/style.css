@@ -1188,20 +1188,25 @@ html[data-layout="phone"] .dialog-overlay {
 
 .btn-mute,
 .btn-streamer {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 28px;
   height: 28px;
-  border: 1px solid var(--border-hover);
-  border-radius: 4px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
   font-size: var(--type-title);
-  color: var(--text);
+  color: var(--text-dim);
   background: transparent;
   cursor: pointer;
-  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
+}
 
-  position: relative;
+.btn-streamer .line-icon {
+  width: 14px;
+  height: 14px;
 }
 
 .btn-mute::after,
@@ -1214,30 +1219,26 @@ html[data-layout="phone"] .dialog-overlay {
 @media (hover: hover) {
   .btn-mute:hover,
   .btn-streamer:hover {
-    background-color: color-mix(in srgb, var(--text) 4%, transparent);
-    border-color: var(--border-hover);
-    color: var(--text);
+    background-color: color-mix(in srgb, var(--text) 8%, transparent);
+    color: var(--text-head);
   }
 }
 
 .btn-mute:active,
 .btn-streamer:active {
-  transform: scale(0.97);
-}
-
-.btn-mute,
-.btn-streamer {
-  color: var(--text-dim);
+  transform: scale(0.93);
 }
 
 .btn-mute[aria-pressed="true"] {
+  border-color: var(--border-hover);
   color: var(--text-muted);
   background-image: linear-gradient(to top right, transparent calc(50% - 0.75px), currentColor calc(50% - 0.75px), currentColor calc(50% + 0.75px), transparent calc(50% + 0.75px));
 }
 
 .btn-streamer[aria-pressed="true"] {
-  color: var(--accent);
   border-color: var(--accent);
+  background-color: color-mix(in oklab, var(--accent) 16%, transparent);
+  color: var(--accent);
 }
 
 html[data-streamer] :is(.radar-issue-title, .radar-row-headline, .radar-row-progress, .radar-pane-headline, .radar-pane-text, .dialog-report-meta, .dialog-report-frame, .dialog-report-body, .dialog-trail-summary, .dialog-trail-detail) { visibility: hidden; }
