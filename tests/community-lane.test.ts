@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createCommunityPoller } from '../server/community/community-poller.ts';
 import type { SourceRows } from '../server/community/community-poller.ts';
-import { buildCommunityRequest, communityGate, forumItemsFromRows, JUDGE_PROMPT_FILENAME, JUDGE_RESULT_FILENAME } from '../server/community/core/community-core.ts';
+import { buildCommunityRequest, buildJudgeRequest, communityGate, forumItemsFromRows, JUDGE_PROMPT_FILENAME, JUDGE_RESULT_FILENAME } from '../server/community/core/community-core.ts';
 import type { CommunityRunResult } from '../server/community/core/community-core.ts';
 import { CommunityItem } from '../shared/contracts/community.ts';
 import type { CommunityStateEntry } from '../shared/contracts/community.ts';
@@ -199,21 +199,27 @@ test('community lane set-aside stops a running question for good and re-run rese
   }
 });
 
-function discordRow(uuid: string, timestamp: string, channelName: string, messageContent: string): Record<string, unknown> {
-  return { uuid, event: 'message_sent', timestamp, channel_id: '222', guild_id: '111', channel_name: channelName, message_content: messageContent };
+const ASKER_REF = 'asker-distinct-id';
+
+function discordRow(uuid: string, timestamp: string, channelName: string, messageContent: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  return { uuid, event: 'message_sent', timestamp, channel_id: '222', guild_id: '111', channel_name: channelName, message_content: messageContent, author_ref: ASKER_REF, ...extra };
 }
 
-test('community lane admits only allowlisted Discord messages the judge calls questions, reads past rows that make no question, and retries the batch when the judge gives no answer', async () => {
+test('community lane admits only allowlisted Discord messages the judge calls questions, joins one member\'s run of messages without keeping who they are, tells the judge about replies, counts skipped events by reason, reads past rows that make no question, and retries the batch when the judge gives no answer', async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'community-lane-'));
   const statePath = path.join(directory, 'community-state.json');
   let currentMs = ENABLED_AT;
   const discordRows = [
     discordRow('question', '2026-10-28T12:01:00Z', 'help', 'How do I capture events from a server?'),
-    discordRow('chatter', '2026-10-28T12:02:00Z', 'help', 'thanks all'),
+    discordRow('question-detail', '2026-10-28T12:01:30Z', 'help', 'I am on Node 22.'),
+    discordRow('chatter', '2026-10-28T12:02:00Z', 'help', 'thanks all', { author_ref: 'helper-distinct-id', is_reply: true, mention_count: 1 }),
     discordRow('elsewhere', '2026-10-28T12:03:00Z', 'off-topic', 'How do I bake bread?'),
+    discordRow('after-answer', '2026-10-28T12:03:30Z', 'help', 'that worked, cheers'),
     discordRow('image-only', '2026-10-28T12:04:00Z', 'help', ''),
   ];
   const judgedBatches: string[][] = [];
+  const judgePrompts: string[] = [];
+  const warnings: string[] = [];
   let judgeAnswer: Set<string> | null = null;
   const stateIo = createCommunityStateIo(statePath, { warn() {} });
   const poller = createCommunityPoller({
@@ -221,12 +227,13 @@ test('community lane admits only allowlisted Discord messages the judge calls qu
     discord: {
       channels: ['help'],
       query: async () => ({ ok: true, rows: discordRows }),
-      judgeQuestions: async (candidates) => {
+      judgeQuestions: async (candidates, replyFacts) => {
         judgedBatches.push(candidates.map((item) => item.key));
+        judgePrompts.push(buildJudgeRequest(candidates, 'judge-result.json', replyFacts).prompt);
         return judgeAnswer;
       },
     },
-    now: () => currentMs, log: { warn() {} },
+    now: () => currentMs, log: { warn: (message: string) => { warnings.push(message); } },
   });
   try {
     await poller.start();
@@ -234,7 +241,10 @@ test('community lane admits only allowlisted Discord messages the judge calls qu
 
     currentMs += 5 * 60000;
     await poller.tick();
-    assert.deepEqual(judgedBatches, [['discord:question', 'discord:chatter']]);
+    assert.deepEqual(judgedBatches, [['discord:question', 'discord:chatter', 'discord:after-answer']]);
+    assert.ok(judgePrompts[0]?.includes('- discord:question in #help\n- discord:chatter in #help, reply, mentions 1\n- discord:after-answer in #help\n'));
+    assert.equal(judgePrompts[0]?.includes('distinct-id'), false);
+    assert.equal(warnings[0], '[community] skipped 2 Discord event(s): 1 outside the allowlisted channels, 1 with no text');
     assert.deepEqual(poller.state().entries, {});
     assert.equal(poller.state().watermarks.discord, watermarkBeforeJudging);
 
@@ -246,6 +256,8 @@ test('community lane admits only allowlisted Discord messages the judge calls qu
     const admitted = poller.state().entries['discord:question'];
     assert.equal(admitted?.item.url, 'https://discord.com/channels/111/222');
     assert.equal(admitted?.item.author, 'Discord member');
+    assert.equal(admitted?.item.body, 'How do I capture events from a server?\n\nI am on Node 22.');
+    assert.equal((await fs.readFile(statePath, 'utf8')).includes('distinct-id'), false);
     assert.equal(poller.state().watermarks.discord, '2026-10-28T12:04:00.000Z');
   } finally {
     await fs.rm(directory, { recursive: true, force: true });

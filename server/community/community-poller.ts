@@ -24,7 +24,7 @@ interface CommunityPollerDependencies {
 interface DiscordSource {
   channels: readonly string[];
   query: (sinceIso: string) => Promise<SourceRows>;
-  judgeQuestions: (candidates: readonly CommunityItem[]) => Promise<Set<string> | null>;
+  judgeQuestions: (candidates: readonly CommunityItem[], replyFacts: ReadonlyMap<string, core.DiscordReplyFacts>) => Promise<Set<string> | null>;
 }
 
 interface CommunityPoller {
@@ -80,10 +80,11 @@ function createCommunityPoller({
     }
     const fetched = await source.query(watermark);
     if (!fetched.ok) return fetched.error;
-    const { items, droppedRows, newestRowAt } = core.discordItemsFromRows(fetched.rows, source.channels);
-    if (droppedRows > 0) log.warn(`[${core.COMMUNITY_LANE_ID}] dropped ${droppedRows} malformed Discord event(s)`);
+    const { items, replyFacts, dropReasons, newestRowAt } = core.discordItemsFromRows(fetched.rows, source.channels);
+    const dropSummary = core.discordDropSummary(dropReasons);
+    if (dropSummary) log.warn(`[${core.COMMUNITY_LANE_ID}] ${dropSummary}`);
     const candidates = core.freshItems(state, 'discord', items);
-    const questionKeys = candidates.length > 0 ? await source.judgeQuestions(candidates).catch(() => null) : new Set<string>();
+    const questionKeys = candidates.length > 0 ? await source.judgeQuestions(candidates, replyFacts).catch(() => null) : new Set<string>();
     if (questionKeys === null) return 'The Discord question judge gave no usable answer; these messages are checked again next poll';
     const admitted = core.admitSourceItems(state, 'discord', items, nowIso, (key) => questionKeys.has(key)).state;
     state = core.withWatermarkAtLeast(admitted, 'discord', newestRowAt);

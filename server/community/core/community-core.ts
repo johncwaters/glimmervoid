@@ -243,7 +243,8 @@ function discordQuery(): string {
   return [
     'SELECT uuid, event, timestamp, properties.channel_id AS channel_id, properties.guild_id AS guild_id,',
     `${DISCORD_CHANNEL_NAME_EXPRESSION} AS channel_name, properties.message_content AS message_content,`,
-    'properties.thread_id AS thread_id, properties.thread_name AS thread_name',
+    'properties.thread_id AS thread_id, properties.thread_name AS thread_name,',
+    'distinct_id AS author_ref, properties.is_reply AS is_reply, properties.mention_count AS mention_count',
     "FROM events WHERE event IN ('message_sent', 'thread_created') AND timestamp > parseDateTimeBestEffort({since})",
     `AND has({channels}, ${DISCORD_CHANNEL_NAME_EXPRESSION})`,
     'ORDER BY timestamp ASC',
@@ -267,26 +268,97 @@ function discordTitle(content: string): string {
   return firstLine.slice(0, DISCORD_TITLE_CHARS) || 'Discord message';
 }
 
-function discordItemFromRow(row: Record<string, unknown>, allowlist: ReadonlySet<string>, threadNames: ReadonlyMap<string, string>): CommunityItem | null {
+const DISCORD_GROUP_GAP_MS = 15 * 60 * 1000;
+
+const DISCORD_DROP_REASON_LABELS = {
+  channel: 'outside the allowlisted channels',
+  ids: 'without a guild or channel id',
+  time: 'without a timestamp',
+  empty: 'with no text',
+  shape: 'that did not make a valid item',
+} as const;
+
+type DiscordDropReason = keyof typeof DISCORD_DROP_REASON_LABELS;
+
+interface DiscordReplyFacts {
+  isReply: boolean;
+  mentionCount: number;
+}
+
+function discordChannelId(row: Record<string, unknown>): string {
+  return stringField(row, 'event') === 'thread_created' ? stringField(row, 'thread_id') : stringField(row, 'channel_id');
+}
+
+function discordChannelUrl(row: Record<string, unknown>): string {
+  return `${DISCORD_CHANNEL_URL}${stringField(row, 'guild_id')}/${discordChannelId(row)}`;
+}
+
+function discordItemFromRow(row: Record<string, unknown>, allowlist: ReadonlySet<string>, threadNames: ReadonlyMap<string, string>): CommunityItem | DiscordDropReason {
   const channelName = stringField(row, 'channel_name');
   const guildId = stringField(row, 'guild_id');
   const isThread = stringField(row, 'event') === 'thread_created';
-  const channelId = isThread ? stringField(row, 'thread_id') : stringField(row, 'channel_id');
+  const channelId = discordChannelId(row);
   const createdAt = discordTimestamp(row);
-  if (!allowlist.has(channelName) || !DISCORD_SNOWFLAKE_RE.test(guildId) || !DISCORD_SNOWFLAKE_RE.test(channelId) || createdAt === null) return null;
+  if (!allowlist.has(channelName)) return 'channel';
+  if (!DISCORD_SNOWFLAKE_RE.test(guildId) || !DISCORD_SNOWFLAKE_RE.test(channelId)) return 'ids';
+  if (createdAt === null) return 'time';
   const content = isThread ? stringField(row, 'thread_name') : stringField(row, 'message_content');
-  if (!content.trim()) return null;
+  if (!content.trim()) return 'empty';
   const parsed = CommunityItem.safeParse({
     key: `discord:${stringField(row, 'uuid')}`,
     source: 'discord',
     title: (threadNames.get(channelId) ?? discordTitle(content)).slice(0, MAX_TITLE_CHARS),
     body: content.slice(0, MAX_BODY_CHARS),
-    url: `${DISCORD_CHANNEL_URL}${guildId}/${channelId}`,
+    url: discordChannelUrl(row),
     author: DISCORD_AUTHOR,
     channel: channelName,
     createdAt,
   });
-  return parsed.success ? parsed.data : null;
+  return parsed.success ? parsed.data : 'shape';
+}
+
+function discordReplyFacts(row: Record<string, unknown>): DiscordReplyFacts {
+  const mentionCount = Number(row.mention_count);
+  return { isReply: row.is_reply === true || row.is_reply === 'true', mentionCount: Number.isInteger(mentionCount) && mentionCount > 0 ? mentionCount : 0 };
+}
+
+function groupedDiscordItems(itemRows: readonly { row: Record<string, unknown>; item: CommunityItem | null }[]): { items: CommunityItem[]; replyFacts: Map<string, DiscordReplyFacts> } {
+  const items: CommunityItem[] = [];
+  const replyFacts = new Map<string, DiscordReplyFacts>();
+  const openRunsByChannel = new Map<string, { authorRef: string; index: number; lastMessageMs: number }>();
+  for (const { row, item } of itemRows) {
+    if (item === null) {
+      openRunsByChannel.delete(discordChannelUrl(row));
+      continue;
+    }
+    const facts = discordReplyFacts(row);
+    const authorRef = stringField(row, 'author_ref');
+    const canJoinRun = authorRef !== '' && stringField(row, 'event') === 'message_sent' && !facts.isReply;
+    const messageMs = Date.parse(item.createdAt);
+    const openRun = openRunsByChannel.get(item.url);
+    const runStart = openRun ? items[openRun.index] : undefined;
+    const runStartFacts = runStart ? replyFacts.get(runStart.key) : undefined;
+    const joinedBody = runStart ? `${runStart.body}\n\n${item.body}` : '';
+    const isRunContinued = canJoinRun && openRun?.authorRef === authorRef && messageMs - openRun.lastMessageMs <= DISCORD_GROUP_GAP_MS && joinedBody.length <= JUDGE_MESSAGE_CHARS;
+    if (isRunContinued && openRun && runStart && runStartFacts) {
+      items[openRun.index] = { ...runStart, body: joinedBody };
+      replyFacts.set(runStart.key, { ...runStartFacts, mentionCount: runStartFacts.mentionCount + facts.mentionCount });
+      openRun.lastMessageMs = messageMs;
+      continue;
+    }
+    items.push(item);
+    replyFacts.set(item.key, facts);
+    openRunsByChannel.delete(item.url);
+    if (canJoinRun) openRunsByChannel.set(item.url, { authorRef, index: items.length - 1, lastMessageMs: messageMs });
+  }
+  return { items, replyFacts };
+}
+
+function discordDropSummary(dropReasons: ReadonlyMap<DiscordDropReason, number>): string | null {
+  const counted = [...dropReasons];
+  if (counted.length === 0) return null;
+  const total = counted.reduce((sum, [, count]) => sum + count, 0);
+  return `skipped ${total} Discord event(s): ${counted.map(([reason, count]) => `${count} ${DISCORD_DROP_REASON_LABELS[reason]}`).join(', ')}`;
 }
 
 function newestRowTimestamp(rows: readonly Record<string, unknown>[]): string | null {
@@ -299,26 +371,43 @@ function withWatermarkAtLeast(state: CommunityState, source: CommunitySourceName
   return { ...state, watermarks: { ...state.watermarks, [source]: seenAt } };
 }
 
-function discordItemsFromRows(rows: readonly Record<string, unknown>[], allowlist: readonly string[]): { items: CommunityItem[]; droppedRows: number; newestRowAt: string | null } {
+function discordItemsFromRows(rows: readonly Record<string, unknown>[], allowlist: readonly string[]): { items: CommunityItem[]; replyFacts: Map<string, DiscordReplyFacts>; dropReasons: Map<DiscordDropReason, number>; newestRowAt: string | null } {
   const allowed = new Set(allowlist);
   const threadRows = rows.filter((row) => stringField(row, 'event') === 'thread_created');
   const threadNames = new Map(threadRows.map((row) => [stringField(row, 'thread_id'), stringField(row, 'thread_name')] as const).filter(([, name]) => name.trim()));
   const threadsWithStarter = new Set(rows.filter((row) => stringField(row, 'event') === 'message_sent').map((row) => stringField(row, 'channel_id')).filter((id) => threadNames.has(id)));
   const candidateRows = rows.filter((row) => stringField(row, 'event') !== 'thread_created' || !threadsWithStarter.has(stringField(row, 'thread_id')));
-  const items = candidateRows.map((row) => discordItemFromRow(row, allowed, threadNames)).filter((item): item is CommunityItem => item !== null);
-  return { items, droppedRows: candidateRows.length - items.length, newestRowAt: newestRowTimestamp(rows) };
+  const itemRows: { row: Record<string, unknown>; item: CommunityItem | null }[] = [];
+  const dropReasons = new Map<DiscordDropReason, number>();
+  for (const row of candidateRows) {
+    const itemOrReason = discordItemFromRow(row, allowed, threadNames);
+    if (typeof itemOrReason === 'string') {
+      dropReasons.set(itemOrReason, (dropReasons.get(itemOrReason) ?? 0) + 1);
+      itemRows.push({ row, item: null });
+      continue;
+    }
+    itemRows.push({ row, item: itemOrReason });
+  }
+  return { ...groupedDiscordItems(itemRows), dropReasons, newestRowAt: newestRowTimestamp(rows) };
 }
 
-function buildJudgeRequest(candidates: readonly CommunityItem[], resultPath: string): UntrustedLaneRequest {
+function judgeKeyLine(item: CommunityItem, facts: DiscordReplyFacts | undefined): string {
+  const replyNote = facts?.isReply ? ', reply' : '';
+  const mentionNote = facts && facts.mentionCount > 0 ? `, mentions ${facts.mentionCount}` : '';
+  return `- ${item.key} in #${item.channel ?? 'unknown'}${replyNote}${mentionNote}`;
+}
+
+function buildJudgeRequest(candidates: readonly CommunityItem[], resultPath: string, replyFacts: ReadonlyMap<string, DiscordReplyFacts> = new Map()): UntrustedLaneRequest {
   const prompt = [
     `Decide which of the Discord messages in ${UNTRUSTED_PAYLOAD_FILENAME} ask a question about PostHog that a helpful reply could answer:`,
     'a how-to, a bug report or a request for help. Greetings, thanks, announcements, chatter and answers to someone else are not questions.',
-    'Each item is one message; its ref is the message key.',
+    'A message addressed to another member or asking them something is not a question either, whether or not it is a reply.',
+    'Each item is one message, or several one member sent in a row, joined by blank lines; its ref is the first message key.',
     '',
     UNTRUSTED_PREAMBLE,
     '',
-    'Message keys and channels (fetched by Glimmervoid):',
-    ...candidates.map((item) => `- ${item.key} in #${item.channel ?? 'unknown'}`),
+    'Message keys, channels, whether the message replies to another, and how many members it mentions (fetched by Glimmervoid):',
+    ...candidates.map((item) => judgeKeyLine(item, replyFacts.get(item.key))),
     '',
     `Use the Write tool to write ${resultPath} as JSON and nothing else:`,
     '{"questions": ["<the key of each message that is a question>"]}',
@@ -560,8 +649,8 @@ export {
   JUDGE_BOOTSTRAP_PROMPT, JUDGE_MODEL, JUDGE_PROMPT_FILENAME, JUDGE_RESULT_FILENAME, JUDGE_TIMEOUT_MS,
   COMMUNITY_UNTRUSTED_SOURCE, JUDGE_UNTRUSTED_SOURCE, JUDGE_MESSAGE_CHARS, MAX_BODY_CHARS,
   NOTIFICATION_CATEGORY, draftNotificationText, shouldNotifyDraft,
-  admitSourceItems, withWatermarkAtLeast, applyCommunityAction, buildJudgeRequest, discordItemsFromRows, discordQuery, freshItems, parseJudgeResult, buildCommunityRequest, communityGate, communitySessionPrompt, emptyCommunityState, entryFromRun, forumItemsFromRows, forumQuery, markRunning,
+  admitSourceItems, withWatermarkAtLeast, applyCommunityAction, buildJudgeRequest, discordDropSummary, discordItemsFromRows, discordQuery, freshItems, parseJudgeResult, buildCommunityRequest, communityGate, communitySessionPrompt, emptyCommunityState, entryFromRun, forumItemsFromRows, forumQuery, markRunning,
   parseCommunityState, prunedState, readCommunitySettings, readPosthogConnection, readTelegramTarget, requeueInterruptedRuns, selectRuns,
   shouldPruneEntry,
 };
-export type { CommunityRunResult, CommunitySettings, PosthogConnection };
+export type { CommunityRunResult, DiscordReplyFacts, CommunitySettings, PosthogConnection };

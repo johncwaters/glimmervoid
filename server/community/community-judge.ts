@@ -10,15 +10,15 @@ import * as core from './core/community-core.ts';
 
 const COMMUNITY_JUDGE_TOOLS = Object.freeze(['Read', 'Write']);
 
-function createCommunityJudge(spawn: LaneSpawn, shutdownSignal?: AbortSignal): (candidates: readonly CommunityItem[]) => Promise<Set<string> | null> {
-  return async (candidates) => {
+function createCommunityJudge(spawn: LaneSpawn, shutdownSignal?: AbortSignal): (candidates: readonly CommunityItem[], replyFacts?: ReadonlyMap<string, core.DiscordReplyFacts>) => Promise<Set<string> | null> {
+  return async (candidates, replyFacts) => {
     const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-community-judge-'));
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), core.JUDGE_TIMEOUT_MS);
     timeout.unref();
     try {
       const resultPath = path.join(workDir, core.JUDGE_RESULT_FILENAME);
-      const { prompt, untrustedItems } = core.buildJudgeRequest(candidates, resultPath);
+      const { prompt, untrustedItems } = core.buildJudgeRequest(candidates, resultPath, replyFacts);
       await writeUntrustedPayload(workDir, { trust: 'untrusted', source: core.JUDGE_UNTRUSTED_SOURCE, fetchedAt: new Date().toISOString(), items: untrustedItems }, core.JUDGE_MESSAGE_CHARS);
       await fs.writeFile(path.join(workDir, core.JUDGE_PROMPT_FILENAME), prompt, 'utf8');
       const signal = shutdownSignal ? AbortSignal.any([controller.signal, shutdownSignal]) : controller.signal;
