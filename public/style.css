@@ -3504,8 +3504,10 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 .focus-empty-desc { font-size: var(--type-meta); margin: 0; }
 
 .focus-center { position: relative; }
-.review-bar { flex: 1 1 auto; display: flex; align-items: center; gap: 2px; min-width: 0; }
-.review-bar[data-slot-held] { visibility: hidden; }
+.session-page-bar { flex: 1 1 auto; display: flex; align-items: center; gap: 2px; min-width: 0; }
+.session-page-button { position: relative; display: inline-flex; }
+.session-page-button[data-slot-held] { visibility: hidden; }
+.session-page-bar-phone { flex: 0 0 auto; }
 
 .review-reader { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg-surface); }
 .review-reader[hidden] { display: none; }
@@ -3981,7 +3983,7 @@ html[data-layout="phone"] .session-row-item:has(> .session-row.focused) { outlin
 
 .phone-terminal { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 
-:is(.phone-terminal-bar, .phone-changes-bar) > button { flex: 0 0 auto; }
+:is(.phone-terminal-bar, .phone-page-bar) > button { flex: 0 0 auto; }
 
 .phone-terminal-identity { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .phone-terminal-identity[hidden] { display: none; }
@@ -4088,18 +4090,18 @@ html[data-arrow-pad] .phone-arrow-pad { display: block; }
 html[data-arrow-pad] .phone-key-arrow { display: none; }
 .phone-key:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-.phone-review,
-.phone-changes-screen,
+.phone-page,
+.phone-page-screen,
 .phone-panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 
-.phone-changes-title { flex: 0 0 auto; font: 700 var(--type-meta) var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-head); }
-.phone-changes-session { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--type-meta) var(--font-mono); color: var(--text-muted); }
-.phone-review > .review-reader { flex: 1 1 auto; }
-.phone-review .review-reader-body { grid-template-columns: minmax(0, 1fr); }
-.phone-review .review-reader-files { border-right: 0; }
-.phone-review .review-reader[data-level="list"] .review-reader-diff,
-.phone-review .review-reader[data-level="diff"] .review-reader-files { display: none; }
-.phone-review .review-reader-file { min-height: 44px; }
+.phone-page-title { flex: 0 0 auto; font: 700 var(--type-meta) var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-head); }
+.phone-page-session { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--type-meta) var(--font-mono); color: var(--text-muted); }
+.phone-page-changes > .review-reader { flex: 1 1 auto; }
+.phone-page-changes .review-reader-body { grid-template-columns: minmax(0, 1fr); }
+.phone-page-changes .review-reader-files { border-right: 0; }
+.phone-page-changes .review-reader[data-level="list"] .review-reader-diff,
+.phone-page-changes .review-reader[data-level="diff"] .review-reader-files { display: none; }
+.phone-page-changes .review-reader-file { min-height: 44px; }
 
 .phone-panel > :not(.settings-view) { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 

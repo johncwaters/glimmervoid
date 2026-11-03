@@ -77,8 +77,8 @@ export async function readOriginFile(originPath: string, fileName: string): Prom
 }
 
 async function readReviewBarPlaces(page: Page): Promise<number[]> {
-  await page.locator('.review-bar:not([data-slot-held])').waitFor();
-  return page.evaluate(() => ['.pane-tab[data-tab="terminal"]', '.review-bar [data-action="open-changes"]'].map((selector) => document.querySelector(selector)?.getBoundingClientRect().left ?? -1));
+  await page.locator('.session-page-button[data-page="changes"]:not([data-slot-held])').waitFor();
+  return page.evaluate(() => ['.pane-tab[data-tab="terminal"]', '.session-page-bar [data-action="open-changes"]'].map((selector) => document.querySelector(selector)?.getBoundingClientRect().left ?? -1));
 }
 
 async function waitForReaderStatus(page: Page, sentence: string): Promise<void> {
@@ -105,7 +105,7 @@ async function verifyOutcome(page: Page, upstream: UpstreamVariant, originPath: 
 }
 
 async function openChangesReader(page: Page): Promise<void> {
-  await page.locator('.review-bar').getByRole('button', { name: 'Changes', exact: true }).click();
+  await page.locator('.session-page-bar').getByRole('button', { name: 'Changes', exact: true }).click();
   const reader = page.locator('.review-reader[data-placement="overlay"]');
   await reader.waitFor();
   await reader.locator(`.review-reader-file[data-path="${MERGED_FILE_NAME}"][aria-current="true"]`).waitFor({ timeout: MERGE_ENABLED_TIMEOUT_MS });
@@ -136,7 +136,7 @@ export async function verifyReviewMerge(page: Page, projectDirectory: string, up
   await openChangesReader(page);
   await page.locator('.review-reader [data-action="merge-session"]:enabled').waitFor({ timeout: MERGE_ENABLED_TIMEOUT_MS });
   assert.deepEqual(await readReviewBarPlaces(page), placesBeforeChanges, 'Terminal and Changes hold their place while the review status changes');
-  assert.equal(await page.locator('.review-bar [data-action="merge-session"]').count(), 0, 'Merge lives only in the Changes view');
+  assert.equal(await page.locator('.session-card-header [data-action="merge-session"]').count(), 0, 'Merge lives only in the Changes view');
   const mergeButtonAfterClick = await page.evaluate(() => {
     const mergeButton = document.querySelector<HTMLButtonElement>('.review-reader [data-action="merge-session"]');
     mergeButton?.click();
@@ -153,7 +153,7 @@ async function verifySwitchToFinishedSessionClosesChanges(page: Page, sessionId:
   const otherSessionId = railSessionIds[railSessionIds.indexOf(sessionId) - 1];
   if (!otherSessionId) return;
   const otherRow = page.locator(`.focus-rail button.session-row[data-id="${otherSessionId}"]`);
-  await page.locator('.review-bar').getByRole('button', { name: 'Changes', exact: true }).click();
+  await page.locator('.session-page-bar').getByRole('button', { name: 'Changes', exact: true }).click();
   await page.locator('.review-reader[data-placement="overlay"]').waitFor();
   await otherRow.click();
   await page.locator('.review-reader').waitFor({ state: 'detached' });
