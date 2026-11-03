@@ -3,7 +3,6 @@ type MarginCode = (typeof MARGIN_CODES)[number];
 
 type MarkKind = 'deletion' | 'insertion' | 'substitution' | 'highlight' | 'comment';
 export type MarkDecision = 'accept' | 'reject';
-export type OperatorMarkAction = 'strike' | 'insert' | 'replace' | 'note';
 
 interface MarginNote {
   code: MarginCode | null;
@@ -146,41 +145,147 @@ export function resolveMark(source: string, mark: MarkSegment, decision: MarkDec
   return source.slice(0, mark.start) + resolvedTextOf(mark, decision) + source.slice(mark.end);
 }
 
-function markupFor(action: OperatorMarkAction, selectedText: string, operatorText: string): string {
-  switch (action) {
-    case 'strike': return `{--${selectedText}--}`;
-    case 'insert': return `{++${operatorText}++}`;
-    case 'replace': return `{~~${selectedText}~>${operatorText}~~}`;
-    case 'note': return `{==${selectedText}==}{>>${operatorText.trim()}<<}`;
-  }
-}
-
-export function holdsMarkupDelimiter(text: string): boolean {
+function holdsMarkupDelimiter(text: string): boolean {
   return MARKUP_DELIMITERS.some((delimiter) => text.includes(delimiter));
 }
 
-export function canApplyOperatorMark(source: string, action: OperatorMarkAction, selection: SourceSelection | null, operatorText: string): boolean {
-  if (!selection) return false;
-  if (holdsMarkupDelimiter(source.slice(selection.start, selection.end)) || holdsMarkupDelimiter(operatorText)) return false;
-  const hasSelectedText = selection.end > selection.start;
-  const hasOperatorText = operatorText.trim().length > 0;
-  switch (action) {
-    case 'strike': return hasSelectedText;
-    case 'insert': return !hasSelectedText && hasOperatorText;
-    case 'replace': return hasSelectedText && hasOperatorText;
-    case 'note': return hasSelectedText && hasOperatorText;
+export interface SuggestRun {
+  markStart: number;
+  markEnd: number;
+}
+
+export type SuggestEdit =
+  | { kind: 'type'; selection: SourceSelection; text: string }
+  | { kind: 'delete'; selection: SourceSelection; direction: 'backward' | 'forward' }
+  | { kind: 'paragraph'; selection: SourceSelection }
+  | { kind: 'note'; selection: SourceSelection; body: string };
+
+export type SuggestRefusal = 'delimiter' | 'swallowed' | 'nested' | 'nothing';
+
+type SuggestOutcome =
+  | { kind: 'applied'; source: string; caret: number; run: SuggestRun | null }
+  | { kind: 'refused'; reason: SuggestRefusal };
+
+type WrittenMark = { source: string; markEnd: number };
+
+function refused(reason: SuggestRefusal): SuggestOutcome {
+  return { kind: 'refused', reason };
+}
+
+function marksOf(source: string): MarkSegment[] {
+  return parseCriticMarkup(source).filter((segment): segment is MarkSegment => segment.kind === 'mark');
+}
+
+function isCollapsed(selection: SourceSelection) {
+  return selection.start === selection.end;
+}
+
+function markupFor(markKind: 'insertion' | 'deletion' | 'substitution', oldText: string, newText: string) {
+  switch (markKind) {
+    case 'insertion': return `{++${newText}++}`;
+    case 'deletion': return `{--${oldText}--}`;
+    case 'substitution': return `{~~${oldText}~>${newText}~~}`;
   }
 }
 
-export function applyOperatorMark(source: string, action: OperatorMarkAction, selection: SourceSelection, operatorText: string): string | null {
+function writeMark(source: string, selection: SourceSelection, markup: string, leadingSeparator = ''): WrittenMark | null {
+  const wouldAbsorbNextNote = !markup.endsWith(NOTE_CLOSER) && source.startsWith(NOTE_OPENER, selection.end);
+  const written = leadingSeparator + markup + (wouldAbsorbNextNote ? `${NOTE_OPENER}${NOTE_CLOSER}` : '');
+  const markedSource = source.slice(0, selection.start) + written + source.slice(selection.end);
+  const markStart = selection.start + leadingSeparator.length;
+  const markEnd = selection.start + written.length;
+  const isWhole = marksOf(markedSource).some((mark) => mark.start === markStart && mark.end === markEnd);
+  return isWhole ? { source: markedSource, markEnd } : null;
+}
+
+function applied(written: WrittenMark, caret: number, run: SuggestRun | null): SuggestOutcome {
+  return { kind: 'applied', source: written.source, caret, run };
+}
+
+function activeRunMark(source: string, selection: SourceSelection, run: SuggestRun | null): MarkSegment | null {
+  if (!run || !isCollapsed(selection) || selection.start !== run.markEnd) return null;
+  const mark = marksOf(source).find((candidate) => candidate.start === run.markStart && candidate.end === run.markEnd);
+  if (!mark || mark.note || (mark.markKind !== 'insertion' && mark.markKind !== 'substitution')) return null;
+  return mark;
+}
+
+function rewriteRunMark(source: string, mark: MarkSegment, newText: string): SuggestOutcome {
+  if (newText === '' && mark.markKind === 'insertion') return { kind: 'applied', source: source.slice(0, mark.start) + source.slice(mark.end), caret: mark.start, run: null };
+  if (holdsMarkupDelimiter(newText)) return refused('delimiter');
+  const markKind = mark.markKind === 'insertion' ? 'insertion' : 'substitution';
+  const written = writeMark(source, mark, markupFor(markKind, mark.oldText, newText));
+  if (!written) return refused('swallowed');
+  return applied(written, written.markEnd, { markStart: mark.start, markEnd: written.markEnd });
+}
+
+function typeText(source: string, selection: SourceSelection, text: string, run: SuggestRun | null): SuggestOutcome {
+  if (text === '') return refused('nothing');
+  const runMark = activeRunMark(source, selection, run);
+  if (runMark) return rewriteRunMark(source, runMark, runMark.newText + text);
   const selectedText = source.slice(selection.start, selection.end);
-  const wouldAbsorbNextNote = action !== 'note' && source.startsWith(NOTE_OPENER, selection.end);
-  const noteTerminator = wouldAbsorbNextNote ? `${NOTE_OPENER}${NOTE_CLOSER}` : '';
-  const insertedMarkup = markupFor(action, selectedText, operatorText) + noteTerminator;
-  const markedSource = source.slice(0, selection.start) + insertedMarkup + source.slice(selection.end);
-  const operatorMarkEnd = selection.start + insertedMarkup.length;
-  const isOperatorMarkWhole = parseCriticMarkup(markedSource).some((segment) => segment.kind === 'mark' && segment.start === selection.start && segment.end === operatorMarkEnd);
-  return isOperatorMarkWhole ? markedSource : null;
+  if (holdsMarkupDelimiter(text) || holdsMarkupDelimiter(selectedText)) return refused('delimiter');
+  const markup = isCollapsed(selection) ? markupFor('insertion', '', text) : markupFor('substitution', selectedText, text);
+  const written = writeMark(source, selection, markup);
+  if (!written) return refused('swallowed');
+  return applied(written, written.markEnd, { markStart: selection.start, markEnd: written.markEnd });
+}
+
+function isPlainCharAt(source: string, offset: number) {
+  if (offset < 0 || offset >= source.length || source[offset] === '\n') return false;
+  return parseCriticMarkup(source).some((segment) => segment.kind === 'text' && segment.start <= offset && offset < segment.start + segment.text.length);
+}
+
+function strike(source: string, range: SourceSelection, direction: 'backward' | 'forward'): SuggestOutcome {
+  const struckText = source.slice(range.start, range.end);
+  if (holdsMarkupDelimiter(struckText)) return refused('delimiter');
+  const plainCuts = marksOf(source).filter((mark) => mark.markKind === 'deletion' && !mark.note);
+  const cutBefore = plainCuts.find((mark) => mark.end === range.start);
+  const cutAfter = plainCuts.find((mark) => mark.start === range.end);
+  const mergedRange = { start: cutBefore?.start ?? range.start, end: cutAfter?.end ?? range.end };
+  const oldText = (cutBefore?.oldText ?? '') + struckText + (cutAfter?.oldText ?? '');
+  const written = writeMark(source, mergedRange, markupFor('deletion', oldText, ''));
+  if (!written) return refused('swallowed');
+  return applied(written, direction === 'forward' ? written.markEnd : mergedRange.start, null);
+}
+
+function deleteText(source: string, selection: SourceSelection, direction: 'backward' | 'forward', run: SuggestRun | null): SuggestOutcome {
+  const runMark = activeRunMark(source, selection, run);
+  if (runMark && direction === 'backward') return rewriteRunMark(source, runMark, runMark.newText.slice(0, -1));
+  if (!isCollapsed(selection)) return strike(source, selection, direction);
+  const struckOffset = direction === 'backward' ? selection.start - 1 : selection.start;
+  if (!isPlainCharAt(source, struckOffset)) return refused('nothing');
+  return strike(source, { start: struckOffset, end: struckOffset + 1 }, direction);
+}
+
+function insertNote(source: string, selection: SourceSelection, body: string): SuggestOutcome {
+  const trimmedBody = body.trim();
+  if (trimmedBody === '') return refused('nothing');
+  const selectedText = source.slice(selection.start, selection.end);
+  if (holdsMarkupDelimiter(trimmedBody) || holdsMarkupDelimiter(selectedText)) return refused('delimiter');
+  const noteMarkup = `${NOTE_OPENER}${trimmedBody}${NOTE_CLOSER}`;
+  if (!isCollapsed(selection)) return appliedNote(writeMark(source, selection, `{==${selectedText}==}${noteMarkup}`));
+  const wouldBecomeTrailingNote = marksOf(source).some((mark) => mark.end === selection.start && mark.markKind !== 'comment' && !source.slice(mark.start, mark.end).endsWith(NOTE_CLOSER));
+  return appliedNote(writeMark(source, selection, noteMarkup, wouldBecomeTrailingNote ? `${NOTE_OPENER}${NOTE_CLOSER}` : ''));
+}
+
+function appliedNote(written: WrittenMark | null): SuggestOutcome {
+  if (!written) return refused('swallowed');
+  return applied(written, written.markEnd, null);
+}
+
+function isInPlainText(source: string, selection: SourceSelection) {
+  if (isCollapsed(selection)) return !marksOf(source).some((mark) => mark.start < selection.start && selection.start < mark.end);
+  return parseCriticMarkup(source).some((segment) => segment.kind === 'text' && segment.start <= selection.start && selection.end <= segment.start + segment.text.length);
+}
+
+export function suggestEdit(source: string, edit: SuggestEdit, run: SuggestRun | null): SuggestOutcome {
+  if (!isInPlainText(source, edit.selection)) return refused('nested');
+  switch (edit.kind) {
+    case 'type': return typeText(source, edit.selection, edit.text, run);
+    case 'delete': return deleteText(source, edit.selection, edit.direction, run);
+    case 'paragraph': return insertNote(source, { start: edit.selection.end, end: edit.selection.end }, 'para');
+    case 'note': return isCollapsed(edit.selection) ? refused('nothing') : insertNote(source, edit.selection, edit.body);
+  }
 }
 
 export function agentPromptFor(docPath: string, openMarkCount: number): string {

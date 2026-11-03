@@ -8,7 +8,7 @@ import { renderPlanBlocks } from '../plan/plan-render.ts';
 import { isStreamerMode } from '../streamer-mode.ts';
 import { applyDialogAria, createModalOverlay, openConfirmDialog } from '../session-card/modal.ts';
 import { button } from '../ui/button.ts';
-import { buildMarkupPane, paintMarkupTools, renderMarkup, wireMarkupPane } from './markup-pane.ts';
+import { buildMarkupPane, disposeMarkupPane, paintMarkupTools, renderMarkup, wireMarkupPane } from './markup-pane.ts';
 import type { MarkupHost } from './markup-pane.ts';
 
 type EditorMode = 'edit' | 'preview' | 'markup';
@@ -184,8 +184,7 @@ export function openDocEditor(sessionId: string) {
     showStatus: (text, tone) => setStatus(currentEditor, text, tone),
     close: () => {
       openEditor = null;
-      markup.marginResizeObserver.disconnect();
-      markup.rowObserver?.disconnect();
+      disposeMarkupPane(markup);
       modal.close();
     },
   };

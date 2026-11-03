@@ -22,12 +22,21 @@
 .doc-editor-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px; }
 .doc-editor-text { height: 100%; }
 .doc-editor-text[hidden], .doc-markup[hidden], .doc-markup-end[hidden] { display: none; }
-.doc-markup { --pen-ink: var(--state-failed); --pen-paper: var(--bg-card); --pen-text: var(--text-head); display: flex; flex-direction: column; gap: 12px; }
+.doc-markup { --pen-ink: var(--state-failed); --pen-paper: var(--bg-card); --pen-text: var(--text-head); position: relative; display: flex; flex-direction: column; gap: 12px; }
 .doc-markup-defs { position: absolute; width: 0; height: 0; }
 .doc-markup-tools { position: sticky; top: -16px; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 0; background: var(--bg-card); }
-.doc-markup-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.doc-markup-input { min-width: 18ch; text-transform: none; letter-spacing: 0; }
+.doc-markup-input { width: 100%; text-transform: none; letter-spacing: 0; }
 .doc-markup-hint { flex: 1 1 24ch; min-width: 0; color: var(--text-muted); font-size: var(--type-meta); }
+.doc-markup-hint[data-tone="warn"] { color: var(--state-waiting); }
+.doc-markup-paper:focus { outline: none; box-shadow: inset 0 0 0 1px var(--border-hover); }
+.doc-markup-paper[contenteditable="true"] { caret-color: var(--pen-ink); }
+.doc-markup-float { position: absolute; right: 0; z-index: 3; }
+.doc-markup-card, .doc-markup-composer { box-sizing: border-box; width: 22ch; }
+.doc-markup-float[hidden] { display: none; }
+.doc-markup-composer { padding: 8px; border: 1px solid var(--pen-ink); border-radius: var(--radius-lg); background: var(--pen-paper); }
+.doc-markup-card { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px; border: 1px solid var(--pen-ink); border-radius: var(--radius-lg); background: var(--pen-paper); }
+.doc-markup-card-text { margin: 0; color: var(--text-head); font-size: var(--type-meta); overflow-wrap: anywhere; }
+.doc-markup-card-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .doc-markup-paper { padding-block: 24px; border-radius: var(--radius); background: var(--pen-paper); color: var(--pen-text); box-shadow: inset 0 0 0 1px var(--border); }
 .doc-markup-chunk { content-visibility: auto; contain-intrinsic-size: auto calc(var(--type-body) * 2.3 * 40); }
 .doc-markup-row { display: grid; grid-template-columns: minmax(0, 1fr) 22ch; }
@@ -50,6 +59,7 @@
 .doc-markup-end-note .doc-markup-code { border: 0; padding: 0; }
 .doc-markup-end-note p { margin: 6px 0 0; white-space: pre-wrap; }
 html[data-layout="phone"] .doc-markup-row { grid-template-columns: minmax(0, 1fr) 14ch; }
+html[data-layout="phone"] :is(.doc-markup-card, .doc-markup-composer) { width: 14ch; }
 html[data-layout="phone"] .doc-markup-line { padding: 0 12px 0 16px; }
 html[data-layout="phone"] .doc-editor { width: 100vw; height: 100dvh; border: 0; border-radius: 0; }
 html[data-layout="phone"] .doc-editor-header { padding-top: max(8px, env(safe-area-inset-top)); }
