@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The GitHub token step says exactly what to grant.** The read-only token step in Community and Team review setup now lists the repository access, permissions and expiration to choose, and its Create a token on GitHub link opens GitHub's form with the name, read-only Contents, Issues and Pull requests, and a 90 day expiration already filled in.
 - **Community reads Discord conversations better.** When one member sends a question across several messages in a row in the same channel, Community now treats them as one question instead of judging each line apart. The question judge also learns which messages are replies and how many members they mention, so back-and-forth between members stays out of the queue. The log now says why each Discord event was skipped.
 - **Community rates how-to answers on what they need.** Research no longer marks a draft MEDIUM just because it had no project id, customer data or internal access. A how-to question answered from the docs and code can now reach HIGH, and only an answer that truly depends on that data is held back.
 - **Lanes say when they run without PostHog.** When PostHog is set up but its read-only safety check fails, a background lane such as Community or Radar now logs a warning that it is running without PostHog. Before, it just ran without PostHog and said nothing.

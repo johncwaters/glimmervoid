@@ -6,7 +6,14 @@ import { button } from '../ui/button.ts';
 import { applySettingsBroadcast, settingsPayloadSnapshot } from '../settings/settings-store.ts';
 
 const READ_TOKEN_PATH = 'github.readToken' as const;
-const FINE_GRAINED_TOKEN_URL = 'https://github.com/settings/personal-access-tokens/new';
+const FINE_GRAINED_TOKEN_URL = 'https://github.com/settings/personal-access-tokens/new?name=Glimmervoid+lanes+read-only&description=Read-only+GitHub+access+for+Glimmervoid+Community%2C+Team+review+and+Radar+research&expires_in=90&contents=read&issues=read&pull_requests=read';
+const TOKEN_SETTINGS = [
+  'Resource owner: your own account for public repositories, or the organization that owns the private ones it reads. One token reads private repositories of one owner, and an organization may need to approve it first.',
+  'Repository access: Public repositories when every repository it reads is public, otherwise Only select repositories with each one it reads.',
+  'Repository permissions: Contents, Issues and Pull requests, each Read-only. Metadata Read-only comes with them.',
+  'Account permissions: none.',
+  'Expiration: 90 days. Once it expires, the lane can no longer read GitHub until you save a new token here.',
+];
 const READ_TOKEN_ACTION: OperatorActionOf<'onboarding'> = 'save-lane-read-token';
 
 function hasConfiguredSecret(secretPath: 'github.readToken' | 'posthog.apiKey'): boolean {
@@ -71,9 +78,11 @@ function laneReadTokenStepBody({ laneWork, onSaved }: { laneWork: string; onSave
     void save();
   });
   actions.append(saveButton, status.element);
-  const advice = el('p', 'first-run-step-text', `${laneWork} Its agent runs gh and reads GitHub pages with this token, never with your own gh login. Create a fine-grained token with read-only access to the repositories it works on. `);
+  const advice = el('p', 'first-run-step-text', `${laneWork} Its agent runs gh and reads GitHub pages with this token, never with your own gh login. Create a fine-grained token with exactly these settings. The link fills in everything except resource owner and repository access, which you choose. `);
   advice.append(externalLink('settings-link', 'Create a token on GitHub', FINE_GRAINED_TOKEN_URL));
-  return [advice, label, input, actions];
+  const settingsList = el('ul', 'first-run-step-text');
+  for (const setting of TOKEN_SETTINGS) settingsList.append(el('li', '', setting));
+  return [advice, settingsList, label, input, actions];
 }
 
 export { hasConfiguredSecret, hasLaneReadToken, laneReadTokenStepBody };
