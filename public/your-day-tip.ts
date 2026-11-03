@@ -3,6 +3,7 @@ import { localDayKey, twoUnitDurationText } from '#shared/display-text.ts';
 import { isHintCardShown, showHintCard } from './feature-hint.ts';
 import { claimKey, claimNotification } from './notify-dedupe-core.ts';
 import { attentionTally } from './session-card/card-registry.ts';
+import { settingsPayloadSnapshot } from './settings/settings-store.ts';
 import { requestUsageReport, subscribeUsage, usageSnapshot } from './usage/usage-store.ts';
 
 const MINUTE_MS = 60_000;
@@ -85,6 +86,7 @@ function requestReportOnce(now: number) {
 }
 
 function checkYourDayTips() {
+  if (settingsPayloadSnapshot().hintCards !== true) return;
   if (document.visibilityState !== 'visible') return;
   const now = Date.now();
   if (!isReportFresh(now)) {

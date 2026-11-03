@@ -35,7 +35,7 @@ function hookedSession(id: string, { ephemeral = false }: { ephemeral?: boolean 
   });
 }
 
-const DEFAULT_ON_FEATURES_OFF = { teamReview: { enabled: false }, usage: { enabled: false } };
+const DEFAULT_ON_FEATURES_OFF = { hintCards: true, teamReview: { enabled: false }, usage: { enabled: false } };
 
 function startHints(statePath: string, clock: Clock, config: { current: unknown } = { current: DEFAULT_ON_FEATURES_OFF }) {
   const broadcastHints: FeatureHint[] = [];
@@ -102,7 +102,7 @@ test('Bash commands reviewing three distinct PRs raise one Reviews hint that a s
 
 test('a feature left on by its default never hints, and turning one on drops its pending hint', async () => {
   const clock = { nowMs: START_MS };
-  const config: { current: unknown } = { current: {} };
+  const config: { current: unknown } = { current: { hintCards: true } };
   const { featureHints, broadcastHints } = startHints(tempStatePath(), clock, config);
   const session = attachedSession(featureHints, 'session-a');
 
@@ -115,7 +115,7 @@ test('a feature left on by its default never hints, and turning one on drops its
   await featureHints.idle();
   assert.equal(broadcastHints.length, 1);
 
-  config.current = {};
+  config.current = { hintCards: true };
   assert.equal(pendingFeatureHint(featureHints), null);
 });
 
@@ -255,4 +255,19 @@ test('the fifth operator prompt raises one star hint that replays until settled,
   await settledRun.featureHints.idle();
   assert.equal(pendingStarHintCount(settledRun.featureHints), 0);
   assert.equal(settledRun.starHintBroadcasts.length, 0);
+});
+
+test('with hint cards off a hint is tracked but never sent, and turning them on replays it', async () => {
+  const clock = { nowMs: START_MS };
+  const config: { current: unknown } = { current: { ...DEFAULT_ON_FEATURES_OFF, hintCards: false } };
+  const { featureHints, broadcastHints } = startHints(tempStatePath(), clock, config);
+  const session = attachedSession(featureHints, 'session-a');
+
+  for (const prNumber of [701, 702, 703]) session.runCommand(`gh pr diff ${prNumber}`);
+  await featureHints.idle();
+  assert.deepEqual(broadcastHints, []);
+  assert.equal(pendingFeatureHint(featureHints), null);
+
+  config.current = DEFAULT_ON_FEATURES_OFF;
+  assert.equal(pendingFeatureHint(featureHints)?.feature, 'teamReview');
 });

@@ -221,6 +221,7 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   streamerMode: optionalBoolean('streamerMode'),
   viewTabOrder: z.array(z.string({ error: 'viewTabOrder must be an array of view ids' }), { error: 'viewTabOrder must be an array of view ids' }).optional(),
   remoteSessions: optionalBoolean('remoteSessions'),
+  hintCards: optionalBoolean('hintCards'),
   detectBackgroundAgents: optionalBoolean('detectBackgroundAgents'),
   recordSignals: optionalBoolean('recordSignals'),
   saneYolo: optionalBoolean('saneYolo'),
