@@ -9,6 +9,11 @@ const MERGE_SETTLE_MS = 1500;
 const WORKTREE_TIMEOUT_MS = 15000;
 const REVIEW_TIMEOUT_MS = 20000;
 
+async function addPlanStep(panel: Locator): Promise<void> {
+  await panel.getByRole('button', { name: 'more', exact: true }).click();
+  await panel.page().getByRole('menuitem', { name: 'plan step', exact: true }).click();
+}
+
 async function placeBoxWithTool(page: Page, panel: Locator, offset: { x: number; y: number }, title: string): Promise<void> {
   const canvasBox = await panel.locator('.wb-canvas').boundingBox();
   assert.ok(canvasBox);
@@ -126,10 +131,25 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await renameOpenBoard(page, panel, boardTitle, renamedTitle, 'Enter');
     await renameOpenBoard(page, panel, renamedTitle, 'discarded title', 'Escape');
     await renameOpenBoard(page, panel, renamedTitle, boardTitle, 'Enter');
-    await panel.getByRole('button', { name: 'box', exact: true }).click();
-    assert.equal(await panel.getByRole('button', { name: 'box', exact: true }).getAttribute('aria-pressed'), 'true');
+    const boxTool = panel.getByRole('button', { name: 'box', exact: true });
+    await boxTool.hover();
+    const hoverTip = page.locator('#hover-tip');
+    await hoverTip.waitFor();
+    assert.equal(await hoverTip.locator('.hover-tip-label').textContent(), 'box', 'a board tool names itself in the styled tip');
+    assert.equal(await hoverTip.locator('.hover-tip-detail').textContent(), 'R', 'a board tool shows its shortcut in the styled tip');
+    assert.equal(await boxTool.getAttribute('title'), null, 'a board tool has no native tooltip beside the styled one');
+    await boxTool.click();
+    assert.equal(await boxTool.getAttribute('aria-pressed'), 'true');
+    const toolHint = panel.locator('.wb-tool-hint');
+    await toolHint.filter({ hasText: 'Click the board to place a box' }).waitFor();
     await placeBoxWithTool(page, panel, { x: 60, y: 60 }, 'Parse feed');
     assert.equal(await panel.getByRole('button', { name: 'select', exact: true }).getAttribute('aria-pressed'), 'true', 'the tool returns to select after one placement');
+    assert.equal(await toolHint.isVisible(), false, 'the hint line hides once the select tool is back');
+    await panel.getByRole('button', { name: 'more', exact: true }).click();
+    const moreMenu = page.getByRole('menu', { name: 'More tools', exact: true });
+    assert.deepEqual(await moreMenu.getByRole('menuitem').allTextContents(), ['note on box', 'frame selected boxes', 'plan step']);
+    await page.keyboard.press('Escape');
+    assert.equal(await moreMenu.isVisible(), false, 'Escape closes the More menu');
     const isComicMonoLoaded = await page.evaluate(async () => {
       await document.fonts.ready;
       return document.fonts.check('700 16px ComicMono');
@@ -260,7 +280,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await page.keyboard.press('Enter');
     await panel.locator('.wb-box', { hasText: 'second edited' }).waitFor();
     assert.equal(await panel.locator('.wb-box', { hasText: 'first edited' }).count(), 1, 'a second line edit keeps the first one');
-    await panel.getByRole('button', { name: 'unit', exact: true }).click();
+    await addPlanStep(panel);
     await submitTextDialog(page, 'Unit title', 'Index the diffs', 'Add unit');
     const unitOnBoard = panel.locator('.wb-unit', { hasText: 'Index the diffs' });
     await unitOnBoard.locator('.wb-unit-status', { hasText: 'planned' }).waitFor();
@@ -319,7 +339,7 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   const centeredSessionName = await card.getAttribute('data-session');
   assert.ok(centeredSessionName);
   assert.equal(await panel.locator('.wb-presence-pill', { hasText: centeredSessionName }).count(), 0, 'the strip does not repeat the centered session as a presence pill');
-  await panel.getByRole('button', { name: 'unit', exact: true }).click();
+  await addPlanStep(panel);
   await submitTextDialog(page, 'Unit title', 'Uncovered change', 'Add unit');
   const unitOnBoard = panel.locator('.wb-unit', { hasText: 'Uncovered change' });
   await agentIsland.locator('.wb-session-queued', { hasText: 'queued for' }).waitFor();

@@ -135,14 +135,48 @@
 .wb-tools {
   display: inline-flex;
   gap: 2px;
-  padding-right: 4px;
-  border-right: 1px solid var(--border);
 }
 
 .wb-tool[aria-pressed='true'] {
-  border-color: var(--accent-dim);
-  background: var(--bg-surface);
-  color: var(--text-head);
+  border-color: transparent;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+.wb-divider {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  margin: 0 2px;
+  background: var(--border);
+}
+
+.wb-more-menu-popup {
+  position: fixed;
+  left: auto;
+  min-width: 180px;
+  margin-top: 0;
+}
+
+.wb-more-menu-popup .popup-menu-item:disabled {
+  background: none;
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.wb-tool-hint {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--text-dim);
+  font-size: var(--type-meta);
+  text-align: center;
+  pointer-events: none;
+}
+
+.wb-tool-hint[hidden] { display: none; }
+
+@container wb-canvas (max-width: 720px) {
+  .wb-tool-key { display: none; }
 }
 
 .wb-tool-key {
@@ -232,6 +266,7 @@
 .wb-status { margin: 0; }
 
 .wb-canvas {
+  container: wb-canvas / inline-size;
   position: relative;
   min-height: 320px;
   border: 1px solid var(--border-dim);
@@ -641,7 +676,8 @@
 }
 
 [data-layout='phone'] .wb-island-view > button:not([data-phone-visible]),
-[data-layout='phone'] .wb-island-tools {
+[data-layout='phone'] .wb-island-tools,
+[data-layout='phone'] .wb-tool-hint {
   display: none;
 }
 
