@@ -218,6 +218,7 @@ const VERDICT_SEALS: Readonly<Record<ReviewDraft['verdict'], 'check' | 'dot' | '
 
 export const TEAM_REVIEW_SETTINGS_SECTION_ID = 'lanes-team-review';
 export const TEAM_REVIEW_SETTINGS_SETTING_ID = 'team-review-enabled';
+export const TEAM_REVIEW_SKILL_SETTING_ID = 'team-review-skill';
 
 const VERDICT_LABELS: Readonly<Record<ReviewDraft['verdict'], string>> = Object.freeze({
   APPROVE: 'approve',

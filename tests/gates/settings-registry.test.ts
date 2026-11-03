@@ -13,7 +13,7 @@ import {
   SETTINGS_INDEX, displayValue, indexSettings, parseSettingsHash, scoreSettingsSearch, settingsBlockSpec, settingsGroupOf, settingsOf, wireValue,
 } from '../../shared/settings/registry-core.ts';
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID } from '../../public/radar/radar-core.ts';
-import { TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID } from '../../public/github/team-review-view-core.ts';
+import { TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, TEAM_REVIEW_SKILL_SETTING_ID } from '../../public/github/team-review-view-core.ts';
 import { OPTIONAL_FEATURE_SURFACES } from '../../public/feature-surfaces-core.ts';
 import { settableFromDashboard } from '../helpers/settings-allow-list.ts';
 
@@ -313,7 +313,7 @@ function controlPlaneSourceFiles(): string[] {
 }
 
 const KNOWN_LINK_IDS: Readonly<Record<string, string>> = Object.freeze({
-  UPDATES_SECTION_ID, UPDATES_ACTIONS_SETTING_ID, TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID,
+  UPDATES_SECTION_ID, UPDATES_ACTIONS_SETTING_ID, TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, TEAM_REVIEW_SKILL_SETTING_ID,
 });
 
 function browserSourceFiles(directory: string): string[] {
