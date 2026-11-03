@@ -107,10 +107,12 @@ Shadows and glows exist for exactly two jobs: lifting true overlays (dialogs, me
 Every interactive element ships default, hover, focus-visible, active, and disabled states. Focus is always a visible 2px orchid outline with an offset; it is never removed without replacement.
 
 ### Buttons
-- **Shape:** nearly square (`--radius`). Tight corners reinforce the instrument feel.
-- **Primary (accent-outline):** transparent fill, Iridescent Orchid text and 1px orchid border, padding 8px 18px, mono. Used for Run, Add, Save, the empty-state CTA. Hover fills with a ~14% orchid wash; disabled drops to 0.4 opacity.
-- **Ghost / secondary:** transparent fill, Muted Lavender text, 1px base border, padding 6px 12px. Used for Edit, Remove, Cancel. Hover lifts the border (Remove hovers to Signal Red).
-- **Icon action button:** 26x22 transparent square, glyph only. Maximize and the overflow (kebab) sit persistently in the card header; the kebab holds the secondary actions (rename, restart, remove), and the debug button appears only when debug mode is on. An invisible inset pseudo-element extends the touch target without changing the visual size. Active scales to 0.93 for tactile feedback.
+Every action button is `button()` from `public/ui/button.ts` (look in `public/ui/button.css`); `tests/gates/ui-primitives.test.ts` fails on a hand-rolled one.
+- **Look:** flat, nearly square (`--radius`), uppercase tracked mono like the card face tabs, so an action reads as an instrument control, not a web link.
+- **Variants:** primary (orchid outline, the one forward action in a group), secondary (base border, Cancel, Edit, Copy), danger (red-tinted outline, an action that loses work, always behind a confirm), quiet (no border, a low-stakes extra), icon (square, glyph only, label carried as the accessible name and hover tip).
+- **Sizes:** default for dialogs and panels, small for dense rows and card chrome. The phone layout draws them 44px tall; on any other coarse pointer an invisible extension brings the hit area to 44px without changing the drawn size.
+- **No state in the button:** the label never changes and nothing renders inside it while work runs; disable it and put progress or a new-output dot beside it.
+- **Layout belongs to the parent:** `button()` takes no class, so spacing, alignment and placement come from the container.
 
 ### Inputs / Fields
 - **Style:** Deep Violet Slate fill, 1px Violet Border, `--radius`, padding 8px 12px, Bright Lavender White text, mono `--type-body` (`--type-title` on phone).

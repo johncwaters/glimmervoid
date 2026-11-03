@@ -3,6 +3,7 @@ import { createActionStatus } from '../action-status.ts';
 import type { ActionStatus, ActionStatusTone } from '../action-status.ts';
 import type { SessionUi } from './card-registry.ts';
 import { el, writeClipboardText } from '../dom-helpers.ts';
+import { button } from '../ui/button.ts';
 
 type TerminalNoticeKind = 'keys' | 'clipboard';
 
@@ -12,7 +13,7 @@ interface TerminalNotices {
   clearTimerId: ReturnType<typeof setTimeout> | null;
   clipboardPrompt: HTMLElement;
   pendingClipboardText: string | null;
-  jumpToLatestButton: HTMLButtonElement;
+  jumpToLatest: HTMLElement;
 }
 
 const terminalNoticesBySessionUi = new WeakMap<SessionUi, TerminalNotices>();
@@ -51,15 +52,15 @@ function isScrolledAwayFromLatest(term: Terminal) {
 }
 
 function refreshJumpToLatest(ui: SessionUi, term: Terminal, { hasNewOutput = false }: { hasNewOutput?: boolean } = {}) {
-  const button = terminalNoticesBySessionUi.get(ui)?.jumpToLatestButton;
-  if (!button) return;
+  const jumpToLatest = terminalNoticesBySessionUi.get(ui)?.jumpToLatest;
+  if (!jumpToLatest) return;
   const isScrolledAway = isScrolledAwayFromLatest(term);
-  button.hidden = !isScrolledAway;
+  jumpToLatest.hidden = !isScrolledAway;
   if (!isScrolledAway) {
-    delete button.dataset.hasNewOutput;
+    delete jumpToLatest.dataset.hasNewOutput;
     return;
   }
-  if (hasNewOutput) button.dataset.hasNewOutput = 'true';
+  if (hasNewOutput) jumpToLatest.dataset.hasNewOutput = 'true';
 }
 
 function decodeOsc52Payload(b64: string) {
@@ -108,27 +109,24 @@ function buildTerminalNotices(termWrap: HTMLElement, ui: SessionUi, term: Termin
   const status = createActionStatus('terminal-notice');
   const clipboardPrompt = el('div', 'terminal-clipboard-prompt');
   clipboardPrompt.hidden = true;
-  const copyButton = el('button', 'btn-dialog btn-dialog-confirm', 'Copy to clipboard');
-  copyButton.type = 'button';
-  copyButton.addEventListener('click', () => copyOfferedClipboardText(ui));
+  const copyButton = button({ variant: 'primary', label: 'Copy to clipboard', onClick: () => copyOfferedClipboardText(ui) });
   clipboardPrompt.append(el('span', 'terminal-clipboard-prompt-text', CLIPBOARD_PROMPT_TEXT), copyButton);
   const noticeStack = el('div', 'terminal-notices');
   noticeStack.append(clipboardPrompt, status.element);
 
-  const jumpToLatestButton = el('button', 'terminal-jump-latest btn-dialog btn-dialog-ghost', 'Jump to latest');
-  jumpToLatestButton.type = 'button';
-  jumpToLatestButton.hidden = true;
-  jumpToLatestButton.addEventListener('click', () => {
+  const jumpToLatest = el('div', 'terminal-jump-latest');
+  jumpToLatest.hidden = true;
+  jumpToLatest.append(button({ variant: 'secondary', label: 'Jump to latest', onClick: () => {
     term.scrollToBottom();
     term.focus();
-  });
+  } }), el('span', 'terminal-jump-latest-new-output'));
 
   const dropZone = el('div', 'terminal-drop-zone');
   dropZone.setAttribute('aria-hidden', 'true');
   dropZone.append(el('span', 'terminal-drop-zone-label', 'Drop to upload to this session'));
 
-  termWrap.append(noticeStack, jumpToLatestButton, dropZone);
-  terminalNoticesBySessionUi.set(ui, { status, shownKind: null, clearTimerId: null, clipboardPrompt, pendingClipboardText: null, jumpToLatestButton });
+  termWrap.append(noticeStack, jumpToLatest, dropZone);
+  terminalNoticesBySessionUi.set(ui, { status, shownKind: null, clearTimerId: null, clipboardPrompt, pendingClipboardText: null, jumpToLatest });
 }
 
 export { buildTerminalNotices, clearTerminalNotice, copyTextToClipboard, decodeOsc52Payload, isScrolledAwayFromLatest, offerClipboardCopy, refreshJumpToLatest, reportClipboardFailure, showTerminalNotice };

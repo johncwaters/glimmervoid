@@ -11,12 +11,14 @@ Static HTML fragments imported by `dialogs.ts` via Vite's `?raw` suffix and inje
 | File | Description |
 |------|-------------|
 | `add-session-dialog.html` | Add Session dialog markup |
+| `agent-connect-dialog.html` | Connect agent sign-in dialog markup |
 
 ## For AI Agents
 
 ### Working In This Directory
 - These are fragments, not documents: no `<html>`/`<head>`. Tailwind utilities plus semantic classes from `style.css`.
 - Element ids/classes here are queried by `dialogs.ts`; change both sides together.
+- No `<button>` markup: leave an empty mount point and create the button in `dialogs.ts`; the ui-primitives gate fails on markup buttons.
 
 ### Testing Requirements
 - Open the dialogs under `npm run dev`.

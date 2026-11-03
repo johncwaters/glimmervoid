@@ -5,6 +5,7 @@ import { currentFlightBlockReason, flyAnimalNow } from './nyan-cat.ts';
 import { buildFlyingAnimalPreview } from './flying-animal-preview.ts';
 import { ANIMALS } from './nyan-animals-core.ts';
 import { getFlyingAnimalsOptions, isFlyingAnimalsEnabled, setFlyingAnimalsExcludedSprites } from './ui-prefs.ts';
+import { button } from './ui/button.ts';
 
 export function renderFlyingAnimalsGallery() {
   const container = el('div');
@@ -18,7 +19,7 @@ export function renderFlyingAnimalsGallery() {
     const blockReason = currentFlightBlockReason();
     const isAnyAnimalIncluded = hasIncludedAnimals(getFlyingAnimalsOptions().flyingAnimalsExcludedSprites);
     status.textContent = [blockReason, isAnyAnimalIncluded ? '' : 'No animals are included, so automatic flights are paused.'].filter(Boolean).join(' ');
-    for (const button of flightButtons) button.disabled = blockReason !== null;
+    for (const flightButton of flightButtons) flightButton.disabled = blockReason !== null;
   };
   const options = getFlyingAnimalsOptions();
   for (const animal of ANIMALS) {
@@ -38,8 +39,7 @@ export function renderFlyingAnimalsGallery() {
       refreshAvailability();
     });
     include.append(checkbox, document.createTextNode('Include'));
-    const fly = el('button', 'btn-dialog btn-dialog-cancel', 'Fly now');
-    fly.type = 'button';
+    const fly = button({ variant: 'secondary', label: 'Fly now' });
     fly.setAttribute('aria-describedby', status.id);
     fly.addEventListener('click', () => flyAnimalNow(animal.sprite));
     flightButtons.push(fly);

@@ -3,6 +3,7 @@ import type { ShownFile } from '#shared/contracts/session.ts';
 import { el } from '../dom-helpers.ts';
 import { openShownFace, shownThumbnailUrl } from '../shown-files.ts';
 import { findSessionUi } from './card-registry.ts';
+import { createPressable } from '../ui/pressable.ts';
 
 const CHIP_WIDTH_CELLS = 22;
 const KIND_LABELS: Record<ShownFile['kind'], string> = { image: 'Image', video: 'Video', page: 'Page' };
@@ -28,8 +29,7 @@ function chipLineFor(term: Terminal): ChipLine | null {
 }
 
 function buildChipContent(sessionId: string, file: ShownFile): HTMLButtonElement {
-  const chip = el('button', 'shown-chip');
-  chip.type = 'button';
+  const chip = createPressable('shown-chip');
   chip.title = file.caption ?? file.pageTitle ?? file.name;
   chip.setAttribute('aria-label', `Open ${file.name}`);
   const thumbnailUrl = shownThumbnailUrl(sessionId, file);

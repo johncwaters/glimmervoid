@@ -2,6 +2,7 @@ import { errorMessage } from '#shared/text.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { buildDialogShell } from './modal.ts';
+import { button } from '../ui/button.ts';
 
 export function buildRepoCheckbox(name: string, repoPath: string, isChecked = false): HTMLLabelElement {
   const choice = el('label', 'dialog-checkbox-label');
@@ -45,9 +46,7 @@ export function openWorkspaceReposDialog(sessionId: string) {
   const statusEl = el('div', 'dialog-hint');
   statusEl.setAttribute('role', 'status');
   const errorEl = el('div', 'dialog-error');
-  const btnSave = el('button', 'btn-dialog btn-dialog-confirm', 'Save');
-  btnSave.type = 'button';
-  btnSave.disabled = true;
+  const btnSave = button({ variant: 'primary', label: 'Save', disabled: true });
   actions.append(btnSave);
   dialog.append(hint, listEl, statusEl, errorEl, actions);
 

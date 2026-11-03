@@ -50,12 +50,6 @@
   font-display: swap;
 }
 
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
-
 :root {
 
   --header-control-height: 34px;
@@ -887,22 +881,31 @@ body {
   color: var(--text-head);
 }
 
-.terminal-clipboard-prompt .btn-dialog {
-  flex: none;
-  white-space: nowrap;
-}
-
 .terminal-jump-latest {
   position: absolute;
   right: 16px;
   bottom: 8px;
   z-index: 12;
+  display: flex;
+  border-radius: var(--radius);
   background: var(--bg-surface);
 }
 
-.terminal-jump-latest[data-has-new-output="true"] {
-  color: var(--accent);
-  border-color: var(--accent);
+.terminal-jump-latest-new-output {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.terminal-jump-latest[data-has-new-output="true"] .terminal-jump-latest-new-output {
+  opacity: 1;
 }
 
 .terminal-drop-zone {
@@ -1250,64 +1253,8 @@ html[data-layout="phone"] .dialog-overlay {
   }
 }
 
-.btn-dialog-danger {
-  color: var(--state-failed);
-  border-color: color-mix(in oklab, var(--state-failed) 50%, transparent);
-  background: color-mix(in oklab, var(--state-failed) 8%, transparent);
-}
-
-@media (hover: hover) {
-  .btn-dialog-danger:hover:not(:disabled) {
-    background: color-mix(in oklab, var(--state-failed) 18%, transparent);
-  }
-}
-
-.btn-dialog-ghost {
-  padding: 6px 12px;
-  color: var(--text-dim);
-  border-color: var(--border);
-  background: transparent;
-}
-
-@media (hover: hover) {
-  .btn-dialog-ghost:hover:not(:disabled) {
-    color: var(--text-head);
-    border-color: var(--border-hover);
-  }
-}
-
-.btn-dialog-icon {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 22px;
-  padding: 0;
-  color: var(--text-dim);
-  border-color: transparent;
-  background: transparent;
-}
-
-.btn-dialog-icon::after {
-  content: '';
-  position: absolute;
-  inset: -8px;
-}
-
-@media (hover: hover) {
-  .btn-dialog-icon:hover:not(:disabled) {
-    color: var(--text-head);
-    border-color: var(--border-hover);
-  }
-}
-
 .btn-dialog:active:not(:disabled) {
   transform: scale(0.97);
-}
-
-.btn-dialog-icon:active:not(:disabled) {
-  transform: scale(0.93);
 }
 
 .btn-dialog[aria-pressed="true"] {
@@ -4516,9 +4463,7 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 
   .session-pr-chip-unlink { position: relative; }
 
-  .session-pr-chip-unlink::after,
-  .debug-close::after,
-  .btn-dialog-icon::after {
+  .session-pr-chip-unlink::after {
     content: '';
     position: absolute;
     inset: -12px;
@@ -4908,24 +4853,10 @@ html[data-layout="phone"] .phone-shell[data-keyboard="open"] .phone-nav { displa
   position: absolute;
   top: 6px;
   right: 8px;
-  width: 22px;
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  color: var(--text-dim);
-  cursor: pointer;
   z-index: 21;
-}
-
-@media (hover: hover) {
-  .debug-close:hover {
-    color: var(--text-head);
-    background: color-mix(in srgb, var(--text) 8%, transparent);
-  }
+  display: flex;
+  border-radius: var(--radius);
+  background: var(--bg-card);
 }
 
 .debug-section {

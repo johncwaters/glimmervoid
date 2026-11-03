@@ -10,6 +10,8 @@ import { sessionUIs } from './card-registry.ts';
 import type { SessionUi } from './card-registry.ts';
 import { buildDialogShell, openConfirmDialog } from './modal.ts';
 import { runRestartChoice } from './restart-menu-core.ts';
+import { button } from '../ui/button.ts';
+import { createPressable } from '../ui/pressable.ts';
 
 const DORMANT = 'DORMANT';
 
@@ -29,8 +31,7 @@ function conversationMeta(conv: ResumableConversation) {
 }
 
 function buildRow(title: string, meta: string) {
-  const row = el('button', 'resume-item');
-  row.type = 'button';
+  const row = createPressable('resume-item');
   row.setAttribute('role', 'option');
   row.setAttribute('aria-selected', 'false');
   row.innerHTML =
@@ -73,8 +74,7 @@ export function openRestartDialog(sessionId: string, { readState, canListEarlier
   listEl.setAttribute('role', 'listbox');
   listEl.setAttribute('aria-label', 'Conversation to restart into');
 
-  const btnRestart = el('button', 'btn-dialog btn-dialog-confirm', 'Restart');
-  btnRestart.type = 'button';
+  const btnRestart = button({ variant: 'primary', label: 'Restart' });
   actions.append(btnRestart);
 
   const applyStatus = createActionStatus('dialog-error');

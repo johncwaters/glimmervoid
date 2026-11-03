@@ -8,6 +8,8 @@ import { agentLoginOf, applyAgentLogins, onAgentLoginsChanged } from './agent-lo
 import { el, query, queryTag } from './dom-helpers.ts';
 import { createRepoRootsAdder } from './onboarding/repo-roots-adder.ts';
 import { createSandboxedFrame } from './sandboxed-frame.ts';
+import { button } from './ui/button.ts';
+import { createPressable } from './ui/pressable.ts';
 import { applyDialogAria, buildDialogShell, createModalOverlay } from './session-card/modal.ts';
 import { buildRepoCheckbox } from './session-card/workspace-repos-dialog.ts';
 import { DEFAULT_AGENT_ID, SHELL_AGENT_ID, decideAgentAvailability, decideAgentPicker } from './session-card/agent-core.ts';
@@ -93,10 +95,11 @@ export function openAgentConnectDialog(agent: ConnectableAgent) {
   const pasteLabelEl = query(dialog, '#agent-connect-paste-label');
   const pasteInput = queryTag(dialog, '#agent-connect-paste', 'input');
   const errorEl = query(dialog, '#agent-connect-error');
-  const closeButton = queryTag(dialog, '#agent-connect-close', 'button');
-  const stopButton = queryTag(dialog, '#agent-connect-stop', 'button');
-  const submitButton = queryTag(dialog, '#agent-connect-submit', 'button');
-  const startButton = queryTag(dialog, '#agent-connect-start', 'button');
+  const closeButton = button({ variant: 'secondary', label: 'Close' });
+  const stopButton = button({ variant: 'secondary', label: 'Stop sign-in', hidden: true });
+  const submitButton = button({ variant: 'primary', label: 'Submit code', hidden: true });
+  const startButton = button({ variant: 'primary', label: 'Start sign-in' });
+  query(dialog, '#agent-connect-actions').append(closeButton, stopButton, submitButton, startButton);
 
   function render() {
     if (!dialog.isConnected) {
@@ -119,8 +122,8 @@ export function openAgentConnectDialog(agent: ConnectableAgent) {
     submitButton.hidden = !needsPastedCode;
   }
 
-  async function send(type: string, payload: Record<string, unknown>, button: HTMLButtonElement) {
-    button.disabled = true;
+  async function send(type: string, payload: Record<string, unknown>, pressedButton: HTMLButtonElement) {
+    pressedButton.disabled = true;
     errorEl.textContent = '';
     try {
       const reply = await sendControlRequest(type, { agent, ...payload }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
@@ -130,7 +133,7 @@ export function openAgentConnectDialog(agent: ConnectableAgent) {
     } catch (reason) {
       errorEl.textContent = `The server did not answer (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}).`;
     } finally {
-      button.disabled = false;
+      pressedButton.disabled = false;
     }
   }
 
@@ -159,9 +162,7 @@ export function openRemoteSetupDialog() {
   const agentChoices = el('div', 'hooks-type-row');
   agentChoices.setAttribute('role', 'radiogroup');
   const status = createActionStatus();
-  const startButton = el('button', 'btn-dialog btn-dialog-confirm', 'Start setup');
-  startButton.type = 'button';
-  btnCancel.type = 'button';
+  const startButton = button({ variant: 'primary', label: 'Start setup' });
   btnCancel.addEventListener('click', close);
   actions.append(startButton);
   dialog.append(warning, agentLabel, agentChoices, status.element, actions);
@@ -222,8 +223,11 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
   const pickerEl = queryTag(dialog, '#add-session-picker', 'select');
   const pickerLabelEl = query(dialog, '#add-session-picker-label');
   const workspaceListEl = query(dialog, '#add-session-workspace-list');
-  const singleModeButton = queryTag(dialog, '#add-session-single-mode', 'button');
-  const workspaceModeButton = queryTag(dialog, '#add-session-workspace-mode', 'button');
+  const singleModeButton = createPressable('dialog-mode-button', 'Single repo');
+  const workspaceModeButton = createPressable('dialog-mode-button', 'Workspace');
+  singleModeButton.setAttribute('aria-pressed', 'true');
+  workspaceModeButton.setAttribute('aria-pressed', 'false');
+  query(dialog, '#add-session-mode-controls').append(singleModeButton, workspaceModeButton);
   const agentLabelEl = query(dialog, '#add-session-agent-label');
   const agentSelectEl = queryTag(dialog, '#add-session-agent', 'select');
   const environmentLabelEl = query(dialog, '#add-session-environment-label');
@@ -231,10 +235,13 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
   const environmentHintEl = query(dialog, '#add-session-environment-hint');
   const agentLoginEl = query(dialog, '#add-session-agent-login');
   const agentLoginTextEl = query(dialog, '#add-session-agent-login-text');
-  const agentConnectButton = queryTag(dialog, '#add-session-agent-connect', 'button');
+  const agentConnectButton = button({ variant: 'secondary', label: 'Connect' });
+  agentLoginEl.append(agentConnectButton);
   const repoRootsEl = query(dialog, '#add-session-repo-roots');
   const repoRootsTitleEl = query(dialog, '#add-session-repo-roots-title');
-  const advancedToggle = queryTag(dialog, '#add-session-advanced-toggle', 'button');
+  const advancedToggle = createPressable('dialog-advanced-toggle add-session-agent-only', 'Run in a folder outside your repository roots');
+  advancedToggle.setAttribute('aria-controls', 'add-session-advanced');
+  query(dialog, '#add-session-advanced-toggle-row').replaceWith(advancedToggle);
   const advancedPanel = query(dialog, '#add-session-advanced');
   const nameInput = queryTag(dialog, '#add-session-name', 'input');
   const pathInput = queryTag(dialog, '#add-session-path', 'input');
@@ -244,8 +251,9 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
   const saneYoloUnavailableEl = query(dialog, '#add-session-sane-yolo-unavailable');
   const errorEl = query(dialog, '#add-session-error');
   const shellHintEl = query(dialog, '#add-session-shell-hint');
-  const btnCancel = queryTag(dialog, '#add-session-cancel', 'button');
-  const btnConfirm = queryTag(dialog, '#add-session-confirm', 'button');
+  const btnCancel = button({ variant: 'secondary', label: 'Cancel' });
+  const btnConfirm = button({ variant: 'primary', label: 'Add' });
+  query(dialog, '#add-session-actions').append(btnCancel, btnConfirm);
   let isWorkspaceMode = false;
   let coderEnvironments: CoderEnvironmentOffer[] = [];
   let selectedEnvironment: CoderEnvironmentOffer | null = null;
@@ -279,9 +287,7 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
   repoRootsEl.append(repoRootsAdder.element);
 
   const scanStatus = createActionStatus('dialog-hint');
-  const btnScanAgain = el('button', 'btn-dialog btn-dialog-cancel', 'Scan again');
-  btnScanAgain.type = 'button';
-  btnScanAgain.hidden = true;
+  const btnScanAgain = button({ variant: 'secondary', label: 'Scan again', hidden: true });
   btnScanAgain.addEventListener('click', () => { void fillProjectPicker(); });
   const scanRow = el('div', 'flex items-center gap-2');
   scanRow.append(scanStatus.element, btnScanAgain);
@@ -592,9 +598,7 @@ export function createInvestigationDialog({ issueTitle, projectLabel, onOpenRepo
   const summaryEl = el('p', 'dialog-trail-summary');
   const listEl = el('ol', 'dialog-trail-steps');
   const emptyEl = el('p', 'dialog-trail-empty', 'No tool calls yet; the session is reading the issue.');
-  const btnReport = el('button', 'btn-dialog btn-dialog-cancel', 'Open report');
-  btnReport.type = 'button';
-  btnReport.hidden = true;
+  const btnReport = button({ variant: 'secondary', label: 'Open report', hidden: true });
   btnReport.addEventListener('click', () => { close(); onOpenReport(); });
   actions.prepend(btnReport);
   dialog.append(metaEl, statusEl, summaryEl, listEl, emptyEl, actions);

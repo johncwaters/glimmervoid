@@ -8,6 +8,7 @@ import { claimKey, claimNotification } from './notify-dedupe-core.ts';
 import { createPlanHash } from './plan/plan-link.ts';
 import { sessionName, sessionUIs } from './session-card/card-registry.ts';
 import { getSoundId, isNotificationsEnabled, isSoundEnabled } from './ui-prefs.ts';
+import { button } from './ui/button.ts';
 
 type AlertSoundModule = typeof import('./alert-sound.ts');
 
@@ -74,16 +75,15 @@ export function createNotificationPermissionControl(onAnswered: () => void = () 
       control.append(el('p', 'notification-permission-hint text-meta text-text-muted', hint));
       return;
     }
-    const button = el('button', 'btn-dialog btn-dialog-cancel', 'Enable desktop notifications');
-    button.type = 'button';
-    button.addEventListener('click', () => {
-      button.disabled = true;
+    const enableButton = button({ variant: 'secondary', label: 'Enable desktop notifications' });
+    enableButton.addEventListener('click', () => {
+      enableButton.disabled = true;
       void ensureNotificationPermission().then(() => {
         render();
         onAnswered();
       });
     });
-    control.append(button);
+    control.append(enableButton);
   };
   render();
   return { element: control, refresh: render };
