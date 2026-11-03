@@ -263,8 +263,12 @@ export function discardSession(sessionId: string) {
   });
 }
 
-function syncWatch() {
-  const wantedSessionId = onScreenSurfaces.size > 0 && document.visibilityState === 'visible' ? getSelectedId() : null;
+function hasShowingSurface(): boolean {
+  return [...onScreenSurfaces].some((surface) => !surface.hasAttribute('data-slot-held'));
+}
+
+export function syncWatch() {
+  const wantedSessionId = hasShowingSurface() && document.visibilityState === 'visible' ? getSelectedId() : null;
   if (wantedSessionId === watchedSessionId) return;
   if (watchRenewTimer) clearInterval(watchRenewTimer);
   watchRenewTimer = null;

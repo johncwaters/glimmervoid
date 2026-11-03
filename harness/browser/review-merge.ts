@@ -77,7 +77,7 @@ export async function readOriginFile(originPath: string, fileName: string): Prom
 }
 
 async function readReviewBarPlaces(page: Page): Promise<number[]> {
-  await page.locator('.review-bar:not([hidden])').waitFor();
+  await page.locator('.review-bar:not([data-slot-held])').waitFor();
   return page.evaluate(() => ['.pane-tab[data-tab="terminal"]', '.review-bar [data-action="open-changes"]', '.review-bar [data-action="merge-session"]'].map((selector) => document.querySelector(selector)?.getBoundingClientRect().left ?? -1));
 }
 

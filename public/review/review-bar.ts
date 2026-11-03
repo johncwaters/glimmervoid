@@ -1,6 +1,6 @@
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
-import { mergeSession, onReviewChange, reviewOf, watchReviewSurface } from './review-store.ts';
+import { mergeSession, onReviewChange, reviewOf, syncWatch, watchReviewSurface } from './review-store.ts';
 
 export interface ReviewBar {
   element: HTMLElement;
@@ -22,13 +22,14 @@ export function createReviewBar({ onOpenChanges }: { onOpenChanges: () => void }
 
   function paint() {
     const review = sessionId ? reviewOf(sessionId) : null;
-    element.hidden = review === null;
+    const wasSlotHeld = element.hasAttribute('data-slot-held');
+    element.toggleAttribute('data-slot-held', review === null);
+    if (wasSlotHeld !== (review === null)) syncWatch();
     if (!review) return;
     const statusText = review.notice ?? review.sentence;
     status.textContent = statusText;
     status.title = statusText;
-    mergeButton.hidden = review.isWorkspace;
-    mergeButton.toggleAttribute('data-slot-held', !review.isMergeShown);
+    mergeButton.toggleAttribute('data-slot-held', review.isWorkspace || !review.isMergeShown);
     mergeButton.disabled = !review.isMergeEnabled;
     mergeButton.title = review.mergeTitle;
   }
@@ -37,7 +38,7 @@ export function createReviewBar({ onOpenChanges }: { onOpenChanges: () => void }
     if (changedSessionId === sessionId) paint();
   });
   watchReviewSurface(element);
-  element.hidden = true;
+  element.toggleAttribute('data-slot-held', true);
 
   return {
     element,
