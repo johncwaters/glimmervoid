@@ -343,18 +343,18 @@ test('an agent attaches a picture once by content, a box draws it from the serve
 
   const attached = await runPlannerCli(context, ['whiteboard', 'attach', path.join(plannerDir, 'shot.png')]);
   assert.equal(attached.exitCode, 0, attached.printed);
-  const { asset, width, height } = JSON.parse(attached.printed) as { asset: string; width: number; height: number };
-  const image = { asset, width, height };
-  assert.deepEqual([image.width, image.height], [640, 320]);
+  const { media } = JSON.parse(attached.printed) as { media: { kind: string; asset: string; mime: string; width: number; height: number } };
+  assert.deepEqual([media.kind, media.mime, media.width, media.height], ['image', 'image/webp', 640, 320]);
+  const image = { asset: media.asset, width: media.width, height: media.height };
   const again = await whiteboard(PLANNER_ID, { sub: 'attach', path: 'shot.png' });
-  assert.equal(again.body.asset, image.asset);
+  assert.equal((again.body.media as { asset: string }).asset, image.asset);
 
   const put = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
-    { op: 'add', element: { kind: 'box', id: 'login', title: 'Login', column: 'intake', image: { ...image, alt: 'login screen' } } },
+    { op: 'add', element: { kind: 'box', id: 'login', title: 'Login', column: 'intake', media: { ...media, alt: 'login screen' } } },
   ] });
   assert.equal(put.status, 200, JSON.stringify(put.body));
   const { board } = await boardOf(PLANNER_ID, boardId);
-  assert.deepEqual(board.elements.login?.image, { asset: image.asset, width: 640, height: 320, alt: 'login screen' });
+  assert.deepEqual(board.elements.login?.media, { kind: 'image', asset: image.asset, mime: 'image/webp', width: 640, height: 320, alt: 'login screen', hasPreview: false });
   const served = await fetch(`${running().base}/whiteboards/assets/${image.asset}.webp`);
   assert.equal(served.status, 200);
   assert.equal(served.headers.get('content-type'), 'image/webp');
@@ -369,7 +369,7 @@ test('an agent attaches a picture once by content, a box draws it from the serve
   assert.equal(crossSite.status, 403);
   assert.deepEqual(fs.readdirSync(path.join(fixture.tmpDir, 'whiteboards', 'assets')).sort(), [`${image.asset}.original.png`, `${image.asset}.webp`]);
 
-  const unstored = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'login', fields: { image: { ...image, asset: 'f'.repeat(64) } } }] });
+  const unstored = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'login', fields: { media: { ...media, asset: 'f'.repeat(64) } } }] });
   assert.equal(unstored.status, 400);
   assert.match(String(unstored.body.error), /no whiteboard attach stored/);
   const svg = await whiteboard(PLANNER_ID, { sub: 'attach', path: 'mark.svg' });
@@ -569,10 +569,10 @@ test('deleting a board sweeps the pictures no live board shows, sparing a pendin
   const pictureOf = async (background: string) => {
     const stored = await wiring.assets.ingestBuffer(await sharp({ create: { width: 40, height: 20, channels: 3, background } }).png().toBuffer(), `${background}.png`);
     assert.ok(stored.ok);
-    return { asset: stored.asset, width: stored.width, height: stored.height, alt: '' };
+    return { kind: 'image', asset: stored.asset, mime: 'image/webp', width: stored.width, height: stored.height, alt: '' };
   };
   const newBoardId = async (title: string) => ((await wiring.handleOperator.create(title)) as { summary: { id: string } }).summary.id;
-  const putBox = (boardId: string, id: string, image: { asset: string } | null) => wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id, title: id, image, at: { x: 0, y: 0 } } }]));
+  const putBox = (boardId: string, id: string, media: { asset: string } | null) => wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id, title: id, media, at: { x: 0, y: 0 } } }]));
   const storedFiles = () => fs.readdirSync(path.join(boardsRoot, 'assets')).sort();
   const filesOf = (assetIds: string[]) => assetIds.flatMap((assetId) => [`${assetId}.original.png`, `${assetId}.webp`]).sort();
   const shared = await pictureOf('#c084fc');

@@ -177,6 +177,10 @@
     {
       "name": "undo",
       "definition": "The Handled list control that reopens a review item, unresolving its thread on GitHub, and keeps rules from acting on it again"
+    },
+    {
+      "name": "fix",
+      "definition": "A change that corrects an operator-visible defect, landed as a fix-type commit with a CHANGELOG entry"
     }
   ]
 }

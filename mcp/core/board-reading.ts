@@ -37,7 +37,7 @@ interface PictureImage {
 function pictureImagesOf(board: Board): PictureImage[] {
   const layout = layoutBoard(board);
   const scale = pictureScaleOf(layout);
-  return layout.elements.flatMap((element) => (element.kind === 'box' && element.image ? [{ asset: element.image.asset, width: element.image.width * scale, height: element.image.height * scale }] : []));
+  return layout.elements.flatMap((element) => (element.kind === 'box' && element.media ? [{ asset: element.media.asset, width: element.media.width * scale, height: element.media.height * scale }] : []));
 }
 
 function pictureScaleOf(layout: BoardLayout): number {
