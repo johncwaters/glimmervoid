@@ -80,8 +80,8 @@ interface LaneAccess {
   tools: string[];
 }
 
-function reachesModelOutsideAllowlist(inheritedEnv: Readonly<Record<string, string | undefined>>): boolean {
-  return [...LANE_PROXY_KEYS, ...ALTERNATE_MODEL_PROVIDER_KEYS].some((key) => (inheritedEnv[key] ?? '').length > 0);
+function laneAccessEnvBlocker(inheritedEnv: Readonly<Record<string, string | undefined>>): string | null {
+  return [...LANE_PROXY_KEYS, ...ALTERNATE_MODEL_PROVIDER_KEYS].find((key) => (inheritedEnv[key] ?? '').length > 0) ?? null;
 }
 
 function laneFetchDomains(extraFetchDomains: readonly string[]): string[] {
@@ -108,7 +108,7 @@ function laneAccessConfigOf(config: { github?: { readToken?: string } | null; la
 
 function laneAccess({ agent, readToken, extraFetchDomains, ghConfigDir, inheritedEnv }: LaneAccessInput): LaneAccess {
   const ghEnv = { ...LANE_CREDENTIAL_ENV, GH_CONFIG_DIR: ghConfigDir, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1' };
-  const isOpen = agent === OPEN_LANE_AGENT_ID && Boolean(readToken) && !reachesModelOutsideAllowlist(inheritedEnv);
+  const isOpen = agent === OPEN_LANE_AGENT_ID && Boolean(readToken) && laneAccessEnvBlocker(inheritedEnv) === null;
   if (!isOpen || !readToken) return { isOpen: false, env: ghEnv, allowRules: [], denyRules: [...CLOSED_LANE_DENY_RULES], tools: [] };
   const fetchDomains = laneFetchDomains(extraFetchDomains);
   return {
@@ -246,8 +246,8 @@ function withLaneAccessRules(permissions: Record<string, unknown>, access: Pick<
 }
 
 export {
-  ACCEPT_EDITS_MODE, CLOSED_LANE_ACCESS_CONFIG, LANE_CONFIG_EDIT_DENY_RULES, LANE_CREDENTIAL_ENV, LANE_ENVIRONMENT_ARGS, READ_ONLY_GIT_SUBCOMMANDS, buildLanePermissions,
-  codexLaneMcpPosture, codexMcpServers, findPosthogServer, kimiLaneMcpPosture, laneAccess, laneAccessConfigOf, laneMcpConfig, laneMcpPosture,
+  ACCEPT_EDITS_MODE, CLOSED_LANE_ACCESS_CONFIG, LANE_CONFIG_EDIT_DENY_RULES, LANE_ENVIRONMENT_ARGS, READ_ONLY_GIT_SUBCOMMANDS, buildLanePermissions,
+  codexLaneMcpPosture, codexMcpServers, findPosthogServer, kimiLaneMcpPosture, laneAccess, laneAccessConfigOf, laneAccessEnvBlocker, laneMcpConfig, laneMcpPosture,
   readOnlyGitAllowRules, withAllowRules, withLaneAccessRules,
 };
 export type { LaneAccess, LaneAccessConfig, LaneMcpPosture };

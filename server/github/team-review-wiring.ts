@@ -30,7 +30,7 @@ import { isOwnedResumable, pruneCachedClone, deleteDirectory, deleteCheckout, ma
 import type { TeamReviewWiringConfig, TeamReviewRepoCache, TeamReviewGitWorkspace, TeamReviewReap } from './team-review-checkouts.ts';
 import { createTeamReviewDispatcher } from './team-review-dispatcher.ts';
 import { createTeamReviewActions } from './team-review-actions.ts';
-import { laneAccessConfigOf } from '../lanes/core/lane-permissions-core.ts';
+import { laneAccessConfigOf, laneAccessEnvBlocker } from '../lanes/core/lane-permissions-core.ts';
 
 const TEAM_REVIEW_READ_TOKEN_REQUIRED = 'Team review needs a GitHub read token: set one in Settings, Lane GitHub access, or GLIMMERVOID_GITHUB_READ_TOKEN';
 
@@ -67,11 +67,13 @@ function teamReviewShouldStart(config: TeamReviewWiringConfig): LaneRunnerGate {
   if (!settings.enabled) return { start: false };
   if (!settings.org || settings.teams.length === 0) return { start: false, reason: 'Team review needs an organization and at least one GitHub team' };
   if (!laneAccessConfigOf(config).readToken) return { start: false, reason: TEAM_REVIEW_READ_TOKEN_REQUIRED };
+  const envBlocker = laneAccessEnvBlocker(process.env);
+  if (envBlocker) return { start: false, reason: `Team review cannot read GitHub while ${envBlocker} is set in Glimmervoid's environment` };
   return { start: true };
 }
 
 function teamReviewCfgKey(config: TeamReviewWiringConfig): string {
-  return JSON.stringify(core.readTeamReviewSettings(config));
+  return JSON.stringify({ ...core.readTeamReviewSettings(config), hasReadToken: Boolean(laneAccessConfigOf(config).readToken) });
 }
 
 function emptyTeamReviewStatus(gate: LaneRunnerGate): TeamReviewStatusType {
