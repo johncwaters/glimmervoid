@@ -1,4 +1,5 @@
 import { el } from './dom-helpers.ts';
+import { clampTipText, TIP_DETAIL_MAX_CHARS, TIP_LABEL_MAX_CHARS } from './hover-tip-core.ts';
 
 const TIP_ID = 'hover-tip';
 const ANCHOR_SELECTOR = '[data-tip-label]';
@@ -30,9 +31,9 @@ function ensureTipElement(): HTMLElement {
 
 function fillTip(tip: HTMLElement, anchor: HTMLElement) {
   const text = el('span', 'hover-tip-text');
-  text.append(el('b', 'hover-tip-label', anchor.dataset.tipLabel ?? ''));
+  text.append(el('b', 'hover-tip-label', clampTipText(anchor.dataset.tipLabel ?? '', TIP_LABEL_MAX_CHARS)));
   const detail = anchor.dataset.tipDetail;
-  if (detail) text.append(el('span', 'hover-tip-detail', detail));
+  if (detail) text.append(el('span', 'hover-tip-detail', clampTipText(detail, TIP_DETAIL_MAX_CHARS)));
   tip.replaceChildren(text);
 }
 
