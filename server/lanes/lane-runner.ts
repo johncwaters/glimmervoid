@@ -36,6 +36,7 @@ interface TickLoopOptions {
   clearTimeoutFn?: ClearTimeoutFn;
   backoffBaseMs?: number;
   backoffMaxMs?: number;
+  minFailureWaitMs?: number;
   now?: () => number;
   random?: () => number;
   log?: Pick<Console, 'warn'>;
@@ -71,6 +72,7 @@ function createTickLoop({
   clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
   backoffBaseMs = Math.max(intervalMs, DEFAULT_BASE_MS),
   backoffMaxMs = DEFAULT_MAX_MS,
+  minFailureWaitMs = 0,
   now = Date.now,
   random = Math.random,
   log = console,
@@ -139,6 +141,7 @@ function createTickLoop({
 
   async function runTick(trigger: TickTrigger, beforeTick?: () => Promise<GithubPollingRefreshResult>): Promise<GithubPollingRefreshResult> {
     const isManual = trigger === 'manual';
+    const tickStartedAt = now();
     if (stopped) return { ok: false, error: 'Reviews polling is stopped.' };
     if (tickRunning) {
       if (isManual) {
@@ -198,8 +201,9 @@ function createTickLoop({
       });
       if (scheduled.retry) quickRetryCount += 1;
       if (outcome.retryAfterMs && outcome.retryAfterMs > 0) rateLimitedUntil = now() + outcome.retryAfterMs;
-      scheduleAttempt(scheduled.waitMs, scheduled.retry);
-      log.warn(`[${tag}] poll failed (${failureStreak} in a row)${outcome.error ? `: ${outcome.error}` : ''} - backing off ${Math.round(scheduled.waitMs / 1000)}s`);
+      const waitMs = Math.max(scheduled.waitMs, minFailureWaitMs - (now() - tickStartedAt));
+      scheduleAttempt(waitMs, scheduled.retry);
+      log.warn(`[${tag}] poll failed (${failureStreak} in a row)${outcome.error ? `: ${outcome.error}` : ''} - backing off ${Math.round(waitMs / 1000)}s`);
       return { ok: false, error: 'Could not refresh from GitHub.' };
     } finally {
       tickRunning = false;

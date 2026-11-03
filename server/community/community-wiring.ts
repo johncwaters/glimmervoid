@@ -57,7 +57,7 @@ function createCommunityStateIo(statePath: string, log: Pick<Console, 'warn'>) {
 
 function hogQLRows(api: PosthogApi, projectId: number, query: string, values: Record<string, unknown>): Promise<SourceRows> {
   return api.runHogQL(projectId, query, values).then((response) => {
-    if (!response.ok) return { ok: false, error: response.error };
+    if (!response.ok) return { ok: false, error: response.error, isRateLimited: 'status' in response && response.status === 429, retryAfterMs: 'retryAfterMs' in response ? response.retryAfterMs : undefined };
     return { ok: true, rows: extractRows(response.body) };
   });
 }

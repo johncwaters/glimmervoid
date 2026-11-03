@@ -1,4 +1,5 @@
 import { toCount } from './core/radar-lane-core.ts';
+import { isRecord } from '../../shared/coerce.ts';
 
 const DEFAULT_ISSUE_LIMIT = 50;
 const DEFAULT_DATE_RANGE_HOURS = 24;
@@ -20,7 +21,7 @@ interface NormalizedIssue {
 
 type PosthogResponse =
   | { ok: true; status: number; body: unknown }
-  | { ok: false; status: number; body: unknown; error: string }
+  | { ok: false; status: number; body: unknown; error: string; retryAfterMs?: number }
   | { ok: false; error: string };
 
 interface TrafficBuckets {
@@ -123,6 +124,22 @@ function clampBaselineDays(value: unknown): number {
   return Math.min(MAX_BASELINE_DAYS, Math.max(1, n));
 }
 
+const RATE_LIMITED_STATUS = 429;
+
+function retryAfterMsFrom(headerValue: string | null): number | undefined {
+  const seconds = Number(headerValue ?? '');
+  if (!headerValue || !Number.isFinite(seconds) || seconds <= 0) return undefined;
+  return seconds * 1000;
+}
+
+function rateLimitedResponse(res: Response, body: unknown): PosthogResponse {
+  const errorCode = isRecord(body) && typeof body.code === 'string' ? ` ${body.code}` : '';
+  const retryAfterMs = retryAfterMsFrom(res.headers?.get('retry-after') ?? null);
+  const error = `HTTP ${RATE_LIMITED_STATUS}${errorCode}`;
+  if (retryAfterMs === undefined) return { ok: false, status: RATE_LIMITED_STATUS, body, error };
+  return { ok: false, status: RATE_LIMITED_STATUS, body, error, retryAfterMs };
+}
+
 function createPosthogApi({ host, apiKey, fetchFn }: {
   host?: string;
   apiKey?: string;
@@ -147,6 +164,7 @@ function createPosthogApi({ host, apiKey, fetchFn }: {
       const text = typeof res.text === 'function' ? await res.text().catch(() => '') : '';
       let parsed: unknown = null;
       try { parsed = text ? JSON.parse(text) : null; } catch { parsed = null; }
+      if (res.status === RATE_LIMITED_STATUS) return rateLimitedResponse(res, parsed);
       if (!res.ok) return { ok: false, status: res.status, body: parsed, error: `HTTP ${res.status}` };
       return { ok: true, status: res.status, body: parsed };
     } catch (err) {

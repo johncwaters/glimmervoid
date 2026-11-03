@@ -297,3 +297,42 @@ test('community research refuses to start without a read token or while the envi
   assert.match(communityGate(withToken, { HTTPS_PROXY: 'http://proxy.corp:3128' }).reason ?? '', /HTTPS_PROXY/);
   assert.deepEqual(communityGate(withToken, {}), { start: true });
 });
+
+test('a rate-limited forum poll sends no Discord query, any failed poll waits at least the poll interval, and a rate-limited Discord poll waits for PostHog', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'community-lane-'));
+  const stateIo = createCommunityStateIo(path.join(directory, 'community-state.json'), { warn() {} });
+  const forumAnswers: SourceRows[] = [
+    { ok: false, error: 'HTTP 429 api_queries_budget_exceeded', isRateLimited: true, retryAfterMs: 45 * 60000 },
+    { ok: false, error: 'HTTP 500' },
+    { ok: false, error: 'HTTP 500' },
+  ];
+  const discordAnswers: SourceRows[] = [
+    { ok: true, rows: [] },
+    { ok: false, error: 'HTTP 429 api_queries_budget_exceeded', isRateLimited: true, retryAfterMs: 50 * 60000 },
+  ];
+  let currentMs = ENABLED_AT;
+  let discordQueryCount = 0;
+  const warnings: string[] = [];
+  const poller = createCommunityPoller({
+    intervalMinutes: 30, queryForum: async () => forumAnswers.shift() ?? { ok: true, rows: [] },
+    readState: stateIo.readState, writeState: stateIo.writeState,
+    discord: { channels: ['help'], query: async () => { discordQueryCount += 1; return discordAnswers.shift() ?? { ok: true, rows: [] }; }, judgeQuestions: async () => new Set<string>() },
+    now: () => currentMs, log: { warn: (message: string) => { warnings.push(message); } },
+  });
+  try {
+    await poller.start();
+    const discordQueriesBeforeRateLimit = discordQueryCount;
+    await poller.tick();
+    assert.equal(discordQueryCount, discordQueriesBeforeRateLimit);
+    assert.ok(warnings.some((warning) => warning.includes('HTTP 429 api_queries_budget_exceeded - backing off 2700s')), warnings.join('\n'));
+    currentMs += 45 * 60000;
+    await poller.tick();
+    assert.ok(warnings.some((warning) => warning.includes('HTTP 500 - backing off') && Number(/backing off (\d+)s/.exec(warning)?.[1]) >= 1800), warnings.join('\n'));
+    currentMs += 60 * 60000;
+    await poller.tick();
+    assert.ok(warnings.some((warning) => warning.includes('(3 in a row): HTTP 500 - backing off 3000s')), warnings.join('\n'));
+  } finally {
+    await poller.stop();
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});

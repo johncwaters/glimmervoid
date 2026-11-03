@@ -4,7 +4,14 @@ import * as core from './core/community-core.ts';
 import type { CommunityAction, CommunityItem, CommunityState, CommunityStateEntry } from '../../shared/contracts/community.ts';
 import { errorMessage } from '../../shared/text.ts';
 
-type SourceRows = { ok: true; rows: Record<string, unknown>[] } | { ok: false; error: string };
+type SourceRows = { ok: true; rows: Record<string, unknown>[] } | { ok: false; error: string; isRateLimited?: boolean; retryAfterMs?: number | undefined };
+type SourceFailure = { error: string; isRateLimited: boolean; retryAfterMs?: number | undefined };
+
+const MAX_RATE_LIMIT_WAIT_MS = 60 * 60000;
+
+function sourceFailure(fetched: { error: string; isRateLimited?: boolean; retryAfterMs?: number | undefined }): SourceFailure {
+  return { error: fetched.error, isRateLimited: fetched.isRateLimited === true, retryAfterMs: fetched.retryAfterMs };
+}
 
 interface CommunityPollerDependencies {
   intervalMinutes: number;
@@ -42,9 +49,12 @@ function createCommunityPoller({
   let state: CommunityState = core.emptyCommunityState();
   const runAborts = new Map<string, AbortController>();
 
+  const intervalMs = intervalMinutes * 60000;
   const loop = createTickLoop({
     tag: core.COMMUNITY_LANE_ID,
-    intervalMs: intervalMinutes * 60000,
+    intervalMs,
+    minFailureWaitMs: intervalMs,
+    backoffMaxMs: Math.max(MAX_RATE_LIMIT_WAIT_MS, intervalMs),
     tick: () => runTick(),
     writeState: () => writeState(state),
     firstTickDelayMs,
@@ -56,7 +66,7 @@ function createCommunityPoller({
     onTickComplete({ type: 'community-status', ts: now(), intervalMinutes, error, entries: Object.values(state.entries) });
   }
 
-  async function pollForum(): Promise<string | null> {
+  async function pollForum(): Promise<SourceFailure | null> {
     const watermark = state.watermarks.forum;
     const nowIso = new Date(now()).toISOString();
     if (watermark === null) {
@@ -64,14 +74,14 @@ function createCommunityPoller({
       return null;
     }
     const fetched = await queryForum(watermark);
-    if (!fetched.ok) return fetched.error;
+    if (!fetched.ok) return sourceFailure(fetched);
     const { items, droppedRows, newestRowAt } = core.forumItemsFromRows(fetched.rows);
     if (droppedRows > 0) log.warn(`[${core.COMMUNITY_LANE_ID}] dropped ${droppedRows} malformed forum row(s)`);
     state = core.withWatermarkAtLeast(core.admitSourceItems(state, 'forum', items, nowIso).state, 'forum', newestRowAt);
     return null;
   }
 
-  async function pollDiscord(source: DiscordSource): Promise<string | null> {
+  async function pollDiscord(source: DiscordSource): Promise<SourceFailure | null> {
     const watermark = state.watermarks.discord;
     const nowIso = new Date(now()).toISOString();
     if (watermark === null) {
@@ -79,13 +89,13 @@ function createCommunityPoller({
       return null;
     }
     const fetched = await source.query(watermark);
-    if (!fetched.ok) return fetched.error;
+    if (!fetched.ok) return sourceFailure(fetched);
     const { items, replyFacts, dropReasons, newestRowAt } = core.discordItemsFromRows(fetched.rows, source.channels);
     const dropSummary = core.discordDropSummary(dropReasons);
     if (dropSummary) log.warn(`[${core.COMMUNITY_LANE_ID}] ${dropSummary}`);
     const candidates = core.freshItems(state, 'discord', items);
     const questionKeys = candidates.length > 0 ? await source.judgeQuestions(candidates, replyFacts).catch(() => null) : new Set<string>();
-    if (questionKeys === null) return 'The Discord question judge gave no usable answer; these messages are checked again next poll';
+    if (questionKeys === null) return { error: 'The Discord question judge gave no usable answer; these messages are checked again next poll', isRateLimited: false };
     const admitted = core.admitSourceItems(state, 'discord', items, nowIso, (key) => questionKeys.has(key)).state;
     state = core.withWatermarkAtLeast(admitted, 'discord', newestRowAt);
     return null;
@@ -129,13 +139,18 @@ function createCommunityPoller({
   }
 
   async function runTick(): Promise<TickOutcome> {
-    const forumError = await pollForum();
-    const discordError = discord && discord.channels.length > 0 ? await pollDiscord(discord) : null;
-    const pollError = forumError ?? discordError;
+    const forumFailure = await pollForum();
+    const shouldPollDiscord = discord !== null && discord.channels.length > 0 && !forumFailure?.isRateLimited;
+    const discordFailure = shouldPollDiscord ? await pollDiscord(discord) : null;
+    const pollFailure = forumFailure ?? discordFailure;
+    const pollError = pollFailure?.error ?? null;
+    const retryAfterWaits = [forumFailure?.retryAfterMs, discordFailure?.retryAfterMs].filter((waitMs) => waitMs !== undefined);
+    const longestRetryAfterMs = retryAfterWaits.length > 0 ? Math.max(...retryAfterWaits) : undefined;
     state = core.prunedState(state, now());
     dispatchRuns();
     await loop.persist();
     publishStatus(pollError);
+    if (pollError && longestRetryAfterMs !== undefined) return { failed: true, error: pollError, retryAfterMs: longestRetryAfterMs };
     if (pollError) return { failed: true, error: pollError };
     return {};
   }
