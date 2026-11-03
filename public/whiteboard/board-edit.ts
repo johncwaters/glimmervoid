@@ -18,7 +18,15 @@ interface ViewPoint {
   y: number;
 }
 
+interface Camera {
+  x: number;
+  y: number;
+  scale: number;
+}
+
 interface BoardEditorOptions {
+  viewport: HTMLElement;
+  world: HTMLElement;
   svg: SVGSVGElement;
   canvas: HTMLElement;
   renderer: BoardRenderer;
@@ -100,10 +108,10 @@ const MIN_READABLE_FONT_PX = 10;
 const MAX_READABLE_UNITS_PER_PIXEL = BOX_LINE_FONT_UNITS / MIN_READABLE_FONT_PX;
 
 export function createBoardEditor(options: BoardEditorOptions) {
-  const { svg, canvas, renderer } = options;
+  const { viewport, world, svg, canvas, renderer } = options;
   const activePointers = new Map<number, ViewPoint>();
   let selectedIds = new Set<string>();
-  let viewBox: Rect = { x: 0, y: 0, width: 1000, height: 600 };
+  let camera: Camera = { x: 0, y: 0, scale: 1 };
   let gesture: Gesture = null;
   let titleInput: HTMLInputElement | null = null;
   let previewFrameId: number | null = null;
@@ -113,24 +121,28 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function setTool(tool: BoardTool): void {
     activeTool = tool;
-    svg.dataset.tool = tool;
+    viewport.dataset.tool = tool;
     options.onToolChange(tool);
   }
 
-  function applyViewBox(): void {
-    svg.setAttribute('viewBox', `${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`);
+  function applyCamera(): void {
+    world.style.transform = `translate(${-camera.x * camera.scale}px, ${-camera.y * camera.scale}px) scale(${camera.scale})`;
+  }
+
+  function viewWidth(): number {
+    return (viewport.clientWidth || 1) / camera.scale;
   }
 
   function islandFreeBand(): { topPx: number; heightPx: number } {
-    const svgRect = svg.getBoundingClientRect();
+    const viewportRect = viewport.getBoundingClientRect();
     const islandRects = [...canvas.querySelectorAll<HTMLElement>('.wb-island')].filter((island) => island.checkVisibility()).map((island) => island.getBoundingClientRect());
-    const midlinePx = svgRect.top + svgRect.height / 2;
-    const upperIslandBottoms = islandRects.filter((rect) => rect.top + rect.height / 2 < midlinePx).map((rect) => rect.bottom - svgRect.top);
-    const lowerIslandTops = islandRects.filter((rect) => rect.top + rect.height / 2 >= midlinePx).map((rect) => rect.top - svgRect.top);
+    const midlinePx = viewportRect.top + viewportRect.height / 2;
+    const upperIslandBottoms = islandRects.filter((rect) => rect.top + rect.height / 2 < midlinePx).map((rect) => rect.bottom - viewportRect.top);
+    const lowerIslandTops = islandRects.filter((rect) => rect.top + rect.height / 2 >= midlinePx).map((rect) => rect.top - viewportRect.top);
     const topPx = Math.max(0, ...upperIslandBottoms);
-    const bottomPx = Math.min(svgRect.height, ...lowerIslandTops);
+    const bottomPx = Math.min(viewportRect.height, ...lowerIslandTops);
     const heightPx = bottomPx - topPx;
-    if (heightPx < svgRect.height / 2) return { topPx: 0, heightPx: svgRect.height };
+    if (heightPx < viewportRect.height / 2) return { topPx: 0, heightPx: viewportRect.height };
     return { topPx, heightPx };
   }
 
@@ -138,11 +150,11 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const layout = renderer.layout();
     if (!layout) return;
     const { bounds } = layout;
-    const canvasWidth = svg.clientWidth;
-    const canvasHeight = svg.clientHeight;
+    const canvasWidth = viewport.clientWidth;
+    const canvasHeight = viewport.clientHeight;
     if (canvasWidth === 0 || canvasHeight === 0) {
-      viewBox = { ...bounds };
-      applyViewBox();
+      camera = { x: bounds.x, y: bounds.y, scale: 1 };
+      applyCamera();
       isFitOwedOnceSized = true;
       return;
     }
@@ -152,47 +164,41 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const wholeBoardUnitsPerPixel = Math.max(1 / maxZoom, bounds.width / canvasWidth, bounds.height / band.heightPx);
     const isWholeBoardTooSmallToRead = wholeBoardUnitsPerPixel > MAX_READABLE_UNITS_PER_PIXEL;
     const unitsPerPixel = isWholeBoardTooSmallToRead ? MAX_READABLE_UNITS_PER_PIXEL : wholeBoardUnitsPerPixel;
-    const viewWidth = canvasWidth * unitsPerPixel;
+    const fittedViewWidth = canvasWidth * unitsPerPixel;
     const boardCenterY = bounds.y + bounds.height / 2;
     const bandCenterPx = band.topPx + band.heightPx / 2;
-    viewBox = {
-      x: bounds.x - Math.max(0, viewWidth - bounds.width) / 2,
+    camera = {
+      x: bounds.x - Math.max(0, fittedViewWidth - bounds.width) / 2,
       y: isWholeBoardTooSmallToRead ? bounds.y - band.topPx * unitsPerPixel : boardCenterY - bandCenterPx * unitsPerPixel,
-      width: viewWidth,
-      height: canvasHeight * unitsPerPixel,
+      scale: 1 / unitsPerPixel,
     };
-    applyViewBox();
+    applyCamera();
   }
 
   function toViewPoint(clientX: number, clientY: number): ViewPoint {
-    const matrix = svg.getScreenCTM();
-    if (!matrix) return { x: clientX, y: clientY };
-    const point = new DOMPoint(clientX, clientY).matrixTransform(matrix.inverse());
-    return { x: point.x, y: point.y };
+    const viewportRect = viewport.getBoundingClientRect();
+    return { x: camera.x + (clientX - viewportRect.left - viewport.clientLeft) / camera.scale, y: camera.y + (clientY - viewportRect.top - viewport.clientTop) / camera.scale };
   }
 
   function viewUnitsPerPixel(): number {
-    const width = svg.clientWidth || 1;
-    const height = svg.clientHeight || 1;
-    return Math.max(viewBox.width / width, viewBox.height / height);
+    return 1 / camera.scale;
   }
 
   function zoomAround(anchor: ViewPoint, factor: number): void {
-    const nextWidth = Math.min(MAX_VIEW_WIDTH, Math.max(MIN_VIEW_WIDTH, viewBox.width * factor));
-    const appliedFactor = nextWidth / viewBox.width;
-    viewBox = {
-      x: anchor.x - (anchor.x - viewBox.x) * appliedFactor,
-      y: anchor.y - (anchor.y - viewBox.y) * appliedFactor,
-      width: nextWidth,
-      height: viewBox.height * appliedFactor,
+    const currentViewWidth = viewWidth();
+    const nextViewWidth = Math.min(MAX_VIEW_WIDTH, Math.max(MIN_VIEW_WIDTH, currentViewWidth * factor));
+    const appliedFactor = nextViewWidth / currentViewWidth;
+    camera = {
+      x: anchor.x - (anchor.x - camera.x) * appliedFactor,
+      y: anchor.y - (anchor.y - camera.y) * appliedFactor,
+      scale: camera.scale / appliedFactor,
     };
-    applyViewBox();
+    applyCamera();
   }
 
   function panByPixels(deltaX: number, deltaY: number): void {
-    const unitsPerPixel = viewUnitsPerPixel();
-    viewBox = { ...viewBox, x: viewBox.x - deltaX * unitsPerPixel, y: viewBox.y - deltaY * unitsPerPixel };
-    applyViewBox();
+    camera = { ...camera, x: camera.x - deltaX / camera.scale, y: camera.y - deltaY / camera.scale };
+    applyCamera();
   }
 
   function setSelection(nextSelectedIds: Set<string>): void {
@@ -266,7 +272,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function startPinch(): void {
     if (gesture?.kind === 'wire') endWire(gesture, false);
-    gesture = { kind: 'pinch', distance: pinchDistance(), viewWidth: viewBox.width };
+    gesture = { kind: 'pinch', distance: pinchDistance(), viewWidth: viewWidth() };
   }
 
   function onPointerDown(event: PointerEvent): void {
@@ -277,7 +283,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
       return;
     }
     activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    svg.setPointerCapture(event.pointerId);
+    viewport.setPointerCapture(event.pointerId);
     if (activePointers.size === 2) {
       startPinch();
       return;
@@ -328,7 +334,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   async function placeMediaBox(title: string, media: BoxMedia, clientPoint: ViewPoint | null): Promise<boolean> {
     const board = options.currentBoard();
     if (!board) return false;
-    const point = clientPoint ? toViewPoint(clientPoint.x, clientPoint.y) : { x: viewBox.x + viewBox.width / 2, y: viewBox.y + viewBox.height / 2 };
+    const point = clientPoint ? toViewPoint(clientPoint.x, clientPoint.y) : { x: camera.x + viewWidth() / 2, y: camera.y + (viewport.clientHeight || 1) / camera.scale / 2 };
     const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
     const element = placedBox({ x: Math.round(point.x), y: Math.round(point.y - pinnedOffsetY) }, title, media, false);
     const isSent = await options.sendOps([{ op: 'add', element }]);
@@ -395,7 +401,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const points = [...activePointers.values()];
     const midpoint = toViewPoint(points.reduce((sum, point) => sum + point.x, 0) / points.length, points.reduce((sum, point) => sum + point.y, 0) / points.length);
     const targetWidth = pinch.viewWidth * (pinch.distance / distance);
-    zoomAround(midpoint, targetWidth / viewBox.width);
+    zoomAround(midpoint, targetWidth / viewWidth());
   }
 
   function onPointerMove(event: PointerEvent): void {
@@ -505,14 +511,14 @@ export function createBoardEditor(options: BoardEditorOptions) {
       if (event.key === 'Escape') {
         event.preventDefault();
         closeTitleInput();
-        svg.focus();
+        viewport.focus();
         return;
       }
       if (event.key !== 'Enter') return;
       event.preventDefault();
       const title = input.value.trim();
       closeTitleInput();
-      svg.focus();
+      viewport.focus();
       if (!title || title === titled.title) return;
       void options.sendOps([{ op: 'set', id: elementId, fields: { title } }]);
     });
@@ -539,7 +545,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   function onKeyDown(event: KeyboardEvent): void {
-    if (event.target !== svg) return;
+    if (event.target !== viewport) return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     if (event.key === 'Delete' || event.key === 'Backspace') {
       event.preventDefault();
@@ -557,17 +563,18 @@ export function createBoardEditor(options: BoardEditorOptions) {
     setTool('select');
   }
 
-  svg.tabIndex = 0;
-  svg.addEventListener('pointerdown', onPointerDown);
-  svg.addEventListener('pointermove', onPointerMove);
-  svg.addEventListener('pointerup', onPointerUp);
-  svg.addEventListener('pointercancel', onPointerCancel);
-  svg.addEventListener('wheel', onWheel, { passive: false });
-  svg.addEventListener('dblclick', onDoubleClick);
-  svg.addEventListener('keydown', onKeyDown);
+  world.style.transition = 'none';
+  viewport.tabIndex = 0;
+  viewport.addEventListener('pointerdown', onPointerDown);
+  viewport.addEventListener('pointermove', onPointerMove);
+  viewport.addEventListener('pointerup', onPointerUp);
+  viewport.addEventListener('pointercancel', onPointerCancel);
+  viewport.addEventListener('wheel', onWheel, { passive: false });
+  viewport.addEventListener('dblclick', onDoubleClick);
+  viewport.addEventListener('keydown', onKeyDown);
   new ResizeObserver(() => {
-    if (isFitOwedOnceSized && svg.clientWidth > 0 && svg.clientHeight > 0) fit();
-  }).observe(svg);
+    if (isFitOwedOnceSized && viewport.clientWidth > 0 && viewport.clientHeight > 0) fit();
+  }).observe(viewport);
 
   return {
     fit,
@@ -579,7 +586,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     setTool,
     placeMediaBox,
     openPendingTitleEdit,
-    focusCanvas: () => svg.focus(),
+    focusCanvas: () => viewport.focus(),
   };
 }
 
