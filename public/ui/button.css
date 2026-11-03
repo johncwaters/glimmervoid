@@ -60,9 +60,14 @@
   color: var(--text-muted);
 }
 
-.ui-button[data-variant="icon"] {
+.ui-button:is([data-variant="icon"], [data-variant="outline-icon"]) {
   width: var(--button-height);
   padding: 0;
+}
+
+.ui-button[data-variant="outline-icon"] {
+  border-color: var(--border-hover);
+  font-size: var(--type-title);
 }
 
 @media (hover: hover) {
@@ -82,7 +87,7 @@
   }
 
   .ui-button[data-variant="quiet"]:hover:not(:disabled),
-  .ui-button[data-variant="icon"]:hover:not(:disabled) {
+  .ui-button:is([data-variant="icon"], [data-variant="outline-icon"]):hover:not(:disabled, [aria-pressed="true"], [data-outline-state="attention"]) {
     background: color-mix(in srgb, var(--text) 8%, transparent);
     color: var(--text-head);
   }
@@ -101,7 +106,7 @@
   background: color-mix(in oklab, var(--state-failed) 14%, transparent);
 }
 
-.ui-button[data-variant="icon"]:active:not(:disabled) {
+.ui-button:is([data-variant="icon"], [data-variant="outline-icon"]):active:not(:disabled) {
   transform: scale(0.93);
 }
 
@@ -109,6 +114,17 @@
   border-color: var(--accent);
   background: color-mix(in oklab, var(--accent) 16%, transparent);
   color: var(--accent);
+}
+
+.ui-button[data-outline-state="off"] {
+  border-color: var(--border-hover);
+  background: linear-gradient(to top right, transparent calc(50% - 0.75px), currentColor calc(50% - 0.75px), currentColor calc(50% + 0.75px), transparent calc(50% + 0.75px));
+  color: var(--text-muted);
+}
+
+.ui-button[data-outline-state="attention"] {
+  border-color: color-mix(in srgb, var(--state-complete) 55%, transparent);
+  color: var(--state-complete);
 }
 
 .ui-button-shortcut {

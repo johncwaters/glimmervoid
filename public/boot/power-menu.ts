@@ -5,7 +5,7 @@ import { wirePopupMenuKeys } from '../menu.ts';
 import { getSessionCount } from '../session-card/lifecycle.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import { createLineIcon, POWER_ICON_PATH } from '../svg-dom.ts';
-import { button } from '../ui/button.ts';
+import { outlineIconButton } from '../ui/button.ts';
 import { createPressable } from '../ui/pressable.ts';
 
 function powerMenuItem(className: string, glyph: string, label: string, onClick: () => void) {
@@ -17,7 +17,7 @@ function powerMenuItem(className: string, glyph: string, label: string, onClick:
 }
 
 const powerMenu = queryTag(document, '#power-menu', 'div');
-const btnPower = button({ variant: 'icon', label: 'Server power', icon: createLineIcon(POWER_ICON_PATH, '1.6'), action: 'open-power-menu' });
+const btnPower = outlineIconButton({ label: 'Server power', icon: createLineIcon(POWER_ICON_PATH, '1.6'), action: 'open-power-menu', states: ['idle'] }).element;
 btnPower.setAttribute('aria-haspopup', 'menu');
 btnPower.setAttribute('aria-expanded', 'false');
 btnPower.setAttribute('aria-controls', 'power-menu-dropdown');

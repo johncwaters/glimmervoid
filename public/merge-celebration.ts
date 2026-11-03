@@ -1,12 +1,13 @@
 import { describeFailure } from './client-error-core.ts';
 import { reportToServerLog } from './control-ws.ts';
 import type { MergeCelebrationText } from './github/my-prs-view-core.ts';
+import type { OutlineIconButton } from './ui/button.ts';
 
 type CelebrationPlayer = typeof import('./merge-celebration/celebration-player.ts');
 
 const MAX_QUEUED_CELEBRATIONS = 20;
 
-interface CelebrationTrayElements { tray: HTMLElement; button: HTMLButtonElement; count: HTMLElement }
+interface CelebrationTrayElements { tray: HTMLElement; toggle: OutlineIconButton<'attention'>; count: HTMLElement }
 
 const queuedCelebrations: MergeCelebrationText[] = [];
 let celebrationTray: CelebrationTrayElements | null = null;
@@ -32,9 +33,11 @@ function trayStateFor(hasQueuedCelebrations: boolean): 'playing' | 'queued' | 'e
 function renderCelebrationTray(): void {
   if (!celebrationTray) return;
   const hasQueuedCelebrations = queuedCelebrations.length > 0;
-  celebrationTray.tray.dataset.state = trayStateFor(hasQueuedCelebrations);
+  const trayState = trayStateFor(hasQueuedCelebrations);
+  celebrationTray.tray.dataset.state = trayState;
   celebrationTray.count.textContent = hasQueuedCelebrations ? String(queuedCelebrations.length) : '';
-  celebrationTray.button.disabled = isPlayingQueuedCelebrations || !hasQueuedCelebrations;
+  celebrationTray.toggle.element.disabled = trayState !== 'queued';
+  celebrationTray.toggle.setState(trayState === 'queued' ? 'attention' : 'idle');
 }
 
 function playNextQueuedCelebration(): void {
@@ -56,9 +59,9 @@ function playNextQueuedCelebration(): void {
   });
 }
 
-export function mountCelebrationTray(tray: HTMLElement, button: HTMLButtonElement, count: HTMLElement): void {
-  celebrationTray = { tray, button, count };
-  button.addEventListener('click', () => {
+export function mountCelebrationTray(tray: HTMLElement, toggle: OutlineIconButton<'attention'>, count: HTMLElement): void {
+  celebrationTray = { tray, toggle, count };
+  toggle.element.addEventListener('click', () => {
     playThroughPosition = 0;
     playNextQueuedCelebration();
   });

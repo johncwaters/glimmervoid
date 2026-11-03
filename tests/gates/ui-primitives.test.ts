@@ -9,7 +9,8 @@ const UI_DIR = path.join(PUBLIC_DIR, 'ui');
 const PRESSABLE_OWNER = path.join(UI_DIR, 'pressable.ts');
 const SKIP_DIRS = new Set(['node_modules', 'dist']);
 const BUTTON_CREATION = /\bel\(\s*['"`]button['"`]|createElement\(\s*['"`]button['"`]|<button\b/i;
-const BUTTON_LOOK_SELECTOR = /\.ui-button\b|\[data-(?:variant|size)\b/;
+const BUTTON_LOOK_SELECTOR = /\.ui-button\b|\[data-(?:variant|size|outline-state)\b/;
+const OUTLINE_STATE_WRITE = /outline-?state|(?:\.element|\bbtn(?:Mute|Streamer|Help))\.(?:(?:setAttribute|removeAttribute|toggleAttribute)\(\s*['"`]aria-pressed|ariaPressed\b)/i;
 const RETIRED_CLASSES: string[] = [
   'bench-action-button',
   'btn-action',
@@ -25,9 +26,11 @@ const RETIRED_CLASSES: string[] = [
   'btn-face-plan',
   'btn-help',
   'btn-menu',
+  'btn-mute',
   'btn-power',
   'btn-remove',
   'btn-session-menu',
+  'btn-streamer',
   'doc-editor-save',
   'hooks-btn',
   'hooks-btn-add',
@@ -119,4 +122,12 @@ test('retired button classes are gone from every stylesheet and source', () => {
     return RETIRED_CLASSES.filter((className) => new RegExp(`(?<![\\w-])${className}(?![\\w-])`).test(contents)).map((className) => `${relativeToRoot(file)}: ${className}`);
   });
   assert.deepEqual(offenders, [], `These classes were retired by the button component:\n  ${offenders.join('\n  ')}`);
+});
+
+test('only public/ui/ sets an outlined button state', () => {
+  const offenders = collectFiles(PUBLIC_DIR, /\.(ts|html)$/)
+    .filter((file) => !file.startsWith(UI_DIR + path.sep))
+    .filter((file) => OUTLINE_STATE_WRITE.test(fs.readFileSync(file, 'utf8')))
+    .map(relativeToRoot);
+  assert.deepEqual(offenders, [], `Set an outlined button's state through the setState of the handle outlineIconButton() returns:\n  ${offenders.join('\n  ')}`);
 });

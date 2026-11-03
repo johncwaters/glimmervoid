@@ -1,15 +1,16 @@
 import { DEFAULT_REPLY_TIMEOUT_MS, clearHeaderError, reportHeaderError, requestFailureText } from './action-status.ts';
 import { sendControlRequest } from './control-ws.ts';
 import { getJSON, setJSON } from './local-store.ts';
+import type { OutlineIconButton } from './ui/button.ts';
 
 const STREAMER_MODE_STORAGE_KEY = 'glimmervoid-streamer-mode';
 const streamerModeListeners = new Set<(isEnabled: boolean) => void>();
 let isStreamerModeEnabled = getJSON<unknown>(STREAMER_MODE_STORAGE_KEY, false) === true;
-let streamerToggleButton: HTMLButtonElement | null = null;
+let streamerToggle: OutlineIconButton<'pressed'> | null = null;
 
 function applyStreamerAttribute(isEnabled: boolean) {
   document.documentElement.toggleAttribute('data-streamer', isEnabled);
-  streamerToggleButton?.setAttribute('aria-pressed', String(isEnabled));
+  streamerToggle?.setState(isEnabled ? 'pressed' : 'idle');
 }
 
 applyStreamerAttribute(isStreamerModeEnabled);
@@ -60,8 +61,8 @@ export function toggleStreamerMode() {
   void toggleAndPersistStreamerMode();
 }
 
-export function mountStreamerToggle(button: HTMLButtonElement) {
-  streamerToggleButton = button;
+export function mountStreamerToggle(toggle: OutlineIconButton<'pressed'>) {
+  streamerToggle = toggle;
   applyStreamerAttribute(isStreamerMode());
-  button.addEventListener('click', toggleStreamerMode);
+  toggle.element.addEventListener('click', toggleStreamerMode);
 }

@@ -1,10 +1,11 @@
+import type { OutlineIconButton } from './ui/button.ts';
 import { isSoundEnabled, setSoundEnabled } from './ui-prefs.ts';
 
-let muteButton: HTMLButtonElement | null = null;
+let muteToggle: OutlineIconButton<'off'> | null = null;
 const soundEnabledListeners = new Set<(enabled: boolean) => void>();
 
 function syncMuteButton(): void {
-  muteButton?.setAttribute('aria-pressed', String(!isSoundEnabled()));
+  muteToggle?.setState(isSoundEnabled() ? 'idle' : 'off');
 }
 
 export function applySoundEnabled(enabled: boolean): void {
@@ -17,8 +18,8 @@ export function onSoundEnabledChange(listener: (enabled: boolean) => void): void
   soundEnabledListeners.add(listener);
 }
 
-export function mountMuteButton(button: HTMLButtonElement): void {
-  muteButton = button;
+export function mountMuteButton(toggle: OutlineIconButton<'off'>): void {
+  muteToggle = toggle;
   syncMuteButton();
-  button.addEventListener('click', () => applySoundEnabled(!isSoundEnabled()));
+  toggle.element.addEventListener('click', () => applySoundEnabled(!isSoundEnabled()));
 }

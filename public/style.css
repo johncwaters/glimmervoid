@@ -872,8 +872,6 @@ body {
   width: max-content;
 }
 
-.btn-mute:focus-visible,
-.btn-streamer:focus-visible,
 .settings-about-link:focus-visible,
 .settings-view-nav-item:focus-visible,
 .settings-view-search-open:focus-visible,
@@ -1184,61 +1182,6 @@ html[data-layout="phone"] .dialog-overlay {
 
 .header-menu {
   position: relative;
-}
-
-.btn-mute,
-.btn-streamer {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  font-size: var(--type-title);
-  color: var(--text-dim);
-  background: transparent;
-  cursor: pointer;
-  transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
-}
-
-.btn-streamer .line-icon {
-  width: 14px;
-  height: 14px;
-}
-
-.btn-mute::after,
-.btn-streamer::after {
-  content: '';
-  position: absolute;
-  inset: -8px;
-}
-
-@media (hover: hover) {
-  .btn-mute:hover,
-  .btn-streamer:hover {
-    background-color: color-mix(in srgb, var(--text) 8%, transparent);
-    color: var(--text-head);
-  }
-}
-
-.btn-mute:active,
-.btn-streamer:active {
-  transform: scale(0.93);
-}
-
-.btn-mute[aria-pressed="true"] {
-  border-color: var(--border-hover);
-  color: var(--text-muted);
-  background-image: linear-gradient(to top right, transparent calc(50% - 0.75px), currentColor calc(50% - 0.75px), currentColor calc(50% + 0.75px), transparent calc(50% + 0.75px));
-}
-
-.btn-streamer[aria-pressed="true"] {
-  border-color: var(--accent);
-  background-color: color-mix(in oklab, var(--accent) 16%, transparent);
-  color: var(--accent);
 }
 
 html[data-streamer] :is(.radar-issue-title, .radar-row-headline, .radar-row-progress, .radar-pane-headline, .radar-pane-text, .dialog-report-meta, .dialog-report-frame, .dialog-report-body, .dialog-trail-summary, .dialog-trail-detail) { visibility: hidden; }
@@ -4074,7 +4017,7 @@ html[data-layout="phone"] .phone-shell[hidden] { display: none; }
 .phone-topbar > .header-title { flex: 0 0 auto; font-size: var(--type-body); white-space: nowrap; }
 .phone-topbar > .celebration-tray { flex: none; margin-left: auto; }
 .phone-topbar > .celebration-tray + [data-action="add-session"] { margin-left: 0; }
-.phone-topbar > :is([data-action="open-shortcuts-help"], .btn-mute, .btn-streamer) { display: none; }
+.phone-topbar > :is([data-action="open-shortcuts-help"], [data-action="toggle-mute"], [data-action="toggle-streamer-mode"]) { display: none; }
 .phone-topbar > .header-menu { flex: none; }
 .phone-topbar .menu-item { min-height: 44px; }
 .phone-topbar > .status-indicator,
