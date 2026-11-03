@@ -331,10 +331,19 @@ export function viewerApprovalContext(draft: ReviewDraft): ViewerApprovalContext
   return { approvedCommit: latestReview.commit, submittedAt: latestReview.submittedAt, state: latestReview.state, isReviewScopeSinceDecision: draft.priorReviewedHead === latestReview.commit };
 }
 
+export interface HoverTip {
+  label: string;
+  detail: string;
+}
+
+export function viewerApprovalTip(context: ViewerApprovalContext): HoverTip {
+  return { label: 'Earlier version', detail: `Commit ${shortSha(context.approvedCommit)}` };
+}
+
 export function viewerApprovalNotice(context: ViewerApprovalContext, age: string | null): string {
-  const action = context.state === 'APPROVED' ? 'approved this' : 'requested changes';
+  const action = context.state === 'APPROVED' ? 'approved an earlier version' : 'requested changes on an earlier version';
   const previousReview = context.state === 'APPROVED' ? 'your approval' : 'your request for changes';
-  const decision = `You ${action} at ${shortSha(context.approvedCommit)}${age ? ` ${age}` : ''}. It has new commits since`;
+  const decision = `You ${action}${age ? ` ${age}` : ''}. It has new commits since`;
   if (!context.isReviewScopeSinceDecision) return `${decision}.`;
   return `${decision}, so this review covers what changed after ${previousReview}.`;
 }
@@ -458,12 +467,20 @@ function tierLabel(tier: ReviewDraft['tier']): string {
 }
 
 export function detailMetaText(review: Pick<ReviewDraft, 'tier' | 'priorReviewedHead'>): string {
-  if (review.priorReviewedHead) return `${tierLabel(review.tier)} review of changes since ${shortSha(review.priorReviewedHead)}`;
+  if (review.priorReviewedHead) return `${tierLabel(review.tier)} review of changes since your last review`;
   return `${tierLabel(review.tier)} review`;
 }
 
-export function reviewScopeTitle(review: Pick<ReviewDraft, 'reasons'>): string {
-  return review.reasons.join(', ');
+const TIER_TIP_TEXT: Readonly<Record<ReviewDraft['tier'], HoverTip>> = {
+  full: { label: 'Full review', detail: 'The agent reads every changed file.' },
+  stamp: { label: 'Light review', detail: 'A quick pass for a change that only touches docs or tests.' },
+};
+
+export function reviewTierTip(review: Pick<ReviewDraft, 'tier' | 'reasons' | 'priorReviewedHead'>): HoverTip {
+  const tierText = TIER_TIP_TEXT[review.tier];
+  const reasonText = review.reasons.length > 0 ? ` Picked because: ${review.reasons.join(', ')}.` : '';
+  const scopeText = review.priorReviewedHead ? ` Covers commits after ${shortSha(review.priorReviewedHead)}.` : '';
+  return { label: tierText.label, detail: `${tierText.detail}${reasonText}${scopeText}` };
 }
 
 export function aboutPrParagraphs(assessment: ReviewAssessment | null | undefined): { kind: 'goal' | 'change'; text: string }[] {
@@ -532,7 +549,12 @@ function movedHead(draft: Pick<ReviewDraft, 'reviewedHead' | 'liveHead'>): strin
 
 export function changedSinceReviewText(draft: Pick<ReviewDraft, 'reviewedHead' | 'liveHead'>): string | null {
   const liveHead = movedHead(draft);
-  return liveHead ? `Reviewed at ${shortSha(draft.reviewedHead)}. The pull request is now at ${shortSha(liveHead)}.` : null;
+  return liveHead ? 'The pull request has new commits since this review.' : null;
+}
+
+export function changedSinceReviewTip(draft: Pick<ReviewDraft, 'reviewedHead' | 'liveHead'>): HoverTip | null {
+  const liveHead = movedHead(draft);
+  return liveHead ? { label: 'Commits', detail: `Reviewed at ${shortSha(draft.reviewedHead)}, now at ${shortSha(liveHead)}` } : null;
 }
 
 export function changedSinceReviewUrl(draft: Pick<ReviewDraft, 'repo' | 'reviewedHead' | 'liveHead'>): string | null {
@@ -541,9 +563,13 @@ export function changedSinceReviewUrl(draft: Pick<ReviewDraft, 'repo' | 'reviewe
 }
 
 export function earlierReviewPreview(review: EarlierReview): string {
-  const parts = [`at ${shortSha(review.head)}`, commentCountText(review.comments.length)];
+  const parts = [commentCountText(review.comments.length)];
   if (review.wasPosted) parts.push('posted');
   return parts.join(', ');
+}
+
+export function earlierReviewTip(review: EarlierReview): HoverTip {
+  return { label: 'Earlier review', detail: `Commit ${shortSha(review.head)}` };
 }
 
 export function verdictHeading(verdict: ReviewDraft['verdict']): string {
@@ -573,6 +599,11 @@ export function inFlightProgressText(review: InFlightReview, nowMs: number): str
   if (remainingMs > 0) parts.push(`times out in ${formatClockOffset(remainingMs)}`);
   if (review.phase === 'reviewing') parts.push(`${review.toolCalls} ${review.toolCalls === 1 ? 'tool call' : 'tool calls'}`);
   return parts.join(', ');
+}
+
+export function attentionNextStep(draft: Pick<ReviewDraft, 'status'>): string | null {
+  if (draft.status !== 'error') return null;
+  return `${actionLabel('requeue')} to try again, or ${actionLabel('discard')} to drop it.`;
 }
 
 export function attentionDetail(draft: ReviewDraft): string {

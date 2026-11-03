@@ -233,6 +233,9 @@ async function verifyCanonicalTeamPrFields(page: Page, layout: Layout, snapshot:
   const movedHead = 'c'.repeat(40);
   await emitTeamReviewFrames(page, [frameFor({ ...canonicalPr, headRefOid: movedHead })]);
   assert.equal(await page.locator('.pr-detail .pr-changed-since-link').getAttribute('href'), `https://github.com/Acme/app/compare/${REVIEWED_HEAD}...${movedHead}`);
+  const changedSince = page.locator('.pr-detail .pr-changed-since > [data-tip-label]');
+  assert.equal(await changedSince.textContent(), 'The pull request has new commits since this review.');
+  assert.equal(await changedSince.getAttribute('data-tip-detail'), `Reviewed at ${REVIEWED_HEAD.slice(0, 7)}, now at ${movedHead.slice(0, 7)}`);
   await emitTeamReviewFrames(page, [frameFor()]);
   assert.equal(await page.locator('.pr-detail .pr-changed-since').count(), 0);
   assert.equal(await readRowMeaning(teamRow), 'Out of date');
@@ -736,6 +739,7 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout, sessionId
   await verifyLayout(page);
   if (layout === 'desktop') {
     assert.equal(await page.locator('.pr-queue-row[data-review-key="Acme/app#5"]').getAttribute('aria-current'), 'true');
+    assert.equal(await page.locator('.pr-detail .pr-attention-next').textContent(), 'Re-run review to try again, or Not mine to drop it.');
     const dashboardModifier = shortcutPlatformFor(await page.evaluate(() => navigator.userAgent)) === 'mac' ? 'Meta' : 'Alt';
     await page.keyboard.press(`${dashboardModifier}+KeyJ`);
     assert.equal(await page.locator('.pr-queue-row[data-review-key="Acme/app#1"]').getAttribute('aria-current'), 'true');
@@ -760,9 +764,19 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout, sessionId
   assert.equal(await page.locator('.pr-detail .pr-verdict-seal').textContent(), 'Approve with nits');
   assert.equal(await page.locator('.pr-detail .pr-verdict-seal svg').count(), 1);
   assert.ok(await page.locator('.pr-detail .pr-severity-meter').count() > 0);
+  const approvalNotice = page.locator('.pr-detail .pr-rereview-notice');
+  assert.match(await approvalNotice.textContent() ?? '', /^You approved an earlier version( .+ ago)?\. It has new commits since/);
+  assert.doesNotMatch(await approvalNotice.textContent() ?? '', /bbbbbbb/);
+  assert.equal(await approvalNotice.getAttribute('data-tip-detail'), 'Commit bbbbbbb');
+  const tierMeta = page.locator('.pr-detail .pr-detail-meta [data-tip-label="Full review"]');
+  assert.equal(await tierMeta.textContent(), 'full review');
+  assert.match(await tierMeta.getAttribute('data-tip-detail') ?? '', /^The agent reads every changed file\./);
   if (layout === 'desktop') await verifyDecisionBarPinned(page);
   await showQueue(page);
   await page.locator('.pr-queue-row[data-review-key="Acme/app#3"]').click();
+  const earlierPreview = page.locator('.pr-detail .pr-earlier-review .pr-disclosure-preview');
+  assert.equal(await earlierPreview.textContent(), '0 comments, posted');
+  assert.equal(await earlierPreview.getAttribute('data-tip-detail'), 'Commit bbbbbbb');
   const handChecks = page.locator('.pr-detail .pr-hand-checks');
   assert.equal(await handChecks.locator('li').textContent(), 'Look at what these changed UI files render: public/header.css');
   assert.deepEqual(await page.locator('.pr-detail .pr-desk-column > :is(section, .pr-earlier-review)').evaluateAll((blocks) => blocks.map((block) => block.classList.contains('pr-earlier-review') ? 'Earlier review' : block.getAttribute('aria-label')).filter((label) => label === 'Verdict' || label === 'Check by hand' || label === 'Findings' || label === 'Earlier review')), ['Verdict', 'Check by hand', 'Findings', 'Earlier review']);

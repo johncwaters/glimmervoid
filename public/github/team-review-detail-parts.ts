@@ -4,7 +4,9 @@ import type { DiffExcerptLine, DraftComment, EarlierReview, FindingSeverity, Han
 import { nextRequestId, sendControlMsg } from '../control-ws.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { el, externalLink } from '../dom-helpers.ts';
-import { changedSinceReviewText, changedSinceReviewUrl, earlierReviewPreview, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, buildNotMineRequest, checksText, commentLocation, detailActionLayout, groupHandCheckPaths, HAND_CHECK_INLINE_PATH_LIMIT, handCheckPathSummary, parseInlineSegments, LEGACY_SUMMARY_HINT, parseReviewComment, reviewCommentPreview, shortCommentLocation, pullRequestLabel, detailHeadingSignature, commentSeverity, detailMetaText, reviewScopeTitle, viewerThreadsText, hasAllViewerThreadsResolved, viewerApprovalContext, viewerApprovalNotice } from './team-review-view-core.ts';
+import { changedSinceReviewText, changedSinceReviewUrl, earlierReviewPreview, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, buildNotMineRequest, checksText, commentLocation, detailActionLayout, groupHandCheckPaths, HAND_CHECK_INLINE_PATH_LIMIT, handCheckPathSummary, parseInlineSegments, LEGACY_SUMMARY_HINT, parseReviewComment, reviewCommentPreview, shortCommentLocation, pullRequestLabel, detailHeadingSignature, commentSeverity, detailMetaText, reviewTierTip, viewerThreadsText, hasAllViewerThreadsResolved, viewerApprovalContext, viewerApprovalNotice, viewerApprovalTip, earlierReviewTip, changedSinceReviewTip } from './team-review-view-core.ts';
+import type { HoverTip } from './team-review-view-core.ts';
+import { installHoverTips } from '../hover-tip.ts';
 import type { GeneralFinding } from './team-review-view-core.ts';
 import { _pendingActions, _queueHooks, _sessionOpenByKey, _view, setPostedReceipt } from './team-review-panel-state.ts';
 import type { DetailOrigin, SettleAction } from './team-review-panel-state.ts';
@@ -63,6 +65,14 @@ function createOpenSessionControl(review: Pick<ReviewDraft, 'key'>): HTMLElement
   return row;
 }
 
+function withHoverTip<Anchor extends HTMLElement>(anchor: Anchor, tip: HoverTip | null): Anchor {
+  if (!tip) return anchor;
+  anchor.dataset.tipLabel = tip.label;
+  anchor.dataset.tipDetail = tip.detail;
+  installHoverTips();
+  return anchor;
+}
+
 function createDetailHeading(review: ReviewDraft | InFlightReview, { hasFactsRail = false }: { hasFactsRail?: boolean } = {}): HTMLElement {
   const heading = el('div', 'pr-detail-heading');
   heading.dataset.signature = detailHeadingSignature(review);
@@ -70,9 +80,7 @@ function createDetailHeading(review: ReviewDraft | InFlightReview, { hasFactsRai
   title.append(pullRequestLink(review), el('h2', null, review.title));
   const metadata = el('div', 'pr-detail-meta');
   metadata.append(createAuthor(review, 20, 'pr-detail-author'));
-  const scope = el('span', null, detailMetaText(review));
-  scope.title = reviewScopeTitle(review);
-  metadata.append(scope);
+  metadata.append(withHoverTip(el('span', null, detailMetaText(review)), reviewTierTip(review)));
   const openedAge = createAgeReadout('Opened', review.prCreatedAt);
   if (openedAge) metadata.append(openedAge);
   if ('reviewedHead' in review) {
@@ -95,7 +103,7 @@ function createDetailHeading(review: ReviewDraft | InFlightReview, { hasFactsRai
   }
   const approvalContext = 'reviewedHead' in review ? viewerApprovalContext(review) : null;
   if (approvalContext) {
-    const notice = el('p', 'pr-rereview-notice', viewerApprovalNotice(approvalContext, formatTimestampAge(approvalContext.submittedAt)));
+    const notice = withHoverTip(el('p', 'pr-rereview-notice', viewerApprovalNotice(approvalContext, formatTimestampAge(approvalContext.submittedAt))), viewerApprovalTip(approvalContext));
     notice.dataset.reviewKey = review.key;
     heading.append(notice);
   }
@@ -286,7 +294,7 @@ function createCommentContent({ body, severity, location: locationText, location
 function createEarlierReviewDetails(review: EarlierReview, isOpen: boolean): HTMLElement {
   const details = el('details', 'pr-disclosure pr-earlier-review');
   const summary = el('summary', 'pr-disclosure-summary');
-  summary.append(el('span', 'pr-disclosure-label', 'Earlier review'), el('span', 'pr-disclosure-preview', earlierReviewPreview(review)));
+  summary.append(el('span', 'pr-disclosure-label', 'Earlier review'), withHoverTip(el('span', 'pr-disclosure-preview', earlierReviewPreview(review)), earlierReviewTip(review)));
   const body = el('div', 'pr-earlier-review-body');
   const verdictLine = el('div', 'pr-verdict-line');
   verdictLine.append(createVerdictSeal(review));
@@ -305,8 +313,8 @@ function createEarlierReviewDetails(review: EarlierReview, isOpen: boolean): HTM
 function createChangedSinceReview(draft: ReviewDraft): HTMLElement[] {
   const text = changedSinceReviewText(draft);
   if (!text) return [];
-  const line = el('p', 'pr-changed-since', text);
-  line.append(' ', externalLink('pr-changed-since-link', 'Compare changes', changedSinceReviewUrl(draft), 'Open the commits since this review on GitHub'));
+  const line = el('p', 'pr-changed-since');
+  line.append(withHoverTip(el('span', null, text), changedSinceReviewTip(draft)), ' ', externalLink('pr-changed-since-link', 'Compare changes', changedSinceReviewUrl(draft), 'Open the commits since this review on GitHub'));
   return [line];
 }
 
@@ -447,7 +455,7 @@ function createDeskFacts(draft: ReviewDraft): HTMLElement {
   const list = el('dl', 'pr-fact-list');
   const compareUrl = changedSinceReviewUrl(draft);
   const sinceReview = compareUrl
-    ? [changedSinceReviewText(draft) ?? '', ' ', externalLink('pr-changed-since-link', 'Compare changes', compareUrl, 'Open the commits since this review on GitHub')]
+    ? [withHoverTip(el('span', null, changedSinceReviewText(draft) ?? ''), changedSinceReviewTip(draft)), ' ', externalLink('pr-changed-since-link', 'Compare changes', compareUrl, 'Open the commits since this review on GitHub')]
     : ['No new commits'];
   list.append(
     createFactRow('Checks', checksText(draft.checksState)),

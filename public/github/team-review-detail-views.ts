@@ -4,7 +4,7 @@ import type { InFlightReview, QueuedReview, ReviewDraft, TeamReviewAction } from
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { el, externalLink } from '../dom-helpers.ts';
 import { formatTrailOffset } from '../radar/radar-core.ts';
-import { THREAD_COMMENT_PREVIEW_LINES, THREAD_REPLY_PREVIEW_LINES, threadBodyOverflowsPreview, detailThreadItems, actionProgressText, attentionDetail, buildActionRequest, buildReadyDecisionRequest, detailActionLayout, isIncludedByDefault, isSelectionRequired, isSeverityIncludedByDefault, generalFindingsOf, hasSelection, hasRequeueFooter, inFlightProgressText, leadingDecision, pickedDecisionText, postedOutcomeText, postingPreview, queuedDetailText, readyRowSignature, reviewProgressSteps } from './team-review-view-core.ts';
+import { THREAD_COMMENT_PREVIEW_LINES, THREAD_REPLY_PREVIEW_LINES, threadBodyOverflowsPreview, detailThreadItems, actionProgressText, attentionDetail, attentionNextStep, buildActionRequest, buildReadyDecisionRequest, detailActionLayout, isIncludedByDefault, isSelectionRequired, isSeverityIncludedByDefault, generalFindingsOf, hasSelection, hasRequeueFooter, inFlightProgressText, leadingDecision, pickedDecisionText, postedOutcomeText, postingPreview, queuedDetailText, readyRowSignature, reviewProgressSteps } from './team-review-view-core.ts';
 import type { ReadyDecisionControl, ReviewSelection } from './team-review-view-core.ts';
 import { reviewPostChordText } from '../shortcuts-core.ts';
 import { SHORTCUT_PLATFORM } from '../shortcuts.ts';
@@ -314,6 +314,8 @@ function createOtherDetail(draft: ReviewDraft): HTMLElement {
   detail.append(...createThreadDetails(draft));
   if (draft.status === 'posted') detail.append(createVerdictBlock(draft));
   if (draft.status !== 'posted') detail.append(el('p', 'pr-attention-detail', attentionDetail(draft)));
+  const nextStep = attentionNextStep(draft);
+  if (nextStep) detail.append(el('p', 'pr-attention-detail pr-attention-next', nextStep));
   if (draft.status === 'stale') detail.append(...createChangedSinceReview(draft));
   if (!hasRequeueFooter(draft.status)) {
     _otherDetails.set(draft.key, { signature: otherDetailSignature(draft), element: detail, settle: () => {} });
