@@ -422,7 +422,7 @@ async function verifyRailArrowsReachBoardRows(page: Page): Promise<void> {
 }
 
 async function verifyPaneTerminalTabOwnsTheFace(page: Page, card: Locator): Promise<void> {
-  assert.equal(await card.locator('.card-face-tabs > .card-face-tab:not(.card-face-tab-shown)').isVisible(), false, 'a centered card shows Terminal once, on the pane tab');
+  assert.equal(await page.locator('.card-face-tabs').count(), 0, 'Terminal shows once, on the pane tab, with no view tabs beside it');
   const sessionId = await card.getAttribute('data-id');
   const isPlanShown = await page.evaluate(async (id) => {
     const cardFacesUrl = '/session-card/card-faces.ts';

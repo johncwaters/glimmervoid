@@ -1,7 +1,7 @@
 import type { UnseenOutcome } from '#shared/contracts/session.ts';
 import { STATES } from '#shared/states.ts';
 import { hasSessionDocs } from '../doc-editor.ts';
-import { onShownFilesArrivedLive, paintShownTabs } from '../shown-files.ts';
+import { onShownFilesArrivedLive } from '../shown-files.ts';
 import { placeShownChips } from './shown-chip.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { isMonitoringState } from '../dom-helpers.ts';
@@ -29,7 +29,7 @@ import { currentTerminalFontFamily } from '../mono-font.ts';
 import { applyTerminalFontFamily } from '../mono-font-core.ts';
 import { createDeferredPlanFace, loadedPlanFaceModule } from './deferred-loads.ts';
 import { reportSessionProblem } from './card-problems.ts';
-import { showSessionShownFace, updateButtonVisibility } from './card-faces.ts';
+import { updateButtonVisibility } from './card-faces.ts';
 import { wireCardEvents } from './card-events.ts';
 import { cancelWatchedCompletionDismiss, holdThenDismissWatchedCompletion, isCompletionWatchedAt } from './watched-completion.ts';
 
@@ -100,7 +100,6 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     sessionUi.card.dataset.face = 'terminal';
     sessionUi.termWrap.hidden = false;
     sessionUi.planFace.hide();
-    sessionUi.shownFace?.hide();
     updateButtonVisibility(sessionUi);
     ensureTerminalReady(sessionUi, id);
   }
@@ -140,9 +139,6 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     btnTrace: dom.btnTrace,
     btnPlan: dom.btnPlan,
     btnDocs: dom.btnDocs,
-    btnTerminalTab: dom.btnTerminalTab,
-    btnShownTab: dom.btnShownTab,
-    shownUnopenedCount: dom.shownUnopenedCount,
     btnRemove: dom.btnRemove,
     debugOverlay: null,
     debugOpen: false,
@@ -154,11 +150,9 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     pendingPromptKind: null,
     planReviewState: { reviews: [] },
     planFace,
-    shownFace: null,
   };
   sessionUi._ensureTerminalReady = () => ensureTerminalReady(sessionUi, id);
   sessionUi._showTerminalFace = showTerminalFace;
-  sessionUi._showShownFace = (fileId) => showSessionShownFace(id, fileId);
   sessionUi._showPreferredFace = showTerminalFace;
   sessionUi._setBorrowed = (isBorrowed) => {
     sessionUi.isBorrowed = isBorrowed;
@@ -175,7 +169,6 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
   wireCardEvents(sessionUi, id);
   updateButtonVisibility(sessionUi);
   sessionUi.btnDocs.hidden = !hasSessionDocs(id);
-  paintShownTabs(id);
 
   if (state === STATES.RUNNING) setRunningActivity(sessionUi, true);
 

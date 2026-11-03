@@ -144,7 +144,7 @@
     },
     {
       "atMs": 25500,
-      "click": ".card-face-tab-shown",
+      "click": "[data-action=\"open-shown\"]",
       "clickIn": "bundle-size-chart"
     },
     {

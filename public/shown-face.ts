@@ -2,7 +2,6 @@ import type { ShownFile } from '#shared/contracts/session.ts';
 import { el } from './dom-helpers.ts';
 import { formatAgo } from './poll-ago.ts';
 import { createSandboxedFrame } from './sandboxed-frame.ts';
-import { sessionUIs } from './session-card/card-registry.ts';
 import { shownFilesOf, shownThumbnailUrl } from './shown-files.ts';
 import { BACK_ICON_PATH, FORWARD_ICON_PATH, MINUS_ICON_PATH, PLUS_ICON_PATH, createLineIcon } from './svg-dom.ts';
 import { button } from './ui/button.ts';
@@ -118,7 +117,7 @@ function buildStepPlate(stepButton: HTMLButtonElement, className: string): HTMLE
   return plate;
 }
 
-export function createShownFace({ sessionId }: { sessionId: string }) {
+export function createShownFace({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
   const face = el('section', 'shown-face');
   face.hidden = true;
   face.tabIndex = -1;
@@ -143,7 +142,8 @@ export function createShownFace({ sessionId }: { sessionId: string }) {
   const details = el('div', 'shown-details');
   const detailText = el('div', 'shown-detail-text');
   detailText.append(caption, meta);
-  details.append(detailText, zoomControls, position, btnOpenFullSize);
+  const btnClose = button({ variant: 'secondary', size: 'small', label: 'Close', action: 'close-shown', onClick: onClose });
+  details.append(detailText, zoomControls, position, btnOpenFullSize, btnClose);
   const strip = el('div', 'shown-strip');
   strip.setAttribute('aria-label', 'Shown files');
   face.append(stageFrame, details, strip);
@@ -456,13 +456,6 @@ export function createShownFace({ sessionId }: { sessionId: string }) {
     if (sendPageZoom('in')) return;
     zoomAroundFocal(zoomView.scale * BUTTON_ZOOM_FACTOR, { x: 0, y: 0 });
   });
-  function leaveOnEscape(): void {
-    if (!btnZoomFit.disabled) {
-      btnZoomFit.click();
-      return;
-    }
-    sessionUIs.get(sessionId)?._showTerminalFace?.();
-  }
   btnZoomFit.addEventListener('click', () => {
     if (sendPageZoom('fit')) return;
     applyZoom(FIT_VIEW);
@@ -486,9 +479,10 @@ export function createShownFace({ sessionId }: { sessionId: string }) {
   });
   face.addEventListener('keydown', (event) => {
     if (event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
+    if (event.key === 'Escape' && btnZoomFit.disabled) return;
     if (event.key === 'Escape') {
       event.preventDefault();
-      leaveOnEscape();
+      btnZoomFit.click();
       return;
     }
     const offsetByKey: Record<string, number> = { ArrowLeft: -1, ArrowRight: 1 };

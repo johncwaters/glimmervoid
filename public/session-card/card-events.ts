@@ -11,7 +11,7 @@ import { requestSessionRemoval } from '../session-actions.ts';
 import { openWorkspaceReposDialog } from './workspace-repos-dialog.ts';
 import { wirePopupMenuKeys } from '../menu.ts';
 import { loadResumeDialog } from './deferred-loads.ts';
-import { showSessionPlanFace, showSessionShownFace } from './card-faces.ts';
+import { showSessionPlanFace } from './card-faces.ts';
 
 function closeSessionMenu(ui: SessionUi) {
   ui.sessionMenu.classList.remove('open');
@@ -55,16 +55,6 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
   ui.btnDocs.addEventListener('click', () => {
     closeSessionMenu(ui);
     openDocEditor(sessionId);
-  });
-
-  ui.btnTerminalTab.addEventListener('click', () => {
-    closeSessionMenu(ui);
-    ui._showTerminalFace?.();
-  });
-
-  ui.btnShownTab.addEventListener('click', () => {
-    closeSessionMenu(ui);
-    showSessionShownFace(sessionId, null);
   });
 
   ui.btnPlan.addEventListener('click', () => {

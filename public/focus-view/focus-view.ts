@@ -520,23 +520,15 @@ function flashAttention(id: string) {
 function borrowToCenter(ui: SessionUi, id: string) {
   if (!cardSlotEl) return;
   const header = ui.card.querySelector<HTMLElement>(':scope > .session-card-header');
-  const actions = header?.querySelector<HTMLElement>(':scope > .session-actions') ?? null;
-  const faceTabs = ui.btnShownTab.parentElement;
-  borrowCard(ui, id, cardSlotEl, { className: 'focus-centered', onRelease: () => returnFaceTabsAndStrip(actions, faceTabs) });
-  if (header) moveTabsToHeaderStart(header, faceTabs);
+  borrowCard(ui, id, cardSlotEl, { className: 'focus-centered', onRelease: () => paneLayout?.setStripHost('terminal', null) });
+  if (header) moveStripToHeaderStart(header);
   paneLayout?.setTabTitle('terminal', () => terminalTabTitle(ui));
   setTerminalActiveViewer(ui, id, true);
 }
 
-function moveTabsToHeaderStart(header: HTMLElement, faceTabs: HTMLElement | null) {
+function moveStripToHeaderStart(header: HTMLElement) {
   const firstOwnChild = header.querySelector<HTMLElement>(':scope > .session-name');
   paneLayout?.setStripHost('terminal', { parent: header, before: firstOwnChild });
-  if (faceTabs) header.insertBefore(faceTabs, firstOwnChild);
-}
-
-function returnFaceTabsAndStrip(actions: HTMLElement | null, faceTabs: HTMLElement | null) {
-  if (actions && faceTabs) actions.prepend(faceTabs);
-  paneLayout?.setStripHost('terminal', null);
 }
 
 function showTerminalFaceOnTerminalTab(event: MouseEvent) {
