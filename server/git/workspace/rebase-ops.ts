@@ -11,7 +11,7 @@ const fsp = fs.promises;
 function createRebaseOps(context: GitWorkspaceContext, origin: OriginOps) {
   const { run, runUntrusted, rerereEnabled } = context;
   const { tearDownWorktree } = context.worktrees;
-  const { synchronizeBaseWithOrigin, pushBaseToOrigin, classifyBaseAgainstOrigin } = origin;
+  const { synchronizeBaseWithOrigin, pushBaseToOrigin } = origin;
 
   function joinWarnings(...warnings: (string | null)[]): string | null {
     const presentWarnings = warnings.filter((warning): warning is string => !!warning);
@@ -279,10 +279,9 @@ function createRebaseOps(context: GitWorkspaceContext, origin: OriginOps) {
   async function resolvePushedRebaseTarget(projectPath: string, target: string): Promise<string | null> {
     const localSha = (await run(['rev-parse', '--verify', '--quiet', `refs/heads/${target}`], projectPath)).out;
     if (!localSha) return null;
-    const { state, upstream } = await classifyBaseAgainstOrigin(projectPath, target, localSha);
-    if (state === 'unknown') return null;
-    if (state !== 'ahead' && state !== 'diverged') return localSha;
-    return (await run(['rev-parse', '--verify', '--quiet', `refs/remotes/${upstream}`], projectPath)).out || null;
+    const originRef = `refs/remotes/origin/${target}`;
+    if (!(await run(['rev-parse', '--verify', '--quiet', originRef], projectPath)).ok) return localSha;
+    return (await run(['merge-base', localSha, originRef], projectPath)).out || localSha;
   }
 
   async function rebaseOnlyBody({ projectPath, workspace, targetBranch }: WorktreeArgs): Promise<RebaseOutcome> {
