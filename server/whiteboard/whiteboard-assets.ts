@@ -8,7 +8,7 @@ import { errorMessage } from '../../shared/text.ts';
 
 const ASSETS_FOLDER_NAME = 'assets';
 const ASSET_INPUT_CAP_BYTES = 25 * 1024 * 1024;
-const ASSET_MAX_EDGE_PX = 1600;
+const ASSET_MAX_EDGE_PX = 1024;
 const ASSET_WEBP_QUALITY = 85;
 const ASSET_FILE_MODE = 0o600;
 const ASSET_EXTENSION = '.webp';

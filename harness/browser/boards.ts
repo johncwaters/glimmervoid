@@ -65,7 +65,7 @@ async function verifyDroppedPicture(panel: Locator): Promise<void> {
     await preview.decode();
     return preview.naturalWidth;
   });
-  assert.equal(previewWidth, 1600, 'a dropped picture draws from the capped preview');
+  assert.equal(previewWidth, 1024, 'a dropped picture draws from the capped preview');
   await picture.click();
   const viewer = panel.page().locator('.wb-image-viewer');
   const enlarged = viewer.locator('img.wb-image-viewer-picture');
