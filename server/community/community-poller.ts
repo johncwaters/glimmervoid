@@ -65,9 +65,9 @@ function createCommunityPoller({
     }
     const fetched = await queryForum(watermark);
     if (!fetched.ok) return fetched.error;
-    const { items, droppedRows } = core.forumItemsFromRows(fetched.rows);
+    const { items, droppedRows, newestRowAt } = core.forumItemsFromRows(fetched.rows);
     if (droppedRows > 0) log.warn(`[${core.COMMUNITY_LANE_ID}] dropped ${droppedRows} malformed forum row(s)`);
-    state = core.admitSourceItems(state, 'forum', items, nowIso).state;
+    state = core.withWatermarkAtLeast(core.admitSourceItems(state, 'forum', items, nowIso).state, 'forum', newestRowAt);
     return null;
   }
 

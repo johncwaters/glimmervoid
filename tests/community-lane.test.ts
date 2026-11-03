@@ -15,6 +15,11 @@ import { UNTRUSTED_PAYLOAD_FILENAME, UNTRUSTED_PREAMBLE, UntrustedPayload } from
 
 const ENABLED_AT = Date.parse('2026-10-28T12:00:00Z');
 
+function pageCommentThreadRow(id: number, createdAt: string): Record<string, unknown> {
+  const row = forumRow(id, createdAt, 'reply under a blog post');
+  return { ...row, attributes: String(row.attributes).replace(/"forumTopic":\{.*?\}\}\}/, '"forumTopic":{"data":null}') };
+}
+
 function forumRow(id: number, createdAt: string, subject: string): Record<string, unknown> {
   return {
     id,
@@ -48,7 +53,7 @@ const HIGH_REPORT = [
   'The docs answer it.',
 ].join('\n');
 
-test('community lane queues only questions asked after enabling, whatever their status, and keeps them across a restart', async () => {
+test('community lane queues only forum posts asked after enabling, whatever their status, reads past page comment threads, and keeps them across a restart', async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'community-lane-'));
   const statePath = path.join(directory, 'community-state.json');
   let currentMs = ENABLED_AT;
@@ -68,6 +73,7 @@ test('community lane queues only questions asked after enabling, whatever their 
     forumRows = [
       forumRow(2, '2026-10-28T12:01:00Z', 'resolved question with many replies'),
       { id: 3, attributes: '{not json' },
+      pageCommentThreadRow(6, '2026-10-28T12:03:00Z'),
     ];
     await firstRun.tick();
     await firstRun.stop();
@@ -88,8 +94,8 @@ test('community lane queues only questions asked after enabling, whatever their 
     await restarted.start();
     await restarted.stop();
     assert.deepEqual(Object.keys(restarted.state().entries), ['forum:2']);
-    assert.equal(restarted.state().watermarks.forum, '2026-10-28T12:01:00.000Z');
-    assert.equal(askedSince.at(-1), '2026-10-28T12:01:00.000Z');
+    assert.equal(restarted.state().watermarks.forum, '2026-10-28T12:03:00.000Z');
+    assert.equal(askedSince.at(-1), '2026-10-28T12:03:00.000Z');
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }
