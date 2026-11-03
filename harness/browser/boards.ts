@@ -65,7 +65,9 @@ async function verifyDroppedPicture(panel: Locator): Promise<void> {
   const viewer = panel.page().locator('.wb-image-viewer');
   const enlarged = viewer.locator('img.wb-image-viewer-picture');
   await enlarged.waitFor();
-  assert.ok(await enlarged.evaluate((node) => node instanceof HTMLImageElement && node.complete && node.naturalWidth === 400), 'a clicked picture opens at its stored size');
+  const naturalWidth = await enlarged.evaluate(async (node) => (node instanceof HTMLImageElement ? node.decode().then(() => node.naturalWidth) : 0));
+  assert.equal(naturalWidth, 400, 'a clicked picture opens the stored picture');
+  assert.ok(await enlarged.evaluate((node) => node.getBoundingClientRect().width > window.innerWidth * 0.8), 'the viewer scales a picture up to fill the screen');
   await panel.page().keyboard.press('Escape');
   await viewer.waitFor({ state: 'detached' });
   await panel.getByRole('button', { name: 'undo', exact: true }).click();
