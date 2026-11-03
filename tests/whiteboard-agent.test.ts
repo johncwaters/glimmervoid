@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import type { Server } from 'node:http';
 import { z } from 'zod';
 
@@ -686,7 +688,7 @@ test('a stored file keeps the preview it was stored with when attached again aft
   assert.equal(restartedAgain.assets.mismatchOf(clip.media), null);
 });
 
-test('a video whose ffmpeg crashes is kept without a first frame, while one whose ffmpeg is killed is refused so it can be attached again', { skip: process.platform === 'win32' }, async () => {
+test('a video whose ffmpeg crashes or cannot decode it is kept without a first frame, while one whose ffmpeg is killed or runs out of disk is refused so it can be attached again', { skip: process.platform === 'win32' }, async () => {
   const ffmpegPath = resolveFfmpegPath();
   assert.ok(ffmpegPath, 'ffmpeg-static is installed');
   const workRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'poster-failure-'));
@@ -695,17 +697,45 @@ test('a video whose ffmpeg crashes is kept without a first frame, while one whos
   const attachScriptPath = path.join(workRoot, 'attach.ts');
   const assetsModuleUrl = new URL('../server/whiteboard/whiteboard-assets.ts', import.meta.url).href;
   fs.writeFileSync(attachScriptPath, `import { createWhiteboardAssetStore } from ${JSON.stringify(assetsModuleUrl)};\nconst store = createWhiteboardAssetStore({ boardsRoot: process.argv[2] });\nawait store.loaded;\nconsole.log(JSON.stringify(await store.ingestFile(process.argv[3])));\n`);
-  const attachWithFfmpegStoppedBy = async (signal: string) => {
-    const fakeFfmpegPath = path.join(workRoot, `ffmpeg-${signal}`);
-    fs.writeFileSync(fakeFfmpegPath, `#!/bin/sh\nkill -${signal} $$\n`, { mode: 0o755 });
+  const attachWithFakeFfmpeg = async (name: string, script: string) => {
+    const fakeFfmpegPath = path.join(workRoot, `ffmpeg-${name}`);
+    fs.writeFileSync(fakeFfmpegPath, `#!/bin/sh\n${script}\n`, { mode: 0o755 });
     const { stdout } = await execFileAsync(process.execPath, [attachScriptPath, fs.mkdtempSync(path.join(workRoot, 'boards-')), clipPath], { env: { ...process.env, FFMPEG_BIN: fakeFfmpegPath } });
     return JSON.parse(stdout) as { ok: boolean; status?: number; media?: { hasPreview: boolean } };
   };
-  const crashed = await attachWithFfmpegStoppedBy('SEGV');
-  assert.equal(crashed.ok, true, JSON.stringify(crashed));
-  assert.equal(crashed.media?.hasPreview, false);
-  const killed = await attachWithFfmpegStoppedBy('KILL');
-  assert.deepEqual([killed.ok, killed.status], [false, 503]);
+  for (const [name, script] of [['crash', 'kill -SEGV $$'], ['undecodable', 'echo "Invalid data found when processing input" >&2; exit 1']]) {
+    const kept = await attachWithFakeFfmpeg(name, script);
+    assert.deepEqual([name, kept.ok, kept.media?.hasPreview], [name, true, false], JSON.stringify(kept));
+  }
+  for (const [name, script] of [['killed', 'kill -KILL $$'], ['disk-full', 'echo "Error writing trailer: No space left on device" >&2; exit 1']]) {
+    const refused = await attachWithFakeFfmpeg(name, script);
+    assert.deepEqual([name, refused.ok, refused.status], [name, false, 503], JSON.stringify(refused));
+  }
+});
+
+test('a large picture whose preview write runs out of disk is refused so it can be attached again, while one whose preview cannot be made is kept', async () => {
+  const { default: sharp } = await import('sharp');
+  const workRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'preview-failure-'));
+  const picturePath = path.join(workRoot, 'wide.png');
+  await sharp({ create: { width: 2400, height: 1200, channels: 3, background: '#336699' } }).png().toFile(picturePath);
+  const realSharpUrl = pathToFileURL(createRequire(import.meta.url).resolve('sharp')).href;
+  const attachScriptPath = path.join(workRoot, 'attach.ts');
+  const assetsModuleUrl = new URL('../server/whiteboard/whiteboard-assets.ts', import.meta.url).href;
+  fs.writeFileSync(attachScriptPath, `import { createWhiteboardAssetStore } from ${JSON.stringify(assetsModuleUrl)};\nconst store = createWhiteboardAssetStore({ boardsRoot: process.argv[2] });\nawait store.loaded;\nconsole.log(JSON.stringify(await store.ingestFile(process.argv[3])));\n`);
+  const attachWithPreviewWriteFailing = async (name: string, failure: { message: string; code?: string }) => {
+    const failingSharpPath = path.join(workRoot, `sharp-${name}.mjs`);
+    fs.writeFileSync(failingSharpPath, `import realSharp from ${JSON.stringify(realSharpUrl)};\nexport default function sharp(...options) {\n  const pipeline = realSharp(...options);\n  pipeline.toFile = () => Promise.reject(Object.assign(new Error(${JSON.stringify(failure.message)}), ${JSON.stringify(failure.code ? { code: failure.code } : {})}));\n  return pipeline;\n}\n`);
+    const hooksPath = path.join(workRoot, `hooks-${name}.mjs`);
+    fs.writeFileSync(hooksPath, `export async function resolve(specifier, context, nextResolve) {\n  if (specifier === 'sharp') return { url: ${JSON.stringify(pathToFileURL(failingSharpPath).href)}, shortCircuit: true };\n  return nextResolve(specifier, context);\n}\n`);
+    const registerPath = path.join(workRoot, `register-${name}.mjs`);
+    fs.writeFileSync(registerPath, `import { register } from 'node:module';\nregister(${JSON.stringify(pathToFileURL(hooksPath).href)});\n`);
+    const { stdout } = await execFileAsync(process.execPath, ['--import', registerPath, attachScriptPath, fs.mkdtempSync(path.join(workRoot, 'boards-')), picturePath]);
+    return JSON.parse(stdout) as { ok: boolean; status?: number; media?: { hasPreview: boolean } };
+  };
+  const diskFull = await attachWithPreviewWriteFailing('disk-full', { message: 'write failed', code: 'ENOSPC' });
+  assert.deepEqual([diskFull.ok, diskFull.status], [false, 503], JSON.stringify(diskFull));
+  const unreadable = await attachWithPreviewWriteFailing('unreadable', { message: 'Input file has corrupt header' });
+  assert.deepEqual([unreadable.ok, unreadable.media?.hasPreview], [true, false], JSON.stringify(unreadable));
 });
 
 test('a photo turned by its EXIF orientation is sized and drawn upright for the agent picture', async () => {
