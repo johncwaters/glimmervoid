@@ -5,8 +5,11 @@ import { Session } from '../../session/sessions.ts';
 import type { SessionOptions } from '../../session/sessions.ts';
 import { resolveHookTools as resolveSharedHookTools, resolveRequiredSaneYoloHookTools } from '../hook-tools.ts';
 import type { HookToolConfig } from '../hook-tools.ts';
+import type { ResolvedHookTool } from '../../session/core/hook-tools.ts';
 import { trailStepFromHook } from '../core/investigation-trail-core.ts';
-import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, LANE_CREDENTIAL_ENV, withAllowRules } from '../lanes/core/lane-permissions-core.ts';
+import { ACCEPT_EDITS_MODE, CLOSED_LANE_ACCESS_CONFIG, LANE_CONFIG_EDIT_DENY_RULES, laneAccess, withAllowRules, withLaneAccessRules } from '../lanes/core/lane-permissions-core.ts';
+import type { LaneAccess, LaneAccessConfig } from '../lanes/core/lane-permissions-core.ts';
+import { makeLaneGhConfigDirectory } from '../lanes/lane-spawn.ts';
 import { prepareLaneMcp } from '../lanes/lane-mcp.ts';
 import { DEFAULT_AGENT_ID } from '../../session/adapters/index.ts';
 import * as core from './core/team-review-core.ts';
@@ -15,18 +18,13 @@ import type { RecordLane, SpawnGate } from '../lanes/ephemeral-session.ts';
 import type { UserHook } from '../../session/core/user-hooks-core.ts';
 
 const TEAM_REVIEW_DENY_RULES = Object.freeze([
-  'Bash(gh:*)',
   'Bash(git push:*)',
-  'Bash(curl:*api.github.com*)',
   'Edit',
   'NotebookEdit',
-  'WebFetch',
-  'WebSearch',
 ]);
+const UNSCOPED_SHELL_TOOL = 'Bash';
 
 const TEAM_REVIEW_SESSION_DENY_RULES = Object.freeze([...TEAM_REVIEW_DENY_RULES, ...LANE_CONFIG_EDIT_DENY_RULES]);
-
-const EMPTY_GH_CONFIG_DIRNAME = 'gh-config';
 
 const PUSH_DISABLED_URL = 'https://push-disabled.invalid/';
 
@@ -56,21 +54,8 @@ function teamReviewAcceptEditsPermissions(): { deny: string[]; defaultMode: stri
   return { deny: [...TEAM_REVIEW_SESSION_DENY_RULES], defaultMode: ACCEPT_EDITS_MODE };
 }
 
-function emptyGhConfigDir(workDir: string): string {
-  return path.join(workDir, EMPTY_GH_CONFIG_DIRNAME);
-}
-
-function teamReviewSpawnEnv(workDir: string): Record<string, string> {
+function teamReviewSpawnEnv(): Record<string, string> {
   return {
-    GH_TOKEN: '',
-    GITHUB_TOKEN: '',
-    GH_ENTERPRISE_TOKEN: '',
-    GITHUB_ENTERPRISE_TOKEN: '',
-    GH_CONFIG_DIR: emptyGhConfigDir(workDir),
-    GIT_TERMINAL_PROMPT: '0',
-    GIT_ASKPASS: '',
-    SSH_ASKPASS: '',
-    GIT_SSH_COMMAND: 'false',
     GIT_CONFIG_NOSYSTEM: '1',
     GIT_CONFIG_COUNT: '2',
     GIT_CONFIG_KEY_0: 'credential.helper',
@@ -83,9 +68,9 @@ function teamReviewSpawnEnv(workDir: string): Record<string, string> {
   };
 }
 
-function hooksPathPinnedSpawnEnv(workDir: string): Record<string, string> {
+function hooksPathPinnedSpawnEnv(): Record<string, string> {
   return {
-    ...teamReviewSpawnEnv(workDir),
+    ...teamReviewSpawnEnv(),
     GIT_CONFIG_COUNT: '3',
     GIT_CONFIG_KEY_2: 'core.hooksPath',
     GIT_CONFIG_VALUE_2: '',
@@ -109,6 +94,7 @@ function createTeamReviewSpawn({
   hookToolConfig = null,
   resolveHookTools = resolveSharedHookTools,
   prepareMcp = prepareLaneMcp,
+  getLaneAccessConfig = () => CLOSED_LANE_ACCESS_CONFIG,
 }: {
   reviewSessions: Map<string, unknown>;
   closeSessionDataClients: (id: string) => void;
@@ -122,51 +108,66 @@ function createTeamReviewSpawn({
   hookToolConfig?: HookToolConfig | null;
   resolveHookTools?: typeof resolveSharedHookTools;
   prepareMcp?: typeof prepareLaneMcp;
+  getLaneAccessConfig?: () => LaneAccessConfig;
 }): TeamReviewSpawn {
   return async function spawnTeamReviewSession({ id, name, cwd, spawnEnv, extraClaudeArgs, settingsPermissions, signal, onToolStep, onSessionId, resumeSessionId, initialPrompt, agent, extraUserHooks, prependPathDirs }) {
     const skipPermissions = settingsPermissions.defaultMode === 'bypassPermissions';
     const sharedHookTools = hookRouter ? resolveRequiredSaneYoloHookTools(hookToolConfig?.saneYoloUnreadablePaths ?? [], { resolve: resolveHookTools }) : [];
     if (sharedHookTools === null) throw new Error(`${laneName} lane cannot start: Sane YOLO is unavailable`);
-    const laneMcp = hookRouter ? await prepareMcp({ laneArgs: extraClaudeArgs, agent: agent ?? DEFAULT_AGENT_ID }) : null;
-    const sess = makeSession({
-      id,
-      name,
-      path: cwd,
-      ...(agent ? { agent } : {}),
-      spawnEnv: { ...spawnEnv, ...LANE_CREDENTIAL_ENV },
-      dangerouslySkipPermissions: skipPermissions,
-      ...(laneMcp?.posture.bypassHookTrust ? { bypassHookTrust: true } : {}),
-      hookTools: laneMcp ? [...sharedHookTools, laneMcp.posture.hookTool] : sharedHookTools,
-      extraClaudeArgs: laneMcp ? [...extraClaudeArgs, ...laneMcp.posture.args] : extraClaudeArgs,
-      ...(extraUserHooks ? { extraUserHooks } : {}),
-      ...(prependPathDirs ? { prependPathDirs } : {}),
-      initialPrompt: initialPrompt === undefined ? core.REVIEW_BOOTSTRAP_PROMPT : initialPrompt,
-      resumeSessionId,
-      ephemeral: true,
-      requiresHooks: true,
-      observeToolCalls: onToolStep !== undefined,
-      settingsPermissions: laneMcp ? withAllowRules(settingsPermissions, laneMcp.posture.allowRules) : settingsPermissions,
-      replayBufferKB,
-      hookRouter,
-      getHookPort,
-    });
-    registerEphemeralSession({
-      map: reviewSessions, id, sess, closeSessionDataClients, logPrefix: laneName, name, recordLane,
-    });
-    if (onSessionId) sess.on('claude-session-id', ({ id: capturedId }: { id: string }) => onSessionId(capturedId));
-    if (onToolStep) {
-      sess.on('hook-event', ({ event, payload }: { event: string; payload: Record<string, unknown> }) => {
-        const step = trailStepFromHook(event, payload);
-        if (step) onToolStep(step);
-      });
-    }
+    const grantsUnscopedShell = skipPermissions || extraClaudeArgs.includes(UNSCOPED_SHELL_TOOL) || (settingsPermissions.allow ?? []).includes(UNSCOPED_SHELL_TOOL);
+    const { readToken, extraFetchDomains } = getLaneAccessConfig();
+    const laneGhConfig = await makeLaneGhConfigDirectory();
     try {
-      await awaitSessionExit(sess, { signal, spawnGate });
+      await runTeamReviewSession(sharedHookTools, laneAccess({
+        agent: agent ?? DEFAULT_AGENT_ID, readToken: grantsUnscopedShell ? null : readToken, extraFetchDomains, ghConfigDir: laneGhConfig.path, inheritedEnv: { ...process.env, ...spawnEnv },
+      }));
     } finally {
-      if (laneMcp) await laneMcp.cleanup();
+      await laneGhConfig.remove();
+    }
+
+    async function runTeamReviewSession(saneYoloHookTools: readonly ResolvedHookTool[], access: LaneAccess): Promise<void> {
+      const accessPermissions = withLaneAccessRules(settingsPermissions, access);
+      const laneMcp = hookRouter ? await prepareMcp({ laneArgs: extraClaudeArgs, agent: agent ?? DEFAULT_AGENT_ID }) : null;
+      const sess = makeSession({
+        id,
+        name,
+        path: cwd,
+        ...(agent ? { agent } : {}),
+        spawnEnv: { ...spawnEnv, ...access.env },
+        dangerouslySkipPermissions: skipPermissions,
+        ...(laneMcp?.posture.bypassHookTrust ? { bypassHookTrust: true } : {}),
+        hookTools: laneMcp ? [...saneYoloHookTools, laneMcp.posture.hookTool] : [...saneYoloHookTools],
+        extraClaudeArgs: laneMcp ? [...extraClaudeArgs, ...laneMcp.posture.args] : extraClaudeArgs,
+        ...(extraUserHooks ? { extraUserHooks } : {}),
+        ...(prependPathDirs ? { prependPathDirs } : {}),
+        initialPrompt: initialPrompt === undefined ? core.REVIEW_BOOTSTRAP_PROMPT : initialPrompt,
+        resumeSessionId,
+        ephemeral: true,
+        requiresHooks: true,
+        observeToolCalls: onToolStep !== undefined,
+        settingsPermissions: laneMcp ? withAllowRules(accessPermissions, laneMcp.posture.allowRules) : accessPermissions,
+        replayBufferKB,
+        hookRouter,
+        getHookPort,
+      });
+      registerEphemeralSession({
+        map: reviewSessions, id, sess, closeSessionDataClients, logPrefix: laneName, name, recordLane,
+      });
+      if (onSessionId) sess.on('claude-session-id', ({ id: capturedId }: { id: string }) => onSessionId(capturedId));
+      if (onToolStep) {
+        sess.on('hook-event', ({ event, payload }: { event: string; payload: Record<string, unknown> }) => {
+          const step = trailStepFromHook(event, payload);
+          if (step) onToolStep(step);
+        });
+      }
+      try {
+        await awaitSessionExit(sess, { signal, spawnGate });
+      } finally {
+        if (laneMcp) await laneMcp.cleanup();
+      }
     }
   };
 }
 
-export { TEAM_REVIEW_SESSION_DENY_RULES, teamReviewAcceptEditsPermissions, emptyGhConfigDir, hooksPathPinnedSpawnEnv, makeTeamReviewWorkDir, createTeamReviewSpawn };
+export { TEAM_REVIEW_SESSION_DENY_RULES, teamReviewAcceptEditsPermissions, hooksPathPinnedSpawnEnv, makeTeamReviewWorkDir, createTeamReviewSpawn };
 export type { TeamReviewWorkDir, TeamReviewSpawn };

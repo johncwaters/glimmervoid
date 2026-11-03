@@ -325,7 +325,7 @@ test('resume uses the saved cwd and session with the remaining timeout without s
     assert.equal(spawns[0]?.resumeSessionId, 'claude-1');
     assert.equal(spawns[0]?.initialPrompt, REVIEW_RESUME_PROMPT);
     assert.equal(spawns[0]?.cwd, workDir);
-    assert.deepEqual(spawns[0]?.spawnEnv, hooksPathPinnedSpawnEnv(workDir));
+    assert.deepEqual(spawns[0]?.spawnEnv, hooksPathPinnedSpawnEnv());
     const reviewArgsSpawned = spawns[0]?.extraClaudeArgs ?? [];
     assert.deepEqual(reviewArgsSpawned.slice(0, 2), ['-p', '--allowedTools']);
     assert.equal(reviewArgsSpawned.includes('Bash'), false);
@@ -694,7 +694,7 @@ test('discarding a saved review reaps its processes before removing its director
   let discardSavedReview: ((record: ResumableReview) => Promise<void>) | undefined;
   const pollerCreated = deferredSignal();
   const wiring = createTeamReviewWiring({
-    config: { teamReview: { enabled: true, org: 'Acme', team: 'core' } },
+    config: { github: { readToken: 'read-token' }, teamReview: { enabled: true, org: 'Acme', team: 'core' } },
     store: emptyGithubStore(),
     reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
     spawnGate: { run: async (task) => task() }, homeDir, log: { warn: () => {} },
@@ -860,7 +860,7 @@ test('a pull request session starts from the main checkout under a repo root eve
   git(['remote', 'set-url', 'origin', 'https://github.com/Acme/app'], bareClone);
   git(['worktree', 'add', '-q', bareCloneWorktree], bareClone);
   const wiring = createTeamReviewWiring({
-    config: { teamReview: { enabled: true, org: 'Acme', team: 'core' }, projects: [{ path: bareCloneWorktree }], repoRoots: [root] },
+    config: { github: { readToken: 'read-token' }, teamReview: { enabled: true, org: 'Acme', team: 'core' }, projects: [{ path: bareCloneWorktree }], repoRoots: [root] },
     store: {
       ...emptyGithubStore(),
       requestPrHead: async () => ({ isRateLimited: false, value: HEAD }),

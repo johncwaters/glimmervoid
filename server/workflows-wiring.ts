@@ -15,7 +15,7 @@ import { createLaneRunner } from './lanes/lane-runner.ts';
 import type { SharedClock } from './lanes/lane-runner.ts';
 import type { createGuardedPrStaging } from './github/my-prs-wiring.ts';
 import { createPrGh } from './github/pr-gh.ts';
-import { emptyGhConfigDir, makeTeamReviewWorkDir } from './github/team-review-spawn.ts';
+import { makeTeamReviewWorkDir } from './github/team-review-spawn.ts';
 import { createWorkflowSessionQueue, createWorkflowsPoller } from './workflows-poller.ts';
 import type { SpawnSession, WorkflowsPoller, WorkflowsPollerDependencies } from './workflows-poller.ts';
 
@@ -62,7 +62,6 @@ export function createWorkflowSpawn({ staging, workRoot, makeWorkDir = makeTeamR
       if (signal.aborted) return;
       if ('error' in staged) return warn(`not started: ${staged.error}`);
       await fs.writeFile(path.join(workDir.dir, core.WORKFLOW_PROMPT_FILENAME), core.workflowSpawnPrompt(action.promptTemplate, event, MY_PRS_FIX_CHECKOUT_DIRNAME), 'utf8');
-      await fs.mkdir(emptyGhConfigDir(workDir.dir), { recursive: true });
       const outcome = await staging.runSession({
         idPrefix: core.WORKFLOWS_LANE_ID, name: core.workflowSessionName({ rule, event }), workDir: workDir.dir, signal,
         onPending: (pending) => { pendingSession = pending; }, initialPrompt: core.WORKFLOW_BOOTSTRAP_PROMPT,
