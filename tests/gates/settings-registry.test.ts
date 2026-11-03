@@ -463,7 +463,7 @@ test('the update deep link the banner and the Radar ops row share resolves to a 
 test('the tuning knobs, diagnostics and legacy team keys are the file-only listing', () => {
   const fileOnlyPaths = SETTINGS_REGISTRY.fileOnly.map((setting) => setting.path);
   for (const settingPath of [
-    'teamReview.org', 'teamReview.team',
+    'teamReview.team',
     'posthog.investigationTimeoutSeconds', 'posthog.fixTimeoutSeconds', 'posthog.userEscalationThreshold',
     'posthog.trafficSpikeMultiplier', 'posthog.trafficSpikeMinUsers', 'posthog.trafficSpikeCooldownMinutes', 'posthog.trafficSpikeBaselineDays',
     'workflows.maxActionsPerPoll',
@@ -476,7 +476,7 @@ test('the tuning knobs, diagnostics and legacy team keys are the file-only listi
   }
   const editable = settingsOf(SECTIONS).filter((setting) => setting.access === 'editable' || setting.access === 'advanced');
   assert.ok(editable.length >= 60 && editable.length <= 80, `${editable.length} editable entries`);
-  assert.equal(settingById('file-team-review-org').group, 'lanes-team-review');
+  assert.equal(settingById('file-team-review-team').group, 'lanes-team-review');
   assert.match(settingById('file-team-review-team').fileOnlyReason ?? '', /legacy/);
 });
 
@@ -498,13 +498,14 @@ test('the agent API row is gone, the custom agents readout sits beside its file-
   }
 });
 
-test('the Team review lane section owns its settings and deep link, with org and team left to config.json', () => {
+test('the Team review lane section owns its settings and deep link, with the legacy team left to config.json', () => {
   const section = sectionById(TEAM_REVIEW_SETTINGS_SECTION_ID);
   assert.equal(section.level, 'lanes');
   assert.equal(SETTINGS_SECTION_ALIASES['team-review'], TEAM_REVIEW_SETTINGS_SECTION_ID);
   assert.deepEqual(section.settings.map((setting) => [setting.id, setting.path, setting.control]), [
     ['team-review-enabled', 'teamReview.enabled', 'toggle'],
     ['github-teams', 'github.teams', 'list'],
+    ['team-review-org', 'teamReview.org', 'text'],
     ['team-review-re-review-after-hours', 'teamReview.reReviewAfterHours', 'number'],
     ['team-review-skip-idle-after-days', 'teamReview.skipIdleAfterDays', 'number'],
     ['team-review-skill', 'teamReview.skill', 'text'],
@@ -520,7 +521,7 @@ test('the Team review lane section owns its settings and deep link, with org and
   ]);
   assert.equal(section.settings.some((setting) => setting.id === TEAM_REVIEW_SETTINGS_SETTING_ID), true);
   for (const setting of section.settings.filter((entry) => entry.control !== 'readonly')) assert.equal(settableFromDashboard(setting.path), true, setting.path);
-  assert.deepEqual(SETTINGS_REGISTRY.fileOnly.filter((setting) => setting.path.startsWith('teamReview.')).map((setting) => setting.path), ['teamReview.org', 'teamReview.team']);
+  assert.deepEqual(SETTINGS_REGISTRY.fileOnly.filter((setting) => setting.path.startsWith('teamReview.')).map((setting) => setting.path), ['teamReview.team']);
 });
 
 test('Flying animals follows Appearance and owns its stable toggle and searchable advanced controls', () => {

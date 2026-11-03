@@ -98,6 +98,11 @@ export const LANES_TEAM_REVIEW: SettingsSection = {
       listPlaceholder: 'org/team-slug', listEmptyText: 'No GitHub teams configured.', ...MACHINE_NOW,
     },
     {
+      id: 'team-review-org', path: 'teamReview.org', title: 'GitHub organization',
+      description: 'Organization whose pull requests that request your review directly are drafted. Needed only when no GitHub team is set.',
+      control: 'text', keywords: ['github', 'organization', 'org', 'review requests'], defaultValue: '', ...MACHINE_NOW,
+    },
+    {
       id: 'team-review-re-review-after-hours', path: 'teamReview.reReviewAfterHours', title: 'Re-review after',
       description: 'Review a pull request again after a new push, once this much time has passed.',
       control: 'number', range: POSITIVE_NUMBER_RANGE, unit: HOURS, keywords: ['review', 'delay'], defaultValue: 24, integer: false, step: 0.5, ...MACHINE_NOW,

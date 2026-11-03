@@ -14,13 +14,13 @@ export function createReviewSkillNotice() {
   const element = el('div', 'review-skill-notice');
   element.hidden = true;
   const selectId = 'review-skill-notice-select';
-  const label = el('label', 'review-skill-notice-label', 'Pick a review skill');
+  const label = el('label', 'review-skill-notice-label', 'Pick a review skill (optional)');
   label.htmlFor = selectId;
   const select = el('select', 'dialog-input review-skill-notice-select');
   select.id = selectId;
   const saveButton = button({ variant: 'primary', label: 'Save skill' });
   const saveStatus = createActionStatus();
-  const hint = el('p', 'first-run-step-hint review-skill-notice-hint', 'The instructions the reviewing agent follows. ');
+  const hint = el('p', 'first-run-step-hint review-skill-notice-hint', 'The instructions the reviewing agent follows. Reviews run without one. ');
   hint.append(createSettingsLink(TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SKILL_SETTING_ID, 'Review skill setting'));
   element.append(label, select, saveButton, saveStatus.element, hint);
   let renderedOptionsSignature = '';

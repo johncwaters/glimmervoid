@@ -1,5 +1,5 @@
 import type { GithubTeam } from '#shared/contracts/control-messages.ts';
-import { repoParts } from '#shared/contracts/github-ids.ts';
+import { GH_SEGMENT, repoParts } from '#shared/contracts/github-ids.ts';
 
 type SetupStepState = 'done' | 'current' | 'upcoming';
 
@@ -25,4 +25,9 @@ function teamsToSave(checkedEntries: ReadonlySet<string>, typedText: string): st
   return [...entries];
 }
 
-export { decideReviewSetupSteps, teamOptionsOf, teamsToSave };
+function orgToSave(selectedOrg: string, typedText: string): string | null {
+  const org = typedText.trim() || selectedOrg;
+  return GH_SEGMENT.test(org) ? org : null;
+}
+
+export { decideReviewSetupSteps, orgToSave, teamOptionsOf, teamsToSave };
