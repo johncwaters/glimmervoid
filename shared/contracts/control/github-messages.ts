@@ -20,7 +20,7 @@ export const githubClientVariants = [
 ] as const;
 
 export const githubServerVariants = [
-  loose('github-teams-listed', { requestId, viewer: z.string().nullable(), teams: z.array(GithubTeam), error: z.string().nullable() }),
+  loose('github-teams-listed', { requestId, viewer: z.string().nullable(), teams: z.array(GithubTeam), orgs: z.array(z.string()), error: z.string().nullable() }),
   loose('issue-detail-result', { requestId: z.string().min(1), ok: z.boolean(), body: z.string().nullable(), error: z.string().nullable() }),
   loose('set-issue-state-result', { requestId: z.string().min(1), ok: z.boolean(), error: optionalError }),
   loose('open-issue-session-result', {
