@@ -18,7 +18,7 @@ tokens:
     value: "#ef4444"
     role: state
     name: Signal Red
-    use: Failed, disconnected, destructive.
+    use: Failed, disconnected, destructive; also the red pen ink of the doc editor's Markup mode, the one decorative use.
   state-initializing:
     value: "#6b7280"
     role: state

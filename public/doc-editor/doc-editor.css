@@ -22,7 +22,7 @@
 .doc-editor-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px; }
 .doc-editor-text { height: 100%; }
 .doc-editor-text[hidden], .doc-markup[hidden], .doc-markup-end[hidden] { display: none; }
-.doc-markup { --pen-ink: var(--accent); --pen-paper: var(--bg-surface); --pen-text: var(--text-head); display: flex; flex-direction: column; gap: 12px; }
+.doc-markup { --pen-ink: var(--state-failed); --pen-paper: var(--bg-card); --pen-text: var(--text-head); display: flex; flex-direction: column; gap: 12px; }
 .doc-markup-defs { position: absolute; width: 0; height: 0; }
 .doc-markup-tools { position: sticky; top: -16px; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 0; background: var(--bg-card); }
 .doc-markup-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
