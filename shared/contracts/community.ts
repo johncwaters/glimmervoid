@@ -43,6 +43,7 @@ export const CommunityStateEntry = z.strictObject({
   draft: CommunityDraft.nullable(),
   error: z.string().optional(),
   attempts: z.number().int().nonnegative(),
+  retriedAfterTimeout: z.boolean().optional(),
   seenAt: z.string(),
   finishedAt: z.string().nullable(),
 });

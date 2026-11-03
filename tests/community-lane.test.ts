@@ -101,7 +101,7 @@ test('community lane queues only forum posts asked after enabling, whatever thei
   }
 });
 
-test('community lane runs each queued question once, oldest first, keeping a ready draft, notifying only for it, and failing a malformed report', async () => {
+test('community lane runs each queued question once, oldest first, keeping a ready draft, notifying only for it, failing a malformed report, and running a timed-out question once more, again after Re-run', async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'community-lane-'));
   const statePath = path.join(directory, 'community-state.json');
   let currentMs = ENABLED_AT;
@@ -111,6 +111,8 @@ test('community lane runs each queued question once, oldest first, keeping a rea
   const runItem: RunItem = async (entry) => {
     ranKeys.push(entry.item.key);
     if (entry.item.key === 'forum:4') return { report: HIGH_REPORT, posting: JSON.stringify({ body: 'Use the capture endpoint.', publicLinks: ['https://posthog.com/docs'] }), error: null };
+    const isFirstRunOfSecond = entry.item.key === 'forum:5' && entry.attempts === 1;
+    if (entry.item.key === 'forum:6' || isFirstRunOfSecond) return { report: null, posting: null, error: 'the research run timed out after 1200s', timedOut: true };
     return { report: 'VERDICT: SURE\nOVERALL_SUMMARY:\nfine', posting: null, error: null };
   };
   const notifiedKeys: string[] = [];
@@ -118,12 +120,15 @@ test('community lane runs each queued question once, oldest first, keeping a rea
     const poller = startPoller(statePath, () => currentMs, queryForum, runItem, (entry) => notifiedKeys.push(entry.item.key));
     await poller.start();
     currentMs += 5 * 60000;
-    forumRows = [forumRow(5, '2026-10-28T12:02:00Z', 'second question'), forumRow(4, '2026-10-28T12:01:00Z', 'first question')];
+    forumRows = [forumRow(6, '2026-10-28T12:03:00Z', 'third question'), forumRow(5, '2026-10-28T12:02:00Z', 'second question'), forumRow(4, '2026-10-28T12:01:00Z', 'first question')];
     await poller.tick();
-    await poller.tick();
+    await drainPendingWork();
+    assert.equal(poller.state().entries['forum:6']?.status, 'error');
+    assert.deepEqual(await poller.applyAction('forum:6', 'rerun'), { ok: true });
+    await drainPendingWork();
     await poller.stop();
 
-    assert.deepEqual(ranKeys, ['forum:4', 'forum:5']);
+    assert.deepEqual(ranKeys, ['forum:4', 'forum:5', 'forum:5', 'forum:6', 'forum:6', 'forum:6', 'forum:6']);
     assert.deepEqual(notifiedKeys, ['forum:4']);
     const ready = poller.state().entries['forum:4'];
     assert.equal(ready?.status, 'ready');
@@ -135,6 +140,11 @@ test('community lane runs each queued question once, oldest first, keeping a rea
     assert.equal(failed?.status, 'error');
     assert.match(failed?.error ?? '', /not HIGH, MEDIUM, LOW or FAILED/);
     assert.equal(failed?.draft, null);
+    const timedOut = poller.state().entries['forum:6'];
+    assert.equal(timedOut?.status, 'error');
+    assert.equal(timedOut?.attempts, 4);
+    assert.equal(timedOut?.retriedAfterTimeout, undefined);
+    assert.match(timedOut?.error ?? '', /timed out/);
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }

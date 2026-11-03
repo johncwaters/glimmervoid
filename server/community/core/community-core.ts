@@ -57,6 +57,7 @@ interface CommunityRunResult {
   report: string | null;
   posting: string | null;
   error: string | null;
+  timedOut?: boolean;
 }
 
 interface UntrustedLaneRequest {
@@ -374,12 +375,17 @@ function withoutError(entry: CommunityStateEntry): CommunityStateEntry {
   return rest;
 }
 
+function settled(entry: CommunityStateEntry): CommunityStateEntry {
+  const { error: _clearedError, retriedAfterTimeout: _clearedRetry, ...rest } = entry;
+  return rest;
+}
+
 function markRunning(entry: CommunityStateEntry): CommunityStateEntry {
   return { ...withoutError(entry), status: 'running', attempts: entry.attempts + 1, finishedAt: null };
 }
 
 function queuedForRerun(entry: CommunityStateEntry): CommunityStateEntry {
-  return { ...withoutError(entry), status: 'queued', verdict: null, summary: '', goal: '', checked: [], gaps: [], draft: null, finishedAt: null };
+  return { ...settled(entry), status: 'queued', verdict: null, summary: '', goal: '', checked: [], gaps: [], draft: null, finishedAt: null };
 }
 
 function applyCommunityAction(entry: CommunityStateEntry, action: CommunityAction): { ok: true; entry: CommunityStateEntry } | { ok: false; error: string } {
@@ -418,17 +424,20 @@ function parseCommunityReport(report: string): { ok: true; report: CommunityRepo
 }
 
 function failedEntry(entry: CommunityStateEntry, error: string, nowIso: string): CommunityStateEntry {
-  return { ...entry, status: 'error', error: error.slice(0, MAX_REPORT_BULLET_CHARS), finishedAt: nowIso };
+  return { ...settled(entry), status: 'error', error: error.slice(0, MAX_REPORT_BULLET_CHARS), finishedAt: nowIso };
 }
 
 function entryFromRun(entry: CommunityStateEntry, run: CommunityRunResult, nowIso: string): { entry: CommunityStateEntry; warning: string | null } {
+  if (run.timedOut && !entry.retriedAfterTimeout) {
+    return { entry: { ...withoutError(entry), status: 'queued', retriedAfterTimeout: true, finishedAt: null }, warning: `${entry.item.key}: ${run.error ?? 'the research run timed out'}, queued to run once more` };
+  }
   if (run.error !== null) return { entry: failedEntry(entry, run.error, nowIso), warning: null };
   if (run.report === null) return { entry: failedEntry(entry, 'the research run wrote no report', nowIso), warning: null };
   const parsed = parseCommunityReport(run.report);
   if (!parsed.ok) return { entry: failedEntry(entry, parsed.reason, nowIso), warning: null };
   const posting = run.posting === null ? null : parsePostingFile(run.posting, CommunityDraft, 'reply draft');
   return {
-    entry: { ...withoutError(entry), ...parsed.report, status: 'ready', draft: posting?.ok ? posting.plan : null, finishedAt: nowIso },
+    entry: { ...settled(entry), ...parsed.report, status: 'ready', draft: posting?.ok ? posting.plan : null, finishedAt: nowIso },
     warning: posting && !posting.ok ? `${entry.item.key}: ${posting.reason}, showing the report without a draft` : null,
   };
 }
