@@ -281,12 +281,6 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     control: 'json', keywords: ['projects', 'repositories', 'map'], defaultValue: {}, takesEffect: 'now', fileOnlyReason: STRUCTURED_VALUE, ...FILE_ONLY,
   },
   {
-    id: 'file-team-review-org', path: 'teamReview.org', title: 'GitHub organization (legacy)', group: 'lanes-team-review',
-    description: 'Organization login that owns the team, for example PostHog. Read only when github.teams is empty.',
-    control: 'text', keywords: ['github', 'owner', 'legacy'], defaultValue: '', takesEffect: 'now',
-    fileOnlyReason: 'A legacy key: github.teams names teams as org/slug entries and wins whenever it is set.', ...FILE_ONLY,
-  },
-  {
     id: 'file-team-review-team', path: 'teamReview.team', title: 'GitHub team (legacy)', group: 'lanes-team-review',
     description: 'Team slug whose members and review requests are polled. Read only when github.teams is empty.',
     control: 'text', keywords: ['github', 'slug', 'legacy'], defaultValue: '', takesEffect: 'now',

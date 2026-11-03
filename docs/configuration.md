@@ -130,6 +130,7 @@ Draft reviews of teammates' pull requests for you to post.
 |-----|---------|---------|-------|
 | `teamReview.enabled` | Enable team review | `true` | Draft a review of each open team pull request, posting nothing until you approve or comment. |
 | `github.teams` | GitHub teams | `[]` | GitHub teams whose review requests are drafted, as org/team-slug. |
+| `teamReview.org` | GitHub organization | `""` | Organization whose pull requests that request your review directly are drafted. Needed only when no GitHub team is set. |
 | `teamReview.reReviewAfterHours` | Re-review after | `24` | Review a pull request again after a new push, once this much time has passed. |
 | `teamReview.skipIdleAfterDays` | Skip PRs idle for | `14` | Skip pull requests with no activity for this long. |
 | `teamReview.skill` | Review skill | `""` | Skill Claude Code follows for each review, or none when empty. |
@@ -142,7 +143,6 @@ Draft reviews of teammates' pull requests for you to post.
 | `teamReview.keepMergeableEnabled` | Keep mergeable | `true` | Offer Keep mergeable: an agent fixes conflicts and failing checks on your pull requests. |
 | `teamReview.keepMergeableTimeoutMinutes` | Keep mergeable deadline | `30` | Longest a Keep mergeable repair may run. |
 | `teamReview.mergeQueueEnabled` | Merge when ready | `true` | Offer Merge when ready: queued pull requests merge once they pass. |
-| `teamReview.org` | GitHub organization (legacy) | `""` | Organization login that owns the team, for example PostHog. Read only when github.teams is empty. **File-only.** A legacy key: github.teams names teams as org/slug entries and wins whenever it is set. |
 | `teamReview.team` | GitHub team (legacy) | `""` | Team slug whose members and review requests are polled. Read only when github.teams is empty. **File-only.** A legacy key: github.teams names teams as org/slug entries and wins whenever it is set. |
 
 ### Workflows

@@ -780,7 +780,7 @@ export function emptyStateText(status: TeamReviewStatus | null | undefined): str
   if (!status) return 'Waiting for the team review lane.';
   if (!status.configured) return status.reason ? `Team review is not running: ${status.reason}.` : 'Team review is off.';
   if (status.error) return 'Review drafts will show here once GitHub answers.';
-  return 'No review drafts yet. New teammate pull requests show up here after the next poll.';
+  return 'No review drafts yet. Pull requests that request your review or your team\'s show up here after the next poll.';
 }
 
 export function laneNotice(status: TeamReviewStatus | null | undefined): string | null {
