@@ -407,8 +407,11 @@ test('a columns op with a move map carries boxes in one put, removing a box pins
   assert.match(String(placeless.body.error), /needs a place/);
 });
 
-test('the operator connects and disconnects a session from the dashboard, and a removed session leaves every board', async () => {
+test('the operator connects and disconnects a session from the dashboard, and a removed session leaves every board and takes the boards only it was on', async () => {
   const boardId = await newBoard('operator links');
+  const leaverOnlyBoardId = await newBoard('leaver only');
+  const plannerLeft = await whiteboard(PLANNER_ID, { sub: 'disconnect', board: leaverOnlyBoardId });
+  assert.equal(plannerLeft.status, 200);
   const client = await dashboardClient(boundPort(running().server));
   const control = await openRecordingSocket<{ type: string; requestId?: string; ok?: boolean; error?: string; summary?: { connectedSessionIds: string[] }; boards?: { id: string; connectedSessionIds: string[] }[] }>(client);
   try {
@@ -435,11 +438,16 @@ test('the operator connects and disconnects a session from the dashboard, and a 
 
     const leaverConnected = await command({ type: 'whiteboard-connect', boardId, sessionId: LEAVER_ID, requestId: 'connect-leaver' });
     assert.ok(leaverConnected.summary?.connectedSessionIds.includes(LEAVER_ID));
+    const leaverOnlyConnected = await command({ type: 'whiteboard-connect', boardId: leaverOnlyBoardId, sessionId: LEAVER_ID, requestId: 'connect-leaver-only' });
+    assert.deepEqual(leaverOnlyConnected.summary?.connectedSessionIds, [LEAVER_ID]);
     const framesBeforeRemoval = control.received.length;
     const removed = await command({ type: 'remove-session', id: LEAVER_ID, requestId: 'remove-leaver' });
     assert.equal(removed.ok, true, String(removed.error));
     await waitForMessage(control.received, (frame) => control.received.indexOf(frame) >= framesBeforeRemoval && frame.type === 'whiteboards-snapshot'
-      && frame.boards?.some((board) => board.id === boardId && !board.connectedSessionIds.includes(LEAVER_ID)) === true, 'the snapshot without the removed session');
+      && frame.boards?.some((board) => board.id === boardId && !board.connectedSessionIds.includes(LEAVER_ID)) === true
+      && frame.boards.every((board) => board.id !== leaverOnlyBoardId), 'the snapshot without the removed session or the board only it was on');
+    const listed = await whiteboard(PLANNER_ID, { sub: 'list' });
+    assert.deepEqual((listed.body.boards as { id: string }[]).filter((board) => board.id === leaverOnlyBoardId), []);
   } finally {
     await closeSocket(control.ws);
   }

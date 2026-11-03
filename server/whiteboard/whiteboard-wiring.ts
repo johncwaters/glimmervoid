@@ -108,6 +108,10 @@ interface WhiteboardPort {
   snapshotMessage(): ServerMessageOf<'whiteboards-snapshot'>;
 }
 
+function hasNoConnectedSessions(record: BoardRecord): boolean {
+  return Object.keys(record.cursorBySessionId).length === 0;
+}
+
 function refusal(status: number, error: string): WhiteboardReply {
   return { status, body: { ok: false, error } };
 }
@@ -304,16 +308,17 @@ function createWhiteboardWiring({
     await Promise.all(unlinkPuts);
   }
 
-  async function removeBoard(boardId: string): Promise<WhiteboardReply> {
-    const reply = await removeBoardRecord(boardId);
+  async function removeBoard(boardId: string, isRemovable: (record: BoardRecord) => boolean = () => true): Promise<WhiteboardReply> {
+    const reply = await removeBoardRecord(boardId, isRemovable);
     if (reply.body.ok) await clearLinksTo(boardId);
     return reply;
   }
 
-  function removeBoardRecord(boardId: string): Promise<WhiteboardReply> {
+  function removeBoardRecord(boardId: string, isRemovable: (record: BoardRecord) => boolean): Promise<WhiteboardReply> {
     return writeQueue.run(boardId, async () => {
       const current = recordsByBoardId.get(boardId);
       if (!current) return refusal(404, DELETED_BOARD_TEXT);
+      if (!isRemovable(current)) return refusal(409, 'a session is still connected, so the board is still here');
       try {
         await fsp.rm(boardFilePath(boardId), { force: true });
       } catch (error) {
@@ -368,10 +373,25 @@ function createWhiteboardWiring({
     },
   };
 
-  async function forgetSession(sessionId: string): Promise<void> {
+  async function closeConnections(boardId: string, closedSessionIds: readonly string[]): Promise<void> {
+    const disconnected = await changeRecord(boardId, (record) => {
+      const next = closedSessionIds.reduce(disconnectSession, record);
+      return { ok: true, record: next, reply: connectionReply(next, 'the closed sessions no longer get summaries of changes to this board') };
+    });
+    if (!disconnected.body.ok) return;
+    await removeBoard(boardId, hasNoConnectedSessions);
+  }
+
+  async function forgetClosedSessions(isClosedSession: (sessionId: string) => boolean): Promise<void> {
     await loaded;
-    const connectedBoardIds = [...recordsByBoardId].filter(([, record]) => sessionId in record.cursorBySessionId).map(([boardId]) => boardId);
-    await Promise.all(connectedBoardIds.map((boardId) => disconnectBoard(boardId, sessionId)));
+    const closedConnectionsPerBoard = [...recordsByBoardId].map(([boardId, record]) => ({ boardId, closedSessionIds: Object.keys(record.cursorBySessionId).filter(isClosedSession) }));
+    await Promise.all(closedConnectionsPerBoard
+      .filter(({ closedSessionIds }) => closedSessionIds.length > 0)
+      .map(({ boardId, closedSessionIds }) => closeConnections(boardId, closedSessionIds)));
+  }
+
+  function forgetSession(sessionId: string): Promise<void> {
+    return forgetClosedSessions((connectedSessionId) => connectedSessionId === sessionId);
   }
 
   function isConnected(sessionId: string): boolean {
