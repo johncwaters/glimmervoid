@@ -153,16 +153,13 @@ function topLevelBlocksOf(stylesheet: string): { prelude: string; body: string }
   return blocks;
 }
 
-test('every button keeps an invisible hit area of at least 32px, and 44px on a coarse pointer', () => {
+test('the button hit area is locked in the primitives layer, so no other stylesheet can shrink it', () => {
+  assert.match(fs.readFileSync(path.join(PUBLIC_DIR, 'tailwind.css'), 'utf8'), /@import\s+"\.\/ui\/button\.css"\s+layer\(primitives\)/, 'public/tailwind.css must import public/ui/button.css into the primitives layer, where an !important declaration outranks every later layer');
   const blocks = topLevelBlocksOf(withoutCssComments(fs.readFileSync(path.join(UI_DIR, 'button.css'), 'utf8')));
-  const floorOf = (body: string) => Number(/--button-hit-floor:\s*(\d+)px/.exec(body)?.[1] ?? 0);
-  const baseFloor = Math.max(0, ...blocks.filter((block) => block.prelude === '.ui-button').map((block) => floorOf(block.body)));
-  const coarseFloor = Math.max(0, ...blocks.filter((block) => /^@media\s*\(pointer:\s*coarse\)$/.test(block.prelude)).map((block) => floorOf(block.body)));
   const extension = blocks.find((block) => block.prelude === '.ui-button::after')?.body ?? '';
-  assert.ok(baseFloor >= 32, 'public/ui/button.css: .ui-button must set --button-hit-floor to at least 32px outside any media query');
-  assert.ok(coarseFloor >= 44, 'public/ui/button.css: @media (pointer: coarse) must raise --button-hit-floor to at least 44px');
-  assert.match(extension, /--button-hit-reach:\s*min\(-1px,\s*calc\(\(var\(--button-height\)\s*-\s*var\(--button-hit-floor\)\)\s*\/\s*2\s*-\s*1px\)\)/, 'public/ui/button.css: a top-level .ui-button::after must reach out to --button-hit-floor');
-  assert.match(extension, /inset:\s*var\(--button-hit-reach\)\s+0\s*;/, 'public/ui/button.css: on a mouse the .ui-button::after reaches only up and down, so it cannot take clicks from a neighbor 2px away');
   const coarseBody = blocks.find((block) => /^@media\s*\(pointer:\s*coarse\)$/.test(block.prelude))?.body ?? '';
-  assert.match(coarseBody, /\.ui-button::after\s*\{\s*inset:\s*var\(--button-hit-reach\)\s*;/, 'public/ui/button.css: @media (pointer: coarse) must extend .ui-button::after on every side');
+  for (const declaration of [/all:\s*initial\s*!important/, /pointer-events:\s*inherit\s*!important/, /visibility:\s*inherit\s*!important/, /content:\s*''\s*!important/, /display:\s*block\s*!important/, /position:\s*absolute\s*!important/, /inset:\s*min\(-1px,\s*calc\(50%\s*-\s*16px\)\)\s+0\s*!important/]) {
+    assert.match(extension, declaration, `public/ui/button.css: .ui-button::after must lock ${declaration.source}, a 32px tall mouse hit area that never reaches sideways into a neighbor`);
+  }
+  assert.match(coarseBody, /\.ui-button::after\s*\{\s*inset:\s*min\(-1px,\s*calc\(50%\s*-\s*22px\)\)\s*!important\s*;/, 'public/ui/button.css: @media (pointer: coarse) must lock a 44px hit area on every side');
 });
