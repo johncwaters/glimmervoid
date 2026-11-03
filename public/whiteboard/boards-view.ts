@@ -12,7 +12,7 @@ import { buildDialogShell, isModalOpen, openConfirmDialog } from '../session-car
 import { createLineIcon } from '../svg-dom.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import { createBoardEditor, newElementId } from './board-edit.ts';
-import type { BoardEditor, BoardTool } from './board-edit.ts';
+import type { BoardEditor, BoardTool, PressedImage } from './board-edit.ts';
 import { EMPTY_HISTORY, inverseOps, recordEdit, recordStep, takeStep } from '#shared/whiteboard-undo-core.ts';
 import type { UndoDirection, UndoHistory } from '#shared/whiteboard-undo-core.ts';
 import { createBoardInspector } from './board-inspect.ts';
@@ -534,6 +534,16 @@ function addUnitFromDialog(): void {
   });
 }
 
+function openImageViewer({ href, alt }: PressedImage): void {
+  const { dialog, close, actions, btnCancel } = buildDialogShell({ title: alt || 'Picture', dialogClass: 'dialog wb-image-viewer', cancelLabel: 'Close' });
+  const picture = el('img', 'wb-image-viewer-picture');
+  picture.src = href;
+  picture.alt = alt;
+  dialog.append(picture, actions);
+  btnCancel.addEventListener('click', close);
+  requestAnimationFrame(() => btnCancel.focus());
+}
+
 function addNoteOn(boxId: string): void {
   openTextDialog({
     title: 'Pin a note',
@@ -795,6 +805,7 @@ export function mountBoardHost(): HTMLElement {
     onSelectionChange: paintToolbar,
     onPhoneTapBox: addNoteOn,
     onOpenLinkedBoard: selectBoard,
+    onOpenImage: openImageViewer,
     onConnectBoxes: connectBoxes,
     onToolChange: paintActiveTool,
   });

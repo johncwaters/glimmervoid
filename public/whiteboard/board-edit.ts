@@ -27,16 +27,22 @@ interface BoardEditorOptions {
   onSelectionChange: (selectedIds: ReadonlySet<string>) => void;
   onPhoneTapBox: (boxId: string) => void;
   onOpenLinkedBoard: (boardId: string) => void;
+  onOpenImage: (image: PressedImage) => void;
   onConnectBoxes: (fromBoxId: string, toBoxId: string) => void;
   onToolChange: (tool: BoardTool) => void;
+}
+
+export interface PressedImage {
+  href: string;
+  alt: string;
 }
 
 type BoxImage = NonNullable<Extract<BoardElement, { kind: 'box' }>['image']>;
 
 type Gesture =
-  | { kind: 'drag'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean }
+  | { kind: 'drag'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; pressedImage: PressedImage | null }
   | { kind: 'wire'; pointerId: number; fromBoxId: string; start: ViewPoint; draftLine: SVGPathElement; targetBoxId: string | null }
-  | { kind: 'pan'; pointerId: number; lastClient: ViewPoint; hasMoved: boolean; tappedBoxId: string | null }
+  | { kind: 'pan'; pointerId: number; lastClient: ViewPoint; hasMoved: boolean; tappedBoxId: string | null; pressedImage: PressedImage | null }
   | { kind: 'pinch'; distance: number; viewWidth: number }
   | null;
 
@@ -71,6 +77,14 @@ function placedBox(at: ViewPoint, title: string, image: BoxImage | null, isDecis
     kind: 'box', id: newElementId('box'), title, lines: [], lane: null, refs: [], change: 'none', was: null, column: null, near: null, order: 0, at,
     shape: isDecision ? 'decision' : 'box', outputs: isDecision ? [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }] : [], image,
   };
+}
+
+function pressedImageOf(target: EventTarget | null): PressedImage | null {
+  if (!(target instanceof Element)) return null;
+  const image = target.closest<SVGImageElement>('image.wb-image');
+  const href = image?.getAttribute('href');
+  if (!image || !href) return null;
+  return { href, alt: image.querySelector('title')?.textContent ?? '' };
 }
 
 function linkedBoardIdOf(target: EventTarget | null): string | null {
@@ -285,7 +299,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (hit && boxRect) {
       const origin = toViewPoint(event.clientX, event.clientY);
       const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
-      gesture = { kind: 'drag', pointerId: event.pointerId, boxId: hit.id, origin, start: boxRect, pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: event.shiftKey };
+      gesture = { kind: 'drag', pointerId: event.pointerId, boxId: hit.id, origin, start: boxRect, pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: event.shiftKey, pressedImage: pressedImageOf(event.target) };
       return;
     }
     if (hit && !isPhoneLayout()) {
@@ -293,7 +307,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
       return;
     }
     const tappedBoxId = hit?.kind === 'box' ? hit.id : null;
-    gesture = { kind: 'pan', pointerId: event.pointerId, lastClient: { x: event.clientX, y: event.clientY }, hasMoved: false, tappedBoxId };
+    gesture = { kind: 'pan', pointerId: event.pointerId, lastClient: { x: event.clientX, y: event.clientY }, hasMoved: false, tappedBoxId, pressedImage: pressedImageOf(event.target) };
   }
 
   async function placeElement(tool: PlacementTool, point: ViewPoint): Promise<void> {
@@ -403,6 +417,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   async function finishDrag(drag: Extract<Gesture, { kind: 'drag' }>, event: PointerEvent): Promise<void> {
     if (!drag.hasMoved) {
       toggleSelected(drag.boxId, drag.isAdditive);
+      if (drag.pressedImage && !drag.isAdditive) options.onOpenImage(drag.pressedImage);
       return;
     }
     cancelPreviewFrame();
@@ -432,6 +447,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
       return;
     }
     if (finished?.kind !== 'pan' || finished.hasMoved) return;
+    if (finished.pressedImage && isPhoneLayout()) {
+      options.onOpenImage(finished.pressedImage);
+      return;
+    }
     if (finished.tappedBoxId && isPhoneLayout()) {
       options.onPhoneTapBox(finished.tappedBoxId);
       return;

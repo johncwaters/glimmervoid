@@ -576,6 +576,28 @@
   font-size: var(--type-body);
 }
 
+.wb-image {
+  cursor: zoom-in;
+}
+
+.wb-image-viewer {
+  width: auto;
+  min-width: min(420px, calc(100vw - 32px));
+}
+
+.wb-image-viewer .dialog-title {
+  overflow-wrap: anywhere;
+}
+
+.wb-image-viewer-picture {
+  display: block;
+  align-self: center;
+  max-width: 100%;
+  max-height: calc(100dvh - 180px);
+  object-fit: contain;
+  border-radius: var(--radius-lg);
+}
+
 .wb-image-placeholder {
   fill: color-mix(in oklab, var(--accent) 8%, var(--wb-board));
   stroke: var(--wb-ink-dim);

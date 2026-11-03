@@ -44,6 +44,13 @@ async function verifyDroppedPicture(panel: Locator): Promise<void> {
   await panel.locator('.wb-box-title', { hasText: 'dropped-shot' }).waitFor();
   const servedStatus = await picture.evaluate(async (node) => (await fetch(node.getAttribute('href') ?? '')).status);
   assert.equal(servedStatus, 200, 'a dropped picture draws from the served asset');
+  await picture.click();
+  const viewer = panel.page().locator('.wb-image-viewer');
+  const enlarged = viewer.locator('img.wb-image-viewer-picture');
+  await enlarged.waitFor();
+  assert.ok(await enlarged.evaluate((node) => node instanceof HTMLImageElement && node.complete && node.naturalWidth === 400), 'a clicked picture opens at its stored size');
+  await panel.page().keyboard.press('Escape');
+  await viewer.waitFor({ state: 'detached' });
   await panel.getByRole('button', { name: 'undo', exact: true }).click();
   await picture.waitFor({ state: 'detached' });
 }
