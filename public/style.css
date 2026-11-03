@@ -556,7 +556,7 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 4px 0 10px;
+  padding: 0 8px 0 10px;
   min-height: 28px;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border-dim);

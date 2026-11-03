@@ -131,3 +131,36 @@ test('only public/ui/ sets an outlined button state', () => {
     .map(relativeToRoot);
   assert.deepEqual(offenders, [], `Set an outlined button's state through the setState of the handle outlineIconButton() returns:\n  ${offenders.join('\n  ')}`);
 });
+
+function topLevelBlocksOf(stylesheet: string): { prelude: string; body: string }[] {
+  const blocks: { prelude: string; body: string }[] = [];
+  let depth = 0;
+  let preludeStart = 0;
+  let bodyStart = 0;
+  for (let index = 0; index < stylesheet.length; index += 1) {
+    const character = stylesheet[index];
+    if (character === '{') {
+      if (depth === 0) bodyStart = index + 1;
+      depth += 1;
+      continue;
+    }
+    if (character !== '}') continue;
+    depth -= 1;
+    if (depth !== 0) continue;
+    blocks.push({ prelude: stylesheet.slice(preludeStart, bodyStart - 1).replace(/[;}]/g, '').trim(), body: stylesheet.slice(bodyStart, index) });
+    preludeStart = index + 1;
+  }
+  return blocks;
+}
+
+test('every button keeps an invisible hit area of at least 32px, and 44px on a coarse pointer', () => {
+  const blocks = topLevelBlocksOf(withoutCssComments(fs.readFileSync(path.join(UI_DIR, 'button.css'), 'utf8')));
+  const floorOf = (body: string) => Number(/--button-hit-floor:\s*(\d+)px/.exec(body)?.[1] ?? 0);
+  const baseFloor = Math.max(0, ...blocks.filter((block) => block.prelude === '.ui-button').map((block) => floorOf(block.body)));
+  const coarseFloor = Math.max(0, ...blocks.filter((block) => /^@media\s*\(pointer:\s*coarse\)$/.test(block.prelude)).map((block) => floorOf(block.body)));
+  const extension = blocks.find((block) => block.prelude === '.ui-button::after')?.body ?? '';
+  assert.ok(baseFloor >= 32, 'public/ui/button.css: .ui-button must set --button-hit-floor to at least 32px outside any media query');
+  assert.ok(coarseFloor >= 44, 'public/ui/button.css: @media (pointer: coarse) must raise --button-hit-floor to at least 44px');
+  assert.match(extension, /--button-hit-reach:\s*min\(-1px,\s*calc\(\(var\(--button-height\)\s*-\s*var\(--button-hit-floor\)\)\s*\/\s*2\s*-\s*1px\)\)/, 'public/ui/button.css: a top-level .ui-button::after must reach out to --button-hit-floor');
+  assert.match(extension, /inset:\s*var\(--button-hit-reach\)/, 'public/ui/button.css: a top-level .ui-button::after must inset by --button-hit-reach');
+});

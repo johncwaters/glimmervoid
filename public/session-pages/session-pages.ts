@@ -134,9 +134,14 @@ export function createSessionPageButtons({ style }: { style: ButtonStyle }) {
   let shownSessionId: string | null = null;
 
   function buildButton(page: SessionPage): PageButton {
-    const control = style === 'header'
-      ? button({ variant: 'quiet', size: 'small', label: page.label, action: `open-${page.id}` })
-      : button({ variant: 'icon', label: page.label, icon: createLineIcon(page.iconPath), action: `show-${page.id}` });
+    const isHeader = style === 'header';
+    const control = button({
+      variant: 'icon',
+      size: isHeader ? 'small' : 'default',
+      label: page.label,
+      icon: createLineIcon(page.iconPath),
+      action: `${isHeader ? 'open' : 'show'}-${page.id}`,
+    });
     control.addEventListener('click', () => {
       if (shownSessionId) openSessionPage(page.id, shownSessionId);
     });

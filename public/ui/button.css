@@ -2,6 +2,7 @@
   --button-height: 28px;
   --button-padding-inline: 12px;
   --button-glyph-size: 14px;
+  --button-hit-floor: 32px;
   position: relative;
   box-sizing: border-box;
   display: inline-flex;
@@ -159,10 +160,14 @@ html[data-layout="phone"] .ui-button[data-size="small"] {
   --button-padding-inline: 12px;
 }
 
+.ui-button::after {
+  --button-hit-reach: min(-1px, calc((var(--button-height) - var(--button-hit-floor)) / 2 - 1px));
+  content: '';
+  position: absolute;
+  inset: var(--button-hit-reach) 0;
+}
+
 @media (pointer: coarse) {
-  .ui-button::after {
-    content: '';
-    position: absolute;
-    inset: min(0px, calc((var(--button-height) - 44px) / 2));
-  }
+  .ui-button { --button-hit-floor: 44px; }
+  .ui-button::after { inset: var(--button-hit-reach); }
 }
