@@ -39,41 +39,48 @@ function createTeamReviewCandidateSearch(context: TeamReviewPollerContext) {
   }
 
   async function collectCandidates(): Promise<{ candidates: TeamReviewCandidate[]; isComplete: boolean } | null> {
-    const firstTeam = teams[0];
-    if (!firstTeam) {
+    if (!org) {
       unregisterWatches();
       return null;
     }
-    if (runtime.teamProfile === null) {
+    const viewer = await requestSelf();
+    if (viewer === null) return null;
+    const membership = teams.length === 0 ? { memberLists: [], isComplete: true } : await requestTeamMembership();
+    if (membership === null || loop.isStopped()) return null;
+    registerWatches(core.orgSearchPlans(org, teams, membership.memberLists, viewer));
+    const collected = candidatesFromSnapshot(viewer);
+    runtime.teamCandidateKeys = collected.teamCandidateKeys;
+    return { candidates: collected.candidates, isComplete: membership.isComplete && collected.isComplete };
+  }
+
+  async function requestSelf(): Promise<string | null> {
+    if (runtime.self !== null) return runtime.self;
+    const viewerRead = await store.requestViewer('no-wait');
+    if (viewerRead.isRateLimited) { runtime.tickRateLimitWaitMs = viewerRead.waitMs; return null; }
+    runtime.self = viewerRead.value;
+    return runtime.self;
+  }
+
+  async function requestTeamMembership(): Promise<{ memberLists: string[][]; isComplete: boolean } | null> {
+    const [firstTeam] = teams;
+    if (firstTeam && runtime.teamProfile === null) {
       const profileRead = await store.requestTeamProfile(firstTeam.org, firstTeam.slug, 'no-wait');
       if (profileRead.isRateLimited) { runtime.tickRateLimitWaitMs = profileRead.waitMs; return null; }
       runtime.teamProfile = profileRead.value;
     }
-    if (runtime.self === null) {
-      const viewerRead = await store.requestViewer('no-wait');
-      if (viewerRead.isRateLimited) { runtime.tickRateLimitWaitMs = viewerRead.waitMs; return null; }
-      runtime.self = viewerRead.value;
-    }
-    const viewer = runtime.self;
-    if (viewer === null) return null;
     const memberLists: (string[] | null)[] = [];
     for (const team of teams) {
       const membersRead = await store.requestTeamMembers(team.org, team.slug, 'no-wait');
       if (membersRead.isRateLimited) { runtime.tickRateLimitWaitMs = membersRead.waitMs; return null; }
       memberLists.push(membersRead.value);
     }
-    const isMembershipComplete = memberLists.every((members) => members !== null);
+    const isComplete = memberLists.every((members) => members !== null);
     const fetchedMemberLists = memberLists.map((members) => members ?? []);
     if (fetchedMemberLists.every((members) => members.length === 0)) {
-      if (isMembershipComplete) unregisterWatches();
+      if (isComplete) unregisterWatches();
       return null;
     }
-    if (loop.isStopped()) return null;
-    const searchPlans = core.orgSearchPlans(org, teams, fetchedMemberLists, viewer);
-    registerWatches(searchPlans);
-    const collected = candidatesFromSnapshot(viewer);
-    runtime.teamCandidateKeys = collected.teamCandidateKeys;
-    return { candidates: collected.candidates, isComplete: isMembershipComplete && collected.isComplete };
+    return { memberLists: fetchedMemberLists, isComplete };
   }
 
   function registerWatches(searchPlans: ReturnType<typeof core.orgSearchPlans>): void {
