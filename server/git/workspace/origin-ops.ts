@@ -47,12 +47,12 @@ function createOriginOps(context: GitWorkspaceContext) {
     return { base: decision.base, measureRef: null };
   }
 
-  async function classifyBaseAgainstOrigin(projectPath: string, branch: string): Promise<BaseClassification> {
+  async function classifyBaseAgainstOrigin(projectPath: string, branch: string, localRef: string = branch): Promise<BaseClassification> {
     const upstream = `origin/${branch}`;
     const remoteBranch = await run(['rev-parse', '--verify', '--quiet', `refs/remotes/${upstream}`], projectPath);
     if (!remoteBranch.ok) return { state: 'no-upstream', upstream };
     const counts = parseLeftRightCount((await run([
-      'rev-list', '--left-right', '--count', `${upstream}...${branch}`,
+      'rev-list', '--left-right', '--count', `${upstream}...${localRef}`,
     ], projectPath)).out);
     return {
       state: decideBranchSyncState({ hasUpstream: true, ahead: counts?.ahead, behind: counts?.behind }),
@@ -267,7 +267,7 @@ function createOriginOps(context: GitWorkspaceContext) {
     }
   }
 
-  return { detectDefaultBranch, migrateMarkerBase, hasOriginRemote, originUrl, synchronizeBaseWithOrigin, pushBaseToOrigin, pushProvenanceNotes, ensureLocalBranch, fetchOriginBody, seedBranchFromOriginBody, isAncestor, listRemoteBranches, listIntegrationTips };
+  return { detectDefaultBranch, migrateMarkerBase, classifyBaseAgainstOrigin, hasOriginRemote, originUrl, synchronizeBaseWithOrigin, pushBaseToOrigin, pushProvenanceNotes, ensureLocalBranch, fetchOriginBody, seedBranchFromOriginBody, isAncestor, listRemoteBranches, listIntegrationTips };
 }
 
 type OriginOps = ReturnType<typeof createOriginOps>;

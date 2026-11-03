@@ -485,7 +485,7 @@ function createGitWorkspace(opts: {
   const probe = createProbeOps(context, origin);
   const integration = createIntegrationOps(context, origin, rebase);
   const { detectDefaultBranch, migrateMarkerBase, originUrl, ensureLocalBranch, fetchOriginBody, seedBranchFromOriginBody, isAncestor, listRemoteBranches, listIntegrationTips } = origin;
-  const { mergeBackBody, mergeKeepBody, rebaseOnlyBody } = rebase;
+  const { mergeBackBody, mergeKeepBody, rebaseOnlyBody, resolveRebaseTarget } = rebase;
   const { describeWorkspaceMemberWorkBody, hasUnmergedWorkBody, listWorktreesBody, listSessionWorktreesBody, probeWorktreeDirtyBody } = probe;
   const { checkoutDetachedBody, stageIsolatedCheckout, mergeFastForwardTo, resetKeepToBody, syncIntegrationBranchBody, resolveMergeProbeEnv, writeMergedTree, treeOid } = integration;
 
@@ -498,6 +498,7 @@ function createGitWorkspace(opts: {
     mergeBack: serialized(mergeBackBody),
     mergeKeep: serialized(mergeKeepBody),
     rebaseOnly: serialized(rebaseOnlyBody),
+    resolveRebaseTarget,
     populate: serialized(populateShare),
     originUrl: serialized(originUrl),
     pushProvenanceNotes: serialized(origin.pushProvenanceNotes),

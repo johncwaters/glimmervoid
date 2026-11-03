@@ -11,7 +11,7 @@ const fsp = fs.promises;
 function createRebaseOps(context: GitWorkspaceContext, origin: OriginOps) {
   const { run, runUntrusted, rerereEnabled } = context;
   const { tearDownWorktree } = context.worktrees;
-  const { synchronizeBaseWithOrigin, pushBaseToOrigin } = origin;
+  const { synchronizeBaseWithOrigin, pushBaseToOrigin, classifyBaseAgainstOrigin } = origin;
 
   function joinWarnings(...warnings: (string | null)[]): string | null {
     const presentWarnings = warnings.filter((warning): warning is string => !!warning);
@@ -276,6 +276,15 @@ function createRebaseOps(context: GitWorkspaceContext, origin: OriginOps) {
     }, joinWarnings(warning, push.warning));
   }
 
+  async function resolvePushedRebaseTarget(projectPath: string, target: string): Promise<string | null> {
+    const localSha = (await run(['rev-parse', '--verify', '--quiet', `refs/heads/${target}`], projectPath)).out;
+    if (!localSha) return null;
+    const { state, upstream } = await classifyBaseAgainstOrigin(projectPath, target, localSha);
+    if (state === 'unknown') return null;
+    if (state !== 'ahead' && state !== 'diverged') return localSha;
+    return (await run(['rev-parse', '--verify', '--quiet', `refs/remotes/${upstream}`], projectPath)).out || null;
+  }
+
   async function rebaseOnlyBody({ projectPath, workspace, targetBranch }: WorktreeArgs): Promise<RebaseOutcome> {
     const g = await resolveMergeBack({ projectPath, workspace, targetBranch });
     if (g.error) return { ok: false, reason: g.error.reason ?? undefined };
@@ -285,12 +294,15 @@ function createRebaseOps(context: GitWorkspaceContext, origin: OriginOps) {
     if (!uncommitted.ok) return { ok: false, reason: 'unreadable' };
     if (uncommitted.hasWork) return { ok: false, reason: 'dirty' };
 
-    const behind = await run(['rev-list', '--count', `HEAD..${target}`], wt);
+    const rebaseTargetSha = await resolvePushedRebaseTarget(projectPath, target);
+    if (!rebaseTargetSha) return { ok: false, reason: 'unreadable' };
+
+    const behind = await run(['rev-list', '--count', `HEAD..${rebaseTargetSha}`], wt);
     if (!behind.ok) return { ok: false, reason: 'unreadable' };
     if (behind.out === '' || behind.out === '0') return { ok: true, upToDate: true };
 
     let rerereReplayed = false;
-    if (!(await run(withAutoUpdate(['rebase', target]), wt)).ok) {
+    if (!(await run(withAutoUpdate(['rebase', rebaseTargetSha]), wt)).ok) {
 
       if (!(await rebaseStopped(wt))) return { ok: false, reason: 'rebase-failed' };
       const replay = rerereEnabled ? await replayRecordedResolutions(wt) : { ok: false };
@@ -301,12 +313,18 @@ function createRebaseOps(context: GitWorkspaceContext, origin: OriginOps) {
       ok: true,
       rebased: true,
       headSha: (await run(['rev-parse', 'HEAD'], wt)).out || null,
-      baseSha: (await run(['rev-parse', target], wt)).out || null,
+      baseSha: rebaseTargetSha,
       rerereReplayed,
     };
   }
 
-  return { fastForwardTarget, mergeBackBody, mergeKeepBody, rebaseOnlyBody };
+  async function resolveRebaseTarget({ projectPath, workspace, targetBranch }: WorktreeArgs): Promise<string | null> {
+    const target = workspace?.base || targetBranch;
+    if (!target || target === 'HEAD') return null;
+    return resolvePushedRebaseTarget(projectPath, target);
+  }
+
+  return { fastForwardTarget, mergeBackBody, mergeKeepBody, rebaseOnlyBody, resolveRebaseTarget };
 }
 
 type RebaseOps = ReturnType<typeof createRebaseOps>;

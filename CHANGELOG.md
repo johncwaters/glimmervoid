@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A session's automatic catch-up no longer takes another session's unpushed work.** When your base branch briefly held commits not yet on origin, for example while another session was landing and its push then failed, an idle session could catch up onto those commits, and its Changes then listed the other session's files as its own. While your local base branch holds commits origin lacks, sessions now catch up to the newest commit origin has instead, so they stay current without taking commits that may never land. Commits a session already holds stay in it, and a new session still starts from your local base branch.
+
 ## [0.50.0] - 2026-11-03
 
 ### Added
