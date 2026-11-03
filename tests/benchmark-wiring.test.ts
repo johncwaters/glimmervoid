@@ -131,7 +131,6 @@ test('each arm env and the injected token reach only that arm subject spawn, and
   assert.equal(baselineSpawn?.spawnEnv.CLAUDE_CODE_OAUTH_TOKEN, ARM_TOKEN);
   assert.equal(candidateSpawn?.spawnEnv.CODEX_HOME, undefined);
   assert.equal(candidateSpawn?.extraClaudeArgs.slice(1, 3).join(' '), '--model opus');
-  assert.equal(baselineSpawn?.spawnEnv.GH_TOKEN, '');
   assert.ok(baselineSpawn?.extraClaudeArgs.includes('--strict-mcp-config'));
   assert.equal(judgeRequests.length, 2);
   assert.ok(judgeRequests.every((request) => request.model === 'opus' && !('spawnEnv' in request)));

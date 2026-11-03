@@ -48,13 +48,9 @@ export const MY_PRS_FIX_BASE_BRANCH = 'pr-base';
 export const DEFAULT_KEEP_MERGEABLE_TIMEOUT_MINUTES = 30;
 const MY_PRS_FIX_DENY_RULES: readonly string[] = Object.freeze([
   'Bash(git push:*)',
-  'Bash(gh:*)',
-  'Bash(curl:*api.github.com*)',
   'Edit(**/.git/hooks/**)',
   'Edit(**/.git/config)',
   'Edit(**/.claude/**)',
-  'WebFetch',
-  'WebSearch',
 ]);
 const MY_PRS_FIX_ALLOW_RULES: readonly string[] = Object.freeze(['Bash']);
 const UNSAFE_BRANCH_NAME = /[\x00-\x20\x7f~^:?*[\\]|\.\.|@\{|^[-/.+]|\/\.|\/\/|[/.]$|\.lock$|\.lock\//;

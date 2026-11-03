@@ -443,8 +443,7 @@ function createBenchmarkWiring({
     const resultPath = path.join(staged.workDir, SUBJECT_RESULT_FILENAME);
     await fs.rm(resultPath, { force: true });
     await fs.writeFile(path.join(staged.workDir, SUBJECT_PROMPT_FILENAME), prompt, 'utf8');
-    const baseSpawnEnv = hooksPathPinnedSpawnEnv(staged.workDir);
-    await fs.mkdir(baseSpawnEnv.GH_CONFIG_DIR, { recursive: true });
+    const baseSpawnEnv = hooksPathPinnedSpawnEnv();
     const subjectController = new AbortController();
     const stopSubject = () => subjectController.abort();
     let hasTimedOut = false;

@@ -15,7 +15,7 @@ import type { PostingPlan, PrDetail, PriorReview, ReviewResult, ReviewDraft } fr
 import { errorMessage } from '../../shared/text.ts';
 import { DEFAULT_TIMER_FNS } from '../../shared/timer-deps.ts';
 import type { ClearTimeoutFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
-import { TEAM_REVIEW_SESSION_DENY_RULES, teamReviewAcceptEditsPermissions, emptyGhConfigDir, hooksPathPinnedSpawnEnv, makeTeamReviewWorkDir } from './team-review-spawn.ts';
+import { TEAM_REVIEW_SESSION_DENY_RULES, teamReviewAcceptEditsPermissions, hooksPathPinnedSpawnEnv, makeTeamReviewWorkDir } from './team-review-spawn.ts';
 import type { TeamReviewWorkDir, TeamReviewSpawn } from './team-review-spawn.ts';
 import { worktreeDirName, pathExists, isResumableInsideRoots, pruneCachedClone, deleteDirectory, deleteCheckout, findLocalCheckout, isLinkedToCheckout } from './team-review-checkouts.ts';
 import type { TeamReviewWiringConfig, TeamReviewRepoCache, TeamReviewGitWorkspace, TeamReviewReap } from './team-review-checkouts.ts';
@@ -198,7 +198,7 @@ function createTeamReviewDispatcher({
         id: `${core.TEAM_REVIEW_LANE_ID}:${candidate.key}`,
         name: `Team review ${candidate.key}`,
         cwd: workDir,
-        spawnEnv: hooksPathPinnedSpawnEnv(workDir),
+        spawnEnv: hooksPathPinnedSpawnEnv(),
         agent: core.REVIEW_AGENT_ADAPTER_ID,
         extraClaudeArgs: [...teamReviewClaudeArgs(reviewer, setup.loadMcpServers, { checkoutPath, linkedCheckout }, gitEnvPrefixes), ...promptLaunch.args],
         settingsPermissions: teamReviewAcceptEditsPermissions(),
@@ -325,7 +325,6 @@ function createTeamReviewDispatcher({
       await writeUntrustedPayload(workDir, {
         trust: 'untrusted', source: core.TEAM_REVIEW_LANE_ID, fetchedAt: new Date(now()).toISOString(), items: core.reviewUntrustedItems(detail, priorReview),
       }, core.REVIEW_UNTRUSTED_ITEM_MAX_CHARS);
-      await fs.mkdir(emptyGhConfigDir(workDir), { recursive: true });
       reportProgress({ kind: 'phase', phase: 'reviewing', tier, reasons, timeoutSeconds });
       resources.awakeStopwatch = startAwakeStopwatch({ now });
       return await spawnWithTimeout({

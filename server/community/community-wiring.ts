@@ -8,6 +8,7 @@ import { createLaneRunner } from '../lanes/lane-runner.ts';
 import { emptyLaneStatus } from '../lanes/lane-status.ts';
 import { bootStaggerDelay } from '../boot-stagger.ts';
 import { stableConfigKey } from '../core/config-secrets-core.ts';
+import type { LaneAccessConfig } from '../lanes/core/lane-permissions-core.ts';
 import { createPosthogApi, extractRows } from '../radar/posthog-api.ts';
 import type { PosthogApi } from '../radar/posthog-api.ts';
 import * as core from './core/community-core.ts';
@@ -23,7 +24,7 @@ import type { CommunityActionRequest, CommunityActionResult, CommunityStateEntry
 import { errorMessage } from '../../shared/text.ts';
 import { createTeamReviewSpawn } from '../github/team-review-spawn.ts';
 import { absolutePathReadRule } from '../github/core/team-review-core.ts';
-import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, LANE_CREDENTIAL_ENV } from '../lanes/core/lane-permissions-core.ts';
+import { ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, LANE_CREDENTIAL_ENV, laneAccessConfigOf } from '../lanes/core/lane-permissions-core.ts';
 import { firstLine, raceWithAbort } from '../lanes/ephemeral-session.ts';
 import type { RecordLane, SpawnGate } from '../lanes/ephemeral-session.ts';
 import type { HookRouter } from '../../detection/hook-source.ts';
@@ -147,10 +148,11 @@ interface CommunitySpawnDependencies {
   replayBufferKB?: number;
 }
 
-function createCommunityRunner({ spawnDependencies, homeDir, getSettings, hookToolConfig }: {
+function createCommunityRunner({ spawnDependencies, homeDir, getSettings, hookToolConfig, getLaneAccessConfig }: {
   spawnDependencies: CommunitySpawnDependencies;
   homeDir: string;
   hookToolConfig: HookToolConfig;
+  getLaneAccessConfig: () => LaneAccessConfig;
   getSettings: () => core.CommunitySettings;
 }) {
   const spawnSession = createTeamReviewSpawn({
@@ -163,6 +165,7 @@ function createCommunityRunner({ spawnDependencies, homeDir, getSettings, hookTo
     replayBufferKB: spawnDependencies.replayBufferKB,
     laneName: core.COMMUNITY_LANE_ID,
     hookToolConfig,
+    getLaneAccessConfig,
   });
   const workRoot = path.join(homeDir, COMMUNITY_WORK_DIRNAME);
 
@@ -246,7 +249,7 @@ function createCommunityWiring({
 }: CommunityWiringOptions) {
   const stateIo = createCommunityStateIo(path.join(homeDir, core.COMMUNITY_STATE_FILENAME), log);
   const runItem = spawnDependencies
-    ? createCommunityRunner({ spawnDependencies, homeDir, getSettings: () => core.readCommunitySettings(config), hookToolConfig: config })
+    ? createCommunityRunner({ spawnDependencies, homeDir, getSettings: () => core.readCommunitySettings(config), hookToolConfig: config, getLaneAccessConfig: () => laneAccessConfigOf(config) })
     : undefined;
 
   function notifyDraftReady(entry: CommunityStateEntry): void {

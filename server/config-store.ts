@@ -270,6 +270,8 @@ function createConfigStore({
     if (newConfig.taskTitle != null) config.taskTitle = newConfig.taskTitle;
     if (newConfig.branchGc != null) config.branchGc = resolveBranchGc(newConfig.branchGc);
     if (newConfig.github != null) config.github = newConfig.github;
+    if (newConfig.lanes == null) delete config.lanes;
+    if (newConfig.lanes != null) config.lanes = newConfig.lanes;
     if (newConfig.teamReview != null) config.teamReview = newConfig.teamReview;
     if (newConfig.benchmarks != null) config.benchmarks = newConfig.benchmarks;
     if (newConfig.coherence != null) config.coherence = newConfig.coherence;

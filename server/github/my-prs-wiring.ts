@@ -20,7 +20,7 @@ import type { TeamReviewSettingsSource } from './core/team-review-core.ts';
 import { createJsonStateStore } from '../json-file.ts';
 import { drainPending, firstLine, raceWithAbort } from '../lanes/ephemeral-session.ts';
 import type { CommandResult } from '../git/git-exec.ts';
-import { emptyGhConfigDir, hooksPathPinnedSpawnEnv, makeTeamReviewWorkDir } from './team-review-spawn.ts';
+import { hooksPathPinnedSpawnEnv, makeTeamReviewWorkDir } from './team-review-spawn.ts';
 import { sweepLeftoverCheckouts } from './team-review-checkouts.ts';
 import type { TeamReviewGitWorkspace, TeamReviewRepoCache } from './team-review-checkouts.ts';
 import type { TeamReviewSpawn } from './team-review-spawn.ts';
@@ -109,8 +109,8 @@ interface GuardedPrStagingOptions {
   clearTimeoutFn?: ClearTimeoutFn;
 }
 
-function keepMergeableSpawnEnv(workDir: string): Record<string, string> {
-  return { ...hooksPathPinnedSpawnEnv(workDir), GIT_CONFIG_COUNT: '4', GIT_CONFIG_KEY_3: 'commit.gpgsign', GIT_CONFIG_VALUE_3: 'false' };
+function keepMergeableSpawnEnv(): Record<string, string> {
+  return { ...hooksPathPinnedSpawnEnv(), GIT_CONFIG_COUNT: '4', GIT_CONFIG_KEY_3: 'commit.gpgsign', GIT_CONFIG_VALUE_3: 'false' };
 }
 
 function defaultSessionTimeoutSeconds(): number {
@@ -166,7 +166,7 @@ export function createGuardedPrStaging({
         const sessionSignal = AbortSignal.any([deadlineSignal, signal]);
         return spawnSession({
           id: `${idPrefix}:${randomUUID()}`, name, cwd: workDir,
-          spawnEnv: keepMergeableSpawnEnv(workDir),
+          spawnEnv: keepMergeableSpawnEnv(),
           extraClaudeArgs: core.keepMergeableClaudeArgs(),
           settingsPermissions: core.keepMergeablePermissions(),
           signal: sessionSignal, initialPrompt,
@@ -325,7 +325,6 @@ export function createMyPrMergeabilityFix({
       projectPath = staged.projectPath;
       if (signal.aborted) return stopped;
       await fs.writeFile(path.join(workDir.dir, core.MY_PRS_FIX_PROMPT_FILENAME), core.keepMergeablePrompt(pr), 'utf8');
-      await fs.mkdir(emptyGhConfigDir(workDir.dir), { recursive: true });
       const outcome = await runSession({
         idPrefix: core.MY_PRS_LANE_ID, name: `Keep mergeable ${pr.key}`, workDir: workDir.dir, signal,
         onPending: (pending) => { pendingSession = pending; }, initialPrompt: core.MY_PRS_FIX_BOOTSTRAP_PROMPT,
