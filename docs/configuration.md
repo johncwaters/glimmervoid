@@ -36,7 +36,7 @@ How sessions start, where projects are found, and branch cleanup.
 | `viewTabOrder` | Tab order | `[]` | Order of the dashboard tabs, also set by dragging tabs in the header. |
 | `remoteSessions` | Remote Coder sessions | `false` | Offer Coder workspaces when adding a session. |
 | `streamerMode` | Streamer mode | `false` | Hide sensitive details while screen sharing. |
-| `hintCards` | Hint cards | `false` | Show tip cards: Your day tips, feature suggestions and the GitHub star request. |
+| `hintCards` | Hint cards | `false` | Show tip cards: Your day tips and feature suggestions. |
 | `repoRoots` | Repository roots | `[]` | Folders scanned for projects when adding a session. |
 | `branchGc.deleteUnmerged` | Delete unmerged branches | `false` | Also delete stale remote branches with no proof they were merged. |
 | `debugMode` | Debug mode | `false` | Show session-card diagnostics for state, transitions and detection signals. **File-only.** A diagnostic switch kept out of the Settings view; change it in config.json while investigating. |

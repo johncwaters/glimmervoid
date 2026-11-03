@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { createFeatureHintsWiring } from '../server/feature-hints-wiring.ts';
+import { STAR_HINT_PROMPT_THRESHOLD } from '../shared/contracts/feature-hints.ts';
 import type { FeatureHint, HintFeature } from '../shared/contracts/feature-hints.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -257,16 +258,19 @@ test('the fifth operator prompt raises one star hint that replays until settled,
   assert.equal(settledRun.starHintBroadcasts.length, 0);
 });
 
-test('with hint cards off a hint is tracked but never sent, and turning them on replays it', async () => {
+test('with hint cards off a feature hint is tracked but never sent while the star request still is, and turning them on replays the hint', async () => {
   const clock = { nowMs: START_MS };
   const config: { current: unknown } = { current: { ...DEFAULT_ON_FEATURES_OFF, hintCards: false } };
-  const { featureHints, broadcastHints } = startHints(tempStatePath(), clock, config);
+  const { featureHints, broadcastHints, starHintBroadcasts } = startHints(tempStatePath(), clock, config);
   const session = attachedSession(featureHints, 'session-a');
 
   for (const prNumber of [701, 702, 703]) session.runCommand(`gh pr diff ${prNumber}`);
+  for (let promptIndex = 0; promptIndex < STAR_HINT_PROMPT_THRESHOLD; promptIndex += 1) session.submitPrompt(`prompt ${promptIndex}`);
   await featureHints.idle();
   assert.deepEqual(broadcastHints, []);
   assert.equal(pendingFeatureHint(featureHints), null);
+  assert.equal(starHintBroadcasts.length, 1);
+  assert.equal(pendingStarHintCount(featureHints), 1);
 
   config.current = DEFAULT_ON_FEATURES_OFF;
   assert.equal(pendingFeatureHint(featureHints)?.feature, 'teamReview');

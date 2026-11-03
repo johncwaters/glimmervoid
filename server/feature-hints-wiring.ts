@@ -45,7 +45,7 @@ function createFeatureHintsWiring({ statePath, broadcast, log, currentConfig, no
       const hint = core.decideHint(nextState, now(), isFeatureEnabled);
       state = hint ? { ...nextState, pendingHint: hint } : nextState;
       if (hint && areHintCardsEnabled()) broadcast({ type: 'feature-hint', hint });
-      if (!wasStarHintPending && core.isStarHintPending(state) && areHintCardsEnabled()) broadcast({ type: 'star-hint' });
+      if (!wasStarHintPending && core.isStarHintPending(state)) broadcast({ type: 'star-hint' });
       const persistedState = state;
       return store.write(persistedState, () => `${JSON.stringify(persistedState, null, 2)}\n`);
     });
@@ -86,9 +86,8 @@ function createFeatureHintsWiring({ statePath, broadcast, log, currentConfig, no
   }
 
   function pendingHintMessages(): (FeatureHintMessage | StarHintMessage)[] {
-    if (!areHintCardsEnabled()) return [];
     const pendingHint = core.withoutStaleHint(state, now(), isFeatureEnabled).pendingHint;
-    const featureHintMessages: FeatureHintMessage[] = pendingHint ? [{ type: 'feature-hint', hint: pendingHint }] : [];
+    const featureHintMessages: FeatureHintMessage[] = pendingHint && areHintCardsEnabled() ? [{ type: 'feature-hint', hint: pendingHint }] : [];
     const starHintMessages: StarHintMessage[] = core.isStarHintPending(state) ? [{ type: 'star-hint' }] : [];
     return [...featureHintMessages, ...starHintMessages];
   }

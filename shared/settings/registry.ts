@@ -270,8 +270,8 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
       },
       {
         id: 'hint-cards', path: 'hintCards', title: 'Hint cards',
-        description: 'Show tip cards: Your day tips, feature suggestions and the GitHub star request.',
-        control: 'toggle', keywords: ['experimental', 'hints', 'tips', 'your day', 'star'], defaultValue: false, ...MACHINE_NOW,
+        description: 'Show tip cards: Your day tips and feature suggestions.',
+        control: 'toggle', keywords: ['experimental', 'hints', 'tips', 'your day'], defaultValue: false, ...MACHINE_NOW,
       },
       {
         id: 'repository-roots', path: 'repoRoots', title: 'Repository roots',
