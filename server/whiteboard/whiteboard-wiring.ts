@@ -169,6 +169,19 @@ function createWhiteboardWiring({
     broadcastControl(snapshotMessage());
   }
 
+  async function saveRecordInSlot(current: BoardRecord, next: BoardRecord): Promise<boolean> {
+    const boardId = current.board.id;
+    recordsByBoardId.set(boardId, next);
+    try {
+      await writeRecord(next);
+      return true;
+    } catch (error) {
+      recordsByBoardId.set(boardId, current);
+      logger.warn(`[whiteboard] board ${boardId} could not be saved: ${errorMessage(error)}`);
+      return false;
+    }
+  }
+
   function changeRecord(boardId: string, change: (record: BoardRecord) => RecordChange): Promise<WhiteboardReply> {
     return writeQueue.run(boardId, async () => {
       const current = recordsByBoardId.get(boardId);
@@ -176,14 +189,8 @@ function createWhiteboardWiring({
       const outcome = change(current);
       if (!outcome.ok) return outcome.reply;
       if (outcome.record === current) return outcome.reply;
-      recordsByBoardId.set(boardId, outcome.record);
-      try {
-        await writeRecord(outcome.record);
-      } catch (error) {
-        recordsByBoardId.set(boardId, current);
-        logger.warn(`[whiteboard] board ${boardId} could not be saved: ${errorMessage(error)}`);
-        return refusal(500, 'the board could not be saved, so nothing changed');
-      }
+      const isSaved = await saveRecordInSlot(current, outcome.record);
+      if (!isSaved) return refusal(500, 'the board could not be saved, so nothing changed');
       if (outcome.patch) broadcastControl(outcome.patch);
       broadcastSummariesIfChanged(current, outcome.record);
       return outcome.reply;
@@ -309,29 +316,33 @@ function createWhiteboardWiring({
     await Promise.all(unlinkPuts);
   }
 
-  async function removeBoard(boardId: string, isRemovable: (record: BoardRecord) => boolean = () => true): Promise<WhiteboardReply> {
-    const reply = await removeBoardRecord(boardId, isRemovable);
+  async function removeBoard(boardId: string): Promise<WhiteboardReply> {
+    const reply = await removeBoardRecord(boardId);
     if (reply.body.ok) await clearLinksTo(boardId);
     return reply;
   }
 
-  function removeBoardRecord(boardId: string, isRemovable: (record: BoardRecord) => boolean): Promise<WhiteboardReply> {
+  function removeBoardRecord(boardId: string): Promise<WhiteboardReply> {
     return writeQueue.run(boardId, async () => {
       const current = recordsByBoardId.get(boardId);
       if (!current) return refusal(404, DELETED_BOARD_TEXT);
-      if (!isRemovable(current)) return refusal(409, 'a session is still connected, so the board is still here');
-      try {
-        await fsp.rm(boardFilePath(boardId), { force: true });
-      } catch (error) {
-        logger.warn(`[whiteboard] board ${boardId} could not be deleted: ${errorMessage(error)}`);
-        return refusal(500, 'the board file could not be deleted, so the board is still here');
-      }
-      recordsByBoardId.delete(boardId);
-      deletedBoardIds.add(boardId);
-      broadcastControl({ type: 'whiteboard-removed', boardId });
-      broadcastSummariesIfChanged(current, null);
-      return { status: 200, body: { ok: true, version: current.board.version } };
+      return deleteRecordInSlot(current);
     });
+  }
+
+  async function deleteRecordInSlot(current: BoardRecord): Promise<WhiteboardReply> {
+    const boardId = current.board.id;
+    try {
+      await fsp.rm(boardFilePath(boardId), { force: true });
+    } catch (error) {
+      logger.warn(`[whiteboard] board ${boardId} could not be deleted: ${errorMessage(error)}`);
+      return refusal(500, 'the board file could not be deleted, so the board is still here');
+    }
+    recordsByBoardId.delete(boardId);
+    deletedBoardIds.add(boardId);
+    broadcastControl({ type: 'whiteboard-removed', boardId });
+    broadcastSummariesIfChanged(current, null);
+    return { status: 200, body: { ok: true, version: current.board.version } };
   }
 
   function deleteOwnBoard(boardId: string, callerId: string): Promise<WhiteboardReply> {
@@ -375,12 +386,15 @@ function createWhiteboardWiring({
   };
 
   async function closeConnections(boardId: string, closedSessionIds: readonly string[]): Promise<void> {
-    const disconnected = await changeRecord(boardId, (record) => {
-      const next = closedSessionIds.reduce(disconnectSession, record);
-      return { ok: true, record: next, reply: connectionReply(next, 'the closed sessions no longer get summaries of changes to this board') };
+    const isDeleted = await writeQueue.run(boardId, async () => {
+      const current = recordsByBoardId.get(boardId);
+      if (!current) return false;
+      const next = closedSessionIds.reduce(disconnectSession, current);
+      if (hasNoConnectedSessions(next)) return (await deleteRecordInSlot(current)).body.ok;
+      if (await saveRecordInSlot(current, next)) broadcastSummariesIfChanged(current, next);
+      return false;
     });
-    if (!disconnected.body.ok) return;
-    await removeBoard(boardId, hasNoConnectedSessions);
+    if (isDeleted) await clearLinksTo(boardId);
   }
 
   async function forgetClosedSessions(isClosedSession: (sessionId: string) => boolean): Promise<void> {
