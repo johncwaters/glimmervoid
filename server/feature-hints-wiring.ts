@@ -14,6 +14,7 @@ interface FeatureHintsWiringOptions {
   broadcast: (message: FeatureHintMessage | StarHintMessage) => void;
   log: Pick<Console, 'warn'>;
   currentConfig: () => unknown;
+  controlClientCount?: () => number;
   now?: () => number;
 }
 
@@ -22,7 +23,7 @@ interface HintableSession extends Pick<EventEmitter, 'on' | 'off'> {
   readonly ephemeral: boolean;
 }
 
-function createFeatureHintsWiring({ statePath, broadcast, log, currentConfig, now = Date.now }: FeatureHintsWiringOptions) {
+function createFeatureHintsWiring({ statePath, broadcast, log, currentConfig, controlClientCount = () => 0, now = Date.now }: FeatureHintsWiringOptions) {
   let state = core.emptyFeatureHintState();
   let recentPrompts: readonly RecentPrompt[] = [];
   let isStopped = false;
@@ -37,17 +38,26 @@ function createFeatureHintsWiring({ statePath, broadcast, log, currentConfig, no
   });
   const loaded = store.load();
 
+  function persist(): Promise<void> {
+    const persistedState = state;
+    return store.write(persistedState, () => `${JSON.stringify(persistedState, null, 2)}\n`);
+  }
+
+  function takeStarHint(): boolean {
+    if (!core.isStarHintPending(state)) return false;
+    state = core.settleStarHint(state, 'shown');
+    return true;
+  }
+
   function update(nextStateOf: (current: FeatureHintState) => FeatureHintState): Promise<void> {
     return loaded.then(() => {
       if (isStopped) return;
-      const wasStarHintPending = core.isStarHintPending(state);
       const nextState = core.withoutStaleHint(nextStateOf(state), now(), isFeatureEnabled);
       const hint = core.decideHint(nextState, now(), isFeatureEnabled);
       state = hint ? { ...nextState, pendingHint: hint } : nextState;
       if (hint && areHintCardsEnabled()) broadcast({ type: 'feature-hint', hint });
-      if (!wasStarHintPending && core.isStarHintPending(state)) broadcast({ type: 'star-hint' });
-      const persistedState = state;
-      return store.write(persistedState, () => `${JSON.stringify(persistedState, null, 2)}\n`);
+      if (controlClientCount() > 0 && takeStarHint()) broadcast({ type: 'star-hint' });
+      return persist();
     });
   }
 
@@ -88,7 +98,11 @@ function createFeatureHintsWiring({ statePath, broadcast, log, currentConfig, no
   function pendingHintMessages(): (FeatureHintMessage | StarHintMessage)[] {
     const pendingHint = core.withoutStaleHint(state, now(), isFeatureEnabled).pendingHint;
     const featureHintMessages: FeatureHintMessage[] = pendingHint && areHintCardsEnabled() ? [{ type: 'feature-hint', hint: pendingHint }] : [];
-    const starHintMessages: StarHintMessage[] = core.isStarHintPending(state) ? [{ type: 'star-hint' }] : [];
+    const starHintMessages: StarHintMessage[] = [];
+    if (!isStopped && takeStarHint()) {
+      starHintMessages.push({ type: 'star-hint' });
+      void persist();
+    }
     return [...featureHintMessages, ...starHintMessages];
   }
 

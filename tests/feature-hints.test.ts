@@ -38,11 +38,11 @@ function hookedSession(id: string, { ephemeral = false }: { ephemeral?: boolean 
 
 const DEFAULT_ON_FEATURES_OFF = { hintCards: true, teamReview: { enabled: false }, usage: { enabled: false } };
 
-function startHints(statePath: string, clock: Clock, config: { current: unknown } = { current: DEFAULT_ON_FEATURES_OFF }) {
+function startHints(statePath: string, clock: Clock, config: { current: unknown } = { current: DEFAULT_ON_FEATURES_OFF }, dashboards = { count: 1 }) {
   const broadcastHints: FeatureHint[] = [];
   const starHintBroadcasts: { type: 'star-hint' }[] = [];
   const featureHints = createFeatureHintsWiring({
-    statePath, log: { warn: () => {} }, now: () => clock.nowMs, currentConfig: () => config.current,
+    statePath, log: { warn: () => {} }, now: () => clock.nowMs, currentConfig: () => config.current, controlClientCount: () => dashboards.count,
     broadcast: (message) => {
       if (message.type === 'star-hint') {
         starHintBroadcasts.push(message);
@@ -226,7 +226,7 @@ test('an Issues hint saved before it went experimental never replays after a res
   assert.equal(pendingFeatureHint(featureHints), null);
 });
 
-test('the fifth operator prompt raises one star hint that replays until settled, and lane prompts never count', async () => {
+test('the fifth operator prompt sends the star hint once ever, across restarts, and lane prompts never count', async () => {
   const statePath = tempStatePath();
   const clock = { nowMs: START_MS };
   const firstRun = startHints(statePath, clock);
@@ -243,19 +243,45 @@ test('the fifth operator prompt raises one star hint that replays until settled,
   operatorSession.submitPrompt('six');
   await firstRun.featureHints.idle();
   assert.equal(firstRun.starHintBroadcasts.length, 1);
+  assert.equal(pendingStarHintCount(firstRun.featureHints), 0);
+  await firstRun.featureHints.stop();
+
+  const restarted = startHints(statePath, clock);
+  attachedSession(restarted.featureHints, 'session-b').submitPrompt('seven');
+  await restarted.featureHints.idle();
+  assert.equal(pendingStarHintCount(restarted.featureHints), 0);
+  assert.equal(restarted.starHintBroadcasts.length, 0);
+});
+
+test('a star hint raised with no dashboard connected waits for the next connect and is then sent once', async () => {
+  const clock = { nowMs: START_MS };
+  const dashboards = { count: 0 };
+  const { featureHints, starHintBroadcasts } = startHints(tempStatePath(), clock, { current: DEFAULT_ON_FEATURES_OFF }, dashboards);
+  const session = attachedSession(featureHints, 'session-a');
+
+  for (let promptIndex = 0; promptIndex < STAR_HINT_PROMPT_THRESHOLD; promptIndex += 1) session.submitPrompt(`prompt ${promptIndex}`);
+  await featureHints.idle();
+  assert.equal(starHintBroadcasts.length, 0);
+
+  dashboards.count = 1;
+  assert.equal(pendingStarHintCount(featureHints), 1);
+  assert.equal(pendingStarHintCount(featureHints), 0);
+});
+
+test('a star hint left pending by an older build replays on one connect only, across restarts', async () => {
+  const statePath = tempStatePath();
+  const clock = { nowMs: START_MS };
+  const pendingStarState = { signalsByFeature: {}, settledByFeature: {}, lastShownAtByView: {}, pendingHint: null, starHintPromptCount: STAR_HINT_PROMPT_THRESHOLD, starHintOutcome: null };
+  fs.writeFileSync(statePath, JSON.stringify(pendingStarState));
+  const firstRun = startHints(statePath, clock);
+  await firstRun.featureHints.idle();
+  assert.equal(pendingStarHintCount(firstRun.featureHints), 1);
+  assert.equal(pendingStarHintCount(firstRun.featureHints), 0);
   await firstRun.featureHints.stop();
 
   const restarted = startHints(statePath, clock);
   await restarted.featureHints.idle();
-  assert.equal(pendingStarHintCount(restarted.featureHints), 1);
-  await restarted.featureHints.settleStar('dismissed');
-  await restarted.featureHints.stop();
-
-  const settledRun = startHints(statePath, clock);
-  attachedSession(settledRun.featureHints, 'session-b').submitPrompt('seven');
-  await settledRun.featureHints.idle();
-  assert.equal(pendingStarHintCount(settledRun.featureHints), 0);
-  assert.equal(settledRun.starHintBroadcasts.length, 0);
+  assert.equal(pendingStarHintCount(restarted.featureHints), 0);
 });
 
 test('with hint cards off a feature hint is tracked but never sent while the star request still is, and turning them on replays the hint', async () => {
@@ -270,7 +296,6 @@ test('with hint cards off a feature hint is tracked but never sent while the sta
   assert.deepEqual(broadcastHints, []);
   assert.equal(pendingFeatureHint(featureHints), null);
   assert.equal(starHintBroadcasts.length, 1);
-  assert.equal(pendingStarHintCount(featureHints), 1);
 
   config.current = DEFAULT_ON_FEATURES_OFF;
   assert.equal(pendingFeatureHint(featureHints)?.feature, 'teamReview');

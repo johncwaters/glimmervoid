@@ -18,6 +18,7 @@ interface FeatureHintHost {
 }
 
 let shownHintCard: HTMLElement | null = null;
+let isStarHintWaiting = false;
 
 function reportHintAction(feature: HintFeature, action: 'shown' | 'open' | 'dismiss') {
   sendControlMsg({ type: 'dashboard-telemetry', event: 'operator_action', properties: { surface: 'hints', action, feature } });
@@ -68,6 +69,9 @@ export function showHintCard({ text, ariaLabel, openLabel = 'Show me', onOpen, o
   function closeHint() {
     hintCard.remove();
     shownHintCard = null;
+    if (!isStarHintWaiting) return;
+    isStarHintWaiting = false;
+    showStarHint();
   }
   showButton.addEventListener('click', () => {
     closeHint();
@@ -102,7 +106,10 @@ function reportStarHintAction(action: 'shown' | 'open' | 'dismiss') {
 }
 
 export function showStarHint() {
-  if (isHintCardShown()) return;
+  if (isHintCardShown()) {
+    isStarHintWaiting = true;
+    return;
+  }
   if (!claimCard('star-hint', 'card')) return;
   showHintCard({
     text: 'Enjoying Glimmervoid? A star on GitHub helps other people find it.',
