@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The star request shows only once.** The GitHub star card no longer comes back when you leave it unanswered: once it has appeared on any dashboard, reloading, opening another tab or device, or restarting Glimmervoid never shows it again.
+
 ## [0.50.0] - 2026-11-03
 
 ### Added

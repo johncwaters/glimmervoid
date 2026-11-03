@@ -16,7 +16,7 @@ const HINT_OUTCOMES = Object.freeze(['opened', 'dismissed'] as const);
 export type HintOutcome = (typeof HINT_OUTCOMES)[number];
 
 export const STAR_HINT_PROMPT_THRESHOLD = 5;
-const STAR_HINT_OUTCOMES = Object.freeze(['starred', 'dismissed'] as const);
+const STAR_HINT_OUTCOMES = Object.freeze(['shown', 'starred', 'dismissed'] as const);
 export type StarHintOutcome = (typeof STAR_HINT_OUTCOMES)[number];
 
 const timestamp = z.number().int().nonnegative();

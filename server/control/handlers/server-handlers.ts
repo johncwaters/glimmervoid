@@ -39,6 +39,7 @@ function createServerHandlers(_context: ControlContext, deps: ControlHandlerDeps
     }
     if (report.event !== 'operator_action') return;
     if (report.properties.surface === 'star') {
+      if (report.properties.action === 'shown') void featureHints.settleStar('shown');
       if (report.properties.action === 'open') void featureHints.settleStar('starred');
       if (report.properties.action === 'dismiss') void featureHints.settleStar('dismissed');
       return;
