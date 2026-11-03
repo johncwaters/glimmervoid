@@ -1,7 +1,7 @@
 import type { IMarker, Terminal } from '@xterm/xterm';
 import type { ShownFile } from '#shared/contracts/session.ts';
 import { el } from '../dom-helpers.ts';
-import { openShownFace, shownThumbnailUrl } from '../shown-files.ts';
+import { openShownPage, shownThumbnailUrl } from '../shown-files.ts';
 import { findSessionUi } from './card-registry.ts';
 import { createPressable } from '../ui/pressable.ts';
 
@@ -44,7 +44,7 @@ function buildChipContent(sessionId: string, file: ShownFile): HTMLButtonElement
   chip.append(el('span', 'shown-chip-name', file.pageTitle ?? file.name));
   chip.addEventListener('click', (event) => {
     event.stopPropagation();
-    openShownFace(sessionId, file.id);
+    openShownPage(sessionId, file.id);
   });
   return chip;
 }

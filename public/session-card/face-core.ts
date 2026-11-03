@@ -1,4 +1,4 @@
-export type SessionCardFace = 'terminal' | 'plan' | 'shown';
+export type SessionCardFace = 'terminal' | 'plan';
 
 export function decidePlanHeaderAction({ hasPlan, isBorrowed, face }: {
   hasPlan: boolean;
