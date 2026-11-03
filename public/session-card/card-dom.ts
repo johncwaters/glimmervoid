@@ -116,6 +116,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   const sessionMenuWrap = el('div', 'session-overflow');
   const btnSessionMenu = button({ variant: 'icon', size: 'small', label: 'Session actions', icon: createLineIcon(MORE_ICON_PATH), action: 'session-menu' });
+  delete btnSessionMenu.dataset.tipLabel;
   btnSessionMenu.setAttribute('aria-haspopup', 'menu');
   btnSessionMenu.setAttribute('aria-expanded', 'false');
   const sessionMenu = el('div', 'popup-menu session-overflow-menu');

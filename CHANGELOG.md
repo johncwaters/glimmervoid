@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The session menu no longer shows a tooltip.** Hovering the three dots in the session header showed a Session actions label that covered the menu once it opened.
 - **A session's automatic catch-up no longer takes another session's unpushed work.** When your base branch briefly held commits not yet on origin, for example while another session was landing and its push then failed, an idle session could catch up onto those commits, and its Changes then listed the other session's files as its own. While your local base branch holds commits origin lacks, sessions now catch up only to the newest commit your base branch and origin share, so they stay current without taking commits that may never land. Commits a session already holds stay in it, and a new session still starts from your local base branch.
 - **The board menu opens above the board tools.** When the tools wrapped onto a second row, the board menu opened underneath them, so its first boards could not be picked.
 
