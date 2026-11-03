@@ -8,6 +8,7 @@ const UNCOVERED_FILE_NAME = 'board-uncovered.txt';
 const MERGE_SETTLE_MS = 1500;
 const WORKTREE_TIMEOUT_MS = 15000;
 const REVIEW_TIMEOUT_MS = 20000;
+const RESIZE_TIMEOUT_MS = 5000;
 
 async function addPlanStep(panel: Locator): Promise<void> {
   await panel.getByRole('button', { name: 'more', exact: true }).click();
@@ -22,6 +23,22 @@ async function placeBoxWithTool(page: Page, panel: Locator, offset: { x: number;
   await titleInput.fill(title);
   await page.keyboard.press('Enter');
   await panel.locator('.wb-box-title', { hasText: title }).waitFor();
+}
+
+async function verifyResizedBox(page: Page, panel: Locator, title: string): Promise<void> {
+  const box = panel.locator('.wb-box', { has: page.locator('.wb-box-title', { hasText: title }) });
+  const outline = box.locator('.wb-box-outline');
+  const widthBefore = Number(await outline.getAttribute('width'));
+  await box.hover();
+  const handle = await box.locator('.wb-resize-handle').boundingBox();
+  assert.ok(handle);
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handle.x + 120, handle.y + handle.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await pollFor('dragging the corner handle widens the box', RESIZE_TIMEOUT_MS, async () => (Number(await outline.getAttribute('width')) > widthBefore ? true : null));
+  await panel.getByRole('button', { name: 'undo', exact: true }).click();
+  await pollFor('undo puts the box back to its width', RESIZE_TIMEOUT_MS, async () => (Number(await outline.getAttribute('width')) === widthBefore ? true : null));
 }
 
 async function verifyDroppedPicture(panel: Locator): Promise<void> {
@@ -176,6 +193,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await placeBoxWithTool(page, panel, { x: 60, y: 60 }, 'Parse feed');
     assert.equal(await panel.getByRole('button', { name: 'select', exact: true }).getAttribute('aria-pressed'), 'true', 'the tool returns to select after one placement');
     assert.equal(await toolHint.isVisible(), false, 'the hint line hides once the select tool is back');
+    await verifyResizedBox(page, panel, 'Parse feed');
     await verifyDroppedPicture(panel);
     await panel.getByRole('button', { name: 'more', exact: true }).click();
     const moreMenu = page.getByRole('menu', { name: 'More tools', exact: true });

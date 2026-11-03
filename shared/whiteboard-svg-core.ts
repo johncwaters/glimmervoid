@@ -14,6 +14,7 @@ const UNIT_LABEL_HEIGHT = 18;
 const PLAN_TITLE = 'Plan';
 const LINKED_BOARD_TEXT = 'open linked board';
 const PORT_RADIUS = 5;
+const RESIZE_HANDLE_SIZE = 10;
 const BAND_LABEL_BASELINE = 17;
 const LOOP_BADGE_RADIUS = 6;
 const LOOP_BADGE_INSET = 20;
@@ -67,7 +68,7 @@ svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospac
 .wb-loop .wb-frame-outline { stroke: #c084fc; }
 .wb-loop-badge { fill: none; stroke: #c084fc; stroke-width: 1.6; }
 .wb-back .wb-wire-line { stroke: #c084fc; }
-.wb-wire-hit, .wb-port { display: none; }
+.wb-wire-hit, .wb-port, .wb-resize-handle { display: none; }
 .wb-wire-line { fill: none; stroke: #a79fc4; stroke-width: 1.6; }
 .wb-wire-line.wb-dashed { stroke-dasharray: 7 6; }
 .wb-tone-fail .wb-wire-line { stroke: #ef4444; }
@@ -203,6 +204,7 @@ function boxMarkup(box: LaidOutBox, assetHref: AssetHref): string {
       text(box.lane.label, box.x + BOX_TEXT_INSET + 8, pillY + 13, 'wb-lane-pill-text', { style: `fill:${box.lane.hex}` }),
     );
   }
+  parts.push(tag('rect', { x: box.x + box.width - RESIZE_HANDLE_SIZE, y: box.y + box.height - RESIZE_HANDLE_SIZE, width: RESIZE_HANDLE_SIZE, height: RESIZE_HANDLE_SIZE, rx: 2, class: 'wb-resize-handle' }));
   return elementGroup(box, box.change === 'none' ? 'wb-box' : `wb-box wb-change-${box.change}`, parts);
 }
 

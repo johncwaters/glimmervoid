@@ -1,3 +1,4 @@
+import { WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import type { Board, Element as BoardElement, Op } from '#shared/contracts/whiteboard.ts';
 import { el } from '../dom-helpers.ts';
 import type { Rect } from '#shared/whiteboard-layout-core.ts';
@@ -40,7 +41,7 @@ export interface PressedImage {
 type BoxImage = NonNullable<Extract<BoardElement, { kind: 'box' }>['image']>;
 
 type Gesture =
-  | { kind: 'drag'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; pressedImage: PressedImage | null }
+  | { kind: 'drag'; mode: 'move' | 'resize'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; pressedImage: PressedImage | null }
   | { kind: 'wire'; pointerId: number; fromBoxId: string; start: ViewPoint; draftLine: SVGPathElement; targetBoxId: string | null }
   | { kind: 'pan'; pointerId: number; lastClient: ViewPoint; hasMoved: boolean; tappedBoxId: string | null; pressedImage: PressedImage | null }
   | { kind: 'pinch'; distance: number; viewWidth: number }
@@ -85,6 +86,10 @@ function pressedImageOf(target: EventTarget | null): PressedImage | null {
   const href = image?.getAttribute('href');
   if (!image || !href) return null;
   return { href, alt: image.querySelector('title')?.textContent ?? '' };
+}
+
+function isResizeHandle(target: EventTarget | null): boolean {
+  return target instanceof SVGRectElement && target.classList.contains('wb-resize-handle');
 }
 
 function linkedBoardIdOf(target: EventTarget | null): string | null {
@@ -216,15 +221,24 @@ export function createBoardEditor(options: BoardEditorOptions) {
     };
   }
 
-  function withBoxAt(board: Board, boxId: string, at: ViewPoint): Board {
+  function draggedWidth(drag: Extract<Gesture, { kind: 'drag' }>): number {
+    const width = Math.round(drag.start.width + drag.latest.x - drag.origin.x);
+    return Math.min(WHITEBOARD_LIMITS.boxWidthMax, Math.max(WHITEBOARD_LIMITS.boxWidthMin, width));
+  }
+
+  function draggedFields(drag: Extract<Gesture, { kind: 'drag' }>): { at: ViewPoint } | { width: number } {
+    return drag.mode === 'resize' ? { width: draggedWidth(drag) } : { at: draggedAt(drag) };
+  }
+
+  function withBoxFields(board: Board, boxId: string, fields: { at: ViewPoint } | { width: number }): Board {
     const box = board.elements[boxId];
     if (box?.kind !== 'box') return board;
-    return { ...board, elements: { ...board.elements, [boxId]: { ...box, at } } };
+    return { ...board, elements: { ...board.elements, [boxId]: { ...box, ...fields } } };
   }
 
   function previewOf(board: Board): Board {
     if (gesture?.kind !== 'drag' || !gesture.hasMoved) return board;
-    return withBoxAt(board, gesture.boxId, draggedAt(gesture));
+    return withBoxFields(board, gesture.boxId, draggedFields(gesture));
   }
 
   function cancelPreviewFrame(): void {
@@ -285,6 +299,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
       void placeElement(activeTool, toViewPoint(event.clientX, event.clientY));
       return;
     }
+    const resizeRect = hit?.kind === 'box' && isResizeHandle(event.target) && !isPhoneLayout() ? boxRectOf(hit.id) : null;
+    if (hit && resizeRect) {
+      const origin = toViewPoint(event.clientX, event.clientY);
+      gesture = { kind: 'drag', mode: 'resize', pointerId: event.pointerId, boxId: hit.id, origin, start: resizeRect, pinnedOffsetY: 0, latest: origin, hasMoved: false, isAdditive: false, pressedImage: null };
+      return;
+    }
     const port = portOf(event.target);
     if (hit?.kind === 'box' && port && !isPhoneLayout()) {
       startWire(event.pointerId, hit.id, { x: port.cx.baseVal.value, y: port.cy.baseVal.value });
@@ -299,7 +319,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (hit && boxRect) {
       const origin = toViewPoint(event.clientX, event.clientY);
       const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
-      gesture = { kind: 'drag', pointerId: event.pointerId, boxId: hit.id, origin, start: boxRect, pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: event.shiftKey, pressedImage: pressedImageOf(event.target) };
+      gesture = { kind: 'drag', mode: 'move', pointerId: event.pointerId, boxId: hit.id, origin, start: boxRect, pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: event.shiftKey, pressedImage: pressedImageOf(event.target) };
       return;
     }
     if (hit && !isPhoneLayout()) {
@@ -415,6 +435,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   async function finishDrag(drag: Extract<Gesture, { kind: 'drag' }>, event: PointerEvent): Promise<void> {
+    if (!drag.hasMoved && drag.mode === 'resize') return;
     if (!drag.hasMoved) {
       toggleSelected(drag.boxId, drag.isAdditive);
       if (drag.pressedImage && !drag.isAdditive) options.onOpenImage(drag.pressedImage);
@@ -422,10 +443,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
     }
     cancelPreviewFrame();
     drag.latest = toViewPoint(event.clientX, event.clientY);
-    const at = draggedAt(drag);
+    const fields = draggedFields(drag);
     const board = options.currentBoard();
-    if (board) renderer.render(withBoxAt(board, drag.boxId, at));
-    const isSent = await options.sendOps([{ op: 'set', id: drag.boxId, fields: { at } }]);
+    if (board) renderer.render(withBoxFields(board, drag.boxId, fields));
+    const isSent = await options.sendOps([{ op: 'set', id: drag.boxId, fields }]);
     if (!isSent) paintPreview();
   }
 

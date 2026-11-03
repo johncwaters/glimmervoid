@@ -628,8 +628,17 @@
   transition: opacity var(--transition-fast);
 }
 
-.wb-box:hover .wb-port,
-.wb-element.is-selected .wb-port { opacity: 1; }
+.wb-resize-handle {
+  fill: var(--wb-board);
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  cursor: ew-resize;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.wb-box:hover :is(.wb-port, .wb-resize-handle),
+.wb-element.is-selected :is(.wb-port, .wb-resize-handle) { opacity: 1; }
 
 .wb-wire-draft { stroke: var(--accent); }
 
@@ -766,7 +775,7 @@
   display: none;
 }
 
-[data-layout='phone'] .wb-port {
+[data-layout='phone'] :is(.wb-port, .wb-resize-handle) {
   display: none;
 }
 
