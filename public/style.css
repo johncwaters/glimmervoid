@@ -750,52 +750,6 @@ body {
   flex-shrink: 0;
 }
 
-.btn-action {
-  display: none;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 22px;
-  padding: 0;
-  border: none;
-  border-radius: 3px;
-  font-size: var(--type-meta);
-  cursor: pointer;
-  background: transparent;
-  color: var(--text);
-  transition: background var(--transition-fast), color var(--transition-fast);
-
-  position: relative;
-}
-
-.btn-action::after {
-  content: '';
-  position: absolute;
-
-  inset: -11px -2px;
-}
-
-@media (hover: hover) {
-  .btn-action:hover {
-    background: color-mix(in srgb, var(--text) 8%, transparent);
-    color: var(--text-head);
-  }
-}
-
-@media (hover: hover) {
-  .session-card[data-state] .btn-action:hover {
-    background: color-mix(in srgb, var(--text) 8%, transparent);
-  }
-}
-
-.btn-action:active {
-  transform: scale(0.93);
-}
-
-.btn-action.visible {
-  display: inline-flex;
-}
-
 .terminal-wrap {
   position: relative;
   flex: 1;
@@ -951,7 +905,6 @@ body {
   width: max-content;
 }
 
-.btn-action:focus-visible,
 .btn-dialog:focus-visible,
 .btn-menu:focus-visible,
 .btn-help:focus-visible,
@@ -1092,23 +1045,8 @@ body {
   height: 14px;
   pointer-events: none;
 }
-.session-group-forget .line-icon { width: 12px; height: 12px; }
 .session-pr-chip-unlink .line-icon { width: 10px; height: 10px; }
 
-.btn-remove {
-  color: var(--text-dim);
-}
-
-.btn-remove:focus-visible {
-  background: color-mix(in oklch, var(--state-failed) 20%, var(--bg-card));
-  color: var(--state-failed);
-}
-@media (hover: hover) {
-  .session-card[data-state] .btn-remove:hover {
-    background: color-mix(in oklch, var(--state-failed) 20%, var(--bg-card));
-    color: var(--state-failed);
-  }
-}
 
 @keyframes dialogFadeIn {
   from { opacity: 0; }
@@ -3235,62 +3173,12 @@ html[data-layout="phone"] .trace-section-hint { flex-basis: 100%; font-size: var
 }
 .session-group-count { flex: none; color: var(--text-dim); font-size: var(--type-meta); font-variant-numeric: tabular-nums; }
 .session-group-rule { flex: 1; height: 1px; background: var(--border); }
-.session-group-add[hidden], .session-group-forget[hidden] { display: none; }
-
-.session-group-add,
-.session-group-forget {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  background: transparent;
-  border: 1px solid var(--border-dim);
-  border-radius: 5px;
-  color: var(--text-dim);
-  font-size: var(--type-body);
-  line-height: 1;
-  cursor: pointer;
-  transition: color var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast);
-}
-@media (hover: hover) {
-  .session-group-add:hover {
-    color: var(--accent);
-    border-color: color-mix(in oklch, var(--accent) 55%, var(--border));
-    background: color-mix(in oklch, var(--accent) 10%, transparent);
-  }
-}
-@media (hover: hover) {
-  .session-group-forget:hover {
-    color: var(--state-failed);
-    border-color: color-mix(in oklch, var(--state-failed) 45%, var(--border));
-    background: color-mix(in oklch, var(--state-failed) 12%, transparent);
-  }
-}
-.session-group-add:focus-visible,
-.session-group-forget:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (hover: hover) {
   .session-group-header:hover .session-group-label { color: var(--text); }
 }
 
 .session-group-header[data-empty] .session-group-rule { opacity: 0.5; }
-@media (prefers-reduced-motion: reduce) {
-  .session-group-add,
-  .session-group-forget { transition: none; }
-}
 
-.btn-face-plan {
-  width: auto;
-  padding: 0 8px;
-  font-family: var(--font-mono);
-  font-size: var(--type-meta);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-html[data-layout="phone"] .btn-face-plan { min-width: 44px; }
 
 .plan-face {
   position: relative;
@@ -3556,7 +3444,7 @@ html[data-layout="phone"] .card-face-tab { min-width: 44px; height: 36px; justif
 html[data-layout="phone"] .card-face-tab-label { display: none; }
 html[data-layout="phone"] .card-face-tab:not(.card-face-tab-shown) { display: none; }
 html[data-layout="phone"] .shown-unopened-count { top: -2px; right: -2px; }
-html[data-layout="phone"] .session-actions .btn-remove { display: none; }
+html[data-layout="phone"] .session-actions [data-action="remove-session"] { display: none; }
 html:not([data-layout="phone"]) .overflow-remove { display: none; }
 html[data-layout="phone"] .card-face-tab .line-icon { width: 18px; height: 18px; }
 html[data-layout="phone"] .phone-terminal:has(.session-card[data-face="shown"]) .phone-key-strip { display: none; }
@@ -3779,41 +3667,8 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
   .session-row .signal:hover { color: var(--text-head); text-decoration: underline; }
 }
 
-.session-row-remove {
-  flex: 0 0 32px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  appearance: none;
-  background: transparent;
-  border: none;
-  color: var(--text-dim);
-  cursor: pointer;
-}
-.session-row-remove:active { color: var(--state-failed); }
-@media (hover: hover) {
-  .session-row-remove:hover { color: var(--state-failed); }
-}
-.session-row-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; }
-.session-row-undo {
-  display: none;
-  flex: 0 0 auto;
-  align-self: center;
-  margin-right: 8px;
-  padding: 4px 10px;
-  appearance: none;
-  background: transparent;
-  border: 1px solid var(--accent-dim);
-  color: var(--accent);
-  font: inherit;
-  font-size: var(--type-meta);
-  cursor: pointer;
-}
-@media (hover: hover) {
-  .session-row-undo:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
-}
-.session-row-undo:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.session-row-item > [data-action="remove-session"] { align-self: center; margin: 0 5px; }
+.session-row-item > [data-action="undo-remove"] { display: none; align-self: center; margin-right: 8px; }
 .session-row-close-countdown {
   display: none;
   position: absolute;
@@ -3826,8 +3681,8 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
   pointer-events: none;
 }
 .session-row-item[data-closing] > .session-row { opacity: 0.45; }
-.session-row-item[data-closing] > .session-row-remove { display: none; }
-.session-row-item[data-closing] > .session-row-undo { display: inline-flex; align-items: center; }
+.session-row-item[data-closing] > [data-action="remove-session"] { display: none; }
+.session-row-item[data-closing] > [data-action="undo-remove"] { display: inline-flex; }
 .session-row-item[data-closing] > .session-row-close-countdown { display: block; animation: session-row-close-drain linear forwards; }
 @keyframes session-row-close-drain {
   from { transform: scaleX(1); }
@@ -4443,20 +4298,8 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
   .header-tab { min-height: 44px; }
 
   .popup-menu-item { min-height: 44px; }
-  .btn-action { width: 36px; }
 
 
-  .session-group-add,
-  .session-group-forget { position: relative; }
-
-  .session-group-add::after,
-  .session-group-forget::after {
-    content: '';
-    position: absolute;
-  }
-
-  .session-group-add::after,
-  .session-group-forget::after { inset: -13px -6px; }
 
   .phone-back,
   .phone-changes { min-width: 44px; min-height: 44px; }
@@ -4532,12 +4375,8 @@ html[data-layout="phone"] .attention-banner-jump-row { min-height: 44px; }
 html[data-layout="phone"] .review-queue-banner .attention-banner-jump { display: none; }
 html[data-layout="phone"] .phone-board-list { padding: 8px; }
 html[data-layout="phone"] .session-group-header { min-height: 44px; margin-top: 0; }
-html[data-layout="phone"] :is(.session-group-add, .session-group-forget) { position: relative; }
-html[data-layout="phone"] :is(.session-group-add, .session-group-forget)::after { content: ""; position: absolute; inset: -13px; }
 
 html[data-layout="phone"] .session-row { min-height: 56px; }
-html[data-layout="phone"] .session-row-remove { flex-basis: 44px; min-width: 44px; min-height: 44px; }
-html[data-layout="phone"] .session-row-undo { min-height: 44px; }
 html[data-layout="phone"] .session-row-item:has(> .session-row.focused) { outline: none; }
 
 .phone-terminal { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }

@@ -17,7 +17,8 @@ export function hasSessionDocs(sessionId: string): boolean {
 }
 
 function paintDocsButton(sessionId: string) {
-  findSessionUi(sessionId)?.btnDocs.classList.toggle('visible', hasSessionDocs(sessionId));
+  const docsButton = findSessionUi(sessionId)?.btnDocs;
+  if (docsButton) docsButton.hidden = !hasSessionDocs(sessionId);
 }
 
 let loadedEditorUi: DocEditorUi | null = null;

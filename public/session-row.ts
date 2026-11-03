@@ -1,5 +1,7 @@
 import { writeAttributeIfChanged, writeDataIfChanged, writeHiddenIfChanged, writeTextIfChanged } from './status-paint.ts';
 import { el, query, stateChip } from './dom-helpers.ts';
+import { button } from './ui/button.ts';
+import { createPressable } from './ui/pressable.ts';
 import { describeOwnership } from './focus-view/attention-core.ts';
 import { paintCardOwnership, remoteWorkspaceHoverText } from './session-card/card-dom.ts';
 import { attentionTally, sessionName, sessionUIs } from './session-card/card-registry.ts';
@@ -85,8 +87,8 @@ export function repaintSessionRowSignalsFor(sessionId: string) {
   for (const row of document.querySelectorAll<HTMLElement>(`.session-row[data-id="${CSS.escape(sessionId)}"]`)) paintSessionRowSignals(row);
 }
 
-export function buildSessionRow<Tag extends 'button' | 'div'>(tagName: Tag, extraClassName = '') {
-  const row = el(tagName, `session-row ${extraClassName}`.trim());
+export function buildSessionRow(extraClassName = '') {
+  const row = createPressable(`session-row ${extraClassName}`.trim());
   row.innerHTML = '<span class="session-row-glyph" aria-hidden="true"></span>'
     + '<span class="session-row-main">'
     + '<span class="session-row-title"><span class="session-row-name"></span><span class="session-row-cloud" hidden></span></span>'
@@ -116,21 +118,14 @@ export function buildSessionRow<Tag extends 'button' | 'div'>(tagName: Tag, extr
 
 export function wrapSessionRow(row: HTMLElement, onRemove: () => void, onUndoRemove: () => void) {
   const item = el('div', 'session-row-item');
-  const removeButton = el('button', 'session-row-remove');
-  removeButton.append(createLineIcon(CLOSE_ICON_PATH));
-  removeButton.type = 'button';
-  removeButton.title = 'Remove session';
-  removeButton.setAttribute('aria-label', 'Remove session');
-  removeButton.addEventListener('click', (event) => {
+  const removeButton = button({ variant: 'icon', size: 'small', label: 'Remove session', icon: createLineIcon(CLOSE_ICON_PATH), action: 'remove-session', onClick: (event) => {
     event.stopPropagation();
     onRemove();
-  });
-  const undoButton = el('button', 'session-row-undo', 'Undo');
-  undoButton.type = 'button';
-  undoButton.addEventListener('click', (event) => {
+  } });
+  const undoButton = button({ variant: 'primary', size: 'small', label: 'Undo', action: 'undo-remove', onClick: (event) => {
     event.stopPropagation();
     onUndoRemove();
-  });
+  } });
   const closeCountdown = el('span', 'session-row-close-countdown');
   closeCountdown.setAttribute('aria-hidden', 'true');
   closeCountdown.style.animationDuration = `${SESSION_CLOSE_UNDO_WINDOW_MS}ms`;

@@ -1,5 +1,6 @@
 import type { FocusLayout, PaneTab } from '#shared/contracts/focus-layout.ts';
 import { el } from '../dom-helpers.ts';
+import { createPressable } from '../ui/pressable.ts';
 import { getFocusLayout, setFocusLayout } from '../ui-prefs.ts';
 import type { VisibleLayout } from './pane-layout-core.ts';
 import { activateTab, dropZoneAt, groupsOf, moveTab, resizeSplit, trailGroupIndex, visibleLayout } from './pane-layout-core.ts';
@@ -63,8 +64,7 @@ export function createPaneLayout(): PaneLayout {
   }
 
   function buildTabButton(tab: PaneTab): HTMLButtonElement {
-    const button = el('button', 'pane-tab', TAB_LABELS[tab]);
-    button.type = 'button';
+    const button = createPressable('pane-tab', TAB_LABELS[tab]);
     button.draggable = true;
     button.dataset.tab = tab;
     button.setAttribute('role', 'tab');

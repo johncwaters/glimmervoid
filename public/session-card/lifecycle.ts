@@ -180,7 +180,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
 
   wireCardEvents(sessionUi, id);
   updateButtonVisibility(sessionUi);
-  sessionUi.btnDocs.classList.toggle('visible', hasSessionDocs(id));
+  sessionUi.btnDocs.hidden = !hasSessionDocs(id);
   paintShownTabs(id);
 
   if (state === STATES.RUNNING) setRunningActivity(sessionUi, true);

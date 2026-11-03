@@ -358,8 +358,7 @@ function paintSessionPill(pill: HTMLElement): void {
 }
 
 function createSessionPill(session: LinkedLiveSession): HTMLElement {
-  const { row: pill, refs } = buildSessionRow('button', 'my-pr-session-pill');
-  pill.type = 'button';
+  const { row: pill, refs } = buildSessionRow('my-pr-session-pill');
   pill.dataset.sessionId = session.id;
   refs.name.textContent = session.title;
   paintSessionPill(pill);

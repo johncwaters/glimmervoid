@@ -74,8 +74,7 @@ export function createBoardScreen({ onSelectSession, shownSessionId }: { onSelec
   observeHeaderHeight(topBar);
 
   function buildRow(id: string) {
-    const { row, refs } = buildSessionRow('button');
-    row.type = 'button';
+    const { row, refs } = buildSessionRow();
     row.dataset.id = id;
     row.addEventListener('click', () => selectSession(id));
     const { item } = wrapSessionRow(row, () => requestSessionRemoval(id), () => undoPendingClose(id));
@@ -111,7 +110,7 @@ export function createBoardScreen({ onSelectSession, shownSessionId }: { onSelec
   function paintGroup(section: HTMLElement, group: RosterGroup<BoardRow>) {
     const refs = groupRefs.get(section);
     if (!refs) return;
-    paintSessionGroupHeader(refs, group, 'Board');
+    paintSessionGroupHeader(refs, group);
     refs.rows.setAttribute('aria-label', `${group.label} sessions`);
   }
 

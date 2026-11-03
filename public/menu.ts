@@ -1,12 +1,11 @@
-import { el } from './dom-helpers.ts';
 import { nextRovingIndex } from './roving-keys-core.ts';
 import { isModalOpen } from './session-card/modal.ts';
+import { createPressable } from './ui/pressable.ts';
 
 export function buildMenuItem(label: string, className: string) {
-  const button = el('button', `popup-menu-item ${className}`, label);
-  button.type = 'button';
-  button.setAttribute('role', 'menuitem');
-  return button;
+  const menuItem = createPressable(`popup-menu-item ${className}`, label);
+  menuItem.setAttribute('role', 'menuitem');
+  return menuItem;
 }
 
 function isMenuArrowKey(event: KeyboardEvent) {

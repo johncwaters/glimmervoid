@@ -10,17 +10,26 @@ const PRESSABLE_OWNER = path.join(UI_DIR, 'pressable.ts');
 const SKIP_DIRS = new Set(['node_modules', 'dist']);
 const BUTTON_CREATION = /\bel\(\s*['"`]button['"`]|createElement\(\s*['"`]button['"`]|<button\b/i;
 const BUTTON_LOOK_SELECTOR = /\.ui-button\b|\[data-(?:variant|size)\b/;
-const RETIRED_CLASSES: string[] = ['btn-dialog-danger', 'btn-dialog-ghost', 'btn-dialog-icon'];
+const RETIRED_CLASSES: string[] = [
+  'btn-action',
+  'btn-dialog-danger',
+  'btn-dialog-ghost',
+  'btn-dialog-icon',
+  'btn-docs',
+  'btn-face-plan',
+  'btn-remove',
+  'btn-session-menu',
+  'session-group-add',
+  'session-group-forget',
+  'session-row-remove',
+  'session-row-undo',
+];
 const NOT_YET_MIGRATED = new Set<string>([
-  'public/attention-banner.ts',
   'public/benchmark-panel.ts',
   'public/coherence/coherence-panel-shell.ts',
   'public/community/community-panel.ts',
   'public/community/community-setup-card.ts',
   'public/doc-editor-ui.ts',
-  'public/focus-view/focus-view.ts',
-  'public/focus-view/pane-layout.ts',
-  'public/focus-view/roster-group-header.ts',
   'public/github/issues-panel.ts',
   'public/github/my-prs-panel.ts',
   'public/github/review-queue-panel.ts',
@@ -33,7 +42,6 @@ const NOT_YET_MIGRATED = new Set<string>([
   'public/health-monitor.ts',
   'public/hooks-panel.ts',
   'public/index.html',
-  'public/menu.ts',
   'public/perf.html',
   'public/phone/mobile-key-strip.ts',
   'public/phone/phone-shell.ts',
@@ -44,8 +52,6 @@ const NOT_YET_MIGRATED = new Set<string>([
   'public/review/change-map-view.ts',
   'public/review/review-bar.ts',
   'public/review/review-reader.ts',
-  'public/session-card/card-dom.ts',
-  'public/session-row.ts',
   'public/settings/settings-controls.ts',
   'public/settings/settings-panel.ts',
   'public/settings/settings-readouts.ts',

@@ -25,7 +25,7 @@ function updateButtonVisibility(ui: SessionUi) {
   ui.btnRestart.classList.toggle('visible', isKillable(state) || isRestartable(state) || state === STATES.DORMANT);
   ui.btnWorkspaceRepos.classList.toggle('visible', ui.card.dataset.workspace !== undefined);
   ui.btnTrace.classList.toggle('visible', isDebugModeEnabled());
-  ui.btnPlan.classList.toggle('visible', decidePlanHeaderAction(ui) !== 'hidden');
+  ui.btnPlan.hidden = decidePlanHeaderAction(ui) === 'hidden';
   ui.btnTerminalTab.setAttribute('aria-selected', String(ui.face === 'terminal'));
   ui.btnShownTab.setAttribute('aria-selected', String(ui.face === 'shown'));
 }

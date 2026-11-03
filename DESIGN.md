@@ -110,7 +110,7 @@ Every interactive element ships default, hover, focus-visible, active, and disab
 Every action button is `button()` from `public/ui/button.ts` (look in `public/ui/button.css`); `tests/gates/ui-primitives.test.ts` fails on a hand-rolled one.
 - **Look:** flat, nearly square (`--radius`), uppercase tracked mono like the card face tabs, so an action reads as an instrument control, not a web link.
 - **Variants:** primary (orchid outline, the one forward action in a group), secondary (base border, Cancel, Edit, Copy), danger (red-tinted outline, an action that loses work, always behind a confirm), quiet (no border, a low-stakes extra), icon (square, glyph only, label carried as the accessible name and hover tip).
-- **Sizes:** default for dialogs and panels, small for dense rows and card chrome. The phone layout draws them 44px tall; on any other coarse pointer an invisible extension brings the hit area to 44px without changing the drawn size.
+- **Sizes:** default for dialogs and panels, small for dense rows and card chrome. The phone layout draws default buttons 44px tall and small ones 32px; on a coarse pointer an invisible extension brings any smaller button's hit area to 44px.
 - **No state in the button:** the label never changes and nothing renders inside it while work runs; disable it and put progress or a new-output dot beside it.
 - **Layout belongs to the parent:** `button()` takes no class, so spacing, alignment and placement come from the container.
 

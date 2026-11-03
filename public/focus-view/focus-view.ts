@@ -1,7 +1,8 @@
 import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
 import { wireColumnResizer } from '../column-resizer.ts';
 import { el } from '../dom-helpers.ts';
-import { createLineIcon, IMAGE_ICON_PATH } from '../svg-dom.ts';
+import { createLineIcon, IMAGE_ICON_PATH, PLUS_ICON_PATH } from '../svg-dom.ts';
+import { button } from '../ui/button.ts';
 import { renderStatusLegend } from '../status-legend.ts';
 import { showFirstRunChecklist } from '../onboarding/first-run-loader.ts';
 import { emptyProjectKeys, forgetProject } from '../project-registry.ts';
@@ -125,7 +126,7 @@ function ensureGroup(group: RosterGroup<RosterRow>) {
     groupHeaderById.set(group.key, groupHeader);
     groupListById.set(group.key, list);
   }
-  paintSessionGroupHeader(groupHeader, group, 'rail');
+  paintSessionGroupHeader(groupHeader, group);
   writeAttributeIfChanged(list, 'aria-label', `${group.label} sessions`);
   return { header: groupHeader.header, list };
 }
@@ -238,22 +239,21 @@ function sessionName(ui: SessionUi): string | null {
 }
 
 function buildPill(id: string) {
-  const { row: button, refs } = buildSessionRow('button');
-  button.type = 'button';
-  button.dataset.id = id;
-  button.setAttribute('role', 'option');
-  button.addEventListener('click', () => onPillPick(id));
-  button.addEventListener('pointerenter', () => { if (railHeadEl) tetherAttentionTile(railHeadEl, id); });
-  button.addEventListener('pointerleave', () => { if (railHeadEl) tetherAttentionTile(railHeadEl, null); });
+  const { row: pill, refs } = buildSessionRow();
+  pill.dataset.id = id;
+  pill.setAttribute('role', 'option');
+  pill.addEventListener('click', () => onPillPick(id));
+  pill.addEventListener('pointerenter', () => { if (railHeadEl) tetherAttentionTile(railHeadEl, id); });
+  pill.addEventListener('pointerleave', () => { if (railHeadEl) tetherAttentionTile(railHeadEl, null); });
 
-  const { item, removeButton } = wrapSessionRow(button, () => requestSessionRemoval(id), () => undoPendingClose(id));
+  const { item, removeButton } = wrapSessionRow(pill, () => requestSessionRemoval(id), () => undoPendingClose(id));
   item.setAttribute('role', 'presentation');
   removeButton.tabIndex = -1;
   const shownCount = el('span', 'session-row-shown');
   shownCount.hidden = true;
   shownCount.append(createLineIcon(IMAGE_ICON_PATH), el('span', 'session-row-shown-count'));
   refs.name.after(shownCount);
-  return Object.assign(button, { _refs: refs, _row: item, _shownCount: shownCount });
+  return Object.assign(pill, { _refs: refs, _row: item, _shownCount: shownCount });
 }
 
 function onPillPick(id: string) {
@@ -406,11 +406,7 @@ function buildBoardsGroup() {
   const count = el('span', 'session-group-count');
   const rule = el('span', 'session-group-rule');
   rule.setAttribute('aria-hidden', 'true');
-  const addButton = el('button', 'session-group-add', '+');
-  addButton.type = 'button';
-  addButton.title = 'New board';
-  addButton.setAttribute('aria-label', 'New board');
-  addButton.addEventListener('click', createBoardFromRail);
+  const addButton = button({ variant: 'icon', size: 'small', label: 'New board', icon: createLineIcon(PLUS_ICON_PATH), action: 'new-board', onClick: createBoardFromRail });
   header.append(el('span', 'session-group-label', 'Boards'), count, rule, addButton);
   const list = el('div', 'focus-rail-list focus-board-list');
   list.setAttribute('role', 'group');
@@ -419,13 +415,12 @@ function buildBoardsGroup() {
 }
 
 function buildBoardRow(boardId: string) {
-  const { row: button, refs } = buildSessionRow('button');
-  button.type = 'button';
-  button.dataset.boardId = boardId;
-  button.addEventListener('click', () => centerBoard(boardId));
+  const { row: boardRow, refs } = buildSessionRow();
+  boardRow.dataset.boardId = boardId;
+  boardRow.addEventListener('click', () => centerBoard(boardId));
   const item = el('div', 'session-row-item');
-  item.append(button);
-  return Object.assign(button, { _refs: refs, _row: item });
+  item.append(boardRow);
+  return Object.assign(boardRow, { _refs: refs, _row: item });
 }
 
 function paintBoardRows(group: ReturnType<typeof buildBoardsGroup>) {

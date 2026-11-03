@@ -3,6 +3,7 @@ import type { StatusIcon } from '#shared/state-icons.ts';
 import { STATE_ICONS } from '#shared/state-icons.ts';
 import { STATES } from '#shared/states.ts';
 import { el, query } from './dom-helpers.ts';
+import { createPressable } from './ui/pressable.ts';
 import type { AttentionCounts, AttentionKind, AttentionTile } from './focus-view/attention-core.ts';
 import { ATTENTION_TILE_SIZES_PX, attentionSummaryText, fitAttentionTiles } from './focus-view/attention-core.ts';
 import { paintStatusIcon } from './status-icon.ts';
@@ -115,8 +116,7 @@ export function buildAttentionBanner(hooks: AttentionBannerHooks, jumpKeys?: HTM
   allClearLine.setAttribute('aria-hidden', 'true');
   const status = el('span', 'attention-banner-status');
   status.append(chips, el('span', 'attention-banner-count'), allClearLine);
-  const jumpRow = el('button', 'attention-banner-jump-row');
-  jumpRow.type = 'button';
+  const jumpRow = createPressable('attention-banner-jump-row');
   jumpRow.append(status);
   if (jumpKeys) {
     jumpKeys.classList.add('attention-banner-jump');

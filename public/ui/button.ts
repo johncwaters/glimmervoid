@@ -1,3 +1,4 @@
+import { installHoverTips } from '../hover-tip.ts';
 import { createPressable } from './pressable.ts';
 
 type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'quiet' | 'icon';
@@ -23,6 +24,7 @@ export function button(options: ButtonOptions): HTMLButtonElement {
   if (options.variant === 'icon') {
     element.setAttribute('aria-label', options.label);
     element.dataset.tipLabel = options.label;
+    installHoverTips();
   }
   if (options.variant !== 'icon') element.append(options.label);
   element.disabled = options.disabled ?? false;

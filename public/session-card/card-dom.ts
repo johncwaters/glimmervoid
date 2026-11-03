@@ -11,6 +11,8 @@ import { buildDialogShell } from './modal.ts';
 import { findSessionUi } from './card-registry.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { paintTaskTitle } from './card-titles.ts';
+import { button } from '../ui/button.ts';
+import { createPressable } from '../ui/pressable.ts';
 
 type LinkedPrsPainter = (slot: HTMLElement, sessionId: string) => void;
 let paintLinkedPrs: LinkedPrsPainter | null = null;
@@ -114,11 +116,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const actions = el('div', 'session-actions');
 
   const sessionMenuWrap = el('div', 'session-overflow');
-  const btnSessionMenu = el('button', 'btn-action btn-session-menu visible');
-  btnSessionMenu.append(createLineIcon(MORE_ICON_PATH));
-  btnSessionMenu.type = 'button';
-  btnSessionMenu.title = 'Session actions';
-  btnSessionMenu.setAttribute('aria-label', 'Session actions');
+  const btnSessionMenu = button({ variant: 'icon', size: 'small', label: 'Session actions', icon: createLineIcon(MORE_ICON_PATH), action: 'session-menu' });
   btnSessionMenu.setAttribute('aria-haspopup', 'menu');
   btnSessionMenu.setAttribute('aria-expanded', 'false');
   const sessionMenu = el('div', 'popup-menu session-overflow-menu');
@@ -165,34 +163,23 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   sessionMenu.append(btnWorkspaceRepos, btnCoherenceJournal, btnSessionSetup, btnLinkPr, btnConnectBoard, btnDebug, btnTrace, btnRestart);
   sessionMenuWrap.append(btnSessionMenu, sessionMenu);
 
-  const btnRemove = el('button', 'btn-action btn-remove visible');
-  btnRemove.append(createLineIcon(CLOSE_ICON_PATH));
-  btnRemove.type = 'button';
-  btnRemove.title = 'Remove session';
-  btnRemove.setAttribute('aria-label', 'Remove session');
+  const btnRemove = button({ variant: 'icon', size: 'small', label: 'Remove session', icon: createLineIcon(CLOSE_ICON_PATH), action: 'remove-session' });
   const btnRemoveMenuItem = buildMenuItem('Remove session', 'overflow-remove visible');
   btnRemoveMenuItem.onclick = () => btnRemove.click();
   sessionMenu.append(btnRemoveMenuItem);
 
-  const btnPlan = el('button', 'btn-action btn-face-plan', 'Plan');
-  btnPlan.type = 'button';
-  btnPlan.title = 'Show plan';
-
-  const btnDocs = el('button', 'btn-action btn-face-plan btn-docs', 'Docs');
-  btnDocs.type = 'button';
-  btnDocs.title = 'Open docs the agent surfaced';
+  const btnPlan = button({ variant: 'quiet', size: 'small', label: 'Plan', action: 'show-plan', hidden: true });
+  const btnDocs = button({ variant: 'quiet', size: 'small', label: 'Docs', action: 'open-docs', hidden: true });
 
   const faceTabs = el('div', 'card-face-tabs');
   faceTabs.setAttribute('role', 'tablist');
   faceTabs.setAttribute('aria-label', 'Card view');
-  const btnTerminalTab = el('button', 'card-face-tab');
-  btnTerminalTab.type = 'button';
+  const btnTerminalTab = createPressable('card-face-tab');
   btnTerminalTab.title = 'Terminal';
   btnTerminalTab.setAttribute('aria-label', 'Terminal');
   btnTerminalTab.append(createLineIcon(TERMINAL_ICON_PATH), el('span', 'card-face-tab-label', 'Terminal'));
   btnTerminalTab.setAttribute('role', 'tab');
-  const btnShownTab = el('button', 'card-face-tab card-face-tab-shown');
-  btnShownTab.type = 'button';
+  const btnShownTab = createPressable('card-face-tab card-face-tab-shown');
   btnShownTab.setAttribute('role', 'tab');
   btnShownTab.title = 'Files the agent showed you';
   btnShownTab.setAttribute('aria-label', 'Shown');
@@ -235,8 +222,7 @@ function openLinkPullRequestDialog(sessionId: string) {
   linkedPrsEl.setAttribute('aria-label', 'Linked pull requests');
   linkedPrsEl.hidden = true;
   paintLinkedPrs?.(linkedPrsEl, sessionId);
-  const btnLink = el('button', 'btn-dialog btn-dialog-confirm', 'Link');
-  btnLink.type = 'button';
+  const btnLink = button({ variant: 'primary', label: 'Link' });
   actions.append(btnLink);
   dialog.append(linkedPrsEl, hint, input, errorEl, actions);
 
