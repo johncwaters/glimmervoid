@@ -4,9 +4,14 @@ const TIP_ID = 'hover-tip';
 const ANCHOR_SELECTOR = '[data-tip-label]';
 const GAP_PX = 6;
 const VIEWPORT_MARGIN_PX = 8;
+const HOVER_INTENT_DELAY_MS = 500;
+const WARM_SKIP_WINDOW_MS = 300;
 
 let tipElement: HTMLElement | null = null;
 let shownAnchor: HTMLElement | null = null;
+let pendingAnchor: HTMLElement | null = null;
+let pendingShowTimer: ReturnType<typeof setTimeout> | undefined;
+let lastHiddenAtMs = Number.NEGATIVE_INFINITY;
 
 function anchorOf(target: EventTarget | null): HTMLElement | null {
   if (!(target instanceof Element)) return null;
@@ -28,8 +33,7 @@ function fillTip(tip: HTMLElement, anchor: HTMLElement) {
   text.append(el('b', 'hover-tip-label', anchor.dataset.tipLabel ?? ''));
   const detail = anchor.dataset.tipDetail;
   if (detail) text.append(el('span', 'hover-tip-detail', detail));
-  const icon = anchor.querySelector('svg')?.cloneNode(true);
-  tip.replaceChildren(...(icon ? [icon] : []), text);
+  tip.replaceChildren(text);
 }
 
 function placeTip(tip: HTMLElement, anchor: HTMLElement) {
@@ -51,11 +55,39 @@ function showTip(anchor: HTMLElement) {
   anchor.setAttribute('aria-describedby', TIP_ID);
 }
 
+function cancelPendingShow() {
+  clearTimeout(pendingShowTimer);
+  pendingShowTimer = undefined;
+  pendingAnchor = null;
+}
+
 function hideTip() {
+  cancelPendingShow();
   if (!shownAnchor) return;
   shownAnchor.removeAttribute('aria-describedby');
   shownAnchor = null;
+  lastHiddenAtMs = performance.now();
   if (tipElement) tipElement.hidden = true;
+}
+
+function isWarm(): boolean {
+  return shownAnchor !== null || performance.now() - lastHiddenAtMs < WARM_SKIP_WINDOW_MS;
+}
+
+function showTipAfterHoverIntent(anchor: HTMLElement) {
+  if (anchor === shownAnchor || anchor === pendingAnchor) return;
+  if (isWarm()) { showTip(anchor); return; }
+  cancelPendingShow();
+  pendingAnchor = anchor;
+  pendingShowTimer = setTimeout(() => {
+    cancelPendingShow();
+    if (anchor.isConnected && anchor.dataset.tipLabel) showTip(anchor);
+  }, HOVER_INTENT_DELAY_MS);
+}
+
+function isLeavingAnchor(anchor: HTMLElement | null, event: PointerEvent): boolean {
+  if (!anchor) return false;
+  return !(event.relatedTarget instanceof Node && anchor.contains(event.relatedTarget));
 }
 
 export function refreshHoverTip(anchor: HTMLElement) {
@@ -71,18 +103,19 @@ export function installHoverTips() {
   isInstalled = true;
   document.addEventListener('pointerover', (event) => {
     const anchor = anchorOf(event.target);
-    if (anchor) { showTip(anchor); return; }
+    if (anchor) { showTipAfterHoverIntent(anchor); return; }
     hideTip();
   });
   document.addEventListener('pointerout', (event) => {
-    if (!shownAnchor) return;
-    if (event.relatedTarget instanceof Node && shownAnchor.contains(event.relatedTarget)) return;
+    if (!isLeavingAnchor(shownAnchor ?? pendingAnchor, event)) return;
     hideTip();
   });
   document.addEventListener('focusin', (event) => {
     const anchor = anchorOf(event.target);
-    if (anchor) { showTip(anchor); return; }
-    hideTip();
+    if (!anchor) { hideTip(); return; }
+    if (!anchor.matches(':focus-visible')) return;
+    cancelPendingShow();
+    showTip(anchor);
   });
   document.addEventListener('focusout', hideTip);
   document.addEventListener('pointerdown', hideTip);
