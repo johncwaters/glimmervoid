@@ -41,7 +41,6 @@ export function createMobileKeyStrip({ send, getSessionId, reportProblem }: Mobi
   controlButton.setAttribute('aria-pressed', 'false');
   controlButton.addEventListener('pointerdown', (event) => event.preventDefault());
   controlButton.addEventListener('click', () => setControlHeld(!isControlHeld()));
-  strip.appendChild(controlButton);
 
   function isControlHeld() {
     return controlButton.getAttribute('aria-pressed') === 'true';
@@ -58,6 +57,7 @@ export function createMobileKeyStrip({ send, getSessionId, reportProblem }: Mobi
   }
 
   for (const key of MOBILE_KEYS) {
+    if (key.id === 'tab') strip.appendChild(controlButton);
     if (key.id === 'left') strip.appendChild(createArrowPad(send));
     const btn = el('button', key.isArrow ? 'phone-key phone-key-arrow' : 'phone-key', key.label);
     btn.type = 'button';
