@@ -753,6 +753,7 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout, sessionId
       if (!(columns instanceof HTMLElement)) throw new Error('Missing queue columns');
       columns.style.setProperty('--pr-queue-width', '220px');
     });
+    await page.waitForFunction(() => document.querySelector<HTMLElement>('.review-queue .pr-queue-pane')?.offsetWidth === 220);
     await verifyLayout(page);
     await page.locator('.review-queue .pr-columns').evaluate((columns) => {
       if (!(columns instanceof HTMLElement)) throw new Error('Missing queue columns');
