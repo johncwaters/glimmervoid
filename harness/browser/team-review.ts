@@ -592,7 +592,10 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
     await reviewRow(1).click();
     assert.equal(await barStatus.textContent(), `Approved on GitHub with 1 finding. ${warning}.`);
     await applyStatus(page, withDrafts([createDraft(1, { verdict: 'BLOCKED', summary: 'Re-reviewed' }), createDraft(2), createDraft(3)]));
-    assert.equal(await page.locator('.pr-detail .pr-verdict-recommendation').textContent(), 'Agent recommends: request changes');
+    assert.equal(await page.locator('.pr-detail .pr-verdict-recommendation').count(), 0);
+    const decisionButtons = await page.locator('.pr-detail .pr-decision-bar > button').evaluateAll((buttons) => buttons.map((button) => [button.getAttribute('data-action'), button.getAttribute('data-variant')]));
+    assert.deepEqual(decisionButtons, [['approve', 'secondary'], ['comment', 'secondary'], ['request-changes', 'primary'], ['requeue', 'secondary'], ['discard', 'secondary']]);
+    assert.equal(await page.locator('.pr-detail [data-action="open-session"]').getAttribute('data-variant'), 'secondary');
     assert.equal(await page.locator('.pr-detail button[data-action="approve"]').isDisabled(), false);
     await applyStatus(page, withDrafts([createDraft(4, { status: 'posted', threads: [{
       id: 'PRRT_acme_4', path: 'src/app.ts', line: 2, isResolved: false, viewerCanResolve: true,
