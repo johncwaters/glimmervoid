@@ -3483,7 +3483,6 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 .session-card-header > .pane-strip > .pane-trail { order: 10; flex: 0 1 auto; margin-left: 0; }
 .session-card-header:has(> .pane-strip) > .session-task-title { order: 1; flex: 0 1 auto; }
 .session-card-header:has(> .pane-strip) > .session-task-title:empty { order: 3; flex: 1 1 auto; }
-.session-card-header > .pane-strip > .pane-trail .review-bar-status { flex: none; width: 18ch; }
 .session-card-header:has(> .pane-strip) > .session-name { order: 2; }
 .session-card-header:has(> .pane-strip) > .session-ownership { order: 5; }
 .session-card-header:has(> .pane-strip) > .session-card-tags { order: 4; margin-right: auto; }
@@ -3533,17 +3532,7 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 
 .session-card[data-borrowed] .session-name {
   font-size: var(--type-meta);
-  font-weight: 700;
-  color: var(--text-head);
-}
-
-.session-card[data-borrowed] .session-task-title {
-  font-size: var(--type-body);
-}
-
-.session-card[data-borrowed] .session-card-header:has(.session-task-title:not(:empty)) .session-name {
   font-weight: 400;
-  color: var(--text-muted);
 }
 
 
@@ -3584,7 +3573,6 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 .focus-center { position: relative; }
 .review-bar { flex: 1 1 auto; display: flex; align-items: center; gap: 2px; min-width: 0; }
 .review-bar[data-slot-held] { visibility: hidden; }
-.review-bar-status { flex: 1 1 0; width: 0; margin-right: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; color: var(--text-dim); font: var(--type-meta) var(--font-mono); }
 .review-bar > [data-action="merge-session"][data-slot-held] { visibility: hidden; }
 
 .review-reader { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg-surface); }

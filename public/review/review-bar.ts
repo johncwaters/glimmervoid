@@ -9,11 +9,9 @@ export interface ReviewBar {
 
 export function createReviewBar({ onOpenChanges }: { onOpenChanges: () => void }): ReviewBar {
   const element = el('div', 'review-bar');
-  const status = el('span', 'review-bar-status');
-  status.setAttribute('role', 'status');
   const changesButton = button({ variant: 'quiet', size: 'small', label: 'Changes', action: 'open-changes', onClick: onOpenChanges });
   const mergeButton = button({ variant: 'primary', size: 'small', label: 'Merge', action: 'merge-session' });
-  element.append(status, changesButton, mergeButton);
+  element.append(changesButton, mergeButton);
   let sessionId: string | null = null;
 
   mergeButton.addEventListener('click', () => {
@@ -26,9 +24,6 @@ export function createReviewBar({ onOpenChanges }: { onOpenChanges: () => void }
     element.toggleAttribute('data-slot-held', review === null);
     if (wasSlotHeld !== (review === null)) syncWatch();
     if (!review) return;
-    const statusText = review.notice ?? review.sentence;
-    status.textContent = statusText;
-    status.title = statusText;
     mergeButton.toggleAttribute('data-slot-held', review.isWorkspace || !review.isMergeShown);
     mergeButton.disabled = !review.isMergeEnabled;
     mergeButton.title = review.mergeTitle;
