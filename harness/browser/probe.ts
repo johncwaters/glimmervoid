@@ -205,6 +205,15 @@ export function readSettingsHistory(): SettingsHistoryReading {
   };
 }
 
+export function holdConfirmedSessionRemovals(): void {
+  const sendToServer = WebSocket.prototype.send;
+  WebSocket.prototype.send = function sendUnlessConfirmedRemoval(this: WebSocket, frame: Parameters<WebSocket['send']>[0]) {
+    const isConfirmedRemoval = typeof frame === 'string' && frame.includes('"type":"remove-session"') && !frame.includes('"checkOnly":true');
+    if (isConfirmedRemoval) return;
+    sendToServer.call(this, frame);
+  };
+}
+
 export function boardRowIds(): string[] {
   const found: string[] = [];
   for (const element of document.querySelectorAll('.phone-board-list button.session-row')) {

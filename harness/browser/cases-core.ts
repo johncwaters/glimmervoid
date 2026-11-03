@@ -44,6 +44,7 @@ export type Step =
   | { kind: 'load-deep-history'; viewer?: ViewerId }
   | { kind: 'rename-session'; newName: string; viewer?: ViewerId }
   | { kind: 'remove-session'; viewer?: ViewerId }
+  | { kind: 'remove-from-phone-terminal'; viewer?: ViewerId }
   | { kind: 'expect-session-gone'; viewer?: ViewerId }
   | { kind: 'shot'; name: string; viewer?: ViewerId };
 
@@ -238,6 +239,12 @@ export const SCENARIOS: readonly Scenario[] = [
       { kind: 'settle' },
       { kind: 'shot', name: 'reopened' },
     ],
+  },
+  {
+    name: 'phone-remove-returns-to-focus',
+    phoneOnly: true,
+    viewports: ['phone-393'],
+    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'remove-from-phone-terminal' }],
   },
   {
     name: 'phone-changes-back',

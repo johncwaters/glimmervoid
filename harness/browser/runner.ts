@@ -11,7 +11,7 @@ import { verifyBoardPane, verifyBoards } from './boards.ts';
 import { verifyIssues } from './issues.ts';
 import { verifyPhoneChanges, verifyReviewMerge } from './review-merge.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
-import { CARD_REGISTRY_URL, boardRowIds, dispatchWindowBlur, dropDataSocket, pillIds, readDocumentEngagement, readGrid, readLayout, readSettingsHistory, readTerminalFocus, readTerminalWatch, scrollTerminalToTop, setDocumentEngagement, setFitMeasurement, watchTerminal } from './probe.ts';
+import { CARD_REGISTRY_URL, boardRowIds, dispatchWindowBlur, dropDataSocket, holdConfirmedSessionRemovals, pillIds, readDocumentEngagement, readGrid, readLayout, readSettingsHistory, readTerminalFocus, readTerminalWatch, scrollTerminalToTop, setDocumentEngagement, setFitMeasurement, watchTerminal } from './probe.ts';
 import type { GridReading } from './probe.ts';
 import { caseKey } from './report-core.ts';
 import type { CaseRecord, GridSnapshot, Outcome, StepRecord } from './report-core.ts';
@@ -58,6 +58,10 @@ const DESKTOP_CARD_SLOT = '#focus-pane-terminal';
 const DESKTOP_LEAVE_FOCUS_SELECTOR = '#tab-settings';
 const DESKTOP_ENTER_FOCUS_SELECTOR = '#tab-focus';
 const PHONE_BACK_SELECTOR = 'button.phone-back';
+const PHONE_TERMINAL_MENU_SELECTOR = '.phone-screen[data-screen="terminal"] button.btn-session-menu';
+const PHONE_TERMINAL_REMOVE_SELECTOR = '.phone-screen[data-screen="terminal"] button.overflow-remove';
+const CONFIRM_DIALOG_SELECTOR = 'button.btn-dialog-confirm:visible';
+const PHONE_REMOVE_RETURN_MS = 4000;
 const PHONE_MORE_SELECTOR = 'button.phone-nav-item[aria-expanded]';
 const PHONE_SETTINGS_MENU_SELECTOR = 'button.phone-nav-menu-item[data-screen="settings"]';
 const SETTINGS_SECTION_SELECTOR = 'button.settings-view-nav-item';
@@ -743,6 +747,21 @@ async function runRemoveSession(viewer: Viewer, sessionId: string): Promise<Step
   return failedOutcome('session-removed', `the server kept the session: ${String(confirmedReply?.error)}`);
 }
 
+async function runRemoveFromPhoneTerminal(viewer: Viewer, sessionId: string, deadlines: Deadlines): Promise<StepOutcome> {
+  await viewer.page.evaluate(holdConfirmedSessionRemovals);
+  await viewer.page.locator(PHONE_TERMINAL_MENU_SELECTOR).first().click();
+  await viewer.page.locator(PHONE_TERMINAL_REMOVE_SELECTOR).first().click();
+  await viewer.page.locator(CONFIRM_DIALOG_SELECTOR).first().click();
+  const returnedToBoard = await pollUntil(async () => {
+    const reading = await viewer.page.evaluate(readSettingsHistory);
+    const isRemovingSessionListed = (await viewer.page.evaluate(boardRowIds)).includes(sessionId);
+    if (isRemovingSessionListed) return { ok: false, detail: `the session being removed is still listed, on ${String(reading.phoneScreen)}` };
+    if (reading.phoneScreen === 'board') return { ok: true, detail: 'the board is shown while the server still holds the session' };
+    return { ok: false, detail: `still on ${String(reading.phoneScreen)}` };
+  }, { label: `viewer ${viewer.id} back on the board after Remove`, timeoutMs: PHONE_REMOVE_RETURN_MS, intervalMs: deadlines.pollIntervalMs });
+  return outcomeFor('returned-to-board', returnedToBoard);
+}
+
 async function runExpectSessionGone(viewer: Viewer, sessionId: string, deadlines: Deadlines): Promise<StepOutcome> {
   const rosterEntry = viewer.page.locator(rosterSelector(viewer, sessionId));
   const gone = await pollUntil(async () => {
@@ -1000,6 +1019,7 @@ export async function runCase({
     if (step.kind === 'expect-terminal-untouched') return runExpectTerminalUntouched(viewer, sessionId, step.durationMs);
     if (step.kind === 'expect-revealed') return runExpectRevealed(viewer, sessionId, tickAtWatchByViewer.get(viewer.id) ?? null, deadlines);
     if (step.kind === 'remove-session') return runRemoveSession(viewer, sessionId);
+    if (step.kind === 'remove-from-phone-terminal') return runRemoveFromPhoneTerminal(viewer, sessionId, deadlines);
     if (step.kind === 'expect-session-gone') return runExpectSessionGone(viewer, sessionId, deadlines);
     if (step.kind === 'rename-session') return runRenameSession(viewer, sessionId, `${step.newName} ${sessionId.slice(0, 8)}`, deadlines);
     if (step.kind === 'load-deep-history') return runLoadDeepHistory(viewer, sessionId, deadlines);

@@ -33,10 +33,12 @@ export function getRestorableSessionId() {
   return pickRestorableSessionId(getLastFocusedSessionId(), sessionUIs);
 }
 
+const removingSessionIds = new Set<string>();
+
 export function readSessionRows(): SessionRow<SessionUi>[];
 export function readSessionRows<Name extends string | null>(nameOf: (ui: SessionUi) => Name): SessionRow<SessionUi, Name>[];
 export function readSessionRows(nameOf: (ui: SessionUi) => string | null = sessionName) {
-  const operatorSessions = [...sessionUIs];
+  const operatorSessions = [...sessionUIs].filter(([id]) => !removingSessionIds.has(id));
   return buildSessionRows(operatorSessions, nameOf).map((row) => (pendingCloseById.has(row.id) ? { ...row, state: CLOSING_ROW_STATE, unseenOutcome: null } : row));
 }
 
@@ -148,12 +150,22 @@ function reportRemovalFailure(ui: SessionUi, id: string, reason: unknown, timeou
   reportHeaderError({ source: REMOVE_SESSION_ERROR_SOURCE, sessionId: id, message: `"${sessionName(ui)}" was not removed: ${requestFailureText(reason, timeoutMs)} Try Remove again from its actions menu.` });
 }
 
+function settleSessionRemoving(id: string) {
+  removingSessionIds.delete(id);
+  markStatusDirty(id);
+}
+
 async function requestCheckedSessionRemoval(ui: SessionUi, id: string, discardWork: boolean, confirmedKeptPaths: string[] = []) {
+  removingSessionIds.add(id);
+  markStatusDirty(id);
   try {
     const reply = await sendControlRequest('remove-session', { id, discardWork, confirmedKeptPaths }, { timeoutMs: SESSION_REMOVAL_TIMEOUT_MS });
-    if (reply.type !== 'remove-session-result' || reply.ok) return;
+    if (reply.type === 'remove-session-result' && reply.ok) return;
+    settleSessionRemoving(id);
+    if (reply.type !== 'remove-session-result') return;
     reportRemovalRefusal(ui, id, reply);
   } catch (reason) {
+    settleSessionRemoving(id);
     reportRemovalFailure(ui, id, reason, SESSION_REMOVAL_TIMEOUT_MS);
   }
 }
@@ -164,7 +176,7 @@ export const CLOSING_ROW_STATE = 'CLOSING';
 const pendingCloseById = new Map<string, { timer: number; wasOpen: boolean }>();
 
 export function isSessionShown(id: string) {
-  return sessionUIs.has(id) && !pendingCloseById.has(id);
+  return sessionUIs.has(id) && !pendingCloseById.has(id) && !removingSessionIds.has(id);
 }
 
 function settlePendingClose(id: string) {

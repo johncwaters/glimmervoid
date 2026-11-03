@@ -1,7 +1,7 @@
 import type { AdoptableElement } from '../dom-helpers.ts';
 import { adoptElement, el, releaseElement } from '../dom-helpers.ts';
 import { jumpTargetCount, pickStrongestAttention } from '../focus-view/attention-core.ts';
-import { getRestorableSessionId, requestSessionOpen, selectSession } from '../session-actions.ts';
+import { getRestorableSessionId, isSessionShown, requestSessionOpen, selectSession } from '../session-actions.ts';
 import { addActivityRenderer } from '../session-card/activity.ts';
 import { attentionTally, sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import { showSessionPlanFace } from '../session-card/card-faces.ts';
@@ -504,7 +504,9 @@ export function refreshPhoneBoard() {
   if (!isBoardStale) boardScreen.refresh();
   terminalScreen.refresh();
   paintChangesSessionName();
-  if (visibleRootScreen === TERMINAL && !terminalScreen.getSessionId()) showScreen(BOARD);
+  const terminalSessionId = terminalScreen.getSessionId();
+  const isTerminalSessionGone = !terminalSessionId || !isSessionShown(terminalSessionId);
+  if (visibleRootScreen === TERMINAL && isTerminalSessionGone) showScreen(BOARD);
   const dot = dotOf(navButtonById.get(BOARD));
   if (dot) dot.hidden = jumpTargetCount(attentionTally.counts) === 0;
 }
