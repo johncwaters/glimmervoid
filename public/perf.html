@@ -4,12 +4,10 @@
   <meta charset="UTF-8">
   <title>Glimmervoid: perf harness (dev)</title>
   <style>
-    body { margin: 0; background: #0a0810; color: #c8c0e0; font-family: system-ui, sans-serif; }
+    body { margin: 0; background: #0a0810; color: #c8c0e0; font-family: system-ui, sans-serif; display: block; height: auto; overflow: auto; }
     #bar { padding: 10px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; border-bottom: 1px solid #2a2440; }
     label { font-size: 13px; }
     input { width: 4em; background: #16121f; color: #c8c0e0; border: 1px solid #3a3358; border-radius: 4px; padding: 2px 4px; }
-    button { background: #6d28d9; color: #fff; border: 0; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
-    button:disabled { opacity: 0.5; cursor: default; }
     #out { padding: 10px; white-space: pre; font-family: 'Cascadia Code', monospace; font-size: 13px; }
     .note { padding: 6px 10px; font-size: 12px; color: #8276b0; }
   </style>
@@ -28,16 +26,20 @@
       </select>
     </label>
     <label title="gated only: terminals serviced per frame. = sessions reproduces Option B; &lt; sessions adds Option A's bounded coordination.">budget/frame <input id="budget" type="number" value="6" min="1" max="24"></label>
-    <button id="run" type="button">Run stress</button>
     <span id="status"></span>
   </div>
   <div id="out"></div>
   <div id="mount"></div>
   <script type="module">
+    import './tailwind.css';
     import { runStress } from './perf-harness.ts';
+    import { button } from './ui/button.ts';
 
     const $ = (id) => document.getElementById(id);
-    $('run').addEventListener('click', async () => {
+    const runButton = button({ variant: 'primary', label: 'Run stress', action: 'run-stress' });
+    runButton.id = 'run';
+    $('status').before(runButton);
+    runButton.addEventListener('click', async () => {
       $('run').disabled = true;
       $('status').textContent = 'running...';
       $('mount').innerHTML = '';

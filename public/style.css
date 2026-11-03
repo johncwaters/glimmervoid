@@ -242,39 +242,6 @@ body {
   margin-left: auto;
 }
 
-.btn-add-header {
-  display: inline-flex;
-  align-items: center;
-  font-family: var(--font-mono);
-  font-size: var(--type-meta);
-  font-weight: 700;
-  height: var(--header-control-height);
-  padding: 0 14px;
-  color: var(--accent);
-  background: transparent;
-  border: 1px solid var(--accent-dim);
-  border-radius: var(--radius);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
-}
-
-@media (hover: hover) {
-  .btn-add-header:hover {
-    background: color-mix(in oklab, var(--accent) 14%, transparent);
-    border-color: var(--accent);
-  }
-}
-
-.btn-add-header:active {
-  transform: scale(0.97);
-}
-
-.btn-add-header:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
 .status-indicator {
   position: relative;
   cursor: default;
@@ -905,10 +872,6 @@ body {
   width: max-content;
 }
 
-.btn-dialog:focus-visible,
-.btn-menu:focus-visible,
-.btn-help:focus-visible,
-.btn-celebrations:focus-visible,
 .btn-mute:focus-visible,
 .btn-streamer:focus-visible,
 .settings-about-link:focus-visible,
@@ -1152,57 +1115,6 @@ html[data-layout="phone"] .dialog-overlay {
   gap: 8px;
 }
 
-.btn-dialog {
-  padding: 6px 16px;
-  border: 1px solid;
-  border-radius: var(--radius);
-  font-family: var(--font-mono);
-  font-size: var(--type-meta);
-  font-weight: 700;
-  cursor: pointer;
-  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
-}
-
-.btn-dialog-cancel {
-  color: var(--text-dim);
-  border-color: var(--border);
-  background: transparent;
-}
-
-@media (hover: hover) {
-  .btn-dialog-cancel:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--text) 3%, transparent);
-  }
-}
-
-.btn-dialog-confirm {
-  color: var(--accent);
-  border-color: var(--accent-dim);
-
-  background: transparent;
-}
-
-@media (hover: hover) {
-  .btn-dialog-confirm:hover:not(:disabled) {
-    background: color-mix(in oklab, var(--accent) 14%, transparent);
-  }
-}
-
-.btn-dialog:active:not(:disabled) {
-  transform: scale(0.97);
-}
-
-.btn-dialog[aria-pressed="true"] {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: color-mix(in oklab, var(--accent) 10%, transparent);
-}
-
-.btn-dialog:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
 .resume-dialog {
   width: 520px;
 }
@@ -1274,16 +1186,13 @@ html[data-layout="phone"] .dialog-overlay {
   position: relative;
 }
 
-.btn-menu,
-.btn-help,
-.btn-celebrations,
 .btn-mute,
 .btn-streamer {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--header-control-height);
-  height: var(--header-control-height);
+  width: 28px;
+  height: 28px;
   border: 1px solid var(--border-hover);
   border-radius: 4px;
   font-size: var(--type-title);
@@ -1295,9 +1204,6 @@ html[data-layout="phone"] .dialog-overlay {
   position: relative;
 }
 
-.btn-menu::after,
-.btn-help::after,
-.btn-celebrations::after,
 .btn-mute::after,
 .btn-streamer::after {
   content: '';
@@ -1305,15 +1211,7 @@ html[data-layout="phone"] .dialog-overlay {
   inset: -8px;
 }
 
-.header-menu.open .btn-menu {
-  background-color: color-mix(in srgb, var(--text) 4%, transparent);
-  border-color: var(--border-hover);
-  color: var(--text);
-}
 @media (hover: hover) {
-  .btn-menu:hover,
-  .btn-help:hover,
-  .btn-celebrations:hover:not(:disabled),
   .btn-mute:hover,
   .btn-streamer:hover {
     background-color: color-mix(in srgb, var(--text) 4%, transparent);
@@ -1322,22 +1220,13 @@ html[data-layout="phone"] .dialog-overlay {
   }
 }
 
-.btn-menu:active,
-.btn-help:active,
-.btn-celebrations:active:not(:disabled),
 .btn-mute:active,
 .btn-streamer:active {
   transform: scale(0.97);
 }
 
-.btn-help {
-  color: var(--text-dim);
-  font-weight: 700;
-}
-
 .btn-mute,
-.btn-streamer,
-.btn-power {
+.btn-streamer {
   color: var(--text-dim);
 }
 
@@ -1345,8 +1234,6 @@ html[data-layout="phone"] .dialog-overlay {
   color: var(--text-muted);
   background-image: linear-gradient(to top right, transparent calc(50% - 0.75px), currentColor calc(50% - 0.75px), currentColor calc(50% + 0.75px), transparent calc(50% + 0.75px));
 }
-
-.btn-streamer-icon { fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 
 .btn-streamer[aria-pressed="true"] {
   color: var(--accent);
@@ -1360,24 +1247,6 @@ html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, 
 .celebration-tray {
   position: relative;
   display: inline-flex;
-}
-
-.btn-celebrations {
-  color: var(--text-dim);
-}
-
-.celebration-tray[data-state="queued"] .btn-celebrations {
-  color: var(--state-complete);
-  border-color: color-mix(in srgb, var(--state-complete) 55%, transparent);
-}
-
-.celebration-tray[data-state="playing"] .btn-celebrations {
-  color: var(--state-complete);
-  opacity: 0.6;
-}
-
-.btn-celebrations:disabled {
-  cursor: default;
 }
 
 .celebration-tray-count:empty {
@@ -1400,14 +1269,6 @@ html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, 
   color: var(--bg-card);
   background: var(--state-complete);
   pointer-events: none;
-}
-
-.btn-power-icon,
-.btn-celebrations-icon {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.6;
-  stroke-linecap: round;
 }
 
 .header-menu-dropdown {
@@ -4155,7 +4016,6 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
   .dialog select,
   .dialog textarea { font-size: var(--type-title); }
 
-  .btn-dialog,
   .header-tab { min-height: 44px; }
 
   .popup-menu-item { min-height: 44px; }
@@ -4209,11 +4069,11 @@ html[data-layout="phone"] .phone-shell[hidden] { display: none; }
   border-bottom: 1px solid var(--border-dim);
 }
 
-.phone-topbar > .btn-add-header { margin-left: auto; }
+.phone-topbar > [data-action="add-session"] { margin-left: auto; }
 .phone-topbar > .header-title { flex: 0 0 auto; font-size: var(--type-body); white-space: nowrap; }
 .phone-topbar > .celebration-tray { flex: none; margin-left: auto; }
-.phone-topbar > .celebration-tray + .btn-add-header { margin-left: 0; }
-.phone-topbar > :is(.btn-help, .btn-mute, .btn-streamer) { display: none; }
+.phone-topbar > .celebration-tray + [data-action="add-session"] { margin-left: 0; }
+.phone-topbar > :is([data-action="open-shortcuts-help"], .btn-mute, .btn-streamer) { display: none; }
 .phone-topbar > .header-menu { flex: none; }
 .phone-topbar .menu-item { min-height: 44px; }
 .phone-topbar > .status-indicator,
@@ -4626,48 +4486,17 @@ html[data-layout="phone"] .phone-shell[data-keyboard="open"] .phone-nav { displa
   white-space: pre;
 }
 
-.update-banner-copy {
-  padding: 3px 10px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: var(--bg-card);
-  color: var(--text);
-  cursor: pointer;
-  transition: border-color var(--transition-fast);
-}
-
-@media (hover: hover) {
-  .update-banner-copy:hover {
-    border-color: var(--border-hover);
-  }
-}
-
 .update-banner-copy-status {
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: var(--type-meta);
 }
 
-.update-banner-dismiss {
-  margin-left: auto;
-  padding: 0 6px;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: var(--type-title);
-  line-height: 1;
-  cursor: pointer;
-}
-
-@media (hover: hover) {
-  .update-banner-dismiss:hover {
-    color: var(--text);
-  }
-}
-
-.telemetry-banner-dismiss {
+.update-banner > :is([data-action="dismiss-update-banner"], [data-action="dismiss-leftovers-banner"], [data-action="dismiss-telemetry-banner"]) {
   margin-left: auto;
 }
+
+.header-status > [data-action="dismiss-header-status"] { flex-shrink: 0; }
 
 .telemetry-banner-cat {
   flex: none;
@@ -5334,7 +5163,7 @@ html[data-layout="phone"] .issues-content .pr-footer { margin-inline: 0; padding
   min-width: 0;
 }
 
-html:has(:is(.focus-empty, .phone-empty) > .first-run-checklist:not([hidden])) .btn-add-header {
+html:has(:is(.focus-empty, .phone-empty) > .first-run-checklist:not([hidden])) [data-action="add-session"] {
   display: none;
 }
 

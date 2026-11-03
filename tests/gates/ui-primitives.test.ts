@@ -11,23 +11,72 @@ const SKIP_DIRS = new Set(['node_modules', 'dist']);
 const BUTTON_CREATION = /\bel\(\s*['"`]button['"`]|createElement\(\s*['"`]button['"`]|<button\b/i;
 const BUTTON_LOOK_SELECTOR = /\.ui-button\b|\[data-(?:variant|size)\b/;
 const RETIRED_CLASSES: string[] = [
+  'bench-action-button',
   'btn-action',
+  'btn-add-header',
+  'btn-celebrations',
+  'btn-dialog',
+  'btn-dialog-cancel',
+  'btn-dialog-confirm',
   'btn-dialog-danger',
   'btn-dialog-ghost',
   'btn-dialog-icon',
   'btn-docs',
   'btn-face-plan',
+  'btn-help',
+  'btn-menu',
+  'btn-power',
   'btn-remove',
   'btn-session-menu',
+  'doc-editor-save',
+  'hooks-btn',
+  'hooks-btn-add',
+  'hooks-btn-danger',
+  'issues-back',
+  'issues-small-action',
+  'phone-back',
+  'phone-changes',
+  'plan-action',
+  'plan-draft-chip',
+  'plan-minimize-button',
+  'plan-revision-next',
+  'plan-revision-previous',
+  'plan-section-comment',
+  'plan-sheet-close',
+  'plan-view-button',
+  'pr-action',
+  'pr-action-ghost',
+  'pr-session-open-button',
+  'radar-action',
+  'radar-open-trace',
+  'review-bar-merge',
+  'review-btn',
+  'review-btn-danger',
+  'review-btn-primary',
+  'review-look-show-all',
+  'reviews-refresh-button',
   'session-group-add',
   'session-group-forget',
   'session-row-remove',
   'session-row-undo',
+  'settings-update-button',
+  'settings-view-back',
+  'settings-view-copy-json',
+  'settings-view-copy-link',
+  'settings-view-reset',
+  'settings-view-tab-order-move',
+  'shown-zoom-control',
+  'telemetry-banner-dismiss',
+  'trace-copy',
+  'trace-load-earlier',
+  'update-banner-copy',
+  'update-banner-dismiss',
+  'usage-back',
+  'usage-refresh',
+  'wb-button',
+  'wb-icon-button',
+  'wb-inspect-action',
 ];
-const NOT_YET_MIGRATED = new Set<string>([
-  'public/index.html',
-  'public/perf.html',
-]);
 
 function collectFiles(dir: string, extensions: RegExp, found: string[] = []): string[] {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -51,13 +100,10 @@ test('only public/ui/pressable.ts creates buttons in the dashboard', () => {
   assert.match(fs.readFileSync(PRESSABLE_OWNER, 'utf8'), BUTTON_CREATION, 'public/ui/pressable.ts no longer matches the button pattern, so the gate would pass vacuously');
 
   const offenders = sources
-    .filter((file) => file !== PRESSABLE_OWNER && !NOT_YET_MIGRATED.has(relativeToRoot(file)))
+    .filter((file) => file !== PRESSABLE_OWNER)
     .filter((file) => BUTTON_CREATION.test(fs.readFileSync(file, 'utf8')))
     .map(relativeToRoot);
   assert.deepEqual(offenders, [], `Build buttons with button() from public/ui/button.ts, or createPressable() from public/ui/pressable.ts for tabs, rows, menu items and keys:\n  ${offenders.join('\n  ')}`);
-
-  const migratedButStillListed = [...NOT_YET_MIGRATED].filter((file) => !fs.existsSync(path.join(ROOT, file)) || !BUTTON_CREATION.test(fs.readFileSync(path.join(ROOT, file), 'utf8')));
-  assert.deepEqual(migratedButStillListed, [], 'Remove these migrated files from NOT_YET_MIGRATED');
 });
 
 test('only public/ui/ styles the button component', () => {

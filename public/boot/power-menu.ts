@@ -1,13 +1,32 @@
 import { shouldShowServerAction } from '#shared/client-trust.ts';
 import { sendControlMsg } from '../control-ws.ts';
-import { queryTag } from '../dom-helpers.ts';
+import { el, queryTag } from '../dom-helpers.ts';
 import { wirePopupMenuKeys } from '../menu.ts';
 import { getSessionCount } from '../session-card/lifecycle.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
+import { createLineIcon, POWER_ICON_PATH } from '../svg-dom.ts';
+import { button } from '../ui/button.ts';
+import { createPressable } from '../ui/pressable.ts';
+
+function powerMenuItem(className: string, glyph: string, label: string, onClick: () => void) {
+  const menuItem = createPressable(`menu-item ${className}`);
+  menuItem.setAttribute('role', 'menuitem');
+  menuItem.append(el('span', 'menu-item-glyph', glyph), label);
+  menuItem.addEventListener('click', onClick);
+  return menuItem;
+}
 
 const powerMenu = queryTag(document, '#power-menu', 'div');
-const btnPower = queryTag(document, '#btn-power', 'button');
+const btnPower = button({ variant: 'icon', label: 'Server power', icon: createLineIcon(POWER_ICON_PATH, '1.6'), action: 'open-power-menu' });
+btnPower.setAttribute('aria-haspopup', 'menu');
+btnPower.setAttribute('aria-expanded', 'false');
+btnPower.setAttribute('aria-controls', 'power-menu-dropdown');
 const powerMenuDropdown = queryTag(document, '#power-menu-dropdown', 'div');
+const btnRestart = powerMenuItem('menu-item-warning', String.fromCharCode(0x21ba), 'Restart Server', confirmServerRestart);
+const btnShutdown = powerMenuItem('menu-item-danger', String.fromCharCode(0x25a0), 'Shut Down', confirmServerShutdown);
+powerMenu.prepend(btnPower);
+powerMenuDropdown.prepend(btnRestart);
+powerMenuDropdown.append(btnShutdown);
 
 function setPowerMenuOpen(isOpen: boolean) {
   powerMenu.classList.toggle('open', isOpen);
@@ -45,7 +64,7 @@ function confirmServerShutdown() {
 
 function applyClientTrust(trust: unknown) {
   const showShutdown = shouldShowServerAction('shutdown', trust);
-  queryTag(document, '#btn-shutdown', 'button').hidden = !showShutdown;
+  btnShutdown.hidden = !showShutdown;
   queryTag(document, '#menu-divider-shutdown', 'div').hidden = !showShutdown;
 }
 
@@ -70,9 +89,4 @@ function mountPowerMenu() {
   });
 }
 
-function wirePowerActions() {
-  queryTag(document, '#btn-restart', 'button').addEventListener('click', confirmServerRestart);
-  queryTag(document, '#btn-shutdown', 'button').addEventListener('click', confirmServerShutdown);
-}
-
-export { applyClientTrust, confirmServerRestart, disablePowerButton, mountPowerMenu, powerMenu, wirePowerActions };
+export { applyClientTrust, confirmServerRestart, disablePowerButton, mountPowerMenu, powerMenu };

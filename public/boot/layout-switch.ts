@@ -7,7 +7,7 @@ import { queryTag } from '../dom-helpers.ts';
 import { isSettingsHash } from '../settings/settings-link.ts';
 import { activateSettingsSection, canReturnToSettingsList, onPhoneSettingsScreenChanged, returnToSettingsList } from '../settings/settings-store.ts';
 import { mountedViewModule } from '../view-registry.ts';
-import { btnMute, btnStreamer } from './header-controls.ts';
+import { btnAddSession, btnHelp, btnMute, btnStreamer } from './header-controls.ts';
 import { powerMenu } from './power-menu.ts';
 import { VIEW_TABS, acknowledgeViewAttention, clearSettingsHash, refreshViewOnShow, restoreDesktopViews } from './view-tabs.ts';
 
@@ -33,8 +33,8 @@ function mountPhoneLayout() {
       queryTag(document, '.header-title', 'h1'),
       queryTag(document, '#status-indicator', 'div'),
       queryTag(document, '#celebration-tray', 'div'),
-      queryTag(document, '#btn-add-session-header', 'button'),
-      queryTag(document, '#btn-help', 'button'),
+      btnAddSession,
+      btnHelp,
       btnMute,
       btnStreamer,
       powerMenu,

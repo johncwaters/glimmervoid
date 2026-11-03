@@ -28,7 +28,6 @@ import { openConnectBoardDialog, sessionRowBoardSignals, setBoardsViewOpener } f
 import { loadPageToken } from './ws-token.ts';
 
 import { wireViewerFocus } from './boot/viewer-focus.ts';
-import { wirePowerActions } from './boot/power-menu.ts';
 import { mountViewTabs, openBoardsSurface, openView, refreshViewsIfVisible } from './boot/view-tabs.ts';
 import { wireHashRouting } from './boot/hash-routes.ts';
 import { mountHeaderControls, mountHeaderTrays } from './boot/header-controls.ts';
@@ -91,7 +90,6 @@ mountViewTabs();
 
 mountLayoutSwitch();
 
-wirePowerActions();
 
 wireDashboardShortcuts();
 
