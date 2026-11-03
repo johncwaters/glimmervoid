@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Small icon buttons on desktop, like the session menu, Changes and Shown, are now 28 pixels square instead of 22, with a larger icon. The phone layout is unchanged.
 
+### Fixed
+
+- Arrows on a board no longer cross when they do not have to. When several arrows leave one box, such as a decision's outputs fanning out to a column of boxes, an arrow drawn early no longer takes the far lane and forces the others across it; only crossings the arrows' order truly forces remain.
+
 ## [0.51.0] - 2026-11-03
 
 ### Added

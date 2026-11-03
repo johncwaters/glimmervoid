@@ -77,7 +77,13 @@ interface DrawnWire {
   plan: WirePlan;
   points: Point[];
   segments: Segment[];
-  isFallback: boolean;
+  states: number[] | null;
+}
+
+interface RoutedWires {
+  drawn: DrawnWire[];
+  grid: Grid | null;
+  usage: RouteUsage;
 }
 
 interface KeyUsage {
@@ -650,13 +656,13 @@ function reconstructNodes(cameFrom: Int32Array, goalState: number): number[] {
   return states.reverse();
 }
 
-function recordUsage(grid: Grid, usage: RouteUsage, plan: WirePlan, states: readonly number[]): void {
+function adjustUsage(grid: Grid, usage: RouteUsage, plan: WirePlan, states: readonly number[], delta: 1 | -1): void {
   const width = grid.xs.length;
-  const increment = (countByKey: Map<string, number>, key: string) => countByKey.set(key, (countByKey.get(key) ?? 0) + 1);
+  const increment = (countByKey: Map<string, number>, key: string) => countByKey.set(key, (countByKey.get(key) ?? 0) + delta);
   const remember = (usageByKey: Map<number, KeyUsage>, key: number) => {
     const keyUsage = usageByKey.get(key) ?? { total: 0, countByExitKey: new Map(), countByBusKey: new Map(), countByBusAndExitKey: new Map() };
     usageByKey.set(key, keyUsage);
-    keyUsage.total += 1;
+    keyUsage.total += delta;
     increment(keyUsage.countByExitKey, plan.exitKey);
     if (plan.busKey === null) return;
     increment(keyUsage.countByBusKey, plan.busKey);
@@ -695,27 +701,64 @@ function backInteriorOf(plan: WirePlan, loopFrames: readonly Rect[]): Rect | nul
   return enclosingLoop ?? span;
 }
 
-function routeAll(plans: readonly WirePlan[], input: RouteInput, budget: SearchBudget): DrawnWire[] {
+function longestFirst<Item>(items: readonly Item[], planOf: (item: Item) => WirePlan): Item[] {
+  const routeLength = (plan: WirePlan) => Math.abs(plan.start.x - plan.end.x) + Math.abs(plan.start.y - plan.end.y);
+  return [...items].sort((left, right) => routeLength(planOf(right)) - routeLength(planOf(left)) || planOf(left).wire.id.localeCompare(planOf(right).wire.id));
+}
+
+function drawnWireOf(grid: Grid | null, plan: WirePlan, states: number[] | null): DrawnWire {
+  const points = grid && states
+    ? withoutBends(states.map((state) => {
+      const node = state >> 2;
+      const xIndex = node % grid.xs.length;
+      return { x: grid.xs[xIndex] ?? 0, y: grid.ys[(node - xIndex) / grid.xs.length] ?? 0 };
+    }))
+    : fallbackPoints(plan);
+  return { plan, points, segments: segmentsOf(points), states };
+}
+
+function routeAll(plans: readonly WirePlan[], input: RouteInput, budget: SearchBudget): RoutedWires {
   const hardRects = [...input.boxesById.values(), ...input.panels];
   const grid = buildGrid(plans, hardRects, input.softObstacles, input.contentTop);
   const buffers = grid ? createSearchBuffers(grid) : null;
   const usage: RouteUsage = { usageByEdge: new Map(), usageByNodeAndAxis: new Map() };
-  const routeLength = (plan: WirePlan) => Math.abs(plan.start.x - plan.end.x) + Math.abs(plan.start.y - plan.end.y);
-  const ordered = [...plans].sort((left, right) => routeLength(right) - routeLength(left) || left.wire.id.localeCompare(right.wire.id));
   const drawnById = new Map<string, DrawnWire>();
-  for (const plan of ordered) {
+  for (const plan of longestFirst(plans, (plan) => plan)) {
     const states = grid && buffers ? routeOnGrid(grid, plan, usage, backInteriorOf(plan, input.loopFrames), buffers, budget) : null;
-    if (grid && states) recordUsage(grid, usage, plan, states);
-    const points = grid && states
-      ? withoutBends(states.map((state) => {
-        const node = state >> 2;
-        const xIndex = node % grid.xs.length;
-        return { x: grid.xs[xIndex] ?? 0, y: grid.ys[(node - xIndex) / grid.xs.length] ?? 0 };
-      }))
-      : fallbackPoints(plan);
-    drawnById.set(plan.wire.id, { plan, points, segments: segmentsOf(points), isFallback: !states });
+    if (grid && states) adjustUsage(grid, usage, plan, states, 1);
+    drawnById.set(plan.wire.id, drawnWireOf(grid, plan, states));
   }
-  return plans.flatMap((plan) => drawnById.get(plan.wire.id) ?? []);
+  return { drawn: plans.flatMap((plan) => drawnById.get(plan.wire.id) ?? []), grid, usage };
+}
+
+function bendCountOf(wire: DrawnWire): number {
+  return Math.max(0, wire.points.length - 2);
+}
+
+function crossingCostOf(wire: DrawnWire, others: readonly DrawnWire[], input: RouteInput): number {
+  const wireCrossingCount = others.filter((other) => pairCrossingOf(wire, other) !== null).length;
+  return findBoxCrossings([wire], input).length * BOX_CROSSING_COST + wireCrossingCount;
+}
+
+function rerouteCrossedWires(routed: RoutedWires, input: RouteInput): DrawnWire[] {
+  const { grid, usage } = routed;
+  if (!grid) return routed.drawn;
+  const buffers = createSearchBuffers(grid);
+  const budget: SearchBudget = { remainingExpansions: MAX_TOTAL_EXPANSIONS };
+  const drawnById = new Map(routed.drawn.map((wire) => [wire.plan.wire.id, wire]));
+  for (const current of longestFirst(routed.drawn, (wire) => wire.plan)) {
+    if (!current.states || budget.remainingExpansions <= 0) continue;
+    const others = [...drawnById.values()].filter((other) => other.plan !== current.plan);
+    const currentCost = crossingCostOf(current, others, input);
+    if (currentCost === 0) continue;
+    adjustUsage(grid, usage, current.plan, current.states, -1);
+    const rerouted = drawnWireOf(grid, current.plan, routeOnGrid(grid, current.plan, usage, backInteriorOf(current.plan, input.loopFrames), buffers, budget));
+    const staysWithinBendLimit = bendCountOf(rerouted) <= Math.max(bendCountOf(current), MAX_BENDS);
+    const kept = rerouted.states && staysWithinBendLimit && crossingCostOf(rerouted, others, input) < currentCost ? rerouted : current;
+    adjustUsage(grid, usage, kept.plan, kept.states ?? current.states, 1);
+    drawnById.set(kept.plan.wire.id, kept);
+  }
+  return routed.drawn.map((wire) => drawnById.get(wire.plan.wire.id) ?? wire);
 }
 
 function labelWidthOf(label: string): number {
@@ -797,13 +840,15 @@ function areSiblings(first: DrawnWire, second: DrawnWire): boolean {
   return first.plan.exitKey === second.plan.exitKey;
 }
 
+function pairCrossingOf(first: DrawnWire, second: DrawnWire): string | null {
+  if (areSiblings(first, second)) return null;
+  const pairs = first.segments.flatMap((firstSegment) => second.segments.map((secondSegment) => [firstSegment, secondSegment] as const));
+  if (pairs.some(([firstSegment, secondSegment]) => segmentsCross(firstSegment, secondSegment))) return `wire ${first.plan.wire.id} crosses wire ${second.plan.wire.id}`;
+  return pairs.some(([firstSegment, secondSegment]) => segmentsOverlap(firstSegment, secondSegment)) ? `wire ${first.plan.wire.id} overlaps wire ${second.plan.wire.id}` : null;
+}
+
 function findCrossings(drawn: readonly DrawnWire[]): string[] {
-  return drawn.flatMap((first, index) => drawn.slice(index + 1).flatMap((second) => {
-    if (areSiblings(first, second)) return [];
-    const pairs = first.segments.flatMap((firstSegment) => second.segments.map((secondSegment) => [firstSegment, secondSegment] as const));
-    if (pairs.some(([firstSegment, secondSegment]) => segmentsCross(firstSegment, secondSegment))) return [`wire ${first.plan.wire.id} crosses wire ${second.plan.wire.id}`];
-    return pairs.some(([firstSegment, secondSegment]) => segmentsOverlap(firstSegment, secondSegment)) ? [`wire ${first.plan.wire.id} overlaps wire ${second.plan.wire.id}`] : [];
-  }));
+  return drawn.flatMap((first, index) => drawn.slice(index + 1).flatMap((second) => pairCrossingOf(first, second) ?? []));
 }
 
 function findBoxCrossings(drawn: readonly DrawnWire[], input: RouteInput): string[] {
@@ -817,8 +862,8 @@ function findBoxCrossings(drawn: readonly DrawnWire[], input: RouteInput): strin
 
 function routeQualityWarnings(drawn: readonly DrawnWire[]): string[] {
   return drawn.flatMap((wire) => {
-    if (wire.isFallback) return [`wire ${wire.plan.wire.id} found no clear route, so it is drawn as a straight dog-leg`];
-    const bends = Math.max(0, wire.points.length - 2);
+    if (!wire.states) return [`wire ${wire.plan.wire.id} found no clear route, so it is drawn as a straight dog-leg`];
+    const bends = bendCountOf(wire);
     return bends > MAX_BENDS ? [`wire ${wire.plan.wire.id} bends ${bends} times`] : [];
   });
 }
@@ -843,16 +888,16 @@ function swapNeighbors(order: string[], index: number): void {
   order[index + 1] = left;
 }
 
-function routeWithPortOrder(plans: readonly WirePlan[], input: RouteInput, requestsBySide: ReadonlyMap<string, readonly PortRequest[]>, groupOrderBySide: ReadonlyMap<string, readonly string[]>, budget: SearchBudget): { drawn: DrawnWire[]; crossingCost: number } {
+function routeWithPortOrder(plans: readonly WirePlan[], input: RouteInput, requestsBySide: ReadonlyMap<string, readonly PortRequest[]>, groupOrderBySide: ReadonlyMap<string, readonly string[]>, budget: SearchBudget): { routed: RoutedWires; crossingCost: number } {
   assignPorts(requestsBySide, groupOrderBySide);
   alignLonePorts(plans, groupOrderBySide);
-  const drawn = routeAll(plans, input, budget);
-  return { drawn, crossingCost: findBoxCrossings(drawn, input).length * BOX_CROSSING_COST + findCrossings(drawn).length };
+  const routed = routeAll(plans, input, budget);
+  return { routed, crossingCost: findBoxCrossings(routed.drawn, input).length * BOX_CROSSING_COST + findCrossings(routed.drawn).length };
 }
 
 function routeWithFewestCrossings(plans: readonly WirePlan[], input: RouteInput, requestsBySide: ReadonlyMap<string, readonly PortRequest[]>, groupOrderBySide: ReadonlyMap<string, string[]>, budget: SearchBudget): DrawnWire[] {
   let best = routeWithPortOrder(plans, input, requestsBySide, groupOrderBySide, budget);
-  if (plans.length > MAX_WIRES_FOR_PORT_SEARCH) return best.drawn;
+  if (plans.length > MAX_WIRES_FOR_PORT_SEARCH) return rerouteCrossedWires(best.routed, input);
   for (const groupOrder of groupOrderBySide.values()) {
     for (let index = 0; best.crossingCost > 0 && index + 1 < groupOrder.length; index += 1) {
       swapNeighbors(groupOrder, index);
@@ -864,7 +909,7 @@ function routeWithFewestCrossings(plans: readonly WirePlan[], input: RouteInput,
       swapNeighbors(groupOrder, index);
     }
   }
-  return routeWithPortOrder(plans, input, requestsBySide, groupOrderBySide, budget).drawn;
+  return rerouteCrossedWires(routeWithPortOrder(plans, input, requestsBySide, groupOrderBySide, budget).routed, input);
 }
 
 function routeWires(input: RouteInput): RouteResult {

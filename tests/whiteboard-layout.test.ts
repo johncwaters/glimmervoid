@@ -284,6 +284,28 @@ test('a board with more wires than one routing pass can place draws the rest as 
   assert.equal(layout.elements.filter((element) => element.kind === 'wire').length, 600);
 });
 
+test('a decision fanning out to a column keeps only the crossing its output order forces', () => {
+  const fanBoard = Board.parse({
+    id: 'fan', title: 'fan', version: 1, caption: null, createdAt: 0, updatedAt: 0,
+    lanes: [{ id: 'core', label: 'Core (all installs)', color: 'blue' }, { id: 'preset', label: 'PostHog preset', color: 'orange' }],
+    columns: [{ id: 'judge', title: 'Disposition' }, { id: 'act', title: 'Executors' }],
+    elements: {
+      pick: { kind: 'box', id: 'pick', title: 'Disposition', lane: 'core', column: 'judge', shape: 'decision', outputs: [{ id: 'local', label: 'fix locally' }, { id: 'dismiss', label: 'dismiss w/ reason' }, { id: 'remote', label: 'fix remotely' }, { id: 'escalate', label: 'escalate' }] },
+      session: { kind: 'box', id: 'session', title: 'Session on branch', lines: [{ text: 'spawn / message PR session', style: 'item' }, { text: 'new push re-enters Sources', muted: true, style: 'item' }], lane: 'core', column: 'act' },
+      reply: { kind: 'box', id: 'reply', title: 'Reply + resolve', lines: [{ text: 'post operator reason', style: 'item' }, { text: 'resolve thread', style: 'item' }], lane: 'core', column: 'act', order: 1 },
+      resolve: { kind: 'box', id: 'resolve', title: 'ReviewHog Resolve', lines: [{ text: 'run_mode: resolve_only', style: 'code' }, { text: 'owner opt-in required', muted: true, style: 'item' }, { text: 'only when no local push', muted: true, style: 'item' }], lane: 'preset', column: 'act', order: 2 },
+      waiting: { kind: 'box', id: 'waiting', title: 'Waiting card', lines: [{ text: 'dashboard + Telegram', style: 'item' }], lane: 'core', column: 'act', order: 3 },
+      w10: { kind: 'wire', id: 'w10', from: 'pick', to: 'session', fromOutput: 'local' },
+      w11: { kind: 'wire', id: 'w11', from: 'pick', to: 'reply', fromOutput: 'dismiss' },
+      w12: { kind: 'wire', id: 'w12', from: 'pick', to: 'resolve', fromOutput: 'remote', dashed: true },
+      w13: { kind: 'wire', id: 'w13', from: 'pick', to: 'waiting', fromOutput: 'escalate', tone: 'fail' },
+      open: { kind: 'note', id: 'open', on: 'pick', text: 'Open: does Resolve decline with a reason, or only fix? Decides if dismiss stays local-only.', author: 'PR bot triage' },
+    },
+  });
+  const crossings = layoutBoard(fanBoard).warnings.filter((warning) => warning.includes('crosses wire'));
+  assert.deepEqual(crossings, ['wire w12 crosses wire w13']);
+});
+
 test('a decision draws its outputs as rows in order and each output wire leaves from its own row, while a stray output is refused', () => {
   const decisionBoard = Board.parse({
     id: 'decide', title: 'decide', version: 1, caption: null, createdAt: 0, updatedAt: 0, lanes: [],
