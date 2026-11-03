@@ -2,6 +2,7 @@ import { boardMediaDrawnFilename, WHITEBOARD_ASSET_ROUTE } from '#shared/contrac
 import type { Board } from '#shared/contracts/whiteboard.ts';
 import { elementSignature, layoutBoard } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout, LaidOutElement, LaidOutMedia } from '#shared/whiteboard-layout-core.ts';
+import type { BoardMediaLayer } from './board-media-layer.ts';
 import { arrowDefinitionsMarkup, chromeMarkup, elementMarkup, SVG_NAMESPACE } from '#shared/whiteboard-svg-core.ts';
 
 type LayerName = 'frames' | 'wires' | 'boxes' | 'notes' | 'units';
@@ -55,7 +56,7 @@ function servedAssetHref(media: LaidOutMedia): string | null {
 const LAYER_BY_KIND: Record<LaidOutElement['kind'], LayerName> = { frame: 'frames', wire: 'wires', box: 'boxes', panel: 'boxes', note: 'notes', unit: 'units' };
 const ELEMENT_KINDS = ['box', 'frame', 'wire', 'note', 'unit', 'panel'] as const;
 
-export function createBoardRenderer(svg: SVGSVGElement): BoardRenderer {
+export function createBoardRenderer(svg: SVGSVGElement, mediaLayer: BoardMediaLayer): BoardRenderer {
   const layers: Record<LayerName, SVGGElement> = {
     frames: svgNode('g', 'wb-layer'),
     wires: svgNode('g', 'wb-layer'),
@@ -135,6 +136,7 @@ export function createBoardRenderer(svg: SVGSVGElement): BoardRenderer {
       rendered.node.remove();
       renderedById.delete(elementId);
     }
+    mediaLayer.sync(layout);
     currentLayout = layout;
     return layout;
   }
@@ -167,6 +169,7 @@ export function createBoardRenderer(svg: SVGSVGElement): BoardRenderer {
     const emptyChrome = svgNode('g');
     chrome.replaceWith(emptyChrome);
     chrome = emptyChrome;
+    mediaLayer.clear();
     currentLayout = null;
   }
 

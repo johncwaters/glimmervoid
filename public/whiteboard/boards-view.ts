@@ -2,11 +2,12 @@ import { fitTipDetail, fitTipLabel } from '../hover-tip-core.ts';
 import type { TipLabel } from '../hover-tip-core.ts';
 import { setHoverTip } from '../hover-tip.ts';
 import './whiteboard.css';
-import type { Board, BoardReview, BoardSummary, Element, Op } from '#shared/contracts/whiteboard.ts';
+import type { Board, BoardReview, BoardSummary, BoxMedia, Element, Op } from '#shared/contracts/whiteboard.ts';
 import { refPathOf, refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 import { boardMediaOriginalFilename, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import { createActionStatus } from '../action-status.ts';
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
+import { createSandboxedFrame } from '../sandboxed-frame.ts';
 import { button, menuButton } from '../ui/button.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { buildMenuItem, wirePopupMenuKeys } from '../menu.ts';
@@ -21,6 +22,7 @@ import type { UndoDirection, UndoHistory } from '#shared/whiteboard-undo-core.ts
 import { createBoardInspector } from './board-inspect.ts';
 import type { BoardInspector } from './board-inspect.ts';
 import { createBoardRenderer } from './board-render.ts';
+import { createBoardMediaLayer } from './board-media-layer.ts';
 import type { BoardRenderer } from './board-render.ts';
 import {
   boardSummariesOf, createBoard, deleteBoard, nudgeSessionAboutBoard, onBoardChanged, onBoardListChanged, openBoard, openBoardOf, openFileInReview, requestBoardReview, sendBoardOps, takeOpenBoardRequest, uploadBoardMedia,
@@ -539,19 +541,33 @@ function addUnitFromDialog(): void {
   });
 }
 
-function fullSizeHrefOf({ boxId, href }: PressedImage): string {
+function pressedMediaOf({ boxId }: PressedImage): BoxMedia | null {
   const pressedBox = boxId ? selectedBoard()?.elements[boxId] : undefined;
-  if (pressedBox?.kind !== 'box' || pressedBox.media?.kind !== 'image') return href;
-  return `${WHITEBOARD_ASSET_ROUTE}/${boardMediaOriginalFilename(pressedBox.media)}`;
+  return pressedBox?.kind === 'box' ? pressedBox.media : null;
+}
+
+function enlargedMediaOf(pressedImage: PressedImage, media: BoxMedia | null): HTMLElement {
+  const originalHref = media ? `${WHITEBOARD_ASSET_ROUTE}/${boardMediaOriginalFilename(media)}` : pressedImage.href;
+  if (media?.kind === 'page') return createSandboxedFrame({ source: { kind: 'url', url: originalHref }, className: 'wb-image-viewer-page', title: pressedImage.alt || 'page', allowsScripts: true });
+  if (media?.kind === 'video') {
+    const video = el('video', 'wb-image-viewer-video');
+    video.src = originalHref;
+    video.controls = true;
+    video.playsInline = true;
+    return video;
+  }
+  const picture = el('img', 'wb-image-viewer-picture');
+  picture.src = originalHref;
+  picture.alt = pressedImage.alt;
+  return picture;
 }
 
 function openImageViewer(pressedImage: PressedImage): void {
   const { alt } = pressedImage;
+  const media = pressedMediaOf(pressedImage);
+  if (!media && !pressedImage.href) return;
   const { dialog, close, actions, btnCancel } = buildDialogShell({ title: alt || 'Picture', dialogClass: 'dialog wb-image-viewer', cancelLabel: 'Close' });
-  const picture = el('img', 'wb-image-viewer-picture');
-  picture.src = fullSizeHrefOf(pressedImage);
-  picture.alt = alt;
-  dialog.append(picture, actions);
+  dialog.append(enlargedMediaOf(pressedImage, media), actions);
   btnCancel.addEventListener('click', close);
   requestAnimationFrame(() => btnCancel.focus());
 }
@@ -785,7 +801,8 @@ export function mountBoardHost(): HTMLElement {
   const svg = document.createElementNS(SVG_NAMESPACE, 'svg');
   svg.setAttribute('class', 'wb-svg');
   svg.setAttribute('aria-hidden', 'true');
-  world.append(svg);
+  const mediaLayer = createBoardMediaLayer({ viewport, boardHost: canvas, onOpenFullSize: (boxId, alt) => openImageViewer({ boxId, href: '', alt }) });
+  world.append(svg, mediaLayer.element);
   viewport.append(world);
   const inspectPanel = el('aside', 'wb-inspect');
   const queuedForSession = el('span', 'wb-session-queued');
@@ -813,7 +830,7 @@ export function mountBoardHost(): HTMLElement {
 
   host.replaceChildren(canvas, empty);
   parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, sendToAgent, buttons, toolButtons, toolHint, emptyBoardHint };
-  const boardRenderer = createBoardRenderer(svg);
+  const boardRenderer = createBoardRenderer(svg, mediaLayer);
   renderer = boardRenderer;
   inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, openRef: openRefInReview });
   editor = createBoardEditor({
@@ -828,6 +845,7 @@ export function mountBoardHost(): HTMLElement {
     onPhoneTapBox: addNoteOn,
     onOpenLinkedBoard: selectBoard,
     onOpenImage: openImageViewer,
+    onActivateMedia: mediaLayer.activate,
     onConnectBoxes: connectBoxes,
     onToolChange: paintActiveTool,
   });
