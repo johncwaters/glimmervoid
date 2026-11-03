@@ -103,6 +103,7 @@ interface WhiteboardPort {
     nudgeLine(boardId: string): string | null;
   };
   forgetSession(sessionId: string): Promise<void>;
+  forgetClosedSessions(isClosedSession: (sessionId: string) => boolean): Promise<void>;
   takePromptContext(sessionId: string): string | null;
   isConnected(sessionId: string): boolean;
   snapshotMessage(): ServerMessageOf<'whiteboards-snapshot'>;
@@ -429,7 +430,7 @@ function createWhiteboardWiring({
     }
   }
 
-  return { loaded, handleAgent, handleOperator, forgetSession, takePromptContext, isConnected, snapshotMessage };
+  return { loaded, handleAgent, handleOperator, forgetSession, forgetClosedSessions, takePromptContext, isConnected, snapshotMessage };
 }
 
 export { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME };
