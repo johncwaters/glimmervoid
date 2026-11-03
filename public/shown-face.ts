@@ -2,6 +2,7 @@ import type { ShownFile } from '#shared/contracts/session.ts';
 import { el } from './dom-helpers.ts';
 import { formatAgo } from './poll-ago.ts';
 import { createSandboxedFrame } from './sandboxed-frame.ts';
+import { sessionUIs } from './session-card/card-registry.ts';
 import { shownFilesOf, shownThumbnailUrl } from './shown-files.ts';
 import { BACK_ICON_PATH, FORWARD_ICON_PATH, MINUS_ICON_PATH, PLUS_ICON_PATH, createLineIcon } from './svg-dom.ts';
 import { button } from './ui/button.ts';
@@ -455,6 +456,13 @@ export function createShownFace({ sessionId }: { sessionId: string }) {
     if (sendPageZoom('in')) return;
     zoomAroundFocal(zoomView.scale * BUTTON_ZOOM_FACTOR, { x: 0, y: 0 });
   });
+  function leaveOnEscape(): void {
+    if (!btnZoomFit.disabled) {
+      btnZoomFit.click();
+      return;
+    }
+    sessionUIs.get(sessionId)?._showTerminalFace?.();
+  }
   btnZoomFit.addEventListener('click', () => {
     if (sendPageZoom('fit')) return;
     applyZoom(FIT_VIEW);
@@ -478,6 +486,11 @@ export function createShownFace({ sessionId }: { sessionId: string }) {
   });
   face.addEventListener('keydown', (event) => {
     if (event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      leaveOnEscape();
+      return;
+    }
     const offsetByKey: Record<string, number> = { ArrowLeft: -1, ArrowRight: 1 };
     const offset = offsetByKey[event.key];
     if (offset === undefined) return;

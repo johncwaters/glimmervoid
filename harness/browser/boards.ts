@@ -6,8 +6,6 @@ import { commitFile, findSessionWorktree, pollFor, readOriginFile } from './revi
 
 const UNCOVERED_FILE_NAME = 'board-uncovered.txt';
 const MERGE_SETTLE_MS = 1500;
-const NARROW_VIEWPORT_WIDTH_PX = 1100;
-const MIN_TITLE_WIDTH_PX = 40;
 const WORKTREE_TIMEOUT_MS = 15000;
 const REVIEW_TIMEOUT_MS = 20000;
 
@@ -122,8 +120,8 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     const titleIslandBounds = await panel.getByRole('toolbar', { name: 'Board', exact: true }).boundingBox();
     const viewIslandBounds = await panel.getByRole('toolbar', { name: 'View', exact: true }).boundingBox();
     assert.ok(titleIslandBounds && viewIslandBounds);
-    assert.ok(toolsIslandBounds.y + toolsIslandBounds.height <= canvasBounds.y && viewIslandBounds.y + viewIslandBounds.height <= canvasBounds.y, 'the view controls and tools sit in the Board tab strip above the canvas');
-    assert.ok(titleIslandBounds.x + titleIslandBounds.width <= viewIslandBounds.x && viewIslandBounds.x + viewIslandBounds.width <= toolsIslandBounds.x, 'fit, undo and redo, then the tools, follow the title island');
+    assert.ok(toolsIslandBounds.y >= canvasBounds.y && viewIslandBounds.y >= canvasBounds.y, 'the view controls and tools sit inside the Board pane, not in the tab strip');
+    assert.ok(titleIslandBounds.x + titleIslandBounds.width <= viewIslandBounds.x, 'fit, undo and redo follow the title island');
     const renamedTitle = `${boardTitle} renamed`;
     await renameOpenBoard(page, panel, boardTitle, renamedTitle, 'Enter');
     await renameOpenBoard(page, panel, renamedTitle, 'discarded title', 'Escape');
@@ -310,7 +308,7 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   const panel = page.locator('#focus-center');
   await openBoardTitle(panel, boardTitle).waitFor();
   await page.locator('.pane-tab[data-tab="board"][aria-selected="true"]').waitFor();
-  await verifyBoardStripFitsNarrowWidth(page, panel, boardTitle);
+  await verifyBoardToolsInBoardPane(panel, boardTitle);
   const canvasBox = await panel.locator('.wb-canvas').boundingBox();
   const cardBox = await card.boundingBox();
   assert.ok(canvasBox && cardBox);
@@ -437,24 +435,10 @@ async function verifyPaneTerminalTabOwnsTheFace(page: Page, card: Locator): Prom
   await page.waitForFunction(() => document.querySelector('#focus-pane-terminal .session-card')?.getAttribute('data-face') === 'terminal');
 }
 
-async function verifyBoardStripFitsNarrowWidth(page: Page, panel: Locator, boardTitle: string): Promise<void> {
-  const presence = panel.locator('.pane-board-tools .wb-presence');
+async function verifyBoardToolsInBoardPane(panel: Locator, boardTitle: string): Promise<void> {
   await openBoardTitle(panel, boardTitle).waitFor();
-  assert.equal(await presence.locator('.wb-presence-pill:not(.wb-presence-count)').count(), 0, 'the strip names no pill for the only connected session, the one centered beside it');
-  const wideViewport = page.viewportSize();
-  assert.ok(wideViewport);
-  await page.setViewportSize({ width: NARROW_VIEWPORT_WIDTH_PX, height: wideViewport.height });
-  const strip = panel.locator('.pane-strip:has(.pane-board-tools)');
-  assert.equal(await panel.locator('.pane-board-tools .wb-island-board').evaluate((boardIsland) => boardIsland.scrollWidth <= boardIsland.clientWidth), true, 'the collapsed board island fits without overlapping the tools');
-  const stripBox = await strip.boundingBox();
-  const titleBox = await openBoardTitle(panel, boardTitle).boundingBox();
-  const lastToolBox = await panel.getByRole('button', { name: 'unit', exact: true }).boundingBox();
-  const trailBox = await strip.locator('.pane-trail').boundingBox();
-  assert.ok(stripBox, 'strip box');
-  assert.ok(titleBox, 'title box');
-  assert.ok(lastToolBox, 'unit box');
-  assert.ok(titleBox.width >= MIN_TITLE_WIDTH_PX, 'the board title stays on the narrow strip');
-  assert.ok(lastToolBox.y >= stripBox.y && lastToolBox.y + lastToolBox.height <= stripBox.y + stripBox.height, 'every board tool stays inside the one-row strip');
-  assert.ok(!trailBox || lastToolBox.x + lastToolBox.width <= trailBox.x, 'the board tools stay clear of the review bar');
-  await page.setViewportSize(wideViewport);
+  const boardPane = panel.locator('#focus-pane-board');
+  assert.equal(await boardPane.locator('.wb-top-left').isVisible(), true, 'the board tools sit inside the Board pane');
+  assert.equal(await panel.locator('.pane-strip .wb-top-left').count(), 0, 'the tab row carries no board tools');
+  assert.equal(await boardPane.locator('.wb-presence .wb-presence-pill:not(.wb-presence-count)').count(), 0, 'the board names no pill for the only connected session, the one centered beside it');
 }

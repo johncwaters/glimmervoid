@@ -62,7 +62,6 @@ let railHeadEl: HTMLElement | null = null;
 let centerEl: HTMLElement | null = null;
 let cardSlotEl: HTMLElement | null = null;
 let paneLayout: PaneLayout | null = null;
-let boardToolsSlot: HTMLElement | null = null;
 let reviewBar: ReviewBar | null = null;
 let boardsViewLoad: Promise<BoardsViewModule> | null = null;
 let loadedBoardsView: BoardsViewModule | null = null;
@@ -169,9 +168,7 @@ export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | 
   paneLayout = createPaneLayout();
   paneLayout.element.addEventListener('click', showTerminalFaceOnTerminalTab);
   cardSlotEl = paneLayout.bodyOf('terminal');
-  boardToolsSlot = el('div', 'pane-board-tools');
   boardsGroup = buildBoardsGroup();
-  paneLayout.setTabTools('board', boardToolsSlot);
   reviewBar = createReviewBar({ onOpenChanges: () => openChangesInFocus() });
   paneLayout.trailSlot.append(reviewBar.element);
   mountedCenter.append(emptyEl, paneLayout.element);
@@ -521,11 +518,24 @@ function flashAttention(id: string) {
 
 function borrowToCenter(ui: SessionUi, id: string) {
   if (!cardSlotEl) return;
-  borrowCard(ui, id, cardSlotEl, { className: 'focus-centered', onRelease: () => paneLayout?.setStripHost('terminal', null) });
   const header = ui.card.querySelector<HTMLElement>(':scope > .session-card-header');
-  if (header) paneLayout?.setStripHost('terminal', { parent: header, before: header.querySelector(':scope > .session-actions') });
+  const actions = header?.querySelector<HTMLElement>(':scope > .session-actions') ?? null;
+  const faceTabs = ui.btnShownTab.parentElement;
+  borrowCard(ui, id, cardSlotEl, { className: 'focus-centered', onRelease: () => returnFaceTabsAndStrip(actions, faceTabs) });
+  if (header) moveTabsToHeaderStart(header, faceTabs);
   paneLayout?.setTabTitle('terminal', () => terminalTabTitle(ui));
   setTerminalActiveViewer(ui, id, true);
+}
+
+function moveTabsToHeaderStart(header: HTMLElement, faceTabs: HTMLElement | null) {
+  const firstOwnChild = header.querySelector<HTMLElement>(':scope > .session-name');
+  paneLayout?.setStripHost('terminal', { parent: header, before: firstOwnChild });
+  if (faceTabs) header.insertBefore(faceTabs, firstOwnChild);
+}
+
+function returnFaceTabsAndStrip(actions: HTMLElement | null, faceTabs: HTMLElement | null) {
+  if (actions && faceTabs) actions.prepend(faceTabs);
+  paneLayout?.setStripHost('terminal', null);
 }
 
 function showTerminalFaceOnTerminalTab(event: MouseEvent) {
@@ -599,7 +609,7 @@ function placeBoardPane(boardsView: BoardsViewModule, sessionId: string | null, 
   const boardBody = paneLayout.bodyOf('board');
   const host = boardsView.mountBoardHost();
   if (host.parentElement !== boardBody) boardBody.replaceChildren(host);
-  boardsView.placeBoardChrome(boardToolsSlot);
+  boardsView.placeBoardChrome(null);
   if (boardId) boardsView.showBoardBeside(boardId, sessionId);
 }
 

@@ -19,7 +19,6 @@ interface GroupParts {
   group: HTMLElement;
   strip: HTMLElement;
   tabList: HTMLElement;
-  tail: HTMLElement;
   body: HTMLElement;
 }
 
@@ -27,7 +26,6 @@ export interface PaneLayout {
   element: HTMLElement;
   trailSlot: HTMLElement;
   bodyOf: (tab: PaneTab) => HTMLElement;
-  setTabTools: (tab: PaneTab, tools: HTMLElement | null) => void;
   setTabTitle: (tab: PaneTab, readTitle: () => string) => void;
   setStripHost: (tab: PaneTab, host: StripHost | null) => void;
   showTabs: (shownTabs: ReadonlySet<PaneTab>, options?: { holdSplit?: boolean }) => void;
@@ -50,7 +48,6 @@ export function createPaneLayout(): PaneLayout {
 
   const bodyByTab: Record<PaneTab, HTMLElement> = { terminal: buildBody('terminal'), board: buildBody('board') };
   const tabButtonByTab: Record<PaneTab, HTMLButtonElement> = { terminal: buildTabButton('terminal'), board: buildTabButton('board') };
-  const toolsByTab = new Map<PaneTab, HTMLElement>();
   const titleReaderByTab = new Map<PaneTab, () => string>();
   const stripHostByTab = new Map<PaneTab, StripHost>();
   const groupParts: GroupParts[] = [buildGroup(0), buildGroup(1)];
@@ -90,8 +87,7 @@ export function createPaneLayout(): PaneLayout {
     const strip = el('div', 'pane-strip');
     const tabList = el('div', 'pane-tabs');
     tabList.setAttribute('role', 'tablist');
-    const tail = el('div', 'pane-strip-tail');
-    strip.append(tabList, tail);
+    strip.append(tabList);
     const body = el('div', 'pane-group-body');
     group.append(strip, body);
     group.addEventListener('dragover', (event) => {
@@ -113,7 +109,7 @@ export function createPaneLayout(): PaneLayout {
       if (targetGroupIndex === undefined) return;
       commit(moveTab(layout, movedTab, targetGroupIndex, zone));
     });
-    return { group, strip, tabList, tail, body };
+    return { group, strip, tabList, body };
   }
 
   function dropZoneOver(group: HTMLElement, strip: HTMLElement, event: DragEvent) {
@@ -195,8 +191,6 @@ export function createPaneLayout(): PaneLayout {
         placeChild(parts.body, bodyByTab[tab]);
         bodyByTab[tab].hidden = !isActive;
       }
-      const tools = toolsByTab.get(group.activeTab);
-      replaceChildrenIfChanged(parts.tail, tools ? [tools] : []);
       placeStrip(parts, stripHostByTab.get(group.activeTab));
     }
     const [firstParts, secondParts] = groupParts;
@@ -251,11 +245,6 @@ export function createPaneLayout(): PaneLayout {
     element,
     trailSlot,
     bodyOf: (tab) => bodyByTab[tab],
-    setTabTools: (tab, tools) => {
-      if (tools) toolsByTab.set(tab, tools);
-      if (!tools) toolsByTab.delete(tab);
-      render();
-    },
     setTabTitle: (tab, readTitle) => {
       titleReaderByTab.set(tab, readTitle);
       tabButtonByTab[tab].title = readTitle();

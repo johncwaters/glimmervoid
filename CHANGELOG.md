@@ -10,10 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **The star request shows only once.** The GitHub star card no longer comes back when you leave it unanswered: once it has appeared on any dashboard, reloading, opening another tab or device, or restarting Glimmervoid never shows it again.
+- **View tabs lead the Focus session header.** Terminal, Shown and Board now sit together at the far left of the centered session's header, instead of the Terminal tab landing wherever the title ended. Only the tab for what you are looking at is underlined, so while a shown file is open, Terminal is a plain tab one click away. Esc in the Shown view returns to the terminal, after first fitting a zoomed file back to the stage. Board tools now sit inside the Board pane instead of the tab row.
 
 ### Fixed
 
 - **A session's automatic catch-up no longer takes another session's unpushed work.** When your base branch briefly held commits not yet on origin, for example while another session was landing and its push then failed, an idle session could catch up onto those commits, and its Changes then listed the other session's files as its own. While your local base branch holds commits origin lacks, sessions now catch up only to the newest commit your base branch and origin share, so they stay current without taking commits that may never land. Commits a session already holds stay in it, and a new session still starts from your local base branch.
+- **The board menu opens above the board tools.** When the tools wrapped onto a second row, the board menu opened underneath them, so its first boards could not be picked.
 
 ## [0.50.0] - 2026-11-03
 

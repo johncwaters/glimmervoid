@@ -29,31 +29,6 @@
 
 .pane-body > .boards-view > .wb-canvas { min-height: 0; }
 
-.pane-board-tools { display: flex; align-items: center; min-width: 0; }
-
-.pane-board-tools > .wb-top-left { position: static; flex-wrap: nowrap; align-items: center; gap: 4px; pointer-events: auto; }
-
-.pane-board-tools .wb-island { padding: 0; border: 0; background: none; box-shadow: none; }
-
-.pane-board-tools > .wb-top-left { min-width: 0; }
-
-.pane-board-tools .wb-island { flex-wrap: nowrap; min-width: 0; }
-
-.pane-board-tools .wb-island-board { flex: 0 1 auto; }
-
-.pane-board-tools .wb-island-view,
-.pane-board-tools .wb-island-tools { flex: none; }
-
-.pane-board-tools .wb-presence { flex: none; flex-wrap: nowrap; }
-
-.pane-board-tools .wb-presence[data-collapsed] > :not(.wb-presence-count) { display: none; }
-
-.pane-board-tools .wb-presence[data-collapsed] > .wb-presence-count { display: inline; }
-
-.pane-board-tools .wb-presence-pill { white-space: nowrap; }
-
-.pane-board-tools .wb-board-title { flex: 0 1 auto; min-width: 8ch; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-
 .boards-view > .wb-canvas { grid-column: 1; grid-row: 1; }
 
 .boards-view > .wb-empty { grid-column: 1; grid-row: 1; align-self: start; }
@@ -126,6 +101,8 @@
 
 .wb-bottom-left > .wb-island,
 .wb-top-left > .wb-island { position: static; }
+
+.wb-top-left > .wb-island-board { z-index: 3; }
 
 .wb-island[hidden] { display: none; }
 
