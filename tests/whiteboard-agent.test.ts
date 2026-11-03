@@ -16,6 +16,7 @@ import { closeSocket, dashboardClient, openRecordingSocket, waitForMessage } fro
 import type { Backend } from './helpers/lanes.ts';
 import { settleBackendShutdown } from './helpers/lanes.ts';
 import { createWhiteboardWiring } from '../server/whiteboard/whiteboard-wiring.ts';
+import { waitFor } from './helpers/wait-for.ts';
 
 const PLANNER_ID = 'whiteboard-planner';
 const BUILDER_ID = 'whiteboard-builder';
@@ -553,6 +554,51 @@ test('a flood of edits to one box stays inside the prompt context bound and leav
   assert.match(promptContext, new RegExp(`read the rest with whiteboard get ${boardId}`));
   const read = await wiring.handleAgent(reader, { sub: 'get', board: boardId });
   assert.ok((read.body as { changes: unknown[] }).changes.length > 0, 'the clipped changes are still unread');
+});
+
+test('deleting a board sweeps the pictures no live board shows, sparing a pending attach, a picture still shown elsewhere, and one a put released within the hour', async () => {
+  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'asset-sweep-'));
+  let clockMs = 1_800_000_000_000;
+  const wiring = createWhiteboardWiring({ boardsRoot, now: () => clockMs });
+  await wiring.loaded;
+  const { default: sharp } = await import('sharp');
+  const pictureOf = async (background: string) => {
+    const stored = await wiring.assets.ingestBuffer(await sharp({ create: { width: 40, height: 20, channels: 3, background } }).png().toBuffer(), `${background}.png`);
+    assert.ok(stored.ok);
+    return { asset: stored.asset, width: stored.width, height: stored.height, alt: '' };
+  };
+  const newBoardId = async (title: string) => ((await wiring.handleOperator.create(title)) as { summary: { id: string } }).summary.id;
+  const putBox = (boardId: string, id: string, image: { asset: string } | null) => wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id, title: id, image, at: { x: 0, y: 0 } } }]));
+  const storedFiles = () => fs.readdirSync(path.join(boardsRoot, 'assets')).sort();
+  const shared = await pictureOf('#c084fc');
+  const onlyOnDoomed = await pictureOf('#22d3ee');
+  const released = await pictureOf('#facc15');
+  const doomedId = await newBoardId('doomed');
+  const keptId = await newBoardId('kept');
+  await putBox(doomedId, 'shared', shared);
+  await putBox(doomedId, 'only', onlyOnDoomed);
+  await putBox(keptId, 'shared', shared);
+  await putBox(keptId, 'released', released);
+  clockMs += 11 * 60_000;
+  await wiring.handleOperator.put(keptId, z.array(Op).parse([{ op: 'remove', id: 'released' }]));
+  const pending = await pictureOf('#4ade80');
+
+  await wiring.handleOperator.remove(doomedId);
+  const survivingFiles = [shared.asset, released.asset, pending.asset].map((assetId) => `${assetId}.webp`).sort();
+  await waitFor(() => storedFiles().length === survivingFiles.length, 'the unused picture was swept');
+  assert.deepEqual(storedFiles(), survivingFiles);
+  assert.match(String(((await putBox(keptId, 'swept', onlyOnDoomed)) as { error: string }).error), /which no whiteboard attach stored/);
+  assert.equal((await putBox(keptId, 'pending', pending)).ok, true);
+
+  clockMs += 61 * 60_000;
+  const restarted = createWhiteboardWiring({ boardsRoot, now: () => clockMs });
+  await restarted.loaded;
+  assert.deepEqual(storedFiles(), [shared.asset, pending.asset].map((assetId) => `${assetId}.webp`).sort());
+
+  fs.writeFileSync(path.join(boardsRoot, `${keptId}.json`), '{"board": "from a newer build"}');
+  clockMs += 61 * 60_000;
+  await createWhiteboardWiring({ boardsRoot, now: () => clockMs, logger: { warn: () => {} } }).loaded;
+  assert.deepEqual(storedFiles(), [shared.asset, pending.asset].map((assetId) => `${assetId}.webp`).sort());
 });
 
 test('a board whose linked board vanished on restart still takes unrelated edits', async () => {
