@@ -27,6 +27,7 @@ export interface PaneLayout {
   trailSlot: HTMLElement;
   bodyOf: (tab: PaneTab) => HTMLElement;
   setTabTitle: (tab: PaneTab, readTitle: () => string) => void;
+  titleSlotOf: (tab: PaneTab) => HTMLElement;
   setStripHost: (tab: PaneTab, host: StripHost | null) => void;
   showTabs: (shownTabs: ReadonlySet<PaneTab>, options?: { holdSplit?: boolean }) => void;
   showTab: (tab: PaneTab) => void;
@@ -48,6 +49,7 @@ export function createPaneLayout(): PaneLayout {
 
   const bodyByTab: Record<PaneTab, HTMLElement> = { terminal: buildBody('terminal'), board: buildBody('board') };
   const tabButtonByTab: Record<PaneTab, HTMLButtonElement> = { terminal: buildTabButton('terminal'), board: buildTabButton('board') };
+  const titleSlotByTab: Record<PaneTab, HTMLElement> = { terminal: buildTitleSlot('terminal'), board: buildTitleSlot('board') };
   const titleReaderByTab = new Map<PaneTab, () => string>();
   const stripHostByTab = new Map<PaneTab, StripHost>();
   const groupParts: GroupParts[] = [buildGroup(0), buildGroup(1)];
@@ -60,9 +62,15 @@ export function createPaneLayout(): PaneLayout {
     return body;
   }
 
+  function buildTitleSlot(tab: PaneTab): HTMLElement {
+    const slot = el('div', 'pane-title');
+    slot.dataset.tab = tab;
+    return slot;
+  }
+
   function buildTabButton(tab: PaneTab): HTMLButtonElement {
     const button = createPressable('pane-tab');
-    button.append(tab === 'terminal' ? el('span', 'sr-only', TAB_LABELS[tab]) : TAB_LABELS[tab]);
+    button.append(el('span', 'sr-only', TAB_LABELS[tab]));
     button.draggable = true;
     button.dataset.tab = tab;
     button.setAttribute('role', 'tab');
@@ -173,10 +181,17 @@ export function createPaneLayout(): PaneLayout {
     if (!isPlaced) host.parent.insertBefore(parts.strip, host.before);
   }
 
+  function placeTitleSlot(parts: GroupParts, activeTab: PaneTab, isStripOwnHeader: boolean) {
+    const activeSlot = titleSlotByTab[activeTab];
+    activeSlot.hidden = !isStripOwnHeader;
+    if (parts.tabList.nextElementSibling !== activeSlot) parts.tabList.after(activeSlot);
+  }
+
   function render() {
     shown = visibleLayout(isSplitHeld ? heldLayoutOf(layout) : layout, shownTabs);
     for (const tab of PANE_TABS) tabButtonByTab[tab].draggable = !isSplitHeld;
     for (const tab of PANE_TABS) {
+      titleSlotByTab[tab].hidden = true;
       if (!shownTabs.has(tab)) bodyByTab[tab].hidden = true;
     }
     const trailIndex = trailGroupIndex(shown.groups);
@@ -192,7 +207,9 @@ export function createPaneLayout(): PaneLayout {
         placeChild(parts.body, bodyByTab[tab]);
         bodyByTab[tab].hidden = !isActive;
       }
-      placeStrip(parts, stripHostByTab.get(group.activeTab));
+      const stripHost = stripHostByTab.get(group.activeTab);
+      placeStrip(parts, stripHost);
+      placeTitleSlot(parts, group.activeTab, stripHost === undefined);
     }
     const [firstParts, secondParts] = groupParts;
     if (!firstParts || !secondParts) return;
@@ -246,6 +263,7 @@ export function createPaneLayout(): PaneLayout {
     element,
     trailSlot,
     bodyOf: (tab) => bodyByTab[tab],
+    titleSlotOf: (tab) => titleSlotByTab[tab],
     setTabTitle: (tab, readTitle) => {
       titleReaderByTab.set(tab, readTitle);
       tabButtonByTab[tab].title = readTitle();

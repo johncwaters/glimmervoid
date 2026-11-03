@@ -126,7 +126,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     const viewIslandBounds = await panel.getByRole('toolbar', { name: 'View', exact: true }).boundingBox();
     assert.ok(titleIslandBounds && viewIslandBounds);
     assert.ok(toolsIslandBounds.y >= canvasBounds.y && viewIslandBounds.y >= canvasBounds.y, 'the view controls and tools sit inside the Board pane, not in the tab strip');
-    assert.ok(titleIslandBounds.x + titleIslandBounds.width <= viewIslandBounds.x, 'fit, undo and redo follow the title island');
+    assert.ok(titleIslandBounds.y + titleIslandBounds.height <= canvasBounds.y, 'the board menu, name and version sit in the Board pane header, above the canvas');
     const renamedTitle = `${boardTitle} renamed`;
     await renameOpenBoard(page, panel, boardTitle, renamedTitle, 'Enter');
     await renameOpenBoard(page, panel, renamedTitle, 'discarded title', 'Escape');

@@ -602,7 +602,7 @@ function placeBoardPane(boardsView: BoardsViewModule, sessionId: string | null, 
   const boardBody = paneLayout.bodyOf('board');
   const host = boardsView.mountBoardHost();
   if (host.parentElement !== boardBody) boardBody.replaceChildren(host);
-  boardsView.placeBoardChrome(null);
+  boardsView.placeBoardTitle(paneLayout.titleSlotOf('board'));
   if (boardId) boardsView.showBoardBeside(boardId, sessionId);
 }
 

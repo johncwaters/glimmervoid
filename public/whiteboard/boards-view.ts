@@ -760,10 +760,13 @@ function isPhoneLayout(): boolean {
   return document.documentElement.dataset.layout === 'phone';
 }
 
-export function placeBoardChrome(stripSlot: HTMLElement | null): void {
+export function placeBoardTitle(titleSlot: HTMLElement | null): void {
   if (!parts) return;
-  const target = stripSlot ?? parts.canvas;
-  if (parts.chrome.parentElement !== target) target.append(parts.chrome);
+  if (!titleSlot) {
+    if (parts.chrome.firstElementChild !== parts.boardIsland) parts.chrome.prepend(parts.boardIsland);
+    return;
+  }
+  if (parts.boardIsland.parentElement !== titleSlot) titleSlot.append(parts.boardIsland);
 }
 
 export function showBoardBeside(boardId: string | null, sessionId: string | null): void {
@@ -789,7 +792,7 @@ function mountBoardsScreen(panel: HTMLElement): void {
 function refreshBoardsScreen(): void {
   const host = mountBoardHost();
   if (boardsScreen && host.parentElement !== boardsScreen) boardsScreen.replaceChildren(host);
-  placeBoardChrome(null);
+  placeBoardTitle(null);
   const request = takeOpenBoardRequest();
   showBoardBeside(request?.boardId ?? null, null);
   reopenSelectedBoard();
