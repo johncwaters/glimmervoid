@@ -483,6 +483,8 @@ function buildCommunityRequest({ item, skill, reportPath, postingPath }: { item:
     '- first line: VERDICT: <HIGH, MEDIUM, LOW or FAILED>',
     '  HIGH: the draft answers the question and every claim in it was checked against a source.',
     '  MEDIUM: the draft answers part of it, or some claims are unchecked. LOW: no answer worth sending.',
+    '  A missing project id, customer data or internal access lowers the verdict only when the answer depends on them;',
+    '  a how-to question answered from docs and code can be HIGH without them.',
     '  FAILED: the research could not be done at all.',
     '- then one line: GOAL: followed by one sentence on what the asker is trying to achieve',
     '- then one line: CHECKED: followed by one bullet per source you checked and what it showed',
