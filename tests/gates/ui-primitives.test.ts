@@ -162,5 +162,7 @@ test('every button keeps an invisible hit area of at least 32px, and 44px on a c
   assert.ok(baseFloor >= 32, 'public/ui/button.css: .ui-button must set --button-hit-floor to at least 32px outside any media query');
   assert.ok(coarseFloor >= 44, 'public/ui/button.css: @media (pointer: coarse) must raise --button-hit-floor to at least 44px');
   assert.match(extension, /--button-hit-reach:\s*min\(-1px,\s*calc\(\(var\(--button-height\)\s*-\s*var\(--button-hit-floor\)\)\s*\/\s*2\s*-\s*1px\)\)/, 'public/ui/button.css: a top-level .ui-button::after must reach out to --button-hit-floor');
-  assert.match(extension, /inset:\s*var\(--button-hit-reach\)/, 'public/ui/button.css: a top-level .ui-button::after must inset by --button-hit-reach');
+  assert.match(extension, /inset:\s*var\(--button-hit-reach\)\s+0\s*;/, 'public/ui/button.css: on a mouse the .ui-button::after reaches only up and down, so it cannot take clicks from a neighbor 2px away');
+  const coarseBody = blocks.find((block) => /^@media\s*\(pointer:\s*coarse\)$/.test(block.prelude))?.body ?? '';
+  assert.match(coarseBody, /\.ui-button::after\s*\{\s*inset:\s*var\(--button-hit-reach\)\s*;/, 'public/ui/button.css: @media (pointer: coarse) must extend .ui-button::after on every side');
 });
