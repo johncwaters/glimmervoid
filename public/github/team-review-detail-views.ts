@@ -326,7 +326,7 @@ function createOtherDetail(draft: ReviewDraft): HTMLElement {
     if (sendAction('other', draft, buildActionRequest(draft, action, '', []), settle)) return;
     settle(false, NOT_CONNECTED_TEXT);
   };
-  const bar = createDecisionBar(draft, runAction, detailActionLayout(draft).primary.includes('approve-only') ? FOLLOW_UP_APPROVAL_HINT : '');
+  const bar = createDecisionBar(draft, runAction, detailActionLayout(draft).leading.includes('approve-only') ? FOLLOW_UP_APPROVAL_HINT : '');
   const settle = (isDone: boolean, message: string) => {
     for (const button of bar.buttons) button.disabled = isDone;
     paintActionStatus(bar.status, isDone ? 'ok' : 'error', message);

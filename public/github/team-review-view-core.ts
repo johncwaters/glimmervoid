@@ -677,8 +677,9 @@ const ACTION_LABELS: Readonly<Record<TeamReviewAction, string>> = Object.freeze(
 });
 
 interface DetailActionLayout {
-  primary: readonly TeamReviewAction[];
-  secondary: readonly TeamReviewAction[];
+  leading: readonly TeamReviewAction[];
+  trailing: readonly TeamReviewAction[];
+  recommended: TeamReviewAction | null;
 }
 
 export function actionLabel(action: TeamReviewAction): string {
@@ -687,9 +688,7 @@ export function actionLabel(action: TeamReviewAction): string {
 
 const CHANGES_LEAD_VERDICTS: ReadonlySet<ReviewDraft['verdict']> = new Set(['REQUEST CHANGES', 'BLOCKED']);
 
-function readyDecisionOrder(verdict: ReviewDraft['verdict']): readonly ReadyDecisionControl[] {
-  return CHANGES_LEAD_VERDICTS.has(verdict) ? ['request-changes', 'approve', 'comment'] : ['approve', 'comment', 'request-changes'];
-}
+const READY_DECISION_ORDER: readonly ReadyDecisionControl[] = ['approve', 'comment', 'request-changes'];
 
 export function leadingDecision(verdict: ReviewDraft['verdict']): ReadyDecisionControl {
   return CHANGES_LEAD_VERDICTS.has(verdict) ? 'request-changes' : 'approve';
@@ -697,10 +696,6 @@ export function leadingDecision(verdict: ReviewDraft['verdict']): ReadyDecisionC
 
 export function pickedDecisionText(control: ReadyDecisionControl, postChordText: string): string {
   return `${actionLabel(control)} selected. ${postChordText} posts, Esc cancels.`;
-}
-
-export function verdictRecommendation(verdict: ReviewDraft['verdict']): string {
-  return `Agent recommends: ${actionLabel(leadingDecision(verdict)).toLowerCase()}`;
 }
 
 const FINDINGS_SUFFIX_LEAD = `${String.fromCharCode(0xb7)} `;
@@ -728,11 +723,11 @@ export function isSelectionRequired(control: string | undefined): boolean {
 }
 
 export function detailActionLayout(draft: Pick<ReviewDraft, 'status' | 'postedEvent' | 'verdict'>): DetailActionLayout {
-  if (draft.status === 'ready') return { primary: readyDecisionOrder(draft.verdict), secondary: ['requeue', 'discard'] };
-  if (canApproveAfterComment(draft)) return { primary: ['approve-only'], secondary: ['requeue'] };
-  if (draft.status === 'error' || draft.status === 'stale') return { primary: ['requeue'], secondary: ['discard'] };
-  if (hasRequeueFooter(draft.status)) return { primary: ['requeue'], secondary: [] };
-  return { primary: [], secondary: [] };
+  if (draft.status === 'ready') return { leading: READY_DECISION_ORDER, trailing: ['requeue', 'discard'], recommended: leadingDecision(draft.verdict) };
+  if (canApproveAfterComment(draft)) return { leading: ['approve-only'], trailing: ['requeue'], recommended: 'approve-only' };
+  if (draft.status === 'error' || draft.status === 'stale') return { leading: ['requeue'], trailing: ['discard'], recommended: 'requeue' };
+  if (hasRequeueFooter(draft.status)) return { leading: ['requeue'], trailing: [], recommended: 'requeue' };
+  return { leading: [], trailing: [], recommended: null };
 }
 
 export function actionProgressText(action: TeamReviewAction): string {

@@ -98,7 +98,6 @@ html:not([data-layout="phone"]) .pr-desk > .pr-decision-bar { align-self: end; }
 .pr-fact { display: grid; grid-template-columns: 7.5em minmax(0, 1fr); gap: 8px; }
 .pr-fact > dt { color: var(--text-muted); }
 .pr-fact > dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
-.pr-verdict-recommendation { color: var(--text-head); font-size: var(--type-meta); }
 @container review-detail (min-width: 1100px) {
   .pr-desk-rail { position: sticky; top: 24px; }
   html:not([data-layout="phone"]) .pr-detail-body > .pr-desk { grid-template-rows: auto 1fr; }

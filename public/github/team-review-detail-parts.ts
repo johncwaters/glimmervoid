@@ -4,7 +4,7 @@ import type { DiffExcerptLine, DraftComment, EarlierReview, FindingSeverity, Han
 import { nextRequestId, sendControlMsg } from '../control-ws.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { el, externalLink } from '../dom-helpers.ts';
-import { changedSinceReviewText, changedSinceReviewUrl, earlierReviewPreview, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, buildNotMineRequest, checksText, commentLocation, detailActionLayout, groupHandCheckPaths, HAND_CHECK_INLINE_PATH_LIMIT, handCheckPathSummary, parseInlineSegments, LEGACY_SUMMARY_HINT, parseReviewComment, reviewCommentPreview, shortCommentLocation, pullRequestLabel, detailHeadingSignature, commentSeverity, detailMetaText, reviewScopeTitle, viewerThreadsText, hasAllViewerThreadsResolved, verdictRecommendation, viewerApprovalContext, viewerApprovalNotice } from './team-review-view-core.ts';
+import { changedSinceReviewText, changedSinceReviewUrl, earlierReviewPreview, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, buildNotMineRequest, checksText, commentLocation, detailActionLayout, groupHandCheckPaths, HAND_CHECK_INLINE_PATH_LIMIT, handCheckPathSummary, parseInlineSegments, LEGACY_SUMMARY_HINT, parseReviewComment, reviewCommentPreview, shortCommentLocation, pullRequestLabel, detailHeadingSignature, commentSeverity, detailMetaText, reviewScopeTitle, viewerThreadsText, hasAllViewerThreadsResolved, viewerApprovalContext, viewerApprovalNotice } from './team-review-view-core.ts';
 import type { GeneralFinding } from './team-review-view-core.ts';
 import { _pendingActions, _queueHooks, _sessionOpenByKey, _view, setPostedReceipt } from './team-review-panel-state.ts';
 import type { DetailOrigin, SettleAction } from './team-review-panel-state.ts';
@@ -52,7 +52,7 @@ function openReviewSession(key: string, button: HTMLButtonElement, status: HTMLE
 function createOpenSessionControl(review: Pick<ReviewDraft, 'key'>): HTMLElement {
   const row = el('div', 'pr-session-open');
   const opening = _sessionOpenByKey.get(review.key);
-  const openButton = button({ variant: 'primary', label: OPEN_SESSION_LABEL, action: 'open-session', shortcutKey: 'O', disabled: Boolean(opening?.requestId) });
+  const openButton = button({ variant: 'secondary', label: OPEN_SESSION_LABEL, action: 'open-session', shortcutKey: 'O', disabled: Boolean(opening?.requestId) });
   const status = el('span', 'pr-action-status pr-session-open-status', opening?.text ?? '');
   status.dataset.reviewKey = review.key;
   if (opening) paintActionStatus(status, opening.tone, opening.text);
@@ -191,7 +191,7 @@ function createVerdictBlock(draft: ReviewDraft): HTMLElement {
   const verdict = el('section', 'pr-verdict-box');
   verdict.setAttribute('aria-label', 'Verdict');
   const verdictLine = el('div', 'pr-verdict-line');
-  verdictLine.append(createVerdictSeal(draft), el('strong', 'pr-verdict-recommendation', verdictRecommendation(draft.verdict)));
+  verdictLine.append(createVerdictSeal(draft));
   verdict.append(verdictLine);
   const { assessment } = draft;
   if (!assessment) {
@@ -398,10 +398,10 @@ function createDecisionBar(draft: Pick<ReviewDraft, 'status' | 'postedEvent' | '
   const status = el('span', 'pr-action-status', statusText);
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
-  const primary = layout.primary.map((action) => createFooterButton(action, runAction, false, shortcutByAction[action]));
-  const secondary = layout.secondary.map((action) => createFooterButton(action, runAction, true, shortcutByAction[action]));
-  footer.append(...primary, el('span', 'pr-decision-spacer'), ...secondary, status);
-  return { footer, status, buttons: [...primary, ...secondary] };
+  const leading = layout.leading.map((action) => createFooterButton(action, runAction, action !== layout.recommended, shortcutByAction[action]));
+  const trailing = layout.trailing.map((action) => createFooterButton(action, runAction, true, shortcutByAction[action]));
+  footer.append(...leading, el('span', 'pr-decision-spacer'), ...trailing, status);
+  return { footer, status, buttons: [...leading, ...trailing] };
 }
 
 function createFindingKeysHint(): HTMLElement {
