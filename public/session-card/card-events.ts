@@ -1,4 +1,4 @@
-import { openDocEditor } from '../doc-editor.ts';
+import { openDocEditor } from '../doc-editor/doc-editor.ts';
 import { createPlanHash } from '../plan/plan-link.ts';
 import { setSelectedId } from '../review/selection.ts';
 import { openTraceForSession } from '../trace-store.ts';

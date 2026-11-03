@@ -1,6 +1,6 @@
 import type { UnseenOutcome } from '#shared/contracts/session.ts';
 import { STATES } from '#shared/states.ts';
-import { hasSessionDocs } from '../doc-editor.ts';
+import { hasSessionDocs } from '../doc-editor/doc-editor.ts';
 import { onShownFilesArrivedLive, paintShownTabs } from '../shown-files.ts';
 import { placeShownChips } from './shown-chip.ts';
 import { sendControlMsg } from '../control-ws.ts';

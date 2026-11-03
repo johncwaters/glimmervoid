@@ -1,0 +1,66 @@
+@layer components {
+.doc-editor {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: min(1100px, calc(100vw - 32px));
+  height: calc(100dvh - 32px);
+  border: 1px solid var(--border-hover);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  overflow: hidden;
+  font-family: var(--font-mono);
+}
+.doc-editor-header { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--bg-header); }
+.doc-editor-title { flex: 1 1 auto; min-width: 0; margin: 0; overflow: hidden; color: var(--text-head); font-size: var(--type-body); font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.doc-editor-picker { max-width: 32ch; text-transform: none; letter-spacing: 0; }
+.doc-editor-modes { display: flex; border: 1px solid var(--border); border-radius: var(--radius); }
+.doc-editor-modes .doc-editor-mode { border-color: transparent; border-radius: 0; }
+.doc-editor-mode[aria-pressed="true"] { color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.doc-editor-actions { display: flex; align-items: center; gap: 8px; }
+.doc-editor-status { color: var(--text-muted); font-size: var(--type-meta); }
+.doc-editor-status[data-tone="warn"] { color: var(--state-waiting); }
+.doc-editor :is(button, select, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (hover: hover) {
+  .doc-editor-mode:not(:disabled):hover { color: var(--text-head); border-color: var(--border-hover); }
+}
+.doc-editor-mode:disabled { cursor: not-allowed; opacity: 0.4; }
+.doc-editor-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px; }
+.doc-editor-text { height: 100%; }
+.doc-editor-text[hidden], .doc-markup[hidden], .doc-markup-end[hidden] { display: none; }
+.doc-markup { --pen-ink: #e5484d; --pen-paper: color-mix(in srgb, var(--bg-card) 88%, #f4e9cf); --pen-text: var(--text-head); display: flex; flex-direction: column; gap: 12px; }
+.doc-markup-defs { position: absolute; width: 0; height: 0; }
+.doc-markup-tools { position: sticky; top: -16px; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 0; background: var(--bg-card); }
+.doc-markup-group { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.doc-markup-input { min-width: 18ch; text-transform: none; letter-spacing: 0; }
+.doc-markup-hint { flex: 1 1 24ch; min-width: 0; color: var(--text-muted); font-size: var(--type-meta); }
+.doc-markup-paper { padding-block: 28px; border-radius: var(--radius); background: var(--pen-paper); color: var(--pen-text); box-shadow: inset 0 0 0 1px var(--border); }
+.doc-markup-chunk { content-visibility: auto; contain-intrinsic-size: auto calc(var(--type-title) * 2.3 * 40); }
+.doc-markup-row { display: grid; grid-template-columns: minmax(0, 1fr) 22ch; }
+.doc-markup-line { min-height: calc(var(--type-title) * 2.3); padding: 0 24px 0 32px; border-right: 2px solid color-mix(in srgb, var(--pen-ink) 35%, transparent); font-family: Georgia, 'Times New Roman', serif; font-size: var(--type-title); line-height: 2.3; white-space: pre-wrap; overflow-wrap: anywhere; }
+.doc-markup-row-margin { position: relative; }
+.doc-markup-mark { cursor: pointer; border-radius: 2px; }
+.doc-markup-mark:focus-visible, .doc-markup-mark.is-selected { outline: 2px dashed var(--pen-ink); outline-offset: 2px; }
+.doc-markup-mark del { color: inherit; text-decoration: line-through 2px var(--pen-ink); }
+.doc-markup-caret { color: var(--pen-ink); font-family: 'ComicMono', var(--font-mono); font-weight: 700; ruby-position: over; }
+.doc-markup-caret rt { font-size: var(--type-meta); font-weight: 400; filter: url(#doc-markup-ink); }
+.doc-markup-underline { text-decoration: underline wavy 1.5px var(--pen-ink); text-underline-offset: 4px; }
+.doc-markup-pin { color: var(--pen-ink); font-family: 'ComicMono', var(--font-mono); font-weight: 700; }
+.doc-markup-note { position: absolute; left: 10px; right: 8px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px; color: var(--pen-ink); font-family: 'ComicMono', var(--font-mono); font-size: var(--type-meta); line-height: 1.35; filter: url(#doc-markup-ink); transform: rotate(-1.5deg); }
+.doc-markup-note.is-selected { outline: 2px dashed var(--pen-ink); outline-offset: 2px; }
+.doc-markup-code { font-weight: 700; padding: 0 4px; border: 1.5px solid currentColor; border-radius: 50% / 60%; }
+.doc-markup-note[data-code="must"] .doc-markup-code { text-transform: uppercase; letter-spacing: 0.08em; }
+.doc-markup-check { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.doc-markup-end { display: flex; flex-direction: column; gap: 8px; }
+.doc-markup-end-note { padding: 12px 16px; border: 2px solid var(--pen-ink); border-radius: 10px 14px 9px 16px; background: var(--pen-paper); color: var(--pen-ink); font-family: 'ComicMono', var(--font-mono); }
+.doc-markup-end-note .doc-markup-code { border: 0; padding: 0; }
+.doc-markup-end-note p { margin: 6px 0 0; white-space: pre-wrap; }
+html[data-layout="phone"] .doc-markup-row { grid-template-columns: minmax(0, 1fr) 14ch; }
+html[data-layout="phone"] .doc-markup-line { padding: 0 12px 0 16px; }
+html[data-layout="phone"] .doc-editor { width: 100vw; height: 100dvh; border: 0; border-radius: 0; }
+html[data-layout="phone"] .doc-editor-header { padding-top: max(8px, env(safe-area-inset-top)); }
+html[data-layout="phone"] .doc-editor :is(.plan-control, .doc-editor-mode) { min-height: 40px; }
+html[data-layout="phone"] .doc-editor-actions { flex: 1 1 100%; justify-content: flex-end; }
+html[data-layout="phone"] .doc-editor-status { margin-right: auto; }
+html[data-layout="phone"] .doc-editor-body { padding: 12px; }
+}

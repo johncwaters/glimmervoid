@@ -1,8 +1,8 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { SessionDoc } from '#shared/contracts/session.ts';
-import { describeFailure } from './client-error-core.ts';
-import { reportToServerLog } from './control-ws.ts';
-import { findSessionUi } from './session-card/card-registry.ts';
+import { describeFailure } from '../client-error-core.ts';
+import { reportToServerLog } from '../control-ws.ts';
+import { findSessionUi } from '../session-card/card-registry.ts';
 
 type DocEditorUi = typeof import('./doc-editor-ui.ts');
 
