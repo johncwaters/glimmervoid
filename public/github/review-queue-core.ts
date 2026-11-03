@@ -5,7 +5,7 @@ import { attentionSignature } from '../attention-ack-core.ts';
 import type { AttentionKind, AttentionTile } from '../focus-view/attention-core.ts';
 import type { GithubPollingStatus } from './github-polling-retry-core.ts';
 import { comparablePrKey } from '#shared/contracts/github-prs.ts';
-import { classifyReviewPriority, hasFailedKeepMergeableRepair, pullRequestLabel, sectionStackedMyPrs } from './github-store-core.ts';
+import { PRIORITY_BAND_ORDER, classifyReviewPriority, draftPriorityBand, hasFailedKeepMergeableRepair, pullRequestLabel, sectionStackedMyPrs } from './github-store-core.ts';
 import type { MyPrStackRow, QueueRowKind, TeamReviewSections } from './github-store-core.ts';
 
 type QueueGroupId = 'turn' | 'working' | 'waiting' | 'aside';
@@ -71,7 +71,7 @@ const TEAM_STATE_BY_KIND: Readonly<Record<Exclude<QueueRowKind, 'ready' | 'atten
   settled: 'review-settled', inReview: 'review-in-flight', queued: 'review-queued', posted: 'review-posted', discarded: 'review-discarded',
 };
 
-interface StatedItem { item: QueueItem; row: QueueStateRow & { rank: number }; openedAtMs: number }
+interface StatedItem { item: QueueItem; row: QueueStateRow & { rank: number }; priorityBandRank: number; openedAtMs: number }
 
 function readyReviewState(draft: ReviewDraft): QueueState {
   if (draft.status !== 'ready') return 'review-follow-up';
@@ -94,11 +94,17 @@ function mineState(pr: MyPr, sessionPrKeys: ReadonlySet<string>, isKeepMergeable
   return isSessionFixing ? 'mine-agent-fixing' : stageState;
 }
 
-function statedItem(state: QueueState, openedAt: string | undefined, toItem: (row: QueueStateRow) => QueueItem): StatedItem[] {
+function teamPriorityBandRank(review: ReviewDraft | InFlightReview | QueuedReview, kind: QueueRowKind): number {
+  if (kind === 'ready') return PRIORITY_BAND_ORDER.indexOf(draftPriorityBand(review as ReviewDraft));
+  if (kind === 'queued') return PRIORITY_BAND_ORDER.indexOf(classifyReviewPriority(review as QueuedReview).band);
+  return 0;
+}
+
+function statedItem(state: QueueState, priorityBandRank: number, openedAt: string | undefined, toItem: (row: QueueStateRow) => QueueItem): StatedItem[] {
   const row = QUEUE_STATE_ROWS.get(state);
   if (!row) return [];
   const openedAtMs = openedAt ? Date.parse(openedAt) : Number.NaN;
-  return [{ item: toItem(row), row, openedAtMs: Number.isNaN(openedAtMs) ? Number.POSITIVE_INFINITY : openedAtMs }];
+  return [{ item: toItem(row), row, priorityBandRank, openedAtMs: Number.isNaN(openedAtMs) ? Number.POSITIVE_INFINITY : openedAtMs }];
 }
 
 function teamItems(sections: TeamReviewSections): StatedItem[] {
@@ -106,19 +112,19 @@ function teamItems(sections: TeamReviewSections): StatedItem[] {
     ['ready', sections.ready], ['attention', sections.attention], ['inReview', sections.inReview], ['queued', sections.queued],
     ['settled', sections.noReviewNeeded], ['posted', sections.posted], ['discarded', sections.discarded],
   ];
-  return entries.flatMap(([kind, reviews]) => reviews.flatMap((review) => statedItem(teamState(review, kind), review.prCreatedAt, ({ action, kind: attention }) => (
+  return entries.flatMap(([kind, reviews]) => reviews.flatMap((review) => statedItem(teamState(review, kind), teamPriorityBandRank(review, kind), review.prCreatedAt, ({ action, kind: attention }) => (
     { source: 'team', key: `team:${review.key}`, prKey: comparablePrKey(review), kind, review, action, attention }
   ))));
 }
 
 function mineItems(prs: readonly MyPr[], sessionPrKeys: ReadonlySet<string>, isKeepMergeableEnabled: boolean): StatedItem[] {
-  return sectionStackedMyPrs(prs).flatMap((section) => section.rows).flatMap((stackRow) => statedItem(mineState(stackRow.pr, sessionPrKeys, isKeepMergeableEnabled), stackRow.pr.createdAt, ({ action, kind: attention }) => (
+  return sectionStackedMyPrs(prs).flatMap((section) => section.rows).flatMap((stackRow) => statedItem(mineState(stackRow.pr, sessionPrKeys, isKeepMergeableEnabled), 0, stackRow.pr.createdAt, ({ action, kind: attention }) => (
     { source: 'mine', key: `mine:${stackRow.pr.key}`, prKey: comparablePrKey(stackRow.pr), pr: stackRow.pr, stackRow, action, attention }
   )));
 }
 
 function compareStatedItems(first: StatedItem, second: StatedItem): number {
-  return first.row.rank - second.row.rank || first.openedAtMs - second.openedAtMs;
+  return first.row.rank - second.row.rank || first.priorityBandRank - second.priorityBandRank || first.openedAtMs - second.openedAtMs;
 }
 
 export function buildReviewQueue(sections: TeamReviewSections, myPrs: readonly MyPr[], sessionPrKeys: ReadonlySet<string>, isKeepMergeableEnabled: boolean): QueueGroup[] {

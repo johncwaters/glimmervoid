@@ -199,7 +199,9 @@ export function joinTeamReviews(status: TeamReviewStatus | null, findGithubPr: (
 
 export type QueueRowKind = 'ready' | 'settled' | 'inReview' | 'queued' | 'attention' | 'posted' | 'discarded';
 
-type ReviewPriorityBand = 'blocking-others' | 'actionable' | 'waiting-on-author' | 'not-ready';
+export const PRIORITY_BAND_ORDER = ['blocking-others', 'actionable', 'waiting-on-author', 'not-ready'] as const;
+
+type ReviewPriorityBand = typeof PRIORITY_BAND_ORDER[number];
 
 export type ReviewPriorityReason = 'direct-request' | 'team-request' | 'changes-requested' | 'checks-failing' | 'checks-pending' | 'draft' | 'review-available' | 'approved';
 
@@ -240,34 +242,41 @@ export interface TeamReviewSections {
   discarded: ReviewDraft[];
 }
 
+function isAwaitingViewerReply(draft: ReviewDraft): boolean {
+  return answeredNonNitThreads(draft).length > 0 || isPostedAwaitingViewer(draft);
+}
+
+export function draftPriorityBand(draft: ReviewDraft): ReviewPriorityBand {
+  return isAwaitingViewerReply(draft) ? 'actionable' : classifyReviewPriority(draft).band;
+}
+
 export function groupDrafts(status: TeamReviewStatus | null | undefined): TeamReviewSections {
   const sections: TeamReviewSections = { ready: [], noReviewNeeded: [], inReview: [], queued: [], attention: [], posted: [], discarded: [] };
   if (!status) return sections;
   const readyByBand: Record<ReviewPriorityBand, ReviewDraft[]> = { 'blocking-others': [], actionable: [], 'waiting-on-author': [], 'not-ready': [] };
   const queuedByBand: Record<ReviewPriorityBand, QueuedReview[]> = { 'blocking-others': [], actionable: [], 'waiting-on-author': [], 'not-ready': [] };
-  const bandOrder: ReviewPriorityBand[] = ['blocking-others', 'actionable', 'waiting-on-author', 'not-ready'];
   const inFlightKeys = new Set(status.inFlight.map((review) => review.key));
   sections.inReview.push(...status.inFlight);
   for (const review of status.queued) {
     if (inFlightKeys.has(review.key)) continue;
     queuedByBand[classifyReviewPriority(review).band].push(review);
   }
-  for (const band of bandOrder) sections.queued.push(...queuedByBand[band]);
+  for (const band of PRIORITY_BAND_ORDER) sections.queued.push(...queuedByBand[band]);
   const queuedKeys = new Set(sections.queued.map((review) => review.key));
   for (const draft of status.drafts) {
     if (inFlightKeys.has(draft.key) || queuedKeys.has(draft.key)) continue;
-    if (answeredNonNitThreads(draft).length > 0 || isPostedAwaitingViewer(draft)) {
+    if (isAwaitingViewerReply(draft)) {
       readyByBand.actionable.push(draft);
       continue;
     }
     const isSettled = (draft.status === 'ready' || draft.status === 'stale' || draft.status === 'error') && !isReviewNeeded(draft);
     if (isSettled) sections.noReviewNeeded.push(draft);
-    if (draft.status === 'ready' && !isSettled) readyByBand[classifyReviewPriority(draft).band].push(draft);
+    if (draft.status === 'ready' && !isSettled) readyByBand[draftPriorityBand(draft)].push(draft);
     if ((draft.status === 'stale' || draft.status === 'error') && !isSettled) sections.attention.push(draft);
     if (draft.status === 'posted') sections.posted.push(draft);
     if (draft.status === 'discarded') sections.discarded.push(draft);
   }
-  for (const band of bandOrder) sections.ready.push(...readyByBand[band]);
+  for (const band of PRIORITY_BAND_ORDER) sections.ready.push(...readyByBand[band]);
   return sections;
 }
 
