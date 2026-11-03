@@ -161,6 +161,10 @@
       "aliases": [
         "streamer"
       ]
+    },
+    {
+      "name": "markup",
+      "definition": "The doc editor's red pen mode, which shows a doc's CriticMarkup edits as teacher-style marks the operator accepts, rejects or adds to"
     }
   ]
 }
