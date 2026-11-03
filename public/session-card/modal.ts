@@ -190,7 +190,7 @@ export function openConfirmDialog({ title, message, confirmLabel = 'Confirm', da
 
   const msgEl = el('p', 'dialog-message', message);
 
-  const btnConfirm = button({ variant: danger ? 'danger' : 'primary', label: confirmLabel });
+  const btnConfirm = button({ variant: danger ? 'danger' : 'primary', label: confirmLabel, action: 'confirm-dialog' });
 
   actions.append(btnConfirm);
   dialog.append(msgEl, actions);

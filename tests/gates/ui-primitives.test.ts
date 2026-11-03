@@ -27,11 +27,6 @@ const RETIRED_CLASSES: string[] = [
 const NOT_YET_MIGRATED = new Set<string>([
   'public/index.html',
   'public/perf.html',
-  'public/phone/mobile-key-strip.ts',
-  'public/phone/phone-shell.ts',
-  'public/phone/terminal-screen.ts',
-  'public/whiteboard/board-inspect.ts',
-  'public/whiteboard/boards-view.ts',
 ]);
 
 function collectFiles(dir: string, extensions: RegExp, found: string[] = []): string[] {

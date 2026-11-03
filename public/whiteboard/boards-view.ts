@@ -4,6 +4,8 @@ import { refPathOf, refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 import { WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import { createActionStatus } from '../action-status.ts';
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
+import { button } from '../ui/button.ts';
+import { createPressable } from '../ui/pressable.ts';
 import { buildMenuItem, wirePopupMenuKeys } from '../menu.ts';
 import { findSessionUi, sessionName } from '../session-card/card-registry.ts';
 import { buildDialogShell, isModalOpen, openConfirmDialog } from '../session-card/modal.ts';
@@ -104,8 +106,7 @@ function openTextDialog(options: TextDialogOptions): void {
       select.append(option);
     }
   }
-  const btnConfirm = el('button', 'btn-dialog btn-dialog-confirm', options.confirmLabel);
-  btnConfirm.type = 'button';
+  const btnConfirm = button({ variant: 'primary', label: options.confirmLabel, action: 'confirm-board-dialog' });
   actions.append(btnConfirm);
   dialog.append(el('label', 'dialog-label', options.label), input, ...(select ? [select] : []), errorEl, actions);
 
@@ -295,7 +296,7 @@ function buildBoardMenu(onBoardSettings: () => void) {
     menu.classList.toggle('open', shouldOpen);
     trigger.setAttribute('aria-expanded', String(shouldOpen));
   };
-  const trigger = iconButton('board menu', MENU_ICON_PATH, () => setOpen(!isOpen()));
+  const trigger = iconButton('board menu', MENU_ICON_PATH, 'open-board-menu', () => setOpen(!isOpen()));
   trigger.setAttribute('aria-haspopup', 'menu');
   trigger.setAttribute('aria-expanded', 'false');
   const actionItem = (label: string, onChoose: () => void, extraClass = '') => {
@@ -562,37 +563,24 @@ export function createBoardFromDialog(onCreated: (boardId: string) => void): voi
   });
 }
 
-function toolbarButton(label: string, onClick: () => void): HTMLButtonElement {
-  const button = el('button', 'wb-button', label);
-  button.type = 'button';
-  button.addEventListener('click', onClick);
-  return button;
-}
-
-function iconButton(label: string, iconPath: string, onClick: () => void, key?: string): HTMLButtonElement {
-  const button = el('button', 'wb-icon-button');
-  button.type = 'button';
-  button.setAttribute('aria-label', label);
-  button.title = key ? `${label} (${key})` : label;
-  button.append(createLineIcon(iconPath, '1.5'));
-  if (key) {
-    const keyHint = el('span', 'wb-tool-key', key);
-    keyHint.setAttribute('aria-hidden', 'true');
-    button.append(keyHint);
-    button.setAttribute('aria-keyshortcuts', key);
-  }
-  button.addEventListener('click', onClick);
-  return button;
+function iconButton(label: string, iconPath: string, action: string, onClick: () => void): HTMLButtonElement {
+  return button({ variant: 'icon', label, icon: createLineIcon(iconPath, '1.5'), action, onClick });
 }
 
 function toolButton(tool: BoardTool, label: string, key: string, iconPath: string): HTMLButtonElement {
-  const button = iconButton(label, iconPath, () => {
+  const toolOption = createPressable('wb-tool');
+  toolOption.setAttribute('aria-label', label);
+  toolOption.title = `${label} (${key})`;
+  const keyHint = el('span', 'wb-tool-key', key);
+  keyHint.setAttribute('aria-hidden', 'true');
+  toolOption.append(createLineIcon(iconPath, '1.5'), keyHint);
+  toolOption.setAttribute('aria-keyshortcuts', key);
+  toolOption.setAttribute('aria-pressed', String(tool === 'select'));
+  toolOption.addEventListener('click', () => {
     editor?.setTool(tool);
     editor?.focusCanvas();
-  }, key);
-  button.classList.add('wb-tool');
-  button.setAttribute('aria-pressed', String(tool === 'select'));
-  return button;
+  });
+  return toolOption;
 }
 
 function island(className: string, label: string, ...children: HTMLElement[]): HTMLElement {
@@ -628,8 +616,7 @@ export function mountBoardHost(): HTMLElement {
     inspector?.openBoardSettings();
   });
   boardMenu.trigger.dataset.phoneVisible = '';
-  const boardTitle = el('button', 'wb-board-title');
-  boardTitle.type = 'button';
+  const boardTitle = createPressable('wb-board-title');
   boardTitle.title = 'Click to rename';
   boardTitle.addEventListener('click', startTitleRename);
   const boardMeta = el('span', 'wb-board-meta');
@@ -642,15 +629,15 @@ export function mountBoardHost(): HTMLElement {
   toolGroup.setAttribute('aria-label', 'Drawing tools');
   toolGroup.append(...toolButtons.values());
   const buttons = {
-    note: iconButton('note', NOTE_ICON_PATH, () => {
+    note: iconButton('note', NOTE_ICON_PATH, 'add-note', () => {
       const [box] = selectedElementsOfKind('box');
       if (box) addNoteOn(box.id);
     }),
-    frame: iconButton('frame', FRAME_ICON_PATH, addFrame),
-    unit: iconButton('unit', UNIT_ICON_PATH, addUnitFromDialog),
-    fit: iconButton('fit', FIT_ICON_PATH, () => editor?.fit()),
-    undo: iconButton('undo', UNDO_ICON_PATH, () => void stepHistory('undo')),
-    redo: iconButton('redo', REDO_ICON_PATH, () => void stepHistory('redo')),
+    frame: iconButton('frame', FRAME_ICON_PATH, 'add-frame', addFrame),
+    unit: iconButton('unit', UNIT_ICON_PATH, 'add-unit', addUnitFromDialog),
+    fit: iconButton('fit', FIT_ICON_PATH, 'fit-board', () => editor?.fit()),
+    undo: iconButton('undo', UNDO_ICON_PATH, 'undo-board-edit', () => void stepHistory('undo')),
+    redo: iconButton('redo', REDO_ICON_PATH, 'redo-board-edit', () => void stepHistory('redo')),
   };
   buttons.fit.dataset.phoneVisible = '';
   const toolsIsland = island('wb-island-tools', 'Board tools', toolGroup, buttons.note, buttons.frame, buttons.unit);
@@ -664,7 +651,7 @@ export function mountBoardHost(): HTMLElement {
   svg.setAttribute('preserveAspectRatio', 'xMidYMin meet');
   const inspectPanel = el('aside', 'wb-inspect');
   const queuedForSession = el('span', 'wb-session-queued');
-  const sendToAgent = iconButton('send to agent', SEND_TO_CHAT_ICON_PATH, () => void sendBoardNudge());
+  const sendToAgent = iconButton('send to agent', SEND_TO_CHAT_ICON_PATH, 'send-board-to-agent', () => void sendBoardNudge());
   const agentIsland = island('wb-island-agent', 'Session', sendToAgent, queuedForSession, pairedStatus.element);
   agentIsland.hidden = true;
   const bottomLeftStack = el('div', 'wb-bottom-left');
@@ -676,7 +663,7 @@ export function mountBoardHost(): HTMLElement {
   canvas.append(svg, topRightStack, chrome, bottomLeftStack);
   const emptyText = el('p', 'wb-empty-text', EMPTY_TEXT);
   const empty = el('div', 'wb-empty');
-  empty.append(emptyText, toolbarButton('new board', newBoardFromDialog));
+  empty.append(emptyText, button({ variant: 'secondary', label: 'new board', action: 'new-board', onClick: newBoardFromDialog }));
 
   host.replaceChildren(canvas, empty);
   new ResizeObserver(fitPresenceToStrip).observe(host);

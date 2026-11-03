@@ -136,7 +136,7 @@
     },
     {
       "atMs": 23200,
-      "click": ".wb-island-view .wb-icon-button[aria-label=\"fit\"]"
+      "click": ".wb-island-view [data-action=\"fit-board\"]"
     },
     {
       "atMs": 24000,

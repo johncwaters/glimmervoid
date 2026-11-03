@@ -1,4 +1,5 @@
 import { el } from '../dom-helpers.ts';
+import { createPressable } from '../ui/pressable.ts';
 import type { MobileKey } from '../mobile-keys.ts';
 import { arrowStepsForDrag, isClipboardKey, isUploadKey, mobileKeyBytes, MOBILE_KEYS } from '../mobile-keys.ts';
 import { uploadFileToSession } from '../session-upload.ts';
@@ -35,8 +36,7 @@ export function createMobileKeyStrip({ send, getSessionId, reportProblem }: Mobi
   let filePicker: HTMLInputElement | null = null;
   let pickingButton: HTMLButtonElement | null = null;
 
-  const controlButton = el('button', 'phone-key phone-key-ctrl', 'Ctrl');
-  controlButton.type = 'button';
+  const controlButton = createPressable('phone-key phone-key-ctrl', 'Ctrl');
   controlButton.title = 'Hold Ctrl for the next key you type';
   controlButton.setAttribute('aria-pressed', 'false');
   controlButton.addEventListener('pointerdown', (event) => event.preventDefault());
@@ -59,8 +59,7 @@ export function createMobileKeyStrip({ send, getSessionId, reportProblem }: Mobi
   for (const key of MOBILE_KEYS) {
     if (key.id === 'tab') strip.appendChild(controlButton);
     if (key.id === 'left') strip.appendChild(createArrowPad(send));
-    const btn = el('button', key.isArrow ? 'phone-key phone-key-arrow' : 'phone-key', key.label);
-    btn.type = 'button';
+    const btn = createPressable(key.isArrow ? 'phone-key phone-key-arrow' : 'phone-key', key.label);
     btn.dataset.key = key.id;
     btn.title = key.title;
     if (key.isArrow) btn.setAttribute('aria-label', key.title);
@@ -120,8 +119,7 @@ export function createMobileKeyStrip({ send, getSessionId, reportProblem }: Mobi
 }
 
 function createArrowPad(send: (data: string | null | undefined) => void) {
-  const pad = el('button', 'phone-key phone-arrow-pad', 'Arrows');
-  pad.type = 'button';
+  const pad = createPressable('phone-key phone-arrow-pad', 'Arrows');
   pad.title = 'Swipe to send arrow keys';
   let dragOrigin: { x: number; y: number } | null = null;
   let activePointerId: number | null = null;

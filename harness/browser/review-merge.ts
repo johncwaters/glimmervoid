@@ -167,7 +167,7 @@ export async function verifyPhoneChanges(page: Page, projectDirectory: string): 
   const changesScreen = page.locator('.phone-screen[data-screen="changes"]');
   const terminalScreen = page.locator('.phone-screen[data-screen="terminal"]');
   const reader = changesScreen.locator('.review-reader');
-  await page.locator('.phone-changes').click();
+  await page.locator('[data-action="show-changes"]').click();
   await reader.locator(`.review-reader-file[data-path="${MERGED_FILE_NAME}"]`).waitFor({ timeout: MERGE_ENABLED_TIMEOUT_MS });
   assert.equal(await reader.getAttribute('data-level'), 'list', 'Changes opens on the file list');
   await reader.locator(`.review-reader-file[data-path="${MERGED_FILE_NAME}"]`).click();

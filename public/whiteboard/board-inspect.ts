@@ -2,6 +2,7 @@ import type { Board, Box, Element as BoardElement, Frame, Note, Op, Panel, Unit,
 import { AnchorRef, BOX_CHANGES, UNIT_STATUSES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import type { BoardLayout } from '#shared/whiteboard-layout-core.ts';
 import { el } from '../dom-helpers.ts';
+import { button } from '../ui/button.ts';
 import { refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 
 type BoxLine = Box['lines'][number];
@@ -90,12 +91,10 @@ function checkboxField(field: string, label: string, checked: boolean, commit: (
 }
 
 function actionButton(field: string, label: string, onClick: () => void, accessibleName?: string): HTMLButtonElement {
-  const button = el('button', 'wb-button wb-inspect-action', label);
-  button.type = 'button';
-  button.dataset.field = field;
-  if (accessibleName) button.setAttribute('aria-label', accessibleName);
-  button.addEventListener('click', onClick);
-  return button;
+  const inspectButton = button({ variant: 'quiet', size: 'small', label, action: label.replaceAll(' ', '-'), onClick });
+  inspectButton.dataset.field = field;
+  if (accessibleName) inspectButton.setAttribute('aria-label', accessibleName);
+  return inspectButton;
 }
 
 function listSection(title: string, rows: HTMLElement[], addButton: HTMLButtonElement): HTMLElement {

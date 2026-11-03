@@ -2,6 +2,7 @@ import { STATES } from '#shared/states.ts';
 import { createActionStatus } from '../action-status.ts';
 import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
 import { adoptElement, el, queryTag, releaseElement } from '../dom-helpers.ts';
+import { button } from '../ui/button.ts';
 import { isRenameInProgress, makeTitleEditable, paintTaskTitle, startInlineRename, startInlineTitleEdit } from '../session-card/card-titles.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
@@ -10,20 +11,15 @@ import { onSessionTick, sessionElapsedText } from '../session-card/session-tick.
 import { setTerminalActiveViewer } from '../session-card/terminal.ts';
 import { sendTerminalInput } from '../session-card/terminal-input.ts';
 import { paintSessionRowStatus } from '../session-row.ts';
-import { CHANGES_ICON_PATH, createLineIcon } from '../svg-dom.ts';
+import { BACK_ICON_PATH, CHANGES_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { controlBytesForCharacter, createMobileKeyStrip } from './mobile-key-strip.ts';
-
-export const BACK_GLYPH = String.fromCharCode(0x2039);
 
 export function createTerminalScreen({ onBack, onShowChanges }: { onBack?: () => void; onShowChanges?: () => void }) {
   const screen = el('div', 'phone-terminal');
 
   const topBar = el('header', 'phone-topbar phone-terminal-bar');
-  const backBtn = el('button', 'phone-back', BACK_GLYPH);
-  backBtn.type = 'button';
-  backBtn.setAttribute('aria-label', 'Back to board');
-  backBtn.addEventListener('click', () => onBack?.());
+  const backBtn = button({ variant: 'icon', label: 'Back to board', icon: createLineIcon(BACK_ICON_PATH), action: 'back-to-board', onClick: () => onBack?.() });
 
   const identity = el('div', 'phone-terminal-identity');
   const nameEl = el('span', 'phone-terminal-name');
@@ -41,12 +37,7 @@ export function createTerminalScreen({ onBack, onShowChanges }: { onBack?: () =>
   labelEl.before(nameEl);
   identity.append(taskTitleEl, badgeEl);
 
-  const changesButton = el('button', 'phone-changes');
-  changesButton.append(createLineIcon(CHANGES_ICON_PATH));
-  changesButton.type = 'button';
-  changesButton.title = "Show this session's code changes";
-  changesButton.setAttribute('aria-label', "Show this session's code changes");
-  changesButton.addEventListener('click', () => onShowChanges?.());
+  const changesButton = button({ variant: 'icon', label: "Show this session's code changes", icon: createLineIcon(CHANGES_ICON_PATH), action: 'show-changes', onClick: () => onShowChanges?.() });
 
   const actionSlot = el('div', 'phone-terminal-actions');
 

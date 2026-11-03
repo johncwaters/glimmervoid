@@ -4162,8 +4162,6 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 
 
 
-  .phone-back,
-  .phone-changes { min-width: 44px; min-height: 44px; }
 
   .session-pr-chip-unlink { position: relative; }
 
@@ -4242,30 +4240,7 @@ html[data-layout="phone"] .session-row-item:has(> .session-row.focused) { outlin
 
 .phone-terminal { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 
-.phone-back,
-.phone-changes {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  min-height: 40px;
-  appearance: none;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-dim);
-  font-family: var(--font-mono);
-  font-size: var(--type-title);
-  line-height: 1;
-  cursor: pointer;
-}
-.phone-back:active,
-.phone-changes:active { color: var(--text-head); border-color: var(--border-hover); }
-.phone-back:focus-visible,
-.phone-changes:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.phone-changes { border-color: transparent; }
-.phone-changes[hidden] { display: none; }
+:is(.phone-terminal-bar, .phone-changes-bar) > button { flex: 0 0 auto; }
 
 .phone-terminal-identity { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .phone-terminal-identity[hidden] { display: none; }

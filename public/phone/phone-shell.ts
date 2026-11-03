@@ -1,16 +1,18 @@
 import type { AdoptableElement } from '../dom-helpers.ts';
 import { adoptElement, el, releaseElement } from '../dom-helpers.ts';
+import { button } from '../ui/button.ts';
+import { createPressable } from '../ui/pressable.ts';
 import { jumpTargetCount, pickStrongestAttention } from '../focus-view/attention-core.ts';
 import { getRestorableSessionId, isSessionShown, requestSessionOpen, selectSession } from '../session-actions.ts';
 import { addActivityRenderer } from '../session-card/activity.ts';
 import { attentionTally, sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import { showSessionPlanFace } from '../session-card/card-faces.ts';
 import { closeReviewFile, hasOpenReviewFile, onReviewLevelChange, placeReviewScreen } from '../review/review-reader.ts';
-import { createLineIcon, FOCUS_ICON_PATH, MORE_ICON_PATH, TERMINAL_ICON_PATH } from '../svg-dom.ts';
+import { BACK_ICON_PATH, createLineIcon, FOCUS_ICON_PATH, MORE_ICON_PATH, TERMINAL_ICON_PATH } from '../svg-dom.ts';
 import { uiState } from '../ui-state-core.ts';
 import { createBoardScreen } from './board-screen.ts';
 import type { PhonePanel } from './phone-panels-core.ts';
-import { BACK_GLYPH, createTerminalScreen } from './terminal-screen.ts';
+import { createTerminalScreen } from './terminal-screen.ts';
 
 const BOARD = 'board';
 const TERMINAL = 'terminal';
@@ -85,8 +87,7 @@ function syncVisualViewport() {
 }
 
 function buildNavButton(label: string, iconPath: string, itemClass = 'phone-nav-item', dotClass = 'phone-nav-dot') {
-  const btn = el('button', itemClass);
-  btn.type = 'button';
+  const btn = createPressable(itemClass);
   const glyphEl = el('span', 'phone-nav-glyph');
   glyphEl.appendChild(createLineIcon(iconPath));
   glyphEl.setAttribute('aria-hidden', 'true');
@@ -240,10 +241,7 @@ function build() {
 function buildChangesScreen(mountEl: HTMLDivElement) {
   const changesScreen = el('div', 'phone-changes-screen');
   const topBar = el('header', 'phone-topbar phone-changes-bar');
-  const backButton = el('button', 'phone-back', BACK_GLYPH);
-  backButton.type = 'button';
-  backButton.setAttribute('aria-label', 'Back');
-  backButton.addEventListener('click', goBackFromChanges);
+  const backButton = button({ variant: 'icon', label: 'Back', icon: createLineIcon(BACK_ICON_PATH), action: 'back-to-terminal', onClick: goBackFromChanges });
   changesSessionNameEl = el('span', 'phone-changes-session');
   topBar.append(backButton, el('span', 'phone-changes-title', 'Changes'), changesSessionNameEl);
   changesScreen.append(topBar, mountEl);
