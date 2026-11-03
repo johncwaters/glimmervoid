@@ -38,6 +38,7 @@ interface LaneMcpDeps {
   listCodexServers?: () => Promise<unknown>;
   kimiHome?: string;
   gatePath?: string;
+  warn?: (message: string) => void;
 }
 
 async function readOperatorClaudeConfig(): Promise<unknown> {
@@ -51,32 +52,43 @@ async function listOperatorCodexServers(): Promise<unknown> {
   return JSON.parse(stdout);
 }
 
-async function gateDeniesKnownWrite(gateTool: ResolvedHookTool): Promise<boolean> {
+async function gateSelfTestFailure(gateTool: ResolvedHookTool): Promise<string | null> {
   const hookCommand = HOOK_TOOLS.posthogReadGate.claudeEntry(gateTool, '').hooks[0]?.command ?? '';
   try {
     await execFileAsync(HOOK_SHELL, ['-c', hookCommand], { input: knownWriteHookInput(gateTool.serverName ?? ''), encoding: 'utf8', timeout: GATE_SELF_TEST_TIMEOUT_MS });
-    return false;
+    return 'it allowed a known write';
   } catch (error) {
-    return error instanceof Error && 'code' in error && error.code === BLOCKING_EXIT_CODE;
+    if (!(error instanceof Error)) return 'it failed to run';
+    if ('code' in error && error.code === BLOCKING_EXIT_CODE) return null;
+    if ('killed' in error && error.killed) return `it gave no answer within ${GATE_SELF_TEST_TIMEOUT_MS} ms`;
+    if ('code' in error && error.code !== undefined) return `it exited with ${String(error.code)}`;
+    return 'it failed to run';
   }
 }
 
-async function prepareCodexLaneMcp(listCodexServers: () => Promise<unknown>, gatePath: string): Promise<PreparedLaneMcp | null> {
+async function gateRefusesWrites(gateTool: ResolvedHookTool, warn: (message: string) => void): Promise<boolean> {
+  const failure = await gateSelfTestFailure(gateTool);
+  if (failure === null) return true;
+  warn(`PostHog is configured, but the PostHog read gate self-test failed (${failure}), so this lane runs without PostHog`);
+  return false;
+}
+
+async function prepareCodexLaneMcp(listCodexServers: () => Promise<unknown>, gatePath: string, warn: (message: string) => void): Promise<PreparedLaneMcp | null> {
   const servers = codexMcpServers(await listCodexServers().catch(() => null));
   const server = findPosthogServer(servers);
   if (!server) return null;
   const otherServerNames = Object.keys(servers).filter((name) => name !== server.name);
   const posture = codexLaneMcpPosture({ server, otherServerNames, gatePath, interpreterPath: process.execPath });
-  if (!posture || !(await gateDeniesKnownWrite(posture.hookTool))) return null;
+  if (!posture || !(await gateRefusesWrites(posture.hookTool, warn))) return null;
   return { posture, cleanup: async () => {} };
 }
 
-async function prepareKimiLaneMcp(kimiHome: string, gatePath: string): Promise<PreparedLaneMcp | null> {
+async function prepareKimiLaneMcp(kimiHome: string, gatePath: string, warn: (message: string) => void): Promise<PreparedLaneMcp | null> {
   const kimiMcpConfig = await fsPromises.readFile(path.join(kimiHome, 'mcp.json'), 'utf8').then(JSON.parse, () => null);
   const server = findPosthogServer(isRecord(kimiMcpConfig) ? kimiMcpConfig.mcpServers : null);
   if (!server) return null;
   const posture = kimiLaneMcpPosture({ server, gatePath, interpreterPath: process.execPath });
-  if (!posture?.laneHome || !(await gateDeniesKnownWrite(posture.hookTool))) return null;
+  if (!posture?.laneHome || !(await gateRefusesWrites(posture.hookTool, warn))) return null;
   const homeParent = await makeHostScratchDirectory(LANE_MCP_DIR_PREFIX);
   return {
     posture,
@@ -87,10 +99,10 @@ async function prepareKimiLaneMcp(kimiHome: string, gatePath: string): Promise<P
 
 async function prepareLaneMcp(
   { laneArgs, agent }: { laneArgs: readonly string[]; agent?: string },
-  { readClaudeConfig = readOperatorClaudeConfig, listCodexServers = listOperatorCodexServers, kimiHome = realAgentHome(KIMI_HOME_PROFILE), gatePath = relayPath('posthog-read-gate') }: LaneMcpDeps = {},
+  { readClaudeConfig = readOperatorClaudeConfig, listCodexServers = listOperatorCodexServers, kimiHome = realAgentHome(KIMI_HOME_PROFILE), gatePath = relayPath('posthog-read-gate'), warn = (message) => console.warn(`[lane-mcp] ${message}`) }: LaneMcpDeps = {},
 ): Promise<PreparedLaneMcp | null> {
-  if (agent === CODEX_AGENT_ID) return prepareCodexLaneMcp(listCodexServers, gatePath);
-  if (agent === KIMI_AGENT_ID) return prepareKimiLaneMcp(kimiHome, gatePath);
+  if (agent === CODEX_AGENT_ID) return prepareCodexLaneMcp(listCodexServers, gatePath, warn);
+  if (agent === KIMI_AGENT_ID) return prepareKimiLaneMcp(kimiHome, gatePath, warn);
   if (agent !== undefined && agent !== DEFAULT_AGENT_ID) return null;
   const claudeConfig = await readClaudeConfig().catch(() => null);
   const server = findPosthogServer(isRecord(claudeConfig) ? claudeConfig.mcpServers : null);
@@ -105,7 +117,7 @@ async function prepareLaneMcp(
     return null;
   }
   const posture = laneMcpPosture({ server, mcpConfigPath, gatePath, interpreterPath: process.execPath, laneArgs });
-  if (!posture || !(await gateDeniesKnownWrite(posture.hookTool))) {
+  if (!posture || !(await gateRefusesWrites(posture.hookTool, warn))) {
     await removeConfigDirectory();
     return null;
   }
