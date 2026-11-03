@@ -79,8 +79,40 @@ async function verifyDroppedPicture(panel: Locator): Promise<void> {
   assert.ok(await enlarged.evaluate((node) => node.getBoundingClientRect().width > window.innerWidth * 0.8), 'the viewer scales a picture up to fill the screen');
   await panel.page().keyboard.press('Escape');
   await viewer.waitFor({ state: 'detached' });
+  await verifyGesturesOverMedia(panel, picture);
+  await panel.getByRole('button', { name: 'undo', exact: true }).click();
   await panel.getByRole('button', { name: 'undo', exact: true }).click();
   await picture.waitFor({ state: 'detached' });
+}
+
+async function verifyGesturesOverMedia(panel: Locator, picture: Locator): Promise<void> {
+  const page = panel.page();
+  const resting = await picture.boundingBox();
+  assert.ok(resting);
+  const anchor = { x: resting.x + resting.width / 4, y: resting.y + resting.height / 2 };
+  await page.mouse.move(anchor.x, anchor.y);
+  await page.keyboard.down('Control');
+  await page.mouse.wheel(0, -100);
+  await page.keyboard.up('Control');
+  const zoomed = await picture.boundingBox();
+  assert.ok(zoomed);
+  assert.ok(Math.abs(zoomed.width / resting.width - 1.1) < 0.01, 'a ctrl wheel over a picture zooms the board one step');
+  assert.ok(Math.abs(zoomed.x + (anchor.x - resting.x) * 1.1 - anchor.x) < 1.5, 'zooming keeps the point under the pointer still');
+  await page.mouse.wheel(0, 60);
+  const panned = await picture.boundingBox();
+  assert.ok(panned);
+  assert.ok(Math.abs(zoomed.y - panned.y - 60) < 1.5, 'a wheel over a picture pans the board');
+  const versionBeforeDrag = await panel.locator('.wb-board-meta').textContent();
+  await page.mouse.move(panned.x + panned.width / 2, panned.y + panned.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(panned.x + panned.width / 2 + 120, panned.y + panned.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await page.waitForFunction((before) => document.querySelector('.wb-board-meta')?.textContent !== before, versionBeforeDrag);
+  const dragged = await picture.boundingBox();
+  assert.ok(dragged);
+  assert.ok(Math.abs(dragged.x - panned.x - 120) < 2, 'dragging a picture box moves it with the pointer');
+  assert.equal(await page.locator('.wb-image-viewer').count(), 0, 'dragging a picture does not open the viewer');
+  await panel.getByRole('button', { name: 'fit', exact: true }).click();
 }
 
 async function renameOpenBoard(page: Page, panel: Locator, currentTitle: string, typedTitle: string, finishKey: 'Enter' | 'Escape'): Promise<void> {
@@ -169,7 +201,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
   const panel = layout === 'desktop' ? await openDesktopBoard(page, sessionId, boardTitle) : page.locator('.boards-view');
   await panel.waitFor({ state: 'visible' });
   if (layout === 'phone') await createBoardFromView(page, panel, boardTitle);
-  await panel.locator('.wb-svg').waitFor({ state: 'visible' });
+  await panel.locator('.wb-viewport').waitFor({ state: 'visible' });
   if (layout === 'phone') {
     await panel.getByRole('button', { name: 'board menu', exact: true }).click();
     await page.getByRole('menuitem', { name: 'new board', exact: true }).waitFor();
@@ -227,7 +259,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await page.getByRole('textbox', { name: 'Box title', exact: true }).fill('Parse and store');
     await page.keyboard.press('Enter');
     await panel.locator('.wb-box-title', { hasText: 'Parse and store' }).waitFor();
-    await panel.locator('.wb-svg').focus();
+    await panel.locator('.wb-viewport').focus();
     await page.keyboard.press('r');
     await placeBoxWithTool(page, panel, { x: 60, y: 260 }, 'Index rows');
     const sourceBox = panel.locator('.wb-box', { hasText: 'Parse and store' });
@@ -257,7 +289,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await page.mouse.up();
     await page.waitForFunction((before) => document.querySelector('.wb-board-meta')?.textContent !== before, versionBeforeDrop);
     assert.equal(await wireLine.getAttribute('d'), draggingPath, 'the wire lands where the drag preview routed it');
-    await panel.locator('.wb-svg').focus();
+    await panel.locator('.wb-viewport').focus();
     const versionBeforeUndo = await panel.locator('.wb-board-meta').textContent();
     await page.keyboard.press('ControlOrMeta+z');
     await page.waitForFunction((before) => document.querySelector('.wb-board-meta')?.textContent !== before, versionBeforeUndo);
@@ -274,7 +306,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await panel.getByRole('button', { name: 'redo', exact: true }).click();
     await page.waitForFunction((before) => document.querySelector('.wb-board-meta')?.textContent !== before, versionBeforeRedoButton);
     assert.equal(await wireLine.getAttribute('d'), draggingPath, 'the redo button steps forward again');
-    await panel.locator('.wb-svg').focus();
+    await panel.locator('.wb-viewport').focus();
     const inspect = panel.locator('.wb-inspect');
     await page.keyboard.press('Escape');
     await inspect.waitFor({ state: 'hidden' });

@@ -778,11 +778,15 @@ export function mountBoardHost(): HTMLElement {
   const viewIsland = island('wb-island-view', 'View', buttons.fit, buttons.undo, buttons.redo);
 
   const canvas = el('div', 'wb-canvas');
+  const viewport = el('div', 'wb-viewport');
+  viewport.setAttribute('role', 'application');
+  viewport.setAttribute('aria-label', 'Whiteboard');
+  const world = el('div', 'wb-world');
   const svg = document.createElementNS(SVG_NAMESPACE, 'svg');
   svg.setAttribute('class', 'wb-svg');
-  svg.setAttribute('role', 'img');
-  svg.setAttribute('aria-label', 'Whiteboard');
-  svg.setAttribute('preserveAspectRatio', 'xMidYMin meet');
+  svg.setAttribute('aria-hidden', 'true');
+  world.append(svg);
+  viewport.append(world);
   const inspectPanel = el('aside', 'wb-inspect');
   const queuedForSession = el('span', 'wb-session-queued');
   const sendToAgent = iconButton('send to agent', SEND_TO_CHAT_ICON_PATH, 'send-board-to-agent', () => void sendBoardNudge());
@@ -802,7 +806,7 @@ export function mountBoardHost(): HTMLElement {
     el('span', 'wb-empty-board-touch', 'Ask a session to draw here.'),
   );
   emptyBoardHint.append(el('p', 'wb-empty-board-title', 'This board is empty.'), emptyBoardHow);
-  canvas.append(svg, emptyBoardHint, topRightStack, chrome, bottomLeftStack);
+  canvas.append(viewport, emptyBoardHint, topRightStack, chrome, bottomLeftStack);
   const emptyText = el('p', 'wb-empty-text', EMPTY_TEXT);
   const empty = el('div', 'wb-empty');
   empty.append(emptyText, button({ variant: 'secondary', label: 'new board', action: 'new-board', onClick: newBoardFromDialog }));
@@ -813,6 +817,8 @@ export function mountBoardHost(): HTMLElement {
   renderer = boardRenderer;
   inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, openRef: openRefInReview });
   editor = createBoardEditor({
+    viewport,
+    world,
     svg,
     canvas,
     renderer: boardRenderer,
