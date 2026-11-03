@@ -49,12 +49,18 @@ export const WHITEBOARD_ASSET_ROUTE = '/whiteboards/assets';
 
 const AssetId = z.string().regex(/^[0-9a-f]{64}$/, { error: 'an asset is the 64 hex character id whiteboard attach returned' }).meta({ id: 'AssetId' });
 
-const BoxImage = z.object({
+const BOARD_MEDIA_KINDS = ['image'] as const;
+const BOARD_MEDIA_MIMES = ['image/webp'] as const;
+
+const BoxMedia = z.object({
+  kind: z.enum(BOARD_MEDIA_KINDS).describe('what the media is, as attach returned it'),
   asset: AssetId,
+  mime: z.enum(BOARD_MEDIA_MIMES).describe('the media type, as attach returned it'),
   width: z.number().int().min(1).max(4096).describe('the asset width in pixels, as attach returned it'),
   height: z.number().int().min(1).max(4096).describe('the asset height in pixels, as attach returned it'),
-  alt: z.string().max(WHITEBOARD_LIMITS.line, { error: `an image alt is at most ${WHITEBOARD_LIMITS.line} characters` }).default(''),
-}).strict().meta({ id: 'BoxImage' });
+  alt: z.string().max(WHITEBOARD_LIMITS.line, { error: `a media alt is at most ${WHITEBOARD_LIMITS.line} characters` }).default(''),
+  hasPreview: z.boolean().default(false).describe('whether attach stored a smaller preview beside the original'),
+}).strict().meta({ id: 'BoxMedia' });
 
 export const Box = z.object({
   kind: z.literal('box'),
@@ -71,7 +77,7 @@ export const Box = z.object({
   at: Point.nullable().default(null).describe('place: a point on the board'),
   shape: z.enum(['box', 'decision']).default('box').describe('decision draws a diamond with outputs'),
   outputs: z.array(Output).max(8, { error: 'a decision has at most 8 outputs' }).default([]).describe('decision branches; a wire leaves one through fromOutput'),
-  image: BoxImage.nullable().default(null).describe('a picture drawn under the lines, from whiteboard attach'),
+  media: BoxMedia.nullable().default(null).describe('media drawn under the lines, from whiteboard attach'),
   width: z.number().int()
     .min(WHITEBOARD_LIMITS.boxWidthMin, { error: `a box width is ${WHITEBOARD_LIMITS.boxWidthMin} to ${WHITEBOARD_LIMITS.boxWidthMax}` })
     .max(WHITEBOARD_LIMITS.boxWidthMax, { error: `a box width is ${WHITEBOARD_LIMITS.boxWidthMin} to ${WHITEBOARD_LIMITS.boxWidthMax}` })
@@ -210,7 +216,7 @@ export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
   }).strict(),
   z.object({ sub: z.literal('resolve'), board: BoardRef, note: ElementId }).strict(),
   z.object({ sub: z.literal('delete'), board: BoardRef }).strict(),
-  z.object({ sub: z.literal('attach'), path: z.string().min(1, { error: 'attach needs the image path' }).max(4096) }).strict(),
+  z.object({ sub: z.literal('attach'), path: z.string().min(1, { error: 'attach needs the media path' }).max(4096) }).strict(),
 ], { error: 'whiteboard takes new, list, connect, disconnect, get, put, resolve, delete or attach' });
 
 export const BoardReview = z.object({
@@ -228,7 +234,7 @@ export const WhiteboardAgentReply = z.union([
   z.object({ ok: z.literal(true), boards: z.array(BoardSummary) }).strict(),
   z.object({ ok: z.literal(true), board: Board, changes: z.array(BoardChange), review: BoardReview.optional() }).strict(),
   z.object({ ok: z.literal(true), version: z.number().int(), warnings: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings).optional() }).strict(),
-  z.object({ ok: z.literal(true), asset: AssetId, width: z.number().int(), height: z.number().int(), note: z.string() }).strict(),
+  z.object({ ok: z.literal(true), media: BoxMedia, note: z.string() }).strict(),
 ]);
 
 function isDefaultValue(value: unknown, defaultValue: unknown): boolean {
@@ -271,6 +277,7 @@ export function sparseBoardReply<Body extends object>(body: Body): Body | Record
 }
 
 export type Box = z.infer<typeof Box>;
+export type BoxMedia = z.infer<typeof BoxMedia>;
 export type Frame = z.infer<typeof Frame>;
 export type Wire = z.infer<typeof Wire>;
 export type Note = z.infer<typeof Note>;

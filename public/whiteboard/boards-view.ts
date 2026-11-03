@@ -693,8 +693,8 @@ async function addImageFiles(files: readonly File[], clientPoint: { x: number; y
     }
     const offset = index * STACKED_IMAGE_OFFSET_PX;
     const stackedPoint = clientPoint ? { x: clientPoint.x + offset, y: clientPoint.y + offset } : null;
-    const image = { asset: stored.asset, width: stored.width, height: stored.height, alt: file.name.slice(0, WHITEBOARD_LIMITS.line) };
-    const isPlaced = await editor?.placeImageBox(titleOfImageFile(file), image, stackedPoint);
+    const media = { kind: 'image', asset: stored.asset, mime: 'image/webp', width: stored.width, height: stored.height, alt: file.name.slice(0, WHITEBOARD_LIMITS.line), hasPreview: false } as const;
+    const isPlaced = await editor?.placeMediaBox(titleOfImageFile(file), media, stackedPoint);
     if (!isPlaced) return;
   }
   status.clear();

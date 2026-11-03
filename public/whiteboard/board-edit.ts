@@ -38,7 +38,7 @@ export interface PressedImage {
   alt: string;
 }
 
-type BoxImage = NonNullable<Extract<BoardElement, { kind: 'box' }>['image']>;
+type BoxMedia = NonNullable<Extract<BoardElement, { kind: 'box' }>['media']>;
 
 type Gesture =
   | { kind: 'drag'; mode: 'move' | 'resize'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; pressedImage: PressedImage | null }
@@ -73,10 +73,10 @@ function placedElement(tool: PlacementTool, board: Board, at: ViewPoint): BoardE
   return placedBox(at, 'Box', null, false);
 }
 
-function placedBox(at: ViewPoint, title: string, image: BoxImage | null, isDecision: boolean): BoardElement {
+function placedBox(at: ViewPoint, title: string, media: BoxMedia | null, isDecision: boolean): BoardElement {
   return {
     kind: 'box', id: newElementId('box'), title, lines: [], lane: null, refs: [], change: 'none', was: null, column: null, near: null, order: 0, at,
-    shape: isDecision ? 'decision' : 'box', outputs: isDecision ? [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }] : [], image, width: null,
+    shape: isDecision ? 'decision' : 'box', outputs: isDecision ? [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }] : [], media, width: null,
   };
 }
 
@@ -343,12 +343,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
     openPendingTitleEdit();
   }
 
-  async function placeImageBox(title: string, image: BoxImage, clientPoint: ViewPoint | null): Promise<boolean> {
+  async function placeMediaBox(title: string, media: BoxMedia, clientPoint: ViewPoint | null): Promise<boolean> {
     const board = options.currentBoard();
     if (!board) return false;
     const point = clientPoint ? toViewPoint(clientPoint.x, clientPoint.y) : { x: viewBox.x + viewBox.width / 2, y: viewBox.y + viewBox.height / 2 };
     const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
-    const element = placedBox({ x: Math.round(point.x), y: Math.round(point.y - pinnedOffsetY) }, title, image, false);
+    const element = placedBox({ x: Math.round(point.x), y: Math.round(point.y - pinnedOffsetY) }, title, media, false);
     const isSent = await options.sendOps([{ op: 'add', element }]);
     if (isSent) setSelection(new Set([element.id]));
     return isSent;
@@ -596,7 +596,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     previewOf,
     closeTitleInput,
     setTool,
-    placeImageBox,
+    placeMediaBox,
     openPendingTitleEdit,
     focusCanvas: () => svg.focus(),
   };
