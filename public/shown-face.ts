@@ -3,7 +3,9 @@ import { el } from './dom-helpers.ts';
 import { formatAgo } from './poll-ago.ts';
 import { createSandboxedFrame } from './sandboxed-frame.ts';
 import { shownFilesOf, shownThumbnailUrl } from './shown-files.ts';
-import { BACK_ICON_PATH, createLineIcon } from './svg-dom.ts';
+import { BACK_ICON_PATH, FORWARD_ICON_PATH, MINUS_ICON_PATH, PLUS_ICON_PATH, createLineIcon } from './svg-dom.ts';
+import { button } from './ui/button.ts';
+import { createPressable } from './ui/pressable.ts';
 import {
   BUTTON_ZOOM_FACTOR, FIT_VIEW, MAX_ZOOM_SCALE, isZoomedIn, panZoomView, pinchZoomView, toggledZoomView, wheelZoomScale, zoomPercentText, zoomViewAround,
 } from './shown-zoom-core.ts';
@@ -109,21 +111,10 @@ function distanceBetween(points: readonly ZoomPoint[]): number {
   return Math.hypot(first.x - second.x, first.y - second.y);
 }
 
-function buildZoomButton(text: string, label: string): HTMLButtonElement {
-  const button = el('button', 'plan-control shown-zoom-control', text);
-  button.type = 'button';
-  button.title = label;
-  button.setAttribute('aria-label', label);
-  return button;
-}
-
-function buildStepButton(label: string, className: string): HTMLButtonElement {
-  const button = el('button', `shown-step ${className}`);
-  button.type = 'button';
-  button.title = label;
-  button.setAttribute('aria-label', label);
-  button.append(createLineIcon(BACK_ICON_PATH));
-  return button;
+function buildStepPlate(stepButton: HTMLButtonElement, className: string): HTMLElement {
+  const plate = el('div', `shown-step ${className}`);
+  plate.append(stepButton);
+  return plate;
 }
 
 export function createShownFace({ sessionId }: { sessionId: string }) {
@@ -132,18 +123,18 @@ export function createShownFace({ sessionId }: { sessionId: string }) {
   face.tabIndex = -1;
   face.setAttribute('aria-label', 'Shown files');
   const stage = el('div', 'shown-stage');
-  const btnPrevious = buildStepButton('Previous file', 'shown-step-previous');
-  const btnNext = buildStepButton('Next file', 'shown-step-next');
+  const btnPrevious = button({ variant: 'icon', label: 'Previous file', icon: createLineIcon(BACK_ICON_PATH), action: 'previous-file' });
+  const btnNext = button({ variant: 'icon', label: 'Next file', icon: createLineIcon(FORWARD_ICON_PATH), action: 'next-file' });
   const stageFrame = el('div', 'shown-stage-frame-wrap');
-  stageFrame.append(stage, btnPrevious, btnNext);
+  stageFrame.append(stage, buildStepPlate(btnPrevious, 'shown-step-previous'), buildStepPlate(btnNext, 'shown-step-next'));
   const caption = el('p', 'shown-caption');
   const meta = el('p', 'shown-meta');
   const position = el('span', 'shown-position');
-  const btnOpenFullSize = el('button', 'plan-control shown-open-full-size', 'Open full size');
-  btnOpenFullSize.type = 'button';
-  const btnZoomOut = buildZoomButton('-', 'Zoom out');
-  const btnZoomFit = buildZoomButton('Fit', 'Fit to stage');
-  const btnZoomIn = buildZoomButton('+', 'Zoom in');
+  const btnOpenFullSize = button({ variant: 'secondary', size: 'small', label: 'Open full size', action: 'open-full-size' });
+  const btnZoomOut = button({ variant: 'icon', size: 'small', label: 'Zoom out', icon: createLineIcon(MINUS_ICON_PATH), action: 'zoom-out' });
+  const btnZoomFit = button({ variant: 'secondary', size: 'small', label: 'Fit', action: 'zoom-to-fit' });
+  btnZoomFit.setAttribute('aria-label', 'Fit to stage');
+  const btnZoomIn = button({ variant: 'icon', size: 'small', label: 'Zoom in', icon: createLineIcon(PLUS_ICON_PATH), action: 'zoom-in' });
   const zoomPercent = el('span', 'shown-zoom-percent');
   zoomPercent.setAttribute('aria-live', 'polite');
   const zoomControls = el('div', 'shown-zoom-controls');
@@ -174,8 +165,7 @@ export function createShownFace({ sessionId }: { sessionId: string }) {
   }
 
   function buildTile(file: ShownFile): HTMLButtonElement {
-    const tile = el('button', 'shown-thumb');
-    tile.type = 'button';
+    const tile = createPressable('shown-thumb');
     tile.title = file.caption ?? displayTitleOf(file);
     tile.setAttribute('aria-label', displayTitleOf(file));
     tile.append(buildTileFace(sessionId, file));

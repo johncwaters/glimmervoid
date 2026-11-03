@@ -24,11 +24,7 @@
 .plan-tab,
 .plan-mode { border-color: transparent; }
 .plan-mode { border-radius: 0; }
-.plan-revision-previous,
-.plan-revision-next { width: 24px; padding: 0; border-color: transparent; font-size: var(--type-title); }
 .plan-draft-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--state-waiting); }
-.plan-draft-chip { border-color: transparent; }
-.plan-minimize-button { color: var(--text-head); }
 .plan-heading-picker {
   min-width: 0;
   min-height: 30px;
@@ -40,7 +36,7 @@
   font: var(--type-meta) var(--font-mono);
   display: none;
 }
-.plan-view-button,
+.plan-head > [data-action="open-view-sheet"],
 .plan-sheet-head,
 .plan-sheet-label,
 .plan-revision-list,
@@ -113,17 +109,14 @@
 @container (max-width: 700px) {
   .plan-head { flex-wrap: wrap; gap: 6px; }
   .plan-heading-picker { display: block; flex: 1 1 64px; width: 64px; }
-  .plan-revision-previous,
-  .plan-revision-next { width: 20px; padding: 0; }
   .plan-body-layout { display: block; }
   .plan-heading-rail { display: none; }
   .plan-reading-column { height: 100%; padding: 20px 14px; }
   .plan-action-bar { gap: 6px; padding-inline: 10px; }
-  .plan-action { padding-inline: 6px; }
 }
 html[data-layout="phone"] .plan-head { flex-wrap: nowrap; gap: 8px; }
 html[data-layout="phone"] .plan-heading-picker { display: block; flex: 1 1 auto; min-height: 40px; font-size: var(--type-title); }
-html[data-layout="phone"] .plan-view-button { display: block; }
+html[data-layout="phone"] .plan-head > [data-action="open-view-sheet"] { display: inline-flex; }
 html[data-layout="phone"] .plan-body-layout { display: block; }
 html[data-layout="phone"] .plan-heading-rail { display: none; }
 html[data-layout="phone"] .plan-reading-column { height: 100%; padding: 16px 14px; }
@@ -146,7 +139,6 @@ html[data-layout="phone"] .plan-view-panel[data-open="true"] {
 }
 html[data-layout="phone"] .plan-sheet-backdrop[data-open="true"] { display: block; position: absolute; z-index: 1; inset: 0; background: color-mix(in srgb, var(--bg-header) 72%, transparent); }
 html[data-layout="phone"] .plan-sheet-head { display: flex; align-items: center; justify-content: space-between; color: var(--text-head); font-size: var(--type-body); font-weight: 700; }
-html[data-layout="phone"] .plan-sheet-close { width: 44px; border-color: transparent; font-size: var(--type-title); }
 html[data-layout="phone"] .plan-view-group { display: flex; flex-direction: column; gap: 8px; }
 html[data-layout="phone"] .plan-mode-group { order: 1; }
 html[data-layout="phone"] .plan-revision-group { order: 2; }
@@ -164,9 +156,8 @@ html[data-layout="phone"] .plan-revision-name { flex: 1 1 auto; }
 html[data-layout="phone"] .plan-revision-open { color: var(--state-waiting); font-size: var(--type-meta); font-weight: 700; }
 html[data-layout="phone"] .plan-action-bar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 8px; padding: 4px 12px 10px; }
 html[data-layout="phone"] .plan-decision-slot { grid-column: 1; grid-row: 1; }
-html[data-layout="phone"] .plan-action[data-decision="terminal"] { grid-column: 2; grid-row: 1; justify-self: end; min-height: 40px; }
-html[data-layout="phone"] .plan-action[data-decision="revise"] { grid-column: 1; grid-row: 2; }
-html[data-layout="phone"] .plan-action[data-decision="approve"] { grid-column: 2; grid-row: 2; }
+html[data-layout="phone"] .plan-action-bar > [data-action="answer-in-terminal"] { grid-column: 2; grid-row: 1; justify-self: end; }
+html[data-layout="phone"] .plan-action-bar > [data-action="send-feedback"] { grid-column: 1; grid-row: 2; }
+html[data-layout="phone"] .plan-action-bar > [data-action="approve-plan"] { grid-column: 2; grid-row: 2; }
 html[data-layout="phone"] .plan-accept-edits { min-height: 40px; font-size: var(--type-meta); }
-html[data-layout="phone"] .plan-action { min-height: 44px; }
 }

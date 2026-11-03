@@ -66,7 +66,7 @@ const PHONE_MORE_SELECTOR = 'button.phone-nav-item[aria-expanded]';
 const PHONE_SETTINGS_MENU_SELECTOR = 'button.phone-nav-menu-item[data-screen="settings"]';
 const SETTINGS_SECTION_SELECTOR = 'button.settings-view-nav-item';
 const SELECTOR_BY_CONTROL: Record<CardControl, string> = {
-  'plan-terminal': 'button.plan-minimize-button',
+  'plan-terminal': 'button[data-action="minimize-plan"]',
 };
 
 interface RememberedGrid {

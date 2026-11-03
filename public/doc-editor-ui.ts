@@ -8,6 +8,8 @@ import { parsePlanMarkdown } from './plan/plan-markdown-core.ts';
 import { renderPlanBlocks } from './plan/plan-render.ts';
 import { isStreamerMode } from './streamer-mode.ts';
 import { applyDialogAria, createModalOverlay, openConfirmDialog } from './session-card/modal.ts';
+import { createPressable } from './ui/pressable.ts';
+import { button } from './ui/button.ts';
 
 type EditorMode = 'edit' | 'preview' | 'markup';
 
@@ -132,10 +134,10 @@ function buildMarkupPane(): MarkupPane {
   operatorText.type = 'text';
   operatorText.placeholder = 'New text or note';
   operatorText.setAttribute('aria-label', 'New text or note');
-  const toolButtons = new Map(OPERATOR_MARK_LABELS.map(([action, label]) => [action, buildToolbarButton(label, 'doc-markup-tool')] as const));
-  const btnAccept = buildToolbarButton('Accept', 'doc-markup-accept');
-  const btnReject = buildToolbarButton('Reject', 'doc-markup-reject');
-  const btnCopyPrompt = buildToolbarButton('Copy agent prompt', 'doc-markup-prompt');
+  const toolButtons = new Map(OPERATOR_MARK_LABELS.map(([action, label]) => [action, button({ variant: 'secondary', size: 'small', label })] as const));
+  const btnAccept = button({ variant: 'primary', size: 'small', label: 'Accept', action: 'accept-mark' });
+  const btnReject = button({ variant: 'danger', size: 'small', label: 'Reject', action: 'reject-mark' });
+  const btnCopyPrompt = button({ variant: 'secondary', size: 'small', label: 'Copy agent prompt', action: 'copy-agent-prompt' });
   const hint = el('span', 'doc-markup-hint');
   hint.setAttribute('role', 'status');
   const tools = el('div', 'doc-markup-tools');
@@ -540,12 +542,6 @@ function setMode(editor: OpenEditor, mode: EditorMode) {
   if (mode === 'edit') editor.textarea.focus();
 }
 
-function buildToolbarButton(label: string, className: string) {
-  const button = el('button', `plan-control ${className}`, label);
-  button.type = 'button';
-  return button;
-}
-
 export function openDocEditor(sessionId: string) {
   const firstDoc = docsOf(sessionId)[0];
   if (!firstDoc || openEditor) return;
@@ -558,12 +554,12 @@ export function openDocEditor(sessionId: string) {
   select.setAttribute('aria-label', 'Doc');
   const status = el('span', 'doc-editor-status');
   status.setAttribute('role', 'status');
-  const btnEdit = buildToolbarButton('Edit', 'doc-editor-mode');
-  const btnPreview = buildToolbarButton('Preview', 'doc-editor-mode');
-  const btnMarkup = buildToolbarButton('Markup', 'doc-editor-mode');
-  const btnReload = buildToolbarButton('Reload', 'doc-editor-reload');
-  const btnSave = buildToolbarButton('Save', 'doc-editor-save');
-  const btnClose = buildToolbarButton('Close', 'doc-editor-close');
+  const btnEdit = createPressable('doc-editor-mode', 'Edit');
+  const btnPreview = createPressable('doc-editor-mode', 'Preview');
+  const btnMarkup = createPressable('doc-editor-mode', 'Markup');
+  const btnReload = button({ variant: 'secondary', label: 'Reload', action: 'reload-doc' });
+  const btnSave = button({ variant: 'primary', label: 'Save', action: 'save-doc' });
+  const btnClose = button({ variant: 'secondary', label: 'Close', action: 'close-doc-editor' });
   const modes = el('div', 'doc-editor-modes');
   modes.append(btnEdit, btnPreview, btnMarkup);
   const actions = el('div', 'doc-editor-actions');

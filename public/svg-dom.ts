@@ -18,6 +18,8 @@ export function createSvgIcon(width: number, height: number): SVGSVGElement {
 export const CLOSE_ICON_PATH = 'M4 4L12 12M12 4L4 12';
 export const PLUS_ICON_PATH = 'M8 3v10M3 8h10';
 export const BACK_ICON_PATH = 'M10 3L5 8L10 13';
+export const FORWARD_ICON_PATH = 'M6 3L11 8L6 13';
+export const MINUS_ICON_PATH = 'M3 8h10';
 export const MORE_ICON_PATH = 'M3 8h0.01M8 8h0.01M13 8h0.01';
 export const CHANGES_ICON_PATH = 'M8 2.5v6M5 5.5h6M5 12.5h6';
 export const CLOUD_ICON_PATH = 'M4.5 12.5h7a3 3 0 0 0 0.4-5.97a4 4 0 0 0-7.7 0.57a2.7 2.7 0 0 0 0.3 5.4z';

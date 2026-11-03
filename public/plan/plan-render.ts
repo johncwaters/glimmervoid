@@ -1,4 +1,5 @@
 import { el } from '../dom-helpers.ts';
+import { button } from '../ui/button.ts';
 import type { PlanDiff, PlanDiffLineKind } from './plan-diff-core.ts';
 import type { PlanBlock, PlanInline, PlanListItem, PlanSection } from './plan-markdown-core.ts';
 
@@ -135,11 +136,9 @@ export function renderPlanSections(
     if (hasHeading) appendBlocks(head, [firstBlock]);
     if (!hasHeading) wrap.id = 'plan-introduction';
     if (!hasComment(section) && !isComposing(section)) {
-      const button = el('button', 'plan-section-comment', 'Comment');
-      button.type = 'button';
-      button.setAttribute('aria-label', `Comment on ${section.heading ?? 'Introduction'}`);
-      button.addEventListener('click', () => onComment(section));
-      head.append(button);
+      const commentButton = button({ variant: 'quiet', size: 'small', label: 'Comment', action: 'comment-section', onClick: () => onComment(section) });
+      commentButton.setAttribute('aria-label', `Comment on ${section.heading ?? 'Introduction'}`);
+      head.append(commentButton);
     }
     const body = el('div', 'plan-section-body');
     appendBlocks(body, hasHeading ? section.blocks.slice(1) : section.blocks);
