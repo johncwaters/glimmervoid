@@ -481,6 +481,7 @@
   font-size: var(--type-meta);
 }
 
+.wb-unit-planned { fill: var(--text-muted); }
 .wb-unit-building { fill: var(--state-waiting); }
 .wb-unit-landed { fill: var(--state-running); }
 

@@ -59,6 +59,7 @@ svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospac
 .wb-unit-outline { fill: #15122a; stroke: #c084fc; stroke-width: 1.6; }
 .wb-unit-label, .wb-unit-link { fill: #c084fc; font-size: 12px; font-weight: 700; }
 .wb-unit-status { fill: #a79fc4; font-size: 11px; }
+.wb-unit-planned { fill: #a79fc4; }
 .wb-unit-building { fill: #f59e0b; }
 .wb-unit-landed { fill: #22c55e; }
 .wb-frame-outline { fill: rgba(192, 132, 252, 0.04); stroke: #4a4268; stroke-width: 1.4; stroke-dasharray: 10 6; }
@@ -277,13 +278,14 @@ function chromeMarkup(layout: BoardLayout): string {
 function legendSwatchMarkup(entry: BoardLayout['legend'][number]): string {
   const { swatch } = entry;
   if (swatch.kind === 'lane') return tag('rect', { x: entry.x, y: entry.y, width: 14, height: 14, rx: 3, class: 'wb-legend-swatch', style: `fill:${swatch.hex}` });
+  if (swatch.kind === 'status') return tag('rect', { x: entry.x, y: entry.y, width: 14, height: 14, rx: 3, class: `wb-legend-swatch wb-unit-outline wb-unit-${swatch.status}` });
   if (swatch.kind === 'change') return tag('g', { class: `wb-change-${swatch.change}` }, tag('rect', { x: entry.x, y: entry.y, width: LEGEND_SAMPLE_WIDTH, height: 14, rx: 3, class: 'wb-legend-swatch wb-box-outline' }));
   const sample = tag('path', { d: `M${entry.x},${entry.y + 7} H${entry.x + LEGEND_SAMPLE_WIDTH}`, 'marker-end': 'url(#wb-arrow)', class: swatch.isDashed ? 'wb-wire-line wb-dashed' : 'wb-wire-line' });
   return tag('g', { class: swatch.isBack ? `wb-back wb-tone-${swatch.tone}` : `wb-tone-${swatch.tone}` }, sample);
 }
 
 function legendRowMarkup(entry: BoardLayout['legend'][number]): string {
-  const labelX = entry.x + (entry.swatch.kind === 'lane' ? 22 : LEGEND_SAMPLE_WIDTH + 12);
+  const labelX = entry.x + (entry.swatch.kind === 'lane' || entry.swatch.kind === 'status' ? 22 : LEGEND_SAMPLE_WIDTH + 12);
   return legendSwatchMarkup(entry) + text(entry.label, labelX, entry.y + 12, 'wb-legend-text');
 }
 

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { Board } from '../shared/contracts/whiteboard.ts';
 import { reviewBoard } from '../shared/whiteboard-anchor-core.ts';
 import { layoutBoard } from '../shared/whiteboard-layout-core.ts';
+import { boardSvgDocument } from '../shared/whiteboard-svg-core.ts';
 import { applyOps } from '../shared/whiteboard-ops-core.ts';
 import { EMPTY_HISTORY, UNDO_LIMIT, inverseOps, recordEdit, takeStep } from '../shared/whiteboard-undo-core.ts';
 import type { Op } from '../shared/contracts/whiteboard.ts';
@@ -386,4 +387,18 @@ test('undoing an operator edit restores the board it started from, note authors,
   for (let index = 0; index <= UNDO_LIMIT; index += 1) history = recordEdit(history, [{ op: 'remove', id: `edit-${index}` }]);
   assert.equal(history.undo.length, UNDO_LIMIT);
   assert.deepEqual(takeStep(history, 'undo')?.entry, [{ op: 'remove', id: `edit-${UNDO_LIMIT}` }]);
+});
+
+test('a board with plan steps keys their statuses in the legend, and a board without them keeps the legend free of statuses', () => {
+  const planBoard = Board.parse({
+    id: 'plan', title: 'plan', version: 1, caption: null, createdAt: 0, updatedAt: 0, lanes: [], columns: [], legend: [],
+    elements: { step: { kind: 'unit', id: 'step', title: 'Index the diffs', status: 'building' } },
+  });
+  const layout = layoutBoard(planBoard);
+  assert.deepEqual(layout.legend.map((row) => row.label), ['plan step planned', 'plan step building', 'plan step landed']);
+  const svg = boardSvgDocument(layout);
+  for (const status of ['planned', 'building', 'landed']) assert.match(svg, new RegExp(`class="wb-legend-swatch wb-unit-outline wb-unit-${status}"`));
+  for (const status of ['planned', 'building', 'landed']) assert.match(svg, new RegExp(`\\.wb-unit-${status} \\{ fill: #`), `the export colors the ${status} swatch`);
+  const plainBoard = Board.parse({ ...planBoard, elements: { only: { kind: 'box', id: 'only', title: 'Only' } } });
+  assert.deepEqual(layoutBoard(plainBoard).legend, []);
 });

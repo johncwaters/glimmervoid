@@ -1,4 +1,4 @@
-import { BOX_CHANGES } from './contracts/whiteboard.ts';
+import { BOX_CHANGES, UNIT_STATUSES } from './contracts/whiteboard.ts';
 import type { Board, Box, Element, Note, Panel, Unit, Wire } from './contracts/whiteboard.ts';
 
 type BoxLine = Box['lines'][number];
@@ -139,7 +139,7 @@ interface LaidOutPanel extends Rect {
   bodyLines: LaidOutLine[];
 }
 
-type LegendSwatch = { kind: 'lane'; hex: string } | { kind: 'wire'; tone: Wire['tone']; isDashed: boolean; isBack: boolean } | { kind: 'change'; change: Exclude<Box['change'], 'none'> };
+type LegendSwatch = { kind: 'lane'; hex: string } | { kind: 'wire'; tone: Wire['tone']; isDashed: boolean; isBack: boolean } | { kind: 'change'; change: Exclude<Box['change'], 'none'> } | { kind: 'status'; status: Unit['status'] };
 
 interface LegendRow {
   label: string;
@@ -670,7 +670,12 @@ function changeEntriesOf(board: Board): { label: string; swatch: LegendSwatch }[
   return BOX_CHANGES.flatMap((change) => (change === 'none' || !usedChanges.has(change) ? [] : [{ label: CHANGE_LEGEND_LABELS[change], swatch: { kind: 'change' as const, change } }]));
 }
 
-function legendEntriesOf(board: Board): { label: string; swatch: LegendSwatch }[] {
+function statusEntriesOf(unitsById: ReadonlyMap<string, LaidOutUnit>): { label: string; swatch: LegendSwatch }[] {
+  if (unitsById.size === 0) return [];
+  return UNIT_STATUSES.map((status) => ({ label: `plan step ${status}`, swatch: { kind: 'status' as const, status } }));
+}
+
+function legendEntriesOf(board: Board, unitsById: ReadonlyMap<string, LaidOutUnit>): { label: string; swatch: LegendSwatch }[] {
   const laneEntries = board.lanes.map((lane) => ({ label: lane.label || lane.id, swatch: { kind: 'lane' as const, hex: LANE_HEX_BY_COLOR[lane.color] } }));
   const customLabelByKey = new Map(board.legend.map((entry) => [wireStyleKey(entry.tone, entry.dashed || entry.back, entry.back), entry.label]));
   const usedKeys = new Set<string>();
@@ -685,7 +690,7 @@ function legendEntriesOf(board: Board): { label: string; swatch: LegendSwatch }[
   const unusedCustomEntries = board.legend
     .filter((entry) => !usedKeys.has(wireStyleKey(entry.tone, entry.dashed || entry.back, entry.back)))
     .map((entry) => ({ label: entry.label, swatch: { kind: 'wire' as const, tone: entry.tone, isDashed: entry.dashed || entry.back, isBack: entry.back } }));
-  return [...laneEntries, ...wireEntries.map(({ label, swatch }) => ({ label, swatch })), ...unusedCustomEntries, ...changeEntriesOf(board)];
+  return [...laneEntries, ...wireEntries.map(({ label, swatch }) => ({ label, swatch })), ...unusedCustomEntries, ...changeEntriesOf(board), ...statusEntriesOf(unitsById)];
 }
 
 function layoutBoard(storedBoard: Board): BoardLayout {
@@ -711,7 +716,7 @@ function layoutBoard(storedBoard: Board): BoardLayout {
   ];
   const contentBounds = boundsOf(elements, placed.routing.extent, columnLeftEdges, boxesTop);
   const legendTop = contentBounds.y + contentBounds.height;
-  const legend = legendEntriesOf(board).map((entry, index): LegendRow => ({ ...entry, x: MARGIN, y: legendTop + index * LEGEND_ROW_HEIGHT }));
+  const legend = legendEntriesOf(board, unitsById).map((entry, index): LegendRow => ({ ...entry, x: MARGIN, y: legendTop + index * LEGEND_ROW_HEIGHT }));
   const captionTop = legendTop + legend.length * LEGEND_ROW_HEIGHT + (legend.length > 0 ? 12 : 0);
   const caption = board.caption ? { text: board.caption, x: MARGIN, y: captionTop } : null;
   const extraHeight = legend.length * LEGEND_ROW_HEIGHT + (caption ? 30 : 0) + (legend.length > 0 ? 12 : 0);
