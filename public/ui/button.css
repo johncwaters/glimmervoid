@@ -67,7 +67,6 @@
 
 .ui-button[data-variant="outline-icon"] {
   border-color: var(--border-hover);
-  font-size: var(--type-title);
 }
 
 @media (hover: hover) {

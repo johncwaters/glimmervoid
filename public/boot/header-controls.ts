@@ -3,12 +3,10 @@ import { mountCelebrationTray } from '../merge-celebration.ts';
 import { mountMuteButton } from '../mute-button.ts';
 import { openAddSessionDialog } from '../session-actions.ts';
 import { mountStreamerTextMask } from '../streamer-text-mask.ts';
-import { createLineIcon, HELP_ICON_PATH, PLUS_ICON_PATH, TROPHY_ICON_PATH } from '../svg-dom.ts';
+import { createLineIcon, HELP_ICON_PATH, MUSIC_NOTE_ICON_PATH, PLUS_ICON_PATH, TROPHY_ICON_PATH } from '../svg-dom.ts';
 import { button, outlineIconButton } from '../ui/button.ts';
 import { mountPowerMenu, powerMenu } from './power-menu.ts';
 import { openSettings } from './view-tabs.ts';
-
-const MUSIC_NOTE = String.fromCharCode(0x266a);
 
 const celebrationsToggle = outlineIconButton({ label: 'Play queued merge celebrations', icon: createLineIcon(TROPHY_ICON_PATH, '1.6'), action: 'play-celebrations', states: ['idle', 'attention'] });
 
@@ -18,7 +16,7 @@ btnAddSession.title = 'Add a new session';
 
 const btnHelp = outlineIconButton({ label: 'Keyboard shortcuts and version', icon: createLineIcon(HELP_ICON_PATH, '1.6'), action: 'open-shortcuts-help', onClick: () => openSettings('browser-shortcuts'), states: ['idle'] }).element;
 
-const muteToggle = outlineIconButton({ label: 'Mute alerts', icon: MUSIC_NOTE, action: 'toggle-mute', states: ['idle', 'off'] });
+const muteToggle = outlineIconButton({ label: 'Mute alerts', icon: createLineIcon(MUSIC_NOTE_ICON_PATH, '1.6'), action: 'toggle-mute', states: ['idle', 'off'] });
 const btnMute = muteToggle.element;
 
 

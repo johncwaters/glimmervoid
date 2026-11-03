@@ -10,7 +10,7 @@ type ToggledOutlineState = Extract<OutlineState, 'pressed' | 'off'>;
 
 type LabelledButtonOptions = { variant: Exclude<ButtonVariant, 'icon'>; label: string; icon?: SVGElement };
 type IconButtonOptions = { variant: 'icon'; label: string; icon: SVGElement };
-type OutlineIconOptions = { variant: 'outline-icon'; label: string; icon: SVGElement | string };
+type OutlineIconOptions = { variant: 'outline-icon'; label: string; icon: SVGElement };
 
 type CommonButtonOptions = {
   size?: ButtonSize;
