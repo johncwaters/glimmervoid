@@ -5149,7 +5149,7 @@ html:has(:is(.focus-empty, .phone-empty) > .first-run-checklist:not([hidden])) [
 
 .lane-token-settings {
   display: grid;
-  grid-template-columns: max-content 1fr max-content;
+  grid-template-columns: max-content minmax(0, max-content) max-content; justify-content: start;
   column-gap: 16px;
   row-gap: 6px;
   margin: 0;

@@ -8,10 +8,10 @@ import { applySettingsBroadcast, settingsPayloadSnapshot } from '../settings/set
 const READ_TOKEN_PATH = 'github.readToken' as const;
 const FINE_GRAINED_TOKEN_URL = 'https://github.com/settings/personal-access-tokens/new?name=Glimmervoid+lanes+read-only&description=Read-only+GitHub+access+for+Glimmervoid+Community%2C+Team+review+and+Radar+research&expires_in=90&contents=read&issues=read&pull_requests=read';
 const TOKEN_SETTINGS = [
-  { label: 'Permissions', value: 'Contents, Issues, Pull requests: Read-only', note: 'filled in' },
-  { label: 'Expiration', value: '90 days', note: 'filled in' },
-  { label: 'Repository access', value: 'Public repositories, or Only select for private ones', note: 'you choose' },
-  { label: 'Resource owner', value: 'You, or the organization that owns private ones', note: 'you choose' },
+  { label: 'Read-only', value: 'Contents, Issues, Pull requests', note: 'filled in' },
+  { label: 'Expires', value: '90 days', note: 'filled in' },
+  { label: 'Repositories', value: 'Public, or pick private ones', note: 'you choose' },
+  { label: 'Owner', value: 'You, or their organization', note: 'you choose' },
 ] as const;
 const READ_TOKEN_ACTION: OperatorActionOf<'onboarding'> = 'save-lane-read-token';
 
