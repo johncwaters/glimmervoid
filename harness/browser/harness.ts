@@ -39,6 +39,7 @@ interface HarnessOptions {
   proveFailure: boolean;
   headed: boolean;
   executablePath: string | null;
+  browserName: string;
   unknownArguments: string[];
   flagsMissingValues: string[];
 }
@@ -48,6 +49,7 @@ const APPLY_VALUE_BY_FLAG = new Map<string, (options: HarnessOptions, value: str
   ['--viewport', (options, value) => { options.viewportNames.push(value); }],
   ['--artifacts', (options, value) => { options.artifactsDir = path.resolve(value); }],
   ['--executable', (options, value) => { options.executablePath = path.resolve(value); }],
+  ['--browser', (options, value) => { options.browserName = value; }],
 ]);
 
 function valueFollowing(argv: readonly string[], flagIndex: number): string | null {
@@ -65,6 +67,7 @@ function parseArguments(argv: readonly string[]): HarnessOptions {
     proveFailure: false,
     headed: false,
     executablePath: null,
+    browserName: 'chromium',
     unknownArguments: [],
     flagsMissingValues: [],
   };
@@ -245,6 +248,10 @@ async function main(): Promise<number> {
     console.error(`harness flag needs a value: ${options.flagsMissingValues.join(' ')}`);
     return EXIT_HARNESS_ERROR;
   }
+  if (options.browserName !== 'chromium' && options.browserName !== 'webkit') {
+    console.error(`--browser takes chromium or webkit, not ${options.browserName}`);
+    return EXIT_HARNESS_ERROR;
+  }
   const cases = casesFor({
     only: options.only.length > 0 ? options.only : undefined,
     viewportNames: options.viewportNames.length > 0 ? options.viewportNames : undefined,
@@ -353,8 +360,9 @@ async function main(): Promise<number> {
     vite = devServer;
     const baseUrl = `http://127.0.0.1:${port}/`;
 
-    const { chromium } = await import('playwright-core');
-    browser = await chromium.launch({
+    const playwright = await import('playwright-core');
+    const browserType = options.browserName === 'webkit' ? playwright.webkit : playwright.chromium;
+    browser = await browserType.launch({
       headless: !options.headed,
       ...(options.executablePath ? { executablePath: options.executablePath } : {}),
     });

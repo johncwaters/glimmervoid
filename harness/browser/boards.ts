@@ -3,6 +3,11 @@ import type { Locator, Page } from 'playwright-core';
 import type { Layout } from './cases-core.ts';
 import { git } from '../site-capture/isolated-glimmervoid.ts';
 import { commitFile, findSessionWorktree, pollFor, readOriginFile } from './review-merge.ts';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { execFileAsync } from '../../server/child-process-safe.ts';
+import { resolveFfmpegPath } from '../../server/runtime-paths.ts';
 
 const UNCOVERED_FILE_NAME = 'board-uncovered.txt';
 const MERGE_SETTLE_MS = 1500;
@@ -83,6 +88,130 @@ async function verifyDroppedPicture(panel: Locator): Promise<void> {
   await panel.getByRole('button', { name: 'undo', exact: true }).click();
   await panel.getByRole('button', { name: 'undo', exact: true }).click();
   await picture.waitFor({ state: 'detached' });
+}
+
+const PROBE_PAGE_HTML = `<!doctype html><html><body><input aria-label="probe field"><script>
+const readings = {};
+try { readings.dom = String(parent.document.body.childElementCount); } catch { readings.dom = 'blocked'; }
+try { readings.storage = String(localStorage.length); } catch { readings.storage = 'blocked'; }
+try { readings.cookie = document.cookie; } catch { readings.cookie = 'blocked'; }
+parent.postMessage({ boardPageProbe: readings }, '*');
+</script></body></html>`;
+
+async function webmClipBase64(): Promise<string> {
+  const ffmpegPath = resolveFfmpegPath();
+  assert.ok(ffmpegPath, 'ffmpeg-static is installed');
+  const workDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'board-clip-'));
+  const clipPath = path.join(workDirectory, 'clip.webm');
+  await execFileAsync(ffmpegPath, ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc=size=320x240:rate=10:duration=4', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=4', '-c:v', 'libvpx', '-c:a', 'libvorbis', '-shortest', '-y', clipPath]);
+  const clipBase64 = fs.readFileSync(clipPath).toString('base64');
+  fs.rmSync(workDirectory, { recursive: true, force: true });
+  return clipBase64;
+}
+
+async function dropFileOnCanvas(panel: Locator, file: { name: string; type: string; base64: string }, offset: { x: number; y: number }): Promise<void> {
+  await panel.locator('.wb-canvas').evaluate((canvas, { name, type, base64, offsetX, offsetY }) => {
+    const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([bytes], name, { type }));
+    const canvasRect = canvas.getBoundingClientRect();
+    canvas.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer, clientX: canvasRect.left + offsetX, clientY: canvasRect.top + offsetY }));
+  }, { ...file, offsetX: offset.x, offsetY: offset.y });
+}
+
+async function panTowardTopOfCanvas(panel: Locator, target: Locator): Promise<void> {
+  const page = panel.page();
+  const canvasBounds = await panel.locator('.wb-canvas').boundingBox();
+  const targetBounds = await target.boundingBox();
+  assert.ok(canvasBounds && targetBounds);
+  await page.mouse.move(canvasBounds.x + canvasBounds.width / 2, canvasBounds.y + canvasBounds.height - 20);
+  await page.mouse.wheel(targetBounds.x - (canvasBounds.x + canvasBounds.width / 3), targetBounds.y - (canvasBounds.y + 60));
+}
+
+async function verifyLiveMedia(panel: Locator): Promise<void> {
+  const page = panel.page();
+  await page.evaluate(() => {
+    window.addEventListener('message', (event) => {
+      const readings: unknown = event.data?.boardPageProbe;
+      if (readings && typeof readings === 'object') document.documentElement.dataset.boardPageProbe = JSON.stringify(readings);
+    });
+  });
+  await dropFileOnCanvas(panel, { name: 'clip.webm', type: 'video/webm', base64: await webmClipBase64() }, { x: 420, y: 80 });
+  const videoMedia = panel.locator('.wb-media[data-media-kind="video"]');
+  await videoMedia.waitFor();
+  assert.equal(await panel.locator('video.wb-media-video').count(), 0, 'an idle video box holds no live video element');
+  const posterBoxId = await videoMedia.getAttribute('data-box-id');
+  assert.ok(posterBoxId);
+  await panel.locator(`[data-element-id="${posterBoxId}"] image.wb-image`).waitFor({ state: 'attached' });
+  const posterBounds = await videoMedia.boundingBox();
+  assert.ok(posterBounds);
+  await page.mouse.dblclick(posterBounds.x + posterBounds.width / 3, posterBounds.y + posterBounds.height / 3);
+  const liveVideo = videoMedia.locator('video.wb-media-video');
+  await liveVideo.waitFor();
+  await page.waitForFunction(() => {
+    const video = document.querySelector<HTMLVideoElement>('video.wb-media-video');
+    return Boolean(video && !video.paused && video.currentTime > 0);
+  });
+  assert.deepEqual(await liveVideo.evaluate((video) => video instanceof HTMLVideoElement && [video.controls, video.muted]), [true, false], 'an activated video plays in place with controls and sound');
+  await page.keyboard.press('Escape');
+  await liveVideo.waitFor({ state: 'detached' });
+  assert.equal(await videoMedia.getAttribute('data-active'), null, 'Esc returns the video to inert');
+  const worldTransform = () => panel.locator('.wb-world').evaluate((world) => world instanceof HTMLElement ? world.style.transform : '');
+  const transformBeforePan = await worldTransform();
+  const videoBounds = await videoMedia.boundingBox();
+  assert.ok(videoBounds);
+  await page.mouse.move(videoBounds.x + 10, videoBounds.y + 10);
+  await page.mouse.wheel(0, 40);
+  assert.notEqual(await worldTransform(), transformBeforePan, 'after Esc a wheel over the video pans the board again');
+  await videoMedia.getByRole('button', { name: 'play', exact: true }).click();
+  await liveVideo.waitFor();
+  await panel.getByRole('button', { name: 'fit', exact: true }).click();
+  await liveVideo.waitFor({ state: 'detached' });
+  assert.equal(await videoMedia.getAttribute('data-active'), null, 'a press on the board toolbar returns the video to inert');
+
+  await dropFileOnCanvas(panel, { name: 'probe.html', type: 'text/html', base64: Buffer.from(PROBE_PAGE_HTML).toString('base64') }, { x: 420, y: 300 });
+  const pageMedia = panel.locator('.wb-media[data-media-kind="page"]');
+  await pageMedia.waitFor();
+  await panTowardTopOfCanvas(panel, pageMedia);
+  const pageFrame = pageMedia.locator('iframe.wb-media-page');
+  assert.equal(await pageFrame.getAttribute('sandbox'), 'allow-scripts allow-forms', 'a page box renders in a sandbox without same-origin');
+  await page.waitForFunction(() => Boolean(document.documentElement.dataset.boardPageProbe));
+  assert.deepEqual(JSON.parse(await page.evaluate(() => document.documentElement.dataset.boardPageProbe ?? '{}')), { dom: 'blocked', storage: 'blocked', cookie: 'blocked' }, 'a page box cannot read the dashboard DOM, storage or cookies');
+  assert.equal(await pageFrame.evaluate((frame) => getComputedStyle(frame).pointerEvents), 'none', 'an idle page ignores the pointer');
+  await pageMedia.getByRole('button', { name: 'full size', exact: true }).click();
+  const viewer = page.locator('.wb-image-viewer');
+  await viewer.locator('iframe.wb-image-viewer-page').waitFor();
+  assert.equal(await viewer.locator('iframe.wb-image-viewer-page').getAttribute('sandbox'), 'allow-scripts allow-forms', 'the viewer opens a page in the same sandbox');
+  await page.keyboard.press('Escape');
+  await viewer.waitFor({ state: 'detached' });
+  await pageMedia.getByRole('button', { name: 'use page', exact: true }).click();
+  assert.equal(await pageFrame.evaluate((frame) => getComputedStyle(frame).pointerEvents), 'auto', 'an activated page takes the pointer');
+  await page.keyboard.press('Escape');
+  assert.equal(await pageMedia.getAttribute('data-active'), null, 'Esc returns an activated page to inert');
+  await pageMedia.getByRole('button', { name: 'use page', exact: true }).click();
+  const canvasBounds = await panel.locator('.wb-canvas').boundingBox();
+  assert.ok(canvasBounds);
+  await page.mouse.click(canvasBounds.x + canvasBounds.width / 2, canvasBounds.y + canvasBounds.height - 30);
+  assert.equal(await pageMedia.getAttribute('data-active'), null, 'a click outside returns the page to inert');
+  await pageFrame.evaluate((frame) => {
+    frame.dataset.loadedOnce = '';
+  });
+  const pageBounds = await pageMedia.boundingBox();
+  assert.ok(pageBounds);
+  await page.mouse.move(pageBounds.x + pageBounds.width / 3, pageBounds.y + pageBounds.height / 3);
+  await page.mouse.down();
+  await page.mouse.move(pageBounds.x + pageBounds.width / 3 + 40, pageBounds.y + pageBounds.height / 3 + 20, { steps: 8 });
+  await page.mouse.up();
+  const movedBounds = await pageMedia.boundingBox();
+  assert.ok(movedBounds);
+  assert.ok(movedBounds.x - pageBounds.x > 10, `dragging a page box moves it, moved ${movedBounds.x - pageBounds.x}px`);
+  assert.equal(await pageFrame.getAttribute('data-loaded-once'), '', 'moving a page box keeps its loaded page instead of reloading it');
+  await panel.getByRole('button', { name: 'undo', exact: true }).click();
+  await panel.getByRole('button', { name: 'undo', exact: true }).click();
+  await pageMedia.waitFor({ state: 'detached' });
+  await panel.getByRole('button', { name: 'undo', exact: true }).click();
+  await videoMedia.waitFor({ state: 'detached' });
+  await panel.getByRole('button', { name: 'fit', exact: true }).click();
 }
 
 async function verifyGesturesOverMedia(panel: Locator, picture: Locator): Promise<void> {
@@ -238,6 +367,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     assert.equal(await toolHint.isVisible(), false, 'the hint line hides once the select tool is back');
     await verifyResizedBox(page, panel, 'Parse feed');
     await verifyDroppedPicture(panel);
+    await verifyLiveMedia(panel);
     await panel.getByRole('button', { name: 'more', exact: true }).click();
     const moreMenu = page.getByRole('menu', { name: 'More tools', exact: true });
     assert.deepEqual(await moreMenu.getByRole('menuitem').allTextContents(), ['note on box', 'frame selected boxes', 'plan step']);
