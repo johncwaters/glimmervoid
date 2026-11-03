@@ -3,7 +3,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 
 import { BoardRecord, sparseBoardRecord, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
-import type { Board, BoardReview, BoxMedia, BoardSummary, Op, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
+import type { Board, BoardReview, BoardSummary, Op, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import type { AgentReplyBodyOf } from '../../shared/contracts/session.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
@@ -36,7 +36,7 @@ const PUT_GUIDE = [
   '{"op":"set","id":"parse","fields":{"title":"Parse feed"}},{"op":"remove","id":"w1"}]\'.',
   'Pick the layout that fits what you draw; the example shows op syntax, not a preferred shape.',
   'Element kinds: box (title, column, lane, near, at, lines, refs, change none|added|removed|relabeled, was, order, shape box|decision, outputs), wire (from, to, fromOutput, dashed, tone plain|fail|join|lane, label, fromSide and toSide left|right|top|bottom, back), frame (title, contains, loop), note (on, text, ref), unit (title, lines, refs, status, after, linkedBoardId), panel (title, lines, order) for side notes such as prior art, stacked right of the board.',
-  'To draw a picture, run glimmervoid whiteboard attach <image path> (PNG, JPEG, WebP or GIF) and set the media it returns on a box, as in "media":{"kind":"image","asset":"<id>","mime":"image/webp","width":800,"height":600,"alt":"login screen"}; it draws under the box lines.',
+  'To show a picture, video or HTML page, run glimmervoid whiteboard attach <path> (PNG, JPEG, WebP, GIF, SVG, MP4, WebM or HTML) and set the media it returns on a box unchanged except alt, as in "media":{"kind":"image","asset":"<id>","mime":"image/png","width":800,"height":600,"alt":"login screen","hasPreview":false}; a picture or video first frame draws under the box lines, and a page or a video without a first frame shows as a labelled placeholder.',
   'A line takes style text|code|item|numbered|kv; kv needs a key, as in {"style":"kv","key":"timeout","text":"30s"}, and numbered lines count up through each run.',
   'Units lay out work in dependency order: glimmervoid whiteboard plan add|after|show edits and reads them.',
   'Every box needs one place: column and lane on a grid of columns and lane row bands, set by a columns op such as {"op":"columns","columns":[{"id":"intake","title":"Intake"}]} and a lanes op such as {"op":"lanes","lanes":[{"id":"pr1","label":"PR 1","color":"blue"}]} before any box names them; near another box with near {"of":"parse","side":"right|left|top|bottom","gap":60}; or at {"x","y"} pixels.',
@@ -274,6 +274,18 @@ function createWhiteboardWiring({
     });
   }
 
+  function changedMediaRefusalOf(boardBefore: Board, boardAfter: Board): string | null {
+    for (const element of Object.values(boardAfter.elements)) {
+      if (element.kind !== 'box' || !element.media) continue;
+      const before = boardBefore.elements[element.id];
+      const mediaBefore = before?.kind === 'box' ? before.media : null;
+      if (JSON.stringify(mediaBefore) === JSON.stringify(element.media)) continue;
+      const mismatch = assets.mismatchOf(element.media);
+      if (mismatch) return `box ${element.id} names ${mismatch}`;
+    }
+    return null;
+  }
+
   function applyOpsToRecord(record: BoardRecord, ops: readonly Op[], author: Author): AppliedOps {
     const result = applyOps(record.board, ops, author, now());
     if (!result.ok) return result;
@@ -285,11 +297,8 @@ function createWhiteboardWiring({
     if (strandedUnit) return { ok: false, error: `unit ${strandedUnit.id} links to board ${strandedUnit.linkedBoardId ?? ''}, which does not exist` };
     const assetIdsBefore = assetIdsOf(record.board);
     const assetIdsAfter = assetIdsOf(result.board);
-    const unstoredAssetId = [...assetIdsAfter].find((assetId) => !assetIdsBefore.has(assetId) && !assets.has(assetId));
-    if (unstoredAssetId) {
-      const namingBox = Object.values(result.board.elements).find((element) => element.kind === 'box' && element.media?.asset === unstoredAssetId);
-      return { ok: false, error: `box ${namingBox?.id ?? ''} names media ${unstoredAssetId}, which no whiteboard attach stored` };
-    }
+    const mediaRefusal = changedMediaRefusalOf(record.board, result.board);
+    if (mediaRefusal) return { ok: false, error: mediaRefusal };
     for (const releasedAssetId of assetIdsBefore) {
       if (!assetIdsAfter.has(releasedAssetId)) assets.hold(releasedAssetId, RELEASE_HOLD_MS);
     }
@@ -475,19 +484,20 @@ function createWhiteboardWiring({
     return context.text;
   }
 
-  async function attachImage(caller: WhiteboardCaller, requestedPath: string): Promise<WhiteboardReply> {
+  async function attachMedia(caller: WhiteboardCaller, requestedPath: string): Promise<WhiteboardReply> {
     if (caller.remoteWorkspace) return refusal(409, `attach reads files on the Glimmervoid machine, and this session runs in the Coder workspace ${caller.remoteWorkspace}, so its files are not there`);
     const ingested = await assets.ingestFile(path.resolve(caller.cwd ?? boardsRoot, requestedPath));
     if (!ingested.ok) return refusal(ingested.status, ingested.error);
-    const media: BoxMedia = { kind: 'image', asset: ingested.asset, mime: 'image/webp', width: ingested.width, height: ingested.height, alt: '', hasPreview: false };
-    const note = `put a box with "media":${JSON.stringify({ ...media, alt: '<what it shows>' })} to draw it`;
-    return { status: 200, body: { ok: true, media, note } };
+    const isDrawn = ingested.media.kind === 'image' || ingested.media.hasPreview;
+    const shownAs = isDrawn ? 'to draw it' : 'to show it as a labelled placeholder until live playback ships';
+    const note = `put a box with "media":${JSON.stringify({ ...ingested.media, alt: '<what it shows>' })} ${shownAs}`;
+    return { status: 200, body: { ok: true, media: ingested.media, note } };
   }
 
   async function handleAgent(caller: WhiteboardCaller, request: WhiteboardAgentRequest): Promise<WhiteboardReply> {
     await loaded;
     if (request.sub === 'new') return createBoardFor(caller, request.title);
-    if (request.sub === 'attach') return attachImage(caller, request.path);
+    if (request.sub === 'attach') return attachMedia(caller, request.path);
     if (request.sub === 'list') {
       return { status: 200, body: { ok: true, boards: [...recordsByBoardId.values()].map(summarizeBoard) } };
     }

@@ -35,9 +35,9 @@ async function embeddedImagesOf(board: Board, assets: WhiteboardAssetStore | nul
   const dataUriByAssetId = new Map<string, string>();
   if (!assets) return dataUriByAssetId;
   for (const image of pictureImagesOf(board)) {
-    if (dataUriByAssetId.has(image.asset)) continue;
-    const dataUri = await assets.dataUriOf(image.asset, image.width, image.height);
-    if (dataUri) dataUriByAssetId.set(image.asset, dataUri);
+    if (dataUriByAssetId.has(image.media.asset)) continue;
+    const dataUri = await assets.dataUriOf(image.media, image.width, image.height);
+    if (dataUri) dataUriByAssetId.set(image.media.asset, dataUri);
   }
   return dataUriByAssetId;
 }
@@ -47,7 +47,7 @@ async function boardPictureResult(session: Session, agentApi: AgentApiPort, asse
   const board = boardOf(reply);
   if (!board) return reply;
   const dataUriByAssetId = await embeddedImagesOf(board, assets);
-  const picture = boardPicture(board, (assetId) => dataUriByAssetId.get(assetId) ?? null);
+  const picture = boardPicture(board, (media) => dataUriByAssetId.get(media.asset) ?? null);
   if (!picture.ok) return { status: 413, body: picture };
   const { svgDocument, svgDensity, maxPixels, reading } = picture;
   const { default: sharp } = await import('sharp');

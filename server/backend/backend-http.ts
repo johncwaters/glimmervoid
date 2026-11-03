@@ -28,13 +28,13 @@ import { classifyRequestOrigin } from '../core/request-trust.ts';
 import type { HostUrlOpener } from '../host-url-opener.ts';
 import type { OutcomeRecorder } from '../../shared/outcome-names.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
-import { resolveCustomSoundsDir } from '../core/custom-sounds-core.ts';
+import { decideByteRange, resolveCustomSoundsDir } from '../core/custom-sounds-core.ts';
 import { mountCustomSoundRoutes } from '../custom-sounds-routes.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import { clientDir } from '../runtime-paths.ts';
 import type { ShownFilesPort } from '../session/shown-files-wiring.ts';
 import type { WhiteboardAssetStore } from '../whiteboard/whiteboard-assets.ts';
-import { ASSET_INPUT_CAP_BYTES, assetIdOfFilename } from '../whiteboard/whiteboard-assets.ts';
+import { ASSET_INPUT_CAP_BYTES } from '../whiteboard/whiteboard-assets.ts';
 import { WHITEBOARD_ASSET_ROUTE } from '../../shared/contracts/whiteboard.ts';
 import { buildUploadFilename, decideUploadType, exceedsUploadCap, imageMimeForUploadFilename, isSafePathSegment } from '../core/upload-core.ts';
 import { declaredContentLength, decodeHeaderText, parseJsonBody, readCappedBody } from './http/backend-http-body.ts';
@@ -183,9 +183,44 @@ function answerOpenExternal({ req, res, remoteListenerPort, listenerPortsFor, to
 type AgentIngressDependencies = Pick<BackendHttpDependencies,
   'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'getPlanReview' | 'refocusContextFor' | 'takePromptSupervision' | 'getAgentApi' | 'getShownFiles' | 'getWhiteboardAssets' | 'sshSigner' | 'recordOutcome' | 'logger'>;
 
-async function receiveBoardImage({ req, assets, name }: { req: Request; assets: WhiteboardAssetStore; name: string }): ReturnType<WhiteboardAssetStore['ingestFile']> {
+const BOARD_PAGE_SANDBOX_POLICY = 'sandbox allow-scripts allow-popups allow-modals allow-forms';
+const BOARD_MEDIA_SANDBOX_POLICY = "default-src 'none'; sandbox";
+
+function sendBoardAssetBytes(req: Request, res: Response, servable: { path: string; contentType: string }, sizeBytes: number): void {
+  res.setHeader('Content-Security-Policy', servable.contentType.startsWith('text/html') ? BOARD_PAGE_SANDBOX_POLICY : BOARD_MEDIA_SANDBOX_POLICY);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+  res.setHeader('Accept-Ranges', 'bytes');
+  const byteRange = decideByteRange(req.headers.range, sizeBytes);
+  if (byteRange.kind === 'unsatisfiable') {
+    res.status(416).setHeader('Content-Range', `bytes */${sizeBytes}`);
+    res.end();
+    return;
+  }
+  res.setHeader('Content-Type', servable.contentType);
+  if (byteRange.kind === 'partial') {
+    res.status(206);
+    res.setHeader('Content-Range', `bytes ${byteRange.start}-${byteRange.end}/${sizeBytes}`);
+    res.setHeader('Content-Length', String(byteRange.end - byteRange.start + 1));
+    pipeline(fs.createReadStream(servable.path, { start: byteRange.start, end: byteRange.end }), res, () => {});
+    return;
+  }
+  res.setHeader('Content-Length', String(sizeBytes));
+  pipeline(fs.createReadStream(servable.path), res, () => {});
+}
+
+function serveBoardAsset(req: Request, res: Response, servable: { path: string; contentType: string }): void {
+  fsp.stat(servable.path).then(
+    (stats) => sendBoardAssetBytes(req, res, servable, stats.size),
+    () => {
+      if (!res.headersSent) res.status(404).end();
+    },
+  );
+}
+
+async function receiveBoardMedia({ req, assets, name }: { req: Request; assets: WhiteboardAssetStore; name: string }): ReturnType<WhiteboardAssetStore['adoptIncoming']> {
   const declaredBytes = declaredContentLength(req);
-  const overCap = { ok: false as const, status: 413, error: `${name} is larger than the ${ASSET_INPUT_CAP_BYTES / (1024 * 1024)} MB a board image takes` };
+  const overCap = { ok: false as const, status: 413, error: `${name} is larger than the ${ASSET_INPUT_CAP_BYTES / (1024 * 1024)} MB a board takes` };
   if (declaredBytes !== null && declaredBytes > ASSET_INPUT_CAP_BYTES) {
     req.resume();
     return overCap;
@@ -199,7 +234,7 @@ async function receiveBoardImage({ req, assets, name }: { req: Request; assets: 
   try {
     const received = await streamRequestToFile({ req, savedPath: incomingPath, capBytes: ASSET_INPUT_CAP_BYTES });
     if (!received.ok) return received.reason === 'over-cap' ? overCap : { ok: false, ...UPLOAD_FAILURE_REPLIES[received.reason] };
-    return await assets.ingestFile(incomingPath, name);
+    return await assets.adoptIncoming(incomingPath, name);
   } finally {
     await fsp.rm(incomingPath, { force: true }).catch(() => {});
   }
@@ -547,7 +582,7 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
       return;
     }
     if (!name) {
-      answer(400, { ok: false, error: 'a board image needs its file name in x-glimmervoid-upload-name' });
+      answer(400, { ok: false, error: 'board media needs its file name in x-glimmervoid-upload-name' });
       req.resume();
       return;
     }
@@ -556,26 +591,19 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
       req.resume();
       return;
     }
-    void receiveBoardImage({ req, assets, name }).then(
-      (outcome) => outcome.ok ? answer(200, { ok: true, asset: outcome.asset, width: outcome.width, height: outcome.height }) : answer(outcome.status, { ok: false, error: outcome.error }),
+    void receiveBoardMedia({ req, assets, name }).then(
+      (outcome) => outcome.ok ? answer(200, { ok: true, media: outcome.media }) : answer(outcome.status, { ok: false, error: outcome.error }),
       () => answer(500, { ok: false, error: `${name} could not be stored` }),
     );
   });
 
   app.get(`${WHITEBOARD_ASSET_ROUTE}/:filename`, (req, res) => {
-    const assetId = assetIdOfFilename(req.params.filename);
-    const assetPath = assetId ? dependencies.getWhiteboardAssets?.()?.filePathOf(assetId) ?? null : null;
-    if (!assetPath) {
+    const servable = dependencies.getWhiteboardAssets?.()?.servableOf(req.params.filename) ?? null;
+    if (!servable) {
       res.status(404).end();
       return;
     }
-    res.setHeader('Content-Type', 'image/webp');
-    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
-    pipeline(fs.createReadStream(assetPath), res, () => {
-      if (!res.headersSent) res.status(404).end();
-    });
+    serveBoardAsset(req, res, servable);
   });
 
   mountCustomSoundRoutes(app, { soundsDir: customSoundsDir });

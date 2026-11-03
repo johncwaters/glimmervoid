@@ -27,11 +27,11 @@ async function placeBoxWithTool(page: Page, panel: Locator, offset: { x: number;
 async function verifyDroppedPicture(panel: Locator): Promise<void> {
   await panel.locator('.wb-canvas').evaluate(async (canvas) => {
     const painted = document.createElement('canvas');
-    painted.width = 400;
+    painted.width = 2000;
     painted.height = 200;
     const pen = painted.getContext('2d');
     if (pen) pen.fillStyle = '#c084fc';
-    pen?.fillRect(0, 0, 400, 200);
+    pen?.fillRect(0, 0, 2000, 200);
     const pngBlob = await new Promise<Blob | null>((resolve) => painted.toBlob(resolve, 'image/png'));
     if (!pngBlob) throw new Error('the browser painted no png');
     const transfer = new DataTransfer();
@@ -44,11 +44,12 @@ async function verifyDroppedPicture(panel: Locator): Promise<void> {
   await panel.locator('.wb-box-title', { hasText: 'dropped-shot' }).waitFor();
   const servedStatus = await picture.evaluate(async (node) => (await fetch(node.getAttribute('href') ?? '')).status);
   assert.equal(servedStatus, 200, 'a dropped picture draws from the served asset');
+  assert.match(await picture.getAttribute('href') ?? '', /\/[0-9a-f]{64}\.preview\.webp$/, 'a dropped png wider than 1600 draws from its preview');
   await picture.click();
   const viewer = panel.page().locator('.wb-image-viewer');
   const enlarged = viewer.locator('img.wb-image-viewer-picture');
   await enlarged.waitFor();
-  assert.ok(await enlarged.evaluate((node) => node instanceof HTMLImageElement && node.complete && node.naturalWidth === 400), 'a clicked picture opens at its stored size');
+  assert.ok(await enlarged.evaluate((node) => node instanceof HTMLImageElement && node.complete && node.naturalWidth === 2000 && node.src.endsWith('.png')), 'a clicked picture opens the original png at full size');
   await panel.page().keyboard.press('Escape');
   await viewer.waitFor({ state: 'detached' });
   await panel.getByRole('button', { name: 'undo', exact: true }).click();

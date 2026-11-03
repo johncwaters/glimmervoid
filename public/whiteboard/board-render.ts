@@ -1,7 +1,7 @@
-import { WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
+import { boardMediaDrawnFilename, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
 import type { Board } from '#shared/contracts/whiteboard.ts';
 import { elementSignature, layoutBoard } from '#shared/whiteboard-layout-core.ts';
-import type { BoardLayout, LaidOutElement } from '#shared/whiteboard-layout-core.ts';
+import type { BoardLayout, LaidOutElement, LaidOutMedia } from '#shared/whiteboard-layout-core.ts';
 import { arrowDefinitionsMarkup, chromeMarkup, elementMarkup, SVG_NAMESPACE } from '#shared/whiteboard-svg-core.ts';
 
 type LayerName = 'frames' | 'wires' | 'boxes' | 'notes' | 'units';
@@ -47,8 +47,9 @@ function nodeFromMarkup(trustedMarkup: string): SVGGElement {
   return node;
 }
 
-function servedAssetHref(assetId: string): string {
-  return `${WHITEBOARD_ASSET_ROUTE}/${assetId}.webp`;
+function servedAssetHref(media: LaidOutMedia): string | null {
+  const drawnFilename = boardMediaDrawnFilename(media);
+  return drawnFilename ? `${WHITEBOARD_ASSET_ROUTE}/${drawnFilename}` : null;
 }
 
 const LAYER_BY_KIND: Record<LaidOutElement['kind'], LayerName> = { frame: 'frames', wire: 'wires', box: 'boxes', panel: 'boxes', note: 'notes', unit: 'units' };

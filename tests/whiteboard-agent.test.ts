@@ -16,6 +16,8 @@ import { closeSocket, dashboardClient, openRecordingSocket, waitForMessage } fro
 import type { Backend } from './helpers/lanes.ts';
 import { settleBackendShutdown } from './helpers/lanes.ts';
 import { createWhiteboardWiring } from '../server/whiteboard/whiteboard-wiring.ts';
+import { execFileAsync } from '../server/child-process-safe.ts';
+import { resolveFfmpegPath } from '../server/runtime-paths.ts';
 import { waitFor } from './helpers/wait-for.ts';
 
 const PLANNER_ID = 'whiteboard-planner';
@@ -334,46 +336,128 @@ test('an agent puts ops from a file, reads the laid-out positions and renders th
   assert.deepEqual(changes.map((change) => change.summary), [`${BUILDER_ID} renamed "Save" to "Save rows"`]);
 });
 
-test('an agent attaches a picture once by content, a box draws it from the served asset, and a put naming an unstored asset or an svg attach is refused', async (context) => {
+test('an agent attaches media once by content at full fidelity, a box shows it from the served original with ranges, and a put naming an unstored asset or an oversized attach is refused', async (context) => {
   const { default: sharp } = await import('sharp');
   const plannerDir = path.join(fixture.tmpDir, PLANNER_ID);
-  await sharp({ create: { width: 640, height: 320, channels: 3, background: '#c084fc' } }).png().toFile(path.join(plannerDir, 'shot.png'));
-  fs.writeFileSync(path.join(plannerDir, 'mark.svg'), '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
+  const shotBytes = await sharp({ create: { width: 640, height: 320, channels: 3, background: '#c084fc' } }).png().toBuffer();
+  fs.writeFileSync(path.join(plannerDir, 'shot.png'), shotBytes);
+  fs.writeFileSync(path.join(plannerDir, 'mark.svg'), '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="24"><rect width="48" height="24"/></svg>');
+  fs.writeFileSync(path.join(plannerDir, 'page.html'), '<!doctype html><html><body><p>hello board</p></body></html>');
   const boardId = await newBoard('pictures');
 
   const attached = await runPlannerCli(context, ['whiteboard', 'attach', path.join(plannerDir, 'shot.png')]);
   assert.equal(attached.exitCode, 0, attached.printed);
-  const { media } = JSON.parse(attached.printed) as { media: { kind: string; asset: string; mime: string; width: number; height: number } };
-  assert.deepEqual([media.kind, media.mime, media.width, media.height], ['image', 'image/webp', 640, 320]);
-  const image = { asset: media.asset, width: media.width, height: media.height };
+  const { media } = JSON.parse(attached.printed) as { media: { kind: string; asset: string; mime: string; width: number; height: number; alt: string; hasPreview: boolean } };
+  assert.deepEqual([media.kind, media.mime, media.width, media.height, media.hasPreview], ['image', 'image/png', 640, 320, false]);
   const again = await whiteboard(PLANNER_ID, { sub: 'attach', path: 'shot.png' });
-  assert.equal((again.body.media as { asset: string }).asset, image.asset);
+  assert.equal((again.body.media as { asset: string }).asset, media.asset);
 
   const put = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
     { op: 'add', element: { kind: 'box', id: 'login', title: 'Login', column: 'intake', media: { ...media, alt: 'login screen' } } },
   ] });
   assert.equal(put.status, 200, JSON.stringify(put.body));
   const { board } = await boardOf(PLANNER_ID, boardId);
-  assert.deepEqual(board.elements.login?.media, { kind: 'image', asset: image.asset, mime: 'image/webp', width: 640, height: 320, alt: 'login screen', hasPreview: false });
-  const served = await fetch(`${running().base}/whiteboards/assets/${image.asset}.webp`);
+  assert.deepEqual(board.elements.login?.media, { kind: 'image', asset: media.asset, mime: 'image/png', width: 640, height: 320, alt: 'login screen', hasPreview: false });
+  const assetUrl = (filename: string) => `${running().base}/whiteboards/assets/${filename}`;
+  const served = await fetch(assetUrl(`${media.asset}.png`));
   assert.equal(served.status, 200);
-  assert.equal(served.headers.get('content-type'), 'image/webp');
-  assert.equal((await fetch(`${running().base}/whiteboards/assets/${'0'.repeat(64)}.webp`)).status, 404);
-  const pasted = await fetch(`${running().base}/whiteboards/assets`, { method: 'POST', body: fs.readFileSync(path.join(plannerDir, 'shot.png')), headers: { 'content-type': 'image/png', 'x-glimmervoid-upload-name': 'shot.png' } });
-  assert.deepEqual(await pasted.json(), { ok: true, ...image });
-  const crossSite = await fetch(`${running().base}/whiteboards/assets`, { method: 'POST', body: fs.readFileSync(path.join(plannerDir, 'shot.png')), headers: { 'content-type': 'text/plain', origin: 'https://evil.example', 'x-glimmervoid-upload-name': 'shot.png' } });
+  assert.equal(served.headers.get('content-type'), 'image/png');
+  assert.equal(served.headers.get('accept-ranges'), 'bytes');
+  assert.deepEqual(Buffer.from(await served.arrayBuffer()), shotBytes);
+  const ranged = await fetch(assetUrl(`${media.asset}.png`), { headers: { range: 'bytes=0-7' } });
+  assert.equal(ranged.status, 206);
+  assert.deepEqual(Buffer.from(await ranged.arrayBuffer()), shotBytes.subarray(0, 8));
+  assert.equal((await fetch(assetUrl(`${media.asset}.webp`))).status, 404);
+  assert.equal((await fetch(assetUrl(`${media.asset}.preview.webp`))).status, 404);
+  assert.equal((await fetch(assetUrl(`${'0'.repeat(64)}.png`))).status, 404);
+  const pasted = await fetch(`${running().base}/whiteboards/assets`, { method: 'POST', body: shotBytes, headers: { 'content-type': 'image/png', 'x-glimmervoid-upload-name': 'shot.png' } });
+  assert.deepEqual(await pasted.json(), { ok: true, media });
+  const crossSite = await fetch(`${running().base}/whiteboards/assets`, { method: 'POST', body: shotBytes, headers: { 'content-type': 'text/plain', origin: 'https://evil.example', 'x-glimmervoid-upload-name': 'shot.png' } });
   assert.equal(crossSite.status, 403);
-  assert.deepEqual(fs.readdirSync(path.join(fixture.tmpDir, 'whiteboards', 'assets')), [`${image.asset}.webp`]);
+
+  const svg = await whiteboard(PLANNER_ID, { sub: 'attach', path: 'mark.svg' });
+  assert.equal(svg.status, 200, JSON.stringify(svg.body));
+  const svgMedia = svg.body.media as { kind: string; asset: string; mime: string; width: number; height: number };
+  assert.deepEqual([svgMedia.kind, svgMedia.mime, svgMedia.width, svgMedia.height], ['image', 'image/svg+xml', 48, 24]);
+  const servedSvg = await fetch(assetUrl(`${svgMedia.asset}.svg`));
+  assert.equal(servedSvg.headers.get('content-type'), 'image/svg+xml');
+  assert.equal(servedSvg.headers.get('content-security-policy'), "default-src 'none'; sandbox");
+  const page = await whiteboard(PLANNER_ID, { sub: 'attach', path: 'page.html' });
+  assert.equal(page.status, 200, JSON.stringify(page.body));
+  const pageMedia = page.body.media as { kind: string; asset: string; mime: string; hasPreview: boolean };
+  assert.deepEqual([pageMedia.kind, pageMedia.mime, pageMedia.hasPreview], ['page', 'text/html', false]);
+  const servedPage = await fetch(assetUrl(`${pageMedia.asset}.html`));
+  assert.equal(servedPage.headers.get('content-type'), 'text/html; charset=utf-8');
+  assert.match(String(servedPage.headers.get('content-security-policy')), /^sandbox allow-scripts/);
+  const ffmpegPath = resolveFfmpegPath();
+  assert.ok(ffmpegPath, 'ffmpeg-static is installed');
+  await execFileAsync(ffmpegPath, ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc=size=2400x1200:rate=5:duration=1', '-c:v', 'libvpx-vp9', '-deadline', 'realtime', '-y', path.join(plannerDir, 'clip.webm')]);
+  const video = await whiteboard(PLANNER_ID, { sub: 'attach', path: 'clip.webm' });
+  assert.equal(video.status, 200, JSON.stringify(video.body));
+  const videoMedia = video.body.media as { kind: string; asset: string; mime: string; width: number; height: number; hasPreview: boolean };
+  assert.deepEqual([videoMedia.kind, videoMedia.mime, videoMedia.width, videoMedia.height, videoMedia.hasPreview], ['video', 'video/webm', 1600, 800, true]);
+  const poster = await fetch(assetUrl(`${videoMedia.asset}.preview.webp`));
+  assert.equal(poster.headers.get('content-type'), 'image/webp');
+  assert.equal((await sharp(Buffer.from(await poster.arrayBuffer())).metadata()).width, 1600);
+  assert.equal((await fetch(assetUrl(`${videoMedia.asset}.webm`))).headers.get('content-type'), 'video/webm');
+  const videoAgain = await whiteboard(PLANNER_ID, { sub: 'attach', path: 'clip.webm' });
+  assert.deepEqual(videoAgain.body.media, videoMedia);
+  assert.equal((await fetch(assetUrl(`${videoMedia.asset}.preview.webp`))).status, 200);
+  fs.copyFileSync(path.join(plannerDir, 'mark.svg'), path.join(plannerDir, 'mark-as-page.html'));
+  const svgAsPage = await whiteboard(PLANNER_ID, { sub: 'attach', path: 'mark-as-page.html' });
+  assert.deepEqual(svgAsPage.body.media, svg.body.media);
+  assert.deepEqual(fs.readdirSync(path.join(fixture.tmpDir, 'whiteboards', 'assets')).sort(), [`${media.asset}.png`, `${svgMedia.asset}.svg`, `${pageMedia.asset}.html`, `${videoMedia.asset}.webm`, `${videoMedia.asset}.preview.webp`].sort());
 
   const unstored = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'login', fields: { media: { ...media, asset: 'f'.repeat(64) } } }] });
   assert.equal(unstored.status, 400);
   assert.match(String(unstored.body.error), /no whiteboard attach stored/);
-  const svg = await whiteboard(PLANNER_ID, { sub: 'attach', path: 'mark.svg' });
-  assert.equal(svg.status, 415);
-  fs.writeFileSync(path.join(plannerDir, 'huge.png'), Buffer.alloc(26 * 1024 * 1024));
+  const mislabeled = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'login', fields: { media: { ...media, mime: 'image/webp' } } }] });
+  assert.equal(mislabeled.status, 400);
+  assert.match(String(mislabeled.body.error), /but attach stored it as/);
+  await sharp({ create: { width: 16400, height: 4, channels: 3, background: '#000000' } }).png().toFile(path.join(plannerDir, 'strip.png'));
+  const overEdge = await whiteboard(PLANNER_ID, { sub: 'attach', path: 'strip.png' });
+  assert.equal(overEdge.status, 413);
+  assert.match(String(overEdge.body.error), /at most 16384 on each edge/);
+  fs.writeFileSync(path.join(plannerDir, 'notes.txt'), 'plain words');
+  const plainText = await whiteboard(PLANNER_ID, { sub: 'attach', path: 'notes.txt' });
+  assert.equal(plainText.status, 415);
+  fs.writeFileSync(path.join(plannerDir, 'photo.avif'), Buffer.concat([Buffer.from([0, 0, 0, 28]), Buffer.from('ftypavif', 'latin1'), Buffer.alloc(64)]));
+  fs.writeFileSync(path.join(plannerDir, 'photo.heif'), Buffer.concat([Buffer.from([0, 0, 0, 28]), Buffer.from('ftypmif2', 'latin1'), Buffer.alloc(64)]));
+  fs.writeFileSync(path.join(plannerDir, 'photo-avc.heif'), Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftypMiHE', 'latin1'), Buffer.alloc(4), Buffer.from('mif1', 'latin1'), Buffer.alloc(64)]));
+  for (const imageInVideoContainer of ['photo.avif', 'photo.heif', 'photo-avc.heif']) {
+    assert.equal((await whiteboard(PLANNER_ID, { sub: 'attach', path: imageInVideoContainer })).status, 415, imageInVideoContainer);
+  }
+  fs.writeFileSync(path.join(plannerDir, 'broken.mp4'), Buffer.concat([Buffer.from([0, 0, 0, 28]), Buffer.from('ftypisom', 'latin1'), Buffer.alloc(64)]));
+  fs.writeFileSync(path.join(plannerDir, 'phone.m4v'), Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftypM4VP', 'latin1'), Buffer.alloc(4), Buffer.from('isom', 'latin1'), Buffer.alloc(64)]));
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'attach', path: 'phone.m4v' })).status, 200);
+  const unpostered = await whiteboard(PLANNER_ID, { sub: 'attach', path: 'broken.mp4' });
+  assert.equal(unpostered.status, 200, JSON.stringify(unpostered.body));
+  const unposteredMedia = unpostered.body.media as { kind: string; width: number; height: number; hasPreview: boolean };
+  assert.deepEqual([unposteredMedia.kind, unposteredMedia.width, unposteredMedia.height, unposteredMedia.hasPreview], ['video', 1280, 720, false]);
+  const posterDropped = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
+    { op: 'add', element: { kind: 'box', id: 'clip-without-poster', title: 'Clip', column: 'intake', media: { ...videoMedia, hasPreview: false } } },
+  ] });
+  assert.equal(posterDropped.status, 400, JSON.stringify(posterDropped.body));
+  await sharp({ create: { width: 2000, height: 400, channels: 3, background: '#38bdf8' } }).png().toFile(path.join(plannerDir, 'wide.png'));
+  const wide = await whiteboard(PLANNER_ID, { sub: 'attach', path: 'wide.png' });
+  const wideMedia = wide.body.media as { hasPreview: boolean };
+  assert.equal(wideMedia.hasPreview, true);
+  const previewDropped = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
+    { op: 'add', element: { kind: 'box', id: 'wide-without-preview', title: 'Wide', column: 'intake', media: { ...wideMedia, hasPreview: false } } },
+  ] });
+  assert.equal(previewDropped.status, 400, JSON.stringify(previewDropped.body));
+  assert.match(String(previewDropped.body.error), /but attach stored it as/);
+  const wholeJpeg = await sharp({ create: { width: 2400, height: 1200, channels: 3, background: '#a3e635' } }).jpeg().toBuffer();
+  fs.writeFileSync(path.join(plannerDir, 'cut.jpg'), wholeJpeg.subarray(0, wholeJpeg.length >> 1));
+  const cutPhoto = await whiteboard(PLANNER_ID, { sub: 'attach', path: 'cut.jpg' });
+  assert.equal(cutPhoto.status, 200, JSON.stringify(cutPhoto.body));
+  assert.equal((cutPhoto.body.media as { hasPreview: boolean }).hasPreview, false);
+  const hugePath = path.join(plannerDir, 'huge.png');
+  fs.closeSync(fs.openSync(hugePath, 'w'));
+  fs.truncateSync(hugePath, 201 * 1024 * 1024);
   const huge = await whiteboard(PLANNER_ID, { sub: 'attach', path: 'huge.png' });
   assert.equal(huge.status, 413);
-  assert.match(String(huge.body.error), /huge\.png is larger than the 25 MB/);
+  assert.match(String(huge.body.error), /huge\.png is larger than the 200 MB/);
 });
 
 test('refs are checked in the code session worktree: a missing file, a line past the end and a path leaving the worktree land as warnings that get --layout repeats', async (context) => {
@@ -556,6 +640,89 @@ test('a flood of edits to one box stays inside the prompt context bound and leav
   assert.ok((read.body as { changes: unknown[] }).changes.length > 0, 'the clipped changes are still unread');
 });
 
+test('the same bytes attached at once under an svg and an html name are stored once as one kind', async () => {
+  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'asset-race-'));
+  const wiring = createWhiteboardWiring({ boardsRoot });
+  await wiring.loaded;
+  const markup = '<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="30" height="10"><rect width="30" height="10"/></svg>';
+  const racedPaths = ['race.svg', 'race.html'].map((racedName) => path.join(boardsRoot, racedName));
+  for (const racedPath of racedPaths) fs.writeFileSync(racedPath, markup);
+  const [asSvg, asPage] = await Promise.all(racedPaths.map((racedPath) => wiring.assets.ingestFile(racedPath)));
+  assert.ok(asSvg?.ok && asPage?.ok);
+  assert.deepEqual(asPage.media, asSvg.media);
+  assert.equal(fs.readdirSync(path.join(boardsRoot, 'assets')).length, 1);
+});
+
+test('a stored file keeps the preview it was stored with when attached again after a restart, whether or not the preview can be read', async () => {
+  const { default: sharp } = await import('sharp');
+  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'asset-restart-'));
+  const wiring = createWhiteboardWiring({ boardsRoot });
+  await wiring.loaded;
+  const widePath = path.join(boardsRoot, 'wide.png');
+  await sharp({ create: { width: 2000, height: 400, channels: 3, background: '#f472b6' } }).png().toFile(widePath);
+  const first = await wiring.assets.ingestFile(widePath);
+  assert.ok(first.ok && first.media.hasPreview);
+  const boardId = ((await wiring.handleOperator.create('wide')) as { summary: { id: string } }).summary.id;
+  await wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'wide', title: 'wide', media: first.media, at: { x: 0, y: 0 } } }]));
+  fs.rmSync(path.join(boardsRoot, 'assets', `${first.media.asset}.preview.webp`));
+  const restarted = createWhiteboardWiring({ boardsRoot });
+  await restarted.loaded;
+  const again = await restarted.assets.ingestFile(widePath);
+  assert.ok(again.ok);
+  assert.equal(again.media.hasPreview, false);
+  const ffmpegPath = resolveFfmpegPath();
+  assert.ok(ffmpegPath, 'ffmpeg-static is installed');
+  const clipPath = path.join(boardsRoot, 'clip.webm');
+  await execFileAsync(ffmpegPath, ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc=size=320x240:rate=5:duration=1', '-c:v', 'libvpx-vp9', '-deadline', 'realtime', '-y', clipPath]);
+  const clip = await restarted.assets.ingestFile(clipPath);
+  assert.ok(clip.ok && clip.media.hasPreview);
+  await restarted.handleOperator.put(boardId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'clip', title: 'clip', media: clip.media, at: { x: 0, y: 200 } } }]));
+  fs.writeFileSync(path.join(boardsRoot, 'assets', `${clip.media.asset}.preview.webp`), 'not a picture');
+  const restartedAgain = createWhiteboardWiring({ boardsRoot });
+  await restartedAgain.loaded;
+  const clipAgain = await restartedAgain.assets.ingestFile(clipPath);
+  assert.ok(clipAgain.ok);
+  assert.equal(clipAgain.media.hasPreview, true);
+  assert.equal(restartedAgain.assets.mismatchOf(clip.media), null);
+});
+
+test('a video whose ffmpeg crashes is kept without a first frame, while one whose ffmpeg is killed is refused so it can be attached again', { skip: process.platform === 'win32' }, async () => {
+  const ffmpegPath = resolveFfmpegPath();
+  assert.ok(ffmpegPath, 'ffmpeg-static is installed');
+  const workRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'poster-failure-'));
+  const clipPath = path.join(workRoot, 'clip.webm');
+  await execFileAsync(ffmpegPath, ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc=size=320x240:rate=5:duration=1', '-c:v', 'libvpx-vp9', '-deadline', 'realtime', '-y', clipPath]);
+  const attachScriptPath = path.join(workRoot, 'attach.ts');
+  const assetsModuleUrl = new URL('../server/whiteboard/whiteboard-assets.ts', import.meta.url).href;
+  fs.writeFileSync(attachScriptPath, `import { createWhiteboardAssetStore } from ${JSON.stringify(assetsModuleUrl)};\nconst store = createWhiteboardAssetStore({ boardsRoot: process.argv[2] });\nawait store.loaded;\nconsole.log(JSON.stringify(await store.ingestFile(process.argv[3])));\n`);
+  const attachWithFfmpegStoppedBy = async (signal: string) => {
+    const fakeFfmpegPath = path.join(workRoot, `ffmpeg-${signal}`);
+    fs.writeFileSync(fakeFfmpegPath, `#!/bin/sh\nkill -${signal} $$\n`, { mode: 0o755 });
+    const { stdout } = await execFileAsync(process.execPath, [attachScriptPath, fs.mkdtempSync(path.join(workRoot, 'boards-')), clipPath], { env: { ...process.env, FFMPEG_BIN: fakeFfmpegPath } });
+    return JSON.parse(stdout) as { ok: boolean; status?: number; media?: { hasPreview: boolean } };
+  };
+  const crashed = await attachWithFfmpegStoppedBy('SEGV');
+  assert.equal(crashed.ok, true, JSON.stringify(crashed));
+  assert.equal(crashed.media?.hasPreview, false);
+  const killed = await attachWithFfmpegStoppedBy('KILL');
+  assert.deepEqual([killed.ok, killed.status], [false, 503]);
+});
+
+test('a photo turned by its EXIF orientation is sized and drawn upright for the agent picture', async () => {
+  const { default: sharp } = await import('sharp');
+  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'asset-orientation-'));
+  const wiring = createWhiteboardWiring({ boardsRoot });
+  await wiring.loaded;
+  const photoPath = path.join(boardsRoot, 'turned.jpg');
+  await sharp({ create: { width: 40, height: 20, channels: 3, background: '#22d3ee' } }).jpeg().withMetadata({ orientation: 6 }).toFile(photoPath);
+  const stored = await wiring.assets.ingestFile(photoPath);
+  assert.ok(stored.ok);
+  assert.deepEqual([stored.media.width, stored.media.height], [20, 40]);
+  const dataUri = await wiring.assets.dataUriOf(stored.media, 20, 40);
+  const drawn = await sharp(Buffer.from(String(dataUri).replace(/^data:image\/png;base64,/, ''), 'base64')).metadata();
+  assert.deepEqual([drawn.width, drawn.height], [20, 40]);
+});
+
 test('deleting a board sweeps the pictures no live board shows, sparing a pending attach, a picture still shown elsewhere, and one a put released within the hour', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'asset-sweep-'));
   let clockMs = 1_800_000_000_000;
@@ -563,9 +730,11 @@ test('deleting a board sweeps the pictures no live board shows, sparing a pendin
   await wiring.loaded;
   const { default: sharp } = await import('sharp');
   const pictureOf = async (background: string) => {
-    const stored = await wiring.assets.ingestBuffer(await sharp({ create: { width: 40, height: 20, channels: 3, background } }).png().toBuffer(), `${background}.png`);
+    const picturePath = path.join(boardsRoot, `${background.slice(1)}.webp`);
+    await sharp({ create: { width: 40, height: 20, channels: 3, background } }).webp().toFile(picturePath);
+    const stored = await wiring.assets.ingestFile(picturePath);
     assert.ok(stored.ok);
-    return { kind: 'image', asset: stored.asset, mime: 'image/webp', width: stored.width, height: stored.height, alt: '' };
+    return stored.media;
   };
   const newBoardId = async (title: string) => ((await wiring.handleOperator.create(title)) as { summary: { id: string } }).summary.id;
   const putBox = (boardId: string, id: string, media: { asset: string } | null) => wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id, title: id, media, at: { x: 0, y: 0 } } }]));

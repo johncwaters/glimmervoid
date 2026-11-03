@@ -82,6 +82,8 @@ interface LaidOutBox extends Rect {
 interface LaidOutMedia extends Rect {
   kind: BoxMedia['kind'];
   asset: string;
+  mime: BoxMedia['mime'];
+  hasPreview: boolean;
   alt: string;
 }
 
@@ -261,7 +263,7 @@ function mediaSizeOf(box: Box): { width: number; height: number } | null {
 
 function laidOutMedia(box: Box, position: Point, mediaTop: number, mediaSize: { width: number; height: number } | null): LaidOutMedia | null {
   if (!box.media || !mediaSize) return null;
-  return { kind: box.media.kind, asset: box.media.asset, alt: box.media.alt, x: position.x + BOX_PADDING, y: position.y + mediaTop, width: mediaSize.width, height: mediaSize.height };
+  return { kind: box.media.kind, asset: box.media.asset, mime: box.media.mime, hasPreview: box.media.hasPreview, alt: box.media.alt, x: position.x + BOX_PADDING, y: position.y + mediaTop, width: mediaSize.width, height: mediaSize.height };
 }
 
 function boxShape(board: Board, box: Box) {

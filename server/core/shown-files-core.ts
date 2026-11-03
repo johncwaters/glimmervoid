@@ -151,11 +151,6 @@ function sniffMarkupFormat(chunk: Buffer, declaredName: string): ShownFormat | n
   return null;
 }
 
-function sniffRasterImageMime(firstChunk: Buffer): string | null {
-  const format = sniffBinaryFormat(firstChunk);
-  return format?.kind === 'image' ? format.mime : null;
-}
-
 function decideShownKind(firstChunk: Buffer, declaredName: string): ShownKindVerdict {
   const format = sniffBinaryFormat(firstChunk) ?? sniffMarkupFormat(firstChunk, declaredName);
   if (!format) return { ok: false, error: `${declaredName} is not a file show takes; show takes ${ACCEPTED_KINDS_TEXT} files` };
@@ -202,5 +197,5 @@ function thumbnailOwnerIdOf(filename: string): string | null {
   return filename.endsWith(THUMBNAIL_SUFFIX) ? filename.slice(0, -THUMBNAIL_SUFFIX.length) : null;
 }
 
-export { decideShownKind, describeOverCap, sniffRasterImageMime, filesAfterRetention, isShownPageMime, leavesVisibleRawTextOpen, readPageTitle, shownMimeForFilename, thumbnailFilenameOf, thumbnailOwnerIdOf, thumbnailRecipeFor, SHOWN_PAGE_ZOOM_BRIDGE, SHOWN_SNIFF_BYTES, SHOWN_THUMBNAIL_MAX_EDGE_PX };
+export { decideShownKind, describeOverCap, filesAfterRetention, isShownPageMime, leavesVisibleRawTextOpen, readPageTitle, shownMimeForFilename, thumbnailFilenameOf, thumbnailOwnerIdOf, thumbnailRecipeFor, SHOWN_PAGE_ZOOM_BRIDGE, SHOWN_SNIFF_BYTES, SHOWN_THUMBNAIL_MAX_EDGE_PX };
 export type { ThumbnailRecipe };

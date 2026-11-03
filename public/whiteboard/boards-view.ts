@@ -1,7 +1,7 @@
 import './whiteboard.css';
 import type { Board, BoardReview, BoardSummary, Element, Op } from '#shared/contracts/whiteboard.ts';
 import { refPathOf, refsOfElement } from '#shared/whiteboard-anchor-core.ts';
-import { WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
+import { boardMediaOriginalFilename, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import { createActionStatus } from '../action-status.ts';
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
 import { button, menuButton } from '../ui/button.ts';
@@ -20,7 +20,7 @@ import type { BoardInspector } from './board-inspect.ts';
 import { createBoardRenderer } from './board-render.ts';
 import type { BoardRenderer } from './board-render.ts';
 import {
-  boardSummariesOf, createBoard, deleteBoard, nudgeSessionAboutBoard, onBoardChanged, onBoardListChanged, openBoard, openBoardOf, openFileInReview, requestBoardReview, sendBoardOps, takeOpenBoardRequest, uploadBoardImage,
+  boardSummariesOf, createBoard, deleteBoard, nudgeSessionAboutBoard, onBoardChanged, onBoardListChanged, openBoard, openBoardOf, openFileInReview, requestBoardReview, sendBoardOps, takeOpenBoardRequest, uploadBoardMedia,
 } from './board-store.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
@@ -30,7 +30,9 @@ const TITLE_RENAME_CLASS = 'wb-board-title-rename';
 const SEND_TO_CHAT_ICON_PATH = 'M13.5 8H3 M7 4L3 8l4 4';
 const MORE_ICON_PATH = 'M4.5 6.5L8 10l3.5-3.5';
 const MENU_GAP_PX = 4;
-const STACKED_IMAGE_OFFSET_PX = 32;
+const STACKED_MEDIA_OFFSET_PX = 32;
+const BOARD_MEDIA_FILE_TYPES = new Set(['video/mp4', 'video/webm', 'text/html']);
+const BOARD_MEDIA_FILE_NAME_RE = /\.(png|jpe?g|gif|webp|svg|mp4|webm|html?)$/i;
 const FIT_ICON_PATH = 'M2.5 6V2.5H6 M10 2.5h3.5V6 M13.5 10v3.5H10 M6 13.5H2.5V10';
 const UNDO_ICON_PATH = 'M5.5 3.5l-3 3l3 3 M2.5 6.5h7a3.5 3.5 0 0 1 0 7H7';
 const REDO_ICON_PATH = 'M10.5 3.5l3 3l-3 3 M13.5 6.5h-7a3.5 3.5 0 0 0 0 7H9';
@@ -534,10 +536,17 @@ function addUnitFromDialog(): void {
   });
 }
 
-function openImageViewer({ href, alt }: PressedImage): void {
+function fullSizeHrefOf({ boxId, href }: PressedImage): string {
+  const pressedBox = boxId ? selectedBoard()?.elements[boxId] : undefined;
+  if (pressedBox?.kind !== 'box' || pressedBox.media?.kind !== 'image') return href;
+  return `${WHITEBOARD_ASSET_ROUTE}/${boardMediaOriginalFilename(pressedBox.media)}`;
+}
+
+function openImageViewer(pressedImage: PressedImage): void {
+  const { alt } = pressedImage;
   const { dialog, close, actions, btnCancel } = buildDialogShell({ title: alt || 'Picture', dialogClass: 'dialog wb-image-viewer', cancelLabel: 'Close' });
   const picture = el('img', 'wb-image-viewer-picture');
-  picture.src = href;
+  picture.src = fullSizeHrefOf(pressedImage);
   picture.alt = alt;
   dialog.append(picture, actions);
   btnCancel.addEventListener('click', close);
@@ -668,50 +677,55 @@ function onHistoryKey(host: HTMLElement, event: KeyboardEvent): void {
   void stepHistory(direction);
 }
 
-function imageFilesOf(transfer: DataTransfer | null): File[] {
-  return [...(transfer?.files ?? [])].filter((file) => file.type.startsWith('image/'));
+function isBoardMediaFile(file: File): boolean {
+  if (file.type.startsWith('image/') || BOARD_MEDIA_FILE_TYPES.has(file.type)) return true;
+  return file.type === '' && BOARD_MEDIA_FILE_NAME_RE.test(file.name);
 }
 
-function titleOfImageFile(file: File): string {
+function mediaFilesOf(transfer: DataTransfer | null): File[] {
+  return [...(transfer?.files ?? [])].filter(isBoardMediaFile);
+}
+
+function titleOfMediaFile(file: File): string {
   return (file.name.replace(/\.[^.]+$/, '') || 'Picture').slice(0, WHITEBOARD_LIMITS.title);
 }
 
-async function addImageFiles(files: readonly File[], clientPoint: { x: number; y: number } | null): Promise<void> {
+async function addMediaFiles(files: readonly File[], clientPoint: { x: number; y: number } | null): Promise<void> {
   if (!selectedBoardId || files.length === 0) return;
-  status.show('busy', files.length === 1 ? `adding ${files[0]?.name}` : `adding ${files.length} pictures`);
+  status.show('busy', files.length === 1 ? `adding ${files[0]?.name}` : `adding ${files.length} files`);
   for (const [index, file] of files.entries()) {
-    const stored = await uploadBoardImage(file);
+    const stored = await uploadBoardMedia(file);
     if (!stored.ok) {
       status.show('error', stored.error);
       return;
     }
-    const offset = index * STACKED_IMAGE_OFFSET_PX;
+    const offset = index * STACKED_MEDIA_OFFSET_PX;
     const stackedPoint = clientPoint ? { x: clientPoint.x + offset, y: clientPoint.y + offset } : null;
-    const media = { kind: 'image', asset: stored.asset, mime: 'image/webp', width: stored.width, height: stored.height, alt: file.name.slice(0, WHITEBOARD_LIMITS.line), hasPreview: false } as const;
-    const isPlaced = await editor?.placeMediaBox(titleOfImageFile(file), media, stackedPoint);
+    const media = { ...stored.media, alt: file.name.slice(0, WHITEBOARD_LIMITS.line) };
+    const isPlaced = await editor?.placeMediaBox(titleOfMediaFile(file), media, stackedPoint);
     if (!isPlaced) return;
   }
   status.clear();
 }
 
-function wireImageDrops(host: HTMLElement, canvas: HTMLElement): void {
+function wireMediaDrops(host: HTMLElement, canvas: HTMLElement): void {
   canvas.addEventListener('dragover', (event) => {
     if (!selectedBoardId || !event.dataTransfer?.types.includes('Files')) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = 'copy';
   });
   canvas.addEventListener('drop', (event) => {
-    const files = imageFilesOf(event.dataTransfer);
+    const files = mediaFilesOf(event.dataTransfer);
     if (files.length === 0) return;
     event.preventDefault();
-    void addImageFiles(files, { x: event.clientX, y: event.clientY });
+    void addMediaFiles(files, { x: event.clientX, y: event.clientY });
   });
   document.addEventListener('paste', (event) => {
     if (!host.checkVisibility() || isModalOpen() || isTextEntryFocused()) return;
-    const files = imageFilesOf(event.clipboardData);
+    const files = mediaFilesOf(event.clipboardData);
     if (files.length === 0) return;
     event.preventDefault();
-    void addImageFiles(files, null);
+    void addMediaFiles(files, null);
   });
 }
 
@@ -811,7 +825,7 @@ export function mountBoardHost(): HTMLElement {
   });
 
   document.addEventListener('keydown', (event) => onHistoryKey(host, event));
-  wireImageDrops(host, canvas);
+  wireMediaDrops(host, canvas);
   onBoardListChanged(paintList);
   onBoardChanged((boardId) => {
     if (boardId !== selectedBoardId) return;

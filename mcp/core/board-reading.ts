@@ -1,6 +1,6 @@
 import type { Board } from '../../shared/contracts/whiteboard.ts';
 import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
-import type { BoardLayout } from '../../shared/whiteboard-layout-core.ts';
+import type { BoardLayout, LaidOutMedia } from '../../shared/whiteboard-layout-core.ts';
 import { planSteps } from '../../shared/whiteboard-plan-core.ts';
 import { boardSvgDocument } from '../../shared/whiteboard-svg-core.ts';
 import type { AssetHref } from '../../shared/whiteboard-svg-core.ts';
@@ -29,7 +29,7 @@ type BoardPicture =
   | { ok: false; error: string };
 
 interface PictureImage {
-  asset: string;
+  media: LaidOutMedia;
   width: number;
   height: number;
 }
@@ -37,7 +37,7 @@ interface PictureImage {
 function pictureImagesOf(board: Board): PictureImage[] {
   const layout = layoutBoard(board);
   const scale = pictureScaleOf(layout);
-  return layout.elements.flatMap((element) => (element.kind === 'box' && element.media ? [{ asset: element.media.asset, width: element.media.width * scale, height: element.media.height * scale }] : []));
+  return layout.elements.flatMap((element) => (element.kind === 'box' && element.media ? [{ media: element.media, width: element.media.width * scale, height: element.media.height * scale }] : []));
 }
 
 function pictureScaleOf(layout: BoardLayout): number {

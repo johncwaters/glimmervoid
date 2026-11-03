@@ -49,18 +49,21 @@ export const WHITEBOARD_ASSET_ROUTE = '/whiteboards/assets';
 
 const AssetId = z.string().regex(/^[0-9a-f]{64}$/, { error: 'an asset is the 64 hex character id whiteboard attach returned' }).meta({ id: 'AssetId' });
 
-const BOARD_MEDIA_KINDS = ['image'] as const;
-const BOARD_MEDIA_MIMES = ['image/webp'] as const;
+const BOARD_MEDIA_KINDS = ['image', 'video', 'page'] as const;
+const BOARD_MEDIA_MIMES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml', 'video/mp4', 'video/webm', 'text/html'] as const;
+export const BOARD_MEDIA_MAX_EDGE_PX = 16384;
 
 const BoxMedia = z.object({
   kind: z.enum(BOARD_MEDIA_KINDS).describe('what the media is, as attach returned it'),
   asset: AssetId,
   mime: z.enum(BOARD_MEDIA_MIMES).describe('the media type, as attach returned it'),
-  width: z.number().int().min(1).max(4096).describe('the asset width in pixels, as attach returned it'),
-  height: z.number().int().min(1).max(4096).describe('the asset height in pixels, as attach returned it'),
+  width: z.number().int().min(1).max(BOARD_MEDIA_MAX_EDGE_PX).describe('the media width in pixels, as attach returned it'),
+  height: z.number().int().min(1).max(BOARD_MEDIA_MAX_EDGE_PX).describe('the media height in pixels, as attach returned it'),
   alt: z.string().max(WHITEBOARD_LIMITS.line, { error: `a media alt is at most ${WHITEBOARD_LIMITS.line} characters` }).default(''),
   hasPreview: z.boolean().default(false).describe('whether attach stored a smaller preview beside the original'),
 }).strict().meta({ id: 'BoxMedia' });
+
+export const BoardMediaUploadReply = z.object({ ok: z.literal(true), media: BoxMedia }).strict();
 
 export const Box = z.object({
   kind: z.literal('box'),
@@ -260,6 +263,19 @@ function withoutDefaults(schema: z.core.$ZodType, value: unknown): unknown {
     return [[key, withoutDefaults(fieldSchema, item)]];
   });
   return Object.fromEntries(sparseEntries);
+}
+
+const BOARD_MEDIA_EXTENSION_BY_MIME: Record<BoxMedia['mime'], string> = {
+  'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp', 'image/svg+xml': '.svg', 'video/mp4': '.mp4', 'video/webm': '.webm', 'text/html': '.html',
+};
+
+export function boardMediaOriginalFilename(media: Pick<BoxMedia, 'asset' | 'mime'>): string {
+  return `${media.asset}${BOARD_MEDIA_EXTENSION_BY_MIME[media.mime]}`;
+}
+
+export function boardMediaDrawnFilename(media: Pick<BoxMedia, 'kind' | 'asset' | 'mime' | 'hasPreview'>): string | null {
+  if (media.hasPreview) return `${media.asset}.preview.webp`;
+  return media.kind === 'image' ? boardMediaOriginalFilename(media) : null;
 }
 
 export function sparseBoardRecord(record: BoardRecord): unknown {
