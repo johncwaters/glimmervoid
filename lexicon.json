@@ -165,6 +165,10 @@
     {
       "name": "markup",
       "definition": "The doc editor's red pen mode, which shows a doc's CriticMarkup edits as teacher-style marks the operator accepts, rejects or adds to"
+    },
+    {
+      "name": "fix",
+      "definition": "A change that corrects an operator-visible defect, landed as a fix-type commit with a CHANGELOG entry"
     }
   ]
 }

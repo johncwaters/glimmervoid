@@ -3,6 +3,38 @@ import type { Board, BoardChange, BoardRecord, BoardSummary } from '../../shared
 import type { ApplyResult } from '../../shared/whiteboard-ops-core.ts';
 import type { AgentNote } from '../../shared/contracts/hooks.ts';
 
+type JsonObject = { [key: string]: unknown };
+
+interface ElementMigration {
+  element: unknown;
+  didMigrate: boolean;
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function mediaOfLegacyImage(image: unknown): unknown {
+  if (!isJsonObject(image)) return image;
+  return { kind: 'image', mime: 'image/webp', ...image };
+}
+
+function migratedElement(element: unknown): ElementMigration {
+  if (!isJsonObject(element) || !('image' in element)) return { element, didMigrate: false };
+  const { image, ...elementWithoutImage } = element;
+  return { element: { ...elementWithoutImage, media: mediaOfLegacyImage(image) }, didMigrate: true };
+}
+
+function migrateBoardRecordJson(raw: unknown): { record: unknown; didMigrate: boolean } {
+  const board = isJsonObject(raw) ? raw.board : null;
+  const elements = isJsonObject(board) ? board.elements : null;
+  if (!isJsonObject(raw) || !isJsonObject(board) || !isJsonObject(elements)) return { record: raw, didMigrate: false };
+  const migrations = Object.entries(elements).map(([elementId, element]) => [elementId, migratedElement(element)] as const);
+  if (!migrations.some(([, migration]) => migration.didMigrate)) return { record: raw, didMigrate: false };
+  const migratedElements = Object.fromEntries(migrations.map(([elementId, migration]) => [elementId, migration.element]));
+  return { record: { ...raw, board: { ...board, elements: migratedElements } }, didMigrate: true };
+}
+
 function lowestCursor(record: BoardRecord): number {
   const cursors = Object.values(record.cursorBySessionId);
   return cursors.length === 0 ? record.board.version : Math.min(...cursors);
@@ -151,4 +183,4 @@ function resolveBoardRef(boards: readonly Board[], ref: string): Board | { error
   return { error: `no board is called ${ref}: whiteboard list names the boards, and whiteboard new creates one` };
 }
 
-export { BOARD_CONTEXT_NOTE, changesForReader, connectSession, disconnectSession, markRead, nudgeLineFor, promptContextFor, recordPut, resolveBoardRef, summarizeBoard };
+export { BOARD_CONTEXT_NOTE, changesForReader, connectSession, disconnectSession, markRead, migrateBoardRecordJson, nudgeLineFor, promptContextFor, recordPut, resolveBoardRef, summarizeBoard };

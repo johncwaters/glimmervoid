@@ -1,5 +1,5 @@
 import { escapeMarkup } from './escape-markup.ts';
-import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutImage, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutPanel, LaidOutUnit, LaidOutWire } from './whiteboard-layout-core.ts';
+import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutMedia, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutPanel, LaidOutUnit, LaidOutWire } from './whiteboard-layout-core.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const BOX_TEXT_INSET = 12;
@@ -89,7 +89,6 @@ type AttributeValue = string | number;
 type AssetHref = (assetId: string) => string | null;
 
 const NO_ASSET_HREF: AssetHref = () => null;
-const IMAGE_PLACEHOLDER_TEXT = 'image';
 
 function attributesMarkup(attributes: Readonly<Record<string, AttributeValue | null>>): string {
   return Object.entries(attributes)
@@ -168,13 +167,14 @@ function boxOutlineMarkup(box: LaidOutBox): string {
   return tag('rect', { x: box.x, y: box.y, width: box.width, height: box.height, rx: 8, class: 'wb-box-outline', style: laneStroke(box.lane?.hex) });
 }
 
-function imageMarkup(image: LaidOutImage, assetHref: AssetHref): string[] {
-  const href = assetHref(image.asset);
-  const label = tag('title', {}, escapeMarkup(image.alt || IMAGE_PLACEHOLDER_TEXT));
-  if (href) return [tag('image', { href, x: image.x, y: image.y, width: image.width, height: image.height, preserveAspectRatio: 'xMidYMid meet', class: 'wb-image' }, label)];
+function mediaMarkup(media: LaidOutMedia, assetHref: AssetHref): string[] {
+  const href = assetHref(media.asset);
+  const placeholderText = media.alt || media.kind;
+  const label = tag('title', {}, escapeMarkup(placeholderText));
+  if (href) return [tag('image', { href, x: media.x, y: media.y, width: media.width, height: media.height, preserveAspectRatio: 'xMidYMid meet', class: 'wb-image' }, label)];
   return [
-    tag('rect', { x: image.x, y: image.y, width: image.width, height: image.height, rx: 6, class: 'wb-image-placeholder' }, label),
-    text(image.alt || IMAGE_PLACEHOLDER_TEXT, image.x + image.width / 2, image.y + image.height / 2 + 4, 'wb-image-placeholder-text', { 'text-anchor': 'middle' }),
+    tag('rect', { x: media.x, y: media.y, width: media.width, height: media.height, rx: 6, class: 'wb-image-placeholder' }, label),
+    text(placeholderText, media.x + media.width / 2, media.y + media.height / 2 + 4, 'wb-image-placeholder-text', { 'text-anchor': 'middle' }),
   ];
 }
 
@@ -194,7 +194,7 @@ function boxMarkup(box: LaidOutBox, assetHref: AssetHref): string {
   });
   const bodyTop = titleTop + box.titleLines.length * TITLE_LINE_HEIGHT;
   parts.push(...bodyLinesMarkup(box.bodyLines, box.x, box.width, bodyTop));
-  if (box.image) parts.push(...imageMarkup(box.image, assetHref));
+  if (box.media) parts.push(...mediaMarkup(box.media, assetHref));
   if (box.lane && box.showsLanePill) {
     const pillY = box.y + box.headerHeight - 28;
     const pillWidth = Math.min(box.width - BOX_TEXT_INSET * 2, 16 + box.lane.label.length * 8);
