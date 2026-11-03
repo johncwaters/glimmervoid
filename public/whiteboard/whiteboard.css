@@ -40,8 +40,7 @@
 }
 
 .wb-tool:focus-visible,
-.wb-board-title:focus-visible,
-.wb-svg:focus-visible {
+.wb-board-title:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -188,10 +187,10 @@
   line-height: 1;
 }
 
-.wb-svg[data-tool='box'],
-.wb-svg[data-tool='decision'],
-.wb-svg[data-tool='panel'],
-.wb-svg[data-tool='wire'] {
+.wb-viewport[data-tool='box'],
+.wb-viewport[data-tool='decision'],
+.wb-viewport[data-tool='panel'],
+.wb-viewport[data-tool='wire'] {
   cursor: crosshair;
 }
 
@@ -309,14 +308,34 @@
 
 [data-layout='phone'] .wb-empty-board-touch { display: inline; }
 
-.wb-svg {
-  display: block;
-  width: 100%;
-  height: 100%;
+.wb-viewport:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.wb-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
   touch-action: none;
   user-select: none;
-  font-family: var(--wb-font);
   cursor: grab;
+}
+
+.wb-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+}
+
+.wb-svg {
+  position: absolute;
+  display: block;
+  overflow: visible;
+  font-family: var(--wb-font);
 }
 
 .wb-empty {

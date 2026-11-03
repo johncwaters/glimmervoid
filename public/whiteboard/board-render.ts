@@ -103,8 +103,17 @@ export function createBoardRenderer(svg: SVGSVGElement): BoardRenderer {
     if (!existingMarker) node.append(lookMarker(element));
   }
 
+  function placeInWorld(bounds: BoardLayout['bounds']): void {
+    svg.setAttribute('viewBox', `${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`);
+    svg.setAttribute('width', String(bounds.width));
+    svg.setAttribute('height', String(bounds.height));
+    svg.style.left = `${bounds.x}px`;
+    svg.style.top = `${bounds.y}px`;
+  }
+
   function render(board: Board): BoardLayout {
     const layout = layoutBoard(board);
+    placeInWorld(layout.bounds);
     const nextChrome = nodeFromMarkup(chromeMarkup(layout));
     chrome.replaceWith(nextChrome);
     chrome = nextChrome;
