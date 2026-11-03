@@ -26,8 +26,9 @@ export function groupsOf(layout: FocusLayout): PaneGroup[] {
   return layout.kind === 'group' ? [layout] : [...layout.children];
 }
 
-export function trailGroupIndex(direction: PaneSplit['direction'] | null): number {
-  return direction === 'row' ? 1 : 0;
+export function trailGroupIndex(groups: readonly PaneGroup[]): number {
+  const terminalGroupIndex = groups.findIndex((group) => group.tabs.includes('terminal'));
+  return terminalGroupIndex === -1 ? 0 : terminalGroupIndex;
 }
 
 export function dropZoneAt(pointX: number, pointY: number, rect: { width: number; height: number }): DropZone {

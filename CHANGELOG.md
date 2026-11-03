@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Boards stay readable when fitted.** Fit no longer shrinks a large board until its text is too small to read in a short pane. It stops at a size where box text stays readable, starts from the board's top left, and you pan to see the rest. Boards that already fit at a readable size look the same as before.
+- **Changes stays with the terminal.** In a Focus split, the Changes button now sits on the terminal pane's tab strip wherever you put the terminal, so the board pane's strip holds only board tools. Before, stacking the board above the terminal moved Changes into the board's strip.
 - **Streamer mode leaves the header.** Turn it on or off in Settings, Sessions, Streamer mode, or with its keyboard shortcut; the header no longer has a streamer mode button.
 - **Hint cards are off by default.** Your day tips and feature suggestions no longer pop up on their own; the GitHub star request still shows once. They now sit behind the experimental Hint cards setting under Sessions, available on experimental builds.
 - **The star request shows only once.** Glimmervoid sends the GitHub star card a single time, ever, waiting for an open dashboard and for any other tip card to close so the one send is seen. It no longer comes back when you leave it unanswered: reloading, opening another tab or device, or restarting Glimmervoid never shows it again.

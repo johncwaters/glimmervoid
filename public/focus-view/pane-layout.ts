@@ -178,7 +178,7 @@ export function createPaneLayout(): PaneLayout {
     for (const tab of PANE_TABS) {
       if (!shownTabs.has(tab)) bodyByTab[tab].hidden = true;
     }
-    const trailIndex = trailGroupIndex(shown.direction);
+    const trailIndex = trailGroupIndex(shown.groups);
     element.dataset.direction = shown.direction ?? 'single';
     const visibleGroups = shown.groups.map((group, visibleIndex) => ({ group, parts: groupParts[visibleIndex] }));
     for (const { group, parts } of visibleGroups) {
