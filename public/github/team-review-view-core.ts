@@ -703,18 +703,18 @@ export function verdictRecommendation(verdict: ReviewDraft['verdict']): string {
   return `Agent recommends: ${actionLabel(leadingDecision(verdict)).toLowerCase()}`;
 }
 
-const AGENT_TEXT_SEPARATOR = ` ${String.fromCharCode(0xb7)} `;
+const FINDINGS_SUFFIX_LEAD = `${String.fromCharCode(0xb7)} `;
 
-export function queueRowAgentText(draft: Pick<ReviewDraft, 'verdict' | 'comments' | 'body'>): string {
-  const action = actionLabel(leadingDecision(draft.verdict)).toLowerCase();
+export function queueRowAgentParts(draft: Pick<ReviewDraft, 'verdict' | 'comments' | 'body'>): { verdictWord: string; findingsSuffix: string } {
+  const verdictWord = actionLabel(leadingDecision(draft.verdict));
   const postedSeverities = [
     ...draft.comments.filter(isIncludedByDefault).map(commentSeverity),
     ...generalFindingsOf(draft.body).map((finding) => finding.severity).filter(isSeverityIncludedByDefault),
   ];
-  if (postedSeverities.length === 0) return `${action}${AGENT_TEXT_SEPARATOR}no findings`;
+  if (postedSeverities.length === 0) return { verdictWord, findingsSuffix: `${FINDINGS_SUFFIX_LEAD}no findings` };
   const strongest = strongestFindingSeverity(postedSeverities.flatMap((severity) => (severity ? [severity] : [])));
   const count = `${postedSeverities.length} ${postedSeverities.length === 1 ? 'finding' : 'findings'}`;
-  return `${action}${AGENT_TEXT_SEPARATOR}${strongest ? `${count}, top ${strongest.toLowerCase()}` : count}`;
+  return { verdictWord, findingsSuffix: `${FINDINGS_SUFFIX_LEAD}${strongest ? `${count}, top ${strongest.toLowerCase()}` : count}` };
 }
 
 const CHECKS_TEXT: Readonly<Record<ReviewChecksState, string>> = Object.freeze({ SUCCESS: 'Passing', FAILURE: 'Failing', ERROR: 'Failing', PENDING: 'Running', EXPECTED: 'Running' });

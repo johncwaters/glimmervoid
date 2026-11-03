@@ -83,6 +83,8 @@ async function verifyRows(page: Page): Promise<void> {
     bottom: button.querySelector('.pr-queue-bottom')?.textContent,
     stateWord: button.querySelector('.pr-queue-state')?.textContent,
     stateTone: button.querySelector('.pr-queue-state')?.getAttribute('data-tone'),
+    findings: button.querySelector('.pr-queue-findings')?.textContent,
+    actionWords: button.querySelectorAll('.review-queue-action').length,
     glyphTone: button.querySelector('.pr-queue-glyph .pr-status-icon')?.getAttribute('data-tone'),
     authorAvatars: button.querySelectorAll('.pr-queue-author .avatar').length,
     reviewerAvatars: button.querySelectorAll('.pr-queue-reviewers .avatar').length,
@@ -94,6 +96,7 @@ async function verifyRows(page: Page): Promise<void> {
   assert.equal(rows.length, 10);
   for (const row of rows) {
     assert.equal(row.removedParts, 0);
+    assert.equal(row.actionWords, 0);
     const isDiscardedRow = row.key === 'Acme/app#6';
     assert.equal(row.children, isDiscardedRow ? 1 : 3);
     assert.equal(row.authorAvatars, isDiscardedRow ? 0 : 1);
@@ -104,8 +107,9 @@ async function verifyRows(page: Page): Promise<void> {
   }
   const nits = rows.find((row) => row.key === 'Acme/app#2');
   assert.ok(nits);
-  assert.equal(nits.stateWord, `approve ${String.fromCharCode(0xb7)} 1 finding`);
-  assert.doesNotMatch(nits.bottom ?? '', /since approval|drafted|resolved|Nits|Approve|Changes|Blocked/);
+  assert.equal(nits.stateWord, 'Approve');
+  assert.equal(nits.findings, `${String.fromCharCode(0xb7)} 1 finding`);
+  assert.doesNotMatch(nits.bottom ?? '', /since approval|drafted|resolved|Nits|Changes|Blocked/);
   assert.match(nits.title ?? '', /Acme\/app#2:.*\nWaits on you\n/s);
   assert.match(nits.accessibleName ?? '', /Nits, 2 comments/);
   assert.equal(nits.reviewerAvatars, 2);

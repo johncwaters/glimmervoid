@@ -274,6 +274,7 @@ html[data-layout="phone"] .pr-step { grid-template-columns: 5ch 8ch minmax(0, 1f
 .review-queue-action[data-tone="wait"] { color: var(--text-dim); }
 .review-queue-action[data-tone="ok"] { color: var(--state-complete); }
 .review-queue-action[data-tone="muted"] { color: var(--text-muted); }
+.pr-queue-findings { flex: none; color: var(--text-muted); white-space: nowrap; }
 .my-pr-stack-badge { display: inline-flex; align-items: center; gap: 4px; color: var(--text-muted); font-size: var(--type-meta); font-weight: 700; font-variant-numeric: tabular-nums; }
 .my-pr-stack-badge > .line-icon { width: 12px; height: 12px; }
 .my-pr-stack { display: flex; flex-direction: column; gap: 2px; }

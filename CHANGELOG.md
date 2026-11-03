@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Reviews reads calmer.** Rows in the Reviews queue no longer start with a colored Fix or Review word, since the Your turn heading already says they need you. A ready review row now colors only its verdict, such as Approve, and shows its finding count in plain gray beside it.
 - **Community reads Discord conversations better.** When one member sends a question across several messages in a row in the same channel, Community now treats them as one question instead of judging each line apart. The question judge also learns which messages are replies and how many members they mention, so back-and-forth between members stays out of the queue. The log now says why each Discord event was skipped.
 - **Community rates how-to answers on what they need.** Research no longer marks a draft MEDIUM just because it had no project id, customer data or internal access. A how-to question answered from the docs and code can now reach HIGH, and only an answer that truly depends on that data is held back.
 - **Lanes say when they run without PostHog.** When PostHog is set up but its read-only safety check fails, a background lane such as Community or Radar now logs a warning that it is running without PostHog. Before, it just ran without PostHog and said nothing.

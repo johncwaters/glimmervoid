@@ -14,7 +14,7 @@ import { createReviewSetupCard } from './review-setup-card.ts';
 import { createReviewSkillNotice } from './review-skill-notice.ts';
 import { subscribeSettings } from '../settings/settings-store.ts';
 import {
-  QUEUE_ACTION_LABELS, QUEUE_ACTION_TONES, caughtUpText, chooseQueueSelection, combinedPollingStatus, nextTurnKey,
+  caughtUpText, chooseQueueSelection, combinedPollingStatus, nextTurnKey,
   queueItemActivityEntry, queueItemByKey, reviewKeyActionOf, spansMultipleRepos, steppedRowKey, turnItems, turnPositionText,
 } from './review-queue-core.ts';
 import type { QueueGroup, QueueItem, ReviewKeyAction } from './review-queue-core.ts';
@@ -195,11 +195,6 @@ function createItemRow(item: QueueItem, isTurn: boolean, hasMultipleRepos: boole
   row.dataset.queueKey = item.key;
   row.setAttribute('aria-current', String(item.key === selectedKey));
   if (item.key === justActedKey) row.dataset.justActed = 'true';
-  if (item.action) {
-    const actionLabel = el('span', 'review-queue-action', QUEUE_ACTION_LABELS[item.action]);
-    actionLabel.dataset.tone = QUEUE_ACTION_TONES[item.action];
-    row.querySelector('.pr-queue-top')?.prepend(actionLabel);
-  }
   const entry = queueItemActivityEntry(item);
   if (isTurn && isQueueEntryUnseen(entry)) {
     const activity = el('span', 'tab-activity active pr-queue-unseen');
