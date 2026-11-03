@@ -622,6 +622,8 @@ test('kimi plan limits poll /usages read-only while a kimi session is live, rare
   const planLimitBroadcasts: Record<string, unknown>[] = [];
   const sessions = new Map([['kimi-card', { agentId: 'kimi', hasLivePty: true }]]);
   let intervalTick = () => {};
+  const { readPlanLimits } = createKimiPlanLimitsReader({ env: { KIMI_CODE_HOME: kimiHome }, homeDir: directory, fetchFn, nowFn: () => nowMs, logger: { warn: () => {}, log: () => {} } });
+  const pendingPlanLimitReads: Promise<unknown>[] = [];
   const wiring = createUsageWiring({
     config: {},
     sessions,
@@ -630,7 +632,11 @@ test('kimi plan limits poll /usages read-only while a kimi session is live, rare
     },
     createScanner: () => scriptedScanner([], [COMPLETE_PASS]),
     loadPricingFn: async () => ({ table: new Map(), source: 'snapshot', fetchedAt: null }),
-    readKimiPlanLimits: createKimiPlanLimitsReader({ env: { KIMI_CODE_HOME: kimiHome }, homeDir: directory, fetchFn, nowFn: () => nowMs, logger: { warn: () => {}, log: () => {} } }).readPlanLimits,
+    readKimiPlanLimits: () => {
+      const read = readPlanLimits();
+      pendingPlanLimitReads.push(read);
+      return read;
+    },
     nowFn: () => nowMs,
     setIntervalFn: (run) => {
       intervalTick = run;
@@ -642,7 +648,10 @@ test('kimi plan limits poll /usages read-only while a kimi session is live, rare
     await wiring.stop();
     await realFsp.rm(directory, { recursive: true, force: true });
   });
-  const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+  const settle = async () => {
+    await Promise.allSettled(pendingPlanLimitReads.splice(0));
+    await new Promise((resolve) => setImmediate(resolve));
+  };
 
   await wiring.start();
   await wiring.requestReport();
