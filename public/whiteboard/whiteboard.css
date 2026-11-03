@@ -576,6 +576,18 @@
   font-size: var(--type-body);
 }
 
+.wb-image-placeholder {
+  fill: color-mix(in oklab, var(--accent) 8%, var(--wb-board));
+  stroke: var(--wb-ink-dim);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+
+.wb-image-placeholder-text {
+  fill: var(--wb-ink-dim);
+  font-size: var(--type-meta);
+}
+
 .wb-element.is-selected .wb-box-outline,
 .wb-element.is-selected .wb-frame-outline,
 .wb-element.is-selected .wb-note-card,

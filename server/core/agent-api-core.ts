@@ -401,6 +401,7 @@ const WHITEBOARD_SUBCOMMANDS: readonly CommandSpec[] = [
     missingArgumentHint: 'render needs a board and --out, for example "glimmervoid whiteboard render flow --out flow.svg"',
   },
   { name: 'resolve', summary: 'Mark a note on a board resolved', positionals: { usage: '<board> <note>', min: 2, max: null } },
+  { name: 'attach', summary: 'Store a PNG, JPEG, WebP or GIF file and print the image a box takes to draw it', positionals: { usage: '<image path>', min: 1, max: null } },
   { name: 'delete', summary: 'Delete a board this session created; the operator deletes any board from the dashboard', positionals: BOARD_REFERENCE },
   { name: 'plan', summary: 'Lay out units of work on a board in dependency order, beside its free drawing', subcommands: PLAN_SUBCOMMANDS, missingArgumentHint: null },
 ];

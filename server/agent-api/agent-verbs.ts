@@ -194,7 +194,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     'link-pr': (session, { pullRequestKey }) => linkPr(session, pullRequestKey),
     settings: (_session, request) => settings(request),
     why: (session, { target }) => why(session, target),
-    whiteboard: (session, request) => (whiteboards ? whiteboards.handleAgent({ id: session.id, name: session.name }, request) : refusal(503, 'whiteboards are not available in this Glimmervoid')),
+    whiteboard: (session, request) => (whiteboards ? whiteboards.handleAgent({ id: session.id, name: session.name, cwd: session.effectiveCwd(), remoteWorkspace: session.remoteWorkspace }, request) : refusal(503, 'whiteboards are not available in this Glimmervoid')),
   };
 
   return { handlers, roleFactsOf };

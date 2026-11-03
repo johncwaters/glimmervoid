@@ -44,6 +44,8 @@ const PLAN_BAND_GAP = 40;
 const UNIT_LABEL_HEIGHT = 18;
 const BAND_HEADER_HEIGHT = 26;
 const BAND_GAP = 24;
+const IMAGE_GAP = 8;
+const IMAGE_MAX_HEIGHT = 320;
 
 const LANE_HEX_BY_COLOR = Object.freeze({
   blue: '#60a5fa', green: '#4ade80', orange: '#fb923c', pink: '#f472b6', cyan: '#22d3ee', yellow: '#facc15',
@@ -74,6 +76,12 @@ interface LaidOutBox extends Rect {
   shape: Box['shape'];
   headerHeight: number;
   outputs: LaidOutOutput[];
+  image: LaidOutImage | null;
+}
+
+interface LaidOutImage extends Rect {
+  asset: string;
+  alt: string;
 }
 
 interface LaidOutOutput {
@@ -243,15 +251,30 @@ function isGridBox(box: Box): box is Box & { column: string } {
   return box.column !== null && box.at === null && box.near === null;
 }
 
+function imageSizeOf(box: Box): { width: number; height: number } | null {
+  if (!box.image) return null;
+  const width = COLUMN_WIDTH - BOX_PADDING * 2;
+  const height = Math.min(IMAGE_MAX_HEIGHT, Math.max(1, Math.round(width * box.image.height / box.image.width)));
+  return { width, height };
+}
+
+function laidOutImage(box: Box, position: Point, imageTop: number, imageSize: { width: number; height: number } | null): LaidOutImage | null {
+  if (!box.image || !imageSize) return null;
+  return { asset: box.image.asset, alt: box.image.alt, x: position.x + BOX_PADDING, y: position.y + imageTop, width: imageSize.width, height: imageSize.height };
+}
+
 function boxShape(board: Board, box: Box) {
   const titleLines = wrapText(box.title, TITLE_CHARS_PER_LINE);
   const wasLines = box.change === 'relabeled' && box.was ? wrapText(box.was, TITLE_CHARS_PER_LINE) : [];
   const bodyLines = laidOutLines(box.lines);
   const lane = laneOf(board, box);
   const showsLanePill = lane !== null && !isGridBox(box);
-  const headerHeight = BOX_PADDING * 2 + (wasLines.length + titleLines.length) * TITLE_LINE_HEIGHT + bodyLines.length * BODY_LINE_HEIGHT + (showsLanePill ? LANE_PILL_HEIGHT + 6 : 0);
+  const textHeight = BOX_PADDING + (wasLines.length + titleLines.length) * TITLE_LINE_HEIGHT + bodyLines.length * BODY_LINE_HEIGHT;
+  const imageSize = imageSizeOf(box);
+  const imageRoom = imageSize ? imageSize.height + IMAGE_GAP : 0;
+  const headerHeight = textHeight + BOX_PADDING + imageRoom + (showsLanePill ? LANE_PILL_HEIGHT + 6 : 0);
   const outputs = box.shape === 'decision' ? box.outputs : [];
-  return { titleLines, wasLines, bodyLines, lane, showsLanePill, headerHeight, outputs, height: headerHeight + outputs.length * OUTPUT_ROW_HEIGHT };
+  return { titleLines, wasLines, bodyLines, lane, showsLanePill, headerHeight, outputs, imageTop: textHeight + IMAGE_GAP, imageSize, height: headerHeight + outputs.length * OUTPUT_ROW_HEIGHT };
 }
 
 function elementsOfKind<Kind extends Element['kind']>(board: Board, kind: Kind): Extract<Element, { kind: Kind }>[] {
@@ -359,7 +382,7 @@ function laidOutBox(board: Board, box: Box, position: Point): LaidOutBox {
   return {
     kind: 'box', id: box.id, x: position.x, y: position.y, width: COLUMN_WIDTH, height: shape.height,
     titleLines: shape.titleLines, bodyLines: shape.bodyLines, lane: shape.lane, showsLanePill: shape.showsLanePill, change: box.change, wasLines: shape.wasLines,
-    shape: box.shape, headerHeight: shape.headerHeight,
+    shape: box.shape, headerHeight: shape.headerHeight, image: laidOutImage(box, position, shape.imageTop, shape.imageSize),
     outputs: shape.outputs.map((output, index) => ({
       id: output.id, label: output.label,
       port: { x: position.x + COLUMN_WIDTH, y: position.y + shape.headerHeight + index * OUTPUT_ROW_HEIGHT + OUTPUT_ROW_HEIGHT / 2 },
@@ -741,4 +764,4 @@ function elementSignature(element: LaidOutElement): string {
 }
 
 export { elementSignature, layoutBoard };
-export type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutPanel, LaidOutUnit, LaidOutWire, Rect };
+export type { BoardLayout, LaidOutBox, LaidOutImage, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutPanel, LaidOutUnit, LaidOutWire, Rect };

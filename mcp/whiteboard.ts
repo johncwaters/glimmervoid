@@ -1,8 +1,9 @@
 import type { AgentApiPort } from '../server/agent-api-wiring.ts';
 import type { Session } from '../session/sessions.ts';
 import { Board } from '../shared/contracts/whiteboard.ts';
-import { boardPicture, boardReading } from './core/board-reading.ts';
+import { boardPicture, boardReading, pictureImagesOf } from './core/board-reading.ts';
 import type { ToolImageResult } from './core/tool-result.ts';
+import type { WhiteboardAssetStore } from '../server/whiteboard/whiteboard-assets.ts';
 
 type AgentReply = { status: number; body: Record<string, unknown> };
 
@@ -30,11 +31,23 @@ async function boardReplyWithReading(session: Session, agentApi: AgentApiPort, p
   return { status: reply.status, body: { ...reply.body, readingVersion: board.version, ...boardReading(board) } };
 }
 
-async function boardPictureResult(session: Session, agentApi: AgentApiPort, payload: Record<string, unknown>): Promise<AgentReply | ToolImageResult> {
+async function embeddedImagesOf(board: Board, assets: WhiteboardAssetStore | null): Promise<Map<string, string>> {
+  const dataUriByAssetId = new Map<string, string>();
+  if (!assets) return dataUriByAssetId;
+  for (const image of pictureImagesOf(board)) {
+    if (dataUriByAssetId.has(image.asset)) continue;
+    const dataUri = await assets.dataUriOf(image.asset, image.width, image.height);
+    if (dataUri) dataUriByAssetId.set(image.asset, dataUri);
+  }
+  return dataUriByAssetId;
+}
+
+async function boardPictureResult(session: Session, agentApi: AgentApiPort, assets: WhiteboardAssetStore | null, payload: Record<string, unknown>): Promise<AgentReply | ToolImageResult> {
   const reply = await peekBoard(session, agentApi, payload.board);
   const board = boardOf(reply);
   if (!board) return reply;
-  const picture = boardPicture(board);
+  const dataUriByAssetId = await embeddedImagesOf(board, assets);
+  const picture = boardPicture(board, (assetId) => dataUriByAssetId.get(assetId) ?? null);
   if (!picture.ok) return { status: 413, body: picture };
   const { svgDocument, svgDensity, maxPixels, reading } = picture;
   const { default: sharp } = await import('sharp');

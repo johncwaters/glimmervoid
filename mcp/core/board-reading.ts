@@ -3,6 +3,7 @@ import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
 import type { BoardLayout } from '../../shared/whiteboard-layout-core.ts';
 import { planSteps } from '../../shared/whiteboard-plan-core.ts';
 import { boardSvgDocument } from '../../shared/whiteboard-svg-core.ts';
+import type { AssetHref } from '../../shared/whiteboard-svg-core.ts';
 
 interface BoardReading {
   plan: ReturnType<typeof planSteps>;
@@ -27,15 +28,31 @@ type BoardPicture =
   | { ok: true; svgDocument: string; svgDensity: number; maxPixels: number; reading: BoardReading }
   | { ok: false; error: string };
 
-function boardPicture(board: Board): BoardPicture {
+interface PictureImage {
+  asset: string;
+  width: number;
+  height: number;
+}
+
+function pictureImagesOf(board: Board): PictureImage[] {
+  const layout = layoutBoard(board);
+  const scale = pictureScaleOf(layout);
+  return layout.elements.flatMap((element) => (element.kind === 'box' && element.image ? [{ asset: element.image.asset, width: element.image.width * scale, height: element.image.height * scale }] : []));
+}
+
+function pictureScaleOf(layout: BoardLayout): number {
+  return Math.min(1, PICTURE_MAX_WIDTH_PX / layout.bounds.width, PICTURE_MAX_HEIGHT_PX / layout.bounds.height);
+}
+
+function boardPicture(board: Board, assetHref?: AssetHref): BoardPicture {
   const layout = layoutBoard(board);
   const { width, height } = layout.bounds;
-  const svgDensity = SVG_POINTS_PER_INCH * Math.min(1, PICTURE_MAX_WIDTH_PX / width, PICTURE_MAX_HEIGHT_PX / height);
+  const svgDensity = SVG_POINTS_PER_INCH * pictureScaleOf(layout);
   if (svgDensity < MIN_SVG_DENSITY) {
     return { ok: false, error: `the board spans ${Math.round(width)} by ${Math.round(height)} units, too large to picture; move far-off elements closer` };
   }
-  return { ok: true, svgDocument: boardSvgDocument(layout), svgDensity, maxPixels: PICTURE_MAX_PIXELS, reading: readingOf(board, layout) };
+  return { ok: true, svgDocument: boardSvgDocument(layout, assetHref), svgDensity, maxPixels: PICTURE_MAX_PIXELS, reading: readingOf(board, layout) };
 }
 
-export { boardPicture, boardReading };
+export { boardPicture, boardReading, pictureImagesOf };
 export type { BoardPicture, BoardReading };

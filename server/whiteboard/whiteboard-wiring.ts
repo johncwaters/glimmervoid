@@ -21,6 +21,8 @@ import {
 import { loadJsonStateFile, writeJsonAtomic } from '../json-file.ts';
 import { createKeyedSerialQueue } from '../spawn-gate.ts';
 import { errorMessage } from '../../shared/text.ts';
+import { createWhiteboardAssetStore } from './whiteboard-assets.ts';
+import type { WhiteboardAssetStore } from './whiteboard-assets.ts';
 
 const WHITEBOARDS_FOLDER_NAME = 'whiteboards';
 const BOARD_FILE_EXTENSION = '.json';
@@ -34,6 +36,7 @@ const PUT_GUIDE = [
   '{"op":"set","id":"parse","fields":{"title":"Parse feed"}},{"op":"remove","id":"w1"}]\'.',
   'Pick the layout that fits what you draw; the example shows op syntax, not a preferred shape.',
   'Element kinds: box (title, column, lane, near, at, lines, refs, change none|added|removed|relabeled, was, order, shape box|decision, outputs), wire (from, to, fromOutput, dashed, tone plain|fail|join|lane, label, fromSide and toSide left|right|top|bottom, back), frame (title, contains, loop), note (on, text, ref), unit (title, lines, refs, status, after, linkedBoardId), panel (title, lines, order) for side notes such as prior art, stacked right of the board.',
+  'To draw a picture, run glimmervoid whiteboard attach <image path> (PNG, JPEG, WebP or GIF) and set the image it returns on a box, as in "image":{"asset":"<id>","width":800,"height":600,"alt":"login screen"}; it draws under the box lines.',
   'A line takes style text|code|item|numbered|kv; kv needs a key, as in {"style":"kv","key":"timeout","text":"30s"}, and numbered lines count up through each run.',
   'Units lay out work in dependency order: glimmervoid whiteboard plan add|after|show edits and reads them.',
   'Every box needs one place: column and lane on a grid of columns and lane row bands, set by a columns op such as {"op":"columns","columns":[{"id":"intake","title":"Intake"}]} and a lanes op such as {"op":"lanes","lanes":[{"id":"pr1","label":"PR 1","color":"blue"}]} before any box names them; near another box with near {"of":"parse","side":"right|left|top|bottom","gap":60}; or at {"x","y"} pixels.',
@@ -51,6 +54,8 @@ const PUT_GUIDE = [
 interface WhiteboardCaller {
   id: string;
   name: string;
+  cwd?: string;
+  remoteWorkspace?: string | null;
 }
 
 interface WhiteboardReply {
@@ -91,6 +96,7 @@ interface CodeContext {
 
 interface WhiteboardPort {
   loaded: Promise<void>;
+  assets: WhiteboardAssetStore;
   handleAgent(caller: WhiteboardCaller, request: WhiteboardAgentRequest): Promise<WhiteboardReply>;
   handleOperator: {
     create(title: string): Promise<OperatorReply>;
@@ -135,7 +141,8 @@ function createWhiteboardWiring({
   const recordsByBoardId = new Map<string, BoardRecord>();
   const deletedBoardIds = new Set<string>();
   const writeQueue = createKeyedSerialQueue();
-  const loaded = loadBoards();
+  const assets = createWhiteboardAssetStore({ boardsRoot, logger });
+  const loaded = Promise.all([loadBoards(), assets.loaded]).then(() => {});
 
   async function loadBoards(): Promise<void> {
     const filenames = await fsp.readdir(boardsRoot).catch((): string[] => []);
@@ -244,6 +251,13 @@ function createWhiteboardWiring({
       return isNewLink && unit.linkedBoardId !== null && !recordsByBoardId.has(unit.linkedBoardId);
     });
     if (strandedUnit) return { ok: false, error: `unit ${strandedUnit.id} links to board ${strandedUnit.linkedBoardId ?? ''}, which does not exist` };
+    const unstoredImage = Object.values(result.board.elements).flatMap((element) => {
+      if (element.kind !== 'box' || element.image === null) return [];
+      const before = record.board.elements[element.id];
+      const isNewImage = before?.kind !== 'box' || before.image?.asset !== element.image.asset;
+      return isNewImage && !assets.has(element.image.asset) ? [{ boxId: element.id, asset: element.image.asset }] : [];
+    })[0];
+    if (unstoredImage) return { ok: false, error: `box ${unstoredImage.boxId} names image ${unstoredImage.asset}, which no whiteboard attach stored` };
     const next = recordPut(record, result);
     const patch: WhiteboardPatch = {
       type: 'whiteboard-patch', boardId: record.board.id, fromVersion: record.board.version, toVersion: next.board.version,
@@ -425,9 +439,19 @@ function createWhiteboardWiring({
     return context.text;
   }
 
+  async function attachImage(caller: WhiteboardCaller, requestedPath: string): Promise<WhiteboardReply> {
+    if (caller.remoteWorkspace) return refusal(409, `attach reads files on the Glimmervoid machine, and this session runs in the Coder workspace ${caller.remoteWorkspace}, so its files are not there`);
+    const ingested = await assets.ingestFile(path.resolve(caller.cwd ?? boardsRoot, requestedPath));
+    if (!ingested.ok) return refusal(ingested.status, ingested.error);
+    const { asset, width, height } = ingested;
+    const note = `put a box with "image":{"asset":"${asset}","width":${width},"height":${height},"alt":"<what it shows>"} to draw it`;
+    return { status: 200, body: { ok: true, asset, width, height, note } };
+  }
+
   async function handleAgent(caller: WhiteboardCaller, request: WhiteboardAgentRequest): Promise<WhiteboardReply> {
     await loaded;
     if (request.sub === 'new') return createBoardFor(caller, request.title);
+    if (request.sub === 'attach') return attachImage(caller, request.path);
     if (request.sub === 'list') {
       return { status: 200, body: { ok: true, boards: [...recordsByBoardId.values()].map(summarizeBoard) } };
     }
@@ -444,7 +468,7 @@ function createWhiteboardWiring({
     }
   }
 
-  return { loaded, handleAgent, handleOperator, forgetSession, forgetClosedSessions, takePromptContext, isConnected, snapshotMessage };
+  return { loaded, assets, handleAgent, handleOperator, forgetSession, forgetClosedSessions, takePromptContext, isConnected, snapshotMessage };
 }
 
 export { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME };

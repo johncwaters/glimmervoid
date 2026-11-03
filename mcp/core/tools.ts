@@ -85,6 +85,11 @@ function whiteboardRoute(sub: string, keys: readonly string[], { required = [], 
   return { verb: 'whiteboard', presenter, required, accepts: keys, hints, toPayload: (toolArguments) => ({ sub, ...definedEntries(toolArguments, keys) }) };
 }
 
+function attachPayload(toolArguments: ToolArguments, context: CallContext): Record<string, unknown> {
+  if (typeof toolArguments.path !== 'string') return { sub: 'attach' };
+  return { sub: 'attach', path: context.resolveSessionPath(toolArguments.path) };
+}
+
 function boardPictureRoute(): ActionRoute {
   return {
     verb: 'whiteboard', presenter: 'board-picture', required: ['board'], accepts: ['board'], hints: READS,
@@ -123,7 +128,7 @@ const SESSION_TOOL: GroupedTool = {
 const WHITEBOARD_TOOL: GroupedTool = {
   name: 'whiteboard',
   title: 'Glimmervoid whiteboards',
-  description: 'Draw diagrams, architecture maps and plans on a shared whiteboard the operator sees and edits on the dashboard; prefer it to a diagram in chat. new creates a board and list names them; every other action needs a board that exists, so call list or new first. get reads one with what changed since this session last read it, view returns a picture of it as the operator sees it, put applies element ops (add, set, remove; a unit element is a plan step); get and put also return the plan steps in build order and any layout warnings to fix, connect and disconnect follow a board\'s changes, resolve closes a note, delete removes a board this session created.',
+  description: 'Draw diagrams, architecture maps and plans on a shared whiteboard the operator sees and edits on the dashboard; prefer it to a diagram in chat. new creates a board and list names them; every other action needs a board that exists, so call list or new first. get reads one with what changed since this session last read it, view returns a picture of it as the operator sees it, put applies element ops (add, set, remove; a unit element is a plan step); get and put also return the plan steps in build order and any layout warnings to fix, connect and disconnect follow a board\'s changes, resolve closes a note, delete removes a board this session created, attach stores a PNG, JPEG, WebP or GIF file and returns the image a box takes to draw it.',
   loadsUpfront: true,
   fields: {
     board: BoardField.optional(),
@@ -132,6 +137,7 @@ const WHITEBOARD_TOOL: GroupedTool = {
     note: z.string().min(1).max(200).optional().describe('resolve: the note element id'),
     peek: z.boolean().optional().describe('get: read without marking changes as seen; view never marks them'),
     review: z.boolean().optional().describe('get: include the plan review against the code session'),
+    path: z.string().min(1).max(4096).optional().describe('attach: the image file, absolute or relative to this session\'s directory'),
   },
   actions: {
     list: whiteboardRoute('list', [], { hints: READS }),
@@ -143,6 +149,7 @@ const WHITEBOARD_TOOL: GroupedTool = {
     disconnect: whiteboardRoute('disconnect', ['board'], { required: ['board'], hints: REWRITES }),
     resolve: whiteboardRoute('resolve', ['board', 'note'], { required: ['board', 'note'], hints: REWRITES }),
     delete: whiteboardRoute('delete', ['board'], { required: ['board'], hints: { ...DESTROYS, idempotent: true } }),
+    attach: { verb: 'whiteboard', required: ['path'], accepts: ['path'], hints: { ...WRITES, idempotent: true }, toPayload: attachPayload },
   },
 };
 

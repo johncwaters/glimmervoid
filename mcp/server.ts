@@ -7,6 +7,7 @@ import type { Express, Request, Response } from 'express';
 import type { AgentApiPort } from '../server/agent-api-wiring.ts';
 import { REFUSAL_REASON, REFUSAL_STATUS, decideAgentRequest } from '../server/core/agent-api-core.ts';
 import type { ShownFilesPort } from '../server/session/shown-files-wiring.ts';
+import type { WhiteboardAssetStore } from '../server/whiteboard/whiteboard-assets.ts';
 import type { Session } from '../session/sessions.ts';
 import { parsePresentedCredential } from './core/credentials.ts';
 import { boardReplyWithoutCommandGuide, settingsListForMcp, spawnReplyForMcp } from './core/replies.ts';
@@ -24,10 +25,14 @@ const SERVER_NAME = 'glimmervoid';
 const TOOL_SURFACE_VERSION = '1';
 const LOADS_UPFRONT_META_KEY = 'anthropic/alwaysLoad';
 
-interface AgentMcpDependencies {
+interface FileStores {
+  getShownFiles(): ShownFilesPort | null;
+  getWhiteboardAssets(): WhiteboardAssetStore | null;
+}
+
+interface AgentMcpDependencies extends FileStores {
   getSession(id: string): Session | null;
   getAgentApi(): AgentApiPort | null;
-  getShownFiles(): ShownFilesPort | null;
   isLoopback(req: Request): boolean;
   isOriginAllowed(req: Request): boolean;
   logger: Pick<Console, 'warn'>;
@@ -48,10 +53,9 @@ function callContextFor(session: Session, agentApi: AgentApiPort): CallContext {
   };
 }
 
-interface CallTarget {
+interface CallTarget extends FileStores {
   session: Session;
   agentApi: AgentApiPort;
-  getShownFiles(): ShownFilesPort | null;
 }
 
 type PresentedReply = AgentReply | ToolImageResult;
@@ -74,7 +78,7 @@ const PRESENTERS: Readonly<Record<Presenter, (target: CallTarget, verb: AgentApi
   'agent-reply': ({ session, agentApi }, verb, payload) => agentApi.handle(session, verb, payload),
   'show-by-path': ({ session, agentApi, getShownFiles }, _verb, payload) => showByPath(session, agentApi, getShownFiles(), showPathRequest(payload)),
   'board-with-reading': ({ session, agentApi }, _verb, payload) => boardReplyWithReading(session, agentApi, payload),
-  'board-picture': ({ session, agentApi }, _verb, payload) => boardPictureResult(session, agentApi, payload),
+  'board-picture': ({ session, agentApi, getWhiteboardAssets }, _verb, payload) => boardPictureResult(session, agentApi, getWhiteboardAssets(), payload),
   'spawn-reply': reshapedReply(spawnReplyForMcp),
   'board-without-command-guide': reshapedReply(boardReplyWithoutCommandGuide),
   'settings-list': reshapedReply(settingsListForMcp),
@@ -84,7 +88,7 @@ function toolResultOf(presented: PresentedReply) {
   return 'content' in presented ? presented : toolResultFromReply(presented);
 }
 
-function registerGroupedTool(server: McpServer, tool: GroupedTool, session: Session, agentApi: AgentApiPort, getShownFiles: () => ShownFilesPort | null): void {
+function registerGroupedTool(server: McpServer, tool: GroupedTool, session: Session, agentApi: AgentApiPort, stores: FileStores): void {
   const actionNames = allowedActionNames(tool, (verb) => agentApi.refuseRole(session, verb) === null);
   if (actionNames.length === 0) return;
   server.registerTool(tool.name, {
@@ -96,13 +100,13 @@ function registerGroupedTool(server: McpServer, tool: GroupedTool, session: Sess
   }, async (toolArguments: ToolArguments) => {
     const route = routeToolCall(tool, toolArguments, callContextFor(session, agentApi));
     if (!route.ok) return toolErrorResult(route.error);
-    return toolResultOf(await PRESENTERS[route.presenter]({ session, agentApi, getShownFiles }, route.verb, route.payload));
+    return toolResultOf(await PRESENTERS[route.presenter]({ session, agentApi, getShownFiles: stores.getShownFiles, getWhiteboardAssets: stores.getWhiteboardAssets }, route.verb, route.payload));
   });
 }
 
-function buildSessionServer(session: Session, agentApi: AgentApiPort, getShownFiles: () => ShownFilesPort | null): McpServer {
+function buildSessionServer(session: Session, agentApi: AgentApiPort, stores: FileStores): McpServer {
   const server = new McpServer({ name: SERVER_NAME, version: TOOL_SURFACE_VERSION }, { instructions: SERVER_INSTRUCTIONS, capabilities: { tools: { listChanged: false } } });
-  for (const tool of GROUPED_TOOLS) registerGroupedTool(server, tool, session, agentApi, getShownFiles);
+  for (const tool of GROUPED_TOOLS) registerGroupedTool(server, tool, session, agentApi, stores);
   return server;
 }
 
@@ -123,7 +127,7 @@ function mountAgentMcp(app: Express, dependencies: AgentMcpDependencies): void {
     const session = authInfo ? dependencies.getSession(authInfo.clientId) : null;
     const agentApi = dependencies.getAgentApi();
     if (!session || !agentApi) throw new Error('the MCP request lost its session');
-    return buildSessionServer(session, agentApi, dependencies.getShownFiles);
+    return buildSessionServer(session, agentApi, dependencies);
   }, { onerror: (error) => dependencies.logger.warn(`[mcp] ${error.message}`) });
   const nodeHandler = toNodeHandler(handler, { onerror: (error) => dependencies.logger.warn(`[mcp] ${error.message}`) });
   const answer = (req: AuthenticatedRequest, res: Response) => {

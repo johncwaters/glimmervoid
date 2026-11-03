@@ -45,6 +45,17 @@ const Output = z.object({
   label: z.string().min(1, { error: 'an output needs a label' }).max(30, { error: 'an output label is at most 30 characters' }),
 }).strict().meta({ id: 'Output' });
 
+export const WHITEBOARD_ASSET_ROUTE = '/whiteboards/assets';
+
+const AssetId = z.string().regex(/^[0-9a-f]{64}$/, { error: 'an asset is the 64 hex character id whiteboard attach returned' }).meta({ id: 'AssetId' });
+
+const BoxImage = z.object({
+  asset: AssetId,
+  width: z.number().int().min(1).max(4096).describe('the asset width in pixels, as attach returned it'),
+  height: z.number().int().min(1).max(4096).describe('the asset height in pixels, as attach returned it'),
+  alt: z.string().max(WHITEBOARD_LIMITS.line, { error: `an image alt is at most ${WHITEBOARD_LIMITS.line} characters` }).default(''),
+}).strict().meta({ id: 'BoxImage' });
+
 export const Box = z.object({
   kind: z.literal('box'),
   id: ElementId,
@@ -60,6 +71,7 @@ export const Box = z.object({
   at: Point.nullable().default(null).describe('place: a point on the board'),
   shape: z.enum(['box', 'decision']).default('box').describe('decision draws a diamond with outputs'),
   outputs: z.array(Output).max(8, { error: 'a decision has at most 8 outputs' }).default([]).describe('decision branches; a wire leaves one through fromOutput'),
+  image: BoxImage.nullable().default(null).describe('a picture drawn under the lines, from whiteboard attach'),
 }).strict().describe('a box needs one place: column, near or at');
 
 export const Frame = z.object({
@@ -194,7 +206,8 @@ export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
   }).strict(),
   z.object({ sub: z.literal('resolve'), board: BoardRef, note: ElementId }).strict(),
   z.object({ sub: z.literal('delete'), board: BoardRef }).strict(),
-], { error: 'whiteboard takes new, list, connect, disconnect, get, put, resolve or delete' });
+  z.object({ sub: z.literal('attach'), path: z.string().min(1, { error: 'attach needs the image path' }).max(4096) }).strict(),
+], { error: 'whiteboard takes new, list, connect, disconnect, get, put, resolve, delete or attach' });
 
 export const BoardReview = z.object({
   codeSessionId: z.string().nullable(),
@@ -211,6 +224,7 @@ export const WhiteboardAgentReply = z.union([
   z.object({ ok: z.literal(true), boards: z.array(BoardSummary) }).strict(),
   z.object({ ok: z.literal(true), board: Board, changes: z.array(BoardChange), review: BoardReview.optional() }).strict(),
   z.object({ ok: z.literal(true), version: z.number().int(), warnings: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings).optional() }).strict(),
+  z.object({ ok: z.literal(true), asset: AssetId, width: z.number().int(), height: z.number().int(), note: z.string() }).strict(),
 ]);
 
 function isDefaultValue(value: unknown, defaultValue: unknown): boolean {

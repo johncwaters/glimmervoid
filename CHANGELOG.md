@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Boxes on a board can hold a picture.** A session runs `glimmervoid whiteboard attach <image>` (or the whiteboard tool's attach action) with a PNG, JPEG, WebP or GIF file, then puts a box with the image it gets back, and the board draws the picture under the box's lines. Pictures are shrunk to at most 1600 pixels, stripped of their metadata, and stored once beside your boards however many boxes show them. The board picture a session views includes them too. SVG files are refused.
+
 ### Changed
 
 - **The GitHub token step says exactly what to grant.** The read-only token step in Community and Team review setup now lists the repository access, permissions and expiration to choose, and its Create a token on GitHub link opens GitHub's form with the name, read-only Contents, Issues and Pull requests, and a 90 day expiration already filled in.

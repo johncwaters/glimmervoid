@@ -62,6 +62,7 @@ function whiteboardBody({ commandPath, positionals, values }: ParsedArguments): 
   if (subcommand === 'list') return { sub: 'list' };
   if (subcommand === 'new') return joined ? { sub: 'new', title: joined } : null;
   if (subcommand === 'connect' || subcommand === 'disconnect' || subcommand === 'get' || subcommand === 'delete') return joined ? { sub: subcommand, board: joined } : null;
+  if (subcommand === 'attach') return joined ? { sub: 'attach', path: path.resolve(joined) } : null;
   const [board, ...argumentWords] = positionals;
   const opsFilePath = typeof values.file === 'string' ? values.file : null;
   if (!board || (argumentWords.length === 0 && opsFilePath === null)) return null;

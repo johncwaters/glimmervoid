@@ -333,6 +333,43 @@ test('an agent puts ops from a file, reads the laid-out positions and renders th
   assert.deepEqual(changes.map((change) => change.summary), [`${BUILDER_ID} renamed "Save" to "Save rows"`]);
 });
 
+test('an agent attaches a picture once by content, a box draws it from the served asset, and a put naming an unstored asset or an svg attach is refused', async (context) => {
+  const { default: sharp } = await import('sharp');
+  const plannerDir = path.join(fixture.tmpDir, PLANNER_ID);
+  await sharp({ create: { width: 640, height: 320, channels: 3, background: '#c084fc' } }).png().toFile(path.join(plannerDir, 'shot.png'));
+  fs.writeFileSync(path.join(plannerDir, 'mark.svg'), '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
+  const boardId = await newBoard('pictures');
+
+  const attached = await runPlannerCli(context, ['whiteboard', 'attach', path.join(plannerDir, 'shot.png')]);
+  assert.equal(attached.exitCode, 0, attached.printed);
+  const { asset, width, height } = JSON.parse(attached.printed) as { asset: string; width: number; height: number };
+  const image = { asset, width, height };
+  assert.deepEqual([image.width, image.height], [640, 320]);
+  const again = await whiteboard(PLANNER_ID, { sub: 'attach', path: 'shot.png' });
+  assert.equal(again.body.asset, image.asset);
+
+  const put = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
+    { op: 'add', element: { kind: 'box', id: 'login', title: 'Login', column: 'intake', image: { ...image, alt: 'login screen' } } },
+  ] });
+  assert.equal(put.status, 200, JSON.stringify(put.body));
+  const { board } = await boardOf(PLANNER_ID, boardId);
+  assert.deepEqual(board.elements.login?.image, { asset: image.asset, width: 640, height: 320, alt: 'login screen' });
+  const served = await fetch(`${running().base}/whiteboards/assets/${image.asset}.webp`);
+  assert.equal(served.status, 200);
+  assert.equal(served.headers.get('content-type'), 'image/webp');
+  assert.equal((await fetch(`${running().base}/whiteboards/assets/${'0'.repeat(64)}.webp`)).status, 404);
+
+  const unstored = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'login', fields: { image: { ...image, asset: 'f'.repeat(64) } } }] });
+  assert.equal(unstored.status, 400);
+  assert.match(String(unstored.body.error), /no whiteboard attach stored/);
+  const svg = await whiteboard(PLANNER_ID, { sub: 'attach', path: 'mark.svg' });
+  assert.equal(svg.status, 415);
+  fs.writeFileSync(path.join(plannerDir, 'huge.png'), Buffer.alloc(26 * 1024 * 1024));
+  const huge = await whiteboard(PLANNER_ID, { sub: 'attach', path: 'huge.png' });
+  assert.equal(huge.status, 413);
+  assert.match(String(huge.body.error), /huge\.png is larger than the 25 MB/);
+});
+
 test('refs are checked in the code session worktree: a missing file, a line past the end and a path leaving the worktree land as warnings that get --layout repeats', async (context) => {
   const worktree = path.join(fixture.tmpDir, PLANNER_ID);
   fs.mkdirSync(path.join(worktree, 'src'), { recursive: true });

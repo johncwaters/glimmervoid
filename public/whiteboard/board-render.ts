@@ -1,3 +1,4 @@
+import { WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
 import type { Board } from '#shared/contracts/whiteboard.ts';
 import { elementSignature, layoutBoard } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout, LaidOutElement } from '#shared/whiteboard-layout-core.ts';
@@ -44,6 +45,10 @@ function nodeFromMarkup(trustedMarkup: string): SVGGElement {
   const [node] = nodesFromMarkup(trustedMarkup);
   if (!(node instanceof SVGGElement)) throw new Error('the whiteboard markup did not draw a group');
   return node;
+}
+
+function servedAssetHref(assetId: string): string {
+  return `${WHITEBOARD_ASSET_ROUTE}/${assetId}.webp`;
 }
 
 const LAYER_BY_KIND: Record<LaidOutElement['kind'], LayerName> = { frame: 'frames', wire: 'wires', box: 'boxes', panel: 'boxes', note: 'notes', unit: 'units' };
@@ -108,7 +113,7 @@ export function createBoardRenderer(svg: SVGSVGElement): BoardRenderer {
       const signature = elementSignature(element);
       const rendered = renderedById.get(element.id);
       if (rendered?.signature === signature) continue;
-      const node = nodeFromMarkup(elementMarkup(element));
+      const node = nodeFromMarkup(elementMarkup(element, servedAssetHref));
       paintSelection(element.id, node);
       paintReviewMarks(element, node);
       if (rendered) rendered.node.replaceWith(node);

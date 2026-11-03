@@ -186,6 +186,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     },
     getAgentApi: () => agentApi,
     getShownFiles: () => shownFiles,
+    getWhiteboardAssets: () => whiteboards.assets,
     sshSigner,
     recordOutcome,
     logger: console,

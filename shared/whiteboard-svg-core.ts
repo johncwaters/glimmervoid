@@ -1,5 +1,5 @@
 import { escapeMarkup } from './escape-markup.ts';
-import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutPanel, LaidOutUnit, LaidOutWire } from './whiteboard-layout-core.ts';
+import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutImage, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutPanel, LaidOutUnit, LaidOutWire } from './whiteboard-layout-core.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const BOX_TEXT_INSET = 12;
@@ -80,9 +80,16 @@ svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospac
 .wb-resolved { opacity: 0.5; }
 .wb-legend-text { fill: #a79fc4; font-size: 12px; }
 .wb-caption { fill: #a79fc4; font-size: 14px; }
+.wb-image-placeholder { fill: #221d3a; stroke: #4a4268; stroke-width: 1; stroke-dasharray: 4 4; }
+.wb-image-placeholder-text { fill: #a79fc4; font-size: 12px; }
 `;
 
 type AttributeValue = string | number;
+
+type AssetHref = (assetId: string) => string | null;
+
+const NO_ASSET_HREF: AssetHref = () => null;
+const IMAGE_PLACEHOLDER_TEXT = 'image';
 
 function attributesMarkup(attributes: Readonly<Record<string, AttributeValue | null>>): string {
   return Object.entries(attributes)
@@ -161,7 +168,17 @@ function boxOutlineMarkup(box: LaidOutBox): string {
   return tag('rect', { x: box.x, y: box.y, width: box.width, height: box.height, rx: 8, class: 'wb-box-outline', style: laneStroke(box.lane?.hex) });
 }
 
-function boxMarkup(box: LaidOutBox): string {
+function imageMarkup(image: LaidOutImage, assetHref: AssetHref): string[] {
+  const href = assetHref(image.asset);
+  const label = tag('title', {}, escapeMarkup(image.alt || IMAGE_PLACEHOLDER_TEXT));
+  if (href) return [tag('image', { href, x: image.x, y: image.y, width: image.width, height: image.height, preserveAspectRatio: 'xMidYMid meet', class: 'wb-image' }, label)];
+  return [
+    tag('rect', { x: image.x, y: image.y, width: image.width, height: image.height, rx: 6, class: 'wb-image-placeholder' }, label),
+    text(image.alt || IMAGE_PLACEHOLDER_TEXT, image.x + image.width / 2, image.y + image.height / 2 + 4, 'wb-image-placeholder-text', { 'text-anchor': 'middle' }),
+  ];
+}
+
+function boxMarkup(box: LaidOutBox, assetHref: AssetHref): string {
   const parts = [boxOutlineMarkup(box), ...outputRowsMarkup(box)];
   const midX = box.x + box.width / 2;
   const midY = box.y + box.height / 2;
@@ -177,6 +194,7 @@ function boxMarkup(box: LaidOutBox): string {
   });
   const bodyTop = titleTop + box.titleLines.length * TITLE_LINE_HEIGHT;
   parts.push(...bodyLinesMarkup(box.bodyLines, box.x, box.width, bodyTop));
+  if (box.image) parts.push(...imageMarkup(box.image, assetHref));
   if (box.lane && box.showsLanePill) {
     const pillY = box.y + box.headerHeight - 28;
     const pillWidth = Math.min(box.width - BOX_TEXT_INSET * 2, 16 + box.lane.label.length * 8);
@@ -242,9 +260,9 @@ function unitMarkup(unit: LaidOutUnit): string {
   return elementGroup(unit, 'wb-unit', parts);
 }
 
-function elementMarkup(element: LaidOutElement): string {
+function elementMarkup(element: LaidOutElement, assetHref: AssetHref = NO_ASSET_HREF): string {
   switch (element.kind) {
-    case 'box': return boxMarkup(element);
+    case 'box': return boxMarkup(element, assetHref);
     case 'frame': return frameMarkup(element);
     case 'wire': return wireMarkup(element);
     case 'note': return noteMarkup(element);
@@ -296,9 +314,9 @@ function arrowDefinitionsMarkup(): string {
 
 const LAYER_ORDER: readonly LaidOutElement['kind'][] = ['frame', 'wire', 'box', 'panel', 'note', 'unit'];
 
-function boardSvgDocument(layout: BoardLayout): string {
+function boardSvgDocument(layout: BoardLayout, assetHref: AssetHref = NO_ASSET_HREF): string {
   const { x, y, width, height } = layout.bounds;
-  const layers = LAYER_ORDER.map((kind) => tag('g', { class: 'wb-layer' }, layout.elements.filter((element) => element.kind === kind).map(elementMarkup).join('')));
+  const layers = LAYER_ORDER.map((kind) => tag('g', { class: 'wb-layer' }, layout.elements.filter((element) => element.kind === kind).map((element) => elementMarkup(element, assetHref)).join('')));
   const body = [
     tag('style', {}, STANDALONE_STYLE),
     arrowDefinitionsMarkup(),
@@ -309,4 +327,5 @@ function boardSvgDocument(layout: BoardLayout): string {
   return `${tag('svg', { xmlns: SVG_NAMESPACE, viewBox: `${x} ${y} ${width} ${height}`, width, height }, body)}\n`;
 }
 
+export type { AssetHref };
 export { arrowDefinitionsMarkup, boardSvgDocument, chromeMarkup, elementMarkup, SVG_NAMESPACE };
