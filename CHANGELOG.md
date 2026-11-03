@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.51.0] - 2026-11-03
+
 ### Added
 
 - **Team review works without a GitHub team.** If you are not on a GitHub team, Reviews setup now offers Only requests to me: pick one of your GitHub organizations, or type one, and team review drafts a review of each pull request in that organization that requests your review directly. The organization is also the new GitHub organization setting under Settings, Team review. The Review skill step and the Pick a review skill notice now say the skill is optional, since reviews run without one.
