@@ -73,6 +73,9 @@ function linkedBoardIdOf(target: EventTarget | null): string | null {
 }
 
 const MAX_FIT_ZOOM = 2;
+const BOX_LINE_FONT_UNITS = 12;
+const MIN_READABLE_FONT_PX = 10;
+const MAX_READABLE_UNITS_PER_PIXEL = BOX_LINE_FONT_UNITS / MIN_READABLE_FONT_PX;
 
 export function createBoardEditor(options: BoardEditorOptions) {
   const { svg, canvas, renderer } = options;
@@ -124,13 +127,15 @@ export function createBoardEditor(options: BoardEditorOptions) {
     isFitOwedOnceSized = false;
     const band = islandFreeBand();
     const maxZoom = layout.elements.length === 0 ? 1 : MAX_FIT_ZOOM;
-    const unitsPerPixel = Math.max(1 / maxZoom, bounds.width / canvasWidth, bounds.height / band.heightPx);
+    const wholeBoardUnitsPerPixel = Math.max(1 / maxZoom, bounds.width / canvasWidth, bounds.height / band.heightPx);
+    const isWholeBoardTooSmallToRead = wholeBoardUnitsPerPixel > MAX_READABLE_UNITS_PER_PIXEL;
+    const unitsPerPixel = isWholeBoardTooSmallToRead ? MAX_READABLE_UNITS_PER_PIXEL : wholeBoardUnitsPerPixel;
     const viewWidth = canvasWidth * unitsPerPixel;
     const boardCenterY = bounds.y + bounds.height / 2;
     const bandCenterPx = band.topPx + band.heightPx / 2;
     viewBox = {
-      x: bounds.x - (viewWidth - bounds.width) / 2,
-      y: boardCenterY - bandCenterPx * unitsPerPixel,
+      x: bounds.x - Math.max(0, viewWidth - bounds.width) / 2,
+      y: isWholeBoardTooSmallToRead ? bounds.y - band.topPx * unitsPerPixel : boardCenterY - bandCenterPx * unitsPerPixel,
       width: viewWidth,
       height: canvasHeight * unitsPerPixel,
     };
