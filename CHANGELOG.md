@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.50.0] - 2026-11-03
+
 ### Added
 
 - **A one-time star request.** After you have sent 5 prompts to your sessions, the dashboard shows a small tip card asking whether you would give Glimmervoid a star on GitHub. Star on GitHub opens the repository in a new tab, and Dismiss closes it; either way it never comes back. Left unanswered, it shows again the next time you open the dashboard. Prompts from background lanes do not count.
