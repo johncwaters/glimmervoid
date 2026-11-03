@@ -3456,8 +3456,9 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 .session-card-header > .pane-strip, .session-card-header > .pane-strip > .pane-tabs { display: contents; }
 .session-card[data-borrowed] .session-card-header:has(> .pane-strip) { padding-left: 0; }
 .session-card-header > .pane-strip .pane-tab { position: relative; align-self: stretch; }
-.session-card-header > .pane-strip .pane-tab[data-tab="terminal"] { order: -40; padding-left: 22px; }
-.session-card-header > .pane-strip .pane-tab[data-tab="terminal"]::before { content: ''; position: absolute; left: 8px; top: 50%; width: 6px; height: 12px; translate: 0 -50%; background-image: radial-gradient(circle, var(--border-hover) 1px, transparent 1.2px); background-size: 3px 3px; }
+.pane-tab[data-tab="terminal"] { position: relative; width: 22px; padding: 0; }
+.session-card-header > .pane-strip .pane-tab[data-tab="terminal"] { order: -40; }
+.pane-tab[data-tab="terminal"]::before { content: ''; position: absolute; left: 8px; top: 50%; width: 6px; height: 12px; translate: 0 -50%; background-image: radial-gradient(circle, var(--border-hover) 1px, transparent 1.2px); background-size: 3px 3px; }
 .session-card-header > .pane-strip .pane-tab[data-tab="board"] { order: -38; margin-left: 13px; }
 .session-card-header > .pane-strip .pane-tab[data-tab="board"]::before { content: ''; position: absolute; left: -7px; top: 50%; width: 1px; height: 18px; translate: 0 -50%; background: var(--border-dim); }
 .session-card-header > .pane-strip > .pane-trail { order: 10; flex: 0 1 auto; margin-left: 0; }
