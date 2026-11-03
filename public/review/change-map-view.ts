@@ -1,4 +1,6 @@
 import type { ConflictRisk } from '#shared/contracts/change-map.ts';
+import { createPressable } from '../ui/pressable.ts';
+import { button } from '../ui/button.ts';
 import { el } from '../dom-helpers.ts';
 import type { ChangeMapView, FileHint, WorthALookGroup, WorthALookLine } from '#shared/change-map-view-core.ts';
 
@@ -6,8 +8,7 @@ const WORTH_A_LOOK_VISIBLE_MAX = 5;
 const CONFLICT_RISK_LABEL: Record<ConflictRisk, string> = { high: 'High', medium: 'Medium', low: 'Low' };
 
 function worthALookRow(line: WorthALookLine, onOpenFile: (openPath: string) => void) {
-  const row = el('button', 'review-look-line', line.path);
-  row.type = 'button';
+  const row = createPressable('review-look-line', line.path);
   row.title = `${line.detail} Click to open ${line.path} below.`;
   row.addEventListener('click', () => onOpenFile(line.openPath));
   return row;
@@ -49,9 +50,7 @@ export function renderWorthALook(view: ChangeMapView, { isShowingAll, onShowAll,
   const hiddenGroupCount = view.worthALook.length - visibleGroups.length;
   if (hiddenGroupCount === 0) return section;
   const more = el('div', 'review-look-more');
-  const showAll = el('button', 'review-look-show-all', 'Show all');
-  showAll.type = 'button';
-  showAll.addEventListener('click', onShowAll);
+  const showAll = button({ variant: 'quiet', size: 'small', label: 'Show all', action: 'show-all-worth-a-look', onClick: onShowAll });
   more.append(el('span', 'review-look-more-count', `+${hiddenGroupCount} more`), showAll);
   section.append(more);
   return section;

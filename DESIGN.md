@@ -107,7 +107,7 @@ Shadows and glows exist for exactly two jobs: lifting true overlays (dialogs, me
 Every interactive element ships default, hover, focus-visible, active, and disabled states. Focus is always a visible 2px orchid outline with an offset; it is never removed without replacement.
 
 ### Buttons
-Every action button is `button()` from `public/ui/button.ts` (look in `public/ui/button.css`); `tests/gates/ui-primitives.test.ts` fails on a hand-rolled one.
+Every action button is `button()` from `public/ui/button.ts`, and a link drawn as a button is `linkButton()` beside it (look in `public/ui/button.css`); `tests/gates/ui-primitives.test.ts` fails on a hand-rolled one.
 - **Look:** flat, nearly square (`--radius`), uppercase tracked mono like the card face tabs, so an action reads as an instrument control, not a web link.
 - **Variants:** primary (orchid outline, the one forward action in a group), secondary (base border, Cancel, Edit, Copy), danger (red-tinted outline, an action that loses work, always behind a confirm), quiet (no border, a low-stakes extra), icon (square, glyph only, label carried as the accessible name and hover tip).
 - **Sizes:** default for dialogs and panels, small for dense rows and card chrome. The phone layout draws default buttons 44px tall and small ones 32px; on a coarse pointer an invisible extension brings any smaller button's hit area to 44px.

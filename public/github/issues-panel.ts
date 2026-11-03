@@ -1,4 +1,6 @@
 import './issues-panel.css';
+import { createPressable } from '../ui/pressable.ts';
+import { button, linkButton } from '../ui/button.ts';
 import { paintActionStatus } from '../action-status.ts';
 import { githubPrByKey, subscribeGithubPrs } from './github-prs-store.ts';
 import { createAuthorOrgTag, el, externalLink, isMonitoringState, isPanelHidden, isRealInputOwningKey } from '../dom-helpers.ts';
@@ -75,8 +77,7 @@ function createAge(timestampMs: number, className: string): HTMLElement {
 function buildIssueRow(input: IssueStepInput, list: IssueList): HTMLButtonElement {
   const { issue } = input;
   const status = issueStatusOf(input);
-  const row = el('button', 'issues-row');
-  row.type = 'button';
+  const row = createPressable('issues-row');
   row.dataset.issueKey = issue.key;
   row.dataset.group = status.group;
   row.append(
@@ -103,12 +104,10 @@ function buildTableHead(): HTMLElement {
 function buildOtherListLink(list: IssueList, count: number): HTMLElement {
   const otherList = OTHER_LIST[list];
   const line = el('div', 'issues-other-list');
-  const link = el('button', 'pr-action pr-action-ghost issues-small-action', LIST_TITLE[otherList]);
-  link.type = 'button';
-  link.addEventListener('click', () => {
+  const link = button({ variant: 'secondary', label: LIST_TITLE[otherList], action: 'show-other-list', onClick: () => {
     reportIssuesAction('step');
     showList(otherList);
-  });
+  } });
   line.append(link, el('span', 'issues-other-list-count', `${count} ${count === 1 ? 'issue' : 'issues'}`));
   return line;
 }
@@ -140,15 +139,12 @@ function renderList(): void {
   if (focusedKey) rowElements().find((row) => row.dataset.issueKey === focusedKey)?.focus({ preventScroll: true });
 }
 
-function actionButton(label: string, className: string, onClick: () => void): HTMLButtonElement {
-  const button = el('button', `${className} issues-small-action`, label);
-  button.type = 'button';
-  button.addEventListener('click', onClick);
-  return button;
+function actionButton(label: string, onClick: () => void): HTMLButtonElement {
+  return button({ variant: 'primary', label, onClick });
 }
 
 function openSessionButton(sessionId: string): HTMLButtonElement {
-  return actionButton('Open session', 'pr-action', () => {
+  return actionButton('Open session', () => {
     reportIssuesAction('go-to-session');
     selectSession(sessionId);
   });
@@ -161,7 +157,7 @@ function reviewPullRequestButton(issue: IssueRow, status: HTMLElement): HTMLButt
   });
   const prKey = pullRequest ? pullRequestKeyFromReference(pullRequest.url) : null;
   if (!pullRequest || !prKey) return null;
-  return actionButton('Review PR', 'pr-action', () => {
+  return actionButton('Review PR', () => {
     reportIssuesAction('open-reviews');
     if (showPrInReviewQueue(prKey)) return;
     paintActionStatus(status, 'error', `PR #${pullRequest.number} is not in the Reviews queue. Open it on GitHub.`);
@@ -169,29 +165,29 @@ function reviewPullRequestButton(issue: IssueRow, status: HTMLElement): HTMLButt
 }
 
 function issueStateButton(issue: IssueRow, label: string, state: 'closed' | 'open'): HTMLButtonElement {
-  const button = actionButton(label, 'pr-action', () => setIssueState(issue, state));
-  button.disabled = isChangingIssueState(issue);
-  return button;
+  const stateButton = actionButton(label, () => setIssueState(issue, state));
+  stateButton.disabled = isChangingIssueState(issue);
+  return stateButton;
 }
 
 function startSessionButton(issue: IssueRow): HTMLButtonElement | null {
   if (!issue.projectId) return null;
-  const button = actionButton('Start session', 'pr-action', () => {
+  const startButton = actionButton('Start session', () => {
     reportIssuesAction('open-session');
     if (liveIssueSession(issue)) return;
     openIssueSession(issue);
   });
-  button.disabled = isOpeningIssue(issue);
-  return button;
+  startButton.disabled = isOpeningIssue(issue);
+  return startButton;
 }
 
 function primaryActions(issue: IssueRow, step: IssueStep, status: HTMLElement): HTMLElement[] {
   if (isIssueClosed(issue)) return [issueStateButton(issue, 'Reopen issue', 'open')];
   const sessionButton = liveIssueSession(issue) && issue.sessionId ? openSessionButton(issue.sessionId) : null;
-  if (step === 'review') return [reviewPullRequestButton(issue, status), sessionButton].filter((button) => button !== null);
-  if (step === 'close') return [issueStateButton(issue, 'Close issue', 'closed'), sessionButton].filter((button) => button !== null);
+  if (step === 'review') return [reviewPullRequestButton(issue, status), sessionButton].filter((actionControl) => actionControl !== null);
+  if (step === 'close') return [issueStateButton(issue, 'Close issue', 'closed'), sessionButton].filter((actionControl) => actionControl !== null);
   if (sessionButton) return [sessionButton];
-  return [startSessionButton(issue)].filter((button) => button !== null);
+  return [startSessionButton(issue)].filter((actionControl) => actionControl !== null);
 }
 
 function buildPageActions(issue: IssueRow, step: IssueStep): HTMLElement {
@@ -199,7 +195,7 @@ function buildPageActions(issue: IssueRow, step: IssueStep): HTMLElement {
   const status = el('span', 'pr-action-status issue-open-status');
   status.setAttribute('role', 'status');
   footer.append(...primaryActions(issue, step, status));
-  footer.append(externalLink('pr-action pr-action-ghost issues-small-action', 'View on GitHub', issue.url));
+  if (issue.url) footer.append(linkButton({ variant: 'secondary', label: 'View on GitHub', href: issue.url }));
   const outcome = actionOutcomeOfIssue(issue);
   const fallback = issue.projectId ? '' : `Add a project for ${issue.repo} in Settings to start sessions from here.`;
   paintActionStatus(status, outcome?.tone ?? null, outcome?.text ?? fallback);
@@ -255,9 +251,7 @@ function renderIssuePage(): void {
   const step = issueStepOf(input);
   const article = el('article', 'issues-page');
   article.dataset.renderKey = issuePageRenderKey(issue);
-  const back = el('button', 'pr-action pr-action-ghost issues-small-action issues-back', 'Back to issues');
-  back.type = 'button';
-  back.addEventListener('click', returnToList);
+  const back = button({ variant: 'secondary', label: 'Back to issues', action: 'back-to-issues', onClick: returnToList });
   const body = el('section', 'issue-body');
   body.setAttribute('aria-label', 'Description');
   body.append(renderPlanBlocks(parsePlanMarkdown(issueBodyText(issue))));
@@ -306,7 +300,7 @@ function openIssuePage(issue: IssueRow, cameFrom: IssueList): void {
   page = { kind: 'issue', cameFrom };
   render();
   if (pageHost) pageHost.scrollTop = 0;
-  pageHost?.querySelector<HTMLElement>('.issues-back')?.focus({ preventScroll: true });
+  pageHost?.querySelector<HTMLElement>('[data-action="back-to-issues"]')?.focus({ preventScroll: true });
 }
 
 function returnToList(): void {

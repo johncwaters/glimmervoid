@@ -1,4 +1,5 @@
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
+import { button } from '../ui/button.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { isSkillChoicePending, readTeamReviewEnvironment, teamReviewSuggestions } from '../settings/team-review-settings-core.ts';
@@ -15,8 +16,7 @@ export function createReviewSkillNotice() {
   label.htmlFor = selectId;
   const select = el('select', 'dialog-input review-skill-notice-select');
   select.id = selectId;
-  const saveButton = el('button', 'btn-dialog btn-dialog-confirm', 'Save skill');
-  saveButton.type = 'button';
+  const saveButton = button({ variant: 'primary', label: 'Save skill' });
   const saveStatus = createActionStatus();
   element.append(label, select, saveButton, saveStatus.element);
   let renderedOptionsSignature = '';

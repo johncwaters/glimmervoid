@@ -78,7 +78,7 @@ export async function readOriginFile(originPath: string, fileName: string): Prom
 
 async function readReviewBarPlaces(page: Page): Promise<number[]> {
   await page.locator('.review-bar:not([hidden])').waitFor();
-  return page.evaluate(() => ['.pane-tab[data-tab="terminal"]', '.review-bar-changes', '.review-bar-merge'].map((selector) => document.querySelector(selector)?.getBoundingClientRect().left ?? -1));
+  return page.evaluate(() => ['.pane-tab[data-tab="terminal"]', '.review-bar [data-action="open-changes"]', '.review-bar [data-action="merge-session"]'].map((selector) => document.querySelector(selector)?.getBoundingClientRect().left ?? -1));
 }
 
 async function waitForReaderStatus(page: Page, sentence: string): Promise<void> {
@@ -133,11 +133,11 @@ export async function verifyReviewMerge(page: Page, projectDirectory: string, up
   const sessionId = await page.locator('#focus-pane-terminal .session-card').getAttribute('data-id');
   assert.ok(sessionId, 'a session is centered in Focus');
 
-  await page.locator('.review-bar-merge:enabled').waitFor({ timeout: MERGE_ENABLED_TIMEOUT_MS });
+  await page.locator('.review-bar [data-action="merge-session"]:enabled').waitFor({ timeout: MERGE_ENABLED_TIMEOUT_MS });
   assert.deepEqual(await readReviewBarPlaces(page), placesBeforeChanges, 'Terminal, Changes and Merge hold their place while the review status changes');
   await openChangesReader(page);
   const mergeButtonAfterClick = await page.evaluate(() => {
-    const mergeButton = document.querySelector<HTMLButtonElement>('.review-reader .review-btn-primary');
+    const mergeButton = document.querySelector<HTMLButtonElement>('.review-reader [data-action="merge-session"]');
     mergeButton?.click();
     return { isDisabled: mergeButton?.disabled ?? null, label: mergeButton?.textContent?.trim() ?? null };
   });

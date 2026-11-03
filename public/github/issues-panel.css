@@ -31,11 +31,10 @@
 .issues-empty { margin: 0; padding: 22px 10px; border-bottom: 1px solid var(--border-dim); color: var(--text-dim); }
 .issues-other-list { display: flex; align-items: center; gap: 12px; margin-top: 22px; padding: 0 10px; }
 .issues-other-list-count { color: var(--text-muted); font-variant-numeric: tabular-nums; }
-.issues-content .issues-small-action { min-height: 28px; padding: 0 12px; font-size: var(--type-meta); font-weight: 400; }
 .issues-sync { flex: 1 1 160px; color: var(--text-muted); font-size: var(--type-meta); }
 .issues-page-host { flex: 1 0 auto; width: 100%; }
 .issues-page { display: flex; flex-direction: column; gap: 18px; max-width: 760px; padding: 18px 0 32px; }
-.issues-content .issues-page .issues-back { display: inline-flex; align-self: flex-start; }
+.issues-content .issues-page > [data-action="back-to-issues"] { align-self: flex-start; }
 .issues-page-title { margin: 0; color: var(--text-head); font-size: var(--type-title); line-height: 1.3; overflow-wrap: anywhere; }
 .issues-ref-line { margin: -12px 0 0; color: var(--text-muted); overflow-wrap: anywhere; }
 .issues-inline-link { color: var(--text-dim); text-decoration: none; border-bottom: 1px solid var(--border-hover); overflow-wrap: anywhere; }

@@ -1,4 +1,6 @@
 import { repoNameForPath } from '#shared/change-map-view-core.ts';
+import { createPressable } from '../ui/pressable.ts';
+import { button } from '../ui/button.ts';
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
 import { renderFileHints, renderWorthALook } from './change-map-view.ts';
 import type { ReaderFile } from './review-reader-core.ts';
@@ -31,13 +33,6 @@ let isWorthALookShowingAll = false;
 let onOverlayClosed: (() => void) | null = null;
 const levelListeners = new Set<() => void>();
 
-function readerButton(label: string, className: string, onClick: () => void) {
-  const button = el('button', className, label);
-  button.type = 'button';
-  button.addEventListener('click', onClick);
-  return button;
-}
-
 function buildReader(): ReaderParts {
   const root = el('section', 'review-reader');
   root.setAttribute('aria-label', 'Changes');
@@ -49,13 +44,13 @@ function buildReader(): ReaderParts {
   const notice = el('p', 'review-reader-notice');
   notice.setAttribute('role', 'status');
   const actions = el('div', 'review-reader-actions');
-  const mergeButton = readerButton('Merge', 'review-btn review-btn-primary', () => {
+  const mergeButton = button({ variant: 'primary', label: 'Merge', action: 'merge-session', onClick: () => {
     if (shownSessionId) mergeSession(shownSessionId);
-  });
-  const discardButton = readerButton('Discard', 'review-btn review-btn-danger', () => {
+  } });
+  const discardButton = button({ variant: 'danger', label: 'Discard', action: 'discard-session', onClick: () => {
     if (shownSessionId) discardSession(shownSessionId);
-  });
-  const closeButton = readerButton('Close', 'review-btn', closeReviewOverlay);
+  } });
+  const closeButton = button({ variant: 'secondary', label: 'Close', action: 'close-reader', onClick: closeReviewOverlay });
   actions.append(mergeButton, discardButton, closeButton);
   bar.append(status, notice, actions);
   const body = el('div', 'review-reader-body');
@@ -193,8 +188,7 @@ function totalsLine(totals: SessionReview['totals']) {
 }
 
 function fileRow(file: ReaderFile, review: SessionReview) {
-  const row = el('button', 'review-reader-file');
-  row.type = 'button';
+  const row = createPressable('review-reader-file');
   row.dataset.path = file.path;
   row.setAttribute('role', 'listitem');
   row.setAttribute('aria-current', String(file.path === selectedPath));

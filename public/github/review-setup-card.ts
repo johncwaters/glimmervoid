@@ -1,4 +1,5 @@
 import type { GithubTeam, OperatorActionOf } from '#shared/contracts/control-messages.ts';
+import { button } from '../ui/button.ts';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
@@ -34,12 +35,10 @@ export function createReviewSetupCard() {
 
   function githubStepBody(): HTMLElement[] {
     const actions = el('div', 'first-run-step-actions');
-    checkAgainButton = el('button', 'btn-dialog btn-dialog-cancel', 'Check again');
-    checkAgainButton.type = 'button';
-    checkAgainButton.addEventListener('click', () => {
+    checkAgainButton = button({ variant: 'secondary', label: 'Check again', onClick: () => {
       reportReviewSetupAction('check-github-again');
       void load();
-    });
+    } });
     actions.append(checkAgainButton);
     return [
       el('p', 'first-run-step-text', 'The GitHub CLI is not signed in on the machine running Glimmervoid. Sign in there, then check again.'),
@@ -80,8 +79,7 @@ export function createReviewSetupCard() {
     typedInput.autocomplete = 'off';
     typedInput.spellcheck = false;
     const actions = el('div', 'first-run-step-actions');
-    const saveButton = el('button', 'btn-dialog btn-dialog-confirm', 'Save teams');
-    saveButton.type = 'button';
+    const saveButton = button({ variant: 'primary', label: 'Save teams' });
     const saveStatus = createActionStatus();
     saveButton.addEventListener('click', () => { void saveTeams(typedInput.value, saveButton, saveStatus); });
     typedInput.addEventListener('keydown', (event) => {

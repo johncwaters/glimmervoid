@@ -1,4 +1,5 @@
 import { githubPrByKey, subscribeGithubPrs } from './github-prs-store.ts';
+import { createPressable } from '../ui/pressable.ts';
 import { SessionPrLinks } from '#shared/contracts/my-prs.ts';
 import type { LinkedPr } from '#shared/contracts/my-prs.ts';
 import { el } from '../dom-helpers.ts';
@@ -37,9 +38,8 @@ export function sessionRowPrSignals(sessionId: string): PrSignal[] {
 }
 
 function createUnlinkButton(chip: PrSignal, sessionId: string): HTMLButtonElement {
-  const unlinkButton = el('button', 'session-pr-chip-unlink');
+  const unlinkButton = createPressable('session-pr-chip-unlink');
   unlinkButton.append(createLineIcon(CLOSE_ICON_PATH));
-  unlinkButton.type = 'button';
   unlinkButton.title = `Unlink ${chip.key} from this session`;
   unlinkButton.setAttribute('aria-label', `Unlink pull request ${chip.key}`);
   unlinkButton.addEventListener('click', (event) => {

@@ -17,6 +17,18 @@ type ButtonOptions = (LabelledButtonOptions | IconButtonOptions) & {
   hidden?: boolean;
 };
 
+type LinkButtonOptions = { variant: Exclude<ButtonVariant, 'icon'>; label: string; href: string; size?: ButtonSize };
+
+export function linkButton(options: LinkButtonOptions): HTMLAnchorElement {
+  const element = el('a', 'ui-button', options.label);
+  element.dataset.variant = options.variant;
+  element.dataset.size = options.size ?? 'default';
+  element.href = options.href;
+  element.target = '_blank';
+  element.rel = 'noopener';
+  return element;
+}
+
 export function button(options: ButtonOptions): HTMLButtonElement {
   const element = createPressable('ui-button');
   element.dataset.variant = options.variant;

@@ -1,4 +1,5 @@
 import { el } from '../dom-helpers.ts';
+import { button } from '../ui/button.ts';
 import { mergeSession, onReviewChange, reviewOf, watchReviewSurface } from './review-store.ts';
 
 export interface ReviewBar {
@@ -10,11 +11,8 @@ export function createReviewBar({ onOpenChanges }: { onOpenChanges: () => void }
   const element = el('div', 'review-bar');
   const status = el('span', 'review-bar-status');
   status.setAttribute('role', 'status');
-  const changesButton = el('button', 'card-face-tab review-bar-changes', 'Changes');
-  changesButton.type = 'button';
-  changesButton.addEventListener('click', onOpenChanges);
-  const mergeButton = el('button', 'card-face-tab review-bar-merge', 'Merge');
-  mergeButton.type = 'button';
+  const changesButton = button({ variant: 'quiet', size: 'small', label: 'Changes', action: 'open-changes', onClick: onOpenChanges });
+  const mergeButton = button({ variant: 'primary', size: 'small', label: 'Merge', action: 'merge-session' });
   element.append(status, changesButton, mergeButton);
   let sessionId: string | null = null;
 
@@ -30,7 +28,7 @@ export function createReviewBar({ onOpenChanges }: { onOpenChanges: () => void }
     status.textContent = statusText;
     status.title = statusText;
     mergeButton.hidden = review.isWorkspace;
-    mergeButton.classList.toggle('is-slot-held', !review.isMergeShown);
+    mergeButton.toggleAttribute('data-slot-held', !review.isMergeShown);
     mergeButton.disabled = !review.isMergeEnabled;
     mergeButton.title = review.mergeTitle;
   }

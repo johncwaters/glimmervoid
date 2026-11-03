@@ -2703,7 +2703,7 @@ html:not([data-layout="phone"]) .pr-queue-row:not(.pr-queue-row-compact) { min-h
 .issues-content .reviews-refresh-status { flex: 1 1 100%; order: 3; }
 .issues-content .reviews-refresh-status[hidden] { display: none; }
 .issues-content .reviews-retry-notice { order: 4; flex: 1 1 100%; margin: 0; font-size: var(--type-meta); }
-.issues-content :is(.pr-action, .pr-action-status) { font-size: var(--type-meta); }
+.issues-content .pr-action-status { font-size: var(--type-meta); }
 .issues-content .pr-action-status { overflow-wrap: anywhere; }
 :has(> .action-status-icon):not([hidden]) { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .action-status-icon { flex: 0 0 12px; display: grid; place-items: center; width: 12px; height: 12px; }
@@ -3813,14 +3813,7 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 .review-bar { flex: 1 1 auto; display: flex; align-items: center; gap: 2px; min-width: 0; }
 .review-bar[hidden] { display: none; }
 .review-bar-status { flex: 1 1 0; width: 0; margin-right: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; color: var(--text-dim); font: var(--type-meta) var(--font-mono); }
-.review-bar > .card-face-tab { flex: none; }
-.review-bar > .review-bar-merge { color: var(--accent); }
-.review-bar > .card-face-tab[hidden] { display: none; }
-.review-bar > .review-bar-merge.is-slot-held { visibility: hidden; }
-.review-bar > .card-face-tab:disabled { opacity: 0.4; cursor: not-allowed; }
-@media (hover: hover) {
-  .review-bar > .review-bar-merge:hover:not(:disabled) { color: var(--accent); background: color-mix(in oklab, var(--accent) 14%, transparent); }
-}
+.review-bar > [data-action="merge-session"][data-slot-held] { visibility: hidden; }
 
 .review-reader { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg-surface); }
 .review-reader[hidden] { display: none; }
@@ -3831,8 +3824,6 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 .review-reader-notice { flex: 1 1 100%; order: 1; margin: 0; color: var(--state-failed); font-size: var(--type-meta); }
 .review-reader-notice[hidden] { display: none; }
 .review-reader-actions { flex: none; display: flex; align-items: center; gap: 6px; }
-.review-reader-actions .review-btn { min-height: 28px; padding-block: 2px; }
-.review-reader-actions .review-btn[hidden] { display: none; }
 .review-reader-body { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(220px, 32%) minmax(0, 1fr); }
 .review-reader-files { min-height: 0; overflow-y: auto; padding: 10px 0; border-right: 1px solid var(--border-dim); --review-row-pad: 12px; --review-stat-gap: 8px; }
 .review-reader-totals { display: flex; gap: var(--review-stat-gap); margin: 0 0 8px; padding: 0 var(--review-row-pad); font: var(--type-meta) var(--font-mono); }
@@ -3884,8 +3875,6 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 }
 .review-look-line:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .review-look-more { display: flex; align-items: center; gap: 8px; margin-top: 4px; padding-left: 10px; color: var(--text-muted); font-size: var(--type-meta); }
-.review-look-show-all { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
-.review-look-show-all:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .review-look-error { margin: 0; color: var(--text-muted); font-size: var(--type-meta); line-height: 1.5; }
 .review-file-hint { flex: 0 0 auto; padding: 0 4px; border: 1px solid var(--border-dim); border-radius: 3px; color: var(--text-dim); font-size: var(--type-meta); line-height: 1.5; white-space: nowrap; }
 .review-repo-label { padding: 6px var(--review-row-pad) 3px; color: var(--text-muted); font: 700 var(--type-meta) var(--font-mono); background: var(--bg-header); }
@@ -3926,33 +3915,6 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 .plan-diff-removed .plan-diff-gutter { color: var(--state-failed); }
 .review-line-meta,
 .plan-diff-skipped { color: var(--text-muted); }
-.review-btn {
-  font-family: var(--font-mono);
-  font-size: var(--type-meta);
-  padding: 6px 12px;
-  border-radius: var(--radius);
-  cursor: pointer;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-dim);
-  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
-}
-@media (hover: hover) {
-  .review-btn:hover:not(:disabled) { border-color: var(--border-hover); color: var(--text-head); }
-}
-.review-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.review-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.review-btn-primary { min-height: 36px; color: var(--accent); border-color: var(--accent); background: transparent; }
-@media (hover: hover) {
-  .review-btn-primary:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); background: color-mix(in oklab, var(--accent) 14%, transparent); }
-}
-.review-btn-danger {
-  color: color-mix(in oklab, var(--state-failed) 65%, var(--text-dim));
-  border-color: color-mix(in oklab, var(--state-failed) 35%, var(--border));
-}
-@media (hover: hover) {
-  .review-btn-danger:hover:not(:disabled) { color: var(--state-failed); border-color: var(--state-failed); }
-}
 .review-shortcut {
   display: inline-block;
   margin-left: 6px;
@@ -3966,11 +3928,6 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
   user-select: none;
   pointer-events: none;
 }
-.review-btn-primary .review-shortcut {
-  color: inherit;
-  border-color: currentColor;
-}
-.review-btn:disabled .review-shortcut { opacity: 0.6; }
 
 .health-table {
   width: 100%;
@@ -4287,7 +4244,6 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
   .dialog textarea { font-size: var(--type-title); }
 
   .btn-dialog,
-  .review-btn,
   .header-tab { min-height: 44px; }
 
   .popup-menu-item { min-height: 44px; }
@@ -4515,8 +4471,7 @@ html[data-arrow-pad] .phone-key-arrow { display: none; }
 .phone-review .review-reader-files { border-right: 0; }
 .phone-review .review-reader[data-level="list"] .review-reader-diff,
 .phone-review .review-reader[data-level="diff"] .review-reader-files { display: none; }
-.phone-review .review-reader-file,
-.phone-review .review-reader-actions .review-btn { min-height: 44px; }
+.phone-review .review-reader-file { min-height: 44px; }
 
 .phone-panel > :not(.settings-view) { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 
@@ -5478,7 +5433,6 @@ html[data-layout="phone"] .issues-content .pr-queue { overflow-y: auto; }
 html[data-layout="phone"] .issues-content .pr-detail-host { overflow-y: auto; }
 html[data-layout="phone"] .issues-content[data-detail-open="true"] .pr-queue-pane { display: none; }
 html[data-layout="phone"] .issues-content:not([data-detail-open="true"]) .pr-detail-host { display: none; }
-html[data-layout="phone"] .issues-content .issues-back { display: inline-flex; }
 html[data-layout="phone"] .issues-content .pr-detail { padding: 16px 0 0; }
 html[data-layout="phone"] .issues-content .pr-footer { margin-inline: 0; padding-inline: 0; }
 @media (max-width: 760px) {
