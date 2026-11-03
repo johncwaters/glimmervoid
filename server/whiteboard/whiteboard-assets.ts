@@ -14,6 +14,7 @@ const ASSET_FILE_MODE = 0o600;
 const ASSET_EXTENSION = '.webp';
 const ASSET_FILENAME_RE = /^([0-9a-f]{64})\.webp$/;
 const INCOMING_PREFIX = '.incoming-';
+const ATTACH_HOLD_MS = 10 * 60_000;
 const ACCEPTED_TEXT = 'PNG, JPEG, WebP or GIF';
 const OPEN_WITHOUT_BLOCKING_ON_A_PIPE = fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0);
 
@@ -24,6 +25,8 @@ interface WhiteboardAssetStore {
   has(assetId: string): boolean;
   ingestFile(sourcePath: string, name?: string): Promise<IngestOutcome>;
   reserveIncomingPath(): Promise<string>;
+  hold(assetId: string, holdMs: number): void;
+  sweep(referencedAssetIds: ReadonlySet<string>): Promise<number>;
   ingestBuffer(bytes: Buffer, name: string): Promise<IngestOutcome>;
   filePathOf(assetId: string): string | null;
   dataUriOf(assetId: string, drawnWidth: number, drawnHeight: number): Promise<string | null>;
@@ -55,9 +58,10 @@ async function readRegularFileCapped(sourcePath: string): Promise<Buffer | Inges
   }
 }
 
-function createWhiteboardAssetStore({ boardsRoot, logger = console }: { boardsRoot: string; logger?: Pick<Console, 'warn'> }): WhiteboardAssetStore {
+function createWhiteboardAssetStore({ boardsRoot, logger = console, now = Date.now }: { boardsRoot: string; logger?: Pick<Console, 'warn'>; now?: () => number }): WhiteboardAssetStore {
   const assetsRoot = path.join(boardsRoot, ASSETS_FOLDER_NAME);
   const storedAssetIds = new Set<string>();
+  const heldUntilByAssetId = new Map<string, number>();
   const loaded = fsp.readdir(assetsRoot).then(async (filenames) => {
     for (const filename of filenames) {
       const assetId = assetIdOfFilename(filename);
@@ -99,6 +103,7 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console }: { boardsRo
     if (!normalized) return refusal(415, `${name} could not be read as an image`);
     try {
       const assetId = await store(normalized.data);
+      hold(assetId, ATTACH_HOLD_MS);
       return { ok: true, asset: assetId, width: normalized.info.width, height: normalized.info.height };
     } catch (error) {
       logger.warn(`[whiteboard] an image could not be stored: ${errorMessage(error)}`);
@@ -118,6 +123,28 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console }: { boardsRo
     return path.join(assetsRoot, `${INCOMING_PREFIX}${crypto.randomBytes(8).toString('hex')}`);
   }
 
+  function hold(assetId: string, holdMs: number): void {
+    const heldUntil = now() + holdMs;
+    if ((heldUntilByAssetId.get(assetId) ?? 0) >= heldUntil) return;
+    heldUntilByAssetId.set(assetId, heldUntil);
+  }
+
+  function isHeld(assetId: string): boolean {
+    return (heldUntilByAssetId.get(assetId) ?? 0) > now();
+  }
+
+  async function sweep(referencedAssetIds: ReadonlySet<string>): Promise<number> {
+    const sweptAssetIds = [...storedAssetIds].filter((assetId) => !referencedAssetIds.has(assetId) && !isHeld(assetId));
+    for (const assetId of sweptAssetIds) {
+      storedAssetIds.delete(assetId);
+      heldUntilByAssetId.delete(assetId);
+    }
+    await Promise.all(sweptAssetIds.map((assetId) => fsp.rm(path.join(assetsRoot, `${assetId}${ASSET_EXTENSION}`), { force: true }).catch((error: unknown) => {
+      logger.warn(`[whiteboard] unused image ${assetId} could not be deleted: ${errorMessage(error)}`);
+    })));
+    return sweptAssetIds.length;
+  }
+
   function filePathOf(assetId: string): string | null {
     if (!storedAssetIds.has(assetId)) return null;
     return path.join(assetsRoot, `${assetId}${ASSET_EXTENSION}`);
@@ -135,7 +162,7 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console }: { boardsRo
     return drawn ? `data:image/png;base64,${drawn.toString('base64')}` : null;
   }
 
-  return { loaded, has: (assetId) => storedAssetIds.has(assetId), ingestFile, ingestBuffer, reserveIncomingPath, filePathOf, dataUriOf };
+  return { loaded, has: (assetId) => storedAssetIds.has(assetId), ingestFile, ingestBuffer, reserveIncomingPath, hold, sweep, filePathOf, dataUriOf };
 }
 
 export { ASSET_INPUT_CAP_BYTES, assetIdOfFilename, createWhiteboardAssetStore };

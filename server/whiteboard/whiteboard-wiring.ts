@@ -79,6 +79,7 @@ type OperatorReply = {
 
 const GLIMMERVOID_AUTHOR: Author = Object.freeze({ id: 'glimmervoid', name: 'Glimmervoid' });
 const DELETED_BOARD_TEXT = 'that board was deleted';
+const RELEASE_HOLD_MS = 60 * 60_000;
 
 interface WhiteboardWiringOptions {
   boardsRoot: string;
@@ -119,6 +120,10 @@ function hasNoConnectedSessions(record: BoardRecord): boolean {
   return Object.keys(record.cursorBySessionId).length === 0;
 }
 
+function assetIdsOf(board: Board): Set<string> {
+  return new Set(Object.values(board.elements).flatMap((element) => (element.kind === 'box' && element.image ? [element.image.asset] : [])));
+}
+
 function refusal(status: number, error: string): WhiteboardReply {
   return { status, body: { ok: false, error } };
 }
@@ -141,19 +146,38 @@ function createWhiteboardWiring({
   const recordsByBoardId = new Map<string, BoardRecord>();
   const deletedBoardIds = new Set<string>();
   const writeQueue = createKeyedSerialQueue();
-  const assets = createWhiteboardAssetStore({ boardsRoot, logger });
-  const loaded = Promise.all([loadBoards(), assets.loaded]).then(() => {});
+  const assets = createWhiteboardAssetStore({ boardsRoot, logger, now });
+  let isEveryBoardLoaded = true;
+  const loaded = Promise.all([loadBoards(), assets.loaded]).then(sweepUnusedAssets).then(() => {});
+
+  function sweepUnusedAssets(): Promise<number> {
+    if (!isEveryBoardLoaded) return Promise.resolve(0);
+    const referencedAssetIds = new Set([...recordsByBoardId.values()].flatMap((record) => [...assetIdsOf(record.board)]));
+    return assets.sweep(referencedAssetIds);
+  }
+
+  function keepPicturesWhileUnloaded(filename: string): void {
+    isEveryBoardLoaded = false;
+    logger.warn(`[whiteboard] board pictures are kept, not cleared, while ${filename} is not loaded`);
+  }
 
   async function loadBoards(): Promise<void> {
-    const filenames = await fsp.readdir(boardsRoot).catch((): string[] => []);
+    const filenames = await fsp.readdir(boardsRoot).catch((error: NodeJS.ErrnoException): string[] | null => (error.code === 'ENOENT' ? [] : null));
+    if (filenames === null) {
+      keepPicturesWhileUnloaded(boardsRoot);
+      return;
+    }
     for (const filename of filenames) {
+      if (filename.includes(`${BOARD_FILE_EXTENSION}.corrupt-`)) keepPicturesWhileUnloaded(filename);
       if (!filename.endsWith(BOARD_FILE_EXTENSION)) continue;
       const outcome = await loadJsonStateFile({ filePath: path.join(boardsRoot, filename), parse: parseBoardRecord });
       if (outcome.status === 'loaded' && `${outcome.value.board.id}${BOARD_FILE_EXTENSION}` === filename) {
         recordsByBoardId.set(outcome.value.board.id, outcome.value);
         continue;
       }
-      if (outcome.status !== 'missing') logger.warn(`[whiteboard] ${filename} was not loaded: ${outcome.status}`);
+      if (outcome.status === 'missing') continue;
+      logger.warn(`[whiteboard] ${filename} was not loaded: ${outcome.status}`);
+      keepPicturesWhileUnloaded(filename);
     }
   }
 
@@ -251,13 +275,16 @@ function createWhiteboardWiring({
       return isNewLink && unit.linkedBoardId !== null && !recordsByBoardId.has(unit.linkedBoardId);
     });
     if (strandedUnit) return { ok: false, error: `unit ${strandedUnit.id} links to board ${strandedUnit.linkedBoardId ?? ''}, which does not exist` };
-    const unstoredImage = Object.values(result.board.elements).flatMap((element) => {
-      if (element.kind !== 'box' || element.image === null) return [];
-      const before = record.board.elements[element.id];
-      const isNewImage = before?.kind !== 'box' || before.image?.asset !== element.image.asset;
-      return isNewImage && !assets.has(element.image.asset) ? [{ boxId: element.id, asset: element.image.asset }] : [];
-    })[0];
-    if (unstoredImage) return { ok: false, error: `box ${unstoredImage.boxId} names image ${unstoredImage.asset}, which no whiteboard attach stored` };
+    const assetIdsBefore = assetIdsOf(record.board);
+    const assetIdsAfter = assetIdsOf(result.board);
+    const unstoredAssetId = [...assetIdsAfter].find((assetId) => !assetIdsBefore.has(assetId) && !assets.has(assetId));
+    if (unstoredAssetId) {
+      const namingBox = Object.values(result.board.elements).find((element) => element.kind === 'box' && element.image?.asset === unstoredAssetId);
+      return { ok: false, error: `box ${namingBox?.id ?? ''} names image ${unstoredAssetId}, which no whiteboard attach stored` };
+    }
+    for (const releasedAssetId of assetIdsBefore) {
+      if (!assetIdsAfter.has(releasedAssetId)) assets.hold(releasedAssetId, RELEASE_HOLD_MS);
+    }
     const next = recordPut(record, result);
     const patch: WhiteboardPatch = {
       type: 'whiteboard-patch', boardId: record.board.id, fromVersion: record.board.version, toVersion: next.board.version,
@@ -356,6 +383,7 @@ function createWhiteboardWiring({
     deletedBoardIds.add(boardId);
     broadcastControl({ type: 'whiteboard-removed', boardId });
     broadcastSummariesIfChanged(current, null);
+    void sweepUnusedAssets();
     return { status: 200, body: { ok: true, version: current.board.version } };
   }
 
