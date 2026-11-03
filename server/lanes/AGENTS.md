@@ -6,7 +6,7 @@ Lane spawning: the ephemeral judge lanes and the interactive work lane, with the
 
 | File | Rule |
 |------|------|
-| `lane-spawn.ts` | Ephemeral lane spawn on the lane-permissions seam; a lane with a hook router refuses to start without the Sane YOLO hook, and every lane runs with `LANE_CREDENTIAL_ENV` emptied |
+| `lane-spawn.ts` | Ephemeral lane spawn on the lane-permissions seam; a lane with a hook router refuses to start without the Sane YOLO hook, and every lane takes its GitHub and web posture from `laneAccess` |
 | `work-lane.ts` | Reads the git folders of a lane's own checkout |
 | `lane-mcp.ts` | Read-only PostHog MCP posture shared by both lane spawn chokepoints |
 
@@ -31,4 +31,5 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - The `mcp__<name>__exec` allow rule rides in the same settings file as the gate hook, so a failed hook injection drops the permission with it; PostHog needs a hook router for that reason.
 - Codex skips hooks passed with `-c` unless launched with `--dangerously-bypass-hook-trust`, and it fired PreToolUse on MCP calls only from 0.165.0 on, so its PostHog approval arg comes out of hook injection only beside the trusted gate on such a Codex; anywhere else a call still needs approval.
 - Kimi Code runs MCP calls in `-p` with no approval, so a Kimi Code lane reaches PostHog only through a per-lane generated home (`prepareScratchAgentHome`) whose `mcp.json` holds only the PostHog entry and whose `config.toml` adds the gate hook, and only for a server name Kimi Code keeps unchanged in its tool names (no `__`, 64 characters), or its hook matcher never fires.
+- `laneAccess` is the one GitHub and web posture: open only on Claude Code with the operator's read token, since only Claude Code enforces the permission rules that are the boundary, and its proxy env refuses every host off the fetch list because `gh api <url>` and `--hostname` otherwise reach any host (probed 2026-11-03).
 - Known gap, accepted by the operator 2026-10-29: lanes run with no network sandbox, so a lane that keeps a general shell can reach PostHog around the gate; closing it needs a loopback relay, not a gate change.

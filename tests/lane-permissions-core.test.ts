@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ACCEPT_EDITS_MODE, buildLanePermissions } from '../server/lanes/core/lane-permissions-core.ts';
+import { ACCEPT_EDITS_MODE, buildLanePermissions, laneAccess } from '../server/lanes/core/lane-permissions-core.ts';
 import { buildHookSettings } from '../detection/settings-injector.ts';
 import { LANE_SPAWN_DENY_TOOLS } from '../server/lanes/lane-spawn.ts';
 
@@ -71,4 +71,25 @@ test('an allow-list never replaces the deny list, and never becomes a bare Write
   assert.equal(Object.hasOwn(permissions, 'allow'), false);
   assert.equal(permissions.defaultMode, ACCEPT_EDITS_MODE);
   assert.ok(args.includes('--tools'));
+});
+
+test('a lane opens GitHub and the web only on Claude Code with a read token and no inherited proxy, and the open lane can reach nothing else', () => {
+  const base = { agent: 'claude-code', readToken: 'github_pat_read', extraFetchDomains: ['docs.example.com'], ghConfigDir: '/scratch/gh', inheritedEnv: {} };
+  for (const closedInput of [{ ...base, readToken: null }, { ...base, agent: 'codex' }, { ...base, inheritedEnv: { https_proxy: 'http://corp:3128' } }, { ...base, inheritedEnv: { CLAUDE_CODE_USE_BEDROCK: '1' } }]) {
+    const closed = laneAccess(closedInput);
+    assert.equal(closed.isOpen, false);
+    assert.equal(closed.env.GH_TOKEN, '');
+    assert.equal(closed.env.HTTPS_PROXY, undefined);
+    assert.ok(closed.denyRules.includes('Bash(gh:*)') && closed.denyRules.includes('WebFetch'));
+  }
+  const open = laneAccess({ ...base, inheritedEnv: { ANTHROPIC_BASE_URL: 'https://gateway.internal:8443/v1' } });
+  assert.equal(open.env.GH_TOKEN, 'github_pat_read');
+  assert.equal(open.env.GH_CONFIG_DIR, '/scratch/gh');
+  assert.equal(open.env.HTTPS_PROXY, 'http://127.0.0.1:9');
+  assert.deepEqual(open.env.NO_PROXY.split(',').filter((host) => host.includes('example') || host.includes('gateway')), ['docs.example.com', 'gateway.internal']);
+  assert.ok(open.allowRules.includes('WebFetch(domain:docs.example.com)'));
+  assert.equal(open.allowRules.some((rule) => rule === 'WebFetch' || rule.startsWith('Bash(curl')), false);
+  for (const shellCapableCommand of ['curl', 'gh auth', 'gh alias', 'gh extension', 'gh ext', 'gh config', 'gh copilot', 'gh repo clone', 'gh gist clone', 'gh pr checkout', 'gh co']) {
+    assert.ok(open.denyRules.includes(`Bash(${shellCapableCommand}:*)`), shellCapableCommand);
+  }
 });

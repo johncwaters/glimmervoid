@@ -34,7 +34,9 @@ import { DEFAULT_POSTHOG_REPORT_DIR } from './radar-report.ts';
 import { sendTelegramMessage } from '../telegram-transport.ts';
 import { writeUntrustedPayload } from '../lanes/untrusted-payload.ts';
 import { prepareLaneMcp } from '../lanes/lane-mcp.ts';
-import { buildLanePermissions, LANE_CREDENTIAL_ENV, withAllowRules } from '../lanes/core/lane-permissions-core.ts';
+import { buildLanePermissions, CLOSED_LANE_ACCESS_CONFIG, laneAccess, withAllowRules, withLaneAccessRules } from '../lanes/core/lane-permissions-core.ts';
+import type { LaneAccessConfig } from '../lanes/core/lane-permissions-core.ts';
+import { makeLaneGhConfigDirectory } from '../lanes/lane-spawn.ts';
 import { UNTRUSTED_PAYLOAD_FILENAME } from '../../shared/contracts/untrusted-payload.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import type { RadarErrorReason } from '../../shared/contracts/telemetry.ts';
@@ -43,7 +45,7 @@ import { errorMessage } from '../../shared/text.ts';
 import { isRecord } from '../../shared/coerce.ts';
 import { createCoalescedTimer } from '../../shared/coalesce-timer.ts';
 import type { OwnedPathOwner } from '../../shared/contracts/owned-paths.ts';
-import { FIX_POSTURE, investigationPosture, radarClaudeArgs } from './radar-posture.ts';
+import { FIX_POSTURE, investigationPosture, radarClaudeArgs, withLaneAccessTools } from './radar-posture.ts';
 import type { RadarToolPosture } from './radar-posture.ts';
 import { buildFixPrompt, buildInvestigationPrompt, fallbackPrBody, fallbackPrTitle, promptIssueUrl, safeIssueId } from './radar-prompts.ts';
 import { checkFixBranch, commitFixWork, handoffFailure, readWorktreeGitPointer, runCli } from './radar-fix-handoff.ts';
@@ -100,8 +102,18 @@ interface PosthogGitWorkspace {
   discard: (options: { projectPath: string; workspace: PosthogWorkspace; cause: 'radar' }) => Promise<unknown> | unknown;
 }
 
+interface InvestigationSessionRequest {
+  id: string;
+  name: string;
+  path: string;
+  initialPrompt: string;
+  posture: RadarToolPosture;
+  onActivity?: ((trail: InvestigationTrail) => void) | null;
+}
+
 interface RadarWiringOptions {
   config: RadarWiringConfig;
+  getLaneAccessConfig?: () => LaneAccessConfig;
   investigationSessions: Map<string, unknown>;
   closeSessionDataClients: (id: string) => void;
   hookRouter: Pick<HookRouter, 'register' | 'unregister'> | null;
@@ -244,6 +256,7 @@ function makeResolveProjects(api: PosthogApi, config: RadarWiringConfig): () => 
 
 function createRadarWiring({
   config, investigationSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate,
+  getLaneAccessConfig = () => CLOSED_LANE_ACCESS_CONFIG,
   gitWorkspace = null,
   runCommand = runCli,
   broadcast = () => {},
@@ -262,17 +275,25 @@ function createRadarWiring({
     return { ...posthogConfig, host: core.resolvePosthogHost(posthogConfig.host), apiKey: posthogConfig.apiKey };
   }
 
-  async function makeInvestigationSession(
-    { id, name, path: cwd, initialPrompt, posture, onActivity = null }: {
-      id: string;
-      name: string;
-      path: string;
-      initialPrompt: string;
-      posture: RadarToolPosture;
-      onActivity?: ((trail: InvestigationTrail) => void) | null;
-    },
+  async function makeInvestigationSession(request: InvestigationSessionRequest): Promise<{ sess: Session; cleanup(): Promise<void> }> {
+    const laneGhConfig = await makeLaneGhConfigDirectory();
+    try {
+      return await makeInvestigationSessionWithAccess(request, laneGhConfig);
+    } catch (error) {
+      await laneGhConfig.remove();
+      throw error;
+    }
+  }
+
+  async function makeInvestigationSessionWithAccess(
+    { id, name, path: cwd, initialPrompt, posture: basePosture, onActivity = null }: InvestigationSessionRequest,
+    laneGhConfig: { path: string; remove(): Promise<void> },
   ): Promise<{ sess: Session; cleanup(): Promise<void> }> {
+    const { readToken, extraFetchDomains } = getLaneAccessConfig();
+    const access = laneAccess({ agent: 'claude-code', readToken, extraFetchDomains, ghConfigDir: laneGhConfig.path, inheritedEnv: process.env });
+    const posture = withLaneAccessTools(basePosture, access);
     const lanePermissions = buildLanePermissions({ denyTools: posture.denyTools, allowTools: posture.allowTools });
+    const accessPermissions = withLaneAccessRules(lanePermissions.permissions, access);
     const sharedHookTools = hookRouter ? resolveRequiredSaneYoloHookTools(config.saneYoloUnreadablePaths ?? [], { resolve: resolveHookTools }) : [];
     if (sharedHookTools === null) throw new Error('Sane YOLO is unavailable');
     const laneMcp = posture.withPosthogMcp && hookRouter ? await prepareMcp({ laneArgs: lanePermissions.args, agent: 'claude' }) : null;
@@ -287,8 +308,8 @@ function createRadarWiring({
       ephemeral: true,
       requiresHooks: true,
       observeToolCalls: true,
-      settingsPermissions: laneMcp ? withAllowRules(lanePermissions.permissions, laneMcp.posture.allowRules) : lanePermissions.permissions,
-      spawnEnv: { ...LANE_CREDENTIAL_ENV },
+      settingsPermissions: laneMcp ? withAllowRules(accessPermissions, laneMcp.posture.allowRules) : accessPermissions,
+      spawnEnv: { ...access.env },
       replayBufferKB: config.replayBufferKB,
       hookRouter,
       getHookPort,
@@ -297,7 +318,7 @@ function createRadarWiring({
       map: investigationSessions, id, sess, closeSessionDataClients, logPrefix: 'posthog', name, recordLane,
     });
     if (onActivity) observeTrail(sess, onActivity);
-    return { sess, cleanup: async () => { if (laneMcp) await laneMcp.cleanup(); } };
+    return { sess, cleanup: async () => { if (laneMcp) await laneMcp.cleanup(); await laneGhConfig.remove(); } };
   }
 
   async function fetchExceptionEvents(projectId: string | number, issueId: unknown): Promise<Record<string, unknown>[] | null> {

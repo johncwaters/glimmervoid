@@ -113,6 +113,15 @@ The PostHog lane only starts when `posthog.host`, `posthog.apiKey`, `telegram.bo
 | `posthog.repoPath` | Repository path | `""` | Absolute path of the local checkout investigations read and fixes branch from, for every project the project map does not name. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `posthog.projectMap` | Project map | `{}` | PostHog project id to a label: the name shown for that project, and, when it is an absolute path to a checkout, the repository its issues are investigated in. **File-only.** A structured value with no dashboard control; edit it in config.json. |
 
+### Lane GitHub access
+
+What background lanes may read on GitHub and the web.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `github.readToken` | GitHub read token | `""` | Read-only fine-grained GitHub token lanes use for gh. Team review and community research need it. |
+| `lanes.fetchDomains` | Extra fetch domains | `[]` | Domains lanes may fetch pages from, beyond GitHub and posthog.com. |
+
 ### Team review
 
 Draft reviews of teammates' pull requests for you to post.
@@ -260,6 +269,7 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 | `GLIMMERVOID_SUPERVISOR` | operator | Set to `launchd` in a launchd job that keeps Glimmervoid alive, so Restart exits with code 75 for launchd to start it again instead of starting its own replacement. A systemd unit needs nothing: its `INVOCATION_ID` does the same. |
 | `GLIMMERVOID_POSTHOG_API_KEY` | operator | Supplies `posthog.apiKey`, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
 | `GLIMMERVOID_TELEGRAM_BOT_TOKEN` | operator | Supplies `telegram.botToken`, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
+| `GLIMMERVOID_GITHUB_READ_TOKEN` | operator | Supplies `github.readToken`, the read-only GitHub token lanes use for gh, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
 | `GLIMMERVOID_CLAUDE_OAUTH_TOKEN` | operator | A long-lived Claude Code token (`claude setup-token`) that benchmark arms authenticate with instead of the login token Glimmervoid reads from the keychain or `~/.claude/.credentials.json`. Passed only to benchmark sessions, never stored. |
 | `GLIMMERVOID_TELEMETRY` | operator | Set to `0` to turn off usage and error telemetry (error type, error code and scrubbed stack frames, never messages or paths) whatever `telemetry.enabled` says. `DO_NOT_TRACK=1` and `CI=true` turn it off too. |
 | `GLIMMERVOID_TELEMETRY_PROJECT_TOKEN` | internal | Sends telemetry to another PostHog project instead of the Glimmervoid one, so end-to-end checks of a development build stay out of real usage data. Not an operator setting. |

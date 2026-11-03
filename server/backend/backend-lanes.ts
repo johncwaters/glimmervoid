@@ -54,6 +54,7 @@ import { createTraceChangeBroadcast } from '../trace-control.ts';
 import { createUploadsWiring } from '../uploads-wiring.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { repoNotesRefFor } from '../commit-sessions.ts';
+import { laneAccessConfigOf } from '../lanes/core/lane-permissions-core.ts';
 
 interface BackendLaneOptions {
   branchGcWiringOptions?: Record<string, unknown>;
@@ -188,8 +189,10 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     },
     log: logger,
   });
+  const getLaneAccessConfig = () => laneAccessConfigOf(configStore.config);
   const posthog = createRadarWiring({
     config,
+    getLaneAccessConfig,
     investigationSessions,
     closeSessionDataClients,
     hookRouter,
@@ -296,7 +299,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     }),
     spawnJudge: createLaneSpawn({
       sessions: benchmarkSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-      replayBufferKB: config.replayBufferKB, laneName: 'benchmark', getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [],
+      replayBufferKB: config.replayBufferKB, laneName: 'benchmark', getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
     }),
     credentials: claudeCredentials,
     claudeCommand,
@@ -338,7 +341,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     renameSession: dependencies.renameSessionFromTaskTitle,
     spawnLane: createLaneSpawn({
       sessions: taskTitleSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-      replayBufferKB: config.replayBufferKB, laneName: 'task-title', allowTools: TASK_TITLE_LANE_TOOLS, getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [],
+      replayBufferKB: config.replayBufferKB, laneName: 'task-title', allowTools: TASK_TITLE_LANE_TOOLS, getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
     }),
   });
 

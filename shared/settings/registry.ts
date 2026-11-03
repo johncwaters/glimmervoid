@@ -451,6 +451,25 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
     ],
   },
   {
+    id: 'lanes-github-access',
+    level: 'lanes',
+    title: 'Lane GitHub access',
+    description: 'What background lanes may read on GitHub and the web.',
+    settings: [
+      {
+        id: 'github-read-token', path: 'github.readToken', title: 'GitHub read token',
+        description: 'Read-only fine-grained GitHub token lanes use for gh. Team review and community research need it.',
+        control: 'password', keywords: ['credential', 'token', 'gh', 'pull requests'], defaultValue: '', ...MACHINE_NOW,
+      },
+      {
+        id: 'lanes-fetch-domains', path: 'lanes.fetchDomains', title: 'Extra fetch domains',
+        description: 'Domains lanes may fetch pages from, beyond GitHub and posthog.com.',
+        control: 'list', keywords: ['web', 'fetch', 'domains', 'allowlist'], defaultValue: [],
+        listPlaceholder: 'docs.example.com', listEmptyText: 'Only the built-in domains.', ...MACHINE_NOW,
+      },
+    ],
+  },
+  {
     id: 'lanes-team-review',
     level: 'lanes',
     title: 'Team review',

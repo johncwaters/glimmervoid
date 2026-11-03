@@ -45,6 +45,81 @@ function buildLanePermissions({
 }
 
 const POSTHOG_MCP_HOST = 'mcp.posthog.com';
+const OPEN_LANE_AGENT_ID = 'claude-code';
+const DEFAULT_LANE_FETCH_DOMAINS: readonly string[] = Object.freeze([
+  'github.com', 'api.github.com', 'raw.githubusercontent.com', 'codeload.github.com', 'posthog.com',
+]);
+const LANE_EGRESS_REFUSED_PROXY = 'http://127.0.0.1:9';
+const LANE_PROXY_KEYS: readonly string[] = Object.freeze(['HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY', 'https_proxy', 'http_proxy', 'all_proxy']);
+const LANE_AGENT_HOSTS: readonly string[] = Object.freeze([
+  'localhost', '127.0.0.1', '::1', 'anthropic.com', '.anthropic.com', 'claude.ai', '.claude.ai', 'claude.com', '.claude.com', POSTHOG_MCP_HOST,
+]);
+const CLOSED_LANE_DENY_RULES: readonly string[] = Object.freeze(['Bash(gh:*)', 'WebFetch', 'WebSearch', 'Bash(curl:*)', 'Bash(wget:*)']);
+const OPEN_LANE_DENY_RULES: readonly string[] = Object.freeze([
+  'Bash(curl:*)', 'Bash(wget:*)', 'Bash(gh auth:*)', 'Bash(gh config:*)', 'Bash(gh alias:*)',
+  'Bash(gh extension:*)', 'Bash(gh extensions:*)', 'Bash(gh ext:*)', 'Bash(gh codespace:*)', 'Bash(gh cs:*)',
+  'Bash(gh copilot:*)', 'Bash(gh browse:*)', 'Bash(gh repo clone:*)', 'Bash(gh repo fork:*)', 'Bash(gh repo create:*)',
+  'Bash(gh gist clone:*)', 'Bash(gh pr checkout:*)', 'Bash(gh co:*)',
+]);
+const ALTERNATE_MODEL_PROVIDER_KEYS: readonly string[] = Object.freeze(['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY']);
+const OPEN_LANE_TOOLS: readonly string[] = Object.freeze(['Bash', 'WebFetch', 'WebSearch']);
+
+interface LaneAccessInput {
+  agent: string;
+  readToken: string | null;
+  extraFetchDomains: readonly string[];
+  ghConfigDir: string;
+  inheritedEnv: Readonly<Record<string, string | undefined>>;
+}
+
+interface LaneAccess {
+  isOpen: boolean;
+  env: Record<string, string>;
+  allowRules: string[];
+  denyRules: string[];
+  tools: string[];
+}
+
+function reachesModelOutsideAllowlist(inheritedEnv: Readonly<Record<string, string | undefined>>): boolean {
+  return [...LANE_PROXY_KEYS, ...ALTERNATE_MODEL_PROVIDER_KEYS].some((key) => (inheritedEnv[key] ?? '').length > 0);
+}
+
+function laneFetchDomains(extraFetchDomains: readonly string[]): string[] {
+  return [...new Set([...DEFAULT_LANE_FETCH_DOMAINS, ...extraFetchDomains])];
+}
+
+function egressBlockEnv(fetchDomains: readonly string[], inheritedEnv: Readonly<Record<string, string | undefined>>): Record<string, string> {
+  const anthropicBaseHost = urlHostname(inheritedEnv.ANTHROPIC_BASE_URL);
+  const reachableHosts = [...fetchDomains, ...LANE_AGENT_HOSTS, ...(anthropicBaseHost ? [anthropicBaseHost] : [])].join(',');
+  const proxyEnv = Object.fromEntries(LANE_PROXY_KEYS.map((key) => [key, LANE_EGRESS_REFUSED_PROXY]));
+  return { ...proxyEnv, NO_PROXY: reachableHosts, no_proxy: reachableHosts };
+}
+
+interface LaneAccessConfig {
+  readToken: string | null;
+  extraFetchDomains: readonly string[];
+}
+
+const CLOSED_LANE_ACCESS_CONFIG: LaneAccessConfig = Object.freeze({ readToken: null, extraFetchDomains: Object.freeze([]) });
+
+function laneAccessConfigOf(config: { github?: { readToken?: string } | null; lanes?: { fetchDomains?: readonly string[] } | null }): LaneAccessConfig {
+  return { readToken: config.github?.readToken || null, extraFetchDomains: config.lanes?.fetchDomains ?? [] };
+}
+
+function laneAccess({ agent, readToken, extraFetchDomains, ghConfigDir, inheritedEnv }: LaneAccessInput): LaneAccess {
+  const ghEnv = { ...LANE_CREDENTIAL_ENV, GH_CONFIG_DIR: ghConfigDir, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1' };
+  const isOpen = agent === OPEN_LANE_AGENT_ID && Boolean(readToken) && !reachesModelOutsideAllowlist(inheritedEnv);
+  if (!isOpen || !readToken) return { isOpen: false, env: ghEnv, allowRules: [], denyRules: [...CLOSED_LANE_DENY_RULES], tools: [] };
+  const fetchDomains = laneFetchDomains(extraFetchDomains);
+  return {
+    isOpen: true,
+    env: { ...ghEnv, GH_TOKEN: readToken, ...egressBlockEnv(fetchDomains, inheritedEnv) },
+    allowRules: ['Bash(gh:*)', 'WebSearch', ...fetchDomains.map((domain) => `WebFetch(domain:${domain})`)],
+    denyRules: [...OPEN_LANE_DENY_RULES],
+    tools: [...OPEN_LANE_TOOLS],
+  };
+}
+
 const MCP_SERVER_NAME_RE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const CODEX_MCP_SERVER_NAME_RE = /^[A-Za-z0-9_-]+$/;
 const KIMI_QUALIFIED_TOOL_NAME_MAX_LENGTH = 64;
@@ -164,9 +239,15 @@ function withAllowRules(permissions: Record<string, unknown>, allowRules: readon
   return { ...permissions, allow: [...existingAllowRules, ...allowRules] };
 }
 
+function withLaneAccessRules(permissions: Record<string, unknown>, access: Pick<LaneAccess, 'allowRules' | 'denyRules'>): Record<string, unknown> {
+  const existingDenyRules = Array.isArray(permissions.deny) ? permissions.deny : [];
+  const deny = [...new Set([...existingDenyRules, ...access.denyRules])];
+  return withAllowRules({ ...permissions, deny }, access.allowRules);
+}
+
 export {
-  ACCEPT_EDITS_MODE, LANE_CONFIG_EDIT_DENY_RULES, LANE_CREDENTIAL_ENV, LANE_ENVIRONMENT_ARGS, READ_ONLY_GIT_SUBCOMMANDS, buildLanePermissions,
-  codexLaneMcpPosture, codexMcpServers, findPosthogServer, kimiLaneMcpPosture, laneMcpConfig, laneMcpPosture,
-  readOnlyGitAllowRules, withAllowRules,
+  ACCEPT_EDITS_MODE, CLOSED_LANE_ACCESS_CONFIG, LANE_CONFIG_EDIT_DENY_RULES, LANE_CREDENTIAL_ENV, LANE_ENVIRONMENT_ARGS, READ_ONLY_GIT_SUBCOMMANDS, buildLanePermissions,
+  codexLaneMcpPosture, codexMcpServers, findPosthogServer, kimiLaneMcpPosture, laneAccess, laneAccessConfigOf, laneMcpConfig, laneMcpPosture,
+  readOnlyGitAllowRules, withAllowRules, withLaneAccessRules,
 };
-export type { LaneMcpPosture };
+export type { LaneAccess, LaneAccessConfig, LaneMcpPosture };

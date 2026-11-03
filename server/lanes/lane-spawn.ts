@@ -8,7 +8,8 @@ import type { UserHook } from '../../session/core/user-hooks-core.ts';
 import { DEFAULT_AGENT_ID } from '../../session/adapters/index.ts';
 import { Session } from '../../session/sessions.ts';
 import type { SessionOptions } from '../../session/sessions.ts';
-import { buildLanePermissions, LANE_CREDENTIAL_ENV, withAllowRules } from './core/lane-permissions-core.ts';
+import { buildLanePermissions, CLOSED_LANE_ACCESS_CONFIG, laneAccess, withAllowRules, withLaneAccessRules } from './core/lane-permissions-core.ts';
+import type { LaneAccessConfig } from './core/lane-permissions-core.ts';
 import { prepareLaneMcp } from './lane-mcp.ts';
 import { awaitSessionExit, registerEphemeralSession } from './ephemeral-session.ts';
 import { resolveRequiredSaneYoloHookTools } from '../hook-tools.ts';
@@ -17,13 +18,12 @@ import { writeJsonAtomic } from '../json-file.ts';
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
 
 const SETTINGS_DIR_PREFIX = 'glimmervoid-lane-settings-';
+const GH_CONFIG_DIR_PREFIX = 'glimmervoid-lane-gh-';
 const KIMI_AGENT_ID = 'kimi';
 const CODEX_READ_ONLY_ARGS = Object.freeze(['-s', 'read-only']);
 const GUARD_HOOK_UNAVAILABLE_ERROR = 'Sane YOLO is unavailable';
 
-const LANE_SPAWN_DENY_TOOLS = Object.freeze([
-  'Bash', 'Edit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Task', 'Bash(git push:*)', 'Bash(gh:*)',
-]);
+const LANE_SPAWN_DENY_TOOLS = Object.freeze(['Edit', 'NotebookEdit', 'Task', 'Bash(git push:*)']);
 
 type LaneSpawn = (options: {
   id: string;
@@ -50,6 +50,7 @@ interface LaneSpawnOptions {
   allowTools?: readonly string[];
   settingsPermissions?: Record<string, unknown>;
   spawnEnv?: Readonly<Record<string, string>> | null;
+  getLaneAccessConfig?: () => LaneAccessConfig;
   createSession?: (options: SessionOptions) => Session;
   prepareMcp?: typeof prepareLaneMcp;
 }
@@ -65,6 +66,11 @@ async function writeStandaloneDenySettings(permissions: unknown, userHooks: read
     throw error;
   }
   return { args: ['--settings', settingsPath], cleanup: removeSettingsDirectory };
+}
+
+async function makeLaneGhConfigDirectory(): Promise<{ path: string; remove(): Promise<void> }> {
+  const ghConfigDirectory = await makeHostScratchDirectory(GH_CONFIG_DIR_PREFIX);
+  return { path: ghConfigDirectory, remove: () => fsPromises.rm(ghConfigDirectory, { recursive: true, force: true }).catch(() => {}) };
 }
 
 function headlessPromptLaunch(agent: string, prompt: string): { args: string[]; initialPrompt: string | null } {
@@ -84,7 +90,7 @@ function createLaneSpawn({
   sessions = new Map(), closeSessionDataClients = () => {}, hookRouter = null, getHookPort = null,
   spawnGate = null, replayBufferKB = undefined, recordLane = null, laneName, getSaneYoloUnreadablePaths, allowTools = [],
   createSession = (options) => new Session(options), settingsPermissions, spawnEnv = null,
-  prepareMcp = prepareLaneMcp,
+  prepareMcp = prepareLaneMcp, getLaneAccessConfig = () => CLOSED_LANE_ACCESS_CONFIG,
 }: LaneSpawnOptions): LaneSpawn {
   return async function spawnLaneSession({ id, name, prompt, cwd, agent = DEFAULT_AGENT_ID, extraArgs = [], model = null, signal = null, onOutput }) {
     const isCodex = agent === 'codex';
@@ -92,11 +98,21 @@ function createLaneSpawn({
     const isClaude = !isCodex && !isKimi;
     const guardHookTools = hookRouter ? resolveRequiredSaneYoloHookTools(getSaneYoloUnreadablePaths()) : [];
     if (guardHookTools === null) throw new Error(GUARD_HOOK_UNAVAILABLE_ERROR);
-    await runLaneSession(guardHookTools);
+    const laneGhConfig = await makeLaneGhConfigDirectory();
+    try {
+      await runLaneSession(guardHookTools, laneGhConfig.path);
+    } finally {
+      await laneGhConfig.remove();
+    }
 
-    async function runLaneSession(saneYoloHookTools: readonly ResolvedHookTool[]): Promise<void> {
-      const posture = isClaude ? buildLanePermissions({ denyTools: LANE_SPAWN_DENY_TOOLS, allowTools }) : null;
-      const basePermissions = settingsPermissions ?? posture?.permissions ?? null;
+    async function runLaneSession(saneYoloHookTools: readonly ResolvedHookTool[], laneGhConfigDir: string): Promise<void> {
+      const { readToken, extraFetchDomains } = getLaneAccessConfig();
+      const access = laneAccess({ agent, readToken, extraFetchDomains, ghConfigDir: laneGhConfigDir, inheritedEnv: process.env });
+      const denyTools = [...LANE_SPAWN_DENY_TOOLS, ...(access.isOpen ? [] : ['Bash'])];
+      const tools = allowTools.length > 0 ? [...new Set([...allowTools, ...access.tools])] : [];
+      const posture = isClaude ? buildLanePermissions({ denyTools, allowTools: tools }) : null;
+      const unscopedPermissions = settingsPermissions ?? posture?.permissions ?? null;
+      const basePermissions = unscopedPermissions && isClaude ? withLaneAccessRules(unscopedPermissions, access) : unscopedPermissions;
       const laneMcp = hookRouter ? await prepareMcp({ laneArgs: posture?.args ?? [], agent }) : null;
       const permissions = basePermissions && laneMcp ? withAllowRules(basePermissions, laneMcp.posture.allowRules) : basePermissions;
       const standalone = !hookRouter && permissions ? await writeStandaloneDenySettings(permissions, []) : null;
@@ -118,7 +134,7 @@ function createLaneSpawn({
         ephemeral: true,
         requiresHooks: true,
         settingsPermissions: permissions,
-        spawnEnv: { ...spawnEnv, ...LANE_CREDENTIAL_ENV },
+        spawnEnv: { ...spawnEnv, ...access.env },
         replayBufferKB,
         hookRouter,
         getHookPort,
@@ -147,5 +163,5 @@ async function readLaneResultFile(resultPath: string): Promise<Record<string, un
   }
 }
 
-export { LANE_SPAWN_DENY_TOOLS, createLaneSpawn, headlessPromptLaunch, readLaneResultFile };
+export { LANE_SPAWN_DENY_TOOLS, createLaneSpawn, headlessPromptLaunch, makeLaneGhConfigDirectory, readLaneResultFile };
 export type { LaneSpawn };
