@@ -1,3 +1,4 @@
+import { fitTipLabel } from '../hover-tip-core.ts';
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
@@ -138,7 +139,7 @@ export function createSessionPageButtons({ style }: { style: ButtonStyle }) {
     const control = button({
       variant: 'icon',
       size: isHeader ? 'small' : 'default',
-      label: page.label,
+      label: fitTipLabel(page.label),
       icon: createLineIcon(page.iconPath),
       action: `${isHeader ? 'open' : 'show'}-${page.id}`,
     });

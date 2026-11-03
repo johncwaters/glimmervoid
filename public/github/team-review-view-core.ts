@@ -10,6 +10,8 @@ import { formatClockOffset } from '../radar/radar-core.ts';
 import { classifyReviewPriority, currentHead, isAwaitingViewerAfterResolvedComments, pullRequestLabel, stageIcon, stageLabel, stageTone } from './github-store-core.ts';
 import type { QueueRowKind, ReviewPriorityReason } from './github-store-core.ts';
 import type { PrStatusIcon } from './pr-status-icon-core.ts';
+import { fitTipDetail, fitTipLabel } from '../hover-tip-core.ts';
+import type { FittedTipText } from '../hover-tip-core.ts';
 import type { StateTone } from '../state-tone-core.ts';
 
 export { generalFindingsOf } from '#shared/team-review-markdown.ts';
@@ -333,12 +335,12 @@ export function viewerApprovalContext(draft: ReviewDraft): ViewerApprovalContext
 }
 
 export interface HoverTip {
-  label: string;
-  detail: string;
+  label: FittedTipText;
+  detail: FittedTipText;
 }
 
 export function viewerApprovalTip(context: ViewerApprovalContext): HoverTip {
-  return { label: 'Earlier version', detail: `Commit ${shortSha(context.approvedCommit)}` };
+  return { label: fitTipLabel('Earlier version'), detail: fitTipDetail(`Commit ${shortSha(context.approvedCommit)}`) };
 }
 
 export function viewerApprovalNotice(context: ViewerApprovalContext, age: string | null): string {
@@ -472,16 +474,23 @@ export function detailMetaText(review: Pick<ReviewDraft, 'tier' | 'priorReviewed
   return `${tierLabel(review.tier)} review`;
 }
 
-const TIER_TIP_TEXT: Readonly<Record<ReviewDraft['tier'], HoverTip>> = {
+const TIER_TIP_TEXT: Readonly<Record<ReviewDraft['tier'], { label: string; detail: string }>> = {
   full: { label: 'Full review', detail: 'The agent reads every changed file.' },
   stamp: { label: 'Light review', detail: 'A quick pass for a change that only touches docs or tests.' },
 };
 
-export function reviewTierTip(review: Pick<ReviewDraft, 'tier' | 'reasons' | 'priorReviewedHead'>): HoverTip {
+const TOUCHES_REASON_PREFIX = 'touches ';
+
+function reasonWithFileName(reason: string): string {
+  if (!reason.startsWith(TOUCHES_REASON_PREFIX)) return reason;
+  const filePath = reason.slice(TOUCHES_REASON_PREFIX.length);
+  return `${TOUCHES_REASON_PREFIX}${filePath.slice(filePath.lastIndexOf('/') + 1)}`;
+}
+
+export function reviewTierTip(review: Pick<ReviewDraft, 'tier' | 'reasons'>): HoverTip {
   const tierText = TIER_TIP_TEXT[review.tier];
-  const reasonText = review.reasons.length > 0 ? ` Picked because: ${review.reasons.join(', ')}.` : '';
-  const scopeText = review.priorReviewedHead ? ` Covers commits after ${shortSha(review.priorReviewedHead)}.` : '';
-  return { label: tierText.label, detail: `${tierText.detail}${reasonText}${scopeText}` };
+  const reasonText = review.reasons.length > 0 ? ` Picked because: ${review.reasons.map(reasonWithFileName).join(', ')}.` : '';
+  return { label: fitTipLabel(tierText.label), detail: fitTipDetail(`${tierText.detail}${reasonText}`) };
 }
 
 export function aboutPrParagraphs(assessment: ReviewAssessment | null | undefined): { kind: 'goal' | 'change'; text: string }[] {
@@ -555,7 +564,7 @@ export function changedSinceReviewText(draft: Pick<ReviewDraft, 'reviewedHead' |
 
 export function changedSinceReviewTip(draft: Pick<ReviewDraft, 'reviewedHead' | 'liveHead'>): HoverTip | null {
   const liveHead = movedHead(draft);
-  return liveHead ? { label: 'Commits', detail: `Reviewed at ${shortSha(draft.reviewedHead)}, now at ${shortSha(liveHead)}` } : null;
+  return liveHead ? { label: fitTipLabel('Commits'), detail: fitTipDetail(`Reviewed at ${shortSha(draft.reviewedHead)}, now at ${shortSha(liveHead)}`) } : null;
 }
 
 export function changedSinceReviewUrl(draft: Pick<ReviewDraft, 'repo' | 'reviewedHead' | 'liveHead'>): string | null {
@@ -570,7 +579,7 @@ export function earlierReviewPreview(review: EarlierReview): string {
 }
 
 export function earlierReviewTip(review: EarlierReview): HoverTip {
-  return { label: 'Earlier review', detail: `Commit ${shortSha(review.head)}` };
+  return { label: fitTipLabel('Earlier review'), detail: fitTipDetail(`Commit ${shortSha(review.head)}`) };
 }
 
 export function verdictHeading(verdict: ReviewDraft['verdict']): string {

@@ -1,5 +1,6 @@
 import { el } from './dom-helpers.ts';
-import { clampTipText, TIP_DETAIL_MAX_CHARS, TIP_LABEL_MAX_CHARS } from './hover-tip-core.ts';
+import { fitTipDetail, fitTipLabel } from './hover-tip-core.ts';
+import type { TipDetail, TipLabel } from './hover-tip-core.ts';
 
 const TIP_ID = 'hover-tip';
 const ANCHOR_SELECTOR = '[data-tip-label]';
@@ -31,9 +32,9 @@ function ensureTipElement(): HTMLElement {
 
 function fillTip(tip: HTMLElement, anchor: HTMLElement) {
   const text = el('span', 'hover-tip-text');
-  text.append(el('b', 'hover-tip-label', clampTipText(anchor.dataset.tipLabel ?? '', TIP_LABEL_MAX_CHARS)));
+  text.append(el('b', 'hover-tip-label', fitTipLabel(anchor.dataset.tipLabel ?? '')));
   const detail = anchor.dataset.tipDetail;
-  if (detail) text.append(el('span', 'hover-tip-detail', clampTipText(detail, TIP_DETAIL_MAX_CHARS)));
+  if (detail) text.append(el('span', 'hover-tip-detail', fitTipDetail(detail)));
   tip.replaceChildren(text);
 }
 
@@ -91,7 +92,7 @@ function isLeavingAnchor(anchor: HTMLElement | null, event: PointerEvent): boole
   return !(event.relatedTarget instanceof Node && anchor.contains(event.relatedTarget));
 }
 
-export function refreshHoverTip(anchor: HTMLElement) {
+function refreshHoverTip(anchor: HTMLElement) {
   if (shownAnchor !== anchor) return;
   if (!anchor.dataset.tipLabel || !anchor.isConnected) { hideTip(); return; }
   showTip(anchor);
@@ -99,7 +100,7 @@ export function refreshHoverTip(anchor: HTMLElement) {
 
 let isInstalled = false;
 
-export function installHoverTips() {
+function installHoverTips() {
   if (isInstalled) return;
   isInstalled = true;
   document.addEventListener('pointerover', (event) => {
@@ -124,4 +125,18 @@ export function installHoverTips() {
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') hideTip();
   });
+}
+
+export function setHoverTip<const Label extends string, const Detail extends string>(anchor: HTMLElement, label: TipLabel<Label>, detail?: TipDetail<Detail>) {
+  anchor.dataset.tipLabel = label;
+  if (detail) anchor.dataset.tipDetail = detail;
+  if (!detail) delete anchor.dataset.tipDetail;
+  installHoverTips();
+  refreshHoverTip(anchor);
+}
+
+export function clearHoverTip(anchor: HTMLElement) {
+  delete anchor.dataset.tipLabel;
+  delete anchor.dataset.tipDetail;
+  refreshHoverTip(anchor);
 }

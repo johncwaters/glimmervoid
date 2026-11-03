@@ -1,3 +1,6 @@
+import { fitTipDetail, fitTipLabel } from '../hover-tip-core.ts';
+import type { TipLabel } from '../hover-tip-core.ts';
+import { setHoverTip } from '../hover-tip.ts';
 import './whiteboard.css';
 import type { Board, BoardReview, BoardSummary, Element, Op } from '#shared/contracts/whiteboard.ts';
 import { refPathOf, refsOfElement } from '#shared/whiteboard-anchor-core.ts';
@@ -622,15 +625,14 @@ export function createBoardFromDialog(onCreated: (boardId: string) => void): voi
   });
 }
 
-function iconButton(label: string, iconPath: string, action: string, onClick: () => void): HTMLButtonElement {
-  return button({ variant: 'icon', label, icon: createLineIcon(iconPath, '1.5'), action, onClick });
+function iconButton<const Label extends string>(label: TipLabel<Label>, iconPath: string, action: string, onClick: () => void): HTMLButtonElement {
+  return button({ variant: 'icon', label: fitTipLabel(label), icon: createLineIcon(iconPath, '1.5'), action, onClick });
 }
 
 function toolButton(tool: BoardTool, label: string, key: string, iconPath: string): HTMLButtonElement {
   const toolOption = createPressable('wb-tool');
   toolOption.setAttribute('aria-label', label);
-  toolOption.dataset.tipLabel = label;
-  toolOption.dataset.tipDetail = key;
+  setHoverTip(toolOption, fitTipLabel(label), fitTipDetail(key));
   const keyHint = el('span', 'wb-tool-key', key);
   keyHint.setAttribute('aria-hidden', 'true');
   toolOption.append(createLineIcon(iconPath, '1.5'), keyHint);
