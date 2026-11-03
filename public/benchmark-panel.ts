@@ -1,6 +1,7 @@
 import './benchmark-panel.css';
 import { benchmarkSnapshot, sendBenchmarkAction, subscribeBenchmarks } from './benchmark-store.ts';
 import { buildPanelSection, buildStatChip, el } from './dom-helpers.ts';
+import { button } from './ui/button.ts';
 import { NOT_CONNECTED_TEXT } from './updates-view-core.ts';
 import type { ViewModule } from './view-registry-core.ts';
 import type { BenchmarkAction, BenchmarkArmScore, BenchmarkReport, BenchmarkStatus, BenchmarkSuiteSummary } from '#shared/contracts/benchmark.ts';
@@ -21,11 +22,14 @@ function signedPoints(delta: number | null): string {
 }
 
 function buildActionButton(suite: BenchmarkSuiteSummary, action: BenchmarkAction, isDisabled: boolean): HTMLButtonElement {
-  const button = el('button', 'bench-action-button', ACTION_LABELS[action]);
-  button.type = 'button';
-  button.disabled = isDisabled;
-  button.addEventListener('click', () => sendBenchmarkAction(suite.id, action));
-  return button;
+  return button({
+    variant: action === 'cancel' ? 'secondary' : 'primary',
+    size: 'small',
+    label: ACTION_LABELS[action],
+    action: `benchmark-${action}`,
+    disabled: isDisabled,
+    onClick: () => sendBenchmarkAction(suite.id, action),
+  });
 }
 
 function inFlightText(status: BenchmarkStatus, suite: BenchmarkSuiteSummary): string {

@@ -1,4 +1,5 @@
 import { el } from '../dom-helpers.ts';
+import { createPressable } from '../ui/pressable.ts';
 import { formatAgo } from '../poll-ago.ts';
 import { reportUsageAction, requestUsageReport, setUsageRange } from './usage-store.ts';
 import { PERIOD_VIEWS, RANGE_OPTIONS, SESSION_ROW_LIMIT, USAGE_CAVEAT_SHORT, dayRangeLabel, formatPercent, formatTokens, formatUsd, isGlimmervoidSessionRow, modelRowPrefix, modelTokenMix, percentOfTotal, periodAverageText, periodDayKeys, periodDeltaText, periodSummary, rangeDays, rangeLabel, rankedModels, rankedSessions, reportDayKey, reportInsights, sessionOverflowText, shareBasis, shareLabel, vendorSplitText, visibleSessionRows, yourDayHint } from './usage-view-core.ts';
@@ -15,11 +16,10 @@ function buildRangeSwitch() {
   group.setAttribute('role', 'group');
   group.setAttribute('aria-label', 'Report period');
   for (const option of RANGE_OPTIONS) {
-    const button = el('button', 'usage-period-button', PERIOD_VIEWS.find((view) => view.value === option.value)?.label || option.label);
-    button.type = 'button';
-    button.dataset.usageRange = option.value;
-    button.setAttribute('aria-pressed', option.value === _usage.rangeValue ? 'true' : 'false');
-    button.addEventListener('click', () => {
+    const rangeOption = createPressable('usage-period-button', PERIOD_VIEWS.find((view) => view.value === option.value)?.label || option.label);
+    rangeOption.dataset.usageRange = option.value;
+    rangeOption.setAttribute('aria-pressed', option.value === _usage.rangeValue ? 'true' : 'false');
+    rangeOption.addEventListener('click', () => {
       if (_usage.rangeValue === option.value) return;
       reportUsageAction('period');
       setUsageRange(option.value);
@@ -27,7 +27,7 @@ function buildRangeSwitch() {
       requestUsageReport();
       render();
     });
-    group.append(button);
+    group.append(rangeOption);
   }
   return group;
 }
@@ -117,23 +117,22 @@ function buildModelsSection() {
     const key = `${String(entry.row.vendor ?? '')}:${entry.label}`;
     const isExpanded = _expandedModels.has(key);
     const item = el('li', 'usage-rank');
-    const button = el('button', 'usage-rank-head');
-    button.type = 'button';
-    button.dataset.usageModel = key;
-    button.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+    const rankHead = createPressable('usage-rank-head');
+    rankHead.dataset.usageModel = key;
+    rankHead.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
     const { bar, shareText } = buildRankedBar(entry.sharePct, entry.barPct);
     const prefix = modelRowPrefix(entry.row, totals);
     const name = el('span', 'usage-rank-label', entry.label);
     if (prefix) name.prepend(el('span', 'usage-vendor-tag', prefix));
-    button.append(name, el('span', 'usage-rank-value', formatUsd(entry.costUSD)), el('span', 'usage-rank-share', shareText), bar);
-    button.addEventListener('click', () => {
+    rankHead.append(name, el('span', 'usage-rank-value', formatUsd(entry.costUSD)), el('span', 'usage-rank-share', shareText), bar);
+    rankHead.addEventListener('click', () => {
       reportUsageAction('expand');
       setFocusAfterRender({ kind: 'model', key });
       if (isExpanded) _expandedModels.delete(key);
       if (!isExpanded) _expandedModels.add(key);
       render();
     });
-    item.append(button);
+    item.append(rankHead);
     if (isExpanded) item.append(buildTokenMix(entry.row));
     list.append(item);
   }
@@ -187,17 +186,16 @@ function buildSessionsOverflow(hiddenCount: number) {
   const wrap = el('div', 'usage-overflow');
   const text = sessionOverflowText(hiddenCount);
   if (text) wrap.append(el('p', 'usage-meta', text));
-  const button = el('button', 'usage-toggle', 'All sessions');
-  button.type = 'button';
-  button.dataset.usageSessionsToggle = 'true';
-  button.setAttribute('aria-expanded', _sessionsExpanded ? 'true' : 'false');
-  button.addEventListener('click', () => {
+  const sessionsToggle = createPressable('usage-toggle', 'All sessions');
+  sessionsToggle.dataset.usageSessionsToggle = 'true';
+  sessionsToggle.setAttribute('aria-expanded', _sessionsExpanded ? 'true' : 'false');
+  sessionsToggle.addEventListener('click', () => {
     reportUsageAction('expand');
     setFocusAfterRender({ kind: 'sessions-toggle' });
     _sessionsExpanded = !_sessionsExpanded;
     render();
   });
-  wrap.append(button);
+  wrap.append(sessionsToggle);
   return wrap;
 }
 

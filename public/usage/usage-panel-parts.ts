@@ -1,4 +1,6 @@
 import { buildPanelSection, el } from '../dom-helpers.ts';
+import { button } from '../ui/button.ts';
+import { createPressable } from '../ui/pressable.ts';
 import { formatAgo } from '../poll-ago.ts';
 import { reportUsageAction } from './usage-store.ts';
 import { ariaSortValue, formatPercent } from './usage-view-core.ts';
@@ -75,15 +77,14 @@ function buildTable(headings: TableHeading[], sort: SortState | null, onSort: (k
     }
     const sortKey = heading.key;
     cell.setAttribute('aria-sort', ariaSortValue(sort, sortKey));
-    const button = el('button', 'usage-sort', heading.label);
-    button.type = 'button';
-    button.dataset.sortKey = sortKey;
-    button.addEventListener('click', () => {
+    const sortHeading = createPressable('usage-sort', heading.label);
+    sortHeading.dataset.sortKey = sortKey;
+    sortHeading.addEventListener('click', () => {
       reportUsageAction('sort');
       setFocusAfterRender({ kind: 'sort', table: tableId, key: sortKey });
       onSort(sortKey);
     });
-    cell.append(button);
+    cell.append(sortHeading);
     headRow.append(cell);
   }
   head.append(headRow);
@@ -130,10 +131,7 @@ function paintSessionsTs() {
 }
 
 function buildBackControl() {
-  const back = el('button', 'usage-back', 'Back');
-  back.type = 'button';
-  back.addEventListener('click', closeScreen);
-  return back;
+  return button({ variant: 'secondary', label: 'Back', action: 'back-to-usage-overview', onClick: closeScreen });
 }
 
 function openScreen(screen: UsageDetailScreen) {

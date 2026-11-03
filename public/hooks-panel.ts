@@ -4,6 +4,9 @@ import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from
 import { NOT_CONNECTED_TEXT } from './updates-view-core.ts';
 import { buildPanelSection, buildStatChip, el, isPanelHidden, projectsOf } from './dom-helpers.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
+import { button } from './ui/button.ts';
+import { createPressable } from './ui/pressable.ts';
+import { createLineIcon, PLUS_ICON_PATH } from './svg-dom.ts';
 import {
   ALL_PROJECTS_LABEL,
   BUILTIN_HINT,
@@ -98,12 +101,10 @@ function buildLine(className: string, text: string | null | undefined, tone?: st
   return line;
 }
 
-function buildButton(className: string, label: string, onClick: () => void, ariaLabel?: string) {
-  const button = el('button', className, label);
-  button.type = 'button';
-  if (ariaLabel) button.setAttribute('aria-label', ariaLabel);
-  button.addEventListener('click', onClick);
-  return button;
+function buildRowButton(variant: 'secondary' | 'danger', label: string, action: string, ariaLabel: string, onClick: () => void) {
+  const rowButton = button({ variant, size: 'small', label, action, onClick });
+  rowButton.setAttribute('aria-label', ariaLabel);
+  return rowButton;
 }
 
 async function requestHookChange(type: 'save-hook' | 'delete-hook', payload: Record<string, unknown>): Promise<string | null> {
@@ -230,7 +231,8 @@ function buildTemplateRow(events: HookEvent[]) {
   const row = el('div', 'hooks-templates');
   row.append(el('span', 'hooks-templates-label', TEMPLATES_LABEL));
   for (const template of HOOK_TEMPLATES) {
-    const chip = buildButton('hooks-chip', template.label, () => openEditor(null, templateDraft(template, events)));
+    const chip = createPressable('hooks-chip', template.label);
+    chip.addEventListener('click', () => openEditor(null, templateDraft(template, events)));
     chip.title = template.summary;
     row.append(chip);
   }
@@ -306,8 +308,8 @@ function buildEditor(draft: HookDraft) {
   _editorStatus = createActionStatus('hooks-editor-status');
   const footer = el('div', 'hooks-editor-footer');
   const shortcut = el('span', 'hooks-editor-shortcut', SHORTCUT_HINT);
-  const cancel = buildButton('btn-dialog btn-dialog-cancel', 'Cancel', requestCloseEditor);
-  const save = el('button', 'btn-dialog btn-dialog-confirm', draft.id ? 'Save changes' : 'Add hook');
+  const cancel = button({ variant: 'secondary', label: 'Cancel', action: 'cancel-hook-edit', onClick: requestCloseEditor });
+  const save = button({ variant: 'primary', label: draft.id ? 'Save changes' : 'Add hook', action: 'save-hook' });
   save.type = 'submit';
   _editorSaveButton = save;
   footer.append(_editorStatus.element, shortcut, cancel, save);
@@ -411,13 +413,13 @@ function buildRow(hook: HookRecord, { grouped = false }: { grouped?: boolean } =
     void runRowRequest(hook.id, 'save-hook', { hook: toggledHook(hook) }, toggle.checked ? 'Turning the hook on.' : 'Turning the hook off.');
   });
   toggleLabel.append(toggle, el('span', null, 'On'));
-  const edit = buildButton('hooks-btn', 'Edit', () => openEditor(hook), `Edit ${hook.name}`);
-  const duplicate = buildButton('hooks-btn', DUPLICATE_LABEL, () => {
+  const edit = buildRowButton('secondary', 'Edit', 'edit-hook', `Edit ${hook.name}`, () => openEditor(hook));
+  const duplicate = buildRowButton('secondary', DUPLICATE_LABEL, 'duplicate-hook', `Duplicate ${hook.name}`, () => {
     const copy = toDraft({ ...hook, name: duplicateName(hook.name) });
     copy.id = null;
     openEditor(null, copy);
-  }, `Duplicate ${hook.name}`);
-  const remove = buildButton('hooks-btn hooks-btn-danger', 'Delete', () => {
+  });
+  const remove = buildRowButton('danger', 'Delete', 'delete-hook', `Delete ${hook.name}`, () => {
     openConfirmDialog({
       title: 'Delete hook',
       message: deleteConfirmText(hook),
@@ -427,7 +429,7 @@ function buildRow(hook: HookRecord, { grouped = false }: { grouped?: boolean } =
         void runRowRequest(hook.id, 'delete-hook', { id: hook.id }, 'Deleting the hook.');
       },
     });
-  }, `Delete ${hook.name}`);
+  });
   remove.disabled = _busyIds.has(hook.id);
   actions.append(toggleLabel, edit, duplicate, remove);
   row.append(main, actions);
@@ -495,8 +497,7 @@ function buildYoursList() {
 
 function buildYoursSection() {
   const section = buildSection(YOUR_HOOKS_TITLE, null);
-  const add = buildButton('hooks-btn hooks-btn-add', '+ New hook', () => openEditor(null));
-  add.disabled = !!_draft;
+  const add = button({ variant: 'primary', size: 'small', label: NEW_HOOK_TITLE, icon: createLineIcon(PLUS_ICON_PATH), action: 'new-hook', disabled: !!_draft, onClick: () => openEditor(null) });
   const head = section.querySelector('.hooks-section-head');
   if (head) head.append(add);
   if (showsFilter(hooksOf(_hooks.report))) section.append(buildFilter());
@@ -566,7 +567,7 @@ function render({ force = false }: { force?: boolean } = {}) {
   _root.replaceChildren(buildBody());
   if (!_focusAddOnRender) return;
   _focusAddOnRender = false;
-  const add = _root.querySelector('.hooks-btn-add');
+  const add = _root.querySelector('[data-action="new-hook"]');
   if (add instanceof HTMLButtonElement) add.focus();
 }
 

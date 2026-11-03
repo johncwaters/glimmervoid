@@ -1,4 +1,5 @@
 import { el } from '../dom-helpers.ts';
+import { createPressable } from '../ui/pressable.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
 import { reportUsageAction } from './usage-store.ts';
 import { DEFAULT_DAY_SORT, DEFAULT_PERIOD_VIEW, HEATMAP_DAY_LABELS, LANE_SCOPE_HINT, OVERHEAD_SCOPE_HINT, PERIOD_VIEWS, blockHistoryRows, blockLabel, budgetRowMeterLabel, budgetRowPct, budgetRows, budgetRowText, budgetScopeLabel, claudeOnlyHint, formatPercent, formatTokens, formatUsd, glimmervoidOverhead, hasLaneAttribution, heatmapCells, heatmapCellTitle, historyNote, laneLabel, laneRows, laneSessionsText, modelLabel, nextSortState, overheadLanesText, overheadPlanText, percentOfTotal, periodLabel, periodRows, reportDayKey, sortDailyRows, sortModelRows } from './usage-view-core.ts';
@@ -202,18 +203,17 @@ function buildPeriodSwitch() {
   group.setAttribute('role', 'group');
   group.setAttribute('aria-label', 'Period');
   for (const view of PERIOD_VIEWS) {
-    const button = el('button', 'usage-period-button', view.label);
-    button.type = 'button';
-    button.dataset.periodView = view.value;
-    button.setAttribute('aria-pressed', view.value === _periodView ? 'true' : 'false');
-    button.addEventListener('click', () => {
+    const periodOption = createPressable('usage-period-button', view.label);
+    periodOption.dataset.periodView = view.value;
+    periodOption.setAttribute('aria-pressed', view.value === _periodView ? 'true' : 'false');
+    periodOption.addEventListener('click', () => {
       if (_periodView === view.value) return;
       reportUsageAction('period');
       _periodView = view.value;
       setFocusAfterRender({ kind: 'period', view: view.value });
       render();
     });
-    group.append(button);
+    group.append(periodOption);
   }
   return group;
 }
@@ -250,11 +250,10 @@ function buildHeatmap(daily: unknown) {
 
 function buildBreakdownToggle(expandKey: string, modelCount: number) {
   if (modelCount === 0) return null;
-  const button = el('button', 'usage-toggle', 'Models');
-  button.type = 'button';
-  button.dataset.usageDay = expandKey;
-  button.setAttribute('aria-expanded', _expandedDays.has(expandKey) ? 'true' : 'false');
-  button.addEventListener('click', () => {
+  const modelsToggle = createPressable('usage-toggle', 'Models');
+  modelsToggle.dataset.usageDay = expandKey;
+  modelsToggle.setAttribute('aria-expanded', _expandedDays.has(expandKey) ? 'true' : 'false');
+  modelsToggle.addEventListener('click', () => {
     reportUsageAction('expand');
     setFocusAfterRender({ kind: 'day', day: expandKey });
     if (_expandedDays.has(expandKey)) {
@@ -265,7 +264,7 @@ function buildBreakdownToggle(expandKey: string, modelCount: number) {
     _expandedDays.add(expandKey);
     render();
   });
-  return button;
+  return modelsToggle;
 }
 
 function buildBreakdownRow(models: UsageWireRow[]) {

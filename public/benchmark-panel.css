@@ -22,21 +22,6 @@
   margin-top: 12px;
 }
 
-.bench-action-button {
-  padding: 5px 9px;
-  border: 1px solid var(--accent-dim);
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--accent);
-  font: inherit;
-  cursor: pointer;
-}
-
-.bench-action-button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
 .bench-empty,
 .bench-error {
   margin: 12px 0 0;

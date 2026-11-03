@@ -66,7 +66,7 @@ function selectorForFocusTarget(target: FocusTarget) {
   if (target.kind === 'sessions-toggle') return '.usage-toggle[data-usage-sessions-toggle="true"]';
   if (target.kind === 'model') return `.usage-rank-head[data-usage-model="${CSS.escape(target.key)}"]`;
   if (target.kind === 'range') return `.usage-period-button[data-usage-range="${CSS.escape(target.value)}"]`;
-  if (target.kind === 'back') return '.usage-back';
+  if (target.kind === 'back') return '[data-action="back-to-usage-overview"]';
   if (target.kind === 'drill') return `.usage-drill[data-usage-screen="${CSS.escape(target.screen)}"]`;
   if (target.kind === 'sort') return `[data-usage-table="${CSS.escape(target.table)}"] .usage-sort[data-sort-key="${CSS.escape(target.key)}"]`;
   return null;

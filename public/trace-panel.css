@@ -23,7 +23,7 @@
   gap: 6px;
 }
 
-.trace-filters button {
+.trace-filter {
   padding: 4px 8px;
   border: 1px solid var(--border-dim);
   border-radius: 2px;
@@ -41,7 +41,7 @@
 }
 
 @media (hover: hover) {
-  .trace-filters button:hover { border-color: var(--border-hover); color: var(--text-head); }
+  .trace-filter:hover { border-color: var(--border-hover); color: var(--text-head); }
 }
 
 .trace-session-field {
@@ -95,21 +95,6 @@
 .trace-earlier-wrap {
   display: flex;
   justify-content: center;
-}
-
-.trace-load-earlier {
-  padding: 6px 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--text-dim);
-  font: inherit;
-  font-size: var(--type-meta);
-  cursor: pointer;
-}
-
-@media (hover: hover) {
-  .trace-load-earlier:hover { color: var(--text-head); border-color: var(--accent); }
 }
 
 .trace-turns {
@@ -254,32 +239,16 @@
   gap: 8px;
 }
 
-.trace-copy {
-  padding: 3px 9px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--text-dim);
-  font: inherit;
-  font-size: var(--type-meta);
-  cursor: pointer;
-}
-
-@media (hover: hover) {
-  .trace-copy:hover { color: var(--text-head); border-color: var(--accent); }
-}
 .trace-copy-status { font-size: var(--type-meta); color: var(--text-muted); }
 
 html[data-layout="phone"] .trace-content { width: 100%; max-width: none; gap: 14px; }
 html[data-layout="phone"] .trace-controls { align-items: stretch; flex-direction: column; gap: 8px; }
 html[data-layout="phone"] .trace-filters { align-items: stretch; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-html[data-layout="phone"] .trace-filters button { min-height: 44px; padding: 8px 6px; font-size: var(--type-meta); }
+html[data-layout="phone"] .trace-filter { min-height: 44px; padding: 8px 6px; font-size: var(--type-meta); }
 html[data-layout="phone"] .trace-session-field { align-items: stretch; flex-direction: column; gap: 4px; }
 html[data-layout="phone"] .trace-session-select { min-width: 0; max-width: none; min-height: 44px; font-size: var(--type-title); }
 html[data-layout="phone"] .trace-path { white-space: normal; overflow-wrap: anywhere; font-size: var(--type-meta); }
 html[data-layout="phone"] .trace-row-summary { min-height: 44px; padding: 12px 10px; font-size: var(--type-meta); }
 html[data-layout="phone"] .trace-row-body { padding: 0 10px 12px; }
-html[data-layout="phone"] .trace-copy { min-height: 44px; padding: 8px 14px; font-size: var(--type-body); }
-html[data-layout="phone"] .trace-load-earlier { min-height: 44px; padding: 8px 16px; font-size: var(--type-body); }
 html[data-layout="phone"] .trace-row-pre { max-height: none; font-size: var(--type-meta); }
 }

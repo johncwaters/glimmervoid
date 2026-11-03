@@ -1,4 +1,6 @@
 import { el } from '../dom-helpers.ts';
+import { button } from '../ui/button.ts';
+import { createPressable } from '../ui/pressable.ts';
 import { reportUsageAction, requestUsageReport, usageRefreshStatus } from './usage-store.ts';
 import { PLAN_LIMIT_VENDORS, PLAN_WINDOWS, USAGE_DISABLED_HINT, budgetRows, budgetSummary, dailyRowForDay, formatPercent, formatUsd, glimmervoidLaneCostUSD, glimmervoidOverhead, historyDayCount, isUsageUnavailable, missingPricingLine, nextPaceResetMs, paceSubText, paceVerdict, paceWindows, planLimitAgeText, planLimitStaleNote, rangeLabel, reportDayKey, resetClockText, sessionsSummary, topModelSummary, usageErrorLine, usageWarningLine } from './usage-view-core.ts';
 import type { PaceWindow, PlanLimits, UsageDetailScreen } from './usage-view-core.ts';
@@ -11,22 +13,26 @@ const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 function buildRefreshControls() {
   const controls = el('div', 'usage-controls');
-  const button = el('button', 'usage-refresh', 'Refresh');
-  button.type = 'button';
-  button.title = 'Re-read every transcript from the start';
-  button.addEventListener('click', () => {
-    reportUsageAction('refresh');
-    requestUsageReport({ force: true });
+  const refreshButton = button({
+    variant: 'secondary',
+    size: 'small',
+    label: 'Refresh',
+    action: 'refresh-usage',
+    onClick: () => {
+      reportUsageAction('refresh');
+      requestUsageReport({ force: true });
+    },
   });
+  refreshButton.title = 'Re-read every transcript from the start';
   const status = el('span', 'usage-refresh-status', '');
-  setRefreshButtonEl(button);
+  setRefreshButtonEl(refreshButton);
   setRefreshStatusEl(status);
   paintRefreshStatus();
   const reportAgeEl = el('p', 'usage-meta', '');
   setReportAgeEl(reportAgeEl);
   paintReportAge();
   _ticker.onTick(paintReportAge);
-  controls.append(button, status, reportAgeEl);
+  controls.append(refreshButton, status, reportAgeEl);
   return controls;
 }
 
@@ -139,16 +145,15 @@ function buildPaceLegend() {
 }
 
 function buildDrillRow(screen: UsageDetailScreen, label: string, detail: string, value: string) {
-  const button = el('button', 'usage-drill');
-  button.type = 'button';
-  button.dataset.usageScreen = screen;
-  if (_detailScreen === screen) button.setAttribute('aria-current', 'true');
+  const drillRow = createPressable('usage-drill');
+  drillRow.dataset.usageScreen = screen;
+  if (_detailScreen === screen) drillRow.setAttribute('aria-current', 'true');
   const text = el('span', 'usage-drill-text');
   text.append(el('span', 'usage-drill-label', label));
   if (detail) text.append(el('span', 'usage-drill-detail', detail));
-  button.append(text, el('span', 'usage-drill-value', value), el('span', 'usage-drill-chevron'));
-  button.addEventListener('click', () => openScreen(screen));
-  return button;
+  drillRow.append(text, el('span', 'usage-drill-value', value), el('span', 'usage-drill-chevron'));
+  drillRow.addEventListener('click', () => openScreen(screen));
+  return drillRow;
 }
 
 function buildDrillRows() {

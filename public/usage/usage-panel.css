@@ -264,20 +264,11 @@
   transform: rotate(45deg);
 }
 
-.usage-back { display: none; }
+.usage-screen > [data-action="back-to-usage-overview"] { display: none; }
 
-html[data-layout="phone"] .usage-back {
+html[data-layout="phone"] .usage-screen > [data-action="back-to-usage-overview"] {
   display: inline-flex;
   align-self: flex-start;
-  align-items: center;
-  min-height: 44px;
-  padding: 4px 12px;
-  border: 1px solid var(--border-dim);
-  border-radius: var(--radius);
-  background: none;
-  color: var(--text-head);
-  font: inherit;
-  font-size: var(--type-meta);
 }
 
 html[data-layout="phone"] .usage-content[data-screen="overview"] .usage-detail { display: none; }
@@ -633,31 +624,6 @@ html[data-layout="phone"] .usage-content:not([data-screen="overview"]) .usage-ov
   gap: 6px;
 }
 
-.usage-refresh {
-  border: 1px solid var(--border-dim);
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: var(--type-meta);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  padding: 2px 8px;
-  cursor: pointer; font-weight: 700;
-}
-
-@media (hover: hover) {
-  .usage-refresh:hover:not(:disabled) {
-    color: var(--text);
-    border-color: var(--accent-dim);
-  }
-}
-
-.usage-refresh:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
 .usage-refresh-status {
   font-size: var(--type-meta);
   color: var(--text-muted);
@@ -814,7 +780,6 @@ html[data-layout="phone"] .usage-heatmap-days { grid-template-rows: repeat(7, 13
 html[data-layout="phone"] .usage-heatmap-cell { width: 13px; height: 13px; }
 html[data-layout="phone"] .usage-heatmap-day { line-height: 13px; }
 
-html[data-layout="phone"] .usage-refresh { min-height: 44px; padding: 4px 12px; font-size: var(--type-meta); }
 html[data-layout="phone"] .usage-sort,
 html[data-layout="phone"] .usage-toggle { min-height: 44px; font-size: var(--type-meta); }
 html[data-layout="phone"] .usage-table th { padding-bottom: 8px; }

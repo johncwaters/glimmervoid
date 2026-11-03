@@ -1,5 +1,7 @@
 import './trace-panel.css';
 import { buildPanelSection, el, isPanelHidden, query, writeClipboardText } from './dom-helpers.ts';
+import { button } from './ui/button.ts';
+import { createPressable } from './ui/pressable.ts';
 import { createActionStatus } from './action-status.ts';
 import { formatTrailOffset } from './radar/radar-core.ts';
 import {
@@ -87,24 +89,21 @@ function setRenderedRowsExpanded(isExpanded: boolean): void {
 function buildTraceFilters(): HTMLElement {
   const filters = el('div', 'trace-filters');
   for (const filter of TRACE_FILTERABLE_KINDS) {
-    const button = el('button', 'trace-filter', filter.label);
-    button.type = 'button';
-    const syncPressedState = () => { button.setAttribute('aria-pressed', String(!isKindHidden(hiddenTraceKinds, filter.kind))); };
+    const filterChip = createPressable('trace-filter', filter.label);
+    const syncPressedState = () => { filterChip.setAttribute('aria-pressed', String(!isKindHidden(hiddenTraceKinds, filter.kind))); };
     syncPressedState();
-    button.addEventListener('click', () => {
+    filterChip.addEventListener('click', () => {
       hiddenTraceKinds = toggleHiddenKind(hiddenTraceKinds, filter.kind);
       setTraceHiddenKinds(hiddenTraceKinds);
       syncPressedState();
       applyHiddenKindsToTurns();
     });
-    filters.append(button);
+    filters.append(filterChip);
   }
-  for (const [label, isExpanded] of [['Expand all', true], ['Collapse all', false]] as const) {
-    const button = el('button', 'trace-expand-control', label);
-    button.type = 'button';
-    button.addEventListener('click', () => { setRenderedRowsExpanded(isExpanded); });
-    filters.append(button);
-  }
+  filters.append(
+    button({ variant: 'quiet', size: 'small', label: 'Expand all', action: 'expand-all-trace-rows', onClick: () => setRenderedRowsExpanded(true) }),
+    button({ variant: 'quiet', size: 'small', label: 'Collapse all', action: 'collapse-all-trace-rows', onClick: () => setRenderedRowsExpanded(false) }),
+  );
   return filters;
 }
 
@@ -131,11 +130,10 @@ function buildHeader(): HTMLElement {
 
 function buildCopyControl(body: string): HTMLElement {
   const wrap = el('div', 'trace-copy-wrap');
-  const button = el('button', 'trace-copy', 'Copy');
-  button.type = 'button';
   const status = el('span', 'trace-copy-status');
   status.setAttribute('role', 'status');
-  button.addEventListener('click', () => {
+  const copyButton = button({ variant: 'secondary', size: 'small', label: 'Copy', action: 'copy-trace-body' });
+  copyButton.addEventListener('click', () => {
     const write = writeClipboardText(body);
     if (!write) {
       status.textContent = 'Copy failed';
@@ -146,16 +144,13 @@ function buildCopyControl(body: string): HTMLElement {
       .catch(() => { status.textContent = 'Copy failed'; });
     setTimeout(() => { status.textContent = ''; }, 1600);
   });
-  wrap.append(button, status);
+  wrap.append(copyButton, status);
   return wrap;
 }
 
 function buildLoadEarlierControl(): HTMLElement {
   const wrap = el('div', 'trace-earlier-wrap');
-  const button = el('button', 'trace-load-earlier', 'Load earlier');
-  button.type = 'button';
-  button.addEventListener('click', () => { requestEarlierTrace(); });
-  wrap.append(button);
+  wrap.append(button({ variant: 'secondary', label: 'Load earlier', action: 'load-earlier-trace', onClick: () => requestEarlierTrace() }));
   return wrap;
 }
 
