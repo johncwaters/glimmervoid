@@ -292,7 +292,7 @@ function createGroupSection(group: QueueGroup<CommunityQueueItem>): HTMLElement 
 
 function syncSetupCard(): boolean {
   if (!root || !setupCard) return false;
-  if (communityStatusView()?.configured === false && !setupCard.isOpen()) setupCard.open();
+  if (communityStatusView()?.configured === false && setupCard.needsSetup() && !setupCard.isOpen()) setupCard.open();
   const isSetupShown = setupCard.isOpen();
   root.dataset.setup = String(isSetupShown);
   setupCard.element.hidden = !isSetupShown;

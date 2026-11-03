@@ -6,8 +6,9 @@ import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import { buildSetupStep } from '../onboarding/setup-step.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
-import { applySettingsBroadcast, settingsPayloadSnapshot } from '../settings/settings-store.ts';
+import { applySettingsBroadcast, settingsPayloadSnapshot, subscribeSettings } from '../settings/settings-store.ts';
 import { communitySetupStepStates, discordChannelsFromText } from './community-setup-core.ts';
+import { hasConfiguredSecret, hasLaneReadToken, laneReadTokenStepBody } from '../github/lane-read-token-step.ts';
 import type { CommunitySetupProgress } from './community-setup-core.ts';
 
 const DEFAULT_COMMUNITY_PROJECT_ID = 2;
@@ -74,8 +75,14 @@ export function createCommunitySetupCard({ onFinish }: { onFinish: () => void })
     onFinish();
   });
 
+  function firstUnmetStep(): CommunitySetupProgress | null {
+    if (!hasConfiguredSecret('posthog.apiKey')) return 'key';
+    if (!hasLaneReadToken()) return 'readToken';
+    return null;
+  }
+
   function moveTo(nextProgress: CommunitySetupProgress): void {
-    progress = nextProgress;
+    progress = nextProgress === 'readToken' && hasLaneReadToken() ? 'project' : nextProgress;
     render();
     (stepsList.querySelector<HTMLElement>('[aria-current="step"] input') ?? (finishActions.hidden ? null : finishButton))?.focus();
   }
@@ -136,7 +143,7 @@ export function createCommunitySetupCard({ onFinish }: { onFinish: () => void })
   const keyStepBody = () => fieldStepBody({
     advice: 'Glimmervoid reads new forum and Discord questions through your PostHog personal API key. Create one in PostHog under Settings, Personal API keys. Community needs only the query:read scope on the project that holds the questions. PostHog error monitoring shares this key, so add error tracking read and write if you turn that on.',
     label: 'PERSONAL API KEY', inputId: 'community-setup-key', inputType: 'password', initialValue: '', placeholder: 'phx_',
-    saveLabel: 'Save key', action: 'save-community-key', nextProgress: 'project', isSkippable: false,
+    saveLabel: 'Save key', action: 'save-community-key', nextProgress: 'readToken', isSkippable: false,
     settingsPatch: (typedText) => (typedText.trim() ? { posthog: { apiKey: typedText.trim() } } : 'Paste a PostHog personal API key.'),
   });
 
@@ -172,17 +179,24 @@ export function createCommunitySetupCard({ onFinish }: { onFinish: () => void })
     const states = communitySetupStepStates(progress);
     stepsList.replaceChildren(
       buildSetupStep({ title: '1. PostHog personal API key', state: states.key, summary: 'Key saved', badge: 'NEEDED', body: keyStepBody }),
-      buildSetupStep({ title: '2. PostHog project', state: states.project, summary: `Project ${savedCommunitySettings().projectId}`, badge: '', body: projectStepBody }),
-      buildSetupStep({ title: '3. Research skill (optional)', state: states.skill, summary: savedCommunitySettings().skill || 'No skill', badge: '', body: skillStepBody }),
-      buildSetupStep({ title: '4. Discord (optional)', state: states.discord, summary: savedCommunitySettings().discordChannels.map((channel) => `#${channel}`).join(' ') || 'Forum only', badge: '', body: discordStepBody }),
+      buildSetupStep({ title: '2. Read-only GitHub token', state: states.readToken, summary: 'Token saved', badge: 'REQUIRED', body: () => laneReadTokenStepBody({ laneWork: 'Community research reads the GitHub issues, code and pages a question links.', onSaved: () => moveTo('project') }) }),
+      buildSetupStep({ title: '3. PostHog project', state: states.project, summary: `Project ${savedCommunitySettings().projectId}`, badge: '', body: projectStepBody }),
+      buildSetupStep({ title: '4. Research skill (optional)', state: states.skill, summary: savedCommunitySettings().skill || 'No skill', badge: '', body: skillStepBody }),
+      buildSetupStep({ title: '5. Discord (optional)', state: states.discord, summary: savedCommunitySettings().discordChannels.map((channel) => `#${channel}`).join(' ') || 'Forum only', badge: '', body: discordStepBody }),
     );
     finishActions.hidden = progress !== 'finished';
   }
 
   function open(): void {
-    progress = 'key';
+    progress = firstUnmetStep() ?? 'key';
     render();
   }
 
-  return { element, open, isOpen: () => progress !== null };
+  subscribeSettings((change) => {
+    if (change.kind !== 'broadcast') return;
+    if (progress === 'key' && hasConfiguredSecret('posthog.apiKey')) moveTo('readToken');
+    if (progress === 'readToken' && hasLaneReadToken()) moveTo('project');
+  });
+
+  return { element, open, isOpen: () => progress !== null, needsSetup: () => firstUnmetStep() !== null };
 }

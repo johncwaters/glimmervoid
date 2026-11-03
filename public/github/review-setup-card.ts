@@ -5,9 +5,10 @@ import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { buildCommandRow, buildSetupStep } from '../onboarding/setup-step.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
-import { applySettingsBroadcast } from '../settings/settings-store.ts';
+import { applySettingsBroadcast, subscribeSettings } from '../settings/settings-store.ts';
 import { TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID } from './team-review-view-core.ts';
 import { decideReviewSetupSteps, teamOptionsOf, teamsToSave } from './review-setup-core.ts';
+import { hasLaneReadToken, laneReadTokenStepBody } from './lane-read-token-step.ts';
 
 const GH_SIGN_IN_COMMAND = 'gh auth login';
 
@@ -123,12 +124,16 @@ export function createReviewSetupCard() {
     }
   }
 
+  let renderedHasReadToken = hasLaneReadToken();
+
   function render(): void {
-    const steps = decideReviewSetupSteps(listing.viewer);
+    renderedHasReadToken = hasLaneReadToken();
+    const steps = decideReviewSetupSteps(listing.viewer, renderedHasReadToken);
     stepsList.replaceChildren(
       buildSetupStep({ title: '1. GitHub CLI', state: steps.github, summary: listing.viewer ? `Signed in as ${listing.viewer}` : '', badge: 'NOT SIGNED IN', body: githubStepBody }),
-      buildSetupStep({ title: '2. Your GitHub teams', state: steps.teams, summary: '', badge: 'NEEDED', body: teamsStepBody }),
-      buildSetupStep({ title: '3. Review skill', state: steps.skill, summary: '', badge: '', body: () => [] }),
+      buildSetupStep({ title: '2. Read-only GitHub token', state: steps.readToken, summary: 'Token saved', badge: 'REQUIRED', body: () => laneReadTokenStepBody({ laneWork: 'Team review reads each pull request, its issues and linked pages itself.', onSaved: render }) }),
+      buildSetupStep({ title: '3. Your GitHub teams', state: steps.teams, summary: '', badge: 'NEEDED', body: teamsStepBody }),
+      buildSetupStep({ title: '4. Review skill', state: steps.skill, summary: '', badge: '', body: () => [] }),
     );
   }
 
@@ -155,6 +160,9 @@ export function createReviewSetupCard() {
     }
   }
 
+  subscribeSettings((change) => {
+    if (change.kind === 'broadcast' && hasLaneReadToken() !== renderedHasReadToken) render();
+  });
   render();
   return { element, load };
 }

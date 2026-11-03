@@ -3,13 +3,14 @@ import { repoParts } from '#shared/contracts/github-ids.ts';
 
 type SetupStepState = 'done' | 'current' | 'upcoming';
 
-interface ReviewSetupSteps { github: SetupStepState; teams: SetupStepState; skill: SetupStepState }
+interface ReviewSetupSteps { github: SetupStepState; readToken: SetupStepState; teams: SetupStepState; skill: SetupStepState }
 
 interface GithubTeamOption { entry: string; label: string }
 
-function decideReviewSetupSteps(viewerLogin: string | null): ReviewSetupSteps {
-  if (!viewerLogin) return { github: 'current', teams: 'upcoming', skill: 'upcoming' };
-  return { github: 'done', teams: 'current', skill: 'upcoming' };
+function decideReviewSetupSteps(viewerLogin: string | null, hasReadToken: boolean): ReviewSetupSteps {
+  if (!viewerLogin) return { github: 'current', readToken: hasReadToken ? 'done' : 'upcoming', teams: 'upcoming', skill: 'upcoming' };
+  if (!hasReadToken) return { github: 'done', readToken: 'current', teams: 'upcoming', skill: 'upcoming' };
+  return { github: 'done', readToken: 'done', teams: 'current', skill: 'upcoming' };
 }
 
 function teamOptionsOf(listedTeams: readonly GithubTeam[]): GithubTeamOption[] {
