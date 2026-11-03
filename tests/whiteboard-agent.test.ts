@@ -359,11 +359,15 @@ test('an agent attaches a picture once by content, a box draws it from the serve
   assert.equal(served.status, 200);
   assert.equal(served.headers.get('content-type'), 'image/webp');
   assert.equal((await fetch(`${running().base}/whiteboards/assets/${'0'.repeat(64)}.webp`)).status, 404);
+  const original = await fetch(`${running().base}/whiteboards/assets/${image.asset}.original`);
+  assert.equal(original.headers.get('content-type'), 'image/png');
+  assert.deepEqual(Buffer.from(await original.arrayBuffer()), fs.readFileSync(path.join(plannerDir, 'shot.png')));
+  assert.equal((await fetch(`${running().base}/whiteboards/assets/${'0'.repeat(64)}.original`)).status, 404);
   const pasted = await fetch(`${running().base}/whiteboards/assets`, { method: 'POST', body: fs.readFileSync(path.join(plannerDir, 'shot.png')), headers: { 'content-type': 'image/png', 'x-glimmervoid-upload-name': 'shot.png' } });
   assert.deepEqual(await pasted.json(), { ok: true, ...image });
   const crossSite = await fetch(`${running().base}/whiteboards/assets`, { method: 'POST', body: fs.readFileSync(path.join(plannerDir, 'shot.png')), headers: { 'content-type': 'text/plain', origin: 'https://evil.example', 'x-glimmervoid-upload-name': 'shot.png' } });
   assert.equal(crossSite.status, 403);
-  assert.deepEqual(fs.readdirSync(path.join(fixture.tmpDir, 'whiteboards', 'assets')), [`${image.asset}.webp`]);
+  assert.deepEqual(fs.readdirSync(path.join(fixture.tmpDir, 'whiteboards', 'assets')).sort(), [`${image.asset}.original.png`, `${image.asset}.webp`]);
 
   const unstored = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'login', fields: { image: { ...image, asset: 'f'.repeat(64) } } }] });
   assert.equal(unstored.status, 400);
@@ -570,6 +574,7 @@ test('deleting a board sweeps the pictures no live board shows, sparing a pendin
   const newBoardId = async (title: string) => ((await wiring.handleOperator.create(title)) as { summary: { id: string } }).summary.id;
   const putBox = (boardId: string, id: string, image: { asset: string } | null) => wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id, title: id, image, at: { x: 0, y: 0 } } }]));
   const storedFiles = () => fs.readdirSync(path.join(boardsRoot, 'assets')).sort();
+  const filesOf = (assetIds: string[]) => assetIds.flatMap((assetId) => [`${assetId}.original.png`, `${assetId}.webp`]).sort();
   const shared = await pictureOf('#c084fc');
   const onlyOnDoomed = await pictureOf('#22d3ee');
   const released = await pictureOf('#facc15');
@@ -584,7 +589,7 @@ test('deleting a board sweeps the pictures no live board shows, sparing a pendin
   const pending = await pictureOf('#4ade80');
 
   await wiring.handleOperator.remove(doomedId);
-  const survivingFiles = [shared.asset, released.asset, pending.asset].map((assetId) => `${assetId}.webp`).sort();
+  const survivingFiles = filesOf([shared.asset, released.asset, pending.asset]);
   await waitFor(() => storedFiles().length === survivingFiles.length, 'the unused picture was swept');
   assert.deepEqual(storedFiles(), survivingFiles);
   assert.match(String(((await putBox(keptId, 'swept', onlyOnDoomed)) as { error: string }).error), /which no whiteboard attach stored/);
@@ -593,12 +598,12 @@ test('deleting a board sweeps the pictures no live board shows, sparing a pendin
   clockMs += 61 * 60_000;
   const restarted = createWhiteboardWiring({ boardsRoot, now: () => clockMs });
   await restarted.loaded;
-  assert.deepEqual(storedFiles(), [shared.asset, pending.asset].map((assetId) => `${assetId}.webp`).sort());
+  assert.deepEqual(storedFiles(), filesOf([shared.asset, pending.asset]));
 
   fs.writeFileSync(path.join(boardsRoot, `${keptId}.json`), '{"board": "from a newer build"}');
   clockMs += 61 * 60_000;
   await createWhiteboardWiring({ boardsRoot, now: () => clockMs, logger: { warn: () => {} } }).loaded;
-  assert.deepEqual(storedFiles(), [shared.asset, pending.asset].map((assetId) => `${assetId}.webp`).sort());
+  assert.deepEqual(storedFiles(), filesOf([shared.asset, pending.asset]));
 });
 
 test('a board whose linked board vanished on restart still takes unrelated edits', async () => {

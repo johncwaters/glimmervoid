@@ -44,11 +44,11 @@ async function verifyResizedBox(page: Page, panel: Locator, title: string): Prom
 async function verifyDroppedPicture(panel: Locator): Promise<void> {
   await panel.locator('.wb-canvas').evaluate(async (canvas) => {
     const painted = document.createElement('canvas');
-    painted.width = 400;
-    painted.height = 200;
+    painted.width = 2400;
+    painted.height = 1200;
     const pen = painted.getContext('2d');
     if (pen) pen.fillStyle = '#c084fc';
-    pen?.fillRect(0, 0, 400, 200);
+    pen?.fillRect(0, 0, 2400, 1200);
     const pngBlob = await new Promise<Blob | null>((resolve) => painted.toBlob(resolve, 'image/png'));
     if (!pngBlob) throw new Error('the browser painted no png');
     const transfer = new DataTransfer();
@@ -59,14 +59,19 @@ async function verifyDroppedPicture(panel: Locator): Promise<void> {
   const picture = panel.locator('image.wb-image');
   await picture.waitFor();
   await panel.locator('.wb-box-title', { hasText: 'dropped-shot' }).waitFor();
-  const servedStatus = await picture.evaluate(async (node) => (await fetch(node.getAttribute('href') ?? '')).status);
-  assert.equal(servedStatus, 200, 'a dropped picture draws from the served asset');
+  const previewWidth = await picture.evaluate(async (node) => {
+    const preview = new Image();
+    preview.src = node.getAttribute('href') ?? '';
+    await preview.decode();
+    return preview.naturalWidth;
+  });
+  assert.equal(previewWidth, 1600, 'a dropped picture draws from the capped preview');
   await picture.click();
   const viewer = panel.page().locator('.wb-image-viewer');
   const enlarged = viewer.locator('img.wb-image-viewer-picture');
   await enlarged.waitFor();
   const naturalWidth = await enlarged.evaluate(async (node) => (node instanceof HTMLImageElement ? node.decode().then(() => node.naturalWidth) : 0));
-  assert.equal(naturalWidth, 400, 'a clicked picture opens the stored picture');
+  assert.equal(naturalWidth, 2400, 'a clicked picture opens the original at its own size');
   assert.ok(await enlarged.evaluate((node) => node.getBoundingClientRect().width > window.innerWidth * 0.8), 'the viewer scales a picture up to fill the screen');
   await panel.page().keyboard.press('Escape');
   await viewer.waitFor({ state: 'detached' });

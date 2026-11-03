@@ -534,10 +534,14 @@ function addUnitFromDialog(): void {
   });
 }
 
+function originalHrefOf(previewHref: string): string {
+  return previewHref.replace(/\.webp$/, '.original');
+}
+
 function openImageViewer({ href, alt }: PressedImage): void {
   const { dialog, close, actions, btnCancel } = buildDialogShell({ title: alt || 'Picture', dialogClass: 'dialog wb-image-viewer', cancelLabel: 'Close' });
   const picture = el('img', 'wb-image-viewer-picture');
-  picture.src = href;
+  picture.src = originalHrefOf(href);
   picture.alt = alt;
   dialog.append(picture, actions);
   btnCancel.addEventListener('click', close);

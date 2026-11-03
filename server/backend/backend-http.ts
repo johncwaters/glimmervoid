@@ -34,7 +34,7 @@ import { configSiblingPath } from '../pairings-store.ts';
 import { clientDir } from '../runtime-paths.ts';
 import type { ShownFilesPort } from '../session/shown-files-wiring.ts';
 import type { WhiteboardAssetStore } from '../whiteboard/whiteboard-assets.ts';
-import { ASSET_INPUT_CAP_BYTES, assetIdOfFilename } from '../whiteboard/whiteboard-assets.ts';
+import { ASSET_INPUT_CAP_BYTES, assetIdOfFilename, originalAssetIdOfRequest } from '../whiteboard/whiteboard-assets.ts';
 import { WHITEBOARD_ASSET_ROUTE } from '../../shared/contracts/whiteboard.ts';
 import { buildUploadFilename, decideUploadType, exceedsUploadCap, imageMimeForUploadFilename, isSafePathSegment } from '../core/upload-core.ts';
 import { declaredContentLength, decodeHeaderText, parseJsonBody, readCappedBody } from './http/backend-http-body.ts';
@@ -563,17 +563,22 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
   });
 
   app.get(`${WHITEBOARD_ASSET_ROUTE}/:filename`, (req, res) => {
-    const assetId = assetIdOfFilename(req.params.filename);
-    const assetPath = assetId ? dependencies.getWhiteboardAssets?.()?.filePathOf(assetId) ?? null : null;
-    if (!assetPath) {
+    const assets = dependencies.getWhiteboardAssets?.() ?? null;
+    const originalAssetId = originalAssetIdOfRequest(req.params.filename);
+    const original = originalAssetId ? assets?.originalFileOf(originalAssetId) ?? null : null;
+    const previewAssetId = originalAssetId ?? assetIdOfFilename(req.params.filename);
+    const previewPath = previewAssetId ? assets?.filePathOf(previewAssetId) ?? null : null;
+    const served = original ?? (previewPath ? { path: previewPath, mime: 'image/webp' } : null);
+    if (!served) {
       res.status(404).end();
       return;
     }
-    res.setHeader('Content-Type', 'image/webp');
+    const isPreviewStandingInForOriginal = Boolean(originalAssetId) && !original;
+    res.setHeader('Content-Type', served.mime);
     res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
-    pipeline(fs.createReadStream(assetPath), res, () => {
+    res.setHeader('Cache-Control', isPreviewStandingInForOriginal ? 'private, no-cache' : 'private, max-age=31536000, immutable');
+    pipeline(fs.createReadStream(served.path), res, () => {
       if (!res.headersSent) res.status(404).end();
     });
   });
