@@ -11,11 +11,12 @@ import { onSessionTick, sessionElapsedText } from '../session-card/session-tick.
 import { setTerminalActiveViewer } from '../session-card/terminal.ts';
 import { sendTerminalInput } from '../session-card/terminal-input.ts';
 import { paintSessionRowStatus } from '../session-row.ts';
-import { BACK_ICON_PATH, CHANGES_ICON_PATH, createLineIcon } from '../svg-dom.ts';
+import { createSessionPageButtons } from '../session-pages/session-pages.ts';
+import { BACK_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { controlBytesForCharacter, createMobileKeyStrip } from './mobile-key-strip.ts';
 
-export function createTerminalScreen({ onBack, onShowChanges }: { onBack?: () => void; onShowChanges?: () => void }) {
+export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
   const screen = el('div', 'phone-terminal');
 
   const topBar = el('header', 'phone-topbar phone-terminal-bar');
@@ -37,11 +38,11 @@ export function createTerminalScreen({ onBack, onShowChanges }: { onBack?: () =>
   labelEl.before(nameEl);
   identity.append(taskTitleEl, badgeEl);
 
-  const changesButton = button({ variant: 'icon', label: "Show this session's code changes", icon: createLineIcon(CHANGES_ICON_PATH), action: 'show-changes', onClick: () => onShowChanges?.() });
+  const pageButtons = createSessionPageButtons({ style: 'phone' });
 
   const actionSlot = el('div', 'phone-terminal-actions');
 
-  topBar.append(backBtn, identity, changesButton, actionSlot);
+  topBar.append(backBtn, identity, pageButtons.element, actionSlot);
 
   const cardSlot = el('div', 'phone-card-slot');
 
@@ -119,7 +120,8 @@ export function createTerminalScreen({ onBack, onShowChanges }: { onBack?: () =>
     cardSlot.hidden = !hasSession;
     keyStrip.hidden = !hasSession;
     identity.hidden = !hasSession;
-    changesButton.hidden = !hasSession;
+    pageButtons.element.hidden = !hasSession;
+    pageButtons.showSession(hasSession ? shownId : null);
     if (!hasSession) {
       topBar.removeAttribute('data-state');
       topBar.removeAttribute('data-monitoring');

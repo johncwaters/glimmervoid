@@ -2,14 +2,17 @@ import { repoNameForPath } from '#shared/change-map-view-core.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { button } from '../ui/button.ts';
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
+import type { ButtonStyle, SessionPage, SessionPagePlacement } from '../session-pages/session-pages.ts';
+import { announceSessionPageChange, closeSessionPage } from '../session-pages/session-pages.ts';
+import { CHANGES_ICON_PATH } from '../svg-dom.ts';
 import { renderFileHints, renderWorthALook } from './change-map-view.ts';
 import type { ReaderFile } from './review-reader-core.ts';
 import { findReaderFile, stepReaderFile } from './review-reader-core.ts';
 import type { SessionReview } from './review-store.ts';
-import { discardSession, mergeSession, onReviewChange, reviewOf, watchReviewSurface } from './review-store.ts';
+import { discardSession, mergeSession, onReviewChange, reviewOf, syncWatch, watchReviewSurface } from './review-store.ts';
 import { getSelectedId, onSelectionChange } from './selection.ts';
 
-type ReaderPlacement = 'overlay' | 'screen';
+const CHANGES_PAGE_ID = 'changes';
 
 interface ReaderParts {
   root: HTMLElement;
@@ -25,13 +28,11 @@ interface ReaderParts {
 const GUTTER_BY_LINE_TYPE: Record<string, string> = { add: '+', del: '-', meta: '\\' };
 
 let parts: ReaderParts | null = null;
-let placement: ReaderPlacement | null = null;
+let placement: SessionPagePlacement | null = null;
 let shownSessionId: string | null = null;
 let selectedPath: string | null = null;
 let requestedPath: string | null = null;
 let isWorthALookShowingAll = false;
-let onOverlayClosed: (() => void) | null = null;
-const levelListeners = new Set<() => void>();
 
 function buildReader(): ReaderParts {
   const root = el('section', 'review-reader');
@@ -50,7 +51,7 @@ function buildReader(): ReaderParts {
   const discardButton = button({ variant: 'danger', label: 'Discard', action: 'discard-session', onClick: () => {
     if (shownSessionId) discardSession(shownSessionId);
   } });
-  const closeButton = button({ variant: 'secondary', label: 'Close', action: 'close-reader', onClick: closeReviewOverlay });
+  const closeButton = button({ variant: 'secondary', label: 'Close', action: 'close-reader', onClick: closeSessionPage });
   actions.append(mergeButton, discardButton, closeButton);
   bar.append(status, notice, actions);
   const body = el('div', 'review-reader-body');
@@ -79,11 +80,6 @@ function readerParts() {
 
 function onReaderKeydown(event: KeyboardEvent) {
   if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || isRealInputOwningKey(event)) return;
-  if (event.key === 'Escape' && placement === 'overlay') {
-    event.preventDefault();
-    closeReviewOverlay();
-    return;
-  }
   const step = event.key === 'j' ? 1 : event.key === 'k' ? -1 : 0;
   if (step === 0 || !shownSessionId) return;
   event.preventDefault();
@@ -93,7 +89,7 @@ function onReaderKeydown(event: KeyboardEvent) {
 }
 
 function announceLevel() {
-  for (const listener of levelListeners) listener();
+  if (shownSessionId) announceSessionPageChange(CHANGES_PAGE_ID, shownSessionId);
 }
 
 function selectFile(path: string) {
@@ -255,7 +251,7 @@ function openFileFromWorthALook(openPath: string) {
   if (file) selectFile(file.path);
 }
 
-function place(host: HTMLElement, nextPlacement: ReaderPlacement) {
+function place(host: HTMLElement, nextPlacement: SessionPagePlacement) {
   const { root } = readerParts();
   if (root.parentElement !== host) host.append(root);
   placement = nextPlacement;
@@ -270,45 +266,36 @@ function unplace() {
   placement = null;
 }
 
-export function openReviewOverlay(host: HTMLElement, { path = null, onClosed }: { path?: string | null; onClosed: () => void }) {
-  if (placement === 'screen') return;
-  place(host, 'overlay');
-  onOverlayClosed = onClosed;
-  requestedPath = path;
-  render();
-  readerParts().root.focus({ preventScroll: true });
-}
-
-export function closeReviewOverlay() {
-  if (placement !== 'overlay') return;
-  unplace();
-  const closed = onOverlayClosed;
-  onOverlayClosed = null;
-  closed?.();
-}
-
-export function placeReviewScreen(host: HTMLElement | null) {
-  if (!host) {
-    if (placement === 'screen') unplace();
-    return;
-  }
-  closeReviewOverlay();
-  place(host, 'screen');
-  render();
-}
-
-export function hasOpenReviewFile() {
-  return placement === 'screen' && selectedPath !== null;
-}
-
-export function closeReviewFile() {
+function closeReviewFile() {
   if (selectedPath === null) return;
   selectedPath = null;
   render();
   announceLevel();
 }
 
-export function onReviewLevelChange(listener: () => void) {
-  levelListeners.add(listener);
-  return () => levelListeners.delete(listener);
+function watchPageButton(pageButton: HTMLElement, style: ButtonStyle) {
+  if (style !== 'header') return;
+  watchReviewSurface(pageButton);
+  new MutationObserver(syncWatch).observe(pageButton, { attributes: true, attributeFilter: ['data-slot-held'] });
 }
+
+onReviewChange((sessionId) => announceSessionPageChange(CHANGES_PAGE_ID, sessionId));
+
+export const changesPage: SessionPage = {
+  id: CHANGES_PAGE_ID,
+  label: 'Changes',
+  iconPath: CHANGES_ICON_PATH,
+  titleFor: () => '',
+  isAvailableFor: (sessionId) => reviewOf(sessionId) !== null,
+  hasUnreadFor: () => false,
+  mount(host, _sessionId, { placement: nextPlacement, target }) {
+    place(host, nextPlacement);
+    requestedPath = target;
+    render();
+    if (nextPlacement === 'overlay') readerParts().root.focus({ preventScroll: true });
+  },
+  unmount: unplace,
+  canStepBack: () => placement === 'screen' && selectedPath !== null,
+  stepBack: closeReviewFile,
+  attachButton: watchPageButton,
+};

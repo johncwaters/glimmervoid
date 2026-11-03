@@ -35,9 +35,9 @@ import { boardSummariesOf, boardsConnectedTo, isBoardListSettled, onBoardListCha
 import type { PaneTab } from '#shared/contracts/focus-layout.ts';
 import type { PaneLayout } from './pane-layout.ts';
 import { createPaneLayout } from './pane-layout.ts';
-import type { ReviewBar } from '../review/review-bar.ts';
-import { createReviewBar } from '../review/review-bar.ts';
-import { closeReviewOverlay, openReviewOverlay } from '../review/review-reader.ts';
+import { registerSessionPages } from '../session-pages/pages.ts';
+import type { SessionPageHost } from '../session-pages/session-pages.ts';
+import { closeSessionPage, createSessionPageButtons, openSessionPage, releaseSessionPageHost, setSessionPageHost } from '../session-pages/session-pages.ts';
 
 type RosterRow = SessionRow<SessionUi, string | null>;
 
@@ -62,7 +62,7 @@ let railHeadEl: HTMLElement | null = null;
 let centerEl: HTMLElement | null = null;
 let cardSlotEl: HTMLElement | null = null;
 let paneLayout: PaneLayout | null = null;
-let reviewBar: ReviewBar | null = null;
+let pageButtons: ReturnType<typeof createSessionPageButtons> | null = null;
 let boardsViewLoad: Promise<BoardsViewModule> | null = null;
 let loadedBoardsView: BoardsViewModule | null = null;
 let boardPairedSessionId: string | null = null;
@@ -169,8 +169,9 @@ export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | 
   paneLayout.element.addEventListener('click', showTerminalFaceOnTerminalTab);
   cardSlotEl = paneLayout.bodyOf('terminal');
   boardsGroup = buildBoardsGroup();
-  reviewBar = createReviewBar({ onOpenChanges: () => openChangesInFocus() });
-  paneLayout.trailSlot.append(reviewBar.element);
+  registerSessionPages();
+  pageButtons = createSessionPageButtons({ style: 'header' });
+  paneLayout.trailSlot.append(pageButtons.element);
   mountedCenter.append(emptyEl, paneLayout.element);
   onBoardListChanged(() => {
     if (!active) return;
@@ -375,7 +376,7 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
 
   const staleFocusedId = getFocusedSessionId();
   if (staleFocusedId && !isSessionShown(staleFocusedId)) {
-    closeReviewOverlay();
+    closeSessionPage();
     uiState.dispatch('focusSession', null);
     railTabStopId = null;
     const neighborId = pickNeighborOfRemoved(previousRailOrder, staleFocusedId);
@@ -393,7 +394,7 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
     const ui = sessionUIs.get(centeredId);
     if (ui && ui.card.parentElement !== cardSlotEl) borrowToCenter(ui, centeredId);
   }
-  reviewBar?.showSession(centeredBoardId ? null : centeredId);
+  pageButtons?.showSession(centeredBoardId ? null : centeredId);
   paintBoardPane();
   updateRailHead(order, attentionTiles);
 }
@@ -627,7 +628,7 @@ export function openRequestedBoardInFocus() {
 }
 
 function releaseCenter() {
-  closeReviewOverlay();
+  closeSessionPage();
   const centeredId = getFocusedSessionId();
   if (!centeredId) return;
   if (getBorrowedCardId() === centeredId) releaseCard();
@@ -667,10 +668,23 @@ export function setFocusMergeStatus(id: unknown, mergeStatus: unknown) {
   if (active) refreshFocusRoster();
 }
 
+const focusPageHost: SessionPageHost = {
+  placement: 'overlay',
+  sessionId: () => (active && centerEl && !centeredBoardId ? getFocusedSessionId() : null),
+  elementFor: () => {
+    if (!centerEl) throw new Error('Focus view is not mounted');
+    return centerEl;
+  },
+  didShow: () => {},
+  didHide: () => {
+    const centeredId = getFocusedSessionId();
+    if (centeredId) focusTerminalAfterSettle(sessionUIs.get(centeredId), centeredId);
+  },
+};
+
 export function openChangesInFocus(path: string | null = null) {
   const centeredId = getFocusedSessionId();
-  if (!active || !centerEl || centeredBoardId || !centeredId) return;
-  openReviewOverlay(centerEl, { path, onClosed: () => focusTerminalAfterSettle(sessionUIs.get(centeredId), centeredId) });
+  if (centeredId) openSessionPage('changes', centeredId, path);
 }
 
 export function centerSessionQuietly(id: string) {
@@ -707,6 +721,7 @@ window.addEventListener('focus', () => {
 export function activateFocusView() {
   if (!railEl) return;
   active = true;
+  setSessionPageHost(focusPageHost);
 
   releaseCenter();
   railTabStopId = null;
@@ -744,6 +759,7 @@ export function restoreFocusedSession() {
 export function deactivateFocusView() {
   if (!active) return;
   releaseCenter();
+  releaseSessionPageHost(focusPageHost);
   railTabStopId = null;
   active = false;
 }
