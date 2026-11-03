@@ -6,7 +6,7 @@ import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { el, externalLink } from '../dom-helpers.ts';
 import { changedSinceReviewText, changedSinceReviewUrl, earlierReviewPreview, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, buildNotMineRequest, checksText, commentLocation, detailActionLayout, groupHandCheckPaths, HAND_CHECK_INLINE_PATH_LIMIT, handCheckPathSummary, parseInlineSegments, LEGACY_SUMMARY_HINT, parseReviewComment, reviewCommentPreview, shortCommentLocation, pullRequestLabel, detailHeadingSignature, commentSeverity, detailMetaText, reviewTierTip, viewerThreadsText, hasAllViewerThreadsResolved, viewerApprovalContext, viewerApprovalNotice, viewerApprovalTip, earlierReviewTip, changedSinceReviewTip } from './team-review-view-core.ts';
 import type { HoverTip } from './team-review-view-core.ts';
-import { installHoverTips } from '../hover-tip.ts';
+import { setHoverTip } from '../hover-tip.ts';
 import type { GeneralFinding } from './team-review-view-core.ts';
 import { _pendingActions, _queueHooks, _sessionOpenByKey, _view, setPostedReceipt } from './team-review-panel-state.ts';
 import type { DetailOrigin, SettleAction } from './team-review-panel-state.ts';
@@ -67,9 +67,7 @@ function createOpenSessionControl(review: Pick<ReviewDraft, 'key'>): HTMLElement
 
 function withHoverTip<Anchor extends HTMLElement>(anchor: Anchor, tip: HoverTip | null): Anchor {
   if (!tip) return anchor;
-  anchor.dataset.tipLabel = tip.label;
-  anchor.dataset.tipDetail = tip.detail;
-  installHoverTips();
+  setHoverTip(anchor, tip.label, tip.detail);
   return anchor;
 }
 

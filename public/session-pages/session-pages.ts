@@ -1,3 +1,4 @@
+import { fitTipLabel } from '../hover-tip-core.ts';
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
@@ -136,7 +137,7 @@ export function createSessionPageButtons({ style }: { style: ButtonStyle }) {
   function buildButton(page: SessionPage): PageButton {
     const control = style === 'header'
       ? button({ variant: 'quiet', size: 'small', label: page.label, action: `open-${page.id}` })
-      : button({ variant: 'icon', label: page.label, icon: createLineIcon(page.iconPath), action: `show-${page.id}` });
+      : button({ variant: 'icon', label: fitTipLabel(page.label), icon: createLineIcon(page.iconPath), action: `show-${page.id}` });
     control.addEventListener('click', () => {
       if (shownSessionId) openSessionPage(page.id, shownSessionId);
     });

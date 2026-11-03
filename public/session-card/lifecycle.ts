@@ -7,7 +7,8 @@ import { sendControlMsg } from '../control-ws.ts';
 import { isMonitoringState } from '../dom-helpers.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { setHealthMonitorDebugMode } from '../health-monitor.ts';
-import { refreshHoverTip } from '../hover-tip.ts';
+import { clearHoverTip, setHoverTip } from '../hover-tip.ts';
+import { fitTipLabel } from '../hover-tip-core.ts';
 import { seedMergeStatus, setMergeStatus } from '../review/review-store.ts';
 import type { UsageSessionUsage } from '../usage/usage-store-core.ts';
 import { sessionChipText, sessionChipTitle } from '../usage/usage-store-core.ts';
@@ -217,15 +218,12 @@ export function setSessionUsage(sessionId: unknown, usage: UsageSessionUsage | n
   if (!usageText) {
     delete ui.card.dataset.usage;
     if (!usageBadge) return;
-    delete usageBadge.dataset.tipLabel;
-    refreshHoverTip(usageBadge);
+    clearHoverTip(usageBadge);
     return;
   }
   ui.card.dataset.usage = '';
   if (!usageBadge) return;
-  usageBadge.dataset.tipLabel = usageText;
-  usageBadge.dataset.tipDetail = sessionChipTitle(usage);
-  refreshHoverTip(usageBadge);
+  setHoverTip(usageBadge, fitTipLabel(usageText), sessionChipTitle(usage));
 }
 
 export function setSessionPrompt(sessionId: unknown, kind: unknown) {

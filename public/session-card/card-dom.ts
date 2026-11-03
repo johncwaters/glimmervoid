@@ -4,7 +4,7 @@ import { STATES } from '#shared/states.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { buildMenuItem } from '../menu.ts';
-import { refreshHoverTip, installHoverTips } from '../hover-tip.ts';
+import { setHoverTip } from '../hover-tip.ts';
 import { BOLT_ICON_PATH, CLOSE_ICON_PATH, createLineIcon, createSvgIcon, createSvgShape, SHIELD_ICON_PATH, SHIELDED_BOLT_FILL_PATH, USAGE_ICON_PATH } from '../svg-dom.ts';
 import type { CardOptions } from './card-options-core.ts';
 import { buildDialogShell } from './modal.ts';
@@ -71,12 +71,10 @@ export function remoteWorkspaceHoverText(remoteWorkspace: string): string {
 function paintPermsBadge(permsBadge: HTMLElement, saneYolo: boolean) {
   const label = saneYolo ? 'Sane YOLO' : 'YOLO';
   permsBadge.setAttribute('aria-label', label);
-  permsBadge.dataset.tipLabel = label;
-  permsBadge.dataset.tipDetail = saneYolo
+  setHoverTip(permsBadge, label, saneYolo
     ? 'Skips permission prompts; Sane YOLO blocks catastrophic commands'
-    : 'Running with --dangerously-skip-permissions';
+    : 'Running with --dangerously-skip-permissions');
   permsBadge.replaceChildren(saneYolo ? createSaneYoloIcon() : createFilledIcon(BOLT_ICON_PATH));
-  refreshHoverTip(permsBadge);
 }
 
 export function setSessionSaneYolo(sessionId: unknown, saneYolo: boolean) {
@@ -179,7 +177,6 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   usageBadge.append(createLineIcon(USAGE_ICON_PATH, '2.2'));
   if (permsBadge) tags.append(permsBadge);
   tags.append(usageBadge);
-  installHoverTips();
   const ownershipEl = el('span', 'session-ownership');
   ownershipEl.hidden = true;
   header.append(nameEl, taskTitleEl, ownershipEl, tags, actions);
