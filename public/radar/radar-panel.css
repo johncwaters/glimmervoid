@@ -343,34 +343,6 @@
 
 .radar-pane .radar-actions { padding-top: 4px; }
 
-.radar-action {
-  border: 1px solid var(--border-dim);
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: var(--type-meta);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-weight: 700;
-  padding: 1px 6px;
-  cursor: pointer;
-}
-
-.radar-action:disabled { cursor: default; opacity: 0.5; }
-
-@media (hover: hover) {
-  .radar-action:hover:not(:disabled) {
-    color: var(--text);
-    border-color: var(--accent-dim);
-  }
-}
-
-.radar-action[data-primary] {
-  color: var(--accent);
-  border-color: var(--accent-dim);
-}
-
 .radar-action-status {
   flex: 1 1 100%;
   font-size: var(--type-meta);
@@ -382,11 +354,6 @@
 .radar-action-status[data-tone="error"] { color: var(--state-failed); }
 
 .radar-tier-head .radar-action-status { flex: 0 1 auto; }
-
-.radar-open-trace {
-  color: var(--accent);
-  border-color: var(--accent-dim);
-}
 
 .radar-footer {
   display: flex;
@@ -488,6 +455,5 @@ html[data-layout="phone"] .radar-row-headline {
   white-space: normal;
   overflow-wrap: anywhere;
 }
-html[data-layout="phone"] .radar-action { min-height: 44px; padding: 0 12px; }
 html[data-layout="phone"] .radar-global-tick { margin-left: 0; }
 }

@@ -1,6 +1,7 @@
 import './radar-panel.css';
 import type { ServerMessage } from '#shared/contracts/control-messages.ts';
 import { buildPanelSection, el, externalLink, isPanelHidden, projectsOf } from '../dom-helpers.ts';
+import { button } from '../ui/button.ts';
 import { createInvestigationDialog, createRadarReportDialog } from '../dialogs.ts';
 import type { InvestigationDialog } from '../dialogs.ts';
 import { DEFAULT_REPLY_TIMEOUT_MS, paintActionStatus, requestFailureText } from '../action-status.ts';
@@ -144,7 +145,7 @@ function createActionCluster() {
   const status = el('span', 'radar-action-status');
   status.setAttribute('role', 'status');
   wrap.append(status);
-  const buttons: HTMLButtonElement[] = [];
+  const actionButtons: HTMLButtonElement[] = [];
   let followUp: HTMLElement | null = null;
 
   const clearFollowUp = () => {
@@ -159,20 +160,24 @@ function createActionCluster() {
   };
 
   const setBusy = (busy: boolean) => {
-    for (const button of buttons) button.disabled = busy;
+    for (const actionButton of actionButtons) actionButton.disabled = busy;
   };
 
-  const addButton = (label: string, title: string, onClick: () => void) => {
-    const button = el('button', 'radar-action', label);
-    button.type = 'button';
-    button.title = title;
-    button.addEventListener('click', (event) => {
-      event.stopPropagation();
-      onClick();
+  const addButton = ({ label, title, action, isPrimary, onClick }: { label: string; title: string; action: string; isPrimary: boolean; onClick: () => void }) => {
+    const actionButton = button({
+      variant: isPrimary ? 'primary' : 'secondary',
+      size: 'small',
+      label,
+      action,
+      onClick: (event) => {
+        event.stopPropagation();
+        onClick();
+      },
     });
-    buttons.push(button);
-    wrap.insertBefore(button, status);
-    return button;
+    actionButton.title = title;
+    actionButtons.push(actionButton);
+    wrap.insertBefore(actionButton, status);
+    return actionButton;
   };
 
   const request = (
@@ -241,14 +246,18 @@ function openTraceView(sessionId: string) {
 }
 
 function buildOpenTraceButton(sessionId: string) {
-  const button = el('button', 'radar-action radar-open-trace', 'Open trace');
-  button.type = 'button';
-  button.title = 'Open the session trace';
-  button.addEventListener('click', (event) => {
-    event.stopPropagation();
-    openTraceView(sessionId);
+  const openTraceButton = button({
+    variant: 'primary',
+    size: 'small',
+    label: 'Open trace',
+    action: 'open-trace',
+    onClick: (event) => {
+      event.stopPropagation();
+      openTraceView(sessionId);
+    },
   });
-  return button;
+  openTraceButton.title = 'Open the session trace';
+  return openTraceButton;
 }
 
 function archiveRequestStep(investigationId: string) {
@@ -514,9 +523,8 @@ function buildPane(item: QueueItem) {
   const cluster = createActionCluster();
   const buttonsByAction = new Map<QueueActionId, HTMLButtonElement>();
   for (const action of queueActionsOf(item)) {
-    const button = cluster.addButton(action.label, action.title, () => action.run(cluster));
-    if (action.actionId === item.primary) button.dataset.primary = '';
-    buttonsByAction.set(action.actionId, button);
+    const actionButton = cluster.addButton({ label: action.label, title: action.title, action: action.actionId, isPrimary: action.actionId === item.primary, onClick: () => action.run(cluster) });
+    buttonsByAction.set(action.actionId, actionButton);
   }
   pane.append(cluster.wrap);
   return { element: pane, progress, buttonsByAction };
@@ -557,9 +565,9 @@ function selectKey(key: string, { focusRow }: { focusRow: boolean }) {
 }
 
 function clickPaneAction(actionId: QueueActionId) {
-  const button = _pane?.buttonsByAction.get(actionId);
-  if (!button || button.disabled) return;
-  button.click();
+  const paneActionButton = _pane?.buttonsByAction.get(actionId);
+  if (!paneActionButton || paneActionButton.disabled) return;
+  paneActionButton.click();
 }
 
 function onQueueKeydown(event: KeyboardEvent) {
@@ -589,9 +597,15 @@ function buildArchiveTransientControl(queue: RadarQueue) {
   const investigationIds = transientArchiveIds(queue);
   if (investigationIds.length === 0) return null;
   const cluster = createActionCluster();
-  cluster.addButton('Archive transient', 'Archive every transient investigation in LATER', () => {
-    const total = investigationIds.length;
-    cluster.runSequence('archive-transient', archiveSteps(investigationIds.map((id) => ({ id }))), (doneCount) => `Archiving ${doneCount + 1} of ${total}`, `Archived ${total}`);
+  cluster.addButton({
+    label: 'Archive transient',
+    title: 'Archive every transient investigation in LATER',
+    action: 'archive-transient',
+    isPrimary: false,
+    onClick: () => {
+      const total = investigationIds.length;
+      cluster.runSequence('archive-transient', archiveSteps(investigationIds.map((id) => ({ id }))), (doneCount) => `Archiving ${doneCount + 1} of ${total}`, `Archived ${total}`);
+    },
   });
   return cluster.wrap;
 }

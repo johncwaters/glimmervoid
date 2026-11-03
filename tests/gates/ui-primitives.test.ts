@@ -25,17 +25,11 @@ const RETIRED_CLASSES: string[] = [
   'session-row-undo',
 ];
 const NOT_YET_MIGRATED = new Set<string>([
-  'public/coherence/coherence-panel-shell.ts',
-  'public/community/community-panel.ts',
-  'public/community/community-setup-card.ts',
-  'public/health-monitor.ts',
   'public/index.html',
   'public/perf.html',
   'public/phone/mobile-key-strip.ts',
   'public/phone/phone-shell.ts',
   'public/phone/terminal-screen.ts',
-  'public/radar/radar-panel.ts',
-  'public/view-registry.ts',
   'public/whiteboard/board-inspect.ts',
   'public/whiteboard/boards-view.ts',
 ]);

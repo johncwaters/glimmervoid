@@ -2,6 +2,7 @@ import { byteSizeText, twoUnitDurationText } from '#shared/display-text.ts';
 import { sendControlMsg } from './control-ws.ts';
 import { escapeMarkup } from '#shared/escape-markup.ts';
 import { el } from './dom-helpers.ts';
+import { createPressable } from './ui/pressable.ts';
 import { anomalyCount, shouldShowHealthMonitor } from './health-monitor-core.ts';
 import type { HealthAnomalies } from './health-monitor-core.ts';
 
@@ -77,8 +78,7 @@ function buildPanel() {
   root.hidden = true;
 
   const summary = el('div', 'health-summary');
-  const toggle = el('button', 'health-toggle');
-  toggle.type = 'button';
+  const toggle = createPressable('health-toggle');
   toggle.setAttribute('aria-expanded', 'false');
   toggle.setAttribute('aria-controls', 'health-detail');
   const chevron = el('span', 'health-chev', '\u25b2');

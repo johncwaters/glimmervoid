@@ -2490,7 +2490,6 @@ html:not([data-layout="phone"]) .pr-queue-row:not(.pr-queue-row-compact) { min-h
 }
 
 .pr-queue-row:focus-visible,
-.pr-action:focus-visible,
 .pr-body-input:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -2595,36 +2594,6 @@ html:not([data-layout="phone"]) .pr-queue-row:not(.pr-queue-row-compact) { min-h
   background: var(--bg);
 }
 
-.pr-action {
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: var(--header-control-height);
-  padding: 0 18px;
-  border: 1px solid var(--accent-dim);
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--accent);
-  font: inherit;
-  font-family: var(--font-mono);
-  font-size: var(--type-meta);
-  font-weight: 700;
-  line-height: 1;
-  text-decoration: none;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
-}
-
-@media (hover: hover) {
-  .pr-action:hover:not(:disabled) { background: color-mix(in oklab, var(--accent) 14%, transparent); border-color: var(--accent); }
-}
-.pr-action-ghost { padding: 0 12px; border-color: var(--border); color: var(--text-dim); }
-@media (hover: hover) {
-  .pr-action-ghost:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 3%, transparent); border-color: var(--border-hover); color: var(--text-head); }
-}
-.pr-action:disabled { opacity: 0.4; cursor: not-allowed; }
 .pr-action-status { margin-left: 8px; color: var(--text-dim); font-size: var(--type-meta); overflow-wrap: anywhere; }
 .pr-action-status[data-tone="ok"] { color: var(--state-complete); }
 .pr-action-status[data-tone="error"] { color: var(--state-failed); }
@@ -4445,7 +4414,6 @@ html[data-layout="phone"] .pr-decision-bar > .pr-decision-spacer { display: none
 html[data-layout="phone"] .pr-decision-bar > button { flex: 1 1 auto; }
 html[data-layout="phone"] .review-queue[data-detail-open="true"] .pr-queue-pane { display: none; }
 html[data-layout="phone"] .review-queue:not([data-detail-open="true"]) .pr-detail-host { display: none; }
-html[data-layout="phone"] .pr-action { min-height: 44px; }
 html[data-layout="phone"] .pr-link { display: inline-flex; align-items: center; min-height: 44px; }
 
 .phone-empty { margin: auto; padding: 24px; text-align: center; color: var(--text-dim); }

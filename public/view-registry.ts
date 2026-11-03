@@ -1,6 +1,7 @@
 import { describeFailure } from './client-error-core.ts';
 import { reportToServerLog } from './control-ws.ts';
 import { el, queryTag } from './dom-helpers.ts';
+import { createPressable } from './ui/pressable.ts';
 import { FEATURE_SURFACE_RULES } from './feature-surfaces-core.ts';
 import { activateFocusView, deactivateFocusView, mountFocusView, reopenFocusBoard } from './focus-view/focus-view.ts';
 import { applyBenchmarkConnectionState } from './benchmark-store.ts';
@@ -110,10 +111,9 @@ export function createDashboardViews(actions: ViewRegistryActions): DashboardVie
 
   const main = queryTag(document, '#app-main', 'main');
   const views = definitions.map((definition) => {
-    const tab = el('button', 'header-tab', definition.label);
+    const tab = createPressable('header-tab', definition.label);
     tab.prepend(createLineIcon(definition.iconPath));
     tab.id = `tab-${definition.view}`;
-    tab.type = 'button';
     tab.draggable = true;
     const panelId = `view-${definition.view}`;
     tab.setAttribute('role', 'tab');

@@ -5,6 +5,8 @@ import { createActionStatus, requestWithStatus } from '../action-status.ts';
 import type { ActionStatus } from '../action-status.ts';
 import { buildAttentionBanner, paintAttentionBanner } from '../attention-banner.ts';
 import { el, isPanelHidden, isRealInputOwningKey, writeClipboardText } from '../dom-helpers.ts';
+import { button } from '../ui/button.ts';
+import { createPressable } from '../ui/pressable.ts';
 import { isExternalHttpUrl } from '../external-link-core.ts';
 import { openExternalUrl } from '../external-link.ts';
 import { createPrQueueColumns } from '../github/pr-queue-columns.ts';
@@ -44,22 +46,6 @@ function startSessionCandidates() {
     isWorkspace: ui.card.dataset.workspace !== undefined,
     isEphemeral: ui.card.dataset.ephemeral !== undefined,
   })));
-}
-
-function createLinkButton(label: string, url: string): HTMLButtonElement {
-  const button = el('button', 'pr-action pr-action-ghost', label);
-  button.type = 'button';
-  button.disabled = !isExternalHttpUrl(url);
-  button.addEventListener('click', () => openExternalUrl(url));
-  return button;
-}
-
-function createActionButton(label: string, isEnabled: boolean, onClick: () => void): HTMLButtonElement {
-  const button = el('button', 'pr-action', label);
-  button.type = 'button';
-  button.disabled = !isEnabled;
-  button.addEventListener('click', onClick);
-  return button;
 }
 
 function createTextList(className: string, label: string, lines: readonly string[]): HTMLElement {
@@ -119,7 +105,7 @@ function createDraftBlock(entry: CommunityStateEntry): HTMLElement | null {
   const list = el('ul', 'community-links');
   for (const url of links) {
     const item = el('li');
-    item.append(createLinkButton(url, url));
+    item.append(button({ variant: 'secondary', size: 'small', label: url, action: 'open-public-link', onClick: () => openExternalUrl(url) }));
     list.append(item);
   }
   draft.append(list);
@@ -178,12 +164,12 @@ function createActions(entry: CommunityStateEntry): HTMLElement {
   const status = createActionStatus('pr-action-status');
   const buttons = el('div', 'community-action-buttons');
   buttons.append(
-    createActionButton('Copy draft', entry.draft !== null, () => copyDraft(entry, status)),
-    createLinkButton('Open thread', entry.item.url),
+    button({ variant: 'secondary', label: 'Copy draft', action: 'copy-draft', disabled: entry.draft === null, onClick: () => copyDraft(entry, status) }),
+    button({ variant: 'secondary', label: 'Open thread', action: 'open-thread', disabled: !isExternalHttpUrl(entry.item.url), onClick: () => openExternalUrl(entry.item.url) }),
     createSessionPicker(),
-    createActionButton('Start session', true, () => void startSession(entry, status)),
-    createActionButton('Re-run', canRerunCommunityEntry(entry), () => void runAction(entry, 'rerun', status)),
-    createActionButton('Set aside', canSetAsideCommunityEntry(entry), () => void runAction(entry, 'set-aside', status)),
+    button({ variant: 'primary', label: 'Start session', action: 'start-session', onClick: () => void startSession(entry, status) }),
+    button({ variant: 'secondary', label: 'Re-run', action: 'rerun-community-research', disabled: !canRerunCommunityEntry(entry), onClick: () => void runAction(entry, 'rerun', status) }),
+    button({ variant: 'secondary', label: 'Set aside', action: 'set-aside-community-question', disabled: !canSetAsideCommunityEntry(entry), onClick: () => void runAction(entry, 'set-aside', status) }),
   );
   actions.append(buttons, status.element);
   return actions;
@@ -263,8 +249,7 @@ function onCommunityKey(event: KeyboardEvent): void {
 }
 
 function createRow(item: CommunityQueueItem, isTurn: boolean): HTMLButtonElement {
-  const row = el('button', 'pr-queue-row pr-queue-row-quiet');
-  row.type = 'button';
+  const row = createPressable('pr-queue-row pr-queue-row-quiet');
   row.dataset.queueKey = item.key;
   row.setAttribute('aria-current', String(item.key === selectedKey));
   const badge = communityBadge(item.entry);
@@ -291,11 +276,10 @@ function createGroupHeading(group: QueueGroup<CommunityQueueItem>): HTMLElement 
     heading.append(el('span', null, group.title), count);
     return heading;
   }
-  const toggle = el('button', 'review-group-toggle');
+  const toggle = createPressable('review-group-toggle');
   const chevron = el('span', 'review-group-chevron', String.fromCharCode(0x25b8));
   chevron.setAttribute('aria-hidden', 'true');
   toggle.append(chevron, group.title);
-  toggle.type = 'button';
   toggle.setAttribute('aria-expanded', String(isSetAsideOpen));
   toggle.addEventListener('click', () => {
     isSetAsideOpen = !isSetAsideOpen;
@@ -350,10 +334,7 @@ function mountCommunity(parent: HTMLElement): void {
   queueElement = shell.queue;
   detailHost = el('div', 'review-queue-detail');
   const phoneBar = el('div', 'review-queue-phone-bar');
-  const back = el('button', 'pr-action pr-action-ghost review-queue-back', 'Back to queue');
-  back.type = 'button';
-  back.addEventListener('click', returnToQueue);
-  phoneBar.append(back);
+  phoneBar.append(button({ variant: 'secondary', label: 'Back to queue', action: 'back-to-queue', onClick: returnToQueue }));
   shell.detail.append(phoneBar, detailHost);
   banner = buildAttentionBanner({
     onJump: () => {

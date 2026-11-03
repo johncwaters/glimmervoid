@@ -3,6 +3,7 @@ import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from
 import type { ActionStatus } from '../action-status.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
+import { button } from '../ui/button.ts';
 import { buildSetupStep } from '../onboarding/setup-step.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
 import { applySettingsBroadcast, settingsPayloadSnapshot } from '../settings/settings-store.ts';
@@ -51,12 +52,6 @@ function textInput(id: string, value: string, placeholder: string, type: string)
   return input;
 }
 
-function actionButton(label: string, kind: 'confirm' | 'cancel'): HTMLButtonElement {
-  const button = el('button', `btn-dialog btn-dialog-${kind}`, label);
-  button.type = 'button';
-  return button;
-}
-
 export function createCommunitySetupCard({ onFinish }: { onFinish: () => void }) {
   const element = el('section', 'first-run-checklist review-setup');
   element.setAttribute('aria-labelledby', 'community-setup-title');
@@ -66,7 +61,7 @@ export function createCommunitySetupCard({ onFinish }: { onFinish: () => void })
   const foot = el('p', 'first-run-step-hint review-setup-foot', 'Each question gets a researched draft reply. Nothing posts until you post it yourself. ');
   foot.append(createSettingsLink('lanes-community', 'community-enabled', 'All community settings'));
   const finishActions = el('div', 'first-run-step-actions');
-  const finishButton = actionButton('Finish setup', 'confirm');
+  const finishButton = button({ variant: 'primary', label: 'Finish setup', action: 'finish-community-setup' });
   finishActions.append(finishButton);
   finishActions.hidden = true;
   element.append(el('span', 'first-run-eyebrow', 'SET UP COMMUNITY'), heading, stepsList, finishActions, foot);
@@ -85,8 +80,8 @@ export function createCommunitySetupCard({ onFinish }: { onFinish: () => void })
     (stepsList.querySelector<HTMLElement>('[aria-current="step"] input') ?? (finishActions.hidden ? null : finishButton))?.focus();
   }
 
-  async function saveSettingsPatch(settings: Record<string, unknown>, button: HTMLButtonElement, status: ActionStatus, nextProgress: CommunitySetupProgress): Promise<void> {
-    button.disabled = true;
+  async function saveSettingsPatch(settings: Record<string, unknown>, saveButton: HTMLButtonElement, status: ActionStatus, nextProgress: CommunitySetupProgress): Promise<void> {
+    saveButton.disabled = true;
     status.show('busy', 'Saving');
     try {
       const reply = await sendControlRequest('update-settings', { settings }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
@@ -103,7 +98,7 @@ export function createCommunitySetupCard({ onFinish }: { onFinish: () => void })
     } catch (reason) {
       status.show('error', requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS));
     } finally {
-      button.disabled = false;
+      saveButton.disabled = false;
     }
   }
 
@@ -113,7 +108,7 @@ export function createCommunitySetupCard({ onFinish }: { onFinish: () => void })
     label.htmlFor = input.id;
     const actions = el('div', 'first-run-step-actions');
     const status = createActionStatus();
-    const saveButton = actionButton(field.saveLabel, 'confirm');
+    const saveButton = button({ variant: 'primary', label: field.saveLabel, action: field.action });
     const submit = () => {
       const patch = field.settingsPatch(input.value);
       if (typeof patch === 'string') {
@@ -131,8 +126,7 @@ export function createCommunitySetupCard({ onFinish }: { onFinish: () => void })
     });
     actions.append(saveButton);
     if (field.isSkippable) {
-      const skipButton = actionButton('Skip', 'cancel');
-      skipButton.addEventListener('click', () => moveTo(field.nextProgress));
+      const skipButton = button({ variant: 'secondary', label: 'Skip', action: 'skip-community-setup-step', onClick: () => moveTo(field.nextProgress) });
       actions.append(skipButton);
     }
     actions.append(status.element);

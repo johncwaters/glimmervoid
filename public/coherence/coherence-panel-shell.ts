@@ -1,5 +1,6 @@
 import { nextRequestId, sendControlMsg } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
+import { button } from '../ui/button.ts';
 import { applyDialogAria, createModalOverlay } from '../session-card/modal.ts';
 
 function openCoherencePanelShell({ dialogClass, titleText, titleId, body, onCloseRequest }: {
@@ -13,12 +14,10 @@ function openCoherencePanelShell({ dialogClass, titleText, titleId, body, onClos
   const header = el('div', 'coherence-journal-header');
   const title = el('h3', 'dialog-title', titleText);
   title.id = titleId;
-  const closeButton = el('button', 'btn-dialog btn-dialog-cancel', 'Close');
-  closeButton.type = 'button';
+  const closeButton = button({ variant: 'secondary', label: 'Close', action: 'close-coherence-panel', onClick: onCloseRequest });
   header.append(title, closeButton);
   modal.dialog.append(header, ...body);
   applyDialogAria(modal.dialog, title.id);
-  closeButton.addEventListener('click', onCloseRequest);
   modal.overlay.addEventListener('click', (event) => {
     if (event.target === modal.overlay) onCloseRequest();
   });
