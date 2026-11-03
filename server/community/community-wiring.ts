@@ -133,7 +133,7 @@ function createCommunityRunner({ spawnDependencies, homeDir, getSettings, hookTo
       await fs.writeFile(path.join(workDir, core.COMMUNITY_PROMPT_FILENAME), prompt);
       return await raceWithAbort<core.CommunityRunResult>({
         timeoutMs: core.RUN_TIMEOUT_SECONDS * 1000,
-        onTimeout: () => failed(`the research run timed out after ${core.RUN_TIMEOUT_SECONDS}s`),
+        onTimeout: () => ({ ...failed(`the research run timed out after ${core.RUN_TIMEOUT_SECONDS}s`), timedOut: true }),
         onEmpty: () => failed('the research run ended without a result'),
         start: async (timeoutSignal) => {
           await spawnSession({
