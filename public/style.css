@@ -4021,7 +4021,7 @@ html[data-layout="phone"] .phone-shell[hidden] { display: none; }
 .phone-topbar > .header-title { flex: 0 0 auto; font-size: var(--type-body); white-space: nowrap; }
 .phone-topbar > .celebration-tray { flex: none; margin-left: auto; }
 .phone-topbar > .celebration-tray + [data-action="add-session"] { margin-left: 0; }
-.phone-topbar > :is([data-action="open-shortcuts-help"], [data-action="toggle-mute"], [data-action="toggle-streamer-mode"]) { display: none; }
+.phone-topbar > :is([data-action="open-shortcuts-help"], [data-action="toggle-mute"]) { display: none; }
 .phone-topbar > .header-menu { flex: none; }
 .phone-topbar .menu-item { min-height: 44px; }
 .phone-topbar > .status-indicator,

@@ -154,6 +154,13 @@
     {
       "name": "docs",
       "definition": "Text files a session hands the operator with glimmervoid edit to read, edit and save back in the doc editor; its Docs button is hidden from the session header until the feature is ready"
+    },
+    {
+      "name": "streamer mode",
+      "definition": "A dashboard setting that hides sensitive details (secrets, titles, avatars, settings) while the operator screen shares; switched in Settings or by its keyboard shortcut",
+      "aliases": [
+        "streamer"
+      ]
     }
   ]
 }
