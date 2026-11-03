@@ -93,7 +93,7 @@ export function createPaneLayout(): PaneLayout {
 
   function buildGroup(visibleIndex: number): GroupParts {
     const group = el('section', 'pane-group');
-    const strip = el('div', 'pane-strip');
+    const strip = el('div', 'pane-strip pane-header');
     const tabList = el('div', 'pane-tabs');
     tabList.setAttribute('role', 'tablist');
     strip.append(tabList);

@@ -520,7 +520,14 @@ function flashAttention(id: string) {
 function borrowToCenter(ui: SessionUi, id: string) {
   if (!cardSlotEl) return;
   const header = ui.card.querySelector<HTMLElement>(':scope > .session-card-header');
-  borrowCard(ui, id, cardSlotEl, { className: 'focus-centered', onRelease: () => paneLayout?.setStripHost('terminal', null) });
+  borrowCard(ui, id, cardSlotEl, {
+    className: 'focus-centered',
+    onRelease: () => {
+      header?.classList.remove('pane-header');
+      paneLayout?.setStripHost('terminal', null);
+    },
+  });
+  header?.classList.add('pane-header');
   if (header) moveStripToHeaderStart(header);
   paneLayout?.setTabTitle('terminal', () => terminalTabTitle(ui));
   setTerminalActiveViewer(ui, id, true);

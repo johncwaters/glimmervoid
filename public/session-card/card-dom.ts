@@ -5,13 +5,13 @@ import { sendControlMsg } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { buildMenuItem } from '../menu.ts';
 import { refreshHoverTip, installHoverTips } from '../hover-tip.ts';
-import { BOLT_ICON_PATH, CLOSE_ICON_PATH, createLineIcon, createSvgIcon, createSvgShape, MORE_ICON_PATH, SHIELD_ICON_PATH, SHIELDED_BOLT_FILL_PATH, USAGE_ICON_PATH } from '../svg-dom.ts';
+import { BOLT_ICON_PATH, CLOSE_ICON_PATH, createLineIcon, createSvgIcon, createSvgShape, SHIELD_ICON_PATH, SHIELDED_BOLT_FILL_PATH, USAGE_ICON_PATH } from '../svg-dom.ts';
 import type { CardOptions } from './card-options-core.ts';
 import { buildDialogShell } from './modal.ts';
 import { findSessionUi } from './card-registry.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { paintTaskTitle } from './card-titles.ts';
-import { button } from '../ui/button.ts';
+import { button, menuButton } from '../ui/button.ts';
 
 type LinkedPrsPainter = (slot: HTMLElement, sessionId: string) => void;
 let paintLinkedPrs: LinkedPrsPainter | null = null;
@@ -115,8 +115,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const actions = el('div', 'session-actions');
 
   const sessionMenuWrap = el('div', 'session-overflow');
-  const btnSessionMenu = button({ variant: 'icon', size: 'small', label: 'Session actions', icon: createLineIcon(MORE_ICON_PATH), action: 'session-menu' });
-  delete btnSessionMenu.dataset.tipLabel;
+  const btnSessionMenu = menuButton({ label: 'Session actions', action: 'session-menu' });
   btnSessionMenu.setAttribute('aria-haspopup', 'menu');
   btnSessionMenu.setAttribute('aria-expanded', 'false');
   const sessionMenu = el('div', 'popup-menu session-overflow-menu');

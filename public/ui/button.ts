@@ -1,5 +1,6 @@
 import { el } from '../dom-helpers.ts';
 import { installHoverTips } from '../hover-tip.ts';
+import { createLineIcon, MENU_ICON_PATH } from '../svg-dom.ts';
 import { createPressable } from './pressable.ts';
 
 type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'quiet' | 'icon';
@@ -46,6 +47,12 @@ export function linkButton(options: LinkButtonOptions): HTMLAnchorElement {
 
 export function button(options: ButtonOptions): HTMLButtonElement {
   return buildButton(options);
+}
+
+export function menuButton(options: { label: string; action: string; onClick?: (event: MouseEvent) => void }): HTMLButtonElement {
+  const element = buildButton({ variant: 'icon', size: 'small', label: options.label, icon: createLineIcon(MENU_ICON_PATH, '1.5'), action: options.action, onClick: options.onClick });
+  delete element.dataset.tipLabel;
+  return element;
 }
 
 export function outlineIconButton<const State extends Exclude<OutlineState, 'idle'>>(options: OutlineIconButtonOptions<State>): OutlineIconButton<State> {

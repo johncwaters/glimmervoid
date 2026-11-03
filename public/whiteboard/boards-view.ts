@@ -4,7 +4,7 @@ import { refPathOf, refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 import { WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import { createActionStatus } from '../action-status.ts';
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
-import { button } from '../ui/button.ts';
+import { button, menuButton } from '../ui/button.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { buildMenuItem, wirePopupMenuKeys } from '../menu.ts';
 import { findSessionUi, sessionName } from '../session-card/card-registry.ts';
@@ -27,7 +27,6 @@ const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const EMPTY_TEXT = 'No boards yet. Make one here, or have an agent run glimmervoid whiteboard new <title>.';
 const PICK_TEXT = 'Pick a board above.';
 const TITLE_RENAME_CLASS = 'wb-board-title-rename';
-const MENU_ICON_PATH = 'M2.5 4h11M2.5 8h11M2.5 12h11';
 const SEND_TO_CHAT_ICON_PATH = 'M13.5 8H3 M7 4L3 8l4 4';
 const MORE_ICON_PATH = 'M4.5 6.5L8 10l3.5-3.5';
 const MENU_GAP_PX = 4;
@@ -297,7 +296,7 @@ function buildBoardMenu(onBoardSettings: () => void) {
     menu.classList.toggle('open', shouldOpen);
     trigger.setAttribute('aria-expanded', String(shouldOpen));
   };
-  const trigger = iconButton('board menu', MENU_ICON_PATH, 'open-board-menu', () => setOpen(!isOpen()));
+  const trigger = menuButton({ label: 'board menu', action: 'open-board-menu', onClick: () => setOpen(!isOpen()) });
   trigger.setAttribute('aria-haspopup', 'menu');
   trigger.setAttribute('aria-expanded', 'false');
   const actionItem = (label: string, onChoose: () => void, extraClass = '') => {
@@ -666,10 +665,10 @@ export function mountBoardHost(): HTMLElement {
     inspector?.openBoardSettings();
   });
   boardMenu.trigger.dataset.phoneVisible = '';
-  const boardTitle = createPressable('wb-board-title');
+  const boardTitle = createPressable('wb-board-title pane-header-title');
   boardTitle.title = 'Click to rename';
   boardTitle.addEventListener('click', startTitleRename);
-  const boardMeta = el('span', 'wb-board-meta');
+  const boardMeta = el('span', 'wb-board-meta pane-header-subtitle');
   const presence = el('div', 'wb-presence');
   const boardIsland = island('wb-island-board', 'Board', boardMenu.menuRoot, boardTitle, boardMeta, presence, status.element);
 
