@@ -75,7 +75,7 @@ function placedElement(tool: PlacementTool, board: Board, at: ViewPoint): BoardE
 function placedBox(at: ViewPoint, title: string, image: BoxImage | null, isDecision: boolean): BoardElement {
   return {
     kind: 'box', id: newElementId('box'), title, lines: [], lane: null, refs: [], change: 'none', was: null, column: null, near: null, order: 0, at,
-    shape: isDecision ? 'decision' : 'box', outputs: isDecision ? [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }] : [], image,
+    shape: isDecision ? 'decision' : 'box', outputs: isDecision ? [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }] : [], image, width: null,
   };
 }
 

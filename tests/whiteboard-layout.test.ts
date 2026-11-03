@@ -402,3 +402,32 @@ test('a board with plan steps keys their statuses in the legend, and a board wit
   const plainBoard = Board.parse({ ...planBoard, elements: { only: { kind: 'box', id: 'only', title: 'Only' } } });
   assert.deepEqual(layoutBoard(plainBoard).legend, []);
 });
+
+test('a box width widens its column, rewraps its text and grows its picture, while an unsized box keeps the default and an out of range width is refused', () => {
+  const picture = { asset: 'a'.repeat(64), width: 800, height: 400 };
+  const sizedBoard = Board.parse({
+    id: 'sized', title: 'sized', version: 1, caption: null, createdAt: 0, updatedAt: 0, lanes: [],
+    columns: [{ id: 'a', title: 'Wide' }, { id: 'b', title: 'Next' }],
+    elements: {
+      wide: { ...box('wide', 'a', 0), width: 440, image: picture },
+      narrow: box('narrow', 'a', 1),
+      next: box('next', 'b', 0),
+      free: { kind: 'box', id: 'free', title: 'Free', at: { x: 900, y: 400 }, width: 160, image: picture },
+    },
+  });
+  const boxById = new Map(layoutBoard(sizedBoard).elements.flatMap((element) => (element.kind === 'box' ? [[element.id, element] as const] : [])));
+  const wide = boxById.get('wide');
+  const narrow = boxById.get('narrow');
+  const next = boxById.get('next');
+  const free = boxById.get('free');
+  assert.ok(wide && narrow && next && free);
+  assert.equal(narrow.width, 220, 'a box with no width keeps the default');
+  assert.equal(wide.width, 440);
+  assert.equal(wide.titleLines.length, 1, 'a wider box wraps its title to its width');
+  assert.equal(narrow.titleLines.length, 2);
+  assert.deepEqual([wide.image?.width, wide.image?.height], [416, 208], 'the picture fills the wider inner width');
+  assert.deepEqual([free.image?.width, free.image?.height], [136, 68]);
+  assert.ok(next.x >= wide.x + wide.width + 90, 'the next column clears the widened one');
+  const refused = applyOps(sizedBoard, [{ op: 'set', id: 'narrow', fields: { width: 2000 } }], { id: 'agent', name: 'agent' }, 0);
+  assert.equal(refused.ok ? '' : refused.error, 'op 1: narrow: a box width is 160 to 960');
+});

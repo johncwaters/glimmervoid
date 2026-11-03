@@ -219,25 +219,25 @@ function wrapText(text: string, charsPerLine: number): string[] {
   return lines.length > 0 ? lines : [''];
 }
 
-function rowsOfLine(line: BoxLine, numberInRun: number): LaidOutLine[] {
+function rowsOfLine(line: BoxLine, numberInRun: number, bodyCharsPerLine: number): LaidOutLine[] {
   const mutedIndentChars = line.muted ? 2 : 0;
   const marker = line.style === 'numbered' ? `${numberInRun}.` : line.style === 'kv' ? line.key : null;
   const rowOf = (text: string, index: number, indentChars: number, rowMarker: string | null): LaidOutLine => ({
     text, muted: line.muted, style: line.style, marker: index === 0 ? rowMarker : null, indentChars, isFirstRow: index === 0,
   });
   if (marker && marker.length + 1 > MAX_KEY_INDENT_CHARS) {
-    const valueRows = wrapText(line.text, BODY_CHARS_PER_LINE - mutedIndentChars - ITEM_INDENT_CHARS).map((text) => rowOf(text, 1, ITEM_INDENT_CHARS, null));
+    const valueRows = wrapText(line.text, bodyCharsPerLine - mutedIndentChars - ITEM_INDENT_CHARS).map((text) => rowOf(text, 1, ITEM_INDENT_CHARS, null));
     return [rowOf('', 0, 0, marker), ...valueRows];
   }
   const indentChars = line.style === 'item' ? ITEM_INDENT_CHARS : marker ? marker.length + 1 : 0;
-  return wrapText(line.text, BODY_CHARS_PER_LINE - mutedIndentChars - indentChars - (line.style === 'code' ? 1 : 0)).map((text, index) => rowOf(text, index, indentChars, marker));
+  return wrapText(line.text, bodyCharsPerLine - mutedIndentChars - indentChars - (line.style === 'code' ? 1 : 0)).map((text, index) => rowOf(text, index, indentChars, marker));
 }
 
-function laidOutLines(lines: readonly BoxLine[]): LaidOutLine[] {
+function laidOutLines(lines: readonly BoxLine[], bodyCharsPerLine = BODY_CHARS_PER_LINE): LaidOutLine[] {
   let numberInRun = 0;
   return lines.flatMap((line) => {
     numberInRun = line.style === 'numbered' ? numberInRun + 1 : 0;
-    return rowsOfLine(line, numberInRun);
+    return rowsOfLine(line, numberInRun, bodyCharsPerLine);
   });
 }
 
@@ -251,10 +251,20 @@ function isGridBox(box: Box): box is Box & { column: string } {
   return box.column !== null && box.at === null && box.near === null;
 }
 
+function boxWidthOf(box: Box): number {
+  return box.width ?? COLUMN_WIDTH;
+}
+
+function charsPerLineAt(defaultCharsPerLine: number, boxWidth: number): number {
+  return Math.floor(defaultCharsPerLine * (boxWidth - BOX_PADDING * 2) / (COLUMN_WIDTH - BOX_PADDING * 2));
+}
+
 function imageSizeOf(box: Box): { width: number; height: number } | null {
   if (!box.image) return null;
-  const width = COLUMN_WIDTH - BOX_PADDING * 2;
-  const height = Math.min(IMAGE_MAX_HEIGHT, Math.max(1, Math.round(width * box.image.height / box.image.width)));
+  const boxWidth = boxWidthOf(box);
+  const width = boxWidth - BOX_PADDING * 2;
+  const maxHeight = Math.round(IMAGE_MAX_HEIGHT * boxWidth / COLUMN_WIDTH);
+  const height = Math.min(maxHeight, Math.max(1, Math.round(width * box.image.height / box.image.width)));
   return { width, height };
 }
 
@@ -264,9 +274,11 @@ function laidOutImage(box: Box, position: Point, imageTop: number, imageSize: { 
 }
 
 function boxShape(board: Board, box: Box) {
-  const titleLines = wrapText(box.title, TITLE_CHARS_PER_LINE);
-  const wasLines = box.change === 'relabeled' && box.was ? wrapText(box.was, TITLE_CHARS_PER_LINE) : [];
-  const bodyLines = laidOutLines(box.lines);
+  const boxWidth = boxWidthOf(box);
+  const titleCharsPerLine = charsPerLineAt(TITLE_CHARS_PER_LINE, boxWidth);
+  const titleLines = wrapText(box.title, titleCharsPerLine);
+  const wasLines = box.change === 'relabeled' && box.was ? wrapText(box.was, titleCharsPerLine) : [];
+  const bodyLines = laidOutLines(box.lines, charsPerLineAt(BODY_CHARS_PER_LINE, boxWidth));
   const lane = laneOf(board, box);
   const showsLanePill = lane !== null && !isGridBox(box);
   const textHeight = BOX_PADDING + (wasLines.length + titleLines.length) * TITLE_LINE_HEIGHT + bodyLines.length * BODY_LINE_HEIGHT;
@@ -337,14 +349,28 @@ function gapWidthsOf(reserves: readonly GapReserve[], tracksByGap: readonly numb
   });
 }
 
-function columnLeftEdgesOf(board: Board, gapWidths: readonly number[]): number[] {
+function columnWidthsOf(board: Board): number[] {
+  const columnIndexById = new Map(board.columns.map((column, index) => [column.id, index]));
+  const columnWidths = board.columns.map(() => COLUMN_WIDTH);
+  for (const box of elementsOfKind(board, 'box').filter(isGridBox)) {
+    const columnIndex = columnIndexById.get(box.column) ?? 0;
+    columnWidths[columnIndex] = Math.max(columnWidths[columnIndex] ?? COLUMN_WIDTH, boxWidthOf(box));
+  }
+  return columnWidths;
+}
+
+function columnLeftEdgesOf(columnWidths: readonly number[], gapWidths: readonly number[]): number[] {
   const columnLeftEdges: number[] = [];
   let nextX = MARGIN;
-  for (const [index] of board.columns.entries()) {
+  for (const [index, columnWidth] of columnWidths.entries()) {
     columnLeftEdges.push(nextX);
-    nextX += COLUMN_WIDTH + (gapWidths[index] ?? COLUMN_GAP);
+    nextX += columnWidth + (gapWidths[index] ?? COLUMN_GAP);
   }
   return columnLeftEdges;
+}
+
+function columnsRightOf(columnLeftEdges: readonly number[], columnWidths: readonly number[]): number {
+  return (columnLeftEdges.at(-1) ?? MARGIN) + (columnWidths.at(-1) ?? COLUMN_WIDTH);
 }
 
 function frameIdByBoxId(board: Board): Map<string, string> {
@@ -379,24 +405,25 @@ function bandIdsOf(board: Board, gridBoxes: readonly Box[]): string[] {
 
 function laidOutBox(board: Board, box: Box, position: Point): LaidOutBox {
   const shape = boxShape(board, box);
+  const width = boxWidthOf(box);
   return {
-    kind: 'box', id: box.id, x: position.x, y: position.y, width: COLUMN_WIDTH, height: shape.height,
+    kind: 'box', id: box.id, x: position.x, y: position.y, width, height: shape.height,
     titleLines: shape.titleLines, bodyLines: shape.bodyLines, lane: shape.lane, showsLanePill: shape.showsLanePill, change: box.change, wasLines: shape.wasLines,
     shape: box.shape, headerHeight: shape.headerHeight, image: laidOutImage(box, position, shape.imageTop, shape.imageSize),
     outputs: shape.outputs.map((output, index) => ({
       id: output.id, label: output.label,
-      port: { x: position.x + COLUMN_WIDTH, y: position.y + shape.headerHeight + index * OUTPUT_ROW_HEIGHT + OUTPUT_ROW_HEIGHT / 2 },
+      port: { x: position.x + width, y: position.y + shape.headerHeight + index * OUTPUT_ROW_HEIGHT + OUTPUT_ROW_HEIGHT / 2 },
     })),
   };
 }
 
-function placeGridBoxes(board: Board, columnLeftEdges: readonly number[], boxesTop: number, stackHeightByBoxId: ReadonlyMap<string, number>, boxesById: Map<string, LaidOutBox>): LaidOutBand[] {
+function placeGridBoxes(board: Board, columnLeftEdges: readonly number[], columnWidths: readonly number[], boxesTop: number, stackHeightByBoxId: ReadonlyMap<string, number>, boxesById: Map<string, LaidOutBox>): LaidOutBand[] {
   const frameIds = frameIdByBoxId(board);
   const gridBoxes = elementsOfKind(board, 'box').filter(isGridBox).map((box, index) => ({ box, index }))
     .sort((left, right) => left.box.order - right.box.order || left.index - right.index).map(({ box }) => box);
   const bandIds = bandIdsOf(board, gridBoxes);
   const hasLabeledBands = bandIds.some((bandId) => bandId !== '');
-  const columnsRight = (columnLeftEdges.at(-1) ?? MARGIN) + COLUMN_WIDTH;
+  const columnsRight = columnsRightOf(columnLeftEdges, columnWidths);
   const bands: LaidOutBand[] = [];
   let bandTop = boxesTop;
   for (const bandId of bandIds) {
@@ -424,14 +451,14 @@ function placeGridBoxes(board: Board, columnLeftEdges: readonly number[], boxesT
   return bands;
 }
 
-function nearPosition(target: LaidOutBox, near: NonNullable<Box['near']>, height: number): Point {
-  const centeredY = target.y + target.height / 2 - height / 2;
-  const centeredX = target.x + target.width / 2 - COLUMN_WIDTH / 2;
+function nearPosition(target: LaidOutBox, near: NonNullable<Box['near']>, size: { width: number; height: number }): Point {
+  const centeredY = target.y + target.height / 2 - size.height / 2;
+  const centeredX = target.x + target.width / 2 - size.width / 2;
   switch (near.side) {
     case 'right': return { x: target.x + target.width + near.gap, y: centeredY };
-    case 'left': return { x: target.x - COLUMN_WIDTH - near.gap, y: centeredY };
+    case 'left': return { x: target.x - size.width - near.gap, y: centeredY };
     case 'bottom': return { x: centeredX, y: target.y + target.height + near.gap };
-    case 'top': return { x: centeredX, y: target.y - height - near.gap };
+    case 'top': return { x: centeredX, y: target.y - size.height - near.gap };
   }
 }
 
@@ -450,8 +477,8 @@ function placeNearBoxes(board: Board, boxesTop: number, boxesById: Map<string, L
     const canFollow = target?.kind === 'box' && !chainIds.has(target.id) && (boxesById.has(target.id) || pendingIds.has(target.id));
     const targetBox = canFollow ? place(target, new Set([...chainIds, box.id])) : undefined;
     if (!targetBox) warnings.push(`box ${box.id} sits near ${box.near.of}, which is not placed on the board`);
-    const height = boxShape(board, box).height;
-    const position = targetBox ? nearPosition(targetBox, box.near, height) : freeOrigin(boxesById, boxesTop);
+    const size = { width: boxWidthOf(box), height: boxShape(board, box).height };
+    const position = targetBox ? nearPosition(targetBox, box.near, size) : freeOrigin(boxesById, boxesTop);
     const placed = laidOutBox(board, box, { x: Math.round(position.x), y: Math.round(position.y) });
     boxesById.set(box.id, placed);
     return placed;
@@ -459,8 +486,8 @@ function placeNearBoxes(board: Board, boxesTop: number, boxesById: Map<string, L
   for (const box of nearBoxes) place(box, new Set());
 }
 
-function layoutPanels(board: Board, besidePanels: readonly Rect[], columnLeftEdges: readonly number[], boxesTop: number): LaidOutPanel[] {
-  const columnsRight = (columnLeftEdges.at(-1) ?? MARGIN) + COLUMN_WIDTH;
+function layoutPanels(board: Board, besidePanels: readonly Rect[], columnLeftEdges: readonly number[], columnWidths: readonly number[], boxesTop: number): LaidOutPanel[] {
+  const columnsRight = columnsRightOf(columnLeftEdges, columnWidths);
   const x = Math.max(columnsRight, ...besidePanels.map((rect) => rect.x + rect.width)) + COLUMN_GAP;
   const panels = elementsOfKind(board, 'panel').sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
   let nextY = boxesTop;
@@ -474,10 +501,10 @@ function layoutPanels(board: Board, besidePanels: readonly Rect[], columnLeftEdg
   });
 }
 
-function layoutBoxes(board: Board, columnLeftEdges: readonly number[], boxesTop: number, stackHeightByBoxId: ReadonlyMap<string, number>): PlacedBoxes {
+function layoutBoxes(board: Board, columnLeftEdges: readonly number[], columnWidths: readonly number[], boxesTop: number, stackHeightByBoxId: ReadonlyMap<string, number>): PlacedBoxes {
   const boxesById = new Map<string, LaidOutBox>();
   const warnings: string[] = [];
-  const bands = placeGridBoxes(board, columnLeftEdges, boxesTop, stackHeightByBoxId, boxesById);
+  const bands = placeGridBoxes(board, columnLeftEdges, columnWidths, boxesTop, stackHeightByBoxId, boxesById);
   for (const box of elementsOfKind(board, 'box')) {
     if (box.at) boxesById.set(box.id, laidOutBox(board, box, box.at));
   }
@@ -520,9 +547,8 @@ function layoutNotes(board: Board, boxesById: ReadonlyMap<string, LaidOutBox>): 
   });
 }
 
-function boundsOf(elements: readonly LaidOutElement[], wireExtent: Rect | null, columnLeftEdges: readonly number[], boxesTop: number): Rect {
+function boundsOf(elements: readonly LaidOutElement[], wireExtent: Rect | null, columnsRight: number, boxesTop: number): Rect {
   const rects = elements.flatMap((element) => (element.kind === 'wire' ? [] : [element]));
-  const columnsRight = (columnLeftEdges.at(-1) ?? MARGIN) + COLUMN_WIDTH;
   const around = unionOf([...rects, ...(wireExtent ? [wireExtent] : []), { x: 0, y: 0, width: columnsRight, height: boxesTop }]);
   if (!around) return { x: 0, y: 0, width: columnsRight + MARGIN, height: MARGIN * 2 };
   return { x: Math.min(0, around.x - MARGIN), y: Math.min(0, around.y - MARGIN), width: around.width + MARGIN * 2, height: around.height + MARGIN * 2 };
@@ -530,6 +556,7 @@ function boundsOf(elements: readonly LaidOutElement[], wireExtent: Rect | null, 
 
 interface PlacedBoard {
   columnLeftEdges: number[];
+  columnWidths: number[];
   boxesById: Map<string, LaidOutBox>;
   bands: LaidOutBand[];
   placementWarnings: string[];
@@ -548,17 +575,20 @@ interface Placement {
   stackHeightByBoxId: ReadonlyMap<string, number>;
 }
 
-function gapSpansOf(columnLeftEdges: readonly number[]): { left: number; right: number }[] {
-  return columnLeftEdges.slice(0, -1).map((leftEdge, index) => ({ left: leftEdge + COLUMN_WIDTH, right: columnLeftEdges[index + 1] ?? leftEdge + COLUMN_WIDTH }));
+function gapSpansOf(columnLeftEdges: readonly number[], columnWidths: readonly number[]): { left: number; right: number }[] {
+  return columnLeftEdges.slice(0, -1).map((leftEdge, index) => {
+    const left = leftEdge + (columnWidths[index] ?? COLUMN_WIDTH);
+    return { left, right: columnLeftEdges[index + 1] ?? left };
+  });
 }
 
-function tracksByGapOf(routing: ReturnType<typeof routeWires>, columnLeftEdges: readonly number[]): number[] {
+function tracksByGapOf(routing: ReturnType<typeof routeWires>, columnLeftEdges: readonly number[], columnWidths: readonly number[]): number[] {
   const verticalXs = routing.segments.filter((segment) => segment.from.x === segment.to.x).map((segment) => segment.from.x);
-  return gapSpansOf(columnLeftEdges).map((span) => new Set(verticalXs.filter((x) => x > span.left && x < span.right)).size);
+  return gapSpansOf(columnLeftEdges, columnWidths).map((span) => new Set(verticalXs.filter((x) => x > span.left && x < span.right)).size);
 }
 
-function labelWidthByGapOf(routing: ReturnType<typeof routeWires>, columnLeftEdges: readonly number[]): number[] {
-  return gapSpansOf(columnLeftEdges).map((span) => Math.max(0, ...routing.wires.flatMap((wire) => (wire.label && wire.labelAt.x > span.left && wire.labelAt.x < span.right ? [labelWidthOf(wire.label)] : []))));
+function labelWidthByGapOf(routing: ReturnType<typeof routeWires>, columnLeftEdges: readonly number[], columnWidths: readonly number[]): number[] {
+  return gapSpansOf(columnLeftEdges, columnWidths).map((span) => Math.max(0, ...routing.wires.flatMap((wire) => (wire.label && wire.labelAt.x > span.left && wire.labelAt.x < span.right ? [labelWidthOf(wire.label)] : []))));
 }
 
 function overlapWarnings(boxesById: ReadonlyMap<string, LaidOutBox>, panels: readonly LaidOutPanel[], frames: readonly LaidOutFrame[], board: Board): string[] {
@@ -574,11 +604,12 @@ function overlapWarnings(boxesById: ReadonlyMap<string, LaidOutBox>, panels: rea
 }
 
 function placeAndRoute(board: Board, placement: Placement): PlacedBoard {
-  const columnLeftEdges = columnLeftEdgesOf(board, placement.gapWidths);
-  const { boxesById, bands, warnings: nearWarnings } = layoutBoxes(board, columnLeftEdges, placement.boxesTop, placement.stackHeightByBoxId);
+  const columnWidths = columnWidthsOf(board);
+  const columnLeftEdges = columnLeftEdgesOf(columnWidths, placement.gapWidths);
+  const { boxesById, bands, warnings: nearWarnings } = layoutBoxes(board, columnLeftEdges, columnWidths, placement.boxesTop, placement.stackHeightByBoxId);
   const frames = layoutFrames(board, boxesById);
   const notes = layoutNotes(board, boxesById);
-  const panels = layoutPanels(board, [...boxesById.values(), ...notes], columnLeftEdges, placement.boxesTop);
+  const panels = layoutPanels(board, [...boxesById.values(), ...notes], columnLeftEdges, columnWidths, placement.boxesTop);
   const routing = routeWires({
     wires: elementsOfKind(board, 'wire'), boxesById, panels,
     softObstacles: [...notes, ...frames.map((frame) => ({ x: frame.x, y: frame.y, width: frame.width, height: FRAME_TITLE_HEIGHT }))],
@@ -586,10 +617,10 @@ function placeAndRoute(board: Board, placement: Placement): PlacedBoard {
     contentTop: placement.contentTop,
   });
   return {
-    columnLeftEdges, boxesById, bands, frames, notes, panels, routing,
+    columnLeftEdges, columnWidths, boxesById, bands, frames, notes, panels, routing,
     placementWarnings: [...nearWarnings, ...overlapWarnings(boxesById, panels, frames, board)],
-    tracksByGap: tracksByGapOf(routing, columnLeftEdges),
-    labelWidthByGap: labelWidthByGapOf(routing, columnLeftEdges),
+    tracksByGap: tracksByGapOf(routing, columnLeftEdges, columnWidths),
+    labelWidthByGap: labelWidthByGapOf(routing, columnLeftEdges, columnWidths),
   };
 }
 
@@ -728,7 +759,7 @@ function layoutBoard(storedBoard: Board): BoardLayout {
   const boxesTop = freeformTop + COLUMN_HEADER_HEIGHT + extraHeaderHeight;
   const reserves = gapReservesOf(board, stackHeightByBoxId);
   const placed = placeWithReservedRoom(board, { reserves, boxesTop, contentTop: ruleY, stackHeightByBoxId });
-  const { columnLeftEdges } = placed;
+  const { columnLeftEdges, columnWidths } = placed;
   const elements: LaidOutElement[] = [
     ...placed.frames,
     ...placed.routing.wires,
@@ -737,7 +768,7 @@ function layoutBoard(storedBoard: Board): BoardLayout {
     ...placed.panels,
     ...unitsById.values(),
   ];
-  const contentBounds = boundsOf(elements, placed.routing.extent, columnLeftEdges, boxesTop);
+  const contentBounds = boundsOf(elements, placed.routing.extent, columnsRightOf(columnLeftEdges, columnWidths), boxesTop);
   const legendTop = contentBounds.y + contentBounds.height;
   const legend = legendEntriesOf(board, unitsById).map((entry, index): LegendRow => ({ ...entry, x: MARGIN, y: legendTop + index * LEGEND_ROW_HEIGHT }));
   const captionTop = legendTop + legend.length * LEGEND_ROW_HEIGHT + (legend.length > 0 ? 12 : 0);
@@ -746,7 +777,7 @@ function layoutBoard(storedBoard: Board): BoardLayout {
   return {
     columns: board.columns.map((column, index) => ({
       id: column.id, titleLines: titleLinesByColumn[index] ?? [], titleBaselineY: freeformTop + COLUMN_TITLE_BASELINE,
-      ruleY, x: columnLeftEdges[index] ?? MARGIN, width: COLUMN_WIDTH,
+      ruleY, x: columnLeftEdges[index] ?? MARGIN, width: columnWidths[index] ?? COLUMN_WIDTH,
     })),
     bands: placed.bands,
     elements,
