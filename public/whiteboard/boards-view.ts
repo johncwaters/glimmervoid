@@ -347,7 +347,7 @@ function buildMoreMenu(menuItems: readonly HTMLButtonElement[]): HTMLElement {
     trigger.setAttribute('aria-expanded', String(shouldOpen));
     if (shouldOpen) placeMenuAtTrigger(menu, trigger);
   };
-  const trigger = button({ variant: 'quiet', size: 'small', label: 'more', icon: createLineIcon(MORE_ICON_PATH, '1.5'), action: 'open-more-tools', onClick: () => setOpen(!isOpen()) });
+  const trigger = button({ variant: 'quiet', label: 'more', icon: createLineIcon(MORE_ICON_PATH, '1.5'), action: 'open-more-tools', onClick: () => setOpen(!isOpen()) });
   trigger.classList.add('wb-more-trigger');
   trigger.setAttribute('aria-haspopup', 'menu');
   trigger.setAttribute('aria-expanded', 'false');

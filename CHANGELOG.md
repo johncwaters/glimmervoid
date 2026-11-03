@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Small icon buttons on desktop, like the session menu, Changes and Shown, are now 28 pixels square instead of 22, with a larger icon. The phone layout is unchanged.
+- Small icon buttons on desktop, like the session menu, Changes and Shown, are now 28 pixels square instead of 22, with a larger icon, and every whiteboard toolbar button is now that same size. The phone layout is unchanged.
 
 ### Fixed
 
