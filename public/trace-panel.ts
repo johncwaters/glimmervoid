@@ -101,8 +101,8 @@ function buildTraceFilters(): HTMLElement {
     filters.append(filterChip);
   }
   filters.append(
-    button({ variant: 'quiet', size: 'small', label: 'Expand all', action: 'expand-all-trace-rows', onClick: () => setRenderedRowsExpanded(true) }),
-    button({ variant: 'quiet', size: 'small', label: 'Collapse all', action: 'collapse-all-trace-rows', onClick: () => setRenderedRowsExpanded(false) }),
+    button({ variant: 'quiet', label: 'Expand all', action: 'expand-all-trace-rows', onClick: () => setRenderedRowsExpanded(true) }),
+    button({ variant: 'quiet', label: 'Collapse all', action: 'collapse-all-trace-rows', onClick: () => setRenderedRowsExpanded(false) }),
   );
   return filters;
 }
