@@ -5,6 +5,7 @@ import { el } from '../dom-helpers.ts';
 import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import type { SessionUi } from './card-registry.ts';
 import { findSessionUi, sessionUIs } from './card-registry.ts';
+import { button } from '../ui/button.ts';
 
 let _debugMode = false;
 const debugModeListeners = new Set<(isEnabled: boolean) => void>();
@@ -26,12 +27,9 @@ export function isDebugModeEnabled() {
 
 
 function buildDebugCloseButton() {
-  const button = el('button', 'debug-close');
-  button.type = 'button';
-  button.title = 'Close';
-  button.setAttribute('aria-label', 'Close debug overlay');
-  button.append(createLineIcon(CLOSE_ICON_PATH));
-  return button;
+  const closeSlot = el('div', 'debug-close');
+  closeSlot.append(button({ variant: 'icon', size: 'small', label: 'Close debug overlay', icon: createLineIcon(CLOSE_ICON_PATH) }));
+  return closeSlot;
 }
 
 function formatTimestamp(ts: number | undefined) {

@@ -35,6 +35,7 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 | `card-host.ts` | THE session-card re-parenting seam (`borrowCard` / `releaseCard`), single borrower GLOBALLY; shared by the Focus center and the phone Terminal screen |
 | `project-registry.ts` | Project grouping registry shared by the desktop roster and phone Board |
 | `session-actions.ts` | Shared session action entry points for dashboard surfaces |
+| `ui/` | Shared UI primitives, one `.ts`/`.css` pair each, CSS in the `primitives` layer. `pressable.ts` is the ONLY creator of a `<button>`; action buttons use `button()` from `button.ts`, other pressables (rows, chips, toggles) `createPressable()`, a rule the ui-primitives gate enforces |
 | `dom-helpers.ts` | `el()` DOM utility, `adoptElement()` / `releaseElement()` (move a live element and put it back), and the chrome the tab panels share: `buildPanelSection()` / `buildStatChip()` (class prefix parameterized, so the per-panel CSS is unchanged), `projectsOf()` and `isPanelHidden()` |
 | `style.css` | Component styles, `[data-state]` rules, animations, `::before` pseudo-elements |
 | `tailwind.css` | Tailwind v4 entry: `@theme` block mapping colors, fonts, radii |

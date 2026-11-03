@@ -2,6 +2,7 @@ import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { gitRepoCountText, withRepoRootsAdded } from './first-run-checklist-core.ts';
+import { button } from '../ui/button.ts';
 
 type RepoRootSuggestion = NonNullable<ServerMessageOf<'repo-roots-scanned'>['suggestions']>[number];
 
@@ -47,8 +48,7 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
   typedInput.placeholder = '/path/to/your/checkouts';
   typedInput.autocomplete = 'off';
   typedInput.spellcheck = false;
-  const typedAddButton = el('button', 'btn-dialog btn-dialog-cancel', 'Add');
-  typedAddButton.type = 'button';
+  const typedAddButton = button({ variant: 'secondary', label: 'Add' });
   typedAddButton.disabled = true;
   typedRow.append(typedInput, typedAddButton);
 
@@ -60,7 +60,7 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
   let isSaving = false;
   function setSaving(saving: boolean) {
     isSaving = saving;
-    for (const button of element.querySelectorAll<HTMLButtonElement>('button')) button.disabled = saving;
+    for (const actionButton of element.querySelectorAll<HTMLButtonElement>('button')) actionButton.disabled = saving;
     if (!saving) typedAddButton.disabled = typedInput.value.trim() === '';
   }
 
@@ -97,8 +97,7 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
     suggestionsList.textContent = '';
     for (const suggestion of suggestions) {
       const row = el('li', 'repo-roots-adder-suggestion');
-      const addButton = el('button', 'btn-dialog btn-dialog-cancel', 'Add');
-      addButton.type = 'button';
+      const addButton = button({ variant: 'secondary', label: 'Add' });
       addButton.setAttribute('aria-label', `Add ${suggestion.label}`);
       addButton.addEventListener('click', () => { void addRoot(suggestion.path, 'suggested'); });
       row.append(

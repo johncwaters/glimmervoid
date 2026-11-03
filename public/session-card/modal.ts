@@ -1,4 +1,5 @@
 import { el } from '../dom-helpers.ts';
+import { button } from '../ui/button.ts';
 
 const FOCUSABLE_SELECTOR = 'a[href], button, input, select, textarea, [tabindex]';
 const INERT_BY_MODAL = 'modalInert';
@@ -169,7 +170,7 @@ export function buildDialogShell({ title, dialogClass = 'dialog', cancelLabel = 
   const titleEl = el('h3', 'dialog-title', title);
   titleEl.id = titleId;
   const actions = el('div', 'dialog-actions');
-  const btnCancel = el('button', 'btn-dialog btn-dialog-cancel', cancelLabel);
+  const btnCancel = button({ variant: 'secondary', label: cancelLabel });
   actions.append(btnCancel);
 
   dialog.append(titleEl);
@@ -189,7 +190,7 @@ export function openConfirmDialog({ title, message, confirmLabel = 'Confirm', da
 
   const msgEl = el('p', 'dialog-message', message);
 
-  const btnConfirm = el('button', danger ? 'btn-dialog btn-dialog-confirm btn-dialog-danger' : 'btn-dialog btn-dialog-confirm', confirmLabel);
+  const btnConfirm = button({ variant: danger ? 'danger' : 'primary', label: confirmLabel });
 
   actions.append(btnConfirm);
   dialog.append(msgEl, actions);

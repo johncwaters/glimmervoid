@@ -1,3 +1,4 @@
+@layer tailwind, xterm, primitives, components;
 @import "tailwindcss" layer(tailwind);
 @import "@xterm/xterm/css/xterm.css" layer(xterm);
 
@@ -39,4 +40,5 @@
   }
 }
 
+@import "./ui/button.css" layer(primitives);
 @import "./style.css" layer(components);

@@ -7,6 +7,7 @@ import { el } from './dom-helpers.ts';
 import { openExternalUrl } from './external-link.ts';
 import { featureHintMessage, featureSettingTarget } from './feature-hint-core.ts';
 import { buildFlyingAnimalPreview, pickRandomIncludedAnimal } from './flying-animal-preview.ts';
+import { button } from './ui/button.ts';
 import { claimKey, claimNotification } from './notify-dedupe-core.ts';
 import { ANIMALS } from './nyan-animals-core.ts';
 
@@ -56,10 +57,8 @@ export function showHintCard({ text, ariaLabel, openLabel = 'Show me', onOpen, o
   hintCard.setAttribute('aria-live', 'polite');
   hintCard.setAttribute('aria-label', ariaLabel);
   const bubble = el('div', 'feature-hint-bubble');
-  const showButton = el('button', 'btn-dialog btn-dialog-confirm', openLabel);
-  const dismissButton = el('button', 'btn-dialog btn-dialog-cancel', 'Dismiss');
-  showButton.type = 'button';
-  dismissButton.type = 'button';
+  const showButton = button({ variant: 'primary', label: openLabel });
+  const dismissButton = button({ variant: 'secondary', label: 'Dismiss' });
   const actions = el('div', 'feature-hint-actions');
   actions.append(dismissButton, showButton);
   bubble.append(el('p', 'feature-hint-text', text), actions);

@@ -7,6 +7,8 @@ import { createSignal, paintSignalLine } from '../signal.ts';
 import type { ActivatableSignal } from '../signal.ts';
 import { tierForTone } from '../signal-core.ts';
 import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
+import { button } from '../ui/button.ts';
+import { createPressable } from '../ui/pressable.ts';
 import {
   boardSummariesOf, boardsConnectedTo, connectSessionToBoard, disconnectSessionFromBoard, onBoardListChanged, requestOpenBoard,
 } from './board-store.ts';
@@ -56,9 +58,8 @@ export function sessionRowBoardSignals(sessionId: string): ActivatableSignal[] {
 
 function createUnlinkableBoardChip(summary: BoardSummary, sessionId: string, onUnlinked: (error: string | null) => void): HTMLElement {
   const signal = titledBoardSignal(summary, sessionId);
-  const unlinkButton = el('button', 'session-pr-chip-unlink');
+  const unlinkButton = createPressable('session-pr-chip-unlink');
   unlinkButton.append(createLineIcon(CLOSE_ICON_PATH));
-  unlinkButton.type = 'button';
   unlinkButton.title = `Disconnect ${summary.title} from this session`;
   unlinkButton.setAttribute('aria-label', `Disconnect board ${summary.title}`);
   unlinkButton.addEventListener('click', (event) => {
@@ -86,8 +87,7 @@ export function openConnectBoardDialog(sessionId: string): void {
   const select = el('select', 'dialog-input');
   select.setAttribute('aria-label', 'Board to connect');
   const status = createActionStatus('action-status');
-  const btnConnect = el('button', 'btn-dialog btn-dialog-confirm', 'Connect');
-  btnConnect.type = 'button';
+  const btnConnect = button({ variant: 'primary', label: 'Connect' });
   actions.append(btnConnect);
   dialog.append(connectedChips, hint, select, status.element, actions);
 

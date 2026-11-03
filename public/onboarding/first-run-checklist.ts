@@ -9,6 +9,7 @@ import { agentSummaryText, canOpenShell, decideFirstRunSteps, decideOnboardingSt
 import type { FirstRunSteps } from './first-run-checklist-core.ts';
 import { createRepoRootsAdder, saveRepoRoots } from './repo-roots-adder.ts';
 import { buildCommandRow, buildSetupStep } from './setup-step.ts';
+import { button } from '../ui/button.ts';
 
 const AGENT_INSTALL_COMMAND = 'npm install -g @anthropic-ai/claude-code';
 
@@ -43,19 +44,17 @@ function agentStepLeadText(): string {
 }
 
 function openShellButton(): HTMLButtonElement {
-  const button = el('button', 'btn-dialog btn-dialog-cancel', 'Open shell');
-  button.type = 'button';
-  button.addEventListener('click', () => {
+  const openShell = button({ variant: 'secondary', label: 'Open shell' });
+  openShell.addEventListener('click', () => {
     reportOnboardingAction('open-shell');
     openShellSessionDialog();
   });
-  return button;
+  return openShell;
 }
 
 function agentStepBody(): HTMLElement[] {
   const actions = el('div', 'first-run-step-actions');
-  rescanButton = el('button', 'btn-dialog btn-dialog-cancel', 'Rescan');
-  rescanButton.type = 'button';
+  rescanButton = button({ variant: 'secondary', label: 'Rescan' });
   rescanButton.addEventListener('click', () => {
     reportOnboardingAction('rescan');
     void loadFirstRunState({ rescanAgents: true });
@@ -81,8 +80,7 @@ function repoRootsStepBody(): HTMLElement[] {
 
 function firstSessionStepBody(): HTMLElement[] {
   const actions = el('div', 'first-run-step-actions');
-  const addSessionButton = el('button', 'btn-dialog btn-dialog-confirm', '+ Session');
-  addSessionButton.type = 'button';
+  const addSessionButton = button({ variant: 'primary', label: '+ Session' });
   addSessionButton.addEventListener('click', () => {
     reportOnboardingAction('add-session');
     openAddSessionDialog();
