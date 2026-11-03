@@ -94,6 +94,9 @@ async function verifyRows(page: Page): Promise<void> {
     removedParts: button.querySelectorAll('.pr-verdict-seal, .pr-severity-meter, .pr-rereview-tag').length,
   })));
   assert.equal(rows.length, 10);
+  const skillHint = await page.locator('.review-skill-notice-hint').evaluate((hint) => ({ text: hint.textContent, href: hint.querySelector('a')?.getAttribute('href') }));
+  assert.equal(skillHint.text, 'The instructions the reviewing agent follows. Review skill setting');
+  assert.match(skillHint.href ?? '', /#settings\/lanes-team-review\/team-review-skill$/);
   for (const row of rows) {
     assert.equal(row.removedParts, 0);
     assert.equal(row.actionWords, 0);

@@ -4,6 +4,8 @@ import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { isSkillChoicePending, readTeamReviewEnvironment, teamReviewSuggestions } from '../settings/team-review-settings-core.ts';
 import { applySettingsBroadcast, requestTeamReviewEnvironmentOnce, settingsPayloadSnapshot } from '../settings/settings-store.ts';
+import { createSettingsLink } from '../settings/settings-link.ts';
+import { TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SKILL_SETTING_ID } from './team-review-view-core.ts';
 import { teamReviewStatusView } from './team-review-store.ts';
 
 const NO_SKILL_OPTION = { value: '', label: 'No skill' };
@@ -18,7 +20,9 @@ export function createReviewSkillNotice() {
   select.id = selectId;
   const saveButton = button({ variant: 'primary', label: 'Save skill' });
   const saveStatus = createActionStatus();
-  element.append(label, select, saveButton, saveStatus.element);
+  const hint = el('p', 'first-run-step-hint review-skill-notice-hint', 'The instructions the reviewing agent follows. ');
+  hint.append(createSettingsLink(TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SKILL_SETTING_ID, 'Review skill setting'));
+  element.append(label, select, saveButton, saveStatus.element, hint);
   let renderedOptionsSignature = '';
 
   function syncOptions(): void {
