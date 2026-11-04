@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A session worktree whose agent renamed its branch is now removed once it has been untouched long enough after its session is gone, instead of being kept forever because its original branch no longer exists.
 - Closing a session, or a session started by an agent, now waits for any Coherence reading still running in its worktree before deleting it, so the folder no longer comes back with a `.coherence` directory inside after removal.
 - Branch cleanup now also removes worktrees an agent made by hand inside the worktree folder under its own branch name (such as `feat/...` or `fix/...`), once they have no uncommitted changes, their branch is merged, and nothing has touched them for a day. Ones with uncommitted or unmerged work, ones inside a running session's folder, a worktree you added as a project, full clones, and worktrees outside the worktree folder are left alone.
+- **Alerts make a sound on a Mac when you are in another app.** With the dashboard open in Chrome, Edge or Brave on macOS and another app or window in front, an alert showed a silent desktop notification and played no sound, because these browsers never attach a sound to web notifications on macOS. The dashboard now plays its alert sound alongside the notification there, once per group of alerts and only when sound is on in Settings. Windows, Linux and other macOS browsers are unchanged: the notification's own sound is the only one.
 
 ## [0.52.0] - 2026-11-03
 
