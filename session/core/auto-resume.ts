@@ -80,9 +80,30 @@ function transcriptPathCandidates(
   return Array.from(new Set(candidates));
 }
 
+interface ResumeTargetFs {
+  existsSync: (transcriptPath: string) => boolean;
+  readdirSync: (directoryPath: string) => string[];
+}
+
+function findTranscriptInAnyProjectDir(
+  projectsDirs: readonly string[],
+  transcriptFileName: string,
+  resumeFs: ResumeTargetFs,
+): string | null {
+  for (const projectsDir of projectsDirs) {
+    let projectDirNames: string[];
+    try { projectDirNames = resumeFs.readdirSync(projectsDir); } catch { continue; }
+    for (const projectDirName of projectDirNames) {
+      const candidate = path.join(projectsDir, projectDirName, transcriptFileName);
+      if (resumeFs.existsSync(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
 function resolveResumeTarget(
   options: ResumeTargetOptions,
-  fileExists: (transcriptPath: string) => boolean,
+  resumeFs: ResumeTargetFs,
 ): ResumeTarget {
   if (!options.resumeSessionId) {
     return { resumeSessionId: null, transcriptPath: null, checkedTranscriptPaths: [] };
@@ -94,8 +115,12 @@ function resolveResumeTarget(
   const checkedTranscriptPaths: string[] = [];
   for (const candidate of candidates) {
     checkedTranscriptPaths.push(candidate);
-    if (!fileExists(candidate)) continue;
+    if (!resumeFs.existsSync(candidate)) continue;
     return { resumeSessionId: options.resumeSessionId, transcriptPath: candidate, checkedTranscriptPaths };
+  }
+  const movedTranscriptPath = findTranscriptInAnyProjectDir(options.projectsDirs, `${options.resumeSessionId}.jsonl`, resumeFs);
+  if (movedTranscriptPath) {
+    return { resumeSessionId: options.resumeSessionId, transcriptPath: movedTranscriptPath, checkedTranscriptPaths };
   }
   return { resumeSessionId: null, transcriptPath: candidates[0] || null, checkedTranscriptPaths };
 }

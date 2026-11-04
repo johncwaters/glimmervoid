@@ -129,42 +129,49 @@ function autoResumeConfig(projects: Record<string, unknown>[], autoResume: boole
   };
 }
 
-test('runAutoResume spawns a picked session with --resume <id>, continues one that was mid-turn, and leaves non-picked ones alone', async () => {
+test('runAutoResume spawns a picked session with --resume <id>, even when its transcript sits under a former worktree, continues one that was mid-turn, and leaves non-picked ones alone', async () => {
   const calls: SpawnCall[] = [];
   const resumeSessionId = '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5';
   writeClaudeTranscript(process.cwd(), resumeSessionId);
+  const movedResumeSessionId = '9c1e7b20-5d4f-4e8a-b3a1-2f6d0c9e8a71';
+  writeClaudeTranscript(path.join(os.tmpdir(), 'glimmervoid-former-worktree-sqacw8'), movedResumeSessionId);
   const picked = fakeSession('picked', resumeSessionId, calls);
+  const moved = fakeSession('moved', movedResumeSessionId, calls);
   const working = fakeSession('working', resumeSessionId, calls);
   const dormantNoFlag = fakeSession('not-active', null, calls);
   const noId = fakeSession('no-id', null, calls);
   const sessionsMap = new Map([
     ['picked', picked],
+    ['moved', moved],
     ['working', working],
     ['not-active', dormantNoFlag],
     ['no-id', noId],
   ]);
   const cfg = autoResumeConfig([
     { id: 'picked', wasActive: true, wasWorking: false, resumeSessionId: '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5' },
+    { id: 'moved', wasActive: true, wasWorking: false, resumeSessionId: movedResumeSessionId },
     { id: 'working', wasActive: true, wasWorking: true, resumeSessionId: '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5' },
     { id: 'not-active', wasActive: false, resumeSessionId: '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5' },
     { id: 'no-id', wasActive: true },
   ], true);
   try {
     await runAutoResume(sessionsMap, cfg, createSpawnGate());
-    assert.deepEqual(calls.map((call) => call.id).sort(), ['picked', 'working'], 'only the picked sessions spawned');
-    for (const call of calls) {
-      const i = call.args.indexOf('--resume');
-      assert.ok(i !== -1, `${call.id} spawned with --resume`);
-      assert.equal(call.args[i + 1], '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5');
-    }
+    assert.deepEqual(calls.map((call) => call.id).sort(), ['moved', 'picked', 'working'], 'only the picked sessions spawned');
     const argsOf = (id: string) => calls.find((call) => call.id === id)?.args ?? [];
+    const resumeIdOf = (id: string) => {
+      const resumeFlagIndex = argsOf(id).indexOf('--resume');
+      return resumeFlagIndex === -1 ? null : argsOf(id)[resumeFlagIndex + 1];
+    };
+    assert.equal(resumeIdOf('picked'), '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5');
+    assert.equal(resumeIdOf('working'), '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5');
+    assert.equal(resumeIdOf('moved'), movedResumeSessionId, 'a transcript under a former worktree path still resumes');
     assert.equal(argsOf('working').at(-1), AUTO_CONTINUE_PROMPT, 'the mid-turn session is told to continue');
     assert.ok(!argsOf('picked').includes(AUTO_CONTINUE_PROMPT), 'an idle session resumes without a prompt');
     assert.equal(picked.state, STATES.STARTING);
     assert.equal(dormantNoFlag.state, STATES.DORMANT, 'not-active session never spawned');
     assert.equal(noId.state, STATES.DORMANT, 'no-id session never spawned');
   } finally {
-    picked.destroy(); working.destroy(); dormantNoFlag.destroy(); noId.destroy();
+    picked.destroy(); moved.destroy(); working.destroy(); dormantNoFlag.destroy(); noId.destroy();
   }
 });
 

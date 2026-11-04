@@ -1574,7 +1574,7 @@ class Session extends EventEmitter {
         projectsDirs: projectDirCandidates(env, [], os.homedir()),
         cwds: this._launch.spawnCwdSpellings(),
         isTranscriptRemote: remoteLaunch !== null,
-      }, fs.existsSync);
+      }, { existsSync: fs.existsSync, readdirSync: fs.readdirSync });
       spawnResumeSessionId = resumeTarget.resumeSessionId;
       if (configuredResumeSessionId && !spawnResumeSessionId) {
         console.warn(`[session:${this.name}] spawning without the stale resume id ${configuredResumeSessionId} because no transcript exists at any of: ${resumeTarget.checkedTranscriptPaths.join(", ")}`);
