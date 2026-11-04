@@ -2,6 +2,8 @@ import './radar-panel.css';
 import type { ServerMessage } from '#shared/contracts/control-messages.ts';
 import { buildPanelSection, el, externalLink, isPanelHidden, projectsOf } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
+import { attachChartReadout } from '../chart-readout.ts';
+import type { ChartReadoutCell } from '../chart-readout.ts';
 import { createInvestigationDialog, createRadarReportDialog } from '../dialogs.ts';
 import type { InvestigationDialog } from '../dialogs.ts';
 import { DEFAULT_REPLY_TIMEOUT_MS, paintActionStatus, requestFailureText } from '../action-status.ts';
@@ -452,15 +454,17 @@ function buildDailyStrip(item: QueueItem) {
   const strip = el('span', 'radar-strip-cells');
   strip.setAttribute('role', 'img');
   strip.setAttribute('aria-label', `occurrences per day, oldest first: ${item.dailyVolume.join(', ')}`);
+  const readoutCells: ChartReadoutCell[] = [];
   for (const cell of cells) {
     const day = el('span', 'radar-strip-cell');
     day.dataset.level = String(cell.level);
     if (cell.hasInvestigation) day.dataset.investigated = '';
     const dayText = new Date(cell.dayStartMs).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-    day.title = `${dayText}: ${cell.occurrences} ${cell.occurrences === 1 ? 'occurrence' : 'occurrences'}${cell.hasInvestigation ? ', investigated' : ''}`;
+    readoutCells.push({ element: day, text: `${dayText}: ${cell.occurrences} ${cell.occurrences === 1 ? 'occurrence' : 'occurrences'}${cell.hasInvestigation ? ', investigated' : ''}` });
     strip.append(day);
   }
-  wrap.append(strip);
+  const readout = attachChartReadout(strip, readoutCells, { className: 'radar-strip-readout chart-readout', initialCell: undefined, isPickedByColumn: true });
+  wrap.append(readout, strip);
   return wrap;
 }
 

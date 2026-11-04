@@ -1,4 +1,6 @@
 import { el } from '../dom-helpers.ts';
+import { attachChartReadout } from '../chart-readout.ts';
+import type { ChartReadoutCell } from '../chart-readout.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { formatAgo } from '../poll-ago.ts';
 import { reportUsageAction, requestUsageReport, setUsageMetric, setUsageRange } from './usage-store.ts';
@@ -120,7 +122,6 @@ function buildTokenTypesSection() {
     const segment = el('span', 'usage-type-segment');
     segment.dataset.part = String(index);
     segment.style.width = `${clampPct(percentOfTotal(part.tokens, sum) ?? 0)}%`;
-    segment.title = `${part.label} ${formatTokens(part.tokens)}`;
     stack.append(segment);
   });
   section.append(stack, buildTokenMix(_usage.report?.totals || {}));
@@ -134,10 +135,11 @@ function buildPeriodBars(summary: PeriodSummary, days: number) {
   chart.setAttribute('aria-label', summary.bars.map((bar) => `${bar.day} ${formatMetric(bar.value, summary.metric)}`).join(', '));
   const plot = el('div', 'usage-bars-plot');
   const labels = el('div', 'usage-bars-labels');
+  const readoutCells: ChartReadoutCell[] = [];
   for (const bar of summary.bars) {
     const fill = el('span', 'usage-bar-fill');
     if (bar.isToday) fill.dataset.today = 'true';
-    fill.title = `${bar.day} ${formatMetric(bar.value, summary.metric)}`;
+    readoutCells.push({ element: fill, text: `${bar.day} ${formatMetric(bar.value, summary.metric)}` });
     fill.style.height = `${clampPct(percentOfTotal(bar.value, summary.peak) ?? 0)}%`;
     plot.append(fill);
     labels.append(el('span', 'usage-bar-label', bar.label));
@@ -148,7 +150,8 @@ function buildPeriodBars(summary: PeriodSummary, days: number) {
     line.style.bottom = `${clampPct(averagePct)}%`;
     plot.append(line);
   }
-  chart.append(plot, labels, el('p', 'usage-meta', periodAverageText(summary)));
+  const readout = attachChartReadout(plot, readoutCells, { className: 'usage-meta chart-readout', initialCell: undefined, isPickedByColumn: true });
+  chart.append(readout, plot, labels, el('p', 'usage-meta', periodAverageText(summary)));
   return chart;
 }
 

@@ -1,8 +1,10 @@
 import { el } from '../dom-helpers.ts';
+import { attachChartReadout } from '../chart-readout.ts';
+import type { ChartReadoutCell } from '../chart-readout.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
 import { reportUsageAction } from './usage-store.ts';
-import { DEFAULT_DAY_SORT, DEFAULT_PERIOD_VIEW, HEATMAP_DAY_LABELS, LANE_SCOPE_HINT, OVERHEAD_SCOPE_HINT, PERIOD_VIEWS, blockHistoryRows, blockLabel, budgetRowMeterLabel, budgetRowPct, budgetRows, budgetRowText, budgetScopeLabel, claudeOnlyHint, formatPercent, formatTokens, formatUsd, glimmervoidOverhead, hasLaneAttribution, heatmapCells, heatmapCellTitle, historyNote, laneLabel, laneRows, laneSessionsText, modelLabel, nextSortState, overheadLanesText, overheadPlanText, percentOfTotal, periodLabel, periodRows, reportDayKey, sortDailyRows, sortModelRows } from './usage-view-core.ts';
+import { DEFAULT_DAY_SORT, DEFAULT_PERIOD_VIEW, HEATMAP_DAY_LABELS, LANE_SCOPE_HINT, OVERHEAD_SCOPE_HINT, PERIOD_VIEWS, blockHistoryRows, blockLabel, budgetRowMeterLabel, budgetRowPct, budgetRows, budgetRowText, budgetScopeLabel, claudeOnlyHint, formatPercent, formatTokens, formatUsd, glimmervoidOverhead, hasLaneAttribution, heatmapCells, heatmapCellText, historyNote, laneLabel, laneRows, laneSessionsText, modelLabel, nextSortState, overheadLanesText, overheadPlanText, percentOfTotal, periodLabel, periodRows, reportDayKey, sortDailyRows, sortModelRows } from './usage-view-core.ts';
 import type { SortState, UsageWireRow } from './usage-view-core.ts';
 import { _usage, render, setFocusAfterRender } from './usage-panel-state.ts';
 import { appendCells, buildBackControl, buildMeter, buildSection, buildShareCell, buildTable, buildTile, clampPct } from './usage-panel-parts.ts';
@@ -226,7 +228,8 @@ function buildPeriodCell(row: UsageWireRow, periodView: string) {
 }
 
 function buildHeatmap(daily: unknown) {
-  const { cells, max } = heatmapCells(daily, { today: reportDayKey(_usage.report) });
+  const todayKey = reportDayKey(_usage.report);
+  const { cells, max } = heatmapCells(daily, { today: todayKey });
   if (cells.length === 0 || max <= 0) return null;
   const wrap = el('div', 'usage-heatmap-scroll');
   const grid = el('div', 'usage-heatmap');
@@ -234,6 +237,8 @@ function buildHeatmap(daily: unknown) {
   grid.setAttribute('aria-label', `Daily usage for the trailing ${Math.max(...cells.map((cell) => cell.week)) + 1} weeks`);
   const labels = el('div', 'usage-heatmap-days');
   for (const label of HEATMAP_DAY_LABELS) labels.append(el('span', 'usage-heatmap-day', label));
+  const readoutCells: ChartReadoutCell[] = [];
+  let todayCell: HTMLElement | undefined;
   for (const cell of cells) {
     const box = el('span', 'usage-heatmap-cell');
     box.dataset.tone = String(cell.tone);
@@ -241,11 +246,15 @@ function buildHeatmap(daily: unknown) {
     if (cell.source === 'history') box.dataset.source = 'history';
     box.style.gridColumn = String(cell.week + 1);
     box.style.gridRow = String(cell.weekday + 1);
-    box.title = heatmapCellTitle(cell);
+    readoutCells.push({ element: box, text: heatmapCellText(cell) });
+    if (cell.day === todayKey) todayCell = box;
     grid.append(box);
   }
   wrap.append(labels, grid);
-  return wrap;
+  const readout = attachChartReadout(grid, readoutCells, { className: 'usage-meta chart-readout', initialCell: todayCell, isPickedByColumn: false });
+  const block = el('div', 'usage-heatmap-block');
+  block.append(readout, wrap);
+  return block;
 }
 
 function buildBreakdownToggle(expandKey: string, modelCount: number) {

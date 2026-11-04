@@ -547,7 +547,7 @@ export function heatmapCells(
   return { cells, max, weeks };
 }
 
-export function heatmapCellTitle(cell: Partial<HeatmapCell> | null | undefined) {
+export function heatmapCellText(cell: Partial<HeatmapCell> | null | undefined) {
   const label = dayLabel(cell?.day);
   if (cell?.noData) return `${label}: no data`;
   const tokens = numberOr(cell?.tokens, 0);

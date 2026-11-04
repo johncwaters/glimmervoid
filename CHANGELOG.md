@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Glimmervoid's own dependencies are pinned to exact versions instead of version ranges, so an install no longer picks up a newer release of one of them automatically.
 - The session menu has a Rename session item, the same rename as double-clicking the name, and the board menu has Rename board. On the phone the arrow pad reads Swipe for arrows.
 - What used to sit in hover text is now on the page: long task titles, trace paths, hook commands and review steps wrap to two lines; a disabled Merge says why beside it; Worth a look rows show their reason; a hook form describes the chosen event and both hook types; a review finding shows its full file path when opened; Settings shows the full date of the last update check; the server health line names each figure in words.
+- The usage bars, the usage heatmap and a Radar issue's daily strip show the chosen day's value on a line above the chart: point at or tap a day to choose it. With nothing chosen, it shows the latest day.
 
 ### Removed
 
