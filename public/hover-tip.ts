@@ -14,6 +14,7 @@ let shownAnchor: HTMLElement | null = null;
 let pendingAnchor: HTMLElement | null = null;
 let pendingShowTimer: ReturnType<typeof setTimeout> | undefined;
 let lastHiddenAtMs = Number.NEGATIVE_INFINITY;
+let lastTouchPoint: { x: number; y: number } | null = null;
 
 function anchorOf(target: EventTarget | null): HTMLElement | null {
   if (!(target instanceof Element)) return null;
@@ -98,16 +99,33 @@ function refreshHoverTip(anchor: HTMLElement) {
   showTip(anchor);
 }
 
+function isRealMouseHover(event: PointerEvent): boolean {
+  return event.pointerType === 'mouse' && lastTouchPoint === null;
+}
+
+function rememberTouchPoint(event: PointerEvent) {
+  if (event.pointerType === 'mouse') return;
+  lastTouchPoint = { x: event.clientX, y: event.clientY };
+}
+
+function forgetTouchPointOnMouseAway(event: PointerEvent) {
+  if (event.pointerType !== 'mouse' || !lastTouchPoint) return;
+  if (event.clientX === lastTouchPoint.x && event.clientY === lastTouchPoint.y) return;
+  lastTouchPoint = null;
+}
+
 let isInstalled = false;
 
 function installHoverTips() {
   if (isInstalled) return;
   isInstalled = true;
   document.addEventListener('pointerover', (event) => {
+    forgetTouchPointOnMouseAway(event);
     const anchor = anchorOf(event.target);
-    if (anchor) { showTipAfterHoverIntent(anchor); return; }
+    if (anchor && isRealMouseHover(event)) { showTipAfterHoverIntent(anchor); return; }
     hideTip();
   });
+  document.addEventListener('pointermove', forgetTouchPointOnMouseAway);
   document.addEventListener('pointerout', (event) => {
     if (!isLeavingAnchor(shownAnchor ?? pendingAnchor, event)) return;
     hideTip();
@@ -120,7 +138,10 @@ function installHoverTips() {
     showTip(anchor);
   });
   document.addEventListener('focusout', hideTip);
-  document.addEventListener('pointerdown', hideTip);
+  document.addEventListener('pointerdown', (event) => {
+    rememberTouchPoint(event);
+    hideTip();
+  });
   document.addEventListener('scroll', hideTip, true);
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') hideTip();
