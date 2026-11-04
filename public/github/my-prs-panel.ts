@@ -22,7 +22,7 @@ import { createLineIcon } from '../svg-dom.ts';
 import { nextRequestId, sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
-import { emptyStateText, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, keepMergeableControlState, keepMergeableRowLabel, mergeConfirmMessage, mergeControlState, mergeWhenReadyControlState, parseMyPrMergeResult, readinessRows, reviewRows, fixLocallyBlocker, handledRows, stageIcon, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
+import { emptyStateText, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, keepMergeableControlState, keepMergeableRowLabel, mergeConfirmMessage, mergeControlState, mergeWhenReadyControlState, parseMyPrMergeResult, readinessRows, reviewRows, actionRunText, fixLocallyBlocker, handledRows, stageIcon, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
 import type { LinkedLiveSession, MergeAttempt, ToggleControlState } from './my-prs-view-core.ts';
 
 let detail: HTMLElement | null = null;
@@ -313,6 +313,15 @@ function createDismissForm(pr: MyPr, itemKey: string): HTMLElement {
   return form;
 }
 
+function createConfiguredActionButtons(pr: MyPr, itemKey: string, isBusy: boolean): HTMLElement[] {
+  const { prFlowActions, actionRunsByPr } = myPrsSnapshot();
+  const runningActionIds = new Set((actionRunsByPr[pr.key] ?? []).filter((run) => run.state === 'running').map((run) => run.actionId));
+  return prFlowActions.map((action) => button({
+    variant: 'secondary', label: action.label, action: 'pr-flow-run', disabled: isBusy || runningActionIds.has(action.id),
+    onClick: () => void sendItemRequest(itemKey, `Starting ${action.label}`, 'pr-flow-dispose', { prKey: pr.key, itemKey, action: `run:${action.id}` }),
+  }));
+}
+
 function createItemActions(pr: MyPr, itemKey: string): HTMLElement {
   const actions = el('div', 'my-pr-item-actions');
   const status = itemStatusByKey.get(itemKey);
@@ -323,8 +332,11 @@ function createItemActions(pr: MyPr, itemKey: string): HTMLElement {
     dismissDraftsByItemKey.set(itemKey, '');
     renderDetail(pr);
   } });
-  actions.append(fixLocally, dismiss);
+  actions.append(fixLocally, ...createConfiguredActionButtons(pr, itemKey, isBusy), dismiss);
   if (fixBlocker) actions.append(el('span', 'my-pr-item-note', fixBlocker));
+  for (const run of (myPrsSnapshot().actionRunsByPr[pr.key] ?? []).filter((candidate) => candidate.itemKey === itemKey)) {
+    actions.append(el('span', run.state === 'failed' || run.state === 'refused' ? 'my-pr-item-note' : 'my-pr-thread-meta', actionRunText(run)));
+  }
   const statusText = el('span', 'my-pr-item-status');
   statusText.setAttribute('role', 'status');
   paintActionStatus(statusText, status?.tone ?? null, status?.text ?? '');

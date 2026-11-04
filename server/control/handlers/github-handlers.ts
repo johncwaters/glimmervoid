@@ -4,7 +4,7 @@ import type { GithubTeam } from '../../../shared/contracts/control-messages.ts';
 import { MyPrKeepMergeableRequest, MyPrMergeRequest, MyPrMergeWhenReadyRequest } from '../../../shared/contracts/my-prs.ts';
 import type { MyPrKeepMergeableResult, MyPrMergeResult, MyPrMergeWhenReadyResult } from '../../../shared/contracts/my-prs.ts';
 import { PrFlowApproveRequest, PrFlowDisposeRequest, PrFlowItemRequest, PrFlowSaveRuleRequest } from '../../../shared/contracts/pr-flows.ts';
-import type { PrFlowDisposeResult } from '../../../shared/contracts/pr-flows.ts';
+import type { PrFlowDisposeResult, PrFlowDisposition } from '../../../shared/contracts/pr-flows.ts';
 import { TeamReviewActionRequest } from '../../../shared/contracts/team-review.ts';
 import type { TeamReviewActionResult } from '../../../shared/contracts/team-review.ts';
 import { errorMessage } from '../../../shared/text.ts';
@@ -22,6 +22,11 @@ import { replyTo } from '../control-context.ts';
 import type { ConnectFrames, ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable, RawControlRequest } from '../core/control-dispatch-core.ts';
 
 type TeamReviewActionOutcome = Omit<TeamReviewActionResult, 'key'>;
+
+function prFlowOperatorAction(action: PrFlowDisposition): 'pr-flow-dismiss' | 'pr-flow-fix-local' | 'pr-flow-run' {
+  if (action === 'dismiss' || action === 'fix-local') return `pr-flow-${action}`;
+  return 'pr-flow-run';
+}
 
 function myPrMergeKey(msg: RawControlRequest): string {
   return typeof msg?.repo === 'string' && typeof msg.number === 'number' ? prKey(msg.repo, msg.number) : '';
@@ -235,7 +240,7 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
     const reply = (outcome: PrFlowDisposeResult) => replyTo(ws, msg, 'pr-flow-dispose-result', outcome);
     const parsed = PrFlowDisposeRequest.safeParse({ prKey: msg.prKey, itemKey: msg.itemKey, action: msg.action, reason: msg.reason });
     if (!parsed.success) { reply({ ok: false, error: configIssueMessage(parsed.error) }); return; }
-    captureOperatorAction('reviews', `pr-flow-${parsed.data.action}`);
+    captureOperatorAction('reviews', prFlowOperatorAction(parsed.data.action));
     if (!prFlows) { reply({ ok: false, error: 'My pull requests is not running' }); return; }
     reply(await prFlows.dispose(parsed.data));
   }

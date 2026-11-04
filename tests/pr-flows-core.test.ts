@@ -259,7 +259,7 @@ test('a scanner rule never dismisses a carbon unit thread merged into the same i
   const items = mergeItems([...threadCandidates([thread]), ...scanner]);
   assert.equal(items.length, 1);
   const rule = PrFlowRule.parse({ name: 'drop scanner nits', source: 'scanner', priority: ['low'], action: 'dismiss', reason: 'nit' });
-  assert.deepEqual(plannedActions('acme/app#1', items, [rule], PrFlowsState.parse({ handledByPr: {}, reopenedByPr: {} })), []);
+  assert.deepEqual(plannedActions('acme/app#1', items, [rule], PrFlowsState.parse({ handledByPr: {}, reopenedByPr: {} }), new Set()), []);
   const unlined = mergeItems(sourceCandidates('scanner', [
     { path: 'src/a.ts', lineStart: null, lineEnd: null, priority: 'low', body: 'First.', url: null },
     { path: 'src/a.ts', lineStart: null, lineEnd: null, priority: 'low', body: 'Second.', url: null },
@@ -279,7 +279,7 @@ test('a failed source run retries at the same head after the backoff, and a defi
     statePath: null, openPrs: () => [myPrFromGithubPr(GithubPr.parse(normalizeGithubPr(openPr(), 0, [])))], broadcast: (frame) => frames.push(frame), log: console, now: () => clockMs,
     linkedSession: () => null, appendRule: async () => true,
     readConfigFile: async () => ({ prFlows: { sources: [{ id: 'scanner', label: 'scanner', command: ['scan'] }], actions: [{ id: 'fixer', label: 'fixer', command: ['fix'] }], rules: [{ name: 'auto', action: 'run:fixer' }] } }),
-    external: { runSource: async () => { runCount += 1; return { ok: false, error: 'The command failed: boom' }; } },
+    external: { runSource: async () => { runCount += 1; return { ok: false, error: 'The command failed: boom' }; }, runAction: async () => ({ outcome: 'failed', message: '' }) },
     github: { replyToReviewThread: async () => ({ ok: true, err: '' }), resolveReviewThread: async () => ({ ok: true, err: '' }), unresolveReviewThread: async () => ({ ok: true, err: '' }) },
   });
   await prFlows.applyRules();
@@ -294,4 +294,77 @@ test('a failed source run retries at the same head after the backoff, and a defi
   await prFlows.applyRules();
   await new Promise((resolve) => setTimeout(resolve, 25));
   assert.equal(runCount, 2);
+});
+
+test('a configured action runs on an item by rule or click, shows done or failed, and the linked session hears when the branch moved under it', async () => {
+  let head = 'b'.repeat(40);
+  const pastes: string[] = [];
+  const session = { pasteTextWhenReady: (text: string) => { pastes.push(text); return { ok: true }; }, hasPendingPaste: () => false };
+  const frames: PrFlowsStatus[] = [];
+  const threads = [threadNode('t1', 'src/a.ts', 10, 'greptile[bot]', 'Null name'), threadNode('t2', 'src/b.ts', 5, 'carol', 'Rename')];
+  const currentPr = () => ({ ...myPrFromGithubPr(GithubPr.parse(normalizeGithubPr(openPr(), 0, threads))), headRefOid: head });
+  const actions = [
+    { id: 'resolve', label: 'Resolve', command: [process.execPath, '-e', 'process.exit(0)', '{itemPath}', '{itemLine}'] },
+    { id: 'broken', label: 'Broken', command: [process.execPath, '-e', "process.stderr.write('no token'); process.exit(2)"] },
+  ];
+  const external = createPrFlowsExternal({ homeDir: os.tmpdir() });
+  const prFlows = createPrFlowsWiring({
+    statePath: null, broadcast: (frame) => frames.push(frame), log: console, linkedSession: () => session, appendRule: async () => true,
+    openPrs: () => [currentPr()],
+    readConfigFile: async () => ({ prFlows: { actions, rules: [{ name: 'bots', source: 'greptile[bot]', action: 'run:resolve' }] } }),
+    external: { runSource: external.runSource, runAction: async (action, pr, item) => { const output = await external.runAction(action, pr, item); head = 'c'.repeat(40); return output; } },
+    github: { replyToReviewThread: async () => ({ ok: true, err: '' }), resolveReviewThread: async () => ({ ok: true, err: '' }), unresolveReviewThread: async () => ({ ok: true, err: '' }) },
+  });
+  await prFlows.applyRules();
+  assert.deepEqual(prFlows.statusFrame().actions, []);
+  for (const approval of prFlows.statusFrame().pendingApprovals) await prFlows.approve({ fingerprint: approval.fingerprint });
+  await frameMatching(frames, (frame) => (frame.handledByPr['acme/app#1'] ?? []).length > 0);
+  assert.deepEqual(prFlows.statusFrame().actions.map((action) => action.label), ['Resolve', 'Broken']);
+  const [handled] = prFlows.statusFrame().handledByPr['acme/app#1'] ?? [];
+  assert.deepEqual([handled?.action, handled?.ruleName, handled?.actionLabel, handled?.location], ['run:resolve', 'bots', 'Resolve', 'src/a.ts:10']);
+  await prFlows.applyRules();
+  assert.equal(pastes.length, 1);
+  assert.match(pastes[0] ?? '', /moved to cccccccccccc while Resolve ran/);
+
+  const carolItem = currentPr().reviewItems.find((item) => item.path === 'src/b.ts');
+  assert.deepEqual(await prFlows.dispose({ prKey: 'acme/app#1', itemKey: carolItem?.key ?? '', action: 'run:broken' }), { ok: true });
+  const failed = await frameMatching(frames, (frame) => (frame.actionRunsByPr['acme/app#1'] ?? []).some((run) => run.actionId === 'broken' && run.state !== 'running'));
+  assert.deepEqual((failed.actionRunsByPr['acme/app#1'] ?? []).find((run) => run.actionId === 'broken'), { itemKey: carolItem?.key, actionId: 'broken', label: 'Broken', state: 'failed', message: 'no token' });
+  await prFlows.applyRules();
+  assert.equal((prFlows.statusFrame().handledByPr['acme/app#1'] ?? []).length, 1);
+});
+
+test('an action reporting refused is never taken as done, and a failed rule run is not repeated at the same head after a restart', async () => {
+  const pr = { url: 'https://github.com/acme/app/pull/1', repo: 'acme/app', number: 1, headRefOid: 'b'.repeat(40) };
+  const [item] = myPrFromGithubPr(GithubPr.parse(normalizeGithubPr(openPr(), 0, [threadNode('t1', 'src/a.ts', 10, 'greptile[bot]', 'Null name')]))).reviewItems;
+  assert.ok(item);
+  const action = { id: 'fmt', label: 'fmt', command: ['fmt'], timeoutSeconds: 30 };
+  for (const stdout of [JSON.stringify({ outcome: 'refused', message: 'x'.repeat(201) }), JSON.stringify({ outcome: 'refused', detail: 1 }), `working\n${JSON.stringify({ outcome: 'refused' })}`]) {
+    const external = createPrFlowsExternal({ homeDir: os.tmpdir(), runCommand: async () => ({ ok: true, stdout, stderr: '' }) });
+    assert.equal((await external.runAction(action, pr, item)).outcome, 'refused');
+  }
+
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-flows-rerun-'));
+  try {
+    let runCount = 0;
+    const wiringAt = () => createPrFlowsWiring({
+      statePath: path.join(homeDir, 'pr-flows.json'), broadcast: () => {}, log: console, linkedSession: () => null, appendRule: async () => true,
+      openPrs: () => [myPrFromGithubPr(GithubPr.parse(normalizeGithubPr(openPr(), 0, [threadNode('t1', 'src/a.ts', 10, 'greptile[bot]', 'Null name')])))],
+      readConfigFile: async () => ({ prFlows: { actions: [action], rules: [{ name: 'auto-fmt', action: 'run:fmt' }] } }),
+      external: { runSource: async () => ({ ok: false, error: '' }), runAction: async () => { runCount += 1; return { outcome: 'failed', message: 'boom' }; } },
+      github: { replyToReviewThread: async () => ({ ok: true, err: '' }), resolveReviewThread: async () => ({ ok: true, err: '' }), unresolveReviewThread: async () => ({ ok: true, err: '' }) },
+    });
+    const first = wiringAt();
+    await first.applyRules();
+    for (const approval of first.statusFrame().pendingApprovals) await first.approve({ fingerprint: approval.fingerprint });
+    await first.applyRules();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(runCount, 1);
+    const restarted = wiringAt();
+    await restarted.applyRules();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(runCount, 1);
+  } finally {
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  }
 });

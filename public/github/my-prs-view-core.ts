@@ -3,7 +3,7 @@ import { hasFailedKeepMergeableRepair } from './github-store-core.ts';
 import { MyPrMergeResult } from '#shared/contracts/my-prs.ts';
 import { mergeMethodLabel, myPrMergeBlocker } from '#shared/my-pr-merge.ts';
 import type { MyPr, MyPrMergeKind, MyPrsStatus as MyPrsStatusType, MyPrThread } from '#shared/contracts/my-prs.ts';
-import type { PrFlowHandled, PrFlowItem, PrFlowPriority } from '#shared/contracts/pr-flows.ts';
+import type { PrFlowActionRunStatus, PrFlowHandled, PrFlowItem, PrFlowPriority } from '#shared/contracts/pr-flows.ts';
 import type { PrStatusIcon } from './pr-status-icon-core.ts';
 import type { LinkedLiveSession } from './github-store-core.ts';
 import type { StateTone } from '../state-tone-core.ts';
@@ -150,13 +150,22 @@ export function threadRows(pr: MyPr, viewer: string | null, handled: readonly Pr
   }).sort((left, right) => Number(right.isWaitingOnYou) - Number(left.isWaitingOnYou));
 }
 
-const HANDLED_ACTION_TEXT: Readonly<Record<PrFlowHandled['action'], string>> = { dismiss: 'Dismissed', 'fix-local': 'Sent to session' };
+function handledActionText(entry: PrFlowHandled): string {
+  if (entry.action === 'dismiss') return 'Dismissed';
+  if (entry.action === 'fix-local') return 'Sent to session';
+  return `Ran ${entry.actionLabel ?? entry.action.slice('run:'.length)}`;
+}
 
 export function handledRows(handled: readonly PrFlowHandled[]): { itemKey: string; text: string; location: string; reason: string | null; at: number }[] {
   return [...handled].sort((left, right) => right.at - left.at).map((entry) => ({
     itemKey: entry.itemKey, location: entry.location, reason: entry.reason, at: entry.at,
-    text: entry.ruleName === null ? HANDLED_ACTION_TEXT[entry.action] : `${HANDLED_ACTION_TEXT[entry.action]} by rule '${entry.ruleName}'`,
+    text: entry.ruleName === null ? handledActionText(entry) : `${handledActionText(entry)} by rule '${entry.ruleName}'`,
   }));
+}
+
+export function actionRunText(run: Pick<PrFlowActionRunStatus, 'label' | 'state' | 'message'>): string {
+  const stateText = `${run.label}: ${run.state}`;
+  return run.message ? `${stateText}, ${run.message}` : stateText;
 }
 
 export function fixLocallyBlocker(linkedSessions: readonly LinkedLiveSession[] | undefined): string | null {

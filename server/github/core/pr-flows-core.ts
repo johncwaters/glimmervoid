@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { MyPrThread } from '../../../shared/contracts/my-prs.ts';
 import type { TeamReviewThreadNode } from '../../../shared/contracts/team-review.ts';
 import { PrFlowCommand, PrFlowRule, PrFlowsSettings } from '../../../shared/contracts/pr-flows.ts';
-import type { PrFlowPendingApproval, PrFlowSourceFinding, PrFlowActionRef, PrFlowHandled, PrFlowItem, PrFlowPriority, PrFlowSource, PrFlowsState } from '../../../shared/contracts/pr-flows.ts';
+import type { PrFlowPendingApproval, PrFlowSourceFinding, PrFlowActionRef, PrFlowDisposition, PrFlowHandled, PrFlowItem, PrFlowPriority, PrFlowSource, PrFlowsState } from '../../../shared/contracts/pr-flows.ts';
 
 type PrFlowCandidate = {
   path: string; lineStart: number | null; lineEnd: number | null; priority: PrFlowPriority; source: Omit<PrFlowSource, 'excerpt' | 'dismissalKey'>; body: string; url: string | null;
@@ -152,7 +152,13 @@ export function withOnlyOpenPrs(state: PrFlowsState, openPrKeys: ReadonlySet<str
     ...state,
     handledByPr: Object.fromEntries(Object.entries(state.handledByPr).filter(isOpen)),
     reopenedByPr: Object.fromEntries(Object.entries(state.reopenedByPr).filter(isOpen)),
+    ruleRunsByPr: Object.fromEntries(Object.entries(state.ruleRunsByPr).filter(isOpen)),
   };
+}
+
+export function withRuleRun(state: PrFlowsState, prKey: string, run: { itemKey: string; actionId: string; head: string }): PrFlowsState {
+  const currentHeadRuns = (state.ruleRunsByPr[prKey] ?? []).filter((existing) => existing.head === run.head);
+  return { ...state, ruleRunsByPr: { ...state.ruleRunsByPr, [prKey]: [...currentHeadRuns, run] } };
 }
 
 function parsedRuleList(entries: readonly unknown[], label: string, warnings: string[]): PrFlowRule[] {
@@ -259,13 +265,15 @@ function firstMatchingRule(item: PrFlowItem, scope: 'mine' | 'team', rules: read
   return rules.find((rule) => ruleMatches(rule, item, scope)) ?? null;
 }
 
-type PlannedPrFlowAction = { item: PrFlowItem; action: 'dismiss' | 'fix-local'; rule: PrFlowRule };
+type PlannedPrFlowAction = { item: PrFlowItem; action: PrFlowDisposition; rule: PrFlowRule };
 
-function isDirectAction(action: PrFlowActionRef): action is 'dismiss' | 'fix-local' {
-  return action === 'dismiss' || action === 'fix-local';
+function plannableAction(action: PrFlowActionRef, runnableActionIds: ReadonlySet<string>): PrFlowDisposition | null {
+  if (action === 'ask') return null;
+  if (action === 'dismiss' || action === 'fix-local') return action;
+  return runnableActionIds.has(action.slice('run:'.length)) ? action : null;
 }
 
-export function plannedActions(prKey: string, items: readonly PrFlowItem[], rules: readonly PrFlowRule[], state: PrFlowsState): PlannedPrFlowAction[] {
+export function plannedActions(prKey: string, items: readonly PrFlowItem[], rules: readonly PrFlowRule[], state: PrFlowsState, runnableActionIds: ReadonlySet<string>): PlannedPrFlowAction[] {
   const handledKeys = new Set((state.handledByPr[prKey] ?? []).flatMap((entry) => entry.dismissalKeys));
   const reopenedKeys = new Set(state.reopenedByPr[prKey] ?? []);
   return items.flatMap((item) => {
@@ -273,8 +281,9 @@ export function plannedActions(prKey: string, items: readonly PrFlowItem[], rule
     const unsettledSources = item.sources.filter((source) => !handledKeys.has(source.dismissalKey));
     if (unsettledSources.length === 0) return [];
     const rule = firstMatchingRule(item, 'mine', rules);
-    if (!rule || !isDirectAction(rule.action)) return [];
-    return [{ item: { ...item, sources: unsettledSources }, action: rule.action, rule }];
+    const action = rule ? plannableAction(rule.action, runnableActionIds) : null;
+    if (!rule || !action) return [];
+    return [{ item: { ...item, sources: unsettledSources }, action, rule }];
   });
 }
 
@@ -283,6 +292,15 @@ export function unknownActionWarnings(rules: readonly PrFlowRule[], actionIds: R
     if (!rule.action.startsWith('run:') || actionIds.has(rule.action.slice('run:'.length))) return [];
     return [`Rule '${rule.name}' names ${rule.action}, which no entry in prFlows.actions defines, so its items wait for you.`];
   });
+}
+
+export function shouldTellBranchMoved(run: { headAtStart: string; finishedAt: number | null }, headNow: string, nowMs: number, windowMs: number): boolean {
+  if (headNow === run.headAtStart) return false;
+  return run.finishedAt === null || nowMs - run.finishedAt <= windowMs;
+}
+
+export function branchMovedNote(prUrl: string, actionLabels: readonly string[], headNow: string): string {
+  return `The branch of ${prUrl} moved to ${headNow.slice(0, 12)} while ${actionLabels.join(', ')} ran on it. Pull it into this worktree before your next push.`;
 }
 
 const RULE_NAME_MAX_CHARACTERS = 80;

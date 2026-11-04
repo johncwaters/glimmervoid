@@ -15,12 +15,14 @@ export const PrFlowItem = z.strictObject({
 });
 export type PrFlowItem = z.infer<typeof PrFlowItem>;
 
-const PrFlowDisposition = z.enum(['dismiss', 'fix-local']);
 const PR_FLOW_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const PrFlowRunActionRef = z.templateLiteral(['run:', z.string().regex(PR_FLOW_ID)]);
+const PrFlowDisposition = z.union([z.enum(['dismiss', 'fix-local']), PrFlowRunActionRef]);
+export type PrFlowDisposition = z.infer<typeof PrFlowDisposition>;
 
 export const PrFlowActionRef = z.union([
   z.enum(['ask', 'fix-local', 'dismiss']),
-  z.templateLiteral(['run:', z.string().regex(PR_FLOW_ID)]),
+  PrFlowRunActionRef,
 ], { error: 'a pr flows rule action must be ask, fix-local, dismiss or run:<action id>' });
 export type PrFlowActionRef = z.infer<typeof PrFlowActionRef>;
 
@@ -59,6 +61,15 @@ export const PrFlowSourceOutput = z.strictObject({
 });
 export type PrFlowSourceOutput = z.infer<typeof PrFlowSourceOutput>;
 
+export const PrFlowActionOutput = z.strictObject({
+  outcome: z.enum(['done', 'started', 'refused', 'failed']), message: z.string().max(200).default(''),
+});
+export type PrFlowActionOutput = z.infer<typeof PrFlowActionOutput>;
+
+export const ReportedPrFlowActionOutcome = z.looseObject({
+  outcome: PrFlowActionOutput.shape.outcome, message: z.string().optional().catch(undefined),
+});
+
 export const PrFlowsSettings = z.looseObject({
   sources: z.array(z.unknown(), { error: 'prFlows.sources must be an array' }).optional(),
   actions: z.array(z.unknown(), { error: 'prFlows.actions must be an array' }).optional(),
@@ -68,7 +79,7 @@ export const PrFlowsSettings = z.looseObject({
 
 export const PrFlowHandled = z.strictObject({
   itemKey: z.string().min(1), dismissalKeys: z.array(z.string().min(1)).min(1), action: PrFlowDisposition, location: z.string(), reason: z.string().nullable(), at: z.number().finite(),
-  ruleName: z.string().nullable(), threadIds: z.array(z.string().min(1)),
+  ruleName: z.string().nullable(), threadIds: z.array(z.string().min(1)), actionLabel: z.string().optional(),
 });
 export type PrFlowHandled = z.infer<typeof PrFlowHandled>;
 
@@ -76,6 +87,7 @@ export const PrFlowsState = z.strictObject({
   handledByPr: z.record(z.string(), z.array(PrFlowHandled)),
   reopenedByPr: z.record(z.string(), z.array(z.string().min(1))),
   approvedFingerprints: z.array(z.string().min(1)).default([]),
+  ruleRunsByPr: z.record(z.string(), z.array(z.strictObject({ itemKey: z.string().min(1), actionId: z.string().min(1), head: z.string() }))).default({}),
 });
 export type PrFlowsState = z.infer<typeof PrFlowsState>;
 
@@ -87,11 +99,21 @@ export type PrFlowPendingApproval = z.infer<typeof PrFlowPendingApproval>;
 export const PrFlowSourceRunStatus = z.strictObject({ label: z.string(), status: z.array(PrFlowStatusLine), error: z.string().nullable() });
 export type PrFlowSourceRunStatus = z.infer<typeof PrFlowSourceRunStatus>;
 
+export const PrFlowActionRunStatus = z.strictObject({
+  itemKey: z.string(), actionId: z.string(), label: z.string(), state: z.enum(['running', ...PrFlowActionOutput.shape.outcome.options]), message: z.string(),
+});
+export type PrFlowActionRunStatus = z.infer<typeof PrFlowActionRunStatus>;
+
+const PrFlowActionChoice = z.strictObject({ id: z.string(), label: z.string() });
+export type PrFlowActionChoice = z.infer<typeof PrFlowActionChoice>;
+
 export const PrFlowsStatus = z.looseObject({
   type: z.literal('pr-flows-status'), handledByPr: PrFlowsState.shape.handledByPr, warnings: z.array(z.string()),
   pendingApprovals: z.array(PrFlowPendingApproval).default([]),
   sourceRunsByPr: z.record(z.string(), z.array(PrFlowSourceRunStatus)).default({}),
   reviewItemsByPr: z.record(z.string(), z.array(PrFlowItem)).default({}),
+  actions: z.array(PrFlowActionChoice).default([]),
+  actionRunsByPr: z.record(z.string(), z.array(PrFlowActionRunStatus)).default({}),
 });
 export type PrFlowsStatus = z.infer<typeof PrFlowsStatus>;
 export const PrFlowApproveRequest = z.strictObject({ fingerprint: z.string().min(1).max(128) });

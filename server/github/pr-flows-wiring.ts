@@ -1,9 +1,9 @@
 import type { MyPr } from '../../shared/contracts/my-prs.ts';
 import { PrFlowRule, PrFlowsState } from '../../shared/contracts/pr-flows.ts';
-import type { PrFlowApproveRequest, PrFlowCommand, PrFlowDisposeRequest, PrFlowDisposeResult, PrFlowItem, PrFlowItemRequest, PrFlowPendingApproval, PrFlowSaveRuleRequest, PrFlowSourceOutput, PrFlowSourceRunStatus, PrFlowsStatus } from '../../shared/contracts/pr-flows.ts';
+import type { PrFlowActionChoice, PrFlowActionOutput, PrFlowActionRunStatus, PrFlowApproveRequest, PrFlowCommand, PrFlowDisposeRequest, PrFlowDisposeResult, PrFlowItem, PrFlowItemRequest, PrFlowPendingApproval, PrFlowSaveRuleRequest, PrFlowSourceOutput, PrFlowSourceRunStatus, PrFlowsStatus } from '../../shared/contracts/pr-flows.ts';
 import { createJsonStateStore } from '../json-file.ts';
 import { fencedUntrusted } from '../lanes/core/lane-report-core.ts';
-import { commandFingerprint, fixLocallyPrompt, itemLocation, mergeItems, pendingApprovals, plannedActions, prFlowCommands, prFlowRules, savedRuleFor, sourceCandidates, threadCandidates, unknownActionWarnings, withHandled, withOnlyOpenPrs, withReopened } from './core/pr-flows-core.ts';
+import { branchMovedNote, commandFingerprint, fixLocallyPrompt, itemLocation, mergeItems, pendingApprovals, plannedActions, prFlowCommands, prFlowRules, savedRuleFor, shouldTellBranchMoved, withRuleRun, sourceCandidates, threadCandidates, unknownActionWarnings, withHandled, withOnlyOpenPrs, withReopened } from './core/pr-flows-core.ts';
 import type { PrFlowsExternal } from './pr-flows-external.ts';
 
 const UNTRUSTED_COMMENT_MAX_CHARS = 4000;
@@ -22,23 +22,33 @@ interface PrFlowsWiringOptions {
   readConfigFile: () => Promise<unknown>;
   appendRule: (rule: PrFlowRule) => Promise<boolean>;
   github: { replyToReviewThread(threadId: string, body: string): GithubWrite; resolveReviewThread(threadId: string): GithubWrite; unresolveReviewThread(threadId: string): GithubWrite };
-  external?: Pick<PrFlowsExternal, 'runSource'>;
+  external?: PrFlowsExternal;
   broadcast: (frame: PrFlowsStatus) => void;
   log: Pick<Console, 'warn'>;
   now?: () => number;
 }
 
-const NO_EXTERNAL_RUNNER: Pick<PrFlowsExternal, 'runSource'> = { runSource: async () => ({ ok: false, error: 'No command runner is wired.' }) };
+const NO_EXTERNAL_RUNNER: PrFlowsExternal = {
+  runSource: async () => ({ ok: false, error: 'No command runner is wired.' }),
+  runAction: async () => ({ outcome: 'failed', message: 'No command runner is wired.' }),
+};
 
 type Disposal = { request: PrFlowDisposeRequest; ruleName: string | null };
 type SourceRun = { head: string; fingerprint: string; label: string; output: PrFlowSourceOutput | null; error: string | null; at: number };
+type ActionRun = {
+  itemKey: string; actionId: string; label: string; headAtStart: string; finishedAt: number | null;
+  state: PrFlowActionRunStatus['state']; message: string; isBranchMoveTold: boolean;
+};
 
 const FAILED_SOURCE_RETRY_MS = 5 * 60 * 1000;
+const BRANCH_MOVED_WINDOW_MS = 10 * 60 * 1000;
 
 function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile, appendRule, github, external = NO_EXTERNAL_RUNNER, broadcast, log, now = Date.now }: PrFlowsWiringOptions) {
-  let state: PrFlowsState = { handledByPr: {}, reopenedByPr: {}, approvedFingerprints: [] };
+  let state: PrFlowsState = { handledByPr: {}, reopenedByPr: {}, approvedFingerprints: [], ruleRunsByPr: {} };
   let warnings: string[] = [];
   let approvals: PrFlowPendingApproval[] = [];
+  let runnableActions: PrFlowActionChoice[] = [];
+  const actionRunsByPr = new Map<string, ActionRun[]>();
   let lastFrameText = '';
   const sourceRunsByPr = new Map<string, Map<string, SourceRun>>();
   const inFlightSourceKeys = new Set<string>();
@@ -62,13 +72,19 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
   function statusFrame(): PrFlowsStatus {
     const sourceRunsByPrKey: Record<string, PrFlowSourceRunStatus[]> = {};
     const reviewItemsByPr: Record<string, PrFlowItem[]> = {};
+    const actionRunsByPrKey: Record<string, PrFlowActionRunStatus[]> = {};
     for (const pr of openPrs()) {
+      const actionRuns = actionRunsByPr.get(pr.key) ?? [];
+      if (actionRuns.length > 0) actionRunsByPrKey[pr.key] = actionRuns.map(({ itemKey, actionId, label, state: runState, message }) => ({ itemKey, actionId, label, state: runState, message }));
       const runs = [...(sourceRunsByPr.get(pr.key)?.values() ?? [])];
       if (runs.length === 0) continue;
       sourceRunsByPrKey[pr.key] = runs.map((run) => ({ label: run.label, status: run.output?.status ?? [], error: run.error }));
       reviewItemsByPr[pr.key] = reviewItemsFor(pr);
     }
-    return { type: 'pr-flows-status', handledByPr: state.handledByPr, warnings, pendingApprovals: approvals, sourceRunsByPr: sourceRunsByPrKey, reviewItemsByPr };
+    return {
+      type: 'pr-flows-status', handledByPr: state.handledByPr, warnings, pendingApprovals: approvals, sourceRunsByPr: sourceRunsByPrKey, reviewItemsByPr,
+      actions: runnableActions, actionRunsByPr: actionRunsByPrKey,
+    };
   }
 
   function broadcastIfChanged(): void {
@@ -96,11 +112,12 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
     return item.sources.flatMap((source) => (source.threadId === undefined ? [] : [source.threadId]));
   }
 
-  async function recordHandled({ request, ruleName }: Disposal, item: PrFlowItem): Promise<void> {
+  async function recordHandled({ request, ruleName }: Disposal, item: PrFlowItem, actionLabel?: string): Promise<void> {
     await loaded;
     const handled = {
       itemKey: item.key, dismissalKeys: item.sources.map((source) => source.dismissalKey), action: request.action, location: itemLocation(item),
       reason: request.reason ?? null, at: now(), ruleName, threadIds: request.action === 'dismiss' ? threadIdsOf(item) : [],
+      ...(actionLabel === undefined ? {} : { actionLabel }),
     };
     await persist(withHandled(state, request.prKey, handled));
   }
@@ -132,7 +149,52 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
     return { ok: true };
   }
 
+  async function runnableActionCommands(): Promise<PrFlowCommand[]> {
+    await loaded;
+    const approved = new Set(state.approvedFingerprints);
+    return prFlowCommands(await readConfigFile()).actions.filter((action) => approved.has(commandFingerprint('action', action)));
+  }
+
+  async function finishActionRun(disposal: Disposal, item: PrFlowItem, run: ActionRun, output: PrFlowActionOutput): Promise<void> {
+    run.finishedAt = now();
+    run.state = output.outcome;
+    run.message = output.message;
+    if (output.outcome === 'done' || output.outcome === 'started') await recordHandled(disposal, item, run.label);
+    void applyRules();
+  }
+
+  async function startActionRun(disposal: Disposal, pr: MyPr, item: PrFlowItem): Promise<PrFlowDisposeResult> {
+    const actionId = disposal.request.action.slice('run:'.length);
+    const action = (await runnableActionCommands()).find((candidate) => candidate.id === actionId);
+    if (!action) return { ok: false, error: 'That action is not in prFlows.actions, or it waits for your approval in My PRs.' };
+    const runs = actionRunsByPr.get(pr.key) ?? [];
+    if (runs.some((run) => run.actionId === actionId && run.finishedAt === null)) return { ok: false, error: `${action.label} is already running on this pull request.` };
+    const run: ActionRun = { itemKey: item.key, actionId, label: action.label, headAtStart: pr.headRefOid, finishedAt: null, state: 'running', message: '', isBranchMoveTold: false };
+    actionRunsByPr.set(pr.key, [...runs.filter((existing) => existing.actionId !== actionId || existing.itemKey !== item.key), run]);
+    if (disposal.ruleName !== null) await persist(withRuleRun(state, pr.key, { itemKey: item.key, actionId, head: pr.headRefOid }));
+    broadcastIfChanged();
+    void external.runAction(action, pr, item).then((output) => finishActionRun(disposal, item, run, output));
+    return { ok: true };
+  }
+
+  function tellBranchMoved(pr: MyPr): void {
+    const dueRuns = (actionRunsByPr.get(pr.key) ?? []).filter((run) => !run.isBranchMoveTold && shouldTellBranchMoved(run, pr.headRefOid, now(), BRANCH_MOVED_WINDOW_MS));
+    if (dueRuns.length === 0) return;
+    const session = linkedSession(pr.key);
+    if (!session || session.hasPendingPaste()) return;
+    const pasted = session.pasteTextWhenReady(branchMovedNote(pr.url, [...new Set(dueRuns.map((run) => run.label))], pr.headRefOid), { submit: true });
+    if (!pasted.ok) return;
+    for (const run of dueRuns) run.isBranchMoveTold = true;
+  }
+
+  function hasActionRunAtHead(pr: MyPr, itemKey: string, action: string): boolean {
+    const actionId = action.slice('run:'.length);
+    const isRunning = (actionRunsByPr.get(pr.key) ?? []).some((run) => run.actionId === actionId && run.finishedAt === null);
+    return isRunning || (state.ruleRunsByPr[pr.key] ?? []).some((run) => run.actionId === actionId && run.itemKey === itemKey && run.head === pr.headRefOid);
+  }
+
   async function disposeFound(disposal: Disposal, pr: MyPr, item: PrFlowItem): Promise<PrFlowDisposeResult> {
+    if (disposal.request.action.startsWith('run:')) return startActionRun(disposal, pr, item);
     if (disposal.request.action === 'fix-local') return fixLocally(disposal, pr, item);
     const failure = await dismissThreads(item, disposal.request.reason ?? '');
     if (failure) return { ok: false, error: failure };
@@ -227,6 +289,7 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
       }
       for (const [sourceId, run] of runs) if (!liveFingerprints.has(run.fingerprint)) runs.delete(sourceId);
     }
+    for (const prKey of actionRunsByPr.keys()) if (!openPrKeys.has(prKey)) actionRunsByPr.delete(prKey);
   }
 
   let isApplyingRules = false;
@@ -257,11 +320,15 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
     const prs = openPrs();
     forgetUnconfiguredSourceRuns(new Set(prs.map((pr) => pr.key)), commands.sources, approved);
     approvals = pendingApprovals(commands, approved);
+    runnableActions = commands.actions.filter((action) => approved.has(commandFingerprint('action', action))).map(({ id, label }) => ({ id, label }));
+    const runnableActionIds = new Set(runnableActions.map((action) => action.id));
     for (const pr of prs) {
       startDueSources(pr, commands.sources, approved);
+      tellBranchMoved(pr);
       const { rules, warnings: ruleWarnings } = prFlowRules(configFile, pr.repo);
       for (const warning of [...ruleWarnings, ...unknownActionWarnings(rules, new Set(commands.actions.map((action) => action.id)))]) nextWarnings.add(warning);
-      for (const planned of plannedActions(pr.key, reviewItemsFor(pr), rules, state)) {
+      for (const planned of plannedActions(pr.key, reviewItemsFor(pr), rules, state, runnableActionIds)) {
+        if (planned.action.startsWith('run:') && hasActionRunAtHead(pr, planned.item.key, planned.action)) continue;
         const request = { prKey: pr.key, itemKey: planned.item.key, action: planned.action, ...(planned.rule.reason === undefined ? {} : { reason: planned.rule.reason }) };
         const outcome = await disposeGuarded({ request, ruleName: planned.rule.name });
         if (!outcome.ok) nextWarnings.add(`Rule '${planned.rule.name}' could not ${planned.action} ${itemLocation(planned.item)} on ${pr.key}: ${outcome.error ?? 'unknown error'}`);
