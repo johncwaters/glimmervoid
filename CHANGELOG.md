@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.52.0] - 2026-11-03
+
 ### Added
 
 - **Boxes on a board can hold a video or an HTML page, and SVG pictures.** `glimmervoid whiteboard attach <path>` (or the whiteboard tool's attach action) now also takes SVG, MP4, WebM and HTML files, up to 200 MB, and returns the media to put on a box. The board draws a video's first frame under the box's lines and renders an HTML page live in place inside a sandbox that cannot read the dashboard; a video whose first frame cannot be read shows as a labelled placeholder. Pasting or dropping these files on an open board works too. An attach is refused, so you can attach it again, when the machine ran out of disk space or open files while making a photo's smaller copy or a video's first frame, ran out of memory while making a photo's copy or reading a picture or a video's first frame, could not start ffmpeg for lack of memory or processes, or stopped or timed out reading a video's first frame; a video ffmpeg cannot read, or that crashes it, is kept without a first frame.
