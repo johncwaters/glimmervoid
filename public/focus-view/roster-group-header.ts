@@ -1,4 +1,4 @@
-import { writeAttributeIfChanged, writeDataIfChanged, writeHiddenIfChanged, writeTextIfChanged } from '../status-paint.ts';
+import { writeDataIfChanged, writeHiddenIfChanged, writeTextIfChanged } from '../status-paint.ts';
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import type { RosterGroup } from './roster-groups-core.ts';
@@ -31,7 +31,6 @@ export function paintSessionGroupHeader(refs: SessionGroupHeader, group: RosterG
   writeDataIfChanged(header, 'path', group.key);
   writeDataIfChanged(header, 'label', group.label);
   writeTextIfChanged(label, group.label);
-  writeAttributeIfChanged(label, 'title', group.title);
   writeTextIfChanged(count, String(group.rows.length));
   writeHiddenIfChanged(addButton, isPathless);
 }

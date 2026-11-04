@@ -107,10 +107,9 @@ export function myPrStackRowsOf(prs: readonly MyPr[], prKey: string): MyPrStackR
   return groupStackedMyPrs(prs).find((stack) => stack.rows.some((row) => row.pr.key === prKey))?.rows ?? [];
 }
 
-export function stackBadgeOf(row: MyPrStackRow): { text: string; title: string } | null {
+export function stackBadgeOf(row: MyPrStackRow): string | null {
   if (row.stackSize < 2) return null;
-  const title = row.parentKey ? `Stacked on ${row.parentKey}` : `Base of a stack of ${row.stackSize}`;
-  return { text: `${row.depth + 1}/${row.stackHeight}`, title };
+  return `Stack ${row.depth + 1}/${row.stackHeight}`;
 }
 
 export function stageLabel(stage: MyPrStage): string { return STAGE_LABELS[stage]; }

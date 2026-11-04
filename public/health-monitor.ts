@@ -114,15 +114,15 @@ function renderSummary() {
   const s = _latest;
   const anomalies = anomalyCount(s.anomalies);
   _statsEl.innerHTML = `
-    <span class="health-stat" title="V8 heap used"><span class="health-stat-label">Heap</span> ${formatBytes(s.process.heapUsed)}</span>
-    <span class="health-stat" title="Resident set size (process memory)"><span class="health-stat-label">RSS</span> ${formatBytes(s.process.rss)}</span>
-    <span class="health-stat" title="External buffers (PTY data lives here)"><span class="health-stat-label">Ext</span> ${formatBytes(s.process.external)}</span>
-    <span class="health-stat" title="Active resources (handles + requests)"><span class="health-stat-label">Hdl</span> ${s.process.activeResources}</span>
-    <span class="health-stat" title="Memory headroom at the last start check, and starts held for memory"><span class="health-stat-label">Mem</span> ${formatBytes(s.memoryGate?.headroomBytes)} / ${s.memoryGate?.heldStartCount ?? 0} held</span>
-    <span class="health-stat" title="Sessions: alivePty / total"><span class="health-stat-label">Sess</span> ${s.sessions.alivePty}/${s.sessions.total}</span>
-    <span class="health-stat" title="WebSockets: control + data"><span class="health-stat-label">WS</span> ${s.websockets.control}+${s.websockets.data}</span>
-    <span class="health-stat" title="Server uptime"><span class="health-stat-label">Up</span> ${formatUptime(s.uptimeSeconds)}</span>
-    ${anomalies > 0 ? `<span class="health-anomaly" title="${anomalies} anomaly type(s), expand for details">⚠ ${anomalies}</span>` : ''}
+    <span class="health-stat"><span class="health-stat-label">Heap</span> ${formatBytes(s.process.heapUsed)}</span>
+    <span class="health-stat"><span class="health-stat-label">Memory</span> ${formatBytes(s.process.rss)}</span>
+    <span class="health-stat"><span class="health-stat-label">Buffers</span> ${formatBytes(s.process.external)}</span>
+    <span class="health-stat"><span class="health-stat-label">Handles</span> ${s.process.activeResources}</span>
+    <span class="health-stat"><span class="health-stat-label">Headroom</span> ${formatBytes(s.memoryGate?.headroomBytes)} / ${s.memoryGate?.heldStartCount ?? 0} held</span>
+    <span class="health-stat"><span class="health-stat-label">Sessions</span> ${s.sessions.alivePty}/${s.sessions.total}</span>
+    <span class="health-stat"><span class="health-stat-label">Sockets</span> ${s.websockets.control}+${s.websockets.data}</span>
+    <span class="health-stat"><span class="health-stat-label">Uptime</span> ${formatUptime(s.uptimeSeconds)}</span>
+    ${anomalies > 0 ? `<span class="health-anomaly">${anomalies} ${anomalies === 1 ? 'anomaly' : 'anomalies'}</span>` : ''}
   `;
 }
 

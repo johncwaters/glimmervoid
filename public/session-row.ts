@@ -3,7 +3,7 @@ import { el, query, stateChip } from './dom-helpers.ts';
 import { button } from './ui/button.ts';
 import { createPressable } from './ui/pressable.ts';
 import { describeOwnership } from './focus-view/attention-core.ts';
-import { paintCardOwnership, remoteWorkspaceHoverText } from './session-card/card-dom.ts';
+import { paintCardOwnership, remoteWorkspaceText } from './session-card/card-dom.ts';
 import { attentionTally, sessionName, sessionUIs } from './session-card/card-registry.ts';
 import { CLOSING_ROW_STATE, SESSION_CLOSE_UNDO_WINDOW_MS } from './session-actions.ts';
 import { paintStatusIcon } from './status-icon.ts';
@@ -26,8 +26,8 @@ const FOCUSED_LINK_LIMIT = 5;
 const PLAN_PROMPT_KIND = 'plan';
 
 const MERGE_SIGNALS: Readonly<Record<string, Omit<Signal, 'key'>>> = {
-  parked: { text: 'PARKED', hoverText: 'Merge parked', look: { icon: 'failed', tone: 'danger' }, tier: SIGNAL_TIER.broken },
-  merging: { text: 'MERGING', hoverText: 'Merging', look: { icon: 'queued', tone: 'wait' }, tier: SIGNAL_TIER.waiting },
+  parked: { text: 'PARKED', look: { icon: 'failed', tone: 'danger' }, tier: SIGNAL_TIER.broken },
+  merging: { text: 'MERGING', look: { icon: 'queued', tone: 'wait' }, tier: SIGNAL_TIER.waiting },
 };
 
 export function addSessionRowSignalSource(source: SessionRowSignalSource, slot: SessionRowSignalSlot = 'status') {
@@ -184,9 +184,8 @@ function paintSessionRowMark(row: HTMLElement, refs: SessionRowRefs, ui: Session
 function paintSessionRowCloud(cloud: HTMLElement, remoteWorkspace: string | undefined): string | null {
   writeHiddenIfChanged(cloud, !remoteWorkspace);
   if (!remoteWorkspace) return null;
-  cloud.title = remoteWorkspaceHoverText(remoteWorkspace);
   if (!cloud.firstChild) cloud.append(createLineIcon(CLOUD_ICON_PATH));
-  return cloud.title;
+  return remoteWorkspaceText(remoteWorkspace);
 }
 
 function describeSessionOwnership(ui: SessionUi): string | null {

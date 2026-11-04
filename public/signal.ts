@@ -14,8 +14,7 @@ export interface ActivatableSignal extends Signal, SignalOptions {}
 
 export function createSignal(signal: Signal, { className = '', linkUrl, ariaLabel, onActivate }: SignalOptions = {}): HTMLElement {
   const signalClassName = `signal ${className}`.trim();
-  const signalElement = linkUrl ? externalLink(signalClassName, '', linkUrl, signal.hoverText) : el('span', signalClassName);
-  signalElement.title = signal.hoverText;
+  const signalElement = linkUrl ? externalLink(signalClassName, '', linkUrl) : el('span', signalClassName);
   if (ariaLabel) signalElement.setAttribute('aria-label', ariaLabel);
   if (signal.look) {
     signalElement.dataset.tone = signal.look.tone;
@@ -63,7 +62,6 @@ function removeNestedKeyboardStops(slot: HTMLElement, signalElements: readonly H
 function createSignalOverflow(ranked: RankedSignals<Signal>, onRevealOverflow: (() => void) | undefined): HTMLElement | null {
   if (ranked.overflowCount === 0) return null;
   const overflow = el('span', 'signal-overflow', `+${ranked.overflowCount}`);
-  overflow.title = ranked.overflowHoverText;
   if (onRevealOverflow) makeSignalActivatable(overflow, onRevealOverflow, true);
   return overflow;
 }

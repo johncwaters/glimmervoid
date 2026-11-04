@@ -24,7 +24,6 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
 
   const identity = el('div', 'phone-terminal-identity');
   const nameEl = el('span', 'phone-terminal-name');
-  nameEl.title = 'Double-tap to rename';
   nameEl.addEventListener('dblclick', () => renameShownSession());
   const taskTitleEl = el('span', 'session-task-title phone-terminal-title');
   makeTitleEditable(taskTitleEl, () => editShownTitle());

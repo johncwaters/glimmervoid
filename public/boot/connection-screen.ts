@@ -63,7 +63,6 @@ function fadeOutLoadingScreen() {
 function showServerGoingDown(connectionText: string, overlayText: string) {
   connectionEl.dataset.state = 'shutdown';
   connectionLabel.textContent = connectionText;
-  connectionEl.title = connectionText;
   shutdownStatus.textContent = overlayText;
   shutdownScreen.classList.add('active');
 }
@@ -74,7 +73,6 @@ function renderConnectionHeader(state: string, label: string, isReconnect: boole
   connectionEl.dataset.state = state;
   connectionEl.toggleAttribute('data-reconnected', isReconnect);
   connectionLabel.textContent = label;
-  connectionEl.title = label;
 }
 
 function showConnectionState(state: string, label: string) {

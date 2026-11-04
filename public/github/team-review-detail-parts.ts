@@ -122,7 +122,6 @@ function appendSegments(element: HTMLElement, segments: ReturnType<typeof parseI
       continue;
     }
     const citation = el('span', 'pr-citation', segment.text);
-    citation.title = segment.text;
     element.append(citation);
   }
   return element;
@@ -275,11 +274,10 @@ function createCommentContent({ body, severity, location: locationText, location
   const parsed = parseReviewComment(body);
   if (severity) header.append(createSeverityMeter(severity), el('span', 'pr-severity-word', severity.toLowerCase()));
   const location = el('span', 'pr-comment-location', locationText);
-  location.title = locationTitle;
   header.append(location);
   if (alreadyFlagged) header.append(el('span', 'pr-comment-flagged', alreadyFlagged));
   header.append(el('span', 'pr-comment-preview', reviewCommentPreview(parsed.paragraphs)));
-  content.append(header);
+  content.append(header, el('p', 'pr-comment-where', locationTitle));
   const paragraphs = el('div', 'pr-comment-paragraphs');
   for (const paragraph of parsed.paragraphs) paragraphs.append(createCommentParagraph(paragraph));
   content.append(paragraphs);
@@ -311,7 +309,7 @@ function createChangedSinceReview(draft: ReviewDraft): HTMLElement[] {
   const text = changedSinceReviewText(draft);
   if (!text) return [];
   const line = el('p', 'pr-changed-since');
-  line.append(text, ' ', externalLink('pr-changed-since-link', 'Compare changes', changedSinceReviewUrl(draft), 'Open the commits since this review on GitHub'));
+  line.append(text, ' ', externalLink('pr-changed-since-link', 'Compare changes', changedSinceReviewUrl(draft)));
   return [line];
 }
 
@@ -333,7 +331,6 @@ function createTickableFinding(content: FindingContent, included: Set<number>, i
   const toggle = el('label', 'pr-post-toggle');
   const checkbox = el('input', 'pr-post-checkbox');
   checkbox.type = 'checkbox';
-  checkbox.title = `Post the finding on ${content.locationTitle}`;
   checkbox.checked = included.has(index);
   card.dataset.included = String(checkbox.checked);
   checkbox.addEventListener('change', () => {
@@ -452,7 +449,7 @@ function createDeskFacts(draft: ReviewDraft): HTMLElement {
   const list = el('dl', 'pr-fact-list');
   const compareUrl = changedSinceReviewUrl(draft);
   const sinceReview = compareUrl
-    ? [changedSinceReviewText(draft) ?? '', ' ', externalLink('pr-changed-since-link', 'Compare changes', compareUrl, 'Open the commits since this review on GitHub')]
+    ? [changedSinceReviewText(draft) ?? '', ' ', externalLink('pr-changed-since-link', 'Compare changes', compareUrl)]
     : ['No new commits'];
   list.append(
     createFactRow('Checks', checksText(draft.checksState)),

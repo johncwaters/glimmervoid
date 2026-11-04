@@ -258,7 +258,8 @@ html:not([data-layout="phone"]) .pr-desk > .pr-decision-bar { align-self: end; }
 .pr-step { display: grid; grid-template-columns: 6ch 10ch minmax(0, 1fr); gap: 12px; align-items: baseline; font-size: var(--type-meta); }
 .pr-step-at { color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .pr-step-tool { color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pr-step-detail { min-width: 0; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-step-detail { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; min-width: 0; color: var(--text); overflow: hidden; overflow-wrap: anywhere; }
+.pr-comment-where { margin: 0 0 6px; color: var(--text-muted); font-size: var(--type-meta); overflow-wrap: anywhere; }
 .pr-attention-detail { padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card); color: var(--text); font-size: var(--type-meta); line-height: 1.6; }
 html[data-layout="phone"] .review-queue-phone-bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 12px; padding: 4px 16px; border-bottom: 1px solid var(--border-dim); background: var(--bg); }
 html[data-layout="phone"] .review-queue-position { color: var(--text-dim); font-size: var(--type-meta); }

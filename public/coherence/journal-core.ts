@@ -20,7 +20,7 @@ const JOURNAL_KIND_LABELS: Record<CoherenceJournalKind, string> = {
 
 export function coherenceRowSignals(hooks: CoherenceHooksState | null): Signal[] {
   if (hooks?.active !== false || hooks.reason === COHERENCE_HOOKS_INACTIVE.notInstalled) return [];
-  return [{ key: 'coherence-hooks', text: 'Hooks off', hoverText: `Coherence hooks not active: ${hooks.reason}${hooks.version ? ` (${hooks.version})` : ''}`, look: { icon: 'failed', tone: 'danger' }, tier: SIGNAL_TIER.broken }];
+  return [{ key: 'coherence-hooks', text: 'Hooks off', detailText: `Coherence hooks not active: ${hooks.reason}${hooks.version ? ` (${hooks.version})` : ''}`, look: { icon: 'failed', tone: 'danger' }, tier: SIGNAL_TIER.broken }];
 }
 
 export function formatJournalEntry(entry: CoherenceJournalEntry) {

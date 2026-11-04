@@ -52,7 +52,7 @@ function paintYoloChip(tags: HTMLElement, isPlainYolo: boolean) {
 
 export type { CardOptions };
 
-export function remoteWorkspaceHoverText(remoteWorkspace: string): string {
+export function remoteWorkspaceText(remoteWorkspace: string): string {
   return `Runs in Coder workspace ${remoteWorkspace}`;
 }
 
@@ -81,7 +81,6 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const header = el('div', 'session-card-header');
 
   const nameEl = el('span', 'session-name', sessionName);
-  nameEl.title = 'Double-click or press F2 to rename';
   nameEl.tabIndex = 0;
   const taskTitleEl = el('span', 'session-task-title');
   paintTaskTitle(taskTitleEl, options.taskTitle);
@@ -97,6 +96,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   sessionMenu.setAttribute('role', 'menu');
   btnSessionMenu.setAttribute('aria-controls', sessionMenu.id);
 
+  const btnRename = buildMenuItem('Rename session', 'overflow-rename visible');
   const btnRestart = buildMenuItem('Restart', 'overflow-restart');
   btnRestart.setAttribute('aria-haspopup', 'dialog');
   const btnWorkspaceRepos = buildMenuItem('Edit repositories', 'overflow-workspace-repos');
@@ -133,7 +133,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   };
   const btnDebug = buildMenuItem('Debug state', 'overflow-debug');
   const btnTrace = buildMenuItem('Trace', 'overflow-trace');
-  sessionMenu.append(btnWorkspaceRepos, btnCoherenceJournal, btnSessionSetup, btnLinkPr, btnConnectBoard, btnDebug, btnTrace, btnRestart);
+  sessionMenu.append(btnRename, btnWorkspaceRepos, btnCoherenceJournal, btnSessionSetup, btnLinkPr, btnConnectBoard, btnDebug, btnTrace, btnRestart);
   sessionMenuWrap.append(btnSessionMenu, sessionMenu);
 
   const btnRemove = button({ variant: 'icon', size: 'small', label: 'Remove session', icon: createLineIcon(CLOSE_ICON_PATH), action: 'remove-session' });
@@ -158,7 +158,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   card.append(header, termWrap);
 
-  return { card, header, nameEl, taskTitleEl, btnRestart, btnSessionMenu, btnWorkspaceRepos, tags, btnTrace, btnRemove, btnPlan, btnDocs, btnDebug, sessionMenu, termWrap };
+  return { card, header, nameEl, taskTitleEl, btnRename, btnRestart, btnSessionMenu, btnWorkspaceRepos, tags, btnTrace, btnRemove, btnPlan, btnDocs, btnDebug, sessionMenu, termWrap };
 }
 
 function openLinkPullRequestDialog(sessionId: string) {

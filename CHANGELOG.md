@@ -11,12 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Usage leads with tokens.** The Usage report now has a Tokens / Cost switch next to the period switch, on Tokens by default, and remembers your choice. In Tokens mode the report shows the period's tokens and session count, each agent's tokens and share, daily bars by tokens, totals for processed tokens, cached input, uncached input, output and cache savings, a tokens-by-type bar, and models and sessions ranked by tokens with their estimated cost beside them. The overview's first row shows tokens too. Cost mode shows the report as before, since cost is an estimate against list price.
 - The Changes and Shown buttons on a session now show their name beside the icon.
+- Glimmervoid's own dependencies are pinned to exact versions instead of version ranges, so an install no longer picks up a newer release of one of them automatically.
+- The session menu has a Rename session item, the same rename as double-clicking the name, and the board menu has Rename board. On the phone the arrow pad reads Swipe for arrows.
+- What used to sit in hover text is now on the page: long task titles, trace paths, hook commands and review steps wrap to two lines; a disabled Merge says why beside it; Worth a look rows show their reason; a hook form describes the chosen event and both hook types; a review finding shows its full file path when opened; Settings shows the full date of the last update check; the server health line names each figure in words.
 
 ### Removed
 
 - Session cards no longer show the Sane YOLO and YOLO icons or the usage icon, and the Show usage on session cards setting is gone; the Usage tab still shows each session's tokens and cost. A session that skips permission prompts without Sane YOLO now shows the word YOLO beside its title.
 - The power button is gone from the header. Restart server and Shut down now live in Settings under Server, with the same confirmations.
 - Projects with no sessions no longer stay listed in the session list and on the phone Board, so the button that removed them is gone too.
+- Native hover text is gone from the rest of the dashboard, including the session name, status badges, avatars and Radar buttons; screen readers keep every name.
 - Icon buttons and board tools no longer pop up a styled tip on hover; screen readers still announce their names. A pull request review now says under its details why it got a full or light review, instead of in a hover tip.
 
 ## [0.52.1] - 2026-11-04

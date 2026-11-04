@@ -32,12 +32,11 @@ function toggleControlState(pr: MyPr, isOn: boolean, isPending: boolean, errorTe
   };
 }
 
-export function keepMergeableRowLabel(pr: MyPr, isFeatureEnabled: boolean, attemptAgeText = ''): { text: string; tone: 'warn' | 'danger'; title: string } | null {
+export function keepMergeableRowLabel(pr: MyPr, isFeatureEnabled: boolean): { text: string; tone: 'warn' | 'danger' } | null {
   if (!isFeatureEnabled || !pr.keepMergeable) return null;
-  const title = keepMergeableControlState(pr, false, '', true, attemptAgeText).statusText;
-  if (pr.isKeepMergeableFixInFlight) return { text: 'Repairing', tone: 'warn', title };
+  if (pr.isKeepMergeableFixInFlight) return { text: 'Repairing', tone: 'warn' };
   if (!hasFailedKeepMergeableRepair(pr, isFeatureEnabled)) return null;
-  return { text: 'Repair failed', tone: 'danger', title };
+  return { text: 'Repair failed', tone: 'danger' };
 }
 
 export function keepMergeableControlState(pr: MyPr, isPending: boolean, errorText = '', isFeatureEnabled = true, attemptAgeText = ''): ToggleControlState {

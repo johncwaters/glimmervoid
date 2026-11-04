@@ -234,7 +234,6 @@ function createInReviewDetail(review: InFlightReview): HTMLElement {
   for (const step of review.recentSteps) {
     const item = el('li', 'pr-step');
     const description = el('span', 'pr-step-detail', step.detail);
-    description.title = step.detail;
     item.append(el('span', 'pr-step-at', formatTrailOffset(review.startedAt, step.at)), el('span', 'pr-step-tool', step.tool), description);
     list.append(item);
   }

@@ -27,7 +27,7 @@ export async function verifyMyPrKeepMergeable(page: Page): Promise<void> {
     baseRefName: 'main', baseRefOid: 'b'.repeat(40), headRefName: 'fix/conflicts', headRefOid: 'a'.repeat(40), isCrossRepository: false,
     isInMergeQueue: false, mergeMethod: 'SQUASH', mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY', reviewDecision: null,
     checks: { state: 'SUCCESS', failing: [], pendingCount: 0 }, unresolvedThreads: 0, threads: [], behindBy: 22,
-    reviewRequests: [], approvals: 0, reviews: [], opinionatedWriterReviewStates: [],
+    reviewRequests: [], approvals: 0, reviews: [], opinionatedWriterReviewStates: [], reviewItems: [],
   });
   const status = MyPrsStatus.parse({
     type: 'my-prs-status', ts: timestamp, configured: true, viewer: 'me',
@@ -40,7 +40,7 @@ export async function verifyMyPrKeepMergeable(page: Page): Promise<void> {
   const panel = page.locator('.review-queue');
   const control = panel.getByRole('button', { name: 'Keep mergeable', exact: true });
   const detailStatus = panel.locator('.pr-detail .my-pr-merge').first().locator('.pr-action-status');
-  const rowChip = panel.locator('.pr-queue-row .my-pr-stage[title]');
+  const rowChip = panel.locator('.pr-queue-row .pr-queue-bottom > .my-pr-stage:last-child');
   await applyStatus(page, status);
   await panel.locator('.pr-queue-row[data-pr-key="Acme/app#1322"]').click();
   assert.ok(await control.isVisible());
@@ -48,7 +48,7 @@ export async function verifyMyPrKeepMergeable(page: Page): Promise<void> {
   assert.equal(await control.textContent(), 'Keep mergeable');
   assert.equal(await detailStatus.textContent(), 'Keep mergeable failed: not started: could not fetch the base <blocked> (2m ago)');
   assert.equal(await rowChip.textContent(), 'Repair failed');
-  assert.equal(await rowChip.getAttribute('title'), await detailStatus.textContent());
+  assert.equal(await rowChip.getAttribute('title'), null);
   assert.equal(await control.locator('.pr-action-status, svg').count(), 0);
   assert.equal(await panel.locator('.pr-detail .pr-readiness-label').first().textContent(), 'Conflicts');
   assert.deepEqual(await panel.locator('.pr-detail > section > .pr-section-heading').allTextContents(), ['Merge readiness', 'Automation']);
@@ -145,7 +145,8 @@ async function verifyCanonicalPrStages(page: Page, status: MyPrsStatus, initialP
     await showQueue(page);
     await row.locator('.my-pr-stage').first().filter({ hasText: expectedStage }).waitFor();
     assert.equal(await row.locator('.pr-queue-title').textContent(), canonicalPr.title);
-    assert.equal(await row.getAttribute('title'), `Acme/app#1322: ${expectedStage}`);
+    assert.equal(await row.getAttribute('title'), null);
+    assert.match(await row.locator('.pr-queue-bottom').textContent() ?? '', new RegExp(expectedStage));
     assert.equal(await panel.locator('.pr-queue-row[data-pr-key]').count(), 1);
     assert.equal(await panel.locator('.my-pr-automation button', { hasText: 'Keep mergeable' }).getAttribute('aria-pressed'), 'true');
     const isPhone = await page.locator('html').getAttribute('data-layout') === 'phone';
@@ -158,10 +159,10 @@ async function verifyCanonicalPrStages(page: Page, status: MyPrsStatus, initialP
     const chips = page.locator(`${sessionRows} .session-row[data-id="${sessionId}"] .session-pr-chip`);
     const ownChip = chips.filter({ hasText: '#1322' });
     await ownChip.waitFor({ state: 'visible' });
-    assert.equal(await ownChip.getAttribute('title'), `ACME/app: ${canonicalPr.title} (${expectedStage}). Show in Reviews; Cmd/Ctrl-click opens GitHub`);
+    assert.equal(await ownChip.getAttribute('title'), null);
     const teammateChip = chips.filter({ hasText: '#1323' });
     await teammateChip.waitFor({ state: 'visible' });
-    assert.equal(await teammateChip.getAttribute('title'), 'ACME/app: Teammate PR (Draft). Show in Reviews; Cmd/Ctrl-click opens GitHub');
+    assert.equal(await teammateChip.getAttribute('title'), null);
     if (isPhone) {
       await page.getByRole('button', { name: 'More', exact: true }).click();
       await page.getByRole('button', { name: 'Reviews', exact: true }).click();

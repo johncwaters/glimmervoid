@@ -49,7 +49,6 @@ function renderControlFoot(setting: SettingsSetting) {
   const status = el('span', 'settings-view-save-status');
   status.setAttribute('role', 'status');
   const reset = button({ variant: 'quiet', size: 'small', label: 'Reset', action: 'reset-setting' });
-  reset.title = 'Reset to the default value';
   reset.addEventListener('click', () => {
     const value = resetValueOf(setting);
     const confirmation = resetConfirmationOf(setting);

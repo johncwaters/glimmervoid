@@ -18,7 +18,6 @@ interface TableCell {
   node?: Node | null;
   numeric?: boolean;
   className?: string | null;
-  title?: string;
   span?: number;
 }
 
@@ -98,7 +97,6 @@ function appendCells(row: HTMLElement, cells: TableCell[]) {
   for (const cell of cells) {
     const td = el('td', cell.numeric ? 'usage-num' : cell.className || null, cell.node ? null : cell.text);
     if (cell.node) td.append(cell.node);
-    if (cell.title) td.title = cell.title;
     if (cell.span) td.colSpan = cell.span;
     row.append(td);
   }

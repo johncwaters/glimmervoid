@@ -50,7 +50,6 @@ type QueueActionId = QueuePrimaryAction | 'dismiss-fix' | 'resolve' | 'suppress'
 interface QueueAction {
   actionId: QueueActionId;
   label: string;
-  title: string;
   run: (cluster: ActionCluster) => void;
 }
 
@@ -163,7 +162,7 @@ function createActionCluster() {
     for (const actionButton of actionButtons) actionButton.disabled = busy;
   };
 
-  const addButton = ({ label, title, action, isPrimary, onClick }: { label: string; title: string; action: string; isPrimary: boolean; onClick: () => void }) => {
+  const addButton = ({ label, action, isPrimary, onClick }: { label: string; action: string; isPrimary: boolean; onClick: () => void }) => {
     const actionButton = button({
       variant: isPrimary ? 'primary' : 'secondary',
       size: 'small',
@@ -174,7 +173,6 @@ function createActionCluster() {
         onClick();
       },
     });
-    actionButton.title = title;
     actionButtons.push(actionButton);
     wrap.insertBefore(actionButton, status);
     return actionButton;
@@ -256,7 +254,6 @@ function buildOpenTraceButton(sessionId: string) {
       openTraceView(sessionId);
     },
   });
-  openTraceButton.title = 'Open the session trace';
   return openTraceButton;
 }
 
@@ -282,7 +279,6 @@ function openSessionAction(item: QueueItem): QueueAction {
   return {
     actionId: 'open-session',
     label: 'Open session',
-    title: 'Paste an investigation prompt into the mapped project session',
     run: (cluster) => issueRequest(
       cluster,
       item,
@@ -307,13 +303,11 @@ function fixActions(stagedFix: QueueInvestigation): QueueAction[] {
     {
       actionId: 'approve-fix',
       label: 'Approve PR',
-      title: 'Open a session on the fix branch that reviews, tests, pushes and opens the pull request',
       run: (cluster) => cluster.request(`approve-fix:${stagedFix.id}`, 'radar-approve-fix', { id: stagedFix.id }, 'Opening a session', (message) => `Session ${String(message.sessionName ?? '')} opened`),
     },
     {
       actionId: 'dismiss-fix',
       label: 'Dismiss fix',
-      title: 'Delete the local fix branch without opening a pull request',
       run: (cluster) => cluster.request(`dismiss-fix:${stagedFix.id}`, 'radar-dismiss-fix', { id: stagedFix.id }, 'Deleting the branch', () => 'Fix dismissed'),
     },
   ];
@@ -325,7 +319,6 @@ function liveIssueActions(item: QueueItem, issue: RadarIssue): QueueAction[] {
     actions.push({
       actionId: 'view-investigation',
       label: 'View investigation',
-      title: 'Watch the running investigation',
       run: () => openInvestigationView(issue, item.projectId, item.projectLabel),
     });
   }
@@ -333,13 +326,11 @@ function liveIssueActions(item: QueueItem, issue: RadarIssue): QueueAction[] {
   actions.push({
     actionId: 'resolve',
     label: 'Resolve',
-    title: 'Mark this issue resolved in PostHog',
     run: (cluster) => issueRequest(cluster, item, 'radar-issue-action', { action: 'resolve' }, 'Resolving in PostHog', () => 'Marked resolved'),
   });
   actions.push({
     actionId: 'suppress',
     label: 'Suppress',
-    title: 'Suppress this issue in PostHog',
     run: (cluster) => openConfirmDialog({
       title: 'Suppress issue',
       message: 'This marks the issue suppressed in PostHog for everyone on the project.',
@@ -359,7 +350,6 @@ function queueActionsOf(item: QueueItem): QueueAction[] {
     actions.push({
       actionId: 'open-report',
       label: 'Open report',
-      title: 'Open the investigation report for this issue',
       run: () => openIssueReport({ issueId: item.issueId, title: item.issueTitle }),
     });
   }
@@ -368,7 +358,6 @@ function queueActionsOf(item: QueueItem): QueueAction[] {
     actions.push({
       actionId: 'archive',
       label: 'Archive',
-      title: 'Remove this investigation from the queue',
       run: (cluster) => cluster.runSequence(`archive:${item.key}`, archiveSteps(item.investigations), () => 'Archiving', 'Archived'),
     });
   }
@@ -379,7 +368,6 @@ function buildStageBar(stage: QueueStage, className: string) {
   const bar = el('span', className);
   bar.setAttribute('role', 'img');
   bar.setAttribute('aria-label', `stage ${stage} of 4, ${STAGE_LABELS[stage]}`);
-  bar.title = STAGE_LABELS[stage];
   for (let segment = 1; segment <= 4; segment += 1) {
     const cell = el('span', 'radar-stage-segment');
     if (segment <= stage) cell.dataset.filled = '';
@@ -494,7 +482,6 @@ function fixDetailLines(item: QueueItem) {
       pr.href = investigation.prUrl;
       pr.target = '_blank';
       pr.rel = 'noopener';
-      pr.title = investigation.prUrl;
       lines.push(pr);
     }
   }
@@ -507,8 +494,8 @@ function buildPane(item: QueueItem) {
   pane.append(el('h3', 'radar-pane-headline', item.headline));
   const issueUrl = issueUrlOf(item);
   const isHeadlineTheTitle = item.headline === item.issueTitle;
-  if (!isHeadlineTheTitle) pane.append(externalLink('radar-issue-title', item.issueTitle, issueUrl, item.issueTitle));
-  if (isHeadlineTheTitle && issueUrl) pane.append(externalLink('radar-issue-title', 'View in PostHog', issueUrl, item.issueTitle));
+  if (!isHeadlineTheTitle) pane.append(externalLink('radar-issue-title', item.issueTitle, issueUrl));
+  if (isHeadlineTheTitle && issueUrl) pane.append(externalLink('radar-issue-title', 'View in PostHog', issueUrl));
   const stageLine = el('div', 'radar-pane-stage');
   stageLine.append(buildStageBar(item.stage, 'radar-stage radar-stage-wide'), el('span', 'radar-pane-stage-label', STAGE_LABELS[item.stage]));
   pane.append(itemMetaLine(item, 'radar-pane-meta'), stageLine);
@@ -523,7 +510,7 @@ function buildPane(item: QueueItem) {
   const cluster = createActionCluster();
   const buttonsByAction = new Map<QueueActionId, HTMLButtonElement>();
   for (const action of queueActionsOf(item)) {
-    const actionButton = cluster.addButton({ label: action.label, title: action.title, action: action.actionId, isPrimary: action.actionId === item.primary, onClick: () => action.run(cluster) });
+    const actionButton = cluster.addButton({ label: action.label, action: action.actionId, isPrimary: action.actionId === item.primary, onClick: () => action.run(cluster) });
     buttonsByAction.set(action.actionId, actionButton);
   }
   pane.append(cluster.wrap);
@@ -599,7 +586,6 @@ function buildArchiveTransientControl(queue: RadarQueue) {
   const cluster = createActionCluster();
   cluster.addButton({
     label: 'Archive transient',
-    title: 'Archive every transient investigation in LATER',
     action: 'archive-transient',
     isPrimary: false,
     onClick: () => {

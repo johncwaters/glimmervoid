@@ -267,7 +267,7 @@ function centerOpenedSession(ui: SessionUi, id: string) {
 
 function paintPillShownCount(shownCount: HTMLElement, unopenedCount: number) {
   writeHiddenIfChanged(shownCount, unopenedCount === 0);
-  writeAttributeIfChanged(shownCount, 'title', `${unopenedCount} shown ${unopenedCount === 1 ? 'file' : 'files'} not opened`);
+  writeAttributeIfChanged(shownCount, 'aria-label', `${unopenedCount} shown ${unopenedCount === 1 ? 'file' : 'files'} not opened`);
   const countText = shownCount.querySelector<HTMLElement>('.session-row-shown-count');
   if (countText) writeTextIfChanged(countText, String(unopenedCount));
 }
@@ -434,7 +434,7 @@ function paintBoardRows(group: ReturnType<typeof buildBoardsGroup>) {
   }
   placeRowsInOrder(group.list, boards.flatMap((board) => boardRowById.get(board.id)?._row ?? []));
   writeTextIfChanged(group.count, String(boards.length));
-  writeAttributeIfChanged(group.count, 'title', `${boards.length} ${boards.length === 1 ? 'board' : 'boards'} with no session`);
+  writeAttributeIfChanged(group.count, 'aria-label', `${boards.length} ${boards.length === 1 ? 'board' : 'boards'} with no session`);
 }
 
 function centerBoard(boardId: string) {
@@ -524,7 +524,6 @@ function borrowToCenter(ui: SessionUi, id: string) {
   });
   header?.classList.add('pane-header');
   if (header) moveStripToHeaderStart(header);
-  paneLayout?.setTabTitle('terminal', () => terminalTabTitle(ui));
   setTerminalActiveViewer(ui, id, true);
 }
 
@@ -538,12 +537,6 @@ function showTerminalFaceOnTerminalTab(event: MouseEvent) {
   const centeredId = getFocusedSessionId();
   const ui = centeredId ? sessionUIs.get(centeredId) : null;
   if (ui && ui.face !== 'terminal') ui._showTerminalFace?.();
-}
-
-function terminalTabTitle(ui: SessionUi) {
-  const agentText = ui.agent ? `Agent: ${ui.agent}` : '';
-  const worktreeText = ui.card.dataset.worktree === undefined ? 'No worktree' : 'Runs in its own worktree';
-  return [agentText, worktreeText].filter(Boolean).join('. ');
 }
 
 function loadBoardsView() {

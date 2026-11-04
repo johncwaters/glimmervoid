@@ -36,7 +36,6 @@ export function createReviewSkillNotice() {
     select.replaceChildren(...options.map((option) => {
       const optionElement = el('option', '', option.value || option.label);
       optionElement.value = option.value;
-      if (option.value) optionElement.title = option.label;
       return optionElement;
     }));
     if (options.some((option) => option.value === selectedValue)) select.value = selectedValue;

@@ -38,7 +38,6 @@ function boardSignal(summary: BoardSummary, sessionId: string, text: string): Ac
     text,
     detailText: summary.title,
     stateText: queuedText,
-    hoverText: `${summary.title}${queuedText ? `, ${queuedText}` : ''}. Open it beside this session`,
     look: { icon: 'board', tone },
     tier: tierForTone(tone),
     className: 'session-pr-chip session-board-chip',
@@ -60,7 +59,6 @@ function createUnlinkableBoardChip(summary: BoardSummary, sessionId: string, onU
   const signal = titledBoardSignal(summary, sessionId);
   const unlinkButton = createPressable('session-pr-chip-unlink');
   unlinkButton.append(createLineIcon(CLOSE_ICON_PATH));
-  unlinkButton.title = `Disconnect ${summary.title} from this session`;
   unlinkButton.setAttribute('aria-label', `Disconnect board ${summary.title}`);
   unlinkButton.addEventListener('click', (event) => {
     event.stopPropagation();

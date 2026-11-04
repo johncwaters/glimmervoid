@@ -242,7 +242,6 @@ function buildSessionsSection() {
     const item = el('li', 'usage-rank');
     if (isGlimmervoidSessionRow(entry.row)) item.dataset.managed = 'true';
     const head = el('div', 'usage-rank-head');
-    head.title = entry.row.project ? String(entry.row.project) : entry.label;
     const { bar, shareText } = buildRankedBar(entry.sharePct, entry.barPct);
     const ago = el('span', 'usage-rank-ago', '');
     _ticker.track(ago, Number(entry.row.lastTs), formatAgo);

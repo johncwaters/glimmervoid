@@ -81,8 +81,7 @@ function createAgeReadout(label: string, timestamp: number | string | null | und
 function paintQueueRowTitle(row: HTMLElement): void {
   const title = _queueRowTitles.get(row);
   if (!title) return;
-  row.title = `${title()}${row.dataset.unseen ? '\nNew ready review' : ''}`;
-  row.setAttribute('aria-label', row.title);
+  row.setAttribute('aria-label', `${title()}${row.dataset.unseen ? ', new ready review' : ''}`);
 }
 
 function repaintStreamerSensitiveTitles(): void {
@@ -110,14 +109,12 @@ function trackAges(root: Element | null): void {
   for (const avatar of root.querySelectorAll<HTMLElement>('[data-review-title]')) {
     const reviewTitle = avatar.dataset.reviewTitle ?? '';
     const at = avatar.dataset.ageAt === undefined ? null : Number(avatar.dataset.ageAt);
-    const paintTitle = () => {
+    const paintLabel = () => {
       const age = at === null ? null : formatAgo(at);
-      const title = isStreamerMode() ? githubReviewTitle(STREAMER_GITHUB_REVIEW_TITLE, age) : githubReviewTitle(reviewTitle, age);
-      avatar.title = title;
-      avatar.setAttribute('aria-label', title);
+      avatar.setAttribute('aria-label', isStreamerMode() ? githubReviewTitle(STREAMER_GITHUB_REVIEW_TITLE, age) : githubReviewTitle(reviewTitle, age));
     };
-    paintTitle();
-    _ageTicker.onTick(paintTitle);
+    paintLabel();
+    _ageTicker.onTick(paintLabel);
   }
   for (const readout of root.querySelectorAll<HTMLElement>('[data-age-at]')) {
     if (readout.dataset.reviewTitle !== undefined) continue;
@@ -211,8 +208,7 @@ function createTeamQueueRow(review: ReviewDraft | InFlightReview | QueuedReview,
   const bottom = el('span', 'pr-queue-bottom');
   bottom.append(...createRowState(review, kind, rowGlyph), createAuthor(review, 16, 'pr-queue-author'));
   if (review.requestSource === 'direct') {
-    const directMarker = el('span', 'pr-queue-direct', '@');
-    directMarker.title = 'Requested from you directly';
+    const directMarker = el('span', 'pr-queue-direct', '@you');
     bottom.append(directMarker);
   }
   if (kind === 'inReview') bottom.append(el('span', 'pr-phase-label', phaseLabel((review as InFlightReview).phase)));

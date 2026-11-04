@@ -49,10 +49,10 @@ test('stack badge gives siblings one level and counts height by the tallest bran
   ];
   const badges = turnItems(buildReviewQueue(NO_TEAM_REVIEWS, prs, new Set(), true)).map((item) => [item.key, item.source === 'mine' ? stackBadgeOf(item.stackRow) : null]);
   assert.deepEqual(badges, [
-    ['mine:acme/app#1', { text: '1/3', title: 'Base of a stack of 4' }],
-    ['mine:acme/app#2', { text: '2/3', title: 'Stacked on acme/app#1' }],
-    ['mine:acme/app#3', { text: '2/3', title: 'Stacked on acme/app#1' }],
-    ['mine:acme/app#4', { text: '3/3', title: 'Stacked on acme/app#2' }],
+    ['mine:acme/app#1', 'Stack 1/3'],
+    ['mine:acme/app#2', 'Stack 2/3'],
+    ['mine:acme/app#3', 'Stack 2/3'],
+    ['mine:acme/app#4', 'Stack 3/3'],
     ['mine:acme/app#5', null],
   ]);
 });

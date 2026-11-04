@@ -23,7 +23,6 @@ function buildRefreshControls() {
       requestUsageReport({ force: true });
     },
   });
-  refreshButton.title = 'Re-read every transcript from the start';
   const status = el('span', 'usage-refresh-status', '');
   setRefreshButtonEl(refreshButton);
   setRefreshStatusEl(status);

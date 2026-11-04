@@ -15,7 +15,6 @@ export function makeTitleEditable(titleEl: HTMLElement, onActivate: () => void) 
 }
 
 export function paintTaskTitle(titleEl: HTMLElement, taskTitle: string | null | undefined) {
-  titleEl.title = taskTitle ?? '';
   if (taskTitle) titleEl.removeAttribute('aria-label');
   if (!taskTitle) titleEl.setAttribute('aria-label', 'Describe the task');
   if (titleEl.querySelector('input')) return;

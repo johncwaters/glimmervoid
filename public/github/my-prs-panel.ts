@@ -205,7 +205,6 @@ function requestedReviewers(pr: MyPr, text: string): HTMLElement {
   const avatars = el('span', 'avatar-stack');
   for (const request of pr.reviewRequests) {
     const avatar = createAvatar({ login: request.name, url: request.isTeam ? request.avatarUrl : undefined, cssPx: 16 });
-    avatar.title = request.name;
     avatar.setAttribute('role', 'img');
     avatar.setAttribute('aria-label', request.name);
     avatars.append(avatar);
@@ -531,7 +530,6 @@ function paintSessionPill(pill: HTMLElement): void {
   const refs = { glyph: query(pill, '.session-row-glyph'), label: query(pill, '.session-row-label') };
   const stateLabel = paintSessionRowStatus(pill, refs, ui?.currentState || STATES.DORMANT, ui?.awaitingBackgroundTasks, ui?.pendingPromptKind);
   const accessibleLabel = `Focus session ${nameElement.textContent}, ${stateLabel}`;
-  writeAttributeIfChanged(pill, 'title', accessibleLabel);
   writeAttributeIfChanged(pill, 'aria-label', accessibleLabel);
 }
 
@@ -561,7 +559,6 @@ export function repaintSessionPills(): void {
 export function createMyPrQueueRow(pr: MyPr, stackRow: MyPrStackRow, linkedSessions: readonly LinkedLiveSession[] | undefined): { group: HTMLElement; row: HTMLButtonElement } {
   const row = createPressable('pr-queue-row');
   row.dataset.prKey = pr.key;
-  row.title = `${pr.key}: ${stageLabel(pr.stage)}`;
   const glyph = el('span', 'pr-queue-glyph');
   glyph.append(createPrStatusIcon(stageIcon(pr.stage), stageTone(pr.stage)));
   const top = el('span', 'pr-queue-top');
@@ -571,18 +568,16 @@ export function createMyPrQueueRow(pr: MyPr, stackRow: MyPrStackRow, linkedSessi
   const stackBadge = stackBadgeOf(stackRow);
   if (stackBadge) {
     const badge = el('span', 'my-pr-stack-badge');
-    badge.title = stackBadge.title;
-    badge.append(createLineIcon(STACK_ICON_PATH, '1.5'), stackBadge.text);
+    badge.append(createLineIcon(STACK_ICON_PATH, '1.5'), stackBadge);
     bottom.append(badge);
   }
   const mergedAt = pr.state === 'MERGED' ? pr.mergedAt : null;
   const ageText = mergedAt ? `merged ${formatAgo(Date.parse(mergedAt))}` : `opened ${formatAgo(Date.parse(pr.createdAt))}`;
   bottom.append(el('span', 'pr-queue-elapsed', ageText));
-  const repairLabel = keepMergeableRowLabel(pr, keepMergeableToggle.isFeatureEnabled(latest), formatAgo(pr.keepMergeableAttempt?.at));
+  const repairLabel = keepMergeableRowLabel(pr, keepMergeableToggle.isFeatureEnabled(latest));
   if (repairLabel) {
     const repairChip = el('span', 'my-pr-stage', repairLabel.text);
     repairChip.dataset.tone = repairLabel.tone;
-    repairChip.title = repairLabel.title;
     bottom.append(repairChip);
   }
   row.append(glyph, top, bottom);

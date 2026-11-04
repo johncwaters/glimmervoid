@@ -88,9 +88,9 @@ export function createBoardRenderer(svg: SVGSVGElement, mediaLayer: BoardMediaLa
     mark.setAttribute('y', String(centerY + 4));
     mark.setAttribute('text-anchor', 'middle');
     mark.textContent = '!';
-    const label = svgNode('title');
-    label.textContent = 'worth a look in review';
-    marker.append(label, circle, mark);
+    marker.setAttribute('role', 'img');
+    marker.setAttribute('aria-label', 'worth a look in review');
+    marker.append(circle, mark);
     return marker;
   }
 

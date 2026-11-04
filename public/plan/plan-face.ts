@@ -637,7 +637,6 @@ export function createPlanFace(deps: PlanFaceDeps) {
       const headingLink = createPressable('plan-heading-link', headingLabel);
       headingLink.dataset.level = String(section.level);
       headingLink.dataset.headingId = headingId;
-      headingLink.title = headingLabel;
       headingLink.dataset.commented = String(storedComments()?.has(sectionKey(section)) === true);
       railLinks.push(headingLink);
       headingLink.addEventListener('click', () => scrollToHeading(headingId));

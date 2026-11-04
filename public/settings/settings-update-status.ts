@@ -129,9 +129,8 @@ function buildUpdateStatusBlock() {
   const lastChecked = buildUpdateFact('Last checked', lastUpdateCheckText({
     status: updateStatus,
     checkForUpdates: settingsPayload.checkForUpdates,
-    relativeTime: formatAgo(lastCheckedAt),
+    relativeTime: lastCheckedAt ? `${formatAgo(lastCheckedAt)}, ${new Date(lastCheckedAt).toLocaleString()}` : formatAgo(lastCheckedAt),
   }));
-  if (lastCheckedAt) lastChecked.title = new Date(lastCheckedAt).toLocaleString();
   block.appendChild(lastChecked);
   block.appendChild(buildUpdateActions());
   const progress = buildUpdateProgress();

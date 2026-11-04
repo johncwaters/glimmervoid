@@ -26,7 +26,6 @@ export interface PaneLayout {
   element: HTMLElement;
   trailSlot: HTMLElement;
   bodyOf: (tab: PaneTab) => HTMLElement;
-  setTabTitle: (tab: PaneTab, readTitle: () => string) => void;
   titleSlotOf: (tab: PaneTab) => HTMLElement;
   setStripHost: (tab: PaneTab, host: StripHost | null) => void;
   showTabs: (shownTabs: ReadonlySet<PaneTab>, options?: { holdSplit?: boolean }) => void;
@@ -50,7 +49,6 @@ export function createPaneLayout(): PaneLayout {
   const bodyByTab: Record<PaneTab, HTMLElement> = { terminal: buildBody('terminal'), board: buildBody('board') };
   const tabButtonByTab: Record<PaneTab, HTMLButtonElement> = { terminal: buildTabButton('terminal'), board: buildTabButton('board') };
   const titleSlotByTab: Record<PaneTab, HTMLElement> = { terminal: buildTitleSlot('terminal'), board: buildTitleSlot('board') };
-  const titleReaderByTab = new Map<PaneTab, () => string>();
   const stripHostByTab = new Map<PaneTab, StripHost>();
   const groupParts: GroupParts[] = [buildGroup(0), buildGroup(1)];
 
@@ -76,11 +74,6 @@ export function createPaneLayout(): PaneLayout {
     button.setAttribute('role', 'tab');
     button.setAttribute('aria-controls', `focus-pane-${tab}`);
     button.addEventListener('click', () => onTabClick(tab));
-    const refreshTitle = () => {
-      button.title = [TAB_LABELS[tab], titleReaderByTab.get(tab)?.() ?? ''].filter(Boolean).join('. ');
-    };
-    button.addEventListener('pointerenter', refreshTitle);
-    button.addEventListener('focus', refreshTitle);
     button.addEventListener('dragstart', (event) => {
       draggedTab = tab;
       event.dataTransfer?.setData(DRAG_MIME, tab);
@@ -264,10 +257,6 @@ export function createPaneLayout(): PaneLayout {
     trailSlot,
     bodyOf: (tab) => bodyByTab[tab],
     titleSlotOf: (tab) => titleSlotByTab[tab],
-    setTabTitle: (tab, readTitle) => {
-      titleReaderByTab.set(tab, readTitle);
-      tabButtonByTab[tab].title = readTitle();
-    },
     setStripHost: (tab, host) => {
       if (host) stripHostByTab.set(tab, host);
       if (!host) stripHostByTab.delete(tab);

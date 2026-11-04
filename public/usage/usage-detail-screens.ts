@@ -184,7 +184,7 @@ function buildDailySection() {
     const expandKey = `${periodView}:${day}`;
     const toggle = buildBreakdownToggle(expandKey, models.length);
     appendCells(tr, [
-      { node: buildPeriodCell(row, periodView), title: day },
+      { node: buildPeriodCell(row, periodView) },
       { text: formatTokens(row.tokens), numeric: true },
       { text: formatUsd(row.costUSD), numeric: true },
       { node: toggle, className: 'usage-toggle-cell' },

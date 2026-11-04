@@ -121,11 +121,11 @@ function render() {
   const hadOpenFile = selectedPath !== null;
   settleSelectedPath(review.files);
   parts.status.textContent = review.sentence;
-  parts.notice.textContent = review.notice ?? '';
-  parts.notice.hidden = review.notice === null;
+  const noticeText = review.notice ?? (review.isMergeShown && !review.isMergeEnabled ? review.mergeRefusal : null);
+  parts.notice.textContent = noticeText ?? '';
+  parts.notice.hidden = noticeText === null;
   parts.mergeButton.hidden = !review.isMergeShown;
   parts.mergeButton.disabled = !review.isMergeEnabled;
-  parts.mergeButton.title = review.mergeTitle;
   parts.discardButton.hidden = !review.isDiscardShown;
   parts.root.dataset.level = placement === 'screen' && selectedPath !== null ? 'diff' : 'list';
   renderFileColumn(parts.fileColumn, review);

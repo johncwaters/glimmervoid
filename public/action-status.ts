@@ -151,7 +151,6 @@ export function reportHeaderError({ source, sessionId, message, hidesInStreamerM
   const shownMessage = hidesInStreamerMode ? streamerSafeText('error', message) : message;
   const sourceElement = el('strong', 'header-status-source', source);
   parts.text.replaceChildren(sourceElement, ` ${shownMessage}`);
-  parts.text.title = `${source}: ${shownMessage}`;
   shownHeaderError = { source, sessionId: sessionId ?? null, raisedAt: Date.now() };
   paintHeaderErrorAge();
   headerAgeTimer ??= window.setInterval(paintHeaderErrorAge, HEADER_ERROR_AGE_REPAINT_MS);
@@ -177,6 +176,5 @@ function dismissHeaderStatus() {
   if (!parts) return;
   parts.line.hidden = true;
   parts.text.replaceChildren();
-  parts.text.title = '';
   parts.age.textContent = '';
 }

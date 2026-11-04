@@ -6,8 +6,6 @@ import { STATES } from '#shared/states.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { sessionIdOf, sessionUIs } from '../session-card/card-registry.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
-import { SHORTCUT_PLATFORM } from '../shortcuts.ts';
-import { shortcutHint } from '../shortcuts-core.ts';
 import { shouldDropDiffCache } from './diff-core.ts';
 import type { SessionDiffPayload } from './review-copy-core.ts';
 import type { ReaderFile, ReviewView } from './review-reader-core.ts';
@@ -25,7 +23,6 @@ export interface SessionReview extends ReviewView {
 }
 
 const NOTICE_MS = 5000;
-const mergeShortcutHint = shortcutHint('merge', SHORTCUT_PLATFORM);
 
 const statusById = new Map<string, string>();
 const reasonById = new Map<string, string | null>();
@@ -90,7 +87,6 @@ export function reviewOf(sessionId: string): SessionReview | null {
     state: ui.currentState,
     effectiveBase: ui.effectiveBase,
     isMergeInFlight: mergeRequestedFromStatusById.has(sessionId),
-    mergeShortcutHint,
     files,
   });
   return {

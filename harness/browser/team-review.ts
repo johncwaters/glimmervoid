@@ -64,7 +64,7 @@ function createStatus(): TeamReviewStatus {
 }
 
 async function readRowMeaning(row: Locator): Promise<string | undefined> {
-  const [, meaningWithoutGoal] = (await row.getAttribute('title') ?? '').split('\n');
+  const [, meaningWithoutGoal] = (await row.getAttribute('aria-label') ?? '').split('\n');
   return meaningWithoutGoal;
 }
 
@@ -95,7 +95,7 @@ async function verifyRows(page: Page): Promise<void> {
   })));
   assert.equal(rows.length, 10);
   const skillHint = await page.locator('.review-skill-notice-hint').evaluate((hint) => ({ text: hint.textContent, href: hint.querySelector('a')?.getAttribute('href') }));
-  assert.equal(skillHint.text, 'The instructions the reviewing agent follows. Review skill setting');
+  assert.equal(skillHint.text, 'The instructions the reviewing agent follows. Reviews run without one. Review skill setting');
   assert.match(skillHint.href ?? '', /#settings\/lanes-team-review\/team-review-skill$/);
   for (const row of rows) {
     assert.equal(row.removedParts, 0);
@@ -103,7 +103,7 @@ async function verifyRows(page: Page): Promise<void> {
     const isDiscardedRow = row.key === 'Acme/app#6';
     assert.equal(row.children, isDiscardedRow ? 1 : 3);
     assert.equal(row.authorAvatars, isDiscardedRow ? 0 : 1);
-    assert.equal(row.accessibleName, row.title);
+    assert.equal(row.title, null);
     assert.equal(row.ref, row.key?.replace('Acme/app', ''));
     assert.equal(row.stateTone, row.glyphTone);
     assert.equal(Boolean(row.stateWord), !isDiscardedRow);
@@ -113,7 +113,7 @@ async function verifyRows(page: Page): Promise<void> {
   assert.equal(nits.stateWord, 'Approve');
   assert.equal(nits.findings, `${String.fromCharCode(0xb7)} 1 finding`);
   assert.doesNotMatch(nits.bottom ?? '', /since approval|drafted|resolved|Nits|Changes|Blocked/);
-  assert.match(nits.title ?? '', /Acme\/app#2:.*\nWaits on you\n/s);
+  assert.match(nits.accessibleName ?? '', /Acme\/app#2:.*\nWaits on you\n/s);
   assert.match(nits.accessibleName ?? '', /Nits, 2 comments/);
   assert.equal(nits.reviewerAvatars, 2);
 }
@@ -170,7 +170,7 @@ async function verifyCanonicalTeamPrFields(page: Page, layout: Layout, snapshot:
     baseRefName: 'main', baseRefOid: PREVIOUS_HEAD, headRefName: 'feature', headRefOid: REVIEWED_HEAD, isCrossRepository: false,
     isInMergeQueue: false, mergeMethod: 'SQUASH', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: null,
     checks: { state: 'SUCCESS', failing: [], pendingCount: 0 }, rollupState: 'SUCCESS', unresolvedThreads: 0, threads: [], behindBy: 0,
-    reviewRequests: [], approvals: 0, reviews: [], opinionatedWriterReviewStates: [],
+    reviewRequests: [], approvals: 0, reviews: [], opinionatedWriterReviewStates: [], reviewItems: [],
   });
   const frameFor = (pr?: GithubPr): GithubPrsFrame => GithubPrsFrame.parse({
     type: 'github-prs', ts: timestamp, prs: pr ? { [pr.key]: pr } : {}, freshness: { lastRefreshedAt: timestamp, error: null },
@@ -225,7 +225,7 @@ async function verifyCanonicalTeamPrFields(page: Page, layout: Layout, snapshot:
     const sessionRows = layout === 'phone' ? 'section.phone-screen[data-screen="board"]' : '#focus-rail';
     const chip = page.locator(`${sessionRows} .session-row[data-id="${sessionId}"] .session-pr-chip`).filter({ hasText: '#1' });
     await chip.waitFor({ state: 'visible' });
-    assert.equal(await chip.getAttribute('title'), `ACME/app: ${canonicalPr.title} (${stage}). Show in Reviews; Cmd/Ctrl-click opens GitHub`);
+    assert.equal(await chip.getAttribute('title'), null);
     assert.equal(await chip.locator('.pr-status-icon').evaluate((icon) => icon.outerHTML), teamIcon);
     await openReviewsView(page, layout);
     await showQueue(page);
@@ -326,7 +326,7 @@ async function verifyViewerThreadCounts(page: Page, snapshot: TeamReviewStatus):
   await applyStatus(page, withDraft(review));
   const row = page.locator('.pr-queue-row[data-review-key="Acme/app#1"]');
   assert.doesNotMatch(await row.locator('.pr-queue-bottom').textContent() ?? '', /drafted|resolved/);
-  assert.match(await row.getAttribute('title') ?? '', /2 of 5 of your comments resolved/);
+  assert.match(await row.getAttribute('aria-label') ?? '', /2 of 5 of your comments resolved/);
   const sectionHeading = () => row.evaluate((element) => element.closest('.pr-queue-section')?.querySelector('.pr-section-heading')?.textContent);
   assert.match(await sectionHeading() ?? '', /Waiting on others/);
   await showQueue(page);
@@ -337,7 +337,7 @@ async function verifyViewerThreadCounts(page: Page, snapshot: TeamReviewStatus):
   assert.doesNotMatch(await sectionHeading() ?? '', /Waiting on others/);
   assert.equal(await readRowMeaning(row), 'Comments resolved');
   assert.equal(await threadsFact().textContent(), 'All 5 of your comments resolved');
-  assert.match(await row.getAttribute('title') ?? '', /All 5 of your comments resolved/);
+  assert.match(await row.getAttribute('aria-label') ?? '', /All 5 of your comments resolved/);
   await applyStatus(page, withDraft({ ...resolved, viewerThreads: { total: 5, resolved: 3 } }));
   assert.equal(await threadsFact().textContent(), '3 of 5 of your comments resolved');
   await applyStatus(page, withDraft({ ...resolved, reviewDecision: 'APPROVED', githubReviews: [{ login: 'me', state: 'APPROVED', commit: REVIEWED_HEAD, isViewer: true }] }));

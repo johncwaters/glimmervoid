@@ -32,7 +32,6 @@ export function createAuthorOrgTag(isAuthorOrgMember: boolean | null | undefined
   const org = repo.split('/')[0] ?? '';
   const tag = el('span', 'author-org-tag', isAuthorOrgMember ? org : 'external');
   tag.dataset.orgMember = String(isAuthorOrgMember);
-  tag.title = isAuthorOrgMember ? `Member of the ${org} GitHub org` : `Not a member of the ${org} GitHub org`;
   return tag;
 }
 
@@ -63,7 +62,6 @@ export function createReviewerStack(reviews: readonly { login: string; tone: Sta
   const stack = el('span', 'avatar-stack');
   for (const review of reviews) {
     const avatar = createAvatar({ login: review.login, url: review.url, cssPx });
-    avatar.title = review.title;
     avatar.setAttribute('role', 'img');
     avatar.setAttribute('aria-label', review.title);
     const badge = el('span', 'avatar-badge');
@@ -90,14 +88,9 @@ export function query(root: ParentNode, selector: string): HTMLElement {
   return found;
 }
 
-export function externalLink(className: string, text: string, url: string | null | undefined, title: string = text): HTMLElement {
-  if (!url) {
-    const plain = el('span', className, text);
-    plain.title = title;
-    return plain;
-  }
+export function externalLink(className: string, text: string, url: string | null | undefined): HTMLElement {
+  if (!url) return el('span', className, text);
   const link = el('a', className, text);
-  link.title = title;
   link.href = url;
   link.target = '_blank';
   link.rel = 'noopener';

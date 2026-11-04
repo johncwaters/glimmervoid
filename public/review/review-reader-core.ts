@@ -2,7 +2,7 @@ import type { SessionState } from '#shared/states.ts';
 import { MERGEABLE_LIVE_STATES, STATES } from '#shared/states.ts';
 import type { DiffFile } from './diff-core.ts';
 import { parseUnifiedDiff, summarizeFiles } from './diff-core.ts';
-import { decideMergeAction, hasReviewChanges, mergeActionTitle, mergeDisabledReason, parkedStatusText, reviewHeadline } from './review-copy-core.ts';
+import { decideMergeAction, hasReviewChanges, mergeDisabledReason, parkedStatusText, reviewHeadline } from './review-copy-core.ts';
 import type { SessionDiffPayload } from './review-copy-core.ts';
 
 export type ReaderFile = Pick<DiffFile, 'path' | 'oldPath' | 'added' | 'removed' | 'binary' | 'hunks'>;
@@ -17,7 +17,6 @@ interface ReviewInput {
   state: string;
   effectiveBase: string | null | undefined;
   isMergeInFlight: boolean;
-  mergeShortcutHint: string;
   files: readonly ReaderFile[];
 }
 
@@ -27,7 +26,6 @@ export interface ReviewView {
   totals: { files: number; added: number; removed: number };
   isMergeShown: boolean;
   isMergeEnabled: boolean;
-  mergeTitle: string;
   mergeRefusal: string | null;
   isDiscardShown: boolean;
 }
@@ -87,7 +85,6 @@ export function reviewViewOf(input: ReviewInput): ReviewView {
     totals,
     isMergeShown,
     isMergeEnabled: isMergeShown && mergeAction.isEnabled && !input.isMergeInFlight,
-    mergeTitle: mergeRefusal ?? mergeActionTitle(effectiveBase, input.mergeShortcutHint),
     mergeRefusal,
     isDiscardShown: !isWorkspace && !isLive && (status === 'pending-review' || status === 'parked'),
   };

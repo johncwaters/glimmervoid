@@ -30,7 +30,6 @@ function chipLineFor(term: Terminal): ChipLine | null {
 
 function buildChipContent(sessionId: string, file: ShownFile): HTMLButtonElement {
   const chip = createPressable('shown-chip');
-  chip.title = file.caption ?? file.pageTitle ?? file.name;
   chip.setAttribute('aria-label', `Open ${file.name}`);
   const thumbnailUrl = shownThumbnailUrl(sessionId, file);
   if (thumbnailUrl) {

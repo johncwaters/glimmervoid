@@ -69,10 +69,6 @@ function baseLabel(effectiveBase: string | null | undefined): string {
   return effectiveBase || 'base';
 }
 
-export function mergeActionTitle(effectiveBase: string | null | undefined, mergeShortcutHint: string): string {
-  return `Merge into ${baseLabel(effectiveBase)}, push it, and rebase this worktree, then keep working (${mergeShortcutHint})`;
-}
-
 export function parkedStatusText(reason: string | null | undefined): string {
   if (reason === 'base-diverged') return 'Resync the base branch by hand, then Merge again.';
   return 'Needs manual merge';

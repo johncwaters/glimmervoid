@@ -157,12 +157,15 @@ function buildTextarea(value: string, onInput: (value: string) => void) {
   return area;
 }
 
+function eventDescription(events: HookEvent[], eventName: string): string {
+  return events.find((entry) => entry.name === eventName)?.description ?? '';
+}
+
 function buildEventSelect(draft: HookDraft, events: HookEvent[], onChange: (value: string) => void) {
   const select = el('select', 'settings-view-input hooks-select');
   for (const entry of events) {
     const option = el('option', null, entry.name);
     option.value = entry.name;
-    option.title = entry.description;
     if (entry.name === draft.event) option.selected = true;
     select.append(option);
   }
@@ -180,7 +183,6 @@ function buildTypeRow(draft: HookDraft, onChange: (value: string) => void) {
     radio.name = 'hooks-type';
     radio.value = option.value;
     radio.checked = draft.type === option.value;
-    radio.title = option.hint;
     radio.addEventListener('change', () => { if (radio.checked) onChange(option.value); });
     label.append(radio, el('span', null, option.label));
     row.append(label);
@@ -214,8 +216,7 @@ function buildProjectPicker(draft: HookDraft, projects: HookProject[]) {
     boxes.push(box);
     label.append(box, el('span', null, project.name));
     if (project.agent !== 'claude-code') {
-      label.append(el('span', 'hooks-choice-note', project.agent));
-      label.title = 'Not a Claude Code project: this hook will not reach its sessions.';
+      label.append(el('span', 'hooks-choice-note', `${project.agent}, hook never runs`));
     }
     wrap.append(label);
   }
@@ -233,7 +234,6 @@ function buildTemplateRow(events: HookEvent[]) {
   for (const template of HOOK_TEMPLATES) {
     const chip = createPressable('hooks-chip', template.label);
     chip.addEventListener('click', () => openEditor(null, templateDraft(template, events)));
-    chip.title = template.summary;
     row.append(chip);
   }
   return row;
@@ -286,6 +286,10 @@ function buildEditor(draft: HookDraft) {
   timeoutInput.value = draft.timeout;
   timeoutInput.addEventListener('input', () => { draft.timeout = timeoutInput.value; });
 
+  const eventHint = el('span', 'hooks-field-hint', eventDescription(events, draft.event));
+  const eventField = buildField('Event', buildEventSelect(draft, events, (value) => { draft.event = value; eventHint.textContent = eventDescription(events, value); syncMatcher(); }), null);
+  eventField.append(eventHint);
+
   const enabledLabel = el('label', 'settings-view-toggle hooks-choice');
   const enabledBox = el('input', 'settings-view-checkbox');
   enabledBox.type = 'checkbox';
@@ -295,9 +299,9 @@ function buildEditor(draft: HookDraft) {
 
   form.append(
     buildField('Name', buildInput(draft.name, 'Lint after edits', (value) => { draft.name = value; }), null),
-    buildField('Event', buildEventSelect(draft, events, (value) => { draft.event = value; syncMatcher(); }), null),
+    eventField,
     matcherField,
-    buildField('Type', buildTypeRow(draft, (value) => { draft.type = value; syncType(); }), null),
+    buildField('Type', buildTypeRow(draft, (value) => { draft.type = value; syncType(); }), HOOK_TYPE_OPTIONS.map((option) => `${option.label}: ${option.hint}`).join(' ')),
     commandField,
     urlField,
     buildField('Timeout (seconds)', timeoutInput, DEFAULT_TIMEOUT_TEXT),
@@ -371,9 +375,8 @@ function buildPreview(hook: HookRecord) {
     _openPreviews.delete(hook.id);
   });
   const summary = el('summary', 'hooks-preview-summary', PREVIEW_LABEL);
-  summary.title = PREVIEW_HINT;
   const code = el('pre', 'hooks-preview-code', settingsEntryPreview(hook));
-  details.append(summary, code);
+  details.append(summary, el('p', 'hooks-field-hint', PREVIEW_HINT), code);
   return details;
 }
 
@@ -389,7 +392,6 @@ function buildRow(hook: HookRecord, { grouped = false }: { grouped?: boolean } =
   const chipText = grouped ? (hook.matcher || '') : eventChipText(hook);
   if (chipText) head.append(el('span', 'hooks-row-event', chipText));
   const target = el('code', 'hooks-row-target', targetLine(hook));
-  target.title = targetLine(hook);
   const meta = el('p', 'hooks-row-meta', [typeLabel(hook.type), timeoutLabel(hook), scopeLabel(hook, projects)].filter(Boolean).join(' / '));
   main.append(head, target, meta);
   const missing = missingProjectIds(hook, projects);

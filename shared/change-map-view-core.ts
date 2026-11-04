@@ -26,7 +26,6 @@ export interface WorthALookGroup {
 
 export interface FileHint {
   text: string;
-  title: string;
 }
 
 interface ChangeMapRepoRef {
@@ -115,13 +114,11 @@ function addHint(hintsByOpenPath: Map<string, FileHint[]>, openPath: string, hin
 function collectHints(repo: RepoChangeMap, hintsByOpenPath: Map<string, FileHint[]>) {
   for (const hotspot of repo.hotspots) addHint(hintsByOpenPath, `${repo.sessionPathPrefix}${hotspot.path}`, {
     text: 'often fixed',
-    title: `${hotspot.fixCommitCount} of its last ${hotspot.commitCount} commits were fixes.`,
   });
   for (const blast of repo.blastRadius) {
     if (blast.transitiveDependentCount < WIDE_BLAST_RADIUS_MIN) continue;
     addHint(hintsByOpenPath, `${repo.sessionPathPrefix}${blast.path}`, {
       text: `${blast.transitiveDependentCount} depend on it`,
-      title: `${blast.transitiveDependentCount} files depend on it: ${blast.directDependentCount} directly, ${blast.dependentTestCount} of them tests.`,
     });
   }
 }

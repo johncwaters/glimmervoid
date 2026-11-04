@@ -114,7 +114,6 @@ function buildHeader(): HTMLElement {
   controls.append(buildSessionSelector());
   const pathValue = selectedTrace?.filePath ?? '';
   const path = el('code', 'trace-path', pathValue);
-  path.title = pathValue;
   controls.append(path);
   const sessionStartedAtMs = selectedTrace
     ? traceSessionStartedAtMs(selectedTrace.firstOffset, selectedTrace.hasDroppedEarliestRows, selectedTrace.grouping.turns[0])

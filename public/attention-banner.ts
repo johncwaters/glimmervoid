@@ -189,7 +189,7 @@ function renderTiles(banner: HTMLElement) {
   const hiddenCount = motion.tiles.length - visibleTiles.length;
   writeHiddenIfChanged(overflow, hiddenCount === 0);
   writeTextIfChanged(overflow, `+${hiddenCount}`);
-  writeAttributeIfChanged(overflow, 'title', `${hiddenCount} more after these`);
+  writeAttributeIfChanged(overflow, 'aria-label', `${hiddenCount} more after these`);
   motion.headId = visibleTiles[0]?.id ?? null;
   const headKind = motion.tiles[0]?.kind;
   if (headKind) banner.dataset.headKind = headKind;
@@ -233,7 +233,6 @@ function paintTile(tile: HTMLSpanElement, { kind, name }: AttentionTile, isHead:
   tile.dataset.kind = kind;
   tile.toggleAttribute('data-head', isHead);
   const label = `${name}, ${NEED_WORDS_BY_KIND[kind]}`;
-  tile.title = label;
   tile.setAttribute('aria-label', label);
   paintStatusIcon(query(tile, '.attention-tile-icon'), ICON_BY_KIND[kind]);
 }

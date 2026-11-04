@@ -167,7 +167,6 @@ export function createShownFace({ sessionId, onClose }: { sessionId: string; onC
 
   function buildTile(file: ShownFile): HTMLButtonElement {
     const tile = createPressable('shown-thumb');
-    tile.title = file.caption ?? displayTitleOf(file);
     tile.setAttribute('aria-label', displayTitleOf(file));
     tile.append(buildTileFace(sessionId, file));
     tile.addEventListener('click', () => select(file.id));

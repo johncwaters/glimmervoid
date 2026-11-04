@@ -20,7 +20,7 @@ function stateRank(pr: Pick<MyPr, 'state'> | undefined): number {
 function toChip(link: LinkedPr, pr: Pick<MyPr, 'state' | 'stage' | 'url' | 'title'> | undefined): SessionPrChip {
   const key = `${link.repo}#${link.number}`;
   const text = `#${link.number}`;
-  if (!pr) return { key, text, detailText: text, stateText: '', url: link.url, prTitle: '', hoverText: link.repo, look: null, tier: tierForTone(undefined) };
+  if (!pr) return { key, text, detailText: text, stateText: '', url: link.url, prTitle: '', look: null, tier: tierForTone(undefined) };
   const tone = stageTone(pr.stage);
   return {
     key,
@@ -29,7 +29,6 @@ function toChip(link: LinkedPr, pr: Pick<MyPr, 'state' | 'stage' | 'url' | 'titl
     stateText: stageLabel(pr.stage),
     url: pr.url,
     prTitle: pr.title,
-    hoverText: `${link.repo}: ${pr.title} (${stageLabel(pr.stage)})`,
     look: { icon: stageIcon(pr.stage), tone },
     tier: tierForTone(tone),
   };

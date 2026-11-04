@@ -445,7 +445,6 @@ function paintPageSessionName() {
   const name = shownSessionUi ? sessionName(shownSessionUi) : '';
   for (const sessionNameEl of pageSessionNameEls) {
     sessionNameEl.textContent = name;
-    sessionNameEl.title = name;
   }
 }
 

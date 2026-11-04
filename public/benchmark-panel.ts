@@ -40,8 +40,8 @@ function inFlightText(status: BenchmarkStatus, suite: BenchmarkSuiteSummary): st
 }
 
 function scoreCell(score: BenchmarkArmScore | undefined): HTMLTableCellElement {
-  const cell = el('td', 'bench-score', percent(score?.recall ?? null));
-  if (score && score.invalid > 0) cell.title = `${score.invalid} invalid or failed cell(s)`;
+  const invalidText = score && score.invalid > 0 ? ` (${score.invalid} invalid)` : '';
+  const cell = el('td', 'bench-score', `${percent(score?.recall ?? null)}${invalidText}`);
   if (score && score.degraded > 0) cell.dataset.degraded = 'true';
   return cell;
 }

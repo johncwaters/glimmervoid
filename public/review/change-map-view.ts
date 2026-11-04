@@ -9,7 +9,7 @@ const CONFLICT_RISK_LABEL: Record<ConflictRisk, string> = { high: 'High', medium
 
 function worthALookRow(line: WorthALookLine, onOpenFile: (openPath: string) => void) {
   const row = createPressable('review-look-line', line.path);
-  row.title = `${line.detail} Click to open ${line.path} below.`;
+  row.append(el('span', 'review-look-detail', line.detail));
   row.addEventListener('click', () => onOpenFile(line.openPath));
   return row;
 }
@@ -38,7 +38,7 @@ export function renderWorthALook(view: ChangeMapView, { isShowingAll, onShowAll,
   section.append(el('h3', 'review-group-label', 'Worth a look'));
   if (view.errors.length > 0) {
     const failure = el('p', 'review-look-error', 'Could not check this change for anything worth a look.');
-    failure.title = view.errors.join('\n');
+    failure.append(' ', view.errors.join(' '));
     section.append(failure);
   }
   const visibleGroups = isShowingAll ? view.worthALook : view.worthALook.slice(0, WORTH_A_LOOK_VISIBLE_MAX);
@@ -58,8 +58,6 @@ export function renderWorthALook(view: ChangeMapView, { isShowingAll, onShowAll,
 
 export function renderFileHints(hints: readonly FileHint[] | undefined): HTMLElement[] {
   return (hints ?? []).map((hint) => {
-    const tag = el('span', 'review-file-hint', hint.text);
-    tag.title = hint.title;
-    return tag;
+    return el('span', 'review-file-hint', hint.text);
   });
 }

@@ -249,7 +249,6 @@ function createRow(item: CommunityQueueItem, isTurn: boolean): HTMLButtonElement
   const top = el('span', 'pr-queue-top');
   top.append(badgeText, el('span', 'pr-queue-title', communityItemLabel(item)));
   row.append(top, el('span', 'pr-queue-elapsed', communitySourceText(item.entry)));
-  row.title = communityItemLabel(item);
   if (isTurn && isCommunityEntryUnseen(communityActivityEntry(item))) {
     const activity = el('span', 'tab-activity active pr-queue-unseen');
     activity.setAttribute('aria-hidden', 'true');

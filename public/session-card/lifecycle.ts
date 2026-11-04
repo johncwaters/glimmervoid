@@ -129,6 +129,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     sessionMenu: dom.sessionMenu,
     termWrap: dom.termWrap,
     btnDebug: dom.btnDebug,
+    btnRename: dom.btnRename,
     btnRestart: dom.btnRestart,
     btnSessionMenu: dom.btnSessionMenu,
     btnWorkspaceRepos: dom.btnWorkspaceRepos,

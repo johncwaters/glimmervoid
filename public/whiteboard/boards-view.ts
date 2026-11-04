@@ -314,6 +314,7 @@ function buildBoardMenu(onBoardSettings: () => void) {
   const boardSettingsItem = actionItem('board settings', onBoardSettings);
   const actionItems = [
     divider,
+    actionItem('rename board', startTitleRename),
     actionItem('new board', newBoardFromDialog),
     boardSettingsItem,
     actionItem('delete board', confirmDeleteBoard, 'wb-board-menu-danger'),
@@ -407,7 +408,6 @@ function paintPresence(connectedSessionIds: readonly string[]): void {
   const connectedNames = connectedSessionIds.map(sessionLabel);
   const pillNames = connectedSessionIds.filter((sessionId) => sessionId !== pairedSessionId).map(sessionLabel);
   const connectedCount = el('span', connectedNames.length === 0 ? 'wb-presence-count wb-presence-none' : 'wb-presence-count wb-presence-pill', `${connectedNames.length} connected`);
-  connectedCount.title = connectedNames.join(', ');
   parts.presence.replaceChildren(...pillNames.map((name) => el('span', 'wb-presence-pill', name)), connectedCount);
   if (connectedNames.length === 0) parts.presence.prepend(el('span', 'wb-presence-none', 'no sessions connected'));
 }
@@ -758,7 +758,6 @@ export function mountBoardHost(): HTMLElement {
   });
   boardMenu.trigger.dataset.phoneVisible = '';
   const boardTitle = createPressable('wb-board-title pane-header-title');
-  boardTitle.title = 'Click to rename';
   boardTitle.addEventListener('click', startTitleRename);
   const boardMeta = el('span', 'wb-board-meta pane-header-subtitle');
   const presence = el('div', 'wb-presence');

@@ -29,7 +29,6 @@ export function sessionRowPrSignals(sessionId: string): PrSignal[] {
     className: 'session-pr-chip',
     linkUrl: chip.url,
     ariaLabel: `Show pull request ${chip.key} in Reviews`,
-    hoverText: `${chip.hoverText}. Show in Reviews; Cmd/Ctrl-click opens GitHub`,
     onActivate: () => {
       if (showPrInReviewQueue(chip.key)) return;
       openExternalUrl(chip.url);
@@ -40,7 +39,6 @@ export function sessionRowPrSignals(sessionId: string): PrSignal[] {
 function createUnlinkButton(chip: PrSignal, sessionId: string): HTMLButtonElement {
   const unlinkButton = createPressable('session-pr-chip-unlink');
   unlinkButton.append(createLineIcon(CLOSE_ICON_PATH));
-  unlinkButton.title = `Unlink ${chip.key} from this session`;
   unlinkButton.setAttribute('aria-label', `Unlink pull request ${chip.key}`);
   unlinkButton.addEventListener('click', (event) => {
     event.stopPropagation();
