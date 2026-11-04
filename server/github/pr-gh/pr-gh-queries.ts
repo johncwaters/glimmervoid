@@ -78,7 +78,7 @@ const REPLY_THREAD_MUTATION = `mutation($id: ID!, $body: String!) {
 
 const TEAM_THREAD_COMMENT_FIELDS = `pageInfo { hasNextPage endCursor } nodes { body author { login } viewerDidAuthor createdAt url originalCommit { oid } }`;
 
-const TEAM_THREAD_FIELDS = `id path line isResolved viewerCanResolve comments(first: 100) { ${TEAM_THREAD_COMMENT_FIELDS} }`;
+const TEAM_THREAD_FIELDS = `id path line diffSide isResolved viewerCanResolve comments(first: 100) { ${TEAM_THREAD_COMMENT_FIELDS} }`;
 
 function teamThreadsQuery(prs: readonly PrReference[]): string {
   return reviewThreadsBatchQuery(prs).replaceAll(REVIEW_THREAD_FIELDS, TEAM_THREAD_FIELDS).replaceAll('pageInfo { hasNextPage }', 'pageInfo { hasNextPage endCursor }');

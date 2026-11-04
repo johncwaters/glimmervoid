@@ -2,6 +2,7 @@ import { githubPollingShape } from './github-polling.ts';
 import { z } from 'zod';
 import { NODE_ID_RE } from './github-ids.ts';
 import { FULL_SHA_RE } from '../git-text.ts';
+import { PrFlowItem } from './pr-flows.ts';
 
 export const CommitSha = z.string().regex(FULL_SHA_RE);
 const repoSlug = z.string().regex(/^[^/]+\/[^/]+$/);
@@ -57,7 +58,7 @@ export type FindingSeverity = z.infer<typeof FindingSeverity>;
 export const DiffExcerptLine = z.object({ line: z.number().int().positive().nullable(), kind: z.enum(['add', 'del', 'context']), text: z.string() });
 export type DiffExcerptLine = z.infer<typeof DiffExcerptLine>;
 
-export const DraftComment = ReviewComment.extend({ severity: FindingSeverity.optional(), excerpt: z.array(DiffExcerptLine).max(9).optional() });
+export const DraftComment = ReviewComment.extend({ severity: FindingSeverity.optional(), excerpt: z.array(DiffExcerptLine).max(9).optional(), flaggedBy: z.array(z.string().min(1)).optional() });
 export type DraftComment = z.infer<typeof DraftComment>;
 
 export const ReviewFinding = z.object({
@@ -172,6 +173,7 @@ export const TeamReviewThreadNode = z.object({
   id: ReviewThreadId,
   path: z.string(),
   line: z.number().int().positive().nullable(),
+  diffSide: z.enum(['LEFT', 'RIGHT']).optional(),
   isResolved: z.boolean(),
   viewerCanResolve: z.boolean(),
   comments: z.object({
@@ -249,6 +251,7 @@ export const ReviewDraft = z.object({
   status: z.enum(['ready', 'stale', 'posted', 'discarded', 'error']),
   error: z.string().optional(),
   threads: z.array(TeamReviewThread).optional(),
+  otherReviewItems: z.array(PrFlowItem).optional(),
   viewerThreads: ViewerThreadTally.optional(),
   githubReviews: z.array(GithubReview).optional(),
   reviewDecision: GithubReviewDecision.nullable().optional(),
@@ -325,6 +328,7 @@ export const TeamReviewStateEntry = z.object({
   resumable: ResumableReview.nullable().optional(),
   reviewedAt: z.number().optional(),
   threads: z.array(TeamReviewThread).optional(),
+  otherReviewItems: z.array(PrFlowItem).optional(),
   viewerThreads: ViewerThreadTally.optional(),
   autoResolvedThreadIds: z.array(ReviewThreadId).optional(),
   githubReviews: z.array(GithubReview).optional(),

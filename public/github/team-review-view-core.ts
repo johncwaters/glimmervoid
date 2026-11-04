@@ -388,8 +388,21 @@ export function isSeverityIncludedByDefault(severity: FindingSeverity | null): b
   return severity !== 'LOW';
 }
 
-export function isIncludedByDefault(comment: Pick<DraftComment, 'body' | 'severity'>): boolean {
+export function isIncludedByDefault(comment: Pick<DraftComment, 'body' | 'severity' | 'flaggedBy'>): boolean {
+  if ((comment.flaggedBy?.length ?? 0) > 0) return false;
   return isSeverityIncludedByDefault(commentSeverity(comment));
+}
+
+export function alreadyFlaggedText(comment: Pick<DraftComment, 'flaggedBy'>): string | null {
+  const reviewers = comment.flaggedBy ?? [];
+  return reviewers.length === 0 ? null : `already flagged by ${reviewers.join(', ')}`;
+}
+
+export function otherReviewRows(draft: Pick<ReviewDraft, 'otherReviewItems' | 'url'>): { key: string; location: string; url: string; reviewers: string; excerpt: string }[] {
+  return (draft.otherReviewItems ?? []).map((item) => {
+    const lines = item.lineStart === null ? '' : item.lineEnd !== null && item.lineEnd !== item.lineStart ? `:${item.lineStart}-${item.lineEnd}` : `:${item.lineStart}`;
+    return { key: item.key, location: `${item.path}${lines}`, url: item.url ?? draft.url, reviewers: [...new Set(item.sources.map((source) => source.name))].join(', '), excerpt: item.excerpt };
+  });
 }
 
 const CITABLE_FILE_EXTENSIONS: ReadonlySet<string> = new Set([
@@ -799,6 +812,10 @@ export function laneNotice(status: TeamReviewStatus | null | undefined): string 
 
 export function readyRowSignature(draft: ReviewDraft): string {
   return `${draft.key}@${draft.reviewedHead}:${draft.status}:${draft.summary}:${githubReviewItems(draft).map((review) => review.text).join(', ')}`;
+}
+
+export function flaggedCommentsSignature(draft: Pick<ReviewDraft, 'comments'>): string {
+  return draft.comments.map((comment) => alreadyFlaggedText(comment) ?? '').join('\n');
 }
 
 export function detailHeadingSignature(review: ReviewDraft | InFlightReview): string {

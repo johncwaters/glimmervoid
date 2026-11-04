@@ -7,6 +7,8 @@ type SettleAction = (isDone: boolean, text: string, tone?: 'ok' | 'error') => vo
 
 interface ActionDetailHandle {
   signature: string;
+  flaggedSignature?: string;
+  isTouched?: () => boolean;
   element: HTMLElement;
   settle: SettleAction;
   showReceipt?: (text: string, tone?: 'ok' | 'error') => void;

@@ -4,7 +4,7 @@ import type { InFlightReview, QueuedReview, ReviewDraft, TeamReviewAction } from
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { el, externalLink } from '../dom-helpers.ts';
 import { formatTrailOffset } from '../radar/radar-core.ts';
-import { THREAD_COMMENT_PREVIEW_LINES, THREAD_REPLY_PREVIEW_LINES, threadBodyOverflowsPreview, detailThreadItems, actionProgressText, attentionDetail, attentionNextStep, buildActionRequest, buildReadyDecisionRequest, detailActionLayout, isIncludedByDefault, isSelectionRequired, isSeverityIncludedByDefault, generalFindingsOf, hasSelection, hasRequeueFooter, inFlightProgressText, leadingDecision, pickedDecisionText, postedOutcomeText, postingPreview, queuedDetailText, readyRowSignature, reviewProgressSteps } from './team-review-view-core.ts';
+import { THREAD_COMMENT_PREVIEW_LINES, THREAD_REPLY_PREVIEW_LINES, threadBodyOverflowsPreview, detailThreadItems, actionProgressText, attentionDetail, attentionNextStep, buildActionRequest, buildReadyDecisionRequest, detailActionLayout, isIncludedByDefault, isSelectionRequired, isSeverityIncludedByDefault, generalFindingsOf, hasSelection, hasRequeueFooter, inFlightProgressText, leadingDecision, pickedDecisionText, postedOutcomeText, postingPreview, queuedDetailText, readyRowSignature, reviewProgressSteps, otherReviewRows, flaggedCommentsSignature } from './team-review-view-core.ts';
 import type { ReadyDecisionControl, ReviewSelection } from './team-review-view-core.ts';
 import { reviewPostChordText } from '../shortcuts-core.ts';
 import { SHORTCUT_PLATFORM } from '../shortcuts.ts';
@@ -32,6 +32,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   column.append(createDetailHeading(draft, { hasFactsRail: true }));
   column.append(threads, createVerdictBlock(draft), ...createHandChecks(draft));
 
+  let isTouched = false;
   const generalFindings = generalFindingsOf(draft.body);
   const includedComments = new Set(draft.comments.flatMap((comment, index) => (isIncludedByDefault(comment) ? [index] : [])));
   const includedGeneral = new Set(generalFindings.flatMap((finding, index) => (isSeverityIncludedByDefault(finding.severity) ? [index] : [])));
@@ -142,6 +143,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
     return true;
   }
   function runKey(action: ReviewDetailKeyAction): boolean {
+    isTouched = true;
     const pickedByKey = PICKED_CONTROL_BY_KEY[action];
     if (pickedByKey) return pickDecision(pickedByKey);
     if (action === 'next-finding') return moveFinding(1);
@@ -157,6 +159,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
     paintActionStatus(bar.status, null, '');
   }
   function onEdit(): void {
+    isTouched = true;
     clearReceipt();
     paintDecision();
   }
@@ -178,12 +181,13 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   refreshThreadDetails(detail, draft);
   paintDecision();
   paintPick();
-  return { signature: readyRowSignature(draft), element: detail, settle, showReceipt, clearReceipt, runKey };
+  return { signature: readyRowSignature(draft), flaggedSignature: flaggedCommentsSignature(draft), isTouched: () => isTouched, element: detail, settle, showReceipt, clearReceipt, runKey };
 }
 
 function readyDetailFor(draft: ReviewDraft): ActionDetailHandle {
   const cached = _readyDetails.get(draft.key);
-  if (cached && (_pendingActions.has(draft.key) || cached.signature === readyRowSignature(draft))) {
+  const isFlaggingCurrent = cached?.flaggedSignature === flaggedCommentsSignature(draft) || cached?.isTouched?.() === true;
+  if (cached && (_pendingActions.has(draft.key) || (cached.signature === readyRowSignature(draft) && isFlaggingCurrent))) {
     refreshThreadDetails(cached.element, draft);
     refreshDeskFacts(cached.element, draft);
     refreshDetailHeading(cached.element, draft, { hasFactsRail: true });
@@ -242,9 +246,9 @@ function createInReviewDetail(review: InFlightReview): HTMLElement {
 function refreshThreadDetails(detail: HTMLElement, draft: ReviewDraft): void {
   if (_pendingActions.has(draft.key)) return;
   const threads = detail.querySelector<HTMLElement>('[data-review-threads]');
-  const signature = JSON.stringify([draft.liveHead, draft.threads]);
+  const signature = JSON.stringify([draft.liveHead, draft.threads, draft.otherReviewItems]);
   if (!threads || threads.dataset.reviewThreads === signature) return;
-  threads.replaceChildren(...createThreadDetails(draft));
+  threads.replaceChildren(...createThreadDetails(draft), ...createOtherReviewItems(draft));
   threads.dataset.reviewThreads = signature;
 }
 
@@ -302,6 +306,23 @@ function createThreadDetails(draft: ReviewDraft): HTMLElement[] {
     row.append(footer);
     if (item.thread.resolveError) row.append(el('p', 'pr-attention-detail', item.thread.resolveError));
     list.append(row);
+  }
+  section.append(list);
+  return [section];
+}
+
+function createOtherReviewItems(draft: ReviewDraft): HTMLElement[] {
+  const rows = otherReviewRows(draft);
+  if (rows.length === 0) return [];
+  const section = el('section', 'my-pr-threads-section');
+  section.append(el('h3', 'pr-section-heading', 'Other reviewers'));
+  const list = el('div', 'my-pr-threads');
+  for (const row of rows) {
+    const card = el('div', 'my-pr-thread pr-thread-card');
+    const heading = el('div', 'my-pr-thread-heading pr-thread-heading');
+    heading.append(externalLink('pr-link my-pr-thread-location', row.location, row.url), el('span', 'pr-author-login', row.reviewers));
+    card.append(heading, createThreadBody(row.excerpt, false, false, row.url));
+    list.append(card);
   }
   section.append(list);
   return [section];

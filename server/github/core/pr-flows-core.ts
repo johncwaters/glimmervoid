@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { z } from 'zod';
 import type { MyPrThread } from '../../../shared/contracts/my-prs.ts';
+import type { TeamReviewThreadNode } from '../../../shared/contracts/team-review.ts';
 import { PrFlowRule, PrFlowsSettings } from '../../../shared/contracts/pr-flows.ts';
 import type { PrFlowActionRef, PrFlowHandled, PrFlowItem, PrFlowPriority, PrFlowSource, PrFlowsState } from '../../../shared/contracts/pr-flows.ts';
 
@@ -10,6 +11,7 @@ type PrFlowCandidate = {
 
 const MERGE_LINE_DISTANCE = 3;
 const BODY_PREFIX_CHARACTERS = 120;
+const TEAMMATE_THREAD_BODY_MAX_CHARACTERS = 1500;
 const PRIORITY_RANK: Readonly<Record<PrFlowPriority, number>> = { blocker: 0, high: 1, medium: 2, low: 3, unknown: 4 };
 
 function normalizedBodyPrefix(body: string): string {
@@ -95,6 +97,29 @@ export function mergeItems(candidates: readonly PrFlowCandidate[]): PrFlowItem[]
     ...mergeLinedCandidates(pathCandidates.filter((candidate) => candidate.lineStart !== null)),
     ...mergeUnlinedCandidates(pathCandidates.filter((candidate) => candidate.lineStart === null)),
   ]).sort((left, right) => PRIORITY_RANK[left.priority] - PRIORITY_RANK[right.priority] || left.path.localeCompare(right.path) || (left.lineStart ?? 0) - (right.lineStart ?? 0));
+}
+
+export function teammateThreadItems(nodes: readonly TeamReviewThreadNode[]): PrFlowItem[] {
+  return mergeItems(nodes.flatMap((node) => {
+    const first = node.comments.nodes.at(0);
+    if (node.isResolved || !first || first.viewerDidAuthor) return [];
+    const line = node.diffSide === 'RIGHT' ? node.line : null;
+    const body = [...first.body].slice(0, TEAMMATE_THREAD_BODY_MAX_CHARACTERS).join('');
+    return [{
+      path: node.path, lineStart: line, lineEnd: line, priority: 'unknown' as const,
+      source: { kind: 'thread' as const, name: first.author?.login ?? 'a deleted account', threadId: node.id, url: first.url },
+      body, url: first.url,
+    }];
+  }));
+}
+
+function overlapsItem(finding: { path: string; line: number | null }, item: PrFlowItem): boolean {
+  if (finding.path !== item.path || finding.line === null || item.lineStart === null) return false;
+  return finding.line >= item.lineStart - MERGE_LINE_DISTANCE && finding.line <= (item.lineEnd ?? item.lineStart) + MERGE_LINE_DISTANCE;
+}
+
+export function flaggingReviewers(finding: { path: string; line: number | null }, items: readonly PrFlowItem[]): string[] {
+  return [...new Set(items.filter((item) => overlapsItem(finding, item)).flatMap((item) => item.sources.map((source) => source.name)))];
 }
 
 export function itemLocation(item: Pick<PrFlowItem, 'path' | 'lineStart' | 'lineEnd'>): string {

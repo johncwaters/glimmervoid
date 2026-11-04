@@ -225,6 +225,7 @@ html:not([data-layout="phone"]) .pr-desk > .pr-decision-bar { align-self: end; }
 .pr-comment-preview { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
 .pr-comment-content[open] > .pr-comment-header > .pr-comment-preview { visibility: hidden; }
 .pr-comment-location { flex: 0 1 auto; min-width: 0; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-head); }
+.pr-comment-flagged { flex: 0 0 auto; color: var(--text-dim); white-space: nowrap; }
 .pr-comment-paragraph { color: var(--text); font-size: var(--type-meta); line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 .pr-comment-paragraph code, .pr-verdict-box code { padding: 1px 5px; border-radius: var(--radius); background: var(--bg-surface); color: var(--text-head); font-size: var(--type-meta); }
 .pr-citation { color: var(--text-dim); font-size: var(--type-meta); overflow-wrap: anywhere; }

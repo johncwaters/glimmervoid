@@ -1,5 +1,6 @@
 import { viewerThreadTally, hasPresentableThreads, isThreadPlaceholderDraft, answeredViewerThreads, shouldAutoResolveThread, shouldJudgeThread, buildThreadJudgeRequest, parseThreadJudgeResult, threadJudgePatch, THREAD_JUDGE_BACKOFF_MS, THREAD_PLACEHOLDER_ERROR } from '../core/team-review-threads-core.ts';
 import * as core from '../core/team-review-core.ts';
+import { teammateThreadItems } from '../core/pr-flows-core.ts';
 import type { TeamReviewCandidate } from '../core/team-review-core.ts';
 import type { TeamReviewStateEntry } from '../../../shared/contracts/team-review.ts';
 import { errorMessage } from '../../../shared/text.ts';
@@ -11,11 +12,11 @@ function createTeamReviewAnsweredThreads(context: TeamReviewPollerContext, statu
   const { emitStatus } = statusReporter;
 
   async function handleAnsweredThreads(candidates: TeamReviewCandidate[]): Promise<boolean> {
-    if (!github.resolveReviewThread) return false;
-    const eligible = candidates.filter(({ key }) => {
+    const isViewerThreadEligible = ({ key }: TeamReviewCandidate) => {
       const entry = runtime.state[key];
-      return entry?.githubReviews?.some((review) => review.isViewer) || entry?.draft?.status === 'posted';
-    });
+      return Boolean(github.resolveReviewThread) && (entry?.githubReviews?.some((review) => review.isViewer) || entry?.draft?.status === 'posted');
+    };
+    const eligible = candidates.filter((candidate) => isViewerThreadEligible(candidate) || runtime.state[candidate.key]?.draft?.status === 'ready');
     if (eligible.length === 0) return false;
     const fetchedRead = await store.requestTeamReviewThreads(eligible, 'no-wait');
     if (fetchedRead.isRateLimited) {
@@ -30,6 +31,12 @@ function createTeamReviewAnsweredThreads(context: TeamReviewPollerContext, statu
       const nodes = fetched.get(candidate.key);
       const head = entry?.liveHead;
       if (!entry || !nodes || !head) continue;
+      const otherReviewItems = teammateThreadItems(nodes);
+      if (JSON.stringify(otherReviewItems) !== JSON.stringify(entry.otherReviewItems ?? [])) {
+        entry.otherReviewItems = otherReviewItems;
+        isDirty = true;
+      }
+      if (!isViewerThreadEligible(candidate) || !github.resolveReviewThread) continue;
       const viewerThreads = viewerThreadTally(nodes);
       if (viewerThreads.total !== entry.viewerThreads?.total || viewerThreads.resolved !== entry.viewerThreads?.resolved) {
         entry.viewerThreads = viewerThreads;

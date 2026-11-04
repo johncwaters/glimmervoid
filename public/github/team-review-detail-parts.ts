@@ -4,7 +4,7 @@ import type { DiffExcerptLine, DraftComment, EarlierReview, FindingSeverity, Han
 import { nextRequestId, sendControlMsg } from '../control-ws.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { el, externalLink } from '../dom-helpers.ts';
-import { changedSinceReviewText, changedSinceReviewUrl, earlierReviewPreview, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, buildNotMineRequest, checksText, commentLocation, detailActionLayout, groupHandCheckPaths, HAND_CHECK_INLINE_PATH_LIMIT, handCheckPathSummary, parseInlineSegments, LEGACY_SUMMARY_HINT, parseReviewComment, reviewCommentPreview, shortCommentLocation, pullRequestLabel, detailHeadingSignature, commentSeverity, detailMetaText, reviewTierTip, viewerThreadsText, hasAllViewerThreadsResolved, viewerApprovalContext, viewerApprovalNotice, viewerApprovalTip, earlierReviewTip, changedSinceReviewTip } from './team-review-view-core.ts';
+import { changedSinceReviewText, changedSinceReviewUrl, earlierReviewPreview, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, buildNotMineRequest, checksText, commentLocation, detailActionLayout, groupHandCheckPaths, HAND_CHECK_INLINE_PATH_LIMIT, handCheckPathSummary, parseInlineSegments, LEGACY_SUMMARY_HINT, parseReviewComment, reviewCommentPreview, shortCommentLocation, pullRequestLabel, detailHeadingSignature, commentSeverity, detailMetaText, reviewTierTip, viewerThreadsText, hasAllViewerThreadsResolved, viewerApprovalContext, viewerApprovalNotice, viewerApprovalTip, earlierReviewTip, changedSinceReviewTip, alreadyFlaggedText } from './team-review-view-core.ts';
 import type { HoverTip } from './team-review-view-core.ts';
 import { setHoverTip } from '../hover-tip.ts';
 import type { GeneralFinding } from './team-review-view-core.ts';
@@ -244,12 +244,18 @@ interface FindingContent {
   locationTitle: string;
   excerpt?: readonly DiffExcerptLine[];
   citedLine?: number;
+  alreadyFlagged?: string;
+}
+
+function withAlreadyFlagged(alreadyFlagged: string | null): Pick<FindingContent, 'alreadyFlagged'> {
+  return alreadyFlagged === null ? {} : { alreadyFlagged };
 }
 
 function commentFindingContent(comment: DraftComment): FindingContent {
   return {
     body: comment.body, severity: commentSeverity(comment), location: shortCommentLocation(comment), locationTitle: commentLocation(comment),
     ...(comment.excerpt ? { excerpt: comment.excerpt, citedLine: comment.line } : {}),
+    ...withAlreadyFlagged(alreadyFlaggedText(comment)),
   };
 }
 
@@ -271,7 +277,7 @@ function generalFindingContent(finding: GeneralFinding): FindingContent {
   return { body: finding.body, severity: finding.severity, location: finding.location?.split('/').at(-1) ?? 'general', locationTitle };
 }
 
-function createCommentContent({ body, severity, location: locationText, locationTitle, excerpt, citedLine }: FindingContent): HTMLDetailsElement {
+function createCommentContent({ body, severity, location: locationText, locationTitle, excerpt, citedLine, alreadyFlagged }: FindingContent): HTMLDetailsElement {
   const content = el('details', 'pr-comment-content');
   const header = el('summary', 'pr-comment-header');
   const parsed = parseReviewComment(body);
@@ -279,6 +285,7 @@ function createCommentContent({ body, severity, location: locationText, location
   const location = el('span', 'pr-comment-location', locationText);
   location.title = locationTitle;
   header.append(location);
+  if (alreadyFlagged) header.append(el('span', 'pr-comment-flagged', alreadyFlagged));
   header.append(el('span', 'pr-comment-preview', reviewCommentPreview(parsed.paragraphs)));
   content.append(header);
   const paragraphs = el('div', 'pr-comment-paragraphs');

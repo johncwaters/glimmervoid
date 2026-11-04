@@ -2,6 +2,7 @@ import type { GithubPr } from '../../../shared/contracts/github-prs.ts';
 import { decisionAsIfApprovalRequired, canApproveAfterComment, DECIDING_REVIEW_STATES, EarlierReview, FindingSeverity, GithubReviewState, PostingPlan, type QueuedReview, ReviewFinding, ReviewResult, ReviewVerdict } from '../../../shared/contracts/team-review.ts';
 import { AUTOMATED_REVIEW_NOTE, CREDITED_REVIEW_NOTE, HAND_APPROVED_REVIEW_NOTE, findingHeader as renderFindingHeader, foldedFindingSection, generalFindingBullet, parseLeadingFindingHeader, withoutAutomatedNote } from '../../../shared/team-review-markdown.ts';
 import { isThreadPlaceholderDraft } from './team-review-threads-core.ts';
+import { flaggingReviewers } from './pr-flows-core.ts';
 import type {
   DiffExcerptLine, DraftComment, GithubReview, HandCheck, InFlightReview, PostedReviewEvent, PostingPlan as PostingPlanType, PrDetail, PriorReview, ReviewComment, ReviewDraft, ReviewProgressPhase,
   ResumableReview, ReviewAssessment, ReviewResult as ReviewResultType, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
@@ -545,9 +546,19 @@ function earlierReviewShown(entry: TeamReviewStateEntry, draft: ReviewDraft): Ea
   return EarlierReview.parse(prior);
 }
 
+function withOtherReviewItems(entry: TeamReviewStateEntry, draft: ReviewDraft): Partial<ReviewDraft> {
+  const otherReviewItems = entry.otherReviewItems ?? [];
+  if (otherReviewItems.length === 0) return {};
+  const comments = draft.comments.map((comment) => {
+    const flaggedBy = comment.side === 'LEFT' ? [] : flaggingReviewers(comment, otherReviewItems);
+    return flaggedBy.length === 0 ? comment : { ...comment, flaggedBy };
+  });
+  return { otherReviewItems, comments };
+}
+
 function presentedDraft(entry: TeamReviewStateEntry, draft: ReviewDraft): ReviewDraft {
   const earlierReview = earlierReviewShown(entry, draft);
-  draft = { ...draft, ...(entry.threads ? { threads: entry.threads } : {}), ...(entry.viewerThreads ? { viewerThreads: entry.viewerThreads } : {}), ...(earlierReview ? { earlierReview } : {}) };
+  draft = { ...draft, ...(entry.threads ? { threads: entry.threads } : {}), ...(entry.viewerThreads ? { viewerThreads: entry.viewerThreads } : {}), ...(earlierReview ? { earlierReview } : {}), ...withOtherReviewItems(entry, draft) };
   const withReviewTime = entry.reviewedAt !== undefined ? { ...draft, reviewedAt: entry.reviewedAt } : draft;
   const withReviews = entry.githubReviews?.length ? { ...withReviewTime, githubReviews: entry.githubReviews } : withReviewTime;
   const withDecision = entry.reviewDecision ? { ...withReviews, reviewDecision: entry.reviewDecision } : withReviews;

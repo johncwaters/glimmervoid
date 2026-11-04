@@ -6,7 +6,10 @@ import { normalizeGithubPr } from '../server/github/core/github-store-core.ts';
 import { myPrFromGithubPr } from '../shared/my-pr-merge.ts';
 import type { PrFlowsStatus } from '../shared/contracts/pr-flows.ts';
 import { createPrFlowsWiring } from '../server/github/pr-flows-wiring.ts';
-import { prFlowRules } from '../server/github/core/pr-flows-core.ts';
+import { prFlowRules, teammateThreadItems } from '../server/github/core/pr-flows-core.ts';
+import { draftsNewestFirst } from '../server/github/core/team-review-core.ts';
+import { ReviewDraft, TeamReviewThreadNode } from '../shared/contracts/team-review.ts';
+import { isIncludedByDefault, otherReviewRows } from '../public/github/team-review-view-core.ts';
 import { DEFAULT_CONFIG, validateConfig } from '../server/config-store.ts';
 import { threadRows } from '../public/github/my-prs-view-core.ts';
 
@@ -147,4 +150,37 @@ test('a fix-local rule pastes the comment without submitting it', async () => {
   });
   await prFlows.applyRules();
   assert.deepEqual(pastes, [false]);
+});
+
+function teammateThread(id: string, line: number, login: string, extra: { isResolved?: boolean; viewerDidAuthor?: boolean; diffSide?: 'LEFT' | 'RIGHT' } = {}) {
+  return TeamReviewThreadNode.parse({
+    id, path: 'src/a.ts', line, diffSide: extra.diffSide ?? 'RIGHT', isResolved: extra.isResolved ?? false, viewerCanResolve: false,
+    comments: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [
+      { body: `${login} says line ${line} is wrong`, author: { login }, viewerDidAuthor: extra.viewerDidAuthor ?? false, createdAt: '2026-11-01T10:00:00Z', url: `https://github.com/acme/app/pull/7#discussion_${id}`, originalCommit: null },
+    ] },
+  });
+}
+
+test('on a teammate PR an own finding near a bot thread is marked already flagged and left out of the posting plan', () => {
+  const otherReviewItems = teammateThreadItems([
+    teammateThread('PRRT_bot', 10, 'greptile[bot]'),
+    teammateThread('PRRT_mine', 30, 'operator', { viewerDidAuthor: true }),
+    teammateThread('PRRT_done', 50, 'copilot[bot]', { isResolved: true }),
+    teammateThread('PRRT_deleted', 29, 'coderabbitai[bot]', { diffSide: 'LEFT' }),
+  ]);
+  const draft = ReviewDraft.parse({
+    key: 'acme/app#7', repo: 'acme/app', number: 7, title: 'PR 7', url: 'https://github.com/acme/app/pull/7', author: 'teammate', tier: 'full', reasons: [],
+    reviewedHead: 'c'.repeat(40), verdict: 'COMMENT', summary: '', body: '', status: 'ready',
+    comments: [
+      { path: 'src/a.ts', line: 12, side: 'RIGHT', body: 'Off by one', severity: 'HIGH' },
+      { path: 'src/a.ts', line: 30, side: 'RIGHT', body: 'Unrelated', severity: 'HIGH' },
+    ],
+  });
+
+  const [presented] = draftsNewestFirst({ 'acme/app#7': { draft, reviewedHead: draft.reviewedHead, inFlight: false, reviewAttempts: 1, updatedAt: 1, otherReviewItems } });
+  assert.ok(presented);
+
+  assert.deepEqual(otherReviewRows(presented).map((row) => `${row.location} ${row.reviewers}`), ['src/a.ts coderabbitai[bot]', 'src/a.ts:10 greptile[bot]']);
+  assert.deepEqual(presented.comments.map((comment) => comment.flaggedBy ?? []), [['greptile[bot]'], []]);
+  assert.deepEqual(presented.comments.map(isIncludedByDefault), [false, true]);
 });
