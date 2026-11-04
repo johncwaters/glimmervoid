@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.52.1] - 2026-11-04
+
 ### Added
 
 - `glimmervoid checkout <repo>` gives an agent its own checkout of another repository, by configured project name or path, that is removed with the session when it closes. An agent that runs `git worktree add` or `git clone` by hand is told about it once, and closing a session warns about work not yet saved in its checkouts.
