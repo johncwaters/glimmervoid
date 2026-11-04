@@ -8,6 +8,7 @@ export const systemClientVariants = [
   loose('shutdown'),
   loose('restart-server'),
   loose('alert-seen', { id: sessionId }),
+  loose('terminal-colors', { background: z.string().regex(/^#[0-9a-fA-F]{6}$/), foreground: z.string().regex(/^#[0-9a-fA-F]{6}$/) }),
   loose('request-health-snapshot'),
   loose('request-telemetry-deletion', { requestId }),
   loose('update-check'),

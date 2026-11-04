@@ -15,6 +15,7 @@ function createServerHandlers(_context: ControlContext, deps: ControlHandlerDeps
     requestShutdown,
     requestRestart,
     acknowledgeSeenAlert,
+    setTerminalColors,
     buildHealthSnapshot,
     getUpdateStatus,
     getUpdateJournal = null,
@@ -120,6 +121,7 @@ function createServerHandlers(_context: ControlContext, deps: ControlHandlerDeps
     'update-check': handleUpdateCheck,
     'update-apply': handleUpdateApply,
     'alert-seen': (msg: ClientMessageOf<'alert-seen'>) => { if (acknowledgeSeenAlert) acknowledgeSeenAlert(msg.id); },
+    'terminal-colors': (msg: ClientMessageOf<'terminal-colors'>) => { setTerminalColors?.({ background: msg.background, foreground: msg.foreground }); },
     'client-error': (msg: ClientMessageOf<'client-error'>) => {
       if (typeof msg.name !== 'string' || typeof msg.stack !== 'string') return;
       deps.telemetry?.captureClientError({ name: msg.name, stack: msg.stack });

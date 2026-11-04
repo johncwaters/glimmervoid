@@ -161,7 +161,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     recordOutcome,
     logger: console,
   });
-  const { agentConnect, agentIngressServer, getHookPort, hookRouter, makeSession, sshSigner } = sessionRuntime;
+  const { agentConnect, agentIngressServer, getHookPort, hookRouter, makeSession, setTerminalColors, sshSigner } = sessionRuntime;
 
 
   const agentIngressDependencies: AgentIngressDependencies = {
@@ -598,6 +598,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     requestShutdown,
     requestRestart,
     acknowledgeSeenAlert,
+    setTerminalColors,
     buildHealthSnapshot,
     getUpdateStatus: updateCheck.getStatus,
     getUpdateJournal: updateApply.getJournal,

@@ -21,6 +21,8 @@ import { createCodexCredentials } from '../codex-credentials.ts';
 import { chatgptAuthTokensLogin, chatgptAuthTokensRefreshResult } from '../core/codex-credentials-core.ts';
 import type { createCoderEnvWiring } from '../coder/coder-env-wiring.ts';
 import { stableNodePath } from '../stable-node-path.ts';
+import { DEFAULT_TERMINAL_COLORS } from '../../session/core/terminal-color-query.ts';
+import type { TerminalColors } from '../../session/core/terminal-color-query.ts';
 
 interface BackendSessionRuntimeDependencies {
   config: GlimmervoidConfig;
@@ -91,6 +93,8 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     lastForcedCodexRefreshAtMs = nowMs;
     return codexCredentials.refreshedHostLogin();
   };
+  let terminalColors: TerminalColors = DEFAULT_TERMINAL_COLORS;
+  const setTerminalColors = (colors: TerminalColors) => { terminalColors = colors; };
   const makeSession = createSessionFactory({
     commitSigningProgram,
     getCoderEnv: dependencies.getCoderEnv,
@@ -106,9 +110,10 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     getPlanReviewPort: dependencies.getPlanReviewPort || (() => null),
     resolveHookTools: (config) => resolveHookTools(config, { warn: dependencies.logger.warn.bind(dependencies.logger) }),
     getUserHooks: (projectId: string) => hooksForProject(dependencies.config.hooks, projectId),
+    getTerminalColors: () => terminalColors,
   });
 
-  return { agentConnect, agentIngressServer, claudeCommand, claudeCredentials, getHookPort, hookRouter, makeSession, sshSigner };
+  return { agentConnect, agentIngressServer, claudeCommand, claudeCredentials, getHookPort, hookRouter, makeSession, setTerminalColors, sshSigner };
 }
 
 export { createBackendSessionRuntime };

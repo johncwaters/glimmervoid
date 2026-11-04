@@ -13,6 +13,7 @@ import type { BenchmarkActionRequest, BenchmarkActionResult, BenchmarkStatus } f
 import type { MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrMergeRequest, MyPrMergeResult, MyPrMergeWhenReadyRequest, MyPrMergeWhenReadyResult, MyPrsSnapshot } from '../shared/contracts/my-prs.ts';
 import { errorMessage } from '../shared/text.ts';
 import type { Session } from '../session/sessions.ts';
+import type { TerminalColors } from '../session/core/terminal-color-query.ts';
 import type { ControlSocket } from './backend/backend-websockets.ts';
 import type { UpdateStatus } from './backend/backend-update.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from './config-store.ts';
@@ -103,6 +104,7 @@ interface ControlHandlerDeps {
   requestShutdown?: (() => unknown) | null;
   requestRestart?: (() => unknown) | null;
   acknowledgeSeenAlert?: ((sessionId: string) => void) | null;
+  setTerminalColors?: ((colors: TerminalColors) => void) | null;
   buildHealthSnapshot?: (() => unknown) | null;
   getUpdateStatus?: (() => UpdateStatus | null) | null;
   getUpdateJournal?: (() => UpdateJournal | null) | null;

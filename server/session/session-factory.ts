@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import type { HookRouter } from '../../detection/hook-source.ts';
 import type { UserHook } from '../../session/core/user-hooks-core.ts';
+import type { TerminalColors } from '../../session/core/terminal-color-query.ts';
 import { createRecorder } from '../../session/session-recorder.ts';
 import type { GitWorkspace } from '../../session/worktree/worktree-lifecycle-context.ts';
 import { Session } from '../../session/sessions.ts';
@@ -31,6 +32,7 @@ interface SessionFactoryDependencies {
   getPlanReviewPort: () => SessionPlanReviewPort | null;
   resolveHookTools: (config: GlimmervoidConfig) => ResolvedHookTool[];
   getUserHooks: (projectId: string) => UserHook[];
+  getTerminalColors?: () => TerminalColors;
   commitSigningProgram?: string | null;
   homeDir?: string;
   getCoderEnv?: () => CoderWorkspacePort | null;
@@ -130,6 +132,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       planReviewPort: dependencies.getPlanReviewPort(),
       planLimits: planLimitsEnabled(config),
       getUserHooks: () => dependencies.getUserHooks(project.id),
+      getTerminalColors: dependencies.getTerminalColors ?? null,
       prepareCoherence: builtMapping || isMachineShell ? null : prepareCoherence,
       commitSigningProgram: dependencies.commitSigningProgram ?? null,
       getRemoteLaunch: builtMapping ? () => remoteLaunchFor(project, builtMapping, dependencies.getConfig?.() ?? config) : null,

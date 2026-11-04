@@ -8,6 +8,7 @@ import { settingSavePayload } from './settings-view-core.ts';
 import { applyNextAttentionKeyCode } from '../shortcuts.ts';
 import { applyFlyingAnimals } from '../flying-animals.ts';
 import { applyPhoneArrowPad, applySessionUsageChips, applyTheme } from '../theme.ts';
+import { reportTerminalColors } from '../terminal-color-report.ts';
 import { isFlyingAnimalsEnabled, setFlyingAnimalsOnPhone, setFlyingAnimalsMinGapSeconds, setFlyingAnimalsMaxGapSeconds, setFlyingAnimalsMinDurationSeconds, setFlyingAnimalsMaxDurationSeconds, setFlyingAnimalsScale, setPhoneArrowPad, setSessionUsageChips, setFlyingAnimalsEnabled, setNotificationsEnabled, setNextAttentionKeyCode, setSoundId, setThemeId, getNextAttentionKeyCode } from '../ui-prefs.ts';
 import { applySettingsBroadcast } from './settings-store.ts';
 import { applySoundEnabled } from '../mute-button.ts';
@@ -48,6 +49,7 @@ function applyBrowserPreference(setting: SettingsSetting, value: unknown) {
   if (setting.path === 'pref:themeId') {
     setThemeId(String(value));
     applyTheme(String(value));
+    reportTerminalColors();
     return;
   }
   if (setting.path === 'pref:flyingAnimalsEnabled') {

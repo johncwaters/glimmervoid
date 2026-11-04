@@ -1,6 +1,7 @@
 import { HANDSHAKE_DEADLINE_MS, decideConnectionActions } from './connection-supervisor-core.ts';
 import type { ConnectionAction, ConnectionEvent, SupervisorState } from './connection-supervisor-core.ts';
 import { abandonControlSocket, onControlSocketChange, probeControl, replaceControlSocket } from './control-ws.ts';
+import { reportTerminalColors } from './terminal-color-report.ts';
 import { startWakeTimeline, noteWakeMark, noteNetworkMark } from './wake-timeline.ts';
 import { holdTerminalInputDuringWakeCheck, releaseHeldTerminalInput } from './session-card/terminal.ts';
 import { closeEveryTerminalUntilShown, reconnectShownTerminals } from './session-card/terminal-data-socket.ts';
@@ -90,6 +91,7 @@ function noteControlSocketChange(change: 'connecting' | 'opened' | 'closed') {
     }, HANDSHAKE_DEADLINE_MS);
     return;
   }
+  if (change === 'opened') reportTerminalColors();
   dispatchConnectionEvent({ kind: change === 'opened' ? 'control-opened' : 'control-closed' });
 }
 

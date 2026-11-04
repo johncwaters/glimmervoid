@@ -17,6 +17,7 @@ import type { UpdateJournal } from '../../shared/contracts/update-journal.ts';
 import type { PlanLimitsVendor, ServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import type { UpdateApplyOutcome } from '../update-apply.ts';
 import type { UpdateStatus } from './backend-update.ts';
+import type { TerminalColors } from '../../session/core/terminal-color-query.ts';
 import type { PlanReadResult } from '../plan-review-wiring.ts';
 import type { TracePage, TracePageRequest } from '../trace-wiring.ts';
 import type { Telemetry } from '../telemetry.ts';
@@ -80,6 +81,7 @@ interface BackendControlDependencies {
   requestShutdown: () => unknown;
   requestRestart: () => unknown;
   acknowledgeSeenAlert: (sessionId: string) => void;
+  setTerminalColors: (colors: TerminalColors) => void;
   buildHealthSnapshot: () => Record<string, unknown>;
   getUpdateStatus: () => UpdateStatus | null;
   getUpdateJournal: () => UpdateJournal;
@@ -148,6 +150,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     requestShutdown: dependencies.requestShutdown,
     requestRestart: dependencies.requestRestart,
     acknowledgeSeenAlert: dependencies.acknowledgeSeenAlert,
+    setTerminalColors: dependencies.setTerminalColors,
     buildHealthSnapshot: dependencies.buildHealthSnapshot,
     getUpdateStatus: dependencies.getUpdateStatus,
     getUpdateJournal: dependencies.getUpdateJournal,

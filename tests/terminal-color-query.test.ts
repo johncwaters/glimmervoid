@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Session } from '../session/sessions.ts';
 import { UNREACHABLE_PID } from './helpers/fake-pty.ts';
+import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
+import { DEFAULT_TERMINAL_COLORS } from '../session/core/terminal-color-query.ts';
+import type { TerminalColors } from '../session/core/terminal-color-query.ts';
 
 function dataDrivenPty(writes: string[]) {
   let emitOutput: (data: string) => void = () => {};
@@ -16,14 +19,17 @@ function dataDrivenPty(writes: string[]) {
   return { pty, emitOutput: (data: string) => emitOutput(data) };
 }
 
-test('a codex startup color probe split across PTY chunks gets one foreground and one background reply from the server', async () => {
+test('a codex startup color probe split across PTY chunks is answered with the colors the dashboard last reported', async () => {
+  let reportedColors: TerminalColors = DEFAULT_TERMINAL_COLORS;
+  const controlServer = createControlServer(controlDeps({ projects: [] }, { setTerminalColors: (colors) => { reportedColors = colors; } }));
+  connectControl(controlServer).send({ type: 'terminal-colors', background: '#F7F5FA', foreground: '#1a1625' });
   const writes: string[] = [];
   const { pty, emitOutput } = dataDrivenPty(writes);
   const session = new Session({
     id: 'codex-color-probe', name: 'codex-color-probe', path: process.cwd(), agent: 'codex',
     spawnCommand: { path: process.execPath, kind: 'exe' },
     ptySpawn: () => pty,
-    getTerminalColors: () => ({ background: '#F7F5FA', foreground: '#1a1625' }),
+    getTerminalColors: () => reportedColors,
   });
   try {
     await session.start();
