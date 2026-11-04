@@ -4,7 +4,7 @@ export const PrFlowPriority = z.enum(['blocker', 'high', 'medium', 'low', 'unkno
 export type PrFlowPriority = z.infer<typeof PrFlowPriority>;
 
 export const PrFlowSource = z.strictObject({
-  kind: z.enum(['own', 'thread', 'configured']), name: z.string().min(1), threadId: z.string().optional(), url: z.url().nullable(),
+  kind: z.enum(['own', 'thread', 'configured']), name: z.string().min(1), threadId: z.string().optional(), url: z.url().nullable(), priority: PrFlowPriority.optional(),
   excerpt: z.string(), dismissalKey: z.string().min(1),
 });
 export type PrFlowSource = z.infer<typeof PrFlowSource>;
@@ -36,7 +36,32 @@ export const PrFlowRule = z.strictObject({
 }).refine((rule) => rule.action !== 'dismiss' || rule.reason !== undefined, { message: 'a dismiss rule needs a reason', path: ['reason'] });
 export type PrFlowRule = z.infer<typeof PrFlowRule>;
 
+export const PrFlowCommand = z.strictObject({
+  id: z.string().regex(PR_FLOW_ID, { error: 'an id is lowercase letters, digits and dashes' }),
+  label: z.string().trim().min(1).max(24),
+  command: z.array(z.string().min(1)).min(1, { error: 'a command needs at least the program to run' }),
+  timeoutSeconds: z.number().int().positive().max(3600).default(120),
+});
+export type PrFlowCommand = z.infer<typeof PrFlowCommand>;
+
+export const PrFlowSourceFinding = z.strictObject({
+  path: z.string().min(1).max(500).regex(/^[^\u0000-\u001f\u007f]+$/, { error: 'a finding path must be one line with no control characters' }),
+  lineStart: z.number().int().positive().nullable(), lineEnd: z.number().int().positive().nullable(),
+  priority: PrFlowPriority, body: z.string().min(1).max(4000), url: z.httpUrl().nullable().default(null),
+});
+export type PrFlowSourceFinding = z.infer<typeof PrFlowSourceFinding>;
+
+const PrFlowStatusLine = z.strictObject({ label: z.string().min(1).max(24), state: z.string().min(1).max(80) });
+
+export const PrFlowSourceOutput = z.strictObject({
+  findings: z.array(PrFlowSourceFinding).max(200),
+  status: z.array(PrFlowStatusLine).max(4).default([]),
+});
+export type PrFlowSourceOutput = z.infer<typeof PrFlowSourceOutput>;
+
 export const PrFlowsSettings = z.looseObject({
+  sources: z.array(z.unknown(), { error: 'prFlows.sources must be an array' }).optional(),
+  actions: z.array(z.unknown(), { error: 'prFlows.actions must be an array' }).optional(),
   rules: z.array(z.unknown(), { error: 'prFlows.rules must be an array' }).optional(),
   repoRules: z.record(z.string(), z.unknown(), { error: 'prFlows.repoRules must be an object of repository names' }).optional(),
 });
@@ -50,11 +75,27 @@ export type PrFlowHandled = z.infer<typeof PrFlowHandled>;
 export const PrFlowsState = z.strictObject({
   handledByPr: z.record(z.string(), z.array(PrFlowHandled)),
   reopenedByPr: z.record(z.string(), z.array(z.string().min(1))),
+  approvedFingerprints: z.array(z.string().min(1)).default([]),
 });
 export type PrFlowsState = z.infer<typeof PrFlowsState>;
 
-export const PrFlowsStatus = z.looseObject({ type: z.literal('pr-flows-status'), handledByPr: PrFlowsState.shape.handledByPr, warnings: z.array(z.string()) });
+export const PrFlowPendingApproval = z.strictObject({
+  kind: z.enum(['source', 'action']), id: z.string(), label: z.string(), command: z.array(z.string()), timeoutSeconds: z.number(), fingerprint: z.string().min(1),
+});
+export type PrFlowPendingApproval = z.infer<typeof PrFlowPendingApproval>;
+
+export const PrFlowSourceRunStatus = z.strictObject({ label: z.string(), status: z.array(PrFlowStatusLine), error: z.string().nullable() });
+export type PrFlowSourceRunStatus = z.infer<typeof PrFlowSourceRunStatus>;
+
+export const PrFlowsStatus = z.looseObject({
+  type: z.literal('pr-flows-status'), handledByPr: PrFlowsState.shape.handledByPr, warnings: z.array(z.string()),
+  pendingApprovals: z.array(PrFlowPendingApproval).default([]),
+  sourceRunsByPr: z.record(z.string(), z.array(PrFlowSourceRunStatus)).default({}),
+  reviewItemsByPr: z.record(z.string(), z.array(PrFlowItem)).default({}),
+});
 export type PrFlowsStatus = z.infer<typeof PrFlowsStatus>;
+export const PrFlowApproveRequest = z.strictObject({ fingerprint: z.string().min(1).max(128) });
+export type PrFlowApproveRequest = z.infer<typeof PrFlowApproveRequest>;
 
 export const PrFlowItemRequest = z.strictObject({ prKey: z.string().min(1), itemKey: z.string().min(1) });
 export type PrFlowItemRequest = z.infer<typeof PrFlowItemRequest>;

@@ -125,4 +125,29 @@ function spawn(file: string, ...rest: unknown[]): ChildProcess {
 
 const execFileAsync = promisify(execFile);
 
-export { assertLaunchable, execFile, execFileAsync, execFileSync, execSync, refuseLaunchesOf, spawn, hide };
+interface CommandRunOptions {
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  timeoutMs: number;
+  maxBufferBytes: number;
+  signal?: AbortSignal;
+}
+
+interface CommandRunResult {
+  ok: boolean;
+  stdout: string;
+  stderr: string;
+}
+
+async function runCommandSafely(command: string, args: string[], { cwd, env, timeoutMs, maxBufferBytes, signal }: CommandRunOptions): Promise<CommandRunResult> {
+  try {
+    const { stdout, stderr } = await execFileAsync(command, args, { cwd, env, encoding: "utf8", timeout: timeoutMs, maxBuffer: maxBufferBytes, ...(signal ? { signal } : {}) });
+    return { ok: true, stdout, stderr };
+  } catch (error) {
+    const failure = (error ?? {}) as { stdout?: unknown; stderr?: unknown; message?: unknown };
+    return { ok: false, stdout: String(failure.stdout ?? ""), stderr: String(failure.stderr || failure.message || "") };
+  }
+}
+
+export { assertLaunchable, execFile, execFileAsync, execFileSync, execSync, refuseLaunchesOf, runCommandSafely, spawn, hide };
+export type { CommandRunOptions, CommandRunResult };

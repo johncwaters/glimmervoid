@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { execFileAsync } from './child-process-safe.ts';
+import { runCommandSafely } from './child-process-safe.ts';
 import { OVERRIDE_TOKEN_ENV } from './claude-credentials.ts';
 import { pairedReport, runBenchmark } from './core/benchmark-core.ts';
 import type { BenchmarkRunnerDependencies, PlannedCell } from './core/benchmark-core.ts';
@@ -96,14 +96,8 @@ function firstLine(text: string): string {
   return text.split(/\r?\n/).find((line) => line.trim() !== '')?.trim() ?? '';
 }
 
-async function runArmCommandSafely(command: string, args: string[], { cwd, env, timeoutMs, signal }: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number; signal: AbortSignal }): Promise<{ ok: boolean; stdout: string; stderr: string }> {
-  try {
-    const { stdout, stderr } = await execFileAsync(command, args, { cwd, env, encoding: 'utf8', timeout: timeoutMs, maxBuffer: RESULT_MAX_BYTES, signal });
-    return { ok: true, stdout, stderr };
-  } catch (error) {
-    const failure = (error ?? {}) as { stdout?: unknown; stderr?: unknown; message?: unknown };
-    return { ok: false, stdout: String(failure.stdout ?? ''), stderr: String(failure.stderr || failure.message || '') };
-  }
+function runArmCommandSafely(command: string, args: string[], options: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number; signal: AbortSignal }): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+  return runCommandSafely(command, args, { ...options, maxBufferBytes: RESULT_MAX_BYTES });
 }
 
 function withoutOverrideToken(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {

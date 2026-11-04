@@ -298,6 +298,18 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     fileOnlyReason: 'Rule definitions are written in config.json; the Workflows section only switches each rule on or off.', ...FILE_ONLY,
   },
   {
+    id: 'file-pr-flows-sources', path: 'prFlows.sources', title: 'PR flows sources', group: 'lanes-team-review',
+    description: 'Commands that report review findings for your own pull requests, run without a shell on each new head once you approve the exact command in My PRs. Each entry has id, label, command (an argv array; {prUrl}, {repo}, {number} and {head} expand inside one argument) and timeoutSeconds, and prints {"findings": [], "status": []} JSON.',
+    control: 'json', keywords: ['pull requests', 'review items', 'bots', 'commands'], defaultValue: [], takesEffect: 'now',
+    fileOnlyReason: 'Commands run on this machine, so they are written in config.json and each one waits for your approval in My PRs.', ...FILE_ONLY,
+  },
+  {
+    id: 'file-pr-flows-actions', path: 'prFlows.actions', title: 'PR flows actions', group: 'lanes-team-review',
+    description: 'Commands that act on a review item of your own pull request, named by rules as run:<id>. Each entry has id, label, command and timeoutSeconds like a source and waits for your approval in My PRs.',
+    control: 'json', keywords: ['pull requests', 'review items', 'commands'], defaultValue: [], takesEffect: 'now',
+    fileOnlyReason: 'Commands run on this machine, so they are written in config.json and each one waits for your approval in My PRs.', ...FILE_ONLY,
+  },
+  {
     id: 'file-pr-flows-rules', path: 'prFlows.rules', title: 'PR flows rules', group: 'lanes-team-review',
     description: 'Ordered rules for review items on your own pull requests; the first match acts with no click and lands in the Handled list, where Undo reopens it. Each matches on source, priority, paths, text and scope, and acts with ask, fix-local, dismiss or run:<action id>.',
     control: 'json', keywords: ['pull requests', 'review items', 'dismiss', 'automation'], defaultValue: [], takesEffect: 'now',

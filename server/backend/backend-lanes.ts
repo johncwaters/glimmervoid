@@ -42,6 +42,7 @@ import { createPrGh } from '../github/pr-gh.ts';
 import { createRepoCache } from '../git/repo-cache.ts';
 import { commandFor } from '../../session/adapters/index.ts';
 import { createPrFlowsWiring } from '../github/pr-flows-wiring.ts';
+import { createPrFlowsExternal } from '../github/pr-flows-external.ts';
 import { createMyPrMergeabilityFix, createMyPrsWiring, createGuardedPrStaging, sweepKeepMergeableLeftovers } from '../github/my-prs-wiring.ts';
 import { keepMergeableTimeoutSeconds } from '../github/core/my-prs-core.ts';
 import { createSessionPrLinkWiring } from '../github/session-pr-link-wiring.ts';
@@ -275,7 +276,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       savedConfig.prFlows = { ...current.data, rules: [...(current.data.rules ?? []), rule] };
       return undefined;
     })),
-    github, broadcast: broadcastControl, log: logger,
+    github, external: createPrFlowsExternal({ homeDir: glimmervoidHome }), broadcast: broadcastControl, log: logger,
   });
   const issues = createIssuesWiring({ config, store: githubStore.laneStore, github, gitWorkspace, broadcast: broadcastControl, hasSession: (id) => sessions.has(id), log: logger, clock: githubClock });
   const workflowsWorkRoot = path.join(glimmervoidHome, 'workflows-work');

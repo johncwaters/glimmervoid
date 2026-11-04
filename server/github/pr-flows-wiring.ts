@@ -1,9 +1,10 @@
 import type { MyPr } from '../../shared/contracts/my-prs.ts';
 import { PrFlowRule, PrFlowsState } from '../../shared/contracts/pr-flows.ts';
-import type { PrFlowDisposeRequest, PrFlowDisposeResult, PrFlowItem, PrFlowItemRequest, PrFlowSaveRuleRequest, PrFlowsStatus } from '../../shared/contracts/pr-flows.ts';
+import type { PrFlowApproveRequest, PrFlowCommand, PrFlowDisposeRequest, PrFlowDisposeResult, PrFlowItem, PrFlowItemRequest, PrFlowPendingApproval, PrFlowSaveRuleRequest, PrFlowSourceOutput, PrFlowSourceRunStatus, PrFlowsStatus } from '../../shared/contracts/pr-flows.ts';
 import { createJsonStateStore } from '../json-file.ts';
 import { fencedUntrusted } from '../lanes/core/lane-report-core.ts';
-import { fixLocallyPrompt, itemLocation, plannedActions, prFlowRules, savedRuleFor, unknownActionWarnings, withHandled, withOnlyOpenPrs, withReopened } from './core/pr-flows-core.ts';
+import { commandFingerprint, fixLocallyPrompt, itemLocation, mergeItems, pendingApprovals, plannedActions, prFlowCommands, prFlowRules, savedRuleFor, sourceCandidates, threadCandidates, unknownActionWarnings, withHandled, withOnlyOpenPrs, withReopened } from './core/pr-flows-core.ts';
+import type { PrFlowsExternal } from './pr-flows-external.ts';
 
 const UNTRUSTED_COMMENT_MAX_CHARS = 4000;
 
@@ -21,16 +22,26 @@ interface PrFlowsWiringOptions {
   readConfigFile: () => Promise<unknown>;
   appendRule: (rule: PrFlowRule) => Promise<boolean>;
   github: { replyToReviewThread(threadId: string, body: string): GithubWrite; resolveReviewThread(threadId: string): GithubWrite; unresolveReviewThread(threadId: string): GithubWrite };
+  external?: Pick<PrFlowsExternal, 'runSource'>;
   broadcast: (frame: PrFlowsStatus) => void;
   log: Pick<Console, 'warn'>;
   now?: () => number;
 }
 
-type Disposal = { request: PrFlowDisposeRequest; ruleName: string | null };
+const NO_EXTERNAL_RUNNER: Pick<PrFlowsExternal, 'runSource'> = { runSource: async () => ({ ok: false, error: 'No command runner is wired.' }) };
 
-function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile, appendRule, github, broadcast, log, now = Date.now }: PrFlowsWiringOptions) {
-  let state: PrFlowsState = { handledByPr: {}, reopenedByPr: {} };
+type Disposal = { request: PrFlowDisposeRequest; ruleName: string | null };
+type SourceRun = { head: string; fingerprint: string; label: string; output: PrFlowSourceOutput | null; error: string | null; at: number };
+
+const FAILED_SOURCE_RETRY_MS = 5 * 60 * 1000;
+
+function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile, appendRule, github, external = NO_EXTERNAL_RUNNER, broadcast, log, now = Date.now }: PrFlowsWiringOptions) {
+  let state: PrFlowsState = { handledByPr: {}, reopenedByPr: {}, approvedFingerprints: [] };
   let warnings: string[] = [];
+  let approvals: PrFlowPendingApproval[] = [];
+  let lastFrameText = '';
+  const sourceRunsByPr = new Map<string, Map<string, SourceRun>>();
+  const inFlightSourceKeys = new Set<string>();
   const store = createJsonStateStore({
     name: 'pr flows', filePath: statePath,
     parse: (raw) => PrFlowsState.safeParse(raw).data ?? null,
@@ -42,13 +53,35 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
   const resolvedThreadIds = new Set<string>();
   const inFlightItemKeys = new Set<string>();
 
+  function reviewItemsFor(pr: MyPr): PrFlowItem[] {
+    const runs = [...(sourceRunsByPr.get(pr.key)?.values() ?? [])].filter((run) => run.output !== null && run.head === pr.headRefOid);
+    if (runs.length === 0) return pr.reviewItems;
+    return mergeItems([...threadCandidates(pr.threads), ...runs.flatMap((run) => sourceCandidates(run.label, run.output?.findings ?? []))]);
+  }
+
   function statusFrame(): PrFlowsStatus {
-    return { type: 'pr-flows-status', handledByPr: state.handledByPr, warnings };
+    const sourceRunsByPrKey: Record<string, PrFlowSourceRunStatus[]> = {};
+    const reviewItemsByPr: Record<string, PrFlowItem[]> = {};
+    for (const pr of openPrs()) {
+      const runs = [...(sourceRunsByPr.get(pr.key)?.values() ?? [])];
+      if (runs.length === 0) continue;
+      sourceRunsByPrKey[pr.key] = runs.map((run) => ({ label: run.label, status: run.output?.status ?? [], error: run.error }));
+      reviewItemsByPr[pr.key] = reviewItemsFor(pr);
+    }
+    return { type: 'pr-flows-status', handledByPr: state.handledByPr, warnings, pendingApprovals: approvals, sourceRunsByPr: sourceRunsByPrKey, reviewItemsByPr };
+  }
+
+  function broadcastIfChanged(): void {
+    const frame = statusFrame();
+    const frameText = JSON.stringify(frame);
+    if (frameText === lastFrameText) return;
+    lastFrameText = frameText;
+    broadcast(frame);
   }
 
   function findItem(request: PrFlowItemRequest): { pr: MyPr; item: PrFlowItem } | null {
     const pr = openPrs().find((candidate) => candidate.key === request.prKey);
-    const item = pr?.reviewItems.find((candidate) => candidate.key === request.itemKey);
+    const item = pr ? reviewItemsFor(pr).find((candidate) => candidate.key === request.itemKey) : undefined;
     return pr && item ? { pr, item } : null;
   }
 
@@ -56,7 +89,7 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
     state = withOnlyOpenPrs(nextState, new Set(openPrs().map((pr) => pr.key)));
     const persistedState = state;
     await store.write(persistedState, () => `${JSON.stringify(persistedState, null, 2)}\n`);
-    broadcast(statusFrame());
+    broadcastIfChanged();
   }
 
   function threadIdsOf(item: PrFlowItem): string[] {
@@ -146,13 +179,70 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
     return isSaved ? { ok: true } : { ok: false, error: 'Could not save the rule to config.json.' };
   }
 
+  async function approve(request: PrFlowApproveRequest): Promise<PrFlowDisposeResult> {
+    await loaded;
+    const commands = prFlowCommands(await readConfigFile());
+    const approved = new Set(state.approvedFingerprints);
+    if (!pendingApprovals(commands, approved).some((pending) => pending.fingerprint === request.fingerprint)) {
+      return { ok: false, error: 'That entry changed or is already approved; check the list again.' };
+    }
+    await persist({ ...state, approvedFingerprints: [...approved, request.fingerprint] });
+    void applyRules();
+    return { ok: true };
+  }
+
+  async function runSourceFor(pr: MyPr, source: PrFlowCommand, fingerprint: string): Promise<void> {
+    const runKey = `${pr.key}\n${source.id}`;
+    if (inFlightSourceKeys.has(runKey)) return;
+    inFlightSourceKeys.add(runKey);
+    try {
+      const outcome = await external.runSource(source, pr);
+      const runs = sourceRunsByPr.get(pr.key) ?? new Map<string, SourceRun>();
+      runs.set(source.id, { head: pr.headRefOid, fingerprint, label: source.label, output: outcome.ok ? outcome.output : null, error: outcome.ok ? null : outcome.error, at: now() });
+      sourceRunsByPr.set(pr.key, runs);
+    } finally {
+      inFlightSourceKeys.delete(runKey);
+    }
+    void applyRules();
+  }
+
+  function startDueSources(pr: MyPr, sources: readonly PrFlowCommand[], approved: ReadonlySet<string>): void {
+    const runs = sourceRunsByPr.get(pr.key);
+    for (const source of sources) {
+      const fingerprint = commandFingerprint('source', source);
+      if (!approved.has(fingerprint)) continue;
+      const lastRun = runs?.get(source.id);
+      const isCurrent = lastRun?.head === pr.headRefOid && lastRun.fingerprint === fingerprint;
+      if (isCurrent && (lastRun.output !== null || now() - lastRun.at < FAILED_SOURCE_RETRY_MS)) continue;
+      void runSourceFor(pr, source, fingerprint);
+    }
+  }
+
+  function forgetUnconfiguredSourceRuns(openPrKeys: ReadonlySet<string>, sources: readonly PrFlowCommand[], approved: ReadonlySet<string>): void {
+    const liveFingerprints = new Set(sources.map((source) => commandFingerprint('source', source)).filter((fingerprint) => approved.has(fingerprint)));
+    for (const [prKey, runs] of sourceRunsByPr) {
+      if (!openPrKeys.has(prKey)) {
+        sourceRunsByPr.delete(prKey);
+        continue;
+      }
+      for (const [sourceId, run] of runs) if (!liveFingerprints.has(run.fingerprint)) runs.delete(sourceId);
+    }
+  }
+
   let isApplyingRules = false;
+  let isApplyRequested = false;
 
   async function applyRules(): Promise<void> {
-    if (isApplyingRules) return;
+    if (isApplyingRules) {
+      isApplyRequested = true;
+      return;
+    }
     isApplyingRules = true;
     try {
-      await applyRulesOnce();
+      do {
+        isApplyRequested = false;
+        await applyRulesOnce();
+      } while (isApplyRequested);
     } finally {
       isApplyingRules = false;
     }
@@ -161,22 +251,27 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
   async function applyRulesOnce(): Promise<void> {
     await loaded;
     const configFile = await readConfigFile();
-    const nextWarnings = new Set<string>();
-    for (const pr of openPrs()) {
+    const commands = prFlowCommands(configFile);
+    const approved = new Set(state.approvedFingerprints);
+    const nextWarnings = new Set<string>(commands.warnings);
+    const prs = openPrs();
+    forgetUnconfiguredSourceRuns(new Set(prs.map((pr) => pr.key)), commands.sources, approved);
+    approvals = pendingApprovals(commands, approved);
+    for (const pr of prs) {
+      startDueSources(pr, commands.sources, approved);
       const { rules, warnings: ruleWarnings } = prFlowRules(configFile, pr.repo);
-      for (const warning of [...ruleWarnings, ...unknownActionWarnings(rules, new Set())]) nextWarnings.add(warning);
-      for (const planned of plannedActions(pr.key, pr.reviewItems, rules, state)) {
+      for (const warning of [...ruleWarnings, ...unknownActionWarnings(rules, new Set(commands.actions.map((action) => action.id)))]) nextWarnings.add(warning);
+      for (const planned of plannedActions(pr.key, reviewItemsFor(pr), rules, state)) {
         const request = { prKey: pr.key, itemKey: planned.item.key, action: planned.action, ...(planned.rule.reason === undefined ? {} : { reason: planned.rule.reason }) };
         const outcome = await disposeGuarded({ request, ruleName: planned.rule.name });
         if (!outcome.ok) nextWarnings.add(`Rule '${planned.rule.name}' could not ${planned.action} ${itemLocation(planned.item)} on ${pr.key}: ${outcome.error ?? 'unknown error'}`);
       }
     }
-    const changed = [...nextWarnings].join('\n') !== warnings.join('\n');
     warnings = [...nextWarnings];
-    if (changed) broadcast(statusFrame());
+    broadcastIfChanged();
   }
 
-  return { statusFrame, dispose, undo, saveRule, applyRules };
+  return { statusFrame, dispose, undo, saveRule, approve, applyRules };
 }
 
 type PrFlowsWiring = ReturnType<typeof createPrFlowsWiring>;

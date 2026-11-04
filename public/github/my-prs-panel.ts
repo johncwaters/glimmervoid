@@ -252,7 +252,7 @@ function createReadinessSection(pr: MyPr): HTMLElement | null {
 const dismissDraftsByItemKey = new Map<string, string>();
 const itemStatusByKey = new Map<string, { tone: 'busy' | 'ok' | 'error'; text: string }>();
 
-type ItemRequestType = 'pr-flow-dispose' | 'pr-flow-undo' | 'pr-flow-save-rule';
+type ItemRequestType = 'pr-flow-dispose' | 'pr-flow-undo' | 'pr-flow-save-rule' | 'pr-flow-approve';
 
 async function sendItemRequest(statusKey: string, busyText: string, type: ItemRequestType, fields: Record<string, string>, doneText = ''): Promise<boolean> {
   itemStatusByKey.set(statusKey, { tone: 'busy', text: busyText });
@@ -347,6 +347,44 @@ function createUndoControl(pr: MyPr, itemKey: string): HTMLElement {
   paintActionStatus(statusText, status?.tone ?? null, status?.text ?? '');
   actions.append(undo, statusText);
   return actions;
+}
+
+function createPrFlowApprovals(): HTMLElement | null {
+  const approvals = myPrsSnapshot().prFlowApprovals;
+  if (approvals.length === 0) return null;
+  const section = el('section', 'my-pr-threads-section');
+  section.append(el('h3', 'pr-section-heading', 'PR flows commands waiting for approval'));
+  const list = el('ul', 'my-pr-threads');
+  for (const approval of approvals) {
+    const statusKey = `approve:${approval.fingerprint}`;
+    const status = itemStatusByKey.get(statusKey);
+    const item = el('li', 'my-pr-thread');
+    item.append(el('p', 'my-pr-thread-meta', `${approval.kind === 'source' ? 'Source' : 'Action'} ${approval.label} (${approval.id}), timeout ${approval.timeoutSeconds}s`));
+    item.append(el('pre', 'my-pr-thread-excerpt', JSON.stringify(approval.command)));
+    const actions = el('div', 'my-pr-item-actions');
+    const approve = button({ variant: 'secondary', label: 'Approve', action: 'pr-flow-approve', disabled: status?.tone === 'busy', onClick: () => {
+      void sendItemRequest(statusKey, 'Approving', 'pr-flow-approve', { fingerprint: approval.fingerprint });
+    } });
+    const statusText = el('span', 'my-pr-item-status');
+    statusText.setAttribute('role', 'status');
+    paintActionStatus(statusText, status?.tone ?? null, status?.text ?? '');
+    actions.append(approve, statusText);
+    item.append(actions);
+    list.append(item);
+  }
+  section.append(list);
+  return section;
+}
+
+function createSourceRuns(pr: MyPr): HTMLElement | null {
+  const runs = myPrsSnapshot().sourceRunsByPr[pr.key] ?? [];
+  if (runs.length === 0) return null;
+  const section = el('div', 'my-pr-threads-section');
+  for (const run of runs) {
+    const statusText = run.status.map((line) => `${line.label}: ${line.state}`).join(', ');
+    section.append(el('p', run.error === null ? 'my-pr-thread-meta' : 'my-pr-item-note', run.error === null ? `${run.label}: ${statusText || 'no status'}` : `${run.label}: ${run.error}`));
+  }
+  return section;
 }
 
 function createHandledSection(pr: MyPr, handled: ReturnType<typeof handledRows>): HTMLElement | null {
@@ -459,6 +497,8 @@ function renderDetail(pr: MyPr | undefined): void {
   const content = el('article', 'pr-detail');
   const sections = [
     createReadinessSection(pr),
+    createPrFlowApprovals(),
+    createSourceRuns(pr),
     createThreadsSection(pr, 'Threads waiting on you', threads.filter((thread) => thread.isWaitingOnYou)),
     createThreadsSection(pr, 'Other open threads', threads.filter((thread) => !thread.isWaitingOnYou)),
     createPrFlowWarnings(),

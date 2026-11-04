@@ -3,7 +3,7 @@ import type { ClientMessageOf } from '../../../shared/contracts/index.ts';
 import type { GithubTeam } from '../../../shared/contracts/control-messages.ts';
 import { MyPrKeepMergeableRequest, MyPrMergeRequest, MyPrMergeWhenReadyRequest } from '../../../shared/contracts/my-prs.ts';
 import type { MyPrKeepMergeableResult, MyPrMergeResult, MyPrMergeWhenReadyResult } from '../../../shared/contracts/my-prs.ts';
-import { PrFlowDisposeRequest, PrFlowItemRequest, PrFlowSaveRuleRequest } from '../../../shared/contracts/pr-flows.ts';
+import { PrFlowApproveRequest, PrFlowDisposeRequest, PrFlowItemRequest, PrFlowSaveRuleRequest } from '../../../shared/contracts/pr-flows.ts';
 import type { PrFlowDisposeResult } from '../../../shared/contracts/pr-flows.ts';
 import { TeamReviewActionRequest } from '../../../shared/contracts/team-review.ts';
 import type { TeamReviewActionResult } from '../../../shared/contracts/team-review.ts';
@@ -258,6 +258,15 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
     reply(await prFlows.saveRule(parsed.data));
   }
 
+  async function handlePrFlowApprove(msg: ClientMessageOf<'pr-flow-approve'>, ws: ControlSocket): Promise<void> {
+    const reply = (outcome: PrFlowDisposeResult) => replyTo(ws, msg, 'pr-flow-dispose-result', outcome);
+    const parsed = PrFlowApproveRequest.safeParse({ fingerprint: msg.fingerprint });
+    if (!parsed.success) { reply({ ok: false, error: configIssueMessage(parsed.error) }); return; }
+    captureOperatorAction('reviews', 'pr-flow-approve');
+    if (!prFlows) { reply({ ok: false, error: 'My pull requests is not running' }); return; }
+    reply(await prFlows.approve(parsed.data));
+  }
+
   function connectFrames(): readonly unknown[] {
     const frames: unknown[] = [];
     const teamReviewStatus = typeof getTeamReviewStatus === 'function' ? getTeamReviewStatus() : null;
@@ -290,6 +299,7 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
     'pr-flow-dispose': handlePrFlowDispose,
     'pr-flow-undo': handlePrFlowUndo,
     'pr-flow-save-rule': handlePrFlowSaveRule,
+    'pr-flow-approve': handlePrFlowApprove,
   } satisfies ControlHandlerTable;
 
   const invalidReplies = {
@@ -306,6 +316,7 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
     'pr-flow-dispose': (_msg, requestId, message) => ({ type: 'pr-flow-dispose-result', requestId, ok: false, error: message }),
     'pr-flow-undo': (_msg, requestId, message) => ({ type: 'pr-flow-dispose-result', requestId, ok: false, error: message }),
     'pr-flow-save-rule': (_msg, requestId, message) => ({ type: 'pr-flow-dispose-result', requestId, ok: false, error: message }),
+    'pr-flow-approve': (_msg, requestId, message) => ({ type: 'pr-flow-dispose-result', requestId, ok: false, error: message }),
   } satisfies InvalidReplyTable;
 
   return { handlers, invalidReplies, connectFrames, lateConnectFrames };

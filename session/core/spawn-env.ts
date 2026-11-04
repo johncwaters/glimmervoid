@@ -95,5 +95,11 @@ function buildAgentEnv(
   return env;
 }
 
-export { buildAgentEnv };
+function withoutGlimmervoidSecrets(env: SpawnEnv): SpawnEnv {
+  const scrubbed: SpawnEnv = { ...env };
+  for (const key of GLIMMERVOID_SCRUB_KEYS) delete scrubbed[key];
+  return scrubbed;
+}
+
+export { buildAgentEnv, withoutGlimmervoidSecrets };
 export type { AgentEnvOptions, AgentEnvProfile, SpawnEnv };

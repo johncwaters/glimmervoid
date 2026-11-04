@@ -2,8 +2,8 @@ import crypto from 'node:crypto';
 import { z } from 'zod';
 import type { MyPrThread } from '../../../shared/contracts/my-prs.ts';
 import type { TeamReviewThreadNode } from '../../../shared/contracts/team-review.ts';
-import { PrFlowRule, PrFlowsSettings } from '../../../shared/contracts/pr-flows.ts';
-import type { PrFlowActionRef, PrFlowHandled, PrFlowItem, PrFlowPriority, PrFlowSource, PrFlowsState } from '../../../shared/contracts/pr-flows.ts';
+import { PrFlowCommand, PrFlowRule, PrFlowsSettings } from '../../../shared/contracts/pr-flows.ts';
+import type { PrFlowPendingApproval, PrFlowSourceFinding, PrFlowActionRef, PrFlowHandled, PrFlowItem, PrFlowPriority, PrFlowSource, PrFlowsState } from '../../../shared/contracts/pr-flows.ts';
 
 type PrFlowCandidate = {
   path: string; lineStart: number | null; lineEnd: number | null; priority: PrFlowPriority; source: Omit<PrFlowSource, 'excerpt' | 'dismissalKey'>; body: string; url: string | null;
@@ -35,11 +35,11 @@ function dismissalKeyOf(sourceName: string, path: string, body: string): string 
 }
 
 function sourceOf(candidate: PrFlowCandidate): PrFlowSource {
-  return { ...candidate.source, excerpt: candidate.body, dismissalKey: dismissalKeyOf(candidate.source.name, candidate.path, candidate.body) };
+  return { ...candidate.source, priority: candidate.priority, excerpt: candidate.body, dismissalKey: dismissalKeyOf(candidate.source.name, candidate.path, candidate.body) };
 }
 
 function itemOf(candidate: PrFlowCandidate): PrFlowItem {
-  const identity = candidate.source.threadId ?? `${candidate.source.kind}:${candidate.source.name}`;
+  const identity = candidate.source.threadId ?? `${candidate.source.kind}:${candidate.source.name}:${dismissalKeyOf(candidate.source.name, candidate.path, candidate.body)}`;
   return {
     key: `${candidate.path}:${candidate.lineStart ?? ''}:${identity}`, path: candidate.path, lineStart: candidate.lineStart, lineEnd: candidate.lineEnd,
     priority: candidate.priority, sources: [sourceOf(candidate)], excerpt: candidate.body, url: candidate.url,
@@ -139,6 +139,7 @@ export function withReopened(state: PrFlowsState, prKey: string, itemKey: string
   return {
     undone,
     state: {
+      ...state,
       handledByPr: { ...state.handledByPr, [prKey]: handled.filter((entry) => entry.itemKey !== itemKey) },
       reopenedByPr: { ...state.reopenedByPr, [prKey]: [...reopenedKeys] },
     },
@@ -148,6 +149,7 @@ export function withReopened(state: PrFlowsState, prKey: string, itemKey: string
 export function withOnlyOpenPrs(state: PrFlowsState, openPrKeys: ReadonlySet<string>): PrFlowsState {
   const isOpen = ([prKey]: [string, unknown]) => openPrKeys.has(prKey);
   return {
+    ...state,
     handledByPr: Object.fromEntries(Object.entries(state.handledByPr).filter(isOpen)),
     reopenedByPr: Object.fromEntries(Object.entries(state.reopenedByPr).filter(isOpen)),
   };
@@ -177,17 +179,80 @@ export function prFlowRules(configFile: unknown, repo: string): { rules: PrFlowR
   return { rules: [...repoRules, ...parsedRuleList(settings.data.rules ?? [], 'prFlows.rules', warnings)], warnings };
 }
 
+type PrFlowCommandKind = PrFlowPendingApproval['kind'];
+type PrFlowCommands = { sources: PrFlowCommand[]; actions: PrFlowCommand[]; warnings: string[] };
+
+function parsedCommandList(entries: readonly unknown[], label: string, warnings: string[]): PrFlowCommand[] {
+  const seenIds = new Set<string>();
+  return entries.flatMap((entry, index) => {
+    const parsed = PrFlowCommand.safeParse(entry);
+    if (!parsed.success) {
+      warnings.push(`${label}[${index}] was skipped: ${parsed.error.issues[0]?.message ?? 'invalid entry'}`);
+      return [];
+    }
+    if (seenIds.has(parsed.data.id)) {
+      warnings.push(`${label}[${index}] was skipped: the id '${parsed.data.id}' is already used`);
+      return [];
+    }
+    seenIds.add(parsed.data.id);
+    return [parsed.data];
+  });
+}
+
+export function prFlowCommands(configFile: unknown): PrFlowCommands {
+  const raw = ConfigFileWithPrFlows.safeParse(configFile).data?.prFlows;
+  const settings = raw === undefined || raw === null ? null : PrFlowsSettings.safeParse(raw).data;
+  if (!settings) return { sources: [], actions: [], warnings: [] };
+  const warnings: string[] = [];
+  return { sources: parsedCommandList(settings.sources ?? [], 'prFlows.sources', warnings), actions: parsedCommandList(settings.actions ?? [], 'prFlows.actions', warnings), warnings };
+}
+
+export function commandFingerprint(kind: PrFlowCommandKind, command: PrFlowCommand): string {
+  return crypto.createHash('sha256').update(JSON.stringify([kind, command.id, command.command, command.timeoutSeconds])).digest('hex');
+}
+
+export function pendingApprovals(commands: Pick<PrFlowCommands, 'sources' | 'actions'>, approvedFingerprints: ReadonlySet<string>): PrFlowPendingApproval[] {
+  const entries = [
+    ...commands.sources.map((command) => ({ kind: 'source' as const, command })),
+    ...commands.actions.map((command) => ({ kind: 'action' as const, command })),
+  ];
+  return entries.flatMap(({ kind, command }) => {
+    const fingerprint = commandFingerprint(kind, command);
+    if (approvedFingerprints.has(fingerprint)) return [];
+    return [{ kind, id: command.id, label: command.label, command: command.command, timeoutSeconds: command.timeoutSeconds, fingerprint }];
+  });
+}
+
+const PLACEHOLDER_PATTERN = /\{([A-Za-z][A-Za-z0-9_]*)\}/g;
+
+export function expandPlaceholders(argv: readonly string[], values: Readonly<Record<string, string>>): { ok: true; argv: string[] } | { ok: false; unknown: string } {
+  const unknownName = argv.flatMap((element) => [...element.matchAll(PLACEHOLDER_PATTERN)].map((match) => match[1] ?? '')).find((name) => !Object.hasOwn(values, name));
+  if (unknownName !== undefined) return { ok: false, unknown: unknownName };
+  return { ok: true, argv: argv.map((element) => element.replace(PLACEHOLDER_PATTERN, (_match, name: string) => values[name] ?? '')) };
+}
+
+export function sourceCandidates(label: string, findings: readonly PrFlowSourceFinding[]): PrFlowCandidate[] {
+  return findings.map((finding) => ({
+    path: finding.path, lineStart: finding.lineStart, lineEnd: finding.lineEnd ?? finding.lineStart, priority: finding.priority,
+    source: { kind: 'configured', name: label, url: finding.url }, body: finding.body, url: finding.url,
+  }));
+}
+
 function isPathCovered(path: string, rulePaths: readonly string[]): boolean {
   return rulePaths.some((rulePath) => path === rulePath || (rulePath.endsWith('/') && path.startsWith(rulePath)));
 }
 
+function ruleMatchesSource(rule: PrFlowRule, source: PrFlowSource): boolean {
+  if (rule.source !== undefined && source.name !== rule.source) return false;
+  if (rule.priority !== undefined && !rule.priority.includes(source.priority ?? 'unknown')) return false;
+  const ruleText = rule.text?.toLowerCase();
+  return ruleText === undefined || source.excerpt.toLowerCase().includes(ruleText);
+}
+
 function ruleMatches(rule: PrFlowRule, item: PrFlowItem, scope: 'mine' | 'team'): boolean {
   if (rule.scope !== 'both' && rule.scope !== scope) return false;
-  if (rule.source !== undefined && !item.sources.some((source) => source.name === rule.source)) return false;
-  if (rule.priority !== undefined && !rule.priority.includes(item.priority)) return false;
   if (rule.paths !== undefined && !isPathCovered(item.path, rule.paths)) return false;
-  const ruleText = rule.text?.toLowerCase();
-  return ruleText === undefined || item.sources.some((source) => source.excerpt.toLowerCase().includes(ruleText));
+  return item.sources.every((source) => ruleMatchesSource(rule, source));
 }
 
 function firstMatchingRule(item: PrFlowItem, scope: 'mine' | 'team', rules: readonly PrFlowRule[]): PrFlowRule | null {

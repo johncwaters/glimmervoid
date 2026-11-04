@@ -1,6 +1,6 @@
 import { MyPrsStatus } from '#shared/contracts/my-prs.ts';
 import { PrFlowsStatus } from '#shared/contracts/pr-flows.ts';
-import type { PrFlowHandled } from '#shared/contracts/pr-flows.ts';
+import type { PrFlowHandled, PrFlowItem, PrFlowPendingApproval, PrFlowSourceRunStatus } from '#shared/contracts/pr-flows.ts';
 import type { LinkedPr, MyPr } from '#shared/contracts/my-prs.ts';
 import { describeSchemaIssues } from '../client-error-core.ts';
 import { reportToServerLog } from '../control-ws.ts';
@@ -19,6 +19,9 @@ export type MyPrsChange =
 let latest: MyPrsStatus | null = null;
 let handledByPr: Readonly<Record<string, readonly PrFlowHandled[]>> = {};
 let prFlowWarnings: readonly string[] = [];
+let prFlowApprovals: readonly PrFlowPendingApproval[] = [];
+let sourceRunsByPr: Readonly<Record<string, readonly PrFlowSourceRunStatus[]>> = {};
+let reviewItemsByPr: Readonly<Record<string, PrFlowItem[]>> = {};
 let previousJoinedPrs: MyPr[] | null = null;
 const celebratedMergeKeys = new Set<string>();
 let sessionLinksById: ReadonlyMap<string, readonly LinkedPr[]> = new Map();
@@ -58,8 +61,12 @@ export function subscribeMyPrs(listener: (change: MyPrsChange) => void): void {
   listeners.add(listener);
 }
 
-export function myPrsSnapshot(): { prs: MyPr[]; status: MyPrsStatus | null; sessionsByPrKey: Map<string, LinkedLiveSession[]>; handledByPr: Readonly<Record<string, readonly PrFlowHandled[]>>; prFlowWarnings: readonly string[] } {
-  return { prs: joinMyPrs(latest?.prs ?? [], githubPrByKey), status: latest, sessionsByPrKey: liveSessionsByPrKey(liveSessionLinks()), handledByPr, prFlowWarnings };
+export function myPrsSnapshot(): {
+  prs: MyPr[]; status: MyPrsStatus | null; sessionsByPrKey: Map<string, LinkedLiveSession[]>; handledByPr: Readonly<Record<string, readonly PrFlowHandled[]>>; prFlowWarnings: readonly string[];
+  prFlowApprovals: readonly PrFlowPendingApproval[]; sourceRunsByPr: Readonly<Record<string, readonly PrFlowSourceRunStatus[]>>;
+} {
+  const prs = joinMyPrs(latest?.prs ?? [], githubPrByKey).map((pr) => ({ ...pr, reviewItems: reviewItemsByPr[pr.key] ?? pr.reviewItems }));
+  return { prs, status: latest, sessionsByPrKey: liveSessionsByPrKey(liveSessionLinks()), handledByPr, prFlowWarnings, prFlowApprovals, sourceRunsByPr };
 }
 
 export function celebrateMergedPrs(mergedPrs: readonly MyPr[]): void {
@@ -96,6 +103,9 @@ export function applyPrFlowsStatus(message: unknown): void {
   }
   handledByPr = parsed.data.handledByPr;
   prFlowWarnings = parsed.data.warnings;
+  prFlowApprovals = parsed.data.pendingApprovals;
+  sourceRunsByPr = parsed.data.sourceRunsByPr;
+  reviewItemsByPr = parsed.data.reviewItemsByPr;
   notify({ kind: 'prs' });
 }
 
