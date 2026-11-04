@@ -192,7 +192,7 @@ export function alertFromNotify(msg: ServerMessageOf<'notify'>) {
     if (!isBannerSilentOnThisPlatform()) return;
   }
   if (isDesktopNotificationWanted(false) && notificationPermission() === 'denied') reportBlockedNotificationsOnce();
-  if (group?.isStart === false) return;
+  if (group?.isStart === false || !claimGroupSound(group)) return;
   if (isSoundEnabled()) playAlertChime();
 }
 
