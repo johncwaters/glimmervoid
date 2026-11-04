@@ -381,6 +381,12 @@ function createSessionWorktreeLifecycle({
   }
 
   async function discardWorktree(): Promise<void> {
+    const releaseWorktreeReaders = await port.holdWorktreeReaders?.();
+    try { await discardHeldWorktree(); }
+    finally { releaseWorktreeReaders?.(); }
+  }
+
+  async function discardHeldWorktree(): Promise<void> {
     await stopSeeding();
     await releaseCheckouts();
     if (workspaceMembers?.ok) return releaseWorkspaceMembers(workspaceMembers.members);

@@ -26,6 +26,7 @@ export interface CoherenceAttachment {
   readVerdictBaseline(): Promise<CoherenceVerdictBaseline | null>;
   rerunTouchedVerdicts(turn: { sinceHead: string; sessionId: string | null; standingInvariantIds: readonly string[]; isSpecCheckStanding: boolean }): Promise<CoherenceTurnReading>;
   readJournal(sessionId: string): Promise<CoherenceJournalOutput>;
+  idle(): Promise<void>;
 }
 
 export async function resolveCoherence({ worktree, host, isSettingOn, codexEnv = process.env, timeoutMs = 20_000, verdictTimeoutMs = 600_000 }: {
@@ -174,6 +175,7 @@ export async function resolveCoherence({ worktree, host, isSettingOn, codexEnv =
   void readVerdictBaseline().catch(() => {});
   return {
     hooks, get version() { return version; }, refreshHooks, healHooks, readVerdictBaseline, rerunTouchedVerdicts,
+    async idle() { await Promise.allSettled([baselineRead]); },
     async readJournal(sessionId) {
       if (installationProbe) await installationProbe;
       if (unavailable) throw new Error('Coherence is unavailable');

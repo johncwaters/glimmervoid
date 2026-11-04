@@ -6,7 +6,7 @@ import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts
 import type { CoherenceAttachment } from './coherence-runtime.ts';
 import { appendJournalWindow, journalEntries, judgeTurnEnd, selectLatestShownEntry, startVerdictWatch, type CoherenceVerdictWatch } from './core/coherence-feed-core.ts';
 
-type CoherenceFeedSession = Pick<Session, 'id' | 'resumeSessionId' | 'coherenceHooks' | 'coherenceAttachment' | 'refreshCoherenceHooks' | 'noteAttention'> & {
+type CoherenceFeedSession = Pick<Session, 'id' | 'resumeSessionId' | 'coherenceHooks' | 'coherenceAttachment' | 'refreshCoherenceHooks' | 'noteAttention'> & Partial<Pick<Session, 'onBeforeWorktreeDiscard'>> & {
   on(event: 'exit', listener: () => void): unknown;
 };
 
@@ -40,7 +40,8 @@ function createCoherenceSessionFeed({ broadcastControl, debounceMs = 1500, now =
   }
 
   const runningReadingsBySessionId = new Map<string, Set<Promise<unknown>>>();
-  const settledSessionIds = new Set<string>();
+  const attachedSessionsById = new Map<string, CoherenceFeedSession>();
+  const settledSessions = new WeakSet<CoherenceFeedSession>();
 
   function trackReading<Reading>(sessionId: string, reading: Promise<Reading>): Promise<Reading> {
     const runningReadings = runningReadingsBySessionId.get(sessionId) ?? new Set<Promise<unknown>>();
@@ -62,10 +63,39 @@ function createCoherenceSessionFeed({ broadcastControl, debounceMs = 1500, now =
     states.delete(sessionId);
   }
 
+  const discardHoldCountBySession = new WeakMap<CoherenceFeedSession, number>();
+
+  function isRefusingReadings(session: CoherenceFeedSession): boolean {
+    return settledSessions.has(session) || (discardHoldCountBySession.get(session) ?? 0) > 0;
+  }
+
+  async function drainReadings(sessionId: string, session: CoherenceFeedSession | undefined): Promise<void> {
+    const debounceTimer = states.get(sessionId)?.debounceTimer;
+    if (debounceTimer) clearTimeout(debounceTimer);
+    await session?.coherenceAttachment?.idle();
+    for (let runningReadings = runningReadingsBySessionId.get(sessionId); runningReadings; runningReadings = runningReadingsBySessionId.get(sessionId)) {
+      await Promise.allSettled([...runningReadings]);
+    }
+  }
+
+  async function holdForWorktreeDiscard(session: CoherenceFeedSession): Promise<() => void> {
+    discardHoldCountBySession.set(session, (discardHoldCountBySession.get(session) ?? 0) + 1);
+    let isReleased = false;
+    const release = () => {
+      if (isReleased) return;
+      isReleased = true;
+      discardHoldCountBySession.set(session, (discardHoldCountBySession.get(session) ?? 1) - 1);
+    };
+    await drainReadings(session.id, session).catch(() => {});
+    return release;
+  }
+
   async function settle(sessionId: string): Promise<void> {
-    settledSessionIds.add(sessionId);
+    const session = attachedSessionsById.get(sessionId);
+    attachedSessionsById.delete(sessionId);
+    if (session) settledSessions.add(session);
     forget(sessionId);
-    await Promise.allSettled([...(runningReadingsBySessionId.get(sessionId) ?? [])]);
+    await drainReadings(sessionId, session);
   }
 
   async function journalReadingFor(state: SessionFeedState, session: CoherenceFeedSession): Promise<CoherenceJournalReading> {
@@ -148,7 +178,7 @@ function createCoherenceSessionFeed({ broadcastControl, debounceMs = 1500, now =
   }
 
   function onTurnEnd(session: CoherenceFeedSession): void {
-    if (settledSessionIds.has(session.id)) return;
+    if (isRefusingReadings(session)) return;
     const state = stateOf(session.id);
     if (state.debounceTimer) clearTimeout(state.debounceTimer);
     state.debounceTimer = setTimeout(() => {
@@ -159,12 +189,13 @@ function createCoherenceSessionFeed({ broadcastControl, debounceMs = 1500, now =
   }
 
   function attachSession(session: CoherenceFeedSession): void {
-    settledSessionIds.delete(session.id);
+    attachedSessionsById.set(session.id, session);
+    session.onBeforeWorktreeDiscard?.(() => holdForWorktreeDiscard(session));
     session.on('exit', () => forget(session.id));
   }
 
   async function readJournal(session: CoherenceFeedSession): Promise<{ ok: true; entries: CoherenceJournalEntry[] } | { ok: false; error: string }> {
-    if (settledSessionIds.has(session.id) || session.coherenceHooks?.active !== true || !session.coherenceAttachment) return { ok: false, error: 'Coherence is not attached to this session' };
+    if (isRefusingReadings(session) || session.coherenceHooks?.active !== true || !session.coherenceAttachment) return { ok: false, error: 'Coherence is not attached to this session' };
     const state = stateOf(session.id);
     const journal = await trackReading(session.id, journalReadingFor(state, session));
     if (!journal.ok) return { ok: false, error: journal.reason };

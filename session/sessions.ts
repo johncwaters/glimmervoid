@@ -95,6 +95,12 @@ function describeSpawnFailure(detail: unknown): string {
   const reason = "reason" in detail && typeof detail.reason === "string" ? detail.reason : "";
   return SPAWN_FAILURE_TEXT_BY_REASON[reason] ?? SPAWN_FAILURE_FALLBACK_TEXT;
 }
+
+async function holdAllWorktreeReaders(holds: Iterable<() => Promise<() => void>>): Promise<() => void> {
+  const outcomes = await Promise.allSettled([...holds].map((hold) => hold()));
+  const releases = outcomes.flatMap((outcome) => outcome.status === "fulfilled" ? [outcome.value] : []);
+  return () => { for (const release of releases) release(); };
+}
 function nextPendingPromptToolName(
   currentKind: string | null,
   currentToolName: string | null,
@@ -249,6 +255,7 @@ class Session extends EventEmitter {
   _approvals: SessionApprovalHolds;
   backgroundTracking: ReturnType<typeof createSessionBackgroundTracking>;
   worktreeLifecycle: ReturnType<typeof createSessionWorktreeLifecycle>;
+  _worktreeReaderHolds = new Set<() => Promise<() => void>>();
 
   _receivedFirstOutput: boolean;
   _hasPromptSinceSpawn: boolean;
@@ -630,6 +637,7 @@ class Session extends EventEmitter {
         emit: (event, detail) => this.emit(event, detail),
         recordDecision: (entry) => this._recordDecision(entry),
         pasteText: (text) => this.pasteText(text),
+        holdWorktreeReaders: () => holdAllWorktreeReaders(this._worktreeReaderHolds),
       },
     });
 
@@ -1269,6 +1277,8 @@ class Session extends EventEmitter {
   _settleWorktreeOnExit() { return this.worktreeLifecycle.settleOnExit(); }
 
   discardWorktreeIfClean() { return this.worktreeLifecycle.discardIfClean(); }
+
+  onBeforeWorktreeDiscard(hold: () => Promise<() => void>): void { this._worktreeReaderHolds.add(hold); }
 
   releaseDroppedWorkspaceMembers(keepRepoPaths: string[]) { return this.worktreeLifecycle.releaseDroppedWorkspaceMembers(keepRepoPaths); }
 

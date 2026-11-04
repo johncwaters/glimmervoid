@@ -152,15 +152,17 @@ test('a turn that breaks a covered invariant or the spec check reaches the opera
   session.emit('exit');
 });
 
-for (const reader of ['turn end', 'dashboard journal view'] as const) test(`a closed session waits out its in-flight Coherence reading from the ${reader}, so nothing writes into its worktree after removal`, async (context) => {
+for (const ending of ['closed', 'exited cleanly'] as const) for (const reader of ['turn end', 'dashboard journal view'] as const) test(`a session ${ending} waits out its in-flight Coherence reading from the ${reader}, so nothing writes into its worktree after removal`, async (context) => {
   const worktree = await mkdtemp(path.join(os.tmpdir(), 'coherence-settle-'));
   context.after(() => rm(worktree, { recursive: true, force: true }));
   await installFakeCoherence(worktree, { journalDelayMs: 300 });
   const attachment = await resolveCoherence({ worktree, host: 'claude', isSettingOn: true });
   assert.ok(attachment);
+  const worktreeDiscardHolds: Array<() => Promise<() => void>> = [];
   const session = Object.assign(new EventEmitter(), {
     id: 'card-settle', resumeSessionId: 's-settle', coherenceHooks: attachment.hooks, coherenceAttachment: attachment,
     refreshCoherenceHooks: async () => {}, noteAttention: () => ({ ok: true as const, pending: false }),
+    onBeforeWorktreeDiscard: (hold: () => Promise<() => void>) => { worktreeDiscardHolds.push(hold); },
   });
   const feed = createCoherenceSessionFeed({ broadcastControl: () => {}, debounceMs: 0 });
   feed.attachSession(session);
@@ -172,11 +174,24 @@ for (const reader of ['turn end', 'dashboard journal view'] as const) test(`a cl
     assert.ok(Date.now() < readingDeadline, 'the turn-end reading never started');
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  session.emit('exit');
-  await feed.settle(session.id);
-  await rm(worktree, { recursive: true, force: true });
-  feed.onTurnEnd(session);
-  assert.equal((await feed.readJournal(session)).ok, false);
+  if (ending === 'exited cleanly') {
+    const releases = await Promise.all(worktreeDiscardHolds.map((hold) => hold()));
+    feed.onTurnEnd(session);
+    const lateJournalView = feed.readJournal(session);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await rm(worktree, { recursive: true, force: true });
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    for (const release of releases) release();
+    session.emit('exit');
+    assert.equal((await lateJournalView).ok, false);
+  }
+  if (ending === 'closed') {
+    session.emit('exit');
+    await feed.settle(session.id);
+    await rm(worktree, { recursive: true, force: true });
+    feed.onTurnEnd(session);
+    assert.equal((await feed.readJournal(session)).ok, false);
+  }
   await new Promise((resolve) => setTimeout(resolve, 600));
   assert.equal(existsSync(worktree), false);
 });

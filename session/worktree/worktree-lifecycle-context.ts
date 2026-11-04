@@ -113,6 +113,7 @@ interface SessionPort {
   emit: (event: string, detail: Record<string, unknown>) => void;
   recordDecision: (entry: DecisionEntry) => void;
   pasteText: (text: string) => Record<string, unknown>;
+  holdWorktreeReaders?: () => Promise<() => void>;
 }
 
 interface WorktreeLifecycleOptions {
