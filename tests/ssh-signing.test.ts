@@ -67,3 +67,25 @@ test('signing waits for a forwarded agent that reconnects after the request arri
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test('signing finds the key in an agent app socket when the inherited agent holds none', { skip: forwardedAgentSkipReason() }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'gv-sign-app-'));
+  const keyPath = path.join(root, 'signing-key');
+  await execFileAsync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-f', keyPath]);
+  const publicKey = parseSshPublicKey(await fs.readFile(`${keyPath}.pub`, 'utf8'));
+  assert.ok(publicKey);
+  const socketPath = path.join(root, 'socket.ssh');
+  const agentStderrChunks: Buffer[] = [];
+  const agent = spawn('ssh-agent', ['-D', '-a', socketPath], { stdio: ['ignore', 'ignore', 'pipe'] });
+  agent.stderr?.on('data', (chunk: Buffer) => { agentStderrChunks.push(chunk); });
+  try {
+    await waitForSocket(socketPath, agent, () => Buffer.concat(agentStderrChunks).toString());
+    await execFileAsync('ssh-add', [keyPath], { env: { ...process.env, SSH_AUTH_SOCK: socketPath } });
+    const signer = createSshSigner({ env: { ...process.env, SSH_AUTH_SOCK: '' }, agentSearchRoots: [], wellKnownAgentSockets: [socketPath], agentWaitMs: 0 });
+    const outcome = await signer.signWithAgent({ publicKey, namespace: 'git', payload: Buffer.from('tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904\n\nprobe\n') });
+    assert.equal(outcome.ok, true, outcome.ok ? '' : outcome.error);
+  } finally {
+    agent.kill();
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});

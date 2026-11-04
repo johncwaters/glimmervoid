@@ -51,6 +51,16 @@ function orderAgentSockets({ inheritedSocket, discovered }: { inheritedSocket: s
   return ordered.filter((socketPath, index) => ordered.indexOf(socketPath) === index);
 }
 
+const DARWIN_AGENT_APP_SOCKETS: readonly (readonly string[])[] = [
+  ['Library', 'Containers', 'com.maxgoedjen.Secretive.SecretAgent', 'Data', 'socket.ssh'],
+  ['Library', 'Group Containers', '2BUA8C4S2C.com.1password', 't', 'agent.sock'],
+];
+
+function wellKnownAgentSocketPaths({ homeDir, platform }: { homeDir: string; platform: NodeJS.Platform }): string[] {
+  if (platform !== 'darwin') return [];
+  return DARWIN_AGENT_APP_SOCKETS.map((segments) => [homeDir, ...segments].join('/'));
+}
+
 const COMMIT_SIGNING_SHIM_NAME = 'glimmervoid-ssh-sign';
 
 function posixSingleQuote(text: string): string {
@@ -63,5 +73,5 @@ function commitSigningShimText({ nodePath, cliPath }: { nodePath: string; cliPat
 
 const NO_AGENT_HOLDS_KEY = 'no reachable ssh agent holds the signing key; connect to this machine with agent forwarding (ssh -A, or ForwardAgent yes from coder config-ssh) and commit again';
 
-export { agentListsKey, COMMIT_SIGNING_SHIM_NAME, commitSigningShimText, formatSshPublicKey, isForwardedAgentDirName, isSignableGitObject, NO_AGENT_HOLDS_KEY, orderAgentSockets, parseSshPublicKey };
+export { agentListsKey, COMMIT_SIGNING_SHIM_NAME, commitSigningShimText, formatSshPublicKey, isForwardedAgentDirName, isSignableGitObject, NO_AGENT_HOLDS_KEY, orderAgentSockets, parseSshPublicKey, wellKnownAgentSocketPaths };
 export type { AgentSocketCandidate, SshPublicKey };

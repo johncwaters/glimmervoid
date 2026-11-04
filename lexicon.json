@@ -181,6 +181,10 @@
     {
       "name": "fix",
       "definition": "A change that corrects an operator-visible defect, landed as a fix-type commit with a CHANGELOG entry"
+    },
+    {
+      "name": "secretive",
+      "definition": "Secretive, a macOS app that keeps SSH keys in the Secure Enclave and serves them through its own agent socket, one of the agent app sockets the commit signer tries"
     }
   ]
 }

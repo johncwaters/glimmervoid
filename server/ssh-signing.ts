@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { execFileAsync } from './child-process-safe.ts';
 import { writeTextAtomicSync } from './json-file.ts';
-import { agentListsKey, COMMIT_SIGNING_SHIM_NAME, commitSigningShimText, formatSshPublicKey, isForwardedAgentDirName, NO_AGENT_HOLDS_KEY, orderAgentSockets, parseSshPublicKey } from './core/ssh-signing-core.ts';
+import { agentListsKey, COMMIT_SIGNING_SHIM_NAME, commitSigningShimText, formatSshPublicKey, isForwardedAgentDirName, NO_AGENT_HOLDS_KEY, orderAgentSockets, parseSshPublicKey, wellKnownAgentSocketPaths } from './core/ssh-signing-core.ts';
 import type { AgentSocketCandidate, SshPublicKey } from './core/ssh-signing-core.ts';
 import { errorMessage } from '../shared/text.ts';
 
@@ -19,6 +19,7 @@ type SignOutcome = { ok: true; signature: string } | { ok: false; error: string 
 interface SshSignerOptions {
   env?: NodeJS.ProcessEnv;
   agentSearchRoots?: readonly string[];
+  wellKnownAgentSockets?: readonly string[];
   ownerUid?: number | null;
   agentWaitMs?: number;
   agentRescanIntervalMs?: number;
@@ -52,7 +53,7 @@ async function forwardedSocketsIn(searchRoot: string, ownerUid: number | null): 
   return candidates.filter((candidate) => candidate !== null);
 }
 
-function createSshSigner({ env = process.env, agentSearchRoots = defaultAgentSearchRoots(), ownerUid = process.getuid?.() ?? null, agentWaitMs = FORWARDED_AGENT_RECONNECT_WAIT_MS, agentRescanIntervalMs = AGENT_RESCAN_INTERVAL_MS }: SshSignerOptions = {}): SshSigner {
+function createSshSigner({ env = process.env, agentSearchRoots = defaultAgentSearchRoots(), wellKnownAgentSockets = wellKnownAgentSocketPaths({ homeDir: os.homedir(), platform: process.platform }), ownerUid = process.getuid?.() ?? null, agentWaitMs = FORWARDED_AGENT_RECONNECT_WAIT_MS, agentRescanIntervalMs = AGENT_RESCAN_INTERVAL_MS }: SshSignerOptions = {}): SshSigner {
   async function agentHolds(socketPath: string, publicKey: SshPublicKey): Promise<boolean> {
     const listing = await execFileAsync('ssh-add', ['-L'], { env: { ...env, SSH_AUTH_SOCK: socketPath }, timeout: AGENT_LISTING_TIMEOUT_MS, encoding: 'utf8' })
       .then(({ stdout }) => stdout, () => '');
@@ -60,7 +61,9 @@ function createSshSigner({ env = process.env, agentSearchRoots = defaultAgentSea
   }
 
   async function agentEnvFor(publicKey: SshPublicKey): Promise<{ SSH_AUTH_SOCK: string } | null> {
-    const discovered = (await Promise.all(agentSearchRoots.map((searchRoot) => forwardedSocketsIn(searchRoot, ownerUid)))).flat();
+    const forwarded = (await Promise.all(agentSearchRoots.map((searchRoot) => forwardedSocketsIn(searchRoot, ownerUid)))).flat();
+    const wellKnown = (await Promise.all(wellKnownAgentSockets.map((socketPath) => ownedSocketAt(socketPath, ownerUid)))).filter((candidate) => candidate !== null);
+    const discovered = [...forwarded, ...wellKnown];
     const candidates = orderAgentSockets({ inheritedSocket: env.SSH_AUTH_SOCK || null, discovered });
     for (const socketPath of candidates) {
       if (await agentHolds(socketPath, publicKey)) return { SSH_AUTH_SOCK: socketPath };
