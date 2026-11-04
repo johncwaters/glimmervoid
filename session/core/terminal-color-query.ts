@@ -3,7 +3,7 @@ export interface TerminalColors {
   foreground: string;
 }
 
-export interface ColorQueryScan {
+interface ColorQueryScan {
   replies: string[];
   pending: string;
 }
