@@ -1,4 +1,7 @@
 import posthog from 'posthog-js';
+import 'posthog-js/dist/posthog-recorder';
+import 'posthog-js/dist/exception-autocapture';
+import 'posthog-js/dist/dead-clicks-autocapture';
 import type { InstallPlatform } from './install-platform.ts';
 
 export type ConsentChoice = 'pending' | 'accepted' | 'declined';
@@ -32,6 +35,8 @@ export function initAnalytics(): void {
     opt_out_capturing_by_default: true,
     capture_dead_clicks: true,
     capture_heatmaps: true,
+    disable_external_dependency_loading: true,
+    disable_surveys: true,
   });
   identifyInstallIfConsented();
   captureSectionViews();

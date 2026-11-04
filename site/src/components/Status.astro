@@ -95,6 +95,7 @@ function terminalVariantsFor(task: string) {
 </section>
 
 <script>
+  import '../lib/zod-jitless.ts';
   import { STATES } from '../../../shared/states.ts';
   import { buildAttentionBanner, paintAttentionBanner, pressAttentionBanner, sendAttentionTileToRow } from '../../../public/attention-banner.ts';
   import { countAttentionByKind, orderAttentionLine } from '../../../public/focus-view/attention-core.ts';

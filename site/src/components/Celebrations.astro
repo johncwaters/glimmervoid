@@ -22,6 +22,7 @@ import Animals from './Animals.astro';
 </section>
 
 <script>
+  import '../lib/zod-jitless.ts';
   import { mountCelebrationTray, queueMergeCelebration } from '../../../public/merge-celebration.ts';
   import { markWhileOnScreen } from '../lib/dom.ts';
 

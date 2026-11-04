@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `npm i -g glimmervoid` now installs exactly the dependency versions each release was tested with. Every dependency is pinned to one version instead of a range, because npm ignores a package's own lockfile for global installs.
+
 ## [0.52.0] - 2026-11-03
 
 ### Added
