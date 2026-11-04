@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Codex no longer shows your sent prompts on a bright lavender bar. Glimmervoid now answers Codex's terminal color check itself, even when no dashboard is open, so Codex draws the bar as a light tint of the terminal background.
 - A Claude Code session now resumes its conversation after a restart even when Glimmervoid had to give it a new worktree folder. Before, the session started a blank conversation whenever its old worktree folder was gone or held another branch.
 - Arrows on a board no longer cross when they do not have to. When several arrows leave one box, such as a decision's outputs fanning out to a column of boxes, an arrow drawn early no longer takes the far lane and forces the others across it; only crossings the arrows' order truly forces remain.
 

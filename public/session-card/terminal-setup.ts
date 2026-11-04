@@ -233,6 +233,10 @@ function setupTerminal(termWrap: HTMLElement, ui: SessionUi, xtermRuntime: Xterm
     return true;
   });
 
+  for (const colorQuerySlot of [10, 11]) {
+    term.parser.registerOscHandler(colorQuerySlot, (data) => data.split(';').includes('?'));
+  }
+
   term.attachCustomKeyEventHandler((ev) => {
     if (ev.shiftKey && ev.key === 'Enter') {
       if (ev.type === 'keydown') sendTerminalInput(ui, '\x1b\r');
