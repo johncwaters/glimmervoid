@@ -83,8 +83,8 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     control: 'toggle', keywords: ['git', 'fetch', 'fast-forward'], defaultValue: true, takesEffect: 'new-sessions', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
   },
   {
-    id: 'file-worktree-clone-dependencies', path: 'worktreeCloneDependencies', title: 'Worktree dependency clone', group: 'machine-detection-sessions',
-    description: "On macOS, clone the main checkout's node_modules into a session worktree that starts without one, when it matches the worktree's lockfile.",
+    id: 'file-worktree-clone-dependencies', path: 'worktreeCloneDependencies', title: 'Worktree dependencies', group: 'machine-detection-sessions',
+    description: "Give a session worktree its node_modules before the agent starts: on macOS, clone the main checkout's when it matches the worktree's lockfile, then, except on Windows, install each folder still without one from its package-lock.json or pnpm-lock.yaml, with no package scripts.",
     control: 'toggle', keywords: ['node_modules', 'npm', 'pnpm', 'install'], defaultValue: true, takesEffect: 'new-sessions', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
   },
   {
