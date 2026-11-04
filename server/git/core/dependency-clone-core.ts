@@ -34,8 +34,8 @@ type DependencyCloneSkipReason =
   | 'torn'
   | 'failed';
 
-type DependencyClonePlan = { action: 'clone'; dirs: string[]; staleDirs: string[] };
-export type DependencyCloneSkip = { action: 'skip'; reason: DependencyCloneSkipReason; notify: boolean };
+type DependencyClonePlan = { action: 'clone'; dirs: string[]; skippedDirs: string[] };
+export type DependencyCloneSkip = { action: 'skip'; reason: DependencyCloneSkipReason };
 
 export const LOCKFILE_BY_KIND: Readonly<Record<LockKind, { lockfile: string; installState: string }>> = {
   npm: { lockfile: 'package-lock.json', installState: path.join('node_modules', '.package-lock.json') },
@@ -46,10 +46,8 @@ export const KNOWN_LOCKFILES: readonly string[] = ['package-lock.json', 'npm-shr
 
 export const CLONED_CACHE_DIRS: readonly string[] = ['.cache', '.vite', '.vite-temp'];
 
-const NOTIFYING_REASONS: ReadonlySet<DependencyCloneSkipReason> = new Set(['not-apfs', 'other-volume', 'install-stale', 'outside-link', 'torn', 'failed']);
-
 export function skipDependencyClone(reason: DependencyCloneSkipReason): DependencyCloneSkip {
-  return { action: 'skip', reason, notify: NOTIFYING_REASONS.has(reason) };
+  return { action: 'skip', reason };
 }
 
 export function planDependencyClone(facts: DependencyCloneFacts): DependencyClonePlan | DependencyCloneSkip {
@@ -60,16 +58,16 @@ export function planDependencyClone(facts: DependencyCloneFacts): DependencyClon
   if (facts.mainDevice !== facts.worktreeParentDevice) return skipDependencyClone('other-volume');
   if (!isInstallCurrent(facts.lock)) return skipDependencyClone('install-stale');
   const dirs = ['.'];
-  const staleDirs: string[] = [];
+  const skippedDirs: string[] = [];
   for (const nestedDir of facts.nestedPackageDirs) {
     if (nestedDir.dir === '.') continue;
     if (!isNestedInstallCurrent(nestedDir)) {
-      staleDirs.push(nestedDir.dir);
+      skippedDirs.push(nestedDir.dir);
       continue;
     }
     dirs.push(nestedDir.dir);
   }
-  return { action: 'clone', dirs, staleDirs };
+  return { action: 'clone', dirs, skippedDirs };
 }
 
 function isNestedInstallCurrent({ ownLock, hasAnyLockfile }: NestedPackageDir): boolean {
@@ -214,7 +212,7 @@ export function describeInstallWarnings(outcome: DependencyInstallOutcome): stri
     warnings.push(`${result.command} in ${result.dir} ${failure}; install dependencies in the worktree`);
   }
   if (outcome.unsupportedDirs.length) {
-    warnings.push(`node_modules in ${outcome.unsupportedDirs.join(', ')} was not installed because Glimmervoid installs only from package-lock.json or pnpm-lock.yaml; install dependencies there`);
+    warnings.push(`node_modules in ${outcome.unsupportedDirs.join(', ')} was not installed because the worktree has no package-lock.json or pnpm-lock.yaml there; install dependencies there`);
   }
   return warnings;
 }
@@ -223,19 +221,15 @@ export function describeDependencyCloneSkip(reason: DependencyCloneSkipReason): 
   return SKIP_DESCRIPTIONS[reason];
 }
 
-export function describeStaleDirs(staleDirs: readonly string[]): string {
-  return `node_modules in ${staleDirs.join(', ')} does not match its lockfile in the main checkout, so it was not cloned; install dependencies there`;
-}
-
 const SKIP_DESCRIPTIONS: Readonly<Record<DependencyCloneSkipReason, string>> = {
   present: 'node_modules is already in the worktree',
   platform: 'dependency cloning runs on macOS only',
   'no-main-install': 'the main checkout has no node_modules',
   'no-lockfile': 'the worktree has no package-lock.json or pnpm-lock.yaml',
-  'not-apfs': 'the main checkout is not on APFS, so node_modules was not cloned; install dependencies in the worktree',
-  'other-volume': 'the main checkout and the worktree are on different volumes, so node_modules was not cloned; install dependencies in the worktree',
-  'install-stale': "the main checkout's node_modules does not match the worktree's lockfile, so it was not cloned; install dependencies in the worktree",
-  'outside-link': "the main checkout's node_modules holds a link outside the repository (npm link or a file: dependency), so it was not cloned; install dependencies in the worktree",
-  torn: "the main checkout's node_modules changed during the clone, so the clone was discarded; install dependencies in the worktree",
-  failed: 'cloning node_modules from the main checkout failed; install dependencies in the worktree',
+  'not-apfs': 'the main checkout is not on APFS, so node_modules was not cloned',
+  'other-volume': 'the main checkout and the worktree are on different volumes, so node_modules was not cloned',
+  'install-stale': "the main checkout's node_modules does not match the worktree's lockfile, so it was not cloned",
+  'outside-link': "the main checkout's node_modules holds a link outside the repository (npm link or a file: dependency), so it was not cloned",
+  torn: "the main checkout's node_modules changed during the clone, so the clone was discarded",
+  failed: 'cloning node_modules from the main checkout failed',
 };

@@ -82,7 +82,7 @@ test('a main checkout install that no longer matches the worktree lockfile is no
 
   const outcome = await seedWorktreeDependencies({ mainCheckout, worktreeDir });
 
-  assert.deepEqual(outcome.clone, { action: 'skip', reason: 'install-stale', notify: true });
+  assert.deepEqual(outcome.clone, { action: 'skip', reason: 'install-stale' });
   assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules')), false);
 });
 
@@ -105,8 +105,7 @@ test('a nested package whose own install cannot be shown to match its lockfile i
 
       const outcome = await seedWorktreeDependencies({ mainCheckout, worktreeDir });
 
-      assert.equal(outcome.clone.action, 'cloned');
-      assert.deepEqual(outcome.clone.action === 'cloned' ? outcome.clone.staleDirs : null, ['site']);
+      assert.deepEqual(outcome.clone.action === 'cloned' ? outcome.clone.dirs : null, ['.']);
       assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules', 'left-pad')), true);
       assert.equal(fs.existsSync(path.join(worktreeDir, 'site', 'node_modules')), false);
     });
@@ -121,7 +120,7 @@ test('a main checkout install linking outside the repository is not cloned', { s
 
       const outcome = await seedWorktreeDependencies({ mainCheckout, worktreeDir });
 
-      assert.deepEqual(outcome.clone, { action: 'skip', reason: 'outside-link', notify: true });
+      assert.deepEqual(outcome.clone, { action: 'skip', reason: 'outside-link' });
       assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules')), false);
       assert.deepEqual(fs.readdirSync(path.dirname(worktreeDir)).sort(), ['main', 'session-worktree']);
     });

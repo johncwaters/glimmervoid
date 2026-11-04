@@ -33,7 +33,7 @@ const NODE_MODULES = 'node_modules';
 const LINK_LIST_MAX_BYTES = 64 * 1024 * 1024;
 const INSTALL_OUTPUT_MAX_BYTES = 16 * 1024 * 1024;
 
-type DependencyCloneOutcome = DependencyCloneSkip | { action: 'cloned'; dirs: string[]; staleDirs: string[]; elapsedMs: number };
+type DependencyCloneOutcome = DependencyCloneSkip | { action: 'cloned'; dirs: string[]; skippedDirs: string[]; elapsedMs: number };
 export type DependencySeedOutcome = { clone: DependencyCloneOutcome; install: DependencyInstallOutcome };
 export type SeedDependencies = (args: { mainCheckout: string; worktreeDir: string }) => Promise<DependencySeedOutcome>;
 
@@ -43,7 +43,10 @@ export const seedWorktreeDependencies: SeedDependencies = ({ mainCheckout, workt
   seedQueue.run(async () => {
     const clone = await cloneDependencies(mainCheckout, worktreeDir).catch(() => skipDependencyClone('failed'));
     const install = await installDependencies(worktreeDir).catch((error: unknown) => unreadableInstallOutcome(error));
-    return { clone, install };
+    const skippedDirs = clone.action === 'cloned' ? clone.skippedDirs : [];
+    const reportedDirs = new Set([...install.unsupportedDirs, ...install.results.map((result) => result.dir)]);
+    const emptyDirs = await dirsWithoutNodeModules(worktreeDir, skippedDirs.filter((dir) => !reportedDirs.has(dir)));
+    return { clone, install: { ...install, unsupportedDirs: [...install.unsupportedDirs, ...emptyDirs] } };
   });
 
 async function installDependencies(worktreeDir: string): Promise<DependencyInstallOutcome> {
@@ -85,6 +88,14 @@ async function runInstall(worktreeDir: string, install: PlannedInstall): Promise
   if (run.ok) return { dir: install.dir, command: commandLine, ok: true };
   await removeTree(path.join(packageDir, NODE_MODULES));
   return { dir: install.dir, command: commandLine, ok: false, lastOutputLine: lastOutputLineOf(run.stderr ?? '') || lastOutputLineOf(run.err), timedOut: run.timedOut === true };
+}
+
+async function dirsWithoutNodeModules(worktreeDir: string, relativeDirs: readonly string[]): Promise<string[]> {
+  const emptyDirs: string[] = [];
+  for (const relativeDir of relativeDirs) {
+    if (!(await pathExists(path.join(worktreeDir, relativeDir, NODE_MODULES)))) emptyDirs.push(relativeDir);
+  }
+  return emptyDirs;
 }
 
 function unreadableInstallOutcome(error: unknown): DependencyInstallOutcome {
@@ -145,7 +156,7 @@ async function cloneDependencies(mainCheckout: string, worktreeDir: string): Pro
     await removeTree(stagingPath);
   }
   if (!landedDirs.length) return skipDependencyClone('present');
-  return { action: 'cloned', dirs: landedDirs, staleDirs: plan.staleDirs, elapsedMs: Math.round(performance.now() - startedAt) };
+  return { action: 'cloned', dirs: landedDirs, skippedDirs: plan.skippedDirs, elapsedMs: Math.round(performance.now() - startedAt) };
 }
 
 type StagedDir = { relativeDir: string; sourcePath: string; stagingPath: string };
