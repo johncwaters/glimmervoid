@@ -155,9 +155,3 @@ export function setHoverTip<const Label extends string, const Detail extends str
   installHoverTips();
   refreshHoverTip(anchor);
 }
-
-export function clearHoverTip(anchor: HTMLElement) {
-  delete anchor.dataset.tipLabel;
-  delete anchor.dataset.tipDetail;
-  refreshHoverTip(anchor);
-}

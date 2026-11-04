@@ -4,8 +4,7 @@ import { STATES } from '#shared/states.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { buildMenuItem } from '../menu.ts';
-import { setHoverTip } from '../hover-tip.ts';
-import { BOLT_ICON_PATH, CLOSE_ICON_PATH, createLineIcon, createSvgIcon, createSvgShape, SHIELD_ICON_PATH, SHIELDED_BOLT_FILL_PATH, USAGE_ICON_PATH } from '../svg-dom.ts';
+import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import type { CardOptions } from './card-options-core.ts';
 import { buildDialogShell } from './modal.ts';
 import { findSessionUi } from './card-registry.ts';
@@ -41,25 +40,14 @@ export function setCardSessionSetup(open: (sessionId: string) => void) {
   openCardSessionSetup = open;
 }
 
-function buildTagIcon(className: string, ariaLabel: string) {
-  const tagIcon = el('span', `tag-icon ${className}`);
-  tagIcon.tabIndex = 0;
-  tagIcon.setAttribute('role', 'img');
-  tagIcon.setAttribute('aria-label', ariaLabel);
-  return tagIcon;
-}
-
-function createFilledIcon(fillPath: string) {
-  const icon = createSvgIcon(16, 16);
-  icon.classList.add('line-icon');
-  icon.append(createSvgShape('path', { d: fillPath, fill: 'currentColor' }));
-  return icon;
-}
-
-function createSaneYoloIcon() {
-  const icon = createLineIcon(SHIELD_ICON_PATH, '1.5');
-  icon.append(createSvgShape('path', { d: SHIELDED_BOLT_FILL_PATH, fill: 'currentColor' }));
-  return icon;
+function paintYoloChip(tags: HTMLElement, isPlainYolo: boolean) {
+  const existingChip = tags.querySelector('.yolo-chip');
+  if (!isPlainYolo) {
+    existingChip?.remove();
+    return;
+  }
+  if (existingChip) return;
+  tags.append(el('span', 'yolo-chip', 'YOLO'));
 }
 
 export type { CardOptions };
@@ -68,22 +56,12 @@ export function remoteWorkspaceHoverText(remoteWorkspace: string): string {
   return `Runs in Coder workspace ${remoteWorkspace}`;
 }
 
-function paintPermsBadge(permsBadge: HTMLElement, saneYolo: boolean) {
-  const label = saneYolo ? 'Sane YOLO' : 'YOLO';
-  permsBadge.setAttribute('aria-label', label);
-  setHoverTip(permsBadge, label, saneYolo
-    ? 'Skips permission prompts; Sane YOLO blocks catastrophic commands'
-    : 'Running with --dangerously-skip-permissions');
-  permsBadge.replaceChildren(saneYolo ? createSaneYoloIcon() : createFilledIcon(BOLT_ICON_PATH));
-}
-
 export function setSessionSaneYolo(sessionId: unknown, saneYolo: boolean) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
   if (saneYolo) ui.card.dataset.saneYolo = '';
   if (!saneYolo) delete ui.card.dataset.saneYolo;
-  const permsBadge = ui.tags.querySelector<HTMLElement>('.perms-badge');
-  if (permsBadge) paintPermsBadge(permsBadge, saneYolo);
+  paintYoloChip(ui.tags, ui.card.dataset.skipPerms !== undefined && !saneYolo);
 }
 
 export function buildCardDOM(sessionId: string, sessionName: string, initialState: string, options: CardOptions = {}) {
@@ -105,8 +83,6 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const nameEl = el('span', 'session-name', sessionName);
   nameEl.title = 'Double-click or press F2 to rename';
   nameEl.tabIndex = 0;
-  const permsBadge = options.skipPerms ? buildTagIcon('perms-badge', 'YOLO') : null;
-  if (permsBadge) paintPermsBadge(permsBadge, options.saneYolo === true);
   const taskTitleEl = el('span', 'session-task-title');
   paintTaskTitle(taskTitleEl, options.taskTitle);
 
@@ -173,10 +149,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   actions.append(sessionMenuWrap);
   const tags = el('div', 'session-card-tags');
-  const usageBadge = buildTagIcon('usage-badge', 'Usage');
-  usageBadge.append(createLineIcon(USAGE_ICON_PATH, '2.2'));
-  if (permsBadge) tags.append(permsBadge);
-  tags.append(usageBadge);
+  paintYoloChip(tags, Boolean(options.skipPerms) && options.saneYolo !== true);
   const ownershipEl = el('span', 'session-ownership');
   ownershipEl.hidden = true;
   header.append(nameEl, taskTitleEl, ownershipEl, tags, actions);

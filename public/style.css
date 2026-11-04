@@ -503,34 +503,7 @@ body {
   background: color-mix(in oklab, var(--perms-warn) 6%, var(--bg-surface));
 }
 
-.tag-icon {
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius);
-  background: none;
-  color: var(--text-muted);
-  cursor: default;
-}
-
-.tag-icon .line-icon { width: 13px; height: 13px; overflow: visible; }
-
-@media (hover: hover) {
-  .tag-icon:hover { background: color-mix(in oklab, var(--text-head) 6%, transparent); color: var(--text-head); }
-  .session-card:not([data-sane-yolo]) .perms-badge:hover { color: var(--perms-warn); }
-}
-
-.tag-icon:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-
-.session-card:not([data-sane-yolo]) .perms-badge { color: var(--perms-warn); }
-
-.usage-badge { display: none; }
-
-:root[data-show-usage] .session-card[data-usage] .usage-badge { display: grid; }
+.yolo-chip { flex: none; padding: 0 4px; border: 1px solid color-mix(in oklab, var(--perms-warn) 60%, transparent); border-radius: 3px; color: var(--perms-warn); line-height: 1.4; white-space: nowrap; }
 
 .hover-tip {
   position: fixed;
@@ -4021,10 +3994,6 @@ html[data-layout="phone"] .session-row-item:has(> .session-row.focused) { outlin
 .phone-card-slot .session-card.phone-centered .session-card-header { display: none; }
 .phone-card-slot .session-card.phone-centered .terminal-wrap .xterm { padding: 0; }
 
-.phone-terminal-badge .tag-icon { position: relative; }
-.phone-terminal-badge .tag-icon::after { content: ""; position: absolute; inset: -12px -2px; }
-.phone-terminal:has(.session-card:not([data-sane-yolo])) .phone-terminal-badge .perms-badge { color: var(--perms-warn); }
-:root[data-show-usage] .phone-terminal:has(.session-card[data-usage]) .phone-terminal-badge .usage-badge { display: grid; }
 
 .phone-card-slot .session-card.phone-centered .terminal-wrap {
   flex: 1 1 auto;

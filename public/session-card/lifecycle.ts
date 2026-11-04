@@ -7,11 +7,7 @@ import { sendControlMsg } from '../control-ws.ts';
 import { isMonitoringState } from '../dom-helpers.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { setHealthMonitorDebugMode } from '../health-monitor.ts';
-import { clearHoverTip, setHoverTip } from '../hover-tip.ts';
-import { fitTipLabel } from '../hover-tip-core.ts';
 import { seedMergeStatus, setMergeStatus } from '../review/review-store.ts';
-import type { UsageSessionUsage } from '../usage/usage-store-core.ts';
-import { sessionChipText, sessionChipTitle } from '../usage/usage-store-core.ts';
 import { setRunningActivity } from './activity.ts';
 import type { CardOptions } from './card-dom.ts';
 import { buildCardDOM } from './card-dom.ts';
@@ -208,22 +204,6 @@ export function setSessionAgents(sessionId: unknown, activeAgents: unknown, awai
   ui.activeAgents = n;
   ui.awaitingBackgroundTasks = isMonitoringState(ui.currentState, awaitingBackgroundTasks === true);
   ui.card.toggleAttribute('data-monitoring', ui.awaitingBackgroundTasks);
-}
-
-export function setSessionUsage(sessionId: unknown, usage: UsageSessionUsage | null | undefined) {
-  const ui = findSessionUi(sessionId);
-  if (!ui) return;
-  const usageText = sessionChipText(usage);
-  const usageBadge = ui.tags.querySelector<HTMLElement>('.usage-badge');
-  if (!usageText) {
-    delete ui.card.dataset.usage;
-    if (!usageBadge) return;
-    clearHoverTip(usageBadge);
-    return;
-  }
-  ui.card.dataset.usage = '';
-  if (!usageBadge) return;
-  setHoverTip(usageBadge, fitTipLabel(usageText), sessionChipTitle(usage));
 }
 
 export function setSessionPrompt(sessionId: unknown, kind: unknown) {

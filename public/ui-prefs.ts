@@ -14,7 +14,6 @@ interface UiPrefs extends FlyingAnimalsOptions {
   themeId: string;
   flyingAnimalsEnabled: boolean;
   notificationsEnabled: boolean;
-  sessionUsageChips: boolean;
   phoneArrowPad: boolean;
   nextAttentionKeyCode: string;
   activeView: string;
@@ -55,7 +54,6 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   flyingAnimalsOnPhone: asBoolean(FLYING_ANIMALS_DEFAULTS.flyingAnimalsOnPhone),
   flyingAnimalsExcludedSprites: normalizeExcludedSprites,
   notificationsEnabled: asBoolean(true),
-  sessionUsageChips: asBoolean(false),
   phoneArrowPad: asBoolean(false),
   nextAttentionKeyCode: (value: unknown): string => (isNextAttentionKeyCode(value) ? value : DEFAULT_NEXT_ATTENTION_KEY_CODE),
   activeView: (value: unknown): string => (typeof value === 'string' && value !== 'boards' ? value : 'focus'),
@@ -105,8 +103,6 @@ export const setSoundId = (id: string) => write('soundId', id);
 export const isNotificationsEnabled = () => read('notificationsEnabled');
 export const setNotificationsEnabled = (enabled: boolean) => write('notificationsEnabled', enabled);
 
-export const isSessionUsageChips = () => read('sessionUsageChips');
-export const setSessionUsageChips = (enabled: boolean) => write('sessionUsageChips', enabled);
 export const isPhoneArrowPad = () => read('phoneArrowPad');
 export const setPhoneArrowPad = (enabled: boolean) => write('phoneArrowPad', enabled);
 export const getNextAttentionKeyCode = () => read('nextAttentionKeyCode');

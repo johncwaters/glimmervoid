@@ -320,7 +320,6 @@ Stored in each browser, not in `config.json`, so every device keeps its own. Cha
 | Setting | Default | Notes |
 |---------|---------|-------|
 | Theme | `"phyrexian"` | Color scheme for the dashboard. |
-| Show usage on session cards | `false` | Show each card's token count and cost. |
 | Swipe arrow pad on phone | `false` | Swap the phone arrow keys for one pad you swipe on. |
 | Flying animals | `false` | Show animated animals flying across the dashboard. |
 | Time between flights: minimum | `20` | Shortest pause between flights. |

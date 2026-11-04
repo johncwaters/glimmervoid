@@ -20,9 +20,9 @@ import { prewarmDataSocket } from './session-card/terminal-data-socket.ts';
 import { addSessionRowSignalSource } from './session-row.ts';
 import { openSessionSetup } from './session-setup/setup-dialog.ts';
 import { onStreamerModeChanged } from './streamer-mode.ts';
-import { applySessionUsageChips, applyTheme, onUnicornThemeEntered } from './theme.ts';
+import { applyTheme, onUnicornThemeEntered } from './theme.ts';
 import { setTraceRequestSender } from './trace-store.ts';
-import { getLastFocusedSessionId, getThemeId, isFlyingAnimalsEnabled, isSessionUsageChips } from './ui-prefs.ts';
+import { getLastFocusedSessionId, getThemeId, isFlyingAnimalsEnabled } from './ui-prefs.ts';
 import { setUsageRequestSender } from './usage/usage-store.ts';
 import { openConnectBoardDialog, sessionRowBoardSignals, setBoardsViewOpener } from './whiteboard/board-chips.ts';
 import { loadPageToken } from './ws-token.ts';
@@ -46,7 +46,6 @@ onUnicornThemeEntered(() => {
     (error: unknown) => reportToServerLog('alert-sound', `nyan jingle failed to load: ${describeFailure(error)}`),
   );
 });
-applySessionUsageChips(isSessionUsageChips());
 applyFlyingAnimals(isFlyingAnimalsEnabled());
 
 initFormFactor();

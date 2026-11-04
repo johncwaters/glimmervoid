@@ -7,9 +7,9 @@ import type { SettingsSetting } from '#shared/settings/registry.ts';
 import { settingSavePayload } from './settings-view-core.ts';
 import { applyNextAttentionKeyCode } from '../shortcuts.ts';
 import { applyFlyingAnimals } from '../flying-animals.ts';
-import { applyPhoneArrowPad, applySessionUsageChips, applyTheme } from '../theme.ts';
+import { applyPhoneArrowPad, applyTheme } from '../theme.ts';
 import { reportTerminalColors } from '../terminal-color-report.ts';
-import { isFlyingAnimalsEnabled, setFlyingAnimalsOnPhone, setFlyingAnimalsMinGapSeconds, setFlyingAnimalsMaxGapSeconds, setFlyingAnimalsMinDurationSeconds, setFlyingAnimalsMaxDurationSeconds, setFlyingAnimalsScale, setPhoneArrowPad, setSessionUsageChips, setFlyingAnimalsEnabled, setNotificationsEnabled, setNextAttentionKeyCode, setSoundId, setThemeId, getNextAttentionKeyCode } from '../ui-prefs.ts';
+import { isFlyingAnimalsEnabled, setFlyingAnimalsOnPhone, setFlyingAnimalsMinGapSeconds, setFlyingAnimalsMaxGapSeconds, setFlyingAnimalsMinDurationSeconds, setFlyingAnimalsMaxDurationSeconds, setFlyingAnimalsScale, setPhoneArrowPad, setFlyingAnimalsEnabled, setNotificationsEnabled, setNextAttentionKeyCode, setSoundId, setThemeId, getNextAttentionKeyCode } from '../ui-prefs.ts';
 import { applySettingsBroadcast } from './settings-store.ts';
 import { applySoundEnabled } from '../mute-button.ts';
 import { fieldErrorById, panelRefresher, pendingSaveById, saveStatusById, settingsPayload, storedValue, storedValues, viewMap } from './settings-panel-state.ts';
@@ -30,11 +30,6 @@ const FLYING_ANIMALS_PREFERENCE_WRITERS: Record<string, (value: unknown) => void
 };
 
 function applyBrowserPreference(setting: SettingsSetting, value: unknown) {
-  if (setting.path === 'pref:sessionUsageChips') {
-    setSessionUsageChips(value === true);
-    applySessionUsageChips(value === true);
-    return;
-  }
   if (setting.path === 'pref:phoneArrowPad') {
     setPhoneArrowPad(value === true);
     applyPhoneArrowPad(value === true);

@@ -362,9 +362,6 @@ export function onUnicornThemeEntered(listener: () => void) {
   unicornThemeEnteredListener = listener;
 }
 
-export function applySessionUsageChips(isShown: boolean) {
-  document.documentElement.toggleAttribute('data-show-usage', isShown);
-}
 
 export function applyPhoneArrowPad(isEnabled: boolean) {
   document.documentElement.toggleAttribute('data-arrow-pad', isEnabled);

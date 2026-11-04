@@ -15,7 +15,7 @@ import { handleDebugStateRefresh } from '../session-card/card-debug.ts';
 import { buildSessionCardOptions } from '../session-card/card-options-core.ts';
 import { attentionTally, sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
-import { applyState, createSessionCard, hasSession, removeSessionCard, seedSessionMergeStatus, setSessionAgent, setSessionAgents, setSessionEffectiveBase, setSessionPrompt, setSessionTaskTitle, setSessionUnseenOutcome, setSessionUsage, updateAttentionTitle } from '../session-card/lifecycle.ts';
+import { applyState, createSessionCard, hasSession, removeSessionCard, seedSessionMergeStatus, setSessionAgent, setSessionAgents, setSessionEffectiveBase, setSessionPrompt, setSessionTaskTitle, setSessionUnseenOutcome, updateAttentionTitle } from '../session-card/lifecycle.ts';
 import { setSessionFailureReason } from '../session-card/card-problems.ts';
 import { setSessionHasPlan } from '../session-card/card-faces.ts';
 import { reconnectDataWs } from '../session-card/terminal-data-socket.ts';
@@ -28,7 +28,6 @@ import { noteSnapshotReceived } from './connection-screen.ts';
 import { activatePlanHash } from './hash-routes.ts';
 import { markShownPhoneSessionSeen } from './viewer-focus.ts';
 
-type SessionUsageChip = Pick<ServerMessageOf<'usage-sessions'>['sessions'][number], 'tokens' | 'costUSD' | 'officialCostUSD'>;
 
 function refreshAttentionSurfaces() {
   refreshIssuesSessionState();
@@ -104,7 +103,6 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
 
     setSessionHasPlan(s.id, s.hasPlan);
 
-    restoreUsageChip(s.id);
   }
   updateAttentionTitle();
   refreshFavicon(attentionTally.counts);
@@ -128,7 +126,6 @@ function syncTraceSessionsFromCards() {
 function carryOverClientSessionFields(sessionId: string, previousUi: SessionUi | undefined) {
   setSessionHasPlan(sessionId, previousUi?.hasPlan === true);
   setSessionUnseenOutcome(sessionId, previousUi?.unseenOutcome);
-  restoreUsageChip(sessionId);
 }
 
 type SessionStatusMessage = ServerMessageOf<'session-status'>;
@@ -186,33 +183,7 @@ function handleSessionStatus(msg: SessionStatusMessage) {
   handleDebugStateRefresh(msg.id);
 }
 
-const usageBySessionId = new Map<string, SessionUsageChip>();
-
-function applyUsageSessionChips(rows: ServerMessageOf<'usage-sessions'>['sessions']) {
-  const seen = new Set<string>();
-  for (const row of rows) {
-    if (!row?.id) continue;
-    seen.add(row.id);
-    const usage = { tokens: row.tokens, costUSD: row.costUSD, officialCostUSD: row.officialCostUSD };
-    usageBySessionId.set(row.id, usage);
-    setSessionUsage(row.id, usage);
-  }
-
-  for (const id of [...usageBySessionId.keys()]) {
-    if (seen.has(id)) continue;
-    usageBySessionId.delete(id);
-    setSessionUsage(id, null);
-  }
-}
-
-function restoreUsageChip(sessionId: string) {
-  const usage = usageBySessionId.get(sessionId);
-  if (!usage) return;
-  setSessionUsage(sessionId, usage);
-}
-
 export {
-  applyUsageSessionChips,
   carryOverClientSessionFields,
   forgetSession,
   handleSessionStatus,
@@ -220,7 +191,6 @@ export {
   noteServerBuild,
   refreshAttentionSurfaces,
   refreshRosterAndAttentionSurfaces,
-  restoreUsageChip,
   syncTraceSessionsFromCards,
   wireStatusPainters,
 };

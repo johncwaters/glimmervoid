@@ -79,12 +79,6 @@ export interface UsageReport {
   yourDay?: YourDay | null;
 }
 
-export interface UsageSessionUsage {
-  tokens?: unknown;
-  costUSD?: unknown;
-  officialCostUSD?: unknown;
-}
-
 export const NO_VALUE = '-';
 
 const TOKEN_LIMIT_WARN_PCT = 80;
@@ -258,26 +252,4 @@ export function shouldApplyUsageReport(msg: unknown, latestRequestId: unknown) {
 
   if (id == null) return true;
   return id === latestRequestId;
-}
-
-function sessionChipCost(usage: UsageSessionUsage | null | undefined): { costUSD: number | null; source: string | null } {
-  const official = numberOr(usage?.officialCostUSD, null);
-  if (official !== null && official > 0) return { costUSD: official, source: 'official' };
-  const estimated = numberOr(usage?.costUSD, null);
-  if (estimated !== null && estimated > 0) return { costUSD: estimated, source: 'estimated' };
-  return { costUSD: null, source: null };
-}
-
-export function sessionChipText(usage: UsageSessionUsage | null | undefined) {
-  const tokens = Number(usage?.tokens);
-  if (!Number.isFinite(tokens) || tokens <= 0) return '';
-  const { costUSD } = sessionChipCost(usage);
-  if (costUSD === null) return formatTokens(tokens);
-  return `${formatTokens(tokens)} ${formatUsd(costUSD)}`;
-}
-
-export function sessionChipTitle(usage: UsageSessionUsage | null | undefined) {
-  const { source } = sessionChipCost(usage);
-  if (source === 'official') return 'Tokens counted from the transcript; cost reported by Claude Code for this conversation';
-  return 'Tokens and estimated API list-price cost for this conversation';
 }

@@ -5,7 +5,7 @@ import { childSectionsOf, hydrateFromSettings, pageSectionOf } from './settings-
 import type { ControlDraft, SettingsPayload, SettingsValues } from './settings-view-core.ts';
 import { settingsHash } from './settings-link.ts';
 import { getThemeList } from '../theme.ts';
-import { isFlyingAnimalsEnabled, getFlyingAnimalsEnteredValues, getSoundId, getThemeId, isNotificationsEnabled, isSessionUsageChips, isPhoneArrowPad, isSoundEnabled, getNextAttentionKeyCode } from '../ui-prefs.ts';
+import { isFlyingAnimalsEnabled, getFlyingAnimalsEnteredValues, getSoundId, getThemeId, isNotificationsEnabled, isPhoneArrowPad, isSoundEnabled, getNextAttentionKeyCode } from '../ui-prefs.ts';
 import { settingsPayloadSnapshot } from './settings-store.ts';
 
 type SaveTone = 'saving' | 'saved' | 'error';
@@ -93,7 +93,6 @@ function browserPreferences() {
     soundEnabled: isSoundEnabled(),
     soundId: resolveSoundId(getSoundId()),
     notificationsEnabled: isNotificationsEnabled(),
-    sessionUsageChips: isSessionUsageChips(),
     phoneArrowPad: isPhoneArrowPad(),
     nextAttentionKeyCode: getNextAttentionKeyCode(),
   };

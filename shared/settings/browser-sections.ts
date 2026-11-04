@@ -15,11 +15,6 @@ export const BROWSER_APPEARANCE: SettingsSection = {
       control: 'select', optionsFrom: 'themes', keywords: ['color', 'palette'], defaultValue: 'phyrexian', ...BROWSER_NOW,
     },
     {
-      id: 'session-usage-chips', path: 'pref:sessionUsageChips', title: 'Show usage on session cards',
-      description: "Show each card's token count and cost.",
-      control: 'toggle', keywords: ['usage', 'cost', 'tokens', 'card', 'price'], defaultValue: false, ...BROWSER_NOW,
-    },
-    {
       id: 'phone-arrow-pad', path: 'pref:phoneArrowPad', title: 'Swipe arrow pad on phone',
       description: 'Swap the phone arrow keys for one pad you swipe on.',
       control: 'toggle', keywords: ['experimental', 'mobile', 'keys', 'arrows', 'swipe', 'gesture'], defaultValue: false, ...BROWSER_NOW,

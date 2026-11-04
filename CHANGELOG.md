@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Usage leads with tokens.** The Usage report now has a Tokens / Cost switch next to the period switch, on Tokens by default, and remembers your choice. In Tokens mode the report shows the period's tokens and session count, each agent's tokens and share, daily bars by tokens, totals for processed tokens, cached input, uncached input, output and cache savings, a tokens-by-type bar, and models and sessions ranked by tokens with their estimated cost beside them. The overview's first row shows tokens too. Cost mode shows the report as before, since cost is an estimate against list price.
 
+### Removed
+
+- Session cards no longer show the Sane YOLO and YOLO icons or the usage icon, and the Show usage on session cards setting is gone; the Usage tab still shows each session's tokens and cost. A session that skips permission prompts without Sane YOLO now shows the word YOLO beside its title.
+
 ## [0.52.1] - 2026-11-04
 
 ### Added

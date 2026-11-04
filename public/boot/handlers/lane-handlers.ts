@@ -5,7 +5,6 @@ import { applyInvestigationActivity, applyInvestigationFinished, applyRadarStatu
 import { refreshSettingsStatus } from '../../settings/settings-store.ts';
 import { applyPlanLimits, applyUsageReport, applyUsageSessions } from '../../usage/usage-store.ts';
 import type { DashboardHandlerTable } from '../core/message-dispatch-core.ts';
-import { applyUsageSessionChips } from '../session-frames.ts';
 
 const messageHandlers = {
   'radar-status':     (msg) => applyRadarStatus(msg),
@@ -14,7 +13,7 @@ const messageHandlers = {
   'community-status': (msg) => applyCommunityStatus(msg),
   'benchmark-status': (msg) => applyBenchmarkStatus(msg),
   'benchmark-action-result': (msg) => applyBenchmarkActionResult(msg),
-  'usage-sessions':     (msg) => { applyUsageSessionChips(msg.sessions); applyUsageSessions(msg); },
+  'usage-sessions':     (msg) => applyUsageSessions(msg),
   'usage-report':       (msg) => { applyUsageReport(msg); refreshSettingsStatus(); },
 
   'plan-limits':        (msg) => applyPlanLimits(msg),

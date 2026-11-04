@@ -15,11 +15,11 @@ import { applySessionSetupResponse } from '../../session-setup/setup-dialog.ts';
 import { forgetReview, releaseMergeRequest } from '../../review/review-store.ts';
 import { getSelectedId, setSelectedId } from '../../review/selection.ts';
 import type { DashboardHandlerTable } from '../core/message-dispatch-core.ts';
-import { carryOverClientSessionFields, forgetSession, handleSessionStatus, refreshAttentionSurfaces, refreshRosterAndAttentionSurfaces, restoreUsageChip, syncTraceSessionsFromCards } from '../session-frames.ts';
+import { carryOverClientSessionFields, forgetSession, handleSessionStatus, refreshAttentionSurfaces, refreshRosterAndAttentionSurfaces, syncTraceSessionsFromCards } from '../session-frames.ts';
 
 const messageHandlers = {
   'session-status':     (msg) => handleSessionStatus(msg),
-  'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); setSessionLinkedPrs(msg.id, msg.linkedPrs); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent); restoreUsageChip(msg.id); } refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
+  'session-added':      (msg) => { if (!msg.ephemeral) noteKnownProjectPath(msg.path); setSessionLinkedPrs(msg.id, msg.linkedPrs); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent); } refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-close-confirm': (msg) => { requestSessionRemovalNow(msg.id); },
   'session-removed':    (msg) => { forgetSession(msg.id); refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-title': (msg) => { setSessionTaskTitle(msg.id, msg.taskTitle, msg.isCustom); refreshRosterAndAttentionSurfaces(); },
