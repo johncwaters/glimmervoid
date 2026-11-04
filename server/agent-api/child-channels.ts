@@ -24,7 +24,7 @@ interface HookEvent {
 }
 
 function createChildChannels(runtime: AgentApiRuntime) {
-  const { listAllSessions, logger, setTimeoutFn, clearTimeoutFn, now, channelsByChildId, linksByChildId, parentsWithChannelCleanup, sessionsWithOperatorWatch, lastOperatorInputAtBySession, childIdsToDiscard, endCauseByChildId } = runtime;
+  const { listAllSessions, settleSessionCoherence, logger, setTimeoutFn, clearTimeoutFn, now, channelsByChildId, linksByChildId, parentsWithChannelCleanup, sessionsWithOperatorWatch, lastOperatorInputAtBySession, childIdsToDiscard, endCauseByChildId } = runtime;
 
   function noteEndCause(childId: string, cause: ChildEndCause): void {
     if (!endCauseByChildId.has(childId)) endCauseByChildId.set(childId, cause);
@@ -179,6 +179,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
   async function keepOrDiscardChildWorktree(child: Session, worktree: ChildWorktree | null, isParentRemoved: boolean): Promise<boolean> {
     const isDiscardRequested = childIdsToDiscard.delete(child.id);
     if (!worktree) return false;
+    await settleSessionCoherence(child.id).catch(() => {});
     if (isDiscardRequested || isParentRemoved) {
       await child.discardWorktree();
       return false;

@@ -202,6 +202,7 @@ interface WiringFixtureOptions {
   coderWorkspaceStatus?: (workspace: string) => string | null;
   childGitWorkspace?: SessionOptions['gitWorkspace'];
   teamReviewStatus?: TeamReviewStatus;
+  settleSessionCoherence?: (id: string) => Promise<void>;
 }
 
 interface ManualClock {
@@ -238,7 +239,7 @@ function manualClock() {
 function wiringFixture({
   parentSkipsPermissions = true, spawnFails = false, makeSessionThrowsFirst = false, laneSessions = [],
   holdSpawnGate = false, headroomBytes = 64 * 1024 * 1024 * 1024, holdFirstHeadroomRead = false,
-  clock, coderWorkspaceStatus, childGitWorkspace, teamReviewStatus,
+  clock, coderWorkspaceStatus, childGitWorkspace, teamReviewStatus, settleSessionCoherence,
 }: WiringFixtureOptions = {}) {
   const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, agentApi: { enabled: true }, projects: [] };
   const agentSessions = new Map<string, Session>();
@@ -304,6 +305,7 @@ function wiringFixture({
     sessionDocs: createSessionDocsWiring({ broadcastControl: (message) => { broadcasts.push(message); } }),
     memoryAdmission,
     coderWorkspaceStatus,
+    ...(settleSessionCoherence ? { settleSessionCoherence } : {}),
     ...(teamReviewStatus ? {
       operatorState: {
         requestReview: async () => ({ ok: false as const, error: 'not in this fixture' }),
@@ -703,14 +705,15 @@ async function glimmervoidNotes(fixture: ReturnType<typeof wiringFixture>): Prom
   return channels.flatMap(({ entries }) => entries.filter(({ from }) => from === 'glimmervoid').map(({ text }) => text));
 }
 
-test('closing a clean child discards its worktree and deletes its guardrails temp folder only after the killed tree is reaped, and posts the closing parent no end note', async () => {
-  const fixture = wiringFixture();
+test('closing a clean child discards its worktree and deletes its guardrails temp folder only after the killed tree is reaped and its Coherence readings settle, and posts the closing parent no end note', async () => {
+  let worktree: StubbedWorktree | null = null;
+  const fixture = wiringFixture({ settleSessionCoherence: async () => { worktree?.log.push('coherence-settled'); } });
   const attentionNotes: string[] = [];
   fixture.parent.noteAttention = (note) => { attentionNotes.push(note); return { ok: true, pending: false }; };
   try {
     const spawned = await fixture.spawn(fixture.parent, { prompt: 'build the slice' });
     const childId = String(spawned.body.sessionId);
-    const worktree = stubChildWorktree(fixture.created[0], { dirty: false });
+    worktree = stubChildWorktree(fixture.created[0], { dirty: false });
     const childTempFolder = path.join(glimmervoidHomeDir(), 'guardrails-temp', childId);
     ensureSessionTempFolder(childId);
     fs.mkdirSync(path.join(childTempFolder, 'scratchpad'));
@@ -722,7 +725,7 @@ test('closing a clean child discards its worktree and deletes its guardrails tem
     assert.equal(fs.existsSync(childTempFolder), true, 'the temp folder stays while the killed tree may still write to it');
     worktree.finishReap();
     await settleTurns();
-    assert.deepEqual(worktree.log, ['reaped', 'discard-if-clean']);
+    assert.deepEqual(worktree.log, ['reaped', 'coherence-settled', 'discard-if-clean']);
     await waitFor(() => !fs.existsSync(childTempFolder), 'the temp folder is gone once the tree is reaped');
     assert.deepEqual(await glimmervoidNotes(fixture), []);
     assert.deepEqual(attentionNotes, []);

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter, once } from 'node:events';
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -149,4 +150,33 @@ test('a turn that breaks a covered invariant or the spec check reaches the opera
   await turnEnd('export const brokenAgain = 1;\n');
   assert.equal(notes.length, 2);
   session.emit('exit');
+});
+
+for (const reader of ['turn end', 'dashboard journal view'] as const) test(`a closed session waits out its in-flight Coherence reading from the ${reader}, so nothing writes into its worktree after removal`, async (context) => {
+  const worktree = await mkdtemp(path.join(os.tmpdir(), 'coherence-settle-'));
+  context.after(() => rm(worktree, { recursive: true, force: true }));
+  await installFakeCoherence(worktree, { journalDelayMs: 300 });
+  const attachment = await resolveCoherence({ worktree, host: 'claude', isSettingOn: true });
+  assert.ok(attachment);
+  const session = Object.assign(new EventEmitter(), {
+    id: 'card-settle', resumeSessionId: 's-settle', coherenceHooks: attachment.hooks, coherenceAttachment: attachment,
+    refreshCoherenceHooks: async () => {}, noteAttention: () => ({ ok: true as const, pending: false }),
+  });
+  const feed = createCoherenceSessionFeed({ broadcastControl: () => {}, debounceMs: 0 });
+  feed.attachSession(session);
+  const journalCallCount = async () => (await readFile(path.join(worktree, 'coherence-calls.jsonl'), 'utf8')).split('\n').filter((line) => line.includes('"journal"')).length;
+  if (reader === 'turn end') feed.onTurnEnd(session);
+  if (reader === 'dashboard journal view') void feed.readJournal(session);
+  const readingDeadline = Date.now() + 5000;
+  while (await journalCallCount() === 0) {
+    assert.ok(Date.now() < readingDeadline, 'the turn-end reading never started');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  session.emit('exit');
+  await feed.settle(session.id);
+  await rm(worktree, { recursive: true, force: true });
+  feed.onTurnEnd(session);
+  assert.equal((await feed.readJournal(session)).ok, false);
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  assert.equal(existsSync(worktree), false);
 });

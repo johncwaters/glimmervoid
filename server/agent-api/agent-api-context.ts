@@ -48,6 +48,7 @@ interface AgentApiWiringOptions {
   whiteboards?: Pick<WhiteboardPort, 'handleAgent'> | null;
   lookupWhy?: ((request: { target: string; cwd: string }) => Promise<WhyLookup>) | null;
   coderWorkspaceStatus?: (workspace: string) => string | null;
+  settleSessionCoherence?: (id: string) => Promise<void>;
   logger?: Pick<Console, 'warn'>;
   setTimeoutFn?: SetTimeoutFn;
   clearTimeoutFn?: ClearTimeoutFn;

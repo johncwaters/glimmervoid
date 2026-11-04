@@ -349,6 +349,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     whiteboards,
     lookupWhy: (request) => lookupWhy({ ...request, configPath: configStore.configPath }),
     coderWorkspaceStatus: (workspace) => laneAssembly.coderEnv.workspaceStatus(workspace),
+    settleSessionCoherence: coherenceFeed.settle,
     logger: console,
   });
   const remoteSetup = createRemoteSetupWiring({
@@ -412,6 +413,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       return adapter.id;
     },
     agentFingerprintOf: customAgentFingerprint,
+    settleSessionCoherence: coherenceFeed.settle,
     logger: console,
   });
   sessionRegistry.initialize();

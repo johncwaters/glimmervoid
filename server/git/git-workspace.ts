@@ -199,7 +199,8 @@ function createGitWorkspace(opts: {
       if (adminStat === null) return null;
       touchedTimesMs.push(adminStat.mtimeMs);
     }
-    const commitRef = tipSha ?? (branch ? `refs/heads/${branch}` : null);
+    const commitRef = await resolveTouchCommitRef({ projectPath, path: targetPath, branch, tipSha });
+    if (commitRef === null && branch) return null;
     if (commitRef !== null) {
       const commitTime = await run(['log', '-1', '--format=%ct', commitRef], projectPath);
       const commitTimeMs = commitTime.ok ? parseCommitTimeMs(commitTime.out) : null;
@@ -208,6 +209,15 @@ function createGitWorkspace(opts: {
     }
     if (touchedTimesMs.length === 0) return null;
     return Math.max(...touchedTimesMs);
+  }
+
+  async function resolveTouchCommitRef({ projectPath, path: targetPath, branch, tipSha }: Pick<RemovalTarget, 'projectPath' | 'path' | 'branch' | 'tipSha'>): Promise<string | null> {
+    if (tipSha) return tipSha;
+    const branchRef = `refs/heads/${branch}`;
+    if (branch && (await run(['rev-parse', '--verify', '-q', branchRef], projectPath)).ok) return branchRef;
+    if (targetPath === null) return null;
+    const head = await run(['rev-parse', '--verify', '-q', 'HEAD'], targetPath);
+    return head.ok ? head.out : null;
   }
 
   async function recordOwnedFolder({ folderPath, owner }: { folderPath: string; owner: OwnedPathOwner }): Promise<void> {
@@ -638,14 +648,24 @@ function createGitWorkspaceSync(opts: { git?: (args: string[], cwd: string) => s
       if (adminStat === null || adminStat === 'missing') return null;
       touchedTimesMs.push(adminStat.mtimeMs);
     }
-    if (branch) {
-      const commitTime = run(['log', '-1', '--format=%ct', `refs/heads/${branch}`], projectPath);
+    const commitRef = resolveTouchCommitRefSync({ projectPath, path: targetPath, branch });
+    if (commitRef === null && branch) return null;
+    if (commitRef !== null) {
+      const commitTime = run(['log', '-1', '--format=%ct', commitRef], projectPath);
       const commitTimeMs = commitTime.ok ? parseCommitTimeMs(commitTime.out) : null;
       if (commitTimeMs === null) return null;
       touchedTimesMs.push(commitTimeMs);
     }
     if (touchedTimesMs.length === 0) return null;
     return Math.max(...touchedTimesMs);
+  }
+
+  function resolveTouchCommitRefSync({ projectPath, path: targetPath, branch }: Pick<RemovalTarget, 'projectPath' | 'path' | 'branch'>): string | null {
+    const branchRef = `refs/heads/${branch}`;
+    if (branch && run(['rev-parse', '--verify', '-q', branchRef], projectPath).ok) return branchRef;
+    if (targetPath === null || !fs.existsSync(targetPath)) return null;
+    const head = run(['rev-parse', '--verify', '-q', 'HEAD'], targetPath);
+    return head.ok ? head.out : null;
   }
 
   function removeWorktreeByPath({ projectPath, cwd, branch, cause }: RemovalArgs): void {

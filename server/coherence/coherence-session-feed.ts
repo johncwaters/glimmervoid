@@ -39,12 +39,33 @@ function createCoherenceSessionFeed({ broadcastControl, debounceMs = 1500, now =
     return created;
   }
 
+  const runningReadingsBySessionId = new Map<string, Set<Promise<unknown>>>();
+  const settledSessionIds = new Set<string>();
+
+  function trackReading<Reading>(sessionId: string, reading: Promise<Reading>): Promise<Reading> {
+    const runningReadings = runningReadingsBySessionId.get(sessionId) ?? new Set<Promise<unknown>>();
+    runningReadingsBySessionId.set(sessionId, runningReadings);
+    runningReadings.add(reading);
+    const untrack = () => {
+      runningReadings.delete(reading);
+      if (runningReadings.size === 0 && runningReadingsBySessionId.get(sessionId) === runningReadings) runningReadingsBySessionId.delete(sessionId);
+    };
+    reading.then(untrack, untrack);
+    return reading;
+  }
+
   function forget(sessionId: string): void {
     const state = states.get(sessionId);
     if (!state) return;
     state.isClosed = true;
     if (state.debounceTimer) clearTimeout(state.debounceTimer);
     states.delete(sessionId);
+  }
+
+  async function settle(sessionId: string): Promise<void> {
+    settledSessionIds.add(sessionId);
+    forget(sessionId);
+    await Promise.allSettled([...(runningReadingsBySessionId.get(sessionId) ?? [])]);
   }
 
   async function journalReadingFor(state: SessionFeedState, session: CoherenceFeedSession): Promise<CoherenceJournalReading> {
@@ -116,17 +137,18 @@ function createCoherenceSessionFeed({ broadcastControl, debounceMs = 1500, now =
       state.isRerunWanted = true;
       return;
     }
-    state.inFlight = (async () => {
+    state.inFlight = trackReading(session.id, (async () => {
       do {
         state.isRerunWanted = false;
         await refreshOnce(session, state).catch((error: unknown) => log.warn(`[coherence-feed] refresh failed for session ${session.id}: ${firstLine(errorMessage(error))}`));
       } while (state.isRerunWanted && !state.isClosed);
     })().finally(() => {
       state.inFlight = null;
-    });
+    }));
   }
 
   function onTurnEnd(session: CoherenceFeedSession): void {
+    if (settledSessionIds.has(session.id)) return;
     const state = stateOf(session.id);
     if (state.debounceTimer) clearTimeout(state.debounceTimer);
     state.debounceTimer = setTimeout(() => {
@@ -137,13 +159,14 @@ function createCoherenceSessionFeed({ broadcastControl, debounceMs = 1500, now =
   }
 
   function attachSession(session: CoherenceFeedSession): void {
+    settledSessionIds.delete(session.id);
     session.on('exit', () => forget(session.id));
   }
 
   async function readJournal(session: CoherenceFeedSession): Promise<{ ok: true; entries: CoherenceJournalEntry[] } | { ok: false; error: string }> {
-    if (session.coherenceHooks?.active !== true || !session.coherenceAttachment) return { ok: false, error: 'Coherence is not attached to this session' };
+    if (settledSessionIds.has(session.id) || session.coherenceHooks?.active !== true || !session.coherenceAttachment) return { ok: false, error: 'Coherence is not attached to this session' };
     const state = stateOf(session.id);
-    const journal = await journalReadingFor(state, session);
+    const journal = await trackReading(session.id, journalReadingFor(state, session));
     if (!journal.ok) return { ok: false, error: journal.reason };
     return { ok: true, entries: [...state.window] };
   }
@@ -156,7 +179,7 @@ function createCoherenceSessionFeed({ broadcastControl, debounceMs = 1500, now =
     return { type: 'session-coherence-snapshot', sessions };
   }
 
-  return { attachSession, onTurnEnd, readJournal, snapshotMessage };
+  return { attachSession, onTurnEnd, readJournal, settle, snapshotMessage };
 }
 
 type CoherenceSessionFeed = ReturnType<typeof createCoherenceSessionFeed>;

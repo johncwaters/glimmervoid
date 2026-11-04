@@ -29,6 +29,7 @@ function createAgentApiWiring({
   whiteboards = null,
   lookupWhy = null,
   coderWorkspaceStatus = () => null,
+  settleSessionCoherence = async () => {},
   logger = console,
   setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn,
   clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
@@ -36,7 +37,7 @@ function createAgentApiWiring({
 }: AgentApiWiringOptions): AgentApiPort {
   const runtime: AgentApiRuntime = {
     config, agentSessions, listAllSessions, listBoardSessions, makeSession, wireSessionEvents, closeSessionDataClients,
-    broadcastControl, spawnGate, sessionDocs, recordLane, memoryAdmission, operatorState, whiteboards, lookupWhy, coderWorkspaceStatus,
+    broadcastControl, spawnGate, sessionDocs, recordLane, memoryAdmission, operatorState, whiteboards, lookupWhy, coderWorkspaceStatus, settleSessionCoherence,
     logger, setTimeoutFn, clearTimeoutFn, now,
     channelsByChildId: new Map<string, AgentChannel>(),
     linksByChildId: new Map<string, ChannelLink>(),

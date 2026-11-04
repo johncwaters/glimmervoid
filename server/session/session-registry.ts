@@ -47,6 +47,7 @@ interface SessionRegistryDependencies {
   ensureProjectIds: (projects: RegistryProject[]) => boolean;
   resolveAgentId: (agent: AgentId) => string;
   agentFingerprintOf?: (agentId: string) => string | null;
+  settleSessionCoherence?: (id: string) => Promise<void>;
   logger: Pick<Console, 'log' | 'warn'>;
 }
 
@@ -249,6 +250,8 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
 
     session.destroy();
     Promise.resolve(session._killReap)
+      .catch(() => {})
+      .then(() => dependencies.settleSessionCoherence?.(id))
       .catch(() => {})
       .then(() => session.discardWorktree?.())
       .catch(() => {})

@@ -99,3 +99,25 @@ test('a backend booted on a config outside its home sweeps only that config\'s l
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('an orphaned checkout whose agent renamed its branch is swept once untouched, instead of kept as touch-probe-failed', { skip: !hasGit() }, async () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-renamed-orphan-')));
+  try {
+    const first = makeRepo(root, 'first');
+    const second = makeRepo(root, 'second');
+    const firstRun = restartedServer(path.join(root, 'owned-paths.json'));
+    const goneWorkspace = await provisionWorkspace(root, 'gone-session', [first, second], firstRun.gitWorkspace);
+    await firstRun.ledger.idle();
+    for (const member of goneWorkspace.members) git(['branch', '-m', 'feat/renamed-by-agent'], member.dir);
+    markUntouchedForDays(goneWorkspace);
+
+    const restarted = restartedServer(path.join(root, 'owned-paths.json'));
+    await restarted.reconcile([]);
+    await restarted.ledger.idle();
+
+    assert.deepEqual(goneWorkspace.members.filter((member) => fs.existsSync(member.dir)).map((member) => member.dir), []);
+    assert.deepEqual(restarted.warnings.filter((warning) => warning.includes('touch-probe-failed')), []);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
