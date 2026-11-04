@@ -13,7 +13,7 @@ import { showFeatureHintCard, showPostTurnLeftoversBanner, showStarHintCard, sho
 import { SERVER_ERROR_SOURCE, showServerGoingDown } from '../connection-screen.ts';
 import type { DashboardHandlerTable } from '../core/message-dispatch-core.ts';
 import { applyDashboardSettings } from '../dashboard-settings.ts';
-import { applyClientTrust } from '../power-menu.ts';
+import { applyClientTrust } from '../../server-power.ts';
 import { handleSnapshot, noteServerBuild } from '../session-frames.ts';
 
 const messageHandlers = {

@@ -19,7 +19,6 @@ export const CLOSE_ICON_PATH = 'M4 4L12 12M12 4L4 12';
 export const PLUS_ICON_PATH = 'M8 3v10M3 8h10';
 export const BACK_ICON_PATH = 'M10 3L5 8L10 13';
 export const HELP_ICON_PATH = 'M5.1 5.3a3 3 0 1 1 4.2 2.9c-0.8 0.3-1.3 1-1.3 1.8v0.6 M8 13.3h0.01';
-export const POWER_ICON_PATH = 'M8 1.5v6 M4.4 3.6a5.5 5.5 0 1 0 7.2 0';
 export const MUSIC_NOTE_ICON_PATH = 'M9.5 11.5a2.25 2.25 0 1 1-4.5 0a2.25 2.25 0 1 1 4.5 0z M9.5 11.5V2 M9.5 2c0.6 1.6 3 2.2 3 4.5';
 export const TROPHY_ICON_PATH = 'M4.5 2h7v3.5a3.5 3.5 0 0 1-7 0z M4.5 3.5H2.5a2 2 0 0 0 2 2.5 M11.5 3.5h2a2 2 0 0 1-2 2.5 M8 9v3 M5.5 14h5';
 export const FORWARD_ICON_PATH = 'M6 3L11 8L6 13';

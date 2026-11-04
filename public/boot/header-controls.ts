@@ -5,14 +5,12 @@ import { openAddSessionDialog } from '../session-actions.ts';
 import { mountStreamerTextMask } from '../streamer-text-mask.ts';
 import { createLineIcon, HELP_ICON_PATH, MUSIC_NOTE_ICON_PATH, PLUS_ICON_PATH, TROPHY_ICON_PATH } from '../svg-dom.ts';
 import { button, outlineIconButton } from '../ui/button.ts';
-import { mountPowerMenu, powerMenu } from './power-menu.ts';
 import { openSettings } from './view-tabs.ts';
 
 const celebrationsToggle = outlineIconButton({ label: 'Play queued merge celebrations', icon: createLineIcon(TROPHY_ICON_PATH, '1.6'), action: 'play-celebrations', states: ['idle', 'attention'] });
 
 const btnAddSession = button({ variant: 'primary', label: 'Session', icon: createLineIcon(PLUS_ICON_PATH), action: 'add-session', onClick: openAddSessionDialog });
 btnAddSession.id = 'btn-add-session-header';
-btnAddSession.title = 'Add a new session';
 
 const btnHelp = outlineIconButton({ label: 'Keyboard shortcuts and version', icon: createLineIcon(HELP_ICON_PATH, '1.6'), action: 'open-shortcuts-help', onClick: () => openSettings('browser-shortcuts'), states: ['idle'] }).element;
 
@@ -25,13 +23,12 @@ headerStatusDismiss.id = 'header-status-dismiss';
 
 const celebrationTray = queryTag(document, '#celebration-tray', 'div');
 celebrationTray.prepend(celebrationsToggle.element);
-powerMenu.before(btnAddSession, btnHelp, btnMute);
+queryTag(document, '.header-right', 'div').append(btnAddSession, btnHelp, btnMute);
 queryTag(document, '#header-status', 'p').append(headerStatusDismiss);
 
 function mountHeaderControls() {
   mountMuteButton(muteToggle);
   mountStreamerTextMask();
-  mountPowerMenu();
   observeHeaderHeight(document.querySelector('.header'));
 }
 

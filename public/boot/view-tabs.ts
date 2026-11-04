@@ -15,7 +15,7 @@ import { createDashboardViews, mountEagerViews, mountedViewModule, showView } fr
 import type { DashboardView } from '../view-registry.ts';
 import { moveViewId, orderViewIds, refreshViewOnReason, refreshVisibleViews, viewAvailabilityFromSettings } from '../view-registry-core.ts';
 import type { ViewRefreshReason } from '../view-registry-core.ts';
-import { confirmServerRestart } from './power-menu.ts';
+import { confirmServerRestart } from '../server-power.ts';
 
 function openSettings(section?: string) {
   if (section) activateSettingsSection(section);

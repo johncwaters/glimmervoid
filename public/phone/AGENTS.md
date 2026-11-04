@@ -40,6 +40,6 @@ The More screens have no phone-only module: each screen is a mount container tha
 
 ### Internal
 - `../form-factor.ts`, `../card-host.ts`, `../dom-helpers.ts`
-- `../project-registry.ts`, `../session-actions.ts`, `../session-card/` (registry, tick, terminal input), `../focus-view/attention-core.ts` (the alphabetical order, shared with the rail), `../focus-view/roster-group-header.ts` and `../attention-banner.ts` (the project header and Needs you banner, shared with the rail), `../ui-prefs.ts`, `../control-ws.ts`
+- `../session-actions.ts`, `../session-card/` (registry, tick, terminal input), `../focus-view/attention-core.ts` (the alphabetical order, shared with the rail), `../focus-view/roster-group-header.ts` and `../attention-banner.ts` (the project header and Needs you banner, shared with the rail), `../ui-prefs.ts`, `../control-ws.ts`
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->

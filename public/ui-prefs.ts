@@ -21,7 +21,6 @@ interface UiPrefs extends FlyingAnimalsOptions {
   railWidth: number | null;
   focusLayout: FocusLayout;
   prsQueueWidth: number | null;
-  keptProjects: string[];
   traceHiddenKinds: string[];
   dismissedUpdate: string | null;
   telemetryNoticeDismissed: boolean;
@@ -61,7 +60,6 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   railWidth: asNullableNumber,
   focusLayout: parseFocusLayout,
   prsQueueWidth: asNullableNumber,
-  keptProjects: asStringList,
   traceHiddenKinds: asStringList,
   dismissedUpdate: asNullableString,
   telemetryNoticeDismissed: asBoolean(false),
@@ -126,8 +124,6 @@ export const setFocusLayout = (layout: FocusLayout) => write('focusLayout', layo
 export const getPrsQueueWidth = () => read('prsQueueWidth');
 export const setPrsQueueWidth = (px: number | null) => write('prsQueueWidth', px);
 
-export const getKeptProjects = () => read('keptProjects');
-export const setKeptProjects = (paths: string[]) => write('keptProjects', paths);
 
 export const getTraceHiddenKinds = () => read('traceHiddenKinds');
 export const setTraceHiddenKinds = (kinds: string[]) => write('traceHiddenKinds', kinds);

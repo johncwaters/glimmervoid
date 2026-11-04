@@ -24,7 +24,6 @@ export function basename(p: unknown): string {
 export function groupRoster<Row extends { id: string }>(
   orderedRows: readonly Row[] | null | undefined,
   pathOf: (row: Row) => unknown,
-  emptyKeys?: Iterable<unknown> | null,
 ): GroupedRoster<Row> {
   const rows = Array.isArray(orderedRows) ? orderedRows : [];
   const byKey = new Map<string, RosterGroup<Row>>();
@@ -37,14 +36,6 @@ export function groupRoster<Row extends { id: string }>(
       byKey.set(key, g);
     }
     g.rows.push(row);
-  }
-  if (emptyKeys) {
-    for (const raw of emptyKeys) {
-      if (!raw) continue;
-      const key = String(raw);
-      if (key === NO_PATH_KEY || byKey.has(key)) continue;
-      byKey.set(key, { key, label: basename(key), title: key, rows: [] });
-    }
   }
   const groups = [...byKey.values()];
 

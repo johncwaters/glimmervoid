@@ -12,7 +12,6 @@ import { prefetchViewsWhenIdle, reloadOnceIfBundleRetired } from '../view-regist
 import { applyDashboardSettings } from './dashboard-settings.ts';
 import { playLoadingUnlock } from './loading-unlock.ts';
 import { activateSettingsHash } from './hash-routes.ts';
-import { disablePowerButton } from './power-menu.ts';
 import { VIEW_TABS, refreshViewsIfVisible, resendUnsentShownView } from './view-tabs.ts';
 
 const connectionEl = queryTag(document, '#connection-status', 'span');
@@ -65,7 +64,6 @@ function showServerGoingDown(connectionText: string, overlayText: string) {
   connectionEl.dataset.state = 'shutdown';
   connectionLabel.textContent = connectionText;
   connectionEl.title = connectionText;
-  disablePowerButton();
   shutdownStatus.textContent = overlayText;
   shutdownScreen.classList.add('active');
 }

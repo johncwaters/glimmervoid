@@ -285,7 +285,6 @@ export const changesPage: SessionPage = {
   id: CHANGES_PAGE_ID,
   label: 'Changes',
   iconPath: CHANGES_ICON_PATH,
-  titleFor: () => '',
   isAvailableFor: (sessionId) => reviewOf(sessionId) !== null,
   hasUnreadFor: () => false,
   mount(host, _sessionId, { placement: nextPlacement, target }) {

@@ -121,6 +121,21 @@ export const MACHINE_SAFETY: SettingsSection = {
   ],
 };
 
+export const MACHINE_SERVER: SettingsSection = {
+  id: 'machine-server',
+  level: 'machine',
+  title: 'Server',
+  description: 'Restart or shut down the Glimmervoid server.',
+  settings: [
+    {
+      id: 'server-power', path: 'status:server-power', title: 'Restart or shut down',
+      description: 'Ends every running session first.',
+      control: 'readonly', keywords: ['power', 'restart', 'shutdown', 'stop', 'quit', 'reboot', 'server'],
+      status: 'server-power', ...READOUT,
+    },
+  ],
+};
+
 export const MACHINE_UPDATES: SettingsSection = {
   id: 'machine-updates',
   level: 'machine',

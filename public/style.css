@@ -1147,10 +1147,6 @@ html[data-layout="phone"] .dialog-overlay {
   padding: 12px 4px;
 }
 
-.header-menu {
-  position: relative;
-}
-
 html[data-streamer] :is(.radar-issue-title, .radar-row-headline, .radar-row-progress, .radar-pane-headline, .radar-pane-text, .dialog-report-meta, .dialog-report-frame, .dialog-report-body, .dialog-trail-summary, .dialog-trail-detail) { visibility: hidden; }
 
 html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, .avatar) { visibility: hidden; }
@@ -1182,25 +1178,6 @@ html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, 
   pointer-events: none;
 }
 
-.header-menu-dropdown {
-  display: none;
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  min-width: 180px;
-  padding: 4px 0;
-  background: var(--bg-card);
-  border: 1px solid var(--border-hover);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-lg);
-  z-index: 150;
-  animation: dialogScaleIn 100ms ease;
-}
-
-.header-menu.open .header-menu-dropdown {
-  display: block;
-}
-
 .menu-item {
   display: flex;
   align-items: center;
@@ -1225,28 +1202,6 @@ html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, 
   }
 }
 
-.menu-item-warning {
-  color: var(--state-waiting);
-}
-
-@media (hover: hover) {
-  .menu-item-warning:hover {
-    background: color-mix(in oklab, var(--state-waiting) 10%, transparent);
-    color: var(--state-waiting);
-  }
-}
-
-.menu-item-danger {
-  color: var(--state-failed);
-}
-
-@media (hover: hover) {
-  .menu-item-danger:hover {
-    background: color-mix(in oklab, var(--state-failed) 10%, transparent);
-    color: var(--state-failed);
-  }
-}
-
 .menu-divider {
   height: 1px;
   margin: 4px 8px;
@@ -1256,23 +1211,6 @@ html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, 
 .menu-item[hidden],
 .menu-divider[hidden] {
   display: none;
-}
-
-.menu-item-glyph {
-  display: inline-block;
-  width: 1.2em;
-  text-align: center;
-  color: var(--text-dim);
-  font-family: var(--font-mono);
-  font-size: inherit;
-  line-height: 1;
-  flex-shrink: 0;
-}
-
-@media (hover: hover) {
-  .menu-item:hover .menu-item-glyph {
-    color: inherit;
-  }
 }
 
 .dialog-report {
@@ -2913,7 +2851,6 @@ html[data-layout="phone"] .trace-section-hint { flex-basis: 100%; font-size: var
   .session-group-header:hover .session-group-label { color: var(--text); }
 }
 
-.session-group-header[data-empty] .session-group-rule { opacity: 0.5; }
 
 
 .plan-face {
@@ -3456,6 +3393,7 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 .session-page-button { position: relative; display: inline-flex; }
 .session-page-button[data-slot-held] { visibility: hidden; }
 .session-page-bar-phone { flex: 0 0 auto; }
+.session-page-bar-phone .session-page-button[data-slot-held] { display: none; }
 .session-page-dot { position: absolute; top: 2px; right: 1px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); pointer-events: none; }
 .session-page-dot[hidden] { display: none; }
 .session-page-bar-phone .session-page-dot { top: 6px; right: 6px; }
@@ -3910,8 +3848,6 @@ html[data-layout="phone"] .phone-shell[hidden] { display: none; }
 .phone-topbar > .celebration-tray { flex: none; margin-left: auto; }
 .phone-topbar > .celebration-tray + [data-action="add-session"] { margin-left: 0; }
 .phone-topbar > :is([data-action="open-shortcuts-help"], [data-action="toggle-mute"]) { display: none; }
-.phone-topbar > .header-menu { flex: none; }
-.phone-topbar .menu-item { min-height: 44px; }
 .phone-topbar > .status-indicator,
 .phone-topbar .header-connection { min-width: 0; overflow: hidden; }
 

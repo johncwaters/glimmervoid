@@ -9,7 +9,6 @@ import { groupRoster, visibleOrder } from '../focus-view/roster-groups-core.ts';
 import type { SessionGroupHeader } from '../focus-view/roster-group-header.ts';
 import { buildSessionGroupHeader, paintSessionGroupHeader } from '../focus-view/roster-group-header.ts';
 import { showFirstRunChecklist } from '../onboarding/first-run-loader.ts';
-import { emptyProjectKeys, forgetProject } from '../project-registry.ts';
 import { quickAddSession, readSessionRows, requestSessionRemoval, undoPendingClose } from '../session-actions.ts';
 import type { ActivityRenderKind } from '../session-card/activity.ts';
 import { pulseActivityGlyph } from '../session-card/activity.ts';
@@ -87,10 +86,6 @@ export function createBoardScreen({ onSelectSession, shownSessionId }: { onSelec
     const section = el('section', 'phone-board-group');
     const groupHeader = buildSessionGroupHeader({
       onAdd: quickAddSession,
-      onForget: (path) => {
-        forgetProject(path);
-        refresh();
-      },
     });
     const rows = el('div', 'phone-board-group-rows');
     rows.setAttribute('role', 'list');
@@ -120,7 +115,7 @@ export function createBoardScreen({ onSelectSession, shownSessionId }: { onSelec
 
   function refresh() {
     const orderedRows = currentOrderedRows();
-    const boardGroups = groupRoster(orderedRows, projectPathOf, emptyProjectKeys(orderedRows, projectPathOf));
+    const boardGroups = groupRoster(orderedRows, projectPathOf);
     const attentionCounts = countAttentionByKind(orderedRows);
     const attentionLine = orderAttentionLine(orderedRows, null);
     const attentionPositionById = new Map(attentionLine.map(({ id }, index) => [id, index + 1]));

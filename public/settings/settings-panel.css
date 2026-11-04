@@ -693,6 +693,11 @@ html[data-streamer] .settings-view-shell { grid-template-columns: minmax(0, 1fr)
   align-self: flex-start;
 }
 
+.settings-server-power {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
 .settings-view-status-slot {
   margin-top: 12px;
 }

@@ -13,7 +13,7 @@ import { shouldShowTelemetryNotice } from '../telemetry-notice-core.ts';
 import { getDismissedUpdate, isTelemetryNoticeDismissed, setDismissedUpdate, setTelemetryNoticeDismissed } from '../ui-prefs.ts';
 import { updateBanner } from '../updates-view-core.ts';
 import { activateSettingsHash } from './hash-routes.ts';
-import { confirmServerRestart } from './power-menu.ts';
+import { confirmServerRestart } from '../server-power.ts';
 import { isViewAvailable, openView } from './view-tabs.ts';
 
 const updateRestartButton = button({ variant: 'primary', size: 'small', label: 'Restart', action: 'restart-to-update', hidden: true });

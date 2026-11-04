@@ -8,7 +8,6 @@ import { isSettingsHash } from '../settings/settings-link.ts';
 import { activateSettingsSection, canReturnToSettingsList, onPhoneSettingsScreenChanged, returnToSettingsList } from '../settings/settings-store.ts';
 import { mountedViewModule } from '../view-registry.ts';
 import { btnAddSession, btnHelp, btnMute } from './header-controls.ts';
-import { powerMenu } from './power-menu.ts';
 import { VIEW_TABS, acknowledgeViewAttention, clearSettingsHash, refreshViewOnShow, restoreDesktopViews } from './view-tabs.ts';
 
 function mountPhoneLayout() {
@@ -36,7 +35,6 @@ function mountPhoneLayout() {
       btnAddSession,
       btnHelp,
       btnMute,
-      powerMenu,
     ],
   });
   onPhoneSettingsScreenChanged(syncPhoneHistory);

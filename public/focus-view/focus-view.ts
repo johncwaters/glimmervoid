@@ -5,7 +5,6 @@ import { createLineIcon, IMAGE_ICON_PATH, PLUS_ICON_PATH } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
 import { renderStatusLegend } from '../status-legend.ts';
 import { showFirstRunChecklist } from '../onboarding/first-run-loader.ts';
-import { emptyProjectKeys, forgetProject } from '../project-registry.ts';
 import { getRestorableSessionId, isSessionShown, quickAddSession, readSessionRows, requestSessionOpen, requestSessionRemoval, selectSession, undoPendingClose } from '../session-actions.ts';
 import { markSessionSeen } from '../session-card/lifecycle.ts';
 import { showSessionPlanFace } from '../session-card/card-faces.ts';
@@ -106,7 +105,7 @@ function setRailTabStop(id: string | null) {
 }
 
 function groupsOf(order: RosterRow[]) {
-  return groupRoster(order, projectPathOf, emptyProjectKeys(order, projectPathOf));
+  return groupRoster(order, projectPathOf);
 }
 
 function ensureGroup(group: RosterGroup<RosterRow>) {
@@ -115,10 +114,6 @@ function ensureGroup(group: RosterGroup<RosterRow>) {
   if (!groupHeader || !list) {
     groupHeader = buildSessionGroupHeader({
       onAdd: quickAddSession,
-      onForget: (path) => {
-        forgetProject(path);
-        refreshFocusRoster();
-      },
     });
     list = el('div', 'focus-rail-list');
     list.setAttribute('role', 'listbox');

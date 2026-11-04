@@ -15,7 +15,6 @@ type ShownFilesChangedListener = (sessionId: string, files: readonly ShownFile[]
 
 const PRELOAD_FALLBACK_DELAY_MS = 2000;
 const SHOWN_PAGE_ID = 'shown';
-const SHOWN_PAGE_TITLE = 'Files the agent showed you';
 
 const shownFilesBySessionId = new Map<string, ShownFile[]>();
 const unopenedCountBySessionId = new Map<string, number>();
@@ -49,11 +48,6 @@ export function onShownFilesChanged(listener: ShownFilesChangedListener): void {
 
 export function onShownFilesArrivedLive(listener: ShownFilesChangedListener): void {
   liveArrivalListeners.push(listener);
-}
-
-function shownPageTitleFor(sessionId: string): string {
-  const unopenedCount = unopenedShownCountOf(sessionId);
-  return unopenedCount === 0 ? SHOWN_PAGE_TITLE : `${SHOWN_PAGE_TITLE}, ${unopenedCount} not opened yet`;
 }
 
 function markShownFilesOpened(sessionId: string): void {
@@ -90,7 +84,6 @@ export const shownPage: SessionPage = {
   id: SHOWN_PAGE_ID,
   label: 'Shown',
   iconPath: IMAGE_ICON_PATH,
-  titleFor: shownPageTitleFor,
   isAvailableFor: hasShownFiles,
   hasUnreadFor: (sessionId) => unopenedShownCountOf(sessionId) > 0,
   mount(host, sessionId, { placement, target }) {

@@ -1,4 +1,3 @@
-import { fitTipLabel } from '../hover-tip-core.ts';
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
@@ -9,7 +8,6 @@ export interface SessionPage {
   id: string;
   label: string;
   iconPath: string;
-  titleFor(sessionId: string): string;
   isAvailableFor(sessionId: string): boolean;
   hasUnreadFor(sessionId: string): boolean;
   mount(host: HTMLElement, sessionId: string, options: { placement: SessionPagePlacement; target: string | null }): void;
@@ -137,9 +135,9 @@ export function createSessionPageButtons({ style }: { style: ButtonStyle }) {
   function buildButton(page: SessionPage): PageButton {
     const isHeader = style === 'header';
     const control = button({
-      variant: 'icon',
+      variant: 'quiet',
       size: isHeader ? 'small' : 'default',
-      label: fitTipLabel(page.label),
+      label: page.label,
       icon: createLineIcon(page.iconPath),
       action: `${isHeader ? 'open' : 'show'}-${page.id}`,
     });
@@ -162,9 +160,6 @@ export function createSessionPageButtons({ style }: { style: ButtonStyle }) {
     const isAvailable = shownSessionId !== null && page.isAvailableFor(shownSessionId);
     pageButton.wrap.toggleAttribute('data-slot-held', !isAvailable);
     pageButton.dot.hidden = !isAvailable || !shownSessionId || !page.hasUnreadFor(shownSessionId);
-    const title = shownSessionId ? page.titleFor(shownSessionId) : '';
-    pageButton.control.toggleAttribute('title', title !== '');
-    if (title !== '') pageButton.control.title = title;
   }
 
   function paintAll() {

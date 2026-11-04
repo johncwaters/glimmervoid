@@ -14,6 +14,7 @@ import { applySettingsBroadcast, mergeSettingsPayload } from './settings-store.t
 import { agentLoginOf, agentLoginSummary, openAgentConnectDialog, openRemoteSetupDialog } from '../dialogs.ts';
 import { panelRefresher, pendingSaveById, setSettingsPayload, settingsPayload, storedValues, websiteUrl } from './settings-panel-state.ts';
 import { buildUpdateStatusBlock } from './settings-update-status.ts';
+import { confirmServerRestart, confirmServerShutdown, trackShutdownButton } from '../server-power.ts';
 
 const SAVED_STATUS_MS = 2200;
 const COPY_STATUS_MS = 1600;
@@ -152,7 +153,16 @@ function buildRemoteSetupStatus() {
   return block;
 }
 
+function buildServerPowerStatus() {
+  const block = el('div', 'settings-view-status-block settings-server-power');
+  const shutdownButton = button({ variant: 'danger', label: 'Shut down', action: 'shutdown-server', onClick: confirmServerShutdown });
+  trackShutdownButton(shutdownButton);
+  block.append(button({ variant: 'secondary', label: 'Restart server', action: 'restart-server', onClick: confirmServerRestart }), shutdownButton);
+  return block;
+}
+
 function renderReadout(setting: SettingsSetting) {
+  if (setting.status === 'server-power') return buildServerPowerStatus();
   if (setting.status === 'agent-logins') return buildAgentLoginsStatus();
   if (setting.status === 'remote-setup') return buildRemoteSetupStatus();
   if (setting.status === 'update-actions') return buildUpdateStatusBlock();

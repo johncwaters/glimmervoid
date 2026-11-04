@@ -10,10 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Usage leads with tokens.** The Usage report now has a Tokens / Cost switch next to the period switch, on Tokens by default, and remembers your choice. In Tokens mode the report shows the period's tokens and session count, each agent's tokens and share, daily bars by tokens, totals for processed tokens, cached input, uncached input, output and cache savings, a tokens-by-type bar, and models and sessions ranked by tokens with their estimated cost beside them. The overview's first row shows tokens too. Cost mode shows the report as before, since cost is an estimate against list price.
+- The Changes and Shown buttons on a session now show their name beside the icon.
 
 ### Removed
 
 - Session cards no longer show the Sane YOLO and YOLO icons or the usage icon, and the Show usage on session cards setting is gone; the Usage tab still shows each session's tokens and cost. A session that skips permission prompts without Sane YOLO now shows the word YOLO beside its title.
+- The power button is gone from the header. Restart server and Shut down now live in Settings under Server, with the same confirmations.
+- Projects with no sessions no longer stay listed in the session list and on the phone Board, so the button that removed them is gone too.
 
 ## [0.52.1] - 2026-11-04
 

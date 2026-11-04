@@ -8,7 +8,6 @@ import { refreshIssuesSessionState } from '../github/issues-store.ts';
 import { refreshMyPrsSessionState } from '../github/my-prs-store.ts';
 import { forgetSessionLinkedPrs, setSessionLinkedPrs } from '../github/session-pr-chips.ts';
 import { refreshPhoneBoard } from '../phone/phone-shell-gate.ts';
-import { noteKnownProjectPath } from '../project-registry.ts';
 import { decideReloadOnBuild } from '../server-build-core.ts';
 import { setSessionSaneYolo } from '../session-card/card-dom.ts';
 import { handleDebugStateRefresh } from '../session-card/card-debug.ts';
@@ -82,7 +81,6 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
   })));
   for (const s of rows) {
     setSessionCoherenceHooks(s.id, s.coherenceHooks);
-    if (!s.ephemeral) noteKnownProjectPath(s.path);
     setSessionLinkedPrs(s.id, s.linkedPrs);
     const exists = hasSession(s.id);
     if (exists) applyState(s.id, s.state, s.stateSince);
