@@ -16,7 +16,7 @@ import { readChangeFacts, readFileFacts } from './whiteboard-anchor-facts.ts';
 import type { ChangeMap } from '../../shared/contracts/change-map.ts';
 import { unitsOf } from '../../shared/whiteboard-plan-core.ts';
 import {
-  changesForReader, connectSession, disconnectSession, markRead, nudgeLineFor, promptContextFor, recordPut, resolveBoardRef, summarizeBoard,
+  boardRecordWithMediaForImages, changesForReader, connectSession, disconnectSession, markRead, nudgeLineFor, promptContextFor, recordPut, resolveBoardRef, summarizeBoard,
 } from '../core/whiteboard-store-core.ts';
 import { loadJsonStateFile, writeJsonAtomic } from '../json-file.ts';
 import { createKeyedSerialQueue } from '../spawn-gate.ts';
@@ -129,7 +129,7 @@ function refusal(status: number, error: string): WhiteboardReply {
 }
 
 function parseBoardRecord(raw: unknown): BoardRecord | null {
-  const parsed = BoardRecord.safeParse(raw);
+  const parsed = BoardRecord.safeParse(boardRecordWithMediaForImages(raw));
   return parsed.success ? parsed.data : null;
 }
 
