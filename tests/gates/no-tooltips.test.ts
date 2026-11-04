@@ -12,7 +12,7 @@ const TITLE_WRITES = [
   /(?<!document)\.title\s*(?:\+|\?\?|\|\||&&)?=(?!=)/g,
   /\[\s*['"`]title['"`]\s*\]\s*(?:\+|\?\?|\|\||&&)?=(?!=)/gi,
   /\w*(?:Attribute\w*|Element(?:NS)?|Shape\w*)\([^;]*?(?:['"`]title['"`]|(?<!\$\{)(?<![.\w$'"`-])title\s*[:,}])/gi,
-  /<svg\b[^]*?<title\b/gi,
+  /<svg\b[\s\S]*?<title\b/gi,
   /<[a-z][^>]*\stitle\s*=/gi,
   /Object\.assign\([^;]*?\btitle\b/g,
 ];
