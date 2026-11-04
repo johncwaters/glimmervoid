@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { TeamReviewActionRequest, TeamReviewActionResult, TeamReviewStatus, hasRequiredActionHead } from '../team-review.ts';
 import { MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrMergeRequest, MyPrMergeResult, MyPrMergeWhenReadyRequest, MyPrMergeWhenReadyResult, MyPrsStatus } from '../my-prs.ts';
 import { GithubPrsFrame } from '../github-prs.ts';
+import { PrFlowDisposeRequest, PrFlowDisposeResult, PrFlowsStatus } from '../pr-flows.ts';
 import { requestId, GithubTeam, PullRequestKey, loose, optionalError } from './control-fields.ts';
 
 export const githubClientVariants = [
@@ -17,6 +18,7 @@ export const githubClientVariants = [
   loose('my-pr-keep-mergeable', { ...MyPrKeepMergeableRequest.shape, requestId }),
   loose('my-pr-merge-when-ready', { ...MyPrMergeWhenReadyRequest.shape, requestId }),
   loose('github-polling-refresh', { ...GithubPollingRefreshRequest.shape, requestId }),
+  loose('pr-flow-dispose', { ...PrFlowDisposeRequest.shape, requestId }),
 ] as const;
 
 export const githubServerVariants = [
@@ -47,8 +49,10 @@ export const githubServerVariants = [
   loose('my-pr-keep-mergeable-result', { ...MyPrKeepMergeableResult.shape, requestId }),
   loose('my-pr-merge-when-ready-result', { ...MyPrMergeWhenReadyResult.shape, requestId }),
   loose('github-polling-refresh-result', { ...GithubPollingRefreshResult.shape, requestId }),
+  loose('pr-flow-dispose-result', { ...PrFlowDisposeResult.shape, requestId }),
   TeamReviewStatus,
   MyPrsStatus,
+  PrFlowsStatus,
   GithubPrsFrame,
   IssuesStatus,
 ] as const;

@@ -1,4 +1,6 @@
 import { MyPrsStatus } from '#shared/contracts/my-prs.ts';
+import { PrFlowsStatus } from '#shared/contracts/pr-flows.ts';
+import type { PrFlowHandled } from '#shared/contracts/pr-flows.ts';
 import type { LinkedPr, MyPr } from '#shared/contracts/my-prs.ts';
 import { describeSchemaIssues } from '../client-error-core.ts';
 import { reportToServerLog } from '../control-ws.ts';
@@ -15,6 +17,7 @@ export type MyPrsChange =
   | { kind: 'connection'; isConnected: boolean };
 
 let latest: MyPrsStatus | null = null;
+let handledByPr: Readonly<Record<string, readonly PrFlowHandled[]>> = {};
 let previousJoinedPrs: MyPr[] | null = null;
 const celebratedMergeKeys = new Set<string>();
 let sessionLinksById: ReadonlyMap<string, readonly LinkedPr[]> = new Map();
@@ -54,8 +57,8 @@ export function subscribeMyPrs(listener: (change: MyPrsChange) => void): void {
   listeners.add(listener);
 }
 
-export function myPrsSnapshot(): { prs: MyPr[]; status: MyPrsStatus | null; sessionsByPrKey: Map<string, LinkedLiveSession[]> } {
-  return { prs: joinMyPrs(latest?.prs ?? [], githubPrByKey), status: latest, sessionsByPrKey: liveSessionsByPrKey(liveSessionLinks()) };
+export function myPrsSnapshot(): { prs: MyPr[]; status: MyPrsStatus | null; sessionsByPrKey: Map<string, LinkedLiveSession[]>; handledByPr: Readonly<Record<string, readonly PrFlowHandled[]>> } {
+  return { prs: joinMyPrs(latest?.prs ?? [], githubPrByKey), status: latest, sessionsByPrKey: liveSessionsByPrKey(liveSessionLinks()), handledByPr };
 }
 
 export function celebrateMergedPrs(mergedPrs: readonly MyPr[]): void {
@@ -82,6 +85,16 @@ export function applyMyPrsStatus(message: unknown): void {
   }
   latest = parsed.data;
   celebrateNewlyMergedAndNotify();
+}
+
+export function applyPrFlowsStatus(message: unknown): void {
+  const parsed = PrFlowsStatus.safeParse(message);
+  if (!parsed.success) {
+    reportToServerLog('reviews', `dropped pr-flows-status: ${describeSchemaIssues(parsed.error.issues)}`);
+    return;
+  }
+  handledByPr = parsed.data.handledByPr;
+  notify({ kind: 'prs' });
 }
 
 export function applyMyPrMergeResult(message: unknown): void {

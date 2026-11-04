@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Your pull requests in Reviews now list review comments as one deduplicated list: threads from different reviewers or bots on the same file within three lines of each other show as one item naming every reviewer, each with a priority tag.
+- Each review item on your pull request now has Fix locally, which sends the comment to the live session linked to that pull request, and Dismiss, which posts your typed reason as a reply under your GitHub login and resolves the thread. Handled items move to a Handled list on the pull request, and a dismissed comment stays hidden after new pushes unless its text changes.
 - Small icon buttons on desktop, like the session menu, Changes and Shown, are now 28 pixels square instead of 22, with a larger icon, and every whiteboard toolbar button is now that same size. The phone layout is unchanged.
 - Trace's Expand all and Collapse all buttons now match the height of the filter buttons beside them.
 

@@ -68,6 +68,10 @@ const RESOLVE_THREAD_MUTATION = `mutation($id: ID!) {
   resolveReviewThread(input: { threadId: $id }) { thread { id isResolved } }
 }`;
 
+const REPLY_THREAD_MUTATION = `mutation($id: ID!, $body: String!) {
+  addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $id, body: $body }) { comment { id } }
+}`;
+
 const TEAM_THREAD_COMMENT_FIELDS = `pageInfo { hasNextPage endCursor } nodes { body author { login } viewerDidAuthor createdAt url originalCommit { oid } }`;
 
 const TEAM_THREAD_FIELDS = `id path line isResolved viewerCanResolve comments(first: 100) { ${TEAM_THREAD_COMMENT_FIELDS} }`;
@@ -133,5 +137,5 @@ function behindCountsQuery(prs: readonly PrHeadReference[]): string {
   return `query { ${fields.join(' ')} }`;
 }
 
-export { MERGED_PRS_QUERY, MY_PR_CHECK_CONTEXTS_QUERY, MY_PR_MERGE_STATE_QUERY, MY_PR_THREADS_QUERY, REBASE_PR_MUTATION, RESOLVE_THREAD_MUTATION, REVIEW_THREAD_FIELDS, TEAM_PROFILE_QUERY, TEAM_THREAD_COMMENT_FIELDS, TEAM_THREAD_FIELDS, behindCountsQuery, benchmarkReviewDataQuery, githubPrDetailsQuery, githubPrsLightByKeyQuery, githubPrsLightSearchQuery, issueLinkedPullRequestsQuery, reviewThreadsBatchQuery, teamThreadsQuery };
+export { MERGED_PRS_QUERY, MY_PR_CHECK_CONTEXTS_QUERY, MY_PR_MERGE_STATE_QUERY, MY_PR_THREADS_QUERY, REBASE_PR_MUTATION, REPLY_THREAD_MUTATION, RESOLVE_THREAD_MUTATION, REVIEW_THREAD_FIELDS, TEAM_PROFILE_QUERY, TEAM_THREAD_COMMENT_FIELDS, TEAM_THREAD_FIELDS, behindCountsQuery, benchmarkReviewDataQuery, githubPrDetailsQuery, githubPrsLightByKeyQuery, githubPrsLightSearchQuery, issueLinkedPullRequestsQuery, reviewThreadsBatchQuery, teamThreadsQuery };
 export type { PrHeadReference, PrReference };

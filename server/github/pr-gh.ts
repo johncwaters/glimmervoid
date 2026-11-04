@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { CommitSha, TeamReviewThreadCommentsResponse, TeamReviewThreadsRepository, TeamReviewResolveResponse, ReviewThreadId, TeamReviewCompareFiles, PrDetail, PostedReviewEvent, ReviewComment } from '../../shared/contracts/team-review.ts';
 import { CommitComparison, MergedPrListing, MinedPrReviewData } from '../../shared/contracts/benchmark.ts';
 import type { CommitComparison as CommitComparisonType, MergedPrListing as MergedPrListingType, MinedPrReviewData as MinedPrReviewDataType } from '../../shared/contracts/benchmark.ts';
+import { PrThreadReplyResponse } from '../../shared/contracts/pr-flows.ts';
 import { MyPrCheckContext, MyPrCheckContextsResponse, MyPrMergeMethod, MyPrThreadNode, MyPrThreadsResponse } from '../../shared/contracts/my-prs.ts';
 import type { MyPrMergeKind, MyPrMergeMethod as MyPrMergeMethodType, MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode as MyPrThreadNodeType } from '../../shared/contracts/my-prs.ts';
 import { WorkflowCommentBody, WorkflowLabelName } from '../../shared/contracts/workflows.ts';
@@ -19,7 +20,7 @@ import { errorMessage } from '../../shared/text.ts';
 import { parseJsonOrNull } from '../core/json-core.ts';
 import { notificationSubjectPrKey } from './core/github-store-core.ts';
 import type { GithubTeam } from '../../shared/contracts/control-messages.ts';
-import { MERGED_PRS_QUERY, MY_PR_CHECK_CONTEXTS_QUERY, MY_PR_MERGE_STATE_QUERY, MY_PR_THREADS_QUERY, REBASE_PR_MUTATION, RESOLVE_THREAD_MUTATION, REVIEW_THREAD_FIELDS, TEAM_PROFILE_QUERY, TEAM_THREAD_COMMENT_FIELDS, TEAM_THREAD_FIELDS, behindCountsQuery, benchmarkReviewDataQuery, githubPrDetailsQuery, githubPrsLightByKeyQuery, githubPrsLightSearchQuery, issueLinkedPullRequestsQuery, reviewThreadsBatchQuery, teamThreadsQuery } from './pr-gh/pr-gh-queries.ts';
+import { MERGED_PRS_QUERY, MY_PR_CHECK_CONTEXTS_QUERY, MY_PR_MERGE_STATE_QUERY, MY_PR_THREADS_QUERY, REBASE_PR_MUTATION, REPLY_THREAD_MUTATION, RESOLVE_THREAD_MUTATION, REVIEW_THREAD_FIELDS, TEAM_PROFILE_QUERY, TEAM_THREAD_COMMENT_FIELDS, TEAM_THREAD_FIELDS, behindCountsQuery, benchmarkReviewDataQuery, githubPrDetailsQuery, githubPrsLightByKeyQuery, githubPrsLightSearchQuery, issueLinkedPullRequestsQuery, reviewThreadsBatchQuery, teamThreadsQuery } from './pr-gh/pr-gh-queries.ts';
 import type { PrHeadReference, PrReference } from './pr-gh/pr-gh-queries.ts';
 import { COMPARE_RESPONSE, CREATED_REVIEW, GH_LOGIN, GH_MEMBERS, GH_TEAMS, GITHUB_NOTIFICATIONS, GITHUB_PRS_LIGHT_RESPONSE, GITHUB_PR_DETAIL_REPOSITORY, GITHUB_PR_LIGHT_REPOSITORY, GRAPHQL_BEHIND_REPOSITORY, GRAPHQL_NOT_FOUND_ERROR, GRAPHQL_RESPONSE, GRAPHQL_THREADS_REPOSITORY, MERGED_PRS_RESPONSE, PR_DIFF, TEAM_PROFILE } from './pr-gh/pr-gh-responses.ts';
 import { aliasesOfErrors, conditionalGetResult, isPrNumber, isPullRequest, mergeKindFromPrState, normalizeIssue, parseGithubIssue, reviewSnapshotKey, uniqueValidPrs } from './pr-gh/pr-gh-parsing.ts';
@@ -53,6 +54,7 @@ interface PrGh {
   rateLimitWaitMs(nowMs: number, resourceNames: readonly string[]): Promise<number | null>;
   teamReviewThreads(prs: readonly PrReference[]): Promise<Map<string, ThreadNode[]>>;
   resolveReviewThread(threadId: string): Promise<{ ok: boolean; err: string }>;
+  replyToReviewThread(threadId: string, body: string): Promise<{ ok: boolean; err: string }>;
   teamReviewCompare(repo: string, base: string, head: string): Promise<{ ok: true; comparison: CompareFiles | null } | { ok: false; err: string }>;
   reviewThreadsBatch(prs: readonly PrReference[]): Promise<Map<string, MyPrThreadNodeType[]>>;
   listMergedPrs(repo: string, limit: number): Promise<{ ok: true; prs: MergedPrListingType[] } | { ok: false; reason: string }>;
@@ -370,6 +372,14 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       const parsed = TeamReviewResolveResponse.safeParse(parseJsonOrNull(response.out));
       const isResolved = response.ok && parsed.success && !parsed.data.errors?.length && parsed.data.data?.resolveReviewThread.thread.id === threadId;
       return { ok: Boolean(isResolved), err: isResolved ? '' : response.err || 'GitHub did not confirm the thread was resolved' };
+    },
+
+    async replyToReviewThread(threadId, body) {
+      if (!ReviewThreadId.safeParse(threadId).success) return { ok: false, err: 'invalid review thread id' };
+      const response = await runGh(['api', 'graphql', '-f', `query=${REPLY_THREAD_MUTATION}`, '-f', `id=${threadId}`, '-f', `body=${body}`], undefined, false, GH_WRITE_TIMEOUT_MS);
+      const parsed = PrThreadReplyResponse.safeParse(parseJsonOrNull(response.out));
+      const isReplied = response.ok && parsed.success && !parsed.data.errors?.length && parsed.data.data !== null;
+      return { ok: isReplied, err: isReplied ? '' : response.err || 'GitHub did not confirm the reply' };
     },
 
     async teamReviewCompare(repo, base, head) {

@@ -4,6 +4,7 @@ import { ClientMessage, configIssueMessage, type ClientMessageOf, type ServerMes
 import type { IssuesStatus } from '../shared/contracts/issues.ts';
 import type { GithubPollingRefreshResult, GithubPrsFreshness } from '../shared/contracts/github-polling.ts';
 import type { GithubPrsFrame } from '../shared/contracts/github-prs.ts';
+import type { PrFlowsWiring } from './github/pr-flows-wiring.ts';
 import type { PlanDecision } from '../shared/contracts/plan-review.ts';
 import type { UpdateJournal } from '../shared/contracts/update-journal.ts';
 import type { TeamReviewActionRequest, TeamReviewActionResult, TeamReviewStatus } from '../shared/contracts/team-review.ts';
@@ -124,6 +125,7 @@ interface ControlHandlerDeps {
   issues?: { refresh: () => Promise<GithubPollingRefreshResult>; getLinkedSessionId?: (issueKey: string) => Promise<string | null>; linkSession?: (issueKey: string, sessionId: string) => Promise<void>; setIssueState?: (change: { repo: string; number: number; state: 'closed' | 'open' }) => Promise<{ ok: boolean; err: string }> } | null;
   teamReview?: TeamReviewActionControl | null;
   myPrs?: MyPrMergeControl | null;
+  prFlows?: Pick<PrFlowsWiring, 'dispose' | 'statusFrame'> | null;
   getBenchmarkStatus?: (() => BenchmarkStatus | null) | null;
   benchmarks?: BenchmarkControl | null;
   requestIssue?: GithubLaneStore['requestIssue'];

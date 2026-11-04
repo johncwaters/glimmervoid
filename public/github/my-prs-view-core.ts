@@ -3,15 +3,16 @@ import { hasFailedKeepMergeableRepair } from './github-store-core.ts';
 import { MyPrMergeResult } from '#shared/contracts/my-prs.ts';
 import { mergeMethodLabel, myPrMergeBlocker } from '#shared/my-pr-merge.ts';
 import type { MyPr, MyPrMergeKind, MyPrsStatus as MyPrsStatusType, MyPrThread } from '#shared/contracts/my-prs.ts';
-import type { PrFlowItem, PrFlowPriority } from '#shared/contracts/pr-flows.ts';
+import type { PrFlowHandled, PrFlowItem, PrFlowPriority } from '#shared/contracts/pr-flows.ts';
 import type { PrStatusIcon } from './pr-status-icon-core.ts';
+import type { LinkedLiveSession } from './github-store-core.ts';
 import type { StateTone } from '../state-tone-core.ts';
 
 export { isKeepMergeableFeatureEnabled, stageIcon, stageLabel, stageTone } from './github-store-core.ts';
 export type { LinkedLiveSession, MergeCelebrationText } from './github-store-core.ts';
 
 interface ThreadRow {
-  location: string; url: string; author: string; excerpt: string; replySummary: string; lastActivityAt: string;
+  itemKey: string; location: string; url: string; author: string; excerpt: string; replySummary: string; lastActivityAt: string;
   waiting: { tone: StateTone; icon: PrStatusIcon; text: string } | null;
   isWaitingOnYou: boolean;
   priority: { text: string; tone: StateTone };
@@ -131,21 +132,32 @@ function latestActivity(threads: readonly MyPrThread[]): string {
   return threads.map((thread) => thread.lastActivityAt).sort().at(-1) ?? '';
 }
 
-export function threadRows(pr: MyPr, viewer: string | null): ThreadRow[] {
+export function threadRows(pr: MyPr, viewer: string | null, handled: readonly PrFlowHandled[] = []): ThreadRow[] {
   const threadsById = new Map(pr.threads.map((thread) => [thread.id, thread]));
-  return pr.reviewItems.map((item) => {
+  const handledDismissalKeys = new Set(handled.flatMap((entry) => entry.dismissalKeys));
+  return pr.reviewItems.filter((item) => !item.sources.every((source) => handledDismissalKeys.has(source.dismissalKey))).map((item) => {
     const itemThreads = item.sources.flatMap((source) => {
       const thread = source.threadId === undefined ? undefined : threadsById.get(source.threadId);
       return thread ? [thread] : [];
     });
     const waitingThread = itemThreads.find((thread) => isWaitingOnViewer(thread, viewer) === true) ?? itemThreads[0];
     return {
-      location: itemLocation(item, itemThreads), url: item.url ?? pr.url, author: [...new Set(item.sources.map((source) => source.name))].join(', '),
+      itemKey: item.key, location: itemLocation(item, itemThreads), url: item.url ?? pr.url, author: [...new Set(item.sources.map((source) => source.name))].join(', '),
       excerpt: item.excerpt, replySummary: waitingThread ? replySummary(waitingThread) : '', lastActivityAt: latestActivity(itemThreads),
       waiting: waitingThread ? waitingBadge(waitingThread, viewer) : null, isWaitingOnYou: itemThreads.some((thread) => isWaitingOnViewer(thread, viewer) === true),
       priority: { text: item.priority === 'unknown' ? 'Unrated' : `${item.priority[0]?.toUpperCase()}${item.priority.slice(1)}`, tone: PRIORITY_TONES[item.priority] },
     };
   }).sort((left, right) => Number(right.isWaitingOnYou) - Number(left.isWaitingOnYou));
+}
+
+const HANDLED_ACTION_TEXT: Readonly<Record<PrFlowHandled['action'], string>> = { dismiss: 'Dismissed', 'fix-local': 'Sent to session' };
+
+export function handledRows(handled: readonly PrFlowHandled[]): { text: string; location: string; reason: string | null; at: number }[] {
+  return [...handled].sort((left, right) => right.at - left.at).map((entry) => ({ text: HANDLED_ACTION_TEXT[entry.action], location: entry.location, reason: entry.reason, at: entry.at }));
+}
+
+export function fixLocallyBlocker(linkedSessions: readonly LinkedLiveSession[] | undefined): string | null {
+  return linkedSessions && linkedSessions.length > 0 ? null : 'No live session is linked to this PR';
 }
 
 function threadsReadiness(pr: MyPr, viewer: string | null): ReadinessRow {

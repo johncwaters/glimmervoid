@@ -3,6 +3,8 @@ import type { ClientMessageOf } from '../../../shared/contracts/index.ts';
 import type { GithubTeam } from '../../../shared/contracts/control-messages.ts';
 import { MyPrKeepMergeableRequest, MyPrMergeRequest, MyPrMergeWhenReadyRequest } from '../../../shared/contracts/my-prs.ts';
 import type { MyPrKeepMergeableResult, MyPrMergeResult, MyPrMergeWhenReadyResult } from '../../../shared/contracts/my-prs.ts';
+import { PrFlowDisposeRequest } from '../../../shared/contracts/pr-flows.ts';
+import type { PrFlowDisposeResult } from '../../../shared/contracts/pr-flows.ts';
 import { TeamReviewActionRequest } from '../../../shared/contracts/team-review.ts';
 import type { TeamReviewActionResult } from '../../../shared/contracts/team-review.ts';
 import { errorMessage } from '../../../shared/text.ts';
@@ -40,6 +42,7 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
     issues = null,
     teamReview = null,
     myPrs = null,
+    prFlows = null,
     requestIssue = async () => ({ isRateLimited: false, value: { ok: false, issue: null, error: 'Issues polling is not running.' } }),
     requestViewer = async () => ({ isRateLimited: false, value: null }),
     requestViewerTeams = async () => ({ isRateLimited: false, value: null }),
@@ -232,6 +235,15 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
     reply(await myPrs.setMergeWhenReady(parsed.data));
   }
 
+  async function handlePrFlowDispose(msg: ClientMessageOf<'pr-flow-dispose'>, ws: ControlSocket): Promise<void> {
+    const reply = (outcome: PrFlowDisposeResult) => replyTo(ws, msg, 'pr-flow-dispose-result', outcome);
+    const parsed = PrFlowDisposeRequest.safeParse({ prKey: msg.prKey, itemKey: msg.itemKey, action: msg.action, reason: msg.reason });
+    if (!parsed.success) { reply({ ok: false, error: configIssueMessage(parsed.error) }); return; }
+    captureOperatorAction('reviews', `pr-flow-${parsed.data.action}`);
+    if (!prFlows) { reply({ ok: false, error: 'My pull requests is not running' }); return; }
+    reply(await prFlows.dispose(parsed.data, sessionLinkedToPr(parsed.data.prKey)));
+  }
+
   function connectFrames(): readonly unknown[] {
     const frames: unknown[] = [];
     const teamReviewStatus = typeof getTeamReviewStatus === 'function' ? getTeamReviewStatus() : null;
@@ -244,6 +256,7 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
     const frames: unknown[] = [];
     const myPrsStatus = typeof getMyPrsStatus === 'function' ? getMyPrsStatus() : null;
     if (myPrsStatus) frames.push(toMyPrsWireStatus(myPrsStatus));
+    if (prFlows) frames.push(prFlows.statusFrame());
     const issuesStatus = getIssuesStatus?.();
     if (issuesStatus) frames.push(issuesStatus);
     return frames;
@@ -260,6 +273,7 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
     'my-pr-keep-mergeable': handleMyPrKeepMergeable,
     'my-pr-merge-when-ready': handleMyPrMergeWhenReady,
     'github-polling-refresh': handleGithubPollingRefresh,
+    'pr-flow-dispose': handlePrFlowDispose,
   } satisfies ControlHandlerTable;
 
   const invalidReplies = {
@@ -273,6 +287,7 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
     'my-pr-merge': (msg, requestId, message) => ({ type: 'my-pr-merge-result', requestId, key: myPrMergeKey(msg), ok: false, error: message }),
     'my-pr-keep-mergeable': (msg, requestId, message) => ({ type: 'my-pr-keep-mergeable-result', requestId, key: myPrMergeKey(msg), ok: false, error: message }),
     'my-pr-merge-when-ready': (msg, requestId, message) => ({ type: 'my-pr-merge-when-ready-result', requestId, key: myPrMergeKey(msg), ok: false, error: message }),
+    'pr-flow-dispose': (_msg, requestId, message) => ({ type: 'pr-flow-dispose-result', requestId, ok: false, error: message }),
   } satisfies InvalidReplyTable;
 
   return { handlers, invalidReplies, connectFrames, lateConnectFrames };

@@ -4,6 +4,9 @@ import { GithubPr, GithubPrDetailNode } from '../shared/contracts/github-prs.ts'
 import type { MyPrThreadNode } from '../shared/contracts/my-prs.ts';
 import { normalizeGithubPr } from '../server/github/core/github-store-core.ts';
 import { myPrFromGithubPr } from '../shared/my-pr-merge.ts';
+import type { PrFlowsStatus } from '../shared/contracts/pr-flows.ts';
+import { createPrFlowsWiring } from '../server/github/pr-flows-wiring.ts';
+import { threadRows } from '../public/github/my-prs-view-core.ts';
 
 function openPr(): GithubPrDetailNode {
   return GithubPrDetailNode.parse({
@@ -41,4 +44,40 @@ test('a store PR reaches My PRs with unresolved threads merged by path and nearb
     ['src/b.ts', 10, 10, ['t4']],
   ]);
   assert.ok(items.every((item) => item.priority === 'unknown'));
+});
+
+test('dismissing an item replies and resolves each of its threads once, and the dismissal hides it after a push until a comment changes or a new one joins it', async () => {
+  let threads = [threadNode('PRRT_1', 'src/a.ts', 10, 'greptile[bot]', 'Null name writes undefined'), threadNode('PRRT_2', 'src/a.ts', 12, 'copilot[bot]', 'Guard the name')];
+  const myPr = () => myPrFromGithubPr(GithubPr.parse(normalizeGithubPr(openPr(), 0, threads)));
+  const githubCalls: string[] = [];
+  let failNextResolve = true;
+  const frames: PrFlowsStatus[] = [];
+  const prFlows = createPrFlowsWiring({
+    statePath: null, openPrs: () => [myPr()], broadcast: (frame) => frames.push(frame), log: console,
+    github: {
+      replyToReviewThread: async (threadId, body) => { githubCalls.push(`reply ${threadId} ${body}`); return { ok: true, err: '' }; },
+      resolveReviewThread: async (threadId) => {
+        githubCalls.push(`resolve ${threadId}`);
+        if (threadId === 'PRRT_2' && failNextResolve) {
+          failNextResolve = false;
+          return { ok: false, err: 'HTTP 502' };
+        }
+        return { ok: true, err: '' };
+      },
+    },
+  });
+  const [item] = myPr().reviewItems;
+  assert.ok(item);
+  const dismissal = { prKey: 'acme/app#1', itemKey: item.key, action: 'dismiss', reason: 'Names are validated upstream' } as const;
+  assert.deepEqual(await prFlows.dispose(dismissal, null), { ok: false, error: 'Replied, but could not resolve the thread: HTTP 502' });
+  assert.deepEqual(await prFlows.dispose(dismissal, null), { ok: true });
+  assert.deepEqual(githubCalls, ['reply PRRT_1 Names are validated upstream', 'resolve PRRT_1', 'reply PRRT_2 Names are validated upstream', 'resolve PRRT_2', 'resolve PRRT_2']);
+  const handled = frames.at(-1)?.handledByPr['acme/app#1'] ?? [];
+  threads = [threadNode('PRRT_9', 'src/a.ts', 14, 'greptile[bot]', 'Null name writes undefined')];
+  assert.deepEqual(threadRows(myPr(), 'operator', handled), []);
+  threads = [threadNode('PRRT_9', 'src/a.ts', 14, 'greptile[bot]', 'Null name writes undefined'), threadNode('PRRT_10', 'src/a.ts', 15, 'alice', 'This also leaks the token')];
+  assert.equal(threadRows(myPr(), 'operator', handled).length, 1);
+  threads = [threadNode('PRRT_9', 'src/a.ts', 14, 'greptile[bot]', 'Null name now crashes the export')];
+  assert.equal(threadRows(myPr(), 'operator', handled).length, 1);
+  assert.deepEqual(await prFlows.dispose({ prKey: 'acme/app#1', itemKey: myPr().reviewItems[0]?.key ?? '', action: 'fix-local' }, null), { ok: false, error: 'No live session is linked to this pull request.' });
 });

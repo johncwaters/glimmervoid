@@ -15,13 +15,14 @@ import { formatAgo } from '../poll-ago.ts';
 import { writeAttributeIfChanged, writeTextIfChanged } from '../status-paint.ts';
 import { createPrStatusIcon } from './pr-status-icon.ts';
 import { myPrStackRowsOf, stackBadgeOf } from './github-store-core.ts';
+import { comparablePrKey } from '#shared/contracts/github-prs.ts';
 import type { MyPrStackRow } from './github-store-core.ts';
 import { showPrInReviewQueue } from './review-queue-store.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import { nextRequestId, sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
-import { emptyStateText, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, keepMergeableControlState, keepMergeableRowLabel, mergeConfirmMessage, mergeControlState, mergeWhenReadyControlState, parseMyPrMergeResult, readinessRows, reviewRows, stageIcon, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
+import { emptyStateText, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, keepMergeableControlState, keepMergeableRowLabel, mergeConfirmMessage, mergeControlState, mergeWhenReadyControlState, parseMyPrMergeResult, readinessRows, reviewRows, fixLocallyBlocker, handledRows, stageIcon, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
 import type { LinkedLiveSession, MergeAttempt, ToggleControlState } from './my-prs-view-core.ts';
 
 let detail: HTMLElement | null = null;
@@ -248,7 +249,89 @@ function createReadinessSection(pr: MyPr): HTMLElement | null {
   return section;
 }
 
-function createThreadsSection(headingText: string, threads: ReturnType<typeof threadRows>): HTMLElement | null {
+const dismissDraftsByItemKey = new Map<string, string>();
+const itemStatusByKey = new Map<string, { tone: 'busy' | 'ok' | 'error'; text: string }>();
+
+async function disposeItem(pr: MyPr, itemKey: string, action: 'dismiss' | 'fix-local', reason?: string): Promise<void> {
+  itemStatusByKey.set(itemKey, { tone: 'busy', text: action === 'dismiss' ? 'Replying on GitHub' : 'Sending to the session' });
+  renderDetail(pr);
+  try {
+    const response = await sendControlRequest('pr-flow-dispose', { prKey: pr.key, itemKey, action, ...(reason === undefined ? {} : { reason }) }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
+    if (response.type !== 'pr-flow-dispose-result') throw new Error('Unexpected review item reply.');
+    if (!response.ok) {
+      itemStatusByKey.set(itemKey, { tone: 'error', text: response.error ?? 'Could not handle this review item.' });
+      return;
+    }
+    dismissDraftsByItemKey.delete(itemKey);
+    if (response.isPending === true) {
+      itemStatusByKey.set(itemKey, { tone: 'ok', text: 'Queued until the session is ready; it stays listed until then' });
+      return;
+    }
+    itemStatusByKey.delete(itemKey);
+  } catch (error) {
+    itemStatusByKey.set(itemKey, { tone: 'error', text: requestFailureText(error, DEFAULT_REPLY_TIMEOUT_MS) });
+  } finally {
+    render();
+  }
+}
+
+function createDismissForm(pr: MyPr, itemKey: string): HTMLElement {
+  const form = el('div', 'my-pr-item-dismiss');
+  const reason = el('textarea', 'my-pr-item-reason');
+  reason.setAttribute('aria-label', 'Reason for dismissing');
+  reason.placeholder = 'Why this does not need a change. Posted as your reply.';
+  reason.value = dismissDraftsByItemKey.get(itemKey) ?? '';
+  reason.addEventListener('input', () => dismissDraftsByItemKey.set(itemKey, reason.value));
+  const confirm = button({ variant: 'primary', label: 'Dismiss', action: 'pr-flow-dismiss-confirm', onClick: () => {
+    if (!reason.value.trim()) return;
+    void disposeItem(pr, itemKey, 'dismiss', reason.value.trim());
+  } });
+  const cancel = button({ variant: 'secondary', label: 'Cancel', action: 'pr-flow-dismiss-cancel', onClick: () => {
+    dismissDraftsByItemKey.delete(itemKey);
+    renderDetail(pr);
+  } });
+  form.append(reason, confirm, cancel);
+  return form;
+}
+
+function createItemActions(pr: MyPr, itemKey: string): HTMLElement {
+  const actions = el('div', 'my-pr-item-actions');
+  const status = itemStatusByKey.get(itemKey);
+  const isBusy = status?.tone === 'busy';
+  const fixBlocker = fixLocallyBlocker(myPrsSnapshot().sessionsByPrKey.get(comparablePrKey(pr)));
+  const fixLocally = button({ variant: 'secondary', label: 'Fix locally', action: 'pr-flow-fix-local', disabled: isBusy || fixBlocker !== null, onClick: () => void disposeItem(pr, itemKey, 'fix-local') });
+  const dismiss = button({ variant: 'secondary', label: 'Dismiss', action: 'pr-flow-dismiss', disabled: isBusy || dismissDraftsByItemKey.has(itemKey), onClick: () => {
+    dismissDraftsByItemKey.set(itemKey, '');
+    renderDetail(pr);
+  } });
+  actions.append(fixLocally, dismiss);
+  if (fixBlocker) actions.append(el('span', 'my-pr-item-note', fixBlocker));
+  const statusText = el('span', 'my-pr-item-status');
+  statusText.setAttribute('role', 'status');
+  paintActionStatus(statusText, status?.tone ?? null, status?.text ?? '');
+  actions.append(statusText);
+  if (!dismissDraftsByItemKey.has(itemKey)) return actions;
+  const wrapper = el('div', 'my-pr-item-controls');
+  wrapper.append(actions, createDismissForm(pr, itemKey));
+  return wrapper;
+}
+
+function createHandledSection(handled: ReturnType<typeof handledRows>): HTMLElement | null {
+  if (handled.length === 0) return null;
+  const section = el('details', 'my-pr-threads-section my-pr-handled');
+  section.append(el('summary', 'pr-section-heading', `Handled (${handled.length})`));
+  const list = el('ul', 'my-pr-threads');
+  for (const entry of handled) {
+    const item = el('li', 'my-pr-thread');
+    item.append(el('p', 'my-pr-thread-meta', `${entry.text} ${entry.location}, ${formatAgo(entry.at)}`));
+    if (entry.reason) item.append(el('p', 'my-pr-thread-excerpt', entry.reason));
+    list.append(item);
+  }
+  section.append(list);
+  return section;
+}
+
+function createThreadsSection(pr: MyPr, headingText: string, threads: ReturnType<typeof threadRows>): HTMLElement | null {
   if (threads.length === 0) return null;
   const section = el('section', 'my-pr-threads-section');
   section.append(el('h3', 'pr-section-heading', headingText));
@@ -269,7 +352,7 @@ function createThreadsSection(headingText: string, threads: ReturnType<typeof th
     excerpt.append(el('strong', null, thread.author), ` ${thread.excerpt}`);
     const activity = Date.parse(thread.lastActivityAt);
     const meta = el('p', 'my-pr-thread-meta', Number.isFinite(activity) && thread.replySummary ? `${thread.replySummary}, ${formatAgo(activity)}` : thread.replySummary);
-    item.append(heading, excerpt, meta);
+    item.append(heading, excerpt, meta, createItemActions(pr, thread.itemKey));
     list.append(item);
   }
   section.append(list);
@@ -329,12 +412,14 @@ function renderDetail(pr: MyPr | undefined): void {
     detail.replaceChildren(el('p', 'pr-empty', emptyStateText(latest)));
     return;
   }
-  const threads = threadRows(pr, latest?.viewer ?? null);
+  const handled = myPrsSnapshot().handledByPr[pr.key] ?? [];
+  const threads = threadRows(pr, latest?.viewer ?? null, handled);
   const content = el('article', 'pr-detail');
   const sections = [
     createReadinessSection(pr),
-    createThreadsSection('Threads waiting on you', threads.filter((thread) => thread.isWaitingOnYou)),
-    createThreadsSection('Other open threads', threads.filter((thread) => !thread.isWaitingOnYou)),
+    createThreadsSection(pr, 'Threads waiting on you', threads.filter((thread) => thread.isWaitingOnYou)),
+    createThreadsSection(pr, 'Other open threads', threads.filter((thread) => !thread.isWaitingOnYou)),
+    createHandledSection(handledRows(handled)),
     createReviewsSection(pr),
     createAutomationSection(pr),
     createMergeControl(pr),

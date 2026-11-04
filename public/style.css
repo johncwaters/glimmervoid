@@ -2105,6 +2105,12 @@ html[data-layout="phone"] .view-panel {
 .my-pr-thread-excerpt { margin: 0; color: var(--text); font-size: var(--type-meta); overflow-wrap: anywhere; }
 .my-pr-thread-excerpt strong { color: var(--text-muted); font-weight: 700; }
 .my-pr-thread-meta { margin: 0; color: var(--text-dim); font-size: var(--type-meta); }
+.my-pr-item-controls { display: flex; flex-direction: column; gap: 8px; }
+.my-pr-item-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
+.my-pr-item-note { color: var(--text-dim); font-size: var(--type-meta); }
+.my-pr-item-dismiss { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
+.my-pr-item-reason { flex: 1 1 100%; min-height: 64px; font: inherit; font-size: var(--type-meta); }
+.my-pr-handled summary { cursor: pointer; }
 .pr-status-icon { flex: 0 0 auto; }
 .pr-readiness-section .pr-section-heading, .my-pr-threads-section .pr-section-heading { padding-left: 0; }
 .pr-readiness { display: grid; grid-template-columns: 14px max-content minmax(0, 1fr); gap: 10px 14px; margin: 0; padding: 0; list-style: none; }
