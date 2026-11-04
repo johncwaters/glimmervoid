@@ -215,8 +215,8 @@ export const LANES_COHERENCE: SettingsSection = {
   settings: [
     {
       id: 'coherence-enabled', path: 'coherence.enabled', title: 'Show session Coherence',
-      description: "Show each session's Coherence hook status and decisions (needs @posthog/coherence 1.8 or newer).",
-      control: 'toggle', keywords: ['experimental', 'coherence', 'journal', 'decisions'], defaultValue: false, ...MACHINE_NOW,
+      description: "Show the Coherence hook status and decisions of each session in a repository with a coherence.config.json (needs @posthog/coherence 1.8 or newer).",
+      control: 'toggle', keywords: ['experimental', 'coherence', 'journal', 'decisions'], defaultValue: true, ...MACHINE_NOW,
     },
   ],
 };

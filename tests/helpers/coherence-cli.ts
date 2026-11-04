@@ -7,6 +7,7 @@ export async function installFakeCoherence(worktree: string, { version = '1.8.0'
   const packageDirectory = path.join(worktree, 'node_modules', '@posthog', 'coherence');
   await mkdir(path.join(packageDirectory, 'dist'), { recursive: true });
   await writeFile(path.join(packageDirectory, 'package.json'), JSON.stringify({ name: '@posthog/coherence', version, bin: { coherence: 'dist/cli.js' } }));
+  await writeFile(path.join(worktree, 'coherence.config.json'), '{}');
   await writeFile(path.join(worktree, 'coherence-fixture.json'), JSON.stringify({ version, hooksExitCode, journal, journalDelayMs, root: worktree }));
   await writeFile(path.join(packageDirectory, 'dist', 'cli.js'), [
     "const fs = require('node:fs');",

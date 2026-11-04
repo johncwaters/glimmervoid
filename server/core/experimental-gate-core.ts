@@ -19,10 +19,14 @@ function replaceAtPath(target: object, [key, ...nestedKeys]: readonly string[], 
   replaceAtPath(copiedChild, nestedKeys, value);
 }
 
+function stableValueOf(setting: Pick<SettingsSetting, 'control' | 'defaultValue'>): unknown {
+  return setting.control === 'toggle' ? false : setting.defaultValue;
+}
+
 function withExperimentalFeaturesGated<T extends object>(config: T, isExperimentalBuild: boolean): T {
   if (isExperimentalBuild) return config;
   const gated = { ...config };
-  for (const setting of EXPERIMENTAL_MACHINE_SETTINGS) replaceAtPath(gated, setting.path.split('.'), setting.defaultValue);
+  for (const setting of EXPERIMENTAL_MACHINE_SETTINGS) replaceAtPath(gated, setting.path.split('.'), stableValueOf(setting));
   return gated;
 }
 

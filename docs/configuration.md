@@ -174,7 +174,7 @@ Coherence hook status and decision journal per session.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `coherence.enabled` | Show session Coherence | `false` | Show each session's Coherence hook status and decisions (needs @posthog/coherence 1.8 or newer). |
+| `coherence.enabled` | Show session Coherence | `true` | Show the Coherence hook status and decisions of each session in a repository with a coherence.config.json (needs @posthog/coherence 1.8 or newer). |
 
 ### Issues
 

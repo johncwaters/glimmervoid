@@ -29,10 +29,15 @@ export interface CoherenceAttachment {
   idle(): Promise<void>;
 }
 
+async function isRepositoryConfigured(worktree: string): Promise<boolean> {
+  return stat(path.join(worktree, 'coherence.config.json')).then((entry) => entry.isFile(), () => false);
+}
+
 export async function resolveCoherence({ worktree, host, isSettingOn, codexEnv = process.env, timeoutMs = 20_000, verdictTimeoutMs = 600_000 }: {
   worktree: string; host: string | null | undefined; isSettingOn: boolean; codexEnv?: NodeJS.ProcessEnv; timeoutMs?: number; verdictTimeoutMs?: number;
 }): Promise<CoherenceAttachment | null> {
   if (!isSettingOn || (host !== 'claude' && host !== 'codex')) return null;
+  if (!await isRepositoryConfigured(worktree)) return null;
   const env = { ...buildAllowlistedChildEnv(process.env, process.platform), COHERENCE_NO_UPDATE_CHECK: '1' };
   let cliScript: string | null = null;
   let version: string | null = null;
@@ -103,12 +108,9 @@ export async function resolveCoherence({ worktree, host, isSettingOn, codexEnv =
     lastCheckExitCode = checked.checkExitCode;
     return checked.hooks;
   }
-  async function isRepositoryConfigured(): Promise<boolean> {
-    return stat(path.join(worktree, 'coherence.config.json')).then((entry) => entry.isFile(), () => false);
-  }
   async function healHooks(): Promise<CoherenceHealOutcome> {
     if (installationProbe) await installationProbe;
-    if (unavailable || !shouldInstallCoherenceHooks({ isRepositoryConfigured: await isRepositoryConfigured(), checkExitCode: lastCheckExitCode })) return { status: 'not-needed' };
+    if (unavailable || !shouldInstallCoherenceHooks({ isRepositoryConfigured: await isRepositoryConfigured(worktree), checkExitCode: lastCheckExitCode })) return { status: 'not-needed' };
     try {
       await run(['hooks', 'install', '--host', coherenceHost]);
     } catch (error) {
@@ -136,7 +138,7 @@ export async function resolveCoherence({ worktree, host, isSettingOn, codexEnv =
   }
   async function readBaseline(): Promise<CoherenceVerdictBaseline | null> {
     if (installationProbe) await installationProbe;
-    if (unavailable || !await isRepositoryConfigured()) return null;
+    if (unavailable || !await isRepositoryConfigured(worktree)) return null;
     const verdicts = parseStatusVerdicts(await run(['run', '--status', '--json'], verdictTimeoutMs));
     if (!verdicts) throw new Error('run --status output unreadable');
     return { head: await readHead(), verdicts, hasSpecProblems: await readSpecProblems() };

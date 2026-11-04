@@ -24,7 +24,7 @@ type SessionSpawnOverrides = Pick<SessionOptions,
   'requireWorktree' | 'gitWorkspace' | 'settingsPermissions' | 'hookTools' | 'dangerouslySkipPermissions' | 'agent' | 'agentDepth' | 'ownerId' | 'holdsQuestionsForParent' | 'ephemeral' | 'initialPrompt' | 'extraClaudeArgs' | 'extraUserHooks' | 'prependPathDirs' | 'spawnEnv'>;
 
 interface SessionFactoryDependencies {
-  configStore: { configPath: string };
+  configStore: { configPath: string; isExperimentalBuild?: boolean };
   getConfig?: () => GlimmervoidConfig;
   hookRouter: Pick<HookRouter, 'register' | 'unregister'> | null;
   getHookPort: () => number | null;
@@ -98,7 +98,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
     const originalHookTools = dependencies.resolveHookTools(hookToolConfig(config));
     const prepareCoherence = overrides.ephemeral ? null : (cwd: string) => resolveCoherence({
       worktree: cwd, host: getAdapter(overrides.agent ?? project.agent)?.usageVendor,
-      isSettingOn: (dependencies.getConfig?.() ?? config).coherence?.enabled === true,
+      isSettingOn: dependencies.configStore.isExperimentalBuild === true && (dependencies.getConfig?.() ?? config).coherence?.enabled !== false,
     });
     const builtMapping = project.environment;
     const isMachineShell = (overrides.agent ?? project.agent) === SHELL_AGENT_ID;

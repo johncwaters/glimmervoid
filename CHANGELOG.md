@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Session Coherence turns itself on where a repository uses Coherence.** On an experimental build, Show session Coherence is now on by default, and it applies only to Claude Code and Codex sessions in a repository whose checkout has a `coherence.config.json`. Sessions in other repositories run no Coherence commands, even with the setting on. Turning the setting off still turns Coherence off for every repository. A session already running picks the change up when it restarts. Stable builds still keep Coherence off.
 - `npm i -g glimmervoid` now installs exactly the dependency versions each release was tested with. Every dependency is pinned to one version instead of a range, because npm ignores a package's own lockfile for global installs.
 
 ### Fixed

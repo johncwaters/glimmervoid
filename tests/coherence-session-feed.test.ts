@@ -40,19 +40,26 @@ test('journal --json feed publishes session entries, deduplicates by id and forg
   assert.deepEqual(await feed.readJournal(session), reading);
   const calls = (await readFile(path.join(worktree, 'coherence-calls.jsonl'), 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as { args: string[] });
   assert.equal(calls.filter(({ args }) => args[0] === 'version').length, 1);
-  assert.ok(calls.slice(2).every(({ args }) => JSON.stringify(args) === JSON.stringify(['journal', '--json', '--session', 's-fixture'])));
+  const baselineReadings = [['run', '--status', '--json'], ['spec', '--check']].map((args) => JSON.stringify(args));
+  const journalReading = JSON.stringify(['journal', '--json', '--session', 's-fixture']);
+  assert.ok(calls.slice(2).every(({ args }) => JSON.stringify(args) === journalReading || baselineReadings.includes(JSON.stringify(args))));
   await writeFile(path.join(worktree, 'coherence-fixture.json'), JSON.stringify({ version: '1.8.0', journal: 'bad JSON' }));
   assert.equal((await feed.readJournal(session)).ok, false);
   session.emit('exit');
   assert.deepEqual(feed.snapshotMessage().sessions, {});
 });
 
-test('a turn end installs drifted Coherence hooks only in a configured repository and notes each failed install', async (context) => {
+test('Coherence attaches only in a configured repository, and a turn end installs drifted hooks only while it stays configured and notes each failed install', async (context) => {
   const worktree = await mkdtemp(path.join(os.tmpdir(), 'coherence-heal-'));
   context.after(() => rm(worktree, { recursive: true, force: true }));
   await installFakeCoherence(worktree, { hooksExitCode: 1 });
+  await rm(path.join(worktree, 'coherence.config.json'));
+  assert.equal(await resolveCoherence({ worktree, host: 'claude', isSettingOn: true }), null);
+  await writeFile(path.join(worktree, 'coherence.config.json'), '{}');
   const attachment = await resolveCoherence({ worktree, host: 'claude', isSettingOn: true });
   assert.ok(attachment);
+  await attachment.idle();
+  await rm(path.join(worktree, 'coherence.config.json'));
   const notes: string[] = [];
   const heals = new EventEmitter();
   const coherenceAttachment = { ...attachment, healHooks: () => attachment.healHooks().finally(() => heals.emit('done')) };
