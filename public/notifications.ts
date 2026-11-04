@@ -167,6 +167,20 @@ function alertWhileFocused(msg: ServerMessageOf<'notify'>) {
   if (isSoundEnabled()) playAlertChime();
 }
 
+function showBanner(msg: ServerMessageOf<'notify'>, group: NotifyAlertGroup | undefined) {
+  if (group) {
+    showAlertGroupBanner(msg, group);
+    return;
+  }
+  showDesktopNotification(msg);
+}
+
+function isBannerSilentOnThisPlatform() {
+  const userAgentData: unknown = Reflect.get(navigator, 'userAgentData');
+  if (typeof userAgentData !== 'object' || userAgentData === null) return false;
+  return Reflect.get(userAgentData, 'platform') === 'macOS';
+}
+
 export function alertFromNotify(msg: ServerMessageOf<'notify'>) {
   if (document.hasFocus()) {
     alertWhileFocused(msg);
@@ -174,12 +188,8 @@ export function alertFromNotify(msg: ServerMessageOf<'notify'>) {
   }
   const group = msg.group;
   if (canShowDesktopNotification()) {
-    if (group) {
-      showAlertGroupBanner(msg, group);
-      return;
-    }
-    showDesktopNotification(msg);
-    return;
+    showBanner(msg, group);
+    if (!isBannerSilentOnThisPlatform()) return;
   }
   if (isDesktopNotificationWanted(false) && notificationPermission() === 'denied') reportBlockedNotificationsOnce();
   if (group?.isStart === false) return;
