@@ -57,7 +57,25 @@ export function formatPercent(pct: unknown) {
   return `${trimTrailingZeros(pct.toFixed(1))}%`;
 }
 
-export function shareBasis(totals: UsageTotals | null | undefined) {
+export type UsageMetric = 'tokens' | 'cost';
+
+const DEFAULT_USAGE_METRIC: UsageMetric = 'tokens';
+
+export const METRIC_OPTIONS: readonly { value: UsageMetric; label: string }[] = Object.freeze([
+  { value: 'tokens', label: 'Tokens' },
+  { value: 'cost', label: 'Cost' },
+]);
+
+export function parseUsageMetric(value: unknown): UsageMetric {
+  return value === 'cost' ? 'cost' : DEFAULT_USAGE_METRIC;
+}
+
+export function formatMetric(value: unknown, metric: UsageMetric) {
+  return metric === 'cost' ? formatUsd(value) : formatTokens(value);
+}
+
+export function shareBasis(totals: UsageTotals | null | undefined, metric: UsageMetric) {
+  if (metric === 'tokens') return 'tokens';
   const cost = Number(totals?.costUSD);
   if (Number.isFinite(cost) && cost > 0) return 'costUSD';
   return 'tokens';
@@ -740,7 +758,6 @@ export function ariaSortValue(current: SortState | null | undefined, key: string
 
 const DEFAULT_SESSION_SORT: Readonly<SortState> = Object.freeze({ key: 'lastTs', dir: 'desc' });
 const DEFAULT_MODEL_SORT: Readonly<SortState> = Object.freeze({ key: 'tokens', dir: 'desc' });
-const COST_SORT: Readonly<SortState> = Object.freeze({ key: 'costUSD', dir: 'desc' });
 export const DEFAULT_DAY_SORT: Readonly<SortState> = Object.freeze({ key: 'day', dir: 'desc' });
 
 function sortSessionRows(rows: unknown, sort: Readonly<SortState> = DEFAULT_SESSION_SORT) {
@@ -955,16 +972,20 @@ export function rangeLabel(rangeValue: string) {
   return RANGE_OPTIONS.find((option) => option.value === rangeValue)?.label || '';
 }
 
-export function topModelSummary(report: UsageReport | null | undefined) {
-  const rows = sortModelRows(report?.models, COST_SORT);
+function metricSort(totals: UsageTotals | null | undefined, metric: UsageMetric): SortState {
+  return { key: shareBasis(totals, metric), dir: 'desc' };
+}
+
+export function topModelSummary(report: UsageReport | null | undefined, metric: UsageMetric) {
+  const rows = sortModelRows(report?.models, metricSort(report?.totals, metric));
   const top = rows[0];
   if (!top) return null;
-  const basis = shareBasis(report?.totals);
+  const basis = shareBasis(report?.totals, metric);
   return { label: modelLabel(top), sharePct: percentOfTotal(top[basis], report?.totals?.[basis]) };
 }
 
-export function sessionsSummary(report: UsageReport | null | undefined) {
-  const rows = sortSessionRows(report?.sessions, COST_SORT);
+export function sessionsSummary(report: UsageReport | null | undefined, metric: UsageMetric) {
+  const rows = sortSessionRows(report?.sessions, metricSort(report?.totals, metric));
   const top = rows[0];
   return { count: rows.length, topLabel: top ? sessionRowLabel(top) : '' };
 }
@@ -1010,15 +1031,16 @@ export function nextPaceResetMs(windows: readonly PaceWindow[]) {
 interface PeriodBar {
   day: string;
   label: string;
-  costUSD: number;
+  value: number;
   isToday: boolean;
 }
 
 export interface PeriodSummary {
-  costUSD: number;
+  metric: UsageMetric;
+  total: number;
   deltaPct: number | null;
-  averageUSD: number;
-  peakUSD: number;
+  average: number;
+  peak: number;
   bars: PeriodBar[];
 }
 
@@ -1030,6 +1052,7 @@ interface ReportInsight {
 interface RankedRow {
   row: UsageWireRow;
   label: string;
+  tokens: number;
   costUSD: number;
   sharePct: number | null;
   barPct: number;
@@ -1042,15 +1065,15 @@ function shiftedDayKey(dayKey: string, offsetDays: number) {
   return localDayKey(date);
 }
 
-function costByDayOf(daily: unknown) {
+function valueByDayOf(daily: unknown, field: 'tokens' | 'costUSD') {
   const rows: UsageWireRow[] = Array.isArray(daily) ? daily : [];
-  const costByDay = new Map<string, number>();
+  const valueByDay = new Map<string, number>();
   for (const row of rows) {
     const day = String(row?.day ?? '');
     if (!DAY_KEY_RE.test(day)) continue;
-    costByDay.set(day, (costByDay.get(day) ?? 0) + numberOr(row?.costUSD, 0));
+    valueByDay.set(day, (valueByDay.get(day) ?? 0) + numberOr(row?.[field], 0));
   }
-  return costByDay;
+  return valueByDay;
 }
 
 function periodBarLabel(day: string, days: number) {
@@ -1060,18 +1083,19 @@ function periodBarLabel(day: string, days: number) {
   return String(date.getDate());
 }
 
-export function periodSummary(daily: unknown, days: number, todayKey: string): PeriodSummary {
-  const costByDay = costByDayOf(daily);
-  const bars = periodDayKeys(todayKey, days).map((day) => ({ day, label: periodBarLabel(day, days), costUSD: costByDay.get(day) ?? 0, isToday: day === todayKey }));
-  const costUSD = bars.reduce((sum, bar) => sum + bar.costUSD, 0);
+export function periodSummary(daily: unknown, days: number, todayKey: string, metric: UsageMetric): PeriodSummary {
+  const valueByDay = valueByDayOf(daily, metric === 'cost' ? 'costUSD' : 'tokens');
+  const bars = periodDayKeys(todayKey, days).map((day) => ({ day, label: periodBarLabel(day, days), value: valueByDay.get(day) ?? 0, isToday: day === todayKey }));
+  const total = bars.reduce((sum, bar) => sum + bar.value, 0);
   const previousDayKeys = periodDayKeys(shiftedDayKey(todayKey, -days), days);
-  const previousCostUSD = previousDayKeys.reduce((sum, day) => sum + (costByDay.get(day) ?? 0), 0);
-  const hasPreviousPeriod = previousDayKeys.some((day) => costByDay.has(day)) && previousCostUSD > 0;
+  const previousTotal = previousDayKeys.reduce((sum, day) => sum + (valueByDay.get(day) ?? 0), 0);
+  const hasPreviousPeriod = previousDayKeys.some((day) => valueByDay.has(day)) && previousTotal > 0;
   return {
-    costUSD,
-    deltaPct: hasPreviousPeriod ? ((costUSD - previousCostUSD) / previousCostUSD) * 100 : null,
-    averageUSD: bars.length > 0 ? costUSD / bars.length : 0,
-    peakUSD: bars.reduce((peak, bar) => Math.max(peak, bar.costUSD), 0),
+    metric,
+    total,
+    deltaPct: hasPreviousPeriod ? ((total - previousTotal) / previousTotal) * 100 : null,
+    average: bars.length > 0 ? total / bars.length : 0,
+    peak: bars.reduce((peak, bar) => Math.max(peak, bar.value), 0),
     bars,
   };
 }
@@ -1085,12 +1109,30 @@ export function periodDeltaText(summary: PeriodSummary, days: number) {
 }
 
 export function periodAverageText(summary: PeriodSummary) {
-  return `${formatUsd(summary.averageUSD)} a day on average`;
+  return `${formatMetric(summary.average, summary.metric)} a day on average`;
 }
 
 export function vendorSplitText(totals: UsageTotals | null | undefined) {
   if (!hasMultiVendorUsage(totals)) return '';
   return vendorTotalsRows(totals).map((row) => `${row.label} ${formatUsd(row.costUSD)}`).join(', ');
+}
+
+export function vendorTokenRows(totals: UsageTotals | null | undefined) {
+  if (!hasMultiVendorUsage(totals)) return [];
+  return vendorTotalsRows(totals).map((row) => ({ ...row, sharePct: percentOfTotal(row.tokens, totals?.tokens) }));
+}
+
+export function tokenTotals(report: UsageReport | null | undefined) {
+  const totals = report?.totals;
+  const tiles = [
+    { label: 'Processed tokens', value: formatTokens(numberOr(totals?.tokens, 0)) },
+    { label: 'Cached input', value: formatTokens(numberOr(totals?.cacheRead, 0)) },
+    { label: 'Uncached input', value: formatTokens(numberOr(totals?.input, 0)) },
+    { label: 'Output', value: formatTokens(numberOr(totals?.output, 0)) },
+  ];
+  const savedUSD = numberOr(cacheSavings(report?.savings)?.savedUSD, 0);
+  if (savedUSD > 0) tiles.push({ label: 'Cache savings', value: formatUsd(savedUSD) });
+  return tiles;
 }
 
 export function reportInsights(report: UsageReport | null | undefined): ReportInsight[] {
@@ -1104,27 +1146,28 @@ export function reportInsights(report: UsageReport | null | undefined): ReportIn
   return insights;
 }
 
-function rankedRows(rows: UsageWireRow[], totals: UsageTotals | null | undefined, labelOf: (row: UsageWireRow) => string): RankedRow[] {
-  const basis = shareBasis(totals);
+function rankedRows(rows: UsageWireRow[], totals: UsageTotals | null | undefined, metric: UsageMetric, labelOf: (row: UsageWireRow) => string): RankedRow[] {
+  const basis = shareBasis(totals, metric);
   const peak = rows.reduce((best, row) => Math.max(best, numberOr(row[basis], 0)), 0);
   return rows.map((row) => ({
     row,
     label: labelOf(row),
+    tokens: numberOr(row.tokens, 0),
     costUSD: numberOr(row.costUSD, 0),
     sharePct: percentOfTotal(row[basis], totals?.[basis]),
     barPct: percentOfTotal(row[basis], peak) ?? 0,
   }));
 }
 
-export function rankedModels(report: UsageReport | null | undefined) {
-  return rankedRows(sortModelRows(report?.models, COST_SORT), report?.totals, modelLabel);
+export function rankedModels(report: UsageReport | null | undefined, metric: UsageMetric) {
+  return rankedRows(sortModelRows(report?.models, metricSort(report?.totals, metric)), report?.totals, metric, modelLabel);
 }
 
-export function rankedSessions(report: UsageReport | null | undefined) {
-  return rankedRows(sortSessionRows(report?.sessions, COST_SORT), report?.totals, sessionRowLabel);
+export function rankedSessions(report: UsageReport | null | undefined, metric: UsageMetric) {
+  return rankedRows(sortSessionRows(report?.sessions, metricSort(report?.totals, metric)), report?.totals, metric, sessionRowLabel);
 }
 
-export function modelTokenMix(row: UsageWireRow) {
+export function modelTokenMix(row: { input?: unknown; output?: unknown; cacheCreate?: unknown; cacheRead?: unknown }) {
   return [
     { label: 'Input', tokens: numberOr(row.input, 0) },
     { label: 'Output', tokens: numberOr(row.output, 0) },

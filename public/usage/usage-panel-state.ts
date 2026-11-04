@@ -10,6 +10,7 @@ type FocusTarget =
   | { kind: 'sessions-toggle' }
   | { kind: 'model'; key: string }
   | { kind: 'range'; value: string }
+  | { kind: 'metric'; value: string }
   | { kind: 'back' }
   | { kind: 'drill'; screen: UsageDetailScreen };
 

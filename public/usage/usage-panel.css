@@ -985,4 +985,56 @@ button.usage-rank-head { cursor: pointer; }
   color: var(--text-head);
   font-variant-numeric: tabular-nums;
 }
+
+.usage-switches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.usage-vendors {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.usage-vendor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "name value" "meta meta";
+  column-gap: 12px;
+}
+
+.usage-vendor-name { grid-area: name; color: var(--text-head); }
+.usage-vendor-value { grid-area: value; color: var(--text-head); font-variant-numeric: tabular-nums; }
+.usage-vendor .usage-meta { grid-area: meta; }
+
+.usage-rank-head:has(.usage-rank-cost) {
+  grid-template-columns: minmax(0, 1fr) auto auto 52px;
+  grid-template-areas: "label cost value share" "bar bar bar bar" "ago ago ago ago";
+}
+
+.usage-rank-cost {
+  grid-area: cost;
+  font-size: var(--type-meta);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-type-stack {
+  display: flex;
+  height: 10px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--border-dim);
+}
+
+.usage-type-segment { display: block; height: 100%; }
+.usage-type-segment[data-part="0"] { background: color-mix(in oklab, var(--accent) 35%, var(--bg-surface)); }
+.usage-type-segment[data-part="1"] { background: var(--accent); }
+.usage-type-segment[data-part="2"] { background: color-mix(in oklab, var(--accent) 65%, var(--bg-surface)); }
+.usage-type-segment[data-part="3"] { background: color-mix(in oklab, var(--accent) 15%, var(--text-muted)); }
 }

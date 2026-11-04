@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Usage leads with tokens.** The Usage report now has a Tokens / Cost switch next to the period switch, on Tokens by default, and remembers your choice. In Tokens mode the report shows the period's tokens and session count, each agent's tokens and share, daily bars by tokens, totals for processed tokens, cached input, uncached input, output and cache savings, a tokens-by-type bar, and models and sessions ranked by tokens with their estimated cost beside them. The overview's first row shows tokens too. Cost mode shows the report as before, since cost is an estimate against list price.
+
 ## [0.52.1] - 2026-11-04
 
 ### Added

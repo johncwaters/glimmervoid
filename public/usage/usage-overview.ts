@@ -2,7 +2,7 @@ import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { reportUsageAction, requestUsageReport, usageRefreshStatus } from './usage-store.ts';
-import { PLAN_LIMIT_VENDORS, PLAN_WINDOWS, USAGE_DISABLED_HINT, budgetRows, budgetSummary, dailyRowForDay, formatPercent, formatUsd, glimmervoidLaneCostUSD, glimmervoidOverhead, historyDayCount, isUsageUnavailable, missingPricingLine, nextPaceResetMs, paceSubText, paceVerdict, paceWindows, planLimitAgeText, planLimitStaleNote, rangeLabel, reportDayKey, resetClockText, sessionsSummary, topModelSummary, usageErrorLine, usageWarningLine } from './usage-view-core.ts';
+import { PLAN_LIMIT_VENDORS, PLAN_WINDOWS, USAGE_DISABLED_HINT, budgetRows, budgetSummary, dailyRowForDay, formatPercent, formatTokens, formatUsd, glimmervoidLaneCostUSD, glimmervoidOverhead, historyDayCount, isUsageUnavailable, missingPricingLine, nextPaceResetMs, paceSubText, paceVerdict, paceWindows, planLimitAgeText, planLimitStaleNote, rangeLabel, reportDayKey, resetClockText, sessionsSummary, topModelSummary, usageErrorLine, usageWarningLine } from './usage-view-core.ts';
 import type { PaceWindow, PlanLimits, UsageDetailScreen } from './usage-view-core.ts';
 import { _detailScreen, _refreshButtonEl, _refreshStatusEl, _ticker, _usage, render, setRefreshButtonEl, setRefreshStatusEl, setReportAgeEl } from './usage-panel-state.ts';
 import { buildSection, clampPct, openScreen, paintReportAge } from './usage-panel-parts.ts';
@@ -156,15 +156,21 @@ function buildDrillRow(screen: UsageDetailScreen, label: string, detail: string,
   return drillRow;
 }
 
+function buildPrimaryDrillRow(periodText: string) {
+  const totals = _usage.report?.totals;
+  if (_usage.metric === 'cost') return buildDrillRow('report', 'Spend', `${periodText}, est. list price`, formatUsd(totals?.costUSD ?? 0));
+  return buildDrillRow('report', 'Tokens', `${periodText}, ${formatUsd(totals?.costUSD ?? 0)} est.`, formatTokens(totals?.tokens ?? 0));
+}
+
 function buildDrillRows() {
   const nav = el('nav', 'usage-drills');
   nav.setAttribute('aria-label', 'Usage details');
   const report = _usage.report;
   const periodText = rangeLabel(_usage.rangeValue);
-  nav.append(buildDrillRow('report', 'Spend', `${periodText}, est. list price`, formatUsd(report?.totals?.costUSD ?? 0)));
-  const topModel = topModelSummary(report);
+  nav.append(buildPrimaryDrillRow(periodText));
+  const topModel = topModelSummary(report, _usage.metric);
   nav.append(buildDrillRow('report', 'Models', topModel ? `${topModel.label} leads` : 'none yet', topModel ? formatPercent(topModel.sharePct) : ''));
-  const sessions = sessionsSummary(report);
+  const sessions = sessionsSummary(report, _usage.metric);
   nav.append(buildDrillRow('report', 'Sessions', sessions.topLabel ? `top: ${sessions.topLabel}` : 'none yet', String(sessions.count)));
   const dayCount = historyDayCount(report?.daily);
   nav.append(buildDrillRow('history', 'History', 'daily heatmap, past windows', `${dayCount} ${dayCount === 1 ? 'day' : 'days'}`));

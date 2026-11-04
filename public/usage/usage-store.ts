@@ -3,6 +3,7 @@ import { createAttentionAck } from '../attention-ack-core.ts';
 import { nextRequestId } from '../control-ws.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { formatAgo } from '../poll-ago.ts';
+import { getJSON, setJSON } from '../local-store.ts';
 import { getUsageAttentionAck, setUsageAttentionAck } from '../ui-prefs.ts';
 import {
   DEFAULT_RANGE_VALUE,
@@ -16,8 +17,11 @@ import {
   usageErrorLine,
 } from './usage-store-core.ts';
 import type { PlanLimits, PlanLimitsVendor, UsageReport } from './usage-store-core.ts';
+import { parseUsageMetric } from './usage-view-core.ts';
+import type { UsageMetric } from './usage-view-core.ts';
 
 const REFRESH_STATUS_TIMEOUT_MS = 20000;
+const USAGE_METRIC_STORAGE_KEY = 'glimmervoid-usage-metric';
 
 type UsageSessionsPush = ServerMessageOf<'usage-sessions'>;
 export type UsageChange = 'report' | 'sessions' | 'plan-limits' | 'refresh-status';
@@ -29,6 +33,7 @@ let activityCallback: ((isActive: boolean) => void) | null = null;
 let sendRequest: ((message: Record<string, unknown>) => boolean) | null = null;
 let latestRequestId: string | null = null;
 let rangeValue: string = DEFAULT_RANGE_VALUE;
+let metric: UsageMetric = parseUsageMetric(getJSON<unknown>(USAGE_METRIC_STORAGE_KEY, null));
 let isRefreshPending = false;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let refreshFailureText: string | null = null;
@@ -74,7 +79,7 @@ function daysForRange(value: string): number | null {
 }
 
 export function usageSnapshot() {
-  return { report, sessions, planLimitsByVendor, rangeValue };
+  return { report, sessions, planLimitsByVendor, rangeValue, metric };
 }
 
 export function usageRefreshStatus(): { text: string; isPending: boolean; hasFailure: boolean } {
@@ -113,6 +118,11 @@ export function setUsageRequestSender(send: (message: Record<string, unknown>) =
 
 export function setUsageRange(value: string): void {
   rangeValue = value;
+}
+
+export function setUsageMetric(value: UsageMetric): void {
+  metric = value;
+  setJSON(USAGE_METRIC_STORAGE_KEY, value);
 }
 
 export function requestUsageReport({ force = false }: { force?: boolean } = {}): void {
