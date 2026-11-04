@@ -4,6 +4,8 @@ import { createCompactionTracking, observeCompaction, finishCompaction, isCompac
 import { isCompactionRestoreEvent } from "../shared/compaction-restore-events.ts";
 import type { CompactionTracking } from "./core/compaction-core.ts";
 import { HOOK_TOOLS } from './core/hook-tools.ts';
+import { DEFAULT_TERMINAL_COLORS, scanTerminalColorQueries } from "./core/terminal-color-query.ts";
+import type { TerminalColors } from "./core/terminal-color-query.ts";
 import type { ResolvedHookTool } from './core/hook-tools.ts';
 import fs from "node:fs";
 import { buildPersistedTaskTitle, cleanTaskPrompt, extractHookTaskTitle, extractOscTaskTitle, extractPromptTaskTitle, isSelfWakePrompt, isSubstantivePrompt, resolveRefocusTaskTitle, resolveTaskTitle, seedTaskTitleSources } from "./core/task-title-core.ts";
@@ -185,6 +187,7 @@ interface SessionOptions {
   planReviewPort?: SessionPlanReviewPort | null;
   planLimits?: boolean;
   getUserHooks?: (() => UserHook[]) | null;
+  getTerminalColors?: (() => TerminalColors) | null;
   extraUserHooks?: UserHook[];
   scratchAgentHome?: ScratchAgentHome | null;
   requiresHooks?: boolean;
@@ -308,6 +311,8 @@ class Session extends EventEmitter {
   _startPending: Promise<void> | null;
   _resizeSeq: number;
   _titleSource: ReturnType<typeof createOscTitleSource>;
+  _getTerminalColors: () => TerminalColors;
+  _pendingColorQuery = "";
   _statusSource: ReturnType<typeof createStatusSource>;
 
   constructor({
@@ -372,6 +377,7 @@ class Session extends EventEmitter {
     planLimits = false,
 
     getUserHooks = null,
+    getTerminalColors = null,
     extraUserHooks = [],
     scratchAgentHome = null,
     requiresHooks = false,
@@ -626,6 +632,8 @@ class Session extends EventEmitter {
         pasteText: (text) => this.pasteText(text),
       },
     });
+
+    this._getTerminalColors = getTerminalColors ?? (() => DEFAULT_TERMINAL_COLORS);
 
     this._titleSource = createOscTitleSource({
       stabilizationMs: titleStabilizationMs,
@@ -1789,6 +1797,8 @@ class Session extends EventEmitter {
       console.error(`[session:${this.name}] title source error: ${errorMessage(err)}`);
     }
 
+    this._answerColorQueries(data);
+
     this._output.push(data);
     if (this.listenerCount("data") > 0) {
       this.emit("data", data);
@@ -1861,6 +1871,12 @@ class Session extends EventEmitter {
 
   getBufferSince(offset: number) {
     return this._output.since(offset);
+  }
+
+  _answerColorQueries(data: string): void {
+    const scan = scanTerminalColorQueries(this._pendingColorQuery, data, this._getTerminalColors());
+    this._pendingColorQuery = scan.pending;
+    for (const reply of scan.replies) this.write(reply);
   }
 
   write(text: string): void {
