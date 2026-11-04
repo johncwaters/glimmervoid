@@ -144,12 +144,20 @@ async function copyRegularFileCapped(sourcePath: string, incomingPath: string): 
   }
 }
 
-async function rasterSizeOf(filePath: string): Promise<{ width: number; height: number } | null> {
+async function isFileOpenPassingFailure(filePath: string): Promise<boolean> {
+  return fsp.open(filePath).then(
+    (handle) => handle.close().then(() => false, () => false),
+    (failure: unknown) => failure instanceof Error && hasPassingErrorCode(failure),
+  );
+}
+
+async function rasterSizeOf(filePath: string): Promise<{ width: number; height: number } | 'unreadable' | 'interrupted'> {
   const { default: sharp } = await import('sharp');
-  const metadata = await sharp(filePath, { animated: false, limitInputPixels: MAX_INPUT_PIXELS }).metadata().catch(() => null);
+  const metadata = await sharp(filePath, { animated: false, limitInputPixels: MAX_INPUT_PIXELS }).metadata().catch(async (failure: unknown) => (isPassingRasterFailure(failure) || await isFileOpenPassingFailure(filePath) ? 'interrupted' as const : null));
+  if (metadata === 'interrupted') return 'interrupted';
   const width = metadata?.autoOrient.width ?? 0;
   const height = metadata?.autoOrient.height ?? 0;
-  return width > 0 && height > 0 ? { width, height } : null;
+  return width > 0 && height > 0 ? { width, height } : 'unreadable';
 }
 
 async function writeRasterPreview(sourcePath: string, previewPath: string): Promise<void> {
@@ -197,9 +205,14 @@ async function writeVideoPoster(sourcePath: string, posterPath: string): Promise
     .then((): PosterOutcome => 'written', posterFailureOf);
 }
 
+function interruptedReadRefusal(name: string): Refusal {
+  return refusal(503, `${name} could not be read while the machine was short of resources; attach it again`);
+}
+
 async function sizeImage(sourcePath: string, previewPath: string, format: MediaFormat, name: string): Promise<MediaSize | Refusal> {
   const size = await rasterSizeOf(sourcePath);
-  if (!size) return refusal(415, `${name} could not be read as an image`);
+  if (size === 'interrupted') return interruptedReadRefusal(name);
+  if (size === 'unreadable') return refusal(415, `${name} could not be read as an image`);
   if (Math.max(size.width, size.height) > BOARD_MEDIA_MAX_EDGE_PX) return refusal(413, `${name} is ${size.width}x${size.height} pixels; a board takes at most ${BOARD_MEDIA_MAX_EDGE_PX} on each edge`);
   if (!format.hasLargeRasterPreview || Math.max(size.width, size.height) <= PREVIEW_MAX_EDGE_PX) return { ...size, hasPreview: false };
   const previewFailure = await writeRasterPreview(sourcePath, previewPath).then(() => null, (failure: unknown) => failure);
@@ -211,16 +224,18 @@ async function sizeImage(sourcePath: string, previewPath: string, format: MediaF
 async function sizeVideo(sourcePath: string, previewPath: string, name: string): Promise<MediaSize | Refusal> {
   const posterOutcome = await writeVideoPoster(sourcePath, previewPath);
   if (posterOutcome === 'interrupted') return refusal(503, `${name}'s first frame could not be read before ffmpeg was stopped or the machine ran short of resources; attach it again`);
-  const posterSize = posterOutcome === 'written' ? await rasterSizeOf(previewPath) : null;
-  if (!posterSize) return { width: UNPOSTERED_VIDEO_WIDTH_PX, height: UNPOSTERED_VIDEO_HEIGHT_PX, hasPreview: false };
+  const posterSize = posterOutcome === 'written' ? await rasterSizeOf(previewPath) : 'unreadable';
+  if (posterSize === 'interrupted') return interruptedReadRefusal(name);
+  if (posterSize === 'unreadable') return { width: UNPOSTERED_VIDEO_WIDTH_PX, height: UNPOSTERED_VIDEO_HEIGHT_PX, hasPreview: false };
   return { ...posterSize, hasPreview: true };
 }
 
 async function sizeStoredMedia(sourcePath: string, previewPath: string, format: MediaFormat, hasStoredPreview: boolean, name: string): Promise<MediaSize | Refusal> {
   if (format.kind === 'page') return { width: PAGE_WIDTH_PX, height: PAGE_HEIGHT_PX, hasPreview: false };
   const drawnSize = await rasterSizeOf(format.kind === 'video' ? previewPath : sourcePath);
-  if (format.kind === 'video') return { ...(hasStoredPreview && drawnSize ? drawnSize : { width: UNPOSTERED_VIDEO_WIDTH_PX, height: UNPOSTERED_VIDEO_HEIGHT_PX }), hasPreview: hasStoredPreview };
-  if (!drawnSize) return refusal(415, `${name} could not be read as an image`);
+  if (drawnSize === 'interrupted') return interruptedReadRefusal(name);
+  if (format.kind === 'video') return { ...(hasStoredPreview && drawnSize !== 'unreadable' ? drawnSize : { width: UNPOSTERED_VIDEO_WIDTH_PX, height: UNPOSTERED_VIDEO_HEIGHT_PX }), hasPreview: hasStoredPreview };
+  if (drawnSize === 'unreadable') return refusal(415, `${name} could not be read as an image`);
   return { ...drawnSize, hasPreview: hasStoredPreview };
 }
 

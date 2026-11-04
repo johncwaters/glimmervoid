@@ -790,10 +790,19 @@ test('deleting a board sweeps the pictures no live board shows, sparing a pendin
   assert.match(String(((await putBox(keptId, 'swept', onlyOnDoomed)) as { error: string }).error), /which no whiteboard attach stored/);
   assert.equal((await putBox(keptId, 'pending', pending)).ok, true);
 
+  const keptFilePath = path.join(boardsRoot, `${keptId}.json`);
+  const savedKept = JSON.parse(fs.readFileSync(keptFilePath, 'utf8')) as { board: { elements: Record<string, Record<string, unknown>> } };
+  const { media: sharedMedia, ...sharedWithoutMedia } = savedKept.board.elements.shared ?? {};
+  const { kind: _kind, mime: _mime, hasPreview: _hasPreview, ...imageFromRelease051 } = sharedMedia as Record<string, unknown>;
+  savedKept.board.elements.shared = { ...sharedWithoutMedia, image: imageFromRelease051 };
+  savedKept.board.elements.plain = { ...sharedWithoutMedia, id: 'plain', image: null };
+  fs.writeFileSync(keptFilePath, JSON.stringify(savedKept));
   clockMs += 61 * 60_000;
   const restarted = createWhiteboardWiring({ boardsRoot, now: () => clockMs });
   await restarted.loaded;
   assert.deepEqual(storedFiles(), filesOf([shared.asset, pending.asset]));
+  const migrated = (await restarted.handleOperator.get(keptId)) as { board?: { elements: Record<string, { media?: unknown }> } };
+  assert.deepEqual([migrated.board?.elements.shared?.media, migrated.board?.elements.plain?.media], [{ alt: '', ...imageFromRelease051, kind: 'image', mime: 'image/webp', hasPreview: false }, null], 'a board saved by 0.51.0 loads with media');
 
   fs.writeFileSync(path.join(boardsRoot, `${keptId}.json`), '{"board": "from a newer build"}');
   clockMs += 61 * 60_000;

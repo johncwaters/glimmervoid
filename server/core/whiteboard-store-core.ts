@@ -2,6 +2,21 @@ import { WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import type { Board, BoardChange, BoardRecord, BoardSummary } from '../../shared/contracts/whiteboard.ts';
 import type { ApplyResult } from '../../shared/whiteboard-ops-core.ts';
 import type { AgentNote } from '../../shared/contracts/hooks.ts';
+import { isRecord } from '../../shared/coerce.ts';
+
+function elementWithMediaForImage(element: unknown): unknown {
+  if (!isRecord(element) || !('image' in element)) return element;
+  const { image, ...elementWithoutImage } = element;
+  if (!isRecord(image)) return { ...elementWithoutImage, media: null };
+  return { ...elementWithoutImage, media: { kind: 'image', mime: 'image/webp', hasPreview: false, ...image } };
+}
+
+function boardRecordWithMediaForImages(raw: unknown): unknown {
+  const board = isRecord(raw) ? raw.board : null;
+  if (!isRecord(raw) || !isRecord(board) || !isRecord(board.elements)) return raw;
+  const elements = Object.fromEntries(Object.entries(board.elements).map(([elementId, element]) => [elementId, elementWithMediaForImage(element)]));
+  return { ...raw, board: { ...board, elements } };
+}
 
 function lowestCursor(record: BoardRecord): number {
   const cursors = Object.values(record.cursorBySessionId);
@@ -151,4 +166,4 @@ function resolveBoardRef(boards: readonly Board[], ref: string): Board | { error
   return { error: `no board is called ${ref}: whiteboard list names the boards, and whiteboard new creates one` };
 }
 
-export { BOARD_CONTEXT_NOTE, changesForReader, connectSession, disconnectSession, markRead, nudgeLineFor, promptContextFor, recordPut, resolveBoardRef, summarizeBoard };
+export { BOARD_CONTEXT_NOTE, boardRecordWithMediaForImages, changesForReader, connectSession, disconnectSession, markRead, nudgeLineFor, promptContextFor, recordPut, resolveBoardRef, summarizeBoard };
