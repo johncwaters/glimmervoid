@@ -434,7 +434,7 @@ function buildEnv(baseEnv: SpawnEnv, extraEnv: SpawnEnv | null | undefined, opti
 
 const UPDATE_CHECK_ARGS = ["-c", "check_for_update_on_startup=false"];
 
-const SKIP_PERMISSIONS_ARGS = ["-a", "never", "-s", "workspace-write"];
+const SKIP_PERMISSIONS_ARGS = ["-a", "never", "-s", "danger-full-access"];
 
 const OPERATOR_CONFIG_FILE_NAME = "config.toml";
 
