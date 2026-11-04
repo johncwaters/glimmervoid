@@ -1,5 +1,7 @@
 import { createIssuesWiring } from '../github/issues-wiring.ts';
 import path from 'node:path';
+import { parseJsonOrNull } from '../core/json-core.ts';
+import { sessionLinkedToPr } from '../github/core/team-review-core.ts';
 import type { WebSocket } from 'ws';
 import type { HookRouter } from '../../detection/hook-source.ts';
 import type { Session } from '../../session/sessions.ts';
@@ -15,7 +17,8 @@ import { resolveCoderEnvironment } from '../coder/core/coder-env-core.ts';
 import { persistSessionField } from '../session/session-event-wiring.ts';
 import { createBranchGcWiring } from '../branch-gc-wiring.ts';
 import type { createClaudeCredentials } from '../claude-credentials.ts';
-import { DEFAULT_CONFIG, glimmervoidHomeDir } from '../config-store.ts';
+import { ABORT_CONFIG_SAVE, DEFAULT_CONFIG, glimmervoidHomeDir } from '../config-store.ts';
+import { PrFlowsSettings } from '../../shared/contracts/pr-flows.ts';
 import type { ConfigStore, GlimmervoidConfig } from '../config-store.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import fs from 'node:fs';
@@ -245,7 +248,10 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const myPrsWorkRoot = path.join(glimmervoidHome, 'my-prs-work');
   const myPrs = createMyPrsWiring({
     config, github, store: githubStore.laneStore, log: logger, clock: githubClock,
-    broadcast: broadcastControl,
+    broadcast: (frame) => {
+      broadcastControl(frame);
+      if (frame.type === 'my-prs-status') void prFlows.applyRules();
+    },
     sweepLeftovers: () => sweepKeepMergeableLeftovers({ workRoot: myPrsWorkRoot, repoCache: sharedRepoCache, gitWorkspace, log: logger }),
     fixMergeability: createMyPrMergeabilityFix({
       requestPrRefresh: githubStore.laneStore.requestRefresh,
@@ -261,6 +267,14 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   });
   const prFlows = createPrFlowsWiring({
     statePath: path.join(glimmervoidHome, 'pr-flows-state.json'), openPrs: () => myPrs.getStatus().prs.filter((pr) => pr.state === 'OPEN'),
+    linkedSession: (pullRequestKey) => sessionLinkedToPr(sessions.values(), pullRequestKey),
+    readConfigFile: async () => parseJsonOrNull(await fs.promises.readFile(configStore.configPath, 'utf8').catch(() => 'null')),
+    appendRule: async (rule) => Boolean(await configStore.saveAsync((savedConfig) => {
+      const current = PrFlowsSettings.safeParse(savedConfig.prFlows ?? {});
+      if (!current.success) return ABORT_CONFIG_SAVE;
+      savedConfig.prFlows = { ...current.data, rules: [...(current.data.rules ?? []), rule] };
+      return undefined;
+    })),
     github, broadcast: broadcastControl, log: logger,
   });
   const issues = createIssuesWiring({ config, store: githubStore.laneStore, github, gitWorkspace, broadcast: broadcastControl, hasSession: (id) => sessions.has(id), log: logger, clock: githubClock });

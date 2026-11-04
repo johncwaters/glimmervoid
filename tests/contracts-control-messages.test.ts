@@ -195,7 +195,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'my-pr-keep-mergeable-result', requestId: 'toggle-1', key: 'PostHog/wizard#1350', ok: true },
   { type: 'my-pr-merge-when-ready-result', requestId: 'queue-1', key: 'PostHog/wizard#1350', ok: true },
   { type: 'pr-flow-dispose-result', requestId: 'flow-1', ok: true },
-  { type: 'pr-flows-status', handledByPr: { 'PostHog/wizard#1350': [{ itemKey: 'src/a.ts:10:PRRT_1', dismissalKeys: ['abc123'], action: 'dismiss', location: 'src/a.ts:10', reason: 'Validated upstream', at: NOW }] } },
+  { type: 'pr-flows-status', handledByPr: { 'PostHog/wizard#1350': [{ itemKey: 'src/a.ts:10:PRRT_1', dismissalKeys: ['abc123'], action: 'dismiss', location: 'src/a.ts:10', reason: 'Validated upstream', at: NOW, ruleName: null, threadIds: ['PRRT_1'] }] }, warnings: [] },
   { type: 'radar-archive-investigation-result', requestId: 'posthog-4', ok: true, error: null },
   { type: 'radar-approve-fix-result', requestId: 'posthog-5', ok: true, error: null, sessionId: 'session-1', sessionName: 'Radar fix web #1' },
   { type: 'radar-dismiss-fix-result', requestId: 'posthog-6', ok: false, error: 'That investigation has no fix waiting for approval' },

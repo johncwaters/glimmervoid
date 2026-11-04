@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
+import { z } from 'zod';
 import type { MyPrThread } from '../../../shared/contracts/my-prs.ts';
-import type { PrFlowHandled, PrFlowItem, PrFlowPriority, PrFlowSource, PrFlowsState } from '../../../shared/contracts/pr-flows.ts';
+import { PrFlowRule, PrFlowsSettings } from '../../../shared/contracts/pr-flows.ts';
+import type { PrFlowActionRef, PrFlowHandled, PrFlowItem, PrFlowPriority, PrFlowSource, PrFlowsState } from '../../../shared/contracts/pr-flows.ts';
 
 type PrFlowCandidate = {
   path: string; lineStart: number | null; lineEnd: number | null; priority: PrFlowPriority; source: Omit<PrFlowSource, 'excerpt' | 'dismissalKey'>; body: string; url: string | null;
@@ -102,11 +104,104 @@ export function itemLocation(item: Pick<PrFlowItem, 'path' | 'lineStart' | 'line
 }
 
 export function withHandled(state: PrFlowsState, prKey: string, handled: PrFlowHandled): PrFlowsState {
-  return { handledByPr: { ...state.handledByPr, [prKey]: [...(state.handledByPr[prKey] ?? []), handled] } };
+  return { ...state, handledByPr: { ...state.handledByPr, [prKey]: [...(state.handledByPr[prKey] ?? []), handled] } };
+}
+
+export function withReopened(state: PrFlowsState, prKey: string, itemKey: string): { state: PrFlowsState; undone: PrFlowHandled[] } {
+  const handled = state.handledByPr[prKey] ?? [];
+  const undone = handled.filter((entry) => entry.itemKey === itemKey);
+  const reopenedKeys = new Set([...(state.reopenedByPr[prKey] ?? []), ...undone.flatMap((entry) => entry.dismissalKeys)]);
+  return {
+    undone,
+    state: {
+      handledByPr: { ...state.handledByPr, [prKey]: handled.filter((entry) => entry.itemKey !== itemKey) },
+      reopenedByPr: { ...state.reopenedByPr, [prKey]: [...reopenedKeys] },
+    },
+  };
 }
 
 export function withOnlyOpenPrs(state: PrFlowsState, openPrKeys: ReadonlySet<string>): PrFlowsState {
-  return { handledByPr: Object.fromEntries(Object.entries(state.handledByPr).filter(([prKey]) => openPrKeys.has(prKey))) };
+  const isOpen = ([prKey]: [string, unknown]) => openPrKeys.has(prKey);
+  return {
+    handledByPr: Object.fromEntries(Object.entries(state.handledByPr).filter(isOpen)),
+    reopenedByPr: Object.fromEntries(Object.entries(state.reopenedByPr).filter(isOpen)),
+  };
+}
+
+function parsedRuleList(entries: readonly unknown[], label: string, warnings: string[]): PrFlowRule[] {
+  return entries.flatMap((entry, index) => {
+    const parsed = PrFlowRule.safeParse(entry);
+    if (parsed.success) return [parsed.data];
+    warnings.push(`${label}[${index}] was skipped: ${parsed.error.issues[0]?.message ?? 'invalid rule'}`);
+    return [];
+  });
+}
+
+const ConfigFileWithPrFlows = z.looseObject({ prFlows: z.unknown().optional() });
+
+export function prFlowRules(configFile: unknown, repo: string): { rules: PrFlowRule[]; warnings: string[] } {
+  const raw = ConfigFileWithPrFlows.safeParse(configFile).data?.prFlows;
+  if (raw === undefined || raw === null) return { rules: [], warnings: [] };
+  const settings = PrFlowsSettings.safeParse(raw);
+  if (!settings.success) return { rules: [], warnings: [`prFlows was skipped: ${settings.error.issues[0]?.message ?? 'invalid settings'}`] };
+  const warnings: string[] = [];
+  const repoEntry = Object.entries(settings.data.repoRules ?? {}).find(([name]) => name.toLowerCase() === repo.toLowerCase());
+  const repoRuleEntries = repoEntry ? z.array(z.unknown()).safeParse(repoEntry[1]) : null;
+  if (repoEntry && !repoRuleEntries?.success) warnings.push(`prFlows.repoRules.${repoEntry[0]} was skipped: it must be an array of rules`);
+  const repoRules = repoEntry && repoRuleEntries?.success ? parsedRuleList(repoRuleEntries.data, `prFlows.repoRules.${repoEntry[0]}`, warnings) : [];
+  return { rules: [...repoRules, ...parsedRuleList(settings.data.rules ?? [], 'prFlows.rules', warnings)], warnings };
+}
+
+function isPathCovered(path: string, rulePaths: readonly string[]): boolean {
+  return rulePaths.some((rulePath) => path === rulePath || (rulePath.endsWith('/') && path.startsWith(rulePath)));
+}
+
+function ruleMatches(rule: PrFlowRule, item: PrFlowItem, scope: 'mine' | 'team'): boolean {
+  if (rule.scope !== 'both' && rule.scope !== scope) return false;
+  if (rule.source !== undefined && !item.sources.some((source) => source.name === rule.source)) return false;
+  if (rule.priority !== undefined && !rule.priority.includes(item.priority)) return false;
+  if (rule.paths !== undefined && !isPathCovered(item.path, rule.paths)) return false;
+  const ruleText = rule.text?.toLowerCase();
+  return ruleText === undefined || item.sources.some((source) => source.excerpt.toLowerCase().includes(ruleText));
+}
+
+function firstMatchingRule(item: PrFlowItem, scope: 'mine' | 'team', rules: readonly PrFlowRule[]): PrFlowRule | null {
+  return rules.find((rule) => ruleMatches(rule, item, scope)) ?? null;
+}
+
+type PlannedPrFlowAction = { item: PrFlowItem; action: 'dismiss' | 'fix-local'; rule: PrFlowRule };
+
+function isDirectAction(action: PrFlowActionRef): action is 'dismiss' | 'fix-local' {
+  return action === 'dismiss' || action === 'fix-local';
+}
+
+export function plannedActions(prKey: string, items: readonly PrFlowItem[], rules: readonly PrFlowRule[], state: PrFlowsState): PlannedPrFlowAction[] {
+  const handledKeys = new Set((state.handledByPr[prKey] ?? []).flatMap((entry) => entry.dismissalKeys));
+  const reopenedKeys = new Set(state.reopenedByPr[prKey] ?? []);
+  return items.flatMap((item) => {
+    if (item.sources.some((source) => reopenedKeys.has(source.dismissalKey))) return [];
+    const unsettledSources = item.sources.filter((source) => !handledKeys.has(source.dismissalKey));
+    if (unsettledSources.length === 0) return [];
+    const rule = firstMatchingRule(item, 'mine', rules);
+    if (!rule || !isDirectAction(rule.action)) return [];
+    return [{ item: { ...item, sources: unsettledSources }, action: rule.action, rule }];
+  });
+}
+
+export function unknownActionWarnings(rules: readonly PrFlowRule[], actionIds: ReadonlySet<string>): string[] {
+  return rules.flatMap((rule) => {
+    if (!rule.action.startsWith('run:') || actionIds.has(rule.action.slice('run:'.length))) return [];
+    return [`Rule '${rule.name}' names ${rule.action}, which no entry in prFlows.actions defines, so its items wait for you.`];
+  });
+}
+
+const RULE_NAME_MAX_CHARACTERS = 80;
+
+export function savedRuleFor(item: PrFlowItem, reason: string): PrFlowRule {
+  const sourceName = item.sources[0]?.name ?? 'unknown source';
+  const fullName = `Dismiss ${sourceName} on ${item.path || 'the pull request'}`;
+  const name = [...fullName].slice(0, RULE_NAME_MAX_CHARACTERS).join('');
+  return { name, source: sourceName, ...(item.path ? { paths: [item.path] } : {}), scope: 'mine', action: 'dismiss', reason };
 }
 
 export function fixLocallyPrompt(prUrl: string, item: PrFlowItem, fence: (label: string, text: string) => string): string {

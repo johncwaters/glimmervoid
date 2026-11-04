@@ -3,7 +3,7 @@ import type { ClientMessageOf } from '../../../shared/contracts/index.ts';
 import type { GithubTeam } from '../../../shared/contracts/control-messages.ts';
 import { MyPrKeepMergeableRequest, MyPrMergeRequest, MyPrMergeWhenReadyRequest } from '../../../shared/contracts/my-prs.ts';
 import type { MyPrKeepMergeableResult, MyPrMergeResult, MyPrMergeWhenReadyResult } from '../../../shared/contracts/my-prs.ts';
-import { PrFlowDisposeRequest } from '../../../shared/contracts/pr-flows.ts';
+import { PrFlowDisposeRequest, PrFlowItemRequest, PrFlowSaveRuleRequest } from '../../../shared/contracts/pr-flows.ts';
 import type { PrFlowDisposeResult } from '../../../shared/contracts/pr-flows.ts';
 import { TeamReviewActionRequest } from '../../../shared/contracts/team-review.ts';
 import type { TeamReviewActionResult } from '../../../shared/contracts/team-review.ts';
@@ -14,7 +14,7 @@ import type { ControlSocket } from '../../backend/backend-websockets.ts';
 import type { ControlHandlerDeps } from '../../control-handlers.ts';
 import { buildGithubIssuePrompt, deriveIssueSessionName } from '../../github/core/github-issues-core.ts';
 import { toMyPrsWireStatus } from '../../github/core/my-prs-core.ts';
-import { prKey, prSessionName, prSessionPrompt } from '../../github/core/team-review-core.ts';
+import { prKey, prSessionName, prSessionPrompt, sessionLinkedToPr } from '../../github/core/team-review-core.ts';
 import { githubStoreRateLimitedError } from '../../github/github-store-poller.ts';
 import { createKeyedSerialQueue } from '../../spawn-gate.ts';
 import type { ControlContext } from '../control-context.ts';
@@ -141,19 +141,15 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
     }
   }
 
-  function sessionLinkedToPr(pullRequestKey: string): Session | null {
-    const comparableKey = pullRequestKey.toLowerCase();
-    for (const [, session] of sessions) {
-      if (session.linkedPrs.some((link) => prKey(link.repo, link.number).toLowerCase() === comparableKey)) return session;
-    }
-    return null;
+  function linkedSessionFor(pullRequestKey: string): Session | null {
+    return sessionLinkedToPr(sessions.values(), pullRequestKey);
   }
 
   async function handleOpenTeamReviewSession(msg: ClientMessageOf<'open-team-review-session'>, ws: ControlSocket): Promise<void> {
     const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'open-team-review-session-result', { ok: false, error: null, key: msg.key, ...payload });
     captureOperatorAction('reviews', 'open-session');
     try {
-      const linkedSession = sessionLinkedToPr(msg.key);
+      const linkedSession = linkedSessionFor(msg.key);
       if (linkedSession) {
         reply({ ok: true, sessionId: linkedSession.id, sessionName: linkedSession.name, existing: true });
         return;
@@ -241,7 +237,25 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
     if (!parsed.success) { reply({ ok: false, error: configIssueMessage(parsed.error) }); return; }
     captureOperatorAction('reviews', `pr-flow-${parsed.data.action}`);
     if (!prFlows) { reply({ ok: false, error: 'My pull requests is not running' }); return; }
-    reply(await prFlows.dispose(parsed.data, sessionLinkedToPr(parsed.data.prKey)));
+    reply(await prFlows.dispose(parsed.data));
+  }
+
+  async function handlePrFlowUndo(msg: ClientMessageOf<'pr-flow-undo'>, ws: ControlSocket): Promise<void> {
+    const reply = (outcome: PrFlowDisposeResult) => replyTo(ws, msg, 'pr-flow-dispose-result', outcome);
+    const parsed = PrFlowItemRequest.safeParse({ prKey: msg.prKey, itemKey: msg.itemKey });
+    if (!parsed.success) { reply({ ok: false, error: configIssueMessage(parsed.error) }); return; }
+    captureOperatorAction('reviews', 'pr-flow-undo');
+    if (!prFlows) { reply({ ok: false, error: 'My pull requests is not running' }); return; }
+    reply(await prFlows.undo(parsed.data));
+  }
+
+  async function handlePrFlowSaveRule(msg: ClientMessageOf<'pr-flow-save-rule'>, ws: ControlSocket): Promise<void> {
+    const reply = (outcome: PrFlowDisposeResult) => replyTo(ws, msg, 'pr-flow-dispose-result', outcome);
+    const parsed = PrFlowSaveRuleRequest.safeParse({ prKey: msg.prKey, itemKey: msg.itemKey, reason: msg.reason });
+    if (!parsed.success) { reply({ ok: false, error: configIssueMessage(parsed.error) }); return; }
+    captureOperatorAction('reviews', 'pr-flow-save-rule');
+    if (!prFlows) { reply({ ok: false, error: 'My pull requests is not running' }); return; }
+    reply(await prFlows.saveRule(parsed.data));
   }
 
   function connectFrames(): readonly unknown[] {
@@ -274,6 +288,8 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
     'my-pr-merge-when-ready': handleMyPrMergeWhenReady,
     'github-polling-refresh': handleGithubPollingRefresh,
     'pr-flow-dispose': handlePrFlowDispose,
+    'pr-flow-undo': handlePrFlowUndo,
+    'pr-flow-save-rule': handlePrFlowSaveRule,
   } satisfies ControlHandlerTable;
 
   const invalidReplies = {
@@ -288,6 +304,8 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
     'my-pr-keep-mergeable': (msg, requestId, message) => ({ type: 'my-pr-keep-mergeable-result', requestId, key: myPrMergeKey(msg), ok: false, error: message }),
     'my-pr-merge-when-ready': (msg, requestId, message) => ({ type: 'my-pr-merge-when-ready-result', requestId, key: myPrMergeKey(msg), ok: false, error: message }),
     'pr-flow-dispose': (_msg, requestId, message) => ({ type: 'pr-flow-dispose-result', requestId, ok: false, error: message }),
+    'pr-flow-undo': (_msg, requestId, message) => ({ type: 'pr-flow-dispose-result', requestId, ok: false, error: message }),
+    'pr-flow-save-rule': (_msg, requestId, message) => ({ type: 'pr-flow-dispose-result', requestId, ok: false, error: message }),
   } satisfies InvalidReplyTable;
 
   return { handlers, invalidReplies, connectFrames, lateConnectFrames };

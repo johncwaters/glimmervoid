@@ -18,6 +18,7 @@ export type MyPrsChange =
 
 let latest: MyPrsStatus | null = null;
 let handledByPr: Readonly<Record<string, readonly PrFlowHandled[]>> = {};
+let prFlowWarnings: readonly string[] = [];
 let previousJoinedPrs: MyPr[] | null = null;
 const celebratedMergeKeys = new Set<string>();
 let sessionLinksById: ReadonlyMap<string, readonly LinkedPr[]> = new Map();
@@ -57,8 +58,8 @@ export function subscribeMyPrs(listener: (change: MyPrsChange) => void): void {
   listeners.add(listener);
 }
 
-export function myPrsSnapshot(): { prs: MyPr[]; status: MyPrsStatus | null; sessionsByPrKey: Map<string, LinkedLiveSession[]>; handledByPr: Readonly<Record<string, readonly PrFlowHandled[]>> } {
-  return { prs: joinMyPrs(latest?.prs ?? [], githubPrByKey), status: latest, sessionsByPrKey: liveSessionsByPrKey(liveSessionLinks()), handledByPr };
+export function myPrsSnapshot(): { prs: MyPr[]; status: MyPrsStatus | null; sessionsByPrKey: Map<string, LinkedLiveSession[]>; handledByPr: Readonly<Record<string, readonly PrFlowHandled[]>>; prFlowWarnings: readonly string[] } {
+  return { prs: joinMyPrs(latest?.prs ?? [], githubPrByKey), status: latest, sessionsByPrKey: liveSessionsByPrKey(liveSessionLinks()), handledByPr, prFlowWarnings };
 }
 
 export function celebrateMergedPrs(mergedPrs: readonly MyPr[]): void {
@@ -94,6 +95,7 @@ export function applyPrFlowsStatus(message: unknown): void {
     return;
   }
   handledByPr = parsed.data.handledByPr;
+  prFlowWarnings = parsed.data.warnings;
   notify({ kind: 'prs' });
 }
 

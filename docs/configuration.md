@@ -144,6 +144,8 @@ Draft reviews of teammates' pull requests for you to post.
 | `teamReview.keepMergeableTimeoutMinutes` | Keep mergeable deadline | `30` | Longest a Keep mergeable repair may run. |
 | `teamReview.mergeQueueEnabled` | Merge when ready | `true` | Offer Merge when ready: queued pull requests merge once they pass. |
 | `teamReview.team` | GitHub team (legacy) | `""` | Team slug whose members and review requests are polled. Read only when github.teams is empty. **File-only.** A legacy key: github.teams names teams as org/slug entries and wins whenever it is set. |
+| `prFlows.rules` | PR flows rules | `[]` | Ordered rules for review items on your own pull requests; the first match acts with no click and lands in the Handled list, where Undo reopens it. Each matches on source, priority, paths, text and scope, and acts with ask, fix-local, dismiss or run:<action id>. **File-only.** Rules are written in config.json; Save as rule in My PRs is the one dashboard writer, and it only appends. |
+| `prFlows.repoRules` | PR flows repository rules | `{}` | Rules per repository (owner/name to a list of rules), checked before prFlows.rules for that repository. **File-only.** A structured value with no dashboard control; edit it in config.json. |
 
 ### Workflows
 

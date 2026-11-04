@@ -297,4 +297,15 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     control: 'json', keywords: ['pull requests', 'automation', 'rules'], defaultValue: [], takesEffect: 'now',
     fileOnlyReason: 'Rule definitions are written in config.json; the Workflows section only switches each rule on or off.', ...FILE_ONLY,
   },
+  {
+    id: 'file-pr-flows-rules', path: 'prFlows.rules', title: 'PR flows rules', group: 'lanes-team-review',
+    description: 'Ordered rules for review items on your own pull requests; the first match acts with no click and lands in the Handled list, where Undo reopens it. Each matches on source, priority, paths, text and scope, and acts with ask, fix-local, dismiss or run:<action id>.',
+    control: 'json', keywords: ['pull requests', 'review items', 'dismiss', 'automation'], defaultValue: [], takesEffect: 'now',
+    fileOnlyReason: 'Rules are written in config.json; Save as rule in My PRs is the one dashboard writer, and it only appends.', ...FILE_ONLY,
+  },
+  {
+    id: 'file-pr-flows-repo-rules', path: 'prFlows.repoRules', title: 'PR flows repository rules', group: 'lanes-team-review',
+    description: 'Rules per repository (owner/name to a list of rules), checked before prFlows.rules for that repository.',
+    control: 'json', keywords: ['pull requests', 'review items', 'repositories'], defaultValue: {}, takesEffect: 'now', fileOnlyReason: STRUCTURED_VALUE, ...FILE_ONLY,
+  },
 ]);

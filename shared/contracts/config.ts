@@ -181,6 +181,7 @@ const FILE_CONFIG_SHAPE = {
   usage: optionalLooseObject('usage'),
   telegram: optionalLooseObject('telegram'),
   workflows: optionalLooseObject('workflows'),
+  prFlows: optionalLooseObject('prFlows'),
   guardrails: optionalLooseObject('guardrails'),
   telemetry: TelemetryFileSettings,
   trace: TraceSettings,

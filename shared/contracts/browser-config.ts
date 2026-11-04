@@ -4,6 +4,7 @@ import * as ranges from '../settings-ranges.ts';
 import type { SettingsRange } from '../settings-ranges.ts';
 import { USAGE_COST_MODES, USAGE_VENDOR_KEYS, USAGE_BUDGET_KEYS } from '../usage-config.ts';
 import { WorkflowsSettings } from './workflows.ts';
+import { PrFlowsSettings } from './pr-flows.ts';
 import { repoParts } from './github-ids.ts';
 import { DISCORD_CHANNEL_NAME_RE, SKILL_NAME_RE } from './community.ts';
 import { UpdateChannel } from './update-journal.ts';
@@ -259,6 +260,7 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   telegram: TelegramSettings,
   telemetry: TelemetrySettings,
   workflows: WorkflowsSettings.nullable().optional(),
+  prFlows: PrFlowsSettings.nullable().optional(),
 });
 
 export const createBrowserConfig = (isAbsolutePath: (directory: string) => boolean) => z.object(createBrowserConfigShape(isAbsolutePath));

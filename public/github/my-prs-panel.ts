@@ -252,27 +252,42 @@ function createReadinessSection(pr: MyPr): HTMLElement | null {
 const dismissDraftsByItemKey = new Map<string, string>();
 const itemStatusByKey = new Map<string, { tone: 'busy' | 'ok' | 'error'; text: string }>();
 
-async function disposeItem(pr: MyPr, itemKey: string, action: 'dismiss' | 'fix-local', reason?: string): Promise<void> {
-  itemStatusByKey.set(itemKey, { tone: 'busy', text: action === 'dismiss' ? 'Replying on GitHub' : 'Sending to the session' });
-  renderDetail(pr);
+type ItemRequestType = 'pr-flow-dispose' | 'pr-flow-undo' | 'pr-flow-save-rule';
+
+async function sendItemRequest(statusKey: string, busyText: string, type: ItemRequestType, fields: Record<string, string>, doneText = ''): Promise<boolean> {
+  itemStatusByKey.set(statusKey, { tone: 'busy', text: busyText });
+  render();
   try {
-    const response = await sendControlRequest('pr-flow-dispose', { prKey: pr.key, itemKey, action, ...(reason === undefined ? {} : { reason }) }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
+    const response = await sendControlRequest(type, fields, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
     if (response.type !== 'pr-flow-dispose-result') throw new Error('Unexpected review item reply.');
     if (!response.ok) {
-      itemStatusByKey.set(itemKey, { tone: 'error', text: response.error ?? 'Could not handle this review item.' });
-      return;
+      itemStatusByKey.set(statusKey, { tone: 'error', text: response.error ?? 'Could not handle this review item.' });
+      return false;
     }
-    dismissDraftsByItemKey.delete(itemKey);
     if (response.isPending === true) {
-      itemStatusByKey.set(itemKey, { tone: 'ok', text: 'Queued until the session is ready; it stays listed until then' });
-      return;
+      itemStatusByKey.set(statusKey, { tone: 'ok', text: 'Queued until the session is ready; it stays listed until then' });
+      return true;
     }
-    itemStatusByKey.delete(itemKey);
+    if (doneText) itemStatusByKey.set(statusKey, { tone: 'ok', text: doneText });
+    if (!doneText) itemStatusByKey.delete(statusKey);
+    return true;
   } catch (error) {
-    itemStatusByKey.set(itemKey, { tone: 'error', text: requestFailureText(error, DEFAULT_REPLY_TIMEOUT_MS) });
+    itemStatusByKey.set(statusKey, { tone: 'error', text: requestFailureText(error, DEFAULT_REPLY_TIMEOUT_MS) });
+    return false;
   } finally {
     render();
   }
+}
+
+async function disposeItem(pr: MyPr, itemKey: string, action: 'dismiss' | 'fix-local', reason?: string): Promise<void> {
+  const busyText = action === 'dismiss' ? 'Replying on GitHub' : 'Sending to the session';
+  const isDone = await sendItemRequest(itemKey, busyText, 'pr-flow-dispose', { prKey: pr.key, itemKey, action, ...(reason === undefined ? {} : { reason }) });
+  if (isDone) dismissDraftsByItemKey.delete(itemKey);
+}
+
+async function saveDismissRule(pr: MyPr, itemKey: string, reason: string): Promise<void> {
+  const isSaved = await sendItemRequest(itemKey, 'Saving the rule', 'pr-flow-save-rule', { prKey: pr.key, itemKey, reason }, 'Saved to prFlows.rules; it applies on the next poll');
+  if (isSaved) dismissDraftsByItemKey.delete(itemKey);
 }
 
 function createDismissForm(pr: MyPr, itemKey: string): HTMLElement {
@@ -286,11 +301,15 @@ function createDismissForm(pr: MyPr, itemKey: string): HTMLElement {
     if (!reason.value.trim()) return;
     void disposeItem(pr, itemKey, 'dismiss', reason.value.trim());
   } });
+  const saveRule = button({ variant: 'secondary', label: 'Save as rule', action: 'pr-flow-save-rule', onClick: () => {
+    if (!reason.value.trim()) return;
+    void saveDismissRule(pr, itemKey, reason.value.trim());
+  } });
   const cancel = button({ variant: 'secondary', label: 'Cancel', action: 'pr-flow-dismiss-cancel', onClick: () => {
     dismissDraftsByItemKey.delete(itemKey);
     renderDetail(pr);
   } });
-  form.append(reason, confirm, cancel);
+  form.append(reason, confirm, saveRule, cancel);
   return form;
 }
 
@@ -316,7 +335,21 @@ function createItemActions(pr: MyPr, itemKey: string): HTMLElement {
   return wrapper;
 }
 
-function createHandledSection(handled: ReturnType<typeof handledRows>): HTMLElement | null {
+function createUndoControl(pr: MyPr, itemKey: string): HTMLElement {
+  const statusKey = `undo:${itemKey}`;
+  const status = itemStatusByKey.get(statusKey);
+  const actions = el('div', 'my-pr-item-actions');
+  const undo = button({ variant: 'secondary', label: 'Undo', action: 'pr-flow-undo', disabled: status?.tone === 'busy', onClick: () => {
+    void sendItemRequest(statusKey, 'Reopening', 'pr-flow-undo', { prKey: pr.key, itemKey });
+  } });
+  const statusText = el('span', 'my-pr-item-status');
+  statusText.setAttribute('role', 'status');
+  paintActionStatus(statusText, status?.tone ?? null, status?.text ?? '');
+  actions.append(undo, statusText);
+  return actions;
+}
+
+function createHandledSection(pr: MyPr, handled: ReturnType<typeof handledRows>): HTMLElement | null {
   if (handled.length === 0) return null;
   const section = el('details', 'my-pr-threads-section my-pr-handled');
   section.append(el('summary', 'pr-section-heading', `Handled (${handled.length})`));
@@ -325,9 +358,18 @@ function createHandledSection(handled: ReturnType<typeof handledRows>): HTMLElem
     const item = el('li', 'my-pr-thread');
     item.append(el('p', 'my-pr-thread-meta', `${entry.text} ${entry.location}, ${formatAgo(entry.at)}`));
     if (entry.reason) item.append(el('p', 'my-pr-thread-excerpt', entry.reason));
+    item.append(createUndoControl(pr, entry.itemKey));
     list.append(item);
   }
   section.append(list);
+  return section;
+}
+
+function createPrFlowWarnings(): HTMLElement | null {
+  const warnings = myPrsSnapshot().prFlowWarnings;
+  if (warnings.length === 0) return null;
+  const section = el('div', 'my-pr-threads-section');
+  for (const warning of warnings) section.append(el('p', 'my-pr-item-note', warning));
   return section;
 }
 
@@ -419,7 +461,8 @@ function renderDetail(pr: MyPr | undefined): void {
     createReadinessSection(pr),
     createThreadsSection(pr, 'Threads waiting on you', threads.filter((thread) => thread.isWaitingOnYou)),
     createThreadsSection(pr, 'Other open threads', threads.filter((thread) => !thread.isWaitingOnYou)),
-    createHandledSection(handledRows(handled)),
+    createPrFlowWarnings(),
+    createHandledSection(pr, handledRows(handled)),
     createReviewsSection(pr),
     createAutomationSection(pr),
     createMergeControl(pr),

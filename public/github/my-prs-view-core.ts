@@ -152,8 +152,11 @@ export function threadRows(pr: MyPr, viewer: string | null, handled: readonly Pr
 
 const HANDLED_ACTION_TEXT: Readonly<Record<PrFlowHandled['action'], string>> = { dismiss: 'Dismissed', 'fix-local': 'Sent to session' };
 
-export function handledRows(handled: readonly PrFlowHandled[]): { text: string; location: string; reason: string | null; at: number }[] {
-  return [...handled].sort((left, right) => right.at - left.at).map((entry) => ({ text: HANDLED_ACTION_TEXT[entry.action], location: entry.location, reason: entry.reason, at: entry.at }));
+export function handledRows(handled: readonly PrFlowHandled[]): { itemKey: string; text: string; location: string; reason: string | null; at: number }[] {
+  return [...handled].sort((left, right) => right.at - left.at).map((entry) => ({
+    itemKey: entry.itemKey, location: entry.location, reason: entry.reason, at: entry.at,
+    text: entry.ruleName === null ? HANDLED_ACTION_TEXT[entry.action] : `${HANDLED_ACTION_TEXT[entry.action]} by rule '${entry.ruleName}'`,
+  }));
 }
 
 export function fixLocallyBlocker(linkedSessions: readonly LinkedLiveSession[] | undefined): string | null {

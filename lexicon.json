@@ -169,6 +169,14 @@
     {
       "name": "dismiss",
       "definition": "Close a review item on the operator's own pull request with a typed reason, posted as a reply on each of its threads before they are resolved"
+    },
+    {
+      "name": "handled",
+      "definition": "The list on one of the operator's own pull requests of review items already dismissed or sent to a session, by hand or by a rule, each with Undo"
+    },
+    {
+      "name": "undo",
+      "definition": "The Handled list control that reopens a review item, unresolving its thread on GitHub, and keeps rules from acting on it again"
     }
   ]
 }
