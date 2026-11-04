@@ -30,6 +30,8 @@ type ExecFileFn = ((file: string, ...rest: unknown[]) => ChildProcess) & {
 
 let refusedNodePath: string | null = null;
 
+const STOPPED_CHILD_KILL_GRACE_MS = 2_000;
+
 function refuseLaunchesOf(nodePath: string): void {
   refusedNodePath = nodePath;
 }
@@ -86,6 +88,7 @@ const execFile: ExecFileFn = Object.assign(
         resolve({ stdout, stderr });
       };
       const child = cp.execFile(file, args, execOptions, callback);
+      killIfStopIgnored(child, execOptions.timeout, execOptions.signal);
       if (typeof input !== 'string') return;
       if (!child.stdin) return reject(new Error('execFile stdin unavailable'));
       child.stdin.on('error', (error: NodeJS.ErrnoException) => {
@@ -96,6 +99,28 @@ const execFile: ExecFileFn = Object.assign(
     }),
   },
 );
+
+function killIfStopIgnored(child: ChildProcess, timeoutMs: number | undefined, signal: AbortSignal | undefined): void {
+  const pendingTimers: NodeJS.Timeout[] = [];
+  const scheduleForcedKill = () => {
+    const forcedKillTimer = setTimeout(() => {
+      if (child.exitCode !== null || child.signalCode !== null) return;
+      child.kill('SIGKILL');
+    }, STOPPED_CHILD_KILL_GRACE_MS);
+    forcedKillTimer.unref();
+    pendingTimers.push(forcedKillTimer);
+  };
+  if (timeoutMs) {
+    const timeoutTimer = setTimeout(scheduleForcedKill, timeoutMs);
+    timeoutTimer.unref();
+    pendingTimers.push(timeoutTimer);
+  }
+  signal?.addEventListener('abort', scheduleForcedKill, { once: true });
+  child.once('exit', () => {
+    for (const timer of pendingTimers) clearTimeout(timer);
+    signal?.removeEventListener('abort', scheduleForcedKill);
+  });
+}
 
 function execFileSync(file: string, options: ExecFileSyncOptionsWithStringEncoding): string;
 function execFileSync(file: string, args: readonly string[], options: ExecFileSyncOptionsWithStringEncoding): string;

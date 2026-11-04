@@ -1,30 +1,99 @@
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { errorMessage } from '../../shared/text.ts';
 import { runCommand, runGit } from './git-exec.ts';
 import { createSerialQueue } from '../spawn-gate.ts';
 import {
   CLONED_CACHE_DIRS,
+  INSTALL_TIMEOUT_MS,
   KNOWN_LOCKFILES,
+  installEnvFrom,
   isLinkInsideCheckout,
+  lastOutputLineOf,
   LOCKFILE_BY_KIND,
   packageDirsFromTrackedFiles,
   planDependencyClone,
+  planDependencyInstall,
   skipDependencyClone,
   stagingPathFor,
 } from './core/dependency-clone-core.ts';
-import type { DependencyCloneSkip, DependencyLock, LockKind, NestedPackageDir } from './core/dependency-clone-core.ts';
+import type {
+  DependencyCloneSkip,
+  DependencyInstallOutcome,
+  DependencyLock,
+  InstallResult,
+  LockKind,
+  NestedPackageDir,
+  PackageDirFacts,
+  PlannedInstall,
+} from './core/dependency-clone-core.ts';
 
 const CLONE_TIMEOUT_MS = 10 * 60_000;
 const NODE_MODULES = 'node_modules';
 const LINK_LIST_MAX_BYTES = 64 * 1024 * 1024;
+const INSTALL_OUTPUT_MAX_BYTES = 16 * 1024 * 1024;
 
 type DependencyCloneOutcome = DependencyCloneSkip | { action: 'cloned'; dirs: string[]; staleDirs: string[]; elapsedMs: number };
-export type SeedDependencies = (args: { mainCheckout: string; worktreeDir: string }) => Promise<DependencyCloneOutcome>;
+export type DependencySeedOutcome = { clone: DependencyCloneOutcome; install: DependencyInstallOutcome };
+export type SeedDependencies = (args: { mainCheckout: string; worktreeDir: string }) => Promise<DependencySeedOutcome>;
 
-const cloneQueue = createSerialQueue();
+const seedQueue = createSerialQueue();
 
 export const seedWorktreeDependencies: SeedDependencies = ({ mainCheckout, worktreeDir }) =>
-  cloneQueue.run(() => cloneDependencies(mainCheckout, worktreeDir).catch(() => skipDependencyClone('failed')));
+  seedQueue.run(async () => {
+    const clone = await cloneDependencies(mainCheckout, worktreeDir).catch(() => skipDependencyClone('failed'));
+    const install = await installDependencies(worktreeDir).catch((error: unknown) => unreadableInstallOutcome(error));
+    return { clone, install };
+  });
+
+async function installDependencies(worktreeDir: string): Promise<DependencyInstallOutcome> {
+  const startedAt = performance.now();
+  const plan = planDependencyInstall(process.platform, await listPackageDirFacts(worktreeDir));
+  const results: InstallResult[] = [];
+  for (const install of plan.installs) results.push(await runInstall(worktreeDir, install));
+  return { results, unsupportedDirs: plan.unsupportedDirs, elapsedMs: Math.round(performance.now() - startedAt) };
+}
+
+async function listTrackedPackageDirs(worktreeDir: string): Promise<string[]> {
+  const tracked = await runGit(['ls-files', '-z', '--', 'package.json', '**/package.json'], { cwd: worktreeDir, trim: false });
+  if (!tracked.ok) return [];
+  return packageDirsFromTrackedFiles(tracked.out.split('\0').filter(Boolean));
+}
+
+async function listPackageDirFacts(worktreeDir: string): Promise<PackageDirFacts[]> {
+  const packageDirs: PackageDirFacts[] = [];
+  for (const relativeDir of await listTrackedPackageDirs(worktreeDir)) {
+    const packageDir = path.join(worktreeDir, relativeDir);
+    const lockfiles: string[] = [];
+    for (const lockfile of KNOWN_LOCKFILES) {
+      if (await pathExists(path.join(packageDir, lockfile))) lockfiles.push(lockfile);
+    }
+    packageDirs.push({ dir: relativeDir, hasNodeModules: await pathExists(path.join(packageDir, NODE_MODULES)), lockfiles });
+  }
+  return packageDirs;
+}
+
+async function runInstall(worktreeDir: string, install: PlannedInstall): Promise<InstallResult> {
+  const packageDir = path.join(worktreeDir, install.dir);
+  const commandLine = [install.command, ...install.args].join(' ');
+  const run = await runCommand(install.command, install.args, {
+    cwd: packageDir,
+    timeoutMs: INSTALL_TIMEOUT_MS,
+    maxBuffer: INSTALL_OUTPUT_MAX_BYTES,
+    replaceEnv: installEnvFrom(process.env),
+  });
+  if (run.ok) return { dir: install.dir, command: commandLine, ok: true };
+  await removeTree(path.join(packageDir, NODE_MODULES));
+  return { dir: install.dir, command: commandLine, ok: false, lastOutputLine: lastOutputLineOf(run.stderr ?? '') || lastOutputLineOf(run.err), timedOut: run.timedOut === true };
+}
+
+function unreadableInstallOutcome(error: unknown): DependencyInstallOutcome {
+  return {
+    results: [{ dir: '.', command: 'dependency install', ok: false, lastOutputLine: errorMessage(error), timedOut: false }],
+    unsupportedDirs: [],
+    elapsedMs: 0,
+  };
+}
 
 async function cloneDependencies(mainCheckout: string, worktreeDir: string): Promise<DependencyCloneOutcome> {
   const startedAt = performance.now();
@@ -121,10 +190,8 @@ async function readLock(mainDir: string, worktreeDir: string): Promise<Dependenc
 }
 
 async function listNestedPackageDirs(mainCheckout: string, worktreeDir: string): Promise<NestedPackageDir[]> {
-  const tracked = await runGit(['ls-files', '-z', '--', 'package.json', '**/package.json'], { cwd: worktreeDir, trim: false });
-  if (!tracked.ok) return [];
   const nestedDirs: NestedPackageDir[] = [];
-  for (const relativeDir of packageDirsFromTrackedFiles(tracked.out.split('\0').filter(Boolean))) {
+  for (const relativeDir of await listTrackedPackageDirs(worktreeDir)) {
     if (relativeDir === '.') continue;
     if (await pathExists(path.join(worktreeDir, relativeDir, NODE_MODULES))) continue;
     if (!(await pathExists(path.join(mainCheckout, relativeDir, NODE_MODULES)))) continue;

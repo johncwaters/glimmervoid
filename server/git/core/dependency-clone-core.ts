@@ -142,6 +142,83 @@ export function stagingPathFor(worktreeDir: string, relativeDir: string): string
   return path.join(path.dirname(worktreeDir), `.${path.basename(worktreeDir)}.${dirKey}.node_modules-clone`);
 }
 
+export type PackageDirFacts = { dir: string; hasNodeModules: boolean; lockfiles: readonly string[] };
+export type PlannedInstall = { dir: string; command: string; args: readonly string[] };
+type DependencyInstallPlan = { installs: PlannedInstall[]; unsupportedDirs: string[] };
+export type InstallResult =
+  | { dir: string; command: string; ok: true }
+  | { dir: string; command: string; ok: false; lastOutputLine: string; timedOut: boolean };
+export type DependencyInstallOutcome = { results: InstallResult[]; unsupportedDirs: string[]; elapsedMs: number };
+
+export const INSTALL_TIMEOUT_MS = 10 * 60_000;
+
+const REGISTRY_STALL_ARGS: readonly string[] = ['--fetch-timeout=30000', '--fetch-retries=1'];
+
+const INSTALL_COMMAND_BY_KIND: Readonly<Record<LockKind, { command: string; args: readonly string[] }>> = {
+  npm: { command: 'npm', args: ['ci', '--ignore-scripts', '--no-audit', '--no-fund', ...REGISTRY_STALL_ARGS] },
+  pnpm: { command: 'pnpm', args: ['install', '--frozen-lockfile', '--ignore-scripts', ...REGISTRY_STALL_ARGS] },
+};
+
+const INSTALL_ENV_NAMES: ReadonlySet<string> = new Set([
+  'PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'LC_ALL', 'TMPDIR', 'XDG_CACHE_HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME',
+  'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy',
+  'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS',
+]);
+
+export function planDependencyInstall(platform: string, packageDirs: readonly PackageDirFacts[]): DependencyInstallPlan {
+  const plan: DependencyInstallPlan = { installs: [], unsupportedDirs: [] };
+  if (platform === 'win32') return plan;
+  for (const packageDir of packageDirs) {
+    if (packageDir.hasNodeModules) continue;
+    const lockKind = installableLockKind(packageDir.lockfiles);
+    if (lockKind) {
+      plan.installs.push({ dir: packageDir.dir, ...INSTALL_COMMAND_BY_KIND[lockKind] });
+      continue;
+    }
+    if (packageDir.lockfiles.length) plan.unsupportedDirs.push(packageDir.dir);
+  }
+  return plan;
+}
+
+function installableLockKind(lockfiles: readonly string[]): LockKind | null {
+  for (const kind of ['npm', 'pnpm'] as const satisfies readonly LockKind[]) {
+    if (lockfiles.includes(LOCKFILE_BY_KIND[kind].lockfile)) return kind;
+  }
+  return null;
+}
+
+export function installEnvFrom(serverEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const installEnv: NodeJS.ProcessEnv = {};
+  for (const [name, value] of Object.entries(serverEnv)) {
+    if (INSTALL_ENV_NAMES.has(name)) installEnv[name] = value;
+  }
+  return installEnv;
+}
+
+export function lastOutputLineOf(output: string): string {
+  const lines = output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return lines.at(-1) ?? '';
+}
+
+export function describeInstalledDirs(outcome: DependencyInstallOutcome): string | null {
+  const installedDirs = outcome.results.filter((result) => result.ok).map((result) => result.dir);
+  if (!installedDirs.length) return null;
+  return `installed node_modules (${installedDirs.join(', ')}) in ${outcome.elapsedMs}ms`;
+}
+
+export function describeInstallWarnings(outcome: DependencyInstallOutcome): string[] {
+  const warnings: string[] = [];
+  for (const result of outcome.results) {
+    if (result.ok) continue;
+    const failure = result.timedOut ? 'timed out after 10 minutes' : `failed: ${result.lastOutputLine || 'no output'}`;
+    warnings.push(`${result.command} in ${result.dir} ${failure}; install dependencies in the worktree`);
+  }
+  if (outcome.unsupportedDirs.length) {
+    warnings.push(`node_modules in ${outcome.unsupportedDirs.join(', ')} was not installed because Glimmervoid installs only from package-lock.json or pnpm-lock.yaml; install dependencies there`);
+  }
+  return warnings;
+}
+
 export function describeDependencyCloneSkip(reason: DependencyCloneSkipReason): string {
   return SKIP_DESCRIPTIONS[reason];
 }

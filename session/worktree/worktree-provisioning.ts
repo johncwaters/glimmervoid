@@ -2,7 +2,8 @@ import { errorMessage } from "../../shared/text.ts";
 import fs from "node:fs";
 import { isSameDirectoryPath } from "../../shared/canonical-paths.ts";
 import { SPAWN_GAP_TRIGGER } from "../core/rebase-gate.ts";
-import { describeDependencyCloneSkip, describeStaleDirs } from "../../server/git/core/dependency-clone-core.ts";
+import { describeDependencyCloneSkip, describeInstallWarnings, describeInstalledDirs, describeStaleDirs } from "../../server/git/core/dependency-clone-core.ts";
+import type { DependencySeedOutcome } from "../../server/git/dependency-clone.ts";
 import type { AdoptWorktreeOptions, GitWorkspace, IntegrationSyncResult, Workspace, WorkspaceMembersSetup, WorktreeLifecycleContext, WorktreeSignature } from "./worktree-lifecycle-context.ts";
 
 type WorktreeProvisioningDeps = {
@@ -191,18 +192,31 @@ function createWorktreeProvisioning(context: WorktreeLifecycleContext, deps: Wor
 
   async function seedWorktreeDependencies(mainCheckout: string, worktreeDir: string, branch: string | null): Promise<void> {
     if (!seedDependencies) return;
-    const outcome = await seedDependencies({ mainCheckout, worktreeDir });
-    if (outcome.action === "cloned") {
-      console.log(`[session ${id}] cloned node_modules into ${worktreeDir} (${outcome.dirs.join(", ")}) in ${outcome.elapsedMs}ms`);
-      if (!outcome.staleDirs.length) return;
-      const staleNotice = describeStaleDirs(outcome.staleDirs);
+    const { clone, install } = await seedDependencies({ mainCheckout, worktreeDir });
+    const notices = [...cloneNotices(clone, worktreeDir), ...installNotices(install, worktreeDir)];
+    if (!notices.length) return;
+    port.emit("worktree-warning", { id, branch, notice: notices.join(" ") });
+  }
+
+  function cloneNotices(clone: DependencySeedOutcome["clone"], worktreeDir: string): string[] {
+    if (clone.action === "cloned") {
+      console.log(`[session ${id}] cloned node_modules into ${worktreeDir} (${clone.dirs.join(", ")}) in ${clone.elapsedMs}ms`);
+      if (!clone.staleDirs.length) return [];
+      const staleNotice = describeStaleDirs(clone.staleDirs);
       console.log(`[session ${id}] ${staleNotice}`);
-      port.emit("worktree-warning", { id, branch, notice: staleNotice });
-      return;
+      return [staleNotice];
     }
-    const reason = describeDependencyCloneSkip(outcome.reason);
+    const reason = describeDependencyCloneSkip(clone.reason);
     console.log(`[session ${id}] did not clone node_modules into ${worktreeDir}: ${reason}`);
-    if (outcome.notify) port.emit("worktree-warning", { id, branch, notice: reason });
+    return clone.notify ? [reason] : [];
+  }
+
+  function installNotices(install: DependencySeedOutcome["install"], worktreeDir: string): string[] {
+    const installedSummary = describeInstalledDirs(install);
+    if (installedSummary) console.log(`[session ${id}] ${installedSummary} into ${worktreeDir}`);
+    const warnings = describeInstallWarnings(install);
+    for (const warning of warnings) console.log(`[session ${id}] ${warning}`);
+    return warnings;
   }
 
   return { provision };

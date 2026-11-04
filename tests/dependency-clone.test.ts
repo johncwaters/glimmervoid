@@ -5,9 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { seedWorktreeDependencies } from '../server/git/dependency-clone.ts';
+import { describeInstallWarnings } from '../server/git/core/dependency-clone-core.ts';
+import { runCommand } from '../server/git/git-exec.ts';
 import { hasGit, git } from './helpers/git-fixture.ts';
 
 const CAN_CLONE = process.platform === 'darwin' && hasGit();
+const CAN_INSTALL = process.platform !== 'win32' && hasGit();
 
 function lockfileWith(leftPadVersion: string): string {
   return `${JSON.stringify({
@@ -28,8 +31,8 @@ function installedStateWith(leftPadVersion: string): string {
   return JSON.stringify(installed, null, 2);
 }
 
-function makeRepoWithWorktree(): { mainCheckout: string; worktreeDir: string } {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gv-dependency-clone-')));
+function makeMainCheckout(tempPrefix: string): { root: string; mainCheckout: string } {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), tempPrefix)));
   const mainCheckout = path.join(root, 'main');
   fs.mkdirSync(mainCheckout);
   git(['init', '-b', 'main'], mainCheckout);
@@ -37,6 +40,11 @@ function makeRepoWithWorktree(): { mainCheckout: string; worktreeDir: string } {
   git(['config', 'user.name', 'Glimmervoid Test'], mainCheckout);
   git(['config', 'commit.gpgsign', 'false'], mainCheckout);
   fs.writeFileSync(path.join(mainCheckout, '.gitignore'), 'node_modules\n');
+  return { root, mainCheckout };
+}
+
+function makeRepoWithWorktree(): { mainCheckout: string; worktreeDir: string } {
+  const { root, mainCheckout } = makeMainCheckout('gv-dependency-clone-');
   fs.writeFileSync(path.join(mainCheckout, 'package.json'), '{"name":"fixture"}\n');
   fs.writeFileSync(path.join(mainCheckout, 'package-lock.json'), lockfileWith('1.3.0'));
   git(['add', '-A'], mainCheckout);
@@ -58,7 +66,7 @@ test('a session worktree gets an isolated clone of a matching main checkout inst
 
   const outcome = await seedWorktreeDependencies({ mainCheckout, worktreeDir });
 
-  assert.equal(outcome.action, 'cloned');
+  assert.equal(outcome.clone.action, 'cloned');
   const clonedFile = path.join(worktreeDir, 'node_modules', 'left-pad', 'index.js');
   assert.equal(fs.readlinkSync(path.join(worktreeDir, 'node_modules', '.bin', 'left-pad')), '../left-pad/index.js');
   assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules', '.vite')), false);
@@ -74,7 +82,7 @@ test('a main checkout install that no longer matches the worktree lockfile is no
 
   const outcome = await seedWorktreeDependencies({ mainCheckout, worktreeDir });
 
-  assert.deepEqual(outcome, { action: 'skip', reason: 'install-stale', notify: true });
+  assert.deepEqual(outcome.clone, { action: 'skip', reason: 'install-stale', notify: true });
   assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules')), false);
 });
 
@@ -97,8 +105,8 @@ test('a nested package whose own install cannot be shown to match its lockfile i
 
       const outcome = await seedWorktreeDependencies({ mainCheckout, worktreeDir });
 
-      assert.equal(outcome.action, 'cloned');
-      assert.deepEqual(outcome.action === 'cloned' ? outcome.staleDirs : null, ['site']);
+      assert.equal(outcome.clone.action, 'cloned');
+      assert.deepEqual(outcome.clone.action === 'cloned' ? outcome.clone.staleDirs : null, ['site']);
       assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules', 'left-pad')), true);
       assert.equal(fs.existsSync(path.join(worktreeDir, 'site', 'node_modules')), false);
     });
@@ -113,9 +121,73 @@ test('a main checkout install linking outside the repository is not cloned', { s
 
       const outcome = await seedWorktreeDependencies({ mainCheckout, worktreeDir });
 
-      assert.deepEqual(outcome, { action: 'skip', reason: 'outside-link', notify: true });
+      assert.deepEqual(outcome.clone, { action: 'skip', reason: 'outside-link', notify: true });
       assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules')), false);
       assert.deepEqual(fs.readdirSync(path.dirname(worktreeDir)).sort(), ['main', 'session-worktree']);
     });
   }
+});
+
+function writeJson(file: string, value: unknown): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+async function writeLockfileFor(packageDir: string): Promise<void> {
+  const locked = await runCommand('npm', ['install', '--package-lock-only', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: packageDir, timeoutMs: 120_000 });
+  assert.ok(locked.ok, locked.err);
+}
+
+async function makeInstallableRepoWithWorktree(): Promise<{ mainCheckout: string; worktreeDir: string }> {
+  const { root, mainCheckout } = makeMainCheckout('gv-dependency-install-');
+  writeJson(path.join(mainCheckout, 'vendor', 'left-pad', 'package.json'), { name: 'left-pad', version: '1.3.0' });
+  fs.writeFileSync(path.join(mainCheckout, 'vendor', 'left-pad', 'index.js'), 'module.exports = 1;\n');
+  writeJson(path.join(mainCheckout, 'package.json'), {
+    name: 'fixture',
+    version: '1.0.0',
+    dependencies: { 'left-pad': 'file:vendor/left-pad' },
+    scripts: { postinstall: 'node -e "require(\'fs\').writeFileSync(\'postinstall-ran\', \'\')"' },
+  });
+  writeJson(path.join(mainCheckout, 'site', 'package.json'), { name: 'site', version: '1.0.0', dependencies: { 'left-pad': 'file:../vendor/left-pad' } });
+  await writeLockfileFor(mainCheckout);
+  await writeLockfileFor(path.join(mainCheckout, 'site'));
+  git(['add', '-A'], mainCheckout);
+  git(['commit', '-m', 'init'], mainCheckout);
+  const worktreeDir = path.join(root, 'session-worktree');
+  git(['worktree', 'add', '-b', 'session', worktreeDir], mainCheckout);
+  return { mainCheckout, worktreeDir };
+}
+
+test('each lockfile dir of a session worktree gets its own install without running package scripts', { skip: !CAN_INSTALL }, async () => {
+  const { mainCheckout, worktreeDir } = await makeInstallableRepoWithWorktree();
+
+  const { install } = await seedWorktreeDependencies({ mainCheckout, worktreeDir });
+
+  assert.deepEqual(install.results.map((result) => [result.dir, result.ok]), [['.', true], ['site', true]]);
+  assert.deepEqual(install.unsupportedDirs, []);
+  assert.equal(fs.readFileSync(path.join(worktreeDir, 'node_modules', 'left-pad', 'index.js'), 'utf8'), 'module.exports = 1;\n');
+  assert.equal(fs.existsSync(path.join(worktreeDir, 'site', 'node_modules', 'left-pad')), true);
+  assert.equal(fs.existsSync(path.join(worktreeDir, 'postinstall-ran')), false);
+  assert.equal(fs.existsSync(path.join(mainCheckout, 'node_modules')), false);
+  assert.equal(git(['status', '--porcelain'], worktreeDir).trim(), '');
+
+  const rerun = await seedWorktreeDependencies({ mainCheckout, worktreeDir });
+
+  assert.deepEqual(rerun.install.results, []);
+});
+
+test('a failed install leaves no node_modules and a yarn lockfile dir is named, not installed', { skip: !CAN_INSTALL }, async () => {
+  const { mainCheckout, worktreeDir } = await makeInstallableRepoWithWorktree();
+  writeJson(path.join(worktreeDir, 'package.json'), { name: 'fixture', version: '1.0.0', dependencies: { 'left-pad': 'file:vendor/left-pad', 'not-in-lockfile': 'file:missing' } });
+  fs.rmSync(path.join(worktreeDir, 'site', 'package-lock.json'));
+  fs.writeFileSync(path.join(worktreeDir, 'site', 'yarn.lock'), '');
+
+  const { install } = await seedWorktreeDependencies({ mainCheckout, worktreeDir });
+
+  assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules')), false);
+  assert.equal(fs.existsSync(path.join(worktreeDir, 'site', 'node_modules')), false);
+  const [failureWarning, unsupportedWarning, ...otherWarnings] = describeInstallWarnings(install);
+  assert.match(failureWarning ?? '', /^npm ci --ignore-scripts --no-audit --no-fund --fetch-timeout=30000 --fetch-retries=1 in \. failed: .+; install dependencies in the worktree$/);
+  assert.match(unsupportedWarning ?? '', /^node_modules in site was not installed because/);
+  assert.deepEqual(otherWarnings, []);
 });
