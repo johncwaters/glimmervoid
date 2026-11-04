@@ -596,13 +596,13 @@ test('limits tells a session which commands answer and its boundary', async () =
     const operatorLimits = await limitsOf(fixture.parent);
     assert.deepEqual(operatorLimits.commands, [
       { name: 'push', answers: false, reason: 'this session has no worktree of its own, so there is nothing of its own to land' },
-      ...['spawn', 'send', 'read', 'close', 'attention', 'board', 'edit', 'show', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard'].map((name) => ({ name, answers: true })),
+      ...['spawn', 'send', 'read', 'close', 'attention', 'board', 'edit', 'show', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout'].map((name) => ({ name, answers: true })),
     ]);
     assert.deepEqual([operatorLimits.boundary, operatorLimits.environment], ['none', null]);
     const laneLimits = await limitsOf(ephemeralLane);
     assert.deepEqual(laneLimits.commands.map(({ name, answers }) => [name, answers]), [
       ['push', false], ['spawn', false], ['send', false], ['read', false], ['close', false], ['attention', false], ['board', true], ['edit', false], ['show', false],
-      ['review', false], ['reviews', false], ['prs', false], ['link-pr', false], ['settings', false], ['why', true], ['whiteboard', false],
+      ['review', false], ['reviews', false], ['prs', false], ['link-pr', false], ['settings', false], ['why', true], ['whiteboard', false], ['checkout', false],
     ]);
     const refusedCalls: [Session, AgentLimitsReply, string, Record<string, unknown>][] = [
       [fixture.parent, operatorLimits, 'push', {}],
@@ -617,6 +617,7 @@ test('limits tells a session which commands answer and its boundary', async () =
       [ephemeralLane, laneLimits, 'reviews', {}],
       [ephemeralLane, laneLimits, 'link-pr', { pr: 'acme/app#12' }],
       [ephemeralLane, laneLimits, 'settings', { command: 'list' }],
+      [ephemeralLane, laneLimits, 'checkout', { repo: 'dotfiles' }],
     ];
     for (const [session, limits, command, payload] of refusedCalls) {
       const refusal = await fixture.wiring.handle(session, command, payload);

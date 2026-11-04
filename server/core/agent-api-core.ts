@@ -4,7 +4,7 @@ import type { z } from 'zod';
 
 import { pullRequestKeyFromReference } from '../../shared/contracts/control-messages.ts';
 import {
-  AGENT_API_VERBS, AGENT_REPLY_SCHEMAS, AgentAnswerRequest, AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPullRequestRequest, AgentReadRequest, AgentReviewsRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest, AgentWhyRequest,
+  AGENT_API_VERBS, AGENT_REPLY_SCHEMAS, AgentAnswerRequest, AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPullRequestRequest, AgentReadRequest, AgentReviewsRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest, AgentWhyRequest, AgentCheckoutRequest,
 } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb, AgentPrsReply, AgentRefusal, AgentReplyBodyOf, AgentReviewDetailReply, AgentReviewsReply } from '../../shared/contracts/session.ts';
 import type { MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
@@ -67,6 +67,7 @@ interface AgentRequestByVerb {
   settings: AgentSettingsRequest;
   why: AgentWhyRequest;
   whiteboard: WhiteboardAgentRequest;
+  checkout: AgentCheckoutRequest;
 }
 
 type AgentRequestOf<V extends AgentApiVerb> = AgentRequestByVerb[V];
@@ -207,6 +208,7 @@ const REQUEST_PARSERS: { readonly [V in AgentApiVerb]: RequestParser<AgentReques
   settings: bodyParser(AgentSettingsRequest),
   why: bodyParser(AgentWhyRequest),
   whiteboard: bodyParser(WhiteboardAgentRequest),
+  checkout: bodyParser(AgentCheckoutRequest),
 });
 
 type CheckedAgentReply = { ok: true; reply: AgentReplyOf<AgentApiVerb> } | { ok: false; reply: AgentRefusalReply; issue: string };
@@ -498,6 +500,13 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     subcommands: WHITEBOARD_SUBCOMMANDS,
     summary: 'Create, connect to, read, edit, plan on and delete a shared whiteboard the operator and connected sessions edit together',
     missingArgumentHint: null,
+  },
+  checkout: {
+    whenToUse: 'Use it instead of git worktree add or git clone when this session must change a repository it was not started in',
+    usage: 'checkout <repo>',
+    positionals: requiredText('<repo>'),
+    summary: 'Make a worktree of a configured project or a local git repository, owned by this session and removed when it closes',
+    missingArgumentHint: 'this command needs a repository, for example "glimmervoid checkout dotfiles" or "glimmervoid checkout ~/projects/dotfiles"',
   },
   limits: { usage: 'limits', whenToUse: 'Use it when a command is refused, to see why', summary: 'List which of these commands answer here and why the rest do not', missingArgumentHint: null },
 });

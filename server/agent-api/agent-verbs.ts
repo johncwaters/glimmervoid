@@ -1,7 +1,9 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { describeSessionLimits } from '../../session/core/session-routes.ts';
 import type { SessionRoleFacts } from '../../session/core/session-routes.ts';
 import type { Session } from '../../session/sessions.ts';
-import type { AgentAnswerRequest, AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentCloseRequest, AgentEditRequest, AgentLimitsReply, AgentReadRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest, SessionLimits } from '../../shared/contracts/session.ts';
+import type { AgentAnswerRequest, AgentCheckoutRequest, AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentCloseRequest, AgentEditRequest, AgentLimitsReply, AgentReadRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest, SessionLimits } from '../../shared/contracts/session.ts';
 import { manualPrLink } from '../../session/core/session-pr-links-core.ts';
 import { describePushLanding, describeUnpushedCloseRefusal, projectMyPrs, projectReviewDetail, projectReviews } from '../core/agent-api-core.ts';
 import type { AgentRefusalReply, AgentReplyOf } from '../core/agent-api-core.ts';
@@ -172,6 +174,27 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     return { status: 200, body: { ok: true, closed: owned.channel.childId } };
   }
 
+  async function resolveCheckoutRepo(repo: string): Promise<{ ok: true; repoPath: string } | { ok: false; error: string }> {
+    const configuredPaths = path.isAbsolute(repo)
+      ? [repo]
+      : config.projects.filter((project) => project.name === repo || path.basename(project.path || '') === repo).map((project) => project.path || '');
+    for (const candidatePath of configuredPaths) {
+      if (await fs.promises.stat(path.join(candidatePath, '.git')).then(() => true, () => false)) return { ok: true, repoPath: path.resolve(candidatePath) };
+    }
+    if (path.isAbsolute(repo)) return { ok: false, error: `${repo} is not a git repository` };
+    return { ok: false, error: `no configured project is named ${repo}; pass a project name or an absolute path to a git repository` };
+  }
+
+  async function checkout(session: Session, { repo }: AgentCheckoutRequest): Promise<AgentReplyOf<'checkout'>> {
+    if (session.remoteWorkspace) return refusal(409, 'this session runs in a Coder workspace, so a checkout made on this machine would not be there');
+    const resolved = await resolveCheckoutRepo(repo);
+    if (!resolved.ok) return refusal(404, resolved.error);
+    const checkoutRoot = config.worktreeRoot || path.join(path.dirname(resolved.repoPath), '.glimmervoid-worktrees');
+    const added = await session.addCheckout({ repoPath: resolved.repoPath, checkoutRoot });
+    if (!added.ok) return refusal(409, added.error);
+    return { status: 200, body: added };
+  }
+
   function githubLanesUnavailable(): AgentRefusalReply {
     return refusal(503, 'GitHub lanes are not available in this Glimmervoid');
   }
@@ -194,6 +217,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     'link-pr': (session, { pullRequestKey }) => linkPr(session, pullRequestKey),
     settings: (_session, request) => settings(request),
     why: (session, { target }) => why(session, target),
+    checkout,
     whiteboard: (session, request) => (whiteboards ? whiteboards.handleAgent({ id: session.id, name: session.name, cwd: session.effectiveCwd(), remoteWorkspace: session.remoteWorkspace }, request) : refusal(503, 'whiteboards are not available in this Glimmervoid')),
   };
 

@@ -178,6 +178,8 @@ function createChildChannels(runtime: AgentApiRuntime) {
 
   async function keepOrDiscardChildWorktree(child: Session, worktree: ChildWorktree | null, isParentRemoved: boolean): Promise<boolean> {
     const isDiscardRequested = childIdsToDiscard.delete(child.id);
+    if (isDiscardRequested || isParentRemoved) child.confirmWorkspaceWorkDiscard();
+    await child.releaseCheckouts();
     if (!worktree) return false;
     await settleSessionCoherence(child.id).catch(() => {});
     if (isDiscardRequested || isParentRemoved) {

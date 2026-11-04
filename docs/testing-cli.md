@@ -70,6 +70,7 @@ Inside a Glimmervoid session:
   settings list|get   Read Glimmervoid's settings; a secret shows only as configured or not. Use it instead of reading config.json
   why <file>:<line>   Name the session, agent, task and prompt that made the commit owning a line (or pass a commit sha). Use it before changing code another session wrote, to learn what that session was asked
   whiteboard new|list|connect|disconnect|get|put|render|resolve|delete|plan Create, connect to, read, edit, plan on and delete a shared whiteboard the operator and connected sessions edit together. Use it to plan or explain a design with the operator or other sessions
+  checkout <repo>     Make a worktree of a configured project or a local git repository, owned by this session and removed when it closes. Use it instead of git worktree add or git clone when this session must change a repository it was not started in
   limits              List which of these commands answer here and why the rest do not. Use it when a command is refused, to see why
   ssh-sign            Sign a commit with the operator's forwarded ssh agent (git runs this)
 

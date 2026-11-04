@@ -1308,7 +1308,10 @@ class Session extends EventEmitter {
   }
 
   discardWorktree() { return this.worktreeLifecycle.discardWorktree(); }
+  releaseCheckouts() { return this.worktreeLifecycle.releaseCheckouts(); }
   findWorkspaceKeptWork() { return this.worktreeLifecycle.findWorkspaceKeptWork(); }
+  addCheckout(checkout: { repoPath: string; checkoutRoot: string }) { return this.worktreeLifecycle.addCheckout(checkout); }
+  hasWorkspaceMembers(): Promise<boolean> { return this.worktreeLifecycle.hasWorkspaceMembers(); }
   confirmWorkspaceWorkDiscard() { this.worktreeLifecycle.confirmWorkspaceWorkDiscard(); }
 
   getDetectionStats() {

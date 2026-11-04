@@ -100,6 +100,7 @@ interface GitWorkspace {
   describeWorkspaceMemberWork?: GitWorkspaceInstance["describeWorkspaceMemberWork"];
   recordOwnedFolder?: GitWorkspaceInstance["recordOwnedFolder"];
   forgetRemovedPath?: GitWorkspaceInstance["forgetRemovedPath"];
+  listOwnedPaths?: GitWorkspaceInstance["listOwnedPaths"];
 }
 
 type WorkspaceMembersSetup =

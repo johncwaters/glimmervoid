@@ -280,10 +280,11 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
   }
 
   async function findLocalRemovalRefusal(sess: Session, confirmedKeptPaths: ReadonlySet<string>): Promise<RemovalRefusal | null> {
+    const keptPaths = await sess.hasWorkspaceMembers() ? await sess.findWorkspaceKeptWork() : [];
     if (!sess.isWorkspace && await sess.hasUnmergedWork()) {
-      return refuseRemoval(`"${sess.name}" has uncommitted changes or commits not merged into its base branch. Removing it deletes them.`);
+      const checkoutWork = keptPaths.length > 0 ? ` Its checkouts also hold work not saved: ${keptPaths.map((kept) => kept.path).join(', ')}.` : '';
+      return refuseRemoval(`"${sess.name}" has uncommitted changes or commits not merged into its base branch. Removing it deletes them.${checkoutWork}`, keptPaths.length > 0 ? keptPaths : undefined);
     }
-    const keptPaths = sess.isWorkspace ? await sess.findWorkspaceKeptWork() : [];
     const [firstUnconfirmedKept, ...otherUnconfirmedKept] = keptPaths.filter((kept) => !confirmedKeptPaths.has(kept.path));
     if (firstUnconfirmedKept) return keptWorkRefusal(sess, firstUnconfirmedKept, otherUnconfirmedKept.length, keptPaths);
     if (sess.state === STATES.RUNNING) return refuseRemoval(`"${sess.name}" is working. Removing it stops the agent mid-task.`);
@@ -295,7 +296,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     const sess = findSession(msg);
     if (!sess) return { ok: false, error: 'Session not found' };
     const isDiscardingWork = msg.discardWork === true;
-    const isDiscardingWorkspaceWork = sess.isWorkspace && isDiscardingWork;
+    const isDiscardingWorkspaceWork = isDiscardingWork && await sess.hasWorkspaceMembers();
     if (isDiscardingWorkspaceWork) sess.killSession();
 
     const refusal = await findLocalRemovalRefusal(sess, new Set(isDiscardingWorkspaceWork ? msg.confirmedKeptPaths ?? [] : []));
@@ -308,6 +309,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
 
     if (agentSessions.get(sess.id) === sess) {
       if (isDiscardingWork) markChildWorktreeDiscard?.(sess.id);
+      if (isDiscardingWorkspaceWork) sess.confirmWorkspaceWorkDiscard();
       lastRemovalRefusalBySessionId.delete(sess.id);
       sess.destroy();
       console.log(`[control] Removed spawned session via UI: ${sess.name}`);

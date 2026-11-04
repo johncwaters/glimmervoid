@@ -150,7 +150,7 @@ type OwnedWorktreeArgs = WorktreeArgs & { owner: OwnedPathOwner };
 
 type WorktreeOwnership = { owner: OwnedPathOwner; projectPath: string; branch: string | null };
 
-type OwnedPathsRecorder = Pick<OwnedPathsLedgerHandle, 'record' | 'forget' | 'ownerOf'>;
+type OwnedPathsRecorder = Pick<OwnedPathsLedgerHandle, 'record' | 'forget' | 'ownerOf'> & Partial<Pick<OwnedPathsLedgerHandle, 'entriesOwnedBy'>>;
 
 type RemovalGuardOptions = { protectedSessionIds?: () => ReadonlySet<string>; journalPath?: string; now?: () => number };
 

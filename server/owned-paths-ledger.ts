@@ -77,13 +77,18 @@ function createOwnedPathsLedger({ filePath, log = console }: { filePath: string;
     return entriesByPath.get(ledgerKey(await canonicalOwnedPath(ownedPath)))?.owner ?? null;
   }
 
+  async function entriesOwnedBy(owner: string): Promise<OwnedPathEntry[]> {
+    await store.load();
+    return [...entriesByPath.values()].filter((entry) => entry.owner === owner);
+  }
+
   async function loadEarlierRunEntries(): Promise<{ ok: true; entries: OwnedPathEntry[] } | { ok: false }> {
     await store.load();
     if (!isLoaded) return { ok: false };
     return { ok: true, entries: [...entriesByPath.entries()].filter(([key]) => !keysRecordedThisRun.has(key)).map(([, entry]) => entry) };
   }
 
-  return { loadEarlierRunEntries, record, forget, ownerOf, idle: () => store.idle() };
+  return { loadEarlierRunEntries, record, forget, ownerOf, entriesOwnedBy, idle: () => store.idle() };
 }
 
 async function pathExists(ownedPath: string): Promise<boolean> {
@@ -151,5 +156,5 @@ async function reconcileOwnedPaths({ ledger, configuredSessionIds, git, shareLis
   }
 }
 
-export { createOwnedPathsLedger, reconcileOwnedPaths };
+export { createOwnedPathsLedger, holdsCheckout, reconcileOwnedPaths };
 export type { OwnedPathsLedgerHandle };

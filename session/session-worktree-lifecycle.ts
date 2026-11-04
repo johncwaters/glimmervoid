@@ -18,6 +18,7 @@ import { projectMergeState } from "./core/worktree-state.ts";
 import type { MergeStatus } from "./core/worktree-state.ts";
 import { BRANCH_UPSTREAM_FORMAT, parseBranchUpstream } from "../server/core/branch-sync-core.ts";
 import { planWorkspaceMembers } from "./core/workspace-core.ts";
+import { sanitizeWorktreeName } from "../shared/paths.ts";
 import { createSessionWorkspaceMembers } from "./session-workspace-members.ts";
 import type { WorkspaceMemberGit } from "./session-workspace-members.ts";
 import type { KeptWorkPath } from "../shared/contracts/control-messages.ts";
@@ -33,7 +34,8 @@ function workspaceMemberGit(gitWorkspace: GitWorkspace | null): WorkspaceMemberG
   if (!gitWorkspace) return null;
   const { ensureWorkspaceMember, removeWorkspaceMember, describeWorkspaceMemberWork, recordOwnedFolder, forgetRemovedPath } = gitWorkspace;
   if (!ensureWorkspaceMember || !removeWorkspaceMember || !describeWorkspaceMemberWork || !recordOwnedFolder || !forgetRemovedPath) return null;
-  return { ensureWorkspaceMember, removeWorkspaceMember, describeWorkspaceMemberWork, recordOwnedFolder, forgetRemovedPath };
+  const listOwnedPaths = gitWorkspace.listOwnedPaths ?? (async () => []);
+  return { ensureWorkspaceMember, removeWorkspaceMember, describeWorkspaceMemberWork, recordOwnedFolder, forgetRemovedPath, listOwnedPaths };
 }
 
 async function readGitStrict(args: string[], options: RunGitOptions): Promise<string> {
@@ -312,9 +314,54 @@ function createSessionWorktreeLifecycle({
     isWorkspaceWorkDiscardConfirmed = true;
   }
 
+  let checkoutMembers: ReturnType<typeof createSessionWorkspaceMembers> | null = null;
+
+  const checkoutOwner = `session:${id}` as const;
+  const checkoutBranch = `glimmervoid/workspace/${id}`;
+  let recordedCheckoutsLoad: Promise<void> | null = null;
+
+  function createCheckoutMembers(folder: string, memberGit: NonNullable<ReturnType<typeof workspaceMemberGit>>) {
+    return createSessionWorkspaceMembers({ plan: { folder, branch: checkoutBranch, members: [] }, owner: checkoutOwner, sessionName, shareList: worktreeShare, gitWorkspace: memberGit });
+  }
+
+  async function adoptRecordedCheckouts(): Promise<void> {
+    const memberGit = workspaceMemberGit(gitWorkspace);
+    if (!memberGit) return;
+    const entries = await memberGit.listOwnedPaths(checkoutOwner).catch(() => []);
+    if (workspaceMembers?.ok) await workspaceMembers.members.adopt(entries);
+    const checkoutFolder = entries.find((entry) => entry.kind === 'folder' && path.basename(entry.path).startsWith('checkouts-'));
+    if (!checkoutFolder || checkoutMembers) return;
+    checkoutMembers = createCheckoutMembers(checkoutFolder.path, memberGit);
+    await checkoutMembers.adopt(entries);
+  }
+
+  function loadRecordedCheckouts(): Promise<void> {
+    recordedCheckoutsLoad ??= adoptRecordedCheckouts();
+    return recordedCheckoutsLoad;
+  }
+
+  async function addCheckout({ repoPath, checkoutRoot }: { repoPath: string; checkoutRoot: string }): Promise<{ ok: true; path: string; branch: string } | { ok: false; error: string }> {
+    await loadRecordedCheckouts();
+    if (workspaceMembers?.ok) return workspaceMembers.members.add(repoPath);
+    if (workspaceMembers) return { ok: false, error: workspaceMembers.error };
+    if (checkoutMembers) return checkoutMembers.add(repoPath);
+    const memberGit = workspaceMemberGit(gitWorkspace);
+    if (!memberGit) return { ok: false, error: "Git workspace is unavailable" };
+    const folder = path.join(checkoutRoot, `checkouts-${sanitizeWorktreeName(sessionName) || "session"}-${id.slice(0, 8)}`);
+    checkoutMembers = createCheckoutMembers(folder, memberGit);
+    return checkoutMembers.add(repoPath);
+  }
+
+  async function hasWorkspaceMembers(): Promise<boolean> {
+    await loadRecordedCheckouts();
+    return workspaceMembers !== null || checkoutMembers !== null;
+  }
+
   async function findWorkspaceKeptWork(): Promise<KeptWorkPath[]> {
-    if (!workspaceMembers?.ok) return [];
-    return workspaceMembers.members.findKeptWork();
+    await loadRecordedCheckouts();
+    const workspaceKept = workspaceMembers?.ok ? await workspaceMembers.members.findKeptWork() : [];
+    const checkoutKept = checkoutMembers ? await checkoutMembers.findKeptWork() : [];
+    return [...workspaceKept, ...checkoutKept];
   }
 
   async function releaseWorkspaceMembers(members: ReturnType<typeof createSessionWorkspaceMembers>, keepRepoPaths: string[] = []): Promise<void> {
@@ -328,8 +375,14 @@ function createSessionWorktreeLifecycle({
     await releaseWorkspaceMembers(workspaceMembers.members, keepRepoPaths);
   }
 
+  async function releaseCheckouts(): Promise<void> {
+    await loadRecordedCheckouts();
+    if (checkoutMembers) await releaseWorkspaceMembers(checkoutMembers);
+  }
+
   async function discardWorktree(): Promise<void> {
     await stopSeeding();
+    await releaseCheckouts();
     if (workspaceMembers?.ok) return releaseWorkspaceMembers(workspaceMembers.members);
     stopWatching();
     if (gitWorkspace && lifecycleState.workspace) {
@@ -613,6 +666,9 @@ function createSessionWorktreeLifecycle({
     pasteMergePrompt,
     hasUnmergedWork,
     findWorkspaceKeptWork,
+    addCheckout,
+    releaseCheckouts,
+    hasWorkspaceMembers,
     confirmWorkspaceWorkDiscard,
     getDiff,
     getChangeScopes,

@@ -32,3 +32,8 @@ The backend runtime: the HTTP server and both WebSockets on loopback, the lanes,
   checklist: encrypted-storage dismissed: only the token's hash and the device secret's hash are persisted, never the secrets
   checklist: key-rotation-compatibility dismissed: no key is held or rotated; each device holds its own minted secret
   checklist: separation-of-duties dismissed: one operator mints and redeems on their own devices
+- agent-made worktree cleanup floor: Branch cleanup removes a worktree it picked only for sitting in the worktree root once it is clean, merged, untouched for a day, outside every live session folder and not a configured project.
+  over: every worktree under the worktree root whose branch matches no cleanup prefix
+  via: branch-gc removes a clean merged worktree an agent made under the worktree root only once it sits untouched a day, never one inside a live session or a configured project
+  because: an agent still working in a worktree it made by hand would have it force-removed under it
+  kinds: none

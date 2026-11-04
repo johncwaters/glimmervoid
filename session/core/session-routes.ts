@@ -116,6 +116,11 @@ function whiteboardRoute(caller: SessionKindFacts): RouteVerdict {
   return { answers: false, reason: 'a lane session cannot use a whiteboard, because a lane runs on input the operator has not vetted and has no card to show the board on' };
 }
 
+function checkoutRoute(caller: SessionKindFacts): RouteVerdict {
+  if (hasOperatorCard(caller)) return ANSWERS;
+  return { answers: false, reason: 'a lane session cannot make a checkout, because a lane runs on input the operator has not vetted' };
+}
+
 const COMMAND_ROUTES: Readonly<Record<AgentApiVerb, (facts: SessionRoleFacts) => RouteVerdict>> = Object.freeze({
   push: pushRoute,
   spawn: spawnRoute,
@@ -134,10 +139,11 @@ const COMMAND_ROUTES: Readonly<Record<AgentApiVerb, (facts: SessionRoleFacts) =>
   settings: operatorStateRoute,
   why: () => ANSWERS,
   whiteboard: whiteboardRoute,
+  checkout: checkoutRoute,
   limits: () => ANSWERS,
 });
 
-type ToolHintedCommand = 'show' | 'spawn' | 'push' | 'settings' | 'review';
+type ToolHintedCommand = 'show' | 'spawn' | 'push' | 'settings' | 'review' | 'checkout';
 type HintedCommand = ToolHintedCommand | 'whiteboard';
 type ToolHookEvent = 'posttooluse' | 'posttoolusefailure';
 
@@ -167,6 +173,7 @@ const SHELL_TOOLS: ReadonlySet<string> = new Set(['Bash']);
 const SUBAGENT_TOOLS: ReadonlySet<string> = new Set(['Agent', 'Task']);
 const GIT_PUSH = /\bgit\s+push\b/;
 const PR_REVIEW = /\bgh\s+pr\s+review\b/;
+const NEW_CHECKOUT = /\bgit(?:\s+(?:-[Cc]\s+(?:"[^"]*"|'[^']*'|\S+)|--?[\w-]+(?:=\S+)?))*\s+(?:worktree\s+add|clone)\b/;
 const GLIMMERVOID_CONFIG = /\.glimmervoid[\\/]config\.json\b/;
 
 function shellCommandOf({ toolName, toolInput }: ToolHookFacts): string | null {
@@ -204,12 +211,18 @@ function runsPullRequestReview(facts: ToolHookFacts): boolean {
   return PR_REVIEW.test(shellCommandOf(facts) ?? '');
 }
 
+function makesOwnCheckout(facts: ToolHookFacts): boolean {
+  if (facts.event !== 'posttooluse') return false;
+  return NEW_CHECKOUT.test(shellCommandOf(facts) ?? '');
+}
+
 const COMMAND_HINTS: Readonly<Record<ToolHintedCommand, { firesOn: (facts: ToolHookFacts) => boolean; text: string }>> = Object.freeze({
   show: { firesOn: namesShowableFile, text: 'Glimmervoid: glimmervoid show <path> puts an image, video or HTML file on this session\'s card for the operator.' },
   spawn: { firesOn: startsSubagent, text: 'Glimmervoid: for work that edits files or runs long, glimmervoid spawn <prompt> gives it its own dashboard card; an in-process subagent stays fine for a quick read-only lookup.' },
   push: { firesOn: failsGitPush, text: "Glimmervoid: glimmervoid push lands this session's commits on the integration branch and pushes it." },
   settings: { firesOn: touchesGlimmervoidConfig, text: "Glimmervoid: glimmervoid settings get <key> reads Glimmervoid's settings without opening config.json." },
   review: { firesOn: runsPullRequestReview, text: 'Glimmervoid: glimmervoid review <pr> queues a team review whose draft waits in the Reviews tab for the operator to post.' },
+  checkout: { firesOn: makesOwnCheckout, text: 'Glimmervoid owns checkouts for this session. Run glimmervoid checkout <repo> instead, so the checkout is cleaned up when the session closes.' },
 });
 
 const HINTED_COMMANDS = Object.keys(COMMAND_HINTS) as ToolHintedCommand[];
@@ -289,6 +302,7 @@ const COMMAND_HINT_TRIGGERS: Readonly<Record<ToolHintedCommand, { carriedBy: str
   push: { carriedBy: `PostToolUseFailure${NEXT_PROMPT_FALLBACK}`, firesWhen: 'a git push fails' },
   settings: { carriedBy: `PostToolUse or PostToolUseFailure${NEXT_PROMPT_FALLBACK}`, firesWhen: "a tool call touches Glimmervoid's config.json" },
   review: { carriedBy: `PostToolUse${NEXT_PROMPT_FALLBACK}`, firesWhen: 'the agent runs a pull request review' },
+  checkout: { carriedBy: `PostToolUse${NEXT_PROMPT_FALLBACK}`, firesWhen: 'a tool call runs git worktree add or git clone' },
 });
 
 function routeAgentNotes(): AgentNote[] {

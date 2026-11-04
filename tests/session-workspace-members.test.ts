@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createGitWorkspace } from '../server/git/git-workspace.ts';
+import { createOwnedPathsLedger } from '../server/owned-paths-ledger.ts';
 import { planWorkspace } from '../session/core/workspace-core.ts';
 import { createSessionWorkspaceMembers } from '../session/session-workspace-members.ts';
 import { carryWorktreeAcrossRecreate } from '../server/session/session-registry.ts';
@@ -294,6 +295,84 @@ test('removing a workspace session that holds work is refused with each kept pat
     assert.equal(fs.existsSync(folder), false);
   } finally {
     session.destroy();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a checkout a plain session asks for comes back after a release, is refused at removal while it holds work, and is removed once discard is confirmed without taking a checkout it never tracked', { skip: !hasGit() }, async () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-checkout-remove-')));
+  const dotfiles = makeRepo(root, 'dotfiles');
+  const home = path.join(root, 'home');
+  fs.mkdirSync(home);
+  const checkoutRoot = path.join(root, '.glimmervoid-worktrees');
+  const session = new Session({ id: 'checkout-remove-session', name: 'Checkout Remove', path: home, gitWorkspace: createGitWorkspace() });
+  try {
+    const checkout = await session.addCheckout({ repoPath: dotfiles, checkoutRoot });
+    assert.ok(checkout.ok);
+    assert.equal(path.dirname(path.dirname(checkout.path)), checkoutRoot);
+    assert.equal(git(['rev-parse', '--abbrev-ref', 'HEAD'], checkout.path).trim(), checkout.branch);
+    assert.deepEqual(await session.addCheckout({ repoPath: dotfiles, checkoutRoot }), checkout);
+    await session.releaseCheckouts();
+    assert.equal(fs.existsSync(checkout.path), false);
+    assert.deepEqual(await session.addCheckout({ repoPath: dotfiles, checkoutRoot }), checkout);
+    assert.equal(fs.existsSync(checkout.path), true);
+    const untrackedCheckout = path.join(path.dirname(checkout.path), 'from-an-earlier-run');
+    git(['worktree', 'add', '-b', 'earlier-run', untrackedCheckout], dotfiles);
+    fs.writeFileSync(path.join(checkout.path, 'unsaved.txt'), 'unsaved');
+    const config = { projects: [{ id: 'checkout-remove-session', name: 'Checkout Remove', path: home }] };
+    const control = connectControl<{ type: string; requestId?: string; ok?: boolean; keptPaths?: unknown }>(createControlServer(controlDeps(config, { sessions: new Map([['checkout-remove-session', session]]) })));
+    const replyTo = (requestId: string) => control.sent.find((frame) => frame.requestId === requestId);
+
+    control.send({ type: 'remove-session', id: 'checkout-remove-session', requestId: 'refused' });
+    await waitFor(() => replyTo('refused') !== undefined, 'refused removal replied', 10000);
+    assert.deepEqual(replyTo('refused')?.keptPaths, [{ path: checkout.path, reason: 'uncommitted changes' }]);
+
+    control.send({ type: 'remove-session', id: 'checkout-remove-session', discardWork: true, confirmedKeptPaths: [checkout.path], requestId: 'discarded' });
+    await waitFor(() => replyTo('discarded') !== undefined, 'discarded removal replied', 10000);
+    assert.equal(replyTo('discarded')?.ok, true);
+    session.destroy();
+    await session.discardWorktree();
+    assert.deepEqual([fs.existsSync(checkout.path), fs.existsSync(untrackedCheckout)], [false, true]);
+    assert.equal(git(['worktree', 'list', '--porcelain'], dotfiles).includes(checkout.path), false);
+  } finally {
+    session.destroy();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a session rebuilt after a restart finds the checkouts its earlier run made, refuses removal on their unsaved work and removes them once discard is confirmed', { skip: !hasGit() }, async () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-checkout-restart-')));
+  const dotfiles = makeRepo(root, 'dotfiles');
+  const home = path.join(root, 'home');
+  fs.mkdirSync(home);
+  const ledgerPath = path.join(root, 'owned-paths.json');
+  const sessionId = 'checkout-restart-session';
+  const runSession = () => new Session({ id: sessionId, name: 'Checkout Restart', path: home, gitWorkspace: createGitWorkspace({ ownedPaths: createOwnedPathsLedger({ filePath: ledgerPath }) }) });
+  const earlierRun = runSession();
+  let laterRun: Session | null = null;
+  try {
+    const checkout = await earlierRun.addCheckout({ repoPath: dotfiles, checkoutRoot: path.join(root, '.glimmervoid-worktrees') });
+    assert.ok(checkout.ok);
+    fs.writeFileSync(path.join(checkout.path, 'unsaved.txt'), 'unsaved');
+    earlierRun.destroy();
+    laterRun = runSession();
+    const config = { projects: [{ id: sessionId, name: 'Checkout Restart', path: home }] };
+    const control = connectControl<{ type: string; requestId?: string; ok?: boolean; keptPaths?: unknown }>(createControlServer(controlDeps(config, { sessions: new Map([[sessionId, laterRun]]) })));
+    const replyTo = (requestId: string) => control.sent.find((frame) => frame.requestId === requestId);
+
+    control.send({ type: 'remove-session', id: sessionId, requestId: 'refused' });
+    await waitFor(() => replyTo('refused') !== undefined, 'refused removal replied', 10000);
+    assert.deepEqual(replyTo('refused')?.keptPaths, [{ path: checkout.path, reason: 'uncommitted changes' }]);
+
+    control.send({ type: 'remove-session', id: sessionId, discardWork: true, confirmedKeptPaths: [checkout.path], requestId: 'discarded' });
+    await waitFor(() => replyTo('discarded') !== undefined, 'discarded removal replied', 10000);
+    assert.equal(replyTo('discarded')?.ok, true);
+    laterRun.destroy();
+    await laterRun.discardWorktree();
+    assert.equal(fs.existsSync(path.dirname(checkout.path)), false);
+  } finally {
+    earlierRun.destroy();
+    laterRun?.destroy();
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

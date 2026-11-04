@@ -3,13 +3,14 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { GitWorkspaceInstance } from '../server/git/git-workspace.ts';
+import { holdsCheckout } from '../server/owned-paths-ledger.ts';
 import type { KeptWorkPath } from '../shared/contracts/control-messages.ts';
-import type { OwnedPathOwner } from '../shared/contracts/owned-paths.ts';
+import type { OwnedPathEntry, OwnedPathOwner } from '../shared/contracts/owned-paths.ts';
 import { caseFoldedPathKey } from '../shared/paths.ts';
 import { renderWorkspaceAgentsMd, WORKSPACE_CLAUDE_MD } from './core/workspace-core.ts';
 import type { WorkspacePlan, WorkspaceMember } from './core/workspace-core.ts';
 
-export type WorkspaceMemberGit = Pick<GitWorkspaceInstance, 'ensureWorkspaceMember' | 'removeWorkspaceMember' | 'describeWorkspaceMemberWork' | 'recordOwnedFolder' | 'forgetRemovedPath'>;
+export type WorkspaceMemberGit = Pick<GitWorkspaceInstance, 'ensureWorkspaceMember' | 'removeWorkspaceMember' | 'describeWorkspaceMemberWork' | 'recordOwnedFolder' | 'forgetRemovedPath' | 'listOwnedPaths'>;
 
 
 async function writeWhenAbsent(filePath: string, contents: string): Promise<void> {
@@ -83,6 +84,60 @@ export function createSessionWorkspaceMembers({ plan, owner, sessionName, shareL
     return attempt;
   }
 
+  type AddOutcome = { ok: true; path: string; branch: string } | { ok: false; error: string };
+
+  async function addBody(repoPath: string): Promise<AddOutcome> {
+    const resolvedRepoPath = path.resolve(repoPath);
+    const name = path.basename(resolvedRepoPath);
+    const existing = plan.members.find((member) => caseFoldedPathKey(member.repoPath) === caseFoldedPathKey(resolvedRepoPath));
+    if (existing && await pathExists(existing.dir)) return { ok: true, path: existing.dir, branch: plan.branch };
+    if (existing) plan.members.splice(plan.members.indexOf(existing), 1);
+    if (plan.members.some((member) => caseFoldedPathKey(member.name) === caseFoldedPathKey(name))) return { ok: false, error: `this session already has a checkout named ${name}` };
+    try {
+      await fs.promises.mkdir(plan.folder, { recursive: true });
+      await gitWorkspace.recordOwnedFolder({ folderPath: plan.folder, owner });
+      const member: WorkspaceMember = { name, repoPath: resolvedRepoPath, dir: path.join(plan.folder, name) };
+      const ensured = await gitWorkspace.ensureWorkspaceMember({ projectPath: member.repoPath, owner, wtDir: member.dir, branch: plan.branch, shareList });
+      if (!ensured.isGit) return { ok: false, error: `${name}: ${ensured.reason || ensured.error || 'worktree creation failed'}${ensured.conflictPath ? ` (${ensured.conflictPath})` : ''}` };
+      plan.members.push({ ...member, base: ensured.base });
+      return { ok: true, path: member.dir, branch: plan.branch };
+    } catch (error) {
+      return { ok: false, error: errorMessage(error) };
+    }
+  }
+
+  let pendingAdds: Promise<unknown> = Promise.resolve();
+
+  async function adoptRecordedCheckouts(entries: OwnedPathEntry[]): Promise<void> {
+    const canonicalFolder = await fs.promises.realpath(plan.folder).catch(() => null);
+    if (canonicalFolder === null) return;
+    const memberKeys = new Set(plan.members.map((member) => caseFoldedPathKey(member.dir)));
+    for (const entry of entries) {
+      if (entry.kind !== 'git-worktree' || entry.projectPath === null) continue;
+      if (caseFoldedPathKey(path.dirname(entry.path)) !== caseFoldedPathKey(canonicalFolder)) continue;
+      if (memberKeys.has(caseFoldedPathKey(entry.path)) || !(await pathExists(entry.path))) continue;
+      plan.members.push({ name: path.basename(entry.path), repoPath: entry.projectPath, dir: entry.path });
+    }
+  }
+
+  function adopt(entries: OwnedPathEntry[]): Promise<void> {
+    const attempt = pendingAdds.then(async () => {
+      if (activeProvision) await activeProvision;
+      return adoptRecordedCheckouts(entries);
+    });
+    pendingAdds = attempt;
+    return attempt;
+  }
+
+  function add(repoPath: string): Promise<AddOutcome> {
+    const attempt = pendingAdds.then(async () => {
+      if (activeProvision) await activeProvision;
+      return addBody(repoPath);
+    });
+    pendingAdds = attempt;
+    return attempt;
+  }
+
   const pathExists = (candidatePath: string) => fs.promises.stat(candidatePath).then(() => true, () => false);
 
   async function findMemberWork(member: WorkspaceMember): Promise<string | null> {
@@ -92,6 +147,7 @@ export function createSessionWorkspaceMembers({ plan, owner, sessionName, shareL
 
   async function findKeptWork(): Promise<KeptWorkPath[]> {
     if (activeProvision) await activeProvision;
+    await pendingAdds;
     const kept: KeptWorkPath[] = [];
     for (const member of plan.members) {
       if (!(await pathExists(member.dir))) continue;
@@ -112,6 +168,7 @@ export function createSessionWorkspaceMembers({ plan, owner, sessionName, shareL
 
   async function release({ keepRepoPaths = [], discardWork = false }: { keepRepoPaths?: string[]; discardWork?: boolean } = {}): Promise<{ kept: KeptWorkPath[] }> {
     if (activeProvision) await activeProvision;
+    await pendingAdds;
     const keptRepoKeys = new Set(keepRepoPaths.map((repoPath) => caseFoldedPathKey(path.resolve(repoPath))));
     const kept: KeptWorkPath[] = [];
     for (const member of plan.members) {
@@ -120,13 +177,11 @@ export function createSessionWorkspaceMembers({ plan, owner, sessionName, shareL
       if (keptMember) kept.push(keptMember);
     }
     if (keptRepoKeys.size > 0) return { kept };
-    for (const member of plan.members) {
-      if (await pathExists(member.dir)) return { kept };
-    }
+    if (await holdsCheckout(plan.folder)) return { kept };
     await fs.promises.rm(plan.folder, { recursive: true, force: true });
     await gitWorkspace.forgetRemovedPath(plan.folder);
     return { kept };
   }
 
-  return { provision, release, findKeptWork, branch: plan.branch };
+  return { provision, add, adopt, release, findKeptWork, folder: plan.folder, branch: plan.branch };
 }

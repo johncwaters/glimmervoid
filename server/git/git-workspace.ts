@@ -16,7 +16,7 @@ import { normalizeSha } from '../core/update-core.ts';
 import { isMissingFileError } from '../../shared/text.ts';
 import { runGit } from './git-exec.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
-import type { OwnedPathOwner } from '../../shared/contracts/owned-paths.ts';
+import type { OwnedPathEntry, OwnedPathOwner } from '../../shared/contracts/owned-paths.ts';
 import type { RemovalRecord } from '../../shared/contracts/removal-record.ts';
 import { expandShareList } from '../core/share-list-core.ts';
 import { decideRemovalKeep, isRecencyProbeNeeded, sessionIdFromOwner } from '../core/removal-guard-core.ts';
@@ -218,6 +218,10 @@ function createGitWorkspace(opts: {
     if (targetPath === null) return null;
     const head = await run(['rev-parse', '--verify', '-q', 'HEAD'], targetPath);
     return head.ok ? head.out : null;
+  }
+
+  async function listOwnedPaths(owner: OwnedPathOwner): Promise<OwnedPathEntry[]> {
+    return (await opts.ownedPaths?.entriesOwnedBy?.(owner)) ?? [];
   }
 
   async function recordOwnedFolder({ folderPath, owner }: { folderPath: string; owner: OwnedPathOwner }): Promise<void> {
@@ -504,6 +508,7 @@ function createGitWorkspace(opts: {
     create: serialized(createBody),
     ensureWorkspaceMember: serialized(ensureWorkspaceMemberBody),
     removeWorkspaceMember: serialized(removeWorkspaceMemberBody),
+    listOwnedPaths,
     discard: serialized(discardBody),
     mergeBack: serialized(mergeBackBody),
     mergeKeep: serialized(mergeKeepBody),

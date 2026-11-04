@@ -352,6 +352,12 @@ test('a tool hook names a Glimmervoid command once per conversation to the main 
   ctx().session.noteCommandRan('push');
   const failedPush = { tool_name: 'Bash', tool_input: { command: 'git push origin HEAD' }, error: 'Exit code 1' };
   assert.equal((await postToolHook('PostToolUseFailure', failedPush)).hookSpecificOutput, undefined);
+  const handMadeWorktree = { tool_name: 'Bash', tool_input: { command: 'git -c core.autocrlf=false -C "/Users/me/my projects/dotfiles" worktree add ../.glimmervoid-worktrees/dotfiles-fix -b fix/thing' } };
+  assert.equal((await postToolHook('PostToolUse', { tool_name: 'Bash', tool_input: { command: 'git status' } })).hookSpecificOutput, undefined);
+  assert.deepEqual((await postToolHook('PostToolUse', handMadeWorktree)).hookSpecificOutput, {
+    hookEventName: 'PostToolUse',
+    additionalContext: 'Glimmervoid owns checkouts for this session. Run glimmervoid checkout <repo> instead, so the checkout is cleaned up when the session closes.',
+  });
   await postToolHook('SessionStart', { source: 'clear' });
   const codexEchoCall = fs.readFileSync(path.join(import.meta.dirname, 'fixtures', 'v2-codex-command-hint.jsonl'), 'utf8')
     .split('\n').filter(Boolean).map((line) => JSON.parse(line) as { event?: string; payload?: Record<string, unknown> })
