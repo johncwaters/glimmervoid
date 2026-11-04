@@ -16,6 +16,7 @@ export const PrFlowItem = z.strictObject({
 export type PrFlowItem = z.infer<typeof PrFlowItem>;
 
 const PR_FLOW_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const ONE_PRINTABLE_LINE = /^[^\u0000-\u001f\u007f-\u009f]+$/;
 const PrFlowRunActionRef = z.templateLiteral(['run:', z.string().regex(PR_FLOW_ID)]);
 const PrFlowDisposition = z.union([z.enum(['dismiss', 'fix-local']), PrFlowRunActionRef]);
 export type PrFlowDisposition = z.infer<typeof PrFlowDisposition>;
@@ -27,7 +28,7 @@ export const PrFlowActionRef = z.union([
 export type PrFlowActionRef = z.infer<typeof PrFlowActionRef>;
 
 export const PrFlowRule = z.strictObject({
-  name: z.string({ error: 'a pr flows rule needs a name' }).trim().min(1, { error: 'a pr flows rule needs a name' }).max(80, { error: 'a pr flows rule name must be at most 80 characters' }),
+  name: z.string({ error: 'a pr flows rule needs a name' }).trim().min(1, { error: 'a pr flows rule needs a name' }).max(80, { error: 'a pr flows rule name must be at most 80 characters' }).regex(/\S/, { error: 'a pr flows rule needs a name' }),
   source: z.string().min(1).optional(),
   priority: z.array(PrFlowPriority).min(1).optional(),
   paths: z.array(z.string().min(1)).min(1).optional(),
@@ -47,13 +48,16 @@ export const PrFlowCommand = z.strictObject({
 export type PrFlowCommand = z.infer<typeof PrFlowCommand>;
 
 export const PrFlowSourceFinding = z.strictObject({
-  path: z.string().min(1).max(500).regex(/^[^\u0000-\u001f\u007f]+$/, { error: 'a finding path must be one line with no control characters' }),
+  path: z.string().min(1).max(500).regex(ONE_PRINTABLE_LINE, { error: 'a finding path must be one line with no control characters' }),
   lineStart: z.number().int().positive().nullable(), lineEnd: z.number().int().positive().nullable(),
   priority: PrFlowPriority, body: z.string().min(1).max(4000), url: z.httpUrl().nullable().default(null),
 });
 export type PrFlowSourceFinding = z.infer<typeof PrFlowSourceFinding>;
 
-const PrFlowStatusLine = z.strictObject({ label: z.string().min(1).max(24), state: z.string().min(1).max(80) });
+const PrFlowStatusLine = z.strictObject({
+  label: z.string().min(1).max(24).regex(ONE_PRINTABLE_LINE, { error: 'a status label must be one line with no control characters' }),
+  state: z.string().min(1).max(80).regex(ONE_PRINTABLE_LINE, { error: 'a status state must be one line with no control characters' }),
+});
 
 export const PrFlowSourceOutput = z.strictObject({
   findings: z.array(PrFlowSourceFinding).max(200),

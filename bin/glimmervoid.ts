@@ -31,7 +31,8 @@ With no command, starts the server.
 
 Commands:
   doctor              Check the install, PATH, agent CLIs and native module, then exit
-  settings <cmd>      Read and change config.json: list, get, set, unset, search, schema (each takes --json)
+  settings <cmd>      Read and change config.json: list, get, describe, set, unset, search, schema (each takes --json)
+  pr-flows check      Check PR flows sources, actions and rules; --pr <url> runs each approved source once
   pair                Mint a single-use pairing link for a remote device
   pair --list         List paired devices
   pair --revoke <id>  Revoke a paired device
@@ -101,6 +102,10 @@ const OWNED_COMMAND_RUNNERS: Record<OwnedCommandName, OwnedCommandRunner> = {
   settings: async (parsed) => {
     const { runParsedSettingsCli } = await import('../server/settings-cli.ts');
     return runParsedSettingsCli(parsed);
+  },
+  'pr-flows': async (parsed) => {
+    const { runPrFlowsCheckCli } = await import('../server/pr-flows-cli.ts');
+    return runPrFlowsCheckCli(parsed);
   },
   'ssh-sign': async ({ rawArgs }) => {
     const { runSshSignCli } = await import('../server/ssh-sign-cli.ts');

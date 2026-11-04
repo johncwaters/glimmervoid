@@ -54,6 +54,8 @@ export interface SettingsSetting {
   warning?: string;
   danger?: boolean;
   status?: string;
+  jsonSchema?: unknown;
+  example?: unknown;
 }
 
 export interface SettingsSection {

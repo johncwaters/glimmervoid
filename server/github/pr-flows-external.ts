@@ -20,8 +20,10 @@ interface PrFlowsExternalOptions {
   runCommand?: (command: string, args: string[], options: CommandRunOptions) => Promise<CommandRunResult>;
 }
 
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]+/g;
+
 function firstCharacters(text: string): string {
-  return [...text.trim()].slice(0, ERROR_MAX_CHARACTERS).join('');
+  return [...text.replace(CONTROL_CHARACTERS, ' ').trim()].slice(0, ERROR_MAX_CHARACTERS).join('');
 }
 
 function reportedActionOutcome(stdout: string): PrFlowActionOutput | null {

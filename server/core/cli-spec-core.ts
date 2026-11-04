@@ -186,9 +186,19 @@ const OWNED_COMMAND_SPECS = {
       { name: 'get', summary: 'One setting; a secret shows as configured or not configured, never its value', positionals: SETTING_PATH, options: [JSON_OPTION] },
       { name: 'set', summary: 'Validate the whole file and write it; a running Glimmervoid reloads it', positionals: { usage: '<path> <value>', min: 2, max: 2 }, options: [JSON_OPTION] },
       { name: 'unset', summary: 'Remove the key from config.json so the default applies', positionals: SETTING_PATH, options: [JSON_OPTION] },
+      { name: 'describe', summary: 'One setting: what it does, its default and, for a structured value, its JSON Schema and an example (needs no config file)', positionals: SETTING_PATH, options: [JSON_OPTION] },
       { name: 'search', summary: 'Find settings by title, keyword, key path or section', positionals: { usage: '<text>', min: 1, max: null }, options: [JSON_OPTION] },
       { name: 'schema', summary: 'Every setting: id, path, type, default, unit, effect and section (needs no config file)', options: [JSON_OPTION] },
     ],
+  },
+  'pr-flows': {
+    name: 'pr-flows',
+    summary: 'Check the PR flows sources, actions and rules in config.json',
+    subcommands: [{
+      name: 'check',
+      summary: 'Name each entry valid or its error, run each source once against --pr and print each action\'s expanded command without running it',
+      options: [{ name: 'pr', type: 'string', valueName: 'url', summary: 'A pull request URL to run the sources against' }, JSON_OPTION, CONFIG_OPTION],
+    }],
   },
   'ssh-sign': { name: 'ssh-sign', summary: "Sign a commit with the operator's forwarded ssh agent (git runs this)", isPassthrough: true },
 } as const satisfies Record<string, CommandSpec>;

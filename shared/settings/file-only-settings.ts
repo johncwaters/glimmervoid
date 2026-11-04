@@ -1,3 +1,15 @@
+import { z } from 'zod';
+import { PrFlowCommand, PrFlowRule } from '../contracts/pr-flows.ts';
+
+function prFlowRulesJsonSchema(rulesSchema: z.ZodType): z.core.JSONSchema.BaseSchema {
+  return z.toJSONSchema(rulesSchema, {
+    io: 'input',
+    override: ({ zodSchema, jsonSchema }) => {
+      if (zodSchema !== PrFlowRule) return;
+      Object.assign(jsonSchema, Object.fromEntries([['if', { properties: { action: { const: 'dismiss' } }, required: ['action'] }], ['then', { required: ['reason'] }]]));
+    },
+  });
+}
 import {
   NON_NEGATIVE_NUMBER_RANGE,
   PORT_RANGE,
@@ -299,25 +311,33 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
   },
   {
     id: 'file-pr-flows-sources', path: 'prFlows.sources', title: 'PR flows sources', group: 'lanes-team-review',
-    description: 'Commands that report review findings for your own pull requests, run without a shell on each new head once you approve the exact command in My PRs. Each entry has id, label, command (an argv array; {prUrl}, {repo}, {number} and {head} expand inside one argument) and timeoutSeconds, and prints {"findings": [], "status": []} JSON.',
+    description: 'Commands that report review findings for your own pull requests, run without a shell on each new head once you approve the exact command in My PRs. Each entry has id, label, command (an argv array; {prUrl}, {repo}, {number} and {head} expand inside one argument, and GLIMMERVOID_PR_URL, GLIMMERVOID_PR_REPO, GLIMMERVOID_PR_NUMBER and GLIMMERVOID_PR_HEAD are set) and timeoutSeconds, and prints {"findings": [{"path", "lineStart", "lineEnd", "priority", "body", "url"}], "status": [{"label", "state"}]} JSON. Each id is unique within the list. Check entries with glimmervoid pr-flows check.',
+    jsonSchema: z.toJSONSchema(z.array(PrFlowCommand), { io: 'input' }),
+    example: [{ id: 'scanner', label: 'Scanner', command: ['my-review-scanner', '--pr', '{prUrl}', '--json'], timeoutSeconds: 120 }],
     control: 'json', keywords: ['pull requests', 'review items', 'bots', 'commands'], defaultValue: [], takesEffect: 'now',
     fileOnlyReason: 'Commands run on this machine, so they are written in config.json and each one waits for your approval in My PRs.', ...FILE_ONLY,
   },
   {
     id: 'file-pr-flows-actions', path: 'prFlows.actions', title: 'PR flows actions', group: 'lanes-team-review',
-    description: 'Commands that act on a review item of your own pull request, named by rules as run:<id>. Each entry has id, label, command and timeoutSeconds like a source and waits for your approval in My PRs.',
+    description: 'Commands that act on a review item of your own pull request, shown as a button with their label and named by rules as run:<id>. Each entry has id, label, command and timeoutSeconds like a source, also expands {itemPath} and {itemLine}, gets the item as GLIMMERVOID_ITEM_JSON, waits for your approval in My PRs, and has an id unique within the list. Exit 0 is done and non-zero failed, unless stdout prints {"outcome": "done" | "started" | "refused" | "failed", "message"} JSON.',
+    jsonSchema: z.toJSONSchema(z.array(PrFlowCommand), { io: 'input' }),
+    example: [{ id: 'ask-bot', label: 'Ask bot', command: ['gh', 'pr', 'comment', '{prUrl}', '--body', '@review-bot fix {itemPath}:{itemLine}'] }],
     control: 'json', keywords: ['pull requests', 'review items', 'commands'], defaultValue: [], takesEffect: 'now',
     fileOnlyReason: 'Commands run on this machine, so they are written in config.json and each one waits for your approval in My PRs.', ...FILE_ONLY,
   },
   {
     id: 'file-pr-flows-rules', path: 'prFlows.rules', title: 'PR flows rules', group: 'lanes-team-review',
     description: 'Ordered rules for review items on your own pull requests; the first match acts with no click and lands in the Handled list, where Undo reopens it. Each matches on source, priority, paths, text and scope, and acts with ask, fix-local, dismiss or run:<action id>.',
+    jsonSchema: prFlowRulesJsonSchema(z.array(PrFlowRule)),
+    example: [{ name: 'Generated files', paths: ['dist/'], action: 'dismiss', reason: 'Generated output; the source change is reviewed instead.' }, { name: 'Bot nits', source: 'review-bot[bot]', priority: ['low'], action: 'run:ask-bot' }],
     control: 'json', keywords: ['pull requests', 'review items', 'dismiss', 'automation'], defaultValue: [], takesEffect: 'now',
     fileOnlyReason: 'Rules are written in config.json; Save as rule in My PRs is the one dashboard writer, and it only appends.', ...FILE_ONLY,
   },
   {
     id: 'file-pr-flows-repo-rules', path: 'prFlows.repoRules', title: 'PR flows repository rules', group: 'lanes-team-review',
     description: 'Rules per repository (owner/name to a list of rules), checked before prFlows.rules for that repository.',
+    jsonSchema: prFlowRulesJsonSchema(z.record(z.string(), z.array(PrFlowRule))),
+    example: { 'acme/app': [{ name: 'Docs typos', paths: ['docs/'], text: 'typo', action: 'fix-local' }] },
     control: 'json', keywords: ['pull requests', 'review items', 'repositories'], defaultValue: {}, takesEffect: 'now', fileOnlyReason: STRUCTURED_VALUE, ...FILE_ONLY,
   },
 ]);

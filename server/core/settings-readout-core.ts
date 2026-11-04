@@ -36,6 +36,8 @@ interface SettingDescriptor {
   options?: string[];
   range?: SettingsSetting['range'];
   fileOnlyReason?: string;
+  jsonSchema?: unknown;
+  example?: unknown;
 }
 
 interface SettingReadout extends SettingDescriptor {
@@ -104,6 +106,8 @@ function describeSetting(setting: SettingsSetting): SettingDescriptor {
   if (setting.options) descriptor.options = setting.options.map((option) => option.value);
   if (setting.range) descriptor.range = setting.range;
   if (setting.fileOnlyReason) descriptor.fileOnlyReason = setting.fileOnlyReason;
+  if (setting.jsonSchema !== undefined) descriptor.jsonSchema = setting.jsonSchema;
+  if (setting.example !== undefined) descriptor.example = cloneValue(setting.example);
   return descriptor;
 }
 

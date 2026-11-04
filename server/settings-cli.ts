@@ -275,6 +275,16 @@ const commands: Record<string, (context: CommandContext) => number> = {
       `${setting.path} unset; the default ${defaultText(setting)} applies\n${EFFECT_NOTES[setting.takesEffect]}`,
     );
   },
+  describe: (context) => {
+    const resolved = requireConfigFileSetting(requirePositional(context.positionals, 1, 'path'), { configPath: 'config.json', isExperimentalBuild: IS_EXPERIMENTAL_BUILD });
+    if (!resolved.ok) throw new Error(resolved.message);
+    const descriptor = describeSetting(resolved.value);
+    const lines = [`${descriptor.path}: ${descriptor.title}`, descriptor.description, `Default: ${defaultText(resolved.value)}`];
+    if (descriptor.fileOnlyReason) lines.push(descriptor.fileOnlyReason);
+    if (descriptor.jsonSchema !== undefined) lines.push('JSON Schema:', JSON.stringify(descriptor.jsonSchema, null, 2));
+    if (descriptor.example !== undefined) lines.push('Example:', JSON.stringify(descriptor.example, null, 2));
+    return print(context, descriptor, lines.join('\n'));
+  },
   search: (context) => {
     const query = context.positionals.slice(1).join(' ');
     if (query.trim() === '') throw new Error('missing <text>; run glimmervoid settings --help for the usage');

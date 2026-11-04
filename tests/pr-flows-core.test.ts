@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { z } from 'zod';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,11 +8,14 @@ import { GithubPr, GithubPrDetailNode } from '../shared/contracts/github-prs.ts'
 import type { MyPrThread, MyPrThreadNode } from '../shared/contracts/my-prs.ts';
 import { normalizeGithubPr } from '../server/github/core/github-store-core.ts';
 import { myPrFromGithubPr } from '../shared/my-pr-merge.ts';
-import { PrFlowRule, PrFlowSourceOutput, PrFlowsState } from '../shared/contracts/pr-flows.ts';
+import { PrFlowCommand, PrFlowRule, PrFlowSourceOutput, PrFlowsState } from '../shared/contracts/pr-flows.ts';
 import type { PrFlowsStatus } from '../shared/contracts/pr-flows.ts';
 import { createPrFlowsWiring } from '../server/github/pr-flows-wiring.ts';
 import { createPrFlowsExternal } from '../server/github/pr-flows-external.ts';
-import { expandPlaceholders, mergeItems, plannedActions, prFlowRules, sourceCandidates, teammateThreadItems, threadCandidates } from '../server/github/core/pr-flows-core.ts';
+import { readConfigFile, runPrFlowsCheck } from '../server/pr-flows-cli.ts';
+import { runCommandSafely } from '../server/child-process-safe.ts';
+import { configFileViewOf, readSettingsForAgent } from '../server/core/settings-readout-core.ts';
+import { commandFingerprint, expandPlaceholders, mergeItems, plannedActions, prFlowRules, sourceCandidates, teammateThreadItems, threadCandidates } from '../server/github/core/pr-flows-core.ts';
 import { draftsNewestFirst } from '../server/github/core/team-review-core.ts';
 import { ReviewDraft, TeamReviewThreadNode } from '../shared/contracts/team-review.ts';
 import { isIncludedByDefault, otherReviewRows } from '../public/github/team-review-view-core.ts';
@@ -364,6 +368,56 @@ test('an action reporting refused is never taken as done, and a failed rule run 
     await restarted.applyRules();
     await new Promise((resolve) => setTimeout(resolve, 25));
     assert.equal(runCount, 1);
+  } finally {
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  }
+});
+
+test('an agent reads each PR flows setting with its JSON Schema and a valid example, and pr-flows check names entries, runs sources and prints actions unrun', async () => {
+  const view = configFileViewOf('config.json', DEFAULT_CONFIG, {}, false);
+  const schemaOf = { 'prFlows.sources': z.array(PrFlowCommand), 'prFlows.actions': z.array(PrFlowCommand), 'prFlows.rules': z.array(PrFlowRule), 'prFlows.repoRules': z.record(z.string(), z.array(PrFlowRule)) };
+  for (const [settingPath, schema] of Object.entries(schemaOf)) {
+    const reply = readSettingsForAgent({ command: 'get', path: settingPath }, view);
+    assert.ok(reply.ok && 'readout' in reply);
+    const readout = z.looseObject({ jsonSchema: z.looseObject({ type: z.string() }), example: z.unknown() }).parse(reply.readout);
+    assert.equal(schema.safeParse(readout.example).success, true, settingPath);
+  }
+  const rulesReply = readSettingsForAgent({ command: 'get', path: 'prFlows.rules' }, view);
+  assert.ok(rulesReply.ok && 'readout' in rulesReply);
+  const ruleSchema = z.looseObject({ jsonSchema: z.looseObject({ items: z.record(z.string(), z.unknown()) }) }).parse(rulesReply.readout);
+  assert.deepEqual(Object.entries(ruleSchema.jsonSchema.items).find(([key]) => key === 'then')?.[1], { required: ['reason'] });
+
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-flows-check-'));
+  try {
+    const sourceScript = path.join(homeDir, 'source.mjs');
+    fs.writeFileSync(sourceScript, "console.log(JSON.stringify({ findings: [{ path: 'src/a.ts', lineStart: 3, lineEnd: 3, priority: 'high', body: process.argv[2] }] }))");
+    const markerPath = path.join(homeDir, 'action-ran');
+    const unapprovedMarkerPath = path.join(homeDir, 'unapproved-ran');
+    const scanner = PrFlowCommand.parse({ id: 'scanner', label: 'Scanner', command: [process.execPath, sourceScript, '{head}'] });
+    const painter = PrFlowCommand.parse({ id: 'painter', label: 'Painter', command: [process.execPath, '-e', `console.log(JSON.stringify({ findings: [], status: [{ label: 'CI', state: '\\u001b]0;owned' }] }))`] });
+    fs.writeFileSync(path.join(homeDir, 'pr-flows-state.json'), JSON.stringify({ handledByPr: {}, reopenedByPr: {}, approvedFingerprints: [commandFingerprint('source', scanner), commandFingerprint('source', painter)] }));
+    fs.writeFileSync(path.join(homeDir, 'config.json'), JSON.stringify({ prFlows: {
+      sources: [scanner, painter, { id: 'typo', label: 'Typo', command: ['x', '{pr_url}'] }, { id: 'unapproved', label: 'Unapproved', command: [process.execPath, '-e', `require('fs').writeFileSync(${JSON.stringify(unapprovedMarkerPath)}, '')`] }],
+      actions: [{ id: 'mark', label: 'Mark', command: [process.execPath, '-e', `require('fs').writeFileSync(${JSON.stringify(markerPath)}, '')`, '{itemPath}', '{prUrl}'] }],
+    } }));
+    let output = '';
+    const head = 'd'.repeat(40);
+    const env = { ...process.env, GLIMMERVOID_HOME: homeDir, GLIMMERVOID_CONFIG: path.join(homeDir, 'config.json') };
+    const exitCode = await runPrFlowsCheck({
+      prUrl: 'https://github.com/acme/app/pull/7', isJson: true, homeDir, env, readConfig: () => readConfigFile(env, homeDir),
+      runCommand: async (command, args, options) => (command === 'gh' ? { ok: true, stdout: `${head}\n`, stderr: '' } : runCommandSafely(command, args, options)),
+    }, { writeOutput: (text) => { output += text; }, writeError: (text) => { output += text; } });
+    assert.equal(exitCode, 1);
+    const report = z.looseObject({
+      entries: z.array(z.looseObject({ id: z.string(), error: z.string().nullable(), argv: z.array(z.string()).nullable() })),
+      sourceRuns: z.array(z.looseObject({ id: z.string(), error: z.string().nullable(), output: z.looseObject({ findings: z.array(z.looseObject({ body: z.string() })) }).nullable() })),
+    }).parse(JSON.parse(output));
+    assert.deepEqual(report.entries.map((entry) => [entry.id, entry.error === null]), [['scanner', true], ['painter', true], ['typo', false], ['unapproved', true], ['mark', true]]);
+    assert.deepEqual(report.entries.find((entry) => entry.id === 'mark')?.argv?.slice(-2), ['{itemPath}', 'https://github.com/acme/app/pull/7']);
+    assert.deepEqual(report.sourceRuns.map((run) => [run.id, run.output?.findings[0]?.body]), [['scanner', head], ['painter', undefined]]);
+    assert.match(report.sourceRuns.find((run) => run.id === 'painter')?.error ?? '', /control characters/);
+    assert.equal(fs.existsSync(markerPath), false);
+    assert.equal(fs.existsSync(unapprovedMarkerPath), false);
   } finally {
     fs.rmSync(homeDir, { recursive: true, force: true });
   }
