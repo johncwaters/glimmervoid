@@ -35,25 +35,30 @@ const INSTALL_OUTPUT_MAX_BYTES = 16 * 1024 * 1024;
 
 type DependencyCloneOutcome = DependencyCloneSkip | { action: 'cloned'; dirs: string[]; skippedDirs: string[]; elapsedMs: number };
 export type DependencySeedOutcome = { clone: DependencyCloneOutcome; install: DependencyInstallOutcome };
-export type SeedDependencies = (args: { mainCheckout: string; worktreeDir: string }) => Promise<DependencySeedOutcome>;
+export type SeedDependencies = (args: { mainCheckout: string; worktreeDir: string; signal: AbortSignal }) => Promise<DependencySeedOutcome | null>;
 
 const seedQueue = createSerialQueue();
 
-export const seedWorktreeDependencies: SeedDependencies = ({ mainCheckout, worktreeDir }) =>
+export const seedWorktreeDependencies: SeedDependencies = ({ mainCheckout, worktreeDir, signal }) =>
   seedQueue.run(async () => {
     const clone = await cloneDependencies(mainCheckout, worktreeDir).catch(() => skipDependencyClone('failed'));
-    const install = await installDependencies(worktreeDir).catch((error: unknown) => unreadableInstallOutcome(error));
+    if (signal.aborted) return null;
+    const install = await installDependencies(worktreeDir, signal).catch((error: unknown) => unreadableInstallOutcome(error));
+    if (signal.aborted) return null;
     const skippedDirs = clone.action === 'cloned' ? clone.skippedDirs : [];
     const reportedDirs = new Set([...install.unsupportedDirs, ...install.results.map((result) => result.dir)]);
     const emptyDirs = await dirsWithoutNodeModules(worktreeDir, skippedDirs.filter((dir) => !reportedDirs.has(dir)));
     return { clone, install: { ...install, unsupportedDirs: [...install.unsupportedDirs, ...emptyDirs] } };
-  });
+  }, { signal }).catch(() => null);
 
-async function installDependencies(worktreeDir: string): Promise<DependencyInstallOutcome> {
+async function installDependencies(worktreeDir: string, signal: AbortSignal): Promise<DependencyInstallOutcome> {
   const startedAt = performance.now();
   const plan = planDependencyInstall(process.platform, await listPackageDirFacts(worktreeDir));
   const results: InstallResult[] = [];
-  for (const install of plan.installs) results.push(await runInstall(worktreeDir, install));
+  for (const install of plan.installs) {
+    if (signal.aborted) break;
+    results.push(await runInstall(worktreeDir, install, signal));
+  }
   return { results, unsupportedDirs: plan.unsupportedDirs, elapsedMs: Math.round(performance.now() - startedAt) };
 }
 
@@ -76,7 +81,7 @@ async function listPackageDirFacts(worktreeDir: string): Promise<PackageDirFacts
   return packageDirs;
 }
 
-async function runInstall(worktreeDir: string, install: PlannedInstall): Promise<InstallResult> {
+async function runInstall(worktreeDir: string, install: PlannedInstall, signal: AbortSignal): Promise<InstallResult> {
   const packageDir = path.join(worktreeDir, install.dir);
   const commandLine = [install.command, ...install.args].join(' ');
   const run = await runCommand(install.command, install.args, {
@@ -84,6 +89,7 @@ async function runInstall(worktreeDir: string, install: PlannedInstall): Promise
     timeoutMs: INSTALL_TIMEOUT_MS,
     maxBuffer: INSTALL_OUTPUT_MAX_BYTES,
     replaceEnv: installEnvFrom(process.env),
+    signal,
   });
   if (run.ok) return { dir: install.dir, command: commandLine, ok: true };
   await removeTree(path.join(packageDir, NODE_MODULES));

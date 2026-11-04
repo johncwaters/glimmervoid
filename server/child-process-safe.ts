@@ -83,11 +83,11 @@ const execFile: ExecFileFn = Object.assign(
           const failure = err as ExecException & { stdout?: string; stderr?: string };
           failure.stdout = stdout;
           failure.stderr = stderr;
-          return reject(failure);
+          return rejectOnceExited(child, () => reject(failure));
         }
         resolve({ stdout, stderr });
       };
-      const child = cp.execFile(file, args, execOptions, callback);
+      const child: ChildProcess = cp.execFile(file, args, execOptions, callback);
       killIfStopIgnored(child, execOptions.timeout, execOptions.signal);
       if (typeof input !== 'string') return;
       if (!child.stdin) return reject(new Error('execFile stdin unavailable'));
@@ -99,6 +99,15 @@ const execFile: ExecFileFn = Object.assign(
     }),
   },
 );
+
+function rejectOnceExited(child: ChildProcess, rejectFailure: () => void): void {
+  const isStillRunning = child.pid !== undefined && child.exitCode === null && child.signalCode === null;
+  if (isStillRunning) {
+    child.once('exit', rejectFailure);
+    return;
+  }
+  rejectFailure();
+}
 
 function killIfStopIgnored(child: ChildProcess, timeoutMs: number | undefined, signal: AbortSignal | undefined): void {
   const pendingTimers: NodeJS.Timeout[] = [];

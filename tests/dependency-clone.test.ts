@@ -5,12 +5,19 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { seedWorktreeDependencies } from '../server/git/dependency-clone.ts';
+import type { DependencySeedOutcome } from '../server/git/dependency-clone.ts';
 import { describeInstallWarnings } from '../server/git/core/dependency-clone-core.ts';
 import { runCommand } from '../server/git/git-exec.ts';
 import { hasGit, git } from './helpers/git-fixture.ts';
 
 const CAN_CLONE = process.platform === 'darwin' && hasGit();
 const CAN_INSTALL = process.platform !== 'win32' && hasGit();
+
+async function seedToCompletion(mainCheckout: string, worktreeDir: string): Promise<DependencySeedOutcome> {
+  const outcome = await seedWorktreeDependencies({ mainCheckout, worktreeDir, signal: new AbortController().signal });
+  assert.ok(outcome);
+  return outcome;
+}
 
 function lockfileWith(leftPadVersion: string): string {
   return `${JSON.stringify({
@@ -64,7 +71,7 @@ function makeRepoWithWorktree(): { mainCheckout: string; worktreeDir: string } {
 test('a session worktree gets an isolated clone of a matching main checkout install', { skip: !CAN_CLONE }, async () => {
   const { mainCheckout, worktreeDir } = makeRepoWithWorktree();
 
-  const outcome = await seedWorktreeDependencies({ mainCheckout, worktreeDir });
+  const outcome = await seedToCompletion(mainCheckout, worktreeDir);
 
   assert.equal(outcome.clone.action, 'cloned');
   const clonedFile = path.join(worktreeDir, 'node_modules', 'left-pad', 'index.js');
@@ -80,7 +87,7 @@ test('a main checkout install that no longer matches the worktree lockfile is no
   const { mainCheckout, worktreeDir } = makeRepoWithWorktree();
   fs.writeFileSync(path.join(mainCheckout, 'node_modules', '.package-lock.json'), installedStateWith('1.1.0'));
 
-  const outcome = await seedWorktreeDependencies({ mainCheckout, worktreeDir });
+  const outcome = await seedToCompletion(mainCheckout, worktreeDir);
 
   assert.deepEqual(outcome.clone, { action: 'skip', reason: 'install-stale' });
   assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules')), false);
@@ -103,7 +110,7 @@ test('a nested package whose own install cannot be shown to match its lockfile i
       if (installedState) fs.writeFileSync(path.join(mainSite, 'node_modules', '.package-lock.json'), installedState);
       git(['merge', '--ff-only', 'main'], worktreeDir);
 
-      const outcome = await seedWorktreeDependencies({ mainCheckout, worktreeDir });
+      const outcome = await seedToCompletion(mainCheckout, worktreeDir);
 
       assert.deepEqual(outcome.clone.action === 'cloned' ? outcome.clone.dirs : null, ['.']);
       assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules', 'left-pad')), true);
@@ -118,7 +125,7 @@ test('a main checkout install linking outside the repository is not cloned', { s
       const { mainCheckout, worktreeDir } = makeRepoWithWorktree();
       fs.symlinkSync(linkTarget, path.join(mainCheckout, 'node_modules', 'linked'));
 
-      const outcome = await seedWorktreeDependencies({ mainCheckout, worktreeDir });
+      const outcome = await seedToCompletion(mainCheckout, worktreeDir);
 
       assert.deepEqual(outcome.clone, { action: 'skip', reason: 'outside-link' });
       assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules')), false);
@@ -160,7 +167,7 @@ async function makeInstallableRepoWithWorktree(): Promise<{ mainCheckout: string
 test('each lockfile dir of a session worktree gets its own install without running package scripts', { skip: !CAN_INSTALL }, async () => {
   const { mainCheckout, worktreeDir } = await makeInstallableRepoWithWorktree();
 
-  const { install } = await seedWorktreeDependencies({ mainCheckout, worktreeDir });
+  const { install } = await seedToCompletion(mainCheckout, worktreeDir);
 
   assert.deepEqual(install.results.map((result) => [result.dir, result.ok]), [['.', true], ['site', true]]);
   assert.deepEqual(install.unsupportedDirs, []);
@@ -170,7 +177,7 @@ test('each lockfile dir of a session worktree gets its own install without runni
   assert.equal(fs.existsSync(path.join(mainCheckout, 'node_modules')), false);
   assert.equal(git(['status', '--porcelain'], worktreeDir).trim(), '');
 
-  const rerun = await seedWorktreeDependencies({ mainCheckout, worktreeDir });
+  const rerun = await seedToCompletion(mainCheckout, worktreeDir);
 
   assert.deepEqual(rerun.install.results, []);
 });
@@ -181,7 +188,7 @@ test('a failed install leaves no node_modules and a yarn lockfile dir is named, 
   fs.rmSync(path.join(worktreeDir, 'site', 'package-lock.json'));
   fs.writeFileSync(path.join(worktreeDir, 'site', 'yarn.lock'), '');
 
-  const { install } = await seedWorktreeDependencies({ mainCheckout, worktreeDir });
+  const { install } = await seedToCompletion(mainCheckout, worktreeDir);
 
   assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules')), false);
   assert.equal(fs.existsSync(path.join(worktreeDir, 'site', 'node_modules')), false);
@@ -189,4 +196,17 @@ test('a failed install leaves no node_modules and a yarn lockfile dir is named, 
   assert.match(failureWarning ?? '', /^npm ci --ignore-scripts --no-audit --no-fund --fetch-timeout=30000 --fetch-retries=1 in \. failed: .+; install dependencies in the worktree$/);
   assert.match(unsupportedWarning ?? '', /^node_modules in site was not installed because/);
   assert.deepEqual(otherWarnings, []);
+});
+
+test('a seed whose session closes before it starts installs nothing and frees the queue', { skip: !CAN_INSTALL }, async () => {
+  const { mainCheckout, worktreeDir } = await makeInstallableRepoWithWorktree();
+  const sessionClosed = new AbortController();
+
+  const seeding = seedWorktreeDependencies({ mainCheckout, worktreeDir, signal: sessionClosed.signal });
+  sessionClosed.abort();
+
+  assert.equal(await seeding, null);
+  assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules')), false);
+  const nextSeed = await seedToCompletion(mainCheckout, worktreeDir);
+  assert.deepEqual(nextSeed.install.results.map((result) => result.ok), [true, true]);
 });
