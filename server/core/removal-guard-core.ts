@@ -9,6 +9,7 @@ type RemovalOwnershipFacts = {
   sessionId: string | null;
   ledgerOwnerSessionId: string | null;
   protectedSessionIds: ReadonlySet<string>;
+  requiresUntouchedFloor: boolean;
 };
 
 type KeepVerdict =
@@ -26,7 +27,7 @@ function isRecencyProbeNeeded(facts: RemovalOwnershipFacts): boolean {
 
 function decideKeepByOwnership(facts: RemovalOwnershipFacts): KeepVerdict | null {
   if (!AUTOMATIC_REMOVAL_CAUSES.has(facts.cause)) return { keep: false, checksPassed: ['explicit-cause'] };
-  if (facts.sessionId === null && facts.ledgerOwnerSessionId === null) return { keep: false, checksPassed: ['not-session-work'] };
+  if (facts.sessionId === null && facts.ledgerOwnerSessionId === null && !facts.requiresUntouchedFloor) return { keep: false, checksPassed: ['not-session-work'] };
   if (facts.sessionId !== null && facts.protectedSessionIds.has(facts.sessionId)) return { keep: true, reason: 'protected-session' };
   if (facts.ledgerOwnerSessionId !== null && facts.protectedSessionIds.has(facts.ledgerOwnerSessionId)) return { keep: true, reason: 'ledger-owned' };
   return null;

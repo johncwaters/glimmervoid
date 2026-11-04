@@ -395,8 +395,8 @@ function createGitWorkspace(opts: {
     return run(hooklessArgs, cwd, { replaceEnv, disableRepoCommands });
   }
 
-  async function removeWorktreeByPathBody({ projectPath, cwd, branch, cause, disableHooks, replaceEnv }: RemovalArgs): Promise<QueuedGitResult> {
-    const admission = await admitRemoval({ cause, kind: cwd ? 'worktree' : 'local-branch', projectPath, path: cwd || null, branch: branch || null });
+  async function removeWorktreeByPathBody({ projectPath, cwd, branch, cause, disableHooks, replaceEnv, requiresUntouchedFloor }: RemovalArgs): Promise<QueuedGitResult> {
+    const admission = await admitRemoval({ cause, kind: cwd ? 'worktree' : 'local-branch', projectPath, path: cwd || null, branch: branch || null, requiresUntouchedFloor });
     if (!admission.admitted) return keptRemovalResult(admission.reason);
     const isolation = { disableHooks, replaceEnv };
     let failure: GitResult | null = null;
@@ -707,6 +707,7 @@ function removalOwnershipFacts(target: RemovalTarget, ledgerOwner: string | null
     sessionId: target.branch === null ? null : sessionIdFromBranch(target.branch),
     ledgerOwnerSessionId: sessionIdFromOwner(ledgerOwner),
     protectedSessionIds,
+    requiresUntouchedFloor: target.requiresUntouchedFloor === true,
   };
 }
 

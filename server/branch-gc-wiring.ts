@@ -9,6 +9,7 @@ import type { BranchGcFileSettings } from '../shared/contracts/index.ts';
 
 interface BranchGcWiringConfig {
   integrationBranch?: string | null;
+  worktreeRoot?: string;
   projects?: { id?: string; path?: string }[];
   branchGc?: BranchGcFileSettings | null;
 }

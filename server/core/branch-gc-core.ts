@@ -1,3 +1,5 @@
+import { isPathInside } from '../../shared/paths.ts';
+
 const SESSION_BRANCH_PREFIX = 'glimmervoid/session/';
 const DEFAULT_BRANCH_GC_PREFIXES = [SESSION_BRANCH_PREFIX, 'worktree-agent-'];
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -50,7 +52,7 @@ export interface WorktreeGcDecision {
   cwd: string;
   branch: string;
   disposition: 'keep' | 'remove';
-  reason: 'missing-directory' | 'locked' | 'live-session' | 'protected' | 'foreign-prefix' | 'status-probe-failed' | 'uncommitted-changes' | 'no-commits' | 'merge-proof-failed' | 'unmerged' | 'merged';
+  reason: 'missing-directory' | 'locked' | 'live-session' | 'configured-project' | 'protected' | 'foreign-prefix' | 'status-probe-failed' | 'uncommitted-changes' | 'no-commits' | 'merge-proof-failed' | 'unmerged' | 'merged';
 }
 
 interface WorktreeGcPlan {
@@ -154,16 +156,25 @@ function protectedWorktreeBranchNames(integrationTips: IntegrationTip[], worktre
   return protectedBranchNames([...integrationTips, ...ownIntegrationBranches]);
 }
 
+function isGcCandidateWorktree({ branch, cwd }: { branch: string; cwd: string }, prefixes: string[], worktreeRoot: string | null): boolean {
+  if (matchedPrefix(branch, prefixes) !== null) return true;
+  return Boolean(branch) && worktreeRoot !== null && isPathInside(worktreeRoot, cwd, { allowEqual: false });
+}
+
 function planWorktreeGc({
   worktrees,
   liveWorktreePaths,
+  configuredProjectPaths,
   integrationTips,
   prefixes,
+  worktreeRoot,
 }: {
   worktrees: LocalWorktreeTip[];
   liveWorktreePaths: Set<string>;
+  configuredProjectPaths: Set<string>;
   integrationTips: IntegrationTip[];
   prefixes: string[];
+  worktreeRoot: string | null;
 }): WorktreeGcPlan {
   const removals: WorktreeGcDecision[] = [];
   const kept: WorktreeGcDecision[] = [];
@@ -174,9 +185,10 @@ function planWorktreeGc({
     });
     if (worktree.prunable === true) { kept.push(decision('keep', 'missing-directory')); continue; }
     if (worktree.locked) { kept.push(decision('keep', 'locked')); continue; }
-    if (liveWorktreePaths.has(worktree.cwd)) { kept.push(decision('keep', 'live-session')); continue; }
+    if ([...liveWorktreePaths].some((livePath) => isPathInside(livePath, worktree.cwd))) { kept.push(decision('keep', 'live-session')); continue; }
+    if (configuredProjectPaths.has(worktree.cwd)) { kept.push(decision('keep', 'configured-project')); continue; }
     if (protectedNames.has(worktree.branch)) { kept.push(decision('keep', 'protected')); continue; }
-    if (matchedPrefix(worktree.branch, prefixes) === null) { kept.push(decision('keep', 'foreign-prefix')); continue; }
+    if (!isGcCandidateWorktree(worktree, prefixes, worktreeRoot)) { kept.push(decision('keep', 'foreign-prefix')); continue; }
     if (worktree.dirty === null) { kept.push(decision('keep', 'status-probe-failed')); continue; }
     if (worktree.dirty) { kept.push(decision('keep', 'uncommitted-changes')); continue; }
     if (worktree.atIntegrationTip === true) { kept.push(decision('keep', 'no-commits')); continue; }
@@ -187,4 +199,4 @@ function planWorktreeGc({
   return { removals, kept };
 }
 
-export { DAY_MS, DEFAULT_BRANCH_GC_PREFIXES, matchedPrefix, planBranchGc, planWorktreeGc, sessionIdFromBranch, usablePrefixes, worktreeIntegrationTips };
+export { DAY_MS, DEFAULT_BRANCH_GC_PREFIXES, isGcCandidateWorktree, matchedPrefix, planBranchGc, planWorktreeGc, sessionIdFromBranch, usablePrefixes, worktreeIntegrationTips };

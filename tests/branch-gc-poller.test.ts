@@ -240,6 +240,63 @@ test('a dry run tick leaves the admin entry of a hand-deleted worktree on disk',
   }
 });
 
+test('branch-gc removes a clean merged worktree an agent made under the worktree root only once it sits untouched a day, never one inside a live session or a configured project', { skip: !hasGit() }, async () => {
+  const { repo, origin } = initRepoWithOrigin();
+  const worktreeRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-branch-gc-root-')));
+  const liveSessionDir = path.join(worktreeRoot, 'session-live');
+  const worktreeByBranch = {
+    'feat/merged-by-agent': path.join(worktreeRoot, 'merged-by-agent'),
+    'fix/dirty-by-agent': path.join(worktreeRoot, 'dirty-by-agent'),
+    'feat/nested-in-live-session': path.join(liveSessionDir, 'nested'),
+    'feat/registered-project': path.join(worktreeRoot, 'registered-project'),
+    'johnw/outside-root': path.join(repo, '.claude', 'worktrees', 'outside-root'),
+  };
+  try {
+    for (const [branch, worktree] of Object.entries(worktreeByBranch)) {
+      fs.mkdirSync(path.dirname(worktree), { recursive: true });
+      git(['worktree', 'add', '-b', branch, worktree], repo);
+      fs.writeFileSync(path.join(worktree, `${path.basename(worktree)}.txt`), 'work\n', 'utf8');
+      git(['add', '-A'], worktree);
+      git(['-c', 'user.email=test@example.com', '-c', 'user.name=Glimmervoid Test', '-c', 'commit.gpgsign=false', 'commit', '-m', branch], worktree);
+      git(['merge', '--no-ff', '--no-edit', branch], repo);
+    }
+    git(['push', 'origin', 'main'], repo);
+    fs.writeFileSync(path.join(worktreeByBranch['fix/dirty-by-agent'], 'uncommitted.txt'), 'pending\n', 'utf8');
+    let guardNowMs = Date.now();
+    const statuses: Record<string, unknown>[] = [];
+    const poller = createBranchGcPoller({
+      gitWorkspace: createGitWorkspace({ removalGuard: { journalPath: path.join(worktreeRoot, 'removals.jsonl'), now: () => guardNowMs } }),
+      getConfig: () => ({ integrationBranch: 'main', worktreeRoot, projects: [{ path: repo }, { path: worktreeByBranch['feat/registered-project'] }] }),
+      liveSessionIds: () => new Set(),
+      liveWorktreePaths: () => new Set([liveSessionDir]),
+      log: { warn: () => {} },
+      onTickComplete: (status) => statuses.push(status),
+    });
+    const reasonsByBranch = (decisions: unknown) => Object.fromEntries((decisions as { branch: string; reason: string }[]).map(({ branch, reason }) => [branch, reason]));
+    const keptAfterRemovalByBranch = {
+      'fix/dirty-by-agent': 'uncommitted-changes',
+      'feat/nested-in-live-session': 'live-session',
+      'feat/registered-project': 'configured-project',
+    };
+
+    await poller.tick();
+    const [freshTick] = (statuses[0]?.projects ?? []) as Record<string, unknown>[];
+    assert.deepEqual(reasonsByBranch(freshTick?.worktreesKept), { ...keptAfterRemovalByBranch, 'feat/merged-by-agent': 'recently-touched' });
+    assert.deepEqual(freshTick?.worktreeRemovals, []);
+
+    guardNowMs += 25 * 60 * 60 * 1000;
+    await poller.tick();
+    const [dayLaterTick] = (statuses[1]?.projects ?? []) as Record<string, unknown>[];
+    assert.deepEqual(reasonsByBranch(dayLaterTick?.worktreeRemovals), { 'feat/merged-by-agent': 'merged' });
+    assert.deepEqual(reasonsByBranch(dayLaterTick?.worktreesKept), keptAfterRemovalByBranch);
+    assert.deepEqual(Object.values(worktreeByBranch).map((worktree) => fs.existsSync(worktree)), [false, true, true, true, true]);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(origin, { recursive: true, force: true });
+    fs.rmSync(worktreeRoot, { recursive: true, force: true });
+  }
+});
+
 async function deletionsAfterTick({ branchIds, configuredProjectIds, injectedLiveSessionIds }: {
   branchIds: string[];
   configuredProjectIds: string[];

@@ -1,4 +1,4 @@
-import { matchedPrefix, sessionIdFromBranch } from '../../core/branch-gc-core.ts';
+import { isGcCandidateWorktree, sessionIdFromBranch } from '../../core/branch-gc-core.ts';
 import { comparableDirectoryPath } from '../../../shared/canonical-paths.ts';
 import { originTrackingRefProbe, unlandedCommitCountArgs } from '../../core/integration-branch-core.ts';
 import { WORK_PRESENCE_STATUS_ARGS, directoryExists, hasWorkFrom, isDirtyResult, mainWorktreePath, markerFrom, parseWorktreeBranches } from './workspace-context.ts';
@@ -77,14 +77,15 @@ function createProbeOps(context: GitWorkspaceContext, origin: OriginOps) {
     return described;
   }
 
-  async function listWorktreesBody({ projectPath, prefixes = [], integrationBranch, configuredIntegrationBranch }: WorktreeArgs): Promise<ListedWorktree[]> {
+  async function listWorktreesBody({ projectPath, prefixes = [], worktreeRoot = null, integrationBranch, configuredIntegrationBranch }: WorktreeArgs): Promise<ListedWorktree[]> {
+    const canonicalWorktreeRoot = worktreeRoot ? await comparableDirectoryPath(worktreeRoot) : null;
     return scanProbedWorktrees<ListedWorktree>({
       projectPath, integrationBranch, configuredIntegrationBranch,
       beforeDescribe: (porcelain) => lockReusedHomeWorktrees(runInProject(projectPath), porcelain),
       describe: async ({ cwd, branch, locked, prunable, headSha }, probe, mainWorktree) => {
         const canonicalCwd = await comparableDirectoryPath(cwd);
         if (mainWorktree !== null && canonicalCwd === await comparableDirectoryPath(mainWorktree)) return null;
-        if (matchedPrefix(branch, prefixes) === null) return null;
+        if (!isGcCandidateWorktree({ branch, cwd: canonicalCwd }, prefixes, canonicalWorktreeRoot)) return null;
         if (!headSha) return null;
         if (prunable || !(await directoryExists(cwd))) {
           return { cwd: canonicalCwd, branch, locked, prunable: true, dirty: null, tipSha: headSha, integrationBranch: null };

@@ -67,6 +67,7 @@ type WorktreeArgs = {
   integrationSha?: string;
   branchSha?: string;
   prefixes?: string[];
+  worktreeRoot?: string | null;
   knownProjects?: unknown;
 };
 
@@ -153,9 +154,9 @@ type OwnedPathsRecorder = Pick<OwnedPathsLedgerHandle, 'record' | 'forget' | 'ow
 
 type RemovalGuardOptions = { protectedSessionIds?: () => ReadonlySet<string>; journalPath?: string; now?: () => number };
 
-type RemovalArgs = WorktreeArgs & { cause: RemovalCause };
+type RemovalArgs = WorktreeArgs & { cause: RemovalCause; requiresUntouchedFloor?: boolean };
 
-type RemovalTarget = { cause: RemovalCause; kind: RemovalKind; projectPath: string; path: string | null; branch: string | null; tipSha?: string | null };
+type RemovalTarget = { cause: RemovalCause; kind: RemovalKind; projectPath: string; path: string | null; branch: string | null; tipSha?: string | null; requiresUntouchedFloor?: boolean };
 
 type RemovalAdmission = { admitted: true } | { admitted: false; reason: string };
 
