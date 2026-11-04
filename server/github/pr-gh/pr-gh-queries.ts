@@ -76,7 +76,7 @@ function teamThreadsQuery(prs: readonly PrReference[]): string {
   return reviewThreadsBatchQuery(prs).replaceAll(REVIEW_THREAD_FIELDS, TEAM_THREAD_FIELDS).replaceAll('pageInfo { hasNextPage }', 'pageInfo { hasNextPage endCursor }');
 }
 
-const REVIEW_THREAD_FIELDS = `isResolved isOutdated path line
+const REVIEW_THREAD_FIELDS = `id isResolved isOutdated path line
     firstComment: comments(first: 1) { totalCount nodes { author { login } bodyText url createdAt } }
     lastComment: comments(last: 1) { nodes { author { login } createdAt } }`;
 

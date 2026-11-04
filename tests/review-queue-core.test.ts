@@ -15,7 +15,7 @@ function myPr(number: number, stage: MyPrStage, createdAt: string, extra: Partia
     isDraft: false, state: 'OPEN', createdAt, mergedAt: null, updatedAt: createdAt,
     baseRefName: 'main', baseRefOid: 'a'.repeat(40), headRefName: `feature-${number}`, isCrossRepository: false, headRefOid: 'b'.repeat(40),
     isInMergeQueue: false, mergeMethod: 'SQUASH', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: null,
-    checks: { state: null, failing: [], pendingCount: 0 }, unresolvedThreads: 0, threads: [], behindBy: null,
+    checks: { state: null, failing: [], pendingCount: 0 }, unresolvedThreads: 0, threads: [], reviewItems: [], behindBy: null,
     reviewRequests: [], approvals: 0, reviews: [], stage, ...extra,
   });
 }

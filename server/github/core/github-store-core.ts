@@ -27,7 +27,7 @@ export function normalizeGithubPr(node: GithubPrDetailNode, behindBy: number | n
     isCrossRepository: myPr.isCrossRepository, isInMergeQueue: myPr.isInMergeQueue,
     mergeMethod: myPr.mergeMethod, mergeable: myPr.mergeable, mergeStateStatus: myPr.mergeStateStatus,
     reviewDecision: node.reviewDecision, checks: myPr.checks, rollupState: node.commits.nodes.at(-1)?.commit.statusCheckRollup?.state ?? null,
-    unresolvedThreads: myPr.unresolvedThreads, threads: myPr.threads, behindBy: myPr.behindBy,
+    unresolvedThreads: myPr.unresolvedThreads, threads: myPr.threads, reviewItems: myPr.reviewItems, behindBy: myPr.behindBy,
     reviewRequests: myPr.reviewRequests, approvals: myPr.approvals,
     reviews: node.latestReviews.nodes.map((review) => ({ reviewer: review.author?.login ?? null, state: review.state, submittedAt: review.submittedAt, commit: CommitSha.safeParse(review.commit?.oid).data ?? null })),
     opinionatedWriterReviewStates: (node.writerOpinionatedReviews?.nodes ?? []).map((review) => review.state),

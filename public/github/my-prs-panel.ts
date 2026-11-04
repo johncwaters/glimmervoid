@@ -256,7 +256,9 @@ function createThreadsSection(headingText: string, threads: ReturnType<typeof th
   for (const thread of threads) {
     const item = el('li', 'my-pr-thread');
     const heading = el('div', 'my-pr-thread-heading');
-    heading.append(externalLink('my-pr-thread-location', thread.location, thread.url));
+    const priority = el('span', 'my-pr-stage', thread.priority.text);
+    priority.dataset.tone = thread.priority.tone;
+    heading.append(priority, externalLink('my-pr-thread-location', thread.location, thread.url));
     if (thread.waiting) {
       const badge = el('span', 'my-pr-stage');
       badge.dataset.tone = thread.waiting.tone;
@@ -266,7 +268,7 @@ function createThreadsSection(headingText: string, threads: ReturnType<typeof th
     const excerpt = el('p', 'my-pr-thread-excerpt');
     excerpt.append(el('strong', null, thread.author), ` ${thread.excerpt}`);
     const activity = Date.parse(thread.lastActivityAt);
-    const meta = el('p', 'my-pr-thread-meta', Number.isFinite(activity) ? `${thread.replySummary}, ${formatAgo(activity)}` : thread.replySummary);
+    const meta = el('p', 'my-pr-thread-meta', Number.isFinite(activity) && thread.replySummary ? `${thread.replySummary}, ${formatAgo(activity)}` : thread.replySummary);
     item.append(heading, excerpt, meta);
     list.append(item);
   }

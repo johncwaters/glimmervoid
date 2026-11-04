@@ -276,7 +276,7 @@ test('a manual link resolves against my PRs, and an unlink removes it and blocks
       isDraft: false, state: 'MERGED', createdAt: '', mergedAt: null, updatedAt: '',
       baseRefName: 'main', baseRefOid: 'a'.repeat(40), headRefName: 'feature', isCrossRepository: false, headRefOid: 'b'.repeat(40),
       isInMergeQueue: false, mergeMethod: 'SQUASH', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: null,
-      checks: { state: null, failing: [], pendingCount: 0 }, unresolvedThreads: 0, threads: [], behindBy: null,
+      checks: { state: null, failing: [], pendingCount: 0 }, unresolvedThreads: 0, threads: [], reviewItems: [], behindBy: null,
       reviewRequests: [], approvals: 0, reviews: [], stage: 'merged',
     });
     const snapshot = myPrsStatus({ ts: NOW, configured: true, viewer: 'octo', prs: [knownPr] });

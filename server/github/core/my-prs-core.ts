@@ -2,6 +2,7 @@ import type { GithubPr } from '../../../shared/contracts/github-prs.ts';
 import type { MyPr, MyPrAutoRebase, MyPrCheckContext, MyPrKeepMergeableAttemptRecord, MyPrSearchNode, MyPrsSnapshot, MyPrsStatus, MyPrStage, MyPrThread, MyPrThreadNode } from '../../../shared/contracts/my-prs.ts';
 import { ACCEPT_EDITS_MODE, LANE_ENVIRONMENT_ARGS } from '../../lanes/core/lane-permissions-core.ts';
 import { prKey } from './team-review-core.ts';
+import { mergeItems, threadCandidates } from './pr-flows-core.ts';
 import type { TeamReviewSettings, TeamReviewSettingsSource } from './team-review-core.ts';
 import { KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE } from '../../../shared/settings-ranges.ts';
 import { isCredentialLikePath, isGithubDirectoryPath } from '../../git/core/git-changed-paths-core.ts';
@@ -300,7 +301,7 @@ function toMyPrThreads(threadNodes: readonly MyPrThreadNode[], pullRequestUrl: s
     const firstComment = thread.firstComment.nodes[0];
     const lastComment = thread.lastComment.nodes[0] ?? firstComment;
     return [{
-      path: thread.path, line: thread.line, isOutdated: thread.isOutdated, url: firstComment?.url ?? pullRequestUrl,
+      id: thread.id, path: thread.path, line: thread.line, isOutdated: thread.isOutdated, url: firstComment?.url ?? pullRequestUrl,
       author: firstComment?.author?.login ?? null, excerpt: threadExcerpt(firstComment?.bodyText ?? ''),
       commentCount: Math.max(1, thread.firstComment.totalCount),
       lastAuthor: lastComment?.author?.login ?? null, lastActivityAt: lastComment?.createdAt ?? '',
@@ -373,7 +374,7 @@ export function toMyPr(node: MyPrSearchNode, behindBy: number | null, threadNode
     mergeStateStatus: node.mergeStateStatus, reviewDecision: node.reviewDecision,
     checks: { state: checksState, failing, pendingCount },
     unresolvedThreads: Math.max(node.reviewThreads.nodes.filter((thread) => !thread.isResolved).length, threads.length),
-    threads,
+    threads, reviewItems: mergeItems(threadCandidates(threads)),
     behindBy, reviewRequests, approvals: node.latestOpinionatedReviews.nodes.filter((review) => review.state === 'APPROVED').length,
     reviews: node.latestReviews.nodes.map((review) => ({ reviewer: review.author?.login ?? null, state: review.state, submittedAt: review.submittedAt })),
     stage: 'unknown',

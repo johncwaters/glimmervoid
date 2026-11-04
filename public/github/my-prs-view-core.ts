@@ -3,6 +3,7 @@ import { hasFailedKeepMergeableRepair } from './github-store-core.ts';
 import { MyPrMergeResult } from '#shared/contracts/my-prs.ts';
 import { mergeMethodLabel, myPrMergeBlocker } from '#shared/my-pr-merge.ts';
 import type { MyPr, MyPrMergeKind, MyPrsStatus as MyPrsStatusType, MyPrThread } from '#shared/contracts/my-prs.ts';
+import type { PrFlowItem, PrFlowPriority } from '#shared/contracts/pr-flows.ts';
 import type { PrStatusIcon } from './pr-status-icon-core.ts';
 import type { StateTone } from '../state-tone-core.ts';
 
@@ -13,6 +14,7 @@ interface ThreadRow {
   location: string; url: string; author: string; excerpt: string; replySummary: string; lastActivityAt: string;
   waiting: { tone: StateTone; icon: PrStatusIcon; text: string } | null;
   isWaitingOnYou: boolean;
+  priority: { text: string; tone: StateTone };
 }
 interface ReviewRow { reviewer: string; text: string; tone: StateTone; icon: PrStatusIcon; submittedAt: string | null }
 interface ReadinessRow { label: 'Checks' | 'Review' | 'Threads' | 'Conflicts' | 'Base' | 'Auto-rebase' | 'Merge when ready'; tone: StateTone; icon: PrStatusIcon; text: string; items?: readonly string[] }
@@ -105,11 +107,6 @@ function isWaitingOnViewer(thread: MyPrThread, viewer: string | null): boolean |
   return thread.lastAuthor !== viewer;
 }
 
-function threadLocation(thread: MyPrThread): string {
-  const place = thread.line === null ? thread.path : `${thread.path}:${thread.line}`;
-  return thread.isOutdated ? `${place} (outdated)` : place;
-}
-
 function replySummary(thread: MyPrThread): string {
   const replyCount = thread.commentCount - 1;
   if (replyCount === 0) return 'No replies';
@@ -122,16 +119,33 @@ function waitingBadge(thread: MyPrThread, viewer: string | null): ThreadRow['wai
   return isWaiting ? { tone: 'warn', icon: 'your-turn', text: 'Waiting on you' } : { tone: 'wait', icon: 'reviewer', text: 'Waiting on reviewer' };
 }
 
+const PRIORITY_TONES: Readonly<Record<PrFlowPriority, StateTone>> = { blocker: 'danger', high: 'warn', medium: 'wait', low: 'muted', unknown: 'muted' };
+
+function itemLocation(item: PrFlowItem, threads: readonly MyPrThread[]): string {
+  const lines = item.lineStart === null ? '' : item.lineEnd !== null && item.lineEnd !== item.lineStart ? `:${item.lineStart}-${item.lineEnd}` : `:${item.lineStart}`;
+  const isOutdated = threads.length > 0 && threads.every((thread) => thread.isOutdated);
+  return isOutdated ? `${item.path}${lines} (outdated)` : `${item.path}${lines}`;
+}
+
+function latestActivity(threads: readonly MyPrThread[]): string {
+  return threads.map((thread) => thread.lastActivityAt).sort().at(-1) ?? '';
+}
+
 export function threadRows(pr: MyPr, viewer: string | null): ThreadRow[] {
-  return [...pr.threads].sort((left, right) => {
-    const waitingDifference = Number(isWaitingOnViewer(right, viewer) === true) - Number(isWaitingOnViewer(left, viewer) === true);
-    if (waitingDifference !== 0) return waitingDifference;
-    return (Date.parse(right.lastActivityAt) || 0) - (Date.parse(left.lastActivityAt) || 0);
-  }).map((thread) => ({
-    location: threadLocation(thread), url: thread.url, author: thread.author ?? 'a deleted account',
-    excerpt: thread.excerpt, replySummary: replySummary(thread), lastActivityAt: thread.lastActivityAt,
-    waiting: waitingBadge(thread, viewer), isWaitingOnYou: isWaitingOnViewer(thread, viewer) === true,
-  }));
+  const threadsById = new Map(pr.threads.map((thread) => [thread.id, thread]));
+  return pr.reviewItems.map((item) => {
+    const itemThreads = item.sources.flatMap((source) => {
+      const thread = source.threadId === undefined ? undefined : threadsById.get(source.threadId);
+      return thread ? [thread] : [];
+    });
+    const waitingThread = itemThreads.find((thread) => isWaitingOnViewer(thread, viewer) === true) ?? itemThreads[0];
+    return {
+      location: itemLocation(item, itemThreads), url: item.url ?? pr.url, author: [...new Set(item.sources.map((source) => source.name))].join(', '),
+      excerpt: item.excerpt, replySummary: waitingThread ? replySummary(waitingThread) : '', lastActivityAt: latestActivity(itemThreads),
+      waiting: waitingThread ? waitingBadge(waitingThread, viewer) : null, isWaitingOnYou: itemThreads.some((thread) => isWaitingOnViewer(thread, viewer) === true),
+      priority: { text: item.priority === 'unknown' ? 'Unrated' : `${item.priority[0]?.toUpperCase()}${item.priority.slice(1)}`, tone: PRIORITY_TONES[item.priority] },
+    };
+  }).sort((left, right) => Number(right.isWaitingOnYou) - Number(left.isWaitingOnYou));
 }
 
 function threadsReadiness(pr: MyPr, viewer: string | null): ReadinessRow {

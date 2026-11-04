@@ -2,6 +2,7 @@ import { githubPollingShape } from './github-polling.ts';
 import { z } from 'zod';
 import { CommitSha } from './team-review.ts';
 import { NODE_ID_RE, REPO_SLUG_RE } from './github-ids.ts';
+import { PrFlowItem } from './pr-flows.ts';
 
 export const MyPrStage = z.enum(['merged', 'draft', 'conflicts', 'behind', 'checks-failing', 'changes-requested', 'unresolved-threads', 'checks-pending', 'needs-approval', 'ready', 'unknown']);
 export type MyPrStage = z.infer<typeof MyPrStage>;
@@ -67,7 +68,7 @@ export const MyPrMergeMethod = z.enum(['MERGE', 'SQUASH', 'REBASE']);
 export type MyPrMergeMethod = z.infer<typeof MyPrMergeMethod>;
 
 export const MyPrThread = z.object({
-  path: z.string(), line: z.number().int().positive().nullable(), isOutdated: z.boolean(), url: z.url(),
+  id: z.string().min(1), path: z.string(), line: z.number().int().positive().nullable(), isOutdated: z.boolean(), url: z.url(),
   author: z.string().nullable(), excerpt: z.string(), commentCount: z.number().int().positive(),
   lastAuthor: z.string().nullable(), lastActivityAt: z.string(),
 });
@@ -87,7 +88,7 @@ export const MyPr = z.object({
   baseRefName: z.string(), baseRefOid: CommitSha, headRefName: z.string().min(1), isCrossRepository: z.boolean(), headRefOid: CommitSha, isInMergeQueue: z.boolean(), mergeMethod: MyPrMergeMethod, mergeable: z.enum(['MERGEABLE', 'CONFLICTING', 'UNKNOWN']), mergeStateStatus: z.string(),
   reviewDecision: z.enum(['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED']).nullable(),
   checks: z.object({ state: z.enum(['SUCCESS', 'FAILURE', 'PENDING', 'ERROR', 'EXPECTED']).nullable(), failing: z.array(z.string()), pendingCount: nonnegativeInteger }),
-  unresolvedThreads: nonnegativeInteger, threads: z.array(MyPrThread), behindBy: nonnegativeInteger.nullable(),
+  unresolvedThreads: nonnegativeInteger, threads: z.array(MyPrThread), reviewItems: z.array(PrFlowItem), behindBy: nonnegativeInteger.nullable(),
   reviewRequests: z.array(z.object({ name: z.string(), isTeam: z.boolean(), avatarUrl: z.string().nullable() })),
   approvals: nonnegativeInteger, reviews: z.array(MyPrReview), stage: MyPrStage, autoRebase: MyPrAutoRebase.optional(), keepMergeable: z.boolean().optional(),
   keepMergeableAttempt: MyPrKeepMergeableAttempt.optional(), isKeepMergeableFixInFlight: z.boolean().optional(),
@@ -154,7 +155,7 @@ export type MyPrSearchNode = z.infer<typeof MyPrSearchNode>;
 
 const ThreadCommentAuthor = z.object({ login: z.string() }).nullable();
 export const MyPrThreadNode = z.object({
-  isResolved: z.boolean(), isOutdated: z.boolean(), path: z.string(), line: z.number().int().positive().nullable(),
+  id: z.string().min(1), isResolved: z.boolean(), isOutdated: z.boolean(), path: z.string(), line: z.number().int().positive().nullable(),
   firstComment: z.object({ totalCount: nonnegativeInteger, nodes: z.array(z.object({ author: ThreadCommentAuthor, bodyText: z.string(), url: z.url(), createdAt: z.string() })) }),
   lastComment: z.object({ nodes: z.array(z.object({ author: ThreadCommentAuthor, createdAt: z.string() })) }),
 });

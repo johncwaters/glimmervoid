@@ -39,7 +39,7 @@ function conflictingPr(headRefOid = 'a'.repeat(40)): MyPr {
     isDraft: false, state: 'OPEN', createdAt: '', mergedAt: null, updatedAt: '', baseRefName: 'main', baseRefOid: 'b'.repeat(40), headRefName: 'fix/checks',
     isCrossRepository: false, headRefOid, isInMergeQueue: false, mergeMethod: 'SQUASH', mergeable: 'CONFLICTING',
     mergeStateStatus: 'DIRTY', reviewDecision: null, checks: { state: 'FAILURE', failing: ['lint'], pendingCount: 0 },
-    unresolvedThreads: 0, threads: [], behindBy: 1, reviewRequests: [], approvals: 0, reviews: [], stage: 'conflicts', keepMergeable: true,
+    unresolvedThreads: 0, threads: [], reviewItems: [], behindBy: 1, reviewRequests: [], approvals: 0, reviews: [], stage: 'conflicts', keepMergeable: true,
   };
 }
 
