@@ -4,9 +4,7 @@ import type { DiffExcerptLine, DraftComment, EarlierReview, FindingSeverity, Han
 import { nextRequestId, sendControlMsg } from '../control-ws.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { el, externalLink } from '../dom-helpers.ts';
-import { changedSinceReviewText, changedSinceReviewUrl, earlierReviewPreview, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, buildNotMineRequest, checksText, commentLocation, detailActionLayout, groupHandCheckPaths, HAND_CHECK_INLINE_PATH_LIMIT, handCheckPathSummary, parseInlineSegments, LEGACY_SUMMARY_HINT, parseReviewComment, reviewCommentPreview, shortCommentLocation, pullRequestLabel, detailHeadingSignature, commentSeverity, detailMetaText, reviewTierTip, viewerThreadsText, hasAllViewerThreadsResolved, viewerApprovalContext, viewerApprovalNotice, viewerApprovalTip, earlierReviewTip, changedSinceReviewTip, alreadyFlaggedText } from './team-review-view-core.ts';
-import type { HoverTip } from './team-review-view-core.ts';
-import { setHoverTip } from '../hover-tip.ts';
+import { changedSinceReviewText, reviewTierReason, changedSinceReviewUrl, earlierReviewPreview, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, buildNotMineRequest, checksText, commentLocation, detailActionLayout, groupHandCheckPaths, HAND_CHECK_INLINE_PATH_LIMIT, handCheckPathSummary, parseInlineSegments, LEGACY_SUMMARY_HINT, parseReviewComment, reviewCommentPreview, shortCommentLocation, pullRequestLabel, detailHeadingSignature, commentSeverity, detailMetaText, viewerThreadsText, hasAllViewerThreadsResolved, viewerApprovalContext, viewerApprovalNotice, alreadyFlaggedText } from './team-review-view-core.ts';
 import type { GeneralFinding } from './team-review-view-core.ts';
 import { _pendingActions, _queueHooks, _sessionOpenByKey, _view, setPostedReceipt } from './team-review-panel-state.ts';
 import type { DetailOrigin, SettleAction } from './team-review-panel-state.ts';
@@ -65,12 +63,6 @@ function createOpenSessionControl(review: Pick<ReviewDraft, 'key'>): HTMLElement
   return row;
 }
 
-function withHoverTip<Anchor extends HTMLElement>(anchor: Anchor, tip: HoverTip | null): Anchor {
-  if (!tip) return anchor;
-  setHoverTip(anchor, tip.label, tip.detail);
-  return anchor;
-}
-
 function createDetailHeading(review: ReviewDraft | InFlightReview, { hasFactsRail = false }: { hasFactsRail?: boolean } = {}): HTMLElement {
   const heading = el('div', 'pr-detail-heading');
   heading.dataset.signature = detailHeadingSignature(review);
@@ -78,7 +70,7 @@ function createDetailHeading(review: ReviewDraft | InFlightReview, { hasFactsRai
   title.append(pullRequestLink(review), el('h2', null, review.title));
   const metadata = el('div', 'pr-detail-meta');
   metadata.append(createAuthor(review, 20, 'pr-detail-author'));
-  metadata.append(withHoverTip(el('span', null, detailMetaText(review)), reviewTierTip(review)));
+  metadata.append(el('span', null, detailMetaText(review)));
   const openedAge = createAgeReadout('Opened', review.prCreatedAt);
   if (openedAge) metadata.append(openedAge);
   if ('reviewedHead' in review) {
@@ -89,7 +81,7 @@ function createDetailHeading(review: ReviewDraft | InFlightReview, { hasFactsRai
   }
   const githubSummary = 'reviewedHead' in review ? createGithubReviewSummary(review, 'pr-detail-github', 20) : null;
   if (githubSummary) metadata.append(githubSummary);
-  heading.append(title, metadata);
+  heading.append(title, metadata, el('p', 'pr-detail-tier-reason', reviewTierReason(review)));
   if (!hasFactsRail) heading.append(createOpenSessionControl(review));
   if ('reviewedHead' in review && !hasFactsRail) {
     const tallyText = viewerThreadsText(review.viewerThreads);
@@ -101,7 +93,7 @@ function createDetailHeading(review: ReviewDraft | InFlightReview, { hasFactsRai
   }
   const approvalContext = 'reviewedHead' in review ? viewerApprovalContext(review) : null;
   if (approvalContext) {
-    const notice = withHoverTip(el('p', 'pr-rereview-notice', viewerApprovalNotice(approvalContext, formatTimestampAge(approvalContext.submittedAt))), viewerApprovalTip(approvalContext));
+    const notice = el('p', 'pr-rereview-notice', viewerApprovalNotice(approvalContext, formatTimestampAge(approvalContext.submittedAt)));
     notice.dataset.reviewKey = review.key;
     heading.append(notice);
   }
@@ -299,7 +291,7 @@ function createCommentContent({ body, severity, location: locationText, location
 function createEarlierReviewDetails(review: EarlierReview, isOpen: boolean): HTMLElement {
   const details = el('details', 'pr-disclosure pr-earlier-review');
   const summary = el('summary', 'pr-disclosure-summary');
-  summary.append(el('span', 'pr-disclosure-label', 'Earlier review'), withHoverTip(el('span', 'pr-disclosure-preview', earlierReviewPreview(review)), earlierReviewTip(review)));
+  summary.append(el('span', 'pr-disclosure-label', 'Earlier review'), el('span', 'pr-disclosure-preview', earlierReviewPreview(review)));
   const body = el('div', 'pr-earlier-review-body');
   const verdictLine = el('div', 'pr-verdict-line');
   verdictLine.append(createVerdictSeal(review));
@@ -319,7 +311,7 @@ function createChangedSinceReview(draft: ReviewDraft): HTMLElement[] {
   const text = changedSinceReviewText(draft);
   if (!text) return [];
   const line = el('p', 'pr-changed-since');
-  line.append(withHoverTip(el('span', null, text), changedSinceReviewTip(draft)), ' ', externalLink('pr-changed-since-link', 'Compare changes', changedSinceReviewUrl(draft), 'Open the commits since this review on GitHub'));
+  line.append(text, ' ', externalLink('pr-changed-since-link', 'Compare changes', changedSinceReviewUrl(draft), 'Open the commits since this review on GitHub'));
   return [line];
 }
 
@@ -460,7 +452,7 @@ function createDeskFacts(draft: ReviewDraft): HTMLElement {
   const list = el('dl', 'pr-fact-list');
   const compareUrl = changedSinceReviewUrl(draft);
   const sinceReview = compareUrl
-    ? [withHoverTip(el('span', null, changedSinceReviewText(draft) ?? ''), changedSinceReviewTip(draft)), ' ', externalLink('pr-changed-since-link', 'Compare changes', compareUrl, 'Open the commits since this review on GitHub')]
+    ? [changedSinceReviewText(draft) ?? '', ' ', externalLink('pr-changed-since-link', 'Compare changes', compareUrl, 'Open the commits since this review on GitHub')]
     : ['No new commits'];
   list.append(
     createFactRow('Checks', checksText(draft.checksState)),

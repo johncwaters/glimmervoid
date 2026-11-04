@@ -505,26 +505,6 @@ body {
 
 .yolo-chip { flex: none; padding: 0 4px; border: 1px solid color-mix(in oklab, var(--perms-warn) 60%, transparent); border-radius: 3px; color: var(--perms-warn); line-height: 1.4; white-space: nowrap; }
 
-.hover-tip {
-  position: fixed;
-  z-index: 1000;
-  max-width: 220px;
-  padding: 3px 7px 4px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-hover);
-  border-radius: var(--radius);
-  box-shadow: 0 3px 10px color-mix(in oklab, black 55%, transparent);
-  font: var(--type-meta)/1.4 var(--font-mono);
-  color: var(--text);
-  pointer-events: none;
-}
-
-.hover-tip[hidden] { display: none; }
-
-.hover-tip-label { display: block; color: var(--text-head); font-weight: 700; }
-
-.hover-tip-detail { display: block; color: var(--text-dim); }
-
 .session-card-header {
   display: flex;
   align-items: center;

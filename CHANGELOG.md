@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Session cards no longer show the Sane YOLO and YOLO icons or the usage icon, and the Show usage on session cards setting is gone; the Usage tab still shows each session's tokens and cost. A session that skips permission prompts without Sane YOLO now shows the word YOLO beside its title.
 - The power button is gone from the header. Restart server and Shut down now live in Settings under Server, with the same confirmations.
 - Projects with no sessions no longer stay listed in the session list and on the phone Board, so the button that removed them is gone too.
+- Icon buttons and board tools no longer pop up a styled tip on hover; screen readers still announce their names. A pull request review now says under its details why it got a full or light review, instead of in a hover tip.
 
 ## [0.52.1] - 2026-11-04
 

@@ -1,7 +1,4 @@
 import { el } from '../dom-helpers.ts';
-import { setHoverTip } from '../hover-tip.ts';
-import { fitTipLabel } from '../hover-tip-core.ts';
-import type { TipLabel } from '../hover-tip-core.ts';
 import { createLineIcon, MENU_ICON_PATH } from '../svg-dom.ts';
 import { createPressable } from './pressable.ts';
 
@@ -12,9 +9,9 @@ type OutlineState = 'idle' | 'pressed' | 'off' | 'attention';
 type ToggledOutlineState = Extract<OutlineState, 'pressed' | 'off'>;
 
 type LabelledButtonOptions = { variant: Exclude<ButtonVariant, 'icon'>; label: string; icon?: SVGElement };
-type IconButtonOptions<Label extends string> = { variant: 'icon'; label: TipLabel<Label>; icon: SVGElement };
-type OutlineIconOptions<Label extends string> = { variant: 'outline-icon'; label: TipLabel<Label>; icon: SVGElement };
-type BuildButtonOptions = { variant: ButtonVariant | 'outline-icon'; label: string; icon?: SVGElement; hasHoverTip?: boolean } & CommonButtonOptions;
+type IconButtonOptions = { variant: 'icon'; label: string; icon: SVGElement };
+type OutlineIconOptions = { variant: 'outline-icon'; label: string; icon: SVGElement };
+type BuildButtonOptions = { variant: ButtonVariant | 'outline-icon'; label: string; icon?: SVGElement } & CommonButtonOptions;
 
 type CommonButtonOptions = {
   size?: ButtonSize;
@@ -25,7 +22,7 @@ type CommonButtonOptions = {
   hidden?: boolean;
 };
 
-type OutlineIconButtonOptions<Label extends string, State extends Exclude<OutlineState, 'idle'>> = Omit<OutlineIconOptions<Label>, 'variant'> & Omit<CommonButtonOptions, 'shortcutKey'> & {
+type OutlineIconButtonOptions<State extends Exclude<OutlineState, 'idle'>> = Omit<OutlineIconOptions, 'variant'> & Omit<CommonButtonOptions, 'shortcutKey'> & {
   states: readonly ['idle', ...State[]];
 };
 
@@ -46,17 +43,15 @@ export function linkButton(options: LinkButtonOptions): HTMLAnchorElement {
   return element;
 }
 
-export function button(options: LabelledButtonOptions & CommonButtonOptions): HTMLButtonElement;
-export function button<const Label extends string>(options: IconButtonOptions<Label> & CommonButtonOptions): HTMLButtonElement;
-export function button(options: BuildButtonOptions): HTMLButtonElement {
+export function button(options: (LabelledButtonOptions | IconButtonOptions) & CommonButtonOptions): HTMLButtonElement {
   return buildButton(options);
 }
 
 export function menuButton(options: { label: string; action: string; onClick?: (event: MouseEvent) => void }): HTMLButtonElement {
-  return buildButton({ variant: 'icon', size: 'small', label: options.label, icon: createLineIcon(MENU_ICON_PATH, '1.5'), action: options.action, onClick: options.onClick, hasHoverTip: false });
+  return buildButton({ variant: 'icon', size: 'small', label: options.label, icon: createLineIcon(MENU_ICON_PATH, '1.5'), action: options.action, onClick: options.onClick });
 }
 
-export function outlineIconButton<const Label extends string, const State extends Exclude<OutlineState, 'idle'>>(options: OutlineIconButtonOptions<Label, State>): OutlineIconButton<State> {
+export function outlineIconButton<const State extends Exclude<OutlineState, 'idle'>>(options: OutlineIconButtonOptions<State>): OutlineIconButton<State> {
   const element = buildButton({ ...options, variant: 'outline-icon' });
   const declaredStates: readonly OutlineState[] = options.states;
   const isToggle = declaredStates.some((state) => isToggledState(state));
@@ -81,7 +76,6 @@ function buildButton(options: BuildButtonOptions): HTMLButtonElement {
   if (options.icon) element.append(options.icon);
   if (options.variant === 'icon' || options.variant === 'outline-icon') {
     element.setAttribute('aria-label', options.label);
-    if (options.hasHoverTip !== false) setHoverTip(element, fitTipLabel(options.label));
   }
   if (options.variant !== 'icon' && options.variant !== 'outline-icon') element.append(options.label);
   if (options.shortcutKey) appendShortcutKey(element, options.shortcutKey);

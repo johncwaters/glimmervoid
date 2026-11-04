@@ -1,4 +1,3 @@
-import { fitTipLabel } from '../hover-tip-core.ts';
 import type { SettingsRange } from '#shared/settings-ranges.ts';
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
@@ -393,7 +392,7 @@ function buildTabOrderMove(
   const moveButton = button({
     variant: 'icon',
     size: 'small',
-    label: fitTipLabel(accessibleName),
+    label: accessibleName,
     icon: createLineIcon(direction === 'up' ? MOVE_UP_ICON_PATH : MOVE_DOWN_ICON_PATH),
     action: `move-tab-${direction}`,
     disabled: targetIndex < 0 || targetIndex >= orderedViewIds.length,

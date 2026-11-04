@@ -10,8 +10,6 @@ import { formatClockOffset } from '../radar/radar-core.ts';
 import { classifyReviewPriority, currentHead, isAwaitingViewerAfterResolvedComments, pullRequestLabel, stageIcon, stageLabel, stageTone } from './github-store-core.ts';
 import type { QueueRowKind, ReviewPriorityReason } from './github-store-core.ts';
 import type { PrStatusIcon } from './pr-status-icon-core.ts';
-import { fitTipDetail, fitTipLabel } from '../hover-tip-core.ts';
-import type { FittedTipText } from '../hover-tip-core.ts';
 import type { StateTone } from '../state-tone-core.ts';
 
 export { generalFindingsOf } from '#shared/team-review-markdown.ts';
@@ -334,15 +332,6 @@ export function viewerApprovalContext(draft: ReviewDraft): ViewerApprovalContext
   return { approvedCommit: latestReview.commit, submittedAt: latestReview.submittedAt, state: latestReview.state, isReviewScopeSinceDecision: draft.priorReviewedHead === latestReview.commit };
 }
 
-export interface HoverTip {
-  label: FittedTipText;
-  detail: FittedTipText;
-}
-
-export function viewerApprovalTip(context: ViewerApprovalContext): HoverTip {
-  return { label: fitTipLabel('Earlier version'), detail: fitTipDetail(`Commit ${shortSha(context.approvedCommit)}`) };
-}
-
 export function viewerApprovalNotice(context: ViewerApprovalContext, age: string | null): string {
   const action = context.state === 'APPROVED' ? 'approved an earlier version' : 'requested changes on an earlier version';
   const previousReview = context.state === 'APPROVED' ? 'your approval' : 'your request for changes';
@@ -487,9 +476,9 @@ export function detailMetaText(review: Pick<ReviewDraft, 'tier' | 'priorReviewed
   return `${tierLabel(review.tier)} review`;
 }
 
-const TIER_TIP_TEXT: Readonly<Record<ReviewDraft['tier'], { label: string; detail: string }>> = {
-  full: { label: 'Full review', detail: 'The agent reads every changed file.' },
-  stamp: { label: 'Light review', detail: 'A quick pass for a change that only touches docs or tests.' },
+const TIER_REASON_TEXT: Readonly<Record<ReviewDraft['tier'], string>> = {
+  full: 'The agent reads every changed file.',
+  stamp: 'A quick pass for a change that only touches docs or tests.',
 };
 
 const TOUCHES_REASON_PREFIX = 'touches ';
@@ -500,10 +489,9 @@ function reasonWithFileName(reason: string): string {
   return `${TOUCHES_REASON_PREFIX}${filePath.slice(filePath.lastIndexOf('/') + 1)}`;
 }
 
-export function reviewTierTip(review: Pick<ReviewDraft, 'tier' | 'reasons'>): HoverTip {
-  const tierText = TIER_TIP_TEXT[review.tier];
+export function reviewTierReason(review: Pick<ReviewDraft, 'tier' | 'reasons'>): string {
   const reasonText = review.reasons.length > 0 ? ` Picked because: ${review.reasons.map(reasonWithFileName).join(', ')}.` : '';
-  return { label: fitTipLabel(tierText.label), detail: fitTipDetail(`${tierText.detail}${reasonText}`) };
+  return `${TIER_REASON_TEXT[review.tier]}${reasonText}`;
 }
 
 export function aboutPrParagraphs(assessment: ReviewAssessment | null | undefined): { kind: 'goal' | 'change'; text: string }[] {
@@ -575,11 +563,6 @@ export function changedSinceReviewText(draft: Pick<ReviewDraft, 'reviewedHead' |
   return liveHead ? 'The pull request has new commits since this review.' : null;
 }
 
-export function changedSinceReviewTip(draft: Pick<ReviewDraft, 'reviewedHead' | 'liveHead'>): HoverTip | null {
-  const liveHead = movedHead(draft);
-  return liveHead ? { label: fitTipLabel('Commits'), detail: fitTipDetail(`Reviewed at ${shortSha(draft.reviewedHead)}, now at ${shortSha(liveHead)}`) } : null;
-}
-
 export function changedSinceReviewUrl(draft: Pick<ReviewDraft, 'repo' | 'reviewedHead' | 'liveHead'>): string | null {
   const liveHead = movedHead(draft);
   return liveHead ? `https://github.com/${draft.repo}/compare/${draft.reviewedHead}...${liveHead}` : null;
@@ -589,10 +572,6 @@ export function earlierReviewPreview(review: EarlierReview): string {
   const parts = [commentCountText(review.comments.length)];
   if (review.wasPosted) parts.push('posted');
   return parts.join(', ');
-}
-
-export function earlierReviewTip(review: EarlierReview): HoverTip {
-  return { label: fitTipLabel('Earlier review'), detail: fitTipDetail(`Commit ${shortSha(review.head)}`) };
 }
 
 export function verdictHeading(verdict: ReviewDraft['verdict']): string {

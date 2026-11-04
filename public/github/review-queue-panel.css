@@ -76,6 +76,7 @@
 .pr-verdict-seal svg { flex: 0 0 auto; }
 
 .pr-rereview-notice { color: var(--text-dim); font-size: var(--type-meta); line-height: 1.6; }
+.pr-detail-tier-reason { margin: 0; color: var(--text-muted); font-size: var(--type-meta); line-height: 1.6; }
 
 .pr-severity-meter { display: inline-flex; align-items: center; gap: 2px; }
 .pr-severity-meter svg { flex: 0 0 auto; }

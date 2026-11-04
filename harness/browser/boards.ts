@@ -352,12 +352,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await renameOpenBoard(page, panel, renamedTitle, 'discarded title', 'Escape');
     await renameOpenBoard(page, panel, renamedTitle, boardTitle, 'Enter');
     const boxTool = panel.getByRole('button', { name: 'box', exact: true });
-    await boxTool.hover();
-    const hoverTip = page.locator('#hover-tip');
-    await hoverTip.waitFor();
-    assert.equal(await hoverTip.locator('.hover-tip-label').textContent(), 'box', 'a board tool names itself in the styled tip');
-    assert.equal(await hoverTip.locator('.hover-tip-detail').textContent(), 'R', 'a board tool shows its shortcut in the styled tip');
-    assert.equal(await boxTool.getAttribute('title'), null, 'a board tool has no native tooltip beside the styled one');
+    assert.equal(await boxTool.getAttribute('title'), null, 'a board tool has no native tooltip');
     await boxTool.click();
     assert.equal(await boxTool.getAttribute('aria-pressed'), 'true');
     const toolHint = panel.locator('.wb-tool-hint');
