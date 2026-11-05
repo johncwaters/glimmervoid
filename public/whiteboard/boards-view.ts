@@ -14,7 +14,8 @@ import { createLineIcon } from '../svg-dom.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import { createBoardEditor, newElementId } from './board-edit.ts';
 import type { BoardEditor, BoardTool, PressedImage } from './board-edit.ts';
-import { EMPTY_HISTORY, inverseOps, recordEdit, recordStep, takeStep } from '#shared/whiteboard-undo-core.ts';
+import { EMPTY_HISTORY, recordEdit, recordStep, takeStep, undoOpsOf } from '#shared/whiteboard-undo-core.ts';
+import type { BoardDiff } from '#shared/contracts/control/whiteboard-messages.ts';
 import type { UndoDirection, UndoHistory } from '#shared/whiteboard-undo-core.ts';
 import { createBoardInspector } from './board-inspect.ts';
 import type { BoardInspector } from './board-inspect.ts';
@@ -38,6 +39,7 @@ const BOARD_MEDIA_FILE_NAME_RE = /\.(png|jpe?g|gif|webp|svg|mp4|webm|html?)$/i;
 const FIT_ICON_PATH = 'M2.5 6V2.5H6 M10 2.5h3.5V6 M13.5 10v3.5H10 M6 13.5H2.5V10';
 const UNDO_ICON_PATH = 'M5.5 3.5l-3 3l3 3 M2.5 6.5h7a3.5 3.5 0 0 1 0 7H7';
 const REDO_ICON_PATH = 'M10.5 3.5l3 3l-3 3 M13.5 6.5h-7a3.5 3.5 0 0 0 0 7H9';
+const TOO_BIG_TO_UNDO_TEXT = 'Saved, but that change is too big to undo.';
 const TOOL_BUTTONS: readonly { tool: BoardTool; label: string; key: string; iconPath: string; hint: string | null }[] = [
   { tool: 'select', label: 'select', key: 'V', iconPath: 'M4 2.5l8.5 5.8l-4 0.7l2.2 4.3l-1.5 0.8l-2.2-4.3L4 12.5z', hint: null },
   { tool: 'box', label: 'box', key: 'R', iconPath: 'M2.5 4h11v8h-11z', hint: 'Click the board to place a box. Esc to cancel.' },
@@ -86,6 +88,8 @@ let shouldFitOnNextRender = true;
 let pairedSessionId: string | null = null;
 let shownReview: { boardId: string; review: BoardReview } | null = null;
 let reviewRequestKey: string | null = null;
+type RecordedSend = { ok: true; isUndoable: boolean } | { ok: false; error: string };
+
 const status = createActionStatus('action-status wb-status');
 const pairedStatus = createActionStatus('action-status wb-status');
 const historyByBoardId = new Map<string, UndoHistory>();
@@ -155,15 +159,31 @@ function inHistoryOrder<Outcome>(task: () => Promise<Outcome>): Promise<Outcome>
   return queued;
 }
 
-function sendRecordedOps(boardId: string, ops: Op[]): Promise<{ ok: true } | { ok: false; error: string }> {
+function sendRecordedOps(boardId: string, ops: Op[]): Promise<RecordedSend> {
   return inHistoryOrder(() => sendAndRecord(boardId, ops));
 }
 
-async function sendAndRecord(boardId: string, ops: Op[]): Promise<{ ok: true } | { ok: false; error: string }> {
+function fitsOnePut(ops: readonly Op[]): boolean {
+  return ops.length <= WHITEBOARD_LIMITS.opsPerPut && new TextEncoder().encode(JSON.stringify(ops)).length <= WHITEBOARD_LIMITS.putBytes;
+}
+
+function undoEntryOf(before: Board | null, boardId: string, diff: BoardDiff | null): Op[] | null {
+  if (!before || before.id !== boardId || !diff) return [];
+  const entry = undoOpsOf(before, diff);
+  return fitsOnePut(entry) ? entry : null;
+}
+
+async function sendAndRecord(boardId: string, ops: Op[]): Promise<RecordedSend> {
   const before = selectedBoard();
   const outcome = await sendBoardOps(boardId, ops);
-  if (outcome.ok && before?.id === boardId) historyByBoardId.set(boardId, recordEdit(historyByBoardId.get(boardId) ?? EMPTY_HISTORY, inverseOps(before, ops)));
-  return outcome;
+  if (!outcome.ok) return outcome;
+  const entry = undoEntryOf(before, boardId, outcome.diff);
+  if (!entry) {
+    historyByBoardId.set(boardId, EMPTY_HISTORY);
+    return { ok: true, isUndoable: false };
+  }
+  historyByBoardId.set(boardId, recordEdit(historyByBoardId.get(boardId) ?? EMPTY_HISTORY, entry));
+  return { ok: true, isUndoable: true };
 }
 
 function stepHistory(direction: UndoDirection): Promise<void> {
@@ -182,13 +202,23 @@ async function runHistoryStep(direction: UndoDirection): Promise<void> {
     status.show('error', `could not ${direction} that change, so it was dropped: ${outcome.error}`);
     return;
   }
+  const entry = undoEntryOf(board, boardId, outcome.diff);
+  if (!entry) {
+    historyByBoardId.set(boardId, EMPTY_HISTORY);
+    status.show('ok', TOO_BIG_TO_UNDO_TEXT);
+    return;
+  }
   status.clear();
-  historyByBoardId.set(boardId, recordStep(historyByBoardId.get(boardId) ?? EMPTY_HISTORY, direction, inverseOps(board, step.entry)));
+  historyByBoardId.set(boardId, recordStep(historyByBoardId.get(boardId) ?? EMPTY_HISTORY, direction, entry));
 }
 
 async function sendOps(ops: Op[]): Promise<boolean> {
   if (!selectedBoardId || ops.length === 0) return false;
   const outcome = await sendRecordedOps(selectedBoardId, ops);
+  if (outcome.ok && !outcome.isUndoable) {
+    status.show('ok', TOO_BIG_TO_UNDO_TEXT);
+    return true;
+  }
   if (outcome.ok) {
     status.clear();
     return true;

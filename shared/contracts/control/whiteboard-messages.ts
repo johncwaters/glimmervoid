@@ -1,6 +1,36 @@
 import { z } from 'zod';
-import { Board, BoardReview, BoardSummary, Op, WHITEBOARD_LIMITS } from '../whiteboard.ts';
+import { Board, BoardReview, BoardSummary, Element, Op, WHITEBOARD_LIMITS } from '../whiteboard.ts';
 import { requestId, loose, optionalError } from './control-fields.ts';
+
+export const ElementChange = z.union([
+  z.tuple([z.literal('put'), Element]),
+  z.tuple([z.literal('patch'), z.record(z.string(), z.unknown())]),
+  z.tuple([z.literal('remove')]),
+]);
+
+export const BoardDiff = z.object({
+  fields: z.object({
+    title: Board.shape.title.optional(),
+    caption: Board.shape.caption.optional(),
+    legend: Board.shape.legend.unwrap().optional(),
+    columns: Board.shape.columns.optional(),
+    lanes: Board.shape.lanes.optional(),
+    codeSessionId: Board.shape.codeSessionId.unwrap().optional(),
+  }).strict(),
+  elements: z.record(z.string(), ElementChange),
+}).strict();
+
+const whiteboardPatchFields = {
+  boardId: z.string(),
+  fromVersion: z.number().int(),
+  toVersion: z.number().int(),
+  author: z.object({ id: z.string(), name: z.string() }),
+  updatedAt: z.number(),
+  diff: BoardDiff,
+};
+
+export type ElementChange = z.infer<typeof ElementChange>;
+export type BoardDiff = z.infer<typeof BoardDiff>;
 
 export const whiteboardClientVariants = [
   loose('whiteboard-create', { title: Board.shape.title, requestId }),
@@ -15,14 +45,7 @@ export const whiteboardClientVariants = [
 
 export const whiteboardServerVariants = [
   loose('whiteboards-snapshot', { boards: z.array(BoardSummary) }),
-  loose('whiteboard-patch', {
-    boardId: z.string(),
-    fromVersion: z.number().int(),
-    toVersion: z.number().int(),
-    author: z.object({ id: z.string(), name: z.string() }),
-    updatedAt: z.number(),
-    ops: z.array(Op),
-  }),
+  loose('whiteboard-patch', whiteboardPatchFields),
   loose('whiteboard-removed', { boardId: z.string() }),
-  loose('whiteboard-result', { requestId, ok: z.boolean(), error: optionalError, board: Board.optional(), summary: BoardSummary.optional(), review: BoardReview.optional() }),
+  loose('whiteboard-result', { requestId, ok: z.boolean(), error: optionalError, board: Board.optional(), summary: BoardSummary.optional(), review: BoardReview.optional(), patch: z.object(whiteboardPatchFields).optional() }),
 ] as const;

@@ -62,6 +62,7 @@ interface WhiteboardCaller {
 interface WhiteboardReply {
   status: number;
   body: AgentReplyBodyOf<'whiteboard'>;
+  patch?: WhiteboardPatch;
 }
 
 type WhiteboardPatch = ServerMessageOf<'whiteboard-patch'>;
@@ -76,6 +77,7 @@ type OperatorReply = {
   board?: Board;
   summary?: BoardSummary;
   review?: BoardReview;
+  patch?: WhiteboardPatch;
 };
 
 const GLIMMERVOID_AUTHOR: Author = Object.freeze({ id: 'glimmervoid', name: 'Glimmervoid' });
@@ -136,9 +138,10 @@ function parseBoardRecord(raw: unknown): BoardRecord | null {
 
 function operatorReplyOf(reply: WhiteboardReply): OperatorReply {
   if (!reply.body.ok) return { ok: false, error: reply.body.error };
-  if ('board' in reply.body && 'changes' in reply.body) return { ok: true, error: null, board: reply.body.board };
-  if ('board' in reply.body) return { ok: true, error: null, summary: reply.body.board };
-  return { ok: true, error: null };
+  const patch = reply.patch ? { patch: reply.patch } : {};
+  if ('board' in reply.body && 'changes' in reply.body) return { ok: true, error: null, board: reply.body.board, ...patch };
+  if ('board' in reply.body) return { ok: true, error: null, summary: reply.body.board, ...patch };
+  return { ok: true, error: null, ...patch };
 }
 
 function createWhiteboardWiring({
@@ -223,9 +226,13 @@ function createWhiteboardWiring({
       if (outcome.record === current) return outcome.reply;
       const isSaved = await saveRecordInSlot(current, outcome.record);
       if (!isSaved) return refusal(500, 'the board could not be saved, so nothing changed');
-      if (outcome.patch) broadcastControl(outcome.patch);
+      if (!outcome.patch) {
+        broadcastSummariesIfChanged(current, outcome.record);
+        return outcome.reply;
+      }
+      broadcastControl(outcome.patch);
       broadcastSummariesIfChanged(current, outcome.record);
-      return outcome.reply;
+      return { ...outcome.reply, patch: outcome.patch };
     });
   }
 
@@ -298,7 +305,7 @@ function createWhiteboardWiring({
     const next = recordPut(record, result);
     const patch: WhiteboardPatch = {
       type: 'whiteboard-patch', boardId: record.board.id, fromVersion: record.board.version, toVersion: next.board.version,
-      author: { id: author.id, name: author.name }, updatedAt: next.board.updatedAt, ops: [...ops],
+      author: { id: author.id, name: author.name }, updatedAt: next.board.updatedAt, diff: result.diff,
     };
     return { ok: true, record: next, patch };
   }

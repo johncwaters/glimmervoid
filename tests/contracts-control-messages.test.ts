@@ -221,7 +221,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'whiteboards-snapshot', boards: [{ id: 'board-1', title: 'Ingest plan', version: 3, updatedAt: NOW, connectedSessionIds: ['session-1'], queuedBySessionId: { 'session-1': 2 } }] },
   {
     type: 'whiteboard-patch', boardId: 'board-1', fromVersion: 3, toVersion: 4, author: { id: 'operator', name: 'operator' }, updatedAt: NOW,
-    ops: [{ op: 'set', id: 'parse', fields: { at: { x: 120, y: 80 } } }],
+    diff: { fields: { title: 'Ingest plan' }, elements: { parse: ['patch', { at: { x: 120, y: 80 } }], old: ['remove'] } },
   },
   { type: 'whiteboard-removed', boardId: 'board-1' },
   {

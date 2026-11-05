@@ -2,10 +2,11 @@ import { Box, Frame, Note, Panel, Unit, Wire, WHITEBOARD_LIMITS } from './contra
 import type { Board, BoardChange, Element, Op } from './contracts/whiteboard.ts';
 import { layoutBoard } from './whiteboard-layout-core.ts';
 import type { LaidOutBox } from './whiteboard-layout-core.ts';
+import type { BoardDiff, ElementChange } from './contracts/control/whiteboard-messages.ts';
 import { findDependencyCycle, unitsOf } from './whiteboard-plan-core.ts';
 
 type Author = { id: string; name: string };
-type ApplyResult = { ok: true; board: Board; changes: BoardChange[] } | { ok: false; error: string; opIndex: number };
+type ApplyResult = { ok: true; board: Board; changes: BoardChange[]; diff: BoardDiff } | { ok: false; error: string; opIndex: number };
 type OpOutcome = { ok: true } | { ok: false; error: string };
 type PinPositions = { laidOutBoxById: ReadonlyMap<string, LaidOutBox>; pinnedOffsetY: number };
 type Draft = { board: Board; elementCount: number; pinPositions: PinPositions | null; dependentIdsByBoxId: ReadonlyMap<string, ReadonlySet<string>> | null };
@@ -13,6 +14,7 @@ type Draft = { board: Board; elementCount: number; pinPositions: PinPositions | 
 const ELEMENT_SCHEMAS = Object.freeze({ box: Box, frame: Frame, wire: Wire, note: Note, unit: Unit, panel: Panel });
 const NOTE_PREVIEW_CHARS = 80;
 const OK: OpOutcome = { ok: true };
+const DIFFED_BOARD_FIELDS = ['title', 'caption', 'legend', 'columns', 'lanes', 'codeSessionId'] as const;
 const OPERATOR_AUTHOR: Author = Object.freeze({ id: 'operator', name: 'operator' });
 
 function canKeepNoteStamps(author: Author): boolean {
@@ -295,7 +297,74 @@ function applyOps(board: Board, ops: readonly Op[], author: Author, nowMs: numbe
   }
   const cycle = findDependencyCycle(draft.board);
   if (cycle) return { ok: false, error: `that makes a dependency cycle: ${cycle.join(', ')}`, opIndex: ops.length - 1 };
-  return { ok: true, board: { ...draft.board, version, updatedAt: nowMs }, changes };
+  return { ok: true, board: { ...draft.board, version, updatedAt: nowMs }, changes, diff: diffOf(board, draft.board) };
+}
+
+function isSameValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function hasSameFieldNames(left: Element, right: Element): boolean {
+  const leftNames = Object.keys(left);
+  const rightNames = new Set(Object.keys(right));
+  return leftNames.length === rightNames.size && leftNames.every((name) => rightNames.has(name));
+}
+
+function changeOf(previous: Element, element: Element): ElementChange | null {
+  if (previous.kind !== element.kind || !hasSameFieldNames(previous, element)) return ['put', element];
+  const previousFields: Record<string, unknown> = { ...previous };
+  const changedFields = Object.fromEntries(Object.entries(element).filter(([name, value]) => !isSameValue(previousFields[name], value)));
+  return Object.keys(changedFields).length === 0 ? null : ['patch', changedFields];
+}
+
+function diffOf(before: Board, after: Board): BoardDiff {
+  const elements: Record<string, ElementChange> = {};
+  for (const id of Object.keys(before.elements)) {
+    if (!after.elements[id]) elements[id] = ['remove'];
+  }
+  const positionById = new Map(Object.keys(before.elements).map((id, position) => [id, position]));
+  let lastKeptPosition = -1;
+  let isPastMovedElement = false;
+  for (const [id, element] of Object.entries(after.elements)) {
+    const previous = before.elements[id];
+    const position = positionById.get(id);
+    isPastMovedElement ||= !previous || position === undefined || position < lastKeptPosition;
+    if (!previous || position === undefined || isPastMovedElement) {
+      elements[id] = ['put', element];
+      continue;
+    }
+    lastKeptPosition = position;
+    if (previous === element) continue;
+    const change = changeOf(previous, element);
+    if (change) elements[id] = change;
+  }
+  const fields = Object.fromEntries(DIFFED_BOARD_FIELDS.filter((name) => !isSameValue(before[name], after[name])).map((name) => [name, after[name]]));
+  return { fields, elements };
+}
+
+function appliedChangeOf(existing: Element | undefined, id: string, change: ElementChange): Element | null {
+  if (change[0] === 'put') return change[1].id === id ? change[1] : null;
+  if (change[0] === 'remove' || !existing) return null;
+  const parsed = ELEMENT_SCHEMAS[existing.kind].safeParse({ ...existing, ...change[1] });
+  return parsed.success && parsed.data.id === id ? parsed.data : null;
+}
+
+function applyBoardDiff(board: Board, diff: BoardDiff, version: number, updatedAt: number): Board | null {
+  const elements = { ...board.elements };
+  for (const [id, change] of Object.entries(diff.elements)) {
+    const existing = elements[id];
+    if (change[0] === 'remove') {
+      if (!existing) return null;
+      delete elements[id];
+      continue;
+    }
+    const element = appliedChangeOf(existing, id, change);
+    if (!element) return null;
+    if (change[0] === 'put') delete elements[id];
+    elements[id] = element;
+  }
+  if (Object.keys(elements).length > WHITEBOARD_LIMITS.elements) return null;
+  return { ...board, ...diff.fields, elements, version, updatedAt };
 }
 
 function changedElementId(op: Op): string | null {
@@ -365,5 +434,5 @@ function createBoard({ id, title, nowMs, codeSessionId = null }: { id: string; t
   };
 }
 
-export { OPERATOR_AUTHOR, applyOps, createBoard };
+export { OPERATOR_AUTHOR, applyBoardDiff, applyOps, createBoard };
 export type { ApplyResult, Author };

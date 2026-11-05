@@ -1,6 +1,7 @@
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
+import type { BoardDiff } from '#shared/contracts/control/whiteboard-messages.ts';
 import type { Board, BoardReview, BoardSummary, BoxMedia, Op } from '#shared/contracts/whiteboard.ts';
-import { applyOps } from '#shared/whiteboard-ops-core.ts';
+import { applyBoardDiff } from '#shared/whiteboard-ops-core.ts';
 import { BoardMediaUploadReply, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
@@ -116,13 +117,13 @@ export function applyWhiteboardPatch(message: ServerMessageOf<'whiteboard-patch'
     void fetchBoard(message.boardId);
     return;
   }
-  const result = applyOps(board, message.ops, message.author, message.updatedAt);
-  if (!result.ok || result.board.version !== message.toVersion) {
+  const patched = applyBoardDiff(board, message.diff, message.toVersion, message.updatedAt);
+  if (!patched) {
     openBoardsById.delete(message.boardId);
     void fetchBoard(message.boardId);
     return;
   }
-  openBoardsById.set(message.boardId, result.board);
+  openBoardsById.set(message.boardId, patched);
   notifyBoard(message.boardId);
 }
 
@@ -142,9 +143,9 @@ export async function createBoard(title: string): Promise<{ ok: true; boardId: s
   return { ok: true, boardId };
 }
 
-export async function sendBoardOps(boardId: string, ops: readonly Op[]): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function sendBoardOps(boardId: string, ops: readonly Op[]): Promise<{ ok: true; diff: BoardDiff | null } | { ok: false; error: string }> {
   const outcome = await runBoardCommand('whiteboard-op', { boardId, ops });
-  return outcome.ok ? { ok: true } : outcome;
+  return outcome.ok ? { ok: true, diff: outcome.reply.patch?.diff ?? null } : outcome;
 }
 
 export async function uploadBoardMedia(file: File): Promise<{ ok: true; media: BoxMedia } | { ok: false; error: string }> {

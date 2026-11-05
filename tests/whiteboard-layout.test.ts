@@ -4,8 +4,8 @@ import { Board } from '../shared/contracts/whiteboard.ts';
 import { reviewBoard } from '../shared/whiteboard-anchor-core.ts';
 import { layoutBoard } from '../shared/whiteboard-layout-core.ts';
 import { boardSvgDocument } from '../shared/whiteboard-svg-core.ts';
-import { applyOps } from '../shared/whiteboard-ops-core.ts';
-import { EMPTY_HISTORY, UNDO_LIMIT, inverseOps, recordEdit, takeStep } from '../shared/whiteboard-undo-core.ts';
+import { applyBoardDiff, applyOps } from '../shared/whiteboard-ops-core.ts';
+import { EMPTY_HISTORY, UNDO_LIMIT, recordEdit, takeStep, undoOpsOf } from '../shared/whiteboard-undo-core.ts';
 import type { Op } from '../shared/contracts/whiteboard.ts';
 import type { LaidOutElement, Rect } from '../shared/whiteboard-layout-core.ts';
 
@@ -371,7 +371,7 @@ test('styled lines carry their markers, a panel sits clear right of every box, a
   assert.equal(layout.warnings.filter((warning) => warning.includes('panel')).length, 0, layout.warnings.join('\n'));
 });
 
-test('undoing an operator edit restores the board it started from, note authors, cascades and column moves included, while agents cannot forge a note author, and the history keeps only the newest entries', () => {
+test('a dashboard applying an edit diff reaches the server board exactly, and undoing it restores the board it started from, note authors, cascades and column moves included, while agents cannot forge a note author, and the history keeps only the newest entries', () => {
   const author = { id: 'operator', name: 'operator' };
   const decision = { kind: 'box', id: 'gate', title: 'gate', column: 'c', shape: 'decision', outputs: [{ id: 'ok', label: 'ok' }] };
   const before = applyOps(crowdedBoard, [
@@ -400,7 +400,8 @@ test('undoing an operator edit restores the board it started from, note authors,
   ];
   const edited = applyOps(start, [{ op: 'remove', id: 'w1' }, ...edits], author, 2);
   assert.ok(edited.ok);
-  const undone = applyOps(edited.board, inverseOps(start, [{ op: 'remove', id: 'w1' }, ...edits]), author, 3);
+  assert.equal(JSON.stringify(applyBoardDiff(start, edited.diff, edited.board.version, edited.board.updatedAt)), JSON.stringify(edited.board));
+  const undone = applyOps(edited.board, undoOpsOf(start, edited.diff), author, 3);
   assert.ok(undone.ok, undone.ok ? '' : undone.error);
   const comparable = (board: Board) => ({ title: board.title, columns: board.columns, legend: board.legend, codeSessionId: board.codeSessionId, elements: board.elements });
   assert.deepEqual(comparable(undone.board), comparable(start));
@@ -409,6 +410,23 @@ test('undoing an operator edit restores the board it started from, note authors,
   for (let index = 0; index <= UNDO_LIMIT; index += 1) history = recordEdit(history, [{ op: 'remove', id: `edit-${index}` }]);
   assert.equal(history.undo.length, UNDO_LIMIT);
   assert.deepEqual(takeStep(history, 'undo')?.entry, [{ op: 'remove', id: `edit-${UNDO_LIMIT}` }]);
+});
+
+test('a dashboard keeps the server element order when an edit removes and re-adds ids, which breaks ties between boxes stacked in one column', () => {
+  const columnBoard = (ids: string[]) => Board.parse({
+    id: 'reorder', title: 'reorder', version: 1, caption: null, columns: [{ id: 'now', title: 'Now' }], lanes: [], createdAt: 0, updatedAt: 0,
+    elements: Object.fromEntries(ids.map((id) => [id, box(id, 'now', 0)])),
+  });
+  const readdingEdits: [string[], Op[]][] = [
+    [['a', 'b', 'c'], [{ op: 'remove', id: 'a' }, { op: 'remove', id: 'c' }, { op: 'add', element: Board.shape.elements.valueType.parse(box('a', 'now', 0)) }, { op: 'add', element: Board.shape.elements.valueType.parse(box('c', 'now', 0)) }]],
+    [['a', 'b'], [{ op: 'add', element: Board.shape.elements.valueType.parse(box('n', 'now', 0)) }, { op: 'remove', id: 'b' }, { op: 'add', element: Board.shape.elements.valueType.parse(box('b', 'now', 0)) }]],
+  ];
+  for (const [ids, edits] of readdingEdits) {
+    const start = columnBoard(ids);
+    const edited = applyOps(start, edits, { id: 'operator', name: 'operator' }, 1);
+    assert.ok(edited.ok, edited.ok ? '' : edited.error);
+    assert.deepEqual(Object.keys(applyBoardDiff(start, edited.diff, edited.board.version, edited.board.updatedAt)?.elements ?? {}), Object.keys(edited.board.elements));
+  }
 });
 
 test('a board with plan steps keys their statuses in the legend, and a board without them keeps the legend free of statuses', () => {

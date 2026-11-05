@@ -1,5 +1,6 @@
 import type { Board, Element, Op } from './contracts/whiteboard.ts';
-import { OPERATOR_AUTHOR, applyOps } from './whiteboard-ops-core.ts';
+import type { BoardDiff } from './contracts/control/whiteboard-messages.ts';
+import { applyBoardDiff } from './whiteboard-ops-core.ts';
 
 type UndoDirection = 'undo' | 'redo';
 type UndoHistory = Readonly<Record<UndoDirection, readonly Op[][]>>;
@@ -63,7 +64,7 @@ function restoringOps(current: Board, target: Board): Op[] {
   const added = inDependencyOrder(targetElements.filter((element) => !current.elements[element.id]));
   const setOps: Op[] = targetElements.flatMap((element) => {
     const existing = current.elements[element.id];
-    if (!existing) return [];
+    if (!existing || existing === element) return [];
     const fields = changedFields(existing, element);
     return Object.keys(fields).length === 0 ? [] : [{ op: 'set', id: element.id, fields }];
   });
@@ -80,10 +81,9 @@ function restoringOps(current: Board, target: Board): Op[] {
   ];
 }
 
-function inverseOps(before: Board, ops: readonly Op[]): Op[] {
-  const applied = applyOps(before, ops, OPERATOR_AUTHOR, before.updatedAt);
-  if (!applied.ok) return [];
-  return restoringOps(applied.board, before);
+function undoOpsOf(before: Board, diff: BoardDiff): Op[] {
+  const after = applyBoardDiff(before, diff, before.version, before.updatedAt);
+  return after ? restoringOps(after, before) : [];
 }
 
 function withEntry(stack: readonly Op[][], entry: Op[]): Op[][] {
@@ -107,5 +107,5 @@ function recordStep(history: UndoHistory, direction: UndoDirection, inverse: Op[
   return { ...history, [opposite]: withEntry(history[opposite], inverse) };
 }
 
-export { EMPTY_HISTORY, UNDO_LIMIT, inverseOps, recordEdit, recordStep, takeStep };
+export { EMPTY_HISTORY, UNDO_LIMIT, recordEdit, recordStep, takeStep, undoOpsOf };
 export type { UndoDirection, UndoHistory };
