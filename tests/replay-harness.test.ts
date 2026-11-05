@@ -267,11 +267,13 @@ for (const endingEvent of ['Interrupt', 'StopFailure']) {
   });
 }
 
-for (const [hooksReportPrompts, expectedTransitions] of [
-  [true, [STATES.RUNNING, STATES.IDLE]],
-  [false, [STATES.RUNNING, STATES.COMPLETE]],
+for (const [hooksReportPrompts, operatorInput, expectedTransitions] of [
+  [true, '', [STATES.RUNNING, STATES.IDLE]],
+  [false, '', [STATES.RUNNING, STATES.COMPLETE]],
+  [true, '\r', [STATES.RUNNING, STATES.COMPLETE]],
+  [true, '\x1b\r', [STATES.RUNNING, STATES.IDLE]],
 ] as const) {
-  test(`codex title spin then truncated idle title settles to ${expectedTransitions[1]} when hooks report prompts is ${hooksReportPrompts}`, (t) => {
+  test(`codex title spin then truncated idle title settles to ${expectedTransitions[1]} when hooks report prompts is ${hooksReportPrompts} and operator input is ${JSON.stringify(operatorInput)}`, (t) => {
     t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
     const session = new Session({ id: 'codex-idle-spin', name: 'Video stats review', path: '/worktrees/quiz-shorts-assets-KGJc7E', agent: 'codex', statusConflictMs: 20, statusDedupMs: 10 });
     t.after(() => session.destroy());
@@ -281,6 +283,7 @@ for (const [hooksReportPrompts, expectedTransitions] of [
     const transitions: string[] = [];
     session.on('state-change', ({ to }) => transitions.push(to));
     const spinnerFrame = String.fromCharCode(0x280b);
+    if (operatorInput !== '') session.noteOperatorInput(operatorInput);
 
     session._titleSource.feed(`\x1b]0;${spinnerFrame} quiz-shorts-assets-KG...\x07`);
     t.mock.timers.tick(100);
