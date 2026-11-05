@@ -13,6 +13,7 @@ export type Step =
   | { kind: 'assert-team-review'; viewer?: ViewerId }
   | { kind: 'assert-review-merge'; upstream: UpstreamVariant; viewer?: ViewerId }
   | { kind: 'assert-phone-changes'; viewer?: ViewerId }
+  | { kind: 'assert-link-repaint'; viewer?: ViewerId }
   | { kind: 'open'; viewer?: ViewerId }
   | { kind: 'back'; viewer?: ViewerId }
   | { kind: 'assert-settings-back'; viewer?: ViewerId }
@@ -195,6 +196,11 @@ export const SCENARIOS: readonly Scenario[] = [
   {
     name: 'boards',
     steps: [{ kind: 'assert-boards' }, { kind: 'shot', name: 'boards' }],
+  },
+  {
+    name: 'terminal-link-repaint',
+    viewports: ['desktop-1280'],
+    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'assert-link-repaint' }, { kind: 'shot', name: 'link-hovered' }],
   },
   {
     name: 'board-pane',

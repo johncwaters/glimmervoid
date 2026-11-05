@@ -6,7 +6,7 @@ import type { Browser, BrowserContext, ConsoleMessage, Page, WebSocketRoute } fr
 import { safeTextTail } from '../support/backend-harness.ts';
 import { heightWithKeyboardUp, layoutFor, needsSocketRoute } from './cases-core.ts';
 import type { CardControl, HarnessCase, Layout, ResolvedStep, Step, ViewerId, Viewport } from './cases-core.ts';
-import { expectedRows, parseStatusRow } from './frame-core.ts';
+import { LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, MOTION_REPORT_PREFIX, expectedRows, parseStatusRow } from './frame-core.ts';
 import { verifyBoardPane, verifyBoards } from './boards.ts';
 import { verifyIssues } from './issues.ts';
 import { verifyPhoneChanges, verifyReviewMerge } from './review-merge.ts';
@@ -420,6 +420,61 @@ async function runType(viewer: Viewer, text: string): Promise<StepOutcome> {
   await viewer.page.keyboard.type(text);
   await viewer.page.keyboard.press('Enter');
   return passedOutcome('typed', `sent ${JSON.stringify(text)}`);
+}
+
+const LINK_HOVER_TIMEOUT_MS = 3000;
+
+async function waitForLinkRowText(viewer: Viewer, sessionId: string, text: string, deadlines: Deadlines): Promise<PollResult> {
+  return pollUntil(async () => {
+    const reading = await readGridOf(viewer, sessionId);
+    const row = reading?.lines[LINK_ROW_NUMBER - 1] ?? '';
+    return { ok: row.includes(text), reading, detail: `row ${LINK_ROW_NUMBER} reads ${JSON.stringify(row)}` };
+  }, { label: `row ${LINK_ROW_NUMBER} shows ${text}`, timeoutMs: deadlines.stepMs, intervalMs: deadlines.pollIntervalMs });
+}
+
+async function waitForLinkHover(viewer: Viewer, label: string): Promise<PollResult> {
+  const screen = viewer.page.locator(`${cardSlotSelector(viewer)} .xterm-screen`).first();
+  return pollUntil(async () => {
+    const isHovered = await screen.evaluate((element) => element.classList.contains('xterm-cursor-pointer'));
+    return { ok: isHovered, detail: isHovered ? 'the link under the pointer is hovered' : 'no link is hovered under the pointer' };
+  }, { label, timeoutMs: LINK_HOVER_TIMEOUT_MS, intervalMs: 50 });
+}
+
+async function runAssertLinkRepaint(viewer: Viewer, sessionId: string, deadlines: Deadlines): Promise<StepOutcome> {
+  await runType(viewer, 'link-row');
+  const plainShown = await waitForLinkRowText(viewer, sessionId, LINK_ROW_PLAIN_TEXT, deadlines);
+  if (!plainShown.ok) return outcomeFor('link-row-plain', plainShown);
+  const reading = plainShown.last?.reading ?? null;
+  const bounds = await viewer.page.locator(`${cardSlotSelector(viewer)} .xterm-screen`).first().boundingBox();
+  if (!reading || !bounds) return failedOutcome('link-row-bounds', 'the terminal screen has no grid or bounds');
+  const cellWidth = bounds.width / reading.cols;
+  const cellHeight = bounds.height / reading.rows;
+  const pointAt = (column: number, rowNumber: number): [number, number] => [bounds.x + (column + 0.5) * cellWidth, bounds.y + (rowNumber - 0.5) * cellHeight];
+  await viewer.page.mouse.move(...pointAt(4, LINK_ROW_NUMBER + 1));
+  await viewer.page.mouse.move(...pointAt(4, LINK_ROW_NUMBER));
+  await viewer.page.mouse.move(...pointAt(5, LINK_ROW_NUMBER));
+  await sleep(200);
+  await viewer.page.keyboard.type('link-paint');
+  await viewer.page.keyboard.press('Enter');
+  const linkShown = await waitForLinkRowText(viewer, sessionId, LINK_ROW_LINK_TEXT, deadlines);
+  if (!linkShown.ok) return outcomeFor('link-row-painted', linkShown);
+  const hoveredInPlace = await waitForLinkHover(viewer, 'link hovered under a resting pointer after an in-place repaint');
+  if (!hoveredInPlace.ok) return outcomeFor('link-hover-after-repaint', hoveredInPlace);
+  await viewer.page.keyboard.type('link-motion');
+  await viewer.page.keyboard.press('Enter');
+  const motionReported = await pollUntil(async () => {
+    const motionReading = await readGridOf(viewer, sessionId);
+    const row = motionReading?.lines[LINK_ROW_NUMBER + 1] ?? '';
+    return { ok: row.includes(MOTION_REPORT_PREFIX), reading: motionReading, detail: row };
+  }, { label: 'fake agent reports motion it received', timeoutMs: deadlines.stepMs, intervalMs: deadlines.pollIntervalMs });
+  if (!motionReported.ok) return outcomeFor('link-motion-report', motionReported);
+  if (!motionReported.detail.includes(`${MOTION_REPORT_PREFIX} 0`)) {
+    return failedOutcome('link-recheck-sends-no-motion', `the agent received motion from the recheck: ${motionReported.detail}`);
+  }
+  await viewer.page.mouse.move(...pointAt(9, LINK_ROW_NUMBER));
+  const hoveredAlongRow = await waitForLinkHover(viewer, 'link stays hovered moving along its row');
+  if (!hoveredAlongRow.ok) return outcomeFor('link-hover-along-row', hoveredAlongRow);
+  return passedOutcome('link-hover-after-repaint', 'a link repainted under a resting pointer is hovered in place and along its row, and the agent received no motion from the recheck');
 }
 
 async function runOffline(viewer: Viewer, sessionId: string, deadlines: Deadlines): Promise<StepOutcome> {
@@ -962,6 +1017,7 @@ export async function runCase({
       await verifyPhoneChanges(viewer.page, projectDirectory);
       return passedOutcome('phone-changes-back', 'a tapped file opens its diff, back returns to the file list, back again returns to the terminal');
     }
+    if (step.kind === 'assert-link-repaint') return runAssertLinkRepaint(viewer, sessionId, deadlines);
     if (step.kind === 'open') return runOpen(viewer, sessionId, deadlines);
     if (step.kind === 'back') return runBack(viewer, sessionId, deadlines);
     if (step.kind === 'assert-settings-back') return runAssertSettingsBack(viewer, deadlines);
