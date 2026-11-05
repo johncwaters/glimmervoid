@@ -102,9 +102,3 @@ export function bridgePackFrame(viewId: string, frame: HTMLIFrameElement, reads:
   if (bridgedFrameByViewId.size === 0) window.addEventListener('message', onPanelMessage);
   bridgedFrameByViewId.set(viewId, { frame, grantedTopics: new Set(reads), subscribedTopics: new Set(), lastSentJsonByTopic: new Map() });
 }
-
-export function regrantPackFrame(viewId: string, reads: readonly PackBridgeTopic[]): void {
-  const bridged = bridgedFrameByViewId.get(viewId);
-  if (!bridged) return;
-  bridgedFrameByViewId.set(viewId, { frame: bridged.frame, grantedTopics: new Set(reads), subscribedTopics: new Set(), lastSentJsonByTopic: new Map() });
-}

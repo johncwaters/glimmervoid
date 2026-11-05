@@ -2,7 +2,7 @@ import './pack-views.css';
 import type { PacksStatus } from '#shared/contracts/control/pack-messages.ts';
 import { el } from '../dom-helpers.ts';
 import { createSandboxedFrame } from '../sandboxed-frame.ts';
-import { bridgePackFrame, regrantPackFrame } from './pack-bridge-host.ts';
+import { bridgePackFrame } from './pack-bridge-host.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import { packsSnapshot, subscribePacks } from './packs-store.ts';
 
@@ -26,29 +26,32 @@ export function packPanelModule(panel: PackPanelView): ViewModule<HTMLElement> {
   return {
     mount(panelElement) {
       const shownPanel = panelByViewId.get(panel.viewId);
-      const frame = createSandboxedFrame({ source: { kind: 'url', url: shownPanel?.entryUrl ?? BLANK_FRAME_URL }, className: 'pack-panel-frame', title: panel.label, allowsScripts: true });
-      frameByViewId.set(panel.viewId, frame);
-      bridgePackFrame(panel.viewId, frame, shownPanel?.reads ?? []);
-      panelElement.replaceChildren(frame);
+      panelElement.replaceChildren(bridgedPanelFrame(panel.viewId, shownPanel?.entryUrl ?? BLANK_FRAME_URL, panel.label, shownPanel?.reads ?? []));
     },
   };
 }
 
-function pointFrameAt(viewId: string, url: string, reads: PackPanelView['reads']): void {
+function bridgedPanelFrame(viewId: string, url: string, label: string, reads: PackPanelView['reads']): HTMLIFrameElement {
+  const frame = createSandboxedFrame({ source: { kind: 'url', url }, className: 'pack-panel-frame', title: label, allowsScripts: true });
+  frameByViewId.set(viewId, frame);
+  bridgePackFrame(viewId, frame, reads);
+  return frame;
+}
+
+function pointFrameAt(viewId: string, url: string, label: string, reads: PackPanelView['reads']): void {
   const frame = frameByViewId.get(viewId);
   if (!frame || frame.getAttribute('src') === url) return;
-  regrantPackFrame(viewId, reads);
-  frame.src = url;
+  frame.replaceWith(bridgedPanelFrame(viewId, url, label, reads));
 }
 
 export function showPackPanel(panel: PackPanelView): void {
   panelByViewId.set(panel.viewId, panel);
-  pointFrameAt(panel.viewId, panel.entryUrl, panel.reads);
+  pointFrameAt(panel.viewId, panel.entryUrl, panel.label, panel.reads);
 }
 
 export function retirePackPanel(viewId: string): void {
   panelByViewId.delete(viewId);
-  pointFrameAt(viewId, BLANK_FRAME_URL, []);
+  pointFrameAt(viewId, BLANK_FRAME_URL, frameByViewId.get(viewId)?.title ?? '', []);
 }
 
 export function onPackPanelsChange(listener: (panels: readonly PackPanelView[]) => void): void {
