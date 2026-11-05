@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A GitHub hiccup no longer drops pull requests from Reviews.** When GitHub failed or timed out while Glimmervoid read the details of pull requests that had just changed, Glimmervoid treated them as deleted, and they vanished from Reviews until they changed again or Glimmervoid restarted. Now the refresh fails and retries shortly, the pull requests keep their last known state in the meantime, and only a pull request GitHub reports as gone is removed.
 - **Your pull requests catch up when GitHub finishes checking them.** Right after a push to a pull request or its base branch, GitHub can report that it is still working out whether the pull request is behind or mergeable. If Glimmervoid read it at that moment, the row kept a half-checked stage, such as Status unknown or Checks failing instead of Behind base, until something else changed on the pull request. Glimmervoid now checks such a pull request again on its next refresh, about a minute with the dashboard open, until GitHub has an answer.
+- **Links in a session terminal are clickable again when the agent redraws them under the pointer.** When Claude Code redrew the line your pointer was on, for example while you scrolled its transcript or while a reply was still arriving, a link that appeared there did not show the hand cursor and could not be clicked until you moved the pointer to another line and back. The terminal now checks for links under the pointer after each redraw.
 
 ## [0.52.2] - 2026-11-05
 

@@ -64,5 +64,47 @@ export function registerUrlLinkProvider(term: Terminal) {
       callback(links.length ? links : undefined);
     },
   };
-  return term.registerLinkProvider(provider);
+  const providerRegistration = term.registerLinkProvider(provider);
+  const repaintRecheck = recheckLinksUnderPointerOnRepaint(term);
+  return {
+    dispose() {
+      repaintRecheck.dispose();
+      providerRegistration.dispose();
+    },
+  };
+}
+
+function recheckLinksUnderPointerOnRepaint(term: Terminal) {
+  const screen = term.element?.querySelector<HTMLElement>('.xterm-screen');
+  if (!screen) return { dispose() {} };
+  let lastPointer: { clientX: number; clientY: number } | null = null;
+  const rememberPointer = (event: MouseEvent) => {
+    if (!event.isTrusted) return;
+    lastPointer = { clientX: event.clientX, clientY: event.clientY };
+  };
+  const forgetPointer = () => { lastPointer = null; };
+  const moveLinkDetectionTo = (clientX: number, clientY: number) => {
+    screen.dispatchEvent(new MouseEvent('mousemove', { clientX, clientY, bubbles: false }));
+  };
+  screen.addEventListener('mousemove', rememberPointer);
+  screen.addEventListener('mouseleave', forgetPointer);
+  const renderSubscription = term.onRender(({ start, end }) => {
+    if (!lastPointer) return;
+    if (screen.classList.contains('xterm-cursor-pointer')) return;
+    const screenBounds = screen.getBoundingClientRect();
+    const rowHeight = screenBounds.height / term.rows;
+    if (!(rowHeight > 0)) return;
+    const pointerRow = Math.floor((lastPointer.clientY - screenBounds.top) / rowHeight);
+    if (pointerRow < start || pointerRow > end) return;
+    const adjacentRowOffset = pointerRow === 0 ? rowHeight : -rowHeight;
+    moveLinkDetectionTo(lastPointer.clientX, lastPointer.clientY + adjacentRowOffset);
+    moveLinkDetectionTo(lastPointer.clientX, lastPointer.clientY);
+  });
+  return {
+    dispose() {
+      renderSubscription.dispose();
+      screen.removeEventListener('mousemove', rememberPointer);
+      screen.removeEventListener('mouseleave', forgetPointer);
+    },
+  };
 }
