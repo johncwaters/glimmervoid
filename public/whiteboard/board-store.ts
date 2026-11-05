@@ -91,12 +91,6 @@ function indexBoardsBySession(): void {
   boardsBySessionId = index;
 }
 
-let hasSettledFirstBoardList = false;
-
-export function isBoardListSettled(): boolean {
-  return hasSettledFirstBoardList;
-}
-
 export function applyWhiteboardsSnapshot(message: ServerMessageOf<'whiteboards-snapshot'>): void {
   boardSummaries = [...message.boards].sort((left, right) => right.updatedAt - left.updatedAt);
   indexBoardsBySession();
@@ -112,7 +106,6 @@ export function applyWhiteboardsSnapshot(message: ServerMessageOf<'whiteboards-s
     notifyBoard(boardId);
   }
   notifyList();
-  hasSettledFirstBoardList = true;
 }
 
 export function applyWhiteboardPatch(message: ServerMessageOf<'whiteboard-patch'>): void {

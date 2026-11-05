@@ -31,7 +31,7 @@ import { buildSessionRow, paintBoardRow, paintSessionRow, wrapSessionRow } from 
 import { unopenedShownCountOf } from '../shown-files.ts';
 import { describeFailure } from '../client-error-core.ts';
 import { reportToServerLog } from '../control-ws.ts';
-import { boardSummariesOf, boardsConnectedTo, isBoardListSettled, onBoardListChanged, takeOpenBoardRequest } from '../whiteboard/board-store.ts';
+import { boardSummariesOf, boardsConnectedTo, onBoardListChanged, takeOpenBoardRequest } from '../whiteboard/board-store.ts';
 import type { PaneTab } from '#shared/contracts/focus-layout.ts';
 import type { PaneLayout } from './pane-layout.ts';
 import { createPaneLayout } from './pane-layout.ts';
@@ -68,7 +68,6 @@ let loadedBoardsView: BoardsViewModule | null = null;
 let boardPairedSessionId: string | null = null;
 let pairedBoardId: string | null = null;
 let shownPaneTabs: ReadonlySet<PaneTab> | null = null;
-let paneTabsSessionId: string | null = null;
 let centeredBoardId: string | null = null;
 let boardsGroup: ReturnType<typeof buildBoardsGroup> | null = null;
 const boardRowById = new Map<string, BoardRow>();
@@ -556,16 +555,14 @@ function reportBoardsViewLoadFailure(error: unknown) {
   reportToServerLog('focus', `the board pane failed to load: ${describeFailure(error)}`);
 }
 
-function showPaneTabs(tabs: ReadonlySet<PaneTab>, sessionId: string | null, holdSplit = false) {
-  const isSameSubject = shownPaneTabs === tabs && paneTabsSessionId === sessionId;
-  if (!paneLayout || isSameSubject) return;
+function showPaneTabs(tabs: ReadonlySet<PaneTab>) {
+  if (!paneLayout || shownPaneTabs === tabs) return;
   shownPaneTabs = tabs;
-  paneTabsSessionId = sessionId;
-  paneLayout.showTabs(tabs, { holdSplit });
+  paneLayout.showTabs(tabs);
 }
 
 function paintBoardOnlyPane(boardId: string) {
-  showPaneTabs(BOARD_ONLY, null);
+  showPaneTabs(BOARD_ONLY);
   const isNewSubject = boardPairedSessionId !== null || pairedBoardId !== boardId;
   boardPairedSessionId = null;
   pairedBoardId = boardId;
@@ -580,9 +577,7 @@ function paintBoardPane(requestedBoardId: string | null = null) {
   const centeredId = getFocusedSessionId();
   const connectedBoards = centeredId ? boardsConnectedTo(centeredId) : [];
   const [newestBoard] = connectedBoards;
-  const tabs = newestBoard ? TERMINAL_AND_BOARD : TERMINAL_ONLY;
-  const isBoardArrivingMidView = isBoardListSettled() && tabs === TERMINAL_AND_BOARD && shownPaneTabs === TERMINAL_ONLY && paneTabsSessionId === centeredId && requestedBoardId === null;
-  showPaneTabs(tabs, centeredId, isBoardArrivingMidView);
+  showPaneTabs(newestBoard ? TERMINAL_AND_BOARD : TERMINAL_ONLY);
   if (!centeredId || !newestBoard) {
     boardPairedSessionId = null;
     pairedBoardId = null;
