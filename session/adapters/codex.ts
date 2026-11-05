@@ -6,6 +6,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileAsync, execFileSync } from "../../server/child-process-safe.ts";
 import { relayPath } from "../../server/runtime-paths.ts";
+import { QUESTION_TOOL_HOLD_HOOK_EVENT } from "../../shared/contracts/question-manager.ts";
+import { REQUEST_USER_INPUT_TOOL_NAME } from "../../shared/contracts/session.ts";
 import { resolveAgentCommand, buildAgentSpawnCommand } from "../core/spawn-command.ts";
 import { classifyAgentTitle, isBrailleChar } from "../core/title-classifier-core.ts";
 import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.ts";
@@ -77,7 +79,11 @@ const titleProfile: AgentTitleProfile = {
   taskTitle: { readsTranscriptTitle: false, genericTitles: [ID], agentSuffix: ` - ${ID}` },
 };
 
-const REQUEST_USER_INPUT_TOOL_NAME = "request_user_input";
+const QUESTION_HOLD_MATCHER = `^${REQUEST_USER_INPUT_TOOL_NAME}$`;
+
+function hasQuestionHook(matchedRelayHooks: readonly MatchedRelayHook[]): boolean {
+  return matchedRelayHooks.some(({ event, matcher }) => event === "PreToolUse" && matcher === REQUEST_USER_INPUT_TOOL_NAME);
+}
 
 function isRequestUserInput(event: string, payload?: HookPayload): boolean {
   return event === "pretooluse" && payload?.tool_name === REQUEST_USER_INPUT_TOOL_NAME;
@@ -250,6 +256,11 @@ function buildHookArgs({
     }
     groupsByEvent.set(event, [...(groupsByEvent.get(event) ?? []), group]);
   }
+  if (hasQuestionHook(argvMatchedHooks)) {
+    const questionHoldCommand = buildHookCommand(relayPath, QUESTION_TOOL_HOLD_HOOK_EVENT);
+    if (!questionHoldCommand) return null;
+    preToolUseGroups.push(`{matcher='${QUESTION_HOLD_MATCHER}',hooks=[{type='command',command='${questionHoldCommand}'}]}`);
+  }
   const groups = argvHookTools.flatMap((tool) => {
     const group = HOOK_TOOLS[tool.id].codexGroup(tool, hookToolRelayPath);
     return group ? [group] : [];
@@ -331,6 +342,11 @@ function codexHomeHooks(plan: CodexHookPlan = hookPlanForInstalledCodex()): Code
     if (!command) return null;
     hooks.push({ event, matcher, command, isAsync });
   }
+  if (hasQuestionHook(plan.matchedRelayHooks)) {
+    const questionHoldCommand = buildHookCommand(RELAY_PATH, QUESTION_TOOL_HOLD_HOOK_EVENT);
+    if (!questionHoldCommand) return null;
+    hooks.push({ event: "PreToolUse", matcher: QUESTION_HOLD_MATCHER, command: questionHoldCommand });
+  }
   const saneYoloCommand = saneYoloHookCommand();
   if (!saneYoloCommand) return null;
   hooks.push({ event: "PreToolUse", matcher: "Bash", command: saneYoloCommand });
@@ -341,13 +357,20 @@ function saneYoloHookCommand(): string | null {
   return buildHookCommand(HOOK_TOOL_RELAY_PATH, "saneYolo", [CODEX_SANE_YOLO_FLAVOR]);
 }
 
+function installedHookRoute(command: string, saneYoloCommand: string | null, questionHoldCommand: string | null): string | null {
+  if (command === saneYoloCommand) return "saneYolo";
+  if (command === questionHoldCommand) return QUESTION_TOOL_HOLD_HOOK_EVENT;
+  return null;
+}
+
 function describeInstalledHooks(): InstalledHooks {
   const version = installedCodexVersion();
   if (version === null) return { unavailableReason: "Codex was not found, or codex --version printed no version, so its hook set is unknown.", isBestEffort: false };
   const homeHooks = codexHomeHooks();
   if (!homeHooks) return { unavailableReason: HOOKS_BLOCK_REFUSAL, isBestEffort: false };
   const saneYoloCommand = saneYoloHookCommand();
-  const hooks = homeHooks.map((hook) => ({ event: hook.event, matcher: hook.matcher, route: hook.command === saneYoloCommand ? "saneYolo" : null }));
+  const questionHoldCommand = buildHookCommand(RELAY_PATH, QUESTION_TOOL_HOLD_HOOK_EVENT);
+  const hooks = homeHooks.map((hook) => ({ event: hook.event, matcher: hook.matcher, route: installedHookRoute(hook.command, saneYoloCommand, questionHoldCommand) }));
   return { version, isBestEffort: false, hooks };
 }
 

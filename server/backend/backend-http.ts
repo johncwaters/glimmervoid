@@ -8,6 +8,7 @@ import type { Express, Request, RequestHandler, Response } from 'express';
 import { HOOK_EVENTS } from '../../detection/settings-injector.ts';
 import { PLAN_HOOK_EVENT, PLAN_RESULT_HOOK_EVENT } from '../../shared/contracts/plan-review.ts';
 import { CONVERSATION_PERMISSION_HOOK_EVENT, CONVERSATION_TOOL_RESULT_HOOK_EVENT } from '../../shared/contracts/session.ts';
+import { QUESTION_TOOL_HOLD_HOOK_EVENT } from '../../shared/contracts/question-manager.ts';
 import { sparseBoardReply } from '../../shared/contracts/whiteboard.ts';
 import type { Session } from '../../session/sessions.ts';
 import { refocusReplyFor, toolHookContextReplyOf } from '../../session/core/refocus-core.ts';
@@ -326,8 +327,10 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
         signal: abandonedByClaudeCode.signal,
       }) || null;
       const isConversationPermission = output.status === 200 && req.params.event.toLowerCase() === CONVERSATION_PERMISSION_HOOK_EVENT;
+      const isQuestionToolHold = output.status === 200 && req.params.event.toLowerCase() === QUESTION_TOOL_HOLD_HOOK_EVENT;
       const heldDecision = planDecision
-        || (isConversationPermission ? getSession(req.params.glimmervoidId)?.holdClaudePermission(payload, abandonedByClaudeCode.signal) ?? null : null);
+        || (isConversationPermission ? getSession(req.params.glimmervoidId)?.holdClaudePermission(payload, abandonedByClaudeCode.signal) ?? null : null)
+        || (isQuestionToolHold ? getSession(req.params.glimmervoidId)?.holdQuestionTool(payload, abandonedByClaudeCode.signal) ?? null : null);
       if (!heldDecision) {
         answer(null);
         return;

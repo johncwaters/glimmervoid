@@ -23,6 +23,8 @@ const SESSION_ID = "kimi-probe-session";
 const SENTINEL_WORD = "copperheron";
 const BOOT_SETTLE_MS = 8000;
 const SHOULD_WRITE_FIXTURES = process.argv.includes("--write-fixtures");
+const SHOULD_RUN_ONLY_QUESTION_MANAGER_PROBE = process.argv.includes("--only-question-manager");
+const QUESTION_MANAGER_PROBE_SETTINGS = { enabled: true, rules: [{ name: "color", question: "red or blue", pick: ["blue"] }] };
 const OPERATOR_KIMI_HOME = path.join(os.homedir(), ".kimi-code");
 const LINKED_LOGIN_ENTRIES = ["credentials", "device_id", "region.json"];
 
@@ -56,6 +58,7 @@ function writeProbeConfig(configPath: string, projectDirectory: string): void {
     autoResume: false,
     worktreeAutoRebase: false,
     capture: { enabled: true },
+    ...(SHOULD_RUN_ONLY_QUESTION_MANAGER_PROBE ? { questionManager: QUESTION_MANAGER_PROBE_SETTINGS } : {}),
   }, null, 2), "utf8");
 }
 
@@ -194,6 +197,25 @@ async function runProbe(tempDirectory: string): Promise<void> {
     check("PermissionRequest preceded the turn's Stop", approvalEvents.indexOf("permissionrequest") >= 0 && approvalEvents.indexOf("permissionrequest") < approvalEvents.lastIndexOf("stop"));
     const capturedId = session._resumeSessionId;
     check("the captured session id is session_<uuid>", /^session_[0-9a-f-]{36}$/.test(String(capturedId || "")));
+
+    if (SHOULD_RUN_ONLY_QUESTION_MANAGER_PROBE) {
+      const managerEntries = () => session.auditLog.filter((entry) => entry.kind === "question-manager");
+      let answeredQuestionWaits = 0;
+      await runScenario("question-manager-answered", "Use the AskUserQuestion tool to ask me whether I prefer red or blue, then reply with only my answer.", async () => {
+        answeredQuestionWaits += 1;
+        await pickFirstOption();
+      });
+      check("the answered question never put the card in WAITING", answeredQuestionWaits === 0);
+      check("the manager wrote an answered audit entry", managerEntries().some((entry) => entry.outcome === "answered" && entry.rule === "color"));
+      let escalatedQuestionWaits = 0;
+      await runScenario("question-manager-escalated", "Use the AskUserQuestion tool to ask me whether to delete the notes file, with the options yes and no, then reply with only my answer.", async () => {
+        escalatedQuestionWaits += 1;
+        await pickFirstOption();
+      });
+      check("the risky question reached the operator as WAITING", escalatedQuestionWaits > 0);
+      check("the manager escalated the risky question", managerEntries().some((entry) => entry.outcome === "escalated" && /delete/i.test(String(entry.reason))));
+      return;
+    }
 
     if (SHOULD_RUN_ONLY_HINT_PROBE) {
       check("the start line reached the model with the first prompt", screenShowsStartLine(session.getBufferSince(firstPromptOffset).data));

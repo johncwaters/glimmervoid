@@ -10,6 +10,7 @@ interface KimiHooksBlockOptions {
   events: readonly string[];
   toolEvents: readonly string[];
   matchedToolNames: readonly string[];
+  questionHold: { toolName: string; event: string; timeoutSeconds: number };
   saneYolo: { relayPath: string; toolNames: readonly string[]; agentFlavor: string };
 }
 
@@ -22,13 +23,15 @@ const MANAGED_LINE_PATTERNS: readonly RegExp[] = Object.freeze([
   /^\[\[hooks\]\]$/,
   /^event = "[A-Za-z][A-Za-z0-9_-]{0,63}"$/,
   /^matcher = '\^[A-Za-z0-9_]+\$'$/,
+  /^timeout = [1-9][0-9]{0,2}$/,
   /^command = 'node (?:"[^"'\r\n]*\/(?:hook-relay|hook-tool-relay)\.(?:js|ts)"|[^\s"']*\/(?:hook-relay|hook-tool-relay)\.(?:js|ts)) [A-Za-z][A-Za-z0-9_-]{0,63}(?: [A-Za-z0-9_-]+)*'$/,
 ]);
 
-function hookTable(event: string, command: string, matcher: string | null = null): string[] {
+function hookTable(event: string, command: string, matcher: string | null = null, timeoutSeconds: number | null = null): string[] {
   const lines = ["[[hooks]]", `event = "${event}"`];
   if (matcher !== null) lines.push(`matcher = '${matcher}'`);
   lines.push(`command = '${command}'`);
+  if (timeoutSeconds !== null) lines.push(`timeout = ${timeoutSeconds}`);
   return lines;
 }
 
@@ -44,6 +47,9 @@ function renderKimiHooksBlock(options: KimiHooksBlockOptions): string | null {
     if (!command) return null;
     for (const toolName of options.matchedToolNames) lines.push(...hookTable(event, command, `^${toolName}$`));
   }
+  const questionHoldCommand = buildHookCommand(options.relayPath, options.questionHold.event);
+  if (!questionHoldCommand) return null;
+  lines.push(...hookTable("PreToolUse", questionHoldCommand, `^${options.questionHold.toolName}$`, options.questionHold.timeoutSeconds));
   const saneYoloCommand = buildHookCommand(options.saneYolo.relayPath, "saneYolo", [options.saneYolo.agentFlavor]);
   if (!saneYoloCommand) return null;
   for (const toolName of options.saneYolo.toolNames) lines.push(...hookTable("PreToolUse", saneYoloCommand, `^${toolName}$`));

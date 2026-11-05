@@ -1,8 +1,7 @@
 import { isLoopbackHostname } from "../shared/loopback-hosts.ts";
 import type { RequestOptions } from 'node:http';
-import { MAX_RESPONSE_BYTES } from './core/hook-relay-core.ts';
+import { MAX_RESPONSE_BYTES, POST_TIMEOUT_MS } from './core/hook-relay-core.ts';
 
-const POST_TIMEOUT_MS = 1500;
 const http = process.getBuiltinModule('node:http');
 
 interface LoopbackPostOutcome {
@@ -18,7 +17,7 @@ function directRoute(target: URL): RequestOptions {
   return { hostname: target.hostname, port: target.port, path: `${target.pathname}${target.search}` };
 }
 
-function sendPost(route: RequestOptions, body: Buffer): Promise<LoopbackPostOutcome> {
+function sendPost(route: RequestOptions, body: Buffer, timeoutMs: number): Promise<LoopbackPostOutcome> {
   return new Promise((resolve) => {
     let settled = false;
     const done = (reason: string, responseBody: string | null = null): void => {
@@ -56,7 +55,7 @@ function sendPost(route: RequestOptions, body: Buffer): Promise<LoopbackPostOutc
         },
       );
       request.on('error', () => done('request-error'));
-      request.setTimeout(POST_TIMEOUT_MS, () => {
+      request.setTimeout(timeoutMs, () => {
         request.destroy();
         done('timeout');
       });
@@ -67,12 +66,12 @@ function sendPost(route: RequestOptions, body: Buffer): Promise<LoopbackPostOutc
   });
 }
 
-async function postToLoopback(url: string, body: Buffer): Promise<LoopbackPostOutcome> {
+async function postToLoopback(url: string, body: Buffer, timeoutMs: number = POST_TIMEOUT_MS): Promise<LoopbackPostOutcome> {
   if (!URL.canParse(url)) return refusal('bad-url');
   const target = new URL(url);
   if (target.protocol !== 'http:') return refusal('not-http');
   if (!isLoopbackHostname(target.hostname)) return refusal('not-loopback');
-  return sendPost(directRoute(target), body);
+  return sendPost(directRoute(target), body, timeoutMs);
 }
 
 async function postPayload(url: string, body: Buffer): Promise<string | null> {
