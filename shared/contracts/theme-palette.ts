@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-const HexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, { error: (issue) => `a color is #rrggbb, not ${JSON.stringify(issue.input)}` });
+const HexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, { error: (issue) => issue.input === undefined ? 'missing; a theme sets every color as #rrggbb' : `a color is #rrggbb, not ${JSON.stringify(issue.input)}` });
 
 const ThemeStates = z.strictObject({
   running: HexColor, waiting: HexColor, failed: HexColor, monitoring: HexColor, done: HexColor,

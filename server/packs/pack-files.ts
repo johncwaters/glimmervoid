@@ -94,9 +94,8 @@ function rawPanels(rawUi: unknown): unknown[] {
   return rawUi.panels;
 }
 
-export function declaredPanelReads(rawUi: unknown): ReadonlySet<string> | null {
-  const panels = validRawPanels(rawUi);
-  return panels.length === rawPanels(rawUi).length ? new Set(panels.flatMap(({ panel }) => panel.reads)) : null;
+export function declaredPanels(rawUi: unknown): z.infer<typeof PackPanel>[] {
+  return validRawPanels(rawUi).map(({ panel }) => panel);
 }
 
 function validRawPanels(rawUi: unknown): { index: number; panel: z.infer<typeof PackPanel> }[] {

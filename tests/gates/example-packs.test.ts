@@ -5,7 +5,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 import { HostToPanel, PackBridgeTopic } from '../../shared/contracts/pack-bridge.ts';
-import { previewSampleTopics, previewThemes } from '../../server/packs/core/pack-preview-core.ts';
+import { PREVIEW_FRAME_COUNT, previewSampleTopics, previewThemes } from '../../server/packs/core/pack-preview-core.ts';
 import { checkPack, packCheckHasProblem, packReportText } from '../../server/packs/pack-check.ts';
 import { readPacksForAgent } from '../../server/packs/pack-agent.ts';
 
@@ -63,8 +63,10 @@ test('the packs guide an agent reads names every example and carries both schema
 });
 
 test('the sample data packs preview sends is valid for every bridge topic', () => {
-  for (const topic of PackBridgeTopic.options.filter((candidate) => candidate !== 'theme')) {
-    assert.ok(HostToPanel.safeParse({ v: 1, kind: 'topic', topic, data: previewSampleTopics(Date.now())[topic] }).success, topic);
+  for (let frameIndex = 0; frameIndex < PREVIEW_FRAME_COUNT; frameIndex += 1) {
+    for (const topic of PackBridgeTopic.options.filter((candidate) => candidate !== 'theme')) {
+      assert.ok(HostToPanel.safeParse({ v: 1, kind: 'topic', topic, data: previewSampleTopics(Date.now(), frameIndex)[topic] }).success, `${topic} frame ${frameIndex}`);
+    }
   }
   for (const theme of previewThemes(null)) assert.ok(HostToPanel.safeParse({ v: 1, kind: 'topic', topic: 'theme', data: { id: theme.id, colors: theme.colors } }).success, theme.id);
 });

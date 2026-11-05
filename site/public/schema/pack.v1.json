@@ -81,7 +81,8 @@
                 "items": {
                   "type": "string",
                   "minLength": 1
-                }
+                },
+                "description": "The program and its arguments, run without a shell from the Glimmervoid home folder; an argument may hold {prUrl}, {repo}, {number}, {head}, {headRef}, {baseRef}, and in a pack also {packDir}, the pack's folder. Its environment has GLIMMERVOID_PR_URL, GLIMMERVOID_PR_REPO, GLIMMERVOID_PR_NUMBER and GLIMMERVOID_PR_HEAD, GLIMMERVOID_PR_HEAD_REF, GLIMMERVOID_PR_BASE_REF and the pull request as GLIMMERVOID_PR_JSON. Exit 0 means done and any other exit failed, unless stdout prints the action outcome JSON (glimmervoid packs guide --schema pr-flows)"
               },
               "timeoutSeconds": {
                 "default": 120,
@@ -128,7 +129,8 @@
                 "items": {
                   "type": "string",
                   "minLength": 1
-                }
+                },
+                "description": "The program and its arguments, run without a shell from the Glimmervoid home folder; an argument may hold {prUrl}, {repo}, {number}, {head}, and in a pack also {packDir}, the pack's folder. Its environment has GLIMMERVOID_PR_URL, GLIMMERVOID_PR_REPO, GLIMMERVOID_PR_NUMBER and GLIMMERVOID_PR_HEAD. It must print the source output JSON (glimmervoid packs guide --schema pr-flows) on stdout; anything else shows as an error on the pull request"
               },
               "timeoutSeconds": {
                 "default": 120,
@@ -175,7 +177,8 @@
                 "items": {
                   "type": "string",
                   "minLength": 1
-                }
+                },
+                "description": "The program and its arguments, run without a shell from the Glimmervoid home folder; an argument may hold {prUrl}, {repo}, {number}, {head}, {itemPath}, {itemLine}, and in a pack also {packDir}, the pack's folder. Its environment has GLIMMERVOID_PR_URL, GLIMMERVOID_PR_REPO, GLIMMERVOID_PR_NUMBER and GLIMMERVOID_PR_HEAD, and the review item as GLIMMERVOID_ITEM_JSON. Exit 0 means done and any other exit failed, unless stdout prints the action outcome JSON (glimmervoid packs guide --schema pr-flows)"
               },
               "timeoutSeconds": {
                 "default": 120,

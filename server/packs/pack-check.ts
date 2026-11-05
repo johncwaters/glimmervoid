@@ -1,11 +1,9 @@
 import path from 'node:path';
+import { PR_FLOW_PLACEHOLDERS_BY_KIND } from '../../shared/contracts/pr-flows.ts';
 import { expandPlaceholders, packApproval, prFlowsPacksOf, unknownActionWarnings } from '../github/core/pr-flows-core.ts';
 import { panelReferenceErrors, uiSectionErrors, undeclaredSubscriptionErrors } from './core/pack-core.ts';
-import { declaredPanelReads, readPackDir } from './pack-files.ts';
+import { declaredPanels, readPackDir } from './pack-files.ts';
 
-const SOURCE_PLACEHOLDERS = ['prUrl', 'repo', 'number', 'head'];
-const ACTION_PLACEHOLDERS = [...SOURCE_PLACEHOLDERS, 'itemPath', 'itemLine'];
-export const PR_FLOW_PLACEHOLDERS_BY_KIND = { source: SOURCE_PLACEHOLDERS, action: ACTION_PLACEHOLDERS, 'pr-action': [...SOURCE_PLACEHOLDERS, 'headRef', 'baseRef'] } as const;
 
 type PackEntryCheck = { kind: keyof typeof PR_FLOW_PLACEHOLDERS_BY_KIND; id: string; label: string; argv: string[]; error: string | null };
 type PackCheckReport = {
@@ -13,8 +11,7 @@ type PackCheckReport = {
 };
 
 function pageErrors(filesByPath: ReadonlyMap<string, Buffer>, header: { ui?: unknown } | undefined): string[] {
-  const declaredReads = header ? declaredPanelReads(header.ui) : null;
-  return [...panelReferenceErrors(filesByPath), ...(declaredReads ? undeclaredSubscriptionErrors(filesByPath, declaredReads) : [])];
+  return [...panelReferenceErrors(filesByPath), ...undeclaredSubscriptionErrors(filesByPath, header ? declaredPanels(header.ui) : [])];
 }
 
 export async function checkPack(packDir: string, env: NodeJS.ProcessEnv, isApprovedFingerprint: (fingerprint: string) => boolean): Promise<PackCheckReport> {
@@ -46,7 +43,7 @@ export async function checkPack(packDir: string, env: NodeJS.ProcessEnv, isAppro
 }
 
 export function packCheckHasProblem(report: PackCheckReport): boolean {
-  return report.errors.length > 0 || report.missingRequires.length > 0 || report.entries.some((entry) => entry.error !== null);
+  return report.errors.length > 0 || report.entries.some((entry) => entry.error !== null);
 }
 
 function reportHeading(report: PackCheckReport): string {
@@ -63,6 +60,6 @@ export function packReportText(report: PackCheckReport): string {
     ...report.entries.map((entry) => `${entry.kind} ${entry.id} (${entry.label}): ${entry.error === null ? `valid\n  would run ${JSON.stringify(entry.argv)}` : `invalid, ${entry.error}`}`),
     ...report.rules.map((rule) => `rule ${rule}`),
     ...report.errors.map((error) => `error: ${error}`),
-    ...report.missingRequires.map((missing) => `missing on this machine: ${missing}, so the pack stays off here`),
+    ...report.missingRequires.map((missing) => `missing on this machine: ${missing}, so the pack stays off here until it has it; not a problem in the pack`),
   ].join('\n');
 }

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ThemePalette } from './theme-palette.ts';
 import { PackBridgeTopic } from './pack-bridge.ts';
-import { PrFlowCommand, PrFlowPackRequires, PrFlowPrAction, PrFlowRule, PrFlowScopedCommand, RepoScope, prFlowRulesJsonSchema } from './pr-flows.ts';
+import { PrFlowItemAction, PrFlowPackRequires, PrFlowPrAction, PrFlowRule, PrFlowScopedCommand, RepoScope, prFlowRulesJsonSchema } from './pr-flows.ts';
 
 const PACK_SCHEMA_URL = 'https://glimmervoid.dev/schema/pack.v1.json';
 export const PACK_FILE_NAME = 'pack.json';
@@ -23,7 +23,7 @@ export const PackPrFlows = z.strictObject({
   repos: RepoScope.describe('The default owner/name repositories for every prAction, source and rule of this pack that lists no repos of its own; every repository when absent'),
   prActions: z.array(PrFlowPrAction).default([]),
   sources: z.array(PrFlowScopedCommand).default([]),
-  actions: z.array(PrFlowCommand).default([]),
+  actions: z.array(PrFlowItemAction).default([]),
   rules: z.array(PrFlowRule).default([]),
 }).superRefine((section, context) => {
   for (const kind of ['prActions', 'sources', 'actions'] as const) {

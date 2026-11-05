@@ -11,6 +11,7 @@ import { packFileHeaders } from './core/pack-core.ts';
 import { previewHostPage } from './core/pack-preview-core.ts';
 import { packBridgeJsonSchemaText } from '../../shared/contracts/pack-bridge.ts';
 import { packJsonSchemaText } from '../../shared/contracts/pack.ts';
+import { prFlowsOutputJsonSchemaText } from '../../shared/contracts/pr-flows.ts';
 import { packGuideText } from './pack-agent.ts';
 import { checkPack, packCheckHasProblem, packReportText } from './pack-check.ts';
 import { readApprovedPackFingerprints, readPackDir } from './pack-files.ts';
@@ -28,17 +29,17 @@ export async function runPackCheckCli({ packDir, isJson, env, homeDir }: { packD
   return packCheckHasProblem(report) ? 1 : 0;
 }
 
-const SCHEMA_TEXT_BY_NAME: Readonly<Record<string, () => string>> = { pack: packJsonSchemaText, bridge: packBridgeJsonSchemaText };
+const SCHEMA_TEXT_BY_NAME: Readonly<Record<string, () => string>> = { pack: packJsonSchemaText, bridge: packBridgeJsonSchemaText, 'pr-flows': prFlowsOutputJsonSchemaText };
 
 async function runGuide(homeDir: string, schemaName: string | null): Promise<number> {
   if (schemaName === null) {
-    const schemaHint = 'The JSON Schemas, with what each field means: glimmervoid packs guide --schema pack (pack.json) and glimmervoid packs guide --schema bridge (panel bridge messages).';
+    const schemaHint = 'The JSON Schemas, with what each field means: glimmervoid packs guide --schema pack (pack.json), --schema bridge (panel bridge messages) and --schema pr-flows (what a prFlows command prints).';
     process.stdout.write(`${await packGuideText({ homeDir, examplePacksDir }, [schemaHint])}\n`);
     return 0;
   }
   const schemaText = SCHEMA_TEXT_BY_NAME[schemaName];
   if (!schemaText) {
-    process.stderr.write(`glimmervoid packs guide: --schema is pack or bridge, not ${schemaName}\n`);
+    process.stderr.write(`glimmervoid packs guide: --schema is pack, bridge or pr-flows, not ${schemaName}\n`);
     return 1;
   }
   process.stdout.write(schemaText());
@@ -72,7 +73,7 @@ function decodedFilePath(urlPath: string): string | null {
   }
 }
 
-async function previewResponse(packDir: string, requestUrl: string, env: NodeJS.ProcessEnv, homeDir: string): Promise<PreviewResponse> {
+async function previewResponse(packDir: string, requestUrl: string, requestOrigin: string | undefined, env: NodeJS.ProcessEnv, homeDir: string): Promise<PreviewResponse> {
   const urlPath = new URL(requestUrl, `http://${PREVIEW_HOST}`).pathname;
   const read = await readPackDir(packDir, env);
   const pack = read.ok ? read.pack : null;
@@ -80,12 +81,12 @@ async function previewResponse(packDir: string, requestUrl: string, env: NodeJS.
     const filePath = decodedFilePath(urlPath);
     const bytes = filePath === null ? undefined : pack?.filesByPath.get(filePath);
     if (filePath === null || bytes === undefined) return { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' }, body: 'Not a file in the pack' };
-    return { status: 200, headers: { ...packFileHeaders(filePath), 'Cache-Control': 'no-store' }, body: bytes };
+    return { status: 200, headers: { ...packFileHeaders(filePath, requestOrigin), 'Cache-Control': 'no-store' }, body: bytes };
   }
   if (urlPath !== '/') return { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' }, body: 'Not found' };
   const approvedFingerprints = readApprovedPackFingerprints(homeDir);
   const report = await checkPack(packDir, env, (fingerprint) => approvedFingerprints.has(fingerprint));
-  const page = previewHostPage({ title: `Pack preview: ${report.name ?? path.basename(packDir)}`, report: packReportText(report), pack, nowMs: Date.now() });
+  const page = previewHostPage({ title: `Pack preview: ${report.name ?? path.basename(packDir)}`, report: packReportText(report), hasProblem: packCheckHasProblem(report), pack, nowMs: Date.now() });
   return { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }, body: page };
 }
 
@@ -100,7 +101,7 @@ async function runPreview(packDir: string, portText: string | null, env: NodeJS.
       response.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Host not allowed');
       return;
     }
-    previewResponse(packDir, request.url ?? '/', env, homeDir).then(
+    previewResponse(packDir, request.url ?? '/', request.headers.origin, env, homeDir).then(
       ({ status, headers, body }) => response.writeHead(status, headers).end(body),
       (error: unknown) => response.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' }).end(errorMessage(error)),
     );

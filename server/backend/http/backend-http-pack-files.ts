@@ -15,7 +15,7 @@ export function servePackFile(req: Request, res: Response, packFileSource: PackF
     res.status(404).end();
     return;
   }
-  for (const [name, value] of Object.entries(packFileHeaders(filePath))) res.setHeader(name, value);
+  for (const [name, value] of Object.entries(packFileHeaders(filePath, req.headers.origin))) res.setHeader(name, value);
   res.setHeader('Cache-Control', 'private, max-age=604800, immutable');
   res.setHeader('Content-Length', String(bytes.byteLength));
   res.end(bytes);

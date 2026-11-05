@@ -54,6 +54,14 @@ export function prFlowRulesJsonSchema(rulesSchema: z.ZodType): z.core.JSONSchema
   });
 }
 
+const SOURCE_PLACEHOLDERS = ['prUrl', 'repo', 'number', 'head'];
+export const PR_FLOW_PLACEHOLDERS_BY_KIND = { source: SOURCE_PLACEHOLDERS, action: [...SOURCE_PLACEHOLDERS, 'itemPath', 'itemLine'], 'pr-action': [...SOURCE_PLACEHOLDERS, 'headRef', 'baseRef'] } as const;
+
+function commandDescription(kind: keyof typeof PR_FLOW_PLACEHOLDERS_BY_KIND, runsWith: string): string {
+  const placeholders = PR_FLOW_PLACEHOLDERS_BY_KIND[kind].map((placeholderName) => `{${placeholderName}}`).join(', ');
+  return `The program and its arguments, run without a shell from the Glimmervoid home folder; an argument may hold ${placeholders}, and in a pack also {packDir}, the pack's folder. ${runsWith}`;
+}
+
 export const PrFlowCommand = z.strictObject({
   id: z.string().regex(PR_FLOW_ID, { error: 'an id is lowercase letters, digits and dashes' }),
   label: z.string().trim().min(1).max(24),
@@ -62,10 +70,23 @@ export const PrFlowCommand = z.strictObject({
 });
 export type PrFlowCommand = z.infer<typeof PrFlowCommand>;
 
-export const PrFlowScopedCommand = PrFlowCommand.extend({ repos: RepoScope });
+const COMMAND_ENV = 'Its environment has GLIMMERVOID_PR_URL, GLIMMERVOID_PR_REPO, GLIMMERVOID_PR_NUMBER and GLIMMERVOID_PR_HEAD';
+const ACTION_OUTCOME = 'Exit 0 means done and any other exit failed, unless stdout prints the action outcome JSON (glimmervoid packs guide --schema pr-flows)';
+
+export const PrFlowScopedCommand = PrFlowCommand.extend({
+  command: PrFlowCommand.shape.command.describe(commandDescription('source', `${COMMAND_ENV}. It must print the source output JSON (glimmervoid packs guide --schema pr-flows) on stdout; anything else shows as an error on the pull request`)),
+  repos: RepoScope,
+});
 export type PrFlowScopedCommand = z.infer<typeof PrFlowScopedCommand>;
 
-export const PrFlowPrAction = PrFlowScopedCommand;
+export const PrFlowItemAction = PrFlowCommand.extend({
+  command: PrFlowCommand.shape.command.describe(commandDescription('action', `${COMMAND_ENV}, and the review item as GLIMMERVOID_ITEM_JSON. ${ACTION_OUTCOME}`)),
+});
+
+export const PrFlowPrAction = PrFlowCommand.extend({
+  command: PrFlowCommand.shape.command.describe(commandDescription('pr-action', `${COMMAND_ENV}, GLIMMERVOID_PR_HEAD_REF, GLIMMERVOID_PR_BASE_REF and the pull request as GLIMMERVOID_PR_JSON. ${ACTION_OUTCOME}`)),
+  repos: RepoScope,
+});
 export type PrFlowPrAction = z.infer<typeof PrFlowPrAction>;
 
 export const PrFlowSourceFinding = z.strictObject({
@@ -90,6 +111,10 @@ export const PrFlowActionOutput = z.strictObject({
   outcome: z.enum(['done', 'started', 'refused', 'failed']), message: z.string().max(200).default(''),
 });
 export type PrFlowActionOutput = z.infer<typeof PrFlowActionOutput>;
+
+export function prFlowsOutputJsonSchemaText(): string {
+  return `${JSON.stringify({ sourceOutput: z.toJSONSchema(PrFlowSourceOutput, { io: 'input' }), actionOutcome: z.toJSONSchema(PrFlowActionOutput, { io: 'input' }) }, null, 2)}\n`;
+}
 
 export const ReportedPrFlowActionOutcome = z.looseObject({
   outcome: PrFlowActionOutput.shape.outcome, message: z.string().optional().catch(undefined),

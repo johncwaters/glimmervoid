@@ -11,7 +11,7 @@ import type { ParsedCommand } from './core/cli-spec-core.ts';
 import { decideConfigPath, glimmervoidHomeDir } from './core/config-path-core.ts';
 import { parseJsonOrNull } from './core/json-core.ts';
 import { commandFingerprint, expandPlaceholders, prFlowCommands, prFlowRules, scopedToRepo, unknownActionWarnings } from './github/core/pr-flows-core.ts';
-import { PR_FLOW_PLACEHOLDERS_BY_KIND } from './packs/pack-check.ts';
+import { PR_FLOW_PLACEHOLDERS_BY_KIND } from '../shared/contracts/pr-flows.ts';
 import { runPackCheckCli } from './packs/packs-cli.ts';
 import { createPrFlowsExternal } from './github/pr-flows-external.ts';
 

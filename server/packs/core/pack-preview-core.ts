@@ -21,13 +21,19 @@ const SAMPLE_PALETTE: ThemePalette = {
 };
 
 const SAMPLE_PULL_REQUEST = { key: 'acme/app#42', title: 'Speed up the deck import', url: 'https://github.com/acme/app/pull/42', author: 'sample-author' };
+const SAMPLE_REVIEW_NEEDING_ATTENTION = { key: 'acme/api#9', title: 'Retry webhook deliveries', url: 'https://github.com/acme/api/pull/9', author: 'other-author' };
 
-export function previewSampleTopics(nowMs: number): Omit<PackBridgeTopicData, 'theme'> {
+export const PREVIEW_FRAME_COUNT = 6;
+const PREVIEW_FRAME_MS = 5000;
+
+export function previewSampleTopics(nowMs: number, frameIndex = 0): Omit<PackBridgeTopicData, 'theme'> {
+  const isLoginBugWaiting = frameIndex % 2 === 0;
+  const loginBugSinceMs = isLoginBugWaiting ? nowMs - 90 * 1000 : nowMs + frameIndex * PREVIEW_FRAME_MS - PREVIEW_FRAME_MS;
   return {
   sessions: {
     sessions: [
       { id: 'sample-1', name: 'deck import', agent: 'claude-code', state: STATES.RUNNING, stateSinceMs: nowMs - 4 * 60 * 1000, taskTitle: 'Speed up the deck import' },
-      { id: 'sample-2', name: 'login bug', agent: 'codex', state: STATES.WAITING, stateSinceMs: nowMs - 90 * 1000, taskTitle: 'Fix the login redirect' },
+      { id: 'sample-2', name: 'login bug', agent: 'codex', state: isLoginBugWaiting ? STATES.WAITING : STATES.RUNNING, stateSinceMs: loginBugSinceMs, taskTitle: 'Fix the login redirect' },
       { id: 'sample-3', name: 'docs pass', agent: 'kimi', state: STATES.FAILED, stateSinceMs: nowMs - 20 * 60 * 1000, taskTitle: null },
       { id: 'sample-4', name: 'search index', agent: 'claude-code', state: STATES.RUNNING, stateSinceMs: nowMs - 45 * 60 * 1000, taskTitle: 'Rebuild the search index' },
       { id: 'sample-5', name: 'release notes', agent: 'codex', state: STATES.COMPLETE, stateSinceMs: nowMs - 3 * HOUR_MS, taskTitle: 'Draft the release notes' },
@@ -46,13 +52,13 @@ export function previewSampleTopics(nowMs: number): Omit<PackBridgeTopicData, 't
   },
   usage: {
     planLimits: [
-      { vendor: 'claude', fiveHour: { pct: 42, resetsAtMs: nowMs + 2 * HOUR_MS }, sevenDay: { pct: 91, resetsAtMs: nowMs + 72 * HOUR_MS } },
+      { vendor: 'claude', fiveHour: { pct: 42 + frameIndex * 3, resetsAtMs: nowMs + 2 * HOUR_MS }, sevenDay: { pct: 91, resetsAtMs: nowMs + 72 * HOUR_MS } },
       { vendor: 'codex', fiveHour: { pct: 100, resetsAtMs: nowMs + HOUR_MS / 3 }, sevenDay: null },
       { vendor: 'kimi', fiveHour: { pct: null, resetsAtMs: nowMs + 4 * HOUR_MS }, sevenDay: { pct: 5, resetsAtMs: null } },
     ],
   },
-  attention: { waiting: 1, finished: 1, failed: 1 },
-  'team-reviews': { ready: [SAMPLE_PULL_REQUEST], needsAttention: [], inReviewCount: 1, queuedCount: 3 },
+  attention: { waiting: isLoginBugWaiting ? 1 : 0, finished: 1, failed: 1 },
+  'team-reviews': { ready: [SAMPLE_PULL_REQUEST], needsAttention: [SAMPLE_REVIEW_NEEDING_ATTENTION], inReviewCount: 1, queuedCount: 3 },
   };
 }
 
@@ -86,8 +92,9 @@ addOptions(themeSelect, preview.themes);
 function currentPanel() {
   return preview.panels.find((panel) => panel.id === panelSelect.value);
 }
+let frameIndex = 0;
 function topicData(topic) {
-  if (topic !== 'theme') return preview.topics[topic];
+  if (topic !== 'theme') return preview.frames[frameIndex][topic];
   const theme = preview.themes.find((candidate) => candidate.id === themeSelect.value);
   return { id: theme.id, colors: theme.colors };
 }
@@ -134,6 +141,10 @@ window.addEventListener('message', (event) => {
   post({ v: 1, kind: 'hello', granted: grantedTopics });
   for (const topic of grantedTopics) postTopic(topic);
 });
+setInterval(() => {
+  frameIndex = (frameIndex + 1) % preview.frames.length;
+  for (const topic of grantedTopics.filter((granted) => granted !== 'theme')) postTopic(topic);
+}, ${PREVIEW_FRAME_MS});
 panelSelect.addEventListener('change', openPanel);
 themeSelect.addEventListener('change', () => {
   if (grantedTopics.includes('theme')) postTopic('theme');
@@ -146,8 +157,9 @@ function scriptJson(value: unknown): string {
   return JSON.stringify(value).replace(/</g, '\\u003c');
 }
 
-export function previewHostPage({ title, report, pack, nowMs }: { title: string; report: string; pack: PackOnDisk | null; nowMs: number }): string {
-  const preview = { report, panels: previewPanels(pack), themes: previewThemes(pack), topics: previewSampleTopics(nowMs), knownTopics: PackBridgeTopic.options, bridgeVersion: PACK_BRIDGE_VERSION };
+export function previewHostPage({ title, report, hasProblem, pack, nowMs }: { title: string; report: string; hasProblem: boolean; pack: PackOnDisk | null; nowMs: number }): string {
+  const frames = Array.from({ length: PREVIEW_FRAME_COUNT }, (_, frameIndex) => previewSampleTopics(nowMs, frameIndex));
+  const preview = { report, panels: previewPanels(pack), themes: previewThemes(pack), frames, knownTopics: PackBridgeTopic.options, bridgeVersion: PACK_BRIDGE_VERSION };
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><title>${title.replace(/[<&]/g, '')}</title>
 <style>
@@ -162,8 +174,8 @@ iframe[hidden] { display: none; }
 .swatch { padding: 10px; border-radius: 6px; background: var(--swatch); color: #fff; text-shadow: 0 1px 2px #000; font: 12px ui-monospace, monospace; }
 </style></head>
 <body>
-<header><strong>Pack preview</strong><label>Panel <select id="panel"></select></label><label>Theme <select id="theme"></select></label><span id="status"></span><span>Sample data, not your dashboard. Reload after editing the pack.</span></header>
-<pre id="report"></pre>
+<header><strong>Pack preview</strong><label>Panel <select id="panel"></select></label><label>Theme <select id="theme"></select></label><span id="status"></span><span>Sample data that changes every 5 seconds, not your dashboard. Reload after editing the pack.</span></header>
+<details${hasProblem ? ' open' : ''}><summary>Check report: ${hasProblem ? 'problems to fix' : 'no problems'}</summary><pre id="report"></pre></details>
 <iframe id="frame" title="Panel" sandbox="allow-scripts allow-forms"></iframe>
 <div id="swatches" hidden></div>
 <script>const preview = ${scriptJson(preview)};${HOST_SCRIPT}</script>

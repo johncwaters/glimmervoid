@@ -221,7 +221,7 @@ const OWNED_COMMAND_SPECS = {
     name: 'packs',
     summary: 'Build a Glimmervoid pack: read the guide, check and preview a pack folder, list the installed packs',
     subcommands: [
-      { name: 'guide', summary: 'How to build a pack: its rules, the workflow and example packs to copy; --schema prints a JSON Schema', options: [{ name: 'schema', type: 'string', valueName: 'pack|bridge', summary: 'Print only the pack.json (pack) or panel bridge (bridge) JSON Schema' }] },
+      { name: 'guide', summary: 'How to build a pack: its rules, the workflow and example packs to copy; --schema prints a JSON Schema', options: [{ name: 'schema', type: 'string', valueName: 'pack|bridge|pr-flows', summary: 'Print only the pack.json (pack), panel bridge (bridge) or prFlows command output (pr-flows) JSON Schema' }] },
       { name: 'check', summary: 'Check a pack folder as Glimmervoid loads it, and every file its pages load; exits 1 on any problem', positionals: PACK_FOLDER, options: [JSON_OPTION], missingArgumentHint: 'check needs a pack folder, for example "glimmervoid packs check ./my-pack"' },
       {
         name: 'preview',

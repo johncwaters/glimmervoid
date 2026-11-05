@@ -53,8 +53,11 @@ function packFileMime(filePath: string): string {
   return PACK_FILE_MIME_BY_EXTENSION[path.posix.extname(filePath).toLowerCase()] ?? 'application/octet-stream';
 }
 
-export function packFileHeaders(filePath: string): Record<string, string> {
-  return { 'Content-Security-Policy': PACK_PANEL_CONTENT_POLICY, 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Content-Type': packFileMime(filePath) };
+const OPAQUE_ORIGIN = 'null';
+
+export function packFileHeaders(filePath: string, requestOrigin: string | undefined): Record<string, string> {
+  const headers = { 'Content-Security-Policy': PACK_PANEL_CONTENT_POLICY, 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Content-Type': packFileMime(filePath), Vary: 'Origin' };
+  return requestOrigin === OPAQUE_ORIGIN ? { ...headers, 'Access-Control-Allow-Origin': OPAQUE_ORIGIN } : headers;
 }
 
 export function uiSectionErrors(pack: PackOnDisk): string[] {
@@ -113,13 +116,50 @@ function attributeUrls(attributeName: string, value: string): string[] {
   return value.split(',').map((candidate) => candidate.trim().split(/\s+/)[0] ?? '');
 }
 
-function referencesIn(filePath: string, text: string): string[] {
+const JS_IMPORT_PATTERN = new RegExp(`\\b(?:import|export)\\b[^;'"]{0,${MAX_REFERENCE_LENGTH}}?\\bfrom\\s{0,64}["']([^"']{1,${MAX_REFERENCE_LENGTH}})["']|\\bimport\\s{0,64}\\(?\\s{0,64}["']([^"']{1,${MAX_REFERENCE_LENGTH}})["']`, 'g');
+const LINE_COMMENT_PATTERN = /^[ \t]*\/\/.*$/gm;
+const RELATIVE_IMPORT_PATTERN = /^\.{1,2}\//;
+
+function isScriptFile(filePath: string): boolean {
+  return filePath.endsWith('.js') || filePath.endsWith('.mjs');
+}
+
+type PageReference = { url: string; isImport: boolean };
+
+function jsImportsIn(text: string): PageReference[] {
+  return [...withoutDelimited(text, '/*', '*/').replace(LINE_COMMENT_PATTERN, '').matchAll(JS_IMPORT_PATTERN)].map((match) => ({ url: match[1] ?? match[2] ?? '', isImport: true }));
+}
+
+function linkReferences(urls: string[]): PageReference[] {
+  return urls.map((url) => ({ url, isImport: false }));
+}
+
+function inlineScriptsIn(html: string): string[] {
+  const scriptBodies: string[] = [];
+  const lowerHtml = html.toLowerCase();
+  let cursor = 0;
+  while (cursor < html.length) {
+    const openAt = lowerHtml.indexOf('<script', cursor);
+    const bodyStart = openAt === -1 ? -1 : lowerHtml.indexOf('>', openAt);
+    const closeAt = bodyStart === -1 ? -1 : lowerHtml.indexOf('</script', bodyStart);
+    if (closeAt === -1) return scriptBodies;
+    scriptBodies.push(html.slice(bodyStart + 1, closeAt));
+    cursor = closeAt;
+  }
+  return scriptBodies;
+}
+
+function rawReferencesIn(filePath: string, text: string): PageReference[] {
+  if (isScriptFile(filePath)) return jsImportsIn(text);
   const withoutComments = withoutDelimited(withoutDelimited(text, '<!--', '-->'), '/*', '*/');
-  const cssReferences = [...withoutComments.matchAll(CSS_REFERENCE_PATTERN)].map((match) => match[1] ?? match[2] ?? '');
-  const htmlReferences = filePath.endsWith('.html')
-    ? [...withoutComments.matchAll(HTML_REFERENCE_PATTERN)].flatMap((match) => attributeUrls(match[1] ?? '', match[2] ?? match[3] ?? match[4] ?? ''))
-    : [];
-  return [...htmlReferences, ...cssReferences].map((reference) => reference.trim()).filter((reference) => reference !== '' && !INERT_REFERENCE_PATTERN.test(reference));
+  const cssReferences = linkReferences([...withoutComments.matchAll(CSS_REFERENCE_PATTERN)].map((match) => match[1] ?? match[2] ?? ''));
+  if (!filePath.endsWith('.html')) return cssReferences;
+  const attributeReferences = linkReferences([...withoutComments.matchAll(HTML_REFERENCE_PATTERN)].flatMap((match) => attributeUrls(match[1] ?? '', match[2] ?? match[3] ?? match[4] ?? '')));
+  return [...attributeReferences, ...inlineScriptsIn(withoutComments).flatMap(jsImportsIn), ...cssReferences];
+}
+
+function referencesIn(filePath: string, text: string): PageReference[] {
+  return rawReferencesIn(filePath, text).map((reference) => ({ ...reference, url: reference.url.trim() })).filter((reference) => reference.url !== '' && !INERT_REFERENCE_PATTERN.test(reference.url));
 }
 
 function decodedPath(reference: string): string {
@@ -130,26 +170,47 @@ function decodedPath(reference: string): string {
   }
 }
 
-function referenceError(filePath: string, reference: string, filesByPath: ReadonlyMap<string, Buffer>): string | null {
+function referenceError(filePath: string, { url: reference, isImport }: PageReference, filesByPath: ReadonlyMap<string, Buffer>): string | null {
   if (REMOTE_REFERENCE_PATTERN.test(reference)) return `${filePath} loads ${reference}, but a panel has no network; put that file in the pack`;
   if (reference.startsWith('/')) return `${filePath} refers to ${reference}, an absolute path that leaves the pack; use a path relative to ${filePath}`;
-  const referencedPath = path.posix.normalize(path.posix.join(path.posix.dirname(filePath), decodedPath(reference.replace(/[?#].*$/, ''))));
+  if (isImport && !RELATIVE_IMPORT_PATTERN.test(reference)) return `${filePath} imports ${reference}, but a panel has no package resolver; import a file in the pack by a path starting with ./ or ../`;
+  const referencedPath = referencedPackPath(filePath, reference);
   if (referencedPath.startsWith('../')) return `${filePath} refers to ${reference}, which is outside the pack`;
   return filesByPath.has(referencedPath) ? null : `${filePath} refers to ${reference}, which is not a file in the pack`;
 }
 
+function referencedPackPath(filePath: string, reference: string): string {
+  return path.posix.normalize(path.posix.join(path.posix.dirname(filePath), decodedPath(reference.replace(/[?#].*$/, ''))));
+}
+
 export function panelReferenceErrors(filesByPath: ReadonlyMap<string, Buffer>): string[] {
-  return [...filesByPath].filter(([filePath]) => filePath.endsWith('.html') || filePath.endsWith('.css')).flatMap(([filePath, bytes]) => referencesIn(filePath, bytes.toString('utf8'))
+  return [...filesByPath].filter(([filePath]) => filePath.endsWith('.html') || filePath.endsWith('.css') || isScriptFile(filePath)).flatMap(([filePath, bytes]) => referencesIn(filePath, bytes.toString('utf8'))
     .map((reference) => referenceError(filePath, reference, filesByPath))
     .filter((error) => error !== null));
 }
 
 const SUBSCRIBED_TOPICS_PATTERN = /subscribe\(\s*\[([^\]]{0,500})\]|kind\s*:\s*['"]subscribe['"][^}]{0,500}?topics\s*:\s*\[([^\]]{0,500})\]/g;
 
-export function undeclaredSubscriptionErrors(filesByPath: ReadonlyMap<string, Buffer>, declaredReads: ReadonlySet<string>): string[] {
-  return [...filesByPath].filter(([filePath]) => filePath.endsWith('.js') || filePath.endsWith('.html')).flatMap(([filePath, bytes]) => {
-    const subscribedTopics = [...bytes.toString('utf8').matchAll(SUBSCRIBED_TOPICS_PATTERN)].flatMap((match) => [...(match[1] ?? match[2] ?? '').matchAll(/['"]([^'"]+)['"]/g)].map((topic) => topic[1] ?? ''));
-    return [...new Set(subscribedTopics)].filter((topic) => !declaredReads.has(topic))
-      .map((topic) => `${filePath} subscribes to '${topic}', which no panel lists under reads, so it never arrives; add it to reads or drop it`);
-  });
+function filesLoadedFrom(entry: string, filesByPath: ReadonlyMap<string, Buffer>): string[] {
+  const loadedPaths = new Set<string>();
+  const pendingPaths = [entry];
+  while (pendingPaths.length > 0) {
+    const filePath = pendingPaths.pop() ?? '';
+    const bytes = filesByPath.get(filePath);
+    if (loadedPaths.has(filePath) || bytes === undefined) continue;
+    loadedPaths.add(filePath);
+    if (!filePath.endsWith('.html') && !isScriptFile(filePath)) continue;
+    pendingPaths.push(...referencesIn(filePath, bytes.toString('utf8')).filter(({ url }) => !REMOTE_REFERENCE_PATTERN.test(url) && !url.startsWith('/')).map(({ url }) => referencedPackPath(filePath, url)));
+  }
+  return [...loadedPaths].filter((filePath) => filePath.endsWith('.html') || isScriptFile(filePath));
+}
+
+function subscribedTopicsIn(text: string): string[] {
+  return [...text.matchAll(SUBSCRIBED_TOPICS_PATTERN)].flatMap((match) => [...(match[1] ?? match[2] ?? '').matchAll(/['"]([^'"]+)['"]/g)].map((topic) => topic[1] ?? ''));
+}
+
+export function undeclaredSubscriptionErrors(filesByPath: ReadonlyMap<string, Buffer>, panels: readonly { id: string; entry: string; reads: readonly string[] }[]): string[] {
+  return panels.flatMap((panel) => filesLoadedFrom(panel.entry, filesByPath).flatMap((filePath) => [...new Set(subscribedTopicsIn(filesByPath.get(filePath)?.toString('utf8') ?? ''))]
+    .filter((topic) => !panel.reads.includes(topic))
+    .map((topic) => `${filePath} subscribes to '${topic}', which panel ${panel.id} does not list under reads, so it never arrives there; add it to that panel's reads or drop it`)));
 }

@@ -46,6 +46,11 @@ test('a pack panel file is served only from an approved pack at its current cont
     assert.match(policy, /connect-src 'none'/);
     assert.doesNotMatch(policy, /allow-same-origin/);
     assert.equal(served.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(served.headers.get('access-control-allow-origin'), null);
+    const fromSandboxedFrame = await fetch(`http://127.0.0.1:${port}${pendingUrl}`, { headers: { Origin: 'null' } });
+    assert.equal(fromSandboxedFrame.headers.get('access-control-allow-origin'), 'null');
+    const fromWebsite = await fetch(`http://127.0.0.1:${port}${pendingUrl}`, { headers: { Origin: 'https://example.com' } });
+    assert.equal(fromWebsite.headers.get('access-control-allow-origin'), null);
 
     assert.equal((await fetchPath(pendingUrl.replace('panel/index.html', 'panel%2F..%2F..%2Fpack.json'))).status, 404);
     assert.equal((await fetchPath(pendingUrl.replace('index.html', 'missing.html'))).status, 404);
