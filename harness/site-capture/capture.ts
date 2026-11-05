@@ -239,7 +239,6 @@ async function main(): Promise<void> {
     if (glimmervoidCalls) await fs.access(glimmervoidCalls);
     return { ...session, recording, patch, glimmervoidCalls };
   }));
-  if (manifest.shownFiles) manifest.shownFiles = path.resolve(manifestDirectory, manifest.shownFiles);
   manifest.projects = Object.fromEntries(Object.entries(manifest.projects).map(([projectName, seedDirectory]) => [projectName, path.resolve(manifestDirectory, seedDirectory)]));
   await fs.mkdir(options.outputDirectory, { recursive: true });
   await runIsolatedDashboard({

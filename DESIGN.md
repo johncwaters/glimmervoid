@@ -70,7 +70,7 @@ Always paired with a status icon; never carried by hue alone.
 Each role names a `--type-*` size token in `public/style.css`, and Tailwind exposes the same four as `text-meta`, `text-body`, `text-title`, `text-display`; `tests/gates/design-type-scale.test.ts` fails any other size and keeps these sizes equal to the tokens.
 
 - **Display** (700, `--type-display`, 0.1em tracking, uppercase): The GLIMMERVOID wordmark, the loading screen, and the big stat numbers. The only place tracking opens up this wide.
-- **Title** (700, `--type-title`): Page and section titles (settings sections, plan headings, shown pages, first run, merge celebration). Dialog titles stay at body size. Phone and dialog form fields also sit at 16px, because iOS Safari zooms the page into any smaller focused field.
+- **Title** (700, `--type-title`): Page and section titles (settings sections, plan headings, first run, merge celebration). Dialog titles stay at body size. Phone and dialog form fields also sit at 16px, because iOS Safari zooms the page into any smaller focused field.
 - **Body** (400, `--type-body`, line-height 1.5): Base reading size; the document default.
 - **Meta** (400, `--type-meta`, line-height ~1.55): Descriptions, summaries, secondary metadata. The workhorse of the dense panels, and the floor: CommitMono's 0.54 x-height keeps 12px legible.
 - **Label** (700, `--type-meta`, 0.08em tracking, uppercase): Field labels, section eyebrows, state badges. Shares the meta size and differs by weight, case, and tracking.

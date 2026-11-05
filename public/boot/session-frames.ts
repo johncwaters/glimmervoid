@@ -19,7 +19,6 @@ import { setSessionFailureReason } from '../session-card/card-problems.ts';
 import { setSessionHasPlan } from '../session-card/card-faces.ts';
 import { reconnectDataWs } from '../session-card/terminal-data-socket.ts';
 import { applySettingsProjects } from '../settings/settings-store.ts';
-import { onShownFilesChanged } from '../shown-files.ts';
 import { forgetReview, refreshReview } from '../review/review-store.ts';
 import { markStatusDirty, setStatusPainter } from '../status-paint.ts';
 import { setTraceSessions } from '../trace-store.ts';
@@ -40,8 +39,6 @@ function refreshRosterAndAttentionSurfaces() {
 }
 
 function wireStatusPainters() {
-  onShownFilesChanged(() => refreshFocusRoster());
-
   setStatusPainter((dirtySessionIds) => {
     refreshFocusRoster(dirtySessionIds);
     refreshAttentionSurfaces();

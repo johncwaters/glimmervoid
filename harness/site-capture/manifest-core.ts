@@ -36,7 +36,6 @@ export const CaptureManifest = z.strictObject({
   maxIdleGapMs: z.number().finite().nonnegative().default(2500),
   redactions: z.array(Redaction).default([]),
   sessions: z.array(CaptureSession).min(1),
-  shownFiles: z.string().min(1).optional(),
   boardSeed: z.string().min(1).optional(),
   shots: z.array(z.strictObject({
     atMs: z.number().finite().nonnegative(),

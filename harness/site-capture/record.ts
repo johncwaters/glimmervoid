@@ -48,7 +48,6 @@ const harnessClaudeConfigDirectoryName = 'claude-config';
 const agentHomeDirectoryName = 'agent-home';
 const claudeCredentialsFileName = '.credentials.json';
 const claudeGlobalConfigFileName = '.claude.json';
-const shownFilesDirectoryName = 'shown-files';
 const maxEnterAnswersPerSession = 3;
 const glimmervoidCliPath = path.resolve(import.meta.dirname, '../../bin/glimmervoid.ts');
 const glimmervoidCallLogPath = path.join(import.meta.dirname, 'glimmervoid-call-log.ts');
@@ -389,10 +388,8 @@ async function main(): Promise<void> {
       `exec ${quoteShell(realClaudePath)} ${isolationArguments} $permission_mode_arguments "$@"`,
     ].join('\n');
     await fs.writeFile(path.join(wrapperDirectory, 'claude'), `${wrapperScript}\n`, { mode: 0o755 });
-    const shownFilesDirectory = path.join(outputDirectory, shownFilesDirectoryName);
     const runCallLogPath = path.join(tempDirectory, 'glimmervoid-calls.jsonl');
-    await fs.mkdir(shownFilesDirectory, { recursive: true });
-    const callLogArguments = [process.execPath, glimmervoidCallLogPath, runCallLogPath, shownFilesDirectory, glimmervoidCliPath].map(quoteShell).join(' ');
+    const callLogArguments = [process.execPath, glimmervoidCallLogPath, runCallLogPath, glimmervoidCliPath].map(quoteShell).join(' ');
     const glimmervoidWrapperScript = `#!/bin/sh\nexec ${callLogArguments} "$@"`;
     await fs.writeFile(path.join(wrapperDirectory, 'glimmervoid'), `${glimmervoidWrapperScript}\n`, { mode: 0o755 });
     process.env.PATH = `${wrapperDirectory}${path.delimiter}${savedPath}`;

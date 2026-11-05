@@ -1,7 +1,7 @@
 import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
 import { wireColumnResizer } from '../column-resizer.ts';
 import { el } from '../dom-helpers.ts';
-import { createLineIcon, IMAGE_ICON_PATH, PLUS_ICON_PATH } from '../svg-dom.ts';
+import { createLineIcon, PLUS_ICON_PATH } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
 import { renderStatusLegend } from '../status-legend.ts';
 import { showFirstRunChecklist } from '../onboarding/first-run-loader.ts';
@@ -28,7 +28,6 @@ import type { SessionGroupHeader } from './roster-group-header.ts';
 import { buildSessionGroupHeader, paintSessionGroupHeader } from './roster-group-header.ts';
 import { buildAttentionBanner, paintAttentionBanner, pressAttentionBanner, sendAttentionTileToRow, tetherAttentionTile } from '../attention-banner.ts';
 import { buildSessionRow, paintBoardRow, paintSessionRow, wrapSessionRow } from '../session-row.ts';
-import { unopenedShownCountOf } from '../shown-files.ts';
 import { describeFailure } from '../client-error-core.ts';
 import { reportToServerLog } from '../control-ws.ts';
 import { boardSummariesOf, boardsConnectedTo, onBoardListChanged, takeOpenBoardRequest } from '../whiteboard/board-store.ts';
@@ -246,11 +245,7 @@ function buildPill(id: string) {
   const { item, removeButton } = wrapSessionRow(pill, () => requestSessionRemoval(id), () => undoPendingClose(id));
   item.setAttribute('role', 'presentation');
   removeButton.tabIndex = -1;
-  const shownCount = el('span', 'session-row-shown');
-  shownCount.hidden = true;
-  shownCount.append(createLineIcon(IMAGE_ICON_PATH), el('span', 'session-row-shown-count'));
-  refs.name.after(shownCount);
-  return Object.assign(pill, { _refs: refs, _row: item, _shownCount: shownCount });
+  return Object.assign(pill, { _refs: refs, _row: item });
 }
 
 function onPillPick(id: string) {
@@ -269,18 +264,10 @@ function centerOpenedSession(ui: SessionUi, id: string) {
   focusTerminalAfterSettle(ui, id);
 }
 
-function paintPillShownCount(shownCount: HTMLElement, unopenedCount: number) {
-  writeHiddenIfChanged(shownCount, unopenedCount === 0);
-  writeAttributeIfChanged(shownCount, 'aria-label', `${unopenedCount} shown ${unopenedCount === 1 ? 'file' : 'files'} not opened`);
-  const countText = shownCount.querySelector<HTMLElement>('.session-row-shown-count');
-  if (countText) writeTextIfChanged(countText, String(unopenedCount));
-}
-
 function paintPill(pill: FocusPill, { id, ui, state, name }: RosterRow, attentionPosition: number | null) {
   const mergeStatus = mergeStatusById.get(id) || 'none';
   pill.classList.toggle('focused', id === getFocusedSessionId());
   paintSessionRow(pill, pill._refs, { ui, state, name: name ?? '', mergeStatus: mergeStatus === 'none' ? '' : mergeStatus, attentionPosition });
-  paintPillShownCount(pill._shownCount, unopenedShownCountOf(id));
   const isTabStop = id === railTabStopId;
   writeAttributeIfChanged(pill, 'aria-selected', String(isTabStop));
   writeAttributeIfChanged(pill, 'tabindex', isTabStop ? '0' : '-1');
