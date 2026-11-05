@@ -468,12 +468,25 @@ export function withStageSince(prs: readonly MyPr[], stageSinceByKey: ReadonlyMa
   return prs.map((pr) => ({ ...pr, stageSinceMs: stageSinceByKey.get(pr.key)?.sinceMs }));
 }
 
+const MERGEABILITY_STAGES: ReadonlySet<MyPrStage> = new Set(['conflicts', 'behind']);
+
+const STAGES_READ_WITHOUT_GUESSING: ReadonlySet<MyPrStage> = new Set(['merged', 'draft', 'conflicts', 'behind']);
+
+function isGuessedWhileGithubComputes(pr: MyPr): boolean {
+  if (STAGES_READ_WITHOUT_GUESSING.has(pr.stage)) return false;
+  return pr.mergeable === 'UNKNOWN' || pr.mergeStateStatus === 'UNKNOWN';
+}
+
+function mayHidePriorStage(pr: MyPr, priorStage: MyPrStage): boolean {
+  return pr.stage === 'unknown' || (MERGEABILITY_STAGES.has(priorStage) && isGuessedWhileGithubComputes(pr));
+}
+
 function stageSinceFor(prior: StageSinceRecord | undefined, pr: MyPr, nowMs: number): StageSinceRecord {
-  if (prior && (prior.stage === pr.stage || pr.stage === 'unknown')) return prior;
+  if (prior && (prior.stage === pr.stage || mayHidePriorStage(pr, prior.stage))) return prior;
   if (prior?.stage === 'unknown') return { ...prior, stage: pr.stage };
   if (prior) return { key: pr.key, stage: pr.stage, sinceMs: nowMs };
   const updatedAtMs = Date.parse(pr.updatedAt);
-  return { key: pr.key, stage: pr.stage, sinceMs: Number.isFinite(updatedAtMs) ? Math.min(updatedAtMs, nowMs) : nowMs };
+  return { key: pr.key, stage: isGuessedWhileGithubComputes(pr) ? 'unknown' : pr.stage, sinceMs: Number.isFinite(updatedAtMs) ? Math.min(updatedAtMs, nowMs) : nowMs };
 }
 
 export function withAutoRebase(pr: MyPr, record: MyPrAutoRebase | undefined): MyPr {

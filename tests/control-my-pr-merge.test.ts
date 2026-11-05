@@ -84,15 +84,17 @@ function mergeStateResponse(state: string, isInMergeQueue: boolean): CommandResu
 
 const MERGED_STATE = mergeStateResponse('MERGED', false);
 
-test('a store rollup change broadcasts my-prs status and its stage clock without a lane tick, the clock survives a restart, and Refresh polls its watches', async () => {
+test('a store rollup change broadcasts my-prs status and its stage clock without a lane tick, the clock survives a restart and GitHub recomputing mergeability, and Refresh polls its watches', async () => {
   const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'control-my-pr-store-'));
   let nowMs = Date.now();
-  let checksState: 'PENDING' | 'SUCCESS' = 'PENDING';
+  let checksState: 'PENDING' | 'SUCCESS' | 'FAILURE' = 'PENDING';
   let mergeable: 'MERGEABLE' | 'UNKNOWN' = 'MERGEABLE';
+  let mergeStateStatus = 'CLEAN';
+  let reviewDecision: 'APPROVED' | 'REVIEW_REQUIRED' = 'APPROVED';
   let laneTicks = 0;
   const searches: string[] = [];
   const statuses: MyPrsStatus[] = [];
-  const reads = storeReads(() => [readyNode({ mergeable, commits: { nodes: [{ commit: { statusCheckRollup: { state: checksState, contexts: { nodes: [] } } } }] } })]);
+  const reads = storeReads(() => [readyNode({ mergeable, mergeStateStatus, reviewDecision, commits: { nodes: [{ commit: { statusCheckRollup: { state: checksState, contexts: { nodes: [] } } } }] } })]);
   const github = {
     ...createPrGh(homeDir), ...reads,
     viewer: async () => 'me', behindCounts: async () => new Map<string, number>(), reviewThreadsBatch: async () => new Map(), rateLimitWaitMs: async () => null,
@@ -180,6 +182,33 @@ test('a store rollup change broadcasts my-prs status and its stage clock without
       await storeTick();
       await restartedStatus;
       assert.equal(restarted.getStatus().prs[0]?.stageSinceMs, stageChangedAtMs);
+      mergeStateStatus = 'BEHIND';
+      reviewDecision = 'REVIEW_REQUIRED';
+      nowMs += 60_000;
+      await storeTick();
+      assert.equal(restarted.getStatus().prs[0]?.stage, 'behind');
+      const behindSinceMs = nowMs;
+      assert.equal(restarted.getStatus().prs[0]?.stageSinceMs, behindSinceMs);
+      for (const [mergeabilityWhileGithubComputes, mergeStateWhileGithubComputes] of [['UNKNOWN', 'UNKNOWN'], ['MERGEABLE', 'BEHIND']] as const) {
+        mergeable = mergeabilityWhileGithubComputes;
+        mergeStateStatus = mergeStateWhileGithubComputes;
+        nowMs += 60_000;
+        await storeTick();
+      }
+      assert.equal(restarted.getStatus().prs[0]?.stage, 'behind');
+      assert.equal(restarted.getStatus().prs[0]?.stageSinceMs, behindSinceMs);
+      mergeStateStatus = 'CLEAN';
+      reviewDecision = 'APPROVED';
+      checksState = 'PENDING';
+      nowMs += 60_000;
+      await storeTick();
+      assert.equal(restarted.getStatus().prs[0]?.stage, 'checks-pending');
+      checksState = 'FAILURE';
+      mergeStateStatus = 'UNKNOWN';
+      nowMs += 60_000;
+      await storeTick();
+      assert.equal(restarted.getStatus().prs[0]?.stage, 'checks-failing');
+      assert.equal(restarted.getStatus().prs[0]?.stageSinceMs, nowMs);
     } finally {
       await restarted.stopPoller();
     }

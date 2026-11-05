@@ -1,7 +1,7 @@
 import type { FindingSeverity, InFlightReview, QueuedReview, ReviewDraft } from '#shared/contracts/team-review.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { createAuthorOrgTag, createAvatar, createReviewerStack, el, externalLink } from '../dom-helpers.ts';
-import { formatAgo } from '../poll-ago.ts';
+import { formatAgo, formatDuration } from '../poll-ago.ts';
 import { createPrStatusIcon } from './pr-status-icon.ts';
 import { createSvgIcon as svgIcon, createSvgShape as svgShape } from '../svg-dom.ts';
 import { githubReviewItems, githubReviewTitle, inFlightElapsedText, queueRowAgentParts, phaseLabel, pullRequestLabel, queueRowTitle, queueRowRefLabel, severityPresentation, queueRowGlyph, verdictHeading, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice } from './team-review-view-core.ts';
@@ -115,7 +115,8 @@ function trackAges(root: Element | null): void {
     if (readout.dataset.reviewTitle !== undefined) continue;
     const at = Number(readout.dataset.ageAt);
     const label = readout.dataset.ageLabel ?? '';
-    _ageTicker.track(readout, at, () => `${label}${label ? ' ' : ''}${formatAgo(at)}`);
+    const ageText = readout.dataset.ageFormat === 'duration' ? () => formatDuration(Date.now() - at) : () => formatAgo(at);
+    _ageTicker.track(readout, at, () => `${label}${label ? ' ' : ''}${ageText()}`);
   }
 }
 
