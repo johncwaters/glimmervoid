@@ -266,3 +266,29 @@ for (const endingEvent of ['Interrupt', 'StopFailure']) {
     assert.equal(session.state, STATES.COMPLETE);
   });
 }
+
+for (const [hooksReportPrompts, expectedTransitions] of [
+  [true, [STATES.RUNNING, STATES.IDLE]],
+  [false, [STATES.RUNNING, STATES.COMPLETE]],
+] as const) {
+  test(`codex title spin then truncated idle title settles to ${expectedTransitions[1]} when hooks report prompts is ${hooksReportPrompts}`, (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    const session = new Session({ id: 'codex-idle-spin', name: 'Video stats review', path: '/worktrees/quiz-shorts-assets-KGJc7E', agent: 'codex', statusConflictMs: 20, statusDedupMs: 10 });
+    t.after(() => session.destroy());
+    session.state = STATES.IDLE;
+    session._applyTitleContext();
+    session._hooksReportPrompts = hooksReportPrompts;
+    const transitions: string[] = [];
+    session.on('state-change', ({ to }) => transitions.push(to));
+    const spinnerFrame = String.fromCharCode(0x280b);
+
+    session._titleSource.feed(`\x1b]0;${spinnerFrame} quiz-shorts-assets-KG...\x07`);
+    t.mock.timers.tick(100);
+    session._titleSource.feed('\x1b]0;quiz-shorts-assets-KG...\x07');
+    t.mock.timers.tick(2000);
+    t.mock.timers.tick(100);
+
+    assert.deepEqual(transitions, expectedTransitions);
+    assert.notEqual(session.refinedTaskTitle, 'quiz-shorts-assets-KG...');
+  });
+}

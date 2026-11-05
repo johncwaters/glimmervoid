@@ -107,6 +107,7 @@ interface AgentHookProfile extends HookProfile {
 interface AgentTitleProfile extends TitleProfile {
   quietUntilFirstPrompt?: boolean;
   taskTitle: TaskTitleVocabulary;
+  projectTitleOf?(cwdBasename: string): string;
 }
 
 interface AgentArgsOptions {

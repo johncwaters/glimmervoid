@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A resumed Codex session sitting idle no longer gets stuck as running. When its worktree name was longer than 24 characters, Codex shortened the name in its terminal title and Glimmervoid stopped recognising the idle title. Codex also shows a busy spinner in its title while MCP servers start, even with no prompt sent. The card now returns to idle once that spinner stops, with no false done notification. The shortened name is no longer picked up as the session's task title either.
 - On the phone Focus list, tapping a session's board or pull request line opens that session instead of the board or pull request. The links still show on the row; open a board from Boards.
 
 ## [0.52.1] - 2026-11-04
