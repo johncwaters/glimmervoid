@@ -1,61 +1,10 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
-import path from 'node:path';
 import { pipeline } from 'node:stream';
 import type { Request, Response } from 'express';
-import type { Session } from '../../../session/sessions.ts';
-import { checkAgentReply } from '../../core/agent-api-core.ts';
 import { decideByteRange } from '../../core/custom-sounds-core.ts';
-import { describeOverCap, isShownPageMime, leavesVisibleRawTextOpen, SHOWN_PAGE_ZOOM_BRIDGE, SHOWN_SNIFF_BYTES } from '../../core/shown-files-core.ts';
-import { SHOWN_CAPTION_MAX_CHARS, SHOWN_FILE_CAP_BYTES } from '../../../shared/contracts/session.ts';
+import { isShownPageMime, leavesVisibleRawTextOpen, SHOWN_PAGE_ZOOM_BRIDGE, SHOWN_SNIFF_BYTES } from '../../core/shown-files-core.ts';
 import type { ServableShownFile, ShownFilesPort } from '../../session/shown-files-wiring.ts';
-import { declaredContentLength, decodeHeaderText } from './backend-http-body.ts';
-import { UPLOAD_FAILURE_REPLIES, streamRequestToFile } from './backend-http-uploads.ts';
-
-function sendShowReply({ res, logger }: { res: Response; logger: Pick<Console, 'warn'> }, status: number, body: Record<string, unknown>): void {
-  if (res.headersSent) return;
-  const checked = checkAgentReply('show', { status, body });
-  if (!checked.ok) logger.warn(`[agent-api] show reply broke its contract: ${checked.issue}`);
-  res.status(checked.reply.status).json(checked.reply.body);
-}
-
-function answerShow({ req, res, session, shownFiles, logger }: {
-  req: Request;
-  res: Response;
-  session: Session;
-  shownFiles: ShownFilesPort;
-  logger: Pick<Console, 'warn'>;
-}): void {
-  const answer = (status: number, body: Record<string, unknown>) => sendShowReply({ res, logger }, status, body);
-  const name = path.basename(decodeHeaderText(req.headers['x-glimmervoid-show-name']) ?? '');
-  if (!name) {
-    answer(400, { ok: false, error: 'show needs the file name in x-glimmervoid-show-name' });
-    return;
-  }
-  const caption = decodeHeaderText(req.headers['x-glimmervoid-show-caption'])?.slice(0, SHOWN_CAPTION_MAX_CHARS) ?? null;
-  const declaredBytes = declaredContentLength(req);
-  if (declaredBytes !== null && declaredBytes > SHOWN_FILE_CAP_BYTES) {
-    answer(413, { ok: false, error: describeOverCap(name, declaredBytes) });
-    req.resume();
-    return;
-  }
-  void shownFiles.reserveIncomingPath(session.id).then(async (incomingPath) => {
-    const outcome = await streamRequestToFile({ req, savedPath: incomingPath, capBytes: SHOWN_FILE_CAP_BYTES });
-    if (!outcome.ok) {
-      const failure = UPLOAD_FAILURE_REPLIES[outcome.reason];
-      answer(failure.status, { ok: false, error: outcome.reason === 'over-cap' ? describeOverCap(name, declaredBytes) : failure.error });
-      return;
-    }
-    const admitted = await shownFiles.admit(session, { incomingPath, name, caption, sizeBytes: outcome.sizeBytes });
-    if (!admitted.ok) {
-      answer(admitted.status, { ok: false, error: admitted.error });
-      return;
-    }
-    answer(200, { ok: true, shown: { name: admitted.file.name, kind: admitted.file.kind } });
-  }).catch(() => {
-    answer(500, { ok: false, error: 'could not store the file' });
-  });
-}
 
 const SHOWN_FILE_SANDBOX_POLICY = 'sandbox allow-scripts allow-popups allow-modals allow-forms';
 
@@ -127,4 +76,4 @@ function serveShownFile(req: Request, res: Response, shownFiles: ShownFilesPort 
   pipeline(fs.createReadStream(servable.path), res, () => {});
 }
 
-export { answerShow, sendShowReply, serveShownFile };
+export { serveShownFile };

@@ -41,7 +41,7 @@ import { WHITEBOARD_ASSET_ROUTE } from '../../shared/contracts/whiteboard.ts';
 import { buildUploadFilename, decideUploadType, exceedsUploadCap, imageMimeForUploadFilename, isSafePathSegment } from '../core/upload-core.ts';
 import { declaredContentLength, decodeHeaderText, parseJsonBody, readCappedBody } from './http/backend-http-body.ts';
 import { UPLOAD_FAILURE_REPLIES, UPLOAD_OVER_CAP_ERROR, receiveUpload, streamRequestToFile } from './http/backend-http-uploads.ts';
-import { answerShow, sendShowReply, serveShownFile } from './http/backend-http-shown-files.ts';
+import { serveShownFile } from './http/backend-http-shown-files.ts';
 import { servePackFile } from './http/backend-http-pack-files.ts';
 import type { PackFileSource } from './http/backend-http-pack-files.ts';
 import { serveClientDir } from './http/backend-http-static.ts';
@@ -347,31 +347,6 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
   mountAgentMcp(app, {
     getSession, getAgentApi, getShownFiles, getWhiteboardAssets, isLoopback: isLoopbackRequest, logger,
     isOriginAllowed: (req) => decideOriginAllowed(req.headers.origin, [], { listenerPorts: req.socket.localPort ?? [] }),
-  });
-
-  app.post('/agent/:glimmervoidId/show', (req, res) => {
-    const agentApi = getAgentApi();
-    const shownFiles = getShownFiles();
-    const session = getSession(req.params.glimmervoidId);
-    const verdict = decideAgentRequest({
-      sessionId: req.params.glimmervoidId,
-      presentedToken: presentedToken(req),
-      expectedToken: session?.agentToken ?? null,
-      isLoopback: isLoopbackRequest(req),
-    });
-    if (!verdict.ok || !session || !agentApi || !shownFiles) {
-      req.resume();
-      refuseAgentRequest(res);
-      return;
-    }
-    const roleRefusal = agentApi.refuseRole(session, 'show');
-    if (roleRefusal) {
-      req.resume();
-      sendShowReply({ res, logger }, roleRefusal.status, roleRefusal.body);
-      return;
-    }
-    session.noteCommandRan('show');
-    answerShow({ req, res, session, shownFiles, logger });
   });
 
   app.post('/agent/:glimmervoidId/:verb', (req, res) => {

@@ -1,12 +1,10 @@
 
 import fs from 'node:fs';
-import http from 'node:http';
 import path from 'node:path';
-import { pipeline } from 'node:stream';
 
 import { resolveHookTarget } from '../session/core/hook-relay-core.ts';
 import { formatSessionLimits } from '../session/core/session-routes.ts';
-import { AgentLimitsReply, AGENT_URL_ENV, SHOWN_CAPTION_MAX_CHARS, SHOWN_FILE_CAP_BYTES } from '../shared/contracts/session.ts';
+import { AgentLimitsReply, AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import type { AgentApiVerb } from '../shared/contracts/session.ts';
 import { UNIT_STATUSES, WhiteboardAgentReply } from '../shared/contracts/whiteboard.ts';
 import type { Board, BoardChange, BoardReview, BoardSummary, Op } from '../shared/contracts/whiteboard.ts';
@@ -18,7 +16,6 @@ import { AGENT_COMMAND_HELP, agentCommandSpec, isAgentApiVerb } from './core/age
 import { parseCommand } from './core/cli-spec-core.ts';
 import type { ParsedCommand } from './core/cli-spec-core.ts';
 import { parseJsonOrNull } from './core/json-core.ts';
-import { describeOverCap } from './core/shown-files-core.ts';
 
 const AGENT_PATH_PREFIX = '/agent/';
 const HELP_LIMITS_TIMEOUT_MS = 2000;
@@ -84,7 +81,7 @@ function answerBody({ values, positionals }: ParsedArguments): Record<string, un
   return { child, answers };
 }
 
-const BODY_BUILDERS: Record<Exclude<AgentApiVerb, 'show'>, BodyBuilder> = {
+const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
   spawn: ({ positionals }) => {
     const prompt = joinedText(positionals);
     return prompt ? { prompt } : null;
@@ -165,36 +162,6 @@ async function postDirectly({ endpoint, headers, bodyText, deadline }: AgentPost
   return { hasSuccessStatus: response.ok, text: await response.text() };
 }
 
-interface HttpTarget {
-  hostname: string;
-  port: string;
-  path: string;
-  headers: Record<string, string>;
-}
-
-function requestOverHttp(target: HttpTarget, deadline: AbortSignal | null, sendBody: (request: http.ClientRequest) => void): Promise<AgentReply> {
-  return new Promise((resolve, reject) => {
-    const request = http.request({
-      host: target.hostname,
-      port: target.port,
-      method: 'POST',
-      path: target.path,
-      headers: target.headers,
-      ...(deadline ? { signal: deadline } : {}),
-    }, (response) => {
-      const chunks: Buffer[] = [];
-      response.on('data', (chunk: Buffer) => { chunks.push(chunk); });
-      response.on('error', reject);
-      response.on('end', () => {
-        const statusCode = response.statusCode ?? 0;
-        resolve({ hasSuccessStatus: statusCode >= 200 && statusCode < 300, text: Buffer.concat(chunks).toString('utf8') });
-      });
-    });
-    request.on('error', reject);
-    sendBody(request);
-  });
-}
-
 interface AgentIngressCall {
   endpoint: URL;
   token: string;
@@ -223,90 +190,6 @@ async function sessionLimitsHelpLines({ timeoutMs = HELP_LIMITS_TIMEOUT_MS }: { 
   } catch {
     return [HELP_LIMITS_UNKNOWN_LINE];
   }
-}
-
-interface ShowRequest {
-  filePaths: string[];
-  caption: string | null;
-}
-
-interface FileToShow {
-  filePath: string;
-  name: string;
-  sizeBytes: number;
-}
-
-function showRequestOf({ values, positionals }: ParsedArguments): ShowRequest {
-  const caption = typeof values.caption === 'string' ? values.caption.trim().slice(0, SHOWN_CAPTION_MAX_CHARS) : '';
-  return { filePaths: positionals, caption: caption || null };
-}
-
-async function statFileToShow(filePath: string): Promise<FileToShow | string> {
-  const absolutePath = path.resolve(filePath);
-  const stats = await fs.promises.stat(absolutePath).catch(() => null);
-  if (!stats?.isFile()) return `${filePath} is not a file this session can read`;
-  if (stats.size > SHOWN_FILE_CAP_BYTES) return describeOverCap(filePath, stats.size);
-  return { filePath: absolutePath, name: path.basename(absolutePath), sizeBytes: stats.size };
-}
-
-function showHeaders(token: string, file: FileToShow, caption: string | null): Record<string, string> {
-  const headers: Record<string, string> = {
-    authorization: `Bearer ${token}`,
-    'content-type': 'application/octet-stream',
-    'content-length': String(file.sizeBytes),
-    'x-glimmervoid-show-name': encodeURIComponent(file.name),
-  };
-  if (caption) headers['x-glimmervoid-show-caption'] = encodeURIComponent(caption);
-  return headers;
-}
-
-function streamFileBody(filePath: string): (request: http.ClientRequest) => void {
-  return (request) => {
-    pipeline(fs.createReadStream(filePath), request, (error) => {
-      if (error) request.destroy(error);
-    });
-  };
-}
-
-async function postFileToShow(endpoint: URL, token: string, file: FileToShow, caption: string | null): Promise<AgentReply> {
-  const headers = showHeaders(token, file, caption);
-  const directTarget: HttpTarget = { hostname: endpoint.hostname, port: endpoint.port, path: `${endpoint.pathname}${endpoint.search}`, headers };
-  return requestOverHttp(directTarget, null, streamFileBody(file.filePath));
-}
-
-function replyError(replyText: string): string {
-  const reply: unknown = parseJsonOrNull(replyText);
-  const error = typeof reply === 'object' && reply !== null ? (reply as { error?: unknown }).error : null;
-  return typeof error === 'string' ? error : `Glimmervoid answered ${replyText || 'nothing'}`;
-}
-
-async function runShowCommand(parsed: ParsedArguments): Promise<number> {
-  const request = showRequestOf(parsed);
-  const target = sessionEndpoint('show');
-  if (!target.ok) {
-    console.error(target.error);
-    return 1;
-  }
-  const filesToShow: FileToShow[] = [];
-  for (const filePath of request.filePaths) {
-    const checked = await statFileToShow(filePath);
-    if (typeof checked === 'string') {
-      console.log(JSON.stringify({ ok: false, error: checked, shown: [] }));
-      return 1;
-    }
-    filesToShow.push(checked);
-  }
-  const shown: unknown[] = [];
-  for (const file of filesToShow) {
-    const reply = await postFileToShow(target.endpoint, target.token, file, request.caption);
-    if (!reply.hasSuccessStatus || !bodySaysOk(reply.text)) {
-      console.log(JSON.stringify({ ok: false, error: replyError(reply.text), shown }));
-      return 1;
-    }
-    shown.push((parseJsonOrNull(reply.text) as { shown?: unknown } | null)?.shown ?? { name: file.name });
-  }
-  console.log(JSON.stringify({ ok: true, shown }));
-  return 0;
 }
 
 const MAX_UNIT_ID_LENGTH = 40;
@@ -493,7 +376,6 @@ async function runAgentApiCli(args: string[]): Promise<number> {
     console.error(parsed.text);
     return 1;
   }
-  if (verb === 'show') return runShowCommand(parsed);
   if (verb === 'whiteboard' && parsed.commandPath[1] === 'plan') return runPlanCommand(parsed);
   if (verb === 'whiteboard' && isLayoutCommand(parsed)) return runLayoutCommand(parsed);
   const body = BODY_BUILDERS[verb](parsed);

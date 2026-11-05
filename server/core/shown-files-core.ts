@@ -1,6 +1,5 @@
 import path from 'node:path';
 
-import { SHOWN_FILE_CAP_BYTES } from '../../shared/contracts/session.ts';
 import type { ShownFile, ShownFileKind } from '../../shared/contracts/session.ts';
 
 type ThumbnailRecipe = 'image' | 'video-poster' | 'none';
@@ -19,7 +18,6 @@ const SHOWN_SNIFF_BYTES = 64 * 1024;
 const SHOWN_THUMBNAIL_MAX_EDGE_PX = 320;
 const THUMBNAIL_SUFFIX = '.thumb.webp';
 const PAGE_TITLE_MAX_CHARS = 200;
-const BYTES_PER_MEGABYTE = 1024 * 1024;
 const ACCEPTED_KINDS_TEXT = 'PNG, JPEG, WebP, GIF, SVG, MP4, WebM or HTML';
 
 const PNG: ShownFormat = { kind: 'image', mime: 'image/png', extension: '.png' };
@@ -162,16 +160,6 @@ function shownMimeForFilename(filename: string): string | null {
   return SHOWN_FORMATS.find((format) => format.extension === extension)?.mime ?? null;
 }
 
-function megabytesOf(sizeBytes: number): number {
-  return Math.ceil(sizeBytes / BYTES_PER_MEGABYTE);
-}
-
-function describeOverCap(name: string, sizeBytes: number | null): string {
-  const limit = `show takes files up to ${megabytesOf(SHOWN_FILE_CAP_BYTES)} MB`;
-  if (sizeBytes === null) return `${name} is too large; ${limit}`;
-  return `${name} is ${megabytesOf(sizeBytes)} MB; ${limit}`;
-}
-
 function readPageTitle(firstChunk: Buffer): string | null {
   const titleMatch = PAGE_TITLE_RE.exec(firstChunk.subarray(0, SHOWN_SNIFF_BYTES).toString('utf8'));
   const title = titleMatch?.[1]?.replace(/\s+/g, ' ').trim() ?? '';
@@ -197,5 +185,5 @@ function thumbnailOwnerIdOf(filename: string): string | null {
   return filename.endsWith(THUMBNAIL_SUFFIX) ? filename.slice(0, -THUMBNAIL_SUFFIX.length) : null;
 }
 
-export { decideShownKind, describeOverCap, filesAfterRetention, isShownPageMime, leavesVisibleRawTextOpen, readPageTitle, shownMimeForFilename, thumbnailFilenameOf, thumbnailOwnerIdOf, thumbnailRecipeFor, SHOWN_PAGE_ZOOM_BRIDGE, SHOWN_SNIFF_BYTES, SHOWN_THUMBNAIL_MAX_EDGE_PX };
+export { decideShownKind, filesAfterRetention, isShownPageMime, leavesVisibleRawTextOpen, readPageTitle, shownMimeForFilename, thumbnailFilenameOf, thumbnailOwnerIdOf, thumbnailRecipeFor, SHOWN_PAGE_ZOOM_BRIDGE, SHOWN_SNIFF_BYTES, SHOWN_THUMBNAIL_MAX_EDGE_PX };
 export type { ThumbnailRecipe };

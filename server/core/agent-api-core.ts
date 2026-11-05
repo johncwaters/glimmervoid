@@ -6,7 +6,7 @@ import { pullRequestKeyFromReference } from '../../shared/contracts/control-mess
 import {
   AGENT_API_VERBS, AGENT_REPLY_SCHEMAS, AgentAnswerRequest, AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPullRequestRequest, AgentReadRequest, AgentReviewsRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest, AgentWhyRequest, AgentCheckoutRequest, AgentPacksRequest,
 } from '../../shared/contracts/session.ts';
-import type { AgentApiVerb, AgentPrsReply, AgentRefusal, AgentReplyBodyOf, AgentReviewDetailReply, AgentReviewsReply } from '../../shared/contracts/session.ts';
+import type { AgentApiVerb, SessionCommand, AgentPrsReply, AgentRefusal, AgentReplyBodyOf, AgentReviewDetailReply, AgentReviewsReply } from '../../shared/contracts/session.ts';
 import type { MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
 import { WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import { renderOverviewLine } from './cli-spec-core.ts';
@@ -58,7 +58,6 @@ interface AgentRequestByVerb {
   board: EmptyRequest;
   push: EmptyRequest;
   edit: AgentEditRequest;
-  show: EmptyRequest;
   limits: EmptyRequest;
   review: PullRequestKeyRequest;
   reviews: ReviewsRequest;
@@ -148,7 +147,7 @@ function decideSpawnAllowance({ liveChildren, lifetimeSpawns, inFlight }: SpawnB
   return { ok: true };
 }
 
-function describeRoleRefusal(verb: AgentApiVerb, caller: SessionRoleFacts): AgentRefusalReply | null {
+function describeRoleRefusal(verb: AgentApiVerb | SessionCommand, caller: SessionRoleFacts): AgentRefusalReply | null {
   const route = COMMAND_ROUTES[verb](caller);
   if (route.answers) return null;
   if (route.code) return { status: PUSH_REFUSED_STATUS, body: { ok: false, reason: route.code, error: route.reason } };
@@ -200,7 +199,6 @@ const REQUEST_PARSERS: { readonly [V in AgentApiVerb]: RequestParser<AgentReques
   board: parseEmptyBody,
   push: parseEmptyBody,
   edit: bodyParser(AgentEditRequest),
-  show: parseEmptyBody,
   limits: parseEmptyBody,
   review: parsePullRequestBody,
   reviews: parseReviewsBody,
@@ -463,14 +461,6 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     positionals: requiredText('<path>'),
     summary: 'Open a text file for the operator to edit in the dashboard',
     missingArgumentHint: 'this command needs a file path, for example "glimmervoid edit drafts/post.md"',
-  },
-  show: {
-    whenToUse: 'Use it after making a screenshot, chart, recording or HTML page the operator should see',
-    usage: 'show <path>... [--caption <text>]',
-    positionals: requiredText('<path>...'),
-    options: [{ name: 'caption', type: 'string', valueName: 'text', summary: 'A caption shown with the files' }],
-    summary: "Show the operator an image, video or HTML page on this session's card",
-    missingArgumentHint: 'this command needs a file path, for example "glimmervoid show out/diagram.png --caption \'the new layout\'"',
   },
   review: {
     whenToUse: 'Use it instead of gh pr review when a pull request needs a review the operator posts',

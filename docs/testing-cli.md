@@ -64,7 +64,6 @@ Inside a Glimmervoid session:
   board               List the live sessions. Use it to see what other sessions are working on before touching shared code
   push                Land this session's commits on the integration branch and push it. Use it when this session's commits are ready to land
   edit <path>         Open a text file for the operator to edit in the dashboard. Use it when the operator should write or correct text, such as a plan or a prompt
-  show <path>... [--caption <text>] Show the operator an image, video or HTML page on this session's card. Use it after making a screenshot, chart, recording or HTML page the operator should see
   review <pr>         Queue a team review of a pull request; the draft waits in the Reviews tab for the operator to post. Use it instead of gh pr review when a pull request needs a review the operator posts
   reviews [pr]        List the Reviews tab: reviews running, queued and drafted; with a pull request, read its draft in full. Use it to follow a queued review or read its draft
   prs                 List the operator's open pull requests with their checks, reviews and merge state. Use it to find which of the operator's pull requests need work

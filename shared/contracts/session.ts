@@ -111,8 +111,9 @@ export const SshSignReply = z.union([
 
 export type SshSignRequest = z.infer<typeof SshSignRequest>;
 export type SshSignReply = z.infer<typeof SshSignReply>;
-export const SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'board', 'edit', 'show', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs'] as const;
-export const AGENT_API_VERBS = [...SESSION_COMMANDS, 'limits', 'answer'] as const;
+const CLI_SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'board', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs'] as const;
+export const SESSION_COMMANDS = [...CLI_SESSION_COMMANDS, 'show'] as const;
+export const AGENT_API_VERBS = [...CLI_SESSION_COMMANDS, 'limits', 'answer'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
 
 
@@ -266,7 +267,7 @@ export const AgentEditRequest = z.object({
 
 export const SHOWN_FILE_CAP_BYTES = 200 * 1024 * 1024;
 export const SHOWN_FILES_KEPT_PER_SESSION = 50;
-export const SHOWN_CAPTION_MAX_CHARS = 500;
+const SHOWN_CAPTION_MAX_CHARS = 500;
 const SHOWN_FILE_KINDS = ['image', 'video', 'page'] as const;
 
 export const ShownFile = z.object({
@@ -318,7 +319,6 @@ export const AGENT_REPLY_SCHEMAS = Object.freeze({
   attention: z.union([AgentAttentionReply, AgentRefusal]),
   board: z.union([z.object({ ok: z.literal(true), sessions: z.array(AgentBoardRow) }).strict(), AgentRefusal]),
   edit: z.union([z.object({ ok: z.literal(true), path: z.string(), name: z.string() }).strict(), AgentRefusal]),
-  show: z.union([z.object({ ok: z.literal(true), shown: ShownFile.pick({ name: true, kind: true }).strict() }).strict(), AgentRefusal]),
   review: z.union([z.object({ ok: z.literal(true), key: z.string(), status: z.enum(['queued', 'running']), note: z.string() }).strict(), AgentRefusal]),
   reviews: z.union([AgentReviewsReply, AgentReviewDetailReply, AgentRefusal]),
   prs: z.union([AgentPrsReply, AgentRefusal]),
