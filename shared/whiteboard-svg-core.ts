@@ -1,5 +1,5 @@
 import { escapeMarkup } from './escape-markup.ts';
-import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutMedia, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutPanel, LaidOutUnit, LaidOutWire } from './whiteboard-layout-core.ts';
+import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutMedia, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutPanel, LaidOutUnit, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const BOX_TEXT_INSET = 12;
@@ -18,6 +18,8 @@ const RESIZE_HANDLE_SIZE = 10;
 const BAND_LABEL_BASELINE = 17;
 const LOOP_BADGE_RADIUS = 6;
 const LOOP_BADGE_INSET = 20;
+const OCCLUDER_MARGIN = 6;
+const OCCLUDER_CORNER_RADIUS = 8;
 const DECISION_POINT_INSET = 12;
 const OUTPUT_LABEL_BASELINE_OFFSET = 4;
 const OUTPUT_DOT_RADIUS = 3;
@@ -273,6 +275,22 @@ function elementMarkup(element: LaidOutElement, assetHref: AssetHref = NO_ASSET_
   }
 }
 
+type PageOccluder = Exclude<LaidOutElement, { kind: 'wire' | 'frame' }>;
+
+function occluderMarkup(occluder: PageOccluder): string {
+  const grownEdge = { fill: 'black', stroke: 'black', 'stroke-width': OCCLUDER_MARGIN * 2, 'stroke-linejoin': 'round' };
+  if (occluder.kind === 'box' && occluder.shape === 'decision') return tag('path', { d: decisionOutlinePath(occluder), ...grownEdge });
+  return tag('rect', { x: occluder.x, y: occluder.y, width: occluder.width, height: occluder.height, rx: OCCLUDER_CORNER_RADIUS, ...grownEdge });
+}
+
+function pageMaskImage(page: Rect, occluders: readonly PageOccluder[]): string | null {
+  if (occluders.length === 0) return null;
+  const pageArea = { x: page.x, y: page.y, width: page.width, height: page.height };
+  const mask = tag('mask', { id: 'page-mask', maskUnits: 'userSpaceOnUse', ...pageArea }, [tag('rect', { ...pageArea, fill: 'white' }), ...occluders.map(occluderMarkup)].join(''));
+  const markup = tag('svg', { xmlns: SVG_NAMESPACE, viewBox: `${page.x} ${page.y} ${page.width} ${page.height}`, width: page.width, height: page.height, preserveAspectRatio: 'none' }, tag('defs', {}, mask) + tag('rect', { ...pageArea, mask: 'url(#page-mask)' }));
+  return `url("data:image/svg+xml,${encodeURIComponent(markup)}")`;
+}
+
 function chromeMarkup(layout: BoardLayout): string {
   const parts: string[] = [];
   if (layout.plan) {
@@ -329,5 +347,5 @@ function boardSvgDocument(layout: BoardLayout, assetHref: AssetHref = NO_ASSET_H
   return `${tag('svg', { xmlns: SVG_NAMESPACE, viewBox: `${x} ${y} ${width} ${height}`, width, height }, body)}\n`;
 }
 
-export type { AssetHref };
-export { arrowDefinitionsMarkup, boardSvgDocument, chromeMarkup, elementMarkup, SVG_NAMESPACE };
+export type { AssetHref, PageOccluder };
+export { arrowDefinitionsMarkup, boardSvgDocument, chromeMarkup, elementMarkup, pageMaskImage, SVG_NAMESPACE };

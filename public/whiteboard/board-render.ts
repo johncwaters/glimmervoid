@@ -54,6 +54,7 @@ function servedAssetHref(media: LaidOutMedia): string | null {
 }
 
 const LAYER_BY_KIND: Record<LaidOutElement['kind'], LayerName> = { frame: 'frames', wire: 'wires', box: 'boxes', panel: 'boxes', note: 'notes', unit: 'units' };
+const PAINT_ORDER: readonly LayerName[] = ['frames', 'wires', 'boxes', 'notes', 'units'];
 const ELEMENT_KINDS = ['box', 'frame', 'wire', 'note', 'unit', 'panel'] as const;
 
 export function createBoardRenderer(svg: SVGSVGElement, mediaLayer: BoardMediaLayer): BoardRenderer {
@@ -65,7 +66,7 @@ export function createBoardRenderer(svg: SVGSVGElement, mediaLayer: BoardMediaLa
     units: svgNode('g', 'wb-layer'),
   };
   let chrome = svgNode('g');
-  svg.replaceChildren(...nodesFromMarkup(arrowDefinitionsMarkup()), chrome, layers.frames, layers.wires, layers.boxes, layers.notes, layers.units);
+  svg.replaceChildren(...nodesFromMarkup(arrowDefinitionsMarkup()), chrome, ...PAINT_ORDER.map((layerName) => layers[layerName]));
   const renderedById = new Map<string, RenderedElement>();
   let currentLayout: BoardLayout | null = null;
   let selectedIds: ReadonlySet<string> = new Set();
@@ -136,7 +137,8 @@ export function createBoardRenderer(svg: SVGSVGElement, mediaLayer: BoardMediaLa
       rendered.node.remove();
       renderedById.delete(elementId);
     }
-    mediaLayer.sync(layout);
+    const elementIdsInPaintOrder = PAINT_ORDER.flatMap((layerName) => [...layers[layerName].children].flatMap((node) => node instanceof SVGGElement && node.dataset.elementId ? [node.dataset.elementId] : []));
+    mediaLayer.sync(layout, elementIdsInPaintOrder);
     currentLayout = layout;
     return layout;
   }

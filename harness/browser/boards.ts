@@ -133,6 +133,22 @@ async function panTowardTopOfCanvas(panel: Locator, target: Locator): Promise<vo
   await page.mouse.wheel(targetBounds.x - (canvasBounds.x + canvasBounds.width / 3), targetBounds.y - (canvasBounds.y + 60));
 }
 
+async function verifyBoxAbovePageCoversIt(panel: Locator, pageMedia: Locator): Promise<void> {
+  const page = panel.page();
+  const pageMaskOf = () => pageMedia.evaluate((node) => getComputedStyle(node).maskImage || getComputedStyle(node).getPropertyValue('-webkit-mask-image'));
+  assert.equal(await pageMaskOf(), 'none', 'a page box with nothing drawn above it is shown whole');
+  const canvasBounds = await panel.locator('.wb-canvas').boundingBox();
+  const pageBounds = await pageMedia.boundingBox();
+  assert.ok(canvasBounds && pageBounds);
+  await panel.locator('.wb-viewport').focus();
+  await page.keyboard.press('r');
+  await placeBoxWithTool(page, panel, { x: pageBounds.x - canvasBounds.x + pageBounds.width * 0.7, y: pageBounds.y - canvasBounds.y + pageBounds.height * 0.6 }, 'Above the page');
+  assert.match(await pageMaskOf(), /data:image\/svg\+xml/, 'a box drawn after a page box and over it masks the page preview under it');
+  const boxAbove = panel.locator('.wb-box-title', { hasText: 'Above the page' });
+  while (await boxAbove.count() > 0) await panel.getByRole('button', { name: 'undo', exact: true }).click();
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('.wb-media[data-media-kind="page"]') ?? document.body).maskImage === 'none');
+}
+
 async function verifyLiveMedia(panel: Locator): Promise<void> {
   const page = panel.page();
   await page.evaluate(() => {
@@ -190,6 +206,7 @@ async function verifyLiveMedia(panel: Locator): Promise<void> {
   await page.keyboard.press('Escape');
   await viewer.waitFor({ state: 'detached' });
   assert.equal(await panel.locator('.wb-media button').count(), 0, 'a page box carries no overlay buttons');
+  await verifyBoxAbovePageCoversIt(panel, pageMedia);
   await pageFrame.evaluate((frame) => {
     frame.dataset.loadedOnce = '';
   });

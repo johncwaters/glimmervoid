@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A board box drawn on top of a page box now covers it.** A page box's live preview used to paint over every other box, note and plan step on the board; now anything drawn after the page box and overlapping it shows on top, the same way overlapping boxes already stack.
 - On the phone Focus list, tapping a session's board or pull request line opens that session instead of the board or pull request. The links still show on the row; open a board from Boards.
 
 ## [0.52.1] - 2026-11-04
