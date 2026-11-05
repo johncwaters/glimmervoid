@@ -93,6 +93,7 @@ export const MyPr = z.object({
   approvals: nonnegativeInteger, reviews: z.array(MyPrReview), stage: MyPrStage, autoRebase: MyPrAutoRebase.optional(), keepMergeable: z.boolean().optional(),
   keepMergeableAttempt: MyPrKeepMergeableAttempt.optional(), isKeepMergeableFixInFlight: z.boolean().optional(),
   mergeQueuePosition: z.number().int().positive().nullable().optional(), isMergeQueueHeldForRepairPush: z.boolean().optional(), mergeQueueFailure: MyPrMergeQueueFailure.optional(),
+  stageSinceMs: z.number().finite().optional(),
 }).refine((pr) => pr.key === `${pr.repo}#${pr.number}`);
 export type MyPr = z.infer<typeof MyPr>;
 
@@ -101,7 +102,7 @@ export const MyPrLaneEntry = z.strictObject({
   autoRebase: MyPr.shape.autoRebase, keepMergeable: MyPr.shape.keepMergeable,
   keepMergeableAttempt: MyPr.shape.keepMergeableAttempt, isKeepMergeableFixInFlight: MyPr.shape.isKeepMergeableFixInFlight,
   mergeQueuePosition: MyPr.shape.mergeQueuePosition, isMergeQueueHeldForRepairPush: MyPr.shape.isMergeQueueHeldForRepairPush,
-  mergeQueueFailure: MyPr.shape.mergeQueueFailure,
+  mergeQueueFailure: MyPr.shape.mergeQueueFailure, stageSinceMs: MyPr.shape.stageSinceMs,
 });
 export type MyPrLaneEntry = z.infer<typeof MyPrLaneEntry>;
 

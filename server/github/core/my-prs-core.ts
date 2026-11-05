@@ -1,5 +1,5 @@
 import type { GithubPr } from '../../../shared/contracts/github-prs.ts';
-import type { MyPr, MyPrAutoRebase, MyPrCheckContext, MyPrKeepMergeableAttemptRecord, MyPrSearchNode, MyPrsSnapshot, MyPrsStatus, MyPrStage, MyPrThread, MyPrThreadNode } from '../../../shared/contracts/my-prs.ts';
+import type { MyPr, MyPrAutoRebase, MyPrCheckContext, MyPrKeepMergeableAttemptRecord, MyPrSearchNode, MyPrsSnapshot, MyPrsStatus, MyPrThread, MyPrThreadNode } from '../../../shared/contracts/my-prs.ts';
 import { ACCEPT_EDITS_MODE, LANE_ENVIRONMENT_ARGS } from '../../lanes/core/lane-permissions-core.ts';
 import { prKey } from './team-review-core.ts';
 import { mergeItems, threadCandidates } from './pr-flows-core.ts';
@@ -9,13 +9,16 @@ import { isCredentialLikePath, isGithubDirectoryPath } from '../../git/core/git-
 import { deriveStage, myPrMergeBlocker } from '../../../shared/my-pr-merge.ts';
 import { REPO_SLUG_RE } from '../../../shared/contracts/github-ids.ts';
 import { nextBackoffMs } from '../../../shared/backoff.ts';
-import { MyPrAutoRebase as MyPrAutoRebaseSchema, MyPrLaneEntry, MyPrsState } from '../../../shared/contracts/my-prs.ts';
+import { MyPrAutoRebase as MyPrAutoRebaseSchema, MyPrLaneEntry, MyPrStage, MyPrsState } from '../../../shared/contracts/my-prs.ts';
 import { z } from 'zod';
 
 const FailedAutoRebaseRecord = z.strictObject({ attemptKey: MyPrsState.shape.keepMergeableAttemptKeys.element, autoRebase: MyPrAutoRebaseSchema });
+const StageSinceRecord = z.strictObject({ key: MyPrsState.shape.keepMergeableKeys.element, stage: MyPrStage, sinceMs: z.number().finite() });
+export type StageSinceRecord = z.infer<typeof StageSinceRecord>;
 export const MyPrsLaneState = MyPrsState.extend({
   failedAutoRebaseAttemptKeys: MyPrsState.shape.keepMergeableAttemptKeys.optional(),
   failedAutoRebaseRecords: z.array(FailedAutoRebaseRecord).optional(),
+  stageSince: z.array(StageSinceRecord).optional(),
 });
 export type MyPrsLaneState = z.infer<typeof MyPrsLaneState>;
 export const emptyMyPrsLaneState = (): MyPrsLaneState => MyPrsLaneState.parse({ keepMergeableKeys: [], keepMergeableAttemptKeys: [] });
@@ -452,6 +455,25 @@ export function keepMergeableTimeoutSeconds(config: TeamReviewSettingsSource): n
 export function currentKeepMergeableAttempt(pr: Pick<MyPr, 'key' | 'headRefOid'>, attempt: MyPrKeepMergeableAttemptRecord | undefined): MyPr['keepMergeableAttempt'] {
   if (!attempt || attempt.key !== pr.key || attempt.headRefOid !== pr.headRefOid) return undefined;
   return { outcome: attempt.outcome, reason: attempt.reason, at: attempt.at };
+}
+
+export function stampStageSince(previous: ReadonlyMap<string, StageSinceRecord>, prs: readonly MyPr[], nowMs: number, isComplete: boolean): { stageSinceByKey: Map<string, StageSinceRecord>; prs: MyPr[]; hasChanged: boolean } {
+  const stageSinceByKey = new Map(isComplete ? [] : previous);
+  for (const pr of prs) stageSinceByKey.set(pr.key, stageSinceFor(previous.get(pr.key), pr, nowMs));
+  const hasChanged = stageSinceByKey.size !== previous.size || [...stageSinceByKey].some(([key, record]) => previous.get(key) !== record);
+  return { stageSinceByKey, prs: withStageSince(prs, stageSinceByKey), hasChanged };
+}
+
+export function withStageSince(prs: readonly MyPr[], stageSinceByKey: ReadonlyMap<string, StageSinceRecord>): MyPr[] {
+  return prs.map((pr) => ({ ...pr, stageSinceMs: stageSinceByKey.get(pr.key)?.sinceMs }));
+}
+
+function stageSinceFor(prior: StageSinceRecord | undefined, pr: MyPr, nowMs: number): StageSinceRecord {
+  if (prior && (prior.stage === pr.stage || pr.stage === 'unknown')) return prior;
+  if (prior?.stage === 'unknown') return { ...prior, stage: pr.stage };
+  if (prior) return { key: pr.key, stage: pr.stage, sinceMs: nowMs };
+  const updatedAtMs = Date.parse(pr.updatedAt);
+  return { key: pr.key, stage: pr.stage, sinceMs: Number.isFinite(updatedAtMs) ? Math.min(updatedAtMs, nowMs) : nowMs };
 }
 
 export function withAutoRebase(pr: MyPr, record: MyPrAutoRebase | undefined): MyPr {

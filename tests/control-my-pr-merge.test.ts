@@ -84,14 +84,15 @@ function mergeStateResponse(state: string, isInMergeQueue: boolean): CommandResu
 
 const MERGED_STATE = mergeStateResponse('MERGED', false);
 
-test('a store rollup change broadcasts my-prs status without a lane tick and Refresh polls its watches', async () => {
+test('a store rollup change broadcasts my-prs status and its stage clock without a lane tick, the clock survives a restart, and Refresh polls its watches', async () => {
   const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'control-my-pr-store-'));
   let nowMs = Date.now();
   let checksState: 'PENDING' | 'SUCCESS' = 'PENDING';
+  let mergeable: 'MERGEABLE' | 'UNKNOWN' = 'MERGEABLE';
   let laneTicks = 0;
   const searches: string[] = [];
   const statuses: MyPrsStatus[] = [];
-  const reads = storeReads(() => [readyNode({ commits: { nodes: [{ commit: { statusCheckRollup: { state: checksState, contexts: { nodes: [] } } } }] } })]);
+  const reads = storeReads(() => [readyNode({ mergeable, commits: { nodes: [{ commit: { statusCheckRollup: { state: checksState, contexts: { nodes: [] } } } }] } })]);
   const github = {
     ...createPrGh(homeDir), ...reads,
     viewer: async () => 'me', behindCounts: async () => new Map<string, number>(), reviewThreadsBatch: async () => new Map(), rateLimitWaitMs: async () => null,
@@ -114,7 +115,7 @@ test('a store rollup change broadcasts my-prs status without a lane tick and Ref
     homeDir, config: { teamReview: { enabled: true, org: 'Acme' } }, github, store, clock, log: { warn() {} },
     broadcast: (status) => { statuses.push(status); if (status.prs.length > 0 && !status.isRefreshing) markFirstStatus(); },
     createPoller: (dependencies) => {
-      const poller = createMyPrsPoller({ ...dependencies, firstTickDelayMs: () => 0, setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {} });
+      const poller = createMyPrsPoller({ ...dependencies, now: () => nowMs, firstTickDelayMs: () => 0, setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {} });
       return { ...poller, tick: async () => { laneTicks += 1; await poller.tick(); } };
     },
   });
@@ -125,6 +126,7 @@ test('a store rollup change broadcasts my-prs status without a lane tick and Ref
     await firstStatus;
     assert.equal(statuses.at(-1)?.prs[0]?.key, KEY);
     assert.equal(wiring.getStatus().prs[0]?.stage, 'checks-pending');
+    assert.equal(wiring.getStatus().prs[0]?.stageSinceMs, Date.parse('2026-09-28T11:00:00Z'));
     assert.equal(store.getSnapshot().prs[KEY.toLowerCase()]?.checks.state, 'PENDING');
     const updatedAt = wiring.getStatus().prs[0]?.updatedAt;
     checksState = 'SUCCESS';
@@ -139,9 +141,18 @@ test('a store rollup change broadcasts my-prs status without a lane tick and Ref
     assert.equal('stage' in broadcastEntry, false);
     assert.equal('checks' in broadcastEntry, false);
     assert.equal('updatedAt' in broadcastEntry, false);
+    assert.equal(broadcastEntry.stageSinceMs, nowMs);
+    const stageChangedAtMs = nowMs;
     assert.equal(store.getSnapshot().prs[KEY.toLowerCase()]?.checks.state, 'SUCCESS');
     assert.equal(wiring.getStatus().prs[0]?.stage, 'ready');
     assert.equal(wiring.getStatus().prs[0]?.updatedAt, updatedAt);
+    for (const mergeabilityWhileGithubComputes of ['UNKNOWN', 'MERGEABLE'] as const) {
+      mergeable = mergeabilityWhileGithubComputes;
+      nowMs += 60_000;
+      await storeTick();
+    }
+    assert.equal(wiring.getStatus().prs[0]?.stage, 'ready');
+    assert.equal(wiring.getStatus().prs[0]?.stageSinceMs, stageChangedAtMs);
     assert.deepEqual(searches.slice(0, 2), [
       'is:open author:@me org:Acme sort:updated-desc',
       `is:merged author:@me org:Acme merged:>=${new Date(Date.now() - 86400000).toISOString().slice(0, 10)} sort:updated-desc`,
@@ -154,6 +165,88 @@ test('a store rollup change broadcasts my-prs status without a lane tick and Ref
     assert.equal(searches.length, searchCount + 2);
     assert.equal(connection.sent.at(-1)?.ok, true);
     assert.deepEqual(connection.sent.at(-1)?.freshness, store.getSnapshot().freshness);
+    await wiring.stopPoller();
+    nowMs += 60_000;
+    let markRestartedStatus = () => {};
+    const restartedStatus = new Promise<void>((resolve) => { markRestartedStatus = resolve; });
+    const restarted = createMyPrsWiring({
+      homeDir, config: { teamReview: { enabled: true, org: 'Acme' } }, github, store, clock, log: { warn() {} },
+      broadcast: (status) => { if (status.prs.length > 0 && !status.isRefreshing) markRestartedStatus(); },
+      createPoller: (dependencies) => createMyPrsPoller({ ...dependencies, now: () => nowMs, firstTickDelayMs: () => 0, setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {} }),
+    });
+    try {
+      restarted.startPoller();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      await storeTick();
+      await restartedStatus;
+      assert.equal(restarted.getStatus().prs[0]?.stageSinceMs, stageChangedAtMs);
+    } finally {
+      await restarted.stopPoller();
+    }
+  } finally {
+    await wiring.stopPoller();
+    await fs.rm(homeDir, { recursive: true, force: true });
+  }
+});
+
+test('a stage the store shows while a rebase is in flight keeps its clock when the tick finishes on its older snapshot', async () => {
+  const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'control-my-pr-rebase-race-'));
+  let nowMs = Date.parse('2026-11-05T10:10:00Z');
+  let checksState: 'PENDING' | 'SUCCESS' = 'PENDING';
+  let storeTick = async () => {};
+  let isChecksFlipArmed = false;
+  let checksPassedAtMs: number | null = null;
+  const behindNode = readyNode({ id: 'PR_behind', number: 1, url: 'https://github.com/Acme/app/pull/1', mergeStateStatus: 'BEHIND' });
+  const reads = storeReads(() => [behindNode, readyNode({ commits: { nodes: [{ commit: { statusCheckRollup: { state: checksState, contexts: { nodes: [] } } } }] } })]);
+  const github = {
+    ...createPrGh(homeDir), ...reads,
+    viewer: async () => 'me', reviewThreadsBatch: async () => new Map(), rateLimitWaitMs: async () => null,
+    behindCounts: async () => new Map([['Acme/app#1', 3]]),
+    rebasePr: async () => {
+      if (!isChecksFlipArmed || checksPassedAtMs !== null) return { ok: true, err: '' };
+      checksState = 'SUCCESS';
+      nowMs += 60_000;
+      checksPassedAtMs = nowMs;
+      await storeTick();
+      return { ok: true, err: '' };
+    },
+  };
+  const queue = createSerialQueue();
+  const clock: SharedClock = {
+    exclusive: (work) => queue.run(work),
+    schedule: (run, intervalMs) => {
+      if (intervalMs === 60_000) storeTick = run;
+      return () => {};
+    },
+  };
+  const githubStore = createGithubStoreWiring({ github, clock, now: () => nowMs, isDashboardConnected: () => true, broadcast: () => {}, log: { warn() {} } });
+  const lanePollers: ReturnType<typeof createMyPrsPoller>[] = [];
+  let markFirstStatus = () => {};
+  const firstStatus = new Promise<void>((resolve) => { markFirstStatus = resolve; });
+  const wiring = createMyPrsWiring({
+    homeDir, config: { teamReview: { enabled: true, org: 'Acme', autoRebaseMyPrs: true } }, github, store: githubStore.laneStore, clock, log: { warn() {} },
+    broadcast: (status) => { if (status.prs.length > 0 && !status.isRefreshing) markFirstStatus(); },
+    createPoller: (dependencies) => {
+      const poller = createMyPrsPoller({ ...dependencies, now: () => nowMs, firstTickDelayMs: () => 0, setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {} });
+      lanePollers.push(poller);
+      return poller;
+    },
+  });
+  const stageClockOf = () => wiring.getStatus().prs.find((pr) => pr.key === KEY);
+  try {
+    wiring.startPoller();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await storeTick();
+    await firstStatus;
+    assert.equal(stageClockOf()?.stage, 'checks-pending');
+    nowMs += 30 * 60_000;
+    isChecksFlipArmed = true;
+    await lanePollers[0]?.tick();
+    assert.notEqual(checksPassedAtMs, null);
+    nowMs += 30 * 60_000;
+    await lanePollers[0]?.tick();
+    assert.equal(stageClockOf()?.stage, 'ready');
+    assert.equal(stageClockOf()?.stageSinceMs, checksPassedAtMs);
   } finally {
     await wiring.stopPoller();
     await fs.rm(homeDir, { recursive: true, force: true });
@@ -206,7 +299,7 @@ test('keep mergeable control reaches the real lane, persists across restarts, an
     assert.deepEqual(fixes, [`${KEY}@${SEEN_HEAD}`]);
     await repairFinished;
     const savedState = JSON.parse(await fs.readFile(path.join(homeDir, 'my-prs-state.json'), 'utf8'));
-    assert.deepEqual(savedState, { keepMergeableKeys: [KEY], keepMergeableAttemptKeys: [`${KEY}@${SEEN_HEAD}`], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [], keepMergeableAttempts: [{ key: KEY, headRefOid: SEEN_HEAD, baseRefOid: 'b'.repeat(40), outcome: 'pushed', at: statuses.at(-1)?.prs[0]?.keepMergeableAttempt?.at, consecutiveAttempts: 1 }] });
+    assert.deepEqual(savedState, { keepMergeableKeys: [KEY], keepMergeableAttemptKeys: [`${KEY}@${SEEN_HEAD}`], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [], keepMergeableAttempts: [{ key: KEY, headRefOid: SEEN_HEAD, baseRefOid: 'b'.repeat(40), outcome: 'pushed', at: statuses.at(-1)?.prs[0]?.keepMergeableAttempt?.at, consecutiveAttempts: 1 }], stageSince: [{ key: KEY, stage: 'conflicts', sinceMs: Date.parse('2026-09-28T11:00:00Z') }] });
     await wiring.stopPoller();
     const restarted = await startWiring();
     try {
@@ -266,7 +359,7 @@ test('merge when ready control reaches the real lane and persists the queue', as
     assert.deepEqual(connection.sent.at(-1), { type: 'my-pr-merge-when-ready-result', requestId: 'queue-1', key: KEY, ok: true });
     assert.equal(statuses.at(-1)?.prs[0]?.mergeQueuePosition, 1);
     const savedState = JSON.parse(await fs.readFile(path.join(homeDir, 'my-prs-state.json'), 'utf8'));
-    assert.deepEqual(savedState, { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [KEY], keepMergeablePushedHeadKeys: [], keepMergeableAttempts: [] });
+    assert.deepEqual(savedState, { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [KEY], keepMergeablePushedHeadKeys: [], keepMergeableAttempts: [], stageSince: [{ key: KEY, stage: 'checks-pending', sinceMs: Date.parse('2026-09-28T11:00:00Z') }] });
   } finally {
     await wiring.stopPoller();
     await fs.rm(homeDir, { recursive: true, force: true });
