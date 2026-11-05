@@ -111,17 +111,18 @@ test('the production Claude settings command denies a Read tool call on an SSH p
   });
 });
 
-test('the generated Codex home Sane YOLO hook denies git reset --hard and a shell read of an SSH private key', async () => {
+test('the generated Codex home trusts the session folder and its Sane YOLO hook denies git reset --hard and a shell read of an SSH private key', async () => {
   await withProductionHookFixture(async ({ cwd, env }) => {
     const injection = codex.hooks.injection;
     assert.equal(injection.kind, 'argv-config');
     assert.ok(injection.home);
     const realCodexHome = path.join(env.HOME ?? '', '.codex');
     fs.mkdirSync(realCodexHome);
-    const prepared = injection.home.prepareHome({ ...env, CODEX_HOME: realCodexHome });
+    const prepared = injection.home.prepareHome({ ...env, CODEX_HOME: realCodexHome }, cwd);
     assert.ok('home' in prepared, JSON.stringify(prepared));
     try {
       const generatedConfig = fs.readFileSync(path.join(prepared.home, 'config.toml'), 'utf8');
+      assert.ok(generatedConfig.includes(`[projects.${JSON.stringify(cwd)}]\ntrust_level = "trusted"`), generatedConfig);
       const command = generatedConfig.match(/command = '([^']* saneYolo codex)'/)?.[1];
       assert.ok(command, generatedConfig);
       const keyPath = path.join(env.HOME ?? '', '.ssh', 'id_ed25519');
@@ -130,7 +131,7 @@ test('the generated Codex home Sane YOLO hook denies git reset --hard and a shel
         assert.equal(permissionDecisionOf(stdout), 'deny', `${shellCommand}: ${stdout}`);
       }
     } finally {
-      injection.home.releaseHome(prepared.home);
+      injection.home.releaseHome(prepared.home, cwd);
     }
   });
 });

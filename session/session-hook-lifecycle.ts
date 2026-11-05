@@ -202,9 +202,10 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
   }
 
   function holdHookedHome(home: HookedAgentHome): { home: string; isTrusted: boolean } | { refusal: string } {
-    const prepared = home.prepareHome(process.env);
+    const sessionFolder = options.effectiveCwd();
+    const prepared = home.prepareHome(process.env, sessionFolder);
     if ("refusal" in prepared) return prepared;
-    heldGeneratedHome = { releaseHome: home.releaseHome, home: prepared.home };
+    heldGeneratedHome = { releaseHome: (heldHome) => home.releaseHome(heldHome, sessionFolder), home: prepared.home };
     return prepared;
   }
 
