@@ -244,6 +244,7 @@ function createGitWorkspace(opts: {
     baseBranch = null,
     configuredIntegrationBranch = null,
     forkFromHead = false,
+    startSha = null,
     worktreeBase,
     shareList,
   }: OwnedWorktreeArgs): Promise<WorkspaceHandle> {
@@ -279,7 +280,10 @@ function createGitWorkspace(opts: {
     const ref = forkFromHead
       ? head
       : await run(['rev-parse', '--verify', '--quiet', `refs/heads/${base}`], projectPath);
-    const baseSha = ref.ok ? ref.out : await ensureLocalBranch(projectPath, base);
+    const branchSha = ref.ok ? ref.out : await ensureLocalBranch(projectPath, base);
+    const pinnedStart = startSha ? await run(['rev-parse', '--verify', '--quiet', `${startSha}^{commit}`], projectPath) : null;
+    if (pinnedStart && !pinnedStart.ok) return { cwd: projectPath, isGit: false, reason: 'no-start-commit' };
+    const baseSha = pinnedStart ? pinnedStart.out : branchSha;
     if (!baseSha) return { cwd: projectPath, isGit: false, reason: 'no-base-branch' };
     await deleteStaleSessionBranch(projectPath, branch);
 

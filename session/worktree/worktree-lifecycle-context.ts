@@ -120,6 +120,7 @@ interface WorktreeLifecycleOptions {
   id: string;
   projectPath: string;
   integrationBranch?: string | null;
+  startSha?: string | null;
   gitWorkspace?: GitWorkspace | null;
   autoRebase?: boolean;
   syncOnStart?: boolean;
@@ -223,7 +224,7 @@ function prefixRenameAndCopyHeaders(diffText: string, memberName: string): strin
   return diffText.replace(/^((?:rename|copy) (?:from|to) )("?)/gm, (_match, keyword: string, openingQuote: string) => `${keyword}${openingQuote}${memberName}/`);
 }
 
-type WorktreeLifecycleContext = Required<Pick<WorktreeLifecycleOptions, "id" | "projectPath" | "integrationBranch" | "gitWorkspace" | "syncOnStart" | "worktreeRoot" | "worktreeShare" | "seedDependencies" | "port">> & {
+type WorktreeLifecycleContext = Required<Pick<WorktreeLifecycleOptions, "id" | "projectPath" | "integrationBranch" | "startSha" | "gitWorkspace" | "syncOnStart" | "worktreeRoot" | "worktreeShare" | "seedDependencies" | "port">> & {
   workspaceMembers: WorkspaceMembersSetup | null;
   lifecycleState: WorktreeLifecycleState;
   currentProjectPath(): string;

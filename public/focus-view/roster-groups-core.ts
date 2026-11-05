@@ -24,15 +24,17 @@ export function basename(p: unknown): string {
 export function groupRoster<Row extends { id: string }>(
   orderedRows: readonly Row[] | null | undefined,
   pathOf: (row: Row) => unknown,
+  namedGroupOf: (row: Row) => { key: string; label: string; title: string } | null = () => null,
 ): GroupedRoster<Row> {
   const rows = Array.isArray(orderedRows) ? orderedRows : [];
   const byKey = new Map<string, RosterGroup<Row>>();
   for (const row of rows) {
+    const namedGroup = namedGroupOf(row);
     const raw = pathOf(row);
-    const key = raw ? String(raw) : NO_PATH_KEY;
+    const key = namedGroup?.key ?? (raw ? String(raw) : NO_PATH_KEY);
     let g = byKey.get(key);
     if (!g) {
-      g = { key, label: key === NO_PATH_KEY ? NO_PATH_KEY : basename(key), title: key, rows: [] };
+      g = namedGroup ? { ...namedGroup, rows: [] } : { key, label: key === NO_PATH_KEY ? NO_PATH_KEY : basename(key), title: key, rows: [] };
       byKey.set(key, g);
     }
     g.rows.push(row);

@@ -38,6 +38,7 @@ interface LaneReader {
   gitWorkspace: NonNullable<ControlHandlerDeps['remoteRepoGit']>;
   featureHints: NonNullable<ControlHandlerDeps['featureHints']>;
   prFlows: NonNullable<ControlHandlerDeps['prFlows']>;
+  races: NonNullable<ControlHandlerDeps['races']>;
 }
 
 interface RadarControl extends RadarFixControl {
@@ -175,6 +176,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     community,
     myPrs,
     prFlows: laneAssembly.prFlows,
+    races: laneAssembly.races,
     issues,
     githubStore: laneAssembly.githubStore,
     requestIssue: laneAssembly.githubStore.laneStore.requestIssue,

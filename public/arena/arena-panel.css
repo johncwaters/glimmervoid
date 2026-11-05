@@ -1,0 +1,119 @@
+@layer components {
+
+.arena-content {
+  max-width: 1080px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.arena-section-title {
+  color: var(--text-head);
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+
+.arena-empty,
+.arena-race-meta,
+.arena-status {
+  color: var(--text-muted);
+  font-size: var(--type-meta);
+}
+
+.arena-race {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-dim);
+}
+
+.arena-race-title {
+  margin: 0;
+  color: var(--text-head);
+}
+
+.arena-contestants {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+}
+
+.arena-contestant {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.arena-contestant-state {
+  color: var(--text-muted);
+}
+
+.arena-new-head,
+.arena-actions,
+.arena-setup,
+.arena-vary-choices,
+.arena-judge {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.arena-new-head {
+  justify-content: space-between;
+}
+
+.arena-new-body,
+.arena-vary {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.arena-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.arena-field-label {
+  color: var(--text-muted);
+  font-size: var(--type-meta);
+}
+
+.arena-input {
+  font: inherit;
+}
+
+.arena-prompt,
+.arena-file {
+  min-height: 160px;
+}
+
+.arena-file {
+  font-family: var(--font-mono);
+  min-height: 360px;
+}
+
+.arena-lineup {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.arena-column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border-dim);
+}
+
+.arena-column-label {
+  color: var(--text-head);
+  font-weight: 700;
+}
+
+}

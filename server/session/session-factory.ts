@@ -114,6 +114,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       dangerouslySkipPermissions: skipPermissions,
       agent: project.agent,
       agentSetup: project.agentSetup ?? null,
+      startSha: project.startSha ?? null,
       bypassHookTrust: project.codexBypassHookTrust === true,
       replayBufferKB: config.replayBufferKB,
       hookRouter: dependencies.hookRouter,

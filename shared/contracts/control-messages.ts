@@ -9,6 +9,7 @@ import { radarClientVariants, radarServerVariants } from './control/radar-messag
 import { communityClientVariants, communityServerVariants } from './control/community-messages.ts';
 import { laneClientVariants, laneServerVariants } from './control/lane-messages.ts';
 import { whiteboardClientVariants, whiteboardServerVariants } from './control/whiteboard-messages.ts';
+import { raceClientVariants, raceServerVariants } from './control/race-messages.ts';
 import { systemClientVariants, systemServerVariants } from './control/system-messages.ts';
 
 export {
@@ -70,6 +71,7 @@ const clientVariants = [
   ...communityClientVariants,
   ...laneClientVariants,
   ...whiteboardClientVariants,
+  ...raceClientVariants,
   ...systemClientVariants,
   ...idOnlyClientVariants,
 ] as const;
@@ -86,6 +88,7 @@ const serverVariants = [
   ...communityServerVariants,
   ...laneServerVariants,
   ...whiteboardServerVariants,
+  ...raceServerVariants,
   ...systemServerVariants,
 ] as const;
 

@@ -5,6 +5,7 @@ import { createPressable } from './ui/pressable.ts';
 import { FEATURE_SURFACE_RULES } from './feature-surfaces-core.ts';
 import { activateFocusView, deactivateFocusView, mountFocusView, reopenFocusBoard } from './focus-view/focus-view.ts';
 import { applyBenchmarkConnectionState } from './benchmark-store.ts';
+import { setArenaNavigation } from './arena/race-store.ts';
 import { applyIssuesConnectionState } from './github/issues-store.ts';
 import { applyMyPrsConnectionState } from './github/my-prs-store.ts';
 import { acknowledgeReviewQueueAttention, setReviewQueueActivityCallback, setReviewQueueNavigation } from './github/review-queue-store.ts';
@@ -90,6 +91,7 @@ export function reloadOnceIfBundleRetired(entryChunkUrl: string, readStorage: ()
 
 export function createDashboardViews(actions: ViewRegistryActions): DashboardView[] {
   setReviewQueueNavigation({ openTerminal: actions.openTerminal, openReviews: actions.openReviews });
+  setArenaNavigation({ openTerminal: actions.openTerminal });
   setSettingsRestartHandler(actions.onRestart);
   setOpenInReview(actions.openReviewFile);
   const definitions: PrimaryViewDefinition<HTMLElement>[] = [
@@ -105,7 +107,7 @@ export function createDashboardViews(actions: ViewRegistryActions): DashboardVie
     { view: 'boards', label: 'Boards', iconPath: BOARDS_ICON_PATH, isPhoneNavScreen: true, isPhoneOnly: true, panelClass: 'boards-screen', hasPanelChrome: false, load: () => import('./whiteboard/boards-view.ts').then((panel) => panel.view), refreshOn: ['shown', 'connected'] },
     { view: 'hooks', label: 'Hooks', iconPath: HOOKS_ICON_PATH, panelClass: 'hooks-view', load: () => import('./hooks-panel.ts').then((panel) => panel.view), refreshOn: ['shown', 'connected', 'hooks-updated'] },
     { view: 'trace', label: 'Trace', iconPath: TRACE_ICON_PATH, panelClass: 'trace-view', gate: { subscribe: onDebugModeChanged }, load: () => import('./trace-panel.ts').then((panel) => panel.view), refreshOn: ['shown'], onAvailabilityChange: (isAvailable) => setRadarTraceOpener(isAvailable ? openTraceForSession : null), onConnectionChange: applyTraceConnectionState },
-    { view: 'benchmarks', label: 'Bench', iconPath: BENCH_ICON_PATH, panelClass: 'bench-view', gate: { fromSettings: FEATURE_SURFACE_RULES.benchmarks }, load: () => import('./benchmark-panel.ts').then((panel) => panel.view), onConnectionChange: applyBenchmarkConnectionState },
+    { view: 'benchmarks', label: 'Arena', iconPath: BENCH_ICON_PATH, panelClass: 'bench-view', load: () => import('./arena/arena-panel.ts').then((panel) => panel.view), onConnectionChange: applyBenchmarkConnectionState },
     { view: 'settings', label: 'Settings', iconPath: SETTINGS_ICON_PATH, panelClass: 'settings-view', hasPanelChrome: false, load: () => import('./settings/settings-panel.ts').then((panel) => panel.view) },
   ];
 

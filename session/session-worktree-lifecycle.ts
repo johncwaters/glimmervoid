@@ -76,6 +76,7 @@ function createSessionWorktreeLifecycle({
   id,
   projectPath,
   integrationBranch = null,
+  startSha = null,
   gitWorkspace = null,
   autoRebase = true,
   syncOnStart = true,
@@ -279,7 +280,7 @@ function createSessionWorktreeLifecycle({
   }
 
   const context: WorktreeLifecycleContext = {
-    id, projectPath, integrationBranch, gitWorkspace, syncOnStart, worktreeRoot, worktreeShare, seedDependencies, port, workspaceMembers, lifecycleState, currentProjectPath, gitOut, gitLookup, readUpstreamOf, effectiveIntegrationBranch, setMergeStatus,
+    id, projectPath, integrationBranch, startSha, gitWorkspace, syncOnStart, worktreeRoot, worktreeShare, seedDependencies, port, workspaceMembers, lifecycleState, currentProjectPath, gitOut, gitLookup, readUpstreamOf, effectiveIntegrationBranch, setMergeStatus,
   };
   const { provision, stopSeeding } = createWorktreeProvisioning(context, { adoptWorktree, resolveCommonGitDir, runAutoRebase, api: { computeWorktreeSignature: () => api.computeWorktreeSignature() } });
   const { resolveEffectiveBase, resolveVerifiedBaseRef, diffGitOptions, getChangeScopes, getDiff } = createWorktreeDiffScopes(context);

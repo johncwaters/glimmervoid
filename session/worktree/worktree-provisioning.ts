@@ -101,6 +101,16 @@ function createWorktreeProvisioning(context: WorktreeLifecycleContext, deps: Wor
     return false;
   }
 
+  let pinnedStartSha = context.startSha ?? null;
+
+  function refusePinnedStartInPlace(notice: string): false {
+    lifecycleState.worktreeDir = null;
+    lifecycleState.isWorktree = false;
+    lifecycleState.worktreeNotice = notice;
+    port.emit("worktree-blocked", { id, branch: integrationBranch, notice });
+    return false;
+  }
+
   async function provision(options: { fresh?: boolean } = {}): Promise<boolean> {
     provisionAbort = new AbortController();
     return provisionWorktree(options);
@@ -131,13 +141,16 @@ function createWorktreeProvisioning(context: WorktreeLifecycleContext, deps: Wor
         label: id,
         baseBranch,
         configuredIntegrationBranch: integrationBranch,
+        startSha: pinnedStartSha,
         worktreeBase: worktreeRoot,
         shareList: worktreeShare,
       });
     } catch (error) {
+      if (pinnedStartSha) return refusePinnedStartInPlace(`Could not create this session's worktree at start commit ${pinnedStartSha} (${errorMessage(error)}). Fix that, then start this session.`);
       console.warn(`[session ${id}] worktree create failed: ${errorMessage(error)} - running in place`);
       return true;
     }
+    if (workspace?.reason === "no-start-commit") return refusePinnedStartInPlace(`Start commit ${pinnedStartSha} not found in this repository. Fetch it, then start this session.`);
     if (workspace?.reason === "no-base-branch") {
       lifecycleState.worktreeNotice = integrationBranch
         ? `Integration branch "${integrationBranch}" not found. Create it, then start this session.`
@@ -158,6 +171,7 @@ function createWorktreeProvisioning(context: WorktreeLifecycleContext, deps: Wor
       }
       if (adopted && lifecycleState.worktreeDir) {
         lifecycleState.worktreeNotice = null;
+        pinnedStartSha = null;
         await Promise.resolve(gitWorkspace.populate({
           projectPath: currentProjectPath(),
           wtDir: lifecycleState.worktreeDir,
@@ -175,6 +189,7 @@ function createWorktreeProvisioning(context: WorktreeLifecycleContext, deps: Wor
       lifecycleState.worktreeNotice = `session branch already checked out at ${workspace.conflictPath}; running in place`;
       port.emit("worktree-blocked", { id, branch: effectiveIntegrationBranch(), notice: lifecycleState.worktreeNotice });
     }
+    if (pinnedStartSha && (!workspace || !workspace.isGit)) return refusePinnedStartInPlace(`Could not create this session's worktree at start commit ${pinnedStartSha}. It never runs in the main checkout, so fix the worktree folder, then start this session.`);
     if (!workspace || !workspace.isGit) {
       lifecycleState.worktreeDir = null;
       lifecycleState.isWorktree = false;
@@ -188,6 +203,7 @@ function createWorktreeProvisioning(context: WorktreeLifecycleContext, deps: Wor
     lifecycleState.worktreeNotice = null;
     setMergeStatus("none", {}, { emit: false });
     lifecycleState.isWorktree = true;
+    pinnedStartSha = null;
     const syncWarning = forkSyncWarning(initialSync, workspace.base || baseBranch);
     if (syncWarning) port.emit("worktree-warning", { id, branch: workspace.base || null, notice: syncWarning });
     port.emit("worktree-ready", { id, worktreeDir: workspace.cwd, branch: workspace.branch, base: workspace.base || null });

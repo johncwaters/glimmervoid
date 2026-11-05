@@ -410,6 +410,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       });
     });
     session.on('worktree-ready', ({ branch, base }: { branch: string | null; base?: string | null }) => {
+      if (dependencies.config.projects.some((project) => project.id === session.id && project.startSha)) persistProjectField('startSha', undefined);
       dependencies.broadcastControl({
         type: 'session-worktree-ready',
         id: session.id,
