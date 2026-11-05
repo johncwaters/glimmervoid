@@ -6,7 +6,7 @@ import type { Browser, BrowserContext, ConsoleMessage, Page, WebSocketRoute } fr
 import { safeTextTail } from '../support/backend-harness.ts';
 import { heightWithKeyboardUp, layoutFor, needsSocketRoute } from './cases-core.ts';
 import type { CardControl, HarnessCase, Layout, ResolvedStep, Step, ViewerId, Viewport } from './cases-core.ts';
-import { LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, MOTION_REPORT_PREFIX, expectedRows, parseStatusRow } from './frame-core.ts';
+import { DECEPTIVE_LINK_ROW_NUMBER, DECEPTIVE_LINK_TEXT, LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, MOTION_REPORT_PREFIX, expectedRows, parseStatusRow } from './frame-core.ts';
 import { verifyBoardPane, verifyBoards } from './boards.ts';
 import { verifyIssues } from './issues.ts';
 import { verifyPhoneChanges, verifyReviewMerge } from './review-merge.ts';
@@ -440,6 +440,64 @@ async function waitForLinkHover(viewer: Viewer, label: string): Promise<PollResu
   }, { label, timeoutMs: LINK_HOVER_TIMEOUT_MS, intervalMs: 50 });
 }
 
+type LinkPopupReading = { isVisible: boolean; host: string; mismatch: string; topPx: number; bottomPx: number; leftPx: number; rightPx: number };
+
+type PointAt = (column: number, rowNumber: number) => [number, number];
+
+const LINK_POPUP_HIDE_TIMEOUT_MS = 1000;
+const LINK_POPUP_HOVER_HOLD_MS = 400;
+const BLANK_COLUMN = 70;
+const BLANK_ROW_NUMBER = 20;
+
+async function readLinkPopup(viewer: Viewer): Promise<LinkPopupReading> {
+  return viewer.page.locator(`${cardSlotSelector(viewer)} .terminal-link-popup`).first().evaluate((popup) => {
+    const bounds = popup.getBoundingClientRect();
+    return {
+      isVisible: !(popup as HTMLElement).hidden && bounds.height > 0,
+      host: popup.querySelector('.terminal-link-popup-host')?.textContent ?? '',
+      mismatch: popup.querySelector('.terminal-link-popup-mismatch')?.textContent ?? '',
+      topPx: bounds.top,
+      bottomPx: bounds.bottom,
+      leftPx: bounds.left,
+      rightPx: bounds.right,
+    };
+  });
+}
+
+async function waitForLinkPopup(viewer: Viewer, label: string, isWanted: (reading: LinkPopupReading) => boolean, timeoutMs: number): Promise<PollResult> {
+  return pollUntil(async () => {
+    const reading = await readLinkPopup(viewer);
+    return { ok: isWanted(reading), detail: JSON.stringify(reading) };
+  }, { label, timeoutMs, intervalMs: 25 });
+}
+
+async function runAssertLinkPopup(viewer: Viewer, pointAt: PointAt, linkRowBottomPx: number): Promise<StepOutcome | null> {
+  const shown = await waitForLinkPopup(viewer, 'link popup shows the real host', (reading) => reading.isVisible && reading.host === 'example.com', LINK_HOVER_TIMEOUT_MS);
+  if (!shown.ok) return outcomeFor('link-popup-shown', shown);
+  const placed = await readLinkPopup(viewer);
+  if (placed.topPx < linkRowBottomPx - 1) return failedOutcome('link-popup-below-row', `the popup top ${placed.topPx} covers the link row ending at ${linkRowBottomPx}`);
+  if (placed.mismatch !== '') return failedOutcome('link-popup-no-mismatch', `plain link text showed a mismatch: ${placed.mismatch}`);
+  await viewer.page.mouse.move((placed.leftPx + placed.rightPx) / 2, (placed.topPx + placed.bottomPx) / 2);
+  await sleep(LINK_POPUP_HOVER_HOLD_MS);
+  const held = await readLinkPopup(viewer);
+  if (!held.isVisible) return failedOutcome('link-popup-hoverable', 'the popup closed while the pointer rested on it');
+  await viewer.page.keyboard.press('Escape');
+  const escaped = await waitForLinkPopup(viewer, 'Esc closes the link popup', (reading) => !reading.isVisible, 100);
+  if (!escaped.ok) return outcomeFor('link-popup-escape', escaped);
+  await viewer.page.keyboard.press('Enter');
+  await viewer.page.mouse.move(...pointAt(BLANK_COLUMN, BLANK_ROW_NUMBER));
+  await viewer.page.mouse.move(...pointAt(6, LINK_ROW_NUMBER));
+  const reshown = await waitForLinkPopup(viewer, 'link popup shows again on re-entering the link', (reading) => reading.isVisible, LINK_HOVER_TIMEOUT_MS);
+  if (!reshown.ok) return outcomeFor('link-popup-reshown', reshown);
+  await viewer.page.mouse.move(...pointAt(BLANK_COLUMN, BLANK_ROW_NUMBER));
+  const left = await waitForLinkPopup(viewer, 'leaving link and popup closes it', (reading) => !reading.isVisible, LINK_POPUP_HIDE_TIMEOUT_MS);
+  if (!left.ok) return outcomeFor('link-popup-leave', left);
+  await viewer.page.mouse.move(...pointAt(3, DECEPTIVE_LINK_ROW_NUMBER));
+  const warned = await waitForLinkPopup(viewer, 'deceptive link text shows the mismatch warning', (reading) => reading.isVisible && reading.mismatch.includes('example.com') && reading.mismatch.includes('login.example.net'), LINK_HOVER_TIMEOUT_MS);
+  if (!warned.ok) return outcomeFor('link-popup-mismatch', warned);
+  return null;
+}
+
 async function runAssertLinkRepaint(viewer: Viewer, sessionId: string, deadlines: Deadlines): Promise<StepOutcome> {
   await runType(viewer, 'link-row');
   const plainShown = await waitForLinkRowText(viewer, sessionId, LINK_ROW_PLAIN_TEXT, deadlines);
@@ -474,7 +532,9 @@ async function runAssertLinkRepaint(viewer: Viewer, sessionId: string, deadlines
   await viewer.page.mouse.move(...pointAt(9, LINK_ROW_NUMBER));
   const hoveredAlongRow = await waitForLinkHover(viewer, 'link stays hovered moving along its row');
   if (!hoveredAlongRow.ok) return outcomeFor('link-hover-along-row', hoveredAlongRow);
-  return passedOutcome('link-hover-after-repaint', 'a link repainted under a resting pointer is hovered in place and along its row, and the agent received no motion from the recheck');
+  const popupFailure = await runAssertLinkPopup(viewer, pointAt, bounds.y + LINK_ROW_NUMBER * cellHeight);
+  if (popupFailure) return popupFailure;
+  return passedOutcome('link-hover-after-repaint', `a link repainted under a resting pointer is hovered in place and along its row, the agent received no motion from the recheck, and the popup names the real host, stays while hovered, closes on Esc and on leave, and warns on ${DECEPTIVE_LINK_TEXT}`);
 }
 
 async function runOffline(viewer: Viewer, sessionId: string, deadlines: Deadlines): Promise<StepOutcome> {
