@@ -17,7 +17,7 @@ import { sessionIdOf, sessionUIs } from '../session-card/card-registry.ts';
 import { placeRowsInOrder, writeAttributeIfChanged, writeHiddenIfChanged, writeTextIfChanged } from '../status-paint.ts';
 import { onLiveSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
 import { setTerminalActiveViewer } from '../session-card/terminal.ts';
-import { getRailWidth, setRailWidth } from '../ui-prefs.ts';
+import { getRailWidth, isRailBoardsOpen, isRailStatusKeyOpen, setRailBoardsOpen, setRailStatusKeyOpen, setRailWidth } from '../ui-prefs.ts';
 import { uiState } from '../ui-state-core.ts';
 import type { AttentionTile, SessionRow } from './attention-core.ts';
 import { countAttentionByKind, orderAttentionLine, orderRoster, pickAdjacent } from './attention-core.ts';
@@ -150,8 +150,9 @@ export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | 
     rowFor: (id) => pillById.get(id),
   }, buildNextAttentionKeys());
 
-  const statusKey = el('details', 'rail-status-key');
-  statusKey.append(el('summary', 'rail-status-key-summary', 'Status key'), renderStatusLegend());
+  const statusKey = el('details', 'rail-section rail-status-key');
+  statusKey.append(el('summary', 'rail-section-summary', 'Status key'), renderStatusLegend());
+  rememberOpenState(statusKey, isRailStatusKeyOpen(), setRailStatusKeyOpen);
   mountedRail.append(railHeadEl, statusKey);
 
   emptyEl = el('div', 'focus-empty');
@@ -223,7 +224,7 @@ function onRailKeydown(e: KeyboardEvent) {
 
 function railRowsInOrder() {
   if (!railEl) return [];
-  return [...railEl.querySelectorAll<HTMLElement>('button.session-row[data-id], button.session-row[data-board-id]')];
+  return [...railEl.querySelectorAll<HTMLElement>('button.session-row[data-id], button.session-row[data-board-id]')].filter((row) => !row.closest('details:not([open])'));
 }
 
 function orderedSessions() {
@@ -344,7 +345,7 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
     placeList(group.rows, list);
   }
 
-  if (boardsGroup && (!groupsAlreadyInPlace || boardsGroup.header.parentElement !== mountedRail)) mountedRail.append(boardsGroup.header, boardsGroup.list);
+  if (boardsGroup && (!groupsAlreadyInPlace || boardsGroup.section.parentElement !== mountedRail)) mountedRail.append(boardsGroup.section);
   if (boardsGroup) paintBoardRows(boardsGroup);
 
   for (const [key, groupHeader] of [...groupHeaderById]) {
@@ -397,17 +398,26 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
   updateRailHead(order, attentionTiles);
 }
 
+function rememberOpenState(details: HTMLDetailsElement, isOpen: boolean, saveOpen: (isOpen: boolean) => void) {
+  details.open = isOpen;
+  details.addEventListener('toggle', () => saveOpen(details.open));
+}
+
 function buildBoardsGroup() {
-  const header = el('div', 'session-group-header focus-boards-header');
+  const section = el('div', 'rail-section rail-boards');
+  const details = el('details', 'rail-boards-details');
   const count = el('span', 'session-group-count');
-  const rule = el('span', 'session-group-rule');
-  rule.setAttribute('aria-hidden', 'true');
-  const addButton = button({ variant: 'icon', size: 'small', label: 'New board', icon: createLineIcon(PLUS_ICON_PATH), action: 'new-board', onClick: createBoardFromRail });
-  header.append(el('span', 'session-group-label', 'Boards'), count, rule, addButton);
+  const summary = el('summary', 'rail-section-summary');
+  summary.append('Boards ', count);
   const list = el('div', 'focus-rail-list focus-board-list');
   list.setAttribute('role', 'group');
   list.setAttribute('aria-label', 'Boards with no session');
-  return { header, count, list };
+  details.append(summary, list);
+  rememberOpenState(details, isRailBoardsOpen(), setRailBoardsOpen);
+  const addButton = button({ variant: 'icon', size: 'small', label: 'New board', icon: createLineIcon(PLUS_ICON_PATH), action: 'new-board', onClick: createBoardFromRail });
+  addButton.classList.add('rail-section-action');
+  section.append(details, addButton);
+  return { section, count, list };
 }
 
 function buildBoardRow(boardId: string) {

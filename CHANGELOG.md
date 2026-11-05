@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Boards fold away in the Focus list.** Boards with no session now sit in a Boards section at the bottom of the Focus list, above Status key, closed until you open it. The count and the + New board button stay on its header row. Boards and Status key each remember whether you left them open. Arrow keys in the list skip the boards while the section is closed.
 - **A new board opens beside the terminal.** When the session you are watching in Focus draws or connects its first board, the board now opens in your usual pane arrangement, beside the terminal by default, instead of waiting as a Board tab behind the terminal. The terminal resizes once, so the agent's screen redraws.
 - **Usage leads with tokens.** The Usage report now has a Tokens / Cost switch next to the period switch, on Tokens by default, and remembers your choice. In Tokens mode the report shows the period's tokens and session count, each agent's tokens and share, daily bars by tokens, totals for processed tokens, cached input, uncached input, output and cache savings, a tokens-by-type bar, and models and sessions ranked by tokens with their estimated cost beside them. The overview's first row shows tokens too. Cost mode shows the report as before, since cost is an estimate against list price.
 - A new session's terminal shows the logo loading animation while the session sets up and its agent starts, until the agent prints its first output.

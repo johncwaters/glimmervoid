@@ -19,6 +19,8 @@ interface UiPrefs extends FlyingAnimalsOptions {
   activeView: string;
   lastFocusedSessionId: string | null;
   railWidth: number | null;
+  railBoardsOpen: boolean;
+  railStatusKeyOpen: boolean;
   focusLayout: FocusLayout;
   prsQueueWidth: number | null;
   traceHiddenKinds: string[];
@@ -58,6 +60,8 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   activeView: (value: unknown): string => (typeof value === 'string' && value !== 'boards' ? value : 'focus'),
   lastFocusedSessionId: asNullableString,
   railWidth: asNullableNumber,
+  railBoardsOpen: asBoolean(false),
+  railStatusKeyOpen: asBoolean(false),
   focusLayout: parseFocusLayout,
   prsQueueWidth: asNullableNumber,
   traceHiddenKinds: asStringList,
@@ -117,6 +121,12 @@ export const setActiveView = (view: string) => write('activeView', view);
 
 export const getRailWidth = () => read('railWidth');
 export const setRailWidth = (px: number | null) => write('railWidth', px);
+
+export const isRailBoardsOpen = () => read('railBoardsOpen');
+export const setRailBoardsOpen = (isOpen: boolean) => write('railBoardsOpen', isOpen);
+
+export const isRailStatusKeyOpen = () => read('railStatusKeyOpen');
+export const setRailStatusKeyOpen = (isOpen: boolean) => write('railStatusKeyOpen', isOpen);
 
 export const getFocusLayout = () => read('focusLayout');
 export const setFocusLayout = (layout: FocusLayout) => write('focusLayout', layout);

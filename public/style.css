@@ -2626,8 +2626,12 @@ html[data-layout="phone"] .trace-section-hint { flex-basis: 100%; font-size: var
   border-right: 1px solid var(--border);
 }
 .focus-rail-list { display: flex; flex-direction: column; }
-.rail-status-key { order: 1; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--border-dim); }
-.rail-status-key-summary { cursor: pointer; font-family: var(--font-mono); font-size: var(--type-meta); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); }
+.rail-section { padding-top: 8px; border-top: 1px solid var(--border-dim); }
+.rail-boards { order: 1; margin-top: auto; position: relative; }
+.rail-boards .focus-board-list { margin-top: 8px; }
+.rail-section-action { position: absolute; top: 4px; right: 0; }
+.rail-status-key { order: 2; }
+.rail-section-summary { cursor: pointer; font-family: var(--font-mono); font-size: var(--type-meta); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); }
 .rail-status-key .status-legend { margin-top: 8px; }
 .rail-status-key .status-legend-title { display: none; }
 .rail-status-key .status-legend-row { grid-template-columns: 1fr; gap: 2px; }

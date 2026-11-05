@@ -586,6 +586,10 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
 
 async function verifySessionlessBoardRows(page: Page, panel: Locator, sessionId: string, projectDirectory: string): Promise<void> {
   const laterTitle = `Later plan ${sessionId.slice(0, 8)}`;
+  const boardsSection = page.locator('.rail-boards-details');
+  assert.equal(await boardsSection.getAttribute('open'), null, 'the rail Boards section starts closed');
+  await boardsSection.locator('summary').click();
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('glimmervoid-ui-prefs') ?? '{}').railBoardsOpen === true);
   const laterRow = page.locator('.focus-board-list .session-row', { hasText: laterTitle });
   await laterRow.waitFor();
   assert.equal(await laterRow.locator('.session-row-label').textContent(), 'BOARD', 'a board with no session shows a BOARD row');
@@ -603,6 +607,7 @@ async function verifySessionlessBoardRows(page: Page, panel: Locator, sessionId:
   const railTitle = `Rail plan ${sessionId.slice(0, 8)}`;
   await page.getByRole('button', { name: 'New board', exact: true }).click();
   await submitTextDialog(page, 'Board title', railTitle, 'Create board');
+  assert.notEqual(await boardsSection.getAttribute('open'), null, 'New board leaves the rail Boards section open');
   await openBoardTitle(panel, railTitle).waitFor();
   await page.locator('.focus-board-list .session-row.focused', { hasText: railTitle }).waitFor();
   await page.locator(`.focus-rail .session-row[data-id="${sessionId}"] .session-row-glyph`).first().click();
@@ -653,6 +658,11 @@ async function verifyRailArrowsReachBoardRows(page: Page): Promise<void> {
   assert.ok(await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.dataset.id !== undefined), 'ArrowUp from the first BOARD row reaches a session row');
   await page.keyboard.press('ArrowDown');
   assert.equal(await page.evaluate(() => document.activeElement instanceof HTMLElement ? document.activeElement.dataset.boardId ?? null : null), firstBoardId, 'ArrowDown from the last session row reaches the first BOARD row');
+  await page.keyboard.press('ArrowUp');
+  await page.locator('.rail-boards-details').evaluate((details) => { if (details instanceof HTMLDetailsElement) details.open = false; });
+  await page.keyboard.press('ArrowDown');
+  assert.equal(await page.evaluate(() => document.activeElement instanceof HTMLElement ? document.activeElement.dataset.boardId ?? null : null), null, 'ArrowDown skips BOARD rows while the rail Boards section is closed');
+  await page.locator('.rail-boards-details').evaluate((details) => { if (details instanceof HTMLDetailsElement) details.open = true; });
 }
 
 async function verifyPaneTerminalTabOwnsTheFace(page: Page, card: Locator): Promise<void> {
