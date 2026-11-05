@@ -380,7 +380,7 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
     const allRules = [...personalRules, ...setup.packRules];
     for (const warning of ruleWarnings) nextWarnings.add(warning);
     for (const pr of prs) {
-      startDueSources(pr, commands.sources, approved);
+      startDueSources(pr, scopedToRepo(commands.sources, pr.repo), approved);
       tellBranchMoved(pr);
       const rules = scopedToRepo(allRules, pr.repo);
       for (const warning of unknownActionWarnings(rules, new Set(commands.actions.map((action) => action.id)))) nextWarnings.add(warning);

@@ -62,7 +62,10 @@ export const PrFlowCommand = z.strictObject({
 });
 export type PrFlowCommand = z.infer<typeof PrFlowCommand>;
 
-export const PrFlowPrAction = PrFlowCommand.extend({ repos: RepoScope });
+export const PrFlowScopedCommand = PrFlowCommand.extend({ repos: RepoScope });
+export type PrFlowScopedCommand = z.infer<typeof PrFlowScopedCommand>;
+
+export const PrFlowPrAction = PrFlowScopedCommand;
 export type PrFlowPrAction = z.infer<typeof PrFlowPrAction>;
 
 export const PrFlowSourceFinding = z.strictObject({

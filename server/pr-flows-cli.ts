@@ -10,7 +10,7 @@ import type { CommandRunOptions, CommandRunResult } from './child-process-safe.t
 import type { ParsedCommand } from './core/cli-spec-core.ts';
 import { decideConfigPath, glimmervoidHomeDir } from './core/config-path-core.ts';
 import { parseJsonOrNull } from './core/json-core.ts';
-import { commandFingerprint, expandPlaceholders, prFlowCommands, prFlowRules, unknownActionWarnings } from './github/core/pr-flows-core.ts';
+import { commandFingerprint, expandPlaceholders, prFlowCommands, prFlowRules, scopedToRepo, unknownActionWarnings } from './github/core/pr-flows-core.ts';
 import { PR_FLOW_PLACEHOLDERS_BY_KIND } from './packs/pack-check.ts';
 import { runPackCheckCli } from './packs/packs-cli.ts';
 import { createPrFlowsExternal } from './github/pr-flows-external.ts';
@@ -26,7 +26,8 @@ const PR_FLOWS_SETTING_KEYS = ['sources', 'actions', 'rules', 'repoRules'] as co
 type CheckedPr = { url: string; repo: string; number: number; headRefOid: string };
 type EntryCheck = { kind: 'source' | 'action'; id: string; label: string; isApproved: boolean; error: string | null; argv: string[] | null };
 type SourceCheck = { id: string; label: string; output: PrFlowSourceOutput | null; error: string | null };
-type PrFlowsCheckReport = { configPath: string; warnings: string[]; entries: EntryCheck[]; pr: CheckedPr | null; sourceRuns: SourceCheck[] };
+type OutOfScopeSource = { id: string; label: string; repos: string[] };
+type PrFlowsCheckReport = { configPath: string; warnings: string[]; entries: EntryCheck[]; pr: CheckedPr | null; sourceRuns: SourceCheck[]; outOfScopeSources: OutOfScopeSource[] };
 
 interface PrFlowsCheckIo {
   writeOutput: (text: string) => void;
@@ -111,14 +112,16 @@ async function checkPrFlows({ prUrl, env, homeDir, runCommand, readConfig }: PrF
     ...commands.actions.map((action) => entryCheck('action', action, approved, pr)),
   ];
   const warnings = [...commands.warnings, ...ruleWarnings(configFile, new Set(commands.actions.map((action) => action.id)))];
-  if (!pr) return { configPath, warnings, entries, pr, sourceRuns: [] };
+  if (!pr) return { configPath, warnings, entries, pr, sourceRuns: [], outOfScopeSources: [] };
   const external = createPrFlowsExternal({ homeDir, baseEnv: () => env, runCommand });
-  const runnableSources = commands.sources.filter((source) => entries.some((entry) => entry.kind === 'source' && entry.id === source.id && entry.error === null && entry.isApproved));
+  const sourcesInScope = scopedToRepo(commands.sources, pr.repo);
+  const outOfScopeSources = commands.sources.filter((source) => !sourcesInScope.includes(source)).map(({ id, label, repos }) => ({ id, label, repos: repos ?? [] }));
+  const runnableSources = sourcesInScope.filter((source) => entries.some((entry) => entry.kind === 'source' && entry.id === source.id && entry.error === null && entry.isApproved));
   const sourceRuns = await Promise.all(runnableSources.map(async (source) => {
     const run = await external.runSource(source, pr);
     return { id: source.id, label: source.label, output: run.ok ? run.output : null, error: run.ok ? null : run.error };
   }));
-  return { configPath, warnings, entries, pr, sourceRuns };
+  return { configPath, warnings, entries, pr, sourceRuns, outOfScopeSources };
 }
 
 function entryLine(entry: EntryCheck): string {
@@ -143,7 +146,7 @@ function reportText(report: PrFlowsCheckReport): string {
   if (report.entries.length === 0) lines.push('No prFlows.sources or prFlows.actions are configured.');
   lines.push(...report.entries.map(entryLine));
   lines.push(...report.warnings.map((warning) => `warning: ${warning}`));
-  if (report.pr) lines.push(`Ran the approved sources against ${report.pr.url} at ${report.pr.headRefOid.slice(0, 12)}; a source waiting for approval in My PRs does not run:`, ...report.sourceRuns.flatMap(sourceRunLines));
+  if (report.pr) lines.push(`Ran the approved sources against ${report.pr.url} at ${report.pr.headRefOid.slice(0, 12)}; a source waiting for approval in My PRs does not run:`, ...report.sourceRuns.flatMap(sourceRunLines), ...report.outOfScopeSources.map((source) => `source ${source.id} skipped: limited to ${source.repos.join(', ')}`));
   if (!report.pr && report.entries.some((entry) => entry.kind === 'source')) lines.push('Pass --pr <url> to run each approved source once against a pull request.');
   return lines.join('\n');
 }

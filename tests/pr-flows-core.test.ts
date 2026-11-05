@@ -9,7 +9,7 @@ import { GithubPr, GithubPrDetailNode } from '../shared/contracts/github-prs.ts'
 import type { MyPrThread, MyPrThreadNode } from '../shared/contracts/my-prs.ts';
 import { normalizeGithubPr } from '../server/github/core/github-store-core.ts';
 import { myPrFromGithubPr } from '../shared/my-pr-merge.ts';
-import { PR_ACTION_REPORT_URL_ENV, PR_ACTION_TOKEN_ENV, prActionReportPath, PrFlowCommand, PrFlowPrAction, PrFlowRule, PrFlowSourceOutput, PrFlowsState } from '../shared/contracts/pr-flows.ts';
+import { PR_ACTION_REPORT_URL_ENV, PR_ACTION_TOKEN_ENV, prActionReportPath, PrFlowCommand, PrFlowPrAction, PrFlowRule, PrFlowScopedCommand, PrFlowSourceOutput, PrFlowsState } from '../shared/contracts/pr-flows.ts';
 import type { PrFlowsStatus } from '../shared/contracts/pr-flows.ts';
 import { createPrFlowsWiring } from '../server/github/pr-flows-wiring.ts';
 import { createPrFlowsExternal } from '../server/github/pr-flows-external.ts';
@@ -730,7 +730,7 @@ test('the published pack JSON Schema matches the Zod contract, and pr-flows chec
 
 test('an agent reads each PR flows setting with its JSON Schema and a valid example, and pr-flows check names entries, runs sources and prints actions unrun', async () => {
   const view = configFileViewOf('config.json', DEFAULT_CONFIG, {}, false);
-  const schemaOf = { 'prFlows.sources': z.array(PrFlowCommand), 'prFlows.actions': z.array(PrFlowCommand), 'prFlows.prActions': z.array(PrFlowPrAction), 'prFlows.rules': z.array(PrFlowRule), 'prFlows.repoRules': z.record(z.string(), z.array(PrFlowRule)) };
+  const schemaOf = { 'prFlows.sources': z.array(PrFlowScopedCommand), 'prFlows.actions': z.array(PrFlowCommand), 'prFlows.prActions': z.array(PrFlowPrAction), 'prFlows.rules': z.array(PrFlowRule), 'prFlows.repoRules': z.record(z.string(), z.array(PrFlowRule)) };
   for (const [settingPath, schema] of Object.entries(schemaOf)) {
     const reply = readSettingsForAgent({ command: 'get', path: settingPath }, view);
     assert.ok(reply.ok && 'readout' in reply);
@@ -748,11 +748,13 @@ test('an agent reads each PR flows setting with its JSON Schema and a valid exam
     fs.writeFileSync(sourceScript, "console.log(JSON.stringify({ findings: [{ path: 'src/a.ts', lineStart: 3, lineEnd: 3, priority: 'high', body: process.argv[2] }] }))");
     const markerPath = path.join(homeDir, 'action-ran');
     const unapprovedMarkerPath = path.join(homeDir, 'unapproved-ran');
+    const otherRepoMarkerPath = path.join(homeDir, 'other-repo-ran');
+    const otherRepoSource = PrFlowScopedCommand.parse({ id: 'other-repo', label: 'Other repo', repos: ['acme/other'], command: [process.execPath, '-e', `require('fs').writeFileSync(${JSON.stringify(otherRepoMarkerPath)}, '')`] });
     const scanner = PrFlowCommand.parse({ id: 'scanner', label: 'Scanner', command: [process.execPath, sourceScript, '{head}'] });
     const painter = PrFlowCommand.parse({ id: 'painter', label: 'Painter', command: [process.execPath, '-e', `console.log(JSON.stringify({ findings: [], status: [{ label: 'CI', state: '\\u001b]0;owned' }] }))`] });
-    fs.writeFileSync(path.join(homeDir, 'pr-flows-state.json'), JSON.stringify({ handledByPr: {}, reopenedByPr: {}, approvedFingerprints: [commandFingerprint('source', scanner), commandFingerprint('source', painter)] }));
+    fs.writeFileSync(path.join(homeDir, 'pr-flows-state.json'), JSON.stringify({ handledByPr: {}, reopenedByPr: {}, approvedFingerprints: [commandFingerprint('source', scanner), commandFingerprint('source', painter), commandFingerprint('source', otherRepoSource)] }));
     fs.writeFileSync(path.join(homeDir, 'config.json'), JSON.stringify({ prFlows: {
-      sources: [scanner, painter, { id: 'typo', label: 'Typo', command: ['x', '{pr_url}'] }, { id: 'unapproved', label: 'Unapproved', command: [process.execPath, '-e', `require('fs').writeFileSync(${JSON.stringify(unapprovedMarkerPath)}, '')`] }],
+      sources: [scanner, painter, { id: 'typo', label: 'Typo', command: ['x', '{pr_url}'] }, { id: 'unapproved', label: 'Unapproved', command: [process.execPath, '-e', `require('fs').writeFileSync(${JSON.stringify(unapprovedMarkerPath)}, '')`] }, otherRepoSource],
       actions: [{ id: 'mark', label: 'Mark', command: [process.execPath, '-e', `require('fs').writeFileSync(${JSON.stringify(markerPath)}, '')`, '{itemPath}', '{prUrl}'] }],
     } }));
     let output = '';
@@ -766,13 +768,16 @@ test('an agent reads each PR flows setting with its JSON Schema and a valid exam
     const report = z.looseObject({
       entries: z.array(z.looseObject({ id: z.string(), error: z.string().nullable(), argv: z.array(z.string()).nullable() })),
       sourceRuns: z.array(z.looseObject({ id: z.string(), error: z.string().nullable(), output: z.looseObject({ findings: z.array(z.looseObject({ body: z.string() })) }).nullable() })),
+      outOfScopeSources: z.array(z.looseObject({ id: z.string(), repos: z.array(z.string()) })),
     }).parse(JSON.parse(output));
-    assert.deepEqual(report.entries.map((entry) => [entry.id, entry.error === null]), [['scanner', true], ['painter', true], ['typo', false], ['unapproved', true], ['mark', true]]);
+    assert.deepEqual(report.entries.map((entry) => [entry.id, entry.error === null]), [['scanner', true], ['painter', true], ['typo', false], ['unapproved', true], ['other-repo', true], ['mark', true]]);
     assert.deepEqual(report.entries.find((entry) => entry.id === 'mark')?.argv?.slice(-2), ['{itemPath}', 'https://github.com/acme/app/pull/7']);
     assert.deepEqual(report.sourceRuns.map((run) => [run.id, run.output?.findings[0]?.body]), [['scanner', head], ['painter', undefined]]);
     assert.match(report.sourceRuns.find((run) => run.id === 'painter')?.error ?? '', /control characters/);
     assert.equal(fs.existsSync(markerPath), false);
     assert.equal(fs.existsSync(unapprovedMarkerPath), false);
+    assert.deepEqual(report.outOfScopeSources.map((source) => [source.id, source.repos]), [['other-repo', ['acme/other']]]);
+    assert.equal(fs.existsSync(otherRepoMarkerPath), false);
   } finally {
     fs.rmSync(homeDir, { recursive: true, force: true });
   }

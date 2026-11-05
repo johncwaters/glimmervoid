@@ -52,7 +52,7 @@
       "type": "object",
       "properties": {
         "repos": {
-          "description": "The default owner/name repositories for every prAction and rule of this pack that lists no repos of its own; every repository when absent",
+          "description": "The default owner/name repositories for every prAction, source and rule of this pack that lists no repos of its own; every repository when absent",
           "minItems": 1,
           "type": "array",
           "items": {
@@ -135,6 +135,15 @@
                 "type": "integer",
                 "exclusiveMinimum": 0,
                 "maximum": 3600
+              },
+              "repos": {
+                "description": "The owner/name repositories this applies to; every repository when absent",
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+$"
+                }
               }
             },
             "required": [

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { MyPr, MyPrThread } from '../../../shared/contracts/my-prs.ts';
 import type { TeamReviewThreadNode } from '../../../shared/contracts/team-review.ts';
 import type { PackOnDisk, PackPrFlows } from '../../../shared/contracts/pack.ts';
-import { PrFlowCommand, PrFlowPrAction, PrFlowRule, PrFlowsSettings } from '../../../shared/contracts/pr-flows.ts';
+import { PrFlowCommand, PrFlowPrAction, PrFlowRule, PrFlowScopedCommand, PrFlowsSettings } from '../../../shared/contracts/pr-flows.ts';
 import type { PrActionReportBody, PrActionRunRecord, PrActionRunView, PrFlowPendingApproval, PrFlowSourceFinding, PrFlowActionRef, PrFlowDisposition, PrFlowHandled, PrFlowItem, PrFlowPriority, PrFlowSource, PrFlowsState } from '../../../shared/contracts/pr-flows.ts';
 
 type PrFlowCandidate = {
@@ -209,7 +209,7 @@ export function scopedToRepo<Scoped extends { repos?: readonly string[] | undefi
 }
 
 type PrFlowCommandKind = PrFlowPendingApproval['kind'];
-type PrFlowCommands = { sources: PrFlowCommand[]; actions: PrFlowCommand[]; prActions: PrFlowPrAction[]; warnings: string[] };
+type PrFlowCommands = { sources: PrFlowScopedCommand[]; actions: PrFlowCommand[]; prActions: PrFlowPrAction[]; warnings: string[] };
 
 function parsedCommandList<Command extends PrFlowCommand>(schema: z.ZodType<Command>, entries: readonly unknown[], label: string, warnings: string[]): Command[] {
   const seenIds = new Set<string>();
@@ -234,7 +234,7 @@ export function prFlowCommands(configFile: unknown): PrFlowCommands {
   if (!settings) return { sources: [], actions: [], prActions: [], warnings: [] };
   const warnings: string[] = [];
   return {
-    sources: parsedCommandList(PrFlowCommand, settings.sources ?? [], 'prFlows.sources', warnings),
+    sources: parsedCommandList(PrFlowScopedCommand, settings.sources ?? [], 'prFlows.sources', warnings),
     actions: parsedCommandList(PrFlowCommand, settings.actions ?? [], 'prFlows.actions', warnings),
     prActions: parsedCommandList(PrFlowPrAction, settings.prActions ?? [], 'prFlows.prActions', warnings),
     warnings,
@@ -271,7 +271,7 @@ function packRule(rule: PrFlowRule, { header, prFlows }: { header: { name: strin
   return { ...scopedRule, action: `run:${header.name}/${scopedRule.action.slice('run:'.length)}` };
 }
 
-type PackCommandsByKind = { sources: PrFlowCommand[]; actions: PrFlowCommand[]; prActions: PrFlowPrAction[] };
+type PackCommandsByKind = { sources: PrFlowScopedCommand[]; actions: PrFlowCommand[]; prActions: PrFlowPrAction[] };
 
 function packRuleText(rule: PrFlowRule, prFlowsPack: PrFlowsPack): string {
   const { name, ...matchAndAction } = packRule(rule, { header: prFlowsPack.loaded.header, prFlows: prFlowsPack.section });
@@ -280,7 +280,7 @@ function packRuleText(rule: PrFlowRule, prFlowsPack: PrFlowsPack): string {
 
 function packCommands({ loaded, section }: PrFlowsPack): PackCommandsByKind {
   return {
-    sources: section.sources.map((command) => packCommand(command, loaded)),
+    sources: section.sources.map((command) => withPackRepos(packCommand(command, loaded), section.repos)),
     actions: section.actions.map((command) => packCommand(command, loaded)),
     prActions: section.prActions.map((command) => withPackRepos(packCommand(command, loaded), section.repos)),
   };
