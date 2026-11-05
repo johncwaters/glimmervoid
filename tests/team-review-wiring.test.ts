@@ -17,6 +17,7 @@ import { makeTeamReviewWorkDir, hooksPathPinnedSpawnEnv } from '../server/github
 import { sweepLeftoverCheckouts } from '../server/github/team-review-checkouts.ts';
 import type { TeamReviewDispatchOptions } from '../server/github/team-review-dispatcher.ts';
 import type { TeamReviewSpawn } from '../server/github/team-review-spawn.ts';
+import { comparablePrKey } from '../shared/contracts/github-prs.ts';
 import { PrDetail, ReviewDraft } from '../shared/contracts/team-review.ts';
 import { UNTRUSTED_PAYLOAD_FILENAME, UNTRUSTED_PREAMBLE, UntrustedPayload } from '../shared/contracts/untrusted-payload.ts';
 import type { ResumableReview, ReviewDraft as ReviewDraftType } from '../shared/contracts/team-review.ts';
@@ -824,8 +825,8 @@ function emptyGithubStore(github: Partial<Parameters<typeof createGithubStorePol
     setTimeoutFn: setTimeout, clearTimeoutFn: clearTimeout, log: { warn() {} },
     github: {
       async searchPrsLight(qualifiers) { searches.push(qualifiers); return { ok: true, items: [], isComplete: true, error: '' }; },
-      async prsLightByKey() { return new Map(); },
-      async prDetails() { return new Map(); },
+      async prsLightByKey(prs) { return { byKey: new Map(), goneKeys: new Set(prs.map(comparablePrKey)) }; },
+      async prDetails(prs) { return { byKey: new Map(), goneKeys: new Set(prs.map(comparablePrKey)) }; },
       async notificationsSince() { return { kind: 'unchanged' }; },
       async behindCounts() { return new Map(); },
       async reviewThreadsBatch() { return new Map(); },

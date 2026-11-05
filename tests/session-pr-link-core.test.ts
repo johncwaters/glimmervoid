@@ -28,17 +28,19 @@ function storeHarness(context: TestContext, initialNodes: GithubPrDetailNode[] =
       },
       async prsLightByKey(references) {
         const keys = new Set(references.map(comparablePrKey));
-        return new Map(nodes.filter((node) => keys.has(comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number })))
+        const byKey = new Map(nodes.filter((node) => keys.has(comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number })))
           .map((node) => [comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number }), GithubPrLightSearchNode.parse(node)]));
+        return { byKey, goneKeys: new Set([...keys].filter((key) => !byKey.has(key))) };
       },
       async prDetails(references) {
         const keys = references.map(comparablePrKey);
         detailCalls.push(keys);
-        return new Map(nodes.filter((node) => keys.includes(comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number })))
+        const byKey = new Map(nodes.filter((node) => keys.includes(comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number })))
           .map((node) => [comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number }), node]));
+        return { byKey, goneKeys: new Set(keys.filter((key) => !byKey.has(key))) };
       },
       async notificationsSince() { return { kind: 'unchanged' }; },
-      async behindCounts() { return new Map<string, number>(); },
+      async behindCounts(prs) { return new Map<string, number | null>(prs.map((pr) => [`${pr.repo}#${pr.number}`, null])); },
       async reviewThreadsBatch() { return new Map(); },
       async rateLimitWaitMs() { return null; },
       async viewPr() { assert.fail('Unexpected PR view'); },

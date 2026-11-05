@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { GithubPr, GithubPrLightSearchNode, GithubPrsFrame } from '../../shared/contracts/github-prs.ts';
+import type { GithubPr, GithubPrDetailNode, GithubPrLightSearchNode, GithubPrsFrame } from '../../shared/contracts/github-prs.ts';
 import type { GithubPollingRefreshResult } from '../../shared/contracts/github-polling.ts';
 import type { MyPrThreadNode } from '../../shared/contracts/my-prs.ts';
 import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
@@ -135,6 +135,18 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     log.warn(`[github-store] ${errorMessage(error)}`);
   }
 
+  function warnUnreadable(key: string): void {
+    log.warn(`[github-store] ${key} unreadable this refresh; keeping the last copy`);
+  }
+
+  function setOrDropLight(key: string, previousLight: GithubPrLightSearchNode | undefined): void {
+    if (previousLight) {
+      lightByKey.set(key, previousLight);
+      return;
+    }
+    lightByKey.delete(key);
+  }
+
   function recordSuccess(): void {
     pollingError = null;
     failureStreak = 0;
@@ -144,30 +156,39 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
   }
 
   async function fetchDetails(keys: readonly string[]) {
-    if (keys.length === 0) return { details: [], nodes: [], missingKeys: [] };
+    if (keys.length === 0) return { details: [], nodes: [], goneKeys: [], unreadableKeys: [] };
     const references = keys.flatMap((key) => {
       const reference = githubStorePrReference(key);
       return reference ? [reference] : [];
     });
-    const detailsByKey = await github.prDetails(references);
-    const nodes = keys.flatMap((key) => {
-      const node = detailsByKey.get(key);
-      return node ? [node] : [];
-    });
-    const missingKeys = keys.filter((key) => !detailsByKey.has(key));
-    for (const key of missingKeys) unavailableKeys.add(key);
-    for (const node of nodes) unavailableKeys.delete(comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number }));
-    const openNodes = nodes.filter((node) => node.state === 'OPEN');
-    const behindCounts = openNodes.length === 0 ? new Map<string, number>() : await github.behindCounts(openNodes.map((node) => ({ repo: node.repository.nameWithOwner, number: node.number, headSha: node.headRefOid })));
+    const detailRead = await github.prDetails(references);
+    const foundNodeByKey = new Map(keys.flatMap((key): [string, GithubPrDetailNode][] => {
+      const node = detailRead.byKey.get(key);
+      return node ? [[key, node]] : [];
+    }));
+    const goneKeys = keys.filter((key) => detailRead.goneKeys.has(key));
+    for (const key of goneKeys) unavailableKeys.add(key);
+    const openNodes = [...foundNodeByKey.values()].filter((node) => node.state === 'OPEN');
+    const behindCounts = openNodes.length === 0 ? new Map<string, number | null>() : await github.behindCounts(openNodes.map((node) => ({ repo: node.repository.nameWithOwner, number: node.number, headSha: node.headRefOid })));
     const threadedNodes = openNodes.filter(hasUnresolvedThreads);
     const threadsByPr = threadedNodes.length === 0 ? new Map<string, MyPrThreadNode[]>() : await github.reviewThreadsBatch(threadedNodes.map((node) => ({ repo: node.repository.nameWithOwner, number: node.number })));
     const comparableBehindCounts = new Map([...behindCounts].map(([key, count]) => [key.toLowerCase(), count]));
     const comparableThreads = new Map([...threadsByPr].map(([key, threads]) => [key.toLowerCase(), threads]));
+    const isFullyRead = (node: GithubPrDetailNode) => {
+      if (node.state !== 'OPEN') return true;
+      const key = comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number });
+      return comparableBehindCounts.has(key) && (!hasUnresolvedThreads(node) || comparableThreads.has(key));
+    };
+    const readNodeByKey = new Map([...foundNodeByKey].filter(([, node]) => isFullyRead(node)));
+    const nodes = [...readNodeByKey.values()];
+    for (const node of nodes) unavailableKeys.delete(comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number }));
+    const unreadableKeys = keys.filter((key) => !readNodeByKey.has(key) && !detailRead.goneKeys.has(key));
+    for (const key of unreadableKeys) warnUnreadable(key);
     const details = nodes.map((node) => {
       const key = comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number });
       return normalizeGithubPr(node, node.state === 'OPEN' ? comparableBehindCounts.get(key) ?? null : null, comparableThreads.get(key) ?? []);
     });
-    return { details, nodes, missingKeys };
+    return { details, nodes, goneKeys, unreadableKeys };
   }
 
   function watchedKeys(): Set<string> {
@@ -216,9 +237,11 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
       const reference = githubStorePrReference(key);
       return reference ? [reference] : [];
     });
-    const refreshedLightByKey = references.length > 0 ? await github.prsLightByKey(references) : new Map<string, GithubPrLightSearchNode>();
-    const missingLightKeys = keysToRead.filter((key) => !refreshedLightByKey.has(key));
-    const readKeys = new Set(keysToRead);
+    const lightRead = references.length > 0 ? await github.prsLightByKey(references) : { byKey: new Map<string, GithubPrLightSearchNode>(), goneKeys: new Set<string>() };
+    const goneLightKeys = keysToRead.filter((key) => lightRead.goneKeys.has(key));
+    const unreadableLightKeys = new Set(keysToRead.filter((key) => !lightRead.byKey.has(key) && !lightRead.goneKeys.has(key)));
+    for (const key of unreadableLightKeys) warnUnreadable(key);
+    const readKeys = new Set(keysToRead.filter((key) => !unreadableLightKeys.has(key)));
     const currentLightByKey = new Map([...lightByKey].filter(([key]) => knownKeys.has(key) && !readKeys.has(key)));
     const membershipLightKeys = new Set<string>();
     for (const refreshed of watchResults) {
@@ -228,7 +251,7 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
         if (!readKeys.has(key)) currentLightByKey.set(key, node);
       }
     }
-    for (const [key, node] of refreshedLightByKey) currentLightByKey.set(key, node);
+    for (const [key, node] of lightRead.byKey) currentLightByKey.set(key, node);
     const changes = githubPrChangeSet(lightByKey, [...currentLightByKey.values()]);
     const changedKeys = new Set(changes.detailKeys);
     for (const key of unavailableKeys) {
@@ -236,20 +259,19 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     }
     const isMergeStateUnsettledAfterLightRead = (key: string) => (readKeys.has(key) || membershipLightKeys.has(key)) && prs[key]?.state === 'OPEN' && prs[key]?.mergeStateStatus === 'UNKNOWN';
     const detailKeys = [...union.detailKeys].filter((key) => currentLightByKey.has(key) && (changedKeys.has(key) || isMergeStateUnsettledAfterLightRead(key) || (!prs[key] && !unavailableKeys.has(key))));
-    const keysRereadOnlyForMergeState = new Set(detailKeys.filter((key) => !changedKeys.has(key) && isMergeStateUnsettledAfterLightRead(key)));
-    const { details, nodes, missingKeys } = await fetchDetails(detailKeys);
-    const lostDetailKeys = missingKeys.filter((key) => !keysRereadOnlyForMergeState.has(key));
-    for (const key of missingKeys.filter((key) => keysRereadOnlyForMergeState.has(key))) unavailableKeys.delete(key);
+    const { details, nodes, goneKeys: goneDetailKeys, unreadableKeys: unreadableDetailKeys } = await fetchDetails(detailKeys);
     for (const refreshed of watchResults) {
       if (watches.get(refreshed.watch.name) !== refreshed.watch) continue;
       Object.assign(refreshed.watch, { nodes: refreshed.nodes, returnedKeys: refreshed.returnedKeys, returnedCount: refreshed.returnedCount, totalCount: refreshed.totalCount, isComplete: refreshed.isComplete, isLoaded: true, lastMembershipPolledAt: tickStartedAt, membershipRevision: pollMembershipRevision });
     }
+    const lightBeforeTick = lightByKey;
     lightByKey = changes.lightByKey;
     for (const node of nodes) lightByKey.set(comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number }), node);
-    for (const key of missingLightKeys) unavailableKeys.add(key);
-    const removedKeys = [...new Set([...changes.removedKeys, ...missingLightKeys.filter((key) => prs[key]), ...lostDetailKeys.filter((key) => prs[key])])];
+    for (const key of unreadableDetailKeys) setOrDropLight(key, lightBeforeTick.get(key));
+    for (const key of goneLightKeys) unavailableKeys.add(key);
+    const removedKeys = [...new Set([...changes.removedKeys, ...goneLightKeys.filter((key) => prs[key]), ...goneDetailKeys.filter((key) => prs[key])])];
     prs = applyGithubPrDetails(prs, details, removedKeys);
-    for (const key of [...keysToRead, ...membershipLightKeys]) lastLightPolledAtByKey.set(key, tickStartedAt);
+    for (const key of [...readKeys, ...membershipLightKeys]) lastLightPolledAtByKey.set(key, tickStartedAt);
     for (const key of lastLightPolledAtByKey.keys()) {
       if (!knownKeys.has(key)) lastLightPolledAtByKey.delete(key);
     }
@@ -262,7 +284,7 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     const detailWatchKeys = new Set([...watches.values()].filter((watch) => watch.needsDetail)
       .flatMap((watch) => watch.nodes.map((node) => comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number }))));
     const openPrs = Object.values(prs).filter((pr) => pr.state === 'OPEN' && detailWatchKeys.has(pr.key) && !refreshedKeys.has(pr.key));
-    const behindCounts = openPrs.length === 0 ? new Map<string, number>() : await github.behindCounts(openPrs.map((pr) => ({ repo: pr.repo, number: pr.number, headSha: pr.headRefOid })));
+    const behindCounts = openPrs.length === 0 ? new Map<string, number | null>() : await github.behindCounts(openPrs.map((pr) => ({ repo: pr.repo, number: pr.number, headSha: pr.headRefOid })));
     const changedPrs = githubPrsWithChangedBehindCounts(openPrs, new Map([...behindCounts].map(([key, count]) => [key.toLowerCase(), count])));
     const { details, nodes } = await fetchDetails(changedPrs.map((pr) => pr.key));
     for (const node of nodes) lightByKey.set(comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number }), node);
@@ -372,14 +394,17 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
       refreshTimersByKey.delete(comparableKey);
       void readWhenAllowed(async () => {
         const previousError = pollingError;
-        const refreshedLightByKey = await github.prsLightByKey([reference]);
-        const lightNode = refreshedLightByKey.get(comparableKey);
+        const lightRead = await github.prsLightByKey([reference]);
+        const lightNode = lightRead.byKey.get(comparableKey);
+        if (!lightNode && !lightRead.goneKeys.has(comparableKey)) {
+          warnUnreadable(comparableKey);
+          return;
+        }
         const previousLight = lightByKey.get(comparableKey);
         const changes = githubPrChangeSet(new Map(previousLight ? [[comparableKey, previousLight]] : []), lightNode ? [lightNode] : []);
-        const { details, nodes, missingKeys } = await fetchDetails(lightNode && !prs[comparableKey] ? [comparableKey] : changes.detailKeys);
-        const removedKeys = [...new Set([...changes.removedKeys, ...missingKeys])].filter((key) => prs[key]);
-        lightByKey.delete(comparableKey);
-        if (lightNode) lightByKey.set(comparableKey, lightNode);
+        const { details, nodes, goneKeys, unreadableKeys } = await fetchDetails(lightNode && !prs[comparableKey] ? [comparableKey] : changes.detailKeys);
+        const removedKeys = [...new Set([...changes.removedKeys, ...goneKeys])].filter((key) => prs[key]);
+        setOrDropLight(comparableKey, unreadableKeys.includes(comparableKey) ? previousLight : lightNode);
         prs = applyGithubPrDetails(prs, details, removedKeys);
         for (const node of nodes) lightByKey.set(comparableKey, node);
         lastRefreshedAt = now();

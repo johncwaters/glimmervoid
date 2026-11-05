@@ -22,8 +22,8 @@ import { notificationSubjectPrKey } from './core/github-store-core.ts';
 import type { GithubTeam } from '../../shared/contracts/control-messages.ts';
 import { MERGED_PRS_QUERY, MY_PR_CHECK_CONTEXTS_QUERY, MY_PR_MERGE_STATE_QUERY, MY_PR_THREADS_QUERY, REBASE_PR_MUTATION, REPLY_THREAD_MUTATION, RESOLVE_THREAD_MUTATION, REVIEW_THREAD_FIELDS, TEAM_PROFILE_QUERY, UNRESOLVE_THREAD_MUTATION, TEAM_THREAD_COMMENT_FIELDS, TEAM_THREAD_FIELDS, behindCountsQuery, benchmarkReviewDataQuery, githubPrDetailsQuery, githubPrsLightByKeyQuery, githubPrsLightSearchQuery, issueLinkedPullRequestsQuery, reviewThreadsBatchQuery, teamThreadsQuery } from './pr-gh/pr-gh-queries.ts';
 import type { PrHeadReference, PrReference } from './pr-gh/pr-gh-queries.ts';
-import { COMPARE_RESPONSE, CREATED_REVIEW, GH_LOGIN, GH_MEMBERS, GH_TEAMS, GITHUB_NOTIFICATIONS, GITHUB_PRS_LIGHT_RESPONSE, GITHUB_PR_DETAIL_REPOSITORY, GITHUB_PR_LIGHT_REPOSITORY, GRAPHQL_BEHIND_REPOSITORY, GRAPHQL_NOT_FOUND_ERROR, GRAPHQL_RESPONSE, GRAPHQL_THREADS_REPOSITORY, MERGED_PRS_RESPONSE, PR_DIFF, TEAM_PROFILE } from './pr-gh/pr-gh-responses.ts';
-import { aliasesOfErrors, conditionalGetResult, isPrNumber, isPullRequest, mergeKindFromPrState, normalizeIssue, parseGithubIssue, reviewSnapshotKey, uniqueValidPrs } from './pr-gh/pr-gh-parsing.ts';
+import { COMPARE_RESPONSE, CREATED_REVIEW, GH_LOGIN, GH_MEMBERS, GH_TEAMS, GITHUB_NOTIFICATIONS, GITHUB_PRS_LIGHT_RESPONSE, GITHUB_PR_DETAIL_REPOSITORY, GITHUB_PR_LIGHT_REPOSITORY, GRAPHQL_BEHIND_REPOSITORY, GRAPHQL_RESPONSE, GRAPHQL_THREADS_REPOSITORY, MERGED_PRS_RESPONSE, PR_DIFF, TEAM_PROFILE } from './pr-gh/pr-gh-responses.ts';
+import { aliasesOfErrors, aliasesReportedGone, conditionalGetResult, isPrNumber, isPullRequest, mergeKindFromPrState, normalizeIssue, parseGithubIssue, reviewSnapshotKey, uniqueValidPrs } from './pr-gh/pr-gh-parsing.ts';
 import type { ConditionalGetResult, GithubIssue, GithubIssueRow, RestValidators } from './pr-gh/pr-gh-parsing.ts';
 
 type GhMergeFlag = '--merge' | '--squash' | '--rebase';
@@ -42,13 +42,13 @@ type NotificationsSinceResult = Exclude<ConditionalGetResult, { kind: 'ok' }>
 interface PrGh {
   conditionalGet(path: string, validators?: RestValidators): Promise<ConditionalGetResult>;
   searchPrsLight(qualifiers: string, maxMembers?: number): Promise<{ ok: boolean; items: GithubPrLightSearchNodeType[]; isComplete: boolean; totalCount?: number; error: string }>;
-  prsLightByKey(prs: readonly PrReference[]): Promise<Map<string, GithubPrLightSearchNodeType>>;
-  prDetails(prs: readonly PrReference[]): Promise<Map<string, GithubPrDetailNodeType>>;
+  prsLightByKey(prs: readonly PrReference[]): Promise<GithubBatchRead<GithubPrLightSearchNodeType>>;
+  prDetails(prs: readonly PrReference[]): Promise<GithubBatchRead<GithubPrDetailNodeType>>;
   notificationsSince(lastModified?: string): Promise<NotificationsSinceResult>;
   addPrLabel(label: { repo: string; number: number; name: string }): Promise<{ ok: boolean; err: string }>;
   commentOnPr(comment: { repo: string; number: number; body: string }): Promise<{ ok: boolean; err: string }>;
   setIssueState(change: { repo: string; number: number; state: 'closed' | 'open' }): Promise<{ ok: boolean; err: string }>;
-  behindCounts(prs: readonly PrHeadReference[]): Promise<Map<string, number>>;
+  behindCounts(prs: readonly PrHeadReference[]): Promise<Map<string, number | null>>;
   rebasePr(pullRequestId: string, expectedHeadSha: string): Promise<{ ok: boolean; err: string }>;
   mergePr(merge: { repo: string; number: number; headSha: string; method: MyPrMergeMethodType }): Promise<{ ok: true; kind: MyPrMergeKind } | { ok: false; err: string }>;
   rateLimitWaitMs(nowMs: number, resourceNames: readonly string[]): Promise<number | null>;
@@ -105,7 +105,16 @@ const MAX_SEARCH_PAGES = 5;
 const MAX_REVIEW_THREAD_PAGES = 5;
 const REVIEW_SNAPSHOT_BATCH_SIZE = 25;
 
-type AliasedBatchFailurePolicy = 'skip-failed-batch' | 'throw-on-batch-failure' | 'throw-on-any-error';
+type AliasedBatchFailurePolicy = 'skip-failed-batch' | 'throw-on-batch-failure';
+type AliasOutcome = 'found' | 'gone' | 'unreadable';
+type GithubBatchRead<Value> = { byKey: Map<string, Value>; goneKeys: Set<string> };
+
+function aliasedBatchFailure(response: CommandResult, errorCount: number, hasData: boolean, hasUnattributedError: boolean, isStrict: boolean): string | null {
+  if (isStrict && !response.ok && errorCount === 0) return response.err.trim() || 'gh graphql batch failed';
+  if (!hasData) return 'invalid gh graphql response';
+  if (isStrict && hasUnattributedError) return response.err.trim() || 'gh graphql returned an error outside any pull request';
+  return null;
+}
 
 function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
   async function runGh(args: string[], input?: string, preserveOutput = false, timeoutMs = GH_READ_TIMEOUT_MS): Promise<CommandResult> {
@@ -124,46 +133,48 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     return conditionalGetResult(response);
   }
 
-  async function forEachAliasedPr<Pr extends PrReference>(prs: readonly Pr[], buildQuery: (batch: readonly Pr[]) => string, visit: (pr: Pr, aliasValue: unknown) => void, batchSize = REVIEW_SNAPSHOT_BATCH_SIZE, requireComplete = false, failurePolicy: AliasedBatchFailurePolicy = 'skip-failed-batch'): Promise<void> {
+  async function forEachAliasedPr<Pr extends PrReference>(prs: readonly Pr[], buildQuery: (batch: readonly Pr[]) => string, readAlias: (pr: Pr, aliasValue: unknown) => AliasOutcome, batchSize = REVIEW_SNAPSHOT_BATCH_SIZE, requireComplete = false, failurePolicy: AliasedBatchFailurePolicy = 'skip-failed-batch'): Promise<Pr[]> {
+    const gonePrs: Pr[] = [];
     for (let index = 0; index < prs.length; index += batchSize) {
       const batch = prs.slice(index, index + batchSize);
       const response = await runGh(['api', 'graphql', '-f', `query=${buildQuery(batch)}`]);
       const parsed = GRAPHQL_RESPONSE.safeParse(parseJsonOrNull(response.out));
       const errors = parsed.success ? parsed.data.errors ?? [] : [];
-      const areAllErrorsNotFound = errors.every((error) => GRAPHQL_NOT_FOUND_ERROR.safeParse(error).success);
-      const hasTransportFailed = !response.ok && errors.length === 0;
-      const shouldThrowOnBatchFailure = failurePolicy !== 'skip-failed-batch';
-      const shouldThrowOnAnyError = failurePolicy === 'throw-on-any-error';
-      if (shouldThrowOnBatchFailure && hasTransportFailed) throw new Error(response.err.trim() || 'gh graphql batch failed');
-      if (shouldThrowOnAnyError && !response.ok && !areAllErrorsNotFound) throw new Error(response.err.trim() || 'gh graphql batch failed');
-      if (shouldThrowOnBatchFailure && (!parsed.success || !parsed.data.data)) throw new Error('invalid gh graphql response');
-      if (shouldThrowOnAnyError && !areAllErrorsNotFound) throw new Error('gh graphql returned errors');
-      const erroredAliases = requireComplete ? aliasesOfErrors(errors) : new Set<string>();
-      if (shouldThrowOnBatchFailure && erroredAliases === null) throw new Error(response.err.trim() || 'gh graphql returned an error outside any pull request');
-      if (erroredAliases === null) continue;
-      if (requireComplete && hasTransportFailed) continue;
       const data = parsed.success ? parsed.data.data : null;
-      if (!data) continue;
+      const erroredAliases = aliasesOfErrors(errors);
+      const isStrict = requireComplete || failurePolicy === 'throw-on-batch-failure';
+      const batchFailure = aliasedBatchFailure(response, errors.length, Boolean(data), erroredAliases === null, isStrict);
+      if (batchFailure !== null && failurePolicy === 'throw-on-batch-failure') throw new Error(batchFailure);
+      if (batchFailure !== null || !data) continue;
+      const goneAliases = aliasesReportedGone(errors);
       for (const [position, pr] of batch.entries()) {
-        if (erroredAliases.has(`pr${position}`)) continue;
-        visit(pr, data[`pr${position}`]);
+        const alias = `pr${position}`;
+        const hasAliasError = erroredAliases?.has(alias) ?? false;
+        if (goneAliases.has(alias)) {
+          gonePrs.push(pr);
+          continue;
+        }
+        if (hasAliasError && requireComplete) continue;
+        const outcome = readAlias(pr, data[alias]);
+        if (outcome === 'gone' && !hasAliasError) gonePrs.push(pr);
       }
     }
+    return gonePrs;
   }
 
-  async function pagedReviewThreads(repo: string, number: number): Promise<MyPrThreadNodeType[]> {
+  async function pagedReviewThreads(repo: string, number: number): Promise<MyPrThreadNodeType[] | null> {
     const parts = repoParts(repo);
-    if (!parts || !isPrNumber(number)) return [];
+    if (!parts || !isPrNumber(number)) return null;
     const threads: MyPrThreadNodeType[] = [];
     let cursor: string | null = null;
     for (let page = 1; page <= MAX_REVIEW_THREAD_PAGES; page += 1) {
       const cursorArgs = cursor === null ? [] : ['-f', `cursor=${cursor}`];
       const response = await runGh(['api', 'graphql', '-f', `query=${MY_PR_THREADS_QUERY}`, '-f', `owner=${parts[0]}`, '-f', `name=${parts[1]}`, '-F', `number=${number}`, ...cursorArgs]);
-      if (!response.ok) return [];
+      if (!response.ok) return null;
       const parsed = MyPrThreadsResponse.safeParse(parseJsonOrNull(response.out));
-      if (!parsed.success || parsed.data.errors?.length) return [];
+      if (!parsed.success || parsed.data.errors?.length) return null;
       const reviewThreads = parsed.data.data.repository?.pullRequest?.reviewThreads;
-      if (!reviewThreads) return threads;
+      if (!reviewThreads) return null;
       for (const thread of reviewThreads.nodes) {
         const valid = MyPrThreadNode.safeParse(thread);
         if (valid.success) threads.push(valid.data);
@@ -268,27 +279,30 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     async prsLightByKey(prs) {
       const lightByKey = new Map<string, GithubPrLightSearchNodeType>();
       const referencesByKey = new Map(uniqueValidPrs(prs).map((pr) => [comparablePrKey(pr), pr]));
-      await forEachAliasedPr([...referencesByKey.values()], githubPrsLightByKeyQuery, (pr, repository) => {
+      const gonePrs = await forEachAliasedPr([...referencesByKey.values()], githubPrsLightByKeyQuery, (pr, repository) => {
         const parsed = GITHUB_PR_LIGHT_REPOSITORY.safeParse(repository);
-        if (!parsed.success) throw new Error('invalid gh graphql light PR response');
+        if (!parsed.success) return 'unreadable';
         const node = parsed.data?.pullRequest;
-        if (!node) return;
+        if (!node) return 'gone';
         lightByKey.set(comparablePrKey(pr), node);
-      }, 50, true, 'throw-on-any-error');
-      return lightByKey;
+        return 'found';
+      }, 50, true, 'throw-on-batch-failure');
+      return { byKey: lightByKey, goneKeys: new Set(gonePrs.map(comparablePrKey)) };
     },
 
     async prDetails(prs) {
       const detailsByKey = new Map<string, GithubPrDetailNodeType>();
       const referencesByKey = new Map(uniqueValidPrs(prs).map((pr) => [comparablePrKey(pr), pr]));
-      await forEachAliasedPr([...referencesByKey.values()], githubPrDetailsQuery, (pr, repository) => {
+      const gonePrs = await forEachAliasedPr([...referencesByKey.values()], githubPrDetailsQuery, (pr, repository) => {
         const parsed = GITHUB_PR_DETAIL_REPOSITORY.safeParse(repository);
-        const node = parsed.success ? parsed.data?.pullRequest : null;
-        if (!node) return;
+        if (!parsed.success) return 'unreadable';
+        const node = parsed.data?.pullRequest;
+        if (!node) return 'gone';
         detailsByKey.set(comparablePrKey(pr), node);
+        return 'found';
       }, REVIEW_SNAPSHOT_BATCH_SIZE, true, 'throw-on-batch-failure');
       for (const node of detailsByKey.values()) await completeCheckContexts(node);
-      return detailsByKey;
+      return { byKey: detailsByKey, goneKeys: new Set(gonePrs.map(comparablePrKey)) };
     },
 
     async notificationsSince(lastModified) {
@@ -340,12 +354,13 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       await forEachAliasedPr(uniqueValidPrs(prs), teamThreadsQuery, (pr, repository) => {
         const parsed = TeamReviewThreadsRepository.safeParse(repository);
         const connection = parsed.success ? parsed.data.pullRequest?.reviewThreads : null;
-        if (!connection) return;
+        if (!connection) return 'unreadable';
         if (!connection.pageInfo.hasNextPage) {
           threadsByPr.set(reviewSnapshotKey(pr.repo, pr.number), connection.nodes);
-          return;
+          return 'found';
         }
         if (connection.pageInfo.endCursor) paged.push({ pr, cursor: connection.pageInfo.endCursor, threads: connection.nodes });
+        return 'found';
       }, REVIEW_SNAPSHOT_BATCH_SIZE, true);
       for (const pending of paged) {
         const parts = repoParts(pending.pr.repo);
@@ -413,18 +428,23 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       const morePages: PrReference[] = [];
       await forEachAliasedPr(uniqueValidPrs(prs), reviewThreadsBatchQuery, (pr, repository) => {
         const parsed = GRAPHQL_THREADS_REPOSITORY.safeParse(repository);
-        const reviewThreads = parsed.success ? parsed.data.pullRequest?.reviewThreads : undefined;
-        if (!reviewThreads) return;
+        if (!parsed.success) return 'unreadable';
+        const reviewThreads = parsed.data.pullRequest?.reviewThreads;
+        if (!reviewThreads) return 'gone';
         if (reviewThreads.pageInfo.hasNextPage) {
           morePages.push(pr);
-          return;
+          return 'found';
         }
         threadsByPr.set(reviewSnapshotKey(pr.repo, pr.number), reviewThreads.nodes.flatMap((thread) => {
           const valid = MyPrThreadNode.safeParse(thread);
           return valid.success ? [valid.data] : [];
         }));
-      });
-      for (const pr of morePages) threadsByPr.set(reviewSnapshotKey(pr.repo, pr.number), await pagedReviewThreads(pr.repo, pr.number));
+        return 'found';
+      }, REVIEW_SNAPSHOT_BATCH_SIZE, true, 'skip-failed-batch');
+      for (const pr of morePages) {
+        const threads = await pagedReviewThreads(pr.repo, pr.number);
+        if (threads) threadsByPr.set(reviewSnapshotKey(pr.repo, pr.number), threads);
+      }
       return threadsByPr;
     },
 
@@ -456,7 +476,9 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       await forEachAliasedPr(prs, benchmarkReviewDataQuery, (pr, repository) => {
         const pullRequest = z.object({ pullRequest: z.unknown() }).safeParse(repository);
         const parsed = MinedPrReviewData.safeParse(pullRequest.success ? pullRequest.data.pullRequest : null);
-        if (parsed.success) dataByNumber.set(pr.number, parsed.data);
+        if (!parsed.success) return 'unreadable';
+        dataByNumber.set(pr.number, parsed.data);
+        return 'found';
       }, BENCHMARK_REVIEW_BATCH_SIZE);
       return dataByNumber;
     },
@@ -476,13 +498,16 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     },
 
     async behindCounts(prs) {
-      const counts = new Map<string, number>();
+      const counts = new Map<string, number | null>();
       const validPrs = prs.filter((pr) => repoParts(pr.repo) && isPrNumber(pr.number) && CommitSha.safeParse(pr.headSha).success);
       await forEachAliasedPr(validPrs, behindCountsQuery, (pr, repository) => {
         const comparison = GRAPHQL_BEHIND_REPOSITORY.safeParse(repository);
-        const behindBy = comparison.success ? comparison.data.pullRequest?.baseRef?.compare?.behindBy : undefined;
-        if (behindBy !== undefined) counts.set(reviewSnapshotKey(pr.repo, pr.number), behindBy);
-      });
+        if (!comparison.success) return 'unreadable';
+        const pullRequest = comparison.data.pullRequest;
+        if (!pullRequest) return 'gone';
+        counts.set(reviewSnapshotKey(pr.repo, pr.number), pullRequest.baseRef?.compare?.behindBy ?? null);
+        return 'found';
+      }, REVIEW_SNAPSHOT_BATCH_SIZE, true, 'throw-on-batch-failure');
       return counts;
     },
     async rateLimitWaitMs(nowMs, resourceNames) {
@@ -527,13 +552,14 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       await forEachAliasedPr(issues, issueLinkedPullRequestsQuery, (issue, repository) => {
         const parsed = GithubIssuePullRequestsRepository.safeParse(repository);
         const connection = parsed.success ? parsed.data.issue?.closedByPullRequestsReferences : null;
-        if (!connection) return;
+        if (!connection) return 'unreadable';
         const pullRequests = connection.nodes.flatMap((pullRequest): IssuePullRequest[] => {
           if (!pullRequest) return [];
           const { isDraft, state, ...fields } = pullRequest;
           return [{ ...fields, state: issuePullRequestStateFromGithub({ state, isDraft }) }];
         });
         pullRequestsByIssue.set(reviewSnapshotKey(issue.repo, issue.number), pullRequests);
+        return 'found';
       }, 50, true);
       return pullRequestsByIssue;
     },

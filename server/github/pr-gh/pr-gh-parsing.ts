@@ -9,7 +9,7 @@ import { errorMessage } from '../../../shared/text.ts';
 import { parseJsonOrNull } from '../../core/json-core.ts';
 import { isOrgMemberAssociation } from '../core/github-store-core.ts';
 import type { PrReference } from './pr-gh-queries.ts';
-import { GRAPHQL_ERROR_ALIAS } from './pr-gh-responses.ts';
+import { GRAPHQL_ALIAS_NOT_FOUND_ERROR, GRAPHQL_ERROR_ALIAS } from './pr-gh-responses.ts';
 
 interface GithubIssueLabelRow {
   name?: unknown;
@@ -71,9 +71,21 @@ function aliasesOfErrors(errors: readonly unknown[]): Set<string> | null {
   for (const error of errors) {
     const parsed = GRAPHQL_ERROR_ALIAS.safeParse(error);
     if (!parsed.success) return null;
+    if (isWorkflowRunPath(parsed.data.path)) continue;
     aliases.add(parsed.data.path[0]);
   }
   return aliases;
+}
+
+function isWorkflowRunPath(path: readonly (string | number)[]): boolean {
+  return path.some((segment, index) => segment === 'checkSuite' && path[index + 1] === 'workflowRun');
+}
+
+function aliasesReportedGone(errors: readonly unknown[]): Set<string> {
+  return new Set(errors.flatMap((error) => {
+    const parsed = GRAPHQL_ALIAS_NOT_FOUND_ERROR.safeParse(error);
+    return parsed.success ? [parsed.data.path[0]] : [];
+  }));
 }
 
 function isPrNumber(number: number): boolean {
@@ -172,5 +184,5 @@ function conditionalGetResult(response: CommandResult): ConditionalGetResult {
   }
 }
 
-export { aliasesOfErrors, conditionalGetResult, isPrNumber, isPullRequest, mergeKindFromPrState, normalizeIssue, parseGithubIssue, reviewSnapshotKey, uniqueValidPrs };
+export { aliasesOfErrors, aliasesReportedGone, conditionalGetResult, isPrNumber, isPullRequest, mergeKindFromPrState, normalizeIssue, parseGithubIssue, reviewSnapshotKey, uniqueValidPrs };
 export type { ConditionalGetResult, GithubIssue, GithubIssueRow, RestValidators };
