@@ -10,6 +10,7 @@ import { createPackData } from '../server/packs/pack-data.ts';
 import { createPackStore } from '../server/packs/pack-store.ts';
 import { ClientMessage } from '../shared/contracts/control-messages.ts';
 import { PACK_DATA_MAX_BYTES, PanelToHost } from '../shared/contracts/pack-bridge.ts';
+import { PANEL_ACTION_MAX_BYTES, panelActionDecision } from '../shared/pack-action-core.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 
 test('a pack panel file is served only from an approved pack at its current content through its access key, even where remote pairing guards every other route, inside a sandbox that allows no connections, and the dashboard frames nothing from another origin', async () => {
@@ -137,4 +138,20 @@ test('a pack store keeps values per approved pack with panels, refuses a write o
     second.packStore.stop();
     fs.rmSync(homeDir, { recursive: true, force: true });
   }
+});
+
+test('a panel sends a Reviews action only when its pack lists reviews under acts and the request passes the server schema within the byte limit, and the dashboard sends only the declared fields, never a requestId or padding the panel added', () => {
+  const openSession = { type: 'open-team-review-session', key: 'acme/api#12', requestId: 'panel-picked', padding: 'x'.repeat(4096) };
+  const refusedWithoutActs = panelActionDecision([], openSession);
+  assert.equal(refusedWithoutActs.ok, false);
+  assert.match(refusedWithoutActs.ok ? '' : refusedWithoutActs.error, /does not list reviews under acts/);
+  const notAReviewsAction = panelActionDecision(['reviews'], { type: 'create-session', projectId: 'p1' });
+  assert.equal(notAReviewsAction.ok, false);
+  const invalidMerge = panelActionDecision(['reviews'], { type: 'my-pr-merge', repo: 'acme/api', number: -1 });
+  assert.equal(invalidMerge.ok, false);
+  assert.match(invalidMerge.ok ? '' : invalidMerge.error, /^my-pr-merge not sent: /);
+  const sent = panelActionDecision(['reviews'], openSession);
+  assert.deepEqual(sent, { ok: true, type: 'open-team-review-session', payload: { key: 'acme/api#12' } });
+  const oversizeComment = panelActionDecision(['reviews'], { type: 'team-review-action', key: 'acme/api#12', head: 'a'.repeat(40), action: 'comment', body: 'x'.repeat(PANEL_ACTION_MAX_BYTES), comments: [] });
+  assert.match(oversizeComment.ok ? '' : oversizeComment.error, /^team-review-action not sent: the request is \d+ bytes, over the \d+ byte limit$/);
 });

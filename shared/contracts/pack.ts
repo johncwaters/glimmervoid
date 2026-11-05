@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ThemePalette } from './theme-palette.ts';
-import { PackBridgeTopic, PackName } from './pack-bridge.ts';
+import { PackBridgeTopic, PackName, PackPanelAct } from './pack-bridge.ts';
+import { REVIEW_ACTIONS_GRANT_TEXT } from './reviews.ts';
 import { PackPrFlowRule, PrFlowItemAction, PrFlowPackRequires, PrFlowPrAction, PrFlowSourceCommand, RepoScope, prFlowRulesJsonSchema } from './pr-flows.ts';
 
 const PACK_SCHEMA_URL = 'https://glimmervoid.dev/schema/pack.v1.json';
@@ -44,6 +45,7 @@ export const PackPanel = z.strictObject({
   entry: PackFilePath.refine((filePath) => filePath.endsWith('.html'), { error: 'a panel entry is an .html file' }).describe('The HTML page the panel opens, relative to the pack folder'),
   icon: PackFilePath.refine((filePath) => filePath.endsWith('.svg'), { error: 'a panel icon is an .svg file' }).optional(),
   reads: z.array(PackBridgeTopic).default([]).describe('The bridge topics this panel may receive; the operator sees them before approving, and a subscribe for any other topic is ignored'),
+  acts: z.array(PackPanelAct).default([]).describe(`What this panel may do as the operator, without asking again: reviews lets it ${REVIEW_ACTIONS_GRANT_TEXT}; the operator sees it before approving`),
 });
 
 export const PackUi = z.strictObject({

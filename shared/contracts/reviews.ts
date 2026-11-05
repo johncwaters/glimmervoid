@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ClientMessage } from './control-messages.ts';
 import { MyPr } from './my-prs.ts';
 import { UnseenOutcome } from './session.ts';
 import { InFlightReview, QueuedReview, ReviewDraft } from './team-review.ts';
@@ -29,6 +30,26 @@ export const ReviewQueueItem = z.discriminatedUnion('source', [
 ]);
 
 const ReviewQueueGroup = z.object({ id: ReviewQueueGroupId, title: z.string(), items: z.array(ReviewQueueItem) });
+
+export const REVIEW_ACTION_TYPES = [
+  'team-review-action', 'open-team-review-session', 'my-pr-merge', 'my-pr-merge-when-ready', 'my-pr-keep-mergeable',
+  'pr-flow-dispose', 'pr-flow-undo', 'pr-flow-save-rule', 'pr-flow-approve', 'pr-action-run',
+] as const satisfies readonly ClientMessage['type'][];
+
+const REVIEW_ACTION_GRANTS: { readonly [Type in (typeof REVIEW_ACTION_TYPES)[number]]: string } = {
+  'team-review-action': 'post, discard or requeue team reviews and resolve their threads',
+  'open-team-review-session': 'open an agent session on a pull request',
+  'my-pr-merge': 'merge your pull requests',
+  'my-pr-merge-when-ready': 'turn merge when ready on or off',
+  'my-pr-keep-mergeable': 'turn keep mergeable on or off',
+  'pr-flow-dispose': 'dismiss review items, hand them to a session or run their actions',
+  'pr-flow-undo': 'reopen handled review items',
+  'pr-flow-save-rule': 'save rules to your config',
+  'pr-flow-approve': 'approve PR flow commands',
+  'pr-action-run': 'run PR actions',
+};
+
+export const REVIEW_ACTIONS_GRANT_TEXT = REVIEW_ACTION_TYPES.map((type) => REVIEW_ACTION_GRANTS[type]).join(', ');
 
 export const ReviewsSnapshot = z.object({ groups: z.array(ReviewQueueGroup).describe('The Reviews tab queue in display order: your turn, agent working, waiting on others, set aside') });
 export type ReviewsSnapshot = z.infer<typeof ReviewsSnapshot>;

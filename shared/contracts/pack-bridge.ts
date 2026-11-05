@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { STATES } from '../states.ts';
-import { ReviewsSnapshot } from './reviews.ts';
+import { REVIEW_ACTION_TYPES, ReviewsSnapshot } from './reviews.ts';
 
 export const PACK_BRIDGE_VERSION = 1;
 
@@ -76,8 +76,20 @@ export function packStoreSizeError(packName: string, data: PackStoreData): strin
   return `${packName} would store ${byteCount} bytes, over the ${PACK_DATA_MAX_BYTES} byte limit; nothing was saved`;
 }
 
+export const PackPanelAct = z.enum(['reviews']);
+export type PackPanelAct = z.infer<typeof PackPanelAct>;
+
+export const PanelActionRequest = z.looseObject({
+  type: z.enum(REVIEW_ACTION_TYPES).describe('A Reviews control message type; the other fields are that message\'s own, as the Reviews tab sends it, without requestId'),
+}).describe('One Reviews action, checked against the same schema the server uses before it is sent');
+
+const PanelActionId = z.string().min(1).max(64).describe('Any id the panel picks; the matching action-result carries it back');
+
+export const PanelActionEnvelope = z.object({ v: BridgeVersion, kind: z.literal('action'), id: PanelActionId, request: z.unknown() });
+
 export const PanelToHost = z.discriminatedUnion('kind', [
   z.strictObject({ v: BridgeVersion, kind: z.literal('subscribe'), topics: z.array(PackBridgeTopic).describe("The topics to receive; only those also listed in the panel's reads in pack.json are granted, and a later subscribe replaces the earlier one. An empty list still gets hello and the store") }),
+  z.strictObject({ v: BridgeVersion, kind: z.literal('action'), id: PanelActionId, request: PanelActionRequest }).describe('Send one Reviews action as the operator would from the Reviews tab; only a panel that lists reviews under acts may, and the host answers with action-result'),
   z.strictObject({ v: BridgeVersion, kind: z.literal('store-set'), key: PackStoreKey, value: PackStoreValue.describe(`Any JSON value nested at most ${PACK_STORE_MAX_DEPTH} levels deep; null deletes the key`) }).describe('Save one key of the pack store; the host answers with a store message'),
 ]);
 
@@ -88,6 +100,13 @@ const HostTopicMessages = PackBridgeTopic.options.map((topic) => z.strictObject(
 export const HostToPanel = z.union([
   z.strictObject({ v: BridgeVersion, kind: z.literal('hello'), granted: z.array(PackBridgeTopic).describe('The subscribed topics that are also in reads; a topic missing here never arrives') }),
   z.strictObject({ v: BridgeVersion, kind: z.literal('store'), data: PackStoreData, error: z.string().nullable().describe('Why the last store-set was not saved, such as the size limit; null when it was') }).describe('Sent after hello and after each store-set from any panel of the pack in this dashboard'),
+  z.strictObject({
+    v: BridgeVersion, kind: z.literal('action-result'), id: PanelActionId,
+    ok: z.boolean().describe('True only when the server ran the action; false when the panel lacks acts, the request is invalid or too large, the server is unreachable or did not answer in time, or the server reply says ok false'),
+    timedOut: z.boolean().describe('True when no reply came in time: the action may still run, so check the reviews topic before sending it again'),
+    result: z.record(z.string(), z.unknown()).nullable().describe('The server reply, such as a team-review-action-result, whenever one arrived'),
+    error: z.string().nullable().describe('Why ok is false; null when it is true'),
+  }).describe('The answer to one action message'),
   ...HostTopicMessages,
 ]);
 

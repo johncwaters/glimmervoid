@@ -2,7 +2,7 @@ import { nextReconnectDelayMs } from './reconnect-backoff.ts';
 import { buildWebSocketUrl } from './ws-url-core.ts';
 import { clearPageToken, loadPageToken, pageToken, withPageToken } from './ws-token.ts';
 import { ServerMessage } from '#shared/contracts/control-messages.ts';
-import { NOT_CONNECTED_TEXT } from './updates-view-core.ts';
+import { NOT_CONNECTED_TEXT, REQUEST_TIMED_OUT_TEXT } from './updates-view-core.ts';
 import { createClientLogReporter, createHeaderErrorTelemetryReporter, describeSchemaIssues, frameTypeOf } from './client-error-core.ts';
 
 type ControlMessageHandler = (message: ServerMessage) => void;
@@ -72,7 +72,7 @@ export function sendControlRequest(type: string, payload?: Record<string, unknow
   return new Promise<ServerMessage>((resolve, reject) => {
     const timer = setTimeout(() => {
       pendingRequests.delete(requestId);
-      reject(new Error('Request timed out'));
+      reject(new Error(REQUEST_TIMED_OUT_TEXT));
     }, timeoutMs);
     pendingRequests.set(requestId, { resolve, reject, timer });
     if (controlWs?.readyState !== WebSocket.OPEN) {

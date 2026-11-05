@@ -4,7 +4,7 @@ import type { StatusIcon } from '#shared/state-icons.ts';
 import { reportHeaderErrorToServer, sendControlMsg, sendControlRequest } from './control-ws.ts';
 import { el } from './dom-helpers.ts';
 import { paintStatusIcon } from './status-icon.ts';
-import { NOT_CONNECTED_TEXT } from './updates-view-core.ts';
+import { NOT_CONNECTED_TEXT, REQUEST_TIMED_OUT_TEXT } from './updates-view-core.ts';
 
 export type ActionStatusTone = 'busy' | 'ok' | 'error';
 
@@ -91,7 +91,7 @@ export function sendOrReport(message: Record<string, unknown>, status: ActionSta
 
 export function requestFailureText(reason: unknown, timeoutMs: number): string {
   const message = reason instanceof Error ? reason.message : '';
-  if (message === 'Request timed out') return `The server did not answer within ${Math.round(timeoutMs / 1000)} s.`;
+  if (message === REQUEST_TIMED_OUT_TEXT) return `The server did not answer within ${Math.round(timeoutMs / 1000)} s.`;
   return message || NOT_CONNECTED_TEXT;
 }
 

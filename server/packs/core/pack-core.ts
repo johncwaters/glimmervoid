@@ -27,7 +27,7 @@ function packFileUrl(pack: PackOnDisk, accessKey: string, filePath: string): str
 export function approvedPackPanels(packs: readonly PackOnDisk[], accessKeyOf: (pack: PackOnDisk) => string): PacksStatus['panels'] {
   return packs.flatMap((pack) => packPanels(pack).map((panel) => ({
     viewId: `pack:${pack.header.name}/${panel.id}`, pack: pack.header.name, label: panel.label, entryUrl: packFileUrl(pack, accessKeyOf(pack), panel.entry),
-    iconUrl: panel.icon ? packFileUrl(pack, accessKeyOf(pack), panel.icon) : null, reads: panel.reads,
+    iconUrl: panel.icon ? packFileUrl(pack, accessKeyOf(pack), panel.icon) : null, reads: panel.reads, acts: panel.acts,
   })));
 }
 
@@ -74,7 +74,7 @@ function validPackRow(pack: PackOnDisk, approvedFingerprints: ReadonlySet<string
     files: [...pack.filesByPath.keys()].sort(), needs: packNeeds(pack), missingRequires: pack.missingRequires,
     prFlows: prFlowsPack ? packApproval(prFlowsPack) : null,
     themes: packThemes(pack).map((theme) => ({ id: theme.id, label: theme.label, mode: theme.mode })),
-    panels: packPanels(pack).map((panel) => ({ id: panel.id, label: panel.label, reads: panel.reads })), errors: sectionErrors,
+    panels: packPanels(pack).map((panel) => ({ id: panel.id, label: panel.label, reads: panel.reads, acts: panel.acts })), errors: sectionErrors,
   };
 }
 

@@ -189,16 +189,28 @@ function isStoreSet(request) {
   return request && typeof request === 'object' && Object.keys(request).sort().join() === 'key,kind,v,value'
     && request.v === preview.bridgeVersion && request.kind === 'store-set' && typeof request.key === 'string' && request.key.length >= 1 && request.key.length <= 128 && isShallowJsonValue(request.value);
 }
+function isAction(request) {
+  return request && typeof request === 'object' && request.v === preview.bridgeVersion && request.kind === 'action'
+    && typeof request.id === 'string' && request.id.length >= 1 && request.id.length <= 64;
+}
+async function answerAction(panel, actionId, actionRequest) {
+  const response = await fetch('/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ panel: panel.id, request: actionRequest }) }).catch(() => null);
+  const decision = response ? await response.json().catch(() => null) : null;
+  const error = decision ? (decision.ok ? null : decision.error) : 'the preview server did not answer';
+  status.textContent = error === null ? 'Glimmervoid would send ' + decision.type + ' ' + JSON.stringify(decision.payload) + '; the preview sends nothing' : 'Action not sent: ' + error;
+  post({ v: 1, kind: 'action-result', id: actionId, ok: error === null, timedOut: false, result: error === null ? { ok: true, preview: true } : null, error });
+}
 window.addEventListener('message', (event) => {
   const panel = currentPanel();
   if (!panel || event.source !== frame.contentWindow) return;
   const request = event.data;
   if (isStoreSet(request)) return saveStoreKey(request.key, request.value);
+  if (isAction(request)) return answerAction(panel, request.id, request.request);
   const isSubscribe = request && typeof request === 'object' && Object.keys(request).sort().join() === 'kind,topics,v'
     && request.v === preview.bridgeVersion && request.kind === 'subscribe' && Array.isArray(request.topics)
     && request.topics.every((topic) => preview.knownTopics.includes(topic));
   if (!isSubscribe) {
-    status.textContent = 'Glimmervoid ignores this message: ' + JSON.stringify(request) + '. A subscribe is exactly { v: ' + preview.bridgeVersion + ', kind: "subscribe", topics } with topics from ' + preview.knownTopics.join(', ') + '; a store-set is exactly { v: ' + preview.bridgeVersion + ', kind: "store-set", key, value } with a key of 1 to 128 characters and a JSON value nested at most ' + preview.storeMaxDepth + ' levels deep';
+    status.textContent = 'Glimmervoid ignores this message: ' + JSON.stringify(request) + '. A subscribe is exactly { v: ' + preview.bridgeVersion + ', kind: "subscribe", topics } with topics from ' + preview.knownTopics.join(', ') + '; a store-set is exactly { v: ' + preview.bridgeVersion + ', kind: "store-set", key, value } with a key of 1 to 128 characters and a JSON value nested at most ' + preview.storeMaxDepth + ' levels deep; an action is { v: ' + preview.bridgeVersion + ', kind: "action", id, request }';
     return;
   }
   grantedTopics = request.topics.filter((topic) => panel.reads.includes(topic));

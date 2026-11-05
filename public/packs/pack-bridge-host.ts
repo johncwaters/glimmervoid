@@ -1,8 +1,10 @@
-import { HostToPanel, PanelToHost, packStoreAfterSet, packStoreSizeError } from '#shared/contracts/pack-bridge.ts';
-import type { PackBridgeTopic, PackBridgeTopicData, PackStoreData } from '#shared/contracts/pack-bridge.ts';
+import { HostToPanel, PanelActionEnvelope, PanelToHost, packStoreAfterSet, packStoreSizeError } from '#shared/contracts/pack-bridge.ts';
+import type { PackBridgeTopic, PackBridgeTopicData, PackPanelAct, PackStoreData } from '#shared/contracts/pack-bridge.ts';
+import { panelActionDecision, panelActionLogText } from '#shared/pack-action-core.ts';
 import type { z } from 'zod';
 import { errorMessage } from '#shared/text.ts';
-import { sendControlRequest } from '../control-ws.ts';
+import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
+import { REQUEST_TIMED_OUT_TEXT } from '../updates-view-core.ts';
 import { countAttentionByKind } from '../focus-view/attention-core.ts';
 import { reviewsSnapshot } from '../github/review-queue-store.ts';
 import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
@@ -14,10 +16,15 @@ import { usageSnapshot } from '../usage/usage-store.ts';
 import { planWindowOf } from '../usage/usage-store-core.ts';
 
 const BRIDGE_PUSH_INTERVAL_MS = 1000;
+const PANEL_ACTION_TIMEOUT_MS = 120_000;
+
+type PanelGrant = { pack: string; reads: readonly PackBridgeTopic[]; acts: readonly PackPanelAct[] };
 
 type BridgedFrame = {
+  viewId: string;
   frame: HTMLIFrameElement;
   packName: string;
+  acts: readonly PackPanelAct[];
   grantedTopics: ReadonlySet<PackBridgeTopic>;
   subscribedTopics: Set<PackBridgeTopic>;
   lastSentJsonByTopic: Map<PackBridgeTopic, string>;
@@ -133,19 +140,53 @@ function subscribe(bridged: BridgedFrame, topics: readonly PackBridgeTopic[]): v
   pushTimer ??= setInterval(pushChangedTopics, BRIDGE_PUSH_INTERVAL_MS);
 }
 
+function postActionResult(bridged: BridgedFrame, actionId: string, result: Record<string, unknown> | null, error: string | null, isTimedOut = false): void {
+  post(bridged, { v: 1, kind: 'action-result', id: actionId, ok: error === null, timedOut: isTimedOut, result, error });
+}
+
+function replyErrorOf(type: string, result: Record<string, unknown>): string | null {
+  if (result.ok !== false) return null;
+  return typeof result.error === 'string' && result.error !== '' ? result.error : `${type} was refused`;
+}
+
+async function runPanelAction(bridged: BridgedFrame, actionId: string, request: unknown): Promise<void> {
+  const decision = panelActionDecision(bridged.acts, request);
+  if (!decision.ok) {
+    postActionResult(bridged, actionId, null, decision.error);
+    return;
+  }
+  sendControlMsg({ type: 'client-log', scope: 'packs', text: panelActionLogText(bridged.viewId, decision.type, decision.payload) });
+  const reply = await sendControlRequest(decision.type, decision.payload, { timeoutMs: PANEL_ACTION_TIMEOUT_MS }).catch((error: unknown) => errorMessage(error));
+  if (reply === REQUEST_TIMED_OUT_TEXT) {
+    postActionResult(bridged, actionId, null, `${decision.type} got no answer within ${PANEL_ACTION_TIMEOUT_MS / 1000} s; it may still run, so check before sending it again`, true);
+    return;
+  }
+  if (typeof reply === 'string') {
+    postActionResult(bridged, actionId, null, `${decision.type} failed: ${reply}`);
+    return;
+  }
+  const result: Record<string, unknown> = { ...reply };
+  postActionResult(bridged, actionId, result, replyErrorOf(decision.type, result));
+}
+
 function onPanelMessage(event: MessageEvent): void {
   const bridged = [...bridgedFrameByViewId.values()].find((candidate) => candidate.frame.contentWindow !== null && candidate.frame.contentWindow === event.source);
   if (!bridged) return;
+  const action = PanelActionEnvelope.safeParse(event.data);
+  if (action.success) {
+    void runPanelAction(bridged, action.data.id, action.data.request);
+    return;
+  }
   const request = PanelToHost.safeParse(event.data);
   if (!request.success) return;
   if (request.data.kind === 'store-set') {
     void saveStoreKey(bridged, request.data.key, request.data.value);
     return;
   }
-  subscribe(bridged, request.data.topics);
+  if (request.data.kind === 'subscribe') subscribe(bridged, request.data.topics);
 }
 
-export function bridgePackFrame(viewId: string, frame: HTMLIFrameElement, packName: string, reads: readonly PackBridgeTopic[]): void {
+export function bridgePackFrame(viewId: string, frame: HTMLIFrameElement, grant: PanelGrant): void {
   if (bridgedFrameByViewId.size === 0) window.addEventListener('message', onPanelMessage);
-  bridgedFrameByViewId.set(viewId, { frame, packName, grantedTopics: new Set(reads), subscribedTopics: new Set(), lastSentJsonByTopic: new Map() });
+  bridgedFrameByViewId.set(viewId, { viewId, frame, packName: grant.pack, acts: grant.acts, grantedTopics: new Set(grant.reads), subscribedTopics: new Set(), lastSentJsonByTopic: new Map() });
 }

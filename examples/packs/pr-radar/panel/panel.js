@@ -21,12 +21,33 @@ function teamReviewBadges(item) {
   return badges;
 }
 
+const actionStatusByReviewKey = new Map();
+
+async function openReviewSession(reviewKey, button) {
+  button.disabled = true;
+  actionStatusByReviewKey.set(reviewKey, 'Opening a session');
+  render();
+  const answer = await window.glimmervoid.act({ type: 'open-team-review-session', key: reviewKey });
+  actionStatusByReviewKey.set(reviewKey, answer.ok ? `Opened ${answer.result.sessionName ?? 'the session'}` : answer.error);
+  render();
+}
+
+function openSessionControls(reviewKey) {
+  const button = element('button', 'act', 'Open session');
+  button.type = 'button';
+  button.disabled = actionStatusByReviewKey.get(reviewKey) === 'Opening a session';
+  button.addEventListener('click', () => openReviewSession(reviewKey, button));
+  const status = actionStatusByReviewKey.get(reviewKey);
+  return status === undefined ? [button] : [button, element('span', 'act-status', status)];
+}
+
 function itemRow(item) {
   const row = element('li', 'pr');
   const title = item.source === 'mine' ? item.pr.title : item.review.title;
   const badges = item.source === 'mine' ? myPullRequestBadges(item.pr) : teamReviewBadges(item);
   if (item.action) badges.push(badge(item.action, 'good'));
-  row.append(element('span', 'title', title || item.prKey), ...badges);
+  const controls = item.source === 'team' ? openSessionControls(item.review.key) : [];
+  row.append(element('span', 'title', title || item.prKey), ...badges, ...controls);
   return row;
 }
 

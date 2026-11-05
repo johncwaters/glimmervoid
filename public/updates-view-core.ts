@@ -68,6 +68,7 @@ const CHECK_FAILURE_TEXT: Readonly<Record<string, string>> = Object.freeze({
 
 const INSTALL_SHAPE_REFUSALS: readonly string[] = Object.freeze(['unsupported-flavor', 'unsupported-platform', 'install-not-writable']);
 export const NOT_CONNECTED_TEXT = 'Not connected to the server. Reconnecting.';
+export const REQUEST_TIMED_OUT_TEXT = 'Request timed out';
 
 export const IDLE_UPDATE_REQUEST: UpdateRequestState = Object.freeze({ requested: false, failure: null });
 

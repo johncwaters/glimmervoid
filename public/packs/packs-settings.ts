@@ -1,4 +1,5 @@
 import type { PackRow } from '#shared/contracts/control/pack-messages.ts';
+import { REVIEW_ACTIONS_GRANT_TEXT } from '#shared/contracts/reviews.ts';
 import { DEFAULT_REPLY_TIMEOUT_MS, paintActionStatus, requestFailureText } from '../action-status.ts';
 import type { ActionStatusTone } from '../action-status.ts';
 import { sendControlRequest } from '../control-ws.ts';
@@ -42,7 +43,7 @@ function packLines(row: PackRow): HTMLElement[] {
   const lines = [
     ...(row.description ? [row.description] : []),
     `Folder: ${row.dir}`,
-    ...row.panels.map((panel) => `Panel: ${panel.label}${panel.reads.length === 0 ? ', reads nothing from the dashboard' : `, reads ${panel.reads.join(', ')}`}`),
+    ...row.panels.map((panel) => `Panel: ${panel.label}${panel.reads.length === 0 ? ', reads nothing from the dashboard' : `, reads ${panel.reads.join(', ')}`}${panel.acts.includes('reviews') ? `; acts as you in Reviews without asking: may ${REVIEW_ACTIONS_GRANT_TEXT}` : ''}`),
     ...(row.themes.length === 0 ? [] : [`Themes: ${row.themes.map((theme) => `${theme.label} (${theme.mode})`).join(', ')}`]),
     ...(row.files.length === 0 ? [] : [`Files: ${row.files.join(', ')}`]),
     ...(row.needs.length === 0 ? [] : [`Needs: ${row.needs.join(', ')}`]),

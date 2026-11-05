@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { PrFlowPendingApproval } from '../pr-flows.ts';
 import { ThemePalette } from '../theme-palette.ts';
-import { PackBridgeTopic, PackName, PackStoreData, PackStoreKey, PackStoreValue } from '../pack-bridge.ts';
+import { PackBridgeTopic, PackName, PackPanelAct, PackStoreData, PackStoreKey, PackStoreValue } from '../pack-bridge.ts';
 import { loose, optionalError, requestId } from './control-fields.ts';
 
 const PackRowState = z.enum(['pending', 'approved', 'invalid']);
@@ -19,7 +19,7 @@ export const PackRow = z.strictObject({
   missingRequires: z.array(z.string()),
   prFlows: PrFlowPendingApproval.nullable(),
   themes: z.array(z.strictObject({ id: z.string(), label: z.string(), mode: ThemePalette.shape.mode })),
-  panels: z.array(z.strictObject({ id: z.string(), label: z.string(), reads: z.array(PackBridgeTopic) })),
+  panels: z.array(z.strictObject({ id: z.string(), label: z.string(), reads: z.array(PackBridgeTopic), acts: z.array(PackPanelAct) })),
   errors: z.array(z.string()),
 });
 export type PackRow = z.infer<typeof PackRow>;
@@ -27,7 +27,7 @@ export type PackRow = z.infer<typeof PackRow>;
 const ApprovedPackTheme = z.strictObject({ id: z.string(), palette: ThemePalette });
 
 const ApprovedPackPanel = z.strictObject({
-  viewId: z.string(), pack: z.string(), label: z.string(), entryUrl: z.string(), iconUrl: z.string().nullable(), reads: z.array(PackBridgeTopic),
+  viewId: z.string(), pack: z.string(), label: z.string(), entryUrl: z.string(), iconUrl: z.string().nullable(), reads: z.array(PackBridgeTopic), acts: z.array(PackPanelAct),
 });
 
 export const PacksStatus = loose('packs-status', { packs: z.array(PackRow), themes: z.array(ApprovedPackTheme), panels: z.array(ApprovedPackPanel), warnings: z.array(z.string()) });

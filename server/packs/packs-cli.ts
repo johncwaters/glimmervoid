@@ -1,7 +1,11 @@
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { z } from 'zod';
 import { errorMessage } from '../../shared/text.ts';
+import { panelActionDecision, panelActionsJsonSchemaText } from '../../shared/pack-action-core.ts';
+import { readCappedBody } from '../backend/http/backend-http-body.ts';
+import { parseJsonRecord } from '../core/json-core.ts';
 import { AGENT_REPLY_SCHEMAS, AGENT_URL_ENV } from '../../shared/contracts/session.ts';
 import type { ParsedCommand } from '../core/cli-spec-core.ts';
 import { glimmervoidHomeDir } from '../core/config-path-core.ts';
@@ -21,6 +25,24 @@ type PreviewResponse = { status: number; headers: Record<string, string>; body: 
 
 const PREVIEW_HOST = '127.0.0.1';
 const FILES_PREFIX = '/files/';
+const ACTION_PATH = '/action';
+const ACTION_BODY_MAX_BYTES = 16 * 1024 * 1024;
+
+const PreviewActionBody = z.object({ panel: z.string(), request: z.unknown() });
+
+function jsonResponse(body: unknown): PreviewResponse {
+  return { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) };
+}
+
+async function previewActionResponse(packDir: string, request: http.IncomingMessage, env: NodeJS.ProcessEnv): Promise<PreviewResponse> {
+  const bodyText = await readCappedBody(request, ACTION_BODY_MAX_BYTES, () => {}, { drainBytes: ACTION_BODY_MAX_BYTES });
+  const body = PreviewActionBody.safeParse(bodyText === null ? null : parseJsonRecord(bodyText));
+  if (!body.success) return jsonResponse({ ok: false, error: `not sent: the request was not JSON of at most ${ACTION_BODY_MAX_BYTES} bytes` });
+  const read = await readPackDir(packDir, env);
+  const panel = read.ok && read.pack.ui?.ok ? read.pack.ui.value.panels.find((candidate) => candidate.id === body.data.panel) : undefined;
+  if (!panel) return jsonResponse({ ok: false, error: `not sent: the pack has no panel ${body.data.panel}` });
+  return jsonResponse(panelActionDecision(panel.acts, body.data.request));
+}
 
 async function runPackCheckCli({ packDir, isJson, env, homeDir }: { packDir: string; isJson: boolean; env: NodeJS.ProcessEnv; homeDir: string }): Promise<number> {
   const approvedFingerprints = readApprovedPackFingerprints(homeDir);
@@ -29,17 +51,17 @@ async function runPackCheckCli({ packDir, isJson, env, homeDir }: { packDir: str
   return packCheckHasProblem(report) ? 1 : 0;
 }
 
-const SCHEMA_TEXT_BY_NAME: Readonly<Record<string, () => string>> = { pack: packJsonSchemaText, bridge: packBridgeJsonSchemaText, 'pr-flows': prFlowsOutputJsonSchemaText };
+const SCHEMA_TEXT_BY_NAME: Readonly<Record<string, () => string>> = { pack: packJsonSchemaText, bridge: packBridgeJsonSchemaText, actions: panelActionsJsonSchemaText, 'pr-flows': prFlowsOutputJsonSchemaText };
 
 async function runGuide(homeDir: string, schemaName: string | null): Promise<number> {
   if (schemaName === null) {
-    const schemaHint = 'The JSON Schemas, with what each field means: glimmervoid packs guide --schema pack (pack.json), --schema bridge (panel bridge messages) and --schema pr-flows (what a prFlows command prints).';
+    const schemaHint = 'The JSON Schemas, with what each field means: glimmervoid packs guide --schema pack (pack.json), --schema bridge (panel bridge messages), --schema actions (the request of each panel action) and --schema pr-flows (what a prFlows command prints).';
     process.stdout.write(`${await packGuideText({ homeDir, examplePacksDir }, [schemaHint])}\n`);
     return 0;
   }
   const schemaText = SCHEMA_TEXT_BY_NAME[schemaName];
   if (!schemaText) {
-    process.stderr.write(`glimmervoid packs guide: --schema is pack, bridge or pr-flows, not ${schemaName}\n`);
+    process.stderr.write(`glimmervoid packs guide: --schema is pack, bridge, actions or pr-flows, not ${schemaName}\n`);
     return 1;
   }
   process.stdout.write(schemaText());
@@ -101,7 +123,9 @@ async function runPreview(packDir: string, portText: string | null, env: NodeJS.
       response.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Host not allowed');
       return;
     }
-    previewResponse(packDir, request.url ?? '/', request.headers.origin, env, homeDir).then(
+    const isAction = request.method === 'POST' && new URL(request.url ?? '/', `http://${PREVIEW_HOST}`).pathname === ACTION_PATH;
+    const responding = isAction ? previewActionResponse(packDir, request, env) : previewResponse(packDir, request.url ?? '/', request.headers.origin, env, homeDir);
+    responding.then(
       ({ status, headers, body }) => response.writeHead(status, headers).end(body),
       (error: unknown) => response.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' }).end(errorMessage(error)),
     );

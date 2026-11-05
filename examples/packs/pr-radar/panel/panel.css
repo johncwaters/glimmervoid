@@ -10,3 +10,6 @@ h1 { margin: 16px 0 8px; font-size: 16px; color: var(--text-head, #f2f3f7); }
 .badge.bad { color: var(--state-failed, #ef4444); border-color: currentColor; }
 .badge.good { color: var(--state-running, #22c55e); border-color: currentColor; }
 .empty { color: var(--text-muted, #8a8f9e); }
+.act { margin-left: auto; font: inherit; font-size: 12px; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--border, #2a2e3a); background: transparent; color: var(--text, #d6d8e0); cursor: pointer; }
+.act:disabled { opacity: 0.5; cursor: default; }
+.act-status { font-size: 12px; color: var(--text-dim, #9aa0b2); }

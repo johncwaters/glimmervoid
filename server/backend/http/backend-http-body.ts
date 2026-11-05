@@ -1,8 +1,9 @@
+import type { IncomingMessage } from 'node:http';
 import type { Request } from 'express';
 import { parseJsonRecord } from '../../core/json-core.ts';
 
 function readCappedBody(
-  req: Request,
+  req: IncomingMessage,
   capBytes: number,
   onOversize: (declaredBytes: string) => void,
   { drainBytes = 0 }: { drainBytes?: number } = {},

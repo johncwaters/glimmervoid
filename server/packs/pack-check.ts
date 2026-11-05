@@ -26,7 +26,7 @@ export async function checkPack(packDir: string, env: NodeJS.ProcessEnv, isAppro
   const report = {
     packDir: pack.dir, name: `${pack.header.name} v${pack.header.version}`, isApproved: isApprovedFingerprint(pack.fingerprint),
     errors: [...prFlowsErrors, ...uiSectionErrors(pack), ...pageErrors(pack.filesByPath, pack.header)], missingRequires: pack.missingRequires, entries: [], rules: [],
-    panels: ui.panels.map((panel) => `${panel.id} (${panel.label}) opens ${panel.entry}${panel.reads.length === 0 ? ', reads nothing' : `, reads ${panel.reads.join(', ')}`}`),
+    panels: ui.panels.map((panel) => `${panel.id} (${panel.label}) opens ${panel.entry}${panel.reads.length === 0 ? ', reads nothing' : `, reads ${panel.reads.join(', ')}`}${panel.acts.length === 0 ? '' : `, acts on ${panel.acts.join(', ')}`}`),
     themes: ui.themes.map((theme) => `${theme.id} (${theme.label}, ${theme.mode})`),
   };
   const [prFlowsPack] = prFlowsPacks;
