@@ -490,6 +490,7 @@ interface CodexHooksBlockOptions {
   operatorText: string;
   realHome: string;
   generatedHome: string;
+  trustedFolders: readonly string[];
 }
 
 interface HookStateEntry {
@@ -511,6 +512,21 @@ function ownHookTrust(options: CodexHooksBlockOptions): HookStateEntry[] {
   });
 }
 
+function isProjectsInlineTable(operatorText: string): boolean {
+  return splitTomlUnits(operatorText).keys.some((unit) => unit.id === "projects");
+}
+
+function namesFolderAsKey(operatorText: string, folder: string): boolean {
+  return [tomlBasicString(folder), `'${folder}'`].some((quotedFolder) => operatorText.includes(quotedFolder));
+}
+
+function folderTrustTables(operatorText: string, trustedFolders: readonly string[]): string[] {
+  if (isProjectsInlineTable(operatorText)) return [];
+  return trustedFolders
+    .filter((folder) => !namesFolderAsKey(operatorText, folder))
+    .flatMap((folder) => [`[projects.${tomlBasicString(folder)}]`, `trust_level = "trusted"`]);
+}
+
 function renderCodexHooksBlock(options: CodexHooksBlockOptions): string {
   const ownTrust = ownHookTrust(options);
   const lines = [
@@ -518,6 +534,7 @@ function renderCodexHooksBlock(options: CodexHooksBlockOptions): string {
     ...options.hooks.flatMap(codexHookTables),
     ...ownTrust.flatMap(({ key, bodyLines }) => hookStateTable(key, bodyLines)),
     ...rekeyedOperatorTrust(options.operatorText, options.realHome, options.generatedHome, new Set(ownTrust.map(({ key }) => key))),
+    ...folderTrustTables(options.operatorText, options.trustedFolders),
     BLOCK_END,
   ];
   return `${lines.join("\n")}\n`;

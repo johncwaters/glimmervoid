@@ -257,9 +257,46 @@ test('a stale operator codex trust entry for a removed hook group does not redef
     operatorText: `[hooks.state.${JSON.stringify(staleKey)}]\ntrusted_hash = "sha256:stale"\n`,
     realHome,
     generatedHome,
+    trustedFolders: [],
   });
   const trustHeaders = block.split('\n').filter((line) => line.startsWith('[hooks.state.'));
   assert.equal(new Set(trustHeaders).size, trustHeaders.length, block);
   assert.ok(block.includes('trusted_hash = "sha256:glimmervoid"'), block);
   assert.ok(!block.includes('sha256:stale'), block);
+});
+
+test('a codex session folder the operator config already declares in any toml form keeps only the operator entry', () => {
+  const declaredFolder = path.join(path.sep, 'repos', 'declared');
+  const newFolder = path.join(path.sep, 'repos', 'new');
+  const declaredKey = JSON.stringify(declaredFolder);
+  const operatorDeclarations = [
+    `[projects.${declaredKey}]\ntrust_level = "untrusted"\n`,
+    `[projects]\n${declaredKey} = { trust_level = "untrusted" }\n`,
+    `[projects]\n${declaredKey}.trust_level = "untrusted"\n`,
+    `projects.${declaredKey}.trust_level = "untrusted"\n`,
+  ];
+  for (const operatorText of operatorDeclarations) {
+    const block = renderCodexHooksBlock({
+      hooks: [],
+      trustedHashes: null,
+      operatorText,
+      realHome: path.join(path.sep, 'real-codex'),
+      generatedHome: path.join(path.sep, 'generated-codex'),
+      trustedFolders: [declaredFolder, newFolder],
+    });
+    assert.ok(!block.includes(declaredKey), block);
+    assert.ok(block.includes(`[projects.${JSON.stringify(newFolder)}]\ntrust_level = "trusted"`), block);
+  }
+});
+
+test('an operator projects inline table gets no codex folder trust tables', () => {
+  const block = renderCodexHooksBlock({
+    hooks: [],
+    trustedHashes: null,
+    operatorText: 'projects = { "/repos/other" = { trust_level = "trusted" } }\n',
+    realHome: path.join(path.sep, 'real-codex'),
+    generatedHome: path.join(path.sep, 'generated-codex'),
+    trustedFolders: [path.join(path.sep, 'repos', 'new')],
+  });
+  assert.ok(!block.includes('[projects.'), block);
 });

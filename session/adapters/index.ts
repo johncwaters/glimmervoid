@@ -43,8 +43,8 @@ interface SettingsFileInjection {
 interface HookedAgentHome {
   homeEnvName: string;
   readTrust(): Promise<void>;
-  prepareHome(env: Record<string, string | undefined>): { home: string; isTrusted: boolean } | { refusal: string };
-  releaseHome(home: string): void;
+  prepareHome(env: Record<string, string | undefined>, sessionFolder: string): { home: string; isTrusted: boolean } | { refusal: string };
+  releaseHome(home: string, sessionFolder: string): void;
 }
 
 interface ArgvConfigInjection {

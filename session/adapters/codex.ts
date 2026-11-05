@@ -368,15 +368,40 @@ function readTrust(): Promise<void> {
   return pendingTrustReading;
 }
 
-function prepareHome(env: Record<string, string | undefined>): { home: string; isTrusted: boolean } | { refusal: string } {
+const liveSessionCountByFolder = new Map<string, number>();
+
+function holdTrustedFolder(sessionFolder: string): void {
+  liveSessionCountByFolder.set(sessionFolder, (liveSessionCountByFolder.get(sessionFolder) ?? 0) + 1);
+}
+
+function releaseTrustedFolder(sessionFolder: string): void {
+  const remainingSessionCount = (liveSessionCountByFolder.get(sessionFolder) ?? 0) - 1;
+  if (remainingSessionCount > 0) {
+    liveSessionCountByFolder.set(sessionFolder, remainingSessionCount);
+    return;
+  }
+  liveSessionCountByFolder.delete(sessionFolder);
+}
+
+function prepareHome(env: Record<string, string | undefined>, sessionFolder: string): { home: string; isTrusted: boolean } | { refusal: string } {
   const hooks = codexHomeHooks();
   if (!hooks) return { refusal: HOOKS_BLOCK_REFUSAL };
   const trustedHashes = trustedHashesByHookTables.get(renderCodexHookTables(hooks)) ?? null;
   const realHome = realAgentHome(CODEX_HOME_PROFILE, env);
   const generatedHome = generatedAgentHomePath(CODEX_HOME_PROFILE, env);
-  const prepared = holdPreparedAgentHome(CODEX_HOME_PROFILE, env, (operatorText) => renderCodexHooksBlock({ hooks, trustedHashes, operatorText, realHome, generatedHome }));
-  if ("refusal" in prepared) return prepared;
+  holdTrustedFolder(sessionFolder);
+  const trustedFolders = [...liveSessionCountByFolder.keys()];
+  const prepared = holdPreparedAgentHome(CODEX_HOME_PROFILE, env, (operatorText) => renderCodexHooksBlock({ hooks, trustedHashes, operatorText, realHome, generatedHome, trustedFolders }));
+  if ("refusal" in prepared) {
+    releaseTrustedFolder(sessionFolder);
+    return prepared;
+  }
   return { home: prepared.home, isTrusted: trustedHashes !== null };
+}
+
+function releaseHome(home: string, sessionFolder: string): void {
+  releaseTrustedFolder(sessionFolder);
+  releaseAgentHome(home);
 }
 
 const hooks: AgentHookProfile = {
@@ -397,7 +422,7 @@ const hooks: AgentHookProfile = {
       homeEnvName: CODEX_HOME_PROFILE.homeEnvName,
       readTrust,
       prepareHome,
-      releaseHome: releaseAgentHome,
+      releaseHome,
     },
   },
 };
