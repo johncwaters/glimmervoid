@@ -75,5 +75,9 @@ function parseShortstat(shortstat: string): DiffStats {
   return { filesChanged: countBefore(/(\d+) files? changed/), linesAdded: countBefore(/(\d+) insertions?\(\+\)/), linesRemoved: countBefore(/(\d+) deletions?\(-\)/) };
 }
 
-export { RACE_JUDGE_RESULT_FILENAME, contestantPrompt, contestantSessionName, judgeDiffFileName, judgePrompt, parseJudgeResult, parseShortstat, raceIdsOf };
+function winnerNotesPrompt(notes: string): string {
+  return ['Your change won the race. The judge left these notes on it; address them:', '', notes].join('\n');
+}
+
+export { RACE_JUDGE_RESULT_FILENAME, winnerNotesPrompt, contestantPrompt, contestantSessionName, judgeDiffFileName, judgePrompt, parseJudgeResult, parseShortstat, raceIdsOf };
 export type { JudgeInput };

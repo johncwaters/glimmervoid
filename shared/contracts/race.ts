@@ -60,5 +60,6 @@ export const RaceRecord = z.strictObject({
   diffStatsByContestant: z.record(RaceId, DiffStats).default({}),
   judge: JudgeResult.nullable().default(null),
   judgeError: z.string().nullable().default(null),
+  winnerContestantId: RaceId.nullable().default(null),
 });
 export type RaceRecord = z.infer<typeof RaceRecord>;

@@ -32,6 +32,7 @@ type AddSessionRefusal = { error: string };
 type AddSessionRequest = ClientMessageOf<'add-session'> & { runSettings?: Partial<ProjectEntry> };
 type RemovalRefusal = { ok: false; error: string; canDiscardWork?: boolean; keptPaths?: KeptWorkPath[] };
 type SessionRemoval = { ok: true } | RemovalRefusal;
+type DiscardSession = (id: string) => Promise<SessionRemoval>;
 
 const CONVERSATION_HISTORY_GIT_TIMEOUT_MS = 20000;
 
@@ -43,6 +44,7 @@ async function runGitForConversationHistory(args: string[], cwd: string): Promis
 
 interface SessionHandlerGroup extends ControlHandlerGroup {
   removeExitedSession(id: string): void;
+  discardSession(id: string): Promise<SessionRemoval>;
 }
 
 function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps): SessionHandlerGroup {
@@ -344,6 +346,12 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     if (!removal.ok) sendError(ws, removal.error);
   }
 
+  async function discardSession(id: string): Promise<SessionRemoval> {
+    const removal = await removeSession({ type: 'remove-session', id, discardWork: true });
+    if (removal.ok || !removal.canDiscardWork) return removal;
+    return removeSession({ type: 'remove-session', id, discardWork: true, confirmedKeptPaths: removal.keptPaths?.map((kept) => kept.path) });
+  }
+
   function removeExitedSession(id: string): void {
     void removeSession({ type: 'remove-session', id }).then((removal) => {
       if (removal.ok) return;
@@ -604,7 +612,8 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     'remove-session': (_msg, requestId, message) => ({ type: 'remove-session-result', requestId, ok: false, error: message }),
   } satisfies InvalidReplyTable;
 
-  return { handlers, invalidReplies, removeExitedSession };
+  return { handlers, invalidReplies, removeExitedSession, discardSession };
 }
 
 export { createSessionHandlers };
+export type { DiscardSession };

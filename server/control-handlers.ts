@@ -132,7 +132,7 @@ interface ControlHandlerDeps {
   prFlows?: Pick<PrFlowsWiring, 'dispose' | 'undo' | 'saveRule' | 'approve' | 'statusFrame' | 'runPrAction'> | null;
   getBenchmarkStatus?: (() => BenchmarkStatus | null) | null;
   benchmarks?: BenchmarkControl | null;
-  races?: Pick<RaceWiring, 'start' | 'status' | 'judge' | 'contestantDiffText'> | null;
+  races?: Pick<RaceWiring, 'start' | 'status' | 'judge' | 'pickWinner' | 'contestantDiffText'> | null;
   requestIssue?: GithubLaneStore['requestIssue'];
   requestViewer?: GithubLaneStore['requestViewer'];
   requestViewerTeams?: GithubLaneStore['requestViewerTeams'];
@@ -183,7 +183,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     createCommunityHandlers(context, deps),
     { handlers: {}, connectFrames: github.lateConnectFrames },
     createLaneHandlers(context, deps),
-    createRaceHandlers(context, deps),
+    createRaceHandlers(context, deps, { discardSession: session.discardSession }),
     session,
     createWorktreeHandlers(context, deps),
     createSettingsHandlers(context, deps),

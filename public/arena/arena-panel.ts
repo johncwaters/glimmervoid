@@ -12,6 +12,7 @@ import { isPhoneLayout } from '../form-factor.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { onSessionTick } from '../session-card/session-tick.ts';
 import { button } from '../ui/button.ts';
+import { buildDialogShell } from '../session-card/modal.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import { agentLabel, agentsWithModels, contestantsFor, defaultSetup, effortOf, effortsOf, modelsOf, VARY_SETTINGS, varyChoices, varyLineup, withEffortChoice, withModel } from './lineup-core.ts';
 import type { VarySetting } from './lineup-core.ts';
@@ -79,8 +80,11 @@ function buildContestantLine(race: RaceRecord, contestant: RaceContestant): HTML
   head.append(el('span', 'arena-contestant-label', contestant.label));
   head.append(el('span', 'arena-contestant-state', state === REMOVED_CONTESTANT ? 'Removed' : stateLabel(state)));
   if (stats) head.append(el('span', 'arena-contestant-stats', `+${stats.linesAdded} -${stats.linesRemoved}, ${stats.filesChanged} files`));
+  if (race.winnerContestantId === contestant.id) head.append(el('span', 'arena-contestant-winner', 'Winner'));
   if (sessionId && state !== REMOVED_CONTESTANT) {
     head.append(button({ variant: 'quiet', size: 'small', label: 'Open', onClick: () => openRaceSession(sessionId) }));
+    const canPick = race.winnerContestantId === null || race.winnerContestantId === contestant.id;
+    if (canPick) head.append(button({ variant: 'quiet', size: 'small', label: 'Pick winner', onClick: () => openPickWinnerDialog(race, contestant) }));
     const diffButton = button({ variant: 'quiet', size: 'small', label: 'Show diff', onClick: () => requestDiff(race, contestant) });
     diffButton.setAttribute('aria-expanded', String(shownDiffByKey.has(diffKey(race.id, contestant.id))));
     head.append(diffButton);
@@ -90,6 +94,42 @@ function buildContestantLine(race: RaceRecord, contestant: RaceContestant): HTML
   const shownDiff = shownDiffByKey.get(diffKey(race.id, contestant.id));
   if (shownDiff !== undefined) line.append(el('pre', 'arena-diff', shownDiff));
   return line;
+}
+
+function openPickWinnerDialog(race: RaceRecord, winner: RaceContestant): void {
+  const { dialog, close, actions, btnCancel } = buildDialogShell({ title: `Pick ${winner.label} as the winner` });
+  const losers = race.spec.contestants.filter((contestant) => contestant.id !== winner.id && contestantState(race.sessionIdByContestant[contestant.id]) !== REMOVED_CONTESTANT);
+  const loserText = losers.length > 0
+    ? `${losers.map((contestant) => contestant.label).join(', ')} will be stopped and removed with their worktrees and branches, without pushing. ${winner.label} stays an ordinary session.`
+    : `${winner.label} stays an ordinary session. No other contestant is left to remove.`;
+  dialog.append(el('p', 'dialog-message', loserText));
+  const notes = race.judge?.notes[winner.id] ?? null;
+  const notesBox = el('input');
+  notesBox.type = 'checkbox';
+  if (notes) {
+    const notesField = el('label', 'arena-judge');
+    notesField.append(notesBox, el('span', null, "Also send it the judge's notes"));
+    dialog.append(notesField, el('pre', 'arena-diff', notes));
+  }
+  const confirm = button({ variant: 'danger', label: 'Pick winner', onClick: () => {
+    close();
+    pickWinner(race, winner, notes !== null && notesBox.checked);
+  } });
+  actions.append(confirm);
+  dialog.append(actions);
+  btnCancel.addEventListener('click', close);
+}
+
+function pickWinner(race: RaceRecord, winner: RaceContestant, sendNotes: boolean): void {
+  judgeStatusByRace.set(race.id, `Picking ${winner.label}.`);
+  renderRaces();
+  sendControlRequest('race-pick-winner', { raceId: race.id, contestantId: winner.id, sendNotes }, { timeoutMs: START_TIMEOUT_MS })
+    .then((reply) => {
+      if (reply.type !== 'race-pick-winner-result') return;
+      judgeStatusByRace.set(race.id, reply.ok ? '' : `Picked ${winner.label} with problems: ${reply.error ?? 'unknown error'}`);
+    })
+    .catch((reason: unknown) => judgeStatusByRace.set(race.id, `Could not pick the winner: ${reason instanceof Error ? reason.message : String(reason)}`))
+    .finally(renderRaces);
 }
 
 function judgeRace(race: RaceRecord): void {
@@ -106,6 +146,7 @@ function judgeRace(race: RaceRecord): void {
 
 function phaseText(race: RaceRecord): string {
   const progress = raceProgress(Object.values(race.sessionIdByContestant), (sessionId) => contestantState(sessionId));
+  if (race.winnerContestantId) return `Winner: ${race.spec.contestants.find((contestant) => contestant.id === race.winnerContestantId)?.label ?? race.winnerContestantId}.`;
   if (race.phase === 'judging') return 'Judging.';
   if (race.phase === 'judged') return [race.judge ? 'Judged.' : 'Finished.', race.judgeError].filter(Boolean).join(' ');
   return `${progress.settled} of ${progress.total} settled.`;
