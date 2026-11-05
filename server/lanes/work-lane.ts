@@ -19,3 +19,8 @@ export async function readGitDirsOfOwnCheckout(cwd: string): Promise<{ commonGit
   if (isLinkedWorktree && !isWorktreeAdminDirOf({ adminDir: worktreeAdminDir, commonGitDir })) throw new Error('Git admin directory is outside the linked worktree registry');
   return { commonGitDir, worktreeAdminDir };
 }
+
+export function repositoryRootOfCommonGitDir(commonGitDir: string): string | null {
+  if (!path.isAbsolute(commonGitDir) || path.basename(commonGitDir) !== '.git') return null;
+  return path.dirname(commonGitDir);
+}

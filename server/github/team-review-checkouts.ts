@@ -10,8 +10,7 @@ import type { ResumableReview } from '../../shared/contracts/team-review.ts';
 import { errorMessage, isMissingFileError } from '../../shared/text.ts';
 import type { OwnedPathOwner } from '../../shared/contracts/owned-paths.ts';
 import { isPathInside } from '../../shared/paths.ts';
-import { readGitDirsOfOwnCheckout } from '../lanes/work-lane.ts';
-import { repositoryRootOfCommonGitDir } from '../core/claude-trust-core.ts';
+import { readGitDirsOfOwnCheckout, repositoryRootOfCommonGitDir } from '../lanes/work-lane.ts';
 
 interface TeamReviewWiringConfig extends TeamReviewSettingsSource {
   replayBufferKB?: number;

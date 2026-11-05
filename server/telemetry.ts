@@ -10,7 +10,7 @@ import {
   buildPersonProperties, claudeAccountUuidOf, codexUserIdOf, decideRemoteTelemetryState, decideTelemetryConsent, exceptionFingerprint, nodeMajorVersion, resolveProjectToken,
 } from './core/telemetry-core.ts';
 import type { AccountIds, RemoteTelemetryState, TelemetryConfig, TelemetryEnvironment } from './core/telemetry-core.ts';
-import { listClaudeGlobalConfigPathCandidates } from './core/claude-trust-core.ts';
+import { listClaudeGlobalConfigPathCandidates } from './core/claude-config-paths-core.ts';
 import { codexHomeDir } from './core/codex-credentials-core.ts';
 import type { UsageGenerationRollupRow } from './usage/core/usage-entry-core.ts';
 import { createJsonStateStore, loadJsonStateFile, writeJsonAtomic, writeJsonAtomicSync } from './json-file.ts';

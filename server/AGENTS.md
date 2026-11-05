@@ -29,7 +29,6 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 | `update-check.ts` | Startup release-tag check, advisory only |
 | `benchmark-wiring.ts` | Benchmark lane: suites under `~/.glimmervoid/benchmarks`, mining, one serial run (pure rules in `core/benchmark-core.ts`, `core/benchmark-mining-core.ts`) |
 | `claude-credentials.ts` | The operator's Claude Code access token for benchmark arms (decisions in `core/claude-credentials-core.ts`) |
-| `claude-trust.ts` | Grants Claude Code folder trust plus external CLAUDE.md import approval (never over a recorded decline) for a session or lane folder under Claude Code's own config lock (decisions in `core/claude-trust-core.ts`) |
 | `github/core/team-review-core.ts` | Pure team review decisions |
 | `core/branch-sync-core.ts` | Pure ahead/behind decisions for the branch-sync indicator |
 | `core/restart-strategy.ts` | Pure restart strategy, keyed on systemd's `INVOCATION_ID` or `GLIMMERVOID_SUPERVISOR=launchd` |

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { isRecord } from '../../shared/coerce.ts';
 import { knownWriteHookInput } from '../../session/core/posthog-read-gate-core.ts';
 import { execFileAsync } from '../child-process-safe.ts';
-import { listClaudeGlobalConfigPathCandidates } from '../core/claude-trust-core.ts';
+import { listClaudeGlobalConfigPathCandidates } from '../core/claude-config-paths-core.ts';
 import { makeHostScratchDirectory } from '../host-scratch.ts';
 import { writeJsonAtomic } from '../json-file.ts';
 import { relayPath } from '../runtime-paths.ts';
