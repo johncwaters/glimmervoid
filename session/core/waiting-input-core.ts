@@ -20,6 +20,12 @@ function isOperatorKeystroke(input: string): boolean {
   return input.replace(TERMINAL_REPORT_PATTERN, "").replace(TERMINAL_QUERY_REPLY_PATTERN, "") !== "";
 }
 
+const NON_SUBMITTING_CARRIAGE_RETURN_PATTERN = /\x1b\[200~[\s\S]*?\x1b\[201~|\x1b\r/g;
+
+function isOperatorSubmit(input: string): boolean {
+  return isOperatorKeystroke(input) && input.replace(NON_SUBMITTING_CARRIAGE_RETURN_PATTERN, "").includes("\r");
+}
+
 const LONE_ESCAPE = "\x1b";
 
 const OPTION_DIGIT_SHORTCUT_PATTERN = /^[1-9]$/;
@@ -39,4 +45,4 @@ function decideWaitingInput({ state, hasHookAwaitingInput, pendingPromptKind, is
   return "acknowledge";
 }
 
-export { decideWaitingInput, isOperatorKeystroke };
+export { decideWaitingInput, isOperatorKeystroke, isOperatorSubmit };

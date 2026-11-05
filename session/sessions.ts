@@ -53,7 +53,7 @@ import {
   UNSEEN_OUTCOME_ON_ENTRY,
 } from "./core/state-machine.ts";
 import { acceptsAttentionSignal, mapSignalToEvent, shouldDeferAttention } from "./core/status-mapper.ts";
-import { decideWaitingInput, isOperatorKeystroke } from "./core/waiting-input-core.ts";
+import { decideWaitingInput, isOperatorKeystroke, isOperatorSubmit } from "./core/waiting-input-core.ts";
 import { decideExitTransition } from "./core/exit-transition.ts";
 import type { ExitSignal } from "./core/exit-transition.ts";
 import * as agentTracker from "./core/agent-tracker.ts";
@@ -1933,6 +1933,10 @@ class Session extends EventEmitter {
 
   noteOperatorInput(input: string): void {
     if (isOperatorKeystroke(input)) this.emit("operator-input");
+    if (isOperatorSubmit(input)) {
+      this._observeCompaction("resume");
+      this._titleQuiet = false;
+    }
     const decision = decideWaitingInput({
       state: this.state,
       hasHookAwaitingInput: this._can("hooks") && this._can("awaitingInput"),
