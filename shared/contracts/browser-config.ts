@@ -8,6 +8,7 @@ import { PrFlowsSettings } from './pr-flows.ts';
 import { repoParts } from './github-ids.ts';
 import { DISCORD_CHANNEL_NAME_RE, SKILL_NAME_RE } from './community.ts';
 import { UpdateChannel } from './update-journal.ts';
+import { QuestionManagerSettings } from './question-manager.ts';
 
 export const optionalBoolean = (field: string) => z.boolean({ error: `${field} must be a boolean` }).optional();
 const optionalString = (field: string, trim = false) => {
@@ -255,6 +256,7 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   coherence: CoherenceSettings,
   issues: IssuesSettings,
   community: CommunitySettings,
+  questionManager: QuestionManagerSettings.nullable().optional(),
   posthog: PosthogSettings,
   usage: createUsageSettings(isAbsolutePath),
   telegram: TelegramSettings,

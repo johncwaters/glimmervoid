@@ -268,3 +268,23 @@ export const LANES_COMMUNITY: SettingsSection = {
     },
   ],
 };
+
+export const LANES_QUESTION_MANAGER: SettingsSection = {
+  id: 'lanes-question-manager',
+  level: 'lanes',
+  title: 'Question manager',
+  description: 'Answer a session question from your rules and pass every other question to you.',
+  settings: [
+    {
+      id: 'question-manager-enabled', path: 'questionManager.enabled', title: 'Answer questions from rules',
+      description: 'Default for every repository. Questions with a risk word or no matching rule still come to you.',
+      control: 'toggle', keywords: ['questions', 'rules', 'automation', 'answer'], defaultValue: false, ...MACHINE_NOW,
+    },
+    {
+      id: 'question-manager-repos', path: 'questionManager.repos', title: 'Exceptions',
+      description: 'Repositories, by path or owner/name, that do the opposite of the default.',
+      control: 'list', keywords: ['repositories', 'projects', 'per project'], defaultValue: [],
+      listPlaceholder: 'Path or owner/name', listEmptyText: 'Every repository follows the default.', ...MACHINE_NOW,
+    },
+  ],
+};

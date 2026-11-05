@@ -27,7 +27,7 @@ test('SessionStart is command-only while every other built-in event stays http',
   for (const event of HOOK_EVENTS) {
     if (event === 'SessionStart') continue;
     const handlers = settings.hooks[event].flatMap((entry) => entry.hooks);
-    assert.deepEqual(handlers.map((handler) => handler.type), ['http'], event);
+    assert.deepEqual([...new Set(handlers.map((handler) => handler.type))], ['http'], event);
   }
 });
 

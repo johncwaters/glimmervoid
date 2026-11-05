@@ -16,6 +16,7 @@ import { AGENT_URL_ENV, AgentReadReply } from '../shared/contracts/session.ts';
 import { STATES } from '../shared/states.ts';
 import { capturingPty } from './helpers/fake-pty.ts';
 import { recordingSessionFactory } from './helpers/fake-session.ts';
+import { createQuestionManager } from '../server/question-manager/question-manager.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 
 test('a parent reads and answers held child questions through the agent API or releases them to the operator', async (context) => {
@@ -156,6 +157,44 @@ test('a parent reads and answers held child questions through the agent API or r
     for (const session of factory.created) session.destroy();
     server.closeAllConnections();
     await closeServer(server);
+    fs.rmSync(projectPath, { recursive: true, force: true });
+  }
+});
+
+test('the question manager answers a question its rules cover and leaves risky or unlisted questions to the operator', async () => {
+  const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-question-manager-'));
+  const settings = { enabled: false, repos: [projectPath], rules: [{ name: 'store choice', question: 'store', pick: ['SQLite'] }] };
+  const manager = createQuestionManager({ getSettings: () => settings, readOriginUrl: async () => null });
+  const factory = recordingSessionFactory();
+  const session = factory.makeSession({ id: 'managed', name: 'managed', path: projectPath, questionManager: manager.forSession({ projectPath }) });
+  const unlisted = factory.makeSession({ id: 'unlisted', name: 'unlisted', path: os.tmpdir(), questionManager: manager.forSession({ projectPath: os.tmpdir() }) });
+  const askPayload = (question: string) => ({ tool_name: 'AskUserQuestion', tool_input: { questions: [{ question, options: [{ label: 'sqlite' }, { label: 'postgres' }] }] } });
+  const questionStatus = (question: string) => ({ signal: 'awaiting-input', source: 'hook' as const, ts: Date.now(), promptKind: 'permission', promptToolName: 'AskUserQuestion', event: 'PermissionRequest', payload: askPayload(question) });
+  const answeredEvents: unknown[] = [];
+  session.on('question-answered', (detail) => answeredEvents.push(detail));
+  try {
+    session.transition('user_start');
+    session.transition('spawn_success', { spawnCwdExists: true });
+    session.transition('first_output');
+    session.transition('new_output');
+    const runningState = session.state;
+    session.ingestHookSignal(questionStatus('Which store?'));
+    const answered = await session.holdClaudePermission(askPayload('Which store?'), new AbortController().signal);
+    assert.deepEqual(answered?.hookSpecificOutput.decision, {
+      behavior: 'allow',
+      updatedInput: { questions: askPayload('Which store?').tool_input.questions, answers: { 'Which store?': 'sqlite' } },
+    });
+    assert.equal(session.state, runningState);
+    assert.equal(answeredEvents.length, 1);
+    const managerEntries = () => session.auditLog.filter((entry) => entry.kind === 'question-manager');
+    assert.deepEqual(managerEntries().map((entry) => [entry.outcome, entry.rule]), [['answered', 'store choice']]);
+    session.ingestHookSignal(questionStatus('Delete the sqlite store?'));
+    assert.equal(await session.holdClaudePermission(askPayload('Delete the sqlite store?'), new AbortController().signal), null);
+    assert.equal(session.state, STATES.WAITING);
+    assert.match(String(managerEntries().at(-1)?.reason), /delete/i);
+    assert.equal(await unlisted.holdClaudePermission(askPayload('Which store?'), new AbortController().signal), null);
+  } finally {
+    for (const created of factory.created) created.destroy();
     fs.rmSync(projectPath, { recursive: true, force: true });
   }
 });

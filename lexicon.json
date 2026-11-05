@@ -189,6 +189,10 @@
     {
       "name": "pack",
       "definition": "A folder with a pack.json that adds PR flows, color themes or sandboxed HTML panels to Glimmervoid once the operator approves it in Settings, Packs"
+    },
+    {
+      "name": "question manager",
+      "definition": "The rule-driven answerer that replies to a session's question from the operator's questionManager rules and passes every other question to the operator as a waiting question"
     }
   ]
 }

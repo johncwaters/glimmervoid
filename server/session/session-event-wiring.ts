@@ -17,6 +17,9 @@ import type { Telemetry } from '../telemetry.ts';
 import type { CommitSessions } from '../commit-sessions.ts';
 import type { SessionEndCause, SessionExitKind } from '../../shared/contracts/telemetry.ts';
 import { errorMessage } from '../../shared/text.ts';
+import { QUESTION_ANSWERED_NOTIFY_CATEGORY } from '../../shared/contracts/question-manager.ts';
+import type { ManagerAnswer } from '../../shared/contracts/question-manager.ts';
+import { answeredSummary } from '../question-manager/core/question-manager-core.ts';
 
 const IDLE_COMPACTION_CONFIRM_MS = 10000;
 
@@ -308,6 +311,9 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
 
     session.on('command-hint', ({ command, outcome }: { command: HintedCommand; outcome: 'shown' | 'followed' }) => {
       dependencies.telemetry?.capture(outcome === 'shown' ? 'command_hint_shown' : 'command_hint_followed', { command, adapter: adapterBucket(session.agentId) });
+    });
+    session.on('question-answered', ({ verdict }: { verdict: ManagerAnswer }) => {
+      dependencies.notificationManager.trigger(session.id, QUESTION_ANSWERED_NOTIFY_CATEGORY, `${session.name} answered ${answeredSummary(verdict)}`);
     });
     session.on('agent-attention', ({ note }: { note: string }) => {
       pendingAgentNote = pendingAgentNote === null ? note : `${pendingAgentNote}${AGENT_ATTENTION_NOTE_SEPARATOR}${note}`;

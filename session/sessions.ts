@@ -75,7 +75,7 @@ import { createSessionWorktreeLifecycle } from "./session-worktree-lifecycle.ts"
 import type { SeedDependencies } from "../server/git/dependency-clone.ts";
 import type { GitWorkspace } from "./worktree/worktree-lifecycle-context.ts";
 import { createSessionApprovalHolds } from "./session-approval-holds.ts";
-import type { SessionApprovalHolds } from "./session-approval-holds.ts";
+import type { QuestionManagerPort, SessionApprovalHolds } from "./session-approval-holds.ts";
 import { createSessionBackgroundTracking } from "./session-background-tracking.ts";
 import { createSessionLaunch } from "./session-launch.ts";
 import type { RemoteLaunch, SessionLaunch } from "./session-launch.ts";
@@ -182,6 +182,7 @@ interface SessionOptions {
   adapter?: AgentAdapter | null;
   bypassHookTrust?: boolean;
   holdsQuestionsForParent?: boolean;
+  questionManager?: QuestionManagerPort | null;
   startCodexBridge?: typeof startCodexAppServerBridge;
   titleQuietFallbackMs?: number;
   spawnCommand?: ResolvedCommand | null;
@@ -257,9 +258,8 @@ class Session extends EventEmitter {
   agentId: string;
   usageVendor: string;
   bypassHookTrust: boolean;
-  _holdsQuestionsForParent: boolean;
   _launch: SessionLaunch;
-  _approvals: SessionApprovalHolds;
+  _approvals: SessionApprovalHolds<HookSignal>;
   backgroundTracking: ReturnType<typeof createSessionBackgroundTracking>;
   worktreeLifecycle: ReturnType<typeof createSessionWorktreeLifecycle>;
   _worktreeReaderHolds = new Set<() => Promise<() => void>>();
@@ -366,6 +366,7 @@ class Session extends EventEmitter {
 
     bypassHookTrust = false,
     holdsQuestionsForParent = false,
+    questionManager = null,
     startCodexBridge = startCodexAppServerBridge,
 
     titleQuietFallbackMs = 30000,
@@ -485,11 +486,15 @@ class Session extends EventEmitter {
 
     this.usageVendor = this._adapter.usageVendor || "claude";
     this.bypassHookTrust = bypassHookTrust === true;
-    this._holdsQuestionsForParent = holdsQuestionsForParent;
     this._approvals = createSessionApprovalHolds({
       agentId: this.agentId,
       holdsQuestionsForParent,
-      port: { emit: (event, detail) => this.emit(event, detail) },
+      questionManager,
+      port: {
+        emit: (event, detail) => this.emit(event, detail),
+        ingestStatus: (signal) => this._ingestHookSignal(signal),
+        pushAuditEntry: (entry) => this._pushAuditEntry(entry),
+      },
     });
     this._titleQuietFallbackMs = titleQuietFallbackMs;
     this._titleQuietFallbackTimer = null;
@@ -562,7 +567,6 @@ class Session extends EventEmitter {
       hookTools: this._hookTools,
       planLimits: this._planLimits,
       planReview: planReviewPort !== null,
-      holdsQuestionsForParent: this._holdsQuestionsForParent,
       getUserHooks,
       extraUserHooks,
       scratchAgentHome,
@@ -809,6 +813,12 @@ class Session extends EventEmitter {
   }
 
   ingestHookSignal(raw: HookSignal): void {
+    if (this._destroyed) return;
+    if (this._approvals.parksQuestionStatus(raw)) return;
+    this._ingestHookSignal(raw);
+  }
+
+  _ingestHookSignal(raw: HookSignal): void {
     if (this._destroyed) return;
     if (raw?.signal === "auth-failed") {
       if (this._launch.respawnAfterAuthFailure()) return;

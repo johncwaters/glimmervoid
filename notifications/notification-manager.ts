@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 
 import { NOTIFICATION_STATES as NS, NOTIFICATION_TRANSITIONS } from '../shared/notification-states.ts';
 import { decidePhoneEscalation } from './core/phone-escalation-core.ts';
+import { QUESTION_ANSWERED_NOTIFY_CATEGORY } from '../shared/contracts/question-manager.ts';
 import type { OutcomeRecorder } from '../shared/outcome-names.ts';
 import type { NotificationState } from '../shared/notification-states.ts';
 import type { NotifyAlertGroup } from '../shared/contracts/control-messages.ts';
@@ -215,6 +216,7 @@ class NotificationManager extends EventEmitter {
         if (entry.category === 'waiting') {
           this._armEscalation(sessionName, entry);
         }
+        if (entry.category === QUESTION_ANSWERED_NOTIFY_CATEGORY) break;
         this._armPhoneEscalation(sessionName, entry);
         break;
 
@@ -295,6 +297,10 @@ class NotificationManager extends EventEmitter {
 
 
   _deliverToDashboard(sessionName: string, entry: NotificationEntry): void {
+    if (entry.category === QUESTION_ANSWERED_NOTIFY_CATEGORY) {
+      this._deliverViaChannels(sessionName, entry, null, (channel) => !channel.offDashboard);
+      return;
+    }
     const group = this._placeInAlertGroup(sessionName);
     this._deliverViaChannels(sessionName, entry, { group }, (channel) => !channel.offDashboard);
   }
