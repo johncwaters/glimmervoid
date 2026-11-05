@@ -59,3 +59,7 @@ export const PRODUCT_VERSION = rootPackage.version;
 export const REPOSITORY_URL = 'https://github.com/johncwaters/glimmervoid';
 
 export const MINIMUM_NODE_VERSION = minimumNodeVersionOf(rootPackage.engines.node);
+
+export const CODING_AGENT_LABELS = labelsOfAdaptersWhere((adapter) => adapter.id !== 'shell');
+
+export const PRODUCT_SUMMARY = 'Open-source agentic development environment (ADE) for Claude Code and Codex. Run coding agents in parallel worktrees, see which one needs you, steer from your phone.';

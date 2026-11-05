@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro';
 import { getCollection } from 'astro:content';
 import { markdownResponse } from '../lib/agent-markdown.ts';
-import { REPOSITORY_URL } from '../lib/product-facts.ts';
+import { PRODUCT_SUMMARY, REPOSITORY_URL } from '../lib/product-facts.ts';
 import { sitePath } from '../lib/site-path.ts';
 
 export const GET: APIRoute = async ({ site }) => {
@@ -13,7 +13,7 @@ export const GET: APIRoute = async ({ site }) => {
   return markdownResponse([
     '# Glimmervoid',
     '',
-    '> Local orchestrator for coding agents such as Claude Code and Codex: one git worktree per agent, status from the agents\' own hooks, and a browser dashboard that shows which session needs you.',
+    `> ${PRODUCT_SUMMARY}`,
     '',
     '## Product',
     '',

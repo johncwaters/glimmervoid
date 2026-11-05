@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { AGENT_COMMAND_HELP } from '../../../server/core/agent-api-core.ts';
 import { agentMarkdownPage, markdownResponse } from '../lib/agent-markdown.ts';
+import { FAQ_ENTRIES } from '../lib/faq.ts';
 import { INSTALL_COMMAND, LINUX_INSTALL_COMMAND } from '../lib/install-command.ts';
 import { AGENT_CARDS, DEFAULT_PORT, MINIMUM_NODE_VERSION, SANE_YOLO_AGENT_LABELS, PRODUCT_VERSION, REPOSITORY_URL } from '../lib/product-facts.ts';
 import { sitePath } from '../lib/site-path.ts';
@@ -8,7 +9,7 @@ import { sitePath } from '../lib/site-path.ts';
 export const GET: APIRoute = ({ site }) => {
   const urlOf = (pathWithinSite: string) => new URL(sitePath(pathWithinSite), site).href;
   const body = [
-    `Glimmervoid is a local orchestrator for coding agents. A small Node.js process on your own machine starts each agent as a real process in a real terminal, with your own login, subscription, skills, hooks and settings, gives each session its own git worktree, and serves a browser dashboard that shows which session needs you. It never sits between an agent and its model. It binds to localhost, needs no account, and is open source under MIT. Current version: ${PRODUCT_VERSION}.`,
+    `Glimmervoid is an open-source agentic development environment (ADE): a local orchestrator for coding agents. A small Node.js process on your own machine starts each agent as a real process in a real terminal, with your own login, subscription, skills, hooks and settings, gives each session its own git worktree, and serves a browser dashboard that shows which session needs you. It never sits between an agent and its model. It binds to localhost, needs no account, and is open source under MIT. Current version: ${PRODUCT_VERSION}.`,
     '## Install',
     [
       `- Windows and macOS: \`${INSTALL_COMMAND}\``,
@@ -37,6 +38,8 @@ export const GET: APIRoute = ({ site }) => {
     ].join('\n'),
     '## Commands inside a session',
     Object.values(AGENT_COMMAND_HELP).map(({ usage, summary }) => `- \`glimmervoid ${usage}\`: ${summary}`).join('\n'),
+    '## Questions',
+    FAQ_ENTRIES.map(({ question, answer }) => `### ${question}\n\n${answer}`).join('\n\n'),
     '## Links',
     [
       `- Source: ${REPOSITORY_URL}`,
