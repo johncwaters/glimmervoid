@@ -7,7 +7,7 @@ import { attentionSignature } from '../attention-ack-core.ts';
 import type { AttentionKind, AttentionTile } from '../focus-view/attention-core.ts';
 import type { GithubPollingStatus } from './github-polling-retry-core.ts';
 import { comparablePrKey } from '#shared/contracts/github-prs.ts';
-import { PRIORITY_BAND_ORDER, classifyReviewPriority, draftPriorityBand, hasFailedKeepMergeableRepair, pullRequestLabel, sectionStackedMyPrs } from './github-store-core.ts';
+import { PRIORITY_BAND_ORDER, answeredNonNitThreads, classifyReviewPriority, draftPriorityBand, hasFailedKeepMergeableRepair, pullRequestLabel, sectionStackedMyPrs } from './github-store-core.ts';
 import type { QueueRowKind, TeamReviewSections } from './github-store-core.ts';
 
 type QueueGroupId = z.infer<typeof ReviewQueueGroupId>;
@@ -71,7 +71,9 @@ const TEAM_STATE_BY_KIND: Readonly<Record<Exclude<QueueRowKind, 'ready' | 'atten
   settled: 'review-settled', inReview: 'review-in-flight', queued: 'review-queued', posted: 'review-posted', discarded: 'review-discarded',
 };
 
-interface StatedItem { item: QueueItem; row: QueueStateRow & { rank: number }; priorityBandRank: number; openedAtMs: number }
+interface StatedItem { item: QueueItem; row: QueueStateRow & { rank: number }; priorityBandRank: number; waitStartMs: number }
+
+const BLOCKED_PRIORITY_BAND_RANK = PRIORITY_BAND_ORDER.indexOf('waiting-on-author');
 
 function readyReviewState(draft: ReviewDraft): QueueState {
   if (draft.status !== 'ready') return 'review-follow-up';
@@ -95,16 +97,37 @@ function mineState(pr: MyPr, sessionPrKeys: ReadonlySet<string>, isKeepMergeable
 }
 
 function teamPriorityBandRank(review: ReviewDraft | InFlightReview | QueuedReview, kind: QueueRowKind): number {
-  if (kind === 'ready') return PRIORITY_BAND_ORDER.indexOf(draftPriorityBand(review as ReviewDraft));
+  if (kind === 'ready' || kind === 'attention') return PRIORITY_BAND_ORDER.indexOf(draftPriorityBand(review as ReviewDraft));
   if (kind === 'queued') return PRIORITY_BAND_ORDER.indexOf(classifyReviewPriority(review as QueuedReview).band);
   return 0;
 }
 
-function statedItem(state: QueueState, priorityBandRank: number, openedAt: string | undefined, toItem: (row: QueueStateRow) => QueueItem): StatedItem[] {
+export function validTimestampMs(timestamp: number | string | null | undefined): number | null {
+  const timestampMs = typeof timestamp === 'string' ? Date.parse(timestamp) : timestamp;
+  return typeof timestampMs === 'number' && Number.isFinite(timestampMs) && timestampMs > 0 ? timestampMs : null;
+}
+
+function latestAnsweredReplyMs(draft: ReviewDraft): number | null {
+  const replyTimesMs = answeredNonNitThreads(draft).flatMap((thread) => validTimestampMs(thread.lastReplyAt) ?? []);
+  return replyTimesMs.length > 0 ? Math.max(...replyTimesMs) : null;
+}
+
+export function teamWaitStartMs(review: ReviewDraft | InFlightReview | QueuedReview, kind: QueueRowKind): number {
+  if (kind === 'inReview') return validTimestampMs((review as InFlightReview).startedAt) ?? Number.POSITIVE_INFINITY;
+  if (kind === 'queued') return validTimestampMs(review.prCreatedAt) ?? Number.POSITIVE_INFINITY;
+  const draft = review as ReviewDraft;
+  return latestAnsweredReplyMs(draft) ?? validTimestampMs(draft.reviewedAt) ?? validTimestampMs(draft.prCreatedAt) ?? Number.POSITIVE_INFINITY;
+}
+
+function mineWaitStartMs(pr: MyPr): number {
+  const waitStartAt = pr.mergedAt ?? pr.stageSinceMs ?? pr.updatedAt;
+  return validTimestampMs(waitStartAt) ?? Number.POSITIVE_INFINITY;
+}
+
+function statedItem(state: QueueState, priorityBandRank: number, waitStartMs: number, toItem: (row: QueueStateRow) => QueueItem): StatedItem[] {
   const row = QUEUE_STATE_ROWS.get(state);
   if (!row) return [];
-  const openedAtMs = openedAt ? Date.parse(openedAt) : Number.NaN;
-  return [{ item: toItem(row), row, priorityBandRank, openedAtMs: Number.isNaN(openedAtMs) ? Number.POSITIVE_INFINITY : openedAtMs }];
+  return [{ item: toItem(row), row, priorityBandRank, waitStartMs }];
 }
 
 function teamItems(sections: TeamReviewSections): StatedItem[] {
@@ -112,19 +135,28 @@ function teamItems(sections: TeamReviewSections): StatedItem[] {
     ['ready', sections.ready], ['attention', sections.attention], ['inReview', sections.inReview], ['queued', sections.queued],
     ['settled', sections.noReviewNeeded], ['posted', sections.posted], ['discarded', sections.discarded],
   ];
-  return entries.flatMap(([kind, reviews]) => reviews.flatMap((review) => statedItem(teamState(review, kind), teamPriorityBandRank(review, kind), review.prCreatedAt, ({ action, kind: attention }) => (
+  return entries.flatMap(([kind, reviews]) => reviews.flatMap((review) => statedItem(teamState(review, kind), teamPriorityBandRank(review, kind), teamWaitStartMs(review, kind), ({ action, kind: attention }) => (
     { source: 'team', key: `team:${review.key}`, prKey: comparablePrKey(review), kind, review, action, attention }
   ))));
 }
 
 function mineItems(prs: readonly MyPr[], sessionPrKeys: ReadonlySet<string>, isKeepMergeableEnabled: boolean): StatedItem[] {
-  return sectionStackedMyPrs(prs).flatMap((section) => section.rows).flatMap((stackRow) => statedItem(mineState(stackRow.pr, sessionPrKeys, isKeepMergeableEnabled), 0, stackRow.pr.createdAt, ({ action, kind: attention }) => (
+  return sectionStackedMyPrs(prs).flatMap((section) => section.rows).flatMap((stackRow) => statedItem(mineState(stackRow.pr, sessionPrKeys, isKeepMergeableEnabled), 0, mineWaitStartMs(stackRow.pr), ({ action, kind: attention }) => (
     { source: 'mine', key: `mine:${stackRow.pr.key}`, prKey: comparablePrKey(stackRow.pr), pr: stackRow.pr, stackRow, action, attention }
   )));
 }
 
+function turnUrgencyRank(stated: StatedItem): number {
+  if (stated.row.kind === 'failed') return 0;
+  if (stated.row.state === 'review-direct-ask') return 1;
+  if (stated.priorityBandRank >= BLOCKED_PRIORITY_BAND_RANK) return 3;
+  return 2;
+}
+
 function compareStatedItems(first: StatedItem, second: StatedItem): number {
-  return first.row.rank - second.row.rank || first.priorityBandRank - second.priorityBandRank || first.openedAtMs - second.openedAtMs;
+  const waitOrder = first.waitStartMs - second.waitStartMs;
+  if (first.row.group === 'turn') return turnUrgencyRank(first) - turnUrgencyRank(second) || waitOrder || first.item.key.localeCompare(second.item.key);
+  return first.row.rank - second.row.rank || first.priorityBandRank - second.priorityBandRank || waitOrder;
 }
 
 export function buildReviewQueue(sections: TeamReviewSections, myPrs: readonly MyPr[], sessionPrKeys: ReadonlySet<string>, isKeepMergeableEnabled: boolean): QueueGroup[] {
