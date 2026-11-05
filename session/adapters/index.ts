@@ -163,6 +163,19 @@ const DEFAULT_AGENT_ID = claudeCode.id;
 
 type AgentTier = "first-class" | "hooked" | "title-only" | "shell";
 
+const OPENCODE = createCustomAdapter(
+  { id: "opencode", label: "OpenCode", command: "opencode", args: [] },
+  { initialPromptArgs: (initialPrompt) => [`--prompt=${initialPrompt}`] },
+);
+const GOOSE = createCustomAdapter(
+  { id: "goose", label: "Goose", command: "goose", args: ["session"] },
+  { initialPromptArgs: (initialPrompt) => ["run", "--interactive", `--text=${initialPrompt}`] },
+);
+const CURSOR = createCustomAdapter(
+  { id: "cursor", label: "Cursor CLI", command: "agent", args: [] },
+  { initialPromptArgs: (initialPrompt) => ["--", initialPrompt] },
+);
+
 interface BuiltInAgent {
   adapter: AgentAdapter;
   tier: AgentTier;
@@ -176,6 +189,9 @@ const BUILT_IN_AGENTS: readonly BuiltInAgent[] = Object.freeze([
   { adapter: qwen, tier: "hooked" },
   { adapter: copilot, tier: "hooked" },
   { adapter: grok, tier: "hooked" },
+  { adapter: OPENCODE, tier: "title-only" },
+  { adapter: GOOSE, tier: "title-only" },
+  { adapter: CURSOR, tier: "title-only" },
   { adapter: shell, tier: "shell" },
 ]);
 const ADAPTERS = new Map(BUILT_IN_AGENTS.map(({ adapter }) => [adapter.id, adapter]));

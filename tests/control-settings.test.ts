@@ -319,7 +319,7 @@ test('the browser round trip never sees a credential and never blanks one', asyn
 });
 
 test('a settings payload build reads the resolution cache and spawns no PATH probe', () => {
-  const warm = CustomAgentDeclaration.parse({ id: 'opencode', label: 'OpenCode', command: 'opencode' });
+  const warm = CustomAgentDeclaration.parse({ id: 'aider', label: 'Aider', command: 'aider' });
   const missing = CustomAgentDeclaration.parse({ id: 'ghostcode', label: 'GhostCode', command: 'ghostcode' });
   const unprobed = CustomAgentDeclaration.parse({ id: 'shadowcode', label: 'ShadowCode', command: 'node' });
   const shadowedByBuiltIn = CustomAgentDeclaration.parse({ id: 'gemini', label: 'My Gemini', command: 'my-gemini' });
@@ -331,7 +331,7 @@ test('a settings payload build reads the resolution cache and spawns no PATH pro
   };
   try {
     setCustomAgents([warm, missing, unprobed, shadowedByBuiltIn]);
-    commandFor('opencode', { platform: process.platform, execFile: () => '/usr/local/bin/opencode\n' });
+    commandFor('aider', { platform: process.platform, execFile: () => '/usr/local/bin/aider\n' });
     commandFor('ghostcode', { platform: process.platform, execFile: () => '', pathExists: () => false });
     commandFor('gemini', { platform: process.platform, execFile: () => '/usr/local/bin/gemini\n' });
     probes = 0;
@@ -341,7 +341,7 @@ test('a settings payload build reads the resolution cache and spawns no PATH pro
     assert.equal(probes, 0, 'a settings payload build never probes PATH');
     assert.ok(TeamReviewEnvironment.safeParse(payload.teamReviewEnvironment).success, 'the team review environment matches its wire contract');
     assert.deepEqual(payload.customAgents, [
-      { id: 'opencode', label: 'OpenCode', command: 'opencode', args: [], resolvable: true, isShadowedByBuiltIn: false },
+      { id: 'aider', label: 'Aider', command: 'aider', args: [], resolvable: true, isShadowedByBuiltIn: false },
       { id: 'ghostcode', label: 'GhostCode', command: 'ghostcode', args: [], resolvable: false, isShadowedByBuiltIn: false },
       { id: 'shadowcode', label: 'ShadowCode', command: 'node', args: [], resolvable: null, isShadowedByBuiltIn: false },
       { id: 'gemini', label: 'My Gemini', command: 'my-gemini', args: [], resolvable: null, isShadowedByBuiltIn: true },

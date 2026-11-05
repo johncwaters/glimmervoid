@@ -30,7 +30,11 @@ const TITLE_ONLY_CAPABILITIES: AgentCapabilities = Object.freeze({
   headless: false,
 });
 
-function createCustomAdapter(declaration: CustomAgentDeclaration): AgentAdapter {
+interface BuiltInLaunch {
+  initialPromptArgs?(initialPrompt: string): string[];
+}
+
+function createCustomAdapter(declaration: CustomAgentDeclaration, { initialPromptArgs }: BuiltInLaunch = {}): AgentAdapter {
   const declaredArgs = Object.freeze([...declaration.args]);
   const busyTitle = declaration.busyTitle?.trim() || null;
   const idleTitle = declaration.idleTitle?.trim() || null;
@@ -71,9 +75,9 @@ function createCustomAdapter(declaration: CustomAgentDeclaration): AgentAdapter 
   }
 
   function buildArgs({ initialPrompt = null }: AgentArgsOptions = {}): string[] {
-    const args = [...declaredArgs];
-    if (initialPrompt != null) args.push(initialPrompt);
-    return args;
+    if (initialPrompt == null) return [...declaredArgs];
+    if (initialPromptArgs) return initialPromptArgs(initialPrompt);
+    return [...declaredArgs, initialPrompt];
   }
 
   return {

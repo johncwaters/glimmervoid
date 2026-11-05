@@ -185,14 +185,14 @@ test('validateConfig rejects a config missing the projects key entirely', () => 
 
 test('a loaded config carries the contract defaults, so a bare custom agent declaration reaches the registry intact, and one shadowed by a built-in id survives a save', () => {
   const shadowedDeclaration = { id: 'gemini', label: 'My Gemini', command: 'my-gemini', args: [] };
-  withStore(richConfig({ customAgents: [{ id: 'opencode', label: 'OpenCode', command: 'opencode' }, shadowedDeclaration] }), (store) => {
+  withStore(richConfig({ customAgents: [{ id: 'aider', label: 'Aider', command: 'aider' }, shadowedDeclaration] }), (store) => {
     assert.deepEqual(store.config.customAgents, [
-      { id: 'opencode', label: 'OpenCode', command: 'opencode', args: [] },
+      { id: 'aider', label: 'Aider', command: 'aider', args: [] },
       shadowedDeclaration,
     ]);
     try {
       assert.deepEqual(setCustomAgents(store.config.customAgents ?? []), ['gemini']);
-      assert.deepEqual(getAdapter('opencode')?.buildArgs(), []);
+      assert.deepEqual(getAdapter('aider')?.buildArgs(), []);
       assert.equal(getAdapter('gemini')?.label, 'Gemini CLI');
       assert.deepEqual(store.save(() => {})?.customAgents?.[1], shadowedDeclaration);
     } finally {
@@ -205,10 +205,10 @@ test('a dashboard save returns the validated config, so a contract default reach
   withStore(richConfig(), (store) => {
     const saved = store.save((cfg) => {
       const draft: Record<string, unknown> = cfg;
-      draft.customAgents = [{ id: 'opencode', label: 'OpenCode', command: 'opencode' }];
+      draft.customAgents = [{ id: 'aider', label: 'Aider', command: 'aider' }];
     });
     assert.deepEqual(saved?.customAgents, [
-      { id: 'opencode', label: 'OpenCode', command: 'opencode', args: [] },
+      { id: 'aider', label: 'Aider', command: 'aider', args: [] },
     ]);
   });
 });
