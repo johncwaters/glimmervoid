@@ -57,9 +57,11 @@ function sampleReviews(nowMs: number, frameIndex: number): ReviewsSnapshot {
   return {
     groups: [
       { id: 'turn', title: 'Your turn', items: turnItems },
-      { id: 'working', title: 'Agent working', items: [{ source: 'team', key: `team:${queued.key}`, prKey: queued.key, kind: 'queued', review: queued, action: null, attention: null }] },
+      { id: 'working', title: 'Agent working', items: [] },
+      { id: 'queued', title: 'Queued', items: [{ source: 'team', key: `team:${queued.key}`, prKey: queued.key, kind: 'queued', review: queued, action: null, attention: null }] },
       { id: 'waiting', title: 'Waiting on others', items: [] },
-      { id: 'aside', title: 'Set aside', items: [mineItem({ ...draftPr, isDraft: true }, null, null)] },
+      { id: 'done', title: 'Done', items: [] },
+      { id: 'parked', title: 'Parked', items: [mineItem({ ...draftPr, isDraft: true }, null, null)] },
     ],
   };
 }

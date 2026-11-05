@@ -81,3 +81,28 @@ test('a team review still waiting on checks or a draft, fresh or stale, ranks be
   const turnKeys = turnItems(buildReviewQueue(sections, [], new Set(), true)).map((item) => item.key);
   assert.deepEqual(turnKeys, ['team:acme/app#3', 'team:acme/app#4', 'team:acme/app#1', 'team:acme/app#2']);
 });
+
+test('queued reviews sit in Queued, merged and settled work in Done, drafts and discarded reviews in Parked, and posted reviews keep waiting on others', () => {
+  const prs = [
+    myPr(1, 'merged', '2026-10-01T00:00:00Z', { state: 'MERGED', mergedAt: '2026-10-02T00:00:00Z' }),
+    myPr(2, 'draft', '2026-10-01T00:00:00Z', { isDraft: true }),
+  ];
+  const sections = groupDrafts(TeamReviewStatus.parse({
+    type: 'team-review-status', ts: 1, configured: true, reason: null, inFlight: [],
+    queued: [{ key: 'acme/app#3', repo: 'acme/app', number: 3, title: 'PR 3', url: 'https://github.com/acme/app/pull/3', author: 'teammate' }],
+    drafts: [
+      readyDraft(4, '2026-10-01T00:00:00Z', { githubReviews: [{ login: 'lead', state: 'APPROVED', commit: 'c'.repeat(40), isViewer: false }] }),
+      readyDraft(5, '2026-10-01T00:00:00Z', { status: 'discarded' }),
+      readyDraft(6, '2026-10-01T00:00:00Z', { status: 'posted' }),
+    ],
+  }));
+  const groups = buildReviewQueue(sections, prs, new Set(), true);
+  assert.deepEqual(groups.map((group) => [group.id, group.items.map((item) => item.key)]), [
+    ['turn', []],
+    ['working', []],
+    ['queued', ['team:acme/app#3']],
+    ['waiting', ['team:acme/app#6']],
+    ['done', ['mine:acme/app#1', 'team:acme/app#4']],
+    ['parked', ['team:acme/app#5', 'mine:acme/app#2']],
+  ]);
+});

@@ -4,7 +4,7 @@ import { attentionSignature } from '../attention-ack-core.ts';
 import { describeSchemaIssues } from '../client-error-core.ts';
 import { reportToServerLog } from '../control-ws.ts';
 import { buildCommunityQueue, communityActivityEntry, decideTurnAttention, turnItems } from '../github/review-queue-core.ts';
-import type { CommunityQueueItem, QueueGroup } from '../github/review-queue-core.ts';
+import type { CommunityQueueGroup } from '../github/review-queue-core.ts';
 import { getCommunityAttentionAck, getCommunityUnseenRows, setCommunityAttentionAck, setCommunityUnseenRows } from '../ui-prefs.ts';
 
 type CommunityChange =
@@ -12,7 +12,7 @@ type CommunityChange =
   | { kind: 'connection'; isConnected: boolean };
 
 let latest: CommunityStatusType | null = null;
-let groups: QueueGroup<CommunityQueueItem>[] = [];
+let groups: CommunityQueueGroup[] = [];
 let isLooking: () => boolean = () => false;
 let activityCallback: ((isActive: boolean) => void) | null = null;
 let acknowledged = getCommunityAttentionAck();
@@ -57,7 +57,7 @@ export function communityStatusView(): CommunityStatusType | null {
   return latest;
 }
 
-export function communityQueue(): QueueGroup<CommunityQueueItem>[] {
+export function communityQueue(): CommunityQueueGroup[] {
   return groups;
 }
 

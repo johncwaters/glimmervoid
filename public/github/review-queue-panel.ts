@@ -14,7 +14,7 @@ import { createReviewSetupCard } from './review-setup-card.ts';
 import { createReviewSkillNotice } from './review-skill-notice.ts';
 import { subscribeSettings } from '../settings/settings-store.ts';
 import {
-  caughtUpText, chooseQueueSelection, combinedPollingStatus, nextTurnKey,
+  COLLAPSED_GROUP_IDS, caughtUpText, chooseQueueSelection, combinedPollingStatus, nextTurnKey,
   queueItemActivityEntry, queueItemByKey, reviewKeyActionOf, spansMultipleRepos, steppedRowKey, turnItems, turnPositionText,
 } from './review-queue-core.ts';
 import type { QueueGroup, QueueItem, ReviewKeyAction } from './review-queue-core.ts';
@@ -44,7 +44,7 @@ let currentGroups: QueueGroup[] = [];
 let selectedKey: string | null = null;
 let shownKey: string | null | undefined;
 let isCaughtUp = false;
-let isSetAsideOpen = false;
+const openCollapsedGroupIds = new Set<string>();
 let renderedSignature: string | null = null;
 let isRenderQueued = false;
 let caughtUpReceipt: string | null = null;
@@ -124,7 +124,8 @@ function selectItem(key: string, { isFromQueue }: { isFromQueue: boolean }): voi
 function revealItem(key: string): void {
   const item = queueItemByKey(currentGroups, key);
   if (!item) return;
-  if (currentGroups.find((group) => group.items.includes(item))?.id === 'aside') isSetAsideOpen = true;
+  const revealedGroupId = currentGroups.find((group) => group.items.includes(item))?.id;
+  if (revealedGroupId && COLLAPSED_GROUP_IDS.has(revealedGroupId)) openCollapsedGroupIds.add(revealedGroupId);
   selectedKey = key;
   render();
   selectItem(key, { isFromQueue: false });
@@ -208,6 +209,11 @@ function createItemRow(item: QueueItem, isTurn: boolean, hasMultipleRepos: boole
   return container;
 }
 
+function toggleCollapsedGroup(groupId: string): void {
+  if (openCollapsedGroupIds.delete(groupId)) return;
+  openCollapsedGroupIds.add(groupId);
+}
+
 function createGroupHeading(group: QueueGroup): HTMLElement {
   const heading = el('h3', 'pr-section-heading review-group-heading');
   const count = el('span', 'review-group-count', String(group.items.length));
@@ -215,7 +221,7 @@ function createGroupHeading(group: QueueGroup): HTMLElement {
     heading.append(el('span', null, group.title), count, buildNextAttentionKeys());
     return heading;
   }
-  if (group.id !== 'aside') {
+  if (!COLLAPSED_GROUP_IDS.has(group.id)) {
     heading.append(el('span', null, group.title), count);
     return heading;
   }
@@ -223,9 +229,9 @@ function createGroupHeading(group: QueueGroup): HTMLElement {
   const chevron = el('span', 'review-group-chevron', String.fromCharCode(0x25b8));
   chevron.setAttribute('aria-hidden', 'true');
   toggle.append(chevron, group.title);
-  toggle.setAttribute('aria-expanded', String(isSetAsideOpen));
+  toggle.setAttribute('aria-expanded', String(openCollapsedGroupIds.has(group.id)));
   toggle.addEventListener('click', () => {
-    isSetAsideOpen = !isSetAsideOpen;
+    toggleCollapsedGroup(group.id);
     renderedSignature = null;
     render();
   });
@@ -237,7 +243,7 @@ function createGroupSection(group: QueueGroup, hasMultipleRepos: boolean, sessio
   const section = el('section', 'pr-queue-section');
   section.dataset.group = group.id;
   section.append(createGroupHeading(group));
-  if (group.id === 'aside' && !isSetAsideOpen) return section;
+  if (COLLAPSED_GROUP_IDS.has(group.id) && !openCollapsedGroupIds.has(group.id)) return section;
   for (const item of group.items) section.append(createItemRow(item, group.id === 'turn', hasMultipleRepos, sessionsByPrKey));
   return section;
 }
@@ -264,7 +270,7 @@ function syncTeamChip(): void {
 }
 
 function rowsSignature(groups: readonly QueueGroup[], sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): string {
-  return JSON.stringify([groups, [...sessionsByPrKey], selectedKey, isSetAsideOpen, reviewQueueUnseenSignature(), queueNoticeElements().map((notice) => notice.textContent)], (key, value) => (key === 'recentSteps' ? undefined : value));
+  return JSON.stringify([groups, [...sessionsByPrKey], selectedKey, [...openCollapsedGroupIds], reviewQueueUnseenSignature(), queueNoticeElements().map((notice) => notice.textContent)], (key, value) => (key === 'recentSteps' ? undefined : value));
 }
 
 function syncSetupCard(): boolean {
