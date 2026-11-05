@@ -29,8 +29,8 @@ function isBox(board: Board, id: string): boolean {
   return board.elements[id]?.kind === 'box';
 }
 
-function checkReferences(board: Board, element: Element): OpOutcome {
-  if (element.kind === 'box') return checkBoxReferences(board, element);
+function checkReferences(board: Board, element: Element, previous: Element | undefined): OpOutcome {
+  if (element.kind === 'box') return checkBoxReferences(board, element, previous);
   if (element.kind === 'unit') return checkUnitReferences(board, element);
   if (element.kind === 'wire') {
     if (!isBox(board, element.from)) return refuse(`wire ${element.id} starts at ${element.from}, which is not a box`);
@@ -55,17 +55,19 @@ function checkWireOutput(board: Board, wire: Wire): OpOutcome {
   return OK;
 }
 
-function checkBoxOutputs(board: Board, box: Box): OpOutcome {
+function checkBoxOutputs(board: Board, box: Box, previous: Element | undefined): OpOutcome {
   if (box.shape !== 'decision' && box.outputs.length > 0) return refuse(`box ${box.id} has outputs, which only a decision has, so set shape to decision`);
   const outputIds = new Set(box.outputs.map((output) => output.id));
   if (outputIds.size !== box.outputs.length) return refuse(`box ${box.id} has two outputs with the same id`);
+  const previousOutputs = previous?.kind === 'box' ? previous.outputs : [];
+  if (previousOutputs.every((output) => outputIds.has(output.id))) return OK;
   const strandedWire = Object.values(board.elements).find((element) => element.kind === 'wire' && element.from === box.id && element.fromOutput !== null && !outputIds.has(element.fromOutput));
   if (strandedWire?.kind === 'wire') return refuse(`wire ${strandedWire.id} still starts at output ${strandedWire.fromOutput} of ${box.id}, so change or remove that wire first`);
   return OK;
 }
 
-function checkBoxReferences(board: Board, box: Box): OpOutcome {
-  const outputs = checkBoxOutputs(board, box);
+function checkBoxReferences(board: Board, box: Box, previous: Element | undefined): OpOutcome {
+  const outputs = checkBoxOutputs(board, box, previous);
   if (!outputs.ok) return outputs;
   if (box.change === 'relabeled' && !box.was) return refuse(`box ${box.id} is relabeled, so give its old title in was`);
   if (box.column === null && box.near === null && box.at === null) {
@@ -108,7 +110,7 @@ function addElement(board: Board, element: Element, author: Author): OpOutcome {
   if (Object.keys(board.elements).length >= WHITEBOARD_LIMITS.elements) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.elements} elements`);
   if (element.kind === 'unit' && unitsOf(board).length >= WHITEBOARD_LIMITS.units) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.units} units`);
   const stored: Element = element.kind === 'note' ? storedNote(element, author) : element;
-  const references = checkReferences(board, stored);
+  const references = checkReferences(board, stored, undefined);
   if (!references.ok) return references;
   board.elements[element.id] = stored;
   return OK;
@@ -126,7 +128,7 @@ function setFields(board: Board, id: string, fields: Record<string, unknown>, au
   if (!canKeepNoteStamps(author) && ('author' in fields || 'resolvedBy' in fields)) return refuse('set cannot change who wrote or resolved a note; resolve it with a resolve op');
   const parsed = ELEMENT_SCHEMAS[existing.kind].safeParse({ ...existing, ...rewrittenNoteStamp(existing, fields, author), ...fields });
   if (!parsed.success) return refuse(`${id}: ${parsed.error.issues[0]?.message ?? 'invalid fields'}`);
-  const references = checkReferences(board, parsed.data);
+  const references = checkReferences(board, parsed.data, existing);
   if (!references.ok) return references;
   board.elements[id] = parsed.data;
   return OK;
