@@ -42,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Record shortcut row lines up.** In Settings, Shortcuts, the jump-to-next-session keys and the Record button now sit together at the right of the row, without the stray line above the keys.
+- **Record shortcut row lines up.** In Settings, Shortcuts, the jump-to-next-session keys and the Record button now sit together at the right of the row, without the stray line above the keys. The jump keys beside the Your turn heading in Reviews also lose that line and sit at the right edge again.
 - **A quick session gets a fresh name that can still change.** The Add a session like the one you are in shortcut used to copy the current session's name, so a copy of a session that had already been renamed after its task kept that title and was never renamed again. The new session is now named after its project folder, like any new session, and gets its own name from its first prompts. A copy of a multi-repository workspace still keeps the workspace name you typed.
 - **No more false Complete when a Claude Code background task finishes.** When a background shell command finished just before Claude Code ended its turn, the card went Complete and notified you, then Claude Code woke itself up a second later to handle the finished task. The card now stays Running until that follow-up turn ends and notifies you once. If the follow-up never comes, the card completes about 20 seconds later.
 - **A board box drawn on top of a page box now covers it.** A page box's live preview used to paint over every other box, note and plan step on the board; now anything drawn after the page box and overlapping it shows on top, the same way overlapping boxes already stack.

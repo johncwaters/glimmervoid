@@ -29,7 +29,6 @@
 }
 .pr-team-chip > span:last-child { overflow: hidden; text-overflow: ellipsis; }
 .review-group-heading { display: flex; align-items: center; gap: 8px; }
-.review-group-heading .shortcut-keys { margin-left: auto; padding: 0; border-top: 0; }
 .review-group-toggle { appearance: none; border: 0; padding: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
 .review-group-chevron { display: inline-block; margin-right: 6px; transition: transform 120ms ease-out; }
 .review-group-toggle[aria-expanded="true"] .review-group-chevron { transform: rotate(90deg); }

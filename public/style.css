@@ -1332,6 +1332,12 @@ html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, 
   border-top: 0;
 }
 
+.review-group-heading .shortcut-keys {
+  margin-left: auto;
+  padding: 0;
+  border-top: 0;
+}
+
 .shortcut-sep {
   color: var(--text-muted);
   font-family: var(--font-mono);
