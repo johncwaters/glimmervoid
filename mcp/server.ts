@@ -12,7 +12,6 @@ import type { Session } from '../session/sessions.ts';
 import { parsePresentedCredential } from './core/credentials.ts';
 import { boardReplyWithoutCommandGuide, settingsListForMcp, spawnReplyForMcp } from './core/replies.ts';
 import { SERVER_INSTRUCTIONS } from './core/instructions.ts';
-import { showByPath } from './show.ts';
 import { boardPictureResult, boardReplyWithReading } from './whiteboard.ts';
 import type { ToolImageResult } from './core/tool-result.ts';
 import { toolErrorResult, toolResultFromReply } from './core/tool-result.ts';
@@ -67,16 +66,8 @@ function reshapedReply(reshape: (body: Record<string, unknown>) => Record<string
   };
 }
 
-function showPathRequest(payload: Record<string, unknown>) {
-  return {
-    requestedPath: typeof payload.path === 'string' ? payload.path : '',
-    caption: typeof payload.caption === 'string' ? payload.caption : null,
-  };
-}
-
 const PRESENTERS: Readonly<Record<Presenter, (target: CallTarget, verb: AgentApiVerb, payload: Record<string, unknown>) => Promise<PresentedReply>>> = {
   'agent-reply': ({ session, agentApi }, verb, payload) => agentApi.handle(session, verb, payload),
-  'show-by-path': ({ session, agentApi, getShownFiles }, _verb, payload) => showByPath(session, agentApi, getShownFiles(), showPathRequest(payload)),
   'board-with-reading': ({ session, agentApi }, _verb, payload) => boardReplyWithReading(session, agentApi, payload),
   'board-picture': ({ session, agentApi, getWhiteboardAssets }, _verb, payload) => boardPictureResult(session, agentApi, getWhiteboardAssets(), payload),
   'spawn-reply': reshapedReply(spawnReplyForMcp),

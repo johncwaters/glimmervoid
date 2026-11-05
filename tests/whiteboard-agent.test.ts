@@ -827,3 +827,38 @@ test('a board whose linked board vanished on restart still takes unrelated edits
   const relinked = await after.handleOperator.put(plannedId, z.array(Op).parse([{ op: 'add', element: { kind: 'unit', id: 'u2', title: 'Other', linkedBoardId: detailId } }]));
   assert.equal(relinked.ok, false);
 });
+
+test('show puts each file on a board the session is connected to, creating one named after the session first, placing later cards right of the last and numbering past an oversized shown id', async () => {
+  const { default: sharp } = await import('sharp');
+  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'show-'));
+  const showerDir = fs.mkdtempSync(path.join(fixture.tmpDir, 'shower-'));
+  fs.writeFileSync(path.join(showerDir, 'login.png'), await sharp({ create: { width: 64, height: 32, channels: 3, background: '#38bdf8' } }).png().toBuffer());
+  fs.writeFileSync(path.join(showerDir, 'report.html'), '<!doctype html><html><head><title>Weekly report</title></head><body>numbers</body></html>');
+  const wiring = createWhiteboardWiring({ boardsRoot });
+  const shower = { id: 'show-agent', name: 'checkout fix', cwd: showerDir };
+
+  const first = await wiring.handleAgent(shower, { sub: 'show', path: 'login.png', caption: 'login after fix' });
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  const boardId = (first.body as { board: { id: string; title: string; connectedSessionIds: string[] } }).board.id;
+  assert.deepEqual(wiring.snapshotMessage().boards.map(({ id, title, connectedSessionIds }) => ({ id, title, connectedSessionIds })), [{ id: boardId, title: 'checkout fix', connectedSessionIds: [shower.id] }]);
+
+  const second = await wiring.handleAgent(shower, { sub: 'show', path: 'report.html' });
+  assert.equal(second.status, 200, JSON.stringify(second.body));
+  assert.equal((second.body as { board: { id: string } }).board.id, boardId);
+
+  const read = await wiring.handleAgent(shower, { sub: 'get', board: boardId });
+  const { elements } = Board.parse((read.body as { board: unknown }).board);
+  const firstCard = elements['shown-1'];
+  const secondCard = elements['shown-2'];
+  assert.ok(firstCard?.kind === 'box' && secondCard?.kind === 'box');
+  assert.deepEqual([firstCard.title, firstCard.lines.map((line) => line.text), firstCard.media?.kind, firstCard.media?.alt], ['login.png', ['login after fix'], 'image', 'login after fix']);
+  assert.deepEqual([secondCard.title, secondCard.media?.kind, secondCard.near], ['Weekly report', 'page', { of: 'shown-1', side: 'right', gap: 60 }]);
+
+  await wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'shown-1000000000000000000000', title: 'Odd id', at: { x: 0, y: 0 } } }]));
+  const pastOddId = await wiring.handleAgent(shower, { sub: 'show', path: 'login.png' });
+  assert.equal(pastOddId.status, 200, JSON.stringify(pastOddId.body));
+  assert.match(String((pastOddId.body as { note: string }).note), /as box shown-3 /);
+
+  const remote = await wiring.handleAgent({ ...shower, remoteWorkspace: 'coder-box' }, { sub: 'show', path: 'login.png' });
+  assert.equal(remote.status, 409);
+});

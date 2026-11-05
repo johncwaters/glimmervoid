@@ -220,7 +220,12 @@ export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
   z.object({ sub: z.literal('resolve'), board: BoardRef, note: ElementId }).strict(),
   z.object({ sub: z.literal('delete'), board: BoardRef }).strict(),
   z.object({ sub: z.literal('attach'), path: z.string().min(1, { error: 'attach needs the media path' }).max(4096) }).strict(),
-], { error: 'whiteboard takes new, list, connect, disconnect, get, put, resolve, delete or attach' });
+  z.object({
+    sub: z.literal('show'),
+    path: z.string().min(1, { error: 'show needs the file path' }).max(4096),
+    caption: z.string().max(WHITEBOARD_LIMITS.line, { error: `a show caption is at most ${WHITEBOARD_LIMITS.line} characters` }).optional(),
+  }).strict(),
+], { error: 'whiteboard takes new, list, connect, disconnect, get, put, resolve, delete, attach or show' });
 
 export const BoardReview = z.object({
   codeSessionId: z.string().nullable(),

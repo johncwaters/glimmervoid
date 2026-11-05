@@ -4,7 +4,7 @@ import {
   AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPacksRequest, AgentPullRequestRequest, AgentSettingsRequest, AgentSpawnRequest, AgentWhyRequest,
 } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb } from '../../shared/contracts/session.ts';
-import { Op } from '../../shared/contracts/whiteboard.ts';
+import { Op, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import { BUILTIN_AGENT_IDS, SHELL_AGENT_ID } from '../../shared/contracts/config.ts';
 
 type ToolArguments = Record<string, unknown>;
@@ -14,7 +14,7 @@ interface CallContext {
   ownsSpawnedSessions: boolean;
 }
 
-type Presenter = 'agent-reply' | 'show-by-path' | 'board-with-reading' | 'board-picture' | 'spawn-reply' | 'board-without-command-guide' | 'settings-list' | 'reply-text';
+type Presenter = 'agent-reply' | 'board-with-reading' | 'board-picture' | 'spawn-reply' | 'board-without-command-guide' | 'settings-list' | 'reply-text';
 
 type ActionHints = { readOnly: boolean; destructive: boolean; idempotent: boolean; openWorld: boolean };
 
@@ -187,16 +187,22 @@ const ATTENTION_TOOL: GroupedTool = {
   actions: { attention: routeTo('attention', ['note'], { hints: { ...WRITES, openWorld: true } }) },
 };
 
+function showPayload(toolArguments: ToolArguments, context: CallContext): Record<string, unknown> {
+  const caption = typeof toolArguments.caption === 'string' ? { caption: toolArguments.caption } : {};
+  if (typeof toolArguments.path !== 'string') return { sub: 'show', ...caption };
+  return { sub: 'show', path: context.resolveSessionPath(toolArguments.path), ...caption };
+}
+
 const SHOW_TOOL: GroupedTool = {
   name: 'show',
   title: 'Glimmervoid show',
-  description: 'Put an image, video, PDF or HTML page on this session\'s dashboard card so the operator can see it, such as a screenshot, a rendered chart or a report. Glimmervoid reads the file by its path, so it must be on this machine and under 200 MB.',
-  loadsUpfront: false,
+  description: 'Show the operator an image, video or HTML page you made (a screenshot, a rendered chart, a report, a mockup, a demo clip) as a card on a whiteboard on their dashboard. Use it instead of publishing an artifact, pasting a picture into chat, or asking the operator to open a file: the operator is already watching the board, and the card stays there for them and other sessions to see and edit. It puts the card on the board this session is connected to, creating one named after this session when there is none, and returns the board and the box id so whiteboard put can change it. Accepts PNG, JPEG, WebP, GIF, SVG, MP4, WebM or HTML on this machine, up to 200 MB.',
+  loadsUpfront: true,
   fields: {
     path: z.string().min(1).max(4096).describe('The file, absolute or relative to this session\'s directory'),
-    caption: z.string().min(1).max(500).optional().describe('A short line shown with the file'),
+    caption: z.string().min(1).max(WHITEBOARD_LIMITS.line).optional().describe('A short line shown under the file on its card'),
   },
-  actions: { show: routeTo('show', ['path', 'caption'], { required: ['path'], hints: WRITES, presenter: 'show-by-path' }) },
+  actions: { show: { verb: 'whiteboard', required: ['path'], accepts: ['path', 'caption'], hints: WRITES, toPayload: showPayload } },
 };
 
 const SETTINGS_TOOL: GroupedTool = {

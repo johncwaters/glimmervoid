@@ -214,12 +214,13 @@ for (const agent of ['claude-code', 'codex']) {
 
 const ONE_PIXEL_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
 
-test('show reads a file by a path relative to the session and refuses a path that is not a file', async () => {
+test('show puts a file named relative to the session on a board as a card, counts as running show, and refuses a path that is not a file', async () => {
   const { credential, projectDir } = bootedBackend();
   fs.writeFileSync(path.join(projectDir, 'pixel.png'), ONE_PIXEL_PNG);
   const shown = await resultOf(await callMcp('tools/call', { name: 'show', arguments: { path: 'pixel.png', caption: 'one pixel' } }, credential));
   assert.notEqual(shown.isError, true, JSON.stringify(shown));
-  assert.deepEqual(shown.structuredContent, { ok: true, shown: { name: 'pixel.png', kind: 'image' } });
+  assert.match(JSON.stringify(shown.structuredContent), /showed pixel\.png as box shown-1 on board/);
+  assert.equal(bootedBackend().backend.getSession(SESSION_ID)?._ranCommands.has('show'), true);
 
   for (const requestedPath of ['missing.png', '.']) {
     const refused = await resultOf(await callMcp('tools/call', { name: 'show', arguments: { path: requestedPath } }, credential));
