@@ -79,6 +79,7 @@ const DEFAULT_CONFIG = {
   repoRoots: [] as string[],
 
   customAgents: [] as CustomAgentDeclaration[],
+  packs: [] as string[],
 
   remote: {
     enabled: false,

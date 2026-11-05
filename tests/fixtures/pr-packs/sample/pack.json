@@ -1,16 +1,18 @@
 {
-  "$schema": "https://glimmervoid.dev/schema/pr-pack.v1.json",
+  "$schema": "https://glimmervoid.dev/schema/pack.v1.json",
   "name": "sample",
   "version": 1,
   "description": "A pack that runs one script from its own directory on a pull request.",
   "requires": { "programs": ["node"] },
-  "prActions": [
-    { "id": "hand-off", "label": "Hand off", "command": ["node", "{packDir}/hand-off.ts", "{prUrl}", "{headRef}"], "timeoutSeconds": 60 }
-  ],
-  "actions": [
-    { "id": "note", "label": "Note it", "command": ["node", "{packDir}/hand-off.ts", "{prUrl}", "{itemPath}"] }
-  ],
-  "rules": [
-    { "name": "Generated files", "paths": ["dist/"], "action": "run:note" }
-  ]
+  "prFlows": {
+    "prActions": [
+      { "id": "hand-off", "label": "Hand off", "command": ["node", "{packDir}/hand-off.ts", "{prUrl}", "{headRef}"], "timeoutSeconds": 60 }
+    ],
+    "actions": [
+      { "id": "note", "label": "Note it", "command": ["node", "{packDir}/hand-off.ts", "{prUrl}", "{itemPath}"] }
+    ],
+    "rules": [
+      { "name": "Generated files", "paths": ["dist/"], "action": "run:note" }
+    ]
+  }
 }

@@ -96,7 +96,6 @@ export const PrFlowsSettings = z.looseObject({
   prActions: z.array(z.unknown(), { error: 'prFlows.prActions must be an array' }).optional(),
   rules: z.array(z.unknown(), { error: 'prFlows.rules must be an array' }).optional(),
   repoRules: z.record(z.string(), z.unknown(), { error: 'prFlows.repoRules must be an object of repository names' }).optional(),
-  packs: z.array(z.string().min(1), { error: 'prFlows.packs must be an array of pack directory paths' }).optional(),
 });
 
 export const PrFlowHandled = z.strictObject({

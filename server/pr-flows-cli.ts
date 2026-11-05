@@ -10,8 +10,8 @@ import type { CommandRunOptions, CommandRunResult } from './child-process-safe.t
 import type { ParsedCommand } from './core/cli-spec-core.ts';
 import { decideConfigPath, glimmervoidHomeDir } from './core/config-path-core.ts';
 import { parseJsonOrNull } from './core/json-core.ts';
-import { commandFingerprint, expandPlaceholders, packApproval, prFlowCommands, prFlowRules, unknownActionWarnings } from './github/core/pr-flows-core.ts';
-import { readPackDir } from './github/pr-packs.ts';
+import { commandFingerprint, expandPlaceholders, packApproval, prFlowCommands, prFlowsPacksOf, prFlowRules, unknownActionWarnings } from './github/core/pr-flows-core.ts';
+import { readPackDir } from './packs/pack-files.ts';
 import { createPrFlowsExternal } from './github/pr-flows-external.ts';
 
 const PR_URL_PATTERN = /^https:\/\/github\.com\/([^/\s]+\/[^/\s]+)\/pull\/(\d+)\/?$/;
@@ -180,20 +180,25 @@ async function runPrFlowsCheck(options: PrFlowsCheckOptions & { isJson: boolean 
 type PackEntryCheck = { kind: keyof typeof PLACEHOLDERS_BY_KIND; id: string; label: string; argv: string[]; error: string | null };
 type PackCheckReport = { packDir: string; name: string | null; isApproved: boolean; errors: string[]; missingRequires: string[]; entries: PackEntryCheck[]; rules: string[] };
 
-function checkPack(packDir: string, env: NodeJS.ProcessEnv, homeDir: string): PackCheckReport {
-  const read = readPackDir(packDir, env);
+async function checkPack(packDir: string, env: NodeJS.ProcessEnv, homeDir: string): Promise<PackCheckReport> {
+  const read = await readPackDir(packDir, env);
   if (!read.ok) return { packDir: path.resolve(packDir), name: null, isApproved: false, errors: read.errors, missingRequires: [], entries: [], rules: [] };
-  const approval = packApproval(read.pack);
+  const { prFlowsPacks, warnings: sectionErrors } = prFlowsPacksOf([read.pack]);
+  const isApproved = approvedFingerprints(homeDir).has(read.pack.fingerprint);
+  const name = `${read.pack.header.name} v${read.pack.header.version}`;
+  const [prFlowsPack] = prFlowsPacks;
+  if (!prFlowsPack) return { packDir: read.pack.dir, name, isApproved, errors: sectionErrors, missingRequires: read.pack.missingRequires, entries: [], rules: [] };
+  const approval = packApproval(prFlowsPack);
   const entries = (approval.pack?.commands ?? []).map((command): PackEntryCheck => {
     const names = PLACEHOLDERS_BY_KIND[command.kind];
-    const expanded = expandPlaceholders(command.command, Object.fromEntries(names.map((name) => [name, `{${name}}`])));
-    const error = expanded.ok ? null : `{${expanded.unknown}} is not a placeholder here; use {packDir}, ${names.map((name) => `{${name}}`).join(', ')}`;
+    const expanded = expandPlaceholders(command.command, Object.fromEntries(names.map((placeholderName) => [placeholderName, `{${placeholderName}}`])));
+    const error = expanded.ok ? null : `{${expanded.unknown}} is not a placeholder here; use {packDir}, ${names.map((placeholderName) => `{${placeholderName}}`).join(', ')}`;
     return { kind: command.kind, id: command.id, label: command.label, argv: command.command, error };
   });
-  const { pack } = read.pack;
+  const { section } = prFlowsPack;
   return {
-    packDir: read.pack.dir, name: approval.label, isApproved: approvedFingerprints(homeDir).has(read.pack.fingerprint),
-    errors: unknownActionWarnings(pack.rules, new Set(pack.actions.map((action) => action.id))), missingRequires: read.pack.missingRequires, entries, rules: approval.pack?.rules ?? [],
+    packDir: read.pack.dir, name, isApproved,
+    errors: unknownActionWarnings(section.rules, new Set(section.actions.map((action) => action.id))), missingRequires: read.pack.missingRequires, entries, rules: approval.pack?.rules ?? [],
   };
 }
 
@@ -208,8 +213,8 @@ function packReportText(report: PackCheckReport): string {
   ].join('\n');
 }
 
-function runPackCheck({ packDir, isJson, env, homeDir }: { packDir: string; isJson: boolean; env: NodeJS.ProcessEnv; homeDir: string }, io: PrFlowsCheckIo): number {
-  const report = checkPack(packDir, env, homeDir);
+async function runPackCheck({ packDir, isJson, env, homeDir }: { packDir: string; isJson: boolean; env: NodeJS.ProcessEnv; homeDir: string }, io: PrFlowsCheckIo): Promise<number> {
+  const report = await checkPack(packDir, env, homeDir);
   io.writeOutput(`${isJson ? JSON.stringify(report, null, 2) : packReportText(report)}\n`);
   const hasProblem = report.errors.length > 0 || report.missingRequires.length > 0 || report.entries.some((entry) => entry.error !== null);
   return hasProblem ? 1 : 0;
