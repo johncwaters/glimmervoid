@@ -10,16 +10,13 @@ import type { CommandRunOptions, CommandRunResult } from './child-process-safe.t
 import type { ParsedCommand } from './core/cli-spec-core.ts';
 import { decideConfigPath, glimmervoidHomeDir } from './core/config-path-core.ts';
 import { parseJsonOrNull } from './core/json-core.ts';
-import { commandFingerprint, expandPlaceholders, packApproval, prFlowCommands, prFlowsPacksOf, prFlowRules, unknownActionWarnings } from './github/core/pr-flows-core.ts';
-import { packsStatePath, readPackDir } from './packs/pack-files.ts';
-import { uiSectionErrors } from './packs/core/pack-core.ts';
+import { commandFingerprint, expandPlaceholders, prFlowCommands, prFlowRules, unknownActionWarnings } from './github/core/pr-flows-core.ts';
+import { packsStatePath } from './packs/pack-files.ts';
+import { PR_FLOW_PLACEHOLDERS_BY_KIND, checkPack, packCheckHasProblem, packReportText } from './packs/pack-check.ts';
 import { PacksState } from '../shared/contracts/pack.ts';
 import { createPrFlowsExternal } from './github/pr-flows-external.ts';
 
 const PR_URL_PATTERN = /^https:\/\/github\.com\/([^/\s]+\/[^/\s]+)\/pull\/(\d+)\/?$/;
-const SOURCE_PLACEHOLDERS = ['prUrl', 'repo', 'number', 'head'];
-const ACTION_PLACEHOLDERS = [...SOURCE_PLACEHOLDERS, 'itemPath', 'itemLine'];
-const PLACEHOLDERS_BY_KIND = { source: SOURCE_PLACEHOLDERS, action: ACTION_PLACEHOLDERS, 'pr-action': [...SOURCE_PLACEHOLDERS, 'headRef', 'baseRef'] } as const;
 const GH_TIMEOUT_MS = 30_000;
 const GH_OUTPUT_MAX_BYTES = 64 * 1024;
 const REPORT_TIMEOUT_MS = 15_000;
@@ -51,7 +48,7 @@ function placeholderSample(names: readonly string[], pr: CheckedPr | null): Reco
 }
 
 function entryCheck(kind: EntryCheck['kind'], command: PrFlowCommand, approvedFingerprints: ReadonlySet<string>, pr: CheckedPr | null): EntryCheck {
-  const names = kind === 'source' ? SOURCE_PLACEHOLDERS : ACTION_PLACEHOLDERS;
+  const names = PR_FLOW_PLACEHOLDERS_BY_KIND[kind];
   const expanded = expandPlaceholders(command.command, placeholderSample(names, pr));
   const isApproved = approvedFingerprints.has(commandFingerprint(kind, command));
   if (!expanded.ok) return { kind, id: command.id, label: command.label, isApproved, argv: null, error: `{${expanded.unknown}} is not a placeholder; use ${names.map((name) => `{${name}}`).join(', ')}` };
@@ -185,48 +182,11 @@ async function runPrFlowsCheck(options: PrFlowsCheckOptions & { isJson: boolean 
   }
 }
 
-type PackEntryCheck = { kind: keyof typeof PLACEHOLDERS_BY_KIND; id: string; label: string; argv: string[]; error: string | null };
-type PackCheckReport = { packDir: string; name: string | null; isApproved: boolean; errors: string[]; missingRequires: string[]; entries: PackEntryCheck[]; rules: string[] };
-
-async function checkPack(packDir: string, env: NodeJS.ProcessEnv, homeDir: string): Promise<PackCheckReport> {
-  const read = await readPackDir(packDir, env);
-  if (!read.ok) return { packDir: path.resolve(packDir), name: null, isApproved: false, errors: read.errors, missingRequires: [], entries: [], rules: [] };
-  const { prFlowsPacks, warnings: prFlowsErrors } = prFlowsPacksOf([read.pack]);
-  const sectionErrors = [...prFlowsErrors, ...uiSectionErrors(read.pack)];
-  const isApproved = approvedPackFingerprints(homeDir).has(read.pack.fingerprint);
-  const name = `${read.pack.header.name} v${read.pack.header.version}`;
-  const [prFlowsPack] = prFlowsPacks;
-  if (!prFlowsPack) return { packDir: read.pack.dir, name, isApproved, errors: sectionErrors, missingRequires: read.pack.missingRequires, entries: [], rules: [] };
-  const approval = packApproval(prFlowsPack);
-  const entries = (approval.pack?.commands ?? []).map((command): PackEntryCheck => {
-    const names = PLACEHOLDERS_BY_KIND[command.kind];
-    const expanded = expandPlaceholders(command.command, Object.fromEntries(names.map((placeholderName) => [placeholderName, `{${placeholderName}}`])));
-    const error = expanded.ok ? null : `{${expanded.unknown}} is not a placeholder here; use {packDir}, ${names.map((placeholderName) => `{${placeholderName}}`).join(', ')}`;
-    return { kind: command.kind, id: command.id, label: command.label, argv: command.command, error };
-  });
-  const { section } = prFlowsPack;
-  return {
-    packDir: read.pack.dir, name, isApproved,
-    errors: [...sectionErrors, ...unknownActionWarnings(section.rules, new Set(section.actions.map((action) => action.id)))], missingRequires: read.pack.missingRequires, entries, rules: approval.pack?.rules ?? [],
-  };
-}
-
-function packReportText(report: PackCheckReport): string {
-  const heading = report.name === null ? `Checked the pack at ${report.packDir}` : `Checked pack ${report.name} at ${report.packDir}, ${report.isApproved ? 'approved' : 'waits for approval in Settings, Packs'}`;
-  return [
-    heading,
-    ...report.entries.map((entry) => `${entry.kind} ${entry.id} (${entry.label}): ${entry.error === null ? `valid\n  would run ${JSON.stringify(entry.argv)}` : `invalid, ${entry.error}`}`),
-    ...report.rules.map((rule) => `rule ${rule}`),
-    ...report.errors.map((error) => `error: ${error}`),
-    ...report.missingRequires.map((missing) => `missing on this machine: ${missing}, so the pack stays off here`),
-  ].join('\n');
-}
-
 async function runPackCheck({ packDir, isJson, env, homeDir }: { packDir: string; isJson: boolean; env: NodeJS.ProcessEnv; homeDir: string }, io: PrFlowsCheckIo): Promise<number> {
-  const report = await checkPack(packDir, env, homeDir);
+  const approvedFingerprints = approvedPackFingerprints(homeDir);
+  const report = await checkPack(packDir, env, (fingerprint) => approvedFingerprints.has(fingerprint));
   io.writeOutput(`${isJson ? JSON.stringify(report, null, 2) : packReportText(report)}\n`);
-  const hasProblem = report.errors.length > 0 || report.missingRequires.length > 0 || report.entries.some((entry) => entry.error !== null);
-  return hasProblem ? 1 : 0;
+  return packCheckHasProblem(report) ? 1 : 0;
 }
 
 async function runPrFlowsCheckCli(parsed: Extract<ParsedCommand, { kind: 'run' }>): Promise<number> {

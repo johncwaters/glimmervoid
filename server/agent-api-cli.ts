@@ -118,6 +118,7 @@ const BODY_BUILDERS: Record<Exclude<AgentApiVerb, 'show'>, BodyBuilder> = {
   settings: ({ positionals: [command, settingPath] }) => ({ command, ...(settingPath === undefined ? {} : { path: settingPath }) }),
   why: ({ positionals: [target] }) => (target ? { target: absoluteWhyTarget(target) } : null),
   whiteboard: whiteboardBody,
+  packs: ({ positionals: [command, packPath] }) => ({ command, ...(packPath === undefined ? {} : { path: path.resolve(packPath) }) }),
   checkout: ({ positionals: [repo] }) => (repo ? { repo: /[\\/]|^\./.test(repo) ? path.resolve(repo) : repo } : null),
 };
 

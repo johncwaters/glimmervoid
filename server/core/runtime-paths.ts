@@ -7,6 +7,7 @@ export interface RuntimePaths {
   assetRoot: string;
   clientDir: string;
   cliPath: string;
+  examplePacksDir: string;
   relayPath: (relayName: string) => string;
 }
 
@@ -38,6 +39,7 @@ function computeRuntimePaths({ moduleFile, hasPackageJson }: RuntimePathsInput):
     assetRoot,
     clientDir: path.join(distDir, 'client'),
     cliPath: path.join(assetRoot, 'bin', `glimmervoid${sourceExtension}`),
+    examplePacksDir: path.join(assetRoot, 'examples', 'packs'),
     relayPath: (relayName: string) => path.join(assetRoot, 'session', `${relayName}${sourceExtension}`),
   };
 }

@@ -19,6 +19,7 @@ const REQUIRED_OUTPUTS = [
   'session/remote-setup/glimmervoid.service',
   'scripts/postinstall-path-check.js',
   'schema/pack.v1.json',
+  'examples/packs/session-board/pack.json',
 ];
 
 const ENTRY_CHUNK_BUDGET_BYTES = 512 * 1024;
@@ -88,6 +89,7 @@ fs.cpSync(path.join(repoRoot, 'session', 'remote-setup'), path.join(distDir, 'se
 fs.writeFileSync(path.join(distDir, 'package.json'), `${JSON.stringify({ type: 'module' }, null, 2)}\n`);
 fs.mkdirSync(path.join(distDir, 'schema'), { recursive: true });
 fs.writeFileSync(path.join(distDir, 'schema', 'pack.v1.json'), packJsonSchemaText());
+fs.cpSync(path.join(repoRoot, 'examples', 'packs'), path.join(distDir, 'examples', 'packs'), { recursive: true });
 
 const missing = REQUIRED_OUTPUTS.filter((relativePath) => !fs.existsSync(path.join(distDir, relativePath)));
 if (missing.length > 0) fail(`missing from dist/: ${missing.join(', ')}`);

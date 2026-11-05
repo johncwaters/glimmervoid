@@ -140,6 +140,7 @@ const COMMAND_ROUTES: Readonly<Record<AgentApiVerb, (facts: SessionRoleFacts) =>
   why: () => ANSWERS,
   whiteboard: whiteboardRoute,
   checkout: checkoutRoute,
+  packs: operatorStateRoute,
   limits: () => ANSWERS,
 });
 

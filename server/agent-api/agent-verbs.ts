@@ -3,7 +3,7 @@ import path from 'node:path';
 import { describeSessionLimits } from '../../session/core/session-routes.ts';
 import type { SessionRoleFacts } from '../../session/core/session-routes.ts';
 import type { Session } from '../../session/sessions.ts';
-import type { AgentAnswerRequest, AgentCheckoutRequest, AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentCloseRequest, AgentEditRequest, AgentLimitsReply, AgentReadRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest, SessionLimits } from '../../shared/contracts/session.ts';
+import type { AgentAnswerRequest, AgentCheckoutRequest, AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentCloseRequest, AgentEditRequest, AgentLimitsReply, AgentPacksRequest, AgentReadRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest, SessionLimits } from '../../shared/contracts/session.ts';
 import { manualPrLink } from '../../session/core/session-pr-links-core.ts';
 import { describePushLanding, describeUnpushedCloseRefusal, projectMyPrs, projectReviewDetail, projectReviews } from '../core/agent-api-core.ts';
 import type { AgentRefusalReply, AgentReplyOf } from '../core/agent-api-core.ts';
@@ -85,6 +85,14 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     if (!operatorState) return refusal(503, 'settings are not available in this Glimmervoid');
     const reply = operatorState.readSettings(request);
     return { status: reply.ok ? 200 : 400, body: reply };
+  }
+
+  async function packs(session: Session, request: AgentPacksRequest): Promise<AgentReplyOf<'packs'>> {
+    if (!operatorState) return refusal(503, 'packs are not available in this Glimmervoid');
+    if (request.command === 'check' && session.remoteWorkspace) return refusal(409, 'this session runs in a Coder workspace, so its pack folder is not on this machine to check');
+    const packPath = request.path === undefined ? undefined : path.resolve(session.effectiveCwd(), request.path);
+    const reply = await operatorState.readPacks({ command: request.command, ...(packPath === undefined ? {} : { path: packPath }) });
+    return { status: 200, body: { ok: true, ...reply } };
   }
 
   async function why(session: Session, target: string): Promise<AgentReplyOf<'why'>> {
@@ -218,6 +226,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     settings: (_session, request) => settings(request),
     why: (session, { target }) => why(session, target),
     checkout,
+    packs,
     whiteboard: (session, request) => (whiteboards ? whiteboards.handleAgent({ id: session.id, name: session.name, cwd: session.effectiveCwd(), remoteWorkspace: session.remoteWorkspace }, request) : refusal(503, 'whiteboards are not available in this Glimmervoid')),
   };
 

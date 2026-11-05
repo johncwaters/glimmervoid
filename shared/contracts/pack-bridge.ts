@@ -46,3 +46,7 @@ export const HostToPanel = z.union([
   z.strictObject({ v: BridgeVersion, kind: z.literal('hello'), granted: z.array(PackBridgeTopic) }),
   ...HostTopicMessages,
 ]);
+
+export function packBridgeJsonSchemaText(): string {
+  return `${JSON.stringify({ panelToHost: z.toJSONSchema(PanelToHost), hostToPanel: z.toJSONSchema(HostToPanel) }, null, 2)}\n`;
+}

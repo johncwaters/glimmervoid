@@ -57,6 +57,11 @@ async function boot(): Promise<BootedBackend> {
   return { tmpDir, server, backend, projectDir, mcpUrl: `http://127.0.0.1:${boundPort(server)}/mcp`, credential: mcpCredentialFor(SESSION_ID, session.agentToken) };
 }
 
+function firstTextOf(content: unknown): string {
+  assert.ok(Array.isArray(content) && typeof content[0]?.text === 'string', JSON.stringify(content));
+  return content[0].text;
+}
+
 let nextRequestId = 1;
 
 function callMcp(method: string, params: Record<string, unknown>, credential: string | null, extraHeaders: Record<string, string> = {}): Promise<Response> {
@@ -105,7 +110,7 @@ test('a session without its own worktree lists every grouped tool but push and r
   const tools = listed.tools;
   assert.ok(Array.isArray(tools));
   const toolNames = tools.map((tool: { name: string }) => tool.name).sort();
-  assert.deepEqual(toolNames, ['attention', 'review', 'session', 'settings', 'show', 'whiteboard', 'why']);
+  assert.deepEqual(toolNames, ['attention', 'packs', 'review', 'session', 'settings', 'show', 'whiteboard', 'why']);
   const sessionTool = tools.find((tool: { name: string }) => tool.name === 'session');
   assert.ok(sessionTool.inputSchema.properties.action.enum.includes('spawn'));
   assert.match(sessionTool.inputSchema.properties.agent.description, /claude-code, codex/);
@@ -129,6 +134,15 @@ test('a session without its own worktree lists every grouped tool but push and r
   const settingsText = settingsReply.text;
   assert.ok(settingsText.split('\n').every((line) => / = .+ \(.+\)$/.test(line)), settingsText.slice(0, 300));
   assert.ok(settingsText.includes('autoResume = '));
+
+  const packsGuide = await resultOf(await callMcp('tools/call', { name: 'packs', arguments: { action: 'guide' } }, credential));
+  assert.notEqual(packsGuide.isError, true, JSON.stringify(packsGuide));
+  assert.match(firstTextOf(packsGuide.content), /examples[\\/]packs[\\/]session-board: /);
+  fs.mkdirSync(path.join(bootedBackend().projectDir, 'half-pack'));
+  fs.writeFileSync(path.join(bootedBackend().projectDir, 'half-pack', 'pack.json'), JSON.stringify({ name: 'half-pack', version: 1, ui: { panels: [{ id: 'p', label: 'P', entry: 'missing.html' }] } }));
+  const packChecked = await resultOf(await callMcp('tools/call', { name: 'packs', arguments: { action: 'check', path: 'half-pack' } }, credential));
+  assert.match(firstTextOf(packChecked.content), /^Checked pack half-pack v1 at .*half-pack, waits for approval/);
+  assert.match(firstTextOf(packChecked.content), /error: .*missing\.html/);
   assert.equal(spawnReplyForMcp({ ok: true, sessionId: 'child-1', name: 'child' }).note?.toString().includes('glimmervoid '), false);
 });
 

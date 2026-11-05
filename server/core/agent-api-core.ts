@@ -4,7 +4,7 @@ import type { z } from 'zod';
 
 import { pullRequestKeyFromReference } from '../../shared/contracts/control-messages.ts';
 import {
-  AGENT_API_VERBS, AGENT_REPLY_SCHEMAS, AgentAnswerRequest, AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPullRequestRequest, AgentReadRequest, AgentReviewsRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest, AgentWhyRequest, AgentCheckoutRequest,
+  AGENT_API_VERBS, AGENT_REPLY_SCHEMAS, AgentAnswerRequest, AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPullRequestRequest, AgentReadRequest, AgentReviewsRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest, AgentWhyRequest, AgentCheckoutRequest, AgentPacksRequest,
 } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb, AgentPrsReply, AgentRefusal, AgentReplyBodyOf, AgentReviewDetailReply, AgentReviewsReply } from '../../shared/contracts/session.ts';
 import type { MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
@@ -68,6 +68,7 @@ interface AgentRequestByVerb {
   why: AgentWhyRequest;
   whiteboard: WhiteboardAgentRequest;
   checkout: AgentCheckoutRequest;
+  packs: AgentPacksRequest;
 }
 
 type AgentRequestOf<V extends AgentApiVerb> = AgentRequestByVerb[V];
@@ -209,6 +210,7 @@ const REQUEST_PARSERS: { readonly [V in AgentApiVerb]: RequestParser<AgentReques
   why: bodyParser(AgentWhyRequest),
   whiteboard: bodyParser(WhiteboardAgentRequest),
   checkout: bodyParser(AgentCheckoutRequest),
+  packs: bodyParser(AgentPacksRequest),
 });
 
 type CheckedAgentReply = { ok: true; reply: AgentReplyOf<AgentApiVerb> } | { ok: false; reply: AgentRefusalReply; issue: string };
@@ -485,6 +487,13 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     positionals: requiredText('<pr>'),
     summary: "Link a pull request to this session's card",
     missingArgumentHint: 'this command needs a pull request, for example "glimmervoid link-pr acme/app#12"',
+  },
+  packs: {
+    usage: 'packs guide|check|list',
+    whenToUse: 'Use it before writing or changing a Glimmervoid pack, and to check one before asking the operator to approve it',
+    summary: 'Read how to build a pack (its schema, the panel bridge and example packs to copy), check a pack folder, or list the packs installed here',
+    missingArgumentHint: null,
+    isPassthrough: true,
   },
   settings: { usage: 'settings list|get', whenToUse: 'Use it instead of reading config.json', summary: "Read Glimmervoid's settings; a secret shows only as configured or not", missingArgumentHint: null, isPassthrough: true },
   why: {

@@ -1,5 +1,5 @@
 import type { Session } from '../../session/sessions.ts';
-import type { AgentApiVerb, AgentSettingsReply, AgentSettingsRequest } from '../../shared/contracts/session.ts';
+import type { AgentApiVerb, AgentPacksRequest, AgentSettingsReply, AgentSettingsRequest } from '../../shared/contracts/session.ts';
 import type { MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
 import type { TeamReviewStatus } from '../../shared/contracts/team-review.ts';
 import type { GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
@@ -29,6 +29,7 @@ interface AgentOperatorStatePort {
   teamReviewStatus(): TeamReviewStatus;
   myPrsStatus(): MyPrsSnapshot | null;
   readSettings(request: AgentSettingsRequest): AgentSettingsReply;
+  readPacks(request: AgentPacksRequest): Promise<{ text: string; hasProblem: boolean }>;
 }
 
 interface AgentApiWiringOptions {

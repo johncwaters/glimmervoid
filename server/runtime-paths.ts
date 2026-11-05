@@ -21,9 +21,9 @@ const runtimePaths: RuntimePaths = computeRuntimePaths({
   hasPackageJson: hasPackageManifest,
 });
 
-const { assetRoot, bundled, cliPath, clientDir, packageRoot, relayPath } = runtimePaths;
+const { assetRoot, bundled, cliPath, clientDir, examplePacksDir, packageRoot, relayPath } = runtimePaths;
 
-export { assetRoot, bundled, cliPath, clientDir, packageRoot, relayPath };
+export { assetRoot, bundled, cliPath, clientDir, examplePacksDir, packageRoot, relayPath };
 
 const packageBins = new Map<string, string | null>();
 

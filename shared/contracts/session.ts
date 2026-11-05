@@ -111,7 +111,7 @@ export const SshSignReply = z.union([
 
 export type SshSignRequest = z.infer<typeof SshSignRequest>;
 export type SshSignReply = z.infer<typeof SshSignReply>;
-export const SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'board', 'edit', 'show', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout'] as const;
+export const SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'board', 'edit', 'show', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs'] as const;
 export const AGENT_API_VERBS = [...SESSION_COMMANDS, 'limits', 'answer'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
 
@@ -196,6 +196,13 @@ export const AgentSettingsRequest = z.object({
   command: z.enum(AGENT_SETTINGS_COMMANDS, { error: 'command must be list or get' }),
   path: z.string({ error: 'path must be a string' }).min(1, { error: 'path must not be empty' }).max(200, { error: 'path must be at most 200 characters' }).optional(),
 }).strict();
+
+const AGENT_PACKS_COMMANDS = ['guide', 'check', 'list'] as const;
+
+export const AgentPacksRequest = z.object({
+  command: z.enum(AGENT_PACKS_COMMANDS, { error: 'command must be guide, check or list' }),
+  path: z.string({ error: 'path must be a string' }).min(1, { error: 'path must not be empty' }).max(4096, { error: 'path must be at most 4096 characters' }).optional(),
+}).strict().refine((request) => request.command !== 'check' || request.path !== undefined, { error: 'check needs the path of a pack folder' });
 
 export const AgentWhyRequest = z.object({
   target: z.string({ error: 'target must be a string' }).min(1, { error: 'target must not be empty' }).max(4200, { error: 'target must be at most 4200 characters' }),
@@ -320,6 +327,7 @@ export const AGENT_REPLY_SCHEMAS = Object.freeze({
   why: z.union([z.object({ ok: z.literal(true), text: z.string() }).strict(), AgentRefusal]),
   whiteboard: z.union([WhiteboardAgentReply, AgentRefusal]),
   checkout: z.union([z.object({ ok: z.literal(true), path: z.string(), branch: z.string() }).strict(), AgentRefusal]),
+  packs: z.union([z.object({ ok: z.literal(true), text: z.string(), hasProblem: z.boolean() }).strict(), AgentRefusal]),
   limits: z.union([AgentLimitsReply, AgentRefusal]),
   answer: z.union([AgentOkReply, AgentRefusal]),
 }) satisfies { readonly [V in AgentApiVerb]: z.ZodType };
@@ -341,6 +349,7 @@ export type AgentAttentionReply = z.infer<typeof AgentAttentionReply>;
 export type AgentBoardRow = z.infer<typeof AgentBoardRow>;
 export type AgentPullRequestRequest = z.infer<typeof AgentPullRequestRequest>;
 export type AgentSettingsRequest = z.infer<typeof AgentSettingsRequest>;
+export type AgentPacksRequest = z.infer<typeof AgentPacksRequest>;
 export type AgentWhyRequest = z.infer<typeof AgentWhyRequest>;
 export type AgentCheckoutRequest = z.infer<typeof AgentCheckoutRequest>;
 export type AgentSettingsReply = z.infer<typeof AgentSettingsReply>;
