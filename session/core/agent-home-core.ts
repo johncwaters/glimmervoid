@@ -142,7 +142,7 @@ const AGENT_HOME_IN_USE_LOCK_NAME = ".glimmervoid-in-use.lock";
 const GENERATED_ONLY_NAMES: ReadonlySet<string> = new Set([AGENT_HOME_SOURCES_NAME, AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_IN_USE_LOCK_NAME]);
 const FILE_STAMP_PREFIX = "file:";
 
-type AgentHomeVendor = "kimi" | "codex" | "gemini" | "qwen";
+type AgentHomeVendor = "kimi" | "codex" | "gemini" | "qwen" | "copilot";
 
 interface TomlConfigFormat {
   kind: "toml";
@@ -580,7 +580,7 @@ const GEMINI_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   isPrivateEntryName: () => false,
 });
 
-const QWEN_HOOKS_SWITCH: JsonHooksSwitch = Object.freeze({
+const DISABLE_ALL_HOOKS_SWITCH: JsonHooksSwitch = Object.freeze({
   managedKeys: Object.freeze(["hooks", "disableAllHooks"]),
   areHooksOff: (operatorConfig: JsonObject) => operatorConfig.disableAllHooks === true,
   turnHooksOn: (operatorConfig: JsonObject) => ({ ...operatorConfig, disableAllHooks: false }),
@@ -595,7 +595,21 @@ const QWEN_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   expandsHomeTilde: true,
   homeRootLinkNames: Object.freeze([]),
   renderLauncherConfig: null,
-  config: Object.freeze({ kind: "json", configName: "settings.json", baseName: AGENT_HOME_JSON_BASE_NAME, hooksSwitch: QWEN_HOOKS_SWITCH }),
+  config: Object.freeze({ kind: "json", configName: "settings.json", baseName: AGENT_HOME_JSON_BASE_NAME, hooksSwitch: DISABLE_ALL_HOOKS_SWITCH }),
+  generatedFileNames: Object.freeze([]),
+  isPrivateEntryName: () => false,
+});
+
+const COPILOT_HOME_PROFILE: AgentHomeProfile = Object.freeze({
+  vendor: "copilot",
+  homeEnvName: "COPILOT_HOME",
+  defaultHomeFolderName: ".copilot",
+  homeEnvSubfolder: null,
+  homeEnvDotenvNames: Object.freeze([]),
+  expandsHomeTilde: false,
+  homeRootLinkNames: Object.freeze([]),
+  renderLauncherConfig: null,
+  config: Object.freeze({ kind: "json", configName: "settings.json", baseName: AGENT_HOME_JSON_BASE_NAME, hooksSwitch: DISABLE_ALL_HOOKS_SWITCH }),
   generatedFileNames: Object.freeze([]),
   isPrivateEntryName: () => false,
 });
@@ -625,7 +639,7 @@ function resolveRealAgentHome(profile: AgentHomeProfile, env: Readonly<Record<st
   return path.resolve(expandedHome, profile.homeEnvSubfolder ?? "");
 }
 
-const AGENT_HOME_PROFILES: readonly AgentHomeProfile[] = Object.freeze([KIMI_HOME_PROFILE, CODEX_HOME_PROFILE, GEMINI_HOME_PROFILE, QWEN_HOME_PROFILE]);
+const AGENT_HOME_PROFILES: readonly AgentHomeProfile[] = Object.freeze([KIMI_HOME_PROFILE, CODEX_HOME_PROFILE, GEMINI_HOME_PROFILE, QWEN_HOME_PROFILE, COPILOT_HOME_PROFILE]);
 
 interface CodexHomeHook {
   event: string;
@@ -731,6 +745,7 @@ function renderCodexHooksBlock(options: CodexHooksBlockOptions): string {
 
 export {
   AGENT_HOME_CONFIG_NAME,
+  COPILOT_HOME_PROFILE,
   AGENT_HOME_PROFILES,
   resolveRealAgentHome,
   AGENT_HOME_CONFLICTS_NAME,

@@ -193,6 +193,10 @@
     {
       "name": "qwen code",
       "definition": "Alibaba's Qwen Code CLI, an agent CLI glimmervoid supervises through its qwen agent adapter, with hook status from a generated QWEN_HOME"
+    },
+    {
+      "name": "copilot cli",
+      "definition": "GitHub's Copilot CLI, an agent CLI glimmervoid supervises through its copilot agent adapter, with hook status from a generated COPILOT_HOME"
     }
   ]
 }

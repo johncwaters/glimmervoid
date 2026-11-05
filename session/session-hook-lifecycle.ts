@@ -63,6 +63,7 @@ interface SessionHookOptions {
   requiresHooks: boolean;
   bypassHookTrust: boolean;
   effectiveCwd: () => string;
+  folderTrustRoot: () => string;
   agentEnv: () => Record<string, string | undefined>;
   ingestSignal: (signal: HookSignal) => void;
   observeHook: ((event: string, payload: Record<string, unknown>) => void) | null;
@@ -283,7 +284,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
 
   function injectGeneratedHomeHooks(port: number, injection: GeneratedHomeInjection): HookInjectionResult {
     releaseGeneratedHome();
-    const prepared = options.scratchAgentHome ? injection.prepareScratchHome(process.env, options.scratchAgentHome) : injection.prepareHome(process.env, { listenerPort: port });
+    const prepared = options.scratchAgentHome ? injection.prepareScratchHome(process.env, options.scratchAgentHome) : injection.prepareHome(process.env, { listenerPort: port, folderTrustRoot: options.folderTrustRoot() });
     if ("refusal" in prepared) return { ...NO_HOOK_INJECTION, refusal: `${options.agentId} cannot start: ${prepared.refusal}` };
     if (!options.scratchAgentHome) heldGeneratedHome = { releaseHome: injection.releaseHome, home: prepared.home };
     const relayHooks = registerRelayHooks(port, [], saneYoloTool() !== undefined);

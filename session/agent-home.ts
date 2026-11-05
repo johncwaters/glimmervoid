@@ -484,5 +484,5 @@ function releaseUnheldAgentHomeSecrets(generatedHome: string): void {
   releaseSecretsUnlessHeldElsewhere(generatedHome, { whenLocksMissing: "keep" });
 }
 
-export { describeAgentHome, generatedAgentHomePath, holdAgentHome, holdPreparedAgentHome, prepareAgentHome, prepareScratchAgentHome, realAgentHome, releaseAgentHome, releaseUnheldAgentHomeSecrets };
+export { describeAgentHome, generatedAgentHomePath, holdAgentHome, holdPreparedAgentHome, prepareAgentHome, prepareScratchAgentHome, readOptionalText, realAgentHome, releaseAgentHome, releaseUnheldAgentHomeSecrets };
 
