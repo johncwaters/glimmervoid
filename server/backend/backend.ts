@@ -13,6 +13,7 @@ import { createLifecycle } from '../server-lifecycle.ts';
 import { execFileAsync, spawn } from '../child-process-safe.ts';
 import { refuseRunningNodeLaunches } from '../stable-node-path.ts';
 import { createAgentIngressApp, createBackendHttpApp } from './backend-http.ts';
+import { createLinkPreviewFetcher } from '../link-preview-fetcher.ts';
 import { createHostUrlOpener } from '../host-url-opener.ts';
 import { createAgentApiWiring } from '../agent-api-wiring.ts';
 import { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME } from '../whiteboard/whiteboard-wiring.ts';
@@ -201,6 +202,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     remoteListenerPort,
     tokenMatches,
     openUrlOnHost: createHostUrlOpener(),
+    isLinkPreviewEnabled: () => config.linkPreviews !== false,
+    fetchLinkPreview: createLinkPreviewFetcher(),
     getPackFile: (packName, accessKey, filePath) => laneAssembly.packStore.servableFile(packName, accessKey, filePath),
   });
   agentIngressServer.on('request', createAgentIngressApp(agentIngressDependencies));

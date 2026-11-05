@@ -26,6 +26,8 @@ import { errorMessage } from '../../shared/text.ts';
 import { isSignableGitObject, parseSshPublicKey } from '../core/ssh-signing-core.ts';
 import type { SshSigner } from '../ssh-signing.ts';
 import { decideOpenExternalRequest, OPEN_EXTERNAL_BODY_CAP_BYTES } from '../core/open-external-core.ts';
+import { decideLinkPreviewRequest } from '../core/link-preview-core.ts';
+import type { LinkPreviewFetcher } from '../link-preview-fetcher.ts';
 import { decideOriginAllowed } from '../core/origin-policy.ts';
 import { classifyRequestOrigin } from '../core/request-trust.ts';
 import type { HostUrlOpener } from '../host-url-opener.ts';
@@ -110,6 +112,8 @@ interface BackendHttpDependencies {
   remoteListenerPort?: number | null;
   tokenMatches?: (presented: unknown) => boolean;
   openUrlOnHost?: HostUrlOpener;
+  isLinkPreviewEnabled?: () => boolean;
+  fetchLinkPreview?: LinkPreviewFetcher;
   hookRouter: {
     handle: (input: Record<string, unknown>) => HookRouterOutput;
     enrich?: (input: { glimmervoidId: string; event: string; token: string | null; payload: Record<string, unknown> }) => Promise<Record<string, unknown>>;
@@ -181,6 +185,36 @@ function answerOpenExternal({ req, res, remoteListenerPort, listenerPortsFor, to
     }
     logger.warn(`[open-external] could not open a link on the host: ${outcome}`);
     res.status(HOST_OPEN_FAILURE_STATUS[outcome]).json({ ok: false, error: outcome });
+  });
+}
+
+function answerLinkPreview({ req, res, remoteListenerPort, listenerPortsFor, tokenMatches, isLinkPreviewEnabled, fetchLinkPreview }: {
+  req: Request;
+  res: Response;
+  remoteListenerPort: number | null;
+  listenerPortsFor: BackendHttpDependencies['listenerPortsFor'];
+  tokenMatches: (presented: unknown) => boolean;
+  isLinkPreviewEnabled: () => boolean;
+  fetchLinkPreview: LinkPreviewFetcher;
+}): void {
+  void readCappedBody(req, OPEN_EXTERNAL_BODY_CAP_BYTES, () => {}).then(async (body) => {
+    if (body === null) return;
+    const verdict = decideLinkPreviewRequest({
+      isLoopback: isLoopbackRequest(req),
+      trust: classifyRequestOrigin({ localPort: req.socket.localPort, remoteListenerPort }),
+      origin: req.headers.origin,
+      listenerPorts: listenerPortsFor(req.socket),
+      tokenOk: tokenMatches(req.headers['x-glimmervoid-page-token']),
+      requestedUrl: parseJsonBody(body).url,
+      isEnabled: isLinkPreviewEnabled(),
+    });
+    if (!verdict.ok) {
+      res.status(verdict.status).json({ ok: false, error: verdict.error });
+      return;
+    }
+    const preview = await fetchLinkPreview(verdict.url);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(preview);
   });
 }
 
@@ -482,6 +516,8 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
     remoteListenerPort = null,
     tokenMatches = () => false,
     openUrlOnHost = async () => 'unsupported-platform',
+    isLinkPreviewEnabled = () => false,
+    fetchLinkPreview = async () => ({}),
     getSession,
     logger = console,
   } = dependencies;
@@ -514,6 +550,10 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
 
   app.post('/open-external', (req, res) => {
     answerOpenExternal({ req, res, remoteListenerPort, listenerPortsFor, tokenMatches, openUrlOnHost, logger });
+  });
+
+  app.post('/link-preview', (req, res) => {
+    answerLinkPreview({ req, res, remoteListenerPort, listenerPortsFor, tokenMatches, isLinkPreviewEnabled, fetchLinkPreview });
   });
 
   mountAgentIngressRoutes(app, dependencies);

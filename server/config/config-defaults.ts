@@ -14,6 +14,7 @@ const DEFAULT_CONFIG = {
   cursorBlink: false,
   debugMode: false,
   streamerMode: false,
+  linkPreviews: true,
   viewTabOrder: [] as string[],
   hiddenAgents: [] as string[],
   remoteSessions: false,

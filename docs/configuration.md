@@ -36,6 +36,7 @@ How sessions start, where projects are found, and branch cleanup.
 | `viewTabOrder` | Tab order | `[]` | Order of the dashboard tabs, also set by dragging tabs in the header. |
 | `remoteSessions` | Remote Coder sessions | `false` | Offer Coder workspaces when adding a session. |
 | `streamerMode` | Streamer mode | `false` | Hide sensitive details while screen sharing. |
+| `linkPreviews` | Link page previews | `true` | Resting the pointer on a terminal link for about 600 ms fetches that page from this machine to show its title and icon. Off, the link card shows the address only. |
 | `hintCards` | Hint cards | `false` | Show tip cards: Your day tips and feature suggestions. |
 | `repoRoots` | Repository roots | `[]` | Folders scanned for projects when adding a session. |
 | `hiddenAgents` | Agents in Add Session | `[]` | Agents left out of the Add Session picker. Switch an agent off here to hide it; the default agent always stays. |
