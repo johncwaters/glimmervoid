@@ -3,7 +3,7 @@ import type { Board, Box, BoxMedia, Element, Note, Panel, Unit, Wire } from './c
 
 type BoxLine = Box['lines'][number];
 import { planSteps } from './whiteboard-plan-core.ts';
-import { cappedWarnings, labelWidthOf, pathOf, rectsOverlap, routeWires, unionOf, withoutBends } from './whiteboard-route-core.ts';
+import { cappedWarnings, labelWidthOf, pathOf, rectsOverlap, routeWires, touchingPairsWithin, unionOf, withoutBends } from './whiteboard-route-core.ts';
 import type { Point } from './whiteboard-route-core.ts';
 
 const MARGIN = 40;
@@ -466,8 +466,8 @@ function nearPosition(target: LaidOutBox, near: NonNullable<Box['near']>, size: 
 }
 
 function freeOrigin(boxesById: ReadonlyMap<string, LaidOutBox>, boxesTop: number): Point {
-  const rightEdges = [...boxesById.values()].map((box) => box.x + box.width);
-  return { x: rightEdges.length > 0 ? Math.max(...rightEdges) + COLUMN_GAP : MARGIN, y: boxesTop };
+  const rightmostEdge = [...boxesById.values()].reduce((rightmost, box) => Math.max(rightmost, box.x + box.width), -Infinity);
+  return { x: boxesById.size > 0 ? rightmostEdge + COLUMN_GAP : MARGIN, y: boxesTop };
 }
 
 function placeNearBoxes(board: Board, boxesTop: number, boxesById: Map<string, LaidOutBox>, warnings: string[]): void {
@@ -591,13 +591,17 @@ function tracksByGapOf(routing: ReturnType<typeof routeWires>, columnLeftEdges: 
 }
 
 function labelWidthByGapOf(routing: ReturnType<typeof routeWires>, columnLeftEdges: readonly number[], columnWidths: readonly number[]): number[] {
-  return gapSpansOf(columnLeftEdges, columnWidths).map((span) => Math.max(0, ...routing.wires.flatMap((wire) => (wire.label && wire.labelAt.x > span.left && wire.labelAt.x < span.right ? [labelWidthOf(wire.label)] : []))));
+  return gapSpansOf(columnLeftEdges, columnWidths).map((span) => routing.wires.reduce((widest, wire) => (wire.label && wire.labelAt.x > span.left && wire.labelAt.x < span.right ? Math.max(widest, labelWidthOf(wire.label)) : widest), 0));
 }
 
 function overlapWarnings(boxesById: ReadonlyMap<string, LaidOutBox>, panels: readonly LaidOutPanel[], frames: readonly LaidOutFrame[], board: Board): string[] {
   const boxes = [...boxesById.values()];
   const solids: (LaidOutBox | LaidOutPanel)[] = [...boxes, ...panels];
-  const boxOverlaps = solids.flatMap((first, index) => solids.slice(index + 1).flatMap((second) => (rectsOverlap(first, second) ? [`${first.kind} ${first.id} overlaps ${second.kind} ${second.id}`] : [])));
+  const boxOverlaps = touchingPairsWithin(solids).flatMap(([firstIndex, secondIndex]) => {
+    const first = solids[firstIndex];
+    const second = solids[secondIndex];
+    return first && second && rectsOverlap(first, second) ? [`${first.kind} ${first.id} overlaps ${second.kind} ${second.id}`] : [];
+  });
   const containedIdsByFrameId = new Map(elementsOfKind(board, 'frame').map((frame) => [frame.id, new Set(frame.contains)]));
   const coveredTitles = frames.flatMap((frame) => boxes.flatMap((box) => {
     const titleStrip = { x: frame.x, y: frame.y, width: frame.width, height: FRAME_TITLE_HEIGHT };
