@@ -31,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Native hover text is gone from the rest of the dashboard, including the session name, status badges, avatars and Radar buttons; screen readers keep every name.
 - Icon buttons and board tools no longer pop up a styled tip on hover; screen readers still announce their names. A pull request review now says under its details why it got a full or light review, instead of in a hover tip.
 
+### Fixed
+
+- On the phone Focus list, tapping a session's board or pull request line opens that session instead of the board or pull request. The links still show on the row; open a board from Boards.
+
 ## [0.52.1] - 2026-11-04
 
 ### Added
