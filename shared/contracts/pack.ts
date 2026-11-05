@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ThemePalette } from './theme-palette.ts';
 import { PrFlowCommand, PrFlowPackRequires, PrFlowPrAction, PrFlowRule, prFlowRulesJsonSchema } from './pr-flows.ts';
 
 const PACK_SCHEMA_URL = 'https://glimmervoid.dev/schema/pack.v1.json';
@@ -33,6 +34,19 @@ export const PackPrFlows = z.strictObject({
 });
 export type PackPrFlows = z.infer<typeof PackPrFlows>;
 
+const PackItemId = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/, { error: 'an id is lowercase letters, digits and dashes, at most 40 characters' });
+
+export const PackUi = z.strictObject({
+  themes: z.array(ThemePalette.extend({ id: PackItemId })).max(8).default([]),
+}).superRefine((section, context) => {
+  const seenIds = new Set<string>();
+  section.themes.forEach((theme, index) => {
+    if (seenIds.has(theme.id)) context.addIssue({ code: 'custom', path: ['themes', index, 'id'], message: `the id '${theme.id}' is already used in themes` });
+    seenIds.add(theme.id);
+  });
+});
+export type PackUi = z.infer<typeof PackUi>;
+
 export const PacksState = z.strictObject({ approvedFingerprints: z.array(z.string().min(1)).default([]) });
 export type PacksState = z.infer<typeof PacksState>;
 
@@ -44,10 +58,11 @@ export type PackOnDisk = {
   fingerprint: string;
   filesByPath: ReadonlyMap<string, Buffer>;
   prFlows: PackSection<PackPrFlows> | null;
+  ui: PackSection<PackUi> | null;
   missingRequires: string[];
 };
 
-const PackManifestForSchema = PackHeader.extend({ prFlows: PackPrFlows.optional() });
+const PackManifestForSchema = PackHeader.extend({ prFlows: PackPrFlows.optional(), ui: PackUi.optional() });
 
 export function packJsonSchemaText(): string {
   return `${JSON.stringify({ $id: PACK_SCHEMA_URL, title: 'Glimmervoid pack', ...prFlowRulesJsonSchema(PackManifestForSchema) }, null, 2)}\n`;

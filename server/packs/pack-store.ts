@@ -7,7 +7,7 @@ import type { PackOnDisk } from '../../shared/contracts/pack.ts';
 import { canonicalizePath } from '../../shared/canonical-paths.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { loadJsonStateFile, writeTextAtomic } from '../json-file.ts';
-import { packRow, pendingPackNote } from './core/pack-core.ts';
+import { approvedPackThemes, packRow, pendingPackNote } from './core/pack-core.ts';
 import { PACKS_DIR_NAME, packDirsUnder, readPackDir } from './pack-files.ts';
 
 const PACK_RELOAD_DEBOUNCE_MS = 300;
@@ -152,7 +152,8 @@ export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs
   }
 
   function statusFrame(): PacksStatus {
-    return { type: 'packs-status', packs: rows(), warnings: homeWarning === null ? [] : [homeWarning] };
+    const approvedReads = currentReads().flatMap(({ read }) => (read.ok && approvedFingerprints.has(read.pack.fingerprint) && read.pack.missingRequires.length === 0 ? [read.pack] : []));
+    return { type: 'packs-status', packs: rows(), themes: approvedPackThemes(approvedReads), warnings: homeWarning === null ? [] : [homeWarning] };
   }
 
   async function approvedPacks(): Promise<ApprovedPacks> {
