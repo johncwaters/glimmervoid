@@ -1,11 +1,14 @@
 import { Box, Frame, Note, Panel, Unit, Wire, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Board, BoardChange, Element, Op } from './contracts/whiteboard.ts';
 import { layoutBoard } from './whiteboard-layout-core.ts';
+import type { LaidOutBox } from './whiteboard-layout-core.ts';
 import { findDependencyCycle, unitsOf } from './whiteboard-plan-core.ts';
 
 type Author = { id: string; name: string };
 type ApplyResult = { ok: true; board: Board; changes: BoardChange[] } | { ok: false; error: string; opIndex: number };
 type OpOutcome = { ok: true } | { ok: false; error: string };
+type PinPositions = { laidOutBoxById: ReadonlyMap<string, LaidOutBox>; pinnedOffsetY: number };
+type Draft = { board: Board; elementCount: number; pinPositions: PinPositions | null; dependentIdsByBoxId: ReadonlyMap<string, ReadonlySet<string>> | null };
 
 const ELEMENT_SCHEMAS = Object.freeze({ box: Box, frame: Frame, wire: Wire, note: Note, unit: Unit, panel: Panel });
 const NOTE_PREVIEW_CHARS = 80;
@@ -105,14 +108,16 @@ function checkUnitReferences(board: Board, unit: Unit): OpOutcome {
   return OK;
 }
 
-function addElement(board: Board, element: Element, author: Author): OpOutcome {
+function addElement(draft: Draft, element: Element, author: Author): OpOutcome {
+  const { board } = draft;
   if (board.elements[element.id]) return refuse(`an element with id ${element.id} already exists`);
-  if (Object.keys(board.elements).length >= WHITEBOARD_LIMITS.elements) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.elements} elements`);
+  if (draft.elementCount >= WHITEBOARD_LIMITS.elements) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.elements} elements`);
   if (element.kind === 'unit' && unitsOf(board).length >= WHITEBOARD_LIMITS.units) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.units} units`);
   const stored: Element = element.kind === 'note' ? storedNote(element, author) : element;
   const references = checkReferences(board, stored, undefined);
   if (!references.ok) return references;
   board.elements[element.id] = stored;
+  draft.elementCount += 1;
   return OK;
 }
 
@@ -134,11 +139,46 @@ function setFields(board: Board, id: string, fields: Record<string, unknown>, au
   return OK;
 }
 
-function removeElement(board: Board, id: string): OpOutcome {
+function boxIdsDependedOnBy(element: Element): readonly string[] {
+  if (element.kind === 'box') return element.near ? [element.near.of] : [];
+  if (element.kind === 'wire') return [element.from, element.to];
+  if (element.kind === 'note') return [element.on];
+  if (element.kind === 'frame') return element.contains;
+  return [];
+}
+
+function dependentIdsByBoxIdOf(board: Board): Map<string, Set<string>> {
+  const dependentIdsByBoxId = new Map<string, Set<string>>();
+  for (const element of Object.values(board.elements)) {
+    for (const boxId of boxIdsDependedOnBy(element)) {
+      const dependentIds = dependentIdsByBoxId.get(boxId) ?? new Set<string>();
+      dependentIds.add(element.id);
+      dependentIdsByBoxId.set(boxId, dependentIds);
+    }
+  }
+  return dependentIdsByBoxId;
+}
+
+function currentDependentsOf(draft: Draft, boxId: string): Element[] {
+  draft.dependentIdsByBoxId ??= dependentIdsByBoxIdOf(draft.board);
+  const dependentIds = [...draft.dependentIdsByBoxId.get(boxId) ?? []];
+  return dependentIds.flatMap((dependentId) => {
+    const element = draft.board.elements[dependentId];
+    return element && boxIdsDependedOnBy(element).includes(boxId) ? [element] : [];
+  });
+}
+
+function deleteElement(draft: Draft, id: string): void {
+  delete draft.board.elements[id];
+  draft.elementCount -= 1;
+}
+
+function removeElement(draft: Draft, id: string): OpOutcome {
+  const { board } = draft;
   const existing = board.elements[id];
   if (!existing) return refuse(`no element has id ${id}`);
-  if (existing.kind === 'box') pinBoxesNear(board, id);
-  delete board.elements[id];
+  if (existing.kind === 'box') pinBoxesNear(draft, id);
+  deleteElement(draft, id);
   if (existing.kind === 'unit') {
     for (const unit of unitsOf(board)) {
       if (unit.after.includes(id)) board.elements[unit.id] = { ...unit, after: unit.after.filter((afterId) => afterId !== id) };
@@ -146,37 +186,45 @@ function removeElement(board: Board, id: string): OpOutcome {
     return OK;
   }
   if (existing.kind !== 'box') return OK;
-  for (const element of Object.values(board.elements)) removeDependent(board, element, id);
+  for (const dependent of currentDependentsOf(draft, id)) removeDependent(draft, dependent, id);
   return OK;
 }
 
-function pinBoxesNear(board: Board, removedBoxId: string): void {
-  const nearBoxes = Object.values(board.elements).flatMap((element) => (element.kind === 'box' && element.near?.of === removedBoxId ? [element] : []));
-  if (nearBoxes.length === 0) return;
+function pinPositionsOf(board: Board): PinPositions {
   const layout = layoutBoard(board);
+  const laidOutBoxById = new Map(layout.elements.flatMap((element) => (element.kind === 'box' ? [[element.id, element] as const] : [])));
+  return { laidOutBoxById, pinnedOffsetY: layout.pinnedOffsetY };
+}
+
+function pinBoxesNear(draft: Draft, removedBoxId: string): void {
+  const { board } = draft;
+  const nearBoxes = currentDependentsOf(draft, removedBoxId).flatMap((element) => (element.kind === 'box' ? [element] : []));
+  if (nearBoxes.length === 0) return;
+  draft.pinPositions ??= pinPositionsOf(board);
+  const { laidOutBoxById, pinnedOffsetY } = draft.pinPositions;
   for (const box of nearBoxes) {
-    const laidOut = layout.elements.find((element) => element.id === box.id);
-    if (!laidOut || laidOut.kind !== 'box') continue;
-    board.elements[box.id] = { ...box, near: null, at: { x: laidOut.x, y: laidOut.y - layout.pinnedOffsetY } };
+    const laidOut = laidOutBoxById.get(box.id);
+    if (!laidOut) continue;
+    board.elements[box.id] = { ...box, near: null, at: { x: laidOut.x, y: laidOut.y - pinnedOffsetY } };
   }
 }
 
-function removeDependent(board: Board, element: Element, removedBoxId: string): void {
+function removeDependent(draft: Draft, element: Element, removedBoxId: string): void {
   if (element.kind === 'wire' && (element.from === removedBoxId || element.to === removedBoxId)) {
-    delete board.elements[element.id];
+    deleteElement(draft, element.id);
     return;
   }
   if (element.kind === 'note' && element.on === removedBoxId) {
-    delete board.elements[element.id];
+    deleteElement(draft, element.id);
     return;
   }
   if (element.kind !== 'frame') return;
   const contains = element.contains.filter((id) => id !== removedBoxId);
   if (contains.length === 0) {
-    delete board.elements[element.id];
+    deleteElement(draft, element.id);
     return;
   }
-  board.elements[element.id] = { ...element, contains };
+  draft.board.elements[element.id] = { ...element, contains };
 }
 
 function resolveNote(board: Board, id: string, author: Author): OpOutcome {
@@ -212,11 +260,16 @@ function replaceLanes(board: Board, lanes: Board['lanes']): OpOutcome {
   return OK;
 }
 
-function applyOne(board: Board, op: Op, author: Author): OpOutcome {
+function applyOne(draft: Draft, op: Op, author: Author): OpOutcome {
+  const { board } = draft;
+  if (op.op !== 'remove') {
+    draft.pinPositions = null;
+    draft.dependentIdsByBoxId = null;
+  }
   switch (op.op) {
-    case 'add': return addElement(board, op.element, author);
+    case 'add': return addElement(draft, op.element, author);
     case 'set': return setFields(board, op.id, op.fields, author);
-    case 'remove': return removeElement(board, op.id);
+    case 'remove': return removeElement(draft, op.id);
     case 'resolve': return resolveNote(board, op.id, author);
     case 'columns': return replaceColumns(board, op.columns, op.move);
     case 'lanes': return replaceLanes(board, op.lanes);
@@ -230,21 +283,19 @@ function applyOne(board: Board, op: Op, author: Author): OpOutcome {
 }
 
 function applyOps(board: Board, ops: readonly Op[], author: Author, nowMs: number): ApplyResult {
-  const draft = structuredClone(board);
+  const draft: Draft = { board: { ...board, elements: { ...board.elements } }, elementCount: Object.keys(board.elements).length, pinPositions: null, dependentIdsByBoxId: null };
   const version = board.version + 1;
   const changes: BoardChange[] = [];
   for (const [opIndex, op] of ops.entries()) {
     const elementId = changedElementId(op);
-    const previous = elementId === null ? undefined : draft.elements[elementId];
+    const previous = elementId === null ? undefined : draft.board.elements[elementId];
     const outcome = applyOne(draft, op, author);
     if (!outcome.ok) return { ok: false, error: `op ${opIndex + 1}: ${outcome.error}`, opIndex };
-    changes.push({ version, author: author.id, elementId, summary: `${author.name} ${describeOp(op, previous, draft)}` });
+    changes.push({ version, author: author.id, elementId, summary: `${author.name} ${describeOp(op, previous, draft.board)}` });
   }
-  const cycle = findDependencyCycle(draft);
+  const cycle = findDependencyCycle(draft.board);
   if (cycle) return { ok: false, error: `that makes a dependency cycle: ${cycle.join(', ')}`, opIndex: ops.length - 1 };
-  draft.version = version;
-  draft.updatedAt = nowMs;
-  return { ok: true, board: draft, changes };
+  return { ok: true, board: { ...draft.board, version, updatedAt: nowMs }, changes };
 }
 
 function changedElementId(op: Op): string | null {
