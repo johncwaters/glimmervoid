@@ -1,13 +1,26 @@
-import type { IBuffer, IBufferCellPosition, ILink, ILinkProvider, Terminal } from '@xterm/xterm';
+import type { IBuffer, IBufferCellPosition, IBufferRange, ILink, ILinkHandler, ILinkProvider, Terminal } from '@xterm/xterm';
 import { openExternalUrl } from '../external-link.ts';
 import { findUrls } from './link-detect-core.ts';
+import type { TerminalLinkPopup } from './terminal-link-popup.ts';
 
 const MAX_WRAPPED_ROWS = 50;
 
-export function osc8LinkHandler() {
+function readSingleRowText(term: Terminal, range: IBufferRange) {
+  if (range.start.y !== range.end.y) return null;
+  const line = term.buffer.active.getLine(range.start.y - 1);
+  return line?.translateToString(true, range.start.x - 1, range.end.x) ?? null;
+}
+
+export function osc8LinkHandler(term: Terminal, linkPopup: TerminalLinkPopup): ILinkHandler {
   return {
     activate(_event: MouseEvent, uri: string) {
       openExternalUrl(uri);
+    },
+    hover(_event: MouseEvent, uri: string, range: IBufferRange) {
+      linkPopup.enterLink({ url: uri, linkText: readSingleRowText(term, range), range });
+    },
+    leave() {
+      linkPopup.leaveLink();
     },
     allowNonHttpProtocols: false,
   };
@@ -42,7 +55,7 @@ function collectLogicalLine(buffer: IBuffer, bufferLineNumber: number) {
   return { text, cellAt };
 }
 
-export function registerUrlLinkProvider(term: Terminal) {
+export function registerUrlLinkProvider(term: Terminal, linkPopup: TerminalLinkPopup) {
   const provider: ILinkProvider = {
     provideLinks(bufferLineNumber: number, callback: (links: ILink[] | undefined) => void) {
       const buffer = term.buffer?.active;
@@ -53,11 +66,18 @@ export function registerUrlLinkProvider(term: Terminal) {
         const from = cellAt[start];
         const to = cellAt[end - 1];
         if (!from || !to) continue;
+        const range = { start: from, end: to };
         links.push({
-          range: { start: from, end: to },
+          range,
           text: url,
           activate(_event: MouseEvent, matched: string) {
             openExternalUrl(matched);
+          },
+          hover() {
+            linkPopup.enterLink({ url, linkText: null, range });
+          },
+          leave() {
+            linkPopup.leaveLink();
           },
         });
       }

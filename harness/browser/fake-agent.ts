@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { BURST_CAP, LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, LINK_ROW_URL, MOTION_REPORT_PREFIX, paintFull, repaintInPlace } from './frame-core.ts';
+import { BURST_CAP, DECEPTIVE_LINK_ROW_NUMBER, DECEPTIVE_LINK_TEXT, DECEPTIVE_LINK_URL, LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, LINK_ROW_URL, MOTION_REPORT_PREFIX, paintFull, repaintInPlace } from './frame-core.ts';
 
 const ESC = String.fromCharCode(0x1b);
 const BEL = String.fromCharCode(0x07);
@@ -142,6 +142,10 @@ function writeRow(rowNumber: number, text: string): void {
   process.stdout.write(`${ESC}[${rowNumber};1H${ESC}[2K${text}`);
 }
 
+function osc8Link(url: string, text: string): string {
+  return `${ESC}]8;;${url}${BEL}${text}${ESC}]8;;${BEL}`;
+}
+
 function dispatch(command: string): void {
   if (command === 'link-row') {
     process.stdout.write(ANY_MOTION_SGR_TRACKING);
@@ -150,7 +154,8 @@ function dispatch(command: string): void {
   }
   if (command === 'link-paint') {
     motionReportsSinceLinkPaint = 0;
-    writeRow(LINK_ROW_NUMBER, `${ESC}]8;;${LINK_ROW_URL}${BEL}${LINK_ROW_LINK_TEXT}${ESC}]8;;${BEL}`);
+    writeRow(LINK_ROW_NUMBER, osc8Link(LINK_ROW_URL, LINK_ROW_LINK_TEXT));
+    writeRow(DECEPTIVE_LINK_ROW_NUMBER, osc8Link(DECEPTIVE_LINK_URL, DECEPTIVE_LINK_TEXT));
     return;
   }
   if (command === 'link-motion') {

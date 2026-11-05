@@ -61,3 +61,6 @@ export const LINK_ROW_PLAIN_TEXT = 'plain row before the link arrives';
 export const LINK_ROW_LINK_TEXT = 'Community mention link';
 export const LINK_ROW_URL = 'https://example.com/mention';
 export const MOTION_REPORT_PREFIX = 'motion reports since link paint:';
+export const DECEPTIVE_LINK_ROW_NUMBER = 12;
+export const DECEPTIVE_LINK_TEXT = 'example.com/login';
+export const DECEPTIVE_LINK_URL = 'https://login.example.net/session';
