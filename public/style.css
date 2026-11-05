@@ -708,11 +708,15 @@ body {
   color: var(--text-head);
 }
 
-.session-card[data-link="connecting"] .terminal-wrap::before,
-.session-card[data-link="connecting"] .terminal-connecting {
+.session-card:is([data-link="connecting"], [data-state="INITIALIZING"], [data-state="STARTING"]) .terminal-wrap::before,
+.session-card:is([data-link="connecting"], [data-state="INITIALIZING"], [data-state="STARTING"]) .terminal-connecting {
   opacity: 1;
   visibility: visible;
   transition: opacity var(--transition-med) 300ms, visibility 0s linear 300ms;
+}
+
+.session-card:not([data-link="connecting"]) .terminal-connecting-label {
+  display: none;
 }
 
 .terminal-notices {
