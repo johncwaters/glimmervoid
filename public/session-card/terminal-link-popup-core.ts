@@ -31,7 +31,7 @@ type HostMismatch = { textHost: string; targetHost: string };
 export const HIDDEN_POPUP: PopupState = { phase: 'hidden', isPointerOnLink: false, isPointerOnPopup: false };
 
 const SECRET_MASK_CHARACTER = '*';
-const WRAPPING_PUNCTUATION = /^[("'<\[{]+|[)"'>\]}.,;:!?]+$/g;
+const WRAPPING_PUNCTUATION = /^[("'<[{]+|[)"'>\]}.,;:!?]+$/g;
 const FILE_EXTENSION_TOP_LABELS = new Set(['md', 'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'json', 'py', 'rs', 'go', 'sh', 'txt', 'yml', 'yaml', 'toml', 'lock', 'html', 'css', 'rb', 'java', 'kt', 'swift', 'cs', 'php', 'sql', 'log', 'env', 'cfg', 'ini', 'xml', 'svg', 'png', 'jpg', 'gif', 'pdf', 'zip']);
 const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:\/\//i;
 const HAS_WHITESPACE = /\s/;

@@ -57,6 +57,11 @@ export const MACHINE_SESSIONS: SettingsSection = {
       control: 'toggle', keywords: ['streaming', 'screen share', 'privacy'], defaultValue: false, ...MACHINE_NOW,
     },
     {
+      id: 'link-previews', path: 'linkPreviews', title: 'Link page previews',
+      description: 'Resting the pointer on a terminal link for about 600 ms fetches that page from this machine to show its title and icon. Off, the link card shows the address only.',
+      control: 'toggle', keywords: ['links', 'preview', 'title', 'favicon', 'hover', 'privacy'], defaultValue: true, ...MACHINE_NOW,
+    },
+    {
       id: 'hint-cards', path: 'hintCards', title: 'Hint cards',
       description: 'Show tip cards: Your day tips and feature suggestions.',
       control: 'toggle', keywords: ['experimental', 'hints', 'tips', 'your day'], defaultValue: false, ...MACHINE_NOW,

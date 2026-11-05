@@ -201,6 +201,7 @@ function createConfigStore({
       cursorBlink: config.cursorBlink ?? effectiveDefaults.cursorBlink,
       debugMode: config.debugMode ?? effectiveDefaults.debugMode,
       streamerMode: config.streamerMode ?? effectiveDefaults.streamerMode,
+      linkPreviews: config.linkPreviews ?? effectiveDefaults.linkPreviews,
       viewTabOrder: config.viewTabOrder ?? DEFAULT_CONFIG.viewTabOrder,
       hiddenAgents: config.hiddenAgents ?? DEFAULT_CONFIG.hiddenAgents,
       remoteSessions: config.remoteSessions ?? effectiveDefaults.remoteSessions,

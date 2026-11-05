@@ -231,6 +231,7 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   cursorBlink: optionalBoolean('cursorBlink'),
   debugMode: optionalBoolean('debugMode'),
   streamerMode: optionalBoolean('streamerMode'),
+  linkPreviews: optionalBoolean('linkPreviews'),
   viewTabOrder: z.array(z.string({ error: 'viewTabOrder must be an array of view ids' }), { error: 'viewTabOrder must be an array of view ids' }).optional(),
   hiddenAgents: z.array(z.string({ error: 'hiddenAgents must be an array of agent ids' }), { error: 'hiddenAgents must be an array of agent ids' }).optional(),
   remoteSessions: optionalBoolean('remoteSessions'),

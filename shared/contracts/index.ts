@@ -12,3 +12,4 @@ export * from './trace.ts';
 export * from './team-review.ts';
 export * from './my-prs.ts';
 export * from './update-journal.ts';
+export * from './link-preview.ts';
