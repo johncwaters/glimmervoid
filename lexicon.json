@@ -205,6 +205,10 @@
     {
       "name": "copilot cli",
       "definition": "GitHub's Copilot CLI, an agent CLI glimmervoid supervises through its copilot agent adapter, with hook status from a generated COPILOT_HOME"
+    },
+    {
+      "name": "queued",
+      "definition": "The Reviews group for a team review waiting its turn for the review lane, before an agent starts on it"
     }
   ]
 }
