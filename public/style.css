@@ -503,7 +503,6 @@ body {
   background: color-mix(in oklab, var(--perms-warn) 6%, var(--bg-surface));
 }
 
-.yolo-chip { flex: none; padding: 0 4px; border: 1px solid color-mix(in oklab, var(--perms-warn) 60%, transparent); border-radius: 3px; color: var(--perms-warn); line-height: 1.4; white-space: nowrap; }
 
 .session-card-header {
   display: flex;

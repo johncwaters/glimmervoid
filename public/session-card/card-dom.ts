@@ -40,16 +40,6 @@ export function setCardSessionSetup(open: (sessionId: string) => void) {
   openCardSessionSetup = open;
 }
 
-function paintYoloChip(tags: HTMLElement, isPlainYolo: boolean) {
-  const existingChip = tags.querySelector('.yolo-chip');
-  if (!isPlainYolo) {
-    existingChip?.remove();
-    return;
-  }
-  if (existingChip) return;
-  tags.append(el('span', 'yolo-chip', 'YOLO'));
-}
-
 export type { CardOptions };
 
 export function remoteWorkspaceText(remoteWorkspace: string): string {
@@ -61,7 +51,6 @@ export function setSessionSaneYolo(sessionId: unknown, saneYolo: boolean) {
   if (!ui) return;
   if (saneYolo) ui.card.dataset.saneYolo = '';
   if (!saneYolo) delete ui.card.dataset.saneYolo;
-  paintYoloChip(ui.tags, ui.card.dataset.skipPerms !== undefined && !saneYolo);
 }
 
 export function buildCardDOM(sessionId: string, sessionName: string, initialState: string, options: CardOptions = {}) {
@@ -149,7 +138,6 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   actions.append(sessionMenuWrap);
   const tags = el('div', 'session-card-tags');
-  paintYoloChip(tags, Boolean(options.skipPerms) && options.saneYolo !== true);
   const ownershipEl = el('span', 'session-ownership');
   ownershipEl.hidden = true;
   header.append(nameEl, taskTitleEl, ownershipEl, tags, actions);
