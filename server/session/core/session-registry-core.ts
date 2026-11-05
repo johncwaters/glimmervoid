@@ -25,6 +25,7 @@ interface RegistrySession {
   agentId?: string;
   dangerouslySkipPermissions?: boolean;
   bypassHookTrust?: boolean;
+  agentSetup?: unknown;
 }
 
 interface RegistryDependencies {
@@ -105,7 +106,8 @@ function diffProjects(
       || agentFingerprintOf(resolvedAgentId) !== capturedAgentFingerprintOf(id);
     const hookTrustChanged = (project.codexBypassHookTrust === true) !== session.bypassHookTrust;
     const workspaceReposChanged = !haveSameWorkspaceRepos(project.repos, session.workspaceRepos);
-    if (pathChanged || permissionsChanged || agentChanged || hookTrustChanged || workspaceReposChanged) {
+    const agentSetupChanged = JSON.stringify(project.agentSetup ?? null) !== JSON.stringify(session.agentSetup ?? null);
+    if (pathChanged || permissionsChanged || agentChanged || hookTrustChanged || workspaceReposChanged || agentSetupChanged) {
       modified.push(project);
       continue;
     }

@@ -9,7 +9,7 @@ import type { Session } from '../session/sessions.ts';
 import type { HookPayload } from '../shared/contracts/index.ts';
 import {
   createProbeChecks, delay, HINT_PROBE_PROMPT, hookEventsOf, queueWhiteboardEditFor, screenShowsShowHint, screenShowsStartLine, screenShowsWhiteboardAnswer,
-  SHOULD_RUN_ONLY_HINT_PROBE, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, waitForState,
+  runModelSetupProbe, SHOULD_RUN_ONLY_HINT_PROBE, SHOULD_RUN_ONLY_MODEL_SETUP_PROBE, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, waitForState,
   whiteboardWriterIdFor, whiteboardWriterProject, WHITEBOARD_PROBE_PROMPT, writeHookFixture,
 } from './support/backend-harness.ts';
 import type { ProbeFixtureTarget, ProbeHookRecord } from './support/backend-harness.ts';
@@ -114,16 +114,24 @@ async function runProbe(tempDirectory: string): Promise<void> {
     return captureSince(name, scenarioStart);
   }
 
-  try {
-    session._extraClaudeArgs = ['--setting-sources', 'project,local', '--permission-mode', 'default'];
-    await session.start();
-    if (session.state === 'FAILED') throw new Error('the claude session failed to spawn');
-    check('the spawn used the claude-code adapter', session.agentId === 'claude-code');
+  async function dismissStartupPrompt(): Promise<void> {
     await delay(BOOT_SETTLE_MS);
     session.write('\x1b[B');
     await delay(500);
     session.write('\r');
     await delay(3000);
+  }
+
+  try {
+    session._extraClaudeArgs = ['--setting-sources', 'project,local', '--permission-mode', 'default'];
+    if (SHOULD_RUN_ONLY_MODEL_SETUP_PROBE) {
+      await runModelSetupProbe({ session, agent: 'claude-code', hookRecords, fixtureTarget, check, answerWaiting: pressEnter, afterStart: dismissStartupPrompt });
+      return;
+    }
+    await session.start();
+    if (session.state === 'FAILED') throw new Error('the claude session failed to spawn');
+    check('the spawn used the claude-code adapter', session.agentId === 'claude-code');
+    await dismissStartupPrompt();
 
     if (SHOULD_RUN_ONLY_HINT_PROBE) {
       const hintOutputOffset = session.getOutputOffset();

@@ -79,6 +79,8 @@ import type { RemoteLaunch, SessionLaunch } from "./session-launch.ts";
 import { createSessionProcessReaper } from "./session-process-reaper.ts";
 import type { KillProc, SessionProcessReaper, SignalProc } from "./session-process-reaper.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
+import { launchArgs } from "../shared/agent-models-core.ts";
+import type { AgentSetup } from "../shared/contracts/agent-models.ts";
 
 const MAX_PENDING_ATTENTION_NOTES = 5;
 const PTY_PROMPT_SETTLE_MS = 1500;
@@ -182,6 +184,7 @@ interface SessionOptions {
   spawnCommand?: ResolvedCommand | null;
   initialPrompt?: string | null;
   extraClaudeArgs?: string[];
+  agentSetup?: AgentSetup | null;
   ephemeral?: boolean;
   resumeSessionId?: string | null;
   settingsPermissions?: Record<string, unknown> | null;
@@ -285,6 +288,7 @@ class Session extends EventEmitter {
   _ranCommands: Set<string>;
   _queuedCommandHints: PromptHint[];
   _extraClaudeArgs: string[];
+  _agentSetup: AgentSetup | null;
   _resumeSessionId: string | null;
   readonly workspaceRepos: string[] | null;
   _transcriptPath: string | null;
@@ -364,6 +368,7 @@ class Session extends EventEmitter {
 
     initialPrompt = null,
     extraClaudeArgs = [],
+    agentSetup = null,
     ephemeral = false,
 
     resumeSessionId = null,
@@ -516,6 +521,7 @@ class Session extends EventEmitter {
     this._ranCommands = new Set();
     this._queuedCommandHints = [];
     this._extraClaudeArgs = Array.isArray(extraClaudeArgs) ? extraClaudeArgs : [];
+    this._agentSetup = agentSetup;
     this._resumeSessionId = resumeSessionId || null;
     this.workspaceRepos = workspaceRepos ? [...workspaceRepos] : null;
     this._transcriptPath = null;
@@ -672,6 +678,10 @@ class Session extends EventEmitter {
     this.customTitle = title?.trim() || null;
     this._taskTitleSources.customTitle = this.customTitle;
     this._updateTaskTitle();
+  }
+
+  get agentSetup(): AgentSetup | null {
+    return this._agentSetup;
   }
 
   get refinedTaskTitle(): string | null {
@@ -1607,7 +1617,7 @@ class Session extends EventEmitter {
     const agentArgs = this._adapter.buildArgs({
       dangerouslySkipPermissions: this.dangerouslySkipPermissions,
       resumeSessionId: spawnResumeSessionId,
-      extraArgs: this._extraClaudeArgs,
+      extraArgs: [...this._extraClaudeArgs, ...launchArgs(this._adapter.id, this._agentSetup)],
       initialPrompt: launchPrompt,
     });
 

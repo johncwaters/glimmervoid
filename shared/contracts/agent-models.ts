@@ -45,6 +45,9 @@ export const ModelSelection = z.strictObject({
 });
 export type ModelSelection = z.infer<typeof ModelSelection>;
 
+export const AgentSetup = ModelSelection.extend({ instructions: z.string().max(4000) });
+export type AgentSetup = z.infer<typeof AgentSetup>;
+
 export const DEFAULT_MODELS = Object.freeze({
   taskTitleRefiner: 'haiku',
   communityJudge: 'haiku',

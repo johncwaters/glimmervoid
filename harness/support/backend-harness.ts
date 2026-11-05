@@ -8,6 +8,10 @@ import { writeJsonAtomic } from '../../server/json-file.ts';
 import { projectHookPayload } from '../../session/core/hook-payload-projection.ts';
 import type { Session } from '../../session/sessions.ts';
 import type { HookPayload } from '../../shared/contracts/index.ts';
+import { launchArgs } from '../../shared/agent-models-core.ts';
+import { EFFORT_OPTION_ID } from '../../shared/contracts/agent-models.ts';
+import type { AgentSetup, CatalogAgentId } from '../../shared/contracts/agent-models.ts';
+import { currentAgentModelCatalog } from '../../server/agent-models/agent-models.ts';
 
 import WebSocket from 'ws';
 
@@ -139,6 +143,57 @@ function screenShowsWhiteboardAnswer(screenText: string): boolean {
 }
 
 const SHOULD_RUN_ONLY_HINT_PROBE = process.argv.includes('--only-hints');
+const SHOULD_RUN_ONLY_MODEL_SETUP_PROBE = process.argv.includes('--only-model-setup');
+const MODEL_SETUP_PROBE_PROMPT = 'Reply with the single word copperheron and nothing else.';
+
+async function liveDefaultSetup(agent: CatalogAgentId): Promise<AgentSetup> {
+  const deadline = Date.now() + PROBE_STEP_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const models = currentAgentModelCatalog().agents.find((agentModels) => agentModels.agent === agent)?.models ?? [];
+    const model = models.find((candidate) => candidate.isDefault) ?? models[0];
+    const effort = model?.options.find((option) => option.id === EFFORT_OPTION_ID);
+    if (model) return { agent, model: model.id, options: effort ? [{ id: effort.id, value: effort.choices[0] }] : [], instructions: '' };
+    await delay(1000);
+  }
+  throw new Error(`no ${agent} model reached the agent model catalog`);
+}
+
+interface ModelSetupProbe {
+  session: Session;
+  agent: CatalogAgentId;
+  hookRecords: ProbeHookRecord[];
+  fixtureTarget: ProbeFixtureTarget;
+  check: (label: string, condition: boolean) => void;
+  answerWaiting: () => Promise<void>;
+  afterStart?: () => Promise<void>;
+}
+
+async function runModelSetupProbe({ session, agent, hookRecords, fixtureTarget, check, answerWaiting, afterStart = async () => {} }: ModelSetupProbe): Promise<void> {
+  console.log('\nmodel-setup-turn:');
+  const setup = await liveDefaultSetup(agent);
+  console.log(`  [setup] ${JSON.stringify(setup)}`);
+  const launchedArgs: string[][] = [];
+  const spawnPty = session._ptySpawn;
+  session._ptySpawn = (file, spawnArgs, spawnOptions) => {
+    launchedArgs.push([...spawnArgs]);
+    return spawnPty(file, spawnArgs, spawnOptions);
+  };
+  session._agentSetup = setup;
+  session._initialPrompt = MODEL_SETUP_PROBE_PROMPT;
+  const scenarioStart = hookRecords.length;
+  await session.start();
+  await afterStart();
+  await waitForState(session, ['RUNNING', 'WAITING', 'COMPLETE'], 'the model setup turn to start');
+  while ((await waitForState(session, ['COMPLETE', 'WAITING'], 'the model setup turn to finish')) === 'WAITING') await answerWaiting();
+  await delay(3000);
+  const scenarioHooks = hookRecords.slice(scenarioStart);
+  console.log(`  [fixture] ${writeHookFixture('model-setup-turn', scenarioHooks, fixtureTarget)}`);
+  console.log(`  [events] ${hookEventsOf(scenarioHooks).join(', ')}`);
+  const expectedFlags = launchArgs(session.agentId, setup);
+  check('the setup produced model flags', expectedFlags.length > 0);
+  check('the launch carried the model setup flags', launchedArgs.some((spawnArgs) => expectedFlags.every((flag) => spawnArgs.includes(flag))));
+  check('the first prompt reached the agent', scenarioHooks.some((hook) => hook.event.toLowerCase() === 'userpromptsubmit'));
+}
 const HINT_PROBE_PROMPT = "Run the shell command: echo hint-probe.png . Then quote verbatim every sentence beginning with 'Glimmervoid' that reached you with this message or with that tool result, or reply none.";
 const SPAWN_HINT_PROBE_PROMPT = "Use the Agent tool to start one subagent that replies with the single word ok. Wait for it, then reply with the single word done.";
 const QUEUED_HINT_PROBE_PROMPT = "Quote verbatim every sentence beginning with 'Glimmervoid:' that reached you with this message, or reply none.";
@@ -249,7 +304,9 @@ export {
   screenShowsSpawnHint,
   screenShowsStartLine,
   screenShowsWhiteboardAnswer,
+  runModelSetupProbe,
   SHOULD_RUN_ONLY_HINT_PROBE,
+  SHOULD_RUN_ONLY_MODEL_SETUP_PROBE,
   SHOULD_RUN_ONLY_WHITEBOARD_PROBE,
   waitForState,
   whiteboardWriterIdFor,

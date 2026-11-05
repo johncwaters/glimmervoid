@@ -12,7 +12,7 @@ import codex from '../session/adapters/codex.ts';
 import type { Session } from '../session/sessions.ts';
 import {
   createProbeChecks, delay, HINT_PROBE_PROMPT, queueWhiteboardEditFor, sanitizeProbeText, screenShowsShowHint, screenShowsStartLine, screenShowsWhiteboardAnswer,
-  SHOULD_RUN_ONLY_HINT_PROBE, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, waitForState,
+  runModelSetupProbe, SHOULD_RUN_ONLY_HINT_PROBE, SHOULD_RUN_ONLY_MODEL_SETUP_PROBE, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, waitForState,
   whiteboardWriterIdFor, whiteboardWriterProject, WHITEBOARD_PROBE_PROMPT, writeHookFixture,
 } from './support/backend-harness.ts';
 import type { ProbeFixtureTarget, ProbeHookRecord } from './support/backend-harness.ts';
@@ -263,6 +263,10 @@ async function main(): Promise<void> {
   session._titleSource.on('signal', (s: { signal: string }) => titleSignals.push(s.signal));
 
   try {
+    if (SHOULD_RUN_ONLY_MODEL_SETUP_PROBE) {
+      await runModelSetupProbe({ session, agent: 'codex', hookRecords, fixtureTarget, check, answerWaiting: async () => { await delay(1500); session.write('y'); } });
+      return;
+    }
     console.log('\nSpawn:');
     await session.start();
     check('the spawn used the codex adapter', session.agentId === 'codex');
