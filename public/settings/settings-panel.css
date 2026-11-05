@@ -475,6 +475,25 @@ html[data-streamer] .settings-view-shell { grid-template-columns: minmax(0, 1fr)
   gap: 6px;
 }
 
+.settings-view-shortcut-key {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 12px;
+}
+
+.settings-view-shortcut-key-prompt {
+  flex-basis: 100%;
+  color: var(--text-muted);
+  font-size: var(--type-meta);
+  text-align: right;
+}
+
+.settings-view-shortcut-key-prompt:empty {
+  display: none;
+}
+
 .settings-view-tab-order {
   display: flex;
   flex-direction: column;

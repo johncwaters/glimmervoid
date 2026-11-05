@@ -1327,6 +1327,11 @@ html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, 
   padding-left: 24px;
 }
 
+.settings-view-shortcut-key > .shortcut-keys {
+  padding: 0;
+  border-top: 0;
+}
+
 .shortcut-sep {
   color: var(--text-muted);
   font-family: var(--font-mono);
