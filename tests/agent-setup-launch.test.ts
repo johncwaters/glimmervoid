@@ -77,3 +77,49 @@ test('a Claude Code session trusts its own resolved folder in the Claude config 
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+const DESKTOP_ENV_KEYS = ['DBUS_SESSION_BUS_ADDRESS', 'DISPLAY', 'WAYLAND_DISPLAY'] as const;
+
+for (const { graphicalSessionState, waylandDisplay, expectedBusAddress } of [
+  { graphicalSessionState: 'inactive', waylandDisplay: undefined, expectedBusAddress: 'disabled:' },
+  { graphicalSessionState: 'inactive', waylandDisplay: 'wayland-1', expectedBusAddress: 'unix:path=/run/user/1000/bus' },
+  { graphicalSessionState: 'active', waylandDisplay: undefined, expectedBusAddress: 'unix:path=/run/user/1000/bus' },
+] as const) {
+  test(`a Linux agent launched while the graphical session is ${graphicalSessionState} and WAYLAND_DISPLAY is ${waylandDisplay ?? 'unset'} gets session bus ${expectedBusAddress}`, async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-desktop-bus-'));
+    const previousDesktopEnv = Object.fromEntries(DESKTOP_ENV_KEYS.map((key) => [key, process.env[key]]));
+    process.env.DBUS_SESSION_BUS_ADDRESS = 'unix:path=/run/user/1000/bus';
+    delete process.env.DISPLAY;
+    delete process.env.WAYLAND_DISPLAY;
+    if (waylandDisplay !== undefined) process.env.WAYLAND_DISPLAY = waylandDisplay;
+    try {
+      const project: ProjectEntry = { ...ProjectConfig.parse({ id: 'bus', name: 'bus', path: directory, agent: 'codex' }), id: 'bus', name: 'bus', path: directory };
+      const makeSession = createSessionFactory({
+        configStore: { configPath: path.join(directory, 'config.json') }, hookRouter: null, getHookPort: () => null,
+        getGitWorkspace: () => null, getPlanReviewPort: () => null, getUserHooks: () => [], resolveHookTools: () => [],
+      });
+      const session = makeSession(project, { ...DEFAULT_CONFIG, recordSignals: false, projects: [project] });
+      const spawnedBusAddresses: (string | undefined)[] = [];
+      session._spawnCommand = { path: process.execPath, kind: 'exe' };
+      session._platform = 'linux';
+      session._probeGraphicalSession = async () => graphicalSessionState;
+      session._ptySpawn = (_file, _spawnArgs, spawnOptions) => {
+        spawnedBusAddresses.push(spawnOptions.env?.DBUS_SESSION_BUS_ADDRESS);
+        return fakePty();
+      };
+      try {
+        await session.start();
+      } finally {
+        session.destroy();
+      }
+      assert.deepEqual(spawnedBusAddresses, [expectedBusAddress]);
+    } finally {
+      for (const key of DESKTOP_ENV_KEYS) {
+        delete process.env[key];
+        const previousValue = previousDesktopEnv[key];
+        if (previousValue !== undefined) process.env[key] = previousValue;
+      }
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+}

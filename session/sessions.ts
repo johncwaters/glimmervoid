@@ -23,6 +23,9 @@ import { EventEmitter } from "node:events";
 import { assertLaunchable, execFile } from "../server/child-process-safe.ts";
 import { projectDirCandidates } from "../server/usage/core/usage-scan-core.ts";
 import { requireExecutableSpawnHelper } from "../server/node-pty-preflight.ts";
+import { probeGraphicalSession } from "./graphical-session-probe.ts";
+import { DETACHED_DESKTOP_BUS_ADDRESS } from "./core/spawn-env.ts";
+import type { GraphicalSessionState } from "./core/spawn-env.ts";
 import { STATES, KILLABLE_STATES, RESTARTABLE_STATES } from "../shared/states.ts";
 import type { SessionState } from "../shared/states.ts";
 import { unrefTimer } from "../shared/timer-deps.ts";
@@ -318,6 +321,7 @@ class Session extends EventEmitter {
   _agentLifetimeSpawns: number;
   _agentSpawnsInFlight: number;
   _ptySpawn: PtySpawn;
+  _probeGraphicalSession: () => Promise<GraphicalSessionState>;
   _getRemoteLaunch: () => RemoteLaunch | null;
   _requiresWorktree: boolean;
   _platform: NodeJS.Platform;
@@ -620,6 +624,7 @@ class Session extends EventEmitter {
       },
     });
     this._platform = platform;
+    this._probeGraphicalSession = probeGraphicalSession;
 
     this._startPending = null;
     this._resizeSeq = 0;
@@ -1606,6 +1611,7 @@ class Session extends EventEmitter {
       prependPathDirs: this._prependPathDirs,
       extraEnv: spawnExtraEnv,
     });
+    if (await this._shouldDetachDesktopBus()) env.DBUS_SESSION_BUS_ADDRESS = DETACHED_DESKTOP_BUS_ADDRESS;
 
     const configuredResumeSessionId = this._can("resume") ? this._resumeSessionId : null;
     let spawnResumeSessionId = configuredResumeSessionId;
@@ -1761,6 +1767,12 @@ class Session extends EventEmitter {
     if (!prompt || !this._can("ptyInitialPrompt")) return;
     const pastablePrompt = prompt.replaceAll(PASTE_BREAKING_CONTROL_BYTES, "");
     this._output.pasteTextWhenReady(pastablePrompt, { settleMs: PTY_PROMPT_SETTLE_MS, submitDelayMs: PTY_PROMPT_SUBMIT_DELAY_MS });
+  }
+
+  async _shouldDetachDesktopBus(): Promise<boolean> {
+    if (this._platform !== "linux") return false;
+    if (process.env.DISPLAY || process.env.WAYLAND_DISPLAY) return false;
+    return await this._probeGraphicalSession() === "inactive";
   }
 
   _abandonSpawn(cause: unknown): void {

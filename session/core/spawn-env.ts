@@ -10,7 +10,10 @@ const SANE_YOLO_GUARD_KEYS = [SANE_YOLO_PATH_ENV, ...Object.keys(saneYoloEnv("")
 const SAFETY_NET_ENV_PREFIXES = ["CC_SAFETY_NET_", "SAFETY_NET_"];
 const LAUNCHING_TERMINAL_IDENTITY_KEYS = ["TERM_PROGRAM", "TERM_PROGRAM_VERSION"];
 
+const DETACHED_DESKTOP_BUS_ADDRESS = "disabled:";
+
 type SpawnEnv = Record<string, string | undefined>;
+type GraphicalSessionState = "active" | "inactive" | "unknown";
 
 interface AgentEnvProfile {
   scrub?: readonly string[];
@@ -101,5 +104,5 @@ function withoutGlimmervoidSecrets(env: SpawnEnv): SpawnEnv {
   return scrubbed;
 }
 
-export { buildAgentEnv, withoutGlimmervoidSecrets };
-export type { AgentEnvOptions, AgentEnvProfile, SpawnEnv };
+export { DETACHED_DESKTOP_BUS_ADDRESS, buildAgentEnv, withoutGlimmervoidSecrets };
+export type { AgentEnvOptions, AgentEnvProfile, GraphicalSessionState, SpawnEnv };
