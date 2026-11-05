@@ -28,6 +28,14 @@ test('every built-in agent id is declared in BUILTIN_AGENT_IDS, so config and te
   }
 });
 
+test('every built-in agent but the shell has a vendored icon', () => {
+  const iconDirectory = path.join(import.meta.dirname, '..', 'public', 'agent-icons');
+  for (const { adapter, tier } of BUILT_IN_AGENTS) {
+    if (tier === 'shell') continue;
+    assert.ok(fs.existsSync(path.join(iconDirectory, `${adapter.id}.svg`)), `${adapter.id}: add public/agent-icons/${adapter.id}.svg from @lobehub/icons-static-svg (MIT, credited in assets/lobe-icons-LICENSE.txt), then import it in public/session-card/agent-mark.ts`);
+  }
+});
+
 for (const { adapter, tier } of hookedAgents) {
   test(`${adapter.id} (${tier}) carries its hooks and replays a live fixture to ready${adapter.capabilities.awaitingInput ? ' and awaiting-input' : ''}`, async () => {
     assert.ok(adapter.capabilities.hooks && adapter.hooks?.injection, `${adapter.id}: a ${tier} agent needs capabilities.hooks and a hooks.injection`);

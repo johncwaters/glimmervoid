@@ -16,6 +16,7 @@ import { createSignal, paintSignalLine } from './signal.ts';
 import { CLOSE_ICON_PATH, CLOUD_ICON_PATH, createLineIcon } from './svg-dom.ts';
 import { createPrStatusIcon } from './github/pr-status-icon.ts';
 import type { ActivatableSignal } from './signal.ts';
+import { paintAgentMark } from './session-card/agent-mark.ts';
 
 export type SessionRowRefs = ReturnType<typeof buildSessionRow>['refs'];
 type SessionRowSignalSource = (sessionId: string) => ActivatableSignal[];
@@ -91,7 +92,7 @@ export function buildSessionRow(extraClassName = '') {
   const row = createPressable(`session-row ${extraClassName}`.trim());
   row.innerHTML = '<span class="session-row-glyph" aria-hidden="true"></span>'
     + '<span class="session-row-main">'
-    + '<span class="session-row-title"><span class="session-row-name"></span><span class="session-row-cloud" hidden></span></span>'
+    + '<span class="session-row-title"><span class="agent-mark session-row-agent" aria-hidden="true" hidden></span><span class="session-row-name"></span><span class="session-row-cloud" hidden></span></span>'
     + '<span class="session-row-task" hidden></span>'
     + '<span class="session-row-ownership" hidden></span>'
     + '<span class="session-row-meta">'
@@ -107,6 +108,7 @@ export function buildSessionRow(extraClassName = '') {
     label: query(row, '.session-row-label'),
     ownership: query(row, '.session-row-ownership'),
     name: query(row, '.session-row-name'),
+    agent: query(row, '.session-row-agent'),
     cloud: query(row, '.session-row-cloud'),
     task: query(row, '.session-row-task'),
     signals: query(row, '.session-row-signals'),
@@ -223,6 +225,7 @@ export function paintSessionRow(
   const statusLabel = paintSessionRowMark(row, refs, ui, state);
   row.closest<HTMLElement>('.session-row-item')?.toggleAttribute('data-closing', state === CLOSING_ROW_STATE);
   writeTextIfChanged(refs.name, name);
+  paintAgentMark(refs.agent, ui.agent ?? null);
   const cloudText = paintSessionRowCloud(refs.cloud, ui.card.dataset.remoteWorkspace);
   writeTextIfChanged(refs.task, ui.taskTitle ?? '');
   writeHiddenIfChanged(refs.task, !ui.taskTitle || ui.taskTitle === name);

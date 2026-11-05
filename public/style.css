@@ -3108,6 +3108,13 @@ html[data-layout="phone"] .shown-thumb { width: 64px; height: 48px; }
 }
 .session-row[data-state="DORMANT"] .session-row-name { color: var(--text-dim); }
 .session-row-title { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.agent-mark { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 12px; height: 12px; color: var(--text-muted); }
+.agent-mark[hidden] { display: none; }
+.agent-mark svg { width: 100%; height: 100%; }
+.agent-mark[data-monogram] { width: auto; height: auto; padding: 0 2px; font-family: var(--font-mono); font-size: var(--type-meta); font-weight: 700; line-height: 1; border: 1px solid currentColor; border-radius: 2px; }
+.session-agent-mark { margin-right: 6px; }
+.add-session-agent-row { display: flex; align-items: center; gap: 8px; }
+.add-session-agent-row .agent-mark { width: 16px; height: 16px; }
 .session-row-cloud { display: inline-flex; flex-shrink: 0; color: var(--accent); }
 .session-row-cloud[hidden] { display: none; }
 .session-row-cloud .line-icon { width: 12px; height: 12px; }

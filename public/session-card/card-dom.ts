@@ -80,6 +80,9 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   const header = el('div', 'session-card-header');
 
+  const agentMarkEl = el('span', 'agent-mark session-agent-mark');
+  agentMarkEl.setAttribute('aria-hidden', 'true');
+  agentMarkEl.hidden = true;
   const nameEl = el('span', 'session-name', sessionName);
   nameEl.tabIndex = 0;
   const taskTitleEl = el('span', 'session-task-title');
@@ -152,7 +155,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   paintYoloChip(tags, Boolean(options.skipPerms) && options.saneYolo !== true);
   const ownershipEl = el('span', 'session-ownership');
   ownershipEl.hidden = true;
-  header.append(nameEl, taskTitleEl, ownershipEl, tags, actions);
+  header.append(agentMarkEl, nameEl, taskTitleEl, ownershipEl, tags, actions);
 
   const termWrap = el('div', 'terminal-wrap');
 
