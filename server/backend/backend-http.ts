@@ -34,14 +34,12 @@ import { decideByteRange, resolveCustomSoundsDir } from '../core/custom-sounds-c
 import { mountCustomSoundRoutes } from '../custom-sounds-routes.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import { clientDir } from '../runtime-paths.ts';
-import type { ShownFilesPort } from '../session/shown-files-wiring.ts';
 import type { WhiteboardAssetStore } from '../whiteboard/whiteboard-assets.ts';
 import { ASSET_INPUT_CAP_BYTES } from '../whiteboard/whiteboard-assets.ts';
 import { WHITEBOARD_ASSET_ROUTE } from '../../shared/contracts/whiteboard.ts';
 import { buildUploadFilename, decideUploadType, exceedsUploadCap, imageMimeForUploadFilename, isSafePathSegment } from '../core/upload-core.ts';
 import { declaredContentLength, decodeHeaderText, parseJsonBody, readCappedBody } from './http/backend-http-body.ts';
 import { UPLOAD_FAILURE_REPLIES, UPLOAD_OVER_CAP_ERROR, receiveUpload, streamRequestToFile } from './http/backend-http-uploads.ts';
-import { serveShownFile } from './http/backend-http-shown-files.ts';
 import { servePackFile } from './http/backend-http-pack-files.ts';
 import type { PackFileSource } from './http/backend-http-pack-files.ts';
 import { serveClientDir } from './http/backend-http-static.ts';
@@ -121,7 +119,6 @@ interface BackendHttpDependencies {
   refocusContextFor?: (glimmervoidId: string) => RefocusContext;
   takePromptSupervision?: (glimmervoidId: string) => UserPromptSubmitHookResponse | null;
   getAgentApi?: () => AgentApiPort | null;
-  getShownFiles?: () => ShownFilesPort | null;
   getPackFile?: PackFileSource;
   getWhiteboardAssets?: () => WhiteboardAssetStore | null;
   getPrActionReports?: () => Pick<PrFlowsWiring, 'acceptPrActionReport'> | null;
@@ -187,7 +184,7 @@ function answerOpenExternal({ req, res, remoteListenerPort, listenerPortsFor, to
 }
 
 type AgentIngressDependencies = Pick<BackendHttpDependencies,
-  'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'getPlanReview' | 'refocusContextFor' | 'takePromptSupervision' | 'getAgentApi' | 'getShownFiles' | 'getWhiteboardAssets' | 'getPrActionReports' | 'sshSigner' | 'recordOutcome' | 'logger'>;
+  'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'getPlanReview' | 'refocusContextFor' | 'takePromptSupervision' | 'getAgentApi' | 'getWhiteboardAssets' | 'getPrActionReports' | 'sshSigner' | 'recordOutcome' | 'logger'>;
 
 const BOARD_PAGE_SANDBOX_POLICY = 'sandbox allow-scripts allow-popups allow-modals allow-forms';
 const BOARD_MEDIA_SANDBOX_POLICY = "default-src 'none'; sandbox";
@@ -266,7 +263,6 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
     refocusContextFor = () => ({ taskTitle: null, latestPlanTitle: null }),
     takePromptSupervision = () => null,
     getAgentApi = () => null,
-    getShownFiles = () => null,
     getWhiteboardAssets = () => null,
     recordOutcome = () => {},
     logger = console,
@@ -345,7 +341,7 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
   });
 
   mountAgentMcp(app, {
-    getSession, getAgentApi, getShownFiles, getWhiteboardAssets, isLoopback: isLoopbackRequest, logger,
+    getSession, getAgentApi, getWhiteboardAssets, isLoopback: isLoopbackRequest, logger,
     isOriginAllowed: (req) => decideOriginAllowed(req.headers.origin, [], { listenerPorts: req.socket.localPort ?? [] }),
   });
 
@@ -595,10 +591,6 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
       .catch(() => {
         if (!res.headersSent) res.status(404).end();
       });
-  });
-
-  app.get('/shown/:sessionId/:filename', (req, res) => {
-    serveShownFile(req, res, dependencies.getShownFiles?.() ?? null);
   });
 
   app.post(WHITEBOARD_ASSET_ROUTE, (req, res) => {

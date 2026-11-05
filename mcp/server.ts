@@ -6,7 +6,6 @@ import type { Express, Request, Response } from 'express';
 
 import type { AgentApiPort } from '../server/agent-api-wiring.ts';
 import { REFUSAL_REASON, REFUSAL_STATUS, decideAgentRequest } from '../server/core/agent-api-core.ts';
-import type { ShownFilesPort } from '../server/session/shown-files-wiring.ts';
 import type { WhiteboardAssetStore } from '../server/whiteboard/whiteboard-assets.ts';
 import type { Session } from '../session/sessions.ts';
 import { parsePresentedCredential } from './core/credentials.ts';
@@ -25,7 +24,6 @@ const TOOL_SURFACE_VERSION = '1';
 const LOADS_UPFRONT_META_KEY = 'anthropic/alwaysLoad';
 
 interface FileStores {
-  getShownFiles(): ShownFilesPort | null;
   getWhiteboardAssets(): WhiteboardAssetStore | null;
 }
 
@@ -95,7 +93,7 @@ function registerGroupedTool(server: McpServer, tool: GroupedTool, session: Sess
   }, async (toolArguments: ToolArguments) => {
     const route = routeToolCall(tool, toolArguments, callContextFor(session, agentApi));
     if (!route.ok) return toolErrorResult(route.error);
-    return toolResultOf(await PRESENTERS[route.presenter]({ session, agentApi, getShownFiles: stores.getShownFiles, getWhiteboardAssets: stores.getWhiteboardAssets }, route.verb, route.payload));
+    return toolResultOf(await PRESENTERS[route.presenter]({ session, agentApi, getWhiteboardAssets: stores.getWhiteboardAssets }, route.verb, route.payload));
   });
 }
 

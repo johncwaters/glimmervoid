@@ -103,7 +103,7 @@ Each subsystem states its own rules beside its code, so a rule is loaded when th
 
 Runtime: `express`, `ws` (no Socket.IO and no abstraction over WebSockets, ever), `node-pty` (a real PTY; needs C++ build tools, VS Build Tools on Windows), and browser-only `@xterm/xterm` with `@xterm/addon-fit` and `@xterm/addon-webgl`.
 
-`@xterm/headless` with `@xterm/addon-serialize` keeps a server-side screen per live session (`session/screen-keeper.ts`). `zod` defines every wire and persisted shape. `cc-safety-net` backs Sane YOLO, the risky-command catcher. `sharp` and `ffmpeg-static` make the small WebP thumbnails of shown files. Glimmervoid runs each repository's own `@posthog/coherence` CLI and takes no runtime dependency on it.
+`@xterm/headless` with `@xterm/addon-serialize` keeps a server-side screen per live session (`session/screen-keeper.ts`). `zod` defines every wire and persisted shape. `cc-safety-net` backs Sane YOLO, the risky-command catcher. `sharp` and `ffmpeg-static` make the small WebP previews of whiteboard media. Glimmervoid runs each repository's own `@posthog/coherence` CLI and takes no runtime dependency on it.
 
 `fs-native-extensions` gives the kernel file locks (`fcntl` OFD, `flock`, `LockFileEx`) that mark a session temp folder in use, because Node core has no file lock and the kernel drops one when its holder dies, which a pid record cannot tell from pid reuse. A load failure leaves folders to the 7-day age gate.
 
