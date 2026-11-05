@@ -231,6 +231,7 @@ function createConfigStore({
       coherence: pickBlock('coherence', config.coherence),
       issues: pickBlock('issues', config.issues),
       community: pickBlock('community', config.community),
+      questionManager: pickBlock('questionManager', config.questionManager),
       workflows: config.workflows ?? null,
 
       posthog: pickBlock('posthog', config.posthog),
@@ -277,6 +278,8 @@ function createConfigStore({
     if (newConfig.coherence != null) config.coherence = newConfig.coherence;
     if (newConfig.issues != null) config.issues = newConfig.issues;
     if (newConfig.community != null) config.community = newConfig.community;
+    if (newConfig.questionManager == null) delete config.questionManager;
+    if (newConfig.questionManager != null) config.questionManager = newConfig.questionManager;
     if (newConfig.posthog != null) config.posthog = newConfig.posthog;
     if (newConfig.usage != null) config.usage = newConfig.usage;
     if (newConfig.telegram != null) config.telegram = newConfig.telegram;

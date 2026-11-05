@@ -268,7 +268,6 @@ interface InstalledHookFlags {
   detectScheduledWakeups: boolean;
   observeToolCalls: boolean;
   planReview: boolean;
-  holdsQuestionsForParent: boolean;
   hookTools: ResolvedHookTool[];
 }
 
@@ -277,8 +276,8 @@ type InstalledHooks = { version: string | null; isBestEffort: boolean; hooks: In
 const BUILTIN_PURPOSE_BY_ROUTE: Readonly<Record<string, string>> = Object.freeze({
   [PLAN_HOOK_EVENT]: 'Plan review: hold the plan for the operator to approve',
   [PLAN_RESULT_HOOK_EVENT]: 'Plan review: record the approved plan',
-  [CONVERSATION_PERMISSION_HOOK_EVENT]: 'Spawned session: hold a question so the parent can answer it',
-  [CONVERSATION_TOOL_RESULT_HOOK_EVENT]: 'Spawned session: release a held question the terminal answered',
+  [CONVERSATION_PERMISSION_HOOK_EVENT]: 'Questions: hold a question so the question manager or the parent session can answer it',
+  [CONVERSATION_TOOL_RESULT_HOOK_EVENT]: 'Questions: release a held question the terminal answered',
 });
 
 const BUILTIN_PURPOSE_BY_EVENT: Readonly<Record<string, string>> = Object.freeze({

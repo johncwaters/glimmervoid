@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { PrFlowCommand, PrFlowPrAction, PrFlowRule, PrFlowSourceCommand, prFlowRulesJsonSchema } from '../contracts/pr-flows.ts';
+import { QuestionRule } from '../contracts/question-manager.ts';
 
 import {
   NON_NEGATIVE_NUMBER_RANGE,
@@ -345,5 +346,12 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     jsonSchema: prFlowRulesJsonSchema(z.record(z.string(), z.array(PrFlowRule))),
     example: { 'acme/app': [{ name: 'Docs typos', paths: ['docs/'], text: 'typo', action: 'fix-local' }] },
     control: 'json', keywords: ['pull requests', 'review items', 'repositories'], defaultValue: {}, takesEffect: 'now', fileOnlyReason: STRUCTURED_VALUE, ...FILE_ONLY,
+  },
+  {
+    id: 'file-question-manager-rules', path: 'questionManager.rules', title: 'Question manager rules', group: 'lanes-question-manager',
+    description: 'Rules the question manager answers from. An object with name, question (text the question contains) and pick (the exact option labels to choose) answers at once. A question with a risk word such as push, delete or deploy always comes to you.',
+    jsonSchema: z.toJSONSchema(z.array(QuestionRule), { io: 'input' }),
+    example: [{ name: 'README length', question: 'README', pick: ['Short'] }],
+    control: 'json', keywords: ['questions', 'rules', 'automation'], defaultValue: [], takesEffect: 'now', fileOnlyReason: STRUCTURED_VALUE, ...FILE_ONLY,
   },
 ]);

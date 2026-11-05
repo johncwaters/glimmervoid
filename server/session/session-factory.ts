@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import type { HookRouter } from '../../detection/hook-source.ts';
 import type { UserHook } from '../../session/core/user-hooks-core.ts';
+import type { QuestionManagerPort } from '../../session/session-approval-holds.ts';
 import type { TerminalColors } from '../../session/core/terminal-color-query.ts';
 import { createRecorder } from '../../session/session-recorder.ts';
 import type { GitWorkspace } from '../../session/worktree/worktree-lifecycle-context.ts';
@@ -33,6 +34,7 @@ interface SessionFactoryDependencies {
   resolveHookTools: (config: GlimmervoidConfig) => ResolvedHookTool[];
   getUserHooks: (projectId: string) => UserHook[];
   getTerminalColors?: () => TerminalColors;
+  questionManager?: { forSession: (session: { projectPath: string }) => QuestionManagerPort } | null;
   commitSigningProgram?: string | null;
   homeDir?: string;
   getCoderEnv?: () => CoderWorkspacePort | null;
@@ -137,6 +139,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       getTerminalColors: dependencies.getTerminalColors ?? null,
       prepareCoherence: builtMapping || isMachineShell ? null : prepareCoherence,
       commitSigningProgram: dependencies.commitSigningProgram ?? null,
+      questionManager: isMachineShell ? null : dependencies.questionManager?.forSession({ projectPath: project.path }) ?? null,
       getRemoteLaunch: builtMapping ? () => remoteLaunchFor(project, builtMapping, dependencies.getConfig?.() ?? config) : null,
       ...overrides,
       spawnEnv: sessionTempFolder ? { CLAUDE_CODE_TMPDIR: sessionTempFolder, ...(overrides.spawnEnv ?? {}) } : overrides.spawnEnv,

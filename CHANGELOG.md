@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Question manager.** A Claude Code session that asks you a question can now get its answer from your rules instead of waiting for you. Write rules under `questionManager.rules` in config.json: `{ "name": "README length", "question": "README", "pick": ["Short"] }` answers any question whose text contains README with the option labelled Short. Turn it on in Settings, Lanes, Question manager, either for every repository or only for the ones you list by path or owner/name. An answered question never shows Waiting: the session keeps working, its audit log records the answer and the rule, and you get a silent browser notice that never reaches Telegram. A question goes to you as before when no rule covers every part of it, or when it mentions a risky word such as push, delete, deploy, publish, secret or reset. A question a spawned session asks its parent still goes to the parent.
+
 ### Fixed
 
 - **A GitHub hiccup no longer drops pull requests from Reviews.** When GitHub failed or timed out while Glimmervoid read the details of pull requests that had just changed, Glimmervoid treated them as deleted, and they vanished from Reviews until they changed again or Glimmervoid restarted. Now the refresh fails and retries shortly, the pull requests keep their last known state in the meantime, and only a pull request GitHub reports as gone is removed.

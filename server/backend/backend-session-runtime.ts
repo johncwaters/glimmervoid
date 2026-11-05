@@ -21,6 +21,7 @@ import { createCodexCredentials } from '../codex-credentials.ts';
 import { chatgptAuthTokensLogin, chatgptAuthTokensRefreshResult } from '../core/codex-credentials-core.ts';
 import type { createCoderEnvWiring } from '../coder/coder-env-wiring.ts';
 import { stableNodePath } from '../stable-node-path.ts';
+import { createQuestionManager } from '../question-manager/question-manager.ts';
 import { DEFAULT_TERMINAL_COLORS } from '../../session/core/terminal-color-query.ts';
 import type { TerminalColors } from '../../session/core/terminal-color-query.ts';
 
@@ -111,6 +112,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     resolveHookTools: (config) => resolveHookTools(config, { warn: dependencies.logger.warn.bind(dependencies.logger) }),
     getUserHooks: (projectId: string) => hooksForProject(dependencies.config.hooks, projectId),
     getTerminalColors: () => terminalColors,
+    questionManager: createQuestionManager({ getSettings: () => dependencies.configStore.config.questionManager }),
   });
 
   return { agentConnect, agentIngressServer, claudeCommand, claudeCredentials, getHookPort, hookRouter, makeSession, setTerminalColors, sshSigner };

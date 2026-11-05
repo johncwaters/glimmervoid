@@ -198,6 +198,16 @@ Research new posthog.com community questions and draft replies.
 | `community.intervalMinutes` | Poll interval | `30` | Time between community checks. |
 | `community.discordChannels` | Discord channels | `[]` | Discord channels to watch for questions, without the #, or none to skip Discord. |
 
+### Question manager
+
+Answer a session question from your rules and pass every other question to you.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `questionManager.enabled` | Answer questions from rules | `false` | Default for every repository. Questions with a risk word or no matching rule still come to you. |
+| `questionManager.repos` | Exceptions | `[]` | Repositories, by path or owner/name, that do the opposite of the default. |
+| `questionManager.rules` | Question manager rules | `[]` | Rules the question manager answers from. An object with name, question (text the question contains) and pick (the exact option labels to choose) answers at once. A question with a risk word such as push, delete or deploy always comes to you. **File-only.** A structured value with no dashboard control; edit it in config.json. |
+
 ### Privacy
 
 What Glimmervoid sends about itself.

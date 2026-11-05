@@ -1,10 +1,12 @@
 import type { NotifyAlertGroup } from '#shared/contracts/control-messages.ts';
+import { QUESTION_ANSWERED_NOTIFY_CATEGORY } from '#shared/contracts/question-manager.ts';
 
 export function desktopNotificationOptions(session: unknown, category: unknown, message: unknown): NotificationOptions & { renotify: boolean } {
   return {
     body: String(message || 'Session needs attention'),
     tag: `glimmervoid-${session || ''}-${category || ''}`,
     renotify: true,
+    silent: category === QUESTION_ANSWERED_NOTIFY_CATEGORY,
   };
 }
 

@@ -56,7 +56,6 @@ interface SessionHookOptions {
   hookTools: ResolvedHookTool[];
   planLimits: boolean;
   planReview: boolean;
-  holdsQuestionsForParent: boolean;
   getUserHooks?: (() => UserHook[]) | null;
   extraUserHooks?: UserHook[];
   scratchAgentHome?: ScratchAgentHome | null;
@@ -345,7 +344,6 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
         hookTools: options.hookTools,
         planLimits: options.planLimits,
         planReview: options.planReview,
-        holdsQuestionsForParent: options.holdsQuestionsForParent,
         userHooks: [
           ...(typeof options.getUserHooks === "function" ? options.getUserHooks() : []),
           ...glimmervoidSuppliedHooks(),

@@ -256,7 +256,6 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
       observeToolCalls: false,
       hookTools,
       planReview: config.planReview?.enabled !== false,
-      holdsQuestionsForParent: true,
     };
     return listAgentIds().flatMap((agentId) => {
       const adapter = getAdapter(agentId);
