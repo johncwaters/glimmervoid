@@ -4,6 +4,7 @@ import claudeCode from "./claude-code.ts";
 import codex from "./codex.ts";
 import gemini from "./gemini.ts";
 import qwen from "./qwen.ts";
+import copilot from "./copilot.ts";
 import grok from "./grok.ts";
 import kimi from "./kimi.ts";
 import shell from "./shell.ts";
@@ -88,6 +89,7 @@ interface ScratchAgentHome {
 
 interface GeneratedHomeLaunch {
   listenerPort: number;
+  folderTrustRoot: string;
 }
 
 interface GeneratedHomeInjection {
@@ -169,6 +171,7 @@ const BUILT_IN_AGENTS: readonly BuiltInAgent[] = Object.freeze([
   { adapter: kimi, tier: "first-class" },
   { adapter: gemini, tier: "hooked" },
   { adapter: qwen, tier: "hooked" },
+  { adapter: copilot, tier: "hooked" },
   { adapter: grok, tier: "hooked" },
   { adapter: shell, tier: "shell" },
 ]);

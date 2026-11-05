@@ -70,6 +70,7 @@ import { createSessionOutput } from "./session-output.ts";
 import type { ScreenSnapshot } from "./session-output.ts";
 import type { ScreenKeeperFactory } from "./screen-keeper.ts";
 import { createSessionHookLifecycle } from "./session-hook-lifecycle.ts";
+import { folderTrustRoot } from "./core/copilot-trust-core.ts";
 import type { HookRouterPort } from "./session-hook-lifecycle.ts";
 import { createSessionWorktreeLifecycle } from "./session-worktree-lifecycle.ts";
 import type { SeedDependencies } from "../server/git/dependency-clone.ts";
@@ -574,6 +575,7 @@ class Session extends EventEmitter {
       requiresHooks: requiresHooks && hookRouter !== null,
       bypassHookTrust: this.bypassHookTrust,
       effectiveCwd: () => this.effectiveCwd(),
+      folderTrustRoot: () => folderTrustRoot(this.effectiveCwd(), worktreeRoot),
       agentEnv: () => this._launch.buildEnv(),
       ingestSignal: (raw) => this.ingestHookSignal(raw),
       observeHook: (event, payload) => {

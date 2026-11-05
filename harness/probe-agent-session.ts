@@ -28,6 +28,7 @@ interface ProbeAgent {
   serveModel(steps: readonly StubModelStep[]): http.RequestListener;
   turnEndEvent: string;
   permissionEvent: string;
+  folderTrustFileName: string | null;
 }
 
 const SESSION_ID = "agent-probe-session";
@@ -35,7 +36,7 @@ const APPROVAL_FILE_NAME = "agent-probe-approval.txt";
 const SENTINEL_WORD = "amberlattice";
 const BOOT_SETTLE_MS = 6000;
 const SHOULD_WRITE_FIXTURES = process.argv.includes("--write-fixtures");
-const USAGE = "Usage: node harness/probe-agent-session.ts <gemini|qwen> [--write-fixtures]\nRuns the real agent CLI against a local stub model, so it needs no login and bills nothing.";
+const USAGE = "Usage: node harness/probe-agent-session.ts <gemini|qwen|copilot> [--write-fixtures]\nRuns the real agent CLI against a local stub model, so it needs no login and bills nothing.";
 const MODEL_STEPS: readonly StubModelStep[] = Object.freeze([
   { shellCommand: `touch ./${APPROVAL_FILE_NAME}` },
   { text: "done" },
@@ -77,16 +78,17 @@ function openAiChunk(delta: Record<string, unknown>, finishReason: string | null
   return `data: ${JSON.stringify({ id: "probe", object: "chat.completion.chunk", created: 0, model: "probe", choices: [{ index: 0, delta, finish_reason: finishReason }] })}\n\n`;
 }
 
-function openAiStream(step: StubModelStep): string {
+function openAiStream(step: StubModelStep, shellToolName: string): string {
   const usage = `data: ${JSON.stringify({ id: "probe", object: "chat.completion.chunk", created: 0, model: "probe", choices: [], usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 } })}\n\n`;
   if (step.shellCommand) {
-    const toolCall = { index: 0, id: "probe-call", type: "function", function: { name: "run_shell_command", arguments: JSON.stringify({ command: step.shellCommand, description: "probe" }) } };
+    const toolCall = { index: 0, id: "probe-call", type: "function", function: { name: shellToolName, arguments: JSON.stringify({ command: step.shellCommand, description: "probe" }) } };
     return `${openAiChunk({ role: "assistant", tool_calls: [toolCall] }, null)}${openAiChunk({}, "tool_calls")}${usage}data: [DONE]\n\n`;
   }
   return `${openAiChunk({ role: "assistant", content: step.text ?? "done" }, null)}${openAiChunk({}, "stop")}${usage}data: [DONE]\n\n`;
 }
 
-function serveOpenAi(steps: readonly StubModelStep[]): http.RequestListener {
+function serveOpenAi(shellToolName: string): (steps: readonly StubModelStep[]) => http.RequestListener {
+  return (steps) => {
   let nextStepIndex = 0;
   return (request, response) => {
     const bodyChunks: Buffer[] = [];
@@ -102,8 +104,9 @@ function serveOpenAi(steps: readonly StubModelStep[]): http.RequestListener {
       const step = steps[nextStepIndex] ?? { text: "done" };
       nextStepIndex += 1;
       response.writeHead(200, { "content-type": "text/event-stream" });
-      response.end(openAiStream(step));
+      response.end(openAiStream(step, shellToolName));
     });
+  };
   };
 }
 
@@ -121,6 +124,7 @@ const PROBE_AGENTS: Readonly<Record<string, ProbeAgent>> = Object.freeze({
     serveModel: serveGemini,
     turnEndEvent: "afteragent",
     permissionEvent: "notification",
+    folderTrustFileName: null,
   },
   qwen: {
     homeEnvName: "QWEN_HOME",
@@ -132,9 +136,25 @@ const PROBE_AGENTS: Readonly<Record<string, ProbeAgent>> = Object.freeze({
       return realHome;
     },
     modelEnv: (model: StubModel) => ({ OPENAI_API_KEY: "glimmervoid-probe", OPENAI_BASE_URL: `${model.baseUrl}/v1`, OPENAI_MODEL: "probe" }),
-    serveModel: serveOpenAi,
+    serveModel: serveOpenAi("run_shell_command"),
     turnEndEvent: "stop",
     permissionEvent: "permissionrequest",
+    folderTrustFileName: null,
+  },
+  copilot: {
+    homeEnvName: "COPILOT_HOME",
+    homeEnvValue: (realHome: string) => realHome,
+    writeRealHome: (tempDirectory: string) => {
+      const realHome = path.join(tempDirectory, "copilot-home");
+      fs.mkdirSync(realHome, { recursive: true, mode: 0o700 });
+      fs.writeFileSync(path.join(realHome, "settings.json"), "{}\n", { mode: 0o600 });
+      return realHome;
+    },
+    modelEnv: (model: StubModel) => ({ COPILOT_PROVIDER_BASE_URL: `${model.baseUrl}/v1`, COPILOT_PROVIDER_TYPE: "openai", COPILOT_PROVIDER_API_KEY: "glimmervoid-probe", COPILOT_MODEL: "probe", COPILOT_OFFLINE: "1" }),
+    serveModel: serveOpenAi("bash"),
+    turnEndEvent: "agentstop",
+    permissionEvent: "permissionrequest",
+    folderTrustFileName: "config.json",
   },
 });
 
@@ -168,7 +188,8 @@ async function runProbe(agentId: string, agent: ProbeAgent, tempDirectory: strin
   const configPath = path.join(tempDirectory, "config.json");
   writeProbeConfig(configPath, projectDirectory, agentId);
   const realHome = agent.writeRealHome(tempDirectory);
-  const realConfigBefore = fs.readdirSync(realHome).map((name) => `${name}:${fs.readFileSync(path.join(realHome, name), "utf8")}`).join("\n");
+  const snapshotRealConfig = (): string => fs.readdirSync(realHome).filter((name) => name !== agent.folderTrustFileName).map((name) => `${name}:${fs.readFileSync(path.join(realHome, name), "utf8")}`).join("\n");
+  const realConfigBefore = snapshotRealConfig();
   const model = await startStubModel(agent.serveModel(MODEL_STEPS));
   process.env.GLIMMERVOID_CONFIG = configPath;
   process.env.GLIMMERVOID_HOME = path.join(tempDirectory, "glimmervoid-home");
@@ -248,8 +269,8 @@ async function runProbe(agentId: string, agent: ProbeAgent, tempDirectory: strin
     check("resume kept the same session id", session._resumeSessionId === capturedId);
     for (const [index, call] of spawnCalls.entries()) console.log(`  [argv:${index + 1}] ${JSON.stringify(call.args)}`);
     check("the resumed argv carried the captured id", !!capturedId && !!spawnCalls[1]?.args.includes(capturedId));
-    const realConfigAfter = fs.readdirSync(realHome).map((name) => `${name}:${fs.readFileSync(path.join(realHome, name), "utf8")}`).join("\n");
-    check("the real config was not written", realConfigAfter === realConfigBefore);
+    check("the real config was not written", snapshotRealConfig() === realConfigBefore);
+    if (agent.folderTrustFileName) check("the project folder was pre-trusted", fs.readFileSync(path.join(realHome, agent.folderTrustFileName), "utf8").includes(projectDirectory));
   } finally {
     session.kill();
     await delay(1500);
