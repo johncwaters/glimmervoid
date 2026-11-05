@@ -1,6 +1,6 @@
 import { findSecretRanges } from '#shared/secret-patterns.ts';
 
-export type PopupPhase = 'hidden' | 'pending' | 'shown';
+type PopupPhase = 'hidden' | 'pending' | 'shown';
 
 export type PopupState = { phase: PopupPhase; isPointerOnLink: boolean; isPointerOnPopup: boolean };
 
@@ -8,13 +8,13 @@ export type PopupEvent = 'enter-link' | 'leave-link' | 'enter-popup' | 'leave-po
 
 export type PopupEffect = 'schedule-show' | 'cancel-show' | 'schedule-hide' | 'cancel-hide' | 'render' | 'remove';
 
-export type PopupTransition = { state: PopupState; effects: PopupEffect[] };
+type PopupTransition = { state: PopupState; effects: PopupEffect[] };
 
-export type ViewportCellRange = { startRow: number; startCol: number; endRow: number };
+type ViewportCellRange = { startRow: number; startCol: number; endRow: number };
 
-export type PopupPlacement = { side: 'below' | 'above'; leftPx: number; topPx: number };
+type PopupPlacement = { side: 'below' | 'above'; leftPx: number; topPx: number };
 
-export type PopupPlacementInput = {
+type PopupPlacementInput = {
   linkRange: ViewportCellRange;
   rows: number;
   cellWidthPx: number;
@@ -24,9 +24,9 @@ export type PopupPlacementInput = {
   screenWidthPx: number;
 };
 
-export type DisplayUrl = { scheme: string; host: string; rest: string };
+type DisplayUrl = { scheme: string; host: string; rest: string };
 
-export type HostMismatch = { textHost: string; targetHost: string };
+type HostMismatch = { textHost: string; targetHost: string };
 
 export const HIDDEN_POPUP: PopupState = { phase: 'hidden', isPointerOnLink: false, isPointerOnPopup: false };
 

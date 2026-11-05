@@ -13,7 +13,7 @@ const SHOW_DELAY_MS = 100;
 const HIDE_DELAY_MS = 150;
 const SWALLOWED_POINTER_EVENTS = ['mousedown', 'mouseup', 'mousemove', 'click', 'dblclick', 'contextmenu', 'wheel'] as const;
 
-export type HoveredLink = { url: string; linkText: string | null; range: IBufferRange };
+type HoveredLink = { url: string; linkText: string | null; range: IBufferRange };
 
 export type TerminalLinkPopup = {
   enterLink(link: HoveredLink): void;
