@@ -19,7 +19,11 @@ export type CommunityQueueItem = { source: 'community'; key: string; entry: Comm
 
 interface KeyedQueueItem { key: string; attention: AttentionKind | null }
 
-export interface QueueGroup<Item extends KeyedQueueItem = QueueItem> { id: QueueGroupId; title: string; items: Item[] }
+export interface QueueGroup<Item extends KeyedQueueItem = QueueItem, GroupId extends string = QueueGroupId> { id: GroupId; title: string; items: Item[] }
+
+type CommunityGroupId = 'turn' | 'working' | 'aside';
+
+export type CommunityQueueGroup = QueueGroup<CommunityQueueItem, CommunityGroupId>;
 
 interface QueueStateRow { state: string; group: QueueGroupId; kind: AttentionKind | null; action: QueueAction | null }
 
@@ -39,26 +43,28 @@ const QUEUE_STATE_ORDER = [
   { state: 'mine-repairing', group: 'working', kind: null, action: null },
   { state: 'mine-agent-fixing', group: 'working', kind: null, action: null },
   { state: 'review-in-flight', group: 'working', kind: null, action: null },
-  { state: 'review-queued', group: 'working', kind: null, action: null },
-  { state: 'review-settled', group: 'waiting', kind: null, action: null },
   { state: 'review-posted', group: 'waiting', kind: null, action: null },
   { state: 'mine-checks-pending', group: 'waiting', kind: null, action: null },
   { state: 'mine-needs-approval', group: 'waiting', kind: null, action: null },
   { state: 'mine-unknown', group: 'waiting', kind: null, action: null },
-  { state: 'review-discarded', group: 'aside', kind: null, action: null },
-  { state: 'mine-draft', group: 'aside', kind: null, action: null },
-  { state: 'mine-merged', group: 'aside', kind: null, action: null },
+  { state: 'review-queued', group: 'queued', kind: null, action: null },
+  { state: 'mine-merged', group: 'done', kind: null, action: null },
+  { state: 'review-settled', group: 'done', kind: null, action: null },
+  { state: 'review-discarded', group: 'parked', kind: null, action: null },
+  { state: 'mine-draft', group: 'parked', kind: null, action: null },
 ] as const satisfies readonly QueueStateRow[];
 
 type QueueState = typeof QUEUE_STATE_ORDER[number]['state'];
 
 const QUEUE_STATE_ROWS: ReadonlyMap<QueueState, QueueStateRow & { rank: number }> = new Map(QUEUE_STATE_ORDER.map((row, rank) => [row.state, { ...row, rank }]));
 
-const GROUP_TITLES: Readonly<Record<QueueGroupId, string>> = {
-  turn: 'Your turn', working: 'Agent working', waiting: 'Waiting on others', aside: 'Set aside',
+const GROUP_TITLES: Readonly<Record<QueueGroupId | CommunityGroupId, string>> = {
+  turn: 'Your turn', working: 'Agent working', queued: 'Queued', waiting: 'Waiting on others', done: 'Done', parked: 'Parked', aside: 'Set aside',
 };
 
-const GROUP_ORDER: readonly QueueGroupId[] = ['turn', 'working', 'waiting', 'aside'];
+const GROUP_ORDER: readonly QueueGroupId[] = ['turn', 'working', 'queued', 'waiting', 'done', 'parked'];
+
+export const COLLAPSED_GROUP_IDS: ReadonlySet<string> = new Set<QueueGroupId>(['done', 'parked']);
 
 const MINE_STATE_BY_STAGE: Readonly<Record<MyPrStage, QueueState>> = {
   conflicts: 'mine-conflicts', behind: 'mine-behind', 'checks-failing': 'mine-checks-failing', 'changes-requested': 'mine-changes-requested',
@@ -165,9 +171,9 @@ export function buildReviewQueue(sections: TeamReviewSections, myPrs: readonly M
   return GROUP_ORDER.map((id) => ({ id, title: GROUP_TITLES[id], items: (itemsByGroup.get(id) ?? []).toSorted(compareStatedItems).map((stated) => stated.item) }));
 }
 
-const COMMUNITY_GROUP_ORDER: readonly QueueGroupId[] = ['turn', 'working', 'aside'];
+const COMMUNITY_GROUP_ORDER: readonly CommunityGroupId[] = ['turn', 'working', 'aside'];
 
-interface CommunityStateRow { group: QueueGroupId; kind: AttentionKind | null }
+interface CommunityStateRow { group: CommunityGroupId; kind: AttentionKind | null }
 
 const COMMUNITY_STATE_ORDER = [
   { state: 'error', group: 'turn', kind: 'failed' },
@@ -192,7 +198,7 @@ function askedAtMs(entry: CommunityStateEntry): number {
   return Number.isNaN(createdAtMs) ? Number.POSITIVE_INFINITY : createdAtMs;
 }
 
-export function buildCommunityQueue(entries: readonly CommunityStateEntry[]): QueueGroup<CommunityQueueItem>[] {
+export function buildCommunityQueue(entries: readonly CommunityStateEntry[]): CommunityQueueGroup[] {
   const stated = entries.flatMap((entry) => {
     const row = COMMUNITY_STATE_ROWS.get(communityState(entry));
     if (!row) return [];
@@ -205,16 +211,16 @@ export function communityActivityEntry(item: CommunityQueueItem): string {
   return `${item.key}@${item.entry.status}:${item.entry.finishedAt ?? ''}`;
 }
 
-export function turnItems<Item extends KeyedQueueItem>(groups: readonly QueueGroup<Item>[]): Item[] {
+export function turnItems<Item extends KeyedQueueItem>(groups: readonly QueueGroup<Item, string>[]): Item[] {
   return groups.find((group) => group.id === 'turn')?.items ?? [];
 }
 
-export function queueItemByKey<Item extends KeyedQueueItem>(groups: readonly QueueGroup<Item>[], key: string | null): Item | null {
+export function queueItemByKey<Item extends KeyedQueueItem>(groups: readonly QueueGroup<Item, string>[], key: string | null): Item | null {
   if (!key) return null;
   return groups.flatMap((group) => group.items).find((item) => item.key === key) ?? null;
 }
 
-export function chooseQueueSelection<Item extends KeyedQueueItem>(visibleGroups: readonly QueueGroup<Item>[], selectedKey: string | null): string | null {
+export function chooseQueueSelection<Item extends KeyedQueueItem>(visibleGroups: readonly QueueGroup<Item, string>[], selectedKey: string | null): string | null {
   if (queueItemByKey(visibleGroups, selectedKey)) return selectedKey;
   return visibleGroups.flatMap((group) => group.items)[0]?.key ?? null;
 }
@@ -224,7 +230,7 @@ function itemLabel(item: QueueItem): string {
   return pullRequestLabel(item.review.repo, item.review.number);
 }
 
-function labeledAttentionTiles<Item extends KeyedQueueItem>(groups: readonly QueueGroup<Item>[], labelOf: (item: Item) => string): AttentionTile[] {
+function labeledAttentionTiles<Item extends KeyedQueueItem>(groups: readonly QueueGroup<Item, string>[], labelOf: (item: Item) => string): AttentionTile[] {
   return turnItems(groups).map((item) => ({ id: item.key, kind: item.attention ?? 'waiting', name: labelOf(item) }));
 }
 
@@ -236,14 +242,14 @@ export function bannerTilesOf(groups: readonly QueueGroup[], selectedKey: string
   return attentionTilesOf(groups).filter((tile) => tile.id !== selectedKey);
 }
 
-export function nextTurnKey<Item extends KeyedQueueItem>({ capturedOrder, actedKey, groups }: { capturedOrder: readonly string[]; actedKey: string; groups: readonly QueueGroup<Item>[] }): string | null {
+export function nextTurnKey<Item extends KeyedQueueItem>({ capturedOrder, actedKey, groups }: { capturedOrder: readonly string[]; actedKey: string; groups: readonly QueueGroup<Item, string>[] }): string | null {
   const remainingKeys = turnItems(groups).map((item) => item.key).filter((key) => key !== actedKey);
   const remainingKeySet = new Set(remainingKeys);
   const nextKey = capturedOrder.slice(capturedOrder.indexOf(actedKey) + 1).find((key) => remainingKeySet.has(key));
   return nextKey ?? capturedOrder.find((key) => remainingKeySet.has(key)) ?? remainingKeys[0] ?? null;
 }
 
-export function turnPositionText<Item extends KeyedQueueItem>(groups: readonly QueueGroup<Item>[], key: string | null): string {
+export function turnPositionText<Item extends KeyedQueueItem>(groups: readonly QueueGroup<Item, string>[], key: string | null): string {
   const turnKeys = turnItems(groups).map((item) => item.key);
   const position = key ? turnKeys.indexOf(key) : -1;
   if (position === -1) return '';

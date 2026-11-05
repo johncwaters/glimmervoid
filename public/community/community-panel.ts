@@ -10,7 +10,7 @@ import { isExternalHttpUrl } from '../external-link-core.ts';
 import { openExternalUrl } from '../external-link.ts';
 import { createPrQueueColumns } from '../github/pr-queue-columns.ts';
 import { chooseQueueSelection, communityActivityEntry, queueItemByKey, reviewKeyActionOf, steppedRowKey, turnItems } from '../github/review-queue-core.ts';
-import type { CommunityQueueItem, QueueGroup } from '../github/review-queue-core.ts';
+import type { CommunityQueueGroup, CommunityQueueItem } from '../github/review-queue-core.ts';
 import { createCaughtUpBanner } from '../github/team-review-queue-row.ts';
 import { reviewQueueNavigation } from '../github/review-queue-store.ts';
 import { formatAgo } from '../poll-ago.ts';
@@ -28,7 +28,7 @@ import { createCommunitySetupCard } from './community-setup-card.ts';
 let root: HTMLElement | null = null;
 let queueElement: HTMLElement | null = null;
 let detailHost: HTMLElement | null = null;
-let currentGroups: QueueGroup<CommunityQueueItem>[] = [];
+let currentGroups: CommunityQueueGroup[] = [];
 let selectedKey: string | null = null;
 let isSetAsideOpen = false;
 let renderedSignature: string | null = null;
@@ -259,7 +259,7 @@ function createRow(item: CommunityQueueItem, isTurn: boolean): HTMLButtonElement
   return row;
 }
 
-function createGroupHeading(group: QueueGroup<CommunityQueueItem>): HTMLElement {
+function createGroupHeading(group: CommunityQueueGroup): HTMLElement {
   const heading = el('h3', 'pr-section-heading review-group-heading');
   const count = el('span', 'review-group-count', String(group.items.length));
   if (group.id !== 'aside') {
@@ -280,7 +280,7 @@ function createGroupHeading(group: QueueGroup<CommunityQueueItem>): HTMLElement 
   return heading;
 }
 
-function createGroupSection(group: QueueGroup<CommunityQueueItem>): HTMLElement {
+function createGroupSection(group: CommunityQueueGroup): HTMLElement {
   const section = el('section', 'pr-queue-section');
   section.dataset.group = group.id;
   section.append(createGroupHeading(group));
