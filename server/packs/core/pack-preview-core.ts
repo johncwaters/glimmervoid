@@ -1,4 +1,4 @@
-import { PACK_BRIDGE_VERSION, PackBridgeTopic, type PackBridgeTopicData } from '../../../shared/contracts/pack-bridge.ts';
+import { PACK_BRIDGE_VERSION, PACK_DATA_MAX_BYTES, PACK_STORE_MAX_DEPTH, PackBridgeTopic, type PackBridgeTopicData } from '../../../shared/contracts/pack-bridge.ts';
 import type { MyPr } from '../../../shared/contracts/my-prs.ts';
 import type { PackOnDisk } from '../../../shared/contracts/pack.ts';
 import type { ReviewsSnapshot } from '../../../shared/contracts/reviews.ts';
@@ -41,13 +41,14 @@ function sampleMyPr(nowMs: number, number: number, title: string, stage: MyPr['s
 function sampleReviews(nowMs: number, frameIndex: number): ReviewsSnapshot {
   const readyPr = sampleMyPr(nowMs, 42, 'Speed up the deck import', 'ready', 'SUCCESS');
   const failingPr = sampleMyPr(nowMs, 43, 'Fix the login redirect', 'checks-failing', 'FAILURE');
+  const draftPr = sampleMyPr(nowMs, 40, 'Pin the Node version', 'draft', 'SUCCESS');
   const draft: ReviewDraft = {
     requestSource: 'direct', key: 'acme/api#9', repo: 'acme/api', number: 9, title: 'Retry webhook deliveries', url: 'https://github.com/acme/api/pull/9', author: 'other-author',
     tier: 'full', reasons: ['touches webhook delivery'], reviewedHead: SAMPLE_HEAD, verdict: 'APPROVE WITH NITS', summary: 'Retries are bounded; one nit on the backoff constant.',
     body: 'Looks good. One nit inline.', comments: [{ path: 'src/webhooks.ts', line: 12, side: 'RIGHT', body: 'Name this backoff constant.' }], status: 'ready', reviewedAt: nowMs - 10 * 60 * 1000,
   };
   const queued: QueuedReview = { requestSource: 'team', key: 'acme/api#11', repo: 'acme/api', number: 11, title: 'Bump the HTTP client', url: 'https://github.com/acme/api/pull/11', author: 'sample-author' };
-  const mineItem = (pr: MyPr, action: 'merge' | 'update', attention: 'finished' | 'waiting') => ({ source: 'mine' as const, key: `mine:${pr.key}`, prKey: pr.key, pr, stackRow: { pr, parentKey: null, depth: 0, stackSize: 1, stackHeight: 0 }, action, attention });
+  const mineItem = (pr: MyPr, action: 'merge' | 'update' | null, attention: 'finished' | 'waiting' | null) => ({ source: 'mine' as const, key: `mine:${pr.key}`, prKey: pr.key, pr, stackRow: { pr, parentKey: null, depth: 0, stackSize: 1, stackHeight: 0 }, action, attention });
   const turnItems = [
     { source: 'team' as const, key: `team:${draft.key}`, prKey: draft.key, kind: 'ready' as const, review: draft, action: 'review' as const, attention: 'waiting' as const },
     mineItem(failingPr, 'update', 'waiting'),
@@ -58,7 +59,7 @@ function sampleReviews(nowMs: number, frameIndex: number): ReviewsSnapshot {
       { id: 'turn', title: 'Your turn', items: turnItems },
       { id: 'working', title: 'Agent working', items: [{ source: 'team', key: `team:${queued.key}`, prKey: queued.key, kind: 'queued', review: queued, action: null, attention: null }] },
       { id: 'waiting', title: 'Waiting on others', items: [] },
-      { id: 'aside', title: 'Set aside', items: [] },
+      { id: 'aside', title: 'Set aside', items: [mineItem({ ...draftPr, isDraft: true }, null, null)] },
     ],
   };
 }
@@ -156,21 +157,55 @@ function openPanel() {
   if (panel) frame.src = panel.url;
   if (!panel) renderSwatches();
 }
+const storeKey = 'glimmervoid-preview-store:' + preview.packName;
+function savedStore() {
+  try {
+    return JSON.parse(localStorage.getItem(storeKey) ?? '{}');
+  } catch {
+    return {};
+  }
+}
+function isShallowJsonValue(root) {
+  const pending = [[root, 0]];
+  for (let entry = pending.pop(); entry !== undefined; entry = pending.pop()) {
+    const [value, depth] = entry;
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') continue;
+    if (typeof value === 'number' && Number.isFinite(value)) continue;
+    if (typeof value !== 'object' || depth >= preview.storeMaxDepth) return false;
+    if (!Array.isArray(value) && Object.getPrototypeOf(value) !== Object.prototype) return false;
+    for (const child of Object.values(value)) pending.push([child, depth + 1]);
+  }
+  return true;
+}
+function saveStoreKey(key, value) {
+  const next = Object.fromEntries(Object.entries(savedStore()).filter(([existingKey]) => existingKey !== key));
+  if (value !== null) next[key] = value;
+  const byteCount = new TextEncoder().encode(JSON.stringify(next) + '\\n').length;
+  if (byteCount > preview.storeMaxBytes) return post({ v: 1, kind: 'store', data: savedStore(), error: preview.packName + ' would store ' + byteCount + ' bytes, over the ' + preview.storeMaxBytes + ' byte limit; nothing was saved' });
+  localStorage.setItem(storeKey, JSON.stringify(next));
+  post({ v: 1, kind: 'store', data: next, error: null });
+}
+function isStoreSet(request) {
+  return request && typeof request === 'object' && Object.keys(request).sort().join() === 'key,kind,v,value'
+    && request.v === preview.bridgeVersion && request.kind === 'store-set' && typeof request.key === 'string' && request.key.length >= 1 && request.key.length <= 128 && isShallowJsonValue(request.value);
+}
 window.addEventListener('message', (event) => {
   const panel = currentPanel();
   if (!panel || event.source !== frame.contentWindow) return;
   const request = event.data;
+  if (isStoreSet(request)) return saveStoreKey(request.key, request.value);
   const isSubscribe = request && typeof request === 'object' && Object.keys(request).sort().join() === 'kind,topics,v'
-    && request.v === preview.bridgeVersion && request.kind === 'subscribe' && Array.isArray(request.topics) && request.topics.length > 0
+    && request.v === preview.bridgeVersion && request.kind === 'subscribe' && Array.isArray(request.topics)
     && request.topics.every((topic) => preview.knownTopics.includes(topic));
   if (!isSubscribe) {
-    status.textContent = 'Glimmervoid ignores this message, so the panel would get no data: ' + JSON.stringify(request) + '. A subscribe is exactly { v: ' + preview.bridgeVersion + ', kind: "subscribe", topics } with at least one of ' + preview.knownTopics.join(', ');
+    status.textContent = 'Glimmervoid ignores this message: ' + JSON.stringify(request) + '. A subscribe is exactly { v: ' + preview.bridgeVersion + ', kind: "subscribe", topics } with topics from ' + preview.knownTopics.join(', ') + '; a store-set is exactly { v: ' + preview.bridgeVersion + ', kind: "store-set", key, value } with a key of 1 to 128 characters and a JSON value nested at most ' + preview.storeMaxDepth + ' levels deep';
     return;
   }
   grantedTopics = request.topics.filter((topic) => panel.reads.includes(topic));
   const refused = request.topics.filter((topic) => !grantedTopics.includes(topic));
   status.textContent = 'Granted: ' + (grantedTopics.join(', ') || 'nothing') + (refused.length > 0 ? '. Not in reads, so never sent: ' + refused.join(', ') : '');
   post({ v: 1, kind: 'hello', granted: grantedTopics });
+  post({ v: 1, kind: 'store', data: savedStore(), error: null });
   for (const topic of grantedTopics) postTopic(topic);
 });
 setInterval(() => {
@@ -191,7 +226,7 @@ function scriptJson(value: unknown): string {
 
 export function previewHostPage({ title, report, hasProblem, pack, nowMs }: { title: string; report: string; hasProblem: boolean; pack: PackOnDisk | null; nowMs: number }): string {
   const frames = Array.from({ length: PREVIEW_FRAME_COUNT }, (_, frameIndex) => previewSampleTopics(nowMs, frameIndex));
-  const preview = { report, panels: previewPanels(pack), themes: previewThemes(pack), frames, knownTopics: PackBridgeTopic.options, bridgeVersion: PACK_BRIDGE_VERSION };
+  const preview = { report, panels: previewPanels(pack), themes: previewThemes(pack), frames, knownTopics: PackBridgeTopic.options, bridgeVersion: PACK_BRIDGE_VERSION, packName: pack?.header.name ?? 'pack', storeMaxBytes: PACK_DATA_MAX_BYTES, storeMaxDepth: PACK_STORE_MAX_DEPTH };
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><title>${title.replace(/[<&]/g, '')}</title>
 <style>

@@ -339,6 +339,16 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     reply(await deps.packs.approve(parsed.data.fingerprint));
   }
 
+  async function handlePackDataGet(msg: ClientMessageOf<'pack-data-get'>, ws: ControlSocket): Promise<void> {
+    if (!deps.packData) { replyTo(ws, msg, 'pack-data-result', { ok: false, error: 'Packs are not running' }); return; }
+    replyTo(ws, msg, 'pack-data-result', await deps.packData.get(msg.pack));
+  }
+
+  async function handlePackDataSet(msg: ClientMessageOf<'pack-data-set'>, ws: ControlSocket): Promise<void> {
+    if (!deps.packData) { replyTo(ws, msg, 'pack-data-result', { ok: false, error: 'Packs are not running' }); return; }
+    replyTo(ws, msg, 'pack-data-result', await deps.packData.set(msg.pack, msg.key, msg.value));
+  }
+
   function connectFrames(): readonly unknown[] {
     return deps.packs ? [deps.packs.statusFrame()] : [];
   }
@@ -357,6 +367,8 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'save-hook': handleSaveHook,
     'delete-hook': handleDeleteHook,
     'pack-approve': handlePackApprove,
+    'pack-data-get': handlePackDataGet,
+    'pack-data-set': handlePackDataSet,
   } satisfies ControlHandlerTable;
 
   const invalidReplies = {
@@ -373,6 +385,8 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'save-hook': (_msg, requestId, message) => ({ type: 'save-hook-result', requestId, ok: false, error: message }),
     'delete-hook': (_msg, requestId, message) => ({ type: 'delete-hook-result', requestId, ok: false, error: message }),
     'pack-approve': (_msg, requestId, message) => ({ type: 'pack-approve-result', requestId, ok: false, error: message }),
+    'pack-data-get': (_msg, requestId, message) => ({ type: 'pack-data-result', requestId, ok: false, error: message }),
+    'pack-data-set': (_msg, requestId, message) => ({ type: 'pack-data-result', requestId, ok: false, error: message }),
   } satisfies InvalidReplyTable;
 
   return { handlers, invalidReplies, connectFrames };

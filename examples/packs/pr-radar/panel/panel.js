@@ -38,11 +38,30 @@ function groupSection(group) {
   return section;
 }
 
+const showAsideToggle = document.getElementById('show-aside');
+let latestGroups = [];
+
+function render() {
+  const shownGroups = latestGroups.filter((group) => group.items.length > 0 && (showAsideToggle.checked || group.id !== 'aside'));
+  const turnCount = latestGroups.find((group) => group.id === 'turn')?.items.length ?? 0;
+  document.getElementById('summary').textContent = `${turnCount} waiting on you`;
+  document.getElementById('groups').replaceChildren(...(shownGroups.length === 0 ? [element('p', 'empty', 'Nothing in Reviews.')] : shownGroups.map(groupSection)));
+}
+
+window.addEventListener('message', (event) => {
+  if (event.source !== window.parent || event.data?.v !== 1 || event.data.kind !== 'store') return;
+  showAsideToggle.checked = event.data.data.showAside === true;
+  render();
+});
+
+showAsideToggle.addEventListener('change', () => {
+  window.parent.postMessage({ v: 1, kind: 'store-set', key: 'showAside', value: showAsideToggle.checked }, '*');
+  render();
+});
+
 window.glimmervoid.subscribe(['reviews', 'theme'], (topic, data) => {
   if (topic === 'theme') window.glimmervoid.applyTheme(data);
   if (topic !== 'reviews') return;
-  const shownGroups = data.groups.filter((group) => group.items.length > 0);
-  const turnCount = data.groups.find((group) => group.id === 'turn')?.items.length ?? 0;
-  document.getElementById('summary').textContent = `${turnCount} waiting on you`;
-  document.getElementById('groups').replaceChildren(...(shownGroups.length === 0 ? [element('p', 'empty', 'Nothing in Reviews.')] : shownGroups.map(groupSection)));
+  latestGroups = data.groups;
+  render();
 });

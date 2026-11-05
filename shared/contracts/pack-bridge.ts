@@ -37,8 +37,48 @@ const PACK_BRIDGE_TOPIC_DATA = {
 
 export type PackBridgeTopicData = { [Topic in PackBridgeTopic]: z.infer<(typeof PACK_BRIDGE_TOPIC_DATA)[Topic]> };
 
+export const PackName = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/, { error: 'a pack name is lowercase letters, digits and dashes, at most 40 characters' });
+
+export const PACK_DATA_MAX_BYTES = 64 * 1024;
+
+export const PACK_STORE_MAX_DEPTH = 32;
+
+function isShallowJsonValue(root: unknown): boolean {
+  const pending: [unknown, number][] = [[root, 0]];
+  for (let entry = pending.pop(); entry !== undefined; entry = pending.pop()) {
+    const [value, depth] = entry;
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') continue;
+    if (typeof value === 'number' && Number.isFinite(value)) continue;
+    if (typeof value !== 'object' || depth >= PACK_STORE_MAX_DEPTH) return false;
+    const isPlainObject = Object.getPrototypeOf(value) === Object.prototype;
+    if (!Array.isArray(value) && !isPlainObject) return false;
+    for (const child of Object.values(value)) pending.push([child, depth + 1]);
+  }
+  return true;
+}
+
+export const PackStoreKey = z.string().min(1).max(128);
+export const PackStoreValue = z.unknown().refine(isShallowJsonValue, { error: `a JSON value nested at most ${PACK_STORE_MAX_DEPTH} levels deep` });
+export const PackStoreData = z.record(PackStoreKey, z.unknown().describe('A JSON value a panel saved')).describe(`The pack's saved keys and values, shared by all its panels and kept across reloads, browsers and pack updates; at most ${PACK_DATA_MAX_BYTES} bytes as JSON, deleted when the pack folder is removed`);
+export type PackStoreData = z.infer<typeof PackStoreData>;
+
+export function packStoreAfterSet(data: PackStoreData, key: string, value: unknown): PackStoreData {
+  return Object.fromEntries([...Object.entries(data).filter(([existingKey]) => existingKey !== key), ...(value === null ? [] : [[key, value] as const])]);
+}
+
+function packStoreText(data: PackStoreData): string {
+  return `${JSON.stringify(data)}\n`;
+}
+
+export function packStoreSizeError(packName: string, data: PackStoreData): string | null {
+  const byteCount = new TextEncoder().encode(packStoreText(data)).length;
+  if (byteCount <= PACK_DATA_MAX_BYTES) return null;
+  return `${packName} would store ${byteCount} bytes, over the ${PACK_DATA_MAX_BYTES} byte limit; nothing was saved`;
+}
+
 export const PanelToHost = z.discriminatedUnion('kind', [
-  z.strictObject({ v: BridgeVersion, kind: z.literal('subscribe'), topics: z.array(PackBridgeTopic).min(1).describe("The topics to receive; only those also listed in the panel's reads in pack.json are granted, and a later subscribe replaces the earlier one") }),
+  z.strictObject({ v: BridgeVersion, kind: z.literal('subscribe'), topics: z.array(PackBridgeTopic).describe("The topics to receive; only those also listed in the panel's reads in pack.json are granted, and a later subscribe replaces the earlier one. An empty list still gets hello and the store") }),
+  z.strictObject({ v: BridgeVersion, kind: z.literal('store-set'), key: PackStoreKey, value: PackStoreValue.describe(`Any JSON value nested at most ${PACK_STORE_MAX_DEPTH} levels deep; null deletes the key`) }).describe('Save one key of the pack store; the host answers with a store message'),
 ]);
 
 const HostTopicMessages = PackBridgeTopic.options.map((topic) => z.strictObject({
@@ -47,6 +87,7 @@ const HostTopicMessages = PackBridgeTopic.options.map((topic) => z.strictObject(
 
 export const HostToPanel = z.union([
   z.strictObject({ v: BridgeVersion, kind: z.literal('hello'), granted: z.array(PackBridgeTopic).describe('The subscribed topics that are also in reads; a topic missing here never arrives') }),
+  z.strictObject({ v: BridgeVersion, kind: z.literal('store'), data: PackStoreData, error: z.string().nullable().describe('Why the last store-set was not saved, such as the size limit; null when it was') }).describe('Sent after hello and after each store-set from any panel of the pack in this dashboard'),
   ...HostTopicMessages,
 ]);
 

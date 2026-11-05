@@ -1,11 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { createBackendHttpApp } from '../server/backend/backend-http.ts';
+import { createPackData } from '../server/packs/pack-data.ts';
 import { createPackStore } from '../server/packs/pack-store.ts';
+import { ClientMessage } from '../shared/contracts/control-messages.ts';
+import { PACK_DATA_MAX_BYTES, PanelToHost } from '../shared/contracts/pack-bridge.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 
 test('a pack panel file is served only from an approved pack at its current content through its access key, even where remote pairing guards every other route, inside a sandbox that allows no connections, and the dashboard frames nothing from another origin', async () => {
@@ -63,6 +67,74 @@ test('a pack panel file is served only from an approved pack at its current cont
   } finally {
     packStore.stop();
     await closeServer(server);
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  }
+});
+
+function writePanelPack(packDir: string, packName: string): void {
+  fs.mkdirSync(path.join(packDir, 'panel'), { recursive: true });
+  fs.writeFileSync(path.join(packDir, 'pack.json'), JSON.stringify({ name: packName, version: 1, ui: { panels: [{ id: 'board', label: 'CI', entry: 'panel/index.html' }] } }));
+  fs.writeFileSync(path.join(packDir, 'panel', 'index.html'), '<!doctype html><p>ci</p>');
+}
+
+async function startPackStorage(homeDir: string) {
+  const packStore = createPackStore({ homeDir, statePath: path.join(homeDir, 'packs-state.json'), env: process.env, log: { warn: () => {} }, reloadDebounceMs: 10 });
+  await packStore.start();
+  const approvePending = async () => {
+    for (const row of packStore.statusFrame().packs.filter((candidate) => candidate.state === 'pending')) assert.deepEqual(await packStore.approve(row.fingerprint ?? ''), { ok: true });
+  };
+  return { packStore, approvePending, packData: createPackData({ homeDir, panelPackDir: (packName) => packStore.panelPackDir(packName) }) };
+}
+
+test('a pack store keeps values per approved pack with panels, refuses a write over the size limit or nested too deep without touching the saved file or throwing, and is deleted when its pack folder is removed, even while Glimmervoid was stopped, so a same-named pack never reads it', async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pack-data-'));
+  const packDir = path.join(homeDir, 'packs', 'ci');
+  const savedPath = path.join(homeDir, 'pack-data', 'ci.json');
+  writePanelPack(packDir, 'ci');
+  const first = await startPackStorage(homeDir);
+  try {
+    assert.deepEqual(await first.packData.set('ci', 'sort', 'newest'), { ok: false, error: 'ci is not an approved pack with panels' });
+    assert.equal(fs.existsSync(savedPath), false);
+
+    await first.approvePending();
+    assert.deepEqual(await first.packData.set('ci', 'sort', 'newest'), { ok: true, data: { sort: 'newest' } });
+    assert.deepEqual(await first.packData.set('ci', 'filters', { repo: 'acme/api' }), { ok: true, data: { sort: 'newest', filters: { repo: 'acme/api' } } });
+    assert.deepEqual(await first.packData.set('ci', 'sort', null), { ok: true, data: { filters: { repo: 'acme/api' } } });
+    const savedText = fs.readFileSync(savedPath, 'utf8');
+    const reopened = createPackData({ homeDir, panelPackDir: (packName) => first.packStore.panelPackDir(packName) });
+    assert.deepEqual(await reopened.get('ci'), { ok: true, data: { filters: { repo: 'acme/api' } } });
+
+    const oversized = await first.packData.set('ci', 'big', 'x'.repeat(PACK_DATA_MAX_BYTES));
+    assert.match(oversized.ok ? '' : oversized.error, /over the 65536 byte limit; nothing was saved/);
+    assert.equal(fs.readFileSync(savedPath, 'utf8'), savedText);
+    const deepValue = JSON.parse(`${'['.repeat(5000)}${']'.repeat(5000)}`);
+    assert.equal(ClientMessage.safeParse({ type: 'pack-data-set', requestId: 'deep', pack: 'ci', key: 'deep', value: deepValue }).success, false);
+    assert.equal(PanelToHost.safeParse({ v: 1, kind: 'store-set', key: 'deep', value: deepValue }).success, false);
+
+    const removed = once(first.packStore, 'removed');
+    fs.rmSync(packDir, { recursive: true, force: true });
+    await removed;
+    await first.packData.forgetRemovedPacks();
+    assert.equal(fs.existsSync(savedPath), false);
+
+    writePanelPack(packDir, 'ci');
+    await first.packStore.approvedPacks();
+    await first.approvePending();
+    assert.deepEqual(await first.packData.set('ci', 'notes', 'private'), { ok: true, data: { notes: 'private' } });
+  } finally {
+    first.packStore.stop();
+  }
+  fs.rmSync(packDir, { recursive: true, force: true });
+  writePanelPack(path.join(homeDir, 'packs', 'other-ci'), 'ci');
+  const second = await startPackStorage(homeDir);
+  try {
+    await second.approvePending();
+    assert.deepEqual(await second.packData.get('ci'), { ok: true, data: {} });
+    assert.equal(fs.existsSync(savedPath), true);
+    await second.packData.forgetRemovedPacks();
+    assert.equal(fs.existsSync(savedPath), false);
+  } finally {
+    second.packStore.stop();
     fs.rmSync(homeDir, { recursive: true, force: true });
   }
 });

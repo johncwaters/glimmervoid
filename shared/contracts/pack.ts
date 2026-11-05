@@ -1,12 +1,10 @@
 import { z } from 'zod';
 import { ThemePalette } from './theme-palette.ts';
-import { PackBridgeTopic } from './pack-bridge.ts';
+import { PackBridgeTopic, PackName } from './pack-bridge.ts';
 import { PackPrFlowRule, PrFlowItemAction, PrFlowPackRequires, PrFlowPrAction, PrFlowSourceCommand, RepoScope, prFlowRulesJsonSchema } from './pr-flows.ts';
 
 const PACK_SCHEMA_URL = 'https://glimmervoid.dev/schema/pack.v1.json';
 export const PACK_FILE_NAME = 'pack.json';
-
-const PackName = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/, { error: 'a pack name is lowercase letters, digits and dashes, at most 40 characters' });
 
 export const PackHeader = z.strictObject({
   $schema: z.string().optional(),

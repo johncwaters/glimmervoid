@@ -27,6 +27,7 @@ type PackStore = EventEmitter & {
   approvedPacks(): Promise<ApprovedPacks>;
   approve(fingerprint: string): Promise<PackApproveResult>;
   isApproved(fingerprint: string): boolean;
+  panelPackDir(packName: string): string | null;
 };
 
 export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs = PACK_RELOAD_DEBOUNCE_MS }: {
@@ -71,6 +72,7 @@ export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs
     if (!hasManifest && !isListed) {
       readsByDir.delete(packDir);
       emitter.emit('changed');
+      emitter.emit('removed');
       return;
     }
     readsByDir.set(packDir, await readPackDir(packDir, env));
@@ -91,10 +93,12 @@ export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs
     const knownDirs = [...new Set([...found.packDirs, ...listedWatchersByDir.keys()])];
     const freshReads = await Promise.all(knownDirs.map(async (packDir) => [packDir, await readPackDir(packDir, env)] as const));
     if (isStopped) return;
+    const hasDroppedPack = [...readsByDir.keys()].some((packDir) => !knownDirs.includes(packDir));
     homeWarning = found.warning;
     homePackDirs = found.packDirs;
     readsByDir.clear();
     for (const [packDir, read] of freshReads) readsByDir.set(packDir, read);
+    if (hasDroppedPack) emitter.emit('removed');
   }
 
   async function rescanHomePacks(): Promise<void> {
@@ -156,8 +160,12 @@ export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs
     return currentReads().map(({ packDir, read }) => packRow(packDir, read, approvedFingerprints));
   }
 
+  function packEntriesInUse(): { packDir: string; pack: PackOnDisk }[] {
+    return currentReads().flatMap(({ packDir, read }) => (read.ok && approvedFingerprints.has(read.pack.fingerprint) && read.pack.missingRequires.length === 0 ? [{ packDir, pack: read.pack }] : []));
+  }
+
   function packsInUse(): PackOnDisk[] {
-    return currentReads().flatMap(({ read }) => (read.ok && approvedFingerprints.has(read.pack.fingerprint) && read.pack.missingRequires.length === 0 ? [read.pack] : []));
+    return packEntriesInUse().map(({ pack }) => pack);
   }
 
   function statusFrame(): PacksStatus {
@@ -253,5 +261,10 @@ export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs
     emitter.removeAllListeners();
   }
 
-  return Object.assign(emitter, { start, stop, setListedPaths, statusFrame, servableFile, approvedPacks, approve, isApproved: (fingerprint: string) => approvedFingerprints.has(fingerprint) });
+  function panelPackDir(packName: string): string | null {
+    const entry = packEntriesInUse().find(({ pack }) => pack.header.name === packName && pack.ui?.ok === true && pack.ui.value.panels.length > 0);
+    return entry?.packDir ?? null;
+  }
+
+  return Object.assign(emitter, { start, stop, setListedPaths, statusFrame, servableFile, approvedPacks, approve, panelPackDir, isApproved: (fingerprint: string) => approvedFingerprints.has(fingerprint) });
 }

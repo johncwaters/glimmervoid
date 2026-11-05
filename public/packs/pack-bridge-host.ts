@@ -1,6 +1,8 @@
-import { HostToPanel, PanelToHost } from '#shared/contracts/pack-bridge.ts';
-import type { PackBridgeTopic, PackBridgeTopicData } from '#shared/contracts/pack-bridge.ts';
+import { HostToPanel, PanelToHost, packStoreAfterSet, packStoreSizeError } from '#shared/contracts/pack-bridge.ts';
+import type { PackBridgeTopic, PackBridgeTopicData, PackStoreData } from '#shared/contracts/pack-bridge.ts';
 import type { z } from 'zod';
+import { errorMessage } from '#shared/text.ts';
+import { sendControlRequest } from '../control-ws.ts';
 import { countAttentionByKind } from '../focus-view/attention-core.ts';
 import { reviewsSnapshot } from '../github/review-queue-store.ts';
 import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
@@ -15,6 +17,7 @@ const BRIDGE_PUSH_INTERVAL_MS = 1000;
 
 type BridgedFrame = {
   frame: HTMLIFrameElement;
+  packName: string;
   grantedTopics: ReadonlySet<PackBridgeTopic>;
   subscribedTopics: Set<PackBridgeTopic>;
   lastSentJsonByTopic: Map<PackBridgeTopic, string>;
@@ -82,19 +85,67 @@ function pushChangedTopics(): void {
   pushTimer = null;
 }
 
+type PackDataReply = { ok: true; data: PackStoreData } | { ok: false; error: string };
+
+const lastStoreByPackName = new Map<string, PackStoreData>();
+
+async function requestPackData(type: 'pack-data-get' | 'pack-data-set', payload: Record<string, unknown>): Promise<PackDataReply> {
+  const reply = await sendControlRequest(type, payload).catch((error: unknown) => errorMessage(error));
+  if (typeof reply === 'string') return { ok: false, error: reply };
+  if (reply.type !== 'pack-data-result') return { ok: false, error: `unexpected ${reply.type} reply` };
+  if (reply.ok && reply.data) return { ok: true, data: reply.data };
+  return { ok: false, error: reply.error ?? 'the pack store did not answer' };
+}
+
+function postStore(bridged: BridgedFrame, error: string | null): void {
+  post(bridged, { v: 1, kind: 'store', data: lastStoreByPackName.get(bridged.packName) ?? {}, error });
+}
+
+async function sendStore(bridged: BridgedFrame): Promise<void> {
+  const reply = await requestPackData('pack-data-get', { pack: bridged.packName });
+  if (reply.ok) lastStoreByPackName.set(bridged.packName, reply.data);
+  postStore(bridged, reply.ok ? null : reply.error);
+}
+
+async function saveStoreKey(bridged: BridgedFrame, key: string, value: unknown): Promise<void> {
+  const sizeError = packStoreSizeError(bridged.packName, packStoreAfterSet(lastStoreByPackName.get(bridged.packName) ?? {}, key, value));
+  if (sizeError !== null) {
+    postStore(bridged, sizeError);
+    return;
+  }
+  const reply = await requestPackData('pack-data-set', { pack: bridged.packName, key, value });
+  if (!reply.ok) {
+    postStore(bridged, reply.error);
+    return;
+  }
+  lastStoreByPackName.set(bridged.packName, reply.data);
+  for (const sibling of bridgedFrameByViewId.values()) {
+    if (sibling.packName === bridged.packName) postStore(sibling, null);
+  }
+}
+
+function subscribe(bridged: BridgedFrame, topics: readonly PackBridgeTopic[]): void {
+  bridged.subscribedTopics = new Set(topics.filter((topic) => bridged.grantedTopics.has(topic)));
+  bridged.lastSentJsonByTopic.clear();
+  post(bridged, { v: 1, kind: 'hello', granted: [...bridged.subscribedTopics] });
+  void sendStore(bridged);
+  for (const topic of bridged.subscribedTopics) pushTopic(bridged, topic);
+  pushTimer ??= setInterval(pushChangedTopics, BRIDGE_PUSH_INTERVAL_MS);
+}
+
 function onPanelMessage(event: MessageEvent): void {
   const bridged = [...bridgedFrameByViewId.values()].find((candidate) => candidate.frame.contentWindow !== null && candidate.frame.contentWindow === event.source);
   if (!bridged) return;
   const request = PanelToHost.safeParse(event.data);
   if (!request.success) return;
-  bridged.subscribedTopics = new Set(request.data.topics.filter((topic) => bridged.grantedTopics.has(topic)));
-  bridged.lastSentJsonByTopic.clear();
-  post(bridged, { v: 1, kind: 'hello', granted: [...bridged.subscribedTopics] });
-  for (const topic of bridged.subscribedTopics) pushTopic(bridged, topic);
-  pushTimer ??= setInterval(pushChangedTopics, BRIDGE_PUSH_INTERVAL_MS);
+  if (request.data.kind === 'store-set') {
+    void saveStoreKey(bridged, request.data.key, request.data.value);
+    return;
+  }
+  subscribe(bridged, request.data.topics);
 }
 
-export function bridgePackFrame(viewId: string, frame: HTMLIFrameElement, reads: readonly PackBridgeTopic[]): void {
+export function bridgePackFrame(viewId: string, frame: HTMLIFrameElement, packName: string, reads: readonly PackBridgeTopic[]): void {
   if (bridgedFrameByViewId.size === 0) window.addEventListener('message', onPanelMessage);
-  bridgedFrameByViewId.set(viewId, { frame, grantedTopics: new Set(reads), subscribedTopics: new Set(), lastSentJsonByTopic: new Map() });
+  bridgedFrameByViewId.set(viewId, { frame, packName, grantedTopics: new Set(reads), subscribedTopics: new Set(), lastSentJsonByTopic: new Map() });
 }

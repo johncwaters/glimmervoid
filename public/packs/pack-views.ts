@@ -26,32 +26,32 @@ export function packPanelModule(panel: PackPanelView): ViewModule<HTMLElement> {
   return {
     mount(panelElement) {
       const shownPanel = panelByViewId.get(panel.viewId);
-      panelElement.replaceChildren(bridgedPanelFrame(panel.viewId, shownPanel?.entryUrl ?? BLANK_FRAME_URL, panel.label, shownPanel?.reads ?? []));
+      panelElement.replaceChildren(bridgedPanelFrame(panel.viewId, shownPanel?.entryUrl ?? BLANK_FRAME_URL, panel.label, panel.pack, shownPanel?.reads ?? []));
     },
   };
 }
 
-function bridgedPanelFrame(viewId: string, url: string, label: string, reads: PackPanelView['reads']): HTMLIFrameElement {
+function bridgedPanelFrame(viewId: string, url: string, label: string, packName: string, reads: PackPanelView['reads']): HTMLIFrameElement {
   const frame = createSandboxedFrame({ source: { kind: 'url', url }, className: 'pack-panel-frame', title: label, allowsScripts: true });
   frameByViewId.set(viewId, frame);
-  bridgePackFrame(viewId, frame, reads);
+  bridgePackFrame(viewId, frame, packName, reads);
   return frame;
 }
 
-function pointFrameAt(viewId: string, url: string, label: string, reads: PackPanelView['reads']): void {
+function pointFrameAt(viewId: string, url: string, label: string, packName: string, reads: PackPanelView['reads']): void {
   const frame = frameByViewId.get(viewId);
   if (!frame || frame.getAttribute('src') === url) return;
-  frame.replaceWith(bridgedPanelFrame(viewId, url, label, reads));
+  frame.replaceWith(bridgedPanelFrame(viewId, url, label, packName, reads));
 }
 
 export function showPackPanel(panel: PackPanelView): void {
   panelByViewId.set(panel.viewId, panel);
-  pointFrameAt(panel.viewId, panel.entryUrl, panel.label, panel.reads);
+  pointFrameAt(panel.viewId, panel.entryUrl, panel.label, panel.pack, panel.reads);
 }
 
 export function retirePackPanel(viewId: string): void {
   panelByViewId.delete(viewId);
-  pointFrameAt(viewId, BLANK_FRAME_URL, frameByViewId.get(viewId)?.title ?? '', []);
+  pointFrameAt(viewId, BLANK_FRAME_URL, frameByViewId.get(viewId)?.title ?? '', '', []);
 }
 
 export function onPackPanelsChange(listener: (panels: readonly PackPanelView[]) => void): void {

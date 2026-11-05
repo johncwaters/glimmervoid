@@ -51,6 +51,7 @@ import { createRepoCache } from '../git/repo-cache.ts';
 import { commandFor } from '../../session/adapters/index.ts';
 import { createPrFlowsWiring } from '../github/pr-flows-wiring.ts';
 import { packsStatePath } from '../packs/pack-files.ts';
+import { createPackData } from '../packs/pack-data.ts';
 import { createPackStore } from '../packs/pack-store.ts';
 import { packPathsOf } from '../github/core/pr-flows-core.ts';
 import { createPrFlowsExternal } from '../github/pr-flows-external.ts';
@@ -282,6 +283,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     }),
   });
   const packStore = createPackStore({ homeDir: glimmervoidHome, statePath: packsStatePath(glimmervoidHome), env: process.env, log: logger });
+  const packData = createPackData({ homeDir: glimmervoidHome, panelPackDir: (packName) => packStore.panelPackDir(packName) });
   let lastPacksFrameText = '';
   const broadcastPacksIfChanged = () => {
     const frame = packStore.statusFrame();
@@ -469,7 +471,9 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
           broadcastPacksIfChanged();
           void prFlows.applyRules();
         });
-        packStore.start().catch((error: unknown) => logger.warn(`[packs] start failed: ${errorMessage(error)}`));
+        const forgetRemovedPackData = () => packData.forgetRemovedPacks().catch((error: unknown) => logger.warn(`[packs] could not delete the stored data of removed packs: ${errorMessage(error)}`));
+        packStore.on('removed', forgetRemovedPackData);
+        packStore.start().then(forgetRemovedPackData, (error: unknown) => logger.warn(`[packs] start failed: ${errorMessage(error)}`));
       },
       () => issues.startPoller(),
       () => workflows.startPoller(),
@@ -528,6 +532,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     myPrs,
     prFlows,
     packStore,
+    packData,
     issues,
     community,
     workflows,

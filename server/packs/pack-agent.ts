@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { packBridgeJsonSchemaText } from '../../shared/contracts/pack-bridge.ts';
+import { PACK_DATA_MAX_BYTES, PACK_STORE_MAX_DEPTH, packBridgeJsonSchemaText } from '../../shared/contracts/pack-bridge.ts';
 import { PACK_FILE_NAME, PackHeader, packJsonSchemaText } from '../../shared/contracts/pack.ts';
 import type { PackRow } from '../../shared/contracts/control/pack-messages.ts';
 import type { AgentPacksRequest } from '../../shared/contracts/session.ts';
@@ -38,10 +38,11 @@ export async function packGuideText({ homeDir, examplePacksDir }: Pick<PackAgent
     'Sections of pack.json, each checked on its own:',
     '- prFlows: commands My PRs runs on pull requests (prActions, sources, actions, rules).',
     '- ui.themes: color themes for the Theme picker; every chrome and state color is a #rrggbb hex.',
-    '- ui.panels: HTML pages shown as dashboard tabs. A panel runs sandboxed in an opaque origin: no network, no cookies, no storage, no popups or navigation (a link in a panel opens nothing), no access to the dashboard page. Put every script, style, image and font in the pack and refer to it by a relative path; ES module scripts with relative imports, fonts, inline <script> and <style> all work. localStorage, sessionStorage and cookies throw a SecurityError, so a panel keeps its state in memory and loses it on reload. Every panel file is served with this Content-Security-Policy:',
+    '- ui.panels: HTML pages shown as dashboard tabs. A panel runs sandboxed in an opaque origin: no network, no cookies, no storage, no popups or navigation (a link in a panel opens nothing), no access to the dashboard page. Put every script, style, image and font in the pack and refer to it by a relative path; ES module scripts with relative imports, fonts, inline <script> and <style> all work. localStorage, sessionStorage and cookies throw a SecurityError; keep state in the pack store instead (below). Every panel file is served with this Content-Security-Policy:',
     `  ${PACK_PANEL_CONTENT_POLICY}`,
     '',
     'Panel bridge: list the topics a panel needs under its reads in pack.json; the operator sees them before approving. The panel posts {"v":1,"kind":"subscribe","topics":[...]} to window.parent and gets {"v":1,"kind":"hello","granted":[...]}: the subscribed topics that are also in reads, so a topic left out of reads never arrives. Then a {"v":1,"kind":"topic","topic":...,"data":...} message comes for each granted topic, right away and again whenever it changes. Accept messages only when event.source === window.parent. The descriptions in the bridge JSON Schema below give each field\'s units and meaning.',
+    `Pack store: every panel of a pack shares one key/value store kept across reloads, browsers and pack updates, at most ${PACK_DATA_MAX_BYTES} bytes as JSON and deleted when the pack folder is removed. A {"v":1,"kind":"store","data":{...},"error":null} message arrives right after hello (an empty topics list in subscribe is fine for a panel that only stores), and again after each save. Save one key by posting {"v":1,"kind":"store-set","key":"sort","value":"newest"}; a value of null deletes the key, and a value nests at most ${PACK_STORE_MAX_DEPTH} levels deep. A save over the limit is refused: the store message then carries the unchanged data and an error naming the size.`,
     'Each example panel ships the same bridge.js; copy it beside your panel and load it before your own script. It defines window.glimmervoid.subscribe(topics, onTopic) (it calls onTopic("hello", granted) once, then onTopic(topic, data) per topic message), applyTheme(themeData) (pass it the theme topic data; it sets every color as a CSS custom property on the root, such as var(--bg) or var(--state-running)) and element(tag, className, text).',
     '',
     'Examples to copy and adapt:',

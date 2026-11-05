@@ -26,7 +26,7 @@ function packFileUrl(pack: PackOnDisk, accessKey: string, filePath: string): str
 
 export function approvedPackPanels(packs: readonly PackOnDisk[], accessKeyOf: (pack: PackOnDisk) => string): PacksStatus['panels'] {
   return packs.flatMap((pack) => packPanels(pack).map((panel) => ({
-    viewId: `pack:${pack.header.name}/${panel.id}`, label: panel.label, entryUrl: packFileUrl(pack, accessKeyOf(pack), panel.entry),
+    viewId: `pack:${pack.header.name}/${panel.id}`, pack: pack.header.name, label: panel.label, entryUrl: packFileUrl(pack, accessKeyOf(pack), panel.entry),
     iconUrl: panel.icon ? packFileUrl(pack, accessKeyOf(pack), panel.icon) : null, reads: panel.reads,
   })));
 }
