@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { TeamReviewActionRequest, TeamReviewActionResult, TeamReviewStatus, hasRequiredActionHead } from '../team-review.ts';
 import { MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrMergeRequest, MyPrMergeResult, MyPrMergeWhenReadyRequest, MyPrMergeWhenReadyResult, MyPrsStatus } from '../my-prs.ts';
 import { GithubPrsFrame } from '../github-prs.ts';
-import { PrFlowApproveRequest, PrFlowDisposeRequest, PrFlowDisposeResult, PrFlowItemRequest, PrFlowSaveRuleRequest, PrFlowsStatus } from '../pr-flows.ts';
+import { PrActionRunRequest, PrFlowApproveRequest, PrFlowDisposeRequest, PrFlowDisposeResult, PrFlowItemRequest, PrFlowSaveRuleRequest, PrFlowsStatus } from '../pr-flows.ts';
 import { requestId, GithubTeam, PullRequestKey, loose, optionalError } from './control-fields.ts';
 
 export const githubClientVariants = [
@@ -22,6 +22,7 @@ export const githubClientVariants = [
   loose('pr-flow-undo', { ...PrFlowItemRequest.shape, requestId }),
   loose('pr-flow-save-rule', { ...PrFlowSaveRuleRequest.shape, requestId }),
   loose('pr-flow-approve', { ...PrFlowApproveRequest.shape, requestId }),
+  loose('pr-action-run', { ...PrActionRunRequest.shape, requestId }),
 ] as const;
 
 export const githubServerVariants = [

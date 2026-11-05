@@ -6,8 +6,10 @@ import { hasGithubPollingCountdown, githubPollingAgeText, githubPollingErrorNoti
 import type { GithubPollingStatus } from './github-polling-retry-core.ts';
 import type { GithubPollingRefreshRequest } from '#shared/contracts/github-polling.ts';
 import type { MyPr, MyPrsStatus } from '#shared/contracts/my-prs.ts';
+import type { PrActionRunState, PrActionRunView, PrFlowPendingApproval } from '#shared/contracts/pr-flows.ts';
 import { STATES } from '#shared/states.ts';
 import { DEFAULT_REPLY_TIMEOUT_MS, paintActionStatus, requestFailureText } from '../action-status.ts';
+import type { ActionStatusTone } from '../action-status.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden, query } from '../dom-helpers.ts';
 import { buildSessionRow, paintSessionRowStatus } from '../session-row.ts';
@@ -251,9 +253,9 @@ function createReadinessSection(pr: MyPr): HTMLElement | null {
 const dismissDraftsByItemKey = new Map<string, string>();
 const itemStatusByKey = new Map<string, { tone: 'busy' | 'ok' | 'error'; text: string }>();
 
-type ItemRequestType = 'pr-flow-dispose' | 'pr-flow-undo' | 'pr-flow-save-rule' | 'pr-flow-approve';
+type ItemRequestType = 'pr-flow-dispose' | 'pr-flow-undo' | 'pr-flow-save-rule' | 'pr-flow-approve' | 'pr-action-run';
 
-async function sendItemRequest(statusKey: string, busyText: string, type: ItemRequestType, fields: Record<string, string>, doneText = ''): Promise<boolean> {
+async function sendItemRequest(statusKey: string, busyText: string, type: ItemRequestType, fields: Record<string, string | number>, doneText = ''): Promise<boolean> {
   itemStatusByKey.set(statusKey, { tone: 'busy', text: busyText });
   render();
   try {
@@ -360,6 +362,12 @@ function createUndoControl(pr: MyPr, itemKey: string): HTMLElement {
   return actions;
 }
 
+function approvalKindLabel(kind: PrFlowPendingApproval['kind']): string {
+  if (kind === 'source') return 'Source';
+  if (kind === 'action') return 'Action';
+  return 'PR action';
+}
+
 function createPrFlowApprovals(): HTMLElement | null {
   const approvals = myPrsSnapshot().prFlowApprovals;
   if (approvals.length === 0) return null;
@@ -370,7 +378,8 @@ function createPrFlowApprovals(): HTMLElement | null {
     const statusKey = `approve:${approval.fingerprint}`;
     const status = itemStatusByKey.get(statusKey);
     const item = el('li', 'my-pr-thread');
-    item.append(el('p', 'my-pr-thread-meta', `${approval.kind === 'source' ? 'Source' : 'Action'} ${approval.label} (${approval.id}), timeout ${approval.timeoutSeconds}s`));
+    const repos = approval.repos ? `, on ${approval.repos.join(', ')}` : '';
+    item.append(el('p', 'my-pr-thread-meta', `${approvalKindLabel(approval.kind)} ${approval.label} (${approval.id}), timeout ${approval.timeoutSeconds}s${repos}`));
     item.append(el('pre', 'my-pr-thread-excerpt', JSON.stringify(approval.command)));
     const actions = el('div', 'my-pr-item-actions');
     const approve = button({ variant: 'secondary', label: 'Approve', action: 'pr-flow-approve', disabled: status?.tone === 'busy', onClick: () => {
@@ -469,11 +478,59 @@ function createReviewsSection(pr: MyPr): HTMLElement | null {
   return section;
 }
 
+const PR_ACTION_STATE_LABELS: Record<PrActionRunState, string> = { running: 'Running', started: 'Started', done: 'Done', failed: 'Failed', refused: 'Refused', interrupted: 'Interrupted' };
+const PR_ACTION_STATE_TONES: Record<PrActionRunState, ActionStatusTone | null> = { running: 'busy', started: null, done: 'ok', failed: 'error', refused: 'error', interrupted: 'error' };
+const HTTPS_URL_PATTERN = /https:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]]/g;
+
+function textWithHttpsLinks(text: string): Node[] {
+  const nodes: Node[] = [];
+  let consumedUpTo = 0;
+  for (const match of text.matchAll(HTTPS_URL_PATTERN)) {
+    nodes.push(document.createTextNode(text.slice(consumedUpTo, match.index)), externalLink('my-pr-action-link', match[0], match[0]));
+    consumedUpTo = match.index + match[0].length;
+  }
+  nodes.push(document.createTextNode(text.slice(consumedUpTo)));
+  return nodes;
+}
+
+function paintPrActionRun(status: HTMLElement, run: PrActionRunView): void {
+  const stateLabel = PR_ACTION_STATE_LABELS[run.state];
+  const tone = PR_ACTION_STATE_TONES[run.state];
+  paintActionStatus(status, tone, run.message ? `${stateLabel}: ${run.message}` : stateLabel);
+  if (!run.message || (tone === 'error' && document.documentElement.hasAttribute('data-streamer'))) return;
+  const textElement = status.querySelector<HTMLElement>(':scope > .action-status-text') ?? status;
+  textElement.replaceChildren(`${stateLabel}: `, ...textWithHttpsLinks(run.message));
+}
+
+function createPrActionControl(pr: MyPr, action: { id: string; label: string }, run: PrActionRunView | undefined): HTMLElement {
+  const statusKey = `run-pr-action:${pr.key}\n${action.id}`;
+  const request = itemStatusByKey.get(statusKey);
+  const control = el('div', 'my-pr-merge');
+  const isRunning = request?.tone === 'busy' || run?.state === 'running';
+  const runButton = button({ variant: 'secondary', label: action.label, action: 'pr-action-run', disabled: isRunning, onClick: () => {
+    void sendItemRequest(statusKey, 'Running', 'pr-action-run', { repo: pr.repo, number: pr.number, actionId: action.id, head: pr.headRefOid });
+  } });
+  const status = el('span', 'pr-action-status');
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+  if (request || !run) paintActionStatus(status, request?.tone ?? null, request?.text ?? '');
+  if (!request && run) paintPrActionRun(status, run);
+  control.append(runButton, status);
+  return control;
+}
+
+function createPrActionControls(pr: MyPr): HTMLElement[] {
+  const { prActionsByPr, prActionRunsByPr } = myPrsSnapshot();
+  const runs = prActionRunsByPr[pr.key] ?? [];
+  return (prActionsByPr[pr.key] ?? []).map((action) => createPrActionControl(pr, action, runs.find((run) => run.actionId === action.id)));
+}
+
 function createAutomationSection(pr: MyPr): HTMLElement | null {
   const toggleControls = [keepMergeableToggle, mergeWhenReadyToggle].map((toggle) => createToggleControl(pr, toggle)).filter((control) => control !== null);
-  if (toggleControls.length === 0) return null;
+  const controls = [...toggleControls, ...createPrActionControls(pr)];
+  if (controls.length === 0) return null;
   const section = el('section', 'my-pr-automation');
-  section.append(el('h3', 'pr-section-heading', 'Automation'), ...toggleControls);
+  section.append(el('h3', 'pr-section-heading', 'Automation'), ...controls);
   return section;
 }
 

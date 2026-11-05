@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { PrFlowCommand, PrFlowRule } from '../contracts/pr-flows.ts';
+import { PrFlowCommand, PrFlowPrAction, PrFlowRule } from '../contracts/pr-flows.ts';
 
 function prFlowRulesJsonSchema(rulesSchema: z.ZodType): z.core.JSONSchema.BaseSchema {
   return z.toJSONSchema(rulesSchema, {
@@ -323,6 +323,14 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     jsonSchema: z.toJSONSchema(z.array(PrFlowCommand), { io: 'input' }),
     example: [{ id: 'ask-bot', label: 'Ask bot', command: ['gh', 'pr', 'comment', '{prUrl}', '--body', '@review-bot fix {itemPath}:{itemLine}'] }],
     control: 'json', keywords: ['pull requests', 'review items', 'commands'], defaultValue: [], takesEffect: 'now',
+    fileOnlyReason: 'Commands run on this machine, so they are written in config.json and each one waits for your approval in My PRs.', ...FILE_ONLY,
+  },
+  {
+    id: 'file-pr-flows-pr-actions', path: 'prFlows.prActions', title: 'PR flows PR actions', group: 'lanes-team-review',
+    description: 'Commands that act on a whole pull request of yours, shown as a button next to Keep mergeable and Merge when ready and run once per click, never by a rule. Each entry has id, label, command and timeoutSeconds like an action, plus optional repos (owner/name; every repository when absent), expands {headRef} and {baseRef} instead of the item placeholders, gets GLIMMERVOID_PR_HEAD_REF, GLIMMERVOID_PR_BASE_REF and the pull request as GLIMMERVOID_PR_JSON, and waits for your approval in My PRs. Exit 0 is done and non-zero failed, unless stdout prints {"outcome": "done" | "started" | "refused" | "failed", "message"} JSON.',
+    jsonSchema: z.toJSONSchema(z.array(PrFlowPrAction), { io: 'input' }),
+    example: [{ id: 'agent-merge', label: 'Merge via agent', repos: ['acme/app'], command: ['my-merge-trigger', '{prUrl}', '{headRef}'], timeoutSeconds: 60 }],
+    control: 'json', keywords: ['pull requests', 'buttons', 'commands', 'merge'], defaultValue: [], takesEffect: 'now',
     fileOnlyReason: 'Commands run on this machine, so they are written in config.json and each one waits for your approval in My PRs.', ...FILE_ONLY,
   },
   {

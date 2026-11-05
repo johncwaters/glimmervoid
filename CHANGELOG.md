@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **PR actions.** `prFlows.prActions` in config.json adds your own commands as buttons on a pull request in My PRs, next to Keep mergeable and Merge when ready, limited to the repositories in `repos` when you list them. Each one waits for you to approve its exact command once in My PRs, and asks again after any edit. A click runs it once, with no shell and Glimmervoid's secrets removed, passing the pull request as `{prUrl}`, `{repo}`, `{number}`, `{head}`, `{headRef}` and `{baseRef}` and as `GLIMMERVOID_PR_*` and `GLIMMERVOID_PR_JSON` variables, and only on the head you were looking at. Beside the button you see Running, then Done, Started, Refused or Failed with the command's message, and links in it open. The last outcome stays after a restart; a run cut off by a restart shows Interrupted and never runs again on its own.
+
 ### Changed
 
 - **Usage leads with tokens.** The Usage report now has a Tokens / Cost switch next to the period switch, on Tokens by default, and remembers your choice. In Tokens mode the report shows the period's tokens and session count, each agent's tokens and share, daily bars by tokens, totals for processed tokens, cached input, uncached input, output and cache savings, a tokens-by-type bar, and models and sessions ranked by tokens with their estimated cost beside them. The overview's first row shows tokens too. Cost mode shows the report as before, since cost is an estimate against list price.

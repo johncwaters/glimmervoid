@@ -8,7 +8,7 @@ import { GithubPr, GithubPrDetailNode } from '../shared/contracts/github-prs.ts'
 import type { MyPrThread, MyPrThreadNode } from '../shared/contracts/my-prs.ts';
 import { normalizeGithubPr } from '../server/github/core/github-store-core.ts';
 import { myPrFromGithubPr } from '../shared/my-pr-merge.ts';
-import { PrFlowCommand, PrFlowRule, PrFlowSourceOutput, PrFlowsState } from '../shared/contracts/pr-flows.ts';
+import { PrFlowCommand, PrFlowPrAction, PrFlowRule, PrFlowSourceOutput, PrFlowsState } from '../shared/contracts/pr-flows.ts';
 import type { PrFlowsStatus } from '../shared/contracts/pr-flows.ts';
 import { createPrFlowsWiring } from '../server/github/pr-flows-wiring.ts';
 import { createPrFlowsExternal } from '../server/github/pr-flows-external.ts';
@@ -339,7 +339,7 @@ test('a configured action runs on an item by rule or click, shows done or failed
 });
 
 test('an action reporting refused is never taken as done, and a failed rule run is not repeated at the same head after a restart', async () => {
-  const pr = { url: 'https://github.com/acme/app/pull/1', repo: 'acme/app', number: 1, headRefOid: 'b'.repeat(40) };
+  const pr = { url: 'https://github.com/acme/app/pull/1', repo: 'acme/app', number: 1, headRefOid: 'b'.repeat(40), headRefName: 'feature-1', baseRefName: 'main' };
   const [item] = myPrFromGithubPr(GithubPr.parse(normalizeGithubPr(openPr(), 0, [threadNode('t1', 'src/a.ts', 10, 'greptile[bot]', 'Null name')]))).reviewItems;
   assert.ok(item);
   const action = { id: 'fmt', label: 'fmt', command: ['fmt'], timeoutSeconds: 30 };
@@ -373,9 +373,95 @@ test('an action reporting refused is never taken as done, and a failed rule run 
   }
 });
 
+function myPrIn(repo: string, number: number) {
+  const node = GithubPrDetailNode.parse({ ...openPr(), number, url: `https://github.com/${repo}/pull/${number}`, repository: { nameWithOwner: repo, viewerDefaultMergeMethod: 'SQUASH' } });
+  return myPrFromGithubPr(GithubPr.parse(normalizeGithubPr(node, 0, [])));
+}
+
+const NO_GITHUB_WRITES = { replyToReviewThread: async () => ({ ok: true, err: '' }), resolveReviewThread: async () => ({ ok: true, err: '' }), unresolveReviewThread: async () => ({ ok: true, err: '' }) };
+
+test('a PR action shows on its listed repos once approved, runs its exact argv with the PR facts one run at a time, and a run in flight at restart shows interrupted', async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-actions-'));
+  try {
+    const recordPath = path.join(homeDir, 'record.json');
+    const scriptPath = path.join(homeDir, 'trigger.mjs');
+    fs.writeFileSync(scriptPath, [
+      "import fs from 'node:fs';",
+      `fs.writeFileSync(${JSON.stringify(recordPath)}, JSON.stringify({ argv: process.argv.slice(2), env: Object.fromEntries(Object.entries(process.env).filter(([name]) => name.startsWith('GLIMMERVOID_'))) }));`,
+      "console.log(JSON.stringify({ outcome: 'started', message: 'Task https://example.test/tasks/1' }));",
+    ].join('\n'));
+    let prAction: Record<string, unknown> = { id: 'agent-merge', label: 'Merge via agent', repos: ['ACME/app'], command: [process.execPath, scriptPath, '{prUrl}', '{headRef}', '{baseRef}'] };
+    const prs = [myPrIn('acme/app', 1), myPrIn('other/lib', 2)];
+    const head = prs[0]?.headRefOid ?? '';
+    const frames: PrFlowsStatus[] = [];
+    const prFlows = createPrFlowsWiring({
+      statePath: null, openPrs: () => prs, broadcast: (frame) => frames.push(frame), log: console, linkedSession: () => null, appendRule: async () => true,
+      readConfigFile: async () => ({ prFlows: { prActions: [prAction] } }), github: NO_GITHUB_WRITES,
+      external: createPrFlowsExternal({ homeDir, baseEnv: () => ({ ...process.env, GLIMMERVOID_TELEGRAM_BOT_TOKEN: 'secret-token' }) }),
+    });
+    await prFlows.applyRules();
+    const [approval] = prFlows.statusFrame().pendingApprovals;
+    assert.deepEqual([approval?.kind, approval?.repos], ['pr-action', ['acme/app']]);
+    assert.deepEqual(prFlows.statusFrame().prActionsByPr, {});
+    const click = { repo: 'acme/app', number: 1, actionId: 'agent-merge', head };
+    assert.equal((await prFlows.runPrAction(click)).ok, false);
+
+    await prFlows.approve({ fingerprint: approval?.fingerprint ?? '' });
+    const shown = await frameMatching(frames, (frame) => Object.keys(frame.prActionsByPr).length > 0);
+    assert.deepEqual(shown.prActionsByPr, { 'acme/app#1': [{ id: 'agent-merge', label: 'Merge via agent' }] });
+    assert.equal((await prFlows.runPrAction({ ...click, head: 'c'.repeat(40) })).ok, false);
+    assert.equal((await prFlows.runPrAction({ ...click, repo: 'other/lib', number: 2 })).ok, false);
+
+    assert.deepEqual(await prFlows.runPrAction(click), { ok: true });
+    const started = await frameMatching(frames, (frame) => (frame.prActionRunsByPr['acme/app#1'] ?? []).some((run) => run.state === 'started'));
+    assert.deepEqual(started.prActionRunsByPr['acme/app#1'], [{ actionId: 'agent-merge', label: 'Merge via agent', state: 'started', message: 'Task https://example.test/tasks/1' }]);
+    const record = z.object({ argv: z.array(z.string()), env: z.record(z.string(), z.string()) }).parse(JSON.parse(fs.readFileSync(recordPath, 'utf8')));
+    assert.deepEqual(record.argv, ['https://github.com/acme/app/pull/1', 'feature-1', 'main']);
+    assert.deepEqual([record.env.GLIMMERVOID_PR_HEAD, record.env.GLIMMERVOID_PR_HEAD_REF, record.env.GLIMMERVOID_PR_BASE_REF, record.env.GLIMMERVOID_TELEGRAM_BOT_TOKEN], [head, 'feature-1', 'main', undefined]);
+    const prJson = z.looseObject({ number: z.number() }).parse(JSON.parse(record.env.GLIMMERVOID_PR_JSON ?? ''));
+    assert.deepEqual([prJson.number, 'threads' in prJson, 'reviewItems' in prJson], [1, false, false]);
+
+    prAction = { ...prAction, command: [process.execPath, scriptPath, '{prUrl}', '--edited'] };
+    await prFlows.applyRules();
+    assert.deepEqual(prFlows.statusFrame().prActionsByPr, {});
+  } finally {
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  }
+
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-actions-restart-'));
+  try {
+    let runCount = 0;
+    const pendingRuns: Array<() => void> = [];
+    const pr = myPrIn('acme/app', 1);
+    const frames: PrFlowsStatus[] = [];
+    const wiringAt = () => createPrFlowsWiring({
+      statePath: path.join(stateDir, 'pr-flows-state.json'), openPrs: () => [pr], broadcast: (frame) => frames.push(frame), log: console, linkedSession: () => null, appendRule: async () => true,
+      readConfigFile: async () => ({ prFlows: { prActions: [{ id: 'slow', label: 'Slow', command: ['slow'] }] } }), github: NO_GITHUB_WRITES,
+      external: { runSource: async () => ({ ok: false, error: '' }), runAction: () => new Promise((resolve) => { runCount += 1; pendingRuns.push(() => resolve({ outcome: 'failed', message: 'boom' })); }) },
+    });
+    const first = wiringAt();
+    await first.applyRules();
+    for (const approval of first.statusFrame().pendingApprovals) await first.approve({ fingerprint: approval.fingerprint });
+    const click = { repo: 'acme/app', number: 1, actionId: 'slow', head: pr.headRefOid };
+    assert.deepEqual(await first.runPrAction(click), { ok: true });
+    assert.match((await first.runPrAction(click)).error ?? '', /already running/);
+    pendingRuns.shift()?.();
+    await frameMatching(frames, (frame) => (frame.prActionRunsByPr['acme/app#1'] ?? []).some((run) => run.state === 'failed'));
+    assert.deepEqual(await first.runPrAction(click), { ok: true });
+    assert.equal(runCount, 2);
+
+    const restarted = wiringAt();
+    await restarted.applyRules();
+    assert.deepEqual(restarted.statusFrame().prActionRunsByPr['acme/app#1'], [{ actionId: 'slow', label: 'Slow', state: 'interrupted', message: 'Glimmervoid restarted' }]);
+    assert.equal(runCount, 2);
+  } finally {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
 test('an agent reads each PR flows setting with its JSON Schema and a valid example, and pr-flows check names entries, runs sources and prints actions unrun', async () => {
   const view = configFileViewOf('config.json', DEFAULT_CONFIG, {}, false);
-  const schemaOf = { 'prFlows.sources': z.array(PrFlowCommand), 'prFlows.actions': z.array(PrFlowCommand), 'prFlows.rules': z.array(PrFlowRule), 'prFlows.repoRules': z.record(z.string(), z.array(PrFlowRule)) };
+  const schemaOf = { 'prFlows.sources': z.array(PrFlowCommand), 'prFlows.actions': z.array(PrFlowCommand), 'prFlows.prActions': z.array(PrFlowPrAction), 'prFlows.rules': z.array(PrFlowRule), 'prFlows.repoRules': z.record(z.string(), z.array(PrFlowRule)) };
   for (const [settingPath, schema] of Object.entries(schemaOf)) {
     const reply = readSettingsForAgent({ command: 'get', path: settingPath }, view);
     assert.ok(reply.ok && 'readout' in reply);

@@ -1,9 +1,9 @@
 import crypto from 'node:crypto';
 import { z } from 'zod';
-import type { MyPrThread } from '../../../shared/contracts/my-prs.ts';
+import type { MyPr, MyPrThread } from '../../../shared/contracts/my-prs.ts';
 import type { TeamReviewThreadNode } from '../../../shared/contracts/team-review.ts';
-import { PrFlowCommand, PrFlowRule, PrFlowsSettings } from '../../../shared/contracts/pr-flows.ts';
-import type { PrFlowPendingApproval, PrFlowSourceFinding, PrFlowActionRef, PrFlowDisposition, PrFlowHandled, PrFlowItem, PrFlowPriority, PrFlowSource, PrFlowsState } from '../../../shared/contracts/pr-flows.ts';
+import { PrFlowCommand, PrFlowPrAction, PrFlowRule, PrFlowsSettings } from '../../../shared/contracts/pr-flows.ts';
+import type { PrActionRunRecord, PrActionRunView, PrFlowPendingApproval, PrFlowSourceFinding, PrFlowActionRef, PrFlowDisposition, PrFlowHandled, PrFlowItem, PrFlowPriority, PrFlowSource, PrFlowsState } from '../../../shared/contracts/pr-flows.ts';
 
 type PrFlowCandidate = {
   path: string; lineStart: number | null; lineEnd: number | null; priority: PrFlowPriority; source: Omit<PrFlowSource, 'excerpt' | 'dismissalKey'>; body: string; url: string | null;
@@ -153,6 +153,7 @@ export function withOnlyOpenPrs(state: PrFlowsState, openPrKeys: ReadonlySet<str
     handledByPr: Object.fromEntries(Object.entries(state.handledByPr).filter(isOpen)),
     reopenedByPr: Object.fromEntries(Object.entries(state.reopenedByPr).filter(isOpen)),
     ruleRunsByPr: Object.fromEntries(Object.entries(state.ruleRunsByPr).filter(isOpen)),
+    prActionRunByPr: Object.fromEntries(Object.entries(state.prActionRunByPr).filter(isOpen)),
   };
 }
 
@@ -186,12 +187,12 @@ export function prFlowRules(configFile: unknown, repo: string): { rules: PrFlowR
 }
 
 type PrFlowCommandKind = PrFlowPendingApproval['kind'];
-type PrFlowCommands = { sources: PrFlowCommand[]; actions: PrFlowCommand[]; warnings: string[] };
+type PrFlowCommands = { sources: PrFlowCommand[]; actions: PrFlowCommand[]; prActions: PrFlowPrAction[]; warnings: string[] };
 
-function parsedCommandList(entries: readonly unknown[], label: string, warnings: string[]): PrFlowCommand[] {
+function parsedCommandList<Command extends PrFlowCommand>(schema: z.ZodType<Command>, entries: readonly unknown[], label: string, warnings: string[]): Command[] {
   const seenIds = new Set<string>();
   return entries.flatMap((entry, index) => {
-    const parsed = PrFlowCommand.safeParse(entry);
+    const parsed = schema.safeParse(entry);
     if (!parsed.success) {
       warnings.push(`${label}[${index}] was skipped: ${parsed.error.issues[0]?.message ?? 'invalid entry'}`);
       return [];
@@ -208,25 +209,78 @@ function parsedCommandList(entries: readonly unknown[], label: string, warnings:
 export function prFlowCommands(configFile: unknown): PrFlowCommands {
   const raw = ConfigFileWithPrFlows.safeParse(configFile).data?.prFlows;
   const settings = raw === undefined || raw === null ? null : PrFlowsSettings.safeParse(raw).data;
-  if (!settings) return { sources: [], actions: [], warnings: [] };
+  if (!settings) return { sources: [], actions: [], prActions: [], warnings: [] };
   const warnings: string[] = [];
-  return { sources: parsedCommandList(settings.sources ?? [], 'prFlows.sources', warnings), actions: parsedCommandList(settings.actions ?? [], 'prFlows.actions', warnings), warnings };
+  return {
+    sources: parsedCommandList(PrFlowCommand, settings.sources ?? [], 'prFlows.sources', warnings),
+    actions: parsedCommandList(PrFlowCommand, settings.actions ?? [], 'prFlows.actions', warnings),
+    prActions: parsedCommandList(PrFlowPrAction, settings.prActions ?? [], 'prFlows.prActions', warnings),
+    warnings,
+  };
 }
 
-export function commandFingerprint(kind: PrFlowCommandKind, command: PrFlowCommand): string {
-  return crypto.createHash('sha256').update(JSON.stringify([kind, command.id, command.command, command.timeoutSeconds])).digest('hex');
+function normalizedRepos(command: PrFlowCommand | PrFlowPrAction): string[] | null {
+  if (!('repos' in command) || command.repos === undefined) return null;
+  return [...new Set(command.repos.map((repo) => repo.toLowerCase()))].sort();
 }
 
-export function pendingApprovals(commands: Pick<PrFlowCommands, 'sources' | 'actions'>, approvedFingerprints: ReadonlySet<string>): PrFlowPendingApproval[] {
-  const entries = [
+export function commandFingerprint(kind: PrFlowCommandKind, command: PrFlowCommand | PrFlowPrAction): string {
+  const repos = normalizedRepos(command);
+  const fingerprinted = [kind, command.id, command.command, command.timeoutSeconds, ...(repos === null ? [] : [repos])];
+  return crypto.createHash('sha256').update(JSON.stringify(fingerprinted)).digest('hex');
+}
+
+export function pendingApprovals(commands: Pick<PrFlowCommands, 'sources' | 'actions' | 'prActions'>, approvedFingerprints: ReadonlySet<string>): PrFlowPendingApproval[] {
+  const entries: { kind: PrFlowCommandKind; command: PrFlowCommand | PrFlowPrAction }[] = [
     ...commands.sources.map((command) => ({ kind: 'source' as const, command })),
     ...commands.actions.map((command) => ({ kind: 'action' as const, command })),
+    ...commands.prActions.map((command) => ({ kind: 'pr-action' as const, command })),
   ];
   return entries.flatMap(({ kind, command }) => {
     const fingerprint = commandFingerprint(kind, command);
     if (approvedFingerprints.has(fingerprint)) return [];
-    return [{ kind, id: command.id, label: command.label, command: command.command, timeoutSeconds: command.timeoutSeconds, fingerprint }];
+    const repos = normalizedRepos(command);
+    return [{ kind, id: command.id, label: command.label, command: command.command, timeoutSeconds: command.timeoutSeconds, fingerprint, ...(repos === null ? {} : { repos }) }];
   });
+}
+
+export function prActionsForRepo(prActions: readonly PrFlowPrAction[], repo: string): PrFlowPrAction[] {
+  const wantedRepo = repo.toLowerCase();
+  return prActions.filter((action) => action.repos === undefined || action.repos.some((listedRepo) => listedRepo.toLowerCase() === wantedRepo));
+}
+
+export function prActionPlaceholderValues(pr: Pick<MyPr, 'url' | 'repo' | 'number' | 'headRefOid' | 'headRefName' | 'baseRefName'>): Record<'prUrl' | 'repo' | 'number' | 'head' | 'headRef' | 'baseRef', string> {
+  return { prUrl: pr.url, repo: pr.repo, number: String(pr.number), head: pr.headRefOid, headRef: pr.headRefName, baseRef: pr.baseRefName };
+}
+
+export function withPrActionRun(state: PrFlowsState, prKey: string, run: PrActionRunRecord): PrFlowsState {
+  return { ...state, prActionRunByPr: { ...state.prActionRunByPr, [prKey]: { ...state.prActionRunByPr[prKey], [run.actionId]: run } } };
+}
+
+export function prActionRunAfterExit(run: PrActionRunRecord, output: { outcome: 'done' | 'started' | 'refused' | 'failed'; message: string }, nowMs: number): PrActionRunRecord {
+  if (output.outcome === 'started') return { ...run, state: 'started', message: output.message };
+  return { ...run, state: output.outcome, message: output.message, finishedAt: nowMs, reportToken: null };
+}
+
+const INTERRUPTED_MESSAGE = 'Glimmervoid restarted';
+
+function interruptedOnLoad(run: PrActionRunRecord): PrActionRunRecord {
+  if (run.state !== 'running') return run;
+  return { ...run, state: 'interrupted', message: INTERRUPTED_MESSAGE, reportToken: null };
+}
+
+export function withInterruptedRuns(state: PrFlowsState): PrFlowsState {
+  const prActionRunByPr = Object.fromEntries(Object.entries(state.prActionRunByPr).map(([prKey, runs]) => [
+    prKey, Object.fromEntries(Object.entries(runs).map(([actionId, run]) => [actionId, interruptedOnLoad(run)])),
+  ]));
+  return { ...state, prActionRunByPr };
+}
+
+export function visibleRun(run: PrActionRunRecord | undefined, pr: Pick<MyPr, 'headRefOid'>): PrActionRunView | null {
+  if (!run) return null;
+  const isLive = run.state === 'running' || run.state === 'started';
+  if (!isLive && run.head !== pr.headRefOid) return null;
+  return { actionId: run.actionId, label: run.label, state: run.state, message: run.message };
 }
 
 const PLACEHOLDER_PATTERN = /\{([A-Za-z][A-Za-z0-9_]*)\}/g;

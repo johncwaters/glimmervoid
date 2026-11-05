@@ -47,6 +47,11 @@ export const PrFlowCommand = z.strictObject({
 });
 export type PrFlowCommand = z.infer<typeof PrFlowCommand>;
 
+const RepositoryName = z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, { error: 'a repository is owner/name' });
+
+export const PrFlowPrAction = PrFlowCommand.extend({ repos: z.array(RepositoryName).min(1).optional() });
+export type PrFlowPrAction = z.infer<typeof PrFlowPrAction>;
+
 export const PrFlowSourceFinding = z.strictObject({
   path: z.string().min(1).max(500).regex(ONE_PRINTABLE_LINE, { error: 'a finding path must be one line with no control characters' }),
   lineStart: z.number().int().positive().nullable(), lineEnd: z.number().int().positive().nullable(),
@@ -77,6 +82,7 @@ export const ReportedPrFlowActionOutcome = z.looseObject({
 export const PrFlowsSettings = z.looseObject({
   sources: z.array(z.unknown(), { error: 'prFlows.sources must be an array' }).optional(),
   actions: z.array(z.unknown(), { error: 'prFlows.actions must be an array' }).optional(),
+  prActions: z.array(z.unknown(), { error: 'prFlows.prActions must be an array' }).optional(),
   rules: z.array(z.unknown(), { error: 'prFlows.rules must be an array' }).optional(),
   repoRules: z.record(z.string(), z.unknown(), { error: 'prFlows.repoRules must be an object of repository names' }).optional(),
 });
@@ -87,16 +93,27 @@ export const PrFlowHandled = z.strictObject({
 });
 export type PrFlowHandled = z.infer<typeof PrFlowHandled>;
 
+export const PrActionRunState = z.enum(['running', 'started', 'done', 'failed', 'refused', 'interrupted']);
+export type PrActionRunState = z.infer<typeof PrActionRunState>;
+
+export const PrActionRunRecord = z.strictObject({
+  runId: z.string().min(1), actionId: z.string().min(1), label: z.string(), head: z.string(), startedAt: z.number().finite(), finishedAt: z.number().finite().nullable(),
+  state: PrActionRunState, message: z.string(), reportToken: z.string().min(1).nullable(),
+});
+export type PrActionRunRecord = z.infer<typeof PrActionRunRecord>;
+
 export const PrFlowsState = z.strictObject({
   handledByPr: z.record(z.string(), z.array(PrFlowHandled)),
   reopenedByPr: z.record(z.string(), z.array(z.string().min(1))),
   approvedFingerprints: z.array(z.string().min(1)).default([]),
   ruleRunsByPr: z.record(z.string(), z.array(z.strictObject({ itemKey: z.string().min(1), actionId: z.string().min(1), head: z.string() }))).default({}),
+  prActionRunByPr: z.record(z.string(), z.record(z.string(), PrActionRunRecord)).default({}),
 });
 export type PrFlowsState = z.infer<typeof PrFlowsState>;
 
 export const PrFlowPendingApproval = z.strictObject({
-  kind: z.enum(['source', 'action']), id: z.string(), label: z.string(), command: z.array(z.string()), timeoutSeconds: z.number(), fingerprint: z.string().min(1),
+  kind: z.enum(['source', 'action', 'pr-action']), id: z.string(), label: z.string(), command: z.array(z.string()), timeoutSeconds: z.number(), fingerprint: z.string().min(1),
+  repos: z.array(z.string()).optional(),
 });
 export type PrFlowPendingApproval = z.infer<typeof PrFlowPendingApproval>;
 
@@ -111,6 +128,9 @@ export type PrFlowActionRunStatus = z.infer<typeof PrFlowActionRunStatus>;
 const PrFlowActionChoice = z.strictObject({ id: z.string(), label: z.string() });
 export type PrFlowActionChoice = z.infer<typeof PrFlowActionChoice>;
 
+export const PrActionRunView = z.strictObject({ actionId: z.string(), label: z.string(), state: PrActionRunState, message: z.string() });
+export type PrActionRunView = z.infer<typeof PrActionRunView>;
+
 export const PrFlowsStatus = z.looseObject({
   type: z.literal('pr-flows-status'), handledByPr: PrFlowsState.shape.handledByPr, warnings: z.array(z.string()),
   pendingApprovals: z.array(PrFlowPendingApproval).default([]),
@@ -118,10 +138,17 @@ export const PrFlowsStatus = z.looseObject({
   reviewItemsByPr: z.record(z.string(), z.array(PrFlowItem)).default({}),
   actions: z.array(PrFlowActionChoice).default([]),
   actionRunsByPr: z.record(z.string(), z.array(PrFlowActionRunStatus)).default({}),
+  prActionsByPr: z.record(z.string(), z.array(PrFlowActionChoice)).default({}),
+  prActionRunsByPr: z.record(z.string(), z.array(PrActionRunView)).default({}),
 });
 export type PrFlowsStatus = z.infer<typeof PrFlowsStatus>;
 export const PrFlowApproveRequest = z.strictObject({ fingerprint: z.string().min(1).max(128) });
 export type PrFlowApproveRequest = z.infer<typeof PrFlowApproveRequest>;
+
+export const PrActionRunRequest = z.strictObject({
+  repo: RepositoryName, number: z.number().int().positive(), actionId: z.string().regex(PR_FLOW_ID), head: z.string().min(1).max(64),
+});
+export type PrActionRunRequest = z.infer<typeof PrActionRunRequest>;
 
 export const PrFlowItemRequest = z.strictObject({ prKey: z.string().min(1), itemKey: z.string().min(1) });
 export type PrFlowItemRequest = z.infer<typeof PrFlowItemRequest>;

@@ -1,9 +1,10 @@
+import crypto from 'node:crypto';
 import type { MyPr } from '../../shared/contracts/my-prs.ts';
 import { PrFlowRule, PrFlowsState } from '../../shared/contracts/pr-flows.ts';
-import type { PrFlowActionChoice, PrFlowActionOutput, PrFlowActionRunStatus, PrFlowApproveRequest, PrFlowCommand, PrFlowDisposeRequest, PrFlowDisposeResult, PrFlowItem, PrFlowItemRequest, PrFlowPendingApproval, PrFlowSaveRuleRequest, PrFlowSourceOutput, PrFlowSourceRunStatus, PrFlowsStatus } from '../../shared/contracts/pr-flows.ts';
+import type { PrActionRunRecord, PrActionRunRequest, PrActionRunView, PrFlowPrAction, PrFlowActionChoice, PrFlowActionOutput, PrFlowActionRunStatus, PrFlowApproveRequest, PrFlowCommand, PrFlowDisposeRequest, PrFlowDisposeResult, PrFlowItem, PrFlowItemRequest, PrFlowPendingApproval, PrFlowSaveRuleRequest, PrFlowSourceOutput, PrFlowSourceRunStatus, PrFlowsStatus } from '../../shared/contracts/pr-flows.ts';
 import { createJsonStateStore } from '../json-file.ts';
 import { fencedUntrusted } from '../lanes/core/lane-report-core.ts';
-import { branchMovedNote, commandFingerprint, fixLocallyPrompt, itemLocation, mergeItems, pendingApprovals, plannedActions, prFlowCommands, prFlowRules, savedRuleFor, shouldTellBranchMoved, withRuleRun, sourceCandidates, threadCandidates, unknownActionWarnings, withHandled, withOnlyOpenPrs, withReopened } from './core/pr-flows-core.ts';
+import { branchMovedNote, commandFingerprint, prActionRunAfterExit, prActionsForRepo, visibleRun, withInterruptedRuns, withPrActionRun, fixLocallyPrompt, itemLocation, mergeItems, pendingApprovals, plannedActions, prFlowCommands, prFlowRules, savedRuleFor, shouldTellBranchMoved, withRuleRun, sourceCandidates, threadCandidates, unknownActionWarnings, withHandled, withOnlyOpenPrs, withReopened } from './core/pr-flows-core.ts';
 import type { PrFlowsExternal } from './pr-flows-external.ts';
 
 const UNTRUSTED_COMMENT_MAX_CHARS = 4000;
@@ -44,10 +45,11 @@ const FAILED_SOURCE_RETRY_MS = 5 * 60 * 1000;
 const BRANCH_MOVED_WINDOW_MS = 10 * 60 * 1000;
 
 function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile, appendRule, github, external = NO_EXTERNAL_RUNNER, broadcast, log, now = Date.now }: PrFlowsWiringOptions) {
-  let state: PrFlowsState = { handledByPr: {}, reopenedByPr: {}, approvedFingerprints: [], ruleRunsByPr: {} };
+  let state: PrFlowsState = { handledByPr: {}, reopenedByPr: {}, approvedFingerprints: [], ruleRunsByPr: {}, prActionRunByPr: {} };
   let warnings: string[] = [];
   let approvals: PrFlowPendingApproval[] = [];
   let runnableActions: PrFlowActionChoice[] = [];
+  let approvedPrActions: PrFlowPrAction[] = [];
   const actionRunsByPr = new Map<string, ActionRun[]>();
   let lastFrameText = '';
   const sourceRunsByPr = new Map<string, Map<string, SourceRun>>();
@@ -55,7 +57,7 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
   const store = createJsonStateStore({
     name: 'pr flows', filePath: statePath,
     parse: (raw) => PrFlowsState.safeParse(raw).data ?? null,
-    adopt: (loadedState) => { state = loadedState ?? state; },
+    adopt: (loadedState) => { state = loadedState ? withInterruptedRuns(loadedState) : state; },
     warn: (message, fields) => log.warn(`[pr-flows] ${message} ${JSON.stringify(fields)}`),
   });
   const loaded = store.load();
@@ -73,7 +75,13 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
     const sourceRunsByPrKey: Record<string, PrFlowSourceRunStatus[]> = {};
     const reviewItemsByPr: Record<string, PrFlowItem[]> = {};
     const actionRunsByPrKey: Record<string, PrFlowActionRunStatus[]> = {};
+    const prActionsByPr: Record<string, PrFlowActionChoice[]> = {};
+    const prActionRunsByPr: Record<string, PrActionRunView[]> = {};
     for (const pr of openPrs()) {
+      const prActionChoices = prActionsForRepo(approvedPrActions, pr.repo).map(({ id, label }) => ({ id, label }));
+      if (prActionChoices.length > 0) prActionsByPr[pr.key] = prActionChoices;
+      const prActionRuns = Object.values(state.prActionRunByPr[pr.key] ?? {}).flatMap((run) => visibleRun(run, pr) ?? []);
+      if (prActionRuns.length > 0) prActionRunsByPr[pr.key] = prActionRuns;
       const actionRuns = actionRunsByPr.get(pr.key) ?? [];
       if (actionRuns.length > 0) actionRunsByPrKey[pr.key] = actionRuns.map(({ itemKey, actionId, label, state: runState, message }) => ({ itemKey, actionId, label, state: runState, message }));
       const runs = [...(sourceRunsByPr.get(pr.key)?.values() ?? [])];
@@ -83,7 +91,7 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
     }
     return {
       type: 'pr-flows-status', handledByPr: state.handledByPr, warnings, pendingApprovals: approvals, sourceRunsByPr: sourceRunsByPrKey, reviewItemsByPr,
-      actions: runnableActions, actionRunsByPr: actionRunsByPrKey,
+      actions: runnableActions, actionRunsByPr: actionRunsByPrKey, prActionsByPr, prActionRunsByPr,
     };
   }
 
@@ -174,6 +182,30 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
     if (disposal.ruleName !== null) await persist(withRuleRun(state, pr.key, { itemKey: item.key, actionId, head: pr.headRefOid }));
     broadcastIfChanged();
     void external.runAction(action, pr, item).then((output) => finishActionRun(disposal, item, run, output));
+    return { ok: true };
+  }
+
+  async function finishPrActionRun(prKey: string, startedRun: PrActionRunRecord, output: PrFlowActionOutput): Promise<void> {
+    const current = state.prActionRunByPr[prKey]?.[startedRun.actionId];
+    if (current?.runId !== startedRun.runId || current.state !== 'running') return;
+    await persist(withPrActionRun(state, prKey, prActionRunAfterExit(current, output, now())));
+  }
+
+  async function runPrAction(request: PrActionRunRequest): Promise<PrFlowDisposeResult> {
+    await loaded;
+    const configFile = await readConfigFile();
+    const pr = openPrs().find((candidate) => candidate.repo.toLowerCase() === request.repo.toLowerCase() && candidate.number === request.number);
+    if (!pr) return { ok: false, error: 'That pull request is no longer open.' };
+    if (pr.headRefOid !== request.head) return { ok: false, error: 'The pull request has a new head since this view loaded; check it and click again.' };
+    const approved = new Set(state.approvedFingerprints);
+    const action = prActionsForRepo(prFlowCommands(configFile).prActions, pr.repo).find((candidate) => candidate.id === request.actionId && approved.has(commandFingerprint('pr-action', candidate)));
+    if (!action) return { ok: false, error: 'That action is not in prFlows.prActions for this repository, or it waits for your approval in My PRs.' };
+    if (state.prActionRunByPr[pr.key]?.[action.id]?.state === 'running') return { ok: false, error: `${action.label} is already running on this pull request.` };
+    const run: PrActionRunRecord = {
+      runId: crypto.randomUUID(), actionId: action.id, label: action.label, head: pr.headRefOid, startedAt: now(), finishedAt: null, state: 'running', message: '', reportToken: null,
+    };
+    await persist(withPrActionRun(state, pr.key, run));
+    void external.runAction(action, pr).then((output) => finishPrActionRun(pr.key, run, output));
     return { ok: true };
   }
 
@@ -320,6 +352,7 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
     const prs = openPrs();
     forgetUnconfiguredSourceRuns(new Set(prs.map((pr) => pr.key)), commands.sources, approved);
     approvals = pendingApprovals(commands, approved);
+    approvedPrActions = commands.prActions.filter((action) => approved.has(commandFingerprint('pr-action', action)));
     runnableActions = commands.actions.filter((action) => approved.has(commandFingerprint('action', action))).map(({ id, label }) => ({ id, label }));
     const runnableActionIds = new Set(runnableActions.map((action) => action.id));
     for (const pr of prs) {
@@ -338,7 +371,7 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
     broadcastIfChanged();
   }
 
-  return { statusFrame, dispose, undo, saveRule, approve, applyRules };
+  return { statusFrame, dispose, undo, saveRule, approve, applyRules, runPrAction };
 }
 
 type PrFlowsWiring = ReturnType<typeof createPrFlowsWiring>;
