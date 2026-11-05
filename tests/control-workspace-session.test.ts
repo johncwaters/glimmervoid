@@ -64,13 +64,15 @@ test('add-session for a shell with no folder runs it in the home folder', () => 
   assert.equal(config.projects[0]?.agent, 'shell');
 });
 
-test('quick-session copies a workspace session under the next free name, without its conversation', () => {
+test('quick-session copies a workspace session under the next free name and names a single-repo copy after its folder, without its conversation', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-control-workspace-'));
   try {
     const first = path.join(root, 'first');
     const second = path.join(root, 'second');
+    const unnameableFolder = path.join(root, 'my+app');
     fs.mkdirSync(first);
     fs.mkdirSync(second);
+    fs.mkdirSync(unnameableFolder);
     const worktreeRoot = path.join(root, 'worktrees');
     const source: ProjectEntry = {
       id: 'aaaaaaaa-source',
@@ -83,12 +85,17 @@ test('quick-session copies a workspace session under the next free name, without
       resumeSessionId: 'conversation-of-the-source',
       wasWorking: true,
     };
-    const config: { projects: ProjectEntry[]; worktreeRoot: string } = { projects: [source], worktreeRoot };
+    const renamedSource: ProjectEntry = { id: 'cccccccc-renamed', name: 'Fix the login page', path: first };
+    const unnameableSource: ProjectEntry = { id: 'eeeeeeee-unnameable', name: 'My App', path: unnameableFolder };
+    const config: { projects: ProjectEntry[]; worktreeRoot: string } = { projects: [source, renamedSource, unnameableSource], worktreeRoot };
     const sourceSession = new Session({ id: source.id, name: source.name, path: source.path, workspaceRepos: source.repos, dangerouslySkipPermissions: true, ptySpawn: () => fakePty() });
-    const server = createControlServer(controlDeps(config, { sessions: new Map([[source.id, sourceSession]]), generateProjectId: () => 'bbbbbbbb-copy' }));
+    const renamedSession = new Session({ id: renamedSource.id, name: renamedSource.name, path: first, ptySpawn: () => fakePty() });
+    const unnameableSession = new Session({ id: unnameableSource.id, name: unnameableSource.name, path: unnameableFolder, ptySpawn: () => fakePty() });
+    const copyIds = ['bbbbbbbb-copy', 'dddddddd-copy', 'ffffffff-copy'];
+    const server = createControlServer(controlDeps(config, { sessions: new Map([[source.id, sourceSession], [renamedSource.id, renamedSession], [unnameableSource.id, unnameableSession]]), generateProjectId: () => copyIds.shift() ?? 'unexpected-copy' }));
     const connection = connectControl<{ type: string; requestId?: string; ok?: boolean; sessionId?: string }>(server);
     connection.send({ type: 'quick-session', id: source.id, requestId: 'q1' });
-    assert.deepEqual(config.projects[1], {
+    assert.deepEqual(config.projects[3], {
       baseBranch: 'staging',
       id: 'bbbbbbbb-copy',
       name: 'Team Work',
@@ -97,6 +104,10 @@ test('quick-session copies a workspace session under the next free name, without
       dangerouslySkipPermissions: true,
     });
     assert.deepEqual(connection.sent.find((frame) => frame.requestId === 'q1'), { type: 'add-session-result', requestId: 'q1', ok: true, error: null, sessionId: 'bbbbbbbb-copy' });
+    connection.send({ type: 'quick-session', id: renamedSource.id, requestId: 'q2' });
+    assert.equal(config.projects[4]?.name, 'first');
+    connection.send({ type: 'quick-session', id: unnameableSource.id, requestId: 'q3' });
+    assert.equal(config.projects[5]?.name, 'My App (2)');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

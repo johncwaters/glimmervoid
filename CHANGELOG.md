@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A quick session gets a fresh name that can still change.** The Add a session like the one you are in shortcut used to copy the current session's name, so a copy of a session that had already been renamed after its task kept that title and was never renamed again. The new session is now named after its project folder, like any new session, and gets its own name from its first prompts. A copy of a multi-repository workspace still keeps the workspace name you typed.
 - **A board box drawn on top of a page box now covers it.** A page box's live preview used to paint over every other box, note and plan step on the board; now anything drawn after the page box and overlapping it shows on top, the same way overlapping boxes already stack.
 - On the phone Focus list, tapping a session's board or pull request line opens that session instead of the board or pull request. The links still show on the row; open a board from Boards.
 

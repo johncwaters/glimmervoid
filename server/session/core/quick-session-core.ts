@@ -1,4 +1,6 @@
+import path from 'node:path';
 import type { ProjectConfig } from '../../../shared/contracts/config.ts';
+import { SESSION_NAME_PATTERN } from '../../../shared/contracts/session.ts';
 import { nextSuggestedName } from '../../../shared/session-naming.ts';
 
 interface LiveSessionSettings {
@@ -17,6 +19,8 @@ interface QuickSessionRequest {
   dangerouslySkipPermissions?: boolean;
   environment?: string;
 }
+
+type UnnamedQuickSessionRequest = Omit<QuickSessionRequest, 'name'>;
 
 interface QuickSessionPlan {
   request: QuickSessionRequest;
@@ -39,10 +43,9 @@ function runSettingsOf(project: ProjectConfig): Partial<ProjectConfig> {
   return runSettings;
 }
 
-function requestFromLiveSession(live: LiveSessionSettings, name: string): QuickSessionRequest {
+function requestFromLiveSession(live: LiveSessionSettings): UnnamedQuickSessionRequest {
   const repos = live.workspaceRepos && live.workspaceRepos.length >= 2 ? [...live.workspaceRepos] : undefined;
   return {
-    name,
     path: repos?.[0] ?? live.path,
     repos,
     agent: live.agentId,
@@ -50,9 +53,8 @@ function requestFromLiveSession(live: LiveSessionSettings, name: string): QuickS
   };
 }
 
-function requestFromProject(project: ProjectConfig, name: string): QuickSessionRequest {
+function requestFromProject(project: ProjectConfig): UnnamedQuickSessionRequest {
   return {
-    name,
     path: project.repos?.[0] ?? project.path,
     repos: project.repos ? [...project.repos] : undefined,
     agent: project.agent,
@@ -61,8 +63,14 @@ function requestFromProject(project: ProjectConfig, name: string): QuickSessionR
   };
 }
 
+function folderSessionName(request: UnnamedQuickSessionRequest, sessionNames: readonly string[]): string | null {
+  if (request.repos) return null;
+  const folderName = nextSuggestedName(path.basename(request.path), sessionNames);
+  return SESSION_NAME_PATTERN.test(folderName) ? folderName : null;
+}
+
 export function planQuickSession({ live, project, sessionNames }: { live: LiveSessionSettings; project: ProjectConfig | null; sessionNames: readonly string[] }): QuickSessionPlan {
-  const name = nextSuggestedName(autoNameBase(live.name), sessionNames);
-  if (!project) return { request: requestFromLiveSession(live, name), runSettings: {} };
-  return { request: requestFromProject(project, name), runSettings: runSettingsOf(project) };
+  const unnamedRequest = project ? requestFromProject(project) : requestFromLiveSession(live);
+  const name = folderSessionName(unnamedRequest, sessionNames) ?? nextSuggestedName(autoNameBase(live.name), sessionNames);
+  return { request: { ...unnamedRequest, name }, runSettings: project ? runSettingsOf(project) : {} };
 }
