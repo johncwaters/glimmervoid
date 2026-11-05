@@ -25,6 +25,7 @@ import Animals from './Animals.astro';
   import '../lib/zod-jitless.ts';
   import { mountCelebrationTray, queueMergeCelebration } from '../../../public/merge-celebration.ts';
   import { markWhileOnScreen } from '../lib/dom.ts';
+  import type { OutlineIconButton } from '../../../public/ui/button.ts';
 
   const DEMO_PULL_REQUEST_TITLES = ['Fix the auth redirect loop', 'Stabilize the flaky upload test', 'Migrate billing to the new ledger', 'Bump Node to 22', 'Rename the color tokens'];
   const tray = document.getElementById('celebration-tray');
@@ -42,7 +43,11 @@ import Animals from './Animals.astro';
   const demo = document.getElementById('celebration-demo');
   if (demo) markWhileOnScreen(demo);
   if (tray && trophyButton instanceof HTMLButtonElement && count && queueButton) {
-    mountCelebrationTray(tray, trophyButton, count);
+    const trophyToggle: OutlineIconButton<'attention'> = {
+      element: trophyButton,
+      setState: (state) => { trophyButton.dataset.outlineState = state; },
+    };
+    mountCelebrationTray(tray, trophyToggle, count);
     queueDemoMerge();
     queueDemoMerge();
     queueButton.addEventListener('click', queueDemoMerge);
