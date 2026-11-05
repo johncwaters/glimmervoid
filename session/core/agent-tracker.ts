@@ -73,6 +73,8 @@ interface DeclaredEntry {
 
 const DEFAULT_TEAMMATE_TASK_TTL_MS = 90 * 1000;
 
+const DEFAULT_NOTIFICATION_DELIVERY_WINDOW_MS = 10 * 1000;
+
 function declaredActiveCount(
   entries: readonly DeclaredEntry[] | null,
   idleIds: ReadonlySet<string> | null,
@@ -133,6 +135,8 @@ interface NextDrainInputs {
   agentTtlMs?: number;
   weakTtlMs?: number;
   teammateTtlMs?: number;
+  undeliveredSettledTasks?: TimestampMap | null;
+  notificationDeliveryWindowMs?: number;
 }
 
 function declaredEntryAgeStartTs(
@@ -154,6 +158,8 @@ function msUntilNextDrain({
   agentTtlMs = DEFAULT_AGENT_TTL_MS,
   weakTtlMs = DEFAULT_SHELL_TASK_TTL_MS,
   teammateTtlMs = DEFAULT_TEAMMATE_TASK_TTL_MS,
+  undeliveredSettledTasks = null,
+  notificationDeliveryWindowMs = DEFAULT_NOTIFICATION_DELIVERY_WINDOW_MS,
 }: NextDrainInputs = {}): number | null {
   let earliestExpiry: number | null = null;
   const consider = (expiresAt: number): void => {
@@ -162,6 +168,9 @@ function msUntilNextDrain({
   };
   if (countedAgents) {
     for (const ts of countedAgents.values()) consider(ts + agentTtlMs);
+  }
+  if (undeliveredSettledTasks) {
+    for (const settledTs of undeliveredSettledTasks.values()) consider(settledTs + notificationDeliveryWindowMs);
   }
   if (declaredEntries) {
     for (const e of declaredEntries) {
@@ -199,6 +208,7 @@ interface TaskRegistryOptions {
   agentTtlMs?: number;
   shellTaskTtlMs?: number;
   teammateTaskTtlMs?: number;
+  notificationDeliveryWindowMs?: number;
   now?: () => number;
 }
 
@@ -219,6 +229,8 @@ interface TaskRegistryInspection {
   idleTaskIds: Set<string>;
   idleTeammateNames: TimestampMap;
   declaredTeammateIds: Set<string>;
+  launchedBackgroundTasks: TimestampMap;
+  undeliveredSettledTasks: TimestampMap;
 }
 
 interface TaskRegistry {
@@ -233,6 +245,8 @@ interface TaskRegistry {
   noteTaskCompleted(options: { taskId?: string | null; name?: string | null }): void;
   noteTeammateIdle(name: string, ts: number): void;
   regateByAgentId(agentId: unknown): void;
+  noteBackgroundTaskLaunched(taskId: string): void;
+  noteTaskNotificationsDelivered(taskIds: readonly string[]): void;
   activeCount(): number;
   isOnlyBackgroundTasks(): boolean;
   hasLiveMonitor(): boolean;
@@ -246,6 +260,7 @@ function createTaskRegistry({
   agentTtlMs = DEFAULT_AGENT_TTL_MS,
   shellTaskTtlMs = DEFAULT_SHELL_TASK_TTL_MS,
   teammateTaskTtlMs = DEFAULT_TEAMMATE_TASK_TTL_MS,
+  notificationDeliveryWindowMs = DEFAULT_NOTIFICATION_DELIVERY_WINDOW_MS,
   now = Date.now,
 }: TaskRegistryOptions = {}): TaskRegistry {
   const countedAgents: TimestampMap = new Map();
@@ -257,6 +272,8 @@ function createTaskRegistry({
   const idleTaskIds = new Set<string>();
   const idleTeammateNames: TimestampMap = new Map();
   let declaredTeammateIds = new Set<string>();
+  const launchedBackgroundTasks: TimestampMap = new Map();
+  const undeliveredSettledTasks: TimestampMap = new Map();
   let breakdown: TaskRegistryBreakdown = { counted: 0, declared: 0, idleNames: 0, idleTasks: 0 };
 
   function entryAgeMs(entry: DeclaredEntry, at: number): number {
@@ -267,6 +284,8 @@ function createTaskRegistry({
     pruneAgents(countedAgents, at, agentTtlMs);
     pruneAgents(orphanAgentStops, at, agentTtlMs);
     pruneAgents(idleTeammateNames, at, agentTtlMs);
+    pruneAgents(launchedBackgroundTasks, at, shellTaskTtlMs);
+    pruneAgents(undeliveredSettledTasks, at, notificationDeliveryWindowMs);
     if (declaredEntries === null) return;
     const hasUnexpiredEntry = declaredEntries.some((entry) => entryAgeMs(entry, at)
       < declaredEntryTtlMs(entry.type, shellTaskTtlMs, teammateTaskTtlMs, agentTtlMs));
@@ -317,6 +336,11 @@ function createTaskRegistry({
       for (const id of declaredIds) {
         if (!declaredFirstSeenTs.has(id)) declaredFirstSeenTs.set(id, declaredTs);
       }
+      for (const id of launchedBackgroundTasks.keys()) {
+        if (declaredIds.has(id)) continue;
+        launchedBackgroundTasks.delete(id);
+        undeliveredSettledTasks.set(id, declaredTs);
+      }
       for (const id of idleTaskIds) {
         if (!declaredIds.has(id)) idleTaskIds.delete(id);
       }
@@ -365,6 +389,18 @@ function createTaskRegistry({
       }
     },
 
+    noteBackgroundTaskLaunched(taskId) {
+      undeliveredSettledTasks.delete(taskId);
+      launchedBackgroundTasks.set(taskId, now());
+    },
+
+    noteTaskNotificationsDelivered(taskIds) {
+      for (const taskId of taskIds) {
+        launchedBackgroundTasks.delete(taskId);
+        undeliveredSettledTasks.delete(taskId);
+      }
+    },
+
     activeCount() {
       const at = now();
       reap(at);
@@ -378,7 +414,7 @@ function createTaskRegistry({
         idleNames: idleTeammateNames.size,
         idleTasks: idleTaskIds.size,
       };
-      return Math.max(countedAgents.size, declared);
+      return Math.max(countedAgents.size, declared + undeliveredSettledTasks.size);
     },
 
     isOnlyBackgroundTasks() {
@@ -414,6 +450,8 @@ function createTaskRegistry({
         agentTtlMs,
         weakTtlMs: shellTaskTtlMs,
         teammateTtlMs: teammateTaskTtlMs,
+        undeliveredSettledTasks,
+        notificationDeliveryWindowMs,
       });
     },
 
@@ -427,6 +465,8 @@ function createTaskRegistry({
       idleTaskIds.clear();
       idleTeammateNames.clear();
       declaredTeammateIds.clear();
+      launchedBackgroundTasks.clear();
+      undeliveredSettledTasks.clear();
     },
 
     inspect() {
@@ -440,6 +480,8 @@ function createTaskRegistry({
         idleTaskIds: new Set(idleTaskIds),
         idleTeammateNames: new Map(idleTeammateNames),
         declaredTeammateIds: new Set(declaredTeammateIds),
+        launchedBackgroundTasks: new Map(launchedBackgroundTasks),
+        undeliveredSettledTasks: new Map(undeliveredSettledTasks),
       };
     },
   };

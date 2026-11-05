@@ -134,6 +134,14 @@ export function isSelfWakePrompt(prompt: unknown): boolean {
   return prompt.replace(TASK_NOTIFICATION_ENVELOPE_PATTERN, ' ').trim() === '' && prompt.trim() !== '';
 }
 
+const NOTIFIED_TASK_ID_PATTERN = /<task-id>\s*([^<\s]+)\s*<\/task-id>/gi;
+
+export function extractNotifiedTaskIds(prompt: unknown): string[] {
+  if (typeof prompt !== 'string') return [];
+  const envelopes = prompt.match(TASK_NOTIFICATION_ENVELOPE_PATTERN) ?? [];
+  return envelopes.flatMap((envelope) => [...envelope.matchAll(NOTIFIED_TASK_ID_PATTERN)].map((match) => match[1]));
+}
+
 export function isSubstantivePrompt(prompt: unknown): boolean {
   if (typeof prompt !== 'string') return false;
   const cleanedPrompt = cleanTaskPrompt(prompt);

@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **No more false Complete when a Claude Code background task finishes.** When a background shell command finished just before Claude Code ended its turn, the card went Complete and notified you, then Claude Code woke itself up a second later to handle the finished task. The card now stays Running until that follow-up turn ends and notifies you once. If the follow-up never comes, the card completes about 20 seconds later.
 - **A board box drawn on top of a page box now covers it.** A page box's live preview used to paint over every other box, note and plan step on the board; now anything drawn after the page box and overlapping it shows on top, the same way overlapping boxes already stack.
 - On the phone Focus list, tapping a session's board or pull request line opens that session instead of the board or pull request. The links still show on the row; open a board from Boards.
 

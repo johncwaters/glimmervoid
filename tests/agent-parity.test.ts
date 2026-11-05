@@ -15,6 +15,7 @@ interface ParityScenario {
   name: string;
   expectedFinalState: SessionState;
   expectedCompleteNotifications: number;
+  expectedCompleteTransitions?: number;
   waitingNotification: WaitingExpectation;
   fixtureByAgent: Record<FirstClassAgent, string>;
   additionalFixtures?: readonly string[];
@@ -96,6 +97,14 @@ const PARITY_SCENARIOS: readonly ParityScenario[] = [
     waitingNotification: 'forbidden',
     fixtureByAgent: { 'claude-code': 'v2-claude-code-whiteboard-prompt-context.jsonl', codex: 'v2-codex-whiteboard-prompt-context.jsonl', kimi: 'v2-kimi-whiteboard-prompt-context.jsonl' },
   },
+  {
+    name: 'background-self-wake',
+    expectedFinalState: STATES.COMPLETE,
+    expectedCompleteNotifications: 1,
+    expectedCompleteTransitions: 1,
+    waitingNotification: 'allowed',
+    fixtureByAgent: { 'claude-code': 'v2-claude-code-background-self-wake.jsonl', codex: 'v2-codex-background-self-wake.jsonl', kimi: 'v2-kimi-background-self-wake.jsonl' },
+  },
 ];
 
 const FIXTURES_PINNED_ELSEWHERE: ReadonlySet<string> = new Set([
@@ -150,6 +159,10 @@ function assertScenarioOutcome(scenario: ParityScenario, fixture: string, t: Tes
   const hasWaitingNotification = outcome.notifications.includes('waiting');
   assert.equal(outcome.finalState, scenario.expectedFinalState, `notifications: ${outcome.notifications.join(', ')}`);
   assert.equal(completeNotifications, scenario.expectedCompleteNotifications, `notifications: ${outcome.notifications.join(', ')}`);
+  if (scenario.expectedCompleteTransitions !== undefined) {
+    const completeTransitions = outcome.transitions.filter((state) => state === STATES.COMPLETE).length;
+    assert.equal(completeTransitions, scenario.expectedCompleteTransitions, `transitions: ${outcome.transitions.join(', ')}`);
+  }
   if (scenario.waitingNotification === 'required') assert.ok(hasWaitingNotification, 'the card never showed the wait');
   if (scenario.waitingNotification === 'forbidden') assert.ok(!hasWaitingNotification, 'the card showed a wait the scenario never had');
   if (scenario.requiresClearReset) assert.ok(outcome.taskTitleResets > 0, 'the clear never reset the session');

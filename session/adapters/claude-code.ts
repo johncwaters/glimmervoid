@@ -9,6 +9,7 @@ import type { AgentAdapterShape, AgentArgsOptions, AgentHookProfile, AgentSpawnC
 import { PLAN_TOOL_NAME } from "../../shared/contracts/index.ts";
 import { ASK_USER_QUESTION_TOOL_NAME } from "../../shared/contracts/session.ts";
 import type { HookPayload } from "../../shared/contracts/index.ts";
+import { isRecord } from "../../shared/coerce.ts";
 import { describeInstalledClaudeHooks } from "../../detection/settings-injector.ts";
 
 const ID = "claude-code";
@@ -106,6 +107,7 @@ function mapHookToSignal(event: string, payload?: HookPayload): string | null {
       if (tool === "CronCreate") return "cron-created";
       if (tool === "CronDelete") return "cron-deleted";
       if (tool === ASK_USER_QUESTION_TOOL_NAME) return "working";
+      if (isRecord(payload?.tool_response) && typeof payload.tool_response.backgroundTaskId === "string") return "background-task-launched";
       return null;
     }
     case "notification": {

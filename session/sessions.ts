@@ -823,7 +823,7 @@ class Session extends EventEmitter {
       return;
     }
 
-    if (raw && (raw.signal === "task-created" || raw.signal === "task-completed" || raw.signal === "teammate-idle")) {
+    if (raw && (raw.signal === "task-created" || raw.signal === "task-completed" || raw.signal === "teammate-idle" || raw.signal === "background-task-launched")) {
       this.backgroundTracking.trackTaskLifecycle(raw);
       return;
     }
@@ -890,6 +890,7 @@ class Session extends EventEmitter {
       this._titleQuiet = false;
       this._setPendingPromptKind(null);
 
+      this.backgroundTracking.noteTaskNotificationsDelivered(raw.payload?.prompt);
       this.backgroundTracking.clearGateHeldReady();
       this.backgroundTracking.resetTurnEvidence();
       this.backgroundTracking.clearBgDeclared();

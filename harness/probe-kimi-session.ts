@@ -9,7 +9,7 @@ import type { Session } from "../session/sessions.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
 import {
   createProbeChecks, delay, hookEventsOf, QUEUED_HINT_PROBE_PROMPT, queueWhiteboardEditFor, screenShowsSpawnHint, screenShowsStartLine, screenShowsWhiteboardAnswer,
-  runModelSetupProbe, SHOULD_RUN_ONLY_HINT_PROBE, SHOULD_RUN_ONLY_MODEL_SETUP_PROBE, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, SPAWN_HINT_PROBE_PROMPT, waitForState,
+  BACKGROUND_SELF_WAKE_PROBE_PROMPT, BACKGROUND_SELF_WAKE_SETTLE_MS, runModelSetupProbe, SHOULD_RUN_ONLY_BACKGROUND_SELF_WAKE_PROBE, SHOULD_RUN_ONLY_HINT_PROBE, SHOULD_RUN_ONLY_MODEL_SETUP_PROBE, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, SPAWN_HINT_PROBE_PROMPT, waitForState,
   whiteboardWriterIdFor, whiteboardWriterProject, WHITEBOARD_PROBE_PROMPT, writeHookFixture,
 } from "./support/backend-harness.ts";
 import type { ProbeFixtureTarget, ProbeHookRecord } from "./support/backend-harness.ts";
@@ -202,6 +202,12 @@ async function runProbe(tempDirectory: string): Promise<void> {
       const queuedHintOffset = session.getOutputOffset();
       await runScenario("command-hint-delivery", QUEUED_HINT_PROBE_PROMPT, approveOnce);
       check("the queued spawn hint reached the model with the next prompt", screenShowsSpawnHint(session.getBufferSince(queuedHintOffset).data));
+      return;
+    }
+
+    if (SHOULD_RUN_ONLY_BACKGROUND_SELF_WAKE_PROBE) {
+      const selfWakeHooks = await runScenario("background-self-wake", BACKGROUND_SELF_WAKE_PROBE_PROMPT, approveOnce, BACKGROUND_SELF_WAKE_SETTLE_MS);
+      check("the background turn ended on Stop", selfWakeHooks.some((hook) => hook.event.toLowerCase() === "stop"));
       return;
     }
 

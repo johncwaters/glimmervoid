@@ -2,6 +2,7 @@ import { isRecord } from "../shared/coerce.ts";
 import * as agentTracker from "./core/agent-tracker.ts";
 import { decideGateRelease } from "./core/gate-release.ts";
 import { mapSignalToEvent } from "./core/status-mapper.ts";
+import { extractNotifiedTaskIds } from "./core/task-title-core.ts";
 import * as wakeupTracker from "./core/wakeup-tracker.ts";
 import type { WakeupMap } from "./core/wakeup-tracker.ts";
 import type { TaskRegistryBreakdown } from "./core/agent-tracker.ts";
@@ -53,6 +54,7 @@ interface SessionBackgroundTracking {
   applyBackgroundTasks(payload: unknown): void;
   clearBgDeclared(): void;
   trackTaskLifecycle(raw: HookSignal): void;
+  noteTaskNotificationsDelivered(prompt: unknown): void;
   trackSubagent(raw: HookSignal): void;
   activeAgentCount(): number;
   awaitingBackgroundTasks(): boolean;
@@ -72,6 +74,13 @@ interface SessionBackgroundTracking {
   lastActivitySeq(): number;
   wakeups(): WakeupMap;
   isBackgroundAgentDetectionEnabled(): boolean;
+}
+
+function launchedBackgroundTaskId(payload: HookPayload): string | null {
+  const toolResponse = payload.tool_response;
+  if (!isRecord(toolResponse)) return null;
+  const backgroundTaskId = toolResponse.backgroundTaskId;
+  return typeof backgroundTaskId === "string" && backgroundTaskId ? backgroundTaskId : null;
 }
 
 function createSessionBackgroundTracking({
@@ -244,6 +253,11 @@ function createSessionBackgroundTracking({
     const payload: HookPayload = raw.payload || {};
     const taskId = typeof payload.task_id === "string" && payload.task_id ? payload.task_id : null;
     const name = typeof payload.teammate_name === "string" ? payload.teammate_name : "";
+    if (raw.signal === "background-task-launched") {
+      const backgroundTaskId = launchedBackgroundTaskId(payload);
+      if (backgroundTaskId) tasks.noteBackgroundTaskLaunched(backgroundTaskId);
+      return;
+    }
     if (raw.signal === "task-created") {
       clearGateHeldReady();
       tasks.noteTaskCreated({ taskId, name });
@@ -256,6 +270,13 @@ function createSessionBackgroundTracking({
 
     if (!name) return;
     tasks.noteTeammateIdle(name, Date.now());
+  }
+
+  function noteTaskNotificationsDelivered(prompt: unknown): void {
+    if (!detectBackgroundAgents) return;
+    const deliveredTaskIds = extractNotifiedTaskIds(prompt);
+    if (deliveredTaskIds.length === 0) return;
+    withAgentCount(() => tasks.noteTaskNotificationsDelivered(deliveredTaskIds));
   }
 
   function trackSubagent(raw: HookSignal): void {
@@ -402,6 +423,7 @@ function createSessionBackgroundTracking({
     applyBackgroundTasks,
     clearBgDeclared,
     trackTaskLifecycle,
+    noteTaskNotificationsDelivered,
     trackSubagent,
     activeAgentCount,
     awaitingBackgroundTasks,

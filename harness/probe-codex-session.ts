@@ -12,7 +12,7 @@ import codex from '../session/adapters/codex.ts';
 import type { Session } from '../session/sessions.ts';
 import {
   createProbeChecks, delay, HINT_PROBE_PROMPT, queueWhiteboardEditFor, sanitizeProbeText, screenShowsShowHint, screenShowsStartLine, screenShowsWhiteboardAnswer,
-  runModelSetupProbe, SHOULD_RUN_ONLY_HINT_PROBE, SHOULD_RUN_ONLY_MODEL_SETUP_PROBE, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, waitForState,
+  BACKGROUND_SELF_WAKE_PROBE_PROMPT, BACKGROUND_SELF_WAKE_SETTLE_MS, runModelSetupProbe, SHOULD_RUN_ONLY_BACKGROUND_SELF_WAKE_PROBE, SHOULD_RUN_ONLY_HINT_PROBE, SHOULD_RUN_ONLY_MODEL_SETUP_PROBE, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, waitForState,
   whiteboardWriterIdFor, whiteboardWriterProject, WHITEBOARD_PROBE_PROMPT, writeHookFixture,
 } from './support/backend-harness.ts';
 import type { ProbeFixtureTarget, ProbeHookRecord } from './support/backend-harness.ts';
@@ -289,6 +289,17 @@ async function main(): Promise<void> {
         await waitForState(session, ['RUNNING', 'COMPLETE'], `${label} to resume after approval`);
       }
     };
+
+    if (SHOULD_RUN_ONLY_BACKGROUND_SELF_WAKE_PROBE) {
+      console.log('\nBackground self-wake:');
+      await delay(6000);
+      const selfWakeStart = hookRecords.length;
+      await runTurn(BACKGROUND_SELF_WAKE_PROBE_PROMPT, 'the background self-wake turn');
+      await delay(BACKGROUND_SELF_WAKE_SETTLE_MS);
+      writeScenario('background-self-wake', selfWakeStart);
+      check('the background turn ended on Stop', hookRecords.slice(selfWakeStart).some((hook) => hook.event.toLowerCase() === 'stop'));
+      return;
+    }
 
     if (SHOULD_RUN_ONLY_HINT_PROBE) {
       console.log('\nCommand hint:');
