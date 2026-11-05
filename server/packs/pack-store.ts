@@ -112,6 +112,7 @@ export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs
   }
 
   function watchHomePacks(): void {
+    if (isStopped) return;
     homeWatcher?.close();
     homeWatcher = watchQuietly(packsDir, onHomePacksChange, true);
     if (homeWatcher) return;
