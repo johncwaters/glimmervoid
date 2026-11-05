@@ -561,10 +561,9 @@
                     "sessions",
                     "focus",
                     "theme",
-                    "my-prs",
                     "usage",
                     "attention",
-                    "team-reviews"
+                    "reviews"
                   ]
                 }
               }

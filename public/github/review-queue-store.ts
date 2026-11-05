@@ -1,3 +1,4 @@
+import type { ReviewsSnapshot } from '#shared/contracts/reviews.ts';
 import { attentionSignature } from '../attention-ack-core.ts';
 import { getPrsAttentionAck, getPrsUnseenRows, setPrsAttentionAck, setPrsUnseenRows } from '../ui-prefs.ts';
 import { isKeepMergeableFeatureEnabled } from './github-store-core.ts';
@@ -159,3 +160,7 @@ subscribeTeamReview((change) => {
 subscribeMyPrs((change) => {
   if (change.kind === 'prs') rebuildReviewQueue();
 });
+
+export function reviewsSnapshot(): ReviewsSnapshot {
+  return { groups };
+}

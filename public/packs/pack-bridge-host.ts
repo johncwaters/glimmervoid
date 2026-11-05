@@ -2,8 +2,7 @@ import { HostToPanel, PanelToHost } from '#shared/contracts/pack-bridge.ts';
 import type { PackBridgeTopic, PackBridgeTopicData } from '#shared/contracts/pack-bridge.ts';
 import type { z } from 'zod';
 import { countAttentionByKind } from '../focus-view/attention-core.ts';
-import { myPrsSnapshot } from '../github/my-prs-store.ts';
-import { teamReviewSections } from '../github/team-review-store.ts';
+import { reviewsSnapshot } from '../github/review-queue-store.ts';
 import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import { isStreamerMode } from '../streamer-mode.ts';
 import { maskStreamerText } from '../streamer-text-core.ts';
@@ -28,10 +27,6 @@ function shownText(text: string): string {
   return isStreamerMode() ? maskStreamerText(text) : text;
 }
 
-function shownPullRequestText(text: string): string {
-  return isStreamerMode() ? '' : text;
-}
-
 const TOPIC_PROJECTIONS: { [Topic in PackBridgeTopic]: () => PackBridgeTopicData[Topic] } = {
   sessions: () => ({
     sessions: [...sessionUIs].map(([id, ui]) => ({
@@ -40,12 +35,6 @@ const TOPIC_PROJECTIONS: { [Topic in PackBridgeTopic]: () => PackBridgeTopicData
   }),
   focus: () => ({ sessionId: uiState.snapshot().focusedSessionId, view: uiState.snapshot().activeView, isStreamerMode: isStreamerMode() }),
   theme: () => currentThemeColors(),
-  'my-prs': () => ({
-    prs: myPrsSnapshot().prs.map((pr) => ({
-      key: pr.key, repo: pr.repo, number: pr.number, title: shownPullRequestText(pr.title), url: pr.url, isDraft: pr.isDraft, state: pr.state,
-      checks: pr.checks.state, reviewDecision: pr.reviewDecision, unresolvedThreads: pr.unresolvedThreads,
-    })),
-  }),
   usage: () => ({
     planLimits: Object.entries(usageSnapshot().planLimitsByVendor).flatMap(([vendor, planLimits]) => {
       if (planLimits === null || (vendor !== 'claude' && vendor !== 'codex' && vendor !== 'kimi')) return [];
@@ -56,20 +45,26 @@ const TOPIC_PROJECTIONS: { [Topic in PackBridgeTopic]: () => PackBridgeTopicData
     const counts = countAttentionByKind([...sessionUIs.values()].map((ui) => ({ state: ui.currentState, unseenOutcome: ui.unseenOutcome ?? null })));
     return { waiting: counts.waitingCount, finished: counts.finishedCount, failed: counts.failedCount };
   },
-  'team-reviews': () => {
-    const sections = teamReviewSections();
-    const pullRequestOf = ({ key, title, url, author }: { key: string; title: string; url: string; author: string }) => ({ key, title: shownPullRequestText(title), url, author: shownPullRequestText(author) });
-    return { ready: sections.ready.map(pullRequestOf), needsAttention: sections.attention.map(pullRequestOf), inReviewCount: sections.inReview.length, queuedCount: sections.queued.length };
-  },
+  reviews: () => reviewsSnapshot(),
 };
 
 function post(bridged: BridgedFrame, message: z.infer<typeof HostToPanel>): void {
   bridged.frame.contentWindow?.postMessage(message, '*');
 }
 
-function pushTopic(bridged: BridgedFrame, topic: PackBridgeTopic): void {
+type TopicFrame = { data: unknown; dataJson: string };
+
+function topicFrame(topic: PackBridgeTopic, framesThisTick: Map<PackBridgeTopic, TopicFrame>): TopicFrame {
+  const cached = framesThisTick.get(topic);
+  if (cached) return cached;
   const data = TOPIC_PROJECTIONS[topic]();
-  const dataJson = JSON.stringify(data);
+  const frame = { data, dataJson: JSON.stringify(data) };
+  framesThisTick.set(topic, frame);
+  return frame;
+}
+
+function pushTopic(bridged: BridgedFrame, topic: PackBridgeTopic, framesThisTick: Map<PackBridgeTopic, TopicFrame> = new Map()): void {
+  const { data, dataJson } = topicFrame(topic, framesThisTick);
   if (bridged.lastSentJsonByTopic.get(topic) === dataJson) return;
   bridged.lastSentJsonByTopic.set(topic, dataJson);
   post(bridged, HostToPanel.parse({ v: 1, kind: 'topic', topic, data }));
@@ -77,8 +72,9 @@ function pushTopic(bridged: BridgedFrame, topic: PackBridgeTopic): void {
 
 function pushChangedTopics(): void {
   let hasSubscriber = false;
+  const framesThisTick = new Map<PackBridgeTopic, TopicFrame>();
   for (const bridged of bridgedFrameByViewId.values()) {
-    for (const topic of bridged.subscribedTopics) pushTopic(bridged, topic);
+    for (const topic of bridged.subscribedTopics) pushTopic(bridged, topic, framesThisTick);
     hasSubscriber ||= bridged.subscribedTopics.size > 0;
   }
   if (hasSubscriber || pushTimer === null) return;

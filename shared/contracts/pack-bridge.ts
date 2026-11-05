@@ -1,9 +1,10 @@
 import { z } from 'zod';
 import { STATES } from '../states.ts';
+import { ReviewsSnapshot } from './reviews.ts';
 
 export const PACK_BRIDGE_VERSION = 1;
 
-export const PackBridgeTopic = z.enum(['sessions', 'focus', 'theme', 'my-prs', 'usage', 'attention', 'team-reviews']);
+export const PackBridgeTopic = z.enum(['sessions', 'focus', 'theme', 'usage', 'attention', 'reviews']);
 export type PackBridgeTopic = z.infer<typeof PackBridgeTopic>;
 
 const BridgeVersion = z.literal(PACK_BRIDGE_VERSION);
@@ -12,7 +13,6 @@ const BridgePlanWindow = z.strictObject({
   pct: z.number().nullable().describe('Percent of the window used, 0 to 100; 100 or more means the limit is reached; null when the agent did not report it'),
   resetsAtMs: z.number().nullable().describe('When the window resets, as Unix epoch milliseconds; null when the agent did not report it'),
 }).nullable().describe('null when the agent reported nothing for this window');
-const BridgePullRequest = z.strictObject({ key: z.string(), title: z.string(), url: z.string(), author: z.string() });
 
 const PACK_BRIDGE_TOPIC_DATA = {
   sessions: z.strictObject({
@@ -23,23 +23,16 @@ const PACK_BRIDGE_TOPIC_DATA = {
       taskTitle: z.string().nullable(),
     })),
   }),
-  focus: z.strictObject({ sessionId: z.string().nullable(), view: z.string(), isStreamerMode: z.boolean().describe('The operator is screen sharing: session names and task titles arrive masked and pull request titles and authors arrive empty') }),
+  focus: z.strictObject({ sessionId: z.string().nullable(), view: z.string(), isStreamerMode: z.boolean().describe('The operator is screen sharing: session names and task titles arrive masked; reviews arrive in full') }),
   theme: z.strictObject({
     id: z.string().nullable().describe("The active theme's id; a pack theme's id is <pack name>/<theme id>"),
     colors: z.record(z.string(), z.string()).describe('CSS custom properties to set on the root element, keyed with their leading --: one per theme chrome key (--bg, --bg-card, --bg-header, --bg-surface, --border, --border-dim, --border-hover, --text, --text-dim, --text-head, --text-muted, --accent, --accent-dim) and per session state (--state-<state>, a hex color, and --state-<state>-bg, a translucent color-mix tint of it)'),
-  }),
-  'my-prs': z.strictObject({
-    prs: z.array(z.strictObject({
-      key: z.string(), repo: z.string(), number: z.number(), title: z.string(), url: z.string(), isDraft: z.boolean(),
-      state: z.enum(['OPEN', 'MERGED', 'CLOSED']), checks: z.enum(['SUCCESS', 'FAILURE', 'PENDING', 'ERROR', 'EXPECTED']).nullable(),
-      reviewDecision: z.enum(['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED']).nullable(), unresolvedThreads: z.number(),
-    })),
   }),
   usage: z.strictObject({
     planLimits: z.array(z.strictObject({ vendor: z.enum(['claude', 'codex', 'kimi']), fiveHour: BridgePlanWindow, sevenDay: BridgePlanWindow })).describe('One entry per agent that has reported plan limits; an agent that has not is absent'),
   }),
   attention: z.strictObject({ waiting: z.number(), finished: z.number(), failed: z.number() }),
-  'team-reviews': z.strictObject({ ready: z.array(BridgePullRequest), needsAttention: z.array(BridgePullRequest), inReviewCount: z.number(), queuedCount: z.number() }),
+  reviews: ReviewsSnapshot,
 } satisfies Record<PackBridgeTopic, z.ZodType>;
 
 export type PackBridgeTopicData = { [Topic in PackBridgeTopic]: z.infer<(typeof PACK_BRIDGE_TOPIC_DATA)[Topic]> };

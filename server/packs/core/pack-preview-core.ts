@@ -1,5 +1,8 @@
 import { PACK_BRIDGE_VERSION, PackBridgeTopic, type PackBridgeTopicData } from '../../../shared/contracts/pack-bridge.ts';
+import type { MyPr } from '../../../shared/contracts/my-prs.ts';
 import type { PackOnDisk } from '../../../shared/contracts/pack.ts';
+import type { ReviewsSnapshot } from '../../../shared/contracts/reviews.ts';
+import type { QueuedReview, ReviewDraft } from '../../../shared/contracts/team-review.ts';
 import type { ThemePalette } from '../../../shared/contracts/theme-palette.ts';
 import { STATES } from '../../../shared/states.ts';
 import { themeCssColors } from '../../../shared/theme-colors-core.ts';
@@ -20,8 +23,45 @@ const SAMPLE_PALETTE: ThemePalette = {
   },
 };
 
-const SAMPLE_PULL_REQUEST = { key: 'acme/app#42', title: 'Speed up the deck import', url: 'https://github.com/acme/app/pull/42', author: 'sample-author' };
-const SAMPLE_REVIEW_NEEDING_ATTENTION = { key: 'acme/api#9', title: 'Retry webhook deliveries', url: 'https://github.com/acme/api/pull/9', author: 'other-author' };
+const SAMPLE_HEAD = 'a'.repeat(40);
+const SAMPLE_BASE = 'b'.repeat(40);
+
+function sampleMyPr(nowMs: number, number: number, title: string, stage: MyPr['stage'], checksState: MyPr['checks']['state']): MyPr {
+  return {
+    key: `acme/app#${number}`, repo: 'acme/app', number, title, url: `https://github.com/acme/app/pull/${number}`,
+    isDraft: false, state: 'OPEN', createdAt: new Date(nowMs - 26 * HOUR_MS).toISOString(), mergedAt: null, updatedAt: new Date(nowMs - HOUR_MS).toISOString(),
+    baseRefName: 'main', baseRefOid: SAMPLE_BASE, headRefName: `sample-${number}`, isCrossRepository: false, headRefOid: SAMPLE_HEAD,
+    isInMergeQueue: false, mergeMethod: 'SQUASH', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN',
+    reviewDecision: stage === 'ready' ? 'APPROVED' : 'REVIEW_REQUIRED',
+    checks: { state: checksState, failing: checksState === 'FAILURE' ? ['test (ubuntu)'] : [], pendingCount: 0 },
+    unresolvedThreads: 0, threads: [], reviewItems: [], behindBy: 0, reviewRequests: [], approvals: stage === 'ready' ? 1 : 0, reviews: [], stage,
+  };
+}
+
+function sampleReviews(nowMs: number, frameIndex: number): ReviewsSnapshot {
+  const readyPr = sampleMyPr(nowMs, 42, 'Speed up the deck import', 'ready', 'SUCCESS');
+  const failingPr = sampleMyPr(nowMs, 43, 'Fix the login redirect', 'checks-failing', 'FAILURE');
+  const draft: ReviewDraft = {
+    requestSource: 'direct', key: 'acme/api#9', repo: 'acme/api', number: 9, title: 'Retry webhook deliveries', url: 'https://github.com/acme/api/pull/9', author: 'other-author',
+    tier: 'full', reasons: ['touches webhook delivery'], reviewedHead: SAMPLE_HEAD, verdict: 'APPROVE WITH NITS', summary: 'Retries are bounded; one nit on the backoff constant.',
+    body: 'Looks good. One nit inline.', comments: [{ path: 'src/webhooks.ts', line: 12, side: 'RIGHT', body: 'Name this backoff constant.' }], status: 'ready', reviewedAt: nowMs - 10 * 60 * 1000,
+  };
+  const queued: QueuedReview = { requestSource: 'team', key: 'acme/api#11', repo: 'acme/api', number: 11, title: 'Bump the HTTP client', url: 'https://github.com/acme/api/pull/11', author: 'sample-author' };
+  const mineItem = (pr: MyPr, action: 'merge' | 'update', attention: 'finished' | 'waiting') => ({ source: 'mine' as const, key: `mine:${pr.key}`, prKey: pr.key, pr, stackRow: { pr, parentKey: null, depth: 0, stackSize: 1, stackHeight: 0 }, action, attention });
+  const turnItems = [
+    { source: 'team' as const, key: `team:${draft.key}`, prKey: draft.key, kind: 'ready' as const, review: draft, action: 'review' as const, attention: 'waiting' as const },
+    mineItem(failingPr, 'update', 'waiting'),
+    ...(frameIndex % 2 === 0 ? [mineItem(readyPr, 'merge', 'finished')] : []),
+  ];
+  return {
+    groups: [
+      { id: 'turn', title: 'Your turn', items: turnItems },
+      { id: 'working', title: 'Agent working', items: [{ source: 'team', key: `team:${queued.key}`, prKey: queued.key, kind: 'queued', review: queued, action: null, attention: null }] },
+      { id: 'waiting', title: 'Waiting on others', items: [] },
+      { id: 'aside', title: 'Set aside', items: [] },
+    ],
+  };
+}
 
 export const PREVIEW_FRAME_COUNT = 6;
 const PREVIEW_FRAME_MS = 5000;
@@ -42,14 +82,6 @@ export function previewSampleTopics(nowMs: number, frameIndex = 0): Omit<PackBri
     ],
   },
   focus: { sessionId: 'sample-1', view: 'focus', isStreamerMode: false },
-  'my-prs': {
-    prs: [
-      { key: 'acme/app#42', repo: 'acme/app', number: 42, title: 'Speed up the deck import', url: 'https://github.com/acme/app/pull/42', isDraft: false, state: 'OPEN', checks: 'SUCCESS', reviewDecision: 'APPROVED', unresolvedThreads: 0 },
-      { key: 'acme/app#43', repo: 'acme/app', number: 43, title: 'Fix the login redirect', url: 'https://github.com/acme/app/pull/43', isDraft: true, state: 'OPEN', checks: 'FAILURE', reviewDecision: null, unresolvedThreads: 2 },
-      { key: 'acme/api#7', repo: 'acme/api', number: 7, title: 'Rebuild the search index', url: 'https://github.com/acme/api/pull/7', isDraft: false, state: 'OPEN', checks: 'PENDING', reviewDecision: 'CHANGES_REQUESTED', unresolvedThreads: 1 },
-      { key: 'acme/api#8', repo: 'acme/api', number: 8, title: 'Draft the release notes', url: 'https://github.com/acme/api/pull/8', isDraft: false, state: 'OPEN', checks: null, reviewDecision: 'REVIEW_REQUIRED', unresolvedThreads: 0 },
-    ],
-  },
   usage: {
     planLimits: [
       { vendor: 'claude', fiveHour: { pct: 42 + frameIndex * 3, resetsAtMs: nowMs + 2 * HOUR_MS }, sevenDay: { pct: 91, resetsAtMs: nowMs + 72 * HOUR_MS } },
@@ -58,7 +90,7 @@ export function previewSampleTopics(nowMs: number, frameIndex = 0): Omit<PackBri
     ],
   },
   attention: { waiting: isLoginBugWaiting ? 1 : 0, finished: 1, failed: 1 },
-  'team-reviews': { ready: [SAMPLE_PULL_REQUEST], needsAttention: [SAMPLE_REVIEW_NEEDING_ATTENTION], inReviewCount: 1, queuedCount: 3 },
+  reviews: sampleReviews(nowMs, frameIndex),
   };
 }
 

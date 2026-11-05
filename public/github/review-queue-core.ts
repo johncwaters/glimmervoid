@@ -1,3 +1,5 @@
+import type { z } from 'zod';
+import type { ReviewQueueAction, ReviewQueueGroupId, ReviewQueueItem } from '#shared/contracts/reviews.ts';
 import type { CommunityStateEntry } from '#shared/contracts/community.ts';
 import type { MyPr, MyPrStage } from '#shared/contracts/my-prs.ts';
 import type { InFlightReview, QueuedReview, ReviewDraft } from '#shared/contracts/team-review.ts';
@@ -6,14 +8,12 @@ import type { AttentionKind, AttentionTile } from '../focus-view/attention-core.
 import type { GithubPollingStatus } from './github-polling-retry-core.ts';
 import { comparablePrKey } from '#shared/contracts/github-prs.ts';
 import { PRIORITY_BAND_ORDER, classifyReviewPriority, draftPriorityBand, hasFailedKeepMergeableRepair, pullRequestLabel, sectionStackedMyPrs } from './github-store-core.ts';
-import type { MyPrStackRow, QueueRowKind, TeamReviewSections } from './github-store-core.ts';
+import type { QueueRowKind, TeamReviewSections } from './github-store-core.ts';
 
-type QueueGroupId = 'turn' | 'working' | 'waiting' | 'aside';
-type QueueAction = 'fix' | 'review' | 'reply' | 'update' | 'merge';
+type QueueGroupId = z.infer<typeof ReviewQueueGroupId>;
+type QueueAction = z.infer<typeof ReviewQueueAction>;
 
-export type QueueItem =
-  | { source: 'team'; key: string; prKey: string; kind: QueueRowKind; review: ReviewDraft | InFlightReview | QueuedReview; action: QueueAction | null; attention: AttentionKind | null }
-  | { source: 'mine'; key: string; prKey: string; pr: MyPr; stackRow: MyPrStackRow; action: QueueAction | null; attention: AttentionKind | null };
+export type QueueItem = z.infer<typeof ReviewQueueItem>;
 
 export type CommunityQueueItem = { source: 'community'; key: string; entry: CommunityStateEntry; attention: AttentionKind | null };
 

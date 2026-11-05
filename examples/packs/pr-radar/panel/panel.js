@@ -1,37 +1,48 @@
-function badge(text, tone) {
-  return window.glimmervoid.element('span', tone ? `badge ${tone}` : 'badge', text);
-}
+const element = (...args) => window.glimmervoid.element(...args);
 
-function pullRequestRow(pullRequest, badges) {
-  const row = window.glimmervoid.element('li', 'pr');
-  row.append(window.glimmervoid.element('span', 'title', pullRequest.title || pullRequest.key), ...badges);
-  return row;
+function badge(text, tone) {
+  return element('span', tone ? `badge ${tone}` : 'badge', text);
 }
 
 function myPullRequestBadges(pullRequest) {
-  const badges = [window.glimmervoid.element('span', 'repo', `${pullRequest.repo}#${pullRequest.number}`)];
+  const badges = [element('span', 'repo', `${pullRequest.repo}#${pullRequest.number}`)];
   if (pullRequest.isDraft) badges.push(badge('draft'));
-  if (pullRequest.checks === 'FAILURE' || pullRequest.checks === 'ERROR') badges.push(badge('checks failing', 'bad'));
-  if (pullRequest.checks === 'SUCCESS') badges.push(badge('checks green', 'good'));
+  if (pullRequest.checks.state === 'FAILURE' || pullRequest.checks.state === 'ERROR') badges.push(badge('checks failing', 'bad'));
+  if (pullRequest.checks.state === 'SUCCESS') badges.push(badge('checks green', 'good'));
   if (pullRequest.reviewDecision === 'CHANGES_REQUESTED') badges.push(badge('changes requested', 'bad'));
   if (pullRequest.reviewDecision === 'APPROVED') badges.push(badge('approved', 'good'));
   if (pullRequest.unresolvedThreads > 0) badges.push(badge(`${pullRequest.unresolvedThreads} open threads`));
   return badges;
 }
 
-function showList(listId, rows, emptyText) {
-  const list = document.getElementById(listId);
-  list.replaceChildren(...(rows.length === 0 ? [window.glimmervoid.element('li', 'empty', emptyText)] : rows));
+function teamReviewBadges(item) {
+  const badges = [element('span', 'repo', `${item.review.repo}#${item.review.number} by ${item.review.author}`), badge(item.kind)];
+  if (item.review.verdict) badges.push(badge(item.review.verdict.toLowerCase(), item.review.verdict.startsWith('APPROVE') ? 'good' : 'bad'));
+  return badges;
 }
 
-window.glimmervoid.subscribe(['my-prs', 'team-reviews', 'theme'], (topic, data) => {
+function itemRow(item) {
+  const row = element('li', 'pr');
+  const title = item.source === 'mine' ? item.pr.title : item.review.title;
+  const badges = item.source === 'mine' ? myPullRequestBadges(item.pr) : teamReviewBadges(item);
+  if (item.action) badges.push(badge(item.action, 'good'));
+  row.append(element('span', 'title', title || item.prKey), ...badges);
+  return row;
+}
+
+function groupSection(group) {
+  const section = element('section', 'group');
+  const list = element('ul', 'prs');
+  list.append(...group.items.map(itemRow));
+  section.append(element('h1', null, group.title), list);
+  return section;
+}
+
+window.glimmervoid.subscribe(['reviews', 'theme'], (topic, data) => {
   if (topic === 'theme') window.glimmervoid.applyTheme(data);
-  if (topic === 'my-prs') {
-    const openPullRequests = data.prs.filter((pullRequest) => pullRequest.state === 'OPEN');
-    showList('my-prs', openPullRequests.map((pullRequest) => pullRequestRow(pullRequest, myPullRequestBadges(pullRequest))), 'No open pull requests.');
-  }
-  if (topic === 'team-reviews') {
-    document.getElementById('team-summary').textContent = `${data.ready.length} ready for you, ${data.needsAttention.length} need attention, ${data.inReviewCount} in review, ${data.queuedCount} queued`;
-    showList('team-ready', [...data.needsAttention, ...data.ready].map((pullRequest) => pullRequestRow(pullRequest, [window.glimmervoid.element('span', 'repo', pullRequest.author)])), 'Nothing waits on you.');
-  }
+  if (topic !== 'reviews') return;
+  const shownGroups = data.groups.filter((group) => group.items.length > 0);
+  const turnCount = data.groups.find((group) => group.id === 'turn')?.items.length ?? 0;
+  document.getElementById('summary').textContent = `${turnCount} waiting on you`;
+  document.getElementById('groups').replaceChildren(...(shownGroups.length === 0 ? [element('p', 'empty', 'Nothing in Reviews.')] : shownGroups.map(groupSection)));
 });
