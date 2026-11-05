@@ -322,6 +322,7 @@ test('a settings payload build reads the resolution cache and spawns no PATH pro
   const warm = CustomAgentDeclaration.parse({ id: 'opencode', label: 'OpenCode', command: 'opencode' });
   const missing = CustomAgentDeclaration.parse({ id: 'ghostcode', label: 'GhostCode', command: 'ghostcode' });
   const unprobed = CustomAgentDeclaration.parse({ id: 'shadowcode', label: 'ShadowCode', command: 'node' });
+  const shadowedByBuiltIn = CustomAgentDeclaration.parse({ id: 'gemini', label: 'My Gemini', command: 'my-gemini' });
   const realExecFileSync = childProcess.execFileSync;
   let probes = 0;
   childProcess.execFileSync = (): never => {
@@ -329,19 +330,21 @@ test('a settings payload build reads the resolution cache and spawns no PATH pro
     throw new Error('a settings payload build must not probe PATH');
   };
   try {
-    setCustomAgents([warm, missing, unprobed]);
+    setCustomAgents([warm, missing, unprobed, shadowedByBuiltIn]);
     commandFor('opencode', { platform: process.platform, execFile: () => '/usr/local/bin/opencode\n' });
     commandFor('ghostcode', { platform: process.platform, execFile: () => '', pathExists: () => false });
+    commandFor('gemini', { platform: process.platform, execFile: () => '/usr/local/bin/gemini\n' });
     probes = 0;
     const payload = buildSettingsPayload({
-      configStore: { getSettings: () => ({}), config: { customAgents: [warm, missing, unprobed] } },
+      configStore: { getSettings: () => ({}), config: { customAgents: [warm, missing, unprobed, shadowedByBuiltIn] } },
     });
     assert.equal(probes, 0, 'a settings payload build never probes PATH');
     assert.ok(TeamReviewEnvironment.safeParse(payload.teamReviewEnvironment).success, 'the team review environment matches its wire contract');
     assert.deepEqual(payload.customAgents, [
-      { id: 'opencode', label: 'OpenCode', command: 'opencode', args: [], resolvable: true },
-      { id: 'ghostcode', label: 'GhostCode', command: 'ghostcode', args: [], resolvable: false },
-      { id: 'shadowcode', label: 'ShadowCode', command: 'node', args: [], resolvable: null },
+      { id: 'opencode', label: 'OpenCode', command: 'opencode', args: [], resolvable: true, isShadowedByBuiltIn: false },
+      { id: 'ghostcode', label: 'GhostCode', command: 'ghostcode', args: [], resolvable: false, isShadowedByBuiltIn: false },
+      { id: 'shadowcode', label: 'ShadowCode', command: 'node', args: [], resolvable: null, isShadowedByBuiltIn: false },
+      { id: 'gemini', label: 'My Gemini', command: 'my-gemini', args: [], resolvable: null, isShadowedByBuiltIn: true },
     ]);
   } finally {
     childProcess.execFileSync = realExecFileSync;

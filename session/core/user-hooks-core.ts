@@ -303,6 +303,9 @@ const BUILTIN_PURPOSE_BY_EVENT: Readonly<Record<string, string>> = Object.freeze
   PreToolUse: 'Tool calls: questions, subagents and the investigation trail',
   PostToolUse: 'Tool results: answered questions, scheduled wakeups, pull request links and command hints',
   PostToolUseFailure: 'Command hints: name glimmervoid push once, when a git push fails',
+  BeforeAgent: 'Status detection: a turn started',
+  AfterAgent: 'Status detection: the turn finished',
+  AfterTool: 'Status detection: a tool finished, so the turn is working again',
 });
 
 function builtinHookPurpose({ event, route }: InstalledHook): string | null {

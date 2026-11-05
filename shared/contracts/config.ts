@@ -32,7 +32,7 @@ export const ConfigUpdate = z.object({
 }).omit({ port: true, worktreeShare: true }).strict();
 const AGENT_ID_RE = /^[a-z][a-z0-9-]{1,31}$/;
 export const SHELL_AGENT_ID = 'shell';
-export const BUILTIN_AGENT_IDS = Object.freeze(['claude-code', 'codex', 'grok', 'kimi', SHELL_AGENT_ID] as const);
+export const BUILTIN_AGENT_IDS = Object.freeze(['claude-code', 'codex', 'gemini', 'grok', 'kimi', SHELL_AGENT_ID] as const);
 export const AGENT_ID_SHAPE_MESSAGE = 'an agent id of 2 to 32 characters of lowercase letters, digits and dashes, starting with a letter';
 
 const AGENT_COMMAND_BASENAME_RE = /^[A-Za-z0-9._+-]+$/;
@@ -120,16 +120,13 @@ export const CustomAgentDeclaration = z.object({
 
 const CustomAgentDeclarations = z.array(CustomAgentDeclaration, { error: 'customAgents must be an array' })
   .superRefine((declarations, ctx) => {
-    const claimedIds = new Set<string>(BUILTIN_AGENT_IDS);
+    const claimedIds = new Set<string>();
     for (const [index, declaration] of declarations.entries()) {
       if (!claimedIds.has(declaration.id)) {
         claimedIds.add(declaration.id);
         continue;
       }
-      const message = BUILTIN_AGENT_IDS.some((builtinAgentId) => builtinAgentId === declaration.id)
-        ? `customAgents[${index}].id "${declaration.id}" collides with the builtin agent of the same id`
-        : `customAgents[${index}].id "${declaration.id}" is declared more than once`;
-      ctx.addIssue({ code: 'custom', path: [index, 'id'], message });
+      ctx.addIssue({ code: 'custom', path: [index, 'id'], message: `customAgents[${index}].id "${declaration.id}" is declared more than once` });
     }
   });
 

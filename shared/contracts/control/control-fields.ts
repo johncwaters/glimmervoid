@@ -57,6 +57,7 @@ export const CustomAgentSummaryRow = z.object({
   command: z.string(),
   args: z.array(z.string()),
   resolvable: z.boolean().nullable(),
+  isShadowedByBuiltIn: z.boolean(),
 }).strict();
 export type CustomAgentSummaryRow = z.infer<typeof CustomAgentSummaryRow>;
 

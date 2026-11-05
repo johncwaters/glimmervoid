@@ -183,14 +183,18 @@ test('validateConfig rejects a config missing the projects key entirely', () => 
   assert.match((validation.ok ? [] : validation.errors).join('\n'), /projects must be an array/);
 });
 
-test('a loaded config carries the contract defaults, so a bare custom agent declaration reaches the registry intact', () => {
-  withStore(richConfig({ customAgents: [{ id: 'opencode', label: 'OpenCode', command: 'opencode' }] }), (store) => {
+test('a loaded config carries the contract defaults, so a bare custom agent declaration reaches the registry intact, and one shadowed by a built-in id survives a save', () => {
+  const shadowedDeclaration = { id: 'gemini', label: 'My Gemini', command: 'my-gemini', args: [] };
+  withStore(richConfig({ customAgents: [{ id: 'opencode', label: 'OpenCode', command: 'opencode' }, shadowedDeclaration] }), (store) => {
     assert.deepEqual(store.config.customAgents, [
       { id: 'opencode', label: 'OpenCode', command: 'opencode', args: [] },
+      shadowedDeclaration,
     ]);
     try {
-      setCustomAgents(store.config.customAgents ?? []);
+      assert.deepEqual(setCustomAgents(store.config.customAgents ?? []), ['gemini']);
       assert.deepEqual(getAdapter('opencode')?.buildArgs(), []);
+      assert.equal(getAdapter('gemini')?.label, 'Gemini CLI');
+      assert.deepEqual(store.save(() => {})?.customAgents?.[1], shadowedDeclaration);
     } finally {
       setCustomAgents([]);
     }

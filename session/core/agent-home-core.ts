@@ -1,6 +1,8 @@
 import path from "node:path";
 
 import { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME } from "../../mcp/core/agent-config.ts";
+import { cleanJsonc } from "../../server/core/tsconfig-paths-core.ts";
+import { isRecord } from "../../shared/coerce.ts";
 import { buildHookCommand } from "./hook-command-core.ts";
 
 type BlockClassification = "absent" | "current" | "managed-stale" | "foreign" | "conflicting";
@@ -109,12 +111,12 @@ function definesHooksOutsideArrayTables(operatorText: string): boolean {
   return false;
 }
 
-function classifyConfig(configText: string | null, expectedBlock: string, profile: AgentHomeProfile): BlockClassification {
+function classifyConfig(configText: string | null, expectedBlock: string, format: TomlConfigFormat): BlockClassification {
   if (configText === null) return "absent";
   const span = locateBlock(configText);
   if (span === "foreign") return span;
   const operatorText = span === "absent" ? configText : `${configText.slice(0, span.start)}${configText.slice(span.end)}`;
-  if (profile.hooksConflict(operatorText) !== null) return "conflicting";
+  if (format.hooksConflict(operatorText) !== null) return "conflicting";
   if (span === "absent") return span;
   const blockText = configText.slice(span.start, span.end);
   if (blockText === expectedBlock) return "current";
@@ -122,9 +124,9 @@ function classifyConfig(configText: string | null, expectedBlock: string, profil
   return "foreign";
 }
 
-function spliceHooksBlock(configText: string | null, block: string, profile: AgentHomeProfile): BlockSpliceResult {
+function spliceHooksBlock(configText: string | null, block: string, format: TomlConfigFormat): BlockSpliceResult {
   if (configText === null || configText === "") return { contents: block, changed: true };
-  const classification = classifyConfig(configText, block, profile);
+  const classification = classifyConfig(configText, block, format);
   if (classification === "current") return { contents: configText, changed: false };
   if (classification === "foreign" || classification === "conflicting") return { refused: classification };
   if (classification === "absent") {
@@ -140,18 +142,35 @@ const AGENT_HOME_CONFIG_NAME = "config.toml";
 const AGENT_HOME_SOURCES_NAME = ".glimmervoid-sources.json";
 const AGENT_HOME_CONFLICTS_NAME = ".glimmervoid-conflicts";
 const AGENT_HOME_BASE_NAME = ".glimmervoid-base.toml";
+const AGENT_HOME_JSON_BASE_NAME = ".glimmervoid-base.json";
 const AGENT_HOME_IN_USE_LOCK_NAME = ".glimmervoid-in-use.lock";
-const GENERATED_ONLY_NAMES: ReadonlySet<string> = new Set([AGENT_HOME_CONFIG_NAME, AGENT_HOME_SOURCES_NAME, AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_BASE_NAME, AGENT_HOME_IN_USE_LOCK_NAME]);
+const GENERATED_ONLY_NAMES: ReadonlySet<string> = new Set([AGENT_HOME_SOURCES_NAME, AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_IN_USE_LOCK_NAME]);
 const FILE_STAMP_PREFIX = "file:";
 
-type AgentHomeVendor = "kimi" | "codex";
+type AgentHomeVendor = "kimi" | "codex" | "gemini";
+
+interface TomlConfigFormat {
+  kind: "toml";
+  configName: string;
+  baseName: string;
+  hooksConflict(operatorText: string): string | null;
+  sessionOnlyTablePrefixes: readonly string[];
+}
+
+interface JsonConfigFormat {
+  kind: "json";
+  configName: string;
+  baseName: string;
+}
 
 interface AgentHomeProfile {
   vendor: AgentHomeVendor;
   homeEnvName: string;
   defaultHomeFolderName: string;
-  hooksConflict(operatorText: string): string | null;
-  sessionOnlyTablePrefixes: readonly string[];
+  homeEnvSubfolder: string | null;
+  homeRootLinkNames: readonly string[];
+  renderLauncherConfig: ((operatorLauncherText: string) => string) | null;
+  config: TomlConfigFormat | JsonConfigFormat;
   generatedFileNames: readonly string[];
   isPrivateEntryName(name: string, platform: NodeJS.Platform): boolean;
 }
@@ -295,7 +314,7 @@ function withoutSessionOnlyTables(ours: string, base: string, sessionOnlyTablePr
 }
 
 interface AgentConfigSources {
-  profile: AgentHomeProfile;
+  format: TomlConfigFormat;
   realConfigText: string | null;
   baseConfigText: string | null;
   generatedConfigText: string | null;
@@ -305,10 +324,12 @@ interface AgentConfigSources {
 function isGeneratedConfigCurrent(generatedConfigText: string, sources: AgentConfigSources): boolean {
   const generatedOperatorText = withoutBlock(generatedConfigText);
   if (generatedOperatorText === "foreign") return false;
-  return classifyConfig(generatedConfigText, sources.renderBlock(generatedOperatorText), sources.profile) === "current";
+  return classifyConfig(generatedConfigText, sources.renderBlock(generatedOperatorText), sources.format) === "current";
 }
 
-function generatedAgentConfig(sources: AgentConfigSources): { text: string; base: string; hadBlock: boolean } | { refusal: string } {
+type GeneratedConfig = { text: string; base: string; hadBlock: boolean } | { refusal: string };
+
+function generatedAgentConfig(sources: AgentConfigSources): GeneratedConfig {
   const realText = sources.realConfigText ?? "";
   const theirs = withoutBlock(realText);
   if (theirs === "foreign") return { refusal: "its Glimmervoid hooks block markers are unbalanced" };
@@ -320,12 +341,91 @@ function generatedAgentConfig(sources: AgentConfigSources): { text: string; base
   const ours = sources.generatedConfigText === null ? "foreign" : withoutBlock(sources.generatedConfigText);
   const operatorText = ours === "foreign" || sources.baseConfigText === null
     ? theirs
-    : mergeTopLevelKeys(sources.baseConfigText, withoutSessionOnlyTables(ours, sources.baseConfigText, sources.profile.sessionOnlyTablePrefixes), theirs);
-  const conflict = sources.profile.hooksConflict(operatorText);
+    : mergeTopLevelKeys(sources.baseConfigText, withoutSessionOnlyTables(ours, sources.baseConfigText, sources.format.sessionOnlyTablePrefixes), theirs);
+  const conflict = sources.format.hooksConflict(operatorText);
   if (conflict !== null) return { refusal: conflict };
-  const spliced = spliceHooksBlock(operatorText, sources.renderBlock(operatorText), sources.profile);
+  const spliced = spliceHooksBlock(operatorText, sources.renderBlock(operatorText), sources.format);
   if ("refused" in spliced) return { refusal: `its hooks are ${spliced.refused}` };
   return { text: spliced.contents, base: theirs, hadBlock };
+}
+
+type JsonObject = Record<string, unknown>;
+
+function parseJsonObject(text: string): JsonObject | null {
+  const cleaned = cleanJsonc(text);
+  if (cleaned === null) return null;
+  try {
+    const parsed: unknown = JSON.parse(cleaned);
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function isSameJson(first: unknown, second: unknown): boolean {
+  return JSON.stringify(first) === JSON.stringify(second);
+}
+
+function mergeJsonKeys(base: JsonObject, ours: JsonObject, theirs: JsonObject): JsonObject {
+  const merged: JsonObject = {};
+  for (const [key, theirValue] of Object.entries(theirs)) {
+    const isOnlySessionChange = !isSameJson(ours[key], base[key]) && isSameJson(theirValue, base[key]);
+    if (!isOnlySessionChange) merged[key] = theirValue;
+    if (isOnlySessionChange && Object.hasOwn(ours, key)) merged[key] = ours[key];
+  }
+  for (const [key, ourValue] of Object.entries(ours)) {
+    if (!Object.hasOwn(theirs, key) && !Object.hasOwn(base, key)) merged[key] = ourValue;
+  }
+  return merged;
+}
+
+const MANAGED_JSON_KEYS: readonly string[] = Object.freeze(["hooks", "hooksConfig"]);
+
+function withManagedHooks(operatorConfig: JsonObject, managedHooks: JsonObject): { config: JsonObject } | { refusal: string } {
+  const operatorHooksConfig = operatorConfig.hooksConfig;
+  if (operatorHooksConfig !== undefined && !isRecord(operatorHooksConfig)) return { refusal: "its hooksConfig key is not an object, which Glimmervoid hooks cannot turn on" };
+  const areOperatorHooksOff = operatorHooksConfig?.enabled === false;
+  const operatorHooks = areOperatorHooksOff ? {} : operatorConfig.hooks ?? {};
+  if (!isRecord(operatorHooks)) return { refusal: "its hooks key is not an object, which Glimmervoid hooks cannot extend" };
+  const hooks: JsonObject = { ...operatorHooks };
+  for (const [event, managedGroups] of Object.entries(managedHooks)) {
+    const operatorGroups = hooks[event] ?? [];
+    if (!Array.isArray(operatorGroups) || !Array.isArray(managedGroups)) return { refusal: `its hooks.${event} is not a list, which Glimmervoid hooks cannot extend` };
+    hooks[event] = [...operatorGroups, ...managedGroups];
+  }
+  const hooksConfig = areOperatorHooksOff ? { ...operatorHooksConfig, enabled: true } : operatorHooksConfig;
+  return { config: { ...operatorConfig, ...(hooksConfig === undefined ? {} : { hooksConfig }), hooks } };
+}
+
+function parseStoredJsonObject(text: string | null): JsonObject | null {
+  if (text === null) return null;
+  if (text.trim() === "") return {};
+  return parseJsonObject(text);
+}
+
+function generatedJsonAgentConfig(sources: Omit<AgentConfigSources, "format">): GeneratedConfig {
+  const realText = sources.realConfigText ?? "";
+  const theirs = parseStoredJsonObject(realText);
+  if (theirs === null) return { refusal: "it is not a JSON object" };
+  const base = parseStoredJsonObject(sources.baseConfigText);
+  const generated = parseStoredJsonObject(sources.generatedConfigText);
+  const ours: JsonObject = { ...generated };
+  for (const managedKey of MANAGED_JSON_KEYS) {
+    delete ours[managedKey];
+    if (Object.hasOwn(theirs, managedKey)) ours[managedKey] = theirs[managedKey];
+  }
+  const operatorConfig = base === null || generated === null ? theirs : mergeJsonKeys(base, ours, theirs);
+  const managedHooks = parseJsonObject(sources.renderBlock(JSON.stringify(operatorConfig)));
+  if (managedHooks === null) return { refusal: "the Glimmervoid hooks could not be rendered" };
+  const hooked = withManagedHooks(operatorConfig, managedHooks);
+  if ("refusal" in hooked) return hooked;
+  return { text: `${JSON.stringify(hooked.config, null, 2)}\n`, base: realText, hadBlock: false };
+}
+
+function generatedConfigFor(inputs: AgentHomeInputs): GeneratedConfig {
+  const format = inputs.profile.config;
+  if (format.kind === "json") return generatedJsonAgentConfig(inputs);
+  return generatedAgentConfig({ ...inputs, format });
 }
 
 function linkKindFor(kind: RealAgentHomeEntry["kind"], platform: NodeJS.Platform): AgentHomeLinkKind {
@@ -361,12 +461,13 @@ function planEntryLink(real: RealAgentHomeEntry, generated: GeneratedAgentHomeEn
 }
 
 function isKeptOutOfLinks(name: string, inputs: AgentHomeInputs): boolean {
-  return GENERATED_ONLY_NAMES.has(name) || inputs.profile.generatedFileNames.includes(name) || inputs.profile.isPrivateEntryName(name, inputs.platform);
+  const { configName, baseName } = inputs.profile.config;
+  return GENERATED_ONLY_NAMES.has(name) || name === configName || name === baseName || inputs.profile.generatedFileNames.includes(name) || inputs.profile.isPrivateEntryName(name, inputs.platform);
 }
 
 function planAgentHome(inputs: AgentHomeInputs): AgentHomePlan {
-  const config = generatedAgentConfig(inputs);
-  if ("refusal" in config) return { kind: "refused", reason: `the real ${AGENT_HOME_CONFIG_NAME} cannot take the hooks block: ${config.refusal}` };
+  const config = generatedConfigFor(inputs);
+  if ("refusal" in config) return { kind: "refused", reason: `the real ${inputs.profile.config.configName} cannot take the hooks block: ${config.refusal}` };
   const steps: AgentHomeStep[] = [];
   if (config.text !== inputs.generatedConfigText) steps.push({ kind: "write-config", text: config.text });
   if (config.base !== inputs.baseConfigText) steps.push({ kind: "write-base", text: config.base });
@@ -398,8 +499,16 @@ const KIMI_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   vendor: "kimi",
   homeEnvName: "KIMI_CODE_HOME",
   defaultHomeFolderName: ".kimi-code",
-  hooksConflict: (operatorText: string) => definesHooksOutsideArrayTables(operatorText) ? "it defines hooks as a key or [hooks] table, which a [[hooks]] block cannot extend" : null,
-  sessionOnlyTablePrefixes: Object.freeze(["[[hooks#"]),
+  homeEnvSubfolder: null,
+  homeRootLinkNames: Object.freeze([]),
+  renderLauncherConfig: null,
+  config: Object.freeze({
+    kind: "toml",
+    configName: AGENT_HOME_CONFIG_NAME,
+    baseName: AGENT_HOME_BASE_NAME,
+    hooksConflict: (operatorText: string) => definesHooksOutsideArrayTables(operatorText) ? "it defines hooks as a key or [hooks] table, which a [[hooks]] block cannot extend" : null,
+    sessionOnlyTablePrefixes: Object.freeze(["[[hooks#"]),
+  }),
   generatedFileNames: Object.freeze([KIMI_MCP_CONFIG_NAME, KIMI_MCP_BASE_NAME]),
   isPrivateEntryName: () => false,
 });
@@ -421,10 +530,37 @@ const CODEX_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   vendor: "codex",
   homeEnvName: "CODEX_HOME",
   defaultHomeFolderName: ".codex",
-  hooksConflict: (operatorText: string) => definesCodexHooksOutsideArrayTables(operatorText) ? "it defines hooks as a key or a [hooks] table other than [hooks.state], which [[hooks.<event>]] tables cannot extend" : null,
-  sessionOnlyTablePrefixes: Object.freeze(["[[hooks.", "[hooks.state."]),
+  homeEnvSubfolder: null,
+  homeRootLinkNames: Object.freeze([]),
+  renderLauncherConfig: null,
+  config: Object.freeze({
+    kind: "toml",
+    configName: AGENT_HOME_CONFIG_NAME,
+    baseName: AGENT_HOME_BASE_NAME,
+    hooksConflict: (operatorText: string) => definesCodexHooksOutsideArrayTables(operatorText) ? "it defines hooks as a key or a [hooks] table other than [hooks.state], which [[hooks.<event>]] tables cannot extend" : null,
+    sessionOnlyTablePrefixes: Object.freeze(["[[hooks.", "[hooks.state."]),
+  }),
   generatedFileNames: Object.freeze([]),
   isPrivateEntryName: (name: string, platform: NodeJS.Platform) => platform === "win32" && CODEX_SQLITE_NAME_PATTERN.test(name),
+});
+
+function renderGeminiLauncherConfig(operatorLauncherText: string): string {
+  const advanced = parseJsonObject(operatorLauncherText)?.advanced;
+  const autoConfigureMemory = isRecord(advanced) ? advanced.autoConfigureMemory : undefined;
+  if (typeof autoConfigureMemory !== "boolean") return "{}\n";
+  return `${JSON.stringify({ advanced: { autoConfigureMemory } }, null, 2)}\n`;
+}
+
+const GEMINI_HOME_PROFILE: AgentHomeProfile = Object.freeze({
+  vendor: "gemini",
+  homeEnvName: "GEMINI_CLI_HOME",
+  defaultHomeFolderName: ".gemini",
+  homeEnvSubfolder: ".gemini",
+  homeRootLinkNames: Object.freeze([".agents", ".env"]),
+  renderLauncherConfig: renderGeminiLauncherConfig,
+  config: Object.freeze({ kind: "json", configName: "settings.json", baseName: AGENT_HOME_JSON_BASE_NAME }),
+  generatedFileNames: Object.freeze([]),
+  isPrivateEntryName: () => false,
 });
 
 interface CodexHomeHook {
@@ -547,7 +683,6 @@ function renderCodexHooksBlock(options: CodexHooksBlockOptions): string {
 }
 
 export {
-  AGENT_HOME_BASE_NAME,
   AGENT_HOME_CONFIG_NAME,
   AGENT_HOME_CONFLICTS_NAME,
   AGENT_HOME_IN_USE_LOCK_NAME,
@@ -555,8 +690,10 @@ export {
   BLOCK_END,
   BLOCK_START,
   CODEX_HOME_PROFILE,
+  GEMINI_HOME_PROFILE,
   KIMI_HOME_PROFILE,
   fileStampKey,
+  linkKindFor,
   planAgentHome,
   renderCodexHookTables,
   renderCodexHooksBlock,

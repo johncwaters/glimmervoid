@@ -434,7 +434,9 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   laneAssembly.startRuntimeLanes();
 
   function applyCustomAgents(sourceConfig: GlimmervoidConfig): void {
-    setCustomAgents(sourceConfig.customAgents ?? []);
+    for (const shadowedId of setCustomAgents(sourceConfig.customAgents ?? [])) {
+      console.warn(`[glimmervoid] customAgents entry "${shadowedId}" is ignored: a built-in agent now has that id; rename the entry to keep using it`);
+    }
   }
 
   function applyConfigReload(newConfig: GlimmervoidConfig): void {
