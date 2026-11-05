@@ -55,16 +55,18 @@ for (const { agent, setup, flags } of SETUP_CASES) {
   });
 }
 
-test('a Claude Code session trusts its own folder in the Claude config before its agent starts', async () => {
+test('a Claude Code session trusts its own resolved folder in the Claude config before its agent starts, even through a symlink', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-claude-folder-trust-'));
   const previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
   const claudeConfigPath = path.join(directory, '.claude.json');
   fs.writeFileSync(claudeConfigPath, JSON.stringify({ projects: {} }), { mode: 0o600 });
   process.env.CLAUDE_CONFIG_DIR = directory;
   try {
-    const sessionFolder = path.join(directory, 'worktree');
+    const sessionFolder = path.join(fs.realpathSync(directory), 'worktree');
     fs.mkdirSync(sessionFolder);
-    const project: ProjectEntry = { ...ProjectConfig.parse({ id: 'trust', name: 'trust', path: sessionFolder, agent: 'claude-code' }), id: 'trust', name: 'trust', path: sessionFolder };
+    const symlinkedSessionFolder = path.join(directory, 'linked-worktree');
+    fs.symlinkSync(sessionFolder, symlinkedSessionFolder);
+    const project: ProjectEntry = { ...ProjectConfig.parse({ id: 'trust', name: 'trust', path: symlinkedSessionFolder, agent: 'claude-code' }), id: 'trust', name: 'trust', path: symlinkedSessionFolder };
     await spawnedArgs(project, directory);
     const trustedProjects = JSON.parse(fs.readFileSync(claudeConfigPath, 'utf8')).projects;
     assert.equal(trustedProjects[sessionFolder]?.hasTrustDialogAccepted, true);

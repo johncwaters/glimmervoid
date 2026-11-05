@@ -24,6 +24,7 @@ function resolveIsolatedTestHome(): string {
 for (const binding of ENV_SECRET_BINDINGS) delete process.env[binding.environmentVariable];
 
 process.env.GLIMMERVOID_HOME = resolveIsolatedTestHome();
+process.env.CLAUDE_CONFIG_DIR = path.join(process.env.GLIMMERVOID_HOME, 'claude-config');
 
 const isolatedTestTemp = mintFolderRemovedOnExit('glimmervoid-test-tmp-');
 for (const temporaryFolderVariable of ['TMPDIR', 'TEMP', 'TMP']) process.env[temporaryFolderVariable] = isolatedTestTemp;

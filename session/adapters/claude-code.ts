@@ -185,7 +185,8 @@ function buildArgs({
 }
 
 async function trustFolder(sessionFolder: string, env: SpawnEnv): Promise<void> {
-  await createClaudeFolderTrust({ env }).ensureTrusted(sessionFolder);
+  const resolvedSessionFolder = await fs.promises.realpath(sessionFolder).catch(() => sessionFolder);
+  await createClaudeFolderTrust({ env }).ensureTrusted(resolvedSessionFolder);
 }
 
 const claudeCode = {
