@@ -7,6 +7,7 @@ import { BranchGcControlSettings, GithubSettings,
   PlanReviewSettings, TelemetryFileSettings, TraceSettings,
 } from './browser-config.ts';
 import { WorkflowsSettingsUpdate } from './workflows.ts';
+import { AgentSetup } from './agent-models.ts';
 import type { BranchGcFileSettings as BranchGcFileSettingsSchema } from './browser-config.ts';
 
 export {
@@ -166,6 +167,7 @@ export const ProjectConfig = z.object({
   dangerouslySkipPermissions: z.boolean({ error: 'projects[].dangerouslySkipPermissions must be a boolean' }).optional(),
   saneYolo: z.boolean({ error: 'projects[].saneYolo must be a boolean' }).optional(),
   environment: ProjectEnvironment.optional(),
+  agentSetup: AgentSetup.optional(),
 }).passthrough();
 const FILE_CONFIG_SHAPE = {
   ...BROWSER_CONFIG_SHAPE,

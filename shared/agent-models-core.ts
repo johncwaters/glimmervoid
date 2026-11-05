@@ -1,5 +1,5 @@
 import { EFFORT_OPTION_ID } from './contracts/agent-models.ts';
-import type { CatalogModel, ModelOption, ModelSelection } from './contracts/agent-models.ts';
+import type { AgentSetup, CatalogModel, ModelOption, ModelSelection } from './contracts/agent-models.ts';
 
 const CLAUDE_DEFAULT_POINTER = 'default';
 const CODEX_HIDDEN_VISIBILITY = 'hide';
@@ -135,6 +135,7 @@ const FLAGS_BY_AGENT: Readonly<Record<string, FlagBuilder>> = Object.freeze({
   'claude-code': (model, effort) => [...(model ? ['--model', model] : []), ...(effort ? ['--effort', effort] : [])],
   codex: (model, effort) => [...(model ? ['-m', model] : []), ...(effort ? ['-c', `model_reasoning_effort=${effort}`] : [])],
   kimi: (model) => (model ? ['-m', model] : []),
+  grok: (model) => (model ? ['--model', model] : []),
 });
 
 function selectionArgs(selection: ModelSelection | null): string[] {
@@ -144,6 +145,11 @@ function selectionArgs(selection: ModelSelection | null): string[] {
   return buildFlags(selection.model, optionValue(selection, EFFORT_OPTION_ID));
 }
 
+function launchArgs(agent: string, setup: AgentSetup | null): string[] {
+  if (setup === null || setup.agent !== agent) return [];
+  return selectionArgs({ agent, model: setup.model, options: setup.options });
+}
+
 function choiceSelection(agent: string, choice: { model?: string | null; effort?: string | null } | null | undefined): ModelSelection | null {
   const model = trimmedText(choice?.model);
   const effort = trimmedText(choice?.effort);
@@ -151,4 +157,4 @@ function choiceSelection(agent: string, choice: { model?: string | null; effort?
   return { agent, model, options: effort === null ? [] : [{ id: EFFORT_OPTION_ID, value: effort }] };
 }
 
-export { choiceSelection, parseClaudeInitialize, parseCodexModels, parseKimiModels, selectionArgs };
+export { choiceSelection, launchArgs, parseClaudeInitialize, parseCodexModels, parseKimiModels, selectionArgs };

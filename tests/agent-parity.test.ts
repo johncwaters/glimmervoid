@@ -83,6 +83,13 @@ const PARITY_SCENARIOS: readonly ParityScenario[] = [
     requiresClearReset: true,
   },
   {
+    name: 'model-setup-turn',
+    expectedFinalState: STATES.COMPLETE,
+    expectedCompleteNotifications: 1,
+    waitingNotification: 'forbidden',
+    fixtureByAgent: { 'claude-code': 'v2-claude-code-model-setup-turn.jsonl', codex: 'v2-codex-model-setup-turn.jsonl', kimi: 'v2-kimi-model-setup-turn.jsonl' },
+  },
+  {
     name: 'whiteboard-prompt-context',
     expectedFinalState: STATES.COMPLETE,
     expectedCompleteNotifications: 1,

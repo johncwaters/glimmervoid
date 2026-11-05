@@ -9,7 +9,7 @@ import type { Session } from "../session/sessions.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
 import {
   createProbeChecks, delay, hookEventsOf, QUEUED_HINT_PROBE_PROMPT, queueWhiteboardEditFor, screenShowsSpawnHint, screenShowsStartLine, screenShowsWhiteboardAnswer,
-  SHOULD_RUN_ONLY_HINT_PROBE, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, SPAWN_HINT_PROBE_PROMPT, waitForState,
+  runModelSetupProbe, SHOULD_RUN_ONLY_HINT_PROBE, SHOULD_RUN_ONLY_MODEL_SETUP_PROBE, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, SPAWN_HINT_PROBE_PROMPT, waitForState,
   whiteboardWriterIdFor, whiteboardWriterProject, WHITEBOARD_PROBE_PROMPT, writeHookFixture,
 } from "./support/backend-harness.ts";
 import type { ProbeFixtureTarget, ProbeHookRecord } from "./support/backend-harness.ts";
@@ -162,6 +162,10 @@ async function runProbe(tempDirectory: string): Promise<void> {
   }
 
   try {
+    if (SHOULD_RUN_ONLY_MODEL_SETUP_PROBE) {
+      await runModelSetupProbe({ session, agent: "kimi", hookRecords, fixtureTarget, check, answerWaiting: approveOnce });
+      return;
+    }
     console.log("\nSpawn into an untrusted folder:");
     const ptyWrites: string[] = [];
     const writeToPty = session.write.bind(session);
