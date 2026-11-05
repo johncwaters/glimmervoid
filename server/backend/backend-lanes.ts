@@ -11,6 +11,10 @@ import { sanitizeWorktreeName } from '../../shared/paths.ts';
 import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
 import { createBenchmarkWiring } from '../benchmark-wiring.ts';
 import { createRaceWiring } from '../race/race-wiring.ts';
+import { contestantDiff } from '../race/race-diff.ts';
+import { REMOVED_CONTESTANT } from '../../shared/race-core.ts';
+import { selectionArgs } from '../../shared/agent-models-core.ts';
+import { absolutePathReadRule } from '../github/core/team-review-core.ts';
 import { createRaceStore } from '../race/race-store.ts';
 import { raceIdsOf } from '../race/core/race-core.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
@@ -67,6 +71,8 @@ import { createUploadsWiring } from '../uploads-wiring.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { repoNotesRefFor } from '../commit-sessions.ts';
 import { laneAccessConfigOf } from '../lanes/core/lane-permissions-core.ts';
+
+const RACE_JUDGE_TOOLS = Object.freeze(['Read', 'Glob', 'Grep', 'Write']);
 
 interface BackendLaneOptions {
   branchGcWiringOptions?: Record<string, unknown>;
@@ -334,6 +340,21 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     integrationBranch: () => configuredIntegrationBranch(configStore.config),
     broadcast: broadcastControl,
     log: logger,
+    sessionStateOf: (sessionId) => findLiveSession(sessionId)?.state ?? REMOVED_CONTESTANT,
+    worktreeOf: (sessionId) => findLiveSession(sessionId)?.worktreeDir ?? null,
+    diffOf: contestantDiff,
+    judgeRoot: path.join(glimmervoidHome, 'race-judges'),
+    spawnJudge: ({ setup, readPaths, ...request }) => createLaneSpawn({
+      sessions: benchmarkSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
+      replayBufferKB: config.replayBufferKB, laneName: 'race', getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
+      allowTools: RACE_JUDGE_TOOLS,
+    })({
+      ...request, agent: setup.agent, model: setup.model,
+      extraArgs: [
+        '--allowedTools', ...readPaths.flatMap((readPath) => ['Read', 'Glob', 'Grep'].map((tool) => absolutePathReadRule(readPath).replace(/^Read/, tool))),
+        ...selectionArgs({ agent: setup.agent, model: null, options: setup.options }),
+      ],
+    }),
   });
   const benchmarkSessions = new Map<string, Session>();
   const claudeCommand = () => commandFor('claude-code').path;
@@ -453,7 +474,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => issues.startPoller(),
       () => workflows.startPoller(),
       () => void benchmarks.sweepLeftovers().then(() => { void benchmarks.refreshStatus(); }),
-      () => void races.loadRaces(raceIdsOf(configStore.config.projects)),
+      () => void races.loadRaces(raceIdsOf(configStore.config.projects)).then(() => races.startWatching()),
       () => traceWiring?.start().catch((error: unknown) => logger.warn(`[trace] start failed: ${errorMessage(error)}`)),
       () => uploadsWiring.start().catch((error: unknown) => logger.warn(`[uploads] start failed: ${errorMessage(error)}`)),
       () => planReview?.start().catch((error: unknown) => logger.warn(`[plan-review] start failed: ${errorMessage(error)}`)),

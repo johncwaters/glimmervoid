@@ -1,9 +1,10 @@
-export const NO_PATH_KEY = '(no path)';
+const NO_PATH_KEY = '(no path)';
 
 export interface RosterGroup<Row> {
   key: string;
   label: string;
   title: string;
+  projectPath: string | null;
   rows: Row[];
 }
 
@@ -34,7 +35,7 @@ export function groupRoster<Row extends { id: string }>(
     const key = namedGroup?.key ?? (raw ? String(raw) : NO_PATH_KEY);
     let g = byKey.get(key);
     if (!g) {
-      g = namedGroup ? { ...namedGroup, rows: [] } : { key, label: key === NO_PATH_KEY ? NO_PATH_KEY : basename(key), title: key, rows: [] };
+      g = namedGroup ? { ...namedGroup, projectPath: null, rows: [] } : { key, label: key === NO_PATH_KEY ? NO_PATH_KEY : basename(key), title: key, projectPath: key === NO_PATH_KEY ? null : key, rows: [] };
       byKey.set(key, g);
     }
     g.rows.push(row);

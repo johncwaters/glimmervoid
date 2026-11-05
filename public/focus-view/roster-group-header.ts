@@ -2,7 +2,6 @@ import { writeDataIfChanged, writeHiddenIfChanged, writeTextIfChanged } from '..
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import type { RosterGroup } from './roster-groups-core.ts';
-import { NO_PATH_KEY } from './roster-groups-core.ts';
 import { PLUS_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 
 export interface SessionGroupHeader {
@@ -27,10 +26,9 @@ export function buildSessionGroupHeader({ onAdd }: {
 
 export function paintSessionGroupHeader(refs: SessionGroupHeader, group: RosterGroup<unknown>) {
   const { header, label, count, addButton } = refs;
-  const isPathless = group.key === NO_PATH_KEY;
-  writeDataIfChanged(header, 'path', group.key);
+  writeDataIfChanged(header, 'path', group.projectPath ?? '');
   writeDataIfChanged(header, 'label', group.label);
   writeTextIfChanged(label, group.label);
   writeTextIfChanged(count, String(group.rows.length));
-  writeHiddenIfChanged(addButton, isPathless);
+  writeHiddenIfChanged(addButton, group.projectPath === null);
 }

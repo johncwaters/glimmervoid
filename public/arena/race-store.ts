@@ -1,4 +1,6 @@
 import type { RaceRecord } from '#shared/contracts/race.ts';
+import { REMOVED_CONTESTANT, raceProgress } from '#shared/race-core.ts';
+import { sessionUIs } from '../session-card/card-registry.ts';
 
 let races: readonly RaceRecord[] = [];
 const subscribers = new Set<() => void>();
@@ -18,7 +20,9 @@ export function applyRaceStatus(message: { races: RaceRecord[] }): void {
 
 export function raceGroupOf(row: { id: string }): { key: string; label: string; title: string } | null {
   const race = raceOfSession(row.id);
-  return race ? { key: `race:${race.id}`, label: race.spec.title, title: `Race: ${race.spec.title}` } : null;
+  if (!race) return null;
+  const progress = raceProgress(Object.values(race.sessionIdByContestant), (sessionId) => sessionUIs.get(sessionId)?.currentState ?? REMOVED_CONTESTANT);
+  return { key: `race:${race.id}`, label: `${race.spec.title} ${progress.settled}/${progress.total}`, title: `Race: ${race.spec.title}, ${progress.settled} of ${progress.total} settled` };
 }
 
 function raceOfSession(sessionId: string): RaceRecord | null {

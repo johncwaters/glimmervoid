@@ -134,7 +134,7 @@ interface ControlHandlerDeps {
   packs?: { statusFrame: () => PacksStatus; approve: (fingerprint: string) => Promise<{ ok: true } | { ok: false; error: string }> } | null;
   getBenchmarkStatus?: (() => BenchmarkStatus | null) | null;
   benchmarks?: BenchmarkControl | null;
-  races?: Pick<RaceWiring, 'start' | 'status'> | null;
+  races?: Pick<RaceWiring, 'start' | 'status' | 'judge' | 'contestantDiffText'> | null;
   requestIssue?: GithubLaneStore['requestIssue'];
   requestViewer?: GithubLaneStore['requestViewer'];
   requestViewerTeams?: GithubLaneStore['requestViewerTeams'];
