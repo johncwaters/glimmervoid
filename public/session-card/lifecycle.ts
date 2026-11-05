@@ -1,8 +1,6 @@
 import type { UnseenOutcome } from '#shared/contracts/session.ts';
 import { STATES } from '#shared/states.ts';
 import { hasSessionDocs } from '../doc-editor/doc-editor.ts';
-import { onShownFilesArrivedLive } from '../shown-files.ts';
-import { placeShownChips } from './shown-chip.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { isMonitoringState } from '../dom-helpers.ts';
 import { isPhoneLayout } from '../form-factor.ts';
@@ -31,8 +29,6 @@ import { wireCardEvents } from './card-events.ts';
 import { cancelWatchedCompletionDismiss, holdThenDismissWatchedCompletion, isCompletionWatchedAt } from './watched-completion.ts';
 
 const asText = (value: unknown) => (value == null ? '' : String(value));
-
-onShownFilesArrivedLive(placeShownChips);
 
 export function setSessionTaskTitle(id: unknown, title: unknown, isCustom: unknown) {
   const ui = findSessionUi(id);

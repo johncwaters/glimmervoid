@@ -16,7 +16,7 @@ const keepAlive = setInterval(() => {}, 60_000);
 let statusPath: string | undefined;
 const GlimmervoidCall = z.strictObject({ ts: z.number().finite(), args: z.array(z.string()).min(1), exitCode: z.number().int() });
 type GlimmervoidCall = z.infer<typeof GlimmervoidCall>;
-const dashboardChangingVerbs = new Set(['spawn', 'show', 'whiteboard']);
+const dashboardChangingVerbs = new Set(['spawn', 'whiteboard']);
 
 async function readGlimmervoidCalls(callLogPath: string | undefined): Promise<GlimmervoidCall[]> {
   if (!callLogPath) return [];
@@ -25,21 +25,8 @@ async function readGlimmervoidCalls(callLogPath: string | undefined): Promise<Gl
     .filter((call) => call.exitCode === 0 && dashboardChangingVerbs.has(call.args[0] ?? ''));
 }
 
-async function restoreShownFiles(call: GlimmervoidCall, shownFilesDirectory: string | undefined, worktreePath: string): Promise<void> {
-  if (!shownFilesDirectory || call.args[0] !== 'show') return;
-  const keptNames = new Set(await fs.readdir(shownFilesDirectory));
-  for (const argument of call.args.slice(1)) {
-    if (argument.startsWith('-') || !keptNames.has(path.basename(argument))) continue;
-    const targetPath = path.resolve(worktreePath, argument);
-    if (path.relative(worktreePath, targetPath).startsWith('..')) throw new Error(`shown file ${argument} resolves outside the worktree`);
-    await fs.mkdir(path.dirname(targetPath), { recursive: true });
-    await fs.copyFile(path.join(shownFilesDirectory, path.basename(argument)), targetPath);
-  }
-}
-
-async function replayGlimmervoidCall(call: GlimmervoidCall, shownFilesDirectory: string | undefined): Promise<void> {
+async function replayGlimmervoidCall(call: GlimmervoidCall): Promise<void> {
   const worktreePath = await fs.realpath(process.cwd());
-  await restoreShownFiles(call, shownFilesDirectory, worktreePath);
   await runCommand('glimmervoid', call.args, { cwd: worktreePath, signal: cancellation.signal, timeout: 30_000 }).catch((error: Error & { stderr?: string }) => {
     throw new Error(`glimmervoid ${call.args[0]} failed: ${error.stderr?.trim() || error.message}`);
   });
@@ -117,7 +104,7 @@ async function runReplay(): Promise<void> {
       timelineStartAt += Date.now() - pausedAt;
       continue;
     }
-    if (call) { await replayGlimmervoidCall(call, environment.manifest.shownFiles); continue; }
+    if (call) { await replayGlimmervoidCall(call); continue; }
     if (!record) continue;
     if (record.type === 'data' && typeof record.data === 'string') {
       const output = record.data;

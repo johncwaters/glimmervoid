@@ -6,7 +6,6 @@ import { revealFlyingAnimals } from '../flying-animals.ts';
 import { refreshFirstRunChecklist, revealFirstRunChecklist } from '../onboarding/first-run-loader.ts';
 import { applyPlanConnectionState } from '../session-card/card-faces.ts';
 import { countShownConnectingTerminals, onTerminalLinkChange } from '../session-card/terminal-data-socket.ts';
-import { preloadShownFaceWhenIdle } from '../shown-files.ts';
 import { getActiveView } from '../ui-state-core.ts';
 import { prefetchViewsWhenIdle, reloadOnceIfBundleRetired } from '../view-registry.ts';
 import { applyDashboardSettings } from './dashboard-settings.ts';
@@ -45,7 +44,6 @@ function revealApp() {
   if (appRevealed) return;
   appRevealed = true;
   prefetchViewsWhenIdle(VIEW_TABS);
-  preloadShownFaceWhenIdle();
   revealFlyingAnimals();
   revealFirstRunChecklist();
   playLoadingUnlock(loadingScreen).then(fadeOutLoadingScreen, fadeOutLoadingScreen);

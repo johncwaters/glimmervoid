@@ -143,17 +143,11 @@
       "pressUntilFocused": "bundle-size-chart"
     },
     {
-      "atMs": 25500,
-      "click": "[data-action=\"open-shown\"]",
-      "clickIn": "bundle-size-chart"
-    },
-    {
       "atMs": 30500,
       "name": "review"
     }
   ],
   "videoMs": 33000,
-  "shownFiles": "../recordings/shown-files",
   "boardSeed": "demo-board.json",
   "videoStartMs": 2500
 }
