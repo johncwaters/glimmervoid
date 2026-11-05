@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { MyPr, MyPrThread } from '../../../shared/contracts/my-prs.ts';
 import type { TeamReviewThreadNode } from '../../../shared/contracts/team-review.ts';
 import type { PackOnDisk, PackPrFlows } from '../../../shared/contracts/pack.ts';
+import type { PackPrFlowRule } from '../../../shared/contracts/pr-flows.ts';
 import { PR_FLOW_PLACEHOLDERS_BY_KIND, PrFlowCommand, PrFlowPrAction, PrFlowRule, PrFlowSourceCommand, PrFlowsSettings } from '../../../shared/contracts/pr-flows.ts';
 import type { PrActionReportBody, PrActionRunRecord, PrActionRunView, PrFlowPendingApproval, PrFlowSourceFinding, PrFlowActionRef, PrFlowDisposition, PrFlowHandled, PrFlowItem, PrFlowPriority, PrFlowSource, PrFlowsState } from '../../../shared/contracts/pr-flows.ts';
 
@@ -31,16 +32,20 @@ function higherPriority(left: PrFlowPriority, right: PrFlowPriority): PrFlowPrio
   return PRIORITY_RANK[right] < PRIORITY_RANK[left] ? right : left;
 }
 
-function dismissalKeyOf(sourceName: string, path: string, body: string): string {
-  return crypto.createHash('sha256').update(`${sourceName}\n${path}\n${normalizedBodyPrefix(body)}`).digest('hex').slice(0, 24);
+function sourceIdentity(source: PrFlowCandidate['source']): string {
+  return source.sourceId ?? source.name;
+}
+
+function dismissalKeyOf(candidate: PrFlowCandidate): string {
+  return crypto.createHash('sha256').update(`${sourceIdentity(candidate.source)}\n${candidate.path}\n${normalizedBodyPrefix(candidate.body)}`).digest('hex').slice(0, 24);
 }
 
 function sourceOf(candidate: PrFlowCandidate): PrFlowSource {
-  return { ...candidate.source, priority: candidate.priority, excerpt: candidate.body, dismissalKey: dismissalKeyOf(candidate.source.name, candidate.path, candidate.body) };
+  return { ...candidate.source, priority: candidate.priority, excerpt: candidate.body, dismissalKey: dismissalKeyOf(candidate) };
 }
 
 function itemOf(candidate: PrFlowCandidate): PrFlowItem {
-  const identity = candidate.source.threadId ?? `${candidate.source.kind}:${candidate.source.name}:${dismissalKeyOf(candidate.source.name, candidate.path, candidate.body)}`;
+  const identity = candidate.source.threadId ?? `${candidate.source.kind}:${sourceIdentity(candidate.source)}:${dismissalKeyOf(candidate)}`;
   return {
     key: `${candidate.path}:${candidate.lineStart ?? ''}:${identity}`, path: candidate.path, lineStart: candidate.lineStart, lineEnd: candidate.lineEnd,
     priority: candidate.priority, sources: [sourceOf(candidate)], excerpt: candidate.body, url: candidate.url,
@@ -263,32 +268,27 @@ function packCommand<Command extends PrFlowCommand>(command: Command, loaded: Pa
   return { ...command, id: packEntryId(loaded.header.name, command.id), command: command.command.map((element) => element.replaceAll(PACK_DIR_PLACEHOLDER, loaded.dir)) };
 }
 
+function narrowedRepos(entryRepos: string[] | undefined, packRepos: string[] | undefined): string[] | undefined {
+  if (packRepos === undefined) return entryRepos;
+  if (entryRepos === undefined) return packRepos;
+  return entryRepos.filter((repo) => isRepoListed(packRepos, repo));
+}
+
 function withPackRepos<Scoped extends { repos?: string[] | undefined }>(entry: Scoped, packRepos: string[] | undefined): Scoped {
-  const repos = entry.repos ?? packRepos;
+  const repos = narrowedRepos(entry.repos, packRepos);
   return repos === undefined ? entry : { ...entry, repos };
 }
 
-function packQualified(packName: string, id: string): string {
-  return id.startsWith(`${packName}/`) ? id : packEntryId(packName, id);
-}
-
-function packSourceRef(ruleSource: string, packName: string, sources: readonly { id: string; label: string }[]): string {
-  return sources.some((source) => source.id === ruleSource) ? packEntryId(packName, ruleSource) : ruleSource;
-}
-
-type PackRuleSection = { repos?: string[] | undefined; sources: readonly { id: string; label: string }[] };
-
-function packRule(rule: PrFlowRule, packName: string, section: PackRuleSection): PrFlowRule {
-  const repoScopedRule = withPackRepos(rule, section.repos);
-  const scopedRule = repoScopedRule.source === undefined ? repoScopedRule : { ...repoScopedRule, source: packSourceRef(repoScopedRule.source, packName, section.sources) };
-  if (!scopedRule.action.startsWith('run:')) return scopedRule;
-  return { ...scopedRule, action: `run:${packQualified(packName, scopedRule.action.slice('run:'.length))}` };
+function packRule(rule: PackPrFlowRule, packName: string, packRepos: string[] | undefined): PrFlowRule {
+  const { sources, action, ...rest } = withPackRepos(rule, packRepos);
+  const packAction: PrFlowActionRef = action.startsWith('run:') ? `run:${packEntryId(packName, action.slice('run:'.length))}` : action;
+  return { ...rest, ...(sources === undefined ? {} : { sources: sources.map((sourceId) => packEntryId(packName, sourceId)) }), action: packAction };
 }
 
 type PackCommandsByKind = { sources: PrFlowSourceCommand[]; actions: PrFlowCommand[]; prActions: PrFlowPrAction[] };
 
-function packRuleText(rule: PrFlowRule, prFlowsPack: PrFlowsPack): string {
-  const { name, ...matchAndAction } = packRule(rule, prFlowsPack.loaded.header.name, prFlowsPack.section);
+function packRuleText(rule: PackPrFlowRule, prFlowsPack: PrFlowsPack): string {
+  const { name, ...matchAndAction } = packRule(rule, prFlowsPack.loaded.header.name, prFlowsPack.section.repos);
   return `${name}: ${JSON.stringify(matchAndAction)}`;
 }
 
@@ -347,10 +347,11 @@ export function prFlowSetup(personal: PrFlowsConfig, approvedPackLoad: { packs: 
   const enabledCommands = enabledPacks.map(packCommands);
   for (const { kind, command } of enabledCommands.flatMap(kindedCommands)) approved.add(commandFingerprint(kind, command));
   const actions = [...personal.actions, ...enabledCommands.flatMap((commands) => commands.actions)];
-  const rules = [...personal.rules, ...enabledPacks.flatMap(({ loaded, section }) => section.rules.map((rule) => packRule(rule, loaded.header.name, section)))];
+  const rules = [...personal.rules, ...enabledPacks.flatMap(({ loaded, section }) => section.rules.map((rule) => packRule(rule, loaded.header.name, section.repos)))];
+  const sources = [...personal.sources, ...enabledCommands.flatMap((commands) => commands.sources)];
   return {
     commands: {
-      sources: [...personal.sources, ...enabledCommands.flatMap((commands) => commands.sources)],
+      sources,
       actions,
       prActions: [...personal.prActions, ...enabledCommands.flatMap((commands) => commands.prActions)],
       warnings: [...personal.warnings, ...approvedPackLoad.warnings, ...sectionWarnings, ...offNotes],
@@ -358,7 +359,7 @@ export function prFlowSetup(personal: PrFlowsConfig, approvedPackLoad: { packs: 
     approved,
     approvals,
     rules,
-    ruleWarnings: unknownActionWarnings(rules, new Set(actions.map((action) => action.id))),
+    ruleWarnings: [...unknownActionWarnings(rules, new Set(actions.map((action) => action.id))), ...unknownSourceWarnings(rules, new Set(sources.map((source) => source.id)))],
   };
 }
 
@@ -448,10 +449,10 @@ export function expandPlaceholders(argv: readonly string[], values: Readonly<Rec
   return { ok: true, argv: argv.map((element) => element.replace(PLACEHOLDER_PATTERN, (_match, name: string) => values[name] ?? '')) };
 }
 
-export function sourceCandidates(label: string, findings: readonly PrFlowSourceFinding[], sourceId?: string): PrFlowCandidate[] {
+export function sourceCandidates(source: { id: string; label: string }, findings: readonly PrFlowSourceFinding[]): PrFlowCandidate[] {
   return findings.map((finding) => ({
     path: finding.path, lineStart: finding.lineStart, lineEnd: finding.lineEnd ?? finding.lineStart, priority: finding.priority,
-    source: { kind: 'configured', name: label, ...(sourceId === undefined ? {} : { sourceId }), url: finding.url }, body: finding.body, url: finding.url,
+    source: { kind: 'configured', name: source.label, sourceId: source.id, url: finding.url }, body: finding.body, url: finding.url,
   }));
 }
 
@@ -459,13 +460,15 @@ function isPathCovered(path: string, rulePaths: readonly string[]): boolean {
   return rulePaths.some((rulePath) => path === rulePath || (rulePath.endsWith('/') && path.startsWith(rulePath)));
 }
 
-function isNamedSource(ruleSource: string, source: PrFlowSource): boolean {
-  if (ruleSource.includes('/')) return source.sourceId === ruleSource;
-  return source.name === ruleSource;
+function isListedSource(rule: PrFlowRule, source: PrFlowSource): boolean {
+  if (rule.sources === undefined && rule.authors === undefined) return true;
+  if (source.kind === 'configured') return source.sourceId !== undefined && (rule.sources?.includes(source.sourceId) ?? false);
+  const author = source.name.toLowerCase();
+  return rule.authors?.some((listedAuthor) => listedAuthor.toLowerCase() === author) ?? false;
 }
 
 function ruleMatchesSource(rule: PrFlowRule, source: PrFlowSource): boolean {
-  if (rule.source !== undefined && !isNamedSource(rule.source, source)) return false;
+  if (!isListedSource(rule, source)) return false;
   if (rule.priority !== undefined && !rule.priority.includes(source.priority ?? 'unknown')) return false;
   const ruleText = rule.text?.toLowerCase();
   return ruleText === undefined || source.excerpt.toLowerCase().includes(ruleText);
@@ -510,11 +513,16 @@ function unknownActionWarnings(rules: readonly PrFlowRule[], actionIds: Readonly
   });
 }
 
+function unknownSourceWarnings(rules: readonly PrFlowRule[], sourceIds: ReadonlySet<string>): string[] {
+  return rules.flatMap((rule) => (rule.sources ?? []).filter((sourceId) => !sourceIds.has(sourceId))
+    .map((sourceId) => `Rule '${rule.name}' names the source '${sourceId}', which no entry in prFlows.sources or an enabled pack defines, so it never acts on that source.`));
+}
+
 function reposOutside(repos: readonly string[], allowed: readonly string[]): string[] {
   return repos.filter((repo) => !isRepoListed(allowed, repo));
 }
 
-function widenedEntryNotes(section: PackPrFlows, packName: string): string[] {
+function entryReposOutsidePack(section: PackPrFlows, packName: string): string[] {
   const packRepos = section.repos;
   if (packRepos === undefined) return [];
   const entries = [
@@ -525,43 +533,30 @@ function widenedEntryNotes(section: PackPrFlows, packName: string): string[] {
   return entries.flatMap(({ title, repos }) => {
     const outside = reposOutside(repos ?? [], packRepos);
     if (outside.length === 0) return [];
-    return [`${title} reaches outside prFlows.repos to ${outside.join(', ')}, since an entry's own repos replace the pack default.`];
+    return [`${title} lists ${outside.join(', ')}, which prFlows.repos does not list, so it never reaches ${outside.length === 1 ? 'it' : 'them'}.`];
   });
 }
 
-type PackRuleProblems = { errors: string[]; notes: string[] };
-
-function unknownSourceProblems(ruleName: string, ruleSource: string, packName: string, elsewhere: string): PackRuleProblems {
-  if (ruleSource.startsWith(`${packName}/`)) return { errors: [`Rule '${ruleName}' names the source '${ruleSource}', which no source of this pack defines, so it never acts.`], notes: [] };
-  if (ruleSource.includes('/')) return { errors: [], notes: [`Rule '${ruleName}' names the source '${ruleSource}', which is no source of this pack, so it matches only the source with that id from another pack, and never acts while that pack is off.`] };
-  return { errors: [], notes: [`Rule '${ruleName}' names the source '${ruleSource}', which is no source of this pack, so it matches only ${elsewhere}.`] };
+function ruleSourceErrors(rule: PackPrFlowRule, section: PackPrFlows): string[] {
+  if (rule.sources === undefined) return [];
+  const namedSources = section.sources.filter((source) => rule.sources?.includes(source.id));
+  const unknownErrors = rule.sources.filter((sourceId) => !namedSources.some((source) => source.id === sourceId))
+    .map((sourceId) => `Rule '${rule.name}' names the source '${sourceId}', which no source of this pack defines, so it never acts on it.`);
+  const ruleRepos = narrowedRepos(rule.repos, section.repos);
+  const sourceRepoLists = namedSources.map((source) => narrowedRepos(source.repos, section.repos));
+  if (ruleRepos === undefined || namedSources.length === 0 || sourceRepoLists.some((repos) => repos === undefined)) return unknownErrors;
+  const sourceRepos = sourceRepoLists.flatMap((repos) => repos ?? []);
+  if (ruleRepos.some((repo) => isRepoListed(sourceRepos, repo))) return unknownErrors;
+  return [...unknownErrors, `Rule '${rule.name}' is limited to ${ruleRepos.join(', ') || 'no repository'}, but its sources run only on ${[...new Set(sourceRepos)].join(', ') || 'no repository'}, so it never acts.`];
 }
 
-function ruleSourceProblems(rule: PrFlowRule, section: PackPrFlows, packName: string): PackRuleProblems {
-  if (rule.source === undefined) return { errors: [], notes: [] };
-  const elsewhere = 'a source of that label from config.json or another pack, or review comments by a GitHub account of that name';
-  const labelledSources = section.sources.filter((candidate) => candidate.label === rule.source);
-  const namedSources = labelledSources.length > 0 ? labelledSources : section.sources.filter((candidate) => packEntryId(packName, candidate.id) === rule.source);
-  if (namedSources.length === 0) return unknownSourceProblems(rule.name, rule.source, packName, elsewhere);
-  const sourceRepoLists = namedSources.map((source) => source.repos ?? section.repos);
-  if (rule.repos === undefined || sourceRepoLists.some((repos) => repos === undefined)) return { errors: [], notes: [] };
-  const sourceRepos = [...new Set(sourceRepoLists.flatMap((repos) => repos ?? []))];
-  const reposWithoutSource = reposOutside(rule.repos, sourceRepos);
-  if (reposWithoutSource.length === 0) return { errors: [], notes: [] };
-  const mismatch = `Rule '${rule.name}' is limited to ${rule.repos.join(', ')}, but this pack's source '${rule.source}' runs only on ${sourceRepos.join(', ')}`;
-  const neverMeetsSource = new Set(reposWithoutSource.map((repo) => repo.toLowerCase())).size === new Set(rule.repos.map((repo) => repo.toLowerCase())).size;
-  if (labelledSources.length === 0 && neverMeetsSource) return { errors: [`${mismatch}, so the rule never acts.`], notes: [] };
-  if (labelledSources.length === 0) return { errors: [], notes: [`${mismatch}, so on ${reposWithoutSource.join(', ')} the rule never acts.`] };
-  return { errors: [], notes: [`${mismatch}, so on ${reposWithoutSource.join(', ')} the rule matches only ${elsewhere}.`] };
-}
-
-export function packRuleChecks(section: PackPrFlows, packName: string): PackRuleProblems {
-  const resolvedRules = section.rules.map((rule) => packRule(rule, packName, section));
-  const sourceProblems = resolvedRules.map((rule) => ruleSourceProblems(rule, section, packName));
-  return {
-    errors: [...unknownActionWarnings(resolvedRules, new Set(section.actions.map((action) => packEntryId(packName, action.id)))), ...sourceProblems.flatMap((problems) => problems.errors)],
-    notes: [...widenedEntryNotes(section, packName), ...sourceProblems.flatMap((problems) => problems.notes)],
-  };
+export function packRuleErrors(section: PackPrFlows, packName: string): string[] {
+  const resolvedRules = section.rules.map((rule) => packRule(rule, packName, section.repos));
+  return [
+    ...unknownActionWarnings(resolvedRules, new Set(section.actions.map((action) => packEntryId(packName, action.id)))),
+    ...section.rules.flatMap((rule) => ruleSourceErrors(rule, section)),
+    ...entryReposOutsidePack(section, packName),
+  ];
 }
 
 export function shouldTellBranchMoved(run: { headAtStart: string; finishedAt: number | null }, headNow: string, nowMs: number, windowMs: number): boolean {
@@ -576,10 +571,14 @@ export function branchMovedNote(prUrl: string, actionLabels: readonly string[], 
 const RULE_NAME_MAX_CHARACTERS = 80;
 
 export function savedRuleFor(item: PrFlowItem, repo: string, reason: string): PrFlowRule {
-  const sourceName = item.sources[0]?.name ?? 'unknown source';
-  const fullName = `Dismiss ${sourceName} on ${item.path || 'the pull request'}`;
+  const sourceIds = [...new Set(item.sources.flatMap((source) => (source.kind === 'configured' && source.sourceId !== undefined ? [source.sourceId] : [])))];
+  const authors = [...new Set(item.sources.flatMap((source) => (source.kind === 'configured' ? [] : [source.name])))];
+  const fullName = `Dismiss ${[...new Set(item.sources.map((source) => source.name))].join(', ')} on ${item.path || 'the pull request'}`;
   const name = [...fullName].slice(0, RULE_NAME_MAX_CHARACTERS).join('');
-  return { name, source: sourceName, ...(item.path ? { paths: [item.path] } : {}), scope: 'mine', repos: [repo], action: 'dismiss', reason };
+  return {
+    name, ...(sourceIds.length === 0 ? {} : { sources: sourceIds }), ...(authors.length === 0 ? {} : { authors }),
+    ...(item.path ? { paths: [item.path] } : {}), scope: 'mine', repos: [repo], action: 'dismiss', reason,
+  };
 }
 
 export function fixLocallyPrompt(prUrl: string, item: PrFlowItem, fence: (label: string, text: string) => string): string {

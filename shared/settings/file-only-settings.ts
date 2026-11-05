@@ -333,9 +333,9 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
   },
   {
     id: 'file-pr-flows-rules', path: 'prFlows.rules', title: 'PR flows rules', group: 'lanes-team-review',
-    description: 'Ordered rules for review items on your own pull requests; the first match acts with no click and lands in the Handled list, where Undo reopens it. Each matches on source, priority, paths, text, scope and repos (owner/name; every repository when absent), and acts with ask, fix-local, dismiss or run:<action id>.',
+    description: 'Ordered rules for review items on your own pull requests; the first match acts with no click and lands in the Handled list, where Undo reopens it. Each matches on sources (source ids, <pack>/<id> for a pack source), authors (GitHub logins of review comment authors), priority, paths, text, scope and repos (owner/name; every repository when absent), and acts with ask, fix-local, dismiss or run:<action id>.',
     jsonSchema: prFlowRulesJsonSchema(z.array(PrFlowRule)),
-    example: [{ name: 'Generated files', paths: ['dist/'], action: 'dismiss', reason: 'Generated output; the source change is reviewed instead.' }, { name: 'Bot nits', source: 'review-bot[bot]', priority: ['low'], repos: ['acme/app'], action: 'run:ask-bot' }],
+    example: [{ name: 'Generated files', paths: ['dist/'], action: 'dismiss', reason: 'Generated output; the source change is reviewed instead.' }, { name: 'Bot nits', authors: ['review-bot[bot]'], priority: ['low'], repos: ['acme/app'], action: 'run:ask-bot' }],
     control: 'json', keywords: ['pull requests', 'review items', 'dismiss', 'automation'], defaultValue: [], takesEffect: 'now',
     fileOnlyReason: 'Rules are written in config.json; Save as rule in My PRs is the one dashboard writer, and it only appends.', ...FILE_ONLY,
   },

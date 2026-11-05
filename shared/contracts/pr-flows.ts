@@ -19,6 +19,7 @@ const PR_FLOW_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const PR_FLOW_QUALIFIED_ID = /^(?:[a-z0-9][a-z0-9-]{0,39}\/)?[a-z0-9][a-z0-9-]{0,63}$/;
 const ONE_PRINTABLE_LINE = /^[^\u0000-\u001f\u007f-\u009f]+$/;
 const PrFlowRunActionRef = z.templateLiteral(['run:', z.string().regex(PR_FLOW_QUALIFIED_ID)]);
+const PackPrFlowRunActionRef = z.templateLiteral(['run:', z.string().regex(PR_FLOW_ID)]);
 const PrFlowDisposition = z.union([z.enum(['dismiss', 'fix-local']), PrFlowRunActionRef]);
 export type PrFlowDisposition = z.infer<typeof PrFlowDisposition>;
 
@@ -28,27 +29,51 @@ export const PrFlowActionRef = z.union([
 ], { error: 'a pr flows rule action must be ask, fix-local, dismiss or run:<action id>' });
 export type PrFlowActionRef = z.infer<typeof PrFlowActionRef>;
 
+const PackPrFlowActionRef = z.union([
+  z.enum(['ask', 'fix-local', 'dismiss']),
+  PackPrFlowRunActionRef,
+], { error: 'a pack rule action must be ask, fix-local, dismiss or run:<id> of an action of this pack' });
+
 const RepositoryName = z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, { error: 'a repository is owner/name' });
 export const RepoScope = z.array(RepositoryName).min(1).optional().describe('The owner/name repositories this applies to; every repository when absent');
 
-export const PrFlowRule = z.strictObject({
-  name: z.string({ error: 'a pr flows rule needs a name' }).trim().min(1, { error: 'a pr flows rule needs a name' }).max(80, { error: 'a pr flows rule name must be at most 80 characters' }).regex(/\S/, { error: 'a pr flows rule needs a name' }),
-  source: z.string().min(1).optional().describe('A source label, a pack source id as <pack>/<id> (inside that pack its bare id too, which wins over a login), or the GitHub login of a review comment author; an item merged from several sources matches only when every one of them matches'),
-  priority: z.array(PrFlowPriority).min(1).optional().describe('The finding priorities this rule acts on; any priority when absent'),
-  paths: z.array(z.string().min(1)).min(1).optional().describe('Repository paths; an entry ending in / matches every path under it, any other matches that exact path'),
-  text: z.string().min(1).optional().describe('Text the finding must contain, compared case-insensitively'),
-  scope: z.enum(['mine', 'team', 'both']).default('mine').describe('Rules act only on your own pull requests today, so mine and both act there and team never acts yet'),
-  repos: RepoScope,
-  action: PrFlowActionRef.describe('ask waits for you, fix-local hands the item to a local session, dismiss replies with reason and resolves it, run:<id> runs that action; inside a pack a bare id names the pack\'s own action'),
-  reason: z.string().trim().min(1).max(2000).optional().describe('The reply posted when the rule dismisses an item'),
-}).refine((rule) => rule.action !== 'dismiss' || rule.reason !== undefined, { message: 'a dismiss rule needs a reason', path: ['reason'] });
+const RULE_ACTION_TEXT = 'ask waits for you, fix-local hands the item to a local session, dismiss replies with reason and resolves it, run:<id> runs that action';
+const RULE_SOURCES_TEXT = 'An item merged from several sources matches only when every one of them is listed here or under authors; any source when both are absent';
+
+function ruleSchema<Sources extends z.ZodOptional<z.ZodArray<z.ZodString>>>(sources: Sources, action: z.ZodType<PrFlowActionRef>) {
+  return z.strictObject({
+    name: z.string({ error: 'a pr flows rule needs a name' }).trim().min(1, { error: 'a pr flows rule needs a name' }).max(80, { error: 'a pr flows rule name must be at most 80 characters' }).regex(/\S/, { error: 'a pr flows rule needs a name' }),
+    sources,
+    authors: z.array(z.string().trim().min(1)).min(1).optional().describe(`The GitHub logins of review comment authors this rule acts on, compared case-insensitively. ${RULE_SOURCES_TEXT}`),
+    priority: z.array(PrFlowPriority).min(1).optional().describe('The finding priorities this rule acts on; any priority when absent'),
+    paths: z.array(z.string().min(1)).min(1).optional().describe('Repository paths; an entry ending in / matches every path under it, any other matches that exact path'),
+    text: z.string().min(1).optional().describe('Text the finding must contain, compared case-insensitively'),
+    scope: z.enum(['mine', 'team', 'both']).default('mine').describe('Rules act only on your own pull requests today, so mine and both act there and team never acts yet'),
+    repos: RepoScope,
+    action,
+    reason: z.string().trim().min(1).max(2000).optional().describe('The reply posted when the rule dismisses an item'),
+  }).refine((rule) => rule.action !== 'dismiss' || rule.reason !== undefined, { message: 'a dismiss rule needs a reason', path: ['reason'] });
+}
+
+export const PrFlowRule = ruleSchema(
+  z.array(z.string().regex(PR_FLOW_QUALIFIED_ID, { error: 'a rule source is the id of a source in prFlows.sources, or <pack>/<id> for a pack source' })).min(1).optional()
+    .describe(`The ids of the sources this rule acts on: a prFlows.sources id, or <pack>/<id> for a pack source. ${RULE_SOURCES_TEXT}`),
+  PrFlowActionRef.describe(`${RULE_ACTION_TEXT}; a pack action is run:<pack>/<id>`),
+);
 export type PrFlowRule = z.infer<typeof PrFlowRule>;
+
+export const PackPrFlowRule = ruleSchema(
+  z.array(z.string().regex(PR_FLOW_ID, { error: 'inside a pack a rule source is the bare id of one of its sources, with no slash' })).min(1).optional()
+    .describe(`The bare ids of this pack's sources the rule acts on. ${RULE_SOURCES_TEXT}`),
+  PackPrFlowActionRef.describe(`${RULE_ACTION_TEXT}; run:<id> names an action of this pack by its bare id`),
+);
+export type PackPrFlowRule = z.infer<typeof PackPrFlowRule>;
 
 export function prFlowRulesJsonSchema(rulesSchema: z.ZodType): z.core.JSONSchema.BaseSchema {
   return z.toJSONSchema(rulesSchema, {
     io: 'input',
     override: ({ zodSchema, jsonSchema }) => {
-      if (zodSchema !== PrFlowRule) return;
+      if (zodSchema !== PrFlowRule && zodSchema !== PackPrFlowRule) return;
       Object.assign(jsonSchema, Object.fromEntries([['if', { properties: { action: { const: 'dismiss' } }, required: ['action'] }], ['then', { required: ['reason'] }]]));
     },
   });
@@ -64,7 +89,7 @@ function commandDescription(kind: keyof typeof PR_FLOW_PLACEHOLDERS_BY_KIND, run
 
 export const PrFlowCommand = z.strictObject({
   id: z.string().regex(PR_FLOW_ID, { error: 'an id is lowercase letters, digits and dashes' }).describe('Unique within its list; inside a pack it is shown as <pack>/<id>'),
-  label: z.string().trim().min(1).max(24).describe('The name shown to the operator; a source\'s label is also the name rules match'),
+  label: z.string().trim().min(1).max(24).describe('The name shown to the operator; rules never match on it'),
   command: z.array(z.string().min(1)).min(1, { error: 'a command needs at least the program to run' }),
   timeoutSeconds: z.number().int().positive().max(3600).default(120).describe('Seconds before the command is stopped'),
 });
@@ -73,14 +98,11 @@ export type PrFlowCommand = z.infer<typeof PrFlowCommand>;
 const COMMAND_ENV = 'Its environment has GLIMMERVOID_PR_URL, GLIMMERVOID_PR_REPO, GLIMMERVOID_PR_NUMBER and GLIMMERVOID_PR_HEAD';
 const ACTION_OUTCOME = 'Exit 0 means done and any other exit failed, unless stdout prints the action outcome JSON (glimmervoid packs guide --schema pr-flows)';
 
-const PrFlowScopedCommand = PrFlowCommand.extend({
+export const PrFlowSourceCommand = PrFlowCommand.extend({
   command: PrFlowCommand.shape.command.describe(commandDescription('source', `${COMMAND_ENV}. It must print the source output JSON (glimmervoid packs guide --schema pr-flows) on stdout; anything else shows as an error on the pull request`)),
   repos: RepoScope,
 });
 
-export const PrFlowSourceCommand = PrFlowScopedCommand.extend({
-  label: PrFlowCommand.shape.label.regex(/^[^/]*$/, { error: 'a source label has no slash, since a rule source with a slash names a pack source by <pack>/<id>' }),
-});
 export type PrFlowSourceCommand = z.infer<typeof PrFlowSourceCommand>;
 
 export const PrFlowItemAction = PrFlowCommand.extend({

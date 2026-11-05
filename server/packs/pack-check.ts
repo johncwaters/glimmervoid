@@ -1,13 +1,13 @@
 import path from 'node:path';
 import { PR_FLOW_PLACEHOLDERS_BY_KIND } from '../../shared/contracts/pr-flows.ts';
-import { expandPlaceholders, packApproval, packRuleChecks, prFlowsPacksOf, unknownPlaceholderMessage } from '../github/core/pr-flows-core.ts';
+import { expandPlaceholders, packApproval, packRuleErrors, prFlowsPacksOf, unknownPlaceholderMessage } from '../github/core/pr-flows-core.ts';
 import { panelReferenceErrors, uiSectionErrors, undeclaredSubscriptionErrors } from './core/pack-core.ts';
 import { declaredPanels, readPackDir } from './pack-files.ts';
 
 
 type PackEntryCheck = { kind: keyof typeof PR_FLOW_PLACEHOLDERS_BY_KIND; id: string; label: string; argv: string[]; repos: string[] | null; error: string | null };
 type PackCheckReport = {
-  packDir: string; name: string | null; isApproved: boolean; errors: string[]; notes: string[]; missingRequires: string[]; entries: PackEntryCheck[]; rules: string[]; panels: string[]; themes: string[];
+  packDir: string; name: string | null; isApproved: boolean; errors: string[]; missingRequires: string[]; entries: PackEntryCheck[]; rules: string[]; panels: string[]; themes: string[];
 };
 
 function pageErrors(filesByPath: ReadonlyMap<string, Buffer>, header: { ui?: unknown } | undefined): string[] {
@@ -18,14 +18,14 @@ export async function checkPack(packDir: string, env: NodeJS.ProcessEnv, isAppro
   const read = await readPackDir(packDir, env);
   if (!read.ok) {
     const name = read.header ? `${read.header.name} v${read.header.version}` : null;
-    return { packDir: path.resolve(packDir), name, isApproved: false, errors: [...read.errors, ...pageErrors(read.filesByPath ?? new Map(), read.header)], notes: [], missingRequires: [], entries: [], rules: [], panels: [], themes: [] };
+    return { packDir: path.resolve(packDir), name, isApproved: false, errors: [...read.errors, ...pageErrors(read.filesByPath ?? new Map(), read.header)], missingRequires: [], entries: [], rules: [], panels: [], themes: [] };
   }
   const { pack } = read;
   const { prFlowsPacks, warnings: prFlowsErrors } = prFlowsPacksOf([pack]);
   const ui = pack.ui?.ok ? pack.ui.value : { panels: [], themes: [] };
   const report = {
     packDir: pack.dir, name: `${pack.header.name} v${pack.header.version}`, isApproved: isApprovedFingerprint(pack.fingerprint),
-    errors: [...prFlowsErrors, ...uiSectionErrors(pack), ...pageErrors(pack.filesByPath, pack.header)], notes: [], missingRequires: pack.missingRequires, entries: [], rules: [],
+    errors: [...prFlowsErrors, ...uiSectionErrors(pack), ...pageErrors(pack.filesByPath, pack.header)], missingRequires: pack.missingRequires, entries: [], rules: [],
     panels: ui.panels.map((panel) => `${panel.id} (${panel.label}) opens ${panel.entry}${panel.reads.length === 0 ? ', reads nothing' : `, reads ${panel.reads.join(', ')}`}`),
     themes: ui.themes.map((theme) => `${theme.id} (${theme.label}, ${theme.mode})`),
   };
@@ -38,8 +38,7 @@ export async function checkPack(packDir: string, env: NodeJS.ProcessEnv, isAppro
     const error = expanded.ok ? null : unknownPlaceholderMessage(command.kind, expanded.unknown);
     return { kind: command.kind, id: command.id, label: command.label, argv: command.command, repos: command.repos ?? null, error };
   });
-  const ruleChecks = packRuleChecks(prFlowsPack.section, pack.header.name);
-  return { ...report, errors: [...report.errors, ...ruleChecks.errors], notes: ruleChecks.notes, entries, rules: approval.pack?.rules ?? [] };
+  return { ...report, errors: [...report.errors, ...packRuleErrors(prFlowsPack.section, pack.header.name)], entries, rules: approval.pack?.rules ?? [] };
 }
 
 export function packCheckHasProblem(report: PackCheckReport): boolean {
@@ -72,7 +71,6 @@ export function packReportText(report: PackCheckReport): string {
     ...report.entries.map(entryLine),
     ...report.rules.map((rule) => `rule ${rule}`),
     ...report.errors.map((error) => `error: ${error}`),
-    ...report.notes.map((note) => `note: ${note}`),
     ...report.missingRequires.map((missing) => `missing on this machine: ${missing}, so the pack stays off here until it has it; not a problem in the pack`),
   ].join('\n');
 }

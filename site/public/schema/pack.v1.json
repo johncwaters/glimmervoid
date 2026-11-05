@@ -53,7 +53,7 @@
       "type": "object",
       "properties": {
         "repos": {
-          "description": "The default owner/name repositories, matched case-insensitively, for every prAction, source and rule of this pack that lists no repos of its own; an entry's own repos replace this default rather than narrowing it; every repository when absent",
+          "description": "The default owner/name repositories, matched case-insensitively, for every prAction, source and rule of this pack that lists no repos of its own; an entry's own repos narrow this default to the repositories both list; every repository when absent",
           "minItems": 1,
           "type": "array",
           "items": {
@@ -77,7 +77,7 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 24,
-                "description": "The name shown to the operator; a source's label is also the name rules match"
+                "description": "The name shown to the operator; rules never match on it"
               },
               "command": {
                 "minItems": 1,
@@ -129,8 +129,7 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 24,
-                "pattern": "^[^/]*$",
-                "description": "The name shown to the operator; a source's label is also the name rules match"
+                "description": "The name shown to the operator; rules never match on it"
               },
               "command": {
                 "minItems": 1,
@@ -182,7 +181,7 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 24,
-                "description": "The name shown to the operator; a source's label is also the name rules match"
+                "description": "The name shown to the operator; rules never match on it"
               },
               "command": {
                 "minItems": 1,
@@ -222,10 +221,23 @@
                 "maxLength": 80,
                 "pattern": "\\S"
               },
-              "source": {
-                "description": "A source label, a pack source id as <pack>/<id> (inside that pack its bare id too, which wins over a login), or the GitHub login of a review comment author; an item merged from several sources matches only when every one of them matches",
-                "type": "string",
-                "minLength": 1
+              "sources": {
+                "description": "The bare ids of this pack's sources the rule acts on. An item merged from several sources matches only when every one of them is listed here or under authors; any source when both are absent",
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+                }
+              },
+              "authors": {
+                "description": "The GitHub logins of review comment authors this rule acts on, compared case-insensitively. An item merged from several sources matches only when every one of them is listed here or under authors; any source when both are absent",
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
               },
               "priority": {
                 "description": "The finding priorities this rule acts on; any priority when absent",
@@ -287,10 +299,10 @@
                   },
                   {
                     "type": "string",
-                    "pattern": "^run:(?:[a-z0-9][a-z0-9-]{0,39}\\/)?[a-z0-9][a-z0-9-]{0,63}$"
+                    "pattern": "^run:[a-z0-9][a-z0-9-]{0,63}$"
                   }
                 ],
-                "description": "ask waits for you, fix-local hands the item to a local session, dismiss replies with reason and resolves it, run:<id> runs that action; inside a pack a bare id names the pack's own action"
+                "description": "ask waits for you, fix-local hands the item to a local session, dismiss replies with reason and resolves it, run:<id> runs that action; run:<id> names an action of this pack by its bare id"
               },
               "reason": {
                 "description": "The reply posted when the rule dismisses an item",

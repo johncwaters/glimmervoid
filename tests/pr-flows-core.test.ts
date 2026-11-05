@@ -23,7 +23,7 @@ import { createBackendHttpApp } from '../server/backend/backend-http.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { runCommandSafely } from '../server/child-process-safe.ts';
 import { configFileViewOf, readSettingsForAgent } from '../server/core/settings-readout-core.ts';
-import { commandFingerprint, expandPlaceholders, packPathsOf, mergeItems, plannedActions, prFlowsConfig, sourceCandidates, teammateThreadItems, threadCandidates } from '../server/github/core/pr-flows-core.ts';
+import { commandFingerprint, expandPlaceholders, packPathsOf, mergeItems, plannedActions, prFlowsConfig, savedRuleFor, sourceCandidates, teammateThreadItems, threadCandidates } from '../server/github/core/pr-flows-core.ts';
 import { draftsNewestFirst } from '../server/github/core/team-review-core.ts';
 import { ReviewDraft, TeamReviewThreadNode } from '../shared/contracts/team-review.ts';
 import { isIncludedByDefault, otherReviewRows } from '../public/github/team-review-view-core.ts';
@@ -114,7 +114,7 @@ test('a matching rule dismisses an item on the next poll and records it, Undo re
   const frames: PrFlowsStatus[] = [];
   const configFile = { prFlows: {
     repoRules: { 'acme/app': [{ name: 'generated', paths: ['dist/'], action: 'dismiss', reason: 'Generated output' }] },
-    rules: [{ name: 'broken', action: 'dismiss' }, { name: 'elsewhere', source: 'alice', repos: ['acme/other'], action: 'dismiss', reason: 'Other repo' }, { name: 'resolve bots', source: 'alice', repos: ['ACME/app'], action: 'run:resolve' }],
+    rules: [{ name: 'broken', action: 'dismiss' }, { name: 'elsewhere', authors: ['alice'], repos: ['acme/other'], action: 'dismiss', reason: 'Other repo' }, { name: 'resolve bots', authors: ['ALICE'], repos: ['ACME/app'], action: 'run:resolve' }],
   } };
   const prFlows = createPrFlowsWiring({
     statePath: null, openPrs: () => [myPr()], broadcast: (frame) => frames.push(frame), log: console,
@@ -144,7 +144,7 @@ test('a matching rule dismisses an item on the next poll and records it, Undo re
   assert.deepEqual(githubCalls, ['reply PRRT_1 Generated output', 'resolve PRRT_1', 'unresolve PRRT_1']);
   const aliceItem = myPr().reviewItems.find((item) => item.path === 'src/a.ts');
   assert.deepEqual(await prFlows.saveRule({ prKey: 'acme/app#1', itemKey: aliceItem?.key ?? '', reason: 'Names are settled' }), { ok: true });
-  assert.deepEqual(savedRules, [{ name: 'Dismiss alice on src/a.ts', source: 'alice', paths: ['src/a.ts'], scope: 'mine', repos: ['acme/app'], action: 'dismiss', reason: 'Names are settled' }]);
+  assert.deepEqual(savedRules, [{ name: 'Dismiss alice on src/a.ts', authors: ['alice'], paths: ['src/a.ts'], scope: 'mine', repos: ['acme/app'], action: 'dismiss', reason: 'Names are settled' }]);
   threads = [threadNode('PRRT_4', 'frontend/src/scenes/session-recordings/player/inspector/PlayerInspectorList.tsx', 5, 'greptile-apps[bot]', 'Long path')];
   assert.deepEqual(await prFlows.saveRule({ prKey: 'acme/app#1', itemKey: myPr().reviewItems[0]?.key ?? '', reason: 'Fine' }), { ok: true });
   assert.equal(prFlowsConfig({ prFlows: { rules: savedRules.slice(1) } }).rules.length, 1);
@@ -269,12 +269,18 @@ test('a source that fails or prints no findings JSON shows its error on the PR a
 
 test('a scanner rule never dismisses a carbon unit thread merged into the same item, and scanner output stays inert', () => {
   const thread: MyPrThread = { id: 'T1', path: 'src/a.ts', line: 10, isOutdated: false, url: 'https://github.com/acme/app/pull/1#r1', author: 'teammate', excerpt: 'Please rename this.', commentCount: 1, lastAuthor: 'teammate', lastActivityAt: '2026-11-01T00:00:00Z' };
-  const scanner = sourceCandidates('scanner', [{ path: 'src/a.ts', lineStart: 11, lineEnd: 11, priority: 'low', body: 'Style nit.', url: null }]);
+  const scanner = sourceCandidates({ id: 'scanner', label: 'Scanner' }, [{ path: 'src/a.ts', lineStart: 11, lineEnd: 11, priority: 'low', body: 'Style nit.', url: null }]);
   const items = mergeItems([...threadCandidates([thread]), ...scanner]);
   assert.equal(items.length, 1);
-  const rule = PrFlowRule.parse({ name: 'drop scanner nits', source: 'scanner', priority: ['low'], action: 'dismiss', reason: 'nit' });
-  assert.deepEqual(plannedActions('acme/app#1', items, [rule], PrFlowsState.parse({ handledByPr: {}, reopenedByPr: {} }), new Set()), []);
-  const unlined = mergeItems(sourceCandidates('scanner', [
+  const rule = PrFlowRule.parse({ name: 'drop scanner nits', sources: ['scanner'], priority: ['low'], action: 'dismiss', reason: 'nit' });
+  const noneHandled = PrFlowsState.parse({ handledByPr: {}, reopenedByPr: {} });
+  assert.deepEqual(plannedActions('acme/app#1', items, [rule], noneHandled, new Set()), []);
+  const savedRule = PrFlowRule.parse(savedRuleFor(items[0] ?? assert.fail('no merged item'), 'acme/app', 'settled'));
+  assert.deepEqual([savedRule.sources, savedRule.authors], [['scanner'], ['teammate']]);
+  assert.equal(plannedActions('acme/app#1', items, [savedRule], noneHandled, new Set()).length, 1);
+  const relabelled = mergeItems([...threadCandidates([thread]), ...sourceCandidates({ id: 'scanner', label: 'Renamed scanner' }, [{ path: 'src/a.ts', lineStart: 11, lineEnd: 11, priority: 'low', body: 'Style nit.', url: null }])]);
+  assert.deepEqual(relabelled[0]?.sources.map((source) => source.dismissalKey), items[0]?.sources.map((source) => source.dismissalKey));
+  const unlined = mergeItems(sourceCandidates({ id: 'scanner', label: 'Scanner' }, [
     { path: 'src/a.ts', lineStart: null, lineEnd: null, priority: 'low', body: 'First.', url: null },
     { path: 'src/a.ts', lineStart: null, lineEnd: null, priority: 'low', body: 'Second.', url: null },
   ]));
@@ -310,14 +316,14 @@ test('a failed source run retries at the same head after the backoff, and a defi
   assert.equal(runCount, 2);
 });
 
-test('a rule naming a pack source by id acts on its findings while a source label spelled like that id is refused, while a bare config source id stays a login, and a pack rule naming run:<its pack>/<id> runs that pack action', async () => {
+test('a rule naming a pack source by <pack>/<id> acts on its findings and never on a config source labelled like that id, a config rule names its own source by id, and a pack rule naming its own source and action by bare id runs that pack action', async () => {
   const packDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-pack-ids-'));
   try {
     fs.writeFileSync(path.join(packDir, 'pack.json'), JSON.stringify({ name: 'dog', version: 1, prFlows: {
       repos: ['acme/app'],
       sources: [{ id: 'findings', label: 'Review findings', command: ['find'] }],
       actions: [{ id: 'triage', label: 'Triage', command: ['triage'] }],
-      rules: [{ name: 'Route', source: 'findings', action: 'run:dog/triage' }],
+      rules: [{ name: 'Route', sources: ['findings'], action: 'run:triage' }],
     } }));
     const read = await readPackDir(packDir, process.env);
     assert.ok(read.ok);
@@ -330,7 +336,7 @@ test('a rule naming a pack source by id acts on its findings while a source labe
       linkedSession: () => null, appendRule: async () => true, loadPacks: async () => ({ packs: [read.pack], warnings: [] }),
       readConfigFile: async () => ({ prFlows: {
         sources: [{ id: 'scan', label: 'Scanner', command: ['scan'] }, { id: 'look-alike', label: 'dog/findings', command: ['look'] }],
-        rules: [{ name: 'Pack findings by id', source: 'dog/findings', paths: ['src/c.ts'], action: 'dismiss', reason: 'noise' }, { name: 'Reviewer scan', source: 'scan', action: 'dismiss', reason: 'login' }],
+        rules: [{ name: 'Pack findings by id', sources: ['dog/findings'], paths: ['src/c.ts'], action: 'dismiss', reason: 'noise' }, { name: 'Config scan', sources: ['scan'], action: 'dismiss', reason: 'scanner' }],
       } }),
       external: {
         runSource: async (source) => ({ ok: true, output: PrFlowSourceOutput.parse({ findings: (findingPathsBySourceId[source.id] ?? []).map((findingPath) => ({ path: findingPath, lineStart: findingLineBySourceId[source.id] ?? 1, lineEnd: findingLineBySourceId[source.id] ?? 1, priority: 'low', body: 'seen' })) }) }),
@@ -340,15 +346,14 @@ test('a rule naming a pack source by id acts on its findings while a source labe
     });
     await prFlows.applyRules();
     for (const approval of prFlows.statusFrame().pendingApprovals) await prFlows.approve({ fingerprint: approval.fingerprint });
-    await frameMatching(frames, (frame) => (frame.reviewItemsByPr['acme/app#1'] ?? []).length === 3);
+    await frameMatching(frames, (frame) => (frame.reviewItemsByPr['acme/app#1'] ?? []).length === 4);
     await prFlows.applyRules();
-    await frameMatching(frames, (frame) => (frame.handledByPr['acme/app#1'] ?? []).length >= 2);
+    await frameMatching(frames, (frame) => (frame.handledByPr['acme/app#1'] ?? []).length >= 3);
     await prFlows.applyRules();
     const handled = prFlows.statusFrame();
-    assert.deepEqual(handled.handledByPr['acme/app#1']?.map((entry) => [entry.ruleName, entry.location]).sort(), [['Pack findings by id', 'src/c.ts:1'], ['Route', 'src/a.ts:1']]);
+    assert.deepEqual(handled.handledByPr['acme/app#1']?.map((entry) => [entry.ruleName, entry.location]).sort(), [['Config scan', 'src/b.ts:1'], ['Pack findings by id', 'src/c.ts:1'], ['Route', 'src/a.ts:1']]);
     assert.deepEqual(ranActions, ['dog/triage']);
-    assert.deepEqual(handled.warnings.filter((warning) => warning.includes('run:')), []);
-    assert.ok(handled.warnings.some((warning) => warning.includes('a source label has no slash')), handled.warnings.join('\n'));
+    assert.deepEqual(handled.warnings, []);
   } finally {
     fs.rmSync(packDir, { recursive: true, force: true });
   }
@@ -369,7 +374,7 @@ test('a configured action runs on an item by rule or click, shows done or failed
   const prFlows = createPrFlowsWiring({
     statePath: null, broadcast: (frame) => frames.push(frame), log: console, linkedSession: () => session, appendRule: async () => true,
     openPrs: () => [currentPr()],
-    readConfigFile: async () => ({ prFlows: { actions, rules: [{ name: 'bots', source: 'greptile[bot]', action: 'run:resolve' }] } }),
+    readConfigFile: async () => ({ prFlows: { actions, rules: [{ name: 'bots', authors: ['greptile[bot]'], action: 'run:resolve' }] } }),
     external: { runSource: external.runSource, runAction: async (action, pr, item) => { const output = await external.runAction(action, pr, item); head = 'c'.repeat(40); return output; } },
     github: { replyToReviewThread: async () => ({ ok: true, err: '' }), resolveReviewThread: async () => ({ ok: true, err: '' }), unresolveReviewThread: async () => ({ ok: true, err: '' }) },
   });
@@ -627,7 +632,7 @@ test('a pack copied into the packs directory waits for one approval in Settings 
       ['pr-action', 'sample/hand-off', path.join(packDir, 'hand-off.ts')], ['action', 'sample/note', path.join(packDir, 'hand-off.ts')],
     ]);
     assert.deepEqual([approval?.label, approval?.pack?.requires], ['sample v1', { env: [], programs: ['node'] }]);
-    assert.match(approval?.pack?.rules.join('\n') ?? '', /^Generated files: .*"paths":\["dist\/"\].*"action":"run:sample\/note".*"repos":\["acme\/app"\]/);
+    assert.match(approval?.pack?.rules.join('\n') ?? '', /^Generated files: .*"paths":\["dist\/"\].*"repos":\["acme\/app"\].*"action":"run:sample\/note"/);
     assert.deepEqual(approval?.pack?.commands.find((command) => command.kind === 'pr-action')?.repos, ['acme/app']);
     assert.ok(prFlows.statusFrame().warnings.some((warning) => warning.includes(linkedDir) && warning.includes('symlink')));
     assert.deepEqual(prFlows.statusFrame().prActionsByPr, {});
@@ -727,45 +732,32 @@ test('the published pack JSON Schema matches the Zod contract, and packs check n
     const dogfoodPrFlows = {
       repos: ['PostHog/posthog'],
       prActions: [{ id: 'hand', label: 'Hand to agent', command: ['node', '{packDir}/hand.mjs', '{headRef}'] }],
-      sources: [{ id: 'findings', label: 'Review findings', command: ['node', '{packDir}/f.mjs'] }, { id: 'docs-lint', label: 'Docs lint', command: ['node', '{packDir}/f.mjs'], repos: ['PostHog/posthog', 'PostHog/posthog.com'] }],
+      sources: [{ id: 'findings', label: 'Review findings', command: ['node', '{packDir}/f.mjs'] }, { id: 'docs-lint', label: 'Docs/lint', command: ['node', '{packDir}/f.mjs'], repos: ['PostHog/posthog'] }],
       actions: [{ id: 'triage', label: 'Triage', command: ['node', '{packDir}/t.mjs'] }],
-      rules: [{ name: 'Route', source: 'findings', action: 'run:dog/triage' }],
+      rules: [{ name: 'Route', sources: ['findings'], action: 'run:triage' }],
     };
-    const writeDogfoodPack = (rule: Record<string, unknown>) => fs.writeFileSync(path.join(brokenDir, 'pack.json'), JSON.stringify({ name: 'dog', version: 1, prFlows: { ...dogfoodPrFlows, rules: [{ ...dogfoodPrFlows.rules[0], ...rule }] } }));
-    writeDogfoodPack({});
-    assert.equal(await check(brokenDir), 0);
+    const writeDogfoodPack = (rule: Record<string, unknown>, section: Record<string, unknown> = {}) => fs.writeFileSync(path.join(brokenDir, 'pack.json'), JSON.stringify({ name: 'dog', version: 1, prFlows: { ...dogfoodPrFlows, ...section, rules: [{ ...dogfoodPrFlows.rules[0], ...rule }] } }));
+    const checkDogfoodPack = async (rule: Record<string, unknown>, section: Record<string, unknown> = {}) => {
+      writeDogfoodPack(rule, section);
+      return [await check(brokenDir), (output.at(-1) ?? '').split('\n').filter((line) => line.startsWith('error: '))];
+    };
+    assert.deepEqual(await checkDogfoodPack({}), [0, []]);
     assert.match(output.at(-1) ?? '', /^source dog\/findings \(Review findings\): valid, limited to posthog\/posthog$/m);
     assert.match(output.at(-1) ?? '', /^pr-action dog\/hand \(Hand to agent\): valid, limited to posthog\/posthog$/m);
-    assert.match(output.at(-1) ?? '', /^rule Route: \{"source":"dog\/findings".*"action":"run:dog\/triage".*\}$/m);
-    assert.match(output.at(-1) ?? '', /^note: The source dog\/docs-lint reaches outside prFlows\.repos to PostHog\/posthog\.com/m);
-    writeDogfoodPack({ repos: ['acme/app'] });
-    assert.equal(await check(brokenDir), 1);
-    assert.match(output.at(-1) ?? '', /^error: Rule 'Route' is limited to acme\/app, but this pack's source 'dog\/findings' runs only on PostHog\/posthog, so the rule never acts\.$/m);
-    assert.match(output.at(-1) ?? '', /^note: Rule 'Route' reaches outside prFlows\.repos to acme\/app/m);
-    writeDogfoodPack({ repos: ['acme/app', 'PostHog/posthog'] });
-    assert.equal(await check(brokenDir), 0);
-    assert.match(output.at(-1) ?? '', /^note: Rule 'Route' is limited to acme\/app, PostHog\/posthog, but this pack's source 'dog\/findings' runs only on PostHog\/posthog, so on acme\/app the rule never acts\.$/m);
-    fs.writeFileSync(path.join(brokenDir, 'pack.json'), JSON.stringify({ name: 'dog', version: 1, prFlows: { ...dogfoodPrFlows, sources: [{ ...dogfoodPrFlows.sources[0], label: 'findings' }] } }));
-    assert.equal(await check(brokenDir), 0);
-    assert.match(output.at(-1) ?? '', /^rule Route: \{"source":"dog\/findings"/m);
-    writeDogfoodPack({ source: 'Review findings', repos: ['acme/app'] });
-    assert.equal(await check(brokenDir), 0);
-    assert.match(output.at(-1) ?? '', /^note: Rule 'Route' is limited to acme\/app, but this pack's source 'Review findings' runs only on PostHog\/posthog, so on acme\/app the rule matches only a source of that label from config\.json/m);
-    fs.writeFileSync(path.join(brokenDir, 'pack.json'), JSON.stringify({ name: 'dog', version: 1, prFlows: { ...dogfoodPrFlows, sources: [...dogfoodPrFlows.sources, { id: 'findings-com', label: 'Review findings', command: ['node'], repos: ['PostHog/posthog.com'] }], rules: [{ ...dogfoodPrFlows.rules[0], source: 'Review findings', repos: ['PostHog/posthog.com'] }] } }));
-    assert.equal(await check(brokenDir), 0);
-    assert.doesNotMatch(output.at(-1) ?? '', /Rule 'Route' is limited to/);
-    writeDogfoodPack({ source: 'nope' });
-    assert.equal(await check(brokenDir), 0);
-    assert.match(output.at(-1) ?? '', /^note: Rule 'Route' names the source 'nope', which is no source of this pack/m);
-    writeDogfoodPack({ source: 'dog/scaner' });
-    assert.equal(await check(brokenDir), 1);
-    assert.match(output.at(-1) ?? '', /^error: Rule 'Route' names the source 'dog\/scaner', which no source of this pack defines, so it never acts\./m);
-    writeDogfoodPack({ source: 'other/scan' });
-    assert.equal(await check(brokenDir), 0);
-    assert.match(output.at(-1) ?? '', /^note: Rule 'Route' names the source 'other\/scan', which is no source of this pack, so it matches only the source with that id from another pack/m);
-    writeDogfoodPack({ action: 'run:missing' });
-    assert.equal(await check(brokenDir), 1);
-    assert.match(output.at(-1) ?? '', /^error: Rule 'Route' names run:dog\/missing, which no entry/m);
+    assert.match(output.at(-1) ?? '', /^rule Route: \{.*"sources":\["dog\/findings"\].*"action":"run:dog\/triage".*\}$/m);
+    assert.doesNotMatch(output.at(-1) ?? '', /^note: /m);
+    const docsLintWidened = { sources: [dogfoodPrFlows.sources[0], { ...dogfoodPrFlows.sources[1], repos: ['PostHog/posthog', 'PostHog/posthog.com'] }] };
+    assert.deepEqual(await checkDogfoodPack({}, docsLintWidened), [1, ['error: The source dog/docs-lint lists PostHog/posthog.com, which prFlows.repos does not list, so it never reaches it.']]);
+    assert.deepEqual((await checkDogfoodPack({ repos: ['acme/app', 'PostHog/posthog'] }))[1], ["error: Rule 'Route' lists acme/app, which prFlows.repos does not list, so it never reaches it."]);
+    const twoRepoPack = { repos: ['PostHog/posthog', 'PostHog/posthog.com'], sources: [{ ...dogfoodPrFlows.sources[0], repos: ['PostHog/posthog'] }] };
+    assert.deepEqual(await checkDogfoodPack({ repos: ['PostHog/posthog.com'] }, twoRepoPack), [1, ["error: Rule 'Route' is limited to PostHog/posthog.com, but its sources run only on PostHog/posthog, so it never acts."]]);
+    assert.deepEqual(await checkDogfoodPack({ sources: ['findings', 'nope'] }), [1, ["error: Rule 'Route' names the source 'nope', which no source of this pack defines, so it never acts on it."]]);
+    for (const slashed of [{ sources: ['dog/findings'] }, { action: 'run:dog/triage' }]) {
+      const [exitCode, errors] = await checkDogfoodPack(slashed);
+      assert.equal(exitCode, 1);
+      assert.match(String(errors), /The prFlows section of the pack 'dog' was skipped: pack\.json prFlows\.rules\.0\.(sources\.0|action)/);
+    }
+    assert.deepEqual(await checkDogfoodPack({ action: 'run:missing' }), [1, ["error: Rule 'Route' names run:dog/missing, which no entry in prFlows.actions defines, so its items wait for you."]]);
     const twoGoButtons = [{ id: 'go', label: 'Go A', command: ['echo', 'a'] }, { id: 'go', label: 'Go B', command: ['echo', 'b'] }];
     fs.writeFileSync(path.join(brokenDir, 'pack.json'), JSON.stringify({ name: 'dup', version: 1, prFlows: { prActions: twoGoButtons } }));
     assert.equal(await check(brokenDir), 1);

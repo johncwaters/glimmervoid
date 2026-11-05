@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ThemePalette } from './theme-palette.ts';
 import { PackBridgeTopic } from './pack-bridge.ts';
-import { PrFlowItemAction, PrFlowPackRequires, PrFlowPrAction, PrFlowRule, PrFlowSourceCommand, RepoScope, prFlowRulesJsonSchema } from './pr-flows.ts';
+import { PackPrFlowRule, PrFlowItemAction, PrFlowPackRequires, PrFlowPrAction, PrFlowSourceCommand, RepoScope, prFlowRulesJsonSchema } from './pr-flows.ts';
 
 const PACK_SCHEMA_URL = 'https://glimmervoid.dev/schema/pack.v1.json';
 export const PACK_FILE_NAME = 'pack.json';
@@ -20,11 +20,11 @@ export const PackHeader = z.strictObject({
 export type PackHeader = z.infer<typeof PackHeader>;
 
 export const PackPrFlows = z.strictObject({
-  repos: RepoScope.describe('The default owner/name repositories, matched case-insensitively, for every prAction, source and rule of this pack that lists no repos of its own; an entry\'s own repos replace this default rather than narrowing it; every repository when absent'),
+  repos: RepoScope.describe('The default owner/name repositories, matched case-insensitively, for every prAction, source and rule of this pack that lists no repos of its own; an entry\'s own repos narrow this default to the repositories both list; every repository when absent'),
   prActions: z.array(PrFlowPrAction).default([]).describe('Buttons on a pull request; the command prints {"outcome":"done|started|refused|failed","message":"..."}, and one that prints started reports later with glimmervoid pr-action report'),
   sources: z.array(PrFlowSourceCommand).default([]).describe('Commands run on each pull request that print {"findings":[{"path","lineStart","lineEnd","priority","body","url"}],"status":[{"label","state"}]}, at most 200 findings and 4 status lines'),
   actions: z.array(PrFlowItemAction).default([]).describe('Commands rules run on one review item with run:<id>; they print {"outcome":"done|started|refused|failed","message":"..."} and are limited to repositories only through the rules that name them'),
-  rules: z.array(PrFlowRule).default([]).describe('Run after your own config.json rules; the first rule that matches an item decides it'),
+  rules: z.array(PackPrFlowRule).default([]).describe('Run after your own config.json rules; the first rule that matches an item decides it'),
 }).superRefine((section, context) => {
   for (const kind of ['prActions', 'sources', 'actions'] as const) {
     const seenIds = new Set<string>();
