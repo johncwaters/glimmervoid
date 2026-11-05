@@ -23,6 +23,7 @@ import type { AttentionTile, SessionRow } from './attention-core.ts';
 import { countAttentionByKind, orderAttentionLine, orderRoster, pickAdjacent } from './attention-core.ts';
 import type { RosterGroup } from './roster-groups-core.ts';
 import { groupRoster, sessionlessBoards, visibleOrder } from './roster-groups-core.ts';
+import { raceGroupOf, subscribeRaces } from '../arena/race-store.ts';
 import type { SessionGroupHeader } from './roster-group-header.ts';
 import { buildSessionGroupHeader, paintSessionGroupHeader } from './roster-group-header.ts';
 import { buildAttentionBanner, paintAttentionBanner, pressAttentionBanner, sendAttentionTileToRow, tetherAttentionTile } from '../attention-banner.ts';
@@ -105,7 +106,7 @@ function setRailTabStop(id: string | null) {
 }
 
 function groupsOf(order: RosterRow[]) {
-  return groupRoster(order, projectPathOf);
+  return groupRoster(order, projectPathOf, raceGroupOf);
 }
 
 function ensureGroup(group: RosterGroup<RosterRow>) {
@@ -168,6 +169,9 @@ export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | 
   pageButtons = createSessionPageButtons({ style: 'header' });
   paneLayout.trailSlot.append(pageButtons.element);
   mountedCenter.append(emptyEl, paneLayout.element);
+  subscribeRaces(() => {
+    if (active) refreshFocusRoster();
+  });
   onBoardListChanged(() => {
     if (!active) return;
     const wasBoardCentered = centeredBoardId !== null;

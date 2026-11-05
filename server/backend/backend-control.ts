@@ -39,6 +39,7 @@ interface LaneReader {
   featureHints: NonNullable<ControlHandlerDeps['featureHints']>;
   prFlows: NonNullable<ControlHandlerDeps['prFlows']>;
   packStore: NonNullable<ControlHandlerDeps['packs']>;
+  races: NonNullable<ControlHandlerDeps['races']>;
 }
 
 interface RadarControl extends RadarFixControl {
@@ -177,6 +178,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     myPrs,
     prFlows: laneAssembly.prFlows,
     packs: laneAssembly.packStore,
+    races: laneAssembly.races,
     issues,
     githubStore: laneAssembly.githubStore,
     requestIssue: laneAssembly.githubStore.laneStore.requestIssue,

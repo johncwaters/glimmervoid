@@ -209,6 +209,7 @@ interface SessionOptions {
   gitWorkspace?: GitWorkspace | null;
   requireWorktree?: boolean;
   integrationBranch?: string | null;
+  startSha?: string | null;
   autoRebase?: boolean;
   syncOnStart?: boolean;
   liveWorktreeReview?: boolean;
@@ -408,6 +409,7 @@ class Session extends EventEmitter {
 
     gitWorkspace = null,
     integrationBranch = null,
+    startSha = null,
 
     autoRebase = true,
     syncOnStart = true,
@@ -623,6 +625,7 @@ class Session extends EventEmitter {
       id: this.id,
       projectPath: this.path,
       integrationBranch,
+      startSha,
       gitWorkspace,
       autoRebase,
       syncOnStart,

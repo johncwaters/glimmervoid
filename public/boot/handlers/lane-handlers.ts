@@ -1,3 +1,4 @@
+import { applyRaceStatus } from '../../arena/race-store.ts';
 import { applyBenchmarkActionResult, applyBenchmarkStatus } from '../../benchmark-store.ts';
 import { applyCommunityStatus } from '../../community/community-store.ts';
 import { showDesktopNotification } from '../../notifications.ts';
@@ -13,6 +14,7 @@ const messageHandlers = {
   'community-status': (msg) => applyCommunityStatus(msg),
   'benchmark-status': (msg) => applyBenchmarkStatus(msg),
   'benchmark-action-result': (msg) => applyBenchmarkActionResult(msg),
+  'race-status': (msg) => applyRaceStatus(msg),
   'usage-sessions':     (msg) => applyUsageSessions(msg),
   'usage-report':       (msg) => { applyUsageReport(msg); refreshSettingsStatus(); },
 

@@ -6,6 +6,7 @@ import { countAttentionByKind, orderAttentionLine, orderRoster } from '../focus-
 import { buildAttentionBanner, paintAttentionBanner, pressAttentionBanner, sendAttentionTileToRow } from '../attention-banner.ts';
 import type { RosterGroup } from '../focus-view/roster-groups-core.ts';
 import { groupRoster, visibleOrder } from '../focus-view/roster-groups-core.ts';
+import { raceGroupOf } from '../arena/race-store.ts';
 import type { SessionGroupHeader } from '../focus-view/roster-group-header.ts';
 import { buildSessionGroupHeader, paintSessionGroupHeader } from '../focus-view/roster-group-header.ts';
 import { showFirstRunChecklist } from '../onboarding/first-run-loader.ts';
@@ -115,7 +116,7 @@ export function createBoardScreen({ onSelectSession, shownSessionId }: { onSelec
 
   function refresh() {
     const orderedRows = currentOrderedRows();
-    const boardGroups = groupRoster(orderedRows, projectPathOf);
+    const boardGroups = groupRoster(orderedRows, projectPathOf, raceGroupOf);
     const attentionCounts = countAttentionByKind(orderedRows);
     const attentionLine = orderAttentionLine(orderedRows, null);
     const attentionPositionById = new Map(attentionLine.map(({ id }, index) => [id, index + 1]));

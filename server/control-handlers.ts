@@ -43,6 +43,8 @@ import { createCommunityHandlers } from './control/handlers/community-handlers.t
 import { createGithubHandlers } from './control/handlers/github-handlers.ts';
 import { createInspectHandlers } from './control/handlers/inspect-handlers.ts';
 import { createLaneHandlers } from './control/handlers/lane-handlers.ts';
+import { createRaceHandlers } from './control/handlers/race-handlers.ts';
+import type { RaceWiring } from './race/race-wiring.ts';
 import { createRadarHandlers } from './control/handlers/radar-handlers.ts';
 import { createServerHandlers } from './control/handlers/server-handlers.ts';
 import { createSessionHandlers } from './control/handlers/session-handlers.ts';
@@ -132,6 +134,7 @@ interface ControlHandlerDeps {
   packs?: { statusFrame: () => PacksStatus; approve: (fingerprint: string) => Promise<{ ok: true } | { ok: false; error: string }> } | null;
   getBenchmarkStatus?: (() => BenchmarkStatus | null) | null;
   benchmarks?: BenchmarkControl | null;
+  races?: Pick<RaceWiring, 'start' | 'status'> | null;
   requestIssue?: GithubLaneStore['requestIssue'];
   requestViewer?: GithubLaneStore['requestViewer'];
   requestViewerTeams?: GithubLaneStore['requestViewerTeams'];
@@ -182,6 +185,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     createCommunityHandlers(context, deps),
     { handlers: {}, connectFrames: github.lateConnectFrames },
     createLaneHandlers(context, deps),
+    createRaceHandlers(context, deps),
     session,
     createWorktreeHandlers(context, deps),
     createSettingsHandlers(context, deps),

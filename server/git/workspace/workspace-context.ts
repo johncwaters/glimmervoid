@@ -58,6 +58,7 @@ type WorktreeArgs = {
   label?: string;
   baseBranch?: string | null;
   forkFromHead?: boolean;
+  startSha?: string | null;
   worktreeBase?: string | null;
   name?: string;
   ancestorSha?: string;

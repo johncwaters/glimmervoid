@@ -8,6 +8,7 @@ import { BranchGcControlSettings, GithubSettings,
 } from './browser-config.ts';
 import { WorkflowsSettingsUpdate } from './workflows.ts';
 import { AgentSetup } from './agent-models.ts';
+import { GitObjectSha, RaceId } from './race.ts';
 import type { BranchGcFileSettings as BranchGcFileSettingsSchema } from './browser-config.ts';
 
 export {
@@ -168,6 +169,8 @@ export const ProjectConfig = z.object({
   saneYolo: z.boolean({ error: 'projects[].saneYolo must be a boolean' }).optional(),
   environment: ProjectEnvironment.optional(),
   agentSetup: AgentSetup.optional(),
+  raceId: RaceId.optional(),
+  startSha: GitObjectSha.optional(),
 }).passthrough();
 const FILE_CONFIG_SHAPE = {
   ...BROWSER_CONFIG_SHAPE,

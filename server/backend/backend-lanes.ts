@@ -10,6 +10,10 @@ import { comparableDirectoryPath } from '../../shared/canonical-paths.ts';
 import { sanitizeWorktreeName } from '../../shared/paths.ts';
 import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
 import { createBenchmarkWiring } from '../benchmark-wiring.ts';
+import { createRaceWiring } from '../race/race-wiring.ts';
+import { createRaceStore } from '../race/race-store.ts';
+import { raceIdsOf } from '../race/core/race-core.ts';
+import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import { STATES } from '../../shared/states.ts';
 import { createCoderActivityWiring } from '../coder-activity-wiring.ts';
 import { createCoderEnvWiring } from '../coder/coder-env-wiring.ts';
@@ -324,6 +328,13 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       }),
     }),
   });
+  const races = createRaceWiring({
+    store: createRaceStore({ directory: path.join(glimmervoidHome, 'races'), log: logger }),
+    git: gitWorkspace,
+    integrationBranch: () => configuredIntegrationBranch(configStore.config),
+    broadcast: broadcastControl,
+    log: logger,
+  });
   const benchmarkSessions = new Map<string, Session>();
   const claudeCommand = () => commandFor('claude-code').path;
   const benchmarks = createBenchmarkWiring({
@@ -442,6 +453,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => issues.startPoller(),
       () => workflows.startPoller(),
       () => void benchmarks.sweepLeftovers().then(() => { void benchmarks.refreshStatus(); }),
+      () => void races.loadRaces(raceIdsOf(configStore.config.projects)),
       () => traceWiring?.start().catch((error: unknown) => logger.warn(`[trace] start failed: ${errorMessage(error)}`)),
       () => uploadsWiring.start().catch((error: unknown) => logger.warn(`[uploads] start failed: ${errorMessage(error)}`)),
       () => planReview?.start().catch((error: unknown) => logger.warn(`[plan-review] start failed: ${errorMessage(error)}`)),
@@ -471,6 +483,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     findLiveSession,
     benchmarks,
     benchmarkSessions,
+    races,
     branchGc,
     coderActivity,
     coderEnv,
