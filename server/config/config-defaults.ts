@@ -4,6 +4,7 @@ import { DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL, DEFAULT_WORKFLOW_MAX_CONCURRENT_
 import type { WorkflowRule } from '../../shared/contracts/workflows.ts';
 import { DEFAULT_SESSION_MEMORY_RESERVE_MB } from '../core/memory-admission-core.ts';
 import type { ProjectEntry, GlimmervoidConfig } from './config-types.ts';
+import { DEFAULT_MODELS } from '../../shared/contracts/agent-models.ts';
 
 const DEFAULT_CONFIG = {
   port: 3000,
@@ -36,7 +37,7 @@ const DEFAULT_CONFIG = {
   },
 
   taskTitle: {
-    refiner: { enabled: true, model: 'haiku', minIntervalSeconds: 60, timeoutSeconds: 60 },
+    refiner: { enabled: true, model: DEFAULT_MODELS.taskTitleRefiner, minIntervalSeconds: 60, timeoutSeconds: 60 },
   },
   telemetry: {
     enabled: true,

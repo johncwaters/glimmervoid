@@ -3,6 +3,7 @@ import type { ReplayRecord } from '../../detection/replay.ts';
 import { HookPayload } from '../../shared/contracts/hooks.ts';
 import { MERGEABLE_LIVE_STATES, RESTARTABLE_STATES, STATES } from '../../shared/states.ts';
 import type { SessionState } from '../../shared/states.ts';
+import { DEFAULT_MODELS } from '../../shared/contracts/agent-models.ts';
 
 export const Redaction = z.strictObject({
   from: z.string().min(1),
@@ -85,7 +86,7 @@ const RecordSession = z.strictObject({
 
 export const RecordManifest = z.strictObject({
   viewport,
-  model: z.string().regex(/^[A-Za-z0-9._-]+$/).default('sonnet'),
+  model: z.string().regex(/^[A-Za-z0-9._-]+$/).default(DEFAULT_MODELS.siteCapture),
   boardSeed: z.string().min(1).optional(),
   effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('medium'),
   projects: projectSeeds,

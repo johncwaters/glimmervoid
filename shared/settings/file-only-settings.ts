@@ -19,6 +19,7 @@ import {
 import { USAGE_COST_MODES } from '../usage-config.ts';
 import { FILE_ONLY, RECURRENCES, ACTIONS, SECONDS, MINUTES, HOURS, DAYS, SECONDS_STORED_AS_MS, MINUTES_STORED_AS_MS, MINUTES_STORED_AS_SECONDS, HOURS_STORED_AS_MS, HOURS_STORED_AS_MINUTES, USERS, MULTIPLIER, TUNING_KNOB, DIAGNOSTIC, PROCESS_SETTING, STRUCTURED_VALUE, BY_RULE, capitalizedOptions } from './registry-fields.ts';
 import type { SettingsSetting } from './registry-fields.ts';
+import { DEFAULT_MODELS } from '../contracts/agent-models.ts';
 
 export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
   {
@@ -161,7 +162,7 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
   {
     id: 'file-task-title-refiner-model', path: 'taskTitle.refiner.model', title: 'Task title model', group: 'machine-detection-sessions',
     description: 'Claude model alias the title refiner asks.',
-    control: 'text', keywords: ['title', 'refiner', 'model'], defaultValue: 'haiku', takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+    control: 'text', keywords: ['title', 'refiner', 'model'], defaultValue: DEFAULT_MODELS.taskTitleRefiner, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
   },
   {
     id: 'file-task-title-refiner-min-interval', path: 'taskTitle.refiner.minIntervalSeconds', title: 'Task title refresh interval', group: 'machine-detection-sessions',

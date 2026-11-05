@@ -3,13 +3,14 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { cachedAgentResolvability } from '../../session/adapters/index.ts';
-import type { ReviewAgentOffer, ReviewModelOffer, ReviewSkillOffer, TeamReviewEnvironment } from '../../shared/contracts/team-review-environment.ts';
+import { currentAgentModelCatalog } from '../agent-models/agent-models.ts';
+import type { ReviewAgentOffer, ReviewSkillOffer, TeamReviewEnvironment } from '../../shared/contracts/team-review-environment.ts';
 import * as environmentCore from './core/team-review-environment-core.ts';
 
 const SCAN_FRESH_FOR_MS = 60_000;
 const SKILL_FILE_NAME = 'SKILL.md';
 
-interface AgentScan { id: ReviewAgentOffer['id']; models: ReviewModelOffer[]; efforts: string[]; skills: ReviewSkillOffer[] }
+interface AgentScan { id: ReviewAgentOffer['id']; skills: ReviewSkillOffer[] }
 
 let lastScan: AgentScan[] = [];
 let lastScanStartedAtMs = Number.NEGATIVE_INFINITY;
@@ -53,7 +54,7 @@ async function scanClaude(homeDir: string, env: NodeJS.ProcessEnv): Promise<Agen
   ]);
   const pluginSkills = await Promise.all(environmentCore.enabledClaudePluginInstalls(installedPlugins, settings)
     .map(({ pluginName, installPath }) => scanSkillFolder(path.join(installPath, 'skills'), 'plugin', `${pluginName}:`)));
-  return { id: 'claude', models: [...environmentCore.CLAUDE_MODELS], efforts: [...environmentCore.CLAUDE_EFFORTS], skills: [...userSkills, ...pluginSkills.flat()] };
+  return { id: 'claude', skills: [...userSkills, ...pluginSkills.flat()] };
 }
 
 async function scanReviewAgents(homeDir: string, env: NodeJS.ProcessEnv): Promise<void> {
@@ -66,9 +67,10 @@ function refreshWhenStale(nowMs: number, homeDir: string, env: NodeJS.ProcessEnv
   scanInFlight = scanReviewAgents(homeDir, env).finally(() => { scanInFlight = null; });
 }
 
-function agentOffer(scan: AgentScan): ReviewAgentOffer {
+function agentOffer(scan: AgentScan, nowMs: number): ReviewAgentOffer {
   const { label, resolvable } = cachedAgentResolvability(scan.id);
-  return { ...scan, label, installed: resolvable };
+  const claudeModels = currentAgentModelCatalog(nowMs).agents.find((agentModels) => agentModels.agent === 'claude-code')?.models ?? [];
+  return { ...scan, ...environmentCore.reviewModelOffers(claudeModels), label, installed: resolvable };
 }
 
 function currentTeamReviewEnvironment(
@@ -76,7 +78,7 @@ function currentTeamReviewEnvironment(
 ): TeamReviewEnvironment {
   refreshWhenStale(nowMs, homeDir, env);
   return {
-    agents: lastScan.map(agentOffer),
+    agents: lastScan.map((scan) => agentOffer(scan, nowMs)),
   };
 }
 

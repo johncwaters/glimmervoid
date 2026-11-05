@@ -13,12 +13,13 @@ import { STATES } from '../shared/states.ts';
 import { readLaneResultFile } from './lanes/lane-spawn.ts';
 import type { LaneSpawn } from './lanes/lane-spawn.ts';
 import { errorMessage } from '../shared/text.ts';
+import { DEFAULT_MODELS } from '../shared/contracts/agent-models.ts';
 
 const PROMPT_FILE = 'task-title-prompt.txt';
 const RESULT_FILE = 'task-title-result.json';
 const BOOTSTRAP_PROMPT = `Read ${PROMPT_FILE} and follow its instructions`;
 const TASK_TITLE_LANE_TOOLS = Object.freeze(['Read', 'Write']);
-const DEFAULT_REFINER_SETTINGS = Object.freeze({ enabled: true, model: 'haiku', minIntervalSeconds: 60, timeoutSeconds: 60 });
+const DEFAULT_REFINER_SETTINGS = Object.freeze({ enabled: true, model: DEFAULT_MODELS.taskTitleRefiner, minIntervalSeconds: 60, timeoutSeconds: 60 });
 
 interface TaskTitleRefinerOptions {
   getConfig: () => { taskTitle?: unknown };

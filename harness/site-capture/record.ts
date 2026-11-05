@@ -18,6 +18,7 @@ import {
 } from './isolated-glimmervoid.ts';
 import { classifyClaudeStartup, hasRunSettled, isRecordingClosed, validateRecordManifest } from './manifest-core.ts';
 import type { RecordManifest } from './manifest-core.ts';
+import { choiceSelection, selectionArgs } from '../../shared/agent-models-core.ts';
 
 type RecordSession = RecordManifest['sessions'][number];
 
@@ -377,7 +378,7 @@ async function main(): Promise<void> {
     processNeedles = [tempDirectory, `127.0.0.1:${port}`];
     const wrapperDirectory = path.join(tempDirectory, 'bin');
     await fs.mkdir(wrapperDirectory);
-    const isolationArguments = ['--setting-sources', 'project,local', '--strict-mcp-config', '--model', manifest.model, '--effort', manifest.effort].map(quoteShell).join(' ');
+    const isolationArguments = ['--setting-sources', 'project,local', '--strict-mcp-config', ...selectionArgs(choiceSelection('claude-code', manifest))].map(quoteShell).join(' ');
     const wrapperScript = [
       '#!/bin/sh',
       `HOME=${quoteShell(path.join(tempDirectory, agentHomeDirectoryName))}`,

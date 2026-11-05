@@ -7,6 +7,7 @@ import type {
   DiffExcerptLine, DraftComment, GithubReview, HandCheck, InFlightReview, PostedReviewEvent, PostingPlan as PostingPlanType, PrDetail, PriorReview, ReviewComment, ReviewDraft, ReviewProgressPhase,
   ResumableReview, ReviewAssessment, ReviewResult as ReviewResultType, TeamReviewState, TeamReviewStateEntry, TeamReviewStatus,
 } from '../../../shared/contracts/team-review.ts';
+import { choiceSelection, selectionArgs } from '../../../shared/agent-models-core.ts';
 import { positiveNumberOr } from '../../../shared/coerce.ts';
 import { GH_SEGMENT } from '../../../shared/contracts/github-ids.ts';
 import type { Config } from '../../../shared/contracts/config.ts';
@@ -111,8 +112,8 @@ function readReviewerChoice(block: unknown, inheritedLegacyAgent: string | null)
   return { model, effort };
 }
 
-function reviewerAgentArgs({ model, effort }: ReviewerChoice): string[] {
-  return [...(model ? ['--model', model] : []), ...(effort ? ['--effort', effort] : [])];
+function reviewerAgentArgs(reviewer: ReviewerChoice): string[] {
+  return selectionArgs(choiceSelection('claude-code', reviewer));
 }
 
 function reviewerFor(settings: Pick<TeamReviewSettings, 'reviewer' | 'stampReviewer'>, tier: ReviewTier): ReviewerChoice {

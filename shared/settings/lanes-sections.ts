@@ -120,7 +120,7 @@ export const LANES_TEAM_REVIEW: SettingsSection = {
     {
       id: 'team-review-reviewer-model', path: 'teamReview.reviewer.model', title: 'Review model',
       description: "Model for reviews, or the agent's default when empty.",
-      control: 'text', keywords: ['model', 'opus', 'sonnet', 'reviewer'], defaultValue: '', suggestionsFrom: 'review-models', ...MACHINE_NOW,
+      control: 'text', keywords: ['model', 'reviewer'], defaultValue: '', suggestionsFrom: 'review-models', ...MACHINE_NOW,
     },
     {
       id: 'team-review-reviewer-effort', path: 'teamReview.reviewer.effort', title: 'Review effort',

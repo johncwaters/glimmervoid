@@ -1,9 +1,7 @@
+import { EFFORT_OPTION_ID } from '../../../shared/contracts/agent-models.ts';
+import type { CatalogModel } from '../../../shared/contracts/agent-models.ts';
 import type { ReviewModelOffer } from '../../../shared/contracts/team-review-environment.ts';
 
-const CLAUDE_EFFORTS: readonly string[] = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max']);
-const CLAUDE_MODELS: readonly ReviewModelOffer[] = Object.freeze(['opus', 'sonnet', 'haiku'].map((alias) => ({
-  id: alias, label: alias[0].toUpperCase() + alias.slice(1), efforts: null, defaultEffort: null,
-})));
 const FRONTMATTER_FENCE = '---';
 const FOLDED_SCALAR = /^[>|][+-]?$/;
 
@@ -61,7 +59,17 @@ function enabledClaudePluginInstalls(installedPlugins: unknown, settings: unknow
   });
 }
 
+function reviewModelOffer(model: CatalogModel): ReviewModelOffer {
+  const effort = model.options.find((option) => option.id === EFFORT_OPTION_ID) ?? null;
+  return { id: model.aliases[0] ?? model.id, label: model.label, efforts: effort ? [...effort.choices] : null, defaultEffort: effort?.defaultChoice ?? null };
+}
+
+function reviewModelOffers(models: readonly CatalogModel[]): { models: ReviewModelOffer[]; efforts: string[] } {
+  const offers = models.map(reviewModelOffer);
+  return { models: offers, efforts: [...new Set(offers.flatMap((offer) => offer.efforts ?? []))] };
+}
+
 export {
-  CLAUDE_EFFORTS, CLAUDE_MODELS,
+  reviewModelOffers,
   enabledClaudePluginInstalls, parseSkillFrontmatter,
 };

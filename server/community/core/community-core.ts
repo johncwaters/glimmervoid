@@ -5,6 +5,7 @@ import { bulletsIn, fencedUntrusted, parsePostingFile, sectionAfter, withoutCont
 import { UNTRUSTED_PAYLOAD_FILENAME, UNTRUSTED_PREAMBLE } from '../../../shared/contracts/untrusted-payload.ts';
 import { laneAccessConfigOf, laneAccessEnvBlocker } from '../../lanes/core/lane-permissions-core.ts';
 import type { UntrustedItem } from '../../../shared/contracts/untrusted-payload.ts';
+import { DEFAULT_MODELS } from '../../../shared/contracts/agent-models.ts';
 
 const COMMUNITY_LANE_ID = 'community';
 const COMMUNITY_STATE_FILENAME = 'community-state.json';
@@ -39,7 +40,7 @@ const MAX_DISCORD_CHANNELS = 50;
 const JUDGE_PROMPT_FILENAME = 'judge-prompt.txt';
 const JUDGE_RESULT_FILENAME = 'judge-result.json';
 const JUDGE_BOOTSTRAP_PROMPT = `Read ${JUDGE_PROMPT_FILENAME} and follow its instructions`;
-const JUDGE_MODEL = 'haiku';
+const JUDGE_MODEL = DEFAULT_MODELS.communityJudge;
 const JUDGE_TIMEOUT_MS = 120000;
 const JUDGE_MESSAGE_CHARS = 2000;
 const COMMUNITY_UNTRUSTED_SOURCE = 'community';

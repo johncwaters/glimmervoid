@@ -15,6 +15,7 @@ import { awaitSessionExit, registerEphemeralSession } from './ephemeral-session.
 import { resolveRequiredSaneYoloHookTools } from '../hook-tools.ts';
 import { makeHostScratchDirectory } from '../host-scratch.ts';
 import { writeJsonAtomic } from '../json-file.ts';
+import { choiceSelection, selectionArgs } from '../../shared/agent-models-core.ts';
 import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
 
 const SETTINGS_DIR_PREFIX = 'glimmervoid-lane-settings-';
@@ -78,12 +79,13 @@ function headlessPromptLaunch(agent: string, prompt: string): { args: string[]; 
   return { args: [], initialPrompt: prompt };
 }
 
-function laneAgentArgs({ isClaude, isCodex, extraArgs, model, postureArgs, standaloneArgs }: {
-  isClaude: boolean; isCodex: boolean; extraArgs: readonly string[]; model: string | null; postureArgs: readonly string[]; standaloneArgs: readonly string[];
+function laneAgentArgs({ agent, isClaude, isCodex, extraArgs, model, postureArgs, standaloneArgs }: {
+  agent: string; isClaude: boolean; isCodex: boolean; extraArgs: readonly string[]; model: string | null; postureArgs: readonly string[]; standaloneArgs: readonly string[];
 }): string[] {
-  if (isClaude) return ['-p', ...postureArgs, ...extraArgs, ...standaloneArgs, ...(model ? ['--model', model] : [])];
-  if (isCodex) return [...CODEX_READ_ONLY_ARGS, ...extraArgs];
-  return [...extraArgs];
+  const modelArgs = selectionArgs(choiceSelection(isClaude ? DEFAULT_AGENT_ID : agent, { model }));
+  if (isClaude) return ['-p', ...postureArgs, ...extraArgs, ...standaloneArgs, ...modelArgs];
+  if (isCodex) return [...CODEX_READ_ONLY_ARGS, ...extraArgs, ...modelArgs];
+  return [...extraArgs, ...modelArgs];
 }
 
 function createLaneSpawn({
@@ -119,7 +121,7 @@ function createLaneSpawn({
       const hookTools = [...saneYoloHookTools, ...(laneMcp ? [laneMcp.posture.hookTool] : [])];
       const promptLaunch = headlessPromptLaunch(agent, prompt);
       const agentExtraArgs = isCodex && laneMcp ? [...extraArgs, ...laneMcp.posture.args] : extraArgs;
-      const extraClaudeArgs = laneAgentArgs({ isClaude, isCodex, extraArgs: agentExtraArgs, model, postureArgs: [...(posture?.args ?? []), ...(laneMcp?.posture.args ?? [])], standaloneArgs: standalone?.args ?? [] });
+      const extraClaudeArgs = laneAgentArgs({ agent, isClaude, isCodex, extraArgs: agentExtraArgs, model, postureArgs: [...(posture?.args ?? []), ...(laneMcp?.posture.args ?? [])], standaloneArgs: standalone?.args ?? [] });
       extraClaudeArgs.push(...promptLaunch.args);
       const options: SessionOptions = {
         ...(hookTools.length > 0 ? { hookTools } : {}),

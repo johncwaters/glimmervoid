@@ -3,6 +3,8 @@ import type { AgentLoginStatus, CoderEnvironmentOffer, CustomAgentDeclaration, C
 import type { TeamReviewEnvironment } from '../shared/contracts/team-review-environment.ts';
 import type { TeamReviewSettingsSource } from './github/core/team-review-core.ts';
 import { currentTeamReviewEnvironment } from './github/team-review-environment.ts';
+import { currentAgentModelCatalog } from './agent-models/agent-models.ts';
+import type { AgentModelCatalog } from '../shared/contracts/agent-models.ts';
 import { resolvePackageBin } from './runtime-paths.ts';
 
 interface SettingsPayloadOptions {
@@ -15,6 +17,7 @@ interface SettingsPayloadOptions {
   coderEnvironments?: CoderEnvironmentOffer[] | null;
   agentLogins?: AgentLoginStatus[] | null;
   readTeamReviewEnvironment?: () => TeamReviewEnvironment;
+  readAgentModels?: () => AgentModelCatalog;
 }
 
 function summarizeCustomAgents(declarations: readonly CustomAgentDeclaration[]): CustomAgentSummaryRow[] {
@@ -28,7 +31,7 @@ function summarizeCustomAgents(declarations: readonly CustomAgentDeclaration[]):
 }
 
 function buildSettingsPayload({
-  configStore, telegramDelivery = null, coderEnvironments = null, agentLogins = null, readTeamReviewEnvironment = currentTeamReviewEnvironment,
+  configStore, telegramDelivery = null, coderEnvironments = null, agentLogins = null, readTeamReviewEnvironment = currentTeamReviewEnvironment, readAgentModels = currentAgentModelCatalog,
 }: SettingsPayloadOptions): Record<string, unknown> {
   return {
     ...configStore.getSettings(),
@@ -39,6 +42,7 @@ function buildSettingsPayload({
     coderEnvironments,
     agentLogins,
     teamReviewEnvironment: readTeamReviewEnvironment(),
+    agentModels: readAgentModels(),
   };
 }
 
