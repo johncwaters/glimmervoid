@@ -58,6 +58,7 @@ function createRaceWiring({
 }: RaceWiringDependencies) {
   const raceById = new Map<string, RaceRecord>();
   let settleTimer: ReturnType<typeof setInterval> | null = null;
+  let isWatchingStopped = false;
 
   function status(): { type: 'race-status'; races: RaceRecord[] } {
     return { type: 'race-status', races: [...raceById.values()].sort((left, right) => right.createdAt - left.createdAt) };
@@ -221,12 +222,13 @@ function createRaceWiring({
   }
 
   function startWatching(): void {
-    if (settleTimer) return;
+    if (settleTimer || isWatchingStopped) return;
     settleTimer = setInterval(judgeSettledRaces, SETTLE_CHECK_INTERVAL_MS);
     settleTimer.unref?.();
   }
 
   function stopWatching(): void {
+    isWatchingStopped = true;
     if (settleTimer) clearInterval(settleTimer);
     settleTimer = null;
   }

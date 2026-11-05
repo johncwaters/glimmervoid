@@ -435,3 +435,67 @@ test('a genuine kill (not a restart) still persists wasActive:false', async () =
     });
   });
 });
+
+test('createBackend shutdown stops the race settle check, so a race is never judged on sessions the shutdown destroyed', async () => {
+  const cfgDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-race-shutdown-cfg-'));
+  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-race-shutdown-proj-'));
+  const cfgPath = path.join(cfgDir, 'config.json');
+  const raceFile = path.join(String(process.env.GLIMMERVOID_HOME), 'races', 'shutdown-race.json');
+  const setup = { agent: 'claude-code', model: null, options: [], instructions: '' };
+  fs.mkdirSync(path.dirname(raceFile), { recursive: true });
+  fs.writeFileSync(raceFile, JSON.stringify({
+    id: 'shutdown-race',
+    spec: {
+      version: 1, title: 'Shutdown race', prompt: 'Do the thing.', repoPath: projectDir,
+      contestants: [{ id: 'first', label: 'First', setup }, { id: 'second', label: 'Second', setup }],
+      judge: null,
+    },
+    startSha: '0'.repeat(40),
+    baseBranch: 'main',
+    createdAt: Date.now(),
+    sessionIdByContestant: { first: 'racer-first', second: 'racer-second' },
+  }), 'utf8');
+  fs.writeFileSync(cfgPath, JSON.stringify({
+    autoResume: false,
+    checkForUpdates: false,
+    projects: ['racer-first', 'racer-second'].map((id) => ({ id, name: id, path: projectDir, raceId: 'shutdown-race' })),
+    teams: [],
+    repoRoots: [],
+  }, null, 2), 'utf8');
+  const prevEnv = process.env.GLIMMERVOID_CONFIG;
+  const originalSetInterval = globalThis.setInterval;
+  const originalClearInterval = globalThis.clearInterval;
+  const armedSettleChecks = new Set<unknown>();
+  const live: { backend: ReturnType<typeof createBackend> | null } = { backend: null };
+  process.env.GLIMMERVOID_CONFIG = cfgPath;
+  globalThis.setInterval = ((callback: () => void, delayMs?: number, ...rest: unknown[]) => {
+    const handle = originalSetInterval(callback, delayMs, ...rest);
+    if (delayMs === 15_000) armedSettleChecks.add(handle);
+    return handle;
+  }) as typeof setInterval;
+  globalThis.clearInterval = ((handle?: Parameters<typeof clearInterval>[0]) => {
+    armedSettleChecks.delete(handle);
+    originalClearInterval(handle);
+  }) as typeof clearInterval;
+  const server = http.createServer();
+  try {
+    live.backend = createBackend(server, { staticDir: null });
+    await waitFor(() => armedSettleChecks.size > 0, 'the race settle check is armed', 5000);
+    await settleBackendShutdown(live.backend);
+    live.backend = createBackend(server, { staticDir: null });
+    await settleBackendShutdown(live.backend);
+    live.backend = null;
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    assert.equal(armedSettleChecks.size, 0);
+  } finally {
+    globalThis.setInterval = originalSetInterval;
+    globalThis.clearInterval = originalClearInterval;
+    for (const handle of armedSettleChecks) originalClearInterval(handle as Parameters<typeof clearInterval>[0]);
+    if (live.backend) await settleBackendShutdown(live.backend);
+    if (prevEnv == null) delete process.env.GLIMMERVOID_CONFIG;
+    if (prevEnv != null) process.env.GLIMMERVOID_CONFIG = prevEnv;
+    fs.rmSync(raceFile, { force: true });
+    fs.rmSync(cfgDir, { recursive: true, force: true });
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});

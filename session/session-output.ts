@@ -118,7 +118,7 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
   function pasteTextWhenReady(text: string, { timeoutMs = 120000, settleMs = 0, submitDelayMs = null }: PasteWhenReadyOptions = {}): PasteResult {
     if (options.isDestroyed()) return { ok: false, reason: "destroyed" };
     const stateBeforeWaiting = options.getState();
-    if (options.hasLivePty() && PASTE_READY_STATES.has(stateBeforeWaiting)) return deliverPaste(text, settleMs, submitDelayMs);
+    if (options.hasLivePty() && PASTE_READY_STATES.has(stateBeforeWaiting)) return pasteAndSubmit(text, submitDelayMs);
     clearPendingPaste();
     const onStateChange = ({ to }: StateChange): void => {
       if (!PASTE_READY_STATES.has(to)) return;

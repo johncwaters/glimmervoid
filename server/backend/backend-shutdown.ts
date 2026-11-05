@@ -38,6 +38,7 @@ interface BackendShutdownDependencies {
   community?: { stopPoller: () => unknown } | null;
   workflows?: { stopPoller: () => unknown } | null;
   benchmarks?: Stoppable | null;
+  races?: { stopWatching: () => unknown } | null;
   usage: Stoppable;
   featureHints?: Stoppable | null;
   traceWiring?: Stoppable | null;
@@ -86,6 +87,7 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
 
     dependencies.notificationManager.destroy();
     dependencies.telegramChannel.destroy();
+    if (dependencies.races) stoppers.add('races', () => dependencies.races?.stopWatching());
     const pendingReaps: Promise<unknown>[] = [];
     destroySessions([dependencies.sessions], pendingReaps);
     if (dependencies.taskTitleRefiner) stoppers.add('task-title', () => dependencies.taskTitleRefiner?.stop());

@@ -558,6 +558,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     community,
     workflows: laneAssembly.workflows,
     benchmarks: laneAssembly.benchmarks,
+    races: laneAssembly.races,
     featureHints: laneAssembly.featureHints,
     usage,
     traceWiring,
