@@ -385,6 +385,10 @@ export function getTerminalTheme(): Record<string, string> {
   return result;
 }
 
+export function currentThemeColors(): { id: string | null; colors: Record<string, string> } {
+  return { id: _currentThemeId, colors: { ...themeById(_currentThemeId ?? DEFAULT_THEME)?.colors } };
+}
+
 export function getThemeList(): { id: string; label: string }[] {
   return Object.entries({ ...THEMES, ...packThemesById }).map(([id, t]) => ({ id, label: t.label }));
 }
