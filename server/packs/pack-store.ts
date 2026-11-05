@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -7,7 +8,7 @@ import type { PackOnDisk } from '../../shared/contracts/pack.ts';
 import { canonicalizePath } from '../../shared/canonical-paths.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { loadJsonStateFile, writeTextAtomic } from '../json-file.ts';
-import { approvedPackThemes, packRow, pendingPackNote } from './core/pack-core.ts';
+import { approvedPackPanels, approvedPackThemes, packRow, pendingPackNote } from './core/pack-core.ts';
 import { PACKS_DIR_NAME, packDirsUnder, readPackDir } from './pack-files.ts';
 
 const PACK_RELOAD_DEBOUNCE_MS = 300;
@@ -22,6 +23,7 @@ type PackStore = EventEmitter & {
   stop(): void;
   setListedPaths(listedPaths: readonly string[]): void;
   statusFrame(): PacksStatus;
+  servableFile(packName: string, accessKey: string, filePath: string): Buffer | null;
   approvedPacks(): Promise<ApprovedPacks>;
   approve(fingerprint: string): Promise<PackApproveResult>;
 };
@@ -34,6 +36,7 @@ export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs
   reloadDebounceMs?: number;
 }): PackStore {
   const emitter = new EventEmitter();
+  const accessKeySecret = crypto.randomBytes(32);
   let approvedFingerprints = new Set<string>();
   let approvalsLoadError: string | null = null;
   let approvalWrites: Promise<unknown> = Promise.resolve();
@@ -151,9 +154,26 @@ export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs
     return currentReads().map(({ packDir, read }) => packRow(packDir, read, approvedFingerprints));
   }
 
+  function packsInUse(): PackOnDisk[] {
+    return currentReads().flatMap(({ read }) => (read.ok && approvedFingerprints.has(read.pack.fingerprint) && read.pack.missingRequires.length === 0 ? [read.pack] : []));
+  }
+
   function statusFrame(): PacksStatus {
-    const approvedReads = currentReads().flatMap(({ read }) => (read.ok && approvedFingerprints.has(read.pack.fingerprint) && read.pack.missingRequires.length === 0 ? [read.pack] : []));
-    return { type: 'packs-status', packs: rows(), themes: approvedPackThemes(approvedReads), warnings: homeWarning === null ? [] : [homeWarning] };
+    const inUse = packsInUse();
+    return { type: 'packs-status', packs: rows(), themes: approvedPackThemes(inUse), panels: approvedPackPanels(inUse, packAccessKey), warnings: homeWarning === null ? [] : [homeWarning] };
+  }
+
+  function packAccessKey(pack: PackOnDisk): string {
+    return crypto.createHmac('sha256', accessKeySecret).update(`${pack.header.name}\0${pack.fingerprint}`).digest('hex');
+  }
+
+  function servableFile(packName: string, accessKey: string, filePath: string): Buffer | null {
+    const offeredKey = Buffer.from(accessKey);
+    const pack = packsInUse().find((candidate) => {
+      const expectedKey = Buffer.from(packAccessKey(candidate));
+      return candidate.header.name === packName && expectedKey.length === offeredKey.length && crypto.timingSafeEqual(expectedKey, offeredKey);
+    });
+    return pack?.filesByPath.get(filePath) ?? null;
   }
 
   async function approvedPacks(): Promise<ApprovedPacks> {
@@ -231,5 +251,5 @@ export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs
     emitter.removeAllListeners();
   }
 
-  return Object.assign(emitter, { start, stop, setListedPaths, statusFrame, approvedPacks, approve });
+  return Object.assign(emitter, { start, stop, setListedPaths, statusFrame, servableFile, approvedPacks, approve });
 }

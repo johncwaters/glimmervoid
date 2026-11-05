@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ThemePalette } from './theme-palette.ts';
+import { PackBridgeTopic } from './pack-bridge.ts';
 import { PrFlowCommand, PrFlowPackRequires, PrFlowPrAction, PrFlowRule, prFlowRulesJsonSchema } from './pr-flows.ts';
 
 const PACK_SCHEMA_URL = 'https://glimmervoid.dev/schema/pack.v1.json';
@@ -36,14 +37,27 @@ export type PackPrFlows = z.infer<typeof PackPrFlows>;
 
 const PackItemId = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/, { error: 'an id is lowercase letters, digits and dashes, at most 40 characters' });
 
+const PackFilePath = z.string().regex(/^(?!\/)(?!.*(?:^|\/)\.\.?(?:\/|$))[A-Za-z0-9._/-]{1,200}$/, { error: 'a pack file path is relative, inside the pack, and uses letters, digits, dot, dash, underscore and slash' });
+
+const PackPanel = z.strictObject({
+  id: PackItemId,
+  label: z.string().trim().min(1).max(24),
+  entry: PackFilePath.refine((filePath) => filePath.endsWith('.html'), { error: 'a panel entry is an .html file' }),
+  icon: PackFilePath.refine((filePath) => filePath.endsWith('.svg'), { error: 'a panel icon is an .svg file' }).optional(),
+  reads: z.array(PackBridgeTopic).default([]),
+});
+
 export const PackUi = z.strictObject({
   themes: z.array(ThemePalette.extend({ id: PackItemId })).max(8).default([]),
+  panels: z.array(PackPanel).max(8).default([]),
 }).superRefine((section, context) => {
-  const seenIds = new Set<string>();
-  section.themes.forEach((theme, index) => {
-    if (seenIds.has(theme.id)) context.addIssue({ code: 'custom', path: ['themes', index, 'id'], message: `the id '${theme.id}' is already used in themes` });
-    seenIds.add(theme.id);
-  });
+  for (const kind of ['themes', 'panels'] as const) {
+    const seenIds = new Set<string>();
+    section[kind].forEach((item, index) => {
+      if (seenIds.has(item.id)) context.addIssue({ code: 'custom', path: [kind, index, 'id'], message: `the id '${item.id}' is already used in ${kind}` });
+      seenIds.add(item.id);
+    });
+  }
 });
 export type PackUi = z.infer<typeof PackUi>;
 

@@ -259,9 +259,9 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'feature-hint', hint: { feature: 'teamReview', distinctTargetCount: 3, raisedAt: 1761740000000 } },
   { type: 'star-hint' },
   { type: 'packs-status', warnings: [], packs: [
-    { name: 'ci-board', version: 3, description: null, dir: '/home/me/.glimmervoid/packs/ci-board', state: 'pending', fingerprint: 'f'.repeat(64), files: ['pack.json'], needs: ['program gh'], missingRequires: [], prFlows: null, themes: [{ id: 'night-shift', label: 'Night Shift', mode: 'dark' }], errors: [] },
-    { name: 'broken', version: null, description: null, dir: '/home/me/.glimmervoid/packs/broken', state: 'invalid', fingerprint: null, files: [], needs: [], missingRequires: [], prFlows: null, themes: [], errors: ['there is no pack.json'] },
-  ], themes: [] },
+    { name: 'ci-board', version: 3, description: null, dir: '/home/me/.glimmervoid/packs/ci-board', state: 'pending', fingerprint: 'f'.repeat(64), files: ['pack.json'], needs: ['program gh'], missingRequires: [], prFlows: null, themes: [{ id: 'night-shift', label: 'Night Shift', mode: 'dark' }], panels: [{ id: 'board', label: 'CI', reads: ['sessions'] }], errors: [] },
+    { name: 'broken', version: null, description: null, dir: '/home/me/.glimmervoid/packs/broken', state: 'invalid', fingerprint: null, files: [], needs: [], missingRequires: [], prFlows: null, themes: [], panels: [], errors: ['there is no pack.json'] },
+  ], themes: [], panels: [{ viewId: 'pack:ci-board/board', label: 'CI', entryUrl: '/packs/ci-board/abc/files/panel/index.html', iconUrl: null, reads: ['sessions'] }] },
   { type: 'pack-approve-result', requestId: 'pack-1', ok: false, error: 'That pack changed or is already approved; check the list again.' },
 ];
 

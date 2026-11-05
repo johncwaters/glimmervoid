@@ -16,6 +16,43 @@ export function approvedPackThemes(packs: readonly PackOnDisk[]): PacksStatus['t
   return packs.flatMap((pack) => packThemes(pack).map(({ id, ...palette }) => ({ id: `${pack.header.name}/${id}`, palette })));
 }
 
+function packPanels(pack: PackOnDisk): PackUi['panels'] {
+  return pack.ui?.ok ? pack.ui.value.panels : [];
+}
+
+function packFileUrl(pack: PackOnDisk, accessKey: string, filePath: string): string {
+  return `/packs/${encodeURIComponent(pack.header.name)}/${accessKey}/files/${filePath.split('/').map(encodeURIComponent).join('/')}`;
+}
+
+export function approvedPackPanels(packs: readonly PackOnDisk[], accessKeyOf: (pack: PackOnDisk) => string): PacksStatus['panels'] {
+  return packs.flatMap((pack) => packPanels(pack).map((panel) => ({
+    viewId: `pack:${pack.header.name}/${panel.id}`, label: panel.label, entryUrl: packFileUrl(pack, accessKeyOf(pack), panel.entry),
+    iconUrl: panel.icon ? packFileUrl(pack, accessKeyOf(pack), panel.icon) : null, reads: panel.reads,
+  })));
+}
+
+const PACK_FILE_MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp',
+  '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8',
+};
+
+export const PACK_PANEL_CONTENT_POLICY = [
+  'sandbox allow-scripts allow-forms',
+  "default-src 'self' data: blob:",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "connect-src 'none'",
+  "form-action 'none'",
+  "frame-src 'none'",
+  "base-uri 'none'",
+].join('; ');
+
+export function packFileMime(filePath: string): string {
+  return PACK_FILE_MIME_BY_EXTENSION[path.posix.extname(filePath).toLowerCase()] ?? 'application/octet-stream';
+}
+
 export function uiSectionErrors(pack: PackOnDisk): string[] {
   return pack.ui && !pack.ui.ok ? pack.ui.errors : [];
 }
@@ -29,7 +66,8 @@ function validPackRow(pack: PackOnDisk, approvedFingerprints: ReadonlySet<string
     state: approvedFingerprints.has(pack.fingerprint) ? 'approved' : 'pending', fingerprint: pack.fingerprint,
     files: [...pack.filesByPath.keys()].sort(), needs: packNeeds(pack), missingRequires: pack.missingRequires,
     prFlows: prFlowsPack ? packApproval(prFlowsPack) : null,
-    themes: packThemes(pack).map((theme) => ({ id: theme.id, label: theme.label, mode: theme.mode })), errors: sectionErrors,
+    themes: packThemes(pack).map((theme) => ({ id: theme.id, label: theme.label, mode: theme.mode })),
+    panels: packPanels(pack).map((panel) => ({ id: panel.id, label: panel.label, reads: panel.reads })), errors: sectionErrors,
   };
 }
 
@@ -37,7 +75,7 @@ export function packRow(packDir: string, read: PackRead, approvedFingerprints: R
   if (read.ok) return validPackRow(read.pack, approvedFingerprints);
   return {
     name: path.basename(packDir), version: null, description: null, dir: packDir, state: 'invalid', fingerprint: null,
-    files: [], needs: [], missingRequires: [], prFlows: null, themes: [], errors: read.errors,
+    files: [], needs: [], missingRequires: [], prFlows: null, themes: [], panels: [], errors: read.errors,
   };
 }
 

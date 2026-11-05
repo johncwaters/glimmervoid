@@ -70,6 +70,14 @@ async function missingRequires(requires: PackHeader['requires'], env: NodeJS.Pro
   return [...requires.env.filter((name) => !commandEnv[name]).map((name) => `env ${name}`), ...missingPrograms];
 }
 
+function withPanelFilesPresent(ui: PackSection<PackUi> | null, filesByPath: ReadonlyMap<string, Buffer>): PackSection<PackUi> | null {
+  if (!ui?.ok) return ui;
+  const missing = ui.value.panels.flatMap((panel, index) => [panel.entry, ...(panel.icon ? [panel.icon] : [])]
+    .filter((filePath) => !filesByPath.has(filePath))
+    .map((filePath) => `${PACK_FILE_NAME} ui.panels.${index}: ${filePath} is not a file in the pack`));
+  return missing.length === 0 ? ui : { ok: false, errors: missing };
+}
+
 function issueLines(error: z.ZodError, sectionLabel: string): string[] {
   return error.issues.map((issue) => `${[sectionLabel, ...issue.path.map(String)].join('.')}: ${issue.message}`);
 }
@@ -95,7 +103,7 @@ async function readPackDirUnguarded(packDir: string, env: NodeJS.ProcessEnv): Pr
     ok: true,
     pack: {
       dir: packDir, header: header.data, fingerprint: packFingerprint(read.filesByPath), filesByPath: read.filesByPath,
-      prFlows: parseSection(PackPrFlows, header.data.prFlows, 'prFlows'), ui: parseSection(PackUi, header.data.ui, 'ui'), missingRequires: await missingRequires(header.data.requires, env),
+      prFlows: parseSection(PackPrFlows, header.data.prFlows, 'prFlows'), ui: withPanelFilesPresent(parseSection(PackUi, header.data.ui, 'ui'), read.filesByPath), missingRequires: await missingRequires(header.data.requires, env),
     },
   };
 }

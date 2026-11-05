@@ -1,0 +1,21 @@
+.pack-panel-view {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.pack-panel-view[hidden] { display: none; }
+
+.pack-panel-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: var(--bg);
+}
+
+.pack-tab-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}

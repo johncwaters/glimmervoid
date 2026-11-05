@@ -8,7 +8,7 @@ import { buildChip } from '../settings/settings-readouts.ts';
 import { button } from '../ui/button.ts';
 import { packsSnapshot, subscribePacks } from './packs-store.ts';
 
-const PACKS_TRUST_NOTE = 'Approving a pack lets its commands run on this machine. Any change to a file in it asks again.';
+const PACKS_TRUST_NOTE = 'Approving a pack lets its commands run on this machine and its panels show what they read. Panels cannot reach the network, but they are trusted not to leak what they read. Any change to a file in a pack asks again.';
 const STATE_LABELS: Record<PackRow['state'], string> = { pending: 'Pending', approved: 'Approved', invalid: 'Not loaded' };
 
 const approveStatusByFingerprint = new Map<string, { tone: ActionStatusTone; text: string }>();
@@ -42,6 +42,7 @@ function packLines(row: PackRow): HTMLElement[] {
   const lines = [
     ...(row.description ? [row.description] : []),
     `Folder: ${row.dir}`,
+    ...row.panels.map((panel) => `Panel: ${panel.label}${panel.reads.length === 0 ? ', reads nothing from the dashboard' : `, reads ${panel.reads.join(', ')}`}`),
     ...(row.themes.length === 0 ? [] : [`Themes: ${row.themes.map((theme) => `${theme.label} (${theme.mode})`).join(', ')}`]),
     ...(row.files.length === 0 ? [] : [`Files: ${row.files.join(', ')}`]),
     ...(row.needs.length === 0 ? [] : [`Needs: ${row.needs.join(', ')}`]),
