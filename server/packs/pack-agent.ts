@@ -6,6 +6,7 @@ import type { PackRow } from '../../shared/contracts/control/pack-messages.ts';
 import type { AgentPacksRequest } from '../../shared/contracts/session.ts';
 import { parseJsonOrNull } from '../core/json-core.ts';
 import { checkPack, packCheckHasProblem, packReportText } from './pack-check.ts';
+import { PACK_PANEL_CONTENT_POLICY } from './core/pack-core.ts';
 import { PACKS_DIR_NAME } from './pack-files.ts';
 
 type PacksReadout = { text: string; hasProblem: boolean };
@@ -27,7 +28,7 @@ async function exampleLines(examplePacksDir: string): Promise<string[]> {
   return lines.length === 0 ? ['(this install ships no example packs)'] : lines.sort();
 }
 
-async function guideText({ homeDir, examplePacksDir }: PackAgentDeps): Promise<string> {
+export async function packGuideText({ homeDir, examplePacksDir }: Pick<PackAgentDeps, 'homeDir' | 'examplePacksDir'>, schemaLines: readonly string[]): Promise<string> {
   return [
     'Glimmervoid packs',
     '',
@@ -37,19 +38,18 @@ async function guideText({ homeDir, examplePacksDir }: PackAgentDeps): Promise<s
     'Sections of pack.json, each checked on its own:',
     '- prFlows: commands My PRs runs on pull requests (prActions, sources, actions, rules).',
     '- ui.themes: color themes for the Theme picker; every chrome and state color is a #rrggbb hex.',
-    '- ui.panels: HTML pages shown as dashboard tabs. A panel runs sandboxed in an opaque origin: no network (connect-src none), no cookies, no storage, no popups or navigation (a link in a panel opens nothing), no access to the dashboard page. Put every script, style and image in the pack, or inline.',
+    '- ui.panels: HTML pages shown as dashboard tabs. A panel runs sandboxed in an opaque origin: no network, no cookies, no storage, no popups or navigation (a link in a panel opens nothing), no access to the dashboard page. Put every script, style, image and font in the pack; inline <script> and <style> work too. Every panel file is served with this Content-Security-Policy:',
+    `  ${PACK_PANEL_CONTENT_POLICY}`,
     '',
-    'Panel bridge: a panel lists the topics it reads under reads, then posts {"v":1,"kind":"subscribe","topics":[...]} to window.parent. It receives {"v":1,"kind":"hello","granted":[...]} with the topics it was granted, then {"v":1,"kind":"topic","topic":...,"data":...} for each one now and whenever it changes. Accept messages only when event.source === window.parent. Restyle from the theme topic, whose colors are CSS custom properties such as --bg and --text.',
+    'Panel bridge: list the topics a panel needs under its reads in pack.json; the operator sees them before approving. The panel posts {"v":1,"kind":"subscribe","topics":[...]} to window.parent and gets {"v":1,"kind":"hello","granted":[...]}: the subscribed topics that are also in reads, so a topic left out of reads never arrives. Then a {"v":1,"kind":"topic","topic":...,"data":...} message comes for each granted topic, right away and again whenever it changes. Accept messages only when event.source === window.parent. The descriptions in the bridge JSON Schema below give each field\'s units and meaning.',
+    'Each example panel ships the same bridge.js; copy it beside your panel and load it before your own script. It defines window.glimmervoid.subscribe(topics, onTopic) (it calls onTopic("hello", granted) once, then onTopic(topic, data) per topic message), applyTheme(themeData) (pass it the theme topic data; it sets every color as a CSS custom property on the root, such as var(--bg) or var(--state-running)) and element(tag, className, text).',
     '',
     'Examples to copy and adapt:',
     ...await exampleLines(examplePacksDir),
     '',
-    'Check a pack folder before handing it over: glimmervoid packs check <folder>, or the packs tool with action check.',
+    'Workflow: write the pack in any folder, run glimmervoid packs check <folder> (exits 1 and lists every problem, including files a page loads that are missing or remote), then glimmervoid packs preview <folder> to open its panels in a browser with sample data and its themes, without installing or approving anything. Then install it and tell the operator it waits for approval. The packs tool with action check runs the same check.',
     '',
-    `${PACK_FILE_NAME} JSON Schema:`,
-    packJsonSchemaText(),
-    'Panel bridge messages JSON Schema:',
-    packBridgeJsonSchemaText(),
+    ...schemaLines,
   ].join('\n');
 }
 
@@ -64,7 +64,7 @@ function rowLines(row: PackRow): string[] {
 }
 
 export async function readPacksForAgent(request: AgentPacksRequest, deps: PackAgentDeps): Promise<PacksReadout> {
-  if (request.command === 'guide') return { text: await guideText(deps), hasProblem: false };
+  if (request.command === 'guide') return { text: await packGuideText(deps, [`${PACK_FILE_NAME} JSON Schema:`, packJsonSchemaText(), 'Panel bridge messages JSON Schema:', packBridgeJsonSchemaText()]), hasProblem: false };
   if (request.command === 'list') {
     const rows = deps.packRows();
     return { text: rows.length === 0 ? `No packs are installed; ${path.join(deps.homeDir, PACKS_DIR_NAME)} holds none and config.json lists none.` : rows.flatMap(rowLines).join('\n'), hasProblem: rows.some((row) => row.errors.length > 0) };

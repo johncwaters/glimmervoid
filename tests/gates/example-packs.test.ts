@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import vm from 'node:vm';
 
-import { PackBridgeTopic } from '../../shared/contracts/pack-bridge.ts';
+import { HostToPanel, PackBridgeTopic } from '../../shared/contracts/pack-bridge.ts';
+import { previewSampleTopics, previewThemes } from '../../server/packs/core/pack-preview-core.ts';
 import { checkPack, packCheckHasProblem, packReportText } from '../../server/packs/pack-check.ts';
 import { readPacksForAgent } from '../../server/packs/pack-agent.ts';
 
@@ -51,4 +53,18 @@ test('the packs guide an agent reads names every example and carries both schema
   for (const exampleName of exampleNames) assert.ok(guide.text.includes(path.join(EXAMPLE_PACKS_DIR, exampleName)), exampleName);
   assert.ok(guide.text.includes(PUBLISHED_SCHEMA_ID));
   assert.ok(guide.text.includes('"panelToHost"'));
+  const [firstExampleWithPanel] = exampleNames.filter((exampleName) => (manifestOf(exampleName).ui?.panels ?? []).length > 0);
+  const bridgeHelper = fs.readFileSync(path.join(EXAMPLE_PACKS_DIR, firstExampleWithPanel, 'panel', 'bridge.js'), 'utf8');
+  const bridgeWindow: { glimmervoid?: Record<string, unknown> } = {};
+  vm.runInNewContext(bridgeHelper, { window: bridgeWindow });
+  const helperNames = Object.keys(bridgeWindow.glimmervoid ?? {});
+  assert.ok(helperNames.length > 0);
+  for (const helperName of helperNames) assert.ok(guide.text.includes(`${helperName}(`), `the guide describes bridge.js ${helperName}`);
+});
+
+test('the sample data packs preview sends is valid for every bridge topic', () => {
+  for (const topic of PackBridgeTopic.options.filter((candidate) => candidate !== 'theme')) {
+    assert.ok(HostToPanel.safeParse({ v: 1, kind: 'topic', topic, data: previewSampleTopics(Date.now())[topic] }).success, topic);
+  }
+  for (const theme of previewThemes(null)) assert.ok(HostToPanel.safeParse({ v: 1, kind: 'topic', topic: 'theme', data: { id: theme.id, colors: theme.colors } }).success, theme.id);
 });

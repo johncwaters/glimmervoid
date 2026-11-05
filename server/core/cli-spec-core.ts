@@ -147,6 +147,7 @@ const CONFIG_OPTION: OptionSpec = { name: 'config', type: 'string', valueName: '
 const PORT_OPTION: OptionSpec = { name: 'port', type: 'string', valueName: 'number', summary: 'Server port (default: 3000)' };
 const JSON_OPTION: OptionSpec = { name: 'json', type: 'boolean', summary: 'Machine-readable output' };
 const SETTING_PATH = { usage: '<path>', min: 1, max: 1 };
+const PACK_FOLDER = { usage: '<folder>', min: 1, max: 1 };
 
 const SETTINGS_NOTES = `<path> is a config.json key path such as posthog.trafficSpikeEnabled, or a setting id such as posthog-traffic-enabled.
 <value> is true or false for a toggle, a number, text, a comma-separated or JSON list, or JSON for a structured value.
@@ -215,6 +216,22 @@ const OWNED_COMMAND_SPECS = {
         { name: 'message', type: 'string', valueName: 'text', summary: 'Up to 500 characters shown after the outcome; an https link stays clickable' },
       ],
     }],
+  },
+  packs: {
+    name: 'packs',
+    summary: 'Build a Glimmervoid pack: read the guide, check and preview a pack folder, list the installed packs',
+    subcommands: [
+      { name: 'guide', summary: 'How to build a pack: its rules, the workflow and example packs to copy; --schema prints a JSON Schema', options: [{ name: 'schema', type: 'string', valueName: 'pack|bridge', summary: 'Print only the pack.json (pack) or panel bridge (bridge) JSON Schema' }] },
+      { name: 'check', summary: 'Check a pack folder as Glimmervoid loads it, and every file its pages load; exits 1 on any problem', positionals: PACK_FOLDER, options: [JSON_OPTION], missingArgumentHint: 'check needs a pack folder, for example "glimmervoid packs check ./my-pack"' },
+      {
+        name: 'preview',
+        summary: "Serve a pack folder's panels on 127.0.0.1 with sample data and its themes, re-reading the pack on every page load, until Ctrl-C",
+        positionals: PACK_FOLDER,
+        options: [{ name: 'port', type: 'string', valueName: 'number', summary: 'Port to serve on (default: any free port)' }],
+        missingArgumentHint: 'preview needs a pack folder, for example "glimmervoid packs preview ./my-pack"',
+      },
+      { name: 'list', summary: 'The packs the running Glimmervoid found and whether each is approved; works inside a Glimmervoid session' },
+    ],
   },
   'ssh-sign': { name: 'ssh-sign', summary: "Sign a commit with the operator's forwarded ssh agent (git runs this)", isPassthrough: true },
 } as const satisfies Record<string, CommandSpec>;

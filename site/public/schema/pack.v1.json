@@ -9,12 +9,14 @@
     },
     "name": {
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+      "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+      "description": "Unique among installed packs; a second pack with the same name is refused. Theme and panel ids are scoped to it, so they never clash with another pack"
     },
     "version": {
       "type": "integer",
       "exclusiveMinimum": 0,
-      "maximum": 9007199254740991
+      "maximum": 9007199254740991,
+      "description": "Your release number, shown to the operator beside the pack; raise it with each change. Approval follows the files, not this number: any changed file asks again"
     },
     "description": {
       "type": "string",
@@ -282,14 +284,16 @@
               "label": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 40
+                "maxLength": 40,
+                "description": "The name shown in the Theme picker"
               },
               "mode": {
                 "type": "string",
                 "enum": [
                   "dark",
                   "light"
-                ]
+                ],
+                "description": "Whether the theme is dark or light, which picks the terminal palette its ANSI colors are tuned for"
               },
               "accentAnsiSlot": {
                 "type": "string",
@@ -297,62 +301,76 @@
                   "blue",
                   "magenta",
                   "none"
-                ]
+                ],
+                "description": "The terminal ANSI color the accent replaces, with a lighter mix of it as that color's bright variant; none leaves terminal colors alone"
               },
               "chrome": {
                 "type": "object",
                 "properties": {
                   "bg": {
                     "type": "string",
-                    "pattern": "^#[0-9a-fA-F]{6}$"
+                    "pattern": "^#[0-9a-fA-F]{6}$",
+                    "description": "Page background"
                   },
                   "bg-card": {
                     "type": "string",
-                    "pattern": "^#[0-9a-fA-F]{6}$"
+                    "pattern": "^#[0-9a-fA-F]{6}$",
+                    "description": "Cards, panes and the terminal background"
                   },
                   "bg-header": {
                     "type": "string",
-                    "pattern": "^#[0-9a-fA-F]{6}$"
+                    "pattern": "^#[0-9a-fA-F]{6}$",
+                    "description": "Headers and toolbars"
                   },
                   "bg-surface": {
                     "type": "string",
-                    "pattern": "^#[0-9a-fA-F]{6}$"
+                    "pattern": "^#[0-9a-fA-F]{6}$",
+                    "description": "Raised controls: chips, inputs, menus and hover fills"
                   },
                   "border": {
                     "type": "string",
-                    "pattern": "^#[0-9a-fA-F]{6}$"
+                    "pattern": "^#[0-9a-fA-F]{6}$",
+                    "description": "Default borders"
                   },
                   "border-dim": {
                     "type": "string",
-                    "pattern": "^#[0-9a-fA-F]{6}$"
+                    "pattern": "^#[0-9a-fA-F]{6}$",
+                    "description": "Faint dividers inside a card or list"
                   },
                   "border-hover": {
                     "type": "string",
-                    "pattern": "^#[0-9a-fA-F]{6}$"
+                    "pattern": "^#[0-9a-fA-F]{6}$",
+                    "description": "Borders of a hovered or focused control"
                   },
                   "text": {
                     "type": "string",
-                    "pattern": "^#[0-9a-fA-F]{6}$"
+                    "pattern": "^#[0-9a-fA-F]{6}$",
+                    "description": "Body text"
                   },
                   "text-dim": {
                     "type": "string",
-                    "pattern": "^#[0-9a-fA-F]{6}$"
+                    "pattern": "^#[0-9a-fA-F]{6}$",
+                    "description": "Secondary text such as hints and empty states"
                   },
                   "text-head": {
                     "type": "string",
-                    "pattern": "^#[0-9a-fA-F]{6}$"
+                    "pattern": "^#[0-9a-fA-F]{6}$",
+                    "description": "Headings and emphasized text"
                   },
                   "text-muted": {
                     "type": "string",
-                    "pattern": "^#[0-9a-fA-F]{6}$"
+                    "pattern": "^#[0-9a-fA-F]{6}$",
+                    "description": "Labels and metadata, between text and text-dim"
                   },
                   "accent": {
                     "type": "string",
-                    "pattern": "^#[0-9a-fA-F]{6}$"
+                    "pattern": "^#[0-9a-fA-F]{6}$",
+                    "description": "Links, focus rings, selection and primary actions"
                   },
                   "accent-dim": {
                     "type": "string",
-                    "pattern": "^#[0-9a-fA-F]{6}$"
+                    "pattern": "^#[0-9a-fA-F]{6}$",
+                    "description": "A quieter accent for selected borders"
                   }
                 },
                 "required": [
@@ -370,7 +388,8 @@
                   "accent",
                   "accent-dim"
                 ],
-                "additionalProperties": false
+                "additionalProperties": false,
+                "description": "Dashboard colors; each key becomes the CSS custom property --<key>"
               },
               "states": {
                 "type": "object",
@@ -423,7 +442,8 @@
                   "starting",
                   "complete"
                 ],
-                "additionalProperties": false
+                "additionalProperties": false,
+                "description": "One color per session state, shown as --state-<state> on cards, dots and badges"
               },
               "id": {
                 "type": "string",
@@ -459,7 +479,8 @@
               },
               "entry": {
                 "type": "string",
-                "pattern": "^(?!\\/)(?!.*(?:^|\\/)\\.\\.?(?:\\/|$))[A-Za-z0-9._/-]{1,200}$"
+                "pattern": "^(?!\\/)(?!.*(?:^|\\/)\\.\\.?(?:\\/|$))[A-Za-z0-9._/-]{1,200}$",
+                "description": "The HTML page the panel opens, relative to the pack folder"
               },
               "icon": {
                 "type": "string",
@@ -467,6 +488,7 @@
               },
               "reads": {
                 "default": [],
+                "description": "The bridge topics this panel may receive; the operator sees them before approving, and a subscribe for any other topic is ignored",
                 "type": "array",
                 "items": {
                   "type": "string",

@@ -10,8 +10,8 @@ const PackName = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/, { error: 'a pack 
 
 export const PackHeader = z.strictObject({
   $schema: z.string().optional(),
-  name: PackName,
-  version: z.number().int().positive(),
+  name: PackName.describe('Unique among installed packs; a second pack with the same name is refused. Theme and panel ids are scoped to it, so they never clash with another pack'),
+  version: z.number().int().positive().describe('Your release number, shown to the operator beside the pack; raise it with each change. Approval follows the files, not this number: any changed file asks again'),
   description: z.string().max(500).optional(),
   requires: PrFlowPackRequires.default({ env: [], programs: [] }),
   prFlows: z.unknown().optional(),
@@ -39,12 +39,12 @@ const PackItemId = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/, { error: 'an id
 
 const PackFilePath = z.string().regex(/^(?!\/)(?!.*(?:^|\/)\.\.?(?:\/|$))[A-Za-z0-9._/-]{1,200}$/, { error: 'a pack file path is relative, inside the pack, and uses letters, digits, dot, dash, underscore and slash' });
 
-const PackPanel = z.strictObject({
+export const PackPanel = z.strictObject({
   id: PackItemId,
   label: z.string().trim().min(1).max(24),
-  entry: PackFilePath.refine((filePath) => filePath.endsWith('.html'), { error: 'a panel entry is an .html file' }),
+  entry: PackFilePath.refine((filePath) => filePath.endsWith('.html'), { error: 'a panel entry is an .html file' }).describe('The HTML page the panel opens, relative to the pack folder'),
   icon: PackFilePath.refine((filePath) => filePath.endsWith('.svg'), { error: 'a panel icon is an .svg file' }).optional(),
-  reads: z.array(PackBridgeTopic).default([]),
+  reads: z.array(PackBridgeTopic).default([]).describe('The bridge topics this panel may receive; the operator sees them before approving, and a subscribe for any other topic is ignored'),
 });
 
 export const PackUi = z.strictObject({

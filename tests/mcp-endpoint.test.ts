@@ -141,7 +141,7 @@ test('a session without its own worktree lists every grouped tool but push and r
   fs.mkdirSync(path.join(bootedBackend().projectDir, 'half-pack'));
   fs.writeFileSync(path.join(bootedBackend().projectDir, 'half-pack', 'pack.json'), JSON.stringify({ name: 'half-pack', version: 1, ui: { panels: [{ id: 'p', label: 'P', entry: 'missing.html' }] } }));
   const packChecked = await resultOf(await callMcp('tools/call', { name: 'packs', arguments: { action: 'check', path: 'half-pack' } }, credential));
-  assert.match(firstTextOf(packChecked.content), /^Checked pack half-pack v1 at .*half-pack, waits for approval/);
+  assert.match(firstTextOf(packChecked.content), /^Checked pack half-pack v1 at .*half-pack: fix the problems below, then check it again\nerror: pack\.json ui\.panels\.0: missing\.html is not a file in the pack/);
   assert.match(firstTextOf(packChecked.content), /error: .*missing\.html/);
   assert.equal(spawnReplyForMcp({ ok: true, sessionId: 'child-1', name: 'child' }).note?.toString().includes('glimmervoid '), false);
 });

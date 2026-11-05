@@ -11,9 +11,8 @@ import type { ParsedCommand } from './core/cli-spec-core.ts';
 import { decideConfigPath, glimmervoidHomeDir } from './core/config-path-core.ts';
 import { parseJsonOrNull } from './core/json-core.ts';
 import { commandFingerprint, expandPlaceholders, prFlowCommands, prFlowRules, unknownActionWarnings } from './github/core/pr-flows-core.ts';
-import { packsStatePath } from './packs/pack-files.ts';
-import { PR_FLOW_PLACEHOLDERS_BY_KIND, checkPack, packCheckHasProblem, packReportText } from './packs/pack-check.ts';
-import { PacksState } from '../shared/contracts/pack.ts';
+import { PR_FLOW_PLACEHOLDERS_BY_KIND } from './packs/pack-check.ts';
+import { runPackCheckCli } from './packs/packs-cli.ts';
 import { createPrFlowsExternal } from './github/pr-flows-external.ts';
 
 const PR_URL_PATTERN = /^https:\/\/github\.com\/([^/\s]+\/[^/\s]+)\/pull\/(\d+)\/?$/;
@@ -53,12 +52,6 @@ function entryCheck(kind: EntryCheck['kind'], command: PrFlowCommand, approvedFi
   const isApproved = approvedFingerprints.has(commandFingerprint(kind, command));
   if (!expanded.ok) return { kind, id: command.id, label: command.label, isApproved, argv: null, error: `{${expanded.unknown}} is not a placeholder; use ${names.map((name) => `{${name}}`).join(', ')}` };
   return { kind, id: command.id, label: command.label, isApproved, argv: kind === 'action' ? expanded.argv : null, error: null };
-}
-
-function approvedPackFingerprints(homeDir: string): Set<string> {
-  const statePath = packsStatePath(homeDir);
-  if (!fs.existsSync(statePath)) return new Set();
-  return new Set(PacksState.safeParse(parseJsonOrNull(fs.readFileSync(statePath, 'utf8'))).data?.approvedFingerprints ?? []);
 }
 
 function approvedFingerprints(homeDir: string): Set<string> {
@@ -182,18 +175,11 @@ async function runPrFlowsCheck(options: PrFlowsCheckOptions & { isJson: boolean 
   }
 }
 
-async function runPackCheck({ packDir, isJson, env, homeDir }: { packDir: string; isJson: boolean; env: NodeJS.ProcessEnv; homeDir: string }, io: PrFlowsCheckIo): Promise<number> {
-  const approvedFingerprints = approvedPackFingerprints(homeDir);
-  const report = await checkPack(packDir, env, (fingerprint) => approvedFingerprints.has(fingerprint));
-  io.writeOutput(`${isJson ? JSON.stringify(report, null, 2) : packReportText(report)}\n`);
-  return packCheckHasProblem(report) ? 1 : 0;
-}
-
 async function runPrFlowsCheckCli(parsed: Extract<ParsedCommand, { kind: 'run' }>): Promise<number> {
   const env = process.env;
   const homeDir = glimmervoidHomeDir(os.homedir(), env);
   const io = { writeOutput: (text: string) => process.stdout.write(text), writeError: (text: string) => process.stderr.write(text) };
-  if (typeof parsed.values.pack === 'string') return runPackCheck({ packDir: parsed.values.pack, isJson: parsed.values.json === true, env, homeDir }, io);
+  if (typeof parsed.values.pack === 'string') return runPackCheckCli({ packDir: parsed.values.pack, isJson: parsed.values.json === true, env, homeDir });
   const readConfig = env[AGENT_URL_ENV] ? readConfigFromServer : () => readConfigFile(env, homeDir);
   return runPrFlowsCheck({
     prUrl: typeof parsed.values.pr === 'string' ? parsed.values.pr : null, isJson: parsed.values.json === true,
@@ -244,4 +230,4 @@ async function runPrActionReportCli(parsed: Extract<ParsedCommand, { kind: 'run'
   }, { writeOutput: (text) => process.stdout.write(text), writeError: (text) => process.stderr.write(text) });
 }
 
-export { readConfigFile, runPackCheck, runPrActionReport, runPrActionReportCli, runPrFlowsCheck, runPrFlowsCheckCli };
+export { readConfigFile, runPrActionReport, runPrActionReportCli, runPrFlowsCheck, runPrFlowsCheckCli };

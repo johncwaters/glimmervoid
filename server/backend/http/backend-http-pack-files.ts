@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express';
-import { PACK_PANEL_CONTENT_POLICY, packFileMime } from '../../packs/core/pack-core.ts';
+import { packFileHeaders } from '../../packs/core/pack-core.ts';
 
 export type PackFileSource = (packName: string, accessKey: string, filePath: string) => Buffer | null;
 
@@ -15,11 +15,8 @@ export function servePackFile(req: Request, res: Response, packFileSource: PackF
     res.status(404).end();
     return;
   }
-  res.setHeader('Content-Security-Policy', PACK_PANEL_CONTENT_POLICY);
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Referrer-Policy', 'no-referrer');
+  for (const [name, value] of Object.entries(packFileHeaders(filePath))) res.setHeader(name, value);
   res.setHeader('Cache-Control', 'private, max-age=604800, immutable');
-  res.setHeader('Content-Type', packFileMime(filePath));
   res.setHeader('Content-Length', String(bytes.byteLength));
   res.end(bytes);
 }

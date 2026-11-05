@@ -1,5 +1,5 @@
-import { THEME_STATE_NAMES } from '#shared/contracts/theme-palette.ts';
-import type { ThemePalette, ThemeStateName } from '#shared/contracts/theme-palette.ts';
+import type { ThemePalette } from '#shared/contracts/theme-palette.ts';
+import { themeCssColors } from '#shared/theme-colors-core.ts';
 
 type ThemeMode = ThemePalette['mode'];
 
@@ -8,8 +8,6 @@ interface ThemeDefinition {
   colors: Record<string, string>;
   terminal: Record<string, string>;
 }
-
-const STRONG_TINT_STATES: ReadonlySet<ThemeStateName> = new Set(['waiting', 'monitoring']);
 
 const ANSI_HUES_BY_MODE: Record<ThemeMode, Record<string, string>> = {
   dark: {
@@ -65,16 +63,6 @@ function mixTowardWhite(hexColor: string, whiteShare: number): string {
   return `#${mixedChannels.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
 }
 
-function buildStateColors(states: Record<ThemeStateName, string>): Record<string, string> {
-  const stateColors: Record<string, string> = {};
-  for (const stateName of THEME_STATE_NAMES) {
-    const tintPercent = STRONG_TINT_STATES.has(stateName) ? 8 : 6;
-    stateColors[`--state-${stateName}`] = states[stateName];
-    stateColors[`--state-${stateName}-bg`] = `color-mix(in oklab, var(--state-${stateName}) ${tintPercent}%, transparent)`;
-  }
-  return stateColors;
-}
-
 function buildAccentAnsi(palette: ThemePalette): Record<string, string> {
   if (palette.accentAnsiSlot === 'none') return {};
   const brightSlot = `bright${palette.accentAnsiSlot[0].toUpperCase()}${palette.accentAnsiSlot.slice(1)}`;
@@ -85,10 +73,9 @@ function buildAccentAnsi(palette: ThemePalette): Record<string, string> {
 }
 
 function defineTheme(palette: ThemePalette): ThemeDefinition {
-  const chromeColors = Object.fromEntries(Object.entries(palette.chrome).map(([token, color]) => [`--${token}`, color]));
   return {
     label: palette.label,
-    colors: { ...chromeColors, ...buildStateColors(palette.states) },
+    colors: themeCssColors(palette),
     terminal: {
       background:   '--bg-card',
       foreground:   '--text',

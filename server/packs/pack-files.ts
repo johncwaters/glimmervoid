@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { PACK_FILE_NAME, PackHeader, PackPrFlows, PackUi } from '../../shared/contracts/pack.ts';
+import { PACK_FILE_NAME, PackHeader, PackPanel, PackPrFlows, PackUi, PacksState } from '../../shared/contracts/pack.ts';
 import type { PackOnDisk, PackSection } from '../../shared/contracts/pack.ts';
 import { withoutGlimmervoidSecrets } from '../../session/core/spawn-env.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -16,8 +16,14 @@ export function packsStatePath(homeDir: string): string {
   return path.join(homeDir, PACKS_STATE_FILE_NAME);
 }
 
-export type PackRead = { ok: true; pack: PackOnDisk } | { ok: false; errors: string[] };
-type PackFilesRead = { ok: true; filesByPath: Map<string, Buffer> } | { ok: false; error: string };
+export function readApprovedPackFingerprints(homeDir: string): Set<string> {
+  const statePath = packsStatePath(homeDir);
+  if (!fs.existsSync(statePath)) return new Set();
+  return new Set(PacksState.safeParse(parseJsonOrNull(fs.readFileSync(statePath, 'utf8'))).data?.approvedFingerprints ?? []);
+}
+
+export type PackRead = { ok: true; pack: PackOnDisk } | { ok: false; errors: string[]; filesByPath?: ReadonlyMap<string, Buffer>; header?: PackHeader };
+type PackFilesRead = { ok: true; filesByPath: Map<string, Buffer>; errors: string[] } | { ok: false; error: string };
 
 function sha256(bytes: Buffer | string): string {
   return crypto.createHash('sha256').update(bytes).digest('hex');
@@ -25,24 +31,31 @@ function sha256(bytes: Buffer | string): string {
 
 async function readPackFiles(packDir: string): Promise<PackFilesRead> {
   const filesByPath = new Map<string, Buffer>();
+  const errors: string[] = [];
   const pendingDirs = [''];
   let totalBytes = 0;
   while (pendingDirs.length > 0) {
     const relativeDir = pendingDirs.pop() ?? '';
     for (const entry of await fs.promises.readdir(path.join(packDir, relativeDir), { withFileTypes: true })) {
       const relativePath = path.posix.join(relativeDir, entry.name);
-      if (entry.isSymbolicLink()) return { ok: false, error: `${relativePath} is a symlink, and a pack holds only its own files` };
+      if (entry.isSymbolicLink()) {
+        errors.push(`${relativePath} is a symlink, and a pack holds only its own files`);
+        continue;
+      }
       if (entry.isDirectory()) {
         pendingDirs.push(relativePath);
         continue;
       }
-      if (!entry.isFile()) return { ok: false, error: `${relativePath} is not a regular file` };
+      if (!entry.isFile()) {
+        errors.push(`${relativePath} is not a regular file`);
+        continue;
+      }
       totalBytes += (await fs.promises.lstat(path.join(packDir, relativePath))).size;
       if (totalBytes > PACK_MAX_TOTAL_BYTES) return { ok: false, error: 'the pack is over 1 MiB' };
       filesByPath.set(relativePath, await fs.promises.readFile(path.join(packDir, relativePath)));
     }
   }
-  return { ok: true, filesByPath };
+  return { ok: true, filesByPath, errors };
 }
 
 function packFingerprint(filesByPath: ReadonlyMap<string, Buffer>): string {
@@ -70,12 +83,46 @@ async function missingRequires(requires: PackHeader['requires'], env: NodeJS.Pro
   return [...requires.env.filter((name) => !commandEnv[name]).map((name) => `env ${name}`), ...missingPrograms];
 }
 
-function withPanelFilesPresent(ui: PackSection<PackUi> | null, filesByPath: ReadonlyMap<string, Buffer>): PackSection<PackUi> | null {
-  if (!ui?.ok) return ui;
-  const missing = ui.value.panels.flatMap((panel, index) => [panel.entry, ...(panel.icon ? [panel.icon] : [])]
+function missingPanelFiles(panel: z.infer<typeof PackPanel>, index: number, filesByPath: ReadonlyMap<string, Buffer>): string[] {
+  return [panel.entry, ...(panel.icon ? [panel.icon] : [])]
     .filter((filePath) => !filesByPath.has(filePath))
-    .map((filePath) => `${PACK_FILE_NAME} ui.panels.${index}: ${filePath} is not a file in the pack`));
+    .map((filePath) => `${PACK_FILE_NAME} ui.panels.${index}: ${filePath} is not a file in the pack`);
+}
+
+function rawPanels(rawUi: unknown): unknown[] {
+  if (rawUi === null || typeof rawUi !== 'object' || !('panels' in rawUi) || !Array.isArray(rawUi.panels)) return [];
+  return rawUi.panels;
+}
+
+export function declaredPanelReads(rawUi: unknown): ReadonlySet<string> | null {
+  const panels = validRawPanels(rawUi);
+  return panels.length === rawPanels(rawUi).length ? new Set(panels.flatMap(({ panel }) => panel.reads)) : null;
+}
+
+function validRawPanels(rawUi: unknown): { index: number; panel: z.infer<typeof PackPanel> }[] {
+  return rawPanels(rawUi).flatMap((rawPanel, index) => {
+    const panel = PackPanel.safeParse(rawPanel);
+    return panel.success ? [{ index, panel: panel.data }] : [];
+  });
+}
+
+function withPanelFilesPresent(ui: PackSection<PackUi> | null, rawUi: unknown, filesByPath: ReadonlyMap<string, Buffer>): PackSection<PackUi> | null {
+  if (ui === null) return null;
+  const missing = validRawPanels(rawUi).flatMap(({ index, panel }) => missingPanelFiles(panel, index, filesByPath));
+  if (!ui.ok) return { ok: false, errors: [...ui.errors, ...missing] };
   return missing.length === 0 ? ui : { ok: false, errors: missing };
+}
+
+function manifestJson(manifest: Buffer): { ok: true; value: unknown } | { ok: false; error: string } {
+  try {
+    return { ok: true, value: JSON.parse(manifest.toString('utf8')) };
+  } catch (error) {
+    return { ok: false, error: `${PACK_FILE_NAME} is not valid JSON: ${errorMessage(error)}` };
+  }
+}
+
+function sectionErrors(section: PackSection<unknown> | null): string[] {
+  return section && !section.ok ? section.errors : [];
 }
 
 function issueLines(error: z.ZodError, sectionLabel: string): string[] {
@@ -96,14 +143,20 @@ async function readPackDirUnguarded(packDir: string, env: NodeJS.ProcessEnv): Pr
   const read = await readPackFiles(packDir);
   if (!read.ok) return { ok: false, errors: [read.error] };
   const manifest = read.filesByPath.get(PACK_FILE_NAME);
-  if (!manifest) return { ok: false, errors: [`there is no ${PACK_FILE_NAME}`] };
-  const header = PackHeader.safeParse(parseJsonOrNull(manifest.toString('utf8')));
-  if (!header.success) return { ok: false, errors: header.error.issues.map((issue) => `${PACK_FILE_NAME} ${issue.path.join('.') || '(root)'}: ${issue.message}`) };
+  const { filesByPath } = read;
+  if (!manifest) return { ok: false, errors: [...read.errors, `there is no ${PACK_FILE_NAME}`], filesByPath };
+  const manifestValue = manifestJson(manifest);
+  if (!manifestValue.ok) return { ok: false, errors: [...read.errors, manifestValue.error], filesByPath };
+  const header = PackHeader.safeParse(manifestValue.value);
+  if (!header.success) return { ok: false, errors: [...read.errors, ...header.error.issues.map((issue) => `${PACK_FILE_NAME} ${issue.path.join('.') || '(root)'}: ${issue.message}`)], filesByPath };
+  const prFlows = parseSection(PackPrFlows, header.data.prFlows, 'prFlows');
+  const ui = withPanelFilesPresent(parseSection(PackUi, header.data.ui, 'ui'), header.data.ui, read.filesByPath);
+  if (read.errors.length > 0) return { ok: false, errors: [...read.errors, ...sectionErrors(prFlows), ...sectionErrors(ui)], filesByPath, header: header.data };
   return {
     ok: true,
     pack: {
       dir: packDir, header: header.data, fingerprint: packFingerprint(read.filesByPath), filesByPath: read.filesByPath,
-      prFlows: parseSection(PackPrFlows, header.data.prFlows, 'prFlows'), ui: withPanelFilesPresent(parseSection(PackUi, header.data.ui, 'ui'), read.filesByPath), missingRequires: await missingRequires(header.data.requires, env),
+      prFlows, ui, missingRequires: await missingRequires(header.data.requires, env),
     },
   };
 }

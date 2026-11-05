@@ -46,6 +46,7 @@ With no command, starts the server.
 Commands:
   doctor              Check the install, PATH, agent CLIs and native module, then exit
   settings <cmd>      Read and change config.json: list, get, describe, set, unset, search, schema (each takes --json)
+  packs <cmd>         Build a pack: guide, check <folder>, preview <folder>, list
   pr-flows check      Check PR flows sources, actions and rules; --pr <url> runs each approved source once
   pr-action report    Report a PR action run's outcome from the command it ran (--outcome, --message)
   pair                Mint a single-use pairing link for a remote device
