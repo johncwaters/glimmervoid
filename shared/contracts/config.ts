@@ -182,6 +182,7 @@ const FILE_CONFIG_SHAPE = {
   telegram: optionalLooseObject('telegram'),
   workflows: optionalLooseObject('workflows'),
   prFlows: optionalLooseObject('prFlows'),
+  packs: z.array(z.string({ error: 'packs must list pack directory paths' }).min(1, { error: 'packs must list pack directory paths' }), { error: 'packs must be an array of pack directory paths' }).optional(),
   guardrails: optionalLooseObject('guardrails'),
   telemetry: TelemetryFileSettings,
   trace: TraceSettings,

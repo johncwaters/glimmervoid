@@ -6,7 +6,7 @@ import { createJsonStateStore } from '../json-file.ts';
 import { fencedUntrusted } from '../lanes/core/lane-report-core.ts';
 import { acceptReport, branchMovedNote, commandFingerprint, prActionRunAfterExit, prActionsForRepo, prFlowSetup, visibleRun, withInterruptedRuns, withPrActionRun, fixLocallyPrompt, itemLocation, mergeItems, plannedActions, prFlowRules, savedRuleFor, shouldTellBranchMoved, withRuleRun, sourceCandidates, threadCandidates, unknownActionWarnings, withHandled, withOnlyOpenPrs, withReopened } from './core/pr-flows-core.ts';
 import type { PrFlowsExternal } from './pr-flows-external.ts';
-import type { PrPackOnDisk } from '../../shared/contracts/pr-pack.ts';
+import type { PackOnDisk } from '../../shared/contracts/pack.ts';
 
 const UNTRUSTED_COMMENT_MAX_CHARS = 4000;
 
@@ -28,7 +28,7 @@ interface PrFlowsWiringOptions {
   broadcast: (frame: PrFlowsStatus) => void;
   log: Pick<Console, 'warn'>;
   reportUrlFor?: (runId: string) => string | null;
-  loadPacks?: (configFile: unknown) => { packs: PrPackOnDisk[]; warnings: string[] };
+  loadPacks?: (configFile: unknown) => Promise<{ packs: PackOnDisk[]; warnings: string[] }>;
   now?: () => number;
 }
 
@@ -47,7 +47,7 @@ type ActionRun = {
 const FAILED_SOURCE_RETRY_MS = 5 * 60 * 1000;
 const BRANCH_MOVED_WINDOW_MS = 10 * 60 * 1000;
 
-function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile, appendRule, github, external = NO_EXTERNAL_RUNNER, broadcast, log, reportUrlFor = () => null, loadPacks = () => ({ packs: [], warnings: [] }), now = Date.now }: PrFlowsWiringOptions) {
+function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile, appendRule, github, external = NO_EXTERNAL_RUNNER, broadcast, log, reportUrlFor = () => null, loadPacks = async () => ({ packs: [], warnings: [] }), now = Date.now }: PrFlowsWiringOptions) {
   let state: PrFlowsState = { handledByPr: {}, reopenedByPr: {}, approvedFingerprints: [], ruleRunsByPr: {}, prActionRunByPr: {} };
   let warnings: string[] = [];
   let approvals: PrFlowPendingApproval[] = [];
@@ -163,7 +163,7 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
   async function currentSetup() {
     await loaded;
     const configFile = await readConfigFile();
-    return { configFile, setup: prFlowSetup(configFile, loadPacks(configFile), state.approvedFingerprints) };
+    return { configFile, setup: prFlowSetup(configFile, await loadPacks(configFile), state.approvedFingerprints) };
   }
 
   async function runnableActionCommands(): Promise<PrFlowCommand[]> {
@@ -343,23 +343,27 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
     for (const prKey of actionRunsByPr.keys()) if (!openPrKeys.has(prKey)) actionRunsByPr.delete(prKey);
   }
 
-  let isApplyingRules = false;
+  let runningApply: Promise<void> | null = null;
   let isApplyRequested = false;
 
-  async function applyRules(): Promise<void> {
-    if (isApplyingRules) {
-      isApplyRequested = true;
-      return;
-    }
-    isApplyingRules = true;
+  async function applyRulesUntilSettled(): Promise<void> {
     try {
       do {
         isApplyRequested = false;
         await applyRulesOnce();
       } while (isApplyRequested);
     } finally {
-      isApplyingRules = false;
+      runningApply = null;
     }
+  }
+
+  function applyRules(): Promise<void> {
+    if (runningApply) {
+      isApplyRequested = true;
+      return runningApply;
+    }
+    runningApply = applyRulesUntilSettled();
+    return runningApply;
   }
 
   async function applyRulesOnce(): Promise<void> {

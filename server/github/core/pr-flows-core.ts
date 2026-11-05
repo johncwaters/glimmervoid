@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { z } from 'zod';
 import type { MyPr, MyPrThread } from '../../../shared/contracts/my-prs.ts';
 import type { TeamReviewThreadNode } from '../../../shared/contracts/team-review.ts';
-import type { PrPackOnDisk } from '../../../shared/contracts/pr-pack.ts';
+import type { PackOnDisk, PackPrFlows } from '../../../shared/contracts/pack.ts';
 import { PrFlowCommand, PrFlowPrAction, PrFlowRule, PrFlowsSettings } from '../../../shared/contracts/pr-flows.ts';
 import type { PrActionReportBody, PrActionRunRecord, PrActionRunView, PrFlowPendingApproval, PrFlowSourceFinding, PrFlowActionRef, PrFlowDisposition, PrFlowHandled, PrFlowItem, PrFlowPriority, PrFlowSource, PrFlowsState } from '../../../shared/contracts/pr-flows.ts';
 
@@ -237,8 +237,10 @@ export function commandFingerprint(kind: PrFlowCommandKind, command: PrFlowComma
 
 const PACK_DIR_PLACEHOLDER = '{packDir}';
 
-function packCommand<Command extends PrFlowCommand>(command: Command, loaded: PrPackOnDisk): Command {
-  return { ...command, id: `${loaded.pack.name}/${command.id}`, command: command.command.map((element) => element.replaceAll(PACK_DIR_PLACEHOLDER, loaded.dir)) };
+type PrFlowsPack = { loaded: PackOnDisk; section: PackPrFlows };
+
+function packCommand<Command extends PrFlowCommand>(command: Command, loaded: PackOnDisk): Command {
+  return { ...command, id: `${loaded.header.name}/${command.id}`, command: command.command.map((element) => element.replaceAll(PACK_DIR_PLACEHOLDER, loaded.dir)) };
 }
 
 function packRule(rule: PrFlowRule, packName: string): PrFlowRule {
@@ -253,11 +255,11 @@ function packRuleText(rule: PrFlowRule, packName: string): string {
   return `${name}: ${JSON.stringify(matchAndAction)}`;
 }
 
-function packCommands(loaded: PrPackOnDisk): PackCommandsByKind {
+function packCommands({ loaded, section }: PrFlowsPack): PackCommandsByKind {
   return {
-    sources: loaded.pack.sources.map((command) => packCommand(command, loaded)),
-    actions: loaded.pack.actions.map((command) => packCommand(command, loaded)),
-    prActions: loaded.pack.prActions.map((command) => packCommand(command, loaded)),
+    sources: section.sources.map((command) => packCommand(command, loaded)),
+    actions: section.actions.map((command) => packCommand(command, loaded)),
+    prActions: section.prActions.map((command) => packCommand(command, loaded)),
   };
 }
 
@@ -269,28 +271,44 @@ function kindedCommands(commands: PackCommandsByKind): { kind: Exclude<PrFlowCom
   ];
 }
 
-export function packApproval(loaded: PrPackOnDisk): PrFlowPendingApproval {
-  const { pack } = loaded;
-  const commands = kindedCommands(packCommands(loaded)).map(({ kind, command }) => {
+export function packApproval(prFlowsPack: PrFlowsPack): PrFlowPendingApproval {
+  const { loaded, section } = prFlowsPack;
+  const pack = loaded.header;
+  const commands = kindedCommands(packCommands(prFlowsPack)).map(({ kind, command }) => {
     const repos = normalizedRepos(command);
     return { kind, id: command.id, label: command.label, command: command.command, ...(repos === null ? {} : { repos }) };
   });
   return {
     kind: 'pack', id: pack.name, label: `${pack.name} v${pack.version}`, command: [], timeoutSeconds: 0, fingerprint: loaded.fingerprint,
-    pack: { version: pack.version, requires: pack.requires, missing: loaded.missingRequires, commands, rules: pack.rules.map((rule) => packRuleText(rule, pack.name)) },
+    pack: { version: pack.version, requires: pack.requires, missing: loaded.missingRequires, commands, rules: section.rules.map((rule) => packRuleText(rule, pack.name)) },
   };
 }
 
 type PrFlowSetup = { commands: PrFlowCommands; approved: Set<string>; approvals: PrFlowPendingApproval[]; packRules: PrFlowRule[] };
 
-export function prFlowSetup(configFile: unknown, packLoad: { packs: readonly PrPackOnDisk[]; warnings: readonly string[] }, approvedFingerprints: readonly string[]): PrFlowSetup {
+export function prFlowsPacksOf(packs: readonly PackOnDisk[]): { prFlowsPacks: PrFlowsPack[]; warnings: string[] } {
+  const prFlowsPacks: PrFlowsPack[] = [];
+  const warnings: string[] = [];
+  for (const loaded of packs) {
+    if (loaded.prFlows === null) continue;
+    if (!loaded.prFlows.ok) {
+      warnings.push(`The prFlows section of the pack '${loaded.header.name}' was skipped: ${loaded.prFlows.errors[0] ?? 'invalid'}`);
+      continue;
+    }
+    prFlowsPacks.push({ loaded, section: loaded.prFlows.value });
+  }
+  return { prFlowsPacks, warnings };
+}
+
+export function prFlowSetup(configFile: unknown, packLoad: { packs: readonly PackOnDisk[]; warnings: readonly string[] }, approvedFingerprints: readonly string[]): PrFlowSetup {
   const personal = prFlowCommands(configFile);
   const approved = new Set(approvedFingerprints);
-  const approvals = [...pendingApprovals(personal, approved), ...packLoad.packs.filter((loaded) => !approved.has(loaded.fingerprint)).map(packApproval)];
-  const approvedPacks = packLoad.packs.filter((loaded) => approved.has(loaded.fingerprint));
-  const enabledPacks = approvedPacks.filter((loaded) => loaded.missingRequires.length === 0);
-  const offNotes = approvedPacks.filter((loaded) => loaded.missingRequires.length > 0)
-    .map((loaded) => `The pack '${loaded.pack.name}' is off until this machine has ${loaded.missingRequires.join(', ')}`);
+  const { prFlowsPacks, warnings: sectionWarnings } = prFlowsPacksOf(packLoad.packs);
+  const approvals = [...pendingApprovals(personal, approved), ...prFlowsPacks.filter(({ loaded }) => !approved.has(loaded.fingerprint)).map(packApproval)];
+  const approvedPacks = prFlowsPacks.filter(({ loaded }) => approved.has(loaded.fingerprint));
+  const enabledPacks = approvedPacks.filter(({ loaded }) => loaded.missingRequires.length === 0);
+  const offNotes = approvedPacks.filter(({ loaded }) => loaded.missingRequires.length > 0)
+    .map(({ loaded }) => `The pack '${loaded.header.name}' is off until this machine has ${loaded.missingRequires.join(', ')}`);
   const enabledCommands = enabledPacks.map(packCommands);
   for (const { kind, command } of enabledCommands.flatMap(kindedCommands)) approved.add(commandFingerprint(kind, command));
   return {
@@ -298,17 +316,18 @@ export function prFlowSetup(configFile: unknown, packLoad: { packs: readonly PrP
       sources: [...personal.sources, ...enabledCommands.flatMap((commands) => commands.sources)],
       actions: [...personal.actions, ...enabledCommands.flatMap((commands) => commands.actions)],
       prActions: [...personal.prActions, ...enabledCommands.flatMap((commands) => commands.prActions)],
-      warnings: [...personal.warnings, ...packLoad.warnings, ...offNotes],
+      warnings: [...personal.warnings, ...packLoad.warnings, ...sectionWarnings, ...offNotes],
     },
     approved,
     approvals,
-    packRules: enabledPacks.flatMap((loaded) => loaded.pack.rules.map((rule) => packRule(rule, loaded.pack.name))),
+    packRules: enabledPacks.flatMap(({ loaded, section }) => section.rules.map((rule) => packRule(rule, loaded.header.name))),
   };
 }
 
+const ConfigFileWithPacks = z.looseObject({ packs: z.array(z.string().min(1)).optional().catch(undefined) });
+
 export function packPathsOf(configFile: unknown): string[] {
-  const raw = ConfigFileWithPrFlows.safeParse(configFile).data?.prFlows;
-  return PrFlowsSettings.safeParse(raw ?? {}).data?.packs ?? [];
+  return ConfigFileWithPacks.safeParse(configFile).data?.packs ?? [];
 }
 
 export function pendingApprovals(commands: Pick<PrFlowCommands, 'sources' | 'actions' | 'prActions'>, approvedFingerprints: ReadonlySet<string>): PrFlowPendingApproval[] {

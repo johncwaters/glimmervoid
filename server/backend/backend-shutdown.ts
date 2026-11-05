@@ -33,6 +33,7 @@ interface BackendShutdownDependencies {
   posthog: { stopPoller: () => unknown };
   teamReview?: { stopPoller: () => unknown } | null;
   myPrs?: { stopPoller: () => unknown } | null;
+  packStore?: { stop: () => unknown } | null;
   issues?: { stopPoller: () => unknown } | null;
   community?: { stopPoller: () => unknown } | null;
   workflows?: { stopPoller: () => unknown } | null;
@@ -95,6 +96,7 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     const teamReview = dependencies.teamReview;
     if (teamReview) stoppers.add('team-review', () => teamReview.stopPoller());
     if (dependencies.myPrs) stoppers.add('my-prs', () => dependencies.myPrs?.stopPoller());
+    if (dependencies.packStore) stoppers.add('packs', () => dependencies.packStore?.stop());
     if (dependencies.issues) stoppers.add('issues', () => dependencies.issues?.stopPoller());
     if (dependencies.community) stoppers.add('community', () => dependencies.community?.stopPoller());
     const workflows = dependencies.workflows;

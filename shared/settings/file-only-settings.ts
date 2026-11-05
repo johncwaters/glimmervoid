@@ -325,10 +325,10 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     fileOnlyReason: 'Commands run on this machine, so they are written in config.json and each one waits for your approval in My PRs.', ...FILE_ONLY,
   },
   {
-    id: 'file-pr-flows-packs', path: 'prFlows.packs', title: 'PR flows packs', group: 'lanes-team-review',
-    description: 'More pack directories to load besides every directory under ~/.glimmervoid/packs/. A pack is a pack.json (name, version, requires, prActions, sources, actions, rules) plus the scripts it runs, shared by copying the directory; its commands can use {packDir}, its ids show as <pack>/<id>, and it waits for one approval in My PRs that any edit to a file in it asks again.',
-    control: 'list', keywords: ['pull requests', 'packs', 'share', 'commands'], defaultValue: [], takesEffect: 'now',
-    fileOnlyReason: 'A pack runs commands on this machine, so its directory is written in config.json and the pack waits for your approval in My PRs.', ...FILE_ONLY,
+    id: 'file-packs', path: 'packs', title: 'Packs', group: 'lanes-team-review',
+    description: 'More pack directories to load besides every directory under ~/.glimmervoid/packs/. A pack is a pack.json (name, version, description, requires, and sections such as prFlows with prActions, sources, actions and rules) plus the files it uses, shared by copying the directory; its commands can use {packDir}, its ids show as <pack>/<id>, and it waits for one approval that any edit to a file in it asks again.',
+    control: 'list', keywords: ['packs', 'share', 'plugins', 'pull requests', 'commands'], defaultValue: [], takesEffect: 'now',
+    fileOnlyReason: 'A pack can run commands on this machine, so its directory is written in config.json and the pack waits for your approval.', ...FILE_ONLY,
   },
   {
     id: 'file-pr-flows-rules', path: 'prFlows.rules', title: 'PR flows rules', group: 'lanes-team-review',

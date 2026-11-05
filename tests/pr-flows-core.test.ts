@@ -14,8 +14,10 @@ import type { PrFlowsStatus } from '../shared/contracts/pr-flows.ts';
 import { createPrFlowsWiring } from '../server/github/pr-flows-wiring.ts';
 import { createPrFlowsExternal } from '../server/github/pr-flows-external.ts';
 import { readConfigFile, runPackCheck, runPrActionReport, runPrFlowsCheck } from '../server/pr-flows-cli.ts';
-import { loadPacks } from '../server/github/pr-packs.ts';
-import { prPackJsonSchemaText } from '../shared/contracts/pr-pack.ts';
+import { once } from 'node:events';
+import { packDirsUnder } from '../server/packs/pack-files.ts';
+import { createPackStore } from '../server/packs/pack-store.ts';
+import { packJsonSchemaText } from '../shared/contracts/pack.ts';
 import { createBackendHttpApp } from '../server/backend/backend-http.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { runCommandSafely } from '../server/child-process-safe.ts';
@@ -529,8 +531,9 @@ test('a started PR action takes one final report from the holder of its token th
   }
 });
 
-test('a pack copied into the packs directory waits for one approval listing its commands and requires, then shows its namespaced buttons and actions; any file edit re-asks and a missing require turns it off with a note', async () => {
+test('a pack copied into the packs directory waits for one approval listing its commands and requires, then shows its namespaced buttons and actions; any file edit re-asks, even after the folder is replaced, and a missing require turns it off with a note', async () => {
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-packs-'));
+  const packStore = createPackStore({ homeDir, env: process.env, log: console, reloadDebounceMs: 10 });
   try {
     const packDir = path.join(homeDir, 'packs', 'sample');
     fs.cpSync(path.join(import.meta.dirname, 'fixtures', 'pr-packs', 'sample'), packDir, { recursive: true });
@@ -540,11 +543,18 @@ test('a pack copied into the packs directory waits for one approval listing its 
     fs.symlinkSync('/etc/hosts', path.join(linkedDir, 'hosts'));
     const pr = myPrIn('acme/app', 1);
     const frames: PrFlowsStatus[] = [];
-    const configFile = { prFlows: { packs: [linkedDir] } };
+    const configFile = { packs: [linkedDir] };
+    await packStore.start();
+    const linkedPackRead = once(packStore, 'changed');
+    packStore.setListedPaths(packPathsOf(configFile));
+    await linkedPackRead;
     const prFlows = createPrFlowsWiring({
       statePath: null, openPrs: () => [pr], broadcast: (frame) => frames.push(frame), log: console, linkedSession: () => null, appendRule: async () => true,
       readConfigFile: async () => configFile, github: NO_GITHUB_WRITES, external: createPrFlowsExternal({ homeDir }),
-      loadPacks: (config) => loadPacks({ homeDir, configPaths: packPathsOf(config), env: process.env }),
+      loadPacks: (config) => {
+        packStore.setListedPaths(packPathsOf(config));
+        return packStore.refresh();
+      },
     });
     const approveThePack = async () => {
       await prFlows.applyRules();
@@ -572,6 +582,10 @@ test('a pack copied into the packs directory waits for one approval listing its 
     const started = await frameMatching(frames, (frame) => frame.prActionRunsByPr['acme/app#1']?.[0]?.state === 'started');
     assert.equal(started.prActionRunsByPr['acme/app#1']?.[0]?.message, 'Handed off https://github.com/acme/app/pull/1 feature-1');
 
+    fs.rmSync(packDir, { recursive: true });
+    fs.cpSync(path.join(import.meta.dirname, 'fixtures', 'pr-packs', 'sample'), packDir, { recursive: true });
+    await prFlows.applyRules();
+    assert.equal(prFlows.statusFrame().prActionsByPr['acme/app#1']?.[0]?.id, 'sample/hand-off');
     fs.appendFileSync(path.join(packDir, 'hand-off.ts'), '\n');
     await prFlows.applyRules();
     assert.deepEqual(prFlows.statusFrame().prActionsByPr, {});
@@ -581,35 +595,36 @@ test('a pack copied into the packs directory waits for one approval listing its 
     assert.deepEqual(prFlows.statusFrame().prActionsByPr, {});
     assert.ok(prFlows.statusFrame().warnings.includes("The pack 'sample' is off until this machine has env GLIMMERVOID_PACK_TEST_UNSET"));
   } finally {
+    packStore.stop();
     fs.rmSync(homeDir, { recursive: true, force: true });
   }
 });
 
-test('the published pack JSON Schema matches the Zod contract, and pr-flows check --pack names schema errors and missing requires without running anything', () => {
-  const publishedPath = path.join(import.meta.dirname, '..', 'site', 'public', 'schema', 'pr-pack.v1.json');
-  assert.equal(fs.readFileSync(publishedPath, 'utf8'), prPackJsonSchemaText(), 'regenerate site/public/schema/pr-pack.v1.json from prPackJsonSchemaText()');
+test('the published pack JSON Schema matches the Zod contract, and pr-flows check --pack names schema errors and missing requires without running anything', async () => {
+  const publishedPath = path.join(import.meta.dirname, '..', 'site', 'public', 'schema', 'pack.v1.json');
+  assert.equal(fs.readFileSync(publishedPath, 'utf8'), packJsonSchemaText(), 'regenerate site/public/schema/pack.v1.json from packJsonSchemaText()');
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-pack-check-'));
   try {
     const output: string[] = [];
     const io = { writeOutput: (text: string) => { output.push(text); }, writeError: (text: string) => { output.push(text); } };
     const check = (packDir: string) => runPackCheck({ packDir, isJson: false, env: process.env, homeDir }, io);
-    assert.equal(check(path.join(import.meta.dirname, 'fixtures', 'pr-packs', 'sample')), 0);
+    assert.equal(await check(path.join(import.meta.dirname, 'fixtures', 'pr-packs', 'sample')), 0);
     const brokenDir = path.join(homeDir, 'broken');
     fs.mkdirSync(brokenDir);
     fs.writeFileSync(path.join(brokenDir, 'pack.json'), JSON.stringify({ name: 'Bad Name', version: 1 }));
-    assert.equal(check(brokenDir), 1);
+    assert.equal(await check(brokenDir), 1);
     assert.match(output.at(-1) ?? '', /error: pack\.json name: a pack name is lowercase/);
     fs.writeFileSync(path.join(brokenDir, 'pack.json'), JSON.stringify({ name: 'needs', version: 1, requires: { programs: ['glimmervoid-no-such-program'] } }));
-    assert.equal(check(brokenDir), 1);
+    assert.equal(await check(brokenDir), 1);
     assert.match(output.at(-1) ?? '', /missing on this machine: program glimmervoid-no-such-program/);
     const twoGoButtons = [{ id: 'go', label: 'Go A', command: ['echo', 'a'] }, { id: 'go', label: 'Go B', command: ['echo', 'b'] }];
-    fs.writeFileSync(path.join(brokenDir, 'pack.json'), JSON.stringify({ name: 'dup', version: 1, prActions: twoGoButtons }));
-    assert.equal(check(brokenDir), 1);
-    assert.match(output.at(-1) ?? '', /error: pack\.json prActions\.1\.id: the id 'go' is already used in prActions/);
+    fs.writeFileSync(path.join(brokenDir, 'pack.json'), JSON.stringify({ name: 'dup', version: 1, prFlows: { prActions: twoGoButtons } }));
+    assert.equal(await check(brokenDir), 1);
+    assert.match(output.at(-1) ?? '', /error: The prFlows section of the pack 'dup' was skipped: pack\.json prFlows\.prActions\.1\.id: the id 'go' is already used in prActions/);
     const homeWithPacksFile = path.join(homeDir, 'packs-is-a-file');
     fs.mkdirSync(homeWithPacksFile);
     fs.writeFileSync(path.join(homeWithPacksFile, 'packs'), '');
-    assert.match(loadPacks({ homeDir: homeWithPacksFile, configPaths: [], env: process.env }).warnings[0] ?? '', /packs could not be read/);
+    assert.match((await packDirsUnder(homeWithPacksFile)).warning ?? '', /packs folder .* could not be read/);
   } finally {
     fs.rmSync(homeDir, { recursive: true, force: true });
   }
