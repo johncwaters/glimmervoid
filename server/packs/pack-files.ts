@@ -10,8 +10,13 @@ import type { z } from 'zod';
 
 const PACK_MAX_TOTAL_BYTES = 1024 * 1024;
 export const PACKS_DIR_NAME = 'packs';
+const PACKS_STATE_FILE_NAME = 'packs-state.json';
 
-type PackRead = { ok: true; pack: PackOnDisk } | { ok: false; errors: string[] };
+export function packsStatePath(homeDir: string): string {
+  return path.join(homeDir, PACKS_STATE_FILE_NAME);
+}
+
+export type PackRead = { ok: true; pack: PackOnDisk } | { ok: false; errors: string[] };
 type PackFilesRead = { ok: true; filesByPath: Map<string, Buffer> } | { ok: false; error: string };
 
 function sha256(bytes: Buffer | string): string {

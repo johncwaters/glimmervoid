@@ -300,12 +300,11 @@ export function prFlowsPacksOf(packs: readonly PackOnDisk[]): { prFlowsPacks: Pr
   return { prFlowsPacks, warnings };
 }
 
-export function prFlowSetup(configFile: unknown, packLoad: { packs: readonly PackOnDisk[]; warnings: readonly string[] }, approvedFingerprints: readonly string[]): PrFlowSetup {
+export function prFlowSetup(configFile: unknown, approvedPackLoad: { packs: readonly PackOnDisk[]; warnings: readonly string[] }, approvedFingerprints: readonly string[]): PrFlowSetup {
   const personal = prFlowCommands(configFile);
   const approved = new Set(approvedFingerprints);
-  const { prFlowsPacks, warnings: sectionWarnings } = prFlowsPacksOf(packLoad.packs);
-  const approvals = [...pendingApprovals(personal, approved), ...prFlowsPacks.filter(({ loaded }) => !approved.has(loaded.fingerprint)).map(packApproval)];
-  const approvedPacks = prFlowsPacks.filter(({ loaded }) => approved.has(loaded.fingerprint));
+  const { prFlowsPacks: approvedPacks, warnings: sectionWarnings } = prFlowsPacksOf(approvedPackLoad.packs);
+  const approvals = pendingApprovals(personal, approved);
   const enabledPacks = approvedPacks.filter(({ loaded }) => loaded.missingRequires.length === 0);
   const offNotes = approvedPacks.filter(({ loaded }) => loaded.missingRequires.length > 0)
     .map(({ loaded }) => `The pack '${loaded.header.name}' is off until this machine has ${loaded.missingRequires.join(', ')}`);
@@ -316,7 +315,7 @@ export function prFlowSetup(configFile: unknown, packLoad: { packs: readonly Pac
       sources: [...personal.sources, ...enabledCommands.flatMap((commands) => commands.sources)],
       actions: [...personal.actions, ...enabledCommands.flatMap((commands) => commands.actions)],
       prActions: [...personal.prActions, ...enabledCommands.flatMap((commands) => commands.prActions)],
-      warnings: [...personal.warnings, ...packLoad.warnings, ...sectionWarnings, ...offNotes],
+      warnings: [...personal.warnings, ...approvedPackLoad.warnings, ...sectionWarnings, ...offNotes],
     },
     approved,
     approvals,

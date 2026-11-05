@@ -531,9 +531,10 @@ test('a started PR action takes one final report from the holder of its token th
   }
 });
 
-test('a pack copied into the packs directory waits for one approval listing its commands and requires, then shows its namespaced buttons and actions; any file edit re-asks, even after the folder is replaced, and a missing require turns it off with a note', async () => {
+test('a pack copied into the packs directory waits for one approval in Settings listing its files, commands and requires, then shows its namespaced buttons and actions in My PRs and stays approved across a restart; any file edit re-asks, even after the folder is replaced, and a missing require turns it off with a note', async () => {
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-packs-'));
-  const packStore = createPackStore({ homeDir, env: process.env, log: console, reloadDebounceMs: 10 });
+  const statePath = path.join(homeDir, 'packs-state.json');
+  const packStore = createPackStore({ homeDir, statePath, env: process.env, log: console, reloadDebounceMs: 10 });
   try {
     const packDir = path.join(homeDir, 'packs', 'sample');
     fs.cpSync(path.join(import.meta.dirname, 'fixtures', 'pr-packs', 'sample'), packDir, { recursive: true });
@@ -553,19 +554,23 @@ test('a pack copied into the packs directory waits for one approval listing its 
       readConfigFile: async () => configFile, github: NO_GITHUB_WRITES, external: createPrFlowsExternal({ homeDir }),
       loadPacks: (config) => {
         packStore.setListedPaths(packPathsOf(config));
-        return packStore.refresh();
+        return packStore.approvedPacks();
       },
     });
+    const sampleRow = () => packStore.statusFrame().packs.find((row) => row.name === 'sample');
     const approveThePack = async () => {
       await prFlows.applyRules();
-      const approvals = prFlows.statusFrame().pendingApprovals;
-      assert.deepEqual(approvals.map((approval) => approval.kind), ['pack']);
-      await prFlows.approve({ fingerprint: approvals[0]?.fingerprint ?? '' });
+      assert.equal(sampleRow()?.state, 'pending');
+      assert.deepEqual(await packStore.approve(sampleRow()?.fingerprint ?? ''), { ok: true });
       await prFlows.applyRules();
     };
 
     await prFlows.applyRules();
-    const [approval] = prFlows.statusFrame().pendingApprovals;
+    assert.deepEqual(prFlows.statusFrame().pendingApprovals, []);
+    assert.ok(prFlows.statusFrame().warnings.includes("The pack 'sample' waits for your approval in Settings, Packs"));
+    assert.deepEqual(packStore.statusFrame().packs.map((row) => [row.name, row.state]), [['sample', 'pending'], ['linked-pack', 'invalid']]);
+    assert.deepEqual(sampleRow()?.files, ['hand-off.ts', 'pack.json']);
+    const approval = sampleRow()?.prFlows;
     assert.deepEqual(approval?.pack?.commands.map((command) => [command.kind, command.id, command.command[1]]), [
       ['pr-action', 'sample/hand-off', path.join(packDir, 'hand-off.ts')], ['action', 'sample/note', path.join(packDir, 'hand-off.ts')],
     ]);
@@ -575,6 +580,11 @@ test('a pack copied into the packs directory waits for one approval listing its 
     assert.deepEqual(prFlows.statusFrame().prActionsByPr, {});
 
     await approveThePack();
+    assert.deepEqual(await packStore.approve(sampleRow()?.fingerprint ?? ''), { ok: false, error: 'That pack changed or is already approved; check the list again.' });
+    const restartedStore = createPackStore({ homeDir, statePath, env: process.env, log: console });
+    await restartedStore.start();
+    assert.equal(restartedStore.statusFrame().packs.find((row) => row.name === 'sample')?.state, 'approved');
+    restartedStore.stop();
     assert.deepEqual(prFlows.statusFrame().prActionsByPr, { 'acme/app#1': [{ id: 'sample/hand-off', label: 'Hand off' }] });
     assert.deepEqual(prFlows.statusFrame().actions, [{ id: 'sample/note', label: 'Note it' }]);
     assert.equal(prFlows.statusFrame().warnings.some((warning) => warning.includes('run:sample/note')), false);
@@ -596,6 +606,37 @@ test('a pack copied into the packs directory waits for one approval listing its 
     assert.ok(prFlows.statusFrame().warnings.includes("The pack 'sample' is off until this machine has env GLIMMERVOID_PACK_TEST_UNSET"));
   } finally {
     packStore.stop();
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  }
+});
+
+test('a pack approval survives approving another pack while it is unreadable, and an approval that cannot be saved is refused', async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pack-approvals-'));
+  const packStore = createPackStore({ homeDir, statePath: path.join(homeDir, 'packs-state.json'), env: process.env, log: { warn: () => {} } });
+  const blockedStore = createPackStore({ homeDir, statePath: path.join(homeDir, 'packs', 'alpha', 'pack.json', 'packs-state.json'), env: process.env, log: { warn: () => {} } });
+  try {
+    for (const name of ['alpha', 'beta']) {
+      fs.mkdirSync(path.join(homeDir, 'packs', name), { recursive: true });
+      fs.writeFileSync(path.join(homeDir, 'packs', name, 'pack.json'), JSON.stringify({ name, version: 1 }));
+    }
+    await packStore.start();
+    const fingerprintOf = (name: string) => packStore.statusFrame().packs.find((row) => row.name === name)?.fingerprint ?? '';
+    assert.deepEqual(await packStore.approve(fingerprintOf('alpha')), { ok: true });
+    const alphaManifest = path.join(homeDir, 'packs', 'alpha', 'pack.json');
+    const alphaBytes = fs.readFileSync(alphaManifest);
+    fs.writeFileSync(alphaManifest, '{"name":');
+    await packStore.approvedPacks();
+    assert.deepEqual(await packStore.approve(fingerprintOf('beta')), { ok: true });
+    fs.writeFileSync(alphaManifest, alphaBytes);
+    assert.deepEqual((await packStore.approvedPacks()).packs.map((pack) => pack.header.name).sort(), ['alpha', 'beta']);
+    fs.writeFileSync(alphaManifest, JSON.stringify({ name: 'alpha', version: 2 }));
+    await blockedStore.start();
+    const blocked = await blockedStore.approve(blockedStore.statusFrame().packs.find((row) => row.name === 'alpha')?.fingerprint ?? '');
+    assert.equal(blocked.ok, false);
+    assert.equal((await blockedStore.approvedPacks()).packs.some((pack) => pack.header.name === 'alpha'), false);
+  } finally {
+    packStore.stop();
+    blockedStore.stop();
     fs.rmSync(homeDir, { recursive: true, force: true });
   }
 });

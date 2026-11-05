@@ -42,6 +42,7 @@ import { createPrGh } from '../github/pr-gh.ts';
 import { createRepoCache } from '../git/repo-cache.ts';
 import { commandFor } from '../../session/adapters/index.ts';
 import { createPrFlowsWiring } from '../github/pr-flows-wiring.ts';
+import { packsStatePath } from '../packs/pack-files.ts';
 import { createPackStore } from '../packs/pack-store.ts';
 import { packPathsOf } from '../github/core/pr-flows-core.ts';
 import { createPrFlowsExternal } from '../github/pr-flows-external.ts';
@@ -270,7 +271,15 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       }),
     }),
   });
-  const packStore = createPackStore({ homeDir: glimmervoidHome, env: process.env, log: logger });
+  const packStore = createPackStore({ homeDir: glimmervoidHome, statePath: packsStatePath(glimmervoidHome), env: process.env, log: logger });
+  let lastPacksFrameText = '';
+  const broadcastPacksIfChanged = () => {
+    const frame = packStore.statusFrame();
+    const frameText = JSON.stringify(frame);
+    if (frameText === lastPacksFrameText) return;
+    lastPacksFrameText = frameText;
+    broadcastControl(frame);
+  };
   const prFlows = createPrFlowsWiring({
     statePath: path.join(glimmervoidHome, 'pr-flows-state.json'), openPrs: () => myPrs.getStatus().prs.filter((pr) => pr.state === 'OPEN'),
     linkedSession: (pullRequestKey) => sessionLinkedToPr(sessions.values(), pullRequestKey),
@@ -283,9 +292,11 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     })),
     github, external: createPrFlowsExternal({ homeDir: glimmervoidHome }), broadcast: broadcastControl, log: logger,
     reportUrlFor: (runId) => `http://127.0.0.1:${dashboardPort}${prActionReportPath(runId)}`,
-    loadPacks: (configFile) => {
+    loadPacks: async (configFile) => {
       packStore.setListedPaths(packPathsOf(configFile));
-      return packStore.refresh();
+      const approvedPacks = await packStore.approvedPacks();
+      broadcastPacksIfChanged();
+      return approvedPacks;
     },
   });
   const issues = createIssuesWiring({ config, store: githubStore.laneStore, github, gitWorkspace, broadcast: broadcastControl, hasSession: (id) => sessions.has(id), log: logger, clock: githubClock });
@@ -422,7 +433,10 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => teamReview.startPoller(),
       () => myPrs.startPoller(),
       () => {
-        packStore.on('changed', () => { void prFlows.applyRules(); });
+        packStore.on('changed', () => {
+          broadcastPacksIfChanged();
+          void prFlows.applyRules();
+        });
         packStore.start().catch((error: unknown) => logger.warn(`[packs] start failed: ${errorMessage(error)}`));
       },
       () => issues.startPoller(),

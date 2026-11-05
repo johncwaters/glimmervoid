@@ -327,7 +327,7 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
   },
   {
     id: 'file-packs', path: 'packs', title: 'Packs', group: 'lanes-team-review',
-    description: 'More pack directories to load besides every directory under ~/.glimmervoid/packs/. A pack is a pack.json (name, version, description, requires, and sections such as prFlows with prActions, sources, actions and rules) plus the files it uses, shared by copying the directory; its commands can use {packDir}, its ids show as <pack>/<id>, and it waits for one approval that any edit to a file in it asks again.',
+    description: 'More pack directories to load besides every directory under ~/.glimmervoid/packs/. A pack is a pack.json (name, version, description, requires, and sections such as prFlows with prActions, sources, actions and rules) plus the files it uses, shared by copying the directory; its commands can use {packDir}, its ids show as <pack>/<id>, and it waits for one approval in Settings, Packs that any edit to a file in it asks again.',
     control: 'list', keywords: ['packs', 'share', 'plugins', 'pull requests', 'commands'], defaultValue: [], takesEffect: 'now',
     fileOnlyReason: 'A pack can run commands on this machine, so its directory is written in config.json and the pack waits for your approval.', ...FILE_ONLY,
   },
