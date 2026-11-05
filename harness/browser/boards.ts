@@ -82,7 +82,12 @@ async function verifyDroppedPicture(panel: Locator): Promise<void> {
   assert.equal(naturalWidth, 2400, 'a clicked picture opens the original at its own size');
   assert.ok(await enlarged.evaluate((node) => node instanceof HTMLImageElement && node.src.endsWith('.png')), 'a clicked picture opens the original png');
   assert.ok(await enlarged.evaluate((node) => node.getBoundingClientRect().width > window.innerWidth * 0.8), 'the viewer scales a picture up to fill the screen');
-  await panel.page().keyboard.press('Escape');
+  const viewerClose = viewer.locator('.wb-image-viewer-header').getByRole('button', { name: 'Close', exact: true });
+  const closeBounds = await viewerClose.boundingBox();
+  const enlargedBounds = await enlarged.boundingBox();
+  assert.ok(closeBounds && enlargedBounds && closeBounds.y + closeBounds.height <= enlargedBounds.y, 'the viewer puts Close in its header above the picture');
+  assert.equal(await viewer.locator('.dialog-actions').count(), 0, 'the viewer has no bottom actions row');
+  await viewerClose.click();
   await viewer.waitFor({ state: 'detached' });
   await verifyGesturesOverMedia(panel, picture);
   await panel.getByRole('button', { name: 'undo', exact: true }).click();

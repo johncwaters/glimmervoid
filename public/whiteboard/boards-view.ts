@@ -564,8 +564,11 @@ function openImageViewer(pressedImage: PressedImage): void {
   const { alt } = pressedImage;
   const media = pressedMediaOf(pressedImage);
   if (!media && !pressedImage.href) return;
-  const { dialog, close, actions, btnCancel } = buildDialogShell({ title: alt || 'Picture', dialogClass: 'dialog wb-image-viewer', cancelLabel: 'Close' });
-  dialog.append(enlargedMediaOf(pressedImage, media), actions);
+  const { dialog, close, titleEl, btnCancel } = buildDialogShell({ title: alt || 'Picture', dialogClass: 'dialog wb-image-viewer', cancelLabel: 'Close' });
+  const header = el('div', 'wb-image-viewer-header');
+  titleEl.replaceWith(header);
+  header.append(titleEl, btnCancel);
+  dialog.append(enlargedMediaOf(pressedImage, media));
   btnCancel.addEventListener('click', close);
   requestAnimationFrame(() => btnCancel.focus());
 }

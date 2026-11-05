@@ -630,7 +630,15 @@
   padding: 16px;
 }
 
+.wb-image-viewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .wb-image-viewer .dialog-title {
+  min-width: 0;
   overflow-wrap: anywhere;
 }
 
@@ -639,14 +647,14 @@
   display: block;
   align-self: center;
   width: min(1280px, calc(100vw - 64px));
-  max-height: calc(100dvh - 180px);
+  max-height: calc(100dvh - 120px);
   border: 0;
   border-radius: var(--radius-lg);
   background: #000;
 }
 
 .wb-image-viewer-page {
-  height: calc(100dvh - 180px);
+  height: calc(100dvh - 120px);
   background: #fff;
 }
 
