@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { PrFlowCommand, PrFlowPrAction, PrFlowRule, PrFlowScopedCommand, prFlowRulesJsonSchema } from '../contracts/pr-flows.ts';
+import { PrFlowCommand, PrFlowPrAction, PrFlowRule, PrFlowSourceCommand, prFlowRulesJsonSchema } from '../contracts/pr-flows.ts';
 
 import {
   NON_NEGATIVE_NUMBER_RANGE,
@@ -304,7 +304,7 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
   {
     id: 'file-pr-flows-sources', path: 'prFlows.sources', title: 'PR flows sources', group: 'lanes-team-review',
     description: 'Commands that report review findings for your own pull requests, run without a shell on each new head once you approve the exact command in My PRs. Each entry has id, label, command (an argv array; {prUrl}, {repo}, {number} and {head} expand inside one argument, and GLIMMERVOID_PR_URL, GLIMMERVOID_PR_REPO, GLIMMERVOID_PR_NUMBER and GLIMMERVOID_PR_HEAD are set), timeoutSeconds and optional repos (owner/name; every repository when absent), and prints {"findings": [{"path", "lineStart", "lineEnd", "priority", "body", "url"}], "status": [{"label", "state"}]} JSON. Each id is unique within the list. Check entries with glimmervoid pr-flows check.',
-    jsonSchema: z.toJSONSchema(z.array(PrFlowScopedCommand), { io: 'input' }),
+    jsonSchema: z.toJSONSchema(z.array(PrFlowSourceCommand), { io: 'input' }),
     example: [{ id: 'scanner', label: 'Scanner', command: ['my-review-scanner', '--pr', '{prUrl}', '--json'], timeoutSeconds: 120 }],
     control: 'json', keywords: ['pull requests', 'review items', 'bots', 'commands'], defaultValue: [], takesEffect: 'now',
     fileOnlyReason: 'Commands run on this machine, so they are written in config.json and each one waits for your approval in My PRs.', ...FILE_ONLY,

@@ -9,14 +9,14 @@ import { GithubPr, GithubPrDetailNode } from '../shared/contracts/github-prs.ts'
 import type { MyPrThread, MyPrThreadNode } from '../shared/contracts/my-prs.ts';
 import { normalizeGithubPr } from '../server/github/core/github-store-core.ts';
 import { myPrFromGithubPr } from '../shared/my-pr-merge.ts';
-import { PR_ACTION_REPORT_URL_ENV, PR_ACTION_TOKEN_ENV, prActionReportPath, PrFlowCommand, PrFlowPrAction, PrFlowRule, PrFlowScopedCommand, PrFlowSourceOutput, PrFlowsState } from '../shared/contracts/pr-flows.ts';
+import { PR_ACTION_REPORT_URL_ENV, PR_ACTION_TOKEN_ENV, prActionReportPath, PrFlowCommand, PrFlowPrAction, PrFlowRule, PrFlowSourceCommand, PrFlowSourceOutput, PrFlowsState } from '../shared/contracts/pr-flows.ts';
 import type { PrFlowsStatus } from '../shared/contracts/pr-flows.ts';
 import { createPrFlowsWiring } from '../server/github/pr-flows-wiring.ts';
 import { createPrFlowsExternal } from '../server/github/pr-flows-external.ts';
 import { readConfigFile, runPrActionReport, runPrFlowsCheck } from '../server/pr-flows-cli.ts';
 import { checkPack, packCheckHasProblem, packReportText } from '../server/packs/pack-check.ts';
 import { once } from 'node:events';
-import { packDirsUnder } from '../server/packs/pack-files.ts';
+import { packDirsUnder, readPackDir } from '../server/packs/pack-files.ts';
 import { createPackStore } from '../server/packs/pack-store.ts';
 import { packJsonSchemaText } from '../shared/contracts/pack.ts';
 import { createBackendHttpApp } from '../server/backend/backend-http.ts';
@@ -308,6 +308,50 @@ test('a failed source run retries at the same head after the backoff, and a defi
   await prFlows.applyRules();
   await new Promise((resolve) => setTimeout(resolve, 25));
   assert.equal(runCount, 2);
+});
+
+test('a rule naming a pack source by id acts on its findings while a source label spelled like that id is refused, while a bare config source id stays a login, and a pack rule naming run:<its pack>/<id> runs that pack action', async () => {
+  const packDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-pack-ids-'));
+  try {
+    fs.writeFileSync(path.join(packDir, 'pack.json'), JSON.stringify({ name: 'dog', version: 1, prFlows: {
+      repos: ['acme/app'],
+      sources: [{ id: 'findings', label: 'Review findings', command: ['find'] }],
+      actions: [{ id: 'triage', label: 'Triage', command: ['triage'] }],
+      rules: [{ name: 'Route', source: 'findings', action: 'run:dog/triage' }],
+    } }));
+    const read = await readPackDir(packDir, process.env);
+    assert.ok(read.ok);
+    const findingPathsBySourceId: Record<string, string[]> = { 'dog/findings': ['src/a.ts', 'src/c.ts'], scan: ['src/b.ts'], 'look-alike': ['src/c.ts'] };
+    const findingLineBySourceId: Record<string, number> = { 'look-alike': 90 };
+    const ranActions: string[] = [];
+    const frames: PrFlowsStatus[] = [];
+    const prFlows = createPrFlowsWiring({
+      statePath: null, openPrs: () => [myPrFromGithubPr(GithubPr.parse(normalizeGithubPr(openPr(), 0, [])))], broadcast: (frame) => frames.push(frame), log: console,
+      linkedSession: () => null, appendRule: async () => true, loadPacks: async () => ({ packs: [read.pack], warnings: [] }),
+      readConfigFile: async () => ({ prFlows: {
+        sources: [{ id: 'scan', label: 'Scanner', command: ['scan'] }, { id: 'look-alike', label: 'dog/findings', command: ['look'] }],
+        rules: [{ name: 'Pack findings by id', source: 'dog/findings', paths: ['src/c.ts'], action: 'dismiss', reason: 'noise' }, { name: 'Reviewer scan', source: 'scan', action: 'dismiss', reason: 'login' }],
+      } }),
+      external: {
+        runSource: async (source) => ({ ok: true, output: PrFlowSourceOutput.parse({ findings: (findingPathsBySourceId[source.id] ?? []).map((findingPath) => ({ path: findingPath, lineStart: findingLineBySourceId[source.id] ?? 1, lineEnd: findingLineBySourceId[source.id] ?? 1, priority: 'low', body: 'seen' })) }) }),
+        runAction: async (action) => { ranActions.push(action.id); return { outcome: 'done', message: '' }; },
+      },
+      github: NO_GITHUB_WRITES,
+    });
+    await prFlows.applyRules();
+    for (const approval of prFlows.statusFrame().pendingApprovals) await prFlows.approve({ fingerprint: approval.fingerprint });
+    await frameMatching(frames, (frame) => (frame.reviewItemsByPr['acme/app#1'] ?? []).length === 3);
+    await prFlows.applyRules();
+    await frameMatching(frames, (frame) => (frame.handledByPr['acme/app#1'] ?? []).length >= 2);
+    await prFlows.applyRules();
+    const handled = prFlows.statusFrame();
+    assert.deepEqual(handled.handledByPr['acme/app#1']?.map((entry) => [entry.ruleName, entry.location]).sort(), [['Pack findings by id', 'src/c.ts:1'], ['Route', 'src/a.ts:1']]);
+    assert.deepEqual(ranActions, ['dog/triage']);
+    assert.deepEqual(handled.warnings.filter((warning) => warning.includes('run:')), []);
+    assert.ok(handled.warnings.some((warning) => warning.includes('a source label has no slash')), handled.warnings.join('\n'));
+  } finally {
+    fs.rmSync(packDir, { recursive: true, force: true });
+  }
 });
 
 test('a configured action runs on an item by rule or click, shows done or failed, and the linked session hears when the branch moved under it', async () => {
@@ -680,6 +724,48 @@ test('the published pack JSON Schema matches the Zod contract, and pr-flows chec
     fs.writeFileSync(path.join(brokenDir, 'pack.json'), JSON.stringify({ name: 'needs', version: 1, requires: { programs: ['glimmervoid-no-such-program'] } }));
     assert.equal(await check(brokenDir), 0);
     assert.match(output.at(-1) ?? '', /missing on this machine: program glimmervoid-no-such-program/);
+    const dogfoodPrFlows = {
+      repos: ['PostHog/posthog'],
+      prActions: [{ id: 'hand', label: 'Hand to agent', command: ['node', '{packDir}/hand.mjs', '{headRef}'] }],
+      sources: [{ id: 'findings', label: 'Review findings', command: ['node', '{packDir}/f.mjs'] }, { id: 'docs-lint', label: 'Docs lint', command: ['node', '{packDir}/f.mjs'], repos: ['PostHog/posthog', 'PostHog/posthog.com'] }],
+      actions: [{ id: 'triage', label: 'Triage', command: ['node', '{packDir}/t.mjs'] }],
+      rules: [{ name: 'Route', source: 'findings', action: 'run:dog/triage' }],
+    };
+    const writeDogfoodPack = (rule: Record<string, unknown>) => fs.writeFileSync(path.join(brokenDir, 'pack.json'), JSON.stringify({ name: 'dog', version: 1, prFlows: { ...dogfoodPrFlows, rules: [{ ...dogfoodPrFlows.rules[0], ...rule }] } }));
+    writeDogfoodPack({});
+    assert.equal(await check(brokenDir), 0);
+    assert.match(output.at(-1) ?? '', /^source dog\/findings \(Review findings\): valid, limited to posthog\/posthog$/m);
+    assert.match(output.at(-1) ?? '', /^pr-action dog\/hand \(Hand to agent\): valid, limited to posthog\/posthog$/m);
+    assert.match(output.at(-1) ?? '', /^rule Route: \{"source":"dog\/findings".*"action":"run:dog\/triage".*\}$/m);
+    assert.match(output.at(-1) ?? '', /^note: The source dog\/docs-lint reaches outside prFlows\.repos to PostHog\/posthog\.com/m);
+    writeDogfoodPack({ repos: ['acme/app'] });
+    assert.equal(await check(brokenDir), 1);
+    assert.match(output.at(-1) ?? '', /^error: Rule 'Route' is limited to acme\/app, but this pack's source 'dog\/findings' runs only on PostHog\/posthog, so the rule never acts\.$/m);
+    assert.match(output.at(-1) ?? '', /^note: Rule 'Route' reaches outside prFlows\.repos to acme\/app/m);
+    writeDogfoodPack({ repos: ['acme/app', 'PostHog/posthog'] });
+    assert.equal(await check(brokenDir), 0);
+    assert.match(output.at(-1) ?? '', /^note: Rule 'Route' is limited to acme\/app, PostHog\/posthog, but this pack's source 'dog\/findings' runs only on PostHog\/posthog, so on acme\/app the rule never acts\.$/m);
+    fs.writeFileSync(path.join(brokenDir, 'pack.json'), JSON.stringify({ name: 'dog', version: 1, prFlows: { ...dogfoodPrFlows, sources: [{ ...dogfoodPrFlows.sources[0], label: 'findings' }] } }));
+    assert.equal(await check(brokenDir), 0);
+    assert.match(output.at(-1) ?? '', /^rule Route: \{"source":"dog\/findings"/m);
+    writeDogfoodPack({ source: 'Review findings', repos: ['acme/app'] });
+    assert.equal(await check(brokenDir), 0);
+    assert.match(output.at(-1) ?? '', /^note: Rule 'Route' is limited to acme\/app, but this pack's source 'Review findings' runs only on PostHog\/posthog, so on acme\/app the rule matches only a source of that label from config\.json/m);
+    fs.writeFileSync(path.join(brokenDir, 'pack.json'), JSON.stringify({ name: 'dog', version: 1, prFlows: { ...dogfoodPrFlows, sources: [...dogfoodPrFlows.sources, { id: 'findings-com', label: 'Review findings', command: ['node'], repos: ['PostHog/posthog.com'] }], rules: [{ ...dogfoodPrFlows.rules[0], source: 'Review findings', repos: ['PostHog/posthog.com'] }] } }));
+    assert.equal(await check(brokenDir), 0);
+    assert.doesNotMatch(output.at(-1) ?? '', /Rule 'Route' is limited to/);
+    writeDogfoodPack({ source: 'nope' });
+    assert.equal(await check(brokenDir), 0);
+    assert.match(output.at(-1) ?? '', /^note: Rule 'Route' names the source 'nope', which is no source of this pack/m);
+    writeDogfoodPack({ source: 'dog/scaner' });
+    assert.equal(await check(brokenDir), 1);
+    assert.match(output.at(-1) ?? '', /^error: Rule 'Route' names the source 'dog\/scaner', which no source of this pack defines, so it never acts\./m);
+    writeDogfoodPack({ source: 'other/scan' });
+    assert.equal(await check(brokenDir), 0);
+    assert.match(output.at(-1) ?? '', /^note: Rule 'Route' names the source 'other\/scan', which is no source of this pack, so it matches only the source with that id from another pack/m);
+    writeDogfoodPack({ action: 'run:missing' });
+    assert.equal(await check(brokenDir), 1);
+    assert.match(output.at(-1) ?? '', /^error: Rule 'Route' names run:dog\/missing, which no entry/m);
     const twoGoButtons = [{ id: 'go', label: 'Go A', command: ['echo', 'a'] }, { id: 'go', label: 'Go B', command: ['echo', 'b'] }];
     fs.writeFileSync(path.join(brokenDir, 'pack.json'), JSON.stringify({ name: 'dup', version: 1, prFlows: { prActions: twoGoButtons } }));
     assert.equal(await check(brokenDir), 1);
@@ -750,7 +836,7 @@ test('the published pack JSON Schema matches the Zod contract, and pr-flows chec
 
 test('an agent reads each PR flows setting with its JSON Schema and a valid example, and pr-flows check names entries, runs sources and prints actions unrun', async () => {
   const view = configFileViewOf('config.json', DEFAULT_CONFIG, {}, false);
-  const schemaOf = { 'prFlows.sources': z.array(PrFlowScopedCommand), 'prFlows.actions': z.array(PrFlowCommand), 'prFlows.prActions': z.array(PrFlowPrAction), 'prFlows.rules': z.array(PrFlowRule), 'prFlows.repoRules': z.record(z.string(), z.array(PrFlowRule)) };
+  const schemaOf = { 'prFlows.sources': z.array(PrFlowSourceCommand), 'prFlows.actions': z.array(PrFlowCommand), 'prFlows.prActions': z.array(PrFlowPrAction), 'prFlows.rules': z.array(PrFlowRule), 'prFlows.repoRules': z.record(z.string(), z.array(PrFlowRule)) };
   for (const [settingPath, schema] of Object.entries(schemaOf)) {
     const reply = readSettingsForAgent({ command: 'get', path: settingPath }, view);
     assert.ok(reply.ok && 'readout' in reply);
@@ -769,7 +855,7 @@ test('an agent reads each PR flows setting with its JSON Schema and a valid exam
     const markerPath = path.join(homeDir, 'action-ran');
     const unapprovedMarkerPath = path.join(homeDir, 'unapproved-ran');
     const otherRepoMarkerPath = path.join(homeDir, 'other-repo-ran');
-    const otherRepoSource = PrFlowScopedCommand.parse({ id: 'other-repo', label: 'Other repo', repos: ['acme/other'], command: [process.execPath, '-e', `require('fs').writeFileSync(${JSON.stringify(otherRepoMarkerPath)}, '')`] });
+    const otherRepoSource = PrFlowSourceCommand.parse({ id: 'other-repo', label: 'Other repo', repos: ['acme/other'], command: [process.execPath, '-e', `require('fs').writeFileSync(${JSON.stringify(otherRepoMarkerPath)}, '')`] });
     const scanner = PrFlowCommand.parse({ id: 'scanner', label: 'Scanner', command: [process.execPath, sourceScript, '{head}'] });
     const painter = PrFlowCommand.parse({ id: 'painter', label: 'Painter', command: [process.execPath, '-e', `console.log(JSON.stringify({ findings: [], status: [{ label: 'CI', state: '\\u001b]0;owned' }] }))`] });
     fs.writeFileSync(path.join(homeDir, 'pr-flows-state.json'), JSON.stringify({ handledByPr: {}, reopenedByPr: {}, approvedFingerprints: [commandFingerprint('source', scanner), commandFingerprint('source', painter), commandFingerprint('source', otherRepoSource)] }));

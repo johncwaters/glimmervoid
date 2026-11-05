@@ -4,7 +4,7 @@ export const PrFlowPriority = z.enum(['blocker', 'high', 'medium', 'low', 'unkno
 export type PrFlowPriority = z.infer<typeof PrFlowPriority>;
 
 export const PrFlowSource = z.strictObject({
-  kind: z.enum(['own', 'thread', 'configured']), name: z.string().min(1), threadId: z.string().optional(), url: z.url().nullable(), priority: PrFlowPriority.optional(),
+  kind: z.enum(['own', 'thread', 'configured']), name: z.string().min(1), sourceId: z.string().min(1).optional(), threadId: z.string().optional(), url: z.url().nullable(), priority: PrFlowPriority.optional(),
   excerpt: z.string(), dismissalKey: z.string().min(1),
 });
 export type PrFlowSource = z.infer<typeof PrFlowSource>;
@@ -33,14 +33,14 @@ export const RepoScope = z.array(RepositoryName).min(1).optional().describe('The
 
 export const PrFlowRule = z.strictObject({
   name: z.string({ error: 'a pr flows rule needs a name' }).trim().min(1, { error: 'a pr flows rule needs a name' }).max(80, { error: 'a pr flows rule name must be at most 80 characters' }).regex(/\S/, { error: 'a pr flows rule needs a name' }),
-  source: z.string().min(1).optional(),
-  priority: z.array(PrFlowPriority).min(1).optional(),
-  paths: z.array(z.string().min(1)).min(1).optional(),
-  text: z.string().min(1).optional(),
-  scope: z.enum(['mine', 'team', 'both']).default('mine'),
+  source: z.string().min(1).optional().describe('A source label, a pack source id as <pack>/<id> (inside that pack its bare id too, which wins over a login), or the GitHub login of a review comment author; an item merged from several sources matches only when every one of them matches'),
+  priority: z.array(PrFlowPriority).min(1).optional().describe('The finding priorities this rule acts on; any priority when absent'),
+  paths: z.array(z.string().min(1)).min(1).optional().describe('Repository paths; an entry ending in / matches every path under it, any other matches that exact path'),
+  text: z.string().min(1).optional().describe('Text the finding must contain, compared case-insensitively'),
+  scope: z.enum(['mine', 'team', 'both']).default('mine').describe('Rules act only on your own pull requests today, so mine and both act there and team never acts yet'),
   repos: RepoScope,
-  action: PrFlowActionRef,
-  reason: z.string().trim().min(1).max(2000).optional(),
+  action: PrFlowActionRef.describe('ask waits for you, fix-local hands the item to a local session, dismiss replies with reason and resolves it, run:<id> runs that action; inside a pack a bare id names the pack\'s own action'),
+  reason: z.string().trim().min(1).max(2000).optional().describe('The reply posted when the rule dismisses an item'),
 }).refine((rule) => rule.action !== 'dismiss' || rule.reason !== undefined, { message: 'a dismiss rule needs a reason', path: ['reason'] });
 export type PrFlowRule = z.infer<typeof PrFlowRule>;
 
@@ -63,21 +63,25 @@ function commandDescription(kind: keyof typeof PR_FLOW_PLACEHOLDERS_BY_KIND, run
 }
 
 export const PrFlowCommand = z.strictObject({
-  id: z.string().regex(PR_FLOW_ID, { error: 'an id is lowercase letters, digits and dashes' }),
-  label: z.string().trim().min(1).max(24),
+  id: z.string().regex(PR_FLOW_ID, { error: 'an id is lowercase letters, digits and dashes' }).describe('Unique within its list; inside a pack it is shown as <pack>/<id>'),
+  label: z.string().trim().min(1).max(24).describe('The name shown to the operator; a source\'s label is also the name rules match'),
   command: z.array(z.string().min(1)).min(1, { error: 'a command needs at least the program to run' }),
-  timeoutSeconds: z.number().int().positive().max(3600).default(120),
+  timeoutSeconds: z.number().int().positive().max(3600).default(120).describe('Seconds before the command is stopped'),
 });
 export type PrFlowCommand = z.infer<typeof PrFlowCommand>;
 
 const COMMAND_ENV = 'Its environment has GLIMMERVOID_PR_URL, GLIMMERVOID_PR_REPO, GLIMMERVOID_PR_NUMBER and GLIMMERVOID_PR_HEAD';
 const ACTION_OUTCOME = 'Exit 0 means done and any other exit failed, unless stdout prints the action outcome JSON (glimmervoid packs guide --schema pr-flows)';
 
-export const PrFlowScopedCommand = PrFlowCommand.extend({
+const PrFlowScopedCommand = PrFlowCommand.extend({
   command: PrFlowCommand.shape.command.describe(commandDescription('source', `${COMMAND_ENV}. It must print the source output JSON (glimmervoid packs guide --schema pr-flows) on stdout; anything else shows as an error on the pull request`)),
   repos: RepoScope,
 });
-export type PrFlowScopedCommand = z.infer<typeof PrFlowScopedCommand>;
+
+export const PrFlowSourceCommand = PrFlowScopedCommand.extend({
+  label: PrFlowCommand.shape.label.regex(/^[^/]*$/, { error: 'a source label has no slash, since a rule source with a slash names a pack source by <pack>/<id>' }),
+});
+export type PrFlowSourceCommand = z.infer<typeof PrFlowSourceCommand>;
 
 export const PrFlowItemAction = PrFlowCommand.extend({
   command: PrFlowCommand.shape.command.describe(commandDescription('action', `${COMMAND_ENV}, and the review item as GLIMMERVOID_ITEM_JSON. ${ACTION_OUTCOME}`)),

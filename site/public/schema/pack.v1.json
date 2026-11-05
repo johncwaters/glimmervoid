@@ -49,10 +49,11 @@
       "additionalProperties": false
     },
     "prFlows": {
+      "description": "PR flows this pack adds; one invalid entry skips the whole section",
       "type": "object",
       "properties": {
         "repos": {
-          "description": "The default owner/name repositories for every prAction, source and rule of this pack that lists no repos of its own; every repository when absent",
+          "description": "The default owner/name repositories, matched case-insensitively, for every prAction, source and rule of this pack that lists no repos of its own; an entry's own repos replace this default rather than narrowing it; every repository when absent",
           "minItems": 1,
           "type": "array",
           "items": {
@@ -62,18 +63,21 @@
         },
         "prActions": {
           "default": [],
+          "description": "Buttons on a pull request; the command prints {\"outcome\":\"done|started|refused|failed\",\"message\":\"...\"}, and one that prints started reports later with glimmervoid pr-action report",
           "type": "array",
           "items": {
             "type": "object",
             "properties": {
               "id": {
                 "type": "string",
-                "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+                "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+                "description": "Unique within its list; inside a pack it is shown as <pack>/<id>"
               },
               "label": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 24
+                "maxLength": 24,
+                "description": "The name shown to the operator; a source's label is also the name rules match"
               },
               "command": {
                 "minItems": 1,
@@ -86,6 +90,7 @@
               },
               "timeoutSeconds": {
                 "default": 120,
+                "description": "Seconds before the command is stopped",
                 "type": "integer",
                 "exclusiveMinimum": 0,
                 "maximum": 3600
@@ -110,18 +115,22 @@
         },
         "sources": {
           "default": [],
+          "description": "Commands run on each pull request that print {\"findings\":[{\"path\",\"lineStart\",\"lineEnd\",\"priority\",\"body\",\"url\"}],\"status\":[{\"label\",\"state\"}]}, at most 200 findings and 4 status lines",
           "type": "array",
           "items": {
             "type": "object",
             "properties": {
               "id": {
                 "type": "string",
-                "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+                "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+                "description": "Unique within its list; inside a pack it is shown as <pack>/<id>"
               },
               "label": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 24
+                "maxLength": 24,
+                "pattern": "^[^/]*$",
+                "description": "The name shown to the operator; a source's label is also the name rules match"
               },
               "command": {
                 "minItems": 1,
@@ -134,6 +143,7 @@
               },
               "timeoutSeconds": {
                 "default": 120,
+                "description": "Seconds before the command is stopped",
                 "type": "integer",
                 "exclusiveMinimum": 0,
                 "maximum": 3600
@@ -158,18 +168,21 @@
         },
         "actions": {
           "default": [],
+          "description": "Commands rules run on one review item with run:<id>; they print {\"outcome\":\"done|started|refused|failed\",\"message\":\"...\"} and are limited to repositories only through the rules that name them",
           "type": "array",
           "items": {
             "type": "object",
             "properties": {
               "id": {
                 "type": "string",
-                "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+                "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+                "description": "Unique within its list; inside a pack it is shown as <pack>/<id>"
               },
               "label": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 24
+                "maxLength": 24,
+                "description": "The name shown to the operator; a source's label is also the name rules match"
               },
               "command": {
                 "minItems": 1,
@@ -182,6 +195,7 @@
               },
               "timeoutSeconds": {
                 "default": 120,
+                "description": "Seconds before the command is stopped",
                 "type": "integer",
                 "exclusiveMinimum": 0,
                 "maximum": 3600
@@ -197,6 +211,7 @@
         },
         "rules": {
           "default": [],
+          "description": "Run after your own config.json rules; the first rule that matches an item decides it",
           "type": "array",
           "items": {
             "type": "object",
@@ -208,10 +223,12 @@
                 "pattern": "\\S"
               },
               "source": {
+                "description": "A source label, a pack source id as <pack>/<id> (inside that pack its bare id too, which wins over a login), or the GitHub login of a review comment author; an item merged from several sources matches only when every one of them matches",
                 "type": "string",
                 "minLength": 1
               },
               "priority": {
+                "description": "The finding priorities this rule acts on; any priority when absent",
                 "minItems": 1,
                 "type": "array",
                 "items": {
@@ -226,6 +243,7 @@
                 }
               },
               "paths": {
+                "description": "Repository paths; an entry ending in / matches every path under it, any other matches that exact path",
                 "minItems": 1,
                 "type": "array",
                 "items": {
@@ -234,11 +252,13 @@
                 }
               },
               "text": {
+                "description": "Text the finding must contain, compared case-insensitively",
                 "type": "string",
                 "minLength": 1
               },
               "scope": {
                 "default": "mine",
+                "description": "Rules act only on your own pull requests today, so mine and both act there and team never acts yet",
                 "type": "string",
                 "enum": [
                   "mine",
@@ -269,9 +289,11 @@
                     "type": "string",
                     "pattern": "^run:(?:[a-z0-9][a-z0-9-]{0,39}\\/)?[a-z0-9][a-z0-9-]{0,63}$"
                   }
-                ]
+                ],
+                "description": "ask waits for you, fix-local hands the item to a local session, dismiss replies with reason and resolves it, run:<id> runs that action; inside a pack a bare id names the pack's own action"
               },
               "reason": {
+                "description": "The reply posted when the rule dismisses an item",
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 2000

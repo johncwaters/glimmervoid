@@ -38,7 +38,7 @@ const NO_EXTERNAL_RUNNER: PrFlowsExternal = {
 };
 
 type Disposal = { request: PrFlowDisposeRequest; ruleName: string | null };
-type SourceRun = { head: string; fingerprint: string; label: string; output: PrFlowSourceOutput | null; error: string | null; at: number };
+type SourceRun = { head: string; fingerprint: string; sourceId: string; label: string; output: PrFlowSourceOutput | null; error: string | null; at: number };
 type ActionRun = {
   itemKey: string; actionId: string; label: string; headAtStart: string; finishedAt: number | null;
   state: PrFlowActionRunStatus['state']; message: string; isBranchMoveTold: boolean;
@@ -71,7 +71,7 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
   function reviewItemsFor(pr: MyPr): PrFlowItem[] {
     const runs = [...(sourceRunsByPr.get(pr.key)?.values() ?? [])].filter((run) => run.output !== null && run.head === pr.headRefOid);
     if (runs.length === 0) return pr.reviewItems;
-    return mergeItems([...threadCandidates(pr.threads), ...runs.flatMap((run) => sourceCandidates(run.label, run.output?.findings ?? []))]);
+    return mergeItems([...threadCandidates(pr.threads), ...runs.flatMap((run) => sourceCandidates(run.label, run.output?.findings ?? [], run.sourceId))]);
   }
 
   function statusFrame(): PrFlowsStatus {
@@ -311,7 +311,7 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
     try {
       const outcome = await external.runSource(source, pr);
       const runs = sourceRunsByPr.get(pr.key) ?? new Map<string, SourceRun>();
-      runs.set(source.id, { head: pr.headRefOid, fingerprint, label: source.label, output: outcome.ok ? outcome.output : null, error: outcome.ok ? null : outcome.error, at: now() });
+      runs.set(source.id, { head: pr.headRefOid, fingerprint, sourceId: source.id, label: source.label, output: outcome.ok ? outcome.output : null, error: outcome.ok ? null : outcome.error, at: now() });
       sourceRunsByPr.set(pr.key, runs);
     } finally {
       inFlightSourceKeys.delete(runKey);
@@ -378,12 +378,13 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
     const runnableActionIds = new Set(runnableActions.map((action) => action.id));
     const { rules: personalRules, warnings: ruleWarnings } = prFlowRules(configFile);
     const allRules = [...personalRules, ...setup.packRules];
+    const configuredActionIds = new Set(commands.actions.map((action) => action.id));
     for (const warning of ruleWarnings) nextWarnings.add(warning);
     for (const pr of prs) {
       startDueSources(pr, scopedToRepo(commands.sources, pr.repo), approved);
       tellBranchMoved(pr);
       const rules = scopedToRepo(allRules, pr.repo);
-      for (const warning of unknownActionWarnings(rules, new Set(commands.actions.map((action) => action.id)))) nextWarnings.add(warning);
+      for (const warning of unknownActionWarnings(rules, configuredActionIds)) nextWarnings.add(warning);
       for (const planned of plannedActions(pr.key, reviewItemsFor(pr), rules, state, runnableActionIds)) {
         if (planned.action.startsWith('run:') && hasActionRunAtHead(pr, planned.item.key, planned.action)) continue;
         const request = { prKey: pr.key, itemKey: planned.item.key, action: planned.action, ...(planned.rule.reason === undefined ? {} : { reason: planned.rule.reason }) };
