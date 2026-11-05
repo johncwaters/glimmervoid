@@ -35,6 +35,18 @@ function setFlatRect(flat: FlatRects, index: number, firstX: number, firstY: num
   flat.bottoms[index] = Math.max(firstY, secondY);
 }
 
+function distinctSorted(values: Float64Array): Float64Array {
+  values.sort();
+  let distinctCount = 0;
+  for (let index = 0; index < values.length; index += 1) {
+    const value = values[index] ?? 0;
+    if (distinctCount > 0 && values[distinctCount - 1] === value) continue;
+    values[distinctCount] = value;
+    distinctCount += 1;
+  }
+  return values.subarray(0, distinctCount);
+}
+
 function distinctSortedYs(groups: readonly FlatRects[]): Float64Array {
   const total = groups.reduce((sum, group) => sum + group.count * 2, 0);
   const ys = new Float64Array(total);
@@ -44,15 +56,7 @@ function distinctSortedYs(groups: readonly FlatRects[]): Float64Array {
     ys.set(group.bottoms, next + group.count);
     next += group.count * 2;
   }
-  ys.sort();
-  let distinctCount = 0;
-  for (let index = 0; index < ys.length; index += 1) {
-    const value = ys[index] ?? 0;
-    if (distinctCount > 0 && ys[distinctCount - 1] === value) continue;
-    ys[distinctCount] = value;
-    distinctCount += 1;
-  }
-  return ys.subarray(0, distinctCount);
+  return distinctSorted(ys);
 }
 
 function leafOf(ys: Float64Array, value: number): number {
@@ -246,5 +250,5 @@ function touchingPairsWithin(rects: readonly Rect[]): IndexPair[] {
   return pairsInOrder(firsts, seconds, rects.length, rects.length);
 }
 
-export { emptyFlatRects, flatRectsOf, forEachTouchingPairAcross, forEachTouchingPairWithin, pairsInOrder, setFlatRect, touchingPairsWithin };
-export type { FlatRects, IndexPair };
+export { distinctSorted, emptyFlatRects, flatRectsOf, forEachTouchingPairAcross, forEachTouchingPairWithin, leafCapacityOf, leafOf, pairsInOrder, setFlatRect, touchingPairsWithin };
+export type { FlatRects };

@@ -3,6 +3,9 @@ import type { Wire } from './contracts/whiteboard.ts';
 import type { LaidOutBox, LaidOutPanel, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
 import { emptyFlatRects, flatRectsOf, forEachTouchingPairAcross, forEachTouchingPairWithin, pairsInOrder, setFlatRect } from './whiteboard-sweep-core.ts';
 import type { FlatRects } from './whiteboard-sweep-core.ts';
+import { nudgeSharedLines } from './whiteboard-nudge-core.ts';
+import { buildVisibilityGraph, CLEARANCE } from './whiteboard-visibility-core.ts';
+import type { VisibilityGraph } from './whiteboard-visibility-core.ts';
 
 type Side = 'left' | 'right' | 'top' | 'bottom';
 
@@ -16,19 +19,14 @@ interface Segment {
   to: Point;
 }
 
-const CLEARANCE = 14;
 const BEND_COST = 30;
-const CROSS_COST = 40;
-const OVERLAP_COST = 120;
 const SOFT_OBSTACLE_COST = 300;
 const BACK_INTERIOR_COST = 400;
-const SHARED_EDGE_DISCOUNT = 0.5;
-const MAX_GRID_NODES = 40_000;
-const MAX_EXPANSIONS = 20_000;
-const MAX_TOTAL_EXPANSIONS = 400_000;
+const DEEPER_FIRST = 1e-9;
 const MAX_BENDS = 6;
 const MAX_WIRES_FOR_PORT_SEARCH = 12;
 const PROBE_EXPANSIONS = 3_000;
+const INITIAL_STATE_CAPACITY = 4096;
 const PORT_SPACING = 14;
 const PORT_INSET = 8;
 const BOX_CROSSING_COST = 100;
@@ -82,41 +80,18 @@ interface DrawnWire {
   states: number[] | null;
 }
 
-interface RoutedWires {
-  drawn: DrawnWire[];
-  grid: Grid | null;
-  usage: RouteUsage;
-}
-
-interface KeyUsage {
-  total: number;
-  countByExitKey: Map<string, number>;
-  countByBusKey: Map<string, number>;
-  countByBusAndExitKey: Map<string, number>;
+interface MinHeap {
+  states: Int32Array;
+  priorities: Float64Array;
+  size: number;
+  lastPoppedPriority: number;
 }
 
 interface SearchBuffers {
   bestCost: Float64Array;
   cameFrom: Int32Array;
   touchedStates: number[];
-}
-
-interface SearchBudget {
-  remainingExpansions: number;
-}
-
-interface Grid {
-  xs: number[];
-  ys: number[];
-  xIndexByValue: Map<number, number>;
-  yIndexByValue: Map<number, number>;
-  isBlocked: Uint8Array[];
-  isSoft: Uint8Array[];
-}
-
-interface RouteUsage {
-  usageByEdge: Map<number, KeyUsage>;
-  usageByNodeAndAxis: Map<number, KeyUsage>;
+  heap: MinHeap;
 }
 
 function isSideways(side: Side): boolean {
@@ -270,18 +245,17 @@ function isBetterProbe(candidate: ProbeScore, best: ProbeScore): boolean {
   return candidate.turnsAndCrossings < best.turnsAndCrossings || (candidate.turnsAndCrossings === best.turnsAndCrossings && candidate.cost < best.cost);
 }
 
-function probeRoute(grid: Grid, probe: WirePlan, buffers: SearchBuffers): ProbedRoute | null {
-  const usage: RouteUsage = { usageByEdge: new Map(), usageByNodeAndAxis: new Map() };
-  const states = searchGrid(grid, probe, usage, null, buffers, { remainingExpansions: PROBE_EXPANSIONS });
+function pointsOfStates(graph: VisibilityGraph, states: readonly number[]): Point[] {
+  return withoutBends(states.map((state) => ({ x: graph.xs[state >> 2] ?? 0, y: graph.ys[state >> 2] ?? 0 })));
+}
+
+function probeRoute(graph: VisibilityGraph, probe: WirePlan, buffers: SearchBuffers): ProbedRoute | null {
+  const states = searchGraph(graph, probe, null, buffers, PROBE_EXPANSIONS);
   const goalState = states?.at(-1);
   const cost = goalState === undefined ? Infinity : buffers.bestCost[goalState] ?? Infinity;
   resetSearchBuffers(buffers);
   if (!states || cost === Infinity) return null;
-  const points = withoutBends(states.map((state) => {
-    const node = state >> 2;
-    const xIndex = node % grid.xs.length;
-    return { x: grid.xs[xIndex] ?? 0, y: grid.ys[(node - xIndex) / grid.xs.length] ?? 0 };
-  }));
+  const points = pointsOfStates(graph, states);
   return { segments: segmentsOf(points), bounds: pointBoundsOf(points), bends: Math.max(points.length - 2, 0), cost };
 }
 
@@ -297,12 +271,12 @@ function chooseSidesBySearch(plans: readonly WirePlan[], facingByPlan: ReadonlyM
   }));
   if (![...pairsByPlan.values()].some((pairs) => pairs.length > 1)) return;
   const probes = [...pairsByPlan].flatMap(([plan, pairs]) => pairs.map((pair) => probeOf(plan, pair)));
-  const grid = buildGrid(probes, [...input.boxesById.values(), ...input.panels], input.softObstacles, input.contentTop);
-  if (!grid) return;
-  const buffers = createSearchBuffers(grid);
+  const graph = graphOf(probes, input);
+  if (!graph) return;
+  const buffers = createSearchBuffers();
   const baselineByPlan = new Map(plans.flatMap((plan) => {
     const [facing] = pairsByPlan.get(plan) ?? [];
-    const route = facing ? probeRoute(grid, probeOf(plan, facing), buffers) : null;
+    const route = facing ? probeRoute(graph, probeOf(plan, facing), buffers) : null;
     return route ? [[plan, route] as const] : [];
   }));
   for (const [plan, pairs] of pairsByPlan) {
@@ -311,7 +285,7 @@ function chooseSidesBySearch(plans: readonly WirePlan[], facingByPlan: ReadonlyM
     const otherRoutes = [...baselineByPlan].flatMap(([other, route]) => other === plan ? [] : [route]);
     let best = { pair: pairs[0], score: scoreOf(baseline, otherRoutes) };
     for (const pair of pairs.slice(1)) {
-      const route = probeRoute(grid, probeOf(plan, pair), buffers);
+      const route = probeRoute(graph, probeOf(plan, pair), buffers);
       const score = route ? scoreOf(route, otherRoutes) : null;
       if (score && isBetterProbe(score, best.score)) best = { pair, score };
     }
@@ -467,148 +441,82 @@ function crowdedSideWarnings(requestsBySide: ReadonlyMap<string, readonly PortRe
   });
 }
 
-function withMidpoints(sortedValues: readonly number[]): number[] {
-  const values = [...sortedValues];
-  for (const [index, value] of sortedValues.entries()) {
-    const next = sortedValues[index + 1];
-    if (next !== undefined && next - value > CLEARANCE * 3) values.push(Math.round((value + next) / 2));
-  }
-  return [...new Set(values)].sort((left, right) => left - right);
-}
-
-function firstIndexAbove(sortedValues: readonly number[], bound: number, isInclusive: boolean): number {
-  let low = 0;
-  let high = sortedValues.length;
-  while (low < high) {
-    const middle = (low + high) >> 1;
-    const value = sortedValues[middle] ?? Infinity;
-    const isBelow = isInclusive ? value < bound : value <= bound;
-    if (isBelow) low = middle + 1;
-    if (!isBelow) high = middle;
-  }
-  return low;
-}
-
-function strictlyInsideRange(sortedValues: readonly number[], start: number, end: number): { first: number; last: number } {
-  return { first: firstIndexAbove(sortedValues, start, false), last: firstIndexAbove(sortedValues, end, true) - 1 };
-}
-
-function spannedEdgeRange(sortedValues: readonly number[], start: number, end: number): { first: number; last: number } {
-  return { first: Math.max(0, firstIndexAbove(sortedValues, start, false) - 1), last: Math.min(firstIndexAbove(sortedValues, end, true) - 1, sortedValues.length - 2) };
-}
-
-function buildGrid(plans: readonly WirePlan[], hardRects: readonly Rect[], softRects: readonly Rect[], contentTop: number): Grid | null {
-  const allRects = [...hardRects, ...softRects];
-  const around = unionOf([...allRects, ...plans.flatMap((plan) => [{ ...plan.start, width: 0, height: 0 }, { ...plan.end, width: 0, height: 0 }])]);
-  if (!around) return null;
-  const portXs = plans.flatMap((plan) => [plan.start.x, plan.end.x]);
-  const portYs = plans.flatMap((plan) => [plan.start.y, plan.end.y]);
-  const topLimit = contentTop + 4;
-  const rawXs = [...allRects.flatMap((rect) => [rect.x - CLEARANCE, rect.x + rect.width + CLEARANCE]), around.x - CLEARANCE * 3, around.x + around.width + CLEARANCE * 3].map(Math.round);
-  const rawYs = [...allRects.flatMap((rect) => [rect.y - CLEARANCE, rect.y + rect.height + CLEARANCE]), around.y - CLEARANCE * 3, around.y + around.height + CLEARANCE * 3].map(Math.round)
-    .filter((y) => y >= topLimit);
-  const xs = withMidpoints([...new Set([...rawXs, ...portXs])].sort((left, right) => left - right));
-  const ys = withMidpoints([...new Set([...rawYs, ...portYs])].sort((left, right) => left - right));
-  if (xs.length * ys.length > MAX_GRID_NODES) return null;
-  const blockingRects = hardRects.map((rect) => inflated(rect, 1));
-  const edgeFlags = (axis: 0 | 1, rects: readonly Rect[]) => {
-    const flags = new Uint8Array(xs.length * ys.length);
-    for (const rect of rects) {
-      const crossedXs = axis === 0 ? spannedEdgeRange(xs, rect.x, rect.x + rect.width) : strictlyInsideRange(xs, rect.x, rect.x + rect.width);
-      const crossedYs = axis === 0 ? strictlyInsideRange(ys, rect.y, rect.y + rect.height) : spannedEdgeRange(ys, rect.y, rect.y + rect.height);
-      for (let yIndex = crossedYs.first; yIndex <= crossedYs.last; yIndex += 1) {
-        flags.fill(1, yIndex * xs.length + crossedXs.first, yIndex * xs.length + crossedXs.last + 1);
-      }
-    }
-    return flags;
-  };
-  return {
-    xs, ys,
-    xIndexByValue: new Map(xs.map((x, index) => [x, index])),
-    yIndexByValue: new Map(ys.map((y, index) => [y, index])),
-    isBlocked: [edgeFlags(0, blockingRects), edgeFlags(1, blockingRects)],
-    isSoft: [edgeFlags(0, softRects), edgeFlags(1, softRects)],
-  };
-}
-
-interface MinHeap {
-  push: (state: number, priority: number) => void;
-  pop: () => number | undefined;
+function graphOf(plans: readonly WirePlan[], input: RouteInput): VisibilityGraph | null {
+  const ports = plans.flatMap((plan) => [
+    { x: plan.start.x, y: plan.start.y, outwardDirection: OUTWARD_DIRECTION_BY_SIDE[plan.exitSide] },
+    { x: plan.end.x, y: plan.end.y, outwardDirection: OUTWARD_DIRECTION_BY_SIDE[plan.entrySide] },
+  ]);
+  return buildVisibilityGraph({ hardRects: [...input.boxesById.values(), ...input.panels], softRects: input.softObstacles, ports, contentTop: input.contentTop });
 }
 
 function createMinHeap(): MinHeap {
-  const states: number[] = [];
-  const priorities: number[] = [];
-  const swap = (first: number, second: number) => {
-    [states[first], states[second]] = [states[second] ?? 0, states[first] ?? 0];
-    [priorities[first], priorities[second]] = [priorities[second] ?? 0, priorities[first] ?? 0];
-  };
-  return {
-    push(state, priority) {
-      states.push(state);
-      priorities.push(priority);
-      let index = states.length - 1;
-      while (index > 0) {
-        const parent = (index - 1) >> 1;
-        if ((priorities[parent] ?? 0) <= (priorities[index] ?? 0)) break;
-        swap(parent, index);
-        index = parent;
-      }
-    },
-    pop() {
-      const top = states[0];
-      const lastState = states.pop();
-      const lastPriority = priorities.pop();
-      if (states.length === 0 || lastState === undefined || lastPriority === undefined) return top;
-      states[0] = lastState;
-      priorities[0] = lastPriority;
-      let index = 0;
-      for (;;) {
-        const left = index * 2 + 1;
-        const right = left + 1;
-        let smallest = index;
-        if (left < states.length && (priorities[left] ?? 0) < (priorities[smallest] ?? 0)) smallest = left;
-        if (right < states.length && (priorities[right] ?? 0) < (priorities[smallest] ?? 0)) smallest = right;
-        if (smallest === index) return top;
-        swap(smallest, index);
-        index = smallest;
-      }
-    },
-  };
+  return { states: new Int32Array(1024), priorities: new Float64Array(1024), size: 0, lastPoppedPriority: 0 };
 }
 
-function edgeKeyOf(grid: Grid, xIndex: number, yIndex: number, direction: number): { axis: 0 | 1; index: number } {
-  if (direction === 0) return { axis: 0, index: yIndex * grid.xs.length + xIndex };
-  if (direction === 1) return { axis: 0, index: yIndex * grid.xs.length + xIndex - 1 };
-  if (direction === 2) return { axis: 1, index: yIndex * grid.xs.length + xIndex };
-  return { axis: 1, index: (yIndex - 1) * grid.xs.length + xIndex };
+function swapHeapEntries(heap: MinHeap, first: number, second: number): void {
+  const firstState = heap.states[first] ?? 0;
+  const firstPriority = heap.priorities[first] ?? 0;
+  heap.states[first] = heap.states[second] ?? 0;
+  heap.priorities[first] = heap.priorities[second] ?? 0;
+  heap.states[second] = firstState;
+  heap.priorities[second] = firstPriority;
 }
 
-function busAndExitKeyOf(busKey: string, exitKey: string): string {
-  return `${busKey}\n${exitKey}`;
+function pushToHeap(heap: MinHeap, state: number, priority: number): void {
+  if (heap.size === heap.states.length) {
+    const states = new Int32Array(heap.size * 2);
+    const priorities = new Float64Array(heap.size * 2);
+    states.set(heap.states);
+    priorities.set(heap.priorities);
+    heap.states = states;
+    heap.priorities = priorities;
+  }
+  heap.states[heap.size] = state;
+  heap.priorities[heap.size] = priority;
+  let index = heap.size;
+  heap.size += 1;
+  while (index > 0) {
+    const parent = (index - 1) >> 1;
+    if ((heap.priorities[parent] ?? 0) <= (heap.priorities[index] ?? 0)) return;
+    swapHeapEntries(heap, parent, index);
+    index = parent;
+  }
 }
 
-function compatibleCountOf(keyUsage: KeyUsage, plan: WirePlan): number {
-  const sameExitCount = keyUsage.countByExitKey.get(plan.exitKey) ?? 0;
-  if (plan.busKey === null) return sameExitCount;
-  const sameBusCount = keyUsage.countByBusKey.get(plan.busKey) ?? 0;
-  const sameBusAndExitCount = keyUsage.countByBusAndExitKey.get(busAndExitKeyOf(plan.busKey, plan.exitKey)) ?? 0;
-  return sameExitCount + sameBusCount - sameBusAndExitCount;
+function popFromHeap(heap: MinHeap): number {
+  if (heap.size === 0) return -1;
+  const top = heap.states[0] ?? -1;
+  heap.lastPoppedPriority = heap.priorities[0] ?? 0;
+  heap.size -= 1;
+  if (heap.size === 0) return top;
+  heap.states[0] = heap.states[heap.size] ?? 0;
+  heap.priorities[0] = heap.priorities[heap.size] ?? 0;
+  let index = 0;
+  for (;;) {
+    const left = index * 2 + 1;
+    const right = left + 1;
+    let smallest = index;
+    if (left < heap.size && (heap.priorities[left] ?? 0) < (heap.priorities[smallest] ?? 0)) smallest = left;
+    if (right < heap.size && (heap.priorities[right] ?? 0) < (heap.priorities[smallest] ?? 0)) smallest = right;
+    if (smallest === index) return top;
+    swapHeapEntries(heap, smallest, index);
+    index = smallest;
+  }
 }
 
-function usagePenalty(usage: RouteUsage, plan: WirePlan, edgeKey: { axis: 0 | 1; index: number }, nodeIndex: number, length: number): number {
-  const edgeUsage = usage.usageByEdge.get(edgeKey.axis * 1_000_000 + edgeKey.index);
-  const crossingUsage = usage.usageByNodeAndAxis.get((1 - edgeKey.axis) * 1_000_000 + nodeIndex);
-  const compatibleOnEdge = edgeUsage ? compatibleCountOf(edgeUsage, plan) : 0;
-  const sharesEdge = compatibleOnEdge > 0;
-  const overlapsStranger = edgeUsage !== undefined && edgeUsage.total > compatibleOnEdge;
-  const crossesStranger = crossingUsage !== undefined && crossingUsage.total > compatibleCountOf(crossingUsage, plan);
-  return (sharesEdge ? -length * (1 - SHARED_EDGE_DISCOUNT) : 0) + (overlapsStranger ? OVERLAP_COST : 0) + (crossesStranger ? CROSS_COST : 0);
+function createSearchBuffers(): SearchBuffers {
+  return { bestCost: new Float64Array(INITIAL_STATE_CAPACITY).fill(Infinity), cameFrom: new Int32Array(INITIAL_STATE_CAPACITY).fill(-1), touchedStates: [], heap: createMinHeap() };
 }
 
-function createSearchBuffers(grid: Grid): SearchBuffers {
-  const stateCount = grid.xs.length * grid.ys.length * 4;
-  return { bestCost: new Float64Array(stateCount).fill(Infinity), cameFrom: new Int32Array(stateCount).fill(-1), touchedStates: [] };
+function ensureStateCapacity(buffers: SearchBuffers, stateCount: number): void {
+  if (stateCount <= buffers.bestCost.length) return;
+  const capacity = Math.max(stateCount, buffers.bestCost.length * 2);
+  const bestCost = new Float64Array(capacity).fill(Infinity);
+  const cameFrom = new Int32Array(capacity).fill(-1);
+  bestCost.set(buffers.bestCost);
+  cameFrom.set(buffers.cameFrom);
+  buffers.bestCost = bestCost;
+  buffers.cameFrom = cameFrom;
 }
 
 function resetSearchBuffers(buffers: SearchBuffers): void {
@@ -617,69 +525,78 @@ function resetSearchBuffers(buffers: SearchBuffers): void {
     buffers.cameFrom[state] = -1;
   }
   buffers.touchedStates.length = 0;
+  buffers.heap.size = 0;
 }
 
-function routeOnGrid(grid: Grid, plan: WirePlan, usage: RouteUsage, backInterior: Rect | null, buffers: SearchBuffers, budget: SearchBudget): number[] | null {
-  const states = searchGrid(grid, plan, usage, backInterior, buffers, budget);
+function routeOnGraph(graph: VisibilityGraph, plan: WirePlan, backInterior: Rect | null, buffers: SearchBuffers): number[] | null {
+  const states = searchGraph(graph, plan, backInterior, buffers, Infinity);
   resetSearchBuffers(buffers);
   return states;
 }
 
-function searchGrid(grid: Grid, plan: WirePlan, usage: RouteUsage, backInterior: Rect | null, buffers: SearchBuffers, budget: SearchBudget): number[] | null {
-  const width = grid.xs.length;
-  const startX = grid.xIndexByValue.get(plan.start.x);
-  const startY = grid.yIndexByValue.get(plan.start.y);
-  const endX = grid.xIndexByValue.get(plan.end.x);
-  const endY = grid.yIndexByValue.get(plan.end.y);
-  if (startX === undefined || startY === undefined || endX === undefined || endY === undefined) return null;
-  const startNode = startY * width + startX;
-  const endNode = endY * width + endX;
+function graphEdgeHitsRect(graph: VisibilityGraph, node: number, nextNode: number, rect: Rect): boolean {
+  const fromX = graph.xs[node] ?? 0;
+  const fromY = graph.ys[node] ?? 0;
+  const toX = graph.xs[nextNode] ?? 0;
+  const toY = graph.ys[nextNode] ?? 0;
+  if (fromY === toY) return rect.y < fromY && fromY < rect.y + rect.height && Math.min(fromX, toX) < rect.x + rect.width && Math.max(fromX, toX) > rect.x;
+  return rect.x < fromX && fromX < rect.x + rect.width && Math.min(fromY, toY) < rect.y + rect.height && Math.max(fromY, toY) > rect.y;
+}
+
+function fewestBendsTo(direction: number, endDirection: number, towardX: number, towardY: number): number {
+  if (direction === REVERSE_DIRECTION[endDirection]) return 2;
+  if (direction !== endDirection) return 1;
+  const step = STEP_BY_DIRECTION[direction] ?? { x: 0, y: 0 };
+  const isStraightAhead = step.x === 0 ? towardX === 0 && towardY * step.y >= 0 : towardY === 0 && towardX * step.x >= 0;
+  return isStraightAhead ? 0 : 2;
+}
+
+function searchGraph(graph: VisibilityGraph, plan: WirePlan, backInterior: Rect | null, buffers: SearchBuffers, maxExpansions: number): number[] | null {
+  graph.beginSearch();
+  const startNode = graph.nodeAt(plan.start.x, plan.start.y);
+  const endNode = graph.nodeAt(plan.end.x, plan.end.y);
+  if (startNode < 0 || endNode < 0 || graph.componentOf(startNode) !== graph.componentOf(endNode)) return null;
   const startDirection = OUTWARD_DIRECTION_BY_SIDE[plan.exitSide];
   const endDirection = INWARD_DIRECTION_BY_SIDE[plan.entrySide];
-  const { bestCost, cameFrom, touchedStates } = buffers;
-  const heap = createMinHeap();
+  const { touchedStates, heap } = buffers;
   const startState = startNode * 4 + startDirection;
-  const estimate = (xIndex: number, yIndex: number) => Math.abs((grid.xs[xIndex] ?? 0) - plan.end.x) + Math.abs((grid.ys[yIndex] ?? 0) - plan.end.y);
-  bestCost[startState] = 0;
+  ensureStateCapacity(buffers, graph.nodeCount * 4);
+  const estimate = (node: number, direction: number) => {
+    const towardX = plan.end.x - (graph.xs[node] ?? 0);
+    const towardY = plan.end.y - (graph.ys[node] ?? 0);
+    return Math.abs(towardX) + Math.abs(towardY) + fewestBendsTo(direction, endDirection, towardX, towardY) * BEND_COST;
+  };
+  buffers.bestCost[startState] = 0;
   touchedStates.push(startState);
-  heap.push(startState, estimate(startX, startY));
-  for (let expansions = 0; expansions < MAX_EXPANSIONS && budget.remainingExpansions > 0; expansions += 1) {
-    budget.remainingExpansions -= 1;
-    const state = heap.pop();
-    if (state === undefined) return null;
+  pushToHeap(heap, startState, estimate(startNode, startDirection));
+  for (let expansions = 0; expansions < maxExpansions; expansions += 1) {
+    const state = popFromHeap(heap);
+    if (state < 0) return null;
     const node = state >> 2;
     const direction = state & 3;
-    if (node === endNode && direction === endDirection) return reconstructNodes(cameFrom, state);
-    const xIndex = node % width;
-    const yIndex = (node - xIndex) / width;
-    const costSoFar = bestCost[state] ?? Infinity;
-    for (const [nextDirection, step] of STEP_BY_DIRECTION.entries()) {
+    if (node === endNode && direction === endDirection) return reconstructNodes(buffers.cameFrom, state);
+    const costSoFar = buffers.bestCost[state] ?? Infinity;
+    if (heap.lastPoppedPriority > costSoFar * (1 - DEEPER_FIRST) + estimate(node, direction) + 1e-6) continue;
+    for (let nextDirection = 0; nextDirection < 4; nextDirection += 1) {
       if (node === startNode && nextDirection !== startDirection) continue;
       if (nextDirection === REVERSE_DIRECTION[direction]) continue;
-      const nextX = xIndex + step.x;
-      const nextY = yIndex + step.y;
-      if (nextX < 0 || nextY < 0 || nextX >= width || nextY >= grid.ys.length) continue;
-      const nextNode = nextY * width + nextX;
+      const nextNode = graph.neighborOf(node, nextDirection);
+      if (nextNode < 0) continue;
       if (nextNode === endNode && nextDirection !== endDirection) continue;
-      const edgeKey = edgeKeyOf(grid, xIndex, yIndex, nextDirection);
-      const isForcedMove = node === startNode || nextNode === endNode;
-      if (!isForcedMove && grid.isBlocked[edgeKey.axis]?.[edgeKey.index] === 1) continue;
-      const from = { x: grid.xs[xIndex] ?? 0, y: grid.ys[yIndex] ?? 0 };
-      const to = { x: grid.xs[nextX] ?? 0, y: grid.ys[nextY] ?? 0 };
-      const length = Math.abs(to.x - from.x) + Math.abs(to.y - from.y);
-      const isInsideBackInterior = backInterior !== null && segmentHitsRect({ from, to }, backInterior);
+      ensureStateCapacity(buffers, graph.nodeCount * 4);
+      const length = Math.abs((graph.xs[nextNode] ?? 0) - (graph.xs[node] ?? 0)) + Math.abs((graph.ys[nextNode] ?? 0) - (graph.ys[node] ?? 0));
+      const isInsideBackInterior = backInterior !== null && graphEdgeHitsRect(graph, node, nextNode, backInterior);
       const stepCost = length
         + (nextDirection === direction ? 0 : BEND_COST)
-        + (grid.isSoft[edgeKey.axis]?.[edgeKey.index] === 1 ? SOFT_OBSTACLE_COST : 0)
-        + (isInsideBackInterior ? BACK_INTERIOR_COST : 0)
-        + usagePenalty(usage, plan, edgeKey, nextNode, length);
+        + (graph.isSoftStep(node, nextDirection) ? SOFT_OBSTACLE_COST : 0)
+        + (isInsideBackInterior ? BACK_INTERIOR_COST : 0);
       const nextState = nextNode * 4 + nextDirection;
       const nextCost = costSoFar + Math.max(stepCost, 1);
-      if (nextCost >= (bestCost[nextState] ?? Infinity)) continue;
-      bestCost[nextState] = nextCost;
-      cameFrom[nextState] = state;
+      if (nextCost >= (buffers.bestCost[nextState] ?? Infinity)) continue;
+      buffers.bestCost[nextState] = nextCost;
+      buffers.cameFrom[nextState] = state;
       touchedStates.push(nextState);
-      heap.push(nextState, nextCost + estimate(nextX, nextY));
+      pushToHeap(heap, nextState, nextCost * (1 - DEEPER_FIRST) + estimate(nextNode, nextDirection));
     }
   }
   return null;
@@ -689,32 +606,6 @@ function reconstructNodes(cameFrom: Int32Array, goalState: number): number[] {
   const states: number[] = [];
   for (let state = goalState; state !== -1; state = cameFrom[state] ?? -1) states.push(state);
   return states.reverse();
-}
-
-function adjustUsage(grid: Grid, usage: RouteUsage, plan: WirePlan, states: readonly number[], delta: 1 | -1): void {
-  const width = grid.xs.length;
-  const increment = (countByKey: Map<string, number>, key: string) => countByKey.set(key, (countByKey.get(key) ?? 0) + delta);
-  const remember = (usageByKey: Map<number, KeyUsage>, key: number) => {
-    const keyUsage = usageByKey.get(key) ?? { total: 0, countByExitKey: new Map(), countByBusKey: new Map(), countByBusAndExitKey: new Map() };
-    usageByKey.set(key, keyUsage);
-    keyUsage.total += delta;
-    increment(keyUsage.countByExitKey, plan.exitKey);
-    if (plan.busKey === null) return;
-    increment(keyUsage.countByBusKey, plan.busKey);
-    increment(keyUsage.countByBusAndExitKey, busAndExitKeyOf(plan.busKey, plan.exitKey));
-  };
-  for (const [index, state] of states.entries()) {
-    const previous = states[index - 1];
-    if (previous === undefined) continue;
-    const previousNode = previous >> 2;
-    const direction = state & 3;
-    const xIndex = previousNode % width;
-    const yIndex = (previousNode - xIndex) / width;
-    const edgeKey = edgeKeyOf(grid, xIndex, yIndex, direction);
-    remember(usage.usageByEdge, edgeKey.axis * 1_000_000 + edgeKey.index);
-    remember(usage.usageByNodeAndAxis, edgeKey.axis * 1_000_000 + previousNode);
-    remember(usage.usageByNodeAndAxis, edgeKey.axis * 1_000_000 + (state >> 2));
-  }
 }
 
 function stubOf(point: Point, side: Side): Point {
@@ -736,69 +627,24 @@ function backInteriorOf(plan: WirePlan, loopFrames: readonly Rect[]): Rect | nul
   return enclosingLoop ?? span;
 }
 
-function longestFirst<Item>(items: readonly Item[], planOf: (item: Item) => WirePlan): Item[] {
-  const routeLength = (plan: WirePlan) => Math.abs(plan.start.x - plan.end.x) + Math.abs(plan.start.y - plan.end.y);
-  return [...items].sort((left, right) => routeLength(planOf(right)) - routeLength(planOf(left)) || planOf(left).wire.id.localeCompare(planOf(right).wire.id));
-}
-
-function drawnWireOf(grid: Grid | null, plan: WirePlan, states: number[] | null): DrawnWire {
-  const points = grid && states
-    ? withoutBends(states.map((state) => {
-      const node = state >> 2;
-      const xIndex = node % grid.xs.length;
-      return { x: grid.xs[xIndex] ?? 0, y: grid.ys[(node - xIndex) / grid.xs.length] ?? 0 };
-    }))
-    : fallbackPoints(plan);
+function drawnWireOf(graph: VisibilityGraph | null, plan: WirePlan, states: number[] | null): DrawnWire {
+  const points = graph && states ? pointsOfStates(graph, states) : fallbackPoints(plan);
   return { plan, points, segments: segmentsOf(points), states };
 }
 
-function routeAll(plans: readonly WirePlan[], input: RouteInput, budget: SearchBudget): RoutedWires {
-  const hardRects = [...input.boxesById.values(), ...input.panels];
-  const grid = buildGrid(plans, hardRects, input.softObstacles, input.contentTop);
-  const buffers = grid ? createSearchBuffers(grid) : null;
-  const usage: RouteUsage = { usageByEdge: new Map(), usageByNodeAndAxis: new Map() };
-  const drawnById = new Map<string, DrawnWire>();
-  for (const plan of longestFirst(plans, (plan) => plan)) {
-    const states = grid && buffers ? routeOnGrid(grid, plan, usage, backInteriorOf(plan, input.loopFrames), buffers, budget) : null;
-    if (grid && states) adjustUsage(grid, usage, plan, states, 1);
-    drawnById.set(plan.wire.id, drawnWireOf(grid, plan, states));
-  }
-  return { drawn: plans.flatMap((plan) => drawnById.get(plan.wire.id) ?? []), grid, usage };
+function routeAll(plans: readonly WirePlan[], input: RouteInput): DrawnWire[] {
+  const graph = graphOf(plans, input);
+  const buffers = graph ? createSearchBuffers() : null;
+  const routed = plans.map((plan) => drawnWireOf(graph, plan, graph && buffers ? routeOnGraph(graph, plan, backInteriorOf(plan, input.loopFrames), buffers) : null));
+  const nudgedPoints = nudgeSharedLines(routed.map((wire) => ({ points: wire.points, exitKey: wire.plan.exitKey, busKey: wire.plan.busKey })), solidsOf(input));
+  return routed.map((wire, index) => {
+    const points = withoutBends(nudgedPoints[index] ?? wire.points);
+    return { ...wire, points, segments: segmentsOf(points) };
+  });
 }
 
 function bendCountOf(wire: DrawnWire): number {
   return Math.max(0, wire.points.length - 2);
-}
-
-function crossingCostOf(wire: DrawnWire, others: readonly DrawnWire[], input: RouteInput): number {
-  const wireBounds = pointBoundsOf(wire.points);
-  const wireCrossingCount = others.filter((other) => rectsTouch(wireBounds, pointBoundsOf(other.points)) && pairCrossingOf(wire, other) !== null).length;
-  const boxCrossingCount = solidsOf(input).filter((solid) => {
-    const inset = inflated(solid, -2);
-    return rectsTouch(wireBounds, inset) && runsThrough(wire, solid, inset);
-  }).length;
-  return boxCrossingCount * BOX_CROSSING_COST + wireCrossingCount;
-}
-
-function rerouteCrossedWires(routed: RoutedWires, input: RouteInput): DrawnWire[] {
-  const { grid, usage } = routed;
-  if (!grid) return routed.drawn;
-  const buffers = createSearchBuffers(grid);
-  const budget: SearchBudget = { remainingExpansions: MAX_TOTAL_EXPANSIONS };
-  const drawnById = new Map(routed.drawn.map((wire) => [wire.plan.wire.id, wire]));
-  for (const current of longestFirst(routed.drawn, (wire) => wire.plan)) {
-    if (!current.states || budget.remainingExpansions <= 0) continue;
-    const others = [...drawnById.values()].filter((other) => other.plan !== current.plan);
-    const currentCost = crossingCostOf(current, others, input);
-    if (currentCost === 0) continue;
-    adjustUsage(grid, usage, current.plan, current.states, -1);
-    const rerouted = drawnWireOf(grid, current.plan, routeOnGrid(grid, current.plan, usage, backInteriorOf(current.plan, input.loopFrames), buffers, budget));
-    const staysWithinBendLimit = bendCountOf(rerouted) <= Math.max(bendCountOf(current), MAX_BENDS);
-    const kept = rerouted.states && staysWithinBendLimit && crossingCostOf(rerouted, others, input) < currentCost ? rerouted : current;
-    adjustUsage(grid, usage, kept.plan, kept.states ?? current.states, 1);
-    drawnById.set(kept.plan.wire.id, kept);
-  }
-  return routed.drawn.map((wire) => drawnById.get(wire.plan.wire.id) ?? wire);
 }
 
 function labelWidthOf(label: string): number {
@@ -880,13 +726,6 @@ function areSiblings(first: DrawnWire, second: DrawnWire): boolean {
   return first.plan.exitKey === second.plan.exitKey;
 }
 
-function pairCrossingOf(first: DrawnWire, second: DrawnWire): string | null {
-  if (areSiblings(first, second)) return null;
-  const pairs = first.segments.flatMap((firstSegment) => second.segments.map((secondSegment) => [firstSegment, secondSegment] as const));
-  if (pairs.some(([firstSegment, secondSegment]) => segmentsCross(firstSegment, secondSegment))) return `wire ${first.plan.wire.id} crosses wire ${second.plan.wire.id}`;
-  return pairs.some(([firstSegment, secondSegment]) => segmentsOverlap(firstSegment, secondSegment)) ? `wire ${first.plan.wire.id} overlaps wire ${second.plan.wire.id}` : null;
-}
-
 interface WirePieces {
   rects: FlatRects;
   segments: Segment[];
@@ -937,11 +776,6 @@ function findCrossings(drawn: readonly DrawnWire[], pieces: WirePieces): string[
 
 function solidsOf(input: RouteInput): (LaidOutBox | LaidOutPanel)[] {
   return [...input.boxesById.values(), ...input.panels];
-}
-
-function runsThrough(wire: DrawnWire, solid: LaidOutBox | LaidOutPanel, inset: Rect): boolean {
-  if (solid.id === wire.plan.from.id || solid.id === wire.plan.to.id) return false;
-  return wire.segments.some((segment) => segmentHitsRect(segment, inset));
 }
 
 function findBoxCrossings(drawn: readonly DrawnWire[], pieces: WirePieces, input: RouteInput): string[] {
@@ -1003,20 +837,20 @@ function swapNeighbors(order: string[], index: number): void {
   order[index + 1] = left;
 }
 
-function routeWithPortOrder(plans: readonly WirePlan[], input: RouteInput, requestsBySide: ReadonlyMap<string, readonly PortRequest[]>, groupOrderBySide: ReadonlyMap<string, readonly string[]>, budget: SearchBudget): RoutedWires {
+function routeWithPortOrder(plans: readonly WirePlan[], input: RouteInput, requestsBySide: ReadonlyMap<string, readonly PortRequest[]>, groupOrderBySide: ReadonlyMap<string, readonly string[]>): DrawnWire[] {
   assignPorts(requestsBySide, groupOrderBySide);
   alignLonePorts(plans, groupOrderBySide);
-  return routeAll(plans, input, budget);
+  return routeAll(plans, input);
 }
 
-function routeWithFewestCrossings(plans: readonly WirePlan[], input: RouteInput, requestsBySide: ReadonlyMap<string, readonly PortRequest[]>, groupOrderBySide: ReadonlyMap<string, string[]>, budget: SearchBudget): DrawnWire[] {
-  const firstRouted = routeWithPortOrder(plans, input, requestsBySide, groupOrderBySide, budget);
-  if (plans.length > MAX_WIRES_FOR_PORT_SEARCH) return rerouteCrossedWires(firstRouted, input);
-  let bestCrossingCost = totalCrossingCostOf(firstRouted.drawn, input);
+function routeWithFewestCrossings(plans: readonly WirePlan[], input: RouteInput, requestsBySide: ReadonlyMap<string, readonly PortRequest[]>, groupOrderBySide: ReadonlyMap<string, string[]>): DrawnWire[] {
+  const firstRouted = routeWithPortOrder(plans, input, requestsBySide, groupOrderBySide);
+  if (plans.length > MAX_WIRES_FOR_PORT_SEARCH) return firstRouted;
+  let bestCrossingCost = totalCrossingCostOf(firstRouted, input);
   for (const groupOrder of groupOrderBySide.values()) {
     for (let index = 0; bestCrossingCost > 0 && index + 1 < groupOrder.length; index += 1) {
       swapNeighbors(groupOrder, index);
-      const trialCrossingCost = totalCrossingCostOf(routeWithPortOrder(plans, input, requestsBySide, groupOrderBySide, budget).drawn, input);
+      const trialCrossingCost = totalCrossingCostOf(routeWithPortOrder(plans, input, requestsBySide, groupOrderBySide), input);
       if (trialCrossingCost < bestCrossingCost) {
         bestCrossingCost = trialCrossingCost;
         continue;
@@ -1024,16 +858,14 @@ function routeWithFewestCrossings(plans: readonly WirePlan[], input: RouteInput,
       swapNeighbors(groupOrder, index);
     }
   }
-  return rerouteCrossedWires(routeWithPortOrder(plans, input, requestsBySide, groupOrderBySide, budget), input);
+  return routeWithPortOrder(plans, input, requestsBySide, groupOrderBySide);
 }
 
 function routeWires(input: RouteInput): RouteResult {
   const plans = planWires(input);
   const requestsBySide = portRequestsBySide(plans);
   const groupOrderBySide = defaultPortOrders(requestsBySide);
-  const budget: SearchBudget = { remainingExpansions: MAX_TOTAL_EXPANSIONS };
-  const drawn = routeWithFewestCrossings(plans, input, requestsBySide, groupOrderBySide, budget);
-  const budgetWarnings = budget.remainingExpansions > 0 ? [] : ['the board has more wires than fit in one routing pass, so some are drawn as straight dog-legs'];
+  const drawn = routeWithFewestCrossings(plans, input, requestsBySide, groupOrderBySide);
   const labelWarnings: string[] = [];
   const labelById = placeLabels(drawn, input, labelWarnings);
   const leaderByBusKey = new Map<string, DrawnWire>();
@@ -1055,7 +887,7 @@ function routeWires(input: RouteInput): RouteResult {
   return {
     wires,
     segments: drawn.flatMap((wire) => wire.segments),
-    collectWarnings: () => [...budgetWarnings, ...crossingWarningsOf(drawn, input), ...routeQualityWarnings(drawn), ...crowdedSideWarnings(requestsBySide, groupOrderBySide), ...labelWarnings],
+    collectWarnings: () => [...routeQualityWarnings(drawn), ...crossingWarningsOf(drawn, input), ...crowdedSideWarnings(requestsBySide, groupOrderBySide), ...labelWarnings],
     extent: unionOf([...pointRects, ...labelRects]),
   };
 }

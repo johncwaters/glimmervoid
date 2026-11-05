@@ -274,14 +274,21 @@ test('wires keep their named sides, a back wire returns around the outside of th
   assert.ok(layout.warnings.includes('box first overlaps box second'), layout.warnings.join('; '));
 });
 
-test('a board with more wires than one routing pass can place draws the rest as dog-legs and says so', () => {
+test('a dense board routes every wire around the boxes instead of drawing dog-legs', () => {
   const columns = Array.from({ length: 12 }, (_, index) => ({ id: `c${index}`, title: `column ${index}` }));
   const elements: Record<string, unknown> = {};
   for (let index = 0; index < 170; index += 1) elements[`b${index}`] = { kind: 'box', id: `b${index}`, title: `box ${index}`, lines: [], column: `c${index % 12}`, order: Math.floor(index / 12) };
   for (let index = 0; index < 600; index += 1) elements[`w${index}`] = { kind: 'wire', id: `w${index}`, from: `b${(index * 7) % 170}`, to: `b${(index * 13 + 5) % 170}` };
   const layout = layoutBoard(Board.parse({ id: 'dense', title: 'dense', version: 1, caption: null, createdAt: 0, updatedAt: 0, lanes: [], columns, elements }));
-  assert.ok(layout.warnings.some((warning) => warning.includes('more wires than fit in one routing pass')), layout.warnings.join('\n'));
+  assert.deepEqual(layout.warnings.filter((warning) => warning.includes('found no clear route') || warning.includes('runs through')), [], layout.warnings.join('\n'));
   assert.equal(layout.elements.filter((element) => element.kind === 'wire').length, 600);
+});
+
+test('a wire past a box placed above the content top goes around that box, not through it', () => {
+  const placedBox = (id: string, x: number) => ({ kind: 'box', id, title: id, lines: [{ text: 'one' }, { text: 'two' }, { text: 'three' }], at: { x, y: 40 } });
+  const elements = { a: placedBox('a', 0), b: placedBox('b', 300), c: placedBox('c', 600), w: { kind: 'wire', id: 'w', from: 'a', to: 'c', fromSide: 'right', toSide: 'left' } };
+  const layout = layoutBoard(Board.parse({ id: 'top', title: 'top', version: 1, caption: null, createdAt: 0, updatedAt: 0, lanes: [], columns: [], elements }));
+  assert.deepEqual(layout.warnings.filter((warning) => warning.includes('runs through') || warning.includes('found no clear route')), [], layout.warnings.join('\n'));
 });
 
 test('a decision fanning out to a column keeps only the crossing its output order forces', () => {

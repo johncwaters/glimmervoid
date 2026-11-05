@@ -829,7 +829,7 @@ function layoutBoard(storedBoard: Board): BoardLayout {
     pinnedOffsetY,
     plan: unitsById.size > 0 ? { titleAt: { x: MARGIN, y: MARGIN + PLAN_TITLE_BASELINE }, arrowPaths: planArrowPaths(board, unitsById) } : null,
     bounds: { ...contentBounds, height: contentBounds.height + extraHeight },
-    warnings: cappedWarnings([...placed.collectPlacementWarnings(), ...placed.routing.collectWarnings()]),
+    warnings: cappedWarnings([...placed.routing.collectWarnings(), ...placed.collectPlacementWarnings()]),
   };
 }
 
