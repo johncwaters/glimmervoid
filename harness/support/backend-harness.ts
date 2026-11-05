@@ -144,6 +144,9 @@ function screenShowsWhiteboardAnswer(screenText: string): boolean {
 
 const SHOULD_RUN_ONLY_HINT_PROBE = process.argv.includes('--only-hints');
 const SHOULD_RUN_ONLY_MODEL_SETUP_PROBE = process.argv.includes('--only-model-setup');
+const SHOULD_RUN_ONLY_BACKGROUND_SELF_WAKE_PROBE = process.argv.includes('--only-background-self-wake');
+const BACKGROUND_SELF_WAKE_SETTLE_MS = 20000;
+const BACKGROUND_SELF_WAKE_PROBE_PROMPT = 'Start the shell command `sleep 4; echo bg-done` as a background task and do not wait for it: use your shell tool\'s background option (run_in_background) or leave it running in a background terminal. Run no other tool. Then, as your final reply, write a 300-word paragraph about lighthouses and end your turn without checking on the background task. When you are later told the background task finished, reply with the single word finished.';
 const MODEL_SETUP_PROBE_PROMPT = 'Reply with the single word copperheron and nothing else.';
 
 async function liveDefaultSetup(agent: CatalogAgentId): Promise<AgentSetup> {
@@ -286,6 +289,8 @@ function removeHarnessTempDirectory(tempDirectory: string): void {
 }
 
 export {
+  BACKGROUND_SELF_WAKE_PROBE_PROMPT,
+  BACKGROUND_SELF_WAKE_SETTLE_MS,
   closeServer,
   connectControl,
   createProbeChecks,
@@ -305,6 +310,7 @@ export {
   screenShowsStartLine,
   screenShowsWhiteboardAnswer,
   runModelSetupProbe,
+  SHOULD_RUN_ONLY_BACKGROUND_SELF_WAKE_PROBE,
   SHOULD_RUN_ONLY_HINT_PROBE,
   SHOULD_RUN_ONLY_MODEL_SETUP_PROBE,
   SHOULD_RUN_ONLY_WHITEBOARD_PROBE,

@@ -56,7 +56,9 @@ function replayThroughSession(fixtureFile: string, t: TestContext, { minimumGapM
   session.on('task-title-reset', () => taskTitleResets++);
   let isCompacting = false;
   session.on('prompt-kind-change', (detail: { isCompacting: boolean }) => { isCompacting = detail.isCompacting; });
-  session.on('user-prompt', () => gate.reset());
+  session.on('user-prompt', ({ isSelfWake }: { isSelfWake: boolean }) => {
+    if (!isSelfWake) gate.reset();
+  });
   session.on('post-turn-check', () => postTurnChecks++);
   session.on('state-change', ({ to, event, detail }) => {
     transitions.push(to);

@@ -8,6 +8,7 @@ import { createBackend } from '../server/backend/backend.ts';
 import type { Session } from '../session/sessions.ts';
 import type { HookPayload } from '../shared/contracts/index.ts';
 import {
+  BACKGROUND_SELF_WAKE_PROBE_PROMPT, BACKGROUND_SELF_WAKE_SETTLE_MS, SHOULD_RUN_ONLY_BACKGROUND_SELF_WAKE_PROBE,
   createProbeChecks, delay, HINT_PROBE_PROMPT, hookEventsOf, queueWhiteboardEditFor, screenShowsShowHint, screenShowsStartLine, screenShowsWhiteboardAnswer,
   runModelSetupProbe, SHOULD_RUN_ONLY_HINT_PROBE, SHOULD_RUN_ONLY_MODEL_SETUP_PROBE, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, waitForState,
   whiteboardWriterIdFor, whiteboardWriterProject, WHITEBOARD_PROBE_PROMPT, writeHookFixture,
@@ -139,6 +140,12 @@ async function runProbe(tempDirectory: string): Promise<void> {
       check('the Bash PostToolUse reached the hooks', hookEventsOf(hintHooks).includes('posttooluse'));
       check('the show hint reached the model with the tool result', screenShowsShowHint(session.getBufferSince(hintOutputOffset).data));
       check('the start line reached the model with the first prompt', screenShowsStartLine(session.getBufferSince(hintOutputOffset).data));
+      return;
+    }
+
+    if (SHOULD_RUN_ONLY_BACKGROUND_SELF_WAKE_PROBE) {
+      const selfWakeHooks = await runScenario('background-self-wake', () => submit(BACKGROUND_SELF_WAKE_PROBE_PROMPT), pressEnter, BACKGROUND_SELF_WAKE_SETTLE_MS);
+      check('the background task launch reached PostToolUse', selfWakeHooks.some((hook) => hook.event.toLowerCase() === 'posttooluse' && hook.payload?.tool_name === 'Bash'));
       return;
     }
 
