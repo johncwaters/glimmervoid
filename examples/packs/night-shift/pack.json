@@ -1,0 +1,42 @@
+{
+  "$schema": "https://glimmervoid.dev/schema/pack.v1.json",
+  "name": "night-shift",
+  "version": 1,
+  "description": "Themes only: a deep dark theme and a warm light one for the Theme picker.",
+  "ui": {
+    "themes": [
+      {
+        "id": "night-shift",
+        "label": "Night Shift",
+        "mode": "dark",
+        "accentAnsiSlot": "magenta",
+        "chrome": {
+          "bg": "#05060a", "bg-card": "#0a0c12", "bg-header": "#080a10", "bg-surface": "#10131c",
+          "border": "#1c2130", "border-dim": "#141824", "border-hover": "#2a3146",
+          "text": "#c4c9d8", "text-dim": "#7a8299", "text-head": "#e8ebf4", "text-muted": "#8a91a6",
+          "accent": "#8b7bff", "accent-dim": "#5b4bd6"
+        },
+        "states": {
+          "running": "#22c55e", "waiting": "#f59e0b", "failed": "#ef4444", "monitoring": "#22d3ee", "done": "#60a5fa",
+          "initializing": "#8f8f8c", "idle": "#facc15", "starting": "#a78bfa", "complete": "#2dd4bf"
+        }
+      },
+      {
+        "id": "paper",
+        "label": "Paper",
+        "mode": "light",
+        "accentAnsiSlot": "blue",
+        "chrome": {
+          "bg": "#f6f1e7", "bg-card": "#fffaf0", "bg-header": "#efe7d8", "bg-surface": "#e9e0cf",
+          "border": "#d6cbb5", "border-dim": "#e2d8c4", "border-hover": "#b9ab90",
+          "text": "#2b2620", "text-dim": "#5e5548", "text-head": "#16130f", "text-muted": "#6f6555",
+          "accent": "#1f5fbf", "accent-dim": "#174a96"
+        },
+        "states": {
+          "running": "#15803d", "waiting": "#b45309", "failed": "#b91c1c", "monitoring": "#0e7490", "done": "#1d4ed8",
+          "initializing": "#6b6b68", "idle": "#a16207", "starting": "#6d28d9", "complete": "#0f766e"
+        }
+      }
+    ]
+  }
+}

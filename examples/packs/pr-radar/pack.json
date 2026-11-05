@@ -1,0 +1,17 @@
+{
+  "$schema": "https://glimmervoid.dev/schema/pack.v1.json",
+  "name": "pr-radar",
+  "version": 1,
+  "description": "A panel of your open pull requests and the team reviews waiting on you, plus a My PRs action that prints a review checklist from a script in the pack.",
+  "requires": { "programs": ["node"] },
+  "ui": {
+    "panels": [
+      { "id": "radar", "label": "PR radar", "entry": "panel/index.html", "icon": "icon.svg", "reads": ["my-prs", "team-reviews", "theme"] }
+    ]
+  },
+  "prFlows": {
+    "prActions": [
+      { "id": "checklist", "label": "Review checklist", "command": ["node", "{packDir}/review-checklist.mjs", "{prUrl}", "{headRef}", "{baseRef}"], "timeoutSeconds": 30 }
+    ]
+  }
+}

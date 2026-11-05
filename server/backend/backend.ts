@@ -20,6 +20,7 @@ import { createChangeMapService, joinSessionRegistries } from '../change-map/cha
 import { createRemoteSetupWiring } from '../remote-setup-wiring.ts';
 import type { AgentApiPort } from '../agent-api-wiring.ts';
 import { configFileViewOf, readSettingsForAgent } from '../core/settings-readout-core.ts';
+import { readPacksForAgent } from '../packs/pack-agent.ts';
 import { createBackendWebSockets } from './backend-websockets.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
 import { createBackendShutdown } from './backend-shutdown.ts';
@@ -52,7 +53,7 @@ import { trackedReportCleanupCommands } from '../../shared/post-turn-leftovers.t
 import type { RepositoryTrackingReports } from '../../shared/post-turn-leftovers.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { chooseRefinedSessionName } from '../../session/core/task-title-core.ts';
-import { assetRoot, bundled, packageRoot } from '../runtime-paths.ts';
+import { assetRoot, bundled, examplePacksDir, packageRoot } from '../runtime-paths.ts';
 import { createAccountIdReader, createTelemetry } from '../telemetry.ts';
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
 import { createShownFilesWiring, SHOWN_FOLDER_NAME } from '../session/shown-files-wiring.ts';
@@ -349,6 +350,10 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       teamReviewStatus: () => teamReview.getStatus(),
       myPrsStatus: () => myPrs.getStatus(),
       readSettings: (request) => readSettingsForAgent(request, configFileViewOf(configStore.configPath, config, process.env, configStore.isExperimentalBuild)),
+      readPacks: (request) => readPacksForAgent(request, {
+        homeDir: glimmervoidHomeDir(), env: process.env, examplePacksDir,
+        packRows: () => laneAssembly.packStore.statusFrame().packs, isApproved: (fingerprint) => laneAssembly.packStore.isApproved(fingerprint),
+      }),
     },
     whiteboards,
     lookupWhy: (request) => lookupWhy({ ...request, configPath: configStore.configPath }),

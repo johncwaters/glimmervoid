@@ -26,6 +26,7 @@ type PackStore = EventEmitter & {
   servableFile(packName: string, accessKey: string, filePath: string): Buffer | null;
   approvedPacks(): Promise<ApprovedPacks>;
   approve(fingerprint: string): Promise<PackApproveResult>;
+  isApproved(fingerprint: string): boolean;
 };
 
 export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs = PACK_RELOAD_DEBOUNCE_MS }: {
@@ -251,5 +252,5 @@ export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs
     emitter.removeAllListeners();
   }
 
-  return Object.assign(emitter, { start, stop, setListedPaths, statusFrame, servableFile, approvedPacks, approve });
+  return Object.assign(emitter, { start, stop, setListedPaths, statusFrame, servableFile, approvedPacks, approve, isApproved: (fingerprint: string) => approvedFingerprints.has(fingerprint) });
 }

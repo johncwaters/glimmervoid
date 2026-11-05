@@ -185,6 +185,10 @@
     {
       "name": "secretive",
       "definition": "Secretive, a macOS app that keeps SSH keys in the Secure Enclave and serves them through its own agent socket, one of the agent app sockets the commit signer tries"
+    },
+    {
+      "name": "pack",
+      "definition": "A folder with a pack.json that adds PR flows, color themes or sandboxed HTML panels to Glimmervoid once the operator approves it in Settings, Packs"
     }
   ]
 }

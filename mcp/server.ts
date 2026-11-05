@@ -82,6 +82,10 @@ const PRESENTERS: Readonly<Record<Presenter, (target: CallTarget, verb: AgentApi
   'spawn-reply': reshapedReply(spawnReplyForMcp),
   'board-without-command-guide': reshapedReply(boardReplyWithoutCommandGuide),
   'settings-list': reshapedReply(settingsListForMcp),
+  'reply-text': async ({ session, agentApi }, verb, payload) => {
+    const reply = await agentApi.handle(session, verb, payload);
+    return reply.body.ok === true && typeof reply.body.text === 'string' ? { content: [{ type: 'text', text: reply.body.text }] } : reply;
+  },
 };
 
 function toolResultOf(presented: PresentedReply) {

@@ -1,0 +1,12 @@
+:root { color-scheme: dark light; }
+body { margin: 0; padding: 20px 24px; background: var(--bg, #0b0c10); color: var(--text, #d6d8e0); font: 14px/1.45 system-ui, sans-serif; }
+h1 { margin: 0 0 4px; font-size: 18px; color: var(--text-head, #f2f3f7); }
+.summary { margin: 0 0 16px; color: var(--text-dim, #9aa0b2); }
+.sessions { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+.session { padding: 10px 12px; border: 1px solid var(--border, #2a2e3a); border-radius: 8px; background: var(--bg-card, #12141a); }
+.session.focused { border-color: var(--accent, #8b7bff); }
+.name { font-weight: 600; color: var(--text-head, #f2f3f7); }
+.task { color: var(--text-dim, #9aa0b2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.state { display: inline-block; margin-top: 6px; font-size: 12px; text-transform: lowercase; }
+.state::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: currentColor; }
+.empty { color: var(--text-muted, #8a8f9e); }

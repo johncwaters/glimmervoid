@@ -68,6 +68,7 @@ Inside a Glimmervoid session:
   reviews [pr]        List the Reviews tab: reviews running, queued and drafted; with a pull request, read its draft in full. Use it to follow a queued review or read its draft
   prs                 List the operator's open pull requests with their checks, reviews and merge state. Use it to find which of the operator's pull requests need work
   link-pr <pr>        Link a pull request to this session's card. Use it after opening a pull request for this session's work
+  packs guide|check|list Read how to build a pack (its schema, the panel bridge and example packs to copy), check a pack folder, or list the packs installed here. Use it before writing or changing a Glimmervoid pack, and to check one before asking the operator to approve it
   settings list|get   Read Glimmervoid's settings; a secret shows only as configured or not. Use it instead of reading config.json
   why <file>:<line>   Name the session, agent, task and prompt that made the commit owning a line (or pass a commit sha). Use it before changing code another session wrote, to learn what that session was asked
   whiteboard new|list|connect|disconnect|get|put|render|resolve|delete|plan Create, connect to, read, edit, plan on and delete a shared whiteboard the operator and connected sessions edit together. Use it to plan or explain a design with the operator or other sessions

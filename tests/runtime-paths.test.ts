@@ -21,6 +21,7 @@ test('a bundled install resolves the same assets as .js under dist', () => {
   assert.equal(paths.bundled, true);
   assert.equal(paths.assetRoot, path.join(PACKAGE_ROOT, 'dist'));
   assert.equal(paths.cliPath, path.join(PACKAGE_ROOT, 'dist', 'bin', 'glimmervoid.js'));
+  assert.equal(paths.examplePacksDir, path.join(PACKAGE_ROOT, 'dist', 'examples', 'packs'));
   assert.equal(paths.relayPath('hook-relay'), path.join(PACKAGE_ROOT, 'dist', 'session', 'hook-relay.js'));
 });
 

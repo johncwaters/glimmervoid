@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import {
-  AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPullRequestRequest, AgentSettingsRequest, AgentSpawnRequest, AgentWhyRequest,
+  AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPacksRequest, AgentPullRequestRequest, AgentSettingsRequest, AgentSpawnRequest, AgentWhyRequest,
 } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb } from '../../shared/contracts/session.ts';
 import { Op } from '../../shared/contracts/whiteboard.ts';
@@ -14,7 +14,7 @@ interface CallContext {
   ownsSpawnedSessions: boolean;
 }
 
-type Presenter = 'agent-reply' | 'show-by-path' | 'board-with-reading' | 'board-picture' | 'spawn-reply' | 'board-without-command-guide' | 'settings-list';
+type Presenter = 'agent-reply' | 'show-by-path' | 'board-with-reading' | 'board-picture' | 'spawn-reply' | 'board-without-command-guide' | 'settings-list' | 'reply-text';
 
 type ActionHints = { readOnly: boolean; destructive: boolean; idempotent: boolean; openWorld: boolean };
 
@@ -211,6 +211,19 @@ const SETTINGS_TOOL: GroupedTool = {
   },
 };
 
+const PACKS_TOOL: GroupedTool = {
+  name: 'packs',
+  title: 'Glimmervoid packs',
+  description: 'Build Glimmervoid packs: folders that add color themes, sandboxed HTML dashboard panels and My PRs commands. guide returns how packs work, the pack.json and panel bridge JSON Schemas and example packs to copy; read it before writing a pack. check validates a pack folder and lists what it adds; list names the packs installed here and their approval state. Only the operator approves a pack, in Settings, Packs.',
+  loadsUpfront: false,
+  fields: { path: AgentPacksRequest.shape.path.describe('check: the pack folder, absolute or relative to this session\'s directory') },
+  actions: {
+    guide: { verb: 'packs', presenter: 'reply-text', required: [], accepts: [], hints: READS, toPayload: () => ({ command: 'guide' }) },
+    check: { verb: 'packs', presenter: 'reply-text', required: ['path'], accepts: ['path'], hints: READS, toPayload: (toolArguments) => ({ command: 'check', ...definedEntries(toolArguments, ['path']) }) },
+    list: { verb: 'packs', presenter: 'reply-text', required: [], accepts: [], hints: READS, toPayload: () => ({ command: 'list' }) },
+  },
+};
+
 const WHY_TOOL: GroupedTool = {
   name: 'why',
   title: 'Glimmervoid why',
@@ -220,7 +233,7 @@ const WHY_TOOL: GroupedTool = {
   actions: { why: routeTo('why', ['target'], { required: ['target'], hints: READS }) },
 };
 
-const GROUPED_TOOLS: readonly GroupedTool[] = Object.freeze([SESSION_TOOL, WHITEBOARD_TOOL, REVIEW_TOOL, SHOW_TOOL, PUSH_TOOL, ATTENTION_TOOL, SETTINGS_TOOL, WHY_TOOL]);
+const GROUPED_TOOLS: readonly GroupedTool[] = Object.freeze([SESSION_TOOL, WHITEBOARD_TOOL, REVIEW_TOOL, SHOW_TOOL, PUSH_TOOL, ATTENTION_TOOL, SETTINGS_TOOL, PACKS_TOOL, WHY_TOOL]);
 
 function allowedActionNames(tool: GroupedTool, isVerbAllowed: (verb: AgentApiVerb) => boolean): string[] {
   return Object.entries(tool.actions).filter(([, route]) => isVerbAllowed(route.verb)).map(([actionName]) => actionName);
