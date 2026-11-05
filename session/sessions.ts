@@ -1309,8 +1309,7 @@ class Session extends EventEmitter {
 
   pasteTextWhenReady(text: string, { timeoutMs = 120000, submit = false }: { timeoutMs?: number; submit?: boolean } = {}) {
     const pastableText = text.replaceAll(PASTE_BREAKING_CONTROL_BYTES, "");
-    const settleMs = this._can("ptyInitialPrompt") ? PTY_PROMPT_SETTLE_MS : 0;
-    return this._output.pasteTextWhenReady(pastableText, { timeoutMs, settleMs, submitDelayMs: submit ? PTY_PROMPT_SUBMIT_DELAY_MS : null });
+    return this._output.pasteTextWhenReady(pastableText, { timeoutMs, settleMs: PTY_PROMPT_SETTLE_MS, submitDelayMs: submit ? PTY_PROMPT_SUBMIT_DELAY_MS : null });
   }
 
   hasPendingPaste(): boolean { return this._output.hasPendingPaste(); }

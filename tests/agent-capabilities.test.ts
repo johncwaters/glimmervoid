@@ -179,31 +179,36 @@ test('a kimi session in a fresh folder starts pre-trusted and gets its initial p
   assert.deepEqual(writes, ['\x1b[200~First kimi task[201~/auto\x1b[201~', '\r']);
 });
 
-test('a prompt pasted into a kimi session waits for its input box to settle, so a race prompt is not lost at first ready, while a session already ready takes a paste at once', async (t) => {
-  const kimiHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-kimi-paste-'));
-  t.after(() => fsp.rm(kimiHome, { recursive: true, force: true }));
-  const writes: string[] = [];
-  const session = new Session({
-    id: 'kimi-paste-settle', name: 'kimi-paste-settle', path: process.cwd(), agent: 'kimi',
-    spawnCommand: { path: process.execPath, kind: 'exe' },
-    spawnEnv: { KIMI_CODE_HOME: kimiHome },
-    ptySpawn: () => capturingPty(writes),
+for (const agent of ['kimi', 'claude-code']) {
+  test(`a prompt pasted into a starting ${agent} session waits for its input box to settle and stays pending meanwhile, so a race prompt is not lost or overtaken at first ready, while a session already ready takes a paste at once`, async (t) => {
+    const agentHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-paste-settle-'));
+    t.after(() => fsp.rm(agentHome, { recursive: true, force: true }));
+    const writes: string[] = [];
+    const session = new Session({
+      id: `${agent}-paste-settle`, name: `${agent}-paste-settle`, path: process.cwd(), agent,
+      spawnCommand: { path: process.execPath, kind: 'exe' },
+      spawnEnv: { KIMI_CODE_HOME: agentHome },
+      ptySpawn: () => capturingPty(writes),
+    });
+    try {
+      await session.start();
+      assert.equal(session.pasteTextWhenReady('Race task', { submit: true }).ok, true);
+      session.transition('first_output');
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const writesBeforeSettle = [...writes];
+      const isPendingDuringSettle = session.hasPendingPaste();
+      await new Promise((resolve) => setTimeout(resolve, 2200));
+      assert.deepEqual(writesBeforeSettle, []);
+      assert.equal(isPendingDuringSettle, true);
+      assert.equal(session.hasPendingPaste(), false);
+      assert.deepEqual(writes, ['\x1b[200~Race task\x1b[201~', '\r']);
+      assert.deepEqual(session.pasteTextWhenReady('Fix it'), { ok: true });
+      assert.equal(writes[2], '\x1b[200~Fix it\x1b[201~');
+    } finally {
+      session.destroy();
+    }
   });
-  try {
-    await session.start();
-    assert.equal(session.pasteTextWhenReady('Race task', { submit: true }).ok, true);
-    session.transition('first_output');
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    const writesBeforeSettle = [...writes];
-    await new Promise((resolve) => setTimeout(resolve, 2200));
-    assert.deepEqual(writesBeforeSettle, []);
-    assert.deepEqual(writes, ['\x1b[200~Race task\x1b[201~', '\r']);
-    assert.deepEqual(session.pasteTextWhenReady('Fix it'), { ok: true });
-    assert.equal(writes[2], '\x1b[200~Fix it\x1b[201~');
-  } finally {
-    session.destroy();
-  }
-});
+}
 
 test('a claude prompt after a variadic flag such as --disallowedTools stays the prompt instead of becoming one more rule', () => {
   const prompt = 'Review this pull request';

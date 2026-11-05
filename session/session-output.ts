@@ -107,12 +107,16 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
     return pasted;
   }
 
-  function deliverPaste(text: string, settleMs: number, submitDelayMs: number | null): PasteResult {
-    if (settleMs <= 0) return pasteAndSubmit(text, submitDelayMs);
-    setTimeout(() => {
+  function holdPasteUntilSettled(text: string, settleMs: number, submitDelayMs: number | null): void {
+    if (!pendingPaste) return;
+    options.off("state-change", pendingPaste.onStateChange);
+    clearTimeout(pendingPaste.timer);
+    const settleTimer = setTimeout(() => {
+      clearPendingPaste();
       if (!options.isDestroyed()) pasteAndSubmit(text, submitDelayMs);
-    }, settleMs).unref();
-    return { ok: true, deferred: true };
+    }, settleMs);
+    settleTimer.unref();
+    pendingPaste = { ...pendingPaste, timer: settleTimer };
   }
 
   function pasteTextWhenReady(text: string, { timeoutMs = 120000, settleMs = 0, submitDelayMs = null }: PasteWhenReadyOptions = {}): PasteResult {
@@ -122,8 +126,12 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
     clearPendingPaste();
     const onStateChange = ({ to }: StateChange): void => {
       if (!PASTE_READY_STATES.has(to)) return;
+      if (settleMs > 0) {
+        holdPasteUntilSettled(text, settleMs, submitDelayMs);
+        return;
+      }
       clearPendingPaste();
-      deliverPaste(text, settleMs, submitDelayMs);
+      pasteAndSubmit(text, submitDelayMs);
     };
     const onExit = (): void => clearPendingPaste();
     const timer = setTimeout(() => clearPendingPaste(), timeoutMs);
