@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { GH_SEGMENT } from '../github-ids.ts';
+import { WHITEBOARD_LIMITS } from '../whiteboard.ts';
 import { PLAN_BODY_CAP_BYTES, PLAN_COMMENTS_MAX, PLAN_COMMENT_MAX_CHARS, PLAN_FEEDBACK_MAX_CHARS } from '../plan-review.ts';
 import { SESSION_DOC_PATH_MAX_CHARS, SessionState, TaskTitle, UnseenOutcome } from '../session.ts';
 import { UpdateChannel, UpdateJournalSummary } from '../update-journal.ts';
@@ -131,7 +132,7 @@ export type SessionStatusFields = z.infer<typeof SessionStatusFields>;
 
 export const CONTROL_FRAME_ENVELOPE_BYTES = 4096;
 export const CONTROL_FRAME_MAX_BYTES = CONTROL_FRAME_ENVELOPE_BYTES
-  + 2 * (PLAN_BODY_CAP_BYTES + PLAN_FEEDBACK_MAX_CHARS + 2 * PLAN_COMMENTS_MAX * PLAN_COMMENT_MAX_CHARS);
+  + Math.max(2 * (PLAN_BODY_CAP_BYTES + PLAN_FEEDBACK_MAX_CHARS + 2 * PLAN_COMMENTS_MAX * PLAN_COMMENT_MAX_CHARS), WHITEBOARD_LIMITS.putBytes);
 
 export const UpdateApplyRefusal = z.object({ reason: z.string(), message: z.string() });
 export type UpdateApplyRefusal = z.infer<typeof UpdateApplyRefusal>;

@@ -534,14 +534,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const changes = draggedBoxFields(drag);
     const board = options.currentBoard();
     if (board) renderer.render(withBoxFields(board, changes));
-    const ops: Op[] = changes.map(({ boxId, fields }) => ({ op: 'set', id: boxId, fields }));
-    for (let firstIndex = 0; firstIndex < ops.length; firstIndex += WHITEBOARD_LIMITS.opsPerPut) {
-      const isSent = await options.sendOps(ops.slice(firstIndex, firstIndex + WHITEBOARD_LIMITS.opsPerPut));
-      if (!isSent) {
-        paintPreview();
-        return;
-      }
-    }
+    const isSent = await options.sendOps(changes.map(({ boxId, fields }) => ({ op: 'set', id: boxId, fields })));
+    if (!isSent) paintPreview();
   }
 
   function onPointerUp(event: PointerEvent): void {

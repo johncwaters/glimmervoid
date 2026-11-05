@@ -177,7 +177,7 @@ test('a malformed or over-limit put is refused whole with a reason and the board
   const tooMany = Array.from({ length: WHITEBOARD_LIMITS.opsPerPut + 1 }, (_, index) => ({ op: 'add', element: { kind: 'box', id: `b${index}`, title: 'Box', column: 'intake' } }));
   const overLimit = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: tooMany });
   assert.equal(overLimit.status, 400);
-  assert.match(String(overLimit.body.error), /at most 200 ops/);
+  assert.match(String(overLimit.body.error), new RegExp(`at most ${WHITEBOARD_LIMITS.opsPerPut} ops`));
 
   const forgedNote = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
     { op: 'add', element: { kind: 'box', id: 'target', title: 'Target', column: 'intake' } },
@@ -205,10 +205,11 @@ test('a put larger than other agent requests but inside the put limit lands, and
     op: 'add', element: { kind: 'box', id: `${prefix}${index}`, title: 'Box', column: 'intake', lines: Array.from({ length: WHITEBOARD_LIMITS.linesPerBox }, () => line) },
   }));
 
-  const inside = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: boxesOf(100, 'a') });
+  const bytesPerOp = Buffer.byteLength(JSON.stringify(Op.array().parse(boxesOf(1, 'a0000'))));
+  const inside = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: boxesOf(Math.floor(WHITEBOARD_LIMITS.putBytes / bytesPerOp) - 1, 'a') });
   assert.equal(inside.status, 200);
 
-  const past = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: boxesOf(200, 'b') });
+  const past = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: boxesOf(Math.ceil(WHITEBOARD_LIMITS.putBytes / bytesPerOp) + 1, 'b') });
   assert.equal(past.status, 413);
   assert.match(String(past.body.error), /nothing changed/);
 });
