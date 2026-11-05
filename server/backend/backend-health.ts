@@ -12,6 +12,8 @@ interface BackendHealthDependencies {
   sessionDataClients: Map<string, Map<WebSocket, unknown>>;
   getMemoryGateStatus: () => MemoryGateStatus;
   controlWss: { clients: Set<WebSocket> };
+  viewerControlClientCount: () => number;
+  hubControlClientCount: () => number;
   dataWss: { clients: Set<WebSocket> };
   broadcastControl: ControlBroadcast;
 }
@@ -79,6 +81,7 @@ function createBackendHealth(dependencies: BackendHealthDependencies): BackendHe
       memoryGate: dependencies.getMemoryGateStatus(),
       websockets: {
         control: dependencies.controlWss.clients.size,
+        hubControl: dependencies.hubControlClientCount(),
         data: dependencies.dataWss.clients.size,
         dataPerSessionTotal: dataClientTotal,
       },
@@ -92,7 +95,7 @@ function createBackendHealth(dependencies: BackendHealthDependencies): BackendHe
         dependencies.broadcastControl({ type: 'session-git', id, worktree: !!session.isWorktree });
       }
     }
-    if (dependencies.controlWss.clients.size === 0) return;
+    if (dependencies.viewerControlClientCount() === 0) return;
     dependencies.broadcastControl({ type: 'health-snapshot', stats: buildHealthSnapshot() });
   }, HEALTH_SNAPSHOT_INTERVAL_MS);
   healthInterval.unref();

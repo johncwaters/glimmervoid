@@ -26,6 +26,9 @@ type ControlSocket = WebSocket & { glimmervoidTrust?: RequestTrust };
 
 type UpgradeSocket = Duplex & { localPort?: number };
 
+const HUB_ROLE_HEADER = 'x-glimmervoid-role';
+const HUB_ROLE = 'hub';
+
 interface ViewerSizeRecord {
   cols: number;
   rows: number;
@@ -50,6 +53,10 @@ interface BackendWebSockets {
   controlReplayLog: ReplayLog;
   sessionDataClients: Map<string, Map<WebSocket, ViewerSizeRecord | null>>;
   broadcastControl: ControlBroadcast;
+  viewerControlClientCount(): number;
+  isViewerConnected(): boolean;
+  isHubControlSocket(socket: WebSocket): boolean;
+  hubControlClientCount(): number;
   closeSessionDataClients(sessionId: string): void;
   attachDataConnection(): void;
   handleUpgrade(request: IncomingMessage, socket: UpgradeSocket, head: Buffer): void;
@@ -96,6 +103,7 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
   } = dependencies;
   const controlWss = new WebSocketServer({ noServer: true, maxPayload: CONTROL_FRAME_MAX_BYTES, perMessageDeflate: true });
   const dataWss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024, perMessageDeflate: true });
+  const hubControlSockets = new Set<WebSocket>();
   controlWss.on('connection', (socket) => {
     recordOutcome('controlWsOpened');
     socket.on('close', () => recordOutcome('controlWsClosed'));
@@ -116,6 +124,14 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
     for (const client of controlClients()) {
       sendControlFrame(client, payload, frameType(stamped), logger);
     }
+  }
+
+  function viewerControlClientCount(): number {
+    return controlWss.clients.size - hubControlSockets.size;
+  }
+
+  function isViewerConnected(): boolean {
+    return [...controlWss.clients].some((client) => client.readyState === 1 && !hubControlSockets.has(client));
   }
 
   function closeSessionDataClients(sessionId: string): void {
@@ -349,8 +365,13 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
     }
 
     if (route === 'control') {
+      const isHubRole = trust === 'local' && request.headers[HUB_ROLE_HEADER] === HUB_ROLE;
       controlWss.handleUpgrade(request, socket, head, (webSocket) => {
         (webSocket as ControlSocket).glimmervoidTrust = trust;
+        if (isHubRole) {
+          hubControlSockets.add(webSocket);
+          webSocket.once('close', () => hubControlSockets.delete(webSocket));
+        }
         controlWss.emit('connection', webSocket, request);
       });
       return;
@@ -366,6 +387,10 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
     controlReplayLog,
     sessionDataClients,
     broadcastControl,
+    viewerControlClientCount,
+    isViewerConnected,
+    isHubControlSocket: (socket) => hubControlSockets.has(socket),
+    hubControlClientCount: () => hubControlSockets.size,
     closeSessionDataClients,
     attachDataConnection,
     handleUpgrade,
