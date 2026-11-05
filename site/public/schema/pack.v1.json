@@ -51,6 +51,15 @@
     "prFlows": {
       "type": "object",
       "properties": {
+        "repos": {
+          "description": "The default owner/name repositories for every prAction and rule of this pack that lists no repos of its own; every repository when absent",
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+$"
+          }
+        },
         "prActions": {
           "default": [],
           "type": "array",
@@ -81,6 +90,7 @@
                 "maximum": 3600
               },
               "repos": {
+                "description": "The owner/name repositories this applies to; every repository when absent",
                 "minItems": 1,
                 "type": "array",
                 "items": {
@@ -223,6 +233,15 @@
                   "team",
                   "both"
                 ]
+              },
+              "repos": {
+                "description": "The owner/name repositories this applies to; every repository when absent",
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+$"
+                }
               },
               "action": {
                 "anyOf": [

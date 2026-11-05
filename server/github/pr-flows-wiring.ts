@@ -4,7 +4,7 @@ import { PR_ACTION_REPORT_URL_ENV, PR_ACTION_TOKEN_ENV, PrFlowRule, PrFlowsState
 import type { PrActionReportBody, PrActionRunRecord, PrActionRunRequest, PrActionRunView, PrFlowPrAction, PrFlowActionChoice, PrFlowActionOutput, PrFlowActionRunStatus, PrFlowApproveRequest, PrFlowCommand, PrFlowDisposeRequest, PrFlowDisposeResult, PrFlowItem, PrFlowItemRequest, PrFlowPendingApproval, PrFlowSaveRuleRequest, PrFlowSourceOutput, PrFlowSourceRunStatus, PrFlowsStatus } from '../../shared/contracts/pr-flows.ts';
 import { createJsonStateStore } from '../json-file.ts';
 import { fencedUntrusted } from '../lanes/core/lane-report-core.ts';
-import { acceptReport, branchMovedNote, commandFingerprint, prActionRunAfterExit, prActionsForRepo, prFlowSetup, visibleRun, withInterruptedRuns, withPrActionRun, fixLocallyPrompt, itemLocation, mergeItems, plannedActions, prFlowRules, savedRuleFor, shouldTellBranchMoved, withRuleRun, sourceCandidates, threadCandidates, unknownActionWarnings, withHandled, withOnlyOpenPrs, withReopened } from './core/pr-flows-core.ts';
+import { acceptReport, branchMovedNote, commandFingerprint, prActionRunAfterExit, prFlowSetup, visibleRun, withInterruptedRuns, withPrActionRun, fixLocallyPrompt, itemLocation, mergeItems, plannedActions, prFlowRules, savedRuleFor, scopedToRepo, shouldTellBranchMoved, withRuleRun, sourceCandidates, threadCandidates, unknownActionWarnings, withHandled, withOnlyOpenPrs, withReopened } from './core/pr-flows-core.ts';
 import type { PrFlowsExternal } from './pr-flows-external.ts';
 import type { PackOnDisk } from '../../shared/contracts/pack.ts';
 
@@ -81,7 +81,7 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
     const prActionsByPr: Record<string, PrFlowActionChoice[]> = {};
     const prActionRunsByPr: Record<string, PrActionRunView[]> = {};
     for (const pr of openPrs()) {
-      const prActionChoices = prActionsForRepo(approvedPrActions, pr.repo).map(({ id, label }) => ({ id, label }));
+      const prActionChoices = scopedToRepo(approvedPrActions, pr.repo).map(({ id, label }) => ({ id, label }));
       if (prActionChoices.length > 0) prActionsByPr[pr.key] = prActionChoices;
       const prActionRuns = Object.values(state.prActionRunByPr[pr.key] ?? {}).flatMap((run) => visibleRun(run, pr) ?? []);
       if (prActionRuns.length > 0) prActionRunsByPr[pr.key] = prActionRuns;
@@ -204,7 +204,7 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
     const pr = openPrs().find((candidate) => candidate.repo.toLowerCase() === request.repo.toLowerCase() && candidate.number === request.number);
     if (!pr) return { ok: false, error: 'That pull request is no longer open.' };
     if (pr.headRefOid !== request.head) return { ok: false, error: 'The pull request has a new head since this view loaded; check it and click again.' };
-    const action = prActionsForRepo(setup.commands.prActions, pr.repo).find((candidate) => candidate.id === request.actionId && setup.approved.has(commandFingerprint('pr-action', candidate)));
+    const action = scopedToRepo(setup.commands.prActions, pr.repo).find((candidate) => candidate.id === request.actionId && setup.approved.has(commandFingerprint('pr-action', candidate)));
     if (!action) return { ok: false, error: 'That action is not in prFlows.prActions for this repository, or it waits for your approval in My PRs.' };
     if (state.prActionRunByPr[pr.key]?.[action.id]?.state === 'running') return { ok: false, error: `${action.label} is already running on this pull request.` };
     const runId = crypto.randomUUID();
@@ -288,7 +288,7 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
   async function saveRule(request: PrFlowSaveRuleRequest): Promise<PrFlowDisposeResult> {
     const found = findItem(request);
     if (!found) return { ok: false, error: 'That review item is no longer open on this pull request.' };
-    const rule = PrFlowRule.safeParse(savedRuleFor(found.item, request.reason));
+    const rule = PrFlowRule.safeParse(savedRuleFor(found.item, found.pr.repo, request.reason));
     if (!rule.success) return { ok: false, error: `Could not build a rule for this item: ${rule.error.issues[0]?.message ?? 'invalid rule'}` };
     const isSaved = await appendRule(rule.data);
     return isSaved ? { ok: true } : { ok: false, error: 'Could not save the rule to config.json.' };
@@ -376,12 +376,14 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
     approvedPrActions = commands.prActions.filter((action) => approved.has(commandFingerprint('pr-action', action)));
     runnableActions = commands.actions.filter((action) => approved.has(commandFingerprint('action', action))).map(({ id, label }) => ({ id, label }));
     const runnableActionIds = new Set(runnableActions.map((action) => action.id));
+    const { rules: personalRules, warnings: ruleWarnings } = prFlowRules(configFile);
+    const allRules = [...personalRules, ...setup.packRules];
+    for (const warning of ruleWarnings) nextWarnings.add(warning);
     for (const pr of prs) {
       startDueSources(pr, commands.sources, approved);
       tellBranchMoved(pr);
-      const { rules: personalRules, warnings: ruleWarnings } = prFlowRules(configFile, pr.repo);
-      const rules = [...personalRules, ...setup.packRules];
-      for (const warning of [...ruleWarnings, ...unknownActionWarnings(rules, new Set(commands.actions.map((action) => action.id)))]) nextWarnings.add(warning);
+      const rules = scopedToRepo(allRules, pr.repo);
+      for (const warning of unknownActionWarnings(rules, new Set(commands.actions.map((action) => action.id)))) nextWarnings.add(warning);
       for (const planned of plannedActions(pr.key, reviewItemsFor(pr), rules, state, runnableActionIds)) {
         if (planned.action.startsWith('run:') && hasActionRunAtHead(pr, planned.item.key, planned.action)) continue;
         const request = { prKey: pr.key, itemKey: planned.item.key, action: planned.action, ...(planned.rule.reason === undefined ? {} : { reason: planned.rule.reason }) };

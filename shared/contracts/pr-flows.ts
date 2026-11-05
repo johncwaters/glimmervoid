@@ -28,6 +28,9 @@ export const PrFlowActionRef = z.union([
 ], { error: 'a pr flows rule action must be ask, fix-local, dismiss or run:<action id>' });
 export type PrFlowActionRef = z.infer<typeof PrFlowActionRef>;
 
+const RepositoryName = z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, { error: 'a repository is owner/name' });
+export const RepoScope = z.array(RepositoryName).min(1).optional().describe('The owner/name repositories this applies to; every repository when absent');
+
 export const PrFlowRule = z.strictObject({
   name: z.string({ error: 'a pr flows rule needs a name' }).trim().min(1, { error: 'a pr flows rule needs a name' }).max(80, { error: 'a pr flows rule name must be at most 80 characters' }).regex(/\S/, { error: 'a pr flows rule needs a name' }),
   source: z.string().min(1).optional(),
@@ -35,6 +38,7 @@ export const PrFlowRule = z.strictObject({
   paths: z.array(z.string().min(1)).min(1).optional(),
   text: z.string().min(1).optional(),
   scope: z.enum(['mine', 'team', 'both']).default('mine'),
+  repos: RepoScope,
   action: PrFlowActionRef,
   reason: z.string().trim().min(1).max(2000).optional(),
 }).refine((rule) => rule.action !== 'dismiss' || rule.reason !== undefined, { message: 'a dismiss rule needs a reason', path: ['reason'] });
@@ -58,9 +62,7 @@ export const PrFlowCommand = z.strictObject({
 });
 export type PrFlowCommand = z.infer<typeof PrFlowCommand>;
 
-const RepositoryName = z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, { error: 'a repository is owner/name' });
-
-export const PrFlowPrAction = PrFlowCommand.extend({ repos: z.array(RepositoryName).min(1).optional() });
+export const PrFlowPrAction = PrFlowCommand.extend({ repos: RepoScope });
 export type PrFlowPrAction = z.infer<typeof PrFlowPrAction>;
 
 export const PrFlowSourceFinding = z.strictObject({
