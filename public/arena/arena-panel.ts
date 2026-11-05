@@ -107,7 +107,7 @@ function openPickWinnerDialog(race: RaceRecord, winner: RaceContestant): void {
   const notesBox = el('input');
   notesBox.type = 'checkbox';
   if (notes) {
-    const notesField = el('label', 'arena-judge');
+    const notesField = el('label', 'dialog-checkbox-label');
     notesField.append(notesBox, el('span', null, "Also send it the judge's notes"));
     dialog.append(notesField, el('pre', 'arena-diff', notes));
   }
@@ -185,7 +185,7 @@ function renderRaces(): void {
 }
 
 function buildSelect(choices: readonly { value: string; label: string }[], selected: string | null, onChange: (value: string) => void, ariaLabel: string): HTMLSelectElement {
-  const select = el('select', 'arena-select');
+  const select = el('select', 'settings-view-input arena-select');
   select.setAttribute('aria-label', ariaLabel);
   for (const choice of choices) {
     const option = el('option', null, choice.label);
@@ -222,7 +222,7 @@ function draftSpec(): Record<string, unknown> {
 function textField(label: string, value: string, onInput: (value: string) => void, isMultiline = false): HTMLElement {
   const field = el('label', 'arena-field');
   field.append(el('span', 'arena-field-label', label));
-  const input = isMultiline ? el('textarea', 'arena-input arena-prompt') : el('input', 'arena-input');
+  const input = isMultiline ? el('textarea', 'settings-view-input arena-prompt') : el('input', 'settings-view-input');
   input.value = value;
   input.addEventListener('input', () => onInput(input.value));
   field.append(input);
@@ -242,8 +242,9 @@ function buildLineupEditor(onChanged: () => void): HTMLElement {
       draft.contestants = relabel(draft.contestants.map((existing, position) => (position === index ? { ...existing, setup: next } : existing)));
       onChanged();
     }));
-    const instructions = el('textarea', 'arena-input arena-instructions');
+    const instructions = el('textarea', 'settings-view-input');
     instructions.placeholder = 'Extra instructions for this contestant';
+    instructions.rows = 3;
     instructions.value = contestant.setup.instructions;
     instructions.addEventListener('input', () => {
       draft.contestants = draft.contestants.map((existing, position) => (position === index ? { ...existing, setup: { ...existing.setup, instructions: instructions.value } } : existing));
@@ -266,7 +267,7 @@ function buildVaryBuilder(onChanged: () => void): HTMLElement {
   const paintChoices = () => {
     choicesEl.replaceChildren();
     for (const choice of varyChoices(catalog, base, setting)) {
-      const option = el('label', 'arena-vary-choice');
+      const option = el('label', 'dialog-checkbox-label');
       const checkbox = el('input');
       checkbox.type = 'checkbox';
       checkbox.value = choice.value;
@@ -315,7 +316,7 @@ function buildNewRace(): HTMLElement {
   const body = el('div', 'arena-new-body');
   const statusEl = el('span', 'arena-status');
   statusEl.setAttribute('role', 'status');
-  const fileText = el('textarea', 'arena-input arena-file');
+  const fileText = el('textarea', 'settings-view-input arena-file');
   fileText.setAttribute('aria-label', 'Race spec JSON');
   const paint = () => {
     body.replaceChildren();
@@ -345,7 +346,8 @@ function buildNewRace(): HTMLElement {
       draft.contestants = relabel([...draft.contestants, { id: 'new', label: 'new', setup: draft.contestants.at(-1)?.setup ?? defaultSetup(catalog, firstAgent) }]);
       paint();
     } });
-    const judge = el('label', 'arena-judge');
+    const judge = el('div', 'arena-judge');
+    const judgeToggle = el('label', 'dialog-checkbox-label');
     const judgeBox = el('input');
     judgeBox.type = 'checkbox';
     judgeBox.checked = draft.judgeSetup !== null;
@@ -353,7 +355,8 @@ function buildNewRace(): HTMLElement {
       draft.judgeSetup = judgeBox.checked ? defaultSetup(catalog, RACE_JUDGE_AGENT) : null;
       paint();
     });
-    judge.append(judgeBox, el('span', null, 'Judge the results'));
+    judgeToggle.append(judgeBox, el('span', null, 'Judge the results'));
+    judge.append(judgeToggle);
     if (draft.judgeSetup) judge.append(setupControls(draft.judgeSetup, (next) => { draft.judgeSetup = next; paint(); }, [RACE_JUDGE_AGENT]));
     body.append(addButton, judge);
   };

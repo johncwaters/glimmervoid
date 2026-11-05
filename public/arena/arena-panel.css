@@ -112,8 +112,23 @@
   font-size: var(--type-meta);
 }
 
-.arena-input {
-  font: inherit;
+.arena-select {
+  width: auto;
+}
+
+.arena-new-body > button,
+.arena-vary > button,
+.arena-vary > .arena-select {
+  align-self: flex-start;
+}
+
+.arena-column .arena-setup {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.arena-column .arena-select {
+  width: 100%;
 }
 
 .arena-prompt,

@@ -1576,6 +1576,10 @@ class Session extends EventEmitter {
     }
     const isRemoteCodex = remoteLaunch !== null && this.agentId === "codex";
     await this._hooks.prepare();
+    if (remoteLaunch === null && this._adapter.trustFolder) {
+      await this._adapter.trustFolder(this.effectiveCwd(), this._launch.buildEnv({ prependPathDirs: this._prependPathDirs, extraEnv: this._spawnEnv }))
+        .catch((error: unknown) => console.warn(`[session:${this.name}] ${errorMessage(error)}`));
+    }
     if (isStartSuperseded()) return;
     const hookInjection = this._hooks.inject();
     if (hookInjection.refusal) {

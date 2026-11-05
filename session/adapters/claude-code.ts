@@ -5,6 +5,7 @@ import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.
 import { buildAgentEnv } from "../core/spawn-env.ts";
 import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import { execFileSync } from "../../server/child-process-safe.ts";
+import { createClaudeFolderTrust } from "./claude-trust.ts";
 import type { AgentAdapterShape, AgentArgsOptions, AgentHookProfile, AgentSpawnCommandOptions } from "./index.ts";
 import { PLAN_TOOL_NAME } from "../../shared/contracts/index.ts";
 import { ASK_USER_QUESTION_TOOL_NAME } from "../../shared/contracts/session.ts";
@@ -183,6 +184,10 @@ function buildArgs({
   return args;
 }
 
+async function trustFolder(sessionFolder: string, env: SpawnEnv): Promise<void> {
+  await createClaudeFolderTrust({ env }).ensureTrusted(sessionFolder);
+}
+
 const claudeCode = {
   id: ID,
   label: "Claude Code",
@@ -196,6 +201,7 @@ const claudeCode = {
   buildEnv,
   buildArgs,
   settingsArgs,
+  trustFolder,
   capabilities: {
     hooks: true,
     awaitingInput: true,
