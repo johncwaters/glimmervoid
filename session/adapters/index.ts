@@ -98,6 +98,9 @@ interface GeneratedHomeInjection {
   prepareHome(env: Record<string, string | undefined>, launch: GeneratedHomeLaunch): { home: string } | { refusal: string };
   prepareScratchHome(env: Record<string, string | undefined>, scratch: ScratchAgentHome): { home: string } | { refusal: string };
   releaseHome(home: string): void;
+  projectConfigCandidates: readonly ProjectConfigCandidate[];
+  userConfigFolders(env: Record<string, string | undefined>): string[];
+  mayTurnHooksOff(configText: unknown): boolean;
 }
 
 type HookInjection = SettingsFileInjection | ArgvConfigInjection | HomeHooksFileInjection | GeneratedHomeInjection;

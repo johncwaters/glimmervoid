@@ -3,7 +3,8 @@ import path from "node:path";
 
 import { execFileSync } from "../../server/child-process-safe.ts";
 import { relayPath } from "../../server/runtime-paths.ts";
-import { COPILOT_HOME_PROFILE } from "../core/agent-home-core.ts";
+import { COPILOT_SANE_YOLO_FLAVOR } from "../core/sane-yolo.ts";
+import { COPILOT_HOME_PROFILE, doesProjectConfigTurnHooksOff } from "../core/agent-home-core.ts";
 import { buildHookCommand } from "../core/hook-command-core.ts";
 import { resolveAgentCommand, buildAgentSpawnCommand } from "../core/spawn-command.ts";
 import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.ts";
@@ -25,6 +26,8 @@ import type { InstalledHooks } from "../core/user-hooks-core.ts";
 const ID = "copilot";
 const COMMAND_NAME = "copilot";
 const RELAY_PATH = relayPath("hook-relay");
+const HOOK_TOOL_RELAY_PATH = relayPath("hook-tool-relay");
+const SANE_YOLO_EVENT = "preToolUse";
 const HOOK_EVENTS: readonly string[] = Object.freeze(["sessionStart", "sessionEnd", "userPromptSubmitted", "agentStop", "errorOccurred", "permissionRequest", "postToolUse", "notification"]);
 const HOOKS_REFUSAL = "the hook relay path cannot be written into copilot hooks";
 const PERMISSION_NOTIFICATION = "permission_prompt";
@@ -93,12 +96,15 @@ function expectedHooks(): string | null {
     if (!command) return null;
     hooksByEvent[event] = [{ type: "command", command }];
   }
+  const saneYoloCommand = buildHookCommand(HOOK_TOOL_RELAY_PATH, "saneYolo", [COPILOT_SANE_YOLO_FLAVOR]);
+  if (!saneYoloCommand) return null;
+  hooksByEvent[SANE_YOLO_EVENT] = [{ type: "command", command: saneYoloCommand }];
   return JSON.stringify(hooksByEvent);
 }
 
 function describeInstalledHooks(): InstalledHooks {
   if (expectedHooks() === null) return { unavailableReason: HOOKS_REFUSAL, isBestEffort: false };
-  return { version: null, isBestEffort: false, hooks: HOOK_EVENTS.map((event) => ({ event, matcher: null, route: null })) };
+  return { version: null, isBestEffort: false, hooks: [...HOOK_EVENTS.map((event) => ({ event, matcher: null, route: null })), { event: SANE_YOLO_EVENT, matcher: null, route: "saneYolo" }] };
 }
 
 const COPILOT_STATE_NAME = "config.json";
@@ -147,8 +153,9 @@ function buildEnv(baseEnv: SpawnEnv, extraEnv: SpawnEnv | null | undefined, opti
   return buildAgentEnv(baseEnv, extraEnv, envProfile, options);
 }
 
-function buildArgs({ resumeSessionId = null, extraArgs = [] }: AgentArgsOptions = {}): string[] {
-  const args = resumeSessionId ? ["--resume", resumeSessionId] : [];
+function buildArgs({ dangerouslySkipPermissions = false, resumeSessionId = null, extraArgs = [] }: AgentArgsOptions = {}): string[] {
+  const args = dangerouslySkipPermissions ? ["--yolo"] : [];
+  if (resumeSessionId) args.push("--resume", resumeSessionId);
   return [...args, ...extraArgs];
 }
 
@@ -163,6 +170,9 @@ const hooks: AgentHookProfile = {
     prepareHome,
     prepareScratchHome,
     releaseHome,
+    projectConfigCandidates: [{ relPath: path.join(".github", "copilot", "settings.json") }, { relPath: path.join(".github", "copilot", "settings.local.json") }],
+    userConfigFolders: (env) => [realAgentHome(COPILOT_HOME_PROFILE, env)],
+    mayTurnHooksOff: (configText) => doesProjectConfigTurnHooksOff(COPILOT_HOME_PROFILE, configText),
   },
 };
 
@@ -187,9 +197,9 @@ const copilot = {
     backgroundAgents: false,
     resume: true,
     planLimits: false,
-    saneYolo: false,
+    saneYolo: true,
     compactQuiet: false,
-    skipPermissionsFlag: false,
+    skipPermissionsFlag: true,
     headless: false,
     ptyInitialPrompt: true,
   },

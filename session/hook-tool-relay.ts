@@ -1,4 +1,4 @@
-import { SANE_YOLO_PATH_ENV, saneYoloHostFlag } from "./core/sane-yolo.ts";
+import { SANE_YOLO_PATH_ENV, saneYoloHostFlag, saneYoloHostPayload } from "./core/sane-yolo.ts";
 
 import { readStdin } from "./relay-stdin.ts";
 import type { StdinLike } from "./relay-stdin.ts";
@@ -57,7 +57,7 @@ function runHookTool(binPath: string, body: Buffer, agentFlavor = ""): Promise<s
     child.on("close", (code) => done(code === 0 ? Buffer.concat(chunks).toString("utf8") : ""));
     childStdin.on("error", () => {});
     try {
-      childStdin.end(body);
+      childStdin.end(saneYoloHostPayload(agentFlavor, body));
     } catch {
       done("");
     }

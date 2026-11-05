@@ -252,6 +252,9 @@ const hooks: AgentHookProfile = {
     prepareHome,
     prepareScratchHome,
     releaseHome: releaseAgentHome,
+    projectConfigCandidates: [],
+    userConfigFolders: () => [],
+    mayTurnHooksOff: () => false,
   },
 };
 

@@ -372,6 +372,14 @@ function parseJsonObject(text: string): JsonObject | null {
   }
 }
 
+function doesProjectConfigTurnHooksOff(profile: AgentHomeProfile, configText: unknown): boolean {
+  if (profile.config.kind !== "json") return false;
+  if (typeof configText !== "string") return true;
+  const projectConfig = parseJsonObject(configText);
+  if (!projectConfig) return true;
+  return profile.config.hooksSwitch.areHooksOff(projectConfig) !== false;
+}
+
 function isSameJson(first: unknown, second: unknown): boolean {
   return JSON.stringify(first) === JSON.stringify(second);
 }
@@ -780,6 +788,7 @@ export {
   GEMINI_HOME_PROFILE,
   KIMI_HOME_PROFILE,
   QWEN_HOME_PROFILE,
+  doesProjectConfigTurnHooksOff,
   fileStampKey,
   linkKindFor,
   planAgentHome,

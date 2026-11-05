@@ -15,6 +15,11 @@ interface StubModelStep {
   shellCommand?: string;
 }
 
+interface ScriptedPrompt {
+  prompt: string;
+  firstReply: StubModelStep;
+}
+
 interface StubModel {
   baseUrl: string;
   server: http.Server;
@@ -25,7 +30,7 @@ interface ProbeAgent {
   homeEnvValue(realHome: string): string;
   writeRealHome(realHome: string): string;
   modelEnv(model: StubModel): Record<string, string>;
-  serveModel(steps: readonly StubModelStep[]): http.RequestListener;
+  serveModel(script: readonly ScriptedPrompt[]): http.RequestListener;
   turnEndEvent: string;
   permissionEvent: string;
   folderTrustFileName: string | null;
@@ -34,26 +39,43 @@ interface ProbeAgent {
 const SESSION_ID = "agent-probe-session";
 const APPROVAL_FILE_NAME = "agent-probe-approval.txt";
 const SENTINEL_WORD = "amberlattice";
+const PROTECTED_FILE_NAME = "agent-probe-victim.txt";
+const BLOCKED_COMMAND = `find . -name ${PROTECTED_FILE_NAME} -delete`;
 const BOOT_SETTLE_MS = 6000;
 const SHOULD_WRITE_FIXTURES = process.argv.includes("--write-fixtures");
 const USAGE = "Usage: node harness/probe-agent-session.ts <gemini|qwen|copilot> [--write-fixtures]\nRuns the real agent CLI against a local stub model, so it needs no login and bills nothing.";
-const MODEL_STEPS: readonly StubModelStep[] = Object.freeze([
-  { shellCommand: `touch ./${APPROVAL_FILE_NAME}` },
-  { text: "done" },
-  { text: SENTINEL_WORD },
+const APPROVAL_PROMPT = `Run the shell command: touch ./${APPROVAL_FILE_NAME}`;
+const SENTINEL_PROMPT = `reply with the single word ${SENTINEL_WORD} and nothing else`;
+const BLOCKED_PROMPT = `Run the shell command: ${BLOCKED_COMMAND}`;
+const MODEL_SCRIPT: readonly ScriptedPrompt[] = Object.freeze([
+  { prompt: APPROVAL_PROMPT, firstReply: { shellCommand: `touch ./${APPROVAL_FILE_NAME}` } },
+  { prompt: SENTINEL_PROMPT, firstReply: { text: SENTINEL_WORD } },
+  { prompt: BLOCKED_PROMPT, firstReply: { shellCommand: BLOCKED_COMMAND } },
 ]);
+const TOOL_RESULT_MARKERS: readonly string[] = Object.freeze(['"functionResponse"', '"role":"tool"']);
 
 const { check, passed, failed } = createProbeChecks();
+
+function scriptedReply(script: readonly ScriptedPrompt[], requestBody: string, servedPrompts: Set<string>): StubModelStep {
+  const latest = script.map((entry) => ({ entry, at: requestBody.lastIndexOf(entry.prompt) })).filter(({ at }) => at >= 0).sort((left, right) => right.at - left.at)[0];
+  if (!latest) return { text: "done" };
+  const answeredText = requestBody.slice(latest.at);
+  const hasToolResult = TOOL_RESULT_MARKERS.some((marker) => answeredText.includes(marker));
+  if (hasToolResult || servedPrompts.has(latest.entry.prompt)) return { text: "done" };
+  servedPrompts.add(latest.entry.prompt);
+  return latest.entry.firstReply;
+}
 
 function geminiResponse(step: StubModelStep): unknown {
   const part = step.shellCommand ? { functionCall: { name: "run_shell_command", args: { command: step.shellCommand, description: "probe" } } } : { text: step.text ?? "done" };
   return { candidates: [{ content: { role: "model", parts: [part] }, finishReason: "STOP", index: 0 }], usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 2, totalTokenCount: 7 } };
 }
 
-function serveGemini(steps: readonly StubModelStep[]): http.RequestListener {
-  let nextStepIndex = 0;
+function serveGemini(script: readonly ScriptedPrompt[]): http.RequestListener {
+  const servedPrompts = new Set<string>();
   return (request, response) => {
-    request.resume();
+    const bodyChunks: Buffer[] = [];
+    request.on("data", (chunk: Buffer) => bodyChunks.push(chunk));
     request.on("end", () => {
       const url = request.url ?? "";
       if (url.includes("countTokens")) {
@@ -66,8 +88,7 @@ function serveGemini(steps: readonly StubModelStep[]): http.RequestListener {
         response.end(JSON.stringify(geminiResponse({ text: '{"next_speaker":"user","reasoning":"done"}' })));
         return;
       }
-      const step = steps[nextStepIndex] ?? { text: "done" };
-      nextStepIndex += 1;
+      const step = scriptedReply(script, Buffer.concat(bodyChunks).toString("utf8"), servedPrompts);
       response.writeHead(200, { "content-type": "text/event-stream" });
       response.end(`data: ${JSON.stringify(geminiResponse(step))}\n\n`);
     });
@@ -87,10 +108,10 @@ function openAiStream(step: StubModelStep, shellToolName: string): string {
   return `${openAiChunk({ role: "assistant", content: step.text ?? "done" }, null)}${openAiChunk({}, "stop")}${usage}data: [DONE]\n\n`;
 }
 
-function serveOpenAi(shellToolName: string): (steps: readonly StubModelStep[]) => http.RequestListener {
-  return (steps) => {
-  let nextStepIndex = 0;
-  return (request, response) => {
+function serveOpenAi(shellToolName: string): (script: readonly ScriptedPrompt[]) => http.RequestListener {
+  return (script) => {
+    const servedPrompts = new Set<string>();
+    return (request, response) => {
     const bodyChunks: Buffer[] = [];
     request.on("data", (chunk: Buffer) => bodyChunks.push(chunk));
     request.on("end", () => {
@@ -101,12 +122,10 @@ function serveOpenAi(shellToolName: string): (steps: readonly StubModelStep[]) =
         response.end(JSON.stringify({ id: "probe", object: "chat.completion", created: 0, model: "probe", choices: [{ index: 0, message: { role: "assistant", content: '{"next_speaker":"user","reasoning":"done"}' }, finish_reason: "stop" }], usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 }, data: [] }));
         return;
       }
-      const step = steps[nextStepIndex] ?? { text: "done" };
-      nextStepIndex += 1;
       response.writeHead(200, { "content-type": "text/event-stream" });
-      response.end(openAiStream(step, shellToolName));
+      response.end(openAiStream(scriptedReply(script, body, servedPrompts), shellToolName));
     });
-  };
+    };
   };
 }
 
@@ -172,6 +191,7 @@ function writeProbeConfig(configPath: string, projectDirectory: string, agentId:
     teams: [],
     repoRoots: [],
     autoResume: false,
+    saneYolo: true,
     worktreeAutoRebase: false,
     capture: { enabled: true },
   }, null, 2), "utf8");
@@ -185,12 +205,13 @@ interface SpawnCall {
 async function runProbe(agentId: string, agent: ProbeAgent, tempDirectory: string): Promise<void> {
   const projectDirectory = path.join(tempDirectory, "project");
   fs.mkdirSync(projectDirectory);
+  fs.writeFileSync(path.join(projectDirectory, PROTECTED_FILE_NAME), "keep\n");
   const configPath = path.join(tempDirectory, "config.json");
   writeProbeConfig(configPath, projectDirectory, agentId);
   const realHome = agent.writeRealHome(tempDirectory);
   const snapshotRealConfig = (): string => fs.readdirSync(realHome).filter((name) => name !== agent.folderTrustFileName).map((name) => `${name}:${fs.readFileSync(path.join(realHome, name), "utf8")}`).join("\n");
   const realConfigBefore = snapshotRealConfig();
-  const model = await startStubModel(agent.serveModel(MODEL_STEPS));
+  const model = await startStubModel(agent.serveModel(MODEL_SCRIPT));
   process.env.GLIMMERVOID_CONFIG = configPath;
   process.env.GLIMMERVOID_HOME = path.join(tempDirectory, "glimmervoid-home");
   process.env[agent.homeEnvName] = agent.homeEnvValue(realHome);
@@ -227,7 +248,7 @@ async function runProbe(agentId: string, agent: ProbeAgent, tempDirectory: strin
     session.write("\r");
   }
 
-  async function runScenario(name: string, prompt: string): Promise<ProbeHookRecord[]> {
+  async function runScenario(name: string, prompt: string, keepsFixture = true): Promise<ProbeHookRecord[]> {
     console.log(`\n${name}:`);
     const scenarioStart = hookRecords.length;
     await submit(prompt);
@@ -240,7 +261,7 @@ async function runProbe(agentId: string, agent: ProbeAgent, tempDirectory: strin
     }
     await delay(3000);
     const scenarioHooks = hookRecords.slice(scenarioStart);
-    console.log(`  [fixture] ${writeHookFixture(name, scenarioHooks, fixtureTarget)}`);
+    if (keepsFixture) console.log(`  [fixture] ${writeHookFixture(name, scenarioHooks, fixtureTarget)}`);
     console.log(`  [events] ${hookEventsOf(scenarioHooks).join(", ")}`);
     return scenarioHooks;
   }
@@ -253,7 +274,7 @@ async function runProbe(agentId: string, agent: ProbeAgent, tempDirectory: strin
     const launchHome = spawnCalls[0]?.env[agent.homeEnvName];
     check(`${agent.homeEnvName} pointed at the generated home, not the real one`, !!launchHome && launchHome !== agent.homeEnvValue(realHome) && launchHome.startsWith(String(process.env.GLIMMERVOID_HOME)));
 
-    const approvalEvents = hookEventsOf(await runScenario("approval-turn", `Run the shell command: touch ./${APPROVAL_FILE_NAME}`));
+    const approvalEvents = hookEventsOf(await runScenario("approval-turn", APPROVAL_PROMPT));
     check("the permission prompt reached the hooks before the turn ended", approvalEvents.includes(agent.permissionEvent) && approvalEvents.indexOf(agent.permissionEvent) < approvalEvents.lastIndexOf(agent.turnEndEvent));
     check("the approved command ran", fs.existsSync(path.join(projectDirectory, APPROVAL_FILE_NAME)));
     const capturedId = session._resumeSessionId;
@@ -264,11 +285,15 @@ async function runProbe(agentId: string, agent: ProbeAgent, tempDirectory: strin
     await waitForState(session, ["DONE", "FAILED"], "PTY reap");
     check("restart requested a resumed spawn", session.restart());
     await delay(BOOT_SETTLE_MS);
-    const turnEvents = hookEventsOf(await runScenario("turn-complete", `reply with the single word ${SENTINEL_WORD} and nothing else`));
+    const turnEvents = hookEventsOf(await runScenario("turn-complete", SENTINEL_PROMPT));
     check("the resumed turn ended on its turn-end hook", turnEvents.includes(agent.turnEndEvent));
     check("resume kept the same session id", session._resumeSessionId === capturedId);
     for (const [index, call] of spawnCalls.entries()) console.log(`  [argv:${index + 1}] ${JSON.stringify(call.args)}`);
     check("the resumed argv carried the captured id", !!capturedId && !!spawnCalls[1]?.args.includes(capturedId));
+    check("Sane YOLO was active", session.saneYolo);
+    const blockedEvents = hookEventsOf(await runScenario("sane-yolo-block", BLOCKED_PROMPT, false));
+    check("the turn with the refused command still ended", blockedEvents.includes(agent.turnEndEvent));
+    check("Safety Net refused the command before it ran", fs.existsSync(path.join(projectDirectory, PROTECTED_FILE_NAME)));
     check("the real config was not written", snapshotRealConfig() === realConfigBefore);
     if (agent.folderTrustFileName) check("the project folder was pre-trusted", fs.readFileSync(path.join(realHome, agent.folderTrustFileName), "utf8").includes(projectDirectory));
   } finally {

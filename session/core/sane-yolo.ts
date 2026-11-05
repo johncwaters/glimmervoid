@@ -1,10 +1,63 @@
+import { isRecord } from '../../shared/coerce.ts';
+
 const SANE_YOLO_PATH_ENV = 'GLIMMERVOID_SANE_YOLO_PATH';
 const KIMI_SANE_YOLO_FLAVOR = 'kimi';
 const CODEX_SANE_YOLO_FLAVOR = 'codex';
-const SANE_YOLO_HOST_FLAGS: Record<string, string> = { [KIMI_SANE_YOLO_FLAVOR]: '--kimi-code', [CODEX_SANE_YOLO_FLAVOR]: '--codex' };
+const GEMINI_SANE_YOLO_FLAVOR = 'gemini';
+const QWEN_SANE_YOLO_FLAVOR = 'qwen';
+const COPILOT_SANE_YOLO_FLAVOR = 'copilot';
+const SANE_YOLO_HOST_FLAGS: Record<string, string> = {
+  [KIMI_SANE_YOLO_FLAVOR]: '--kimi-code',
+  [CODEX_SANE_YOLO_FLAVOR]: '--codex',
+  [GEMINI_SANE_YOLO_FLAVOR]: '--gemini-cli',
+  [QWEN_SANE_YOLO_FLAVOR]: '--gemini-cli',
+  [COPILOT_SANE_YOLO_FLAVOR]: '--copilot-cli',
+};
 
 function saneYoloHostFlag(agentFlavor: string): string {
   return SANE_YOLO_HOST_FLAGS[agentFlavor] ?? '--grok-build';
+}
+
+const QWEN_SHELL_TOOL_ALIASES: ReadonlyMap<string, string> = new Map([['monitor', 'run_shell_command']]);
+const COPILOT_SHELL_INPUT_TOOLS: ReadonlyMap<string, string> = new Map([['write_bash', 'bash'], ['write_powershell', 'powershell']]);
+
+function parsedJsonObject(text: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function geminiShapedQwenPayload(payload: Record<string, unknown>): Record<string, unknown> | null {
+  if (payload.hook_event_name !== 'PreToolUse') return null;
+  const toolInput = payload.tool_input;
+  const hasRunFolder = isRecord(toolInput) && typeof toolInput.directory === 'string' && toolInput.dir_path === undefined;
+  const geminiToolInput = hasRunFolder ? { ...toolInput, dir_path: toolInput.directory } : toolInput;
+  const toolName = typeof payload.tool_name === 'string' ? (QWEN_SHELL_TOOL_ALIASES.get(payload.tool_name) ?? payload.tool_name) : payload.tool_name;
+  return { ...payload, hook_event_name: 'BeforeTool', tool_name: toolName, tool_input: geminiToolInput };
+}
+
+function commandShapedCopilotPayload(payload: Record<string, unknown>): Record<string, unknown> | null {
+  const shellToolName = typeof payload.toolName === 'string' ? COPILOT_SHELL_INPUT_TOOLS.get(payload.toolName) : undefined;
+  if (!shellToolName) return null;
+  const toolArgs = typeof payload.toolArgs === 'string' ? parsedJsonObject(payload.toolArgs) : payload.toolArgs;
+  if (!isRecord(toolArgs) || typeof toolArgs.input !== 'string') return null;
+  return { ...payload, toolName: shellToolName, toolArgs: { command: toolArgs.input } };
+}
+
+const HOST_PAYLOAD_RESHAPERS: ReadonlyMap<string, (payload: Record<string, unknown>) => Record<string, unknown> | null> = new Map([
+  [QWEN_SANE_YOLO_FLAVOR, geminiShapedQwenPayload],
+  [COPILOT_SANE_YOLO_FLAVOR, commandShapedCopilotPayload],
+]);
+
+function saneYoloHostPayload(agentFlavor: string, body: Buffer): Buffer {
+  const reshape = HOST_PAYLOAD_RESHAPERS.get(agentFlavor);
+  if (!reshape) return body;
+  const payload = parsedJsonObject(body.toString('utf8'));
+  const hostPayload = payload ? reshape(payload) : null;
+  return hostPayload ? Buffer.from(JSON.stringify(hostPayload), 'utf8') : body;
 }
 
 function saneYoloPolicy(guardrailsTempRoot: string, unreadablePaths: readonly string[]) {
@@ -60,4 +113,4 @@ function saneYoloEnv(homeDir: string): Record<string, string> {
   };
 }
 
-export { CODEX_SANE_YOLO_FLAVOR, KIMI_SANE_YOLO_FLAVOR, SANE_YOLO_PATH_ENV, saneYoloEnv, saneYoloFiles, saneYoloHostFlag };
+export { CODEX_SANE_YOLO_FLAVOR, COPILOT_SANE_YOLO_FLAVOR, GEMINI_SANE_YOLO_FLAVOR, KIMI_SANE_YOLO_FLAVOR, QWEN_SANE_YOLO_FLAVOR, SANE_YOLO_PATH_ENV, saneYoloEnv, saneYoloFiles, saneYoloHostFlag, saneYoloHostPayload };
