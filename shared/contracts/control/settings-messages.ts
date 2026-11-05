@@ -39,7 +39,7 @@ export const settingsServerVariants = [
   loose('settings-updated', { settings: opaqueObject, requestId }),
   loose('agents-listed', {
     requestId,
-    agents: z.array(openObject({ id: z.string(), label: z.string(), resolvable: z.boolean() })),
+    agents: z.array(openObject({ id: z.string(), label: z.string(), resolvable: z.boolean(), hidden: z.boolean().optional() })),
   }),
   loose('repo-roots-scanned', {
     requestId,

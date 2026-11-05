@@ -3069,6 +3069,10 @@ html[data-layout="phone"] .plan-editor { font-size: var(--type-title); }
 }
 .session-row[data-state="DORMANT"] .session-row-name { color: var(--text-dim); }
 .session-row-title { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.settings-view-agent-visibility { display: flex; flex-direction: column; gap: 8px; }
+.settings-view-agent-visibility-list { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.settings-view-agent-visibility-item { display: flex; align-items: center; gap: 8px; }
+.settings-view-agent-visibility-label { flex: 1 1 auto; min-width: 0; }
 .agent-mark { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 12px; height: 12px; color: var(--text-muted); }
 .agent-mark[hidden] { display: none; }
 .agent-mark svg { width: 100%; height: 100%; }

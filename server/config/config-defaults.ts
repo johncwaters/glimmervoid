@@ -15,6 +15,7 @@ const DEFAULT_CONFIG = {
   debugMode: false,
   streamerMode: false,
   viewTabOrder: [] as string[],
+  hiddenAgents: [] as string[],
   remoteSessions: false,
   hintCards: false,
 

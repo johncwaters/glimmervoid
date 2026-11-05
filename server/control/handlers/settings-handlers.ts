@@ -216,9 +216,10 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
 
   function handleListAgents(msg: ClientMessageOf<'list-agents'>, ws: ControlSocket): void {
     if (msg.rescan) resetCommandCache();
+    const hiddenAgentIds = new Set(config.hiddenAgents ?? []);
     const agents = listAgentIds().map((id) => {
       const { label, resolvable } = describeAgentResolvability(id);
-      return { id, label, resolvable };
+      return { id, label, resolvable, hidden: hiddenAgentIds.has(id) };
     });
     ws.send(JSON.stringify({
       type: 'agents-listed',

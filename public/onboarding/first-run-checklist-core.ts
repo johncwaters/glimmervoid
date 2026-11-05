@@ -67,7 +67,7 @@ function agentSummaryText(agentListing: unknown): string {
 }
 
 function canOpenShell(agentListing: unknown): boolean {
-  return decideAgentPicker(listedAgents(agentListing)).options.some((agentOption) => agentOption.id === SHELL_AGENT_ID);
+  return decideAgentPicker(listedAgents(agentListing), { defaultId: SHELL_AGENT_ID }).options.some((agentOption) => agentOption.id === SHELL_AGENT_ID);
 }
 
 function gitRepoCountText(gitRepoCount: number): string {
