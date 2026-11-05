@@ -252,10 +252,16 @@
 }
 
 .wb-presence-pill {
-  padding: 1px 8px;
+  max-width: 32ch;
+  height: 20px;
+  padding: 0 8px;
+  overflow: hidden;
   border: 1px solid var(--state-running);
-  border-radius: 10px;
+  border-radius: 999px;
   color: var(--state-running);
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .wb-presence-none { color: var(--text-muted); }
@@ -838,6 +844,15 @@
   left: 10px;
   max-width: calc(100% - 20px);
 }
+
+[data-layout='phone'] .wb-island-board > .wb-board-title {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+[data-layout='phone'] .wb-presence > :not(.wb-presence-count) { display: none; }
+
+[data-layout='phone'] .wb-presence > .wb-presence-count { display: inline; }
 
 [data-layout='phone'] .wb-top-left > .wb-island-view {
   position: absolute;

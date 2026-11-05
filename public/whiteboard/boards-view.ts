@@ -438,6 +438,7 @@ function paintPresence(connectedSessionIds: readonly string[]): void {
   const connectedNames = connectedSessionIds.map(sessionLabel);
   const pillNames = connectedSessionIds.filter((sessionId) => sessionId !== pairedSessionId).map(sessionLabel);
   const connectedCount = el('span', connectedNames.length === 0 ? 'wb-presence-count wb-presence-none' : 'wb-presence-count wb-presence-pill', `${connectedNames.length} connected`);
+  if (connectedNames.length > 0) connectedCount.append(el('span', 'sr-only', `: ${connectedNames.join(', ')}`));
   parts.presence.replaceChildren(...pillNames.map((name) => el('span', 'wb-presence-pill', name)), connectedCount);
   if (connectedNames.length === 0) parts.presence.prepend(el('span', 'wb-presence-none', 'no sessions connected'));
 }
