@@ -15,6 +15,7 @@ export const SessionState = z.enum(STATES);
 export const UnseenOutcome = z.enum(['finished', 'failed']);
 
 export const ASK_USER_QUESTION_TOOL_NAME = 'AskUserQuestion';
+export const REQUEST_USER_INPUT_TOOL_NAME = 'request_user_input';
 
 export const CONVERSATION_APPROVAL_SUMMARY_MAX_CHARS = 4000;
 export const CONVERSATION_PERMISSION_HOOK_EVENT = 'permissionrequest-conversation';

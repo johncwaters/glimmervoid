@@ -3,6 +3,8 @@ import { z } from 'zod';
 const QUESTION_MANAGER_RULES_MAX = 100;
 const QUESTION_MANAGER_REPOS_MAX = 100;
 export const QUESTION_ANSWERED_NOTIFY_CATEGORY = 'answered';
+export const QUESTION_TOOL_HOLD_HOOK_EVENT = 'pretooluse-question';
+export const QUESTION_TOOL_HOLD_TIMEOUT_MS = 90_000;
 
 export const QuestionRule = z.object({
   name: z.string({ error: 'questionManager.rules[].name must be a string' }).trim().min(1).max(80),

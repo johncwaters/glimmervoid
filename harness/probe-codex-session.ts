@@ -30,6 +30,8 @@ const STEP_TIMEOUT_MS = 120000;
 const SUBAGENT_TIMEOUT_MS = 240000;
 const FIXTURE_DIR = path.join(import.meta.dirname, '..', 'tests', 'fixtures');
 const SHOULD_WRITE_FIXTURES = process.argv.includes('--write-fixtures');
+const SHOULD_RUN_ONLY_QUESTION_MANAGER_PROBE = process.argv.includes('--only-question-manager');
+const QUESTION_MANAGER_PROBE_SETTINGS = { enabled: true, rules: [{ name: 'readme length', question: 'README', pick: ['short'] }] };
 const BRIDGE_NOTIFICATIONS_KEPT = new Set(['thread/started', 'turn/started', 'turn/completed', 'turn/plan/updated', 'item/started', 'item/completed', 'serverRequest/resolved', 'thread/compacted']);
 
 interface BridgeLine {
@@ -89,6 +91,7 @@ function writeProbeConfig(configPath: string, projectDir: string): void {
     autoResume: false,
     worktreeAutoRebase: false,
     capture: { enabled: true },
+    ...(SHOULD_RUN_ONLY_QUESTION_MANAGER_PROBE ? { questionManager: QUESTION_MANAGER_PROBE_SETTINGS } : {}),
   }, null, 2), 'utf8');
 }
 
@@ -298,6 +301,41 @@ async function main(): Promise<void> {
       await delay(BACKGROUND_SELF_WAKE_SETTLE_MS);
       writeScenario('background-self-wake', selfWakeStart);
       check('the background turn ended on Stop', hookRecords.slice(selfWakeStart).some((hook) => hook.event.toLowerCase() === 'stop'));
+      return;
+    }
+
+    if (SHOULD_RUN_ONLY_QUESTION_MANAGER_PROBE) {
+      console.log('\nQuestion manager:');
+      const visitedStates: string[] = [];
+      session.on('state-change', ({ to }: { to: string }) => visitedStates.push(to));
+      const managerEntries = () => session.auditLog.filter((entry) => entry.kind === 'question-manager');
+      session.write('/plan');
+      await delay(1500);
+      session.write('\r');
+      await delay(2000);
+      const answeredStart = hookRecords.length;
+      const answeredStatesStart = visitedStates.length;
+      session.write('Call request_user_input exactly once to ask whether a README should be short or long, with the options short and long. Then reply with only the chosen option and do not present a plan.');
+      await delay(1500);
+      session.write('\r');
+      const answeredStop = await waitForHook('the answered question Stop', answeredStart, (hook) => hook.event.toLowerCase() === 'stop');
+      writeScenario('question-manager-answered', answeredStart);
+      check('the answered question turn reached Stop', !!answeredStop);
+      check('the answered question never put the card in WAITING', !visitedStates.slice(answeredStatesStart).includes('WAITING'));
+      check('the manager wrote an answered audit entry', managerEntries().some((entry) => entry.outcome === 'answered' && entry.rule === 'readme length'));
+      check('the agent continued with the rule option', String(payloadField(answeredStop, 'last_assistant_message')).toLowerCase().includes('short'));
+      await delay(3000);
+      const escalatedStart = hookRecords.length;
+      session.write('Call request_user_input exactly once to ask whether to delete the README, with the options yes and no. Then reply with only the chosen option and do not present a plan.');
+      await delay(1500);
+      session.write('\r');
+      await waitForState(session, ['WAITING'], 'the risky question to reach the operator');
+      check('the manager escalated the risky question', managerEntries().some((entry) => entry.outcome === 'escalated' && /delete/i.test(String(entry.reason))));
+      await delay(2000);
+      session.write('\r');
+      const escalatedStop = await waitForHook('the escalated question Stop', escalatedStart, (hook) => hook.event.toLowerCase() === 'stop');
+      writeScenario('question-manager-escalated', escalatedStart);
+      check('the operator answer from the native picker ended the turn', !!escalatedStop);
       return;
     }
 

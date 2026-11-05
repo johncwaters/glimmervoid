@@ -12,7 +12,7 @@ import { buildPersistedTaskTitle, cleanTaskPrompt, extractHookTaskTitle, extract
 import type { PersistedTaskTitle } from "../shared/contracts/config.ts";
 import type { SessionEndCause } from "../shared/contracts/telemetry.ts";
 import type { LinkedPr, SessionPrLinks } from "../shared/contracts/my-prs.ts";
-import type { PromptContextReply } from "../shared/contracts/refocus.ts";
+import type { PromptContextReply, QuestionToolDenyResponse } from "../shared/contracts/refocus.ts";
 import { mergeSessionPrLink, seedSessionPrLinks, withManualPrLink, withoutPrLink } from "./core/session-pr-links-core.ts";
 import type { TaskTitleRefinementResult, TaskTitleSources } from "./core/task-title-core.ts";
 import { readTranscriptTaskTitle } from "./session-task-title.ts";
@@ -1150,6 +1150,10 @@ class Session extends EventEmitter {
 
   holdClaudePermission(payload: unknown, abandoned: AbortSignal): Promise<ClaudeHookReply | null> | null {
     return this._approvals.hold(payload, abandoned);
+  }
+
+  holdQuestionTool(payload: unknown, abandoned: AbortSignal): Promise<QuestionToolDenyResponse | null> | null {
+    return this._approvals.holdQuestionTool(payload, abandoned);
   }
 
   answerConversationApproval(requestId: number | string, answers: ConversationAnswers): boolean {

@@ -3,6 +3,7 @@ import { HTTP_URL_RE, MAX_TIMEOUT_SEC } from '../../shared/contracts/hooks.ts';
 import type { AgentHookGroup } from '../../shared/contracts/hooks.ts';
 import { PLAN_HOOK_EVENT, PLAN_RESULT_HOOK_EVENT } from '../../shared/contracts/plan-review.ts';
 import { CONVERSATION_PERMISSION_HOOK_EVENT, CONVERSATION_TOOL_RESULT_HOOK_EVENT } from '../../shared/contracts/session.ts';
+import { QUESTION_TOOL_HOLD_HOOK_EVENT } from '../../shared/contracts/question-manager.ts';
 import { HOOK_TOOLS, isHookToolId } from './hook-tools.ts';
 import type { ResolvedHookTool } from './hook-tools.ts';
 
@@ -278,6 +279,7 @@ const BUILTIN_PURPOSE_BY_ROUTE: Readonly<Record<string, string>> = Object.freeze
   [PLAN_RESULT_HOOK_EVENT]: 'Plan review: record the approved plan',
   [CONVERSATION_PERMISSION_HOOK_EVENT]: 'Questions: hold a question so the question manager or the parent session can answer it',
   [CONVERSATION_TOOL_RESULT_HOOK_EVENT]: 'Questions: release a held question the terminal answered',
+  [QUESTION_TOOL_HOLD_HOOK_EVENT]: 'Questions: hold a question so the question manager can answer it',
 });
 
 const BUILTIN_PURPOSE_BY_EVENT: Readonly<Record<string, string>> = Object.freeze({

@@ -168,6 +168,7 @@ test('the question manager answers a question its rules cover and leaves risky o
   const factory = recordingSessionFactory();
   const session = factory.makeSession({ id: 'managed', name: 'managed', path: projectPath, questionManager: manager.forSession({ projectPath }) });
   const unlisted = factory.makeSession({ id: 'unlisted', name: 'unlisted', path: os.tmpdir(), questionManager: manager.forSession({ projectPath: os.tmpdir() }) });
+  const codex = factory.makeSession({ id: 'codex', name: 'codex', path: projectPath, agent: 'codex', questionManager: manager.forSession({ projectPath }) });
   const askPayload = (question: string) => ({ tool_name: 'AskUserQuestion', tool_input: { questions: [{ question, options: [{ label: 'sqlite' }, { label: 'postgres' }] }] } });
   const questionStatus = (question: string) => ({ signal: 'awaiting-input', source: 'hook' as const, ts: Date.now(), promptKind: 'permission', promptToolName: 'AskUserQuestion', event: 'PermissionRequest', payload: askPayload(question) });
   const answeredEvents: unknown[] = [];
@@ -193,6 +194,18 @@ test('the question manager answers a question its rules cover and leaves risky o
     assert.equal(session.state, STATES.WAITING);
     assert.match(String(managerEntries().at(-1)?.reason), /delete/i);
     assert.equal(await unlisted.holdClaudePermission(askPayload('Which store?'), new AbortController().signal), null);
+    const codexAsk = { tool_name: 'request_user_input', tool_input: { questions: [{ header: 'Store', id: 'store', question: 'Which store?', options: [{ label: 'sqlite', description: '' }, { label: 'postgres', description: '' }] }] } };
+    codex.transition('user_start');
+    codex.transition('spawn_success', { spawnCwdExists: true });
+    codex.transition('first_output');
+    codex.transition('new_output');
+    const codexRunningState = codex.state;
+    codex.ingestHookSignal({ signal: 'awaiting-input', source: 'hook', ts: Date.now(), promptKind: 'elicitation', event: 'pretooluse', payload: codexAsk });
+    const denied = await codex.holdQuestionTool(codexAsk, new AbortController().signal);
+    assert.equal(denied?.hookSpecificOutput.permissionDecision, 'deny');
+    assert.match(String(denied?.hookSpecificOutput.permissionDecisionReason), /Which store\?: sqlite/);
+    assert.equal(codex.state, codexRunningState);
+    assert.equal(session.holdQuestionTool(codexAsk, new AbortController().signal), null);
   } finally {
     for (const created of factory.created) created.destroy();
     fs.rmSync(projectPath, { recursive: true, force: true });

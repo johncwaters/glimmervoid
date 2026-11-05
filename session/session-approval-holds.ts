@@ -1,7 +1,10 @@
-import { ASK_USER_QUESTION_TOOL_NAME } from "../shared/contracts/session.ts";
+import { ASK_USER_QUESTION_TOOL_NAME, REQUEST_USER_INPUT_TOOL_NAME } from "../shared/contracts/session.ts";
 import type { ConversationAnswers, ConversationApproval, ConversationQuestion } from "../shared/contracts/session.ts";
+import { QUESTION_TOOL_HOLD_HOOK_EVENT } from "../shared/contracts/question-manager.ts";
 import type { ManagerAnswer, ManagerVerdict } from "../shared/contracts/question-manager.ts";
-import { claudeAnswerReply, claudeApprovalFor, isHoldReleasedByHookEvent, parseClaudePermissionRequest } from "./core/claude-approval-core.ts";
+import type { QuestionToolDenyResponse } from "../shared/contracts/refocus.ts";
+import { questionToolDenyReason } from "../server/question-manager/core/question-manager-core.ts";
+import { claudeAnswerReply, claudeApprovalFor, isHoldReleasedByHookEvent, parseClaudePermissionRequest, TOOL_RESULT_HOOK_EVENTS } from "./core/claude-approval-core.ts";
 import type { ClaudeHookReply, ClaudePermissionRequest } from "./core/claude-approval-core.ts";
 
 interface ClaudeApprovalHold {
@@ -46,6 +49,7 @@ interface SessionApprovalHoldsOptions<Signal extends QuestionStatusSignal> {
 }
 
 const QUESTION_STATUS_PARK_MS = 2_000;
+const QUESTION_TOOL_NAMES: ReadonlySet<string> = new Set([ASK_USER_QUESTION_TOOL_NAME, REQUEST_USER_INPUT_TOOL_NAME]);
 
 function questionCallKey(request: ClaudePermissionRequest): string {
   return `${request.agentKey}:${JSON.stringify(request.toolInput)}`;
@@ -54,6 +58,7 @@ function questionCallKey(request: ClaudePermissionRequest): string {
 interface SessionApprovalHolds<Signal extends QuestionStatusSignal> {
   readonly conversationApproval: ConversationApproval | null;
   hold(payload: unknown, abandoned: AbortSignal): Promise<ClaudeHookReply | null> | null;
+  holdQuestionTool(payload: unknown, abandoned: AbortSignal): Promise<QuestionToolDenyResponse | null> | null;
   parksQuestionStatus(signal: Signal): boolean;
   releaseAfterHookEvent(event: string, payload: Record<string, unknown>): void;
   releaseAll(): void;
@@ -74,9 +79,9 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
   }
 
   function parksQuestionStatus(signal: Signal): boolean {
-    if (signal.signal !== "awaiting-input" || signal.promptToolName !== ASK_USER_QUESTION_TOOL_NAME) return false;
+    if (signal.signal !== "awaiting-input") return false;
     const request = parseClaudePermissionRequest(signal.payload);
-    if (!request) return false;
+    if (!request || !QUESTION_TOOL_NAMES.has(request.toolName)) return false;
     const callKey = questionCallKey(request);
     const settled = settledQuestionByCall.get(callKey);
     if (settled) {
@@ -133,12 +138,21 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
     flushParkedStatus(callKey);
   }
 
+  function isQuestionPassedBy(request: ClaudePermissionRequest, event: string, payload: Record<string, unknown>): boolean {
+    const normalizedEvent = event.toLowerCase();
+    const eventRequest = parseClaudePermissionRequest(payload);
+    const isSameCall = eventRequest !== null && questionCallKey(eventRequest) === questionCallKey(request);
+    if (isSameCall && !TOOL_RESULT_HOOK_EVENTS.has(normalizedEvent)) return false;
+    return isHoldReleasedByHookEvent(request, normalizedEvent, payload);
+  }
+
   function forgetPassedQuestions(event: string, payload: Record<string, unknown>): void {
+    if (event.toLowerCase() === QUESTION_TOOL_HOLD_HOOK_EVENT) return;
     for (const [callKey, parked] of parkedStatusByCall) {
-      if (isHoldReleasedByHookEvent(parked.request, event, payload)) discardParkedStatus(callKey);
+      if (isQuestionPassedBy(parked.request, event, payload)) discardParkedStatus(callKey);
     }
     for (const [callKey, settled] of settledQuestionByCall) {
-      if (isHoldReleasedByHookEvent(settled.request, event, payload)) settledQuestionByCall.delete(callKey);
+      if (isQuestionPassedBy(settled.request, event, payload)) settledQuestionByCall.delete(callKey);
     }
   }
 
@@ -166,17 +180,45 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
     return reply;
   }
 
-  function holdForManager(manager: QuestionManagerPort, request: ClaudePermissionRequest, abandoned: AbortSignal): Promise<ClaudeHookReply | null> {
+  function holdForManager<Reply>(
+    manager: QuestionManagerPort,
+    request: ClaudePermissionRequest,
+    abandoned: AbortSignal,
+    replyFor: (approval: ConversationApproval, verdict: ManagerVerdict | null) => Reply | null,
+  ): Promise<Reply | null> {
     const approval = claudeApprovalFor(request, `manager-${nextApprovalNumber}`);
     nextApprovalNumber += 1;
     startDeciding(questionCallKey(request));
     return manager.decide(approval.questions ?? null)
       .catch(() => null)
-      .then((verdict) => (abandoned.aborted ? null : replyFromVerdict(request, approval, verdict)))
+      .then((verdict) => (abandoned.aborted ? null : replyFor(approval, verdict)))
       .then((reply) => {
         settleQuestionStatus(request, reply !== null);
         return reply;
       });
+  }
+
+  function denyReplyFromVerdict(approval: ConversationApproval, verdict: ManagerVerdict | null): QuestionToolDenyResponse | null {
+    if (verdict === null) return null;
+    if (verdict.kind === "escalate") {
+      recordManagerEscalation(verdict.reason);
+      return null;
+    }
+    const questionTexts = (approval.questions ?? []).map((question) => question.question);
+    if (questionTexts.length === 0 || questionTexts.some((question) => verdict.answers[question] === undefined)) {
+      recordManagerEscalation("the answer did not cover every question");
+      return null;
+    }
+    recordManagerAnswer(verdict);
+    return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: questionToolDenyReason(verdict) } };
+  }
+
+  function holdQuestionTool(payload: unknown, abandoned: AbortSignal): Promise<QuestionToolDenyResponse | null> | null {
+    if (agentId === "claude-code") return null;
+    const request = parseClaudePermissionRequest(payload);
+    if (!request || !QUESTION_TOOL_NAMES.has(request.toolName)) return null;
+    if (!questionManager || !isManagerHolding()) return null;
+    return holdForManager(questionManager, request, abandoned, denyReplyFromVerdict);
   }
 
   function setConversationApproval(approval: ConversationApproval | null): void {
@@ -193,7 +235,7 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
     const request = parseClaudePermissionRequest(payload);
     if (!request) return null;
     if (request.toolName !== ASK_USER_QUESTION_TOOL_NAME) return null;
-    if (!holdsQuestionsForParent) return questionManager && isManagerHolding() ? holdForManager(questionManager, request, abandoned) : null;
+    if (!holdsQuestionsForParent) return questionManager && isManagerHolding() ? holdForManager(questionManager, request, abandoned, (approval, verdict) => replyFromVerdict(request, approval, verdict)) : null;
     releaseHolds((hold) => hold.request.agentKey === request.agentKey);
     const requestId = `claude-${nextApprovalNumber}`;
     nextApprovalNumber += 1;
@@ -250,6 +292,7 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
   return {
     get conversationApproval() { return conversationApproval; },
     hold,
+    holdQuestionTool,
     parksQuestionStatus,
     releaseAfterHookEvent,
     releaseAll,

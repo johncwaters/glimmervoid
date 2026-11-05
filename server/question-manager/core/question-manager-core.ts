@@ -94,7 +94,14 @@ export function decideByRules(questions: readonly ConversationQuestion[] | null,
   return matchRules(questions, settings.rules ?? []) ?? { kind: 'escalate', reason: 'no rule covers this question' };
 }
 
+function answeredQuestionsText(verdict: ManagerAnswer): string {
+  return Object.entries(verdict.answers).map(([question, answer]) => `${question}: ${answer}`).join('; ');
+}
+
+export function questionToolDenyReason(verdict: ManagerAnswer): string {
+  return `The operator's question manager answered: ${answeredQuestionsText(verdict)}. Treat this as the operator's choice and continue without asking again.`;
+}
+
 export function answeredSummary(verdict: ManagerAnswer): string {
-  const answered = Object.entries(verdict.answers).map(([question, answer]) => `${question}: ${answer}`).join('; ');
-  return `${answered} (rule: ${verdict.ruleName})`;
+  return `${answeredQuestionsText(verdict)} (rule: ${verdict.ruleName})`;
 }

@@ -1,4 +1,5 @@
-import { RelayedHookContext, SessionStartHookResponse } from '../../shared/contracts/refocus.ts';
+import { QuestionToolDenyResponse, RelayedHookContext, SessionStartHookResponse } from '../../shared/contracts/refocus.ts';
+import { QUESTION_TOOL_HOLD_HOOK_EVENT } from '../../shared/contracts/question-manager.ts';
 import type { ToolHookContextResponse, UserPromptSubmitHookResponse } from '../../shared/contracts/refocus.ts';
 import type { CommandHint } from './session-routes.ts';
 import type { PromptContextReply } from '../../shared/contracts/refocus.ts';
@@ -72,10 +73,11 @@ function sessionStartContextOutput(body: string | null): string | null {
   }
 }
 
-function relayedHookContextOutput(body: string | null): string | null {
+function relayedHookContextOutput(event: string, body: string | null): string | null {
   if (body === null) return null;
+  const relayedShape = event === QUESTION_TOOL_HOLD_HOOK_EVENT ? QuestionToolDenyResponse : RelayedHookContext;
   try {
-    const parsedResponse = RelayedHookContext.safeParse(JSON.parse(body));
+    const parsedResponse = relayedShape.safeParse(JSON.parse(body));
     if (!parsedResponse.success) return null;
     return JSON.stringify(parsedResponse.data);
   } catch {
