@@ -75,7 +75,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   const headPlanning = createTeamReviewHeadPlanning(context);
   const { handleAnsweredThreads } = createTeamReviewAnsweredThreads(context, statusReporter);
   const reviewRuns = createTeamReviewRuns(context, statusReporter, headPlanning, candidateSearch);
-  const { getDraft, updateDraft, updateThread, requeue, requestReview, markNotMine } = createTeamReviewOperatorActions(context, statusReporter, headPlanning, candidateSearch, reviewRuns);
+  const { getDraft, updateDraft, updateThread, requeue, restore, requestReview, markNotMine } = createTeamReviewOperatorActions(context, statusReporter, headPlanning, candidateSearch, reviewRuns);
   const { inFlightKeys, cancelPendingProgressEmit, emitStatus } = statusReporter;
   const { closedEntryKeys, pruneDeparted, collectCandidates, watchAskedFor, candidatesFromSnapshot, unregisterWatches } = candidateSearch;
   const { headsToReview } = headPlanning;
@@ -193,7 +193,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     cancelPendingProgressEmit();
   }
 
-  return { start, stop, tick: loop.tick, refresh, rebuild, getDraft, updateDraft, updateThread, requeue, requestReview, markNotMine, _state: () => runtime.state };
+  return { start, stop, tick: loop.tick, refresh, rebuild, getDraft, updateDraft, updateThread, requeue, restore, requestReview, markNotMine, _state: () => runtime.state };
 }
 
 type TeamReviewPoller = ReturnType<typeof createTeamReviewPoller>;

@@ -226,6 +226,10 @@ function createTeamReviewWiring({
     return (await runner.getPoller()?.requeue(key, head)) ?? false;
   }
 
+  async function restore(key: string, head: string): Promise<boolean> {
+    return (await runner.getPoller()?.restore(key, head)) ?? false;
+  }
+
   async function requestReview(reference: { repo: string; number: number }) {
     const poller = runner.getPoller();
     if (!poller) return { ok: false as const, error: 'team review is off, and the operator turns it on in the dashboard settings' };
@@ -279,7 +283,7 @@ function createTeamReviewWiring({
 
   const actions = createTeamReviewActions({
     requestPrRefresh, store,
-    drafts: { getDraft, updateDraft, updateThread, requeue, markNotMine: markNotMineForPoller },
+    drafts: { getDraft, updateDraft, updateThread, requeue, restore, markNotMine: markNotMineForPoller },
     github: {
       resolveReviewThread: github.resolveReviewThread?.bind(github),
       postReview: async (review) => {

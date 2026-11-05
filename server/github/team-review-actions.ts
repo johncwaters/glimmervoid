@@ -26,6 +26,7 @@ interface TeamReviewDraftStore {
   getDraft(key: string): ReviewDraft | null;
   updateDraft(key: string, expected: DraftExpectation, patch: DraftPatch): Promise<ReviewDraft | null>;
   requeue(key: string, head: string): Promise<boolean>;
+  restore(key: string, head: string): Promise<boolean>;
   markNotMine(key: string): Promise<NotMineOutcome>;
   updateThread?: (key: string, threadId: string, patch: { isResolved?: boolean; resolveError?: string }) => Promise<boolean>;
 }
@@ -121,6 +122,13 @@ function createTeamReviewActions({ drafts, github, store, log = console, telemet
     return outcome;
   }
 
+  async function restoreNotMine(timing: ActionTiming, key: string, draft: ReviewDraft): Promise<TeamReviewActionOutcome> {
+    if (draft.status !== 'discarded') return { ok: false, error: 'Only a pull request marked not mine can be restored' };
+    if (!await drafts.restore(key, draft.reviewedHead)) return { ok: false, error: REPLACED_DRAFT_ERROR };
+    if (!core.isUnreviewedDraft(draft) && !isThreadPlaceholderDraft(draft)) timing.settled = { outcome: 'restored', draft, postedCommentCount: 0 };
+    return { ok: true };
+  }
+
   async function misplacedCommentsRefusal(timing: ActionTiming, draft: ReviewDraft, comments: readonly ReviewComment[]): Promise<PostRefusal | null> {
     if (comments.length === 0) return null;
     const diffRead = await readStep(timing, 'diff', () => store.requestPrDiff(draft.repo, draft.number, draft.reviewedHead, 'priority'));
@@ -214,6 +222,7 @@ function createTeamReviewActions({ drafts, github, store, log = console, telemet
     if (!draft) return { ok: false, error: 'That review draft no longer exists' };
     if (draft.reviewedHead !== request.head) return { ok: false, error: REPLACED_DRAFT_ERROR };
     if (request.action === 'resolve-thread') return resolveThread(timing, draft, request);
+    if (request.action === 'restore') return restoreNotMine(timing, request.key, draft);
     if (request.action === 'requeue') {
       const isQueued = await drafts.requeue(request.key, draft.reviewedHead);
       return isQueued ? { ok: true } : { ok: false, error: 'only a failed, ready, stale, discarded or posted review can be queued again' };

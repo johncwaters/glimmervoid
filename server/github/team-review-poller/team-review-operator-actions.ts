@@ -77,6 +77,20 @@ function createTeamReviewOperatorActions(
     return true;
   }
 
+  async function restore(key: string, head: string): Promise<boolean> {
+    const entry = runtime.state[key];
+    const draft = entry?.draft;
+    if (!entry || !draft || entry.inFlight || draft.status !== 'discarded' || draft.reviewedHead !== head) return false;
+    const isFinishedReviewAtEntryHead = !core.isUnreviewedDraft(draft) && draft.error === undefined && entry.reviewedHead === draft.reviewedHead;
+    if (!isFinishedReviewAtEntryHead) return requeue(key, head);
+    const hasHeadMoved = entry.liveHead !== undefined && entry.liveHead !== draft.reviewedHead;
+    entry.draft = { ...draft, status: hasHeadMoved ? 'stale' : 'ready' };
+    entry.updatedAt = now();
+    await persist();
+    emitStatus();
+    return true;
+  }
+
   function cancelReviewAsNotMine(key: string): NotMineOutcome {
     notMineWhileReviewingKeys.add(key);
     reviewCancellersByKey.get(key)?.abort();
@@ -160,7 +174,7 @@ function createTeamReviewOperatorActions(
     return { ok: true, key, status: 'queued' };
   }
 
-  return { getDraft, updateDraft, updateThread, requeue, requestReview, markNotMine };
+  return { getDraft, updateDraft, updateThread, requeue, restore, requestReview, markNotMine };
 }
 
 export { createTeamReviewOperatorActions };
