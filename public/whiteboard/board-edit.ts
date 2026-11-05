@@ -47,12 +47,30 @@ export interface PressedImage {
   alt: string;
 }
 
+interface MovingBox {
+  boxId: string;
+  start: Rect;
+}
+
+type BoxFields = { at: ViewPoint } | { width: number };
+
+const MOUSE_PAN_BUTTONS: ReadonlySet<number> = new Set([1, 2]);
+
+function rectBetween(first: ViewPoint, second: ViewPoint): Rect {
+  return { x: Math.min(first.x, second.x), y: Math.min(first.y, second.y), width: Math.abs(first.x - second.x), height: Math.abs(first.y - second.y) };
+}
+
+function isRectInside(inner: Rect, outer: Rect): boolean {
+  return inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.width <= outer.x + outer.width && inner.y + inner.height <= outer.y + outer.height;
+}
+
 type BoxMedia = NonNullable<Extract<BoardElement, { kind: 'box' }>['media']>;
 
 type Gesture =
-  | { kind: 'drag'; mode: 'move' | 'resize'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; pressedImage: PressedImage | null }
+  | { kind: 'drag'; mode: 'move' | 'resize'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; movingBoxes: readonly MovingBox[]; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; pressedImage: PressedImage | null }
   | { kind: 'wire'; pointerId: number; fromBoxId: string; start: ViewPoint; draftLine: SVGPathElement; targetBoxId: string | null }
-  | { kind: 'pan'; pointerId: number; lastClient: ViewPoint; hasMoved: boolean; tappedBoxId: string | null; pressedImage: PressedImage | null }
+  | { kind: 'pan'; pointerId: number; lastClient: ViewPoint; hasMoved: boolean; isAuxiliaryButton: boolean; tappedBoxId: string | null; pressedImage: PressedImage | null }
+  | { kind: 'marquee'; pointerId: number; origin: ViewPoint; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; baseSelection: ReadonlySet<string>; outline: SVGRectElement }
   | { kind: 'pinch'; distance: number; viewWidth: number }
   | null;
 
@@ -222,10 +240,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
     setSelection(next);
   }
 
-  function draggedAt(drag: Extract<Gesture, { kind: 'drag' }>): ViewPoint {
+  function draggedAt(drag: Extract<Gesture, { kind: 'drag' }>, start: Rect): ViewPoint {
     return {
-      x: Math.round(drag.start.x + drag.latest.x - drag.origin.x),
-      y: Math.round(drag.start.y + drag.latest.y - drag.origin.y - drag.pinnedOffsetY),
+      x: Math.round(start.x + drag.latest.x - drag.origin.x),
+      y: Math.round(start.y + drag.latest.y - drag.origin.y - drag.pinnedOffsetY),
     };
   }
 
@@ -234,19 +252,23 @@ export function createBoardEditor(options: BoardEditorOptions) {
     return Math.min(WHITEBOARD_LIMITS.boxWidthMax, Math.max(WHITEBOARD_LIMITS.boxWidthMin, width));
   }
 
-  function draggedFields(drag: Extract<Gesture, { kind: 'drag' }>): { at: ViewPoint } | { width: number } {
-    return drag.mode === 'resize' ? { width: draggedWidth(drag) } : { at: draggedAt(drag) };
+  function draggedBoxFields(drag: Extract<Gesture, { kind: 'drag' }>): { boxId: string; fields: BoxFields }[] {
+    if (drag.mode === 'resize') return [{ boxId: drag.boxId, fields: { width: draggedWidth(drag) } }];
+    return drag.movingBoxes.map((movingBox) => ({ boxId: movingBox.boxId, fields: { at: draggedAt(drag, movingBox.start) } }));
   }
 
-  function withBoxFields(board: Board, boxId: string, fields: { at: ViewPoint } | { width: number }): Board {
-    const box = board.elements[boxId];
-    if (box?.kind !== 'box') return board;
-    return { ...board, elements: { ...board.elements, [boxId]: { ...box, ...fields } } };
+  function withBoxFields(board: Board, changes: readonly { boxId: string; fields: BoxFields }[]): Board {
+    const elements = { ...board.elements };
+    for (const { boxId, fields } of changes) {
+      const box = elements[boxId];
+      if (box?.kind === 'box') elements[boxId] = { ...box, ...fields };
+    }
+    return { ...board, elements };
   }
 
   function previewOf(board: Board): Board {
     if (gesture?.kind !== 'drag' || !gesture.hasMoved) return board;
-    return withBoxFields(board, gesture.boxId, draggedFields(gesture));
+    return withBoxFields(board, draggedBoxFields(gesture));
   }
 
   function cancelPreviewFrame(): void {
@@ -289,8 +311,32 @@ export function createBoardEditor(options: BoardEditorOptions) {
     gesture = { kind: 'pinch', distance: pinchDistance(), viewWidth: viewWidth() };
   }
 
+  function startButtonPan(event: PointerEvent): void {
+    event.preventDefault();
+    activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    viewport.setPointerCapture(event.pointerId);
+    gesture = { kind: 'pan', pointerId: event.pointerId, lastClient: { x: event.clientX, y: event.clientY }, hasMoved: false, isAuxiliaryButton: true, tappedBoxId: null, pressedImage: null };
+  }
+
+  function startMarquee(event: PointerEvent): void {
+    const origin = toViewPoint(event.clientX, event.clientY);
+    const outline = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    outline.setAttribute('class', 'wb-wire-line wb-dashed wb-wire-draft');
+    gesture = { kind: 'marquee', pointerId: event.pointerId, origin, latest: origin, hasMoved: false, isAdditive: event.shiftKey, baseSelection: event.shiftKey ? new Set(selectedIds) : new Set(), outline };
+  }
+
+  function movingBoxesFor(pressedBoxId: string, pressedRect: Rect, isAdditive: boolean): MovingBox[] {
+    if (isAdditive || !selectedIds.has(pressedBoxId)) return [{ boxId: pressedBoxId, start: pressedRect }];
+    return (renderer.layout()?.elements ?? []).flatMap((element) => (element.kind === 'box' && selectedIds.has(element.id) ? [{ boxId: element.id, start: element }] : []));
+  }
+
   function onPointerDown(event: PointerEvent): void {
-    if (event.button !== 0 || titleInput) return;
+    if (titleInput) return;
+    if (event.pointerType === 'mouse' && MOUSE_PAN_BUTTONS.has(event.button) && !gesture) {
+      startButtonPan(event);
+      return;
+    }
+    if (event.button !== 0) return;
     const linkedBoardId = linkedBoardIdOf(event.target);
     if (linkedBoardId) {
       options.onOpenLinkedBoard(linkedBoardId);
@@ -310,7 +356,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const resizeRect = hit?.kind === 'box' && isResizeHandle(event.target) && !isPhoneLayout() ? boxRectOf(hit.id) : null;
     if (hit && resizeRect) {
       const origin = toViewPoint(event.clientX, event.clientY);
-      gesture = { kind: 'drag', mode: 'resize', pointerId: event.pointerId, boxId: hit.id, origin, start: resizeRect, pinnedOffsetY: 0, latest: origin, hasMoved: false, isAdditive: false, pressedImage: null };
+      gesture = { kind: 'drag', mode: 'resize', pointerId: event.pointerId, boxId: hit.id, origin, start: resizeRect, movingBoxes: [], pinnedOffsetY: 0, latest: origin, hasMoved: false, isAdditive: false, pressedImage: null };
       return;
     }
     const port = portOf(event.target);
@@ -327,15 +373,19 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (hit && boxRect) {
       const origin = toViewPoint(event.clientX, event.clientY);
       const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
-      gesture = { kind: 'drag', mode: 'move', pointerId: event.pointerId, boxId: hit.id, origin, start: boxRect, pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: event.shiftKey, pressedImage: pressedMediaOf(event) };
+      gesture = { kind: 'drag', mode: 'move', pointerId: event.pointerId, boxId: hit.id, origin, start: boxRect, movingBoxes: movingBoxesFor(hit.id, boxRect, event.shiftKey), pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: event.shiftKey, pressedImage: pressedMediaOf(event) };
       return;
     }
     if (hit && !isPhoneLayout()) {
       toggleSelected(hit.id, event.shiftKey);
       return;
     }
+    if (!hit && event.pointerType === 'mouse' && !isPhoneLayout()) {
+      startMarquee(event);
+      return;
+    }
     const tappedBoxId = hit?.kind === 'box' ? hit.id : null;
-    gesture = { kind: 'pan', pointerId: event.pointerId, lastClient: { x: event.clientX, y: event.clientY }, hasMoved: false, tappedBoxId, pressedImage: pressedMediaOf(event) };
+    gesture = { kind: 'pan', pointerId: event.pointerId, lastClient: { x: event.clientX, y: event.clientY }, hasMoved: false, isAuxiliaryButton: false, tappedBoxId, pressedImage: pressedMediaOf(event) };
   }
 
   async function placeElement(tool: PlacementTool, point: ViewPoint): Promise<void> {
@@ -415,6 +465,32 @@ export function createBoardEditor(options: BoardEditorOptions) {
     panByPixels(deltaX, deltaY);
   }
 
+  function elementIdsInside(area: Rect): string[] {
+    return (renderer.layout()?.elements ?? []).flatMap((element) => (element.kind !== 'wire' && isRectInside(element, area) ? [element.id] : []));
+  }
+
+  function moveMarquee(marquee: Extract<Gesture, { kind: 'marquee' }>, event: PointerEvent): void {
+    const point = toViewPoint(event.clientX, event.clientY);
+    if (!marquee.hasMoved && Math.hypot(point.x - marquee.origin.x, point.y - marquee.origin.y) < DRAG_THRESHOLD_PX * viewUnitsPerPixel()) return;
+    if (!marquee.hasMoved) svg.append(marquee.outline);
+    marquee.hasMoved = true;
+    marquee.latest = point;
+    const area = rectBetween(marquee.origin, point);
+    marquee.outline.setAttribute('x', String(area.x));
+    marquee.outline.setAttribute('y', String(area.y));
+    marquee.outline.setAttribute('width', String(area.width));
+    marquee.outline.setAttribute('height', String(area.height));
+    const nextSelectedIds = new Set([...marquee.baseSelection, ...elementIdsInside(area)]);
+    if (nextSelectedIds.size === selectedIds.size && [...nextSelectedIds].every((elementId) => selectedIds.has(elementId))) return;
+    setSelection(nextSelectedIds);
+  }
+
+  function finishMarquee(marquee: Extract<Gesture, { kind: 'marquee' }>): void {
+    marquee.outline.remove();
+    if (marquee.hasMoved || marquee.isAdditive) return;
+    setSelection(new Set());
+  }
+
   function movePinch(pinch: Extract<Gesture, { kind: 'pinch' }>): void {
     const distance = pinchDistance();
     if (distance <= 0 || pinch.distance <= 0) return;
@@ -439,6 +515,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
       moveWire(gesture, event);
       return;
     }
+    if (gesture?.kind === 'marquee' && gesture.pointerId === event.pointerId) {
+      moveMarquee(gesture, event);
+      return;
+    }
     if (gesture?.kind === 'pan' && gesture.pointerId === event.pointerId) movePan(gesture, event);
   }
 
@@ -451,11 +531,17 @@ export function createBoardEditor(options: BoardEditorOptions) {
     }
     cancelPreviewFrame();
     drag.latest = toViewPoint(event.clientX, event.clientY);
-    const fields = draggedFields(drag);
+    const changes = draggedBoxFields(drag);
     const board = options.currentBoard();
-    if (board) renderer.render(withBoxFields(board, drag.boxId, fields));
-    const isSent = await options.sendOps([{ op: 'set', id: drag.boxId, fields }]);
-    if (!isSent) paintPreview();
+    if (board) renderer.render(withBoxFields(board, changes));
+    const ops: Op[] = changes.map(({ boxId, fields }) => ({ op: 'set', id: boxId, fields }));
+    for (let firstIndex = 0; firstIndex < ops.length; firstIndex += WHITEBOARD_LIMITS.opsPerPut) {
+      const isSent = await options.sendOps(ops.slice(firstIndex, firstIndex + WHITEBOARD_LIMITS.opsPerPut));
+      if (!isSent) {
+        paintPreview();
+        return;
+      }
+    }
   }
 
   function onPointerUp(event: PointerEvent): void {
@@ -475,7 +561,11 @@ export function createBoardEditor(options: BoardEditorOptions) {
       if (activeTool === 'wire') setTool('select');
       return;
     }
-    if (finished?.kind !== 'pan' || finished.hasMoved) return;
+    if (finished?.kind === 'marquee') {
+      finishMarquee(finished);
+      return;
+    }
+    if (finished?.kind !== 'pan' || finished.hasMoved || finished.isAuxiliaryButton) return;
     if (finished.pressedImage && isPhoneLayout()) {
       options.onOpenImage(finished.pressedImage);
       return;
@@ -491,6 +581,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     activePointers.delete(event.pointerId);
     const wasDragging = gesture?.kind === 'drag';
     if (gesture?.kind === 'wire') endWire(gesture, false);
+    if (gesture?.kind === 'marquee') gesture.outline.remove();
     gesture = null;
     if (wasDragging) paintPreview();
   }
@@ -600,6 +691,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   viewport.addEventListener('pointercancel', onPointerCancel);
   viewport.addEventListener('wheel', onWheel, { passive: false });
   viewport.addEventListener('dblclick', onDoubleClick);
+  viewport.addEventListener('contextmenu', (event) => event.preventDefault());
   viewport.addEventListener('keydown', onKeyDown);
   new ResizeObserver(() => {
     if (isFitOwedOnceSized && viewport.clientWidth > 0 && viewport.clientHeight > 0) fit();
