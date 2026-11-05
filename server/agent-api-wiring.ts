@@ -1,5 +1,5 @@
 import type { Session } from '../session/sessions.ts';
-import type { AgentApiVerb } from '../shared/contracts/session.ts';
+import type { AgentApiVerb, SessionCommand } from '../shared/contracts/session.ts';
 import { checkAgentReply, describeRoleRefusal, parseAgentVerb } from './core/agent-api-core.ts';
 import type { AgentRefusalReply, AgentReplyOf, AgentRequestOf, ChildEndCause } from './core/agent-api-core.ts';
 import type { AgentChannel } from './core/child-channel-core.ts';
@@ -16,7 +16,7 @@ interface AgentWireReply {
 
 interface AgentApiPort {
   handle(session: Session, verb: string, payload: Record<string, unknown>): Promise<AgentWireReply>;
-  refuseRole(session: Session, verb: AgentApiVerb): AgentRefusalReply | null;
+  refuseRole(session: Session, verb: AgentApiVerb | SessionCommand): AgentRefusalReply | null;
   markChildWorktreeDiscard(childId: string): void;
 }
 
@@ -71,7 +71,7 @@ function createAgentApiWiring({
     childIdsToDiscard.add(childId);
   }
 
-  function refuseRole(session: Session, verb: AgentApiVerb): AgentRefusalReply | null {
+  function refuseRole(session: Session, verb: AgentApiVerb | SessionCommand): AgentRefusalReply | null {
     return describeRoleRefusal(verb, roleFactsOf(session));
   }
 

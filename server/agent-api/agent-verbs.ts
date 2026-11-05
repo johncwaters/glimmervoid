@@ -217,7 +217,6 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     board: () => ({ status: 200, body: { ok: true, sessions: board() } }),
     push,
     edit,
-    show: () => refusal(400, 'show sends the file itself; run glimmervoid show <path>'),
     limits: (session) => ({ status: 200, body: limits(session) }),
     review: (_session, { pullRequestKey }) => review(pullRequestKey),
     reviews: (_session, { pullRequestKey }) => reviews(pullRequestKey),

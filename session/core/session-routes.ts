@@ -1,4 +1,4 @@
-import { SESSION_COMMANDS } from '../../shared/contracts/session.ts';
+import { AGENT_API_VERBS, SESSION_COMMANDS } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb, SessionCommand, SessionLimits } from '../../shared/contracts/session.ts';
 import { isRecord } from '../../shared/coerce.ts';
 import type { AgentNote } from '../../shared/contracts/hooks.ts';
@@ -85,11 +85,6 @@ function editRoute(caller: SessionKindFacts): RouteVerdict {
   return { answers: false, reason: 'a lane session cannot surface a file, because it has no card for the operator to open the file from' };
 }
 
-function showRoute(caller: SessionKindFacts): RouteVerdict {
-  if (hasOperatorCard(caller)) return ANSWERS;
-  return { answers: false, reason: 'a lane session cannot show a file, because it has no card for the operator to see it on' };
-}
-
 function operatorStateRoute(caller: SessionKindFacts): RouteVerdict {
   if (hasOperatorCard(caller)) return ANSWERS;
   return { answers: false, reason: "a lane session cannot read or queue the operator's reviews, pull requests or settings, because a lane runs on input the operator has not vetted" };
@@ -121,7 +116,7 @@ function checkoutRoute(caller: SessionKindFacts): RouteVerdict {
   return { answers: false, reason: 'a lane session cannot make a checkout, because a lane runs on input the operator has not vetted' };
 }
 
-const COMMAND_ROUTES: Readonly<Record<AgentApiVerb, (facts: SessionRoleFacts) => RouteVerdict>> = Object.freeze({
+const COMMAND_ROUTES: Readonly<Record<AgentApiVerb | SessionCommand, (facts: SessionRoleFacts) => RouteVerdict>> = Object.freeze({
   push: pushRoute,
   spawn: spawnRoute,
   send: channelRoute,
@@ -131,7 +126,7 @@ const COMMAND_ROUTES: Readonly<Record<AgentApiVerb, (facts: SessionRoleFacts) =>
   attention: attentionRoute,
   board: () => ANSWERS,
   edit: editRoute,
-  show: showRoute,
+  show: whiteboardRoute,
   review: operatorStateRoute,
   reviews: operatorStateRoute,
   prs: operatorStateRoute,
@@ -291,7 +286,8 @@ function boundaryLines({ boundary, environment }: SessionLimits): string[] {
 }
 
 function formatSessionLimits(limits: SessionLimits): string[] {
-  const commandLines = limits.commands.map(({ name, answers, reason }) => (answers ? `  ${name}: available` : `  ${name}: not available, ${reason}`));
+  const cliCommands = limits.commands.filter(({ name }) => (AGENT_API_VERBS as readonly string[]).includes(name));
+  const commandLines = cliCommands.map(({ name, answers, reason }) => (answers ? `  ${name}: available` : `  ${name}: not available, ${reason}`));
   return ['This session:', ...commandLines, ...boundaryLines(limits)];
 }
 

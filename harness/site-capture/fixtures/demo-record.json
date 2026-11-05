@@ -58,7 +58,7 @@
       "project": "ui",
       "dangerouslySkipPermissions": true,
       "maxMinutes": 5,
-      "task": "Read build/stats.json and write reports/bundle-size.html: a self-contained page with a horizontal bar chart of module sizes in kB as inline SVG, dark background (#0f1115), light text, bars in #7c5cff, the total in the heading. Then run exactly: glimmervoid show reports/bundle-size.html --caption \"Bundle size by module\" and finish with one line."
+      "task": "Read build/stats.json and write reports/bundle-size.html: a self-contained page with a horizontal bar chart of module sizes in kB as inline SVG, dark background (#0f1115), light text, bars in #7c5cff, the total in the heading. Then show reports/bundle-size.html to the operator with the glimmervoid show tool, captioned \"Bundle size by module\", and finish with one line."
     },
     {
       "name": "invoice-rounding",
