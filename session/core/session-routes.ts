@@ -218,7 +218,7 @@ function makesOwnCheckout(facts: ToolHookFacts): boolean {
 }
 
 const COMMAND_HINTS: Readonly<Record<ToolHintedCommand, { firesOn: (facts: ToolHookFacts) => boolean; text: string }>> = Object.freeze({
-  show: { firesOn: namesShowableFile, text: 'Glimmervoid: glimmervoid show <path> puts an image, video or HTML file on this session\'s card for the operator.' },
+  show: { firesOn: namesShowableFile, text: 'Glimmervoid: the glimmervoid show tool puts an image, video or HTML file on a whiteboard the operator is watching; use it instead of an artifact or asking the operator to open the file.' },
   spawn: { firesOn: startsSubagent, text: 'Glimmervoid: for work that edits files or runs long, glimmervoid spawn <prompt> gives it its own dashboard card; an in-process subagent stays fine for a quick read-only lookup.' },
   push: { firesOn: failsGitPush, text: "Glimmervoid: glimmervoid push lands this session's commits on the integration branch and pushes it." },
   settings: { firesOn: touchesGlimmervoidConfig, text: "Glimmervoid: glimmervoid settings get <key> reads Glimmervoid's settings without opening config.json." },

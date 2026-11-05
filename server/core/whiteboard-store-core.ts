@@ -1,5 +1,6 @@
-import { WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
-import type { Board, BoardChange, BoardRecord, BoardSummary } from '../../shared/contracts/whiteboard.ts';
+import { Box, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
+import type { Board, BoardChange, BoardRecord, BoardSummary, BoxMedia, Op } from '../../shared/contracts/whiteboard.ts';
+import type { Rect as BoardBounds } from '../../shared/whiteboard-layout-core.ts';
 import type { ApplyResult } from '../../shared/whiteboard-ops-core.ts';
 import type { AgentNote } from '../../shared/contracts/hooks.ts';
 import { isRecord } from '../../shared/coerce.ts';
@@ -166,4 +167,60 @@ function resolveBoardRef(boards: readonly Board[], ref: string): Board | { error
   return { error: `no board is called ${ref}: whiteboard list names the boards, and whiteboard new creates one` };
 }
 
+const SHOWN_BOX_ID_RE = /^shown-(\d{1,9})$/;
+const SHOWN_BOX_WIDTH = 480;
+const SHOWN_BOX_GAP = 60;
+const EMPTY_BOARD_ORIGIN = { x: 40, y: 40 };
+
+function isConnectedTo(record: BoardRecord, sessionId: string): boolean {
+  return sessionId in record.cursorBySessionId;
+}
+
+function newestBoardId(records: readonly BoardRecord[], timeOf: (record: BoardRecord) => number): string | null {
+  const newest = records.reduce<BoardRecord | null>((best, record) => (best === null || timeOf(record) > timeOf(best) ? record : best), null);
+  return newest?.board.id ?? null;
+}
+
+function pickShowBoardId(records: readonly BoardRecord[], sessionId: string): string | null {
+  const connectedRecords = records.filter((record) => isConnectedTo(record, sessionId));
+  const createdBySession = connectedRecords.filter((record) => record.createdBy === sessionId);
+  return newestBoardId(createdBySession, (record) => record.board.createdAt) ?? newestBoardId(connectedRecords, (record) => record.board.updatedAt);
+}
+
+function shownBoxNumbers(board: Board): number[] {
+  return Object.keys(board.elements).flatMap((elementId) => {
+    const shownNumber = SHOWN_BOX_ID_RE.exec(elementId)?.[1];
+    return shownNumber ? [Number(shownNumber)] : [];
+  });
+}
+
+interface ShownCard {
+  media: BoxMedia;
+  title: string;
+  caption: string | null;
+}
+
+function shownBoxOp(board: Board, contentBounds: BoardBounds, card: ShownCard): { ok: true; op: Op; boxId: string } | { ok: false; error: string } {
+  const lastShownNumber = Math.max(0, ...shownBoxNumbers(board));
+  const boxId = `shown-${lastShownNumber + 1}`;
+  const caption = card.caption?.slice(0, WHITEBOARD_LIMITS.line) ?? null;
+  const isEmptyBoard = Object.keys(board.elements).length === 0;
+  const belowContent = { x: contentBounds.x, y: contentBounds.y + contentBounds.height + SHOWN_BOX_GAP };
+  const placement = lastShownNumber > 0
+    ? { near: { of: `shown-${lastShownNumber}`, side: 'right' as const, gap: SHOWN_BOX_GAP } }
+    : { at: isEmptyBoard ? EMPTY_BOARD_ORIGIN : belowContent };
+  const box = Box.safeParse({
+    kind: 'box',
+    id: boxId,
+    title: card.title.slice(0, WHITEBOARD_LIMITS.title),
+    lines: caption ? [{ text: caption }] : [],
+    media: { ...card.media, alt: caption ?? card.title.slice(0, WHITEBOARD_LIMITS.line) },
+    width: SHOWN_BOX_WIDTH,
+    ...placement,
+  });
+  if (!box.success) return { ok: false, error: `box ${boxId} could not be built: ${box.error.issues[0]?.message ?? 'invalid box'}` };
+  return { ok: true, op: { op: 'add', element: box.data }, boxId };
+}
+
+export { pickShowBoardId, shownBoxOp };
 export { BOARD_CONTEXT_NOTE, boardRecordWithMediaForImages, changesForReader, connectSession, disconnectSession, markRead, nudgeLineFor, promptContextFor, recordPut, resolveBoardRef, summarizeBoard };

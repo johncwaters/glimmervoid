@@ -16,11 +16,12 @@ import { readChangeFacts, readFileFacts } from './whiteboard-anchor-facts.ts';
 import type { ChangeMap } from '../../shared/contracts/change-map.ts';
 import { unitsOf } from '../../shared/whiteboard-plan-core.ts';
 import {
-  boardRecordWithMediaForImages, changesForReader, connectSession, disconnectSession, markRead, nudgeLineFor, promptContextFor, recordPut, resolveBoardRef, summarizeBoard,
+  boardRecordWithMediaForImages, changesForReader, connectSession, disconnectSession, markRead, nudgeLineFor, pickShowBoardId, promptContextFor, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard,
 } from '../core/whiteboard-store-core.ts';
 import { loadJsonStateFile, writeJsonAtomic } from '../json-file.ts';
 import { createKeyedSerialQueue } from '../spawn-gate.ts';
 import { errorMessage } from '../../shared/text.ts';
+import { readPageTitle, SHOWN_SNIFF_BYTES } from '../core/shown-files-core.ts';
 import { createWhiteboardAssetStore } from './whiteboard-assets.ts';
 import type { WhiteboardAssetStore } from './whiteboard-assets.ts';
 
@@ -486,10 +487,53 @@ function createWhiteboardWiring({
     return { status: 200, body: { ok: true, media: ingested.media, note } };
   }
 
+  async function pageTitleOf(sourcePath: string): Promise<string | null> {
+    const handle = await fsp.open(sourcePath, 'r').catch(() => null);
+    if (!handle) return null;
+    try {
+      const firstChunk = Buffer.alloc(SHOWN_SNIFF_BYTES);
+      const { bytesRead } = await handle.read(firstChunk, 0, SHOWN_SNIFF_BYTES, 0);
+      return readPageTitle(firstChunk.subarray(0, bytesRead));
+    } finally {
+      await handle.close();
+    }
+  }
+
+  async function showBoardIdFor(caller: WhiteboardCaller): Promise<{ ok: true; boardId: string } | { ok: false; reply: WhiteboardReply }> {
+    const pickedBoardId = pickShowBoardId([...recordsByBoardId.values()], caller.id);
+    if (pickedBoardId) return { ok: true, boardId: pickedBoardId };
+    const created = await createBoardFor(caller, caller.name.slice(0, WHITEBOARD_LIMITS.title));
+    if (!created.body.ok || !('board' in created.body)) return { ok: false, reply: created };
+    return { ok: true, boardId: created.body.board.id };
+  }
+
+  async function showOnBoard(caller: WhiteboardCaller, requestedPath: string, caption: string | null): Promise<WhiteboardReply> {
+    if (caller.remoteWorkspace) return refusal(409, `show reads files on the Glimmervoid machine, and this session runs in the Coder workspace ${caller.remoteWorkspace}, so its files are not there`);
+    const sourcePath = path.resolve(caller.cwd ?? boardsRoot, requestedPath);
+    const ingested = await assets.ingestFile(sourcePath);
+    if (!ingested.ok) return refusal(ingested.status, ingested.error);
+    const pageTitle = ingested.media.kind === 'page' ? await pageTitleOf(sourcePath) : null;
+    const target = await showBoardIdFor(caller);
+    if (!target.ok) return target.reply;
+    const card = { media: ingested.media, title: pageTitle ?? path.basename(sourcePath), caption };
+    const author: Author = { id: caller.id, name: caller.name };
+    return changeRecord(target.boardId, (record) => {
+      const shownBox = shownBoxOp(record.board, layoutBoard(record.board).bounds, card);
+      if (!shownBox.ok) return { ok: false, reply: refusal(400, `${shownBox.error}, so nothing changed`) };
+      const { op, boxId } = shownBox;
+      const applied = applyOpsToRecord(record, [op], author);
+      if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
+      const { board } = applied.record;
+      const note = `showed ${card.title} as box ${boxId} on board "${board.title}" (${board.id}), where the operator sees it; change it with whiteboard put`;
+      return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, board: summarizeBoard(applied.record), note } }, patch: applied.patch };
+    });
+  }
+
   async function handleAgent(caller: WhiteboardCaller, request: WhiteboardAgentRequest): Promise<WhiteboardReply> {
     await loaded;
     if (request.sub === 'new') return createBoardFor(caller, request.title);
     if (request.sub === 'attach') return attachMedia(caller, request.path);
+    if (request.sub === 'show') return showOnBoard(caller, request.path, request.caption?.trim() || null);
     if (request.sub === 'list') {
       return { status: 200, body: { ok: true, boards: [...recordsByBoardId.values()].map(summarizeBoard) } };
     }
