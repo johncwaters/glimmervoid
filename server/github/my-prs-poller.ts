@@ -54,6 +54,8 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
   const keepMergeableAttemptsByKey = new Map<string, MyPrKeepMergeableAttemptRecord>();
   const keepMergeablePushedHeadKeys = new Set<string>();
   let mergeQueueKeys: string[] = [];
+  let stageSinceByKey = new Map<string, core.StageSinceRecord>();
+  let latestStageObservationMs = Number.NEGATIVE_INFINITY;
   const attemptedMergeKeys = new Set<string>();
   const mergeFailuresByKey = new Map<string, { attemptKey: string; failure: MyPrMergeQueueFailure }>();
   const fixesInFlight = new Set<string>();
@@ -94,13 +96,24 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     registerWatches();
     const snapshot = readStore();
     if (snapshot.isLoaded) {
-      previousPrs = withOperatorFlags(core.sortedMyPrs(snapshot.items.map((pr) => core.withAutoRebase(myPrFromGithubPr(pr), autoRebaseByKey.get(prKey(pr.repo, pr.number)))), now()));
+      const rebuiltAtMs = now();
+      const listedPrs = core.sortedMyPrs(snapshot.items.map((pr) => core.withAutoRebase(myPrFromGithubPr(pr), autoRebaseByKey.get(prKey(pr.repo, pr.number)))), rebuiltAtMs);
+      previousPrs = withOperatorFlags(stampStageClock(listedPrs, rebuiltAtMs, snapshot.isComplete));
       previousTruncatedNote = core.truncatedSearchNote(snapshot.returnedCount, snapshot.totalCount);
     }
     publishStatus();
   }
 
   registerWatches();
+
+  function stampStageClock(prs: MyPr[], observedAtMs: number, isComplete: boolean): MyPr[] {
+    if (observedAtMs < latestStageObservationMs) return core.withStageSince(prs, stageSinceByKey);
+    latestStageObservationMs = observedAtMs;
+    const stamped = core.stampStageSince(stageSinceByKey, prs, observedAtMs, isComplete);
+    stageSinceByKey = stamped.stageSinceByKey;
+    if (stamped.hasChanged) void loop.persist();
+    return stamped.prs;
+  }
 
   async function loadState(): Promise<void> {
     if (stateLoad) return stateLoad;
@@ -115,6 +128,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
       for (const key of state.keepMergeablePushedHeadKeys) keepMergeablePushedHeadKeys.add(key);
       for (const attempt of state.keepMergeableAttempts) keepMergeableAttemptsByKey.set(attempt.key, attempt);
       mergeQueueKeys = [...new Set(state.mergeQueueKeys)];
+      stageSinceByKey = new Map((state.stageSince ?? []).map((record) => [record.key, record]));
       hasLoadedState = true;
     })();
     return stateLoad;
@@ -128,7 +142,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
   }
 
   async function writeCurrentState(): Promise<void> {
-    await dependencies.writeState?.(core.MyPrsLaneState.parse({ keepMergeableKeys: [...keepMergeableKeys], keepMergeableAttemptKeys: [...keepMergeableAttemptKeys], mergeQueueKeys, keepMergeablePushedHeadKeys: [...keepMergeablePushedHeadKeys], keepMergeableAttempts: [...keepMergeableAttemptsByKey.values()], ...(failedAutoRebaseAttempts.size > 0 ? { failedAutoRebaseAttemptKeys: [...failedAutoRebaseAttempts] } : {}), ...(failedAutoRebaseRecordsByAttemptKey.size > 0 ? { failedAutoRebaseRecords: [...failedAutoRebaseRecordsByAttemptKey].map(([attemptKey, autoRebase]) => ({ attemptKey, autoRebase })) } : {}) }));
+    await dependencies.writeState?.(core.MyPrsLaneState.parse({ keepMergeableKeys: [...keepMergeableKeys], keepMergeableAttemptKeys: [...keepMergeableAttemptKeys], mergeQueueKeys, keepMergeablePushedHeadKeys: [...keepMergeablePushedHeadKeys], keepMergeableAttempts: [...keepMergeableAttemptsByKey.values()], ...(failedAutoRebaseAttempts.size > 0 ? { failedAutoRebaseAttemptKeys: [...failedAutoRebaseAttempts] } : {}), ...(failedAutoRebaseRecordsByAttemptKey.size > 0 ? { failedAutoRebaseRecords: [...failedAutoRebaseRecordsByAttemptKey].map(([attemptKey, autoRebase]) => ({ attemptKey, autoRebase })) } : {}), ...(stageSinceByKey.size > 0 ? { stageSince: [...stageSinceByKey.values()] } : {}) }));
   }
 
   const loop = createTickLoop({
@@ -204,7 +218,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     for (const key of [...autoRebaseByKey.keys()]) {
       if (!listedKeys.has(key)) autoRebaseByKey.delete(key);
     }
-    previousPrs = core.sortedMyPrs(prs, timestamp);
+    previousPrs = stampStageClock(core.sortedMyPrs(prs, timestamp), timestamp, snapshot.isComplete);
     pruneMergeFailures(timestamp);
     if (snapshot.isComplete) pruneKeepMergeableState(snapshot.returnedCount, snapshot.totalCount);
     if (isMergeQueueEnabled) mergeQueueKeys = core.prunedMergeQueueKeys({ mergeQueueKeys, prs, returnedCount: snapshot.returnedCount, totalCount: snapshot.totalCount, isComplete: snapshot.isComplete });

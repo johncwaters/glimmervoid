@@ -13,7 +13,7 @@ import type { ActionStatusTone } from '../action-status.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden, query } from '../dom-helpers.ts';
 import { buildSessionRow, paintSessionRowStatus } from '../session-row.ts';
-import { formatAgo } from '../poll-ago.ts';
+import { formatAgo, formatDuration } from '../poll-ago.ts';
 import { writeAttributeIfChanged, writeTextIfChanged } from '../status-paint.ts';
 import { createPrStatusIcon } from './pr-status-icon.ts';
 import { myPrStackRowsOf, stackBadgeOf } from './github-store-core.ts';
@@ -649,7 +649,7 @@ export function createMyPrQueueRow(pr: MyPr, stackRow: MyPrStackRow, linkedSessi
     bottom.append(badge);
   }
   const mergedAt = pr.state === 'MERGED' ? pr.mergedAt : null;
-  const ageText = mergedAt ? `merged ${formatAgo(Date.parse(mergedAt))}` : `opened ${formatAgo(Date.parse(pr.createdAt))}`;
+  const ageText = mergedAt ? `merged ${formatAgo(Date.parse(mergedAt))}` : `for ${formatDuration(Date.now() - (pr.stageSinceMs ?? Date.parse(pr.updatedAt)))}`;
   bottom.append(el('span', 'pr-queue-elapsed', ageText));
   const repairLabel = keepMergeableRowLabel(pr, keepMergeableToggle.isFeatureEnabled(latest));
   if (repairLabel) {
