@@ -36,6 +36,7 @@ interface BackendNotificationDependencies {
   configStore: { configPath: string };
   sessions: Map<string, Session>;
   controlWss: NotificationWsServer;
+  viewerControlClientCount: () => number;
   dataWss: NotificationWsServer;
   broadcastControl: ControlBroadcast;
   recordOutcome?: OutcomeRecorder;
@@ -44,7 +45,7 @@ interface BackendNotificationDependencies {
 
 function createBackendNotifications(dependencies: BackendNotificationDependencies) {
   const {
-    config, configStore, sessions, controlWss, dataWss, broadcastControl, recordOutcome = () => {}, logger,
+    config, configStore, sessions, controlWss, viewerControlClientCount, dataWss, broadcastControl, recordOutcome = () => {}, logger,
   } = dependencies;
   const alertGroupWindowMs = () => config.notifyDebounceMs ?? DEFAULT_ALERT_GROUP_WINDOW_MS;
   const notificationTimings = () => ({
@@ -86,7 +87,7 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
   const telegramDigest = createTelegramDigest({ deliver: telegramOutbox.deliver, windowMs: alertGroupWindowMs() });
   const sendTelegramNotification = createTelegramChannel({
     getConfig: () => config,
-    getConnectionCount: () => controlWss.clients.size,
+    getConnectionCount: viewerControlClientCount,
     getActiveAgentCount: (sessionId: string) => sessions.get(sessionId)?.toSnapshot().activeAgents || 0,
     getSessionName: (sessionId: string) => sessions.get(sessionId)?.name,
     outbox: telegramDigest,

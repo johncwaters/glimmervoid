@@ -233,6 +233,10 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     sessionDataClients,
     broadcastControl: broadcastControlFromWebSockets,
     closeSessionDataClients,
+    viewerControlClientCount,
+    isViewerConnected,
+    isHubControlSocket,
+    hubControlClientCount,
   } = webSockets;
   broadcastControl = (message) => {
     broadcastControlFromWebSockets(message);
@@ -258,6 +262,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     sessionDataClients,
     getMemoryGateStatus: () => laneAssembly.memoryAdmission.gateStatus(),
     controlWss,
+    viewerControlClientCount,
+    hubControlClientCount,
     dataWss,
     broadcastControl,
   });
@@ -268,6 +274,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     configStore,
     sessions,
     controlWss,
+    viewerControlClientCount,
     dataWss,
     broadcastControl,
     recordOutcome,
@@ -303,6 +310,9 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     dashboardPort: port,
     broadcastControl,
     controlWss,
+    viewerControlClientCount,
+    isViewerConnected,
+    isHubControlSocket,
     options,
     notificationManager,
     telemetry,
@@ -486,7 +496,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getUpdateJournal: () => updateApply.getJournal(),
     isRestartRequested: () => updateApply.isRestartRequested(),
     getNpmGlobalInstall: () => updateApply.getNpmGlobalInstall(),
-    getControlClientCount: () => controlWss.clients.size,
+    getControlClientCount: viewerControlClientCount,
     broadcastControl,
     logger: console,
     ...(options.downloadUpdatesInBackground ? { downloadUpdate: downloadUpdateOnceListening } : {}),

@@ -95,9 +95,11 @@ interface BackendLaneDependencies {
   dashboardPort: number;
   broadcastControl: ControlBroadcast;
   controlWss: {
-    clients: Set<WebSocket>;
     on(event: 'connection', listener: (socket: WebSocket) => void): unknown;
   };
+  viewerControlClientCount: () => number;
+  isViewerConnected: () => boolean;
+  isHubControlSocket: (socket: WebSocket) => boolean;
   options: BackendLaneOptions;
   notificationManager: { trigger(sessionName: string, category: string, message: string): unknown };
   telemetry: Telemetry;
@@ -121,6 +123,9 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     dashboardPort,
     broadcastControl,
     controlWss,
+    viewerControlClientCount,
+    isViewerConnected,
+    isHubControlSocket,
     options,
     notificationManager,
     telemetry,
@@ -227,7 +232,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   });
   const community = createCommunityWiring({
     config, broadcast: broadcastControl, homeDir: glimmervoidHomeDir(), log: logger,
-    controlClientCount: () => controlWss.clients.size,
+    controlClientCount: viewerControlClientCount,
     spawnDependencies: { investigationSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane, replayBufferKB: config.replayBufferKB },
   });
   const githubStatus = createGithubStatus({ log: logger });
@@ -237,7 +242,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const githubStore = createGithubStoreWiring({
     github,
     clock: githubClock,
-    isDashboardConnected: () => [...controlWss.clients].some((client) => client.readyState === 1),
+    isDashboardConnected: isViewerConnected,
     broadcast: broadcastControl,
     log: logger,
   });
@@ -262,7 +267,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     telemetry: laneTelemetry,
   });
   const sessionPrLink = createSessionPrLinkWiring({ store: githubStore.laneStore, git: gitWorkspace, log: logger });
-  const featureHints = createFeatureHintsWiring({ statePath: configSiblingPath(configStore.configPath, 'feature-hints.json'), broadcast: broadcastControl, log: logger, currentConfig: () => configStore.config, controlClientCount: () => controlWss.clients.size });
+  const featureHints = createFeatureHintsWiring({ statePath: configSiblingPath(configStore.configPath, 'feature-hints.json'), broadcast: broadcastControl, log: logger, currentConfig: () => configStore.config, controlClientCount: viewerControlClientCount });
   const myPrsWorkRoot = path.join(glimmervoidHome, 'my-prs-work');
   const myPrs = createMyPrsWiring({
     config, github, store: githubStore.laneStore, log: logger, clock: githubClock,
@@ -431,7 +436,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     config,
     sessions,
     broadcast: broadcastControl,
-    controlClientCount: () => controlWss.clients.size,
+    controlClientCount: viewerControlClientCount,
     warehousePath: configSiblingPath(configStore.configPath, 'usage-warehouse.json'),
     laneMap: () => laneLedger.laneMap(),
     telemetry,
@@ -440,7 +445,8 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     debug: () => configStore.getSettings().debugMode === true,
     ...(options.usageWiringOptions || {}),
   });
-  controlWss.on('connection', () => {
+  controlWss.on('connection', (socket) => {
+    if (isHubControlSocket(socket)) return;
     void usage.start();
   });
   const fixedLaneEntries = {
