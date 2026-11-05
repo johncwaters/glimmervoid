@@ -1,5 +1,7 @@
 import type { IBufferRange, Terminal } from '@xterm/xterm';
+import type { LinkPreview } from '#shared/contracts/link-preview.ts';
 import { el } from '../dom-helpers.ts';
+import { fetchLinkPreview } from '../external-link.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { isStreamerMode } from '../streamer-mode.ts';
 import { button } from '../ui/button.ts';
@@ -11,6 +13,8 @@ import './terminal-link-popup.css';
 
 const SHOW_DELAY_MS = 100;
 const HIDE_DELAY_MS = 150;
+const PREVIEW_DWELL_MS = 600;
+const PREVIEW_ICON_SIZE_PX = 16;
 const SWALLOWED_POINTER_EVENTS = ['mousedown', 'mouseup', 'mousemove', 'click', 'dblclick', 'contextmenu', 'wheel'] as const;
 
 type HoveredLink = { url: string; linkText: string | null; range: IBufferRange };
@@ -19,6 +23,14 @@ export type TerminalLinkPopup = {
   enterLink(link: HoveredLink): void;
   leaveLink(): void;
 };
+
+type LoadedPreview = { url: string; preview: LinkPreview };
+
+let isLinkPreviewEnabled = false;
+
+export function setLinkPreviewsEnabled(isEnabled: boolean) {
+  isLinkPreviewEnabled = isEnabled;
+}
 
 function buildUrlRow(url: string) {
   const row = el('div', 'terminal-link-popup-url');
@@ -40,6 +52,23 @@ function buildMismatchRow(link: HoveredLink) {
   return row;
 }
 
+function buildPreviewRow(loadedPreview: LoadedPreview | null, url: string) {
+  if (!loadedPreview || loadedPreview.url !== url) return null;
+  const { title, iconDataUrl } = loadedPreview.preview;
+  if (!title && !iconDataUrl) return null;
+  const row = el('div', 'terminal-link-popup-preview');
+  if (iconDataUrl) {
+    const icon = el('img', 'terminal-link-popup-icon');
+    icon.src = iconDataUrl;
+    icon.alt = '';
+    icon.width = PREVIEW_ICON_SIZE_PX;
+    icon.height = PREVIEW_ICON_SIZE_PX;
+    row.append(icon);
+  }
+  if (title) row.append(el('span', 'terminal-link-popup-title', title));
+  return row;
+}
+
 export function createTerminalLinkPopup(term: Terminal, ui: SessionUi): TerminalLinkPopup {
   const terminalElement = term.element;
   const screenElement = terminalElement?.querySelector<HTMLElement>('.xterm-screen');
@@ -56,6 +85,8 @@ export function createTerminalLinkPopup(term: Terminal, ui: SessionUi): Terminal
   let hoveredLink: HoveredLink | null = null;
   let showTimerId: ReturnType<typeof setTimeout> | null = null;
   let hideTimerId: ReturnType<typeof setTimeout> | null = null;
+  let dwellTimerId: ReturnType<typeof setTimeout> | null = null;
+  let loadedPreview: LoadedPreview | null = null;
   let viewportTopAtRender = 0;
 
   function clearShowTimer() {
@@ -68,6 +99,22 @@ export function createTerminalLinkPopup(term: Terminal, ui: SessionUi): Terminal
     if (hideTimerId === null) return;
     clearTimeout(hideTimerId);
     hideTimerId = null;
+  }
+
+  function clearDwellTimer() {
+    if (dwellTimerId === null) return;
+    clearTimeout(dwellTimerId);
+    dwellTimerId = null;
+  }
+
+  function fetchPreviewForHoveredLink() {
+    const url = hoveredLink?.url;
+    if (!isLinkPreviewEnabled || !url) return;
+    void fetchLinkPreview(url).then((preview) => {
+      if (!isLinkPreviewEnabled) return;
+      loadedPreview = { url, preview };
+      if (state.phase === 'shown' && hoveredLink?.url === url) render();
+    });
   }
 
   function closeOnEscape(event: KeyboardEvent) {
@@ -106,7 +153,7 @@ export function createTerminalLinkPopup(term: Terminal, ui: SessionUi): Terminal
       button({ variant: 'secondary', size: 'small', label: 'Copy link', onClick: () => copyTextToClipboard(ui, link.url, 'link copy', 'Copied the link.') }),
     );
     const mismatchRow = buildMismatchRow(link);
-    popup.replaceChildren(...[buildUrlRow(link.url), mismatchRow, footer].filter((row) => row !== null));
+    popup.replaceChildren(...[buildUrlRow(link.url), mismatchRow, buildPreviewRow(isLinkPreviewEnabled ? loadedPreview : null, link.url), footer].filter((row) => row !== null));
     popup.hidden = false;
     place(link);
     document.addEventListener('keydown', closeOnEscape, { capture: true, signal });
@@ -129,6 +176,12 @@ export function createTerminalLinkPopup(term: Terminal, ui: SessionUi): Terminal
       hideTimerId = setTimeout(() => { hideTimerId = null; dispatch('hide-timer'); }, HIDE_DELAY_MS);
     },
     'cancel-hide': clearHideTimer,
+    'schedule-dwell': () => {
+      clearDwellTimer();
+      dwellTimerId = setTimeout(() => { dwellTimerId = null; dispatch('dwell-timer'); }, PREVIEW_DWELL_MS);
+    },
+    'cancel-dwell': clearDwellTimer,
+    'fetch-preview': fetchPreviewForHoveredLink,
     render,
     remove,
   };
@@ -151,6 +204,7 @@ export function createTerminalLinkPopup(term: Terminal, ui: SessionUi): Terminal
   signal.addEventListener('abort', () => {
     clearShowTimer();
     clearHideTimer();
+    clearDwellTimer();
     scrollSubscription.dispose();
     resizeSubscription.dispose();
     popup.remove();

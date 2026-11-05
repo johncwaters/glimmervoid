@@ -18,6 +18,7 @@ import { needsAttention, sessionAttentionTier, tallyAdd, tallyRemove, titleAlert
 import { closeSessionNotifications } from '../notifications.ts';
 import { ensureTerminalReady, ensureTerminalSetup } from './terminal.ts';
 import { closeDataWs } from './terminal-data-socket.ts';
+import { setLinkPreviewsEnabled } from './terminal-link-popup.ts';
 import { setTerminalCursorBlink } from './terminal-setup.ts';
 import { releaseWebgl } from './webgl-pool.ts';
 import { currentTerminalFontFamily } from '../mono-font.ts';
@@ -52,7 +53,8 @@ export function getSessionCount() {
 
 export function applyTerminalSettings(settings: unknown) {
 
-  const terminalSettings = (settings || {}) as { cursorBlink?: boolean; debugMode?: boolean };
+  const terminalSettings = (settings || {}) as { cursorBlink?: boolean; debugMode?: boolean; linkPreviews?: boolean };
+  if (terminalSettings.linkPreviews != null) setLinkPreviewsEnabled(terminalSettings.linkPreviews);
   if (terminalSettings.cursorBlink != null) setTerminalCursorBlink(terminalSettings.cursorBlink);
   if (terminalSettings.debugMode != null) {
     setDebugMode(terminalSettings.debugMode);

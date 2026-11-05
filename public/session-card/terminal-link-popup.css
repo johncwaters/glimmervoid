@@ -56,3 +56,24 @@
 .terminal-link-popup-hint {
   color: var(--text-muted);
 }
+
+.terminal-link-popup-preview {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text);
+}
+
+.terminal-link-popup-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+.terminal-link-popup-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

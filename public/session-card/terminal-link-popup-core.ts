@@ -4,9 +4,9 @@ type PopupPhase = 'hidden' | 'pending' | 'shown';
 
 export type PopupState = { phase: PopupPhase; isPointerOnLink: boolean; isPointerOnPopup: boolean };
 
-export type PopupEvent = 'enter-link' | 'leave-link' | 'enter-popup' | 'leave-popup' | 'escape' | 'show-timer' | 'hide-timer';
+export type PopupEvent = 'enter-link' | 'leave-link' | 'enter-popup' | 'leave-popup' | 'escape' | 'show-timer' | 'hide-timer' | 'dwell-timer';
 
-export type PopupEffect = 'schedule-show' | 'cancel-show' | 'schedule-hide' | 'cancel-hide' | 'render' | 'remove';
+export type PopupEffect = 'schedule-show' | 'cancel-show' | 'schedule-hide' | 'cancel-hide' | 'schedule-dwell' | 'cancel-dwell' | 'fetch-preview' | 'render' | 'remove';
 
 type PopupTransition = { state: PopupState; effects: PopupEffect[] };
 
@@ -44,9 +44,9 @@ function isPointerAway(state: PopupState) {
 
 function enterLink(state: PopupState): PopupTransition {
   const pointed = { ...state, isPointerOnLink: true };
-  if (state.phase === 'shown') return { state: pointed, effects: ['cancel-hide', 'render'] };
-  if (state.phase === 'pending') return { state: pointed, effects: [] };
-  return { state: { ...pointed, phase: 'pending' }, effects: ['schedule-show'] };
+  if (state.phase === 'shown') return { state: pointed, effects: ['cancel-hide', 'schedule-dwell', 'render'] };
+  if (state.phase === 'pending') return { state: pointed, effects: ['schedule-dwell'] };
+  return { state: { ...pointed, phase: 'pending' }, effects: ['schedule-show', 'schedule-dwell'] };
 }
 
 function leaveLink(state: PopupState): PopupTransition {
@@ -73,7 +73,7 @@ export function nextPopupState(state: PopupState, event: PopupEvent): PopupTrans
       return leavePopup(state);
     case 'escape':
       if (state.phase === 'hidden') return { state, effects: [] };
-      return { state: { ...state, phase: 'hidden', isPointerOnPopup: false }, effects: ['cancel-show', 'cancel-hide', 'remove'] };
+      return { state: { ...state, phase: 'hidden', isPointerOnPopup: false }, effects: ['cancel-show', 'cancel-hide', 'cancel-dwell', 'remove'] };
     case 'show-timer':
       if (state.phase !== 'pending') return { state, effects: [] };
       if (!state.isPointerOnLink) return { state: { ...state, phase: 'hidden' }, effects: [] };
@@ -81,6 +81,9 @@ export function nextPopupState(state: PopupState, event: PopupEvent): PopupTrans
     case 'hide-timer':
       if (state.phase !== 'shown' || !isPointerAway(state)) return { state, effects: [] };
       return { state: { ...state, phase: 'hidden' }, effects: ['remove'] };
+    case 'dwell-timer':
+      if (state.phase !== 'shown' || !state.isPointerOnLink) return { state, effects: [] };
+      return { state, effects: ['fetch-preview'] };
   }
 }
 

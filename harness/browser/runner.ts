@@ -6,7 +6,7 @@ import type { Browser, BrowserContext, ConsoleMessage, Page, WebSocketRoute } fr
 import { safeTextTail } from '../support/backend-harness.ts';
 import { heightWithKeyboardUp, layoutFor, needsSocketRoute } from './cases-core.ts';
 import type { CardControl, HarnessCase, Layout, ResolvedStep, Step, ViewerId, Viewport } from './cases-core.ts';
-import { DECEPTIVE_LINK_ROW_NUMBER, DECEPTIVE_LINK_TEXT, LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, MOTION_REPORT_PREFIX, expectedRows, parseStatusRow } from './frame-core.ts';
+import { DECEPTIVE_LINK_ROW_NUMBER, DECEPTIVE_LINK_TEXT, DECEPTIVE_LINK_URL, LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, MOTION_REPORT_PREFIX, expectedRows, parseStatusRow } from './frame-core.ts';
 import { verifyBoardPane, verifyBoards } from './boards.ts';
 import { verifyIssues } from './issues.ts';
 import { verifyPhoneChanges, verifyReviewMerge } from './review-merge.ts';
@@ -440,7 +440,7 @@ async function waitForLinkHover(viewer: Viewer, label: string): Promise<PollResu
   }, { label, timeoutMs: LINK_HOVER_TIMEOUT_MS, intervalMs: 50 });
 }
 
-type LinkPopupReading = { isVisible: boolean; host: string; mismatch: string; topPx: number; bottomPx: number; leftPx: number; rightPx: number };
+type LinkPopupReading = { isVisible: boolean; host: string; mismatch: string; previewTitle: string; hasPreviewIcon: boolean; topPx: number; bottomPx: number; leftPx: number; rightPx: number };
 
 type PointAt = (column: number, rowNumber: number) => [number, number];
 
@@ -448,6 +448,22 @@ const LINK_POPUP_HIDE_TIMEOUT_MS = 1000;
 const LINK_POPUP_HOVER_HOLD_MS = 400;
 const BLANK_COLUMN = 70;
 const BLANK_ROW_NUMBER = 20;
+const LINK_PREVIEW_SWEEP_MS = 200;
+const LINK_PREVIEW_QUIET_MS = 800;
+const LINK_PREVIEW_TIMEOUT_MS = 2000;
+const HARNESS_PREVIEW_TITLE = 'Harness preview page';
+const HARNESS_PREVIEW_ICON = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
+
+async function recordLinkPreviewRequests(viewer: Viewer): Promise<string[]> {
+  const requestedUrls: string[] = [];
+  await viewer.page.route('**/link-preview', (route) => {
+    const body: unknown = route.request().postDataJSON();
+    const url = typeof body === 'object' && body !== null && 'url' in body ? String(body.url) : '';
+    requestedUrls.push(url);
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ title: HARNESS_PREVIEW_TITLE, iconDataUrl: HARNESS_PREVIEW_ICON }) });
+  });
+  return requestedUrls;
+}
 
 async function readLinkPopup(viewer: Viewer): Promise<LinkPopupReading> {
   return viewer.page.locator(`${cardSlotSelector(viewer)} .terminal-link-popup`).first().evaluate((popup) => {
@@ -456,6 +472,8 @@ async function readLinkPopup(viewer: Viewer): Promise<LinkPopupReading> {
       isVisible: !(popup as HTMLElement).hidden && bounds.height > 0,
       host: popup.querySelector('.terminal-link-popup-host')?.textContent ?? '',
       mismatch: popup.querySelector('.terminal-link-popup-mismatch')?.textContent ?? '',
+      previewTitle: popup.querySelector('.terminal-link-popup-title')?.textContent ?? '',
+      hasPreviewIcon: popup.querySelector('.terminal-link-popup-icon') !== null,
       topPx: bounds.top,
       bottomPx: bounds.bottom,
       leftPx: bounds.left,
@@ -471,7 +489,7 @@ async function waitForLinkPopup(viewer: Viewer, label: string, isWanted: (readin
   }, { label, timeoutMs, intervalMs: 25 });
 }
 
-async function runAssertLinkPopup(viewer: Viewer, pointAt: PointAt, linkRowBottomPx: number): Promise<StepOutcome | null> {
+async function runAssertLinkPopup(viewer: Viewer, pointAt: PointAt, linkRowBottomPx: number, previewRequestUrls: string[]): Promise<StepOutcome | null> {
   const shown = await waitForLinkPopup(viewer, 'link popup shows the real host', (reading) => reading.isVisible && reading.host === 'example.com', LINK_HOVER_TIMEOUT_MS);
   if (!shown.ok) return outcomeFor('link-popup-shown', shown);
   const placed = await readLinkPopup(viewer);
@@ -493,12 +511,26 @@ async function runAssertLinkPopup(viewer: Viewer, pointAt: PointAt, linkRowBotto
   const left = await waitForLinkPopup(viewer, 'leaving link and popup closes it', (reading) => !reading.isVisible, LINK_POPUP_HIDE_TIMEOUT_MS);
   if (!left.ok) return outcomeFor('link-popup-leave', left);
   await viewer.page.mouse.move(...pointAt(3, DECEPTIVE_LINK_ROW_NUMBER));
+  await sleep(LINK_PREVIEW_SWEEP_MS);
+  const passedOver = await readLinkPopup(viewer);
+  if (!passedOver.isVisible) return failedOutcome('link-preview-sweep-popup', 'the popup did not show for the passed-over link');
+  await viewer.page.mouse.move((passedOver.leftPx + passedOver.rightPx) / 2, (passedOver.topPx + passedOver.bottomPx) / 2);
+  await sleep(LINK_PREVIEW_QUIET_MS);
+  if (previewRequestUrls.includes(DECEPTIVE_LINK_URL)) return failedOutcome('link-preview-needs-dwell', 'passing over a link onto its popup fetched the page preview');
+  await viewer.page.mouse.move(...pointAt(BLANK_COLUMN, BLANK_ROW_NUMBER));
+  const sweptAway = await waitForLinkPopup(viewer, 'the passed-over popup closes', (reading) => !reading.isVisible, LINK_POPUP_HIDE_TIMEOUT_MS);
+  if (!sweptAway.ok) return outcomeFor('link-preview-sweep-closed', sweptAway);
+  await viewer.page.mouse.move(...pointAt(3, DECEPTIVE_LINK_ROW_NUMBER));
   const warned = await waitForLinkPopup(viewer, 'deceptive link text shows the mismatch warning', (reading) => reading.isVisible && reading.mismatch.includes('example.com') && reading.mismatch.includes('login.example.net'), LINK_HOVER_TIMEOUT_MS);
   if (!warned.ok) return outcomeFor('link-popup-mismatch', warned);
+  const previewed = await waitForLinkPopup(viewer, 'resting on a link adds its page title and icon', (reading) => reading.isVisible && reading.previewTitle === HARNESS_PREVIEW_TITLE && reading.hasPreviewIcon, LINK_PREVIEW_TIMEOUT_MS);
+  if (!previewed.ok) return outcomeFor('link-preview-after-dwell', previewed);
+  if (!previewRequestUrls.includes(DECEPTIVE_LINK_URL)) return failedOutcome('link-preview-requested', `no preview request named ${DECEPTIVE_LINK_URL}: ${previewRequestUrls.join(', ')}`);
   return null;
 }
 
 async function runAssertLinkRepaint(viewer: Viewer, sessionId: string, deadlines: Deadlines): Promise<StepOutcome> {
+  const previewRequestUrls = await recordLinkPreviewRequests(viewer);
   await runType(viewer, 'link-row');
   const plainShown = await waitForLinkRowText(viewer, sessionId, LINK_ROW_PLAIN_TEXT, deadlines);
   if (!plainShown.ok) return outcomeFor('link-row-plain', plainShown);
@@ -532,9 +564,9 @@ async function runAssertLinkRepaint(viewer: Viewer, sessionId: string, deadlines
   await viewer.page.mouse.move(...pointAt(9, LINK_ROW_NUMBER));
   const hoveredAlongRow = await waitForLinkHover(viewer, 'link stays hovered moving along its row');
   if (!hoveredAlongRow.ok) return outcomeFor('link-hover-along-row', hoveredAlongRow);
-  const popupFailure = await runAssertLinkPopup(viewer, pointAt, bounds.y + LINK_ROW_NUMBER * cellHeight);
+  const popupFailure = await runAssertLinkPopup(viewer, pointAt, bounds.y + LINK_ROW_NUMBER * cellHeight, previewRequestUrls);
   if (popupFailure) return popupFailure;
-  return passedOutcome('link-hover-after-repaint', `a link repainted under a resting pointer is hovered in place and along its row, the agent received no motion from the recheck, and the popup names the real host, stays while hovered, closes on Esc and on leave, and warns on ${DECEPTIVE_LINK_TEXT}`);
+  return passedOutcome('link-hover-after-repaint', `a link repainted under a resting pointer is hovered in place and along its row, the agent received no motion from the recheck, and the popup names the real host, stays while hovered, closes on Esc and on leave, warns on ${DECEPTIVE_LINK_TEXT}, and adds the page title only after a dwell`);
 }
 
 async function runOffline(viewer: Viewer, sessionId: string, deadlines: Deadlines): Promise<StepOutcome> {
