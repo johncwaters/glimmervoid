@@ -33,6 +33,9 @@ export const PackPrFlows = z.strictObject({
 });
 export type PackPrFlows = z.infer<typeof PackPrFlows>;
 
+export const PacksState = z.strictObject({ approvedFingerprints: z.array(z.string().min(1)).default([]) });
+export type PacksState = z.infer<typeof PacksState>;
+
 export type PackSection<Value> = { ok: true; value: Value } | { ok: false; errors: string[] };
 
 export type PackOnDisk = {

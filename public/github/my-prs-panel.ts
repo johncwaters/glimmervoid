@@ -369,7 +369,7 @@ function approvalKindLabel(kind: PrFlowPendingApproval['kind']): string {
   return 'PR action';
 }
 
-function approvalDetails(approval: PrFlowPendingApproval): HTMLElement[] {
+export function approvalDetails(approval: PrFlowPendingApproval): HTMLElement[] {
   const repos = approval.repos ? `, on ${approval.repos.join(', ')}` : '';
   if (!approval.pack) {
     return [

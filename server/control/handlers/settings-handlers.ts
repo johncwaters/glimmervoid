@@ -7,6 +7,7 @@ import type { ClientMessageOf } from '../../../shared/contracts/index.ts';
 import { isRecord } from '../../../shared/coerce.ts';
 import { errorCode, errorMessage } from '../../../shared/text.ts';
 import type { AgentHookGroup } from '../../../shared/contracts/hooks.ts';
+import { PackApproveRequest } from '../../../shared/contracts/control/pack-messages.ts';
 import { routeAgentNotes } from '../../../session/core/session-routes.ts';
 import { REFOCUS_NOTE } from '../../../session/core/refocus-core.ts';
 import { BOARD_CONTEXT_NOTE } from '../../core/whiteboard-store-core.ts';
@@ -330,6 +331,18 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     console.log(`[control] delete-hook: ${id}`);
   }
 
+  async function handlePackApprove(msg: ClientMessageOf<'pack-approve'>, ws: ControlSocket): Promise<void> {
+    const reply = (outcome: { ok: boolean; error?: string }) => replyTo(ws, msg, 'pack-approve-result', outcome);
+    const parsed = PackApproveRequest.safeParse({ fingerprint: msg.fingerprint });
+    if (!parsed.success) { reply({ ok: false, error: configIssueMessage(parsed.error) }); return; }
+    if (!deps.packs) { reply({ ok: false, error: 'Packs are not running' }); return; }
+    reply(await deps.packs.approve(parsed.data.fingerprint));
+  }
+
+  function connectFrames(): readonly unknown[] {
+    return deps.packs ? [deps.packs.statusFrame()] : [];
+  }
+
   const handlers = {
     'get-settings': handleGetSettings,
     'get-agent-logins': handleGetAgentLogins,
@@ -343,6 +356,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'request-hooks-report': handleRequestHooksReport,
     'save-hook': handleSaveHook,
     'delete-hook': handleDeleteHook,
+    'pack-approve': handlePackApprove,
   } satisfies ControlHandlerTable;
 
   const invalidReplies = {
@@ -358,9 +372,10 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'request-hooks-report': (_msg, requestId, message) => ({ type: 'hooks-report', requestId, error: message }),
     'save-hook': (_msg, requestId, message) => ({ type: 'save-hook-result', requestId, ok: false, error: message }),
     'delete-hook': (_msg, requestId, message) => ({ type: 'delete-hook-result', requestId, ok: false, error: message }),
+    'pack-approve': (_msg, requestId, message) => ({ type: 'pack-approve-result', requestId, ok: false, error: message }),
   } satisfies InvalidReplyTable;
 
-  return { handlers, invalidReplies };
+  return { handlers, invalidReplies, connectFrames };
 }
 
 export { createSettingsHandlers };

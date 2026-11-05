@@ -11,7 +11,8 @@ import type { ParsedCommand } from './core/cli-spec-core.ts';
 import { decideConfigPath, glimmervoidHomeDir } from './core/config-path-core.ts';
 import { parseJsonOrNull } from './core/json-core.ts';
 import { commandFingerprint, expandPlaceholders, packApproval, prFlowCommands, prFlowsPacksOf, prFlowRules, unknownActionWarnings } from './github/core/pr-flows-core.ts';
-import { readPackDir } from './packs/pack-files.ts';
+import { packsStatePath, readPackDir } from './packs/pack-files.ts';
+import { PacksState } from '../shared/contracts/pack.ts';
 import { createPrFlowsExternal } from './github/pr-flows-external.ts';
 
 const PR_URL_PATTERN = /^https:\/\/github\.com\/([^/\s]+\/[^/\s]+)\/pull\/(\d+)\/?$/;
@@ -54,6 +55,12 @@ function entryCheck(kind: EntryCheck['kind'], command: PrFlowCommand, approvedFi
   const isApproved = approvedFingerprints.has(commandFingerprint(kind, command));
   if (!expanded.ok) return { kind, id: command.id, label: command.label, isApproved, argv: null, error: `{${expanded.unknown}} is not a placeholder; use ${names.map((name) => `{${name}}`).join(', ')}` };
   return { kind, id: command.id, label: command.label, isApproved, argv: kind === 'action' ? expanded.argv : null, error: null };
+}
+
+function approvedPackFingerprints(homeDir: string): Set<string> {
+  const statePath = packsStatePath(homeDir);
+  if (!fs.existsSync(statePath)) return new Set();
+  return new Set(PacksState.safeParse(parseJsonOrNull(fs.readFileSync(statePath, 'utf8'))).data?.approvedFingerprints ?? []);
 }
 
 function approvedFingerprints(homeDir: string): Set<string> {
@@ -184,7 +191,7 @@ async function checkPack(packDir: string, env: NodeJS.ProcessEnv, homeDir: strin
   const read = await readPackDir(packDir, env);
   if (!read.ok) return { packDir: path.resolve(packDir), name: null, isApproved: false, errors: read.errors, missingRequires: [], entries: [], rules: [] };
   const { prFlowsPacks, warnings: sectionErrors } = prFlowsPacksOf([read.pack]);
-  const isApproved = approvedFingerprints(homeDir).has(read.pack.fingerprint);
+  const isApproved = approvedPackFingerprints(homeDir).has(read.pack.fingerprint);
   const name = `${read.pack.header.name} v${read.pack.header.version}`;
   const [prFlowsPack] = prFlowsPacks;
   if (!prFlowsPack) return { packDir: read.pack.dir, name, isApproved, errors: sectionErrors, missingRequires: read.pack.missingRequires, entries: [], rules: [] };
@@ -203,7 +210,7 @@ async function checkPack(packDir: string, env: NodeJS.ProcessEnv, homeDir: strin
 }
 
 function packReportText(report: PackCheckReport): string {
-  const heading = report.name === null ? `Checked the pack at ${report.packDir}` : `Checked pack ${report.name} at ${report.packDir}, ${report.isApproved ? 'approved' : 'waits for approval in My PRs'}`;
+  const heading = report.name === null ? `Checked the pack at ${report.packDir}` : `Checked pack ${report.name} at ${report.packDir}, ${report.isApproved ? 'approved' : 'waits for approval in Settings, Packs'}`;
   return [
     heading,
     ...report.entries.map((entry) => `${entry.kind} ${entry.id} (${entry.label}): ${entry.error === null ? `valid\n  would run ${JSON.stringify(entry.argv)}` : `invalid, ${entry.error}`}`),

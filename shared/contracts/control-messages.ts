@@ -10,6 +10,7 @@ import { communityClientVariants, communityServerVariants } from './control/comm
 import { laneClientVariants, laneServerVariants } from './control/lane-messages.ts';
 import { whiteboardClientVariants, whiteboardServerVariants } from './control/whiteboard-messages.ts';
 import { systemClientVariants, systemServerVariants } from './control/system-messages.ts';
+import { packClientVariants, packServerVariants } from './control/pack-messages.ts';
 
 export {
   CHANGES_POLL_INTERVAL_MS,
@@ -71,6 +72,7 @@ const clientVariants = [
   ...laneClientVariants,
   ...whiteboardClientVariants,
   ...systemClientVariants,
+  ...packClientVariants,
   ...idOnlyClientVariants,
 ] as const;
 
@@ -87,6 +89,7 @@ const serverVariants = [
   ...laneServerVariants,
   ...whiteboardServerVariants,
   ...systemServerVariants,
+  ...packServerVariants,
 ] as const;
 
 export const ServerMessage = z.discriminatedUnion('type', serverVariants);

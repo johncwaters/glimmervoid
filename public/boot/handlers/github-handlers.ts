@@ -2,6 +2,7 @@ import { applyGithubPrsFrame } from '../../github/github-prs-store.ts';
 import { applyIssueDetailResult, applyIssuesStatus, applyOpenIssueSessionResult, applySetIssueStateResult } from '../../github/issues-store.ts';
 import { applyMyPrMergeResult, applyMyPrsStatus, applyPrFlowsStatus } from '../../github/my-prs-store.ts';
 import { applyOpenTeamReviewSessionResult, applyTeamReviewActionResult, applyTeamReviewStatus } from '../../github/team-review-store.ts';
+import { applyPacksStatus } from '../../packs/packs-store.ts';
 import type { DashboardHandlerTable } from '../core/message-dispatch-core.ts';
 
 const messageHandlers = {
@@ -9,6 +10,7 @@ const messageHandlers = {
   'github-prs': (msg) => applyGithubPrsFrame(msg),
   'my-prs-status': applyMyPrsStatus,
   'pr-flows-status': applyPrFlowsStatus,
+  'packs-status': applyPacksStatus,
   'my-pr-merge-result': (msg) => applyMyPrMergeResult(msg),
   'team-review-action-result': (msg) => applyTeamReviewActionResult(msg),
   'open-team-review-session-result': (msg) => applyOpenTeamReviewSessionResult(msg),
