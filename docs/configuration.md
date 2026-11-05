@@ -38,6 +38,7 @@ How sessions start, where projects are found, and branch cleanup.
 | `streamerMode` | Streamer mode | `false` | Hide sensitive details while screen sharing. |
 | `hintCards` | Hint cards | `false` | Show tip cards: Your day tips and feature suggestions. |
 | `repoRoots` | Repository roots | `[]` | Folders scanned for projects when adding a session. |
+| `hiddenAgents` | Agents in Add Session | `[]` | Agents left out of the Add Session picker. Switch an agent off here to hide it; the default agent always stays. |
 | `branchGc.deleteUnmerged` | Delete unmerged branches | `false` | Also delete stale remote branches with no proof they were merged. |
 | `debugMode` | Debug mode | `false` | Show session-card diagnostics for state, transitions and detection signals. **File-only.** A diagnostic switch kept out of the Settings view; change it in config.json while investigating. |
 | `sessionMemoryReserveMB` | Session memory reserve | `600` | Free memory an automatic session start waits for; 0 starts sessions without checking. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |

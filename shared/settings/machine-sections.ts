@@ -68,6 +68,11 @@ export const MACHINE_SESSIONS: SettingsSection = {
       listPlaceholder: 'Repository root path', listEmptyText: 'No repository roots configured.', ...MACHINE_NOW,
     },
     {
+      id: 'hidden-agents', path: 'hiddenAgents', title: 'Agents in Add Session',
+      description: 'Agents left out of the Add Session picker. Switch an agent off here to hide it; the default agent always stays.',
+      control: 'agent-visibility', keywords: ['agents', 'picker', 'hide', 'show', 'add session', 'gemini', 'qwen', 'copilot', 'opencode', 'goose', 'cursor'], defaultValue: [], ...MACHINE_NOW,
+    },
+    {
       id: 'custom-agents', path: 'status:custom-agents', title: 'Custom agents',
       description: 'Extra agent CLIs a session can run.',
       control: 'readonly', keywords: ['adapters', 'cli'], status: 'custom-agents', ...READOUT,

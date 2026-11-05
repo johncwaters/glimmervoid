@@ -14,6 +14,7 @@ import { TeamReviewEnvironment } from '../shared/contracts/team-review-environme
 import { commandFor, resetCommandCache, setCustomAgents } from '../session/adapters/index.ts';
 import { CustomAgentDeclaration } from '../shared/contracts/index.ts';
 import { connectControl, controlDeps, createControlServer, testConfigStore } from './helpers/control-harness.ts';
+import { decideAgentPicker } from '../public/session-card/agent-core.ts';
 
 interface SettingsFrame {
   type: string;
@@ -126,6 +127,21 @@ test('a list value is one leaf: a saved list replaces the stored list whole and 
   h.send({ type: 'update-settings', settings: { community: { discordChannels: ['questions'] } } });
   assert.equal(errorFrom(h), undefined);
   assert.deepEqual(h.cfg.community, { discordChannels: ['questions'], skill: 'answering' });
+});
+
+test('an agent hidden in Settings drops out of the Add Session picker while the default agent stays offered', () => {
+  const h = harness({ projects: [] });
+  h.send({ type: 'update-settings', settings: { hiddenAgents: ['shell', 'claude-code'] } });
+  assert.equal(errorFrom(h), undefined);
+  h.sent.length = 0;
+  h.send({ type: 'list-agents' });
+  const listing = h.sent.find((message) => message.type === 'agents-listed');
+  const listedAgents = blockOf(listing, 'agents');
+  const installedAgents = (listedAgents as Array<{ id: string; resolvable: boolean }>).map((agent) => ({ ...agent, resolvable: true }));
+  const offeredIds = decideAgentPicker(installedAgents).options.map((option) => option.id);
+  assert.ok(!offeredIds.includes('shell'));
+  assert.ok(offeredIds.includes('claude-code'));
+  assert.ok(offeredIds.includes('codex'));
 });
 
 test('the block validator refuses by name a leaf the registry does not list', () => {

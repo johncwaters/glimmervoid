@@ -202,6 +202,7 @@ function createConfigStore({
       debugMode: config.debugMode ?? effectiveDefaults.debugMode,
       streamerMode: config.streamerMode ?? effectiveDefaults.streamerMode,
       viewTabOrder: config.viewTabOrder ?? DEFAULT_CONFIG.viewTabOrder,
+      hiddenAgents: config.hiddenAgents ?? DEFAULT_CONFIG.hiddenAgents,
       remoteSessions: config.remoteSessions ?? effectiveDefaults.remoteSessions,
       hintCards: config.hintCards ?? effectiveDefaults.hintCards,
       detectBackgroundAgents: config.detectBackgroundAgents ?? effectiveDefaults.detectBackgroundAgents,

@@ -5,16 +5,19 @@ interface AgentOption {
   id?: unknown;
   label?: unknown;
   resolvable?: unknown;
+  hidden?: unknown;
 }
 
 export function decideAgentPicker(agents: unknown, { defaultId = DEFAULT_AGENT_ID }: { defaultId?: string } = {}) {
   const resolvable = (Array.isArray(agents) ? (agents as AgentOption[]) : []).filter(
     (a) => a?.resolvable && typeof a.id === 'string' && a.id,
   );
-  const options = resolvable.map((a) => {
+  const installedOptions = resolvable.map((a) => {
     const id = String(a.id);
-    return { id, label: typeof a.label === 'string' && a.label ? a.label : id };
+    return { id, label: typeof a.label === 'string' && a.label ? a.label : id, isHidden: a.hidden === true && id !== defaultId };
   });
+  const shownOptions = installedOptions.filter((installedOption) => !installedOption.isHidden);
+  const options = (shownOptions.length > 0 ? shownOptions : installedOptions).map(({ id, label }) => ({ id, label }));
   const hasDefault = options.some((o) => o.id === defaultId);
   const selectedId = hasDefault ? defaultId : options.length > 0 ? options[0].id : defaultId;
   return { show: options.length > 1, options, selectedId };
