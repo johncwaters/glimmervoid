@@ -194,13 +194,12 @@ const OWNED_COMMAND_SPECS = {
   },
   'pr-flows': {
     name: 'pr-flows',
-    summary: 'Check the PR flows sources, actions and rules in config.json',
+    summary: 'Check the PR flows sources, actions, PR actions and rules in config.json and its packs',
     subcommands: [{
       name: 'check',
       summary: 'Name each entry valid or its error, run each source once against --pr and print each action\'s expanded command without running it',
       options: [
         { name: 'pr', type: 'string', valueName: 'url', summary: 'A pull request URL to run the sources against' },
-        { name: 'pack', type: 'string', valueName: 'dir', summary: 'Check a pack directory instead: its pack.json schema, placeholders and requires, running nothing' },
         JSON_OPTION, CONFIG_OPTION,
       ],
     }],

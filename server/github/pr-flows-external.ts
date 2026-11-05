@@ -5,7 +5,7 @@ import { ReportedPrFlowActionOutcome, PrFlowSourceOutput } from '../../shared/co
 import type { PrFlowActionOutput, PrFlowCommand, PrFlowItem } from '../../shared/contracts/pr-flows.ts';
 import type { MyPr } from '../../shared/contracts/my-prs.ts';
 import { parseJsonOrNull } from '../core/json-core.ts';
-import { expandPlaceholders, prActionPlaceholderValues } from './core/pr-flows-core.ts';
+import { expandPlaceholders, prActionPlaceholderValues, sourcePlaceholderValues, unknownPlaceholderMessage } from './core/pr-flows-core.ts';
 
 const OUTPUT_MAX_BYTES = 1024 * 1024;
 const ACTION_OUTPUT_MAX_BYTES = 64 * 1024 * 1024;
@@ -13,7 +13,7 @@ const ERROR_MAX_CHARACTERS = 200;
 
 type PrFlowTarget = Pick<MyPr, 'url' | 'repo' | 'number' | 'headRefOid'>;
 type PrActionTarget = Pick<MyPr, 'url' | 'repo' | 'number' | 'headRefOid' | 'headRefName' | 'baseRefName'>;
-type ActionInvocation = { values: Record<string, string>; knownNames: string; env: NodeJS.ProcessEnv };
+type ActionInvocation = { values: Record<string, string>; kind: 'action' | 'pr-action'; env: NodeJS.ProcessEnv };
 type SourceRun = { ok: true; output: PrFlowSourceOutput } | { ok: false; error: string };
 
 interface PrFlowsExternalOptions {
@@ -41,15 +41,7 @@ function reportedActionOutcome(stdout: string): PrFlowActionOutput | null {
   return { outcome: reported.outcome, message: firstCharacters(reported.message ?? '') };
 }
 
-function unknownPlaceholderError(name: string, knownNames: string): string {
-  return firstCharacters(`The command names {${name}}, which is not a placeholder; use ${knownNames}.`);
-}
-
 function createPrFlowsExternal({ homeDir, baseEnv = () => process.env, runCommand = runCommandSafely }: PrFlowsExternalOptions) {
-  function placeholderValues(pr: PrFlowTarget): Record<string, string> {
-    return { prUrl: pr.url, repo: pr.repo, number: String(pr.number), head: pr.headRefOid };
-  }
-
   function commandEnv(pr: PrFlowTarget): NodeJS.ProcessEnv {
     return {
       ...withoutGlimmervoidSecrets(baseEnv()),
@@ -58,8 +50,8 @@ function createPrFlowsExternal({ homeDir, baseEnv = () => process.env, runComman
   }
 
   async function runSource(source: PrFlowCommand, pr: PrFlowTarget): Promise<SourceRun> {
-    const expanded = expandPlaceholders(source.command, placeholderValues(pr));
-    if (!expanded.ok) return { ok: false, error: unknownPlaceholderError(expanded.unknown, '{prUrl}, {repo}, {number} or {head}') };
+    const expanded = expandPlaceholders(source.command, sourcePlaceholderValues(pr));
+    if (!expanded.ok) return { ok: false, error: firstCharacters(unknownPlaceholderMessage('source', expanded.unknown)) };
     const [program, ...args] = expanded.argv;
     if (program === undefined) return { ok: false, error: 'The command is empty.' };
     const run = await runCommand(program, args, { cwd: homeDir, env: commandEnv(pr), timeoutMs: source.timeoutSeconds * 1000, maxBufferBytes: OUTPUT_MAX_BYTES });
@@ -71,8 +63,8 @@ function createPrFlowsExternal({ homeDir, baseEnv = () => process.env, runComman
 
   function itemInvocation(pr: PrActionTarget, item: PrFlowItem): ActionInvocation {
     return {
-      values: { ...placeholderValues(pr), itemPath: item.path, itemLine: item.lineStart === null ? '' : String(item.lineStart) },
-      knownNames: '{prUrl}, {repo}, {number}, {head}, {itemPath} or {itemLine}',
+      values: { ...sourcePlaceholderValues(pr), itemPath: item.path, itemLine: item.lineStart === null ? '' : String(item.lineStart) },
+      kind: 'action',
       env: { ...commandEnv(pr), GLIMMERVOID_ITEM_JSON: JSON.stringify(item) },
     };
   }
@@ -80,15 +72,15 @@ function createPrFlowsExternal({ homeDir, baseEnv = () => process.env, runComman
   function prInvocation(pr: PrActionTarget, extraEnv: Readonly<Record<string, string>>): ActionInvocation {
     return {
       values: prActionPlaceholderValues(pr),
-      knownNames: '{prUrl}, {repo}, {number}, {head}, {headRef} or {baseRef}',
+      kind: 'pr-action',
       env: { ...commandEnv(pr), GLIMMERVOID_PR_HEAD_REF: pr.headRefName, GLIMMERVOID_PR_BASE_REF: pr.baseRefName, GLIMMERVOID_PR_JSON: boundedPrJson(pr), ...extraEnv },
     };
   }
 
   async function runAction(action: PrFlowCommand, pr: PrActionTarget, item?: PrFlowItem, extraEnv: Readonly<Record<string, string>> = {}): Promise<PrFlowActionOutput> {
-    const { values, knownNames, env } = item === undefined ? prInvocation(pr, extraEnv) : itemInvocation(pr, item);
+    const { values, kind, env } = item === undefined ? prInvocation(pr, extraEnv) : itemInvocation(pr, item);
     const expanded = expandPlaceholders(action.command, values);
-    if (!expanded.ok) return { outcome: 'failed', message: unknownPlaceholderError(expanded.unknown, knownNames) };
+    if (!expanded.ok) return { outcome: 'failed', message: firstCharacters(unknownPlaceholderMessage(kind, expanded.unknown)) };
     const [program, ...args] = expanded.argv;
     if (program === undefined) return { outcome: 'failed', message: 'The command is empty.' };
     const timeoutMs = action.timeoutSeconds * 1000;

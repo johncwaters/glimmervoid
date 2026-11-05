@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { PR_FLOW_PLACEHOLDERS_BY_KIND } from '../../shared/contracts/pr-flows.ts';
-import { expandPlaceholders, packApproval, packRuleChecks, prFlowsPacksOf } from '../github/core/pr-flows-core.ts';
+import { expandPlaceholders, packApproval, packRuleChecks, prFlowsPacksOf, unknownPlaceholderMessage } from '../github/core/pr-flows-core.ts';
 import { panelReferenceErrors, uiSectionErrors, undeclaredSubscriptionErrors } from './core/pack-core.ts';
 import { declaredPanels, readPackDir } from './pack-files.ts';
 
@@ -35,7 +35,7 @@ export async function checkPack(packDir: string, env: NodeJS.ProcessEnv, isAppro
   const entries = (approval.pack?.commands ?? []).map((command): PackEntryCheck => {
     const names = PR_FLOW_PLACEHOLDERS_BY_KIND[command.kind];
     const expanded = expandPlaceholders(command.command, Object.fromEntries(names.map((placeholderName) => [placeholderName, `{${placeholderName}}`])));
-    const error = expanded.ok ? null : `{${expanded.unknown}} is not a placeholder here; use {packDir}, ${names.map((placeholderName) => `{${placeholderName}}`).join(', ')}`;
+    const error = expanded.ok ? null : unknownPlaceholderMessage(command.kind, expanded.unknown);
     return { kind: command.kind, id: command.id, label: command.label, argv: command.command, repos: command.repos ?? null, error };
   });
   const ruleChecks = packRuleChecks(prFlowsPack.section, pack.header.name);

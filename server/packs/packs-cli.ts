@@ -22,7 +22,7 @@ type PreviewResponse = { status: number; headers: Record<string, string>; body: 
 const PREVIEW_HOST = '127.0.0.1';
 const FILES_PREFIX = '/files/';
 
-export async function runPackCheckCli({ packDir, isJson, env, homeDir }: { packDir: string; isJson: boolean; env: NodeJS.ProcessEnv; homeDir: string }): Promise<number> {
+async function runPackCheckCli({ packDir, isJson, env, homeDir }: { packDir: string; isJson: boolean; env: NodeJS.ProcessEnv; homeDir: string }): Promise<number> {
   const approvedFingerprints = readApprovedPackFingerprints(homeDir);
   const report = await checkPack(packDir, env, (fingerprint) => approvedFingerprints.has(fingerprint));
   process.stdout.write(`${isJson ? JSON.stringify(report, null, 2) : packReportText(report)}\n`);

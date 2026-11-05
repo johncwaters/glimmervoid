@@ -23,7 +23,7 @@ import { createBackendHttpApp } from '../server/backend/backend-http.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { runCommandSafely } from '../server/child-process-safe.ts';
 import { configFileViewOf, readSettingsForAgent } from '../server/core/settings-readout-core.ts';
-import { commandFingerprint, expandPlaceholders, packPathsOf, mergeItems, plannedActions, prFlowRules, sourceCandidates, teammateThreadItems, threadCandidates } from '../server/github/core/pr-flows-core.ts';
+import { commandFingerprint, expandPlaceholders, packPathsOf, mergeItems, plannedActions, prFlowsConfig, sourceCandidates, teammateThreadItems, threadCandidates } from '../server/github/core/pr-flows-core.ts';
 import { draftsNewestFirst } from '../server/github/core/team-review-core.ts';
 import { ReviewDraft, TeamReviewThreadNode } from '../shared/contracts/team-review.ts';
 import { isIncludedByDefault, otherReviewRows } from '../public/github/team-review-view-core.ts';
@@ -147,14 +147,14 @@ test('a matching rule dismisses an item on the next poll and records it, Undo re
   assert.deepEqual(savedRules, [{ name: 'Dismiss alice on src/a.ts', source: 'alice', paths: ['src/a.ts'], scope: 'mine', repos: ['acme/app'], action: 'dismiss', reason: 'Names are settled' }]);
   threads = [threadNode('PRRT_4', 'frontend/src/scenes/session-recordings/player/inspector/PlayerInspectorList.tsx', 5, 'greptile-apps[bot]', 'Long path')];
   assert.deepEqual(await prFlows.saveRule({ prKey: 'acme/app#1', itemKey: myPr().reviewItems[0]?.key ?? '', reason: 'Fine' }), { ok: true });
-  assert.equal(prFlowRules({ prFlows: { rules: savedRules.slice(1) } }).rules.length, 1);
+  assert.equal(prFlowsConfig({ prFlows: { rules: savedRules.slice(1) } }).rules.length, 1);
 });
 
 test('a malformed prFlows rule leaves config.json valid and shows as a warning instead', () => {
   const loneRule = { repoRules: { 'acme/app': { name: 'one', action: 'ask' } }, rules: [{ name: 'no action' }] };
   for (const prFlows of [null, loneRule, { rules: {} }]) assert.equal(validateConfig({ ...DEFAULT_CONFIG, prFlows }).ok, true);
-  assert.equal(prFlowRules({ prFlows: loneRule }).warnings.length, 3);
-  assert.deepEqual(prFlowRules({ prFlows: { repoRules: {}, rules: [] } }).warnings, []);
+  assert.equal(prFlowsConfig({ prFlows: loneRule }).warnings.length, 3);
+  assert.deepEqual(prFlowsConfig({ prFlows: { repoRules: {}, rules: [] } }).warnings, []);
 });
 
 test('a fix-local rule pastes the comment without submitting it', async () => {
@@ -264,7 +264,7 @@ test('a source that fails or prints no findings JSON shows its error on the PR a
   const chatty = await external.runSource({ id: 'chatty', label: 'chatty', command: [process.execPath, '-e', "console.log('hello')"], timeoutSeconds: 30 }, pr);
   assert.equal(chatty.ok, false);
   const unknown = await external.runSource({ id: 'typo', label: 'typo', command: ['echo', '{pr_url}'], timeoutSeconds: 30 }, pr);
-  assert.deepEqual(unknown, { ok: false, error: 'The command names {pr_url}, which is not a placeholder; use {prUrl}, {repo}, {number} or {head}.' });
+  assert.deepEqual(unknown, { ok: false, error: '{pr_url} is not a placeholder of a source; use {prUrl}, {repo}, {number}, {head}' });
 });
 
 test('a scanner rule never dismisses a carbon unit thread merged into the same item, and scanner output stays inert', () => {
@@ -704,7 +704,7 @@ test('a pack approval survives approving another pack while it is unreadable, an
   }
 });
 
-test('the published pack JSON Schema matches the Zod contract, and pr-flows check --pack names schema errors and missing requires without running anything', async () => {
+test('the published pack JSON Schema matches the Zod contract, and packs check names schema errors and missing requires without running anything', async () => {
   const publishedPath = path.join(import.meta.dirname, '..', 'site', 'public', 'schema', 'pack.v1.json');
   assert.equal(fs.readFileSync(publishedPath, 'utf8'), packJsonSchemaText(), 'regenerate site/public/schema/pack.v1.json from packJsonSchemaText()');
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-pack-check-'));
@@ -884,6 +884,28 @@ test('an agent reads each PR flows setting with its JSON Schema and a valid exam
     assert.equal(fs.existsSync(unapprovedMarkerPath), false);
     assert.deepEqual(report.outOfScopeSources.map((source) => [source.id, source.repos]), [['other-repo', ['acme/other']]]);
     assert.equal(fs.existsSync(otherRepoMarkerPath), false);
+
+    const packDir = path.join(homeDir, 'listed-pack');
+    fs.mkdirSync(packDir);
+    fs.writeFileSync(path.join(packDir, 'pack.json'), JSON.stringify({ name: 'dog', version: 1, prFlows: { actions: [{ id: 'triage', label: 'Triage', command: ['node', '{packDir}/t.mjs'] }] } }));
+    const checkConfig = async (prFlows: unknown) => {
+      fs.writeFileSync(path.join(homeDir, 'config.json'), JSON.stringify({ packs: ['listed-pack'], prFlows }));
+      let checkOutput = '';
+      const checkExit = await runPrFlowsCheck({ prUrl: null, isJson: false, homeDir, env, readConfig: () => readConfigFile(env, homeDir), runCommand: runCommandSafely }, { writeOutput: (text) => { checkOutput += text; }, writeError: (text) => { checkOutput += text; } });
+      return { checkExit, checkOutput };
+    };
+    const packActionRule = await checkConfig({ rules: [{ name: 'Triage', action: 'run:dog/triage' }] });
+    assert.deepEqual([packActionRule.checkExit, packActionRule.checkOutput.match(/^warning: .*/gm)], [0, null]);
+    assert.match(packActionRule.checkOutput, /^action dog\/triage \(Triage\): valid/m);
+    const missingPackAction = await checkConfig({ rules: [{ name: 'Triage', action: 'run:dog/missing' }] });
+    assert.equal(missingPackAction.checkExit, 1);
+    assert.match(missingPackAction.checkOutput, /^warning: Rule 'Triage' names run:dog\/missing/m);
+    const itemPlaceholderButton = await checkConfig({ prActions: [{ id: 'hand', label: 'Hand', command: ['x', '{headRef}', '{itemPath}'] }] });
+    assert.equal(itemPlaceholderButton.checkExit, 1);
+    assert.match(itemPlaceholderButton.checkOutput, /^pr-action hand \(Hand\): invalid, \{itemPath\} is not a placeholder of a pr-action; use \{prUrl\}, \{repo\}, \{number\}, \{head\}, \{headRef\}, \{baseRef\}$/m);
+    const invalidSection = await checkConfig({ sources: 'not a list' });
+    assert.equal(invalidSection.checkExit, 1);
+    assert.match(invalidSection.checkOutput, /^warning: prFlows was skipped: /m);
   } finally {
     fs.rmSync(homeDir, { recursive: true, force: true });
   }

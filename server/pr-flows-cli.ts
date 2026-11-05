@@ -3,16 +3,17 @@ import os from 'node:os';
 import path from 'node:path';
 import { PR_ACTION_REPORT_URL_ENV, PR_ACTION_TOKEN_ENV, PrActionReportBody, PrFlowsState } from '../shared/contracts/pr-flows.ts';
 import { AGENT_URL_ENV, AgentSettingsReply } from '../shared/contracts/session.ts';
-import type { PrFlowCommand, PrFlowSourceOutput } from '../shared/contracts/pr-flows.ts';
+import type { PackOnDisk } from '../shared/contracts/pack.ts';
+import type { PrFlowCommand, PrFlowPrAction, PrFlowSourceOutput } from '../shared/contracts/pr-flows.ts';
 import { errorMessage } from '../shared/text.ts';
 import { runCommandSafely } from './child-process-safe.ts';
 import type { CommandRunOptions, CommandRunResult } from './child-process-safe.ts';
 import type { ParsedCommand } from './core/cli-spec-core.ts';
 import { decideConfigPath, glimmervoidHomeDir } from './core/config-path-core.ts';
 import { parseJsonOrNull } from './core/json-core.ts';
-import { commandFingerprint, expandPlaceholders, prFlowCommands, prFlowRules, scopedToRepo, unknownActionWarnings } from './github/core/pr-flows-core.ts';
+import { commandFingerprint, expandPlaceholders, packPathsOf, prFlowSetup, prFlowsConfig, scopedToRepo, unknownPlaceholderMessage } from './github/core/pr-flows-core.ts';
 import { PR_FLOW_PLACEHOLDERS_BY_KIND } from '../shared/contracts/pr-flows.ts';
-import { runPackCheckCli } from './packs/packs-cli.ts';
+import { packDirsUnder, readApprovedPackFingerprints, readPackDir } from './packs/pack-files.ts';
 import { createPrFlowsExternal } from './github/pr-flows-external.ts';
 
 const PR_URL_PATTERN = /^https:\/\/github\.com\/([^/\s]+\/[^/\s]+)\/pull\/(\d+)\/?$/;
@@ -22,9 +23,9 @@ const REPORT_TIMEOUT_MS = 15_000;
 
 type CommandRunner = (command: string, args: string[], options: CommandRunOptions) => Promise<CommandRunResult>;
 type ConfigReading = { configPath: string; configFile: unknown };
-const PR_FLOWS_SETTING_KEYS = ['sources', 'actions', 'rules', 'repoRules'] as const;
+const SERVER_SETTING_PATHS = ['prFlows.sources', 'prFlows.actions', 'prFlows.prActions', 'prFlows.rules', 'prFlows.repoRules', 'packs'] as const;
 type CheckedPr = { url: string; repo: string; number: number; headRefOid: string };
-type EntryCheck = { kind: 'source' | 'action'; id: string; label: string; isApproved: boolean; error: string | null; argv: string[] | null };
+type EntryCheck = { kind: keyof typeof PR_FLOW_PLACEHOLDERS_BY_KIND; id: string; label: string; isApproved: boolean; error: string | null; argv: string[] | null };
 type SourceCheck = { id: string; label: string; output: PrFlowSourceOutput | null; error: string | null };
 type OutOfScopeSource = { id: string; label: string; repos: string[] };
 type PrFlowsCheckReport = { configPath: string; warnings: string[]; entries: EntryCheck[]; pr: CheckedPr | null; sourceRuns: SourceCheck[]; outOfScopeSources: OutOfScopeSource[] };
@@ -47,23 +48,37 @@ function placeholderSample(names: readonly string[], pr: CheckedPr | null): Reco
   return Object.fromEntries(names.map((name) => [name, prValues[name] ?? `{${name}}`]));
 }
 
-function entryCheck(kind: EntryCheck['kind'], command: PrFlowCommand, approvedFingerprints: ReadonlySet<string>, pr: CheckedPr | null): EntryCheck {
-  const names = PR_FLOW_PLACEHOLDERS_BY_KIND[kind];
-  const expanded = expandPlaceholders(command.command, placeholderSample(names, pr));
+function entryCheck(kind: EntryCheck['kind'], command: PrFlowCommand | PrFlowPrAction, approvedFingerprints: ReadonlySet<string>, pr: CheckedPr | null): EntryCheck {
+  const expanded = expandPlaceholders(command.command, placeholderSample(PR_FLOW_PLACEHOLDERS_BY_KIND[kind], pr));
   const isApproved = approvedFingerprints.has(commandFingerprint(kind, command));
-  if (!expanded.ok) return { kind, id: command.id, label: command.label, isApproved, argv: null, error: `{${expanded.unknown}} is not a placeholder; use ${names.map((name) => `{${name}}`).join(', ')}` };
-  return { kind, id: command.id, label: command.label, isApproved, argv: kind === 'action' ? expanded.argv : null, error: null };
+  if (!expanded.ok) return { kind, id: command.id, label: command.label, isApproved, argv: null, error: unknownPlaceholderMessage(kind, expanded.unknown) };
+  return { kind, id: command.id, label: command.label, isApproved, argv: kind === 'source' ? null : expanded.argv, error: null };
 }
 
-function approvedFingerprints(homeDir: string): Set<string> {
+function approvedFingerprints(homeDir: string): string[] {
   const statePath = path.join(homeDir, 'pr-flows-state.json');
-  if (!fs.existsSync(statePath)) return new Set();
-  return new Set(PrFlowsState.safeParse(parseJsonOrNull(fs.readFileSync(statePath, 'utf8'))).data?.approvedFingerprints ?? []);
+  if (!fs.existsSync(statePath)) return [];
+  return PrFlowsState.safeParse(parseJsonOrNull(fs.readFileSync(statePath, 'utf8'))).data?.approvedFingerprints ?? [];
 }
 
-function ruleWarnings(configFile: unknown, actionIds: ReadonlySet<string>): string[] {
-  const { rules, warnings: parseWarnings } = prFlowRules(configFile);
-  return [...new Set([...parseWarnings, ...unknownActionWarnings(rules, actionIds)])];
+async function installedPacks(homeDir: string, listedPaths: readonly string[], env: NodeJS.ProcessEnv): Promise<{ packs: PackOnDisk[]; warnings: string[] }> {
+  const found = await packDirsUnder(homeDir);
+  const packDirs = [...new Set([...found.packDirs, ...listedPaths.map((listedPath) => path.resolve(homeDir, listedPath))])];
+  const packs: PackOnDisk[] = [];
+  const warnings = found.warning === null ? [] : [found.warning];
+  for (const packDir of packDirs) {
+    const read = await readPackDir(packDir, env);
+    if (!read.ok) {
+      warnings.push(`The pack at ${packDir} was skipped: ${read.errors[0] ?? 'unreadable'}`);
+      continue;
+    }
+    if (packs.some((pack) => pack.header.name === read.pack.header.name)) {
+      warnings.push(`The pack at ${packDir} was skipped: another pack is already named '${read.pack.header.name}'`);
+      continue;
+    }
+    packs.push(read.pack);
+  }
+  return { packs, warnings };
 }
 
 async function resolvePr(prUrl: string, runCommand: CommandRunner, homeDir: string, env: NodeJS.ProcessEnv): Promise<CheckedPr> {
@@ -76,15 +91,16 @@ async function resolvePr(prUrl: string, runCommand: CommandRunner, homeDir: stri
 }
 
 async function readServerConfig(askSetting: (settingPath: string) => Promise<unknown>): Promise<ConfigReading> {
-  const prFlows: Record<string, unknown> = {};
-  for (const key of PR_FLOWS_SETTING_KEYS) {
-    const reply = AgentSettingsReply.safeParse(await askSetting(`prFlows.${key}`));
+  const valuesByPath = new Map<string, unknown>();
+  for (const settingPath of SERVER_SETTING_PATHS) {
+    const reply = AgentSettingsReply.safeParse(await askSetting(settingPath));
     if (!reply.success) throw new Error('Glimmervoid sent a settings reply this command cannot read');
     if (!reply.data.ok) throw new Error(reply.data.error);
     const readout = reply.data.readout;
-    if (readout !== null && typeof readout === 'object' && 'value' in readout) prFlows[key] = readout.value;
+    if (readout !== null && typeof readout === 'object' && 'value' in readout) valuesByPath.set(settingPath, readout.value);
   }
-  return { configPath: 'the config.json this Glimmervoid runs', configFile: { prFlows } };
+  const prFlows = Object.fromEntries([...valuesByPath].flatMap(([settingPath, value]) => (settingPath.startsWith('prFlows.') ? [[settingPath.slice('prFlows.'.length), value]] : [])));
+  return { configPath: 'the config.json this Glimmervoid runs', configFile: { prFlows, packs: valuesByPath.get('packs') } };
 }
 
 async function readConfigFromServer(): Promise<ConfigReading> {
@@ -104,14 +120,19 @@ async function readConfigFile(env: NodeJS.ProcessEnv, homeDir: string): Promise<
 async function checkPrFlows({ prUrl, env, homeDir, runCommand, readConfig }: PrFlowsCheckOptions): Promise<PrFlowsCheckReport> {
   if (!fs.existsSync(homeDir)) throw new Error(`the Glimmervoid home ${homeDir} does not exist; start Glimmervoid once or set GLIMMERVOID_HOME`);
   const { configPath, configFile } = await readConfig();
-  const commands = prFlowCommands(configFile);
+  const config = prFlowsConfig(configFile);
+  const packLoad = await installedPacks(homeDir, packPathsOf(configFile), env);
+  const approvedPackFingerprints = readApprovedPackFingerprints(homeDir);
+  const setup = prFlowSetup(config, packLoad, approvedFingerprints(homeDir));
+  const { approved } = prFlowSetup(config, { packs: packLoad.packs.filter((pack) => approvedPackFingerprints.has(pack.fingerprint)), warnings: [] }, approvedFingerprints(homeDir));
+  const { commands } = setup;
   const pr = prUrl === null ? null : await resolvePr(prUrl, runCommand, homeDir, env);
-  const approved = approvedFingerprints(homeDir);
   const entries = [
     ...commands.sources.map((source) => entryCheck('source', source, approved, pr)),
     ...commands.actions.map((action) => entryCheck('action', action, approved, pr)),
+    ...commands.prActions.map((prAction) => entryCheck('pr-action', prAction, approved, pr)),
   ];
-  const warnings = [...commands.warnings, ...ruleWarnings(configFile, new Set(commands.actions.map((action) => action.id)))];
+  const warnings = [...new Set([...commands.warnings, ...setup.ruleWarnings])];
   if (!pr) return { configPath, warnings, entries, pr, sourceRuns: [], outOfScopeSources: [] };
   const external = createPrFlowsExternal({ homeDir, baseEnv: () => env, runCommand });
   const sourcesInScope = scopedToRepo(commands.sources, pr.repo);
@@ -125,7 +146,7 @@ async function checkPrFlows({ prUrl, env, homeDir, runCommand, readConfig }: PrF
 }
 
 function entryLine(entry: EntryCheck): string {
-  const approval = entry.isApproved ? 'approved' : 'waits for approval in My PRs';
+  const approval = entry.isApproved ? 'approved' : 'waits for approval in My PRs, or for a pack in Settings, Packs';
   const heading = `${entry.kind} ${entry.id} (${entry.label}): `;
   if (entry.error !== null) return `${heading}invalid, ${entry.error}`;
   const argvText = entry.argv === null ? '' : `\n  would run ${JSON.stringify(entry.argv)}`;
@@ -143,7 +164,7 @@ function sourceRunLines(run: SourceCheck): string[] {
 
 function reportText(report: PrFlowsCheckReport): string {
   const lines = [`Checked ${report.configPath}`];
-  if (report.entries.length === 0) lines.push('No prFlows.sources or prFlows.actions are configured.');
+  if (report.entries.length === 0) lines.push('No prFlows.sources, prFlows.actions or prFlows.prActions are configured, in config.json or a pack.');
   lines.push(...report.entries.map(entryLine));
   lines.push(...report.warnings.map((warning) => `warning: ${warning}`));
   if (report.pr) lines.push(`Ran the approved sources against ${report.pr.url} at ${report.pr.headRefOid.slice(0, 12)}; a source waiting for approval in My PRs does not run:`, ...report.sourceRuns.flatMap(sourceRunLines), ...report.outOfScopeSources.map((source) => `source ${source.id} skipped: limited to ${source.repos.join(', ')}`));
@@ -170,7 +191,6 @@ async function runPrFlowsCheckCli(parsed: Extract<ParsedCommand, { kind: 'run' }
   const env = process.env;
   const homeDir = glimmervoidHomeDir(os.homedir(), env);
   const io = { writeOutput: (text: string) => process.stdout.write(text), writeError: (text: string) => process.stderr.write(text) };
-  if (typeof parsed.values.pack === 'string') return runPackCheckCli({ packDir: parsed.values.pack, isJson: parsed.values.json === true, env, homeDir });
   const readConfig = env[AGENT_URL_ENV] ? readConfigFromServer : () => readConfigFile(env, homeDir);
   return runPrFlowsCheck({
     prUrl: typeof parsed.values.pr === 'string' ? parsed.values.pr : null, isJson: parsed.values.json === true,
