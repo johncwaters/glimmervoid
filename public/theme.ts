@@ -1,22 +1,7 @@
-type ThemeMode = 'dark' | 'light';
-type AccentAnsiSlot = 'blue' | 'magenta' | 'none';
+import { THEME_STATE_NAMES } from '#shared/contracts/theme-palette.ts';
+import type { ThemePalette, ThemeStateName } from '#shared/contracts/theme-palette.ts';
 
-const STATE_NAMES = ['running', 'waiting', 'failed', 'monitoring', 'done', 'initializing', 'idle', 'starting', 'complete'] as const;
-type StateName = (typeof STATE_NAMES)[number];
-
-type ChromeToken =
-  | 'bg' | 'bg-card' | 'bg-header' | 'bg-surface'
-  | 'border' | 'border-dim' | 'border-hover'
-  | 'text' | 'text-dim' | 'text-head' | 'text-muted'
-  | 'accent' | 'accent-dim';
-
-interface ThemePalette {
-  label: string;
-  mode: ThemeMode;
-  accentAnsiSlot: AccentAnsiSlot;
-  chrome: Record<ChromeToken, string>;
-  states: Record<StateName, string>;
-}
+type ThemeMode = ThemePalette['mode'];
 
 interface ThemeDefinition {
   label: string;
@@ -24,7 +9,7 @@ interface ThemeDefinition {
   terminal: Record<string, string>;
 }
 
-const STRONG_TINT_STATES: ReadonlySet<StateName> = new Set(['waiting', 'monitoring']);
+const STRONG_TINT_STATES: ReadonlySet<ThemeStateName> = new Set(['waiting', 'monitoring']);
 
 const ANSI_HUES_BY_MODE: Record<ThemeMode, Record<string, string>> = {
   dark: {
@@ -80,9 +65,9 @@ function mixTowardWhite(hexColor: string, whiteShare: number): string {
   return `#${mixedChannels.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
 }
 
-function buildStateColors(states: Record<StateName, string>): Record<string, string> {
+function buildStateColors(states: Record<ThemeStateName, string>): Record<string, string> {
   const stateColors: Record<string, string> = {};
-  for (const stateName of STATE_NAMES) {
+  for (const stateName of THEME_STATE_NAMES) {
     const tintPercent = STRONG_TINT_STATES.has(stateName) ? 8 : 6;
     stateColors[`--state-${stateName}`] = states[stateName];
     stateColors[`--state-${stateName}-bg`] = `color-mix(in oklab, var(--state-${stateName}) ${tintPercent}%, transparent)`;
@@ -340,9 +325,30 @@ const DEFAULT_THEME = 'phyrexian';
 
 let unicornThemeEnteredListener: (() => void) | null = null;
 let _currentThemeId: string | null = null;
+let requestedThemeId: string | null = null;
+let packThemesById: Record<string, ThemeDefinition> = {};
+
+function themeById(themeId: string): ThemeDefinition | undefined {
+  return Object.hasOwn(THEMES, themeId) ? THEMES[themeId] : packThemesById[themeId];
+}
+
+export function setPackThemes(packThemes: readonly { id: string; palette: ThemePalette }[]): boolean {
+  packThemesById = Object.fromEntries(packThemes.map(({ id, palette }) => [id, defineTheme(palette)]));
+  const wantedThemeId = requestedThemeId ?? DEFAULT_THEME;
+  const shownThemeId = themeById(wantedThemeId) ? wantedThemeId : DEFAULT_THEME;
+  if (shownThemeId === _currentThemeId && !Object.hasOwn(packThemesById, shownThemeId)) return false;
+  showTheme(shownThemeId);
+  return true;
+}
 
 export function applyTheme(themeId: string) {
-  const theme = THEMES[themeId];
+  requestedThemeId = themeId;
+  if (!themeById(themeId)) return;
+  showTheme(themeId);
+}
+
+function showTheme(themeId: string) {
+  const theme = themeById(themeId);
   if (!theme) return;
 
   const prev = _currentThemeId;
@@ -368,7 +374,7 @@ export function applyPhoneArrowPad(isEnabled: boolean) {
 }
 
 export function getTerminalTheme(): Record<string, string> {
-  const theme = THEMES[_currentThemeId || DEFAULT_THEME];
+  const theme = themeById(_currentThemeId || DEFAULT_THEME);
   if (!theme) return {};
 
   const style = getComputedStyle(document.documentElement);
@@ -380,5 +386,5 @@ export function getTerminalTheme(): Record<string, string> {
 }
 
 export function getThemeList(): { id: string; label: string }[] {
-  return Object.entries(THEMES).map(([id, t]) => ({ id, label: t.label }));
+  return Object.entries({ ...THEMES, ...packThemesById }).map(([id, t]) => ({ id, label: t.label }));
 }

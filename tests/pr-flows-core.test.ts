@@ -610,7 +610,7 @@ test('a pack copied into the packs directory waits for one approval in Settings 
   }
 });
 
-test('a pack approval survives approving another pack while it is unreadable, and an approval that cannot be saved is refused', async () => {
+test('a pack approval survives approving another pack while it is unreadable, an approved pack missing a require shows no theme, and an approval that cannot be saved is refused', async () => {
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pack-approvals-'));
   const packStore = createPackStore({ homeDir, statePath: path.join(homeDir, 'packs-state.json'), env: process.env, log: { warn: () => {} } });
   const blockedStore = createPackStore({ homeDir, statePath: path.join(homeDir, 'packs', 'alpha', 'pack.json', 'packs-state.json'), env: process.env, log: { warn: () => {} } });
@@ -629,6 +629,16 @@ test('a pack approval survives approving another pack while it is unreadable, an
     assert.deepEqual(await packStore.approve(fingerprintOf('beta')), { ok: true });
     fs.writeFileSync(alphaManifest, alphaBytes);
     assert.deepEqual((await packStore.approvedPacks()).packs.map((pack) => pack.header.name).sort(), ['alpha', 'beta']);
+    const sampleTheme = {
+      id: 'night', label: 'Night', mode: 'dark', accentAnsiSlot: 'none',
+      chrome: Object.fromEntries(['bg', 'bg-card', 'bg-header', 'bg-surface', 'border', 'border-dim', 'border-hover', 'text', 'text-dim', 'text-head', 'text-muted', 'accent', 'accent-dim'].map((token) => [token, '#101010'])),
+      states: Object.fromEntries(['running', 'waiting', 'failed', 'monitoring', 'done', 'initializing', 'idle', 'starting', 'complete'].map((state) => [state, '#202020'])),
+    };
+    fs.mkdirSync(path.join(homeDir, 'packs', 'gamma'));
+    fs.writeFileSync(path.join(homeDir, 'packs', 'gamma', 'pack.json'), JSON.stringify({ name: 'gamma', version: 1, requires: { env: ['GLIMMERVOID_PACK_TEST_UNSET'] }, ui: { themes: [sampleTheme] } }));
+    await packStore.approvedPacks();
+    assert.deepEqual(await packStore.approve(fingerprintOf('gamma')), { ok: true });
+    assert.deepEqual(packStore.statusFrame().themes, []);
     fs.writeFileSync(alphaManifest, JSON.stringify({ name: 'alpha', version: 2 }));
     await blockedStore.start();
     const blocked = await blockedStore.approve(blockedStore.statusFrame().packs.find((row) => row.name === 'alpha')?.fingerprint ?? '');
@@ -662,6 +672,9 @@ test('the published pack JSON Schema matches the Zod contract, and pr-flows chec
     fs.writeFileSync(path.join(brokenDir, 'pack.json'), JSON.stringify({ name: 'dup', version: 1, prFlows: { prActions: twoGoButtons } }));
     assert.equal(await check(brokenDir), 1);
     assert.match(output.at(-1) ?? '', /error: The prFlows section of the pack 'dup' was skipped: pack\.json prFlows\.prActions\.1\.id: the id 'go' is already used in prActions/);
+    fs.writeFileSync(path.join(brokenDir, 'pack.json'), JSON.stringify({ name: 'dim', version: 1, ui: { themes: [{ id: 'dim', label: 'Dim', mode: 'dim' }] } }));
+    assert.equal(await check(brokenDir), 1);
+    assert.ok(output.some((line) => line.includes('pack.json ui.themes.0.mode')));
     const homeWithPacksFile = path.join(homeDir, 'packs-is-a-file');
     fs.mkdirSync(homeWithPacksFile);
     fs.writeFileSync(path.join(homeWithPacksFile, 'packs'), '');

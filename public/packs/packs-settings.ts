@@ -42,6 +42,7 @@ function packLines(row: PackRow): HTMLElement[] {
   const lines = [
     ...(row.description ? [row.description] : []),
     `Folder: ${row.dir}`,
+    ...(row.themes.length === 0 ? [] : [`Themes: ${row.themes.map((theme) => `${theme.label} (${theme.mode})`).join(', ')}`]),
     ...(row.files.length === 0 ? [] : [`Files: ${row.files.join(', ')}`]),
     ...(row.needs.length === 0 ? [] : [`Needs: ${row.needs.join(', ')}`]),
     ...(row.missingRequires.length === 0 ? [] : [`Missing here: ${row.missingRequires.join(', ')}; the pack stays off until this machine has them`]),

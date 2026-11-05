@@ -1,6 +1,8 @@
 import { PacksStatus } from '#shared/contracts/control/pack-messages.ts';
 import { describeSchemaIssues } from '../client-error-core.ts';
 import { reportToServerLog } from '../control-ws.ts';
+import { reportTerminalColors } from '../terminal-color-report.ts';
+import { setPackThemes } from '../theme.ts';
 
 let latestPacksStatus: PacksStatus | null = null;
 const listeners = new Set<() => void>();
@@ -21,5 +23,6 @@ export function applyPacksStatus(message: unknown): void {
     return;
   }
   latestPacksStatus = parsed.data;
+  if (setPackThemes(parsed.data.themes)) reportTerminalColors();
   for (const listener of listeners) listener();
 }

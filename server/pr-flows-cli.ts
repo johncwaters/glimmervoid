@@ -12,6 +12,7 @@ import { decideConfigPath, glimmervoidHomeDir } from './core/config-path-core.ts
 import { parseJsonOrNull } from './core/json-core.ts';
 import { commandFingerprint, expandPlaceholders, packApproval, prFlowCommands, prFlowsPacksOf, prFlowRules, unknownActionWarnings } from './github/core/pr-flows-core.ts';
 import { packsStatePath, readPackDir } from './packs/pack-files.ts';
+import { uiSectionErrors } from './packs/core/pack-core.ts';
 import { PacksState } from '../shared/contracts/pack.ts';
 import { createPrFlowsExternal } from './github/pr-flows-external.ts';
 
@@ -190,7 +191,8 @@ type PackCheckReport = { packDir: string; name: string | null; isApproved: boole
 async function checkPack(packDir: string, env: NodeJS.ProcessEnv, homeDir: string): Promise<PackCheckReport> {
   const read = await readPackDir(packDir, env);
   if (!read.ok) return { packDir: path.resolve(packDir), name: null, isApproved: false, errors: read.errors, missingRequires: [], entries: [], rules: [] };
-  const { prFlowsPacks, warnings: sectionErrors } = prFlowsPacksOf([read.pack]);
+  const { prFlowsPacks, warnings: prFlowsErrors } = prFlowsPacksOf([read.pack]);
+  const sectionErrors = [...prFlowsErrors, ...uiSectionErrors(read.pack)];
   const isApproved = approvedPackFingerprints(homeDir).has(read.pack.fingerprint);
   const name = `${read.pack.header.name} v${read.pack.header.version}`;
   const [prFlowsPack] = prFlowsPacks;
@@ -205,7 +207,7 @@ async function checkPack(packDir: string, env: NodeJS.ProcessEnv, homeDir: strin
   const { section } = prFlowsPack;
   return {
     packDir: read.pack.dir, name, isApproved,
-    errors: unknownActionWarnings(section.rules, new Set(section.actions.map((action) => action.id))), missingRequires: read.pack.missingRequires, entries, rules: approval.pack?.rules ?? [],
+    errors: [...sectionErrors, ...unknownActionWarnings(section.rules, new Set(section.actions.map((action) => action.id)))], missingRequires: read.pack.missingRequires, entries, rules: approval.pack?.rules ?? [],
   };
 }
 

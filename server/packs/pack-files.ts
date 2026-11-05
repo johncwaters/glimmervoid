@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { PACK_FILE_NAME, PackHeader, PackPrFlows } from '../../shared/contracts/pack.ts';
+import { PACK_FILE_NAME, PackHeader, PackPrFlows, PackUi } from '../../shared/contracts/pack.ts';
 import type { PackOnDisk, PackSection } from '../../shared/contracts/pack.ts';
 import { withoutGlimmervoidSecrets } from '../../session/core/spawn-env.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -95,7 +95,7 @@ async function readPackDirUnguarded(packDir: string, env: NodeJS.ProcessEnv): Pr
     ok: true,
     pack: {
       dir: packDir, header: header.data, fingerprint: packFingerprint(read.filesByPath), filesByPath: read.filesByPath,
-      prFlows: parseSection(PackPrFlows, header.data.prFlows, 'prFlows'), missingRequires: await missingRequires(header.data.requires, env),
+      prFlows: parseSection(PackPrFlows, header.data.prFlows, 'prFlows'), ui: parseSection(PackUi, header.data.ui, 'ui'), missingRequires: await missingRequires(header.data.requires, env),
     },
   };
 }
