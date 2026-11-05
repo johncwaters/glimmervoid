@@ -6,7 +6,7 @@ import { glimmervoidHomeDir } from "../server/core/config-path-core.ts";
 import { loadFileLocks } from "../server/session-temp/session-temp-locks.ts";
 import { writeTextAtomicSync } from "../server/json-file.ts";
 import { errorMessage, isMissingFileError } from "../shared/text.ts";
-import { AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_IN_USE_LOCK_NAME, AGENT_HOME_SOURCES_NAME, CODEX_HOME_PROFILE, GEMINI_HOME_PROFILE, KIMI_HOME_PROFILE, fileStampKey, linkKindFor, planAgentHome } from "./core/agent-home-core.ts";
+import { AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_IN_USE_LOCK_NAME, AGENT_HOME_SOURCES_NAME, AGENT_HOME_PROFILES, fileStampKey, resolveRealAgentHome, linkKindFor, planAgentHome } from "./core/agent-home-core.ts";
 import type { AgentHomePlan, AgentHomeProfile, AgentHomeStep, GeneratedAgentHomeEntry, RealAgentHomeEntry } from "./core/agent-home-core.ts";
 
 const GENERATED_HOME_MODE = 0o700;
@@ -32,9 +32,7 @@ interface ScratchAgentHomeOptions {
 }
 
 function realAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv = process.env, homeDir: string = os.homedir()): string {
-  const configuredHome = env[profile.homeEnvName]?.trim() ?? "";
-  if (configuredHome) return path.resolve(configuredHome, profile.homeEnvSubfolder ?? "");
-  return path.join(homeDir, profile.defaultHomeFolderName);
+  return resolveRealAgentHome(profile, env, homeDir, readOptionalText);
 }
 
 function generatedAgentHomePath(profile: AgentHomeProfile, env: AgentHomeEnv = process.env, homeDir: string = os.homedir()): string {
@@ -459,7 +457,7 @@ function holdAgentHome(generatedHome: string): void {
   if (liveSessionCount === 1) takeSharedInUseLock(generatedHome);
 }
 
-const SECRET_CONFIG_NAMES: readonly string[] = [...new Set([KIMI_HOME_PROFILE, CODEX_HOME_PROFILE, GEMINI_HOME_PROFILE].flatMap(({ config }) => [config.configName, config.baseName]))];
+const SECRET_CONFIG_NAMES: readonly string[] = [...new Set(AGENT_HOME_PROFILES.flatMap(({ config }) => [config.configName, config.baseName]))];
 
 function releaseAgentHomeSecrets(generatedHome: string): void {
   for (const name of SECRET_CONFIG_NAMES) {

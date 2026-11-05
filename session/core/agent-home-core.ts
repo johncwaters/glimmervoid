@@ -1,4 +1,5 @@
 import path from "node:path";
+import { parseEnv } from "node:util";
 
 import { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME } from "../../mcp/core/agent-config.ts";
 import { cleanJsonc } from "../../server/core/tsconfig-paths-core.ts";
@@ -141,7 +142,7 @@ const AGENT_HOME_IN_USE_LOCK_NAME = ".glimmervoid-in-use.lock";
 const GENERATED_ONLY_NAMES: ReadonlySet<string> = new Set([AGENT_HOME_SOURCES_NAME, AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_IN_USE_LOCK_NAME]);
 const FILE_STAMP_PREFIX = "file:";
 
-type AgentHomeVendor = "kimi" | "codex" | "gemini";
+type AgentHomeVendor = "kimi" | "codex" | "gemini" | "qwen";
 
 interface TomlConfigFormat {
   kind: "toml";
@@ -151,10 +152,17 @@ interface TomlConfigFormat {
   sessionOnlyTablePrefixes: readonly string[];
 }
 
+interface JsonHooksSwitch {
+  managedKeys: readonly string[];
+  areHooksOff(operatorConfig: Record<string, unknown>): boolean | { refusal: string };
+  turnHooksOn(operatorConfig: Record<string, unknown>): Record<string, unknown>;
+}
+
 interface JsonConfigFormat {
   kind: "json";
   configName: string;
   baseName: string;
+  hooksSwitch: JsonHooksSwitch;
 }
 
 interface AgentHomeProfile {
@@ -162,6 +170,8 @@ interface AgentHomeProfile {
   homeEnvName: string;
   defaultHomeFolderName: string;
   homeEnvSubfolder: string | null;
+  homeEnvDotenvNames: readonly string[];
+  expandsHomeTilde: boolean;
   homeRootLinkNames: readonly string[];
   renderLauncherConfig: ((operatorLauncherText: string) => string) | null;
   config: TomlConfigFormat | JsonConfigFormat;
@@ -373,12 +383,9 @@ function mergeJsonKeys(base: JsonObject, ours: JsonObject, theirs: JsonObject): 
   return merged;
 }
 
-const MANAGED_JSON_KEYS: readonly string[] = Object.freeze(["hooks", "hooksConfig"]);
-
-function withManagedHooks(operatorConfig: JsonObject, managedHooks: JsonObject): { config: JsonObject } | { refusal: string } {
-  const operatorHooksConfig = operatorConfig.hooksConfig;
-  if (operatorHooksConfig !== undefined && !isRecord(operatorHooksConfig)) return { refusal: "its hooksConfig key is not an object, which Glimmervoid hooks cannot turn on" };
-  const areOperatorHooksOff = operatorHooksConfig?.enabled === false;
+function withManagedHooks(operatorConfig: JsonObject, managedHooks: JsonObject, hooksSwitch: JsonHooksSwitch): { config: JsonObject } | { refusal: string } {
+  const areOperatorHooksOff = hooksSwitch.areHooksOff(operatorConfig);
+  if (typeof areOperatorHooksOff !== "boolean") return areOperatorHooksOff;
   const operatorHooks = areOperatorHooksOff ? {} : operatorConfig.hooks ?? {};
   if (!isRecord(operatorHooks)) return { refusal: "its hooks key is not an object, which Glimmervoid hooks cannot extend" };
   const hooks: JsonObject = { ...operatorHooks };
@@ -387,8 +394,8 @@ function withManagedHooks(operatorConfig: JsonObject, managedHooks: JsonObject):
     if (!Array.isArray(operatorGroups) || !Array.isArray(managedGroups)) return { refusal: `its hooks.${event} is not a list, which Glimmervoid hooks cannot extend` };
     hooks[event] = [...operatorGroups, ...managedGroups];
   }
-  const hooksConfig = areOperatorHooksOff ? { ...operatorHooksConfig, enabled: true } : operatorHooksConfig;
-  return { config: { ...operatorConfig, ...(hooksConfig === undefined ? {} : { hooksConfig }), hooks } };
+  const switchedConfig = areOperatorHooksOff ? hooksSwitch.turnHooksOn(operatorConfig) : operatorConfig;
+  return { config: { ...switchedConfig, hooks } };
 }
 
 function parseStoredJsonObject(text: string | null): JsonObject | null {
@@ -397,28 +404,28 @@ function parseStoredJsonObject(text: string | null): JsonObject | null {
   return parseJsonObject(text);
 }
 
-function generatedJsonAgentConfig(sources: Omit<AgentConfigSources, "format">): GeneratedConfig {
+function generatedJsonAgentConfig(sources: Omit<AgentConfigSources, "format">, format: JsonConfigFormat): GeneratedConfig {
   const realText = sources.realConfigText ?? "";
   const theirs = parseStoredJsonObject(realText);
   if (theirs === null) return { refusal: "it is not a JSON object" };
   const base = parseStoredJsonObject(sources.baseConfigText);
   const generated = parseStoredJsonObject(sources.generatedConfigText);
   const ours: JsonObject = { ...generated };
-  for (const managedKey of MANAGED_JSON_KEYS) {
+  for (const managedKey of format.hooksSwitch.managedKeys) {
     delete ours[managedKey];
     if (Object.hasOwn(theirs, managedKey)) ours[managedKey] = theirs[managedKey];
   }
   const operatorConfig = base === null || generated === null ? theirs : mergeJsonKeys(base, ours, theirs);
   const managedHooks = parseJsonObject(sources.renderBlock(JSON.stringify(operatorConfig)));
   if (managedHooks === null) return { refusal: "the Glimmervoid hooks could not be rendered" };
-  const hooked = withManagedHooks(operatorConfig, managedHooks);
+  const hooked = withManagedHooks(operatorConfig, managedHooks, format.hooksSwitch);
   if ("refusal" in hooked) return hooked;
   return { text: `${JSON.stringify(hooked.config, null, 2)}\n`, base: realText, hadBlock: false };
 }
 
 function generatedConfigFor(inputs: AgentHomeInputs): GeneratedConfig {
   const format = inputs.profile.config;
-  if (format.kind === "json") return generatedJsonAgentConfig(inputs);
+  if (format.kind === "json") return generatedJsonAgentConfig(inputs, format);
   return generatedAgentConfig({ ...inputs, format });
 }
 
@@ -494,6 +501,8 @@ const KIMI_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   homeEnvName: "KIMI_CODE_HOME",
   defaultHomeFolderName: ".kimi-code",
   homeEnvSubfolder: null,
+  homeEnvDotenvNames: Object.freeze([]),
+  expandsHomeTilde: false,
   homeRootLinkNames: Object.freeze([]),
   renderLauncherConfig: null,
   config: Object.freeze({
@@ -525,6 +534,8 @@ const CODEX_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   homeEnvName: "CODEX_HOME",
   defaultHomeFolderName: ".codex",
   homeEnvSubfolder: null,
+  homeEnvDotenvNames: Object.freeze([]),
+  expandsHomeTilde: false,
   homeRootLinkNames: Object.freeze([]),
   renderLauncherConfig: null,
   config: Object.freeze({
@@ -545,17 +556,76 @@ function renderGeminiLauncherConfig(operatorLauncherText: string): string {
   return `${JSON.stringify({ advanced: { autoConfigureMemory } }, null, 2)}\n`;
 }
 
+const GEMINI_HOOKS_SWITCH: JsonHooksSwitch = Object.freeze({
+  managedKeys: Object.freeze(["hooks", "hooksConfig"]),
+  areHooksOff: (operatorConfig: JsonObject) => {
+    const operatorHooksConfig = operatorConfig.hooksConfig;
+    if (operatorHooksConfig !== undefined && !isRecord(operatorHooksConfig)) return { refusal: "its hooksConfig key is not an object, which Glimmervoid hooks cannot turn on" };
+    return operatorHooksConfig?.enabled === false;
+  },
+  turnHooksOn: (operatorConfig: JsonObject) => ({ ...operatorConfig, hooksConfig: { ...(isRecord(operatorConfig.hooksConfig) ? operatorConfig.hooksConfig : {}), enabled: true } }),
+});
+
 const GEMINI_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   vendor: "gemini",
   homeEnvName: "GEMINI_CLI_HOME",
   defaultHomeFolderName: ".gemini",
   homeEnvSubfolder: ".gemini",
+  homeEnvDotenvNames: Object.freeze([]),
+  expandsHomeTilde: false,
   homeRootLinkNames: Object.freeze([".agents", ".env"]),
   renderLauncherConfig: renderGeminiLauncherConfig,
-  config: Object.freeze({ kind: "json", configName: "settings.json", baseName: AGENT_HOME_JSON_BASE_NAME }),
+  config: Object.freeze({ kind: "json", configName: "settings.json", baseName: AGENT_HOME_JSON_BASE_NAME, hooksSwitch: GEMINI_HOOKS_SWITCH }),
   generatedFileNames: Object.freeze([]),
   isPrivateEntryName: () => false,
 });
+
+const QWEN_HOOKS_SWITCH: JsonHooksSwitch = Object.freeze({
+  managedKeys: Object.freeze(["hooks", "disableAllHooks"]),
+  areHooksOff: (operatorConfig: JsonObject) => operatorConfig.disableAllHooks === true,
+  turnHooksOn: (operatorConfig: JsonObject) => ({ ...operatorConfig, disableAllHooks: false }),
+});
+
+const QWEN_HOME_PROFILE: AgentHomeProfile = Object.freeze({
+  vendor: "qwen",
+  homeEnvName: "QWEN_HOME",
+  defaultHomeFolderName: ".qwen",
+  homeEnvSubfolder: null,
+  homeEnvDotenvNames: Object.freeze([path.join(".qwen", ".env"), ".env"]),
+  expandsHomeTilde: true,
+  homeRootLinkNames: Object.freeze([]),
+  renderLauncherConfig: null,
+  config: Object.freeze({ kind: "json", configName: "settings.json", baseName: AGENT_HOME_JSON_BASE_NAME, hooksSwitch: QWEN_HOOKS_SWITCH }),
+  generatedFileNames: Object.freeze([]),
+  isPrivateEntryName: () => false,
+});
+
+function expandHomeTilde(configuredHome: string, homeDir: string): string {
+  if (configuredHome === "~") return homeDir;
+  if (!/^~[\\/]/.test(configuredHome)) return configuredHome;
+  return path.join(homeDir, ...configuredHome.slice(2).split(/[\\/]+/).filter(Boolean));
+}
+
+function configuredAgentHome(profile: AgentHomeProfile, env: Readonly<Record<string, string | undefined>>, homeDir: string, readOptionalText: (filePath: string) => string | null): string {
+  const homeFromEnv = env[profile.homeEnvName]?.trim() ?? "";
+  if (homeFromEnv) return homeFromEnv;
+  for (const dotenvName of profile.homeEnvDotenvNames) {
+    const dotenvText = readOptionalText(path.join(homeDir, dotenvName));
+    if (dotenvText === null) continue;
+    const homeFromDotenv = parseEnv(dotenvText)[profile.homeEnvName]?.trim() ?? "";
+    if (homeFromDotenv) return homeFromDotenv;
+  }
+  return "";
+}
+
+function resolveRealAgentHome(profile: AgentHomeProfile, env: Readonly<Record<string, string | undefined>>, homeDir: string, readOptionalText: (filePath: string) => string | null): string {
+  const configuredHome = configuredAgentHome(profile, env, homeDir, readOptionalText);
+  if (!configuredHome) return path.join(homeDir, profile.defaultHomeFolderName);
+  const expandedHome = profile.expandsHomeTilde ? expandHomeTilde(configuredHome, homeDir) : configuredHome;
+  return path.resolve(expandedHome, profile.homeEnvSubfolder ?? "");
+}
+
+const AGENT_HOME_PROFILES: readonly AgentHomeProfile[] = Object.freeze([KIMI_HOME_PROFILE, CODEX_HOME_PROFILE, GEMINI_HOME_PROFILE, QWEN_HOME_PROFILE]);
 
 interface CodexHomeHook {
   event: string;
@@ -661,6 +731,8 @@ function renderCodexHooksBlock(options: CodexHooksBlockOptions): string {
 
 export {
   AGENT_HOME_CONFIG_NAME,
+  AGENT_HOME_PROFILES,
+  resolveRealAgentHome,
   AGENT_HOME_CONFLICTS_NAME,
   AGENT_HOME_IN_USE_LOCK_NAME,
   AGENT_HOME_SOURCES_NAME,
@@ -669,6 +741,7 @@ export {
   CODEX_HOME_PROFILE,
   GEMINI_HOME_PROFILE,
   KIMI_HOME_PROFILE,
+  QWEN_HOME_PROFILE,
   fileStampKey,
   linkKindFor,
   planAgentHome,

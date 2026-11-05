@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import kimi from '../session/adapters/kimi.ts';
-import { BLOCK_END, BLOCK_START, GEMINI_HOME_PROFILE, KIMI_HOME_PROFILE, renderCodexHooksBlock } from '../session/core/agent-home-core.ts';
+import { BLOCK_END, BLOCK_START, GEMINI_HOME_PROFILE, KIMI_HOME_PROFILE, QWEN_HOME_PROFILE, renderCodexHooksBlock } from '../session/core/agent-home-core.ts';
 import { loadFileLocks } from '../server/session-temp/session-temp-locks.ts';
 import { generatedAgentHomePath, holdAgentHome, prepareAgentHome, releaseAgentHome, releaseUnheldAgentHomeSecrets } from '../session/agent-home.ts';
 
@@ -333,6 +333,50 @@ test('a gemini spawn merges the hooks into a JSON copy of the real settings, kee
     fs.renameSync(path.join(realRoot, '.env.next'), path.join(realRoot, '.env'));
     prepareGemini('win32');
     assert.equal(fs.readFileSync(path.join(generatedRoot, '.env'), 'utf8'), 'GEMINI_API_KEY=rotated\n');
+  } finally {
+    fs.rmSync(scratchRoot, { recursive: true, force: true });
+  }
+});
+
+test('a qwen spawn turns its hooks on where the real settings disable all hooks, drops the operator hooks, and leaves the real settings alone', () => {
+  const scratchRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-qwen-'));
+  try {
+    const realHome = path.join(scratchRoot, 'qwen-home');
+    fs.mkdirSync(realHome);
+    const realSettingsPath = path.join(realHome, 'settings.json');
+    const realSettings = JSON.stringify({ disableAllHooks: true, hooks: { Stop: [{ hooks: [{ type: 'command', command: 'say done' }] }] }, ui: { theme: 'Qwen Dark' } });
+    fs.writeFileSync(realSettingsPath, realSettings);
+    const managedHook = { hooks: [{ type: 'command', command: 'node relay.js Stop' }] };
+    const prepared = prepareAgentHome(QWEN_HOME_PROFILE, {
+      env: { QWEN_HOME: realHome, GLIMMERVOID_HOME: path.join(scratchRoot, 'glimmervoid') },
+      renderBlock: () => JSON.stringify({ Stop: [managedHook] }),
+    });
+    assert.ok('home' in prepared, 'refusal' in prepared ? prepared.refusal : '');
+    const generated = JSON.parse(fs.readFileSync(path.join(prepared.home, 'settings.json'), 'utf8'));
+    assert.equal(generated.disableAllHooks, false);
+    assert.deepEqual(generated.hooks, { Stop: [managedHook] });
+    assert.deepEqual(generated.ui, { theme: 'Qwen Dark' });
+    assert.equal(fs.readFileSync(realSettingsPath, 'utf8'), realSettings);
+  } finally {
+    fs.rmSync(scratchRoot, { recursive: true, force: true });
+  }
+});
+
+test('a qwen spawn copies the real settings from the home qwen itself reads, through a ~/ QWEN_HOME or one set only in its env files', () => {
+  const scratchRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-qwen-home-'));
+  try {
+    const homeDir = path.join(scratchRoot, 'home');
+    const qwenHome = path.join(homeDir, 'qwen-config');
+    fs.mkdirSync(qwenHome, { recursive: true });
+    fs.writeFileSync(path.join(qwenHome, 'settings.json'), JSON.stringify({ model: { name: 'operator-model' } }));
+    const prepareFrom = (env: Record<string, string>): { model?: { name?: string } } => {
+      const prepared = prepareAgentHome(QWEN_HOME_PROFILE, { env: { ...env, GLIMMERVOID_HOME: path.join(scratchRoot, 'glimmervoid') }, homeDir, renderBlock: () => '{}' });
+      assert.ok('home' in prepared, 'refusal' in prepared ? prepared.refusal : '');
+      return JSON.parse(fs.readFileSync(path.join(prepared.home, 'settings.json'), 'utf8'));
+    };
+    assert.equal(prepareFrom({ QWEN_HOME: '~/qwen-config' }).model?.name, 'operator-model');
+    fs.writeFileSync(path.join(homeDir, '.env'), 'QWEN_HOME="~/qwen-config"\n');
+    assert.equal(prepareFrom({}).model?.name, 'operator-model');
   } finally {
     fs.rmSync(scratchRoot, { recursive: true, force: true });
   }

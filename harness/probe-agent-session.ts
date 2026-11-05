@@ -35,7 +35,7 @@ const APPROVAL_FILE_NAME = "agent-probe-approval.txt";
 const SENTINEL_WORD = "amberlattice";
 const BOOT_SETTLE_MS = 6000;
 const SHOULD_WRITE_FIXTURES = process.argv.includes("--write-fixtures");
-const USAGE = "Usage: node harness/probe-agent-session.ts <gemini> [--write-fixtures]\nRuns the real agent CLI against a local stub model, so it needs no login and bills nothing.";
+const USAGE = "Usage: node harness/probe-agent-session.ts <gemini|qwen> [--write-fixtures]\nRuns the real agent CLI against a local stub model, so it needs no login and bills nothing.";
 const MODEL_STEPS: readonly StubModelStep[] = Object.freeze([
   { shellCommand: `touch ./${APPROVAL_FILE_NAME}` },
   { text: "done" },
@@ -73,6 +73,40 @@ function serveGemini(steps: readonly StubModelStep[]): http.RequestListener {
   };
 }
 
+function openAiChunk(delta: Record<string, unknown>, finishReason: string | null): string {
+  return `data: ${JSON.stringify({ id: "probe", object: "chat.completion.chunk", created: 0, model: "probe", choices: [{ index: 0, delta, finish_reason: finishReason }] })}\n\n`;
+}
+
+function openAiStream(step: StubModelStep): string {
+  const usage = `data: ${JSON.stringify({ id: "probe", object: "chat.completion.chunk", created: 0, model: "probe", choices: [], usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 } })}\n\n`;
+  if (step.shellCommand) {
+    const toolCall = { index: 0, id: "probe-call", type: "function", function: { name: "run_shell_command", arguments: JSON.stringify({ command: step.shellCommand, description: "probe" }) } };
+    return `${openAiChunk({ role: "assistant", tool_calls: [toolCall] }, null)}${openAiChunk({}, "tool_calls")}${usage}data: [DONE]\n\n`;
+  }
+  return `${openAiChunk({ role: "assistant", content: step.text ?? "done" }, null)}${openAiChunk({}, "stop")}${usage}data: [DONE]\n\n`;
+}
+
+function serveOpenAi(steps: readonly StubModelStep[]): http.RequestListener {
+  let nextStepIndex = 0;
+  return (request, response) => {
+    const bodyChunks: Buffer[] = [];
+    request.on("data", (chunk: Buffer) => bodyChunks.push(chunk));
+    request.on("end", () => {
+      const body = Buffer.concat(bodyChunks).toString("utf8");
+      const isStreamed = body.includes('"stream":true');
+      if (!(request.url ?? "").includes("chat/completions") || !isStreamed) {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ id: "probe", object: "chat.completion", created: 0, model: "probe", choices: [{ index: 0, message: { role: "assistant", content: '{"next_speaker":"user","reasoning":"done"}' }, finish_reason: "stop" }], usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 }, data: [] }));
+        return;
+      }
+      const step = steps[nextStepIndex] ?? { text: "done" };
+      nextStepIndex += 1;
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.end(openAiStream(step));
+    });
+  };
+}
+
 const PROBE_AGENTS: Readonly<Record<string, ProbeAgent>> = Object.freeze({
   gemini: {
     homeEnvName: "GEMINI_CLI_HOME",
@@ -87,6 +121,20 @@ const PROBE_AGENTS: Readonly<Record<string, ProbeAgent>> = Object.freeze({
     serveModel: serveGemini,
     turnEndEvent: "afteragent",
     permissionEvent: "notification",
+  },
+  qwen: {
+    homeEnvName: "QWEN_HOME",
+    homeEnvValue: (realHome: string) => realHome,
+    writeRealHome: (tempDirectory: string) => {
+      const realHome = path.join(tempDirectory, "qwen-home");
+      fs.mkdirSync(realHome, { recursive: true, mode: 0o700 });
+      fs.writeFileSync(path.join(realHome, "settings.json"), `${JSON.stringify({ security: { auth: { selectedType: "openai" } }, model: { name: "probe" } }, null, 2)}\n`, { mode: 0o600 });
+      return realHome;
+    },
+    modelEnv: (model: StubModel) => ({ OPENAI_API_KEY: "glimmervoid-probe", OPENAI_BASE_URL: `${model.baseUrl}/v1`, OPENAI_MODEL: "probe" }),
+    serveModel: serveOpenAi,
+    turnEndEvent: "stop",
+    permissionEvent: "permissionrequest",
   },
 });
 
