@@ -1,6 +1,7 @@
 import { boardMediaDrawnFilename, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
 import type { Board } from '#shared/contracts/whiteboard.ts';
-import { elementSignature, layoutBoard } from '#shared/whiteboard-layout-core.ts';
+import { layoutBoardRemembered } from '#shared/whiteboard-layout-cache.ts';
+import { elementSignature } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout, LaidOutElement, LaidOutMedia } from '#shared/whiteboard-layout-core.ts';
 import type { BoardMediaLayer } from './board-media-layer.ts';
 import { arrowDefinitionsMarkup, chromeMarkup, elementMarkup, SVG_NAMESPACE } from '#shared/whiteboard-svg-core.ts';
@@ -114,7 +115,7 @@ export function createBoardRenderer(svg: SVGSVGElement, mediaLayer: BoardMediaLa
   }
 
   function render(board: Board): BoardLayout {
-    const layout = layoutBoard(board);
+    const layout = layoutBoardRemembered(board);
     placeInWorld(layout.bounds);
     const nextChrome = nodeFromMarkup(chromeMarkup(layout));
     chrome.replaceWith(nextChrome);

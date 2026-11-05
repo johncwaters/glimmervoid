@@ -27,6 +27,10 @@ const MAX_WIRES_FOR_PORT_SEARCH = 12;
 const OFF_FACING_SIDE_COST = 1;
 const SIDE_CHOICE_BEND_COST = 1e6;
 const INITIAL_STATE_CAPACITY = 4096;
+const MAX_WIRES_FOR_LOCAL_ROUTING = 200;
+const LOCAL_WINDOW_MARGIN = 240;
+const WALL_THICKNESS = 2;
+const MAX_WINDOW_SHARE = 0.1;
 const PORT_SPACING = 14;
 const PORT_INSET = 8;
 const BOX_CROSSING_COST = 100;
@@ -53,11 +57,34 @@ interface RouteInput {
   contentTop: number;
 }
 
+interface RememberedRoute {
+  wireKey: string;
+  exitSide: Side;
+  entrySide: Side;
+  start: Point;
+  end: Point;
+  points: Point[];
+  isRouted: boolean;
+}
+
+interface RouteMemory {
+  contentTop: number;
+  rectByKey: Map<string, Rect>;
+  routeById: Map<string, RememberedRoute>;
+}
+
+interface RouteReuse {
+  routeById: ReadonlyMap<string, RememberedRoute>;
+  cleanIds: ReadonlySet<string>;
+  isLocal: boolean;
+}
+
 interface RouteResult {
   wires: LaidOutWire[];
   segments: Segment[];
   collectWarnings: () => string[];
   extent: Rect | null;
+  memory: RouteMemory;
 }
 
 interface WirePlan {
@@ -79,6 +106,7 @@ interface DrawnWire {
   plan: WirePlan;
   points: Point[];
   segments: Segment[];
+  routedPoints: Point[];
   states: number[] | null;
 }
 
@@ -275,45 +303,78 @@ function sideChoiceOf(plan: WirePlan, facing: SidePair): SideChoice | null {
   return { plan, exits, entries };
 }
 
-function chooseSidesBySearch(plans: readonly WirePlan[], facingByPlan: ReadonlyMap<WirePlan, SidePair>, input: RouteInput): void {
+function choicePortsOf(choices: readonly SideChoice[]): GraphPort[] {
+  return choices.flatMap((choice) => [
+    ...choice.exits.map((exit) => ({ x: exit.point.x, y: exit.point.y, outwardDirection: exit.direction })),
+    ...choice.entries.map((entry) => ({ x: entry.point.x, y: entry.point.y, outwardDirection: REVERSE_DIRECTION[entry.direction] ?? 0 })),
+  ]);
+}
+
+function applySideChoice(choice: SideChoice, chosen: SearchOutcome | null): void {
+  if (!chosen) return;
+  choice.plan.exitSide = chosen.exit.side;
+  choice.plan.entrySide = chosen.entry.side;
+}
+
+function chooseSidesLocally(choices: readonly SideChoice[], input: RouteInput, reuse: RouteReuse): void {
+  const buffers = createSearchBuffers();
+  const searchOn = (graph: VisibilityGraph | null, choice: SideChoice) => {
+    if (!graph) return null;
+    const chosen = searchBetween(graph, choice.exits, choice.entries, null, SIDE_CHOICE_BEND_COST, buffers);
+    resetSearchBuffers(buffers);
+    return chosen;
+  };
+  const wholeBoardChoices: SideChoice[] = [];
+  for (const choice of choices) {
+    const window = windowOf(choice.plan, reuse);
+    const solidsInWindow = windowSolidsOf(input, window);
+    const chosen = solidsInWindow ? searchOn(windowGraphOf(choicePortsOf([choice]), input, window, solidsInWindow), choice) : null;
+    if (chosen) applySideChoice(choice, chosen);
+    if (!chosen) wholeBoardChoices.push(choice);
+  }
+  if (wholeBoardChoices.length === 0) return;
+  const wholeGraph = graphOf(choicePortsOf(wholeBoardChoices), input);
+  for (const choice of wholeBoardChoices) applySideChoice(choice, searchOn(wholeGraph, choice));
+}
+
+function chooseSidesBySearch(plans: readonly WirePlan[], facingByPlan: ReadonlyMap<WirePlan, SidePair>, input: RouteInput, reuse: RouteReuse | null): void {
   const choices = plans.flatMap((plan) => {
+    if (reuse?.cleanIds.has(plan.wire.id)) return [];
     const choice = sideChoiceOf(plan, facingByPlan.get(plan) ?? { exitSide: plan.exitSide, entrySide: plan.entrySide });
     return choice ? [choice] : [];
   });
   if (choices.length === 0) return;
-  const ports = choices.flatMap((choice) => [
-    ...choice.exits.map((exit) => ({ x: exit.point.x, y: exit.point.y, outwardDirection: exit.direction })),
-    ...choice.entries.map((entry) => ({ x: entry.point.x, y: entry.point.y, outwardDirection: REVERSE_DIRECTION[entry.direction] ?? 0 })),
-  ]);
-  const graph = graphOf(ports, input);
+  if (reuse?.isLocal) {
+    chooseSidesLocally(choices, input, reuse);
+    return;
+  }
+  const graph = graphOf(choicePortsOf(choices), input);
   if (!graph) return;
   const buffers = createSearchBuffers();
   for (const choice of choices) {
     const chosen = searchBetween(graph, choice.exits, choice.entries, null, SIDE_CHOICE_BEND_COST, buffers);
     resetSearchBuffers(buffers);
-    if (!chosen) continue;
-    choice.plan.exitSide = chosen.exit.side;
-    choice.plan.entrySide = chosen.entry.side;
+    applySideChoice(choice, chosen);
   }
 }
 
 function joinFacingBuses(plans: readonly WirePlan[], facingByPlan: ReadonlyMap<WirePlan, SidePair>): void {
-  const isEnteringFacing = (plan: WirePlan) => plan.entrySide === facingByPlan.get(plan)?.entrySide;
-  for (let hasChanged = true; hasChanged;) {
-    hasChanged = false;
-    for (const plan of plans) {
-      const facing = facingByPlan.get(plan);
-      if (!facing || isEnteringFacing(plan) || plan.wire.toSide) continue;
-      const isFacingBusTaken = plans.some((other) => other !== plan && other.to.id === plan.to.id && other.styleKey === plan.styleKey && other.entrySide === facing.entrySide && isEnteringFacing(other));
-      if (!isFacingBusTaken) continue;
-      plan.exitSide = plan.outputPort || plan.wire.fromSide ? plan.exitSide : facing.exitSide;
-      plan.entrySide = facing.entrySide;
-      hasChanged = true;
-    }
+  const busOf = (plan: WirePlan, side: Side) => `${plan.to.id}|${plan.styleKey}|${side}`;
+  const facingEntryCountByBus = new Map<string, number>();
+  for (const plan of plans) {
+    if (plan.entrySide !== facingByPlan.get(plan)?.entrySide) continue;
+    facingEntryCountByBus.set(busOf(plan, plan.entrySide), (facingEntryCountByBus.get(busOf(plan, plan.entrySide)) ?? 0) + 1);
+  }
+  for (const plan of plans) {
+    const facing = facingByPlan.get(plan);
+    if (!facing || plan.entrySide === facing.entrySide || plan.wire.toSide) continue;
+    if ((facingEntryCountByBus.get(busOf(plan, facing.entrySide)) ?? 0) === 0) continue;
+    plan.exitSide = plan.outputPort || plan.wire.fromSide ? plan.exitSide : facing.exitSide;
+    plan.entrySide = facing.entrySide;
   }
 }
 
-function planWires(input: RouteInput): WirePlan[] {
+function planWires(input: RouteInput, reuse: RouteReuse | null): WirePlan[] {
   const facingByPlan = new Map<WirePlan, SidePair>();
   const plans = input.wires.flatMap((wire): WirePlan[] => {
     const from = input.boxesById.get(wire.from);
@@ -327,10 +388,15 @@ function planWires(input: RouteInput): WirePlan[] {
       exitSide: output ? 'right' : wire.fromSide ?? facing.exitSide, entrySide: wire.toSide ?? facing.entrySide,
       busKey: null, exitKey: '', outputPort: output?.port ?? null, start: output?.port ?? centerOf(from), end: centerOf(to),
     };
+    const remembered = reuse?.cleanIds.has(wire.id) ? reuse.routeById.get(wire.id) : undefined;
+    if (remembered) {
+      plan.exitSide = remembered.exitSide;
+      plan.entrySide = remembered.entrySide;
+    }
     facingByPlan.set(plan, facing);
     return [plan];
   });
-  chooseSidesBySearch(plans, facingByPlan, input);
+  chooseSidesBySearch(plans, facingByPlan, input, reuse);
   joinFacingBuses(plans, facingByPlan);
   for (const plan of plans) {
     const outputId = plan.wire.fromOutput;
@@ -452,6 +518,36 @@ function portsOf(plans: readonly WirePlan[]): GraphPort[] {
 
 function graphOf(ports: readonly GraphPort[], input: RouteInput): VisibilityGraph | null {
   return buildVisibilityGraph({ hardRects: [...input.boxesById.values(), ...input.panels], softRects: input.softObstacles, ports, contentTop: input.contentTop });
+}
+
+function wallsAround(window: Rect): Rect[] {
+  const outerLeft = window.x - WALL_THICKNESS;
+  const outerTop = window.y - WALL_THICKNESS;
+  const outerWidth = window.width + WALL_THICKNESS * 2;
+  const outerHeight = window.height + WALL_THICKNESS * 2;
+  return [
+    { x: outerLeft, y: outerTop, width: outerWidth, height: WALL_THICKNESS },
+    { x: outerLeft, y: window.y + window.height, width: outerWidth, height: WALL_THICKNESS },
+    { x: outerLeft, y: outerTop, width: WALL_THICKNESS, height: outerHeight },
+    { x: window.x + window.width, y: outerTop, width: WALL_THICKNESS, height: outerHeight },
+  ];
+}
+
+function windowSolidsOf(input: RouteInput, window: Rect): Rect[] | null {
+  const solids = solidsOf(input);
+  const solidsInWindow = solids.filter((rect) => rectsOverlap(rect, window));
+  return solidsInWindow.length > solids.length * MAX_WINDOW_SHARE ? null : solidsInWindow;
+}
+
+function windowGraphOf(ports: readonly GraphPort[], input: RouteInput, window: Rect, solidsInWindow: readonly Rect[]): VisibilityGraph | null {
+  const softRects = input.softObstacles.filter((rect) => rectsOverlap(rect, window));
+  return buildVisibilityGraph({ hardRects: [...solidsInWindow, ...wallsAround(window)], softRects, ports, contentTop: input.contentTop });
+}
+
+function windowOf(plan: WirePlan, reuse: RouteReuse): Rect {
+  const rememberedPoints = reuse.routeById.get(plan.wire.id)?.points ?? [];
+  const pointRects = rememberedPoints.map((point) => ({ x: point.x, y: point.y, width: 0, height: 0 }));
+  return inflated(unionOf([plan.from, plan.to, ...pointRects]) ?? plan.from, LOCAL_WINDOW_MARGIN);
 }
 
 function createMinHeap(): MinHeap {
@@ -687,13 +783,48 @@ function backInteriorOf(plan: WirePlan, loopFrames: readonly Rect[]): Rect | nul
 
 function drawnWireOf(graph: VisibilityGraph | null, plan: WirePlan, states: number[] | null): DrawnWire {
   const points = graph && states ? pointsOfStates(graph, states) : fallbackPoints(plan);
-  return { plan, points, segments: segmentsOf(points), states };
+  return { plan, points, segments: segmentsOf(points), routedPoints: points, states };
 }
 
-function routeAll(plans: readonly WirePlan[], input: RouteInput): DrawnWire[] {
-  const graph = graphOf(portsOf(plans), input);
+function isSamePoint(first: Point, second: Point): boolean {
+  return first.x === second.x && first.y === second.y;
+}
+
+function reusedWireOf(plan: WirePlan, reuse: RouteReuse | null): DrawnWire | null {
+  if (!reuse?.cleanIds.has(plan.wire.id)) return null;
+  const remembered = reuse.routeById.get(plan.wire.id);
+  if (!remembered || remembered.exitSide !== plan.exitSide || remembered.entrySide !== plan.entrySide) return null;
+  if (!isSamePoint(remembered.start, plan.start) || !isSamePoint(remembered.end, plan.end)) return null;
+  return { plan, points: remembered.points, segments: segmentsOf(remembered.points), routedPoints: remembered.points, states: remembered.isRouted ? [] : null };
+}
+
+function routedOnOneGraph(plans: readonly WirePlan[], input: RouteInput, reuse: RouteReuse | null): DrawnWire[] {
+  const reused = plans.map((plan) => reusedWireOf(plan, reuse));
+  const graph = reused.every(Boolean) ? null : graphOf(portsOf(plans), input);
   const buffers = graph ? createSearchBuffers() : null;
-  const routed = plans.map((plan) => drawnWireOf(graph, plan, graph && buffers ? routeOnGraph(graph, plan, backInteriorOf(plan, input.loopFrames), buffers) : null));
+  return plans.map((plan, index) => reused[index] ?? drawnWireOf(graph, plan, graph && buffers ? routeOnGraph(graph, plan, backInteriorOf(plan, input.loopFrames), buffers) : null));
+}
+
+function routedInWindow(plan: WirePlan, input: RouteInput, reuse: RouteReuse, buffers: SearchBuffers): DrawnWire | null {
+  const window = windowOf(plan, reuse);
+  const solidsInWindow = windowSolidsOf(input, window);
+  if (!solidsInWindow) return null;
+  const windowGraph = windowGraphOf(portsOf([plan]), input, window, solidsInWindow);
+  const windowStates = windowGraph ? routeOnGraph(windowGraph, plan, backInteriorOf(plan, input.loopFrames), buffers) : null;
+  return windowStates ? drawnWireOf(windowGraph, plan, windowStates) : null;
+}
+
+function routedLocally(plans: readonly WirePlan[], input: RouteInput, reuse: RouteReuse): DrawnWire[] {
+  const buffers = createSearchBuffers();
+  const routed = plans.map((plan) => reusedWireOf(plan, reuse) ?? routedInWindow(plan, input, reuse, buffers));
+  const wholeBoardPlans = plans.filter((_, index) => !routed[index]);
+  if (wholeBoardPlans.length === 0) return routed.filter((wire): wire is DrawnWire => wire !== null);
+  const wholeGraph = graphOf(portsOf(wholeBoardPlans), input);
+  return plans.map((plan, index) => routed[index] ?? drawnWireOf(wholeGraph, plan, wholeGraph ? routeOnGraph(wholeGraph, plan, backInteriorOf(plan, input.loopFrames), buffers) : null));
+}
+
+function routeAll(plans: readonly WirePlan[], input: RouteInput, reuse: RouteReuse | null): DrawnWire[] {
+  const routed = reuse?.isLocal ? routedLocally(plans, input, reuse) : routedOnOneGraph(plans, input, reuse);
   const nudgedPoints = nudgeSharedLines(routed.map((wire) => ({ points: wire.points, exitKey: wire.plan.exitKey, busKey: wire.plan.busKey })), solidsOf(input));
   return routed.map((wire, index) => {
     const points = withoutBends(nudgedPoints[index] ?? wire.points);
@@ -895,20 +1026,20 @@ function swapNeighbors(order: string[], index: number): void {
   order[index + 1] = left;
 }
 
-function routeWithPortOrder(plans: readonly WirePlan[], input: RouteInput, requestsBySide: ReadonlyMap<string, readonly PortRequest[]>, groupOrderBySide: ReadonlyMap<string, readonly string[]>): DrawnWire[] {
+function routeWithPortOrder(plans: readonly WirePlan[], input: RouteInput, requestsBySide: ReadonlyMap<string, readonly PortRequest[]>, groupOrderBySide: ReadonlyMap<string, readonly string[]>, reuse: RouteReuse | null): DrawnWire[] {
   assignPorts(requestsBySide, groupOrderBySide);
   alignLonePorts(plans, groupOrderBySide);
-  return routeAll(plans, input);
+  return routeAll(plans, input, reuse);
 }
 
-function routeWithFewestCrossings(plans: readonly WirePlan[], input: RouteInput, requestsBySide: ReadonlyMap<string, readonly PortRequest[]>, groupOrderBySide: ReadonlyMap<string, string[]>): DrawnWire[] {
-  const firstRouted = routeWithPortOrder(plans, input, requestsBySide, groupOrderBySide);
+function routeWithFewestCrossings(plans: readonly WirePlan[], input: RouteInput, requestsBySide: ReadonlyMap<string, readonly PortRequest[]>, groupOrderBySide: ReadonlyMap<string, string[]>, reuse: RouteReuse | null): DrawnWire[] {
+  const firstRouted = routeWithPortOrder(plans, input, requestsBySide, groupOrderBySide, reuse);
   if (plans.length > MAX_WIRES_FOR_PORT_SEARCH) return firstRouted;
   let bestCrossingCost = totalCrossingCostOf(firstRouted, input);
   for (const groupOrder of groupOrderBySide.values()) {
     for (let index = 0; bestCrossingCost > 0 && index + 1 < groupOrder.length; index += 1) {
       swapNeighbors(groupOrder, index);
-      const trialCrossingCost = totalCrossingCostOf(routeWithPortOrder(plans, input, requestsBySide, groupOrderBySide), input);
+      const trialCrossingCost = totalCrossingCostOf(routeWithPortOrder(plans, input, requestsBySide, groupOrderBySide, reuse), input);
       if (trialCrossingCost < bestCrossingCost) {
         bestCrossingCost = trialCrossingCost;
         continue;
@@ -916,14 +1047,66 @@ function routeWithFewestCrossings(plans: readonly WirePlan[], input: RouteInput,
       swapNeighbors(groupOrder, index);
     }
   }
-  return routeWithPortOrder(plans, input, requestsBySide, groupOrderBySide);
+  return routeWithPortOrder(plans, input, requestsBySide, groupOrderBySide, reuse);
 }
 
-function routeWires(input: RouteInput): RouteResult {
-  const plans = planWires(input);
+function obstacleRectsByKey(input: RouteInput): Map<string, Rect> {
+  const rectByKey = new Map<string, Rect>();
+  const keyOfRect = (rect: Rect) => `${rect.x},${rect.y},${rect.width},${rect.height}`;
+  for (const box of input.boxesById.values()) rectByKey.set(`box ${box.id}`, box);
+  for (const panel of input.panels) rectByKey.set(`panel ${panel.id}`, panel);
+  for (const soft of input.softObstacles) rectByKey.set(`soft ${keyOfRect(soft)}`, soft);
+  for (const frame of input.loopFrames) rectByKey.set(`loop ${keyOfRect(frame)}`, frame);
+  return rectByKey;
+}
+
+function changedRectsOf(previous: ReadonlyMap<string, Rect>, current: ReadonlyMap<string, Rect>): Rect[] {
+  const isSameRect = (first: Rect | undefined, second: Rect) => first !== undefined && first.x === second.x && first.y === second.y && first.width === second.width && first.height === second.height;
+  const removedOrMoved = [...previous].flatMap(([key, rect]) => (isSameRect(current.get(key), rect) ? [] : [rect]));
+  const addedOrMoved = [...current].flatMap(([key, rect]) => (isSameRect(previous.get(key), rect) ? [] : [rect]));
+  return [...removedOrMoved, ...addedOrMoved];
+}
+
+function wireKeyOf(wire: Wire): string {
+  return JSON.stringify(wire);
+}
+
+function routeReuseOf(input: RouteInput, rectByKey: ReadonlyMap<string, Rect>, previous: RouteMemory | null): RouteReuse | null {
+  if (!previous || previous.contentTop !== input.contentTop) return null;
+  const changedRects = changedRectsOf(previous.rectByKey, rectByKey).map((rect) => inflated(rect, CLEARANCE));
+  const candidates = input.wires.flatMap((wire) => {
+    const remembered = previous.routeById.get(wire.id);
+    return remembered && remembered.wireKey === wireKeyOf(wire) ? [{ wire, remembered }] : [];
+  });
+  const pieceRects = candidates.flatMap(({ wire, remembered }) => segmentsOf(remembered.points).map((segment) => ({ wireId: wire.id, rect: pointBoundsOf(segment.from, segment.to) })));
+  const touchedWireIds = new Set<string>();
+  forEachTouchingPairAcross(flatRectsOf(pieceRects.map((piece) => piece.rect)), flatRectsOf(changedRects), (pieceIndex) => {
+    const piece = pieceRects[pieceIndex];
+    if (piece) touchedWireIds.add(piece.wireId);
+  });
+  const cleanIds = new Set(candidates.map(({ wire }) => wire.id).filter((wireId) => !touchedWireIds.has(wireId)));
+  return { routeById: previous.routeById, cleanIds, isLocal: input.wires.length - cleanIds.size <= MAX_WIRES_FOR_LOCAL_ROUTING };
+}
+
+function pointBoundsOf(first: Point, second: Point): Rect {
+  return { x: Math.min(first.x, second.x), y: Math.min(first.y, second.y), width: Math.abs(first.x - second.x), height: Math.abs(first.y - second.y) };
+}
+
+function routeMemoryOf(input: RouteInput, rectByKey: Map<string, Rect>, drawn: readonly DrawnWire[]): RouteMemory {
+  const routeById = new Map(drawn.map((wire): [string, RememberedRoute] => [wire.plan.wire.id, {
+    wireKey: wireKeyOf(wire.plan.wire), exitSide: wire.plan.exitSide, entrySide: wire.plan.entrySide,
+    start: wire.plan.start, end: wire.plan.end, points: wire.routedPoints, isRouted: wire.states !== null,
+  }]));
+  return { contentTop: input.contentTop, rectByKey, routeById };
+}
+
+function routeWires(input: RouteInput, previous: RouteMemory | null): RouteResult {
+  const rectByKey = obstacleRectsByKey(input);
+  const reuse = routeReuseOf(input, rectByKey, previous);
+  const plans = planWires(input, reuse);
   const requestsBySide = portRequestsBySide(plans);
   const groupOrderBySide = defaultPortOrders(requestsBySide);
-  const drawn = routeWithFewestCrossings(plans, input, requestsBySide, groupOrderBySide);
+  const drawn = routeWithFewestCrossings(plans, input, requestsBySide, groupOrderBySide, reuse);
   const labelWarnings: string[] = [];
   const labelById = placeLabels(drawn, input, labelWarnings);
   const leaderByBusKey = new Map<string, DrawnWire>();
@@ -947,8 +1130,9 @@ function routeWires(input: RouteInput): RouteResult {
     segments: drawn.flatMap((wire) => wire.segments),
     collectWarnings: () => [...routeQualityWarnings(drawn), ...crossingWarningsOf(drawn, input), ...crowdedSideWarnings(requestsBySide, groupOrderBySide), ...labelWarnings],
     extent: unionOf([...pointRects, ...labelRects]),
+    memory: routeMemoryOf(input, rectByKey, drawn),
   };
 }
 
 export { cappedWarnings, labelWidthOf, pathOf, rectsOverlap, routeWires, unionOf, withoutBends };
-export type { Point };
+export type { Point, RouteMemory };

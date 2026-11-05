@@ -5,7 +5,7 @@ type BoxLine = Box['lines'][number];
 import { planSteps } from './whiteboard-plan-core.ts';
 import { cappedWarnings, labelWidthOf, pathOf, rectsOverlap, routeWires, unionOf, withoutBends } from './whiteboard-route-core.ts';
 import { touchingPairsWithin } from './whiteboard-sweep-core.ts';
-import type { Point } from './whiteboard-route-core.ts';
+import type { Point, RouteMemory } from './whiteboard-route-core.ts';
 
 const MARGIN = 40;
 const COLUMN_HEADER_HEIGHT = 44;
@@ -614,6 +614,13 @@ interface Placement {
   stackHeightByBoxId: ReadonlyMap<string, number>;
 }
 
+interface LayoutMemory {
+  gapCount: number;
+  reservedTracksByGap: number[];
+  reservedLabelWidths: number[];
+  route: RouteMemory;
+}
+
 function gapSpansOf(columnLeftEdges: readonly number[], columnWidths: readonly number[]): { left: number; right: number }[] {
   return columnLeftEdges.slice(0, -1).map((leftEdge, index) => {
     const left = leftEdge + (columnWidths[index] ?? COLUMN_WIDTH);
@@ -646,7 +653,7 @@ function overlapWarnings(boxesById: ReadonlyMap<string, LaidOutBox>, panels: rea
   return [...boxOverlaps, ...coveredTitles];
 }
 
-function placeAndRoute(board: IndexedBoard, placement: Placement): PlacedBoard {
+function placeAndRoute(board: IndexedBoard, placement: Placement, previousRoute: RouteMemory | null): PlacedBoard {
   const columnWidths = columnWidthsOf(board);
   const columnLeftEdges = columnLeftEdgesOf(columnWidths, placement.gapWidths);
   const { boxesById, bands, warnings: nearWarnings } = layoutBoxes(board, columnLeftEdges, columnWidths, placement.boxesTop, placement.stackHeightByBoxId);
@@ -658,7 +665,7 @@ function placeAndRoute(board: IndexedBoard, placement: Placement): PlacedBoard {
     softObstacles: [...notes, ...frames.map((frame) => ({ x: frame.x, y: frame.y, width: frame.width, height: FRAME_TITLE_HEIGHT }))],
     loopFrames: frames.filter((frame) => frame.isLoop),
     contentTop: placement.contentTop,
-  });
+  }, previousRoute);
   return {
     columnLeftEdges, columnWidths, boxesById, bands, frames, notes, panels, routing,
     collectPlacementWarnings: () => [...nearWarnings, ...overlapWarnings(boxesById, panels, frames, board)],
@@ -678,18 +685,32 @@ function maxByIndex(first: readonly number[], second: readonly number[]): number
   return Array.from({ length: Math.max(first.length, second.length) }, (_, index) => Math.max(first[index] ?? 0, second[index] ?? 0));
 }
 
-function placeWithReservedRoom(board: IndexedBoard, room: RoomInputs): PlacedBoard {
-  let reservedTracksByGap: number[] = [];
-  let reservedLabelWidths: number[] = [];
+function hasUnneededRoom(placed: PlacedBoard, reservedTracksByGap: readonly number[], reservedLabelWidths: readonly number[]): boolean {
+  const hasSpareTracks = reservedTracksByGap.some((tracks, index) => tracks > (placed.tracksByGap[index] ?? 0));
+  return hasSpareTracks || reservedLabelWidths.some((width, index) => width > (placed.labelWidthByGap[index] ?? 0));
+}
+
+function placeFromReservations(board: IndexedBoard, room: RoomInputs, previous: LayoutMemory | null, seedTracksByGap: number[], seedLabelWidths: number[]): { placed: PlacedBoard; memory: LayoutMemory } {
+  let reservedTracksByGap = seedTracksByGap;
+  let reservedLabelWidths = seedLabelWidths;
   for (let attempt = 1; ; attempt += 1) {
     const gapWidths = gapWidthsOf(room.reserves, reservedTracksByGap, reservedLabelWidths);
-    const placed = placeAndRoute(board, { gapWidths, boxesTop: room.boxesTop, contentTop: room.contentTop, stackHeightByBoxId: room.stackHeightByBoxId });
+    const placed = placeAndRoute(board, { gapWidths, boxesTop: room.boxesTop, contentTop: room.contentTop, stackHeightByBoxId: room.stackHeightByBoxId }, previous?.route ?? null);
     const needsMoreTracks = placed.tracksByGap.some((tracks, index) => tracks > (reservedTracksByGap[index] ?? 0));
     const needsWiderLabels = placed.labelWidthByGap.some((width, index) => width > (reservedLabelWidths[index] ?? 0));
-    if (attempt >= MAX_ROOM_ATTEMPTS || (!needsMoreTracks && !needsWiderLabels)) return placed;
+    if (attempt >= MAX_ROOM_ATTEMPTS || (!needsMoreTracks && !needsWiderLabels)) {
+      return { placed, memory: { gapCount: room.reserves.length, reservedTracksByGap, reservedLabelWidths, route: placed.routing.memory } };
+    }
     reservedTracksByGap = maxByIndex(reservedTracksByGap, placed.tracksByGap);
     reservedLabelWidths = maxByIndex(reservedLabelWidths, placed.labelWidthByGap);
   }
+}
+
+function placeWithReservedRoom(board: IndexedBoard, room: RoomInputs, previous: LayoutMemory | null): { placed: PlacedBoard; memory: LayoutMemory } {
+  if (!previous || previous.gapCount !== room.reserves.length) return placeFromReservations(board, room, previous, [], []);
+  const seeded = placeFromReservations(board, room, previous, previous.reservedTracksByGap, previous.reservedLabelWidths);
+  if (!hasUnneededRoom(seeded.placed, seeded.memory.reservedTracksByGap, seeded.memory.reservedLabelWidths)) return seeded;
+  return placeFromReservations(board, room, previous, [], []);
 }
 
 function unitShape(unit: Unit) {
@@ -791,6 +812,10 @@ function legendEntriesOf(board: IndexedBoard, unitsById: ReadonlyMap<string, Lai
 }
 
 function layoutBoard(storedBoard: Board): BoardLayout {
+  return layoutBoardWithMemory(storedBoard, null).layout;
+}
+
+function layoutBoardWithMemory(storedBoard: Board, previous: LayoutMemory | null): { layout: BoardLayout; memory: LayoutMemory } {
   const unitsById = layoutUnits(storedBoard);
   const freeformTop = planBandBottom(unitsById);
   const pinnedOffsetY = freeformTop - MARGIN;
@@ -801,7 +826,7 @@ function layoutBoard(storedBoard: Board): BoardLayout {
   const ruleY = freeformTop + COLUMN_RULE_OFFSET + extraHeaderHeight;
   const boxesTop = freeformTop + COLUMN_HEADER_HEIGHT + extraHeaderHeight;
   const reserves = gapReservesOf(board, stackHeightByBoxId);
-  const placed = placeWithReservedRoom(board, { reserves, boxesTop, contentTop: ruleY, stackHeightByBoxId });
+  const { placed, memory } = placeWithReservedRoom(board, { reserves, boxesTop, contentTop: ruleY, stackHeightByBoxId }, previous);
   const { columnLeftEdges, columnWidths } = placed;
   const elements: LaidOutElement[] = [
     ...placed.frames,
@@ -817,7 +842,7 @@ function layoutBoard(storedBoard: Board): BoardLayout {
   const captionTop = legendTop + legend.length * LEGEND_ROW_HEIGHT + (legend.length > 0 ? 12 : 0);
   const caption = board.caption ? { text: board.caption, x: MARGIN, y: captionTop } : null;
   const extraHeight = legend.length * LEGEND_ROW_HEIGHT + (caption ? 30 : 0) + (legend.length > 0 ? 12 : 0);
-  return {
+  const layout: BoardLayout = {
     columns: board.columns.map((column, index) => ({
       id: column.id, titleLines: titleLinesByColumn[index] ?? [], titleBaselineY: freeformTop + COLUMN_TITLE_BASELINE,
       ruleY, x: columnLeftEdges[index] ?? MARGIN, width: columnWidths[index] ?? COLUMN_WIDTH,
@@ -831,11 +856,12 @@ function layoutBoard(storedBoard: Board): BoardLayout {
     bounds: { ...contentBounds, height: contentBounds.height + extraHeight },
     warnings: cappedWarnings([...placed.routing.collectWarnings(), ...placed.collectPlacementWarnings()]),
   };
+  return { layout, memory };
 }
 
 function elementSignature(element: LaidOutElement): string {
   return JSON.stringify(element);
 }
 
-export { elementSignature, layoutBoard };
-export type { BoardLayout, LaidOutBox, LaidOutMedia, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutPanel, LaidOutUnit, LaidOutWire, Rect };
+export { elementSignature, layoutBoard, layoutBoardWithMemory };
+export type { BoardLayout, LayoutMemory, LaidOutBox, LaidOutMedia, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutPanel, LaidOutUnit, LaidOutWire, Rect };

@@ -8,7 +8,7 @@ import { parseArgs } from 'node:util';
 import { execFileAsync } from '../server/child-process-safe.ts';
 import type { Board } from '../shared/contracts/whiteboard.ts';
 import { Element } from '../shared/contracts/whiteboard.ts';
-import { layoutBoard } from '../shared/whiteboard-layout-core.ts';
+import { layoutBoard, layoutBoardWithMemory } from '../shared/whiteboard-layout-core.ts';
 import { emptyFlatRects, flatRectsOf, forEachTouchingPairAcross, setFlatRect } from '../shared/whiteboard-sweep-core.ts';
 import { createBoard } from '../shared/whiteboard-ops-core.ts';
 import type { BoardLayout } from '../shared/whiteboard-layout-core.ts';
@@ -23,6 +23,8 @@ const AT_GRID_LEFT = 1000;
 const AT_GRID_LEFT_PER_ELEMENT = 1;
 const AT_GRID_TOP = 300;
 const BOX_INSET = 2;
+const EDITED_BOX_COUNT = 8;
+const EDIT_OFFSET = { x: 40, y: 30 };
 
 type LayoutBoard = (board: Board) => BoardLayout;
 
@@ -65,6 +67,24 @@ function bestLayoutMs(layout: LayoutBoard, board: Board): { layoutMs: number; bo
     layoutMs = Math.min(layoutMs, performance.now() - startedAt);
   }
   return { layoutMs: Math.round(layoutMs), boardLayout };
+}
+
+function movedBoxesBoard(board: Board): Board {
+  const nextRandom = seededRandom(11);
+  const placedBoxes = Object.values(board.elements).flatMap((element) => (element.kind === 'box' && element.at ? [element] : []));
+  const elements = { ...board.elements };
+  for (let moved = 0; moved < EDITED_BOX_COUNT; moved += 1) {
+    const box = placedBoxes[Math.floor(nextRandom() * placedBoxes.length)];
+    if (!box?.at) continue;
+    elements[box.id] = { ...box, at: { x: box.at.x + EDIT_OFFSET.x, y: box.at.y + EDIT_OFFSET.y } };
+  }
+  return { ...board, elements };
+}
+
+function bestEditMs(board: Board): { layoutMs: number; boardLayout: BoardLayout } {
+  const { memory } = layoutBoardWithMemory(board, null);
+  const editedBoard = movedBoxesBoard(board);
+  return bestLayoutMs((edited) => layoutBoardWithMemory(edited, memory).layout, editedBoard);
 }
 
 function wiresThroughBoxesOf(board: Board, boardLayout: BoardLayout): number {
@@ -117,6 +137,7 @@ async function main(): Promise<number> {
       'same-warnings': { type: 'boolean', default: false },
       'budget-ms': { type: 'string' },
       'expect-routed': { type: 'boolean', default: false },
+      edit: { type: 'boolean', default: false },
     },
   });
   const sizes = values.sizes.split(',').map(Number);
@@ -127,8 +148,9 @@ async function main(): Promise<number> {
   try {
     const referenceLayout = compareRef ? await layoutAtRef(compareRef, scratchDirectory) : null;
     for (const size of sizes) {
-      const board = benchmarkBoard(size);
-      const current = bestLayoutMs(layoutBoard, board);
+      const coldBoard = benchmarkBoard(size);
+      const board = values.edit ? movedBoxesBoard(coldBoard) : coldBoard;
+      const current = values.edit ? bestEditMs(coldBoard) : bestLayoutMs(layoutBoard, board);
       const reference = referenceLayout ? bestLayoutMs(referenceLayout, board) : null;
       const isOverBudget = budgetMs !== null && current.layoutMs > budgetMs;
       const hasSameWarnings = reference ? JSON.stringify(reference.boardLayout.warnings) === JSON.stringify(current.boardLayout.warnings) : null;

@@ -9,6 +9,7 @@ import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
 import { OPERATOR_AUTHOR, applyOps, createBoard } from '../../shared/whiteboard-ops-core.ts';
 import type { Author } from '../../shared/whiteboard-ops-core.ts';
+import { layoutBoardRemembered } from '../../shared/whiteboard-layout-cache.ts';
 import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
 import { referencedPaths, reviewBoard } from '../../shared/whiteboard-anchor-core.ts';
 import { cappedWarnings } from '../../shared/whiteboard-route-core.ts';
@@ -268,7 +269,7 @@ function createWhiteboardWiring({
     return changeRecord(boardId, (record) => {
       const applied = applyOpsToRecord(record, ops, author);
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
-      const { warnings } = layoutBoard(applied.record.board);
+      const { warnings } = layoutBoardRemembered(applied.record.board);
       const body = { ok: true as const, version: applied.record.board.version, ...(warnings.length > 0 ? { warnings } : {}) };
       return { ok: true, record: applied.record, reply: { status: 200, body }, patch: applied.patch };
     });
