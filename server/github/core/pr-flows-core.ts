@@ -178,17 +178,34 @@ function parsedRuleList(entries: readonly unknown[], label: string, warnings: st
 
 const ConfigFileWithPrFlows = z.looseObject({ prFlows: z.unknown().optional() });
 
-export function prFlowRules(configFile: unknown, repo: string): { rules: PrFlowRule[]; warnings: string[] } {
+const REPO_RULES_DEPRECATION = 'prFlows.repoRules is deprecated: move each rule into prFlows.rules with "repos": ["<owner/name>"]';
+
+function foldedRepoRules(repoRules: Record<string, unknown>, warnings: string[]): PrFlowRule[] {
+  return Object.entries(repoRules).flatMap(([repo, entries]) => {
+    const label = `prFlows.repoRules.${repo}`;
+    const ruleEntries = z.array(z.unknown()).safeParse(entries);
+    if (!ruleEntries.success) {
+      warnings.push(`${label} was skipped: it must be an array of rules`);
+      return [];
+    }
+    const scopedEntries = ruleEntries.data.map((entry) => (entry !== null && typeof entry === 'object' ? { ...entry, repos: [repo] } : entry));
+    return parsedRuleList(scopedEntries, label, warnings);
+  });
+}
+
+export function prFlowRules(configFile: unknown): { rules: PrFlowRule[]; warnings: string[] } {
   const raw = ConfigFileWithPrFlows.safeParse(configFile).data?.prFlows;
   if (raw === undefined || raw === null) return { rules: [], warnings: [] };
   const settings = PrFlowsSettings.safeParse(raw);
   if (!settings.success) return { rules: [], warnings: [`prFlows was skipped: ${settings.error.issues[0]?.message ?? 'invalid settings'}`] };
-  const warnings: string[] = [];
-  const repoEntry = Object.entries(settings.data.repoRules ?? {}).find(([name]) => name.toLowerCase() === repo.toLowerCase());
-  const repoRuleEntries = repoEntry ? z.array(z.unknown()).safeParse(repoEntry[1]) : null;
-  if (repoEntry && !repoRuleEntries?.success) warnings.push(`prFlows.repoRules.${repoEntry[0]} was skipped: it must be an array of rules`);
-  const repoRules = repoEntry && repoRuleEntries?.success ? parsedRuleList(repoRuleEntries.data, `prFlows.repoRules.${repoEntry[0]}`, warnings) : [];
+  const warnings: string[] = Object.keys(settings.data.repoRules ?? {}).length === 0 ? [] : [REPO_RULES_DEPRECATION];
+  const repoRules = foldedRepoRules(settings.data.repoRules ?? {}, warnings);
   return { rules: [...repoRules, ...parsedRuleList(settings.data.rules ?? [], 'prFlows.rules', warnings)], warnings };
+}
+
+export function scopedToRepo<Scoped extends { repos?: readonly string[] | undefined }>(entries: readonly Scoped[], repo: string): Scoped[] {
+  const wantedRepo = repo.toLowerCase();
+  return entries.filter((entry) => entry.repos === undefined || entry.repos.some((listedRepo) => listedRepo.toLowerCase() === wantedRepo));
 }
 
 type PrFlowCommandKind = PrFlowPendingApproval['kind'];
@@ -243,15 +260,21 @@ function packCommand<Command extends PrFlowCommand>(command: Command, loaded: Pa
   return { ...command, id: `${loaded.header.name}/${command.id}`, command: command.command.map((element) => element.replaceAll(PACK_DIR_PLACEHOLDER, loaded.dir)) };
 }
 
-function packRule(rule: PrFlowRule, packName: string): PrFlowRule {
-  if (!rule.action.startsWith('run:')) return rule;
-  return { ...rule, action: `run:${packName}/${rule.action.slice('run:'.length)}` };
+function withPackRepos<Scoped extends { repos?: string[] | undefined }>(entry: Scoped, packRepos: string[] | undefined): Scoped {
+  const repos = entry.repos ?? packRepos;
+  return repos === undefined ? entry : { ...entry, repos };
+}
+
+function packRule(rule: PrFlowRule, { header, prFlows }: { header: { name: string }; prFlows: { repos?: string[] | undefined } }): PrFlowRule {
+  const scopedRule = withPackRepos(rule, prFlows.repos);
+  if (!scopedRule.action.startsWith('run:')) return scopedRule;
+  return { ...scopedRule, action: `run:${header.name}/${scopedRule.action.slice('run:'.length)}` };
 }
 
 type PackCommandsByKind = { sources: PrFlowCommand[]; actions: PrFlowCommand[]; prActions: PrFlowPrAction[] };
 
-function packRuleText(rule: PrFlowRule, packName: string): string {
-  const { name, ...matchAndAction } = packRule(rule, packName);
+function packRuleText(rule: PrFlowRule, prFlowsPack: PrFlowsPack): string {
+  const { name, ...matchAndAction } = packRule(rule, { header: prFlowsPack.loaded.header, prFlows: prFlowsPack.section });
   return `${name}: ${JSON.stringify(matchAndAction)}`;
 }
 
@@ -259,7 +282,7 @@ function packCommands({ loaded, section }: PrFlowsPack): PackCommandsByKind {
   return {
     sources: section.sources.map((command) => packCommand(command, loaded)),
     actions: section.actions.map((command) => packCommand(command, loaded)),
-    prActions: section.prActions.map((command) => packCommand(command, loaded)),
+    prActions: section.prActions.map((command) => withPackRepos(packCommand(command, loaded), section.repos)),
   };
 }
 
@@ -280,7 +303,7 @@ export function packApproval(prFlowsPack: PrFlowsPack): PrFlowPendingApproval {
   });
   return {
     kind: 'pack', id: pack.name, label: `${pack.name} v${pack.version}`, command: [], timeoutSeconds: 0, fingerprint: loaded.fingerprint,
-    pack: { version: pack.version, requires: pack.requires, missing: loaded.missingRequires, commands, rules: section.rules.map((rule) => packRuleText(rule, pack.name)) },
+    pack: { version: pack.version, requires: pack.requires, missing: loaded.missingRequires, commands, rules: section.rules.map((rule) => packRuleText(rule, prFlowsPack)) },
   };
 }
 
@@ -319,7 +342,7 @@ export function prFlowSetup(configFile: unknown, approvedPackLoad: { packs: read
     },
     approved,
     approvals,
-    packRules: enabledPacks.flatMap(({ loaded, section }) => section.rules.map((rule) => packRule(rule, loaded.header.name))),
+    packRules: enabledPacks.flatMap(({ loaded, section }) => section.rules.map((rule) => packRule(rule, { header: loaded.header, prFlows: section }))),
   };
 }
 
@@ -341,11 +364,6 @@ export function pendingApprovals(commands: Pick<PrFlowCommands, 'sources' | 'act
     const repos = normalizedRepos(command);
     return [{ kind, id: command.id, label: command.label, command: command.command, timeoutSeconds: command.timeoutSeconds, fingerprint, ...(repos === null ? {} : { repos }) }];
   });
-}
-
-export function prActionsForRepo(prActions: readonly PrFlowPrAction[], repo: string): PrFlowPrAction[] {
-  const wantedRepo = repo.toLowerCase();
-  return prActions.filter((action) => action.repos === undefined || action.repos.some((listedRepo) => listedRepo.toLowerCase() === wantedRepo));
 }
 
 export function prActionPlaceholderValues(pr: Pick<MyPr, 'url' | 'repo' | 'number' | 'headRefOid' | 'headRefName' | 'baseRefName'>): Record<'prUrl' | 'repo' | 'number' | 'head' | 'headRef' | 'baseRef', string> {
@@ -471,11 +489,11 @@ export function branchMovedNote(prUrl: string, actionLabels: readonly string[], 
 
 const RULE_NAME_MAX_CHARACTERS = 80;
 
-export function savedRuleFor(item: PrFlowItem, reason: string): PrFlowRule {
+export function savedRuleFor(item: PrFlowItem, repo: string, reason: string): PrFlowRule {
   const sourceName = item.sources[0]?.name ?? 'unknown source';
   const fullName = `Dismiss ${sourceName} on ${item.path || 'the pull request'}`;
   const name = [...fullName].slice(0, RULE_NAME_MAX_CHARACTERS).join('');
-  return { name, source: sourceName, ...(item.path ? { paths: [item.path] } : {}), scope: 'mine', action: 'dismiss', reason };
+  return { name, source: sourceName, ...(item.path ? { paths: [item.path] } : {}), scope: 'mine', repos: [repo], action: 'dismiss', reason };
 }
 
 export function fixLocallyPrompt(prUrl: string, item: PrFlowItem, fence: (label: string, text: string) => string): string {

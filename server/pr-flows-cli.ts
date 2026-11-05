@@ -60,20 +60,9 @@ function approvedFingerprints(homeDir: string): Set<string> {
   return new Set(PrFlowsState.safeParse(parseJsonOrNull(fs.readFileSync(statePath, 'utf8'))).data?.approvedFingerprints ?? []);
 }
 
-function ruleWarnings(configFile: unknown, actionIds: ReadonlySet<string>, repos: readonly string[]): string[] {
-  const warnings = repos.flatMap((repo) => {
-    const { rules, warnings: parseWarnings } = prFlowRules(configFile, repo);
-    return [...parseWarnings, ...unknownActionWarnings(rules, actionIds)];
-  });
-  return [...new Set(warnings)];
-}
-
-function repoRuleNames(configFile: unknown): string[] {
-  if (configFile === null || typeof configFile !== 'object' || !('prFlows' in configFile)) return [];
-  const prFlows = configFile.prFlows;
-  if (prFlows === null || typeof prFlows !== 'object' || !('repoRules' in prFlows)) return [];
-  const repoRules = prFlows.repoRules;
-  return repoRules !== null && typeof repoRules === 'object' ? Object.keys(repoRules) : [];
+function ruleWarnings(configFile: unknown, actionIds: ReadonlySet<string>): string[] {
+  const { rules, warnings: parseWarnings } = prFlowRules(configFile);
+  return [...new Set([...parseWarnings, ...unknownActionWarnings(rules, actionIds)])];
 }
 
 async function resolvePr(prUrl: string, runCommand: CommandRunner, homeDir: string, env: NodeJS.ProcessEnv): Promise<CheckedPr> {
@@ -121,8 +110,7 @@ async function checkPrFlows({ prUrl, env, homeDir, runCommand, readConfig }: PrF
     ...commands.sources.map((source) => entryCheck('source', source, approved, pr)),
     ...commands.actions.map((action) => entryCheck('action', action, approved, pr)),
   ];
-  const repos = [...new Set(['', ...(pr ? [pr.repo] : []), ...repoRuleNames(configFile)])];
-  const warnings = [...commands.warnings, ...ruleWarnings(configFile, new Set(commands.actions.map((action) => action.id)), repos)];
+  const warnings = [...commands.warnings, ...ruleWarnings(configFile, new Set(commands.actions.map((action) => action.id)))];
   if (!pr) return { configPath, warnings, entries, pr, sourceRuns: [] };
   const external = createPrFlowsExternal({ homeDir, baseEnv: () => env, runCommand });
   const runnableSources = commands.sources.filter((source) => entries.some((entry) => entry.kind === 'source' && entry.id === source.id && entry.error === null && entry.isApproved));

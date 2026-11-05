@@ -114,7 +114,7 @@ test('a matching rule dismisses an item on the next poll and records it, Undo re
   const frames: PrFlowsStatus[] = [];
   const configFile = { prFlows: {
     repoRules: { 'acme/app': [{ name: 'generated', paths: ['dist/'], action: 'dismiss', reason: 'Generated output' }] },
-    rules: [{ name: 'broken', action: 'dismiss' }, { name: 'resolve bots', source: 'alice', action: 'run:resolve' }],
+    rules: [{ name: 'broken', action: 'dismiss' }, { name: 'elsewhere', source: 'alice', repos: ['acme/other'], action: 'dismiss', reason: 'Other repo' }, { name: 'resolve bots', source: 'alice', repos: ['ACME/app'], action: 'run:resolve' }],
   } };
   const prFlows = createPrFlowsWiring({
     statePath: null, openPrs: () => [myPr()], broadcast: (frame) => frames.push(frame), log: console,
@@ -130,6 +130,7 @@ test('a matching rule dismisses an item on the next poll and records it, Undo re
   const status = frames.at(-1);
   assert.deepEqual(status?.handledByPr['acme/app#1']?.map((entry) => [entry.ruleName, entry.location]), [['generated', 'dist/app.js:3']]);
   assert.deepEqual(status?.warnings, [
+    'prFlows.repoRules is deprecated: move each rule into prFlows.rules with "repos": ["<owner/name>"]',
     "prFlows.rules[0] was skipped: a dismiss rule needs a reason",
     "Rule 'resolve bots' names run:resolve, which no entry in prFlows.actions defines, so its items wait for you.",
   ]);
@@ -143,16 +144,17 @@ test('a matching rule dismisses an item on the next poll and records it, Undo re
   assert.deepEqual(githubCalls, ['reply PRRT_1 Generated output', 'resolve PRRT_1', 'unresolve PRRT_1']);
   const aliceItem = myPr().reviewItems.find((item) => item.path === 'src/a.ts');
   assert.deepEqual(await prFlows.saveRule({ prKey: 'acme/app#1', itemKey: aliceItem?.key ?? '', reason: 'Names are settled' }), { ok: true });
-  assert.deepEqual(savedRules, [{ name: 'Dismiss alice on src/a.ts', source: 'alice', paths: ['src/a.ts'], scope: 'mine', action: 'dismiss', reason: 'Names are settled' }]);
+  assert.deepEqual(savedRules, [{ name: 'Dismiss alice on src/a.ts', source: 'alice', paths: ['src/a.ts'], scope: 'mine', repos: ['acme/app'], action: 'dismiss', reason: 'Names are settled' }]);
   threads = [threadNode('PRRT_4', 'frontend/src/scenes/session-recordings/player/inspector/PlayerInspectorList.tsx', 5, 'greptile-apps[bot]', 'Long path')];
   assert.deepEqual(await prFlows.saveRule({ prKey: 'acme/app#1', itemKey: myPr().reviewItems[0]?.key ?? '', reason: 'Fine' }), { ok: true });
-  assert.equal(prFlowRules({ prFlows: { rules: savedRules.slice(1) } }, 'acme/app').rules.length, 1);
+  assert.equal(prFlowRules({ prFlows: { rules: savedRules.slice(1) } }).rules.length, 1);
 });
 
 test('a malformed prFlows rule leaves config.json valid and shows as a warning instead', () => {
   const loneRule = { repoRules: { 'acme/app': { name: 'one', action: 'ask' } }, rules: [{ name: 'no action' }] };
   for (const prFlows of [null, loneRule, { rules: {} }]) assert.equal(validateConfig({ ...DEFAULT_CONFIG, prFlows }).ok, true);
-  assert.equal(prFlowRules({ prFlows: loneRule }, 'acme/app').warnings.length, 2);
+  assert.equal(prFlowRules({ prFlows: loneRule }).warnings.length, 3);
+  assert.deepEqual(prFlowRules({ prFlows: { repoRules: {}, rules: [] } }).warnings, []);
 });
 
 test('a fix-local rule pastes the comment without submitting it', async () => {
@@ -538,7 +540,12 @@ test('a pack copied into the packs directory waits for one approval in Settings 
   const packStore = createPackStore({ homeDir, statePath, env: process.env, log: console, reloadDebounceMs: 10 });
   try {
     const packDir = path.join(homeDir, 'packs', 'sample');
-    fs.cpSync(path.join(import.meta.dirname, 'fixtures', 'pr-packs', 'sample'), packDir, { recursive: true });
+    const copySamplePackScopedToAcmeApp = () => {
+      fs.cpSync(path.join(import.meta.dirname, 'fixtures', 'pr-packs', 'sample'), packDir, { recursive: true });
+      const samplePackJson = JSON.parse(fs.readFileSync(path.join(packDir, 'pack.json'), 'utf8'));
+      fs.writeFileSync(path.join(packDir, 'pack.json'), JSON.stringify({ ...samplePackJson, prFlows: { ...samplePackJson.prFlows, repos: ['acme/app'] } }));
+    };
+    copySamplePackScopedToAcmeApp();
     const linkedDir = path.join(homeDir, 'linked-pack');
     fs.mkdirSync(linkedDir);
     fs.writeFileSync(path.join(linkedDir, 'pack.json'), JSON.stringify({ name: 'linked', version: 1 }));
@@ -551,7 +558,7 @@ test('a pack copied into the packs directory waits for one approval in Settings 
     packStore.setListedPaths(packPathsOf(configFile));
     await linkedPackRead;
     const prFlows = createPrFlowsWiring({
-      statePath: null, openPrs: () => [pr], broadcast: (frame) => frames.push(frame), log: console, linkedSession: () => null, appendRule: async () => true,
+      statePath: null, openPrs: () => [pr, myPrIn('acme/other', 2)], broadcast: (frame) => frames.push(frame), log: console, linkedSession: () => null, appendRule: async () => true,
       readConfigFile: async () => configFile, github: NO_GITHUB_WRITES, external: createPrFlowsExternal({ homeDir }),
       loadPacks: (config) => {
         packStore.setListedPaths(packPathsOf(config));
@@ -576,7 +583,8 @@ test('a pack copied into the packs directory waits for one approval in Settings 
       ['pr-action', 'sample/hand-off', path.join(packDir, 'hand-off.ts')], ['action', 'sample/note', path.join(packDir, 'hand-off.ts')],
     ]);
     assert.deepEqual([approval?.label, approval?.pack?.requires], ['sample v1', { env: [], programs: ['node'] }]);
-    assert.match(approval?.pack?.rules.join('\n') ?? '', /^Generated files: .*"paths":\["dist\/"\].*"action":"run:sample\/note"/);
+    assert.match(approval?.pack?.rules.join('\n') ?? '', /^Generated files: .*"paths":\["dist\/"\].*"action":"run:sample\/note".*"repos":\["acme\/app"\]/);
+    assert.deepEqual(approval?.pack?.commands.find((command) => command.kind === 'pr-action')?.repos, ['acme/app']);
     assert.ok(prFlows.statusFrame().warnings.some((warning) => warning.includes(linkedDir) && warning.includes('symlink')));
     assert.deepEqual(prFlows.statusFrame().prActionsByPr, {});
 
@@ -594,7 +602,7 @@ test('a pack copied into the packs directory waits for one approval in Settings 
     assert.equal(started.prActionRunsByPr['acme/app#1']?.[0]?.message, 'Handed off https://github.com/acme/app/pull/1 feature-1');
 
     fs.rmSync(packDir, { recursive: true });
-    fs.cpSync(path.join(import.meta.dirname, 'fixtures', 'pr-packs', 'sample'), packDir, { recursive: true });
+    copySamplePackScopedToAcmeApp();
     await prFlows.applyRules();
     assert.equal(prFlows.statusFrame().prActionsByPr['acme/app#1']?.[0]?.id, 'sample/hand-off');
     fs.appendFileSync(path.join(packDir, 'hand-off.ts'), '\n');
