@@ -1,6 +1,8 @@
 import { WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Wire } from './contracts/whiteboard.ts';
 import type { LaidOutBox, LaidOutPanel, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
+import { emptyFlatRects, flatRectsOf, forEachTouchingPairAcross, forEachTouchingPairWithin, pairsInOrder, setFlatRect } from './whiteboard-sweep-core.ts';
+import type { FlatRects } from './whiteboard-sweep-core.ts';
 
 type Side = 'left' | 'right' | 'top' | 'bottom';
 
@@ -54,7 +56,7 @@ interface RouteInput {
 interface RouteResult {
   wires: LaidOutWire[];
   segments: Segment[];
-  warnings: string[];
+  collectWarnings: () => string[];
   extent: Rect | null;
 }
 
@@ -144,51 +146,8 @@ function unionOf(rects: readonly Rect[]): Rect | null {
   return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
-interface SweepItem {
-  group: 0 | 1;
-  index: number;
-  rect: Rect;
-}
-
-function sweepTouchingPairs(items: readonly SweepItem[], onPair: (first: SweepItem, second: SweepItem) => void): void {
-  const byLeftEdge = [...items].sort((first, second) => first.rect.x - second.rect.x);
-  let active: SweepItem[] = [];
-  for (const item of byLeftEdge) {
-    active = active.filter((open) => open.rect.x + open.rect.width >= item.rect.x);
-    for (const open of active) {
-      if (rectsTouch(open.rect, item.rect)) onPair(open, item);
-    }
-    active.push(item);
-  }
-}
-
 function rectsTouch(first: Rect, second: Rect): boolean {
   return first.x <= second.x + second.width && second.x <= first.x + first.width && first.y <= second.y + second.height && second.y <= first.y + first.height;
-}
-
-function byIndexPair(first: readonly [number, number], second: readonly [number, number]): number {
-  return first[0] - second[0] || first[1] - second[1];
-}
-
-function touchingPairsWithin(bounds: readonly Rect[]): [number, number][] {
-  const pairs: [number, number][] = [];
-  sweepTouchingPairs(bounds.map((rect, index) => ({ group: 0, index, rect })), (first, second) => {
-    pairs.push(first.index < second.index ? [first.index, second.index] : [second.index, first.index]);
-  });
-  return pairs.sort(byIndexPair);
-}
-
-function touchingPairsAcross(firstBounds: readonly Rect[], secondBounds: readonly Rect[]): [number, number][] {
-  const pairs: [number, number][] = [];
-  const items: SweepItem[] = [
-    ...firstBounds.map((rect, index): SweepItem => ({ group: 0, index, rect })),
-    ...secondBounds.map((rect, index): SweepItem => ({ group: 1, index, rect })),
-  ];
-  sweepTouchingPairs(items, (first, second) => {
-    if (first.group === second.group) return;
-    pairs.push(first.group === 0 ? [first.index, second.index] : [second.index, first.index]);
-  });
-  return pairs.sort(byIndexPair);
 }
 
 function pointBoundsOf(points: readonly Point[]): Rect {
@@ -928,11 +887,51 @@ function pairCrossingOf(first: DrawnWire, second: DrawnWire): string | null {
   return pairs.some(([firstSegment, secondSegment]) => segmentsOverlap(firstSegment, secondSegment)) ? `wire ${first.plan.wire.id} overlaps wire ${second.plan.wire.id}` : null;
 }
 
-function findCrossings(drawn: readonly DrawnWire[]): string[] {
-  return touchingPairsWithin(drawn.map((wire) => pointBoundsOf(wire.points))).flatMap(([firstIndex, secondIndex]) => {
-    const first = drawn[firstIndex];
-    const second = drawn[secondIndex];
-    return first && second ? pairCrossingOf(first, second) ?? [] : [];
+interface WirePieces {
+  rects: FlatRects;
+  segments: Segment[];
+  wireIndexByPiece: Int32Array;
+}
+
+function wirePiecesOf(drawn: readonly DrawnWire[]): WirePieces {
+  const segments = drawn.flatMap((wire) => wire.segments);
+  const rects = emptyFlatRects(segments.length);
+  const wireIndexByPiece = new Int32Array(segments.length);
+  let piece = 0;
+  drawn.forEach((wire, wireIndex) => {
+    for (const segment of wire.segments) {
+      setFlatRect(rects, piece, segment.from.x, segment.from.y, segment.to.x, segment.to.y);
+      wireIndexByPiece[piece] = wireIndex;
+      piece += 1;
+    }
+  });
+  return { rects, segments, wireIndexByPiece };
+}
+
+function findCrossings(drawn: readonly DrawnWire[], pieces: WirePieces): string[] {
+  const isCrossingByPairKey = new Map<number, boolean>();
+  forEachTouchingPairWithin(pieces.rects, (earlierPiece, laterPiece) => {
+    const earlierWire = pieces.wireIndexByPiece[earlierPiece] ?? 0;
+    const laterWire = pieces.wireIndexByPiece[laterPiece] ?? 0;
+    if (earlierWire === laterWire) return;
+    const pairKey = Math.min(earlierWire, laterWire) * drawn.length + Math.max(earlierWire, laterWire);
+    if (isCrossingByPairKey.get(pairKey) === true) return;
+    const first = drawn[earlierWire];
+    const second = drawn[laterWire];
+    const earlierSegment = pieces.segments[earlierPiece];
+    const laterSegment = pieces.segments[laterPiece];
+    if (!first || !second || !earlierSegment || !laterSegment || areSiblings(first, second)) return;
+    if (segmentsCross(earlierSegment, laterSegment)) {
+      isCrossingByPairKey.set(pairKey, true);
+      return;
+    }
+    if (segmentsOverlap(earlierSegment, laterSegment)) isCrossingByPairKey.set(pairKey, false);
+  });
+  const pairKeys = [...isCrossingByPairKey.keys()];
+  const ordered = pairsInOrder(pairKeys.map((key) => Math.floor(key / drawn.length)), pairKeys.map((key) => key % drawn.length), drawn.length, drawn.length);
+  return ordered.map(([firstIndex, secondIndex]) => {
+    const verb = isCrossingByPairKey.get(firstIndex * drawn.length + secondIndex) ? 'crosses' : 'overlaps';
+    return `wire ${drawn[firstIndex]?.plan.wire.id} ${verb} wire ${drawn[secondIndex]?.plan.wire.id}`;
   });
 }
 
@@ -945,16 +944,35 @@ function runsThrough(wire: DrawnWire, solid: LaidOutBox | LaidOutPanel, inset: R
   return wire.segments.some((segment) => segmentHitsRect(segment, inset));
 }
 
-function findBoxCrossings(drawn: readonly DrawnWire[], input: RouteInput): string[] {
+function findBoxCrossings(drawn: readonly DrawnWire[], pieces: WirePieces, input: RouteInput): string[] {
   const solids = solidsOf(input);
   const insets = solids.map((solid) => inflated(solid, -2));
-  return touchingPairsAcross(drawn.map((wire) => pointBoundsOf(wire.points)), insets).flatMap(([wireIndex, solidIndex]) => {
+  const crossedPairKeys = new Set<number>();
+  forEachTouchingPairAcross(pieces.rects, flatRectsOf(insets), (piece, solidIndex) => {
+    const wireIndex = pieces.wireIndexByPiece[piece] ?? 0;
+    const pairKey = wireIndex * solids.length + solidIndex;
+    if (crossedPairKeys.has(pairKey)) return;
     const wire = drawn[wireIndex];
     const solid = solids[solidIndex];
     const inset = insets[solidIndex];
-    if (!wire || !solid || !inset) return [];
-    return runsThrough(wire, solid, inset) ? [`wire ${wire.plan.wire.id} runs through ${solid.kind} ${solid.id}`] : [];
+    const segment = pieces.segments[piece];
+    if (!wire || !solid || !inset || !segment) return;
+    if (solid.id === wire.plan.from.id || solid.id === wire.plan.to.id) return;
+    if (segmentHitsRect(segment, inset)) crossedPairKeys.add(pairKey);
   });
+  const pairKeys = [...crossedPairKeys];
+  const ordered = pairsInOrder(pairKeys.map((key) => Math.floor(key / solids.length)), pairKeys.map((key) => key % solids.length), drawn.length, solids.length);
+  return ordered.map(([wireIndex, solidIndex]) => `wire ${drawn[wireIndex]?.plan.wire.id} runs through ${solids[solidIndex]?.kind} ${solids[solidIndex]?.id}`);
+}
+
+function crossingWarningsOf(drawn: readonly DrawnWire[], input: RouteInput): string[] {
+  const pieces = wirePiecesOf(drawn);
+  return [...findBoxCrossings(drawn, pieces, input), ...findCrossings(drawn, pieces)];
+}
+
+function totalCrossingCostOf(drawn: readonly DrawnWire[], input: RouteInput): number {
+  const pieces = wirePiecesOf(drawn);
+  return findBoxCrossings(drawn, pieces, input).length * BOX_CROSSING_COST + findCrossings(drawn, pieces).length;
 }
 
 function routeQualityWarnings(drawn: readonly DrawnWire[]): string[] {
@@ -985,28 +1003,28 @@ function swapNeighbors(order: string[], index: number): void {
   order[index + 1] = left;
 }
 
-function routeWithPortOrder(plans: readonly WirePlan[], input: RouteInput, requestsBySide: ReadonlyMap<string, readonly PortRequest[]>, groupOrderBySide: ReadonlyMap<string, readonly string[]>, budget: SearchBudget): { routed: RoutedWires; crossingCost: number } {
+function routeWithPortOrder(plans: readonly WirePlan[], input: RouteInput, requestsBySide: ReadonlyMap<string, readonly PortRequest[]>, groupOrderBySide: ReadonlyMap<string, readonly string[]>, budget: SearchBudget): RoutedWires {
   assignPorts(requestsBySide, groupOrderBySide);
   alignLonePorts(plans, groupOrderBySide);
-  const routed = routeAll(plans, input, budget);
-  return { routed, crossingCost: findBoxCrossings(routed.drawn, input).length * BOX_CROSSING_COST + findCrossings(routed.drawn).length };
+  return routeAll(plans, input, budget);
 }
 
 function routeWithFewestCrossings(plans: readonly WirePlan[], input: RouteInput, requestsBySide: ReadonlyMap<string, readonly PortRequest[]>, groupOrderBySide: ReadonlyMap<string, string[]>, budget: SearchBudget): DrawnWire[] {
-  let best = routeWithPortOrder(plans, input, requestsBySide, groupOrderBySide, budget);
-  if (plans.length > MAX_WIRES_FOR_PORT_SEARCH) return rerouteCrossedWires(best.routed, input);
+  const firstRouted = routeWithPortOrder(plans, input, requestsBySide, groupOrderBySide, budget);
+  if (plans.length > MAX_WIRES_FOR_PORT_SEARCH) return rerouteCrossedWires(firstRouted, input);
+  let bestCrossingCost = totalCrossingCostOf(firstRouted.drawn, input);
   for (const groupOrder of groupOrderBySide.values()) {
-    for (let index = 0; best.crossingCost > 0 && index + 1 < groupOrder.length; index += 1) {
+    for (let index = 0; bestCrossingCost > 0 && index + 1 < groupOrder.length; index += 1) {
       swapNeighbors(groupOrder, index);
-      const trial = routeWithPortOrder(plans, input, requestsBySide, groupOrderBySide, budget);
-      if (trial.crossingCost < best.crossingCost) {
-        best = trial;
+      const trialCrossingCost = totalCrossingCostOf(routeWithPortOrder(plans, input, requestsBySide, groupOrderBySide, budget).drawn, input);
+      if (trialCrossingCost < bestCrossingCost) {
+        bestCrossingCost = trialCrossingCost;
         continue;
       }
       swapNeighbors(groupOrder, index);
     }
   }
-  return rerouteCrossedWires(routeWithPortOrder(plans, input, requestsBySide, groupOrderBySide, budget).routed, input);
+  return rerouteCrossedWires(routeWithPortOrder(plans, input, requestsBySide, groupOrderBySide, budget), input);
 }
 
 function routeWires(input: RouteInput): RouteResult {
@@ -1037,10 +1055,10 @@ function routeWires(input: RouteInput): RouteResult {
   return {
     wires,
     segments: drawn.flatMap((wire) => wire.segments),
-    warnings: [...budgetWarnings, ...findBoxCrossings(drawn, input), ...findCrossings(drawn), ...routeQualityWarnings(drawn), ...crowdedSideWarnings(requestsBySide, groupOrderBySide), ...labelWarnings],
+    collectWarnings: () => [...budgetWarnings, ...crossingWarningsOf(drawn, input), ...routeQualityWarnings(drawn), ...crowdedSideWarnings(requestsBySide, groupOrderBySide), ...labelWarnings],
     extent: unionOf([...pointRects, ...labelRects]),
   };
 }
 
-export { cappedWarnings, labelWidthOf, pathOf, rectsOverlap, routeWires, touchingPairsWithin, unionOf, withoutBends };
+export { cappedWarnings, labelWidthOf, pathOf, rectsOverlap, routeWires, unionOf, withoutBends };
 export type { Point };

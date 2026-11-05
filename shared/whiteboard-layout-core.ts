@@ -3,7 +3,8 @@ import type { Board, Box, BoxMedia, Element, Note, Panel, Unit, Wire } from './c
 
 type BoxLine = Box['lines'][number];
 import { planSteps } from './whiteboard-plan-core.ts';
-import { cappedWarnings, labelWidthOf, pathOf, rectsOverlap, routeWires, touchingPairsWithin, unionOf, withoutBends } from './whiteboard-route-core.ts';
+import { cappedWarnings, labelWidthOf, pathOf, rectsOverlap, routeWires, unionOf, withoutBends } from './whiteboard-route-core.ts';
+import { touchingPairsWithin } from './whiteboard-sweep-core.ts';
 import type { Point } from './whiteboard-route-core.ts';
 
 const MARGIN = 40;
@@ -292,8 +293,43 @@ function boxShape(board: Board, box: Box) {
   return { titleLines, wasLines, bodyLines, lane, showsLanePill, headerHeight, outputs, mediaTop: textHeight + MEDIA_GAP, mediaSize, height: headerHeight + outputs.length * OUTPUT_ROW_HEIGHT };
 }
 
-function elementsOfKind<Kind extends Element['kind']>(board: Board, kind: Kind): Extract<Element, { kind: Kind }>[] {
-  return Object.values(board.elements).filter((element): element is Extract<Element, { kind: Kind }> => element.kind === kind);
+type ElementsByKind = { [Kind in Element['kind']]: Extract<Element, { kind: Kind }>[] };
+
+interface IndexedBoard extends Board {
+  elementsByKind: ElementsByKind;
+}
+
+function addByKind(elementsByKind: ElementsByKind, element: Element): void {
+  switch (element.kind) {
+    case 'box':
+      elementsByKind.box.push(element);
+      return;
+    case 'frame':
+      elementsByKind.frame.push(element);
+      return;
+    case 'wire':
+      elementsByKind.wire.push(element);
+      return;
+    case 'note':
+      elementsByKind.note.push(element);
+      return;
+    case 'unit':
+      elementsByKind.unit.push(element);
+      return;
+    case 'panel':
+      elementsByKind.panel.push(element);
+      return;
+  }
+}
+
+function indexedBoardOf(board: Board): IndexedBoard {
+  const elementsByKind: ElementsByKind = { box: [], frame: [], wire: [], note: [], unit: [], panel: [] };
+  for (const element of Object.values(board.elements)) addByKind(elementsByKind, element);
+  return { ...board, elementsByKind };
+}
+
+function elementsOfKind<Kind extends Element['kind']>(board: IndexedBoard, kind: Kind): readonly Extract<Element, { kind: Kind }>[] {
+  return board.elementsByKind[kind];
 }
 
 function noteShape(note: Note): NoteShape {
@@ -301,7 +337,7 @@ function noteShape(note: Note): NoteShape {
   return { lines, height: BOX_PADDING * 2 + (lines.length + 1) * NOTE_LINE_HEIGHT };
 }
 
-function noteStackHeightByBoxId(board: Board): Map<string, number> {
+function noteStackHeightByBoxId(board: IndexedBoard): Map<string, number> {
   const stackHeightByBoxId = new Map<string, number>();
   for (const note of elementsOfKind(board, 'note')) {
     const stackedSoFar = stackHeightByBoxId.get(note.on);
@@ -311,7 +347,7 @@ function noteStackHeightByBoxId(board: Board): Map<string, number> {
   return stackHeightByBoxId;
 }
 
-function columnTitleLines(board: Board): string[][] {
+function columnTitleLines(board: IndexedBoard): string[][] {
   return board.columns.map((column) => (column.title ? wrapText(column.title, COLUMN_TITLE_CHARS_PER_LINE) : []));
 }
 
@@ -326,7 +362,7 @@ interface GapReserve {
   minimumWidth: number;
 }
 
-function gapReservesOf(board: Board, stackHeightByBoxId: ReadonlyMap<string, number>): GapReserve[] {
+function gapReservesOf(board: IndexedBoard, stackHeightByBoxId: ReadonlyMap<string, number>): GapReserve[] {
   const flowBoxes = elementsOfKind(board, 'box').filter(isGridBox);
   const notedColumnIds = new Set(flowBoxes.filter((box) => stackHeightByBoxId.has(box.id)).map((box) => box.column));
   const framedBoxIds = new Set(elementsOfKind(board, 'frame').flatMap((frame) => frame.contains));
@@ -352,7 +388,7 @@ function gapWidthsOf(reserves: readonly GapReserve[], tracksByGap: readonly numb
   });
 }
 
-function columnWidthsOf(board: Board): number[] {
+function columnWidthsOf(board: IndexedBoard): number[] {
   const columnIndexById = new Map(board.columns.map((column, index) => [column.id, index]));
   const columnWidths = board.columns.map(() => COLUMN_WIDTH);
   for (const box of elementsOfKind(board, 'box').filter(isGridBox)) {
@@ -376,7 +412,7 @@ function columnsRightOf(columnLeftEdges: readonly number[], columnWidths: readon
   return (columnLeftEdges.at(-1) ?? MARGIN) + (columnWidths.at(-1) ?? COLUMN_WIDTH);
 }
 
-function frameIdByBoxId(board: Board): Map<string, string> {
+function frameIdByBoxId(board: IndexedBoard): Map<string, string> {
   const frameIds = new Map<string, string>();
   for (const frame of elementsOfKind(board, 'frame')) {
     for (const boxId of frame.contains) if (!frameIds.has(boxId)) frameIds.set(boxId, frame.id);
@@ -397,16 +433,16 @@ interface PlacedBoxes {
   warnings: string[];
 }
 
-function bandIdOf(board: Board, box: Box): string {
+function bandIdOf(board: IndexedBoard, box: Box): string {
   return board.lanes.some((lane) => lane.id === box.lane) ? box.lane ?? '' : '';
 }
 
-function bandIdsOf(board: Board, gridBoxes: readonly Box[]): string[] {
+function bandIdsOf(board: IndexedBoard, gridBoxes: readonly Box[]): string[] {
   const usedBandIds = new Set(gridBoxes.map((box) => bandIdOf(board, box)));
   return ['', ...board.lanes.map((lane) => lane.id)].filter((bandId) => usedBandIds.has(bandId));
 }
 
-function laidOutBox(board: Board, box: Box, position: Point): LaidOutBox {
+function laidOutBox(board: IndexedBoard, box: Box, position: Point): LaidOutBox {
   const shape = boxShape(board, box);
   const width = boxWidthOf(box);
   return {
@@ -420,7 +456,7 @@ function laidOutBox(board: Board, box: Box, position: Point): LaidOutBox {
   };
 }
 
-function placeGridBoxes(board: Board, columnLeftEdges: readonly number[], columnWidths: readonly number[], boxesTop: number, stackHeightByBoxId: ReadonlyMap<string, number>, boxesById: Map<string, LaidOutBox>): LaidOutBand[] {
+function placeGridBoxes(board: IndexedBoard, columnLeftEdges: readonly number[], columnWidths: readonly number[], boxesTop: number, stackHeightByBoxId: ReadonlyMap<string, number>, boxesById: Map<string, LaidOutBox>): LaidOutBand[] {
   const frameIds = frameIdByBoxId(board);
   const gridBoxes = elementsOfKind(board, 'box').filter(isGridBox).map((box, index) => ({ box, index }))
     .sort((left, right) => left.box.order - right.box.order || left.index - right.index).map(({ box }) => box);
@@ -470,7 +506,7 @@ function freeOrigin(boxesById: ReadonlyMap<string, LaidOutBox>, boxesTop: number
   return { x: boxesById.size > 0 ? rightmostEdge + COLUMN_GAP : MARGIN, y: boxesTop };
 }
 
-function placeNearBoxes(board: Board, boxesTop: number, boxesById: Map<string, LaidOutBox>, warnings: string[]): void {
+function placeNearBoxes(board: IndexedBoard, boxesTop: number, boxesById: Map<string, LaidOutBox>, warnings: string[]): void {
   const nearBoxes = elementsOfKind(board, 'box').filter((box) => box.at === null && box.near !== null);
   const pendingIds = new Set(nearBoxes.map((box) => box.id));
   const place = (box: Box, chainIds: ReadonlySet<string>): LaidOutBox | undefined => {
@@ -489,10 +525,10 @@ function placeNearBoxes(board: Board, boxesTop: number, boxesById: Map<string, L
   for (const box of nearBoxes) place(box, new Set());
 }
 
-function layoutPanels(board: Board, besidePanels: readonly Rect[], columnLeftEdges: readonly number[], columnWidths: readonly number[], boxesTop: number): LaidOutPanel[] {
+function layoutPanels(board: IndexedBoard, besidePanels: readonly Rect[], columnLeftEdges: readonly number[], columnWidths: readonly number[], boxesTop: number): LaidOutPanel[] {
   const columnsRight = columnsRightOf(columnLeftEdges, columnWidths);
   const x = Math.max(columnsRight, ...besidePanels.map((rect) => rect.x + rect.width)) + COLUMN_GAP;
-  const panels = elementsOfKind(board, 'panel').sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
+  const panels = [...elementsOfKind(board, 'panel')].sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
   let nextY = boxesTop;
   return panels.map((panel: Panel): LaidOutPanel => {
     const titleLines = wrapText(panel.title, TITLE_CHARS_PER_LINE);
@@ -504,7 +540,7 @@ function layoutPanels(board: Board, besidePanels: readonly Rect[], columnLeftEdg
   });
 }
 
-function layoutBoxes(board: Board, columnLeftEdges: readonly number[], columnWidths: readonly number[], boxesTop: number, stackHeightByBoxId: ReadonlyMap<string, number>): PlacedBoxes {
+function layoutBoxes(board: IndexedBoard, columnLeftEdges: readonly number[], columnWidths: readonly number[], boxesTop: number, stackHeightByBoxId: ReadonlyMap<string, number>): PlacedBoxes {
   const boxesById = new Map<string, LaidOutBox>();
   const warnings: string[] = [];
   const bands = placeGridBoxes(board, columnLeftEdges, columnWidths, boxesTop, stackHeightByBoxId, boxesById);
@@ -518,7 +554,7 @@ function layoutBoxes(board: Board, columnLeftEdges: readonly number[], columnWid
   return { boxesById, bands, warnings };
 }
 
-function layoutFrames(board: Board, boxesById: ReadonlyMap<string, LaidOutBox>): LaidOutFrame[] {
+function layoutFrames(board: IndexedBoard, boxesById: ReadonlyMap<string, LaidOutBox>): LaidOutFrame[] {
   return elementsOfKind(board, 'frame').flatMap((frame) => {
     const around = unionOf(frame.contains.flatMap((id) => boxesById.get(id) ?? []));
     if (!around) return [];
@@ -535,7 +571,7 @@ function noteByline(note: Note): string {
   return note.author ? `from ${note.author}` : '';
 }
 
-function layoutNotes(board: Board, boxesById: ReadonlyMap<string, LaidOutBox>): LaidOutNote[] {
+function layoutNotes(board: IndexedBoard, boxesById: ReadonlyMap<string, LaidOutBox>): LaidOutNote[] {
   const nextYByBoxId = new Map<string, number>();
   return elementsOfKind(board, 'note').flatMap((note) => {
     const target = boxesById.get(note.on);
@@ -562,7 +598,7 @@ interface PlacedBoard {
   columnWidths: number[];
   boxesById: Map<string, LaidOutBox>;
   bands: LaidOutBand[];
-  placementWarnings: string[];
+  collectPlacementWarnings: () => string[];
   frames: LaidOutFrame[];
   notes: LaidOutNote[];
   panels: LaidOutPanel[];
@@ -594,7 +630,7 @@ function labelWidthByGapOf(routing: ReturnType<typeof routeWires>, columnLeftEdg
   return gapSpansOf(columnLeftEdges, columnWidths).map((span) => routing.wires.reduce((widest, wire) => (wire.label && wire.labelAt.x > span.left && wire.labelAt.x < span.right ? Math.max(widest, labelWidthOf(wire.label)) : widest), 0));
 }
 
-function overlapWarnings(boxesById: ReadonlyMap<string, LaidOutBox>, panels: readonly LaidOutPanel[], frames: readonly LaidOutFrame[], board: Board): string[] {
+function overlapWarnings(boxesById: ReadonlyMap<string, LaidOutBox>, panels: readonly LaidOutPanel[], frames: readonly LaidOutFrame[], board: IndexedBoard): string[] {
   const boxes = [...boxesById.values()];
   const solids: (LaidOutBox | LaidOutPanel)[] = [...boxes, ...panels];
   const boxOverlaps = touchingPairsWithin(solids).flatMap(([firstIndex, secondIndex]) => {
@@ -610,7 +646,7 @@ function overlapWarnings(boxesById: ReadonlyMap<string, LaidOutBox>, panels: rea
   return [...boxOverlaps, ...coveredTitles];
 }
 
-function placeAndRoute(board: Board, placement: Placement): PlacedBoard {
+function placeAndRoute(board: IndexedBoard, placement: Placement): PlacedBoard {
   const columnWidths = columnWidthsOf(board);
   const columnLeftEdges = columnLeftEdgesOf(columnWidths, placement.gapWidths);
   const { boxesById, bands, warnings: nearWarnings } = layoutBoxes(board, columnLeftEdges, columnWidths, placement.boxesTop, placement.stackHeightByBoxId);
@@ -625,7 +661,7 @@ function placeAndRoute(board: Board, placement: Placement): PlacedBoard {
   });
   return {
     columnLeftEdges, columnWidths, boxesById, bands, frames, notes, panels, routing,
-    placementWarnings: [...nearWarnings, ...overlapWarnings(boxesById, panels, frames, board)],
+    collectPlacementWarnings: () => [...nearWarnings, ...overlapWarnings(boxesById, panels, frames, board)],
     tracksByGap: tracksByGapOf(routing, columnLeftEdges, columnWidths),
     labelWidthByGap: labelWidthByGapOf(routing, columnLeftEdges, columnWidths),
   };
@@ -642,7 +678,7 @@ function maxByIndex(first: readonly number[], second: readonly number[]): number
   return Array.from({ length: Math.max(first.length, second.length) }, (_, index) => Math.max(first[index] ?? 0, second[index] ?? 0));
 }
 
-function placeWithReservedRoom(board: Board, room: RoomInputs): PlacedBoard {
+function placeWithReservedRoom(board: IndexedBoard, room: RoomInputs): PlacedBoard {
   let reservedTracksByGap: number[] = [];
   let reservedLabelWidths: number[] = [];
   for (let attempt = 1; ; attempt += 1) {
@@ -688,7 +724,7 @@ function planArrowPath(from: LaidOutUnit, to: LaidOutUnit): string {
   return pathOf(withoutBends([start, { x: bendX, y: start.y }, { x: bendX, y: end.y }, end]));
 }
 
-function planArrowPaths(board: Board, unitsById: ReadonlyMap<string, LaidOutUnit>): string[] {
+function planArrowPaths(board: IndexedBoard, unitsById: ReadonlyMap<string, LaidOutUnit>): string[] {
   return elementsOfKind(board, 'unit').flatMap((unit) => {
     const to = unitsById.get(unit.id);
     if (!to) return [];
@@ -726,7 +762,7 @@ function defaultWireStyleLabel(tone: Wire['tone'], isDashed: boolean, isBack: bo
 
 const CHANGE_LEGEND_LABELS: Readonly<Record<Exclude<Box['change'], 'none'>, string>> = { added: 'added by this change', removed: 'removed by this change', relabeled: 'renamed, old title struck through' };
 
-function changeEntriesOf(board: Board): { label: string; swatch: LegendSwatch }[] {
+function changeEntriesOf(board: IndexedBoard): { label: string; swatch: LegendSwatch }[] {
   const usedChanges = new Set(elementsOfKind(board, 'box').map((box) => box.change));
   return BOX_CHANGES.flatMap((change) => (change === 'none' || !usedChanges.has(change) ? [] : [{ label: CHANGE_LEGEND_LABELS[change], swatch: { kind: 'change' as const, change } }]));
 }
@@ -736,7 +772,7 @@ function statusEntriesOf(unitsById: ReadonlyMap<string, LaidOutUnit>): { label: 
   return UNIT_STATUSES.map((status) => ({ label: `plan step ${status}`, swatch: { kind: 'status' as const, status } }));
 }
 
-function legendEntriesOf(board: Board, unitsById: ReadonlyMap<string, LaidOutUnit>): { label: string; swatch: LegendSwatch }[] {
+function legendEntriesOf(board: IndexedBoard, unitsById: ReadonlyMap<string, LaidOutUnit>): { label: string; swatch: LegendSwatch }[] {
   const laneEntries = board.lanes.map((lane) => ({ label: lane.label || lane.id, swatch: { kind: 'lane' as const, hex: LANE_HEX_BY_COLOR[lane.color] } }));
   const customLabelByKey = new Map(board.legend.map((entry) => [wireStyleKey(entry.tone, entry.dashed || entry.back, entry.back), entry.label]));
   const usedKeys = new Set<string>();
@@ -758,7 +794,7 @@ function layoutBoard(storedBoard: Board): BoardLayout {
   const unitsById = layoutUnits(storedBoard);
   const freeformTop = planBandBottom(unitsById);
   const pinnedOffsetY = freeformTop - MARGIN;
-  const board = withPinnedBoxesShifted(storedBoard, pinnedOffsetY);
+  const board = indexedBoardOf(withPinnedBoxesShifted(storedBoard, pinnedOffsetY));
   const stackHeightByBoxId = noteStackHeightByBoxId(board);
   const titleLinesByColumn = columnTitleLines(board);
   const extraHeaderHeight = headerExtraHeight(titleLinesByColumn);
@@ -793,7 +829,7 @@ function layoutBoard(storedBoard: Board): BoardLayout {
     pinnedOffsetY,
     plan: unitsById.size > 0 ? { titleAt: { x: MARGIN, y: MARGIN + PLAN_TITLE_BASELINE }, arrowPaths: planArrowPaths(board, unitsById) } : null,
     bounds: { ...contentBounds, height: contentBounds.height + extraHeight },
-    warnings: cappedWarnings([...placed.placementWarnings, ...placed.routing.warnings]),
+    warnings: cappedWarnings([...placed.collectPlacementWarnings(), ...placed.routing.collectWarnings()]),
   };
 }
 
