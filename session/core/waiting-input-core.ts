@@ -22,7 +22,7 @@ function isOperatorKeystroke(input: string): boolean {
 
 const NON_SUBMITTING_CARRIAGE_RETURN_PATTERN = /\x1b\[200~[\s\S]*?\x1b\[201~|\x1b\r/g;
 
-function isOperatorSubmit(input: string): boolean {
+function isPromptSubmit(input: string): boolean {
   return isOperatorKeystroke(input) && input.replace(NON_SUBMITTING_CARRIAGE_RETURN_PATTERN, "").includes("\r");
 }
 
@@ -45,4 +45,4 @@ function decideWaitingInput({ state, hasHookAwaitingInput, pendingPromptKind, is
   return "acknowledge";
 }
 
-export { decideWaitingInput, isOperatorKeystroke, isOperatorSubmit };
+export { decideWaitingInput, isOperatorKeystroke, isPromptSubmit };

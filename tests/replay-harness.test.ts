@@ -12,6 +12,7 @@ import { parseExitPlanModeHookPayload } from '../shared/contracts/plan-review.ts
 import { Session } from '../session/sessions.ts';
 import { STATES } from '../shared/states.ts';
 import { replayThroughSession } from './helpers/session-replay.ts';
+import { capturingPty } from './helpers/fake-pty.ts';
 
 const FIX = path.join(import.meta.dirname, 'fixtures');
 const FAST = { stabilizationMs: 40, conflictWindowMs: 20, dedupWindowMs: 10 };
@@ -267,13 +268,13 @@ for (const endingEvent of ['Interrupt', 'StopFailure']) {
   });
 }
 
-for (const [hooksReportPrompts, operatorInput, expectedTransitions] of [
+for (const [hooksReportPrompts, ptyInput, expectedTransitions] of [
   [true, '', [STATES.RUNNING, STATES.IDLE]],
   [false, '', [STATES.RUNNING, STATES.COMPLETE]],
   [true, '\r', [STATES.RUNNING, STATES.COMPLETE]],
   [true, '\x1b\r', [STATES.RUNNING, STATES.IDLE]],
 ] as const) {
-  test(`codex title spin then truncated idle title settles to ${expectedTransitions[1]} when hooks report prompts is ${hooksReportPrompts} and operator input is ${JSON.stringify(operatorInput)}`, (t) => {
+  test(`codex title spin then truncated idle title settles to ${expectedTransitions[1]} when hooks report prompts is ${hooksReportPrompts} and pty input is ${JSON.stringify(ptyInput)}`, (t) => {
     t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
     const session = new Session({ id: 'codex-idle-spin', name: 'Video stats review', path: '/worktrees/quiz-shorts-assets-KGJc7E', agent: 'codex', statusConflictMs: 20, statusDedupMs: 10 });
     t.after(() => session.destroy());
@@ -283,7 +284,9 @@ for (const [hooksReportPrompts, operatorInput, expectedTransitions] of [
     const transitions: string[] = [];
     session.on('state-change', ({ to }) => transitions.push(to));
     const spinnerFrame = String.fromCharCode(0x280b);
-    if (operatorInput !== '') session.noteOperatorInput(operatorInput);
+    session.ptyProcess = capturingPty([]);
+    session._ptyAlive = true;
+    if (ptyInput !== '') session.write(ptyInput);
 
     session._titleSource.feed(`\x1b]0;${spinnerFrame} quiz-shorts-assets-KG...\x07`);
     t.mock.timers.tick(100);
