@@ -56,10 +56,8 @@ import { chooseRefinedSessionName } from '../../session/core/task-title-core.ts'
 import { assetRoot, bundled, examplePacksDir, packageRoot } from '../runtime-paths.ts';
 import { createAccountIdReader, createTelemetry } from '../telemetry.ts';
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
-import { createShownFilesWiring, SHOWN_FOLDER_NAME } from '../session/shown-files-wiring.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import { COMMIT_SESSIONS_FOLDER_NAME, PROVENANCE_WRITER_FILE_NAME, createCommitSessions, createProvenanceWriterId } from '../commit-sessions.ts';
-import type { ShownFilesPort } from '../session/shown-files-wiring.ts';
 import { createCoherenceSessionFeed } from '../coherence/coherence-session-feed.ts';
 import { buildSettingsPayload } from '../settings-payload.ts';
 import { glimmervoidHomeDir as resolveGlimmervoidHomeDir, isOperatorHomeUnderTest } from '../core/config-path-core.ts';
@@ -149,7 +147,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   let broadcastControl: ControlBroadcast | null = null;
   let removeExitedSession: ((id: string) => void) | null = null;
   let agentApi: AgentApiPort | null = null;
-  let shownFiles: ShownFilesPort | null = null;
   let gitWorkspace: ReturnType<typeof createBackendLanes>['gitWorkspace'] | null = null;
   warnWhenGitIsTooOld({ log: console });
   const sessionRuntime = createBackendSessionRuntime({
@@ -186,7 +183,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       return deliverable.length === 0 ? null : promptContextReplyOf(replyShape, deliverable.join('\n\n'));
     },
     getAgentApi: () => agentApi,
-    getShownFiles: () => shownFiles,
     getWhiteboardAssets: () => whiteboards.assets,
     getPrActionReports: () => laneAssembly.prFlows,
     sshSigner,
@@ -239,8 +235,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     if (message.type === 'session-removed' && typeof message.id === 'string') void whiteboards.forgetSession(message.id);
   };
   const sessionDocs = createSessionDocsWiring({ broadcastControl: broadcastControlFromWebSockets });
-  const shownFilesWiring = createShownFilesWiring({ shownRoot: configSiblingPath(configStore.configPath, SHOWN_FOLDER_NAME), broadcastControl: broadcastControlFromWebSockets });
-  shownFiles = shownFilesWiring;
   const whiteboards = createWhiteboardWiring({
     boardsRoot: configSiblingPath(configStore.configPath, WHITEBOARDS_FOLDER_NAME),
     broadcastControl: broadcastControlFromWebSockets,
@@ -634,7 +628,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     readPlanRevision: laneAssembly.planReview?.readPlanRevision ?? null,
     decidePlanReview: laneAssembly.planReview?.decide ?? null,
     sessionDocs,
-    shownFiles: shownFilesWiring,
     whiteboards,
     changeMaps,
     coherenceFeed,

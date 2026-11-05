@@ -266,25 +266,6 @@ export const AgentEditRequest = z.object({
 }).strict();
 
 export const SHOWN_FILE_CAP_BYTES = 200 * 1024 * 1024;
-export const SHOWN_FILES_KEPT_PER_SESSION = 50;
-const SHOWN_CAPTION_MAX_CHARS = 500;
-const SHOWN_FILE_KINDS = ['image', 'video', 'page'] as const;
-
-export const ShownFile = z.object({
-  id: z.string(),
-  name: z.string(),
-  caption: z.string().max(SHOWN_CAPTION_MAX_CHARS).nullable(),
-  kind: z.enum(SHOWN_FILE_KINDS),
-  mime: z.string(),
-  sizeBytes: z.number().int().nonnegative(),
-  pageTitle: z.string().nullable(),
-  shownAt: z.number().finite(),
-  hasThumbnail: z.boolean().default(false),
-}).strict();
-
-export type ShownFile = z.infer<typeof ShownFile>;
-export type ShownFileKind = (typeof SHOWN_FILE_KINDS)[number];
-
 export const SessionDoc = z.object({
   path: z.string(),
   name: z.string(),
