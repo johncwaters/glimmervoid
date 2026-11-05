@@ -146,3 +146,8 @@
 }
 
 }
+
+.arena-contestant-winner {
+  color: var(--text-head);
+  font-weight: 700;
+}

@@ -95,7 +95,7 @@ function createRaceWiring({
     if (!startPoint) return { ok: false, error: `Could not find the integration branch of ${spec.repoPath}.` };
     const raceId = randomUUID();
     const sessionIdByContestant: Record<string, string> = {};
-    const savedBeforeLaunch = await saveRecord({ id: raceId, spec, ...startPoint, createdAt: now(), sessionIdByContestant, phase: 'running', diffStatsByContestant: {}, judge: null, judgeError: null });
+    const savedBeforeLaunch = await saveRecord({ id: raceId, spec, ...startPoint, createdAt: now(), sessionIdByContestant, phase: 'running', diffStatsByContestant: {}, judge: null, judgeError: null, winnerContestantId: null });
     if (savedBeforeLaunch !== null) return { ok: false, error: `Could not save the race, so no contestant started: ${savedBeforeLaunch}` };
     const failures: string[] = [];
     for (const contestant of spec.contestants) {
@@ -104,7 +104,7 @@ function createRaceWiring({
       if (!launched.ok) failures.push(`${contestant.label}: ${launched.error}`);
     }
     if (Object.keys(sessionIdByContestant).length === 0) return { ok: false, error: failures.join(' ') };
-    const record: RaceRecord = { id: raceId, spec, ...startPoint, createdAt: now(), sessionIdByContestant, phase: 'running', diffStatsByContestant: {}, judge: null, judgeError: null };
+    const record: RaceRecord = { id: raceId, spec, ...startPoint, createdAt: now(), sessionIdByContestant, phase: 'running', diffStatsByContestant: {}, judge: null, judgeError: null, winnerContestantId: null };
     raceById.set(raceId, record);
     const savedAfterLaunch = await saveRecord(record);
     if (savedAfterLaunch !== null) failures.push(`(the race file could not be updated: ${savedAfterLaunch})`);
@@ -191,9 +191,30 @@ function createRaceWiring({
     return { ok: true };
   }
 
+  async function pickWinner(raceId: string, contestantId: string): Promise<{ ok: true; winnerSessionId: string; loserSessionIds: string[]; notes: string | null } | { ok: false; error: string }> {
+    const record = raceById.get(raceId);
+    if (!record) return { ok: false, error: 'That race is not loaded.' };
+    if (record.winnerContestantId && record.winnerContestantId !== contestantId) return { ok: false, error: 'This race already has a different winner.' };
+    const winnerSessionId = record.sessionIdByContestant[contestantId];
+    if (!winnerSessionId) return { ok: false, error: 'That contestant is not in this race.' };
+    if (sessionStateOf(winnerSessionId) === REMOVED_CONTESTANT) return { ok: false, error: 'That contestant was removed, so it cannot win.' };
+    if (!record.winnerContestantId) {
+      const withWinner = { ...record, winnerContestantId: contestantId };
+      raceById.set(raceId, withWinner);
+      const saveError = await saveRecord(withWinner);
+      if (saveError !== null) {
+        raceById.set(raceId, record);
+        return { ok: false, error: `Could not save the winner, so no contestant was removed: ${saveError}` };
+      }
+      broadcast(status());
+    }
+    const loserSessionIds = Object.entries(record.sessionIdByContestant).filter(([id]) => id !== contestantId).map(([, sessionId]) => sessionId);
+    return { ok: true, winnerSessionId, loserSessionIds, notes: record.judge?.notes[contestantId] ?? null };
+  }
+
   function judgeSettledRaces(): void {
     for (const record of raceById.values()) {
-      if (record.phase !== 'running') continue;
+      if (record.phase !== 'running' || record.winnerContestantId) continue;
       if (!raceProgress(Object.values(record.sessionIdByContestant), sessionStateOf).isAllSettled) continue;
       void judge(record.id);
     }
@@ -220,7 +241,7 @@ function createRaceWiring({
     return { ok: true, diff: diff.diff.slice(0, RACE_DIFF_MAX_CHARS) };
   }
 
-  return { status, loadRaces, start, judge, startWatching, stopWatching, contestantDiffText };
+  return { status, loadRaces, start, judge, pickWinner, startWatching, stopWatching, contestantDiffText };
 }
 
 type RaceWiring = ReturnType<typeof createRaceWiring>;
