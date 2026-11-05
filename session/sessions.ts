@@ -1666,7 +1666,7 @@ class Session extends EventEmitter {
 
     const initialPrompt = this._initialPrompt;
     const argsForLog = initialPrompt
-      ? args.map((a) => (a === initialPrompt ? `<prompt:${initialPrompt.length}c>` : a)).join(" ")
+      ? args.map((a) => a.replace(initialPrompt, `<prompt:${initialPrompt.length}c>`)).join(" ")
       : args.join(" ");
     console.log(
       `[session ${this.id}] spawn: ${file} ${argsForLog} (cwd=${this.effectiveCwd()})`,

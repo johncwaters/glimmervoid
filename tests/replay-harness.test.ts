@@ -163,8 +163,8 @@ test('grok fixture replays the live approval race from title WAITING to hook COM
 test('a config-declared custom agent replays title-only: working, then ready, never awaiting-input', async () => {
   const { version, agent, records } = load('v2-custom-title-only.jsonl');
   assert.equal(version, 2);
-  assert.equal(agent, 'opencode');
-  setCustomAgents([CustomAgentDeclaration.parse({ id: 'opencode', label: 'OpenCode', command: 'opencode' })]);
+  assert.equal(agent, 'my-agent');
+  setCustomAgents([CustomAgentDeclaration.parse({ id: 'my-agent', label: 'My Agent', command: 'my-agent' })]);
   try {
     const { signals } = await replayDetection(records, { ...FAST, agent, titleContext: { cwdBasename: 'project' } });
     const counts = summarize(signals);

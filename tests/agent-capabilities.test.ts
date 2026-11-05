@@ -181,6 +181,20 @@ test('a gemini session reports Sane YOLO off when the repo settings turn hooks o
   assert.equal(await saneYoloShownFor('gemini-hooks-off'), false);
 });
 
+test('an opencode first prompt starting with a dash reaches opencode as one --prompt= argument and stays out of the spawn log', async (t) => {
+  const prompt = '- fix the login bug';
+  const loggedLines: string[] = [];
+  t.mock.method(console, 'log', (...parts: unknown[]) => { loggedLines.push(parts.join(' ')); });
+  const { session, calls } = makeSession({ id: 'opencode-dash-prompt', name: 'opencode-dash-prompt', agent: 'opencode', initialPrompt: prompt });
+  try {
+    await session.start();
+  } finally {
+    session.destroy();
+  }
+  assert.ok(calls[0].args.includes(`--prompt=${prompt}`));
+  assert.equal(loggedLines.some((line) => line.includes('fix the login bug')), false);
+});
+
 test('a kimi session in a fresh folder starts pre-trusted and gets its initial prompt typed in', async (t) => {
   const kimiHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-kimi-trust-'));
   t.after(() => fsp.rm(kimiHome, { recursive: true, force: true }));
