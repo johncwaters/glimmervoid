@@ -1,6 +1,7 @@
 import test from 'node:test';
 import { z } from 'zod';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
@@ -8,11 +9,13 @@ import { GithubPr, GithubPrDetailNode } from '../shared/contracts/github-prs.ts'
 import type { MyPrThread, MyPrThreadNode } from '../shared/contracts/my-prs.ts';
 import { normalizeGithubPr } from '../server/github/core/github-store-core.ts';
 import { myPrFromGithubPr } from '../shared/my-pr-merge.ts';
-import { PrFlowCommand, PrFlowPrAction, PrFlowRule, PrFlowSourceOutput, PrFlowsState } from '../shared/contracts/pr-flows.ts';
+import { PR_ACTION_REPORT_URL_ENV, PR_ACTION_TOKEN_ENV, prActionReportPath, PrFlowCommand, PrFlowPrAction, PrFlowRule, PrFlowSourceOutput, PrFlowsState } from '../shared/contracts/pr-flows.ts';
 import type { PrFlowsStatus } from '../shared/contracts/pr-flows.ts';
 import { createPrFlowsWiring } from '../server/github/pr-flows-wiring.ts';
 import { createPrFlowsExternal } from '../server/github/pr-flows-external.ts';
-import { readConfigFile, runPrFlowsCheck } from '../server/pr-flows-cli.ts';
+import { readConfigFile, runPrActionReport, runPrFlowsCheck } from '../server/pr-flows-cli.ts';
+import { createBackendHttpApp } from '../server/backend/backend-http.ts';
+import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { runCommandSafely } from '../server/child-process-safe.ts';
 import { configFileViewOf, readSettingsForAgent } from '../server/core/settings-readout-core.ts';
 import { commandFingerprint, expandPlaceholders, mergeItems, plannedActions, prFlowRules, sourceCandidates, teammateThreadItems, threadCandidates } from '../server/github/core/pr-flows-core.ts';
@@ -456,6 +459,71 @@ test('a PR action shows on its listed repos once approved, runs its exact argv w
     assert.equal(runCount, 2);
   } finally {
     fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a started PR action takes one final report from the holder of its token through pr-action report, across a restart and after its PR merged, with 401 for a wrong token and 409 after the final outcome', async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-action-report-'));
+  let prFlows: ReturnType<typeof createPrFlowsWiring> | null = null;
+  const dashboardAt = () => http.createServer(createBackendHttpApp({
+    staticDir: null, configStore: { configPath: path.join(homeDir, 'config.json') }, remote: { allowedOrigins: [] }, remoteAuth: null, allowedHosts: [], listenerPortsFor: () => [], pageToken: 'page',
+    hookRouter: { handle: () => ({ status: 200, reason: 'ok' }) }, getSession: () => null, getUsage: () => ({ ingestStatusline: () => {} }), getPrActionReports: () => prFlows,
+  }));
+  let server = dashboardAt();
+  try {
+    const dashboardPort = await listenOnLoopback(server);
+    const scriptPath = path.join(homeDir, 'trigger.mjs');
+    fs.writeFileSync(scriptPath, [
+      "import fs from 'node:fs';",
+      `fs.writeFileSync(${JSON.stringify(homeDir)} + '/env-' + process.argv[2] + '.json', JSON.stringify(process.env));`,
+      "console.log(JSON.stringify({ outcome: 'started', message: 'Task https://example.test/tasks/1' }));",
+    ].join('\n'));
+    const mergedPr = myPrIn('acme/app', 1);
+    const openPr = myPrIn('acme/app', 2);
+    let openPrList = [mergedPr, openPr];
+    const frames: PrFlowsStatus[] = [];
+    const wiringAt = () => createPrFlowsWiring({
+      statePath: path.join(homeDir, 'pr-flows-state.json'), openPrs: () => openPrList, broadcast: (frame) => frames.push(frame), log: console, linkedSession: () => null, appendRule: async () => true,
+      readConfigFile: async () => ({ prFlows: { prActions: [{ id: 'agent-merge', label: 'Merge via agent', command: [process.execPath, scriptPath, '{number}'] }] } }), github: NO_GITHUB_WRITES,
+      external: createPrFlowsExternal({ homeDir }), reportUrlFor: (runId) => `http://127.0.0.1:${dashboardPort}${prActionReportPath(runId)}`,
+    });
+    const first = wiringAt();
+    prFlows = first;
+    await first.applyRules();
+    for (const approval of first.statusFrame().pendingApprovals) await first.approve({ fingerprint: approval.fingerprint });
+    for (const pr of openPrList) assert.deepEqual(await first.runPrAction({ repo: 'acme/app', number: pr.number, actionId: 'agent-merge', head: pr.headRefOid }), { ok: true });
+    await frameMatching(frames, (frame) => ['acme/app#1', 'acme/app#2'].every((prKey) => frame.prActionRunsByPr[prKey]?.[0]?.state === 'started'));
+    const commandEnvOf = (number: number) => z.record(z.string(), z.string()).parse(JSON.parse(fs.readFileSync(path.join(homeDir, `env-${number}.json`), 'utf8')));
+    const [mergedEnv, openEnv] = [commandEnvOf(1), commandEnvOf(2)];
+    assert.match(openEnv[PR_ACTION_TOKEN_ENV] ?? '', /^[A-Za-z0-9_-]{43}$/);
+    assert.equal(JSON.stringify(first.statusFrame()).includes(openEnv[PR_ACTION_TOKEN_ENV] ?? 'no token'), false);
+
+    await closeServer(server);
+    server = dashboardAt();
+    await listenOnLoopback(server, dashboardPort);
+    openPrList = [openPr];
+    const restarted = wiringAt();
+    prFlows = restarted;
+    await restarted.applyRules();
+    const errors: string[] = [];
+    const io = { writeOutput: () => {}, writeError: (text: string) => { errors.push(text); } };
+    const report = (env: NodeJS.ProcessEnv, outcome: string) => runPrActionReport({ outcome, message: 'Merged', env }, io);
+    const reportUrl = openEnv[PR_ACTION_REPORT_URL_ENV] ?? '';
+    const statusOf = async (url: string, token: string) => (await fetch(url, { method: 'POST', headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ outcome: 'done' }) })).status;
+    assert.equal(await statusOf(reportUrl, 'x'.repeat(43)), 401);
+    assert.equal(await report({ ...openEnv, [PR_ACTION_TOKEN_ENV]: 'x'.repeat(43) }, 'done'), 1);
+    assert.equal(await report({}, 'done'), 1);
+    assert.equal(await report(openEnv, 'merged'), 1);
+    assert.equal(await report(openEnv, 'done'), 0);
+    assert.deepEqual(restarted.statusFrame().prActionRunsByPr['acme/app#2'], [{ actionId: 'agent-merge', label: 'Merge via agent', state: 'done', message: 'Merged' }]);
+    assert.equal(await report(mergedEnv, 'done'), 0);
+    assert.equal(await report(openEnv, 'failed'), 1);
+    assert.equal(restarted.statusFrame().prActionRunsByPr['acme/app#2']?.[0]?.state, 'done');
+    assert.deepEqual([await statusOf(reportUrl, 'x'.repeat(43)), await statusOf(reportUrl.replace(/pr-action\/[^/]+/, 'pr-action/unknown-run'), 'x')], [409, 404]);
+    assert.equal(errors.length, 4);
+  } finally {
+    await closeServer(server);
+    fs.rmSync(homeDir, { recursive: true, force: true });
   }
 });
 

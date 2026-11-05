@@ -200,6 +200,18 @@ const OWNED_COMMAND_SPECS = {
       options: [{ name: 'pr', type: 'string', valueName: 'url', summary: 'A pull request URL to run the sources against' }, JSON_OPTION, CONFIG_OPTION],
     }],
   },
+  'pr-action': {
+    name: 'pr-action',
+    summary: 'Report the outcome of the PR action run that started this process',
+    subcommands: [{
+      name: 'report',
+      summary: 'Set the run to started, done, failed or refused; the first final outcome wins',
+      options: [
+        { name: 'outcome', type: 'string', valueName: 'outcome', summary: 'started, done, failed or refused, shown beside the button' },
+        { name: 'message', type: 'string', valueName: 'text', summary: 'Up to 500 characters shown after the outcome; an https link stays clickable' },
+      ],
+    }],
+  },
   'ssh-sign': { name: 'ssh-sign', summary: "Sign a commit with the operator's forwarded ssh agent (git runs this)", isPassthrough: true },
 } as const satisfies Record<string, CommandSpec>;
 

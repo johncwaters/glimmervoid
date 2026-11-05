@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { MyPr, MyPrThread } from '../../../shared/contracts/my-prs.ts';
 import type { TeamReviewThreadNode } from '../../../shared/contracts/team-review.ts';
 import { PrFlowCommand, PrFlowPrAction, PrFlowRule, PrFlowsSettings } from '../../../shared/contracts/pr-flows.ts';
-import type { PrActionRunRecord, PrActionRunView, PrFlowPendingApproval, PrFlowSourceFinding, PrFlowActionRef, PrFlowDisposition, PrFlowHandled, PrFlowItem, PrFlowPriority, PrFlowSource, PrFlowsState } from '../../../shared/contracts/pr-flows.ts';
+import type { PrActionReportBody, PrActionRunRecord, PrActionRunView, PrFlowPendingApproval, PrFlowSourceFinding, PrFlowActionRef, PrFlowDisposition, PrFlowHandled, PrFlowItem, PrFlowPriority, PrFlowSource, PrFlowsState } from '../../../shared/contracts/pr-flows.ts';
 
 type PrFlowCandidate = {
   path: string; lineStart: number | null; lineEnd: number | null; priority: PrFlowPriority; source: Omit<PrFlowSource, 'excerpt' | 'dismissalKey'>; body: string; url: string | null;
@@ -153,7 +153,11 @@ export function withOnlyOpenPrs(state: PrFlowsState, openPrKeys: ReadonlySet<str
     handledByPr: Object.fromEntries(Object.entries(state.handledByPr).filter(isOpen)),
     reopenedByPr: Object.fromEntries(Object.entries(state.reopenedByPr).filter(isOpen)),
     ruleRunsByPr: Object.fromEntries(Object.entries(state.ruleRunsByPr).filter(isOpen)),
-    prActionRunByPr: Object.fromEntries(Object.entries(state.prActionRunByPr).filter(isOpen)),
+    prActionRunByPr: Object.fromEntries(Object.entries(state.prActionRunByPr).flatMap(([prKey, runsByAction]) => {
+      if (openPrKeys.has(prKey)) return [[prKey, runsByAction]];
+      const liveRuns = Object.entries(runsByAction).filter(([, run]) => run.state === 'running' || run.state === 'started');
+      return liveRuns.length === 0 ? [] : [[prKey, Object.fromEntries(liveRuns)]];
+    })),
   };
 }
 
@@ -260,6 +264,19 @@ export function withPrActionRun(state: PrFlowsState, prKey: string, run: PrActio
 export function prActionRunAfterExit(run: PrActionRunRecord, output: { outcome: 'done' | 'started' | 'refused' | 'failed'; message: string }, nowMs: number): PrActionRunRecord {
   if (output.outcome === 'started') return { ...run, state: 'started', message: output.message };
   return { ...run, state: output.outcome, message: output.message, finishedAt: nowMs, reportToken: null };
+}
+
+function isSameToken(presented: string, expected: string): boolean {
+  const presentedBytes = Buffer.from(presented, 'utf8');
+  const expectedBytes = Buffer.from(expected, 'utf8');
+  return presentedBytes.length === expectedBytes.length && crypto.timingSafeEqual(presentedBytes, expectedBytes);
+}
+
+export function acceptReport(run: PrActionRunRecord, presentedToken: string, body: PrActionReportBody, nowMs: number): { ok: true; run: PrActionRunRecord } | { ok: false; status: 401 | 409 } {
+  if (run.state !== 'running' && run.state !== 'started') return { ok: false, status: 409 };
+  if (run.reportToken === null || !isSameToken(presentedToken, run.reportToken)) return { ok: false, status: 401 };
+  if (body.outcome === 'started') return { ok: true, run: { ...run, state: 'started', message: body.message ?? run.message } };
+  return { ok: true, run: { ...run, state: body.outcome, message: body.message ?? '', finishedAt: nowMs, reportToken: null } };
 }
 
 const INTERRUPTED_MESSAGE = 'Glimmervoid restarted';

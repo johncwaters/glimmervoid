@@ -14,6 +14,8 @@ import { refocusReplyFor, toolHookContextReplyOf } from '../../session/core/refo
 import type { RefocusContext } from '../../session/core/refocus-core.ts';
 import type { ToolHookContextResponse, UserPromptSubmitHookResponse } from '../../shared/contracts/refocus.ts';
 import type { AgentApiPort } from '../agent-api-wiring.ts';
+import type { PrFlowsWiring } from '../github/pr-flows-wiring.ts';
+import { PR_ACTION_REPORT_BODY_CAP_BYTES, PR_ACTION_REPORT_ROUTE, PrActionReportBody } from '../../shared/contracts/pr-flows.ts';
 import { mountAgentMcp } from '../../mcp/server.ts';
 import { decideAgentRequest, REFUSAL_REASON, REFUSAL_STATUS } from '../core/agent-api-core.ts';
 import { SSH_SIGN_BODY_CAP_BYTES, SshSignRequest } from '../../shared/contracts/session.ts';
@@ -119,6 +121,7 @@ interface BackendHttpDependencies {
   getAgentApi?: () => AgentApiPort | null;
   getShownFiles?: () => ShownFilesPort | null;
   getWhiteboardAssets?: () => WhiteboardAssetStore | null;
+  getPrActionReports?: () => Pick<PrFlowsWiring, 'acceptPrActionReport'> | null;
   sshSigner?: Pick<SshSigner, 'signWithAgent'> | null;
   recordOutcome?: OutcomeRecorder;
   logger?: Pick<Console, 'warn'>;
@@ -181,7 +184,7 @@ function answerOpenExternal({ req, res, remoteListenerPort, listenerPortsFor, to
 }
 
 type AgentIngressDependencies = Pick<BackendHttpDependencies,
-  'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'getPlanReview' | 'refocusContextFor' | 'takePromptSupervision' | 'getAgentApi' | 'getShownFiles' | 'getWhiteboardAssets' | 'sshSigner' | 'recordOutcome' | 'logger'>;
+  'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'getPlanReview' | 'refocusContextFor' | 'takePromptSupervision' | 'getAgentApi' | 'getShownFiles' | 'getWhiteboardAssets' | 'getPrActionReports' | 'sshSigner' | 'recordOutcome' | 'logger'>;
 
 const BOARD_PAGE_SANDBOX_POLICY = 'sandbox allow-scripts allow-popups allow-modals allow-forms';
 const BOARD_MEDIA_SANDBOX_POLICY = "default-src 'none'; sandbox";
@@ -439,6 +442,47 @@ function mountCommitSigningRoute(app: Express, { getSession, sshSigner, logger }
   });
 }
 
+const PR_ACTION_REPORT_ERRORS: Record<401 | 404 | 409, string> = {
+  401: 'the token does not match this run',
+  404: 'no PR action run has that id',
+  409: 'this run already has a final outcome',
+};
+
+function mountPrActionReportRoute(app: Express, { getPrActionReports, logger }: {
+  getPrActionReports: () => Pick<PrFlowsWiring, 'acceptPrActionReport'> | null;
+  logger: Pick<Console, 'warn'>;
+}): void {
+  app.post(PR_ACTION_REPORT_ROUTE, (req, res) => {
+    const overCap = (declaredBytes: string) => {
+      logger.warn(`[pr-action] a ${declaredBytes} byte report is over the ${PR_ACTION_REPORT_BODY_CAP_BYTES} byte cap and was refused`);
+    };
+    void readCappedBody(req, PR_ACTION_REPORT_BODY_CAP_BYTES, overCap).then(async (bodyText) => {
+      if (bodyText === null) return;
+      const reports = getPrActionReports();
+      const token = presentedToken(req);
+      if (!isLoopbackRequest(req) || !reports) {
+        refuseAgentRequest(res);
+        return;
+      }
+      if (token === null) {
+        res.status(401).json({ ok: false, error: PR_ACTION_REPORT_ERRORS[401] });
+        return;
+      }
+      const report = PrActionReportBody.safeParse(parseJsonBody(bodyText));
+      if (!report.success) {
+        res.status(400).json({ ok: false, error: report.error.issues[0]?.message ?? 'invalid report' });
+        return;
+      }
+      const status = await reports.acceptPrActionReport(req.params.runId ?? '', token, report.data);
+      if (status === 200) {
+        res.status(200).json({ ok: true });
+        return;
+      }
+      res.status(status).json({ ok: false, error: PR_ACTION_REPORT_ERRORS[status] });
+    });
+  });
+}
+
 function createAgentIngressApp(dependencies: AgentIngressDependencies): Express {
   const app = express();
   mountHostAllowList(app, dependencies.allowedHosts);
@@ -487,6 +531,7 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
   });
 
   mountAgentIngressRoutes(app, dependencies);
+  mountPrActionReportRoute(app, { getPrActionReports: dependencies.getPrActionReports ?? (() => null), logger });
 
   const uploadsRoot = configSiblingPath(configStore.configPath, 'uploads');
   app.post('/upload/:sessionId', (req, res) => {

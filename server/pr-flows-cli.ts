@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { PrFlowsState } from '../shared/contracts/pr-flows.ts';
+import { PR_ACTION_REPORT_URL_ENV, PR_ACTION_TOKEN_ENV, PrActionReportBody, PrFlowsState } from '../shared/contracts/pr-flows.ts';
 import { AGENT_URL_ENV, AgentSettingsReply } from '../shared/contracts/session.ts';
 import type { PrFlowCommand, PrFlowSourceOutput } from '../shared/contracts/pr-flows.ts';
 import { errorMessage } from '../shared/text.ts';
@@ -18,6 +18,7 @@ const SOURCE_PLACEHOLDERS = ['prUrl', 'repo', 'number', 'head'];
 const ACTION_PLACEHOLDERS = [...SOURCE_PLACEHOLDERS, 'itemPath', 'itemLine'];
 const GH_TIMEOUT_MS = 30_000;
 const GH_OUTPUT_MAX_BYTES = 64 * 1024;
+const REPORT_TIMEOUT_MS = 15_000;
 
 type CommandRunner = (command: string, args: string[], options: CommandRunOptions) => Promise<CommandRunResult>;
 type ConfigReading = { configPath: string; configFile: unknown };
@@ -184,4 +185,47 @@ async function runPrFlowsCheckCli(parsed: Extract<ParsedCommand, { kind: 'run' }
   }, { writeOutput: (text) => process.stdout.write(text), writeError: (text) => process.stderr.write(text) });
 }
 
-export { readConfigFile, runPrFlowsCheck, runPrFlowsCheckCli };
+interface PrActionReportOptions {
+  outcome: string | null;
+  message: string | null;
+  env: NodeJS.ProcessEnv;
+}
+
+function refusalText(replyText: string): string {
+  const reply = parseJsonOrNull(replyText);
+  if (reply !== null && typeof reply === 'object' && 'error' in reply && typeof reply.error === 'string') return reply.error;
+  return replyText.trim() || 'no reply';
+}
+
+async function runPrActionReport({ outcome, message, env }: PrActionReportOptions, io: PrFlowsCheckIo): Promise<number> {
+  const reportUrl = env[PR_ACTION_REPORT_URL_ENV];
+  const token = env[PR_ACTION_TOKEN_ENV];
+  if (!reportUrl || !token) {
+    io.writeError(`pr-action report runs from a PR action command or a process it started: ${PR_ACTION_REPORT_URL_ENV} and ${PR_ACTION_TOKEN_ENV} are not set\n`);
+    return 1;
+  }
+  const body = PrActionReportBody.safeParse({ outcome, ...(message === null ? {} : { message }) });
+  if (!body.success) {
+    io.writeError('--outcome must be started, done, failed or refused, and --message at most 500 characters\n');
+    return 1;
+  }
+  const { postToAgentIngress } = await import('./agent-api-cli.ts');
+  const reply = await postToAgentIngress({ endpoint: new URL(reportUrl), token, body: body.data, deadline: AbortSignal.timeout(REPORT_TIMEOUT_MS) })
+    .catch((error: unknown) => ({ hasSuccessStatus: false, text: JSON.stringify({ error: `could not reach Glimmervoid: ${errorMessage(error)}` }) }));
+  if (!reply.hasSuccessStatus) {
+    io.writeError(`Glimmervoid did not take the report: ${refusalText(reply.text)}\n`);
+    return 1;
+  }
+  io.writeOutput(`Reported ${body.data.outcome}\n`);
+  return 0;
+}
+
+async function runPrActionReportCli(parsed: Extract<ParsedCommand, { kind: 'run' }>): Promise<number> {
+  return runPrActionReport({
+    outcome: typeof parsed.values.outcome === 'string' ? parsed.values.outcome : null,
+    message: typeof parsed.values.message === 'string' ? parsed.values.message : null,
+    env: process.env,
+  }, { writeOutput: (text) => process.stdout.write(text), writeError: (text) => process.stderr.write(text) });
+}
+
+export { readConfigFile, runPrActionReport, runPrActionReportCli, runPrFlowsCheck, runPrFlowsCheckCli };

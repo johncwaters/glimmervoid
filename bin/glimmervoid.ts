@@ -33,6 +33,7 @@ Commands:
   doctor              Check the install, PATH, agent CLIs and native module, then exit
   settings <cmd>      Read and change config.json: list, get, describe, set, unset, search, schema (each takes --json)
   pr-flows check      Check PR flows sources, actions and rules; --pr <url> runs each approved source once
+  pr-action report    Report a PR action run's outcome from the command it ran (--outcome, --message)
   pair                Mint a single-use pairing link for a remote device
   pair --list         List paired devices
   pair --revoke <id>  Revoke a paired device
@@ -106,6 +107,10 @@ const OWNED_COMMAND_RUNNERS: Record<OwnedCommandName, OwnedCommandRunner> = {
   'pr-flows': async (parsed) => {
     const { runPrFlowsCheckCli } = await import('../server/pr-flows-cli.ts');
     return runPrFlowsCheckCli(parsed);
+  },
+  'pr-action': async (parsed) => {
+    const { runPrActionReportCli } = await import('../server/pr-flows-cli.ts');
+    return runPrActionReportCli(parsed);
   },
   'ssh-sign': async ({ rawArgs }) => {
     const { runSshSignCli } = await import('../server/ssh-sign-cli.ts');

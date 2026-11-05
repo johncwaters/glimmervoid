@@ -18,7 +18,7 @@ import { persistSessionField } from '../session/session-event-wiring.ts';
 import { createBranchGcWiring } from '../branch-gc-wiring.ts';
 import type { createClaudeCredentials } from '../claude-credentials.ts';
 import { ABORT_CONFIG_SAVE, DEFAULT_CONFIG, glimmervoidHomeDir } from '../config-store.ts';
-import { PrFlowsSettings } from '../../shared/contracts/pr-flows.ts';
+import { PrFlowsSettings, prActionReportPath } from '../../shared/contracts/pr-flows.ts';
 import type { ConfigStore, GlimmervoidConfig } from '../config-store.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import fs from 'node:fs';
@@ -77,6 +77,7 @@ interface BackendLaneDependencies {
   closeSessionDataClients: (id: string) => void;
   hookRouter: HookRouter;
   getHookPort: () => number | null;
+  dashboardPort: number;
   broadcastControl: ControlBroadcast;
   controlWss: {
     clients: Set<WebSocket>;
@@ -102,6 +103,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     closeSessionDataClients,
     hookRouter,
     getHookPort,
+    dashboardPort,
     broadcastControl,
     controlWss,
     options,
@@ -277,6 +279,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       return undefined;
     })),
     github, external: createPrFlowsExternal({ homeDir: glimmervoidHome }), broadcast: broadcastControl, log: logger,
+    reportUrlFor: (runId) => `http://127.0.0.1:${dashboardPort}${prActionReportPath(runId)}`,
   });
   const issues = createIssuesWiring({ config, store: githubStore.laneStore, github, gitWorkspace, broadcast: broadcastControl, hasSession: (id) => sessions.has(id), log: logger, clock: githubClock });
   const workflowsWorkRoot = path.join(glimmervoidHome, 'workflows-work');

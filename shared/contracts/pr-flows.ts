@@ -150,6 +150,20 @@ export const PrActionRunRequest = z.strictObject({
 });
 export type PrActionRunRequest = z.infer<typeof PrActionRunRequest>;
 
+export const PR_ACTION_REPORT_URL_ENV = 'GLIMMERVOID_PR_ACTION_REPORT_URL';
+export const PR_ACTION_TOKEN_ENV = 'GLIMMERVOID_PR_ACTION_TOKEN';
+export const PR_ACTION_REPORT_ROUTE = '/pr-action/:runId/report';
+export const PR_ACTION_REPORT_BODY_CAP_BYTES = 4096;
+
+export function prActionReportPath(runId: string): string {
+  return PR_ACTION_REPORT_ROUTE.replace(':runId', encodeURIComponent(runId));
+}
+
+export const PrActionReportBody = z.strictObject({
+  outcome: z.enum(['started', 'done', 'failed', 'refused']), message: z.string().max(500).optional(),
+});
+export type PrActionReportBody = z.infer<typeof PrActionReportBody>;
+
 export const PrFlowItemRequest = z.strictObject({ prKey: z.string().min(1), itemKey: z.string().min(1) });
 export type PrFlowItemRequest = z.infer<typeof PrFlowItemRequest>;
 
