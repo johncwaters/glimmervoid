@@ -456,7 +456,7 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
 
   async function runNpmGlobalInstall(layout: NpmGlobalLayout, targetVersion: string): Promise<void> {
     const platform = dependencies.platform || process.platform;
-    const installArgs = ['install', '--global', '--prefix', layout.stagePrefix, '--no-audit', '--no-fund', `glimmervoid@${targetVersion}`];
+    const installArgs = ['install', '--global', '--prefix', layout.stagePrefix, '--no-audit', '--no-fund', '--prefer-online', `glimmervoid@${targetVersion}`];
     if (platform === 'linux') installArgs.push(NODE_PTY_INSTALL_SCRIPT_FLAG);
     const throttled = lowPriorityCommand({ file: npmPath, args: installArgs, platform });
     await runInstallCommand(throttled.file, throttled.args, layout.updatePath, INSTALL_TIMEOUT_MS);
