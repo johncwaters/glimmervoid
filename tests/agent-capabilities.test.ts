@@ -156,6 +156,31 @@ test('Sane YOLO capability filters both the Claude hook and its environment', as
   });
 });
 
+test('a gemini session reports Sane YOLO off when the repo settings turn hooks off', async (t) => {
+  const scratchRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-gemini-hooks-off-'));
+  t.after(() => fsp.rm(scratchRoot, { recursive: true, force: true }));
+  const projectDir = path.join(scratchRoot, 'project');
+  await fsp.mkdir(path.join(scratchRoot, 'gemini-home', '.gemini'), { recursive: true });
+  await fsp.mkdir(path.join(projectDir, '.gemini'), { recursive: true });
+  const hookTools: NonNullable<SessionOptions['hookTools']> = [{ id: 'saneYolo', binPath: '/g/guard.js' }];
+  async function saneYoloShownFor(id: string): Promise<boolean> {
+    const { session } = makeSession({
+      id, name: id, path: projectDir, agent: 'gemini', hookTools,
+      hookRouter: new HookRouter(), getHookPort: () => 41234,
+      spawnEnv: { GEMINI_CLI_HOME: path.join(scratchRoot, 'gemini-home'), GLIMMERVOID_HOME: path.join(scratchRoot, 'glimmervoid') },
+    });
+    try {
+      await session.start();
+      return session.toSnapshot().saneYolo;
+    } finally {
+      session.destroy();
+    }
+  }
+  assert.equal(await saneYoloShownFor('gemini-hooks-on'), true);
+  await fsp.writeFile(path.join(projectDir, '.gemini', 'settings.json'), '{ "hooksConfig": { "enabled": false } }');
+  assert.equal(await saneYoloShownFor('gemini-hooks-off'), false);
+});
+
 test('a kimi session in a fresh folder starts pre-trusted and gets its initial prompt typed in', async (t) => {
   const kimiHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-kimi-trust-'));
   t.after(() => fsp.rm(kimiHome, { recursive: true, force: true }));
