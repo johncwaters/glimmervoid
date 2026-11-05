@@ -17,6 +17,7 @@ interface ApprovalPort<Signal extends QuestionStatusSignal> {
   emit: (event: string, detail: Record<string, unknown>) => void;
   ingestStatus: (signal: Signal) => void;
   pushAuditEntry: (entry: Record<string, unknown>) => void;
+  taskTitle: () => string | null;
 }
 
 interface QuestionStatusSignal {
@@ -38,7 +39,7 @@ interface SettledQuestion {
 
 interface QuestionManagerPort {
   mightAnswer(): boolean;
-  decide(questions: readonly ConversationQuestion[] | null): Promise<ManagerVerdict | null>;
+  decide(questions: readonly ConversationQuestion[] | null, context: { taskTitle: string | null; signal: AbortSignal }): Promise<ManagerVerdict | null>;
 }
 
 interface SessionApprovalHoldsOptions<Signal extends QuestionStatusSignal> {
@@ -62,6 +63,7 @@ interface SessionApprovalHolds<Signal extends QuestionStatusSignal> {
   parksQuestionStatus(signal: Signal): boolean;
   releaseAfterHookEvent(event: string, payload: Record<string, unknown>): void;
   releaseAll(): void;
+  yieldManagerDecisions(): void;
   answer(requestId: number | string, answers: ConversationAnswers): boolean;
   release(requestId: string): boolean;
 }
@@ -73,6 +75,7 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
   const decidingCountByCall = new Map<string, number>();
   const parkedStatusByCall = new Map<string, ParkedQuestionStatus<Signal>>();
   const settledQuestionByCall = new Map<string, SettledQuestion>();
+  const operatorYieldByDecision = new Set<AbortController>();
 
   function isManagerHolding(): boolean {
     return !holdsQuestionsForParent && questionManager !== null && questionManager.mightAnswer();
@@ -189,13 +192,29 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
     const approval = claudeApprovalFor(request, `manager-${nextApprovalNumber}`);
     nextApprovalNumber += 1;
     startDeciding(questionCallKey(request));
-    return manager.decide(approval.questions ?? null)
-      .catch(() => null)
-      .then((verdict) => (abandoned.aborted ? null : replyFor(approval, verdict)))
+    const operatorYield = new AbortController();
+    operatorYieldByDecision.add(operatorYield);
+    const decisionSignal = AbortSignal.any([abandoned, operatorYield.signal]);
+    const stopped = new Promise<null>((resolve) => {
+      if (decisionSignal.aborted) resolve(null);
+      decisionSignal.addEventListener("abort", () => resolve(null), { once: true });
+    });
+    const decided = manager.decide(approval.questions ?? null, { taskTitle: port.taskTitle(), signal: decisionSignal }).catch(() => null);
+    return Promise.race([decided, stopped])
+      .then((verdict) => (decisionSignal.aborted ? null : replyFor(approval, verdict)))
       .then((reply) => {
+        operatorYieldByDecision.delete(operatorYield);
         settleQuestionStatus(request, reply !== null);
         return reply;
       });
+  }
+
+  function yieldManagerDecisions(): void {
+    for (const operatorYield of operatorYieldByDecision) {
+      recordManagerEscalation("you typed in the session first");
+      operatorYield.abort();
+    }
+    operatorYieldByDecision.clear();
   }
 
   function denyReplyFromVerdict(approval: ConversationApproval, verdict: ManagerVerdict | null): QuestionToolDenyResponse | null {
@@ -293,6 +312,7 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
     get conversationApproval() { return conversationApproval; },
     hold,
     holdQuestionTool,
+    yieldManagerDecisions,
     parksQuestionStatus,
     releaseAfterHookEvent,
     releaseAll,

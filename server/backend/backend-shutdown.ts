@@ -26,6 +26,7 @@ interface BackendShutdownDependencies {
   reviewSessions: Map<string, ShutdownSession>;
   investigationSessions: Map<string, ShutdownSession>;
   taskTitleSessions?: Map<string, ShutdownSession>;
+  questionManagerSessions?: Map<string, ShutdownSession>;
   taskTitleRefiner?: Stoppable | null;
   benchmarkSessions?: Map<string, ShutdownSession>;
   branchGc: Stoppable;
@@ -124,7 +125,7 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     if (planReview) stoppers.add('plan-review', () => planReview.stop());
 
     stoppers.add('telegram-outbox', () => dependencies.telegramOutbox.idle());
-    destroySessions([dependencies.taskTitleSessions ?? new Map(), dependencies.benchmarkSessions ?? new Map()], pendingReaps);
+    destroySessions([dependencies.taskTitleSessions ?? new Map(), dependencies.questionManagerSessions ?? new Map(), dependencies.benchmarkSessions ?? new Map()], pendingReaps);
     const outcomes = dependencies.outcomes;
     if (outcomes) stoppers.add('outcomes', () => outcomes.stop());
     const telemetry = dependencies.telemetry;

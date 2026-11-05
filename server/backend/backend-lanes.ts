@@ -36,6 +36,7 @@ import { createGitWorkspace, createGitWorkspaceSync } from '../git/git-workspace
 import { createOwnedPathsLedger } from '../owned-paths-ledger.ts';
 import { TASK_TITLE_LANE_TOOLS, createTaskTitleRefiner } from '../task-title-refiner.ts';
 import { createLaneSpawn } from '../lanes/lane-spawn.ts';
+import { createQuestionManagerLane, QUESTION_MANAGER_LANE_TOOLS } from '../question-manager/question-manager.ts';
 import { createPlanReviewWiring } from '../plan-review-wiring.ts';
 import { createRadarWiring } from '../radar/radar-wiring.ts';
 import { createCommunityWiring } from '../community/community-wiring.ts';
@@ -148,7 +149,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   void laneLedger.load();
   const recordLane = laneLedger.record;
   const liveSessionMaps = (): Map<string, Session>[] => [
-    sessions, agentSessions, reviewSessions, investigationSessions, taskTitleSessions, benchmarkSessions,
+    sessions, agentSessions, reviewSessions, investigationSessions, taskTitleSessions, benchmarkSessions, questionManagerSessions,
   ];
   const allLiveSessions = (): Session[] => liveSessionMaps().flatMap((sessionsById) => [...sessionsById.values()]);
   const findLiveSession = (id: string): Session | null => {
@@ -420,6 +421,12 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     }),
   });
 
+  const questionManagerSessions = new Map<string, Session>();
+  const questionManagerLane = createQuestionManagerLane(createLaneSpawn({
+    sessions: questionManagerSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
+    replayBufferKB: config.replayBufferKB, laneName: 'question-manager', allowTools: QUESTION_MANAGER_LANE_TOOLS, getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
+  }));
+
   const usage = createUsageWiring({
     config,
     sessions,
@@ -514,6 +521,8 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     coderEnv,
     taskTitleRefiner,
     taskTitleSessions,
+    questionManagerLane,
+    questionManagerSessions,
     current,
     featureHints,
     gitWorkspace,

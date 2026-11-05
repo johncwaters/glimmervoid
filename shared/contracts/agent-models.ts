@@ -51,5 +51,6 @@ export type AgentSetup = z.infer<typeof AgentSetup>;
 export const DEFAULT_MODELS = Object.freeze({
   taskTitleRefiner: 'haiku',
   communityJudge: 'haiku',
+  questionManager: 'haiku',
   siteCapture: 'sonnet',
 });

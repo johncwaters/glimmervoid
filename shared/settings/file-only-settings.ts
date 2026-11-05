@@ -349,9 +349,14 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
   },
   {
     id: 'file-question-manager-rules', path: 'questionManager.rules', title: 'Question manager rules', group: 'lanes-question-manager',
-    description: 'Rules the question manager answers from. An object with name, question (text the question contains) and pick (the exact option labels to choose) answers at once. A question with a risk word such as push, delete or deploy always comes to you.',
+    description: 'Rules the question manager answers from. An object with name, question (text the question contains) and pick (the exact option labels to choose) answers at once. A plain sentence is a rule a model applies when no object matches; it must cite one rule and pick exact option labels within 60 seconds, or the question comes to you. A question with a risk word such as push, delete or deploy always comes to you.',
     jsonSchema: z.toJSONSchema(z.array(QuestionRule), { io: 'input' }),
-    example: [{ name: 'README length', question: 'README', pick: ['Short'] }],
+    example: [{ name: 'README length', question: 'README', pick: ['Short'] }, 'Prefer the existing library over adding a dependency.'],
     control: 'json', keywords: ['questions', 'rules', 'automation'], defaultValue: [], takesEffect: 'now', fileOnlyReason: STRUCTURED_VALUE, ...FILE_ONLY,
+  },
+  {
+    id: 'file-question-manager-model', path: 'questionManager.model', title: 'Question manager model', group: 'lanes-question-manager',
+    description: 'Claude model alias that applies the plain-language question manager rules.',
+    control: 'text', keywords: ['questions', 'rules', 'model'], defaultValue: DEFAULT_MODELS.questionManager, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
   },
 ]);

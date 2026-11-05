@@ -206,7 +206,8 @@ Answer a session question from your rules and pass every other question to you.
 |-----|---------|---------|-------|
 | `questionManager.enabled` | Answer questions from rules | `false` | Default for every repository. Questions with a risk word or no matching rule still come to you. |
 | `questionManager.repos` | Exceptions | `[]` | Repositories, by path or owner/name, that do the opposite of the default. |
-| `questionManager.rules` | Question manager rules | `[]` | Rules the question manager answers from. An object with name, question (text the question contains) and pick (the exact option labels to choose) answers at once. A question with a risk word such as push, delete or deploy always comes to you. **File-only.** A structured value with no dashboard control; edit it in config.json. |
+| `questionManager.rules` | Question manager rules | `[]` | Rules the question manager answers from. An object with name, question (text the question contains) and pick (the exact option labels to choose) answers at once. A plain sentence is a rule a model applies when no object matches; it must cite one rule and pick exact option labels within 60 seconds, or the question comes to you. A question with a risk word such as push, delete or deploy always comes to you. **File-only.** A structured value with no dashboard control; edit it in config.json. |
+| `questionManager.model` | Question manager model | `"haiku"` | Claude model alias that applies the plain-language question manager rules. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 
 ### Privacy
 

@@ -22,6 +22,7 @@ import { chatgptAuthTokensLogin, chatgptAuthTokensRefreshResult } from '../core/
 import type { createCoderEnvWiring } from '../coder/coder-env-wiring.ts';
 import { stableNodePath } from '../stable-node-path.ts';
 import { createQuestionManager } from '../question-manager/question-manager.ts';
+import type { QuestionManagerLane } from '../question-manager/question-manager.ts';
 import { DEFAULT_TERMINAL_COLORS } from '../../session/core/terminal-color-query.ts';
 import type { TerminalColors } from '../../session/core/terminal-color-query.ts';
 
@@ -34,6 +35,7 @@ interface BackendSessionRuntimeDependencies {
   recordOutcome?: OutcomeRecorder;
   logger: Pick<Console, 'warn'>;
   getCoderEnv?: () => Pick<ReturnType<typeof createCoderEnvWiring>, 'resume' | 'uploadFile' | 'describeRemoteExit'> | null;
+  getQuestionManagerLane?: () => QuestionManagerLane | null;
 }
 
 const REMOTE_SESSION_TOKEN_LIFETIME_SECONDS = 600;
@@ -112,7 +114,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     resolveHookTools: (config) => resolveHookTools(config, { warn: dependencies.logger.warn.bind(dependencies.logger) }),
     getUserHooks: (projectId: string) => hooksForProject(dependencies.config.hooks, projectId),
     getTerminalColors: () => terminalColors,
-    questionManager: createQuestionManager({ getSettings: () => dependencies.configStore.config.questionManager }),
+    questionManager: createQuestionManager({ getSettings: () => dependencies.configStore.config.questionManager, getLane: dependencies.getQuestionManagerLane }),
   });
 
   return { agentConnect, agentIngressServer, claudeCommand, claudeCredentials, getHookPort, hookRouter, makeSession, setTerminalColors, sshSigner };

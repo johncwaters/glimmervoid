@@ -494,6 +494,7 @@ class Session extends EventEmitter {
         emit: (event, detail) => this.emit(event, detail),
         ingestStatus: (signal) => this._ingestHookSignal(signal),
         pushAuditEntry: (entry) => this._pushAuditEntry(entry),
+        taskTitle: () => this.refocusTaskTitle,
       },
     });
     this._titleQuietFallbackMs = titleQuietFallbackMs;
@@ -1961,11 +1962,15 @@ class Session extends EventEmitter {
   }
 
   noteOperatorDraft(): void {
+    this._approvals.yieldManagerDecisions();
     this.emit("operator-input");
   }
 
   noteOperatorInput(input: string): void {
-    if (isOperatorKeystroke(input)) this.emit("operator-input");
+    if (isOperatorKeystroke(input)) {
+      this._approvals.yieldManagerDecisions();
+      this.emit("operator-input");
+    }
     const decision = decideWaitingInput({
       state: this.state,
       hasHookAwaitingInput: this._can("hooks") && this._can("awaitingInput"),

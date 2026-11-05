@@ -31,7 +31,7 @@ const SUBAGENT_TIMEOUT_MS = 240000;
 const FIXTURE_DIR = path.join(import.meta.dirname, '..', 'tests', 'fixtures');
 const SHOULD_WRITE_FIXTURES = process.argv.includes('--write-fixtures');
 const SHOULD_RUN_ONLY_QUESTION_MANAGER_PROBE = process.argv.includes('--only-question-manager');
-const QUESTION_MANAGER_PROBE_SETTINGS = { enabled: true, rules: [{ name: 'readme length', question: 'README', pick: ['short'] }] };
+const QUESTION_MANAGER_PROBE_SETTINGS = { enabled: true, rules: [{ name: 'readme length', question: 'README', pick: ['short'] }, 'Always choose vitest as the test runner.'] };
 const BRIDGE_NOTIFICATIONS_KEPT = new Set(['thread/started', 'turn/started', 'turn/completed', 'turn/plan/updated', 'item/started', 'item/completed', 'serverRequest/resolved', 'thread/compacted']);
 
 interface BridgeLine {
@@ -324,6 +324,17 @@ async function main(): Promise<void> {
       check('the answered question never put the card in WAITING', !visitedStates.slice(answeredStatesStart).includes('WAITING'));
       check('the manager wrote an answered audit entry', managerEntries().some((entry) => entry.outcome === 'answered' && entry.rule === 'readme length'));
       check('the agent continued with the rule option', String(payloadField(answeredStop, 'last_assistant_message')).toLowerCase().includes('short'));
+      await delay(3000);
+      const laneStart = hookRecords.length;
+      session.write('Call request_user_input exactly once to ask which test runner to use, with the options vitest and jest. Then reply with only the chosen option and do not present a plan.');
+      await delay(1500);
+      session.write('\r');
+      const laneStop = await waitForHook('the lane answered question Stop', laneStart, (hook) => hook.event.toLowerCase() === 'stop', SUBAGENT_TIMEOUT_MS);
+      writeScenario('question-manager-lane', laneStart);
+      if (!laneStop) console.log(`  [terminal] ${terminalTail.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').slice(-1500)}`);
+      check('the manager lane answered from the plain-language rule', managerEntries().some((entry) => entry.outcome === 'answered' && entry.by === 'manager' && /^rule 1: /.test(String(entry.rule))));
+      check('the agent continued with the lane option', String(payloadField(laneStop, 'last_assistant_message')).toLowerCase().includes('vitest'));
+      console.log(`  [audit] ${JSON.stringify(managerEntries())}`);
       await delay(3000);
       const escalatedStart = hookRecords.length;
       session.write('Call request_user_input exactly once to ask whether to delete the README, with the options yes and no. Then reply with only the chosen option and do not present a plan.');
