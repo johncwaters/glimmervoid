@@ -13,6 +13,7 @@ import { createPressable } from './ui/pressable.ts';
 import { applyDialogAria, buildDialogShell, createModalOverlay } from './session-card/modal.ts';
 import { buildRepoCheckbox } from './session-card/workspace-repos-dialog.ts';
 import { DEFAULT_AGENT_ID, SHELL_AGENT_ID, decideAgentAvailability, decideAgentPicker } from './session-card/agent-core.ts';
+import { paintAgentMark } from './session-card/agent-mark.ts';
 import { countSessionsByName, suggestSessionName } from './session-card/naming.ts';
 import { onSessionTick } from './session-card/session-tick.ts';
 import { formatAgo } from './poll-ago.ts';
@@ -230,6 +231,7 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
   query(dialog, '#add-session-mode-controls').append(singleModeButton, workspaceModeButton);
   const agentLabelEl = query(dialog, '#add-session-agent-label');
   const agentSelectEl = queryTag(dialog, '#add-session-agent', 'select');
+  const agentMarkEl = query(dialog, '#add-session-agent-mark');
   const environmentLabelEl = query(dialog, '#add-session-environment-label');
   const environmentSelectEl = queryTag(dialog, '#add-session-environment', 'select');
   const environmentHintEl = query(dialog, '#add-session-environment-hint');
@@ -382,11 +384,13 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
           selected: agentOption.id === decision.selectedId,
         }));
       }
+      paintAgentMark(agentMarkEl, selectedAgentId, agentSelectEl.selectedOptions[0]?.textContent ?? null);
       agentLabelEl.hidden = false;
     })
     .catch((reason) => { showWarning(`Could not load the agent list (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}), so the session uses the default agent.`); });
   agentSelectEl.addEventListener('change', () => {
     selectedAgentId = agentSelectEl.value;
+    paintAgentMark(agentMarkEl, selectedAgentId, agentSelectEl.selectedOptions[0]?.textContent ?? null);
     showShellMode();
     showAgentLogin();
   });
