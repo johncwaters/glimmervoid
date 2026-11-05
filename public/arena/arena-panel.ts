@@ -1,7 +1,8 @@
 import { AgentModelCatalog } from '#shared/contracts/agent-models.ts';
 import type { AgentSetup } from '#shared/contracts/agent-models.ts';
 import type { RaceContestant, RaceRecord } from '#shared/contracts/race.ts';
-import { RACE_MAX_CONTESTANTS, RaceSpec } from '#shared/contracts/race.ts';
+import { RACE_JUDGE_AGENT, RACE_MAX_CONTESTANTS, RaceSpec } from '#shared/contracts/race.ts';
+import { REMOVED_CONTESTANT, raceProgress } from '#shared/race-core.ts';
 import { BADGE_LABELS } from '#shared/states.ts';
 import { benchmarkSnapshot, subscribeBenchmarks } from '../benchmark-store.ts';
 import { sendControlRequest } from '../control-ws.ts';
@@ -17,6 +18,7 @@ import type { VarySetting } from './lineup-core.ts';
 import { openRaceSession, raceList, subscribeRaces } from './race-store.ts';
 
 const START_TIMEOUT_MS = 120_000;
+const REQUEST_TIMEOUT_MS = 60_000;
 const SHORT_SHA_LENGTH = 8;
 
 interface RaceDraft {
@@ -24,35 +26,108 @@ interface RaceDraft {
   prompt: string;
   repoPath: string;
   contestants: RaceContestant[];
-  hasJudge: boolean;
+  judgeSetup: AgentSetup | null;
 }
 
 let root: HTMLElement | null = null;
 let racesEl: HTMLElement | null = null;
 let catalog: AgentModelCatalog = { agents: [] };
-let draft: RaceDraft = { raceTitle: '', prompt: '', repoPath: '', contestants: [], hasJudge: false };
+let draft: RaceDraft = { raceTitle: '', prompt: '', repoPath: '', contestants: [], judgeSetup: null };
 let isEditingAsFile = false;
+const shownDiffByKey = new Map<string, string>();
+const judgeStatusByRace = new Map<string, string>();
 
 function stateLabel(state: string): string {
   return Object.entries(BADGE_LABELS).find(([badgeState]) => badgeState === state)?.[1] ?? state;
 }
 
+function contestantState(sessionId: string | undefined): string {
+  const ui = sessionId ? sessionUIs.get(sessionId) : undefined;
+  return ui ? ui.currentState : REMOVED_CONTESTANT;
+}
+
+function diffKey(raceId: string, contestantId: string): string {
+  return `${raceId}:${contestantId}`;
+}
+
+function requestDiff(race: RaceRecord, contestant: RaceContestant): void {
+  const key = diffKey(race.id, contestant.id);
+  if (shownDiffByKey.has(key)) {
+    shownDiffByKey.delete(key);
+    renderRaces();
+    return;
+  }
+  shownDiffByKey.set(key, 'Loading the diff.');
+  renderRaces();
+  sendControlRequest('race-diff', { raceId: race.id, contestantId: contestant.id }, { timeoutMs: REQUEST_TIMEOUT_MS })
+    .then((reply) => {
+      if (reply.type !== 'race-diff-result') return;
+      shownDiffByKey.set(key, reply.ok ? (reply.diff || 'No changes.') : `Could not read the diff: ${reply.error ?? 'unknown error'}`);
+    })
+    .catch((reason: unknown) => shownDiffByKey.set(key, `Could not read the diff: ${reason instanceof Error ? reason.message : String(reason)}`))
+    .finally(renderRaces);
+}
+
 function buildContestantLine(race: RaceRecord, contestant: RaceContestant): HTMLElement {
   const line = el('li', 'arena-contestant');
   const sessionId = race.sessionIdByContestant[contestant.id];
-  const ui = sessionId ? sessionUIs.get(sessionId) : undefined;
-  line.append(el('span', 'arena-contestant-label', contestant.label));
-  line.append(el('span', 'arena-contestant-state', ui ? stateLabel(ui.currentState) : 'Removed'));
-  if (sessionId && ui) line.append(button({ variant: 'quiet', size: 'small', label: 'Open', onClick: () => openRaceSession(sessionId) }));
+  const state = contestantState(sessionId);
+  const ranking = race.judge?.ranking.find((entry) => entry.contestantId === contestant.id) ?? null;
+  const stats = race.diffStatsByContestant[contestant.id];
+  const head = el('div', 'arena-contestant-head');
+  head.append(el('span', 'arena-contestant-rank', ranking ? `#${ranking.rank}` : '-'));
+  head.append(el('span', 'arena-contestant-label', contestant.label));
+  head.append(el('span', 'arena-contestant-state', state === REMOVED_CONTESTANT ? 'Removed' : stateLabel(state)));
+  if (stats) head.append(el('span', 'arena-contestant-stats', `+${stats.linesAdded} -${stats.linesRemoved}, ${stats.filesChanged} files`));
+  if (sessionId && state !== REMOVED_CONTESTANT) {
+    head.append(button({ variant: 'quiet', size: 'small', label: 'Open', onClick: () => openRaceSession(sessionId) }));
+    const diffButton = button({ variant: 'quiet', size: 'small', label: 'Show diff', onClick: () => requestDiff(race, contestant) });
+    diffButton.setAttribute('aria-expanded', String(shownDiffByKey.has(diffKey(race.id, contestant.id))));
+    head.append(diffButton);
+  }
+  line.append(head);
+  if (ranking) line.append(el('p', 'arena-contestant-reason', ranking.reason));
+  const shownDiff = shownDiffByKey.get(diffKey(race.id, contestant.id));
+  if (shownDiff !== undefined) line.append(el('pre', 'arena-diff', shownDiff));
   return line;
+}
+
+function judgeRace(race: RaceRecord): void {
+  judgeStatusByRace.set(race.id, 'Asking the judge.');
+  renderRaces();
+  sendControlRequest('race-judge', { raceId: race.id }, { timeoutMs: REQUEST_TIMEOUT_MS })
+    .then((reply) => {
+      if (reply.type !== 'race-judge-result') return;
+      judgeStatusByRace.set(race.id, reply.ok ? '' : `Could not judge: ${reply.error ?? 'unknown error'}`);
+    })
+    .catch((reason: unknown) => judgeStatusByRace.set(race.id, `Could not judge: ${reason instanceof Error ? reason.message : String(reason)}`))
+    .finally(renderRaces);
+}
+
+function phaseText(race: RaceRecord): string {
+  const progress = raceProgress(Object.values(race.sessionIdByContestant), (sessionId) => contestantState(sessionId));
+  if (race.phase === 'judging') return 'Judging.';
+  if (race.phase === 'judged') return [race.judge ? 'Judged.' : 'Finished.', race.judgeError].filter(Boolean).join(' ');
+  return `${progress.settled} of ${progress.total} settled.`;
+}
+
+function rankedContestants(race: RaceRecord): RaceContestant[] {
+  const rankOf = (contestant: RaceContestant) => race.judge?.ranking.find((entry) => entry.contestantId === contestant.id)?.rank ?? Number.MAX_SAFE_INTEGER;
+  return [...race.spec.contestants].sort((left, right) => rankOf(left) - rankOf(right));
 }
 
 function buildRace(race: RaceRecord): HTMLElement {
   const item = el('article', 'arena-race');
   item.append(el('h3', 'arena-race-title', race.spec.title));
   item.append(el('p', 'arena-race-meta', `${race.baseBranch} at ${race.startSha.slice(0, SHORT_SHA_LENGTH)}, ${new Date(race.createdAt).toLocaleString()}`));
+  const actions = el('div', 'arena-race-actions');
+  const judgeButton = button({ variant: 'secondary', size: 'small', label: 'Judge now', disabled: race.phase === 'judging', onClick: () => judgeRace(race) });
+  const statusEl = el('span', 'arena-status', judgeStatusByRace.get(race.id) || phaseText(race));
+  statusEl.setAttribute('role', 'status');
+  actions.append(judgeButton, statusEl);
+  item.append(actions);
   const lineup = el('ul', 'arena-contestants');
-  for (const contestant of race.spec.contestants) lineup.append(buildContestantLine(race, contestant));
+  for (const contestant of rankedContestants(race)) lineup.append(buildContestantLine(race, contestant));
   item.append(lineup);
   return item;
 }
@@ -81,9 +156,9 @@ function buildSelect(choices: readonly { value: string; label: string }[], selec
   return select;
 }
 
-function setupControls(setup: AgentSetup, onChange: (next: AgentSetup) => void): HTMLElement {
+function setupControls(setup: AgentSetup, onChange: (next: AgentSetup) => void, allowedAgents: readonly string[] | null = null): HTMLElement {
   const controls = el('div', 'arena-setup');
-  const agentChoices = agentsWithModels(catalog).map((agent) => ({ value: agent, label: agentLabel(agent) }));
+  const agentChoices = agentsWithModels(catalog).filter((agent) => !allowedAgents || allowedAgents.includes(agent)).map((agent) => ({ value: agent, label: agentLabel(agent) }));
   controls.append(buildSelect(agentChoices, setup.agent, (agent) => onChange({ ...defaultSetup(catalog, agent), instructions: setup.instructions }), 'Agent'));
   const modelChoices = modelsOf(catalog, setup.agent).map((model) => ({ value: model.id, label: model.label }));
   controls.append(buildSelect(modelChoices, setup.model, (modelId) => onChange(withModel(catalog, setup, modelId)), 'Model'));
@@ -99,7 +174,7 @@ function draftSpec(): Record<string, unknown> {
     prompt: draft.prompt,
     repoPath: draft.repoPath,
     contestants: draft.contestants,
-    judge: draft.hasJudge ? { setup: defaultSetup(catalog, 'claude-code') } : null,
+    judge: draft.judgeSetup ? { setup: draft.judgeSetup } : null,
   };
 }
 
@@ -190,7 +265,7 @@ function readDraftFromFile(text: string): string | null {
   const parsed = RaceSpec.safeParse(parseJsonText(text));
   if (!parsed.success) return `The race file is not valid: ${parsed.error.issues.map((issue) => `${issue.path.join('.') || 'file'}: ${issue.message}`).join('; ')}`;
   const spec = parsed.data;
-  draft = { raceTitle: spec.title, prompt: spec.prompt, repoPath: spec.repoPath, contestants: spec.contestants, hasJudge: spec.judge !== null };
+  draft = { raceTitle: spec.title, prompt: spec.prompt, repoPath: spec.repoPath, contestants: spec.contestants, judgeSetup: spec.judge?.setup ?? null };
   return null;
 }
 
@@ -232,9 +307,13 @@ function buildNewRace(): HTMLElement {
     const judge = el('label', 'arena-judge');
     const judgeBox = el('input');
     judgeBox.type = 'checkbox';
-    judgeBox.checked = draft.hasJudge;
-    judgeBox.addEventListener('change', () => { draft.hasJudge = judgeBox.checked; });
+    judgeBox.checked = draft.judgeSetup !== null;
+    judgeBox.addEventListener('change', () => {
+      draft.judgeSetup = judgeBox.checked ? defaultSetup(catalog, RACE_JUDGE_AGENT) : null;
+      paint();
+    });
     judge.append(judgeBox, el('span', null, 'Judge the results'));
+    if (draft.judgeSetup) judge.append(setupControls(draft.judgeSetup, (next) => { draft.judgeSetup = next; paint(); }, [RACE_JUDGE_AGENT]));
     body.append(addButton, judge);
   };
   const editAsFile = button({ variant: 'quiet', size: 'small', label: 'Edit as file', onClick: () => {
@@ -272,6 +351,7 @@ function buildNewRace(): HTMLElement {
       const parsed = AgentModelCatalog.safeParse(reply.settings.agentModels);
       if (!parsed.success) return;
       catalog = parsed.data;
+      draft.judgeSetup ??= defaultSetup(catalog, RACE_JUDGE_AGENT);
       if (draft.contestants.length === 0) draft.contestants = varyLineup(catalog, defaultSetup(catalog, agentsWithModels(catalog)[0] ?? 'claude-code'), 'agent', agentsWithModels(catalog).slice(0, 2));
       paint();
     })

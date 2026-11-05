@@ -36,14 +36,43 @@
   padding: 0;
   margin: 8px 0 0;
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px 24px;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.arena-contestant {
+.arena-contestant-head,
+.arena-race-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.arena-contestant-rank {
+  min-width: 3ch;
+  color: var(--text-head);
+  font-weight: 700;
+}
+
+.arena-contestant-stats,
+.arena-contestant-reason {
+  color: var(--text-muted);
+  font-size: var(--type-meta);
+}
+
+.arena-contestant-reason {
+  margin: 4px 0 0 4ch;
+}
+
+.arena-diff {
+  max-height: 480px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 8px;
+  border: 1px solid var(--border-dim);
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  white-space: pre;
 }
 
 .arena-contestant-state {

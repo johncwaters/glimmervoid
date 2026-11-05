@@ -258,8 +258,10 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'hooks-updated', count: 1 },
   { type: 'feature-hint', hint: { feature: 'teamReview', distinctTargetCount: 3, raisedAt: 1761740000000 } },
   { type: 'star-hint' },
-  { type: 'race-status', races: [{ id: 'race-1', spec: { version: 1, title: 'Fix the parser', prompt: 'Fix the parser', repoPath: '/repos/one', contestants: [{ id: 'c1', label: 'Opus high', setup: { agent: 'claude-code', model: 'claude-opus-5-5', options: [{ id: 'effort', value: 'high' }], instructions: '' } }, { id: 'c2', label: 'Codex', setup: { agent: 'codex', model: null, options: [], instructions: '' } }], judge: null }, startSha: 'a'.repeat(40), baseBranch: 'main', createdAt: 1761740000000, sessionIdByContestant: { c1: 'session-1', c2: 'session-2' } }] },
+  { type: 'race-status', races: [{ id: 'race-1', spec: { version: 1, title: 'Fix the parser', prompt: 'Fix the parser', repoPath: '/repos/one', contestants: [{ id: 'c1', label: 'Opus high', setup: { agent: 'claude-code', model: 'claude-opus-5-5', options: [{ id: 'effort', value: 'high' }], instructions: '' } }, { id: 'c2', label: 'Codex', setup: { agent: 'codex', model: null, options: [], instructions: '' } }], judge: null }, startSha: 'a'.repeat(40), baseBranch: 'main', createdAt: 1761740000000, sessionIdByContestant: { c1: 'session-1', c2: 'session-2' }, phase: 'judged', diffStatsByContestant: { c1: { filesChanged: 2, linesAdded: 10, linesRemoved: 3 } }, judge: { ranking: [{ contestantId: 'c1', rank: 1, reason: 'Fixed the parser with a test' }], notes: { c1: 'Add the edge case' } }, judgeError: null }] },
   { type: 'race-start-result', requestId: 'r6', ok: true, error: null, raceId: 'race-1' },
+  { type: 'race-judge-result', requestId: 'r7', ok: false, error: 'The judge is already running for this race.' },
+  { type: 'race-diff-result', requestId: 'r8', ok: true, error: null, diff: 'diff --git a/x b/x' },
 ];
 
 test('real server payloads round-trip through every server contract variant', () => {

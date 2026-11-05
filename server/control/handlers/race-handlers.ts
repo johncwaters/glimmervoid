@@ -1,6 +1,6 @@
 import { configIssueMessage, SHELL_AGENT_ID } from '../../../shared/contracts/index.ts';
 import type { ClientMessageOf } from '../../../shared/contracts/index.ts';
-import { RaceSpec } from '../../../shared/contracts/race.ts';
+import { RACE_JUDGE_AGENT, RaceSpec } from '../../../shared/contracts/race.ts';
 import type { RaceContestant } from '../../../shared/contracts/race.ts';
 import { DEFAULT_AGENT_ID, isKnownAgentId } from '../../../session/adapters/index.ts';
 import type { ControlSocket } from '../../backend/backend-websockets.ts';
@@ -56,16 +56,34 @@ function createRaceHandlers(context: ControlContext, deps: ControlHandlerDeps): 
       reply({ ok: false, error: `"${unknownAgent.setup.agent}" cannot race: a contestant must be a coding agent` });
       return;
     }
+    if (spec.judge && spec.judge.setup.agent !== RACE_JUDGE_AGENT) {
+      reply({ ok: false, error: `"${spec.judge.setup.agent}" cannot judge: the judge runs on Claude Code` });
+      return;
+    }
     const started = await races.start(spec, (contestant, race) => launchContestant(spec, contestant, race));
     reply(started.ok ? { ok: true, error: started.error, raceId: started.raceId } : { ok: false, error: started.error });
   }
 
+  async function handleRaceJudge(msg: ClientMessageOf<'race-judge'>, ws: ControlSocket): Promise<void> {
+    const judged = races ? await races.judge(msg.raceId) : { ok: false as const, error: 'Races are not running' };
+    replyTo(ws, msg, 'race-judge-result', judged.ok ? { ok: true, error: null } : { ok: false, error: judged.error });
+  }
+
+  async function handleRaceDiff(msg: ClientMessageOf<'race-diff'>, ws: ControlSocket): Promise<void> {
+    const diff = races ? await races.contestantDiffText(msg.raceId, msg.contestantId) : { ok: false as const, error: 'Races are not running' };
+    replyTo(ws, msg, 'race-diff-result', diff.ok ? { ok: true, error: null, diff: diff.diff } : { ok: false, error: diff.error });
+  }
+
   const handlers = {
     'race-start': handleRaceStart,
+    'race-judge': handleRaceJudge,
+    'race-diff': handleRaceDiff,
   } satisfies ControlHandlerTable;
 
   const invalidReplies = {
     'race-start': (_msg, requestId, message) => ({ type: 'race-start-result', requestId, ok: false, error: message }),
+    'race-judge': (_msg, requestId, message) => ({ type: 'race-judge-result', requestId, ok: false, error: message }),
+    'race-diff': (_msg, requestId, message) => ({ type: 'race-diff-result', requestId, ok: false, error: message }),
   } satisfies InvalidReplyTable;
 
   return { handlers, invalidReplies, connectFrames: () => (races ? [races.status()] : []) };

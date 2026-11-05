@@ -3,6 +3,7 @@ import { AgentSetup } from './agent-models.ts';
 
 const RACE_MIN_CONTESTANTS = 2;
 export const RACE_MAX_CONTESTANTS = 5;
+export const RACE_JUDGE_AGENT = 'claude-code';
 
 export const GitObjectSha = z.string().regex(/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/);
 
@@ -29,6 +30,25 @@ export const RaceSpec = z.strictObject({
 });
 export type RaceSpec = z.infer<typeof RaceSpec>;
 
+const RACE_PHASES = ['running', 'judging', 'judged'] as const;
+
+export const DiffStats = z.strictObject({
+  filesChanged: z.number().int().min(0),
+  linesAdded: z.number().int().min(0),
+  linesRemoved: z.number().int().min(0),
+});
+export type DiffStats = z.infer<typeof DiffStats>;
+
+export const JudgeResult = z.strictObject({
+  ranking: z.array(z.strictObject({
+    contestantId: RaceId,
+    rank: z.number().int().min(1),
+    reason: z.string().trim().min(1).max(300),
+  })).min(1),
+  notes: z.record(RaceId, z.string().max(4000)),
+});
+export type JudgeResult = z.infer<typeof JudgeResult>;
+
 export const RaceRecord = z.strictObject({
   id: RaceId,
   spec: RaceSpec,
@@ -36,5 +56,9 @@ export const RaceRecord = z.strictObject({
   baseBranch: z.string().min(1),
   createdAt: z.number().finite(),
   sessionIdByContestant: z.record(RaceId, z.string().min(1)),
+  phase: z.enum(RACE_PHASES).default('running'),
+  diffStatsByContestant: z.record(RaceId, DiffStats).default({}),
+  judge: JudgeResult.nullable().default(null),
+  judgeError: z.string().nullable().default(null),
 });
 export type RaceRecord = z.infer<typeof RaceRecord>;

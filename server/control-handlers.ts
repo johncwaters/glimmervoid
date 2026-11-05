@@ -132,7 +132,7 @@ interface ControlHandlerDeps {
   prFlows?: Pick<PrFlowsWiring, 'dispose' | 'undo' | 'saveRule' | 'approve' | 'statusFrame' | 'runPrAction'> | null;
   getBenchmarkStatus?: (() => BenchmarkStatus | null) | null;
   benchmarks?: BenchmarkControl | null;
-  races?: Pick<RaceWiring, 'start' | 'status'> | null;
+  races?: Pick<RaceWiring, 'start' | 'status' | 'judge' | 'contestantDiffText'> | null;
   requestIssue?: GithubLaneStore['requestIssue'];
   requestViewer?: GithubLaneStore['requestViewer'];
   requestViewerTeams?: GithubLaneStore['requestViewerTeams'];
