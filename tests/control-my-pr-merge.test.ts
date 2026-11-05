@@ -84,23 +84,32 @@ function mergeStateResponse(state: string, isInMergeQueue: boolean): CommandResu
 
 const MERGED_STATE = mergeStateResponse('MERGED', false);
 
-test('a store rollup change broadcasts my-prs status and its stage clock without a lane tick, the clock survives a restart and GitHub recomputing mergeability, a merge state GitHub settles later is read again even past a failed read, and Refresh polls its watches', async () => {
+test('a store rollup change broadcasts my-prs status and its stage clock without a lane tick, the clock survives a restart and GitHub recomputing mergeability, a merge state GitHub settles later is read again, a pull request survives GitHub failing its detail read, wholly or for one field, and Refresh polls its watches', async () => {
   const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'control-my-pr-store-'));
   let nowMs = Date.now();
   let checksState: 'PENDING' | 'SUCCESS' | 'FAILURE' = 'PENDING';
   let mergeable: 'MERGEABLE' | 'UNKNOWN' = 'MERGEABLE';
   let mergeStateStatus = 'CLEAN';
   let reviewDecision: 'APPROVED' | 'REVIEW_REQUIRED' = 'APPROVED';
-  let isDetailReadFailing = false;
+  let detailReadAnswer: 'live' | 'bad-gateway' | 'one-field-forbidden' = 'live';
   let laneTicks = 0;
   const searches: string[] = [];
   const statuses: MyPrsStatus[] = [];
   const reads = storeReads(() => [readyNode({ mergeable, mergeStateStatus, reviewDecision, commits: { nodes: [{ commit: { statusCheckRollup: { state: checksState, contexts: { nodes: [] } } } }] } })]);
+  const detailReadersByAnswer = {
+    'live': reads,
+    'bad-gateway': createPrGh(homeDir, async () => ({ ok: false, out: '', err: 'HTTP 502: Bad Gateway' })),
+    'one-field-forbidden': createPrGh(homeDir, async () => ({
+      ok: false,
+      out: JSON.stringify({ data: { pr0: null }, errors: [{ type: 'FORBIDDEN', path: ['pr0', 'pullRequest', 'commits'], message: 'Resource not accessible by personal access token' }] }),
+      err: 'gh: Resource not accessible by personal access token',
+    })),
+  };
   const github = {
     ...createPrGh(homeDir), ...reads,
     viewer: async () => 'me', behindCounts: async () => new Map<string, number>(), reviewThreadsBatch: async () => new Map(), rateLimitWaitMs: async () => null,
     searchPrsLight: async (qualifiers: string) => { searches.push(qualifiers); return reads.searchPrsLight(qualifiers); },
-    prDetails: async (references: Parameters<PrGh['prDetails']>[0]) => isDetailReadFailing ? new Map() : reads.prDetails(references),
+    prDetails: async (references: Parameters<PrGh['prDetails']>[0]) => detailReadersByAnswer[detailReadAnswer].prDetails(references),
   };
   const queue = createSerialQueue();
   let storeTick = async () => {};
@@ -211,11 +220,17 @@ test('a store rollup change broadcasts my-prs status and its stage clock without
       await storeTick();
       assert.equal(restarted.getStatus().prs[0]?.stage, 'checks-failing');
       assert.equal(restarted.getStatus().prs[0]?.stageSinceMs, nowMs);
-      isDetailReadFailing = true;
+      detailReadAnswer = 'one-field-forbidden';
       nowMs += 60_000;
       await storeTick();
       assert.equal(restarted.getStatus().prs[0]?.stage, 'checks-failing');
-      isDetailReadFailing = false;
+      assert.equal(store.getSnapshot().freshness.error, null);
+      detailReadAnswer = 'bad-gateway';
+      checksState = 'SUCCESS';
+      nowMs += 60_000;
+      await storeTick();
+      assert.equal(restarted.getStatus().prs[0]?.stage, 'checks-failing');
+      detailReadAnswer = 'live';
       mergeStateStatus = 'BEHIND';
       nowMs += 60_000;
       await storeTick();

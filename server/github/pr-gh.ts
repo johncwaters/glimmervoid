@@ -105,6 +105,8 @@ const MAX_SEARCH_PAGES = 5;
 const MAX_REVIEW_THREAD_PAGES = 5;
 const REVIEW_SNAPSHOT_BATCH_SIZE = 25;
 
+type AliasedBatchFailurePolicy = 'skip-failed-batch' | 'throw-on-batch-failure' | 'throw-on-any-error';
+
 function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
   async function runGh(args: string[], input?: string, preserveOutput = false, timeoutMs = GH_READ_TIMEOUT_MS): Promise<CommandResult> {
     try {
@@ -122,19 +124,24 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     return conditionalGetResult(response);
   }
 
-  async function forEachAliasedPr<Pr extends PrReference>(prs: readonly Pr[], buildQuery: (batch: readonly Pr[]) => string, visit: (pr: Pr, aliasValue: unknown) => void, batchSize = REVIEW_SNAPSHOT_BATCH_SIZE, requireComplete = false, shouldFailOnError = false): Promise<void> {
+  async function forEachAliasedPr<Pr extends PrReference>(prs: readonly Pr[], buildQuery: (batch: readonly Pr[]) => string, visit: (pr: Pr, aliasValue: unknown) => void, batchSize = REVIEW_SNAPSHOT_BATCH_SIZE, requireComplete = false, failurePolicy: AliasedBatchFailurePolicy = 'skip-failed-batch'): Promise<void> {
     for (let index = 0; index < prs.length; index += batchSize) {
       const batch = prs.slice(index, index + batchSize);
       const response = await runGh(['api', 'graphql', '-f', `query=${buildQuery(batch)}`]);
       const parsed = GRAPHQL_RESPONSE.safeParse(parseJsonOrNull(response.out));
       const errors = parsed.success ? parsed.data.errors ?? [] : [];
       const areAllErrorsNotFound = errors.every((error) => GRAPHQL_NOT_FOUND_ERROR.safeParse(error).success);
-      if (shouldFailOnError && !response.ok && (errors.length === 0 || !areAllErrorsNotFound)) throw new Error(response.err.trim() || 'gh graphql batch failed');
-      if (shouldFailOnError && (!parsed.success || !parsed.data.data)) throw new Error('invalid gh graphql response');
-      if (shouldFailOnError && !areAllErrorsNotFound) throw new Error('gh graphql returned errors');
+      const hasTransportFailed = !response.ok && errors.length === 0;
+      const shouldThrowOnBatchFailure = failurePolicy !== 'skip-failed-batch';
+      const shouldThrowOnAnyError = failurePolicy === 'throw-on-any-error';
+      if (shouldThrowOnBatchFailure && hasTransportFailed) throw new Error(response.err.trim() || 'gh graphql batch failed');
+      if (shouldThrowOnAnyError && !response.ok && !areAllErrorsNotFound) throw new Error(response.err.trim() || 'gh graphql batch failed');
+      if (shouldThrowOnBatchFailure && (!parsed.success || !parsed.data.data)) throw new Error('invalid gh graphql response');
+      if (shouldThrowOnAnyError && !areAllErrorsNotFound) throw new Error('gh graphql returned errors');
       const erroredAliases = requireComplete ? aliasesOfErrors(errors) : new Set<string>();
+      if (shouldThrowOnBatchFailure && erroredAliases === null) throw new Error(response.err.trim() || 'gh graphql returned an error outside any pull request');
       if (erroredAliases === null) continue;
-      if (requireComplete && !response.ok && errors.length === 0) continue;
+      if (requireComplete && hasTransportFailed) continue;
       const data = parsed.success ? parsed.data.data : null;
       if (!data) continue;
       for (const [position, pr] of batch.entries()) {
@@ -267,7 +274,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
         const node = parsed.data?.pullRequest;
         if (!node) return;
         lightByKey.set(comparablePrKey(pr), node);
-      }, 50, true, true);
+      }, 50, true, 'throw-on-any-error');
       return lightByKey;
     },
 
@@ -279,7 +286,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
         const node = parsed.success ? parsed.data?.pullRequest : null;
         if (!node) return;
         detailsByKey.set(comparablePrKey(pr), node);
-      }, REVIEW_SNAPSHOT_BATCH_SIZE, true);
+      }, REVIEW_SNAPSHOT_BATCH_SIZE, true, 'throw-on-batch-failure');
       for (const node of detailsByKey.values()) await completeCheckContexts(node);
       return detailsByKey;
     },
