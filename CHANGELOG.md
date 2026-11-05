@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.52.2] - 2026-11-05
+
 ### Added
 
 - **Restore a pull request you marked Not mine.** In Reviews, a teammate's pull request in Set aside now offers Restore beside Re-run review. Restore brings the review you already had back to Your turn without running a new one, or marks it out of date when new commits landed since, so the usual automatic review follows. A pull request whose review failed, never ran, or was waiting for a re-run when you marked it is queued for review instead.
