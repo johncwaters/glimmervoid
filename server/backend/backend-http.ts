@@ -42,6 +42,8 @@ import { buildUploadFilename, decideUploadType, exceedsUploadCap, imageMimeForUp
 import { declaredContentLength, decodeHeaderText, parseJsonBody, readCappedBody } from './http/backend-http-body.ts';
 import { UPLOAD_FAILURE_REPLIES, UPLOAD_OVER_CAP_ERROR, receiveUpload, streamRequestToFile } from './http/backend-http-uploads.ts';
 import { answerShow, sendShowReply, serveShownFile } from './http/backend-http-shown-files.ts';
+import { servePackFile } from './http/backend-http-pack-files.ts';
+import type { PackFileSource } from './http/backend-http-pack-files.ts';
 import { serveClientDir } from './http/backend-http-static.ts';
 
 const HOOK_BODY_CAP_BYTES = 64 * 1024;
@@ -120,6 +122,7 @@ interface BackendHttpDependencies {
   takePromptSupervision?: (glimmervoidId: string) => UserPromptSubmitHookResponse | null;
   getAgentApi?: () => AgentApiPort | null;
   getShownFiles?: () => ShownFilesPort | null;
+  getPackFile?: PackFileSource;
   getWhiteboardAssets?: () => WhiteboardAssetStore | null;
   getPrActionReports?: () => Pick<PrFlowsWiring, 'acceptPrActionReport'> | null;
   sshSigner?: Pick<SshSigner, 'signWithAgent'> | null;
@@ -188,6 +191,7 @@ type AgentIngressDependencies = Pick<BackendHttpDependencies,
 
 const BOARD_PAGE_SANDBOX_POLICY = 'sandbox allow-scripts allow-popups allow-modals allow-forms';
 const BOARD_MEDIA_SANDBOX_POLICY = "default-src 'none'; sandbox";
+const DASHBOARD_FRAME_POLICY = "frame-src 'self' blob: data:";
 
 function sendBoardAssetBytes(req: Request, res: Response, servable: { path: string; contentType: string }, sizeBytes: number): void {
   res.setHeader('Content-Security-Policy', servable.contentType.startsWith('text/html') ? BOARD_PAGE_SANDBOX_POLICY : BOARD_MEDIA_SANDBOX_POLICY);
@@ -510,6 +514,14 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
   const app = express();
 
   mountHostAllowList(app, allowedHosts);
+  app.use((_req, res, next) => {
+    res.setHeader('Content-Security-Policy', DASHBOARD_FRAME_POLICY);
+    next();
+  });
+
+  app.get('/packs/:packName/:accessKey/files/*filePath', (req, res) => {
+    servePackFile(req, res, dependencies.getPackFile ?? null);
+  });
 
   if (remoteAuth) {
     app.use(remoteAuth.httpMiddleware);

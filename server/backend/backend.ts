@@ -203,6 +203,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     remoteListenerPort,
     tokenMatches,
     openUrlOnHost: createHostUrlOpener(),
+    getPackFile: (packName, accessKey, filePath) => laneAssembly.packStore.servableFile(packName, accessKey, filePath),
   });
   agentIngressServer.on('request', createAgentIngressApp(agentIngressDependencies));
   agentIngressServer.listen(0, AGENT_INGRESS_HOST);

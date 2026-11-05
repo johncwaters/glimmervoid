@@ -440,6 +440,55 @@
             ],
             "additionalProperties": false
           }
+        },
+        "panels": {
+          "default": [],
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 24
+              },
+              "entry": {
+                "type": "string",
+                "pattern": "^(?!\\/)(?!.*(?:^|\\/)\\.\\.?(?:\\/|$))[A-Za-z0-9._/-]{1,200}$"
+              },
+              "icon": {
+                "type": "string",
+                "pattern": "^(?!\\/)(?!.*(?:^|\\/)\\.\\.?(?:\\/|$))[A-Za-z0-9._/-]{1,200}$"
+              },
+              "reads": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "sessions",
+                    "focus",
+                    "theme",
+                    "my-prs",
+                    "usage",
+                    "attention",
+                    "team-reviews"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "id",
+              "label",
+              "entry"
+            ],
+            "additionalProperties": false
+          }
         }
       },
       "additionalProperties": false

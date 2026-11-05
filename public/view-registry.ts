@@ -17,6 +17,8 @@ import { applyTraceConnectionState, openTraceForSession } from './trace-store.ts
 import { setOpenInReview } from './whiteboard/board-store.ts';
 import { BENCH_ICON_PATH, BOARDS_ICON_PATH, COMMUNITY_ICON_PATH, createLineIcon, FOCUS_ICON_PATH, HOOKS_ICON_PATH, ISSUES_ICON_PATH, RADAR_ICON_PATH, REVIEWS_ICON_PATH, SETTINGS_ICON_PATH, TRACE_ICON_PATH, USAGE_ICON_PATH } from './svg-dom.ts';
 import { acknowledgeUsageAttention, applyUsageConnectionState, setUsageActivityCallback } from './usage/usage-store.ts';
+import { packPanelModule, packTabIcon } from './packs/pack-views.ts';
+import type { PackPanelView } from './packs/pack-views.ts';
 import { createViewLoader, shouldReloadAfterPreloadError, viewAttentionState } from './view-registry-core.ts';
 import type { PrimaryView, PrimaryViewDefinition, ViewAttention, ViewModule } from './view-registry-core.ts';
 
@@ -88,6 +90,55 @@ export function reloadOnceIfBundleRetired(entryChunkUrl: string, readStorage: ()
     .catch(() => {});
 }
 
+function buildDashboardView(definition: PrimaryViewDefinition<HTMLElement>, icon: Element, setPhoneAttention: ViewRegistryActions['setPhoneAttention']): DashboardView {
+  const main = queryTag(document, '#app-main', 'main');
+  const tab = createPressable('header-tab', definition.label);
+  tab.prepend(icon);
+  tab.id = `tab-${definition.view}`;
+  tab.draggable = true;
+  const panelId = `view-${definition.view}`;
+  tab.setAttribute('role', 'tab');
+  tab.setAttribute('aria-controls', panelId);
+  const isSelected = definition.view === 'focus';
+  tab.setAttribute('aria-selected', String(isSelected));
+  tab.tabIndex = isSelected ? 0 : -1;
+  const panel = document.getElementById(panelId) ?? el('section');
+  panel.classList.add(definition.panelClass);
+  panel.id = panelId;
+  panel.setAttribute('role', 'tabpanel');
+  panel.setAttribute('aria-labelledby', tab.id);
+  panel.hidden = true;
+  if (!panel.parentElement) main.append(panel);
+  tab.hidden = definition.gate !== undefined || definition.isPhoneOnly === true;
+  panel.classList.toggle('view-panel', definition.hasPanelChrome !== false);
+  if (definition.attention) {
+    const dot = el('span', 'tab-activity');
+    dot.id = `tab-${definition.view}-activity`;
+    dot.setAttribute('aria-hidden', 'true');
+    tab.append(dot);
+    definition.attention.subscribe((attention) => {
+      const { isActive, level } = viewAttentionState(attention);
+      dot.classList.toggle('active', isActive);
+      if (level === null) dot.removeAttribute('data-attention');
+      if (level !== null) dot.setAttribute('data-attention', level);
+      setPhoneAttention(definition.view, attention);
+    });
+  }
+  return { ...definition, tab, el: panel };
+}
+
+function packViewIcon(panel: PackPanelView): Element {
+  return panel.iconUrl ? packTabIcon(panel.iconUrl) : createLineIcon(BOARDS_ICON_PATH);
+}
+
+export function createPackView(panel: PackPanelView): DashboardView {
+  return buildDashboardView({ view: panel.viewId, label: panel.label, iconPath: '', panelClass: 'pack-panel-view', hasPanelChrome: false, module: packPanelModule(panel) }, packViewIcon(panel), () => {});
+}
+
+export function relabelPackView(viewTab: DashboardView, panel: PackPanelView): void {
+  viewTab.tab.replaceChildren(packViewIcon(panel), panel.label);
+}
+
 export function createDashboardViews(actions: ViewRegistryActions): DashboardView[] {
   setReviewQueueNavigation({ openTerminal: actions.openTerminal, openReviews: actions.openReviews });
   setSettingsRestartHandler(actions.onRestart);
@@ -109,42 +160,7 @@ export function createDashboardViews(actions: ViewRegistryActions): DashboardVie
     { view: 'settings', label: 'Settings', iconPath: SETTINGS_ICON_PATH, panelClass: 'settings-view', hasPanelChrome: false, load: () => import('./settings/settings-panel.ts').then((panel) => panel.view) },
   ];
 
-  const main = queryTag(document, '#app-main', 'main');
-  const views = definitions.map((definition) => {
-    const tab = createPressable('header-tab', definition.label);
-    tab.prepend(createLineIcon(definition.iconPath));
-    tab.id = `tab-${definition.view}`;
-    tab.draggable = true;
-    const panelId = `view-${definition.view}`;
-    tab.setAttribute('role', 'tab');
-    tab.setAttribute('aria-controls', panelId);
-    const isSelected = definition.view === 'focus';
-    tab.setAttribute('aria-selected', String(isSelected));
-    tab.tabIndex = isSelected ? 0 : -1;
-    const panel = document.getElementById(panelId) ?? el('section');
-    panel.classList.add(definition.panelClass);
-    panel.id = panelId;
-    panel.setAttribute('role', 'tabpanel');
-    panel.setAttribute('aria-labelledby', tab.id);
-    panel.hidden = true;
-    if (!panel.parentElement) main.append(panel);
-    tab.hidden = definition.gate !== undefined || definition.isPhoneOnly === true;
-    panel.classList.toggle('view-panel', definition.hasPanelChrome !== false);
-    if (definition.attention) {
-      const dot = el('span', 'tab-activity');
-      dot.id = `tab-${definition.view}-activity`;
-      dot.setAttribute('aria-hidden', 'true');
-      tab.append(dot);
-      definition.attention.subscribe((attention) => {
-        const { isActive, level } = viewAttentionState(attention);
-        dot.classList.toggle('active', isActive);
-        if (level === null) dot.removeAttribute('data-attention');
-        if (level !== null) dot.setAttribute('data-attention', level);
-        actions.setPhoneAttention(definition.view, attention);
-      });
-    }
-    return { ...definition, tab, el: panel };
-  });
+  const views = definitions.map((definition) => buildDashboardView(definition, createLineIcon(definition.iconPath), actions.setPhoneAttention));
   queryTag(document, '#header-tabs', 'div').replaceChildren(...views.map((view) => view.tab));
   return views;
 }

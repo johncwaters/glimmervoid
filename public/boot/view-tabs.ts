@@ -11,7 +11,9 @@ import { setTraceNavigate } from '../trace-store.ts';
 import { hasSession } from '../session-card/lifecycle.ts';
 import { getActiveView as getSavedActiveView, setActiveView } from '../ui-prefs.ts';
 import { getActiveView, uiState } from '../ui-state-core.ts';
-import { createDashboardViews, mountEagerViews, mountedViewModule, showView } from '../view-registry.ts';
+import { createDashboardViews, createPackView, mountEagerViews, mountedViewModule, relabelPackView, showView } from '../view-registry.ts';
+import { onPackPanelsChange, retirePackPanel, showPackPanel } from '../packs/pack-views.ts';
+import type { PackPanelView } from '../packs/pack-views.ts';
 import type { DashboardView } from '../view-registry.ts';
 import { moveViewId, orderViewIds, refreshViewOnReason, refreshVisibleViews, viewAvailabilityFromSettings } from '../view-registry-core.ts';
 import type { ViewRefreshReason } from '../view-registry-core.ts';
@@ -157,7 +159,10 @@ function applySurfaceSettings(settings: FeatureSurfaceSettings) {
   for (const { view, isAvailable } of viewAvailabilityFromSettings(VIEW_TABS, settings)) setSurfaceAvailable(view, isAvailable);
 }
 
+let lastSavedViewOrder: readonly string[] | undefined;
+
 function applyTabOrder(savedViewOrder: readonly string[] | undefined) {
+  lastSavedViewOrder = savedViewOrder;
   const orderedViewIds = orderViewIds(DEFAULT_VIEW_ORDER, savedViewOrder);
   const isAlreadyOrdered = VIEW_TABS.every((viewTab, index) => viewTab.view === orderedViewIds[index]);
   if (isAlreadyOrdered) return;
@@ -237,6 +242,36 @@ function wireViewTab({ view, tab }: DashboardView) {
   });
 }
 
+const PACK_VIEW_PREFIX = 'pack:';
+const shownPackPanelByViewId = new Map<string, PackPanelView>();
+
+function addPackView(panel: PackPanelView): DashboardView {
+  const viewTab = createPackView(panel);
+  VIEW_TABS.push(viewTab);
+  DEFAULT_VIEW_ORDER.push(viewTab.view);
+  queryTag(document, '#header-tabs', 'div').append(viewTab.tab);
+  wireViewTab(viewTab);
+  return viewTab;
+}
+
+function syncPackViews(panels: readonly PackPanelView[]) {
+  const shownViewIds = new Set(panels.map((panel) => panel.viewId));
+  for (const viewTab of VIEW_TABS) {
+    if (!viewTab.view.startsWith(PACK_VIEW_PREFIX) || shownViewIds.has(viewTab.view)) continue;
+    retirePackPanel(viewTab.view);
+    setSurfaceAvailable(viewTab, false);
+  }
+  for (const panel of panels) {
+    const viewTab = findViewTab(panel.viewId) ?? addPackView(panel);
+    const shownPanel = shownPackPanelByViewId.get(panel.viewId);
+    if (shownPanel && (shownPanel.label !== panel.label || shownPanel.iconUrl !== panel.iconUrl)) relabelPackView(viewTab, panel);
+    shownPackPanelByViewId.set(panel.viewId, panel);
+    showPackPanel(panel);
+    setSurfaceAvailable(viewTab, true);
+  }
+  applyTabOrder(lastSavedViewOrder);
+}
+
 function selectInitialView() {
   const savedView = getSavedActiveView();
   const isInitialSettingsLink = isSettingsHash(location.hash);
@@ -275,6 +310,7 @@ function mountViewTabs() {
 
   for (const viewTab of VIEW_TABS) wireViewTab(viewTab);
   selectInitialView();
+  onPackPanelsChange(syncPackViews);
 }
 
 export {
