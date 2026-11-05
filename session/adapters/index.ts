@@ -2,6 +2,7 @@ import type { ResolvedHookTool } from '../core/hook-tools.ts';
 import type { InstalledHookFlags, InstalledHooks, UserHook } from '../core/user-hooks-core.ts';
 import claudeCode from "./claude-code.ts";
 import codex from "./codex.ts";
+import gemini from "./gemini.ts";
 import grok from "./grok.ts";
 import kimi from "./kimi.ts";
 import shell from "./shell.ts";
@@ -152,14 +153,22 @@ type AgentAdapterShape = AgentAdapter & Record<string, unknown>;
 
 const DEFAULT_AGENT_ID = claudeCode.id;
 
-const adapterEntries: [string, AgentAdapter][] = [
-  [claudeCode.id, claudeCode],
-  [codex.id, codex],
-  [grok.id, grok],
-  [kimi.id, kimi],
-  [shell.id, shell],
-];
-const ADAPTERS = new Map(adapterEntries);
+type AgentTier = "first-class" | "hooked" | "title-only" | "shell";
+
+interface BuiltInAgent {
+  adapter: AgentAdapter;
+  tier: AgentTier;
+}
+
+const BUILT_IN_AGENTS: readonly BuiltInAgent[] = Object.freeze([
+  { adapter: claudeCode, tier: "first-class" },
+  { adapter: codex, tier: "first-class" },
+  { adapter: kimi, tier: "first-class" },
+  { adapter: gemini, tier: "hooked" },
+  { adapter: grok, tier: "hooked" },
+  { adapter: shell, tier: "shell" },
+]);
+const ADAPTERS = new Map(BUILT_IN_AGENTS.map(({ adapter }) => [adapter.id, adapter]));
 const customAdapters = new Map<string, AgentAdapter>();
 const customAgentFingerprints = new Map<string, string>();
 
@@ -179,7 +188,13 @@ function customAgentFingerprint(agentId: string | null | undefined): string | nu
   return customAgentFingerprints.get(agentId) ?? null;
 }
 
-function setCustomAgents(declared: readonly CustomAgentDeclaration[]): void {
+function isBuiltInAgentId(agentId: string): boolean {
+  return ADAPTERS.has(agentId);
+}
+
+function setCustomAgents(allDeclared: readonly CustomAgentDeclaration[]): string[] {
+  const shadowedIds = allDeclared.filter(({ id }) => isBuiltInAgentId(id)).map(({ id }) => id);
+  const declared = allDeclared.filter(({ id }) => !isBuiltInAgentId(id));
   const nextFingerprintById = new Map<string, string>();
   for (const declaration of declared) nextFingerprintById.set(declaration.id, declarationFingerprint(declaration));
   for (const [customId, previousFingerprint] of customAgentFingerprints) {
@@ -192,6 +207,7 @@ function setCustomAgents(declared: readonly CustomAgentDeclaration[]): void {
     customAdapters.set(declaration.id, createCustomAdapter(declaration));
     customAgentFingerprints.set(declaration.id, nextFingerprintById.get(declaration.id) ?? declarationFingerprint(declaration));
   }
+  return shadowedIds;
 }
 
 function hookProfileOf(adapter: AgentAdapter): AgentHookProfile | null {
@@ -253,6 +269,7 @@ function resetCommandCache(): void {
 }
 
 export {
+  BUILT_IN_AGENTS,
   DEFAULT_AGENT_ID,
   listAgentIds,
   isKnownAgentId,
@@ -265,5 +282,6 @@ export {
   describeAgentResolvability,
   resetCommandCache,
   setCustomAgents,
+  isBuiltInAgentId,
 };
 export type { AgentAdapter, AgentAdapterShape, AgentArgsOptions, AgentCapabilities, AgentCommandOptions, AgentHookProfile, AgentSpawnCommandOptions, AgentTitleProfile, ArgvConfigInjection, GeneratedHomeInjection, GeneratedHomeLaunch, HomeHooksFileInjection, HookedAgentHome, ProjectConfigCandidate, ScratchAgentHome };

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import kimi from '../session/adapters/kimi.ts';
-import { BLOCK_END, BLOCK_START, KIMI_HOME_PROFILE, renderCodexHooksBlock } from '../session/core/agent-home-core.ts';
+import { BLOCK_END, BLOCK_START, GEMINI_HOME_PROFILE, KIMI_HOME_PROFILE, renderCodexHooksBlock } from '../session/core/agent-home-core.ts';
 import { loadFileLocks } from '../server/session-temp/session-temp-locks.ts';
 import { generatedAgentHomePath, holdAgentHome, prepareAgentHome, releaseAgentHome, releaseUnheldAgentHomeSecrets } from '../session/agent-home.ts';
 
@@ -262,4 +262,78 @@ test('a stale operator codex trust entry for a removed hook group does not redef
   assert.equal(new Set(trustHeaders).size, trustHeaders.length, block);
   assert.ok(block.includes('trusted_hash = "sha256:glimmervoid"'), block);
   assert.ok(!block.includes('sha256:stale'), block);
+});
+
+test('a gemini spawn merges the hooks into a JSON copy of the real settings, keeps a session edit, and never writes the real settings', () => {
+  const scratchRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-gemini-'));
+  try {
+    const realHome = path.join(scratchRoot, 'gemini-cli-home', '.gemini');
+    fs.mkdirSync(path.join(realHome, 'tmp'), { recursive: true });
+    const realSettingsPath = path.join(realHome, 'settings.json');
+    const operatorHook = { hooks: [{ type: 'command', command: 'say done' }] };
+    const realSettings = `{\n  // operator note\n  "ui": { "theme": "GitHub" },\n  "hooks": { "AfterAgent": [${JSON.stringify(operatorHook)}] },\n}\n`;
+    fs.writeFileSync(realSettingsPath, realSettings);
+    const env = { GEMINI_CLI_HOME: path.dirname(realHome), GLIMMERVOID_HOME: path.join(scratchRoot, 'glimmervoid') };
+    const managedHook = { hooks: [{ type: 'command', command: 'node relay.js AfterAgent' }] };
+    const renderBlock = () => JSON.stringify({ AfterAgent: [managedHook] });
+    function prepareGemini(platform: NodeJS.Platform = process.platform): string {
+      const prepared = prepareAgentHome(GEMINI_HOME_PROFILE, { env, renderBlock, platform });
+      assert.ok('home' in prepared, 'refusal' in prepared ? prepared.refusal : '');
+      return prepared.home;
+    }
+
+    const generatedHome = prepareGemini();
+    assert.equal(path.basename(generatedHome), '.gemini');
+    const generatedSettingsPath = path.join(generatedHome, 'settings.json');
+    const generated = JSON.parse(fs.readFileSync(generatedSettingsPath, 'utf8'));
+    assert.deepEqual(generated.hooks.AfterAgent, [operatorHook, managedHook]);
+    assert.equal(fs.realpathSync(path.join(generatedHome, 'tmp')), fs.realpathSync(path.join(realHome, 'tmp')));
+
+    fs.writeFileSync(generatedSettingsPath, JSON.stringify({ ...generated, ui: { theme: 'Dracula' } }));
+    fs.writeFileSync(realSettingsPath, realSettings.replace('"ui"', '"general": { "vimMode": true },\n  "ui"'));
+    prepareGemini();
+    const merged = JSON.parse(fs.readFileSync(generatedSettingsPath, 'utf8'));
+    assert.deepEqual(merged.ui, { theme: 'Dracula' });
+    assert.deepEqual(merged.general, { vimMode: true });
+    assert.deepEqual(merged.hooks.AfterAgent, [operatorHook, managedHook]);
+    assert.match(fs.readFileSync(realSettingsPath, 'utf8'), /operator note/);
+
+    holdAgentHome(generatedHome);
+    releaseAgentHome(generatedHome);
+    assert.equal(fs.existsSync(generatedSettingsPath), false);
+
+    fs.rmSync(realSettingsPath);
+    const unsetHome = prepareGemini();
+    const unsetSettingsPath = path.join(unsetHome, 'settings.json');
+    const firstRun = JSON.parse(fs.readFileSync(unsetSettingsPath, 'utf8'));
+    fs.writeFileSync(unsetSettingsPath, JSON.stringify({ ...firstRun, security: { auth: { selectedType: 'oauth-personal' } } }));
+    prepareGemini();
+    const afterSecondSpawn = JSON.parse(fs.readFileSync(unsetSettingsPath, 'utf8'));
+    assert.deepEqual(afterSecondSpawn.security, { auth: { selectedType: 'oauth-personal' } });
+    assert.deepEqual(afterSecondSpawn.hooks.AfterAgent, [managedHook]);
+    assert.equal(fs.existsSync(realSettingsPath), false);
+
+    fs.writeFileSync(realSettingsPath, JSON.stringify({ hooksConfig: { enabled: false }, hooks: { AfterAgent: [operatorHook] } }));
+    const realRoot = path.dirname(realHome);
+    fs.writeFileSync(path.join(realRoot, 'settings.json'), JSON.stringify({ advanced: { autoConfigureMemory: false } }));
+    fs.mkdirSync(path.join(realRoot, '.agents', 'skills'), { recursive: true });
+    fs.writeFileSync(path.join(realRoot, '.env'), 'GEMINI_API_KEY=operator\n');
+    const generatedRoot = path.dirname(prepareGemini());
+    const hooksOff = JSON.parse(fs.readFileSync(unsetSettingsPath, 'utf8'));
+    assert.deepEqual(hooksOff.hooksConfig, { enabled: true });
+    assert.deepEqual(hooksOff.hooks.AfterAgent, [managedHook]);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(generatedRoot, 'settings.json'), 'utf8')), { advanced: { autoConfigureMemory: false } });
+    assert.equal(fs.realpathSync(path.join(generatedRoot, '.agents')), fs.realpathSync(path.join(realRoot, '.agents')));
+    assert.equal(fs.readFileSync(path.join(generatedRoot, '.env'), 'utf8'), 'GEMINI_API_KEY=operator\n');
+    assert.deepEqual(JSON.parse(fs.readFileSync(realSettingsPath, 'utf8')).hooksConfig, { enabled: false });
+
+    fs.unlinkSync(path.join(generatedRoot, '.env'));
+    prepareGemini('win32');
+    fs.writeFileSync(path.join(realRoot, '.env.next'), 'GEMINI_API_KEY=rotated\n');
+    fs.renameSync(path.join(realRoot, '.env.next'), path.join(realRoot, '.env'));
+    prepareGemini('win32');
+    assert.equal(fs.readFileSync(path.join(generatedRoot, '.env'), 'utf8'), 'GEMINI_API_KEY=rotated\n');
+  } finally {
+    fs.rmSync(scratchRoot, { recursive: true, force: true });
+  }
 });

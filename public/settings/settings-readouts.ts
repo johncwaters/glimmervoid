@@ -48,7 +48,8 @@ function customAgentLines(): string[] {
   if (rows.length === 0) return ['None declared. Add customAgents to config.json.'];
   return rows.map((row) => {
     const invocation = row.args.length > 0 ? `${row.command} ${row.args.join(' ')}` : row.command;
-    return `${row.id}  ${row.label}  ${invocation}  ${resolvabilityLabel(row.resolvable)}`;
+    const status = row.isShadowedByBuiltIn ? 'ignored: a built-in agent has this id, rename it' : resolvabilityLabel(row.resolvable);
+    return `${row.id}  ${row.label}  ${invocation}  ${status}`;
   });
 }
 

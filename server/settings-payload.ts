@@ -1,4 +1,4 @@
-import { cachedAgentResolvability } from '../session/adapters/index.ts';
+import { cachedAgentResolvability, isBuiltInAgentId } from '../session/adapters/index.ts';
 import type { AgentLoginStatus, CoderEnvironmentOffer, CustomAgentDeclaration, CustomAgentSummaryRow, TelegramDeliveryStatus } from '../shared/contracts/index.ts';
 import type { TeamReviewEnvironment } from '../shared/contracts/team-review-environment.ts';
 import type { TeamReviewSettingsSource } from './github/core/team-review-core.ts';
@@ -18,13 +18,17 @@ interface SettingsPayloadOptions {
 }
 
 function summarizeCustomAgents(declarations: readonly CustomAgentDeclaration[]): CustomAgentSummaryRow[] {
-  return declarations.map((declaration) => ({
-    id: declaration.id,
-    label: declaration.label,
-    command: declaration.command,
-    args: [...declaration.args],
-    resolvable: cachedAgentResolvability(declaration.id).resolvable,
-  }));
+  return declarations.map((declaration) => {
+    const isShadowedByBuiltIn = isBuiltInAgentId(declaration.id);
+    return {
+      id: declaration.id,
+      label: declaration.label,
+      command: declaration.command,
+      args: [...declaration.args],
+      resolvable: isShadowedByBuiltIn ? null : cachedAgentResolvability(declaration.id).resolvable,
+      isShadowedByBuiltIn,
+    };
+  });
 }
 
 function buildSettingsPayload({

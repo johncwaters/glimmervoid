@@ -185,6 +185,10 @@
     {
       "name": "secretive",
       "definition": "Secretive, a macOS app that keeps SSH keys in the Secure Enclave and serves them through its own agent socket, one of the agent app sockets the commit signer tries"
+    },
+    {
+      "name": "gemini cli",
+      "definition": "Google's Gemini CLI, an agent CLI glimmervoid supervises through its gemini agent adapter, with hook status from a generated GEMINI_CLI_HOME"
     }
   ]
 }
