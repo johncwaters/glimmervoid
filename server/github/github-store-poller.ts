@@ -234,8 +234,12 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     for (const key of unavailableKeys) {
       if (!union.detailKeys.has(key)) unavailableKeys.delete(key);
     }
-    const detailKeys = [...union.detailKeys].filter((key) => currentLightByKey.has(key) && (changedKeys.has(key) || (!prs[key] && !unavailableKeys.has(key))));
+    const isMergeStateUnsettledAfterLightRead = (key: string) => (readKeys.has(key) || membershipLightKeys.has(key)) && prs[key]?.state === 'OPEN' && prs[key]?.mergeStateStatus === 'UNKNOWN';
+    const detailKeys = [...union.detailKeys].filter((key) => currentLightByKey.has(key) && (changedKeys.has(key) || isMergeStateUnsettledAfterLightRead(key) || (!prs[key] && !unavailableKeys.has(key))));
+    const keysRereadOnlyForMergeState = new Set(detailKeys.filter((key) => !changedKeys.has(key) && isMergeStateUnsettledAfterLightRead(key)));
     const { details, nodes, missingKeys } = await fetchDetails(detailKeys);
+    const lostDetailKeys = missingKeys.filter((key) => !keysRereadOnlyForMergeState.has(key));
+    for (const key of missingKeys.filter((key) => keysRereadOnlyForMergeState.has(key))) unavailableKeys.delete(key);
     for (const refreshed of watchResults) {
       if (watches.get(refreshed.watch.name) !== refreshed.watch) continue;
       Object.assign(refreshed.watch, { nodes: refreshed.nodes, returnedKeys: refreshed.returnedKeys, returnedCount: refreshed.returnedCount, totalCount: refreshed.totalCount, isComplete: refreshed.isComplete, isLoaded: true, lastMembershipPolledAt: tickStartedAt, membershipRevision: pollMembershipRevision });
@@ -243,7 +247,7 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     lightByKey = changes.lightByKey;
     for (const node of nodes) lightByKey.set(comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number }), node);
     for (const key of missingLightKeys) unavailableKeys.add(key);
-    const removedKeys = [...new Set([...changes.removedKeys, ...missingLightKeys.filter((key) => prs[key]), ...missingKeys.filter((key) => prs[key])])];
+    const removedKeys = [...new Set([...changes.removedKeys, ...missingLightKeys.filter((key) => prs[key]), ...lostDetailKeys.filter((key) => prs[key])])];
     prs = applyGithubPrDetails(prs, details, removedKeys);
     for (const key of [...keysToRead, ...membershipLightKeys]) lastLightPolledAtByKey.set(key, tickStartedAt);
     for (const key of lastLightPolledAtByKey.keys()) {

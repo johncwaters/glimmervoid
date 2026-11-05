@@ -84,13 +84,14 @@ function mergeStateResponse(state: string, isInMergeQueue: boolean): CommandResu
 
 const MERGED_STATE = mergeStateResponse('MERGED', false);
 
-test('a store rollup change broadcasts my-prs status and its stage clock without a lane tick, the clock survives a restart and GitHub recomputing mergeability, and Refresh polls its watches', async () => {
+test('a store rollup change broadcasts my-prs status and its stage clock without a lane tick, the clock survives a restart and GitHub recomputing mergeability, a merge state GitHub settles later is read again even past a failed read, and Refresh polls its watches', async () => {
   const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'control-my-pr-store-'));
   let nowMs = Date.now();
   let checksState: 'PENDING' | 'SUCCESS' | 'FAILURE' = 'PENDING';
   let mergeable: 'MERGEABLE' | 'UNKNOWN' = 'MERGEABLE';
   let mergeStateStatus = 'CLEAN';
   let reviewDecision: 'APPROVED' | 'REVIEW_REQUIRED' = 'APPROVED';
+  let isDetailReadFailing = false;
   let laneTicks = 0;
   const searches: string[] = [];
   const statuses: MyPrsStatus[] = [];
@@ -99,6 +100,7 @@ test('a store rollup change broadcasts my-prs status and its stage clock without
     ...createPrGh(homeDir), ...reads,
     viewer: async () => 'me', behindCounts: async () => new Map<string, number>(), reviewThreadsBatch: async () => new Map(), rateLimitWaitMs: async () => null,
     searchPrsLight: async (qualifiers: string) => { searches.push(qualifiers); return reads.searchPrsLight(qualifiers); },
+    prDetails: async (references: Parameters<PrGh['prDetails']>[0]) => isDetailReadFailing ? new Map() : reads.prDetails(references),
   };
   const queue = createSerialQueue();
   let storeTick = async () => {};
@@ -208,6 +210,16 @@ test('a store rollup change broadcasts my-prs status and its stage clock without
       nowMs += 60_000;
       await storeTick();
       assert.equal(restarted.getStatus().prs[0]?.stage, 'checks-failing');
+      assert.equal(restarted.getStatus().prs[0]?.stageSinceMs, nowMs);
+      isDetailReadFailing = true;
+      nowMs += 60_000;
+      await storeTick();
+      assert.equal(restarted.getStatus().prs[0]?.stage, 'checks-failing');
+      isDetailReadFailing = false;
+      mergeStateStatus = 'BEHIND';
+      nowMs += 60_000;
+      await storeTick();
+      assert.equal(restarted.getStatus().prs[0]?.stage, 'behind');
       assert.equal(restarted.getStatus().prs[0]?.stageSinceMs, nowMs);
     } finally {
       await restarted.stopPoller();
