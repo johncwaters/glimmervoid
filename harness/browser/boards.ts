@@ -177,6 +177,11 @@ async function verifyLiveMedia(panel: Locator): Promise<void> {
   assert.equal(await pageFrame.evaluate((frame) => getComputedStyle(frame).pointerEvents), 'none', 'an idle page ignores the pointer');
   const idlePageBounds = await pageMedia.boundingBox();
   assert.ok(idlePageBounds);
+  const cursorOverPage = await page.evaluate(({ x, y }) => {
+    const hovered = document.elementFromPoint(x, y);
+    return hovered ? getComputedStyle(hovered).cursor : '';
+  }, { x: idlePageBounds.x + idlePageBounds.width / 2, y: idlePageBounds.y + idlePageBounds.height / 2 });
+  assert.equal(cursorOverPage, 'zoom-in', 'a page box shows the zoom-in cursor like a picture');
   await page.mouse.click(idlePageBounds.x + idlePageBounds.width / 2, idlePageBounds.y + idlePageBounds.height / 2);
   const viewerPage = viewer.locator('iframe.wb-image-viewer-page');
   await viewerPage.waitFor();

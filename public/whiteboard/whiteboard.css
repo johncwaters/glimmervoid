@@ -618,7 +618,9 @@
   font-size: var(--type-body);
 }
 
-.wb-image {
+.wb-image,
+.wb-image-placeholder,
+.wb-image-placeholder-text {
   cursor: zoom-in;
 }
 
