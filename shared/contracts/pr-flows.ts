@@ -16,8 +16,9 @@ export const PrFlowItem = z.strictObject({
 export type PrFlowItem = z.infer<typeof PrFlowItem>;
 
 const PR_FLOW_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const PR_FLOW_QUALIFIED_ID = /^(?:[a-z0-9][a-z0-9-]{0,39}\/)?[a-z0-9][a-z0-9-]{0,63}$/;
 const ONE_PRINTABLE_LINE = /^[^\u0000-\u001f\u007f-\u009f]+$/;
-const PrFlowRunActionRef = z.templateLiteral(['run:', z.string().regex(PR_FLOW_ID)]);
+const PrFlowRunActionRef = z.templateLiteral(['run:', z.string().regex(PR_FLOW_QUALIFIED_ID)]);
 const PrFlowDisposition = z.union([z.enum(['dismiss', 'fix-local']), PrFlowRunActionRef]);
 export type PrFlowDisposition = z.infer<typeof PrFlowDisposition>;
 
@@ -38,6 +39,16 @@ export const PrFlowRule = z.strictObject({
   reason: z.string().trim().min(1).max(2000).optional(),
 }).refine((rule) => rule.action !== 'dismiss' || rule.reason !== undefined, { message: 'a dismiss rule needs a reason', path: ['reason'] });
 export type PrFlowRule = z.infer<typeof PrFlowRule>;
+
+export function prFlowRulesJsonSchema(rulesSchema: z.ZodType): z.core.JSONSchema.BaseSchema {
+  return z.toJSONSchema(rulesSchema, {
+    io: 'input',
+    override: ({ zodSchema, jsonSchema }) => {
+      if (zodSchema !== PrFlowRule) return;
+      Object.assign(jsonSchema, Object.fromEntries([['if', { properties: { action: { const: 'dismiss' } }, required: ['action'] }], ['then', { required: ['reason'] }]]));
+    },
+  });
+}
 
 export const PrFlowCommand = z.strictObject({
   id: z.string().regex(PR_FLOW_ID, { error: 'an id is lowercase letters, digits and dashes' }),
@@ -85,6 +96,7 @@ export const PrFlowsSettings = z.looseObject({
   prActions: z.array(z.unknown(), { error: 'prFlows.prActions must be an array' }).optional(),
   rules: z.array(z.unknown(), { error: 'prFlows.rules must be an array' }).optional(),
   repoRules: z.record(z.string(), z.unknown(), { error: 'prFlows.repoRules must be an object of repository names' }).optional(),
+  packs: z.array(z.string().min(1), { error: 'prFlows.packs must be an array of pack directory paths' }).optional(),
 });
 
 export const PrFlowHandled = z.strictObject({
@@ -111,9 +123,19 @@ export const PrFlowsState = z.strictObject({
 });
 export type PrFlowsState = z.infer<typeof PrFlowsState>;
 
+export const PrFlowPackRequires = z.strictObject({
+  env: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, { error: 'an env var name is letters, digits and underscores' })).default([]),
+  programs: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._+-]*$/, { error: 'a program is a bare name found on PATH, such as gh' })).default([]),
+});
+
+const PrFlowPackApprovalCommand = z.strictObject({
+  kind: z.enum(['source', 'action', 'pr-action']), id: z.string(), label: z.string(), command: z.array(z.string()), repos: z.array(z.string()).optional(),
+});
+
 export const PrFlowPendingApproval = z.strictObject({
-  kind: z.enum(['source', 'action', 'pr-action']), id: z.string(), label: z.string(), command: z.array(z.string()), timeoutSeconds: z.number(), fingerprint: z.string().min(1),
+  kind: z.enum(['source', 'action', 'pr-action', 'pack']), id: z.string(), label: z.string(), command: z.array(z.string()), timeoutSeconds: z.number(), fingerprint: z.string().min(1),
   repos: z.array(z.string()).optional(),
+  pack: z.strictObject({ version: z.number(), requires: PrFlowPackRequires, missing: z.array(z.string()), commands: z.array(PrFlowPackApprovalCommand), rules: z.array(z.string()) }).optional(),
 });
 export type PrFlowPendingApproval = z.infer<typeof PrFlowPendingApproval>;
 
@@ -146,7 +168,7 @@ export const PrFlowApproveRequest = z.strictObject({ fingerprint: z.string().min
 export type PrFlowApproveRequest = z.infer<typeof PrFlowApproveRequest>;
 
 export const PrActionRunRequest = z.strictObject({
-  repo: RepositoryName, number: z.number().int().positive(), actionId: z.string().regex(PR_FLOW_ID), head: z.string().min(1).max(64),
+  repo: RepositoryName, number: z.number().int().positive(), actionId: z.string().regex(PR_FLOW_QUALIFIED_ID), head: z.string().min(1).max(64),
 });
 export type PrActionRunRequest = z.infer<typeof PrActionRunRequest>;
 

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'vite';
+import { prPackJsonSchemaText } from '../shared/contracts/pr-pack.ts';
 
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const distDir = path.join(repoRoot, 'dist');
@@ -17,6 +18,7 @@ const REQUIRED_OUTPUTS = [
   'session/remote-setup/SKILL.md',
   'session/remote-setup/glimmervoid.service',
   'scripts/postinstall-path-check.js',
+  'schema/pr-pack.v1.json',
 ];
 
 const ENTRY_CHUNK_BUDGET_BYTES = 512 * 1024;
@@ -84,6 +86,8 @@ assertImportMetaSurvived();
 fs.cpSync(path.join(repoRoot, 'session', 'remote-setup'), path.join(distDir, 'session', 'remote-setup'), { recursive: true });
 
 fs.writeFileSync(path.join(distDir, 'package.json'), `${JSON.stringify({ type: 'module' }, null, 2)}\n`);
+fs.mkdirSync(path.join(distDir, 'schema'), { recursive: true });
+fs.writeFileSync(path.join(distDir, 'schema', 'pr-pack.v1.json'), prPackJsonSchemaText());
 
 const missing = REQUIRED_OUTPUTS.filter((relativePath) => !fs.existsSync(path.join(distDir, relativePath)));
 if (missing.length > 0) fail(`missing from dist/: ${missing.join(', ')}`);

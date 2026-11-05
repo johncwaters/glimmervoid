@@ -4,8 +4,9 @@ import { PR_ACTION_REPORT_URL_ENV, PR_ACTION_TOKEN_ENV, PrFlowRule, PrFlowsState
 import type { PrActionReportBody, PrActionRunRecord, PrActionRunRequest, PrActionRunView, PrFlowPrAction, PrFlowActionChoice, PrFlowActionOutput, PrFlowActionRunStatus, PrFlowApproveRequest, PrFlowCommand, PrFlowDisposeRequest, PrFlowDisposeResult, PrFlowItem, PrFlowItemRequest, PrFlowPendingApproval, PrFlowSaveRuleRequest, PrFlowSourceOutput, PrFlowSourceRunStatus, PrFlowsStatus } from '../../shared/contracts/pr-flows.ts';
 import { createJsonStateStore } from '../json-file.ts';
 import { fencedUntrusted } from '../lanes/core/lane-report-core.ts';
-import { acceptReport, branchMovedNote, commandFingerprint, prActionRunAfterExit, prActionsForRepo, visibleRun, withInterruptedRuns, withPrActionRun, fixLocallyPrompt, itemLocation, mergeItems, pendingApprovals, plannedActions, prFlowCommands, prFlowRules, savedRuleFor, shouldTellBranchMoved, withRuleRun, sourceCandidates, threadCandidates, unknownActionWarnings, withHandled, withOnlyOpenPrs, withReopened } from './core/pr-flows-core.ts';
+import { acceptReport, branchMovedNote, commandFingerprint, prActionRunAfterExit, prActionsForRepo, prFlowSetup, visibleRun, withInterruptedRuns, withPrActionRun, fixLocallyPrompt, itemLocation, mergeItems, plannedActions, prFlowRules, savedRuleFor, shouldTellBranchMoved, withRuleRun, sourceCandidates, threadCandidates, unknownActionWarnings, withHandled, withOnlyOpenPrs, withReopened } from './core/pr-flows-core.ts';
 import type { PrFlowsExternal } from './pr-flows-external.ts';
+import type { PrPackOnDisk } from '../../shared/contracts/pr-pack.ts';
 
 const UNTRUSTED_COMMENT_MAX_CHARS = 4000;
 
@@ -27,6 +28,7 @@ interface PrFlowsWiringOptions {
   broadcast: (frame: PrFlowsStatus) => void;
   log: Pick<Console, 'warn'>;
   reportUrlFor?: (runId: string) => string | null;
+  loadPacks?: (configFile: unknown) => { packs: PrPackOnDisk[]; warnings: string[] };
   now?: () => number;
 }
 
@@ -45,7 +47,7 @@ type ActionRun = {
 const FAILED_SOURCE_RETRY_MS = 5 * 60 * 1000;
 const BRANCH_MOVED_WINDOW_MS = 10 * 60 * 1000;
 
-function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile, appendRule, github, external = NO_EXTERNAL_RUNNER, broadcast, log, reportUrlFor = () => null, now = Date.now }: PrFlowsWiringOptions) {
+function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile, appendRule, github, external = NO_EXTERNAL_RUNNER, broadcast, log, reportUrlFor = () => null, loadPacks = () => ({ packs: [], warnings: [] }), now = Date.now }: PrFlowsWiringOptions) {
   let state: PrFlowsState = { handledByPr: {}, reopenedByPr: {}, approvedFingerprints: [], ruleRunsByPr: {}, prActionRunByPr: {} };
   let warnings: string[] = [];
   let approvals: PrFlowPendingApproval[] = [];
@@ -158,10 +160,15 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
     return { ok: true };
   }
 
-  async function runnableActionCommands(): Promise<PrFlowCommand[]> {
+  async function currentSetup() {
     await loaded;
-    const approved = new Set(state.approvedFingerprints);
-    return prFlowCommands(await readConfigFile()).actions.filter((action) => approved.has(commandFingerprint('action', action)));
+    const configFile = await readConfigFile();
+    return { configFile, setup: prFlowSetup(configFile, loadPacks(configFile), state.approvedFingerprints) };
+  }
+
+  async function runnableActionCommands(): Promise<PrFlowCommand[]> {
+    const { setup } = await currentSetup();
+    return setup.commands.actions.filter((action) => setup.approved.has(commandFingerprint('action', action)));
   }
 
   async function finishActionRun(disposal: Disposal, item: PrFlowItem, run: ActionRun, output: PrFlowActionOutput): Promise<void> {
@@ -193,13 +200,11 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
   }
 
   async function runPrAction(request: PrActionRunRequest): Promise<PrFlowDisposeResult> {
-    await loaded;
-    const configFile = await readConfigFile();
+    const { setup } = await currentSetup();
     const pr = openPrs().find((candidate) => candidate.repo.toLowerCase() === request.repo.toLowerCase() && candidate.number === request.number);
     if (!pr) return { ok: false, error: 'That pull request is no longer open.' };
     if (pr.headRefOid !== request.head) return { ok: false, error: 'The pull request has a new head since this view loaded; check it and click again.' };
-    const approved = new Set(state.approvedFingerprints);
-    const action = prActionsForRepo(prFlowCommands(configFile).prActions, pr.repo).find((candidate) => candidate.id === request.actionId && approved.has(commandFingerprint('pr-action', candidate)));
+    const action = prActionsForRepo(setup.commands.prActions, pr.repo).find((candidate) => candidate.id === request.actionId && setup.approved.has(commandFingerprint('pr-action', candidate)));
     if (!action) return { ok: false, error: 'That action is not in prFlows.prActions for this repository, or it waits for your approval in My PRs.' };
     if (state.prActionRunByPr[pr.key]?.[action.id]?.state === 'running') return { ok: false, error: `${action.label} is already running on this pull request.` };
     const runId = crypto.randomUUID();
@@ -290,13 +295,11 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
   }
 
   async function approve(request: PrFlowApproveRequest): Promise<PrFlowDisposeResult> {
-    await loaded;
-    const commands = prFlowCommands(await readConfigFile());
-    const approved = new Set(state.approvedFingerprints);
-    if (!pendingApprovals(commands, approved).some((pending) => pending.fingerprint === request.fingerprint)) {
+    const { setup } = await currentSetup();
+    if (!setup.approvals.some((pending) => pending.fingerprint === request.fingerprint)) {
       return { ok: false, error: 'That entry changed or is already approved; check the list again.' };
     }
-    await persist({ ...state, approvedFingerprints: [...approved, request.fingerprint] });
+    await persist({ ...state, approvedFingerprints: [...state.approvedFingerprints, request.fingerprint] });
     void applyRules();
     return { ok: true };
   }
@@ -360,21 +363,20 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
   }
 
   async function applyRulesOnce(): Promise<void> {
-    await loaded;
-    const configFile = await readConfigFile();
-    const commands = prFlowCommands(configFile);
-    const approved = new Set(state.approvedFingerprints);
+    const { configFile, setup } = await currentSetup();
+    const { commands, approved } = setup;
     const nextWarnings = new Set<string>(commands.warnings);
     const prs = openPrs();
     forgetUnconfiguredSourceRuns(new Set(prs.map((pr) => pr.key)), commands.sources, approved);
-    approvals = pendingApprovals(commands, approved);
+    approvals = setup.approvals;
     approvedPrActions = commands.prActions.filter((action) => approved.has(commandFingerprint('pr-action', action)));
     runnableActions = commands.actions.filter((action) => approved.has(commandFingerprint('action', action))).map(({ id, label }) => ({ id, label }));
     const runnableActionIds = new Set(runnableActions.map((action) => action.id));
     for (const pr of prs) {
       startDueSources(pr, commands.sources, approved);
       tellBranchMoved(pr);
-      const { rules, warnings: ruleWarnings } = prFlowRules(configFile, pr.repo);
+      const { rules: personalRules, warnings: ruleWarnings } = prFlowRules(configFile, pr.repo);
+      const rules = [...personalRules, ...setup.packRules];
       for (const warning of [...ruleWarnings, ...unknownActionWarnings(rules, new Set(commands.actions.map((action) => action.id)))]) nextWarnings.add(warning);
       for (const planned of plannedActions(pr.key, reviewItemsFor(pr), rules, state, runnableActionIds)) {
         if (planned.action.startsWith('run:') && hasActionRunAtHead(pr, planned.item.key, planned.action)) continue;

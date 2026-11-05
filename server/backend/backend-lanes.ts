@@ -42,6 +42,8 @@ import { createPrGh } from '../github/pr-gh.ts';
 import { createRepoCache } from '../git/repo-cache.ts';
 import { commandFor } from '../../session/adapters/index.ts';
 import { createPrFlowsWiring } from '../github/pr-flows-wiring.ts';
+import { loadPacks } from '../github/pr-packs.ts';
+import { packPathsOf } from '../github/core/pr-flows-core.ts';
 import { createPrFlowsExternal } from '../github/pr-flows-external.ts';
 import { createMyPrMergeabilityFix, createMyPrsWiring, createGuardedPrStaging, sweepKeepMergeableLeftovers } from '../github/my-prs-wiring.ts';
 import { keepMergeableTimeoutSeconds } from '../github/core/my-prs-core.ts';
@@ -280,6 +282,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     })),
     github, external: createPrFlowsExternal({ homeDir: glimmervoidHome }), broadcast: broadcastControl, log: logger,
     reportUrlFor: (runId) => `http://127.0.0.1:${dashboardPort}${prActionReportPath(runId)}`,
+    loadPacks: (configFile) => loadPacks({ homeDir: glimmervoidHome, configPaths: packPathsOf(configFile), env: process.env }),
   });
   const issues = createIssuesWiring({ config, store: githubStore.laneStore, github, gitWorkspace, broadcast: broadcastControl, hasSession: (id) => sessions.has(id), log: logger, clock: githubClock });
   const workflowsWorkRoot = path.join(glimmervoidHome, 'workflows-work');

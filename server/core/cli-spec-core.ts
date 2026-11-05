@@ -197,7 +197,11 @@ const OWNED_COMMAND_SPECS = {
     subcommands: [{
       name: 'check',
       summary: 'Name each entry valid or its error, run each source once against --pr and print each action\'s expanded command without running it',
-      options: [{ name: 'pr', type: 'string', valueName: 'url', summary: 'A pull request URL to run the sources against' }, JSON_OPTION, CONFIG_OPTION],
+      options: [
+        { name: 'pr', type: 'string', valueName: 'url', summary: 'A pull request URL to run the sources against' },
+        { name: 'pack', type: 'string', valueName: 'dir', summary: 'Check a pack directory instead: its pack.json schema, placeholders and requires, running nothing' },
+        JSON_OPTION, CONFIG_OPTION,
+      ],
     }],
   },
   'pr-action': {

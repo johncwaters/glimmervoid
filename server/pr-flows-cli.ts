@@ -10,12 +10,14 @@ import type { CommandRunOptions, CommandRunResult } from './child-process-safe.t
 import type { ParsedCommand } from './core/cli-spec-core.ts';
 import { decideConfigPath, glimmervoidHomeDir } from './core/config-path-core.ts';
 import { parseJsonOrNull } from './core/json-core.ts';
-import { commandFingerprint, expandPlaceholders, prFlowCommands, prFlowRules, unknownActionWarnings } from './github/core/pr-flows-core.ts';
+import { commandFingerprint, expandPlaceholders, packApproval, prFlowCommands, prFlowRules, unknownActionWarnings } from './github/core/pr-flows-core.ts';
+import { readPackDir } from './github/pr-packs.ts';
 import { createPrFlowsExternal } from './github/pr-flows-external.ts';
 
 const PR_URL_PATTERN = /^https:\/\/github\.com\/([^/\s]+\/[^/\s]+)\/pull\/(\d+)\/?$/;
 const SOURCE_PLACEHOLDERS = ['prUrl', 'repo', 'number', 'head'];
 const ACTION_PLACEHOLDERS = [...SOURCE_PLACEHOLDERS, 'itemPath', 'itemLine'];
+const PLACEHOLDERS_BY_KIND = { source: SOURCE_PLACEHOLDERS, action: ACTION_PLACEHOLDERS, 'pr-action': [...SOURCE_PLACEHOLDERS, 'headRef', 'baseRef'] } as const;
 const GH_TIMEOUT_MS = 30_000;
 const GH_OUTPUT_MAX_BYTES = 64 * 1024;
 const REPORT_TIMEOUT_MS = 15_000;
@@ -175,14 +177,54 @@ async function runPrFlowsCheck(options: PrFlowsCheckOptions & { isJson: boolean 
   }
 }
 
+type PackEntryCheck = { kind: keyof typeof PLACEHOLDERS_BY_KIND; id: string; label: string; argv: string[]; error: string | null };
+type PackCheckReport = { packDir: string; name: string | null; isApproved: boolean; errors: string[]; missingRequires: string[]; entries: PackEntryCheck[]; rules: string[] };
+
+function checkPack(packDir: string, env: NodeJS.ProcessEnv, homeDir: string): PackCheckReport {
+  const read = readPackDir(packDir, env);
+  if (!read.ok) return { packDir: path.resolve(packDir), name: null, isApproved: false, errors: read.errors, missingRequires: [], entries: [], rules: [] };
+  const approval = packApproval(read.pack);
+  const entries = (approval.pack?.commands ?? []).map((command): PackEntryCheck => {
+    const names = PLACEHOLDERS_BY_KIND[command.kind];
+    const expanded = expandPlaceholders(command.command, Object.fromEntries(names.map((name) => [name, `{${name}}`])));
+    const error = expanded.ok ? null : `{${expanded.unknown}} is not a placeholder here; use {packDir}, ${names.map((name) => `{${name}}`).join(', ')}`;
+    return { kind: command.kind, id: command.id, label: command.label, argv: command.command, error };
+  });
+  const { pack } = read.pack;
+  return {
+    packDir: read.pack.dir, name: approval.label, isApproved: approvedFingerprints(homeDir).has(read.pack.fingerprint),
+    errors: unknownActionWarnings(pack.rules, new Set(pack.actions.map((action) => action.id))), missingRequires: read.pack.missingRequires, entries, rules: approval.pack?.rules ?? [],
+  };
+}
+
+function packReportText(report: PackCheckReport): string {
+  const heading = report.name === null ? `Checked the pack at ${report.packDir}` : `Checked pack ${report.name} at ${report.packDir}, ${report.isApproved ? 'approved' : 'waits for approval in My PRs'}`;
+  return [
+    heading,
+    ...report.entries.map((entry) => `${entry.kind} ${entry.id} (${entry.label}): ${entry.error === null ? `valid\n  would run ${JSON.stringify(entry.argv)}` : `invalid, ${entry.error}`}`),
+    ...report.rules.map((rule) => `rule ${rule}`),
+    ...report.errors.map((error) => `error: ${error}`),
+    ...report.missingRequires.map((missing) => `missing on this machine: ${missing}, so the pack stays off here`),
+  ].join('\n');
+}
+
+function runPackCheck({ packDir, isJson, env, homeDir }: { packDir: string; isJson: boolean; env: NodeJS.ProcessEnv; homeDir: string }, io: PrFlowsCheckIo): number {
+  const report = checkPack(packDir, env, homeDir);
+  io.writeOutput(`${isJson ? JSON.stringify(report, null, 2) : packReportText(report)}\n`);
+  const hasProblem = report.errors.length > 0 || report.missingRequires.length > 0 || report.entries.some((entry) => entry.error !== null);
+  return hasProblem ? 1 : 0;
+}
+
 async function runPrFlowsCheckCli(parsed: Extract<ParsedCommand, { kind: 'run' }>): Promise<number> {
   const env = process.env;
   const homeDir = glimmervoidHomeDir(os.homedir(), env);
+  const io = { writeOutput: (text: string) => process.stdout.write(text), writeError: (text: string) => process.stderr.write(text) };
+  if (typeof parsed.values.pack === 'string') return runPackCheck({ packDir: parsed.values.pack, isJson: parsed.values.json === true, env, homeDir }, io);
   const readConfig = env[AGENT_URL_ENV] ? readConfigFromServer : () => readConfigFile(env, homeDir);
   return runPrFlowsCheck({
     prUrl: typeof parsed.values.pr === 'string' ? parsed.values.pr : null, isJson: parsed.values.json === true,
     env, homeDir, runCommand: runCommandSafely, readConfig,
-  }, { writeOutput: (text) => process.stdout.write(text), writeError: (text) => process.stderr.write(text) });
+  }, io);
 }
 
 interface PrActionReportOptions {
@@ -228,4 +270,4 @@ async function runPrActionReportCli(parsed: Extract<ParsedCommand, { kind: 'run'
   }, { writeOutput: (text) => process.stdout.write(text), writeError: (text) => process.stderr.write(text) });
 }
 
-export { readConfigFile, runPrActionReport, runPrActionReportCli, runPrFlowsCheck, runPrFlowsCheckCli };
+export { readConfigFile, runPackCheck, runPrActionReport, runPrActionReportCli, runPrFlowsCheck, runPrFlowsCheckCli };

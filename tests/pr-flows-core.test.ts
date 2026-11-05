@@ -13,12 +13,14 @@ import { PR_ACTION_REPORT_URL_ENV, PR_ACTION_TOKEN_ENV, prActionReportPath, PrFl
 import type { PrFlowsStatus } from '../shared/contracts/pr-flows.ts';
 import { createPrFlowsWiring } from '../server/github/pr-flows-wiring.ts';
 import { createPrFlowsExternal } from '../server/github/pr-flows-external.ts';
-import { readConfigFile, runPrActionReport, runPrFlowsCheck } from '../server/pr-flows-cli.ts';
+import { readConfigFile, runPackCheck, runPrActionReport, runPrFlowsCheck } from '../server/pr-flows-cli.ts';
+import { loadPacks } from '../server/github/pr-packs.ts';
+import { prPackJsonSchemaText } from '../shared/contracts/pr-pack.ts';
 import { createBackendHttpApp } from '../server/backend/backend-http.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { runCommandSafely } from '../server/child-process-safe.ts';
 import { configFileViewOf, readSettingsForAgent } from '../server/core/settings-readout-core.ts';
-import { commandFingerprint, expandPlaceholders, mergeItems, plannedActions, prFlowRules, sourceCandidates, teammateThreadItems, threadCandidates } from '../server/github/core/pr-flows-core.ts';
+import { commandFingerprint, expandPlaceholders, packPathsOf, mergeItems, plannedActions, prFlowRules, sourceCandidates, teammateThreadItems, threadCandidates } from '../server/github/core/pr-flows-core.ts';
 import { draftsNewestFirst } from '../server/github/core/team-review-core.ts';
 import { ReviewDraft, TeamReviewThreadNode } from '../shared/contracts/team-review.ts';
 import { isIncludedByDefault, otherReviewRows } from '../public/github/team-review-view-core.ts';
@@ -523,6 +525,92 @@ test('a started PR action takes one final report from the holder of its token th
     assert.equal(errors.length, 4);
   } finally {
     await closeServer(server);
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  }
+});
+
+test('a pack copied into the packs directory waits for one approval listing its commands and requires, then shows its namespaced buttons and actions; any file edit re-asks and a missing require turns it off with a note', async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-packs-'));
+  try {
+    const packDir = path.join(homeDir, 'packs', 'sample');
+    fs.cpSync(path.join(import.meta.dirname, 'fixtures', 'pr-packs', 'sample'), packDir, { recursive: true });
+    const linkedDir = path.join(homeDir, 'linked-pack');
+    fs.mkdirSync(linkedDir);
+    fs.writeFileSync(path.join(linkedDir, 'pack.json'), JSON.stringify({ name: 'linked', version: 1 }));
+    fs.symlinkSync('/etc/hosts', path.join(linkedDir, 'hosts'));
+    const pr = myPrIn('acme/app', 1);
+    const frames: PrFlowsStatus[] = [];
+    const configFile = { prFlows: { packs: [linkedDir] } };
+    const prFlows = createPrFlowsWiring({
+      statePath: null, openPrs: () => [pr], broadcast: (frame) => frames.push(frame), log: console, linkedSession: () => null, appendRule: async () => true,
+      readConfigFile: async () => configFile, github: NO_GITHUB_WRITES, external: createPrFlowsExternal({ homeDir }),
+      loadPacks: (config) => loadPacks({ homeDir, configPaths: packPathsOf(config), env: process.env }),
+    });
+    const approveThePack = async () => {
+      await prFlows.applyRules();
+      const approvals = prFlows.statusFrame().pendingApprovals;
+      assert.deepEqual(approvals.map((approval) => approval.kind), ['pack']);
+      await prFlows.approve({ fingerprint: approvals[0]?.fingerprint ?? '' });
+      await prFlows.applyRules();
+    };
+
+    await prFlows.applyRules();
+    const [approval] = prFlows.statusFrame().pendingApprovals;
+    assert.deepEqual(approval?.pack?.commands.map((command) => [command.kind, command.id, command.command[1]]), [
+      ['pr-action', 'sample/hand-off', path.join(packDir, 'hand-off.ts')], ['action', 'sample/note', path.join(packDir, 'hand-off.ts')],
+    ]);
+    assert.deepEqual([approval?.label, approval?.pack?.requires], ['sample v1', { env: [], programs: ['node'] }]);
+    assert.match(approval?.pack?.rules.join('\n') ?? '', /^Generated files: .*"paths":\["dist\/"\].*"action":"run:sample\/note"/);
+    assert.ok(prFlows.statusFrame().warnings.some((warning) => warning.includes(linkedDir) && warning.includes('symlink')));
+    assert.deepEqual(prFlows.statusFrame().prActionsByPr, {});
+
+    await approveThePack();
+    assert.deepEqual(prFlows.statusFrame().prActionsByPr, { 'acme/app#1': [{ id: 'sample/hand-off', label: 'Hand off' }] });
+    assert.deepEqual(prFlows.statusFrame().actions, [{ id: 'sample/note', label: 'Note it' }]);
+    assert.equal(prFlows.statusFrame().warnings.some((warning) => warning.includes('run:sample/note')), false);
+    assert.deepEqual(await prFlows.runPrAction({ repo: 'acme/app', number: 1, actionId: 'sample/hand-off', head: pr.headRefOid }), { ok: true });
+    const started = await frameMatching(frames, (frame) => frame.prActionRunsByPr['acme/app#1']?.[0]?.state === 'started');
+    assert.equal(started.prActionRunsByPr['acme/app#1']?.[0]?.message, 'Handed off https://github.com/acme/app/pull/1 feature-1');
+
+    fs.appendFileSync(path.join(packDir, 'hand-off.ts'), '\n');
+    await prFlows.applyRules();
+    assert.deepEqual(prFlows.statusFrame().prActionsByPr, {});
+    const packJsonPath = path.join(packDir, 'pack.json');
+    fs.writeFileSync(packJsonPath, JSON.stringify({ ...JSON.parse(fs.readFileSync(packJsonPath, 'utf8')), requires: { env: ['GLIMMERVOID_PACK_TEST_UNSET'] } }));
+    await approveThePack();
+    assert.deepEqual(prFlows.statusFrame().prActionsByPr, {});
+    assert.ok(prFlows.statusFrame().warnings.includes("The pack 'sample' is off until this machine has env GLIMMERVOID_PACK_TEST_UNSET"));
+  } finally {
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  }
+});
+
+test('the published pack JSON Schema matches the Zod contract, and pr-flows check --pack names schema errors and missing requires without running anything', () => {
+  const publishedPath = path.join(import.meta.dirname, '..', 'site', 'public', 'schema', 'pr-pack.v1.json');
+  assert.equal(fs.readFileSync(publishedPath, 'utf8'), prPackJsonSchemaText(), 'regenerate site/public/schema/pr-pack.v1.json from prPackJsonSchemaText()');
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-pack-check-'));
+  try {
+    const output: string[] = [];
+    const io = { writeOutput: (text: string) => { output.push(text); }, writeError: (text: string) => { output.push(text); } };
+    const check = (packDir: string) => runPackCheck({ packDir, isJson: false, env: process.env, homeDir }, io);
+    assert.equal(check(path.join(import.meta.dirname, 'fixtures', 'pr-packs', 'sample')), 0);
+    const brokenDir = path.join(homeDir, 'broken');
+    fs.mkdirSync(brokenDir);
+    fs.writeFileSync(path.join(brokenDir, 'pack.json'), JSON.stringify({ name: 'Bad Name', version: 1 }));
+    assert.equal(check(brokenDir), 1);
+    assert.match(output.at(-1) ?? '', /error: pack\.json name: a pack name is lowercase/);
+    fs.writeFileSync(path.join(brokenDir, 'pack.json'), JSON.stringify({ name: 'needs', version: 1, requires: { programs: ['glimmervoid-no-such-program'] } }));
+    assert.equal(check(brokenDir), 1);
+    assert.match(output.at(-1) ?? '', /missing on this machine: program glimmervoid-no-such-program/);
+    const twoGoButtons = [{ id: 'go', label: 'Go A', command: ['echo', 'a'] }, { id: 'go', label: 'Go B', command: ['echo', 'b'] }];
+    fs.writeFileSync(path.join(brokenDir, 'pack.json'), JSON.stringify({ name: 'dup', version: 1, prActions: twoGoButtons }));
+    assert.equal(check(brokenDir), 1);
+    assert.match(output.at(-1) ?? '', /error: pack\.json prActions\.1\.id: the id 'go' is already used in prActions/);
+    const homeWithPacksFile = path.join(homeDir, 'packs-is-a-file');
+    fs.mkdirSync(homeWithPacksFile);
+    fs.writeFileSync(path.join(homeWithPacksFile, 'packs'), '');
+    assert.match(loadPacks({ homeDir: homeWithPacksFile, configPaths: [], env: process.env }).warnings[0] ?? '', /packs could not be read/);
+  } finally {
     fs.rmSync(homeDir, { recursive: true, force: true });
   }
 });

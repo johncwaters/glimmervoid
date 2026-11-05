@@ -365,7 +365,29 @@ function createUndoControl(pr: MyPr, itemKey: string): HTMLElement {
 function approvalKindLabel(kind: PrFlowPendingApproval['kind']): string {
   if (kind === 'source') return 'Source';
   if (kind === 'action') return 'Action';
+  if (kind === 'pack') return 'Pack';
   return 'PR action';
+}
+
+function approvalDetails(approval: PrFlowPendingApproval): HTMLElement[] {
+  const repos = approval.repos ? `, on ${approval.repos.join(', ')}` : '';
+  if (!approval.pack) {
+    return [
+      el('p', 'my-pr-thread-meta', `${approvalKindLabel(approval.kind)} ${approval.label} (${approval.id}), timeout ${approval.timeoutSeconds}s${repos}`),
+      el('pre', 'my-pr-thread-excerpt', JSON.stringify(approval.command)),
+    ];
+  }
+  const { requires, missing, commands, rules } = approval.pack;
+  const needs = [...requires.env.map((name) => `env ${name}`), ...requires.programs.map((program) => `program ${program}`)];
+  const lines = [
+    `Pack ${approval.label}, needs ${needs.length === 0 ? 'nothing on this machine' : needs.join(', ')}`,
+    ...(missing.length === 0 ? [] : [`Missing here: ${missing.join(', ')}; the pack stays off until this machine has them`]),
+  ];
+  return [
+    ...lines.map((line) => el('p', 'my-pr-thread-meta', line)),
+    ...rules.map((rule) => el('pre', 'my-pr-thread-excerpt', `Rule ${rule}`)),
+    ...commands.map((command) => el('pre', 'my-pr-thread-excerpt', `${approvalKindLabel(command.kind)} ${command.label} (${command.id})${command.repos ? `, on ${command.repos.join(', ')}` : ''}: ${JSON.stringify(command.command)}`)),
+  ];
 }
 
 function createPrFlowApprovals(): HTMLElement | null {
@@ -378,9 +400,7 @@ function createPrFlowApprovals(): HTMLElement | null {
     const statusKey = `approve:${approval.fingerprint}`;
     const status = itemStatusByKey.get(statusKey);
     const item = el('li', 'my-pr-thread');
-    const repos = approval.repos ? `, on ${approval.repos.join(', ')}` : '';
-    item.append(el('p', 'my-pr-thread-meta', `${approvalKindLabel(approval.kind)} ${approval.label} (${approval.id}), timeout ${approval.timeoutSeconds}s${repos}`));
-    item.append(el('pre', 'my-pr-thread-excerpt', JSON.stringify(approval.command)));
+    item.append(...approvalDetails(approval));
     const actions = el('div', 'my-pr-item-actions');
     const approve = button({ variant: 'secondary', label: 'Approve', action: 'pr-flow-approve', disabled: status?.tone === 'busy', onClick: () => {
       void sendItemRequest(statusKey, 'Approving', 'pr-flow-approve', { fingerprint: approval.fingerprint });
