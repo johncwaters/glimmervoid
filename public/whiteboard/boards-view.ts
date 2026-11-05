@@ -551,6 +551,7 @@ function enlargedMediaOf(pressedImage: PressedImage, media: BoxMedia | null): HT
     video.src = originalHref;
     video.controls = true;
     video.playsInline = true;
+    video.autoplay = true;
     return video;
   }
   const picture = el('img', 'wb-image-viewer-picture');
@@ -796,7 +797,7 @@ export function mountBoardHost(): HTMLElement {
   const svg = document.createElementNS(SVG_NAMESPACE, 'svg');
   svg.setAttribute('class', 'wb-svg');
   svg.setAttribute('aria-hidden', 'true');
-  const mediaLayer = createBoardMediaLayer({ viewport, boardHost: canvas, onOpenFullSize: (boxId, alt) => openImageViewer({ boxId, href: '', alt }) });
+  const mediaLayer = createBoardMediaLayer();
   world.append(svg, mediaLayer.element);
   viewport.append(world);
   const inspectPanel = el('aside', 'wb-inspect');
@@ -840,7 +841,6 @@ export function mountBoardHost(): HTMLElement {
     onPhoneTapBox: addNoteOn,
     onOpenLinkedBoard: selectBoard,
     onOpenImage: openImageViewer,
-    onActivateMedia: mediaLayer.activate,
     onConnectBoxes: connectBoxes,
     onToolChange: paintActiveTool,
   });

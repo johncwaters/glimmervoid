@@ -37,7 +37,6 @@ interface BoardEditorOptions {
   onPhoneTapBox: (boxId: string) => void;
   onOpenLinkedBoard: (boardId: string) => void;
   onOpenImage: (image: PressedImage) => void;
-  onActivateMedia: (boxId: string) => void;
   onConnectBoxes: (fromBoxId: string, toBoxId: string) => void;
   onToolChange: (tool: BoardTool) => void;
 }
@@ -328,7 +327,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (hit && boxRect) {
       const origin = toViewPoint(event.clientX, event.clientY);
       const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
-      gesture = { kind: 'drag', mode: 'move', pointerId: event.pointerId, boxId: hit.id, origin, start: boxRect, pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: event.shiftKey, pressedImage: pressedPictureOf(event.target) };
+      gesture = { kind: 'drag', mode: 'move', pointerId: event.pointerId, boxId: hit.id, origin, start: boxRect, pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: event.shiftKey, pressedImage: pressedMediaOf(event) };
       return;
     }
     if (hit && !isPhoneLayout()) {
@@ -336,7 +335,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
       return;
     }
     const tappedBoxId = hit?.kind === 'box' ? hit.id : null;
-    gesture = { kind: 'pan', pointerId: event.pointerId, lastClient: { x: event.clientX, y: event.clientY }, hasMoved: false, tappedBoxId, pressedImage: pressedPictureOf(event.target) };
+    gesture = { kind: 'pan', pointerId: event.pointerId, lastClient: { x: event.clientX, y: event.clientY }, hasMoved: false, tappedBoxId, pressedImage: pressedMediaOf(event) };
   }
 
   async function placeElement(tool: PlacementTool, point: ViewPoint): Promise<void> {
@@ -549,26 +548,15 @@ export function createBoardEditor(options: BoardEditorOptions) {
     input.select();
   }
 
-  function pressedPictureOf(target: EventTarget | null): PressedImage | null {
-    const pressed = pressedImageOf(target);
-    const pressedBox = pressed?.boxId ? renderer.layout()?.elements.find((element) => element.id === pressed.boxId) : undefined;
-    if (pressedBox?.kind === 'box' && pressedBox.media && pressedBox.media.kind !== 'image') return null;
-    return pressed;
-  }
-
-  function liveMediaBoxAt(clientX: number, clientY: number): string | null {
-    const point = toViewPoint(clientX, clientY);
-    const mediaBox = renderer.layout()?.elements.find((element) => element.kind === 'box' && element.media && element.media.kind !== 'image'
+  function pressedMediaOf(event: PointerEvent): PressedImage | null {
+    const point = toViewPoint(event.clientX, event.clientY);
+    const liveMediaBox = renderer.layout()?.elements.find((element) => element.kind === 'box' && element.media && element.media.kind !== 'image'
       && point.x >= element.media.x && point.x <= element.media.x + element.media.width && point.y >= element.media.y && point.y <= element.media.y + element.media.height);
-    return mediaBox?.id ?? null;
+    if (liveMediaBox?.kind === 'box' && liveMediaBox.media) return { boxId: liveMediaBox.id, href: '', alt: liveMediaBox.media.alt };
+    return pressedImageOf(event.target);
   }
 
   function onDoubleClick(event: MouseEvent): void {
-    const mediaBoxId = liveMediaBoxAt(event.clientX, event.clientY);
-    if (mediaBoxId) {
-      options.onActivateMedia(mediaBoxId);
-      return;
-    }
     if (isPhoneLayout()) return;
     const hit = renderer.elementFromTarget(document.elementFromPoint(event.clientX, event.clientY));
     if (hit?.kind !== 'box' && hit?.kind !== 'panel') return;
