@@ -60,9 +60,20 @@ function classifyTitle(title: string, { cwdBasename = null }: { cwdBasename?: st
   });
 }
 
+const PROJECT_TITLE_MAX_GRAPHEMES = 24;
+const PROJECT_TITLE_TRUNCATION_MARKER = "...";
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+function codexProjectTitle(projectName: string): string {
+  const graphemes = Array.from(graphemeSegmenter.segment(projectName), (part) => part.segment);
+  if (graphemes.length <= PROJECT_TITLE_MAX_GRAPHEMES) return projectName;
+  return graphemes.slice(0, PROJECT_TITLE_MAX_GRAPHEMES - PROJECT_TITLE_TRUNCATION_MARKER.length).join("") + PROJECT_TITLE_TRUNCATION_MARKER;
+}
+
 const titleProfile: AgentTitleProfile = {
   classifyTitle,
   quietUntilFirstPrompt: true,
+  projectTitleOf: codexProjectTitle,
   taskTitle: { readsTranscriptTitle: false, genericTitles: [ID], agentSuffix: ` - ${ID}` },
 };
 

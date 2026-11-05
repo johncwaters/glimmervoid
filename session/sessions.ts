@@ -281,6 +281,7 @@ class Session extends EventEmitter {
   _pendingPromptToolName: string | null;
   _pendingAttentionNotes: string[];
   _titleQuiet: boolean;
+  _hooksReportPrompts: boolean;
   _spawnCommand: ResolvedCommand | null;
   _initialPrompt: string | null;
   _pendingPromptSupervisionLine: string | null;
@@ -498,6 +499,7 @@ class Session extends EventEmitter {
     this._pendingAttentionNotes = [];
 
     this._titleQuiet = false;
+    this._hooksReportPrompts = false;
     this.backgroundTracking = createSessionBackgroundTracking({
       detectBackgroundAgents: detectBackgroundAgents && this._can("backgroundAgents"),
       agentTtlMs,
@@ -664,7 +666,7 @@ class Session extends EventEmitter {
     this._titleSource.on("title", (title: string) => {
       const taskTitleVocabulary = this._adapter.titleProfile.taskTitle;
       if (taskTitleVocabulary.readsTranscriptTitle) return;
-      const oscTitle = extractOscTaskTitle(title, path.basename(this.effectiveCwd()), taskTitleVocabulary);
+      const oscTitle = extractOscTaskTitle(title, this._titleProjectName(), taskTitleVocabulary);
       if (!oscTitle) return;
       this._taskTitleSources.oscTitle = oscTitle;
       this._updateTaskTitle();
@@ -1056,7 +1058,7 @@ class Session extends EventEmitter {
     this._lastSignal = { signal: s.signal, source: s.source, confidence: s.confidence, ts: s.ts };
 
     this._observeCompaction(s.signal, s.source);
-    if (isCompactionEndingSignal(this._compaction, s.signal, s.source)) {
+    if (isCompactionEndingSignal(this._compaction, s.signal, s.source, this._hooksReportPrompts)) {
       this._finishCompaction();
       return;
     }
@@ -1585,10 +1587,11 @@ class Session extends EventEmitter {
       : { args: [], env: {} };
     const settingsArgs = [...hookInjection.args, ...mcpLaunch.args];
 
-    this._titleQuiet = this._adapter.titleProfile.quietUntilFirstPrompt === true && this._hooks.hasInjection() && !isRemoteCodex;
+    this._hooksReportPrompts = this._hooks.hasInjection() && !isRemoteCodex;
+    this._titleQuiet = this._adapter.titleProfile.quietUntilFirstPrompt === true && this._hooksReportPrompts;
     this._armTitleQuietFallback();
 
-    this._titleSource.setContext({ cwdBasename: path.basename(this.effectiveCwd()) });
+    this._applyTitleContext();
     const injectedEnv = { ...hookInjection.env, ...this._launch.agentApiEnv(), ...mcpLaunch.env, ...this._launch.commitSigningEnv() };
     const spawnExtraEnv = Object.keys(injectedEnv).length > 0
       ? { ...(this._spawnEnv || {}), ...injectedEnv }
@@ -1792,6 +1795,15 @@ class Session extends EventEmitter {
     const message = errorMessage(err);
     console.warn(`[session ${this.id}] pty socket error: ${message} - killing the session`);
     this.kill();
+  }
+
+  _titleProjectName(): string {
+    const cwdBasename = path.basename(this.effectiveCwd());
+    return this._adapter.titleProfile.projectTitleOf?.(cwdBasename) ?? cwdBasename;
+  }
+
+  _applyTitleContext(): void {
+    this._titleSource.setContext({ cwdBasename: this._titleProjectName() });
   }
 
   _armTitleQuietFallback(): void {

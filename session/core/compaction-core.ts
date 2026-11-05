@@ -57,8 +57,14 @@ function finishCompaction(tracking: CompactionTracking, state: SessionState) {
   return { tracking: { ...tracking, isCompacting: false, hasFinishedCompaction: true, idleTitleState: null, returnState: null }, event, returnState, shouldResetDetectionSources };
 }
 
-function isCompactionEndingSignal(tracking: CompactionTracking, signal: string, source?: string | null): boolean {
-  return tracking.isCompacting && signal === "ready" && source !== "hook";
+function isIdleTitleActivity(tracking: CompactionTracking): boolean {
+  return !tracking.hasPromptInFlight && tracking.idleTitleState !== null;
+}
+
+function isCompactionEndingSignal(tracking: CompactionTracking, signal: string, source: string | null | undefined, hooksReportPrompts: boolean): boolean {
+  if (signal !== "ready" || source === "hook") return false;
+  if (tracking.isCompacting) return true;
+  return hooksReportPrompts && isIdleTitleActivity(tracking);
 }
 
 function suppressCompactionSignal(tracking: CompactionTracking, signal: string): boolean {
@@ -71,7 +77,7 @@ function mapCompactionActivityEvent(tracking: CompactionTracking, signal: string
 }
 
 function isIdleCompactionActivity(tracking: CompactionTracking, signal: string, source: string | null | undefined): boolean {
-  return signal === "working" && source === "title" && !tracking.hasPromptInFlight && tracking.idleTitleState !== null;
+  return signal === "working" && source === "title" && isIdleTitleActivity(tracking);
 }
 
 export { createCompactionTracking, observeCompaction, finishCompaction, isCompactionEndingSignal, suppressCompactionSignal, mapCompactionActivityEvent, isIdleCompactionActivity };
