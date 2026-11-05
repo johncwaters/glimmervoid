@@ -197,6 +197,10 @@
     {
       "name": "gemini cli",
       "definition": "Google's Gemini CLI, an agent CLI glimmervoid supervises through its gemini agent adapter, with hook status from a generated GEMINI_CLI_HOME"
+    },
+    {
+      "name": "qwen code",
+      "definition": "Alibaba's Qwen Code CLI, an agent CLI glimmervoid supervises through its qwen agent adapter, with hook status from a generated QWEN_HOME"
     }
   ]
 }

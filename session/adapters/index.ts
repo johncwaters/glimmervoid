@@ -3,6 +3,7 @@ import type { InstalledHookFlags, InstalledHooks, UserHook } from '../core/user-
 import claudeCode from "./claude-code.ts";
 import codex from "./codex.ts";
 import gemini from "./gemini.ts";
+import qwen from "./qwen.ts";
 import grok from "./grok.ts";
 import kimi from "./kimi.ts";
 import shell from "./shell.ts";
@@ -167,6 +168,7 @@ const BUILT_IN_AGENTS: readonly BuiltInAgent[] = Object.freeze([
   { adapter: codex, tier: "first-class" },
   { adapter: kimi, tier: "first-class" },
   { adapter: gemini, tier: "hooked" },
+  { adapter: qwen, tier: "hooked" },
   { adapter: grok, tier: "hooked" },
   { adapter: shell, tier: "shell" },
 ]);
