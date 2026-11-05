@@ -22,10 +22,10 @@ interface Segment {
 const BEND_COST = 30;
 const SOFT_OBSTACLE_COST = 300;
 const BACK_INTERIOR_COST = 400;
-const DEEPER_FIRST = 1e-9;
 const MAX_BENDS = 6;
 const MAX_WIRES_FOR_PORT_SEARCH = 12;
-const PROBE_EXPANSIONS = 3_000;
+const OFF_FACING_SIDE_COST = 1;
+const SIDE_CHOICE_BEND_COST = 1e6;
 const INITIAL_STATE_CAPACITY = 4096;
 const PORT_SPACING = 14;
 const PORT_INSET = 8;
@@ -37,6 +37,8 @@ const LABEL_DESCENT = 3;
 const LABEL_CLEARANCE = 2;
 const LABEL_SLIDE_FRACTIONS = [0.5, 0.35, 0.65, 0.2, 0.8];
 
+const RIGHT = 0;
+const LEFT = 1;
 const STEP_BY_DIRECTION = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }] as const;
 const OUTWARD_DIRECTION_BY_SIDE: Record<Side, number> = { right: 0, left: 1, bottom: 2, top: 3 };
 const INWARD_DIRECTION_BY_SIDE: Record<Side, number> = { left: 0, right: 1, top: 2, bottom: 3 };
@@ -80,9 +82,38 @@ interface DrawnWire {
   states: number[] | null;
 }
 
+type GraphPort = Parameters<typeof buildVisibilityGraph>[0]['ports'][number];
+
+interface SideTerminal {
+  side: Side;
+  point: Point;
+  direction: number;
+  bias: number;
+}
+
+interface PlacedTerminal extends SideTerminal {
+  node: number;
+  component: number;
+  approachStart: number;
+  approachEnd: number;
+}
+
+interface SideChoice {
+  plan: WirePlan;
+  exits: SideTerminal[];
+  entries: SideTerminal[];
+}
+
+interface SearchOutcome {
+  states: number[];
+  exit: PlacedTerminal;
+  entry: PlacedTerminal;
+}
+
 interface MinHeap {
   states: Int32Array;
   priorities: Float64Array;
+  tieBreaks: Float64Array;
   size: number;
   lastPoppedPriority: number;
 }
@@ -119,14 +150,6 @@ function unionOf(rects: readonly Rect[]): Rect | null {
     bottom = Math.max(bottom, rect.y + rect.height);
   }
   return { x: left, y: top, width: right - left, height: bottom - top };
-}
-
-function rectsTouch(first: Rect, second: Rect): boolean {
-  return first.x <= second.x + second.width && second.x <= first.x + first.width && first.y <= second.y + second.height && second.y <= first.y + first.height;
-}
-
-function pointBoundsOf(points: readonly Point[]): Rect {
-  return unionOf(points.map((point) => ({ ...point, width: 0, height: 0 }))) ?? { x: 0, y: 0, width: 0, height: 0 };
 }
 
 function groupedBy<Item, Key>(items: readonly Item[], keyOf: (item: Item) => Key): Map<Key, Item[]> {
@@ -212,14 +235,6 @@ function facingSides(from: LaidOutBox, to: LaidOutBox, isBack: boolean): SidePai
 
 const ALL_SIDES: readonly Side[] = ['right', 'left', 'bottom', 'top'];
 
-function candidateSidePairs(plan: WirePlan, facing: SidePair): SidePair[] {
-  const { wire, from, to } = plan;
-  if (wire.back || from.id === to.id) return [facing];
-  const exitSides = plan.outputPort || wire.fromSide ? [plan.exitSide] : [facing.exitSide, ...ALL_SIDES.filter((side) => side !== facing.exitSide)];
-  const entrySides = wire.toSide ? [wire.toSide] : [facing.entrySide, ...ALL_SIDES.filter((side) => side !== facing.entrySide)];
-  return exitSides.flatMap((exitSide) => entrySides.map((entrySide) => ({ exitSide, entrySide })));
-}
-
 function probeOf(plan: WirePlan, pair: SidePair): WirePlan {
   const centeredStart = plan.outputPort ?? portPositions(plan.from, pair.exitSide, 1)[0] ?? centerOf(plan.from);
   const centeredEnd = portPositions(plan.to, pair.entrySide, 1)[0] ?? centerOf(plan.to);
@@ -229,69 +244,56 @@ function probeOf(plan: WirePlan, pair: SidePair): WirePlan {
   return { ...plan, ...pair, start, end: alignedEnd };
 }
 
-interface ProbeScore {
-  turnsAndCrossings: number;
-  cost: number;
-}
-
-interface ProbedRoute {
-  segments: Segment[];
-  bounds: Rect;
-  bends: number;
-  cost: number;
-}
-
-function isBetterProbe(candidate: ProbeScore, best: ProbeScore): boolean {
-  return candidate.turnsAndCrossings < best.turnsAndCrossings || (candidate.turnsAndCrossings === best.turnsAndCrossings && candidate.cost < best.cost);
-}
-
 function pointsOfStates(graph: VisibilityGraph, states: readonly number[]): Point[] {
   return withoutBends(states.map((state) => ({ x: graph.xs[state >> 2] ?? 0, y: graph.ys[state >> 2] ?? 0 })));
 }
 
-function probeRoute(graph: VisibilityGraph, probe: WirePlan, buffers: SearchBuffers): ProbedRoute | null {
-  const states = searchGraph(graph, probe, null, buffers, PROBE_EXPANSIONS);
-  const goalState = states?.at(-1);
-  const cost = goalState === undefined ? Infinity : buffers.bestCost[goalState] ?? Infinity;
-  resetSearchBuffers(buffers);
-  if (!states || cost === Infinity) return null;
-  const points = pointsOfStates(graph, states);
-  return { segments: segmentsOf(points), bounds: pointBoundsOf(points), bends: Math.max(points.length - 2, 0), cost };
+function sideTerminalsOf(box: LaidOutBox, sides: readonly Side[], facingSide: Side, facingPoint: Point, directionBySide: Record<Side, number>): SideTerminal[] {
+  return sides.map((side) => ({
+    side,
+    point: side === facingSide ? facingPoint : portPositions(box, side, 1)[0] ?? centerOf(box),
+    direction: directionBySide[side],
+    bias: side === facingSide ? 0 : OFF_FACING_SIDE_COST,
+  }));
 }
 
-function scoreOf(route: ProbedRoute, otherRoutes: readonly ProbedRoute[]): ProbeScore {
-  const crossings = otherRoutes.filter((other) => rectsTouch(route.bounds, other.bounds) && other.segments.some((otherSegment) => route.segments.some((segment) => segmentsCross(segment, otherSegment)))).length;
-  return { turnsAndCrossings: route.bends + crossings, cost: route.cost };
+function otherSidesFirst(facingSide: Side): Side[] {
+  return [facingSide, ...ALL_SIDES.filter((side) => side !== facingSide)];
+}
+
+function sideChoiceOf(plan: WirePlan, facing: SidePair): SideChoice | null {
+  const { wire, from, to } = plan;
+  if (wire.back || from.id === to.id) return null;
+  const exitSides = plan.outputPort || wire.fromSide ? [plan.exitSide] : otherSidesFirst(facing.exitSide);
+  const entrySides = wire.toSide ? [wire.toSide] : otherSidesFirst(facing.entrySide);
+  if (exitSides.length < 2 && entrySides.length < 2) return null;
+  const facingProbe = probeOf(plan, { exitSide: exitSides[0] ?? facing.exitSide, entrySide: entrySides[0] ?? facing.entrySide });
+  const exits = plan.outputPort
+    ? [{ side: plan.exitSide, point: plan.outputPort, direction: OUTWARD_DIRECTION_BY_SIDE[plan.exitSide], bias: 0 }]
+    : sideTerminalsOf(from, exitSides, exitSides[0] ?? facing.exitSide, facingProbe.start, OUTWARD_DIRECTION_BY_SIDE);
+  const entries = sideTerminalsOf(to, entrySides, entrySides[0] ?? facing.entrySide, facingProbe.end, INWARD_DIRECTION_BY_SIDE);
+  return { plan, exits, entries };
 }
 
 function chooseSidesBySearch(plans: readonly WirePlan[], facingByPlan: ReadonlyMap<WirePlan, SidePair>, input: RouteInput): void {
-  const pairsByPlan = new Map(plans.map((plan) => {
-    const facing = facingByPlan.get(plan) ?? { exitSide: plan.exitSide, entrySide: plan.entrySide };
-    return [plan, candidateSidePairs(plan, facing)] as const;
-  }));
-  if (![...pairsByPlan.values()].some((pairs) => pairs.length > 1)) return;
-  const probes = [...pairsByPlan].flatMap(([plan, pairs]) => pairs.map((pair) => probeOf(plan, pair)));
-  const graph = graphOf(probes, input);
+  const choices = plans.flatMap((plan) => {
+    const choice = sideChoiceOf(plan, facingByPlan.get(plan) ?? { exitSide: plan.exitSide, entrySide: plan.entrySide });
+    return choice ? [choice] : [];
+  });
+  if (choices.length === 0) return;
+  const ports = choices.flatMap((choice) => [
+    ...choice.exits.map((exit) => ({ x: exit.point.x, y: exit.point.y, outwardDirection: exit.direction })),
+    ...choice.entries.map((entry) => ({ x: entry.point.x, y: entry.point.y, outwardDirection: REVERSE_DIRECTION[entry.direction] ?? 0 })),
+  ]);
+  const graph = graphOf(ports, input);
   if (!graph) return;
   const buffers = createSearchBuffers();
-  const baselineByPlan = new Map(plans.flatMap((plan) => {
-    const [facing] = pairsByPlan.get(plan) ?? [];
-    const route = facing ? probeRoute(graph, probeOf(plan, facing), buffers) : null;
-    return route ? [[plan, route] as const] : [];
-  }));
-  for (const [plan, pairs] of pairsByPlan) {
-    const baseline = baselineByPlan.get(plan);
-    if (pairs.length < 2 || !baseline) continue;
-    const otherRoutes = [...baselineByPlan].flatMap(([other, route]) => other === plan ? [] : [route]);
-    let best = { pair: pairs[0], score: scoreOf(baseline, otherRoutes) };
-    for (const pair of pairs.slice(1)) {
-      const route = probeRoute(graph, probeOf(plan, pair), buffers);
-      const score = route ? scoreOf(route, otherRoutes) : null;
-      if (score && isBetterProbe(score, best.score)) best = { pair, score };
-    }
-    if (!best.pair) continue;
-    plan.exitSide = best.pair.exitSide;
-    plan.entrySide = best.pair.entrySide;
+  for (const choice of choices) {
+    const chosen = searchBetween(graph, choice.exits, choice.entries, null, SIDE_CHOICE_BEND_COST, buffers);
+    resetSearchBuffers(buffers);
+    if (!chosen) continue;
+    choice.plan.exitSide = chosen.exit.side;
+    choice.plan.entrySide = chosen.entry.side;
   }
 }
 
@@ -441,43 +443,59 @@ function crowdedSideWarnings(requestsBySide: ReadonlyMap<string, readonly PortRe
   });
 }
 
-function graphOf(plans: readonly WirePlan[], input: RouteInput): VisibilityGraph | null {
-  const ports = plans.flatMap((plan) => [
+function portsOf(plans: readonly WirePlan[]): GraphPort[] {
+  return plans.flatMap((plan) => [
     { x: plan.start.x, y: plan.start.y, outwardDirection: OUTWARD_DIRECTION_BY_SIDE[plan.exitSide] },
     { x: plan.end.x, y: plan.end.y, outwardDirection: OUTWARD_DIRECTION_BY_SIDE[plan.entrySide] },
   ]);
+}
+
+function graphOf(ports: readonly GraphPort[], input: RouteInput): VisibilityGraph | null {
   return buildVisibilityGraph({ hardRects: [...input.boxesById.values(), ...input.panels], softRects: input.softObstacles, ports, contentTop: input.contentTop });
 }
 
 function createMinHeap(): MinHeap {
-  return { states: new Int32Array(1024), priorities: new Float64Array(1024), size: 0, lastPoppedPriority: 0 };
+  return { states: new Int32Array(1024), priorities: new Float64Array(1024), tieBreaks: new Float64Array(1024), size: 0, lastPoppedPriority: 0 };
+}
+
+function isHeapEntryBefore(heap: MinHeap, first: number, second: number): boolean {
+  const firstPriority = heap.priorities[first] ?? 0;
+  const secondPriority = heap.priorities[second] ?? 0;
+  return firstPriority < secondPriority || (firstPriority === secondPriority && (heap.tieBreaks[first] ?? 0) < (heap.tieBreaks[second] ?? 0));
 }
 
 function swapHeapEntries(heap: MinHeap, first: number, second: number): void {
   const firstState = heap.states[first] ?? 0;
   const firstPriority = heap.priorities[first] ?? 0;
+  const firstTieBreak = heap.tieBreaks[first] ?? 0;
   heap.states[first] = heap.states[second] ?? 0;
   heap.priorities[first] = heap.priorities[second] ?? 0;
+  heap.tieBreaks[first] = heap.tieBreaks[second] ?? 0;
   heap.states[second] = firstState;
   heap.priorities[second] = firstPriority;
+  heap.tieBreaks[second] = firstTieBreak;
 }
 
-function pushToHeap(heap: MinHeap, state: number, priority: number): void {
+function pushToHeap(heap: MinHeap, state: number, priority: number, tieBreak: number): void {
   if (heap.size === heap.states.length) {
     const states = new Int32Array(heap.size * 2);
     const priorities = new Float64Array(heap.size * 2);
+    const tieBreaks = new Float64Array(heap.size * 2);
     states.set(heap.states);
     priorities.set(heap.priorities);
+    tieBreaks.set(heap.tieBreaks);
     heap.states = states;
     heap.priorities = priorities;
+    heap.tieBreaks = tieBreaks;
   }
   heap.states[heap.size] = state;
   heap.priorities[heap.size] = priority;
+  heap.tieBreaks[heap.size] = tieBreak;
   let index = heap.size;
   heap.size += 1;
   while (index > 0) {
     const parent = (index - 1) >> 1;
-    if ((heap.priorities[parent] ?? 0) <= (heap.priorities[index] ?? 0)) return;
+    if (!isHeapEntryBefore(heap, index, parent)) return;
     swapHeapEntries(heap, parent, index);
     index = parent;
   }
@@ -489,15 +507,14 @@ function popFromHeap(heap: MinHeap): number {
   heap.lastPoppedPriority = heap.priorities[0] ?? 0;
   heap.size -= 1;
   if (heap.size === 0) return top;
-  heap.states[0] = heap.states[heap.size] ?? 0;
-  heap.priorities[0] = heap.priorities[heap.size] ?? 0;
+  swapHeapEntries(heap, 0, heap.size);
   let index = 0;
   for (;;) {
     const left = index * 2 + 1;
     const right = left + 1;
     let smallest = index;
-    if (left < heap.size && (heap.priorities[left] ?? 0) < (heap.priorities[smallest] ?? 0)) smallest = left;
-    if (right < heap.size && (heap.priorities[right] ?? 0) < (heap.priorities[smallest] ?? 0)) smallest = right;
+    if (left < heap.size && isHeapEntryBefore(heap, left, smallest)) smallest = left;
+    if (right < heap.size && isHeapEntryBefore(heap, right, smallest)) smallest = right;
     if (smallest === index) return top;
     swapHeapEntries(heap, smallest, index);
     index = smallest;
@@ -529,7 +546,9 @@ function resetSearchBuffers(buffers: SearchBuffers): void {
 }
 
 function routeOnGraph(graph: VisibilityGraph, plan: WirePlan, backInterior: Rect | null, buffers: SearchBuffers): number[] | null {
-  const states = searchGraph(graph, plan, backInterior, buffers, Infinity);
+  const exit = { side: plan.exitSide, point: plan.start, direction: OUTWARD_DIRECTION_BY_SIDE[plan.exitSide], bias: 0 };
+  const entry = { side: plan.entrySide, point: plan.end, direction: INWARD_DIRECTION_BY_SIDE[plan.entrySide], bias: 0 };
+  const states = searchBetween(graph, [exit], [entry], backInterior, BEND_COST, buffers)?.states ?? null;
   resetSearchBuffers(buffers);
   return states;
 }
@@ -543,63 +562,102 @@ function graphEdgeHitsRect(graph: VisibilityGraph, node: number, nextNode: numbe
   return rect.x < fromX && fromX < rect.x + rect.width && Math.min(fromY, toY) < rect.y + rect.height && Math.max(fromY, toY) > rect.y;
 }
 
-function fewestBendsTo(direction: number, endDirection: number, towardX: number, towardY: number): number {
-  if (direction === REVERSE_DIRECTION[endDirection]) return 2;
-  if (direction !== endDirection) return 1;
-  const step = STEP_BY_DIRECTION[direction] ?? { x: 0, y: 0 };
-  const isStraightAhead = step.x === 0 ? towardX === 0 && towardY * step.y >= 0 : towardY === 0 && towardX * step.x >= 0;
-  return isStraightAhead ? 0 : 2;
+function isAlongX(direction: number): boolean {
+  return direction === RIGHT || direction === LEFT;
 }
 
-function searchGraph(graph: VisibilityGraph, plan: WirePlan, backInterior: Rect | null, buffers: SearchBuffers, maxExpansions: number): number[] | null {
+function fewestBendsTo(direction: number, entry: PlacedTerminal, x: number, y: number): number {
+  if (direction === REVERSE_DIRECTION[entry.direction]) return 2;
+  const isEntryAlongX = isAlongX(entry.direction);
+  const along = isEntryAlongX ? x : y;
+  const across = isEntryAlongX ? y : x;
+  const approachLine = isEntryAlongX ? entry.point.y : entry.point.x;
+  const isWithinApproach = entry.approachStart <= along && along <= entry.approachEnd;
+  const step = STEP_BY_DIRECTION[direction] ?? { x: 0, y: 0 };
+  if (direction === entry.direction) {
+    const towardPort = isEntryAlongX ? (entry.point.x - x) * step.x : (entry.point.y - y) * step.y;
+    return across === approachLine && isWithinApproach && towardPort >= 0 ? 0 : 2;
+  }
+  const towardLine = (approachLine - across) * (isEntryAlongX ? step.y : step.x);
+  return isWithinApproach && towardLine >= 0 ? 1 : 3;
+}
+
+function placedTerminalsOf(graph: VisibilityGraph, terminals: readonly SideTerminal[]): PlacedTerminal[] {
+  return terminals.flatMap((terminal) => {
+    const node = graph.nodeAt(terminal.point.x, terminal.point.y);
+    if (node < 0) return [];
+    const [approachStart, approachEnd] = graph.pieceExtentOf(node, isAlongX(terminal.direction));
+    return [{ ...terminal, node, component: graph.componentOf(node), approachStart, approachEnd }];
+  });
+}
+
+function terminalAt(terminals: readonly PlacedTerminal[], node: number): PlacedTerminal | null {
+  for (const terminal of terminals) {
+    if (terminal.node === node) return terminal;
+  }
+  return null;
+}
+
+function searchBetween(graph: VisibilityGraph, exits: readonly SideTerminal[], entries: readonly SideTerminal[], backInterior: Rect | null, bendCost: number, buffers: SearchBuffers): SearchOutcome | null {
   graph.beginSearch();
-  const startNode = graph.nodeAt(plan.start.x, plan.start.y);
-  const endNode = graph.nodeAt(plan.end.x, plan.end.y);
-  if (startNode < 0 || endNode < 0 || graph.componentOf(startNode) !== graph.componentOf(endNode)) return null;
-  const startDirection = OUTWARD_DIRECTION_BY_SIDE[plan.exitSide];
-  const endDirection = INWARD_DIRECTION_BY_SIDE[plan.entrySide];
+  const placedEntries = placedTerminalsOf(graph, entries);
+  const placedExits = placedTerminalsOf(graph, exits).filter((exit) => placedEntries.some((entry) => entry.component === exit.component));
+  const reachableEntries = placedEntries.filter((entry) => placedExits.some((exit) => exit.component === entry.component));
+  if (placedExits.length === 0 || reachableEntries.length === 0) return null;
   const { touchedStates, heap } = buffers;
-  const startState = startNode * 4 + startDirection;
   ensureStateCapacity(buffers, graph.nodeCount * 4);
   const estimate = (node: number, direction: number) => {
-    const towardX = plan.end.x - (graph.xs[node] ?? 0);
-    const towardY = plan.end.y - (graph.ys[node] ?? 0);
-    return Math.abs(towardX) + Math.abs(towardY) + fewestBendsTo(direction, endDirection, towardX, towardY) * BEND_COST;
+    const x = graph.xs[node] ?? 0;
+    const y = graph.ys[node] ?? 0;
+    let nearest = Infinity;
+    for (const entry of reachableEntries) {
+      nearest = Math.min(nearest, Math.abs(entry.point.x - x) + Math.abs(entry.point.y - y) + fewestBendsTo(direction, entry, x, y) * bendCost + entry.bias);
+    }
+    return nearest;
   };
-  buffers.bestCost[startState] = 0;
-  touchedStates.push(startState);
-  pushToHeap(heap, startState, estimate(startNode, startDirection));
-  for (let expansions = 0; expansions < maxExpansions; expansions += 1) {
+  for (const exit of placedExits) {
+    const state = exit.node * 4 + exit.direction;
+    buffers.bestCost[state] = exit.bias;
+    touchedStates.push(state);
+    pushToHeap(heap, state, exit.bias + estimate(exit.node, exit.direction), -exit.bias);
+  }
+  for (;;) {
     const state = popFromHeap(heap);
     if (state < 0) return null;
     const node = state >> 2;
     const direction = state & 3;
-    if (node === endNode && direction === endDirection) return reconstructNodes(buffers.cameFrom, state);
+    const arrivedEntry = terminalAt(reachableEntries, node);
+    if (arrivedEntry && direction === arrivedEntry.direction) {
+      const states = reconstructNodes(buffers.cameFrom, state);
+      const exit = terminalAt(placedExits, (states[0] ?? 0) >> 2);
+      return exit ? { states, exit, entry: arrivedEntry } : null;
+    }
     const costSoFar = buffers.bestCost[state] ?? Infinity;
-    if (heap.lastPoppedPriority > costSoFar * (1 - DEEPER_FIRST) + estimate(node, direction) + 1e-6) continue;
+    if (heap.lastPoppedPriority > costSoFar + estimate(node, direction) + 1e-6) continue;
+    const departingExit = terminalAt(placedExits, node);
     for (let nextDirection = 0; nextDirection < 4; nextDirection += 1) {
-      if (node === startNode && nextDirection !== startDirection) continue;
+      if (departingExit && nextDirection !== departingExit.direction) continue;
       if (nextDirection === REVERSE_DIRECTION[direction]) continue;
       const nextNode = graph.neighborOf(node, nextDirection);
       if (nextNode < 0) continue;
-      if (nextNode === endNode && nextDirection !== endDirection) continue;
+      const nextEntry = terminalAt(reachableEntries, nextNode);
+      if (nextEntry && nextDirection !== nextEntry.direction) continue;
       ensureStateCapacity(buffers, graph.nodeCount * 4);
       const length = Math.abs((graph.xs[nextNode] ?? 0) - (graph.xs[node] ?? 0)) + Math.abs((graph.ys[nextNode] ?? 0) - (graph.ys[node] ?? 0));
       const isInsideBackInterior = backInterior !== null && graphEdgeHitsRect(graph, node, nextNode, backInterior);
       const stepCost = length
-        + (nextDirection === direction ? 0 : BEND_COST)
+        + (nextDirection === direction ? 0 : bendCost)
         + (graph.isSoftStep(node, nextDirection) ? SOFT_OBSTACLE_COST : 0)
         + (isInsideBackInterior ? BACK_INTERIOR_COST : 0);
       const nextState = nextNode * 4 + nextDirection;
-      const nextCost = costSoFar + Math.max(stepCost, 1);
+      const nextCost = costSoFar + Math.max(stepCost, 1) + (nextEntry?.bias ?? 0);
       if (nextCost >= (buffers.bestCost[nextState] ?? Infinity)) continue;
       buffers.bestCost[nextState] = nextCost;
       buffers.cameFrom[nextState] = state;
       touchedStates.push(nextState);
-      pushToHeap(heap, nextState, nextCost * (1 - DEEPER_FIRST) + estimate(nextNode, nextDirection));
+      pushToHeap(heap, nextState, nextCost + estimate(nextNode, nextDirection), -nextCost);
     }
   }
-  return null;
 }
 
 function reconstructNodes(cameFrom: Int32Array, goalState: number): number[] {
@@ -633,7 +691,7 @@ function drawnWireOf(graph: VisibilityGraph | null, plan: WirePlan, states: numb
 }
 
 function routeAll(plans: readonly WirePlan[], input: RouteInput): DrawnWire[] {
-  const graph = graphOf(plans, input);
+  const graph = graphOf(portsOf(plans), input);
   const buffers = graph ? createSearchBuffers() : null;
   const routed = plans.map((plan) => drawnWireOf(graph, plan, graph && buffers ? routeOnGraph(graph, plan, backInteriorOf(plan, input.loopFrames), buffers) : null));
   const nudgedPoints = nudgeSharedLines(routed.map((wire) => ({ points: wire.points, exitKey: wire.plan.exitKey, busKey: wire.plan.busKey })), solidsOf(input));

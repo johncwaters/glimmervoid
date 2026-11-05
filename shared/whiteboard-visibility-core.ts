@@ -41,6 +41,7 @@ interface VisibilityGraph {
   nodeAt: (x: number, y: number) => number;
   componentOf: (node: number) => number;
   beginSearch: () => void;
+  pieceExtentOf: (node: number, isAlongX: boolean) => [number, number];
 }
 
 interface LineIndex {
@@ -751,7 +752,12 @@ function buildVisibilityGraph(input: GraphInput): VisibilityGraph | null {
     nodes.softSteps.fill(0, 0, graph.nodeCount * 4);
     graph.nodeCount = 0;
   };
-  const graph: VisibilityGraph = { nodeCount: 0, xs: new Float64Array(INITIAL_NODE_CAPACITY), ys: new Float64Array(INITIAL_NODE_CAPACITY), neighborOf, isSoftStep, nodeAt, componentOf, beginSearch };
+  const pieceExtentOf = (node: number, isAlongX: boolean): [number, number] => {
+    const pieces = isAlongX ? horizontal : vertical;
+    const piece = (isAlongX ? nodes.horizontalPieces[node] : nodes.verticalPieces[node]) ?? 0;
+    return [pieces.starts[piece] ?? 0, pieces.ends[piece] ?? 0];
+  };
+  const graph: VisibilityGraph = { nodeCount: 0, xs: new Float64Array(INITIAL_NODE_CAPACITY), ys: new Float64Array(INITIAL_NODE_CAPACITY), neighborOf, isSoftStep, nodeAt, componentOf, beginSearch, pieceExtentOf };
   return graph;
 }
 
