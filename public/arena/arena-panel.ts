@@ -1,6 +1,6 @@
 import { AgentModelCatalog } from '#shared/contracts/agent-models.ts';
 import type { AgentSetup } from '#shared/contracts/agent-models.ts';
-import type { CheckOutcome, PanelStanding, RaceCheck, RaceContestant, RaceRecord } from '#shared/contracts/race.ts';
+import type { CheckOutcome, ContestantMetrics, PanelStanding, RaceCheck, RaceContestant, RaceRecord } from '#shared/contracts/race.ts';
 import { RACE_CRITERIA, RACE_JUDGE_AGENT, RACE_MAX_CONTESTANTS, RACE_MAX_JUDGES, RaceSpec } from '#shared/contracts/race.ts';
 import { REMOVED_CONTESTANT, raceProgress, winnerNotesOf } from '#shared/race-core.ts';
 import { BADGE_LABELS } from '#shared/states.ts';
@@ -81,6 +81,25 @@ function checkText(check: CheckOutcome): string {
   return `Check could not run: ${check.reason}`;
 }
 
+function elapsedText(elapsedMs: number): string {
+  const totalSeconds = Math.round(elapsedMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  return minutes > 0 ? `${minutes}m ${totalSeconds % 60}s` : `${totalSeconds}s`;
+}
+
+function tokensText(tokens: number): string {
+  return tokens >= 1000 ? `${Math.round(tokens / 1000)}k tokens` : `${tokens} tokens`;
+}
+
+function metricsText(metrics: ContestantMetrics): string {
+  return [
+    metrics.elapsedMs === null ? 'not settled' : elapsedText(metrics.elapsedMs),
+    metrics.costUSD === null ? null : `$${metrics.costUSD.toFixed(2)}`,
+    metrics.tokens === null ? null : tokensText(metrics.tokens),
+    metrics.waits === 1 ? '1 wait' : `${metrics.waits} waits`,
+  ].filter((part): part is string => part !== null).join(', ');
+}
+
 function toggleCheckOutput(key: string): void {
   if (!shownCheckOutputKeys.delete(key)) shownCheckOutputKeys.add(key);
   renderRaces();
@@ -118,6 +137,8 @@ function buildContestantLine(race: RaceRecord, contestant: RaceContestant): HTML
   if (stats) head.append(el('span', 'arena-contestant-stats', `+${stats.linesAdded} -${stats.linesRemoved}, ${stats.filesChanged} files`));
   const check = race.checkByContestant[contestant.id];
   if (check) head.append(el('span', `arena-contestant-check arena-contestant-check-${check.status}`, checkText(check)));
+  const metrics = race.metricsByContestant[contestant.id];
+  if (metrics) head.append(el('span', 'arena-contestant-stats', metricsText(metrics)));
   if (race.winnerContestantId === contestant.id) head.append(el('span', 'arena-contestant-winner', 'Winner'));
   if (sessionId && state !== REMOVED_CONTESTANT) {
     head.append(button({ variant: 'quiet', size: 'small', label: 'Open', onClick: () => openRaceSession(sessionId) }));

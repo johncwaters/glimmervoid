@@ -8,6 +8,18 @@ function isSettledContestantState(state: string): boolean {
   return SETTLED_STATES.has(state);
 }
 
+interface StateTransition {
+  to: string;
+  at: number;
+}
+
+function contestantTimeline(startedAt: number, transitions: readonly StateTransition[]): { elapsedMs: number | null; waits: number } {
+  const sinceStart = transitions.filter((transition) => transition.at >= startedAt);
+  const firstSettle = sinceStart.find((transition) => isSettledContestantState(transition.to));
+  const waits = sinceStart.filter((transition) => transition.to === STATES.WAITING).length;
+  return { elapsedMs: firstSettle ? firstSettle.at - startedAt : null, waits };
+}
+
 function raceProgress(sessionIds: readonly string[], stateOf: (sessionId: string) => string): { settled: number; total: number; isAllSettled: boolean } {
   const settled = sessionIds.filter((sessionId) => isSettledContestantState(stateOf(sessionId))).length;
   return { settled, total: sessionIds.length, isAllSettled: sessionIds.length > 0 && settled === sessionIds.length };
@@ -19,4 +31,5 @@ function winnerNotesOf(record: RaceRecord, contestantId: string): string | null 
   return record.judge?.notes[contestantId] ?? null;
 }
 
-export { REMOVED_CONTESTANT, raceProgress, winnerNotesOf };
+export { REMOVED_CONTESTANT, contestantTimeline, raceProgress, winnerNotesOf };
+export type { StateTransition };

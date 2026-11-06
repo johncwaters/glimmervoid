@@ -82,7 +82,7 @@ test('every judge on the panel sees its own shuffled letter ids and no agent con
       version: 1, title: 'Fix add', prompt: 'Fix add.', repoPath: mainRepo, judges: [{ setup }, { setup: { ...setup, model: 'claude-opus-5-5', options: [{ id: 'effort', value: 'high' }] } }], check: { program: 'node', args: ['-e', 'console.log(require("fs").readdirSync(".").join("\\n")); import("./add.ts").then((m) => { console.log("add(1, 2) =", m.add(1, 2)); process.exit(m.add(1, 2) === 3 ? 0 : 7); })'], timeoutSeconds: 30 },
       contestants: Object.keys(worktreeByContestant).map((id) => ({ id, label: `Label ${id}`, setup })),
     },
-    startSha, baseBranch: 'main', createdAt: 1, phase: 'running', diffStatsByContestant: {}, checkByContestant: {}, judge: null, panel: null, judgeError: null, winnerContestantId: null,
+    startSha, baseBranch: 'main', createdAt: 1, phase: 'running', diffStatsByContestant: {}, checkByContestant: {}, metricsByContestant: { 'kimi-only-config': { elapsedMs: 45, waits: 1, tokens: 900, costUSD: 0.01 } }, judge: null, panel: null, judgeError: null, winnerContestantId: null,
     sessionIdByContestant: Object.fromEntries(Object.keys(worktreeByContestant).map((id) => [id, `session-${id}`])),
   };
   const store = createRaceStore({ directory: path.join(root, 'races'), log: quietLog });
@@ -98,6 +98,8 @@ test('every judge on the panel sees its own shuffled letter ids and no agent con
     integrationBranch: () => null, broadcast: (frame) => broadcasts.push(frame.races), log: quietLog,
     sessionStateOf: () => 'complete', worktreeOf: (sessionId) => worktreeByContestant[sessionId.replace(/^session-/, '')] ?? null,
     diffOf: contestantDiff, judgeRoot: path.join(root, 'judges'), random: () => 0, runCheck,
+    transitionsOf: (sessionId) => (sessionId === 'session-kimi-only-config' ? [{ to: 'COMPLETE', at: 500 }] : [{ to: 'RUNNING', at: 0 }, { to: 'RUNNING', at: 10 }, { to: 'WAITING', at: 20 }, { to: 'RUNNING', at: 30 }, { to: 'WAITING', at: 40 }, { to: 'COMPLETE', at: 61 }, { to: 'IDLE', at: 70 }, { to: 'COMPLETE', at: 90 }]),
+    usageLookup: () => (sessionId) => (sessionId === 'session-opus' ? { tokens: 12000, costUSD: 0.04 } : { tokens: 1.5, costUSD: -1 }),
     spawnJudge: async ({ prompt, cwd, setup: judgeSetup }) => {
       judgeDirs.push(path.basename(cwd));
       judgePromptText = prompt;
@@ -146,6 +148,9 @@ test('every judge on the panel sees its own shuffled letter ids and no agent con
   assert.ok(picked.ok && picked.notes === 'swap the operands back\n\nswap the operands back', 'notes come from every judge');
   assert.deepEqual(judged.diffStatsByContestant.opus, { filesChanged: 4, linesAdded: 4, linesRemoved: 1 });
   assert.deepEqual(judged.diffStatsByContestant['kimi-only-config'], { filesChanged: 1, linesAdded: 1, linesRemoved: 0 });
+  assert.deepEqual(judged.metricsByContestant.opus, { elapsedMs: 60, waits: 2, tokens: 12000, costUSD: 0.04 }, 'elapsed runs from race start to the first settle');
+  assert.deepEqual(judged.metricsByContestant['codex-gpt5'], { elapsedMs: 60, waits: 2, tokens: null, costUSD: null }, 'usage outside the schema is dropped, not stored');
+  assert.deepEqual(judged.metricsByContestant['kimi-only-config'], { elapsedMs: 45, waits: 1, tokens: 900, costUSD: 0.01 }, 'a fresh log after a restart does not overwrite stored metrics');
   assert.equal(judged.checkByContestant.opus?.status, 'passed');
   assert.equal(judged.checkByContestant['codex-gpt5']?.status, 'failed');
   assert.equal(judged.checkByContestant['codex-gpt5']?.exitCode, 7);

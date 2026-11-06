@@ -353,6 +353,8 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     log: logger,
     sessionStateOf: (sessionId) => findLiveSession(sessionId)?.state ?? REMOVED_CONTESTANT,
     worktreeOf: (sessionId) => findLiveSession(sessionId)?.worktreeDir ?? null,
+    transitionsOf: (sessionId) => findLiveSession(sessionId)?.auditLog.flatMap((entry) => (typeof entry.to === 'string' && typeof entry.timestamp === 'number' ? [{ to: entry.to, at: entry.timestamp }] : [])) ?? null,
+    usageLookup: () => usage.sessionUsageLookup(),
     diffOf: contestantDiff,
     judgeRoot: path.join(glimmervoidHome, 'race-judges'),
     runCheck: async ({ worktreeDir, check }) => {

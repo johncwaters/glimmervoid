@@ -443,7 +443,7 @@ function createUsageWiring({
     nudge.schedule();
   }
 
-  function getSessionsMessage(): SessionsMessage | null {
+  function sessionUsageRows(): SessionsMessage['sessions'] | null {
     if (!scanner) return null;
     const totals = scanner.sessionTotals();
     const rows: SessionsMessage['sessions'] = [];
@@ -452,11 +452,21 @@ function createUsageWiring({
       const resumeId = sess.resumeSessionId;
       if (!resumeId) continue;
       const bucket = totals.get(resumeId) || { tokens: 0, costUSD: 0, lastTs: null };
-
       const officialCostUSD = selectOfficialSessionCost(cfg.costMode, officialCostByClaudeId.get(resumeId));
       rows.push({ id, tokens: bucket.tokens, costUSD: bucket.costUSD, lastTs: bucket.lastTs, officialCostUSD });
     }
+    return rows;
+  }
+
+  function getSessionsMessage(): SessionsMessage | null {
+    const rows = sessionUsageRows();
+    if (!rows) return null;
     return { type: 'usage-sessions', ts: nowFn(), pricingSource: pricing?.source || null, sessions: rows };
+  }
+
+  function sessionUsageLookup(): (sessionId: string) => { tokens: number; costUSD: number } | null {
+    const usageById = new Map((sessionUsageRows() ?? []).map((row) => [row.id, { tokens: row.tokens, costUSD: row.officialCostUSD ?? row.costUSD }]));
+    return (sessionId) => usageById.get(sessionId) ?? null;
   }
 
   function pushSessions(): void {
@@ -742,6 +752,7 @@ function createUsageWiring({
     refreshSessions,
     restartIfConfigChanged,
     getSessionsMessage,
+    sessionUsageLookup,
     getCachedReport: () => lastReportMessage,
     requestReport,
     ingestStatusline,
