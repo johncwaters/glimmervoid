@@ -102,10 +102,6 @@ function boardNoticeFor(records: readonly BoardRecord[], sessionId: string, anno
   return { text: announced.map((entry) => entry.line).join('\n'), announced: announced.map(({ boardId, version }) => ({ boardId, version })) };
 }
 
-function nudgeLineFor(board: Board): string {
-  return `The operator changed board "${board.title}"; read it with whiteboard get ${board.id}`;
-}
-
 function resolveBoardRef(boards: readonly Board[], ref: string): Board | { error: string } {
   const byId = boards.find((board) => board.id === ref);
   if (byId) return byId;
@@ -172,4 +168,4 @@ function shownBoxOp(board: Board, contentBounds: BoardBounds, card: ShownCard): 
 }
 
 export { pickShowBoardId, shownBoxOp };
-export { BOARD_CONTEXT_NOTE, boardRecordWithMediaForImages, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, nudgeLineFor, recordPut, resolveBoardRef, summarizeBoard };
+export { BOARD_CONTEXT_NOTE, boardRecordWithMediaForImages, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, recordPut, resolveBoardRef, summarizeBoard };

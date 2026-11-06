@@ -18,7 +18,7 @@ import { readChangeFacts, readFileFacts } from './whiteboard-anchor-facts.ts';
 import type { ChangeMap } from '../../shared/contracts/change-map.ts';
 import { unitsOf } from '../../shared/whiteboard-plan-core.ts';
 import {
-  boardRecordWithMediaForImages, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, nudgeLineFor, pickShowBoardId, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard,
+  boardRecordWithMediaForImages, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, pickShowBoardId, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard,
 } from '../core/whiteboard-store-core.ts';
 import { loadJsonStateFile, writeJsonAtomic } from '../json-file.ts';
 import { createKeyedSerialQueue } from '../spawn-gate.ts';
@@ -114,7 +114,6 @@ interface WhiteboardPort {
     layout(boardId: string): Promise<OperatorReply>;
     connect(boardId: string, sessionId: string): Promise<OperatorReply>;
     disconnect(boardId: string, sessionId: string): Promise<OperatorReply>;
-    nudgeLine(boardId: string): string | null;
   };
   forgetSession(sessionId: string): Promise<void>;
   forgetClosedSessions(isClosedSession: (sessionId: string) => boolean): Promise<void>;
@@ -451,10 +450,6 @@ function createWhiteboardWiring({
     },
     connect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => connectBoard(foundBoardId, sessionId)),
     disconnect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => disconnectBoard(foundBoardId, sessionId)),
-    nudgeLine: (boardId) => {
-      const record = recordsByBoardId.get(boardId);
-      return record ? nudgeLineFor(record.board) : null;
-    },
   };
 
   async function closeConnections(boardId: string, closedSessionIds: readonly string[]): Promise<void> {

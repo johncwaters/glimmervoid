@@ -585,8 +585,7 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   const agentBox = await agentIsland.boundingBox();
   assert.ok(agentBox);
   assert.ok(Math.abs(agentBox.y + agentBox.height - (canvasBox.y + canvasBox.height - 10)) < 2 && Math.abs(agentBox.x - (canvasBox.x + 10)) < 2, 'the session island sits bottom left on the board');
-  await agentIsland.getByRole('button', { name: 'send to agent', exact: true }).click();
-  await agentIsland.locator('.action-status', { hasText: 'sent' }).waitFor();
+  assert.equal(await agentIsland.getByRole('button').count(), 0, 'the session island holds no send control, since board changes reach the agent with its next prompt');
   await unitOnBoard.locator('.wb-box-title').click();
   const inspect = panel.locator('.wb-inspect');
   await inspect.getByRole('button', { name: 'Add a ref to this unit', exact: true }).click();

@@ -23,14 +23,13 @@ import { createBoardRenderer } from './board-render.ts';
 import { createBoardMediaLayer } from './board-media-layer.ts';
 import type { BoardRenderer } from './board-render.ts';
 import {
-  boardSummariesOf, createBoard, deleteBoard, nudgeSessionAboutBoard, onBoardChanged, onBoardListChanged, openBoard, openBoardOf, openFileInReview, requestBoardLayout, requestBoardReview, sendBoardOps, takeOpenBoardRequest, uploadBoardMedia,
+  boardSummariesOf, createBoard, deleteBoard, onBoardChanged, onBoardListChanged, openBoard, openBoardOf, openFileInReview, requestBoardLayout, requestBoardReview, sendBoardOps, takeOpenBoardRequest, uploadBoardMedia,
 } from './board-store.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const EMPTY_TEXT = 'No boards yet. Make one here, or have an agent run glimmervoid whiteboard new <title>.';
 const PICK_TEXT = 'Pick a board above.';
 const TITLE_RENAME_CLASS = 'wb-board-title-rename';
-const SEND_TO_CHAT_ICON_PATH = 'M13.5 8H3 M7 4L3 8l4 4';
 const MORE_ICON_PATH = 'M4.5 6.5L8 10l3.5-3.5';
 const MENU_GAP_PX = 4;
 const STACKED_MEDIA_OFFSET_PX = 32;
@@ -72,7 +71,6 @@ interface BoardsViewParts {
   emptyText: HTMLElement;
   agentIsland: HTMLElement;
   queuedForSession: HTMLElement;
-  sendToAgent: HTMLButtonElement;
   buttons: Record<'note' | 'frame' | 'unit' | 'fit' | 'undo' | 'redo', HTMLButtonElement>;
   toolButtons: ReadonlyMap<BoardTool, HTMLButtonElement>;
   toolHint: HTMLElement;
@@ -91,7 +89,6 @@ let reviewRequestKey: string | null = null;
 type RecordedSend = { ok: true; isUndoable: boolean } | { ok: false; error: string };
 
 const status = createActionStatus('action-status wb-status');
-const pairedStatus = createActionStatus('action-status wb-status');
 const historyByBoardId = new Map<string, UndoHistory>();
 let historyQueue: Promise<unknown> = Promise.resolve();
 
@@ -459,25 +456,11 @@ function paintPairedSession(): void {
   if (!pairedSessionId) return;
   parts.agentIsland.toggleAttribute('data-idle', !hasNewsForPairedSession(summary, pairedSessionId));
   parts.queuedForSession.textContent = queuedForSessionText(summary, pairedSessionId);
-  parts.sendToAgent.disabled = !summary?.connectedSessionIds.includes(pairedSessionId);
 }
 
 function hasNewsForPairedSession(summary: BoardSummary | null, sessionId: string): boolean {
   if (!summary?.connectedSessionIds.includes(sessionId)) return true;
   return (summary.queuedBySessionId[sessionId] ?? 0) > 0;
-}
-
-async function sendBoardNudge(): Promise<void> {
-  if (!parts || !selectedBoardId || !pairedSessionId) return;
-  parts.sendToAgent.disabled = true;
-  pairedStatus.show('busy', 'sending');
-  const outcome = await nudgeSessionAboutBoard(selectedBoardId, pairedSessionId);
-  paintPairedSession();
-  if (!outcome.ok) {
-    pairedStatus.show('error', outcome.error);
-    return;
-  }
-  pairedStatus.show('ok', 'sent; the agent reads the board when it is ready');
 }
 
 function worthALookIdsOf(board: Board, worthALookPaths: readonly string[]): Set<string> {
@@ -840,8 +823,7 @@ export function mountBoardHost(): HTMLElement {
   viewport.append(world);
   const inspectPanel = el('aside', 'wb-inspect');
   const queuedForSession = el('span', 'wb-session-queued');
-  const sendToAgent = iconButton('send to agent', SEND_TO_CHAT_ICON_PATH, 'send-board-to-agent', () => void sendBoardNudge());
-  const agentIsland = island('wb-island-agent', 'Session', sendToAgent, queuedForSession, pairedStatus.element);
+  const agentIsland = island('wb-island-agent', 'Session', queuedForSession);
   agentIsland.hidden = true;
   const bottomLeftStack = el('div', 'wb-bottom-left');
   bottomLeftStack.append(agentIsland);
@@ -863,7 +845,7 @@ export function mountBoardHost(): HTMLElement {
   empty.append(emptyText, button({ variant: 'secondary', label: 'new board', action: 'new-board', onClick: newBoardFromDialog }));
 
   host.replaceChildren(canvas, empty);
-  parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, sendToAgent, buttons, toolButtons, toolHint, emptyBoardHint };
+  parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, buttons, toolButtons, toolHint, emptyBoardHint };
   const boardRenderer = createBoardRenderer(svg, mediaLayer, { requestServerLayout: requestBoardLayout, onPainted: onBoardPainted });
   renderer = boardRenderer;
   inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, openRef: openRefInReview });
@@ -908,7 +890,6 @@ export function placeBoardTitle(titleSlot: HTMLElement | null): void {
 }
 
 export function showBoardBeside(boardId: string | null, sessionId: string | null): void {
-  if (sessionId !== pairedSessionId) pairedStatus.clear();
   pairedSessionId = sessionId;
   if (boardId) selectBoard(boardId);
   paintPairedSession();
