@@ -378,10 +378,10 @@ const PLAN_SUBCOMMANDS: readonly CommandSpec[] = [
 ];
 
 const WHITEBOARD_SUBCOMMANDS: readonly CommandSpec[] = [
-  { name: 'new', summary: 'Create a board; this session is its creator and gets summaries of its changes', positionals: requiredText('<title>'), missingArgumentHint: 'a new board needs a title, for example "glimmervoid whiteboard new release plan"' },
+  { name: 'new', summary: 'Create a board; this session is its creator and is told when others change it', positionals: requiredText('<title>'), missingArgumentHint: 'a new board needs a title, for example "glimmervoid whiteboard new release plan"' },
   { name: 'list', summary: 'List the boards with their connected sessions' },
-  { name: 'connect', summary: 'Get summaries of changes to a board in this session', positionals: BOARD_REFERENCE },
-  { name: 'disconnect', summary: 'Stop getting summaries of changes to a board', positionals: BOARD_REFERENCE },
+  { name: 'connect', summary: 'Be told in this session when others change a board', positionals: BOARD_REFERENCE },
+  { name: 'disconnect', summary: 'Stop being told when others change a board', positionals: BOARD_REFERENCE },
   {
     name: 'get',
     summary: 'Read a board and the changes since this session last read it; --layout prints where every box, wire and label landed instead',

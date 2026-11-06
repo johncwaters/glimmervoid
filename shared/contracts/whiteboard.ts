@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const WHITEBOARD_LIMITS = Object.freeze({
-  elements: 20000, opsPerPut: 5000, putBytes: 1_728_576, title: 80, line: 120, linesPerBox: 12, columns: 12, lanes: 12, noteText: 400, logEntries: 2000, promptContextLines: 20, promptContextCharacters: 6000, promptContextLineCharacters: 300, layoutWarnings: 20, boxWidthMin: 160, boxWidthMax: 960, units: 40, unitDependencies: 12, linesPerUnit: 4,
+  elements: 20000, opsPerPut: 5000, putBytes: 1_728_576, title: 80, line: 120, linesPerBox: 12, columns: 12, lanes: 12, noteText: 400, logEntries: 2000, layoutWarnings: 20, boxWidthMin: 160, boxWidthMax: 960, units: 40, unitDependencies: 12, linesPerUnit: 4,
 });
 
 const LANE_COLORS = ['blue', 'green', 'orange', 'pink', 'cyan', 'yellow'] as const;

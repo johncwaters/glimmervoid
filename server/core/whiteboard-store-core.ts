@@ -62,10 +62,10 @@ function changesForReader(record: BoardRecord, sessionId: string): BoardChange[]
   });
 }
 
-function markRead(record: BoardRecord, sessionId: string, throughVersion: number = record.board.version): BoardRecord {
+function markRead(record: BoardRecord, sessionId: string): BoardRecord {
   const cursor = record.cursorBySessionId[sessionId];
-  if (cursor === undefined || cursor >= throughVersion) return record;
-  return pruneLog({ ...record, cursorBySessionId: { ...record.cursorBySessionId, [sessionId]: throughVersion } });
+  if (cursor === undefined || cursor >= record.board.version) return record;
+  return pruneLog({ ...record, cursorBySessionId: { ...record.cursorBySessionId, [sessionId]: record.board.version } });
 }
 
 function summarizeBoard(record: BoardRecord): BoardSummary {
@@ -75,82 +75,31 @@ function summarizeBoard(record: BoardRecord): BoardSummary {
   return { id, title, version, updatedAt, connectedSessionIds: sessionIds, queuedBySessionId };
 }
 
-interface PromptContext {
+interface BoardNotice {
   text: string;
-  readThrough: { boardId: string; version: number }[];
+  announced: { boardId: string; version: number }[];
 }
 
-interface PromptContextDraft {
-  lines: string[];
-  characterCount: number;
-}
-
-function hasRoomFor(draft: PromptContextDraft, addedLines: readonly string[]): boolean {
-  const addedCharacters = addedLines.reduce((total, line) => total + line.length + 1, 0);
-  return draft.lines.length + addedLines.length <= WHITEBOARD_LIMITS.promptContextLines
-    && draft.characterCount + addedCharacters <= WHITEBOARD_LIMITS.promptContextCharacters;
-}
-
-function appendLines(draft: PromptContextDraft, addedLines: readonly string[]): void {
-  for (const line of addedLines) {
-    draft.lines.push(line);
-    draft.characterCount += line.length + 1;
-  }
-}
-
-function summaryLineOf(change: BoardChange): string {
-  const line = `- ${change.summary}`;
-  if (line.length <= WHITEBOARD_LIMITS.promptContextLineCharacters) return line;
-  return `${line.slice(0, WHITEBOARD_LIMITS.promptContextLineCharacters - 3)}...`;
-}
-
-function boardChangesHeader({ title, id }: Pick<Board, 'title' | 'id'>): string {
-  return `Board "${title}" (${id}) changed since your last read:`;
+function boardNoticeLineFor({ title, id }: Pick<Board, 'title' | 'id'>): string {
+  return `Board "${title}" (${id}) changed since your last read. Read it with whiteboard get ${id} before you change it.`;
 }
 
 const BOARD_CONTEXT_NOTE: AgentNote = {
   name: 'Board changes',
   carriedBy: 'UserPromptSubmit',
-  firesWhen: 'a board the session is connected to changed since its last read',
-  text: `${boardChangesHeader({ title: '<title>', id: '<board id>' })} <one line per change>`,
+  firesWhen: 'a board the session is connected to has a change it was not yet told about',
+  text: boardNoticeLineFor({ title: '<title>', id: '<board id>' }),
   isTemplate: true,
 };
 
-function appendBoardChanges(draft: PromptContextDraft, board: Board, changes: readonly BoardChange[]): boolean {
-  const header = boardChangesHeader(board);
-  const pointer = `read the rest with whiteboard get ${board.id}`;
-  if (!hasRoomFor(draft, [header, pointer])) {
-    const brief = `Board "${board.title}" (${board.id}) has ${changes.length} unread changes: read them with whiteboard get ${board.id}`;
-    if (hasRoomFor(draft, [brief])) appendLines(draft, [brief]);
-    return false;
-  }
-  appendLines(draft, [header]);
-  let isComplete = true;
-  for (const [index, change] of changes.entries()) {
-    const line = summaryLineOf(change);
-    const isClipped = line !== `- ${change.summary}`;
-    const needsPointerRoom = index < changes.length - 1 || isClipped;
-    if (!hasRoomFor(draft, needsPointerRoom ? [line, pointer] : [line])) {
-      isComplete = false;
-      break;
-    }
-    appendLines(draft, [line]);
-    if (isClipped) isComplete = false;
-  }
-  if (!isComplete) appendLines(draft, [pointer]);
-  return isComplete;
-}
-
-function promptContextFor(records: readonly BoardRecord[], sessionId: string): PromptContext | null {
-  const draft: PromptContextDraft = { lines: [], characterCount: 0 };
-  const readThrough: PromptContext['readThrough'] = [];
-  for (const record of records) {
-    const changes = changesForReader(record, sessionId);
-    if (changes.length === 0) continue;
-    if (appendBoardChanges(draft, record.board, changes)) readThrough.push({ boardId: record.board.id, version: record.board.version });
-  }
-  if (draft.lines.length === 0) return null;
-  return { text: draft.lines.join('\n'), readThrough };
+function boardNoticeFor(records: readonly BoardRecord[], sessionId: string, announcedVersionByBoardId: ReadonlyMap<string, number>): BoardNotice | null {
+  const announced = records.flatMap((record) => {
+    const newestUnreadVersion = changesForReader(record, sessionId).at(-1)?.version;
+    if (newestUnreadVersion === undefined || newestUnreadVersion <= (announcedVersionByBoardId.get(record.board.id) ?? -1)) return [];
+    return [{ boardId: record.board.id, version: newestUnreadVersion, line: boardNoticeLineFor(record.board) }];
+  });
+  if (announced.length === 0) return null;
+  return { text: announced.map((entry) => entry.line).join('\n'), announced: announced.map(({ boardId, version }) => ({ boardId, version })) };
 }
 
 function nudgeLineFor(board: Board): string {
@@ -223,4 +172,4 @@ function shownBoxOp(board: Board, contentBounds: BoardBounds, card: ShownCard): 
 }
 
 export { pickShowBoardId, shownBoxOp };
-export { BOARD_CONTEXT_NOTE, boardRecordWithMediaForImages, changesForReader, connectSession, disconnectSession, markRead, nudgeLineFor, promptContextFor, recordPut, resolveBoardRef, summarizeBoard };
+export { BOARD_CONTEXT_NOTE, boardRecordWithMediaForImages, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, nudgeLineFor, recordPut, resolveBoardRef, summarizeBoard };

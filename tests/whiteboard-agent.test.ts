@@ -596,51 +596,31 @@ test('boards and their connections survive a restart', async () => {
   assert.deepEqual(durable.connectedSessionIds.sort(), [BUILDER_ID, PLANNER_ID].sort());
 });
 
-test('the next prompt carries what others changed and marks it read, so the next get holds only later changes', async () => {
-  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'prompt-context-'));
+test('the next prompt tells a connected session once per new change to read the board before changing it, leaving the changes unread', async () => {
+  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'prompt-notice-'));
   const wiring = createWhiteboardWiring({ boardsRoot });
   const agent = { id: 'prompt-agent', name: 'prompt agent' };
   const created = await wiring.handleAgent(agent, { sub: 'new', title: 'Prompt plan' });
   const boardId = (created.body as { board: { id: string } }).board.id;
-  await wiring.handleOperator.put(boardId, z.array(Op).parse([
-    { op: 'columns', columns: [{ id: 'intake', title: 'Intake' }] },
-    { op: 'add', element: { kind: 'box', id: 'parse', title: 'Parse', column: 'intake' } },
-  ]));
-  const queuedBefore = wiring.snapshotMessage().boards.find((board) => board.id === boardId);
-  assert.equal(queuedBefore?.queuedBySessionId[agent.id], 2);
+  const notice = `Board "Prompt plan" (${boardId}) changed since your last read. Read it with whiteboard get ${boardId} before you change it.`;
+  await wiring.handleAgent(agent, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'columns', columns: [{ id: 'intake', title: 'Intake' }] }]) });
+  assert.equal(wiring.takeBoardNotice(agent.id), null);
 
-  const promptContext = wiring.takePromptContext(agent.id);
-  assert.equal(promptContext, `Board "Prompt plan" (${boardId}) changed since your last read:\n- operator set the columns to Intake\n- operator added box "Parse"`);
+  await wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'parse', title: 'Parse', column: 'intake' } }]));
+  assert.equal(wiring.takeBoardNotice(agent.id), notice);
+  assert.equal(wiring.takeBoardNotice(agent.id), null);
+  assert.equal(wiring.snapshotMessage().boards.find((board) => board.id === boardId)?.queuedBySessionId[agent.id], 1);
+
   await wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'set', id: 'parse', fields: { title: 'Parse feed' } }]));
+  assert.equal(wiring.takeBoardNotice(agent.id), notice);
 
   const read = await wiring.handleAgent(agent, { sub: 'get', board: boardId });
-  assert.deepEqual((read.body as { changes: { summary: string }[] }).changes.map((change) => change.summary), ['operator renamed "Parse" to "Parse feed"']);
-  assert.equal(wiring.takePromptContext(agent.id), null);
-  assert.equal(wiring.snapshotMessage().boards.find((board) => board.id === boardId)?.queuedBySessionId[agent.id], 0);
+  assert.deepEqual((read.body as { changes: { summary: string }[] }).changes.map((change) => change.summary), ['operator added box "Parse"; operator renamed "Parse" to "Parse feed"']);
+  assert.equal(wiring.takeBoardNotice(agent.id), null);
 
-  await wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'add', element: { kind: 'note', id: 'n1', on: 'parse', text: 'handle drafts', ref: 'src/feed.ts#L12' } }]));
-  assert.equal(wiring.takePromptContext(agent.id), `Board "Prompt plan" (${boardId}) changed since your last read:\n- operator note on "Parse feed" at src/feed.ts#L12: handle drafts (note n1)`);
-});
-
-test('a flood of edits to one box stays inside the prompt context bound and leaves the board unread for the next get', async () => {
-  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'prompt-bound-'));
-  const wiring = createWhiteboardWiring({ boardsRoot });
-  const reader = { id: 'bound-reader', name: 'bound reader' };
-  const writer = { id: 'bound-writer', name: 'bound writer' };
-  const created = await wiring.handleAgent(reader, { sub: 'new', title: 'Bound plan' });
-  const boardId = (created.body as { board: { id: string } }).board.id;
-  await wiring.handleAgent(writer, { sub: 'put', board: boardId, ops: z.array(Op).parse([
-    { op: 'columns', columns: [{ id: 'intake', title: 'Intake' }] },
-    { op: 'add', element: { kind: 'box', id: 'parse', title: 'Parse', column: 'intake' } },
-  ]) });
-  const renames = Array.from({ length: 150 }, (_, index) => ({ op: 'set', id: 'parse', fields: { title: `Parse step ${index} ${'x'.repeat(40)}` } }));
-  await wiring.handleAgent(writer, { sub: 'put', board: boardId, ops: z.array(Op).parse(renames) });
-
-  const promptContext = wiring.takePromptContext(reader.id) ?? '';
-  assert.ok(promptContext.length <= WHITEBOARD_LIMITS.promptContextCharacters, `the context is ${promptContext.length} characters`);
-  assert.match(promptContext, new RegExp(`read the rest with whiteboard get ${boardId}`));
-  const read = await wiring.handleAgent(reader, { sub: 'get', board: boardId });
-  assert.ok((read.body as { changes: unknown[] }).changes.length > 0, 'the clipped changes are still unread');
+  await wiring.handleAgent(agent, { sub: 'disconnect', board: boardId });
+  await wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'add', element: { kind: 'note', id: 'n1', on: 'parse', text: 'handle drafts' } }]));
+  assert.equal(wiring.takeBoardNotice(agent.id), null);
 });
 
 test('the same bytes attached at once under an svg and an html name are stored once as one kind', async () => {

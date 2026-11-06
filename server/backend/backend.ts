@@ -185,7 +185,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       if (!session || !replyShape) return null;
       const isConnectedToBoard = whiteboards.isConnected(glimmervoidId);
       const keepsHint = (command: HintedCommand) => (agentApi?.refuseRole(session, command) ?? null) === null && !(command === 'whiteboard' && isConnectedToBoard);
-      const promptMessages = [...session.takePromptNotes(keepsHint), whiteboards.takePromptContext(glimmervoidId)];
+      const promptMessages = [...session.takePromptNotes(keepsHint), whiteboards.takeBoardNotice(glimmervoidId)];
       const deliverable = promptMessages.filter((promptMessage) => promptMessage !== null);
       return deliverable.length === 0 ? null : promptContextReplyOf(replyShape, deliverable.join('\n\n'));
     },

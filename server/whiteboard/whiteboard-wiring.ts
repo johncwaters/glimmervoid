@@ -18,7 +18,7 @@ import { readChangeFacts, readFileFacts } from './whiteboard-anchor-facts.ts';
 import type { ChangeMap } from '../../shared/contracts/change-map.ts';
 import { unitsOf } from '../../shared/whiteboard-plan-core.ts';
 import {
-  boardRecordWithMediaForImages, changesForReader, connectSession, disconnectSession, markRead, nudgeLineFor, pickShowBoardId, promptContextFor, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard,
+  boardRecordWithMediaForImages, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, nudgeLineFor, pickShowBoardId, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard,
 } from '../core/whiteboard-store-core.ts';
 import { loadJsonStateFile, writeJsonAtomic } from '../json-file.ts';
 import { createKeyedSerialQueue } from '../spawn-gate.ts';
@@ -118,7 +118,7 @@ interface WhiteboardPort {
   };
   forgetSession(sessionId: string): Promise<void>;
   forgetClosedSessions(isClosedSession: (sessionId: string) => boolean): Promise<void>;
-  takePromptContext(sessionId: string): string | null;
+  takeBoardNotice(sessionId: string): string | null;
   isConnected(sessionId: string): boolean;
   snapshotMessage(): ServerMessageOf<'whiteboards-snapshot'>;
 }
@@ -152,6 +152,7 @@ function createWhiteboardWiring({
   boardsRoot, broadcastControl = () => {}, now = Date.now, newBoardId = () => crypto.randomUUID(), logger = console, codeContextOf = () => null,
 }: WhiteboardWiringOptions): WhiteboardPort {
   const recordsByBoardId = new Map<string, BoardRecord>();
+  const announcedVersionByBoardIdBySessionId = new Map<string, Map<string, number>>();
   const deletedBoardIds = new Set<string>();
   const writeQueue = createKeyedSerialQueue();
   const assets = createWhiteboardAssetStore({ boardsRoot, logger, now });
@@ -360,7 +361,7 @@ function createWhiteboardWiring({
   function disconnectBoard(boardId: string, sessionId: string): Promise<WhiteboardReply> {
     return changeRecord(boardId, (record) => {
       const next = disconnectSession(record, sessionId);
-      return { ok: true, record: next, reply: connectionReply(next, 'this session no longer gets summaries of changes to this board') };
+      return { ok: true, record: next, reply: connectionReply(next, 'this session is no longer told when this board changes') };
     });
   }
 
@@ -470,6 +471,7 @@ function createWhiteboardWiring({
 
   async function forgetClosedSessions(isClosedSession: (sessionId: string) => boolean): Promise<void> {
     await loaded;
+    for (const sessionId of [...announcedVersionByBoardIdBySessionId.keys()].filter(isClosedSession)) announcedVersionByBoardIdBySessionId.delete(sessionId);
     const closedConnectionsPerBoard = [...recordsByBoardId].map(([boardId, record]) => ({ boardId, closedSessionIds: Object.keys(record.cursorBySessionId).filter(isClosedSession) }));
     await Promise.all(closedConnectionsPerBoard
       .filter(({ closedSessionIds }) => closedSessionIds.length > 0)
@@ -484,16 +486,13 @@ function createWhiteboardWiring({
     return [...recordsByBoardId.values()].some((record) => sessionId in record.cursorBySessionId);
   }
 
-  function takePromptContext(sessionId: string): string | null {
-    const context = promptContextFor([...recordsByBoardId.values()], sessionId);
-    if (!context) return null;
-    for (const { boardId, version } of context.readThrough) {
-      void changeRecord(boardId, (record) => {
-        const next = markRead(record, sessionId, version);
-        return { ok: true, record: next, reply: { status: 200, body: { ok: true, version: next.board.version } } };
-      });
-    }
-    return context.text;
+  function takeBoardNotice(sessionId: string): string | null {
+    const announcedVersionByBoardId = announcedVersionByBoardIdBySessionId.get(sessionId) ?? new Map<string, number>();
+    const notice = boardNoticeFor([...recordsByBoardId.values()], sessionId, announcedVersionByBoardId);
+    if (!notice) return null;
+    for (const { boardId, version } of notice.announced) announcedVersionByBoardId.set(boardId, version);
+    announcedVersionByBoardIdBySessionId.set(sessionId, announcedVersionByBoardId);
+    return notice.text;
   }
 
   async function attachMedia(caller: WhiteboardCaller, requestedPath: string): Promise<WhiteboardReply> {
@@ -569,7 +568,7 @@ function createWhiteboardWiring({
     }
   }
 
-  return { loaded, assets, handleAgent, handleOperator, forgetSession, forgetClosedSessions, takePromptContext, isConnected, snapshotMessage };
+  return { loaded, assets, handleAgent, handleOperator, forgetSession, forgetClosedSessions, takeBoardNotice, isConnected, snapshotMessage };
 }
 
 export { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME };
