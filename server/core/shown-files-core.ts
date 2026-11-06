@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-type ShownFileKind = 'image' | 'video' | 'page';
+type ShownFileKind = 'image' | 'video' | 'page' | 'doc';
 
 type ShownKindVerdict =
   | { ok: true; kind: ShownFileKind; mime: string; extension: string }
@@ -14,7 +14,7 @@ interface ShownFormat {
 
 const SHOWN_SNIFF_BYTES = 64 * 1024;
 const PAGE_TITLE_MAX_CHARS = 200;
-const ACCEPTED_KINDS_TEXT = 'PNG, JPEG, WebP, GIF, SVG, MP4, WebM or HTML';
+const ACCEPTED_KINDS_TEXT = 'PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML or Markdown';
 
 const PNG: ShownFormat = { kind: 'image', mime: 'image/png', extension: '.png' };
 const JPEG: ShownFormat = { kind: 'image', mime: 'image/jpeg', extension: '.jpg' };
@@ -24,6 +24,9 @@ const SVG: ShownFormat = { kind: 'image', mime: 'image/svg+xml', extension: '.sv
 const MP4: ShownFormat = { kind: 'video', mime: 'video/mp4', extension: '.mp4' };
 const WEBM: ShownFormat = { kind: 'video', mime: 'video/webm', extension: '.webm' };
 const PAGE: ShownFormat = { kind: 'page', mime: 'text/html; charset=utf-8', extension: '.html' };
+const DOC: ShownFormat = { kind: 'doc', mime: 'text/markdown; charset=utf-8', extension: '.md' };
+const MARKDOWN_NAME_EXTENSIONS = new Set(['.md', '.markdown']);
+const NUL_BYTE = 0x00;
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const JPEG_SIGNATURE = Buffer.from([0xff, 0xd8, 0xff]);
@@ -74,8 +77,13 @@ function sniffMarkupFormat(chunk: Buffer, declaredName: string): ShownFormat | n
   return null;
 }
 
+function sniffDocFormat(chunk: Buffer, declaredName: string): ShownFormat | null {
+  if (!MARKDOWN_NAME_EXTENSIONS.has(path.extname(declaredName).toLowerCase())) return null;
+  return chunk.includes(NUL_BYTE) ? null : DOC;
+}
+
 function decideShownKind(firstChunk: Buffer, declaredName: string): ShownKindVerdict {
-  const format = sniffBinaryFormat(firstChunk) ?? sniffMarkupFormat(firstChunk, declaredName);
+  const format = sniffBinaryFormat(firstChunk) ?? sniffMarkupFormat(firstChunk, declaredName) ?? sniffDocFormat(firstChunk, declaredName);
   if (!format) return { ok: false, error: `${declaredName} is not a file show takes; show takes ${ACCEPTED_KINDS_TEXT} files` };
   return { ok: true, kind: format.kind, mime: format.mime, extension: format.extension };
 }

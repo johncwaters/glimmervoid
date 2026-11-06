@@ -3,7 +3,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 
 import { BoardRecord, sparseBoardRecord, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
-import type { Board, BoardReview, BoardSummary, Op, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
+import type { Board, BoardReview, BoardSummary, BoxMedia, Op, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import type { AgentReplyBodyOf } from '../../shared/contracts/session.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
@@ -39,7 +39,7 @@ const PUT_GUIDE = [
   '{"op":"set","id":"parse","fields":{"title":"Parse feed"}},{"op":"remove","id":"w1"}]\'.',
   'Pick the layout that fits what you draw; the example shows op syntax, not a preferred shape.',
   'Element kinds: box (title, column, lane, near, at, lines, refs, change none|added|removed|relabeled, was, order, shape box|decision|panel, outputs, step {status planned|building|landed, linkedBoardId} to make it a plan step), wire (from, to, fromOutput, dashed, tone plain|fail|join|lane, label, fromSide and toSide left|right|top|bottom, back), frame (title, contains, loop), note (on, text, ref).',
-  'To show a picture, video or HTML page, run glimmervoid whiteboard attach <path> (PNG, JPEG, WebP, GIF, SVG, MP4, WebM or HTML) and set the media it returns on a box unchanged except alt, as in "media":{"kind":"image","asset":"<id>","mime":"image/png","width":800,"height":600,"alt":"login screen","hasPreview":false}; a picture or video first frame draws under the box lines, and a page or a video without a first frame shows as a labelled placeholder.',
+  'To show a picture, video, HTML page or Markdown document, run glimmervoid whiteboard attach <path> (PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML or Markdown) and set the media it returns on a box unchanged except alt, as in "media":{"kind":"image","asset":"<id>","mime":"image/png","width":800,"height":600,"alt":"login screen","hasPreview":false}; a picture or video first frame draws under the box lines, a page or a video without a first frame shows as a labelled placeholder, and a Markdown document shows the operator its rendered text, which they can edit and save on the board.',
   'A line takes style text|code|item|numbered|kv; kv needs a key, as in {"style":"kv","key":"timeout","text":"30s"}, and numbered lines count up through each run.',
   'A plan step is a box with a step; a wire from one step to another means the second is built after the first, cycles allowed. A step with no place sits in the build-order band above the free drawing until moved. glimmervoid whiteboard plan add|after|status|show edits and reads them.',
   'A box with shape panel is a side note card for text such as prior art: with no place it stacks right of the drawing, lowest order first, until it is given one, and no box can sit near it while it is stacked.',
@@ -133,6 +133,12 @@ function assetIdsOf(board: Board): Set<string> {
 
 function refusal(status: number, error: string): WhiteboardReply {
   return { status, body: { ok: false, error } };
+}
+
+function attachedMediaUse(media: BoxMedia): string {
+  if (media.kind === 'doc') return 'to show the operator the document, which they can edit and save on the board';
+  if (media.kind === 'image' || media.hasPreview) return 'to draw it';
+  return 'to show it as a labelled placeholder until live playback ships';
 }
 
 function parseBoardRecord(raw: unknown): BoardRecord | null {
@@ -496,9 +502,7 @@ function createWhiteboardWiring({
     if (caller.remoteWorkspace) return refusal(409, `attach reads files on the Glimmervoid machine, and this session runs in the Coder workspace ${caller.remoteWorkspace}, so its files are not there`);
     const ingested = await assets.ingestFile(path.resolve(caller.cwd ?? boardsRoot, requestedPath));
     if (!ingested.ok) return refusal(ingested.status, ingested.error);
-    const isDrawn = ingested.media.kind === 'image' || ingested.media.hasPreview;
-    const shownAs = isDrawn ? 'to draw it' : 'to show it as a labelled placeholder until live playback ships';
-    const note = `put a box with "media":${JSON.stringify({ ...ingested.media, alt: '<what it shows>' })} ${shownAs}`;
+    const note = `put a box with "media":${JSON.stringify({ ...ingested.media, alt: '<what it shows>' })} ${attachedMediaUse(ingested.media)}`;
     return { status: 200, body: { ok: true, media: ingested.media, note } };
   }
 
