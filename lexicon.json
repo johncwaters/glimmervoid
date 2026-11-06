@@ -553,6 +553,10 @@
     {
       "name": "ws",
       "definition": "The ws npm package, the WebSocket library the server runs the control and data WebSockets on; named in dependency notes and changelog entries"
+    },
+    {
+      "name": "tailwindcss",
+      "definition": "The tailwindcss npm package, the Tailwind CSS compiler that builds the dashboard stylesheet through its Vite plugin; named in dependency notes and changelog entries"
     }
   ]
 }
