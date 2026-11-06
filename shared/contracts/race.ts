@@ -69,6 +69,14 @@ export const CheckOutcome = z.strictObject({
 });
 export type CheckOutcome = z.infer<typeof CheckOutcome>;
 
+export const ContestantMetrics = z.strictObject({
+  elapsedMs: z.number().int().min(0).nullable(),
+  tokens: z.number().int().min(0).nullable(),
+  costUSD: z.number().min(0).nullable(),
+  waits: z.number().int().min(0),
+});
+export type ContestantMetrics = z.infer<typeof ContestantMetrics>;
+
 const JudgeResult = z.strictObject({
   ranking: z.array(z.strictObject({
     contestantId: RaceId,
@@ -127,6 +135,7 @@ export const RaceRecord = z.strictObject({
   phase: z.enum(RACE_PHASES).default('running'),
   diffStatsByContestant: z.record(RaceId, DiffStats).default({}),
   checkByContestant: z.record(RaceId, CheckOutcome).default({}),
+  metricsByContestant: z.record(RaceId, ContestantMetrics).default({}),
   judge: JudgeResult.nullable().default(null),
   panel: PanelResult.nullable().default(null),
   judgeError: z.string().nullable().default(null),
