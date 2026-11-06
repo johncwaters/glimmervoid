@@ -316,14 +316,19 @@ html[data-layout="phone"] .review-layout-switch { display: none; }
 .review-board-column-title { flex-shrink: 0; white-space: nowrap; }
 .review-board-cards { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .review-board-cards .pr-queue-row { background: var(--bg-card); }
+.review-board-cards .pr-queue-row[aria-current="true"] { background: color-mix(in oklch, var(--accent) 16%, var(--bg-card)); box-shadow: inset 0 0 0 1px var(--accent); }
 .review-board-cards .pr-queue-top { flex-wrap: wrap; row-gap: 2px; }
-.review-board-cards .pr-queue-title { flex: 1 1 96px; }
-.review-board-empty { margin: 0; padding: 4px 8px; color: var(--text-muted); font-size: var(--type-meta); }
+.review-board-cards .pr-queue-title { order: -1; display: -webkit-box; flex: 1 0 100%; color: var(--text-head); font-weight: 700; white-space: normal; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.review-board-cards .pr-queue-ref { color: var(--text-muted); font-weight: 400; }
+.review-board-cards .pr-phase-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.review-board-cards .pr-queue-state { flex-shrink: 0; white-space: nowrap; }
+.review-board-cards .pr-queue-author > :not(.avatar),
+.review-board-cards .pr-queue-reviewers { display: none; }
 .review-board-parked-toggle { display: inline-flex; align-items: center; gap: 8px; min-width: 0; border: 0; padding: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
 .review-board-parked-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .review-board-column[data-collapsed="true"] { flex: 0 0 44px; min-width: 44px; }
 .review-board-column[data-collapsed="true"] > .review-board-column-heading { padding: 0; justify-content: center; }
-.review-board-column[data-collapsed="true"] .review-board-parked-toggle { writing-mode: vertical-rl; }
+.review-board-column[data-collapsed="true"] > .review-board-column-heading { writing-mode: vertical-rl; }
 .pr-queue-row[data-age-tone="fresh"] .pr-queue-elapsed { color: var(--text-muted); }
 .pr-queue-row[data-age-tone="aging"] .pr-queue-elapsed { color: var(--state-waiting); }
 .pr-queue-row[data-age-tone="old"] .pr-queue-elapsed { color: var(--state-failed); }

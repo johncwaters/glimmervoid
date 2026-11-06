@@ -21,13 +21,14 @@ function createParkedToggle(group: QueueGroup, isParkedOpen: boolean, onTogglePa
   return toggle;
 }
 
-function createColumnHeading(group: QueueGroup, options: ReviewBoardOptions): HTMLElement {
+function createColumnHeading(group: QueueGroup, options: ReviewBoardOptions, isCollapsed: boolean): HTMLElement {
   const heading = el('h3', 'pr-section-heading review-board-column-heading');
-  if (group.id === 'parked') {
+  if (group.id === 'parked' && group.items.length > 0) {
     heading.append(createParkedToggle(group, options.isParkedOpen, options.onToggleParked));
     return heading;
   }
-  heading.append(el('span', 'review-board-column-title', group.title), el('span', 'review-group-count', String(group.items.length)), ...options.createHeadingExtras(group));
+  heading.append(el('span', 'review-board-column-title', group.title), el('span', 'review-group-count', String(group.items.length)));
+  if (!isCollapsed) heading.append(...options.createHeadingExtras(group));
   return heading;
 }
 
@@ -35,13 +36,13 @@ function createColumn(group: QueueGroup, options: ReviewBoardOptions): HTMLEleme
   const column = el('section', 'review-board-column');
   column.dataset.group = group.id;
   if (group.id === 'parked') column.id = PARKED_COLUMN_ID;
-  column.append(createColumnHeading(group, options));
-  if (group.id === 'parked' && !options.isParkedOpen) {
+  const isCollapsed = group.items.length === 0 || (group.id === 'parked' && !options.isParkedOpen);
+  column.append(createColumnHeading(group, options, isCollapsed));
+  if (isCollapsed) {
     column.dataset.collapsed = 'true';
     return column;
   }
   const cards = el('div', 'review-board-cards');
-  if (group.items.length === 0) cards.append(el('p', 'review-board-empty', 'Nothing here.'));
   for (const item of group.items) cards.append(options.createCard(item, group));
   column.append(cards);
   return column;
