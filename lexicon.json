@@ -545,6 +545,10 @@
     {
       "name": "dead",
       "definition": "As in dead end: Coherence's reading of a component whose defects keep returning after site fixes (DEAD END in spec --check), quoted in this project's journal practice records; elsewhere ordinary English"
+    },
+    {
+      "name": "arena",
+      "definition": "The dashboard view where the operator races one prompt across 2 to 5 agent setups, each in its own worktree from the same commit, and a judge ranks the contestants that changed something"
     }
   ]
 }
