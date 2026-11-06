@@ -1,5 +1,5 @@
 import type { Board, Box, Element as BoardElement, Frame, Note, Op, Step, Wire } from '#shared/contracts/whiteboard.ts';
-import { AnchorRef, BOX_CHANGES, STEP_STATUSES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
+import { AnchorRef, BOX_CHANGES, BOX_SHAPES, STEP_STATUSES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import { isStackedPanel } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout } from '#shared/whiteboard-layout-core.ts';
 import { el } from '../dom-helpers.ts';
@@ -7,6 +7,8 @@ import { button } from '../ui/button.ts';
 import { refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 
 type BoxLine = Box['lines'][number];
+type DecisionBox = Extract<Box, { shape: 'decision' }>;
+type DecisionOutput = DecisionBox['outputs'][number];
 type LegendEntry = Board['legend'][number];
 type Choice = { value: string; text: string };
 type FieldCommit = (fields: Record<string, unknown>) => void;
@@ -34,12 +36,12 @@ const LINE_STYLES: readonly BoxLine['style'][] = ['text', 'code', 'item', 'numbe
 const TONES: readonly Wire['tone'][] = ['plain', 'fail', 'join'];
 const LINE_STYLE_CHOICES = choicesOf(LINE_STYLES);
 const TONE_CHOICES = choicesOf(TONES);
-const SHAPE_CHOICES = choicesOf(['box', 'decision', 'panel'] satisfies Box['shape'][]);
+const SHAPE_CHOICES = choicesOf(BOX_SHAPES);
 const HEADING_BY_SHAPE: Readonly<Record<Box['shape'], string>> = { box: 'Box', decision: 'Decision', panel: 'Panel' };
 const CHANGE_CHOICES = choicesOf(BOX_CHANGES);
 const STEP_STATUS_CHOICES = choicesOf(STEP_STATUSES);
 const SIDE_CHOICES: readonly Choice[] = [{ value: '', text: 'auto' }, ...choicesOf(['left', 'right', 'top', 'bottom'])];
-const DEFAULT_OUTPUTS: Box['outputs'] = [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }];
+const DEFAULT_OUTPUTS: DecisionBox['outputs'] = [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }];
 
 function choicesOf(values: readonly string[]): Choice[] {
   return values.map((value) => ({ value, text: value }));
@@ -190,14 +192,14 @@ function linesEditor(owner: string, lines: readonly BoxLine[], latestLines: Late
   return listSection('Lines', rows, addLine);
 }
 
-function nextOutputId(outputs: readonly Box['outputs'][number][]): string {
+function nextOutputId(outputs: readonly DecisionOutput[]): string {
   const takenIds = new Set(outputs.map((output) => output.id));
   let suffix = outputs.length + 1;
   while (takenIds.has(`exit-${suffix}`)) suffix += 1;
   return `exit-${suffix}`;
 }
 
-function outputsEditor(box: Box, latestOutputs: LatestItems<Box['outputs'][number]>, set: FieldCommit): HTMLElement {
+function outputsEditor(box: DecisionBox, latestOutputs: LatestItems<DecisionOutput>, set: FieldCommit): HTMLElement {
   const editing = listEditing(latestOutputs, (outputs) => set({ outputs }));
   const rows = box.outputs.map((output, index) => {
     const row = el('div', 'wb-inspect-row');
@@ -219,6 +221,10 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     const element = latest();
     return element?.kind === 'box' ? element : null;
   };
+  const latestOutputs = () => {
+    const latestElement = latestBox();
+    return latestElement?.shape === 'decision' ? latestElement.outputs : null;
+  };
   const laidOutPlace = () => {
     const laidOut = layout?.elements.find((element) => element.id === box.id);
     if (!layout || laidOut?.kind !== 'box') return null;
@@ -230,10 +236,9 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     return at ? { at } : {};
   };
   const commitShape = (shape: string) => {
-    const outputs = latestBox()?.outputs ?? [];
-    if (shape === 'decision') set({ shape, outputs: outputs.length > 0 ? outputs : DEFAULT_OUTPUTS, ...placeLeavingStack() });
-    if (shape === 'box') set({ shape, outputs: [], ...placeLeavingStack() });
-    if (shape === 'panel') set({ shape, outputs: [] });
+    if (shape === 'decision') set({ shape, outputs: latestOutputs() ?? DEFAULT_OUTPUTS, ...placeLeavingStack() });
+    if (shape === 'box') set({ shape, ...placeLeavingStack() });
+    if (shape === 'panel') set({ shape });
   };
   const commitChange = (change: string) => {
     if (change === 'relabeled') {
@@ -252,7 +257,7 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     ...(box.change === 'relabeled' ? [fieldRow('Was', textField('was', box.was ?? '', WHITEBOARD_LIMITS.title, (was) => {
       if (was.trim()) set({ was: was.trim() });
     }))] : []),
-    ...(box.shape === 'decision' ? [outputsEditor(box, () => latestBox()?.outputs ?? null, set)] : []),
+    ...(box.shape === 'decision' ? [outputsEditor(box, latestOutputs, set)] : []),
     refsEditor('this box', box.refs, () => latestBox()?.refs ?? null, (refs) => set({ refs })),
     linesEditor('this box', box.lines, () => latestBox()?.lines ?? null, (lines) => set({ lines })),
     ...(box.step ? stepSections(box.step, set) : []),

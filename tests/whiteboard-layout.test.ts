@@ -355,7 +355,7 @@ test('a decision draws its outputs as rows in order and each output wire leaves 
   const droppedOutput = applyOps(decisionBoard, [{ op: 'set', id: 'classify', fields: { outputs: [{ id: 'failed', label: 'failed' }] } }], author, 0);
   assert.equal(droppedOutput.ok ? '' : droppedOutput.error, 'op 1: wire w1 still starts at output clean of classify, so change or remove that wire first');
   const plainWithOutputs = applyOps(decisionBoard, [{ op: 'set', id: 'stop', fields: { outputs: [{ id: 'x', label: 'x' }] } }], author, 0);
-  assert.equal(plainWithOutputs.ok ? '' : plainWithOutputs.error, 'op 1: box stop has outputs, which only a decision has, so set shape to decision');
+  assert.equal(plainWithOutputs.ok ? '' : plainWithOutputs.error, 'op 1: stop: only a decision has outputs, so set shape to decision');
 });
 
 test('styled lines carry their markers, a panel with no place stacks clear right of every box until it is given one, and the legend names the wire styles in use with custom labels winning', () => {

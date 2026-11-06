@@ -72,26 +72,54 @@ export const Step = z.object({
   linkedBoardId: z.string().min(1).max(64).nullable().default(null).describe('a board holding this step in detail'),
 }).strict().meta({ id: 'Step' });
 
-export const Box = z.object({
+const boxBaseFields = {
   kind: z.literal('box'),
   id: ElementId,
   title: Title.min(1, { error: 'a box needs a title' }),
-  lines: z.array(BoxLine).max(WHITEBOARD_LIMITS.linesPerBox, { error: `a box holds at most ${WHITEBOARD_LIMITS.linesPerBox} lines` }).default([]),
   refs: AnchorRefs,
   change: z.enum(BOX_CHANGES).default('none').describe('marks the box in a diff'),
   was: Title.nullable().default(null).describe('the old title, required when change is relabeled'),
   near: Near.nullable().default(null).describe('place: beside another box'),
   order: z.number().int().default(0).describe('position in the panel stack, lowest first'),
   at: Point.nullable().default(null).describe('place: a point on the board'),
-  shape: z.enum(['box', 'decision', 'panel']).default('box').describe('decision draws a diamond with outputs; panel draws a side note card'),
-  outputs: z.array(Output).max(8, { error: 'a decision has at most 8 outputs' }).default([]).describe('decision branches; a wire leaves one through fromOutput'),
-  media: BoxMedia.nullable().default(null).describe('media drawn under the lines, from whiteboard attach'),
   width: z.number().int()
     .min(WHITEBOARD_LIMITS.boxWidthMin, { error: `a box width is ${WHITEBOARD_LIMITS.boxWidthMin} to ${WHITEBOARD_LIMITS.boxWidthMax}` })
     .max(WHITEBOARD_LIMITS.boxWidthMax, { error: `a box width is ${WHITEBOARD_LIMITS.boxWidthMin} to ${WHITEBOARD_LIMITS.boxWidthMax}` })
     .nullable().default(null).describe(`the box width in board units, ${WHITEBOARD_LIMITS.boxWidthMin} to ${WHITEBOARD_LIMITS.boxWidthMax}; null is the 220 default`),
   step: Step.nullable().default(null).describe('makes the box a plan step; a wire from one step to another means the second is built after the first'),
-}).strict().describe('a box needs one place: near or at; a plan step may have none and joins the build-order band, and a panel may have none and stacks right of the drawing');
+};
+
+const boxContentFields = {
+  lines: z.array(BoxLine).max(WHITEBOARD_LIMITS.linesPerBox, { error: `a box holds at most ${WHITEBOARD_LIMITS.linesPerBox} lines` }).default([]),
+  media: BoxMedia.nullable().default(null).describe('media drawn under the lines, from whiteboard attach'),
+};
+
+const Outputs = z.array(Output).max(8, { error: 'a decision has at most 8 outputs' });
+
+const OnlyDecisionOutputs = z.array(Output).max(0, { error: 'only a decision has outputs, so set shape to decision' }).optional()
+  .describe('accepted only empty: outputs belong to a decision');
+
+const plainBoxFields = { ...boxBaseFields, shape: z.literal('box').default('box'), ...boxContentFields };
+const decisionBoxFields = { ...boxBaseFields, shape: z.literal('decision').describe('draws a diamond with outputs'), ...boxContentFields, outputs: Outputs.default([]).describe('decision branches; a wire leaves one through fromOutput') };
+const panelBoxFields = { ...boxBaseFields, shape: z.literal('panel').describe('draws a side note card'), ...boxContentFields };
+
+const FIELD_NAMES_BY_SHAPE = Object.freeze({
+  box: new Set(Object.keys(plainBoxFields)),
+  decision: new Set(Object.keys(decisionBoxFields)),
+  panel: new Set(Object.keys(panelBoxFields)),
+});
+
+export const BOX_SHAPES = ['box', 'decision', 'panel'] as const;
+
+export const Box = z.discriminatedUnion('shape', [
+  z.object({ ...plainBoxFields, outputs: OnlyDecisionOutputs }).strict(),
+  z.object(decisionBoxFields).strict(),
+  z.object({ ...panelBoxFields, outputs: OnlyDecisionOutputs }).strict(),
+], { error: `a box shape is ${BOX_SHAPES.join(', ')}` }).describe('a box needs one place: near or at; a plan step may have none and joins the build-order band, and a panel may have none and stacks right of the drawing');
+
+export function fieldNamesOfShape(shape: Box['shape']): ReadonlySet<string> {
+  return FIELD_NAMES_BY_SHAPE[shape];
+}
 
 export const Frame = z.object({
   kind: z.literal('frame'),

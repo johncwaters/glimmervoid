@@ -1,4 +1,4 @@
-import { Box, Frame, Note, Wire, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
+import { BOX_SHAPES, Box, Frame, Note, Wire, WHITEBOARD_LIMITS, fieldNamesOfShape } from './contracts/whiteboard.ts';
 import type { Board, BoardChange, Element, Op } from './contracts/whiteboard.ts';
 import { isRecord } from './coerce.ts';
 import { isStackedPanel, layoutBoard } from './whiteboard-layout-core.ts';
@@ -59,11 +59,18 @@ function checkWireOutput(board: Board, wire: Wire): OpOutcome {
   return OK;
 }
 
+type DecisionOutputs = Extract<Box, { shape: 'decision' }>['outputs'];
+
+function decisionOutputsOf(element: Element | undefined): DecisionOutputs {
+  if (element?.kind !== 'box' || element.shape !== 'decision') return [];
+  return element.outputs;
+}
+
 function checkBoxOutputs(board: Board, box: Box, previous: Element | undefined): OpOutcome {
-  if (box.shape !== 'decision' && box.outputs.length > 0) return refuse(`box ${box.id} has outputs, which only a decision has, so set shape to decision`);
-  const outputIds = new Set(box.outputs.map((output) => output.id));
-  if (outputIds.size !== box.outputs.length) return refuse(`box ${box.id} has two outputs with the same id`);
-  const previousOutputs = previous?.kind === 'box' ? previous.outputs : [];
+  const outputs = decisionOutputsOf(box);
+  const outputIds = new Set(outputs.map((output) => output.id));
+  if (outputIds.size !== outputs.length) return refuse(`box ${box.id} has two outputs with the same id`);
+  const previousOutputs = decisionOutputsOf(previous);
   if (previousOutputs.every((output) => outputIds.has(output.id))) return OK;
   const strandedWire = Object.values(board.elements).find((element) => element.kind === 'wire' && element.from === box.id && element.fromOutput !== null && !outputIds.has(element.fromOutput));
   if (strandedWire?.kind === 'wire') return refuse(`wire ${strandedWire.id} still starts at output ${strandedWire.fromOutput} of ${box.id}, so change or remove that wire first`);
@@ -106,11 +113,17 @@ function nearChainReaches(board: Board, startId: string, soughtId: string): bool
   return false;
 }
 
+function withoutEmptyOutputsOffDecision(element: Element): Element {
+  if (element.kind !== 'box' || element.shape === 'decision' || element.outputs === undefined) return element;
+  const { outputs, ...elementWithoutOutputs } = element;
+  return elementWithoutOutputs;
+}
+
 function addElement(draft: Draft, element: Element, author: Author): OpOutcome {
   const { board } = draft;
   if (board.elements[element.id]) return refuse(`an element with id ${element.id} already exists`);
   if (draft.elementCount >= WHITEBOARD_LIMITS.elements) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.elements} elements`);
-  const stored: Element = element.kind === 'note' ? storedNote(element, author) : element;
+  const stored: Element = element.kind === 'note' ? storedNote(element, author) : withoutEmptyOutputsOffDecision(element);
   const references = checkReferences(board, stored, undefined);
   if (!references.ok) return references;
   board.elements[element.id] = stored;
@@ -128,17 +141,28 @@ function withStepMerged(existing: Element, fields: Record<string, unknown>): Rec
   return { ...fields, step: { ...existing.step, ...fields.step } };
 }
 
+function isBoxShape(value: unknown): value is Box['shape'] {
+  return BOX_SHAPES.some((shape) => shape === value);
+}
+
+function existingFieldsKeptBy(existing: Element, fields: Record<string, unknown>): Record<string, unknown> {
+  if (existing.kind !== 'box' || fields.shape === undefined || fields.shape === existing.shape || !isBoxShape(fields.shape)) return existing;
+  const fieldNames = fieldNamesOfShape(fields.shape);
+  return Object.fromEntries(Object.entries(existing).filter(([fieldName]) => fieldNames.has(fieldName)));
+}
+
 function setFields(board: Board, id: string, rawFields: Record<string, unknown>, author: Author): OpOutcome {
   const existing = board.elements[id];
   if (!existing) return refuse(`no element has id ${id}`);
   const fields = withStepMerged(existing, rawFields);
   if ('kind' in fields || 'id' in fields) return refuse('set cannot change an element kind or id; remove it and add a new one');
   if (!canKeepNoteStamps(author) && ('author' in fields || 'resolvedBy' in fields)) return refuse('set cannot change who wrote or resolved a note; resolve it with a resolve op');
-  const parsed = ELEMENT_SCHEMAS[existing.kind].safeParse({ ...existing, ...rewrittenNoteStamp(existing, fields, author), ...fields });
+  const parsed = ELEMENT_SCHEMAS[existing.kind].safeParse({ ...existingFieldsKeptBy(existing, fields), ...rewrittenNoteStamp(existing, fields, author), ...fields });
   if (!parsed.success) return refuse(`${id}: ${parsed.error.issues[0]?.message ?? 'invalid fields'}`);
-  const references = checkReferences(board, parsed.data, existing);
+  const stored = withoutEmptyOutputsOffDecision(parsed.data);
+  const references = checkReferences(board, stored, existing);
   if (!references.ok) return references;
-  board.elements[id] = parsed.data;
+  board.elements[id] = stored;
   return OK;
 }
 
@@ -275,8 +299,12 @@ function hasSameFieldNames(left: Element, right: Element): boolean {
   return leftNames.length === rightNames.size && leftNames.every((name) => rightNames.has(name));
 }
 
+function isBoxShapeChange(previous: Element, element: Element): boolean {
+  return previous.kind === 'box' && element.kind === 'box' && previous.shape !== element.shape;
+}
+
 function changeOf(previous: Element, element: Element): ElementChange | null {
-  if (previous.kind !== element.kind || !hasSameFieldNames(previous, element)) return ['put', element];
+  if (previous.kind !== element.kind || (!hasSameFieldNames(previous, element) && !isBoxShapeChange(previous, element))) return ['put', element];
   const previousFields: Record<string, unknown> = { ...previous };
   const changedFields = Object.fromEntries(Object.entries(element).filter(([name, value]) => !isSameValue(previousFields[name], value)));
   return Object.keys(changedFields).length === 0 ? null : ['patch', changedFields];
@@ -310,7 +338,7 @@ function diffOf(before: Board, after: Board): BoardDiff {
 function appliedChangeOf(existing: Element | undefined, id: string, change: ElementChange): Element | null {
   if (change[0] === 'put') return change[1].id === id ? change[1] : null;
   if (change[0] === 'remove' || !existing) return null;
-  const parsed = ELEMENT_SCHEMAS[existing.kind].safeParse({ ...existing, ...change[1] });
+  const parsed = ELEMENT_SCHEMAS[existing.kind].safeParse({ ...existingFieldsKeptBy(existing, change[1]), ...change[1] });
   return parsed.success && parsed.data.id === id ? parsed.data : null;
 }
 

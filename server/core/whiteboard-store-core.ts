@@ -25,6 +25,13 @@ function boxForPanel(element: unknown): unknown {
   return { kind: 'box', id: element.id, title: element.title, lines: element.lines ?? [], order: element.order ?? 0, shape: 'panel' };
 }
 
+function boxWithOutputsOnlyOnDecision(element: unknown): unknown {
+  if (!isRecord(element) || element.kind !== 'box' || element.shape === 'decision' || !Array.isArray(element.outputs)) return element;
+  if (element.outputs.length > 0) return { ...element, shape: 'decision' };
+  const { outputs, ...elementWithoutOutputs } = element;
+  return elementWithoutOutputs;
+}
+
 function elementsWithStepBoxesForUnits(elements: Record<string, unknown>): Record<string, unknown> {
   const takenIds = new Set(Object.keys(elements));
   const upgraded: Record<string, unknown> = {};
@@ -102,7 +109,7 @@ function freeCanvasBoard(board: Record<string, unknown>, elements: Record<string
 function upgradedBoardRecord(raw: unknown): unknown {
   const board = isRecord(raw) ? raw.board : null;
   if (!isRecord(raw) || !isRecord(board) || !isRecord(board.elements)) return raw;
-  const elements = Object.fromEntries(Object.entries(elementsWithStepBoxesForUnits(board.elements)).map(([elementId, element]) => [elementId, boxForPanel(elementWithMediaForImage(element))]));
+  const elements = Object.fromEntries(Object.entries(elementsWithStepBoxesForUnits(board.elements)).map(([elementId, element]) => [elementId, boxWithOutputsOnlyOnDecision(boxForPanel(elementWithMediaForImage(element)))]));
   return { ...raw, board: freeCanvasBoard(board, elements) };
 }
 
