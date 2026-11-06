@@ -1,6 +1,7 @@
 import net from 'node:net';
 import { WebSocket } from 'ws';
 import { z } from 'zod';
+import { HubPhoneAlertFrame } from '../../shared/contracts/hosts.ts';
 import type { HostEntry, HostStatus } from '../../shared/contracts/hosts.ts';
 import { spawn } from '../child-process-safe.ts';
 import { sshTunnelArgs, versionPart } from './core/host-link-core.ts';
@@ -10,7 +11,7 @@ import { relayUpgradeToHost } from './host-relay.ts';
 import { hostUpgradeTarget } from '../core/upgrade-route.ts';
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
-import type { HostLinkHandle, OpenHubSocket, OpenTunnel } from './host-link-poller.ts';
+import type { HostLinkHandle, HubSocketFrameHandlers, OpenHubSocket, OpenTunnel } from './host-link-poller.ts';
 
 const HUB_ROLE_HEADERS = Object.freeze({ 'X-Glimmervoid-Role': 'hub' });
 const TUNNEL_READY_TIMEOUT_MS = 20000;
@@ -91,7 +92,7 @@ async function fetchHostToken(tunnelPort: number): Promise<string> {
   return reply.data.token;
 }
 
-function openHubSocket(host: HostEntry, tunnelPort: number, onSnapshot: (serverBuild: string | null) => void): Promise<OpenHubSocket> {
+function openHubSocket(host: HostEntry, tunnelPort: number, frames: HubSocketFrameHandlers): Promise<OpenHubSocket> {
   return fetchHostToken(tunnelPort).then((hostToken) => new Promise<OpenHubSocket>((resolve, reject) => {
     const socket = new WebSocket(`ws://127.0.0.1:${tunnelPort}/control?token=${encodeURIComponent(hostToken)}`, {
       origin: `http://127.0.0.1:${host.dashboardPort}`,
@@ -100,11 +101,17 @@ function openHubSocket(host: HostEntry, tunnelPort: number, onSnapshot: (serverB
     const openDeadline = setTimeout(() => socket.terminate(), HOST_REQUEST_TIMEOUT_MS);
     let hasSeenSnapshot = false;
     socket.on('message', (raw: Buffer) => {
+      const frame = parseJsonOrNull(raw.toString('utf8'));
+      const phoneAlert = HubPhoneAlertFrame.safeParse(frame);
+      if (phoneAlert.success) {
+        frames.onPhoneAlert(phoneAlert.data.text);
+        return;
+      }
       if (hasSeenSnapshot) return;
-      const snapshot = SnapshotBuild.safeParse(parseJsonOrNull(raw.toString('utf8')));
+      const snapshot = SnapshotBuild.safeParse(frame);
       if (!snapshot.success) return;
       hasSeenSnapshot = true;
-      onSnapshot(snapshot.data.serverBuild);
+      frames.onSnapshot(snapshot.data.serverBuild);
     });
     const closed = new Promise<string>((resolveClosed) => {
       socket.once('close', (code) => resolveClosed(`host connection closed (${code})`));
@@ -115,10 +122,11 @@ function openHubSocket(host: HostEntry, tunnelPort: number, onSnapshot: (serverB
   }));
 }
 
-function createHostLinksWiring({ hosts, hubBuild, broadcast, spawnHostTunnel = spawnSshTunnel }: {
+function createHostLinksWiring({ hosts, hubBuild, broadcast, relayPhoneAlert, spawnHostTunnel = spawnSshTunnel }: {
   hosts: readonly HostEntry[];
   hubBuild: string;
   broadcast: (frame: HostsStatusFrame) => void;
+  relayPhoneAlert: (hostName: string, text: string) => void;
   spawnHostTunnel?: SpawnHostTunnel;
 }) {
   const hubVersion = versionPart(hubBuild) ?? hubBuild;
@@ -160,7 +168,10 @@ function createHostLinksWiring({ hosts, hubBuild, broadcast, spawnHostTunnel = s
   }
 
   for (const host of hosts) {
-    linkById.set(host.id, createHostLink(host, { hubVersion, openTunnel, openHubSocket, onStatusChange: broadcastIfChanged }));
+    linkById.set(host.id, createHostLink(host, {
+      hubVersion, openTunnel, openHubSocket, onStatusChange: broadcastIfChanged,
+      onPhoneAlert: (alertingHost, text) => relayPhoneAlert(alertingHost.name, text),
+    }));
   }
   broadcastIfChanged();
 

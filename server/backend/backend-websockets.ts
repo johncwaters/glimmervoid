@@ -20,6 +20,7 @@ import { refuseHostUpgrade } from '../hosts/host-relay.ts';
 import { resolveSessionSize } from '../core/viewer-size-core.ts';
 import { createWsSender } from '../ws-sender.ts';
 import type { WsSender } from '../ws-sender.ts';
+import type { HubPhoneAlertFrame } from '../../shared/contracts/hosts.ts';
 
 type ControlBroadcast = (message: ControlMessageRecord) => void;
 
@@ -59,6 +60,7 @@ interface BackendWebSockets {
   isViewerConnected(): boolean;
   isHubControlSocket(socket: WebSocket): boolean;
   hubControlClientCount(): number;
+  sendToHubControlSockets(frame: HubPhoneAlertFrame): number;
   closeSessionDataClients(sessionId: string): void;
   attachDataConnection(): void;
   handleUpgrade(request: IncomingMessage, socket: UpgradeSocket, head: Buffer): void;
@@ -131,6 +133,17 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
 
   function viewerControlClientCount(): number {
     return controlWss.clients.size - hubControlSockets.size;
+  }
+
+  function sendToHubControlSockets(frame: HubPhoneAlertFrame): number {
+    const payload = JSON.stringify(frame);
+    let sentCount = 0;
+    for (const socket of hubControlSockets) {
+      if (socket.readyState !== 1) continue;
+      socket.send(payload);
+      sentCount += 1;
+    }
+    return sentCount;
   }
 
   function isViewerConnected(): boolean {
@@ -398,6 +411,7 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
     isViewerConnected,
     isHubControlSocket: (socket) => hubControlSockets.has(socket),
     hubControlClientCount: () => hubControlSockets.size,
+    sendToHubControlSockets,
     closeSessionDataClients,
     attachDataConnection,
     handleUpgrade,

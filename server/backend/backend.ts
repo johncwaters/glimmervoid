@@ -246,13 +246,20 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     isViewerConnected,
     isHubControlSocket,
     hubControlClientCount,
+    sendToHubControlSockets,
   } = webSockets;
   broadcastControl = (message) => {
     broadcastControlFromWebSockets(message);
     if (message.type === 'session-removed' && typeof message.id === 'string') void whiteboards.forgetSession(message.id);
   };
   const hostLinks = config.hosts?.length
-    ? createHostLinksWiring({ hosts: config.hosts, hubBuild: serverBuild, broadcast: broadcastControlFromWebSockets, spawnHostTunnel: options.spawnHostTunnel })
+    ? createHostLinksWiring({
+      hosts: config.hosts,
+      hubBuild: serverBuild,
+      broadcast: broadcastControlFromWebSockets,
+      relayPhoneAlert: (hostName, text) => notifications.relayHostPhoneAlert(hostName, text),
+      spawnHostTunnel: options.spawnHostTunnel,
+    })
     : null;
   if (hostLinks) {
     controlWss.on('connection', (socket: WebSocket) => {
@@ -293,6 +300,9 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     sessions,
     controlWss,
     viewerControlClientCount,
+    hubControlClientCount,
+    isHubControlSocket,
+    sendToHubControlSockets,
     dataWss,
     broadcastControl,
     recordOutcome,
