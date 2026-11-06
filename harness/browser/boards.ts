@@ -131,6 +131,7 @@ async function verifyDroppedPicture(panel: Locator): Promise<void> {
 }
 
 const PROBE_PAGE_HTML = `<!doctype html><html><body><input aria-label="probe field"><script>
+addEventListener('keydown', (event) => event.stopImmediatePropagation(), true);
 const readings = {};
 try { readings.dom = String(parent.document.body.childElementCount); } catch { readings.dom = 'blocked'; }
 try { readings.storage = String(localStorage.length); } catch { readings.storage = 'blocked'; }
@@ -238,8 +239,9 @@ async function verifyLiveMedia(panel: Locator): Promise<void> {
   await viewerPage.waitFor();
   assert.equal(await viewerPage.getAttribute('sandbox'), 'allow-scripts allow-forms', 'a click on a page box opens it full size in the same sandbox');
   assert.notEqual(await viewerPage.evaluate((frame) => getComputedStyle(frame).pointerEvents), 'none', 'the full size page takes the pointer');
+  await page.frameLocator('iframe.wb-image-viewer-page').getByLabel('probe field').click();
   await page.keyboard.press('Escape');
-  await viewer.waitFor({ state: 'detached' });
+  await viewer.waitFor({ state: 'detached', timeout: 5000 }).catch(() => assert.fail('Esc closes the full size page while focus is inside the page'));
   assert.equal(await panel.locator('.wb-media button').count(), 0, 'a page box carries no overlay buttons');
   await verifyBoxAbovePageCoversIt(panel, pageMedia);
   await pageFrame.evaluate((frame) => {

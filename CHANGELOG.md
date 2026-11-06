@@ -57,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Esc closes a board page you clicked into.** With a page from a whiteboard open full size, Esc did nothing once you had clicked or typed inside the page, because the page kept the key to itself. The full-size page now reports Esc to the dashboard, so it closes like a picture or a video does. A page that handles Esc itself and cancels it keeps the view open.
 - **The dashboard catches up after a reconnect.** When the dashboard lost its connection (a sleeping laptop, a hidden tab) and a session was renamed, moved to another folder or switched to skip permissions meanwhile, its card kept the old name and settings until you reloaded the page. It now updates on reconnect, and a card that did not change is left alone.
 - **Notifications sent while Glimmervoid restarts reach the dashboard.** A notification or session error sent by a freshly restarted Glimmervoid before your dashboard reconnected was lost. The dashboard now receives it once it reconnects.
 - **A linked host's status no longer arrives before the session list.** Since linked hosts shipped, a dashboard connecting or reconnecting got the hosts status before its session list. The session list is first again.

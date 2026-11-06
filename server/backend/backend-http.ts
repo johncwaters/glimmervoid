@@ -26,6 +26,7 @@ import { errorMessage } from '../../shared/text.ts';
 import { isSignableGitObject, parseSshPublicKey } from '../core/ssh-signing-core.ts';
 import type { SshSigner } from '../ssh-signing.ts';
 import { decideOpenExternalRequest, OPEN_EXTERNAL_BODY_CAP_BYTES } from '../core/open-external-core.ts';
+import { offsetAfterPagePrelude } from '../core/shown-files-core.ts';
 import { decideLinkPreviewRequest } from '../core/link-preview-core.ts';
 import type { LinkPreviewFetcher } from '../link-preview-fetcher.ts';
 import { decideOriginAllowed } from '../core/origin-policy.ts';
@@ -39,7 +40,7 @@ import { configSiblingPath } from '../pairings-store.ts';
 import { clientDir } from '../runtime-paths.ts';
 import type { WhiteboardAssetStore } from '../whiteboard/whiteboard-assets.ts';
 import { ASSET_INPUT_CAP_BYTES } from '../whiteboard/whiteboard-assets.ts';
-import { WHITEBOARD_ASSET_ROUTE } from '../../shared/contracts/whiteboard.ts';
+import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_VIEWER_PARAM, WHITEBOARD_ASSET_ROUTE } from '../../shared/contracts/whiteboard.ts';
 import { buildUploadFilename, decideUploadType, exceedsUploadCap, imageMimeForUploadFilename, isSafePathSegment } from '../core/upload-core.ts';
 import { declaredContentLength, decodeHeaderText, parseJsonBody, readCappedBody } from './http/backend-http-body.ts';
 import { UPLOAD_FAILURE_REPLIES, UPLOAD_OVER_CAP_ERROR, receiveUpload, streamRequestToFile } from './http/backend-http-uploads.ts';
@@ -224,6 +225,19 @@ type AgentIngressDependencies = Pick<BackendHttpDependencies,
 const BOARD_PAGE_SANDBOX_POLICY = 'sandbox allow-scripts allow-popups allow-modals allow-forms';
 const BOARD_MEDIA_SANDBOX_POLICY = "default-src 'none'; sandbox";
 const DASHBOARD_FRAME_POLICY = "frame-src 'self' blob: data:";
+const BOARD_PAGE_ESCAPE_REPORTER = Buffer.from(`<script>(function(later,dashboard){addEventListener("keydown",function(event){if(event.key==="Escape")later(function(){if(!event.defaultPrevented)dashboard.postMessage(${JSON.stringify(BOARD_PAGE_ESCAPE_MESSAGE)},"*")})},true)})(setTimeout,parent)</script>`);
+async function escapeReporterOffsetOf(pagePath: string): Promise<number> {
+  const page = await fsp.open(pagePath, 'r');
+  try {
+    return await offsetAfterPagePrelude(async (position, byteCount) => {
+      const window = Buffer.alloc(byteCount);
+      const { bytesRead } = await page.read(window, 0, byteCount, position);
+      return window.subarray(0, bytesRead);
+    });
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
 
 function sendBoardAssetBytes(req: Request, res: Response, servable: { path: string; contentType: string }, sizeBytes: number): void {
   res.setHeader('Content-Security-Policy', servable.contentType.startsWith('text/html') ? BOARD_PAGE_SANDBOX_POLICY : BOARD_MEDIA_SANDBOX_POLICY);
@@ -248,13 +262,32 @@ function sendBoardAssetBytes(req: Request, res: Response, servable: { path: stri
   pipeline(fs.createReadStream(servable.path), res, () => {});
 }
 
+function sendBoardPageForViewer(res: Response, servable: { path: string; contentType: string }, sizeBytes: number, reporterOffset: number): void {
+  res.setHeader('Content-Security-Policy', BOARD_PAGE_SANDBOX_POLICY);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Content-Type', servable.contentType);
+  res.setHeader('Content-Length', String(sizeBytes + BOARD_PAGE_ESCAPE_REPORTER.byteLength));
+  pipeline(async function* pageWithEscapeReporterAfterPrelude() {
+    if (reporterOffset > 0) yield* fs.createReadStream(servable.path, { end: reporterOffset - 1 });
+    yield BOARD_PAGE_ESCAPE_REPORTER;
+    yield* fs.createReadStream(servable.path, { start: reporterOffset });
+  }, res, () => {});
+}
+
+function isPageAskedForViewer(req: Request, servable: { contentType: string }): boolean {
+  return servable.contentType.startsWith('text/html') && req.query[BOARD_PAGE_VIEWER_PARAM] === '1';
+}
+
 function serveBoardAsset(req: Request, res: Response, servable: { path: string; contentType: string }): void {
-  fsp.stat(servable.path).then(
-    (stats) => sendBoardAssetBytes(req, res, servable, stats.size),
-    () => {
-      if (!res.headersSent) res.status(404).end();
-    },
-  );
+  const answerMissing = () => {
+    if (!res.headersSent) res.status(404).end();
+  };
+  if (!isPageAskedForViewer(req, servable)) {
+    fsp.stat(servable.path).then((stats) => sendBoardAssetBytes(req, res, servable, stats.size), answerMissing);
+    return;
+  }
+  Promise.all([fsp.stat(servable.path), escapeReporterOffsetOf(servable.path)]).then(([stats, reporterOffset]) => sendBoardPageForViewer(res, servable, stats.size, reporterOffset), answerMissing);
 }
 
 async function receiveBoardMedia({ req, assets, name }: { req: Request; assets: WhiteboardAssetStore; name: string }): ReturnType<WhiteboardAssetStore['adoptIncoming']> {
