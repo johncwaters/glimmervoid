@@ -10,10 +10,13 @@ interface ReviewBoardOptions {
   onToggleParked(): void;
 }
 
+const PARKED_COLUMN_ID = 'review-board-parked';
+
 function createParkedToggle(group: QueueGroup, isParkedOpen: boolean, onToggleParked: () => void): HTMLElement {
   const toggle = createPressable('review-board-parked-toggle');
   toggle.append(el('span', 'review-board-column-title', group.title), el('span', 'review-group-count', String(group.items.length)));
   toggle.setAttribute('aria-expanded', String(isParkedOpen));
+  toggle.setAttribute('aria-controls', PARKED_COLUMN_ID);
   toggle.addEventListener('click', onToggleParked);
   return toggle;
 }
@@ -31,6 +34,7 @@ function createColumnHeading(group: QueueGroup, options: ReviewBoardOptions): HT
 function createColumn(group: QueueGroup, options: ReviewBoardOptions): HTMLElement {
   const column = el('section', 'review-board-column');
   column.dataset.group = group.id;
+  if (group.id === 'parked') column.id = PARKED_COLUMN_ID;
   column.append(createColumnHeading(group, options));
   if (group.id === 'parked' && !options.isParkedOpen) {
     column.dataset.collapsed = 'true';

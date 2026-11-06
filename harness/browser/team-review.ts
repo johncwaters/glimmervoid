@@ -815,6 +815,49 @@ async function verifyWideDetailKeepsBoard(page: Page): Promise<void> {
   await separator.dblclick();
 }
 
+const MIN_BOARD_COLUMN_PX = 200;
+const MIN_CARD_TITLE_PX = 60;
+
+async function verifyBoardReadable(page: Page): Promise<void> {
+  await waitForDetailWidthSettled(page).catch(() => undefined);
+  const readability = await page.locator('.review-board').evaluate((board) => {
+    const openColumns = [...board.querySelectorAll('.review-board-column:not([data-collapsed="true"])')];
+    const turnTitle = board.querySelector('.review-board-column[data-group="turn"] .review-board-column-title');
+    if (!(turnTitle instanceof HTMLElement)) throw new Error('Missing Your turn title');
+    return {
+      columnWidths: openColumns.map((column) => Math.round(column.getBoundingClientRect().width)),
+      cardTitleWidths: [...board.querySelectorAll('.pr-queue-row .pr-queue-title')].map((title) => Math.round(title.getBoundingClientRect().width)),
+      turnTitleClipped: turnTitle.scrollWidth > turnTitle.clientWidth,
+      turnTitleText: turnTitle.textContent,
+    };
+  });
+  const readabilityText = JSON.stringify(readability);
+  assert.ok(readability.columnWidths.every((width) => width >= MIN_BOARD_COLUMN_PX - 1), readabilityText);
+  assert.ok(readability.cardTitleWidths.length > 0, readabilityText);
+  assert.ok(readability.cardTitleWidths.every((width) => width >= MIN_CARD_TITLE_PX), readabilityText);
+  assert.equal(readability.turnTitleClipped, false, readabilityText);
+}
+
+async function verifyCloseBarStaysVisible(page: Page): Promise<void> {
+  const closeBar = await page.locator('.review-queue .pr-detail-host').evaluate((detailHost) => {
+    const bar = detailHost.querySelector('.review-board-detail-bar');
+    if (!bar) throw new Error('Missing close bar');
+    detailHost.scrollTop = detailHost.scrollHeight;
+    return { scrolled: detailHost.scrollTop, barTop: bar.getBoundingClientRect().top, hostTop: detailHost.getBoundingClientRect().top };
+  });
+  assert.ok(closeBar.scrolled > 0, JSON.stringify(closeBar));
+  assert.ok(Math.abs(closeBar.barTop - closeBar.hostTop) <= 1, JSON.stringify(closeBar));
+  await page.locator('.review-queue .pr-detail-host').evaluate((detailHost) => {
+    detailHost.scrollTop = 0;
+  });
+}
+
+async function verifyParkedToggleControlsColumn(page: Page): Promise<void> {
+  const controlledId = await page.locator('.review-board-parked-toggle').getAttribute('aria-controls');
+  assert.ok(controlledId, 'Parked toggle names no controlled element');
+  assert.equal(await page.locator(`#${controlledId}`).getAttribute('data-group'), 'parked');
+}
+
 async function verifyBoard(page: Page): Promise<void> {
   const root = page.locator('.review-queue');
   const detail = root.locator('.pr-detail-host');
@@ -824,14 +867,18 @@ async function verifyBoard(page: Page): Promise<void> {
   const titles = await page.locator('.review-board-column .review-board-column-title').allTextContents();
   assert.deepEqual(titles, ['Queued', 'Agent working', 'Your turn', 'Waiting on others', 'Done', 'Parked']);
   assert.equal(await detail.isVisible(), false);
+  await verifyBoardReadable(page);
+  await verifyParkedToggleControlsColumn(page);
   await card.click();
   assert.equal(await root.getAttribute('data-detail-open'), 'true');
   await detail.waitFor({ state: 'visible' });
+  await verifyBoardReadable(page);
+  await verifyCloseBarStaysVisible(page);
   await page.keyboard.press('Escape');
   await detail.waitFor({ state: 'hidden' });
   await page.keyboard.press('j');
   await detail.waitFor({ state: 'visible' });
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('button', { name: 'Close review detail', exact: true }).click();
   await detail.waitFor({ state: 'hidden' });
   await verifyClosedBoardDetailIgnoresActionKeys(page);
   const parkedCard = page.locator('.review-board .pr-queue-row[data-review-key="Acme/app#6"]');
