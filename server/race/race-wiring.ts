@@ -4,13 +4,13 @@ import path from 'node:path';
 
 import type { AgentSetup } from '../../shared/contracts/agent-models.ts';
 import { ContestantMetrics } from '../../shared/contracts/race.ts';
-import type { CheckOutcome, JudgeVerdict, PanelResult, RaceCheck, RaceContestant, RaceJudge, RaceRecord, RaceSpec } from '../../shared/contracts/race.ts';
-import { REMOVED_CONTESTANT, contestantTimeline, raceProgress, winnerNotesOf } from '../../shared/race-core.ts';
+import type { CheckOutcome, ContestantFinish, JudgeVerdict, PanelResult, RaceCheck, RaceContestant, RaceJudge, RaceRecord, RaceSpec } from '../../shared/contracts/race.ts';
+import { REMOVED_CONTESTANT, contestantTimeline, winnerNotesOf } from '../../shared/race-core.ts';
 import type { StateTransition } from '../../shared/race-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { readLaneResultFile } from '../lanes/lane-spawn.ts';
-import type { JudgeInput } from './core/race-core.ts';
-import { RACE_JUDGE_RESULT_FILENAME, judgeCheckFileName, judgeCheckoutDirName, judgeDiffFileName, judgeIdAt, judgeLabel, judgePrompt, panelStanding, parseJudgeVerdict, unblindVerdict } from './core/race-core.ts';
+import type { JudgeInput, SessionWatch } from './core/race-core.ts';
+import { RACE_JUDGE_RESULT_FILENAME, contestantFinish, judgeCheckFileName, judgeCheckoutDirName, judgeDiffFileName, judgeIdAt, judgeLabel, judgePrompt, panelStanding, parseJudgeVerdict, raceDeadline, unblindVerdict } from './core/race-core.ts';
 import type { ContestantDiff } from './race-diff.ts';
 import type { RaceStore } from './race-store.ts';
 
@@ -55,6 +55,7 @@ interface RaceWiringDependencies {
   broadcast: (frame: { type: 'race-status'; races: RaceRecord[] }) => void;
   log: Pick<Console, 'log' | 'warn'>;
   sessionStateOf?: (sessionId: string) => string;
+  sessionWatchOf?: (sessionId: string) => Omit<SessionWatch, 'hasSettled'> | null;
   worktreeOf?: (sessionId: string) => string | null;
   diffOf?: (args: { worktreeDir: string; startSha: string; blindCheckoutDir?: string | null }) => Promise<ContestantDiff>;
   spawnJudge?: ((request: JudgeSpawnRequest) => Promise<void>) | null;
@@ -76,7 +77,7 @@ function shuffled<Item>(items: readonly Item[], random: () => number): Item[] {
 }
 
 function createRaceWiring({
-  store, git, integrationBranch, broadcast, log, sessionStateOf = () => REMOVED_CONTESTANT, worktreeOf = () => null,
+  store, git, integrationBranch, broadcast, log, sessionStateOf = () => REMOVED_CONTESTANT, sessionWatchOf, worktreeOf = () => null,
   diffOf = async () => ({ ok: false, reason: 'diffs are unavailable' }), spawnJudge = null, runCheck = async () => ({ status: 'unavailable', exitCode: null, reason: 'checks are unavailable', durationMs: 0, outputTail: '' }),
   transitionsOf = () => null, usageLookup = () => () => null, judgeRoot = null, now = Date.now, random = Math.random,
 }: RaceWiringDependencies) {
@@ -120,7 +121,7 @@ function createRaceWiring({
     if (!startPoint) return { ok: false, error: `Could not find the integration branch of ${spec.repoPath}.` };
     const raceId = randomUUID();
     const sessionIdByContestant: Record<string, string> = {};
-    const savedBeforeLaunch = await saveRecord({ id: raceId, spec, ...startPoint, createdAt: now(), sessionIdByContestant, phase: 'running', diffStatsByContestant: {}, checkByContestant: {}, metricsByContestant: {}, judge: null, panel: null, judgeError: null, winnerContestantId: null });
+    const savedBeforeLaunch = await saveRecord({ id: raceId, spec, ...startPoint, createdAt: now(), sessionIdByContestant, phase: 'running', diffStatsByContestant: {}, checkByContestant: {}, metricsByContestant: {}, finishByContestant: {}, judge: null, panel: null, judgeError: null, winnerContestantId: null });
     if (savedBeforeLaunch !== null) return { ok: false, error: `Could not save the race, so no contestant started: ${savedBeforeLaunch}` };
     const failures: string[] = [];
     for (const contestant of spec.contestants) {
@@ -129,7 +130,7 @@ function createRaceWiring({
       if (!launched.ok) failures.push(`${contestant.label}: ${launched.error}`);
     }
     if (Object.keys(sessionIdByContestant).length === 0) return { ok: false, error: failures.join(' ') };
-    const record: RaceRecord = { id: raceId, spec, ...startPoint, createdAt: now(), sessionIdByContestant, phase: 'running', diffStatsByContestant: {}, checkByContestant: {}, metricsByContestant: {}, judge: null, panel: null, judgeError: null, winnerContestantId: null };
+    const record: RaceRecord = { id: raceId, spec, ...startPoint, createdAt: now(), sessionIdByContestant, phase: 'running', diffStatsByContestant: {}, checkByContestant: {}, metricsByContestant: {}, finishByContestant: {}, judge: null, panel: null, judgeError: null, winnerContestantId: null };
     raceById.set(raceId, record);
     const savedAfterLaunch = await saveRecord(record);
     if (savedAfterLaunch !== null) failures.push(`(the race file could not be updated: ${savedAfterLaunch})`);
@@ -157,6 +158,11 @@ function createRaceWiring({
       const sessionId = record.sessionIdByContestant[contestant.id];
       const worktreeDir = sessionId ? worktreeOf(sessionId) : null;
       if (!worktreeDir) continue;
+      if (record.finishByContestant[contestant.id]?.status === 'did-not-finish') {
+        const partial = await diffOf({ worktreeDir, startSha: record.startSha });
+        if (partial.ok) statsByContestant[contestant.id] = partial.stats;
+        continue;
+      }
       const exportedCheckoutDir = path.join(judgeDir, `export-${lineupIndex}`);
       const diff = await diffOf({ worktreeDir, startSha: record.startSha, blindCheckoutDir: exportedCheckoutDir });
       const isJudged = diff.ok && diff.blindDiff.trim() !== '';
@@ -249,28 +255,57 @@ function createRaceWiring({
     return metricsByContestant;
   }
 
-  async function runJudge(raceId: string): Promise<void> {
+  function watchOf(record: RaceRecord, sessionId: string): SessionWatch | null {
+    const live = sessionWatchOf ? sessionWatchOf(sessionId) : { state: sessionStateOf(sessionId), stateSince: now(), waitingOn: null };
+    if (!live) return null;
+    const transitions = transitionsOf(sessionId);
+    const hasSettled = transitions !== null && contestantTimeline(record.createdAt, transitions).elapsedMs !== null;
+    return { ...live, hasSettled };
+  }
+
+  function finishesNow(record: RaceRecord): Record<string, ContestantFinish | null> {
+    const deadline = raceDeadline(record);
+    const checkedAt = now();
+    const finishes: Record<string, ContestantFinish | null> = {};
+    for (const [contestantId, sessionId] of Object.entries(record.sessionIdByContestant)) {
+      const watch = watchOf(record, sessionId);
+      const storedFinish = record.finishByContestant[contestantId];
+      finishes[contestantId] = !watch && storedFinish ? storedFinish : contestantFinish(watch, deadline, checkedAt);
+    }
+    return finishes;
+  }
+
+  function finishOfContestants(record: RaceRecord): RaceRecord['finishByContestant'] {
+    return decidedFinishes(finishesNow(record));
+  }
+
+  function decidedFinishes(finishes: Record<string, ContestantFinish | null>): RaceRecord['finishByContestant'] {
+    return Object.fromEntries(Object.entries(finishes).flatMap(([contestantId, finish]) => (finish ? [[contestantId, finish]] : [])));
+  }
+
+  async function runJudge(raceId: string, finishesAtTrigger: RaceRecord['finishByContestant'] | null): Promise<void> {
     const record = raceById.get(raceId);
     if (!record || !judgeRoot) return;
     await fsp.mkdir(judgeRoot, { recursive: true });
     const judgeDir = await fsp.mkdtemp(path.join(judgeRoot, 'judge-'));
     const metricsByContestant = measureContestants(record);
+    const finishByContestant = finishesAtTrigger ?? finishOfContestants(record);
     try {
-      const outcome = await runJudgeOnce(record, judgeDir).catch((error: unknown) => ({ diffStatsByContestant: record.diffStatsByContestant, checkByContestant: record.checkByContestant, panel: null, judgeError: `The judge failed: ${errorMessage(error)}.` }));
-      await updateRecord(raceId, (current) => ({ ...current, ...outcome, metricsByContestant, judge: null, phase: 'judged' }));
+      const outcome = await runJudgeOnce({ ...record, finishByContestant }, judgeDir).catch((error: unknown) => ({ diffStatsByContestant: record.diffStatsByContestant, checkByContestant: record.checkByContestant, panel: null, judgeError: `The judge failed: ${errorMessage(error)}.` }));
+      await updateRecord(raceId, (current) => ({ ...current, ...outcome, metricsByContestant, finishByContestant, judge: null, phase: 'judged' }));
       log.log(`[race] judged ${record.spec.title}${outcome.judgeError ? `: ${outcome.judgeError}` : ''}`);
     } finally {
       await fsp.rm(judgeDir, { recursive: true, force: true }).catch(() => {});
     }
   }
 
-  async function judge(raceId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  async function judge(raceId: string, finishesAtTrigger: RaceRecord['finishByContestant'] | null = null): Promise<{ ok: true } | { ok: false; error: string }> {
     const record = raceById.get(raceId);
     if (!record) return { ok: false, error: 'That race is not loaded.' };
     if (record.phase === 'judging') return { ok: false, error: 'The judge is already running for this race.' };
     if (!judgeRoot) return { ok: false, error: 'Judging is unavailable.' };
     await updateRecord(raceId, (current) => ({ ...current, phase: 'judging', judgeError: null }));
-    void runJudge(raceId).catch((error: unknown) => log.warn(`[race] judging ${raceId} failed: ${errorMessage(error)}`));
+    void runJudge(raceId, finishesAtTrigger).catch((error: unknown) => log.warn(`[race] judging ${raceId} failed: ${errorMessage(error)}`));
     return { ok: true };
   }
 
@@ -298,8 +333,10 @@ function createRaceWiring({
   function judgeSettledRaces(): void {
     for (const record of raceById.values()) {
       if (record.phase !== 'running' || record.winnerContestantId) continue;
-      if (!raceProgress(Object.values(record.sessionIdByContestant), sessionStateOf).isAllSettled) continue;
-      void judge(record.id);
+      const finishes = finishesNow(record);
+      const isUndecided = Object.values(finishes).some((finish) => finish === null);
+      if (Object.keys(finishes).length === 0 || isUndecided) continue;
+      void judge(record.id, decidedFinishes(finishes));
     }
   }
 

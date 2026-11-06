@@ -352,6 +352,11 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     broadcast: broadcastControl,
     log: logger,
     sessionStateOf: (sessionId) => findLiveSession(sessionId)?.state ?? REMOVED_CONTESTANT,
+    sessionWatchOf: (sessionId) => {
+      const session = findLiveSession(sessionId);
+      if (!session) return null;
+      return { state: session.state, stateSince: session.stateSince, waitingOn: session._conversationApproval?.summary ?? null };
+    },
     worktreeOf: (sessionId) => findLiveSession(sessionId)?.worktreeDir ?? null,
     transitionsOf: (sessionId) => findLiveSession(sessionId)?.auditLog.flatMap((entry) => (typeof entry.to === 'string' && typeof entry.timestamp === 'number' ? [{ to: entry.to, at: entry.timestamp }] : [])) ?? null,
     usageLookup: () => usage.sessionUsageLookup(),

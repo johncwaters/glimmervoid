@@ -45,6 +45,7 @@ export const RaceSpec = z.preprocess(foldLegacyJudge, z.strictObject({
   contestants: z.array(RaceContestant).min(RACE_MIN_CONTESTANTS).max(RACE_MAX_CONTESTANTS),
   judges: z.array(RaceJudge).max(RACE_MAX_JUDGES).default([]),
   check: RaceCheck.nullable().default(null),
+  timeLimitMinutes: z.number().int().min(1).max(720).nullable().default(null),
 }).refine((spec) => new Set(spec.contestants.map((contestant) => contestant.id)).size === spec.contestants.length, {
   error: 'contestant ids must be unique',
   path: ['contestants'],
@@ -76,6 +77,12 @@ export const ContestantMetrics = z.strictObject({
   waits: z.number().int().min(0),
 });
 export type ContestantMetrics = z.infer<typeof ContestantMetrics>;
+
+export const ContestantFinish = z.strictObject({
+  status: z.enum(['finished', 'did-not-finish']),
+  reason: z.string().max(400).nullable(),
+});
+export type ContestantFinish = z.infer<typeof ContestantFinish>;
 
 const JudgeResult = z.strictObject({
   ranking: z.array(z.strictObject({
@@ -136,6 +143,7 @@ export const RaceRecord = z.strictObject({
   diffStatsByContestant: z.record(RaceId, DiffStats).default({}),
   checkByContestant: z.record(RaceId, CheckOutcome).default({}),
   metricsByContestant: z.record(RaceId, ContestantMetrics).default({}),
+  finishByContestant: z.record(RaceId, ContestantFinish).default({}),
   judge: JudgeResult.nullable().default(null),
   panel: PanelResult.nullable().default(null),
   judgeError: z.string().nullable().default(null),

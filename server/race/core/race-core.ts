@@ -1,9 +1,11 @@
 import type { AgentSetup } from '../../../shared/contracts/agent-models.ts';
 import { EFFORT_OPTION_ID } from '../../../shared/contracts/agent-models.ts';
 import { RACE_CRITERIA } from '../../../shared/contracts/race.ts';
-import type { CheckOutcome, ContestantVerdict, CriterionStanding, DiffStats, JudgeVerdict, PanelResult, PanelStanding, RaceCheck, RaceContestant, RaceCriterion, RaceRecord, RaceSpec } from '../../../shared/contracts/race.ts';
+import type { CheckOutcome, ContestantFinish, ContestantVerdict, CriterionStanding, DiffStats, JudgeVerdict, PanelResult, PanelStanding, RaceCheck, RaceContestant, RaceCriterion, RaceRecord, RaceSpec } from '../../../shared/contracts/race.ts';
 import { z } from 'zod';
 import { fencedUntrusted } from '../../lanes/core/lane-report-core.ts';
+import { isSettledContestantState } from '../../../shared/race-core.ts';
+import { STATES } from '../../../shared/states.ts';
 
 const SESSION_NAME_MAX_CHARS = 64;
 const SESSION_NAME_UNSAFE_CHARS = /[^a-zA-Z0-9_\-. ()]+/g;
@@ -200,5 +202,30 @@ function winnerNotesPrompt(notes: string): string {
   return ['Your change won the race. The judges left these notes on it; address them:', '', notes].join('\n');
 }
 
-export { AGENT_CONFIG_FOLDERS, RACE_JUDGE_RESULT_FILENAME, checkOutcomeOf, judgeCheckFileName, judgeCheckoutDirName, judgeIdAt, judgeLabel, panelStanding, parseJudgeVerdict, unblindVerdict, winnerNotesPrompt, contestantPrompt, contestantSessionName, judgeDiffFileName, judgePrompt, parseShortstat, raceIdsOf };
-export type { CheckRun, JudgeInput };
+const STALL_MS = 2 * 60 * 1000;
+const FINISH_REASON_MAX_CHARS = 400;
+
+interface SessionWatch {
+  state: string;
+  stateSince: number;
+  waitingOn: string | null;
+  hasSettled: boolean;
+}
+
+function didNotFinish(reason: string): ContestantFinish {
+  return { status: 'did-not-finish', reason: reason.slice(0, FINISH_REASON_MAX_CHARS) };
+}
+
+function contestantFinish(watch: SessionWatch | null, deadline: number | null, now: number): ContestantFinish | null {
+  if (!watch || watch.hasSettled || isSettledContestantState(watch.state)) return { status: 'finished', reason: null };
+  if (watch.state === STATES.WAITING && now - watch.stateSince >= STALL_MS) return didNotFinish(watch.waitingOn ? `asked: ${watch.waitingOn}` : 'waited on the operator');
+  if (deadline !== null && now >= deadline) return didNotFinish('out of time');
+  return null;
+}
+
+function raceDeadline(record: RaceRecord): number | null {
+  return record.spec.timeLimitMinutes === null ? null : record.createdAt + record.spec.timeLimitMinutes * 60 * 1000;
+}
+
+export { AGENT_CONFIG_FOLDERS, contestantFinish, raceDeadline, RACE_JUDGE_RESULT_FILENAME, checkOutcomeOf, judgeCheckFileName, judgeCheckoutDirName, judgeIdAt, judgeLabel, panelStanding, parseJudgeVerdict, unblindVerdict, winnerNotesPrompt, contestantPrompt, contestantSessionName, judgeDiffFileName, judgePrompt, parseShortstat, raceIdsOf };
+export type { CheckRun, JudgeInput, SessionWatch };

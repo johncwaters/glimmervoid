@@ -31,5 +31,5 @@ function winnerNotesOf(record: RaceRecord, contestantId: string): string | null 
   return record.judge?.notes[contestantId] ?? null;
 }
 
-export { REMOVED_CONTESTANT, contestantTimeline, raceProgress, winnerNotesOf };
+export { REMOVED_CONTESTANT, contestantTimeline, isSettledContestantState, raceProgress, winnerNotesOf };
 export type { StateTransition };
