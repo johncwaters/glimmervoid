@@ -231,13 +231,14 @@ function countingOrder(keys: Int32Array, keyCount: number, order: Int32Array): I
   return sorted;
 }
 
-function pairsInOrder(firsts: readonly number[], seconds: readonly number[], firstCount: number, secondCount: number): IndexPair[] {
-  const firstKeys = Int32Array.from(firsts);
-  const secondKeys = Int32Array.from(seconds);
+function orderOfPairs(firsts: readonly number[], seconds: readonly number[], firstCount: number, secondCount: number): Int32Array {
   const identity = new Int32Array(firsts.length);
   for (let position = 0; position < identity.length; position += 1) identity[position] = position;
-  const order = countingOrder(firstKeys, firstCount, countingOrder(secondKeys, secondCount, identity));
-  return Array.from(order, (position): IndexPair => [firstKeys[position] ?? 0, secondKeys[position] ?? 0]);
+  return countingOrder(Int32Array.from(firsts), firstCount, countingOrder(Int32Array.from(seconds), secondCount, identity));
+}
+
+function pairsInOrder(firsts: readonly number[], seconds: readonly number[], firstCount: number, secondCount: number): IndexPair[] {
+  return Array.from(orderOfPairs(firsts, seconds, firstCount, secondCount), (position): IndexPair => [firsts[position] ?? 0, seconds[position] ?? 0]);
 }
 
 function touchingPairsWithin(rects: readonly Rect[]): IndexPair[] {
@@ -250,5 +251,5 @@ function touchingPairsWithin(rects: readonly Rect[]): IndexPair[] {
   return pairsInOrder(firsts, seconds, rects.length, rects.length);
 }
 
-export { distinctSorted, emptyFlatRects, flatRectsOf, forEachTouchingPairAcross, forEachTouchingPairWithin, leafCapacityOf, leafOf, pairsInOrder, setFlatRect, touchingPairsWithin };
+export { distinctSorted, emptyFlatRects, flatRectsOf, forEachTouchingPairAcross, forEachTouchingPairWithin, leafCapacityOf, leafOf, orderOfPairs, setFlatRect, touchingPairsWithin };
 export type { FlatRects };

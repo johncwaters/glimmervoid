@@ -3,7 +3,7 @@ import type { Board, Box, BoxMedia, Element, Note, Panel, Unit, Wire } from './c
 
 type BoxLine = Box['lines'][number];
 import { planSteps } from './whiteboard-plan-core.ts';
-import { cappedWarnings, labelWidthOf, pathOf, rectsOverlap, routeWires, unionOf, withoutBends } from './whiteboard-route-core.ts';
+import { cappedWarningLists, labelWidthOf, pathOf, rectsOverlap, routeWires, unionOf, warningListOf, withoutBends } from './whiteboard-route-core.ts';
 import { touchingPairsWithin } from './whiteboard-sweep-core.ts';
 import type { Point, RouteMemory } from './whiteboard-route-core.ts';
 
@@ -854,7 +854,7 @@ function layoutBoardWithMemory(storedBoard: Board, previous: LayoutMemory | null
     pinnedOffsetY,
     plan: unitsById.size > 0 ? { titleAt: { x: MARGIN, y: MARGIN + PLAN_TITLE_BASELINE }, arrowPaths: planArrowPaths(board, unitsById) } : null,
     bounds: { ...contentBounds, height: contentBounds.height + extraHeight },
-    warnings: cappedWarnings([...placed.routing.collectWarnings(), ...placed.collectPlacementWarnings()]),
+    warnings: cappedWarningLists([...placed.routing.collectWarnings(), warningListOf(placed.collectPlacementWarnings())]),
   };
   return { layout, memory };
 }
