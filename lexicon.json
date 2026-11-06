@@ -209,6 +209,10 @@
     {
       "name": "queued",
       "definition": "The Reviews group for a team review waiting its turn for the review lane, before an agent starts on it"
+    },
+    {
+      "name": "parked",
+      "definition": "The Reviews group for a pull request set aside with no action left: a discarded team review or one of the operator's own drafts, collapsed by default"
     }
   ]
 }

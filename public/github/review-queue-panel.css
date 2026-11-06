@@ -324,4 +324,9 @@ html[data-layout="phone"] .review-layout-switch { display: none; }
 .review-board-column[data-collapsed="true"] { flex: 0 0 44px; min-width: 44px; align-self: stretch; }
 .review-board-column[data-collapsed="true"] > .review-board-column-heading { padding: 0; justify-content: center; }
 .review-board-column[data-collapsed="true"] .review-board-parked-toggle { writing-mode: vertical-rl; }
+.pr-queue-row[data-age-tone="fresh"] .pr-queue-elapsed { color: var(--text-muted); }
+.pr-queue-row[data-age-tone="aging"] .pr-queue-elapsed { color: var(--state-waiting); }
+.pr-queue-row[data-age-tone="old"] .pr-queue-elapsed { color: var(--state-failed); }
+.review-turn-limit { color: var(--text-muted); font-weight: 400; }
+.review-turn-limit[data-over="true"], .pr-section-heading:has(> .review-turn-limit[data-over="true"]) > .review-group-count { color: var(--state-failed); }
 }

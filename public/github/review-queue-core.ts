@@ -10,7 +10,7 @@ import { comparablePrKey } from '#shared/contracts/github-prs.ts';
 import { PRIORITY_BAND_ORDER, answeredNonNitThreads, classifyReviewPriority, draftPriorityBand, hasFailedKeepMergeableRepair, pullRequestLabel, sectionStackedMyPrs } from './github-store-core.ts';
 import type { QueueRowKind, TeamReviewSections } from './github-store-core.ts';
 
-type QueueGroupId = z.infer<typeof ReviewQueueGroupId>;
+export type QueueGroupId = z.infer<typeof ReviewQueueGroupId>;
 type QueueAction = z.infer<typeof ReviewQueueAction>;
 
 export type QueueItem = z.infer<typeof ReviewQueueItem>;
@@ -134,6 +134,28 @@ export function teamWaitStartMs(review: ReviewDraft | InFlightReview | QueuedRev
 function mineWaitStartMs(pr: MyPr): number {
   const waitStartAt = pr.mergedAt ?? pr.stageSinceMs ?? pr.updatedAt;
   return validTimestampMs(waitStartAt) ?? Number.POSITIVE_INFINITY;
+}
+
+type AgeTone = 'fresh' | 'aging' | 'old';
+
+const AGING_AFTER_MS = 24 * 60 * 60 * 1000;
+const OLD_AFTER_MS = 3 * AGING_AFTER_MS;
+
+export function queueItemWaitStartMs(item: QueueItem): number {
+  if (item.source === 'team') return teamWaitStartMs(item.review, item.kind);
+  return mineWaitStartMs(item.pr);
+}
+
+export function ageToneOf(groupId: QueueGroupId, waitStartMs: number, nowMs: number): AgeTone | null {
+  if (groupId === 'done' || groupId === 'parked' || !Number.isFinite(waitStartMs)) return null;
+  const waitedMs = nowMs - waitStartMs;
+  if (waitedMs > OLD_AFTER_MS) return 'old';
+  if (waitedMs >= AGING_AFTER_MS) return 'aging';
+  return 'fresh';
+}
+
+export function isOverTurnLimit(turnCount: number, turnLimit: number): boolean {
+  return turnLimit > 0 && turnCount > turnLimit;
 }
 
 function statedItem(state: QueueState, priorityBandRank: number, waitStartMs: number, toItem: (row: QueueStateRow) => QueueItem): StatedItem[] {

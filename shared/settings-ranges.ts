@@ -20,6 +20,9 @@ export const FLYING_ANIMALS_DEFAULTS = Object.freeze({
   flyingAnimalsOnPhone: true,
 });
 
+export const REVIEWS_TURN_LIMIT_RANGE = Object.freeze({ min: 0, max: 50 });
+export const REVIEWS_TURN_LIMIT_DEFAULT = 5;
+
 export const REPLAY_BUFFER_KB_RANGE = Object.freeze({ min: 64, max: 16384 });
 export const MEMORY_RESERVE_MB_RANGE = Object.freeze({ min: 0, max: 65536 });
 export const PORT_RANGE = Object.freeze({ min: 0, max: 65535 });
@@ -82,6 +85,7 @@ export const SETTINGS_RANGES = Object.freeze({
   POSTHOG_TRAFFIC_MIN_USERS_RANGE,
   POSTHOG_TRAFFIC_MULTIPLIER_RANGE,
   REPLAY_BUFFER_KB_RANGE,
+  REVIEWS_TURN_LIMIT_RANGE,
   MEMORY_RESERVE_MB_RANGE,
   TASK_TITLE_TIMEOUT_RANGE,
   USAGE_BUDGET_RANGE,

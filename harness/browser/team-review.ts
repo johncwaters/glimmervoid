@@ -694,6 +694,52 @@ async function verifyClosedBoardDetailIgnoresActionKeys(page: Page): Promise<voi
   }
 }
 
+async function verifyAgeTones(page: Page): Promise<void> {
+  const tones = await page.locator('.review-board-column').evaluateAll((columns) => columns.map((column) => ({
+    group: column.getAttribute('data-group'),
+    tones: [...column.querySelectorAll('.pr-queue-row')].map((row) => ({ tone: row.getAttribute('data-age-tone'), hasAge: /\d/.test(row.querySelector('.pr-queue-elapsed')?.textContent ?? '') })),
+  })));
+  for (const { group, tones: rowTones } of tones) {
+    if (group === 'done' || group === 'parked') {
+      assert.ok(rowTones.every(({ tone }) => tone === null), `${group} cards carry no age tone`);
+      continue;
+    }
+    assert.ok(rowTones.every(({ tone, hasAge }) => !hasAge || tone === 'fresh' || tone === 'aging' || tone === 'old'), `${group} cards with an age each carry a tone: ${JSON.stringify(rowTones)}`);
+  }
+  assert.ok(tones.some(({ tones: rowTones }) => rowTones.some(({ tone }) => tone !== null)), JSON.stringify(tones));
+}
+
+async function showPhoneScreen(page: Page, screen: string): Promise<void> {
+  const navItem = page.locator(`.phone-nav > .phone-nav-item[data-screen="${screen}"]`);
+  if (await navItem.isVisible()) {
+    await navItem.click();
+    return;
+  }
+  await page.locator('.phone-nav > .phone-nav-item', { hasText: 'More' }).click();
+  await page.locator(`.phone-nav-more-menu [data-screen="${screen}"]`).click();
+}
+
+async function writeReviewsTurnLimit(page: Page, turnLimit: number): Promise<void> {
+  await page.evaluate((limit) => {
+    const prefs = JSON.parse(localStorage.getItem('glimmervoid-ui-prefs') ?? '{}') as Record<string, unknown>;
+    localStorage.setItem('glimmervoid-ui-prefs', JSON.stringify({ ...prefs, reviewsTurnLimit: limit }));
+  }, turnLimit);
+}
+
+async function verifyPhoneTurnLimitAfterReturn(page: Page): Promise<void> {
+  const turnLimit = page.locator('.pr-queue-section[data-group="turn"] .review-turn-limit');
+  assert.equal((await turnLimit.textContent())?.trim(), 'limit 5');
+  await showPhoneScreen(page, 'board');
+  await writeReviewsTurnLimit(page, 1);
+  await showPhoneScreen(page, 'prs');
+  await page.waitForFunction(() => document.querySelector('.pr-queue-section[data-group="turn"] .review-turn-limit')?.textContent?.trim() === 'limit 1');
+  assert.equal(await turnLimit.getAttribute('data-over'), 'true');
+  await writeReviewsTurnLimit(page, 5);
+  await showPhoneScreen(page, 'board');
+  await showPhoneScreen(page, 'prs');
+  await page.waitForFunction(() => document.querySelector('.pr-queue-section[data-group="turn"] .review-turn-limit')?.textContent?.trim() === 'limit 5');
+}
+
 async function verifyBoard(page: Page): Promise<void> {
   const root = page.locator('.review-queue');
   const detail = root.locator('.pr-detail-host');
@@ -733,9 +779,16 @@ async function verifyBoard(page: Page): Promise<void> {
     if (!(columns instanceof HTMLElement)) throw new Error('Missing queue columns');
     columns.style.removeProperty('--pr-detail-width');
   });
+  await verifyAgeTones(page);
+  assert.equal((await page.locator('.review-board-column[data-group="turn"] .review-turn-limit').textContent())?.trim(), 'limit 5');
+  await writeReviewsTurnLimit(page, 1);
   await page.getByRole('button', { name: 'List', exact: true }).click();
   assert.equal(await root.getAttribute('data-reviews-layout'), 'list');
   assert.equal(await storedReviewsLayout(page), 'list');
+  const turnLimit = page.locator('.pr-queue-section[data-group="turn"] .review-turn-limit');
+  assert.equal((await turnLimit.textContent())?.trim(), 'limit 1');
+  assert.equal(await turnLimit.getAttribute('data-over'), 'true');
+  await writeReviewsTurnLimit(page, 5);
   await page.locator('.pr-queue-row[data-review-key="Acme/app#5"]').click();
 }
 
@@ -815,6 +868,7 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout, sessionId
   if (layout === 'phone') {
     assert.equal(await page.locator('.review-queue').getAttribute('data-reviews-layout'), 'list');
     assert.equal(await page.locator('.review-layout-switch').isVisible(), false);
+    await verifyPhoneTurnLimitAfterReturn(page);
   }
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByRole('button', { name: 'Parked', exact: true }).click();
