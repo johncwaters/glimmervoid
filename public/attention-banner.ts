@@ -4,8 +4,10 @@ import { STATE_ICONS } from '#shared/state-icons.ts';
 import { STATES } from '#shared/states.ts';
 import { el, query } from './dom-helpers.ts';
 import { createPressable } from './ui/pressable.ts';
+import { button } from './ui/button.ts';
+import { markManagerAnswersSeen, passedOnReasonFor, unseenManagerAnswersFor } from './session-card/card-problems.ts';
 import type { AttentionCounts, AttentionKind, AttentionTile } from './focus-view/attention-core.ts';
-import { ATTENTION_TILE_SIZES_PX, attentionSummaryText, fitAttentionTiles } from './focus-view/attention-core.ts';
+import { ATTENTION_TILE_SIZES_PX, answeredForYouText, attentionSummaryText, fitAttentionTiles, managerDecisionText } from './focus-view/attention-core.ts';
 import { paintStatusIcon } from './status-icon.ts';
 
 const NO_ATTENTION: AttentionCounts = { waitingCount: 0, finishedCount: 0, failedCount: 0 };
@@ -229,11 +231,13 @@ function buildTile(banner: HTMLElement, sessionId: string) {
   return tile;
 }
 
-function paintTile(tile: HTMLSpanElement, { kind, name }: AttentionTile, isHead: boolean) {
+function paintTile(tile: HTMLSpanElement, { id, kind, name }: AttentionTile, isHead: boolean) {
   tile.dataset.kind = kind;
   tile.toggleAttribute('data-head', isHead);
-  const label = `${name}, ${NEED_WORDS_BY_KIND[kind]}`;
-  tile.setAttribute('aria-label', label);
+  const passedOnReason = kind === 'waiting' ? passedOnReasonFor(id) : null;
+  tile.toggleAttribute('data-passed-on', passedOnReason !== null);
+  const label = passedOnReason === null ? `${name}, ${NEED_WORDS_BY_KIND[kind]}` : `${name}, ${NEED_WORDS_BY_KIND[kind]}, passed on: ${passedOnReason}`;
+  writeAttributeIfChanged(tile, 'aria-label', label);
   paintStatusIcon(query(tile, '.attention-tile-icon'), ICON_BY_KIND[kind]);
 }
 
@@ -391,4 +395,97 @@ function endAllClearLine(banner: HTMLElement, motion: BannerMotion) {
   if (motion.allClearLineTimer !== null) window.clearTimeout(motion.allClearLineTimer);
   motion.allClearLineTimer = null;
   banner.toggleAttribute('data-all-clear-line', false);
+}
+
+interface AttentionLedgerRow {
+  id: string;
+  name?: string | null;
+}
+
+interface AttentionLedgerEntry {
+  sessionId: string;
+  seq: number;
+  text: string;
+}
+
+interface AttentionLedgerState {
+  onOpenSession: (sessionId: string) => void;
+  rows: readonly AttentionLedgerRow[];
+  openEntries: readonly AttentionLedgerEntry[] | null;
+}
+
+const ledgerStateByElement = new WeakMap<HTMLElement, AttentionLedgerState>();
+
+function ledgerStateOf(ledger: HTMLElement) {
+  const state = ledgerStateByElement.get(ledger);
+  if (!state) throw new Error('attention ledger was not built by buildAttentionLedger');
+  return state;
+}
+
+function ledgerEntriesOf(rows: readonly AttentionLedgerRow[]): AttentionLedgerEntry[] {
+  return rows
+    .flatMap((row) => unseenManagerAnswersFor(row.id).map((decision) => ({ sessionId: row.id, seq: decision.seq, ts: decision.ts, text: `${row.name ?? ''}: ${managerDecisionText(decision)}` })))
+    .sort((first, second) => second.ts - first.ts)
+    .map(({ sessionId, seq, text }) => ({ sessionId, seq, text }));
+}
+
+export function buildAttentionLedger(onOpenSession: (sessionId: string) => void) {
+  const ledger = el('div', 'attention-ledger');
+  ledger.hidden = true;
+  const answersButton = button({ variant: 'quiet', size: 'small', label: 'Answers', onClick: () => toggleAnswers(ledger) });
+  answersButton.classList.add('attention-ledger-answers');
+  answersButton.setAttribute('aria-expanded', 'false');
+  const list = el('ol', 'attention-ledger-list');
+  list.hidden = true;
+  ledger.append(el('span', 'attention-ledger-count'), answersButton, list);
+  ledgerStateByElement.set(ledger, { onOpenSession, rows: [], openEntries: null });
+  return ledger;
+}
+
+export function paintAttentionLedger(ledger: HTMLElement, rows: readonly AttentionLedgerRow[]) {
+  const state = ledgerStateOf(ledger);
+  state.rows = rows;
+  const answeredCount = (state.openEntries ?? ledgerEntriesOf(rows)).length;
+  writeTextIfChanged(query(ledger, '.attention-ledger-count'), answeredForYouText(answeredCount));
+  writeHiddenIfChanged(ledger, answeredCount === 0);
+}
+
+function toggleAnswers(ledger: HTMLElement) {
+  const state = ledgerStateOf(ledger);
+  if (state.openEntries) {
+    closeAnswers(ledger);
+    return;
+  }
+  const entries = ledgerEntriesOf(state.rows);
+  state.openEntries = entries;
+  query(ledger, '.attention-ledger-answers').setAttribute('aria-expanded', 'true');
+  const list = query(ledger, '.attention-ledger-list');
+  list.replaceChildren(...entries.map((entry) => {
+    const item = createPressable('attention-ledger-item', entry.text);
+    item.addEventListener('click', () => {
+      closeAnswers(ledger);
+      state.onOpenSession(entry.sessionId);
+    });
+    return listItemOf(item);
+  }));
+  list.hidden = false;
+  const listedThroughSeqBySessionId = new Map<string, number>();
+  for (const { sessionId, seq } of entries) listedThroughSeqBySessionId.set(sessionId, Math.max(seq, listedThroughSeqBySessionId.get(sessionId) ?? 0));
+  for (const [sessionId, listedThroughSeq] of listedThroughSeqBySessionId) markManagerAnswersSeen(sessionId, listedThroughSeq);
+}
+
+function closeAnswers(ledger: HTMLElement) {
+  const state = ledgerStateOf(ledger);
+  state.openEntries = null;
+  query(ledger, '.attention-ledger-answers').setAttribute('aria-expanded', 'false');
+  const list = query(ledger, '.attention-ledger-list');
+  list.hidden = true;
+  list.replaceChildren();
+  paintAttentionLedger(ledger, state.rows);
+}
+
+function listItemOf(content: HTMLElement) {
+  const item = el('li');
+  item.append(content);
+  return item;
 }

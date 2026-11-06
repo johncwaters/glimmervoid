@@ -26,7 +26,7 @@ import { groupRoster, sessionlessBoards, visibleOrder } from './roster-groups-co
 import { raceGroupOf, subscribeRaces } from '../arena/race-store.ts';
 import type { SessionGroupHeader } from './roster-group-header.ts';
 import { buildSessionGroupHeader, paintSessionGroupHeader } from './roster-group-header.ts';
-import { buildAttentionBanner, paintAttentionBanner, pressAttentionBanner, sendAttentionTileToRow, tetherAttentionTile } from '../attention-banner.ts';
+import { buildAttentionBanner, buildAttentionLedger, paintAttentionBanner, paintAttentionLedger, pressAttentionBanner, sendAttentionTileToRow, tetherAttentionTile } from '../attention-banner.ts';
 import { buildSessionRow, paintBoardRow, paintSessionRow, wrapSessionRow } from '../session-row.ts';
 import { describeFailure } from '../client-error-core.ts';
 import { reportToServerLog } from '../control-ws.ts';
@@ -58,6 +58,7 @@ const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
 
 let railEl: HTMLElement | null = null;
 let railHeadEl: HTMLElement | null = null;
+let railLedgerEl: HTMLElement | null = null;
 let centerEl: HTMLElement | null = null;
 let cardSlotEl: HTMLElement | null = null;
 let paneLayout: PaneLayout | null = null;
@@ -152,7 +153,8 @@ export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | 
   const statusKey = el('details', 'rail-section rail-status-key');
   statusKey.append(el('summary', 'rail-section-summary', 'Status key'), renderStatusLegend());
   rememberOpenState(statusKey, isRailStatusKeyOpen(), setRailStatusKeyOpen);
-  mountedRail.append(railHeadEl, statusKey);
+  railLedgerEl = buildAttentionLedger(focusSession);
+  mountedRail.append(railHeadEl, railLedgerEl, statusKey);
 
   emptyEl = el('div', 'focus-empty');
   emptyEl.innerHTML = '<p class="focus-empty-title"></p>'
@@ -464,6 +466,7 @@ function attentionLine() {
 function updateRailHead(rosterOrderedRows: readonly RosterRow[], attentionTiles: readonly AttentionTile[]) {
   if (!railHeadEl) return;
   paintAttentionBanner(railHeadEl, countAttentionByKind(rosterOrderedRows), attentionTiles);
+  if (railLedgerEl) paintAttentionLedger(railLedgerEl, rosterOrderedRows);
 }
 
 export function focusNextAttention() {

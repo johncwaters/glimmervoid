@@ -17,6 +17,7 @@ import { CLOSE_ICON_PATH, CLOUD_ICON_PATH, createLineIcon } from './svg-dom.ts';
 import { createPrStatusIcon } from './github/pr-status-icon.ts';
 import type { ActivatableSignal } from './signal.ts';
 import { paintAgentMark } from './session-card/agent-mark.ts';
+import { unseenManagerAnswersFor } from './session-card/card-problems.ts';
 
 export type SessionRowRefs = ReturnType<typeof buildSessionRow>['refs'];
 type SessionRowSignalSource = (sessionId: string) => ActivatableSignal[];
@@ -235,7 +236,9 @@ export function paintSessionRow(
   writeTextIfChanged(refs.elapsed, sessionElapsedText(ui));
   const ownershipText = paintSessionRowOwnership(row, refs, ui);
   paintSessionRowAttentionTab(row, refs.attentionTab, attentionPosition);
-  const accessibleLabel = [name, cloudText, ui.taskTitle, statusLabel, ownershipText, attentionPositionText(attentionPosition)].filter(Boolean).join(', ');
+  const hasUnseenAnswer = row.dataset.id !== undefined && unseenManagerAnswersFor(row.dataset.id).length > 0;
+  row.toggleAttribute('data-manager-answered', hasUnseenAnswer);
+  const accessibleLabel = [name, cloudText, ui.taskTitle, statusLabel, ownershipText, attentionPositionText(attentionPosition), hasUnseenAnswer ? 'answered for you' : ''].filter(Boolean).join(', ');
   writeAttributeIfChanged(row, 'aria-label', accessibleLabel);
   return statusLabel;
 }

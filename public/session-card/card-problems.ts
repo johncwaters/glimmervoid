@@ -3,7 +3,8 @@ import { ManagerDecision } from '#shared/contracts/question-manager.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
-import { decisionsAfter, managerDecisionText } from '../focus-view/attention-core.ts';
+import { answersAckSeq, decisionsAfter, managerDecisionText, passedOnReason, unseenAnswers } from '../focus-view/attention-core.ts';
+import { markStatusDirty } from '../status-paint.ts';
 import { uiState } from '../ui-state-core.ts';
 import { sessionActionStatus } from './card-actions.ts';
 import { findSessionUi } from './card-registry.ts';
@@ -43,6 +44,14 @@ function managerSeenSeqFor(sessionId: string): number {
   return managerSeenSeqBySessionId.get(sessionId) ?? 0;
 }
 
+export function unseenManagerAnswersFor(sessionId: string): ManagerDecision[] {
+  return unseenAnswers(managerDecisionsFor(sessionId), managerSeenSeqFor(sessionId));
+}
+
+export function passedOnReasonFor(sessionId: string): string | null {
+  return passedOnReason(managerDecisionsFor(sessionId), managerSeenSeqFor(sessionId));
+}
+
 export function seedManagerDecisions(sessionId: string, auditLog: readonly unknown[], managerSeenSeq: number) {
   const decisions = auditLog.flatMap((entry) => {
     const parsed = ManagerDecision.safeParse(entry);
@@ -68,11 +77,15 @@ export function forgetManagerDecisions(sessionId: string) {
   closeManagerDecisionLine(sessionId);
 }
 
-export function markManagerDecisionsSeen(sessionId: string) {
-  const latestSeq = managerDecisionsFor(sessionId).at(-1)?.seq ?? 0;
-  if (latestSeq <= managerSeenSeqFor(sessionId)) return;
-  managerSeenSeqBySessionId.set(sessionId, latestSeq);
-  sendControlMsg({ type: 'manager-seen', id: sessionId, throughSeq: latestSeq });
+export function markManagerAnswersSeen(sessionId: string, listedThroughSeq: number) {
+  markManagerDecisionsSeen(sessionId, answersAckSeq(managerDecisionsFor(sessionId), managerSeenSeqFor(sessionId), listedThroughSeq));
+}
+
+function markManagerDecisionsSeen(sessionId: string, throughSeq = managerDecisionsFor(sessionId).at(-1)?.seq ?? 0) {
+  if (throughSeq <= managerSeenSeqFor(sessionId)) return;
+  managerSeenSeqBySessionId.set(sessionId, throughSeq);
+  sendControlMsg({ type: 'manager-seen', id: sessionId, throughSeq });
+  markStatusDirty(sessionId);
 }
 
 export function openManagerDecisionLine(sessionId: string) {

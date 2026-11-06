@@ -3,7 +3,7 @@ import type { SessionRowRefs } from '../session-row.ts';
 import { buildSessionRow, paintSessionRow, wrapSessionRow } from '../session-row.ts';
 import type { SessionRow } from '../focus-view/attention-core.ts';
 import { countAttentionByKind, orderAttentionLine, orderRoster } from '../focus-view/attention-core.ts';
-import { buildAttentionBanner, paintAttentionBanner, pressAttentionBanner, sendAttentionTileToRow } from '../attention-banner.ts';
+import { buildAttentionBanner, buildAttentionLedger, paintAttentionBanner, paintAttentionLedger, pressAttentionBanner, sendAttentionTileToRow } from '../attention-banner.ts';
 import type { RosterGroup } from '../focus-view/roster-groups-core.ts';
 import { groupRoster, visibleOrder } from '../focus-view/roster-groups-core.ts';
 import { raceGroupOf } from '../arena/race-store.ts';
@@ -40,6 +40,8 @@ export function createBoardScreen({ onSelectSession, shownSessionId }: { onSelec
     rowFor: (id) => rowById.get(id),
   });
 
+  const ledgerEl = buildAttentionLedger((id) => selectSession(id));
+
   let pendingLandingId: string | null = null;
 
   function openAttentionSession(id: string) {
@@ -63,7 +65,7 @@ export function createBoardScreen({ onSelectSession, shownSessionId }: { onSelec
   const emptyDescEl = el('p', 'phone-empty-desc', 'Spawn a session to start watching.');
   emptyEl.append(emptyTitleEl, emptyDescEl);
 
-  screen.append(topBar, groupsEl, emptyEl, attentionEl);
+  screen.append(topBar, groupsEl, emptyEl, ledgerEl, attentionEl);
 
   const rowById = new Map<string, HTMLButtonElement>();
   const groupSectionByKey = new Map<string, HTMLElement>();
@@ -121,6 +123,7 @@ export function createBoardScreen({ onSelectSession, shownSessionId }: { onSelec
     const attentionLine = orderAttentionLine(orderedRows, null);
     const attentionPositionById = new Map(attentionLine.map(({ id }, index) => [id, index + 1]));
     paintAttentionBanner(attentionEl, attentionCounts, attentionLine);
+    paintAttentionLedger(ledgerEl, orderedRows);
 
     const presentGroupKeys = new Set(boardGroups.order);
     const groupOrderKey = boardGroups.order.join(',');

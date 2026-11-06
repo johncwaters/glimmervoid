@@ -247,3 +247,22 @@ export function managerDecisionText(decision: ManagerDecision): string {
 export function decisionsAfter(decisions: readonly ManagerDecision[], seenSeq: number): ManagerDecision[] {
   return decisions.filter((decision) => decision.seq > seenSeq);
 }
+
+export function unseenAnswers(decisions: readonly ManagerDecision[], seenSeq: number): ManagerDecision[] {
+  return decisionsAfter(decisions, seenSeq).filter((decision) => decision.outcome === 'answered');
+}
+
+export function passedOnReason(decisions: readonly ManagerDecision[], seenSeq: number): string | null {
+  const latest = decisions.at(-1);
+  if (!latest || latest.seq <= seenSeq || latest.outcome !== 'escalated') return null;
+  return latest.reason;
+}
+
+export function answersAckSeq(decisions: readonly ManagerDecision[], seenSeq: number, listedThroughSeq: number): number {
+  const firstUnseenEscalation = decisionsAfter(decisions, seenSeq).find((decision) => decision.outcome === 'escalated');
+  return firstUnseenEscalation ? Math.min(listedThroughSeq, firstUnseenEscalation.seq - 1) : listedThroughSeq;
+}
+
+export function answeredForYouText(answeredCount: number): string {
+  return `${answeredCount} answered for you`;
+}
