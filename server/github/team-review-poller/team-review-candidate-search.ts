@@ -1,3 +1,6 @@
+import { comparablePrKey } from '../../../shared/contracts/github-prs.ts';
+import type { GithubPr } from '../../../shared/contracts/github-prs.ts';
+import type { TeamReviewCandidatesPayload } from '../../../shared/contracts/team-review-candidates.ts';
 import * as core from '../core/team-review-core.ts';
 import type { TeamReviewCandidate } from '../core/team-review-core.ts';
 import { ASKED_FOR_WATCH_OWNER } from './team-review-poller-context.ts';
@@ -38,7 +41,7 @@ function createTeamReviewCandidateSearch(context: TeamReviewPollerContext) {
     return isDirty;
   }
 
-  async function collectCandidates(): Promise<{ candidates: TeamReviewCandidate[]; isComplete: boolean } | null> {
+  async function searchCandidates(): Promise<TeamReviewCandidatesPayload | null> {
     if (!org) {
       unregisterWatches();
       return null;
@@ -48,9 +51,8 @@ function createTeamReviewCandidateSearch(context: TeamReviewPollerContext) {
     const membership = teams.length === 0 ? { memberLists: [], isComplete: true } : await requestTeamMembership();
     if (membership === null || loop.isStopped()) return null;
     registerWatches(core.orgSearchPlans(org, teams, membership.memberLists, viewer));
-    const collected = candidatesFromSnapshot(viewer);
-    runtime.teamCandidateKeys = collected.teamCandidateKeys;
-    return { candidates: collected.candidates, isComplete: membership.isComplete && collected.isComplete };
+    const searched = searchResultFromSnapshot(viewer);
+    return { ...searched, isComplete: membership.isComplete && searched.isComplete };
   }
 
   async function requestSelf(): Promise<string | null> {
@@ -121,17 +123,9 @@ function createTeamReviewCandidateSearch(context: TeamReviewPollerContext) {
     store.setWatchedKeys(ASKED_FOR_WATCH_OWNER, askedForKeys());
   }
 
-  function candidatesFromSnapshot(viewer: string): { candidates: TeamReviewCandidate[]; teamCandidateKeys: ReadonlySet<string>; isComplete: boolean } {
+  function searchResultFromSnapshot(viewer: string): TeamReviewCandidatesPayload {
     const snapshot = store.getSnapshot();
-    let isAskedForComplete = true;
-    const askedFor = askedForKeys().flatMap((key) => {
-      const pr = snapshot.prs[key.toLowerCase()];
-      if (pr) return [pr];
-      const requestedAt = runtime.state[key]?.requestedAt ?? 0;
-      if (now() - requestedAt < core.ASKED_FOR_FETCH_GRACE_MS) isAskedForComplete = false;
-      return [];
-    });
-    const prsBySource: Record<'direct' | 'team' | 'authored', (typeof snapshot.prs)[string][]> = { direct: [], team: [], authored: [] };
+    const prsBySource: Record<'direct' | 'team' | 'authored', GithubPr[]> = { direct: [], team: [], authored: [] };
     let isComplete = true;
     for (const [name, { source }] of watches) {
       const watch = snapshot.watches[name];
@@ -145,8 +139,24 @@ function createTeamReviewCandidateSearch(context: TeamReviewPollerContext) {
         prsBySource[source].push(pr);
       }
     }
-    const selected = core.selectCandidates(prsBySource.direct, prsBySource.team, prsBySource.authored, { self: viewer, nowMs: now(), skipIdleAfterMs, askedFor });
-    return { ...selected, isComplete: isComplete && isAskedForComplete };
+    return { viewer, isComplete, directRequested: prsBySource.direct, teamRequested: prsBySource.team, authored: prsBySource.authored };
+  }
+
+  function candidatesFrom(searched: TeamReviewCandidatesPayload): { candidates: TeamReviewCandidate[]; prsByKey: Map<string, GithubPr>; isComplete: boolean } {
+    const snapshot = store.getSnapshot();
+    let isAskedForComplete = true;
+    const askedFor = askedForKeys().flatMap((key) => {
+      const pr = snapshot.prs[key.toLowerCase()];
+      if (pr) return [pr];
+      const requestedAt = runtime.state[key]?.requestedAt ?? 0;
+      if (now() - requestedAt < core.ASKED_FOR_FETCH_GRACE_MS) isAskedForComplete = false;
+      return [];
+    });
+    const prsByKey = new Map<string, GithubPr>();
+    for (const pr of [...askedFor, ...searched.directRequested, ...searched.teamRequested, ...searched.authored]) prsByKey.set(comparablePrKey(pr), pr);
+    const selected = core.selectCandidates(searched.directRequested, searched.teamRequested, searched.authored, { self: searched.viewer, nowMs: now(), skipIdleAfterMs, askedFor });
+    runtime.teamCandidateKeys = selected.teamCandidateKeys;
+    return { candidates: selected.candidates, prsByKey, isComplete: searched.isComplete && isAskedForComplete };
   }
 
   function unregisterWatches(): void {
@@ -156,7 +166,7 @@ function createTeamReviewCandidateSearch(context: TeamReviewPollerContext) {
     store.setWatchedKeys(ASKED_FOR_WATCH_OWNER, []);
   }
 
-  return { closedEntryKeys, pruneDeparted, collectCandidates, isTeamCandidate, askedForSlotsInUse, watchAskedFor, candidatesFromSnapshot, unregisterWatches };
+  return { closedEntryKeys, pruneDeparted, searchCandidates, searchResultFromSnapshot, candidatesFrom, isTeamCandidate, askedForSlotsInUse, watchAskedFor, unregisterWatches };
 }
 
 type TeamReviewCandidateSearch = ReturnType<typeof createTeamReviewCandidateSearch>;

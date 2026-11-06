@@ -7,6 +7,8 @@ import type { TeamReviewCandidate } from './core/team-review-core.ts';
 import { createTickLoop } from '../lanes/lane-runner.ts';
 import type { TickOutcome } from '../lanes/lane-runner.ts';
 import type { InFlightReview } from '../../shared/contracts/team-review.ts';
+import type { GithubPr } from '../../shared/contracts/github-prs.ts';
+import type { TeamReviewCandidatesPayload } from '../../shared/contracts/team-review-candidates.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { DEFAULT_TIMER_FNS } from '../../shared/timer-deps.ts';
 import { TEAM_REVIEW_RATE_LIMIT_RESOURCES } from './team-review-poller/team-review-poller-context.ts';
@@ -77,16 +79,14 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   const reviewRuns = createTeamReviewRuns(context, statusReporter, headPlanning, candidateSearch);
   const { getDraft, updateDraft, updateThread, requeue, restore, requestReview, markNotMine } = createTeamReviewOperatorActions(context, statusReporter, headPlanning, candidateSearch, reviewRuns);
   const { inFlightKeys, cancelPendingProgressEmit, emitStatus } = statusReporter;
-  const { closedEntryKeys, pruneDeparted, collectCandidates, watchAskedFor, candidatesFromSnapshot, unregisterWatches } = candidateSearch;
+  const { closedEntryKeys, pruneDeparted, searchCandidates, searchResultFromSnapshot, candidatesFrom, watchAskedFor, unregisterWatches } = candidateSearch;
   const { headsToReview } = headPlanning;
   const { startReviews } = reviewRuns;
 
   function rebuild(): void {
     if (!runtime.hasLoadedState || loop.isStopped() || runtime.self === null) return;
-    const collected = candidatesFromSnapshot(runtime.self);
-    runtime.teamCandidateKeys = collected.teamCandidateKeys;
-    const { candidates } = collected;
-    const planned = headsToReview(candidates);
+    const { candidates, prsByKey } = candidatesFrom(searchResultFromSnapshot(runtime.self));
+    const planned = headsToReview(candidates, prsByKey);
     if (planned.isDirty) loop.track(persist());
     emitStatus();
     if (closedEntryKeys().size > 0) {
@@ -94,7 +94,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       return;
     }
     if (planned.queue.length === 0 || !canStartReview()) return;
-    const queueSignature = queuedHeadsSignature(planned.queue);
+    const queueSignature = queuedHeadsSignature(planned.queue, prsByKey);
     if (queueSignature === lastRebuildQueueSignature) return;
     lastRebuildQueueSignature = queueSignature;
     loop.tickSoon();
@@ -104,9 +104,8 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     return inFlightKeys().length < maxConcurrentReviews;
   }
 
-  function queuedHeadsSignature(queue: readonly TeamReviewCandidate[]): string {
-    const prs = store.getSnapshot().prs;
-    return JSON.stringify(queue.map((candidate) => [candidate.key, prs[comparablePrKey(candidate)]?.headRefOid ?? null]));
+  function queuedHeadsSignature(queue: readonly TeamReviewCandidate[], prsByKey: ReadonlyMap<string, GithubPr>): string {
+    return JSON.stringify(queue.map((candidate) => [candidate.key, prsByKey.get(comparablePrKey(candidate))?.headRefOid ?? null]));
   }
 
   async function rateLimitedOutcome(): Promise<TickOutcome> {
@@ -117,7 +116,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   async function runTick(): Promise<TickOutcome | undefined> {
     runtime.pollingError = null;
     runtime.tickRateLimitWaitMs = null;
-    const collected = await collectCandidates().catch((error: unknown) => {
+    const searched = await searchCandidates().catch((error: unknown) => {
       runtime.pollingError = errorMessage(error);
       log.warn(`[${core.TEAM_REVIEW_LANE_ID}] candidate search failed: ${runtime.pollingError}`);
       return null;
@@ -126,7 +125,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       runtime.pollingError = 'GitHub rate limit asks to wait.';
       return { failed: true, retryAfterMs: runtime.tickRateLimitWaitMs, error: runtime.pollingError };
     }
-    if (collected === null) {
+    if (searched === null) {
       runtime.pollingError ??= 'Could not look up your GitHub account or team members.';
       return rateLimitedOutcome();
     }
@@ -135,7 +134,12 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       runtime.pollingError = storeError;
       return rateLimitedOutcome();
     }
-    const { candidates, isComplete } = collected;
+    return acceptCandidates(searched);
+  }
+
+  async function acceptCandidates(searched: TeamReviewCandidatesPayload): Promise<TickOutcome | undefined> {
+    runtime.self = searched.viewer;
+    const { candidates, prsByKey, isComplete } = candidatesFrom(searched);
     const rateLimitWaitMs = isComplete ? null : await store.rateLimitWaitMs(now(), TEAM_REVIEW_RATE_LIMIT_RESOURCES);
     if (rateLimitWaitMs !== null) {
       runtime.pollingError = 'GitHub rate limit asks to wait.';
@@ -143,7 +147,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     }
     const isPruned = await pruneDeparted(new Set(candidates.map((candidate) => candidate.key)), isComplete);
     if (isPruned) watchAskedFor();
-    const planned = headsToReview(candidates);
+    const planned = headsToReview(candidates, prsByKey);
     const isStarted = await startReviews(planned.queue);
     const areThreadsChanged = runtime.tickRateLimitWaitMs === null ? await handleAnsweredThreads(candidates) : false;
     if (isPruned || planned.isDirty || areThreadsChanged || isStarted) await persist();
@@ -177,7 +181,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
 
   async function refresh() {
     if (loop.isStopped()) return { ok: false, error: 'Reviews polling is stopped.' };
-    if (watches.size === 0) await collectCandidates();
+    if (watches.size === 0) await searchCandidates();
     return loop.refresh(async () => {
       const refreshed = await store.refreshWatches([...watches.keys()]);
       rebuild();

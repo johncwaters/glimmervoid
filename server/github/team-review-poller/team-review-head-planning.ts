@@ -1,4 +1,5 @@
 import { comparablePrKey } from '../../../shared/contracts/github-prs.ts';
+import type { GithubPr } from '../../../shared/contracts/github-prs.ts';
 import * as core from '../core/team-review-core.ts';
 import type { TeamReviewCandidate } from '../core/team-review-core.ts';
 import { hasStandingViewerApproval } from '../../../shared/contracts/team-review.ts';
@@ -6,7 +7,7 @@ import type { TeamReviewStateEntry } from '../../../shared/contracts/team-review
 import type { TeamReviewPollerContext } from './team-review-poller-context.ts';
 
 function createTeamReviewHeadPlanning(context: TeamReviewPollerContext) {
-  const { store, now, reReviewAfterMs, runtime } = context;
+  const { now, reReviewAfterMs, runtime } = context;
 
   function entryFor(key: string): TeamReviewStateEntry {
     const existing = runtime.state[key];
@@ -16,14 +17,13 @@ function createTeamReviewHeadPlanning(context: TeamReviewPollerContext) {
     return created;
   }
 
-  function headsToReview(candidates: TeamReviewCandidate[]): { queue: TeamReviewCandidate[]; isDirty: boolean } {
+  function headsToReview(candidates: TeamReviewCandidate[], prsByKey: ReadonlyMap<string, GithubPr>): { queue: TeamReviewCandidate[]; isDirty: boolean } {
     const queue: TeamReviewCandidate[] = [];
     let isDirty = false;
-    const prs = store.getSnapshot().prs;
     for (const candidate of candidates) {
       let entry = runtime.state[candidate.key];
       if (entry?.inFlight) continue;
-      const pr = prs[comparablePrKey(candidate)];
+      const pr = prsByKey.get(comparablePrKey(candidate));
       if (!pr) continue;
       const snapshot = core.reviewSnapshotFromGithubPr(pr);
       const head = snapshot.head;
