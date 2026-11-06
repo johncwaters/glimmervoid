@@ -1,5 +1,5 @@
 import { isCompletedCommandFailure } from '../../core/command-failure-core.ts';
-import { COHERENCE_HOOKS_INACTIVE, type CoherenceHooksState } from '../../../shared/contracts/session.ts';
+import type { CoherenceHooksState } from '../../../shared/contracts/session.ts';
 
 export type CoherenceHost = 'claude' | 'codex';
 
@@ -17,7 +17,7 @@ export function shouldInstallCoherenceHooks({ isRepositoryConfigured, checkExitC
 }
 
 export function coherenceHealFailureReason(hooks: CoherenceHooksState): string | null {
-  if (hooks.active || hooks.reason === COHERENCE_HOOKS_INACTIVE.codexHooksUntrusted) return null;
+  if (hooks.active) return null;
   return hooks.reason;
 }
 

@@ -47,7 +47,6 @@ const COHERENCE_HOOKS_REASON_MAX_CHARS = 80;
 export const COHERENCE_HOOKS_INACTIVE = Object.freeze({
   notInstalled: 'not installed',
   unsupportedVersion: 'unsupported version',
-  codexHooksUntrusted: 'Codex hooks need trust in /hooks',
 });
 export const CoherenceHooksState = z.discriminatedUnion('active', [
   z.object({ active: z.literal(true) }).strict(),

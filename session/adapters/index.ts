@@ -153,7 +153,6 @@ interface AgentAdapter {
   buildArgs(options?: AgentArgsOptions): string[];
   settingsArgs?(settingsPath: string): string[];
   trustFolder?(sessionFolder: string, env: SpawnEnv): Promise<void>;
-  operatorConfigPath?(env: SpawnEnv): string | null;
   sessionIdOf?(payload: HookPayload): unknown;
 }
 

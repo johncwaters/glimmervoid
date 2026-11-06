@@ -505,14 +505,6 @@ const UPDATE_CHECK_ARGS = ["-c", "check_for_update_on_startup=false"];
 
 const SKIP_PERMISSIONS_ARGS = ["-a", "never", "-s", "danger-full-access"];
 
-const OPERATOR_CONFIG_FILE_NAME = "config.toml";
-
-function operatorConfigPath(env: SpawnEnv): string | null {
-  const [codexHome] = codexHomes(env, null);
-  if (!codexHome) return null;
-  return path.join(codexHome, OPERATOR_CONFIG_FILE_NAME);
-}
-
 function buildArgs({
   dangerouslySkipPermissions = false,
   resumeSessionId = null,
@@ -539,7 +531,6 @@ const codex = {
   buildSpawnCommand,
   buildEnv,
   buildArgs,
-  operatorConfigPath,
   buildHookArgs,
   buildHookCommand,
   mayContributeHooks,

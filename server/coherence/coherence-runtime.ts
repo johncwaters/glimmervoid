@@ -33,8 +33,8 @@ async function isRepositoryConfigured(worktree: string): Promise<boolean> {
   return stat(path.join(worktree, 'coherence.config.json')).then((entry) => entry.isFile(), () => false);
 }
 
-export async function resolveCoherence({ worktree, host, isSettingOn, codexEnv = process.env, timeoutMs = 20_000, verdictTimeoutMs = 600_000 }: {
-  worktree: string; host: string | null | undefined; isSettingOn: boolean; codexEnv?: NodeJS.ProcessEnv; timeoutMs?: number; verdictTimeoutMs?: number;
+export async function resolveCoherence({ worktree, host, isSettingOn, timeoutMs = 20_000, verdictTimeoutMs = 600_000 }: {
+  worktree: string; host: string | null | undefined; isSettingOn: boolean; timeoutMs?: number; verdictTimeoutMs?: number;
 }): Promise<CoherenceAttachment | null> {
   if (!isSettingOn || (host !== 'claude' && host !== 'codex')) return null;
   if (!await isRepositoryConfigured(worktree)) return null;
@@ -104,7 +104,7 @@ export async function resolveCoherence({ worktree, host, isSettingOn, codexEnv =
     }
     lastCheckExitCode = null;
     if (unavailable) return unavailable;
-    const checked = await checkCoherenceNativeHooks({ worktree, host: coherenceHost, run, codexEnv });
+    const checked = await checkCoherenceNativeHooks({ host: coherenceHost, run });
     lastCheckExitCode = checked.checkExitCode;
     return checked.hooks;
   }
