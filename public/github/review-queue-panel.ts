@@ -12,16 +12,16 @@ import { emptyStateText as myPrsEmptyStateText, queueNotices as myPrsQueueNotice
 import { createPrQueueColumns } from './pr-queue-columns.ts';
 import { createReviewBoard } from './review-queue-board.ts';
 import { onLayoutChange } from '../form-factor.ts';
-import { getReviewsBoardDetailWidth, getReviewsLayout, setReviewsBoardDetailWidth, setReviewsLayout } from '../ui-prefs.ts';
+import { getReviewsBoardDetailWidth, getReviewsLayout, getReviewsTurnLimit, setReviewsBoardDetailWidth, setReviewsLayout } from '../ui-prefs.ts';
 import type { ReviewsLayout } from '../ui-prefs.ts';
 import { createReviewSetupCard } from './review-setup-card.ts';
 import { createReviewSkillNotice } from './review-skill-notice.ts';
 import { subscribeSettings } from '../settings/settings-store.ts';
 import {
-  COLLAPSED_GROUP_IDS, caughtUpText, chooseQueueSelection, combinedPollingStatus, nextTurnKey,
-  queueItemActivityEntry, queueItemByKey, reviewKeyActionOf, spansMultipleRepos, steppedRowKey, turnItems, turnPositionText,
+  COLLAPSED_GROUP_IDS, ageToneOf, caughtUpText, chooseQueueSelection, combinedPollingStatus, nextTurnKey,
+  isOverTurnLimit, queueItemActivityEntry, queueItemByKey, queueItemWaitStartMs, reviewKeyActionOf, spansMultipleRepos, steppedRowKey, turnItems, turnPositionText,
 } from './review-queue-core.ts';
-import type { QueueGroup, QueueItem, ReviewKeyAction } from './review-queue-core.ts';
+import type { QueueGroup, QueueGroupId, QueueItem, ReviewKeyAction } from './review-queue-core.ts';
 import {
   attachReviewQueueView, isQueueEntryUnseen, markQueueEntrySeen, rebuildReviewQueue, returnToReviewQueue, reviewQueueNavigation, reviewQueueUnseenSignature, setReviewDetailScreenOpen,
   subscribeReviewQueue, takePendingReveal,
@@ -217,8 +217,15 @@ function rowFor(item: QueueItem, hasMultipleRepos: boolean, sessionsByPrKey: Rea
   return { container: mineRow.group, row: mineRow.row };
 }
 
-function createItemRow(item: QueueItem, isTurn: boolean, hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): HTMLElement {
+function itemAgeTone(item: QueueItem, groupId: QueueGroupId) {
+  return ageToneOf(groupId, queueItemWaitStartMs(item), Date.now());
+}
+
+function createItemRow(item: QueueItem, groupId: QueueGroupId, hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): HTMLElement {
+  const isTurn = groupId === 'turn';
   const { container, row } = rowFor(item, hasMultipleRepos, sessionsByPrKey);
+  const ageTone = itemAgeTone(item, groupId);
+  if (ageTone) row.dataset.ageTone = ageTone;
   row.dataset.queueKey = item.key;
   row.setAttribute('aria-current', String(item.key === selectedKey));
   if (item.key === justActedKey) row.dataset.justActed = 'true';
@@ -240,11 +247,19 @@ function toggleCollapsedGroup(groupId: string): void {
   openCollapsedGroupIds.add(groupId);
 }
 
+function turnLimitElements(group: QueueGroup): HTMLElement[] {
+  const turnLimit = getReviewsTurnLimit();
+  if (group.id !== 'turn' || turnLimit === 0) return [];
+  const limit = el('span', 'review-turn-limit', `limit ${turnLimit}`);
+  if (isOverTurnLimit(group.items.length, turnLimit)) limit.dataset.over = 'true';
+  return [limit];
+}
+
 function createGroupHeading(group: QueueGroup): HTMLElement {
   const heading = el('h3', 'pr-section-heading review-group-heading');
   const count = el('span', 'review-group-count', String(group.items.length));
   if (group.id === 'turn') {
-    heading.append(el('span', null, group.title), count, buildNextAttentionKeys());
+    heading.append(el('span', null, group.title), count, ...turnLimitElements(group), buildNextAttentionKeys());
     return heading;
   }
   if (!COLLAPSED_GROUP_IDS.has(group.id)) {
@@ -270,7 +285,7 @@ function createGroupSection(group: QueueGroup, hasMultipleRepos: boolean, sessio
   section.dataset.group = group.id;
   section.append(createGroupHeading(group));
   if (COLLAPSED_GROUP_IDS.has(group.id) && !openCollapsedGroupIds.has(group.id)) return section;
-  for (const item of group.items) section.append(createItemRow(item, group.id === 'turn', hasMultipleRepos, sessionsByPrKey));
+  for (const item of group.items) section.append(createItemRow(item, group.id, hasMultipleRepos, sessionsByPrKey));
   return section;
 }
 
@@ -296,13 +311,14 @@ function syncTeamChip(): void {
 }
 
 function rowsSignature(groups: readonly QueueGroup[], sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): string {
-  return JSON.stringify([shownLayout(), groups, [...sessionsByPrKey], selectedKey, [...openCollapsedGroupIds], reviewQueueUnseenSignature(), queueNoticeElements().map((notice) => notice.textContent)], (key, value) => (key === 'recentSteps' ? undefined : value));
+  const ageTones = groups.flatMap((group) => group.items.map((item) => itemAgeTone(item, group.id)));
+  return JSON.stringify([shownLayout(), getReviewsTurnLimit(), ageTones, groups, [...sessionsByPrKey], selectedKey, [...openCollapsedGroupIds], reviewQueueUnseenSignature(), queueNoticeElements().map((notice) => notice.textContent)], (key, value) => (key === 'recentSteps' ? undefined : value));
 }
 
 function createBoard(hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): HTMLElement {
   return createReviewBoard(currentGroups, {
-    createCard: (item, group) => createItemRow(item, group.id === 'turn', hasMultipleRepos, sessionsByPrKey),
-    createHeadingExtras: (group) => (group.id === 'turn' ? [buildNextAttentionKeys()] : []),
+    createCard: (item, group) => createItemRow(item, group.id, hasMultipleRepos, sessionsByPrKey),
+    createHeadingExtras: (group) => (group.id === 'turn' ? [...turnLimitElements(group), buildNextAttentionKeys()] : []),
     isParkedOpen: openCollapsedGroupIds.has('parked'),
     onToggleParked: () => {
       toggleCollapsedGroup('parked');
@@ -447,4 +463,9 @@ function mountReviewQueue(parent: HTMLElement): void {
   revealPendingItem();
 }
 
-export const view: ViewModule<HTMLElement> = { mount: mountReviewQueue, refresh: repaintSessionPills };
+function refreshReviewQueue(): void {
+  repaintSessionPills();
+  queueRender();
+}
+
+export const view: ViewModule<HTMLElement> = { mount: mountReviewQueue, refresh: refreshReviewQueue };

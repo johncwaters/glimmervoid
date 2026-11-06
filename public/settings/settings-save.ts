@@ -9,7 +9,7 @@ import { applyNextAttentionKeyCode } from '../shortcuts.ts';
 import { applyFlyingAnimals } from '../flying-animals.ts';
 import { applyPhoneArrowPad, applyTheme } from '../theme.ts';
 import { reportTerminalColors } from '../terminal-color-report.ts';
-import { isFlyingAnimalsEnabled, setFlyingAnimalsOnPhone, setFlyingAnimalsMinGapSeconds, setFlyingAnimalsMaxGapSeconds, setFlyingAnimalsMinDurationSeconds, setFlyingAnimalsMaxDurationSeconds, setFlyingAnimalsScale, setPhoneArrowPad, setFlyingAnimalsEnabled, setNotificationsEnabled, setNextAttentionKeyCode, setSoundId, setThemeId, getNextAttentionKeyCode } from '../ui-prefs.ts';
+import { isFlyingAnimalsEnabled, setFlyingAnimalsOnPhone, setFlyingAnimalsMinGapSeconds, setFlyingAnimalsMaxGapSeconds, setFlyingAnimalsMinDurationSeconds, setFlyingAnimalsMaxDurationSeconds, setFlyingAnimalsScale, setPhoneArrowPad, setFlyingAnimalsEnabled, setNotificationsEnabled, setNextAttentionKeyCode, setSoundId, setThemeId, getNextAttentionKeyCode, setReviewsTurnLimit } from '../ui-prefs.ts';
 import { applySettingsBroadcast } from './settings-store.ts';
 import { applySoundEnabled } from '../mute-button.ts';
 import { fieldErrorById, panelRefresher, pendingSaveById, saveStatusById, settingsPayload, storedValue, storedValues, viewMap } from './settings-panel-state.ts';
@@ -56,6 +56,10 @@ function applyBrowserPreference(setting: SettingsSetting, value: unknown) {
   if (writeFlyingAnimalsPreference) {
     writeFlyingAnimalsPreference(value);
     applyFlyingAnimals(isFlyingAnimalsEnabled());
+    return;
+  }
+  if (setting.path === 'pref:reviewsTurnLimit') {
+    setReviewsTurnLimit(Number(value));
     return;
   }
   if (setting.path === 'pref:soundEnabled') {

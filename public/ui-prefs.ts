@@ -2,6 +2,7 @@ import { FLYING_ANIMALS_DEFAULTS, normalizeExcludedSprites, normalizeFlyingAnima
 import type { FlyingAnimalsOptions } from './flying-animals-core.ts';
 import { DEFAULT_SOUND_ID } from './alert-sound-core.ts';
 import type { FocusLayout } from '#shared/contracts/focus-layout.ts';
+import { REVIEWS_TURN_LIMIT_DEFAULT, REVIEWS_TURN_LIMIT_RANGE } from '#shared/settings-ranges.ts';
 import { getJSON, setJSON } from './local-store.ts';
 import { parseFocusLayout } from './focus-view/pane-layout-core.ts';
 import { DEFAULT_NEXT_ATTENTION_KEY_CODE, isNextAttentionKeyCode } from './shortcuts-core.ts';
@@ -27,6 +28,7 @@ interface UiPrefs extends FlyingAnimalsOptions {
   prsQueueWidth: number | null;
   reviewsLayout: ReviewsLayout;
   reviewsBoardDetailWidth: number | null;
+  reviewsTurnLimit: number;
   traceHiddenKinds: string[];
   dismissedUpdate: string | null;
   telemetryNoticeDismissed: boolean;
@@ -45,6 +47,11 @@ const asNullableNumber = (value: unknown): number | null => (typeof value === 'n
 const asFiniteNumber = (fallback: number) => (value: unknown): number => asNullableNumber(value) ?? fallback;
 const asStringList = (value: unknown): string[] =>
   Array.isArray(value) ? [...new Set(value.filter((entry): entry is string => typeof entry === 'string' && entry !== ''))] : [];
+
+function normalizeReviewsTurnLimit(value: unknown): number {
+  const isInRange = typeof value === 'number' && Number.isInteger(value) && value >= REVIEWS_TURN_LIMIT_RANGE.min && value <= REVIEWS_TURN_LIMIT_RANGE.max;
+  return isInRange ? value : REVIEWS_TURN_LIMIT_DEFAULT;
+}
 
 const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   soundEnabled: asBoolean(true),
@@ -70,6 +77,7 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   prsQueueWidth: asNullableNumber,
   reviewsLayout: (value: unknown): ReviewsLayout => (value === 'list' ? 'list' : 'board'),
   reviewsBoardDetailWidth: asNullableNumber,
+  reviewsTurnLimit: normalizeReviewsTurnLimit,
   traceHiddenKinds: asStringList,
   dismissedUpdate: asNullableString,
   telemetryNoticeDismissed: asBoolean(false),
@@ -142,6 +150,9 @@ export const setPrsQueueWidth = (px: number | null) => write('prsQueueWidth', px
 
 export const getReviewsLayout = () => read('reviewsLayout');
 export const setReviewsLayout = (layout: ReviewsLayout) => write('reviewsLayout', layout);
+
+export const getReviewsTurnLimit = () => read('reviewsTurnLimit');
+export const setReviewsTurnLimit = (limit: number) => write('reviewsTurnLimit', limit);
 
 export const getReviewsBoardDetailWidth = () => read('reviewsBoardDetailWidth');
 export const setReviewsBoardDetailWidth = (px: number | null) => write('reviewsBoardDetailWidth', px);

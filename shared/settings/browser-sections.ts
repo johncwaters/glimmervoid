@@ -1,4 +1,4 @@
-import { FLYING_ANIMALS_DEFAULTS, FLYING_ANIMALS_DURATION_RANGE, FLYING_ANIMALS_GAP_RANGE, FLYING_ANIMALS_SCALE_RANGE } from '../settings-ranges.ts';
+import { FLYING_ANIMALS_DEFAULTS, FLYING_ANIMALS_DURATION_RANGE, FLYING_ANIMALS_GAP_RANGE, FLYING_ANIMALS_SCALE_RANGE, REVIEWS_TURN_LIMIT_DEFAULT, REVIEWS_TURN_LIMIT_RANGE } from '../settings-ranges.ts';
 import { BROWSER_NOW, BROWSER_ADVANCED, SECONDS, MULTIPLIER } from './registry-fields.ts';
 import type { SettingsSection } from './registry-fields.ts';
 
@@ -53,6 +53,11 @@ export const BROWSER_APPEARANCE: SettingsSection = {
       id: 'animals-on-phone', path: 'pref:flyingAnimalsOnPhone', title: 'Show on phone layout',
       description: 'Allow flights on the phone layout.', control: 'toggle',
       keywords: ['animals', 'mobile'], defaultValue: FLYING_ANIMALS_DEFAULTS.flyingAnimalsOnPhone, ...BROWSER_ADVANCED,
+    },
+    {
+      id: 'reviews-turn-limit', path: 'pref:reviewsTurnLimit', title: 'Your turn limit',
+      description: 'Advisory count for the Reviews Your turn column; the count turns red above it. 0 hides it.', control: 'number', integer: true, step: 1,
+      range: REVIEWS_TURN_LIMIT_RANGE, keywords: ['reviews', 'board', 'wip', 'limit'], defaultValue: REVIEWS_TURN_LIMIT_DEFAULT, ...BROWSER_NOW,
     },
   ],
 };
