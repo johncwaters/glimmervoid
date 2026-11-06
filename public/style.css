@@ -1394,31 +1394,35 @@ html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, 
   color: var(--text-muted);
 }
 
-.shortcut-label,
-.shortcut-keys {
-  margin: 0;
-  padding: 7px 0;
-  border-top: 1px solid var(--border-dim);
-}
-
 .shortcut-keys {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 4px;
+}
+
+.shortcut-rows > .shortcut-label,
+.shortcut-rows > .shortcut-keys {
+  margin: 0;
+  padding: 7px 0;
+  border-top: 1px solid var(--border-dim);
+}
+
+.shortcut-rows > .shortcut-keys {
   padding-left: 24px;
 }
 
-.settings-view-shortcut-key > .shortcut-keys {
-  padding: 0;
-  border-top: 0;
+:is(.review-group-heading, .review-board-column-heading) .shortcut-keys {
+  margin-left: auto;
 }
 
-.review-group-heading .shortcut-keys {
-  margin-left: auto;
-  padding: 0;
-  border-top: 0;
+.review-board-column-heading .shortcut-keys .kbd {
+  padding-block: 2px;
+}
+
+@container review-board-column (max-width: 299px) {
+  .review-board-column-heading .shortcut-keys { display: none; }
 }
 
 .shortcut-sep {

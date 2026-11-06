@@ -824,7 +824,14 @@ async function verifyBoardReadable(page: Page): Promise<void> {
     const openColumns = [...board.querySelectorAll('.review-board-column:not([data-collapsed="true"])')];
     const turnTitle = board.querySelector('.review-board-column[data-group="turn"] .review-board-column-title');
     if (!(turnTitle instanceof HTMLElement)) throw new Error('Missing Your turn title');
+    const allColumns = [...board.querySelectorAll('.review-board-column')];
+    const openHeadings = openColumns.map((column) => column.querySelector('.review-board-column-heading'));
+    const turnKeys = board.querySelector('.review-board-column[data-group="turn"] .shortcut-keys');
+    const turnKeysStyle = turnKeys ? getComputedStyle(turnKeys) : null;
     return {
+      columnHeights: allColumns.map((column) => Math.round(column.getBoundingClientRect().height)),
+      headingHeights: openHeadings.map((heading) => Math.round(heading?.getBoundingClientRect().height ?? 0)),
+      turnKeysChrome: turnKeysStyle ? `${turnKeysStyle.borderTopWidth} ${turnKeysStyle.paddingLeft} ${turnKeysStyle.paddingTop}` : null,
       columnWidths: openColumns.map((column) => Math.round(column.getBoundingClientRect().width)),
       cardTitleWidths: [...board.querySelectorAll('.pr-queue-row .pr-queue-title')].map((title) => Math.round(title.getBoundingClientRect().width)),
       turnTitleClipped: turnTitle.scrollWidth > turnTitle.clientWidth,
@@ -836,6 +843,9 @@ async function verifyBoardReadable(page: Page): Promise<void> {
   assert.ok(readability.cardTitleWidths.length > 0, readabilityText);
   assert.ok(readability.cardTitleWidths.every((width) => width >= MIN_CARD_TITLE_PX), readabilityText);
   assert.equal(readability.turnTitleClipped, false, readabilityText);
+  assert.equal(new Set(readability.columnHeights).size, 1, readabilityText);
+  assert.ok(Math.max(...readability.headingHeights) - Math.min(...readability.headingHeights) <= 1, readabilityText);
+  assert.ok(readability.turnKeysChrome === null || readability.turnKeysChrome === '0px 0px 0px', readabilityText);
 }
 
 async function verifyCloseBarStaysVisible(page: Page): Promise<void> {
