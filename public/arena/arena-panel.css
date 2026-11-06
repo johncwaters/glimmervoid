@@ -79,6 +79,19 @@
   color: var(--text-muted);
 }
 
+.arena-contestant-check {
+  font-size: var(--type-meta);
+  color: var(--text-muted);
+}
+
+.arena-contestant-check-passed {
+  color: var(--state-complete);
+}
+
+.arena-contestant-check-failed {
+  color: var(--state-failed);
+}
+
 .arena-new-head,
 .arena-actions,
 .arena-setup,

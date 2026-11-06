@@ -5,11 +5,10 @@ import type { DiffStats } from '../../shared/contracts/race.ts';
 import { runGit } from '../git/git-exec.ts';
 import { withScratchIndex } from '../git/scratch-index.ts';
 import type { ScratchIndexEnv } from '../git/scratch-index.ts';
-import { parseShortstat } from './core/race-core.ts';
+import { AGENT_CONFIG_FOLDERS, parseShortstat } from './core/race-core.ts';
 
 const DIFF_TIMEOUT_MS = 60_000;
 const DIFF_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
-const AGENT_CONFIG_FOLDERS = ['.claude', '.codex', '.kimi', '.gemini', '.qwen', '.grok', '.github/copilot'];
 const WITHOUT_AGENT_CONFIG_PATHSPEC = ['--', '.', ...AGENT_CONFIG_FOLDERS.map((folder) => `:(exclude,glob)**/${folder}/**`)];
 
 type ContestantDiff = { ok: true; diff: string; stats: DiffStats; blindDiff: string; blindStats: DiffStats } | { ok: false; reason: string };

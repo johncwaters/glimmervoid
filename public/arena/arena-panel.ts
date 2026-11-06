@@ -1,6 +1,6 @@
 import { AgentModelCatalog } from '#shared/contracts/agent-models.ts';
 import type { AgentSetup } from '#shared/contracts/agent-models.ts';
-import type { RaceContestant, RaceRecord } from '#shared/contracts/race.ts';
+import type { CheckOutcome, RaceCheck, RaceContestant, RaceRecord } from '#shared/contracts/race.ts';
 import { RACE_JUDGE_AGENT, RACE_MAX_CONTESTANTS, RaceSpec } from '#shared/contracts/race.ts';
 import { REMOVED_CONTESTANT, raceProgress } from '#shared/race-core.ts';
 import { BADGE_LABELS } from '#shared/states.ts';
@@ -28,14 +28,19 @@ interface RaceDraft {
   repoPath: string;
   contestants: RaceContestant[];
   judgeSetup: AgentSetup | null;
+  check: RaceCheck | null;
+  checkTimeoutSeconds: number;
 }
+
+const DEFAULT_CHECK_TIMEOUT_SECONDS = 600;
 
 let root: HTMLElement | null = null;
 let racesEl: HTMLElement | null = null;
 let catalog: AgentModelCatalog = { agents: [] };
-let draft: RaceDraft = { raceTitle: '', prompt: '', repoPath: '', contestants: [], judgeSetup: null };
+let draft: RaceDraft = { raceTitle: '', prompt: '', repoPath: '', contestants: [], judgeSetup: null, check: null, checkTimeoutSeconds: DEFAULT_CHECK_TIMEOUT_SECONDS };
 let isEditingAsFile = false;
 const shownDiffByKey = new Map<string, string>();
+const shownCheckOutputKeys = new Set<string>();
 const judgeStatusByRace = new Map<string, string>();
 
 function stateLabel(state: string): string {
@@ -69,6 +74,17 @@ function requestDiff(race: RaceRecord, contestant: RaceContestant): void {
     .finally(renderRaces);
 }
 
+function checkText(check: CheckOutcome): string {
+  if (check.status === 'passed') return 'Check passed';
+  if (check.status === 'failed') return `Check failed, ${check.exitCode === null ? check.reason : `exit ${check.exitCode}`}`;
+  return `Check could not run: ${check.reason}`;
+}
+
+function toggleCheckOutput(key: string): void {
+  if (!shownCheckOutputKeys.delete(key)) shownCheckOutputKeys.add(key);
+  renderRaces();
+}
+
 function buildContestantLine(race: RaceRecord, contestant: RaceContestant): HTMLElement {
   const line = el('li', 'arena-contestant');
   const sessionId = race.sessionIdByContestant[contestant.id];
@@ -80,6 +96,8 @@ function buildContestantLine(race: RaceRecord, contestant: RaceContestant): HTML
   head.append(el('span', 'arena-contestant-label', contestant.label));
   head.append(el('span', 'arena-contestant-state', state === REMOVED_CONTESTANT ? 'Removed' : stateLabel(state)));
   if (stats) head.append(el('span', 'arena-contestant-stats', `+${stats.linesAdded} -${stats.linesRemoved}, ${stats.filesChanged} files`));
+  const check = race.checkByContestant[contestant.id];
+  if (check) head.append(el('span', `arena-contestant-check arena-contestant-check-${check.status}`, checkText(check)));
   if (race.winnerContestantId === contestant.id) head.append(el('span', 'arena-contestant-winner', 'Winner'));
   if (sessionId && state !== REMOVED_CONTESTANT) {
     head.append(button({ variant: 'quiet', size: 'small', label: 'Open', onClick: () => openRaceSession(sessionId) }));
@@ -89,8 +107,14 @@ function buildContestantLine(race: RaceRecord, contestant: RaceContestant): HTML
     diffButton.setAttribute('aria-expanded', String(shownDiffByKey.has(diffKey(race.id, contestant.id))));
     head.append(diffButton);
   }
+  if (check?.outputTail) {
+    const outputButton = button({ variant: 'quiet', size: 'small', label: 'Show check output', onClick: () => toggleCheckOutput(diffKey(race.id, contestant.id)) });
+    outputButton.setAttribute('aria-expanded', String(shownCheckOutputKeys.has(diffKey(race.id, contestant.id))));
+    head.append(outputButton);
+  }
   line.append(head);
   if (ranking) line.append(el('p', 'arena-contestant-reason', ranking.reason));
+  if (check && shownCheckOutputKeys.has(diffKey(race.id, contestant.id))) line.append(el('pre', 'arena-diff', check.outputTail));
   const shownDiff = shownDiffByKey.get(diffKey(race.id, contestant.id));
   if (shownDiff !== undefined) line.append(el('pre', 'arena-diff', shownDiff));
   return line;
@@ -216,7 +240,34 @@ function draftSpec(): Record<string, unknown> {
     repoPath: draft.repoPath,
     contestants: draft.contestants,
     judge: draft.judgeSetup ? { setup: draft.judgeSetup } : null,
+    check: draft.check,
   };
+}
+
+function parseCheckCommand(text: string): RaceCheck | null {
+  const [program, ...args] = text.trim().split(/\s+/).filter(Boolean);
+  if (!program) return null;
+  return { program, args, timeoutSeconds: draft.checkTimeoutSeconds };
+}
+
+function buildCheckField(): HTMLElement {
+  const field = el('div', 'arena-check');
+  const command = textField('Check command, run in each checkout once it finishes', draft.check ? [draft.check.program, ...draft.check.args].join(' ') : '', (value) => { draft.check = parseCheckCommand(value); });
+  command.querySelector('input')?.setAttribute('placeholder', 'npm test');
+  const timeout = el('label', 'arena-field');
+  timeout.append(el('span', 'arena-field-label', 'Check time limit in seconds'));
+  const timeoutInput = el('input', 'settings-view-input');
+  timeoutInput.type = 'number';
+  timeoutInput.min = '5';
+  timeoutInput.max = '3600';
+  timeoutInput.value = String(draft.checkTimeoutSeconds);
+  timeoutInput.addEventListener('input', () => {
+    draft.checkTimeoutSeconds = Number(timeoutInput.value) || DEFAULT_CHECK_TIMEOUT_SECONDS;
+    if (draft.check) draft.check = { ...draft.check, timeoutSeconds: draft.checkTimeoutSeconds };
+  });
+  timeout.append(timeoutInput);
+  field.append(command, timeout);
+  return field;
 }
 
 function textField(label: string, value: string, onInput: (value: string) => void, isMultiline = false): HTMLElement {
@@ -307,7 +358,7 @@ function readDraftFromFile(text: string): string | null {
   const parsed = RaceSpec.safeParse(parseJsonText(text));
   if (!parsed.success) return `The race file is not valid: ${parsed.error.issues.map((issue) => `${issue.path.join('.') || 'file'}: ${issue.message}`).join('; ')}`;
   const spec = parsed.data;
-  draft = { raceTitle: spec.title, prompt: spec.prompt, repoPath: spec.repoPath, contestants: spec.contestants, judgeSetup: spec.judge?.setup ?? null };
+  draft = { raceTitle: spec.title, prompt: spec.prompt, repoPath: spec.repoPath, contestants: spec.contestants, judgeSetup: spec.judge?.setup ?? null, check: spec.check, checkTimeoutSeconds: spec.check?.timeoutSeconds ?? DEFAULT_CHECK_TIMEOUT_SECONDS };
   return null;
 }
 
@@ -339,6 +390,7 @@ function buildNewRace(): HTMLElement {
     repoInput?.setAttribute('list', knownPaths.id);
     body.append(repoField, knownPaths);
     body.append(textField('Prompt', draft.prompt, (value) => { draft.prompt = value; }, true));
+    body.append(buildCheckField());
     body.append(buildVaryBuilder(paint));
     body.append(buildLineupEditor(paint));
     const addButton = button({ variant: 'quiet', size: 'small', label: 'Add contestant', disabled: draft.contestants.length >= RACE_MAX_CONTESTANTS, onClick: () => {

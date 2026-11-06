@@ -403,7 +403,7 @@ test('an action reporting refused is never taken as done, and a failed rule run 
   assert.ok(item);
   const action = { id: 'fmt', label: 'fmt', command: ['fmt'], timeoutSeconds: 30 };
   for (const stdout of [JSON.stringify({ outcome: 'refused', message: 'x'.repeat(201) }), JSON.stringify({ outcome: 'refused', detail: 1 }), `working\n${JSON.stringify({ outcome: 'refused' })}`]) {
-    const external = createPrFlowsExternal({ homeDir: os.tmpdir(), runCommand: async () => ({ ok: true, stdout, stderr: '' }) });
+    const external = createPrFlowsExternal({ homeDir: os.tmpdir(), runCommand: async () => ({ ok: true, stdout, stderr: '', exitCode: 0, failureCode: null, signal: null, wasKilled: false }) });
     assert.equal((await external.runAction(action, pr, item)).outcome, 'refused');
   }
 
@@ -860,7 +860,7 @@ test('an agent reads each PR flows setting with its JSON Schema and a valid exam
     const env = { ...process.env, GLIMMERVOID_HOME: homeDir, GLIMMERVOID_CONFIG: path.join(homeDir, 'config.json') };
     const exitCode = await runPrFlowsCheck({
       prUrl: 'https://github.com/acme/app/pull/7', isJson: true, homeDir, env, readConfig: () => readConfigFile(env, homeDir),
-      runCommand: async (command, args, options) => (command === 'gh' ? { ok: true, stdout: `${head}\n`, stderr: '' } : runCommandSafely(command, args, options)),
+      runCommand: async (command, args, options) => (command === 'gh' ? { ok: true, stdout: `${head}\n`, stderr: '', exitCode: 0, failureCode: null, signal: null, wasKilled: false } : runCommandSafely(command, args, options)),
     }, { writeOutput: (text) => { output += text; }, writeError: (text) => { output += text; } });
     assert.equal(exitCode, 1);
     const report = z.looseObject({

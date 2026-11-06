@@ -17,6 +17,13 @@ export const RaceContestant = z.strictObject({
 });
 export type RaceContestant = z.infer<typeof RaceContestant>;
 
+export const RaceCheck = z.strictObject({
+  program: z.string().trim().min(1).max(200),
+  args: z.array(z.string().max(2000)).max(40).default([]),
+  timeoutSeconds: z.number().int().min(5).max(3600).default(600),
+});
+export type RaceCheck = z.infer<typeof RaceCheck>;
+
 export const RaceSpec = z.strictObject({
   version: z.literal(1),
   title: z.string().trim().min(1).max(120),
@@ -24,6 +31,7 @@ export const RaceSpec = z.strictObject({
   repoPath: z.string().trim().min(1),
   contestants: z.array(RaceContestant).min(RACE_MIN_CONTESTANTS).max(RACE_MAX_CONTESTANTS),
   judge: z.strictObject({ setup: AgentSetup }).nullable(),
+  check: RaceCheck.nullable().default(null),
 }).refine((spec) => new Set(spec.contestants.map((contestant) => contestant.id)).size === spec.contestants.length, {
   error: 'contestant ids must be unique',
   path: ['contestants'],
@@ -38,6 +46,15 @@ export const DiffStats = z.strictObject({
   linesRemoved: z.number().int().min(0),
 });
 export type DiffStats = z.infer<typeof DiffStats>;
+
+export const CheckOutcome = z.strictObject({
+  status: z.enum(['passed', 'failed', 'unavailable']),
+  exitCode: z.number().int().nullable(),
+  reason: z.string().max(400).nullable(),
+  durationMs: z.number().int().min(0),
+  outputTail: z.string().max(4000),
+});
+export type CheckOutcome = z.infer<typeof CheckOutcome>;
 
 export const JudgeResult = z.strictObject({
   ranking: z.array(z.strictObject({
@@ -58,6 +75,7 @@ export const RaceRecord = z.strictObject({
   sessionIdByContestant: z.record(RaceId, z.string().min(1)),
   phase: z.enum(RACE_PHASES).default('running'),
   diffStatsByContestant: z.record(RaceId, DiffStats).default({}),
+  checkByContestant: z.record(RaceId, CheckOutcome).default({}),
   judge: JudgeResult.nullable().default(null),
   judgeError: z.string().nullable().default(null),
   winnerContestantId: RaceId.nullable().default(null),
