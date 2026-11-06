@@ -577,7 +577,7 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   assert.equal(await agentIsland.isVisible(), false, 'the session island stays hidden while the session has read every change');
   const centeredSessionName = await card.getAttribute('data-session');
   assert.ok(centeredSessionName);
-  assert.equal(await panel.locator('.wb-presence-pill', { hasText: centeredSessionName }).count(), 0, 'the strip does not repeat the centered session as a presence pill');
+  assert.equal(await panel.locator('.wb-presence-pill:not(.wb-presence-count)', { hasText: centeredSessionName }).count(), 0, 'the strip does not repeat the centered session as a presence pill');
   await addPlanStep(panel);
   await submitTextDialog(page, 'Unit title', 'Uncovered change', 'Add unit');
   const unitOnBoard = panel.locator('.wb-unit', { hasText: 'Uncovered change' });
