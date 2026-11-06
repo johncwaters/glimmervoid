@@ -52,3 +52,30 @@ export const ManagerLaneResult = z.union([
   z.strictObject({ escalate: z.string().min(1) }),
 ]);
 export type ManagerAnswer = Extract<ManagerVerdict, { kind: 'answer' }>;
+
+export const MANAGER_DECISION_EVENT = 'manager-decision';
+export const MANAGER_DECISION_AUDIT_KIND = 'question-manager';
+
+const ManagerDecisionBase = {
+  kind: z.literal(MANAGER_DECISION_AUDIT_KIND),
+  seq: z.number().int().min(1),
+  ts: z.number(),
+};
+
+export const ManagerDecision = z.discriminatedUnion('outcome', [
+  z.object({
+    ...ManagerDecisionBase,
+    outcome: z.literal('answered'),
+    by: z.enum(['rule', 'manager']),
+    rule: z.string().min(1),
+    answers: z.record(z.string(), z.string()),
+  }),
+  z.object({
+    ...ManagerDecisionBase,
+    outcome: z.literal('escalated'),
+    questions: z.array(z.string()),
+    reason: z.string().min(1),
+  }),
+]);
+
+export type ManagerDecision = z.infer<typeof ManagerDecision>;

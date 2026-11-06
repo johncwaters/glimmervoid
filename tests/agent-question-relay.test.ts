@@ -173,7 +173,7 @@ test('the question manager answers a question its rules cover and leaves risky o
   const askPayload = (question: string) => ({ tool_name: 'AskUserQuestion', tool_input: { questions: [{ question, options: [{ label: 'sqlite' }, { label: 'postgres' }] }] } });
   const questionStatus = (question: string) => ({ signal: 'awaiting-input', source: 'hook' as const, ts: Date.now(), promptKind: 'permission', promptToolName: 'AskUserQuestion', event: 'PermissionRequest', payload: askPayload(question) });
   const answeredEvents: unknown[] = [];
-  session.on('question-answered', (detail) => answeredEvents.push(detail));
+  session.on('manager-decision', (detail) => answeredEvents.push(detail));
   try {
     session.transition('user_start');
     session.transition('spawn_success', { spawnCwdExists: true });
