@@ -717,6 +717,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     },
     jobInbox: {
       decision: jobInbox.decision,
+      startWatcher: jobInbox.startWatcher,
       attach(inboxHttpServer: Server) {
         jobInbox.attach(inboxHttpServer);
         lifecycleServers.push(inboxHttpServer);

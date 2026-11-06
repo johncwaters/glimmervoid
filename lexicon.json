@@ -228,6 +228,10 @@
     {
       "name": "job inbox",
       "definition": "The bearer-token listener inside a Glimmervoid server that accepts watcher jobs, parses each against its registered kind and acks it once"
+    },
+    {
+      "name": "server",
+      "definition": "The Glimmervoid Node.js background process on the operator's machine that supervises sessions, serves the dashboard and hosts the job inbox"
     }
   ]
 }

@@ -158,6 +158,12 @@ export const MACHINE_SERVER: SettingsSection = {
       control: 'readonly', keywords: ['power', 'restart', 'shutdown', 'stop', 'quit', 'reboot', 'server'],
       status: 'server-power', ...READOUT,
     },
+    {
+      id: 'watcher-auto-start', path: 'watcher.autoStart', title: 'Start the watcher with the server',
+      description: 'Runs the watcher beside this server and delivers its jobs to this server. Turn off when the watcher runs on another machine.',
+      control: 'toggle', keywords: ['watcher', 'cloud', 'job inbox', 'background'], defaultValue: true,
+      scope: 'machine', access: 'editable', takesEffect: 'restart',
+    },
   ],
 };
 

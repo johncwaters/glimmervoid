@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -17,7 +17,7 @@ import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 const WATCHER_TOKEN = 'a-watcher-token-only-this-test-knows';
 const CLI_PATH = path.join(import.meta.dirname, '..', 'bin', 'glimmervoid.ts');
 const runFile = promisify(execFile);
-const QUIET_LOG = { warn: () => {} };
+const QUIET_LOG = { log: () => {}, warn: () => {} };
 
 function pingJob(jobId: string = crypto.randomUUID()) {
   return { version: 1, jobId, sentAt: new Date().toISOString(), kind: 'ping', payload: {} };
@@ -146,5 +146,56 @@ test('glimmervoid watch --ping retries an inbox that drops the connection mid-re
     assert.equal(deliveryAttempts, 3);
   } finally {
     await closeServer(droppingInbox);
+  }
+});
+
+test('an auto-started watcher pings the inbox, is restarted after it dies, and stops when the inbox closes', async () => {
+  const pingWaiters: (() => void)[] = [];
+  const nextPing = () => new Promise<void>((resolve) => { pingWaiters.push(resolve); });
+  const supervisorLines: string[] = [];
+  const inbox = createJobInbox({
+    watcherConfig: {},
+    handlers: { ping: async () => { pingWaiters.shift()?.(); } },
+    log: { log: (line: string) => supervisorLines.push(line), warn: (line: string) => supervisorLines.push(line) },
+  });
+  const server = http.createServer();
+  inbox.attach(server);
+  const port = await listenOnLoopback(server);
+  try {
+    const firstPing = nextPing();
+    inbox.startWatcher(port);
+    await firstPing;
+    const firstPid = Number(/pid (\d+)/.exec(supervisorLines.join('\n'))?.[1]);
+    const restartedPing = nextPing();
+    process.kill(firstPid, 'SIGKILL');
+    await restartedPing;
+    assert.ok(supervisorLines.some((line) => /child exited \(SIGKILL\), restarting in 1s/.test(line)), supervisorLines.join('\n'));
+  } finally {
+    await closeServer(server);
+  }
+  const lastPid = Number([...supervisorLines.join('\n').matchAll(/pid (\d+)/g)].at(-1)?.[1]);
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  assert.throws(() => process.kill(lastPid, 0));
+});
+
+test('a supervised watcher whose server goes away mid-ping exits instead of idling forever', async () => {
+  const silentInbox = http.createServer(() => {});
+  const port = await listenOnLoopback(silentInbox);
+  const watcherChild = spawn(process.execPath, [CLI_PATH, 'watch', '--inbox', `http://127.0.0.1:${port}`], {
+    stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+    env: { ...process.env, GLIMMERVOID_WATCHER_TOKEN: WATCHER_TOKEN },
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    watcherChild.disconnect();
+    const exitCode = await Promise.race([
+      new Promise((resolve) => { watcherChild.once('exit', resolve); }),
+      new Promise((resolve) => setTimeout(() => resolve('still running'), 3000)),
+    ]);
+    assert.equal(exitCode, 0);
+  } finally {
+    watcherChild.kill('SIGKILL');
+    silentInbox.closeAllConnections();
+    await closeServer(silentInbox);
   }
 });

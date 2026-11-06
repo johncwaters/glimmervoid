@@ -26,6 +26,7 @@ export const REVIEWS_TURN_LIMIT_DEFAULT = 5;
 export const REPLAY_BUFFER_KB_RANGE = Object.freeze({ min: 64, max: 16384 });
 export const MEMORY_RESERVE_MB_RANGE = Object.freeze({ min: 0, max: 65536 });
 export const PORT_RANGE = Object.freeze({ min: 0, max: 65535 });
+export const FIXED_PORT_RANGE = Object.freeze({ min: 1, max: PORT_RANGE.max });
 export const TASK_TITLE_TIMEOUT_RANGE = Object.freeze({ min: 0, exclusiveMin: true, max: 2_147_483_647 / 1000 });
 
 

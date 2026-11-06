@@ -4,7 +4,7 @@ import { TaskTitle } from './session.ts';
 import { SessionPrLinks } from './my-prs.ts';
 import { BranchGcControlSettings, GithubSettings,
   createBrowserConfig, optionalBoolean, optionalLooseObject,
-  PlanReviewSettings, TelemetryFileSettings, TraceSettings,
+  PlanReviewSettings, TelemetryFileSettings, TraceSettings, WatcherFileSettings,
 } from './browser-config.ts';
 import { WorkflowsSettingsUpdate } from './workflows.ts';
 import { AgentSetup } from './agent-models.ts';
@@ -210,12 +210,7 @@ export const Config = z.object({
     ownerLogin: z.string().optional(),
   }).passthrough().optional(),
   hosts: HostEntries.optional(),
-  watcher: z.object({
-    autoStart: optionalBoolean('watcher.autoStart'),
-    inboxHost: z.string().optional(),
-    inboxPort: z.number().int().min(1).max(65535).nullable().optional(),
-    token: z.string().optional(),
-  }).passthrough().optional(),
+  watcher: WatcherFileSettings,
   projects: z.array(ProjectConfig),
 }).passthrough().superRefine((config, ctx) => {
   if (!Array.isArray(config.projects)) return;
@@ -245,7 +240,7 @@ export const Config = z.object({
 
 export const CONFIG_BLOCK_KEYS = Object.freeze([
   'taskTitle', 'branchGc', 'github', 'lanes', 'teamReview', 'benchmarks', 'coherence', 'issues', 'community', 'questionManager', 'posthog', 'usage', 'telegram',
-  'telemetry', 'workflows', 'coder',
+  'telemetry', 'watcher', 'workflows', 'coder',
 ]);
 export const CONFIG_SCALAR_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE).filter((key) => {
   if (CONFIG_BLOCK_KEYS.includes(key)) return false;
@@ -268,7 +263,6 @@ export const HIDDEN_CONFIG_KEYS = Object.freeze([
   'shareCommitProvenance',
   'hooks',
   'remote',
-  'watcher',
   'projects',
 ]);
 

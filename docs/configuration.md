@@ -63,6 +63,14 @@ Which version is running, and updating to the newest.
 | `updateChannel` | Channel | `"release"` | Stable releases, or Experimental builds from every change to main. |
 | `checkForUpdates` | Check for updates automatically | `true` | Check for a newer version at launch and while the dashboard is open. |
 
+### Server
+
+Restart or shut down the Glimmervoid server.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `watcher.autoStart` | Start the watcher with the server | `true` | Runs the watcher beside this server and delivers its jobs to this server. Turn off when the watcher runs on another machine. Needs a server restart. |
+
 ### Usage
 
 Token accounting and estimated-cost budgets.
@@ -246,6 +254,8 @@ Config-file-only detection, timing, worktree and process settings.
 | `integrationBranch` | Integration branch | `null` | Base branch for session worktrees. Empty = each repo's default branch. Existing sessions are never retargeted. Applies to new sessions. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
 | `worktreeRoot` | Worktree root | `""` | Directory that contains session worktrees. Existing worktrees are never relocated. Applies to new sessions. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
 | `worktreeShare` | Shared worktree paths | `[".env*",".claude"]` | Local paths copied or linked during worktree preparation. A * matches names at the project root, never one containing production; name such a file in full to share it. Applies to new sessions. **File-only.** Never editable from the dashboard by rule; edit it in config.json. |
+| `watcher.inboxHost` | Job inbox address | `"127.0.0.1"` | Address the job inbox listens on for watcher jobs. Any address other than this machine needs GLIMMERVOID_WATCHER_TOKEN. Needs a server restart. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
+| `watcher.inboxPort` | Job inbox port | `null` | Port the job inbox listens on; empty picks any free port. Required with GLIMMERVOID_WATCHER_TOKEN. Needs a server restart. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
 | `port` | Local port | `3000` | Port used by the local dashboard listener. Needs a server restart. **File-only.** Never editable from the dashboard by rule; edit it in config.json. |
 | `notifyDebounceMs` | Notification grouping window | `3000` | Alerts from any session within this long of the first one fold into one sound, one desktop notification and one Telegram message. Applies to new sessions. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `phoneEscalationMs` | Phone escalation delay | `300000` | Delay before off-dashboard escalation. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
@@ -273,7 +283,6 @@ Edit these in `config.json` unless the note names another dashboard surface.
 | `hooks` |  | Operator-defined hooks per project, managed from the dashboard Hooks panel. |
 | `remote` | `{"enabled":false,"port":null,"publicHost":"","allowedOrigins":[]}` | Opt-in remote listener: `enabled`, `port` (required when enabled, must differ from the local port), `publicHost`, `allowedOrigins` and `ownerLogin` (when set, only that Tailscale login is answered; trustworthy only when the remote port is reached solely through HTTP-mode `tailscale serve`, since any other proxy, or `tailscale serve --tcp` or `--tls-terminated-tcp`, lets a client send its own `Tailscale-User-Login`). Needs a server restart. See [Remote access](../README.md#remote-access). |
 | `hosts` |  | Other machines running Glimmervoid that this dashboard links over ssh and shows in the sidebar. Each entry has `id` (lowercase letters, digits and dashes), `name`, `sshTarget` (an ssh host or `~/.ssh/config` alias, never starting with a dash) and `dashboardPort` (that machine's loopback dashboard port). The tunnel runs `ssh` with `BatchMode=yes` and `StrictHostKeyChecking=yes`, so the host key must already be known. A host on a different Glimmervoid version is refused. Managed from Settings, Hosts, or with `glimmervoid host add`, `list` and `remove`; a running Glimmervoid applies a change without a restart. |
-| `watcher` |  | The job inbox a watcher delivers jobs to: `inboxHost` (default `127.0.0.1`; a non-loopback host needs `GLIMMERVOID_WATCHER_TOKEN`), `inboxPort` (required with that token; otherwise any free port) and `autoStart` (default on). Needs a server restart. |
 | `projects` | `[]` | Projects shown in the dashboard, added from the Add Session dialog. Each entry has `path` (required), optional `name`, `repos` (two or more member repositories for a workspace session), `baseBranch` (the branch sessions of this project start from and merge back into, set by Open in session on a team review pull request), `agent` (an agent id, see `customAgents`) and `codexBypassHookTrust` (file-only, default off). |
 
 ## Environment variables
@@ -291,7 +300,7 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 | `GLIMMERVOID_POSTHOG_API_KEY` | operator | Supplies `posthog.apiKey`, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
 | `GLIMMERVOID_TELEGRAM_BOT_TOKEN` | operator | Supplies `telegram.botToken`, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
 | `GLIMMERVOID_GITHUB_READ_TOKEN` | operator | Supplies `github.readToken`, the read-only GitHub token lanes use for gh, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
-| `GLIMMERVOID_WATCHER_TOKEN` | operator | Supplies `watcher.token`, the bearer token a watcher on another machine sends to this server's job inbox. Required for a non-loopback `watcher.inboxHost`. Stripped from every write and from every agent session's environment. |
+| `GLIMMERVOID_WATCHER_TOKEN` | operator | Supplies `watcher.token`, the bearer token a watcher on another machine sends to this server's job inbox. Required for a non-loopback `watcher.inboxHost`, together with a fixed `watcher.inboxPort`. Stripped from every write and from every agent session's environment. |
 | `GLIMMERVOID_CLAUDE_OAUTH_TOKEN` | operator | A long-lived Claude Code token (`claude setup-token`) that benchmark arms authenticate with instead of the login token Glimmervoid reads from the keychain or `~/.claude/.credentials.json`. Passed only to benchmark sessions, never stored. |
 | `GLIMMERVOID_TELEMETRY` | operator | Set to `0` to turn off usage and error telemetry (error type, error code and scrubbed stack frames, never messages or paths) whatever `telemetry.enabled` says. `DO_NOT_TRACK=1` and `CI=true` turn it off too. |
 | `GLIMMERVOID_TELEMETRY_PROJECT_TOKEN` | internal | Sends telemetry to another PostHog project instead of the Glimmervoid one, so end-to-end checks of a development build stay out of real usage data. Not an operator setting. |

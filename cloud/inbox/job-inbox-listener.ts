@@ -116,3 +116,4 @@ function createJobInboxRequestHandler({ token, handlers = BUILT_IN_JOB_HANDLERS,
 }
 
 export { createJobInboxRequestHandler };
+export type { WatcherJobHandlers };

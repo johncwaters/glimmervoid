@@ -144,7 +144,9 @@ function listenForWatcherJobs(): void {
     console.warn(`[job-inbox] listener on ${decision.host}:${decision.port} failed, the job inbox is off: ${err.message}`);
   });
   inboxServer.listen(decision.port, decision.host, () => {
-    console.log(`[job-inbox] listening on ${decision.host}:${listeningPort(inboxServer, decision.port)}`);
+    const boundInboxPort = listeningPort(inboxServer, decision.port);
+    console.log(`[job-inbox] listening on ${decision.host}:${boundInboxPort}`);
+    backend.jobInbox.startWatcher(boundInboxPort);
   });
 }
 

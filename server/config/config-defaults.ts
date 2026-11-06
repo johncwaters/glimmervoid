@@ -44,6 +44,11 @@ const DEFAULT_CONFIG = {
   telemetry: {
     enabled: true,
   },
+  watcher: {
+    autoStart: true,
+    inboxHost: '127.0.0.1',
+    inboxPort: null,
+  },
 
   checkForUpdates: true,
   updateChannel: 'release' as const,

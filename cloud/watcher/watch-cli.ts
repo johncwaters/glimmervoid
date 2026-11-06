@@ -6,7 +6,15 @@ const WATCHER_TOKEN_ENV = 'GLIMMERVOID_WATCHER_TOKEN';
 const PING_DELIVERY_ATTEMPTS = 3;
 const IDLE_KEEP_ALIVE_MS = 2 ** 30;
 
-function untilStopSignal(): Promise<void> {
+const PARENT_LEFT = Symbol('parent left');
+
+function whenSupervisorLeaves(): Promise<typeof PARENT_LEFT> | null {
+  if (process.send === undefined) return null;
+  if (!process.connected) return Promise.resolve(PARENT_LEFT);
+  return new Promise((resolve) => { process.once('disconnect', () => resolve(PARENT_LEFT)); });
+}
+
+function untilStopSignal(supervisorLeft: Promise<typeof PARENT_LEFT> | null): Promise<void> {
   return new Promise((resolve) => {
     const keepAlive = setInterval(() => {}, IDLE_KEEP_ALIVE_MS);
     const stop = () => {
@@ -15,6 +23,7 @@ function untilStopSignal(): Promise<void> {
     };
     process.once('SIGTERM', stop);
     process.once('SIGINT', stop);
+    void supervisorLeft?.then(stop);
   });
 }
 
@@ -29,15 +38,18 @@ async function runWatchCli({ inboxUrl, isPingOnly }: { inboxUrl: string | null; 
     console.error(`watch: ${inbox.reason}`);
     return 1;
   }
+  const supervisorLeft = whenSupervisorLeaves();
   const startedAtMs = Date.now();
-  const delivery = await sendJob({ jobsUrl: inbox.jobsUrl, token, job: createPingJob(crypto.randomUUID(), new Date()), maxAttempts: PING_DELIVERY_ATTEMPTS });
+  const pingDelivery = sendJob({ jobsUrl: inbox.jobsUrl, token, job: createPingJob(crypto.randomUUID(), new Date()), maxAttempts: PING_DELIVERY_ATTEMPTS });
+  const delivery = await Promise.race(supervisorLeft === null ? [pingDelivery] : [pingDelivery, supervisorLeft]);
+  if (delivery === PARENT_LEFT) return 0;
   if (!delivery.ok) {
     console.error(`watch: ${delivery.reason}`);
     if (isPingOnly) return 1;
   }
   if (delivery.ok) console.log(`ping acked by ${inbox.jobsUrl} in ${Date.now() - startedAtMs} ms`);
   if (isPingOnly) return 0;
-  await untilStopSignal();
+  await untilStopSignal(supervisorLeft);
   return 0;
 }
 

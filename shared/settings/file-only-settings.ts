@@ -4,6 +4,7 @@ import { QuestionRule } from '../contracts/question-manager.ts';
 
 import {
   NON_NEGATIVE_NUMBER_RANGE,
+  FIXED_PORT_RANGE,
   PORT_RANGE,
   POSITIVE_NUMBER_RANGE,
   POSTHOG_FIX_TIMEOUT_RANGE,
@@ -104,6 +105,16 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     id: 'file-worktree-share', path: 'worktreeShare', title: 'Shared worktree paths', group: 'machine-detection-sessions',
     description: 'Local paths copied or linked during worktree preparation. A * matches names at the project root, never one containing production; name such a file in full to share it.',
     control: 'list', keywords: ['files', 'context', 'env'], defaultValue: ['.env*', '.claude'], takesEffect: 'new-sessions', fileOnlyReason: BY_RULE, ...FILE_ONLY,
+  },
+  {
+    id: 'file-watcher-inbox-host', path: 'watcher.inboxHost', title: 'Job inbox address', group: 'machine-detection-sessions',
+    description: 'Address the job inbox listens on for watcher jobs. Any address other than this machine needs GLIMMERVOID_WATCHER_TOKEN.',
+    control: 'text', keywords: ['watcher', 'cloud', 'listener'], defaultValue: '127.0.0.1', takesEffect: 'restart', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
+  },
+  {
+    id: 'file-watcher-inbox-port', path: 'watcher.inboxPort', title: 'Job inbox port', group: 'machine-detection-sessions',
+    description: 'Port the job inbox listens on; empty picks any free port. Required with GLIMMERVOID_WATCHER_TOKEN.',
+    control: 'number', nullable: true, range: FIXED_PORT_RANGE, unit: { label: 'port', storedPerDisplay: 1 }, keywords: ['watcher', 'cloud', 'listener'], defaultValue: null, takesEffect: 'restart', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
   },
   {
     id: 'file-port', path: 'port', title: 'Local port', group: 'machine-detection-sessions',
