@@ -2848,6 +2848,23 @@ html[data-layout="phone"] .trace-section-hint { flex-basis: 100%; font-size: var
 }
 .session-group-count { flex: none; color: var(--text-dim); font-size: var(--type-meta); font-variant-numeric: tabular-nums; }
 .session-group-rule { flex: 1; height: 1px; background: var(--border); }
+.rail-host-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 8px;
+  min-width: 0;
+  margin-top: 12px;
+  padding: 2px 8px;
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+}
+.rail-host-label { flex: none; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text); }
+.rail-host-state { min-width: 0; overflow-wrap: anywhere; color: var(--text-dim); }
+.rail-host-header[data-state="reconnecting"] .rail-host-state,
+.rail-host-header[data-state="connecting"] .rail-host-state { color: var(--state-initializing); }
+.rail-host-header[data-state="unreachable"] .rail-host-state,
+.rail-host-header[data-state="version-differs"] .rail-host-state { color: var(--state-failed); }
 @media (hover: hover) {
   .session-group-header:hover .session-group-label { color: var(--text); }
 }

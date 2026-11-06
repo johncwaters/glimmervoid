@@ -51,6 +51,7 @@ interface BackendShutdownDependencies {
   heartbeat: { stop: () => void };
   outcomes?: Stoppable | null;
   telemetry?: Stoppable | null;
+  hostLinks?: Stoppable | null;
   controlWss: { close: () => void };
   dataWss: { close: () => void };
 }
@@ -130,6 +131,7 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     if (outcomes) stoppers.add('outcomes', () => outcomes.stop());
     const telemetry = dependencies.telemetry;
     if (telemetry) stoppers.add('telemetry', () => telemetry.stop());
+    dependencies.hostLinks?.stop();
     dependencies.heartbeat.stop();
     dependencies.controlWss.close();
     dependencies.dataWss.close();

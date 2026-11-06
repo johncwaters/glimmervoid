@@ -2,12 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import type { Server } from 'node:http';
 import WebSocket from 'ws';
 
 import { createBackend } from '../server/backend/backend.ts';
+import { sshTunnelArgs } from '../server/hosts/core/host-link-core.ts';
+import type { SpawnHostTunnel } from '../server/hosts/host-links-wiring.ts';
+import { HostEntry } from '../shared/contracts/hosts.ts';
 import { loadPricing } from '../server/usage/usage-pricing.ts';
 import { createUsageScanner } from '../server/usage/usage-scanner.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
@@ -24,14 +28,18 @@ interface BootedHost {
 const bootedHosts: BootedHost[] = [];
 const openedSockets: WebSocket[] = [];
 
-async function bootHost(usageWiringOptions: Record<string, unknown> = {}): Promise<BootedHost> {
+async function bootHost({ usageWiringOptions = {}, hosts, spawnHostTunnel }: {
+  usageWiringOptions?: Record<string, unknown>;
+  hosts?: HostEntry[];
+  spawnHostTunnel?: SpawnHostTunnel;
+} = {}): Promise<BootedHost> {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-remote-hosts-'));
   const configPath = path.join(tmpDir, 'config.json');
-  fs.writeFileSync(configPath, JSON.stringify({ projects: [], teams: [], repoRoots: [] }), 'utf8');
+  fs.writeFileSync(configPath, JSON.stringify({ projects: [], teams: [], repoRoots: [], ...(hosts ? { hosts } : {}) }), 'utf8');
   const previousConfig = process.env.GLIMMERVOID_CONFIG;
   process.env.GLIMMERVOID_CONFIG = configPath;
   const server = http.createServer();
-  const backend = createBackend(server, { staticDir: path.join(import.meta.dirname, '..', 'public'), usageWiringOptions });
+  const backend = createBackend(server, { staticDir: path.join(import.meta.dirname, '..', 'public'), usageWiringOptions, spawnHostTunnel });
   server.on('request', backend.app);
   const port = await listenOnLoopback(server);
   if (previousConfig == null) delete process.env.GLIMMERVOID_CONFIG;
@@ -43,7 +51,7 @@ async function bootHost(usageWiringOptions: Record<string, unknown> = {}): Promi
 
 test.after(async () => {
   for (const socket of openedSockets) socket.terminate();
-  for (const host of bootedHosts) {
+  for (const host of bootedHosts.toReversed()) {
     await settleBackendShutdown(host.backend);
     host.server.closeAllConnections();
     await closeServer(host.server);
@@ -68,22 +76,57 @@ function openControlSocket(port: number, token: string, headers: Record<string, 
   });
 }
 
-async function waitForFrame(frames: Record<string, unknown>[], type: string): Promise<Record<string, unknown>> {
-  for (let attempt = 0; attempt < 100; attempt++) {
-    const frame = frames.find((candidate) => candidate.type === type);
+async function waitForFrame(frames: Record<string, unknown>[], type: string, isWanted: (frame: Record<string, unknown>) => boolean = () => true): Promise<Record<string, unknown>> {
+  for (let attempt = 0; attempt < 300; attempt++) {
+    const frame = frames.find((candidate) => candidate.type === type && isWanted(candidate));
     if (frame) return frame;
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  throw new Error(`no ${type} frame arrived`);
+  throw new Error(`no matching ${type} frame arrived`);
+}
+
+function createLoopbackTunnels(): { spawnHostTunnel: SpawnHostTunnel; dropAll(): void } {
+  const dropByTunnel = new Set<() => void>();
+  const spawnHostTunnel: SpawnHostTunnel = (host, localPort) => {
+    const pipedSockets = new Set<net.Socket>();
+    const listener = net.createServer((client) => {
+      const upstream = net.connect(host.dashboardPort, '127.0.0.1');
+      for (const socket of [client, upstream]) {
+        pipedSockets.add(socket);
+        socket.on('error', () => {});
+        socket.on('close', () => { client.destroy(); upstream.destroy(); });
+      }
+      client.pipe(upstream).pipe(client);
+    });
+    let reportExit: (reason: string) => void = () => {};
+    const exited = new Promise<string>((resolve) => { reportExit = resolve; });
+    const drop = (reason: string) => {
+      dropByTunnel.delete(dropTunnel);
+      listener.close();
+      for (const socket of pipedSockets) socket.destroy();
+      reportExit(reason);
+    };
+    const dropTunnel = () => drop('Connection to devbox closed by remote host.');
+    dropByTunnel.add(dropTunnel);
+    listener.listen(localPort, '127.0.0.1');
+    return { exited, stop: () => drop('stopped') };
+  };
+  return { spawnHostTunnel, dropAll: () => { for (const dropTunnel of [...dropByTunnel]) dropTunnel(); } };
+}
+
+function hostStateIs(state: string) {
+  return (frame: Record<string, unknown>) => (frame.hosts as Array<{ state: string }>).some((host) => host.state === state);
 }
 
 test('a control socket announcing the hub role is not counted as an open dashboard and wakes no lane', async () => {
   let usageScannersCreated = 0;
   const host = await bootHost({
-    loadPricingFn: (pricingArguments: Parameters<typeof loadPricing>[0]) => loadPricing({ ...pricingArguments, fetchEnabled: false }),
-    createScanner: (scannerDependencies: Parameters<typeof createUsageScanner>[0]) => {
-      usageScannersCreated += 1;
-      return createUsageScanner(scannerDependencies);
+    usageWiringOptions: {
+      loadPricingFn: (pricingArguments: Parameters<typeof loadPricing>[0]) => loadPricing({ ...pricingArguments, fetchEnabled: false }),
+      createScanner: (scannerDependencies: Parameters<typeof createUsageScanner>[0]) => {
+        usageScannersCreated += 1;
+        return createUsageScanner(scannerDependencies);
+      },
     },
   });
   const token = await pageTokenOf(host.port);
@@ -98,4 +141,33 @@ test('a control socket announcing the hub role is not counted as an open dashboa
   const snapshot = await waitForFrame(viewerSocket.frames, 'health-snapshot');
   const stats = snapshot.stats as { websockets: { control: number; hubControl: number } };
   assert.deepEqual({ control: stats.websockets.control, hubControl: stats.websockets.hubControl }, { control: 2, hubControl: 1 });
+});
+
+test('the ssh tunnel never prompts, never trusts an unknown key, and keeps the target out of option parsing', () => {
+  const host = HostEntry.parse({ id: 'devbox', name: 'Devbox', sshTarget: 'me@devbox', dashboardPort: 3000 });
+  const argv = sshTunnelArgs(host, 41000);
+  for (const option of ['BatchMode=yes', 'StrictHostKeyChecking=yes', 'ExitOnForwardFailure=yes']) assert.ok(argv.includes(option), option);
+  assert.deepEqual(argv.slice(-2), ['--', 'me@devbox']);
+  assert.equal(HostEntry.safeParse({ ...host, sshTarget: '-oProxyCommand=touch /tmp/pwned' }).success, false);
+});
+
+test('the hub links a registered host, reports it connected, and reconnects after the tunnel drops', async () => {
+  const devbox = await bootHost();
+  const tunnels = createLoopbackTunnels();
+  const hub = await bootHost({
+    hosts: [{ id: 'devbox', name: 'Devbox', sshTarget: 'devbox', dashboardPort: devbox.port }],
+    spawnHostTunnel: tunnels.spawnHostTunnel,
+  });
+  const viewer = await openControlSocket(hub.port, await pageTokenOf(hub.port));
+
+  const connected = await waitForFrame(viewer.frames, 'hosts-status', hostStateIs('connected'));
+  const [status] = connected.hosts as Array<{ id: string; hostVersion: string; hubVersion: string; lastError: string | null }>;
+  assert.equal(status.id, 'devbox');
+  assert.equal(status.hostVersion, status.hubVersion);
+
+  viewer.frames.length = 0;
+  tunnels.dropAll();
+  const reconnecting = await waitForFrame(viewer.frames, 'hosts-status', hostStateIs('reconnecting'));
+  assert.ok((reconnecting.hosts as Array<{ lastError: string | null }>)[0].lastError);
+  await waitForFrame(viewer.frames, 'hosts-status', hostStateIs('connected'));
 });

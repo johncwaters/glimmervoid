@@ -256,6 +256,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'hooks-updated', count: 1 },
   { type: 'feature-hint', hint: { feature: 'teamReview', distinctTargetCount: 3, raisedAt: 1761740000000 } },
   { type: 'star-hint' },
+  { type: 'hosts-status', hosts: [{ id: 'devbox', name: 'Devbox', state: 'version-differs', hostVersion: '0.51.0', hubVersion: '0.52.3-next.0', lastError: null }] },
   { type: 'packs-status', warnings: [], packs: [
     { name: 'ci-board', version: 3, description: null, dir: '/home/me/.glimmervoid/packs/ci-board', state: 'pending', fingerprint: 'f'.repeat(64), files: ['pack.json'], needs: ['program gh'], missingRequires: [], prFlows: null, themes: [{ id: 'night-shift', label: 'Night Shift', mode: 'dark' }], panels: [{ id: 'board', label: 'CI', reads: ['sessions'], acts: ['reviews'] }], errors: [] },
     { name: 'broken', version: null, description: null, dir: '/home/me/.glimmervoid/packs/broken', state: 'invalid', fingerprint: null, files: [], needs: [], missingRequires: [], prFlows: null, themes: [], panels: [], errors: ['there is no pack.json'] },

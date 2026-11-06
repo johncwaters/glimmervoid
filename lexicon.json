@@ -205,6 +205,10 @@
     {
       "name": "copilot cli",
       "definition": "GitHub's Copilot CLI, an agent CLI glimmervoid supervises through its copilot agent adapter, with hook status from a generated COPILOT_HOME"
+    },
+    {
+      "name": "host",
+      "definition": "A machine running Glimmervoid; a registered host is another such machine, listed under hosts in config, that this dashboard links over an ssh tunnel and shows in the sidebar with its sessions"
     }
   ]
 }

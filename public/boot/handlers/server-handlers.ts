@@ -15,6 +15,8 @@ import type { DashboardHandlerTable } from '../core/message-dispatch-core.ts';
 import { applyDashboardSettings } from '../dashboard-settings.ts';
 import { applyClientTrust } from '../../server-power.ts';
 import { handleSnapshot, noteServerBuild } from '../session-frames.ts';
+import { refreshFocusRoster } from '../../focus-view/focus-view.ts';
+import { applyHostsStatus } from '../../hosts/host-status.ts';
 
 const messageHandlers = {
   'snapshot':           (msg) => { noteServerBuild(msg.serverBuild); handleSnapshot(msg.sessions); },
@@ -46,6 +48,7 @@ const messageHandlers = {
   'client-trust':       (msg) => applyClientTrust(msg.trust),
   'shutting-down':      () => showServerGoingDown('Shutting down...', 'Shutting down sessions...'),
   'restarting':         () => showServerGoingDown('Restarting...', 'Restarting server...'),
+  'hosts-status':       (msg) => { applyHostsStatus(msg.hosts); refreshFocusRoster(); },
 } satisfies DashboardHandlerTable;
 
 export { messageHandlers as serverHandlers };

@@ -37,6 +37,7 @@ import { createPaneLayout } from './pane-layout.ts';
 import { registerSessionPages } from '../session-pages/pages.ts';
 import type { SessionPageHost } from '../session-pages/session-pages.ts';
 import { closeSessionPage, createSessionPageButtons, openSessionPage, releaseSessionPageHost, setSessionPageHost } from '../session-pages/session-pages.ts';
+import { placeHostHeaders } from '../hosts/host-headers.ts';
 
 type RosterRow = SessionRow<SessionUi, string | null>;
 
@@ -334,6 +335,8 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
 
   if (boardsGroup && (!groupsAlreadyInPlace || boardsGroup.section.parentElement !== mountedRail)) mountedRail.append(boardsGroup.section);
   if (boardsGroup) paintBoardRows(boardsGroup);
+  const firstGroup = groups.groups[0];
+  placeHostHeaders(mountedRail, { firstLocalNode: firstGroup ? groupHeaderById.get(firstGroup.key)?.header ?? null : null, trailingNode: boardsGroup?.section ?? null });
 
   for (const [key, groupHeader] of [...groupHeaderById]) {
     if (!presentKeys.has(key)) {
