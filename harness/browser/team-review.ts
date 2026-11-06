@@ -858,6 +858,26 @@ async function verifyParkedToggleControlsColumn(page: Page): Promise<void> {
   assert.equal(await page.locator(`#${controlledId}`).getAttribute('data-group'), 'parked');
 }
 
+async function verifyEscapeClosesBoardFromNote(page: Page, card: Locator): Promise<void> {
+  const root = page.locator('.review-queue');
+  const noteInput = page.locator('.pr-detail .pr-note-input');
+  const pickedCount = () => page.locator('.pr-detail .pr-decision-bar > button[aria-pressed="true"]').count();
+  await page.keyboard.press('c');
+  assert.equal(await pickedCount(), 1);
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('pr-note-input')), true);
+  await page.keyboard.type('keep this note');
+  await page.keyboard.press('Escape');
+  assert.equal(await pickedCount(), 0);
+  assert.equal(await root.getAttribute('data-detail-open'), 'true');
+  await noteInput.focus();
+  await page.keyboard.press('Escape');
+  assert.equal(await root.getAttribute('data-detail-open'), 'false');
+  await card.click();
+  await noteInput.waitFor({ state: 'visible' });
+  assert.equal(await noteInput.inputValue(), 'keep this note');
+  await noteInput.fill('');
+}
+
 async function verifyBoard(page: Page): Promise<void> {
   const root = page.locator('.review-queue');
   const detail = root.locator('.pr-detail-host');
@@ -874,6 +894,7 @@ async function verifyBoard(page: Page): Promise<void> {
   await detail.waitFor({ state: 'visible' });
   await verifyBoardReadable(page);
   await verifyCloseBarStaysVisible(page);
+  await verifyEscapeClosesBoardFromNote(page, card);
   await page.keyboard.press('Escape');
   await detail.waitFor({ state: 'hidden' });
   await page.keyboard.press('j');
