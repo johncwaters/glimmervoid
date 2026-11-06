@@ -437,7 +437,9 @@ function mountReviewQueue(parent: HTMLElement): void {
   turnPosition = el('span', 'review-queue-position');
   phoneBar.append(back, turnPosition);
   const boardBar = el('div', 'review-board-detail-bar');
-  boardBar.append(button({ variant: 'secondary', label: 'Close', action: 'close-review-detail', onClick: returnToQueue }));
+  const closeDetail = button({ variant: 'secondary', label: 'Close', action: 'close-review-detail', onClick: returnToQueue });
+  closeDetail.setAttribute('aria-label', 'Close review detail');
+  boardBar.append(closeDetail);
   shell.detail.append(phoneBar, boardBar, detailHost);
   skillNotice = createReviewSkillNotice();
   shell.queue.before(skillNotice.element);
