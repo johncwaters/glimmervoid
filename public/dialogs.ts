@@ -17,6 +17,8 @@ import { paintAgentMark } from './session-card/agent-mark.ts';
 import { countSessionsByName, suggestSessionName } from './session-card/naming.ts';
 import { onSessionTick } from './session-card/session-tick.ts';
 import { formatAgo } from './poll-ago.ts';
+import { hostStatuses } from './hosts/host-status.ts';
+import { requestOnHost } from './hosts/host-clients.ts';
 import { addSessionRefusalText, revealAddedSession } from './session-actions.ts';
 import { formatTrailOffset, trailContentKey, trailStatusText, trailTimelineRows } from './radar/radar-core.ts';
 import type { InvestigationView } from './radar/radar-core.ts';
@@ -221,6 +223,8 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
   dialog.innerHTML = addSessionHTML;
   applyDialogAria(dialog, 'add-session-title');
 
+  const hostLabelEl = query(dialog, '#add-session-host-label');
+  const hostSelectEl = queryTag(dialog, '#add-session-host', 'select');
   const pickerEl = queryTag(dialog, '#add-session-picker', 'select');
   const pickerLabelEl = query(dialog, '#add-session-picker-label');
   const workspaceListEl = query(dialog, '#add-session-workspace-list');
@@ -257,6 +261,18 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
   const btnConfirm = button({ variant: 'primary', label: 'Add' });
   query(dialog, '#add-session-actions').append(btnCancel, btnConfirm);
   let isWorkspaceMode = false;
+  let selectedHostId: string | null = null;
+  let hostLoadGeneration = 0;
+  function requestOnSelectedHost(type: string, payload: Record<string, unknown>) {
+    const options = { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS };
+    return selectedHostId ? requestOnHost(selectedHostId, type, payload, options) : sendControlRequest(type, payload, options);
+  }
+  function whileHostUnchanged<Value>(apply: (value: Value) => void) {
+    const generation = hostLoadGeneration;
+    return (value: Value) => {
+      if (generation === hostLoadGeneration) apply(value);
+    };
+  }
   let coderEnvironments: CoderEnvironmentOffer[] = [];
   let selectedEnvironment: CoderEnvironmentOffer | null = null;
 
@@ -305,6 +321,7 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
   }
 
   function showRepoRootsAdder(message: ServerMessage) {
+    if (selectedHostId) return;
     const isScan = message.type === 'repo-roots-scanned';
     repoRootsTitleEl.textContent = isScan && message.directories.length > 0 ? 'No projects in your repository roots yet' : 'No repository roots yet';
     repoRootsAdder.setSuggestions(isScan ? message.suggestions ?? [] : []);
@@ -314,8 +331,8 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
   function fillProjectPicker() {
     btnScanAgain.disabled = true;
     scanStatus.show('busy', 'Scanning your repository roots');
-    return sendControlRequest('scan-repo-roots', { includeSuggestions: true }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS })
-      .then((message) => {
+    return requestOnSelectedHost('scan-repo-roots', { includeSuggestions: true })
+      .then(whileHostUnchanged((message: ServerMessage) => {
         if (message.type === 'repo-roots-scanned' && message.error) { showScanFailure(message.error); return; }
         scanStatus.clear();
         btnScanAgain.hidden = true;
@@ -343,10 +360,9 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
         pickerEl.appendChild(option('No projects yet', { disabled: true, selected: true }));
         workspaceListEl.textContent = 'No projects yet.';
         showRepoRootsAdder(message);
-      })
-      .catch((reason) => { showScanFailure(requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)); });
+      }))
+      .catch(whileHostUnchanged((reason: unknown) => { showScanFailure(requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)); }));
   }
-  void fillProjectPicker();
 
   pickerEl.addEventListener('change', () => {
     try {
@@ -358,10 +374,12 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
 
   let selectedAgentId = DEFAULT_AGENT_ID;
   let isSpawnBlocked = false;
+  const shownWarnings: HTMLElement[] = [];
   function showWarning(text: string) {
     const warningEl = el('p', 'dialog-hint dialog-hint-warning', text);
     warningEl.setAttribute('role', 'status');
     errorEl.before(warningEl);
+    shownWarnings.push(warningEl);
     return warningEl;
   }
   function blockSpawnWithGuidance(guidance: string) {
@@ -369,25 +387,27 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
     btnConfirm.disabled = true;
     showWarning(guidance).id = 'add-session-agent-guidance';
   }
-  sendControlRequest('list-agents', {}, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS })
-    .then((message) => {
-      const availability = decideAgentAvailability(message);
-      if (!availability.canSpawn) blockSpawnWithGuidance(availability.guidance);
-      const decision = decideAgentPicker(message.type === 'agents-listed' ? message.agents : [], { defaultId: preferredAgentId });
-      selectedAgentId = decision.selectedId;
-      showShellMode();
-      if (!decision.show) return;
-      agentSelectEl.textContent = '';
-      for (const agentOption of decision.options) {
-        agentSelectEl.appendChild(option(agentOption.label, {
-          value: agentOption.id,
-          selected: agentOption.id === decision.selectedId,
-        }));
-      }
-      paintAgentMark(agentMarkEl, selectedAgentId, agentSelectEl.selectedOptions[0]?.textContent ?? null);
-      agentLabelEl.hidden = false;
-    })
-    .catch((reason) => { showWarning(`Could not load the agent list (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}), so the session uses the default agent.`); });
+  function loadAgents() {
+    return requestOnSelectedHost('list-agents', {})
+      .then(whileHostUnchanged((message: ServerMessage) => {
+        const availability = decideAgentAvailability(message);
+        if (!availability.canSpawn) blockSpawnWithGuidance(availability.guidance);
+        const decision = decideAgentPicker(message.type === 'agents-listed' ? message.agents : [], { defaultId: preferredAgentId });
+        selectedAgentId = decision.selectedId;
+        showShellMode();
+        if (!decision.show) return;
+        agentSelectEl.textContent = '';
+        for (const agentOption of decision.options) {
+          agentSelectEl.appendChild(option(agentOption.label, {
+            value: agentOption.id,
+            selected: agentOption.id === decision.selectedId,
+          }));
+        }
+        paintAgentMark(agentMarkEl, selectedAgentId, agentSelectEl.selectedOptions[0]?.textContent ?? null);
+        agentLabelEl.hidden = false;
+      }))
+      .catch(whileHostUnchanged((reason: unknown) => { showWarning(`Could not load the agent list (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}), so the session uses the default agent.`); }));
+  }
   agentSelectEl.addEventListener('change', () => {
     selectedAgentId = agentSelectEl.value;
     paintAgentMark(agentMarkEl, selectedAgentId, agentSelectEl.selectedOptions[0]?.textContent ?? null);
@@ -436,21 +456,24 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
     if (hasOperatorChosenPermissions) return;
     skipPermsCheckbox.checked = canProtectWithSaneYolo;
   }
-  sendControlRequest('get-settings', {}, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS })
-    .then((message) => {
-      if (message.type === 'settings-error') {
-        showWarning(`Could not load your settings (${message.message}). Check Sane YOLO mode yourself.`);
+  function loadSettings() {
+    return requestOnSelectedHost('get-settings', {})
+      .then(whileHostUnchanged((message: ServerMessage) => {
+        if (message.type === 'settings-error') {
+          showWarning(`Could not load your settings (${message.message}). Check Sane YOLO mode yourself.`);
+          offerSaneYolo();
+          return;
+        }
+        if (message.type !== 'settings') return;
+        if (!selectedHostId) showCoderEnvironments(offeredCoderEnvironments(message.settings));
+        isSaneYoloInstalled = isSaneYoloAvailable(message.settings);
         offerSaneYolo();
-        return;
-      }
-      showCoderEnvironments(offeredCoderEnvironments(message.settings));
-      isSaneYoloInstalled = isSaneYoloAvailable(message.settings);
-      offerSaneYolo();
-    })
-    .catch((reason) => {
-      showWarning(`Could not load your settings (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}). Check Sane YOLO mode yourself.`);
-      offerSaneYolo();
-    });
+      }))
+      .catch(whileHostUnchanged((reason: unknown) => {
+        showWarning(`Could not load your settings (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}). Check Sane YOLO mode yourself.`);
+        offerSaneYolo();
+      }));
+  }
 
   function showCoderEnvironments(environments: CoderEnvironmentOffer[]) {
     if (environments.length === 0) return;
@@ -519,21 +542,76 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
     requestAddSession(message);
   }
 
+  let isAddPending = false;
   function requestAddSession(message: Record<string, unknown>) {
+    isAddPending = true;
     btnConfirm.disabled = true;
+    hostSelectEl.disabled = true;
     errorEl.textContent = '';
-    sendControlRequest('add-session', message, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS })
+    const showRefusal = whileHostUnchanged((text: string) => { errorEl.textContent = text; });
+    requestOnSelectedHost('add-session', message)
       .then((reply) => {
         if (reply.type === 'add-session-result' && reply.ok) {
           close();
           revealAddedSession(reply.sessionId);
           return;
         }
-        errorEl.textContent = addSessionRefusalText(reply);
+        showRefusal(addSessionRefusalText(reply));
       })
-      .catch((reason) => { errorEl.textContent = `The session was not added: ${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}`; })
-      .finally(() => { btnConfirm.disabled = isSpawnBlocked; });
+      .catch((reason) => { showRefusal(`The session was not added: ${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}`); })
+      .finally(() => {
+        isAddPending = false;
+        btnConfirm.disabled = isSpawnBlocked;
+        hostSelectEl.disabled = false;
+      });
   }
+
+  function resetForHostChange() {
+    hostLoadGeneration += 1;
+    for (const warningEl of shownWarnings.splice(0)) warningEl.remove();
+    errorEl.textContent = '';
+    isSpawnBlocked = false;
+    btnConfirm.disabled = isAddPending;
+    selectedAgentId = DEFAULT_AGENT_ID;
+    agentLabelEl.hidden = true;
+    coderEnvironments = [];
+    selectedEnvironment = null;
+    isSaneYoloInstalled = false;
+    hasOperatorChosenPermissions = false;
+    environmentLabelEl.hidden = true;
+    environmentHintEl.hidden = true;
+    workspaceModeButton.hidden = false;
+    repoRootsEl.hidden = true;
+    pickerEl.textContent = '';
+    pickerEl.appendChild(option('Scanning...', { value: '', disabled: true, selected: true }));
+    nameInput.value = '';
+    pathInput.value = '';
+    showShellMode();
+    showAgentLogin();
+    offerSaneYolo();
+  }
+  function loadFromSelectedHost() {
+    void fillProjectPicker();
+    void loadAgents();
+    void loadSettings();
+  }
+  function offerHosts() {
+    const statuses = hostStatuses();
+    if (statuses.length === 0) return;
+    hostSelectEl.appendChild(option('This machine', { value: '', selected: true }));
+    for (const status of statuses) {
+      const isConnected = status.state === 'connected';
+      hostSelectEl.appendChild(option(isConnected ? status.name : `${status.name} (${status.state})`, { value: status.id, disabled: !isConnected }));
+    }
+    hostLabelEl.hidden = false;
+  }
+  hostSelectEl.addEventListener('change', () => {
+    selectedHostId = hostSelectEl.value || null;
+    resetForHostChange();
+    loadFromSelectedHost();
+  });
+  offerHosts();
+  loadFromSelectedHost();
 
   btnCancel.addEventListener('click', close);
   btnConfirm.addEventListener('click', submit);
