@@ -30,7 +30,8 @@ import { SESSION_GONE_TEXT, isExistingDirectory, missingFolderError, replyTo, se
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
 
 type AddSessionRefusal = { error: string };
-type AddSessionRequest = ClientMessageOf<'add-session'> & { runSettings?: Partial<ProjectEntry> };
+type AddSessionRequest = ClientMessageOf<'add-session'>;
+type RunSettings = Partial<ProjectEntry>;
 type RemovalRefusal = { ok: false; error: string; canDiscardWork?: boolean; keptPaths?: KeptWorkPath[] };
 type SessionRemoval = { ok: true } | RemovalRefusal;
 type DiscardSession = (id: string) => Promise<SessionRemoval>;
@@ -66,6 +67,10 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
   } = deps;
 
   function handleAddSession(request: AddSessionRequest, ws: ControlSocket): Promise<void> | undefined {
+    return addSession(request, ws, {});
+  }
+
+  function addSession(request: AddSessionRequest, ws: ControlSocket, runSettings: RunSettings): Promise<void> | undefined {
     const msg = withShellDefaults(request);
     const refusal = shellAddSessionRefusal(msg) ?? addSessionRefusal(msg);
     if (refusal) {
@@ -73,8 +78,8 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       return undefined;
     }
     const environmentName = typeof msg.environment === 'string' ? msg.environment.trim() : '';
-    if (environmentName) return createRemoteAddedSession(msg, ws, environmentName);
-    createAddedSession(msg, ws);
+    if (environmentName) return createRemoteAddedSession(msg, ws, runSettings, environmentName);
+    createAddedSession(msg, ws, runSettings);
     return undefined;
   }
 
@@ -89,10 +94,10 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       project: config.projects.find((project) => project.id === source.id) ?? null,
       sessionNames: liveSessionNames(),
     });
-    return handleAddSession({ type: 'add-session', requestId: msg.requestId, ...plan.request, runSettings: plan.runSettings }, ws);
+    return addSession({ type: 'add-session', requestId: msg.requestId, ...plan.request }, ws, plan.runSettings);
   }
 
-  function createAddedSession(msg: AddSessionRequest, ws: ControlSocket, remote?: { id: string; environment: NonNullable<ProjectEntry['environment']> }): ProjectEntry | null {
+  function createAddedSession(msg: AddSessionRequest, ws: ControlSocket, runSettings: RunSettings, remote?: { id: string; environment: NonNullable<ProjectEntry['environment']> }): ProjectEntry | null {
     const name = (msg.name || '').trim();
     const projectPath = (msg.path || '').trim();
     const repos = msg.repos;
@@ -112,7 +117,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       saneYolo: skipPerms && msg.saneYolo === true,
       requireExistingPath: !repos,
       environment: remote?.environment,
-      runSettings: runSettingsWithConversation(msg),
+      runSettings: runSettingsWithConversation(msg, runSettings),
     });
     if (!created.ok) {
       refuseAddSession(msg, ws, { error: created.error });
@@ -187,7 +192,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     return null;
   }
 
-  async function createRemoteAddedSession(msg: AddSessionRequest, ws: ControlSocket, environmentName: string): Promise<void> {
+  async function createRemoteAddedSession(msg: AddSessionRequest, ws: ControlSocket, runSettings: RunSettings, environmentName: string): Promise<void> {
     const refusal = remoteAddSessionRefusal(msg);
     if (refusal) {
       refuseAddSession(msg, ws, refusal);
@@ -214,7 +219,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       refuseAddSession(msg, ws, { error: reserved.reason });
       return;
     }
-    const project = createAddedSession(msg, ws, { id, environment: reserved.mapping });
+    const project = createAddedSession(msg, ws, runSettings, { id, environment: reserved.mapping });
     if (!project) return;
     void coderEnv.provision({ projectId: id, mapping: reserved.mapping, repoRemoteUrl, baseBranch }).then((provisioned) => {
       if (!provisioned.ok) console.warn(`[control] Coder provision failed for ${project.name}: ${provisioned.reason}`);
@@ -237,10 +242,10 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     return null;
   }
 
-  function runSettingsWithConversation(msg: AddSessionRequest): Partial<ProjectEntry> | undefined {
+  function runSettingsWithConversation(msg: AddSessionRequest, runSettings: RunSettings): RunSettings {
     const resumeSessionId = requestedConversationId(msg.resumeSessionId);
-    if (!resumeSessionId) return msg.runSettings;
-    return { ...msg.runSettings, resumeSessionId };
+    if (!resumeSessionId) return runSettings;
+    return { ...runSettings, resumeSessionId };
   }
 
   function addSessionResumeRefusal(msg: AddSessionRequest, agentId: string): AddSessionRefusal | null {

@@ -71,6 +71,7 @@ interface SessionOutput {
   pasteTextWhenReady(text: string, options?: PasteWhenReadyOptions): PasteResult;
   clearPendingPaste(): void;
   hasPendingPaste(): boolean;
+  forgetUnsubmittedComposerPaste(): void;
   rememberSize(cols: number, rows: number): boolean;
   ptySize(): { cols: number; rows: number };
   disposeScreenKeeper(): void;
@@ -85,6 +86,7 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
   let isWatchingForReady = false;
   let isDrainingQueue = false;
   let drainTimer: NodeJS.Timeout | null = null;
+  let hasUnsubmittedPasteInComposer = false;
   let lastCols: number | null = null;
   let lastRows: number | null = null;
 
@@ -109,12 +111,30 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
     return { ok: true };
   }
 
-  function pasteAndSubmit(text: string, submitDelayMs: number | null): PasteResult {
+  function forgetUnsubmittedComposerPaste(): void {
+    hasUnsubmittedPasteInComposer = false;
+  }
+
+  function pasteIntoComposer(text: string, requestedSubmitDelayMs: number | null): { pasted: PasteResult; submitDelayMs: number | null } {
+    const submitDelayMs = hasUnsubmittedPasteInComposer ? null : requestedSubmitDelayMs;
     const pasted = pasteText(text);
-    if (!pasted.ok || submitDelayMs === null) return pasted;
-    setTimeout(() => {
+    if (pasted.ok && submitDelayMs === null) hasUnsubmittedPasteInComposer = true;
+    return { pasted, submitDelayMs };
+  }
+
+  function submitThenPasteNextQueued(submitDelayMs: number): void {
+    isDrainingQueue = true;
+    drainTimer = setTimeout(() => {
       if (options.hasLivePty()) options.write("\r");
-    }, submitDelayMs).unref();
+      pasteNextQueued();
+    }, submitDelayMs);
+    drainTimer.unref();
+  }
+
+  function pasteAndSubmit(text: string, requestedSubmitDelayMs: number | null): PasteResult {
+    const { pasted, submitDelayMs } = pasteIntoComposer(text, requestedSubmitDelayMs);
+    if (!pasted.ok || submitDelayMs === null) return pasted;
+    submitThenPasteNextQueued(submitDelayMs);
     return pasted;
   }
 
@@ -126,20 +146,16 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
       return;
     }
     clearTimeout(next.expiryTimer);
-    const pasted = pasteText(next.text);
+    const { pasted, submitDelayMs } = pasteIntoComposer(next.text, next.submitDelayMs);
     if (!pasted.ok) {
       clearPendingPaste();
       return;
     }
-    if (next.submitDelayMs === null) {
+    if (submitDelayMs === null) {
       pasteNextQueued();
       return;
     }
-    drainTimer = setTimeout(() => {
-      if (options.hasLivePty()) options.write("\r");
-      pasteNextQueued();
-    }, next.submitDelayMs);
-    drainTimer.unref();
+    submitThenPasteNextQueued(submitDelayMs);
   }
 
   function startDrainingQueue(): void {
@@ -255,6 +271,7 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
 
   options.on("exit", disposeScreenKeeper);
   options.on("exit", clearPendingPaste);
+  options.on("exit", forgetUnsubmittedComposerPaste);
 
   return {
     push,
@@ -268,6 +285,7 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
     pasteTextWhenReady,
     clearPendingPaste,
     hasPendingPaste: () => queuedPastes.length > 0,
+    forgetUnsubmittedComposerPaste,
     rememberSize,
     ptySize,
     disposeScreenKeeper,

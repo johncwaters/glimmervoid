@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { RefinedTaskTitle, TASK_TITLE_CONTROL_CHARACTERS, TASK_TITLE_MAX_LENGTH } from '../../shared/contracts/session.ts';
 import { isAutoNameOf, nextSuggestedName } from '../../shared/session-naming.ts';
+import { firstCodePoints } from '../../shared/text.ts';
 import { PersistedTaskTitle, TASK_TITLE_SOURCE_PRIORITY } from '../../shared/contracts/config.ts';
 import type { TaskTitleSources } from '../../shared/contracts/config.ts';
 import { AUTO_CONTINUE_PROMPT } from './auto-resume.ts';
@@ -12,10 +13,6 @@ export interface TaskTitleVocabulary {
   genericTitles: readonly string[];
   agentSuffix: string | null;
   hookTitleField?: string;
-}
-
-function firstCodePoints(text: string, maxCodePoints: number): string {
-  return Array.from(text).slice(0, maxCodePoints).join('');
 }
 
 function normalizeTaskTitle(title: string): string | null {

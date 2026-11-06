@@ -1,4 +1,5 @@
 import { STATES } from "../../shared/states.ts";
+import type { SessionState } from "../../shared/states.ts";
 
 type WaitingInputDecision = "ignore" | "acknowledge" | "end-waiting";
 
@@ -26,6 +27,12 @@ function isPromptSubmit(input: string): boolean {
   return isOperatorKeystroke(input) && input.replace(NON_SUBMITTING_CARRIAGE_RETURN_PATTERN, "").includes("\r");
 }
 
+const COMPOSER_SUBMIT_STATES: readonly SessionState[] = [STATES.IDLE, STATES.COMPLETE];
+
+function isComposerSubmit(input: string, state: SessionState): boolean {
+  return COMPOSER_SUBMIT_STATES.includes(state) && isPromptSubmit(input);
+}
+
 const LONE_ESCAPE = "\x1b";
 
 const OPTION_DIGIT_SHORTCUT_PATTERN = /^[1-9]$/;
@@ -45,4 +52,4 @@ function decideWaitingInput({ state, hasHookAwaitingInput, pendingPromptKind, is
   return "acknowledge";
 }
 
-export { decideWaitingInput, isOperatorKeystroke, isPromptSubmit };
+export { decideWaitingInput, isComposerSubmit, isOperatorKeystroke, isPromptSubmit };

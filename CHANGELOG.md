@@ -57,6 +57,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A prompt left for you to send is no longer sent for you.** When Glimmervoid pasted a prompt into a session for you to read first, such as a review comment fix that matched a rule, a later note it sends on its own, such as the one telling the agent its pull request branch moved, pressed Enter and sent both. That later note is now pasted without Enter, and Glimmervoid sends its own prompts again once you have pressed Enter yourself.
+- **A task title can use all 120 characters with emoji.** The task box on a session card stopped at 60 emoji or other wide characters, half of what a title may hold. It now counts them as one character each, up to 120.
+- **Add Session saves only the settings it offers.** A dashboard request to add a session could carry extra session settings, which Glimmervoid saved without checking them, a conversation id included. It now saves only the dialog's own fields, and a quick session still copies its source session's settings.
 - **The dashboard catches up after a reconnect.** When the dashboard lost its connection (a sleeping laptop, a hidden tab) and a session was renamed, moved to another folder or switched to skip permissions meanwhile, its card kept the old name and settings until you reloaded the page. It now updates on reconnect, and a card that did not change is left alone.
 - **Notifications sent while Glimmervoid restarts reach the dashboard.** A notification or session error sent by a freshly restarted Glimmervoid before your dashboard reconnected was lost. The dashboard now receives it once it reconnects.
 - **A linked host's status no longer arrives before the session list.** Since linked hosts shipped, a dashboard connecting or reconnecting got the hosts status before its session list. The session list is first again.

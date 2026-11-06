@@ -56,7 +56,7 @@ import {
   UNSEEN_OUTCOME_ON_ENTRY,
 } from "./core/state-machine.ts";
 import { acceptsAttentionSignal, mapSignalToEvent, shouldDeferAttention } from "./core/status-mapper.ts";
-import { decideWaitingInput, isOperatorKeystroke, isPromptSubmit } from "./core/waiting-input-core.ts";
+import { decideWaitingInput, isComposerSubmit, isOperatorKeystroke, isPromptSubmit } from "./core/waiting-input-core.ts";
 import { decideExitTransition } from "./core/exit-transition.ts";
 import type { ExitSignal } from "./core/exit-transition.ts";
 import * as agentTracker from "./core/agent-tracker.ts";
@@ -1968,6 +1968,7 @@ class Session extends EventEmitter {
     if (!this.ptyProcess || !this._ptyAlive) return;
     this.ptyProcess.write(text);
     if (!isPromptSubmit(text)) return;
+    if (isComposerSubmit(text, this.state)) this._output.forgetUnsubmittedComposerPaste();
     this._observeCompaction("resume");
     this._titleQuiet = false;
   }

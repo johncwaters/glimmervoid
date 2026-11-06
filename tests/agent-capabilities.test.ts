@@ -219,7 +219,7 @@ test('a kimi session in a fresh folder starts pre-trusted and gets its initial p
 });
 
 for (const agent of ['kimi', 'claude-code']) {
-  test(`a prompt pasted into a starting ${agent} session waits for its input box to settle and stays pending meanwhile, so race prompts queued before or during the settle all arrive in order ahead of a prompt left for the operator to submit, while a session already ready takes a paste at once`, async (t) => {
+  test(`a prompt pasted into a starting ${agent} session waits for its input box to settle and stays pending meanwhile, so race prompts queued before or during the settle all arrive in order ahead of a prompt left for the operator to submit, while a session already ready takes a paste at once and never submits one over a prompt the operator has yet to send`, async (t) => {
     const agentHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-paste-settle-'));
     t.after(() => fsp.rm(agentHome, { recursive: true, force: true }));
     const writes: string[] = [];
@@ -251,6 +251,25 @@ for (const agent of ['kimi', 'claude-code']) {
       ]);
       assert.deepEqual(session.pasteTextWhenReady('Fix it'), { ok: true });
       assert.equal(writes[7], '\x1b[200~Fix it\x1b[201~');
+      assert.deepEqual(session.pasteTextWhenReady('Sent while the operator still reads', { submit: true }), { ok: true });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      assert.deepEqual(writes.slice(8), ['\x1b[200~Sent while the operator still reads\x1b[201~']);
+      session.write('\r');
+      assert.deepEqual(session.pasteTextWhenReady('Sent after the operator submitted', { submit: true }), { ok: true });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      assert.deepEqual(writes.slice(9), ['\r', '\x1b[200~Sent after the operator submitted\x1b[201~', '\r']);
+      assert.deepEqual(session.pasteTextWhenReady('Sent at once', { submit: true }), { ok: true });
+      assert.deepEqual(session.pasteTextWhenReady('Held until that one is sent'), { ok: true, deferred: true });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      assert.deepEqual(writes.slice(12), ['\x1b[200~Sent at once\x1b[201~', '\r', '\x1b[200~Held until that one is sent\x1b[201~']);
+      session.transition('prompt_detected');
+      for (const dialogKey of ['\x1b[B', '\r']) {
+        session.write(dialogKey);
+        session.noteOperatorInput(dialogKey);
+      }
+      assert.deepEqual(session.pasteTextWhenReady('Sent after a dialog was answered', { submit: true }), { ok: true });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      assert.deepEqual(writes.slice(15), ['\x1b[B', '\r', '\x1b[200~Sent after a dialog was answered\x1b[201~']);
     } finally {
       session.destroy();
     }

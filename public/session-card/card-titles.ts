@@ -1,4 +1,5 @@
 import { SESSION_NAME_PATTERN, SESSION_NAME_RULE_TEXT, TASK_TITLE_MAX_LENGTH } from '#shared/contracts/session.ts';
+import { firstCodePoints } from '#shared/text.ts';
 import type { SessionUi } from './card-registry.ts';
 import { sessionUIs } from './card-registry.ts';
 import { sessionActionStatus, sendSessionAction } from './card-actions.ts';
@@ -30,7 +31,6 @@ export function startInlineTitleEdit(ui: SessionUi, sessionId: string) {
   input.setAttribute('aria-label', 'Task');
   input.value = ui.taskTitleIsCustom ? ui.taskTitle ?? '' : '';
   input.placeholder = ui.taskTitle ?? 'What is this session working on?';
-  input.maxLength = TASK_TITLE_MAX_LENGTH;
   const previousRole = targetEl.getAttribute('role');
   const previousTabIndex = targetEl.getAttribute('tabindex');
   targetEl.removeAttribute('role');
@@ -42,7 +42,8 @@ export function startInlineTitleEdit(ui: SessionUi, sessionId: string) {
   function finish(shouldCommit: boolean) {
     input.removeEventListener('blur', commit);
     input.removeEventListener('keydown', onKey);
-    if (shouldCommit) sendSessionAction(ui, { type: 'set-session-title', id: sessionId, title: input.value.trim() });
+    input.removeEventListener('input', cutToMaxLength);
+    if (shouldCommit) sendSessionAction(ui, { type: 'set-session-title', id: sessionId, title: firstCodePoints(input.value.trim(), TASK_TITLE_MAX_LENGTH) });
     targetEl.replaceChildren();
     if (previousRole !== null) targetEl.setAttribute('role', previousRole);
     if (previousTabIndex !== null) targetEl.setAttribute('tabindex', previousTabIndex);
@@ -59,8 +60,15 @@ export function startInlineTitleEdit(ui: SessionUi, sessionId: string) {
     if (event.key === 'Escape') { event.preventDefault(); finish(false); }
   }
 
+  function cutToMaxLength(event: Event) {
+    if (event instanceof InputEvent && event.isComposing) return;
+    const cutTitle = firstCodePoints(input.value, TASK_TITLE_MAX_LENGTH);
+    if (cutTitle !== input.value) input.value = cutTitle;
+  }
+
   input.addEventListener('blur', commit);
   input.addEventListener('keydown', onKey);
+  input.addEventListener('input', cutToMaxLength);
 }
 
 const RENAME_INPUT_CLASS = 'session-rename-input';

@@ -110,14 +110,15 @@ test('add-session with a conversation id found in another project folder persist
   });
 });
 
-test('add-session without a conversation id leaves the new project without one', () => {
+test('add-session without a conversation id leaves the new project without one, and saves no run settings the message carries', () => {
   withAddSessionFolders(({ repo }) => {
     const cfg: GlimmervoidConfig = { projects: [] };
 
-    const reply = addSession(cfg, { path: repo, resumeSessionId: '   ' });
+    const reply = addSession(cfg, { path: repo, resumeSessionId: '   ', runSettings: { resumeSessionId: '--dangerously-skip-permissions', baseBranch: 'from-the-wire' } });
 
     assert.equal(reply?.ok, true);
     assert.equal('resumeSessionId' in (cfg.projects[0] ?? {}), false);
+    assert.equal('baseBranch' in (cfg.projects[0] ?? {}), false);
   });
 });
 

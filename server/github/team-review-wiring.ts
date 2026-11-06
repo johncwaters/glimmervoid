@@ -212,6 +212,7 @@ function createTeamReviewWiring({
   async function stopPoller(): Promise<void> {
     unsubscribe();
     shutdownController.abort();
+    feedStopwatch.stop();
     await Promise.allSettled([drainPending(Promise.allSettled([...inFlightReviews])), runner.stopPoller()]);
   }
 
@@ -244,6 +245,7 @@ function createTeamReviewWiring({
   }
 
   async function acceptCandidates(job: { payload: TeamReviewCandidatesPayload }): Promise<void> {
+    if (shutdownController.signal.aborted) return;
     feedStopwatch.stop();
     feedStopwatch = startAwakeStopwatch();
     if (latestCandidates !== null && Date.parse(job.payload.observedAt) < Date.parse(latestCandidates.observedAt)) return;
