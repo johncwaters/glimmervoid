@@ -16,9 +16,9 @@ import { referencedPaths, reviewBoard } from '../../shared/whiteboard-anchor-cor
 import { cappedWarnings } from '../../shared/whiteboard-route-core.ts';
 import { readChangeFacts, readFileFacts } from './whiteboard-anchor-facts.ts';
 import type { ChangeMap } from '../../shared/contracts/change-map.ts';
-import { unitsOf } from '../../shared/whiteboard-plan-core.ts';
+import { stepBoxesOf } from '../../shared/whiteboard-plan-core.ts';
 import {
-  boardRecordWithMediaForImages, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, pickShowBoardId, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard,
+  upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, pickShowBoardId, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard,
 } from '../core/whiteboard-store-core.ts';
 import { loadJsonStateFile, writeJsonAtomic } from '../json-file.ts';
 import { createKeyedSerialQueue } from '../spawn-gate.ts';
@@ -38,13 +38,13 @@ const PUT_GUIDE = [
   '{"op":"add","element":{"kind":"wire","id":"w1","from":"parse","to":"store","dashed":true,"label":"on retry"}},',
   '{"op":"set","id":"parse","fields":{"title":"Parse feed"}},{"op":"remove","id":"w1"}]\'.',
   'Pick the layout that fits what you draw; the example shows op syntax, not a preferred shape.',
-  'Element kinds: box (title, column, lane, near, at, lines, refs, change none|added|removed|relabeled, was, order, shape box|decision, outputs), wire (from, to, fromOutput, dashed, tone plain|fail|join|lane, label, fromSide and toSide left|right|top|bottom, back), frame (title, contains, loop), note (on, text, ref), unit (title, lines, refs, status, after, linkedBoardId), panel (title, lines, order) for side notes such as prior art, stacked right of the board.',
+  'Element kinds: box (title, column, lane, near, at, lines, refs, change none|added|removed|relabeled, was, order, shape box|decision, outputs, step {status planned|building|landed, linkedBoardId} to make it a plan step), wire (from, to, fromOutput, dashed, tone plain|fail|join|lane, label, fromSide and toSide left|right|top|bottom, back), frame (title, contains, loop), note (on, text, ref), panel (title, lines, order) for side notes such as prior art, stacked right of the board.',
   'To show a picture, video or HTML page, run glimmervoid whiteboard attach <path> (PNG, JPEG, WebP, GIF, SVG, MP4, WebM or HTML) and set the media it returns on a box unchanged except alt, as in "media":{"kind":"image","asset":"<id>","mime":"image/png","width":800,"height":600,"alt":"login screen","hasPreview":false}; a picture or video first frame draws under the box lines, and a page or a video without a first frame shows as a labelled placeholder.',
   'A line takes style text|code|item|numbered|kv; kv needs a key, as in {"style":"kv","key":"timeout","text":"30s"}, and numbered lines count up through each run.',
-  'Units lay out work in dependency order: glimmervoid whiteboard plan add|after|show edits and reads them.',
-  'Every box needs one place: column and lane on a grid of columns and lane row bands, set by a columns op such as {"op":"columns","columns":[{"id":"intake","title":"Intake"}]} and a lanes op such as {"op":"lanes","lanes":[{"id":"pr1","label":"PR 1","color":"blue"}]} before any box names them; near another box with near {"of":"parse","side":"right|left|top|bottom","gap":60}; or at {"x","y"} pixels.',
-  'A unit takes status planned|building|landed; a planned unit whose ref files already changed, or a landed one whose ref files are unchanged or uncommitted, comes back as a warning.',
-  'Point a box or unit at code with refs ["path", "path#L12", "path#L12-L30"], relative to the board code session worktree (codeSessionId, the creating session by default); any line or note takes one ref. A ref that names no file or runs past the end comes back as a warning.',
+  'A plan step is a box with a step; a wire from one step to another means the second is built after the first, cycles allowed. A step with no place sits in the build-order band above the free drawing until moved. glimmervoid whiteboard plan add|after|status|show edits and reads them.',
+  'Every box but a plan step needs one place: column and lane on a grid of columns and lane row bands, set by a columns op such as {"op":"columns","columns":[{"id":"intake","title":"Intake"}]} and a lanes op such as {"op":"lanes","lanes":[{"id":"pr1","label":"PR 1","color":"blue"}]} before any box names them; near another box with near {"of":"parse","side":"right|left|top|bottom","gap":60}; or at {"x","y"} pixels.',
+  'A planned step whose ref files already changed, or a landed one whose ref files are unchanged or uncommitted, comes back as a warning.',
+  'Point a box at code with refs ["path", "path#L12", "path#L12-L30"], relative to the board code session worktree (codeSessionId, the creating session by default); any line or note takes one ref. A ref that names no file or runs past the end comes back as a warning.',
   'Mark what a change does to a box with change: added and removed for parts it brings or takes away, relabeled with was set to the old title for a rename.',
   'A decision is a box with shape:"decision" and outputs [{id, label}] drawn as rows in that order; a wire with fromOutput set to an output id leaves from that row, so each branch starts at its own named exit.',
   'Wires route around every box on their own; set fromSide or toSide to pick where one attaches, back:true for a return edge that loops around the outside, and loop:true on a frame to mark what repeats.',
@@ -135,7 +135,7 @@ function refusal(status: number, error: string): WhiteboardReply {
 }
 
 function parseBoardRecord(raw: unknown): BoardRecord | null {
-  const parsed = BoardRecord.safeParse(boardRecordWithMediaForImages(raw));
+  const parsed = BoardRecord.safeParse(upgradedBoardRecord(raw));
   return parsed.success ? parsed.data : null;
 }
 
@@ -293,12 +293,13 @@ function createWhiteboardWiring({
   function applyOpsToRecord(record: BoardRecord, ops: readonly Op[], author: Author): AppliedOps {
     const result = applyOps(record.board, ops, author, now());
     if (!result.ok) return result;
-    const strandedUnit = unitsOf(result.board).find((unit) => {
-      const before = record.board.elements[unit.id];
-      const isNewLink = before?.kind !== 'unit' || before.linkedBoardId !== unit.linkedBoardId;
-      return isNewLink && unit.linkedBoardId !== null && !recordsByBoardId.has(unit.linkedBoardId);
+    const strandedStep = stepBoxesOf(result.board).find((stepBox) => {
+      const before = record.board.elements[stepBox.id];
+      const linkedBoardId = stepBox.step.linkedBoardId;
+      const isNewLink = before?.kind !== 'box' || before.step?.linkedBoardId !== linkedBoardId;
+      return isNewLink && linkedBoardId !== null && !recordsByBoardId.has(linkedBoardId);
     });
-    if (strandedUnit) return { ok: false, error: `unit ${strandedUnit.id} links to board ${strandedUnit.linkedBoardId ?? ''}, which does not exist` };
+    if (strandedStep) return { ok: false, error: `step ${strandedStep.id} links to board ${strandedStep.step.linkedBoardId ?? ''}, which does not exist` };
     const assetIdsBefore = assetIdsOf(record.board);
     const assetIdsAfter = assetIdsOf(result.board);
     const mediaRefusal = changedMediaRefusalOf(record.board, result.board);
@@ -326,9 +327,9 @@ function createWhiteboardWiring({
     const reply = await putOps(boardId, ops, author);
     const board = recordsByBoardId.get(boardId)?.board;
     if (!reply.body.ok || !('version' in reply.body) || !board) return reply;
-    const { anchorWarnings, unitWarnings } = await reviewFor(board, { readsChanges: unitsOf(board).length > 0 });
-    if (anchorWarnings.length === 0 && unitWarnings.length === 0) return reply;
-    return { status: reply.status, body: { ...reply.body, warnings: cappedWarnings([...reply.body.warnings ?? [], ...anchorWarnings, ...unitWarnings]) } };
+    const { anchorWarnings, stepWarnings } = await reviewFor(board, { readsChanges: stepBoxesOf(board).length > 0 });
+    if (anchorWarnings.length === 0 && stepWarnings.length === 0) return reply;
+    return { status: reply.status, body: { ...reply.body, warnings: cappedWarnings([...reply.body.warnings ?? [], ...anchorWarnings, ...stepWarnings]) } };
   }
 
   async function readBoard(boardId: string, readerId: string, { isPeek, wantsReview }: { isPeek: boolean; wantsReview: boolean }): Promise<WhiteboardReply> {
@@ -366,13 +367,13 @@ function createWhiteboardWiring({
 
   async function clearLinksTo(deletedBoardId: string): Promise<void> {
     const unlinkPuts = [...recordsByBoardId.values()].flatMap((record) => {
-      const ops: Op[] = unitsOf(record.board)
-        .filter((unit) => unit.linkedBoardId === deletedBoardId)
-        .map((unit) => ({ op: 'set', id: unit.id, fields: { linkedBoardId: null } }));
+      const ops: Op[] = stepBoxesOf(record.board)
+        .filter((stepBox) => stepBox.step.linkedBoardId === deletedBoardId)
+        .map((stepBox) => ({ op: 'set', id: stepBox.id, fields: { step: { linkedBoardId: null } } }));
       if (ops.length === 0) return [];
       const linkingBoardId = record.board.id;
       return [putOps(linkingBoardId, ops, GLIMMERVOID_AUTHOR).then((reply) => {
-        if (!reply.body.ok) logger.warn(`[whiteboard] units on board ${linkingBoardId} still link to deleted board ${deletedBoardId}: ${reply.body.error}`);
+        if (!reply.body.ok) logger.warn(`[whiteboard] steps on board ${linkingBoardId} still link to deleted board ${deletedBoardId}: ${reply.body.error}`);
       })];
     });
     await Promise.all(unlinkPuts);

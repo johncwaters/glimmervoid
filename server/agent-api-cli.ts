@@ -2,15 +2,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { z } from 'zod';
+
 import { resolveHookTarget } from '../session/core/hook-relay-core.ts';
 import { formatSessionLimits } from '../session/core/session-routes.ts';
 import { AgentLimitsReply, AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import type { AgentApiVerb } from '../shared/contracts/session.ts';
-import { UNIT_STATUSES, WhiteboardAgentReply } from '../shared/contracts/whiteboard.ts';
-import type { Board, BoardChange, BoardReview, BoardSummary, Op } from '../shared/contracts/whiteboard.ts';
+import { Op, STEP_STATUSES, WhiteboardAgentReply } from '../shared/contracts/whiteboard.ts';
+import type { Board, BoardChange, BoardReview, BoardSummary, Op as BoardOp } from '../shared/contracts/whiteboard.ts';
 import { layoutBoard } from '../shared/whiteboard-layout-core.ts';
 import type { BoardLayout } from '../shared/whiteboard-layout-core.ts';
-import { planSteps } from '../shared/whiteboard-plan-core.ts';
+import { dependencyWireId, dependencyWireIdsInto, planSteps, stepBoxesOf } from '../shared/whiteboard-plan-core.ts';
 import { boardSvgDocument } from '../shared/whiteboard-svg-core.ts';
 import { AGENT_COMMAND_HELP, agentCommandSpec, isAgentApiVerb } from './core/agent-api-core.ts';
 import { parseCommand } from './core/cli-spec-core.ts';
@@ -192,13 +194,13 @@ async function sessionLimitsHelpLines({ timeoutMs = HELP_LIMITS_TIMEOUT_MS }: { 
   }
 }
 
-const MAX_UNIT_ID_LENGTH = 40;
+const MAX_STEP_ID_LENGTH = 40;
 
 type PlanReply = { ok: boolean; text: string };
 
-function unitIdFromTitle(title: string): string {
-  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+/, '').slice(0, MAX_UNIT_ID_LENGTH).replace(/-+$/, '');
-  return slug || 'unit';
+function stepIdFromTitle(title: string): string {
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+/, '').slice(0, MAX_STEP_ID_LENGTH).replace(/-+$/, '');
+  return slug || 'step';
 }
 
 function commaSeparatedIds(text: string | boolean | undefined): string[] {
@@ -231,64 +233,113 @@ async function resolveLinkedBoardId(ref: string): Promise<{ boardId: string } | 
   return { error: `no board is called ${ref}, so run glimmervoid whiteboard list to see the boards` };
 }
 
-async function putPlanOps(boardRef: string, ops: Op[], doneText: string): Promise<PlanReply> {
+async function putPlanOps(boardRef: string, ops: BoardOp[], doneText: string): Promise<PlanReply> {
   const reply = await askWhiteboard({ sub: 'put', board: boardRef, ops });
   if (typeof reply === 'string') return { ok: false, text: reply };
   return { ok: true, text: doneText };
 }
 
-async function addUnit({ values, positionals }: ParsedArguments, boardRef: string): Promise<PlanReply> {
+async function readBoard(boardRef: string, { isPeek }: { isPeek: boolean }): Promise<{ board: Board; changes: BoardChange[] } | string> {
+  const reply = await askWhiteboard({ sub: 'get', board: boardRef, ...(isPeek ? { peek: true } : {}) });
+  if (typeof reply === 'string') return reply;
+  if (!('changes' in reply)) return 'Glimmervoid did not return the board';
+  return { board: reply.board, changes: reply.changes };
+}
+
+function parsedOps(rawOps: readonly unknown[]): BoardOp[] | string {
+  const parsed = z.array(Op).safeParse(rawOps);
+  if (parsed.success) return parsed.data;
+  return parsed.error.issues.map((issue) => issue.message).join('; ');
+}
+
+function dependencyWireOps(board: Board, stepId: string, afterIds: readonly string[]): unknown[] | string {
+  const stepIds = new Set(stepBoxesOf(board).map((stepBox) => stepBox.id));
+  const notAStep = afterIds.find((afterId) => afterId === stepId || !stepIds.has(afterId));
+  if (notAStep === stepId) return `${stepId} cannot come after itself`;
+  if (notAStep !== undefined) return `${notAStep} is not a plan step on this board`;
+  const takenIds = new Set(Object.keys(board.elements));
+  return afterIds.map((afterId) => {
+    const id = dependencyWireId(afterId, stepId, takenIds);
+    takenIds.add(id);
+    return { op: 'add', element: { kind: 'wire', id, from: afterId, to: stepId } };
+  });
+}
+
+async function addStep({ values, positionals }: ParsedArguments, boardRef: string): Promise<PlanReply> {
   const title = joinedText(positionals.slice(1));
-  const unitId = typeof values.id === 'string' ? values.id : unitIdFromTitle(title);
+  const stepId = typeof values.id === 'string' ? values.id : stepIdFromTitle(title);
   const linkRef = typeof values.link === 'string' ? values.link : null;
   const link = linkRef === null ? { boardId: null } : await resolveLinkedBoardId(linkRef);
   if ('error' in link) return { ok: false, text: link.error };
-  const ops: Op[] = [{ op: 'add', element: { kind: 'unit', id: unitId, title, lines: [], refs: [], status: 'planned', after: commaSeparatedIds(values.after), linkedBoardId: link.boardId } }];
-  return putPlanOps(boardRef, ops, `added unit ${unitId} "${title}"; run glimmervoid whiteboard plan show ${boardRef} for the order`);
+  const read = await readBoard(boardRef, { isPeek: true });
+  if (typeof read === 'string') return { ok: false, text: read };
+  const wireOps = dependencyWireOps(read.board, stepId, commaSeparatedIds(values.after));
+  if (typeof wireOps === 'string') return { ok: false, text: wireOps };
+  const ops = parsedOps([
+    { op: 'add', element: { kind: 'box', id: stepId, title, step: { status: 'planned', linkedBoardId: link.boardId } } },
+    ...wireOps,
+  ]);
+  if (typeof ops === 'string') return { ok: false, text: ops };
+  return putPlanOps(boardRef, ops, `added step ${stepId} "${title}"; run glimmervoid whiteboard plan show ${boardRef} for the order`);
 }
 
-function setUnitAfter(boardRef: string, unitId: string, afterIds: string[]): Promise<PlanReply> {
-  const ops: Op[] = [{ op: 'set', id: unitId, fields: { after: afterIds } }];
-  const doneText = afterIds.length === 0 ? `${unitId} now comes after nothing` : `${unitId} now comes after ${afterIds.join(', ')}`;
+async function boardWithStep(boardRef: string, stepId: string): Promise<Board | string> {
+  const read = await readBoard(boardRef, { isPeek: true });
+  if (typeof read === 'string') return read;
+  const element = read.board.elements[stepId];
+  if (element?.kind !== 'box' || element.step === null) return `${stepId} is not a plan step on ${boardRef}`;
+  return read.board;
+}
+
+async function setStepAfter(boardRef: string, stepId: string, afterIds: string[]): Promise<PlanReply> {
+  const board = await boardWithStep(boardRef, stepId);
+  if (typeof board === 'string') return { ok: false, text: board };
+  const wireOps = dependencyWireOps(board, stepId, afterIds);
+  if (typeof wireOps === 'string') return { ok: false, text: wireOps };
+  const removals = dependencyWireIdsInto(board, stepId).map((id) => ({ op: 'remove', id }));
+  const ops = parsedOps([...removals, ...wireOps]);
+  if (typeof ops === 'string') return { ok: false, text: ops };
+  const doneText = afterIds.length === 0 ? `${stepId} now comes after nothing` : `${stepId} now comes after ${afterIds.join(', ')}`;
   return putPlanOps(boardRef, ops, doneText);
 }
 
-function setUnitStatus(boardRef: string, unitId: string, statusText: string): Promise<PlanReply> {
-  const status = UNIT_STATUSES.find((candidate) => candidate === statusText);
-  if (!status) return Promise.resolve({ ok: false, text: `a unit status is ${UNIT_STATUSES.join(', ')}, not ${statusText}` });
-  return putPlanOps(boardRef, [{ op: 'set', id: unitId, fields: { status } }], `${unitId} is now ${status}; run glimmervoid whiteboard get ${boardRef} --layout to check it against the code session changes`);
+async function setStepStatus(boardRef: string, stepId: string, statusText: string): Promise<PlanReply> {
+  const status = STEP_STATUSES.find((candidate) => candidate === statusText);
+  if (!status) return { ok: false, text: `a step status is ${STEP_STATUSES.join(', ')}, not ${statusText}` };
+  const board = await boardWithStep(boardRef, stepId);
+  if (typeof board === 'string') return { ok: false, text: board };
+  return putPlanOps(boardRef, [{ op: 'set', id: stepId, fields: { step: { status } } }], `${stepId} is now ${status}; run glimmervoid whiteboard get ${boardRef} --layout to check it against the code session changes`);
 }
 
 function formatPlan(board: Board, boards: readonly BoardSummary[], changes: readonly BoardChange[]): string {
   const steps = planSteps(board);
-  if (steps.length === 0) return `Board "${board.title}" has no plan yet; add a unit with glimmervoid whiteboard plan add ${board.id} <title>`;
+  if (steps.length === 0) return `Board "${board.title}" has no plan yet; add a step with glimmervoid whiteboard plan add ${board.id} <title>`;
   const titleById = new Map(boards.map((summary) => [summary.id, summary.title]));
   const labelWidth = Math.max(...steps.map((step) => step.label.length));
-  const idWidth = Math.max(...steps.map((step) => step.unitId.length));
+  const idWidth = Math.max(...steps.map((step) => step.boxId.length));
   const statusWidth = Math.max(...steps.map((step) => step.status.length));
-  const lines = [`Plan on "${board.title}" (${steps.length} ${steps.length === 1 ? 'unit' : 'units'})`];
+  const lines = [`Plan on "${board.title}" (${steps.length} ${steps.length === 1 ? 'step' : 'steps'})`];
   for (const step of steps) {
     const after = step.afterLabels.length > 0 ? `  after ${step.afterLabels.join(', ')}` : '';
     const link = step.linkedBoardId === null ? '' : `  board "${titleById.get(step.linkedBoardId) ?? step.linkedBoardId}"`;
-    lines.push(`${step.label.padEnd(labelWidth)}  ${step.unitId.padEnd(idWidth)}  ${step.status.padEnd(statusWidth)}  ${step.title}${after}${link}`);
+    lines.push(`${step.label.padEnd(labelWidth)}  ${step.boxId.padEnd(idWidth)}  ${step.status.padEnd(statusWidth)}  ${step.title}${after}${link}`);
   }
   if (changes.length > 0) lines.push('', 'Changes since this session last read the board:', ...changes.map((change) => `- ${change.summary}`));
   return lines.join('\n');
 }
 
 async function showPlan(boardRef: string): Promise<PlanReply> {
-  const reply = await askWhiteboard({ sub: 'get', board: boardRef });
-  if (typeof reply === 'string') return { ok: false, text: reply };
-  if (!('changes' in reply)) return { ok: false, text: 'Glimmervoid did not return the board' };
+  const read = await readBoard(boardRef, { isPeek: false });
+  if (typeof read === 'string') return { ok: false, text: read };
   const boards = await listBoards();
-  return { ok: true, text: formatPlan(reply.board, typeof boards === 'string' ? [] : boards, reply.changes) };
+  return { ok: true, text: formatPlan(read.board, typeof boards === 'string' ? [] : boards, read.changes) };
 }
 
 function runPlanAction(parsed: ParsedArguments, boardRef: string): Promise<PlanReply> {
   const action = parsed.commandPath[2];
-  if (action === 'add') return addUnit(parsed, boardRef);
-  if (action === 'after') return setUnitAfter(boardRef, parsed.positionals[1] ?? '', parsed.positionals.slice(2));
-  if (action === 'status') return setUnitStatus(boardRef, parsed.positionals[1] ?? '', parsed.positionals[2] ?? '');
+  if (action === 'add') return addStep(parsed, boardRef);
+  if (action === 'after') return setStepAfter(boardRef, parsed.positionals[1] ?? '', parsed.positionals.slice(2));
+  if (action === 'status') return setStepStatus(boardRef, parsed.positionals[1] ?? '', parsed.positionals[2] ?? '');
   return showPlan(boardRef);
 }
 

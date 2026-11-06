@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Board } from '../shared/contracts/whiteboard.ts';
 import { reviewBoard } from '../shared/whiteboard-anchor-core.ts';
-import { layoutBoard } from '../shared/whiteboard-layout-core.ts';
+import { layoutBoard, pinnedOffsetYOf } from '../shared/whiteboard-layout-core.ts';
 import { boardSvgDocument } from '../shared/whiteboard-svg-core.ts';
 import { applyBoardDiff, applyOps } from '../shared/whiteboard-ops-core.ts';
 import { EMPTY_HISTORY, UNDO_LIMIT, recordEdit, takeStep, undoOpsOf } from '../shared/whiteboard-undo-core.ts';
@@ -115,47 +115,56 @@ test('wires run at right angles around boxes, and same-style wires into one box 
   assert.deepEqual(layout.warnings.filter((warning) => warning.includes('runs through')), []);
 });
 
-function unit(id: string, title: string, after: string[] = [], linkedBoardId: string | null = null) {
-  return { kind: 'unit', id, title, after, linkedBoardId };
+function stepBox(id: string, title: string, linkedBoardId: string | null = null) {
+  return { kind: 'box', id, title, step: { linkedBoardId } };
 }
 
-test('units draw as a plan band above the freeform columns, one level per column with an arrow per dependency', () => {
+function dependency(fromId: string, toId: string) {
+  return { kind: 'wire', id: `${fromId}-to-${toId}`, from: fromId, to: toId };
+}
+
+test('unplaced step boxes draw as a plan band above the freeform columns, one level per column, and a dragged step leaves the band where it was dropped', () => {
   const plannedBoard = Board.parse({
     ...wiredBoard,
     elements: {
       ...wiredBoard.elements,
-      diff: unit('diff', 'Diff index'), endpoint: unit('endpoint', 'Search endpoint', ['diff']),
-      backfill: unit('backfill', 'Index backfill', ['diff'], 'backfill-board'), searchbox: unit('searchbox', 'Search box', ['endpoint', 'diff']),
+      diff: stepBox('diff', 'Diff index'), endpoint: stepBox('endpoint', 'Search endpoint'),
+      backfill: stepBox('backfill', 'Index backfill', 'backfill-board'), searchbox: stepBox('searchbox', 'Search box'),
+      ...Object.fromEntries([dependency('diff', 'endpoint'), dependency('diff', 'backfill'), dependency('endpoint', 'searchbox'), dependency('diff', 'searchbox')].map((wire) => [wire.id, wire])),
       pinned: { ...box('pinned', 'a', 9), at: { x: 40, y: 90 } },
     },
   });
   const layout = layoutBoard(plannedBoard);
-  const units = layout.elements.flatMap((element) => (element.kind === 'unit' ? [element] : []));
-  const unitById = new Map(units.map((laidOut) => [laidOut.id, laidOut]));
-  assert.deepEqual(units.map((laidOut) => laidOut.label).sort(), ['1', '2a', '2b', '3']);
-  const [diff, endpoint, backfill, searchbox] = ['diff', 'endpoint', 'backfill', 'searchbox'].map((id) => unitById.get(id));
+  const steps = layout.elements.flatMap((element) => (element.kind === 'box' && element.step ? [element] : []));
+  const stepById = new Map(steps.map((laidOut) => [laidOut.id, laidOut]));
+  assert.deepEqual(steps.map((laidOut) => laidOut.step?.label).sort(), ['1', '2a', '2b', '3']);
+  const [diff, endpoint, backfill, searchbox] = ['diff', 'endpoint', 'backfill', 'searchbox'].map((id) => stepById.get(id));
   assert.ok(diff && endpoint && backfill && searchbox);
   assert.ok(diff.x < endpoint.x && endpoint.x === backfill.x && endpoint.x < searchbox.x, 'each level is its own column, left to right');
-  assert.equal(backfill.linkedBoardId, 'backfill-board');
-  assert.equal(layout.plan?.arrowPaths.length, 4);
-  const bandBottom = Math.max(...units.map((laidOut) => laidOut.y + laidOut.height));
+  assert.equal(backfill.step?.linkedBoardId, 'backfill-board');
+  const bandBottom = Math.max(...steps.map((laidOut) => laidOut.y + laidOut.height));
   for (const column of layout.columns) assert.ok(column.titleBaselineY > bandBottom, `column ${column.id} starts inside the plan band`);
   const placed = layout.elements.filter((element) => element.kind !== 'wire');
-  for (const laidOut of units) {
+  for (const laidOut of steps) {
     for (const other of placed) {
       if (other.id !== laidOut.id) assert.ok(!overlaps(laidOut, other), `${laidOut.id} overlaps ${other.id}`);
     }
   }
   assert.equal(layoutBoard(wiredBoard).plan, null);
+
+  const droppedAt = { x: 900, y: 700 };
+  const draggedBoard = Board.parse({ ...plannedBoard, elements: { ...plannedBoard.elements, searchbox: { ...stepBox('searchbox', 'Search box'), at: droppedAt } } });
+  const dragged = layoutBoard(draggedBoard).elements.find((element) => element.id === 'searchbox');
+  assert.deepEqual(dragged?.kind === 'box' ? { x: dragged.x, y: dragged.y, label: dragged.step?.label } : null, { x: droppedAt.x, y: droppedAt.y + pinnedOffsetYOf(draggedBoard), label: '3' });
 });
 
-test('a unit status that disagrees with the code session changes warns, changed files no ref covers come back as uncovered, and an unread code session says it was not checked', () => {
+test('a step status that disagrees with the code session changes warns, changed files no ref covers come back as uncovered, and an unread code session says it was not checked', () => {
   const reviewedBoard = Board.parse({
     id: 'reviewed', title: 'reviewed', version: 1, caption: null, createdAt: 0, updatedAt: 0, lanes: [], columns: [], codeSessionId: 'builder',
     elements: {
-      early: { kind: 'unit', id: 'early', title: 'Started too soon', status: 'planned', refs: ['src/parse.ts#L4'] },
-      shipped: { kind: 'unit', id: 'shipped', title: 'Shipped', status: 'landed', refs: ['./src/save.ts', 'src//index.ts'] },
-      quiet: { kind: 'unit', id: 'quiet', title: 'Not started', status: 'landed', refs: ['src/later.ts'] },
+      early: { kind: 'box', id: 'early', title: 'Started too soon', step: { status: 'planned' }, refs: ['src/parse.ts#L4'] },
+      shipped: { kind: 'box', id: 'shipped', title: 'Shipped', step: { status: 'landed' }, refs: ['./src/save.ts', 'src//index.ts'] },
+      quiet: { kind: 'box', id: 'quiet', title: 'Not started', step: { status: 'landed' }, refs: ['src/later.ts'] },
       parse: { kind: 'box', id: 'parse', title: 'Parse', column: 'intake', refs: ['src/parse.ts'] },
     },
   });
@@ -174,14 +183,14 @@ test('a unit status that disagrees with the code session changes warns, changed 
   assert.deepEqual(reviewBoard(reviewedBoard, { fileFactByPath, changes }), {
     codeSessionId: 'builder',
     anchorWarnings: [],
-    unitWarnings: [
-      'unit early is planned but src/parse.ts already changed',
-      'unit shipped is landed but src/index.ts has uncommitted changes',
-      'unit quiet is landed but src/later.ts is unchanged',
+    stepWarnings: [
+      'step early is planned but src/parse.ts already changed',
+      'step shipped is landed but src/index.ts has uncommitted changes',
+      'step quiet is landed but src/later.ts is unchanged',
     ],
     uncoveredPaths: ['src/stray.ts'],
     worthALookPaths: ['src/parse.ts'],
-    flaggedUnitIds: ['early', 'shipped', 'quiet'],
+    flaggedStepIds: ['early', 'shipped', 'quiet'],
     notChecked: null,
   });
   assert.equal(reviewBoard(reviewedBoard, { fileFactByPath, changes: { ...changes, error: 'git diff failed' } }).notChecked, 'the code session changes could not be read: git diff failed');
@@ -439,13 +448,13 @@ test('a dashboard keeps the server element order when an edit removes and re-add
 test('a board with plan steps keys their statuses in the legend, and a board without them keeps the legend free of statuses', () => {
   const planBoard = Board.parse({
     id: 'plan', title: 'plan', version: 1, caption: null, createdAt: 0, updatedAt: 0, lanes: [], columns: [], legend: [],
-    elements: { step: { kind: 'unit', id: 'step', title: 'Index the diffs', status: 'building' } },
+    elements: { step: { kind: 'box', id: 'step', title: 'Index the diffs', step: { status: 'building' } } },
   });
   const layout = layoutBoard(planBoard);
   assert.deepEqual(layout.legend.map((row) => row.label), ['plan step planned', 'plan step building', 'plan step landed']);
   const svg = boardSvgDocument(layout);
-  for (const status of ['planned', 'building', 'landed']) assert.match(svg, new RegExp(`class="wb-legend-swatch wb-unit-outline wb-unit-${status}"`));
-  for (const status of ['planned', 'building', 'landed']) assert.match(svg, new RegExp(`\\.wb-unit-${status} \\{ fill: #`), `the export colors the ${status} swatch`);
+  for (const status of ['planned', 'building', 'landed']) assert.match(svg, new RegExp(`class="wb-legend-swatch wb-step-swatch wb-step-${status}"`));
+  for (const status of ['planned', 'building', 'landed']) assert.match(svg, new RegExp(`\\.wb-step-${status} \\{ fill: #`), `the export colors the ${status} swatch`);
   const plainBoard = Board.parse({ ...planBoard, elements: { only: { kind: 'box', id: 'only', title: 'Only' } } });
   assert.deepEqual(layoutBoard(plainBoard).legend, []);
 });

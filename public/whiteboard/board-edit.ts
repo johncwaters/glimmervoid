@@ -1,7 +1,7 @@
 import { WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import type { Board, Element as BoardElement, Op } from '#shared/contracts/whiteboard.ts';
 import { el } from '../dom-helpers.ts';
-import { createDragPreview } from '#shared/whiteboard-layout-core.ts';
+import { createDragPreview, pinnedOffsetYOf } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout, DragPreview, Rect } from '#shared/whiteboard-layout-core.ts';
 import type { BoardRenderer } from './board-render.ts';
 
@@ -9,7 +9,7 @@ const DRAG_THRESHOLD_PX = 4;
 const MIN_VIEW_WIDTH = 200;
 const MAX_VIEW_WIDTH = 20000;
 const WHEEL_ZOOM_STEP = 1.1;
-const REMOVAL_ORDER = ['wire', 'note', 'frame', 'box', 'panel', 'unit'] as const;
+const REMOVAL_ORDER = ['wire', 'note', 'frame', 'box', 'panel'] as const;
 const TOOL_BY_KEY: Readonly<Record<string, BoardTool>> = { v: 'select', r: 'box', d: 'decision', p: 'panel', a: 'wire' };
 
 type BoardTool = 'select' | 'box' | 'decision' | 'panel' | 'wire';
@@ -104,7 +104,7 @@ function placedElement(tool: PlacementTool, board: Board, at: ViewPoint): BoardE
 function placedBox(at: ViewPoint, title: string, media: BoxMedia | null, isDecision: boolean): BoardElement {
   return {
     kind: 'box', id: newElementId('box'), title, lines: [], lane: null, refs: [], change: 'none', was: null, column: null, near: null, order: 0, at,
-    shape: isDecision ? 'decision' : 'box', outputs: isDecision ? [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }] : [], media, width: null,
+    shape: isDecision ? 'decision' : 'box', outputs: isDecision ? [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }] : [], media, width: null, step: null,
   };
 }
 
@@ -262,7 +262,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function draggedBoxFields(drag: Extract<Gesture, { kind: 'drag' }>): { boxId: string; fields: BoxFields }[] {
     if (drag.mode === 'resize') return [{ boxId: drag.boxId, fields: { width: draggedWidth(drag) } }];
-    return drag.movingBoxes.map((movingBox) => ({ boxId: movingBox.boxId, fields: { at: draggedAt(drag, movingBox.start) } }));
+    const droppedAts = drag.movingBoxes.map((movingBox) => ({ boxId: movingBox.boxId, at: draggedAt(drag, movingBox.start) }));
+    const board = options.currentBoard();
+    const bandShrinkY = board ? drag.pinnedOffsetY - pinnedOffsetYOf(withBoxFields(board, droppedAts.map(({ boxId, at }) => ({ boxId, fields: { at } })))) : 0;
+    return droppedAts.map(({ boxId, at }) => ({ boxId, fields: { at: { x: at.x, y: at.y + bandShrinkY } } }));
   }
 
   function withBoxFields(board: Board, changes: readonly { boxId: string; fields: BoxFields }[]): Board {

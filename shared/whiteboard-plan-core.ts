@@ -1,12 +1,28 @@
-import type { Board, Unit } from './contracts/whiteboard.ts';
+import type { Board, Box, Step } from './contracts/whiteboard.ts';
 
-type PlanStep = { unitId: string; title: string; status: Unit['status']; level: number; label: string; afterLabels: string[]; linkedBoardId: string | null };
+type StepBox = Box & { step: Step };
+type PlanStep = { boxId: string; title: string; status: Step['status']; level: number; label: string; afterLabels: string[]; linkedBoardId: string | null };
 
 const LETTERS_IN_ALPHABET = 26;
+const MAX_ELEMENT_ID_LENGTH = 40;
 const FIRST_LETTER_CODE = 97;
 
-function unitsOf(board: Board): Unit[] {
-  return Object.values(board.elements).filter((element): element is Unit => element.kind === 'unit');
+function isStepBox(box: Box): box is StepBox {
+  return box.step !== null;
+}
+
+function stepBoxesOf(board: Board): StepBox[] {
+  return Object.values(board.elements).flatMap((element) => (element.kind === 'box' && isStepBox(element) ? [element] : []));
+}
+
+function afterIdsByStepIdOf(board: Board, stepIds: ReadonlySet<string>): Map<string, string[]> {
+  const afterIdsByStepId = new Map<string, string[]>();
+  for (const element of Object.values(board.elements)) {
+    if (element.kind !== 'wire' || element.from === element.to) continue;
+    if (!stepIds.has(element.from) || !stepIds.has(element.to)) continue;
+    afterIdsByStepId.set(element.to, [...(afterIdsByStepId.get(element.to) ?? []), element.from]);
+  }
+  return afterIdsByStepId;
 }
 
 function letterFor(index: number): string {
@@ -15,75 +31,66 @@ function letterFor(index: number): string {
   return round === 0 ? letter : `${letter}${round + 1}`;
 }
 
-function levelsOf(units: readonly Unit[]): Map<string, number> {
-  const unitById = new Map(units.map((unit) => [unit.id, unit]));
+function levelsOf(stepIds: readonly string[], afterIdsByStepId: ReadonlyMap<string, readonly string[]>): Map<string, number> {
   const levelById = new Map<string, number>();
   const visiting = new Set<string>();
-  function levelOf(unitId: string): number {
-    const known = levelById.get(unitId);
+  function levelOf(stepId: string): number {
+    const known = levelById.get(stepId);
     if (known !== undefined) return known;
-    const unit = unitById.get(unitId);
-    if (!unit || visiting.has(unitId)) return 0;
-    visiting.add(unitId);
-    const level = 1 + Math.max(0, ...unit.after.map(levelOf));
-    visiting.delete(unitId);
-    levelById.set(unitId, level);
+    if (visiting.has(stepId)) return 0;
+    visiting.add(stepId);
+    const level = 1 + Math.max(0, ...(afterIdsByStepId.get(stepId) ?? []).map(levelOf));
+    visiting.delete(stepId);
+    levelById.set(stepId, level);
     return level;
   }
-  for (const unit of units) levelOf(unit.id);
+  for (const stepId of stepIds) levelOf(stepId);
   return levelById;
 }
 
 function planSteps(board: Board): PlanStep[] {
-  const units = unitsOf(board);
-  const levelById = levelsOf(units);
-  const unitsByLevel = new Map<number, Unit[]>();
-  for (const unit of units) {
-    const level = levelById.get(unit.id) ?? 1;
-    unitsByLevel.set(level, [...(unitsByLevel.get(level) ?? []), unit]);
+  const steps = stepBoxesOf(board);
+  const afterIdsByStepId = afterIdsByStepIdOf(board, new Set(steps.map((step) => step.id)));
+  const levelById = levelsOf(steps.map((step) => step.id), afterIdsByStepId);
+  const stepsByLevel = new Map<number, StepBox[]>();
+  for (const step of steps) {
+    const level = levelById.get(step.id) ?? 1;
+    stepsByLevel.set(level, [...(stepsByLevel.get(level) ?? []), step]);
   }
   const labelById = new Map<string, string>();
-  const orderedUnits: Unit[] = [];
-  for (const level of [...unitsByLevel.keys()].sort((left, right) => left - right)) {
-    const unitsAtLevel = (unitsByLevel.get(level) ?? []).sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id));
-    for (const [index, unit] of unitsAtLevel.entries()) {
-      labelById.set(unit.id, unitsAtLevel.length === 1 ? String(level) : `${level}${letterFor(index)}`);
-      orderedUnits.push(unit);
+  const orderedSteps: StepBox[] = [];
+  for (const level of [...stepsByLevel.keys()].sort((left, right) => left - right)) {
+    const stepsAtLevel = (stepsByLevel.get(level) ?? []).sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id));
+    for (const [index, step] of stepsAtLevel.entries()) {
+      labelById.set(step.id, stepsAtLevel.length === 1 ? String(level) : `${level}${letterFor(index)}`);
+      orderedSteps.push(step);
     }
   }
-  return orderedUnits.map((unit) => ({
-    unitId: unit.id,
-    title: unit.title,
-    status: unit.status,
-    level: levelById.get(unit.id) ?? 1,
-    label: labelById.get(unit.id) ?? '',
-    afterLabels: unit.after.flatMap((afterId) => labelById.get(afterId) ?? []),
-    linkedBoardId: unit.linkedBoardId,
+  return orderedSteps.map((step) => ({
+    boxId: step.id,
+    title: step.title,
+    status: step.step.status,
+    level: levelById.get(step.id) ?? 1,
+    label: labelById.get(step.id) ?? '',
+    afterLabels: (afterIdsByStepId.get(step.id) ?? []).flatMap((afterId) => labelById.get(afterId) ?? []),
+    linkedBoardId: step.step.linkedBoardId,
   }));
 }
 
-function findDependencyCycle(board: Board): string[] | null {
-  const unitById = new Map(unitsOf(board).map((unit) => [unit.id, unit]));
-  const finished = new Set<string>();
-  const path: string[] = [];
-  function walk(unitId: string): string[] | null {
-    const loopStart = path.indexOf(unitId);
-    if (loopStart !== -1) return [...path.slice(loopStart), unitId];
-    if (finished.has(unitId)) return null;
-    path.push(unitId);
-    for (const afterId of unitById.get(unitId)?.after ?? []) {
-      const cycle = walk(afterId);
-      if (cycle) return cycle;
-    }
-    path.pop();
-    finished.add(unitId);
-    return null;
+function dependencyWireId(fromId: string, toId: string, takenIds: ReadonlySet<string>): string {
+  const base = `${fromId}-to-${toId}`.slice(0, MAX_ELEMENT_ID_LENGTH).replace(/-+$/, '');
+  if (!takenIds.has(base)) return base;
+  for (let suffix = 2; ; suffix += 1) {
+    const ending = `-${suffix}`;
+    const candidate = `${base.slice(0, MAX_ELEMENT_ID_LENGTH - ending.length).replace(/-+$/, '')}${ending}`;
+    if (!takenIds.has(candidate)) return candidate;
   }
-  for (const unitId of unitById.keys()) {
-    const cycle = walk(unitId);
-    if (cycle) return cycle;
-  }
-  return null;
 }
 
-export { findDependencyCycle, planSteps, unitsOf };
+function dependencyWireIdsInto(board: Board, stepId: string): string[] {
+  const stepIds = new Set(stepBoxesOf(board).map((step) => step.id));
+  return Object.values(board.elements).flatMap((element) => (element.kind === 'wire' && element.to === stepId && element.from !== stepId && stepIds.has(element.from) ? [element.id] : []));
+}
+
+export { dependencyWireId, dependencyWireIdsInto, planSteps, stepBoxesOf };
+export type { PlanStep, StepBox };

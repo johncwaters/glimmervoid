@@ -5,7 +5,7 @@ import type { BoardLayout, LaidOutElement, LaidOutMedia } from '#shared/whiteboa
 import type { BoardMediaLayer } from './board-media-layer.ts';
 import { arrowDefinitionsMarkup, chromeMarkup, elementMarkup, SVG_NAMESPACE } from '#shared/whiteboard-svg-core.ts';
 
-type LayerName = 'frames' | 'wires' | 'boxes' | 'notes' | 'units';
+type LayerName = 'frames' | 'wires' | 'boxes' | 'notes';
 
 interface RenderedElement {
   signature: string;
@@ -14,10 +14,10 @@ interface RenderedElement {
 
 interface ReviewMarks {
   worthALookIds: ReadonlySet<string>;
-  flaggedUnitIds: ReadonlySet<string>;
+  flaggedStepIds: ReadonlySet<string>;
 }
 
-const NO_REVIEW_MARKS: ReviewMarks = { worthALookIds: new Set(), flaggedUnitIds: new Set() };
+const NO_REVIEW_MARKS: ReviewMarks = { worthALookIds: new Set(), flaggedStepIds: new Set() };
 const LOOK_MARKER_RADIUS = 9;
 
 interface WorldArea {
@@ -117,9 +117,9 @@ function servedAssetHref(media: LaidOutMedia): string | null {
   return drawnFilename ? `${WHITEBOARD_ASSET_ROUTE}/${drawnFilename}` : null;
 }
 
-const LAYER_BY_KIND: Record<LaidOutElement['kind'], LayerName> = { frame: 'frames', wire: 'wires', box: 'boxes', panel: 'boxes', note: 'notes', unit: 'units' };
-const PAINT_ORDER: readonly LayerName[] = ['frames', 'wires', 'boxes', 'notes', 'units'];
-const ELEMENT_KINDS = ['box', 'frame', 'wire', 'note', 'unit', 'panel'] as const;
+const LAYER_BY_KIND: Record<LaidOutElement['kind'], LayerName> = { frame: 'frames', wire: 'wires', box: 'boxes', panel: 'boxes', note: 'notes' };
+const PAINT_ORDER: readonly LayerName[] = ['frames', 'wires', 'boxes', 'notes'];
+const ELEMENT_KINDS = ['box', 'frame', 'wire', 'note', 'panel'] as const;
 
 export function createBoardRenderer(svg: SVGSVGElement, mediaLayer: BoardMediaLayer, options: BoardRendererOptions): BoardRenderer {
   const layers: Record<LayerName, SVGGElement> = {
@@ -127,7 +127,6 @@ export function createBoardRenderer(svg: SVGSVGElement, mediaLayer: BoardMediaLa
     wires: svgNode('g', 'wb-layer'),
     boxes: svgNode('g', 'wb-layer'),
     notes: svgNode('g', 'wb-layer'),
-    units: svgNode('g', 'wb-layer'),
   };
   let chrome = svgNode('g');
   svg.replaceChildren(...nodesFromMarkup(arrowDefinitionsMarkup()), chrome, ...PAINT_ORDER.map((layerName) => layers[layerName]));
@@ -173,7 +172,7 @@ export function createBoardRenderer(svg: SVGSVGElement, mediaLayer: BoardMediaLa
   }
 
   function paintReviewMarks(element: LaidOutElement, node: SVGGElement): void {
-    node.classList.toggle('is-flagged', reviewMarks.flaggedUnitIds.has(element.id));
+    node.classList.toggle('is-flagged', reviewMarks.flaggedStepIds.has(element.id));
     const existingMarker = node.querySelector(':scope > .wb-look-marker');
     if (element.kind === 'wire' || !reviewMarks.worthALookIds.has(element.id)) {
       existingMarker?.remove();

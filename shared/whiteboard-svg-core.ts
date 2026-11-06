@@ -1,5 +1,5 @@
 import { escapeMarkup } from './escape-markup.ts';
-import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutMedia, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutPanel, LaidOutUnit, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
+import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutMedia, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutPanel, LaidOutStep, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const BOX_TEXT_INSET = 12;
@@ -9,8 +9,8 @@ const BODY_LINE_HEIGHT = 18;
 const NOTE_LINE_HEIGHT = 17;
 const MUTED_INDENT = 14;
 const COLUMN_TITLE_LINE_HEIGHT = 16;
-const UNIT_LABEL_BASELINE = 24;
-const UNIT_LABEL_HEIGHT = 18;
+const STEP_LABEL_BASELINE = 22;
+const STEP_HEADER_HEIGHT = 18;
 const PLAN_TITLE = 'Plan';
 const LINKED_BOARD_TEXT = 'open linked board';
 const PORT_RADIUS = 5;
@@ -59,12 +59,12 @@ svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospac
 .wb-output-dot { fill: #a79fc4; }
 .wb-lane-pill { fill: transparent; stroke-width: 1.2; }
 .wb-lane-pill-text { font-size: 12px; font-weight: 700; }
-.wb-unit-outline { fill: #15122a; stroke: #c084fc; stroke-width: 1.6; }
-.wb-unit-label, .wb-unit-link { fill: #c084fc; font-size: 12px; font-weight: 700; }
-.wb-unit-status { fill: #a79fc4; font-size: 11px; }
-.wb-unit-planned { fill: #a79fc4; }
-.wb-unit-building { fill: #f59e0b; }
-.wb-unit-landed { fill: #22c55e; }
+.wb-step .wb-box-outline, .wb-step-swatch { stroke: #c084fc; }
+.wb-step-label, .wb-step-link { fill: #c084fc; font-size: 12px; font-weight: 700; }
+.wb-step-status { fill: #a79fc4; font-size: 11px; }
+.wb-step-planned { fill: #a79fc4; }
+.wb-step-building { fill: #f59e0b; }
+.wb-step-landed { fill: #22c55e; }
 .wb-frame-outline { fill: rgba(192, 132, 252, 0.04); stroke: #4a4268; stroke-width: 1.4; stroke-dasharray: 10 6; }
 .wb-frame-title { fill: #a79fc4; font-size: 12px; font-weight: 700; }
 .wb-loop .wb-frame-outline { stroke: #c084fc; }
@@ -181,6 +181,13 @@ function mediaMarkup(media: LaidOutMedia, assetHref: AssetHref): string[] {
   ];
 }
 
+function stepHeaderMarkup(box: LaidOutBox, step: LaidOutStep): string[] {
+  return [
+    text(step.label, box.x + BOX_TEXT_INSET, box.y + STEP_LABEL_BASELINE, 'wb-step-label'),
+    text(step.status, box.x + box.width - BOX_TEXT_INSET, box.y + STEP_LABEL_BASELINE, `wb-step-status wb-step-${step.status}`, { 'text-anchor': 'end' }),
+  ];
+}
+
 function boxMarkup(box: LaidOutBox, assetHref: AssetHref): string {
   const parts = [boxOutlineMarkup(box), ...outputRowsMarkup(box)];
   const midX = box.x + box.width / 2;
@@ -188,15 +195,20 @@ function boxMarkup(box: LaidOutBox, assetHref: AssetHref): string {
   for (const [cx, cy] of [[midX, box.y], [box.x + box.width, midY], [midX, box.y + box.height], [box.x, midY]] as const) {
     parts.push(tag('circle', { cx, cy, r: PORT_RADIUS, class: 'wb-port' }));
   }
+  const stepHeaderHeight = box.step ? STEP_HEADER_HEIGHT : 0;
+  if (box.step) parts.push(...stepHeaderMarkup(box, box.step));
   box.wasLines.forEach((line, index) => {
-    parts.push(text(line, box.x + BOX_TEXT_INSET, box.y + TITLE_BASELINE + index * TITLE_LINE_HEIGHT, 'wb-box-was'));
+    parts.push(text(line, box.x + BOX_TEXT_INSET, box.y + TITLE_BASELINE + stepHeaderHeight + index * TITLE_LINE_HEIGHT, 'wb-box-was'));
   });
-  const titleTop = box.y + TITLE_BASELINE + box.wasLines.length * TITLE_LINE_HEIGHT;
+  const titleTop = box.y + TITLE_BASELINE + stepHeaderHeight + box.wasLines.length * TITLE_LINE_HEIGHT;
   box.titleLines.forEach((line, index) => {
     parts.push(text(line, box.x + BOX_TEXT_INSET, titleTop + index * TITLE_LINE_HEIGHT, 'wb-box-title'));
   });
   const bodyTop = titleTop + box.titleLines.length * TITLE_LINE_HEIGHT;
   parts.push(...bodyLinesMarkup(box.bodyLines, box.x, box.width, bodyTop));
+  if (box.step?.linkedBoardId) {
+    parts.push(text(LINKED_BOARD_TEXT, box.x + BOX_TEXT_INSET, bodyTop + box.bodyLines.length * BODY_LINE_HEIGHT, 'wb-step-link', { 'data-linked-board-id': box.step.linkedBoardId }));
+  }
   if (box.media) parts.push(...mediaMarkup(box.media, assetHref));
   if (box.lane && box.showsLanePill) {
     const pillY = box.y + box.headerHeight - 28;
@@ -207,7 +219,8 @@ function boxMarkup(box: LaidOutBox, assetHref: AssetHref): string {
     );
   }
   parts.push(tag('rect', { x: box.x + box.width - RESIZE_HANDLE_SIZE, y: box.y + box.height - RESIZE_HANDLE_SIZE, width: RESIZE_HANDLE_SIZE, height: RESIZE_HANDLE_SIZE, rx: 2, class: 'wb-resize-handle' }));
-  return elementGroup(box, box.change === 'none' ? 'wb-box' : `wb-box wb-change-${box.change}`, parts);
+  const stepClass = box.step ? ' wb-step' : '';
+  return elementGroup(box, box.change === 'none' ? `wb-box${stepClass}` : `wb-box${stepClass} wb-change-${box.change}`, parts);
 }
 
 function loopBadgeMarkup(frame: LaidOutFrame): string {
@@ -246,31 +259,12 @@ function noteMarkup(note: LaidOutNote): string {
   return elementGroup(note, note.isResolved ? 'wb-note wb-resolved' : 'wb-note', parts);
 }
 
-function unitMarkup(unit: LaidOutUnit): string {
-  const parts = [
-    tag('rect', { x: unit.x, y: unit.y, width: unit.width, height: unit.height, rx: 8, class: 'wb-unit-outline' }),
-    text(unit.label, unit.x + BOX_TEXT_INSET, unit.y + UNIT_LABEL_BASELINE, 'wb-unit-label'),
-    text(unit.status, unit.x + unit.width - BOX_TEXT_INSET, unit.y + UNIT_LABEL_BASELINE, `wb-unit-status wb-unit-${unit.status}`, { 'text-anchor': 'end' }),
-  ];
-  const titleTop = unit.y + UNIT_LABEL_BASELINE + UNIT_LABEL_HEIGHT;
-  unit.titleLines.forEach((line, index) => {
-    parts.push(text(line, unit.x + BOX_TEXT_INSET, titleTop + index * TITLE_LINE_HEIGHT, 'wb-box-title'));
-  });
-  const bodyTop = titleTop + unit.titleLines.length * TITLE_LINE_HEIGHT;
-  parts.push(...bodyLinesMarkup(unit.bodyLines, unit.x, unit.width, bodyTop));
-  if (unit.linkedBoardId) {
-    parts.push(text(LINKED_BOARD_TEXT, unit.x + BOX_TEXT_INSET, bodyTop + unit.bodyLines.length * BODY_LINE_HEIGHT, 'wb-unit-link', { 'data-linked-board-id': unit.linkedBoardId }));
-  }
-  return elementGroup(unit, 'wb-unit', parts);
-}
-
 function elementMarkup(element: LaidOutElement, assetHref: AssetHref = NO_ASSET_HREF): string {
   switch (element.kind) {
     case 'box': return boxMarkup(element, assetHref);
     case 'frame': return frameMarkup(element);
     case 'wire': return wireMarkup(element);
     case 'note': return noteMarkup(element);
-    case 'unit': return unitMarkup(element);
     case 'panel': return panelMarkup(element);
   }
 }
@@ -295,7 +289,6 @@ function chromeMarkup(layout: BoardLayout): string {
   const parts: string[] = [];
   if (layout.plan) {
     parts.push(text(PLAN_TITLE, layout.plan.titleAt.x, layout.plan.titleAt.y, 'wb-column-title'));
-    for (const arrowPath of layout.plan.arrowPaths) parts.push(tag('path', { d: arrowPath, 'marker-end': 'url(#wb-arrow)', class: 'wb-wire-line' }));
   }
   for (const band of layout.bands) {
     parts.push(tag('line', { x1: band.x, y1: band.y, x2: band.x + band.width, y2: band.y, class: 'wb-band-rule' }));
@@ -316,7 +309,7 @@ function chromeMarkup(layout: BoardLayout): string {
 function legendSwatchMarkup(entry: BoardLayout['legend'][number]): string {
   const { swatch } = entry;
   if (swatch.kind === 'lane') return tag('rect', { x: entry.x, y: entry.y, width: 14, height: 14, rx: 3, class: 'wb-legend-swatch', style: `fill:${swatch.hex}` });
-  if (swatch.kind === 'status') return tag('rect', { x: entry.x, y: entry.y, width: 14, height: 14, rx: 3, class: `wb-legend-swatch wb-unit-outline wb-unit-${swatch.status}` });
+  if (swatch.kind === 'status') return tag('rect', { x: entry.x, y: entry.y, width: 14, height: 14, rx: 3, class: `wb-legend-swatch wb-step-swatch wb-step-${swatch.status}` });
   if (swatch.kind === 'change') return tag('g', { class: `wb-change-${swatch.change}` }, tag('rect', { x: entry.x, y: entry.y, width: LEGEND_SAMPLE_WIDTH, height: 14, rx: 3, class: 'wb-legend-swatch wb-box-outline' }));
   const sample = tag('path', { d: `M${entry.x},${entry.y + 7} H${entry.x + LEGEND_SAMPLE_WIDTH}`, 'marker-end': 'url(#wb-arrow)', class: swatch.isDashed ? 'wb-wire-line wb-dashed' : 'wb-wire-line' });
   return tag('g', { class: swatch.isBack ? `wb-back wb-tone-${swatch.tone}` : `wb-tone-${swatch.tone}` }, sample);
@@ -332,7 +325,7 @@ function arrowDefinitionsMarkup(): string {
   return tag('defs', {}, tag('marker', { id: 'wb-arrow', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 8, markerHeight: 8, orient: 'auto-start-reverse' }, arrowhead));
 }
 
-const LAYER_ORDER: readonly LaidOutElement['kind'][] = ['frame', 'wire', 'box', 'panel', 'note', 'unit'];
+const LAYER_ORDER: readonly LaidOutElement['kind'][] = ['frame', 'wire', 'box', 'panel', 'note'];
 
 function boardSvgDocument(layout: BoardLayout, assetHref: AssetHref = NO_ASSET_HREF): string {
   const { x, y, width, height } = layout.bounds;

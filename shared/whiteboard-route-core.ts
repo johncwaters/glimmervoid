@@ -1356,5 +1356,5 @@ function routeWires(input: RouteInput, previous: RouteMemory | null): RouteResul
   };
 }
 
-export { cappedWarningLists, cappedWarnings, warningListOf, labelWidthOf, pathOf, previewWires, rectsOverlap, routeWires, unionOf, withoutBends };
+export { cappedWarningLists, cappedWarnings, warningListOf, labelWidthOf, pathOf, previewWires, rectsOverlap, routeWires, unionOf };
 export type { Point, RouteMemory };

@@ -1,9 +1,9 @@
-import { Box, Frame, Note, Panel, Unit, Wire, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
+import { Box, Frame, Note, Panel, Wire, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Board, BoardChange, Element, Op } from './contracts/whiteboard.ts';
+import { isRecord } from './coerce.ts';
 import { layoutBoard } from './whiteboard-layout-core.ts';
 import type { LaidOutBox } from './whiteboard-layout-core.ts';
 import type { BoardDiff, ElementChange } from './contracts/control/whiteboard-messages.ts';
-import { findDependencyCycle, unitsOf } from './whiteboard-plan-core.ts';
 
 type Author = { id: string; name: string };
 type ApplyResult = { ok: true; board: Board; changes: BoardChange[]; diff: BoardDiff } | { ok: false; error: string; opIndex: number };
@@ -11,7 +11,7 @@ type OpOutcome = { ok: true } | { ok: false; error: string };
 type PinPositions = { laidOutBoxById: ReadonlyMap<string, LaidOutBox>; pinnedOffsetY: number };
 type Draft = { board: Board; elementCount: number; pinPositions: PinPositions | null; dependentIdsByBoxId: ReadonlyMap<string, ReadonlySet<string>> | null };
 
-const ELEMENT_SCHEMAS = Object.freeze({ box: Box, frame: Frame, wire: Wire, note: Note, unit: Unit, panel: Panel });
+const ELEMENT_SCHEMAS = Object.freeze({ box: Box, frame: Frame, wire: Wire, note: Note, panel: Panel });
 const NOTE_PREVIEW_CHARS = 80;
 const OK: OpOutcome = { ok: true };
 const DIFFED_BOARD_FIELDS = ['title', 'caption', 'legend', 'columns', 'lanes', 'codeSessionId'] as const;
@@ -36,7 +36,6 @@ function isBox(board: Board, id: string): boolean {
 
 function checkReferences(board: Board, element: Element, previous: Element | undefined): OpOutcome {
   if (element.kind === 'box') return checkBoxReferences(board, element, previous);
-  if (element.kind === 'unit') return checkUnitReferences(board, element);
   if (element.kind === 'wire') {
     if (!isBox(board, element.from)) return refuse(`wire ${element.id} starts at ${element.from}, which is not a box`);
     if (!isBox(board, element.to)) return refuse(`wire ${element.id} ends at ${element.to}, which is not a box`);
@@ -75,7 +74,7 @@ function checkBoxReferences(board: Board, box: Box, previous: Element | undefine
   const outputs = checkBoxOutputs(board, box, previous);
   if (!outputs.ok) return outputs;
   if (box.change === 'relabeled' && !box.was) return refuse(`box ${box.id} is relabeled, so give its old title in was`);
-  if (box.column === null && box.near === null && box.at === null) {
+  if (box.step === null && box.column === null && box.near === null && box.at === null) {
     return refuse(`box ${box.id} needs a place: a column, near another box, or at a point`);
   }
   if (box.column !== null && !board.columns.some((column) => column.id === box.column)) {
@@ -103,18 +102,10 @@ function nearChainReaches(board: Board, startId: string, soughtId: string): bool
   return false;
 }
 
-function checkUnitReferences(board: Board, unit: Unit): OpOutcome {
-  if (unit.after.includes(unit.id)) return refuse(`unit ${unit.id} cannot come after itself`);
-  const strangerId = unit.after.find((id) => board.elements[id]?.kind !== 'unit');
-  if (strangerId) return refuse(`unit ${unit.id} comes after ${strangerId}, which is not a unit on this board`);
-  return OK;
-}
-
 function addElement(draft: Draft, element: Element, author: Author): OpOutcome {
   const { board } = draft;
   if (board.elements[element.id]) return refuse(`an element with id ${element.id} already exists`);
   if (draft.elementCount >= WHITEBOARD_LIMITS.elements) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.elements} elements`);
-  if (element.kind === 'unit' && unitsOf(board).length >= WHITEBOARD_LIMITS.units) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.units} units`);
   const stored: Element = element.kind === 'note' ? storedNote(element, author) : element;
   const references = checkReferences(board, stored, undefined);
   if (!references.ok) return references;
@@ -128,9 +119,15 @@ function rewrittenNoteStamp(existing: Element, fields: Record<string, unknown>, 
   return { author: author.name, resolvedBy: null };
 }
 
-function setFields(board: Board, id: string, fields: Record<string, unknown>, author: Author): OpOutcome {
+function withStepMerged(existing: Element, fields: Record<string, unknown>): Record<string, unknown> {
+  if (existing.kind !== 'box' || existing.step === null || !isRecord(fields.step)) return fields;
+  return { ...fields, step: { ...existing.step, ...fields.step } };
+}
+
+function setFields(board: Board, id: string, rawFields: Record<string, unknown>, author: Author): OpOutcome {
   const existing = board.elements[id];
   if (!existing) return refuse(`no element has id ${id}`);
+  const fields = withStepMerged(existing, rawFields);
   if ('kind' in fields || 'id' in fields) return refuse('set cannot change an element kind or id; remove it and add a new one');
   if (!canKeepNoteStamps(author) && ('author' in fields || 'resolvedBy' in fields)) return refuse('set cannot change who wrote or resolved a note; resolve it with a resolve op');
   const parsed = ELEMENT_SCHEMAS[existing.kind].safeParse({ ...existing, ...rewrittenNoteStamp(existing, fields, author), ...fields });
@@ -181,12 +178,6 @@ function removeElement(draft: Draft, id: string): OpOutcome {
   if (!existing) return refuse(`no element has id ${id}`);
   if (existing.kind === 'box') pinBoxesNear(draft, id);
   deleteElement(draft, id);
-  if (existing.kind === 'unit') {
-    for (const unit of unitsOf(board)) {
-      if (unit.after.includes(id)) board.elements[unit.id] = { ...unit, after: unit.after.filter((afterId) => afterId !== id) };
-    }
-    return OK;
-  }
   if (existing.kind !== 'box') return OK;
   for (const dependent of currentDependentsOf(draft, id)) removeDependent(draft, dependent, id);
   return OK;
@@ -295,8 +286,6 @@ function applyOps(board: Board, ops: readonly Op[], author: Author, nowMs: numbe
     if (!outcome.ok) return { ok: false, error: `op ${opIndex + 1}: ${outcome.error}`, opIndex };
     changes.push({ version, author: author.id, elementId, summary: `${author.name} ${describeOp(op, previous, draft.board)}` });
   }
-  const cycle = findDependencyCycle(draft.board);
-  if (cycle) return { ok: false, error: `that makes a dependency cycle: ${cycle.join(', ')}`, opIndex: ops.length - 1 };
   return { ok: true, board: { ...draft.board, version, updatedAt: nowMs }, changes, diff: diffOf(board, draft.board) };
 }
 
@@ -375,23 +364,24 @@ function changedElementId(op: Op): string | null {
 
 function nameOf(board: Board, id: string, element: Element | undefined = board.elements[id]): string {
   if (!element) return id;
-  if (element.kind === 'box' || element.kind === 'frame' || element.kind === 'unit' || element.kind === 'panel') return `"${element.title || id}"`;
+  if (element.kind === 'box' || element.kind === 'frame' || element.kind === 'panel') return `"${element.title || id}"`;
   if (element.kind === 'wire') return `wire ${nameOf(board, element.from)} to ${nameOf(board, element.to)}`;
   return `note ${id}`;
 }
 
-function describeUnitAfter(board: Board, unitId: string, afterIds: readonly string[]): string {
-  if (afterIds.length === 0) return `cleared what ${nameOf(board, unitId)} comes after`;
-  return `set ${nameOf(board, unitId)} to come after ${afterIds.map((afterId) => nameOf(board, afterId)).join(', ')}`;
+function describeStepChange(name: string, before: Box['step'], after: Box['step']): string {
+  if (after === null) return `made ${name} no longer a plan step`;
+  if (before === null) return `made ${name} a plan step`;
+  if (before.status !== after.status) return `marked ${name} ${after.status}`;
+  if (after.linkedBoardId === null) return `unlinked ${name} from its board`;
+  return `linked ${name} to a board`;
 }
 
 function describeSet(op: Extract<Op, { op: 'set' }>, previous: Element | undefined, after: Board): string {
   const fieldNames = Object.keys(op.fields);
   const afterElement = after.elements[op.id];
   if (fieldNames.length === 1 && fieldNames[0] === 'at') return `moved ${nameOf(after, op.id)}`;
-  if (fieldNames.length === 1 && fieldNames[0] === 'linkedBoardId') return afterElement?.kind === 'unit' && afterElement.linkedBoardId === null ? `unlinked ${nameOf(after, op.id)} from its board` : `linked ${nameOf(after, op.id)} to a board`;
-  if (fieldNames.length === 1 && fieldNames[0] === 'after' && afterElement?.kind === 'unit') return describeUnitAfter(after, afterElement.id, afterElement.after);
-  if (fieldNames.length === 1 && fieldNames[0] === 'status' && afterElement?.kind === 'unit') return `marked ${nameOf(after, op.id)} ${afterElement.status}`;
+  if (fieldNames.length === 1 && fieldNames[0] === 'step' && previous?.kind === 'box' && afterElement?.kind === 'box') return describeStepChange(nameOf(after, op.id), previous.step, afterElement.step);
   if (previous?.kind === 'box' && afterElement?.kind === 'box' && fieldNames.length === 1 && fieldNames[0] === 'title') {
     return `renamed "${previous.title}" to "${afterElement.title}"`;
   }

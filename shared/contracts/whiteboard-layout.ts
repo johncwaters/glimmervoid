@@ -1,13 +1,13 @@
 import { z } from 'zod';
 
 import type { BoardLayout } from '../whiteboard-layout-core.ts';
-import { BOX_CHANGES, Box, BoxLine, BoxMedia, UNIT_STATUSES, Wire } from './whiteboard.ts';
+import { BOX_CHANGES, Box, BoxLine, BoxMedia, STEP_STATUSES, Wire } from './whiteboard.ts';
 
 const Point = z.object({ x: z.number(), y: z.number() }).strict();
 const RectFields = { x: z.number(), y: z.number(), width: z.number(), height: z.number() };
 const BoxChange = z.enum(BOX_CHANGES);
 const WireTone = Wire.shape.tone.unwrap();
-const UnitStatus = z.enum(UNIT_STATUSES);
+const StepStatus = z.enum(STEP_STATUSES);
 
 const LaidOutLine = z.object({
   text: z.string(),
@@ -32,6 +32,7 @@ const LaidOutBox = z.object({
   headerHeight: z.number(),
   outputs: z.array(z.object({ id: z.string(), label: z.string(), port: Point }).strict()),
   media: z.object({ ...RectFields, kind: BoxMedia.shape.kind, asset: z.string(), mime: BoxMedia.shape.mime, hasPreview: z.boolean(), alt: z.string() }).strict().nullable(),
+  step: z.object({ label: z.string(), status: StepStatus, linkedBoardId: z.string().nullable() }).strict().nullable(),
 }).strict();
 
 const LaidOutFrame = z.object({ kind: z.literal('frame'), id: z.string(), ...RectFields, title: z.string(), isLoop: z.boolean() }).strict();
@@ -54,33 +55,22 @@ const LaidOutWire = z.object({
 
 const LaidOutNote = z.object({ kind: z.literal('note'), id: z.string(), ...RectFields, lines: z.array(z.string()), byline: z.string(), isResolved: z.boolean() }).strict();
 
-const LaidOutUnit = z.object({
-  kind: z.literal('unit'),
-  id: z.string(),
-  ...RectFields,
-  label: z.string(),
-  status: UnitStatus,
-  titleLines: z.array(z.string()),
-  bodyLines: z.array(LaidOutLine),
-  linkedBoardId: z.string().nullable(),
-}).strict();
-
 const LaidOutPanel = z.object({ kind: z.literal('panel'), id: z.string(), ...RectFields, titleLines: z.array(z.string()), bodyLines: z.array(LaidOutLine) }).strict();
 
 const LegendSwatch = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('lane'), hex: z.string() }).strict(),
   z.object({ kind: z.literal('wire'), tone: WireTone, isDashed: z.boolean(), isBack: z.boolean() }).strict(),
   z.object({ kind: z.literal('change'), change: BoxChange.exclude(['none']) }).strict(),
-  z.object({ kind: z.literal('status'), status: UnitStatus }).strict(),
+  z.object({ kind: z.literal('status'), status: StepStatus }).strict(),
 ]);
 
 export const LaidOutBoard: z.ZodType<BoardLayout> = z.object({
   columns: z.array(z.object({ id: z.string(), titleLines: z.array(z.string()), titleBaselineY: z.number(), ruleY: z.number(), x: z.number(), width: z.number() }).strict()),
   bands: z.array(z.object({ id: z.string(), label: z.string(), hex: z.string(), ...RectFields }).strict()),
-  elements: z.array(z.discriminatedUnion('kind', [LaidOutBox, LaidOutFrame, LaidOutWire, LaidOutNote, LaidOutUnit, LaidOutPanel])),
+  elements: z.array(z.discriminatedUnion('kind', [LaidOutBox, LaidOutFrame, LaidOutWire, LaidOutNote, LaidOutPanel])),
   legend: z.array(z.object({ label: z.string(), x: z.number(), y: z.number(), swatch: LegendSwatch }).strict()),
   caption: z.object({ text: z.string(), x: z.number(), y: z.number() }).strict().nullable(),
-  plan: z.object({ titleAt: Point, arrowPaths: z.array(z.string()) }).strict().nullable(),
+  plan: z.object({ titleAt: Point }).strict().nullable(),
   pinnedOffsetY: z.number(),
   bounds: z.object(RectFields).strict(),
   warnings: z.array(z.string()),

@@ -4,6 +4,7 @@ import type { Rect as BoardBounds } from '../../shared/whiteboard-layout-core.ts
 import type { ApplyResult } from '../../shared/whiteboard-ops-core.ts';
 import type { AgentNote } from '../../shared/contracts/hooks.ts';
 import { isRecord } from '../../shared/coerce.ts';
+import { dependencyWireId } from '../../shared/whiteboard-plan-core.ts';
 
 function elementWithMediaForImage(element: unknown): unknown {
   if (!isRecord(element) || !('image' in element)) return element;
@@ -12,10 +13,36 @@ function elementWithMediaForImage(element: unknown): unknown {
   return { ...elementWithoutImage, media: { kind: 'image', mime: 'image/webp', hasPreview: false, ...image } };
 }
 
-function boardRecordWithMediaForImages(raw: unknown): unknown {
+function stepBoxForUnit(unit: Record<string, unknown>): Record<string, unknown> {
+  return {
+    kind: 'box', id: unit.id, title: unit.title, lines: unit.lines ?? [], refs: unit.refs ?? [],
+    step: { status: unit.status ?? 'planned', linkedBoardId: unit.linkedBoardId ?? null },
+  };
+}
+
+function elementsWithStepBoxesForUnits(elements: Record<string, unknown>): Record<string, unknown> {
+  const takenIds = new Set(Object.keys(elements));
+  const upgraded: Record<string, unknown> = {};
+  for (const [elementId, element] of Object.entries(elements)) {
+    if (!isRecord(element) || element.kind !== 'unit') {
+      upgraded[elementId] = element;
+      continue;
+    }
+    upgraded[elementId] = stepBoxForUnit(element);
+    const afterIds = Array.isArray(element.after) ? element.after.filter((afterId) => typeof afterId === 'string') : [];
+    for (const afterId of afterIds) {
+      const wireId = dependencyWireId(afterId, elementId, takenIds);
+      takenIds.add(wireId);
+      upgraded[wireId] = { kind: 'wire', id: wireId, from: afterId, to: elementId };
+    }
+  }
+  return upgraded;
+}
+
+function upgradedBoardRecord(raw: unknown): unknown {
   const board = isRecord(raw) ? raw.board : null;
   if (!isRecord(raw) || !isRecord(board) || !isRecord(board.elements)) return raw;
-  const elements = Object.fromEntries(Object.entries(board.elements).map(([elementId, element]) => [elementId, elementWithMediaForImage(element)]));
+  const elements = Object.fromEntries(Object.entries(elementsWithStepBoxesForUnits(board.elements)).map(([elementId, element]) => [elementId, elementWithMediaForImage(element)]));
   return { ...raw, board: { ...board, elements } };
 }
 
@@ -168,4 +195,4 @@ function shownBoxOp(board: Board, contentBounds: BoardBounds, card: ShownCard): 
 }
 
 export { pickShowBoardId, shownBoxOp };
-export { BOARD_CONTEXT_NOTE, boardRecordWithMediaForImages, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, recordPut, resolveBoardRef, summarizeBoard };
+export { BOARD_CONTEXT_NOTE, upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, recordPut, resolveBoardRef, summarizeBoard };

@@ -23,6 +23,23 @@ async function addPlanStep(panel: Locator): Promise<void> {
   await panel.page().getByRole('menuitem', { name: 'plan step', exact: true }).click();
 }
 
+async function verifyStepStaysWhereDropped(page: Page, panel: Locator, stepOnBoard: Locator): Promise<void> {
+  const bandBounds = await stepOnBoard.locator('.wb-box-outline').boundingBox();
+  assert.ok(bandBounds);
+  await page.mouse.move(bandBounds.x + bandBounds.width / 2, bandBounds.y + bandBounds.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(bandBounds.x + bandBounds.width / 2 + 120, bandBounds.y + bandBounds.height / 2 + 220, { steps: 8 });
+  const droppedBounds = await stepOnBoard.locator('.wb-box-outline').boundingBox();
+  assert.ok(droppedBounds);
+  const versionBeforeDrop = await panel.locator('.wb-board-meta').textContent();
+  await page.mouse.up();
+  await page.waitForFunction((before) => document.querySelector('.wb-board-meta')?.textContent !== before, versionBeforeDrop);
+  const restingBounds = await stepOnBoard.locator('.wb-box-outline').boundingBox();
+  assert.ok(restingBounds);
+  assert.ok(droppedBounds.y - bandBounds.y > 100, `dragging a plan step moves it out of the band, moved ${droppedBounds.y - bandBounds.y}px`);
+  assert.ok(Math.abs(restingBounds.x - droppedBounds.x) < 2 && Math.abs(restingBounds.y - droppedBounds.y) < 2, `a dropped plan step stays where it was dropped, drifted ${restingBounds.x - droppedBounds.x}, ${restingBounds.y - droppedBounds.y}px`);
+}
+
 async function placeBoxWithTool(page: Page, panel: Locator, offset: { x: number; y: number }, title: string): Promise<void> {
   const canvasBox = await panel.locator('.wb-canvas').boundingBox();
   assert.ok(canvasBox);
@@ -521,12 +538,14 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await panel.locator('.wb-box', { hasText: 'second edited' }).waitFor();
     assert.equal(await panel.locator('.wb-box', { hasText: 'first edited' }).count(), 1, 'a second line edit keeps the first one');
     await addPlanStep(panel);
-    await submitTextDialog(page, 'Unit title', 'Index the diffs', 'Add unit');
-    const unitOnBoard = panel.locator('.wb-unit', { hasText: 'Index the diffs' });
-    await unitOnBoard.locator('.wb-unit-status', { hasText: 'planned' }).waitFor();
-    await unitOnBoard.locator('.wb-box-title').click();
+    await submitTextDialog(page, 'Step title', 'Index the diffs', 'Add step');
+    const stepOnBoard = panel.locator('.wb-step', { hasText: 'Index the diffs' });
+    await stepOnBoard.locator('.wb-step-status', { hasText: 'planned' }).waitFor();
+    await stepOnBoard.locator('.wb-box-title').click();
+    await inspect.getByRole('heading', { name: 'Step', exact: true }).waitFor();
     await inspect.getByRole('combobox', { name: 'Status', exact: true }).selectOption('landed');
-    await unitOnBoard.locator('.wb-unit-status.wb-unit-landed', { hasText: 'landed' }).waitFor();
+    await stepOnBoard.locator('.wb-step-status.wb-step-landed', { hasText: 'landed' }).waitFor();
+    await verifyStepStaysWhereDropped(page, panel, stepOnBoard);
     await openBoardMenuItem(page, panel, 'board settings');
     await inspect.getByRole('heading', { name: 'Board', exact: true }).waitFor({ timeout: 3000 });
   }
@@ -579,26 +598,26 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   assert.ok(centeredSessionName);
   assert.equal(await panel.locator('.wb-presence-pill:not(.wb-presence-count)', { hasText: centeredSessionName }).count(), 0, 'the strip does not repeat the centered session as a presence pill');
   await addPlanStep(panel);
-  await submitTextDialog(page, 'Unit title', 'Uncovered change', 'Add unit');
-  const unitOnBoard = panel.locator('.wb-unit', { hasText: 'Uncovered change' });
+  await submitTextDialog(page, 'Step title', 'Uncovered change', 'Add step');
+  const stepOnBoard = panel.locator('.wb-step', { hasText: 'Uncovered change' });
   await agentIsland.locator('.wb-session-queued', { hasText: 'queued for' }).waitFor();
   const agentBox = await agentIsland.boundingBox();
   assert.ok(agentBox);
   assert.ok(Math.abs(agentBox.y + agentBox.height - (canvasBox.y + canvasBox.height - 10)) < 2 && Math.abs(agentBox.x - (canvasBox.x + 10)) < 2, 'the session island sits bottom left on the board');
   assert.equal(await agentIsland.getByRole('button').count(), 0, 'the session island holds no send control, since board changes reach the agent with its next prompt');
-  await unitOnBoard.locator('.wb-box-title').click();
+  await stepOnBoard.locator('.wb-box-title').click();
   const inspect = panel.locator('.wb-inspect');
-  await inspect.getByRole('button', { name: 'Add a ref to this unit', exact: true }).click();
+  await inspect.getByRole('button', { name: 'Add a ref to this box', exact: true }).click();
   await inspect.getByRole('textbox', { name: 'Ref 1', exact: true }).fill(UNCOVERED_FILE_NAME);
   await page.keyboard.press('Enter');
-  await panel.locator('.wb-unit.is-flagged', { hasText: 'Uncovered change' }).waitFor({ timeout: REVIEW_TIMEOUT_MS });
+  await panel.locator('.wb-step.is-flagged', { hasText: 'Uncovered change' }).waitFor({ timeout: REVIEW_TIMEOUT_MS });
   await panel.getByRole('button', { name: 'fit', exact: true }).click();
-  const fittedUnitBox = await unitOnBoard.boundingBox();
+  const fittedStepBox = await stepOnBoard.boundingBox();
   const islandBox = await agentIsland.boundingBox();
-  assert.ok(fittedUnitBox && islandBox);
-  const spaceAboveUnitPx = fittedUnitBox.y - canvasBox.y;
-  const spaceBelowUnitPx = islandBox.y - (fittedUnitBox.y + fittedUnitBox.height);
-  assert.ok(spaceAboveUnitPx > 0 && spaceBelowUnitPx > 0, 'fit keeps the board clear of the session island');
+  assert.ok(fittedStepBox && islandBox);
+  const spaceAboveStepPx = fittedStepBox.y - canvasBox.y;
+  const spaceBelowStepPx = islandBox.y - (fittedStepBox.y + fittedStepBox.height);
+  assert.ok(spaceAboveStepPx > 0 && spaceBelowStepPx > 0, 'fit keeps the board clear of the session island');
   await inspect.getByRole('button', { name: `Open ${UNCOVERED_FILE_NAME} in review`, exact: true }).click();
   await page.locator('#tab-focus[aria-selected="true"]').waitFor();
   await page.locator(`.review-reader .review-reader-file[data-path="${UNCOVERED_FILE_NAME}"][aria-current="true"]`).waitFor({ timeout: REVIEW_TIMEOUT_MS });

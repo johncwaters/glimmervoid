@@ -1,5 +1,5 @@
-import type { Board, Box, Element as BoardElement, Frame, Note, Op, Panel, Unit, Wire } from '#shared/contracts/whiteboard.ts';
-import { AnchorRef, BOX_CHANGES, UNIT_STATUSES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
+import type { Board, Box, Element as BoardElement, Frame, Note, Op, Panel, Step, Wire } from '#shared/contracts/whiteboard.ts';
+import { AnchorRef, BOX_CHANGES, STEP_STATUSES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import type { BoardLayout } from '#shared/whiteboard-layout-core.ts';
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
@@ -36,7 +36,7 @@ const LINE_STYLE_CHOICES = choicesOf(LINE_STYLES);
 const TONE_CHOICES = choicesOf(TONES);
 const SHAPE_CHOICES = choicesOf(['box', 'decision'] satisfies Box['shape'][]);
 const CHANGE_CHOICES = choicesOf(BOX_CHANGES);
-const UNIT_STATUS_CHOICES = choicesOf(UNIT_STATUSES);
+const STEP_STATUS_CHOICES = choicesOf(STEP_STATUSES);
 const SIDE_CHOICES: readonly Choice[] = [{ value: '', text: 'auto' }, ...choicesOf(['left', 'right', 'top', 'bottom'])];
 const DEFAULT_OUTPUTS: Box['outputs'] = [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }];
 
@@ -260,6 +260,7 @@ function boxSections(board: Board, box: Box, latest: () => BoardElement | undefi
     ...(box.shape === 'decision' ? [outputsEditor(box, () => latestBox()?.outputs ?? null, set)] : []),
     refsEditor('this box', box.refs, () => latestBox()?.refs ?? null, (refs) => set({ refs })),
     linesEditor('this box', box.lines, () => latestBox()?.lines ?? null, (lines) => set({ lines })),
+    ...(box.step ? stepSections(box.step, set) : []),
   ];
 }
 
@@ -334,19 +335,14 @@ function noteSections(note: Note, set: FieldCommit): HTMLElement[] {
   ];
 }
 
-function unitSections(unit: Unit, latest: () => BoardElement | undefined, set: FieldCommit): HTMLElement[] {
-  const latestRefs = () => {
-    const element = latest();
-    return element?.kind === 'unit' ? element.refs : null;
-  };
+function stepSections(step: Step, set: FieldCommit): HTMLElement[] {
   return [
-    heading('Unit'),
-    fieldRow('Status', selectField('unit-status', UNIT_STATUS_CHOICES, unit.status, (status) => {
-      const chosen = UNIT_STATUSES.find((candidate) => candidate === status);
-      if (chosen) set({ status: chosen });
+    heading('Step'),
+    fieldRow('Status', selectField('step-status', STEP_STATUS_CHOICES, step.status, (status) => {
+      const chosen = STEP_STATUSES.find((candidate) => candidate === status);
+      if (chosen) set({ step: { status: chosen } });
     })),
-    refsEditor('this unit', unit.refs, latestRefs, (refs) => set({ refs })),
-    el('p', 'wb-inspect-hint', 'Agents edit units with glimmervoid whiteboard plan.'),
+    el('p', 'wb-inspect-hint', 'A wire from one step to another means the second is built after the first.'),
   ];
 }
 
@@ -373,7 +369,6 @@ function elementSections(board: Board, element: BoardElement, latestBoard: () =>
     case 'frame': return frameSections(element, set);
     case 'panel': return panelSections(element, latest, set);
     case 'note': return noteSections(element, set);
-    case 'unit': return unitSections(element, latest, set);
   }
 }
 

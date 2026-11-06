@@ -1,9 +1,10 @@
-import { BOX_CHANGES, UNIT_STATUSES } from './contracts/whiteboard.ts';
-import type { Board, Box, BoxMedia, Element, Note, Panel, Unit, Wire } from './contracts/whiteboard.ts';
+import { BOX_CHANGES, STEP_STATUSES } from './contracts/whiteboard.ts';
+import type { Board, Box, BoxMedia, Element, Note, Panel, Step, Wire } from './contracts/whiteboard.ts';
 
 type BoxLine = Box['lines'][number];
 import { planSteps } from './whiteboard-plan-core.ts';
-import { cappedWarningLists, labelWidthOf, pathOf, previewWires, rectsOverlap, routeWires, unionOf, warningListOf, withoutBends } from './whiteboard-route-core.ts';
+import type { PlanStep } from './whiteboard-plan-core.ts';
+import { cappedWarningLists, labelWidthOf, previewWires, rectsOverlap, routeWires, unionOf, warningListOf } from './whiteboard-route-core.ts';
 import { touchingPairsWithin } from './whiteboard-sweep-core.ts';
 import type { Point, RouteMemory } from './whiteboard-route-core.ts';
 
@@ -42,7 +43,7 @@ const MAX_ROOM_ATTEMPTS = 4;
 const PLAN_TITLE_BASELINE = 16;
 const PLAN_TITLE_HEIGHT = 30;
 const PLAN_BAND_GAP = 40;
-const UNIT_LABEL_HEIGHT = 18;
+const STEP_HEADER_HEIGHT = 18;
 const BAND_HEADER_HEIGHT = 26;
 const BAND_GAP = 24;
 const MEDIA_GAP = 8;
@@ -78,6 +79,13 @@ interface LaidOutBox extends Rect {
   headerHeight: number;
   outputs: LaidOutOutput[];
   media: LaidOutMedia | null;
+  step: LaidOutStep | null;
+}
+
+interface LaidOutStep {
+  label: string;
+  status: Step['status'];
+  linkedBoardId: string | null;
 }
 
 interface LaidOutMedia extends Rect {
@@ -125,16 +133,6 @@ interface LaidOutNote extends Rect {
   isResolved: boolean;
 }
 
-interface LaidOutUnit extends Rect {
-  kind: 'unit';
-  id: string;
-  label: string;
-  status: Unit['status'];
-  titleLines: string[];
-  bodyLines: LaidOutLine[];
-  linkedBoardId: string | null;
-}
-
 interface LaidOutLine {
   text: string;
   muted: boolean;
@@ -151,7 +149,7 @@ interface LaidOutPanel extends Rect {
   bodyLines: LaidOutLine[];
 }
 
-type LegendSwatch = { kind: 'lane'; hex: string } | { kind: 'wire'; tone: Wire['tone']; isDashed: boolean; isBack: boolean } | { kind: 'change'; change: Exclude<Box['change'], 'none'> } | { kind: 'status'; status: Unit['status'] };
+type LegendSwatch = { kind: 'lane'; hex: string } | { kind: 'wire'; tone: Wire['tone']; isDashed: boolean; isBack: boolean } | { kind: 'change'; change: Exclude<Box['change'], 'none'> } | { kind: 'status'; status: Step['status'] };
 
 interface LegendRow {
   label: string;
@@ -160,11 +158,10 @@ interface LegendRow {
   swatch: LegendSwatch;
 }
 
-type LaidOutElement = LaidOutBox | LaidOutFrame | LaidOutWire | LaidOutNote | LaidOutUnit | LaidOutPanel;
+type LaidOutElement = LaidOutBox | LaidOutFrame | LaidOutWire | LaidOutNote | LaidOutPanel;
 
 interface PlanBand {
   titleAt: { x: number; y: number };
-  arrowPaths: string[];
 }
 
 interface LaidOutBand {
@@ -278,6 +275,8 @@ function laidOutMedia(box: Box, position: Point, mediaTop: number, mediaSize: { 
 }
 
 function boxShape(board: Board, box: Box) {
+  const stepHeaderHeight = box.step ? STEP_HEADER_HEIGHT : 0;
+  const linkLineCount = box.step?.linkedBoardId ? 1 : 0;
   const boxWidth = boxWidthOf(box);
   const titleCharsPerLine = charsPerLineAt(TITLE_CHARS_PER_LINE, boxWidth);
   const titleLines = wrapText(box.title, titleCharsPerLine);
@@ -285,7 +284,7 @@ function boxShape(board: Board, box: Box) {
   const bodyLines = laidOutLines(box.lines, charsPerLineAt(BODY_CHARS_PER_LINE, boxWidth));
   const lane = laneOf(board, box);
   const showsLanePill = lane !== null && !isGridBox(box);
-  const textHeight = BOX_PADDING + (wasLines.length + titleLines.length) * TITLE_LINE_HEIGHT + bodyLines.length * BODY_LINE_HEIGHT;
+  const textHeight = BOX_PADDING + stepHeaderHeight + (wasLines.length + titleLines.length) * TITLE_LINE_HEIGHT + (bodyLines.length + linkLineCount) * BODY_LINE_HEIGHT;
   const mediaSize = mediaSizeOf(box);
   const mediaRoom = mediaSize ? mediaSize.height + MEDIA_GAP : 0;
   const headerHeight = textHeight + BOX_PADDING + mediaRoom + (showsLanePill ? LANE_PILL_HEIGHT + 6 : 0);
@@ -297,6 +296,7 @@ type ElementsByKind = { [Kind in Element['kind']]: Extract<Element, { kind: Kind
 
 interface IndexedBoard extends Board {
   elementsByKind: ElementsByKind;
+  planStepById: ReadonlyMap<string, PlanStep>;
 }
 
 function addByKind(elementsByKind: ElementsByKind, element: Element): void {
@@ -313,9 +313,6 @@ function addByKind(elementsByKind: ElementsByKind, element: Element): void {
     case 'note':
       elementsByKind.note.push(element);
       return;
-    case 'unit':
-      elementsByKind.unit.push(element);
-      return;
     case 'panel':
       elementsByKind.panel.push(element);
       return;
@@ -323,9 +320,9 @@ function addByKind(elementsByKind: ElementsByKind, element: Element): void {
 }
 
 function indexedBoardOf(board: Board): IndexedBoard {
-  const elementsByKind: ElementsByKind = { box: [], frame: [], wire: [], note: [], unit: [], panel: [] };
+  const elementsByKind: ElementsByKind = { box: [], frame: [], wire: [], note: [], panel: [] };
   for (const element of Object.values(board.elements)) addByKind(elementsByKind, element);
-  return { ...board, elementsByKind };
+  return { ...board, elementsByKind, planStepById: new Map(planSteps(board).map((step) => [step.boxId, step])) };
 }
 
 function elementsOfKind<Kind extends Element['kind']>(board: IndexedBoard, kind: Kind): readonly Extract<Element, { kind: Kind }>[] {
@@ -442,13 +439,18 @@ function bandIdsOf(board: IndexedBoard, gridBoxes: readonly Box[]): string[] {
   return ['', ...board.lanes.map((lane) => lane.id)].filter((bandId) => usedBandIds.has(bandId));
 }
 
+function laidOutStep(board: IndexedBoard, box: Box): LaidOutStep | null {
+  if (!box.step) return null;
+  return { label: board.planStepById.get(box.id)?.label ?? '', status: box.step.status, linkedBoardId: box.step.linkedBoardId };
+}
+
 function laidOutBox(board: IndexedBoard, box: Box, position: Point): LaidOutBox {
   const shape = boxShape(board, box);
   const width = boxWidthOf(box);
   return {
     kind: 'box', id: box.id, x: position.x, y: position.y, width, height: shape.height,
     titleLines: shape.titleLines, bodyLines: shape.bodyLines, lane: shape.lane, showsLanePill: shape.showsLanePill, change: box.change, wasLines: shape.wasLines,
-    shape: box.shape, headerHeight: shape.headerHeight, media: laidOutMedia(box, position, shape.mediaTop, shape.mediaSize),
+    shape: box.shape, headerHeight: shape.headerHeight, media: laidOutMedia(box, position, shape.mediaTop, shape.mediaSize), step: laidOutStep(board, box),
     outputs: shape.outputs.map((output, index) => ({
       id: output.id, label: output.label,
       port: { x: position.x + width, y: position.y + shape.headerHeight + index * OUTPUT_ROW_HEIGHT + OUTPUT_ROW_HEIGHT / 2 },
@@ -540,10 +542,14 @@ function layoutPanels(board: IndexedBoard, besidePanels: readonly Rect[], column
   });
 }
 
-function layoutBoxes(board: IndexedBoard, columnLeftEdges: readonly number[], columnWidths: readonly number[], boxesTop: number, stackHeightByBoxId: ReadonlyMap<string, number>): PlacedBoxes {
+function layoutBoxes(board: IndexedBoard, columnLeftEdges: readonly number[], columnWidths: readonly number[], boxesTop: number, stackHeightByBoxId: ReadonlyMap<string, number>, stepBandPositions: ReadonlyMap<string, Point>): PlacedBoxes {
   const boxesById = new Map<string, LaidOutBox>();
   const warnings: string[] = [];
   const bands = placeGridBoxes(board, columnLeftEdges, columnWidths, boxesTop, stackHeightByBoxId, boxesById);
+  for (const box of elementsOfKind(board, 'box')) {
+    const bandPosition = stepBandPositions.get(box.id);
+    if (bandPosition) boxesById.set(box.id, laidOutBox(board, box, bandPosition));
+  }
   for (const box of elementsOfKind(board, 'box')) {
     if (box.at) boxesById.set(box.id, laidOutBox(board, box, box.at));
   }
@@ -612,6 +618,7 @@ interface Placement {
   boxesTop: number;
   contentTop: number;
   stackHeightByBoxId: ReadonlyMap<string, number>;
+  stepBandPositions: ReadonlyMap<string, Point>;
 }
 
 interface LayoutMemory {
@@ -656,7 +663,7 @@ function overlapWarnings(boxesById: ReadonlyMap<string, LaidOutBox>, panels: rea
 function placeAndRoute(board: IndexedBoard, placement: Placement, previousRoute: RouteMemory | null): PlacedBoard {
   const columnWidths = columnWidthsOf(board);
   const columnLeftEdges = columnLeftEdgesOf(columnWidths, placement.gapWidths);
-  const { boxesById, bands, warnings: nearWarnings } = layoutBoxes(board, columnLeftEdges, columnWidths, placement.boxesTop, placement.stackHeightByBoxId);
+  const { boxesById, bands, warnings: nearWarnings } = layoutBoxes(board, columnLeftEdges, columnWidths, placement.boxesTop, placement.stackHeightByBoxId, placement.stepBandPositions);
   const frames = layoutFrames(board, boxesById);
   const notes = layoutNotes(board, boxesById);
   const panels = layoutPanels(board, [...boxesById.values(), ...notes], columnLeftEdges, columnWidths, placement.boxesTop);
@@ -679,6 +686,7 @@ interface RoomInputs {
   boxesTop: number;
   contentTop: number;
   stackHeightByBoxId: ReadonlyMap<string, number>;
+  stepBandPositions: ReadonlyMap<string, Point>;
 }
 
 function maxByIndex(first: readonly number[], second: readonly number[]): number[] {
@@ -695,7 +703,7 @@ function placeFromReservations(board: IndexedBoard, room: RoomInputs, previous: 
   let reservedLabelWidths = seedLabelWidths;
   for (let attempt = 1; ; attempt += 1) {
     const gapWidths = gapWidthsOf(room.reserves, reservedTracksByGap, reservedLabelWidths);
-    const placed = placeAndRoute(board, { gapWidths, boxesTop: room.boxesTop, contentTop: room.contentTop, stackHeightByBoxId: room.stackHeightByBoxId }, previous?.route ?? null);
+    const placed = placeAndRoute(board, { gapWidths, boxesTop: room.boxesTop, contentTop: room.contentTop, stackHeightByBoxId: room.stackHeightByBoxId, stepBandPositions: room.stepBandPositions }, previous?.route ?? null);
     const needsMoreTracks = placed.tracksByGap.some((tracks, index) => tracks > (reservedTracksByGap[index] ?? 0));
     const needsWiderLabels = placed.labelWidthByGap.some((width, index) => width > (reservedLabelWidths[index] ?? 0));
     if (attempt >= MAX_ROOM_ATTEMPTS || (!needsMoreTracks && !needsWiderLabels)) {
@@ -713,52 +721,45 @@ function placeWithReservedRoom(board: IndexedBoard, room: RoomInputs, previous: 
   return placeFromReservations(board, room, previous, [], []);
 }
 
-function unitShape(unit: Unit) {
-  const titleLines = wrapText(unit.title, TITLE_CHARS_PER_LINE);
-  const bodyLines = laidOutLines(unit.lines);
-  const linkLineCount = unit.linkedBoardId ? 1 : 0;
-  const height = BOX_PADDING * 2 + UNIT_LABEL_HEIGHT + titleLines.length * TITLE_LINE_HEIGHT + (bodyLines.length + linkLineCount) * BODY_LINE_HEIGHT;
-  return { titleLines, bodyLines, height };
+function isInStepBand(box: Box): boolean {
+  return box.step !== null && box.column === null && box.near === null && box.at === null;
 }
 
-function layoutUnits(board: Board): Map<string, LaidOutUnit> {
-  const unitsById = new Map<string, LaidOutUnit>();
-  const nextYByLevel = new Map<number, number>();
-  for (const step of planSteps(board)) {
-    const unit = board.elements[step.unitId];
-    if (unit?.kind !== 'unit') continue;
-    const shape = unitShape(unit);
-    const y = nextYByLevel.get(step.level) ?? MARGIN + PLAN_TITLE_HEIGHT;
-    nextYByLevel.set(step.level, y + shape.height + BOX_GAP);
-    unitsById.set(unit.id, {
-      kind: 'unit', id: unit.id, x: MARGIN + (step.level - 1) * (COLUMN_WIDTH + COLUMN_GAP), y, width: COLUMN_WIDTH, height: shape.height,
-      label: step.label, status: unit.status, titleLines: shape.titleLines, bodyLines: shape.bodyLines, linkedBoardId: unit.linkedBoardId,
-    });
+interface StepBand {
+  positionById: Map<string, Point>;
+  bottom: number;
+}
+
+function stepBandOf(board: Board): StepBand {
+  const bandBoxById = new Map<string, Box>();
+  for (const element of Object.values(board.elements)) {
+    if (element.kind === 'box' && isInStepBand(element)) bandBoxById.set(element.id, element);
   }
-  return unitsById;
+  const positionById = new Map<string, Point>();
+  if (bandBoxById.size === 0) return { positionById, bottom: MARGIN };
+  const bandBoxesByLevel = new Map<number, Box[]>();
+  for (const step of planSteps(board)) {
+    const box = bandBoxById.get(step.boxId);
+    if (box) bandBoxesByLevel.set(step.level, [...(bandBoxesByLevel.get(step.level) ?? []), box]);
+  }
+  let levelX = MARGIN;
+  let lowestBottom = MARGIN;
+  for (const level of [...bandBoxesByLevel.keys()].sort((left, right) => left - right)) {
+    const boxesAtLevel = bandBoxesByLevel.get(level) ?? [];
+    let nextY = MARGIN + PLAN_TITLE_HEIGHT;
+    for (const box of boxesAtLevel) {
+      positionById.set(box.id, { x: levelX, y: nextY });
+      nextY += boxShape(board, box).height;
+      lowestBottom = Math.max(lowestBottom, nextY);
+      nextY += BOX_GAP;
+    }
+    levelX += Math.max(...boxesAtLevel.map(boxWidthOf)) + COLUMN_GAP;
+  }
+  return { positionById, bottom: lowestBottom + PLAN_BAND_GAP };
 }
 
-function planArrowPath(from: LaidOutUnit, to: LaidOutUnit): string {
-  const start = { x: from.x + from.width, y: from.y + Math.round(from.height / 2) };
-  const end = { x: to.x, y: to.y + Math.round(to.height / 2) };
-  const bendX = to.x - Math.round(COLUMN_GAP / 2);
-  return pathOf(withoutBends([start, { x: bendX, y: start.y }, { x: bendX, y: end.y }, end]));
-}
-
-function planArrowPaths(board: IndexedBoard, unitsById: ReadonlyMap<string, LaidOutUnit>): string[] {
-  return elementsOfKind(board, 'unit').flatMap((unit) => {
-    const to = unitsById.get(unit.id);
-    if (!to) return [];
-    return unit.after.flatMap((afterId) => {
-      const from = unitsById.get(afterId);
-      return from ? [planArrowPath(from, to)] : [];
-    });
-  });
-}
-
-function planBandBottom(unitsById: ReadonlyMap<string, LaidOutUnit>): number {
-  if (unitsById.size === 0) return MARGIN;
-  return Math.max(...[...unitsById.values()].map((unit) => unit.y + unit.height)) + PLAN_BAND_GAP;
+function pinnedOffsetYOf(board: Board): number {
+  return stepBandOf(board).bottom - MARGIN;
 }
 
 function withPinnedBoxesShifted(board: Board, offsetY: number): Board {
@@ -788,12 +789,12 @@ function changeEntriesOf(board: IndexedBoard): { label: string; swatch: LegendSw
   return BOX_CHANGES.flatMap((change) => (change === 'none' || !usedChanges.has(change) ? [] : [{ label: CHANGE_LEGEND_LABELS[change], swatch: { kind: 'change' as const, change } }]));
 }
 
-function statusEntriesOf(unitsById: ReadonlyMap<string, LaidOutUnit>): { label: string; swatch: LegendSwatch }[] {
-  if (unitsById.size === 0) return [];
-  return UNIT_STATUSES.map((status) => ({ label: `plan step ${status}`, swatch: { kind: 'status' as const, status } }));
+function statusEntriesOf(board: IndexedBoard): { label: string; swatch: LegendSwatch }[] {
+  if (board.planStepById.size === 0) return [];
+  return STEP_STATUSES.map((status) => ({ label: `plan step ${status}`, swatch: { kind: 'status' as const, status } }));
 }
 
-function legendEntriesOf(board: IndexedBoard, unitsById: ReadonlyMap<string, LaidOutUnit>): { label: string; swatch: LegendSwatch }[] {
+function legendEntriesOf(board: IndexedBoard): { label: string; swatch: LegendSwatch }[] {
   const laneEntries = board.lanes.map((lane) => ({ label: lane.label || lane.id, swatch: { kind: 'lane' as const, hex: LANE_HEX_BY_COLOR[lane.color] } }));
   const customLabelByKey = new Map(board.legend.map((entry) => [wireStyleKey(entry.tone, entry.dashed || entry.back, entry.back), entry.label]));
   const usedKeys = new Set<string>();
@@ -808,7 +809,7 @@ function legendEntriesOf(board: IndexedBoard, unitsById: ReadonlyMap<string, Lai
   const unusedCustomEntries = board.legend
     .filter((entry) => !usedKeys.has(wireStyleKey(entry.tone, entry.dashed || entry.back, entry.back)))
     .map((entry) => ({ label: entry.label, swatch: { kind: 'wire' as const, tone: entry.tone, isDashed: entry.dashed || entry.back, isBack: entry.back } }));
-  return [...laneEntries, ...wireEntries.map(({ label, swatch }) => ({ label, swatch })), ...unusedCustomEntries, ...changeEntriesOf(board), ...statusEntriesOf(unitsById)];
+  return [...laneEntries, ...wireEntries.map(({ label, swatch }) => ({ label, swatch })), ...unusedCustomEntries, ...changeEntriesOf(board), ...statusEntriesOf(board)];
 }
 
 function layoutBoard(storedBoard: Board): BoardLayout {
@@ -816,8 +817,7 @@ function layoutBoard(storedBoard: Board): BoardLayout {
 }
 
 function layoutBoardWithMemory(storedBoard: Board, previous: LayoutMemory | null): { layout: BoardLayout; memory: LayoutMemory } {
-  const unitsById = layoutUnits(storedBoard);
-  const freeformTop = planBandBottom(unitsById);
+  const { positionById: stepBandPositions, bottom: freeformTop } = stepBandOf(storedBoard);
   const pinnedOffsetY = freeformTop - MARGIN;
   const board = indexedBoardOf(withPinnedBoxesShifted(storedBoard, pinnedOffsetY));
   const stackHeightByBoxId = noteStackHeightByBoxId(board);
@@ -826,7 +826,7 @@ function layoutBoardWithMemory(storedBoard: Board, previous: LayoutMemory | null
   const ruleY = freeformTop + COLUMN_RULE_OFFSET + extraHeaderHeight;
   const boxesTop = freeformTop + COLUMN_HEADER_HEIGHT + extraHeaderHeight;
   const reserves = gapReservesOf(board, stackHeightByBoxId);
-  const { placed, memory } = placeWithReservedRoom(board, { reserves, boxesTop, contentTop: ruleY, stackHeightByBoxId }, previous);
+  const { placed, memory } = placeWithReservedRoom(board, { reserves, boxesTop, contentTop: ruleY, stackHeightByBoxId, stepBandPositions }, previous);
   const { columnLeftEdges, columnWidths } = placed;
   const elements: LaidOutElement[] = [
     ...placed.frames,
@@ -834,11 +834,10 @@ function layoutBoardWithMemory(storedBoard: Board, previous: LayoutMemory | null
     ...placed.boxesById.values(),
     ...placed.notes,
     ...placed.panels,
-    ...unitsById.values(),
   ];
   const contentBounds = boundsOf(elements, placed.routing.extent, columnsRightOf(columnLeftEdges, columnWidths), boxesTop);
   const legendTop = contentBounds.y + contentBounds.height;
-  const legend = legendEntriesOf(board, unitsById).map((entry, index): LegendRow => ({ ...entry, x: MARGIN, y: legendTop + index * LEGEND_ROW_HEIGHT }));
+  const legend = legendEntriesOf(board).map((entry, index): LegendRow => ({ ...entry, x: MARGIN, y: legendTop + index * LEGEND_ROW_HEIGHT }));
   const captionTop = legendTop + legend.length * LEGEND_ROW_HEIGHT + (legend.length > 0 ? 12 : 0);
   const caption = board.caption ? { text: board.caption, x: MARGIN, y: captionTop } : null;
   const extraHeight = legend.length * LEGEND_ROW_HEIGHT + (caption ? 30 : 0) + (legend.length > 0 ? 12 : 0);
@@ -852,7 +851,7 @@ function layoutBoardWithMemory(storedBoard: Board, previous: LayoutMemory | null
     legend,
     caption,
     pinnedOffsetY,
-    plan: unitsById.size > 0 ? { titleAt: { x: MARGIN, y: MARGIN + PLAN_TITLE_BASELINE }, arrowPaths: planArrowPaths(board, unitsById) } : null,
+    plan: stepBandPositions.size > 0 ? { titleAt: { x: MARGIN, y: MARGIN + PLAN_TITLE_BASELINE } } : null,
     bounds: { ...contentBounds, height: contentBounds.height + extraHeight },
     warnings: cappedWarningLists([...placed.routing.collectWarnings(), warningListOf(placed.collectPlacementWarnings())]),
   };
@@ -903,7 +902,7 @@ function createDragPreview(storedBoard: Board, layout: BoardLayout, draggedBoxId
   }
   const movingBoxes = [...movingIds].flatMap((elementId) => boxesById.get(elementId) ?? []);
   const wires = Object.values(storedBoard.elements).flatMap((element) => (element.kind === 'wire' && (movingIds.has(element.from) || movingIds.has(element.to)) ? [element] : []));
-  const contentTop = planBandBottom(layoutUnits(storedBoard)) + COLUMN_RULE_OFFSET + headerExtraHeight(columnTitleLines(storedBoard));
+  const contentTop = stepBandOf(storedBoard).bottom + COLUMN_RULE_OFFSET + headerExtraHeight(columnTitleLines(storedBoard));
   return (offsetX, offsetY) => {
     const moved = movingBoxes.map((box) => movedBox(box, offsetX, offsetY));
     for (const box of moved) boxesById.set(box.id, box);
@@ -912,5 +911,5 @@ function createDragPreview(storedBoard: Board, layout: BoardLayout, draggedBoxId
   };
 }
 
-export { createDragPreview, elementSignature, layoutBoard, layoutBoardWithMemory };
-export type { BoardLayout, DragPreview, LayoutMemory, LaidOutBox, LaidOutMedia, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutPanel, LaidOutUnit, LaidOutWire, Rect };
+export { createDragPreview, elementSignature, layoutBoard, layoutBoardWithMemory, pinnedOffsetYOf };
+export type { BoardLayout, DragPreview, LayoutMemory, LaidOutBox, LaidOutMedia, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutPanel, LaidOutStep, LaidOutWire, Rect };

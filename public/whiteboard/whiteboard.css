@@ -515,30 +515,27 @@
   font-weight: 700;
 }
 
-.wb-unit { cursor: pointer; }
-
-.wb-unit-outline {
-  fill: var(--wb-board);
+.wb-step .wb-box-outline {
   stroke: var(--accent);
   stroke-width: 1.6;
 }
 
-.wb-unit-label {
+.wb-step-label {
   fill: var(--accent);
   font-size: var(--type-meta);
   font-weight: 700;
 }
 
-.wb-unit-status {
+.wb-step-status {
   fill: var(--text-muted);
   font-size: var(--type-meta);
 }
 
-.wb-unit-planned { fill: var(--text-muted); }
-.wb-unit-building { fill: var(--state-waiting); }
-.wb-unit-landed { fill: var(--state-running); }
+.wb-step-planned { fill: var(--text-muted); }
+.wb-step-building { fill: var(--state-waiting); }
+.wb-step-landed { fill: var(--state-running); }
 
-.wb-unit-link {
+.wb-step-link {
   fill: var(--accent);
   font-size: var(--type-meta);
   text-decoration: underline;
@@ -694,7 +691,6 @@
 .wb-element.is-selected .wb-box-outline,
 .wb-element.is-selected .wb-frame-outline,
 .wb-element.is-selected .wb-note-card,
-.wb-element.is-selected .wb-unit-outline,
 .wb-element.is-selected .wb-panel-outline {
   stroke: var(--accent);
   stroke-width: 2.4;
@@ -770,7 +766,7 @@
 .wb-look-marker circle { fill: var(--state-waiting); stroke: var(--bg-card); stroke-width: 2; }
 .wb-look-marker text { fill: var(--bg-card); font-size: var(--type-meta); font-weight: 700; pointer-events: none; }
 
-.wb-unit.is-flagged .wb-unit-outline { stroke: var(--state-waiting); stroke-width: 2.4; }
+.wb-step.is-flagged .wb-box-outline { stroke: var(--state-waiting); stroke-width: 2.4; }
 
 .wb-inspect-heading {
   margin: 0;

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const WHITEBOARD_LIMITS = Object.freeze({
-  elements: 20000, opsPerPut: 5000, putBytes: 1_728_576, title: 80, line: 120, linesPerBox: 12, columns: 12, lanes: 12, noteText: 400, logEntries: 2000, layoutWarnings: 20, boxWidthMin: 160, boxWidthMax: 960, units: 40, unitDependencies: 12, linesPerUnit: 4,
+  elements: 20000, opsPerPut: 5000, putBytes: 1_728_576, title: 80, line: 120, linesPerBox: 12, columns: 12, lanes: 12, noteText: 400, logEntries: 2000, layoutWarnings: 20, boxWidthMin: 160, boxWidthMax: 960,
 });
 
 const LANE_COLORS = ['blue', 'green', 'orange', 'pink', 'cyan', 'yellow'] as const;
@@ -30,7 +30,7 @@ const Point = z.object({ x: z.number(), y: z.number() }).strict().meta({ id: 'Po
 
 export const BOX_CHANGES = ['none', 'added', 'removed', 'relabeled'] as const;
 
-export const UNIT_STATUSES = ['planned', 'building', 'landed'] as const;
+export const STEP_STATUSES = ['planned', 'building', 'landed'] as const;
 
 const Side = z.enum(['left', 'right', 'top', 'bottom']).meta({ id: 'Side' });
 
@@ -65,6 +65,11 @@ export const BoxMedia = z.object({
 
 export const BoardMediaUploadReply = z.object({ ok: z.literal(true), media: BoxMedia }).strict();
 
+export const Step = z.object({
+  status: z.enum(STEP_STATUSES).default('planned'),
+  linkedBoardId: z.string().min(1).max(64).nullable().default(null).describe('a board holding this step in detail'),
+}).strict().meta({ id: 'Step' });
+
 export const Box = z.object({
   kind: z.literal('box'),
   id: ElementId,
@@ -85,7 +90,8 @@ export const Box = z.object({
     .min(WHITEBOARD_LIMITS.boxWidthMin, { error: `a box width is ${WHITEBOARD_LIMITS.boxWidthMin} to ${WHITEBOARD_LIMITS.boxWidthMax}` })
     .max(WHITEBOARD_LIMITS.boxWidthMax, { error: `a box width is ${WHITEBOARD_LIMITS.boxWidthMin} to ${WHITEBOARD_LIMITS.boxWidthMax}` })
     .nullable().default(null).describe(`the box width in board units, ${WHITEBOARD_LIMITS.boxWidthMin} to ${WHITEBOARD_LIMITS.boxWidthMax}; null is the 220 default`),
-}).strict().describe('a box needs one place: column, near or at');
+  step: Step.nullable().default(null).describe('makes the box a plan step; a wire from one step to another means the second is built after the first'),
+}).strict().describe('a box needs one place: column, near or at; a plan step may have none and joins the build-order band');
 
 export const Frame = z.object({
   kind: z.literal('frame'),
@@ -119,17 +125,6 @@ export const Note = z.object({
   resolvedBy: z.string().max(200).nullable().default(null),
 }).strict();
 
-export const Unit = z.object({
-  kind: z.literal('unit'),
-  id: ElementId,
-  title: Title.min(1, { error: 'a unit needs a title' }),
-  lines: z.array(BoxLine).max(WHITEBOARD_LIMITS.linesPerUnit, { error: `a unit holds at most ${WHITEBOARD_LIMITS.linesPerUnit} lines` }).default([]),
-  refs: AnchorRefs,
-  status: z.enum(UNIT_STATUSES).default('planned'),
-  after: z.array(ElementId).max(WHITEBOARD_LIMITS.unitDependencies, { error: `a unit comes after at most ${WHITEBOARD_LIMITS.unitDependencies} units` }).default([]).describe('the unit ids built before it'),
-  linkedBoardId: z.string().min(1).max(64).nullable().default(null).describe('a board holding this step in detail'),
-}).strict();
-
 export const Panel = z.object({
   kind: z.literal('panel'),
   id: ElementId,
@@ -138,7 +133,7 @@ export const Panel = z.object({
   order: z.number().int().default(0),
 }).strict();
 
-export const Element = z.discriminatedUnion('kind', [Box, Frame, Wire, Note, Unit, Panel], { error: 'an element kind is box, frame, wire, note, unit or panel' });
+export const Element = z.discriminatedUnion('kind', [Box, Frame, Wire, Note, Panel], { error: 'an element kind is box, frame, wire, note or panel' });
 
 const LegendEntries = z.array(z.object({
   tone: Wire.shape.tone,
@@ -230,10 +225,10 @@ export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
 export const BoardReview = z.object({
   codeSessionId: z.string().nullable(),
   anchorWarnings: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings),
-  unitWarnings: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings),
+  stepWarnings: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings),
   uncoveredPaths: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings),
   worthALookPaths: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings),
-  flaggedUnitIds: z.array(ElementId).max(WHITEBOARD_LIMITS.units),
+  flaggedStepIds: z.array(ElementId).max(WHITEBOARD_LIMITS.elements),
   notChecked: z.string().nullable(),
 }).strict();
 
@@ -302,7 +297,7 @@ export type BoxMedia = z.infer<typeof BoxMedia>;
 export type Frame = z.infer<typeof Frame>;
 export type Wire = z.infer<typeof Wire>;
 export type Note = z.infer<typeof Note>;
-export type Unit = z.infer<typeof Unit>;
+export type Step = z.infer<typeof Step>;
 export type Panel = z.infer<typeof Panel>;
 export type Element = z.infer<typeof Element>;
 export type Board = z.infer<typeof Board>;

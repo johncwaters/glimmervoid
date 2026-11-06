@@ -18,6 +18,7 @@ import { closeSocket, dashboardClient, openRecordingSocket, waitForMessage } fro
 import type { Backend } from './helpers/lanes.ts';
 import { settleBackendShutdown } from './helpers/lanes.ts';
 import { createWhiteboardWiring } from '../server/whiteboard/whiteboard-wiring.ts';
+import { planSteps } from '../shared/whiteboard-plan-core.ts';
 import { execFileAsync } from '../server/child-process-safe.ts';
 import { resolveFfmpegPath } from '../server/runtime-paths.ts';
 import { waitFor } from './helpers/wait-for.ts';
@@ -256,7 +257,7 @@ async function runPlannerCli(context: test.TestContext, args: string[]): Promise
   }
 }
 
-test('an agent plans units through the CLI in dependency order, a cycle is refused, and deleting a linked board unlinks its unit', async (context) => {
+test('an agent plans steps through the CLI in dependency order, a circular plan keeps every label, and deleting a linked board unlinks its step', async (context) => {
   const boardId = await newBoard('search api');
   const detailBoardId = await newBoard('backfill design');
   const plan = (...args: string[]) => runPlannerCli(context, ['whiteboard', 'plan', ...args]);
@@ -272,12 +273,19 @@ test('an agent plans units through the CLI in dependency order, a cycle is refus
   assert.match(clash.printed, /already exists/);
   assert.equal((await plan('add', boardId, 'Search box', '--id', 'search-box-2')).exitCode, 0);
 
-  const cycle = await plan('after', boardId, 'diff-index-schema', 'search-box');
-  assert.equal(cycle.exitCode, 1);
-  assert.match(cycle.printed, /dependency cycle: diff-index-schema, search-box, search-endpoint, diff-index-schema/);
+  assert.equal((await plan('after', boardId, 'diff-index-schema', 'search-box')).exitCode, 0);
+  const circular = await plan('show', boardId);
+  assert.equal(circular.exitCode, 0);
+  assert.deepEqual(circular.printed.split('\n').slice(1, 6).map((line) => /^\d+[a-z]?\d* /.test(line)), [true, true, true, true, true], circular.printed);
+  assert.equal((await plan('after', boardId, 'diff-index-schema')).exitCode, 0);
 
+  assert.match((await plan('after', boardId, 'search-box', 'search-box')).printed, /cannot come after itself/);
+  const builderEdit = await whiteboard(BUILDER_ID, { sub: 'put', board: boardId, ops: [{ op: 'add', element: { kind: 'box', id: 'builder-box', title: 'Builder box', at: { x: 0, y: 900 } } }] });
+  assert.equal(builderEdit.status, 200);
+  assert.match((await plan('after', boardId, 'search-box', 'builder-box')).printed, /builder-box is not a plan step/);
   assert.equal((await plan('status', boardId, 'diff-index-schema', 'shipped')).exitCode, 1);
   assert.equal((await plan('status', boardId, 'diff-index-schema', 'landed')).exitCode, 0);
+  assert.equal((await plan('status', boardId, 'index-backfill', 'building')).exitCode, 0);
 
   const shown = await plan('show', 'search', 'api');
   assert.equal(shown.exitCode, 0);
@@ -285,20 +293,22 @@ test('an agent plans units through the CLI in dependency order, a cycle is refus
   assert.deepEqual(planLines, [
     '1a diff-index-schema landed Diff index schema',
     '1b search-box-2 planned Search box',
-    '2a index-backfill planned Index backfill after 1a board "backfill design"',
+    '2a index-backfill building Index backfill after 1a board "backfill design"',
     '2b search-endpoint planned Search endpoint after 1a',
     '3 search-box planned Search box after 2b',
   ]);
+  assert.match(shown.printed, /Builder box/, 'plan commands leave changes others made unread until plan show prints them');
 
   const deleted = await whiteboard(PLANNER_ID, { sub: 'delete', board: detailBoardId });
   assert.equal(deleted.status, 200);
   const { board, changes } = await boardOf(PLANNER_ID, boardId);
-  assert.equal(board.elements['index-backfill']?.linkedBoardId, null);
+  assert.deepEqual(board.elements['index-backfill']?.step, { status: 'building', linkedBoardId: null });
   assert.ok(changes.some((change) => change.summary === 'Glimmervoid unlinked "Index backfill" from its board'), JSON.stringify(changes));
 
   const removed = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'remove', id: 'search-endpoint' }] });
   assert.equal(removed.status, 200);
-  assert.deepEqual((await boardOf(PLANNER_ID, boardId)).board.elements['search-box']?.after, []);
+  const wiresIntoSearchBox = Object.values((await boardOf(PLANNER_ID, boardId)).board.elements).filter((element) => element.kind === 'wire' && element.to === 'search-box');
+  assert.deepEqual(wiresIntoSearchBox, []);
 });
 
 test('an agent puts ops from a file, reads the laid-out positions and renders the board to an SVG file, and neither read consumes changes others made', async (context) => {
@@ -490,7 +500,7 @@ test('refs are checked in the code session worktree: a missing file, a line past
   const laidOut = await runPlannerCli(context, ['whiteboard', 'get', boardId, '--layout']);
   assert.equal(laidOut.exitCode, 0);
   const { review } = JSON.parse(laidOut.printed) as { review: unknown };
-  assert.deepEqual(review, { codeSessionId: PLANNER_ID, anchorWarnings: expectedWarnings, unitWarnings: [], uncoveredPaths: [], worthALookPaths: [], flaggedUnitIds: [], notChecked: null });
+  assert.deepEqual(review, { codeSessionId: PLANNER_ID, anchorWarnings: expectedWarnings, stepWarnings: [], uncoveredPaths: [], worthALookPaths: [], flaggedStepIds: [], notChecked: null });
 });
 
 test('a board with no code session takes the first session that connects, and only the other sessions hear of it', async () => {
@@ -791,21 +801,30 @@ test('deleting a board sweeps the pictures no live board shows, sparing a pendin
   assert.deepEqual(storedFiles(), filesOf([shared.asset, pending.asset]));
 });
 
-test('a board whose linked board vanished on restart still takes unrelated edits', async () => {
+test('a board saved with units loads them as step boxes and wires, and one whose linked board vanished on restart still takes unrelated edits', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'dangling-link-'));
   const before = createWhiteboardWiring({ boardsRoot });
   const planned = await before.handleOperator.create('planned');
   const detail = await before.handleOperator.create('detail');
   const plannedId = planned.summary?.id ?? '';
   const detailId = detail.summary?.id ?? '';
-  const linked = await before.handleOperator.put(plannedId, z.array(Op).parse([{ op: 'add', element: { kind: 'unit', id: 'u1', title: 'Unit', linkedBoardId: detailId } }]));
+  const linked = await before.handleOperator.put(plannedId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'u1', title: 'Unit', step: { linkedBoardId: detailId } } }]));
   assert.equal(linked.ok, true, linked.error ?? '');
+  const plannedPath = path.join(boardsRoot, `${plannedId}.json`);
+  const savedPlanned = JSON.parse(fs.readFileSync(plannedPath, 'utf8')) as { board: { elements: Record<string, unknown> } };
+  savedPlanned.board.elements.schema = { kind: 'unit', id: 'schema', title: 'Add the schema', lines: [], refs: [], status: 'landed', after: [], linkedBoardId: null };
+  savedPlanned.board.elements.route = { kind: 'unit', id: 'route', title: 'Serve the route', lines: [], refs: [], status: 'building', after: ['schema'], linkedBoardId: null };
+  fs.writeFileSync(plannedPath, JSON.stringify(savedPlanned));
   fs.writeFileSync(path.join(boardsRoot, `${detailId}.json`), '{corrupt', 'utf8');
 
   const after = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
+  await after.loaded;
+  const upgraded = Board.parse((await after.handleOperator.get(plannedId) as { board?: unknown }).board);
+  assert.deepEqual(planSteps(upgraded).map((step) => [step.boxId, step.label, step.status, step.afterLabels]), [['schema', '1a', 'landed', []], ['u1', '1b', 'planned', []], ['route', '2', 'building', ['1a']]]);
   const renamed = await after.handleOperator.put(plannedId, z.array(Op).parse([{ op: 'board', title: 'renamed' }]));
   assert.equal(renamed.ok, true, renamed.error ?? '');
-  const relinked = await after.handleOperator.put(plannedId, z.array(Op).parse([{ op: 'add', element: { kind: 'unit', id: 'u2', title: 'Other', linkedBoardId: detailId } }]));
+  assert.equal(fs.readFileSync(plannedPath, 'utf8').includes('"unit"'), false);
+  const relinked = await after.handleOperator.put(plannedId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'u2', title: 'Other', step: { linkedBoardId: detailId } } }]));
   assert.equal(relinked.ok, false);
 });
 

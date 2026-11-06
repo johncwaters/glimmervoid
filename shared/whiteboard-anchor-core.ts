@@ -1,6 +1,8 @@
 import { WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
-import type { Board, BoardReview, Box, Element, Unit } from './contracts/whiteboard.ts';
+import type { Board, BoardReview, Box, Element } from './contracts/whiteboard.ts';
 import { cappedWarnings } from './whiteboard-route-core.ts';
+import { stepBoxesOf } from './whiteboard-plan-core.ts';
+import type { StepBox } from './whiteboard-plan-core.ts';
 
 const MAX_REFERENCED_PATHS = 64;
 
@@ -36,9 +38,9 @@ interface AnchorFacts {
   changes: ChangeFacts | null;
 }
 
-type ChangeReview = Pick<BoardReview, 'unitWarnings' | 'uncoveredPaths' | 'worthALookPaths' | 'flaggedUnitIds' | 'notChecked'>;
+type ChangeReview = Pick<BoardReview, 'stepWarnings' | 'uncoveredPaths' | 'worthALookPaths' | 'flaggedStepIds' | 'notChecked'>;
 
-const NO_CHANGE_REVIEW: ChangeReview = Object.freeze({ unitWarnings: [], uncoveredPaths: [], worthALookPaths: [], flaggedUnitIds: [], notChecked: null });
+const NO_CHANGE_REVIEW: ChangeReview = Object.freeze({ stepWarnings: [], uncoveredPaths: [], worthALookPaths: [], flaggedStepIds: [], notChecked: null });
 
 const REF_PATTERN = /^([^#\s]+)(?:#L([1-9]\d*)(?:-L([1-9]\d*))?)?$/;
 
@@ -70,7 +72,6 @@ function sitesOfElement(element: Element): AnchorSite[] {
   const elementName = `${element.kind} ${element.id}`;
   switch (element.kind) {
     case 'box':
-    case 'unit':
       return [...element.refs.map((ref) => ({ elementId: element.id, ref, where: elementName })), ...lineSites(elementName, element.id, element.lines)];
     case 'panel': return lineSites(elementName, element.id, element.lines);
     case 'note': return element.ref ? [{ elementId: element.id, ref: element.ref, where: elementName }] : [];
@@ -136,16 +137,16 @@ function refPathOf(ref: string): string | null {
   return 'path' in parsed ? parsed.path : null;
 }
 
-function unitWarningsOf(unit: Unit, unitPaths: ReadonlySet<string>, changedByPath: ReadonlyMap<string, ChangedPath>): string[] {
-  if (unit.status === 'planned') {
-    const startedPath = [...unitPaths].find((unitPath) => changedByPath.has(unitPath));
-    return startedPath ? [`unit ${unit.id} is planned but ${startedPath} already changed`] : [];
+function stepWarningsOf(step: StepBox, stepPaths: ReadonlySet<string>, changedByPath: ReadonlyMap<string, ChangedPath>): string[] {
+  if (step.step.status === 'planned') {
+    const startedPath = [...stepPaths].find((stepPath) => changedByPath.has(stepPath));
+    return startedPath ? [`step ${step.id} is planned but ${startedPath} already changed`] : [];
   }
-  if (unit.status !== 'landed') return [];
-  return [...unitPaths].flatMap((unitPath) => {
-    const changed = changedByPath.get(unitPath);
-    if (!changed) return [`unit ${unit.id} is landed but ${unitPath} is unchanged`];
-    return changed.isCommitted ? [] : [`unit ${unit.id} is landed but ${unitPath} has uncommitted changes`];
+  if (step.step.status !== 'landed') return [];
+  return [...stepPaths].flatMap((stepPath) => {
+    const changed = changedByPath.get(stepPath);
+    if (!changed) return [`step ${step.id} is landed but ${stepPath} is unchanged`];
+    return changed.isCommitted ? [] : [`step ${step.id} is landed but ${stepPath} has uncommitted changes`];
   });
 }
 
@@ -153,25 +154,23 @@ function changeReviewOf(board: Board, sites: readonly AnchorSite[], changes: Cha
   if (!changes) return NO_CHANGE_REVIEW;
   if (changes.error) {
     const unreadText = `the code session changes could not be read: ${changes.error}`;
-    return { ...NO_CHANGE_REVIEW, unitWarnings: [unreadText], notChecked: unreadText };
+    return { ...NO_CHANGE_REVIEW, stepWarnings: [unreadText], notChecked: unreadText };
   }
   const refPaths = refPathsOf(sites);
   const changedByPath = new Map(changes.changedPaths.map((changed) => [changed.path, changed]));
-  const warningsByUnitId = new Map(Object.values(board.elements).flatMap((element) => (
-    element.kind === 'unit' ? [[element.id, unitWarningsOf(element, elementRefPaths(element), changedByPath)] as const] : []
-  )));
-  const unitWarnings = [...warningsByUnitId.values()].flat();
-  const flaggedUnitIds = [...warningsByUnitId].flatMap(([unitId, warnings]) => (warnings.length > 0 ? [unitId] : []));
+  const warningsByStepId = new Map(stepBoxesOf(board).map((step) => [step.id, stepWarningsOf(step, elementRefPaths(step), changedByPath)] as const));
+  const stepWarnings = [...warningsByStepId.values()].flat();
+  const flaggedStepIds = [...warningsByStepId].flatMap(([stepId, warnings]) => (warnings.length > 0 ? [stepId] : []));
   const uncoveredPaths = [...changedByPath.keys()].filter((changedPath) => !refPaths.has(changedPath)).sort();
   const worthALookPaths = [...new Set(changes.worthALookPaths)].filter((worthPath) => refPaths.has(worthPath));
-  return { unitWarnings: cappedWarnings(unitWarnings), uncoveredPaths: uncoveredPaths.slice(0, WHITEBOARD_LIMITS.layoutWarnings), worthALookPaths: worthALookPaths.slice(0, WHITEBOARD_LIMITS.layoutWarnings), flaggedUnitIds, notChecked: null };
+  return { stepWarnings: cappedWarnings(stepWarnings), uncoveredPaths: uncoveredPaths.slice(0, WHITEBOARD_LIMITS.layoutWarnings), worthALookPaths: worthALookPaths.slice(0, WHITEBOARD_LIMITS.layoutWarnings), flaggedStepIds, notChecked: null };
 }
 
 function reviewBoard(board: Board, facts: AnchorFacts | null): BoardReview {
   const { codeSessionId } = board;
   const sites = anchorSitesOf(board);
   if (!facts) {
-    const hasAnythingToCheck = sites.length > 0 || Object.values(board.elements).some((element) => element.kind === 'unit');
+    const hasAnythingToCheck = sites.length > 0 || stepBoxesOf(board).length > 0;
     const notChecked = hasAnythingToCheck ? missingCodeSessionText(codeSessionId) : null;
     return { codeSessionId, anchorWarnings: sites.length === 0 ? [] : [unreviewedWarning(codeSessionId)], ...NO_CHANGE_REVIEW, notChecked };
   }

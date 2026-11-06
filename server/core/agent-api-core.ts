@@ -363,18 +363,18 @@ const BOARD_REFERENCE = requiredText('<board>');
 const PLAN_SUBCOMMANDS: readonly CommandSpec[] = [
   {
     name: 'add',
-    summary: 'Add a unit of work to the plan on a board; a unit is any size, from one ticket to a whole pull request',
+    summary: 'Add a step to the plan on a board, as a box in the build-order band; a step is any size, from one ticket to a whole pull request',
     positionals: { usage: '<board> <title>', min: 2, max: null },
     options: [
-      { name: 'after', type: 'string', valueName: 'units', summary: 'Comma-separated ids of the units this one comes after' },
-      { name: 'link', type: 'string', valueName: 'board', summary: 'Another board, by id or title, that holds this unit\'s detail' },
-      { name: 'id', type: 'string', valueName: 'id', summary: 'The unit id, when the one made from its title is taken' },
+      { name: 'after', type: 'string', valueName: 'steps', summary: 'Comma-separated ids of the steps this one comes after; each becomes a wire into it' },
+      { name: 'link', type: 'string', valueName: 'board', summary: 'Another board, by id or title, that holds this step\'s detail' },
+      { name: 'id', type: 'string', valueName: 'id', summary: 'The step box id, when the one made from its title is taken' },
     ],
     missingArgumentHint: 'plan add needs a board and a title, for example "glimmervoid whiteboard plan add release-plan Diff index schema"',
   },
-  { name: 'after', summary: 'Set which units a unit comes after; naming none clears them. A dependency cycle is refused', positionals: { usage: '<board> <unit> [<unit>...]', min: 2, max: null }, missingArgumentHint: 'plan after needs a board and a unit' },
-  { name: 'status', summary: 'Mark a unit planned, building or landed; Glimmervoid checks the mark against the code session changes', positionals: { usage: '<board> <unit> <planned|building|landed>', min: 3, max: 3 }, missingArgumentHint: 'plan status needs a board, a unit and a status, for example "glimmervoid whiteboard plan status release-plan diff-index landed"' },
-  { name: 'show', summary: 'Print the plan on a board in dependency order; units that can run in parallel share a number, as 2a and 2b', positionals: BOARD_REFERENCE },
+  { name: 'after', summary: 'Set which steps a step comes after, as the wires into it; naming none clears them', positionals: { usage: '<board> <step> [<step>...]', min: 2, max: null }, missingArgumentHint: 'plan after needs a board and a step' },
+  { name: 'status', summary: 'Mark a step planned, building or landed; Glimmervoid checks the mark against the code session changes', positionals: { usage: '<board> <step> <planned|building|landed>', min: 3, max: 3 }, missingArgumentHint: 'plan status needs a board, a step and a status, for example "glimmervoid whiteboard plan status release-plan diff-index landed"' },
+  { name: 'show', summary: 'Print the plan on a board in dependency order; steps that can run in parallel share a number, as 2a and 2b', positionals: BOARD_REFERENCE },
 ];
 
 const WHITEBOARD_SUBCOMMANDS: readonly CommandSpec[] = [
@@ -405,7 +405,7 @@ const WHITEBOARD_SUBCOMMANDS: readonly CommandSpec[] = [
   { name: 'resolve', summary: 'Mark a note on a board resolved', positionals: { usage: '<board> <note>', min: 2, max: null } },
   { name: 'attach', summary: 'Store a PNG, JPEG, WebP, GIF, SVG, MP4, WebM or HTML file and print the media a box takes to show it', positionals: { usage: '<path>', min: 1, max: null } },
   { name: 'delete', summary: 'Delete a board this session created; the operator deletes any board from the dashboard', positionals: BOARD_REFERENCE },
-  { name: 'plan', summary: 'Lay out units of work on a board in dependency order, beside its free drawing', subcommands: PLAN_SUBCOMMANDS, missingArgumentHint: null },
+  { name: 'plan', summary: 'Lay out plan steps on a board in dependency order, above its free drawing', subcommands: PLAN_SUBCOMMANDS, missingArgumentHint: null },
 ];
 
 const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = Object.freeze({

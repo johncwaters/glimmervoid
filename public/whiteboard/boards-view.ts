@@ -71,7 +71,7 @@ interface BoardsViewParts {
   emptyText: HTMLElement;
   agentIsland: HTMLElement;
   queuedForSession: HTMLElement;
-  buttons: Record<'note' | 'frame' | 'unit' | 'fit' | 'undo' | 'redo', HTMLButtonElement>;
+  buttons: Record<'note' | 'frame' | 'step' | 'fit' | 'undo' | 'redo', HTMLButtonElement>;
   toolButtons: ReadonlyMap<BoardTool, HTMLButtonElement>;
   toolHint: HTMLElement;
   emptyBoardHint: HTMLElement;
@@ -257,7 +257,7 @@ function paintToolbar(): void {
   for (const button of parts.toolButtons.values()) button.disabled = !board;
   parts.buttons.note.disabled = selectedBoxCount !== 1;
   parts.buttons.frame.disabled = selectedBoxCount === 0;
-  for (const button of [parts.buttons.unit, parts.buttons.fit, parts.buttons.undo, parts.buttons.redo]) button.disabled = !board;
+  for (const button of [parts.buttons.step, parts.buttons.fit, parts.buttons.undo, parts.buttons.redo]) button.disabled = !board;
   inspector?.paint(editor?.selectedIds() ?? new Set());
 }
 
@@ -483,7 +483,7 @@ function paintReview(): void {
   const review = board && shownReview?.boardId === board.id ? shownReview.review : null;
   renderer.setReviewMarks({
     worthALookIds: board && review ? worthALookIdsOf(board, review.worthALookPaths) : new Set(),
-    flaggedUnitIds: new Set(review?.flaggedUnitIds ?? []),
+    flaggedStepIds: new Set(review?.flaggedStepIds ?? []),
   });
 }
 
@@ -540,19 +540,25 @@ function selectBoard(boardId: string): void {
   void openBoard(boardId).then(paintBoard);
 }
 
-function addUnitFromDialog(): void {
+function addStepFromDialog(): void {
   const board = selectedBoard();
   if (!board) return;
   const otherBoards = boardSummariesOf().filter((summary) => summary.id !== board.id);
   const linkOptions = [{ value: '', text: 'No linked board' }, ...otherBoards.map((summary) => ({ value: summary.id, text: summary.title }))];
   openTextDialog({
-    title: 'Add a unit',
-    label: 'Unit title',
+    title: 'Add a plan step',
+    label: 'Step title',
     placeholder: 'index the diffs',
     maxLength: WHITEBOARD_LIMITS.title,
-    confirmLabel: 'Add unit',
+    confirmLabel: 'Add step',
     choices: otherBoards.length > 0 ? { label: 'Linked board', options: linkOptions } : undefined,
-    onSubmit: (title, linkedBoardId) => sendOpsFromDialog([{ op: 'add', element: { kind: 'unit', id: newElementId('unit'), title, lines: [], refs: [], status: 'planned', after: [], linkedBoardId: linkedBoardId || null } }]),
+    onSubmit: (title, linkedBoardId) => sendOpsFromDialog([{
+      op: 'add',
+      element: {
+        kind: 'box', id: newElementId('box'), title, lines: [], lane: null, refs: [], change: 'none', was: null, column: null, near: null, order: 0, at: null,
+        shape: 'box', outputs: [], media: null, width: null, step: { status: 'planned', linkedBoardId: linkedBoardId || null },
+      },
+    }]),
   });
 }
 
@@ -796,7 +802,7 @@ export function mountBoardHost(): HTMLElement {
       if (box) addNoteOn(box.id);
     }),
     frame: moreMenuItem('frame selected boxes', 'add-frame', addFrame),
-    unit: moreMenuItem('plan step', 'add-unit', addUnitFromDialog),
+    step: moreMenuItem('plan step', 'add-step', addStepFromDialog),
     fit: iconButton('fit', FIT_ICON_PATH, 'fit-board', () => editor?.fit()),
     undo: iconButton('undo', UNDO_ICON_PATH, 'undo-board-edit', () => void stepHistory('undo')),
     redo: iconButton('redo', REDO_ICON_PATH, 'redo-board-edit', () => void stepHistory('redo')),
@@ -804,7 +810,7 @@ export function mountBoardHost(): HTMLElement {
   buttons.fit.dataset.phoneVisible = '';
   const toolDivider = el('span', 'wb-divider');
   toolDivider.setAttribute('aria-hidden', 'true');
-  const toolsIsland = island('wb-island-tools', 'Board tools', toolGroup, toolDivider, buildMoreMenu([buttons.note, buttons.frame, buttons.unit]));
+  const toolsIsland = island('wb-island-tools', 'Board tools', toolGroup, toolDivider, buildMoreMenu([buttons.note, buttons.frame, buttons.step]));
   const toolHint = el('p', 'wb-tool-hint');
   toolHint.setAttribute('aria-live', 'polite');
   toolHint.hidden = true;

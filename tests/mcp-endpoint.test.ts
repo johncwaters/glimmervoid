@@ -235,13 +235,14 @@ test('a whiteboard put that renames its board still returns its plan steps, get 
   assert.equal(JSON.stringify(created).includes('glimmervoid whiteboard put'), false);
   const ops = [
     { op: 'board', title: 'mcp plan renamed' },
-    { op: 'add', element: { kind: 'unit', id: 'schema', title: 'Add the schema' } },
-    { op: 'add', element: { kind: 'unit', id: 'route', title: 'Serve the route', after: ['schema'] } },
+    { op: 'add', element: { kind: 'box', id: 'schema', title: 'Add the schema', step: {} } },
+    { op: 'add', element: { kind: 'box', id: 'route', title: 'Serve the route', step: {} } },
+    { op: 'add', element: { kind: 'wire', id: 'schema-to-route', from: 'schema', to: 'route' } },
   ];
   const put = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'put', board: 'mcp plan', ops } }, credential));
   assert.notEqual(put.isError, true, JSON.stringify(put));
-  const putBody = put.structuredContent as { plan: { unitId: string; label: string }[]; layoutWarnings: string[] };
-  assert.deepEqual(putBody.plan.map((step) => [step.unitId, step.label]), [['schema', '1'], ['route', '2']]);
+  const putBody = put.structuredContent as { plan: { boxId: string; label: string; afterLabels: string[] }[]; layoutWarnings: string[] };
+  assert.deepEqual(putBody.plan.map((step) => [step.boxId, step.label, step.afterLabels]), [['schema', '1', []], ['route', '2', ['1']]]);
   assert.ok(Array.isArray(putBody.layoutWarnings));
 
   const read = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'get', board: 'mcp plan renamed' } }, credential));
