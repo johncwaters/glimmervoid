@@ -33,9 +33,27 @@ import type { ControlContext } from '../control-context.ts';
 import { isExistingDirectory, replyTo, sendError } from '../control-context.ts';
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
 
-function scanRepoRoots(roots: string[] | undefined): { root: string; projects: { name: string; path: string }[] }[] {
-  const results: { root: string; projects: { name: string; path: string }[] }[] = [];
+type ScannedProject = { name: string; path: string };
+
+function realPathOrSelf(candidate: string): string {
+  try {
+    return fs.realpathSync(candidate);
+  } catch {
+    return candidate;
+  }
+}
+
+function scannedProjectOf(root: string, entry: fs.Dirent): ScannedProject | null {
+  const entryPath = path.join(root, entry.name);
+  if (entry.isDirectory()) return { name: entry.name, path: entryPath };
+  if (!entry.isSymbolicLink() || !isExistingDirectory(entryPath)) return null;
+  return { name: entry.name, path: realPathOrSelf(entryPath) };
+}
+
+function scanRepoRoots(roots: string[] | undefined): { root: string; projects: ScannedProject[] }[] {
+  const results: { root: string; projects: ScannedProject[] }[] = [];
   if (!roots) return results;
+  const seenRealPaths = new Set<string>();
   for (const root of roots) {
     try {
       if (!fs.existsSync(root)) {
@@ -44,9 +62,16 @@ function scanRepoRoots(roots: string[] | undefined): { root: string; projects: {
       }
       const entries = fs.readdirSync(root, { withFileTypes: true });
       const projects = entries
-        .filter(d => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'node_modules')
-        .map(d => ({ name: d.name, path: path.join(root, d.name) }))
-        .sort((a, b) => a.name.localeCompare(b.name));
+        .filter(d => !d.name.startsWith('.') && d.name !== 'node_modules')
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(d => scannedProjectOf(root, d))
+        .filter((project): project is ScannedProject => project !== null)
+        .filter((project) => {
+          const projectRealPath = realPathOrSelf(project.path);
+          if (seenRealPaths.has(projectRealPath)) return false;
+          seenRealPaths.add(projectRealPath);
+          return true;
+        });
       results.push({ root, projects });
     } catch (err) {
       console.warn(`[settings] Failed to scan root: ${root}: ${errorCode(err) || errorMessage(err)}`);
