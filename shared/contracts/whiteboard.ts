@@ -51,9 +51,10 @@ export const BOARD_PAGE_ESCAPE_MESSAGE = 'glimmervoid-board-page-escape';
 
 const AssetId = z.string().regex(/^[0-9a-f]{64}$/, { error: 'an asset is the 64 hex character id whiteboard attach returned' }).meta({ id: 'AssetId' });
 
-const BOARD_MEDIA_KINDS = ['image', 'video', 'page'] as const;
-const BOARD_MEDIA_MIMES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml', 'video/mp4', 'video/webm', 'text/html'] as const;
+const BOARD_MEDIA_KINDS = ['image', 'video', 'page', 'doc'] as const;
+const BOARD_MEDIA_MIMES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml', 'video/mp4', 'video/webm', 'text/html', 'text/markdown'] as const;
 export const BOARD_MEDIA_MAX_EDGE_PX = 16384;
+export const BOARD_DOC_CAP_BYTES = 256 * 1024;
 
 export const BoxMedia = z.object({
   kind: z.enum(BOARD_MEDIA_KINDS).describe('what the media is, as attach returned it'),
@@ -264,7 +265,7 @@ function withoutDefaults(schema: z.core.$ZodType, value: unknown): unknown {
 }
 
 const BOARD_MEDIA_EXTENSION_BY_MIME: Record<BoxMedia['mime'], string> = {
-  'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp', 'image/svg+xml': '.svg', 'video/mp4': '.mp4', 'video/webm': '.webm', 'text/html': '.html',
+  'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp', 'image/svg+xml': '.svg', 'video/mp4': '.mp4', 'video/webm': '.webm', 'text/html': '.html', 'text/markdown': '.md',
 };
 
 export function boardMediaOriginalFilename(media: Pick<BoxMedia, 'asset' | 'mime'>): string {

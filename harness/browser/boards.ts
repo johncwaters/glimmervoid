@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileAsync } from '../../server/child-process-safe.ts';
 import { resolveFfmpegPath } from '../../server/runtime-paths.ts';
-import { Board, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
+import { Board, BoardMediaUploadReply, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import type { Op } from '../../shared/contracts/whiteboard.ts';
 import { benchmarkBoard } from '../board-layout-cost.ts';
 
@@ -17,6 +17,10 @@ const MERGE_SETTLE_MS = 1500;
 const WORKTREE_TIMEOUT_MS = 15000;
 const REVIEW_TIMEOUT_MS = 20000;
 const RESIZE_TIMEOUT_MS = 5000;
+const BOARD_DOC_BOX_ID = 'abstract';
+const BOARD_DOC_BOX_TITLE = 'docs/';
+const BOARD_DOC_FIRST_DRAFT = '# Abstract\n\n<b>First draft.</b>\n';
+const BOARD_DOC_SECOND_DRAFT = '# Abstract\n\nSecond draft.\n';
 
 async function addPlanStep(panel: Locator): Promise<void> {
   await panel.getByRole('button', { name: 'more', exact: true }).click();
@@ -265,6 +269,47 @@ async function verifyLiveMedia(panel: Locator): Promise<void> {
   await panel.getByRole('button', { name: 'fit', exact: true }).click();
 }
 
+async function verifyBoardDoc(panel: Locator, boardId: string): Promise<void> {
+  const page = panel.page();
+  const uploadReply: unknown = await page.evaluate(async ({ assetRoute, docText }) => {
+    const response = await fetch(assetRoute, { method: 'POST', body: docText, headers: { 'content-type': 'text/markdown', 'x-glimmervoid-upload-name': 'abstract.md' } });
+    const reply: unknown = await response.json();
+    return reply;
+  }, { assetRoute: WHITEBOARD_ASSET_ROUTE, docText: BOARD_DOC_FIRST_DRAFT });
+  const firstDraftMedia = BoardMediaUploadReply.parse(uploadReply).media;
+  assert.equal(firstDraftMedia.kind, 'doc', 'the board keeps a Markdown upload as a document');
+  await boardControlReply(page, 'whiteboard-op', { boardId, ops: [{ op: 'add', element: { kind: 'box', id: BOARD_DOC_BOX_ID, title: BOARD_DOC_BOX_TITLE, at: { x: 640, y: 40 }, media: firstDraftMedia } }] });
+  const docCard = panel.locator('.wb-media[data-media-kind="doc"] .wb-media-doc');
+  await docCard.locator('.plan-heading', { hasText: 'Abstract' }).waitFor();
+  assert.equal(await docCard.locator('b').count(), 0, 'a document box draws Markdown as text, never as markup');
+  await panel.getByRole('button', { name: 'fit', exact: true }).click();
+  const cardBounds = await docCard.boundingBox();
+  assert.ok(cardBounds);
+  await page.mouse.click(cardBounds.x + cardBounds.width / 2, cardBounds.y + cardBounds.height / 2);
+  const editor = page.locator('.doc-editor');
+  await editor.locator('.doc-editor-preview .plan-heading', { hasText: 'Abstract' }).waitFor();
+  assert.equal(await editor.getByRole('button', { name: 'Preview', exact: true }).getAttribute('aria-pressed'), 'true', 'a click on a document box opens it full size, rendered');
+  assert.equal(await editor.getByRole('button', { name: 'Markup', exact: true }).count(), 0, 'a board document offers no Markup mode');
+  await editor.getByRole('button', { name: 'Edit', exact: true }).click();
+  await editor.locator('textarea.doc-editor-text').fill(BOARD_DOC_SECOND_DRAFT);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Discard', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  assert.equal(await editor.isVisible(), true, 'Esc with unsaved edits asks before closing the document');
+  await editor.getByRole('button', { name: 'Save', exact: true }).click();
+  await editor.locator('.doc-editor-status', { hasText: 'Saved' }).waitFor();
+  await page.keyboard.press('Escape');
+  await editor.waitFor({ state: 'detached' });
+  await docCard.locator('.plan-paragraph', { hasText: 'Second draft.' }).waitFor();
+  const savedBox = Board.parse((await boardControlReply(page, 'whiteboard-get', { boardId })).board).elements[BOARD_DOC_BOX_ID];
+  assert.ok(savedBox?.kind === 'box' && savedBox.media?.kind === 'doc' && savedBox.media.asset !== firstDraftMedia.asset, 'a saved document is stored on the board as a new asset');
+  await panel.getByRole('button', { name: 'undo', exact: true }).click();
+  await docCard.locator('.plan-paragraph', { hasText: 'First draft.' }).waitFor();
+  await boardControlReply(page, 'whiteboard-op', { boardId, ops: [{ op: 'remove', id: BOARD_DOC_BOX_ID }] });
+  await panel.locator('.wb-media[data-media-kind="doc"]').waitFor({ state: 'detached' });
+  await panel.getByRole('button', { name: 'fit', exact: true }).click();
+}
+
 async function verifyGesturesOverMedia(panel: Locator, picture: Locator): Promise<void> {
   const page = panel.page();
   const resting = await picture.boundingBox();
@@ -383,7 +428,8 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     assert.equal(await boardsNavButton.getAttribute('aria-current'), 'page');
   }
   const boardTitle = `Ingest plan ${layout}`;
-  const panel = layout === 'desktop' ? await openDesktopBoard(page, sessionId, boardTitle) : page.locator('.boards-view');
+  const desktopBoard = layout === 'desktop' ? await openDesktopBoard(page, sessionId, boardTitle) : null;
+  const panel = desktopBoard?.panel ?? page.locator('.boards-view');
   await panel.waitFor({ state: 'visible' });
   if (layout === 'phone') await createBoardFromView(page, panel, boardTitle);
   await panel.locator('.wb-viewport').waitFor({ state: 'visible' });
@@ -419,6 +465,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await verifyResizedBoxes(page, panel, ['Parse feed']);
     await verifyDroppedPicture(panel);
     await verifyLiveMedia(panel);
+    if (desktopBoard) await verifyBoardDoc(panel, desktopBoard.boardId);
     await panel.getByRole('button', { name: 'more', exact: true }).click();
     const moreMenu = page.getByRole('menu', { name: 'More tools', exact: true });
     assert.deepEqual(await moreMenu.getByRole('menuitem').allTextContents(), ['note on box', 'frame selected boxes', 'plan step']);
@@ -577,11 +624,11 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
   assert.equal(await panel.getByRole('button', { name: boardTitle, exact: true }).count(), 1);
 }
 
-async function openDesktopBoard(page: Page, sessionId: string, boardTitle: string): Promise<Locator> {
+async function openDesktopBoard(page: Page, sessionId: string, boardTitle: string): Promise<{ panel: Locator; boardId: string }> {
   assert.equal(await page.locator('#tab-boards').isVisible(), false, 'Boards has no desktop header tab; boards live in Focus');
   const boardId = await createBoardOverControl(page, boardTitle);
   await runBoardControl(page, 'whiteboard-connect', { boardId, sessionId });
-  return showBoardInFocus(page, sessionId, boardTitle);
+  return { panel: await showBoardInFocus(page, sessionId, boardTitle), boardId };
 }
 
 export async function verifyBoardPane(page: Page, sessionId: string, projectDirectory: string): Promise<void> {

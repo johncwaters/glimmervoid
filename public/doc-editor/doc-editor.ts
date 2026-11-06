@@ -5,6 +5,7 @@ import { reportToServerLog } from '../control-ws.ts';
 import { findSessionUi } from '../session-card/card-registry.ts';
 
 type DocEditorUi = typeof import('./doc-editor-ui.ts');
+export type DocSource = import('./doc-editor-ui.ts').DocSource;
 
 const docsBySessionId = new Map<string, SessionDoc[]>();
 
@@ -43,8 +44,12 @@ export function openDocEditor(sessionId: string) {
   void loadEditorUi().then((editorUi) => editorUi?.openDocEditor(sessionId));
 }
 
-function applyDocsToOpenEditor(sessionId: string) {
-  loadedEditorUi?.applyDocsToOpenEditor(sessionId);
+export function openDocEditorOn(source: DocSource) {
+  void loadEditorUi().then((editorUi) => editorUi?.openDocEditorOn(source));
+}
+
+export function applyDocsToOpenEditor(sourceKey: string) {
+  loadedEditorUi?.applyDocsToOpenEditor(sourceKey);
 }
 
 export function applySessionDocsChanged(message: ServerMessageOf<'session-docs-changed'>) {

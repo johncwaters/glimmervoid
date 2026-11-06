@@ -13,8 +13,23 @@ import type { MarkupHost } from './markup-pane.ts';
 
 type EditorMode = 'edit' | 'preview' | 'markup';
 
+type DocReadOutcome = { ok: true; text: string; hash: string } | { ok: false; error: string | null };
+type DocSaveOutcome = { ok: true; hash: string } | { ok: false; isConflict: boolean; error: string | null };
+
+export interface DocSource {
+  key: string;
+  docs: () => readonly { path: string; name: string }[];
+  isSaveable: (docPath: string) => boolean;
+  hasMarkup: boolean;
+  openingMode: 'edit' | 'preview';
+  conflictText: string;
+  unsaveableText: string;
+  read: (docPath: string) => Promise<DocReadOutcome>;
+  save: (docPath: string, text: string, baseHash: string) => Promise<DocSaveOutcome>;
+}
+
 interface OpenEditor extends MarkupHost {
-  sessionId: string;
+  source: DocSource;
   mode: EditorMode;
   title: HTMLElement;
   select: HTMLSelectElement;
@@ -31,7 +46,7 @@ interface OpenEditor extends MarkupHost {
 let openEditor: OpenEditor | null = null;
 
 function fillDocPicker(editor: OpenEditor) {
-  const docs = docsOf(editor.sessionId);
+  const docs = editor.source.docs();
   editor.select.replaceChildren(...docs.map((doc) => {
     const option = el('option', null, doc.name);
     option.value = doc.path;
@@ -43,7 +58,7 @@ function fillDocPicker(editor: OpenEditor) {
 }
 
 function paintControls(editor: OpenEditor) {
-  const isSurfaced = docsOf(editor.sessionId).some((doc) => doc.path === editor.docPath);
+  const isSaveable = editor.source.isSaveable(editor.docPath);
   editor.btnEdit.setAttribute('aria-pressed', String(editor.mode === 'edit'));
   editor.btnPreview.setAttribute('aria-pressed', String(editor.mode === 'preview'));
   editor.btnMarkup.setAttribute('aria-pressed', String(editor.mode === 'markup'));
@@ -51,8 +66,8 @@ function paintControls(editor: OpenEditor) {
   editor.preview.hidden = editor.mode !== 'preview';
   editor.markup.root.hidden = editor.mode !== 'markup';
   editor.select.disabled = editor.isBusy;
-  editor.btnReload.disabled = editor.isBusy || !isSurfaced;
-  editor.btnSave.disabled = editor.isBusy || !isSurfaced || editor.baseHash === null || !editor.hasUnsavedChanges;
+  editor.btnReload.disabled = editor.isBusy || !isSaveable;
+  editor.btnSave.disabled = editor.isBusy || !isSaveable || editor.baseHash === null || !editor.hasUnsavedChanges;
   paintMarkupTools(editor);
 }
 
@@ -87,6 +102,34 @@ async function requestDoc(type: 'session-doc-read' | 'session-doc-save', payload
   }
 }
 
+async function readSessionDoc(sessionId: string, docPath: string): Promise<DocReadOutcome> {
+  const { reply, failureText } = await requestDoc('session-doc-read', { id: sessionId, path: docPath });
+  const response = reply?.type === 'session-doc-response' ? reply : null;
+  if (!response?.ok || response.text === undefined || response.hash === undefined) return { ok: false, error: response?.error || failureText };
+  return { ok: true, text: response.text, hash: response.hash };
+}
+
+async function saveSessionDoc(sessionId: string, docPath: string, text: string, baseHash: string): Promise<DocSaveOutcome> {
+  const { reply, failureText } = await requestDoc('session-doc-save', { id: sessionId, path: docPath, text, baseHash });
+  const response = reply?.type === 'session-doc-save-result' ? reply : null;
+  if (!response?.ok || response.hash === undefined) return { ok: false, isConflict: response?.conflict === true, error: response?.error || failureText };
+  return { ok: true, hash: response.hash };
+}
+
+function sessionDocSource(sessionId: string): DocSource {
+  return {
+    key: sessionId,
+    docs: () => docsOf(sessionId),
+    isSaveable: (docPath) => docsOf(sessionId).some((doc) => doc.path === docPath),
+    hasMarkup: true,
+    openingMode: isStreamerMode() ? 'preview' : 'edit',
+    conflictText: 'The agent changed this file since you opened it. Reload to see its version.',
+    unsaveableText: 'This doc is no longer surfaced, so it cannot be saved.',
+    read: (docPath) => readSessionDoc(sessionId, docPath),
+    save: (docPath, text, baseHash) => saveSessionDoc(sessionId, docPath, text, baseHash),
+  };
+}
+
 async function loadDoc(editor: OpenEditor, docPath: string) {
   editor.docPath = docPath;
   editor.isBusy = true;
@@ -95,18 +138,17 @@ async function loadDoc(editor: OpenEditor, docPath: string) {
   fillDocPicker(editor);
   setStatus(editor, 'Loading');
   paintControls(editor);
-  const { reply, failureText } = await requestDoc('session-doc-read', { id: editor.sessionId, path: docPath });
+  const read = await editor.source.read(docPath);
   if (openEditor !== editor || editor.docPath !== docPath) return;
   editor.isBusy = false;
   editor.textarea.readOnly = false;
-  const response = reply?.type === 'session-doc-response' ? reply : null;
-  if (!response?.ok || response.text === undefined || response.hash === undefined) {
-    setStatus(editor, response?.error || failureText || 'Could not open this doc', 'warn');
+  if (!read.ok) {
+    setStatus(editor, read.error || 'Could not open this doc', 'warn');
     paintControls(editor);
     return;
   }
-  editor.textarea.value = response.text;
-  editor.baseHash = response.hash;
+  editor.textarea.value = read.text;
+  editor.baseHash = read.hash;
   editor.hasUnsavedChanges = false;
   if (editor.mode === 'preview') renderPreview(editor);
   if (editor.mode === 'markup') renderMarkup(editor);
@@ -121,16 +163,15 @@ async function saveDoc(editor: OpenEditor) {
   paintControls(editor);
   const savedPath = editor.docPath;
   const savedText = editor.textarea.value;
-  const { reply, failureText } = await requestDoc('session-doc-save', { id: editor.sessionId, path: savedPath, text: savedText, baseHash: editor.baseHash });
+  const saved = await editor.source.save(savedPath, savedText, editor.baseHash);
   if (openEditor !== editor || editor.docPath !== savedPath) return;
   editor.isBusy = false;
-  const response = reply?.type === 'session-doc-save-result' ? reply : null;
-  if (!response?.ok || response.hash === undefined) {
-    setStatus(editor, response?.conflict ? 'The agent changed this file since you opened it. Reload to see its version.' : response?.error || failureText || 'Save failed', 'warn');
+  if (!saved.ok) {
+    setStatus(editor, saved.isConflict ? editor.source.conflictText : saved.error || 'Save failed', 'warn');
     paintControls(editor);
     return;
   }
-  editor.baseHash = response.hash;
+  editor.baseHash = saved.hash;
   editor.hasUnsavedChanges = editor.textarea.value !== savedText;
   setStatus(editor, editor.hasUnsavedChanges ? 'Unsaved changes' : 'Saved');
   paintControls(editor);
@@ -145,11 +186,15 @@ function setMode(editor: OpenEditor, mode: EditorMode) {
 }
 
 export function openDocEditor(sessionId: string) {
-  const firstDoc = docsOf(sessionId)[0];
+  openDocEditorOn(sessionDocSource(sessionId));
+}
+
+export function openDocEditorOn(source: DocSource) {
+  const firstDoc = source.docs()[0];
   if (!firstDoc || openEditor) return;
   const requestClose = () => whenChangesAreSafe(currentEditor, 'Close this doc?', () => currentEditor.close());
   const modal = createModalOverlay({ dialogClass: 'doc-editor', closeOnBackdrop: false, onEscape: requestClose });
-  const titleId = `doc-editor-title-${sessionId}`;
+  const titleId = 'doc-editor-title';
   const title = el('h3', 'doc-editor-title', firstDoc.name);
   title.id = titleId;
   const select = el('select', 'plan-control doc-editor-picker');
@@ -159,6 +204,7 @@ export function openDocEditor(sessionId: string) {
   const btnEdit = button({ variant: 'quiet', size: 'small', label: 'Edit' });
   const btnPreview = button({ variant: 'quiet', size: 'small', label: 'Preview' });
   const btnMarkup = button({ variant: 'quiet', size: 'small', label: 'Markup' });
+  btnMarkup.hidden = !source.hasMarkup;
   const btnReload = button({ variant: 'secondary', label: 'Reload', action: 'reload-doc' });
   const btnSave = button({ variant: 'primary', label: 'Save', action: 'save-doc' });
   const btnClose = button({ variant: 'secondary', label: 'Close', action: 'close-doc-editor' });
@@ -179,7 +225,7 @@ export function openDocEditor(sessionId: string) {
   applyDialogAria(modal.dialog, titleId);
 
   const currentEditor: OpenEditor = {
-    sessionId, docPath: firstDoc.path, baseHash: null, hasUnsavedChanges: false, isBusy: false, mode: isStreamerMode() ? 'preview' : 'edit',
+    source, docPath: firstDoc.path, baseHash: null, hasUnsavedChanges: false, isBusy: false, mode: source.openingMode,
     title, select, textarea, preview, markup, status, btnEdit, btnPreview, btnMarkup, btnReload, btnSave,
     showStatus: (text, tone) => setStatus(currentEditor, text, tone),
     close: () => {
@@ -220,11 +266,11 @@ export function openDocEditor(sessionId: string) {
   if (currentEditor.mode === 'edit') textarea.focus();
 }
 
-export function applyDocsToOpenEditor(sessionId: string) {
-  if (!openEditor || openEditor.sessionId !== sessionId) return;
+export function applyDocsToOpenEditor(sourceKey: string) {
+  if (!openEditor || openEditor.source.key !== sourceKey) return;
   fillDocPicker(openEditor);
   paintControls(openEditor);
-  if (docsOf(sessionId).some((doc) => doc.path === openEditor?.docPath)) return;
-  setStatus(openEditor, 'This doc is no longer surfaced, so it cannot be saved.', 'warn');
+  if (openEditor.source.isSaveable(openEditor.docPath)) return;
+  setStatus(openEditor, openEditor.source.unsaveableText, 'warn');
 }
 

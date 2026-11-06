@@ -20,7 +20,9 @@ import type { UndoDirection, UndoHistory } from '#shared/whiteboard-undo-core.ts
 import { createBoardInspector } from './board-inspect.ts';
 import type { BoardInspector } from './board-inspect.ts';
 import { createBoardRenderer } from './board-render.ts';
-import { createBoardMediaLayer } from './board-media-layer.ts';
+import { createBoardMediaLayer, fetchBoardDocText } from './board-media-layer.ts';
+import { applyDocsToOpenEditor, openDocEditorOn } from '../doc-editor/doc-editor.ts';
+import type { DocSource } from '../doc-editor/doc-editor.ts';
 import type { BoardRenderer } from './board-render.ts';
 import {
   boardSummariesOf, createBoard, deleteBoard, onBoardChanged, onBoardListChanged, openBoard, openBoardOf, openFileInReview, requestBoardLayout, requestBoardReview, sendBoardOps, takeOpenBoardRequest, uploadBoardMedia,
@@ -33,6 +35,10 @@ const TITLE_RENAME_CLASS = 'wb-board-title-rename';
 const MORE_ICON_PATH = 'M4.5 6.5L8 10l3.5-3.5';
 const MENU_GAP_PX = 4;
 const STACKED_MEDIA_OFFSET_PX = 32;
+const BOARD_DOC_CONFLICT_TEXT = 'This document changed on the board since you opened it. Reload to see that version.';
+const BOARD_DOC_GONE_TEXT = 'This document is no longer on the board, so it cannot be saved.';
+const BOARD_DOC_UNREAD_TEXT = 'This document could not be read from the board.';
+const BOARD_DOC_NOT_MARKDOWN_TEXT = 'Not saved: this text starts like a picture or an HTML page, so the board would not keep it as a document.';
 const BOARD_MEDIA_FILE_TYPES = new Set(['video/mp4', 'video/webm', 'text/html']);
 const BOARD_MEDIA_FILE_NAME_RE = /\.(png|jpe?g|gif|webp|svg|mp4|webm|html?)$/i;
 const FIT_ICON_PATH = 'M2.5 6V2.5H6 M10 2.5h3.5V6 M13.5 10v3.5H10 M6 13.5H2.5V10';
@@ -598,10 +604,62 @@ function closeOnEscapeInsidePage(pageFrame: HTMLIFrameElement, overlay: HTMLElem
   overlayWatcher.observe(document.body, { childList: true });
 }
 
+function docMediaOf(boardId: string, boxId: string): BoxMedia | null {
+  const box = openBoardOf(boardId)?.elements[boxId];
+  return box?.kind === 'box' && box.media?.kind === 'doc' ? box.media : null;
+}
+
+function boardDocKey(boardId: string): string {
+  return `whiteboard:${boardId}`;
+}
+
+async function saveBoardDoc(boardId: string, boxId: string, docText: string, loadedAsset: string): ReturnType<DocSource['save']> {
+  const media = docMediaOf(boardId, boxId);
+  const box = openBoardOf(boardId)?.elements[boxId];
+  if (!media || box?.kind !== 'box' || media.asset !== loadedAsset) return { ok: false, isConflict: true, error: null };
+  const stored = await uploadBoardMedia(new File([docText], `${boxId}.md`, { type: 'text/markdown' }));
+  if (!stored.ok) return { ok: false, isConflict: false, error: stored.error };
+  if (stored.media.kind !== 'doc') return { ok: false, isConflict: false, error: BOARD_DOC_NOT_MARKDOWN_TEXT };
+  if (docMediaOf(boardId, boxId)?.asset !== loadedAsset) return { ok: false, isConflict: true, error: null };
+  const sent = await sendRecordedOps(boardId, [{ op: 'set', id: boxId, fields: { media: { ...stored.media, alt: media.alt } } }]);
+  if (!sent.ok) return { ok: false, isConflict: false, error: sent.error };
+  return { ok: true, hash: stored.media.asset };
+}
+
+function boardDocSource(boardId: string, boxId: string, title: string): DocSource {
+  return {
+    key: boardDocKey(boardId),
+    docs: () => [{ path: boxId, name: title }],
+    isSaveable: () => docMediaOf(boardId, boxId) !== null,
+    hasMarkup: false,
+    openingMode: 'preview',
+    conflictText: BOARD_DOC_CONFLICT_TEXT,
+    unsaveableText: BOARD_DOC_GONE_TEXT,
+    read: async () => {
+      const media = docMediaOf(boardId, boxId);
+      if (!media) return { ok: false, error: BOARD_DOC_GONE_TEXT };
+      const docText = await fetchBoardDocText(media);
+      if (docText === null) return { ok: false, error: BOARD_DOC_UNREAD_TEXT };
+      return { ok: true, text: docText, hash: media.asset };
+    },
+    save: (_docPath, docText, loadedAsset) => saveBoardDoc(boardId, boxId, docText, loadedAsset),
+  };
+}
+
+function openBoardDoc(boardId: string, boxId: string): void {
+  const box = openBoardOf(boardId)?.elements[boxId];
+  if (box?.kind !== 'box') return;
+  openDocEditorOn(boardDocSource(boardId, boxId, box.title));
+}
+
 function openImageViewer(pressedImage: PressedImage): void {
   const { alt } = pressedImage;
   const media = pressedMediaOf(pressedImage);
   if (!media && !pressedImage.href) return;
+  if (media?.kind === 'doc' && selectedBoardId && pressedImage.boxId) {
+    openBoardDoc(selectedBoardId, pressedImage.boxId);
+    return;
+  }
   const { overlay, dialog, close, titleEl, btnCancel } = buildDialogShell({ title: alt || 'Picture', dialogClass: 'dialog wb-image-viewer', cancelLabel: 'Close' });
   const header = el('div', 'wb-image-viewer-header');
   titleEl.replaceWith(header);
@@ -891,6 +949,7 @@ export function mountBoardHost(): HTMLElement {
   wireMediaDrops(host, canvas);
   onBoardListChanged(paintList);
   onBoardChanged((boardId) => {
+    applyDocsToOpenEditor(boardDocKey(boardId));
     if (boardId !== selectedBoardId) return;
     paintBoard();
   });

@@ -1,3 +1,4 @@
+import { isUtf8 } from 'node:buffer';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -7,7 +8,7 @@ import { execFileAsync } from '../child-process-safe.ts';
 import { decideShownKind, SHOWN_SNIFF_BYTES } from '../core/shown-files-core.ts';
 import { resolveFfmpegPath } from '../runtime-paths.ts';
 import { SHOWN_FILE_CAP_BYTES } from '../../shared/contracts/session.ts';
-import { BOARD_MEDIA_MAX_EDGE_PX } from '../../shared/contracts/whiteboard.ts';
+import { BOARD_DOC_CAP_BYTES, BOARD_MEDIA_MAX_EDGE_PX } from '../../shared/contracts/whiteboard.ts';
 import type { BoxMedia } from '../../shared/contracts/whiteboard.ts';
 import { errorMessage } from '../../shared/text.ts';
 
@@ -18,18 +19,20 @@ const PREVIEW_WEBP_QUALITY = 85;
 const MAX_INPUT_PIXELS = 16384 * 16384;
 const PAGE_WIDTH_PX = 1280;
 const PAGE_HEIGHT_PX = 800;
+const DOC_WIDTH_PX = 800;
+const DOC_HEIGHT_PX = 1000;
 const UNPOSTERED_VIDEO_WIDTH_PX = 1280;
 const UNPOSTERED_VIDEO_HEIGHT_PX = 720;
 const VIDEO_POSTER_TIMEOUT_MS = 15_000;
 const ASSET_FILE_MODE = 0o600;
 const PREVIEW_SUFFIX = '.preview.webp';
-const ORIGINAL_FILENAME_RE = /^([0-9a-f]{64})(\.png|\.jpg|\.gif|\.webp|\.svg|\.mp4|\.webm|\.html)$/;
+const ORIGINAL_FILENAME_RE = /^([0-9a-f]{64})(\.png|\.jpg|\.gif|\.webp|\.svg|\.mp4|\.webm|\.html|\.md)$/;
 const PREVIEW_FILENAME_RE = /^([0-9a-f]{64})\.preview\.webp$/;
 const INCOMING_PREFIX = '.incoming-';
 const ATTACH_HOLD_MS = 10 * 60_000;
 const STILL_IMAGE_FTYP_BRANDS = new Set(['mif1', 'msf1', 'mif2', 'avif', 'avis', 'heic', 'heix', 'heim', 'heis', 'hevc', 'hevx', 'hevm', 'hevs', 'avci', 'avcs', 'jpeg', 'j2ki', 'j2is', 'crx ']);
 const FTYP_BRANDS_OFFSET = 16;
-const ACCEPTED_TEXT = 'PNG, JPEG, WebP, GIF, SVG, MP4, WebM or HTML';
+const ACCEPTED_TEXT = 'PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML or Markdown';
 const OPEN_WITHOUT_BLOCKING_ON_A_PIPE = fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0);
 
 interface MediaFormat {
@@ -48,6 +51,7 @@ const MEDIA_FORMAT_BY_EXTENSION: Record<string, MediaFormat> = {
   '.mp4': { kind: 'video', mime: 'video/mp4', contentType: 'video/mp4', hasLargeRasterPreview: false },
   '.webm': { kind: 'video', mime: 'video/webm', contentType: 'video/webm', hasLargeRasterPreview: false },
   '.html': { kind: 'page', mime: 'text/html', contentType: 'text/html; charset=utf-8', hasLargeRasterPreview: false },
+  '.md': { kind: 'doc', mime: 'text/markdown', contentType: 'text/markdown; charset=utf-8', hasLargeRasterPreview: false },
 };
 
 interface StoredAsset {
@@ -96,6 +100,20 @@ function refusal(status: number, error: string): Refusal {
 
 function overCapRefusal(name: string): Refusal {
   return refusal(413, `${name} is larger than the ${ASSET_INPUT_CAP_BYTES / (1024 * 1024)} MB a board takes`);
+}
+
+function overDocCapRefusal(name: string): Refusal {
+  return refusal(413, `${name} is larger than the ${BOARD_DOC_CAP_BYTES / 1024} KiB a board document takes`);
+}
+
+function notUtf8Refusal(name: string): Refusal {
+  return refusal(415, `${name} is not UTF-8 text; a board document is UTF-8 Markdown`);
+}
+
+async function docRefusalOf(incomingPath: string, name: string): Promise<Refusal | null> {
+  if ((await fsp.stat(incomingPath)).size > BOARD_DOC_CAP_BYTES) return overDocCapRefusal(name);
+  if (!isUtf8(await fsp.readFile(incomingPath))) return notUtf8Refusal(name);
+  return null;
 }
 
 function isRefusal(value: unknown): value is Refusal {
@@ -230,8 +248,15 @@ async function sizeVideo(sourcePath: string, previewPath: string, name: string):
   return { ...posterSize, hasPreview: true };
 }
 
-async function sizeStoredMedia(sourcePath: string, previewPath: string, format: MediaFormat, hasStoredPreview: boolean, name: string): Promise<MediaSize | Refusal> {
+function fixedViewportSizeOf(format: MediaFormat): MediaSize | null {
   if (format.kind === 'page') return { width: PAGE_WIDTH_PX, height: PAGE_HEIGHT_PX, hasPreview: false };
+  if (format.kind === 'doc') return { width: DOC_WIDTH_PX, height: DOC_HEIGHT_PX, hasPreview: false };
+  return null;
+}
+
+async function sizeStoredMedia(sourcePath: string, previewPath: string, format: MediaFormat, hasStoredPreview: boolean, name: string): Promise<MediaSize | Refusal> {
+  const fixedViewportSize = fixedViewportSizeOf(format);
+  if (fixedViewportSize) return fixedViewportSize;
   const drawnSize = await rasterSizeOf(format.kind === 'video' ? previewPath : sourcePath);
   if (drawnSize === 'interrupted') return interruptedReadRefusal(name);
   if (format.kind === 'video') return { ...(hasStoredPreview && drawnSize !== 'unreadable' ? drawnSize : { width: UNPOSTERED_VIDEO_WIDTH_PX, height: UNPOSTERED_VIDEO_HEIGHT_PX }), hasPreview: hasStoredPreview };
@@ -240,7 +265,8 @@ async function sizeStoredMedia(sourcePath: string, previewPath: string, format: 
 }
 
 function sizeMedia(sourcePath: string, previewPath: string, format: MediaFormat, name: string): Promise<MediaSize | Refusal> {
-  if (format.kind === 'page') return Promise.resolve({ width: PAGE_WIDTH_PX, height: PAGE_HEIGHT_PX, hasPreview: false });
+  const fixedViewportSize = fixedViewportSizeOf(format);
+  if (fixedViewportSize) return Promise.resolve(fixedViewportSize);
   if (format.kind === 'video') return sizeVideo(sourcePath, previewPath, name);
   return sizeImage(sourcePath, previewPath, format, name);
 }
@@ -315,6 +341,8 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = Date.n
       const verdict = decideShownKind(firstChunk, name);
       const format = verdict.ok ? MEDIA_FORMAT_BY_EXTENSION[verdict.extension] : undefined;
       if (!verdict.ok || !format || isStillImageInVideoContainer(firstChunk, verdict.extension)) return refusal(415, `${name} is not a file a board takes; a board takes ${ACCEPTED_TEXT}`);
+      const docRefusal = format.kind === 'doc' ? await docRefusalOf(incomingPath, name) : null;
+      if (docRefusal) return docRefusal;
       return await storeIncomingInTurn(incomingPath, await hashFile(incomingPath), verdict.extension, name);
     } catch (error) {
       logger.warn(`[whiteboard] board media could not be stored: ${errorMessage(error)}`);

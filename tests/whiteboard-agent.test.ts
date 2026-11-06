@@ -420,6 +420,30 @@ test('an agent attaches media once by content at full fidelity, a box shows it f
   assert.equal(pageForViewer.headers.get('content-length'), String(Buffer.byteLength(viewerPageMarkup)));
   assert.match(String(pageForViewer.headers.get('content-security-policy')), /^sandbox allow-scripts/);
   assert.equal((await (await fetch(assetUrl(`${svgMedia.asset}.svg?${BOARD_PAGE_VIEWER_PARAM}=1`))).text()).includes(BOARD_PAGE_ESCAPE_MESSAGE), false);
+  const abstractText = '# Abstract\n\n<b>kept as text</b>\n';
+  fs.writeFileSync(path.join(plannerDir, 'abstract.md'), abstractText);
+  const doc = await whiteboard(PLANNER_ID, { sub: 'attach', path: 'abstract.md' });
+  assert.equal(doc.status, 200, JSON.stringify(doc.body));
+  const docMedia = doc.body.media as { kind: string; asset: string; mime: string; width: number; height: number; hasPreview: boolean };
+  assert.deepEqual([docMedia.kind, docMedia.mime, docMedia.width, docMedia.height, docMedia.hasPreview], ['doc', 'text/markdown', 800, 1000, false]);
+  const servedDoc = await fetch(assetUrl(`${docMedia.asset}.md`));
+  assert.deepEqual([servedDoc.headers.get('content-type'), servedDoc.headers.get('content-security-policy'), await servedDoc.text()], ['text/markdown; charset=utf-8', "default-src 'none'; sandbox", abstractText]);
+  const editedOnBoard = await fetch(`${running().base}/whiteboards/assets`, { method: 'POST', body: `${abstractText}\nedited on the board\n`, headers: { 'content-type': 'text/markdown', 'x-glimmervoid-upload-name': 'abstract.md.md' } });
+  const editedDocMedia = (await editedOnBoard.json() as { media: { kind: string; asset: string } }).media;
+  assert.equal(editedDocMedia.kind, 'doc', 'the text the dashboard saves from the document view is stored as a document');
+  const docPut = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
+    { op: 'add', element: { kind: 'box', id: 'abstract', title: 'abstract.md', at: { x: 40, y: 900 }, media: { ...docMedia, alt: 'abstract.md' } } },
+    { op: 'set', id: 'abstract', fields: { media: { ...editedDocMedia, alt: 'abstract.md' } } },
+  ] });
+  assert.equal(docPut.status, 200, JSON.stringify(docPut.body));
+  fs.writeFileSync(path.join(plannerDir, 'big.md'), '#'.repeat(256 * 1024 + 1));
+  const bigDoc = await whiteboard(PLANNER_ID, { sub: 'attach', path: 'big.md' });
+  assert.deepEqual([bigDoc.status, bigDoc.body.error], [413, 'big.md is larger than the 256 KiB a board document takes']);
+  fs.writeFileSync(path.join(plannerDir, 'binary.md'), Buffer.from([0x23, 0x20, 0x00, 0x41]));
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'attach', path: 'binary.md' })).status, 415, 'a .md name does not make bytes that are not text a document');
+  fs.writeFileSync(path.join(plannerDir, 'latin1.md'), Buffer.from('# Caf\xe9\n', 'latin1'));
+  const latin1Doc = await whiteboard(PLANNER_ID, { sub: 'attach', path: 'latin1.md' });
+  assert.deepEqual([latin1Doc.status, latin1Doc.body.error], [415, 'latin1.md is not UTF-8 text; a board document is UTF-8 Markdown']);
   const ffmpegPath = resolveFfmpegPath();
   assert.ok(ffmpegPath, 'ffmpeg-static is installed');
   await execFileAsync(ffmpegPath, ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc=size=2400x1200:rate=5:duration=1', '-c:v', 'libvpx-vp9', '-deadline', 'realtime', '-y', path.join(plannerDir, 'clip.webm')]);
@@ -437,7 +461,7 @@ test('an agent attaches media once by content at full fidelity, a box shows it f
   fs.copyFileSync(path.join(plannerDir, 'mark.svg'), path.join(plannerDir, 'mark-as-page.html'));
   const svgAsPage = await whiteboard(PLANNER_ID, { sub: 'attach', path: 'mark-as-page.html' });
   assert.deepEqual(svgAsPage.body.media, svg.body.media);
-  assert.deepEqual(fs.readdirSync(path.join(fixture.tmpDir, 'whiteboards', 'assets')).sort(), [`${media.asset}.png`, `${svgMedia.asset}.svg`, `${pageMedia.asset}.html`, `${longPreludeAsset}.html`, `${videoMedia.asset}.webm`, `${videoMedia.asset}.preview.webp`].sort());
+  assert.deepEqual(fs.readdirSync(path.join(fixture.tmpDir, 'whiteboards', 'assets')).sort(), [`${media.asset}.png`, `${svgMedia.asset}.svg`, `${pageMedia.asset}.html`, `${longPreludeAsset}.html`, `${docMedia.asset}.md`, `${editedDocMedia.asset}.md`, `${videoMedia.asset}.webm`, `${videoMedia.asset}.preview.webp`].sort());
 
   const unstored = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'login', fields: { media: { ...media, asset: 'f'.repeat(64) } } }] });
   assert.equal(unstored.status, 400);
