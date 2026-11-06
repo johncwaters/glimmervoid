@@ -40,7 +40,7 @@ import { createStatusSource } from "../detection/status-source.ts";
 import type { MetaStatusSignal, ResolvedStatusSignal } from "../detection/status-source.ts";
 import type { HookSignal } from "../detection/hook-source.ts";
 import type { ResolvedCommand } from "./core/spawn-command.ts";
-import { DEFAULT_AGENT_ID, resolveAdapter, commandFor } from "./adapters/index.ts";
+import { DEFAULT_AGENT_ID, isFirstClassAgent, resolveAdapter, commandFor } from "./adapters/index.ts";
 import { startCodexAppServerBridge } from "./codex-app-server-bridge.ts";
 import { CODEX_REMOTE_TOKEN_ENV } from "./core/codex-remote-launch-core.ts";
 import type { CoherenceAttachment } from '../server/coherence/coherence-runtime.ts';
@@ -305,6 +305,7 @@ class Session extends EventEmitter {
   _prependPathDirs: string[];
   _hookTools: ResolvedHookTool[];
   _isSaneYoloActive: boolean;
+  _questionManager: QuestionManagerPort | null;
   _planLimits: boolean;
   _planReviewPort: SessionPlanReviewPort | null;
   _prepareCoherence: ((cwd: string) => Promise<CoherenceAttachment | null>) | null;
@@ -489,10 +490,11 @@ class Session extends EventEmitter {
 
     this.usageVendor = this._adapter.usageVendor || "claude";
     this.bypassHookTrust = bypassHookTrust === true;
+    this._questionManager = isFirstClassAgent(this.agentId) && !ephemeral && !holdsQuestionsForParent ? questionManager : null;
     this._approvals = createSessionApprovalHolds({
       agentId: this.agentId,
       holdsQuestionsForParent,
-      questionManager,
+      questionManager: this._questionManager,
       port: {
         emit: (event, detail) => this.emit(event, detail),
         ingestStatus: (signal) => this._ingestHookSignal(signal),
@@ -1262,6 +1264,10 @@ class Session extends EventEmitter {
     return this._isSaneYoloActive;
   }
 
+  get isQuestionManagerOn(): boolean | null {
+    return this._questionManager?.isOn ?? null;
+  }
+
   _prepareRestart(options: { fresh?: boolean; conversationId?: string | null } = {}): void {
     if (options.fresh !== true) {
       this._bindRestartConversation(options.conversationId);
@@ -1428,6 +1434,7 @@ class Session extends EventEmitter {
       failureReason: this.failureReason,
       unseenOutcome: this.unseenOutcome,
       managerSeenSeq: this.managerSeenSeq,
+      isQuestionManagerOn: this.isQuestionManagerOn,
       effectiveBase: this.worktreeLifecycle.snapshot().effectiveBase,
       linkedPrs: this.linkedPrs,
       coherenceHooks: this.coherenceHooks,
@@ -2029,6 +2036,12 @@ class Session extends EventEmitter {
     if (seenSeq <= this.managerSeenSeq) return;
     this.managerSeenSeq = seenSeq;
     this.emit("manager-seen-change", { managerSeenSeq: seenSeq });
+  }
+
+  setQuestionManagerOn(isOn: boolean): void {
+    if (!this._questionManager || this._questionManager.isOn === isOn) return;
+    this._questionManager.setOn(isOn);
+    this.emit("question-manager-change", { isQuestionManagerOn: isOn });
   }
 
   _setUnseenOutcome(nextUnseenOutcome: UnseenOutcome | null): void {

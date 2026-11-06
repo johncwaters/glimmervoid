@@ -102,6 +102,7 @@ export const SessionCardFields = z.object({
   stateSince: timestamp,
   skipPerms: z.boolean(),
   saneYolo: z.boolean(),
+  isQuestionManagerOn: z.boolean().optional(),
   worktree: z.boolean(),
   workspace: z.boolean().optional(),
   remoteWorkspace: z.string().optional(),
@@ -128,6 +129,7 @@ export const SessionStatusFields = z.object({
   awaitingBackgroundTasks: z.boolean().optional(),
   unseenOutcome: UnseenOutcome.nullable().optional(),
   managerSeenSeq: z.number().int().nonnegative().optional(),
+  isQuestionManagerOn: z.boolean().optional(),
   pendingPromptKind: nullableString.optional(),
 });
 export type SessionStatusFields = z.infer<typeof SessionStatusFields>;

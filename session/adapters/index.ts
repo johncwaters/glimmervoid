@@ -194,6 +194,11 @@ const BUILT_IN_AGENTS: readonly BuiltInAgent[] = Object.freeze([
   { adapter: shell, tier: "shell" },
 ]);
 const ADAPTERS = new Map(BUILT_IN_AGENTS.map(({ adapter }) => [adapter.id, adapter]));
+
+function isFirstClassAgent(agentId: string): boolean {
+  return BUILT_IN_AGENTS.some(({ adapter, tier }) => adapter.id === agentId && tier === "first-class");
+}
+
 const customAdapters = new Map<string, AgentAdapter>();
 const customAgentFingerprints = new Map<string, string>();
 
@@ -319,5 +324,6 @@ export {
   resetCommandCache,
   setCustomAgents,
   isBuiltInAgentId,
+  isFirstClassAgent,
 };
 export type { AgentAdapter, AgentAdapterShape, AgentArgsOptions, AgentCapabilities, AgentCommandOptions, AgentHookProfile, AgentSpawnCommandOptions, AgentTitleProfile, ArgvConfigInjection, GeneratedHomeInjection, GeneratedHomeLaunch, HomeHooksFileInjection, HookedAgentHome, ProjectConfigCandidate, ScratchAgentHome };

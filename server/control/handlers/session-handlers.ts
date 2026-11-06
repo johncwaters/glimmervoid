@@ -462,6 +462,19 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     reply(null);
   }
 
+  function handleSetSessionQuestionManager(msg: ClientMessageOf<'set-session-question-manager'>, ws: ControlSocket): void {
+    const session = findSession(msg);
+    if (!session) {
+      sendError(ws, SESSION_GONE_TEXT);
+      return;
+    }
+    if (session.isQuestionManagerOn === null) {
+      sendError(ws, 'The question manager cannot answer for this session.', { id: session.id });
+      return;
+    }
+    session.setQuestionManagerOn(msg.isOn);
+  }
+
   function handleSetSessionTitle(msg: ClientMessageOf<'set-session-title'>, ws: ControlSocket): void {
     const session = findSession(msg);
     const parsedTitle = TaskTitle.safeParse(msg.title);
@@ -590,6 +603,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     'get-workspace-repos': handleGetWorkspaceRepos,
     'set-workspace-repos': handleSetWorkspaceRepos,
     'set-session-title': handleSetSessionTitle,
+    'set-session-question-manager': handleSetSessionQuestionManager,
     'link-session-pr': handleLinkSessionPr,
     'unlink-session-pr': handleUnlinkSessionPr,
     'kill': (msg: ClientMessageOf<'kill'>) => { const s = findSession(msg); if (s) s.killSession(); },

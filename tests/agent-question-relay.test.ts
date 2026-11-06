@@ -10,6 +10,7 @@ import { runAgentApiCli } from '../server/agent-api-cli.ts';
 import { createAgentIngressApp } from '../server/backend/backend-http.ts';
 import { DEFAULT_CONFIG } from '../server/config-store.ts';
 import { createSessionDocsWiring } from '../server/session/session-docs-wiring.ts';
+import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
 import { createSpawnGate } from '../server/spawn-gate.ts';
 import type { Session } from '../session/sessions.ts';
 import { AGENT_URL_ENV, AgentReadReply } from '../shared/contracts/session.ts';
@@ -19,6 +20,8 @@ import { recordingSessionFactory } from './helpers/fake-session.ts';
 import { createQuestionManager, createQuestionManagerLane } from '../server/question-manager/question-manager.ts';
 import type { LaneSpawn } from '../server/lanes/lane-spawn.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
+import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
+import type { GlimmervoidConfig } from '../server/config-store.ts';
 
 test('a parent reads and answers held child questions through the agent API or releases them to the operator', async (context) => {
   const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-question-relay-'));
@@ -207,6 +210,59 @@ test('the question manager answers a covered question only in a session switched
     assert.match(String(denied?.hookSpecificOutput.permissionDecisionReason), /Which store\?: sqlite/);
     assert.equal(codex.state, codexRunningState);
     assert.equal(session.holdQuestionTool(codexAsk, new AbortController().signal), null);
+  } finally {
+    for (const created of factory.created) created.destroy();
+    fs.rmSync(projectPath, { recursive: true, force: true });
+  }
+});
+
+test('the operator switches the question manager per session over the control channel, and the switch is saved with the session', async () => {
+  const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-question-manager-switch-'));
+  const settings = { rules: [{ name: 'store choice', question: 'store', pick: ['SQLite'] }] };
+  const manager = createQuestionManager({ getSettings: () => settings });
+  const factory = recordingSessionFactory();
+  const offeredPort = () => manager.forSession({ projectPath, isOn: false });
+  const session = factory.makeSession({ id: 'operator', name: 'operator', path: projectPath, questionManager: offeredPort() });
+  const lane = factory.makeSession({ id: 'lane', name: 'lane', path: projectPath, ephemeral: true, questionManager: offeredPort() });
+  const child = factory.makeSession({ id: 'child', name: 'child', path: projectPath, holdsQuestionsForParent: true, questionManager: offeredPort() });
+  const grok = factory.makeSession({ id: 'grok', name: 'grok', path: projectPath, agent: 'grok', questionManager: offeredPort() });
+  const config: GlimmervoidConfig = { projects: [{ id: 'operator', name: 'operator', path: projectPath }, { id: 'lane', name: 'lane', path: projectPath }] };
+  const statusFrames: Record<string, unknown>[] = [];
+  createSessionEventWiring({
+    configStore: { save: (mutate) => { mutate(config); return config; } }, config, recordLane: () => {},
+    usage: { refreshSessions: () => {}, nudgeSession: () => {} },
+    broadcastControl: (message) => { if (message.type === 'session-status') statusFrames.push(message); },
+    telegramChannel: { noteStateChange: () => {}, recheck: () => {} },
+    notificationManager: { acknowledge: () => {}, trigger: () => {}, noteOperatorActivity: () => {} },
+    attachSessionPrLink: () => {}, closeSessionDataClients: () => {},
+    logger: { error: () => {}, log: () => {}, warn: () => {} },
+  })(session);
+  const connection = connectControl<{ type: string; message?: string }>(createControlServer(controlDeps(config, { sessions: new Map(factory.created.map((created) => [created.id, created])) })));
+  const askPayload = { tool_name: 'AskUserQuestion', tool_input: { questions: [{ question: 'Which store?', options: [{ label: 'sqlite' }, { label: 'postgres' }] }] } };
+  const answerOf = async () => (await session.holdClaudePermission(askPayload, new AbortController().signal))?.hookSpecificOutput.decision.behavior ?? null;
+  try {
+    session.transition('user_start');
+    session.transition('spawn_success', { spawnCwdExists: true });
+    session.transition('first_output');
+    session.transition('new_output');
+    assert.equal(session.isQuestionManagerOn, false);
+    assert.equal(await answerOf(), null);
+    connection.send({ type: 'set-session-question-manager', id: 'operator', isOn: true });
+    assert.equal(session.isQuestionManagerOn, true);
+    assert.equal(config.projects[0].questionManagerOn, true);
+    assert.equal(await answerOf(), 'allow');
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(statusFrames.at(-1)?.isQuestionManagerOn, true);
+    connection.send({ type: 'set-session-question-manager', id: 'operator', isOn: false });
+    assert.equal('questionManagerOn' in config.projects[0], false);
+    assert.equal(await answerOf(), null);
+    for (const unoffered of [lane, child, grok]) {
+      assert.equal(unoffered.isQuestionManagerOn, null);
+      connection.send({ type: 'set-session-question-manager', id: unoffered.id, isOn: true });
+      assert.equal(connection.sent.at(-1)?.type, 'error');
+      assert.equal(unoffered.isQuestionManagerOn, null);
+    }
+    assert.equal('questionManagerOn' in config.projects[1], false);
   } finally {
     for (const created of factory.created) created.destroy();
     fs.rmSync(projectPath, { recursive: true, force: true });

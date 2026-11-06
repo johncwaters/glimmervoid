@@ -32,6 +32,7 @@ export const sessionClientVariants = [
   loose('unlink-session-pr', { id: sessionId, key: PullRequestKey }),
   loose('dismiss', { id: sessionId, force: z.unknown().optional(), expectedState: SessionState.optional() }),
   loose('manager-seen', { id: sessionId, throughSeq: z.number().int().min(1) }),
+  loose('set-session-question-manager', { id: sessionId, isOn: z.boolean() }),
 ] as const;
 
 export const sessionServerVariants = [

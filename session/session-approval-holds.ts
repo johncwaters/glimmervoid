@@ -38,6 +38,8 @@ interface SettledQuestion {
 }
 
 interface QuestionManagerPort {
+  readonly isOn: boolean;
+  setOn(isOn: boolean): void;
   mightAnswer(): boolean;
   decide(questions: readonly ConversationQuestion[] | null, context: { taskTitle: string | null; signal: AbortSignal }): Promise<ManagerVerdict | null>;
 }
