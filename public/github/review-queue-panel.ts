@@ -3,6 +3,7 @@ import { createPressable } from '../ui/pressable.ts';
 import { button } from '../ui/button.ts';
 import { createAvatar, el, isPanelHidden, isRealInputOwningKey } from '../dom-helpers.ts';
 import { pullRequestLabel } from './github-store-core.ts';
+import { EASE_OUT_EXPO, canAnimate, eased, prefersReducedMotion } from '../attention-banner.ts';
 import { isModalOpen } from '../session-card/modal.ts';
 import { buildNextAttentionKeys } from '../shortcuts.ts';
 import type { ViewModule } from '../view-registry-core.ts';
@@ -114,7 +115,9 @@ function caughtUpElement(receipt: string | null): HTMLElement {
 
 function showSelectedDetail(receiptMode: 'keep' | 'clear'): void {
   const item = queueItemByKey(currentGroups, selectedKey);
+  const isSwitchingReview = shownKey !== null && item !== null && item.key !== shownKey;
   shownKey = item?.key ?? null;
+  if (isSwitchingReview) fadeInDetail();
   if (!item) {
     caughtUpReceipt = takePostedReceipt() ?? caughtUpReceipt;
     releaseTeamReviewSelection();
@@ -137,6 +140,7 @@ function selectItem(key: string, { isFromQueue }: { isFromQueue: boolean }): voi
   selectedKey = key;
   isCaughtUp = false;
   caughtUpReceipt = null;
+  moveOutlineTo(key);
   for (const [rowKey, row] of rowsByKey) row.setAttribute('aria-current', String(rowKey === key));
   const item = queueItemByKey(currentGroups, key);
   const row = rowsByKey.get(key);
@@ -303,6 +307,126 @@ function createItemTile(item: QueueItem, groupId: DisplayGroupId): HTMLElement {
   return tile;
 }
 
+const CARD_MOVE_MS = 480;
+const CARD_ARRIVE_MS = 480;
+const CARD_LEAVE_MS = 200;
+const SELECTION_SLIDE_MS = 250;
+const DETAIL_FADE_MS = 250;
+const MIN_MOVE_PX = 1;
+
+type RowSnapshot = { rect: DOMRect; element: HTMLElement };
+const runningQueueAnimations = new Set<Animation>();
+const leavingGhosts = new Set<HTMLElement>();
+let outlinedKey: string | null = null;
+let motionLayout: string | null = null;
+
+function isQueueMotionOn(): boolean {
+  return queueElement !== null && !prefersReducedMotion() && canAnimate(queueElement);
+}
+
+function trackAnimation(animation: Animation): void {
+  runningQueueAnimations.add(animation);
+  animation.addEventListener('finish', () => runningQueueAnimations.delete(animation));
+  animation.addEventListener('cancel', () => runningQueueAnimations.delete(animation));
+}
+
+function finishQueueMotion(): void {
+  for (const animation of [...runningQueueAnimations]) animation.finish();
+  runningQueueAnimations.clear();
+  for (const ghost of leavingGhosts) ghost.remove();
+  leavingGhosts.clear();
+}
+
+function snapshotRows(): Map<string, RowSnapshot> {
+  const snapshots = new Map<string, RowSnapshot>();
+  if (!isQueueMotionOn() || motionLayout !== shownLayout()) return snapshots;
+  for (const [key, row] of rowsByKey) {
+    if (row.isConnected) snapshots.set(key, { rect: row.getBoundingClientRect(), element: row });
+  }
+  return snapshots;
+}
+
+function flyLeavingRow({ rect, element }: RowSnapshot): void {
+  const ghostRow = element.cloneNode(true);
+  const ghostHost = element.parentElement?.cloneNode(false);
+  if (!queueElement || !(ghostRow instanceof HTMLElement) || !(ghostHost instanceof HTMLElement)) return;
+  ghostHost.removeAttribute('id');
+  ghostHost.classList.add('review-motion-ghost');
+  Object.assign(ghostHost.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px` });
+  ghostHost.append(ghostRow);
+  queueElement.append(ghostHost);
+  leavingGhosts.add(ghostHost);
+  const leave = ghostHost.animate(eased([{ opacity: 1 }, { opacity: 0, transform: 'scale(0.96)' }]), { duration: CARD_LEAVE_MS, fill: 'forwards' });
+  trackAnimation(leave);
+  leave.addEventListener('finish', () => {
+    leavingGhosts.delete(ghostHost);
+    ghostHost.remove();
+  });
+}
+
+function slideSelectionOutline(fromRect: DOMRect, toRow: HTMLElement, toRect: DOMRect): void {
+  const ghost = el('div', 'review-selection-ghost');
+  Object.assign(ghost.style, { left: `${toRect.left}px`, top: `${toRect.top}px`, width: `${toRect.width}px`, height: `${toRect.height}px` });
+  document.body.append(ghost);
+  leavingGhosts.add(ghost);
+  toRow.dataset.selectionArriving = 'true';
+  const scaleX = fromRect.width / Math.max(toRect.width, 1);
+  const scaleY = fromRect.height / Math.max(toRect.height, 1);
+  const slide = ghost.animate(eased([
+    { transform: `translate(${fromRect.left - toRect.left}px, ${fromRect.top - toRect.top}px) scale(${scaleX}, ${scaleY})` },
+    { transform: 'none' },
+  ]), { duration: SELECTION_SLIDE_MS });
+  trackAnimation(slide);
+  const land = () => {
+    delete toRow.dataset.selectionArriving;
+    leavingGhosts.delete(ghost);
+    ghost.remove();
+  };
+  slide.addEventListener('finish', land);
+  slide.addEventListener('cancel', land);
+}
+
+function playRowMotion(before: ReadonlyMap<string, RowSnapshot>): void {
+  if (before.size === 0 || !isQueueMotionOn()) return;
+  const afterRects = new Map([...rowsByKey].map(([key, row]) => [key, row.getBoundingClientRect()]));
+  for (const [key, row] of rowsByKey) {
+    const fromRect = before.get(key)?.rect;
+    const toRect = afterRects.get(key);
+    if (!toRect) continue;
+    if (!fromRect) {
+      trackAnimation(row.animate(eased([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }]), { duration: CARD_ARRIVE_MS }));
+      continue;
+    }
+    const deltaX = fromRect.left - toRect.left;
+    const deltaY = fromRect.top - toRect.top;
+    if (Math.abs(deltaX) + Math.abs(deltaY) < MIN_MOVE_PX) continue;
+    trackAnimation(row.animate(eased([{ transform: `translate(${deltaX}px, ${deltaY}px)` }, { transform: 'none' }]), { duration: CARD_MOVE_MS }));
+  }
+  for (const [key, snapshot] of before) {
+    if (!rowsByKey.has(key)) flyLeavingRow(snapshot);
+  }
+  const fromSelectedRect = outlinedKey ? before.get(outlinedKey)?.rect : undefined;
+  const toSelectedRow = selectedKey ? rowsByKey.get(selectedKey) : undefined;
+  const toSelectedRect = selectedKey ? afterRects.get(selectedKey) : undefined;
+  if (outlinedKey !== selectedKey && fromSelectedRect && toSelectedRow && toSelectedRect && rowsByKey.has(outlinedKey ?? '')) slideSelectionOutline(fromSelectedRect, toSelectedRow, toSelectedRect);
+}
+
+function moveOutlineTo(key: string): void {
+  const fromRow = outlinedKey ? rowsByKey.get(outlinedKey) : undefined;
+  const toRow = rowsByKey.get(key);
+  const isMove = outlinedKey !== key && fromRow?.isConnected === true && toRow?.isConnected === true && isQueueMotionOn();
+  if (isMove && fromRow && toRow) {
+    finishQueueMotion();
+    slideSelectionOutline(fromRow.getBoundingClientRect(), toRow, toRow.getBoundingClientRect());
+  }
+  outlinedKey = key;
+}
+
+function fadeInDetail(): void {
+  if (!detailHost || prefersReducedMotion() || !canAnimate(detailHost)) return;
+  detailHost.animate([{ opacity: 0 }, { opacity: 1 }], { duration: DETAIL_FADE_MS, easing: EASE_OUT_EXPO });
+}
+
 function toggleCollapsedGroup(groupId: string): void {
   if (openCollapsedGroupIds.delete(groupId)) return;
   openCollapsedGroupIds.add(groupId);
@@ -453,10 +577,18 @@ function render(): void {
     renderedSignature = signature;
     const focusedKey = document.activeElement instanceof HTMLElement && queueElement.contains(document.activeElement) ? document.activeElement.dataset.queueKey : undefined;
     resetTeamQueueTickers();
+    finishQueueMotion();
+    const rowsBefore = snapshotRows();
+    const boardScrollLeft = queueElement.querySelector('.review-board')?.scrollLeft ?? 0;
     rowsByKey.clear();
     const hasMultipleRepos = spansMultipleRepos(currentGroups);
     queueElement.replaceChildren(...queueNoticeElements(), ...queueContent(hasMultipleRepos, sessionsByPrKey));
+    const rebuiltBoard = queueElement.querySelector('.review-board');
+    if (rebuiltBoard) rebuiltBoard.scrollLeft = boardScrollLeft;
     if (focusedKey) rowsByKey.get(focusedKey)?.focus({ preventScroll: true });
+    playRowMotion(rowsBefore);
+    outlinedKey = selectedKey;
+    motionLayout = shownLayout();
     refreshTeamReviewAges();
   }
   if (selectedKey !== shownKey || isCaughtUp) showSelectedDetail('keep');

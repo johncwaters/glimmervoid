@@ -50,7 +50,7 @@ const ALL_CLEAR_LINES = [
 ];
 
 const ALL_CLEAR_LINE_HOLD_MS = 2500;
-const EASE_OUT_EXPO = 'cubic-bezier(0.16, 1, 0.3, 1)';
+export const EASE_OUT_EXPO = 'cubic-bezier(0.16, 1, 0.3, 1)';
 const EASE_IN_OUT_FLIGHT = 'cubic-bezier(0.5, 0, 0.2, 1)';
 const PRESS_MS = 260;
 const TILE_ENTER_MS = 200;
@@ -90,15 +90,15 @@ function motionOf(banner: HTMLElement) {
   return motion;
 }
 
-function canAnimate(element: HTMLElement) {
+export function canAnimate(element: HTMLElement) {
   return !document.hidden && typeof element.animate === 'function' && element.getClientRects().length > 0;
 }
 
-function prefersReducedMotion() {
+export function prefersReducedMotion() {
   return reducedMotion?.matches ?? false;
 }
 
-function eased(frames: Keyframe[]) {
+export function eased(frames: Keyframe[]) {
   return frames.map((frame) => ({ easing: EASE_OUT_EXPO, ...frame }));
 }
 

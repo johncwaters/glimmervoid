@@ -350,6 +350,9 @@ html[data-layout="phone"] .review-layout-switch { display: none; }
 }
 .pr-queue-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .pr-queue-tile[aria-current="true"] { border-color: var(--accent); background: color-mix(in oklch, var(--accent) 16%, var(--bg-card)); color: var(--text-head); }
+.review-motion-ghost { position: fixed; z-index: 2; margin: 0; pointer-events: none; }
+.review-selection-ghost { position: fixed; z-index: 3; box-sizing: border-box; border: 1px solid var(--accent); border-radius: var(--radius); pointer-events: none; transform-origin: 0 0; }
+.review-queue :is(.pr-queue-row, .pr-queue-tile)[data-selection-arriving="true"][aria-current="true"] { box-shadow: none; border-color: var(--border-dim); }
 .pr-queue-row[data-age-tone="fresh"] .pr-queue-elapsed { color: var(--text-muted); }
 .pr-queue-row[data-age-tone="aging"] .pr-queue-elapsed { color: var(--state-waiting); }
 .pr-queue-row[data-age-tone="old"] .pr-queue-elapsed { color: var(--state-failed); }
