@@ -18,6 +18,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 | `docs/`, `bin/` | Design records and npm CLI |
 | `Glimmervoid.spec.md`, `*.spec.md`, `coherence.config.json`, `lexicon.json` | Coherence: the entry spec at the root, a component spec beside each unit's code, its config and vocabulary; `npm test` fails on a spec or lexicon problem |
 | `mcp/` | Agent MCP endpoint; all MCP code (`mcp/AGENTS.md`) |
+| `cloud/` | Cloud split: watcher and job inbox (`cloud/AGENTS.md`) |
 | `server/` | Backend runtime and lanes (`server/AGENTS.md`) |
 | `server/child-process-safe.ts` | The ONLY importer of `node:child_process` |
 | `server/git/git-workspace.ts` | The ONLY module allowed to run `git worktree` |
@@ -71,14 +72,13 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 
 ## Invariants
 
-Each subsystem states its own rules beside its code, so a rule is loaded when that code is open and never charged to every session. Never restate one here.
-
 | Subsystem | Rules live in |
 |---|---|
 | Status Detection, Operator Hooks, Session Recording, Session Trace | `detection/AGENTS.md` |
 | Agent Adapters | `session/adapters/AGENTS.md` |
 | Session Spawning, Auto-Resume and Shutdown | `session/AGENTS.md` |
 | Notifications | `notifications/AGENTS.md` |
+| Watcher Job Inbox | `cloud/AGENTS.md` |
 | Worktree Auto-Rebase, Worktree Base Branch, Remote Branch GC, Benchmarks, Plan Review, Security: Trust Boundary, Transport and Session Identity | `server/AGENTS.md` |
 | Ephemeral Lane Write Boundaries, Lane PostHog MCP | `server/lanes/AGENTS.md` |
 | Usage Tracking | `server/usage/AGENTS.md` |

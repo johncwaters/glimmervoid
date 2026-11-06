@@ -217,6 +217,14 @@
     {
       "name": "host",
       "definition": "A machine running Glimmervoid; a registered host is another such machine, listed under hosts in config, that this dashboard links over an ssh tunnel and shows in the sidebar with its sessions"
+    },
+    {
+      "name": "watcher",
+      "definition": "The always-on glimmervoid watch process that runs no sessions or dashboard and delivers jobs to a Glimmervoid server's job inbox; auto-started by the server on one machine, or run on its own box for Glimmervoid Cloud"
+    },
+    {
+      "name": "job inbox",
+      "definition": "The bearer-token listener inside a Glimmervoid server that accepts watcher jobs, parses each against its registered kind and acks it once"
     }
   ]
 }

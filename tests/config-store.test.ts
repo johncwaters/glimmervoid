@@ -519,14 +519,15 @@ test('a config.json still carrying the retired postTurnChecks block loads and le
   });
 });
 
-test('the environment secret bindings and the password leaves of the registry are the same set, so each shows as configured and never as its value', () => {
-  const boundPaths = ENV_SECRET_BINDINGS.map((binding) => `${binding.blockName}.${binding.secretKey}`).sort();
+test('the environment secret bindings shown in Settings and the password leaves of the registry are the same set, so each shows as configured and never as its value', () => {
+  const settingsBindings = ENV_SECRET_BINDINGS.filter((binding) => !binding.isEnvironmentOnly);
+  const boundPaths = settingsBindings.map((binding) => `${binding.blockName}.${binding.secretKey}`).sort();
   const passwordPaths = [...settingsOf(SETTINGS_REGISTRY.sections), ...SETTINGS_REGISTRY.fileOnly]
     .filter((setting) => setting.control === 'password')
     .map((setting) => setting.path)
     .sort();
   assert.deepEqual(passwordPaths, boundPaths);
-  for (const binding of ENV_SECRET_BINDINGS) {
+  for (const binding of settingsBindings) {
     const leaf = settingsBlockSpecFor(binding.blockName).values?.[binding.secretKey];
     assert.equal(leaf?.control, 'password', `${binding.blockName}.${binding.secretKey}`);
   }

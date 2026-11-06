@@ -210,6 +210,12 @@ export const Config = z.object({
     ownerLogin: z.string().optional(),
   }).passthrough().optional(),
   hosts: HostEntries.optional(),
+  watcher: z.object({
+    autoStart: optionalBoolean('watcher.autoStart'),
+    inboxHost: z.string().optional(),
+    inboxPort: z.number().int().min(1).max(65535).nullable().optional(),
+    token: z.string().optional(),
+  }).passthrough().optional(),
   projects: z.array(ProjectConfig),
 }).passthrough().superRefine((config, ctx) => {
   if (!Array.isArray(config.projects)) return;
@@ -262,6 +268,7 @@ export const HIDDEN_CONFIG_KEYS = Object.freeze([
   'shareCommitProvenance',
   'hooks',
   'remote',
+  'watcher',
   'projects',
 ]);
 

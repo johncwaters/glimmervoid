@@ -69,6 +69,7 @@ import { lookupWhy } from '../why-lookup.ts';
 import { createHostLinksWiring } from '../hosts/host-links-wiring.ts';
 import type { SpawnHostTunnel } from '../hosts/host-links-wiring.ts';
 import type { WebSocket } from 'ws';
+import { createJobInbox } from '../../cloud/inbox/job-inbox-wiring.ts';
 
 interface CreateBackendOptions extends BackendLaneOptions {
   staticDir?: string | null;
@@ -615,6 +616,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     dataWss,
   });
   const lifecycleServers: Server[] = [agentIngressServer];
+  const jobInbox = createJobInbox({ watcherConfig: config.watcher });
   const { requestShutdown, requestRestart } = createLifecycle({
     shutdown,
     httpServer,
@@ -711,6 +713,13 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
         remoteHttpServer.on('request', app);
         remoteHttpServer.on('upgrade', handleUpgrade);
         lifecycleServers.push(remoteHttpServer);
+      },
+    },
+    jobInbox: {
+      decision: jobInbox.decision,
+      attach(inboxHttpServer: Server) {
+        jobInbox.attach(inboxHttpServer);
+        lifecycleServers.push(inboxHttpServer);
       },
     },
   };
