@@ -3835,7 +3835,7 @@ html[data-layout="phone"] .session-row-item:has(> .session-row.focused) { outlin
 [data-layout="phone"] .phone-terminal-title {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   font-size: var(--type-body);
   line-height: 1.3;
   white-space: normal;

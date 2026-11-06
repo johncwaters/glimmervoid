@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The phone terminal header matches the desktop one: it shows the agent icon before the session name, and the session title stops at two lines so the header stays short.
 - A custom agent declared with the id of a built-in agent no longer stops the config from loading. The built-in agent takes that id, Settings > Declared agents marks the entry as ignored, and it stays in your config.json so you can rename it.
 
 ### Fixed
