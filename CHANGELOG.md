@@ -57,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Esc closes a board page you clicked into.** With a page from a whiteboard open full size, Esc did nothing once you had clicked or typed inside the page, because the page kept the key to itself. The full-size page now reports Esc to the dashboard, so it closes like a picture or a video does. A page that handles Esc itself and cancels it keeps the view open.
 - **An alert sound blocked by the browser no longer reports an error.** When an alert played before you had clicked or typed on the dashboard, the browser held the sound back, and closing it afterwards raised an unhandled InvalidStateError that reached error reports. A blocked alert stays silent as before, now without the error.
 - **A blocked jingle no longer leaves an audio context open.** When the browser held back the jingle because you had not yet clicked or typed on the dashboard, its audio context stayed open, and each blocked play left another one behind. A blocked jingle now closes its context at once.
 - **A prompt left for you to send is no longer sent for you.** When Glimmervoid pasted a prompt into a session for you to read first, such as a review comment fix that matched a rule, a later note it sends on its own, such as the one telling the agent its pull request branch moved, pressed Enter and sent both. That later note is now pasted without Enter, and Glimmervoid sends its own prompts again once you have pressed Enter yourself.

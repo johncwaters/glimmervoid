@@ -46,6 +46,8 @@ const Output = z.object({
 }).strict().meta({ id: 'Output' });
 
 export const WHITEBOARD_ASSET_ROUTE = '/whiteboards/assets';
+export const BOARD_PAGE_VIEWER_PARAM = 'viewer';
+export const BOARD_PAGE_ESCAPE_MESSAGE = 'glimmervoid-board-page-escape';
 
 const AssetId = z.string().regex(/^[0-9a-f]{64}$/, { error: 'an asset is the 64 hex character id whiteboard attach returned' }).meta({ id: 'AssetId' });
 

@@ -1,7 +1,7 @@
 import './whiteboard.css';
 import type { Board, BoardReview, BoardSummary, BoxMedia, Element, Op } from '#shared/contracts/whiteboard.ts';
 import { refPathOf, refsOfElement } from '#shared/whiteboard-anchor-core.ts';
-import { boardMediaOriginalFilename, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
+import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_VIEWER_PARAM, boardMediaOriginalFilename, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import { createActionStatus } from '../action-status.ts';
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
 import { createSandboxedFrame } from '../sandboxed-frame.ts';
@@ -569,7 +569,7 @@ function pressedMediaOf({ boxId }: PressedImage): BoxMedia | null {
 
 function enlargedMediaOf(pressedImage: PressedImage, media: BoxMedia | null): HTMLElement {
   const originalHref = media ? `${WHITEBOARD_ASSET_ROUTE}/${boardMediaOriginalFilename(media)}` : pressedImage.href;
-  if (media?.kind === 'page') return createSandboxedFrame({ source: { kind: 'url', url: originalHref }, className: 'wb-image-viewer-page', title: pressedImage.alt || 'page', allowsScripts: true });
+  if (media?.kind === 'page') return createSandboxedFrame({ source: { kind: 'url', url: `${originalHref}?${BOARD_PAGE_VIEWER_PARAM}=1` }, className: 'wb-image-viewer-page', title: pressedImage.alt || 'page', allowsScripts: true });
   if (media?.kind === 'video') {
     const video = el('video', 'wb-image-viewer-video');
     video.src = originalHref;
@@ -584,15 +584,31 @@ function enlargedMediaOf(pressedImage: PressedImage, media: BoxMedia | null): HT
   return picture;
 }
 
+function closeOnEscapeInsidePage(pageFrame: HTMLIFrameElement, overlay: HTMLElement, close: () => void): void {
+  const listening = new AbortController();
+  window.addEventListener('message', (event) => {
+    if (event.source !== pageFrame.contentWindow || event.data !== BOARD_PAGE_ESCAPE_MESSAGE) return;
+    close();
+  }, { signal: listening.signal });
+  const overlayWatcher = new MutationObserver(() => {
+    if (overlay.isConnected) return;
+    listening.abort();
+    overlayWatcher.disconnect();
+  });
+  overlayWatcher.observe(document.body, { childList: true });
+}
+
 function openImageViewer(pressedImage: PressedImage): void {
   const { alt } = pressedImage;
   const media = pressedMediaOf(pressedImage);
   if (!media && !pressedImage.href) return;
-  const { dialog, close, titleEl, btnCancel } = buildDialogShell({ title: alt || 'Picture', dialogClass: 'dialog wb-image-viewer', cancelLabel: 'Close' });
+  const { overlay, dialog, close, titleEl, btnCancel } = buildDialogShell({ title: alt || 'Picture', dialogClass: 'dialog wb-image-viewer', cancelLabel: 'Close' });
   const header = el('div', 'wb-image-viewer-header');
   titleEl.replaceWith(header);
   header.append(titleEl, btnCancel);
-  dialog.append(enlargedMediaOf(pressedImage, media));
+  const enlargedMedia = enlargedMediaOf(pressedImage, media);
+  dialog.append(enlargedMedia);
+  if (enlargedMedia instanceof HTMLIFrameElement) closeOnEscapeInsidePage(enlargedMedia, overlay, close);
   btnCancel.addEventListener('click', close);
   requestAnimationFrame(() => btnCancel.focus());
 }
