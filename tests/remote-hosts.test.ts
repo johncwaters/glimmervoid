@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
+import https from 'node:https';
+import { EventEmitter } from 'node:events';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -28,14 +30,15 @@ interface BootedHost {
 const bootedHosts: BootedHost[] = [];
 const openedSockets: WebSocket[] = [];
 
-async function bootHost({ usageWiringOptions = {}, hosts, spawnHostTunnel }: {
+async function bootHost({ usageWiringOptions = {}, hosts, spawnHostTunnel, extraConfig = {} }: {
   usageWiringOptions?: Record<string, unknown>;
   hosts?: HostEntry[];
   spawnHostTunnel?: SpawnHostTunnel;
+  extraConfig?: Record<string, unknown>;
 } = {}): Promise<BootedHost> {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-remote-hosts-'));
   const configPath = path.join(tmpDir, 'config.json');
-  fs.writeFileSync(configPath, JSON.stringify({ projects: [], teams: [], repoRoots: [], ...(hosts ? { hosts } : {}) }), 'utf8');
+  fs.writeFileSync(configPath, JSON.stringify({ projects: [], teams: [], repoRoots: [], ...(hosts ? { hosts } : {}), ...extraConfig }), 'utf8');
   const previousConfig = process.env.GLIMMERVOID_CONFIG;
   process.env.GLIMMERVOID_CONFIG = configPath;
   const server = http.createServer();
@@ -177,4 +180,38 @@ test('the hub links a registered host, reconnects after the tunnel drops, and pi
   assert.equal((pipedHealth.stats as { websockets: { hubControl: number } }).websockets.hubControl, 1);
   await assert.rejects(openControlSocket(hub.port, hubToken, {}, '/hosts/gpu/control'), /503/);
   await assert.rejects(openControlSocket(hub.port, 'wrong-token', {}, '/hosts/devbox/control'), /401|403|socket hang up|Unexpected server response/);
+});
+
+function captureTelegramSends(): string[] {
+  const sentTexts: string[] = [];
+  const fakeRequest = (_url: string, _options: unknown, onResponse: (response: EventEmitter & { statusCode: number; resume(): void; setEncoding(): void }) => void) => {
+    const request = Object.assign(new EventEmitter(), { body: '', write(chunk: string) { request.body += chunk; }, setTimeout() {}, destroy() {}, end() {
+      sentTexts.push(JSON.parse(request.body).text);
+      const response = Object.assign(new EventEmitter(), { statusCode: 200, resume() {}, setEncoding() {} });
+      onResponse(response);
+      setImmediate(() => { response.emit('data', '{"ok":true}'); response.emit('end'); });
+    } });
+    return request;
+  };
+  Object.assign(https, { request: fakeRequest });
+  return sentTexts;
+}
+
+test('a session that starts waiting before the hub links, on a host with no Telegram of its own, reaches the hub Telegram named by host', async () => {
+  const sentTexts = captureTelegramSends();
+  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-remote-project-'));
+  const devbox = await bootHost({ extraConfig: { projects: [{ id: 'remote-one', name: 'remote one', path: projectDir }], phoneEscalationMs: 50, autoResume: false } });
+  devbox.backend.getSession('remote-one')?.emit('state-change', { from: 'RUNNING', to: 'WAITING', event: 'hook:notification', detail: null });
+  const tunnels = createLoopbackTunnels();
+  const hub = await bootHost({
+    hosts: [{ id: 'devbox', name: 'Devbox', sshTarget: 'devbox', dashboardPort: devbox.port }],
+    spawnHostTunnel: tunnels.spawnHostTunnel,
+    extraConfig: { notifyDebounceMs: 10, telegramNotifications: true, telegram: { botToken: 'hub-bot', chatId: '1' } },
+  });
+  const viewer = await openControlSocket(hub.port, await pageTokenOf(hub.port));
+  await waitForFrame(viewer.frames, 'hosts-status', hostStateIs('connected'));
+
+  for (let attempt = 0; attempt < 100 && sentTexts.length === 0; attempt++) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(sentTexts, ['Devbox: remote one needs your input']);
+  fs.rmSync(projectDir, { recursive: true, force: true });
 });

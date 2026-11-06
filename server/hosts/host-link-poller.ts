@@ -4,6 +4,8 @@ import { initialHostLink, nextHostLink } from './core/host-link-core.ts';
 import type { HostLinkEffect, HostLinkEvent } from './core/host-link-core.ts';
 import type { HostRoute } from './core/host-relay-core.ts';
 
+const MAX_ALERTS_BEFORE_SNAPSHOT = 64;
+
 interface OpenTunnel {
   localPort: number;
   exited: Promise<string>;
@@ -19,12 +21,18 @@ interface OpenHubSocket {
 interface HostLinkDependencies {
   hubVersion: string;
   openTunnel(host: HostEntry): Promise<OpenTunnel>;
-  openHubSocket(host: HostEntry, tunnelPort: number, onSnapshot: (serverBuild: string | null) => void): Promise<OpenHubSocket>;
+  openHubSocket(host: HostEntry, tunnelPort: number, frames: HubSocketFrameHandlers): Promise<OpenHubSocket>;
   onStatusChange(): void;
+  onPhoneAlert(host: HostEntry, text: string): void;
+}
+
+interface HubSocketFrameHandlers {
+  onSnapshot(serverBuild: string | null): void;
+  onPhoneAlert(text: string): void;
 }
 
 function createHostLink(host: HostEntry, dependencies: HostLinkDependencies) {
-  const { hubVersion, openTunnel, openHubSocket, onStatusChange } = dependencies;
+  const { hubVersion, openTunnel, openHubSocket, onStatusChange, onPhoneAlert } = dependencies;
   let link = initialHostLink();
   let tunnel: OpenTunnel | null = null;
   let hubSocket: OpenHubSocket | null = null;
@@ -90,14 +98,37 @@ function createHostLink(host: HostEntry, dependencies: HostLinkDependencies) {
     const openedTunnel = tunnel;
     if (!openedTunnel) return;
     const attempt = attemptNumber;
-    const delivery: { socket: OpenHubSocket | null; earlySnapshot: { serverBuild: string | null } | null } = { socket: null, earlySnapshot: null };
+    const delivery: {
+      socket: OpenHubSocket | null;
+      earlySnapshot: { serverBuild: string | null } | null;
+      isSnapshotApplied: boolean;
+      alertsBeforeSnapshot: string[];
+    } = { socket: null, earlySnapshot: null, isSnapshotApplied: false, alertsBeforeSnapshot: [] };
+    const relayIfConnected = (text: string) => {
+      if (hubSocket === null || hubSocket !== delivery.socket || link.state !== 'connected') return;
+      onPhoneAlert(host, text);
+    };
+    const applySnapshot = (serverBuild: string | null) => {
+      apply({ kind: 'snapshot', serverBuild });
+      delivery.isSnapshotApplied = true;
+      for (const text of delivery.alertsBeforeSnapshot.splice(0)) relayIfConnected(text);
+    };
     try {
-      const openedSocket = await openHubSocket(host, openedTunnel.localPort, (serverBuild) => {
-        if (!delivery.socket) {
-          delivery.earlySnapshot = { serverBuild };
-          return;
-        }
-        if (hubSocket === delivery.socket) apply({ kind: 'snapshot', serverBuild });
+      const openedSocket = await openHubSocket(host, openedTunnel.localPort, {
+        onSnapshot: (serverBuild) => {
+          if (!delivery.socket) {
+            delivery.earlySnapshot = { serverBuild };
+            return;
+          }
+          if (hubSocket === delivery.socket) applySnapshot(serverBuild);
+        },
+        onPhoneAlert: (text) => {
+          if (delivery.isSnapshotApplied) {
+            relayIfConnected(text);
+            return;
+          }
+          if (delivery.alertsBeforeSnapshot.length < MAX_ALERTS_BEFORE_SNAPSHOT) delivery.alertsBeforeSnapshot.push(text);
+        },
       });
       if (!isCurrentAttempt(attempt) || tunnel !== openedTunnel) {
         openedSocket.close();
@@ -105,7 +136,7 @@ function createHostLink(host: HostEntry, dependencies: HostLinkDependencies) {
       }
       hubSocket = openedSocket;
       delivery.socket = openedSocket;
-      if (delivery.earlySnapshot) apply({ kind: 'snapshot', serverBuild: delivery.earlySnapshot.serverBuild });
+      if (delivery.earlySnapshot) applySnapshot(delivery.earlySnapshot.serverBuild);
       void openedSocket.closed.then((closeReason) => {
         if (hubSocket !== openedSocket) return;
         hubSocket = null;
@@ -163,4 +194,4 @@ function createHostLink(host: HostEntry, dependencies: HostLinkDependencies) {
 type HostLinkHandle = ReturnType<typeof createHostLink>;
 
 export { createHostLink };
-export type { HostLinkHandle, OpenHubSocket, OpenTunnel };
+export type { HostLinkHandle, HubSocketFrameHandlers, OpenHubSocket, OpenTunnel };

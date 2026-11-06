@@ -29,6 +29,14 @@ export const HostStatus = z.object({
   lastError: z.string().nullable(),
 }).strict();
 
+export const HUB_PHONE_ALERT_TEXT_MAX = 4000;
+
+export const HubPhoneAlertFrame = z.object({
+  type: z.literal('hub-phone-alert'),
+  text: z.string().min(1).max(HUB_PHONE_ALERT_TEXT_MAX),
+}).strict();
+
 export type HostEntry = z.infer<typeof HostEntry>;
 export type HostLinkState = z.infer<typeof HostLinkState>;
 export type HostStatus = z.infer<typeof HostStatus>;
+export type HubPhoneAlertFrame = z.infer<typeof HubPhoneAlertFrame>;

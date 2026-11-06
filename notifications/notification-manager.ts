@@ -138,6 +138,15 @@ class NotificationManager extends EventEmitter {
     this._markPhoneReached(entry);
   }
 
+  armPendingPhoneEscalations(): void {
+    for (const [sessionName, entry] of this._entries) {
+      if (entry.state !== NS.DELIVERED && entry.state !== NS.ESCALATED) continue;
+      if (entry.category === QUESTION_ANSWERED_NOTIFY_CATEGORY) continue;
+      const remainingMs = Math.max(0, entry.pendingSinceMs + this._phoneEscalationMs - this._now());
+      this._armPhoneEscalation(sessionName, entry, remainingMs);
+    }
+  }
+
   updateSettings({ escalationIntervalMs, alertGroupWindowMs, phoneEscalationMs }: NotificationManagerOptions): void {
     if (escalationIntervalMs != null) this._escalationIntervalMs = escalationIntervalMs;
     if (alertGroupWindowMs != null) this._alertGroupWindowMs = alertGroupWindowMs;
@@ -255,12 +264,12 @@ class NotificationManager extends EventEmitter {
     }, this._escalationIntervalMs);
   }
 
-  _armPhoneEscalation(sessionName: string, entry: NotificationEntry): void {
+  _armPhoneEscalation(sessionName: string, entry: NotificationEntry, delayMs = this._phoneEscalationMs): void {
     if (entry.hasReachedPhone) return;
     if (entry.phoneTimer !== null) return;
     if (!(this._phoneEscalationMs > 0)) return;
     if (!this._channels.some((channel) => channel.offDashboard && channel.canEscalate())) return;
-    this._schedulePhoneCheck(sessionName, entry, this._phoneEscalationMs);
+    this._schedulePhoneCheck(sessionName, entry, delayMs);
   }
 
   _schedulePhoneCheck(sessionName: string, entry: NotificationEntry, delayMs: number): void {
