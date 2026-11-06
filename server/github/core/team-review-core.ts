@@ -36,6 +36,7 @@ function advanceAwakeElapsed({ awakeElapsedMs, previousTickAt, nowMs, tickMs }: 
 
 const RESUME_TTL_MS = 2 * 60 * 60 * 1000;
 const POLL_INTERVAL_MINUTES = 15;
+const WATCHER_SILENT_INTERVALS = 2;
 const DEFAULT_RE_REVIEW_AFTER_HOURS = 24;
 const DEFAULT_SKIP_IDLE_AFTER_DAYS = 14;
 const RECENT_STEPS_SHOWN = 5;
@@ -573,6 +574,11 @@ function draftsNewestFirst(state: TeamReviewState): ReviewDraft[] {
     .filter((entry) => entry.draft !== null)
     .sort((left, right) => right.updatedAt - left.updatedAt)
     .flatMap((entry) => (entry.draft ? [presentedDraft(entry, entry.draft)] : []));
+}
+
+function watcherFeedError(feedSilenceMs: number, intervalMs: number): string | null {
+  if (feedSilenceMs < WATCHER_SILENT_INTERVALS * intervalMs) return null;
+  return `Team review has no pull request list: none arrived from glimmervoid watch in the last ${WATCHER_SILENT_INTERVALS} poll intervals. The watcher may be stopped, unable to reach this server's job inbox, or held back by GitHub; its log names the cause.`;
 }
 
 function teamReviewStatus({ ts, configured, reason = null, drafts = [], inFlight = [], queued = [], team }: {
@@ -1178,5 +1184,5 @@ function absolutePathReadRule(absolutePath: string): string {
   return `Read(/${posixPath}/**)`;
 }
 
-export { reviewSnapshotFromGithubPr, DEFAULT_REVIEWER, REVIEW_AGENT_ADAPTER_ID, reviewerAgentArgs, reviewerFor, MAX_CONCURRENT_REVIEWS, MAX_ASKED_FOR_REVIEWS, ASKED_FOR_FETCH_GRACE_MS, askedForRefusal, advanceAwakeElapsed, REVIEW_TIMEOUT_SECONDS, POLL_INTERVAL_MINUTES, DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, PROGRESS_EMIT_INTERVAL_MS, TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME, REMERGE_OBJECTS_DIRNAME, REVIEW_PROMPT_FILENAME, REVIEW_UNTRUSTED_ITEM_MAX_CHARS, remergeGitEnvPrefix, reviewUntrustedItems, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE, uiFilesOf, parseFindingLine, sectionAfter, fencedUntrusted, absolutePathReadRule, buildReviewPrompt, githubRepoSlugFromRemote, remoteMatchesGithubRepo, parsePostingPlan, parseReviewReport, canPost, commentableLines, draftsNewestFirst, earlierReviewToKeep, errorDraft, eventForAction, githubReviewsFrom, postedReviewBody, isPostableStatus, hasViewerReviewedAt, invalidComments, isUnreviewedDraft, isSameGithubReviews, shouldAutoReview, markDraftStale, notMineDraft, restoreDraftAtReviewedHead, applyReviewProgress, orgSearchPlans, readTeamReviewSettings, prBaseRef, prHeadRef, prKey, prSessionName, prSessionPrompt, priorReviewFor, sessionLinkedToPr, readyDraft, reReviewResult, resumeDecision, resumeTimeoutMs, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr };
+export { reviewSnapshotFromGithubPr, DEFAULT_REVIEWER, REVIEW_AGENT_ADAPTER_ID, reviewerAgentArgs, reviewerFor, MAX_CONCURRENT_REVIEWS, MAX_ASKED_FOR_REVIEWS, ASKED_FOR_FETCH_GRACE_MS, askedForRefusal, advanceAwakeElapsed, REVIEW_TIMEOUT_SECONDS, POLL_INTERVAL_MINUTES, DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, PROGRESS_EMIT_INTERVAL_MS, TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME, REMERGE_OBJECTS_DIRNAME, REVIEW_PROMPT_FILENAME, REVIEW_UNTRUSTED_ITEM_MAX_CHARS, remergeGitEnvPrefix, reviewUntrustedItems, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE, uiFilesOf, parseFindingLine, sectionAfter, fencedUntrusted, absolutePathReadRule, buildReviewPrompt, githubRepoSlugFromRemote, remoteMatchesGithubRepo, parsePostingPlan, parseReviewReport, canPost, commentableLines, draftsNewestFirst, earlierReviewToKeep, errorDraft, eventForAction, githubReviewsFrom, postedReviewBody, isPostableStatus, hasViewerReviewedAt, invalidComments, isUnreviewedDraft, isSameGithubReviews, shouldAutoReview, markDraftStale, notMineDraft, restoreDraftAtReviewedHead, applyReviewProgress, orgSearchPlans, readTeamReviewSettings, prBaseRef, prHeadRef, prKey, prSessionName, prSessionPrompt, priorReviewFor, sessionLinkedToPr, readyDraft, reReviewResult, resumeDecision, resumeTimeoutMs, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr, watcherFeedError };
 export type { CommentableLines, NewWorkPointer, NewWorkRange, ReviewerChoice, ReviewProgressEvent, ReviewTier, TeamReviewCandidate, TeamReviewSettings, TeamReviewSettingsSource };

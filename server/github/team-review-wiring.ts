@@ -21,6 +21,7 @@ import { createRepoCache } from '../git/repo-cache.ts';
 import { reapTeamReviewProcesses } from './team-review-reaper.ts';
 import { createTeamReviewPoller } from './team-review-poller.ts';
 import { bootStaggerDelay } from '../boot-stagger.ts';
+import { startAwakeStopwatch } from '../awake-timer.ts';
 import type { DraftExpectation, DraftPatch, NotMineOutcome, ReviewOutcome, SpawnReviewArgs, TeamReviewGithub, TeamReviewPoller } from './team-review-poller.ts';
 import type { PrDetail, ReviewDraft, TeamReviewState as TeamReviewStateType, TeamReviewStateEntry as TeamReviewStateEntryType, TeamReviewStatus as TeamReviewStatusType } from '../../shared/contracts/team-review.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -154,6 +155,7 @@ function createTeamReviewWiring({
   }
 
   let latestCandidates: TeamReviewCandidatesPayload | null = null;
+  let feedStopwatch = startAwakeStopwatch();
   const runner = createLaneRunner<TeamReviewPoller>({
     tag: core.TEAM_REVIEW_LANE_ID,
     gate: () => teamReviewShouldStart(config),
@@ -187,6 +189,7 @@ function createTeamReviewWiring({
         onTickComplete,
         clock,
         firstTickDelayMs: bootStaggerDelay,
+        feedSilenceMs: () => feedStopwatch.awakeElapsedMs(),
       });
       if (latestCandidates !== null) createdPoller.acceptCandidates(latestCandidates);
       return createdPoller;
@@ -241,6 +244,8 @@ function createTeamReviewWiring({
   }
 
   async function acceptCandidates(job: { payload: TeamReviewCandidatesPayload }): Promise<void> {
+    feedStopwatch.stop();
+    feedStopwatch = startAwakeStopwatch();
     if (latestCandidates !== null && Date.parse(job.payload.observedAt) < Date.parse(latestCandidates.observedAt)) return;
     latestCandidates = job.payload;
     runner.getPoller()?.acceptCandidates(job.payload);

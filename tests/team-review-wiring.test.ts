@@ -21,7 +21,7 @@ import type { TeamReviewSpawn } from '../server/github/team-review-spawn.ts';
 import { comparablePrKey } from '../shared/contracts/github-prs.ts';
 import { PrDetail, ReviewDraft } from '../shared/contracts/team-review.ts';
 import { UNTRUSTED_PAYLOAD_FILENAME, UNTRUSTED_PREAMBLE, UntrustedPayload } from '../shared/contracts/untrusted-payload.ts';
-import type { ResumableReview, ReviewDraft as ReviewDraftType } from '../shared/contracts/team-review.ts';
+import type { ResumableReview, ReviewDraft as ReviewDraftType, TeamReviewStatus as TeamReviewStatusType } from '../shared/contracts/team-review.ts';
 
 const HEAD = 'c'.repeat(40);
 const OTHER_HEAD = 'd'.repeat(40);
@@ -738,6 +738,38 @@ test('discarding a saved review reaps its processes before removing its director
   } finally {
     await wiring.stopPoller();
     fs.rmSync(homeDir, { recursive: true, force: true });
+  }
+});
+
+test('team review says it has no pull request list once two awake poll intervals pass without one, and clears it when one arrives', async () => {
+  let feedSilenceMs = 0;
+  const statuses: TeamReviewStatusType[] = [];
+  const statusWaiters: ((status: TeamReviewStatusType) => void)[] = [];
+  const nextStatusWithoutError = () => new Promise<TeamReviewStatusType>((resolve) => { statusWaiters.push(resolve); });
+  const poller = createTeamReviewPoller({
+    org: 'Acme', teams: [], github: {}, store: emptyGithubStore(),
+    spawnReview: async () => { throw new Error('no review is expected'); },
+    readState: async () => ({}), writeState: async () => {}, beforeStart: async () => {},
+    feedSilenceMs: () => feedSilenceMs, firstTickDelayMs: () => 0, setIntervalFn: () => setInterval(() => {}, 2 ** 30), clearIntervalFn: clearInterval,
+    onTickComplete: (status) => {
+      statuses.push(status);
+      if (status.error === null) for (const resolve of statusWaiters.splice(0)) resolve(status);
+    },
+  });
+  const latestError = () => statuses.at(-1)?.error ?? null;
+  try {
+    await poller.start();
+    await poller.tick();
+    assert.equal(latestError(), null);
+    feedSilenceMs = 31 * 60_000;
+    await poller.tick();
+    assert.match(latestError() ?? '', /no pull request list/);
+    const clearedStatus = nextStatusWithoutError();
+    feedSilenceMs = 0;
+    poller.acceptCandidates({ observedAt: '2026-11-06T12:31:00Z', viewer: 'me', isComplete: true, directRequested: [], teamRequested: [], authored: [] });
+    assert.equal((await clearedStatus).error, null);
+  } finally {
+    await poller.stop();
   }
 });
 

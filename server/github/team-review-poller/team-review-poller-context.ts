@@ -60,6 +60,7 @@ interface TeamReviewPollerDependencies {
   onTickComplete?: (status: TeamReviewStatus) => void;
   now?: () => number;
   intervalMinutes?: number;
+  feedSilenceMs?: () => number;
   maxConcurrentReviews?: number;
   reReviewAfterMs?: number;
   skipIdleAfterMs?: number;

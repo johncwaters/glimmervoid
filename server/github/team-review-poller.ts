@@ -49,9 +49,11 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   const notMineWhileReviewingKeys = new Set<string>();
   let lastRebuildQueueSignature: string | null = null;
   let acceptedCandidates: TeamReviewCandidatesPayload | null = null;
+  const feedSilenceMs = deps.feedSilenceMs ?? (() => 0);
+  const pollIntervalMs = (deps.intervalMinutes ?? core.POLL_INTERVAL_MINUTES) * 60000;
 
   const loop = createTickLoop({
-    tag: core.TEAM_REVIEW_LANE_ID, intervalMs: (deps.intervalMinutes ?? core.POLL_INTERVAL_MINUTES) * 60000,
+    tag: core.TEAM_REVIEW_LANE_ID, intervalMs: pollIntervalMs,
     tick: async () => {
       try {
         return await runTick();
@@ -116,9 +118,16 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   async function runTick(): Promise<TickOutcome | undefined> {
     runtime.pollingError = null;
     runtime.tickRateLimitWaitMs = null;
-    if (!runtime.hasLoadedState || acceptedCandidates === null) return undefined;
+    if (!runtime.hasLoadedState) return undefined;
+    const feedError = core.watcherFeedError(feedSilenceMs(), pollIntervalMs);
+    if (acceptedCandidates === null) {
+      runtime.pollingError = feedError;
+      return undefined;
+    }
     await requestTeamProfile();
-    return planFrom(acceptedCandidates);
+    const outcome = await planFrom(acceptedCandidates);
+    if (outcome === undefined) runtime.pollingError = feedError;
+    return outcome;
   }
 
   function acceptCandidates(searched: TeamReviewCandidatesPayload): void {
