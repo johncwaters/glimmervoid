@@ -773,6 +773,47 @@ test('team review says it has no pull request list once two awake poll intervals
   }
 });
 
+test('a pull request list stamped earlier than the last one still counts as the watcher feed arriving', async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-feed-test-'));
+  let readFeedSilenceMs: (() => number) | undefined;
+  const pollerCreated = deferredSignal();
+  const wiring = createTeamReviewWiring({
+    config: { github: { readToken: 'read-token' }, teamReview: { enabled: true, org: 'Acme', team: 'core' } },
+    store: emptyGithubStore(),
+    reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
+    spawnGate: { run: async (task) => task() }, homeDir, log: { warn: () => {} }, reapProcesses: async () => {},
+    github: {},
+    repoCache: {
+      listRepos: async () => [], ensureRepo: async () => null,
+      fetchPr: async () => ({ ok: false, headSha: null, err: '' }), hydrateTree: async () => ({ ok: true, err: '' }), hydrateRange: async () => ({ ok: false, err: '' }), hydrateSince: async () => false, isolateNewWork: async () => ({ ok: false, reason: '' }),
+    },
+    gitWorkspace: {
+      stageDetachedWorktree: async () => ({ ok: false }), removeWorktreeByPath: async () => ({ ok: false }),
+      pruneWorktrees: async () => ({ ok: true }), originUrl: async () => null, populate: async () => {},
+    },
+    createPoller: (dependencies) => {
+      readFeedSilenceMs = dependencies.feedSilenceMs;
+      pollerCreated.resolve();
+      return createTeamReviewPoller({ ...dependencies, beforeStart: async () => {} });
+    },
+  });
+  const listObservedAt = (observedAt: string) => ({ payload: { observedAt, viewer: 'me', isComplete: true, directRequested: [], teamRequested: [], authored: [] } });
+  try {
+    wiring.startPoller();
+    await pollerCreated.promise;
+    const feedSilenceMs = readFeedSilenceMs;
+    assert.ok(feedSilenceMs);
+    await wiring.acceptCandidates(listObservedAt('2026-11-06T13:00:00Z'));
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    assert.ok(feedSilenceMs() >= 60);
+    await wiring.acceptCandidates(listObservedAt('2026-11-06T12:15:00Z'));
+    assert.ok(feedSilenceMs() < 60);
+  } finally {
+    await wiring.stopPoller();
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  }
+});
+
 function deferredSignal(): { promise: Promise<void>; resolve: () => void; reject: (reason: unknown) => void } {
   let resolve: () => void = () => {};
   let reject: (reason: unknown) => void = () => {};
