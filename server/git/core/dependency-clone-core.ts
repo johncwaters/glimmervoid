@@ -102,7 +102,7 @@ function installSatisfiesLockfile(kind: LockKind, worktreeLockText: string, main
   return true;
 }
 
-type NpmPackageEntry = { version?: unknown; integrity?: unknown; resolved?: unknown; optional?: unknown };
+type NpmPackageEntry = { version?: unknown; integrity?: unknown; resolved?: unknown; optional?: unknown; link?: unknown };
 
 function readNpmPackages(lockText: string): Map<string, NpmPackageEntry> | null {
   let parsed: unknown;
@@ -122,6 +122,41 @@ function isSameNpmPackage(wanted: NpmPackageEntry, installed: NpmPackageEntry): 
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+const COHERENCE_LOCK_PATH = 'node_modules/@posthog/coherence';
+const RELEASE_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+
+export function coherenceSeedVersion(npmLockText: string | null, rootPackageJsonText: string | null): string | null {
+  if (npmLockText === null || rootPackageJsonText === null) return null;
+  if (declaresWorkspaces(rootPackageJsonText)) return null;
+  const lockedPackages = readNpmPackages(npmLockText);
+  if (!lockedPackages) return null;
+  if ([...lockedPackages.values()].some(isLocalPackage)) return null;
+  const coherence = lockedPackages.get(COHERENCE_LOCK_PATH);
+  if (!coherence || typeof coherence.version !== 'string' || !RELEASE_VERSION.test(coherence.version)) return null;
+  if (typeof coherence.resolved !== 'string' || !coherence.resolved.startsWith('https://')) return null;
+  return coherence.version;
+}
+
+export function coherenceSeedArgs(version: string): readonly string[] {
+  return ['install', `@posthog/coherence@${version}`, '--omit=optional', '--ignore-scripts', '--no-audit', '--no-fund', '--no-package-lock', '--prefer-offline', ...REGISTRY_STALL_ARGS];
+}
+
+const COHERENCE_NODE_MODULES_PATH = /node_modules\/(?:@posthog\/coherence|\.bin\/coherence)(?![\w.-])/g;
+
+export function mentionsNodeModulesBeyondCoherence(configText: string): boolean {
+  return configText.replace(COHERENCE_NODE_MODULES_PATH, '').includes('node_modules');
+}
+
+function declaresWorkspaces(packageJsonText: string): boolean {
+  let parsed: unknown;
+  try { parsed = JSON.parse(packageJsonText); } catch { return true; }
+  return !isRecord(parsed) || parsed.workspaces !== undefined;
+}
+
+function isLocalPackage(entry: NpmPackageEntry): boolean {
+  return entry.link === true || (typeof entry.resolved === 'string' && entry.resolved.startsWith('file:'));
 }
 
 export function packageDirsFromTrackedFiles(trackedPackageJsonPaths: readonly string[]): string[] {
