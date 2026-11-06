@@ -80,6 +80,7 @@ interface WhiteboardAssetStore {
   servableOf(filename: string): ServableAsset | null;
   mismatchOf(media: BoxMedia): string | null;
   dataUriOf(media: Pick<BoxMedia, 'kind' | 'asset'>, drawnWidth: number, drawnHeight: number): Promise<string | null>;
+  readDocText(media: Pick<BoxMedia, 'kind' | 'asset'>): Promise<string | null>;
 }
 
 function ftypBrandsOf(firstChunk: Buffer): string[] {
@@ -425,6 +426,12 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = Date.n
     return media.kind === 'image' ? originalPathOf(media.asset, stored.extension) : null;
   }
 
+  async function readDocText(media: Pick<BoxMedia, 'kind' | 'asset'>): Promise<string | null> {
+    const stored = storedByAssetId.get(media.asset);
+    if (media.kind !== 'doc' || !stored || MEDIA_FORMAT_BY_EXTENSION[stored.extension]?.kind !== 'doc') return null;
+    return fsp.readFile(originalPathOf(media.asset, stored.extension), 'utf8').catch(() => null);
+  }
+
   async function dataUriOf(media: Pick<BoxMedia, 'kind' | 'asset'>, drawnWidth: number, drawnHeight: number): Promise<string | null> {
     const sourcePath = pictureSourceOf(media);
     if (!sourcePath) return null;
@@ -437,7 +444,7 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = Date.n
     return drawn ? `data:image/png;base64,${drawn.toString('base64')}` : null;
   }
 
-  return { loaded, has: (assetId) => storedByAssetId.has(assetId), ingestFile, adoptIncoming, reserveIncomingPath, hold, sweep, servableOf, mismatchOf, dataUriOf };
+  return { loaded, has: (assetId) => storedByAssetId.has(assetId), ingestFile, adoptIncoming, reserveIncomingPath, hold, sweep, servableOf, mismatchOf, dataUriOf, readDocText };
 }
 
 export { ASSET_INPUT_CAP_BYTES, createWhiteboardAssetStore };

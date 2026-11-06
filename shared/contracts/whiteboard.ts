@@ -208,6 +208,7 @@ export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
     ops: z.array(Op).min(1, { error: 'put needs at least one op' }).max(WHITEBOARD_LIMITS.opsPerPut, { error: `one put carries at most ${WHITEBOARD_LIMITS.opsPerPut} ops` }),
   }).strict(),
   z.object({ sub: z.literal('resolve'), board: BoardRef, note: ElementId }).strict(),
+  z.object({ sub: z.literal('doc'), board: BoardRef, box: ElementId }).strict(),
   z.object({ sub: z.literal('delete'), board: BoardRef }).strict(),
   z.object({ sub: z.literal('attach'), path: z.string().min(1, { error: 'attach needs the media path' }).max(4096) }).strict(),
   z.object({
@@ -215,7 +216,7 @@ export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
     path: z.string().min(1, { error: 'show needs the file path' }).max(4096),
     caption: z.string().max(WHITEBOARD_LIMITS.line, { error: `a show caption is at most ${WHITEBOARD_LIMITS.line} characters` }).optional(),
   }).strict(),
-], { error: 'whiteboard takes new, list, connect, disconnect, get, put, resolve, delete, attach or show' });
+], { error: 'whiteboard takes new, list, connect, disconnect, get, put, resolve, doc, delete, attach or show' });
 
 export const BoardReview = z.object({
   codeSessionId: z.string().nullable(),
@@ -233,6 +234,7 @@ export const WhiteboardAgentReply = z.union([
   z.object({ ok: z.literal(true), board: Board, changes: z.array(BoardChange), review: BoardReview.optional() }).strict(),
   z.object({ ok: z.literal(true), version: z.number().int(), warnings: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings).optional() }).strict(),
   z.object({ ok: z.literal(true), media: BoxMedia, note: z.string() }).strict(),
+  z.object({ ok: z.literal(true), box: ElementId, text: z.string().max(BOARD_DOC_CAP_BYTES) }).strict(),
 ]);
 
 function isDefaultValue(value: unknown, defaultValue: unknown): boolean {
