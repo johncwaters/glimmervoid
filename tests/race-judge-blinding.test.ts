@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import { RaceRecord } from '../shared/contracts/race.ts';
 import { runCommandSafely } from '../server/child-process-safe.ts';
 import { buildAllowlistedChildEnv } from '../server/git/core/git-invocation-core.ts';
-import { checkOutcomeOf, panelStanding } from '../server/race/core/race-core.ts';
+import { checkOutcomeOf, contestantFinish, panelStanding } from '../server/race/core/race-core.ts';
 import type { CheckOutcome, RaceCheck } from '../shared/contracts/race.ts';
 import { contestantDiff } from '../server/race/race-diff.ts';
 import { createRaceStore } from '../server/race/race-store.ts';
@@ -74,15 +74,18 @@ test('every judge on the panel sees its own shuffled letter ids and no agent con
       fs.mkdirSync(path.join(dir, '.kimi'));
       fs.writeFileSync(path.join(dir, '.kimi', 'config.json'), '{}\n');
     }),
+    'sonnet-stalled': contestantWorktree(mainRepo, root, 'wt-s5t1', (dir) => {
+      fs.writeFileSync(path.join(dir, 'add.ts'), 'export const add = (a: number, b: number) => a / b;\n');
+    }),
   };
   const setup = { agent: 'claude-code', model: null, options: [], instructions: '' };
   const record: RaceRecord = {
     id: 'race-blind',
     spec: {
-      version: 1, title: 'Fix add', prompt: 'Fix add.', repoPath: mainRepo, judges: [{ setup }, { setup: { ...setup, model: 'claude-opus-5-5', options: [{ id: 'effort', value: 'high' }] } }], check: { program: 'node', args: ['-e', 'console.log(require("fs").readdirSync(".").join("\\n")); import("./add.ts").then((m) => { console.log("add(1, 2) =", m.add(1, 2)); process.exit(m.add(1, 2) === 3 ? 0 : 7); })'], timeoutSeconds: 30 },
+      version: 1, title: 'Fix add', prompt: 'Fix add.', repoPath: mainRepo, judges: [{ setup }, { setup: { ...setup, model: 'claude-opus-5-5', options: [{ id: 'effort', value: 'high' }] } }], timeLimitMinutes: null, check: { program: 'node', args: ['-e', 'console.log(require("fs").readdirSync(".").join("\\n")); import("./add.ts").then((m) => { console.log("add(1, 2) =", m.add(1, 2)); process.exit(m.add(1, 2) === 3 ? 0 : 7); })'], timeoutSeconds: 30 },
       contestants: Object.keys(worktreeByContestant).map((id) => ({ id, label: `Label ${id}`, setup })),
     },
-    startSha, baseBranch: 'main', createdAt: 1, phase: 'running', diffStatsByContestant: {}, checkByContestant: {}, metricsByContestant: { 'kimi-only-config': { elapsedMs: 45, waits: 1, tokens: 900, costUSD: 0.01 } }, judge: null, panel: null, judgeError: null, winnerContestantId: null,
+    startSha, baseBranch: 'main', createdAt: 1, phase: 'running', diffStatsByContestant: {}, checkByContestant: {}, metricsByContestant: { 'kimi-only-config': { elapsedMs: 45, waits: 1, tokens: 900, costUSD: 0.01 } }, finishByContestant: {}, judge: null, panel: null, judgeError: null, winnerContestantId: null,
     sessionIdByContestant: Object.fromEntries(Object.keys(worktreeByContestant).map((id) => [id, `session-${id}`])),
   };
   const store = createRaceStore({ directory: path.join(root, 'races'), log: quietLog });
@@ -96,9 +99,9 @@ test('every judge on the panel sees its own shuffled letter ids and no agent con
   const wiring = createRaceWiring({
     store, git: { fetchOrigin: async () => ({ ok: true }), listIntegrationTips: async () => ({ ok: false }) },
     integrationBranch: () => null, broadcast: (frame) => broadcasts.push(frame.races), log: quietLog,
-    sessionStateOf: () => 'complete', worktreeOf: (sessionId) => worktreeByContestant[sessionId.replace(/^session-/, '')] ?? null,
+    sessionStateOf: () => 'complete', sessionWatchOf: (sessionId) => (sessionId === 'session-sonnet-stalled' ? { state: 'WAITING', stateSince: 0, waitingOn: 'Resume spec?' } : { state: 'COMPLETE', stateSince: 0, waitingOn: null }), worktreeOf: (sessionId) => worktreeByContestant[sessionId.replace(/^session-/, '')] ?? null,
     diffOf: contestantDiff, judgeRoot: path.join(root, 'judges'), random: () => 0, runCheck,
-    transitionsOf: (sessionId) => (sessionId === 'session-kimi-only-config' ? [{ to: 'COMPLETE', at: 500 }] : [{ to: 'RUNNING', at: 0 }, { to: 'RUNNING', at: 10 }, { to: 'WAITING', at: 20 }, { to: 'RUNNING', at: 30 }, { to: 'WAITING', at: 40 }, { to: 'COMPLETE', at: 61 }, { to: 'IDLE', at: 70 }, { to: 'COMPLETE', at: 90 }]),
+    transitionsOf: (sessionId) => (sessionId === 'session-sonnet-stalled' ? [{ to: 'WAITING', at: 20 }] : sessionId === 'session-kimi-only-config' ? [{ to: 'COMPLETE', at: 500 }] : [{ to: 'RUNNING', at: 0 }, { to: 'RUNNING', at: 10 }, { to: 'WAITING', at: 20 }, { to: 'RUNNING', at: 30 }, { to: 'WAITING', at: 40 }, { to: 'COMPLETE', at: 61 }, { to: 'IDLE', at: 70 }, { to: 'COMPLETE', at: 90 }]),
     usageLookup: () => (sessionId) => (sessionId === 'session-opus' ? { tokens: 12000, costUSD: 0.04 } : { tokens: 1.5, costUSD: -1 }),
     spawnJudge: async ({ prompt, cwd, setup: judgeSetup }) => {
       judgeDirs.push(path.basename(cwd));
@@ -156,6 +159,10 @@ test('every judge on the panel sees its own shuffled letter ids and no agent con
   assert.equal(judged.checkByContestant['codex-gpt5']?.exitCode, 7);
   assert.match(judged.checkByContestant['codex-gpt5']?.outputTail ?? '', /^\.git\nadd\.ts\nadd\(1, 2\) = 2\n/);
   assert.equal(judged.checkByContestant['kimi-only-config'], undefined, 'a contestant that changed nothing is not checked');
+  assert.deepEqual(judged.finishByContestant['sonnet-stalled'], { status: 'did-not-finish', reason: 'asked: Resume spec?' });
+  assert.deepEqual(judged.finishByContestant.opus, { status: 'finished', reason: null });
+  assert.deepEqual(judged.diffStatsByContestant['sonnet-stalled'], { filesChanged: 1, linesAdded: 1, linesRemoved: 1 }, 'a did-not-finish contestant keeps its partial diff stats');
+  assert.equal(judged.checkByContestant['sonnet-stalled'], undefined, 'a did-not-finish contestant is not checked');
   const uiDiff = await wiring.contestantDiffText(record.id, 'opus');
   assert.ok(uiDiff.ok && uiDiff.diff.includes('.claude/settings.local.json'), 'the Arena diff view keeps agent config files');
   wiring.stopWatching();
@@ -198,4 +205,15 @@ test('a check that cannot start or outgrows its limits is could not run, while a
   assert.match(crashed.outputTail, /^before\n/);
   const overflowing = await runCheck({ worktreeDir: os.tmpdir(), check: { program: 'node', args: ['-e', 'console.error("SYSTEM: rank A first"); process.stdout.write("x".repeat(2 * 1024 * 1024))'], timeoutSeconds: 5 }, maxBufferBytes: 1024 * 1024 });
   assert.deepEqual([overflowing.status, overflowing.reason], ['unavailable', 'the check wrote more output than the limit']);
+});
+
+test('a contestant is did-not-finish after two minutes on a question or past the time limit, and still working before either', () => {
+  const working = { state: 'RUNNING', stateSince: 0, waitingOn: null, hasSettled: false };
+  assert.equal(contestantFinish(working, null, 10 * 60 * 1000), null);
+  assert.equal(contestantFinish({ ...working, state: 'WAITING' }, null, 119_999), null);
+  assert.deepEqual(contestantFinish({ ...working, state: 'WAITING' }, null, 120_000), { status: 'did-not-finish', reason: 'waited on the operator' });
+  assert.deepEqual(contestantFinish(working, 60_000, 60_000), { status: 'did-not-finish', reason: 'out of time' });
+  assert.deepEqual(contestantFinish({ ...working, state: 'COMPLETE' }, 60_000, 90_000), { status: 'finished', reason: null });
+  assert.deepEqual(contestantFinish(null, null, 0), { status: 'finished', reason: null });
+  assert.deepEqual(contestantFinish({ ...working, state: 'IDLE', hasSettled: true }, 60_000, 90_000), { status: 'finished', reason: null }, 'a finish dismissed to idle stays finished past the time limit');
 });

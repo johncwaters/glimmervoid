@@ -30,6 +30,7 @@ interface RaceDraft {
   judges: AgentSetup[];
   check: RaceCheck | null;
   checkTimeoutSeconds: number;
+  timeLimitMinutes: number | null;
 }
 
 const DEFAULT_CHECK_TIMEOUT_SECONDS = 600;
@@ -37,7 +38,7 @@ const DEFAULT_CHECK_TIMEOUT_SECONDS = 600;
 let root: HTMLElement | null = null;
 let racesEl: HTMLElement | null = null;
 let catalog: AgentModelCatalog = { agents: [] };
-let draft: RaceDraft = { raceTitle: '', prompt: '', repoPath: '', contestants: [], judges: [], check: null, checkTimeoutSeconds: DEFAULT_CHECK_TIMEOUT_SECONDS };
+let draft: RaceDraft = { raceTitle: '', prompt: '', repoPath: '', contestants: [], judges: [], check: null, checkTimeoutSeconds: DEFAULT_CHECK_TIMEOUT_SECONDS, timeLimitMinutes: null };
 let hasDefaultJudge = false;
 let isEditingAsFile = false;
 const shownDiffByKey = new Map<string, string>();
@@ -135,6 +136,8 @@ function buildContestantLine(race: RaceRecord, contestant: RaceContestant): HTML
   if (standing) head.append(el('span', 'arena-contestant-score', `${standing.criteriaPassed} of ${RACE_CRITERIA.length}`));
   head.append(el('span', 'arena-contestant-state', state === REMOVED_CONTESTANT ? 'Removed' : stateLabel(state)));
   if (stats) head.append(el('span', 'arena-contestant-stats', `+${stats.linesAdded} -${stats.linesRemoved}, ${stats.filesChanged} files`));
+  const finish = race.finishByContestant[contestant.id];
+  if (finish?.status === 'did-not-finish') head.append(el('span', 'arena-contestant-check arena-contestant-check-failed', `Did not finish: ${finish.reason ?? 'no reason given'}`));
   const check = race.checkByContestant[contestant.id];
   if (check) head.append(el('span', `arena-contestant-check arena-contestant-check-${check.status}`, checkText(check)));
   const metrics = race.metricsByContestant[contestant.id];
@@ -295,6 +298,7 @@ function draftSpec(): Record<string, unknown> {
     contestants: draft.contestants,
     judges: draft.judges.map((setup) => ({ setup })),
     check: draft.check,
+    timeLimitMinutes: draft.timeLimitMinutes,
   };
 }
 
@@ -321,6 +325,22 @@ function buildCheckField(): HTMLElement {
   });
   timeout.append(timeoutInput);
   field.append(command, timeout);
+  return field;
+}
+
+function buildTimeLimitField(): HTMLElement {
+  const field = el('label', 'arena-field');
+  field.append(el('span', 'arena-field-label', 'Time limit in minutes, empty for none'));
+  const input = el('input', 'settings-view-input');
+  input.type = 'number';
+  input.min = '1';
+  input.max = '720';
+  input.value = draft.timeLimitMinutes === null ? '' : String(draft.timeLimitMinutes);
+  input.addEventListener('input', () => {
+    const minutes = Number(input.value);
+    draft.timeLimitMinutes = input.value.trim() === '' || !Number.isInteger(minutes) || minutes < 1 ? null : Math.min(minutes, 720);
+  });
+  field.append(input);
   return field;
 }
 
@@ -434,7 +454,7 @@ function readDraftFromFile(text: string): string | null {
   const parsed = RaceSpec.safeParse(parseJsonText(text));
   if (!parsed.success) return `The race file is not valid: ${parsed.error.issues.map((issue) => `${issue.path.join('.') || 'file'}: ${issue.message}`).join('; ')}`;
   const spec = parsed.data;
-  draft = { raceTitle: spec.title, prompt: spec.prompt, repoPath: spec.repoPath, contestants: spec.contestants, judges: spec.judges.map((judge) => judge.setup), check: spec.check, checkTimeoutSeconds: spec.check?.timeoutSeconds ?? DEFAULT_CHECK_TIMEOUT_SECONDS };
+  draft = { raceTitle: spec.title, prompt: spec.prompt, repoPath: spec.repoPath, contestants: spec.contestants, judges: spec.judges.map((judge) => judge.setup), check: spec.check, checkTimeoutSeconds: spec.check?.timeoutSeconds ?? DEFAULT_CHECK_TIMEOUT_SECONDS, timeLimitMinutes: spec.timeLimitMinutes };
   hasDefaultJudge = true;
   return null;
 }
@@ -468,6 +488,7 @@ function buildNewRace(): HTMLElement {
     body.append(repoField, knownPaths);
     body.append(textField('Prompt', draft.prompt, (value) => { draft.prompt = value; }, true));
     body.append(buildCheckField());
+    body.append(buildTimeLimitField());
     body.append(buildVaryBuilder(paint));
     body.append(buildLineupEditor(paint));
     const addButton = button({ variant: 'quiet', size: 'small', label: 'Add contestant', disabled: draft.contestants.length >= RACE_MAX_CONTESTANTS, onClick: () => {
