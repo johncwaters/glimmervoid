@@ -29,6 +29,10 @@ setControlRouter((message) => {
   return clientByHostId.get(hostId) ?? disconnectedHostClient;
 }, () => [...clientByHostId.values()]);
 
+export function requestOnHost(hostId: string, type: string, payload: Record<string, unknown>, options: { timeoutMs?: number }): Promise<ServerMessage> {
+  return (clientByHostId.get(hostId) ?? disconnectedHostClient).request(type, payload, options);
+}
+
 export function setRemoteFrameDispatcher(dispatch: (hostId: string, message: ServerMessage) => void) {
   dispatchRemoteFrame = dispatch;
 }
