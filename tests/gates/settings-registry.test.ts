@@ -247,6 +247,7 @@ test('the alias and moved-setting tables come from the legacy ids and resolve to
   assert.deepEqual(SETTINGS_MOVED_SETTINGS, {
     'browser-appearance': { 'alert-sounds-enabled': 'browser-notifications', 'alert-sound': 'browser-notifications', 'desktop-notifications': 'browser-notifications' },
     'machine-safety': { 'branch-gc-delete-unmerged': 'machine-sessions' },
+    'machine-sessions': { 'remote-setup': 'machine-hosts' },
     'machine-updates': { 'update-summary': 'machine-updates', 'update-installed': 'machine-updates', 'update-latest': 'machine-updates', 'update-last-checked': 'machine-updates' },
   });
   const sectionIds = new Set(SETTINGS_REGISTRY.sections.map((section) => section.id));

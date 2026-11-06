@@ -3,6 +3,7 @@ import type { HostEntry, HostLinkState } from '../../../shared/contracts/hosts.t
 const FAILURES_BEFORE_UNREACHABLE = 3;
 const FIRST_RETRY_DELAY_MS = 3000;
 const MAX_RETRY_DELAY_MS = 60000;
+const SELF_LINK_ERROR = 'this host is the Glimmervoid you are using; remove it and link another machine';
 
 interface HostLink {
   state: HostLinkState;
@@ -52,9 +53,12 @@ function initialHostLink(): HostLink {
   return { state: 'connecting', consecutiveFailures: 0, hostVersion: null, lastError: null };
 }
 
-function onSnapshot(serverBuild: string | null, hubVersion: string): HostLinkTransition {
+function onSnapshot(serverBuild: string | null, hubBuild: string): HostLinkTransition {
   const hostVersion = versionPart(serverBuild);
-  if (hostVersion !== hubVersion) {
+  if (serverBuild === hubBuild) {
+    return { link: { state: 'unreachable', consecutiveFailures: 0, hostVersion, lastError: SELF_LINK_ERROR }, effects: ['close-hub-socket', 'close-tunnel'], retryDelayMs: null };
+  }
+  if (hostVersion !== versionPart(hubBuild)) {
     return { link: { state: 'version-differs', consecutiveFailures: 0, hostVersion, lastError: null }, effects: ['close-hub-socket', 'schedule-retry'], retryDelayMs: MAX_RETRY_DELAY_MS };
   }
   return { link: { state: 'connected', consecutiveFailures: 0, hostVersion, lastError: null }, effects: [], retryDelayMs: null };
@@ -70,12 +74,12 @@ function onLinkDown(link: HostLink, error: string): HostLinkTransition {
   };
 }
 
-function nextHostLink(link: HostLink, event: HostLinkEvent, hubVersion: string): HostLinkTransition {
+function nextHostLink(link: HostLink, event: HostLinkEvent, hubBuild: string): HostLinkTransition {
   switch (event.kind) {
     case 'tunnel-up':
       return { link, effects: ['open-hub-socket'], retryDelayMs: null };
     case 'snapshot':
-      return onSnapshot(event.serverBuild, hubVersion);
+      return onSnapshot(event.serverBuild, hubBuild);
     case 'link-down':
       return onLinkDown(link, event.error);
     case 'retry-due':

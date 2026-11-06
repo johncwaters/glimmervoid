@@ -88,11 +88,6 @@ export const MACHINE_SESSIONS: SettingsSection = {
       control: 'readonly', keywords: ['claude', 'codex', 'sign in', 'login', 'coder', 'remote'], status: 'agent-logins', ...READOUT,
     },
     {
-      id: 'remote-setup', path: 'status:remote-setup', title: 'Remote host setup',
-      description: 'Start a session that helps you run Glimmervoid on another Linux machine over ssh.',
-      control: 'readonly', keywords: ['remote', 'ssh', 'server', 'devbox', 'tailscale', 'pair', 'host'], status: 'remote-setup', ...READOUT,
-    },
-    {
       id: 'branch-gc-delete-unmerged', path: 'branchGc.deleteUnmerged', title: 'Delete unmerged branches',
       description: 'Also delete stale remote branches with no proof they were merged.',
       control: 'toggle', keywords: ['git', 'cleanup', 'orphan'], danger: true,
@@ -127,6 +122,26 @@ export const MACHINE_SAFETY: SettingsSection = {
       description: 'Extra files and folders agents may not read, where ~ is your home folder.',
       control: 'list', keywords: ['guardrails', 'secrets', 'credentials', 'sane yolo'], defaultValue: [],
       listPlaceholder: '~/folder', listEmptyText: 'Only the built-in credential list is unreadable.', ...MACHINE_NEW_SESSIONS,
+    },
+  ],
+};
+
+export const MACHINE_HOSTS: SettingsSection = {
+  id: 'machine-hosts',
+  level: 'machine',
+  title: 'Hosts',
+  description: 'Other machines running Glimmervoid that this dashboard links over ssh and shows in the sidebar.',
+  settings: [
+    {
+      id: 'hosts', path: 'status:hosts', title: 'Linked hosts',
+      description: 'Each host\'s link and build. The host key must already be known to ssh. Removing a host leaves its sessions running there.',
+      control: 'readonly', keywords: ['remote', 'ssh', 'machine', 'devbox', 'server', 'link', 'tunnel', 'add host', 'remove host'], status: 'hosts', ...READOUT,
+    },
+    {
+      id: 'remote-setup', path: 'status:remote-setup', title: 'Remote host setup',
+      description: 'Start a session that helps you run Glimmervoid on another Linux machine over ssh.',
+      control: 'readonly', keywords: ['remote', 'ssh', 'server', 'devbox', 'tailscale', 'pair', 'host'], status: 'remote-setup', ...READOUT,
+      legacyIds: [{ sectionId: 'machine-sessions', settingId: 'remote-setup' }],
     },
   ],
 };

@@ -16,6 +16,7 @@ import { applyDashboardSettings } from '../dashboard-settings.ts';
 import { applyClientTrust } from '../../server-power.ts';
 import { forgetHostSessions, handleSnapshot, noteServerBuild, refreshRosterAndAttentionSurfaces } from '../session-frames.ts';
 import { applyHostsStatus } from '../../hosts/host-status.ts';
+import { refreshHostsSettings } from '../../hosts/hosts-settings.ts';
 import { syncHostClients } from '../../hosts/host-clients.ts';
 
 const messageHandlers = {
@@ -48,7 +49,7 @@ const messageHandlers = {
   'client-trust':       (msg) => applyClientTrust(msg.trust),
   'shutting-down':      () => showServerGoingDown('Shutting down...', 'Shutting down sessions...'),
   'restarting':         () => showServerGoingDown('Restarting...', 'Restarting server...'),
-  'hosts-status':       (msg) => { applyHostsStatus(msg.hosts); for (const hostId of syncHostClients(msg.hosts)) forgetHostSessions(hostId); refreshRosterAndAttentionSurfaces(); },
+  'hosts-status':       (msg) => { applyHostsStatus(msg.hosts); refreshHostsSettings(); for (const hostId of syncHostClients(msg.hosts)) forgetHostSessions(hostId); refreshRosterAndAttentionSurfaces(); },
 } satisfies DashboardHandlerTable;
 
 export { messageHandlers as serverHandlers };

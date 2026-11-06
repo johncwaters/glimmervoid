@@ -249,6 +249,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'save-hook-result', requestId: 'r2', ok: true, error: null, hook: { id: 'h1' } },
   { type: 'add-session-result', requestId: 'r6', ok: false, error: '/repos/notes is not a git repository', reason: 'not-git' },
   { type: 'start-remote-setup-result', requestId: 'r8', ok: true, error: null, sessionId: 'remote-setup-0b1c', sessionName: 'Remote host setup' },
+  { type: 'host-change-result', requestId: 'r8h', ok: false, error: 'a host with id devbox is already registered' },
   { type: 'remove-session-result', requestId: 'r7', ok: false, error: 'Branch feature in Coder workspace gv-0123456789ab has commits that are not pushed', canDiscardWork: true },
   { type: 'delete-hook-result', requestId: 'r3', ok: false, error: 'Unknown hook' },
   { type: 'workspace-repos', requestId: 'r4', id: 'session-1', ok: true, repos: ['/repos/one', '/repos/two'], error: null },
@@ -256,7 +257,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'hooks-updated', count: 1 },
   { type: 'feature-hint', hint: { feature: 'teamReview', distinctTargetCount: 3, raisedAt: 1761740000000 } },
   { type: 'star-hint' },
-  { type: 'hosts-status', hosts: [{ id: 'devbox', name: 'Devbox', state: 'version-differs', hostVersion: '0.51.0', hubVersion: '0.52.3-next.0', lastError: null }] },
+  { type: 'hosts-status', hosts: [{ id: 'devbox', name: 'Devbox', sshTarget: 'devbox', dashboardPort: 3000, state: 'version-differs', hostVersion: '0.51.0', hubVersion: '0.52.3-next.0', lastError: null }] },
   { type: 'packs-status', warnings: [], packs: [
     { name: 'ci-board', version: 3, description: null, dir: '/home/me/.glimmervoid/packs/ci-board', state: 'pending', fingerprint: 'f'.repeat(64), files: ['pack.json'], needs: ['program gh'], missingRequires: [], prFlows: null, themes: [{ id: 'night-shift', label: 'Night Shift', mode: 'dark' }], panels: [{ id: 'board', label: 'CI', reads: ['sessions'], acts: ['reviews'] }], errors: [] },
     { name: 'broken', version: null, description: null, dir: '/home/me/.glimmervoid/packs/broken', state: 'invalid', fingerprint: null, files: [], needs: [], missingRequires: [], prFlows: null, themes: [], panels: [], errors: ['there is no pack.json'] },
