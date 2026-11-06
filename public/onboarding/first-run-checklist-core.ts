@@ -66,6 +66,17 @@ function agentSummaryText(agentListing: unknown): string {
   return decideAgentPicker(agents).options.map((agentOption) => agentOption.label).join(', ');
 }
 
+const agentChoiceJoiner = new Intl.ListFormat('en-GB', { style: 'long', type: 'disjunction' });
+
+function installableAgentsText(agentListing: unknown): string {
+  const labels = listedAgents(agentListing)
+    .filter((agent) => !isShellAgent(agent) && (agent as { hidden?: unknown } | null)?.hidden !== true)
+    .map((agent) => (agent as { label?: unknown } | null)?.label)
+    .filter((label): label is string => typeof label === 'string' && label.length > 0);
+  if (labels.length === 0) return 'an agent CLI';
+  return agentChoiceJoiner.format(labels);
+}
+
 function canOpenShell(agentListing: unknown): boolean {
   return decideAgentPicker(listedAgents(agentListing), { defaultId: SHELL_AGENT_ID }).options.some((agentOption) => agentOption.id === SHELL_AGENT_ID);
 }
@@ -88,5 +99,5 @@ function rootsToAutoSave(configuredRoots: readonly string[], suggestions: readon
   return suggestions.filter((suggestion) => suggestion.gitRepoCount > 0).map((suggestion) => suggestion.path);
 }
 
-export { canOpenShell, decideFirstRunSteps, decideOnboardingStepReports, onboardingStepReportKey, agentSummaryText, gitRepoCountText, rootsToAutoSave, withRepoRootsAdded, UPCOMING_STEPS };
+export { canOpenShell, installableAgentsText, decideFirstRunSteps, decideOnboardingStepReports, onboardingStepReportKey, agentSummaryText, gitRepoCountText, rootsToAutoSave, withRepoRootsAdded, UPCOMING_STEPS };
 export type { FirstRunSteps };

@@ -5,7 +5,7 @@ import { el } from '../dom-helpers.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { createNotificationPermissionControl } from '../notifications.ts';
 import type { OperatorActionOf } from '#shared/contracts/control-messages.ts';
-import { agentSummaryText, canOpenShell, decideFirstRunSteps, decideOnboardingStepReports, onboardingStepReportKey, rootsToAutoSave, UPCOMING_STEPS } from './first-run-checklist-core.ts';
+import { agentSummaryText, canOpenShell, installableAgentsText, decideFirstRunSteps, decideOnboardingStepReports, onboardingStepReportKey, rootsToAutoSave, UPCOMING_STEPS } from './first-run-checklist-core.ts';
 import type { FirstRunSteps } from './first-run-checklist-core.ts';
 import { createRepoRootsAdder, saveRepoRoots } from './repo-roots-adder.ts';
 import { buildCommandRow, buildSetupStep } from './setup-step.ts';
@@ -13,13 +13,13 @@ import { button } from '../ui/button.ts';
 
 const AGENT_INSTALL_COMMAND = 'npm install -g @anthropic-ai/claude-code';
 
-type FirstRunState = { steps: FirstRunSteps; agentSummary: string; repoRoots: string[]; isShellAvailable: boolean };
+type FirstRunState = { steps: FirstRunSteps; agentSummary: string; installableAgents: string; repoRoots: string[]; isShellAvailable: boolean };
 
 let checklistEl: HTMLElement | null = null;
 let stepsEl: HTMLOListElement | null = null;
 let rescanButton: HTMLButtonElement | null = null;
 let repoRootsAdder: ReturnType<typeof createRepoRootsAdder> | null = null;
-let currentState: FirstRunState = { steps: UPCOMING_STEPS, agentSummary: '', repoRoots: [], isShellAvailable: false };
+let currentState: FirstRunState = { steps: UPCOMING_STEPS, agentSummary: '', installableAgents: installableAgentsText(null), repoRoots: [], isShellAvailable: false };
 let loadSequence = 0;
 let hasRescanFoundNoAgent = false;
 let hasTriedSavingFoundRoots = false;
@@ -39,8 +39,9 @@ function reportOnboardingStepChanges(steps: FirstRunSteps) {
 }
 
 function agentStepLeadText(): string {
-  if (isPhoneLayout()) return 'No supported agent is on PATH of the machine running Glimmervoid. Install Claude Code, Codex or Grok there, then rescan.';
-  return 'No supported agent is on PATH. Install Claude Code, Codex or Grok, then rescan.';
+  const { installableAgents } = currentState;
+  if (isPhoneLayout()) return `No supported agent is on PATH of the machine running Glimmervoid. Install ${installableAgents} there, then rescan.`;
+  return `No supported agent is on PATH. Install ${installableAgents}, then rescan.`;
 }
 
 function openShellButton(): HTMLButtonElement {
@@ -127,7 +128,7 @@ async function loadFirstRunState({ rescanAgents }: { rescanAgents: boolean }) {
     }
     const steps = decideFirstRunSteps({ agentListing, repoRoots });
     if (rescanAgents) hasRescanFoundNoAgent = steps.agent === 'current';
-    currentState = { steps, agentSummary: agentSummaryText(agentListing), repoRoots, isShellAvailable: canOpenShell(agentListing) };
+    currentState = { steps, agentSummary: agentSummaryText(agentListing), installableAgents: installableAgentsText(agentListing), repoRoots, isShellAvailable: canOpenShell(agentListing) };
     loadStatus.clear();
     renderSteps();
     reportOnboardingStepChanges(currentState.steps);
