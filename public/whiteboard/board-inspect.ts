@@ -1,4 +1,5 @@
 import type { Board, Box, BoxLine, Element as BoardElement, Frame, Note, Op, Step, Wire } from '#shared/contracts/whiteboard.ts';
+import { DEVICE_FITS, DEVICE_NAMES, PLACED_DEVICE } from '#shared/whiteboard-devices.ts';
 import { PLACED_ICON } from '#shared/whiteboard-icons.ts';
 import { AnchorRef, BOX_CHANGES, BOX_SHAPES, STEP_STATUSES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import { isStackedPanel } from '#shared/whiteboard-layout-core.ts';
@@ -8,6 +9,7 @@ import { button } from '../ui/button.ts';
 import { refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 
 type DecisionBox = Extract<Box, { shape: 'decision' }>;
+type DeviceBox = Extract<Box, { shape: 'device' }>;
 type DecisionOutput = DecisionBox['outputs'][number];
 type LegendEntry = Board['legend'][number];
 type Choice = { value: string; text: string };
@@ -37,7 +39,9 @@ const TONES: readonly Wire['tone'][] = ['plain', 'fail', 'join'];
 const LINE_STYLE_CHOICES = choicesOf(LINE_STYLES);
 const TONE_CHOICES = choicesOf(TONES);
 const SHAPE_CHOICES = choicesOf(BOX_SHAPES);
-const HEADING_BY_SHAPE: Readonly<Record<Box['shape'], string>> = { box: 'Box', decision: 'Decision', panel: 'Panel', icon: 'Icon' };
+const HEADING_BY_SHAPE: Readonly<Record<Box['shape'], string>> = { box: 'Box', decision: 'Decision', panel: 'Panel', icon: 'Icon', device: 'Device' };
+const DEVICE_CHOICES = choicesOf(DEVICE_NAMES);
+const FIT_CHOICES = choicesOf(DEVICE_FITS);
 const CHANGE_CHOICES = choicesOf(BOX_CHANGES);
 const STEP_STATUS_CHOICES = choicesOf(STEP_STATUSES);
 const SIDE_CHOICES: readonly Choice[] = [{ value: '', text: 'auto' }, ...choicesOf(['left', 'right', 'top', 'bottom'])];
@@ -223,7 +227,7 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
   };
   const latestLines = () => {
     const latestElement = latestBox();
-    return latestElement && latestElement.shape !== 'icon' ? latestElement.lines : null;
+    return latestElement && 'lines' in latestElement ? latestElement.lines ?? null : null;
   };
   const latestOutputs = () => {
     const latestElement = latestBox();
@@ -244,6 +248,7 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     if (shape === 'box') set({ shape, ...placeLeavingStack() });
     if (shape === 'panel') set({ shape });
     if (shape === 'icon') set({ shape, icon: latestBox()?.icon ?? PLACED_ICON, ...placeLeavingStack() });
+    if (shape === 'device') set({ shape, device: PLACED_DEVICE, ...placeLeavingStack() });
   };
   const commitChange = (change: string) => {
     if (change === 'relabeled') {
@@ -263,9 +268,17 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
       if (was.trim()) set({ was: was.trim() });
     }))] : []),
     ...(box.shape === 'decision' ? [outputsEditor(box, latestOutputs, set)] : []),
+    ...(box.shape === 'device' ? deviceSections(box, set) : []),
     refsEditor('this box', box.refs, () => latestBox()?.refs ?? null, (refs) => set({ refs })),
-    ...(box.shape === 'icon' ? [] : [linesEditor('this box', box.lines, latestLines, (lines) => set({ lines }))]),
+    ...(box.shape === 'icon' || box.shape === 'device' ? [] : [linesEditor('this box', box.lines, latestLines, (lines) => set({ lines }))]),
     ...(box.step ? stepSections(box.step, set) : []),
+  ];
+}
+
+function deviceSections(box: DeviceBox, set: FieldCommit): HTMLElement[] {
+  return [
+    fieldRow('Device', selectField('device', DEVICE_CHOICES, box.device, (device) => set({ device }))),
+    fieldRow('Fit', selectField('fit', FIT_CHOICES, box.fit, (fit) => set({ fit }))),
   ];
 }
 

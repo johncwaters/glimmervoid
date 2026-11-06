@@ -470,6 +470,13 @@
 .wb-line-icon { color: var(--wb-ink-dim); }
 .wb-glyph-icon { color: var(--accent); }
 
+.wb-device-body { fill: color-mix(in oklab, var(--wb-ink) 12%, var(--wb-board)); stroke: var(--wb-ink-dim); stroke-width: 1; }
+.wb-device-screen { fill: var(--wb-board); }
+.wb-device-toolbar { fill: color-mix(in oklab, var(--wb-ink) 6%, var(--wb-board)); }
+.wb-device-address { fill: var(--wb-board); }
+.wb-device-dot { fill: var(--wb-ink-dim); }
+.wb-device-empty { fill: var(--wb-ink-dim); font-size: var(--type-meta); }
+
 .wb-line-code { fill: var(--accent); }
 
 .wb-code-band { fill: color-mix(in oklab, var(--accent) 14%, var(--wb-board)); }

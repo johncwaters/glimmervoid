@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { DEVICE_FITS, DEVICE_NAMES } from '../whiteboard-devices.ts';
 import { ICON_NAMES } from '../whiteboard-icons.ts';
 
 export const WHITEBOARD_LIMITS = Object.freeze({
@@ -18,6 +19,8 @@ export const AnchorRef = z.string().min(1).max(200, { error: 'a ref is at most 2
   .meta({ id: 'AnchorRef', description: 'a code location: path, path#L12 or path#L12-L30' });
 
 export const IconName = z.enum(ICON_NAMES).meta({ id: 'IconName', description: 'a catalog icon, drawn in the text color' });
+export const DeviceName = z.enum(DEVICE_NAMES).meta({ id: 'DeviceName', description: 'a catalog device drawn around the box media' });
+const DeviceFit = z.enum(DEVICE_FITS).default('fill').describe('fill covers the screen and crops; fit shows all of the media, letterboxed');
 
 const AnchorRefs = z.array(AnchorRef).max(8, { error: 'an element carries at most 8 refs' }).default([]);
 
@@ -111,22 +114,34 @@ const NoIconBoxContent = z.never({ error: 'an icon box holds no lines or media, 
 const plainBoxFields = { ...boxBaseFields, shape: z.literal('box').default('box'), ...boxContentFields };
 const decisionBoxFields = { ...boxBaseFields, shape: z.literal('decision').describe('draws a diamond with outputs'), ...boxContentFields, outputs: Outputs.default([]).describe('decision branches; a wire leaves one through fromOutput') };
 const panelBoxFields = { ...boxBaseFields, shape: z.literal('panel').describe('draws a side note card'), ...boxContentFields };
+const NoDeviceBoxLines = z.never({ error: 'a device box holds no lines, so set shape to box first' }).optional()
+  .describe('refused: a device box holds no lines');
+
 const iconBoxFields = { ...boxBaseFields, shape: z.literal('icon').describe('draws its icon large with the title under it, and holds no lines or media'), icon: IconName };
+const deviceBoxFields = {
+  ...boxBaseFields,
+  shape: z.literal('device').describe('draws a device with its media on the screen, or an empty screen without media'),
+  device: DeviceName,
+  fit: DeviceFit,
+  media: BoxMedia.nullable().default(null).describe('media drawn on the device screen, from whiteboard attach'),
+};
 
 const FIELD_NAMES_BY_SHAPE = Object.freeze({
   box: new Set(Object.keys(plainBoxFields)),
   decision: new Set(Object.keys(decisionBoxFields)),
   panel: new Set(Object.keys(panelBoxFields)),
   icon: new Set(Object.keys(iconBoxFields)),
+  device: new Set(Object.keys(deviceBoxFields)),
 });
 
-export const BOX_SHAPES = ['box', 'decision', 'panel', 'icon'] as const;
+export const BOX_SHAPES = ['box', 'decision', 'panel', 'icon', 'device'] as const;
 
 export const Box = z.discriminatedUnion('shape', [
   z.object({ ...plainBoxFields, outputs: OnlyDecisionOutputs }).strict(),
   z.object(decisionBoxFields).strict(),
   z.object({ ...panelBoxFields, outputs: OnlyDecisionOutputs }).strict(),
   z.object({ ...iconBoxFields, lines: NoIconBoxContent, media: NoIconBoxContent }).strict(),
+  z.object({ ...deviceBoxFields, lines: NoDeviceBoxLines }).strict(),
 ], { error: `a box shape is ${BOX_SHAPES.join(', ')}` }).describe('a box needs one place: near or at; a plan step may have none and joins the build-order band, and a panel may have none and stacks right of the drawing');
 
 export function fieldNamesOfShape(shape: Box['shape']): ReadonlySet<string> {
@@ -134,7 +149,7 @@ export function fieldNamesOfShape(shape: Box['shape']): ReadonlySet<string> {
 }
 
 export function linesOfBox(box: Box): readonly BoxLine[] {
-  return box.shape === 'icon' ? [] : box.lines;
+  return box.shape === 'icon' || box.shape === 'device' ? [] : box.lines;
 }
 
 export function mediaOfBox(box: Box): BoxMedia | null {

@@ -563,7 +563,7 @@
         "side": "The left, right, top or bottom of a box: where a box placed near another sits (near.side) and where a wire leaves or enters a box (fromSide, toSide); elsewhere (server-side, side by side, a side panel) ordinary English"
       },
       "name": "box",
-      "definition": "The solid element of a whiteboard: it carries a title with an optional icon, lines, a place (a column, near another box, or at a point), a shape (box, decision, panel or icon) and optionally outputs, media, a width and a step; a plan step is a box with a step, a panel is a box with shape panel, and an icon box (shape icon) draws its icon large and holds no lines or media; elsewhere (a message box, a note box, a remote box) ordinary English"
+      "definition": "The solid element of a whiteboard: it carries a title with an optional icon, lines, a place (a column, near another box, or at a point), a shape (box, decision, panel, icon or device) and optionally outputs, media, a width and a step; a plan step is a box with a step, a panel is a box with shape panel, an icon box (shape icon) draws its icon large and holds no lines or media, and a device box (shape device) draws a catalog device with its media on the screen and holds no lines; elsewhere (a message box, a note box, a remote box) ordinary English"
     },
     {
       "name": "transitions",
@@ -584,6 +584,10 @@
     {
       "name": "icon",
       "definition": "A small picture: on a whiteboard, a glyph from the vendored Lucide catalog (shared/whiteboard-icons.ts) drawn before a box title or line text, or large on a box with shape icon; elsewhere an agent icon, status icon or button glyph on the dashboard"
+    },
+    {
+      "name": "device",
+      "definition": "A machine the operator reaches the dashboard from (a paired remote device under remote mode); on a whiteboard, a catalog device (phone, tablet, laptop, desktop or browser, shared/whiteboard-devices.ts) a box with shape device draws around its media"
     }
   ]
 }

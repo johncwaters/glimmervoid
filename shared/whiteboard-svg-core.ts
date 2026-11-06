@@ -1,7 +1,8 @@
 import type { IconName } from './contracts/whiteboard.ts';
 import { escapeMarkup } from './escape-markup.ts';
+import { DEVICE_CATALOG } from './whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, ICON_CATALOG, ICON_NAMES, ICON_VIEWBOX, LINE_ICON_CHARS, TITLE_ICON_CHARS } from './whiteboard-icons.ts';
-import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutMedia, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutStep, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
+import type { BoardLayout, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutMedia, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutStep, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const BOX_TEXT_INSET = 12;
@@ -35,6 +36,14 @@ const TITLE_ICON_RISE = 12;
 const LINE_ICON_SIZE = 13;
 const LINE_ICON_RISE = 10;
 const ICON_BOX_TOP_INSET = 12;
+const TOOLBAR_DOT_RADIUS = 6;
+const TOOLBAR_DOT_SPACING = 22;
+const TOOLBAR_ADDRESS_INSET = 96;
+const TOOLBAR_ADDRESS_HEIGHT = 22;
+const STAND_NECK_WIDTH = 180;
+const STAND_FOOT_WIDTH = 520;
+const STAND_FOOT_HEIGHT = 24;
+const PREFERRED_ASPECT_BY_FIT = Object.freeze({ fill: 'xMidYMid slice', fit: 'xMidYMid meet' });
 
 const STANDALONE_STYLE = `
 svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospace; }
@@ -90,6 +99,12 @@ svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospac
 .wb-title-icon { color: #e6e0f5; }
 .wb-line-icon { color: #a79fc4; }
 .wb-glyph-icon { color: #c4b5fd; }
+.wb-device-body { fill: #2a2440; stroke: #6f6790; stroke-width: 1; }
+.wb-device-screen { fill: #15121f; }
+.wb-device-toolbar { fill: #221d3a; }
+.wb-device-address { fill: #15121f; }
+.wb-device-dot { fill: #6f6790; }
+.wb-device-empty { fill: #a79fc4; font-size: 12px; }
 `;
 
 type AttributeValue = string | number;
@@ -170,15 +185,67 @@ function boxOutlineMarkup(box: LaidOutBox): string {
   return tag('rect', { x: box.x, y: box.y, width: box.width, height: box.height, rx: 8, class: 'wb-box-outline' });
 }
 
-function mediaMarkup(media: LaidOutMedia, assetHref: AssetHref): string[] {
+function mediaMarkup(media: LaidOutMedia, assetHref: AssetHref, clipPathId: string | null = null): string[] {
   const href = assetHref(media);
   const placeholderText = media.alt || media.kind;
   const label = tag('title', {}, escapeMarkup(placeholderText));
-  if (href) return [tag('image', { href, x: media.x, y: media.y, width: media.width, height: media.height, preserveAspectRatio: 'xMidYMid meet', class: 'wb-image' }, label)];
+  const clipPath = clipPathId ? `url(#${clipPathId})` : null;
+  if (href) return [tag('image', { href, x: media.x, y: media.y, width: media.width, height: media.height, preserveAspectRatio: PREFERRED_ASPECT_BY_FIT[media.fit], 'clip-path': clipPath, class: 'wb-image' }, label)];
   return [
     tag('rect', { x: media.x, y: media.y, width: media.width, height: media.height, rx: 6, class: 'wb-image-placeholder' }, label),
     text(placeholderText, media.x + media.width / 2, media.y + media.height / 2 + 4, 'wb-image-placeholder-text', { 'text-anchor': 'middle' }),
   ];
+}
+
+function deviceBaseMarkup(device: LaidOutDevice, bodyBottom: number): string[] {
+  const { base } = DEVICE_CATALOG[device.name];
+  if (!base) return [];
+  const baseHeight = base.height * device.scale;
+  const midX = device.x + device.width / 2;
+  if (base.overhang > 0) return [tag('rect', { x: device.x, y: bodyBottom, width: device.width, height: baseHeight, rx: baseHeight / 3, class: 'wb-device-body' })];
+  const footHeight = STAND_FOOT_HEIGHT * device.scale;
+  const neckWidth = STAND_NECK_WIDTH * device.scale;
+  const footWidth = STAND_FOOT_WIDTH * device.scale;
+  return [
+    tag('rect', { x: midX - neckWidth / 2, y: bodyBottom, width: neckWidth, height: baseHeight - footHeight, class: 'wb-device-body' }),
+    tag('rect', { x: midX - footWidth / 2, y: bodyBottom + baseHeight - footHeight, width: footWidth, height: footHeight, rx: footHeight / 3, class: 'wb-device-body' }),
+  ];
+}
+
+function deviceToolbarMarkup(device: LaidOutDevice, bodyX: number, bodyWidth: number): string[] {
+  const spec = DEVICE_CATALOG[device.name];
+  if (spec.toolbarHeight === 0) return [];
+  const toolbarTop = device.y + spec.bezel.top * device.scale;
+  const toolbarHeight = spec.toolbarHeight * device.scale;
+  const toolbarMidY = toolbarTop + toolbarHeight / 2;
+  const addressHeight = TOOLBAR_ADDRESS_HEIGHT * device.scale;
+  const addressInset = TOOLBAR_ADDRESS_INSET * device.scale;
+  return [
+    tag('rect', { x: bodyX, y: toolbarTop, width: bodyWidth, height: toolbarHeight, class: 'wb-device-toolbar' }),
+    ...[1, 2, 3].map((dotNumber) => tag('circle', { cx: bodyX + dotNumber * TOOLBAR_DOT_SPACING * device.scale, cy: toolbarMidY, r: TOOLBAR_DOT_RADIUS * device.scale, class: 'wb-device-dot' })),
+    tag('rect', { x: bodyX + addressInset, y: toolbarMidY - addressHeight / 2, width: bodyWidth - addressInset * 2, height: addressHeight, rx: addressHeight / 2, class: 'wb-device-address' }),
+  ];
+}
+
+function deviceMarkup(box: LaidOutBox, device: LaidOutDevice, title: string, assetHref: AssetHref): string[] {
+  const spec = DEVICE_CATALOG[device.name];
+  const overhang = (spec.base?.overhang ?? 0) * device.scale;
+  const bodyX = device.x + overhang;
+  const bodyWidth = device.width - overhang * 2;
+  const bodyHeight = (spec.bezel.top + spec.toolbarHeight + spec.screen.height + spec.bezel.bottom) * device.scale;
+  const { screen } = device;
+  const screenRadius = spec.bezel.screenRadius * device.scale;
+  const clipPathId = `wb-screen-${box.id}`;
+  const screenRect = { x: screen.x, y: screen.y, width: screen.width, height: screen.height, rx: screenRadius };
+  const parts = [
+    tag('rect', { x: bodyX, y: device.y, width: bodyWidth, height: bodyHeight, rx: spec.bezel.radius * device.scale, class: 'wb-device-body' }),
+    ...deviceBaseMarkup(device, device.y + bodyHeight),
+    ...deviceToolbarMarkup(device, bodyX, bodyWidth),
+    tag('clipPath', { id: clipPathId }, tag('rect', screenRect)),
+    tag('rect', { ...screenRect, class: 'wb-device-screen' }),
+  ];
+  if (box.media) return [...parts, ...mediaMarkup(box.media, assetHref, clipPathId)];
+  return [...parts, text(title, screen.x + screen.width / 2, screen.y + screen.height / 2 + 4, 'wb-device-empty', { 'text-anchor': 'middle' })];
 }
 
 function stepHeaderMarkup(box: LaidOutBox, step: LaidOutStep): string[] {
@@ -218,9 +285,10 @@ function boxMarkup(box: LaidOutBox, assetHref: AssetHref): string {
   if (box.step?.linkedBoardId) {
     parts.push(text(LINKED_BOARD_TEXT, box.x + BOX_TEXT_INSET, bodyTop + box.bodyLines.length * BODY_LINE_HEIGHT, 'wb-step-link', { 'data-linked-board-id': box.step.linkedBoardId }));
   }
-  if (box.media) parts.push(...mediaMarkup(box.media, assetHref));
+  if (box.device) parts.push(...deviceMarkup(box, box.device, box.titleLines.join(' '), assetHref));
+  if (box.media && !box.device) parts.push(...mediaMarkup(box.media, assetHref));
   parts.push(tag('rect', { x: box.x + box.width - RESIZE_HANDLE_SIZE, y: box.y + box.height - RESIZE_HANDLE_SIZE, width: RESIZE_HANDLE_SIZE, height: RESIZE_HANDLE_SIZE, rx: 2, class: 'wb-resize-handle' }));
-  const shapeClass = box.shape === 'panel' || box.shape === 'icon' ? ` wb-${box.shape}` : '';
+  const shapeClass = box.shape === 'box' || box.shape === 'decision' ? '' : ` wb-${box.shape}`;
   const stepClass = box.step ? ' wb-step' : '';
   const changeClass = box.change === 'none' ? '' : ` wb-change-${box.change}`;
   return elementGroup(box, `wb-box${shapeClass}${stepClass}${changeClass}`, parts);

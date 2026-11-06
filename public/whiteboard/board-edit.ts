@@ -1,5 +1,6 @@
 import { WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import type { Board, Element as BoardElement, BoxMedia, Op } from '#shared/contracts/whiteboard.ts';
+import { PLACED_DEVICE } from '#shared/whiteboard-devices.ts';
 import { PLACED_ICON } from '#shared/whiteboard-icons.ts';
 import { el } from '../dom-helpers.ts';
 import { createDragPreview, pinnedOffsetYOf } from '#shared/whiteboard-layout-core.ts';
@@ -11,10 +12,10 @@ const MIN_VIEW_WIDTH = 200;
 const MAX_VIEW_WIDTH = 20000;
 const WHEEL_ZOOM_STEP = 1.1;
 const REMOVAL_ORDER = ['wire', 'note', 'frame', 'box'] as const;
-const TOOL_BY_KEY: Readonly<Record<string, BoardTool>> = { v: 'select', r: 'box', d: 'decision', p: 'panel', i: 'icon', a: 'wire' };
+const TOOL_BY_KEY: Readonly<Record<string, BoardTool>> = { v: 'select', r: 'box', d: 'decision', p: 'panel', i: 'icon', m: 'device', a: 'wire' };
 
-type BoardTool = 'select' | 'box' | 'decision' | 'panel' | 'icon' | 'wire';
-type PlacementTool = Extract<BoardTool, 'box' | 'decision' | 'panel' | 'icon'>;
+type BoardTool = 'select' | 'box' | 'decision' | 'panel' | 'icon' | 'device' | 'wire';
+type PlacementTool = Extract<BoardTool, 'box' | 'decision' | 'panel' | 'icon' | 'device'>;
 
 interface ViewPoint {
   x: number;
@@ -88,15 +89,16 @@ function portOf(target: EventTarget | null): SVGCircleElement | null {
 }
 
 function isPlacementTool(tool: BoardTool): tool is PlacementTool {
-  return tool === 'box' || tool === 'decision' || tool === 'panel' || tool === 'icon';
+  return tool === 'box' || tool === 'decision' || tool === 'panel' || tool === 'icon' || tool === 'device';
 }
 
-const PLACED_TITLE_BY_TOOL: Readonly<Record<PlacementTool, string>> = { box: 'Box', decision: 'Decision', panel: 'Panel', icon: 'Icon' };
+const PLACED_TITLE_BY_TOOL: Readonly<Record<PlacementTool, string>> = { box: 'Box', decision: 'Decision', panel: 'Panel', icon: 'Icon', device: 'Device' };
 
 function placedBox(at: ViewPoint, title: string, media: BoxMedia | null, shape: PlacementTool): BoardElement {
   const placed = { kind: 'box' as const, id: newElementId('box'), title, icon: null, refs: [], change: 'none' as const, was: null, near: null, order: 0, at, width: null, step: null };
   switch (shape) {
     case 'icon': return { ...placed, shape, icon: PLACED_ICON };
+    case 'device': return { ...placed, shape, device: PLACED_DEVICE, fit: 'fill', media };
     case 'decision': return { ...placed, shape, lines: [], media, outputs: [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }] };
     case 'box':
     case 'panel': return { ...placed, shape, lines: [], media };

@@ -1,5 +1,7 @@
 import { BOX_CHANGES, STEP_STATUSES } from './contracts/whiteboard.ts';
 import type { Board, Box, BoxLine, BoxMedia, Element, IconName, Note, Step, Wire } from './contracts/whiteboard.ts';
+import { DEVICE_CATALOG, deviceArtSizeOf } from './whiteboard-devices.ts';
+import type { DeviceFit, DeviceName } from './whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, LINE_ICON_CHARS, TITLE_ICON_CHARS } from './whiteboard-icons.ts';
 import { planSteps } from './whiteboard-plan-core.ts';
 import type { PlanStep } from './whiteboard-plan-core.ts';
@@ -57,7 +59,14 @@ interface LaidOutBox extends Rect {
   headerHeight: number;
   outputs: LaidOutOutput[];
   media: LaidOutMedia | null;
+  device: LaidOutDevice | null;
   step: LaidOutStep | null;
+}
+
+interface LaidOutDevice extends Rect {
+  name: DeviceName;
+  scale: number;
+  screen: Rect;
 }
 
 interface LaidOutStep {
@@ -72,6 +81,7 @@ interface LaidOutMedia extends Rect {
   mime: BoxMedia['mime'];
   hasPreview: boolean;
   alt: string;
+  fit: DeviceFit;
 }
 
 interface LaidOutOutput {
@@ -193,8 +203,14 @@ function laidOutLines(lines: readonly BoxLine[], bodyCharsPerLine = BODY_CHARS_P
   });
 }
 
+function defaultBoxWidthOf(box: Box): number {
+  if (box.shape === 'icon') return ICON_BOX_WIDTH;
+  if (box.shape === 'device') return DEVICE_CATALOG[box.device].defaultBoxWidth;
+  return DEFAULT_BOX_WIDTH;
+}
+
 function boxWidthOf(box: Box): number {
-  return box.width ?? (box.shape === 'icon' ? ICON_BOX_WIDTH : DEFAULT_BOX_WIDTH);
+  return box.width ?? defaultBoxWidthOf(box);
 }
 
 function charsPerLineAt(defaultCharsPerLine: number, boxWidth: number): number {
@@ -204,26 +220,70 @@ function charsPerLineAt(defaultCharsPerLine: number, boxWidth: number): number {
 interface BoxContent {
   lines: readonly BoxLine[];
   media: BoxMedia | null;
+  device: DeviceName | null;
+  fit: DeviceFit;
   glyphRoom: number;
   titleIconChars: number;
 }
 
-function boxContentOf(box: Box): BoxContent {
-  if (box.shape === 'icon') return { lines: [], media: null, glyphRoom: ICON_BOX_GLYPH_SIZE + ICON_BOX_GLYPH_GAP, titleIconChars: 0 };
-  return { lines: box.lines, media: box.media, glyphRoom: 0, titleIconChars: box.icon ? TITLE_ICON_CHARS : 0 };
+interface ContentArt {
+  width: number;
+  height: number;
+  scale: number;
+  screen: Rect;
 }
 
-function mediaSizeOf(media: BoxMedia | null, boxWidth: number): { width: number; height: number } | null {
-  if (!media) return null;
+function boxContentOf(box: Box): BoxContent {
+  const titleIconChars = box.icon ? TITLE_ICON_CHARS : 0;
+  if (box.shape === 'icon') return { lines: [], media: null, device: null, fit: 'fit', glyphRoom: ICON_BOX_GLYPH_SIZE + ICON_BOX_GLYPH_GAP, titleIconChars: 0 };
+  if (box.shape === 'device') return { lines: [], media: box.media, device: box.device, fit: box.fit, glyphRoom: 0, titleIconChars };
+  return { lines: box.lines, media: box.media, device: null, fit: 'fit', glyphRoom: 0, titleIconChars };
+}
+
+function deviceArtOf(device: DeviceName, artWidth: number): ContentArt {
+  const { screen, bezel, toolbarHeight, base } = DEVICE_CATALOG[device];
+  const artSize = deviceArtSizeOf(device);
+  const scale = artWidth / artSize.width;
+  return {
+    width: artWidth,
+    height: Math.round(artSize.height * scale),
+    scale,
+    screen: {
+      x: Math.round(((base?.overhang ?? 0) + bezel.side) * scale),
+      y: Math.round((bezel.top + toolbarHeight) * scale),
+      width: Math.round(screen.width * scale),
+      height: Math.round(screen.height * scale),
+    },
+  };
+}
+
+function mediaArtOf(media: BoxMedia, boxWidth: number): ContentArt {
   const width = boxWidth - BOX_PADDING * 2;
   const maxHeight = Math.round(MEDIA_MAX_HEIGHT * boxWidth / DEFAULT_BOX_WIDTH);
   const height = Math.min(maxHeight, Math.max(1, Math.round(width * media.height / media.width)));
-  return { width, height };
+  return { width, height, scale: 1, screen: { x: 0, y: 0, width, height } };
 }
 
-function laidOutMedia(media: BoxMedia | null, position: Point, mediaTop: number, mediaSize: { width: number; height: number } | null): LaidOutMedia | null {
-  if (!media || !mediaSize) return null;
-  return { kind: media.kind, asset: media.asset, mime: media.mime, hasPreview: media.hasPreview, alt: media.alt, x: position.x + BOX_PADDING, y: position.y + mediaTop, width: mediaSize.width, height: mediaSize.height };
+function contentArtOf(content: BoxContent, boxWidth: number): ContentArt | null {
+  if (content.device) return deviceArtOf(content.device, boxWidth - BOX_PADDING * 2);
+  return content.media ? mediaArtOf(content.media, boxWidth) : null;
+}
+
+function laidOutMedia(content: BoxContent, position: Point, artTop: number, art: ContentArt | null): LaidOutMedia | null {
+  const { media } = content;
+  if (!media || !art) return null;
+  return {
+    kind: media.kind, asset: media.asset, mime: media.mime, hasPreview: media.hasPreview, alt: media.alt, fit: content.fit,
+    x: position.x + BOX_PADDING + art.screen.x, y: position.y + artTop + art.screen.y, width: art.screen.width, height: art.screen.height,
+  };
+}
+
+function laidOutDevice(content: BoxContent, position: Point, artTop: number, art: ContentArt | null): LaidOutDevice | null {
+  if (!content.device || !art) return null;
+  const artLeft = position.x + BOX_PADDING;
+  const artTopY = position.y + artTop;
+  const screen = { x: artLeft + art.screen.x, y: artTopY + art.screen.y, width: art.screen.width, height: art.screen.height };
+  return { name: content.device, scale: art.scale, x: artLeft, y: artTopY, width: art.width, height: art.height, screen };
 }
 
 function boxShape(box: Box) {
@@ -236,11 +296,11 @@ function boxShape(box: Box) {
   const wasLines = box.change === 'relabeled' && box.was ? wrapText(box.was, titleCharsPerLine) : [];
   const bodyLines = laidOutLines(content.lines, charsPerLineAt(BODY_CHARS_PER_LINE, boxWidth));
   const textHeight = BOX_PADDING + stepHeaderHeight + content.glyphRoom + (wasLines.length + titleLines.length) * TITLE_LINE_HEIGHT + (bodyLines.length + linkLineCount) * BODY_LINE_HEIGHT;
-  const mediaSize = mediaSizeOf(content.media, boxWidth);
-  const mediaRoom = mediaSize ? mediaSize.height + MEDIA_GAP : 0;
-  const headerHeight = textHeight + BOX_PADDING + mediaRoom;
+  const art = contentArtOf(content, boxWidth);
+  const artRoom = art ? art.height + MEDIA_GAP : 0;
+  const headerHeight = textHeight + BOX_PADDING + artRoom;
   const outputs = box.shape === 'decision' ? box.outputs : [];
-  return { titleLines, wasLines, bodyLines, headerHeight, outputs, media: content.media, mediaTop: textHeight + MEDIA_GAP, mediaSize, height: headerHeight + outputs.length * OUTPUT_ROW_HEIGHT };
+  return { titleLines, wasLines, bodyLines, headerHeight, outputs, content, artTop: textHeight + MEDIA_GAP, art, height: headerHeight + outputs.length * OUTPUT_ROW_HEIGHT };
 }
 
 type ElementsByKind = { [Kind in Element['kind']]: Extract<Element, { kind: Kind }>[] };
@@ -308,7 +368,7 @@ function laidOutBox(board: IndexedBoard, box: Box, position: Point): LaidOutBox 
   return {
     kind: 'box', id: box.id, x: position.x, y: position.y, width, height: shape.height,
     titleLines: shape.titleLines, icon: box.icon, bodyLines: shape.bodyLines, change: box.change, wasLines: shape.wasLines,
-    shape: box.shape, headerHeight: shape.headerHeight, media: laidOutMedia(shape.media, position, shape.mediaTop, shape.mediaSize), step: laidOutStep(board, box),
+    shape: box.shape, headerHeight: shape.headerHeight, media: laidOutMedia(shape.content, position, shape.artTop, shape.art), device: laidOutDevice(shape.content, position, shape.artTop, shape.art), step: laidOutStep(board, box),
     outputs: shape.outputs.map((output, index) => ({
       id: output.id, label: output.label,
       port: { x: position.x + width, y: position.y + shape.headerHeight + index * OUTPUT_ROW_HEIGHT + OUTPUT_ROW_HEIGHT / 2 },
@@ -612,7 +672,8 @@ function elementSignature(element: LaidOutElement): string {
 function movedBox(box: LaidOutBox, offsetX: number, offsetY: number): LaidOutBox {
   const outputs = box.outputs.map((output) => ({ ...output, port: { x: output.port.x + offsetX, y: output.port.y + offsetY } }));
   const media = box.media ? { ...box.media, x: box.media.x + offsetX, y: box.media.y + offsetY } : null;
-  return { ...box, x: box.x + offsetX, y: box.y + offsetY, outputs, media };
+  const device = box.device ? { ...box.device, x: box.device.x + offsetX, y: box.device.y + offsetY, screen: { ...box.device.screen, x: box.device.screen.x + offsetX, y: box.device.screen.y + offsetY } } : null;
+  return { ...box, x: box.x + offsetX, y: box.y + offsetY, outputs, media, device };
 }
 
 type DragPreview = (offsetX: number, offsetY: number) => LaidOutElement[];
@@ -657,4 +718,4 @@ function createDragPreview(storedBoard: Board, layout: BoardLayout, draggedBoxId
 }
 
 export { createDragPreview, elementSignature, isStackedPanel, layoutBoard, layoutBoardWithMemory, pinnedOffsetYOf };
-export type { BoardLayout, DragPreview, LayoutMemory, LaidOutBox, LaidOutMedia, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutStep, LaidOutWire, Rect };
+export type { BoardLayout, DragPreview, LayoutMemory, LaidOutBox, LaidOutDevice, LaidOutMedia, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutStep, LaidOutWire, Rect };

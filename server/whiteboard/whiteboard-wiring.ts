@@ -17,6 +17,7 @@ import { cappedWarnings } from '../../shared/whiteboard-route-core.ts';
 import { readChangeFacts, readFileFacts } from './whiteboard-anchor-facts.ts';
 import type { ChangeMap } from '../../shared/contracts/change-map.ts';
 import { stepBoxesOf } from '../../shared/whiteboard-plan-core.ts';
+import { DEVICE_NAMES } from '../../shared/whiteboard-devices.ts';
 import { ICON_NAMES } from '../../shared/whiteboard-icons.ts';
 import {
   upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, pickShowBoardId, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard,
@@ -39,9 +40,10 @@ const PUT_GUIDE = [
   '{"op":"add","element":{"kind":"wire","id":"w1","from":"parse","to":"store","dashed":true,"label":"on retry"}},',
   '{"op":"set","id":"parse","fields":{"title":"Parse feed"}},{"op":"remove","id":"w1"}]\'.',
   'Pick the layout that fits what you draw; the example shows op syntax, not a preferred shape.',
-  'Element kinds: box (title, icon, near, at, lines, refs, change none|added|removed|relabeled, was, order, shape box|decision|panel|icon, outputs, step {status planned|building|landed, linkedBoardId} to make it a plan step), wire (from, to, fromOutput, dashed, tone plain|fail|join, label, fromSide and toSide left|right|top|bottom, back), frame (title, contains, loop), note (on, text, ref).',
+  'Element kinds: box (title, icon, near, at, lines, refs, change none|added|removed|relabeled, was, order, shape box|decision|panel|icon|device, device, fit, outputs, step {status planned|building|landed, linkedBoardId} to make it a plan step), wire (from, to, fromOutput, dashed, tone plain|fail|join, label, fromSide and toSide left|right|top|bottom, back), frame (title, contains, loop), note (on, text, ref).',
   'To show a picture, video, HTML page or Markdown document, run glimmervoid whiteboard attach <path> (PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML or Markdown) and set the media it returns on a box unchanged except alt, as in "media":{"kind":"image","asset":"<id>","mime":"image/png","width":800,"height":600,"alt":"login screen","hasPreview":false}; a picture or video first frame draws under the box lines, a page or a video without a first frame shows as a labelled placeholder, and a Markdown document shows the operator its rendered text, which they can edit and save on the board.',
   `An icon draws before a box title or a line text in the text color, as in "icon":"database" on the box or on a line; a box with shape icon holds no lines or media and draws its required icon large with the title under it. The icons are ${ICON_NAMES.join(', ')}.`,
+  `A box with shape device draws a ${DEVICE_NAMES.join(', ')} with its media on the screen, as in "shape":"device","device":"phone","fit":"fill" plus media from attach; fill covers the screen and crops, fit shows all of the media letterboxed, a device box holds no lines, and without media it draws an empty screen with its title for a wireframe.`,
   'A line takes style text|code|item|numbered|kv; kv needs a key, as in {"style":"kv","key":"timeout","text":"30s"}, and numbered lines count up through each run.',
   'A plan step is a box with a step; a wire from one step to another means the second is built after the first, cycles allowed. A step with no place sits in the build-order band above the free drawing until moved. glimmervoid whiteboard plan add|after|status|show edits and reads them.',
   'A box with shape panel is a side note card for text such as prior art: with no place it stacks right of the drawing, lowest order first, until it is given one, and no box can sit near it while it is stacked.',
