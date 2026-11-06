@@ -53,6 +53,28 @@ export function setSessionSaneYolo(sessionId: unknown, saneYolo: boolean) {
   if (!saneYolo) delete ui.card.dataset.saneYolo;
 }
 
+export function sessionQuestionManagerOf(card: HTMLElement | null): boolean | null {
+  const questionManagerState = card?.dataset.questionManager;
+  if (questionManagerState === undefined) return null;
+  return questionManagerState === 'on';
+}
+
+function paintQuestionManager(card: HTMLElement, menuItem: Element | null, isQuestionManagerOn: boolean | null) {
+  menuItem?.classList.toggle('visible', isQuestionManagerOn !== null);
+  menuItem?.setAttribute('aria-checked', String(isQuestionManagerOn === true));
+  if (isQuestionManagerOn === null) {
+    delete card.dataset.questionManager;
+    return;
+  }
+  card.dataset.questionManager = isQuestionManagerOn ? 'on' : 'off';
+}
+
+export function setSessionQuestionManager(sessionId: unknown, isQuestionManagerOn: boolean | null) {
+  const ui = findSessionUi(sessionId);
+  if (!ui) return;
+  paintQuestionManager(ui.card, ui.sessionMenu.querySelector('.overflow-question-manager'), isQuestionManagerOn);
+}
+
 export function buildCardDOM(sessionId: string, sessionName: string, initialState: string, options: CardOptions = {}) {
   const state = initialState || STATES.INITIALIZING;
   const card = el('div', 'session-card');
@@ -123,9 +145,17 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
     btnSessionMenu.setAttribute('aria-expanded', 'false');
     openCardSessionSetup?.(sessionId);
   };
+  const btnQuestionManager = buildMenuItem('Question manager', 'overflow-question-manager');
+  btnQuestionManager.setAttribute('role', 'menuitemcheckbox');
+  paintQuestionManager(card, btnQuestionManager, options.isQuestionManagerOn ?? null);
+  btnQuestionManager.onclick = () => {
+    sessionMenu.classList.remove('open');
+    btnSessionMenu.setAttribute('aria-expanded', 'false');
+    sendControlMsg({ type: 'set-session-question-manager', id: sessionId, isOn: sessionQuestionManagerOf(card) !== true });
+  };
   const btnDebug = buildMenuItem('Debug state', 'overflow-debug');
   const btnTrace = buildMenuItem('Trace', 'overflow-trace');
-  sessionMenu.append(btnRename, btnWorkspaceRepos, btnCoherenceJournal, btnSessionSetup, btnLinkPr, btnConnectBoard, btnDebug, btnTrace, btnRestart);
+  sessionMenu.append(btnRename, btnWorkspaceRepos, btnCoherenceJournal, btnSessionSetup, btnQuestionManager, btnLinkPr, btnConnectBoard, btnDebug, btnTrace, btnRestart);
   sessionMenuWrap.append(btnSessionMenu, sessionMenu);
 
   const btnRemove = button({ variant: 'icon', size: 'small', label: 'Remove session', icon: createLineIcon(CLOSE_ICON_PATH), action: 'remove-session' });

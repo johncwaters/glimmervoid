@@ -994,6 +994,20 @@ body {
   display: none;
 }
 
+.popup-menu-item[role='menuitemcheckbox']::after {
+  content: '';
+  width: 4px;
+  height: 8px;
+  margin-left: auto;
+  border: solid transparent;
+  border-width: 0 1.5px 1.5px 0;
+  transform: translateY(-1px) rotate(45deg);
+}
+
+.popup-menu-item[role='menuitemcheckbox'][aria-checked='true']::after {
+  border-color: var(--accent);
+}
+
 .overflow-restart-fresh {
   color: var(--state-failed);
 }

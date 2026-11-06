@@ -9,7 +9,7 @@ import { refreshMyPrsSessionState } from '../github/my-prs-store.ts';
 import { forgetSessionLinkedPrs, setSessionLinkedPrs } from '../github/session-pr-chips.ts';
 import { refreshPhoneBoard } from '../phone/phone-shell-gate.ts';
 import { decideReloadOnBuild } from '../server-build-core.ts';
-import { setSessionSaneYolo } from '../session-card/card-dom.ts';
+import { sessionQuestionManagerOf, setSessionQuestionManager, setSessionSaneYolo } from '../session-card/card-dom.ts';
 import { handleDebugStateRefresh } from '../session-card/card-debug.ts';
 import { buildSessionCardOptions } from '../session-card/card-options-core.ts';
 import { attentionTally, sessionName, sessionUIs } from '../session-card/card-registry.ts';
@@ -93,6 +93,7 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions'], hostId: s
     const exists = hasSession(s.id);
     if (exists) applyState(s.id, s.state, s.stateSince);
     if (exists) setSessionSaneYolo(s.id, !!s.saneYolo);
+    if (exists) setSessionQuestionManager(s.id, s.isQuestionManagerOn);
     if (!exists) createSessionCard(s.id, s.name, s.state, buildSessionCardOptions(s));
     setSessionFailureReason(s.id, s.failureReason);
 
@@ -153,7 +154,7 @@ function rebuildAsDormantCard(msg: SessionStatusMessage) {
 
   const path = card ? card.dataset.path : undefined;
   removeSessionCard(msg.id);
-  createSessionCard(msg.id, msg.session, STATES.DORMANT, buildSessionCardOptions({ skipPerms, saneYolo, worktree: card?.dataset.worktree !== undefined, workspace: card?.dataset.workspace !== undefined, remoteWorkspace: card?.dataset.remoteWorkspace ?? null, ephemeral: card?.dataset.ephemeral !== undefined, path, stateSince: msg.timestamp, taskTitle: previousUi?.taskTitle, taskTitleIsCustom: previousUi?.taskTitleIsCustom }));
+  createSessionCard(msg.id, msg.session, STATES.DORMANT, buildSessionCardOptions({ skipPerms, saneYolo, isQuestionManagerOn: msg.isQuestionManagerOn ?? sessionQuestionManagerOf(card), worktree: card?.dataset.worktree !== undefined, workspace: card?.dataset.workspace !== undefined, remoteWorkspace: card?.dataset.remoteWorkspace ?? null, ephemeral: card?.dataset.ephemeral !== undefined, path, stateSince: msg.timestamp, taskTitle: previousUi?.taskTitle, taskTitleIsCustom: previousUi?.taskTitleIsCustom }));
   setSessionAgent(msg.id, previousUi?.agent);
   carryOverClientSessionFields(msg.id, previousUi);
 }
@@ -185,6 +186,7 @@ function handleSessionStatus(msg: SessionStatusMessage) {
   if (msg.unseenOutcome !== undefined) setSessionUnseenOutcome(msg.id, msg.unseenOutcome);
   if (msg.pendingPromptKind !== undefined) setSessionPrompt(msg.id, msg.pendingPromptKind);
   if (msg.managerSeenSeq !== undefined) setManagerSeenSeq(msg.id, msg.managerSeenSeq);
+  if (msg.isQuestionManagerOn !== undefined) setSessionQuestionManager(msg.id, msg.isQuestionManagerOn);
   if (msg.unseenOutcome !== undefined) updateAttentionTitle();
   refreshFavicon(attentionTally.counts);
   markStatusDirty(msg.id);
