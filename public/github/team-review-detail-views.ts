@@ -44,7 +44,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   findingsHeading.append(el('h3', null, 'Findings'), findingsTally);
   if (findingCount > 0) findingsHeading.append(createFindingKeysHint());
   findings.append(findingsHeading);
-  const note = createNoteField(onEdit);
+  const note = createNoteField(onEdit, reviewPostChordText(SHORTCUT_PLATFORM));
   const willPost = el('section', 'pr-will-post');
   willPost.setAttribute('aria-label', 'Will post to GitHub');
   const willPostEvent = el('strong', 'pr-will-post-event');
@@ -120,7 +120,8 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
     pickedControl = control;
     paintPick();
     note.input.focus();
-    paintActionStatus(bar.status, 'ok', pickedDecisionText(control, reviewPostChordText(SHORTCUT_PLATFORM)));
+    paintActionStatus(bar.status, null, '');
+    note.pickAnnouncer.textContent = pickedDecisionText(control, reviewPostChordText(SHORTCUT_PLATFORM));
     return true;
   }
   function postDecision(): boolean {
@@ -140,6 +141,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
     pickedControl = null;
     paintPick();
     paintActionStatus(bar.status, null, '');
+    note.pickAnnouncer.textContent = '';
     return true;
   }
   function runKey(action: ReviewDetailKeyAction): boolean {

@@ -504,7 +504,9 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
     await page.keyboard.press('c');
     assert.deepEqual(await pickedActions(), ['comment']);
     assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('pr-note-input')), true);
-    assert.match(await barStatus.textContent() ?? '', /^Comment selected\. (Cmd|Ctrl)\+Enter posts, Esc cancels\.$/);
+    assert.equal(await barStatus.textContent(), '');
+    assert.match(await page.locator('.pr-detail .pr-note [role="status"]').textContent() ?? '', /^Comment selected\. (Cmd|Ctrl)\+Enter posts, Esc cancels\.$/);
+    assert.match(await page.locator('.pr-detail .pr-note .pr-finding-keys').textContent() ?? '', /^(Cmd|Ctrl)\+Enter posts/);
     await page.keyboard.type('a');
     assert.deepEqual(await pickedActions(), ['comment']);
     assert.equal(await sentActionName(), undefined);
@@ -598,7 +600,7 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
     await applyStatus(page, withDrafts([createDraft(1, { verdict: 'BLOCKED', summary: 'Re-reviewed' }), createDraft(2), createDraft(3)]));
     assert.equal(await page.locator('.pr-detail .pr-verdict-recommendation').count(), 0);
     const decisionButtons = await page.locator('.pr-detail .pr-decision-bar > button').evaluateAll((buttons) => buttons.map((button) => [button.getAttribute('data-action'), button.getAttribute('data-variant')]));
-    assert.deepEqual(decisionButtons, [['approve', 'secondary'], ['comment', 'secondary'], ['request-changes', 'primary'], ['requeue', 'secondary'], ['discard', 'secondary']]);
+    assert.deepEqual(decisionButtons, [['approve', 'secondary'], ['comment', 'secondary'], ['request-changes', 'primary'], ['requeue', 'quiet'], ['discard', 'quiet']]);
     assert.equal(await page.locator('.pr-detail [data-action="open-session"]').getAttribute('data-variant'), 'secondary');
     assert.equal(await page.locator('.pr-detail button[data-action="approve"]').isDisabled(), false);
     await applyStatus(page, withDrafts([createDraft(4, { status: 'posted', threads: [{
