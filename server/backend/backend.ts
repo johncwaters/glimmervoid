@@ -54,7 +54,8 @@ import { trackedReportCleanupCommands } from '../../shared/post-turn-leftovers.t
 import type { RepositoryTrackingReports } from '../../shared/post-turn-leftovers.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { chooseRefinedSessionName } from '../../session/core/task-title-core.ts';
-import { assetRoot, bundled, examplePacksDir, packageRoot } from '../runtime-paths.ts';
+import { assetRoot, bundled, cliPath, examplePacksDir, packageRoot } from '../runtime-paths.ts';
+import { shellQuote } from '../../session/core/hook-command-core.ts';
 import { createAccountIdReader, createTelemetry } from '../telemetry.ts';
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
 import { configSiblingPath } from '../pairings-store.ts';
@@ -399,6 +400,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     recordLane,
     setupRootDir: path.join(glimmervoidHomeDir(), 'remote-setup'),
     skillSourceDir: path.join(assetRoot, 'session', 'remote-setup'),
+    hubCliCommand: `${shellQuote(process.execPath)} ${shellQuote(cliPath)} --config ${shellQuote(configStore.configPath)}`,
   });
 
   const wireSessionEvents = createSessionEventWiring({
