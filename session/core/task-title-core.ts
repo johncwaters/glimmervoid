@@ -14,8 +14,13 @@ export interface TaskTitleVocabulary {
   hookTitleField?: string;
 }
 
+function firstCodePoints(text: string, maxCodePoints: number): string {
+  return Array.from(text).slice(0, maxCodePoints).join('');
+}
+
 function normalizeTaskTitle(title: string): string | null {
-  return title.replace(new RegExp(TASK_TITLE_CONTROL_CHARACTERS.source, 'g'), ' ').replace(/\s+/g, ' ').trim().slice(0, TASK_TITLE_MAX_LENGTH).trimEnd() || null;
+  const collapsedTitle = title.replace(new RegExp(TASK_TITLE_CONTROL_CHARACTERS.source, 'g'), ' ').replace(/\s+/g, ' ').trim();
+  return firstCodePoints(collapsedTitle, TASK_TITLE_MAX_LENGTH).trimEnd() || null;
 }
 
 export function extractAiTitle(tail: string, hasPartialFirstLine = false): string | null {
@@ -65,9 +70,10 @@ export function extractPromptTaskTitle(prompt: unknown): string | null {
   if (typeof prompt !== 'string') return null;
   const collapsed = cleanTaskPrompt(prompt);
   if (!collapsed || collapsed.startsWith('/')) return null;
-  if (collapsed.length <= 60) return normalizeTaskTitle(collapsed);
-  const prefix = collapsed.slice(0, 57);
-  const wordBoundary = collapsed[57] === ' ' ? prefix.length : prefix.lastIndexOf(' ');
+  const promptCodePoints = Array.from(collapsed);
+  if (promptCodePoints.length <= 60) return normalizeTaskTitle(collapsed);
+  const prefix = promptCodePoints.slice(0, 57).join('');
+  const wordBoundary = promptCodePoints[57] === ' ' ? prefix.length : prefix.lastIndexOf(' ');
   return `${prefix.slice(0, wordBoundary > 0 ? wordBoundary : prefix.length).trimEnd()}...`;
 }
 
