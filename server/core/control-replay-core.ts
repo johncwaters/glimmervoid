@@ -18,14 +18,15 @@ function isReplayable(type: unknown): boolean {
   return typeof type === 'string' && REPLAYABLE_EXACT.has(type);
 }
 
-function createReplayLog({ maxEntries = 500, maxAgeMs = 5 * 60_000 }: {
+function createReplayLog({ maxEntries = 500, maxAgeMs = 5 * 60_000, firstSeq = Date.now() }: {
   maxEntries?: number;
   maxAgeMs?: number;
+  firstSeq?: number;
 } = {}): ReplayLog {
   const ring: ReplayEntry[] = [];
-  let seq = 0;
+  let seq = firstSeq;
 
-  let evictedUpTo = 0;
+  let evictedUpTo = firstSeq;
 
   function evictStale(now: number): void {
     while (ring.length && now - ring[0].ts > maxAgeMs) {

@@ -89,6 +89,17 @@ test('a reconnect with ?since replays only the missed replayable broadcasts, aft
   assert.equal(sent[1].type, 'notify');
 });
 
+test('a reconnect after a server restart replays the new process broadcasts despite a cursor from the old process', () => {
+  const oldProcessLog = createReplayLog({ firstSeq: 0 });
+  for (let i = 0; i < 1_000; i += 1) oldProcessLog.stamp({ type: 'session-changed', id: `old ${i}` });
+  const newProcessLog = createReplayLog();
+  newProcessLog.stamp({ type: 'session-error', id: 'a' });
+  newProcessLog.stamp({ type: 'notify', message: 'new' });
+
+  const { entries } = newProcessLog.entriesSince(oldProcessLog.currentSeq());
+  assert.deepEqual(entries.map((entry) => entry.type), ['session-error', 'notify']);
+});
+
 test('a cached lane status replayed on connect carries no stale seq', () => {
   const replayLog = createReplayLog();
   const radarStatus = { type: 'radar-status', configured: true };
