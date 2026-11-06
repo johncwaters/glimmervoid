@@ -10,6 +10,10 @@ import { myPrsSnapshot } from './my-prs-store.ts';
 import type { LinkedLiveSession } from './my-prs-view-core.ts';
 import { emptyStateText as myPrsEmptyStateText, queueNotices as myPrsQueueNotices } from './my-prs-view-core.ts';
 import { createPrQueueColumns } from './pr-queue-columns.ts';
+import { createReviewBoard } from './review-queue-board.ts';
+import { onLayoutChange } from '../form-factor.ts';
+import { getReviewsBoardDetailWidth, getReviewsLayout, setReviewsBoardDetailWidth, setReviewsLayout } from '../ui-prefs.ts';
+import type { ReviewsLayout } from '../ui-prefs.ts';
 import { createReviewSetupCard } from './review-setup-card.ts';
 import { createReviewSkillNotice } from './review-skill-notice.ts';
 import { subscribeSettings } from '../settings/settings-store.ts';
@@ -52,6 +56,16 @@ let justActedKey: string | null = null;
 let justActedTimer = 0;
 const JUST_ACTED_MS = 2000;
 const rowsByKey = new Map<string, HTMLButtonElement>();
+const REVIEWS_LAYOUT_LABELS: Readonly<Record<ReviewsLayout, string>> = { list: 'List', board: 'Board' };
+
+function shownLayout(): ReviewsLayout {
+  if (document.documentElement.dataset.layout === 'phone') return 'list';
+  return getReviewsLayout();
+}
+
+function isBoardShown(): boolean {
+  return root?.dataset.reviewsLayout === 'board';
+}
 
 function markSeen(item: QueueItem, row: HTMLButtonElement): void {
   if (!markQueueEntrySeen(queueItemActivityEntry(item))) return;
@@ -63,6 +77,16 @@ function markSeen(item: QueueItem, row: HTMLButtonElement): void {
 function setDetailScreenOpen(isOpen: boolean): void {
   if (root) root.dataset.detailOpen = String(isOpen);
   setReviewDetailScreenOpen(isOpen);
+}
+
+function isBoardDetailClosed(): boolean {
+  return isBoardShown() && root?.dataset.detailOpen !== 'true';
+}
+
+function closeBoardDetail(): boolean {
+  if (!isBoardShown() || isBoardDetailClosed()) return false;
+  returnToQueue();
+  return true;
 }
 
 function returnToQueue(): void {
@@ -144,7 +168,9 @@ function stepSelection(step: 1 | -1): boolean {
 function runReviewKey(action: ReviewKeyAction): boolean {
   if (action === 'next-row') return stepSelection(1);
   if (action === 'previous-row') return stepSelection(-1);
-  return runTeamReviewKey(action);
+  if (isBoardDetailClosed()) return false;
+  if (runTeamReviewKey(action)) return true;
+  return action === 'cancel' && !isReviewNoteFocused() && closeBoardDetail();
 }
 
 function isReviewNoteFocused(): boolean {
@@ -270,7 +296,54 @@ function syncTeamChip(): void {
 }
 
 function rowsSignature(groups: readonly QueueGroup[], sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): string {
-  return JSON.stringify([groups, [...sessionsByPrKey], selectedKey, [...openCollapsedGroupIds], reviewQueueUnseenSignature(), queueNoticeElements().map((notice) => notice.textContent)], (key, value) => (key === 'recentSteps' ? undefined : value));
+  return JSON.stringify([shownLayout(), groups, [...sessionsByPrKey], selectedKey, [...openCollapsedGroupIds], reviewQueueUnseenSignature(), queueNoticeElements().map((notice) => notice.textContent)], (key, value) => (key === 'recentSteps' ? undefined : value));
+}
+
+function createBoard(hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): HTMLElement {
+  return createReviewBoard(currentGroups, {
+    createCard: (item, group) => createItemRow(item, group.id === 'turn', hasMultipleRepos, sessionsByPrKey),
+    createHeadingExtras: (group) => (group.id === 'turn' ? [buildNextAttentionKeys()] : []),
+    isParkedOpen: openCollapsedGroupIds.has('parked'),
+    onToggleParked: () => {
+      toggleCollapsedGroup('parked');
+      renderedSignature = null;
+      render();
+    },
+  });
+}
+
+function queueContent(hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): HTMLElement[] {
+  const hasItems = currentGroups.some((group) => group.items.length > 0);
+  if (isBoardShown()) return [...(hasItems ? [] : emptyQueueElements()), createBoard(hasMultipleRepos, sessionsByPrKey)];
+  if (!hasItems) return emptyQueueElements();
+  return currentGroups.filter((group) => group.items.length > 0).map((group) => createGroupSection(group, hasMultipleRepos, sessionsByPrKey));
+}
+
+function syncLayout(): void {
+  if (!root) return;
+  const layout = shownLayout();
+  root.dataset.reviewsLayout = layout;
+  for (const option of root.querySelectorAll<HTMLButtonElement>('.review-layout-option')) option.setAttribute('aria-pressed', String(option.dataset.reviewsLayout === layout));
+}
+
+function chooseLayout(layout: ReviewsLayout): void {
+  if (getReviewsLayout() === layout) return;
+  setReviewsLayout(layout);
+  renderedSignature = null;
+  render();
+}
+
+function createLayoutSwitch(): HTMLElement {
+  const group = el('div', 'review-layout-switch');
+  group.setAttribute('role', 'group');
+  group.setAttribute('aria-label', 'Reviews layout');
+  for (const layout of ['list', 'board'] as const) {
+    const option = createPressable('review-layout-option', REVIEWS_LAYOUT_LABELS[layout]);
+    option.dataset.reviewsLayout = layout;
+    option.addEventListener('click', () => chooseLayout(layout));
+    group.append(option);
+  }
+  return group;
 }
 
 function syncSetupCard(): boolean {
@@ -287,6 +360,7 @@ function render(): void {
   if (!queueElement) return;
   skillNotice?.sync();
   if (syncSetupCard()) return;
+  syncLayout();
   const { sessionsByPrKey, status: myPrsStatus } = myPrsSnapshot();
   currentGroups = rebuildReviewQueue();
   syncTeamChip();
@@ -300,8 +374,7 @@ function render(): void {
     resetTeamQueueTickers();
     rowsByKey.clear();
     const hasMultipleRepos = spansMultipleRepos(currentGroups);
-    const sections = currentGroups.filter((group) => group.items.length > 0).map((group) => createGroupSection(group, hasMultipleRepos, sessionsByPrKey));
-    queueElement.replaceChildren(...queueNoticeElements(), ...(sections.length > 0 ? sections : emptyQueueElements()));
+    queueElement.replaceChildren(...queueNoticeElements(), ...queueContent(hasMultipleRepos, sessionsByPrKey));
     if (focusedKey) rowsByKey.get(focusedKey)?.focus({ preventScroll: true });
     refreshTeamReviewAges();
   }
@@ -335,14 +408,21 @@ function mountReviewQueue(parent: HTMLElement): void {
   const queueNavigation = reviewQueueNavigation() ?? undefined;
   root = el('div', 'pr-content review-queue');
   parent.append(root);
-  const shell = createPrQueueColumns({ queueLabel: 'Review queue', scopeTabs: null, resizerLabel: 'Resize review queue' });
+  const shell = createPrQueueColumns({
+    queueLabel: 'Review queue',
+    scopeTabs: null,
+    resizerLabel: 'Resize review queue',
+    detailResizer: { label: 'Resize review detail', getStoredWidth: getReviewsBoardDetailWidth, setStoredWidth: setReviewsBoardDetailWidth },
+  });
   queueElement = shell.queue;
   detailHost = el('div', 'review-queue-detail');
   const phoneBar = el('div', 'review-queue-phone-bar');
   const back = button({ variant: 'secondary', label: 'Back to queue', action: 'back-to-queue', onClick: returnToReviewQueue });
   turnPosition = el('span', 'review-queue-position');
   phoneBar.append(back, turnPosition);
-  shell.detail.append(phoneBar, detailHost);
+  const boardBar = el('div', 'review-board-detail-bar');
+  boardBar.append(button({ variant: 'secondary', label: 'Close', action: 'close-review-detail', onClick: returnToQueue }));
+  shell.detail.append(phoneBar, boardBar, detailHost);
   skillNotice = createReviewSkillNotice();
   shell.queue.before(skillNotice.element);
   pollingControls = createGithubPollingControls(['team-review', 'my-prs'], root);
@@ -350,7 +430,7 @@ function mountReviewQueue(parent: HTMLElement): void {
   shell.foot.append(teamChipSlot, pollingControls.control);
   setupCard = createReviewSetupCard();
   setupCard.element.hidden = true;
-  root.append(setupCard.element, shell.columns);
+  root.append(setupCard.element, createLayoutSwitch(), shell.columns);
   root.dataset.detailOpen = 'false';
   teamDetail = mountTeamReviewDetail(root, {
     onChange: queueRender,
@@ -362,6 +442,7 @@ function mountReviewQueue(parent: HTMLElement): void {
   subscribeReviewQueue(applyReviewQueueChange);
   subscribeSettings((change) => { if (change.kind === 'broadcast') skillNotice?.sync(); });
   document.addEventListener('keydown', onReviewKey);
+  onLayoutChange(() => render());
   render();
   revealPendingItem();
 }

@@ -328,20 +328,20 @@ async function verifyViewerThreadCounts(page: Page, snapshot: TeamReviewStatus):
   assert.doesNotMatch(await row.locator('.pr-queue-bottom').textContent() ?? '', /drafted|resolved/);
   assert.match(await row.getAttribute('aria-label') ?? '', /2 of 5 of your comments resolved/);
   const sectionHeading = () => row.evaluate((element) => element.closest('.pr-queue-section')?.querySelector('.pr-section-heading')?.textContent);
-  assert.match(await sectionHeading() ?? '', /Waiting on others/);
+  assert.match(await sectionHeading() ?? '', /Done/);
   await showQueue(page);
   await row.click();
   assert.equal(await threadsFact().textContent(), '2 of 5 of your comments resolved');
   const resolved = { ...review, viewerThreads: { total: 5, resolved: 5 } };
   await applyStatus(page, withDraft(resolved));
-  assert.doesNotMatch(await sectionHeading() ?? '', /Waiting on others/);
+  assert.doesNotMatch(await sectionHeading() ?? '', /Done/);
   assert.equal(await readRowMeaning(row), 'Comments resolved');
   assert.equal(await threadsFact().textContent(), 'All 5 of your comments resolved');
   assert.match(await row.getAttribute('aria-label') ?? '', /All 5 of your comments resolved/);
   await applyStatus(page, withDraft({ ...resolved, viewerThreads: { total: 5, resolved: 3 } }));
   assert.equal(await threadsFact().textContent(), '3 of 5 of your comments resolved');
   await applyStatus(page, withDraft({ ...resolved, reviewDecision: 'APPROVED', githubReviews: [{ login: 'me', state: 'APPROVED', commit: REVIEWED_HEAD, isViewer: true }] }));
-  assert.match(await sectionHeading() ?? '', /Waiting on others/);
+  assert.match(await sectionHeading() ?? '', /Done/);
   await applyStatus(page, withDraft({ ...resolved, status: 'posted', postedEvent: 'COMMENT', postedAt: Date.now() }));
   assert.match(await sectionHeading() ?? '', /Your turn/);
   assert.equal(await readRowMeaning(row), 'Comments resolved');
@@ -534,7 +534,7 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
       await replyToCapturedAction(page, true);
       assert.equal(await reviewRow(1).getAttribute('aria-current'), 'true');
       assert.equal(await barStatus.textContent(), '');
-      assert.match(await page.locator('.pr-queue-section', { has: reviewRow(unreviewed) }).locator('.pr-section-heading').textContent() ?? '', /Set aside/);
+      assert.match(await page.locator('.pr-queue-section', { has: reviewRow(unreviewed) }).locator('.pr-section-heading').textContent() ?? '', /Parked/);
     }
     const postReceipts: Partial<Record<TeamReviewAction, string>> = { approve: 'Posted to Acme/app#1: Approved on GitHub with 1 finding.', comment: 'Posted to Acme/app#1: Commented on GitHub with 1 finding.', 'request-changes': 'Posted to Acme/app#1: Requested changes on GitHub with 1 finding.' };
     for (const action of ['approve', 'comment', 'request-changes', 'discard', 'requeue'] as const) {
@@ -662,6 +662,83 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
   }
 }
 
+async function storedReviewsLayout(page: Page): Promise<unknown> {
+  return page.evaluate(() => (JSON.parse(localStorage.getItem('glimmervoid-ui-prefs') ?? '{}') as { reviewsLayout?: unknown }).reviewsLayout);
+}
+
+async function verifyClosedBoardDetailIgnoresActionKeys(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const captureWindow = window as ActionCaptureWindow;
+    const originalSend = WebSocket.prototype.send;
+    captureWindow.teamReviewOriginalSend = originalSend;
+    WebSocket.prototype.send = function(message) {
+      if (typeof message === 'string' && (JSON.parse(message) as { type?: string }).type === 'team-review-action') {
+        document.documentElement.dataset.teamReviewAction = message;
+        return;
+      }
+      originalSend.call(this, message);
+    };
+  });
+  try {
+    await page.keyboard.press('a');
+    await page.keyboard.press('Control+Enter');
+    assert.equal(await page.evaluate(() => document.documentElement.dataset.teamReviewAction), undefined);
+    assert.equal(await page.locator('.review-queue').getAttribute('data-detail-open'), 'false');
+  } finally {
+    await page.evaluate(() => {
+      const captureWindow = window as ActionCaptureWindow;
+      if (captureWindow.teamReviewOriginalSend) WebSocket.prototype.send = captureWindow.teamReviewOriginalSend;
+      delete captureWindow.teamReviewOriginalSend;
+      delete document.documentElement.dataset.teamReviewAction;
+    });
+  }
+}
+
+async function verifyBoard(page: Page): Promise<void> {
+  const root = page.locator('.review-queue');
+  const detail = root.locator('.pr-detail-host');
+  const card = page.locator('.review-board .pr-queue-row[data-review-key="Acme/app#1"]');
+  assert.equal(await root.getAttribute('data-reviews-layout'), 'board');
+  assert.equal(await page.getByRole('button', { name: 'Board', exact: true }).getAttribute('aria-pressed'), 'true');
+  const titles = await page.locator('.review-board-column .review-board-column-title').allTextContents();
+  assert.deepEqual(titles, ['Queued', 'Agent working', 'Your turn', 'Waiting on others', 'Done', 'Parked']);
+  assert.equal(await detail.isVisible(), false);
+  await card.click();
+  assert.equal(await root.getAttribute('data-detail-open'), 'true');
+  await detail.waitFor({ state: 'visible' });
+  await page.keyboard.press('Escape');
+  await detail.waitFor({ state: 'hidden' });
+  await page.keyboard.press('j');
+  await detail.waitFor({ state: 'visible' });
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await detail.waitFor({ state: 'hidden' });
+  await verifyClosedBoardDetailIgnoresActionKeys(page);
+  const parkedCard = page.locator('.review-board .pr-queue-row[data-review-key="Acme/app#6"]');
+  assert.equal(await parkedCard.count(), 0);
+  const parkedToggle = page.locator('.review-board-parked-toggle');
+  await parkedToggle.click();
+  await parkedCard.waitFor({ state: 'visible' });
+  await parkedToggle.click();
+  await parkedCard.waitFor({ state: 'detached' });
+  await card.click();
+  await page.locator('.review-queue .pr-columns').evaluate((columns) => {
+    if (!(columns instanceof HTMLElement)) throw new Error('Missing queue columns');
+    columns.style.setProperty('--pr-detail-width', '960px');
+  });
+  await page.waitForFunction(() => {
+    const board = document.querySelector('.review-board');
+    return board !== null && board.scrollWidth > board.clientWidth;
+  });
+  await page.locator('.review-queue .pr-columns').evaluate((columns) => {
+    if (!(columns instanceof HTMLElement)) throw new Error('Missing queue columns');
+    columns.style.removeProperty('--pr-detail-width');
+  });
+  await page.getByRole('button', { name: 'List', exact: true }).click();
+  assert.equal(await root.getAttribute('data-reviews-layout'), 'list');
+  assert.equal(await storedReviewsLayout(page), 'list');
+  await page.locator('.pr-queue-row[data-review-key="Acme/app#5"]').click();
+}
+
 async function openReviewsView(page: Page, layout: Layout): Promise<void> {
   if (layout === 'phone') {
     await page.getByRole('button', { name: 'More', exact: true }).click();
@@ -734,7 +811,13 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout, sessionId
   const status = createStatus();
   await applyStatus(page, status);
   await showQueue(page);
-  await page.getByRole('button', { name: 'Set aside', exact: true }).click();
+  if (layout === 'desktop') await verifyBoard(page);
+  if (layout === 'phone') {
+    assert.equal(await page.locator('.review-queue').getAttribute('data-reviews-layout'), 'list');
+    assert.equal(await page.locator('.review-layout-switch').isVisible(), false);
+  }
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByRole('button', { name: 'Parked', exact: true }).click();
   await page.evaluate(async () => { await document.fonts.ready; });
   await verifyRows(page);
   await verifyLayout(page);
