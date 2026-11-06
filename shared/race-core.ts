@@ -1,3 +1,4 @@
+import type { RaceRecord } from './contracts/race.ts';
 import { STATES } from './states.ts';
 
 const REMOVED_CONTESTANT = 'removed';
@@ -12,4 +13,10 @@ function raceProgress(sessionIds: readonly string[], stateOf: (sessionId: string
   return { settled, total: sessionIds.length, isAllSettled: sessionIds.length > 0 && settled === sessionIds.length };
 }
 
-export { REMOVED_CONTESTANT, raceProgress };
+function winnerNotesOf(record: RaceRecord, contestantId: string): string | null {
+  const panelNotes = (record.panel?.verdicts ?? []).map((verdict) => verdict.contestants[contestantId]?.notes.trim() ?? '').filter((notes) => notes !== '');
+  if (panelNotes.length > 0) return panelNotes.join('\n\n');
+  return record.judge?.notes[contestantId] ?? null;
+}
+
+export { REMOVED_CONTESTANT, raceProgress, winnerNotesOf };

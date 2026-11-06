@@ -1,5 +1,8 @@
-import { JudgeResult } from '../../../shared/contracts/race.ts';
-import type { CheckOutcome, DiffStats, RaceCheck, RaceContestant, RaceRecord, RaceSpec } from '../../../shared/contracts/race.ts';
+import type { AgentSetup } from '../../../shared/contracts/agent-models.ts';
+import { EFFORT_OPTION_ID } from '../../../shared/contracts/agent-models.ts';
+import { RACE_CRITERIA } from '../../../shared/contracts/race.ts';
+import type { CheckOutcome, ContestantVerdict, CriterionStanding, DiffStats, JudgeVerdict, PanelResult, PanelStanding, RaceCheck, RaceContestant, RaceCriterion, RaceRecord, RaceSpec } from '../../../shared/contracts/race.ts';
+import { z } from 'zod';
 import { fencedUntrusted } from '../../lanes/core/lane-report-core.ts';
 
 const SESSION_NAME_MAX_CHARS = 64;
@@ -89,13 +92,23 @@ function judgeCheckFileName(judgeId: string): string {
   return `check-${judgeId}.txt`;
 }
 
-function unblindJudgeResult(result: JudgeResult, contestantIdByJudgeId: ReadonlyMap<string, string>): JudgeResult {
-  const contestantIdOf = (judgeId: string) => contestantIdByJudgeId.get(judgeId) ?? judgeId;
-  return {
-    ranking: result.ranking.map((entry) => ({ ...entry, contestantId: contestantIdOf(entry.contestantId) })),
-    notes: Object.fromEntries(Object.entries(result.notes).map(([judgeId, note]) => [contestantIdOf(judgeId), note])),
-  };
+const JUDGE_LABEL_MAX_CHARS = 60;
+
+function judgeLabel(setup: AgentSetup): string {
+  const effort = setup.options.find((option) => option.id === EFFORT_OPTION_ID)?.value ?? null;
+  return [setup.agent, setup.model, effort].filter((part): part is string => part !== null).join(' ').slice(0, JUDGE_LABEL_MAX_CHARS);
 }
+
+function unblindVerdict(verdict: JudgeVerdict, contestantIdByJudgeId: ReadonlyMap<string, string>): JudgeVerdict {
+  return { ...verdict, contestants: Object.fromEntries(Object.entries(verdict.contestants).map(([judgeId, entry]) => [contestantIdByJudgeId.get(judgeId) ?? judgeId, entry])) };
+}
+
+const CRITERION_RULES: Readonly<Record<RaceCriterion, string>> = {
+  correctness: 'the change does what the task asks; a failed check fails this unless the failure is clearly unrelated to the task',
+  completeness: 'every part of the task is done, nothing is left as a note or a TODO',
+  scope: 'no edits beyond what the task needs; no unrelated reformatting, renames or files',
+  quality: 'the change reads like the surrounding code, with no dead code, no leftover debugging and no comments that restate the code',
+};
 
 function judgePrompt(record: RaceRecord, inputs: readonly JudgeInput[]): string {
   const contestantLines = inputs.map(({ judgeId, checkoutDirName, diffFileName, checkFileName, stats, check }) =>
@@ -103,7 +116,7 @@ function judgePrompt(record: RaceRecord, inputs: readonly JudgeInput[]): string 
   const check = record.spec.check;
   return [
     'You judge a race: several coding agents were given the same task, each in its own checkout from the same commit.',
-    'Rank every contestant listed below from best (rank 1) to worst, judging whether the change does the task correctly, completely and without unrelated edits.',
+    'Score every contestant listed below on four criteria, then order them from best to worst.',
     'Read each diff file in the current directory. You may read the checkouts for context, but never change any file there.',
     ...(check ? [`The operator's check command, ${[check.program, ...check.args].join(' ')}, ran in each contestant's checkout after it finished; a failed check counts against correctness unless its output shows the failure is unrelated to the task.`] : []),
     '',
@@ -115,25 +128,67 @@ function judgePrompt(record: RaceRecord, inputs: readonly JudgeInput[]): string 
     'Contestants:',
     ...contestantLines,
     '',
+    'For every contestant, in this order, write one line of reasoning and then pass or fail for each criterion:',
+    ...RACE_CRITERIA.map((criterion) => `${criterion}: ${CRITERION_RULES[criterion]}.`),
+    'Then order the contestants from best to worst with tier numbers starting at 1; equal contestants share a tier. Write notes: what each contestant should fix next.',
+    '',
     `Write exactly one JSON object, and nothing else, to ./${RACE_JUDGE_RESULT_FILENAME} with the Write tool:`,
-    '{"ranking":[{"contestantId":"<id>","rank":1,"reason":"<one line, at most 300 characters>"}],"notes":{"<id>":"<what this contestant should fix next, at most 4000 characters>"}}',
-    'Give every listed contestant exactly one ranking entry with a distinct rank.',
+    '{"contestants":{"<id>":{"criteria":{"correctness":{"reason":"<one line, at most 300 characters>","pass":true},"completeness":{"reason":"...","pass":true},"scope":{"reason":"...","pass":true},"quality":{"reason":"...","pass":true}},"tier":1,"notes":"<what this contestant should fix next, at most 4000 characters>"}}}',
+    'Give every listed contestant exactly one entry with all four criteria.',
   ].join('\n');
 }
 
-function parseJudgeResult(raw: unknown, judgedIds: readonly string[]): { ok: true; result: JudgeResult } | { ok: false; reason: string } {
-  const parsed = JudgeResult.safeParse(raw);
+function byCriterion<Value>(valueFor: (criterion: RaceCriterion) => Value): Record<RaceCriterion, Value> {
+  return { correctness: valueFor('correctness'), completeness: valueFor('completeness'), scope: valueFor('scope'), quality: valueFor('quality') };
+}
+
+const JudgeResultFile = z.strictObject({ contestants: z.record(z.string(), z.strictObject({ criteria: z.record(z.string(), z.strictObject({ reason: z.string().trim().min(1).max(300), pass: z.boolean() })), tier: z.number().int().min(1), notes: z.string().max(4000).default('') })) });
+
+function parseJudgeVerdict(raw: unknown, judgedIds: readonly string[]): { ok: true; contestants: Record<string, ContestantVerdict> } | { ok: false; reason: string } {
+  const parsed = JudgeResultFile.safeParse(raw);
   if (!parsed.success) return { ok: false, reason: `the judge result does not match its schema: ${parsed.error.issues[0]?.message ?? 'invalid'}` };
-  const rankedIds = parsed.data.ranking.map((entry) => entry.contestantId);
-  const ranks = parsed.data.ranking.map((entry) => entry.rank);
-  if (new Set(rankedIds).size !== rankedIds.length) return { ok: false, reason: 'the judge ranked a contestant twice' };
-  if (new Set(ranks).size !== ranks.length) return { ok: false, reason: 'the judge gave two contestants the same rank' };
-  const unknownId = rankedIds.find((id) => !judgedIds.includes(id));
-  if (unknownId) return { ok: false, reason: `the judge ranked unknown contestant ${unknownId}` };
-  const missingId = judgedIds.find((id) => !rankedIds.includes(id));
+  const unknownId = Object.keys(parsed.data.contestants).find((id) => !judgedIds.includes(id));
+  if (unknownId) return { ok: false, reason: `the judge scored unknown contestant ${unknownId}` };
+  const missingId = judgedIds.find((id) => !(id in parsed.data.contestants));
   if (missingId) return { ok: false, reason: `the judge left out contestant ${missingId}` };
-  const notes = Object.fromEntries(Object.entries(parsed.data.notes).filter(([id]) => judgedIds.includes(id)));
-  return { ok: true, result: { ranking: [...parsed.data.ranking].sort((left, right) => left.rank - right.rank), notes } };
+  const contestants: Record<string, ContestantVerdict> = {};
+  for (const [id, entry] of Object.entries(parsed.data.contestants)) {
+    const missingCriterion = RACE_CRITERIA.find((criterion) => !(criterion in entry.criteria));
+    if (missingCriterion) return { ok: false, reason: `the judge left out ${missingCriterion} for contestant ${id}` };
+    contestants[id] = { criteria: byCriterion((criterion) => entry.criteria[criterion]), tier: entry.tier, notes: entry.notes };
+  }
+  const tiers = [...new Set(Object.values(contestants).map((entry) => entry.tier))].sort((left, right) => left - right);
+  if (tiers.some((tier, index) => tier !== index + 1)) return { ok: false, reason: `the judge's tiers are ${tiers.join(', ')}, not 1 upward with no gap` };
+  return { ok: true, contestants };
+}
+
+function criterionStandingOf(passes: number, judges: number): CriterionStanding {
+  if (passes * 2 > judges) return 'pass';
+  if (passes * 2 === judges) return 'split';
+  return 'fail';
+}
+
+const CRITERION_POINTS: Readonly<Record<CriterionStanding, number>> = { pass: 1, split: 0.5, fail: 0 };
+
+function panelStanding(verdicts: readonly JudgeVerdict[], contestantIds: readonly string[]): Pick<PanelResult, 'standing' | 'firstPlaceAgreement'> {
+  const scored = contestantIds.map((contestantId) => {
+    const entries = verdicts.flatMap((verdict) => verdict.contestants[contestantId] ?? []);
+    const criteria = byCriterion((criterion) => criterionStandingOf(entries.filter((entry) => entry.criteria[criterion].pass).length, entries.length));
+    const criteriaPassed = RACE_CRITERIA.reduce((sum, criterion) => sum + CRITERION_POINTS[criteria[criterion]], 0);
+    const meanTier = entries.reduce((sum, entry) => sum + entry.tier, 0) / entries.length;
+    const summary = (entries[0]?.criteria.correctness.reason ?? '').slice(0, 300);
+    return { contestantId, criteriaPassed, criteria, meanTier, summary };
+  }).sort((left, right) => right.criteriaPassed - left.criteriaPassed || left.meanTier - right.meanTier);
+  const standing: PanelStanding[] = [];
+  for (const [index, entry] of scored.entries()) {
+    const previous = scored[index - 1];
+    const isTiedWithPrevious = previous !== undefined && previous.criteriaPassed === entry.criteriaPassed && previous.meanTier === entry.meanTier;
+    const rank = isTiedWithPrevious ? standing[index - 1].rank : index + 1;
+    standing.push({ ...entry, rank });
+  }
+  const firstPlaceIds = new Set(standing.filter((entry) => entry.rank === 1).map((entry) => entry.contestantId));
+  const agreeing = verdicts.filter((verdict) => Object.entries(verdict.contestants).some(([contestantId, entry]) => entry.tier === 1 && firstPlaceIds.has(contestantId))).length;
+  return { standing, firstPlaceAgreement: { agreeing, judges: verdicts.length } };
 }
 
 function parseShortstat(shortstat: string): DiffStats {
@@ -142,8 +197,8 @@ function parseShortstat(shortstat: string): DiffStats {
 }
 
 function winnerNotesPrompt(notes: string): string {
-  return ['Your change won the race. The judge left these notes on it; address them:', '', notes].join('\n');
+  return ['Your change won the race. The judges left these notes on it; address them:', '', notes].join('\n');
 }
 
-export { AGENT_CONFIG_FOLDERS, RACE_JUDGE_RESULT_FILENAME, checkOutcomeOf, judgeCheckFileName, judgeCheckoutDirName, judgeIdAt, unblindJudgeResult, winnerNotesPrompt, contestantPrompt, contestantSessionName, judgeDiffFileName, judgePrompt, parseJudgeResult, parseShortstat, raceIdsOf };
+export { AGENT_CONFIG_FOLDERS, RACE_JUDGE_RESULT_FILENAME, checkOutcomeOf, judgeCheckFileName, judgeCheckoutDirName, judgeIdAt, judgeLabel, panelStanding, parseJudgeVerdict, unblindVerdict, winnerNotesPrompt, contestantPrompt, contestantSessionName, judgeDiffFileName, judgePrompt, parseShortstat, raceIdsOf };
 export type { CheckRun, JudgeInput };

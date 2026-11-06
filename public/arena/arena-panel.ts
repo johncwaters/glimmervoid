@@ -1,8 +1,8 @@
 import { AgentModelCatalog } from '#shared/contracts/agent-models.ts';
 import type { AgentSetup } from '#shared/contracts/agent-models.ts';
-import type { CheckOutcome, RaceCheck, RaceContestant, RaceRecord } from '#shared/contracts/race.ts';
-import { RACE_JUDGE_AGENT, RACE_MAX_CONTESTANTS, RaceSpec } from '#shared/contracts/race.ts';
-import { REMOVED_CONTESTANT, raceProgress } from '#shared/race-core.ts';
+import type { CheckOutcome, PanelStanding, RaceCheck, RaceContestant, RaceRecord } from '#shared/contracts/race.ts';
+import { RACE_CRITERIA, RACE_JUDGE_AGENT, RACE_MAX_CONTESTANTS, RACE_MAX_JUDGES, RaceSpec } from '#shared/contracts/race.ts';
+import { REMOVED_CONTESTANT, raceProgress, winnerNotesOf } from '#shared/race-core.ts';
 import { BADGE_LABELS } from '#shared/states.ts';
 import { benchmarkSnapshot, subscribeBenchmarks } from '../benchmark-store.ts';
 import { sendControlRequest } from '../control-ws.ts';
@@ -27,7 +27,7 @@ interface RaceDraft {
   prompt: string;
   repoPath: string;
   contestants: RaceContestant[];
-  judgeSetup: AgentSetup | null;
+  judges: AgentSetup[];
   check: RaceCheck | null;
   checkTimeoutSeconds: number;
 }
@@ -37,7 +37,8 @@ const DEFAULT_CHECK_TIMEOUT_SECONDS = 600;
 let root: HTMLElement | null = null;
 let racesEl: HTMLElement | null = null;
 let catalog: AgentModelCatalog = { agents: [] };
-let draft: RaceDraft = { raceTitle: '', prompt: '', repoPath: '', contestants: [], judgeSetup: null, check: null, checkTimeoutSeconds: DEFAULT_CHECK_TIMEOUT_SECONDS };
+let draft: RaceDraft = { raceTitle: '', prompt: '', repoPath: '', contestants: [], judges: [], check: null, checkTimeoutSeconds: DEFAULT_CHECK_TIMEOUT_SECONDS };
+let hasDefaultJudge = false;
 let isEditingAsFile = false;
 const shownDiffByKey = new Map<string, string>();
 const shownCheckOutputKeys = new Set<string>();
@@ -85,15 +86,34 @@ function toggleCheckOutput(key: string): void {
   renderRaces();
 }
 
+const CRITERION_LABELS: Readonly<Record<(typeof RACE_CRITERIA)[number], string>> = { correctness: 'correct', completeness: 'complete', scope: 'scope', quality: 'quality' };
+
+function standingOf(race: RaceRecord, contestantId: string): PanelStanding | null {
+  return race.panel?.standing.find((entry) => entry.contestantId === contestantId) ?? null;
+}
+
+function rankOf(race: RaceRecord, contestantId: string): number | null {
+  return standingOf(race, contestantId)?.rank ?? race.judge?.ranking.find((entry) => entry.contestantId === contestantId)?.rank ?? null;
+}
+
+function buildCriteriaLine(standing: PanelStanding): HTMLElement {
+  const line = el('div', 'arena-criteria');
+  for (const criterion of RACE_CRITERIA) line.append(el('span', `arena-criterion arena-criterion-${standing.criteria[criterion]}`, `${CRITERION_LABELS[criterion]} ${standing.criteria[criterion]}`));
+  return line;
+}
+
 function buildContestantLine(race: RaceRecord, contestant: RaceContestant): HTMLElement {
   const line = el('li', 'arena-contestant');
   const sessionId = race.sessionIdByContestant[contestant.id];
   const state = contestantState(sessionId);
-  const ranking = race.judge?.ranking.find((entry) => entry.contestantId === contestant.id) ?? null;
+  const rank = rankOf(race, contestant.id);
+  const standing = standingOf(race, contestant.id);
+  const legacyReason = race.judge?.ranking.find((entry) => entry.contestantId === contestant.id)?.reason ?? null;
   const stats = race.diffStatsByContestant[contestant.id];
   const head = el('div', 'arena-contestant-head');
-  head.append(el('span', 'arena-contestant-rank', ranking ? `#${ranking.rank}` : '-'));
+  head.append(el('span', 'arena-contestant-rank', rank === null ? '-' : `#${rank}`));
   head.append(el('span', 'arena-contestant-label', contestant.label));
+  if (standing) head.append(el('span', 'arena-contestant-score', `${standing.criteriaPassed} of ${RACE_CRITERIA.length}`));
   head.append(el('span', 'arena-contestant-state', state === REMOVED_CONTESTANT ? 'Removed' : stateLabel(state)));
   if (stats) head.append(el('span', 'arena-contestant-stats', `+${stats.linesAdded} -${stats.linesRemoved}, ${stats.filesChanged} files`));
   const check = race.checkByContestant[contestant.id];
@@ -113,7 +133,9 @@ function buildContestantLine(race: RaceRecord, contestant: RaceContestant): HTML
     head.append(outputButton);
   }
   line.append(head);
-  if (ranking) line.append(el('p', 'arena-contestant-reason', ranking.reason));
+  if (standing) line.append(buildCriteriaLine(standing));
+  if (standing?.summary) line.append(el('p', 'arena-contestant-reason', `Judges: ${standing.summary}`));
+  if (legacyReason) line.append(el('p', 'arena-contestant-reason', legacyReason));
   if (check && shownCheckOutputKeys.has(diffKey(race.id, contestant.id))) line.append(el('pre', 'arena-diff', check.outputTail));
   const shownDiff = shownDiffByKey.get(diffKey(race.id, contestant.id));
   if (shownDiff !== undefined) line.append(el('pre', 'arena-diff', shownDiff));
@@ -127,12 +149,12 @@ function openPickWinnerDialog(race: RaceRecord, winner: RaceContestant): void {
     ? `${losers.map((contestant) => contestant.label).join(', ')} will be stopped and removed with their worktrees and branches, without pushing. ${winner.label} stays an ordinary session.`
     : `${winner.label} stays an ordinary session. No other contestant is left to remove.`;
   dialog.append(el('p', 'dialog-message', loserText));
-  const notes = race.judge?.notes[winner.id] ?? null;
+  const notes = winnerNotesOf(race, winner.id);
   const notesBox = el('input');
   notesBox.type = 'checkbox';
   if (notes) {
     const notesField = el('label', 'dialog-checkbox-label');
-    notesField.append(notesBox, el('span', null, "Also send it the judge's notes"));
+    notesField.append(notesBox, el('span', null, "Also send it the judges' notes"));
     dialog.append(notesField, el('pre', 'arena-diff', notes));
   }
   const confirm = button({ variant: 'danger', label: 'Pick winner', onClick: () => {
@@ -172,13 +194,22 @@ function phaseText(race: RaceRecord): string {
   const progress = raceProgress(Object.values(race.sessionIdByContestant), (sessionId) => contestantState(sessionId));
   if (race.winnerContestantId) return `Winner: ${race.spec.contestants.find((contestant) => contestant.id === race.winnerContestantId)?.label ?? race.winnerContestantId}.`;
   if (race.phase === 'judging') return 'Judging.';
-  if (race.phase === 'judged') return [race.judge ? 'Judged.' : 'Finished.', race.judgeError].filter(Boolean).join(' ');
+  if (race.phase === 'judged') return [race.panel || race.judge ? 'Judged.' : 'Finished.', race.judgeError].filter(Boolean).join(' ');
   return `${progress.settled} of ${progress.total} settled.`;
 }
 
 function rankedContestants(race: RaceRecord): RaceContestant[] {
-  const rankOf = (contestant: RaceContestant) => race.judge?.ranking.find((entry) => entry.contestantId === contestant.id)?.rank ?? Number.MAX_SAFE_INTEGER;
-  return [...race.spec.contestants].sort((left, right) => rankOf(left) - rankOf(right));
+  const sortKey = (contestant: RaceContestant) => rankOf(race, contestant.id) ?? Number.MAX_SAFE_INTEGER;
+  return [...race.spec.contestants].sort((left, right) => sortKey(left) - sortKey(right));
+}
+
+function buildPanelSummary(race: RaceRecord): HTMLElement | null {
+  const panel = race.panel;
+  if (!panel) return null;
+  const summary = el('div', 'arena-panel-summary');
+  summary.append(el('span', 'arena-status', `Judges agree on first place: ${panel.firstPlaceAgreement.agreeing} of ${panel.firstPlaceAgreement.judges}.`));
+  for (const failure of panel.failures) summary.append(el('span', 'arena-status arena-judge-failure', `Judge ${failure.label} failed: ${failure.reason}`));
+  return summary;
 }
 
 function buildRace(race: RaceRecord): HTMLElement {
@@ -191,6 +222,8 @@ function buildRace(race: RaceRecord): HTMLElement {
   statusEl.setAttribute('role', 'status');
   actions.append(judgeButton, statusEl);
   item.append(actions);
+  const panelSummary = buildPanelSummary(race);
+  if (panelSummary) item.append(panelSummary);
   const lineup = el('ul', 'arena-contestants');
   for (const contestant of rankedContestants(race)) lineup.append(buildContestantLine(race, contestant));
   item.append(lineup);
@@ -239,7 +272,7 @@ function draftSpec(): Record<string, unknown> {
     prompt: draft.prompt,
     repoPath: draft.repoPath,
     contestants: draft.contestants,
-    judge: draft.judgeSetup ? { setup: draft.judgeSetup } : null,
+    judges: draft.judges.map((setup) => ({ setup })),
     check: draft.check,
   };
 }
@@ -310,6 +343,28 @@ function buildLineupEditor(onChanged: () => void): HTMLElement {
   return lineup;
 }
 
+function buildJudgesEditor(onChanged: () => void): HTMLElement {
+  const judges = el('div', 'arena-judges');
+  judges.append(el('span', 'arena-field-label', draft.judges.length === 0 ? 'Judges: none, the race is not judged' : `Judges: ${draft.judges.length} of ${RACE_MAX_JUDGES}`));
+  draft.judges.forEach((judge, index) => {
+    const row = el('div', 'arena-judge');
+    row.append(setupControls(judge, (next) => {
+      draft.judges = draft.judges.map((existing, position) => (position === index ? next : existing));
+      onChanged();
+    }, [RACE_JUDGE_AGENT]));
+    row.append(button({ variant: 'quiet', size: 'small', label: 'Remove', onClick: () => {
+      draft.judges = draft.judges.filter((_existing, position) => position !== index);
+      onChanged();
+    } }));
+    judges.append(row);
+  });
+  judges.append(button({ variant: 'quiet', size: 'small', label: 'Add judge', disabled: draft.judges.length >= RACE_MAX_JUDGES, onClick: () => {
+    draft.judges = [...draft.judges, draft.judges.at(-1) ?? defaultSetup(catalog, RACE_JUDGE_AGENT)];
+    onChanged();
+  } }));
+  return judges;
+}
+
 function buildVaryBuilder(onChanged: () => void): HTMLElement {
   const builder = el('div', 'arena-vary');
   let base = draft.contestants[0]?.setup ?? defaultSetup(catalog, agentsWithModels(catalog)[0] ?? 'claude-code');
@@ -358,7 +413,8 @@ function readDraftFromFile(text: string): string | null {
   const parsed = RaceSpec.safeParse(parseJsonText(text));
   if (!parsed.success) return `The race file is not valid: ${parsed.error.issues.map((issue) => `${issue.path.join('.') || 'file'}: ${issue.message}`).join('; ')}`;
   const spec = parsed.data;
-  draft = { raceTitle: spec.title, prompt: spec.prompt, repoPath: spec.repoPath, contestants: spec.contestants, judgeSetup: spec.judge?.setup ?? null, check: spec.check, checkTimeoutSeconds: spec.check?.timeoutSeconds ?? DEFAULT_CHECK_TIMEOUT_SECONDS };
+  draft = { raceTitle: spec.title, prompt: spec.prompt, repoPath: spec.repoPath, contestants: spec.contestants, judges: spec.judges.map((judge) => judge.setup), check: spec.check, checkTimeoutSeconds: spec.check?.timeoutSeconds ?? DEFAULT_CHECK_TIMEOUT_SECONDS };
+  hasDefaultJudge = true;
   return null;
 }
 
@@ -398,19 +454,7 @@ function buildNewRace(): HTMLElement {
       draft.contestants = relabel([...draft.contestants, { id: 'new', label: 'new', setup: draft.contestants.at(-1)?.setup ?? defaultSetup(catalog, firstAgent) }]);
       paint();
     } });
-    const judge = el('div', 'arena-judge');
-    const judgeToggle = el('label', 'dialog-checkbox-label');
-    const judgeBox = el('input');
-    judgeBox.type = 'checkbox';
-    judgeBox.checked = draft.judgeSetup !== null;
-    judgeBox.addEventListener('change', () => {
-      draft.judgeSetup = judgeBox.checked ? defaultSetup(catalog, RACE_JUDGE_AGENT) : null;
-      paint();
-    });
-    judgeToggle.append(judgeBox, el('span', null, 'Judge the results'));
-    judge.append(judgeToggle);
-    if (draft.judgeSetup) judge.append(setupControls(draft.judgeSetup, (next) => { draft.judgeSetup = next; paint(); }, [RACE_JUDGE_AGENT]));
-    body.append(addButton, judge);
+    body.append(addButton, buildJudgesEditor(paint));
   };
   const editAsFile = button({ variant: 'quiet', size: 'small', label: 'Edit as file', onClick: () => {
     if (isEditingAsFile) {
@@ -447,7 +491,8 @@ function buildNewRace(): HTMLElement {
       const parsed = AgentModelCatalog.safeParse(reply.settings.agentModels);
       if (!parsed.success) return;
       catalog = parsed.data;
-      draft.judgeSetup ??= defaultSetup(catalog, RACE_JUDGE_AGENT);
+      if (!hasDefaultJudge) draft.judges = [defaultSetup(catalog, RACE_JUDGE_AGENT)];
+      hasDefaultJudge = true;
       if (draft.contestants.length === 0) draft.contestants = varyLineup(catalog, defaultSetup(catalog, agentsWithModels(catalog)[0] ?? 'claude-code'), 'agent', agentsWithModels(catalog).slice(0, 2));
       paint();
     })
