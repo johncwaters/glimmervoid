@@ -250,6 +250,14 @@ const OWNED_COMMAND_SPECS = {
       { name: 'list', summary: 'The packs the running Glimmervoid found and whether each is approved; works inside a Glimmervoid session' },
     ],
   },
+  watch: {
+    name: 'watch',
+    summary: 'Run the watcher: deliver jobs to a Glimmervoid job inbox with the GLIMMERVOID_WATCHER_TOKEN bearer token',
+    options: [
+      { name: 'inbox', type: 'string', valueName: 'url', summary: 'The job inbox to deliver to, for example http://127.0.0.1:7700 (https for another machine)' },
+      { name: 'ping', type: 'boolean', summary: 'Send one ping job, then exit 0 on its ack or 1 with the reason' },
+    ],
+  },
   'ssh-sign': { name: 'ssh-sign', summary: "Sign a commit with the operator's forwarded ssh agent (git runs this)", isPassthrough: true },
 } as const satisfies Record<string, CommandSpec>;
 

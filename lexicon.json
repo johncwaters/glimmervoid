@@ -220,7 +220,10 @@
     },
     {
       "name": "watcher",
-      "definition": "The always-on glimmervoid watch process that runs no sessions or dashboard and delivers jobs to a Glimmervoid server's job inbox; auto-started by the server on one machine, or run on its own box for Glimmervoid Cloud"
+      "definition": "The always-on glimmervoid watch process that runs no sessions or dashboard and delivers jobs to a Glimmervoid server's job inbox; auto-started by the server on one machine, or run on its own box for Glimmervoid Cloud",
+      "aliases": [
+        "watch"
+      ]
     },
     {
       "name": "job inbox",

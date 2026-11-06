@@ -40,6 +40,7 @@ Commands:
   pair --list         List paired devices
   pair --revoke <id>  Revoke a paired device
   agent setup grok    Install the Grok hook relay, which does nothing outside Glimmervoid
+  watch --inbox <url> Run the watcher, delivering jobs to a job inbox; --ping sends one ping and exits
 
 Inside a Glimmervoid session:
 ${agentCommandHelpLines().join('\n')}
@@ -121,6 +122,10 @@ const OWNED_COMMAND_RUNNERS: Record<OwnedCommandName, OwnedCommandRunner> = {
   'pr-action': async (parsed) => {
     const { runPrActionReportCli } = await import('../server/pr-flows-cli.ts');
     return runPrActionReportCli(parsed);
+  },
+  watch: async ({ values }) => {
+    const { runWatchCli } = await import('../cloud/watcher/watch-cli.ts');
+    return runWatchCli({ inboxUrl: typeof values.inbox === 'string' ? values.inbox : null, isPingOnly: values.ping === true });
   },
   'ssh-sign': async ({ rawArgs }) => {
     const { runSshSignCli } = await import('../server/ssh-sign-cli.ts');

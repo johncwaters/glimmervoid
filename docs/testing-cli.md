@@ -54,6 +54,7 @@ Commands:
   pair --list         List paired devices
   pair --revoke <id>  Revoke a paired device
   agent setup grok    Install the Grok hook relay, which does nothing outside Glimmervoid
+  watch --inbox <url> Run the watcher, delivering jobs to a job inbox; --ping sends one ping and exits
 
 Inside a Glimmervoid session:
   spawn <prompt>      Start a session on that prompt, with its own dashboard card, that this session owns until its task is done. Use it for work that edits files or runs long; an in-process subagent stays fine for a quick read-only lookup

@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 
 import { createJobInboxRequestHandler } from '../cloud/inbox/job-inbox-listener.ts';
 import { createJobInbox } from '../cloud/inbox/job-inbox-wiring.ts';
@@ -13,6 +15,8 @@ import { WATCHER_JOBS_PATH } from '../shared/contracts/watcher-jobs.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 
 const WATCHER_TOKEN = 'a-watcher-token-only-this-test-knows';
+const CLI_PATH = path.join(import.meta.dirname, '..', 'bin', 'glimmervoid.ts');
+const runFile = promisify(execFile);
 const QUIET_LOG = { warn: () => {} };
 
 function pingJob(jobId: string = crypto.randomUUID()) {
@@ -95,4 +99,52 @@ test('a non-loopback inbox opens only with the environment token, never with the
 
   const switchedOff = createJobInbox({ watcherConfig: { autoStart: false }, log: QUIET_LOG });
   assert.deepEqual(switchedOff.decision, { listen: false, reason: null });
+});
+
+async function runWatchPing(port: number, watcherToken: string): Promise<{ exitCode: number; output: string }> {
+  const env = { ...process.env, GLIMMERVOID_WATCHER_TOKEN: watcherToken };
+  try {
+    const { stdout, stderr } = await runFile(process.execPath, [CLI_PATH, 'watch', '--inbox', `http://127.0.0.1:${port}`, '--ping'], { env });
+    return { exitCode: 0, output: stdout + stderr };
+  } catch (error) {
+    const failure = error as { code?: number; stdout?: string; stderr?: string };
+    return { exitCode: failure.code ?? -1, output: `${failure.stdout ?? ''}${failure.stderr ?? ''}` };
+  }
+}
+
+test('glimmervoid watch --ping exits 0 on the inbox ack and 1 naming a refused token', async () => {
+  const inbox = createJobInbox({ watcherConfig: { inboxPort: 1, token: WATCHER_TOKEN }, log: QUIET_LOG });
+  const server = http.createServer();
+  inbox.attach(server);
+  const port = await listenOnLoopback(server);
+  try {
+    const acked = await runWatchPing(port, WATCHER_TOKEN);
+    assert.equal(acked.exitCode, 0, acked.output);
+    assert.match(acked.output, /ping acked by http:\/\/127\.0\.0\.1:\d+\/jobs/);
+    const refused = await runWatchPing(port, 'not-the-token');
+    assert.equal(refused.exitCode, 1, refused.output);
+    assert.match(refused.output, /inbox refused the token \(401\)/);
+  } finally {
+    await closeServer(server);
+  }
+});
+
+test('glimmervoid watch --ping retries an inbox that drops the connection mid-reply, then names it unreachable', async () => {
+  let deliveryAttempts = 0;
+  const droppingInbox = http.createServer((request, response) => {
+    deliveryAttempts += 1;
+    request.resume();
+    response.writeHead(503, { 'content-length': '100' });
+    response.write('cut');
+    setTimeout(() => response.socket?.destroy(), 10);
+  });
+  const port = await listenOnLoopback(droppingInbox);
+  try {
+    const dropped = await runWatchPing(port, WATCHER_TOKEN);
+    assert.equal(dropped.exitCode, 1, dropped.output);
+    assert.match(dropped.output, /inbox unreachable/);
+    assert.equal(deliveryAttempts, 3);
+  } finally {
+    await closeServer(droppingInbox);
+  }
 });
