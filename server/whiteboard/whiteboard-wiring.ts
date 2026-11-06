@@ -330,6 +330,18 @@ function createWhiteboardWiring({
     return reviewBoard(board, { fileFactByPath, changes });
   }
 
+  async function readDocOf(boardId: string, boxId: string): Promise<WhiteboardReply> {
+    const board = recordsByBoardId.get(boardId)?.board;
+    if (!board) return refusal(404, DELETED_BOARD_TEXT);
+    const element = board.elements[boxId];
+    if (element?.kind !== 'box' || element.media?.kind !== 'doc') {
+      return refusal(400, `${boxId} on board "${board.title}" holds no document; whiteboard doc reads a box whose media kind is doc`);
+    }
+    const text = await assets.readDocText(element.media);
+    if (text === null) return refusal(404, `the document ${boxId} on board "${board.title}" shows is not stored any more`);
+    return { status: 200, body: { ok: true, box: boxId, text } };
+  }
+
   async function reviewedPut(boardId: string, ops: readonly Op[], author: Author): Promise<WhiteboardReply> {
     const reply = await putOps(boardId, ops, author);
     const board = recordsByBoardId.get(boardId)?.board;
@@ -565,6 +577,7 @@ function createWhiteboardWiring({
       case 'get': return readBoard(found.boardId, caller.id, { isPeek: request.peek === true, wantsReview: request.review === true });
       case 'put': return reviewedPut(found.boardId, request.ops, author);
       case 'resolve': return putOps(found.boardId, [{ op: 'resolve', id: request.note }], author);
+      case 'doc': return readDocOf(found.boardId, request.box);
       case 'delete': return deleteOwnBoard(found.boardId, caller.id);
     }
   }

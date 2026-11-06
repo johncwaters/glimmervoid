@@ -66,6 +66,7 @@ function whiteboardBody({ commandPath, positionals, values }: ParsedArguments): 
   const opsFilePath = typeof values.file === 'string' ? values.file : null;
   if (!board || (argumentWords.length === 0 && opsFilePath === null)) return null;
   if (subcommand === 'resolve') return { sub: 'resolve', board, note: joinedText(argumentWords) };
+  if (subcommand === 'doc') return { sub: 'doc', board, box: joinedText(argumentWords) };
   if (subcommand !== 'put') return null;
   const ops = readOpsArgument(argumentWords.join(' '), opsFilePath);
   if (ops === null) return null;
@@ -440,8 +441,19 @@ async function runAgentApiCli(args: string[]): Promise<number> {
     return 1;
   }
   const reply = await postToAgentIngress({ endpoint: target.endpoint, token: target.token, body });
+  if (verb === 'whiteboard' && parsed.commandPath[1] === 'doc' && reply.hasSuccessStatus) return printDocText(reply.text);
   console.log(reply.text);
   return reply.hasSuccessStatus && bodySaysOk(reply.text) ? 0 : 1;
+}
+
+function printDocText(replyText: string): number {
+  const docReply = WhiteboardAgentReply.safeParse(parseJsonOrNull(replyText));
+  if (!docReply.success || !('text' in docReply.data)) {
+    console.log(replyText);
+    return 1;
+  }
+  process.stdout.write(docReply.data.text);
+  return 0;
 }
 
 function sessionEndpoint(verb: AgentApiVerb): { ok: true; endpoint: URL; token: string } | { ok: false; error: string } {

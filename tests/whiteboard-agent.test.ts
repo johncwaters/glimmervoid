@@ -431,11 +431,24 @@ test('an agent attaches media once by content at full fidelity, a box shows it f
   const editedOnBoard = await fetch(`${running().base}/whiteboards/assets`, { method: 'POST', body: `${abstractText}\nedited on the board\n`, headers: { 'content-type': 'text/markdown', 'x-glimmervoid-upload-name': 'abstract.md.md' } });
   const editedDocMedia = (await editedOnBoard.json() as { media: { kind: string; asset: string } }).media;
   assert.equal(editedDocMedia.kind, 'doc', 'the text the dashboard saves from the document view is stored as a document');
+  assert.equal((await whiteboard(BUILDER_ID, { sub: 'connect', board: boardId })).status, 200);
   const docPut = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
     { op: 'add', element: { kind: 'box', id: 'abstract', title: 'abstract.md', at: { x: 40, y: 900 }, media: { ...docMedia, alt: 'abstract.md' } } },
     { op: 'set', id: 'abstract', fields: { media: { ...editedDocMedia, alt: 'abstract.md' } } },
   ] });
   assert.equal(docPut.status, 200, JSON.stringify(docPut.body));
+  const savedDocText = `${abstractText}\nedited on the board\n`;
+  const docRead = await whiteboard(PLANNER_ID, { sub: 'doc', board: boardId, box: 'abstract' });
+  assert.deepEqual([docRead.status, docRead.body], [200, { ok: true, box: 'abstract', text: savedDocText }], 'an agent reads the text the box shows now, not the text it attached');
+  const notADoc = await whiteboard(PLANNER_ID, { sub: 'doc', board: boardId, box: 'login' });
+  assert.deepEqual([notADoc.status, notADoc.body.error], [400, 'login on board "pictures" holds no document; whiteboard doc reads a box whose media kind is doc']);
+  const docWrites: string[] = [];
+  context.mock.method(process.stdout, 'write', (chunk: string) => { docWrites.push(chunk); return true; });
+  const docPrinted = await runPlannerCli(context, ['whiteboard', 'doc', boardId, 'abstract']);
+  assert.deepEqual([docPrinted.exitCode, docPrinted.printed, docWrites], [0, '', [savedDocText]], 'the CLI prints the document text itself, byte for byte, with no JSON around it');
+  assert.deepEqual((await boardOf(BUILDER_ID, boardId)).changes.map((change) => change.summary), [
+    `${PLANNER_ID} added box "abstract.md"; ${PLANNER_ID} edited the document in "abstract.md" (read it with whiteboard doc)`,
+  ], 'a session following the board is told the document changed and how to read it');
   fs.writeFileSync(path.join(plannerDir, 'big.md'), '#'.repeat(256 * 1024 + 1));
   const bigDoc = await whiteboard(PLANNER_ID, { sub: 'attach', path: 'big.md' });
   assert.deepEqual([bigDoc.status, bigDoc.body.error], [413, 'big.md is larger than the 256 KiB a board document takes']);
