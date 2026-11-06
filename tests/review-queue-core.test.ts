@@ -5,7 +5,7 @@ import { MyPr } from '../shared/contracts/my-prs.ts';
 import type { MyPrStage } from '../shared/contracts/my-prs.ts';
 import { TeamReviewStatus, ReviewDraft } from '../shared/contracts/team-review.ts';
 import { groupDrafts, stackBadgeOf } from '../public/github/github-store-core.ts';
-import { attentionTilesOf, buildReviewQueue, turnItems } from '../public/github/review-queue-core.ts';
+import { ageToneOf, attentionTilesOf, buildReviewQueue, queueItemWaitStartMs, turnItems } from '../public/github/review-queue-core.ts';
 
 const NO_TEAM_REVIEWS = { ready: [], noReviewNeeded: [], inReview: [], queued: [], attention: [], posted: [], discarded: [] };
 
@@ -105,4 +105,18 @@ test('queued reviews sit in Queued, merged and settled work in Done, drafts and 
     ['done', ['mine:acme/app#1', 'team:acme/app#4']],
     ['parked', ['team:acme/app#5', 'mine:acme/app#2']],
   ]);
+});
+
+test('a posted review waits on others from when it was posted, not from when the agent reviewed it', () => {
+  const nowMs = Date.parse('2026-10-10T00:00:00Z');
+  const postedAtMs = nowMs - 50 * 60 * 60 * 1000;
+  const sections = groupDrafts(TeamReviewStatus.parse({
+    type: 'team-review-status', ts: 1, configured: true, reason: null, inFlight: [], queued: [],
+    drafts: [readyDraft(1, '2026-09-01T00:00:00Z', { status: 'posted', reviewedAt: nowMs - 10 * 24 * 60 * 60 * 1000, postedAt: postedAtMs })],
+  }));
+  const waiting = buildReviewQueue(sections, [], new Set(), true).find((group) => group.id === 'waiting');
+  const postedItem = waiting?.items[0];
+  assert.ok(postedItem);
+  assert.equal(queueItemWaitStartMs(postedItem), postedAtMs);
+  assert.equal(ageToneOf('waiting', queueItemWaitStartMs(postedItem), nowMs), 'aging');
 });

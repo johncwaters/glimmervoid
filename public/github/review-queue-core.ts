@@ -128,7 +128,8 @@ export function teamWaitStartMs(review: ReviewDraft | InFlightReview | QueuedRev
   if (kind === 'inReview') return validTimestampMs((review as InFlightReview).startedAt) ?? Number.POSITIVE_INFINITY;
   if (kind === 'queued') return validTimestampMs(review.prCreatedAt) ?? Number.POSITIVE_INFINITY;
   const draft = review as ReviewDraft;
-  return latestAnsweredReplyMs(draft) ?? validTimestampMs(draft.reviewedAt) ?? validTimestampMs(draft.prCreatedAt) ?? Number.POSITIVE_INFINITY;
+  const postedAtMs = kind === 'posted' ? validTimestampMs(draft.postedAt) : null;
+  return latestAnsweredReplyMs(draft) ?? postedAtMs ?? validTimestampMs(draft.reviewedAt) ?? validTimestampMs(draft.prCreatedAt) ?? Number.POSITIVE_INFINITY;
 }
 
 function mineWaitStartMs(pr: MyPr): number {

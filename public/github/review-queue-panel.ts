@@ -170,7 +170,7 @@ function runReviewKey(action: ReviewKeyAction): boolean {
   if (action === 'previous-row') return stepSelection(-1);
   if (isBoardDetailClosed()) return false;
   if (runTeamReviewKey(action)) return true;
-  return action === 'cancel' && !isReviewNoteFocused() && closeBoardDetail();
+  return action === 'cancel' && closeBoardDetail();
 }
 
 function isReviewNoteFocused(): boolean {
