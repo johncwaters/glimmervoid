@@ -740,6 +740,81 @@ async function verifyPhoneTurnLimitAfterReturn(page: Page): Promise<void> {
   await page.waitForFunction(() => document.querySelector('.pr-queue-section[data-group="turn"] .review-turn-limit')?.textContent?.trim() === 'limit 5');
 }
 
+const BOARD_RESERVE_PX = 320;
+
+async function boardDetailGeometry(page: Page) {
+  return page.locator('.review-queue').evaluate((queue) => {
+    const board = queue.querySelector('.review-board');
+    const boardPane = queue.querySelector('.pr-queue-pane');
+    const detail = queue.querySelector('.pr-detail-host');
+    const separator = queue.querySelector('.pr-detail-resizer');
+    const close = queue.querySelector('[data-action="close-review-detail"]');
+    if (!board || !boardPane || !detail || !separator || !close) throw new Error('Missing board detail parts');
+    return {
+      boardWidth: boardPane.getBoundingClientRect().width,
+      boardScrolls: board.scrollWidth > board.clientWidth,
+      detailWidth: Math.round(detail.getBoundingClientRect().width),
+      closeRight: close.getBoundingClientRect().right,
+      viewportWidth: window.innerWidth,
+      valueNow: separator.getAttribute('aria-valuenow'),
+      storedWidth: (JSON.parse(localStorage.getItem('glimmervoid-ui-prefs') ?? '{}') as { reviewsBoardDetailWidth?: unknown }).reviewsBoardDetailWidth,
+    };
+  });
+}
+
+async function waitForDetailWidthSettled(page: Page): Promise<void> {
+  await page.waitForFunction(() => {
+    const detailWidth = document.querySelector('.review-queue .pr-detail-host')?.getBoundingClientRect().width ?? 0;
+    const valueNow = Number(document.querySelector('.review-queue .pr-detail-resizer')?.getAttribute('aria-valuenow'));
+    return Math.abs(detailWidth - valueNow) <= 1;
+  });
+}
+
+async function verifyHeldDragMovesDetail(page: Page): Promise<void> {
+  const separatorBox = await page.locator('.pr-detail-resizer').boundingBox();
+  if (!separatorBox) throw new Error('Missing detail separator');
+  const widthBeforeDrag = await page.locator('.pr-detail-host').evaluate((detail) => Math.round(detail.getBoundingClientRect().width));
+  const separatorCenterY = separatorBox.y + separatorBox.height / 2;
+  await page.mouse.move(separatorBox.x + separatorBox.width / 2, separatorCenterY);
+  await page.mouse.down();
+  await page.mouse.move(separatorBox.x + separatorBox.width / 2 + 40, separatorCenterY, { steps: 5 });
+  await page.waitForFunction((startWidth) => Math.round(document.querySelector('.review-queue .pr-detail-host')?.getBoundingClientRect().width ?? 0) <= startWidth - 39, widthBeforeDrag);
+  await page.mouse.up();
+}
+
+async function verifyWideDetailKeepsBoard(page: Page): Promise<void> {
+  await page.locator('.pr-detail-host').waitFor({ state: 'visible' });
+  await page.waitForFunction(() => document.querySelector('.pr-detail-resizer')?.hasAttribute('aria-valuenow') === true);
+  const separator = page.locator('.pr-detail-resizer');
+  await separator.focus();
+  for (let press = 0; press < 50; press += 1) await page.keyboard.press('ArrowLeft');
+  await waitForDetailWidthSettled(page);
+  const widest = await boardDetailGeometry(page);
+  assert.ok(widest.boardWidth >= BOARD_RESERVE_PX - 1, JSON.stringify(widest));
+  assert.ok(widest.closeRight <= widest.viewportWidth, JSON.stringify(widest));
+  assert.equal(Number(widest.valueNow), widest.detailWidth, JSON.stringify(widest));
+  assert.ok(widest.boardScrolls, JSON.stringify(widest));
+  const originalViewport = page.viewportSize();
+  if (!originalViewport) throw new Error('Missing viewport');
+  await page.evaluate(() => {
+    const prefs = JSON.parse(localStorage.getItem('glimmervoid-ui-prefs') ?? '{}') as Record<string, unknown>;
+    localStorage.setItem('glimmervoid-ui-prefs', JSON.stringify({ ...prefs, reviewsBoardDetailWidth: 960 }));
+  });
+  await page.setViewportSize({ width: 1600, height: originalViewport.height });
+  await page.waitForFunction(() => Math.round(document.querySelector('.pr-detail-host')?.getBoundingClientRect().width ?? 0) === 960);
+  await page.setViewportSize(originalViewport);
+  await page.waitForFunction((reservePx) => {
+    const boardPane = document.querySelector('.review-queue .pr-queue-pane');
+    return boardPane !== null && boardPane.getBoundingClientRect().width >= reservePx - 1;
+  }, BOARD_RESERVE_PX);
+  await waitForDetailWidthSettled(page);
+  const narrowed = await boardDetailGeometry(page);
+  assert.equal(narrowed.storedWidth, 960, JSON.stringify(narrowed));
+  assert.ok(narrowed.closeRight <= narrowed.viewportWidth, JSON.stringify(narrowed));
+  await verifyHeldDragMovesDetail(page);
+  await separator.dblclick();
+}
+
 async function verifyBoard(page: Page): Promise<void> {
   const root = page.locator('.review-queue');
   const detail = root.locator('.pr-detail-host');
@@ -767,18 +842,7 @@ async function verifyBoard(page: Page): Promise<void> {
   await parkedToggle.click();
   await parkedCard.waitFor({ state: 'detached' });
   await card.click();
-  await page.locator('.review-queue .pr-columns').evaluate((columns) => {
-    if (!(columns instanceof HTMLElement)) throw new Error('Missing queue columns');
-    columns.style.setProperty('--pr-detail-width', '960px');
-  });
-  await page.waitForFunction(() => {
-    const board = document.querySelector('.review-board');
-    return board !== null && board.scrollWidth > board.clientWidth;
-  });
-  await page.locator('.review-queue .pr-columns').evaluate((columns) => {
-    if (!(columns instanceof HTMLElement)) throw new Error('Missing queue columns');
-    columns.style.removeProperty('--pr-detail-width');
-  });
+  await verifyWideDetailKeepsBoard(page);
   await verifyAgeTones(page);
   assert.equal((await page.locator('.review-board-column[data-group="turn"] .review-turn-limit').textContent())?.trim(), 'limit 5');
   await writeReviewsTurnLimit(page, 1);

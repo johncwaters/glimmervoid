@@ -209,6 +209,7 @@ export const SCENARIOS: readonly Scenario[] = [
   },
   {
     name: 'team-review',
+    viewports: ['phone-393', 'desktop-1280', 'desktop-800'],
     steps: [{ kind: 'assert-team-review' }, { kind: 'shot', name: 'team-review' }],
   },
   ...(['none', 'conflict', 'diverged', 'push-rejected'] as const).map((upstream): Scenario => ({

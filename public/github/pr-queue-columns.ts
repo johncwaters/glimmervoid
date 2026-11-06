@@ -5,6 +5,7 @@ import { getPrsQueueWidth, setPrsQueueWidth } from '../ui-prefs.ts';
 const QUEUE_BOUNDS = { minPx: 220, maxPx: 720 };
 const QUEUE_KEY_STEP_PX = 16;
 const DETAIL_BOUNDS = { minPx: 360, maxPx: 960 };
+const BOARD_RESERVE_PX = 327;
 
 interface DetailResizerOptions {
   label: string;
@@ -50,6 +51,7 @@ function appendDetailResizer(columns: HTMLElement, detail: HTMLElement, { label,
     getStoredWidth,
     setStoredWidth,
     growsLeftward: true,
+    reservePx: BOARD_RESERVE_PX,
   });
 }
 
