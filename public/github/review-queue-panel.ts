@@ -1,7 +1,8 @@
 import './review-queue-panel.css';
 import { createPressable } from '../ui/pressable.ts';
 import { button } from '../ui/button.ts';
-import { el, isPanelHidden, isRealInputOwningKey } from '../dom-helpers.ts';
+import { createAvatar, el, isPanelHidden, isRealInputOwningKey } from '../dom-helpers.ts';
+import { pullRequestLabel } from './github-store-core.ts';
 import { isModalOpen } from '../session-card/modal.ts';
 import { buildNextAttentionKeys } from '../shortcuts.ts';
 import type { ViewModule } from '../view-registry-core.ts';
@@ -169,7 +170,7 @@ function stepSelection(step: 1 | -1): boolean {
 function boardColumnRowKeys(): string[][] {
   if (!queueElement) return [];
   return [...queueElement.querySelectorAll('.review-board-column')].map((column) =>
-    [...column.querySelectorAll<HTMLElement>('.pr-queue-row[data-queue-key]')].map((row) => row.dataset.queueKey ?? ''));
+    [...column.querySelectorAll<HTMLElement>('[data-queue-key]')].map((row) => row.dataset.queueKey ?? ''));
 }
 
 function stepColumn(step: 1 | -1): boolean {
@@ -282,6 +283,26 @@ function createItemRow(item: QueueItem, groupId: DisplayGroupId, hasMultipleRepo
   return container;
 }
 
+function tileIdentity(item: QueueItem): { label: string; author: string | null } {
+  if (item.source === 'team') return { label: pullRequestLabel(item.review.repo, item.review.number), author: item.review.author };
+  return { label: pullRequestLabel(item.pr.repo, item.pr.number), author: myPrsSnapshot().status?.viewer ?? null };
+}
+
+function createItemTile(item: QueueItem, groupId: DisplayGroupId): HTMLElement {
+  const tile = createPressable('pr-queue-tile');
+  const { label, author } = tileIdentity(item);
+  tile.setAttribute('aria-label', author ? `${label} by ${author}` : label);
+  if (author) tile.append(createAvatar({ login: author, cssPx: 24 }));
+  tile.append(el('span', 'pr-queue-tile-number', `#${label.slice(label.lastIndexOf('#') + 1)}`));
+  const ageTone = itemAgeTone(item, groupId);
+  if (ageTone) tile.dataset.ageTone = ageTone;
+  tile.dataset.queueKey = item.key;
+  tile.setAttribute('aria-current', String(item.key === selectedKey));
+  tile.addEventListener('click', () => selectItem(item.key, { isFromQueue: true }));
+  rowsByKey.set(item.key, tile);
+  return tile;
+}
+
 function toggleCollapsedGroup(groupId: string): void {
   if (openCollapsedGroupIds.delete(groupId)) return;
   openCollapsedGroupIds.add(groupId);
@@ -351,6 +372,7 @@ function createBoard(hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<str
   const hasReadyItems = turnItems(currentGroups).length > 0;
   return createReviewBoard(displayGroups, {
     createCard: (item, group) => createItemRow(item, group.id, hasMultipleRepos, sessionsByPrKey),
+    createTile: (item, group) => createItemTile(item, group.id),
     createCount: createGroupCount,
     createHeadingExtras: headingExtrasOf,
     dropHintOf: (group) => (group.id === 'now' && hasReadyItems ? 'Drag a Ready card here, or select one and press M.' : null),

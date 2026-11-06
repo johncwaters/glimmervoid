@@ -762,11 +762,11 @@ async function dragCardBetweenColumns(page: Page, reviewKey: string, targetGroup
 }
 
 async function selectedBoardKey(page: Page): Promise<string | null> {
-  return page.locator('.review-board .pr-queue-row[aria-current="true"]').getAttribute('data-queue-key');
+  return page.locator('.review-board [data-queue-key][aria-current="true"]').getAttribute('data-queue-key');
 }
 
 async function firstBoardKeyIn(page: Page, groupId: string, rowIndex: number): Promise<string | null> {
-  return page.locator(`.review-board-column[data-group="${groupId}"] .pr-queue-row`).nth(rowIndex).getAttribute('data-queue-key');
+  return page.locator(`.review-board-column[data-group="${groupId}"] [data-queue-key]`).nth(rowIndex).getAttribute('data-queue-key');
 }
 
 async function verifyColumnSteps(page: Page): Promise<void> {
@@ -891,7 +891,7 @@ const MIN_CARD_TITLE_PX = 60;
 async function verifyBoardReadable(page: Page): Promise<void> {
   await waitForDetailWidthSettled(page).catch(() => undefined);
   const readability = await page.locator('.review-board').evaluate((board) => {
-    const openColumns = [...board.querySelectorAll('.review-board-column:not([data-collapsed="true"])')];
+    const openColumns = [...board.querySelectorAll('.review-board-column:not([data-collapsed="true"], [data-slim="true"])')];
     const turnTitle = board.querySelector('.review-board-column[data-group="turn"] .review-board-column-title');
     if (!(turnTitle instanceof HTMLElement)) throw new Error('Missing Ready title');
     const allColumns = [...board.querySelectorAll('.review-board-column')];
@@ -982,7 +982,7 @@ async function verifyBoard(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Close review detail', exact: true }).click();
   await detail.waitFor({ state: 'hidden' });
   await verifyClosedBoardDetailIgnoresActionKeys(page);
-  const parkedCard = page.locator('.review-board .pr-queue-row[data-review-key="Acme/app#6"]');
+  const parkedCard = page.locator('.review-board .pr-queue-tile[data-queue-key="team:Acme/app#6"]');
   assert.equal(await parkedCard.count(), 0);
   const parkedToggle = page.locator('.review-board-parked-toggle');
   await parkedToggle.click();

@@ -5,6 +5,7 @@ import type { DisplayGroup, DisplayGroupId, QueueItem } from './review-queue-cor
 
 interface ReviewBoardOptions {
   createCard(item: QueueItem, group: DisplayGroup): HTMLElement;
+  createTile(item: QueueItem, group: DisplayGroup): HTMLElement;
   createCount(group: DisplayGroup): HTMLElement;
   createHeadingExtras(group: DisplayGroup): HTMLElement[];
   dropHintOf(group: DisplayGroup): string | null;
@@ -14,6 +15,7 @@ interface ReviewBoardOptions {
 }
 
 const DRAG_GROUP_IDS: ReadonlySet<DisplayGroupId> = new Set(['turn', 'now']);
+const TILE_GROUP_IDS: ReadonlySet<DisplayGroupId> = new Set(['queued', 'working', 'parked']);
 const QUEUE_KEY_MIME = 'application/x-glimmervoid-queue-key';
 
 const PARKED_COLUMN_ID = 'review-board-parked';
@@ -75,6 +77,13 @@ function createColumn(group: DisplayGroup, options: ReviewBoardOptions): HTMLEle
   column.append(createColumnHeading(group, options, isCollapsed));
   if (isCollapsed) {
     column.dataset.collapsed = 'true';
+    return column;
+  }
+  if (TILE_GROUP_IDS.has(group.id)) {
+    column.dataset.slim = 'true';
+    const tiles = el('div', 'review-board-tiles');
+    tiles.append(...group.items.map((item) => options.createTile(item, group)));
+    column.append(tiles);
     return column;
   }
   const cards = el('div', 'review-board-cards');
