@@ -312,7 +312,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
   async function prepare(): Promise<void> {
     const injection = hookProfileOf(options.adapter)?.injection;
     if (injection?.kind !== "argv-config" || !injection.home || !options.hookRouter || !options.getHookPort) return;
-    await injection.home.readTrust();
+    await injection.home.readTrust(options.effectiveCwd());
   }
 
   function inject(): HookInjectionResult {

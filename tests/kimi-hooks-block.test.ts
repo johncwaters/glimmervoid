@@ -256,6 +256,7 @@ test('a stale operator codex trust entry for a removed hook group does not redef
   const block = renderCodexHooksBlock({
     hooks: [{ event: 'PreToolUse', matcher: 'Bash', command: 'relay' }],
     trustedHashes: ['sha256:glimmervoid'],
+    projectHookTrust: [],
     operatorText: `[hooks.state.${JSON.stringify(staleKey)}]\ntrusted_hash = "sha256:stale"\n`,
     realHome,
     generatedHome,
@@ -265,6 +266,42 @@ test('a stale operator codex trust entry for a removed hook group does not redef
   assert.equal(new Set(trustHeaders).size, trustHeaders.length, block);
   assert.ok(block.includes('trusted_hash = "sha256:glimmervoid"'), block);
   assert.ok(!block.includes('sha256:stale'), block);
+});
+
+test('a codex block trusts each listed project hook once and leaves a key the operator config already defines to the operator', () => {
+  const listedKey = '/repos/main/.codex/hooks.json:session_start:0:0';
+  const operatorKey = '/repos/main/.codex/hooks.json:stop:0:0';
+  const block = renderCodexHooksBlock({
+    hooks: [],
+    trustedHashes: null,
+    projectHookTrust: [
+      { key: listedKey, currentHash: 'sha256:project' },
+      { key: listedKey, currentHash: 'sha256:project' },
+      { key: operatorKey, currentHash: 'sha256:listed' },
+    ],
+    operatorText: `[hooks.state.${JSON.stringify(operatorKey)}]\ntrusted_hash = "sha256:operator"\n`,
+    realHome: path.join(path.sep, 'real-codex'),
+    generatedHome: path.join(path.sep, 'generated-codex'),
+    trustedFolders: [],
+  });
+  assert.equal(block.split(`[hooks.state.${JSON.stringify(listedKey)}]\ntrusted_hash = "sha256:project"`).length, 2, block);
+  assert.ok(!block.includes(operatorKey), block);
+  const operatorForms = [
+    `[hooks.state.${JSON.stringify(operatorKey)}] # trusted by hand\ntrusted_hash = "sha256:operator"\n`,
+    `[hooks.state]\n${JSON.stringify(operatorKey)} = { trusted_hash = "sha256:operator" }\n`,
+  ];
+  for (const operatorText of operatorForms) {
+    const formBlock = renderCodexHooksBlock({
+      hooks: [],
+      trustedHashes: null,
+      projectHookTrust: [{ key: operatorKey, currentHash: 'sha256:listed' }],
+      operatorText,
+      realHome: path.join(path.sep, 'real-codex'),
+      generatedHome: path.join(path.sep, 'generated-codex'),
+      trustedFolders: [],
+    });
+    assert.ok(!formBlock.includes(operatorKey), formBlock);
+  }
 });
 
 test('a codex session folder the operator config already declares in any toml form keeps only the operator entry', () => {
@@ -281,6 +318,7 @@ test('a codex session folder the operator config already declares in any toml fo
     const block = renderCodexHooksBlock({
       hooks: [],
       trustedHashes: null,
+      projectHookTrust: [],
       operatorText,
       realHome: path.join(path.sep, 'real-codex'),
       generatedHome: path.join(path.sep, 'generated-codex'),
@@ -295,6 +333,7 @@ test('an operator projects inline table gets no codex folder trust tables', () =
   const block = renderCodexHooksBlock({
     hooks: [],
     trustedHashes: null,
+    projectHookTrust: [],
     operatorText: 'projects = { "/repos/other" = { trust_level = "trusted" } }\n',
     realHome: path.join(path.sep, 'real-codex'),
     generatedHome: path.join(path.sep, 'generated-codex'),

@@ -718,9 +718,15 @@ function rekeyedOperatorTrust(operatorText: string, realHome: string, generatedH
   });
 }
 
+interface ProjectHookTrust {
+  key: string;
+  currentHash: string;
+}
+
 interface CodexHooksBlockOptions {
   hooks: readonly CodexHomeHook[];
   trustedHashes: readonly string[] | null;
+  projectHookTrust: readonly ProjectHookTrust[];
   operatorText: string;
   realHome: string;
   generatedHome: string;
@@ -746,23 +752,33 @@ function ownHookTrust(options: CodexHooksBlockOptions): HookStateEntry[] {
   });
 }
 
+function projectHookTrustEntries(options: CodexHooksBlockOptions, ownKeys: ReadonlySet<string>): HookStateEntry[] {
+  const knownKeys = new Set(ownKeys);
+  return options.projectHookTrust.flatMap(({ key, currentHash }) => {
+    if (knownKeys.has(key) || namesAsQuotedKey(options.operatorText, key)) return [];
+    knownKeys.add(key);
+    return [{ key, bodyLines: [`trusted_hash = ${tomlBasicString(currentHash)}`] }];
+  });
+}
+
 function isProjectsInlineTable(operatorText: string): boolean {
   return splitTomlUnits(operatorText).keys.some((unit) => unit.id === "projects");
 }
 
-function namesFolderAsKey(operatorText: string, folder: string): boolean {
-  return [tomlBasicString(folder), `'${folder}'`].some((quotedFolder) => operatorText.includes(quotedFolder));
+function namesAsQuotedKey(operatorText: string, key: string): boolean {
+  return [tomlBasicString(key), `'${key}'`].some((quotedKey) => operatorText.includes(quotedKey));
 }
 
 function folderTrustTables(operatorText: string, trustedFolders: readonly string[]): string[] {
   if (isProjectsInlineTable(operatorText)) return [];
   return trustedFolders
-    .filter((folder) => !namesFolderAsKey(operatorText, folder))
+    .filter((folder) => !namesAsQuotedKey(operatorText, folder))
     .flatMap((folder) => [`[projects.${tomlBasicString(folder)}]`, `trust_level = "trusted"`]);
 }
 
 function renderCodexHooksBlock(options: CodexHooksBlockOptions): string {
-  const ownTrust = ownHookTrust(options);
+  const glimmervoidTrust = ownHookTrust(options);
+  const ownTrust = [...glimmervoidTrust, ...projectHookTrustEntries(options, new Set(glimmervoidTrust.map(({ key }) => key)))];
   const lines = [
     BLOCK_START,
     ...options.hooks.flatMap(codexHookTables),
@@ -794,6 +810,7 @@ export {
   planAgentHome,
   renderCodexHookTables,
   renderCodexHooksBlock,
+  tomlBasicString,
   renderKimiHooksBlock,
 };
-export type { AgentHomePlan, AgentHomeProfile, AgentHomeStep, CodexHomeHook, GeneratedAgentHomeEntry, RealAgentHomeEntry };
+export type { AgentHomePlan, AgentHomeProfile, AgentHomeStep, CodexHomeHook, GeneratedAgentHomeEntry, ProjectHookTrust, RealAgentHomeEntry };

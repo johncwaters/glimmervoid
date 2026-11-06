@@ -19,7 +19,7 @@ import { openContainedFile } from "../../server/contained-file.ts";
 import { isRelevantRolloutLine, isTurnStartLine, turnEndedWithProposedPlan } from "../core/codex-plan-rollout-core.ts";
 import { codexHookPlanFor, LEGACY_HOOK_EVENTS, parseCodexVersion } from "../core/codex-version-core.ts";
 import { CODEX_HOME_PROFILE, renderCodexHookTables, renderCodexHooksBlock } from "../core/agent-home-core.ts";
-import type { CodexHomeHook } from "../core/agent-home-core.ts";
+import type { CodexHomeHook, ProjectHookTrust } from "../core/agent-home-core.ts";
 import { CODEX_SANE_YOLO_FLAVOR } from "../core/sane-yolo.ts";
 import { generatedAgentHomePath, holdPreparedAgentHome, realAgentHome, releaseAgentHome } from "../agent-home.ts";
 import { readCodexHookHashes } from "../codex-hook-trust.ts";
@@ -375,46 +375,55 @@ function describeInstalledHooks(): InstalledHooks {
 }
 
 const trustedHashesByHookTables = new Map<string, readonly string[]>();
-let pendingTrustReading: Promise<void> | null = null;
+const pendingTrustReadingByFolder = new Map<string, Promise<void>>();
 
 function installedAppServerCommand(): CodexAppServerCommand {
   const command = buildSpawnCommand({ platform: process.platform, resolved: resolveCommand(), agentArgs: [] });
   return { file: command.file, argsBeforeAppServer: command.args };
 }
 
-async function readHomeHookTrust(hooks: readonly CodexHomeHook[], hookTables: string): Promise<void> {
+type TrustedFolder = { liveSessionCount: number; projectHookTrust: readonly ProjectHookTrust[] };
+
+const trustedFolderByPath = new Map<string, TrustedFolder>();
+const projectHookTrustReadByFolder = new Map<string, readonly ProjectHookTrust[]>();
+
+async function readHomeHookTrust(hooks: readonly CodexHomeHook[], hookTables: string, sessionFolder: string): Promise<void> {
   const reading = await Promise.resolve()
-    .then(() => readCodexHookHashes(installedAppServerCommand(), hooks))
+    .then(() => readCodexHookHashes(installedAppServerCommand(), hooks, sessionFolder))
     .catch((error: unknown) => ({ failure: errorMessage(error) }));
   if ("failure" in reading) {
-    console.warn(`[codex] Glimmervoid's hooks stay untrusted in the generated Codex home, so Sane YOLO is off for this launch: ${reading.failure}`);
+    console.warn(`[codex] Glimmervoid's hooks and the project hooks of ${sessionFolder} stay untrusted in the generated Codex home, so Sane YOLO and project hooks are off for this launch: ${reading.failure}`);
     return;
   }
   trustedHashesByHookTables.set(hookTables, reading.hashes);
+  projectHookTrustReadByFolder.set(sessionFolder, reading.projectHookTrust);
 }
 
-function readTrust(): Promise<void> {
+function readTrust(sessionFolder: string): Promise<void> {
   const hooks = codexHomeHooks();
   if (!hooks) return Promise.resolve();
-  const hookTables = renderCodexHookTables(hooks);
-  if (trustedHashesByHookTables.has(hookTables)) return Promise.resolve();
-  pendingTrustReading ??= readHomeHookTrust(hooks, hookTables).finally(() => { pendingTrustReading = null; });
-  return pendingTrustReading;
+  const pendingReading = pendingTrustReadingByFolder.get(sessionFolder);
+  if (pendingReading) return pendingReading;
+  const reading = readHomeHookTrust(hooks, renderCodexHookTables(hooks), sessionFolder).finally(() => { pendingTrustReadingByFolder.delete(sessionFolder); });
+  pendingTrustReadingByFolder.set(sessionFolder, reading);
+  return reading;
 }
 
-const liveSessionCountByFolder = new Map<string, number>();
-
 function holdTrustedFolder(sessionFolder: string): void {
-  liveSessionCountByFolder.set(sessionFolder, (liveSessionCountByFolder.get(sessionFolder) ?? 0) + 1);
+  const heldFolder = trustedFolderByPath.get(sessionFolder);
+  const projectHookTrust = projectHookTrustReadByFolder.get(sessionFolder) ?? heldFolder?.projectHookTrust ?? [];
+  projectHookTrustReadByFolder.delete(sessionFolder);
+  trustedFolderByPath.set(sessionFolder, { liveSessionCount: (heldFolder?.liveSessionCount ?? 0) + 1, projectHookTrust });
 }
 
 function releaseTrustedFolder(sessionFolder: string): void {
-  const remainingSessionCount = (liveSessionCountByFolder.get(sessionFolder) ?? 0) - 1;
-  if (remainingSessionCount > 0) {
-    liveSessionCountByFolder.set(sessionFolder, remainingSessionCount);
+  const heldFolder = trustedFolderByPath.get(sessionFolder);
+  if (!heldFolder) return;
+  if (heldFolder.liveSessionCount > 1) {
+    trustedFolderByPath.set(sessionFolder, { ...heldFolder, liveSessionCount: heldFolder.liveSessionCount - 1 });
     return;
   }
-  liveSessionCountByFolder.delete(sessionFolder);
+  trustedFolderByPath.delete(sessionFolder);
 }
 
 function prepareHome(env: Record<string, string | undefined>, sessionFolder: string): { home: string; isTrusted: boolean } | { refusal: string } {
@@ -424,8 +433,9 @@ function prepareHome(env: Record<string, string | undefined>, sessionFolder: str
   const realHome = realAgentHome(CODEX_HOME_PROFILE, env);
   const generatedHome = generatedAgentHomePath(CODEX_HOME_PROFILE, env);
   holdTrustedFolder(sessionFolder);
-  const trustedFolders = [...liveSessionCountByFolder.keys()];
-  const prepared = holdPreparedAgentHome(CODEX_HOME_PROFILE, env, (operatorText) => renderCodexHooksBlock({ hooks, trustedHashes, operatorText, realHome, generatedHome, trustedFolders }));
+  const trustedFolders = [...trustedFolderByPath.keys()];
+  const projectHookTrust = [sessionFolder, ...trustedFolders.filter((folder) => folder !== sessionFolder)].flatMap((folder) => trustedFolderByPath.get(folder)?.projectHookTrust ?? []);
+  const prepared = holdPreparedAgentHome(CODEX_HOME_PROFILE, env, (operatorText) => renderCodexHooksBlock({ hooks, trustedHashes, projectHookTrust, operatorText, realHome, generatedHome, trustedFolders }));
   if ("refusal" in prepared) {
     releaseTrustedFolder(sessionFolder);
     return prepared;

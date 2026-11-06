@@ -44,6 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Codex sessions run the project's hooks without asking.** A Codex session in a Glimmervoid worktree no longer shows Codex's trust prompt for the repository's `.codex/hooks.json`, and a trust you gave there is no longer lost when the next Codex session starts. Glimmervoid now trusts the hooks Codex lists for each session folder in its own Codex home, so whatever a repository's `.codex/hooks.json` runs, it runs in every Codex session without review. Your `~/.codex/config.toml` is never written. A Codex card no longer shows Hooks off saying Codex hooks need trust in /hooks.
+
 - **Auto-named sessions no longer get named "Task title".** When a session's first prompt was short (a command and a link) and the next one was a vague follow-up, the automatic namer could name the session after its own working folder, giving names like "Task title". It now also reads the session's opening prompt and the agent's own title, and leaves the folder name in place when nothing says what the task is. A session already renamed this way keeps its name until you rename it.
 - **First-run setup names every agent you can install.** When no agent CLI is on PATH, the checklist used to suggest only Claude Code, Codex or Grok. It now lists every agent Glimmervoid supports, plus any custom agent you configured.
 - **An update to a just-published version no longer fails with ETARGET.** Right after a new build reached npm, Update could stop at Install dependencies with `No matching version found`, because npm answered from its local copy of the package list, cached before that version existed. The install now asks the npm registry for a fresh list.

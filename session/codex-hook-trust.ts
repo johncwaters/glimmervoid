@@ -5,8 +5,8 @@ import { z } from "zod";
 
 import { requestCodexAppServer } from "../server/codex-app-server-request.ts";
 import type { CodexAppServerCommand } from "../server/codex-app-server-request.ts";
-import { AGENT_HOME_CONFIG_NAME, renderCodexHookTables } from "./core/agent-home-core.ts";
-import type { CodexHomeHook } from "./core/agent-home-core.ts";
+import { AGENT_HOME_CONFIG_NAME, renderCodexHookTables, tomlBasicString } from "./core/agent-home-core.ts";
+import type { CodexHomeHook, ProjectHookTrust } from "./core/agent-home-core.ts";
 
 const HOOK_LIST_TIMEOUT_MS = 15_000;
 
@@ -16,6 +16,8 @@ const listedHookSchema = z.object({
   command: z.string().nullable().optional(),
   sourcePath: z.string(),
   currentHash: z.string(),
+  key: z.string().optional(),
+  source: z.string().optional(),
 });
 const hooksListSchema = z.object({ data: z.array(z.object({ hooks: z.array(listedHookSchema) })) });
 
@@ -42,19 +44,27 @@ function matchTrustedHashes(hooks: readonly CodexHomeHook[], listedHooks: readon
   return hashes;
 }
 
-async function readCodexHookHashes(command: CodexAppServerCommand, hooks: readonly CodexHomeHook[], env: NodeJS.ProcessEnv = process.env): Promise<{ hashes: string[] } | { failure: string }> {
+function projectHookTrustOf(listedHooks: readonly ListedHook[]): ProjectHookTrust[] {
+  return listedHooks.flatMap((listed) => listed.source === "project" && listed.key !== undefined ? [{ key: listed.key, currentHash: listed.currentHash }] : []);
+}
+
+function sessionFolderTrustTable(sessionFolder: string): string {
+  return `\n[projects.${tomlBasicString(sessionFolder)}]\ntrust_level = "trusted"\n`;
+}
+
+async function readCodexHookHashes(command: CodexAppServerCommand, hooks: readonly CodexHomeHook[], sessionFolder: string, env: NodeJS.ProcessEnv = process.env): Promise<{ hashes: string[]; projectHookTrust: ProjectHookTrust[] } | { failure: string }> {
   const probeHome = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "glimmervoid-codex-hooks-")));
   const probeConfigPath = path.join(probeHome, AGENT_HOME_CONFIG_NAME);
   try {
-    await fs.writeFile(probeConfigPath, renderCodexHookTables(hooks), { mode: 0o600 });
-    const response = await requestCodexAppServer(command, { ...env, CODEX_HOME: probeHome }, { method: "hooks/list", params: { cwds: [probeHome] }, timeoutMs: HOOK_LIST_TIMEOUT_MS });
+    await fs.writeFile(probeConfigPath, `${renderCodexHookTables(hooks)}${sessionFolderTrustTable(sessionFolder)}`, { mode: 0o600 });
+    const response = await requestCodexAppServer(command, { ...env, CODEX_HOME: probeHome }, { method: "hooks/list", params: { cwds: [probeHome, sessionFolder] }, timeoutMs: HOOK_LIST_TIMEOUT_MS });
     if (response === null) return { failure: "codex app-server did not answer hooks/list" };
     const listing = hooksListSchema.safeParse(response.result);
     if (!listing.success) return { failure: "codex app-server answered hooks/list in a shape Glimmervoid does not read" };
-    const probeHooks = listing.data.data.flatMap((entry) => entry.hooks).filter((listed) => listed.sourcePath === probeConfigPath);
-    const hashes = matchTrustedHashes(hooks, probeHooks);
+    const listedHooks = listing.data.data.flatMap((entry) => entry.hooks);
+    const hashes = matchTrustedHashes(hooks, listedHooks.filter((listed) => listed.sourcePath === probeConfigPath));
     if (hashes === null) return { failure: "codex app-server did not list every Glimmervoid hook" };
-    return { hashes };
+    return { hashes, projectHookTrust: projectHookTrustOf(listedHooks) };
   } finally {
     await fs.rm(probeHome, { recursive: true, force: true });
   }
