@@ -1,4 +1,4 @@
-import { setTimeout as sleep } from 'node:timers/promises';
+import { mock } from 'node:test';
 
 import { createOscTitleSource } from './osc-title-source.ts';
 import type { TitleContext } from './osc-title-source.ts';
@@ -47,6 +47,29 @@ function parseRecording(text: string): { version: number; agent: string | null; 
   return { version, agent, records };
 }
 
+function greatestCommonDivisor(first: number, second: number): number {
+  if (second === 0) return first;
+  return greatestCommonDivisor(second, first % second);
+}
+
+function createReplayClock(stabilizationMs: number, conflictWindowMs: number) {
+  const timerGridStepMs = Math.max(1, greatestCommonDivisor(Math.round(stabilizationMs), Math.round(conflictWindowMs)));
+  const chainedTimersSettleMs = stabilizationMs + conflictWindowMs;
+  return {
+    advanceBy(totalMs: number): void {
+      let remainingMs = totalMs;
+      let elapsedOnGridMs = 0;
+      while (remainingMs > 0 && elapsedOnGridMs < chainedTimersSettleMs) {
+        const stepMs = Math.min(timerGridStepMs, remainingMs);
+        mock.timers.tick(stepMs);
+        remainingMs -= stepMs;
+        elapsedOnGridMs += stepMs;
+      }
+      if (remainingMs > 0) mock.timers.tick(remainingMs);
+    },
+  };
+}
+
 async function replayDetection(records: ReplayRecord[], opts: ReplayOptions = {}) {
   const stabilizationMs = opts.stabilizationMs ?? 1500;
   const conflictWindowMs = opts.conflictWindowMs ?? 750;
@@ -54,32 +77,42 @@ async function replayDetection(records: ReplayRecord[], opts: ReplayOptions = {}
   const adapter = resolveAdapter(opts.agent ?? null);
   if (!adapter) throw new Error(`unknown agent adapter: ${opts.agent}`);
 
+  const firstRecordTimestamp = records.find((record) => typeof record.ts === 'number')?.ts ?? 0;
+  const clock = createReplayClock(stabilizationMs, conflictWindowMs);
   const title = createOscTitleSource({ stabilizationMs, titleProfile: adapter.titleProfile });
-
-  if (opts.titleContext) title.setContext(opts.titleContext);
   const status = createStatusSource({ sessionId: 'replay', conflictWindowMs, dedupWindowMs });
-  const signals: ResolvedStatusSignal[] = [];
-  const meta: MetaStatusSignal[] = [];
-  title.on('signal', (s) => status.ingest(s));
-  status.on('status', (s) => signals.push(s));
-  status.on('meta', (m) => meta.push(m));
+  try {
+    mock.timers.enable({ apis: ['setTimeout', 'Date'], now: firstRecordTimestamp });
+    if (opts.titleContext) title.setContext(opts.titleContext);
+    const signals: ResolvedStatusSignal[] = [];
+    const meta: MetaStatusSignal[] = [];
+    title.on('signal', (s) => status.ingest(s));
+    status.on('status', (s) => signals.push(s));
+    status.on('meta', (m) => meta.push(m));
 
-  for (const r of records) {
-    if (r.type === 'data' && typeof r.data === 'string') {
-      title.feed(r.data);
-    }
-    if (r.type === 'hook' && typeof r.event === 'string') {
-      const sig = adapter.hooks?.mapSignal(r.event, r.payload);
-      if (sig) {
-        status.ingest({ signal: sig, source: 'hook', ts: Date.now(), event: r.event, payload: r.payload });
+    let previousTimestamp = firstRecordTimestamp;
+    for (const r of records) {
+      const recordTimestamp = Math.max(r.ts ?? previousTimestamp, previousTimestamp);
+      clock.advanceBy(recordTimestamp - previousTimestamp);
+      previousTimestamp = recordTimestamp;
+      if (r.type === 'data' && typeof r.data === 'string') {
+        title.feed(r.data);
+      }
+      if (r.type === 'hook' && typeof r.event === 'string') {
+        const sig = adapter.hooks?.mapSignal(r.event, r.payload);
+        if (sig) {
+          status.ingest({ signal: sig, source: 'hook', ts: recordTimestamp, event: r.event, payload: r.payload });
+        }
       }
     }
-  }
 
-  await sleep(stabilizationMs + conflictWindowMs + 60);
-  title.destroy();
-  status.destroy();
-  return { signals, meta };
+    clock.advanceBy(stabilizationMs + conflictWindowMs + 60);
+    return { signals, meta };
+  } finally {
+    title.destroy();
+    status.destroy();
+    mock.timers.reset();
+  }
 }
 
 function summarize(signals: { signal: string }[]): Record<string, number> {
