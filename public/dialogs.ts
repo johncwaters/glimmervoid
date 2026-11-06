@@ -253,6 +253,7 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
   const pathInput = queryTag(dialog, '#add-session-path', 'input');
   const pathLabelEl = query(dialog, '#add-session-path-label');
   const skipPermsCheckbox = queryTag(dialog, '#add-session-skip-perms', 'input');
+  const resumeInput = queryTag(dialog, '#add-session-resume', 'input');
   const saneYoloHelpLink = queryTag(dialog, '#add-session-sane-yolo-help', 'a');
   const saneYoloUnavailableEl = query(dialog, '#add-session-sane-yolo-unavailable');
   const errorEl = query(dialog, '#add-session-error');
@@ -510,6 +511,7 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
       requestAddSession({ name: suggestSessionName(name), path: projectPath, agent: SHELL_AGENT_ID });
       return;
     }
+    const resumeSessionId = resumeInput.value.trim();
     if (isWorkspaceMode) {
       const repos = [...workspaceListEl.querySelectorAll<HTMLInputElement>('input:checked')].map((checkbox) => checkbox.value);
       if (!name || repos.length < 2) {
@@ -524,6 +526,7 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
         saneYolo: skipPermsCheckbox.checked,
       };
       if (selectedAgentId && selectedAgentId !== DEFAULT_AGENT_ID) message.agent = selectedAgentId;
+      if (resumeSessionId) message.resumeSessionId = resumeSessionId;
       requestAddSession(message);
       return;
     }
@@ -539,6 +542,7 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
     };
     if (selectedAgentId && selectedAgentId !== DEFAULT_AGENT_ID) message.agent = selectedAgentId;
     if (selectedEnvironment) message.environment = selectedEnvironment.name;
+    if (resumeSessionId) message.resumeSessionId = resumeSessionId;
     requestAddSession(message);
   }
 
@@ -586,6 +590,7 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
     pickerEl.appendChild(option('Scanning...', { value: '', disabled: true, selected: true }));
     nameInput.value = '';
     pathInput.value = '';
+    resumeInput.value = '';
     showShellMode();
     showAgentLogin();
     offerSaneYolo();

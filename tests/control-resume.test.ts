@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import type { GlimmervoidConfig } from '../server/config-store.ts';
 import type { ControlMessageRecord } from '../server/core/control-replay-core.ts';
@@ -57,4 +60,100 @@ test('force-restart into an earlier conversation keeps the pick when the old age
 
   assert.equal(s.resumeSessionId, earlierConversation);
   assert.equal(cfg.projects[0].resumeSessionId, earlierConversation);
+});
+
+const EARLIER_CONVERSATION = '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5';
+
+interface AddSessionReply {
+  type: string;
+  requestId?: string;
+  ok?: boolean;
+  error?: string | null;
+  sessionId?: string;
+}
+
+function withAddSessionFolders(run: (folders: { repo: string; claudeConfigDir: string }) => void): void {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-control-add-resume-'));
+  const previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+  const repo = path.join(root, 'repo');
+  const claudeConfigDir = path.join(root, 'claude');
+  fs.mkdirSync(repo);
+  fs.mkdirSync(path.join(claudeConfigDir, 'projects'), { recursive: true });
+  process.env.CLAUDE_CONFIG_DIR = claudeConfigDir;
+  try {
+    run({ repo, claudeConfigDir });
+  } finally {
+    if (previousClaudeConfigDir == null) delete process.env.CLAUDE_CONFIG_DIR;
+    if (previousClaudeConfigDir != null) process.env.CLAUDE_CONFIG_DIR = previousClaudeConfigDir;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function addSession(config: GlimmervoidConfig, message: Record<string, unknown>): AddSessionReply | undefined {
+  const server = createControlServer(controlDeps(config, { generateProjectId: () => 'dddddddd-resumed' }));
+  const connection = connectControl<AddSessionReply>(server);
+  connection.send({ type: 'add-session', requestId: 'a1', name: 'resumed', ...message });
+  return connection.sent.find((frame) => frame.requestId === 'a1');
+}
+
+test('add-session with a conversation id found in another project folder persists it on the new project', () => {
+  withAddSessionFolders(({ repo, claudeConfigDir }) => {
+    const otherFolder = path.join(claudeConfigDir, 'projects', 'C--some-other-checkout');
+    fs.mkdirSync(otherFolder);
+    fs.writeFileSync(path.join(otherFolder, `${EARLIER_CONVERSATION}.jsonl`), '', 'utf8');
+    const cfg: GlimmervoidConfig = { projects: [] };
+
+    const reply = addSession(cfg, { path: repo, resumeSessionId: `  ${EARLIER_CONVERSATION}  ` });
+
+    assert.deepEqual(reply, { type: 'add-session-result', requestId: 'a1', ok: true, error: null, sessionId: 'dddddddd-resumed' });
+    assert.equal(cfg.projects[0]?.resumeSessionId, EARLIER_CONVERSATION);
+  });
+});
+
+test('add-session without a conversation id leaves the new project without one', () => {
+  withAddSessionFolders(({ repo }) => {
+    const cfg: GlimmervoidConfig = { projects: [] };
+
+    const reply = addSession(cfg, { path: repo, resumeSessionId: '   ' });
+
+    assert.equal(reply?.ok, true);
+    assert.equal('resumeSessionId' in (cfg.projects[0] ?? {}), false);
+  });
+});
+
+test('add-session refuses a malformed conversation id', () => {
+  withAddSessionFolders(({ repo }) => {
+    const cfg: GlimmervoidConfig = { projects: [] };
+
+    const reply = addSession(cfg, { path: repo, resumeSessionId: '--dangerously-skip-permissions' });
+
+    assert.equal(reply?.ok, false);
+    assert.equal(reply?.error, 'Invalid conversation id');
+    assert.equal(cfg.projects.length, 0);
+  });
+});
+
+test('add-session refuses a conversation id for a shell session', () => {
+  withAddSessionFolders(({ repo }) => {
+    const cfg: GlimmervoidConfig = { projects: [] };
+
+    const reply = addSession(cfg, { path: repo, agent: 'shell', resumeSessionId: EARLIER_CONVERSATION });
+
+    assert.equal(reply?.ok, false);
+    assert.match(String(reply?.error), /cannot resume a conversation/);
+    assert.equal(cfg.projects.length, 0);
+  });
+});
+
+test('add-session refuses a Claude conversation id that has no transcript under any project folder', () => {
+  withAddSessionFolders(({ repo, claudeConfigDir }) => {
+    fs.mkdirSync(path.join(claudeConfigDir, 'projects', 'C--unrelated'));
+    const cfg: GlimmervoidConfig = { projects: [] };
+
+    const reply = addSession(cfg, { path: repo, resumeSessionId: EARLIER_CONVERSATION });
+
+    assert.equal(reply?.ok, false);
+    assert.match(String(reply?.error), new RegExp(`No conversation ${EARLIER_CONVERSATION} was found under`));
+    assert.equal(cfg.projects.length, 0);
+  });
 });

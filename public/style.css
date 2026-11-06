@@ -1151,6 +1151,7 @@ html[data-layout="phone"] .dialog-overlay {
   font-family: var(--font-mono);
   font-size: var(--type-meta);
   color: var(--state-failed);
+  overflow-wrap: anywhere;
 }
 
 .dialog-error:empty {

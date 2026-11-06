@@ -9,8 +9,8 @@ import { SESSION_NAME_PATTERN, SESSION_NAME_RULE_TEXT, TASK_TITLE_MAX_LENGTH, Ta
 import { sanitizeWorktreeName } from '../../../shared/paths.ts';
 import { STATES } from '../../../shared/states.ts';
 import { errorMessage } from '../../../shared/text.ts';
-import { DEFAULT_AGENT_ID, isKnownAgentId } from '../../../session/adapters/index.ts';
-import { RESUME_ID_RE } from '../../../session/core/auto-resume.ts';
+import { DEFAULT_AGENT_ID, getAdapter, isKnownAgentId } from '../../../session/adapters/index.ts';
+import { RESUME_ID_RE, resolveResumeTarget } from '../../../session/core/auto-resume.ts';
 import { claudeProjectsDir, listRepoConversations } from '../../../session/core/conversation-history.ts';
 import { planQuickSession } from '../../session/core/quick-session-core.ts';
 import { manualPrLink } from '../../../session/core/session-pr-links-core.ts';
@@ -24,6 +24,7 @@ import { configuredIntegrationBranch } from '../../core/integration-branch-core.
 import { sanitizeOneLine } from '../../core/text-core.ts';
 import { runGit } from '../../git/git-exec.ts';
 import { machineSkipsPermissionsByDefault } from '../../session/core/session-registry-core.ts';
+import { projectDirCandidates } from '../../usage/core/usage-scan-core.ts';
 import type { ControlContext } from '../control-context.ts';
 import { SESSION_GONE_TEXT, isExistingDirectory, missingFolderError, replyTo, sendError } from '../control-context.ts';
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
@@ -111,7 +112,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       saneYolo: skipPerms && msg.saneYolo === true,
       requireExistingPath: !repos,
       environment: remote?.environment,
-      runSettings: msg.runSettings,
+      runSettings: runSettingsWithConversation(msg),
     });
     if (!created.ok) {
       refuseAddSession(msg, ws, { error: created.error });
@@ -236,6 +237,30 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     return null;
   }
 
+  function runSettingsWithConversation(msg: AddSessionRequest): Partial<ProjectEntry> | undefined {
+    const resumeSessionId = requestedConversationId(msg.resumeSessionId);
+    if (!resumeSessionId) return msg.runSettings;
+    return { ...msg.runSettings, resumeSessionId };
+  }
+
+  function addSessionResumeRefusal(msg: AddSessionRequest, agentId: string): AddSessionRefusal | null {
+    const resumeSessionId = requestedConversationId(msg.resumeSessionId);
+    if (!resumeSessionId) return null;
+    const adapter = getAdapter(agentId);
+    if (!adapter?.capabilities.resume) return { error: `A ${adapter?.label ?? agentId} session cannot resume a conversation` };
+    if (!RESUME_ID_RE.test(resumeSessionId)) return { error: 'Invalid conversation id' };
+    const isCoderSession = typeof msg.environment === 'string' && msg.environment.trim() !== '';
+    if (adapter.usageVendor !== 'claude' || isCoderSession) return null;
+    const projectsDirs = projectDirCandidates(process.env, [], os.homedir());
+    const sessionFolders = msg.repos ?? [(msg.path || '').trim()];
+    const resumeTarget = resolveResumeTarget(
+      { resumeSessionId, transcriptPath: null, projectsDirs, cwds: sessionFolders.filter(Boolean) },
+      { existsSync: fs.existsSync, readdirSync: fs.readdirSync },
+    );
+    if (resumeTarget.resumeSessionId) return null;
+    return { error: `No conversation ${resumeSessionId} was found under ${projectsDirs.join(', ')}` };
+  }
+
   function addSessionRefusal(msg: AddSessionRequest): AddSessionRefusal | null {
     const name = (msg.name || '').trim();
     const projectPath = (msg.path || '').trim();
@@ -243,6 +268,8 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     if (!SESSION_NAME_PATTERN.test(name)) return { error: SESSION_NAME_RULE_TEXT };
     const requestedAgent = typeof msg.agent === 'string' ? msg.agent.trim() : '';
     if (requestedAgent && !isKnownAgentId(requestedAgent)) return { error: `Unknown agent "${requestedAgent}"` };
+    const resumeRefusal = addSessionResumeRefusal(msg, requestedAgent || DEFAULT_AGENT_ID);
+    if (resumeRefusal) return resumeRefusal;
     const missingRepo = msg.repos?.find((repoPath) => !isExistingDirectory(repoPath));
     if (missingRepo) return { error: missingFolderError(missingRepo) };
     if (msg.repos) return null;

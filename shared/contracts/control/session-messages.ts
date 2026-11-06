@@ -18,6 +18,7 @@ export const sessionClientVariants = [
     saneYolo: z.boolean().optional(),
     runInPlace: z.boolean().optional(),
     environment: z.string().optional(),
+    resumeSessionId: z.string().optional(),
     requestId,
   }),
   loose('quick-session', { id: sessionId, requestId }),

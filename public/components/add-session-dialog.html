@@ -46,6 +46,11 @@
   </label>
   <a class="dialog-help-link" id="add-session-sane-yolo-help" href="#settings/machine-safety/sane-yolo" aria-label="What Sane YOLO mode does">?</a>
 </div>
+<label class="dialog-label add-session-agent-only" id="add-session-resume-label">
+  Resume a conversation (optional)
+  <input type="text" class="dialog-input" id="add-session-resume" placeholder="Paste a session id, such as 4a3d4462-4cf7-4a23-8f00-ccec89a48ba5" autocomplete="off" spellcheck="false">
+  <span class="dialog-hint">The new session continues that conversation instead of starting a fresh one.</span>
+</label>
 <p class="dialog-hint dialog-hint-warning add-session-agent-only" id="add-session-sane-yolo-unavailable" hidden>Sane YOLO cannot protect this session here, so this mode skips permission prompts unprotected.</p>
 <p class="dialog-hint" id="add-session-shell-hint" hidden>A plain terminal on the machine Glimmervoid runs on, started in this folder. Leave Path blank for your home folder.</p>
 <div class="dialog-error" id="add-session-error"></div>
