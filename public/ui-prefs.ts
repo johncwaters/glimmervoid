@@ -8,6 +8,8 @@ import { DEFAULT_NEXT_ATTENTION_KEY_CODE, isNextAttentionKeyCode } from './short
 
 const STORAGE_KEY = 'glimmervoid-ui-prefs';
 
+export type ReviewsLayout = 'board' | 'list';
+
 interface UiPrefs extends FlyingAnimalsOptions {
   soundEnabled: boolean;
   soundId: string;
@@ -23,6 +25,8 @@ interface UiPrefs extends FlyingAnimalsOptions {
   railStatusKeyOpen: boolean;
   focusLayout: FocusLayout;
   prsQueueWidth: number | null;
+  reviewsLayout: ReviewsLayout;
+  reviewsBoardDetailWidth: number | null;
   traceHiddenKinds: string[];
   dismissedUpdate: string | null;
   telemetryNoticeDismissed: boolean;
@@ -64,6 +68,8 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   railStatusKeyOpen: asBoolean(false),
   focusLayout: parseFocusLayout,
   prsQueueWidth: asNullableNumber,
+  reviewsLayout: (value: unknown): ReviewsLayout => (value === 'list' ? 'list' : 'board'),
+  reviewsBoardDetailWidth: asNullableNumber,
   traceHiddenKinds: asStringList,
   dismissedUpdate: asNullableString,
   telemetryNoticeDismissed: asBoolean(false),
@@ -133,6 +139,12 @@ export const setFocusLayout = (layout: FocusLayout) => write('focusLayout', layo
 
 export const getPrsQueueWidth = () => read('prsQueueWidth');
 export const setPrsQueueWidth = (px: number | null) => write('prsQueueWidth', px);
+
+export const getReviewsLayout = () => read('reviewsLayout');
+export const setReviewsLayout = (layout: ReviewsLayout) => write('reviewsLayout', layout);
+
+export const getReviewsBoardDetailWidth = () => read('reviewsBoardDetailWidth');
+export const setReviewsBoardDetailWidth = (px: number | null) => write('reviewsBoardDetailWidth', px);
 
 
 export const getTraceHiddenKinds = () => read('traceHiddenKinds');

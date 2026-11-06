@@ -4,11 +4,19 @@ import { getPrsQueueWidth, setPrsQueueWidth } from '../ui-prefs.ts';
 
 const QUEUE_BOUNDS = { minPx: 220, maxPx: 720 };
 const QUEUE_KEY_STEP_PX = 16;
+const DETAIL_BOUNDS = { minPx: 360, maxPx: 960 };
+
+interface DetailResizerOptions {
+  label: string;
+  getStoredWidth: () => number | null;
+  setStoredWidth: (px: number | null) => void;
+}
 
 interface PrQueueColumnsOptions {
   queueLabel: string;
   scopeTabs: HTMLElement | null;
   resizerLabel: string;
+  detailResizer?: DetailResizerOptions;
 }
 
 function applyStoredQueueWidth(columns: HTMLElement): void {
@@ -18,6 +26,31 @@ function applyStoredQueueWidth(columns: HTMLElement): void {
     return;
   }
   columns.style.setProperty('--pr-queue-width', `${width}px`);
+}
+
+function createSeparator(className: string, label: string): HTMLElement {
+  const separator = el('div', className);
+  separator.setAttribute('role', 'separator');
+  separator.setAttribute('aria-orientation', 'vertical');
+  separator.setAttribute('aria-label', label);
+  separator.tabIndex = 0;
+  return separator;
+}
+
+function appendDetailResizer(columns: HTMLElement, detail: HTMLElement, { label, getStoredWidth, setStoredWidth }: DetailResizerOptions): void {
+  const resizer = createSeparator('pr-queue-resizer pr-detail-resizer', label);
+  detail.before(resizer);
+  wireColumnResizer({
+    resizer,
+    column: detail,
+    widthHost: columns,
+    widthProperty: '--pr-detail-width',
+    bounds: DETAIL_BOUNDS,
+    keyStepPx: QUEUE_KEY_STEP_PX,
+    getStoredWidth,
+    setStoredWidth,
+    growsLeftward: true,
+  });
 }
 
 function createPrQueueHead(scopeTabs: HTMLElement): HTMLElement {
@@ -32,7 +65,7 @@ export function createPrQueueFoot(control: HTMLElement | null): HTMLElement {
   return foot;
 }
 
-export function createPrQueueColumns({ queueLabel, scopeTabs, resizerLabel }: PrQueueColumnsOptions): {
+export function createPrQueueColumns({ queueLabel, scopeTabs, resizerLabel, detailResizer }: PrQueueColumnsOptions): {
   columns: HTMLElement;
   queue: HTMLElement;
   foot: HTMLElement;
@@ -45,11 +78,7 @@ export function createPrQueueColumns({ queueLabel, scopeTabs, resizerLabel }: Pr
   const foot = createPrQueueFoot(null);
   if (scopeTabs) pane.append(createPrQueueHead(scopeTabs));
   pane.append(queue, foot);
-  const resizer = el('div', 'pr-queue-resizer');
-  resizer.setAttribute('role', 'separator');
-  resizer.setAttribute('aria-orientation', 'vertical');
-  resizer.setAttribute('aria-label', resizerLabel);
-  resizer.tabIndex = 0;
+  const resizer = createSeparator('pr-queue-resizer', resizerLabel);
   const detail = el('main', 'pr-detail-host');
   columns.append(pane, resizer, detail);
   applyStoredQueueWidth(columns);
@@ -63,5 +92,6 @@ export function createPrQueueColumns({ queueLabel, scopeTabs, resizerLabel }: Pr
     getStoredWidth: getPrsQueueWidth,
     setStoredWidth: setPrsQueueWidth,
   });
+  if (detailResizer) appendDetailResizer(columns, detail, detailResizer);
   return { columns, queue, foot, detail };
 }

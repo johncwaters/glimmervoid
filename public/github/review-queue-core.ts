@@ -66,6 +66,12 @@ const GROUP_ORDER: readonly QueueGroupId[] = ['turn', 'working', 'queued', 'wait
 
 export const COLLAPSED_GROUP_IDS: ReadonlySet<string> = new Set<QueueGroupId>(['done', 'parked']);
 
+const BOARD_COLUMN_ORDER: readonly QueueGroupId[] = ['queued', 'working', 'turn', 'waiting', 'done', 'parked'];
+
+export function boardColumns(groups: readonly QueueGroup[]): QueueGroup[] {
+  return BOARD_COLUMN_ORDER.map((id) => groups.find((group) => group.id === id) ?? { id, title: GROUP_TITLES[id], items: [] });
+}
+
 const MINE_STATE_BY_STAGE: Readonly<Record<MyPrStage, QueueState>> = {
   conflicts: 'mine-conflicts', behind: 'mine-behind', 'checks-failing': 'mine-checks-failing', 'changes-requested': 'mine-changes-requested',
   'unresolved-threads': 'mine-unresolved-threads', ready: 'mine-ready',
