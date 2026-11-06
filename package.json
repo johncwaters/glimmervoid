@@ -97,10 +97,10 @@
   "devDependencies": {
     "@biomejs/biome": "2.6.4",
     "@posthog/coherence": "1.13.0",
-    "@tailwindcss/vite": "4.3.3",
+    "@tailwindcss/vite": "4.3.4",
     "@types/node": "26.6.6",
     "playwright-core": "1.64.1",
-    "tailwindcss": "4.3.3",
+    "tailwindcss": "4.3.4",
     "typescript": "7.0.2",
     "vite": "8.3.5"
   }
