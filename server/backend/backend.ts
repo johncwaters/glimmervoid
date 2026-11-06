@@ -68,7 +68,6 @@ import { promptContextReplyOf } from '../../session/core/refocus-core.ts';
 import { lookupWhy } from '../why-lookup.ts';
 import { createHostLinksWiring } from '../hosts/host-links-wiring.ts';
 import type { SpawnHostTunnel } from '../hosts/host-links-wiring.ts';
-import type { WebSocket } from 'ws';
 
 interface CreateBackendOptions extends BackendLaneOptions {
   staticDir?: string | null;
@@ -255,9 +254,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     broadcast: broadcastControlFromWebSockets,
     relayPhoneAlert: (hostName, text) => notifications.relayHostPhoneAlert(hostName, text),
     spawnHostTunnel: options.spawnHostTunnel,
-  });
-  controlWss.on('connection', (socket: WebSocket) => {
-    if (socket.readyState === 1) socket.send(JSON.stringify(hostLinks.statusFrame()));
   });
   const sessionDocs = createSessionDocsWiring({ broadcastControl: broadcastControlFromWebSockets });
   const whiteboards = createWhiteboardWiring({
@@ -635,6 +631,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     configStore,
     broadcastControl,
     controlReplayLog,
+    hostLinks,
     agentConnect,
     remoteSetup,
     telegramDelivery: notifications.telegramDelivery,
