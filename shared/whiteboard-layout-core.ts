@@ -3,7 +3,7 @@ import type { Board, Box, BoxMedia, Element, Note, Panel, Unit, Wire } from './c
 
 type BoxLine = Box['lines'][number];
 import { planSteps } from './whiteboard-plan-core.ts';
-import { cappedWarningLists, labelWidthOf, pathOf, rectsOverlap, routeWires, unionOf, warningListOf, withoutBends } from './whiteboard-route-core.ts';
+import { cappedWarningLists, labelWidthOf, pathOf, previewWires, rectsOverlap, routeWires, unionOf, warningListOf, withoutBends } from './whiteboard-route-core.ts';
 import { touchingPairsWithin } from './whiteboard-sweep-core.ts';
 import type { Point, RouteMemory } from './whiteboard-route-core.ts';
 
@@ -347,7 +347,7 @@ function noteStackHeightByBoxId(board: IndexedBoard): Map<string, number> {
   return stackHeightByBoxId;
 }
 
-function columnTitleLines(board: IndexedBoard): string[][] {
+function columnTitleLines(board: Pick<IndexedBoard, 'columns'>): string[][] {
   return board.columns.map((column) => (column.title ? wrapText(column.title, COLUMN_TITLE_CHARS_PER_LINE) : []));
 }
 
@@ -863,5 +863,54 @@ function elementSignature(element: LaidOutElement): string {
   return JSON.stringify(element);
 }
 
-export { elementSignature, layoutBoard, layoutBoardWithMemory };
-export type { BoardLayout, LayoutMemory, LaidOutBox, LaidOutMedia, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutPanel, LaidOutUnit, LaidOutWire, Rect };
+function movedBox(box: LaidOutBox, offsetX: number, offsetY: number): LaidOutBox {
+  const outputs = box.outputs.map((output) => ({ ...output, port: { x: output.port.x + offsetX, y: output.port.y + offsetY } }));
+  const media = box.media ? { ...box.media, x: box.media.x + offsetX, y: box.media.y + offsetY } : null;
+  return { ...box, x: box.x + offsetX, y: box.y + offsetY, outputs, media };
+}
+
+type DragPreview = (offsetX: number, offsetY: number) => LaidOutElement[];
+
+function movingIdsOf(storedBoard: Board, draggedBoxIds: ReadonlySet<string>): Set<string> {
+  const movingIds = new Set(draggedBoxIds);
+  let hasGrown = true;
+  while (hasGrown) {
+    hasGrown = false;
+    for (const element of Object.values(storedBoard.elements)) {
+      const anchorId = element.kind === 'box' ? element.near?.of : element.kind === 'note' ? element.on : undefined;
+      if (movingIds.has(element.id) || !anchorId || !movingIds.has(anchorId)) continue;
+      movingIds.add(element.id);
+      hasGrown = true;
+    }
+  }
+  return movingIds;
+}
+
+function createDragPreview(storedBoard: Board, layout: BoardLayout, draggedBoxIds: ReadonlySet<string>): DragPreview {
+  const movingIds = movingIdsOf(storedBoard, draggedBoxIds);
+  const boxesById = new Map<string, LaidOutBox>();
+  const panels: LaidOutPanel[] = [];
+  const stillSoftObstacles: Rect[] = [];
+  const movingNotes: LaidOutNote[] = [];
+  const loopFrames: Rect[] = [];
+  for (const element of layout.elements) {
+    if (element.kind === 'box') boxesById.set(element.id, element);
+    if (element.kind === 'panel') panels.push(element);
+    if (element.kind === 'note' && movingIds.has(element.id)) movingNotes.push(element);
+    if (element.kind === 'note' && !movingIds.has(element.id)) stillSoftObstacles.push(element);
+    if (element.kind === 'frame') stillSoftObstacles.push({ x: element.x, y: element.y, width: element.width, height: FRAME_TITLE_HEIGHT });
+    if (element.kind === 'frame' && element.isLoop) loopFrames.push(element);
+  }
+  const movingBoxes = [...movingIds].flatMap((elementId) => boxesById.get(elementId) ?? []);
+  const wires = Object.values(storedBoard.elements).flatMap((element) => (element.kind === 'wire' && (movingIds.has(element.from) || movingIds.has(element.to)) ? [element] : []));
+  const contentTop = planBandBottom(layoutUnits(storedBoard)) + COLUMN_RULE_OFFSET + headerExtraHeight(columnTitleLines(storedBoard));
+  return (offsetX, offsetY) => {
+    const moved = movingBoxes.map((box) => movedBox(box, offsetX, offsetY));
+    for (const box of moved) boxesById.set(box.id, box);
+    const notes = movingNotes.map((note) => ({ ...note, x: note.x + offsetX, y: note.y + offsetY }));
+    return [...moved, ...notes, ...previewWires({ wires, boxesById, panels, softObstacles: [...stillSoftObstacles, ...notes], loopFrames, contentTop })];
+  };
+}
+
+export { createDragPreview, elementSignature, layoutBoard, layoutBoardWithMemory };
+export type { BoardLayout, DragPreview, LayoutMemory, LaidOutBox, LaidOutMedia, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutPanel, LaidOutUnit, LaidOutWire, Rect };

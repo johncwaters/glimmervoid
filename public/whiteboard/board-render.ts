@@ -23,6 +23,7 @@ const LOOK_MARKER_RADIUS = 9;
 
 interface BoardRenderer {
   render(board: Board): BoardLayout;
+  paintElements(elements: readonly LaidOutElement[]): void;
   layout(): BoardLayout | null;
   elementFromTarget(target: EventTarget | null): { id: string; kind: LaidOutElement['kind'] } | null;
   nodeOf(elementId: string): SVGGElement | null;
@@ -70,6 +71,7 @@ export function createBoardRenderer(svg: SVGSVGElement, mediaLayer: BoardMediaLa
   svg.replaceChildren(...nodesFromMarkup(arrowDefinitionsMarkup()), chrome, ...PAINT_ORDER.map((layerName) => layers[layerName]));
   const renderedById = new Map<string, RenderedElement>();
   let currentLayout: BoardLayout | null = null;
+  let elementIdsInPaintOrder: string[] = [];
   let selectedIds: ReadonlySet<string> = new Set();
   let reviewMarks = NO_REVIEW_MARKS;
 
@@ -114,6 +116,25 @@ export function createBoardRenderer(svg: SVGSVGElement, mediaLayer: BoardMediaLa
     svg.style.top = `${bounds.y}px`;
   }
 
+  function paintElement(element: LaidOutElement): void {
+    const signature = elementSignature(element);
+    const rendered = renderedById.get(element.id);
+    if (rendered?.signature === signature) return;
+    const node = nodeFromMarkup(elementMarkup(element, servedAssetHref));
+    paintSelection(element.id, node);
+    paintReviewMarks(element, node);
+    if (rendered) rendered.node.replaceWith(node);
+    if (!rendered) layers[LAYER_BY_KIND[element.kind]].append(node);
+    renderedById.set(element.id, { signature, node });
+  }
+
+  function paintElements(elements: readonly LaidOutElement[]): void {
+    for (const element of elements) paintElement(element);
+    if (!currentLayout || !elements.some((element) => element.kind === 'box' && element.media)) return;
+    const paintedById = new Map(elements.map((element) => [element.id, element]));
+    mediaLayer.sync({ ...currentLayout, elements: currentLayout.elements.map((element) => paintedById.get(element.id) ?? element) }, elementIdsInPaintOrder);
+  }
+
   function render(board: Board): BoardLayout {
     const layout = layoutBoardRemembered(board);
     placeInWorld(layout.bounds);
@@ -123,22 +144,14 @@ export function createBoardRenderer(svg: SVGSVGElement, mediaLayer: BoardMediaLa
     const seenIds = new Set<string>();
     for (const element of layout.elements) {
       seenIds.add(element.id);
-      const signature = elementSignature(element);
-      const rendered = renderedById.get(element.id);
-      if (rendered?.signature === signature) continue;
-      const node = nodeFromMarkup(elementMarkup(element, servedAssetHref));
-      paintSelection(element.id, node);
-      paintReviewMarks(element, node);
-      if (rendered) rendered.node.replaceWith(node);
-      if (!rendered) layers[LAYER_BY_KIND[element.kind]].append(node);
-      renderedById.set(element.id, { signature, node });
+      paintElement(element);
     }
     for (const [elementId, rendered] of renderedById) {
       if (seenIds.has(elementId)) continue;
       rendered.node.remove();
       renderedById.delete(elementId);
     }
-    const elementIdsInPaintOrder = PAINT_ORDER.flatMap((layerName) => [...layers[layerName].children].flatMap((node) => node instanceof SVGGElement && node.dataset.elementId ? [node.dataset.elementId] : []));
+    elementIdsInPaintOrder = PAINT_ORDER.flatMap((layerName) => [...layers[layerName].children].flatMap((node) => node instanceof SVGGElement && node.dataset.elementId ? [node.dataset.elementId] : []));
     mediaLayer.sync(layout, elementIdsInPaintOrder);
     currentLayout = layout;
     return layout;
@@ -178,6 +191,7 @@ export function createBoardRenderer(svg: SVGSVGElement, mediaLayer: BoardMediaLa
 
   return {
     render,
+    paintElements,
     layout: () => currentLayout,
     elementFromTarget,
     nodeOf: (elementId) => renderedById.get(elementId)?.node ?? null,

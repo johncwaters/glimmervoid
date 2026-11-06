@@ -1,7 +1,8 @@
 import { WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import type { Board, Element as BoardElement, Op } from '#shared/contracts/whiteboard.ts';
 import { el } from '../dom-helpers.ts';
-import type { Rect } from '#shared/whiteboard-layout-core.ts';
+import { createDragPreview } from '#shared/whiteboard-layout-core.ts';
+import type { DragPreview, Rect } from '#shared/whiteboard-layout-core.ts';
 import type { BoardRenderer } from './board-render.ts';
 
 const DRAG_THRESHOLD_PX = 4;
@@ -67,7 +68,7 @@ function isRectInside(inner: Rect, outer: Rect): boolean {
 type BoxMedia = NonNullable<Extract<BoardElement, { kind: 'box' }>['media']>;
 
 type Gesture =
-  | { kind: 'drag'; mode: 'move' | 'resize'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; movingBoxes: readonly MovingBox[]; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; pressedImage: PressedImage | null }
+  | { kind: 'drag'; mode: 'move' | 'resize'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; movingBoxes: readonly MovingBox[]; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; pressedImage: PressedImage | null; preview: DragPreview | null; laidOutOffset: ViewPoint }
   | { kind: 'wire'; pointerId: number; fromBoxId: string; start: ViewPoint; draftLine: SVGPathElement; targetBoxId: string | null }
   | { kind: 'pan'; pointerId: number; lastClient: ViewPoint; hasMoved: boolean; isAuxiliaryButton: boolean; tappedBoxId: string | null; pressedImage: PressedImage | null }
   | { kind: 'marquee'; pointerId: number; origin: ViewPoint; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; baseSelection: ReadonlySet<string>; outline: SVGRectElement }
@@ -276,10 +277,25 @@ export function createBoardEditor(options: BoardEditorOptions) {
     previewFrameId = null;
   }
 
+  function dragOffsetOf(drag: Extract<Gesture, { kind: 'drag' }>): ViewPoint {
+    return { x: Math.round(drag.latest.x - drag.origin.x), y: Math.round(drag.latest.y - drag.origin.y) };
+  }
+
+  function paintMovePreview(drag: Extract<Gesture, { kind: 'drag' }>, board: Board): boolean {
+    const layout = renderer.layout();
+    if (drag.mode !== 'move' || !drag.hasMoved || !layout) return false;
+    const offset = dragOffsetOf(drag);
+    drag.preview ??= createDragPreview(board, layout, new Set(drag.movingBoxes.map((movingBox) => movingBox.boxId)));
+    renderer.paintElements(drag.preview(offset.x - drag.laidOutOffset.x, offset.y - drag.laidOutOffset.y));
+    return true;
+  }
+
   function paintPreview(): void {
     cancelPreviewFrame();
     const board = options.currentBoard();
-    if (board) renderer.render(previewOf(board));
+    if (!board) return;
+    if (gesture?.kind === 'drag' && paintMovePreview(gesture, board)) return;
+    renderer.render(previewOf(board));
   }
 
   function requestPreviewFrame(): void {
@@ -289,6 +305,11 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function pruneSelection(board: Board | null): void {
     if (gesture?.kind === 'drag' && board?.elements[gesture.boxId]?.kind !== 'box') gesture = null;
+    if (gesture?.kind === 'drag' && gesture.hasMoved) {
+      gesture.preview = null;
+      gesture.laidOutOffset = dragOffsetOf(gesture);
+    }
+    if (gesture?.kind === 'drag' && gesture.hasMoved) gesture.movingBoxes = gesture.movingBoxes.filter((movingBox) => board?.elements[movingBox.boxId]?.kind === 'box');
     const surviving = new Set([...selectedIds].filter((elementId) => board?.elements[elementId]));
     if (surviving.size === selectedIds.size) return;
     setSelection(surviving);
@@ -356,7 +377,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const resizeRect = hit?.kind === 'box' && isResizeHandle(event.target) && !isPhoneLayout() ? boxRectOf(hit.id) : null;
     if (hit && resizeRect) {
       const origin = toViewPoint(event.clientX, event.clientY);
-      gesture = { kind: 'drag', mode: 'resize', pointerId: event.pointerId, boxId: hit.id, origin, start: resizeRect, movingBoxes: [], pinnedOffsetY: 0, latest: origin, hasMoved: false, isAdditive: false, pressedImage: null };
+      gesture = { kind: 'drag', mode: 'resize', pointerId: event.pointerId, boxId: hit.id, origin, start: resizeRect, movingBoxes: [], pinnedOffsetY: 0, latest: origin, hasMoved: false, isAdditive: false, pressedImage: null, preview: null, laidOutOffset: { x: 0, y: 0 } };
       return;
     }
     const port = portOf(event.target);
@@ -373,7 +394,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (hit && boxRect) {
       const origin = toViewPoint(event.clientX, event.clientY);
       const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
-      gesture = { kind: 'drag', mode: 'move', pointerId: event.pointerId, boxId: hit.id, origin, start: boxRect, movingBoxes: movingBoxesFor(hit.id, boxRect, event.shiftKey), pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: event.shiftKey, pressedImage: pressedMediaOf(event) };
+      gesture = { kind: 'drag', mode: 'move', pointerId: event.pointerId, boxId: hit.id, origin, start: boxRect, movingBoxes: movingBoxesFor(hit.id, boxRect, event.shiftKey), pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: event.shiftKey, pressedImage: pressedMediaOf(event), preview: null, laidOutOffset: { x: 0, y: 0 } };
       return;
     }
     if (hit && !isPhoneLayout()) {
