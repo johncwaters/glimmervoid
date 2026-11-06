@@ -17,6 +17,7 @@ import { decideAutoRebase, decideRerereCooldownClear, AUTO_REBASE_STATES, SPAWN_
 import { projectMergeState } from "./core/worktree-state.ts";
 import type { MergeStatus } from "./core/worktree-state.ts";
 import { BRANCH_UPSTREAM_FORMAT, parseBranchUpstream } from "../server/core/branch-sync-core.ts";
+import type { BranchUpstream } from "../server/core/branch-sync-core.ts";
 import { planWorkspaceMembers } from "./core/workspace-core.ts";
 import { sanitizeWorktreeName } from "../shared/paths.ts";
 import { createSessionWorkspaceMembers } from "./session-workspace-members.ts";
@@ -98,8 +99,11 @@ function createSessionWorktreeLifecycle({
       throw error;
     });
   }
-  async function readUpstreamOf(branch: string, options: RunGitOptions): Promise<string | null> {
+  async function readBranchUpstreamOf(branch: string, options: RunGitOptions): Promise<BranchUpstream | null> {
     return parseBranchUpstream(await gitOut(["for-each-ref", `--format=${BRANCH_UPSTREAM_FORMAT}`, `refs/heads/${branch}`], options), branch);
+  }
+  async function readUpstreamOf(branch: string, options: RunGitOptions): Promise<string | null> {
+    return (await readBranchUpstreamOf(branch, options))?.upstream ?? null;
   }
   const workspaceMembers = workspaceRepos
     ? setUpWorkspaceMembers({ folder: currentProjectPath(), sessionId: id, sessionName, repoPaths: workspaceRepos, shareList: worktreeShare, gitWorkspace })
@@ -280,7 +284,7 @@ function createSessionWorktreeLifecycle({
   }
 
   const context: WorktreeLifecycleContext = {
-    id, projectPath, integrationBranch, startSha, gitWorkspace, syncOnStart, worktreeRoot, worktreeShare, seedDependencies, port, workspaceMembers, lifecycleState, currentProjectPath, gitOut, gitLookup, readUpstreamOf, effectiveIntegrationBranch, setMergeStatus,
+    id, projectPath, integrationBranch, startSha, gitWorkspace, syncOnStart, worktreeRoot, worktreeShare, seedDependencies, port, workspaceMembers, lifecycleState, currentProjectPath, gitOut, gitLookup, readUpstreamOf, readBranchUpstreamOf, effectiveIntegrationBranch, setMergeStatus,
   };
   const { provision, stopSeeding } = createWorktreeProvisioning(context, { adoptWorktree, resolveCommonGitDir, runAutoRebase, api: { computeWorktreeSignature: () => api.computeWorktreeSignature() } });
   const { resolveEffectiveBase, resolveVerifiedBaseRef, diffGitOptions, getChangeScopes, getDiff } = createWorktreeDiffScopes(context);

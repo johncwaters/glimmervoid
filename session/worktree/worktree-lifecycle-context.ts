@@ -12,6 +12,7 @@ import type { WorkspaceMember } from "../core/workspace-core.ts";
 import type { createSessionWorkspaceMembers } from "../session-workspace-members.ts";
 import type { OwnedPathOwner } from "../../shared/contracts/owned-paths.ts";
 import type { SeedDependencies } from "../../server/git/dependency-clone.ts";
+import type { BranchUpstream } from "../../server/core/branch-sync-core.ts";
 
 interface Workspace {
   cwd: string;
@@ -231,6 +232,7 @@ type WorktreeLifecycleContext = Required<Pick<WorktreeLifecycleOptions, "id" | "
   gitOut(args: string[], options: RunGitOptions): Promise<string>;
   gitLookup(args: string[], options: RunGitOptions): Promise<string | null>;
   readUpstreamOf(branch: string, options: RunGitOptions): Promise<string | null>;
+  readBranchUpstreamOf(branch: string, options: RunGitOptions): Promise<BranchUpstream | null>;
   effectiveIntegrationBranch(): string | null;
   setMergeStatus(status: MergeStatus, detail?: Record<string, unknown>, options?: { emit?: boolean }): void;
 };

@@ -41,14 +41,30 @@ function parseRemoteFromUpstream(upstream: string | null | undefined): string {
   return String(upstream).slice(0, idx);
 }
 
-const BRANCH_UPSTREAM_FORMAT = '%(refname)%09%(upstream:short)%09%(upstream:track,nobracket)';
+const BRANCH_UPSTREAM_FORMAT = '%(refname)%09%(upstream:short)%09%(upstream:track,nobracket)%09%(upstream:remotename)%09%(upstream:remoteref)';
 
-function parseBranchUpstream(forEachRefOutput: string, branch: string): string | null {
+const LOCAL_REMOTE = '.';
+
+interface BranchUpstream {
+  upstream: string;
+  remote: string;
+  remoteBranch: string;
+}
+
+function parseBranchUpstream(forEachRefOutput: string, branch: string): BranchUpstream | null {
   const fieldsOfBranch = forEachRefOutput.split('\n').map((line) => line.split('\t')).find(([refName]) => refName === `refs/heads/${branch}`);
   if (!fieldsOfBranch) return null;
-  const [, upstream, tracking] = fieldsOfBranch;
+  const [, upstream, tracking, remoteName, remoteRef] = fieldsOfBranch;
   if (!upstream || tracking === 'gone') return null;
-  return upstream;
+  return {
+    upstream,
+    remote: remoteName?.trim() || parseRemoteFromUpstream(upstream),
+    remoteBranch: remoteRef?.trim().replace(/^refs\/heads\//, '') || branch,
+  };
+}
+
+function isLocalRemote(remote: string): boolean {
+  return remote === LOCAL_REMOTE;
 }
 
 function decideResyncAction(state: string, isCheckedOut: boolean): ResyncAction {
@@ -65,11 +81,12 @@ interface ResyncCommand {
 
 function buildResyncCommand(
   decision: string,
-  { upstream, branch, remote }: { upstream: string; branch: string; remote: string },
+  { upstream, branch, remote, remoteBranch = branch }: { upstream: string; branch: string; remote: string; remoteBranch?: string },
 ): ResyncCommand | null {
   if (decision === 'ff-merge') return { args: ['merge', '--ff-only', upstream], timeoutMs: undefined, successAction: 'fast-forwarded' };
-  if (decision === 'ff-fetch') return { args: ['fetch', '--quiet', remote, `${branch}:${branch}`], timeoutMs: GIT_FETCH_TIMEOUT_MS, successAction: 'fast-forwarded' };
-  if (decision === 'push') return { args: ['push', remote, branch], timeoutMs: 15000, successAction: 'pushed' };
+  if (isLocalRemote(remote)) return null;
+  if (decision === 'ff-fetch') return { args: ['fetch', '--quiet', remote, `${remoteBranch}:${branch}`], timeoutMs: GIT_FETCH_TIMEOUT_MS, successAction: 'fast-forwarded' };
+  if (decision === 'push') return { args: ['push', remote, remoteBranch === branch ? branch : `${branch}:${remoteBranch}`], timeoutMs: 15000, successAction: 'pushed' };
   return null;
 }
 
@@ -96,12 +113,15 @@ function errorMessageOrText(err: unknown): string {
   return String(err);
 }
 
+export type { BranchUpstream };
+
 export {
   BRANCH_UPSTREAM_FORMAT,
   parseLeftRightCount,
   decideBranchSyncState,
   parseRemoteFromUpstream,
   parseBranchUpstream,
+  isLocalRemote,
   decideResyncAction,
   buildResyncCommand,
   firstGitErrorLine,
