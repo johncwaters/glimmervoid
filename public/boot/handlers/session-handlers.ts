@@ -9,7 +9,7 @@ import { buildSessionCardOptions } from '../../session-card/card-options-core.ts
 import { attentionTally, sessionUIs } from '../../session-card/card-registry.ts';
 import { createSessionCard, hasSession, removeSessionCard, renameSessionCard, setSessionAgent, setSessionMergeStatus, setSessionTaskTitle, setSessionWorktree } from '../../session-card/lifecycle.ts';
 import { applySessionPlanError } from '../../session-card/card-faces.ts';
-import { reportSessionProblem } from '../../session-card/card-problems.ts';
+import { forgetManagerDecisions, reportSessionProblem } from '../../session-card/card-problems.ts';
 import { applySessionSetupResponse } from '../../session-setup/setup-dialog.ts';
 import { forgetReview, releaseMergeRequest } from '../../review/review-store.ts';
 import { getSelectedId, setSelectedId } from '../../review/selection.ts';
@@ -30,6 +30,7 @@ const messageHandlers = {
     setSessionCoherenceHooks(msg.id, null);
     removeSessionCard(msg.id);
     forgetReview(msg.id);
+    forgetManagerDecisions(String(msg.id));
     setSessionLinkedPrs(msg.id, msg.linkedPrs);
     createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg));
     if (wasSelected) setSelectedId(String(msg.id));

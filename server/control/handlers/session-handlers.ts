@@ -602,6 +602,9 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       if (msg.expectedState !== undefined && session.state !== msg.expectedState) return;
       session.dismiss();
     },
+    'manager-seen': (msg: ClientMessageOf<'manager-seen'>) => {
+      findSession(msg)?.markManagerDecisionsSeen(msg.throughSeq);
+    },
   } satisfies ControlHandlerTable;
 
   const invalidReplies = {

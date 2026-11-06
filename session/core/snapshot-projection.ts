@@ -77,6 +77,7 @@ interface SnapshotSource {
   worktreeNotice: string | null;
   failureReason?: string | null;
   unseenOutcome?: UnseenOutcome | null;
+  managerSeenSeq?: number;
   effectiveBase: string | null;
   linkedPrs: LinkedPr[];
   coherenceHooks?: CoherenceHooksState | null;
@@ -112,6 +113,7 @@ function projectSessionSnapshots(source: SnapshotSource) {
     worktreeNotice: source.worktreeNotice,
     failureReason: source.failureReason ?? null,
     unseenOutcome: source.unseenOutcome ?? null,
+    managerSeenSeq: source.managerSeenSeq ?? 0,
     effectiveBase: source.effectiveBase ?? null,
     linkedPrs: source.linkedPrs,
     coherenceHooks: source.coherenceHooks ?? null,

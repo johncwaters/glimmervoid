@@ -81,6 +81,7 @@ const SESSION = {
   mergeReason: null,
   worktreeNotice: null,
   unseenOutcome: null,
+  managerSeenSeq: 0,
   effectiveBase: 'develop',
   linkedPrs: [{ repo: 'acme/app', number: 42, url: 'https://github.com/acme/app/pull/42', source: 'hook', linkedAt: NOW }],
   coherenceHooks: { active: false, reason: 'not installed' },

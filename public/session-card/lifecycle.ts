@@ -24,7 +24,7 @@ import { releaseWebgl } from './webgl-pool.ts';
 import { currentTerminalFontFamily } from '../mono-font.ts';
 import { applyTerminalFontFamily } from '../mono-font-core.ts';
 import { createDeferredPlanFace, loadedPlanFaceModule } from './deferred-loads.ts';
-import { reportSessionProblem } from './card-problems.ts';
+import { openManagerDecisionLine, reportSessionProblem } from './card-problems.ts';
 import { updateButtonVisibility } from './card-faces.ts';
 import { wireCardEvents } from './card-events.ts';
 import { cancelWatchedCompletionDismiss, holdThenDismissWatchedCompletion, isCompletionWatchedAt } from './watched-completion.ts';
@@ -289,9 +289,11 @@ function _handleRestartTransition(ui: SessionUi, prevState: string) {
 
 export function markSessionSeen(sessionId: string) {
   const ui = sessionUIs.get(sessionId);
-  if (!ui || !needsAttention({ state: ui.currentState, unseenOutcome: ui.unseenOutcome })) return;
+  if (!ui) return;
   if (document.visibilityState !== 'visible') return;
   if (!isPhoneLayout() && !document.hasFocus()) return;
+  openManagerDecisionLine(sessionId);
+  if (!needsAttention({ state: ui.currentState, unseenOutcome: ui.unseenOutcome })) return;
   sendControlMsg({ type: 'dismiss', id: sessionId, expectedState: ui.currentState });
 }
 
