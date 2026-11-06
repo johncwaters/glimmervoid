@@ -2166,7 +2166,6 @@ html[data-layout="phone"] .view-panel {
 .avatar-badge[data-tone="warn"] { background: var(--state-waiting); }
 .avatar-badge[data-tone="danger"] { background: var(--state-failed); }
 .avatar-badge[data-tone="wait"] { background: var(--text-dim); }
-.pr-team-chip { display: inline-flex; align-items: center; align-self: center; gap: 6px; min-width: 0; margin-left: auto; padding: 0 8px; color: var(--text-dim); font-size: var(--type-meta); white-space: nowrap; }
 
 .pr-queue {
   display: flex;

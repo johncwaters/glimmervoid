@@ -1,7 +1,7 @@
 import './review-queue-panel.css';
 import { createPressable } from '../ui/pressable.ts';
 import { button } from '../ui/button.ts';
-import { createAvatar, el, isPanelHidden, isRealInputOwningKey } from '../dom-helpers.ts';
+import { el, isPanelHidden, isRealInputOwningKey } from '../dom-helpers.ts';
 import { isModalOpen } from '../session-card/modal.ts';
 import { buildNextAttentionKeys } from '../shortcuts.ts';
 import type { ViewModule } from '../view-registry-core.ts';
@@ -38,7 +38,6 @@ let root: HTMLElement | null = null;
 let queueElement: HTMLElement | null = null;
 let detailHost: HTMLElement | null = null;
 let turnPosition: HTMLElement | null = null;
-let teamChipSlot: HTMLElement | null = null;
 let teamDetail: HTMLElement | null = null;
 let mineDetail: HTMLElement | null = null;
 let pollingControls: ReturnType<typeof createGithubPollingControls> | null = null;
@@ -298,18 +297,6 @@ function emptyQueueElements(): HTMLElement[] {
   return [teamReviewEmptyState(), el('p', 'pr-empty', myPrsEmptyStateText(myPrsSnapshot().status))];
 }
 
-function syncTeamChip(): void {
-  if (!teamChipSlot) return;
-  const team = teamReviewStatusView()?.team;
-  if (!team) {
-    teamChipSlot.replaceChildren();
-    return;
-  }
-  const chip = el('span', 'pr-team-chip');
-  chip.append(createAvatar({ login: team.slug, url: team.avatarUrl, cssPx: 16 }), el('span', null, team.name));
-  teamChipSlot.replaceChildren(chip);
-}
-
 function rowsSignature(groups: readonly QueueGroup[], sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): string {
   const ageTones = groups.flatMap((group) => group.items.map((item) => itemAgeTone(item, group.id)));
   return JSON.stringify([shownLayout(), getReviewsTurnLimit(), ageTones, groups, [...sessionsByPrKey], selectedKey, [...openCollapsedGroupIds], reviewQueueUnseenSignature(), queueNoticeElements().map((notice) => notice.textContent)], (key, value) => (key === 'recentSteps' ? undefined : value));
@@ -379,7 +366,6 @@ function render(): void {
   syncLayout();
   const { sessionsByPrKey, status: myPrsStatus } = myPrsSnapshot();
   currentGroups = rebuildReviewQueue();
-  syncTeamChip();
   pollingControls?.update(combinedPollingStatus([teamReviewStatusView(), myPrsStatus]));
   if (!isCaughtUp) selectedKey = chooseQueueSelection(currentGroups, selectedKey);
   paintTurnPosition();
@@ -444,11 +430,10 @@ function mountReviewQueue(parent: HTMLElement): void {
   skillNotice = createReviewSkillNotice();
   shell.queue.before(skillNotice.element);
   pollingControls = createGithubPollingControls(['team-review', 'my-prs'], root);
-  teamChipSlot = el('span', 'review-team-chip-slot');
-  shell.foot.append(teamChipSlot, pollingControls.control);
+  shell.foot.append(pollingControls.control, createLayoutSwitch());
   setupCard = createReviewSetupCard();
   setupCard.element.hidden = true;
-  root.append(setupCard.element, createLayoutSwitch(), shell.columns);
+  root.append(setupCard.element, shell.columns);
   root.dataset.detailOpen = 'false';
   teamDetail = mountTeamReviewDetail(root, {
     onChange: queueRender,
