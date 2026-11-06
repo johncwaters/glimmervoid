@@ -8,6 +8,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileAsync } from '../../server/child-process-safe.ts';
 import { resolveFfmpegPath } from '../../server/runtime-paths.ts';
+import { Board, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
+import type { Op } from '../../shared/contracts/whiteboard.ts';
+import { benchmarkBoard } from '../board-layout-cost.ts';
 
 const UNCOVERED_FILE_NAME = 'board-uncovered.txt';
 const MERGE_SETTLE_MS = 1500;
@@ -284,14 +287,14 @@ function openBoardTitle(panel: Locator, boardTitle: string): Locator {
   return panel.locator('.wb-board-title', { hasText: boardTitle });
 }
 
-async function runBoardControl(page: Page, type: string, payload: Record<string, string>): Promise<string | null> {
+async function boardControlReply(page: Page, type: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
   return page.evaluate(async ({ type, payload }) => {
     const tokenReply: unknown = await fetch('/control-token', { credentials: 'same-origin', cache: 'no-store' }).then((response) => response.json());
     const token = typeof tokenReply === 'object' && tokenReply !== null && 'token' in tokenReply && typeof tokenReply.token === 'string' ? tokenReply.token : '';
     const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
     const socket = new WebSocket(`${scheme}://${location.host}/control?token=${encodeURIComponent(token)}`);
     const requestId = `harness-${type}-${Date.now()}`;
-    return new Promise<string | null>((resolve, reject) => {
+    return new Promise<Record<string, unknown>>((resolve, reject) => {
       socket.addEventListener('open', () => socket.send(JSON.stringify({ type, requestId, ...payload })));
       socket.addEventListener('error', () => reject(new Error(`${type} could not reach the control socket`)));
       socket.addEventListener('message', (event) => {
@@ -299,14 +302,19 @@ async function runBoardControl(page: Page, type: string, payload: Record<string,
         if (typeof reply !== 'object' || reply === null || !('requestId' in reply) || reply.requestId !== requestId) return;
         socket.close();
         if ('ok' in reply && reply.ok === true) {
-          const summary = 'summary' in reply && typeof reply.summary === 'object' && reply.summary !== null ? reply.summary : null;
-          resolve(summary && 'id' in summary && typeof summary.id === 'string' ? summary.id : null);
+          resolve({ ...reply });
           return;
         }
         reject(new Error(`${type} was refused: ${JSON.stringify(reply)}`));
       });
     });
   }, { type, payload });
+}
+
+async function runBoardControl(page: Page, type: string, payload: Record<string, unknown>): Promise<string | null> {
+  const reply = await boardControlReply(page, type, payload);
+  const summary = reply.summary;
+  return typeof summary === 'object' && summary !== null && 'id' in summary && typeof summary.id === 'string' ? summary.id : null;
 }
 
 async function createBoardOverControl(page: Page, boardTitle: string): Promise<string> {
@@ -702,4 +710,214 @@ async function verifyBoardToolsInBoardPane(panel: Locator, boardTitle: string): 
   assert.equal(await boardPane.locator('.wb-top-left').isVisible(), true, 'the board tools sit inside the Board pane');
   assert.equal(await panel.locator('.pane-strip .wb-top-left').count(), 0, 'the tab row carries no board tools');
   assert.equal(await boardPane.locator('.wb-presence .wb-presence-pill:not(.wb-presence-count)').count(), 0, 'the board names no pill for the only connected session, the one centered beside it');
+}
+
+const SCALE_HELD_FRAME_SAMPLES = 30;
+const SCALE_HELD_POINTER_STEPS = 20;
+const SCALE_HELD_UPDATE_TITLE = 'Changed while dragging';
+const SCALE_BOARD_TITLE = 'Board at the limit';
+const SCALE_FIRST_DRAW_BUDGET_MS = 1500;
+const SCALE_FRAME_BUDGET_MS = 100;
+const SCALE_DRAGGED_BOX_COUNT = 8;
+const SCALE_DRAG_OFFSET = { x: 120, y: 0 };
+const SCALE_PUT_BYTES_SHARE = 0.9;
+const SCALE_SAVE_TIMEOUT_MS = 30000;
+
+function scaleBoardPuts(): Op[][] {
+  const board = benchmarkBoard(WHITEBOARD_LIMITS.elements);
+  const ops: Op[] = [{ op: 'columns', columns: board.columns, move: {} }, ...Object.values(board.elements).map((element): Op => ({ op: 'add', element }))];
+  const puts: Op[][] = [[]];
+  let putBytes = 0;
+  for (const op of ops) {
+    const opBytes = JSON.stringify(op).length + 1;
+    const current = puts[puts.length - 1] ?? [];
+    const isFull = current.length >= WHITEBOARD_LIMITS.opsPerPut || putBytes + opBytes > WHITEBOARD_LIMITS.putBytes * SCALE_PUT_BYTES_SHARE;
+    if (isFull) {
+      puts.push([op]);
+      putBytes = opBytes;
+      continue;
+    }
+    current.push(op);
+    putBytes += opBytes;
+  }
+  return puts;
+}
+
+async function readBoxPlace(page: Page, boardId: string, boxIds: readonly string[]): Promise<{ version: number; atById: Record<string, string>; attachedWireId: string | null }> {
+  const reply = await boardControlReply(page, 'whiteboard-get', { boardId });
+  const board = Board.parse(reply.board);
+  const attachedWire = Object.values(board.elements).find((element) => element.kind === 'wire' && (boxIds.includes(element.from) || boxIds.includes(element.to)));
+  const atById = Object.fromEntries(boxIds.map((boxId) => {
+    const element = board.elements[boxId];
+    return [boxId, element?.kind === 'box' && element.at ? `${element.at.x},${element.at.y}` : ''];
+  }));
+  return { version: board.version, atById, attachedWireId: attachedWire?.id ?? null };
+}
+
+async function startFrameRecorder(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const recorder = { gapsMs: [] as number[], isRecording: true };
+    Object.assign(window, { harnessFrames: recorder });
+    let previousAt = performance.now();
+    const onFrame = (at: number): void => {
+      if (!recorder.isRecording) return;
+      recorder.gapsMs.push(at - previousAt);
+      previousAt = at;
+      requestAnimationFrame(onFrame);
+    };
+    requestAnimationFrame(onFrame);
+  });
+}
+
+async function stopFrameRecorder(page: Page): Promise<{ maxMs: number; p50Ms: number; frames: number }> {
+  const gapsMs = await page.evaluate(() => {
+    const holder: unknown = Reflect.get(window, 'harnessFrames');
+    if (typeof holder !== 'object' || holder === null || !('gapsMs' in holder) || !Array.isArray(holder.gapsMs)) return [];
+    Reflect.set(holder, 'isRecording', false);
+    return holder.gapsMs.filter((gap): gap is number => typeof gap === 'number');
+  });
+  const sorted = [...gapsMs].sort((first, second) => first - second);
+  return { maxMs: Math.round(sorted.at(-1) ?? 0), p50Ms: Math.round(sorted[Math.floor(sorted.length / 2)] ?? 0), frames: sorted.length };
+}
+
+async function visibleAtBoxIds(panel: Locator, count: number): Promise<string[]> {
+  return panel.locator('.wb-canvas').evaluate((canvas, wanted) => {
+    const canvasRect = canvas.getBoundingClientRect();
+    const inner = { left: canvasRect.left + 8, top: canvasRect.top + 8, right: canvasRect.right - 8, bottom: canvasRect.bottom - 8 };
+    const picked: string[] = [];
+    for (const node of canvas.querySelectorAll<SVGGElement>('.wb-element[data-element-kind="box"]')) {
+      const boxId = node.dataset.elementId ?? '';
+      if (Number(boxId.slice(1)) % 10 === 0) continue;
+      const rect = node.getBoundingClientRect();
+      const isInside = rect.left > inner.left && rect.top > inner.top && rect.right < inner.right && rect.bottom < inner.bottom;
+      if (isInside) picked.push(boxId);
+      if (picked.length === wanted) break;
+    }
+    return picked;
+  }, count);
+}
+
+async function panToAtGrid(page: Page, panel: Locator): Promise<void> {
+  const canvasBox = await panel.locator('.wb-canvas').boundingBox();
+  assert.ok(canvasBox);
+  const start = { x: canvasBox.x + canvasBox.width * 0.8, y: canvasBox.y + canvasBox.height * 0.5 };
+  await page.mouse.move(start.x, start.y);
+  await page.keyboard.down('Control');
+  for (let notch = 0; notch < 4; notch += 1) await page.mouse.wheel(0, 400);
+  await page.keyboard.up('Control');
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    if ((await visibleAtBoxIds(panel, SCALE_DRAGGED_BOX_COUNT)).length === SCALE_DRAGGED_BOX_COUNT) return;
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down({ button: 'right' });
+    await page.mouse.move(start.x - canvasBox.width * 0.4, start.y - canvasBox.height * 0.25, { steps: 10 });
+    await page.mouse.up({ button: 'right' });
+  }
+}
+
+export async function verifyBoardScale(page: Page, sessionId: string): Promise<string> {
+  await page.locator('#loading-screen').waitFor({ state: 'hidden' });
+  const boardId = await createBoardOverControl(page, SCALE_BOARD_TITLE);
+  const fillStartedAt = Date.now();
+  for (const ops of scaleBoardPuts()) await boardControlReply(page, 'whiteboard-op', { boardId, ops });
+  const fillMs = Date.now() - fillStartedAt;
+  await runBoardControl(page, 'whiteboard-connect', { boardId, sessionId });
+  const expectedElements = WHITEBOARD_LIMITS.elements;
+  const openStartedAt = Date.now();
+  const panel = await showBoardInFocus(page, sessionId, SCALE_BOARD_TITLE);
+  await page.waitForFunction(() => document.querySelectorAll('#focus-center .wb-element[data-element-kind="box"]').length > 0, null, { timeout: 60000 });
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const firstDrawMs = Date.now() - openStartedAt;
+
+  const canvasBox = await panel.locator('.wb-canvas').boundingBox();
+  assert.ok(canvasBox);
+  await startFrameRecorder(page);
+  await page.mouse.move(canvasBox.x + canvasBox.width * 0.5, canvasBox.y + canvasBox.height * 0.5);
+  await page.mouse.down({ button: 'right' });
+  await page.mouse.move(canvasBox.x + canvasBox.width * 0.3, canvasBox.y + canvasBox.height * 0.4, { steps: 30 });
+  await page.mouse.up({ button: 'right' });
+  const pan = await stopFrameRecorder(page);
+
+  await panToAtGrid(page, panel);
+  const draggedBoxIds = await visibleAtBoxIds(panel, SCALE_DRAGGED_BOX_COUNT);
+  assert.equal(draggedBoxIds.length, SCALE_DRAGGED_BOX_COUNT, `found ${SCALE_DRAGGED_BOX_COUNT} boxes to drag on screen`);
+  for (const [index, boxId] of draggedBoxIds.entries()) {
+    const boxBounds = await panel.locator(`.wb-element[data-element-id="${boxId}"]`).boundingBox();
+    assert.ok(boxBounds);
+    if (index > 0) await page.keyboard.down('Shift');
+    await page.mouse.click(boxBounds.x + boxBounds.width / 2, boxBounds.y + boxBounds.height / 2);
+    if (index > 0) await page.keyboard.up('Shift');
+  }
+  const before = await readBoxPlace(page, boardId, draggedBoxIds);
+  const grabbedBox = panel.locator(`.wb-element[data-element-id="${draggedBoxIds[0]}"]`);
+  const grabbedBounds = await grabbedBox.boundingBox();
+  assert.ok(grabbedBounds);
+  const attachedWire = before.attachedWireId;
+  const wirePathOf = async (): Promise<string> => (attachedWire ? (await panel.locator(`.wb-element[data-element-id="${attachedWire}"] path`).first().getAttribute('d')) ?? '' : '');
+  const wirePathBefore = await wirePathOf();
+  const grabAt = { x: grabbedBounds.x + grabbedBounds.width / 2, y: grabbedBounds.y + grabbedBounds.height / 2 };
+  const grabbedXById = await page.evaluate((boxIds) => Object.fromEntries(boxIds.map((boxId) => [boxId, document.querySelector(`#focus-center .wb-element[data-element-id="${boxId}"]`)?.getBoundingClientRect().x ?? 0])), draggedBoxIds);
+  await startFrameRecorder(page);
+  await page.mouse.move(grabAt.x, grabAt.y);
+  await page.mouse.down();
+  await page.mouse.move(grabAt.x + SCALE_DRAG_OFFSET.x, grabAt.y + SCALE_DRAG_OFFSET.y, { steps: 30 });
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const drag = await stopFrameRecorder(page);
+  const movedBounds = await grabbedBox.boundingBox();
+  assert.ok(movedBounds);
+  assert.ok(movedBounds.x - grabbedBounds.x > SCALE_DRAG_OFFSET.x / 2, `the dragged box follows the pointer, moved ${movedBounds.x - grabbedBounds.x}px`);
+  if (attachedWire) assert.notEqual(await wirePathOf(), wirePathBefore, 'a wire attached to a dragged box follows it during the drag');
+  const untouchedBoxId = await panel.locator('.wb-element[data-element-kind="box"]').evaluateAll((nodes, dragged) => nodes.map((node) => node.getAttribute('data-element-id') ?? '').find((elementId) => elementId !== '' && !dragged.includes(elementId)) ?? '', draggedBoxIds);
+  const heldSamples = page.evaluate(({ boxIds, changedBoxId, changedTitle, sampleCount, timeoutMs }) => new Promise<{ hasShownUpdate: boolean; samples: Record<string, number>[] }>((resolve) => {
+    const samples: Record<string, number>[] = [];
+    const startedAt = performance.now();
+    let framesAfterUpdate = -1;
+    const sample = () => {
+      samples.push(Object.fromEntries(boxIds.map((boxId) => [boxId, document.querySelector(`#focus-center .wb-element[data-element-id="${boxId}"]`)?.getBoundingClientRect().x ?? Number.NEGATIVE_INFINITY])));
+      const hasShownUpdate = document.querySelector(`#focus-center .wb-element[data-element-id="${changedBoxId}"]`)?.textContent?.replace(/\s/g, '').includes(changedTitle.replace(/\s/g, '')) ?? false;
+      if (hasShownUpdate && framesAfterUpdate < 0) framesAfterUpdate = 0;
+      if (framesAfterUpdate >= 0) framesAfterUpdate += 1;
+      if (framesAfterUpdate >= sampleCount || performance.now() - startedAt > timeoutMs) {
+        resolve({ hasShownUpdate: framesAfterUpdate >= 0, samples });
+        return;
+      }
+      requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  }), { boxIds: draggedBoxIds, changedBoxId: untouchedBoxId, changedTitle: SCALE_HELD_UPDATE_TITLE, sampleCount: SCALE_HELD_FRAME_SAMPLES, timeoutMs: SCALE_SAVE_TIMEOUT_MS });
+  let isSamplingDone = false;
+  void heldSamples.then(() => {
+    isSamplingDone = true;
+  });
+  const updateSent = boardControlReply(page, 'whiteboard-op', { boardId, ops: [{ op: 'set', id: untouchedBoxId, fields: { title: SCALE_HELD_UPDATE_TITLE } }] });
+  for (let step = 1; !isSamplingDone; step += 1) {
+    await page.mouse.move(grabAt.x + SCALE_DRAG_OFFSET.x + (step % SCALE_HELD_POINTER_STEPS), grabAt.y + SCALE_DRAG_OFFSET.y);
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+  }
+  await updateSent;
+  const held = await heldSamples;
+  assert.ok(held.hasShownUpdate, 'the board update sent during the drag reaches the page');
+  const snappedBack = held.samples.flatMap((sample) => draggedBoxIds.filter((boxId) => (sample[boxId] ?? Number.NEGATIVE_INFINITY) - (grabbedXById[boxId] ?? 0) <= SCALE_DRAG_OFFSET.x / 2));
+  assert.deepEqual(snappedBack, [], 'a board update during a drag keeps every held box under the pointer');
+  const dropStartedAt = Date.now();
+  await page.mouse.up();
+  await pollFor('the drop saves every dragged box', SCALE_SAVE_TIMEOUT_MS, async () => {
+    const after = await readBoxPlace(page, boardId, draggedBoxIds);
+    return after.version > before.version && draggedBoxIds.every((boxId) => after.atById[boxId] !== before.atById[boxId]) ? after : null;
+  });
+  const saveMs = Date.now() - dropStartedAt;
+
+  const undoStartedAt = Date.now();
+  await page.keyboard.press('Control+z');
+  await pollFor('one undo restores every dragged box', SCALE_SAVE_TIMEOUT_MS, async () => {
+    const restored = await readBoxPlace(page, boardId, draggedBoxIds);
+    return draggedBoxIds.every((boxId) => restored.atById[boxId] === before.atById[boxId]) ? restored : null;
+  });
+  const undoMs = Date.now() - undoStartedAt;
+
+  const measured = `${expectedElements} elements: fill ${fillMs} ms, first draw ${firstDrawMs} ms, pan max ${pan.maxMs} ms p50 ${pan.p50Ms} ms over ${pan.frames} frames, drag max ${drag.maxMs} ms p50 ${drag.p50Ms} ms over ${drag.frames} frames, save ${saveMs} ms, undo ${undoMs} ms`;
+  console.log(`board-scale ${measured}`);
+  assert.ok(firstDrawMs <= SCALE_FIRST_DRAW_BUDGET_MS, `the board first draws within ${SCALE_FIRST_DRAW_BUDGET_MS} ms; ${measured}`);
+  assert.ok(pan.maxMs <= SCALE_FRAME_BUDGET_MS, `panning keeps every frame within ${SCALE_FRAME_BUDGET_MS} ms; ${measured}`);
+  assert.ok(drag.maxMs <= SCALE_FRAME_BUDGET_MS, `dragging keeps every frame within ${SCALE_FRAME_BUDGET_MS} ms; ${measured}`);
+  return measured;
 }

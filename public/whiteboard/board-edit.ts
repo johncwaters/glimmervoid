@@ -308,7 +308,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const board = options.currentBoard();
     if (!board) return;
     if (gesture?.kind === 'drag' && paintMovePreview(gesture, board)) return;
-    renderer.render(previewOf(board));
+    renderer.render(previewOf(board), true);
   }
 
   function requestPreviewFrame(): void {
@@ -565,7 +565,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const changes = draggedBoxFields(drag);
     const board = options.currentBoard();
     if (board) paintMovePreview(drag, board);
-    if (board) renderer.render(withBoxFields(board, changes));
+    if (board) renderer.render(withBoxFields(board, changes), true);
     const isSent = await options.sendOps(changes.map(({ boxId, fields }) => ({ op: 'set', id: boxId, fields })));
     if (!isSent) paintPreview();
   }

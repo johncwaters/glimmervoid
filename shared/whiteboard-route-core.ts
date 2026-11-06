@@ -4,8 +4,8 @@ import type { LaidOutBox, LaidOutPanel, LaidOutWire, Rect } from './whiteboard-l
 import { emptyFlatRects, flatRectsOf, forEachTouchingPairAcross, forEachTouchingPairWithin, orderOfPairs, setFlatRect } from './whiteboard-sweep-core.ts';
 import type { FlatRects } from './whiteboard-sweep-core.ts';
 import { nudgeSharedLines } from './whiteboard-nudge-core.ts';
-import { buildVisibilityGraph, CLEARANCE } from './whiteboard-visibility-core.ts';
-import type { VisibilityGraph } from './whiteboard-visibility-core.ts';
+import { buildGraphOn, CLEARANCE, prepareObstacles, updatedObstacles } from './whiteboard-visibility-core.ts';
+import type { GraphPort, PreparedObstacles, VisibilityGraph } from './whiteboard-visibility-core.ts';
 
 type Side = 'left' | 'right' | 'top' | 'bottom';
 
@@ -93,6 +93,7 @@ interface RouteMemory {
   rectByKey: Map<string, Rect>;
   routeById: Map<string, RememberedRoute>;
   warningPairs: WarningPairs | null;
+  wholeBoardObstacles: PreparedObstacles | null;
 }
 
 interface RouteReuse {
@@ -133,7 +134,6 @@ interface DrawnWire {
   states: number[] | null;
 }
 
-type GraphPort = Parameters<typeof buildVisibilityGraph>[0]['ports'][number];
 
 interface SideTerminal {
   side: Side;
@@ -551,8 +551,29 @@ function portsOf(plans: readonly WirePlan[]): GraphPort[] {
   ]);
 }
 
+const preparedObstaclesByInput = new WeakMap<RouteInput, Map<string, PreparedObstacles | null>>();
+
+function graphOnPrepared(input: RouteInput, areaKey: string, prepare: () => PreparedObstacles | null, ports: readonly GraphPort[]): VisibilityGraph | null {
+  const preparedByAreaKey = preparedObstaclesByInput.get(input) ?? new Map<string, PreparedObstacles | null>();
+  preparedObstaclesByInput.set(input, preparedByAreaKey);
+  const prepared = preparedByAreaKey.has(areaKey) ? preparedByAreaKey.get(areaKey) ?? null : prepare();
+  preparedByAreaKey.set(areaKey, prepared);
+  return prepared ? buildGraphOn(prepared, ports) : null;
+}
+
+const WHOLE_BOARD_AREA_KEY = 'whole board';
+
+function wholeBoardObstaclesOf(input: RouteInput): { hardRects: Rect[]; softRects: readonly Rect[]; contentTop: number } {
+  return { hardRects: [...input.boxesById.values(), ...input.panels], softRects: input.softObstacles, contentTop: input.contentTop };
+}
+
+function rememberWholeBoardObstacles(input: RouteInput, previous: RouteMemory | null, changes: ObstacleChanges | null): void {
+  if (!previous?.wholeBoardObstacles || !changes) return;
+  preparedObstaclesByInput.set(input, new Map([[WHOLE_BOARD_AREA_KEY, updatedObstacles(previous.wholeBoardObstacles, wholeBoardObstaclesOf(input), changes.rects)]]));
+}
+
 function graphOf(ports: readonly GraphPort[], input: RouteInput): VisibilityGraph | null {
-  return buildVisibilityGraph({ hardRects: [...input.boxesById.values(), ...input.panels], softRects: input.softObstacles, ports, contentTop: input.contentTop });
+  return graphOnPrepared(input, WHOLE_BOARD_AREA_KEY, () => prepareObstacles(wholeBoardObstaclesOf(input)), ports);
 }
 
 function wallsAround(window: Rect): Rect[] {
@@ -576,8 +597,8 @@ function windowSolidsOf(input: RouteInput, window: Rect, reuse: RouteReuse): Rec
 }
 
 function windowGraphOf(ports: readonly GraphPort[], input: RouteInput, window: Rect, solidsInWindow: readonly Rect[]): VisibilityGraph | null {
-  const softRects = input.softObstacles.filter((rect) => rectsOverlap(rect, window));
-  return buildVisibilityGraph({ hardRects: [...solidsInWindow, ...wallsAround(window)], softRects, ports, contentTop: input.contentTop });
+  const prepare = () => prepareObstacles({ hardRects: [...solidsInWindow, ...wallsAround(window)], softRects: input.softObstacles.filter((rect) => rectsOverlap(rect, window)), contentTop: input.contentTop });
+  return graphOnPrepared(input, `window ${window.x},${window.y},${window.width},${window.height}`, prepare, ports);
 }
 
 function windowOf(plan: WirePlan, reuse: RouteReuse): Rect {
@@ -1283,7 +1304,7 @@ function routeMemoryOf(input: RouteInput, rectByKey: Map<string, Rect>, drawn: r
     wireKey: wireKeyOf(wire.plan.wire), exitSide: wire.plan.exitSide, entrySide: wire.plan.entrySide,
     start: wire.plan.start, end: wire.plan.end, points: wire.routedPoints, isRouted: wire.states !== null,
   }]));
-  return { contentTop: input.contentTop, rectByKey, routeById, warningPairs: null };
+  return { contentTop: input.contentTop, rectByKey, routeById, warningPairs: null, wholeBoardObstacles: preparedObstaclesByInput.get(input)?.get(WHOLE_BOARD_AREA_KEY) ?? null };
 }
 
 function laidOutWiresOf(drawn: readonly DrawnWire[], labelById: ReadonlyMap<string, { at: Point; bounds: Rect }>): LaidOutWire[] {
@@ -1315,6 +1336,7 @@ function routeWires(input: RouteInput, previous: RouteMemory | null): RouteResul
   const rectByKey = obstacleRectsByKey(input);
   const changes = previous && previous.contentTop === input.contentTop ? obstacleChangesOf(previous.rectByKey, rectByKey) : null;
   const reuse = routeReuseOf(input, previous, changes);
+  rememberWholeBoardObstacles(input, previous, changes);
   const plans = planWires(input, reuse);
   const requestsBySide = portRequestsBySide(plans);
   const groupOrderBySide = defaultPortOrders(requestsBySide);

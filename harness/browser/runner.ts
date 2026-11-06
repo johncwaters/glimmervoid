@@ -7,7 +7,7 @@ import { safeTextTail } from '../support/backend-harness.ts';
 import { heightWithKeyboardUp, layoutFor, needsSocketRoute } from './cases-core.ts';
 import type { CardControl, HarnessCase, Layout, ResolvedStep, Step, ViewerId, Viewport } from './cases-core.ts';
 import { DECEPTIVE_LINK_ROW_NUMBER, DECEPTIVE_LINK_TEXT, DECEPTIVE_LINK_URL, LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, MOTION_REPORT_PREFIX, expectedRows, parseStatusRow } from './frame-core.ts';
-import { verifyBoardPane, verifyBoards } from './boards.ts';
+import { verifyBoardPane, verifyBoardScale, verifyBoards } from './boards.ts';
 import { verifyIssues } from './issues.ts';
 import { verifyPhoneChanges, verifyReviewMerge } from './review-merge.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
@@ -1092,6 +1092,9 @@ export async function runCase({
     if (step.kind === 'assert-boards') {
       await verifyBoards(viewer.page, viewer.layout, sessionId);
       return passedOutcome('boards', 'board create, live box add and Comic Mono board text verified');
+    }
+    if (step.kind === 'assert-board-scale') {
+      return passedOutcome('board-scale', await verifyBoardScale(viewer.page, sessionId));
     }
     if (step.kind === 'assert-board-pane') {
       await verifyBoardPane(viewer.page, sessionId, projectDirectory);

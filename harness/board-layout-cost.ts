@@ -36,7 +36,7 @@ function seededRandom(seed: number): () => number {
   };
 }
 
-function benchmarkBoard(elementCount: number): Board {
+export function benchmarkBoard(elementCount: number): Board {
   const nextRandom = seededRandom(7);
   const boxCount = Math.round(elementCount * BOX_SHARE);
   const boxesPerRow = Math.ceil(Math.sqrt(boxCount));
@@ -168,4 +168,4 @@ async function main(): Promise<number> {
   return failureCount === 0 ? 0 : 1;
 }
 
-process.exitCode = await main();
+if (import.meta.main) process.exitCode = await main();

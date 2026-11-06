@@ -25,11 +25,21 @@ interface GraphPort {
   outwardDirection: number;
 }
 
-interface GraphInput {
+interface ObstacleInput {
   hardRects: readonly Rect[];
   softRects: readonly Rect[];
-  ports: readonly GraphPort[];
   contentTop: number;
+}
+
+interface PreparedObstacles {
+  input: ObstacleInput;
+  frame: Frame;
+  blockers: FlatRects;
+  corners: CornerTable;
+  horizontal: MergedPieces;
+  vertical: MergedPieces;
+  softAlongX: SoftIndex;
+  softAlongY: SoftIndex;
 }
 
 interface VisibilityGraph {
@@ -136,7 +146,7 @@ function addRay(rays: Rays, along: number, across: number): number {
   return rays.alongs.length - 1;
 }
 
-function frameOf(input: GraphInput): Frame | null {
+function frameOf(input: ObstacleInput, ports: readonly GraphPort[]): Frame | null {
   let left = Infinity;
   let top = Infinity;
   let right = -Infinity;
@@ -147,7 +157,7 @@ function frameOf(input: GraphInput): Frame | null {
     right = Math.max(right, rect.x + rect.width);
     bottom = Math.max(bottom, rect.y + rect.height);
   }
-  for (const port of input.ports) {
+  for (const port of ports) {
     left = Math.min(left, port.x);
     top = Math.min(top, port.y);
     right = Math.max(right, port.x);
@@ -185,7 +195,25 @@ function descendingOrder(values: Float64Array): Int32Array {
   return order.sort((first, second) => (values[second] ?? 0) - (values[first] ?? 0));
 }
 
-function firstBlockerHits(blockers: FlatRects, direction: number, rays: Rays): Float64Array {
+function blockersAcross(blockers: FlatRects, direction: number, rayAcrosses: Float64Array): FlatRects {
+  const isAlongX = direction === RIGHT || direction === LEFT;
+  const lows = isAlongX ? blockers.tops : blockers.lefts;
+  const highs = isAlongX ? blockers.bottoms : blockers.rights;
+  const sortedAcrosses = Float64Array.from(rayAcrosses).sort();
+  const kept: number[] = [];
+  for (let blocker = 0; blocker < blockers.count; blocker += 1) {
+    const firstAtOrAbove = firstIndexAtLeast(sortedAcrosses, 0, sortedAcrosses.length, lows[blocker] ?? 0);
+    if (firstAtOrAbove < sortedAcrosses.length && (sortedAcrosses[firstAtOrAbove] ?? 0) <= (highs[blocker] ?? 0)) kept.push(blocker);
+  }
+  const crossing = emptyFlatRects(kept.length);
+  kept.forEach((blocker, index) => {
+    setFlatRect(crossing, index, blockers.lefts[blocker] ?? 0, blockers.tops[blocker] ?? 0, blockers.rights[blocker] ?? 0, blockers.bottoms[blocker] ?? 0);
+  });
+  return crossing;
+}
+
+function firstBlockerHits(allBlockers: FlatRects, direction: number, rays: Rays): Float64Array {
+  const blockers = rays.alongs.length * FEW_RAYS_SHARE < allBlockers.count ? blockersAcross(allBlockers, direction, filled(rays.acrosses)) : allBlockers;
   const view = blockerViewOf(blockers, direction);
   const isNegated = direction === LEFT || direction === UP;
   const rayAlongs = filled(rays.alongs).map((along) => (isNegated ? -along : along));
@@ -301,68 +329,18 @@ function addUnblockedPieces(pieces: Pieces, y: number, left: number, right: numb
   addPiece(pieces, y, start, right);
 }
 
-function buildPieces(input: GraphInput, frame: Frame, blockers: FlatRects): { horizontal: Pieces; vertical: Pieces } {
+function portPiecesOf(prepared: PreparedObstacles, ports: readonly GraphPort[]): { horizontal: Pieces; vertical: Pieces } {
   const horizontal = emptyPieces();
   const vertical = emptyPieces();
-  const corners = cornerOrigins([...input.hardRects, ...input.softRects], frame);
-  const cornerXs = filled(corners.xs);
-  const cornerYs = filled(corners.ys);
-  const isCornerBlocked = insideBlockerFlags(blockers, cornerXs, cornerYs);
-  const cornerRays = [emptyRays(), emptyRays(), emptyRays(), emptyRays()];
-  const rayByCornerAndDirection = new Int32Array(cornerXs.length * 4).fill(-1);
-  for (let corner = 0; corner < cornerXs.length; corner += 1) {
-    if (isCornerBlocked[corner] === 1) continue;
-    const x = cornerXs[corner] ?? 0;
-    const y = cornerYs[corner] ?? 0;
-    for (let direction = 0; direction < 4; direction += 1) {
-      const directionRays = cornerRays[direction];
-      if (!directionRays) continue;
-      const isAlongX = direction === RIGHT || direction === LEFT;
-      rayByCornerAndDirection[corner * 4 + direction] = addRay(directionRays, isAlongX ? x : y, isAlongX ? y : x);
-    }
-  }
-  const cornerShots = shootAll(blockers, cornerRays);
-  const hitOf = (shots: ShotRays, direction: number, ray: number) => clampedHit(shots.hits[direction]?.[ray] ?? Infinity, direction, frame);
-  const midlineRays = [emptyRays(), emptyRays(), emptyRays(), emptyRays()];
-  const verticalMidlines: number[] = [];
-  const horizontalMidlines: number[] = [];
-  for (let corner = 0; corner < cornerXs.length; corner += 1) {
-    if (isCornerBlocked[corner] === 1) continue;
-    const x = cornerXs[corner] ?? 0;
-    const y = cornerYs[corner] ?? 0;
-    const rayOf = (direction: number) => rayByCornerAndDirection[corner * 4 + direction] ?? -1;
-    addPiece(horizontal, y, hitOf(cornerShots, LEFT, rayOf(LEFT)), hitOf(cornerShots, RIGHT, rayOf(RIGHT)));
-    addPiece(vertical, x, hitOf(cornerShots, UP, rayOf(UP)), hitOf(cornerShots, DOWN, rayOf(DOWN)));
-    const away = corners.awayDirections.values[corner] ?? 0;
-    const horizontalAway = Math.floor(away / 4);
-    const verticalAway = away % 4;
-    const midlineX = midlineBeyond(x, cornerShots.hits[horizontalAway]?.[rayOf(horizontalAway)] ?? Infinity, horizontalAway);
-    if (midlineX !== null) {
-      verticalMidlines.push(addRay(midlineRays[UP] ?? emptyRays(), y, midlineX), addRay(midlineRays[DOWN] ?? emptyRays(), y, midlineX), midlineX);
-    }
-    const midlineY = midlineBeyond(y, cornerShots.hits[verticalAway]?.[rayOf(verticalAway)] ?? Infinity, verticalAway);
-    if (midlineY !== null && midlineY >= frame.top) {
-      horizontalMidlines.push(addRay(midlineRays[LEFT] ?? emptyRays(), x, midlineY), addRay(midlineRays[RIGHT] ?? emptyRays(), x, midlineY), midlineY);
-    }
-  }
   const portRays = [emptyRays(), emptyRays(), emptyRays(), emptyRays()];
-  const portRayIndexes = input.ports.map((port) => {
+  const portRayIndexes = ports.map((port) => {
     const isAlongX = port.outwardDirection === RIGHT || port.outwardDirection === LEFT;
     const directionRays = portRays[port.outwardDirection] ?? emptyRays();
     return addRay(directionRays, isAlongX ? port.x : port.y, isAlongX ? port.y : port.x);
   });
-  const midlineShots = shootAll(blockers, midlineRays);
-  for (let index = 0; index < verticalMidlines.length; index += 3) {
-    const x = verticalMidlines[index + 2] ?? 0;
-    addPiece(vertical, x, hitOf(midlineShots, UP, verticalMidlines[index] ?? 0), hitOf(midlineShots, DOWN, verticalMidlines[index + 1] ?? 0));
-  }
-  for (let index = 0; index < horizontalMidlines.length; index += 3) {
-    const y = horizontalMidlines[index + 2] ?? 0;
-    addPiece(horizontal, y, hitOf(midlineShots, LEFT, horizontalMidlines[index] ?? 0), hitOf(midlineShots, RIGHT, horizontalMidlines[index + 1] ?? 0));
-  }
-  const portShots = shootAll(blockers, portRays);
-  input.ports.forEach((port, portIndex) => {
-    const reach = hitOf(portShots, port.outwardDirection, portRayIndexes[portIndex] ?? 0);
+  const portShots = shootAll(prepared.blockers, portRays);
+  ports.forEach((port, portIndex) => {
+    const reach = clampedHit(portShots.hits[port.outwardDirection]?.[portRayIndexes[portIndex] ?? 0] ?? Infinity, port.outwardDirection, prepared.frame);
     if (port.outwardDirection === RIGHT || port.outwardDirection === LEFT) {
       addPiece(horizontal, port.y, Math.min(port.x, reach), Math.max(port.x, reach));
       addPiece(vertical, port.x, port.y, port.y);
@@ -371,11 +349,167 @@ function buildPieces(input: GraphInput, frame: Frame, blockers: FlatRects): { ho
     addPiece(vertical, port.x, Math.min(port.y, reach), Math.max(port.y, reach));
     addPiece(horizontal, port.y, port.x, port.x);
   });
+  return { horizontal, vertical };
+}
+
+const CORNER_ROW_SIZE = 12;
+const FEW_RAYS_SHARE = 4;
+const CHANGE_REACH = 1;
+const MAX_CHANGED_RECTS_FOR_UPDATE = 64;
+
+interface CornerTable {
+  count: number;
+  xs: Float64Array;
+  ys: Float64Array;
+  awayDirections: Float64Array;
+  rows: Float64Array;
+}
+
+function cornerTableOf(input: ObstacleInput, frame: Frame): CornerTable {
+  const origins = cornerOrigins([...input.hardRects, ...input.softRects], frame);
+  const count = origins.xs.length;
+  return { count, xs: filled(origins.xs), ys: filled(origins.ys), awayDirections: filled(origins.awayDirections), rows: new Float64Array(count * CORNER_ROW_SIZE).fill(Number.NaN) };
+}
+
+function setRowPiece(rows: Float64Array, corner: number, slot: number, line: number, start: number, end: number): void {
+  const offset = corner * CORNER_ROW_SIZE + slot * 3;
+  rows[offset] = line;
+  rows[offset + 1] = start;
+  rows[offset + 2] = end;
+}
+
+function fillCornerRows(table: CornerTable, corners: readonly number[], blockers: FlatRects, frame: Frame): void {
+  const xs = Float64Array.from(corners, (corner) => table.xs[corner] ?? 0);
+  const ys = Float64Array.from(corners, (corner) => table.ys[corner] ?? 0);
+  const isCornerBlocked = insideBlockerFlags(blockers, xs, ys);
+  const cornerRays = [emptyRays(), emptyRays(), emptyRays(), emptyRays()];
+  const rayByCornerAndDirection = new Int32Array(corners.length * 4).fill(-1);
+  for (let index = 0; index < corners.length; index += 1) {
+    if (isCornerBlocked[index] === 1) continue;
+    const x = xs[index] ?? 0;
+    const y = ys[index] ?? 0;
+    for (let direction = 0; direction < 4; direction += 1) {
+      const directionRays = cornerRays[direction];
+      if (!directionRays) continue;
+      const isAlongX = direction === RIGHT || direction === LEFT;
+      rayByCornerAndDirection[index * 4 + direction] = addRay(directionRays, isAlongX ? x : y, isAlongX ? y : x);
+    }
+  }
+  const cornerShots = shootAll(blockers, cornerRays);
+  const hitOf = (shots: ShotRays, direction: number, ray: number) => clampedHit(shots.hits[direction]?.[ray] ?? Infinity, direction, frame);
+  const midlineRays = [emptyRays(), emptyRays(), emptyRays(), emptyRays()];
+  const verticalMidlines: number[] = [];
+  const horizontalMidlines: number[] = [];
+  for (let index = 0; index < corners.length; index += 1) {
+    const corner = corners[index] ?? 0;
+    table.rows.fill(Number.NaN, corner * CORNER_ROW_SIZE, (corner + 1) * CORNER_ROW_SIZE);
+    if (isCornerBlocked[index] === 1) continue;
+    const x = xs[index] ?? 0;
+    const y = ys[index] ?? 0;
+    const rayOf = (direction: number) => rayByCornerAndDirection[index * 4 + direction] ?? -1;
+    setRowPiece(table.rows, corner, 0, y, hitOf(cornerShots, LEFT, rayOf(LEFT)), hitOf(cornerShots, RIGHT, rayOf(RIGHT)));
+    setRowPiece(table.rows, corner, 1, x, hitOf(cornerShots, UP, rayOf(UP)), hitOf(cornerShots, DOWN, rayOf(DOWN)));
+    const away = table.awayDirections[corner] ?? 0;
+    const horizontalAway = Math.floor(away / 4);
+    const verticalAway = away % 4;
+    const midlineX = midlineBeyond(x, cornerShots.hits[horizontalAway]?.[rayOf(horizontalAway)] ?? Infinity, horizontalAway);
+    if (midlineX !== null) {
+      verticalMidlines.push(corner, addRay(midlineRays[UP] ?? emptyRays(), y, midlineX), addRay(midlineRays[DOWN] ?? emptyRays(), y, midlineX), midlineX);
+    }
+    const midlineY = midlineBeyond(y, cornerShots.hits[verticalAway]?.[rayOf(verticalAway)] ?? Infinity, verticalAway);
+    if (midlineY !== null && midlineY >= frame.top) {
+      horizontalMidlines.push(corner, addRay(midlineRays[LEFT] ?? emptyRays(), x, midlineY), addRay(midlineRays[RIGHT] ?? emptyRays(), x, midlineY), midlineY);
+    }
+  }
+  const midlineShots = shootAll(blockers, midlineRays);
+  for (let index = 0; index < verticalMidlines.length; index += 4) {
+    setRowPiece(table.rows, verticalMidlines[index] ?? 0, 2, verticalMidlines[index + 3] ?? 0, hitOf(midlineShots, UP, verticalMidlines[index + 1] ?? 0), hitOf(midlineShots, DOWN, verticalMidlines[index + 2] ?? 0));
+  }
+  for (let index = 0; index < horizontalMidlines.length; index += 4) {
+    setRowPiece(table.rows, horizontalMidlines[index] ?? 0, 3, horizontalMidlines[index + 3] ?? 0, hitOf(midlineShots, LEFT, horizontalMidlines[index + 1] ?? 0), hitOf(midlineShots, RIGHT, horizontalMidlines[index + 2] ?? 0));
+  }
+}
+
+function piecesOfTable(table: CornerTable, frame: Frame, blockers: FlatRects): { horizontal: Pieces; vertical: Pieces } {
+  const horizontal = emptyPieces();
+  const vertical = emptyPieces();
+  const slotPieces = [horizontal, vertical, vertical, horizontal];
+  for (let corner = 0; corner < table.count; corner += 1) {
+    for (let slot = 0; slot < 4; slot += 1) {
+      const offset = corner * CORNER_ROW_SIZE + slot * 3;
+      const line = table.rows[offset] ?? Number.NaN;
+      const slotTarget = slotPieces[slot];
+      if (Number.isNaN(line) || !slotTarget) continue;
+      addPiece(slotTarget, line, table.rows[offset + 1] ?? 0, table.rows[offset + 2] ?? 0);
+    }
+  }
   addUnblockedPieces(horizontal, frame.top, frame.left, frame.right, blockers);
   addPiece(horizontal, frame.bottom, frame.left, frame.right);
   addPiece(vertical, frame.left, frame.top, frame.bottom);
   addPiece(vertical, frame.right, frame.top, frame.bottom);
   return { horizontal, vertical };
+}
+
+function isRowTouching(table: CornerTable, corner: number, regions: FlatRects): boolean {
+  const x = table.xs[corner] ?? 0;
+  const y = table.ys[corner] ?? 0;
+  for (let region = 0; region < regions.count; region += 1) {
+    const left = regions.lefts[region] ?? 0;
+    const top = regions.tops[region] ?? 0;
+    const right = regions.rights[region] ?? 0;
+    const bottom = regions.bottoms[region] ?? 0;
+    if (left <= x && x <= right && top <= y && y <= bottom) return true;
+    for (let slot = 0; slot < 4; slot += 1) {
+      const offset = corner * CORNER_ROW_SIZE + slot * 3;
+      const line = table.rows[offset] ?? Number.NaN;
+      if (Number.isNaN(line)) continue;
+      const start = table.rows[offset + 1] ?? 0;
+      const end = table.rows[offset + 2] ?? 0;
+      const isAlongX = slot === 0 || slot === 3;
+      const isTouching = isAlongX ? top <= line && line <= bottom && left <= end && start <= right : left <= line && line <= right && top <= end && start <= bottom;
+      if (isTouching) return true;
+    }
+  }
+  return false;
+}
+
+function cornerKeyOf(table: CornerTable, corner: number): string {
+  return `${table.xs[corner]},${table.ys[corner]},${table.awayDirections[corner]}`;
+}
+
+function isPieceBefore(first: MergedPieces, firstIndex: number, second: MergedPieces, secondIndex: number): boolean {
+  const firstLine = first.lines[firstIndex] ?? 0;
+  const secondLine = second.lines[secondIndex] ?? 0;
+  return firstLine < secondLine || (firstLine === secondLine && (first.starts[firstIndex] ?? 0) <= (second.starts[secondIndex] ?? 0));
+}
+
+function mergedTogether(base: MergedPieces, extra: MergedPieces): MergedPieces {
+  if (extra.count === 0) return base;
+  const capacity = base.count + extra.count;
+  const merged = { lines: new Float64Array(capacity), starts: new Float64Array(capacity), ends: new Float64Array(capacity) };
+  let count = 0;
+  let nextBase = 0;
+  let nextExtra = 0;
+  while (nextBase < base.count || nextExtra < extra.count) {
+    const takesBase = nextExtra >= extra.count || (nextBase < base.count && isPieceBefore(base, nextBase, extra, nextExtra));
+    const source = takesBase ? base : extra;
+    const piece = takesBase ? nextBase : nextExtra;
+    if (takesBase) nextBase += 1;
+    if (!takesBase) nextExtra += 1;
+    const line = source.lines[piece] ?? 0;
+    const start = source.starts[piece] ?? 0;
+    const end = source.ends[piece] ?? 0;
+    const last = count - 1;
+    if (count > 0 && merged.lines[last] === line && start <= (merged.ends[last] ?? 0)) {
+      merged.ends[last] = Math.max(merged.ends[last] ?? 0, end);
+      continue;
+    }
+    merged.lines[count] = line;
+    merged.starts[count] = start;
+    merged.ends[count] = end;
+    count += 1;
+  }
+  return { count, lines: merged.lines.subarray(0, count), starts: merged.starts.subarray(0, count), ends: merged.ends.subarray(0, count) };
 }
 
 function mergedPieces(pieces: Pieces): MergedPieces {
@@ -674,16 +808,61 @@ function grownNodes(graph: VisibilityGraph, nodes: NodeStore): NodeStore {
   return grown;
 }
 
-function buildVisibilityGraph(input: GraphInput): VisibilityGraph | null {
-  const frame = frameOf(input);
+function preparedFor(input: ObstacleInput, ports: readonly GraphPort[]): PreparedObstacles | null {
+  const frame = frameOf(input, ports);
   if (!frame) return null;
-  const built = buildPieces(input, frame, blockingRectsOf(input.hardRects));
-  const horizontal = mergedPieces(built.horizontal);
-  const vertical = mergedPieces(built.vertical);
+  const blockers = blockingRectsOf(input.hardRects);
+  const corners = cornerTableOf(input, frame);
+  fillCornerRows(corners, Array.from({ length: corners.count }, (_, corner) => corner), blockers, frame);
+  return preparedOf(input, frame, blockers, corners);
+}
+
+function preparedOf(input: ObstacleInput, frame: Frame, blockers: FlatRects, corners: CornerTable): PreparedObstacles {
+  const pieces = piecesOfTable(corners, frame, blockers);
+  return { input, frame, blockers, corners, horizontal: mergedPieces(pieces.horizontal), vertical: mergedPieces(pieces.vertical), softAlongX: softIndexOf(input.softRects, true), softAlongY: softIndexOf(input.softRects, false) };
+}
+
+function updatedObstacles(previous: PreparedObstacles, input: ObstacleInput, changedRects: readonly Rect[]): PreparedObstacles | null {
+  const frame = frameOf(input, []);
+  if (!frame || !isSameFrame(frame, previous.frame) || input.contentTop !== previous.input.contentTop || changedRects.length > MAX_CHANGED_RECTS_FOR_UPDATE) return prepareObstacles(input);
+  const regions = blockingRectsOf(changedRects.map((rect) => ({ x: rect.x - CHANGE_REACH, y: rect.y - CHANGE_REACH, width: rect.width + CHANGE_REACH * 2, height: rect.height + CHANGE_REACH * 2 })));
+  const reusableRowByKey = new Map<string, number>();
+  for (let corner = 0; corner < previous.corners.count; corner += 1) {
+    if (!isRowTouching(previous.corners, corner, regions)) reusableRowByKey.set(cornerKeyOf(previous.corners, corner), corner);
+  }
+  const corners = cornerTableOf(input, frame);
+  const stale: number[] = [];
+  for (let corner = 0; corner < corners.count; corner += 1) {
+    const reusable = reusableRowByKey.get(cornerKeyOf(corners, corner));
+    if (reusable === undefined) {
+      stale.push(corner);
+      continue;
+    }
+    corners.rows.set(previous.corners.rows.subarray(reusable * CORNER_ROW_SIZE, (reusable + 1) * CORNER_ROW_SIZE), corner * CORNER_ROW_SIZE);
+  }
+  const blockers = blockingRectsOf(input.hardRects);
+  fillCornerRows(corners, stale, blockers, frame);
+  return preparedOf(input, frame, blockers, corners);
+}
+
+function prepareObstacles(input: ObstacleInput): PreparedObstacles | null {
+  return preparedFor(input, []);
+}
+
+function isSameFrame(first: Frame, second: Frame): boolean {
+  return first.left === second.left && first.top === second.top && first.right === second.right && first.bottom === second.bottom;
+}
+
+function buildGraphOn(givenPrepared: PreparedObstacles, ports: readonly GraphPort[]): VisibilityGraph | null {
+  const portFrame = frameOf(givenPrepared.input, ports);
+  const prepared = portFrame && !isSameFrame(portFrame, givenPrepared.frame) ? preparedFor(givenPrepared.input, ports) : givenPrepared;
+  if (!prepared) return null;
+  const { softAlongX, softAlongY } = prepared;
+  const portPieces = portPiecesOf(prepared, ports);
+  const horizontal = mergedTogether(prepared.horizontal, mergedPieces(portPieces.horizontal));
+  const vertical = mergedTogether(prepared.vertical, mergedPieces(portPieces.vertical));
   const verticalIndex = lineIndexOf(vertical, distinctLinesOf(horizontal));
   const horizontalIndex = lineIndexOf(horizontal, distinctLinesOf(vertical));
-  const softAlongX = softIndexOf(input.softRects, true);
-  const softAlongY = softIndexOf(input.softRects, false);
   const componentOfPiece = pieceComponents(horizontal, vertical);
   const nodeByPieces = new Map<number, number>();
   let nodes = emptyNodeStore(INITIAL_NODE_CAPACITY);
@@ -761,5 +940,5 @@ function buildVisibilityGraph(input: GraphInput): VisibilityGraph | null {
   return graph;
 }
 
-export { buildVisibilityGraph, CLEARANCE };
-export type { VisibilityGraph };
+export { buildGraphOn, CLEARANCE, prepareObstacles, updatedObstacles };
+export type { GraphPort, PreparedObstacles, VisibilityGraph };

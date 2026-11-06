@@ -83,7 +83,7 @@ interface LayoutReply {
 }
 
 interface BoardRenderer {
-  render(board: Board): void;
+  render(board: Board, hasLocalEdits?: boolean): void;
   paintElements(elements: readonly LaidOutElement[]): void;
   setView(view: WorldArea): void;
   layout(): BoardLayout | null;
@@ -144,6 +144,7 @@ export function createBoardRenderer(svg: SVGSVGElement, mediaLayer: BoardMediaLa
   let queuedBoard: Board | null = null;
   let shownBoardId: string | null = null;
   let hasWorkerLayoutOfShownBoard = false;
+  let latestRenderedVersion = -1;
   let previewById = new Map<string, LaidOutElement>();
   let selectedIds: ReadonlySet<string> = new Set();
   let reviewMarks = NO_REVIEW_MARKS;
@@ -311,17 +312,18 @@ export function createBoardRenderer(svg: SVGSVGElement, mediaLayer: BoardMediaLa
 
   function seedFromServer(board: Board): void {
     void options.requestServerLayout(board.id).then((laidOut) => {
-      if (!laidOut || shownBoardId !== board.id || hasWorkerLayoutOfShownBoard || laidOut.version !== board.version) return;
+      if (!laidOut || shownBoardId !== board.id || hasWorkerLayoutOfShownBoard || laidOut.version !== latestRenderedVersion) return;
       paintLayout(laidOut.layout);
     });
   }
 
-  function render(board: Board): void {
+  function render(board: Board, hasLocalEdits = false): void {
     if (board.id !== shownBoardId) {
       shownBoardId = board.id;
       hasWorkerLayoutOfShownBoard = false;
-      seedFromServer(board);
     }
+    latestRenderedVersion = hasLocalEdits ? -1 : board.version;
+    if (!hasWorkerLayoutOfShownBoard && !hasLocalEdits) seedFromServer(board);
     queuedBoard = board;
     postQueuedBoard();
   }
