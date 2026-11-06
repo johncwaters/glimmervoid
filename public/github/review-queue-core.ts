@@ -357,11 +357,12 @@ export function combinedPollingStatus(statuses: readonly (GithubPollingStatus | 
 }
 
 export type ReviewDetailKeyAction = 'next-finding' | 'previous-finding' | 'toggle-finding' | 'open-session' | 'pick-approve' | 'pick-request-changes' | 'pick-comment' | 'post' | 'cancel';
-export type ReviewKeyAction = 'next-row' | 'previous-row' | 'toggle-pulled' | ReviewDetailKeyAction;
+export type ReviewKeyAction = 'next-row' | 'previous-row' | 'next-column' | 'previous-column' | 'toggle-pulled' | ReviewDetailKeyAction;
 
 const REVIEW_LETTER_ACTIONS: ReadonlyMap<string, ReviewKeyAction> = new Map([
   ['j', 'next-row'], ['k', 'previous-row'], ['n', 'next-finding'], ['p', 'previous-finding'], ['x', 'toggle-finding'], ['o', 'open-session'],
   ['a', 'pick-approve'], ['r', 'pick-request-changes'], ['c', 'pick-comment'], ['m', 'toggle-pulled'],
+  ['h', 'previous-column'], ['l', 'next-column'], ['ArrowLeft', 'previous-column'], ['ArrowRight', 'next-column'],
 ]);
 
 interface ReviewKeyEvent { key: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean }
@@ -372,6 +373,16 @@ export function reviewKeyActionOf(event: ReviewKeyEvent): ReviewKeyAction | null
   if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return null;
   if (event.key === 'Escape') return 'cancel';
   return REVIEW_LETTER_ACTIONS.get(event.key) ?? null;
+}
+
+export function steppedColumnKey(columnRowKeys: readonly (readonly string[])[], selectedKey: string | null, step: 1 | -1): string | null {
+  const filledColumns = columnRowKeys.filter((rowKeys) => rowKeys.length > 0);
+  if (filledColumns.length === 0) return null;
+  const columnIndex = filledColumns.findIndex((rowKeys) => selectedKey !== null && rowKeys.includes(selectedKey));
+  if (columnIndex === -1) return filledColumns[0][0];
+  const rowIndex = filledColumns[columnIndex].indexOf(selectedKey ?? '');
+  const targetColumn = filledColumns[Math.min(filledColumns.length - 1, Math.max(0, columnIndex + step))];
+  return targetColumn[Math.min(rowIndex, targetColumn.length - 1)];
 }
 
 export function steppedRowKey(rowKeys: readonly string[], selectedKey: string | null, step: 1 | -1): string | null {
