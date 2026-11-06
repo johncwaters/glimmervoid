@@ -232,6 +232,10 @@
     {
       "name": "server",
       "definition": "The Glimmervoid Node.js background process on the operator's machine that supervises sessions, serves the dashboard and hosts the job inbox"
+    },
+    {
+      "name": "watchee",
+      "definition": "One lane's watching half on the watcher: detects external events on its trigger and delivers a job of its own kind, which a paired server handler acts on"
     }
   ]
 }

@@ -19,7 +19,7 @@ const NO_OP_INBOX = { attach: () => {}, startWatcher: () => {} };
 
 function createJobInbox({ watcherConfig, handlers, log = console }: {
   watcherConfig: Config['watcher'];
-  handlers?: WatcherJobHandlers;
+  handlers: WatcherJobHandlers;
   log?: Pick<Console, 'log' | 'warn'>;
 }): JobInbox {
   const envToken = watcherConfig?.token ?? null;

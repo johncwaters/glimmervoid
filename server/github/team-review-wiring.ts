@@ -1,6 +1,7 @@
 import type { GithubLaneStore } from './github-store-wiring.ts';
 import { githubStoreRateLimitedError } from './github-store-poller.ts';
 import { TeamReviewStateEntry, TeamReviewStatus } from '../../shared/contracts/team-review.ts';
+import type { TeamReviewCandidatesPayload } from '../../shared/contracts/team-review-candidates.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { HookRouter } from '../../detection/hook-source.ts';
@@ -152,6 +153,7 @@ function createTeamReviewWiring({
     return review;
   }
 
+  let latestCandidates: TeamReviewCandidatesPayload | null = null;
   const runner = createLaneRunner<TeamReviewPoller>({
     tag: core.TEAM_REVIEW_LANE_ID,
     gate: () => teamReviewShouldStart(config),
@@ -160,7 +162,7 @@ function createTeamReviewWiring({
     broadcast,
     createPoller: ({ onTickComplete }) => {
       const settings = core.readTeamReviewSettings(config);
-      return createPoller({
+      const createdPoller = createPoller({
         org: settings.org,
         teams: settings.teams,
         reReviewAfterMs: settings.reReviewAfterHours * 60 * 60 * 1000,
@@ -186,6 +188,8 @@ function createTeamReviewWiring({
         clock,
         firstTickDelayMs: bootStaggerDelay,
       });
+      if (latestCandidates !== null) createdPoller.acceptCandidates(latestCandidates);
+      return createdPoller;
     },
   });
 
@@ -234,6 +238,12 @@ function createTeamReviewWiring({
     const poller = runner.getPoller();
     if (!poller) return { ok: false as const, error: 'team review is off, and the operator turns it on in the dashboard settings' };
     return poller.requestReview(reference);
+  }
+
+  async function acceptCandidates(job: { payload: TeamReviewCandidatesPayload }): Promise<void> {
+    if (latestCandidates !== null && Date.parse(job.payload.observedAt) < Date.parse(latestCandidates.observedAt)) return;
+    latestCandidates = job.payload;
+    runner.getPoller()?.acceptCandidates(job.payload);
   }
 
   async function markNotMineForPoller(key: string): Promise<NotMineOutcome> {
@@ -300,6 +310,7 @@ function createTeamReviewWiring({
   });
 
   return {
+    acceptCandidates,
     startPoller: runner.startPoller,
     stopPoller,
     restartIfConfigChanged: runner.restartIfConfigChanged,

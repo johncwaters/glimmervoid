@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { TeamReviewCandidatesPayload } from './team-review-candidates.ts';
 
 const WATCHER_JOB_VERSION = 1;
 export const WATCHER_JOB_MAX_BYTES = 1024 * 1024;
@@ -6,9 +7,12 @@ export const WATCHER_JOBS_PATH = '/jobs';
 
 export const WATCHER_JOB_KINDS = Object.freeze({
   ping: z.object({}).strict(),
+  'team-review.candidates': TeamReviewCandidatesPayload,
 });
 
 export type WatcherJobKind = keyof typeof WATCHER_JOB_KINDS;
+export type WatcheeJobKind = Exclude<WatcherJobKind, 'ping'>;
+export type WatcherJobPayload<Kind extends WatcherJobKind> = z.infer<(typeof WATCHER_JOB_KINDS)[Kind]>;
 
 export const WatcherJobEnvelope = z.object({
   version: z.literal(WATCHER_JOB_VERSION),

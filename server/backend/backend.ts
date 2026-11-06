@@ -70,6 +70,8 @@ import { createHostLinksWiring } from '../hosts/host-links-wiring.ts';
 import type { SpawnHostTunnel } from '../hosts/host-links-wiring.ts';
 import type { WebSocket } from 'ws';
 import { createJobInbox } from '../../cloud/inbox/job-inbox-wiring.ts';
+import { withBuiltInJobHandlers } from '../../cloud/inbox/watchee-handlers.ts';
+import { syncWatcheeSettings } from '../../cloud/inbox/watchee-settings-sync.ts';
 
 interface CreateBackendOptions extends BackendLaneOptions {
   staticDir?: string | null;
@@ -506,6 +508,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     }
     notifications.applySettings();
     laneAssembly.restartServiceLanes();
+    void syncWatcheeSettings(config);
   }
 
   function downloadUpdateOnceListening() {
@@ -616,7 +619,11 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     dataWss,
   });
   const lifecycleServers: Server[] = [agentIngressServer];
-  const jobInbox = createJobInbox({ watcherConfig: config.watcher });
+  const jobInbox = createJobInbox({
+    watcherConfig: config.watcher,
+    handlers: withBuiltInJobHandlers({ 'team-review.candidates': laneAssembly.teamReview.acceptCandidates }),
+  });
+  void syncWatcheeSettings(config);
   const { requestShutdown, requestRestart } = createLifecycle({
     shutdown,
     httpServer,

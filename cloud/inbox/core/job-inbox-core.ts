@@ -1,7 +1,7 @@
 import { decideBindHost } from '../../../server/core/remote-config.ts';
 import { tokensMatch } from '../../../server/core/agent-api-core.ts';
 import { WATCHER_JOB_KINDS, WatcherJobEnvelope, isWatcherJobKind } from '../../../shared/contracts/watcher-jobs.ts';
-import type { ParsedWatcherJob } from '../../../shared/contracts/watcher-jobs.ts';
+import type { ParsedWatcherJob, WatcherJobKind } from '../../../shared/contracts/watcher-jobs.ts';
 
 const BEARER_PREFIX = 'Bearer ';
 const ANY_FREE_PORT = 0;
@@ -38,9 +38,22 @@ function parseWatcherJob(body: unknown): { ok: true; job: ParsedWatcherJob } | {
   if (!envelope.success) return { ok: false, reason: 'the job envelope is malformed' };
   const { jobId, kind, payload } = envelope.data;
   if (!isWatcherJobKind(kind)) return { ok: false, reason: `unknown job kind ${kind}` };
-  const parsedPayload = WATCHER_JOB_KINDS[kind].safeParse(payload);
-  if (!parsedPayload.success) return { ok: false, reason: `the ${kind} payload is malformed` };
-  return { ok: true, job: { jobId, kind, payload: parsedPayload.data } };
+  const job = parsedJobOfKind(jobId, kind, payload);
+  if (job === null) return { ok: false, reason: `the ${kind} payload is malformed` };
+  return { ok: true, job };
+}
+
+function parsedJobOfKind(jobId: string, kind: WatcherJobKind, payload: unknown): ParsedWatcherJob | null {
+  switch (kind) {
+    case 'ping': {
+      const parsed = WATCHER_JOB_KINDS.ping.safeParse(payload);
+      return parsed.success ? { jobId, kind, payload: parsed.data } : null;
+    }
+    case 'team-review.candidates': {
+      const parsed = WATCHER_JOB_KINDS['team-review.candidates'].safeParse(payload);
+      return parsed.success ? { jobId, kind, payload: parsed.data } : null;
+    }
+  }
 }
 
 function createRecentJobIds(capacity: number): { hasSeen(jobId: string): boolean; remember(jobId: string): void } {

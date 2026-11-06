@@ -100,7 +100,6 @@ interface TeamReviewPollerContext {
   progressByKey: Map<string, InFlightReview>;
   reviewCancellersByKey: Map<string, AbortController>;
   notMineWhileReviewingKeys: Set<string>;
-  watches: Map<string, { qualifiers: string; source: 'direct' | 'team' | 'authored' }>;
   loop: ReturnType<typeof createTickLoop>;
   persist: () => Promise<void>;
 }

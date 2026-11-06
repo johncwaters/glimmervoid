@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 import { sendJob } from './job-inbox-client.ts';
 import { createPingJob, parseInboxUrl } from './core/watcher-core.ts';
+import { createWatcheeRunner } from './watchee-runner.ts';
+import { watcherHomeDir } from './watchee-settings.ts';
 
 const WATCHER_TOKEN_ENV = 'GLIMMERVOID_WATCHER_TOKEN';
 const PING_DELIVERY_ATTEMPTS = 3;
@@ -49,7 +51,10 @@ async function runWatchCli({ inboxUrl, isPingOnly }: { inboxUrl: string | null; 
   }
   if (delivery.ok) console.log(`ping acked by ${inbox.jobsUrl} in ${Date.now() - startedAtMs} ms`);
   if (isPingOnly) return 0;
+  const watcheeRunner = createWatcheeRunner({ watcherHome: watcherHomeDir(), jobsUrl: inbox.jobsUrl, token });
+  await watcheeRunner.start();
   await untilStopSignal(supervisorLeft);
+  await watcheeRunner.stop();
   return 0;
 }
 

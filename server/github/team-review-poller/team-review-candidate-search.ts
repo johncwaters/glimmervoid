@@ -6,8 +6,13 @@ import type { TeamReviewCandidate } from '../core/team-review-core.ts';
 import { ASKED_FOR_WATCH_OWNER } from './team-review-poller-context.ts';
 import type { TeamReviewPollerContext } from './team-review-poller-context.ts';
 
+function newerPr(watchedPr: GithubPr, heldPr: GithubPr | undefined): GithubPr {
+  if (heldPr === undefined || Date.parse(heldPr.updatedAt) <= Date.parse(watchedPr.updatedAt)) return watchedPr;
+  return heldPr;
+}
+
 function createTeamReviewCandidateSearch(context: TeamReviewPollerContext) {
-  const { org, teams, store, discardResumable, now, skipIdleAfterMs, runtime, watches, loop } = context;
+  const { teams, store, discardResumable, now, skipIdleAfterMs, runtime } = context;
 
   function closedEntryKeys(): Set<string> {
     const prs = store.getSnapshot().prs;
@@ -41,72 +46,6 @@ function createTeamReviewCandidateSearch(context: TeamReviewPollerContext) {
     return isDirty;
   }
 
-  async function searchCandidates(): Promise<TeamReviewCandidatesPayload | null> {
-    if (!org) {
-      unregisterWatches();
-      return null;
-    }
-    const viewer = await requestSelf();
-    if (viewer === null) return null;
-    const membership = teams.length === 0 ? { memberLists: [], isComplete: true } : await requestTeamMembership();
-    if (membership === null || loop.isStopped()) return null;
-    registerWatches(core.orgSearchPlans(org, teams, membership.memberLists, viewer));
-    const searched = searchResultFromSnapshot(viewer);
-    return { ...searched, isComplete: membership.isComplete && searched.isComplete };
-  }
-
-  async function requestSelf(): Promise<string | null> {
-    if (runtime.self !== null) return runtime.self;
-    const viewerRead = await store.requestViewer('no-wait');
-    if (viewerRead.isRateLimited) { runtime.tickRateLimitWaitMs = viewerRead.waitMs; return null; }
-    runtime.self = viewerRead.value;
-    return runtime.self;
-  }
-
-  async function requestTeamMembership(): Promise<{ memberLists: string[][]; isComplete: boolean } | null> {
-    const [firstTeam] = teams;
-    if (firstTeam && runtime.teamProfile === null) {
-      const profileRead = await store.requestTeamProfile(firstTeam.org, firstTeam.slug, 'no-wait');
-      if (profileRead.isRateLimited) { runtime.tickRateLimitWaitMs = profileRead.waitMs; return null; }
-      runtime.teamProfile = profileRead.value;
-    }
-    const memberLists: (string[] | null)[] = [];
-    for (const team of teams) {
-      const membersRead = await store.requestTeamMembers(team.org, team.slug, 'no-wait');
-      if (membersRead.isRateLimited) { runtime.tickRateLimitWaitMs = membersRead.waitMs; return null; }
-      memberLists.push(membersRead.value);
-    }
-    const isComplete = memberLists.every((members) => members !== null);
-    const fetchedMemberLists = memberLists.map((members) => members ?? []);
-    if (fetchedMemberLists.every((members) => members.length === 0)) {
-      if (isComplete) unregisterWatches();
-      return null;
-    }
-    return { memberLists: fetchedMemberLists, isComplete };
-  }
-
-  function registerWatches(searchPlans: ReturnType<typeof core.orgSearchPlans>): void {
-    const nextWatches = new Map<string, { qualifiers: string; source: 'direct' | 'team' | 'authored' }>();
-    for (const plan of searchPlans) {
-      nextWatches.set(`team-review-direct:${plan.org.toLowerCase()}`, { qualifiers: `is:open draft:false org:${plan.org} user-review-requested:@me`, source: 'direct' });
-      for (let index = 0; index < plan.authors.length; index += 5) {
-        const authors = plan.authors.slice(index, index + 5).map((author) => `author:${author}`).join(' ');
-        nextWatches.set(`team-review-authored:${plan.org.toLowerCase()}:${index / 5}`, { qualifiers: `is:open draft:false org:${plan.org} ${authors}`, source: 'authored' });
-      }
-    }
-    for (const team of teams) {
-      nextWatches.set(`team-review-team:${team.org.toLowerCase()}/${team.slug.toLowerCase()}`, { qualifiers: `is:open draft:false org:${team.org} team-review-requested:${team.org}/${team.slug}`, source: 'team' });
-    }
-    for (const name of watches.keys()) {
-      if (!nextWatches.has(name)) store.unregisterWatch(name);
-    }
-    for (const [name, watch] of nextWatches) {
-      if (watches.get(name)?.qualifiers !== watch.qualifiers) store.registerWatch({ name, qualifiers: watch.qualifiers, needsDetail: true });
-    }
-    watches.clear();
-    for (const [name, watch] of nextWatches) watches.set(name, watch);
-  }
-
   function askedForKeys(): string[] {
     return Object.keys(runtime.state).filter((key) => runtime.state[key]?.requestedAt !== undefined);
   }
@@ -123,25 +62,6 @@ function createTeamReviewCandidateSearch(context: TeamReviewPollerContext) {
     store.setWatchedKeys(ASKED_FOR_WATCH_OWNER, askedForKeys());
   }
 
-  function searchResultFromSnapshot(viewer: string): TeamReviewCandidatesPayload {
-    const snapshot = store.getSnapshot();
-    const prsBySource: Record<'direct' | 'team' | 'authored', GithubPr[]> = { direct: [], team: [], authored: [] };
-    let isComplete = true;
-    for (const [name, { source }] of watches) {
-      const watch = snapshot.watches[name];
-      if (!watch?.isLoaded || !watch.isComplete) isComplete = false;
-      for (const key of watch?.keys ?? []) {
-        const pr = snapshot.prs[key];
-        if (!pr) {
-          isComplete = false;
-          continue;
-        }
-        prsBySource[source].push(pr);
-      }
-    }
-    return { viewer, isComplete, directRequested: prsBySource.direct, teamRequested: prsBySource.team, authored: prsBySource.authored };
-  }
-
   function candidatesFrom(searched: TeamReviewCandidatesPayload): { candidates: TeamReviewCandidate[]; prsByKey: Map<string, GithubPr>; isComplete: boolean } {
     const snapshot = store.getSnapshot();
     let isAskedForComplete = true;
@@ -153,20 +73,32 @@ function createTeamReviewCandidateSearch(context: TeamReviewPollerContext) {
       return [];
     });
     const prsByKey = new Map<string, GithubPr>();
-    for (const pr of [...askedFor, ...searched.directRequested, ...searched.teamRequested, ...searched.authored]) prsByKey.set(comparablePrKey(pr), pr);
+    for (const pr of [...askedFor, ...searched.directRequested, ...searched.teamRequested, ...searched.authored]) {
+      const key = comparablePrKey(pr);
+      prsByKey.set(key, newerPr(pr, snapshot.prs[key]));
+    }
     const selected = core.selectCandidates(searched.directRequested, searched.teamRequested, searched.authored, { self: searched.viewer, nowMs: now(), skipIdleAfterMs, askedFor });
     runtime.teamCandidateKeys = selected.teamCandidateKeys;
     return { candidates: selected.candidates, prsByKey, isComplete: searched.isComplete && isAskedForComplete };
   }
 
+  async function requestTeamProfile(): Promise<void> {
+    const [firstTeam] = teams;
+    if (!firstTeam || runtime.teamProfile !== null) return;
+    const profileRead = await store.requestTeamProfile(firstTeam.org, firstTeam.slug, 'no-wait');
+    if (profileRead.isRateLimited) {
+      runtime.tickRateLimitWaitMs = profileRead.waitMs;
+      return;
+    }
+    runtime.teamProfile = profileRead.value;
+  }
+
   function unregisterWatches(): void {
-    for (const name of watches.keys()) store.unregisterWatch(name);
-    watches.clear();
     store.setWatchedKeys('team-review-departed', []);
     store.setWatchedKeys(ASKED_FOR_WATCH_OWNER, []);
   }
 
-  return { closedEntryKeys, pruneDeparted, searchCandidates, searchResultFromSnapshot, candidatesFrom, isTeamCandidate, askedForSlotsInUse, watchAskedFor, unregisterWatches };
+  return { closedEntryKeys, pruneDeparted, candidatesFrom, requestTeamProfile, isTeamCandidate, askedForSlotsInUse, watchAskedFor, unregisterWatches };
 }
 
 type TeamReviewCandidateSearch = ReturnType<typeof createTeamReviewCandidateSearch>;

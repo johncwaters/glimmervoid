@@ -2,7 +2,9 @@ import type { ChildProcess } from 'node:child_process';
 import { spawn } from '../../server/child-process-safe.ts';
 import { cliPath } from '../../server/runtime-paths.ts';
 import { stableNodePath } from '../../server/stable-node-path.ts';
+import { WATCHER_HOME_ENV } from '../../shared/contracts/watchee-settings.ts';
 import { nextCrashCount, restartDelayMs } from './core/watcher-core.ts';
+import { watcherHomeDir } from './watchee-settings.ts';
 
 const MS_PER_SECOND = 1000;
 
@@ -30,7 +32,7 @@ function createWatcherSupervisor({ inboxUrl, token, log = console }: {
     try {
       return spawn(stableNodePath, [cliPath, 'watch', '--inbox', inboxUrl], {
         stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
-        env: { ...process.env, GLIMMERVOID_WATCHER_TOKEN: token },
+        env: { ...process.env, GLIMMERVOID_WATCHER_TOKEN: token, [WATCHER_HOME_ENV]: watcherHomeDir() },
       });
     } catch (spawnError) {
       return spawnError instanceof Error ? spawnError : new Error(String(spawnError));

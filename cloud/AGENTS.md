@@ -13,7 +13,12 @@ The Glimmervoid Cloud split: an always-on watcher process and the job inbox it d
 | `watcher/job-inbox-client.ts` | Delivers one job, retrying with the same jobId |
 | `watcher/watcher-supervisor.ts` | Runs `glimmervoid watch` as an IPC child of the server, restarting it with backoff |
 | `watcher/watch-cli.ts` | `glimmervoid watch`: no sessions, PTYs or dashboard |
-| `shared/contracts/watcher-jobs.ts` | The job envelope and the per-kind payload registry every lane registers into |
+| `inbox/watchee-handlers.ts`, `inbox/watchee-settings-sync.ts` | Server half of a watchee: the handler per job kind; writes `watchees.json` on boot and on every settings save |
+| `watchees/watchee.ts`, `watchees/registry.ts` | The watchee shape and the registry keyed by job kind |
+| `watchees/<lane>/` | One lane's watching code; `team-review/` is the first |
+| `watcher/watchee-runner.ts`, `watcher/core/watchee-runner-core.ts` | Runs each gated watchee on its trigger, derives jobIds, keeps `sent-events.json` |
+| `watcher/watchee-settings.ts` | The watcher home and the atomic `watchees.json` read and write |
+| `shared/contracts/watcher-jobs.ts`, `shared/contracts/watchee-settings.ts` | The job envelope, the per-kind payload registry every lane registers into, and the watchee settings file |
 
 ## Invariants
 
@@ -26,3 +31,9 @@ The Glimmervoid Cloud split: an always-on watcher process and the job inbox it d
 - A lane adds a job kind only by registering a Zod payload schema in `WATCHER_JOB_KINDS`, so the inbox refuses anything a lane has not declared.
 - The auto-started watcher is an IPC child that exits on disconnect, so no server exit path, including SIGKILL, leaves it orphaned.
 - One writer per state file: the watcher owns external-world state, the server owns sessions and config, and the two never share a Glimmervoid home.
+
+### Watchees
+
+- A lane on the watcher is a pair keyed by job kind: a `Watchee` in `watchees/registry.ts` and a handler in `withBuiltInJobHandlers`; both are mapped types over `WATCHER_JOB_KINDS`, so a kind missing either half fails typecheck.
+- A watchee only detects and delivers; planning, drafts and spawning stay on the server. A boundary gate pins its imports.
+- A watchee re-sends its whole level every interval (jobId from interval start plus a payload hash): a restarted server recovers without a resync protocol, and the server drops a payload older than the last one it accepted.

@@ -8,10 +8,6 @@ const RECENT_JOB_ID_CAPACITY = 1000;
 
 type WatcherJobHandlers = { [Kind in WatcherJobKind]: (job: Extract<ParsedWatcherJob, { kind: Kind }>) => Promise<void> };
 
-const BUILT_IN_JOB_HANDLERS: WatcherJobHandlers = Object.freeze({
-  ping: async () => {},
-});
-
 const OVERSIZED_BODY_MESSAGE = 'the job is over 1 MiB';
 
 function isOversizedBodyError(error: unknown): boolean {
@@ -53,12 +49,13 @@ function parseJsonBody(text: string): unknown {
 function runJob(handlers: WatcherJobHandlers, job: ParsedWatcherJob): Promise<void> {
   switch (job.kind) {
     case 'ping': return handlers.ping(job);
+    case 'team-review.candidates': return handlers['team-review.candidates'](job);
   }
 }
 
-function createJobInboxRequestHandler({ token, handlers = BUILT_IN_JOB_HANDLERS, log = console }: {
+function createJobInboxRequestHandler({ token, handlers, log = console }: {
   token: string;
-  handlers?: WatcherJobHandlers;
+  handlers: WatcherJobHandlers;
   log?: Pick<Console, 'warn'>;
 }): (request: IncomingMessage, response: ServerResponse) => void {
   const recentJobIds = createRecentJobIds(RECENT_JOB_ID_CAPACITY);

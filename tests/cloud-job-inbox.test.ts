@@ -10,6 +10,7 @@ import { promisify } from 'node:util';
 
 import { createJobInboxRequestHandler } from '../cloud/inbox/job-inbox-listener.ts';
 import { createJobInbox } from '../cloud/inbox/job-inbox-wiring.ts';
+import { withBuiltInJobHandlers } from '../cloud/inbox/watchee-handlers.ts';
 import { loadConfigFile } from '../server/config/config-file.ts';
 import { WATCHER_JOBS_PATH } from '../shared/contracts/watcher-jobs.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
@@ -18,6 +19,7 @@ const WATCHER_TOKEN = 'a-watcher-token-only-this-test-knows';
 const CLI_PATH = path.join(import.meta.dirname, '..', 'bin', 'glimmervoid.ts');
 const runFile = promisify(execFile);
 const QUIET_LOG = { log: () => {}, warn: () => {} };
+const IGNORING_HANDLERS = withBuiltInJobHandlers({ 'team-review.candidates': async () => {} });
 
 function pingJob(jobId: string = crypto.randomUUID()) {
   return { version: 1, jobId, sentAt: new Date().toISOString(), kind: 'ping', payload: {} };
@@ -31,7 +33,7 @@ async function postJob(port: number, body: unknown, authorization: string | null
 }
 
 test('the job inbox acks a ping once, dedupes its retry, and refuses a wrong token or a malformed job', async () => {
-  const inbox = createJobInbox({ watcherConfig: { autoStart: false, inboxPort: 1, token: WATCHER_TOKEN }, log: QUIET_LOG });
+  const inbox = createJobInbox({ watcherConfig: { autoStart: false, inboxPort: 1, token: WATCHER_TOKEN }, handlers: IGNORING_HANDLERS, log: QUIET_LOG });
   assert.equal(inbox.decision.listen, true);
   const server = http.createServer();
   inbox.attach(server);
@@ -56,7 +58,7 @@ test('a retry of a job still running is told to retry, and a job that failed is 
   const server = http.createServer(createJobInboxRequestHandler({
     token: WATCHER_TOKEN,
     log: QUIET_LOG,
-    handlers: { ping: async () => { handlerRuns += 1; await new Promise((resolve) => setTimeout(resolve, 100)); throw new Error('the ping failed'); } },
+    handlers: { ...IGNORING_HANDLERS, ping: async () => { handlerRuns += 1; await new Promise((resolve) => setTimeout(resolve, 100)); throw new Error('the ping failed'); } },
   }));
   const port = await listenOnLoopback(server);
   try {
@@ -78,26 +80,26 @@ test('a watcher token written in config.json never opens a non-loopback inbox', 
     const configPath = path.join(configDirectory, 'config.json');
     fs.writeFileSync(configPath, JSON.stringify({ projects: [], watcher: { inboxHost: '0.0.0.0', inboxPort: 7700, token: 'written-in-the-file' } }));
     const { config } = loadConfigFile(configPath, { envSecrets: [] });
-    assert.equal(createJobInbox({ watcherConfig: config.watcher, log: QUIET_LOG }).decision.listen, false);
+    assert.equal(createJobInbox({ watcherConfig: config.watcher, handlers: IGNORING_HANDLERS, log: QUIET_LOG }).decision.listen, false);
   } finally {
     fs.rmSync(configDirectory, { recursive: true, force: true });
   }
 });
 
 test('a non-loopback inbox opens only with the environment token, never with the per-boot one', () => {
-  const withoutEnvToken = createJobInbox({ watcherConfig: { autoStart: true, inboxHost: '0.0.0.0', inboxPort: 7700 }, log: QUIET_LOG });
+  const withoutEnvToken = createJobInbox({ watcherConfig: { autoStart: true, inboxHost: '0.0.0.0', inboxPort: 7700 }, handlers: IGNORING_HANDLERS, log: QUIET_LOG });
   assert.equal(withoutEnvToken.decision.listen, false);
   assert.equal(withoutEnvToken.token, null);
 
-  const withEnvToken = createJobInbox({ watcherConfig: { autoStart: false, inboxHost: '0.0.0.0', inboxPort: 7700, token: WATCHER_TOKEN }, log: QUIET_LOG });
+  const withEnvToken = createJobInbox({ watcherConfig: { autoStart: false, inboxHost: '0.0.0.0', inboxPort: 7700, token: WATCHER_TOKEN }, handlers: IGNORING_HANDLERS, log: QUIET_LOG });
   assert.deepEqual(withEnvToken.decision, { listen: true, host: '0.0.0.0', port: 7700, tokenSource: 'env' });
   assert.equal(withEnvToken.token, WATCHER_TOKEN);
 
-  const localAutoStart = createJobInbox({ watcherConfig: {}, log: QUIET_LOG });
+  const localAutoStart = createJobInbox({ watcherConfig: {}, handlers: IGNORING_HANDLERS, log: QUIET_LOG });
   assert.deepEqual(localAutoStart.decision, { listen: true, host: '127.0.0.1', port: 0, tokenSource: 'per-boot' });
   assert.notEqual(localAutoStart.token, null);
 
-  const switchedOff = createJobInbox({ watcherConfig: { autoStart: false }, log: QUIET_LOG });
+  const switchedOff = createJobInbox({ watcherConfig: { autoStart: false }, handlers: IGNORING_HANDLERS, log: QUIET_LOG });
   assert.deepEqual(switchedOff.decision, { listen: false, reason: null });
 });
 
@@ -113,7 +115,7 @@ async function runWatchPing(port: number, watcherToken: string): Promise<{ exitC
 }
 
 test('glimmervoid watch --ping exits 0 on the inbox ack and 1 naming a refused token', async () => {
-  const inbox = createJobInbox({ watcherConfig: { inboxPort: 1, token: WATCHER_TOKEN }, log: QUIET_LOG });
+  const inbox = createJobInbox({ watcherConfig: { inboxPort: 1, token: WATCHER_TOKEN }, handlers: IGNORING_HANDLERS, log: QUIET_LOG });
   const server = http.createServer();
   inbox.attach(server);
   const port = await listenOnLoopback(server);
@@ -155,7 +157,7 @@ test('an auto-started watcher pings the inbox, is restarted after it dies, and s
   const supervisorLines: string[] = [];
   const inbox = createJobInbox({
     watcherConfig: {},
-    handlers: { ping: async () => { pingWaiters.shift()?.(); } },
+    handlers: { ...IGNORING_HANDLERS, ping: async () => { pingWaiters.shift()?.(); } },
     log: { log: (line: string) => supervisorLines.push(line), warn: (line: string) => supervisorLines.push(line) },
   });
   const server = http.createServer();
