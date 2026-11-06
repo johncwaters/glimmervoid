@@ -4,6 +4,10 @@ import { AgentSetup } from './agent-models.ts';
 const RACE_MIN_CONTESTANTS = 2;
 export const RACE_MAX_CONTESTANTS = 5;
 export const RACE_JUDGE_AGENT = 'claude-code';
+export const RACE_MAX_JUDGES = 3;
+export const RACE_CRITERIA = ['correctness', 'completeness', 'scope', 'quality'] as const;
+export const RaceCriterion = z.enum(RACE_CRITERIA);
+export type RaceCriterion = z.infer<typeof RaceCriterion>;
 
 export const GitObjectSha = z.string().regex(/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/);
 
@@ -24,18 +28,27 @@ export const RaceCheck = z.strictObject({
 });
 export type RaceCheck = z.infer<typeof RaceCheck>;
 
-export const RaceSpec = z.strictObject({
+export const RaceJudge = z.strictObject({ setup: AgentSetup });
+export type RaceJudge = z.infer<typeof RaceJudge>;
+
+function foldLegacyJudge(spec: unknown): unknown {
+  if (typeof spec !== 'object' || spec === null || !('judge' in spec) || 'judges' in spec) return spec;
+  const { judge, ...rest } = spec;
+  return { ...rest, judges: judge === null ? [] : [judge] };
+}
+
+export const RaceSpec = z.preprocess(foldLegacyJudge, z.strictObject({
   version: z.literal(1),
   title: z.string().trim().min(1).max(120),
   prompt: z.string().trim().min(1).max(20000),
   repoPath: z.string().trim().min(1),
   contestants: z.array(RaceContestant).min(RACE_MIN_CONTESTANTS).max(RACE_MAX_CONTESTANTS),
-  judge: z.strictObject({ setup: AgentSetup }).nullable(),
+  judges: z.array(RaceJudge).max(RACE_MAX_JUDGES).default([]),
   check: RaceCheck.nullable().default(null),
 }).refine((spec) => new Set(spec.contestants.map((contestant) => contestant.id)).size === spec.contestants.length, {
   error: 'contestant ids must be unique',
   path: ['contestants'],
-});
+}));
 export type RaceSpec = z.infer<typeof RaceSpec>;
 
 const RACE_PHASES = ['running', 'judging', 'judged'] as const;
@@ -56,7 +69,7 @@ export const CheckOutcome = z.strictObject({
 });
 export type CheckOutcome = z.infer<typeof CheckOutcome>;
 
-export const JudgeResult = z.strictObject({
+const JudgeResult = z.strictObject({
   ranking: z.array(z.strictObject({
     contestantId: RaceId,
     rank: z.number().int().min(1),
@@ -64,7 +77,45 @@ export const JudgeResult = z.strictObject({
   })).min(1),
   notes: z.record(RaceId, z.string().max(4000)),
 });
-export type JudgeResult = z.infer<typeof JudgeResult>;
+
+const CriterionVerdict = z.strictObject({
+  reason: z.string().trim().min(1).max(300),
+  pass: z.boolean(),
+});
+
+export const ContestantVerdict = z.strictObject({
+  criteria: z.record(RaceCriterion, CriterionVerdict),
+  tier: z.number().int().min(1),
+  notes: z.string().max(4000),
+});
+export type ContestantVerdict = z.infer<typeof ContestantVerdict>;
+
+export const JudgeVerdict = z.strictObject({
+  judge: z.strictObject({ agent: z.string().min(1), model: z.string().nullable(), label: z.string().max(60) }),
+  contestants: z.record(RaceId, ContestantVerdict),
+});
+export type JudgeVerdict = z.infer<typeof JudgeVerdict>;
+
+export const CriterionStanding = z.enum(['pass', 'fail', 'split']);
+export type CriterionStanding = z.infer<typeof CriterionStanding>;
+
+export const PanelStanding = z.strictObject({
+  contestantId: RaceId,
+  rank: z.number().int().min(1),
+  criteriaPassed: z.number().min(0).max(RACE_CRITERIA.length),
+  criteria: z.record(RaceCriterion, CriterionStanding),
+  meanTier: z.number().min(1),
+  summary: z.string().max(300),
+});
+export type PanelStanding = z.infer<typeof PanelStanding>;
+
+export const PanelResult = z.strictObject({
+  verdicts: z.array(JudgeVerdict),
+  failures: z.array(z.strictObject({ label: z.string().max(60), reason: z.string().max(400) })),
+  standing: z.array(PanelStanding),
+  firstPlaceAgreement: z.strictObject({ agreeing: z.number().int().min(0), judges: z.number().int().min(0) }),
+});
+export type PanelResult = z.infer<typeof PanelResult>;
 
 export const RaceRecord = z.strictObject({
   id: RaceId,
@@ -77,6 +128,7 @@ export const RaceRecord = z.strictObject({
   diffStatsByContestant: z.record(RaceId, DiffStats).default({}),
   checkByContestant: z.record(RaceId, CheckOutcome).default({}),
   judge: JudgeResult.nullable().default(null),
+  panel: PanelResult.nullable().default(null),
   judgeError: z.string().nullable().default(null),
   winnerContestantId: RaceId.nullable().default(null),
 });

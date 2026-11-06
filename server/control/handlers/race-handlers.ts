@@ -57,8 +57,9 @@ function createRaceHandlers(context: ControlContext, deps: ControlHandlerDeps, {
       reply({ ok: false, error: `"${unknownAgent.setup.agent}" cannot race: a contestant must be a coding agent` });
       return;
     }
-    if (spec.judge && spec.judge.setup.agent !== RACE_JUDGE_AGENT) {
-      reply({ ok: false, error: `"${spec.judge.setup.agent}" cannot judge: the judge runs on Claude Code` });
+    const unknownJudge = spec.judges.find((judge) => judge.setup.agent !== RACE_JUDGE_AGENT);
+    if (unknownJudge) {
+      reply({ ok: false, error: `"${unknownJudge.setup.agent}" cannot judge: a judge runs on Claude Code` });
       return;
     }
     const started = await races.start(spec, (contestant, race) => launchContestant(spec, contestant, race));

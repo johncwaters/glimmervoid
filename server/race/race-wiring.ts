@@ -3,18 +3,26 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 
 import type { AgentSetup } from '../../shared/contracts/agent-models.ts';
-import type { CheckOutcome, RaceCheck, RaceContestant, RaceRecord, RaceSpec } from '../../shared/contracts/race.ts';
-import { REMOVED_CONTESTANT, raceProgress } from '../../shared/race-core.ts';
+import type { CheckOutcome, JudgeVerdict, PanelResult, RaceCheck, RaceContestant, RaceJudge, RaceRecord, RaceSpec } from '../../shared/contracts/race.ts';
+import { REMOVED_CONTESTANT, raceProgress, winnerNotesOf } from '../../shared/race-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { readLaneResultFile } from '../lanes/lane-spawn.ts';
 import type { JudgeInput } from './core/race-core.ts';
-import { RACE_JUDGE_RESULT_FILENAME, judgeCheckFileName, judgeCheckoutDirName, judgeDiffFileName, judgeIdAt, judgePrompt, parseJudgeResult, unblindJudgeResult } from './core/race-core.ts';
+import { RACE_JUDGE_RESULT_FILENAME, judgeCheckFileName, judgeCheckoutDirName, judgeDiffFileName, judgeIdAt, judgeLabel, judgePrompt, panelStanding, parseJudgeVerdict, unblindVerdict } from './core/race-core.ts';
 import type { ContestantDiff } from './race-diff.ts';
 import type { RaceStore } from './race-store.ts';
 
 const SETTLE_CHECK_INTERVAL_MS = 15_000;
 const JUDGE_TIMEOUT_MS = 30 * 60 * 1000;
 const RACE_DIFF_MAX_CHARS = 200_000;
+
+interface ChangedContestant {
+  contestantId: string;
+  exportedCheckoutDir: string;
+  blindDiff: string;
+  blindStats: JudgeInput['stats'];
+  check: CheckOutcome | null;
+}
 
 type ContestantLaunch = (contestant: RaceContestant, race: { raceId: string; startSha: string }) => { ok: true; sessionId: string } | { ok: false; error: string };
 
@@ -107,7 +115,7 @@ function createRaceWiring({
     if (!startPoint) return { ok: false, error: `Could not find the integration branch of ${spec.repoPath}.` };
     const raceId = randomUUID();
     const sessionIdByContestant: Record<string, string> = {};
-    const savedBeforeLaunch = await saveRecord({ id: raceId, spec, ...startPoint, createdAt: now(), sessionIdByContestant, phase: 'running', diffStatsByContestant: {}, checkByContestant: {}, judge: null, judgeError: null, winnerContestantId: null });
+    const savedBeforeLaunch = await saveRecord({ id: raceId, spec, ...startPoint, createdAt: now(), sessionIdByContestant, phase: 'running', diffStatsByContestant: {}, checkByContestant: {}, judge: null, panel: null, judgeError: null, winnerContestantId: null });
     if (savedBeforeLaunch !== null) return { ok: false, error: `Could not save the race, so no contestant started: ${savedBeforeLaunch}` };
     const failures: string[] = [];
     for (const contestant of spec.contestants) {
@@ -116,7 +124,7 @@ function createRaceWiring({
       if (!launched.ok) failures.push(`${contestant.label}: ${launched.error}`);
     }
     if (Object.keys(sessionIdByContestant).length === 0) return { ok: false, error: failures.join(' ') };
-    const record: RaceRecord = { id: raceId, spec, ...startPoint, createdAt: now(), sessionIdByContestant, phase: 'running', diffStatsByContestant: {}, checkByContestant: {}, judge: null, judgeError: null, winnerContestantId: null };
+    const record: RaceRecord = { id: raceId, spec, ...startPoint, createdAt: now(), sessionIdByContestant, phase: 'running', diffStatsByContestant: {}, checkByContestant: {}, judge: null, panel: null, judgeError: null, winnerContestantId: null };
     raceById.set(raceId, record);
     const savedAfterLaunch = await saveRecord(record);
     if (savedAfterLaunch !== null) failures.push(`(the race file could not be updated: ${savedAfterLaunch})`);
@@ -135,8 +143,8 @@ function createRaceWiring({
     return next;
   }
 
-  async function collectJudgeInputs(record: RaceRecord, judgeDir: string): Promise<{ inputs: JudgeInput[]; contestantIdByJudgeId: Map<string, string>; statsByContestant: RaceRecord['diffStatsByContestant']; checkByContestant: RaceRecord['checkByContestant']; unreadable: string[] }> {
-    const changedContestants: { contestantId: string; exportedCheckoutDir: string; blindDiff: string; blindStats: JudgeInput['stats']; check: CheckOutcome | null }[] = [];
+  async function collectChangedContestants(record: RaceRecord, judgeDir: string): Promise<{ changed: ChangedContestant[]; statsByContestant: RaceRecord['diffStatsByContestant']; checkByContestant: RaceRecord['checkByContestant']; unreadable: string[] }> {
+    const changed: ChangedContestant[] = [];
     const statsByContestant: RaceRecord['diffStatsByContestant'] = {};
     const checkByContestant: RaceRecord['checkByContestant'] = {};
     const unreadable: string[] = [];
@@ -157,44 +165,64 @@ function createRaceWiring({
       if (!isJudged) continue;
       const check = record.spec.check ? await runCheck({ worktreeDir, check: record.spec.check }) : null;
       if (check) checkByContestant[contestant.id] = check;
-      changedContestants.push({ contestantId: contestant.id, exportedCheckoutDir, blindDiff: diff.blindDiff, blindStats: diff.blindStats, check });
+      changed.push({ contestantId: contestant.id, exportedCheckoutDir, blindDiff: diff.blindDiff, blindStats: diff.blindStats, check });
     }
+    return { changed, statsByContestant, checkByContestant, unreadable };
+  }
+
+  async function layoutJudgeDir(changed: readonly ChangedContestant[], judgeDir: string): Promise<{ inputs: JudgeInput[]; contestantIdByJudgeId: Map<string, string> }> {
+    await fsp.mkdir(judgeDir, { recursive: true });
     const contestantIdByJudgeId = new Map<string, string>();
     const inputs: JudgeInput[] = [];
-    for (const [index, changed] of shuffled(changedContestants, random).entries()) {
+    for (const [index, contestant] of shuffled(changed, random).entries()) {
       const judgeId = judgeIdAt(index);
-      contestantIdByJudgeId.set(judgeId, changed.contestantId);
+      contestantIdByJudgeId.set(judgeId, contestant.contestantId);
       const diffFileName = judgeDiffFileName(judgeId);
       const checkoutDirName = judgeCheckoutDirName(judgeId);
       const checkFileName = judgeCheckFileName(judgeId);
-      await fsp.writeFile(path.join(judgeDir, diffFileName), changed.blindDiff.slice(0, RACE_DIFF_MAX_CHARS), 'utf8');
-      if (changed.check && changed.check.status !== 'unavailable') await fsp.writeFile(path.join(judgeDir, checkFileName), changed.check.outputTail, 'utf8');
-      await fsp.rename(changed.exportedCheckoutDir, path.join(judgeDir, checkoutDirName));
-      inputs.push({ judgeId, checkoutDirName, diffFileName, checkFileName, stats: changed.blindStats, check: changed.check });
+      await fsp.writeFile(path.join(judgeDir, diffFileName), contestant.blindDiff.slice(0, RACE_DIFF_MAX_CHARS), 'utf8');
+      if (contestant.check && contestant.check.status !== 'unavailable') await fsp.writeFile(path.join(judgeDir, checkFileName), contestant.check.outputTail, 'utf8');
+      await fsp.cp(contestant.exportedCheckoutDir, path.join(judgeDir, checkoutDirName), { recursive: true, verbatimSymlinks: true });
+      inputs.push({ judgeId, checkoutDirName, diffFileName, checkFileName, stats: contestant.blindStats, check: contestant.check });
     }
-    return { inputs, contestantIdByJudgeId, statsByContestant, checkByContestant, unreadable };
+    return { inputs, contestantIdByJudgeId };
   }
 
-  async function runJudgeOnce(record: RaceRecord, judgeDir: string): Promise<Pick<RaceRecord, 'diffStatsByContestant' | 'checkByContestant' | 'judge' | 'judgeError'>> {
-    const { inputs, contestantIdByJudgeId, statsByContestant, checkByContestant, unreadable } = await collectJudgeInputs(record, judgeDir);
+  async function runOneJudge(spawn: NonNullable<typeof spawnJudge>, record: RaceRecord, judge: RaceJudge, judgeIndex: number, changed: readonly ChangedContestant[], judgeRootDir: string, signal: AbortSignal): Promise<{ ok: true; verdict: JudgeVerdict } | { ok: false; reason: string }> {
+    const judgeDir = path.join(judgeRootDir, `judge-${judgeIndex}`);
+    const { inputs, contestantIdByJudgeId } = await layoutJudgeDir(changed, judgeDir);
+    try {
+      await spawn({
+        id: `race-judge:${record.id}:${randomUUID().slice(0, 8)}`,
+        name: `Race judge ${judgeIndex + 1} ${record.spec.title}`.slice(0, 64),
+        prompt: judgePrompt(record, inputs),
+        cwd: judgeDir,
+        setup: judge.setup,
+        readPaths: inputs.map((input) => path.join(judgeDir, input.checkoutDirName)),
+        signal,
+      });
+    } catch (error) {
+      return { ok: false, reason: errorMessage(error) };
+    }
+    const parsed = parseJudgeVerdict(await readLaneResultFile(path.join(judgeDir, RACE_JUDGE_RESULT_FILENAME)), inputs.map((input) => input.judgeId));
+    if (!parsed.ok) return { ok: false, reason: signal.aborted ? 'ran out of time' : parsed.reason };
+    return { ok: true, verdict: unblindVerdict({ judge: { agent: judge.setup.agent, model: judge.setup.model, label: judgeLabel(judge.setup) }, contestants: parsed.contestants }, contestantIdByJudgeId) };
+  }
+
+  async function runJudgeOnce(record: RaceRecord, judgeDir: string): Promise<Pick<RaceRecord, 'diffStatsByContestant' | 'checkByContestant' | 'panel' | 'judgeError'>> {
+    const { changed, statsByContestant, checkByContestant, unreadable } = await collectChangedContestants(record, judgeDir);
     const unreadableNote = unreadable.length > 0 ? `Could not read the diff of ${unreadable.join(', ')}, so it was left out.` : null;
-    const judgeSetup = record.spec.judge?.setup ?? null;
     const collected = { diffStatsByContestant: statsByContestant, checkByContestant };
-    if (!judgeSetup || !spawnJudge) return { ...collected, judge: null, judgeError: unreadableNote };
-    if (inputs.length === 0) return { ...collected, judge: null, judgeError: unreadableNote ?? 'No contestant changed anything, so there was nothing to judge.' };
+    if (record.spec.judges.length === 0 || !spawnJudge) return { ...collected, panel: null, judgeError: unreadableNote };
+    if (changed.length === 0) return { ...collected, panel: null, judgeError: unreadableNote ?? 'No contestant changed anything, so there was nothing to judge.' };
     const timeout = AbortSignal.timeout(JUDGE_TIMEOUT_MS);
-    await spawnJudge({
-      id: `race-judge:${record.id}:${randomUUID().slice(0, 8)}`,
-      name: `Race judge ${record.spec.title}`.slice(0, 64),
-      prompt: judgePrompt(record, inputs),
-      cwd: judgeDir,
-      setup: judgeSetup,
-      readPaths: inputs.map((input) => path.join(judgeDir, input.checkoutDirName)),
-      signal: timeout,
-    });
-    const parsed = parseJudgeResult(await readLaneResultFile(path.join(judgeDir, RACE_JUDGE_RESULT_FILENAME)), inputs.map((input) => input.judgeId));
-    if (!parsed.ok) return { ...collected, judge: null, judgeError: timeout.aborted ? 'The judge ran out of time.' : `The judge failed: ${parsed.reason}.` };
-    return { ...collected, judge: unblindJudgeResult(parsed.result, contestantIdByJudgeId), judgeError: unreadableNote };
+    const spawn = spawnJudge;
+    const outcomes = await Promise.all(record.spec.judges.map((judge, judgeIndex) => runOneJudge(spawn, record, judge, judgeIndex, changed, judgeDir, timeout)));
+    const verdicts = outcomes.flatMap((outcome) => (outcome.ok ? [outcome.verdict] : []));
+    const failures = outcomes.flatMap((outcome, judgeIndex) => (outcome.ok ? [] : [{ label: judgeLabel(record.spec.judges[judgeIndex].setup), reason: outcome.reason.slice(0, 400) }]));
+    if (verdicts.length === 0) return { ...collected, panel: null, judgeError: `Every judge failed: ${failures.map((failure) => `${failure.label} ${failure.reason}`).join('; ')}.` };
+    const panel: PanelResult = { verdicts, failures, ...panelStanding(verdicts, changed.map((contestant) => contestant.contestantId)) };
+    return { ...collected, panel, judgeError: unreadableNote };
   }
 
   async function runJudge(raceId: string): Promise<void> {
@@ -203,8 +231,8 @@ function createRaceWiring({
     await fsp.mkdir(judgeRoot, { recursive: true });
     const judgeDir = await fsp.mkdtemp(path.join(judgeRoot, 'judge-'));
     try {
-      const outcome = await runJudgeOnce(record, judgeDir).catch((error: unknown) => ({ diffStatsByContestant: record.diffStatsByContestant, checkByContestant: record.checkByContestant, judge: null, judgeError: `The judge failed: ${errorMessage(error)}.` }));
-      await updateRecord(raceId, (current) => ({ ...current, ...outcome, phase: 'judged' }));
+      const outcome = await runJudgeOnce(record, judgeDir).catch((error: unknown) => ({ diffStatsByContestant: record.diffStatsByContestant, checkByContestant: record.checkByContestant, panel: null, judgeError: `The judge failed: ${errorMessage(error)}.` }));
+      await updateRecord(raceId, (current) => ({ ...current, ...outcome, judge: null, phase: 'judged' }));
       log.log(`[race] judged ${record.spec.title}${outcome.judgeError ? `: ${outcome.judgeError}` : ''}`);
     } finally {
       await fsp.rm(judgeDir, { recursive: true, force: true }).catch(() => {});
@@ -239,7 +267,7 @@ function createRaceWiring({
       broadcast(status());
     }
     const loserSessionIds = Object.entries(record.sessionIdByContestant).filter(([id]) => id !== contestantId).map(([, sessionId]) => sessionId);
-    return { ok: true, winnerSessionId, loserSessionIds, notes: record.judge?.notes[contestantId] ?? null };
+    return { ok: true, winnerSessionId, loserSessionIds, notes: winnerNotesOf(record, contestantId) };
   }
 
   function judgeSettledRaces(): void {

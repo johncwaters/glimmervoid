@@ -92,6 +92,37 @@
   color: var(--state-failed);
 }
 
+.arena-contestant-score {
+  color: var(--text-head);
+  font-weight: 700;
+}
+
+.arena-criteria,
+.arena-panel-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 0 4ch;
+  font-size: var(--type-meta);
+}
+
+.arena-panel-summary {
+  margin: 4px 0 0;
+}
+
+.arena-criterion {
+  color: var(--text-muted);
+}
+
+.arena-criterion-pass {
+  color: var(--state-complete);
+}
+
+.arena-criterion-fail,
+.arena-judge-failure {
+  color: var(--state-failed);
+}
+
 .arena-new-head,
 .arena-actions,
 .arena-setup,
@@ -108,7 +139,8 @@
 }
 
 .arena-new-body,
-.arena-vary {
+.arena-vary,
+.arena-judges {
   display: flex;
   flex-direction: column;
   gap: 12px;
