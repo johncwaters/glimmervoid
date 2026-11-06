@@ -399,7 +399,7 @@
     },
     {
       "name": "ready",
-      "definition": "A state a thing reaches when it needs the operator next: an agent title showing the idle glyph, a team review draft Ready to post, or a plan Ready for review"
+      "definition": "A state a thing reaches when it needs the operator next: an agent title showing the idle glyph, a team review draft Ready to post, a plan Ready for review, or a Your turn pull request in the Reviews Ready column, not pulled into Reviewing now"
     },
     {
       "name": "terminal",
