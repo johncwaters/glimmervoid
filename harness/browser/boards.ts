@@ -50,20 +50,35 @@ async function placeBoxWithTool(page: Page, panel: Locator, offset: { x: number;
   await panel.locator('.wb-box-title', { hasText: title }).waitFor();
 }
 
-async function verifyResizedBox(page: Page, panel: Locator, title: string): Promise<void> {
-  const box = panel.locator('.wb-box', { has: page.locator('.wb-box-title', { hasText: title }) });
-  const outline = box.locator('.wb-box-outline');
-  const widthBefore = Number(await outline.getAttribute('width'));
-  await box.hover();
-  const handle = await box.locator('.wb-resize-handle').boundingBox();
+async function verifyResizedBoxes(page: Page, panel: Locator, titles: readonly [string, ...string[]]): Promise<void> {
+  const outlines = titles.map((title) => panel.locator('.wb-box', { has: page.locator('.wb-box-title', { hasText: title }) }).locator('.wb-box-outline'));
+  const widthsOf = (): Promise<number[]> => Promise.all(outlines.map(async (outline) => Number(await outline.getAttribute('width'))));
+  const widthsBefore = await widthsOf();
+  const pressedBox = panel.locator('.wb-box', { has: page.locator('.wb-box-title', { hasText: titles[0] }) });
+  await pressedBox.hover();
+  const handle = await pressedBox.locator('.wb-resize-handle').boundingBox();
   assert.ok(handle);
   await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
   await page.mouse.down();
   await page.mouse.move(handle.x + 120, handle.y + handle.height / 2, { steps: 6 });
   await page.mouse.up();
-  await pollFor('dragging the corner handle widens the box', RESIZE_TIMEOUT_MS, async () => (Number(await outline.getAttribute('width')) > widthBefore ? true : null));
+  const widenings = await pollFor('dragging the corner handle widens every selected box', RESIZE_TIMEOUT_MS, async () => {
+    const widthsAfter = await widthsOf();
+    return widthsAfter.every((width, index) => width > (widthsBefore[index] ?? width)) ? widthsAfter.map((width, index) => width - (widthsBefore[index] ?? width)) : null;
+  });
+  assert.ok(widenings.every((widening) => widening === widenings[0]), `every selected box widens by the same amount, got ${widenings.join(', ')}`);
   await panel.getByRole('button', { name: 'undo', exact: true }).click();
-  await pollFor('undo puts the box back to its width', RESIZE_TIMEOUT_MS, async () => (Number(await outline.getAttribute('width')) === widthBefore ? true : null));
+  await pollFor('one undo puts every box back to its width', RESIZE_TIMEOUT_MS, async () => ((await widthsOf()).every((width, index) => width === widthsBefore[index]) ? true : null));
+}
+
+async function selectBoxes(page: Page, panel: Locator, titles: readonly string[]): Promise<void> {
+  for (const [index, title] of titles.entries()) {
+    const outline = await panel.locator('.wb-box', { has: page.locator('.wb-box-title', { hasText: title }) }).locator('.wb-box-outline').boundingBox();
+    assert.ok(outline);
+    if (index > 0) await page.keyboard.down('Shift');
+    await page.mouse.click(outline.x + outline.width / 2, outline.y + outline.height / 2);
+    if (index > 0) await page.keyboard.up('Shift');
+  }
 }
 
 async function verifyDroppedPicture(panel: Locator): Promise<void> {
@@ -399,7 +414,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await placeBoxWithTool(page, panel, { x: 60, y: 60 }, 'Parse feed');
     assert.equal(await panel.getByRole('button', { name: 'select', exact: true }).getAttribute('aria-pressed'), 'true', 'the tool returns to select after one placement');
     assert.equal(await toolHint.isVisible(), false, 'the hint line hides once the select tool is back');
-    await verifyResizedBox(page, panel, 'Parse feed');
+    await verifyResizedBoxes(page, panel, ['Parse feed']);
     await verifyDroppedPicture(panel);
     await verifyLiveMedia(panel);
     await panel.getByRole('button', { name: 'more', exact: true }).click();
@@ -429,6 +444,9 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     const sourceBox = panel.locator('.wb-box', { hasText: 'Parse and store' });
     const targetBox = panel.locator('.wb-box', { hasText: 'Index rows' });
     await targetBox.waitFor();
+    await selectBoxes(page, panel, ['Parse and store', 'Index rows']);
+    await verifyResizedBoxes(page, panel, ['Parse and store', 'Index rows']);
+    await page.keyboard.press('Escape');
     await sourceBox.hover();
     const bottomPort = await sourceBox.locator('.wb-port').nth(2).boundingBox();
     const dropTarget = await targetBox.boundingBox();
