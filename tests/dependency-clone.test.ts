@@ -14,7 +14,7 @@ const CAN_CLONE = process.platform === 'darwin' && hasGit();
 const CAN_INSTALL = process.platform !== 'win32' && hasGit();
 
 async function seedToCompletion(mainCheckout: string, worktreeDir: string): Promise<DependencySeedOutcome> {
-  const outcome = await seedWorktreeDependencies({ mainCheckout, worktreeDir, signal: new AbortController().signal });
+  const outcome = await seedWorktreeDependencies({ mainCheckout, worktreeDir, signal: new AbortController().signal, hookConfigRelPaths: [] }).completion;
   assert.ok(outcome);
   return outcome;
 }
@@ -202,11 +202,29 @@ test('a seed whose session closes before it starts installs nothing and frees th
   const { mainCheckout, worktreeDir } = await makeInstallableRepoWithWorktree();
   const sessionClosed = new AbortController();
 
-  const seeding = seedWorktreeDependencies({ mainCheckout, worktreeDir, signal: sessionClosed.signal });
+  const seeding = seedWorktreeDependencies({ mainCheckout, worktreeDir, signal: sessionClosed.signal, hookConfigRelPaths: [] }).completion;
   sessionClosed.abort();
 
   assert.equal(await seeding, null);
   assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules')), false);
   const nextSeed = await seedToCompletion(mainCheckout, worktreeDir);
   assert.deepEqual(nextSeed.install.results.map((result) => result.ok), [true, true]);
+});
+
+test('only a worktree whose agent hook files run from node_modules holds its agent for the install', { skip: !CAN_INSTALL }, async () => {
+  const { mainCheckout, worktreeDir } = await makeInstallableRepoWithWorktree();
+  const hookConfigRelPaths = ['.claude/settings.json', '.codex/hooks.json'];
+  writeJson(path.join(worktreeDir, '.codex', 'hooks.json'), { hooks: { SessionStart: [{ command: 'node scripts/start.js' }] } });
+
+  const plainSeed = seedWorktreeDependencies({ mainCheckout, worktreeDir, signal: new AbortController().signal, hookConfigRelPaths });
+
+  assert.equal(await plainSeed.blocksSpawn, false);
+  assert.deepEqual((await plainSeed.completion)?.install.results.map((result) => result.ok), [true, true]);
+
+  fs.rmSync(path.join(worktreeDir, 'node_modules'), { recursive: true });
+  writeJson(path.join(worktreeDir, '.claude', 'settings.json'), { hooks: { SessionStart: [{ hooks: [{ command: 'node node_modules/tool/cli.js' }] }] } });
+
+  const hookSeed = seedWorktreeDependencies({ mainCheckout, worktreeDir, signal: new AbortController().signal, hookConfigRelPaths });
+
+  assert.equal(await hookSeed.blocksSpawn, true);
 });

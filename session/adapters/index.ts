@@ -241,6 +241,16 @@ function hookProfileOf(adapter: AgentAdapter): AgentHookProfile | null {
   return adapter.hooks;
 }
 
+function projectHookConfigRelPaths(): string[] {
+  const relPaths = new Set<string>();
+  for (const { adapter } of BUILT_IN_AGENTS) {
+    const injection = hookProfileOf(adapter)?.injection;
+    if (!injection || !("projectConfigCandidates" in injection)) continue;
+    for (const { relPath } of injection.projectConfigCandidates) relPaths.add(relPath);
+  }
+  return [...relPaths];
+}
+
 function listAgentIds(): string[] {
   return [...ADAPTERS.keys(), ...customAdapters.keys()];
 }
@@ -301,6 +311,7 @@ export {
   isKnownAgentId,
   getAdapter,
   hookProfileOf,
+  projectHookConfigRelPaths,
   resolveAdapter,
   cachedAgentResolvability,
   commandFor,

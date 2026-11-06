@@ -10,7 +10,7 @@ import { createRecorder } from '../../session/session-recorder.ts';
 import type { GitWorkspace } from '../../session/worktree/worktree-lifecycle-context.ts';
 import { Session } from '../../session/sessions.ts';
 import type { RemoteLaunch, SessionOptions, SessionPlanReviewPort } from '../../session/sessions.ts';
-import { getAdapter } from '../../session/adapters/index.ts';
+import { getAdapter, projectHookConfigRelPaths } from '../../session/adapters/index.ts';
 import { SHELL_AGENT_ID } from '../../shared/contracts/config.ts';
 import { DEFAULT_CONFIG } from '../config-store.ts';
 import { seedWorktreeDependencies } from '../git/dependency-clone.ts';
@@ -128,7 +128,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       liveWorktreeReview: config.liveWorktreeReview !== false,
       worktreeRoot: config.worktreeRoot || path.join(path.dirname(path.resolve(project.path)), '.glimmervoid-worktrees'),
       worktreeShare: config.worktreeShare || DEFAULT_CONFIG.worktreeShare,
-      seedDependencies: config.worktreeCloneDependencies === false ? null : seedWorktreeDependencies,
+      seedDependencies: config.worktreeCloneDependencies === false ? null : (seedArgs) => seedWorktreeDependencies({ ...seedArgs, hookConfigRelPaths: projectHookConfigRelPaths() }),
       detectBackgroundAgents: config.detectBackgroundAgents,
       detectScheduledWakeups: config.detectScheduledWakeups,
       hookTools: originalHookTools,

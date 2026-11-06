@@ -30,26 +30,40 @@ import type {
 
 const CLONE_TIMEOUT_MS = 10 * 60_000;
 const NODE_MODULES = 'node_modules';
+const COHERENCE_CONFIG_FILE = 'coherence.config.json';
 const LINK_LIST_MAX_BYTES = 64 * 1024 * 1024;
 const INSTALL_OUTPUT_MAX_BYTES = 16 * 1024 * 1024;
 
 type DependencyCloneOutcome = DependencyCloneSkip | { action: 'cloned'; dirs: string[]; skippedDirs: string[]; elapsedMs: number };
 export type DependencySeedOutcome = { clone: DependencyCloneOutcome; install: DependencyInstallOutcome };
-export type SeedDependencies = (args: { mainCheckout: string; worktreeDir: string; signal: AbortSignal }) => Promise<DependencySeedOutcome | null>;
+type DependencySeedRun = { blocksSpawn: Promise<boolean>; completion: Promise<DependencySeedOutcome | null> };
+type SeedRequest = { mainCheckout: string; worktreeDir: string; signal: AbortSignal };
+export type SeedDependencies = (request: SeedRequest) => DependencySeedRun;
 
 const seedQueue = createSerialQueue();
 
-export const seedWorktreeDependencies: SeedDependencies = ({ mainCheckout, worktreeDir, signal }) =>
-  seedQueue.run(async () => {
-    const clone = await cloneDependencies(mainCheckout, worktreeDir).catch(() => skipDependencyClone('failed'));
-    if (signal.aborted) return null;
-    const install = await installDependencies(worktreeDir, signal).catch((error: unknown) => unreadableInstallOutcome(error));
-    if (signal.aborted) return null;
-    const skippedDirs = clone.action === 'cloned' ? clone.skippedDirs : [];
-    const reportedDirs = new Set([...install.unsupportedDirs, ...install.results.map((result) => result.dir)]);
-    const emptyDirs = await dirsWithoutNodeModules(worktreeDir, skippedDirs.filter((dir) => !reportedDirs.has(dir)));
-    return { clone, install: { ...install, unsupportedDirs: [...install.unsupportedDirs, ...emptyDirs] } };
-  }, { signal }).catch(() => null);
+export function seedWorktreeDependencies({ mainCheckout, worktreeDir, signal, hookConfigRelPaths }: SeedRequest & { hookConfigRelPaths: readonly string[] }): DependencySeedRun {
+  const completion = seedQueue.run(() => seedInQueue(mainCheckout, worktreeDir, signal), { signal }).catch(() => null);
+  const blocksSpawn = hookConfigsNeedNodeModules(worktreeDir, hookConfigRelPaths);
+  return { blocksSpawn, completion };
+}
+
+async function seedInQueue(mainCheckout: string, worktreeDir: string, signal: AbortSignal): Promise<DependencySeedOutcome | null> {
+  const clone = await cloneDependencies(mainCheckout, worktreeDir).catch(() => skipDependencyClone('failed'));
+  if (signal.aborted) return null;
+  const install = await installDependencies(worktreeDir, signal).catch((error: unknown) => unreadableInstallOutcome(error));
+  if (signal.aborted) return null;
+  const skippedDirs = clone.action === 'cloned' ? clone.skippedDirs : [];
+  const reportedDirs = new Set([...install.unsupportedDirs, ...install.results.map((result) => result.dir)]);
+  const emptyDirs = await dirsWithoutNodeModules(worktreeDir, skippedDirs.filter((dir) => !reportedDirs.has(dir)));
+  return { clone, install: { ...install, unsupportedDirs: [...install.unsupportedDirs, ...emptyDirs] } };
+}
+
+async function hookConfigsNeedNodeModules(worktreeDir: string, hookConfigRelPaths: readonly string[]): Promise<boolean> {
+  if (await pathExists(path.join(worktreeDir, COHERENCE_CONFIG_FILE))) return true;
+  const hookConfigTexts = await Promise.all(hookConfigRelPaths.map((relPath) => readTextOrNull(path.join(worktreeDir, relPath))));
+  return hookConfigTexts.some((configText) => configText?.includes('node_modules') === true);
+}
 
 async function installDependencies(worktreeDir: string, signal: AbortSignal): Promise<DependencyInstallOutcome> {
   const startedAt = performance.now();
