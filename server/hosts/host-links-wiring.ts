@@ -6,6 +6,10 @@ import { spawn } from '../child-process-safe.ts';
 import { sshTunnelArgs, versionPart } from './core/host-link-core.ts';
 import { parseJsonOrNull } from '../core/json-core.ts';
 import { createHostLink } from './host-link-poller.ts';
+import { relayUpgradeToHost } from './host-relay.ts';
+import { hostUpgradeTarget } from '../core/upgrade-route.ts';
+import type { IncomingMessage } from 'node:http';
+import type { Duplex } from 'node:stream';
 import type { HostLinkHandle, OpenHubSocket, OpenTunnel } from './host-link-poller.ts';
 
 const HUB_ROLE_HEADERS = Object.freeze({ 'X-Glimmervoid-Role': 'hub' });
@@ -107,7 +111,7 @@ function openHubSocket(host: HostEntry, tunnelPort: number, onSnapshot: (serverB
     });
     socket.once('error', (error) => { clearTimeout(openDeadline); reject(error); });
     socket.once('close', () => { clearTimeout(openDeadline); reject(new Error('host closed the connection before it opened')); });
-    socket.once('open', () => { clearTimeout(openDeadline); resolve({ closed, close: () => socket.terminate() }); });
+    socket.once('open', () => { clearTimeout(openDeadline); resolve({ hostToken, closed, close: () => socket.terminate() }); });
   }));
 }
 
@@ -160,8 +164,15 @@ function createHostLinksWiring({ hosts, hubBuild, broadcast, spawnHostTunnel = s
   }
   broadcastIfChanged();
 
+  function relayUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): void {
+    const target = hostUpgradeTarget(request.url);
+    const route = target ? linkById.get(target.hostId)?.route() ?? null : null;
+    relayUpgradeToHost({ request, socket, head, upstreamPath: target?.upstreamPath ?? '', route });
+  }
+
   return {
     statusFrame,
+    relayUpgrade,
     stop(): void {
       isStopped = true;
       for (const tunnel of startingTunnels) tunnel.stop();

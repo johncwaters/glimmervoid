@@ -17,10 +17,12 @@ import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { writeTextIfChanged } from '../status-paint.ts';
 import { onLiveSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
+import { hostGroupOf } from '../hosts/session-hosts.ts';
 
 type BoardRow = SessionRow<SessionUi>;
 
 const projectPathOf = (row: BoardRow) => row.ui.path;
+const hostOfRow = (row: BoardRow) => hostGroupOf(row.id);
 
 interface GroupRefs extends SessionGroupHeader {
   rows: HTMLDivElement;
@@ -106,7 +108,7 @@ export function createBoardScreen({ onSelectSession, shownSessionId }: { onSelec
   function paintGroup(section: HTMLElement, group: RosterGroup<BoardRow>) {
     const refs = groupRefs.get(section);
     if (!refs) return;
-    paintSessionGroupHeader(refs, group);
+    paintSessionGroupHeader(refs, group, { isHostShown: true });
     refs.rows.setAttribute('aria-label', `${group.label} sessions`);
   }
 
@@ -116,7 +118,7 @@ export function createBoardScreen({ onSelectSession, shownSessionId }: { onSelec
 
   function refresh() {
     const orderedRows = currentOrderedRows();
-    const boardGroups = groupRoster(orderedRows, projectPathOf, raceGroupOf);
+    const boardGroups = groupRoster(orderedRows, projectPathOf, raceGroupOf, hostOfRow);
     const attentionCounts = countAttentionByKind(orderedRows);
     const attentionLine = orderAttentionLine(orderedRows, null);
     const attentionPositionById = new Map(attentionLine.map(({ id }, index) => [id, index + 1]));

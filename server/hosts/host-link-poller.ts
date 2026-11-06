@@ -2,6 +2,7 @@ import type { HostEntry, HostStatus } from '../../shared/contracts/hosts.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { initialHostLink, nextHostLink } from './core/host-link-core.ts';
 import type { HostLinkEffect, HostLinkEvent } from './core/host-link-core.ts';
+import type { HostRoute } from './core/host-relay-core.ts';
 
 interface OpenTunnel {
   localPort: number;
@@ -10,6 +11,7 @@ interface OpenTunnel {
 }
 
 interface OpenHubSocket {
+  hostToken: string;
   closed: Promise<string>;
   close(): void;
 }
@@ -141,6 +143,11 @@ function createHostLink(host: HostEntry, dependencies: HostLinkDependencies) {
     return { id: host.id, name: host.name, state: link.state, hostVersion: link.hostVersion, hubVersion, lastError: link.lastError };
   }
 
+  function route(): HostRoute | null {
+    if (link.state !== 'connected' || !tunnel || !hubSocket) return null;
+    return { tunnelPort: tunnel.localPort, hostDashboardPort: host.dashboardPort, hostToken: hubSocket.hostToken };
+  }
+
   function stop(): void {
     isStopped = true;
     if (retryTimer) clearTimeout(retryTimer);
@@ -150,7 +157,7 @@ function createHostLink(host: HostEntry, dependencies: HostLinkDependencies) {
   }
 
   void startTunnel();
-  return { status, stop };
+  return { status, route, stop };
 }
 
 type HostLinkHandle = ReturnType<typeof createHostLink>;

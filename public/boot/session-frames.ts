@@ -25,6 +25,7 @@ import { setTraceSessions } from '../trace-store.ts';
 import { noteSnapshotReceived } from './connection-screen.ts';
 import { activatePlanHash } from './hash-routes.ts';
 import { markShownPhoneSessionSeen } from './viewer-focus.ts';
+import { forgetSessionHost, hostOfSession, rememberSessionHost, sessionsOfHost } from '../hosts/session-hosts.ts';
 
 
 function refreshAttentionSurfaces() {
@@ -59,23 +60,32 @@ function forgetSession(sessionId: string) {
   forgetSessionCoherence(sessionId);
   forgetReview(sessionId);
   forgetSessionLinkedPrs(sessionId);
+  forgetSessionHost(sessionId);
 }
 
-function forgetSessionsMissingFromSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
+function forgetHostSessions(hostId: string) {
+  for (const sessionId of sessionsOfHost(hostId)) forgetSession(sessionId);
+}
+
+function forgetSessionsMissingFromSnapshot(rows: ServerMessageOf<'snapshot'>['sessions'], hostId: string | null) {
   const liveSessionIds = new Set(rows.map((row) => row.id));
   for (const cachedSessionId of [...sessionUIs.keys()]) {
+    if (hostOfSession(cachedSessionId) !== hostId) continue;
     if (!liveSessionIds.has(cachedSessionId)) forgetSession(cachedSessionId);
   }
 }
 
-function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
-  forgetSessionsMissingFromSnapshot(rows);
-  applySettingsProjects(rows.filter((session) => !session.ephemeral).map((session) => ({
-    id: session.id,
-    name: session.name,
-    agent: session.agent,
-    permissionMode: session.dangerouslySkipPermissions ? 'Skip permissions' : 'Default',
-  })));
+function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions'], hostId: string | null = null) {
+  if (hostId) for (const row of rows) rememberSessionHost(row.id, hostId);
+  forgetSessionsMissingFromSnapshot(rows, hostId);
+  if (!hostId) {
+    applySettingsProjects(rows.filter((session) => !session.ephemeral).map((session) => ({
+      id: session.id,
+      name: session.name,
+      agent: session.agent,
+      permissionMode: session.dangerouslySkipPermissions ? 'Skip permissions' : 'Default',
+    })));
+  }
   for (const s of rows) {
     setSessionCoherenceHooks(s.id, s.coherenceHooks);
     setSessionLinkedPrs(s.id, s.linkedPrs);
@@ -180,6 +190,7 @@ function handleSessionStatus(msg: SessionStatusMessage) {
 
 export {
   carryOverClientSessionFields,
+  forgetHostSessions,
   forgetSession,
   handleSessionStatus,
   handleSnapshot,

@@ -67,6 +67,7 @@ import { promptContextReplyOf } from '../../session/core/refocus-core.ts';
 import { lookupWhy } from '../why-lookup.ts';
 import { createHostLinksWiring } from '../hosts/host-links-wiring.ts';
 import type { SpawnHostTunnel } from '../hosts/host-links-wiring.ts';
+import { refuseHostUpgrade } from '../hosts/host-relay.ts';
 import type { WebSocket } from 'ws';
 
 interface CreateBackendOptions extends BackendLaneOptions {
@@ -229,6 +230,10 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getSession: getSessionAny,
     recordOutcome,
     logger: console,
+    relayToHost: (request, socket, head) => {
+      if (!hostLinks) return refuseHostUpgrade(socket);
+      hostLinks.relayUpgrade(request, socket, head);
+    },
   });
   const {
     controlWss,
