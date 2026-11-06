@@ -49,7 +49,6 @@ const MIN_LONG_STRETCH_MS = 90 * MINUTE_MS;
 const MIN_JUGGLING_SESSIONS = 5;
 const MAX_INSIGHTS = 3;
 const LANE_OF_INTERACTIVE_SESSIONS = 'interactive';
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 function timestampOf(value: unknown): number | null {
   const parsedMs = Date.parse(String(value));
@@ -235,8 +234,8 @@ function sharpestHoursInsight(samples: readonly ReplySample[]): YourDayInsight |
 
 function recapDayLabel(recapDay: string, now: number): string {
   if (recapDay === localDayKey(startOfLocalDay(now, 1))) return 'Yesterday';
-  const [, month, day] = recapDay.split('-').map(Number);
-  return `On ${MONTH_NAMES[month - 1]} ${day}`;
+  const [year, month, day] = recapDay.split('-').map(Number);
+  return `On ${new Date(year, month - 1, day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
 }
 
 function longestStretchInsight(yesterday: DayStats, dayLabel: string, usualStretchMs: number): YourDayInsight | null {

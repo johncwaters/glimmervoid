@@ -31,7 +31,6 @@ interface SessionOutputOptions {
   start: () => void;
   restart: () => void;
   on: SessionEventBinder;
-  once: SessionEventBinder;
   off: SessionEventBinder;
   screenKeeperFactory?: ScreenKeeperFactory | null;
 }

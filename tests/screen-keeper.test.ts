@@ -299,7 +299,6 @@ test('output pushed during a sliced serialize is held so the deep snapshot match
     start: noop,
     restart: noop,
     on: noop,
-    once: noop,
     off: noop,
     screenKeeperFactory: (size) => createScreenKeeper(size, { sliceRows: 50 }),
   });

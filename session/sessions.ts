@@ -473,7 +473,6 @@ class Session extends EventEmitter {
       start: () => { this.start(); },
       restart: () => { this.restart(); },
       on: (event, listener) => { this.on(event, listener); },
-      once: (event, listener) => { this.once(event, listener); },
       off: (event, listener) => { this.off(event, listener); },
       screenKeeperFactory,
     });

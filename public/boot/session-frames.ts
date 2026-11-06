@@ -12,7 +12,6 @@ import { decideReloadOnBuild } from '../server-build-core.ts';
 import { setSessionSaneYolo } from '../session-card/card-dom.ts';
 import { handleDebugStateRefresh } from '../session-card/card-debug.ts';
 import { buildSessionCardOptions } from '../session-card/card-options-core.ts';
-import type { CardOptions } from '../session-card/card-options-core.ts';
 import { attentionTally, sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { applyState, createSessionCard, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionAgent, setSessionAgents, setSessionEffectiveBase, setSessionPrompt, setSessionTaskTitle, setSessionUnseenOutcome, setSessionWorktree, updateAttentionTitle } from '../session-card/lifecycle.ts';
@@ -133,7 +132,7 @@ function snapshotChangesCardIdentity(card: HTMLElement, row: SnapshotSessionRow)
 function catchUpExistingCard(row: SnapshotSessionRow) {
   const card = sessionUIs.get(row.id)?.card;
   if (card && snapshotChangesCardIdentity(card, row)) {
-    rebuildSessionCard(row.id, row.name, row.state, buildSessionCardOptions(row), row.linkedPrs);
+    rebuildSessionCard(row.id, row.name, row.state, row, row.linkedPrs);
     return;
   }
   applyState(row.id, row.state, row.stateSince);
@@ -142,7 +141,7 @@ function catchUpExistingCard(row: SnapshotSessionRow) {
   setSessionWorktree(row.id, row.isWorktree);
 }
 
-function rebuildSessionCard(sessionId: string, sessionName: string, state: string, options: CardOptions, linkedPrs: unknown) {
+function rebuildSessionCard(sessionId: string, sessionName: string, state: string, cardFields: Parameters<typeof buildSessionCardOptions>[0], linkedPrs: unknown) {
   const previousUi = sessionUIs.get(sessionId);
   const wasSelected = getSelectedId() === sessionId;
   setSessionCoherenceHooks(sessionId, null);
@@ -150,7 +149,7 @@ function rebuildSessionCard(sessionId: string, sessionName: string, state: strin
   forgetReview(sessionId);
   forgetManagerDecisions(sessionId);
   setSessionLinkedPrs(sessionId, linkedPrs);
-  createSessionCard(sessionId, sessionName, state, options);
+  createSessionCard(sessionId, sessionName, state, buildSessionCardOptions(cardFields));
   if (wasSelected) setSelectedId(sessionId);
   carryOverClientSessionFields(sessionId, previousUi);
 }
@@ -224,7 +223,6 @@ function handleSessionStatus(msg: SessionStatusMessage) {
 }
 
 export {
-  carryOverClientSessionFields,
   forgetHostSessions,
   forgetSession,
   handleSessionStatus,

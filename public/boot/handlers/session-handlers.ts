@@ -23,7 +23,7 @@ const messageHandlers = {
   'session-prs': (msg) => setSessionLinkedPrs(msg.id, msg.linkedPrs),
   'session-renamed':    (msg) => { renameSessionCard(msg.id, msg.newName); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-modified':   (msg) => {
-    rebuildSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg), msg.linkedPrs);
+    rebuildSessionCard(msg.id, msg.session, msg.state, msg, msg.linkedPrs);
     setSessionAgent(msg.id, msg.agent);
     refreshFavicon(attentionTally.counts);
     refreshRosterAndAttentionSurfaces();
