@@ -19,7 +19,7 @@ import { createReviewSkillNotice } from './review-skill-notice.ts';
 import { subscribeSettings } from '../settings/settings-store.ts';
 import {
   COLLAPSED_GROUP_IDS, ageToneOf, caughtUpText, chooseQueueSelection, combinedPollingStatus, nextTurnKey,
-  isOverTurnLimit, queueItemActivityEntry, queueItemByKey, queueItemWaitStartMs, reviewKeyActionOf, reviewingNowCountText, spansMultipleRepos, splitReviewingNow, steppedRowKey,
+  isOverTurnLimit, queueItemActivityEntry, queueItemByKey, queueItemWaitStartMs, reviewKeyActionOf, reviewingNowCountText, spansMultipleRepos, splitReviewingNow, steppedColumnKey, steppedRowKey,
   togglePulledKey, turnItems, turnPositionText,
 } from './review-queue-core.ts';
 import type { DisplayGroup, DisplayGroupId, QueueGroup, QueueItem, ReviewKeyAction } from './review-queue-core.ts';
@@ -166,6 +166,20 @@ function stepSelection(step: 1 | -1): boolean {
   return true;
 }
 
+function boardColumnRowKeys(): string[][] {
+  if (!queueElement) return [];
+  return [...queueElement.querySelectorAll('.review-board-column')].map((column) =>
+    [...column.querySelectorAll<HTMLElement>('.pr-queue-row[data-queue-key]')].map((row) => row.dataset.queueKey ?? ''));
+}
+
+function stepColumn(step: 1 | -1): boolean {
+  if (!isBoardShown()) return false;
+  const nextKey = steppedColumnKey(boardColumnRowKeys(), selectedKey, step);
+  if (!nextKey) return false;
+  if (nextKey !== selectedKey) revealItem(nextKey);
+  return true;
+}
+
 function movePulled(queueKey: string, shouldBePulled: boolean): boolean {
   const turnKeys = turnItems(currentGroups).map((item) => item.key);
   if (!turnKeys.includes(queueKey)) return false;
@@ -189,6 +203,8 @@ function runReviewKey(action: ReviewKeyAction): boolean {
   if (action === 'next-row') return stepSelection(1);
   if (action === 'previous-row') return stepSelection(-1);
   if (action === 'toggle-pulled') return toggleSelectedPulled();
+  if (action === 'next-column') return stepColumn(1);
+  if (action === 'previous-column') return stepColumn(-1);
   if (isBoardDetailClosed()) return false;
   if (runTeamReviewKey(action)) return true;
   return action === 'cancel' && closeBoardDetail();
@@ -203,6 +219,9 @@ function onReviewKey(event: KeyboardEvent): void {
   if (document.activeElement?.classList.contains('xterm-helper-textarea')) return;
   const action = reviewKeyActionOf(event);
   if (!action) return;
+  const focused = document.activeElement;
+  const isArrowOwnedByFocus = event.key.startsWith('Arrow') && (focused instanceof HTMLSelectElement || (focused instanceof Node && detailHost?.contains(focused) === true));
+  if (isArrowOwnedByFocus) return;
   const isNoteChord = (action === 'post' || action === 'cancel') && isReviewNoteFocused();
   if (isRealInputOwningKey(event) && !isNoteChord) return;
   if (runReviewKey(action)) event.preventDefault();

@@ -761,6 +761,33 @@ async function dragCardBetweenColumns(page: Page, reviewKey: string, targetGroup
   }, { cardKey: reviewKey, groupId: targetGroupId });
 }
 
+async function selectedBoardKey(page: Page): Promise<string | null> {
+  return page.locator('.review-board .pr-queue-row[aria-current="true"]').getAttribute('data-queue-key');
+}
+
+async function firstBoardKeyIn(page: Page, groupId: string, rowIndex: number): Promise<string | null> {
+  return page.locator(`.review-board-column[data-group="${groupId}"] .pr-queue-row`).nth(rowIndex).getAttribute('data-queue-key');
+}
+
+async function verifyColumnSteps(page: Page): Promise<void> {
+  await page.locator('.review-board .pr-queue-row[data-review-key="Acme/app#1"]').click();
+  await page.locator('.review-board .pr-queue-row[data-review-key="Acme/app#1"]').focus();
+  const readyRowIndex = await page.locator('.review-board-column[data-group="turn"] .pr-queue-row').evaluateAll((rows) => rows.findIndex((row) => row.getAttribute('data-review-key') === 'Acme/app#1'));
+  assert.ok(readyRowIndex > 0);
+  await page.keyboard.press('h');
+  assert.equal(await selectedBoardKey(page), await firstBoardKeyIn(page, 'working', 0));
+  await page.keyboard.press('l');
+  assert.equal(await selectedBoardKey(page), await firstBoardKeyIn(page, 'turn', 0));
+  await page.keyboard.press('ArrowRight');
+  assert.equal(await selectedBoardKey(page), await firstBoardKeyIn(page, 'waiting', 0));
+  await page.keyboard.press('ArrowLeft');
+  assert.equal(await selectedBoardKey(page), await firstBoardKeyIn(page, 'turn', 0));
+  await page.locator('.review-queue select').first().focus();
+  await page.keyboard.press('ArrowRight');
+  assert.equal(await selectedBoardKey(page), await firstBoardKeyIn(page, 'turn', 0));
+  await page.locator('.review-board .pr-queue-row[data-review-key="Acme/app#1"]').click();
+}
+
 async function verifyReviewingNowPull(page: Page): Promise<void> {
   const nowColumn = page.locator('.review-board-column[data-group="now"]');
   assert.equal((await nowColumn.locator('.review-board-drop-hint').textContent())?.trim(), 'Drag a Ready card here, or select one and press M.');
@@ -965,6 +992,7 @@ async function verifyBoard(page: Page): Promise<void> {
   await card.click();
   await verifyWideDetailKeepsBoard(page);
   await verifyAgeTones(page);
+  await verifyColumnSteps(page);
   await verifyReviewingNowPull(page);
   assert.equal(await root.getAttribute('data-reviews-layout'), 'list');
   assert.equal(await storedReviewsLayout(page), 'list');
