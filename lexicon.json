@@ -15,7 +15,10 @@
     },
     {
       "name": "view",
-      "definition": "A primary dashboard surface the operator switches between (Focus, Board, Settings, Trace and the lane tabs), or one session's rendering inside it (Terminal, Conversation)"
+      "definition": "A primary dashboard surface the operator switches between (Focus, Settings, Trace, Issues, Usage and the lane tabs, plus Boards on the phone), or one session's rendering inside it, its face (Terminal, Plan or the Board pane in Focus)",
+      "aliases": [
+        "face"
+      ]
     },
     {
       "name": "team",
@@ -31,7 +34,11 @@
     },
     {
       "name": "guardrails",
-      "definition": "Sane YOLO, the Safety Net hooks that refuse risky commands and credential reads in sessions and lanes; accident protection, never a sandbox"
+      "definition": "Sane YOLO, the Safety Net hooks that refuse risky commands and credential reads in sessions and lanes; accident protection, never a sandbox",
+      "aliases": [
+        "sane yolo",
+        "sane"
+      ]
     },
     {
       "name": "operator",
@@ -47,7 +54,10 @@
     },
     {
       "name": "radar",
-      "definition": "The PostHog auto-fix lane that investigates PostHog errors in a session and writes an HTML report"
+      "definition": "The PostHog auto-fix lane that investigates PostHog errors in a session and writes an HTML report",
+      "aliases": [
+        "auto fix"
+      ]
     },
     {
       "name": "operator config",
@@ -82,7 +92,10 @@
     },
     {
       "name": "pairing",
-      "definition": "Granting a device access to the remote listener with a single-use link from glimmervoid pair; a paired device has full control as the operator."
+      "definition": "Granting a device access to the remote listener with a single-use link from glimmervoid pair; a paired device has full control as the operator.",
+      "aliases": [
+        "pair"
+      ]
     },
     {
       "name": "experimental",
@@ -106,7 +119,10 @@
     },
     {
       "name": "kimi code",
-      "definition": "Moonshot's Kimi Code CLI, one of the agent CLIs glimmervoid supervises through its kimi agent adapter"
+      "definition": "Moonshot's Kimi Code CLI, one of the agent CLIs glimmervoid supervises through its kimi agent adapter",
+      "aliases": [
+        "kimi"
+      ]
     },
     {
       "name": "question",
@@ -130,11 +146,17 @@
     },
     {
       "name": "running",
-      "definition": "The session status meaning the agent is mid-turn and working, derived from hook events or the OSC-0 title; the Issues step for an issue with a live session"
+      "definition": "The session status meaning the agent is mid-turn and working, derived from hook events or the OSC-0 title; the Issues step for an issue with a live session",
+      "aliases": [
+        "working"
+      ]
     },
     {
       "name": "boards",
-      "definition": "The whiteboard view: diagrams and plan units that sessions and the operator draw together, one tab on desktop and one bottom nav button on the phone."
+      "definition": "A shared whiteboard of boxes, wires, frames, notes and plan units that sessions and the operator draw together, opened in a Board pane beside a session's terminal in Focus and listed in the Boards section",
+      "aliases": [
+        "board"
+      ]
     },
     {
       "name": "pull request",
@@ -168,7 +190,7 @@
     },
     {
       "name": "dismiss",
-      "definition": "Close a review item on the operator's own pull request with a typed reason, posted as a reply on each of its threads before they are resolved"
+      "definition": "Close a review item on the operator's own pull request with a typed reason, posted as a reply on each of its threads before they are resolved; also clear a session's status as seen (user_dismiss), which takes Complete to Idle and Waiting back to Running"
     },
     {
       "name": "handled",
@@ -231,11 +253,291 @@
     },
     {
       "name": "server",
-      "definition": "The Glimmervoid Node.js background process on the operator's machine that supervises sessions, serves the dashboard and hosts the job inbox"
+      "definition": "The Glimmervoid Node.js background process on the operator's machine that supervises sessions, serves the dashboard and hosts the job inbox",
+      "aliases": [
+        "backend"
+      ]
     },
     {
       "name": "watchee",
       "definition": "One lane's watching half on the watcher: detects external events on its trigger and delivers a job of its own kind, which a paired server handler acts on"
+    },
+    {
+      "name": "card",
+      "definition": "A session's tile on the dashboard: its terminal with the header, status and Session actions menu, which Focus centers and the phone borrows; also a Reviews item or a whiteboard media box shown the same way"
+    },
+    {
+      "name": "prompt",
+      "definition": "The operator's message that starts an agent turn in a session, and the agent's request for input or permission (a permission prompt) that ends one"
+    },
+    {
+      "name": "turn",
+      "definition": "One agent work cycle in a session, from the prompt that starts it to the stop that ends it; Your turn is also the Reviews group of items waiting on the operator"
+    },
+    {
+      "name": "settings",
+      "definition": "The dashboard's Settings view, whose sections (Hosts, Appearance, Sane YOLO, Packs, Lane GitHub access and others) edit the operator config"
+    },
+    {
+      "name": "focus",
+      "definition": "The desktop Focus view: a left roster rail with one pill per session grouped by project, and one large center holding the selected session's terminal and Board panes; the phone Board is labelled Focus"
+    },
+    {
+      "name": "layout",
+      "definition": "One of the dashboard's two first-class shells, desktop or phone, chosen by decideLayout from pointer and viewport; also the arrangement of Focus panes and a board's laid-out geometry"
+    },
+    {
+      "name": "control",
+      "definition": "The control WebSocket (/control), the JSON channel between the server and every dashboard that carries session, board and review messages, beside the data WebSocket of raw PTY bytes; its handlers form the server's control plane"
+    },
+    {
+      "name": "home",
+      "definition": "A folder that holds an agent's or Glimmervoid's own state: the glimmervoid home (~/.glimmervoid), the per-agent homes Glimmervoid generates under its agent-homes folder (a Kimi Code, Codex, Gemini, Qwen or Copilot home), or the watcher home"
+    },
+    {
+      "name": "action",
+      "definition": "An operator command offered on a thing in the dashboard: a session action in the card's Session actions menu, or a PR action from prFlows.prActions shown as a button on a pull request"
+    },
+    {
+      "name": "report",
+      "definition": "A written result handed back to the operator: a Radar investigation's HTML report, the report a PR action sends when it finishes, or the Usage tab's report"
+    },
+    {
+      "name": "review",
+      "definition": "An agent's pass over a pull request in the team review lane, drafted for the operator to post, or a GitHub review on the operator's own pull request; the Reviews tab queues both"
+    },
+    {
+      "name": "draft",
+      "definition": "A team review or community answer an agent prepared and the operator has not posted yet; on GitHub, a draft pull request, which Reviews parks when it is the operator's own"
+    },
+    {
+      "name": "unit",
+      "definition": "A plan step on a whiteboard: a unit element with a status (planned, building, landed) whose wires give the build order"
+    },
+    {
+      "name": "parent",
+      "definition": "The session that spawned another through the session tool; its child talks only to it, and closing a child that holds unlanded work is refused until the parent has it pushed or discards it"
+    },
+    {
+      "name": "signal",
+      "definition": "A structural fact a session's status is derived from (an agent hook event or an OSC-0 title glyph, never screen content), and the small status badge signal.ts draws from it"
+    },
+    {
+      "name": "comment",
+      "definition": "A review comment on a pull request: a GitHub thread the operator can send to a session or dismiss, or a line comment in a team review draft or a plan review"
+    },
+    {
+      "name": "base",
+      "definition": "The branch or commit a worktree or pull request builds on: the base branch a session worktree is cut from and rebased onto, or a pull request's base, and the diff base a review compares against"
+    },
+    {
+      "name": "group",
+      "definition": "A named section items are sorted into: one of the six Reviews groups (Your turn, Agent working, Queued, Waiting on others, Done, Parked), a project group of sessions in the roster, or an alert group that folds notifications"
+    },
+    {
+      "name": "link",
+      "definition": "A connection Glimmervoid keeps and shows between two things: a session linked to its pull request, a linked host reached over an ssh tunnel, or a plan step linked to a board holding it in detail"
+    },
+    {
+      "name": "model",
+      "definition": "The model an agent runs, picked per session, per team review or per Arena setup from the agent model catalog Glimmervoid reads from each agent CLI, and the unit Usage breaks spend down by"
+    },
+    {
+      "name": "element",
+      "definition": "One drawn thing on a whiteboard (a box, frame, wire, note, panel or unit), counted against a board's element limit"
+    },
+    {
+      "name": "frame",
+      "definition": "A whiteboard element that encloses a set of boxes under a title, optionally marked as a loop"
+    },
+    {
+      "name": "wire",
+      "definition": "A whiteboard element drawn as an arrow from one element to another, routed around boxes, whose direction between plan units gives build order; wire contracts are the separate network shapes in shared/contracts"
+    },
+    {
+      "name": "refusal",
+      "definition": "Glimmervoid's typed no to an agent's tool call or route request, answered identically on the MCP endpoint and the /agent route so it cannot reveal live session ids"
+    },
+    {
+      "name": "payload",
+      "definition": "The body a structural message carries: an agent hook event's JSON posted to the hook route, or a watcher job's kind-specific body parsed against its registered schema in the job inbox"
+    },
+    {
+      "name": "workspace",
+      "definition": "A session spanning several repositories: a folder of per-repository worktrees (workspaceRepos) with a generated AGENTS.md map, chosen in Add Session"
+    },
+    {
+      "name": "integration branch",
+      "definition": "The branch Glimmervoid cuts every session worktree from and rebases onto: the configured integration branch, or each repository's default branch when unset, read from origin"
+    },
+    {
+      "name": "session id",
+      "definition": "An identifier of a session: Glimmervoid's own stable UUID that keys a session everywhere, or the agent CLI's own conversation id that auto-resume captures to resume it"
+    },
+    {
+      "name": "agent",
+      "definition": "A coding agent CLI Glimmervoid supervises in a session (Claude Code, Codex, Kimi Code first-class; Grok, Gemini CLI, Qwen Code, Copilot CLI and custom CLIs best effort), read through its agent adapter"
+    },
+    {
+      "name": "status",
+      "definition": "A session's derived state (starting, running, waiting, idle, complete, failed and the rest), computed from structural signals by the session state machine and shown by the status badge"
+    },
+    {
+      "name": "idle",
+      "definition": "The session status for an agent at rest with nothing for the operator to do, reached on a starting session's first output or when the operator dismisses a Complete"
+    },
+    {
+      "name": "complete",
+      "definition": "The session status after an agent finishes a turn (task_complete from running, waiting or idle, or a compaction restore); it holds until the operator dismisses it, which the dashboard does on its own 1.5 s after the operator watches it finish, and new output or a prompt leaves it"
+    },
+    {
+      "name": "ready",
+      "definition": "A state a thing reaches when it needs the operator next: an agent title showing the idle glyph, a team review draft Ready to post, or a plan Ready for review"
+    },
+    {
+      "name": "terminal",
+      "definition": "A session's live PTY screen rendered with xterm.js in the browser, its Terminal tab and pane in Focus and its Terminal screen on the phone; a headless copy on the server keeps its screen"
+    },
+    {
+      "name": "dashboard",
+      "definition": "The browser app Glimmervoid serves on loopback, where the operator watches and steers sessions across its views, on desktop or phone"
+    },
+    {
+      "name": "phone",
+      "definition": "The phone layout of the dashboard: a bottom nav with the Board (labelled Focus), Terminal and the phone-only Boards screen, then a More button whose screens hold the remaining views"
+    },
+    {
+      "name": "usage",
+      "definition": "The usage tracking lane and its Usage tab: tokens, cost, plan limits and pace per agent and model, read from agent transcripts on this machine"
+    },
+    {
+      "name": "trace",
+      "definition": "The Session Trace: a per-session record of hook events, title signals and state transitions the Trace view shows on request, so a status decision can be read after the fact"
+    },
+    {
+      "name": "detection",
+      "definition": "Status detection: deriving each session's status from structural signals (agent hooks plus the OSC-0 title fallback), never from screen content"
+    },
+    {
+      "name": "notification",
+      "definition": "An alert Glimmervoid raises for a session that needs the operator, through browser notifications and Telegram, with its own lifecycle state machine"
+    },
+    {
+      "name": "factory",
+      "definition": "The retired Factory tab and factory lanes that dispatched Coherence tickets to sessions; removed with the knowledge graph and now named only in history"
+    },
+    {
+      "name": "mill",
+      "definition": "The retired context mill, which distilled context packs and Long-Term Memory for sessions; named now only in the changelog"
+    },
+    {
+      "name": "headroom",
+      "definition": "Free memory under Glimmervoid's memory limit that the memory gate reads before each automatic session start, shown in the debug health panel; also Headroom, a third-party proxy whose integration was removed"
+    },
+    {
+      "name": "issues",
+      "definition": "The dashboard's Issues tab, which lists GitHub issues and the step each is at, such as running when a live session works on it"
+    },
+    {
+      "name": "remote",
+      "definition": "Remote access: the opt-in remote listener (config remote) that lets a paired device reach the dashboard from another machine"
+    },
+    {
+      "name": "shown",
+      "definition": "A file an agent showed the operator with the show tool, which now lands as a card on a whiteboard the session is connected to; the retired Shown button and page that once listed such files are gone (0.52.2)"
+    },
+    {
+      "name": "shell",
+      "definition": "A session kind that runs the operator's login shell on the Glimmervoid machine instead of an agent, offered in Add Session"
+    },
+    {
+      "name": "coder",
+      "definition": "Coder, the remote development platform whose devboxes can host Glimmervoid, and the Coder activity lane that reports session activity to a Coder workspace"
+    },
+    {
+      "name": "rule",
+      "definition": "An operator-written condition and action Glimmervoid applies on its own: a question manager rule that answers a question, or a prFlows rule that acts on a pull request; the brand bible's named design rules are a separate sense"
+    },
+    {
+      "name": "plan",
+      "definition": "An agent's plan captured from plan mode (Claude Code ExitPlanMode and its peers) as retained revisions, shown on a session card's plan face for the operator to approve or send feedback on"
+    },
+    {
+      "name": "plan review",
+      "definition": "The operator's review of a captured plan on the session card's plan face: reading the open revision, commenting, and choosing Approve or Send feedback"
+    },
+    {
+      "name": "core",
+      "definition": "A pure decision module (session/core, server/core or a *-core file) that does no IO, imports no Session and reads no clock, wrapped by a thin IO shell"
+    },
+    {
+      "name": "note",
+      "definition": "A whiteboard note pinned to an element with an author and a resolved state; also the git note Glimmervoid attaches to a session commit under refs/notes/glimmervoid"
+    },
+    {
+      "name": "ephemeral",
+      "definition": "A lane or child session that runs once in a throwaway folder and is removed when it ends, such as a team review or community run, inside the ephemeral lane write boundaries"
+    },
+    {
+      "name": "task title",
+      "definition": "The short title Glimmervoid derives from a session's prompts and the agent's own title, which names the session and feeds the automatic namer"
+    },
+    {
+      "name": "benchmarks",
+      "definition": "The opt-in benchmarks lane and its Arena tab (formerly Bench) that run one prompt on several agent setups, each an arm in its own session and worktree, and score them",
+      "aliases": [
+        "bench"
+      ]
+    },
+    {
+      "name": "resume",
+      "definition": "Start a session's agent again on its earlier conversation by its agent session id; auto-resume does this at boot for sessions that were live when Glimmervoid stopped",
+      "aliases": [
+        "auto resume"
+      ]
+    },
+    {
+      "name": "restart",
+      "definition": "Start a session's agent process again in place, fresh or resuming its conversation; Restart server replaces the running Glimmervoid server with its current version",
+      "aliases": [
+        "restart server"
+      ]
+    },
+    {
+      "name": "doctor",
+      "definition": "The glimmervoid doctor command that checks the operator's setup, such as PATH, and says what to fix"
+    },
+    {
+      "name": "golgari",
+      "definition": "One of Glimmervoid's built-in dashboard color themes, picked in Settings, Appearance"
+    },
+    {
+      "name": "midnight",
+      "definition": "One of Glimmervoid's built-in dashboard color themes, picked in Settings, Appearance"
+    },
+    {
+      "name": "phyrexian",
+      "definition": "One of Glimmervoid's built-in dashboard color themes, picked in Settings, Appearance"
+    },
+    {
+      "name": "compleated",
+      "definition": "One of Glimmervoid's built-in dashboard color themes, picked in Settings, Appearance"
+    },
+    {
+      "name": "conversation",
+      "definition": "An agent's own transcript in a session, kept by the agent CLI under its session id, which resume and restart continue; the retired Conversation view once rendered it as chat"
+    },
+    {
+      "name": "record",
+      "definition": "A stored entry Glimmervoid keeps about something: a JSONL line of a session recording (header, data, hook, state, decision, input, resize or footer), a Session Trace record (TraceRecord), a board record that holds its connections, or an agent CLI's own trust record; Coherence journal records and design records under docs/ are records too"
+    },
+    {
+      "name": "history",
+      "definition": "Past entries a surface keeps and shows over time: the Usage tab's History rows, a Radar issue's recent occurrence points (one per poll, capped at 24), the session card's History list of earlier manager decisions, and the phone's browser history entries per screen level; in prose, also the project's past as the changelog tells it"
+    },
+    {
+      "name": "dead",
+      "definition": "As in dead end: Coherence's reading of a component whose defects keep returning after site fixes (DEAD END in spec --check), quoted in this project's journal practice records; elsewhere ordinary English"
     }
   ]
 }
