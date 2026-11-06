@@ -19,9 +19,9 @@ forbiddenForms:
   - GV
 tagline: Mission control that ships.
 descriptions:
-  short: Mission control that ships, for Claude Code, Codex and Kimi Code.
+  short: Mission control that ships, for any terminal coding agent.
   medium: A calm operator console for watching and steering many live agent sessions, each in its own git worktree.
-  long: Glimmervoid is mission control that ships. Not a terminal multiplexer, it spawns Claude Code, Codex, Kimi Code and Grok sessions in their own git worktrees, streams their live terminals to a browser dashboard, and asks for the operator's attention only when a session needs input, finishes or fails.
+  long: Glimmervoid is mission control that ships. Not a terminal multiplexer, it spawns any terminal coding agent in its own git worktree, streams each live terminal to a browser dashboard, and asks for the operator's attention only when a session needs input, finishes or fails.
 glossary:
   - term: session
     definition: One supervised agent process that glimmervoid spawns in a PTY, keyed by a stable UUID and shown on the dashboard.

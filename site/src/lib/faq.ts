@@ -8,7 +8,7 @@ export interface FaqEntry {
 export const FAQ_ENTRIES: readonly FaqEntry[] = [
   {
     question: 'What is an agentic development environment (ADE)?',
-    answer: 'A workspace built around autonomous AI coding agents rather than a code editor. You run several agent tasks in parallel, each in its own git worktree, then review their diffs and merge their pull requests. Glimmervoid is an open-source ADE for Claude Code and Codex: a local orchestrator that runs each agent in a real terminal and shows you which one needs you.',
+    answer: 'A workspace built around autonomous AI coding agents rather than a code editor. You run several agent tasks in parallel, each in its own git worktree, then review their diffs and merge their pull requests. Glimmervoid is an open-source ADE for terminal coding agents: a local orchestrator that runs each agent in a real terminal and shows you which one needs you.',
   },
   {
     question: 'Which coding agents does Glimmervoid run?',
