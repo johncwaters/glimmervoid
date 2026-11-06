@@ -1,5 +1,5 @@
 import { el } from '../dom-helpers.ts';
-import { placeRowsInOrder, writeDataIfChanged, writeHiddenIfChanged, writeTextIfChanged } from '../status-paint.ts';
+import { writeDataIfChanged, writeHiddenIfChanged, writeTextIfChanged } from '../status-paint.ts';
 import { hostStatuses, hostStatusText } from './host-status.ts';
 
 interface HostHeader {
@@ -11,7 +11,6 @@ interface HostHeader {
 const THIS_MACHINE_LABEL = 'This machine';
 
 let thisMachineHeader: HostHeader | null = null;
-let remoteHostsSection: HTMLDivElement | null = null;
 const remoteHeaderById = new Map<string, HostHeader>();
 
 function buildHostHeader(): HostHeader {
@@ -34,34 +33,33 @@ function placeBefore(rail: HTMLElement, node: HTMLElement, anchor: Element | nul
   if (!isInPlace) rail.insertBefore(node, anchor);
 }
 
-function paintRemoteHeaders(section: HTMLDivElement) {
-  const statuses = hostStatuses();
-  const presentIds = new Set(statuses.map((status) => status.id));
+function removeHeadersOfGoneHosts(presentIds: ReadonlySet<string>) {
   for (const [id, refs] of [...remoteHeaderById]) {
     if (presentIds.has(id)) continue;
     refs.header.remove();
     remoteHeaderById.delete(id);
   }
-  const orderedHeaders = statuses.map((status) => {
+}
+
+export function placeHostHeaders(rail: HTMLElement, { firstGroupHeaderOf, trailingNode }: {
+  firstGroupHeaderOf: (hostId: string | null) => Element | null;
+  trailingNode: Element | null;
+}) {
+  const statuses = hostStatuses();
+  removeHeadersOfGoneHosts(new Set(statuses.map((status) => status.id)));
+  if (statuses.length === 0) {
+    thisMachineHeader?.header.remove();
+    return;
+  }
+  let anchor = trailingNode;
+  for (const status of statuses.toReversed()) {
     const refs = remoteHeaderById.get(status.id) ?? buildHostHeader();
     remoteHeaderById.set(status.id, refs);
     paintHostHeader(refs, status.name, status.state, hostStatusText(status));
-    return refs.header;
-  });
-  placeRowsInOrder(section, orderedHeaders);
-}
-
-export function placeHostHeaders(rail: HTMLElement, { firstLocalNode, trailingNode }: { firstLocalNode: Element | null; trailingNode: Element | null }) {
-  if (hostStatuses().length === 0) {
-    thisMachineHeader?.header.remove();
-    remoteHostsSection?.remove();
-    return;
+    placeBefore(rail, refs.header, firstGroupHeaderOf(status.id) ?? anchor);
+    anchor = refs.header;
   }
-  remoteHostsSection ??= el('div', 'rail-remote-hosts');
-  paintRemoteHeaders(remoteHostsSection);
-  placeBefore(rail, remoteHostsSection, trailingNode);
-
   thisMachineHeader ??= buildHostHeader();
   paintHostHeader(thisMachineHeader, THIS_MACHINE_LABEL, 'local', '');
-  placeBefore(rail, thisMachineHeader.header, firstLocalNode ?? remoteHostsSection);
+  placeBefore(rail, thisMachineHeader.header, firstGroupHeaderOf(null) ?? anchor);
 }

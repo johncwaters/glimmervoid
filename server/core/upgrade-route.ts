@@ -7,10 +7,19 @@ function upgradePathname(rawUrl: unknown): string {
   return rawUrl.slice(0, queryOrFragmentAt);
 }
 
-function classifyUpgradePath(rawUrl: unknown): 'control' | 'data' | 'unknown' {
+const HOST_PATH_RE = /^\/hosts\/([a-z][a-z0-9-]{0,31})(\/control|\/terminals\/[^/]+)$/;
+
+function hostUpgradeTarget(rawUrl: unknown): { hostId: string; upstreamPath: string } | null {
+  const match = HOST_PATH_RE.exec(upgradePathname(rawUrl));
+  if (!match) return null;
+  return { hostId: match[1], upstreamPath: match[2] };
+}
+
+function classifyUpgradePath(rawUrl: unknown): 'control' | 'data' | 'host' | 'unknown' {
   const pathname = upgradePathname(rawUrl);
   if (pathname === '/control') return 'control';
   if (pathname.startsWith(DATA_PATH_PREFIX)) return 'data';
+  if (hostUpgradeTarget(rawUrl)) return 'host';
   return 'unknown';
 }
 
@@ -44,4 +53,4 @@ function upgradeTokenFromUrl(rawUrl: unknown): string | null {
   return null;
 }
 
-export { classifyUpgradePath, dataSessionIdFromUrl, upgradeTokenFromUrl };
+export { classifyUpgradePath, dataSessionIdFromUrl, hostUpgradeTarget, upgradeTokenFromUrl };

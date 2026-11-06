@@ -65,8 +65,8 @@ async function pageTokenOf(port: number): Promise<string> {
   return body.token;
 }
 
-function openControlSocket(port: number, token: string, headers: Record<string, string> = {}): Promise<{ socket: WebSocket; frames: Record<string, unknown>[] }> {
-  const socket = new WebSocket(`ws://127.0.0.1:${port}/control?token=${encodeURIComponent(token)}`, { origin: `http://127.0.0.1:${port}`, headers });
+function openControlSocket(port: number, token: string, headers: Record<string, string> = {}, path = '/control'): Promise<{ socket: WebSocket; frames: Record<string, unknown>[] }> {
+  const socket = new WebSocket(`ws://127.0.0.1:${port}${path}?token=${encodeURIComponent(token)}`, { origin: `http://127.0.0.1:${port}`, headers });
   openedSockets.push(socket);
   const frames: Record<string, unknown>[] = [];
   socket.on('message', (raw: Buffer) => frames.push(JSON.parse(raw.toString())));
@@ -151,7 +151,7 @@ test('the ssh tunnel never prompts, never trusts an unknown key, and keeps the t
   assert.equal(HostEntry.safeParse({ ...host, sshTarget: '-oProxyCommand=touch /tmp/pwned' }).success, false);
 });
 
-test('the hub links a registered host, reports it connected, and reconnects after the tunnel drops', async () => {
+test('the hub links a registered host, reconnects after the tunnel drops, and pipes a browser socket through to it', async () => {
   const devbox = await bootHost();
   const tunnels = createLoopbackTunnels();
   const hub = await bootHost({
@@ -170,4 +170,11 @@ test('the hub links a registered host, reports it connected, and reconnects afte
   const reconnecting = await waitForFrame(viewer.frames, 'hosts-status', hostStateIs('reconnecting'));
   assert.ok((reconnecting.hosts as Array<{ lastError: string | null }>)[0].lastError);
   await waitForFrame(viewer.frames, 'hosts-status', hostStateIs('connected'));
+
+  const hubToken = await pageTokenOf(hub.port);
+  const piped = await openControlSocket(hub.port, hubToken, {}, '/hosts/devbox/control');
+  const pipedHealth = await waitForFrame(piped.frames, 'health-snapshot');
+  assert.equal((pipedHealth.stats as { websockets: { hubControl: number } }).websockets.hubControl, 1);
+  await assert.rejects(openControlSocket(hub.port, hubToken, {}, '/hosts/gpu/control'), /503/);
+  await assert.rejects(openControlSocket(hub.port, 'wrong-token', {}, '/hosts/devbox/control'), /401|403|socket hang up|Unexpected server response/);
 });

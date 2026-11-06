@@ -24,11 +24,11 @@ export function buildSessionGroupHeader({ onAdd }: {
   return { header, label, count, addButton };
 }
 
-export function paintSessionGroupHeader(refs: SessionGroupHeader, group: RosterGroup<unknown>) {
+export function paintSessionGroupHeader(refs: SessionGroupHeader, group: RosterGroup<unknown>, { isHostShown = false }: { isHostShown?: boolean } = {}) {
   const { header, label, count, addButton } = refs;
   writeDataIfChanged(header, 'path', group.projectPath ?? '');
   writeDataIfChanged(header, 'label', group.label);
-  writeTextIfChanged(label, group.label);
+  writeTextIfChanged(label, isHostShown && group.hostName ? `${group.hostName} / ${group.label}` : group.label);
   writeTextIfChanged(count, String(group.rows.length));
   writeHiddenIfChanged(addButton, group.projectPath === null);
 }

@@ -16,6 +16,7 @@ import type { OutcomeRecorder } from '../../shared/outcome-names.ts';
 import { classifyRequestOrigin, decideUpgradeAccess } from '../core/request-trust.ts';
 import type { RequestTrust } from '../core/request-trust.ts';
 import { classifyUpgradePath, dataSessionIdFromUrl, upgradeTokenFromUrl } from '../core/upgrade-route.ts';
+import { refuseHostUpgrade } from '../hosts/host-relay.ts';
 import { resolveSessionSize } from '../core/viewer-size-core.ts';
 import { createWsSender } from '../ws-sender.ts';
 import type { WsSender } from '../ws-sender.ts';
@@ -45,6 +46,7 @@ interface BackendWebSocketDependencies {
   getSession: (id: string) => Session | null;
   recordOutcome?: OutcomeRecorder;
   logger: Pick<Console, 'warn'>;
+  relayToHost?: (request: IncomingMessage, socket: Duplex, head: Buffer) => void;
 }
 
 interface BackendWebSockets {
@@ -100,6 +102,7 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
     getSession,
     recordOutcome = () => {},
     logger,
+    relayToHost = (_request, socket) => refuseHostUpgrade(socket),
   } = dependencies;
   const controlWss = new WebSocketServer({ noServer: true, maxPayload: CONTROL_FRAME_MAX_BYTES, perMessageDeflate: true });
   const dataWss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024, perMessageDeflate: true });
@@ -347,7 +350,7 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
     }
 
     const authenticated = trust === 'remote' && remoteAuth ? remoteAuth.isUpgradeAuthorized(request) : false;
-    const dashboardRoute = route === 'control' || route === 'data';
+    const dashboardRoute = route === 'control' || route === 'data' || route === 'host';
     const decision = decideUpgradeAccess({
       remoteEnabled: remote.enabled,
       trust,
@@ -364,6 +367,10 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
       return;
     }
 
+    if (route === 'host') {
+      relayToHost(request, socket, head);
+      return;
+    }
     if (route === 'control') {
       const isHubRole = trust === 'local' && request.headers[HUB_ROLE_HEADER] === HUB_ROLE;
       controlWss.handleUpgrade(request, socket, head, (webSocket) => {
