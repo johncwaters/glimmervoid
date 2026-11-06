@@ -457,6 +457,48 @@ body {
   overflow-wrap: anywhere;
 }
 
+.session-manager-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 6px 12px;
+  font-size: var(--type-meta);
+  background: color-mix(in oklab, var(--accent) 6%, transparent);
+}
+
+.session-manager-line-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.session-manager-line-earlier,
+.session-manager-history-time {
+  color: var(--text-muted);
+}
+
+.session-manager-line-history[aria-expanded="true"] {
+  text-decoration: underline;
+}
+
+.session-manager-history {
+  flex-basis: 100%;
+  max-height: 160px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.session-manager-history li {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0;
+  overflow-wrap: anywhere;
+}
+
 .session-card[data-state="DONE"] {
   border-color: color-mix(in oklab, var(--accent) 20%, transparent);
 }

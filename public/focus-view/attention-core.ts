@@ -1,3 +1,4 @@
+import type { ManagerDecision } from '#shared/contracts/question-manager.ts';
 import type { SessionState } from '#shared/states.ts';
 import { STATES } from '#shared/states.ts';
 import { UnseenOutcome } from '#shared/contracts/session.ts';
@@ -235,4 +236,14 @@ export function pickStrongestAttention(levels?: readonly AttentionLevel[] | null
     strongestRank = rank;
   }
   return strongest;
+}
+
+export function managerDecisionText(decision: ManagerDecision): string {
+  if (decision.outcome === 'escalated') return `Passed to you: ${decision.questions.join('; ')} (${decision.reason})`;
+  const answered = Object.entries(decision.answers).map(([question, answer]) => `${question}: ${answer}`).join('; ');
+  return `Answered ${answered} (${decision.rule})`;
+}
+
+export function decisionsAfter(decisions: readonly ManagerDecision[], seenSeq: number): ManagerDecision[] {
+  return decisions.filter((decision) => decision.seq > seenSeq);
 }

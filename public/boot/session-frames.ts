@@ -15,7 +15,7 @@ import { buildSessionCardOptions } from '../session-card/card-options-core.ts';
 import { attentionTally, sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { applyState, createSessionCard, hasSession, removeSessionCard, seedSessionMergeStatus, setSessionAgent, setSessionAgents, setSessionEffectiveBase, setSessionPrompt, setSessionTaskTitle, setSessionUnseenOutcome, updateAttentionTitle } from '../session-card/lifecycle.ts';
-import { setSessionFailureReason } from '../session-card/card-problems.ts';
+import { forgetManagerDecisions, seedManagerDecisions, setManagerSeenSeq, setSessionFailureReason } from '../session-card/card-problems.ts';
 import { setSessionHasPlan } from '../session-card/card-faces.ts';
 import { reconnectDataWs } from '../session-card/terminal-data-socket.ts';
 import { applySettingsProjects } from '../settings/settings-store.ts';
@@ -59,6 +59,7 @@ function forgetSession(sessionId: string) {
   forgetSessionCoherence(sessionId);
   forgetReview(sessionId);
   forgetSessionLinkedPrs(sessionId);
+  forgetManagerDecisions(sessionId);
 }
 
 function forgetSessionsMissingFromSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
@@ -95,6 +96,7 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
 
     setSessionPrompt(s.id, s.pendingPromptKind);
     setSessionUnseenOutcome(s.id, s.unseenOutcome);
+    seedManagerDecisions(s.id, s.auditLog, s.managerSeenSeq);
 
     setSessionHasPlan(s.id, s.hasPlan);
 
@@ -172,6 +174,7 @@ function handleSessionStatus(msg: SessionStatusMessage) {
   if (msg.activeAgents !== undefined) setSessionAgents(msg.id, msg.activeAgents, msg.awaitingBackgroundTasks);
   if (msg.unseenOutcome !== undefined) setSessionUnseenOutcome(msg.id, msg.unseenOutcome);
   if (msg.pendingPromptKind !== undefined) setSessionPrompt(msg.id, msg.pendingPromptKind);
+  if (msg.managerSeenSeq !== undefined) setManagerSeenSeq(msg.id, msg.managerSeenSeq);
   if (msg.unseenOutcome !== undefined) updateAttentionTitle();
   refreshFavicon(attentionTally.counts);
   markStatusDirty(msg.id);

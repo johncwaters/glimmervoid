@@ -58,6 +58,7 @@ function questionCallKey(request: ClaudePermissionRequest): string {
 
 interface SessionApprovalHolds<Signal extends QuestionStatusSignal> {
   readonly conversationApproval: ConversationApproval | null;
+  readonly latestManagerDecisionSeq: number;
   hold(payload: unknown, abandoned: AbortSignal): Promise<ClaudeHookReply | null> | null;
   holdQuestionTool(payload: unknown, abandoned: AbortSignal): Promise<QuestionToolDenyResponse | null> | null;
   parksQuestionStatus(signal: Signal): boolean;
@@ -321,6 +322,7 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
 
   return {
     get conversationApproval() { return conversationApproval; },
+    get latestManagerDecisionSeq() { return managerDecisionCount; },
     hold,
     holdQuestionTool,
     yieldManagerDecisions,

@@ -127,6 +127,7 @@ export const SessionStatusFields = z.object({
   activeAgents: z.number().int().nonnegative().optional(),
   awaitingBackgroundTasks: z.boolean().optional(),
   unseenOutcome: UnseenOutcome.nullable().optional(),
+  managerSeenSeq: z.number().int().nonnegative().optional(),
   pendingPromptKind: nullableString.optional(),
 });
 export type SessionStatusFields = z.infer<typeof SessionStatusFields>;

@@ -80,6 +80,7 @@ export const SessionSnapshot = z.object({
   worktreeNotice: z.string().nullable(),
   failureReason: z.string().nullable().optional(),
   unseenOutcome: UnseenOutcome.nullable().default(null),
+  managerSeenSeq: z.number().int().nonnegative().default(0),
   effectiveBase: z.string().nullable(),
   linkedPrs: z.array(LinkedPr).default([]),
   coherenceHooks: CoherenceHooksState.nullable().default(null),

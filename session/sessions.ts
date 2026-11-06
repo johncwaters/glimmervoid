@@ -255,6 +255,7 @@ class Session extends EventEmitter {
   stateSince: number;
   failureReason: string | null;
   unseenOutcome: UnseenOutcome | null;
+  managerSeenSeq: number;
   ephemeral: boolean;
   agentId: string;
   usageVendor: string;
@@ -453,6 +454,7 @@ class Session extends EventEmitter {
     this.stateSince = Date.now();
     this.failureReason = null;
     this.unseenOutcome = null;
+    this.managerSeenSeq = 0;
     this._receivedFirstOutput = false;
     this._hasPromptSinceSpawn = false;
     this._destroyed = false;
@@ -1425,6 +1427,7 @@ class Session extends EventEmitter {
       worktreeNotice: this.worktreeNotice,
       failureReason: this.failureReason,
       unseenOutcome: this.unseenOutcome,
+      managerSeenSeq: this.managerSeenSeq,
       effectiveBase: this.worktreeLifecycle.snapshot().effectiveBase,
       linkedPrs: this.linkedPrs,
       coherenceHooks: this.coherenceHooks,
@@ -2019,6 +2022,13 @@ class Session extends EventEmitter {
     this._setUnseenOutcome(null);
     if (!DISMISSIBLE_STATES.has(this.state)) return hadUnseenOutcome;
     return this.transition("user_dismiss");
+  }
+
+  markManagerDecisionsSeen(throughSeq: number): void {
+    const seenSeq = Math.min(throughSeq, this._approvals.latestManagerDecisionSeq);
+    if (seenSeq <= this.managerSeenSeq) return;
+    this.managerSeenSeq = seenSeq;
+    this.emit("manager-seen-change", { managerSeenSeq: seenSeq });
   }
 
   _setUnseenOutcome(nextUnseenOutcome: UnseenOutcome | null): void {
