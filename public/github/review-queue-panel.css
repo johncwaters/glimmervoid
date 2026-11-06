@@ -180,6 +180,7 @@ html:not([data-layout="phone"]) .pr-desk > .pr-decision-bar { align-self: end; }
 .pr-disclosure-label { flex: 0 0 auto; color: var(--text-head); font-weight: 700; }
 .pr-disclosure-preview { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
 .pr-earlier-review-body { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.pr-other-reviewers > .my-pr-threads { margin-top: 12px; }
 .pr-earlier-review-body > .pr-comment-card { background: var(--bg-surface); }
 .pr-comment-card.pr-comment-card-readonly { grid-template-columns: minmax(0, 1fr); }
 .pr-changed-since { color: var(--text-dim); font-size: var(--type-meta); line-height: 1.6; }
