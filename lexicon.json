@@ -557,6 +557,13 @@
     {
       "name": "tailwindcss",
       "definition": "The tailwindcss npm package, the Tailwind CSS compiler that builds the dashboard stylesheet through its Vite plugin; named in dependency notes and changelog entries"
+    },
+    {
+      "properties": {
+        "side": "The left, right, top or bottom of a box: where a box placed near another sits (near.side) and where a wire leaves or enters a box (fromSide, toSide); elsewhere (server-side, side by side, a side panel) ordinary English"
+      },
+      "name": "box",
+      "definition": "The solid element of a whiteboard: it carries a title, lines, a place (a column, near another box, or at a point), a shape (box, decision or panel) and optionally outputs, media, a width and a step; a plan step is a box with a step and a panel is a box with shape panel; elsewhere (a message box, a note box, a remote box) ordinary English"
     }
   ]
 }
