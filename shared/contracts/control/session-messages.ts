@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { CoherenceHooksState, SessionSnapshot, SessionState, TaskTitle } from '../session.ts';
 import { LinkedPr } from '../my-prs.ts';
+import { ManagerDecision } from '../question-manager.ts';
 import { requestId, sessionId, KeptWorkPath, PullRequestKey, loose, openObject, nullableString, timestamp, optionalError, SessionCardFields, NotifyAlertGroup, SessionStatusFields } from './control-fields.ts';
 
 const restartClientShape = { id: sessionId, force: z.unknown().optional(), fresh: z.unknown().optional(), conversationId: z.string().optional() };
@@ -51,6 +52,7 @@ export const sessionServerVariants = [
   loose('session-prs', { id: sessionId, linkedPrs: z.array(LinkedPr) }),
   loose('session-git', { id: sessionId, worktree: z.boolean() }),
   loose('session-coherence-hooks', { id: sessionId, coherenceHooks: CoherenceHooksState.nullable() }),
+  loose('session-manager-decision', { id: sessionId, decision: ManagerDecision }),
   loose('notify', {
     session: z.string(),
     category: z.string(),

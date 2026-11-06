@@ -1,7 +1,7 @@
 import { ASK_USER_QUESTION_TOOL_NAME, REQUEST_USER_INPUT_TOOL_NAME } from "../shared/contracts/session.ts";
 import type { ConversationAnswers, ConversationApproval, ConversationQuestion } from "../shared/contracts/session.ts";
-import { QUESTION_TOOL_HOLD_HOOK_EVENT } from "../shared/contracts/question-manager.ts";
-import type { ManagerAnswer, ManagerVerdict } from "../shared/contracts/question-manager.ts";
+import { MANAGER_DECISION_AUDIT_KIND, MANAGER_DECISION_EVENT, QUESTION_TOOL_HOLD_HOOK_EVENT } from "../shared/contracts/question-manager.ts";
+import type { ManagerAnswer, ManagerDecision, ManagerVerdict } from "../shared/contracts/question-manager.ts";
 import type { QuestionToolDenyResponse } from "../shared/contracts/refocus.ts";
 import { questionToolDenyReason } from "../server/question-manager/core/question-manager-core.ts";
 import { claudeAnswerReply, claudeApprovalFor, isHoldReleasedByHookEvent, parseClaudePermissionRequest, TOOL_RESULT_HOOK_EVENTS } from "./core/claude-approval-core.ts";
@@ -75,7 +75,8 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
   const decidingCountByCall = new Map<string, number>();
   const parkedStatusByCall = new Map<string, ParkedQuestionStatus<Signal>>();
   const settledQuestionByCall = new Map<string, SettledQuestion>();
-  const operatorYieldByDecision = new Set<AbortController>();
+  const pendingApprovalByOperatorYield = new Map<AbortController, ConversationApproval>();
+  let managerDecisionCount = 0;
 
   function isManagerHolding(): boolean {
     return !holdsQuestionsForParent && questionManager !== null && questionManager.mightAnswer();
@@ -159,24 +160,34 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
     }
   }
 
-  function recordManagerAnswer(verdict: ManagerAnswer): void {
-    port.pushAuditEntry({ ts: Date.now(), kind: "question-manager", outcome: "answered", by: verdict.by, rule: verdict.ruleName, answers: verdict.answers });
-    port.emit("question-answered", { verdict });
+  function recordManagerDecision(decision: ManagerDecision): void {
+    port.pushAuditEntry(decision);
+    port.emit(MANAGER_DECISION_EVENT, { decision });
   }
 
-  function recordManagerEscalation(reason: string): void {
-    port.pushAuditEntry({ ts: Date.now(), kind: "question-manager", outcome: "escalated", reason });
+  function nextDecisionHeader() {
+    managerDecisionCount += 1;
+    return { kind: MANAGER_DECISION_AUDIT_KIND, seq: managerDecisionCount, ts: Date.now() } as const;
+  }
+
+  function recordManagerAnswer(verdict: ManagerAnswer): void {
+    recordManagerDecision({ ...nextDecisionHeader(), outcome: "answered", by: verdict.by, rule: verdict.ruleName, answers: verdict.answers });
+  }
+
+  function recordManagerEscalation(approval: ConversationApproval, reason: string): void {
+    const questions = (approval.questions ?? []).map((question) => question.question);
+    recordManagerDecision({ ...nextDecisionHeader(), outcome: "escalated", questions, reason });
   }
 
   function replyFromVerdict(request: ClaudePermissionRequest, approval: ConversationApproval, verdict: ManagerVerdict | null): ClaudeHookReply | null {
     if (verdict === null) return null;
     if (verdict.kind === "escalate") {
-      recordManagerEscalation(verdict.reason);
+      recordManagerEscalation(approval, verdict.reason);
       return null;
     }
     const reply = claudeAnswerReply(request, approval, verdict.answers);
     if (!reply) {
-      recordManagerEscalation("the answer did not cover every question");
+      recordManagerEscalation(approval, "the answer did not cover every question");
       return null;
     }
     recordManagerAnswer(verdict);
@@ -193,7 +204,7 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
     nextApprovalNumber += 1;
     startDeciding(questionCallKey(request));
     const operatorYield = new AbortController();
-    operatorYieldByDecision.add(operatorYield);
+    pendingApprovalByOperatorYield.set(operatorYield, approval);
     const decisionSignal = AbortSignal.any([abandoned, operatorYield.signal]);
     const stopped = new Promise<null>((resolve) => {
       if (decisionSignal.aborted) resolve(null);
@@ -203,29 +214,29 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
     return Promise.race([decided, stopped])
       .then((verdict) => (decisionSignal.aborted ? null : replyFor(approval, verdict)))
       .then((reply) => {
-        operatorYieldByDecision.delete(operatorYield);
+        pendingApprovalByOperatorYield.delete(operatorYield);
         settleQuestionStatus(request, reply !== null);
         return reply;
       });
   }
 
   function yieldManagerDecisions(): void {
-    for (const operatorYield of operatorYieldByDecision) {
-      recordManagerEscalation("you typed in the session first");
+    for (const [operatorYield, approval] of pendingApprovalByOperatorYield) {
+      recordManagerEscalation(approval, "you typed in the session first");
       operatorYield.abort();
     }
-    operatorYieldByDecision.clear();
+    pendingApprovalByOperatorYield.clear();
   }
 
   function denyReplyFromVerdict(approval: ConversationApproval, verdict: ManagerVerdict | null): QuestionToolDenyResponse | null {
     if (verdict === null) return null;
     if (verdict.kind === "escalate") {
-      recordManagerEscalation(verdict.reason);
+      recordManagerEscalation(approval, verdict.reason);
       return null;
     }
     const questionTexts = (approval.questions ?? []).map((question) => question.question);
     if (questionTexts.length === 0 || questionTexts.some((question) => verdict.answers[question] === undefined)) {
-      recordManagerEscalation("the answer did not cover every question");
+      recordManagerEscalation(approval, "the answer did not cover every question");
       return null;
     }
     recordManagerAnswer(verdict);

@@ -99,6 +99,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'session-modified', id: 'session-1', session: 'glimmervoid', path: '/repo/glimmervoid', agent: 'claude-code', state: STATES.DORMANT, stateSince: NOW, skipPerms: true, saneYolo: true, worktree: false, resumeSessionId: null },
   { type: 'session-git', id: 'session-1', worktree: true },
   { type: 'session-coherence-hooks', id: 'session-1', coherenceHooks: { active: false, reason: 'check failed with exit code 1' } },
+  { type: 'session-manager-decision', id: 'session-1', decision: { kind: 'question-manager', seq: 1, ts: 1, outcome: 'escalated', questions: ['Delete the old exporter?'], reason: 'the question names a risk word: delete' } },
   { type: 'session-status', id: 'session-1', session: 'glimmervoid', timestamp: NOW, unseenOutcome: null },
   { type: 'session-merge-status', id: 'session-1', session: 'glimmervoid', mergeStatus: 'pending-review', reason: null, parked: false, timestamp: NOW },
   { type: 'session-worktree-blocked', id: 'session-1', session: 'glimmervoid', branch: 'develop', notice: 'missing branch', timestamp: NOW },
