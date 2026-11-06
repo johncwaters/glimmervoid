@@ -193,6 +193,7 @@ function describeStep(step: Step): string {
   if (step.kind === 'click') return `click ${step.control}`;
   if (step.kind === 'expect-terminal-untouched') return `expect-terminal-untouched ${step.durationMs}ms`;
   if (step.kind === 'shot') return `shot ${step.name}`;
+  if (step.kind === 'expect-session-name') return `expect-session-name ${step.name}`;
   return step.kind;
 }
 
@@ -918,16 +919,24 @@ async function runExpectSessionGone(viewer: Viewer, sessionId: string, deadlines
   return outcomeFor('session-gone', gone);
 }
 
-async function runRenameSession(viewer: Viewer, sessionId: string, newName: string, deadlines: Deadlines): Promise<StepOutcome> {
-  await sendControlMessage(viewer, { type: 'rename-session', id: sessionId, newName });
-  if (viewer.layout === 'phone') await viewer.page.locator(PHONE_BACK_SELECTOR).first().click();
+function harnessSessionName(baseName: string, sessionId: string): string {
+  return `${baseName} ${sessionId.slice(0, 8)}`;
+}
+
+async function runExpectSessionName(viewer: Viewer, sessionId: string, wantedName: string, timeoutMs: number, deadlines: Deadlines): Promise<StepOutcome> {
   const rosterName = viewer.page.locator(`${rosterSelector(viewer, sessionId)} .session-row-name`).first();
   const repainted = await pollUntil(async () => {
     const shownName = await rosterName.textContent();
-    if (shownName === newName) return { ok: true, detail: `the roster row reads ${newName}` };
+    if (shownName === wantedName) return { ok: true, detail: `the roster row reads ${wantedName}` };
     return { ok: false, detail: `the roster row still reads ${shownName}` };
-  }, { label: `roster renamed for viewer ${viewer.id}`, timeoutMs: deadlines.stepMs, intervalMs: deadlines.pollIntervalMs });
+  }, { label: `roster renamed for viewer ${viewer.id}`, timeoutMs, intervalMs: deadlines.pollIntervalMs });
   return outcomeFor('roster-renamed', repainted);
+}
+
+async function runRenameSession(viewer: Viewer, sessionId: string, newName: string, deadlines: Deadlines): Promise<StepOutcome> {
+  await sendControlMessage(viewer, { type: 'rename-session', id: sessionId, newName });
+  if (viewer.layout === 'phone') await viewer.page.locator(PHONE_BACK_SELECTOR).first().click();
+  return runExpectSessionName(viewer, sessionId, newName, deadlines.stepMs, deadlines);
 }
 
 async function takeShot(viewer: Viewer, artifacts: ArtifactPaths, key: string, name: string): Promise<StepOutcome> {
@@ -1172,7 +1181,8 @@ export async function runCase({
     if (step.kind === 'remove-session') return runRemoveSession(viewer, sessionId);
     if (step.kind === 'remove-from-phone-terminal') return runRemoveFromPhoneTerminal(viewer, sessionId, deadlines);
     if (step.kind === 'expect-session-gone') return runExpectSessionGone(viewer, sessionId, deadlines);
-    if (step.kind === 'rename-session') return runRenameSession(viewer, sessionId, `${step.newName} ${sessionId.slice(0, 8)}`, deadlines);
+    if (step.kind === 'rename-session') return runRenameSession(viewer, sessionId, harnessSessionName(step.newName, sessionId), deadlines);
+    if (step.kind === 'expect-session-name') return runExpectSessionName(viewer, sessionId, harnessSessionName(step.name, sessionId), deadlines.reattachMs, deadlines);
     if (step.kind === 'load-deep-history') return runLoadDeepHistory(viewer, sessionId, deadlines);
     const shot = await takeShot(viewer, artifacts, key, step.name);
     if (shot.shot) shots.push(shot.shot);

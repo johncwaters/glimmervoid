@@ -14,12 +14,13 @@ import { handleDebugStateRefresh } from '../session-card/card-debug.ts';
 import { buildSessionCardOptions } from '../session-card/card-options-core.ts';
 import { attentionTally, sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
-import { applyState, createSessionCard, hasSession, removeSessionCard, seedSessionMergeStatus, setSessionAgent, setSessionAgents, setSessionEffectiveBase, setSessionPrompt, setSessionTaskTitle, setSessionUnseenOutcome, updateAttentionTitle } from '../session-card/lifecycle.ts';
+import { applyState, createSessionCard, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionAgent, setSessionAgents, setSessionEffectiveBase, setSessionPrompt, setSessionTaskTitle, setSessionUnseenOutcome, setSessionWorktree, updateAttentionTitle } from '../session-card/lifecycle.ts';
 import { forgetManagerDecisions, seedManagerDecisions, setManagerSeenSeq, setSessionFailureReason } from '../session-card/card-problems.ts';
 import { setSessionHasPlan } from '../session-card/card-faces.ts';
 import { reconnectDataWs } from '../session-card/terminal-data-socket.ts';
 import { applySettingsProjects } from '../settings/settings-store.ts';
 import { forgetReview, refreshReview } from '../review/review-store.ts';
+import { getSelectedId, setSelectedId } from '../review/selection.ts';
 import { markStatusDirty, setStatusPainter } from '../status-paint.ts';
 import { setTraceSessions } from '../trace-store.ts';
 import { noteSnapshotReceived } from './connection-screen.ts';
@@ -88,13 +89,10 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions'], hostId: s
     })));
   }
   for (const s of rows) {
+    if (hasSession(s.id)) catchUpExistingCard(s);
+    if (!hasSession(s.id)) createSessionCard(s.id, s.name, s.state, buildSessionCardOptions(s));
     setSessionCoherenceHooks(s.id, s.coherenceHooks);
     setSessionLinkedPrs(s.id, s.linkedPrs);
-    const exists = hasSession(s.id);
-    if (exists) applyState(s.id, s.state, s.stateSince);
-    if (exists) setSessionSaneYolo(s.id, !!s.saneYolo);
-    if (exists) setSessionQuestionManager(s.id, s.isQuestionManagerOn);
-    if (!exists) createSessionCard(s.id, s.name, s.state, buildSessionCardOptions(s));
     setSessionFailureReason(s.id, s.failureReason);
 
     setSessionTaskTitle(s.id, s.taskTitle, s.taskTitleIsCustom);
@@ -122,6 +120,39 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions'], hostId: s
   activatePlanHash(location.hash);
   markShownPhoneSessionSeen();
   noteSnapshotReceived();
+}
+
+type SnapshotSessionRow = ServerMessageOf<'snapshot'>['sessions'][number];
+
+function snapshotChangesCardIdentity(card: HTMLElement, row: SnapshotSessionRow) {
+  const cardSkipsPermissions = card.dataset.skipPerms !== undefined;
+  return (card.dataset.path ?? '') !== row.path || cardSkipsPermissions !== row.dangerouslySkipPermissions;
+}
+
+function catchUpExistingCard(row: SnapshotSessionRow) {
+  const card = sessionUIs.get(row.id)?.card;
+  if (card && snapshotChangesCardIdentity(card, row)) {
+    rebuildSessionCard(row.id, row.name, row.state, row, row.linkedPrs);
+    return;
+  }
+  applyState(row.id, row.state, row.stateSince);
+  setSessionSaneYolo(row.id, !!row.saneYolo);
+  setSessionQuestionManager(row.id, row.isQuestionManagerOn);
+  if (card && card.dataset.session !== row.name) renameSessionCard(row.id, row.name);
+  setSessionWorktree(row.id, row.isWorktree);
+}
+
+function rebuildSessionCard(sessionId: string, sessionName: string, state: string, cardFields: Parameters<typeof buildSessionCardOptions>[0], linkedPrs: unknown) {
+  const previousUi = sessionUIs.get(sessionId);
+  const wasSelected = getSelectedId() === sessionId;
+  setSessionCoherenceHooks(sessionId, null);
+  removeSessionCard(sessionId);
+  forgetReview(sessionId);
+  forgetManagerDecisions(sessionId);
+  setSessionLinkedPrs(sessionId, linkedPrs);
+  createSessionCard(sessionId, sessionName, state, buildSessionCardOptions(cardFields));
+  if (wasSelected) setSelectedId(sessionId);
+  carryOverClientSessionFields(sessionId, previousUi);
 }
 
 function syncTraceSessionsFromCards() {
@@ -194,12 +225,12 @@ function handleSessionStatus(msg: SessionStatusMessage) {
 }
 
 export {
-  carryOverClientSessionFields,
   forgetHostSessions,
   forgetSession,
   handleSessionStatus,
   handleSnapshot,
   noteServerBuild,
+  rebuildSessionCard,
   refreshAttentionSurfaces,
   refreshRosterAndAttentionSurfaces,
   syncTraceSessionsFromCards,

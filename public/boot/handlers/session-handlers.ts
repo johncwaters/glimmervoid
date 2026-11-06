@@ -1,4 +1,3 @@
-import { setSessionCoherenceHooks } from '../../coherence/journal-drawer.ts';
 import { refreshFavicon } from '../../favicon.ts';
 import { setFocusMergeStatus } from '../../focus-view/focus-view.ts';
 import { setSessionLinkedPrs } from '../../github/session-pr-chips.ts';
@@ -6,15 +5,14 @@ import { alertFromNotify } from '../../notifications.ts';
 import { requestSessionRemovalNow } from '../../session-actions.ts';
 import { handleDebugStateRefresh, handleDebugStateResponse } from '../../session-card/card-debug.ts';
 import { buildSessionCardOptions } from '../../session-card/card-options-core.ts';
-import { attentionTally, sessionUIs } from '../../session-card/card-registry.ts';
-import { createSessionCard, hasSession, removeSessionCard, renameSessionCard, setSessionAgent, setSessionMergeStatus, setSessionTaskTitle, setSessionWorktree } from '../../session-card/lifecycle.ts';
+import { attentionTally } from '../../session-card/card-registry.ts';
+import { createSessionCard, hasSession, renameSessionCard, setSessionAgent, setSessionMergeStatus, setSessionTaskTitle, setSessionWorktree } from '../../session-card/lifecycle.ts';
 import { applySessionPlanError } from '../../session-card/card-faces.ts';
-import { forgetManagerDecisions, reportSessionProblem } from '../../session-card/card-problems.ts';
+import { reportSessionProblem } from '../../session-card/card-problems.ts';
 import { applySessionSetupResponse } from '../../session-setup/setup-dialog.ts';
-import { forgetReview, releaseMergeRequest } from '../../review/review-store.ts';
-import { getSelectedId, setSelectedId } from '../../review/selection.ts';
+import { releaseMergeRequest } from '../../review/review-store.ts';
 import type { DashboardHandlerTable } from '../core/message-dispatch-core.ts';
-import { carryOverClientSessionFields, forgetSession, handleSessionStatus, refreshAttentionSurfaces, refreshRosterAndAttentionSurfaces, syncTraceSessionsFromCards } from '../session-frames.ts';
+import { forgetSession, handleSessionStatus, rebuildSessionCard, refreshAttentionSurfaces, refreshRosterAndAttentionSurfaces, syncTraceSessionsFromCards } from '../session-frames.ts';
 
 const messageHandlers = {
   'session-status':     (msg) => handleSessionStatus(msg),
@@ -25,17 +23,8 @@ const messageHandlers = {
   'session-prs': (msg) => setSessionLinkedPrs(msg.id, msg.linkedPrs),
   'session-renamed':    (msg) => { renameSessionCard(msg.id, msg.newName); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-modified':   (msg) => {
-    const previousUi = sessionUIs.get(String(msg.id));
-    const wasSelected = getSelectedId() === String(msg.id);
-    setSessionCoherenceHooks(msg.id, null);
-    removeSessionCard(msg.id);
-    forgetReview(msg.id);
-    forgetManagerDecisions(String(msg.id));
-    setSessionLinkedPrs(msg.id, msg.linkedPrs);
-    createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg));
-    if (wasSelected) setSelectedId(String(msg.id));
+    rebuildSessionCard(msg.id, msg.session, msg.state, msg, msg.linkedPrs);
     setSessionAgent(msg.id, msg.agent);
-    carryOverClientSessionFields(msg.id, previousUi);
     refreshFavicon(attentionTally.counts);
     refreshRosterAndAttentionSurfaces();
     syncTraceSessionsFromCards();

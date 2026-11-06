@@ -48,6 +48,7 @@ export type Step =
   | { kind: 'remove-session'; viewer?: ViewerId }
   | { kind: 'remove-from-phone-terminal'; viewer?: ViewerId }
   | { kind: 'expect-session-gone'; viewer?: ViewerId }
+  | { kind: 'expect-session-name'; name: string; viewer?: ViewerId }
   | { kind: 'shot'; name: string; viewer?: ViewerId };
 
 export type ResolvedStep = Exclude<Step, { kind: 'resize-by' }>;
@@ -139,6 +140,23 @@ export const SCENARIOS: readonly Scenario[] = [
       { kind: 'foreground', viewer: 'a' },
       { kind: 'expect-session-gone', viewer: 'a' },
       { kind: 'shot', name: 'after', viewer: 'a' },
+    ],
+  },
+  {
+    name: 'reconnect-catches-up-rename',
+    companionViewport: 'desktop-800',
+    viewports: ['desktop-1280'],
+    steps: [
+      { kind: 'open', viewer: 'a' },
+      { kind: 'settle', viewer: 'a' },
+      { kind: 'open', viewer: 'b' },
+      { kind: 'settle', viewer: 'b' },
+      { kind: 'suspend', viewer: 'a' },
+      { kind: 'rename-session', newName: 'renamed while away', viewer: 'b' },
+      { kind: 'wait', durationMs: 11000 },
+      { kind: 'foreground', viewer: 'a' },
+      { kind: 'expect-session-name', name: 'renamed while away', viewer: 'a' },
+      { kind: 'shot', name: 'caught-up', viewer: 'a' },
     ],
   },
   {

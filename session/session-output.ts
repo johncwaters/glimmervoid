@@ -31,7 +31,6 @@ interface SessionOutputOptions {
   start: () => void;
   restart: () => void;
   on: SessionEventBinder;
-  once: SessionEventBinder;
   off: SessionEventBinder;
   screenKeeperFactory?: ScreenKeeperFactory | null;
 }
@@ -46,6 +45,13 @@ interface PasteWhenReadyOptions {
   timeoutMs?: number;
   settleMs?: number;
   submitDelayMs?: number | null;
+}
+
+interface QueuedPaste {
+  text: string;
+  settleMs: number;
+  submitDelayMs: number | null;
+  expiryTimer: NodeJS.Timeout;
 }
 
 interface ScreenSnapshot {
@@ -75,21 +81,26 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
   const keeperFactory = options.screenKeeperFactory || createScreenKeeper;
   let keeper: ReturnType<ScreenKeeperFactory> | null = null;
   let keeperBaseOffset = 0;
-  let pendingPaste: {
-    timer: NodeJS.Timeout;
-    onStateChange: (change: StateChange) => void;
-    onExit: () => void;
-  } | null = null;
+  const queuedPastes: QueuedPaste[] = [];
+  let isWatchingForReady = false;
+  let isDrainingQueue = false;
+  let drainTimer: NodeJS.Timeout | null = null;
   let lastCols: number | null = null;
   let lastRows: number | null = null;
 
+  function stopWatchingForReady(): void {
+    if (!isWatchingForReady) return;
+    isWatchingForReady = false;
+    options.off("state-change", onStateChangeWhilePasteQueued);
+  }
+
   function clearPendingPaste(): void {
-    if (!pendingPaste) return;
-    const pending = pendingPaste;
-    pendingPaste = null;
-    clearTimeout(pending.timer);
-    options.off("state-change", pending.onStateChange);
-    options.off("exit", pending.onExit);
+    for (const queued of queuedPastes) clearTimeout(queued.expiryTimer);
+    queuedPastes.length = 0;
+    if (drainTimer) clearTimeout(drainTimer);
+    drainTimer = null;
+    isDrainingQueue = false;
+    stopWatchingForReady();
   }
 
   function pasteText(text: string): PasteResult {
@@ -107,38 +118,81 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
     return pasted;
   }
 
-  function holdPasteUntilSettled(text: string, settleMs: number, submitDelayMs: number | null): void {
-    if (!pendingPaste) return;
-    options.off("state-change", pendingPaste.onStateChange);
-    clearTimeout(pendingPaste.timer);
-    const settleTimer = setTimeout(() => {
+  function pasteNextQueued(): void {
+    drainTimer = null;
+    const next = queuedPastes.shift();
+    if (!next || options.isDestroyed()) {
       clearPendingPaste();
-      if (!options.isDestroyed()) pasteAndSubmit(text, submitDelayMs);
-    }, settleMs);
-    settleTimer.unref();
-    pendingPaste = { ...pendingPaste, timer: settleTimer };
+      return;
+    }
+    clearTimeout(next.expiryTimer);
+    const pasted = pasteText(next.text);
+    if (!pasted.ok) {
+      clearPendingPaste();
+      return;
+    }
+    if (next.submitDelayMs === null) {
+      pasteNextQueued();
+      return;
+    }
+    drainTimer = setTimeout(() => {
+      if (options.hasLivePty()) options.write("\r");
+      pasteNextQueued();
+    }, next.submitDelayMs);
+    drainTimer.unref();
+  }
+
+  function startDrainingQueue(): void {
+    const head = queuedPastes[0];
+    if (!head) return;
+    isDrainingQueue = true;
+    if (head.settleMs <= 0) {
+      pasteNextQueued();
+      return;
+    }
+    drainTimer = setTimeout(pasteNextQueued, head.settleMs);
+    drainTimer.unref();
+  }
+
+  function onStateChangeWhilePasteQueued({ to }: StateChange): void {
+    if (!PASTE_READY_STATES.has(to)) return;
+    stopWatchingForReady();
+    startDrainingQueue();
+  }
+
+  function dropExpiredPaste(expired: QueuedPaste): void {
+    const expiredIndex = queuedPastes.indexOf(expired);
+    if (expiredIndex === -1) return;
+    queuedPastes.splice(expiredIndex, 1);
+    if (queuedPastes.length === 0 && !isDrainingQueue) stopWatchingForReady();
+  }
+
+  function enqueueAheadOfUnsubmittedPastes(queued: QueuedPaste): void {
+    const firstUnsubmittedIndex = queued.submitDelayMs === null ? -1 : queuedPastes.findIndex((waiting) => waiting.submitDelayMs === null);
+    if (firstUnsubmittedIndex === -1) {
+      queuedPastes.push(queued);
+      return;
+    }
+    queuedPastes.splice(firstUnsubmittedIndex, 0, queued);
   }
 
   function pasteTextWhenReady(text: string, { timeoutMs = 120000, settleMs = 0, submitDelayMs = null }: PasteWhenReadyOptions = {}): PasteResult {
     if (options.isDestroyed()) return { ok: false, reason: "destroyed" };
     const stateBeforeWaiting = options.getState();
-    if (options.hasLivePty() && PASTE_READY_STATES.has(stateBeforeWaiting)) return pasteAndSubmit(text, submitDelayMs);
-    clearPendingPaste();
-    const onStateChange = ({ to }: StateChange): void => {
-      if (!PASTE_READY_STATES.has(to)) return;
-      if (settleMs > 0) {
-        holdPasteUntilSettled(text, settleMs, submitDelayMs);
-        return;
-      }
-      clearPendingPaste();
-      pasteAndSubmit(text, submitDelayMs);
+    const hasPastesAhead = queuedPastes.length > 0 || isDrainingQueue;
+    if (!hasPastesAhead && options.hasLivePty() && PASTE_READY_STATES.has(stateBeforeWaiting)) return pasteAndSubmit(text, submitDelayMs);
+    const queued: QueuedPaste = {
+      text,
+      settleMs,
+      submitDelayMs,
+      expiryTimer: setTimeout(() => dropExpiredPaste(queued), timeoutMs),
     };
-    const onExit = (): void => clearPendingPaste();
-    const timer = setTimeout(() => clearPendingPaste(), timeoutMs);
-    timer.unref();
-    pendingPaste = { timer, onStateChange, onExit };
-    options.on("state-change", onStateChange);
-    options.once("exit", onExit);
+    queued.expiryTimer.unref();
+    enqueueAheadOfUnsubmittedPastes(queued);
+    if (!isDrainingQueue && !isWatchingForReady) {
+      isWatchingForReady = true;
+      options.on("state-change", onStateChangeWhilePasteQueued);
+    }
     if (stateBeforeWaiting === STATES.DORMANT) options.start();
     if (RESTARTABLE_STATES.includes(stateBeforeWaiting)) options.restart();
     return { ok: true, deferred: true };
@@ -200,6 +254,7 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
   }
 
   options.on("exit", disposeScreenKeeper);
+  options.on("exit", clearPendingPaste);
 
   return {
     push,
@@ -212,7 +267,7 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
     pasteText,
     pasteTextWhenReady,
     clearPendingPaste,
-    hasPendingPaste: () => pendingPaste !== null,
+    hasPendingPaste: () => queuedPastes.length > 0,
     rememberSize,
     ptySize,
     disposeScreenKeeper,

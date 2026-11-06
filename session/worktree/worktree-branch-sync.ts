@@ -1,11 +1,12 @@
 import type { RunGitOptions } from "../../server/git/git-exec.ts";
 import { errorMessage } from "../../shared/text.ts";
 import { decideBaseSyncDemotion } from "../core/merge-gate.ts";
-import { GIT_FETCH_TIMEOUT_MS, parseLeftRightCount, decideBranchSyncState, parseRemoteFromUpstream, decideResyncAction, buildResyncCommand, firstGitErrorLine } from "../../server/core/branch-sync-core.ts";
+import { GIT_FETCH_TIMEOUT_MS, parseLeftRightCount, decideBranchSyncState, isLocalRemote, decideResyncAction, buildResyncCommand, firstGitErrorLine } from "../../server/core/branch-sync-core.ts";
+import type { BranchUpstream } from "../../server/core/branch-sync-core.ts";
 import type { BranchSyncResult, BranchSyncStatus, WorktreeLifecycleContext } from "./worktree-lifecycle-context.ts";
 
 function createWorktreeBranchSync(context: WorktreeLifecycleContext) {
-  const { id, lifecycleState, currentProjectPath, gitOut, readUpstreamOf, effectiveIntegrationBranch, setMergeStatus } = context;
+  const { id, lifecycleState, currentProjectPath, gitOut, readBranchUpstreamOf, effectiveIntegrationBranch, setMergeStatus } = context;
 
   function noUpstream(branch: string | null) {
     return {
@@ -18,16 +19,17 @@ function createWorktreeBranchSync(context: WorktreeLifecycleContext) {
     };
   }
 
-  async function fetchBranch(remote: string, branch: string, opts: RunGitOptions): Promise<boolean> {
+  async function fetchUpstream({ remote, remoteBranch }: BranchUpstream, opts: RunGitOptions): Promise<boolean | null> {
+    if (isLocalRemote(remote)) return null;
     try {
-      await gitOut(["fetch", "--quiet", remote, branch], {
+      await gitOut(["fetch", "--quiet", remote, remoteBranch], {
         ...opts,
         timeoutMs: GIT_FETCH_TIMEOUT_MS,
         replaceEnv: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
       });
       return true;
     } catch (error) {
-      console.warn(`[session ${id}] fetch of ${remote}/${branch} failed: ${errorMessage(error)}`);
+      console.warn(`[session ${id}] fetch of ${remote}/${remoteBranch} failed: ${errorMessage(error)}`);
       return false;
     }
   }
@@ -84,9 +86,10 @@ function createWorktreeBranchSync(context: WorktreeLifecycleContext) {
   async function readBranchSync(branch: string): Promise<BranchSyncStatus> {
     const opts: RunGitOptions = { cwd: currentProjectPath(), timeoutMs: 10000 };
     if (!(await isGitRepository(opts))) return noUpstream(branch);
-    const upstream = await readUpstreamOf(branch, opts);
-    if (!upstream) return noUpstream(branch);
-    const fetched = await fetchBranch(parseRemoteFromUpstream(upstream), branch, opts);
+    const branchUpstream = await readBranchUpstreamOf(branch, opts);
+    if (!branchUpstream) return noUpstream(branch);
+    const { upstream } = branchUpstream;
+    const fetched = await fetchUpstream(branchUpstream, opts);
     return applyBaseSyncDemotion({ branch, upstream, fetched, ...(await branchCounts(upstream, branch, opts)) });
   }
 
@@ -99,16 +102,16 @@ function createWorktreeBranchSync(context: WorktreeLifecycleContext) {
   async function resyncKnownBranch(branch: string): Promise<BranchSyncResult> {
     const opts: RunGitOptions = { cwd: currentProjectPath(), timeoutMs: 10000 };
     if (!(await isGitRepository(opts))) return { ...noUpstream(branch), action: "none", error: null };
-    const upstream = await readUpstreamOf(branch, opts);
-    if (!upstream) return { ...noUpstream(branch), action: "none", error: null };
-    const remote = parseRemoteFromUpstream(upstream);
-    const fetched = await fetchBranch(remote, branch, opts);
+    const branchUpstream = await readBranchUpstreamOf(branch, opts);
+    if (!branchUpstream) return { ...noUpstream(branch), action: "none", error: null };
+    const { upstream, remote, remoteBranch } = branchUpstream;
+    const fetched = await fetchUpstream(branchUpstream, opts);
     const before = await branchCounts(upstream, branch, opts);
     const checkedOut = (await gitOut(["rev-parse", "--abbrev-ref", "HEAD"], opts)).trim();
     const decision = decideResyncAction(before.state, checkedOut === branch);
     let action = "none";
     let error: string | null = null;
-    const command = buildResyncCommand(decision, { upstream, branch, remote });
+    const command = buildResyncCommand(decision, { upstream, branch, remote, remoteBranch });
     if (command) {
       try {
         await gitOut(command.args, { ...opts, timeoutMs: command.timeoutMs ?? opts.timeoutMs });

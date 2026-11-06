@@ -232,20 +232,26 @@ function sharpestHoursInsight(samples: readonly ReplySample[]): YourDayInsight |
   return { kind: 'sharpestHours', text: `You replied to agents fastest ${hourText(best.startHour)} to ${hourText(best.startHour + SHARP_WINDOW_HOURS)}, ${ratioText(quickness)} your usual pace.`, deviation: quickness };
 }
 
-function longestStretchInsight(yesterday: DayStats, usualStretchMs: number): YourDayInsight | null {
+function recapDayLabel(recapDay: string, now: number): string {
+  if (recapDay === localDayKey(startOfLocalDay(now, 1))) return 'Yesterday';
+  const [year, month, day] = recapDay.split('-').map(Number);
+  return `On ${new Date(year, month - 1, day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+}
+
+function longestStretchInsight(yesterday: DayStats, dayLabel: string, usualStretchMs: number): YourDayInsight | null {
   if (yesterday.longestStretchMs < MIN_LONG_STRETCH_MS) return null;
   const deviation = yesterday.longestStretchMs / Math.max(usualStretchMs, MINUTE_MS);
   if (deviation < MIN_DEVIATION) return null;
   const comparedToUsual = usualStretchMs >= MINUTE_MS ? `, ${ratioText(deviation)} your usual` : '';
-  return { kind: 'longestStretch', text: `Yesterday you went ${durationText(yesterday.longestStretchMs)} without a break${comparedToUsual}.`, deviation };
+  return { kind: 'longestStretch', text: `${dayLabel} you went ${durationText(yesterday.longestStretchMs)} without a break${comparedToUsual}.`, deviation };
 }
 
-function jugglingInsight(yesterday: DayStats, usualJuggling: number): YourDayInsight | null {
+function jugglingInsight(yesterday: DayStats, dayLabel: string, usualJuggling: number): YourDayInsight | null {
   if (yesterday.peakJuggling < MIN_JUGGLING_SESSIONS) return null;
   const deviation = yesterday.peakJuggling / Math.max(usualJuggling, 1);
   if (deviation < MIN_DEVIATION) return null;
   const peakHour = new Date(yesterday.peakJugglingAt).getHours();
-  return { kind: 'juggling', text: `Yesterday at ${hourText(peakHour)} you switched between ${yesterday.peakJuggling} sessions within ${JUGGLING_WINDOW_MS / MINUTE_MS}m.`, deviation };
+  return { kind: 'juggling', text: `${dayLabel} at ${hourText(peakHour)} you switched between ${yesterday.peakJuggling} sessions within ${JUGGLING_WINDOW_MS / MINUTE_MS}m.`, deviation };
 }
 
 function buildYourDay(events: readonly ActivityEvent[], { now, laneByKey = null }: { now: number; laneByKey?: ReadonlyMap<string, string> | null }): YourDay | null {
@@ -270,14 +276,15 @@ function buildYourDay(events: readonly ActivityEvent[], { now, laneByKey = null 
   if (!yesterday || activeDayCount < MIN_ACTIVE_DAYS) return null;
   const baselineDays = pastDays.length > 1 ? pastDays.slice(0, -1) : pastDays;
   const usualStretchMs = Math.round(median(baselineDays.map((day) => day.longestStretchMs)));
+  const dayLabel = recapDayLabel(yesterday.day, now);
   const allPrompts = counted.filter((event) => event.kind === 'prompt').map((event) => event.ts);
   const allStretches = splitStretches(allPrompts);
   const replySamples = collectReplySamples(counted.filter((event) => event.ts < todayStart), allStretches);
   const insights = [
     waitingThresholdInsight(replySamples),
     sharpestHoursInsight(replySamples),
-    longestStretchInsight(yesterday, usualStretchMs),
-    jugglingInsight(yesterday, median(baselineDays.map((day) => day.peakJuggling))),
+    longestStretchInsight(yesterday, dayLabel, usualStretchMs),
+    jugglingInsight(yesterday, dayLabel, median(baselineDays.map((day) => day.peakJuggling))),
   ]
     .filter((insight): insight is YourDayInsight => insight !== null)
     .sort((left, right) => right.deviation - left.deviation)

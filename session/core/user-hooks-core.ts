@@ -306,6 +306,14 @@ const BUILTIN_PURPOSE_BY_EVENT: Readonly<Record<string, string>> = Object.freeze
   BeforeAgent: 'Status detection: a turn started',
   AfterAgent: 'Status detection: the turn finished',
   AfterTool: 'Status detection: a tool finished, so the turn is working again',
+  sessionStart: 'Status detection: the agent started',
+  sessionEnd: 'Status detection: the agent ended',
+  userPromptSubmitted: 'Status detection: a turn started',
+  agentStop: 'Status detection: the turn finished',
+  errorOccurred: 'Status detection: the turn ended with an error the agent cannot recover from',
+  permissionRequest: 'Status detection: a permission prompt is open',
+  postToolUse: 'Status detection: a tool finished, so the turn is working again',
+  notification: 'Status detection: the agent is waiting on a permission or a question, or went idle',
 });
 
 function builtinHookPurpose({ event, route }: InstalledHook): string | null {

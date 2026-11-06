@@ -219,7 +219,7 @@ test('a kimi session in a fresh folder starts pre-trusted and gets its initial p
 });
 
 for (const agent of ['kimi', 'claude-code']) {
-  test(`a prompt pasted into a starting ${agent} session waits for its input box to settle and stays pending meanwhile, so a race prompt is not lost or overtaken at first ready, while a session already ready takes a paste at once`, async (t) => {
+  test(`a prompt pasted into a starting ${agent} session waits for its input box to settle and stays pending meanwhile, so race prompts queued before or during the settle all arrive in order ahead of a prompt left for the operator to submit, while a session already ready takes a paste at once`, async (t) => {
     const agentHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-paste-settle-'));
     t.after(() => fsp.rm(agentHome, { recursive: true, force: true }));
     const writes: string[] = [];
@@ -231,18 +231,26 @@ for (const agent of ['kimi', 'claude-code']) {
     });
     try {
       await session.start();
+      assert.deepEqual(session.pasteTextWhenReady('Read before sending'), { ok: true, deferred: true });
       assert.equal(session.pasteTextWhenReady('Race task', { submit: true }).ok, true);
+      assert.deepEqual(session.pasteTextWhenReady('Second race task', { submit: true }), { ok: true, deferred: true });
       session.transition('first_output');
       await new Promise((resolve) => setTimeout(resolve, 200));
       const writesBeforeSettle = [...writes];
       const isPendingDuringSettle = session.hasPendingPaste();
-      await new Promise((resolve) => setTimeout(resolve, 2200));
+      assert.deepEqual(session.pasteTextWhenReady('Settle window task', { submit: true }), { ok: true, deferred: true });
+      await new Promise((resolve) => setTimeout(resolve, 2600));
       assert.deepEqual(writesBeforeSettle, []);
       assert.equal(isPendingDuringSettle, true);
       assert.equal(session.hasPendingPaste(), false);
-      assert.deepEqual(writes, ['\x1b[200~Race task\x1b[201~', '\r']);
+      assert.deepEqual(writes, [
+        '\x1b[200~Race task\x1b[201~', '\r',
+        '\x1b[200~Second race task\x1b[201~', '\r',
+        '\x1b[200~Settle window task\x1b[201~', '\r',
+        '\x1b[200~Read before sending\x1b[201~',
+      ]);
       assert.deepEqual(session.pasteTextWhenReady('Fix it'), { ok: true });
-      assert.equal(writes[2], '\x1b[200~Fix it\x1b[201~');
+      assert.equal(writes[7], '\x1b[200~Fix it\x1b[201~');
     } finally {
       session.destroy();
     }
