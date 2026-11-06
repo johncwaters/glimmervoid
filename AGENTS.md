@@ -55,7 +55,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 - The published package ships `dist/` only and runs built `.js`, because Node refuses type stripping inside `node_modules`. Resolve a shipped asset (relay, CLI, dashboard) through `server/runtime-paths.ts`, never from `import.meta.dirname`: the same module runs from a source checkout and from `dist/`.
 - Sessions are keyed by stable UUID `id`; `name` is display-only.
 - Wire and persisted shapes are Zod schemas in `shared/contracts/`; boundaries parse and fail closed, and types come from `z.infer`, never hand-duplicated.
-- `npm run typecheck` gates every tree at zero errors under full `strict` plus `erasableSyntaxOnly` and `verbatimModuleSyntax` (`tsconfig.json` for node code, `tsconfig.public.json` for the browser). No suppressions of any kind: `@ts-*` pragmas, `biome-ignore`, `as any`, and `as unknown as` all fail the gate.
+- Coherence reports are work, not backlog: anything a Coherence hook or `coherence query status` reports open (a requirement, an undefined recurring term, an entrance, a failing check) an operator session hands at once to one child session (`glimmervoid spawn`); a spawned child or subagent settles it itself, and a lane leaves it.
 
 ### Testing Requirements
 
