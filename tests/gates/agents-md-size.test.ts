@@ -12,7 +12,9 @@ const CITATION_EXTENSIONS = /\.(js|mjs|cjs|ts|mts|cts|json|md|css|html|toml|yml|
 function agentsMdFiles(dir: string, found: string[] = []): string[] {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (entry.isDirectory()) {
-      if (!SKIP_DIRS.has(entry.name)) agentsMdFiles(path.join(dir, entry.name), found);
+      const childDir = path.join(dir, entry.name);
+      const isNestedCheckout = fs.existsSync(path.join(childDir, '.git'));
+      if (!SKIP_DIRS.has(entry.name) && !isNestedCheckout) agentsMdFiles(childDir, found);
       continue;
     }
     if (entry.name === 'AGENTS.md') found.push(path.join(dir, entry.name));
