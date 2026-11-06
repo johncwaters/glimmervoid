@@ -65,6 +65,9 @@ import { glimmervoidHomeDir as resolveGlimmervoidHomeDir, isOperatorHomeUnderTes
 import { decideIsDevInstall, parsePosthogReleaseId } from '../core/telemetry-core.ts';
 import { promptContextReplyOf } from '../../session/core/refocus-core.ts';
 import { lookupWhy } from '../why-lookup.ts';
+import { createHostLinksWiring } from '../hosts/host-links-wiring.ts';
+import type { SpawnHostTunnel } from '../hosts/host-links-wiring.ts';
+import type { WebSocket } from 'ws';
 
 interface CreateBackendOptions extends BackendLaneOptions {
   staticDir?: string | null;
@@ -75,6 +78,7 @@ interface CreateBackendOptions extends BackendLaneOptions {
   downloadUpdatesInBackground?: boolean;
   configReloadDebounceMs?: number;
   isExperimentalBuild?: boolean;
+  spawnHostTunnel?: SpawnHostTunnel;
 }
 
 const AGENT_INGRESS_HOST = '127.0.0.1';
@@ -242,6 +246,15 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     broadcastControlFromWebSockets(message);
     if (message.type === 'session-removed' && typeof message.id === 'string') void whiteboards.forgetSession(message.id);
   };
+  const hostLinks = config.hosts?.length
+    ? createHostLinksWiring({ hosts: config.hosts, hubBuild: serverBuild, broadcast: broadcastControlFromWebSockets, spawnHostTunnel: options.spawnHostTunnel })
+    : null;
+  if (hostLinks) {
+    controlWss.on('connection', (socket: WebSocket) => {
+      const frame = hostLinks.statusFrame();
+      if (frame && socket.readyState === 1) socket.send(JSON.stringify(frame));
+    });
+  }
   const sessionDocs = createSessionDocsWiring({ broadcastControl: broadcastControlFromWebSockets });
   const whiteboards = createWhiteboardWiring({
     boardsRoot: configSiblingPath(configStore.configPath, WHITEBOARDS_FOLDER_NAME),
@@ -587,6 +600,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     heartbeat,
     outcomes,
     telemetry,
+    hostLinks,
     controlWss,
     dataWss,
   });

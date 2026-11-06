@@ -213,6 +213,10 @@
     {
       "name": "parked",
       "definition": "The Reviews group for a pull request set aside with no action left: a discarded team review or one of the operator's own drafts, collapsed by default"
+    },
+    {
+      "name": "host",
+      "definition": "A machine running Glimmervoid; a registered host is another such machine, listed under hosts in config, that this dashboard links over an ssh tunnel and shows in the sidebar with its sessions"
     }
   ]
 }

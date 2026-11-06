@@ -8,6 +8,7 @@ import { BranchGcControlSettings, GithubSettings,
 } from './browser-config.ts';
 import { WorkflowsSettingsUpdate } from './workflows.ts';
 import { AgentSetup } from './agent-models.ts';
+import { HostEntries } from './hosts.ts';
 import { GitObjectSha, RaceId } from './race.ts';
 import type { BranchGcFileSettings as BranchGcFileSettingsSchema } from './browser-config.ts';
 
@@ -208,6 +209,7 @@ export const Config = z.object({
     allowedOrigins: z.array(z.string()).optional(),
     ownerLogin: z.string().optional(),
   }).passthrough().optional(),
+  hosts: HostEntries.optional(),
   projects: z.array(ProjectConfig),
 }).passthrough().superRefine((config, ctx) => {
   if (!Array.isArray(config.projects)) return;
