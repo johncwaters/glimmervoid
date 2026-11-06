@@ -561,7 +561,7 @@ function addStepFromDialog(): void {
     onSubmit: (title, linkedBoardId) => sendOpsFromDialog([{
       op: 'add',
       element: {
-        kind: 'box', id: newElementId('box'), title, lines: [], lane: null, refs: [], change: 'none', was: null, column: null, near: null, order: 0, at: null,
+        kind: 'box', id: newElementId('box'), title, lines: [], refs: [], change: 'none', was: null, near: null, order: 0, at: null,
         shape: 'box', outputs: [], media: null, width: null, step: { status: 'planned', linkedBoardId: linkedBoardId || null },
       },
     }]),

@@ -133,8 +133,7 @@ async function queueWhiteboardEditFor(baseUrl: string, reader: WhiteboardProbeSe
   if (typeof boardId !== 'string') throw new Error('whiteboard new answered without a board id');
   await callWhiteboard(baseUrl, reader, { sub: 'connect', board: boardId });
   await callWhiteboard(baseUrl, writer, { sub: 'put', board: boardId, ops: [
-    { op: 'columns', columns: [{ id: 'intake', title: 'Intake' }] },
-    { op: 'add', element: { kind: 'box', id: 'probe-box', title: 'Probe box', column: 'intake' } },
+    { op: 'add', element: { kind: 'box', id: 'probe-box', title: 'Probe box', at: { x: 40, y: 40 } } },
   ] });
 }
 

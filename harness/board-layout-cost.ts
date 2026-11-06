@@ -16,7 +16,8 @@ import type { BoardLayout } from '../shared/whiteboard-layout-core.ts';
 const REPO_ROOT = path.resolve(import.meta.dirname, '..');
 const TIMED_RUNS = 3;
 const BOX_SHARE = 0.7;
-const COLUMN_BOX_EVERY = 10;
+const STACKED_BOX_EVERY = 10;
+const STACK_LEFT_BY_NAME: Readonly<Record<string, number>> = { one: 40, two: 350 };
 const BOX_SPACING_X = 300;
 const BOX_SPACING_Y = 200;
 const AT_GRID_LEFT = 1000;
@@ -42,10 +43,17 @@ export function benchmarkBoard(elementCount: number): Board {
   const boxesPerRow = Math.ceil(Math.sqrt(boxCount));
   const atGridLeft = AT_GRID_LEFT + elementCount * AT_GRID_LEFT_PER_ELEMENT;
   const elements: Board['elements'] = {};
+  const lastStackedIdByName = new Map<string, string>();
+  const stackedPlaceOf = (boxIndex: number) => {
+    const stackName = boxIndex % (STACKED_BOX_EVERY * 2) === 0 ? 'one' : 'two';
+    const boxAboveId = lastStackedIdByName.get(stackName);
+    lastStackedIdByName.set(stackName, `b${boxIndex}`);
+    return boxAboveId ? { near: { of: boxAboveId, side: 'bottom', gap: 30 } } : { at: { x: STACK_LEFT_BY_NAME[stackName] ?? 40, y: 40 } };
+  };
   for (let boxIndex = 0; boxIndex < boxCount; boxIndex += 1) {
-    const isInColumn = boxIndex % COLUMN_BOX_EVERY === 0;
-    const place = isInColumn
-      ? { column: boxIndex % (COLUMN_BOX_EVERY * 2) === 0 ? 'one' : 'two', order: boxIndex }
+    const isStacked = boxIndex % STACKED_BOX_EVERY === 0;
+    const place = isStacked
+      ? stackedPlaceOf(boxIndex)
       : { at: { x: atGridLeft + (boxIndex % boxesPerRow) * BOX_SPACING_X, y: AT_GRID_TOP + Math.floor(boxIndex / boxesPerRow) * BOX_SPACING_Y } };
     elements[`b${boxIndex}`] = Element.parse({ kind: 'box', id: `b${boxIndex}`, title: `box ${boxIndex}`, lines: [{ text: 'a line' }], ...place });
   }
@@ -55,7 +63,7 @@ export function benchmarkBoard(elementCount: number): Board {
     elements[`w${wireIndex}`] = Element.parse({ kind: 'wire', id: `w${wireIndex}`, from: `b${fromIndex}`, to: `b${toIndex}` });
   }
   const board = createBoard({ id: '00000000-0000-4000-8000-000000000000', title: 'layout cost', nowMs: 0 });
-  return { ...board, columns: [{ id: 'one', title: 'one' }, { id: 'two', title: 'two' }], elements };
+  return { ...board, elements };
 }
 
 function bestLayoutMs(layout: LayoutBoard, board: Board): { layoutMs: number; boardLayout: BoardLayout } {

@@ -273,7 +273,7 @@ test('every board just past the picture width still pictures instead of being re
   const refusedOffsets: number[] = [];
   for (let boxOffset = 1400; boxOffset <= 1800; boxOffset += 1) {
     const box = { kind: 'box', id: 'edge', title: 'Edge', at: { x: boxOffset, y: 0 } };
-    const board = Board.parse({ id: 'edge-board', title: 'edge', version: 1, caption: null, columns: [], lanes: [], elements: { edge: box }, createdAt: 0, updatedAt: 0 });
+    const board = Board.parse({ id: 'edge-board', title: 'edge', version: 1, caption: null, elements: { edge: box }, createdAt: 0, updatedAt: 0 });
     if (!boardPicture(board).ok) refusedOffsets.push(boxOffset);
   }
   assert.deepEqual(refusedOffsets, []);

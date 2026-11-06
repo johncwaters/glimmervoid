@@ -24,8 +24,6 @@ const LaidOutBox = z.object({
   ...RectFields,
   titleLines: z.array(z.string()),
   bodyLines: z.array(LaidOutLine),
-  lane: z.object({ label: z.string(), hex: z.string() }).strict().nullable(),
-  showsLanePill: z.boolean(),
   change: BoxChange,
   wasLines: z.array(z.string()),
   shape: Box.shape.shape.unwrap(),
@@ -47,7 +45,6 @@ const LaidOutWire = z.object({
   labelAt: Point,
   isDashed: z.boolean(),
   isBack: z.boolean(),
-  strokeHex: z.string().nullable(),
   tone: WireTone,
   hasArrowhead: z.boolean(),
   joinAt: Point.nullable(),
@@ -56,15 +53,12 @@ const LaidOutWire = z.object({
 const LaidOutNote = z.object({ kind: z.literal('note'), id: z.string(), ...RectFields, lines: z.array(z.string()), byline: z.string(), isResolved: z.boolean() }).strict();
 
 const LegendSwatch = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('lane'), hex: z.string() }).strict(),
   z.object({ kind: z.literal('wire'), tone: WireTone, isDashed: z.boolean(), isBack: z.boolean() }).strict(),
   z.object({ kind: z.literal('change'), change: BoxChange.exclude(['none']) }).strict(),
   z.object({ kind: z.literal('status'), status: StepStatus }).strict(),
 ]);
 
 export const LaidOutBoard: z.ZodType<BoardLayout> = z.object({
-  columns: z.array(z.object({ id: z.string(), titleLines: z.array(z.string()), titleBaselineY: z.number(), ruleY: z.number(), x: z.number(), width: z.number() }).strict()),
-  bands: z.array(z.object({ id: z.string(), label: z.string(), hex: z.string(), ...RectFields }).strict()),
   elements: z.array(z.discriminatedUnion('kind', [LaidOutBox, LaidOutFrame, LaidOutWire, LaidOutNote])),
   legend: z.array(z.object({ label: z.string(), x: z.number(), y: z.number(), swatch: LegendSwatch }).strict()),
   caption: z.object({ text: z.string(), x: z.number(), y: z.number() }).strict().nullable(),

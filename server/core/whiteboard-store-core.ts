@@ -44,11 +44,66 @@ function elementsWithStepBoxesForUnits(elements: Record<string, unknown>): Recor
   return upgraded;
 }
 
+const UPGRADE_MARGIN = 40;
+const UPGRADE_COLUMN_WIDTH = 220;
+const UPGRADE_COLUMN_GAP = 90;
+const UPGRADE_BOX_GAP = 30;
+
+function idsOf(entries: unknown): string[] {
+  if (!Array.isArray(entries)) return [];
+  return entries.flatMap((entry) => (isRecord(entry) && typeof entry.id === 'string' ? [entry.id] : []));
+}
+
+function isGridPlacedBox(element: unknown, columnId: string): element is Record<string, unknown> {
+  return isRecord(element) && element.kind === 'box' && element.column === columnId && (element.at ?? null) === null && (element.near ?? null) === null;
+}
+
+function freePlacementByBoxId(board: Record<string, unknown>, elements: Record<string, unknown>): Map<string, Record<string, unknown>> {
+  const laneIds = idsOf(board.lanes);
+  const laneRankOf = (box: Record<string, unknown>) => (typeof box.lane === 'string' ? laneIds.indexOf(box.lane) + 1 : 0);
+  const orderOf = (box: Record<string, unknown>) => (typeof box.order === 'number' ? box.order : 0);
+  const placementByBoxId = new Map<string, Record<string, unknown>>();
+  let columnLeftEdge = UPGRADE_MARGIN;
+  for (const columnId of idsOf(board.columns)) {
+    const columnBoxes = Object.values(elements).filter((element) => isGridPlacedBox(element, columnId))
+      .map((box, index) => ({ box, index }))
+      .sort((left, right) => laneRankOf(left.box) - laneRankOf(right.box) || orderOf(left.box) - orderOf(right.box) || left.index - right.index)
+      .map(({ box }) => box);
+    columnBoxes.forEach((box, index) => {
+      const boxAbove = columnBoxes[index - 1];
+      placementByBoxId.set(String(box.id), boxAbove ? { near: { of: boxAbove.id, side: 'bottom', gap: UPGRADE_BOX_GAP } } : { at: { x: columnLeftEdge, y: UPGRADE_MARGIN } });
+    });
+    const widestBox = Math.max(UPGRADE_COLUMN_WIDTH, ...columnBoxes.map((box) => (typeof box.width === 'number' ? box.width : UPGRADE_COLUMN_WIDTH)));
+    columnLeftEdge += widestBox + UPGRADE_COLUMN_GAP;
+  }
+  return placementByBoxId;
+}
+
+function withoutColumnAndLane(element: unknown, placementByBoxId: ReadonlyMap<string, Record<string, unknown>>): unknown {
+  if (!isRecord(element)) return element;
+  if (element.kind === 'wire' && element.tone === 'lane') return { ...element, tone: 'plain' };
+  if (element.kind !== 'box') return element;
+  const { column: _column, lane: _lane, ...freeBox } = element;
+  return { ...freeBox, ...placementByBoxId.get(String(element.id)) };
+}
+
+function legendWithoutLaneTone(legend: unknown): unknown {
+  if (!Array.isArray(legend)) return legend;
+  return legend.map((entry) => (isRecord(entry) && entry.tone === 'lane' ? { ...entry, tone: 'plain' } : entry));
+}
+
+function freeCanvasBoard(board: Record<string, unknown>, elements: Record<string, unknown>): Record<string, unknown> {
+  const placementByBoxId = freePlacementByBoxId(board, elements);
+  const { columns: _columns, lanes: _lanes, ...freeBoard } = board;
+  const freeElements = Object.fromEntries(Object.entries(elements).map(([elementId, element]) => [elementId, withoutColumnAndLane(element, placementByBoxId)]));
+  return { ...freeBoard, ...('legend' in board ? { legend: legendWithoutLaneTone(board.legend) } : {}), elements: freeElements };
+}
+
 function upgradedBoardRecord(raw: unknown): unknown {
   const board = isRecord(raw) ? raw.board : null;
   if (!isRecord(raw) || !isRecord(board) || !isRecord(board.elements)) return raw;
   const elements = Object.fromEntries(Object.entries(elementsWithStepBoxesForUnits(board.elements)).map(([elementId, element]) => [elementId, boxForPanel(elementWithMediaForImage(element))]));
-  return { ...raw, board: { ...board, elements } };
+  return { ...raw, board: freeCanvasBoard(board, elements) };
 }
 
 function lowestCursor(record: BoardRecord): number {

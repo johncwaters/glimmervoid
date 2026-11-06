@@ -14,8 +14,6 @@ export const BoardDiff = z.object({
     title: Board.shape.title.optional(),
     caption: Board.shape.caption.optional(),
     legend: Board.shape.legend.unwrap().optional(),
-    columns: Board.shape.columns.optional(),
-    lanes: Board.shape.lanes.optional(),
     codeSessionId: Board.shape.codeSessionId.unwrap().optional(),
   }).strict(),
   elements: z.record(z.string(), ElementChange),

@@ -14,7 +14,7 @@ type Draft = { board: Board; elementCount: number; pinPositions: PinPositions | 
 const ELEMENT_SCHEMAS = Object.freeze({ box: Box, frame: Frame, wire: Wire, note: Note });
 const NOTE_PREVIEW_CHARS = 80;
 const OK: OpOutcome = { ok: true };
-const DIFFED_BOARD_FIELDS = ['title', 'caption', 'legend', 'columns', 'lanes', 'codeSessionId'] as const;
+const DIFFED_BOARD_FIELDS = ['title', 'caption', 'legend', 'codeSessionId'] as const;
 const OPERATOR_AUTHOR: Author = Object.freeze({ id: 'operator', name: 'operator' });
 
 function canKeepNoteStamps(author: Author): boolean {
@@ -79,23 +79,17 @@ function checkBoxReferences(board: Board, box: Box, previous: Element | undefine
   const outputs = checkBoxOutputs(board, box, previous);
   if (!outputs.ok) return outputs;
   if (box.change === 'relabeled' && !box.was) return refuse(`box ${box.id} is relabeled, so give its old title in was`);
-  if (box.step === null && box.shape !== 'panel' && box.column === null && box.near === null && box.at === null) {
-    return refuse(`box ${box.id} needs a place: a column, near another box, or at a point`);
+  if (box.step === null && box.shape !== 'panel' && box.near === null && box.at === null) {
+    return refuse(`box ${box.id} needs a place: near another box or at a point`);
   }
   const isJoiningPanelStack = isStackedPanel(box) && previous?.kind === 'box' && !isStackedPanel(previous);
   const sittingNear = isJoiningPanelStack ? boxSittingNear(board, box.id) : null;
-  if (sittingNear) return refuse(`box ${sittingNear.id} sits near ${box.id}, so ${box.id} cannot go back to the panel stack with no place: keep a column, near or at on it, or move box ${sittingNear.id} first`);
-  if (box.column !== null && !board.columns.some((column) => column.id === box.column)) {
-    return refuse(`box ${box.id} names column ${box.column}, which the board does not have, so add it with a columns op first`);
-  }
-  if (box.lane !== null && !board.lanes.some((lane) => lane.id === box.lane)) {
-    return refuse(`box ${box.id} names lane ${box.lane}, which the board does not have, so add it with a lanes op first`);
-  }
+  if (sittingNear) return refuse(`box ${sittingNear.id} sits near ${box.id}, so ${box.id} cannot go back to the panel stack with no place: keep a near or at on it, or move box ${sittingNear.id} first`);
   if (box.near === null) return OK;
   if (box.near.of === box.id) return refuse(`box ${box.id} cannot sit near itself`);
   const nearTarget = board.elements[box.near.of];
   if (nearTarget?.kind !== 'box') return refuse(`box ${box.id} sits near ${box.near.of}, which is not a box`);
-  if (isStackedPanel(nearTarget)) return refuse(`box ${box.id} sits near ${box.near.of}, a panel with no place yet, so give that panel a column, near or at first`);
+  if (isStackedPanel(nearTarget)) return refuse(`box ${box.id} sits near ${box.near.of}, a panel with no place yet, so give that panel a near or at first`);
   if (nearChainReaches(board, box.near.of, box.id)) return refuse(`box ${box.id} sits near ${box.near.of}, which already sits near ${box.id}, so they would place each other`);
   return OK;
 }
@@ -237,32 +231,6 @@ function resolveNote(board: Board, id: string, author: Author): OpOutcome {
   return OK;
 }
 
-function replaceColumns(board: Board, columns: Board['columns'], moveByColumnId: Readonly<Record<string, string>>): OpOutcome {
-  const columnIds = new Set(columns.map((column) => column.id));
-  if (columnIds.size !== columns.length) return refuse('column ids must be unique');
-  const strayTarget = Object.entries(moveByColumnId).find(([, targetId]) => !columnIds.has(targetId));
-  if (strayTarget) return refuse(`move sends column ${strayTarget[0]} to ${strayTarget[1]}, which is not in the new columns`);
-  const movedBoxes = Object.values(board.elements).flatMap((element) => {
-    if (element.kind !== 'box' || element.column === null) return [];
-    return [{ ...element, column: Object.hasOwn(moveByColumnId, element.column) ? moveByColumnId[element.column] ?? element.column : element.column }];
-  });
-  const strandedBox = movedBoxes.find((box) => box.column !== null && !columnIds.has(box.column));
-  if (strandedBox) return refuse(`box ${strandedBox.id} is still in removed column ${strandedBox.column}, so name it in move or remove the box first`);
-  for (const box of movedBoxes) board.elements[box.id] = box;
-  board.columns = columns;
-  return OK;
-}
-
-function replaceLanes(board: Board, lanes: Board['lanes']): OpOutcome {
-  const laneIds = new Set(lanes.map((lane) => lane.id));
-  if (laneIds.size !== lanes.length) return refuse('lane ids must be unique');
-  board.lanes = lanes;
-  for (const element of Object.values(board.elements)) {
-    if (element.kind === 'box' && element.lane !== null && !laneIds.has(element.lane)) board.elements[element.id] = { ...element, lane: null };
-  }
-  return OK;
-}
-
 function applyOne(draft: Draft, op: Op, author: Author): OpOutcome {
   const { board } = draft;
   if (op.op !== 'remove') {
@@ -274,8 +242,6 @@ function applyOne(draft: Draft, op: Op, author: Author): OpOutcome {
     case 'set': return setFields(board, op.id, op.fields, author);
     case 'remove': return removeElement(draft, op.id);
     case 'resolve': return resolveNote(board, op.id, author);
-    case 'columns': return replaceColumns(board, op.columns, op.move);
-    case 'lanes': return replaceLanes(board, op.lanes);
     case 'board':
       if (op.title !== undefined) board.title = op.title;
       if (op.caption !== undefined) board.caption = op.caption;
@@ -418,8 +384,6 @@ function describeOp(op: Op, previous: Element | undefined, after: Board): string
     case 'set': return describeSet(op, previous, after);
     case 'remove': return `removed ${previous?.kind ?? 'element'} ${nameOf(after, op.id, previous)}`;
     case 'resolve': return previous?.kind === 'note' ? `resolved note ${op.id} on ${nameOf(after, previous.on)}` : `resolved note ${op.id}`;
-    case 'columns': return `set the columns to ${op.columns.map((column) => column.title || column.id).join(', ') || 'none'}`;
-    case 'lanes': return `set the lanes to ${op.lanes.map((lane) => lane.label || lane.id).join(', ') || 'none'}`;
     case 'board': return describeBoardOp(op);
   }
 }
@@ -427,8 +391,6 @@ function describeOp(op: Op, previous: Element | undefined, after: Board): string
 function createBoard({ id, title, nowMs, codeSessionId = null }: { id: string; title: string; nowMs: number; codeSessionId?: string | null }): Board {
   return {
     id, title, version: 0, caption: null,
-    columns: [{ id: 'main', title: '' }],
-    lanes: [],
     legend: [],
     codeSessionId,
     elements: {},

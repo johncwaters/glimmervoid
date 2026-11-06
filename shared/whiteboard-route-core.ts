@@ -115,7 +115,6 @@ interface WirePlan {
   from: LaidOutBox;
   to: LaidOutBox;
   styleKey: string;
-  strokeHex: string | null;
   exitSide: Side;
   entrySide: Side;
   busKey: string | null;
@@ -416,9 +415,8 @@ function planWires(input: RouteInput, reuse: RouteReuse | null): WirePlan[] {
     if (!from || !to) return [];
     const facing = facingSides(from, to, wire.back);
     const output = from.outputs.find((candidate) => candidate.id === wire.fromOutput);
-    const strokeHex = wire.tone === 'lane' ? from.lane?.hex ?? null : null;
     const plan: WirePlan = {
-      wire, from, to, strokeHex, styleKey: `${wire.dashed || wire.back}|${wire.tone}|${strokeHex}`,
+      wire, from, to, styleKey: `${wire.dashed || wire.back}|${wire.tone}`,
       exitSide: output ? 'right' : wire.fromSide ?? facing.exitSide, entrySide: wire.toSide ?? facing.entrySide,
       busKey: null, exitKey: '', outputPort: output?.port ?? null, start: output?.port ?? centerOf(from), end: centerOf(to),
     };
@@ -1316,7 +1314,7 @@ function laidOutWiresOf(drawn: readonly DrawnWire[], labelById: ReadonlyMap<stri
     return {
       kind: 'wire', id: plan.wire.id, path: pathOf(points), start: plan.start, end: plan.end,
       label: plan.wire.label, labelAt: labelById.get(plan.wire.id)?.at ?? centerOf(plan.from),
-      isDashed: plan.wire.dashed || plan.wire.back, isBack: plan.wire.back, strokeHex: plan.strokeHex, tone: plan.wire.tone,
+      isDashed: plan.wire.dashed || plan.wire.back, isBack: plan.wire.back, tone: plan.wire.tone,
       hasArrowhead: leader === undefined || leader === wire, joinAt: joinPointOf(wire, leader),
     };
   });
@@ -1354,5 +1352,5 @@ function routeWires(input: RouteInput, previous: RouteMemory | null): RouteResul
   };
 }
 
-export { cappedWarningLists, cappedWarnings, warningListOf, labelWidthOf, pathOf, previewWires, rectsOverlap, routeWires, unionOf };
+export { cappedWarningLists, cappedWarnings, warningListOf, pathOf, previewWires, rectsOverlap, routeWires, unionOf };
 export type { Point, RouteMemory };

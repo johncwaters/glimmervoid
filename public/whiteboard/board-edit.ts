@@ -97,7 +97,7 @@ const PLACED_TITLE_BY_TOOL: Readonly<Record<PlacementTool, string>> = { box: 'Bo
 
 function placedBox(at: ViewPoint, title: string, media: BoxMedia | null, shape: Box['shape']): BoardElement {
   return {
-    kind: 'box', id: newElementId('box'), title, lines: [], lane: null, refs: [], change: 'none', was: null, column: null, near: null, order: 0, at,
+    kind: 'box', id: newElementId('box'), title, lines: [], refs: [], change: 'none', was: null, near: null, order: 0, at,
     shape, outputs: shape === 'decision' ? [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }] : [], media, width: null, step: null,
   };
 }

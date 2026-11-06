@@ -419,29 +419,12 @@
 
 .wb-dialog-select { margin-top: 8px; }
 
-.wb-column-title {
+.wb-plan-title {
   fill: var(--wb-ink-dim);
   font-size: var(--type-meta);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-}
-
-.wb-column-rule {
-  stroke: var(--wb-line);
-  stroke-width: 1;
-  stroke-dasharray: 2 5;
-}
-
-.wb-band-rule {
-  stroke: var(--wb-line);
-  stroke-width: 1;
-  opacity: 0.6;
-}
-
-.wb-band-label {
-  font-size: var(--type-meta);
-  font-weight: 700;
 }
 
 .wb-box { cursor: move; }
@@ -519,16 +502,6 @@
 }
 
 .wb-output-dot { fill: var(--wb-ink-dim); pointer-events: none; }
-
-.wb-lane-pill {
-  fill: transparent;
-  stroke-width: 1.2;
-}
-
-.wb-lane-pill-text {
-  font-size: var(--type-meta);
-  font-weight: 700;
-}
 
 .wb-step .wb-box-outline {
   stroke: var(--accent);

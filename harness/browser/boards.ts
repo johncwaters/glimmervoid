@@ -814,7 +814,7 @@ const SCALE_SAVE_TIMEOUT_MS = 30000;
 
 function scaleBoardPuts(): Op[][] {
   const board = benchmarkBoard(WHITEBOARD_LIMITS.elements);
-  const ops: Op[] = [{ op: 'columns', columns: board.columns, move: {} }, ...Object.values(board.elements).map((element): Op => ({ op: 'add', element }))];
+  const ops: Op[] = Object.values(board.elements).map((element): Op => ({ op: 'add', element }));
   const puts: Op[][] = [[]];
   let putBytes = 0;
   for (const op of ops) {

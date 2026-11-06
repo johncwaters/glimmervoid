@@ -371,7 +371,6 @@ function summarizeLayout(layout: BoardLayout) {
   return {
     ok: true,
     bounds: layout.bounds,
-    columns: layout.columns.map((column) => ({ id: column.id, x: column.x, width: column.width })),
     elements: placed,
     wires,
     warnings: layout.warnings,

@@ -9,17 +9,29 @@ import { EMPTY_HISTORY, UNDO_LIMIT, recordEdit, takeStep, undoOpsOf } from '../s
 import type { Op } from '../shared/contracts/whiteboard.ts';
 import type { LaidOutElement, Rect } from '../shared/whiteboard-layout-core.ts';
 
-function box(id: string, column: string, order: number) {
-  return { kind: 'box', id, title: `step ${id} with a longer title`, lines: [{ text: 'a body line long enough to wrap twice over' }], column, order };
+function box(id: string) {
+  return { kind: 'box', id, title: `step ${id} with a longer title`, lines: [{ text: 'a body line long enough to wrap twice over' }] };
+}
+
+type UnplacedBox = { id: string; width?: number } & Record<string, unknown>;
+
+function stacked(stacks: UnplacedBox[][], spacing: { stackGap: number; boxGap: number } = { stackGap: 90, boxGap: 30 }): Record<string, unknown> {
+  const elements: Record<string, unknown> = {};
+  let stackLeft = 40;
+  for (const stack of stacks) {
+    stack.forEach((unplaced, index) => {
+      const boxAbove = stack[index - 1];
+      elements[unplaced.id] = { ...unplaced, ...(boxAbove ? { near: { of: boxAbove.id, side: 'bottom', gap: spacing.boxGap } } : { at: { x: stackLeft, y: 40 } }) };
+    });
+    stackLeft += Math.max(220, ...stack.map((unplaced) => unplaced.width ?? 220)) + spacing.stackGap;
+  }
+  return elements;
 }
 
 const crowdedBoard = Board.parse({
-  id: 'crowded', title: 'crowded', version: 1, caption: null, createdAt: 0, updatedAt: 0, lanes: [],
-  columns: [{ id: 'a', title: 'Triggers' }, { id: 'b', title: 'Adapters plus merge check, no agent' }, { id: 'c', title: 'Intake, one request shape for all' }],
+  id: 'crowded', title: 'crowded', version: 1, caption: null, createdAt: 0, updatedAt: 0,
   elements: {
-    a1: box('a1', 'a', 0), a2: box('a2', 'a', 1),
-    b1: box('b1', 'b', 0), b2: box('b2', 'b', 1),
-    c1: box('c1', 'c', 0), c2: box('c2', 'c', 1), c3: box('c3', 'c', 2),
+    ...stacked([[box('a1'), box('a2')], [box('b1'), box('b2')], [box('c1'), box('c2'), box('c3')]], { stackGap: 200, boxGap: 160 }),
     n1: { kind: 'note', id: 'n1', on: 'b1', text: 'Outside authors stop here now; the author check runs before any docs request is built for them' },
     n2: { kind: 'note', id: 'n2', on: 'b1', text: 'A second note stacks under the first' },
     f1: { kind: 'frame', id: 'f1', title: 'intake', contains: ['c2', 'c3'] },
@@ -48,7 +60,7 @@ function isAllowedToTouch(first: LaidOutElement, second: LaidOutElement): boolea
   return false;
 }
 
-test('notes, frames and wrapped column titles never draw over boxes they do not belong to', () => {
+test('notes stack beside their box and frames wrap their boxes without drawing over boxes they do not belong to', () => {
   const layout = layoutBoard(crowdedBoard);
   const placed = layout.elements.filter((element) => element.kind !== 'wire');
   for (const [index, first] of placed.entries()) {
@@ -56,13 +68,6 @@ test('notes, frames and wrapped column titles never draw over boxes they do not 
       if (!overlaps(first, second)) continue;
       assert.ok(isAllowedToTouch(first, second), `${first.id} overlaps ${second.id}`);
     }
-  }
-  const headerBottom = Math.max(...layout.columns.map((column) => column.ruleY));
-  for (const element of placed) assert.ok(element.y > headerBottom, `${element.id} starts inside the column header`);
-  for (const column of layout.columns) {
-    const nextColumn = layout.columns[layout.columns.indexOf(column) + 1];
-    if (!nextColumn) continue;
-    for (const line of column.titleLines) assert.ok(column.x + line.length * 9 < nextColumn.x, `"${line}" runs into the next column`);
   }
 });
 
@@ -123,7 +128,7 @@ function dependency(fromId: string, toId: string) {
   return { kind: 'wire', id: `${fromId}-to-${toId}`, from: fromId, to: toId };
 }
 
-test('unplaced step boxes draw as a plan band above the freeform columns, one level per column, and a dragged step leaves the band where it was dropped', () => {
+test('unplaced step boxes draw as a plan band above the free drawing, one level per column, and a dragged step leaves the band where it was dropped', () => {
   const plannedBoard = Board.parse({
     ...wiredBoard,
     elements: {
@@ -131,7 +136,7 @@ test('unplaced step boxes draw as a plan band above the freeform columns, one le
       diff: stepBox('diff', 'Diff index'), endpoint: stepBox('endpoint', 'Search endpoint'),
       backfill: stepBox('backfill', 'Index backfill', 'backfill-board'), searchbox: stepBox('searchbox', 'Search box'),
       ...Object.fromEntries([dependency('diff', 'endpoint'), dependency('diff', 'backfill'), dependency('endpoint', 'searchbox'), dependency('diff', 'searchbox')].map((wire) => [wire.id, wire])),
-      pinned: { ...box('pinned', 'a', 9), at: { x: 40, y: 90 } },
+      pinned: { ...box('pinned'), at: { x: 40, y: 900 } },
     },
   });
   const layout = layoutBoard(plannedBoard);
@@ -143,7 +148,9 @@ test('unplaced step boxes draw as a plan band above the freeform columns, one le
   assert.ok(diff.x < endpoint.x && endpoint.x === backfill.x && endpoint.x < searchbox.x, 'each level is its own column, left to right');
   assert.equal(backfill.step?.linkedBoardId, 'backfill-board');
   const bandBottom = Math.max(...steps.map((laidOut) => laidOut.y + laidOut.height));
-  for (const column of layout.columns) assert.ok(column.titleBaselineY > bandBottom, `column ${column.id} starts inside the plan band`);
+  for (const laidOut of layout.elements) {
+    if (laidOut.kind === 'box' && !laidOut.step) assert.ok(laidOut.y > bandBottom, `box ${laidOut.id} starts inside the plan band`);
+  }
   const placed = layout.elements.filter((element) => element.kind !== 'wire');
   for (const laidOut of steps) {
     for (const other of placed) {
@@ -160,12 +167,12 @@ test('unplaced step boxes draw as a plan band above the freeform columns, one le
 
 test('a step status that disagrees with the code session changes warns, changed files no ref covers come back as uncovered, and an unread code session says it was not checked', () => {
   const reviewedBoard = Board.parse({
-    id: 'reviewed', title: 'reviewed', version: 1, caption: null, createdAt: 0, updatedAt: 0, lanes: [], columns: [], codeSessionId: 'builder',
+    id: 'reviewed', title: 'reviewed', version: 1, caption: null, createdAt: 0, updatedAt: 0, codeSessionId: 'builder',
     elements: {
       early: { kind: 'box', id: 'early', title: 'Started too soon', step: { status: 'planned' }, refs: ['src/parse.ts#L4'] },
       shipped: { kind: 'box', id: 'shipped', title: 'Shipped', step: { status: 'landed' }, refs: ['./src/save.ts', 'src//index.ts'] },
       quiet: { kind: 'box', id: 'quiet', title: 'Not started', step: { status: 'landed' }, refs: ['src/later.ts'] },
-      parse: { kind: 'box', id: 'parse', title: 'Parse', column: 'intake', refs: ['src/parse.ts'] },
+      parse: { kind: 'box', id: 'parse', title: 'Parse', at: { x: 40, y: 40 }, refs: ['src/parse.ts'] },
     },
   });
   const fileFactByPath = new Map(['src/parse.ts', 'src/save.ts', 'src/index.ts', 'src/later.ts'].map((filePath) => [filePath, { lineCount: 10 }]));
@@ -202,31 +209,24 @@ test('a step status that disagrees with the code session changes warns, changed 
   assert.ok(uncoveredPaths.every((uncoveredPath) => uncoveredPath.startsWith('src/stray-')), uncoveredPaths.join(', '));
 });
 
-test('laned boxes stack in their own labeled row band and a near box sits beside its target', () => {
-  const lanedBoard = Board.parse({
-    id: 'laned', title: 'laned', version: 1, caption: null, createdAt: 0, updatedAt: 0,
-    columns: [{ id: 'a', title: 'Intake' }, { id: 'b', title: 'Apply' }],
-    lanes: [{ id: 'main', label: 'Main', color: 'blue' }, { id: 'exits', label: 'Exits', color: 'orange' }],
+test('a near box sits beside its target and a near box whose target is missing warns by name', () => {
+  const nearBoard = Board.parse({
+    id: 'near', title: 'near', version: 1, caption: null, createdAt: 0, updatedAt: 0,
     elements: {
-      plain: box('plain', 'a', 0),
-      parse: { ...box('parse', 'a', 1), lane: 'main' }, apply: { ...box('apply', 'b', 1), lane: 'main' },
-      stop: { ...box('stop', 'b', 2), lane: 'exits' },
+      ...stacked([[box('plain'), box('parse')], [box('apply'), box('stop')]]),
       aside: { kind: 'box', id: 'aside', title: 'Prior art', near: { of: 'stop', side: 'right' } },
       stray: { kind: 'box', id: 'stray', title: 'Stray', near: { of: 'gone', side: 'left' } },
       w1: wire('w1', 'parse', 'stop'),
     },
   });
-  const layout = layoutBoard(lanedBoard);
+  const layout = layoutBoard(nearBoard);
   const boxById = new Map(layout.elements.flatMap((element) => (element.kind === 'box' ? [[element.id, element] as const] : [])));
-  assert.deepEqual(layout.bands.map((band) => band.label), ['', 'Main', 'Exits']);
-  const [unlaned, main, exits] = layout.bands;
-  assert.ok(unlaned && main && exits);
   const plain = boxById.get('plain');
   const parse = boxById.get('parse');
   const stop = boxById.get('stop');
   const aside = boxById.get('aside');
   assert.ok(plain && parse && stop && aside);
-  assert.ok(plain.y + plain.height <= main.y && parse.y > main.y && parse.y + parse.height <= exits.y && stop.y > exits.y, 'each lane is its own row band, top to bottom');
+  assert.equal(parse.y, plain.y + plain.height + 30);
   assert.equal(aside.x, stop.x + stop.width + 60);
   assert.equal(aside.y + aside.height / 2, stop.y + stop.height / 2);
   assert.ok(layout.warnings.includes('box stray sits near gone, which is not placed on the board'));
@@ -235,10 +235,9 @@ test('laned boxes stack in their own labeled row band and a near box sits beside
 
 test('wires keep their named sides, a back wire returns around the outside of the flow, and overlaps and crowding warn by name', () => {
   const loopBoard = Board.parse({
-    id: 'loop', title: 'loop', version: 1, caption: null, createdAt: 0, updatedAt: 0, lanes: [],
-    columns: [{ id: 'a', title: 'Read' }, { id: 'b', title: 'Check' }, { id: 'c', title: 'Write' }],
+    id: 'loop', title: 'loop', version: 1, caption: null, createdAt: 0, updatedAt: 0,
     elements: {
-      read: box('read', 'a', 0), check: box('check', 'b', 0), write: box('write', 'c', 0),
+      ...stacked([[box('read')], [box('check')], [box('write')]]),
       aside: { kind: 'box', id: 'aside', title: 'Aside', near: { of: 'write', side: 'bottom' } },
       first: { kind: 'box', id: 'first', title: 'First', at: { x: 900, y: 600 } }, second: { kind: 'box', id: 'second', title: 'Second', at: { x: 920, y: 610 } },
       f1: { kind: 'frame', id: 'f1', title: 'each page', contains: ['read', 'check', 'write'], loop: true },
@@ -284,11 +283,11 @@ test('wires keep their named sides, a back wire returns around the outside of th
 });
 
 test('a dense board routes every wire around the boxes instead of drawing dog-legs', () => {
-  const columns = Array.from({ length: 12 }, (_, index) => ({ id: `c${index}`, title: `column ${index}` }));
-  const elements: Record<string, unknown> = {};
-  for (let index = 0; index < 170; index += 1) elements[`b${index}`] = { kind: 'box', id: `b${index}`, title: `box ${index}`, lines: [], column: `c${index % 12}`, order: Math.floor(index / 12) };
+  const stacks: UnplacedBox[][] = Array.from({ length: 12 }, () => []);
+  for (let index = 0; index < 170; index += 1) stacks[index % 12]?.push({ kind: 'box', id: `b${index}`, title: `box ${index}`, lines: [] });
+  const elements = stacked(stacks, { stackGap: 160, boxGap: 30 });
   for (let index = 0; index < 600; index += 1) elements[`w${index}`] = { kind: 'wire', id: `w${index}`, from: `b${(index * 7) % 170}`, to: `b${(index * 13 + 5) % 170}` };
-  const layout = layoutBoard(Board.parse({ id: 'dense', title: 'dense', version: 1, caption: null, createdAt: 0, updatedAt: 0, lanes: [], columns, elements }));
+  const layout = layoutBoard(Board.parse({ id: 'dense', title: 'dense', version: 1, caption: null, createdAt: 0, updatedAt: 0, elements }));
   assert.deepEqual(layout.warnings.filter((warning) => warning.includes('found no clear route') || warning.includes('runs through')), [], layout.warnings.join('\n'));
   assert.equal(layout.elements.filter((element) => element.kind === 'wire').length, 600);
 });
@@ -296,21 +295,23 @@ test('a dense board routes every wire around the boxes instead of drawing dog-le
 test('a wire past a box placed above the content top goes around that box, not through it', () => {
   const placedBox = (id: string, x: number) => ({ kind: 'box', id, title: id, lines: [{ text: 'one' }, { text: 'two' }, { text: 'three' }], at: { x, y: 40 } });
   const elements = { a: placedBox('a', 0), b: placedBox('b', 300), c: placedBox('c', 600), w: { kind: 'wire', id: 'w', from: 'a', to: 'c', fromSide: 'right', toSide: 'left' } };
-  const layout = layoutBoard(Board.parse({ id: 'top', title: 'top', version: 1, caption: null, createdAt: 0, updatedAt: 0, lanes: [], columns: [], elements }));
+  const layout = layoutBoard(Board.parse({ id: 'top', title: 'top', version: 1, caption: null, createdAt: 0, updatedAt: 0, elements }));
   assert.deepEqual(layout.warnings.filter((warning) => warning.includes('runs through') || warning.includes('found no clear route')), [], layout.warnings.join('\n'));
 });
 
-test('a decision fanning out to a column keeps only the crossing its output order forces', () => {
+test('a decision fanning out to a stack of boxes keeps only the crossing its output order forces', () => {
   const fanBoard = Board.parse({
     id: 'fan', title: 'fan', version: 1, caption: null, createdAt: 0, updatedAt: 0,
-    lanes: [{ id: 'core', label: 'Core (all installs)', color: 'blue' }, { id: 'preset', label: 'PostHog preset', color: 'orange' }],
-    columns: [{ id: 'judge', title: 'Disposition' }, { id: 'act', title: 'Executors' }],
     elements: {
-      pick: { kind: 'box', id: 'pick', title: 'Disposition', lane: 'core', column: 'judge', shape: 'decision', outputs: [{ id: 'local', label: 'fix locally' }, { id: 'dismiss', label: 'dismiss w/ reason' }, { id: 'remote', label: 'fix remotely' }, { id: 'escalate', label: 'escalate' }] },
-      session: { kind: 'box', id: 'session', title: 'Session on branch', lines: [{ text: 'spawn / message PR session', style: 'item' }, { text: 'new push re-enters Sources', muted: true, style: 'item' }], lane: 'core', column: 'act' },
-      reply: { kind: 'box', id: 'reply', title: 'Reply + resolve', lines: [{ text: 'post operator reason', style: 'item' }, { text: 'resolve thread', style: 'item' }], lane: 'core', column: 'act', order: 1 },
-      resolve: { kind: 'box', id: 'resolve', title: 'ReviewHog Resolve', lines: [{ text: 'run_mode: resolve_only', style: 'code' }, { text: 'owner opt-in required', muted: true, style: 'item' }, { text: 'only when no local push', muted: true, style: 'item' }], lane: 'preset', column: 'act', order: 2 },
-      waiting: { kind: 'box', id: 'waiting', title: 'Waiting card', lines: [{ text: 'dashboard + Telegram', style: 'item' }], lane: 'core', column: 'act', order: 3 },
+      ...stacked([
+        [{ kind: 'box', id: 'pick', title: 'Disposition', shape: 'decision', outputs: [{ id: 'local', label: 'fix locally' }, { id: 'dismiss', label: 'dismiss w/ reason' }, { id: 'remote', label: 'fix remotely' }, { id: 'escalate', label: 'escalate' }] }],
+        [
+          { kind: 'box', id: 'session', title: 'Session on branch', lines: [{ text: 'spawn / message PR session', style: 'item' }, { text: 'new push re-enters Sources', muted: true, style: 'item' }] },
+          { kind: 'box', id: 'reply', title: 'Reply + resolve', lines: [{ text: 'post operator reason', style: 'item' }, { text: 'resolve thread', style: 'item' }] },
+          { kind: 'box', id: 'resolve', title: 'ReviewHog Resolve', lines: [{ text: 'run_mode: resolve_only', style: 'code' }, { text: 'owner opt-in required', muted: true, style: 'item' }, { text: 'only when no local push', muted: true, style: 'item' }] },
+          { kind: 'box', id: 'waiting', title: 'Waiting card', lines: [{ text: 'dashboard + Telegram', style: 'item' }] },
+        ],
+      ], { stackGap: 260, boxGap: 30 }),
       w10: { kind: 'wire', id: 'w10', from: 'pick', to: 'session', fromOutput: 'local' },
       w11: { kind: 'wire', id: 'w11', from: 'pick', to: 'reply', fromOutput: 'dismiss' },
       w12: { kind: 'wire', id: 'w12', from: 'pick', to: 'resolve', fromOutput: 'remote', dashed: true },
@@ -324,12 +325,12 @@ test('a decision fanning out to a column keeps only the crossing its output orde
 
 test('a decision draws its outputs as rows in order and each output wire leaves from its own row, while a stray output is refused', () => {
   const decisionBoard = Board.parse({
-    id: 'decide', title: 'decide', version: 1, caption: null, createdAt: 0, updatedAt: 0, lanes: [],
-    columns: [{ id: 'a', title: 'In' }, { id: 'b', title: 'Out' }],
+    id: 'decide', title: 'decide', version: 1, caption: null, createdAt: 0, updatedAt: 0,
     elements: {
-      classify: { kind: 'box', id: 'classify', title: 'Classify', column: 'a', shape: 'decision', outputs: [{ id: 'failed', label: 'failed' }, { id: 'clean', label: 'clean' }] },
-      stop: { kind: 'box', id: 'stop', title: 'Stop', column: 'b', order: 0 },
-      go: { kind: 'box', id: 'go', title: 'Continue', column: 'b', order: 1 },
+      ...stacked([
+        [{ kind: 'box', id: 'classify', title: 'Classify', shape: 'decision', outputs: [{ id: 'failed', label: 'failed' }, { id: 'clean', label: 'clean' }] }],
+        [{ kind: 'box', id: 'stop', title: 'Stop' }, { kind: 'box', id: 'go', title: 'Continue' }],
+      ]),
       w1: { kind: 'wire', id: 'w1', from: 'classify', to: 'go', fromOutput: 'clean' },
       w2: { kind: 'wire', id: 'w2', from: 'classify', to: 'stop', fromOutput: 'failed', tone: 'fail' },
     },
@@ -359,15 +360,14 @@ test('a decision draws its outputs as rows in order and each output wire leaves 
 
 test('styled lines carry their markers, a panel with no place stacks clear right of every box until it is given one, and the legend names the wire styles in use with custom labels winning', () => {
   const styledBoard = Board.parse({
-    id: 'styled', title: 'styled', version: 1, caption: null, createdAt: 0, updatedAt: 0, lanes: [],
-    columns: [{ id: 'a', title: 'A' }, { id: 'b', title: 'B' }],
+    id: 'styled', title: 'styled', version: 1, caption: null, createdAt: 0, updatedAt: 0,
     legend: [{ tone: 'fail', label: 'gives up' }, { tone: 'plain', back: true, label: 'retry' }, { tone: 'join', label: 'merges back' }],
     elements: {
-      first: { kind: 'box', id: 'first', title: 'First', column: 'a', lines: [
+      first: { kind: 'box', id: 'first', title: 'First', at: { x: 40, y: 40 }, lines: [
         { text: 'parse', style: 'numbered' }, { text: 'store', style: 'numbered' }, { text: 'a break' }, { text: 'again', style: 'numbered' },
         { text: '30s', style: 'kv', key: 'timeout' }, { text: 'npm test', style: 'code' }, { text: 'one point', style: 'item' },
       ] },
-      second: { kind: 'box', id: 'second', title: 'Second', column: 'b', at: { x: 700, y: 200 } },
+      second: { kind: 'box', id: 'second', title: 'Second', at: { x: 700, y: 200 } },
       aside: { kind: 'note', id: 'aside', on: 'second', text: 'a note that reaches right past the box edge' },
       prior: { kind: 'box', id: 'prior', title: 'Prior art', shape: 'panel', lines: [{ text: 'the old router', style: 'item' }] },
       w1: { kind: 'wire', id: 'w1', from: 'first', to: 'second', tone: 'fail' },
@@ -387,7 +387,7 @@ test('styled lines carry their markers, a panel with no place stacks clear right
   assert.equal(layout.warnings.filter((warning) => warning.includes('prior')).length, 0, layout.warnings.join('\n'));
   const author = { id: 'agent', name: 'agent' };
   const nearStacked = applyOps(styledBoard, [{ op: 'add', element: Board.shape.elements.valueType.parse({ kind: 'box', id: 'beside', title: 'Beside', near: { of: 'prior', side: 'bottom' } }) }], author, 0);
-  assert.equal(nearStacked.ok ? '' : nearStacked.error, 'op 1: box beside sits near prior, a panel with no place yet, so give that panel a column, near or at first');
+  assert.equal(nearStacked.ok ? '' : nearStacked.error, 'op 1: box beside sits near prior, a panel with no place yet, so give that panel a near or at first');
   const dragged = applyOps(styledBoard, [{ op: 'set', id: 'prior', fields: { at: { x: 40, y: 900 } } }], author, 0);
   assert.ok(dragged.ok, dragged.ok ? '' : dragged.error);
   const droppedPanel = layoutBoard(dragged.board).elements.find((element) => element.id === 'prior');
@@ -396,13 +396,13 @@ test('styled lines carry their markers, a panel with no place stacks clear right
   const withBoxNearPanel = applyOps(dragged.board, [{ op: 'add', element: Board.shape.elements.valueType.parse({ kind: 'box', id: 'beside', title: 'Beside', near: { of: 'prior', side: 'bottom' } }) }], author, 0);
   assert.ok(withBoxNearPanel.ok, withBoxNearPanel.ok ? '' : withBoxNearPanel.error);
   const restacked = applyOps(withBoxNearPanel.board, [{ op: 'set', id: 'prior', fields: { at: null } }], author, 0);
-  assert.equal(restacked.ok ? '' : restacked.error, 'op 1: box beside sits near prior, so prior cannot go back to the panel stack with no place: keep a column, near or at on it, or move box beside first');
+  assert.equal(restacked.ok ? '' : restacked.error, 'op 1: box beside sits near prior, so prior cannot go back to the panel stack with no place: keep a near or at on it, or move box beside first');
   assert.throws(() => Board.shape.elements.valueType.parse({ kind: 'panel', id: 'old', title: 'Old' }), /an element kind is box, frame, wire or note/);
 });
 
-test('a dashboard applying an edit diff reaches the server board exactly, and undoing it restores the board it started from, note authors, cascades and column moves included, while agents cannot forge a note author, and the history keeps only the newest entries', () => {
+test('a dashboard applying an edit diff reaches the server board exactly, and undoing it restores the board it started from, note authors and cascades included, while agents cannot forge a note author, and the history keeps only the newest entries', () => {
   const author = { id: 'operator', name: 'operator' };
-  const decision = { kind: 'box', id: 'gate', title: 'gate', column: 'c', shape: 'decision', outputs: [{ id: 'ok', label: 'ok' }] };
+  const decision = { kind: 'box', id: 'gate', title: 'gate', at: { x: 1200, y: 40 }, shape: 'decision', outputs: [{ id: 'ok', label: 'ok' }] };
   const before = applyOps(crowdedBoard, [
     { op: 'add', element: Board.shape.elements.valueType.parse(decision) },
     { op: 'add', element: Board.shape.elements.valueType.parse({ kind: 'wire', id: 'w1', from: 'gate', to: 'c1', fromOutput: 'ok' }) },
@@ -424,7 +424,7 @@ test('a dashboard applying an edit diff reaches the server board exactly, and un
     { op: 'set', id: 'n3', fields: { text: 'rewritten by the operator' } },
     { op: 'remove', id: 'b1' },
     { op: 'set', id: 'gate', fields: { outputs: [], shape: 'box', title: 'renamed' } },
-    { op: 'columns', columns: [{ id: 'a', title: 'Triggers' }, { id: 'z', title: 'merged' }], move: { b: 'z', c: 'z' } },
+    { op: 'set', id: 'c2', fields: { near: null, at: { x: 1500, y: 600 } } },
     { op: 'board', title: 'renamed board', legend: [{ tone: 'fail', dashed: false, back: false, label: 'gives up' }], codeSessionId: 'builder-session' },
   ];
   const edited = applyOps(start, [{ op: 'remove', id: 'w1' }, ...edits], author, 2);
@@ -432,7 +432,7 @@ test('a dashboard applying an edit diff reaches the server board exactly, and un
   assert.equal(JSON.stringify(applyBoardDiff(start, edited.diff, edited.board.version, edited.board.updatedAt)), JSON.stringify(edited.board));
   const undone = applyOps(edited.board, undoOpsOf(start, edited.diff), author, 3);
   assert.ok(undone.ok, undone.ok ? '' : undone.error);
-  const comparable = (board: Board) => ({ title: board.title, columns: board.columns, legend: board.legend, codeSessionId: board.codeSessionId, elements: board.elements });
+  const comparable = (board: Board) => ({ title: board.title, legend: board.legend, codeSessionId: board.codeSessionId, elements: board.elements });
   assert.deepEqual(comparable(undone.board), comparable(start));
 
   let history = EMPTY_HISTORY;
@@ -441,17 +441,18 @@ test('a dashboard applying an edit diff reaches the server board exactly, and un
   assert.deepEqual(takeStep(history, 'undo')?.entry, [{ op: 'remove', id: `edit-${UNDO_LIMIT}` }]);
 });
 
-test('a dashboard keeps the server element order when an edit removes and re-adds ids, which breaks ties between boxes stacked in one column', () => {
-  const columnBoard = (ids: string[]) => Board.parse({
-    id: 'reorder', title: 'reorder', version: 1, caption: null, columns: [{ id: 'now', title: 'Now' }], lanes: [], createdAt: 0, updatedAt: 0,
-    elements: Object.fromEntries(ids.map((id) => [id, box(id, 'now', 0)])),
+test('a dashboard keeps the server element order when an edit removes and re-adds ids', () => {
+  const placedBox = (id: string) => ({ ...box(id), at: { x: 40, y: 40 } });
+  const orderedBoard = (ids: string[]) => Board.parse({
+    id: 'reorder', title: 'reorder', version: 1, caption: null, createdAt: 0, updatedAt: 0,
+    elements: Object.fromEntries(ids.map((id) => [id, placedBox(id)])),
   });
   const readdingEdits: [string[], Op[]][] = [
-    [['a', 'b', 'c'], [{ op: 'remove', id: 'a' }, { op: 'remove', id: 'c' }, { op: 'add', element: Board.shape.elements.valueType.parse(box('a', 'now', 0)) }, { op: 'add', element: Board.shape.elements.valueType.parse(box('c', 'now', 0)) }]],
-    [['a', 'b'], [{ op: 'add', element: Board.shape.elements.valueType.parse(box('n', 'now', 0)) }, { op: 'remove', id: 'b' }, { op: 'add', element: Board.shape.elements.valueType.parse(box('b', 'now', 0)) }]],
+    [['a', 'b', 'c'], [{ op: 'remove', id: 'a' }, { op: 'remove', id: 'c' }, { op: 'add', element: Board.shape.elements.valueType.parse(placedBox('a')) }, { op: 'add', element: Board.shape.elements.valueType.parse(placedBox('c')) }]],
+    [['a', 'b'], [{ op: 'add', element: Board.shape.elements.valueType.parse(placedBox('n')) }, { op: 'remove', id: 'b' }, { op: 'add', element: Board.shape.elements.valueType.parse(placedBox('b')) }]],
   ];
   for (const [ids, edits] of readdingEdits) {
-    const start = columnBoard(ids);
+    const start = orderedBoard(ids);
     const edited = applyOps(start, edits, { id: 'operator', name: 'operator' }, 1);
     assert.ok(edited.ok, edited.ok ? '' : edited.error);
     assert.deepEqual(Object.keys(applyBoardDiff(start, edited.diff, edited.board.version, edited.board.updatedAt)?.elements ?? {}), Object.keys(edited.board.elements));
@@ -460,7 +461,7 @@ test('a dashboard keeps the server element order when an edit removes and re-add
 
 test('a board with plan steps keys their statuses in the legend, and a board without them keeps the legend free of statuses', () => {
   const planBoard = Board.parse({
-    id: 'plan', title: 'plan', version: 1, caption: null, createdAt: 0, updatedAt: 0, lanes: [], columns: [], legend: [],
+    id: 'plan', title: 'plan', version: 1, caption: null, createdAt: 0, updatedAt: 0, legend: [],
     elements: { step: { kind: 'box', id: 'step', title: 'Index the diffs', step: { status: 'building' } } },
   });
   const layout = layoutBoard(planBoard);
@@ -472,15 +473,14 @@ test('a board with plan steps keys their statuses in the legend, and a board wit
   assert.deepEqual(layoutBoard(plainBoard).legend, []);
 });
 
-test('a box width widens its column, rewraps its text and grows its picture, while an unsized box keeps the default and an out of range width is refused', () => {
+test('a box width rewraps its text and grows its picture, while an unsized box keeps the default and an out of range width is refused', () => {
   const picture = { kind: 'image' as const, asset: 'a'.repeat(64), mime: 'image/webp', width: 800, height: 400 };
   const sizedBoard = Board.parse({
-    id: 'sized', title: 'sized', version: 1, caption: null, createdAt: 0, updatedAt: 0, lanes: [],
-    columns: [{ id: 'a', title: 'Wide' }, { id: 'b', title: 'Next' }],
+    id: 'sized', title: 'sized', version: 1, caption: null, createdAt: 0, updatedAt: 0,
     elements: {
-      wide: { ...box('wide', 'a', 0), width: 440, media: picture },
-      narrow: box('narrow', 'a', 1),
-      next: box('next', 'b', 0),
+      wide: { ...box('wide'), at: { x: 40, y: 40 }, width: 440, media: picture },
+      narrow: { ...box('narrow'), near: { of: 'wide', side: 'bottom', gap: 30 } },
+      next: { ...box('next'), near: { of: 'wide', side: 'right', gap: 90 } },
       free: { kind: 'box', id: 'free', title: 'Free', at: { x: 900, y: 400 }, width: 160, media: picture },
     },
   });
@@ -496,7 +496,7 @@ test('a box width widens its column, rewraps its text and grows its picture, whi
   assert.equal(narrow.titleLines.length, 2);
   assert.deepEqual([wide.media?.width, wide.media?.height], [416, 208], 'the picture fills the wider inner width');
   assert.deepEqual([free.media?.width, free.media?.height], [136, 68]);
-  assert.ok(next.x >= wide.x + wide.width + 90, 'the next column clears the widened one');
+  assert.equal(next.x, wide.x + wide.width + 90, 'a box beside the widened one clears its new width');
   const refused = applyOps(sizedBoard, [{ op: 'set', id: 'narrow', fields: { width: 2000 } }], { id: 'agent', name: 'agent' }, 0);
   assert.equal(refused.ok ? '' : refused.error, 'op 1: narrow: a box width is 160 to 960');
 });

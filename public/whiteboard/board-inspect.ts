@@ -30,9 +30,8 @@ const MAX_CAPTION = 400;
 const MAX_REF = 200;
 const MAX_REFS = 8;
 const NEW_REF = 'README.md';
-const FREE_PLACEMENT = '';
 const LINE_STYLES: readonly BoxLine['style'][] = ['text', 'code', 'item', 'numbered', 'kv'];
-const TONES: readonly Wire['tone'][] = ['plain', 'fail', 'join', 'lane'];
+const TONES: readonly Wire['tone'][] = ['plain', 'fail', 'join'];
 const LINE_STYLE_CHOICES = choicesOf(LINE_STYLES);
 const TONE_CHOICES = choicesOf(TONES);
 const SHAPE_CHOICES = choicesOf(['box', 'decision', 'panel'] satisfies Box['shape'][]);
@@ -215,29 +214,15 @@ function outputsEditor(box: Box, latestOutputs: LatestItems<Box['outputs'][numbe
   return listSection('Outputs', rows, addOutput);
 }
 
-function placementOf(box: Box): string {
-  return box.at === null && box.near === null ? box.column ?? FREE_PLACEMENT : FREE_PLACEMENT;
-}
-
-function boxSections(board: Board, box: Box, latest: () => BoardElement | undefined, layout: BoardLayout | null, set: FieldCommit): HTMLElement[] {
+function boxSections(box: Box, latest: () => BoardElement | undefined, layout: BoardLayout | null, set: FieldCommit): HTMLElement[] {
   const latestBox = () => {
     const element = latest();
     return element?.kind === 'box' ? element : null;
   };
-  const columnChoices = [{ value: FREE_PLACEMENT, text: 'free' }, ...board.columns.map((column) => ({ value: column.id, text: column.title || column.id }))];
-  const laneChoices = [{ value: '', text: 'none' }, ...board.lanes.map((lane) => ({ value: lane.id, text: lane.label || lane.id }))];
   const laidOutPlace = () => {
     const laidOut = layout?.elements.find((element) => element.id === box.id);
     if (!layout || laidOut?.kind !== 'box') return null;
     return { x: laidOut.x, y: laidOut.y - layout.pinnedOffsetY };
-  };
-  const commitPlacement = (columnId: string) => {
-    if (columnId !== FREE_PLACEMENT) {
-      set({ column: columnId, at: null, near: null });
-      return;
-    }
-    const at = laidOutPlace();
-    if (at) set({ at, near: null });
   };
   const placeLeavingStack = () => {
     const stacked = latestBox();
@@ -263,8 +248,6 @@ function boxSections(board: Board, box: Box, latest: () => BoardElement | undefi
       if (title.trim()) set({ title: title.trim() });
     })),
     fieldRow('Shape', selectField('shape', SHAPE_CHOICES, box.shape, commitShape)),
-    fieldRow('Column', selectField('column', columnChoices, placementOf(box), commitPlacement)),
-    fieldRow('Lane', selectField('lane', laneChoices, box.lane ?? '', (lane) => set({ lane: lane || null }))),
     fieldRow('Change', selectField('change', CHANGE_CHOICES, box.change, commitChange)),
     ...(box.change === 'relabeled' ? [fieldRow('Was', textField('was', box.was ?? '', WHITEBOARD_LIMITS.title, (was) => {
       if (was.trim()) set({ was: was.trim() });
@@ -362,7 +345,7 @@ function elementSections(board: Board, element: BoardElement, latestBoard: () =>
   const set: FieldCommit = (fields) => send([{ op: 'set', id: element.id, fields }]);
   const latest = () => latestBoard()?.elements[element.id];
   switch (element.kind) {
-    case 'box': return boxSections(board, element, latest, layout, set);
+    case 'box': return boxSections(element, latest, layout, set);
     case 'wire': return wireSections(board, element, set);
     case 'frame': return frameSections(element, set);
     case 'note': return noteSections(element, set);
