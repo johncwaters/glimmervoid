@@ -1,14 +1,8 @@
-import path from 'node:path';
 import type { ConversationAnswers, ConversationQuestion } from '../../../shared/contracts/session.ts';
 import { ManagerLaneResult } from '../../../shared/contracts/question-manager.ts';
 import type { ManagerAnswer, ManagerVerdict, QuestionManagerSettings, QuestionMatchRule, QuestionRule } from '../../../shared/contracts/question-manager.ts';
 import { UNTRUSTED_PAYLOAD_FILENAME, UNTRUSTED_PREAMBLE } from '../../../shared/contracts/untrusted-payload.ts';
 import type { UntrustedItem } from '../../../shared/contracts/untrusted-payload.ts';
-
-interface SessionRepo {
-  path: string;
-  slug: string | null;
-}
 
 const MULTI_SELECT_SEPARATOR = ', ';
 const MANAGER_PROMPT_FILENAME = 'manager-prompt.txt';
@@ -20,46 +14,14 @@ const MANAGER_ITEM_CHARS = 8000;
 const MANAGER_REASON_CHARS = 200;
 const MANAGER_RULE_NAME_CHARS = 80;
 const NO_RULE_REASON = 'no rule covers this question';
-const GITHUB_SLUG_PATTERN = /^[\w.-]+\/[\w.-]+$/;
 const HIGH_RISK_STEMS = [
   'push', 'forc', 'delet', 'remov', 'drop', 'deploy', 'publish', 'releas', 'merg', 'secret', 'token', 'password',
   'credential', 'reset', 'revert', 'rebas', 'destro', 'wip', 'purg', 'truncat', 'overwrit', 'production', 'rm',
 ];
 const HIGH_RISK_PATTERN = new RegExp(`\\b(?:${HIGH_RISK_STEMS.join('|')})\\w*`, 'i');
 
-function isSlugEntry(entry: string): boolean {
-  return GITHUB_SLUG_PATTERN.test(entry) && !entry.startsWith('.');
-}
-
-export function needsRepoSlug(settings: QuestionManagerSettings): boolean {
-  return (settings.repos ?? []).some(isSlugEntry);
-}
-
 export function mightAnswer(settings: QuestionManagerSettings | null | undefined): boolean {
-  if (!settings) return false;
-  if ((settings.rules ?? []).length === 0) return false;
-  return settings.enabled === true || (settings.repos ?? []).length > 0;
-}
-
-function expandedPath(entry: string, homeDir: string): string {
-  if (entry === '~') return homeDir;
-  if (entry.startsWith('~/') || entry.startsWith('~\\')) return path.join(homeDir, entry.slice(2));
-  return path.resolve(entry);
-}
-
-function isPathInside(candidate: string, root: string): boolean {
-  const relative = path.relative(root, candidate);
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
-}
-
-function isRepoListed(entry: string, repo: SessionRepo, homeDir: string): boolean {
-  if (isSlugEntry(entry)) return repo.slug !== null && repo.slug.toLowerCase() === entry.toLowerCase();
-  return isPathInside(path.resolve(repo.path), expandedPath(entry, homeDir));
-}
-
-export function isManagerOn(settings: QuestionManagerSettings, repo: SessionRepo, homeDir: string): boolean {
-  const isListed = (settings.repos ?? []).some((entry) => isRepoListed(entry, repo, homeDir));
-  return (settings.enabled === true) !== isListed;
+  return (settings?.rules ?? []).length > 0;
 }
 
 function splitIdentifiers(text: string): string {

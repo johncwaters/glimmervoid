@@ -114,7 +114,9 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     resolveHookTools: (config) => resolveHookTools(config, { warn: dependencies.logger.warn.bind(dependencies.logger) }),
     getUserHooks: (projectId: string) => hooksForProject(dependencies.config.hooks, projectId),
     getTerminalColors: () => terminalColors,
-    questionManager: createQuestionManager({ getSettings: () => dependencies.configStore.config.questionManager, getLane: dependencies.getQuestionManagerLane }),
+    questionManager: dependencies.configStore.isExperimentalBuild === true
+      ? createQuestionManager({ getSettings: () => dependencies.configStore.config.questionManager, getLane: dependencies.getQuestionManagerLane })
+      : null,
   });
 
   return { agentConnect, agentIngressServer, claudeCommand, claudeCredentials, getHookPort, hookRouter, makeSession, setTerminalColors, sshSigner };

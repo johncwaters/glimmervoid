@@ -165,6 +165,7 @@ export const ProjectConfig = z.object({
   codexBypassHookTrust: z.boolean().optional(),
   dangerouslySkipPermissions: z.boolean({ error: 'projects[].dangerouslySkipPermissions must be a boolean' }).optional(),
   saneYolo: z.boolean({ error: 'projects[].saneYolo must be a boolean' }).optional(),
+  questionManagerOn: z.boolean({ error: 'projects[].questionManagerOn must be a boolean' }).optional(),
   environment: ProjectEnvironment.optional(),
   agentSetup: AgentSetup.optional(),
   raceId: RaceId.optional(),

@@ -2,8 +2,6 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { runGit } from '../git/git-exec.ts';
-import { githubRepoSlugFromRemote } from '../github/core/team-review-core.ts';
 import { readLaneResultFile } from '../lanes/lane-spawn.ts';
 import type { LaneSpawn } from '../lanes/lane-spawn.ts';
 import { writeUntrustedPayload } from '../lanes/untrusted-payload.ts';
@@ -12,11 +10,10 @@ import { QuestionManagerSettings } from '../../shared/contracts/question-manager
 import type { ManagerVerdict } from '../../shared/contracts/question-manager.ts';
 import type { ConversationQuestion } from '../../shared/contracts/session.ts';
 import {
-  buildManagerRequest, decideByRules, isManagerOn, MANAGER_BOOTSTRAP_PROMPT, MANAGER_ITEM_CHARS, MANAGER_PROMPT_FILENAME, MANAGER_RESULT_FILENAME,
-  MANAGER_TIMEOUT_MS, MANAGER_UNTRUSTED_SOURCE, mightAnswer, needsRepoSlug, NO_RULE_REASON, parseManagerVerdict, pinByRules, plainLanguageRules, withRulePins,
+  buildManagerRequest, decideByRules, MANAGER_BOOTSTRAP_PROMPT, MANAGER_ITEM_CHARS, MANAGER_PROMPT_FILENAME, MANAGER_RESULT_FILENAME,
+  MANAGER_TIMEOUT_MS, MANAGER_UNTRUSTED_SOURCE, mightAnswer, NO_RULE_REASON, parseManagerVerdict, pinByRules, plainLanguageRules, withRulePins,
 } from './core/question-manager-core.ts';
 
-const ORIGIN_URL_TIMEOUT_MS = 5_000;
 const QUESTION_MANAGER_LANE_TOOLS = Object.freeze(['Read', 'Write']);
 
 interface ManagerLaneRequest {
@@ -37,13 +34,11 @@ interface DecisionContext {
 interface QuestionManagerDependencies {
   getSettings: () => unknown;
   getLane?: () => QuestionManagerLane | null;
-  readOriginUrl?: (projectPath: string) => Promise<string | null>;
-  homeDir?: string;
 }
 
-type RepoSlugLookup = { isKnown: true; slug: string | null } | { isKnown: false };
-
 interface SessionQuestionManager {
+  readonly isOn: boolean;
+  setOn(isOn: boolean): void;
   mightAnswer(): boolean;
   decide(questions: readonly ConversationQuestion[] | null, context: DecisionContext): Promise<ManagerVerdict | null>;
 }
@@ -65,18 +60,7 @@ function createQuestionManagerLane(spawn: LaneSpawn): QuestionManagerLane {
   };
 }
 
-function didGitExit(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'number';
-}
-
-async function readOriginUrlWithGit(projectPath: string): Promise<string | null> {
-  const remote = await runGit(['remote', 'get-url', 'origin'], { cwd: projectPath, timeoutMs: ORIGIN_URL_TIMEOUT_MS });
-  if (remote.ok) return remote.out || null;
-  if (remote.timedOut || !didGitExit(remote.error)) throw new Error(`git remote get-url origin failed: ${remote.err}`);
-  return null;
-}
-
-function createQuestionManager({ getSettings, getLane = () => null, readOriginUrl = readOriginUrlWithGit, homeDir = os.homedir() }: QuestionManagerDependencies) {
+function createQuestionManager({ getSettings, getLane = () => null }: QuestionManagerDependencies) {
   let lastRawSettings: unknown;
   let lastParsedSettings: QuestionManagerSettings | null = null;
 
@@ -89,40 +73,33 @@ function createQuestionManager({ getSettings, getLane = () => null, readOriginUr
     return lastParsedSettings;
   }
 
-  function forSession({ projectPath }: { projectPath: string }): SessionQuestionManager {
-    let repoSlug: Promise<RepoSlugLookup> | null = null;
+  function forSession({ projectPath, isOn: isInitiallyOn }: { projectPath: string; isOn: boolean }): SessionQuestionManager {
+    let isOn = isInitiallyOn;
 
-    function resolveRepoSlug(): Promise<RepoSlugLookup> {
-      repoSlug ??= readOriginUrl(projectPath)
-        .then((remoteUrl): RepoSlugLookup => ({ isKnown: true, slug: remoteUrl ? githubRepoSlugFromRemote(remoteUrl) : null }))
-        .catch((): RepoSlugLookup => {
-          repoSlug = null;
-          return { isKnown: false };
-        });
-      return repoSlug;
+    function mightAnswerForSession(): boolean {
+      return isOn && mightAnswer(currentSettings());
     }
 
     async function decide(questions: readonly ConversationQuestion[] | null, { taskTitle, signal }: DecisionContext): Promise<ManagerVerdict | null> {
       const deadline = AbortSignal.any([signal, AbortSignal.timeout(MANAGER_TIMEOUT_MS)]);
       const settings = currentSettings();
-      if (!settings || !mightAnswer(settings)) return null;
-      const slugLookup: RepoSlugLookup = needsRepoSlug(settings) ? await resolveRepoSlug() : { isKnown: true, slug: null };
-      if (!slugLookup.isKnown) return null;
-      if (!isManagerOn(settings, { path: projectPath, slug: slugLookup.slug }, homeDir)) return null;
+      if (!settings || !mightAnswerForSession()) return null;
       const ruleVerdict = decideByRules(questions, settings);
       if (ruleVerdict) return ruleVerdict;
       const plainRules = plainLanguageRules(settings);
       const lane = getLane();
       if (!questions || plainRules.length === 0 || !lane) return { kind: 'escalate', reason: NO_RULE_REASON };
       const pins = pinByRules(questions, settings.rules ?? []);
-      const request = { questions: pins.unmatched, plainRules, task: { title: taskTitle, repo: slugLookup.slug ?? projectPath }, model: settings.model ?? DEFAULT_MODELS.questionManager, signal: deadline };
+      const request = { questions: pins.unmatched, plainRules, task: { title: taskTitle, repo: projectPath }, model: settings.model ?? DEFAULT_MODELS.questionManager, signal: deadline };
       return lane(request)
         .then((laneVerdict) => withRulePins(laneVerdict, pins))
         .catch((): ManagerVerdict => ({ kind: 'escalate', reason: 'the manager lane failed' }));
     }
 
     return {
-      mightAnswer: () => mightAnswer(currentSettings()),
+      get isOn() { return isOn; },
+      setOn: (nextIsOn) => { isOn = nextIsOn; },
+      mightAnswer: mightAnswerForSession,
       decide,
     };
   }

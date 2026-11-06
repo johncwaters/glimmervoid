@@ -162,14 +162,14 @@ test('a parent reads and answers held child questions through the agent API or r
   }
 });
 
-test('the question manager answers a question its rules cover and leaves risky or unlisted questions to the operator', async () => {
+test('the question manager answers a covered question only in a session switched on for it and leaves risky questions to the operator', async () => {
   const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-question-manager-'));
-  const settings = { enabled: false, repos: [projectPath], rules: [{ name: 'store choice', question: 'store', pick: ['SQLite'] }] };
-  const manager = createQuestionManager({ getSettings: () => settings, readOriginUrl: async () => null });
+  const settings = { rules: [{ name: 'store choice', question: 'store', pick: ['SQLite'] }] };
+  const manager = createQuestionManager({ getSettings: () => settings });
   const factory = recordingSessionFactory();
-  const session = factory.makeSession({ id: 'managed', name: 'managed', path: projectPath, questionManager: manager.forSession({ projectPath }) });
-  const unlisted = factory.makeSession({ id: 'unlisted', name: 'unlisted', path: os.tmpdir(), questionManager: manager.forSession({ projectPath: os.tmpdir() }) });
-  const codex = factory.makeSession({ id: 'codex', name: 'codex', path: projectPath, agent: 'codex', questionManager: manager.forSession({ projectPath }) });
+  const session = factory.makeSession({ id: 'managed', name: 'managed', path: projectPath, questionManager: manager.forSession({ projectPath, isOn: true }) });
+  const switchedOff = factory.makeSession({ id: 'switched-off', name: 'switched-off', path: projectPath, questionManager: manager.forSession({ projectPath, isOn: false }) });
+  const codex = factory.makeSession({ id: 'codex', name: 'codex', path: projectPath, agent: 'codex', questionManager: manager.forSession({ projectPath, isOn: true }) });
   const askPayload = (question: string) => ({ tool_name: 'AskUserQuestion', tool_input: { questions: [{ question, options: [{ label: 'sqlite' }, { label: 'postgres' }] }] } });
   const questionStatus = (question: string) => ({ signal: 'awaiting-input', source: 'hook' as const, ts: Date.now(), promptKind: 'permission', promptToolName: 'AskUserQuestion', event: 'PermissionRequest', payload: askPayload(question) });
   const answeredEvents: unknown[] = [];
@@ -194,7 +194,7 @@ test('the question manager answers a question its rules cover and leaves risky o
     assert.equal(await session.holdClaudePermission(askPayload('Delete the sqlite store?'), new AbortController().signal), null);
     assert.equal(session.state, STATES.WAITING);
     assert.match(String(managerEntries().at(-1)?.reason), /delete/i);
-    assert.equal(await unlisted.holdClaudePermission(askPayload('Which store?'), new AbortController().signal), null);
+    assert.equal(await switchedOff.holdClaudePermission(askPayload('Which store?'), new AbortController().signal), null);
     const codexAsk = { tool_name: 'request_user_input', tool_input: { questions: [{ header: 'Store', id: 'store', question: 'Which store?', options: [{ label: 'sqlite', description: '' }, { label: 'postgres', description: '' }] }] } };
     codex.transition('user_start');
     codex.transition('spawn_success', { spawnCwdExists: true });
@@ -215,7 +215,7 @@ test('the question manager answers a question its rules cover and leaves risky o
 
 test('the manager lane answers from a plain-language rule only with exact labels and yields to the operator', async () => {
   const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-question-manager-lane-'));
-  const settings = { enabled: true, rules: [{ name: 'readme length', question: 'README', pick: ['short'] }, 'Prefer the database the project already runs.'] };
+  const settings = { rules: [{ name: 'readme length', question: 'README', pick: ['short'] }, 'Prefer the database the project already runs.'] };
   const laneResults: unknown[] = [
     { rule: 1, answers: [{ question: 'question-1', labels: ['POSTGRES'] }] },
     { rule: 1, answers: [{ question: 'question-1', labels: ['whichever is faster'] }] },
@@ -232,9 +232,9 @@ test('the manager lane answers from a plain-language rule only with exact labels
     fs.writeFileSync(path.join(cwd, 'manager-result.json'), JSON.stringify(laneResult));
   };
   const managerLane = createQuestionManagerLane(spawnLane);
-  const manager = createQuestionManager({ getSettings: () => settings, getLane: () => managerLane, readOriginUrl: async () => null });
+  const manager = createQuestionManager({ getSettings: () => settings, getLane: () => managerLane });
   const factory = recordingSessionFactory();
-  const session = factory.makeSession({ id: 'lane-managed', name: 'lane-managed', path: projectPath, questionManager: manager.forSession({ projectPath }) });
+  const session = factory.makeSession({ id: 'lane-managed', name: 'lane-managed', path: projectPath, questionManager: manager.forSession({ projectPath, isOn: true }) });
   const askPayload = (question: string) => ({ tool_name: 'AskUserQuestion', tool_input: { questions: [{ question, options: [{ label: 'sqlite' }, { label: 'postgres' }] }] } });
   const managerEntries = () => session.auditLog.filter((entry) => entry.kind === 'question-manager');
   try {

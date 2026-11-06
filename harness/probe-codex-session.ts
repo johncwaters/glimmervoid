@@ -31,7 +31,7 @@ const SUBAGENT_TIMEOUT_MS = 240000;
 const FIXTURE_DIR = path.join(import.meta.dirname, '..', 'tests', 'fixtures');
 const SHOULD_WRITE_FIXTURES = process.argv.includes('--write-fixtures');
 const SHOULD_RUN_ONLY_QUESTION_MANAGER_PROBE = process.argv.includes('--only-question-manager');
-const QUESTION_MANAGER_PROBE_SETTINGS = { enabled: true, rules: [{ name: 'readme length', question: 'README', pick: ['short'] }, 'Always choose vitest as the test runner.'] };
+const QUESTION_MANAGER_PROBE_SETTINGS = { rules: [{ name: 'readme length', question: 'README', pick: ['short'] }, 'Always choose vitest as the test runner.'] };
 const BRIDGE_NOTIFICATIONS_KEPT = new Set(['thread/started', 'turn/started', 'turn/completed', 'turn/plan/updated', 'item/started', 'item/completed', 'serverRequest/resolved', 'thread/compacted']);
 
 interface BridgeLine {
@@ -85,6 +85,7 @@ function writeProbeConfig(configPath: string, projectDir: string): void {
       agent: 'codex',
       dangerouslySkipPermissions: false,
       codexBypassHookTrust: false,
+      questionManagerOn: SHOULD_RUN_ONLY_QUESTION_MANAGER_PROBE,
     }, whiteboardWriterProject(SESSION_ID, projectDir, 'codex')],
     teams: [],
     repoRoots: [],

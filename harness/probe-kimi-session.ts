@@ -24,7 +24,7 @@ const SENTINEL_WORD = "copperheron";
 const BOOT_SETTLE_MS = 8000;
 const SHOULD_WRITE_FIXTURES = process.argv.includes("--write-fixtures");
 const SHOULD_RUN_ONLY_QUESTION_MANAGER_PROBE = process.argv.includes("--only-question-manager");
-const QUESTION_MANAGER_PROBE_SETTINGS = { enabled: true, rules: [{ name: "color", question: "red or blue", pick: ["blue"] }] };
+const QUESTION_MANAGER_PROBE_SETTINGS = { rules: [{ name: "color", question: "red or blue", pick: ["blue"] }] };
 const OPERATOR_KIMI_HOME = path.join(os.homedir(), ".kimi-code");
 const LINKED_LOGIN_ENTRIES = ["credentials", "device_id", "region.json"];
 
@@ -52,6 +52,7 @@ function writeProbeConfig(configPath: string, projectDirectory: string): void {
       path: projectDirectory,
       agent: "kimi",
       dangerouslySkipPermissions: false,
+      questionManagerOn: SHOULD_RUN_ONLY_QUESTION_MANAGER_PROBE,
     }, whiteboardWriterProject(SESSION_ID, projectDirectory, "kimi")],
     teams: [],
     repoRoots: [],

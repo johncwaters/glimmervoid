@@ -34,7 +34,7 @@ interface SessionFactoryDependencies {
   resolveHookTools: (config: GlimmervoidConfig) => ResolvedHookTool[];
   getUserHooks: (projectId: string) => UserHook[];
   getTerminalColors?: () => TerminalColors;
-  questionManager?: { forSession: (session: { projectPath: string }) => QuestionManagerPort } | null;
+  questionManager?: { forSession: (session: { projectPath: string; isOn: boolean }) => QuestionManagerPort } | null;
   commitSigningProgram?: string | null;
   homeDir?: string;
   getCoderEnv?: () => CoderWorkspacePort | null;
@@ -139,7 +139,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       getTerminalColors: dependencies.getTerminalColors ?? null,
       prepareCoherence: builtMapping || isMachineShell ? null : prepareCoherence,
       commitSigningProgram: dependencies.commitSigningProgram ?? null,
-      questionManager: isMachineShell ? null : dependencies.questionManager?.forSession({ projectPath: project.path }) ?? null,
+      questionManager: isMachineShell ? null : dependencies.questionManager?.forSession({ projectPath: project.path, isOn: project.questionManagerOn === true }) ?? null,
       getRemoteLaunch: builtMapping ? () => remoteLaunchFor(project, builtMapping, dependencies.getConfig?.() ?? config) : null,
       ...overrides,
       spawnEnv: sessionTempFolder ? { CLAUDE_CODE_TMPDIR: sessionTempFolder, ...(overrides.spawnEnv ?? {}) } : overrides.spawnEnv,
