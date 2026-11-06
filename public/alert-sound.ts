@@ -111,7 +111,10 @@ export function playNyanJingle() {
   try {
     const ctx = new AudioContext();
     if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-    if (ctx.state === 'suspended') return;
+    if (ctx.state === 'suspended') {
+      ctx.close().catch(() => {});
+      return;
+    }
 
     const master = ctx.createGain();
     master.gain.value = 0.05;
