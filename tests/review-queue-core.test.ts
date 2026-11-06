@@ -5,7 +5,7 @@ import { MyPr } from '../shared/contracts/my-prs.ts';
 import type { MyPrStage } from '../shared/contracts/my-prs.ts';
 import { TeamReviewStatus, ReviewDraft } from '../shared/contracts/team-review.ts';
 import { groupDrafts, stackBadgeOf } from '../public/github/github-store-core.ts';
-import { ageToneOf, attentionTilesOf, buildReviewQueue, queueItemWaitStartMs, turnItems } from '../public/github/review-queue-core.ts';
+import { ageToneOf, attentionTilesOf, buildReviewQueue, queueItemWaitStartMs, splitReviewingNow, togglePulledKey, turnItems, turnPositionText } from '../public/github/review-queue-core.ts';
 
 const NO_TEAM_REVIEWS = { ready: [], noReviewNeeded: [], inReview: [], queued: [], attention: [], posted: [], discarded: [] };
 
@@ -80,6 +80,25 @@ test('a team review still waiting on checks or a draft, fresh or stale, ranks be
   ] });
   const turnKeys = turnItems(buildReviewQueue(sections, [], new Set(), true)).map((item) => item.key);
   assert.deepEqual(turnKeys, ['team:acme/app#3', 'team:acme/app#4', 'team:acme/app#1', 'team:acme/app#2']);
+});
+
+test('Reviewing now holds the pulled Your turn reviews in turn order, up to the limit, and drops a pulled key that left Your turn', () => {
+  const sections = groupDrafts({ ...TeamReviewStatus.parse({ type: 'team-review-status', ts: 1, configured: true, reason: null, drafts: [], inFlight: [], queued: [] }), drafts: [
+    readyDraft(1, '2026-10-01T00:00:00Z', { reviewedAt: Date.parse('2026-10-01T00:00:00Z') }),
+    readyDraft(2, '2026-10-02T00:00:00Z', { reviewedAt: Date.parse('2026-10-02T00:00:00Z') }),
+    readyDraft(3, '2026-10-03T00:00:00Z', { status: 'posted' }),
+  ] });
+  const groups = buildReviewQueue(sections, [], new Set(), true);
+  const turnKeys = turnItems(groups).map((item) => item.key);
+  const pulledKeys = togglePulledKey({ pulledKeys: ['team:acme/app#3'], key: 'team:acme/app#2', turnKeys, limit: 2 });
+  assert.deepEqual(togglePulledKey({ pulledKeys, key: 'team:acme/app#1', turnKeys, limit: 2 }), pulledKeys);
+  const split = splitReviewingNow(groups, pulledKeys);
+  assert.deepEqual(split.pulledKeys, ['team:acme/app#2']);
+  assert.deepEqual(split.groups.slice(0, 2).map((group) => [group.id, group.title, group.items.map((item) => item.key)]), [
+    ['now', 'Reviewing now', ['team:acme/app#2']],
+    ['turn', 'Ready', ['team:acme/app#1']],
+  ]);
+  assert.equal(turnPositionText(split.groups, 'team:acme/app#2'), '1 of 1 in Reviewing now');
 });
 
 test('queued reviews sit in Queued, merged and settled work in Done, drafts and discarded reviews in Parked, and posted reviews keep waiting on others', () => {

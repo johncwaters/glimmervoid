@@ -251,7 +251,7 @@ async function verifyPhoneDetailScreen(page: Page, status: TeamReviewStatus): Pr
   await page.locator('.pr-queue-row[data-review-key="Acme/app#1"]').click();
   assert.equal(await root.getAttribute('data-detail-open'), 'true');
   assert.equal(await pane.isVisible(), false);
-  assert.match(await root.locator('.review-queue-position').textContent() ?? '', /^2 of \d+ in Your turn$/);
+  assert.match(await root.locator('.review-queue-position').textContent() ?? '', /^2 of \d+ in Ready$/);
   const barBox = await root.locator('.pr-decision-bar').boundingBox();
   const navBox = await page.locator('.phone-nav').boundingBox();
   assert.ok(barBox && navBox && barBox.y + barBox.height <= navBox.y + 1);
@@ -343,7 +343,7 @@ async function verifyViewerThreadCounts(page: Page, snapshot: TeamReviewStatus):
   await applyStatus(page, withDraft({ ...resolved, reviewDecision: 'APPROVED', githubReviews: [{ login: 'me', state: 'APPROVED', commit: REVIEWED_HEAD, isViewer: true }] }));
   assert.match(await sectionHeading() ?? '', /Done/);
   await applyStatus(page, withDraft({ ...resolved, status: 'posted', postedEvent: 'COMMENT', postedAt: Date.now() }));
-  assert.match(await sectionHeading() ?? '', /Your turn/);
+  assert.match(await sectionHeading() ?? '', /Ready/);
   assert.equal(await readRowMeaning(row), 'Comments resolved');
   await showQueue(page);
   await row.click();
@@ -721,25 +721,66 @@ async function showPhoneScreen(page: Page, screen: string): Promise<void> {
   await page.locator(`.phone-nav-more-menu [data-screen="${screen}"]`).click();
 }
 
-async function writeReviewsTurnLimit(page: Page, turnLimit: number): Promise<void> {
-  await page.evaluate((limit) => {
+async function writeUiPrefs(page: Page, patch: Record<string, unknown>): Promise<void> {
+  await page.evaluate((prefsPatch) => {
     const prefs = JSON.parse(localStorage.getItem('glimmervoid-ui-prefs') ?? '{}') as Record<string, unknown>;
-    localStorage.setItem('glimmervoid-ui-prefs', JSON.stringify({ ...prefs, reviewsTurnLimit: limit }));
-  }, turnLimit);
+    localStorage.setItem('glimmervoid-ui-prefs', JSON.stringify({ ...prefs, ...prefsPatch }));
+  }, patch);
 }
 
-async function verifyPhoneTurnLimitAfterReturn(page: Page): Promise<void> {
-  const turnLimit = page.locator('.pr-queue-section[data-group="turn"] .review-turn-limit');
-  assert.equal((await turnLimit.textContent())?.trim(), 'limit 5');
+const REVIEWING_NOW_COUNT = '.pr-queue-section[data-group="now"] .review-group-count';
+
+async function waitForText(page: Page, selector: string, text: string | null): Promise<void> {
+  await page.waitForFunction(({ target, expected }) => (document.querySelector(target)?.textContent?.trim() ?? null) === expected, { target: selector, expected: text });
+}
+
+async function verifyPhoneReviewingNowAfterReturn(page: Page): Promise<void> {
+  assert.equal(await page.locator('.pr-queue-section[data-group="now"]').count(), 0);
+  assert.equal((await page.locator('.pr-queue-section[data-group="turn"] .review-group-heading > span').first().textContent())?.trim(), 'Ready');
   await showPhoneScreen(page, 'board');
-  await writeReviewsTurnLimit(page, 1);
+  await writeUiPrefs(page, { reviewsTurnLimit: 1, reviewsPulledKeys: ['team:Acme/app#1', 'team:Acme/app#2'] });
   await showPhoneScreen(page, 'prs');
-  await page.waitForFunction(() => document.querySelector('.pr-queue-section[data-group="turn"] .review-turn-limit')?.textContent?.trim() === 'limit 1');
-  assert.equal(await turnLimit.getAttribute('data-over'), 'true');
-  await writeReviewsTurnLimit(page, 5);
+  await waitForText(page, REVIEWING_NOW_COUNT, '2 / 1');
+  assert.equal(await page.locator(REVIEWING_NOW_COUNT).getAttribute('data-over'), 'true');
+  await writeUiPrefs(page, { reviewsTurnLimit: 5, reviewsPulledKeys: [] });
   await showPhoneScreen(page, 'board');
   await showPhoneScreen(page, 'prs');
-  await page.waitForFunction(() => document.querySelector('.pr-queue-section[data-group="turn"] .review-turn-limit')?.textContent?.trim() === 'limit 5');
+  await waitForText(page, REVIEWING_NOW_COUNT, null);
+}
+
+async function dragCardBetweenColumns(page: Page, reviewKey: string, targetGroupId: string): Promise<void> {
+  await page.evaluate(({ cardKey, groupId }) => {
+    const card = document.querySelector(`.review-board .pr-queue-row[data-review-key="${cardKey}"]`);
+    const column = document.querySelector(`.review-board-column[data-group="${groupId}"]`);
+    if (!card || !column) throw new Error('Missing drag card or target column');
+    const dataTransfer = new DataTransfer();
+    const fire = (target: Element, type: string) => target.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer }));
+    fire(card, 'dragstart');
+    if (fire(column, 'dragover')) throw new Error('Target column refused the drag');
+    fire(column, 'drop');
+  }, { cardKey: reviewKey, groupId: targetGroupId });
+}
+
+async function verifyReviewingNowPull(page: Page): Promise<void> {
+  const nowColumn = page.locator('.review-board-column[data-group="now"]');
+  assert.equal((await nowColumn.locator('.review-board-drop-hint').textContent())?.trim(), 'Drag a Ready card here, or select one and press M.');
+  await dragCardBetweenColumns(page, 'Acme/app#1', 'now');
+  await nowColumn.locator('.pr-queue-row[data-review-key="Acme/app#1"]').waitFor({ state: 'visible' });
+  assert.equal((await nowColumn.locator('.review-group-count').textContent())?.trim(), '1 / 5');
+  assert.deepEqual(await page.evaluate(() => (JSON.parse(localStorage.getItem('glimmervoid-ui-prefs') ?? '{}') as { reviewsPulledKeys?: unknown }).reviewsPulledKeys), ['team:Acme/app#1']);
+  await writeUiPrefs(page, { reviewsTurnLimit: 1 });
+  await page.getByRole('button', { name: 'List', exact: true }).click();
+  await waitForText(page, REVIEWING_NOW_COUNT, '1 / 1');
+  const otherReadyRow = page.locator('.pr-queue-section[data-group="turn"] .pr-queue-row').first();
+  const otherReadyKey = await otherReadyRow.getAttribute('data-queue-key');
+  await otherReadyRow.click();
+  await page.keyboard.press('m');
+  assert.equal((await page.locator(REVIEWING_NOW_COUNT).textContent())?.trim(), '1 / 1');
+  assert.equal(await page.locator(`.pr-queue-section[data-group="turn"] .pr-queue-row[data-queue-key="${otherReadyKey}"]`).count(), 1);
+  await page.locator('.pr-queue-section[data-group="now"] .pr-queue-row[data-review-key="Acme/app#1"]').click();
+  await page.keyboard.press('m');
+  await waitForText(page, REVIEWING_NOW_COUNT, null);
+  await writeUiPrefs(page, { reviewsTurnLimit: 5 });
 }
 
 const BOARD_RESERVE_PX = 320;
@@ -825,7 +866,7 @@ async function verifyBoardReadable(page: Page): Promise<void> {
   const readability = await page.locator('.review-board').evaluate((board) => {
     const openColumns = [...board.querySelectorAll('.review-board-column:not([data-collapsed="true"])')];
     const turnTitle = board.querySelector('.review-board-column[data-group="turn"] .review-board-column-title');
-    if (!(turnTitle instanceof HTMLElement)) throw new Error('Missing Your turn title');
+    if (!(turnTitle instanceof HTMLElement)) throw new Error('Missing Ready title');
     const allColumns = [...board.querySelectorAll('.review-board-column')];
     const openHeadings = openColumns.map((column) => column.querySelector('.review-board-column-heading'));
     const turnKeys = board.querySelector('.review-board-column[data-group="turn"] .shortcut-keys');
@@ -897,7 +938,7 @@ async function verifyBoard(page: Page): Promise<void> {
   assert.equal(await root.getAttribute('data-reviews-layout'), 'board');
   assert.equal(await page.getByRole('button', { name: 'Board', exact: true }).getAttribute('aria-pressed'), 'true');
   const titles = await page.locator('.review-board-column .review-board-column-title').allTextContents();
-  assert.deepEqual(titles, ['Queued', 'Agent working', 'Your turn', 'Waiting on others', 'Done', 'Parked']);
+  assert.deepEqual(titles, ['Queued', 'Agent working', 'Ready', 'Reviewing now', 'Waiting on others', 'Done', 'Parked']);
   assert.equal(await detail.isVisible(), false);
   await verifyBoardReadable(page);
   await verifyParkedToggleControlsColumn(page);
@@ -924,15 +965,9 @@ async function verifyBoard(page: Page): Promise<void> {
   await card.click();
   await verifyWideDetailKeepsBoard(page);
   await verifyAgeTones(page);
-  assert.equal((await page.locator('.review-board-column[data-group="turn"] .review-turn-limit').textContent())?.trim(), 'limit 5');
-  await writeReviewsTurnLimit(page, 1);
-  await page.getByRole('button', { name: 'List', exact: true }).click();
+  await verifyReviewingNowPull(page);
   assert.equal(await root.getAttribute('data-reviews-layout'), 'list');
   assert.equal(await storedReviewsLayout(page), 'list');
-  const turnLimit = page.locator('.pr-queue-section[data-group="turn"] .review-turn-limit');
-  assert.equal((await turnLimit.textContent())?.trim(), 'limit 1');
-  assert.equal(await turnLimit.getAttribute('data-over'), 'true');
-  await writeReviewsTurnLimit(page, 5);
   await page.locator('.pr-queue-row[data-review-key="Acme/app#5"]').click();
 }
 
@@ -1012,7 +1047,7 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout, sessionId
   if (layout === 'phone') {
     assert.equal(await page.locator('.review-queue').getAttribute('data-reviews-layout'), 'list');
     assert.equal(await page.locator('.review-layout-switch').isVisible(), false);
-    await verifyPhoneTurnLimitAfterReturn(page);
+    await verifyPhoneReviewingNowAfterReturn(page);
   }
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByRole('button', { name: 'Parked', exact: true }).click();

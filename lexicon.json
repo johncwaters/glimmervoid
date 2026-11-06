@@ -236,6 +236,13 @@
     {
       "name": "watchee",
       "definition": "One lane's watching half on the watcher: detects external events on its trigger and delivers a job of its own kind, which a paired server handler acts on"
+    },
+    {
+      "name": "reviewing now",
+      "definition": "The Reviews column holding the Your turn pull requests the operator pulled in to work on, capped by the Reviewing now limit; the rest of Your turn shows as Ready",
+      "aliases": [
+        "reviewing"
+      ]
     }
   ]
 }
