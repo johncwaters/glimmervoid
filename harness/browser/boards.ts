@@ -23,28 +23,28 @@ async function addPlanStep(panel: Locator): Promise<void> {
   await panel.page().getByRole('menuitem', { name: 'plan step', exact: true }).click();
 }
 
-async function verifyStepStaysWhereDropped(page: Page, panel: Locator, stepOnBoard: Locator): Promise<void> {
-  const bandBounds = await stepOnBoard.locator('.wb-box-outline').boundingBox();
-  assert.ok(bandBounds);
-  await page.mouse.move(bandBounds.x + bandBounds.width / 2, bandBounds.y + bandBounds.height / 2);
+async function verifyBoxStaysWhereDropped(page: Page, panel: Locator, boxOnBoard: Locator, boxName: string): Promise<void> {
+  const startBounds = await boxOnBoard.locator('.wb-box-outline').boundingBox();
+  assert.ok(startBounds);
+  await page.mouse.move(startBounds.x + startBounds.width / 2, startBounds.y + startBounds.height / 2);
   await page.mouse.down();
-  await page.mouse.move(bandBounds.x + bandBounds.width / 2 + 120, bandBounds.y + bandBounds.height / 2 + 220, { steps: 8 });
-  const droppedBounds = await stepOnBoard.locator('.wb-box-outline').boundingBox();
+  await page.mouse.move(startBounds.x + startBounds.width / 2 + 120, startBounds.y + startBounds.height / 2 + 220, { steps: 8 });
+  const droppedBounds = await boxOnBoard.locator('.wb-box-outline').boundingBox();
   assert.ok(droppedBounds);
   const versionBeforeDrop = await panel.locator('.wb-board-meta').textContent();
   await page.mouse.up();
   await page.waitForFunction((before) => document.querySelector('.wb-board-meta')?.textContent !== before, versionBeforeDrop);
-  const restingBounds = await stepOnBoard.locator('.wb-box-outline').boundingBox();
+  const restingBounds = await boxOnBoard.locator('.wb-box-outline').boundingBox();
   assert.ok(restingBounds);
-  assert.ok(droppedBounds.y - bandBounds.y > 100, `dragging a plan step moves it out of the band, moved ${droppedBounds.y - bandBounds.y}px`);
-  assert.ok(Math.abs(restingBounds.x - droppedBounds.x) < 2 && Math.abs(restingBounds.y - droppedBounds.y) < 2, `a dropped plan step stays where it was dropped, drifted ${restingBounds.x - droppedBounds.x}, ${restingBounds.y - droppedBounds.y}px`);
+  assert.ok(droppedBounds.y - startBounds.y > 100, `dragging ${boxName} moves it away from where it sat, moved ${droppedBounds.y - startBounds.y}px`);
+  assert.ok(Math.abs(restingBounds.x - droppedBounds.x) < 2 && Math.abs(restingBounds.y - droppedBounds.y) < 2, `${boxName} stays where it was dropped, drifted ${restingBounds.x - droppedBounds.x}, ${restingBounds.y - droppedBounds.y}px`);
 }
 
-async function placeBoxWithTool(page: Page, panel: Locator, offset: { x: number; y: number }, title: string): Promise<void> {
+async function placeBoxWithTool(page: Page, panel: Locator, offset: { x: number; y: number }, title: string, titleInputName = 'Box title'): Promise<void> {
   const canvasBox = await panel.locator('.wb-canvas').boundingBox();
   assert.ok(canvasBox);
   await page.mouse.click(canvasBox.x + offset.x, canvasBox.y + offset.y);
-  const titleInput = page.getByRole('textbox', { name: 'Box title', exact: true });
+  const titleInput = page.getByRole('textbox', { name: titleInputName, exact: true });
   await titleInput.fill(title);
   await page.keyboard.press('Enter');
   await panel.locator('.wb-box-title', { hasText: title }).waitFor();
@@ -444,6 +444,10 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     const sourceBox = panel.locator('.wb-box', { hasText: 'Parse and store' });
     const targetBox = panel.locator('.wb-box', { hasText: 'Index rows' });
     await targetBox.waitFor();
+    await panel.locator('.wb-viewport').focus();
+    await page.keyboard.press('p');
+    await placeBoxWithTool(page, panel, { x: 520, y: 30 }, 'Prior art', 'Panel title');
+    await verifyBoxStaysWhereDropped(page, panel, panel.locator('.wb-panel', { hasText: 'Prior art' }), 'a panel');
     await selectBoxes(page, panel, ['Parse and store', 'Index rows']);
     await verifyResizedBoxes(page, panel, ['Parse and store', 'Index rows']);
     await page.keyboard.press('Escape');
@@ -563,7 +567,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await inspect.getByRole('heading', { name: 'Step', exact: true }).waitFor();
     await inspect.getByRole('combobox', { name: 'Status', exact: true }).selectOption('landed');
     await stepOnBoard.locator('.wb-step-status.wb-step-landed', { hasText: 'landed' }).waitFor();
-    await verifyStepStaysWhereDropped(page, panel, stepOnBoard);
+    await verifyBoxStaysWhereDropped(page, panel, stepOnBoard, 'a plan step');
     await openBoardMenuItem(page, panel, 'board settings');
     await inspect.getByRole('heading', { name: 'Board', exact: true }).waitFor({ timeout: 3000 });
   }

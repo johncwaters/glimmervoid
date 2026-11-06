@@ -73,7 +73,6 @@ function sitesOfElement(element: Element): AnchorSite[] {
   switch (element.kind) {
     case 'box':
       return [...element.refs.map((ref) => ({ elementId: element.id, ref, where: elementName })), ...lineSites(elementName, element.id, element.lines)];
-    case 'panel': return lineSites(elementName, element.id, element.lines);
     case 'note': return element.ref ? [{ elementId: element.id, ref: element.ref, where: elementName }] : [];
     case 'frame':
     case 'wire':

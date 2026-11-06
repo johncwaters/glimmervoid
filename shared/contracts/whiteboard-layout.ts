@@ -55,8 +55,6 @@ const LaidOutWire = z.object({
 
 const LaidOutNote = z.object({ kind: z.literal('note'), id: z.string(), ...RectFields, lines: z.array(z.string()), byline: z.string(), isResolved: z.boolean() }).strict();
 
-const LaidOutPanel = z.object({ kind: z.literal('panel'), id: z.string(), ...RectFields, titleLines: z.array(z.string()), bodyLines: z.array(LaidOutLine) }).strict();
-
 const LegendSwatch = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('lane'), hex: z.string() }).strict(),
   z.object({ kind: z.literal('wire'), tone: WireTone, isDashed: z.boolean(), isBack: z.boolean() }).strict(),
@@ -67,7 +65,7 @@ const LegendSwatch = z.discriminatedUnion('kind', [
 export const LaidOutBoard: z.ZodType<BoardLayout> = z.object({
   columns: z.array(z.object({ id: z.string(), titleLines: z.array(z.string()), titleBaselineY: z.number(), ruleY: z.number(), x: z.number(), width: z.number() }).strict()),
   bands: z.array(z.object({ id: z.string(), label: z.string(), hex: z.string(), ...RectFields }).strict()),
-  elements: z.array(z.discriminatedUnion('kind', [LaidOutBox, LaidOutFrame, LaidOutWire, LaidOutNote, LaidOutPanel])),
+  elements: z.array(z.discriminatedUnion('kind', [LaidOutBox, LaidOutFrame, LaidOutWire, LaidOutNote])),
   legend: z.array(z.object({ label: z.string(), x: z.number(), y: z.number(), swatch: LegendSwatch }).strict()),
   caption: z.object({ text: z.string(), x: z.number(), y: z.number() }).strict().nullable(),
   plan: z.object({ titleAt: Point }).strict().nullable(),

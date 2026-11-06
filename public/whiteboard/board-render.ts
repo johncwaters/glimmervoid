@@ -117,9 +117,9 @@ function servedAssetHref(media: LaidOutMedia): string | null {
   return drawnFilename ? `${WHITEBOARD_ASSET_ROUTE}/${drawnFilename}` : null;
 }
 
-const LAYER_BY_KIND: Record<LaidOutElement['kind'], LayerName> = { frame: 'frames', wire: 'wires', box: 'boxes', panel: 'boxes', note: 'notes' };
+const LAYER_BY_KIND: Record<LaidOutElement['kind'], LayerName> = { frame: 'frames', wire: 'wires', box: 'boxes', note: 'notes' };
 const PAINT_ORDER: readonly LayerName[] = ['frames', 'wires', 'boxes', 'notes'];
-const ELEMENT_KINDS = ['box', 'frame', 'wire', 'note', 'panel'] as const;
+const ELEMENT_KINDS = ['box', 'frame', 'wire', 'note'] as const;
 
 export function createBoardRenderer(svg: SVGSVGElement, mediaLayer: BoardMediaLayer, options: BoardRendererOptions): BoardRenderer {
   const layers: Record<LayerName, SVGGElement> = {

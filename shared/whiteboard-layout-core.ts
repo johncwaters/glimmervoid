@@ -1,5 +1,5 @@
 import { BOX_CHANGES, STEP_STATUSES } from './contracts/whiteboard.ts';
-import type { Board, Box, BoxMedia, Element, Note, Panel, Step, Wire } from './contracts/whiteboard.ts';
+import type { Board, Box, BoxMedia, Element, Note, Step, Wire } from './contracts/whiteboard.ts';
 
 type BoxLine = Box['lines'][number];
 import { planSteps } from './whiteboard-plan-core.ts';
@@ -142,13 +142,6 @@ interface LaidOutLine {
   isFirstRow: boolean;
 }
 
-interface LaidOutPanel extends Rect {
-  kind: 'panel';
-  id: string;
-  titleLines: string[];
-  bodyLines: LaidOutLine[];
-}
-
 type LegendSwatch = { kind: 'lane'; hex: string } | { kind: 'wire'; tone: Wire['tone']; isDashed: boolean; isBack: boolean } | { kind: 'change'; change: Exclude<Box['change'], 'none'> } | { kind: 'status'; status: Step['status'] };
 
 interface LegendRow {
@@ -158,7 +151,7 @@ interface LegendRow {
   swatch: LegendSwatch;
 }
 
-type LaidOutElement = LaidOutBox | LaidOutFrame | LaidOutWire | LaidOutNote | LaidOutPanel;
+type LaidOutElement = LaidOutBox | LaidOutFrame | LaidOutWire | LaidOutNote;
 
 interface PlanBand {
   titleAt: { x: number; y: number };
@@ -313,14 +306,11 @@ function addByKind(elementsByKind: ElementsByKind, element: Element): void {
     case 'note':
       elementsByKind.note.push(element);
       return;
-    case 'panel':
-      elementsByKind.panel.push(element);
-      return;
   }
 }
 
 function indexedBoardOf(board: Board): IndexedBoard {
-  const elementsByKind: ElementsByKind = { box: [], frame: [], wire: [], note: [], panel: [] };
+  const elementsByKind: ElementsByKind = { box: [], frame: [], wire: [], note: [] };
   for (const element of Object.values(board.elements)) addByKind(elementsByKind, element);
   return { ...board, elementsByKind, planStepById: new Map(planSteps(board).map((step) => [step.boxId, step])) };
 }
@@ -527,19 +517,21 @@ function placeNearBoxes(board: IndexedBoard, boxesTop: number, boxesById: Map<st
   for (const box of nearBoxes) place(box, new Set());
 }
 
-function layoutPanels(board: IndexedBoard, besidePanels: readonly Rect[], columnLeftEdges: readonly number[], columnWidths: readonly number[], boxesTop: number): LaidOutPanel[] {
-  const columnsRight = columnsRightOf(columnLeftEdges, columnWidths);
-  const x = Math.max(columnsRight, ...besidePanels.map((rect) => rect.x + rect.width)) + COLUMN_GAP;
-  const panels = [...elementsOfKind(board, 'panel')].sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
+function isStackedPanel(box: Box): boolean {
+  return box.shape === 'panel' && box.step === null && box.column === null && box.near === null && box.at === null;
+}
+
+function placeStackedPanels(board: IndexedBoard, columnsRight: number, boxesTop: number, stackHeightByBoxId: ReadonlyMap<string, number>, boxesById: Map<string, LaidOutBox>): void {
+  const stackedPanels = elementsOfKind(board, 'box').filter(isStackedPanel).sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
+  if (stackedPanels.length === 0) return;
+  const drawingRight = [...boxesById.values()].reduce((rightmost, box) => Math.max(rightmost, box.x + box.width + (stackHeightByBoxId.has(box.id) ? NOTE_WIDTH - NOTE_OVERLAP : 0)), columnsRight);
+  const stackX = Math.round(drawingRight + COLUMN_GAP);
   let nextY = boxesTop;
-  return panels.map((panel: Panel): LaidOutPanel => {
-    const titleLines = wrapText(panel.title, TITLE_CHARS_PER_LINE);
-    const bodyLines = laidOutLines(panel.lines);
-    const height = BOX_PADDING * 2 + titleLines.length * TITLE_LINE_HEIGHT + bodyLines.length * BODY_LINE_HEIGHT;
-    const laidOut: LaidOutPanel = { kind: 'panel', id: panel.id, x: Math.round(x), y: nextY, width: COLUMN_WIDTH, height, titleLines, bodyLines };
-    nextY += height + BOX_GAP;
-    return laidOut;
-  });
+  for (const panel of stackedPanels) {
+    const placed = laidOutBox(board, panel, { x: stackX, y: nextY });
+    boxesById.set(panel.id, placed);
+    nextY += Math.max(placed.height, (stackHeightByBoxId.get(panel.id) ?? 0) - NOTE_RISE) + BOX_GAP;
+  }
 }
 
 function layoutBoxes(board: IndexedBoard, columnLeftEdges: readonly number[], columnWidths: readonly number[], boxesTop: number, stackHeightByBoxId: ReadonlyMap<string, number>, stepBandPositions: ReadonlyMap<string, Point>): PlacedBoxes {
@@ -554,6 +546,7 @@ function layoutBoxes(board: IndexedBoard, columnLeftEdges: readonly number[], co
     if (box.at) boxesById.set(box.id, laidOutBox(board, box, box.at));
   }
   placeNearBoxes(board, boxesTop, boxesById, warnings);
+  placeStackedPanels(board, columnsRightOf(columnLeftEdges, columnWidths), boxesTop, stackHeightByBoxId, boxesById);
   for (const box of elementsOfKind(board, 'box')) {
     if (!boxesById.has(box.id)) boxesById.set(box.id, laidOutBox(board, box, freeOrigin(boxesById, boxesTop)));
   }
@@ -607,7 +600,6 @@ interface PlacedBoard {
   collectPlacementWarnings: () => string[];
   frames: LaidOutFrame[];
   notes: LaidOutNote[];
-  panels: LaidOutPanel[];
   routing: ReturnType<typeof routeWires>;
   tracksByGap: number[];
   labelWidthByGap: number[];
@@ -644,13 +636,12 @@ function labelWidthByGapOf(routing: ReturnType<typeof routeWires>, columnLeftEdg
   return gapSpansOf(columnLeftEdges, columnWidths).map((span) => routing.wires.reduce((widest, wire) => (wire.label && wire.labelAt.x > span.left && wire.labelAt.x < span.right ? Math.max(widest, labelWidthOf(wire.label)) : widest), 0));
 }
 
-function overlapWarnings(boxesById: ReadonlyMap<string, LaidOutBox>, panels: readonly LaidOutPanel[], frames: readonly LaidOutFrame[], board: IndexedBoard): string[] {
+function overlapWarnings(boxesById: ReadonlyMap<string, LaidOutBox>, frames: readonly LaidOutFrame[], board: IndexedBoard): string[] {
   const boxes = [...boxesById.values()];
-  const solids: (LaidOutBox | LaidOutPanel)[] = [...boxes, ...panels];
-  const boxOverlaps = touchingPairsWithin(solids).flatMap(([firstIndex, secondIndex]) => {
-    const first = solids[firstIndex];
-    const second = solids[secondIndex];
-    return first && second && rectsOverlap(first, second) ? [`${first.kind} ${first.id} overlaps ${second.kind} ${second.id}`] : [];
+  const boxOverlaps = touchingPairsWithin(boxes).flatMap(([firstIndex, secondIndex]) => {
+    const first = boxes[firstIndex];
+    const second = boxes[secondIndex];
+    return first && second && rectsOverlap(first, second) ? [`box ${first.id} overlaps box ${second.id}`] : [];
   });
   const containedIdsByFrameId = new Map(elementsOfKind(board, 'frame').map((frame) => [frame.id, new Set(frame.contains)]));
   const coveredTitles = frames.flatMap((frame) => boxes.flatMap((box) => {
@@ -666,16 +657,15 @@ function placeAndRoute(board: IndexedBoard, placement: Placement, previousRoute:
   const { boxesById, bands, warnings: nearWarnings } = layoutBoxes(board, columnLeftEdges, columnWidths, placement.boxesTop, placement.stackHeightByBoxId, placement.stepBandPositions);
   const frames = layoutFrames(board, boxesById);
   const notes = layoutNotes(board, boxesById);
-  const panels = layoutPanels(board, [...boxesById.values(), ...notes], columnLeftEdges, columnWidths, placement.boxesTop);
   const routing = routeWires({
-    wires: elementsOfKind(board, 'wire'), boxesById, panels,
+    wires: elementsOfKind(board, 'wire'), boxesById,
     softObstacles: [...notes, ...frames.map((frame) => ({ x: frame.x, y: frame.y, width: frame.width, height: FRAME_TITLE_HEIGHT }))],
     loopFrames: frames.filter((frame) => frame.isLoop),
     contentTop: placement.contentTop,
   }, previousRoute);
   return {
-    columnLeftEdges, columnWidths, boxesById, bands, frames, notes, panels, routing,
-    collectPlacementWarnings: () => [...nearWarnings, ...overlapWarnings(boxesById, panels, frames, board)],
+    columnLeftEdges, columnWidths, boxesById, bands, frames, notes, routing,
+    collectPlacementWarnings: () => [...nearWarnings, ...overlapWarnings(boxesById, frames, board)],
     tracksByGap: tracksByGapOf(routing, columnLeftEdges, columnWidths),
     labelWidthByGap: labelWidthByGapOf(routing, columnLeftEdges, columnWidths),
   };
@@ -833,7 +823,6 @@ function layoutBoardWithMemory(storedBoard: Board, previous: LayoutMemory | null
     ...placed.routing.wires,
     ...placed.boxesById.values(),
     ...placed.notes,
-    ...placed.panels,
   ];
   const contentBounds = boundsOf(elements, placed.routing.extent, columnsRightOf(columnLeftEdges, columnWidths), boxesTop);
   const legendTop = contentBounds.y + contentBounds.height;
@@ -888,13 +877,11 @@ function movingIdsOf(storedBoard: Board, draggedBoxIds: ReadonlySet<string>): Se
 function createDragPreview(storedBoard: Board, layout: BoardLayout, draggedBoxIds: ReadonlySet<string>): DragPreview {
   const movingIds = movingIdsOf(storedBoard, draggedBoxIds);
   const boxesById = new Map<string, LaidOutBox>();
-  const panels: LaidOutPanel[] = [];
   const stillSoftObstacles: Rect[] = [];
   const movingNotes: LaidOutNote[] = [];
   const loopFrames: Rect[] = [];
   for (const element of layout.elements) {
     if (element.kind === 'box') boxesById.set(element.id, element);
-    if (element.kind === 'panel') panels.push(element);
     if (element.kind === 'note' && movingIds.has(element.id)) movingNotes.push(element);
     if (element.kind === 'note' && !movingIds.has(element.id)) stillSoftObstacles.push(element);
     if (element.kind === 'frame') stillSoftObstacles.push({ x: element.x, y: element.y, width: element.width, height: FRAME_TITLE_HEIGHT });
@@ -907,9 +894,9 @@ function createDragPreview(storedBoard: Board, layout: BoardLayout, draggedBoxId
     const moved = movingBoxes.map((box) => movedBox(box, offsetX, offsetY));
     for (const box of moved) boxesById.set(box.id, box);
     const notes = movingNotes.map((note) => ({ ...note, x: note.x + offsetX, y: note.y + offsetY }));
-    return [...moved, ...notes, ...previewWires({ wires, boxesById, panels, softObstacles: [...stillSoftObstacles, ...notes], loopFrames, contentTop })];
+    return [...moved, ...notes, ...previewWires({ wires, boxesById, softObstacles: [...stillSoftObstacles, ...notes], loopFrames, contentTop })];
   };
 }
 
-export { createDragPreview, elementSignature, layoutBoard, layoutBoardWithMemory, pinnedOffsetYOf };
-export type { BoardLayout, DragPreview, LayoutMemory, LaidOutBox, LaidOutMedia, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutPanel, LaidOutStep, LaidOutWire, Rect };
+export { createDragPreview, elementSignature, isStackedPanel, layoutBoard, layoutBoardWithMemory, pinnedOffsetYOf };
+export type { BoardLayout, DragPreview, LayoutMemory, LaidOutBox, LaidOutMedia, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutStep, LaidOutWire, Rect };

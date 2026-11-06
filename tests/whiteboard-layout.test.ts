@@ -357,7 +357,7 @@ test('a decision draws its outputs as rows in order and each output wire leaves 
   assert.equal(plainWithOutputs.ok ? '' : plainWithOutputs.error, 'op 1: box stop has outputs, which only a decision has, so set shape to decision');
 });
 
-test('styled lines carry their markers, a panel sits clear right of every box, and the legend names the wire styles in use with custom labels winning', () => {
+test('styled lines carry their markers, a panel with no place stacks clear right of every box until it is given one, and the legend names the wire styles in use with custom labels winning', () => {
   const styledBoard = Board.parse({
     id: 'styled', title: 'styled', version: 1, caption: null, createdAt: 0, updatedAt: 0, lanes: [],
     columns: [{ id: 'a', title: 'A' }, { id: 'b', title: 'B' }],
@@ -369,7 +369,7 @@ test('styled lines carry their markers, a panel sits clear right of every box, a
       ] },
       second: { kind: 'box', id: 'second', title: 'Second', column: 'b', at: { x: 700, y: 200 } },
       aside: { kind: 'note', id: 'aside', on: 'second', text: 'a note that reaches right past the box edge' },
-      prior: { kind: 'panel', id: 'prior', title: 'Prior art', lines: [{ text: 'the old router', style: 'item' }] },
+      prior: { kind: 'box', id: 'prior', title: 'Prior art', shape: 'panel', lines: [{ text: 'the old router', style: 'item' }] },
       w1: { kind: 'wire', id: 'w1', from: 'first', to: 'second', tone: 'fail' },
       w2: { kind: 'wire', id: 'w2', from: 'second', to: 'first', back: true },
     },
@@ -380,11 +380,24 @@ test('styled lines carry their markers, a panel sits clear right of every box, a
   assert.ok(first?.kind === 'box');
   assert.deepEqual(first.bodyLines.map((line) => line.marker), ['1.', '2.', null, '1.', 'timeout', null, null]);
   const panel = layout.elements.find((element) => element.id === 'prior');
-  assert.ok(panel?.kind === 'panel');
-  const besidePanel = layout.elements.filter((element) => element.kind === 'box' || element.kind === 'note');
-  assert.ok(besidePanel.every((element) => panel.x > element.x + element.width), `panel at ${panel.x} overlaps a box or note`);
+  assert.ok(panel?.kind === 'box' && panel.shape === 'panel');
+  const besidePanel = layout.elements.filter((element) => (element.kind === 'box' || element.kind === 'note') && element.id !== 'prior');
+  assert.ok(besidePanel.every((element) => element.kind !== 'wire' && panel.x > element.x + element.width), `panel at ${panel.x} overlaps a box or note`);
   assert.deepEqual(layout.legend.map((row) => row.label), ['gives up', 'retry', 'merges back']);
-  assert.equal(layout.warnings.filter((warning) => warning.includes('panel')).length, 0, layout.warnings.join('\n'));
+  assert.equal(layout.warnings.filter((warning) => warning.includes('prior')).length, 0, layout.warnings.join('\n'));
+  const author = { id: 'agent', name: 'agent' };
+  const nearStacked = applyOps(styledBoard, [{ op: 'add', element: Board.shape.elements.valueType.parse({ kind: 'box', id: 'beside', title: 'Beside', near: { of: 'prior', side: 'bottom' } }) }], author, 0);
+  assert.equal(nearStacked.ok ? '' : nearStacked.error, 'op 1: box beside sits near prior, a panel with no place yet, so give that panel a column, near or at first');
+  const dragged = applyOps(styledBoard, [{ op: 'set', id: 'prior', fields: { at: { x: 40, y: 900 } } }], author, 0);
+  assert.ok(dragged.ok, dragged.ok ? '' : dragged.error);
+  const droppedPanel = layoutBoard(dragged.board).elements.find((element) => element.id === 'prior');
+  assert.ok(droppedPanel?.kind === 'box');
+  assert.deepEqual([droppedPanel.x, droppedPanel.y], [40, 900]);
+  const withBoxNearPanel = applyOps(dragged.board, [{ op: 'add', element: Board.shape.elements.valueType.parse({ kind: 'box', id: 'beside', title: 'Beside', near: { of: 'prior', side: 'bottom' } }) }], author, 0);
+  assert.ok(withBoxNearPanel.ok, withBoxNearPanel.ok ? '' : withBoxNearPanel.error);
+  const restacked = applyOps(withBoxNearPanel.board, [{ op: 'set', id: 'prior', fields: { at: null } }], author, 0);
+  assert.equal(restacked.ok ? '' : restacked.error, 'op 1: box beside sits near prior, so prior cannot go back to the panel stack with no place: keep a column, near or at on it, or move box beside first');
+  assert.throws(() => Board.shape.elements.valueType.parse({ kind: 'panel', id: 'old', title: 'Old' }), /an element kind is box, frame, wire or note/);
 });
 
 test('a dashboard applying an edit diff reaches the server board exactly, and undoing it restores the board it started from, note authors, cascades and column moves included, while agents cannot forge a note author, and the history keeps only the newest entries', () => {

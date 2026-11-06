@@ -9,7 +9,7 @@ const DRAG_THRESHOLD_PX = 4;
 const MIN_VIEW_WIDTH = 200;
 const MAX_VIEW_WIDTH = 20000;
 const WHEEL_ZOOM_STEP = 1.1;
-const REMOVAL_ORDER = ['wire', 'note', 'frame', 'box', 'panel'] as const;
+const REMOVAL_ORDER = ['wire', 'note', 'frame', 'box'] as const;
 const TOOL_BY_KEY: Readonly<Record<string, BoardTool>> = { v: 'select', r: 'box', d: 'decision', p: 'panel', a: 'wire' };
 
 type BoardTool = 'select' | 'box' | 'decision' | 'panel' | 'wire';
@@ -65,7 +65,8 @@ function isRectInside(inner: Rect, outer: Rect): boolean {
   return inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.width <= outer.x + outer.width && inner.y + inner.height <= outer.y + outer.height;
 }
 
-type BoxMedia = NonNullable<Extract<BoardElement, { kind: 'box' }>['media']>;
+type Box = Extract<BoardElement, { kind: 'box' }>;
+type BoxMedia = NonNullable<Box['media']>;
 
 type Gesture =
   | { kind: 'drag'; mode: 'move' | 'resize'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; movingBoxes: readonly MovingBox[]; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; pressedImage: PressedImage | null; preview: DragPreview | null; previewLayout: BoardLayout | null; laidOutOffset: ViewPoint }
@@ -92,19 +93,12 @@ function isPlacementTool(tool: BoardTool): tool is PlacementTool {
   return tool === 'box' || tool === 'decision' || tool === 'panel';
 }
 
-function placedElement(tool: PlacementTool, board: Board, at: ViewPoint): BoardElement {
-  if (tool === 'panel') {
-    const lastOrder = Math.max(-1, ...Object.values(board.elements).map((element) => (element.kind === 'panel' ? element.order : -1)));
-    return { kind: 'panel', id: newElementId('panel'), title: 'Panel', lines: [], order: lastOrder + 1 };
-  }
-  if (tool === 'decision') return placedBox(at, 'Decision', null, true);
-  return placedBox(at, 'Box', null, false);
-}
+const PLACED_TITLE_BY_TOOL: Readonly<Record<PlacementTool, string>> = { box: 'Box', decision: 'Decision', panel: 'Panel' };
 
-function placedBox(at: ViewPoint, title: string, media: BoxMedia | null, isDecision: boolean): BoardElement {
+function placedBox(at: ViewPoint, title: string, media: BoxMedia | null, shape: Box['shape']): BoardElement {
   return {
     kind: 'box', id: newElementId('box'), title, lines: [], lane: null, refs: [], change: 'none', was: null, column: null, near: null, order: 0, at,
-    shape: isDecision ? 'decision' : 'box', outputs: isDecision ? [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }] : [], media, width: null, step: null,
+    shape, outputs: shape === 'decision' ? [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }] : [], media, width: null, step: null,
   };
 }
 
@@ -424,10 +418,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   async function placeElement(tool: PlacementTool, point: ViewPoint): Promise<void> {
     setTool('select');
-    const board = options.currentBoard();
-    if (!board) return;
+    if (!options.currentBoard()) return;
     const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
-    const element = placedElement(tool, board, { x: Math.round(point.x), y: Math.round(point.y - pinnedOffsetY) });
+    const element = placedBox({ x: Math.round(point.x), y: Math.round(point.y - pinnedOffsetY) }, PLACED_TITLE_BY_TOOL[tool], null, tool);
     pendingTitleEditId = element.id;
     const isSent = await options.sendOps([{ op: 'add', element }]);
     if (!isSent) pendingTitleEditId = null;
@@ -440,7 +433,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (!board) return false;
     const point = clientPoint ? toViewPoint(clientPoint.x, clientPoint.y) : { x: camera.x + viewWidth() / 2, y: camera.y + (viewportBox.height || 1) / camera.scale / 2 };
     const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
-    const element = placedBox({ x: Math.round(point.x), y: Math.round(point.y - pinnedOffsetY) }, title, media, false);
+    const element = placedBox({ x: Math.round(point.x), y: Math.round(point.y - pinnedOffsetY) }, title, media, 'box');
     const isSent = await options.sendOps([{ op: 'add', element }]);
     if (isSent) setSelection(new Set([element.id]));
     return isSent;
@@ -634,7 +627,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const board = options.currentBoard();
     const titled = board?.elements[elementId];
     const node = renderer.nodeOf(elementId);
-    if ((titled?.kind !== 'box' && titled?.kind !== 'panel') || !node) return;
+    if (titled?.kind !== 'box' || !node) return;
     closeTitleInput();
     const canvasRect = canvas.getBoundingClientRect();
     const boxRect = node.getBoundingClientRect();
@@ -642,7 +635,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     input.type = 'text';
     input.value = titled.title;
     input.maxLength = 80;
-    input.setAttribute('aria-label', titled.kind === 'panel' ? 'Panel title' : 'Box title');
+    input.setAttribute('aria-label', titled.shape === 'panel' ? 'Panel title' : 'Box title');
     input.style.left = `${boxRect.left - canvasRect.left}px`;
     input.style.top = `${boxRect.top - canvasRect.top}px`;
     input.style.width = `${Math.max(160, boxRect.width)}px`;
@@ -679,7 +672,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   function onDoubleClick(event: MouseEvent): void {
     if (isPhoneLayout()) return;
     const hit = renderer.elementFromTarget(document.elementFromPoint(event.clientX, event.clientY));
-    if (hit?.kind !== 'box' && hit?.kind !== 'panel') return;
+    if (hit?.kind !== 'box') return;
     editTitle(hit.id);
   }
 

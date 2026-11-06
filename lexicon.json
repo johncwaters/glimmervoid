@@ -351,7 +351,7 @@
     },
     {
       "name": "element",
-      "definition": "One drawn thing on a whiteboard (a box, frame, wire, note, panel or unit), counted against a board's element limit"
+      "definition": "One drawn thing on a whiteboard (a box, frame, wire or note), counted against a board's element limit; a plan step and a panel are boxes"
     },
     {
       "name": "frame",

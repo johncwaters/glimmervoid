@@ -1,5 +1,5 @@
 import { escapeMarkup } from './escape-markup.ts';
-import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutMedia, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutPanel, LaidOutStep, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
+import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutMedia, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutStep, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const BOX_TEXT_INSET = 12;
@@ -27,6 +27,7 @@ const MONO_CHAR_WIDTH = 7.2;
 const CODE_BAND_RISE = 13;
 const CODE_BAND_HEIGHT = 17;
 const ITEM_DOT_RADIUS = 2.2;
+const TITLE_RULE_RISE = 12;
 const LEGEND_SAMPLE_WIDTH = 28;
 
 const STANDALONE_STYLE = `
@@ -37,6 +38,7 @@ svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospac
 .wb-band-rule { stroke: #2a2440; stroke-width: 1; }
 .wb-band-label { font-size: 12px; font-weight: 700; }
 .wb-box-outline { fill: #15122a; stroke: #a79fc4; stroke-width: 1.6; }
+.wb-panel .wb-box-outline { fill: #110f20; stroke: #4a4268; stroke-width: 1.4; }
 .wb-change-added .wb-box-outline { stroke: #22c55e; stroke-dasharray: 7 5; }
 .wb-change-removed { opacity: 0.6; }
 .wb-change-removed .wb-box-outline { fill: transparent; stroke: #ef4444; stroke-dasharray: 7 5; }
@@ -52,7 +54,6 @@ svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospac
 .wb-line-marker { fill: #a79fc4; font-size: 12px; }
 .wb-line-key { fill: #a79fc4; font-size: 12px; font-weight: 700; }
 .wb-item-dot { fill: #a79fc4; }
-.wb-panel-outline { fill: #110f20; stroke: #4a4268; stroke-width: 1.4; }
 .wb-panel-rule { stroke: #4a4268; stroke-width: 1; }
 .wb-output-divider { stroke: #4a4268; stroke-width: 1; }
 .wb-output-label { fill: #e6e0f5; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
@@ -154,17 +155,6 @@ function bodyLinesMarkup(lines: readonly LaidOutLine[], left: number, width: num
   return lines.flatMap((line, index) => lineRowMarkup(line, left, width, top + index * BODY_LINE_HEIGHT));
 }
 
-function panelMarkup(panel: LaidOutPanel): string {
-  const parts = [tag('rect', { x: panel.x, y: panel.y, width: panel.width, height: panel.height, rx: 6, class: 'wb-panel-outline' })];
-  panel.titleLines.forEach((line, index) => {
-    parts.push(text(line, panel.x + BOX_TEXT_INSET, panel.y + TITLE_BASELINE + index * TITLE_LINE_HEIGHT, 'wb-box-title'));
-  });
-  const bodyTop = panel.y + TITLE_BASELINE + panel.titleLines.length * TITLE_LINE_HEIGHT;
-  if (panel.bodyLines.length > 0) parts.push(tag('line', { x1: panel.x + BOX_TEXT_INSET, y1: bodyTop - 12, x2: panel.x + panel.width - BOX_TEXT_INSET, y2: bodyTop - 12, class: 'wb-panel-rule' }));
-  parts.push(...bodyLinesMarkup(panel.bodyLines, panel.x, panel.width, bodyTop));
-  return elementGroup(panel, 'wb-panel', parts);
-}
-
 function boxOutlineMarkup(box: LaidOutBox): string {
   if (box.shape === 'decision') return tag('path', { d: decisionOutlinePath(box), class: 'wb-box-outline', style: laneStroke(box.lane?.hex) });
   return tag('rect', { x: box.x, y: box.y, width: box.width, height: box.height, rx: 8, class: 'wb-box-outline', style: laneStroke(box.lane?.hex) });
@@ -205,6 +195,7 @@ function boxMarkup(box: LaidOutBox, assetHref: AssetHref): string {
     parts.push(text(line, box.x + BOX_TEXT_INSET, titleTop + index * TITLE_LINE_HEIGHT, 'wb-box-title'));
   });
   const bodyTop = titleTop + box.titleLines.length * TITLE_LINE_HEIGHT;
+  if (box.shape === 'panel' && box.bodyLines.length > 0) parts.push(tag('line', { x1: box.x + BOX_TEXT_INSET, y1: bodyTop - TITLE_RULE_RISE, x2: box.x + box.width - BOX_TEXT_INSET, y2: bodyTop - TITLE_RULE_RISE, class: 'wb-panel-rule' }));
   parts.push(...bodyLinesMarkup(box.bodyLines, box.x, box.width, bodyTop));
   if (box.step?.linkedBoardId) {
     parts.push(text(LINKED_BOARD_TEXT, box.x + BOX_TEXT_INSET, bodyTop + box.bodyLines.length * BODY_LINE_HEIGHT, 'wb-step-link', { 'data-linked-board-id': box.step.linkedBoardId }));
@@ -219,8 +210,10 @@ function boxMarkup(box: LaidOutBox, assetHref: AssetHref): string {
     );
   }
   parts.push(tag('rect', { x: box.x + box.width - RESIZE_HANDLE_SIZE, y: box.y + box.height - RESIZE_HANDLE_SIZE, width: RESIZE_HANDLE_SIZE, height: RESIZE_HANDLE_SIZE, rx: 2, class: 'wb-resize-handle' }));
+  const shapeClass = box.shape === 'panel' ? ' wb-panel' : '';
   const stepClass = box.step ? ' wb-step' : '';
-  return elementGroup(box, box.change === 'none' ? `wb-box${stepClass}` : `wb-box${stepClass} wb-change-${box.change}`, parts);
+  const changeClass = box.change === 'none' ? '' : ` wb-change-${box.change}`;
+  return elementGroup(box, `wb-box${shapeClass}${stepClass}${changeClass}`, parts);
 }
 
 function loopBadgeMarkup(frame: LaidOutFrame): string {
@@ -265,7 +258,6 @@ function elementMarkup(element: LaidOutElement, assetHref: AssetHref = NO_ASSET_
     case 'frame': return frameMarkup(element);
     case 'wire': return wireMarkup(element);
     case 'note': return noteMarkup(element);
-    case 'panel': return panelMarkup(element);
   }
 }
 
@@ -325,7 +317,7 @@ function arrowDefinitionsMarkup(): string {
   return tag('defs', {}, tag('marker', { id: 'wb-arrow', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 8, markerHeight: 8, orient: 'auto-start-reverse' }, arrowhead));
 }
 
-const LAYER_ORDER: readonly LaidOutElement['kind'][] = ['frame', 'wire', 'box', 'panel', 'note'];
+const LAYER_ORDER: readonly LaidOutElement['kind'][] = ['frame', 'wire', 'box', 'note'];
 
 function boardSvgDocument(layout: BoardLayout, assetHref: AssetHref = NO_ASSET_HREF): string {
   const { x, y, width, height } = layout.bounds;

@@ -20,6 +20,11 @@ function stepBoxForUnit(unit: Record<string, unknown>): Record<string, unknown> 
   };
 }
 
+function boxForPanel(element: unknown): unknown {
+  if (!isRecord(element) || element.kind !== 'panel') return element;
+  return { kind: 'box', id: element.id, title: element.title, lines: element.lines ?? [], order: element.order ?? 0, shape: 'panel' };
+}
+
 function elementsWithStepBoxesForUnits(elements: Record<string, unknown>): Record<string, unknown> {
   const takenIds = new Set(Object.keys(elements));
   const upgraded: Record<string, unknown> = {};
@@ -42,7 +47,7 @@ function elementsWithStepBoxesForUnits(elements: Record<string, unknown>): Recor
 function upgradedBoardRecord(raw: unknown): unknown {
   const board = isRecord(raw) ? raw.board : null;
   if (!isRecord(raw) || !isRecord(board) || !isRecord(board.elements)) return raw;
-  const elements = Object.fromEntries(Object.entries(elementsWithStepBoxesForUnits(board.elements)).map(([elementId, element]) => [elementId, elementWithMediaForImage(element)]));
+  const elements = Object.fromEntries(Object.entries(elementsWithStepBoxesForUnits(board.elements)).map(([elementId, element]) => [elementId, boxForPanel(elementWithMediaForImage(element))]));
   return { ...raw, board: { ...board, elements } };
 }
 

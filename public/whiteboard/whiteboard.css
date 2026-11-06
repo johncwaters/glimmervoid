@@ -435,6 +435,12 @@
   stroke-width: 1.6;
 }
 
+.wb-panel .wb-box-outline {
+  fill: color-mix(in oklab, var(--wb-board) 80%, var(--bg));
+  stroke: var(--wb-line);
+  stroke-width: 1.4;
+}
+
 .wb-change-added .wb-box-outline { stroke: var(--state-running); stroke-dasharray: 7 5; }
 .wb-change-removed { opacity: 0.6; }
 .wb-change-removed .wb-box-outline { fill: transparent; stroke: var(--state-failed); stroke-dasharray: 7 5; }
@@ -476,14 +482,6 @@
 }
 
 .wb-item-dot { fill: var(--wb-ink-dim); }
-
-.wb-panel { cursor: pointer; }
-
-.wb-panel-outline {
-  fill: color-mix(in oklab, var(--wb-board) 80%, var(--bg));
-  stroke: var(--wb-line);
-  stroke-width: 1.4;
-}
 
 .wb-panel-rule {
   stroke: var(--wb-line);
@@ -690,8 +688,7 @@
 
 .wb-element.is-selected .wb-box-outline,
 .wb-element.is-selected .wb-frame-outline,
-.wb-element.is-selected .wb-note-card,
-.wb-element.is-selected .wb-panel-outline {
+.wb-element.is-selected .wb-note-card {
   stroke: var(--accent);
   stroke-width: 2.4;
 }

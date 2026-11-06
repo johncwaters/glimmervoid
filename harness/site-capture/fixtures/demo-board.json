@@ -167,9 +167,10 @@
     {
       "op": "add",
       "element": {
-        "kind": "panel",
+        "kind": "box",
         "id": "source",
         "title": "src/invoice.js",
+        "shape": "panel",
         "lines": [
           {
             "text": "export function invoiceTotal(rows, rate)",

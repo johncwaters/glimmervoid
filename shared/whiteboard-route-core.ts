@@ -1,6 +1,6 @@
 import { WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Wire } from './contracts/whiteboard.ts';
-import type { LaidOutBox, LaidOutPanel, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
+import type { LaidOutBox, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
 import { emptyFlatRects, flatRectsOf, forEachTouchingPairAcross, forEachTouchingPairWithin, orderOfPairs, setFlatRect } from './whiteboard-sweep-core.ts';
 import type { FlatRects } from './whiteboard-sweep-core.ts';
 import { nudgeSharedLines } from './whiteboard-nudge-core.ts';
@@ -53,7 +53,6 @@ const REVERSE_DIRECTION = [1, 0, 3, 2];
 interface RouteInput {
   wires: readonly Wire[];
   boxesById: ReadonlyMap<string, LaidOutBox>;
-  panels: readonly LaidOutPanel[];
   softObstacles: readonly Rect[];
   loopFrames: readonly Rect[];
   contentTop: number;
@@ -564,7 +563,7 @@ function graphOnPrepared(input: RouteInput, areaKey: string, prepare: () => Prep
 const WHOLE_BOARD_AREA_KEY = 'whole board';
 
 function wholeBoardObstaclesOf(input: RouteInput): { hardRects: Rect[]; softRects: readonly Rect[]; contentTop: number } {
-  return { hardRects: [...input.boxesById.values(), ...input.panels], softRects: input.softObstacles, contentTop: input.contentTop };
+  return { hardRects: [...input.boxesById.values()], softRects: input.softObstacles, contentTop: input.contentTop };
 }
 
 function rememberWholeBoardObstacles(input: RouteInput, previous: RouteMemory | null, changes: ObstacleChanges | null): void {
@@ -1085,21 +1084,21 @@ function orderedWarningList(pairs: IndexPairs, firstCount: number, secondCount: 
   };
 }
 
-const solidsByInput = new WeakMap<RouteInput, (LaidOutBox | LaidOutPanel)[]>();
+const solidsByInput = new WeakMap<RouteInput, LaidOutBox[]>();
 
-function solidsOf(input: RouteInput): (LaidOutBox | LaidOutPanel)[] {
+function solidsOf(input: RouteInput): LaidOutBox[] {
   const known = solidsByInput.get(input);
   if (known) return known;
-  const solids = [...input.boxesById.values(), ...input.panels];
+  const solids = [...input.boxesById.values()];
   solidsByInput.set(input, solids);
   return solids;
 }
 
-function solidKeyOf(solid: LaidOutBox | LaidOutPanel): string {
-  return `${solid.kind === 'panel' ? 'panel' : 'box'} ${solid.id}`;
+function solidKeyOf(solid: LaidOutBox): string {
+  return `box ${solid.id}`;
 }
 
-function addRunThrough(crossedPairKeys: Map<number, boolean>, drawn: readonly DrawnWire[], pieces: WirePieces, solids: readonly (LaidOutBox | LaidOutPanel)[], insets: readonly Rect[], piece: number, solidIndex: number): void {
+function addRunThrough(crossedPairKeys: Map<number, boolean>, drawn: readonly DrawnWire[], pieces: WirePieces, solids: readonly LaidOutBox[], insets: readonly Rect[], piece: number, solidIndex: number): void {
   const wireIndex = pieces.wireIndexByPiece[piece] ?? 0;
   const pairKey = wireIndex * solids.length + solidIndex;
   if (crossedPairKeys.has(pairKey)) return;
@@ -1112,7 +1111,7 @@ function addRunThrough(crossedPairKeys: Map<number, boolean>, drawn: readonly Dr
   if (segmentHitsRect(segment, inset)) crossedPairKeys.set(pairKey, true);
 }
 
-function runsThroughPairsOf(drawn: readonly DrawnWire[], pieces: WirePieces, solids: readonly (LaidOutBox | LaidOutPanel)[], reusable: ReusablePairs | null): IndexPairs {
+function runsThroughPairsOf(drawn: readonly DrawnWire[], pieces: WirePieces, solids: readonly LaidOutBox[], reusable: ReusablePairs | null): IndexPairs {
   const insets = solids.map((solid) => inflated(solid, -2));
   const insetRects = flatRectsOf(insets);
   const crossedPairKeys = new Map<number, boolean>();
@@ -1236,7 +1235,6 @@ function obstacleRectsByKey(input: RouteInput): Map<string, Rect> {
   const rectByKey = new Map<string, Rect>();
   const keyOfRect = (rect: Rect) => `${rect.x},${rect.y},${rect.width},${rect.height}`;
   for (const box of input.boxesById.values()) rectByKey.set(`box ${box.id}`, box);
-  for (const panel of input.panels) rectByKey.set(`panel ${panel.id}`, panel);
   for (const soft of input.softObstacles) rectByKey.set(`soft ${keyOfRect(soft)}`, soft);
   for (const frame of input.loopFrames) rectByKey.set(`loop ${keyOfRect(frame)}`, frame);
   return rectByKey;

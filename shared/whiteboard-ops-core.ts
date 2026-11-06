@@ -1,7 +1,7 @@
-import { Box, Frame, Note, Panel, Wire, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
+import { Box, Frame, Note, Wire, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Board, BoardChange, Element, Op } from './contracts/whiteboard.ts';
 import { isRecord } from './coerce.ts';
-import { layoutBoard } from './whiteboard-layout-core.ts';
+import { isStackedPanel, layoutBoard } from './whiteboard-layout-core.ts';
 import type { LaidOutBox } from './whiteboard-layout-core.ts';
 import type { BoardDiff, ElementChange } from './contracts/control/whiteboard-messages.ts';
 
@@ -11,7 +11,7 @@ type OpOutcome = { ok: true } | { ok: false; error: string };
 type PinPositions = { laidOutBoxById: ReadonlyMap<string, LaidOutBox>; pinnedOffsetY: number };
 type Draft = { board: Board; elementCount: number; pinPositions: PinPositions | null; dependentIdsByBoxId: ReadonlyMap<string, ReadonlySet<string>> | null };
 
-const ELEMENT_SCHEMAS = Object.freeze({ box: Box, frame: Frame, wire: Wire, note: Note, panel: Panel });
+const ELEMENT_SCHEMAS = Object.freeze({ box: Box, frame: Frame, wire: Wire, note: Note });
 const NOTE_PREVIEW_CHARS = 80;
 const OK: OpOutcome = { ok: true };
 const DIFFED_BOARD_FIELDS = ['title', 'caption', 'legend', 'columns', 'lanes', 'codeSessionId'] as const;
@@ -70,13 +70,21 @@ function checkBoxOutputs(board: Board, box: Box, previous: Element | undefined):
   return OK;
 }
 
+function boxSittingNear(board: Board, boxId: string): Box | null {
+  const sitting = Object.values(board.elements).find((element) => element.kind === 'box' && element.near?.of === boxId);
+  return sitting?.kind === 'box' ? sitting : null;
+}
+
 function checkBoxReferences(board: Board, box: Box, previous: Element | undefined): OpOutcome {
   const outputs = checkBoxOutputs(board, box, previous);
   if (!outputs.ok) return outputs;
   if (box.change === 'relabeled' && !box.was) return refuse(`box ${box.id} is relabeled, so give its old title in was`);
-  if (box.step === null && box.column === null && box.near === null && box.at === null) {
+  if (box.step === null && box.shape !== 'panel' && box.column === null && box.near === null && box.at === null) {
     return refuse(`box ${box.id} needs a place: a column, near another box, or at a point`);
   }
+  const isJoiningPanelStack = isStackedPanel(box) && previous?.kind === 'box' && !isStackedPanel(previous);
+  const sittingNear = isJoiningPanelStack ? boxSittingNear(board, box.id) : null;
+  if (sittingNear) return refuse(`box ${sittingNear.id} sits near ${box.id}, so ${box.id} cannot go back to the panel stack with no place: keep a column, near or at on it, or move box ${sittingNear.id} first`);
   if (box.column !== null && !board.columns.some((column) => column.id === box.column)) {
     return refuse(`box ${box.id} names column ${box.column}, which the board does not have, so add it with a columns op first`);
   }
@@ -85,7 +93,9 @@ function checkBoxReferences(board: Board, box: Box, previous: Element | undefine
   }
   if (box.near === null) return OK;
   if (box.near.of === box.id) return refuse(`box ${box.id} cannot sit near itself`);
-  if (!isBox(board, box.near.of)) return refuse(`box ${box.id} sits near ${box.near.of}, which is not a box`);
+  const nearTarget = board.elements[box.near.of];
+  if (nearTarget?.kind !== 'box') return refuse(`box ${box.id} sits near ${box.near.of}, which is not a box`);
+  if (isStackedPanel(nearTarget)) return refuse(`box ${box.id} sits near ${box.near.of}, a panel with no place yet, so give that panel a column, near or at first`);
   if (nearChainReaches(board, box.near.of, box.id)) return refuse(`box ${box.id} sits near ${box.near.of}, which already sits near ${box.id}, so they would place each other`);
   return OK;
 }
@@ -364,7 +374,7 @@ function changedElementId(op: Op): string | null {
 
 function nameOf(board: Board, id: string, element: Element | undefined = board.elements[id]): string {
   if (!element) return id;
-  if (element.kind === 'box' || element.kind === 'frame' || element.kind === 'panel') return `"${element.title || id}"`;
+  if (element.kind === 'box' || element.kind === 'frame') return `"${element.title || id}"`;
   if (element.kind === 'wire') return `wire ${nameOf(board, element.from)} to ${nameOf(board, element.to)}`;
   return `note ${id}`;
 }

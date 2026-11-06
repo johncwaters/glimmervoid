@@ -1,5 +1,6 @@
-import type { Board, Box, Element as BoardElement, Frame, Note, Op, Panel, Step, Wire } from '#shared/contracts/whiteboard.ts';
+import type { Board, Box, Element as BoardElement, Frame, Note, Op, Step, Wire } from '#shared/contracts/whiteboard.ts';
 import { AnchorRef, BOX_CHANGES, STEP_STATUSES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
+import { isStackedPanel } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout } from '#shared/whiteboard-layout-core.ts';
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
@@ -34,7 +35,8 @@ const LINE_STYLES: readonly BoxLine['style'][] = ['text', 'code', 'item', 'numbe
 const TONES: readonly Wire['tone'][] = ['plain', 'fail', 'join', 'lane'];
 const LINE_STYLE_CHOICES = choicesOf(LINE_STYLES);
 const TONE_CHOICES = choicesOf(TONES);
-const SHAPE_CHOICES = choicesOf(['box', 'decision'] satisfies Box['shape'][]);
+const SHAPE_CHOICES = choicesOf(['box', 'decision', 'panel'] satisfies Box['shape'][]);
+const HEADING_BY_SHAPE: Readonly<Record<Box['shape'], string>> = { box: 'Box', decision: 'Decision', panel: 'Panel' };
 const CHANGE_CHOICES = choicesOf(BOX_CHANGES);
 const STEP_STATUS_CHOICES = choicesOf(STEP_STATUSES);
 const SIDE_CHOICES: readonly Choice[] = [{ value: '', text: 'auto' }, ...choicesOf(['left', 'right', 'top', 'bottom'])];
@@ -224,19 +226,29 @@ function boxSections(board: Board, box: Box, latest: () => BoardElement | undefi
   };
   const columnChoices = [{ value: FREE_PLACEMENT, text: 'free' }, ...board.columns.map((column) => ({ value: column.id, text: column.title || column.id }))];
   const laneChoices = [{ value: '', text: 'none' }, ...board.lanes.map((lane) => ({ value: lane.id, text: lane.label || lane.id }))];
+  const laidOutPlace = () => {
+    const laidOut = layout?.elements.find((element) => element.id === box.id);
+    if (!layout || laidOut?.kind !== 'box') return null;
+    return { x: laidOut.x, y: laidOut.y - layout.pinnedOffsetY };
+  };
   const commitPlacement = (columnId: string) => {
     if (columnId !== FREE_PLACEMENT) {
       set({ column: columnId, at: null, near: null });
       return;
     }
-    const laidOut = layout?.elements.find((element) => element.id === box.id);
-    if (!layout || laidOut?.kind !== 'box') return;
-    set({ at: { x: laidOut.x, y: laidOut.y - layout.pinnedOffsetY }, near: null });
+    const at = laidOutPlace();
+    if (at) set({ at, near: null });
+  };
+  const placeLeavingStack = () => {
+    const stacked = latestBox();
+    const at = stacked && isStackedPanel(stacked) ? laidOutPlace() : null;
+    return at ? { at } : {};
   };
   const commitShape = (shape: string) => {
     const outputs = latestBox()?.outputs ?? [];
-    if (shape === 'decision') set({ shape, outputs: outputs.length > 0 ? outputs : DEFAULT_OUTPUTS });
-    if (shape === 'box') set({ shape, outputs: [] });
+    if (shape === 'decision') set({ shape, outputs: outputs.length > 0 ? outputs : DEFAULT_OUTPUTS, ...placeLeavingStack() });
+    if (shape === 'box') set({ shape, outputs: [], ...placeLeavingStack() });
+    if (shape === 'panel') set({ shape, outputs: [] });
   };
   const commitChange = (change: string) => {
     if (change === 'relabeled') {
@@ -246,7 +258,7 @@ function boxSections(board: Board, box: Box, latest: () => BoardElement | undefi
     set({ change, was: null });
   };
   return [
-    heading(box.shape === 'decision' ? 'Decision' : 'Box'),
+    heading(HEADING_BY_SHAPE[box.shape]),
     fieldRow('Title', textField('title', box.title, WHITEBOARD_LIMITS.title, (title) => {
       if (title.trim()) set({ title: title.trim() });
     })),
@@ -286,20 +298,6 @@ function frameSections(frame: Frame, set: FieldCommit): HTMLElement[] {
     heading('Frame'),
     fieldRow('Title', textField('title', frame.title, WHITEBOARD_LIMITS.title, (title) => set({ title: title.trim() }))),
     checkboxField('loop', 'repeats as a loop', frame.loop, (loop) => set({ loop })),
-  ];
-}
-
-function panelSections(panel: Panel, latest: () => BoardElement | undefined, set: FieldCommit): HTMLElement[] {
-  const latestLines = () => {
-    const element = latest();
-    return element?.kind === 'panel' ? element.lines : null;
-  };
-  return [
-    heading('Panel'),
-    fieldRow('Title', textField('title', panel.title, WHITEBOARD_LIMITS.title, (title) => {
-      if (title.trim()) set({ title: title.trim() });
-    })),
-    linesEditor('this panel', panel.lines, latestLines, (lines) => set({ lines })),
   ];
 }
 
@@ -367,7 +365,6 @@ function elementSections(board: Board, element: BoardElement, latestBoard: () =>
     case 'box': return boxSections(board, element, latest, layout, set);
     case 'wire': return wireSections(board, element, set);
     case 'frame': return frameSections(element, set);
-    case 'panel': return panelSections(element, latest, set);
     case 'note': return noteSections(element, set);
   }
 }

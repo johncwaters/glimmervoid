@@ -801,7 +801,7 @@ test('deleting a board sweeps the pictures no live board shows, sparing a pendin
   assert.deepEqual(storedFiles(), filesOf([shared.asset, pending.asset]));
 });
 
-test('a board saved with units loads them as step boxes and wires, and one whose linked board vanished on restart still takes unrelated edits', async () => {
+test('a board saved with units and panels loads them as step boxes, wires and panel boxes, and one whose linked board vanished on restart still takes unrelated edits', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'dangling-link-'));
   const before = createWhiteboardWiring({ boardsRoot });
   const planned = await before.handleOperator.create('planned');
@@ -814,6 +814,7 @@ test('a board saved with units loads them as step boxes and wires, and one whose
   const savedPlanned = JSON.parse(fs.readFileSync(plannedPath, 'utf8')) as { board: { elements: Record<string, unknown> } };
   savedPlanned.board.elements.schema = { kind: 'unit', id: 'schema', title: 'Add the schema', lines: [], refs: [], status: 'landed', after: [], linkedBoardId: null };
   savedPlanned.board.elements.route = { kind: 'unit', id: 'route', title: 'Serve the route', lines: [], refs: [], status: 'building', after: ['schema'], linkedBoardId: null };
+  savedPlanned.board.elements.prior = { kind: 'panel', id: 'prior', title: 'Prior art', lines: [{ text: 'the old router', style: 'item', muted: false, ref: null, key: null }], order: 2 };
   fs.writeFileSync(plannedPath, JSON.stringify(savedPlanned));
   fs.writeFileSync(path.join(boardsRoot, `${detailId}.json`), '{corrupt', 'utf8');
 
@@ -821,9 +822,12 @@ test('a board saved with units loads them as step boxes and wires, and one whose
   await after.loaded;
   const upgraded = Board.parse((await after.handleOperator.get(plannedId) as { board?: unknown }).board);
   assert.deepEqual(planSteps(upgraded).map((step) => [step.boxId, step.label, step.status, step.afterLabels]), [['schema', '1a', 'landed', []], ['u1', '1b', 'planned', []], ['route', '2', 'building', ['1a']]]);
+  const priorPanel = upgraded.elements.prior;
+  assert.ok(priorPanel?.kind === 'box');
+  assert.deepEqual([priorPanel.shape, priorPanel.title, priorPanel.lines.map((line) => line.text), priorPanel.order, priorPanel.at], ['panel', 'Prior art', ['the old router'], 2, null]);
   const renamed = await after.handleOperator.put(plannedId, z.array(Op).parse([{ op: 'board', title: 'renamed' }]));
   assert.equal(renamed.ok, true, renamed.error ?? '');
-  assert.equal(fs.readFileSync(plannedPath, 'utf8').includes('"unit"'), false);
+  assert.equal(/"kind":"(unit|panel)"/.test(fs.readFileSync(plannedPath, 'utf8')), false);
   const relinked = await after.handleOperator.put(plannedId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'u2', title: 'Other', step: { linkedBoardId: detailId } } }]));
   assert.equal(relinked.ok, false);
 });

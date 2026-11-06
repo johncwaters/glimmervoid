@@ -83,7 +83,7 @@ export const Box = z.object({
   near: Near.nullable().default(null).describe('place: beside another box'),
   order: z.number().int().default(0).describe('position in its column, lowest first'),
   at: Point.nullable().default(null).describe('place: a point on the board'),
-  shape: z.enum(['box', 'decision']).default('box').describe('decision draws a diamond with outputs'),
+  shape: z.enum(['box', 'decision', 'panel']).default('box').describe('decision draws a diamond with outputs; panel draws a side note card'),
   outputs: z.array(Output).max(8, { error: 'a decision has at most 8 outputs' }).default([]).describe('decision branches; a wire leaves one through fromOutput'),
   media: BoxMedia.nullable().default(null).describe('media drawn under the lines, from whiteboard attach'),
   width: z.number().int()
@@ -91,7 +91,7 @@ export const Box = z.object({
     .max(WHITEBOARD_LIMITS.boxWidthMax, { error: `a box width is ${WHITEBOARD_LIMITS.boxWidthMin} to ${WHITEBOARD_LIMITS.boxWidthMax}` })
     .nullable().default(null).describe(`the box width in board units, ${WHITEBOARD_LIMITS.boxWidthMin} to ${WHITEBOARD_LIMITS.boxWidthMax}; null is the 220 default`),
   step: Step.nullable().default(null).describe('makes the box a plan step; a wire from one step to another means the second is built after the first'),
-}).strict().describe('a box needs one place: column, near or at; a plan step may have none and joins the build-order band');
+}).strict().describe('a box needs one place: column, near or at; a plan step may have none and joins the build-order band, and a panel may have none and stacks right of the drawing');
 
 export const Frame = z.object({
   kind: z.literal('frame'),
@@ -125,15 +125,7 @@ export const Note = z.object({
   resolvedBy: z.string().max(200).nullable().default(null),
 }).strict();
 
-export const Panel = z.object({
-  kind: z.literal('panel'),
-  id: ElementId,
-  title: Title.min(1, { error: 'a panel needs a title' }),
-  lines: z.array(BoxLine).max(WHITEBOARD_LIMITS.linesPerBox, { error: `a panel holds at most ${WHITEBOARD_LIMITS.linesPerBox} lines` }).default([]),
-  order: z.number().int().default(0),
-}).strict();
-
-export const Element = z.discriminatedUnion('kind', [Box, Frame, Wire, Note, Panel], { error: 'an element kind is box, frame, wire, note or panel' });
+export const Element = z.discriminatedUnion('kind', [Box, Frame, Wire, Note], { error: 'an element kind is box, frame, wire or note' });
 
 const LegendEntries = z.array(z.object({
   tone: Wire.shape.tone,
@@ -298,7 +290,6 @@ export type Frame = z.infer<typeof Frame>;
 export type Wire = z.infer<typeof Wire>;
 export type Note = z.infer<typeof Note>;
 export type Step = z.infer<typeof Step>;
-export type Panel = z.infer<typeof Panel>;
 export type Element = z.infer<typeof Element>;
 export type Board = z.infer<typeof Board>;
 export type Op = z.infer<typeof Op>;
