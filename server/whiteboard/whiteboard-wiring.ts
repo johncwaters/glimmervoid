@@ -9,8 +9,9 @@ import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
 import { OPERATOR_AUTHOR, applyOps, createBoard } from '../../shared/whiteboard-ops-core.ts';
 import type { Author } from '../../shared/whiteboard-ops-core.ts';
-import { layoutBoardRemembered } from '../../shared/whiteboard-layout-cache.ts';
+import { layoutBoardRemembered, rememberedLayoutOf } from '../../shared/whiteboard-layout-cache.ts';
 import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
+import type { BoardLayout } from '../../shared/whiteboard-layout-core.ts';
 import { referencedPaths, reviewBoard } from '../../shared/whiteboard-anchor-core.ts';
 import { cappedWarnings } from '../../shared/whiteboard-route-core.ts';
 import { readChangeFacts, readFileFacts } from './whiteboard-anchor-facts.ts';
@@ -79,6 +80,7 @@ type OperatorReply = {
   summary?: BoardSummary;
   review?: BoardReview;
   patch?: WhiteboardPatch;
+  laidOut?: { version: number; layout: BoardLayout };
 };
 
 const GLIMMERVOID_AUTHOR: Author = Object.freeze({ id: 'glimmervoid', name: 'Glimmervoid' });
@@ -109,6 +111,7 @@ interface WhiteboardPort {
     remove(boardId: string): Promise<OperatorReply>;
     get(boardId: string): Promise<OperatorReply>;
     review(boardId: string): Promise<OperatorReply>;
+    layout(boardId: string): Promise<OperatorReply>;
     connect(boardId: string, sessionId: string): Promise<OperatorReply>;
     disconnect(boardId: string, sessionId: string): Promise<OperatorReply>;
     nudgeLine(boardId: string): string | null;
@@ -436,6 +439,14 @@ function createWhiteboardWiring({
       const record = recordsByBoardId.get(boardId);
       if (!record) return { ok: false, error: DELETED_BOARD_TEXT };
       return { ok: true, error: null, review: await reviewFor(record.board, { readsChanges: true }) };
+    },
+    layout: async (boardId) => {
+      await loaded;
+      const record = recordsByBoardId.get(boardId);
+      if (!record) return { ok: false, error: DELETED_BOARD_TEXT };
+      const layout = rememberedLayoutOf(record.board);
+      if (!layout) return { ok: true, error: null };
+      return { ok: true, error: null, laidOut: { version: record.board.version, layout } };
     },
     connect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => connectBoard(foundBoardId, sessionId)),
     disconnect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => disconnectBoard(foundBoardId, sessionId)),

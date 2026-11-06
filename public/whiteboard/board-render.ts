@@ -1,6 +1,5 @@
 import { boardMediaDrawnFilename, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
 import type { Board } from '#shared/contracts/whiteboard.ts';
-import { layoutBoardRemembered } from '#shared/whiteboard-layout-cache.ts';
 import { elementSignature } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout, LaidOutElement, LaidOutMedia } from '#shared/whiteboard-layout-core.ts';
 import type { BoardMediaLayer } from './board-media-layer.ts';
@@ -68,8 +67,23 @@ function paintAreaAround(view: WorldArea): WorldArea {
   return { left: view.left - marginX, top: view.top - marginY, right: view.right + marginX, bottom: view.bottom + marginY };
 }
 
+interface LaidOutVersion {
+  version: number;
+  layout: BoardLayout;
+}
+
+interface BoardRendererOptions {
+  requestServerLayout(boardId: string): Promise<LaidOutVersion | null>;
+  onPainted(layout: BoardLayout): void;
+}
+
+interface LayoutReply {
+  boardId: string;
+  layout: BoardLayout;
+}
+
 interface BoardRenderer {
-  render(board: Board): BoardLayout;
+  render(board: Board): void;
   paintElements(elements: readonly LaidOutElement[]): void;
   setView(view: WorldArea): void;
   layout(): BoardLayout | null;
@@ -107,7 +121,7 @@ const LAYER_BY_KIND: Record<LaidOutElement['kind'], LayerName> = { frame: 'frame
 const PAINT_ORDER: readonly LayerName[] = ['frames', 'wires', 'boxes', 'notes', 'units'];
 const ELEMENT_KINDS = ['box', 'frame', 'wire', 'note', 'unit', 'panel'] as const;
 
-export function createBoardRenderer(svg: SVGSVGElement, mediaLayer: BoardMediaLayer): BoardRenderer {
+export function createBoardRenderer(svg: SVGSVGElement, mediaLayer: BoardMediaLayer, options: BoardRendererOptions): BoardRenderer {
   const layers: Record<LayerName, SVGGElement> = {
     frames: svgNode('g', 'wb-layer'),
     wires: svgNode('g', 'wb-layer'),
@@ -124,6 +138,12 @@ export function createBoardRenderer(svg: SVGSVGElement, mediaLayer: BoardMediaLa
   let paintedArea: WorldArea | null = null;
   let areaById = new Map<string, WorldArea>();
   let areaPaintFrame: number | null = null;
+  const layoutWorker = new Worker(new URL('./layout-worker.ts', import.meta.url), { type: 'module' });
+  let requestCount = 0;
+  let isLayoutInFlight = false;
+  let queuedBoard: Board | null = null;
+  let shownBoardId: string | null = null;
+  let hasWorkerLayoutOfShownBoard = false;
   let previewById = new Map<string, LaidOutElement>();
   let selectedIds: ReadonlySet<string> = new Set();
   let reviewMarks = NO_REVIEW_MARKS;
@@ -271,8 +291,42 @@ export function createBoardRenderer(svg: SVGSVGElement, mediaLayer: BoardMediaLa
     });
   }
 
-  function render(board: Board): BoardLayout {
-    const layout = layoutBoardRemembered(board);
+  function postQueuedBoard(): void {
+    if (isLayoutInFlight || !queuedBoard) return;
+    requestCount += 1;
+    isLayoutInFlight = true;
+    layoutWorker.postMessage({ requestNumber: requestCount, board: queuedBoard });
+    queuedBoard = null;
+  }
+
+  layoutWorker.addEventListener('message', (event: MessageEvent<LayoutReply>) => {
+    isLayoutInFlight = false;
+    const { boardId, layout } = event.data;
+    if (boardId === shownBoardId) {
+      hasWorkerLayoutOfShownBoard = true;
+      paintLayout(layout);
+    }
+    postQueuedBoard();
+  });
+
+  function seedFromServer(board: Board): void {
+    void options.requestServerLayout(board.id).then((laidOut) => {
+      if (!laidOut || shownBoardId !== board.id || hasWorkerLayoutOfShownBoard || laidOut.version !== board.version) return;
+      paintLayout(laidOut.layout);
+    });
+  }
+
+  function render(board: Board): void {
+    if (board.id !== shownBoardId) {
+      shownBoardId = board.id;
+      hasWorkerLayoutOfShownBoard = false;
+      seedFromServer(board);
+    }
+    queuedBoard = board;
+    postQueuedBoard();
+  }
+
+  function paintLayout(layout: BoardLayout): void {
     placeInWorld(layout.bounds);
     const nextChrome = nodeFromMarkup(chromeMarkup(layout));
     chrome.replaceWith(nextChrome);
@@ -282,7 +336,7 @@ export function createBoardRenderer(svg: SVGSVGElement, mediaLayer: BoardMediaLa
     currentLayout = layout;
     paintedArea = viewArea ? paintAreaAround(viewArea) : null;
     paintArea(layout);
-    return layout;
+    options.onPainted(layout);
   }
 
   function elementFromTarget(target: EventTarget | null): { id: string; kind: LaidOutElement['kind'] } | null {
@@ -316,6 +370,8 @@ export function createBoardRenderer(svg: SVGSVGElement, mediaLayer: BoardMediaLa
     mediaLayer.clear();
     currentLayout = null;
     areaById = new Map();
+    shownBoardId = null;
+    queuedBoard = null;
     previewById = new Map();
   }
 

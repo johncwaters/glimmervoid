@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { Board, BoardReview, BoardSummary, Element, Op, WHITEBOARD_LIMITS } from '../whiteboard.ts';
+import { LaidOutBoard } from '../whiteboard-layout.ts';
 import { requestId, loose, optionalError } from './control-fields.ts';
 
 export const ElementChange = z.union([
@@ -38,6 +39,7 @@ export const whiteboardClientVariants = [
   loose('whiteboard-delete', { boardId: Board.shape.id, requestId }),
   loose('whiteboard-get', { boardId: Board.shape.id, requestId }),
   loose('whiteboard-review', { boardId: Board.shape.id, requestId }),
+  loose('whiteboard-layout', { boardId: Board.shape.id, requestId }),
   loose('whiteboard-connect', { boardId: Board.shape.id, sessionId: z.string().min(1), requestId }),
   loose('whiteboard-disconnect', { boardId: Board.shape.id, sessionId: z.string().min(1), requestId }),
   loose('whiteboard-nudge', { boardId: Board.shape.id, sessionId: z.string().min(1), requestId }),
@@ -47,5 +49,5 @@ export const whiteboardServerVariants = [
   loose('whiteboards-snapshot', { boards: z.array(BoardSummary) }),
   loose('whiteboard-patch', whiteboardPatchFields),
   loose('whiteboard-removed', { boardId: z.string() }),
-  loose('whiteboard-result', { requestId, ok: z.boolean(), error: optionalError, board: Board.optional(), summary: BoardSummary.optional(), review: BoardReview.optional(), patch: z.object(whiteboardPatchFields).optional() }),
+  loose('whiteboard-result', { requestId, ok: z.boolean(), error: optionalError, board: Board.optional(), summary: BoardSummary.optional(), review: BoardReview.optional(), patch: z.object(whiteboardPatchFields).optional(), laidOut: z.object({ version: z.number().int(), layout: LaidOutBoard }).optional() }),
 ] as const;

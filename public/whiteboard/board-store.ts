@@ -2,6 +2,7 @@ import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-m
 import type { BoardDiff } from '#shared/contracts/control/whiteboard-messages.ts';
 import type { Board, BoardReview, BoardSummary, BoxMedia, Op } from '#shared/contracts/whiteboard.ts';
 import { applyBoardDiff } from '#shared/whiteboard-ops-core.ts';
+import type { BoardLayout } from '#shared/whiteboard-layout-core.ts';
 import { BoardMediaUploadReply, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
@@ -184,6 +185,12 @@ export async function requestBoardReview(boardId: string): Promise<{ ok: true; r
   const outcome = await runBoardCommand('whiteboard-review', { boardId });
   if (!outcome.ok) return outcome;
   return outcome.reply.review ? { ok: true, review: outcome.reply.review } : { ok: false, error: 'Glimmervoid did not return the board review.' };
+}
+
+export async function requestBoardLayout(boardId: string): Promise<{ version: number; layout: BoardLayout } | null> {
+  const outcome = await runBoardCommand('whiteboard-layout', { boardId });
+  if (!outcome.ok) return null;
+  return outcome.reply.laidOut ?? null;
 }
 
 let openInReview: ((sessionId: string, openPath: string) => void) | null = null;

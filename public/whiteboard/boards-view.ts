@@ -23,7 +23,7 @@ import { createBoardRenderer } from './board-render.ts';
 import { createBoardMediaLayer } from './board-media-layer.ts';
 import type { BoardRenderer } from './board-render.ts';
 import {
-  boardSummariesOf, createBoard, deleteBoard, nudgeSessionAboutBoard, onBoardChanged, onBoardListChanged, openBoard, openBoardOf, openFileInReview, requestBoardReview, sendBoardOps, takeOpenBoardRequest, uploadBoardMedia,
+  boardSummariesOf, createBoard, deleteBoard, nudgeSessionAboutBoard, onBoardChanged, onBoardListChanged, openBoard, openBoardOf, openFileInReview, requestBoardLayout, requestBoardReview, sendBoardOps, takeOpenBoardRequest, uploadBoardMedia,
 } from './board-store.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
@@ -532,6 +532,10 @@ function paintBoard(): void {
   renderer.render(editor?.previewOf(board) ?? board);
   if (parts) parts.emptyBoardHint.hidden = Object.keys(board.elements).length > 0;
   paintReview();
+  paintToolbar();
+}
+
+function onBoardPainted(): void {
   editor?.openPendingTitleEdit();
   if (shouldFitOnNextRender) {
     editor?.fit();
@@ -860,7 +864,7 @@ export function mountBoardHost(): HTMLElement {
 
   host.replaceChildren(canvas, empty);
   parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, sendToAgent, buttons, toolButtons, toolHint, emptyBoardHint };
-  const boardRenderer = createBoardRenderer(svg, mediaLayer);
+  const boardRenderer = createBoardRenderer(svg, mediaLayer, { requestServerLayout: requestBoardLayout, onPainted: onBoardPainted });
   renderer = boardRenderer;
   inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, openRef: openRefInReview });
   editor = createBoardEditor({

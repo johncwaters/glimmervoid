@@ -18,7 +18,7 @@ export const AnchorRef = z.string().min(1).max(200, { error: 'a ref is at most 2
 
 const AnchorRefs = z.array(AnchorRef).max(8, { error: 'an element carries at most 8 refs' }).default([]);
 
-const BoxLine = z.object({
+export const BoxLine = z.object({
   text: z.string().max(WHITEBOARD_LIMITS.line, { error: `a box line is at most ${WHITEBOARD_LIMITS.line} characters` }),
   muted: z.boolean().default(false),
   style: z.enum(['text', 'code', 'item', 'numbered', 'kv']).default('text'),
@@ -53,7 +53,7 @@ const BOARD_MEDIA_KINDS = ['image', 'video', 'page'] as const;
 const BOARD_MEDIA_MIMES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml', 'video/mp4', 'video/webm', 'text/html'] as const;
 export const BOARD_MEDIA_MAX_EDGE_PX = 16384;
 
-const BoxMedia = z.object({
+export const BoxMedia = z.object({
   kind: z.enum(BOARD_MEDIA_KINDS).describe('what the media is, as attach returned it'),
   asset: AssetId,
   mime: z.enum(BOARD_MEDIA_MIMES).describe('the media type, as attach returned it'),
