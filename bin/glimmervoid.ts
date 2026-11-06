@@ -32,6 +32,7 @@ With no command, starts the server.
 Commands:
   doctor              Check the install, PATH, agent CLIs and native module, then exit
   settings <cmd>      Read and change config.json: list, get, describe, set, unset, search, schema (each takes --json)
+  host <cmd>          Register machines this dashboard links over ssh: add, list, remove
   packs <cmd>         Build a pack: guide, check <folder>, preview <folder>, list
   pr-flows check      Check PR flows sources, actions and rules; --pr <url> runs each approved source once
   pr-action report    Report a PR action run's outcome from the command it ran (--outcome, --message)
@@ -104,6 +105,10 @@ const OWNED_COMMAND_RUNNERS: Record<OwnedCommandName, OwnedCommandRunner> = {
   settings: async (parsed) => {
     const { runParsedSettingsCli } = await import('../server/settings-cli.ts');
     return runParsedSettingsCli(parsed);
+  },
+  host: async (parsed) => {
+    const { runHostCli } = await import('../server/hosts/host-cli.ts');
+    return runHostCli(parsed);
   },
   'pr-flows': async (parsed) => {
     const { runPrFlowsCheckCli } = await import('../server/pr-flows-cli.ts');

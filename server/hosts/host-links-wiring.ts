@@ -4,8 +4,9 @@ import { z } from 'zod';
 import { HubPhoneAlertFrame } from '../../shared/contracts/hosts.ts';
 import type { HostEntry, HostStatus } from '../../shared/contracts/hosts.ts';
 import { spawn } from '../child-process-safe.ts';
-import { sshTunnelArgs, versionPart } from './core/host-link-core.ts';
+import { sshTunnelArgs } from './core/host-link-core.ts';
 import { parseJsonOrNull } from '../core/json-core.ts';
+import { isSameHostEntry } from './core/host-registry-core.ts';
 import { createHostLink } from './host-link-poller.ts';
 import { relayUpgradeToHost } from './host-relay.ts';
 import { hostUpgradeTarget } from '../core/upgrade-route.ts';
@@ -129,7 +130,6 @@ function createHostLinksWiring({ hosts, hubBuild, broadcast, relayPhoneAlert, sp
   relayPhoneAlert: (hostName: string, text: string) => void;
   spawnHostTunnel?: SpawnHostTunnel;
 }) {
-  const hubVersion = versionPart(hubBuild) ?? hubBuild;
   const linkById = new Map<string, HostLinkHandle>();
   const startingTunnels = new Set<TunnelProcess>();
   let lastBroadcastJson = '';
@@ -151,8 +151,7 @@ function createHostLinksWiring({ hosts, hubBuild, broadcast, relayPhoneAlert, sp
     return { localPort, exited: tunnel.exited, stop: tunnel.stop };
   }
 
-  function statusFrame(): HostsStatusFrame | null {
-    if (linkById.size === 0) return null;
+  function statusFrame(): HostsStatusFrame {
     const statuses = [...linkById.values()].map((link) => link.status());
     statuses.sort((left, right) => left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: 'base' }) || left.id.localeCompare(right.id));
     return { type: 'hosts-status', hosts: statuses };
@@ -160,20 +159,35 @@ function createHostLinksWiring({ hosts, hubBuild, broadcast, relayPhoneAlert, sp
 
   function broadcastIfChanged(): void {
     const frame = statusFrame();
-    if (!frame) return;
     const frameJson = JSON.stringify(frame);
     if (frameJson === lastBroadcastJson) return;
     lastBroadcastJson = frameJson;
     broadcast(frame);
   }
 
-  for (const host of hosts) {
-    linkById.set(host.id, createHostLink(host, {
-      hubVersion, openTunnel, openHubSocket, onStatusChange: broadcastIfChanged,
+  function startLink(host: HostEntry): HostLinkHandle {
+    return createHostLink(host, {
+      hubBuild, openTunnel, openHubSocket, onStatusChange: broadcastIfChanged,
       onPhoneAlert: (alertingHost, text) => relayPhoneAlert(alertingHost.name, text),
-    }));
+    });
   }
-  broadcastIfChanged();
+
+  function reconcile(nextHosts: readonly HostEntry[]): void {
+    if (isStopped) return;
+    const nextById = new Map(nextHosts.map((host) => [host.id, host]));
+    for (const [hostId, link] of linkById) {
+      const nextHost = nextById.get(hostId);
+      if (nextHost && isSameHostEntry(link.host, nextHost)) continue;
+      link.stop();
+      linkById.delete(hostId);
+    }
+    for (const host of nextHosts) {
+      if (!linkById.has(host.id)) linkById.set(host.id, startLink(host));
+    }
+    broadcastIfChanged();
+  }
+
+  reconcile(hosts);
 
   function relayUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): void {
     const target = hostUpgradeTarget(request.url);
@@ -183,6 +197,7 @@ function createHostLinksWiring({ hosts, hubBuild, broadcast, relayPhoneAlert, sp
 
   return {
     statusFrame,
+    reconcile,
     relayUpgrade,
     stop(): void {
       isStopped = true;

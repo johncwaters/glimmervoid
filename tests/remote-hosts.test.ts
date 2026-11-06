@@ -11,6 +11,7 @@ import type { Server } from 'node:http';
 import WebSocket from 'ws';
 
 import { createBackend } from '../server/backend/backend.ts';
+import { runHostCli } from '../server/hosts/host-cli.ts';
 import { sshTunnelArgs } from '../server/hosts/core/host-link-core.ts';
 import type { SpawnHostTunnel } from '../server/hosts/host-links-wiring.ts';
 import { HostEntry } from '../shared/contracts/hosts.ts';
@@ -180,6 +181,46 @@ test('the hub links a registered host, reconnects after the tunnel drops, and pi
   assert.equal((pipedHealth.stats as { websockets: { hubControl: number } }).websockets.hubControl, 1);
   await assert.rejects(openControlSocket(hub.port, hubToken, {}, '/hosts/gpu/control'), /503/);
   await assert.rejects(openControlSocket(hub.port, 'wrong-token', {}, '/hosts/devbox/control'), /401|403|socket hang up|Unexpected server response/);
+});
+
+test('a host added from the dashboard links without a restart, and glimmervoid host remove unlinks it', async () => {
+  const devbox = await bootHost();
+  const tunnels = createLoopbackTunnels();
+  const hub = await bootHost({ spawnHostTunnel: tunnels.spawnHostTunnel });
+  const viewer = await openControlSocket(hub.port, await pageTokenOf(hub.port));
+  await waitForFrame(viewer.frames, 'hosts-status', (frame) => (frame.hosts as unknown[]).length === 0);
+
+  const devboxEntry = { id: 'devbox', name: 'Devbox', sshTarget: 'devbox', dashboardPort: devbox.port };
+  viewer.socket.send(JSON.stringify({ type: 'add-host', host: devboxEntry, requestId: 'add-1' }));
+  assert.deepEqual(await waitForFrame(viewer.frames, 'host-change-result', (frame) => frame.requestId === 'add-1'), { type: 'host-change-result', requestId: 'add-1', ok: true, error: null });
+  await waitForFrame(viewer.frames, 'hosts-status', hostStateIs('connected'));
+  viewer.socket.send(JSON.stringify({ type: 'add-host', host: { ...devboxEntry, sshTarget: 'me@localhost' }, requestId: 'add-2' }));
+  const refused = await waitForFrame(viewer.frames, 'host-change-result', (frame) => frame.requestId === 'add-2');
+  assert.equal(refused.ok, false);
+  viewer.socket.send(JSON.stringify({ type: 'add-host', host: { id: 'self', name: 'Self', sshTarget: '127.1', dashboardPort: hub.port }, requestId: 'add-3' }));
+  const selfLink = await waitForFrame(viewer.frames, 'hosts-status', (frame) => (frame.hosts as Array<{ id: string; lastError: string | null }>).some((status) => status.id === 'self' && status.lastError !== null));
+  const selfStatus = (selfLink.hosts as Array<{ id: string; state: string; lastError: string }>).find((status) => status.id === 'self');
+  assert.equal(selfStatus?.state, 'unreachable');
+  assert.match(selfStatus?.lastError ?? '', /Glimmervoid you are using/);
+  viewer.socket.send(JSON.stringify({ type: 'remove-host', id: 'self', requestId: 'remove-self' }));
+  await waitForFrame(viewer.frames, 'host-change-result', (frame) => frame.requestId === 'remove-self');
+
+  const configPath = path.join(hub.tmpDir, 'config.json');
+  const removeOutput: string[] = [];
+  const previousConfig = process.env.GLIMMERVOID_CONFIG;
+  process.env.GLIMMERVOID_CONFIG = configPath;
+  const removeExit = runHostCli(
+    { kind: 'run', commandPath: ['host', 'remove'], values: {}, positionals: ['devbox'], rawArgs: ['devbox'] },
+    { writeOutput: (text) => removeOutput.push(text), writeError: (text) => removeOutput.push(text) },
+  );
+  if (previousConfig == null) delete process.env.GLIMMERVOID_CONFIG;
+  if (previousConfig != null) process.env.GLIMMERVOID_CONFIG = previousConfig;
+  assert.equal(removeExit, 0, removeOutput.join(''));
+  viewer.socket.close();
+  const returningViewer = await openControlSocket(hub.port, await pageTokenOf(hub.port));
+  await waitForFrame(returningViewer.frames, 'hosts-status', (frame) => (frame.hosts as unknown[]).length === 0);
+  assert.equal('hosts' in JSON.parse(fs.readFileSync(configPath, 'utf8')), false);
+  await assert.rejects(openControlSocket(hub.port, await pageTokenOf(hub.port), {}, '/hosts/devbox/control'), /503/);
 });
 
 function captureTelegramSends(): string[] {

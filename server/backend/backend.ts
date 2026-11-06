@@ -67,7 +67,6 @@ import { promptContextReplyOf } from '../../session/core/refocus-core.ts';
 import { lookupWhy } from '../why-lookup.ts';
 import { createHostLinksWiring } from '../hosts/host-links-wiring.ts';
 import type { SpawnHostTunnel } from '../hosts/host-links-wiring.ts';
-import { refuseHostUpgrade } from '../hosts/host-relay.ts';
 import type { WebSocket } from 'ws';
 
 interface CreateBackendOptions extends BackendLaneOptions {
@@ -230,10 +229,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getSession: getSessionAny,
     recordOutcome,
     logger: console,
-    relayToHost: (request, socket, head) => {
-      if (!hostLinks) return refuseHostUpgrade(socket);
-      hostLinks.relayUpgrade(request, socket, head);
-    },
+    relayToHost: (request, socket, head) => hostLinks.relayUpgrade(request, socket, head),
   });
   const {
     controlWss,
@@ -252,21 +248,16 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     broadcastControlFromWebSockets(message);
     if (message.type === 'session-removed' && typeof message.id === 'string') void whiteboards.forgetSession(message.id);
   };
-  const hostLinks = config.hosts?.length
-    ? createHostLinksWiring({
-      hosts: config.hosts,
-      hubBuild: serverBuild,
-      broadcast: broadcastControlFromWebSockets,
-      relayPhoneAlert: (hostName, text) => notifications.relayHostPhoneAlert(hostName, text),
-      spawnHostTunnel: options.spawnHostTunnel,
-    })
-    : null;
-  if (hostLinks) {
-    controlWss.on('connection', (socket: WebSocket) => {
-      const frame = hostLinks.statusFrame();
-      if (frame && socket.readyState === 1) socket.send(JSON.stringify(frame));
-    });
-  }
+  const hostLinks = createHostLinksWiring({
+    hosts: config.hosts ?? [],
+    hubBuild: serverBuild,
+    broadcast: broadcastControlFromWebSockets,
+    relayPhoneAlert: (hostName, text) => notifications.relayHostPhoneAlert(hostName, text),
+    spawnHostTunnel: options.spawnHostTunnel,
+  });
+  controlWss.on('connection', (socket: WebSocket) => {
+    if (socket.readyState === 1) socket.send(JSON.stringify(hostLinks.statusFrame()));
+  });
   const sessionDocs = createSessionDocsWiring({ broadcastControl: broadcastControlFromWebSockets });
   const whiteboards = createWhiteboardWiring({
     boardsRoot: configSiblingPath(configStore.configPath, WHITEBOARDS_FOLDER_NAME),
@@ -481,6 +472,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   }
 
   function applyConfigReload(newConfig: GlimmervoidConfig): void {
+    hostLinks.reconcile(newConfig.hosts ?? []);
     applyCustomAgents(newConfig);
     reconcileProjectsOnReload(newConfig);
   }
@@ -502,6 +494,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
 
   function applySettingsReload(newConfig: GlimmervoidConfig): void {
     configStore.applySettings(newConfig);
+    hostLinks.reconcile(newConfig.hosts ?? []);
     telemetry.applyConfig();
     applyCustomAgents(newConfig);
     updateCheck.applySettings();

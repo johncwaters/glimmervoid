@@ -1,6 +1,6 @@
 import type { HostEntry, HostStatus } from '../../shared/contracts/hosts.ts';
 import { errorMessage } from '../../shared/text.ts';
-import { initialHostLink, nextHostLink } from './core/host-link-core.ts';
+import { initialHostLink, nextHostLink, versionPart } from './core/host-link-core.ts';
 import type { HostLinkEffect, HostLinkEvent } from './core/host-link-core.ts';
 import type { HostRoute } from './core/host-relay-core.ts';
 
@@ -19,7 +19,7 @@ interface OpenHubSocket {
 }
 
 interface HostLinkDependencies {
-  hubVersion: string;
+  hubBuild: string;
   openTunnel(host: HostEntry): Promise<OpenTunnel>;
   openHubSocket(host: HostEntry, tunnelPort: number, frames: HubSocketFrameHandlers): Promise<OpenHubSocket>;
   onStatusChange(): void;
@@ -32,7 +32,8 @@ interface HubSocketFrameHandlers {
 }
 
 function createHostLink(host: HostEntry, dependencies: HostLinkDependencies) {
-  const { hubVersion, openTunnel, openHubSocket, onStatusChange, onPhoneAlert } = dependencies;
+  const { hubBuild, openTunnel, openHubSocket, onStatusChange, onPhoneAlert } = dependencies;
+  const hubVersion = versionPart(hubBuild) ?? hubBuild;
   let link = initialHostLink();
   let tunnel: OpenTunnel | null = null;
   let hubSocket: OpenHubSocket | null = null;
@@ -42,7 +43,7 @@ function createHostLink(host: HostEntry, dependencies: HostLinkDependencies) {
 
   function apply(event: HostLinkEvent): void {
     if (isStopped) return;
-    const transition = nextHostLink(link, event, hubVersion);
+    const transition = nextHostLink(link, event, hubBuild);
     link = transition.link;
     for (const effect of transition.effects) runEffect(effect, transition.retryDelayMs);
     onStatusChange();
@@ -171,7 +172,7 @@ function createHostLink(host: HostEntry, dependencies: HostLinkDependencies) {
   }
 
   function status(): HostStatus {
-    return { id: host.id, name: host.name, state: link.state, hostVersion: link.hostVersion, hubVersion, lastError: link.lastError };
+    return { id: host.id, name: host.name, sshTarget: host.sshTarget, dashboardPort: host.dashboardPort, state: link.state, hostVersion: link.hostVersion, hubVersion, lastError: link.lastError };
   }
 
   function route(): HostRoute | null {
@@ -188,7 +189,7 @@ function createHostLink(host: HostEntry, dependencies: HostLinkDependencies) {
   }
 
   void startTunnel();
-  return { status, route, stop };
+  return { host, status, route, stop };
 }
 
 type HostLinkHandle = ReturnType<typeof createHostLink>;
