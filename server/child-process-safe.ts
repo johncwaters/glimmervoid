@@ -171,15 +171,27 @@ interface CommandRunResult {
   ok: boolean;
   stdout: string;
   stderr: string;
+  exitCode: number | null;
+  failureCode: string | null;
+  signal: string | null;
+  wasKilled: boolean;
 }
 
 async function runCommandSafely(command: string, args: string[], { cwd, env, timeoutMs, maxBufferBytes, signal }: CommandRunOptions): Promise<CommandRunResult> {
   try {
     const { stdout, stderr } = await execFileAsync(command, args, { cwd, env, encoding: "utf8", timeout: timeoutMs, maxBuffer: maxBufferBytes, ...(signal ? { signal } : {}) });
-    return { ok: true, stdout, stderr };
+    return { ok: true, stdout, stderr, exitCode: 0, failureCode: null, signal: null, wasKilled: false };
   } catch (error) {
-    const failure = (error ?? {}) as { stdout?: unknown; stderr?: unknown; message?: unknown };
-    return { ok: false, stdout: String(failure.stdout ?? ""), stderr: String(failure.stderr || failure.message || "") };
+    const failure = (error ?? {}) as { stdout?: unknown; stderr?: unknown; message?: unknown; code?: unknown; signal?: unknown; killed?: unknown };
+    return {
+      ok: false,
+      stdout: String(failure.stdout ?? ""),
+      stderr: String(failure.stderr || failure.message || ""),
+      exitCode: typeof failure.code === "number" ? failure.code : null,
+      failureCode: typeof failure.code === "string" ? failure.code : null,
+      signal: typeof failure.signal === "string" ? failure.signal : null,
+      wasKilled: failure.killed === true,
+    };
   }
 }
 

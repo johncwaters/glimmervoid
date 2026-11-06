@@ -16,7 +16,9 @@ import { REMOVED_CONTESTANT } from '../../shared/race-core.ts';
 import { selectionArgs } from '../../shared/agent-models-core.ts';
 import { absolutePathReadRule } from '../github/core/team-review-core.ts';
 import { createRaceStore } from '../race/race-store.ts';
-import { raceIdsOf } from '../race/core/race-core.ts';
+import { checkOutcomeOf, raceIdsOf } from '../race/core/race-core.ts';
+import { runCommandSafely } from '../child-process-safe.ts';
+import { buildAllowlistedChildEnv } from '../git/core/git-invocation-core.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import { STATES } from '../../shared/states.ts';
 import { createCoderActivityWiring } from '../coder-activity-wiring.ts';
@@ -75,6 +77,7 @@ import { repoNotesRefFor } from '../commit-sessions.ts';
 import { laneAccessConfigOf } from '../lanes/core/lane-permissions-core.ts';
 
 const RACE_JUDGE_TOOLS = Object.freeze(['Read', 'Glob', 'Grep', 'Write']);
+const RACE_CHECK_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 
 interface BackendLaneOptions {
   branchGcWiringOptions?: Record<string, unknown>;
@@ -352,6 +355,11 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     worktreeOf: (sessionId) => findLiveSession(sessionId)?.worktreeDir ?? null,
     diffOf: contestantDiff,
     judgeRoot: path.join(glimmervoidHome, 'race-judges'),
+    runCheck: async ({ worktreeDir, check }) => {
+      const startedAt = Date.now();
+      const run = await runCommandSafely(check.program, check.args, { cwd: worktreeDir, env: buildAllowlistedChildEnv(process.env, process.platform), timeoutMs: check.timeoutSeconds * 1000, maxBufferBytes: RACE_CHECK_MAX_BUFFER_BYTES });
+      return checkOutcomeOf(check, run, Date.now() - startedAt, worktreeDir);
+    },
     spawnJudge: ({ setup, readPaths, ...request }) => createLaneSpawn({
       sessions: benchmarkSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
       replayBufferKB: config.replayBufferKB, laneName: 'race', getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
