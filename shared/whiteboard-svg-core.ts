@@ -1,4 +1,6 @@
+import type { IconName } from './contracts/whiteboard.ts';
 import { escapeMarkup } from './escape-markup.ts';
+import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, ICON_CATALOG, ICON_NAMES, ICON_VIEWBOX, LINE_ICON_CHARS, TITLE_ICON_CHARS } from './whiteboard-icons.ts';
 import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutMedia, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutStep, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
@@ -27,6 +29,12 @@ const CODE_BAND_HEIGHT = 17;
 const ITEM_DOT_RADIUS = 2.2;
 const TITLE_RULE_RISE = 12;
 const LEGEND_SAMPLE_WIDTH = 28;
+const TITLE_CHAR_WIDTH = 9.6;
+const TITLE_ICON_SIZE = 14;
+const TITLE_ICON_RISE = 12;
+const LINE_ICON_SIZE = 13;
+const LINE_ICON_RISE = 10;
+const ICON_BOX_TOP_INSET = 12;
 
 const STANDALONE_STYLE = `
 svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospace; }
@@ -79,6 +87,9 @@ svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospac
 .wb-caption { fill: #a79fc4; font-size: 14px; }
 .wb-image-placeholder { fill: #221d3a; stroke: #4a4268; stroke-width: 1; stroke-dasharray: 4 4; }
 .wb-image-placeholder-text { fill: #a79fc4; font-size: 12px; }
+.wb-title-icon { color: #e6e0f5; }
+.wb-line-icon { color: #a79fc4; }
+.wb-glyph-icon { color: #c4b5fd; }
 `;
 
 type AttributeValue = string | number;
@@ -130,9 +141,19 @@ function lineClassOf(line: LaidOutLine): string {
   return line.muted ? 'wb-box-line wb-muted' : 'wb-box-line';
 }
 
+function iconSymbolId(name: IconName): string {
+  return `wb-icon-${name}`;
+}
+
+function iconMarkup(name: IconName, x: number, y: number, size: number, className: string): string {
+  return tag('use', { href: `#${iconSymbolId(name)}`, x, y, width: size, height: size, class: className, 'data-icon': name });
+}
+
 function lineRowMarkup(line: LaidOutLine, left: number, width: number, baseline: number): string[] {
-  const rowLeft = left + BOX_TEXT_INSET + (line.muted ? MUTED_INDENT : 0);
+  const iconLeft = left + BOX_TEXT_INSET + (line.muted ? MUTED_INDENT : 0);
+  const rowLeft = line.icon ? iconLeft + LINE_ICON_CHARS * MONO_CHAR_WIDTH : iconLeft;
   const parts: string[] = [];
+  if (line.icon && line.isFirstRow) parts.push(iconMarkup(line.icon, iconLeft, baseline - LINE_ICON_RISE, LINE_ICON_SIZE, 'wb-line-icon'));
   if (line.style === 'code') parts.push(tag('rect', { x: rowLeft - 4, y: baseline - CODE_BAND_RISE, width: left + width - BOX_TEXT_INSET + 4 - rowLeft + 4, height: CODE_BAND_HEIGHT, rx: 3, class: 'wb-code-band' }));
   if (line.style === 'item' && line.isFirstRow) parts.push(tag('circle', { cx: rowLeft + 4, cy: baseline - 4, r: ITEM_DOT_RADIUS, class: 'wb-item-dot' }));
   if (line.marker !== null) parts.push(text(line.marker, rowLeft, baseline, line.style === 'kv' ? 'wb-line-key' : 'wb-line-marker'));
@@ -176,12 +197,20 @@ function boxMarkup(box: LaidOutBox, assetHref: AssetHref): string {
   }
   const stepHeaderHeight = box.step ? STEP_HEADER_HEIGHT : 0;
   if (box.step) parts.push(...stepHeaderMarkup(box, box.step));
+  const isIconBox = box.shape === 'icon';
+  const glyphRoom = isIconBox ? ICON_BOX_GLYPH_SIZE + ICON_BOX_GLYPH_GAP : 0;
+  if (isIconBox && box.icon) parts.push(iconMarkup(box.icon, midX - ICON_BOX_GLYPH_SIZE / 2, box.y + ICON_BOX_TOP_INSET + stepHeaderHeight, ICON_BOX_GLYPH_SIZE, 'wb-glyph-icon'));
+  const textLeft = isIconBox ? midX : box.x + BOX_TEXT_INSET;
+  const textAnchor = { 'text-anchor': isIconBox ? 'middle' : null };
   box.wasLines.forEach((line, index) => {
-    parts.push(text(line, box.x + BOX_TEXT_INSET, box.y + TITLE_BASELINE + stepHeaderHeight + index * TITLE_LINE_HEIGHT, 'wb-box-was'));
+    parts.push(text(line, textLeft, box.y + TITLE_BASELINE + stepHeaderHeight + glyphRoom + index * TITLE_LINE_HEIGHT, 'wb-box-was', textAnchor));
   });
-  const titleTop = box.y + TITLE_BASELINE + stepHeaderHeight + box.wasLines.length * TITLE_LINE_HEIGHT;
+  const titleTop = box.y + TITLE_BASELINE + stepHeaderHeight + glyphRoom + box.wasLines.length * TITLE_LINE_HEIGHT;
+  const titleIcon = isIconBox ? null : box.icon;
+  if (titleIcon) parts.push(iconMarkup(titleIcon, textLeft, titleTop - TITLE_ICON_RISE, TITLE_ICON_SIZE, 'wb-title-icon'));
+  const titleLeft = titleIcon ? textLeft + TITLE_ICON_CHARS * TITLE_CHAR_WIDTH : textLeft;
   box.titleLines.forEach((line, index) => {
-    parts.push(text(line, box.x + BOX_TEXT_INSET, titleTop + index * TITLE_LINE_HEIGHT, 'wb-box-title'));
+    parts.push(text(line, titleLeft, titleTop + index * TITLE_LINE_HEIGHT, 'wb-box-title', textAnchor));
   });
   const bodyTop = titleTop + box.titleLines.length * TITLE_LINE_HEIGHT;
   if (box.shape === 'panel' && box.bodyLines.length > 0) parts.push(tag('line', { x1: box.x + BOX_TEXT_INSET, y1: bodyTop - TITLE_RULE_RISE, x2: box.x + box.width - BOX_TEXT_INSET, y2: bodyTop - TITLE_RULE_RISE, class: 'wb-panel-rule' }));
@@ -191,7 +220,7 @@ function boxMarkup(box: LaidOutBox, assetHref: AssetHref): string {
   }
   if (box.media) parts.push(...mediaMarkup(box.media, assetHref));
   parts.push(tag('rect', { x: box.x + box.width - RESIZE_HANDLE_SIZE, y: box.y + box.height - RESIZE_HANDLE_SIZE, width: RESIZE_HANDLE_SIZE, height: RESIZE_HANDLE_SIZE, rx: 2, class: 'wb-resize-handle' }));
-  const shapeClass = box.shape === 'panel' ? ' wb-panel' : '';
+  const shapeClass = box.shape === 'panel' || box.shape === 'icon' ? ` wb-${box.shape}` : '';
   const stepClass = box.step ? ' wb-step' : '';
   const changeClass = box.change === 'none' ? '' : ` wb-change-${box.change}`;
   return elementGroup(box, `wb-box${shapeClass}${stepClass}${changeClass}`, parts);
@@ -281,9 +310,27 @@ function legendRowMarkup(entry: BoardLayout['legend'][number]): string {
   return legendSwatchMarkup(entry) + text(entry.label, labelX, entry.y + 12, 'wb-legend-text');
 }
 
-function arrowDefinitionsMarkup(): string {
+function iconSymbolMarkup(name: IconName): string {
+  const strokeStyle = { fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
+  return tag('symbol', { id: iconSymbolId(name), viewBox: ICON_VIEWBOX, ...strokeStyle }, ICON_CATALOG[name].elements.join(''));
+}
+
+function definitionsMarkup(iconNames: readonly IconName[] = ICON_NAMES): string {
   const arrowhead = tag('path', { d: 'M 0 1 L 10 5 L 0 9 z', fill: 'context-stroke' });
-  return tag('defs', {}, tag('marker', { id: 'wb-arrow', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 8, markerHeight: 8, orient: 'auto-start-reverse' }, arrowhead));
+  const arrowMarker = tag('marker', { id: 'wb-arrow', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 8, markerHeight: 8, orient: 'auto-start-reverse' }, arrowhead);
+  return tag('defs', {}, arrowMarker + iconNames.map(iconSymbolMarkup).join(''));
+}
+
+function iconNamesOf(layout: BoardLayout): IconName[] {
+  const iconNames = new Set<IconName>();
+  for (const element of layout.elements) {
+    if (element.kind !== 'box') continue;
+    if (element.icon) iconNames.add(element.icon);
+    for (const line of element.bodyLines) {
+      if (line.icon && line.isFirstRow) iconNames.add(line.icon);
+    }
+  }
+  return [...iconNames];
 }
 
 const LAYER_ORDER: readonly LaidOutElement['kind'][] = ['frame', 'wire', 'box', 'note'];
@@ -293,7 +340,7 @@ function boardSvgDocument(layout: BoardLayout, assetHref: AssetHref = NO_ASSET_H
   const layers = LAYER_ORDER.map((kind) => tag('g', { class: 'wb-layer' }, layout.elements.filter((element) => element.kind === kind).map((element) => elementMarkup(element, assetHref)).join('')));
   const body = [
     tag('style', {}, STANDALONE_STYLE),
-    arrowDefinitionsMarkup(),
+    definitionsMarkup(iconNamesOf(layout)),
     tag('rect', { x, y, width, height, class: 'wb-backdrop' }),
     chromeMarkup(layout),
     ...layers,
@@ -302,4 +349,4 @@ function boardSvgDocument(layout: BoardLayout, assetHref: AssetHref = NO_ASSET_H
 }
 
 export type { AssetHref, PageOccluder };
-export { arrowDefinitionsMarkup, boardSvgDocument, chromeMarkup, elementMarkup, pageMaskImage, SVG_NAMESPACE };
+export { boardSvgDocument, chromeMarkup, definitionsMarkup, elementMarkup, pageMaskImage, SVG_NAMESPACE };

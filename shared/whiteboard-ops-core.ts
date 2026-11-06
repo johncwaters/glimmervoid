@@ -114,7 +114,7 @@ function nearChainReaches(board: Board, startId: string, soughtId: string): bool
 }
 
 function withoutEmptyOutputsOffDecision(element: Element): Element {
-  if (element.kind !== 'box' || element.shape === 'decision' || element.outputs === undefined) return element;
+  if (element.kind !== 'box' || element.shape === 'decision' || !('outputs' in element) || element.outputs === undefined) return element;
   const { outputs, ...elementWithoutOutputs } = element;
   return elementWithoutOutputs;
 }

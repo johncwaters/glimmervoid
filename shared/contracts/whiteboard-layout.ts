@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import type { BoardLayout } from '../whiteboard-layout-core.ts';
-import { BOX_CHANGES, BOX_SHAPES, BoxLine, BoxMedia, STEP_STATUSES, Wire } from './whiteboard.ts';
+import { BOX_CHANGES, BOX_SHAPES, BoxLine, BoxMedia, IconName, STEP_STATUSES, Wire } from './whiteboard.ts';
 
 const Point = z.object({ x: z.number(), y: z.number() }).strict();
 const RectFields = { x: z.number(), y: z.number(), width: z.number(), height: z.number() };
@@ -16,6 +16,7 @@ const LaidOutLine = z.object({
   marker: z.string().nullable(),
   indentChars: z.number(),
   isFirstRow: z.boolean(),
+  icon: IconName.nullable(),
 }).strict();
 
 const LaidOutBox = z.object({
@@ -23,6 +24,7 @@ const LaidOutBox = z.object({
   id: z.string(),
   ...RectFields,
   titleLines: z.array(z.string()),
+  icon: IconName.nullable(),
   bodyLines: z.array(LaidOutLine),
   change: BoxChange,
   wasLines: z.array(z.string()),

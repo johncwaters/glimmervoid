@@ -1,4 +1,5 @@
-import type { Board, Box, Element as BoardElement, Frame, Note, Op, Step, Wire } from '#shared/contracts/whiteboard.ts';
+import type { Board, Box, BoxLine, Element as BoardElement, Frame, Note, Op, Step, Wire } from '#shared/contracts/whiteboard.ts';
+import { PLACED_ICON } from '#shared/whiteboard-icons.ts';
 import { AnchorRef, BOX_CHANGES, BOX_SHAPES, STEP_STATUSES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import { isStackedPanel } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout } from '#shared/whiteboard-layout-core.ts';
@@ -6,7 +7,6 @@ import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import { refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 
-type BoxLine = Box['lines'][number];
 type DecisionBox = Extract<Box, { shape: 'decision' }>;
 type DecisionOutput = DecisionBox['outputs'][number];
 type LegendEntry = Board['legend'][number];
@@ -37,7 +37,7 @@ const TONES: readonly Wire['tone'][] = ['plain', 'fail', 'join'];
 const LINE_STYLE_CHOICES = choicesOf(LINE_STYLES);
 const TONE_CHOICES = choicesOf(TONES);
 const SHAPE_CHOICES = choicesOf(BOX_SHAPES);
-const HEADING_BY_SHAPE: Readonly<Record<Box['shape'], string>> = { box: 'Box', decision: 'Decision', panel: 'Panel' };
+const HEADING_BY_SHAPE: Readonly<Record<Box['shape'], string>> = { box: 'Box', decision: 'Decision', panel: 'Panel', icon: 'Icon' };
 const CHANGE_CHOICES = choicesOf(BOX_CHANGES);
 const STEP_STATUS_CHOICES = choicesOf(STEP_STATUSES);
 const SIDE_CHOICES: readonly Choice[] = [{ value: '', text: 'auto' }, ...choicesOf(['left', 'right', 'top', 'bottom'])];
@@ -187,7 +187,7 @@ function linesEditor(owner: string, lines: readonly BoxLine[], latestLines: Late
     );
     return row;
   });
-  const addLine = actionButton('line-add', 'add line', () => editing.append(() => ({ text: 'new line', muted: false, style: 'text', key: null, ref: null })), `Add a line to ${owner}`);
+  const addLine = actionButton('line-add', 'add line', () => editing.append(() => ({ text: 'new line', muted: false, style: 'text', key: null, ref: null, icon: null })), `Add a line to ${owner}`);
   addLine.disabled = lines.length >= WHITEBOARD_LIMITS.linesPerBox;
   return listSection('Lines', rows, addLine);
 }
@@ -221,6 +221,10 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     const element = latest();
     return element?.kind === 'box' ? element : null;
   };
+  const latestLines = () => {
+    const latestElement = latestBox();
+    return latestElement && latestElement.shape !== 'icon' ? latestElement.lines : null;
+  };
   const latestOutputs = () => {
     const latestElement = latestBox();
     return latestElement?.shape === 'decision' ? latestElement.outputs : null;
@@ -239,6 +243,7 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     if (shape === 'decision') set({ shape, outputs: latestOutputs() ?? DEFAULT_OUTPUTS, ...placeLeavingStack() });
     if (shape === 'box') set({ shape, ...placeLeavingStack() });
     if (shape === 'panel') set({ shape });
+    if (shape === 'icon') set({ shape, icon: latestBox()?.icon ?? PLACED_ICON, ...placeLeavingStack() });
   };
   const commitChange = (change: string) => {
     if (change === 'relabeled') {
@@ -259,7 +264,7 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     }))] : []),
     ...(box.shape === 'decision' ? [outputsEditor(box, latestOutputs, set)] : []),
     refsEditor('this box', box.refs, () => latestBox()?.refs ?? null, (refs) => set({ refs })),
-    linesEditor('this box', box.lines, () => latestBox()?.lines ?? null, (lines) => set({ lines })),
+    ...(box.shape === 'icon' ? [] : [linesEditor('this box', box.lines, latestLines, (lines) => set({ lines }))]),
     ...(box.step ? stepSections(box.step, set) : []),
   ];
 }

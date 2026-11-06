@@ -1,7 +1,6 @@
 import { BOX_CHANGES, STEP_STATUSES } from './contracts/whiteboard.ts';
-import type { Board, Box, BoxMedia, Element, Note, Step, Wire } from './contracts/whiteboard.ts';
-
-type BoxLine = Box['lines'][number];
+import type { Board, Box, BoxLine, BoxMedia, Element, IconName, Note, Step, Wire } from './contracts/whiteboard.ts';
+import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, LINE_ICON_CHARS, TITLE_ICON_CHARS } from './whiteboard-icons.ts';
 import { planSteps } from './whiteboard-plan-core.ts';
 import type { PlanStep } from './whiteboard-plan-core.ts';
 import { cappedWarningLists, previewWires, rectsOverlap, routeWires, unionOf, warningListOf } from './whiteboard-route-core.ts';
@@ -36,6 +35,7 @@ const PLAN_BAND_GAP = 40;
 const STEP_HEADER_HEIGHT = 18;
 const MEDIA_GAP = 8;
 const MEDIA_MAX_HEIGHT = 320;
+const ICON_BOX_WIDTH = 160;
 
 
 interface Rect {
@@ -49,6 +49,7 @@ interface LaidOutBox extends Rect {
   kind: 'box';
   id: string;
   titleLines: string[];
+  icon: IconName | null;
   bodyLines: LaidOutLine[];
   change: Box['change'];
   wasLines: string[];
@@ -116,6 +117,7 @@ interface LaidOutLine {
   marker: string | null;
   indentChars: number;
   isFirstRow: boolean;
+  icon: IconName | null;
 }
 
 type LegendSwatch = { kind: 'wire'; tone: Wire['tone']; isDashed: boolean; isBack: boolean } | { kind: 'change'; change: Exclude<Box['change'], 'none'> } | { kind: 'status'; status: Step['status'] };
@@ -168,11 +170,12 @@ function wrapText(text: string, charsPerLine: number): string[] {
   return lines.length > 0 ? lines : [''];
 }
 
-function rowsOfLine(line: BoxLine, numberInRun: number, bodyCharsPerLine: number): LaidOutLine[] {
+function rowsOfLine(line: BoxLine, numberInRun: number, lineCharsPerLine: number): LaidOutLine[] {
+  const bodyCharsPerLine = line.icon ? lineCharsPerLine - LINE_ICON_CHARS : lineCharsPerLine;
   const mutedIndentChars = line.muted ? 2 : 0;
   const marker = line.style === 'numbered' ? `${numberInRun}.` : line.style === 'kv' ? line.key : null;
   const rowOf = (text: string, index: number, indentChars: number, rowMarker: string | null): LaidOutLine => ({
-    text, muted: line.muted, style: line.style, marker: index === 0 ? rowMarker : null, indentChars, isFirstRow: index === 0,
+    text, muted: line.muted, style: line.style, marker: index === 0 ? rowMarker : null, indentChars, isFirstRow: index === 0, icon: line.icon,
   });
   if (marker && marker.length + 1 > MAX_KEY_INDENT_CHARS) {
     const valueRows = wrapText(line.text, bodyCharsPerLine - mutedIndentChars - ITEM_INDENT_CHARS).map((text) => rowOf(text, 1, ITEM_INDENT_CHARS, null));
@@ -191,41 +194,53 @@ function laidOutLines(lines: readonly BoxLine[], bodyCharsPerLine = BODY_CHARS_P
 }
 
 function boxWidthOf(box: Box): number {
-  return box.width ?? DEFAULT_BOX_WIDTH;
+  return box.width ?? (box.shape === 'icon' ? ICON_BOX_WIDTH : DEFAULT_BOX_WIDTH);
 }
 
 function charsPerLineAt(defaultCharsPerLine: number, boxWidth: number): number {
   return Math.floor(defaultCharsPerLine * (boxWidth - BOX_PADDING * 2) / (DEFAULT_BOX_WIDTH - BOX_PADDING * 2));
 }
 
-function mediaSizeOf(box: Box): { width: number; height: number } | null {
-  if (!box.media) return null;
-  const boxWidth = boxWidthOf(box);
+interface BoxContent {
+  lines: readonly BoxLine[];
+  media: BoxMedia | null;
+  glyphRoom: number;
+  titleIconChars: number;
+}
+
+function boxContentOf(box: Box): BoxContent {
+  if (box.shape === 'icon') return { lines: [], media: null, glyphRoom: ICON_BOX_GLYPH_SIZE + ICON_BOX_GLYPH_GAP, titleIconChars: 0 };
+  return { lines: box.lines, media: box.media, glyphRoom: 0, titleIconChars: box.icon ? TITLE_ICON_CHARS : 0 };
+}
+
+function mediaSizeOf(media: BoxMedia | null, boxWidth: number): { width: number; height: number } | null {
+  if (!media) return null;
   const width = boxWidth - BOX_PADDING * 2;
   const maxHeight = Math.round(MEDIA_MAX_HEIGHT * boxWidth / DEFAULT_BOX_WIDTH);
-  const height = Math.min(maxHeight, Math.max(1, Math.round(width * box.media.height / box.media.width)));
+  const height = Math.min(maxHeight, Math.max(1, Math.round(width * media.height / media.width)));
   return { width, height };
 }
 
-function laidOutMedia(box: Box, position: Point, mediaTop: number, mediaSize: { width: number; height: number } | null): LaidOutMedia | null {
-  if (!box.media || !mediaSize) return null;
-  return { kind: box.media.kind, asset: box.media.asset, mime: box.media.mime, hasPreview: box.media.hasPreview, alt: box.media.alt, x: position.x + BOX_PADDING, y: position.y + mediaTop, width: mediaSize.width, height: mediaSize.height };
+function laidOutMedia(media: BoxMedia | null, position: Point, mediaTop: number, mediaSize: { width: number; height: number } | null): LaidOutMedia | null {
+  if (!media || !mediaSize) return null;
+  return { kind: media.kind, asset: media.asset, mime: media.mime, hasPreview: media.hasPreview, alt: media.alt, x: position.x + BOX_PADDING, y: position.y + mediaTop, width: mediaSize.width, height: mediaSize.height };
 }
 
 function boxShape(box: Box) {
+  const content = boxContentOf(box);
   const stepHeaderHeight = box.step ? STEP_HEADER_HEIGHT : 0;
   const linkLineCount = box.step?.linkedBoardId ? 1 : 0;
   const boxWidth = boxWidthOf(box);
   const titleCharsPerLine = charsPerLineAt(TITLE_CHARS_PER_LINE, boxWidth);
-  const titleLines = wrapText(box.title, titleCharsPerLine);
+  const titleLines = wrapText(box.title, titleCharsPerLine - content.titleIconChars);
   const wasLines = box.change === 'relabeled' && box.was ? wrapText(box.was, titleCharsPerLine) : [];
-  const bodyLines = laidOutLines(box.lines, charsPerLineAt(BODY_CHARS_PER_LINE, boxWidth));
-  const textHeight = BOX_PADDING + stepHeaderHeight + (wasLines.length + titleLines.length) * TITLE_LINE_HEIGHT + (bodyLines.length + linkLineCount) * BODY_LINE_HEIGHT;
-  const mediaSize = mediaSizeOf(box);
+  const bodyLines = laidOutLines(content.lines, charsPerLineAt(BODY_CHARS_PER_LINE, boxWidth));
+  const textHeight = BOX_PADDING + stepHeaderHeight + content.glyphRoom + (wasLines.length + titleLines.length) * TITLE_LINE_HEIGHT + (bodyLines.length + linkLineCount) * BODY_LINE_HEIGHT;
+  const mediaSize = mediaSizeOf(content.media, boxWidth);
   const mediaRoom = mediaSize ? mediaSize.height + MEDIA_GAP : 0;
   const headerHeight = textHeight + BOX_PADDING + mediaRoom;
   const outputs = box.shape === 'decision' ? box.outputs : [];
-  return { titleLines, wasLines, bodyLines, headerHeight, outputs, mediaTop: textHeight + MEDIA_GAP, mediaSize, height: headerHeight + outputs.length * OUTPUT_ROW_HEIGHT };
+  return { titleLines, wasLines, bodyLines, headerHeight, outputs, media: content.media, mediaTop: textHeight + MEDIA_GAP, mediaSize, height: headerHeight + outputs.length * OUTPUT_ROW_HEIGHT };
 }
 
 type ElementsByKind = { [Kind in Element['kind']]: Extract<Element, { kind: Kind }>[] };
@@ -292,8 +307,8 @@ function laidOutBox(board: IndexedBoard, box: Box, position: Point): LaidOutBox 
   const width = boxWidthOf(box);
   return {
     kind: 'box', id: box.id, x: position.x, y: position.y, width, height: shape.height,
-    titleLines: shape.titleLines, bodyLines: shape.bodyLines, change: box.change, wasLines: shape.wasLines,
-    shape: box.shape, headerHeight: shape.headerHeight, media: laidOutMedia(box, position, shape.mediaTop, shape.mediaSize), step: laidOutStep(board, box),
+    titleLines: shape.titleLines, icon: box.icon, bodyLines: shape.bodyLines, change: box.change, wasLines: shape.wasLines,
+    shape: box.shape, headerHeight: shape.headerHeight, media: laidOutMedia(shape.media, position, shape.mediaTop, shape.mediaSize), step: laidOutStep(board, box),
     outputs: shape.outputs.map((output, index) => ({
       id: output.id, label: output.label,
       port: { x: position.x + width, y: position.y + shape.headerHeight + index * OUTPUT_ROW_HEIGHT + OUTPUT_ROW_HEIGHT / 2 },

@@ -1,12 +1,10 @@
-import { WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
-import type { Board, BoardReview, Box, Element } from './contracts/whiteboard.ts';
+import { linesOfBox, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
+import type { Board, BoardReview, BoxLine, Element } from './contracts/whiteboard.ts';
 import { cappedWarnings } from './whiteboard-route-core.ts';
 import { stepBoxesOf } from './whiteboard-plan-core.ts';
 import type { StepBox } from './whiteboard-plan-core.ts';
 
 const MAX_REFERENCED_PATHS = 64;
-
-type BoxLine = Box['lines'][number];
 
 interface ParsedRef {
   path: string;
@@ -72,7 +70,7 @@ function sitesOfElement(element: Element): AnchorSite[] {
   const elementName = `${element.kind} ${element.id}`;
   switch (element.kind) {
     case 'box':
-      return [...element.refs.map((ref) => ({ elementId: element.id, ref, where: elementName })), ...lineSites(elementName, element.id, element.lines)];
+      return [...element.refs.map((ref) => ({ elementId: element.id, ref, where: elementName })), ...lineSites(elementName, element.id, linesOfBox(element))];
     case 'note': return element.ref ? [{ elementId: element.id, ref: element.ref, where: elementName }] : [];
     case 'frame':
     case 'wire':

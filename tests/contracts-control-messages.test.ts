@@ -231,7 +231,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
     type: 'whiteboard-result', requestId: 'wb-1', ok: true, error: null,
     board: {
       id: 'board-1', title: 'Ingest plan', version: 1, caption: null, legend: [], codeSessionId: null,
-      elements: { parse: { kind: 'box', id: 'parse', title: 'Parse feed', lines: [], refs: [], change: 'none', was: null, near: null, order: 0, at: { x: 40, y: 40 }, shape: 'box', outputs: [], media: null, width: null, step: null } },
+      elements: { parse: { kind: 'box', id: 'parse', title: 'Parse feed', icon: null, lines: [], refs: [], change: 'none', was: null, near: null, order: 0, at: { x: 40, y: 40 }, shape: 'box', outputs: [], media: null, width: null, step: null } },
       createdAt: NOW, updatedAt: NOW,
     },
     summary: { id: 'board-1', title: 'Ingest plan', version: 1, updatedAt: NOW, connectedSessionIds: [], queuedBySessionId: {} },

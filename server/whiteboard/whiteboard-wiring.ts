@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 
-import { BoardRecord, sparseBoardRecord, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
+import { BoardRecord, mediaOfBox, sparseBoardRecord, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import type { Board, BoardReview, BoardSummary, BoxMedia, Op, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import type { AgentReplyBodyOf } from '../../shared/contracts/session.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
@@ -17,6 +17,7 @@ import { cappedWarnings } from '../../shared/whiteboard-route-core.ts';
 import { readChangeFacts, readFileFacts } from './whiteboard-anchor-facts.ts';
 import type { ChangeMap } from '../../shared/contracts/change-map.ts';
 import { stepBoxesOf } from '../../shared/whiteboard-plan-core.ts';
+import { ICON_NAMES } from '../../shared/whiteboard-icons.ts';
 import {
   upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, pickShowBoardId, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard,
 } from '../core/whiteboard-store-core.ts';
@@ -38,8 +39,9 @@ const PUT_GUIDE = [
   '{"op":"add","element":{"kind":"wire","id":"w1","from":"parse","to":"store","dashed":true,"label":"on retry"}},',
   '{"op":"set","id":"parse","fields":{"title":"Parse feed"}},{"op":"remove","id":"w1"}]\'.',
   'Pick the layout that fits what you draw; the example shows op syntax, not a preferred shape.',
-  'Element kinds: box (title, near, at, lines, refs, change none|added|removed|relabeled, was, order, shape box|decision|panel, outputs, step {status planned|building|landed, linkedBoardId} to make it a plan step), wire (from, to, fromOutput, dashed, tone plain|fail|join, label, fromSide and toSide left|right|top|bottom, back), frame (title, contains, loop), note (on, text, ref).',
+  'Element kinds: box (title, icon, near, at, lines, refs, change none|added|removed|relabeled, was, order, shape box|decision|panel|icon, outputs, step {status planned|building|landed, linkedBoardId} to make it a plan step), wire (from, to, fromOutput, dashed, tone plain|fail|join, label, fromSide and toSide left|right|top|bottom, back), frame (title, contains, loop), note (on, text, ref).',
   'To show a picture, video, HTML page or Markdown document, run glimmervoid whiteboard attach <path> (PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML or Markdown) and set the media it returns on a box unchanged except alt, as in "media":{"kind":"image","asset":"<id>","mime":"image/png","width":800,"height":600,"alt":"login screen","hasPreview":false}; a picture or video first frame draws under the box lines, a page or a video without a first frame shows as a labelled placeholder, and a Markdown document shows the operator its rendered text, which they can edit and save on the board.',
+  `An icon draws before a box title or a line text in the text color, as in "icon":"database" on the box or on a line; a box with shape icon holds no lines or media and draws its required icon large with the title under it. The icons are ${ICON_NAMES.join(', ')}.`,
   'A line takes style text|code|item|numbered|kv; kv needs a key, as in {"style":"kv","key":"timeout","text":"30s"}, and numbered lines count up through each run.',
   'A plan step is a box with a step; a wire from one step to another means the second is built after the first, cycles allowed. A step with no place sits in the build-order band above the free drawing until moved. glimmervoid whiteboard plan add|after|status|show edits and reads them.',
   'A box with shape panel is a side note card for text such as prior art: with no place it stacks right of the drawing, lowest order first, until it is given one, and no box can sit near it while it is stacked.',
@@ -128,7 +130,10 @@ function hasNoConnectedSessions(record: BoardRecord): boolean {
 }
 
 function assetIdsOf(board: Board): Set<string> {
-  return new Set(Object.values(board.elements).flatMap((element) => (element.kind === 'box' && element.media ? [element.media.asset] : [])));
+  return new Set(Object.values(board.elements).flatMap((element) => {
+    const media = element.kind === 'box' ? mediaOfBox(element) : null;
+    return media ? [media.asset] : [];
+  }));
 }
 
 function refusal(status: number, error: string): WhiteboardReply {
@@ -287,11 +292,12 @@ function createWhiteboardWiring({
 
   function changedMediaRefusalOf(boardBefore: Board, boardAfter: Board): string | null {
     for (const element of Object.values(boardAfter.elements)) {
-      if (element.kind !== 'box' || !element.media) continue;
+      const media = element.kind === 'box' ? mediaOfBox(element) : null;
+      if (!media) continue;
       const before = boardBefore.elements[element.id];
-      const mediaBefore = before?.kind === 'box' ? before.media : null;
-      if (JSON.stringify(mediaBefore) === JSON.stringify(element.media)) continue;
-      const mismatch = assets.mismatchOf(element.media);
+      const mediaBefore = before?.kind === 'box' ? mediaOfBox(before) : null;
+      if (JSON.stringify(mediaBefore) === JSON.stringify(media)) continue;
+      const mismatch = assets.mismatchOf(media);
       if (mismatch) return `box ${element.id} names ${mismatch}`;
     }
     return null;

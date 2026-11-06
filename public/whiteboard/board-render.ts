@@ -3,7 +3,7 @@ import type { Board } from '#shared/contracts/whiteboard.ts';
 import { elementSignature } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout, LaidOutElement, LaidOutMedia } from '#shared/whiteboard-layout-core.ts';
 import type { BoardMediaLayer } from './board-media-layer.ts';
-import { arrowDefinitionsMarkup, chromeMarkup, elementMarkup, SVG_NAMESPACE } from '#shared/whiteboard-svg-core.ts';
+import { chromeMarkup, definitionsMarkup, elementMarkup, SVG_NAMESPACE } from '#shared/whiteboard-svg-core.ts';
 
 type LayerName = 'frames' | 'wires' | 'boxes' | 'notes';
 
@@ -129,7 +129,7 @@ export function createBoardRenderer(svg: SVGSVGElement, mediaLayer: BoardMediaLa
     notes: svgNode('g', 'wb-layer'),
   };
   let chrome = svgNode('g');
-  svg.replaceChildren(...nodesFromMarkup(arrowDefinitionsMarkup()), chrome, ...PAINT_ORDER.map((layerName) => layers[layerName]));
+  svg.replaceChildren(...nodesFromMarkup(definitionsMarkup()), chrome, ...PAINT_ORDER.map((layerName) => layers[layerName]));
   const renderedById = new Map<string, RenderedElement>();
   let currentLayout: BoardLayout | null = null;
   let elementIdsInPaintOrder: string[] = [];

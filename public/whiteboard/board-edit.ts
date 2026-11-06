@@ -1,5 +1,6 @@
 import { WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
-import type { Board, Element as BoardElement, Op } from '#shared/contracts/whiteboard.ts';
+import type { Board, Element as BoardElement, BoxMedia, Op } from '#shared/contracts/whiteboard.ts';
+import { PLACED_ICON } from '#shared/whiteboard-icons.ts';
 import { el } from '../dom-helpers.ts';
 import { createDragPreview, pinnedOffsetYOf } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout, DragPreview, Rect } from '#shared/whiteboard-layout-core.ts';
@@ -10,10 +11,10 @@ const MIN_VIEW_WIDTH = 200;
 const MAX_VIEW_WIDTH = 20000;
 const WHEEL_ZOOM_STEP = 1.1;
 const REMOVAL_ORDER = ['wire', 'note', 'frame', 'box'] as const;
-const TOOL_BY_KEY: Readonly<Record<string, BoardTool>> = { v: 'select', r: 'box', d: 'decision', p: 'panel', a: 'wire' };
+const TOOL_BY_KEY: Readonly<Record<string, BoardTool>> = { v: 'select', r: 'box', d: 'decision', p: 'panel', i: 'icon', a: 'wire' };
 
-type BoardTool = 'select' | 'box' | 'decision' | 'panel' | 'wire';
-type PlacementTool = Extract<BoardTool, 'box' | 'decision' | 'panel'>;
+type BoardTool = 'select' | 'box' | 'decision' | 'panel' | 'icon' | 'wire';
+type PlacementTool = Extract<BoardTool, 'box' | 'decision' | 'panel' | 'icon'>;
 
 interface ViewPoint {
   x: number;
@@ -65,9 +66,6 @@ function isRectInside(inner: Rect, outer: Rect): boolean {
   return inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.width <= outer.x + outer.width && inner.y + inner.height <= outer.y + outer.height;
 }
 
-type Box = Extract<BoardElement, { kind: 'box' }>;
-type BoxMedia = NonNullable<Box['media']>;
-
 type Gesture =
   | { kind: 'drag'; mode: 'move' | 'resize'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; movingBoxes: readonly MovingBox[]; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; pressedImage: PressedImage | null; preview: DragPreview | null; previewLayout: BoardLayout | null; laidOutOffset: ViewPoint }
   | { kind: 'wire'; pointerId: number; fromBoxId: string; start: ViewPoint; draftLine: SVGPathElement; targetBoxId: string | null }
@@ -90,16 +88,19 @@ function portOf(target: EventTarget | null): SVGCircleElement | null {
 }
 
 function isPlacementTool(tool: BoardTool): tool is PlacementTool {
-  return tool === 'box' || tool === 'decision' || tool === 'panel';
+  return tool === 'box' || tool === 'decision' || tool === 'panel' || tool === 'icon';
 }
 
-const PLACED_TITLE_BY_TOOL: Readonly<Record<PlacementTool, string>> = { box: 'Box', decision: 'Decision', panel: 'Panel' };
+const PLACED_TITLE_BY_TOOL: Readonly<Record<PlacementTool, string>> = { box: 'Box', decision: 'Decision', panel: 'Panel', icon: 'Icon' };
 
-function placedBox(at: ViewPoint, title: string, media: BoxMedia | null, shape: Box['shape']): BoardElement {
-  return {
-    kind: 'box', id: newElementId('box'), title, lines: [], refs: [], change: 'none', was: null, near: null, order: 0, at,
-    shape, outputs: shape === 'decision' ? [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }] : [], media, width: null, step: null,
-  };
+function placedBox(at: ViewPoint, title: string, media: BoxMedia | null, shape: PlacementTool): BoardElement {
+  const placed = { kind: 'box' as const, id: newElementId('box'), title, icon: null, refs: [], change: 'none' as const, was: null, near: null, order: 0, at, width: null, step: null };
+  switch (shape) {
+    case 'icon': return { ...placed, shape, icon: PLACED_ICON };
+    case 'decision': return { ...placed, shape, lines: [], media, outputs: [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }] };
+    case 'box':
+    case 'panel': return { ...placed, shape, lines: [], media };
+  }
 }
 
 function pressedImageOf(target: EventTarget | null): PressedImage | null {

@@ -147,7 +147,7 @@ test('two writers keep both different fields, the later write of one field wins,
 
   const plannerView = await boardOf(PLANNER_ID, boardId);
   assert.equal(plannerView.board.elements.parse?.title, 'Parse and store');
-  assert.deepEqual(plannerView.board.elements.parse?.lines, [{ text: 'by the builder', muted: false, style: 'text', key: null, ref: null }]);
+  assert.deepEqual(plannerView.board.elements.parse?.lines, [{ text: 'by the builder', muted: false, style: 'text', key: null, ref: null, icon: null }]);
   assert.deepEqual(plannerView.changes.map((change) => change.summary), [
     `${BUILDER_ID} changed lines of "Parse feed"; ${BUILDER_ID} renamed "Parse feed" to "Parse and store"`,
   ]);
@@ -884,7 +884,7 @@ test('a board saved with units, panels, columns and lanes loads them as step box
   ]);
   assert.deepEqual([upgraded.elements.handoff?.kind === 'wire' && upgraded.elements.handoff.tone, upgraded.legend.map((entry) => entry.tone)], ['plain', ['plain']]);
   const priorPanel = upgraded.elements.prior;
-  assert.ok(priorPanel?.kind === 'box');
+  assert.ok(priorPanel?.kind === 'box' && priorPanel.shape === 'panel');
   assert.deepEqual([priorPanel.shape, priorPanel.title, priorPanel.lines.map((line) => line.text), priorPanel.order, priorPanel.at], ['panel', 'Prior art', ['the old router'], 2, null]);
   const renamed = await after.handleOperator.put(plannedId, z.array(Op).parse([{ op: 'board', title: 'renamed' }]));
   assert.equal(renamed.ok, true, renamed.error ?? '');
@@ -915,7 +915,7 @@ test('show puts each file on a board the session is connected to, creating one n
   const { elements } = Board.parse((read.body as { board: unknown }).board);
   const firstCard = elements['shown-1'];
   const secondCard = elements['shown-2'];
-  assert.ok(firstCard?.kind === 'box' && secondCard?.kind === 'box');
+  assert.ok(firstCard?.kind === 'box' && firstCard.shape === 'box' && secondCard?.kind === 'box' && secondCard.shape === 'box');
   assert.deepEqual([firstCard.title, firstCard.lines.map((line) => line.text), firstCard.media?.kind, firstCard.media?.alt], ['login.png', ['login after fix'], 'image', 'login after fix']);
   assert.deepEqual([secondCard.title, secondCard.media?.kind, secondCard.near], ['Weekly report', 'page', { of: 'shown-1', side: 'right', gap: 60 }]);
 

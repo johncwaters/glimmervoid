@@ -466,6 +466,10 @@
 
 .wb-box-line.wb-muted { fill: var(--wb-ink-dim); }
 
+.wb-title-icon { color: var(--wb-ink); }
+.wb-line-icon { color: var(--wb-ink-dim); }
+.wb-glyph-icon { color: var(--accent); }
+
 .wb-line-code { fill: var(--accent); }
 
 .wb-code-band { fill: color-mix(in oklab, var(--accent) 14%, var(--wb-board)); }

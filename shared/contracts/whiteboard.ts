@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { ICON_NAMES } from '../whiteboard-icons.ts';
+
 export const WHITEBOARD_LIMITS = Object.freeze({
   elements: 20000, opsPerPut: 5000, putBytes: 1_728_576, title: 80, line: 120, linesPerBox: 12, noteText: 400, logEntries: 2000, layoutWarnings: 20, boxWidthMin: 160, boxWidthMax: 960,
 });
@@ -15,6 +17,8 @@ export const AnchorRef = z.string().min(1).max(200, { error: 'a ref is at most 2
   .regex(/^[^#\s]+(#L[1-9]\d*(-L[1-9]\d*)?)?$/, { error: 'a ref is path, path#L12 or path#L12-L30' })
   .meta({ id: 'AnchorRef', description: 'a code location: path, path#L12 or path#L12-L30' });
 
+export const IconName = z.enum(ICON_NAMES).meta({ id: 'IconName', description: 'a catalog icon, drawn in the text color' });
+
 const AnchorRefs = z.array(AnchorRef).max(8, { error: 'an element carries at most 8 refs' }).default([]);
 
 export const BoxLine = z.object({
@@ -23,6 +27,7 @@ export const BoxLine = z.object({
   style: z.enum(['text', 'code', 'item', 'numbered', 'kv']).default('text'),
   key: z.string().max(40, { error: 'a line key is at most 40 characters' }).nullable().default(null),
   ref: AnchorRef.nullable().default(null),
+  icon: IconName.nullable().default(null).describe('drawn before the line text'),
 }).strict().refine((line) => line.style !== 'kv' || Boolean(line.key), { error: 'a kv line needs a key' }).meta({ id: 'BoxLine' });
 
 const Point = z.object({ x: z.number(), y: z.number() }).strict().meta({ id: 'Point' });
@@ -76,6 +81,7 @@ const boxBaseFields = {
   kind: z.literal('box'),
   id: ElementId,
   title: Title.min(1, { error: 'a box needs a title' }),
+  icon: IconName.nullable().default(null).describe('drawn before the title'),
   refs: AnchorRefs,
   change: z.enum(BOX_CHANGES).default('none').describe('marks the box in a diff'),
   was: Title.nullable().default(null).describe('the old title, required when change is relabeled'),
@@ -99,26 +105,40 @@ const Outputs = z.array(Output).max(8, { error: 'a decision has at most 8 output
 const OnlyDecisionOutputs = z.array(Output).max(0, { error: 'only a decision has outputs, so set shape to decision' }).optional()
   .describe('accepted only empty: outputs belong to a decision');
 
+const NoIconBoxContent = z.never({ error: 'an icon box holds no lines or media, so set shape to box first' }).optional()
+  .describe('refused: an icon box holds no lines or media');
+
 const plainBoxFields = { ...boxBaseFields, shape: z.literal('box').default('box'), ...boxContentFields };
 const decisionBoxFields = { ...boxBaseFields, shape: z.literal('decision').describe('draws a diamond with outputs'), ...boxContentFields, outputs: Outputs.default([]).describe('decision branches; a wire leaves one through fromOutput') };
 const panelBoxFields = { ...boxBaseFields, shape: z.literal('panel').describe('draws a side note card'), ...boxContentFields };
+const iconBoxFields = { ...boxBaseFields, shape: z.literal('icon').describe('draws its icon large with the title under it, and holds no lines or media'), icon: IconName };
 
 const FIELD_NAMES_BY_SHAPE = Object.freeze({
   box: new Set(Object.keys(plainBoxFields)),
   decision: new Set(Object.keys(decisionBoxFields)),
   panel: new Set(Object.keys(panelBoxFields)),
+  icon: new Set(Object.keys(iconBoxFields)),
 });
 
-export const BOX_SHAPES = ['box', 'decision', 'panel'] as const;
+export const BOX_SHAPES = ['box', 'decision', 'panel', 'icon'] as const;
 
 export const Box = z.discriminatedUnion('shape', [
   z.object({ ...plainBoxFields, outputs: OnlyDecisionOutputs }).strict(),
   z.object(decisionBoxFields).strict(),
   z.object({ ...panelBoxFields, outputs: OnlyDecisionOutputs }).strict(),
+  z.object({ ...iconBoxFields, lines: NoIconBoxContent, media: NoIconBoxContent }).strict(),
 ], { error: `a box shape is ${BOX_SHAPES.join(', ')}` }).describe('a box needs one place: near or at; a plan step may have none and joins the build-order band, and a panel may have none and stacks right of the drawing');
 
 export function fieldNamesOfShape(shape: Box['shape']): ReadonlySet<string> {
   return FIELD_NAMES_BY_SHAPE[shape];
+}
+
+export function linesOfBox(box: Box): readonly BoxLine[] {
+  return box.shape === 'icon' ? [] : box.lines;
+}
+
+export function mediaOfBox(box: Box): BoxMedia | null {
+  return box.shape === 'icon' ? null : box.media;
 }
 
 export const Frame = z.object({
@@ -305,7 +325,9 @@ export function sparseBoardReply<Body extends object>(body: Body): Body | Record
 }
 
 export type Box = z.infer<typeof Box>;
+export type BoxLine = z.infer<typeof BoxLine>;
 export type BoxMedia = z.infer<typeof BoxMedia>;
+export type IconName = z.infer<typeof IconName>;
 export type Frame = z.infer<typeof Frame>;
 export type Wire = z.infer<typeof Wire>;
 export type Note = z.infer<typeof Note>;
