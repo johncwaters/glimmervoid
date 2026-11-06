@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The phone terminal header matches the desktop one: it shows the agent icon before the session name, and the session title stops at two lines so the header stays short.
 - **Dragging boxes on a big board stays smooth.** While you drag, only the boxes you hold and their wires redraw, routed around the boxes near them, instead of the whole board being laid out again every frame. A wire that runs far across the board draws as a simple elbow until you let go; on drop every wire takes its final route.
+- **Big boards open and drag faster.** A board now draws only the part you are looking at, plus a screen around it, and adds the rest as you pan or zoom. On a 5000-element board, opening it takes about half as long, the slowest frame while dragging boxes drops from about 800 ms to 33 ms, and a drop saves in under a second.
 - A custom agent declared with the id of a built-in agent no longer stops the config from loading. The built-in agent takes that id, Settings > Declared agents marks the entry as ignored, and it stays in your config.json so you can rename it.
 
 ### Fixed

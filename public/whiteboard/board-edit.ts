@@ -142,6 +142,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
   let activeTool: BoardTool = 'select';
   let pendingTitleEditId: string | null = null;
   let isFitOwedOnceSized = false;
+  let viewportBox = measureViewport();
+
+  function measureViewport(): { left: number; top: number; width: number; height: number } {
+    const viewportRect = viewport.getBoundingClientRect();
+    return { left: viewportRect.left + viewport.clientLeft, top: viewportRect.top + viewport.clientTop, width: viewport.clientWidth, height: viewport.clientHeight };
+  }
 
   function setTool(tool: BoardTool): void {
     activeTool = tool;
@@ -151,10 +157,11 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function applyCamera(): void {
     world.style.transform = `translate(${-camera.x * camera.scale}px, ${-camera.y * camera.scale}px) scale(${camera.scale})`;
+    renderer.setView({ left: camera.x, top: camera.y, right: camera.x + viewportBox.width / camera.scale, bottom: camera.y + viewportBox.height / camera.scale });
   }
 
   function viewWidth(): number {
-    return (viewport.clientWidth || 1) / camera.scale;
+    return (viewportBox.width || 1) / camera.scale;
   }
 
   function islandFreeBand(): { topPx: number; heightPx: number } {
@@ -174,8 +181,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const layout = renderer.layout();
     if (!layout) return;
     const { bounds } = layout;
-    const canvasWidth = viewport.clientWidth;
-    const canvasHeight = viewport.clientHeight;
+    viewportBox = measureViewport();
+    const canvasWidth = viewportBox.width;
+    const canvasHeight = viewportBox.height;
     if (canvasWidth === 0 || canvasHeight === 0) {
       camera = { x: bounds.x, y: bounds.y, scale: 1 };
       applyCamera();
@@ -200,8 +208,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   function toViewPoint(clientX: number, clientY: number): ViewPoint {
-    const viewportRect = viewport.getBoundingClientRect();
-    return { x: camera.x + (clientX - viewportRect.left - viewport.clientLeft) / camera.scale, y: camera.y + (clientY - viewportRect.top - viewport.clientTop) / camera.scale };
+    return { x: camera.x + (clientX - viewportBox.left) / camera.scale, y: camera.y + (clientY - viewportBox.top) / camera.scale };
   }
 
   function viewUnitsPerPixel(): number {
@@ -352,6 +359,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   function onPointerDown(event: PointerEvent): void {
+    viewportBox = measureViewport();
     if (titleInput) return;
     if (event.pointerType === 'mouse' && MOUSE_PAN_BUTTONS.has(event.button) && !gesture) {
       startButtonPan(event);
@@ -425,7 +433,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   async function placeMediaBox(title: string, media: BoxMedia, clientPoint: ViewPoint | null): Promise<boolean> {
     const board = options.currentBoard();
     if (!board) return false;
-    const point = clientPoint ? toViewPoint(clientPoint.x, clientPoint.y) : { x: camera.x + viewWidth() / 2, y: camera.y + (viewport.clientHeight || 1) / camera.scale / 2 };
+    const point = clientPoint ? toViewPoint(clientPoint.x, clientPoint.y) : { x: camera.x + viewWidth() / 2, y: camera.y + (viewportBox.height || 1) / camera.scale / 2 };
     const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
     const element = placedBox({ x: Math.round(point.x), y: Math.round(point.y - pinnedOffsetY) }, title, media, false);
     const isSent = await options.sendOps([{ op: 'add', element }]);
@@ -708,7 +716,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
   viewport.addEventListener('dblclick', onDoubleClick);
   viewport.addEventListener('contextmenu', (event) => event.preventDefault());
   viewport.addEventListener('keydown', onKeyDown);
+  viewport.addEventListener('pointerenter', () => {
+    viewportBox = measureViewport();
+  });
   new ResizeObserver(() => {
+    viewportBox = measureViewport();
+    applyCamera();
     if (isFitOwedOnceSized && viewport.clientWidth > 0 && viewport.clientHeight > 0) fit();
   }).observe(viewport);
 
