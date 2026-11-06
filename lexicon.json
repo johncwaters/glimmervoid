@@ -232,6 +232,13 @@
     {
       "name": "server",
       "definition": "The Glimmervoid Node.js background process on the operator's machine that supervises sessions, serves the dashboard and hosts the job inbox"
+    },
+    {
+      "name": "reviewing now",
+      "definition": "The Reviews column holding the Your turn pull requests the operator pulled in to work on, capped by the Reviewing now limit; the rest of Your turn shows as Ready",
+      "aliases": [
+        "reviewing"
+      ]
     }
   ]
 }

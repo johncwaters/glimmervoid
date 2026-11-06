@@ -357,7 +357,7 @@ Stored in each browser, not in `config.json`, so every device keeps its own. Cha
 | Flight duration: maximum | `11.5` | Longest flight, for slower animals. |
 | Size multiplier | `1` | Scale applied on top of the viewport size. |
 | Show on phone layout | `true` | Allow flights on the phone layout. |
-| Your turn limit | `5` | Advisory count for the Reviews Your turn column; the count turns red above it. 0 hides it. |
+| Reviewing now limit | `5` | How many pull requests the Reviews Reviewing now column holds at once. 0 means no cap. |
 | Alert sounds | `true` | Play a sound when a session needs you, like the note button in the header. |
 | Alert sound | `"chime"` | Sound played when a session needs you, including files you add to ~/.glimmervoid/sounds/. |
 | Desktop notifications | `true` | Notify you when a session needs you and the dashboard is in the background. |

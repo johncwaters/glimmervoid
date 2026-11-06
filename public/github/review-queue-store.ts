@@ -48,7 +48,7 @@ function storeUnseen(signature: string): void {
   setPrsUnseenRows(signature);
 }
 
-function hasBothLanes(): boolean {
+export function hasBothLanes(): boolean {
   return teamReviewStatusView() !== null && myPrsSnapshot().status !== null;
 }
 

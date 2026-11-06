@@ -12,18 +12,19 @@ import { emptyStateText as myPrsEmptyStateText, queueNotices as myPrsQueueNotice
 import { createPrQueueColumns } from './pr-queue-columns.ts';
 import { createReviewBoard } from './review-queue-board.ts';
 import { onLayoutChange } from '../form-factor.ts';
-import { getReviewsBoardDetailWidth, getReviewsLayout, getReviewsTurnLimit, setReviewsBoardDetailWidth, setReviewsLayout } from '../ui-prefs.ts';
+import { getReviewsBoardDetailWidth, getReviewsLayout, getReviewsPulledKeys, getReviewsTurnLimit, setReviewsBoardDetailWidth, setReviewsLayout, setReviewsPulledKeys } from '../ui-prefs.ts';
 import type { ReviewsLayout } from '../ui-prefs.ts';
 import { createReviewSetupCard } from './review-setup-card.ts';
 import { createReviewSkillNotice } from './review-skill-notice.ts';
 import { subscribeSettings } from '../settings/settings-store.ts';
 import {
   COLLAPSED_GROUP_IDS, ageToneOf, caughtUpText, chooseQueueSelection, combinedPollingStatus, nextTurnKey,
-  isOverTurnLimit, queueItemActivityEntry, queueItemByKey, queueItemWaitStartMs, reviewKeyActionOf, spansMultipleRepos, steppedRowKey, turnItems, turnPositionText,
+  isOverTurnLimit, queueItemActivityEntry, queueItemByKey, queueItemWaitStartMs, reviewKeyActionOf, reviewingNowCountText, spansMultipleRepos, splitReviewingNow, steppedRowKey,
+  togglePulledKey, turnItems, turnPositionText,
 } from './review-queue-core.ts';
-import type { QueueGroup, QueueGroupId, QueueItem, ReviewKeyAction } from './review-queue-core.ts';
+import type { DisplayGroup, DisplayGroupId, QueueGroup, QueueItem, ReviewKeyAction } from './review-queue-core.ts';
 import {
-  attachReviewQueueView, isQueueEntryUnseen, markQueueEntrySeen, rebuildReviewQueue, returnToReviewQueue, reviewQueueNavigation, reviewQueueUnseenSignature, setReviewDetailScreenOpen,
+  attachReviewQueueView, hasBothLanes, isQueueEntryUnseen, markQueueEntrySeen, rebuildReviewQueue, returnToReviewQueue, reviewQueueNavigation, reviewQueueUnseenSignature, setReviewDetailScreenOpen,
   subscribeReviewQueue, takePendingReveal,
 } from './review-queue-store.ts';
 import type { ReviewQueueChange } from './review-queue-store.ts';
@@ -44,6 +45,7 @@ let pollingControls: ReturnType<typeof createGithubPollingControls> | null = nul
 let setupCard: ReturnType<typeof createReviewSetupCard> | null = null;
 let skillNotice: ReturnType<typeof createReviewSkillNotice> | null = null;
 let currentGroups: QueueGroup[] = [];
+let displayGroups: DisplayGroup[] = [];
 let selectedKey: string | null = null;
 let shownKey: string | null | undefined;
 let isCaughtUp = false;
@@ -94,7 +96,7 @@ function returnToQueue(): void {
 }
 
 function paintTurnPosition(): void {
-  if (turnPosition) turnPosition.textContent = turnPositionText(currentGroups, selectedKey);
+  if (turnPosition) turnPosition.textContent = turnPositionText(displayGroups, selectedKey);
 }
 
 function swapDetail(element: HTMLElement): void {
@@ -164,9 +166,29 @@ function stepSelection(step: 1 | -1): boolean {
   return true;
 }
 
+function movePulled(queueKey: string, shouldBePulled: boolean): boolean {
+  const turnKeys = turnItems(currentGroups).map((item) => item.key);
+  if (!turnKeys.includes(queueKey)) return false;
+  const pulledKeys = getReviewsPulledKeys();
+  if (pulledKeys.includes(queueKey) === shouldBePulled) return true;
+  const nextPulledKeys = togglePulledKey({ pulledKeys, key: queueKey, turnKeys, limit: getReviewsTurnLimit() });
+  if (nextPulledKeys.length === pulledKeys.length) return true;
+  setReviewsPulledKeys(nextPulledKeys);
+  renderedSignature = null;
+  render();
+  rowsByKey.get(queueKey)?.focus({ preventScroll: true });
+  return true;
+}
+
+function toggleSelectedPulled(): boolean {
+  if (!selectedKey) return false;
+  return movePulled(selectedKey, !getReviewsPulledKeys().includes(selectedKey));
+}
+
 function runReviewKey(action: ReviewKeyAction): boolean {
   if (action === 'next-row') return stepSelection(1);
   if (action === 'previous-row') return stepSelection(-1);
+  if (action === 'toggle-pulled') return toggleSelectedPulled();
   if (isBoardDetailClosed()) return false;
   if (runTeamReviewKey(action)) return true;
   return action === 'cancel' && closeBoardDetail();
@@ -216,12 +238,12 @@ function rowFor(item: QueueItem, hasMultipleRepos: boolean, sessionsByPrKey: Rea
   return { container: mineRow.group, row: mineRow.row };
 }
 
-function itemAgeTone(item: QueueItem, groupId: QueueGroupId) {
+function itemAgeTone(item: QueueItem, groupId: DisplayGroupId) {
   return ageToneOf(groupId, queueItemWaitStartMs(item), Date.now());
 }
 
-function createItemRow(item: QueueItem, groupId: QueueGroupId, hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): HTMLElement {
-  const isTurn = groupId === 'turn';
+function createItemRow(item: QueueItem, groupId: DisplayGroupId, hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): HTMLElement {
+  const isTurn = groupId === 'turn' || groupId === 'now';
   const { container, row } = rowFor(item, hasMultipleRepos, sessionsByPrKey);
   const ageTone = itemAgeTone(item, groupId);
   if (ageTone) row.dataset.ageTone = ageTone;
@@ -246,19 +268,23 @@ function toggleCollapsedGroup(groupId: string): void {
   openCollapsedGroupIds.add(groupId);
 }
 
-function turnLimitElements(group: QueueGroup): HTMLElement[] {
+function createGroupCount(group: DisplayGroup): HTMLElement {
+  if (group.id !== 'now') return el('span', 'review-group-count', String(group.items.length));
   const turnLimit = getReviewsTurnLimit();
-  if (group.id !== 'turn' || turnLimit === 0) return [];
-  const limit = el('span', 'review-turn-limit', `limit ${turnLimit}`);
-  if (isOverTurnLimit(group.items.length, turnLimit)) limit.dataset.over = 'true';
-  return [limit];
+  const count = el('span', 'review-group-count', reviewingNowCountText(group.items.length, turnLimit));
+  if (isOverTurnLimit(group.items.length, turnLimit)) count.dataset.over = 'true';
+  return count;
 }
 
-function createGroupHeading(group: QueueGroup): HTMLElement {
+function headingExtrasOf(group: DisplayGroup): HTMLElement[] {
+  return group.id === 'turn' ? [buildNextAttentionKeys()] : [];
+}
+
+function createGroupHeading(group: DisplayGroup): HTMLElement {
   const heading = el('h3', 'pr-section-heading review-group-heading');
-  const count = el('span', 'review-group-count', String(group.items.length));
-  if (group.id === 'turn') {
-    heading.append(el('span', null, group.title), count, ...turnLimitElements(group), buildNextAttentionKeys());
+  const count = createGroupCount(group);
+  if (group.id === 'turn' || group.id === 'now') {
+    heading.append(el('span', null, group.title), count, ...headingExtrasOf(group));
     return heading;
   }
   if (!COLLAPSED_GROUP_IDS.has(group.id)) {
@@ -279,7 +305,7 @@ function createGroupHeading(group: QueueGroup): HTMLElement {
   return heading;
 }
 
-function createGroupSection(group: QueueGroup, hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): HTMLElement {
+function createGroupSection(group: DisplayGroup, hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): HTMLElement {
   const section = el('section', 'pr-queue-section');
   section.dataset.group = group.id;
   section.append(createGroupHeading(group));
@@ -297,21 +323,25 @@ function emptyQueueElements(): HTMLElement[] {
   return [teamReviewEmptyState(), el('p', 'pr-empty', myPrsEmptyStateText(myPrsSnapshot().status))];
 }
 
-function rowsSignature(groups: readonly QueueGroup[], sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): string {
+function rowsSignature(groups: readonly DisplayGroup[], sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): string {
   const ageTones = groups.flatMap((group) => group.items.map((item) => itemAgeTone(item, group.id)));
   return JSON.stringify([shownLayout(), getReviewsTurnLimit(), ageTones, groups, [...sessionsByPrKey], selectedKey, [...openCollapsedGroupIds], reviewQueueUnseenSignature(), queueNoticeElements().map((notice) => notice.textContent)], (key, value) => (key === 'recentSteps' ? undefined : value));
 }
 
 function createBoard(hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): HTMLElement {
-  return createReviewBoard(currentGroups, {
+  const hasReadyItems = turnItems(currentGroups).length > 0;
+  return createReviewBoard(displayGroups, {
     createCard: (item, group) => createItemRow(item, group.id, hasMultipleRepos, sessionsByPrKey),
-    createHeadingExtras: (group) => (group.id === 'turn' ? [...turnLimitElements(group), buildNextAttentionKeys()] : []),
+    createCount: createGroupCount,
+    createHeadingExtras: headingExtrasOf,
+    dropHintOf: (group) => (group.id === 'now' && hasReadyItems ? 'Drag a Ready card here, or select one and press M.' : null),
     isParkedOpen: openCollapsedGroupIds.has('parked'),
     onToggleParked: () => {
       toggleCollapsedGroup('parked');
       renderedSignature = null;
       render();
     },
+    onDropCard: (queueKey, groupId) => movePulled(queueKey, groupId === 'now'),
   });
 }
 
@@ -319,7 +349,7 @@ function queueContent(hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<st
   const hasItems = currentGroups.some((group) => group.items.length > 0);
   if (isBoardShown()) return [...(hasItems ? [] : emptyQueueElements()), createBoard(hasMultipleRepos, sessionsByPrKey)];
   if (!hasItems) return emptyQueueElements();
-  return currentGroups.filter((group) => group.items.length > 0).map((group) => createGroupSection(group, hasMultipleRepos, sessionsByPrKey));
+  return displayGroups.filter((group) => group.items.length > 0).map((group) => createGroupSection(group, hasMultipleRepos, sessionsByPrKey));
 }
 
 function syncLayout(): void {
@@ -359,6 +389,13 @@ function syncSetupCard(): boolean {
   return isSetupNeeded;
 }
 
+function splitDisplayGroups(): void {
+  const storedPulledKeys = getReviewsPulledKeys();
+  const split = splitReviewingNow(currentGroups, storedPulledKeys);
+  displayGroups = split.groups;
+  if (hasBothLanes() && split.pulledKeys.length !== storedPulledKeys.length) setReviewsPulledKeys(split.pulledKeys);
+}
+
 function render(): void {
   if (!queueElement) return;
   skillNotice?.sync();
@@ -366,10 +403,11 @@ function render(): void {
   syncLayout();
   const { sessionsByPrKey, status: myPrsStatus } = myPrsSnapshot();
   currentGroups = rebuildReviewQueue();
+  splitDisplayGroups();
   pollingControls?.update(combinedPollingStatus([teamReviewStatusView(), myPrsStatus]));
   if (!isCaughtUp) selectedKey = chooseQueueSelection(currentGroups, selectedKey);
   paintTurnPosition();
-  const signature = rowsSignature(currentGroups, sessionsByPrKey);
+  const signature = rowsSignature(displayGroups, sessionsByPrKey);
   if (signature !== renderedSignature) {
     renderedSignature = signature;
     const focusedKey = document.activeElement instanceof HTMLElement && queueElement.contains(document.activeElement) ? document.activeElement.dataset.queueKey : undefined;

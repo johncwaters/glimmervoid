@@ -29,6 +29,7 @@ interface UiPrefs extends FlyingAnimalsOptions {
   reviewsLayout: ReviewsLayout;
   reviewsBoardDetailWidth: number | null;
   reviewsTurnLimit: number;
+  reviewsPulledKeys: string[];
   traceHiddenKinds: string[];
   dismissedUpdate: string | null;
   telemetryNoticeDismissed: boolean;
@@ -78,6 +79,7 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   reviewsLayout: (value: unknown): ReviewsLayout => (value === 'list' ? 'list' : 'board'),
   reviewsBoardDetailWidth: asNullableNumber,
   reviewsTurnLimit: normalizeReviewsTurnLimit,
+  reviewsPulledKeys: asStringList,
   traceHiddenKinds: asStringList,
   dismissedUpdate: asNullableString,
   telemetryNoticeDismissed: asBoolean(false),
@@ -153,6 +155,9 @@ export const setReviewsLayout = (layout: ReviewsLayout) => write('reviewsLayout'
 
 export const getReviewsTurnLimit = () => read('reviewsTurnLimit');
 export const setReviewsTurnLimit = (limit: number) => write('reviewsTurnLimit', limit);
+
+export const getReviewsPulledKeys = () => read('reviewsPulledKeys');
+export const setReviewsPulledKeys = (queueKeys: string[]) => write('reviewsPulledKeys', queueKeys);
 
 export const getReviewsBoardDetailWidth = () => read('reviewsBoardDetailWidth');
 export const setReviewsBoardDetailWidth = (px: number | null) => write('reviewsBoardDetailWidth', px);

@@ -55,8 +55,8 @@ export const BROWSER_APPEARANCE: SettingsSection = {
       keywords: ['animals', 'mobile'], defaultValue: FLYING_ANIMALS_DEFAULTS.flyingAnimalsOnPhone, ...BROWSER_ADVANCED,
     },
     {
-      id: 'reviews-turn-limit', path: 'pref:reviewsTurnLimit', title: 'Your turn limit',
-      description: 'Advisory count for the Reviews Your turn column; the count turns red above it. 0 hides it.', control: 'number', integer: true, step: 1,
+      id: 'reviews-turn-limit', path: 'pref:reviewsTurnLimit', title: 'Reviewing now limit',
+      description: 'How many pull requests the Reviews Reviewing now column holds at once. 0 means no cap.', control: 'number', integer: true, step: 1,
       range: REVIEWS_TURN_LIMIT_RANGE, keywords: ['reviews', 'board', 'wip', 'limit'], defaultValue: REVIEWS_TURN_LIMIT_DEFAULT, ...BROWSER_NOW,
     },
   ],
