@@ -97,9 +97,9 @@ function writeHookFixture(name: string, hooks: ProbeHookRecord[], target: ProbeF
   return destination;
 }
 
-const WHITEBOARD_PROBE_BOX_TITLE = 'Lanternfish';
-const WHITEBOARD_PROBE_ANSWER = WHITEBOARD_PROBE_BOX_TITLE.toUpperCase();
-const WHITEBOARD_PROBE_PROMPT = 'Glimmervoid may have attached context to this prompt saying a box was added to a whiteboard. Reply with only that box title in capital letters, or NONE if you were told nothing. Run no tools.';
+const WHITEBOARD_PROBE_BOARD_TITLE = 'Lanternfish';
+const WHITEBOARD_PROBE_ANSWER = WHITEBOARD_PROBE_BOARD_TITLE.toUpperCase();
+const WHITEBOARD_PROBE_PROMPT = 'Glimmervoid may have attached context to this prompt saying a whiteboard changed. Reply with only that board title in capital letters, or NONE if you were told nothing. Run no tools.';
 const SHOULD_RUN_ONLY_WHITEBOARD_PROBE = process.argv.includes('--only-whiteboard');
 
 interface WhiteboardProbeSession {
@@ -128,13 +128,13 @@ async function callWhiteboard(baseUrl: string, session: WhiteboardProbeSession, 
 }
 
 async function queueWhiteboardEditFor(baseUrl: string, reader: WhiteboardProbeSession, writer: WhiteboardProbeSession): Promise<void> {
-  const created = await callWhiteboard(baseUrl, writer, { sub: 'new', title: 'Probe board' });
+  const created = await callWhiteboard(baseUrl, writer, { sub: 'new', title: WHITEBOARD_PROBE_BOARD_TITLE });
   const boardId = typeof created.board === 'object' && created.board !== null && 'id' in created.board ? created.board.id : null;
   if (typeof boardId !== 'string') throw new Error('whiteboard new answered without a board id');
   await callWhiteboard(baseUrl, reader, { sub: 'connect', board: boardId });
   await callWhiteboard(baseUrl, writer, { sub: 'put', board: boardId, ops: [
     { op: 'columns', columns: [{ id: 'intake', title: 'Intake' }] },
-    { op: 'add', element: { kind: 'box', id: 'probe-box', title: WHITEBOARD_PROBE_BOX_TITLE, column: 'intake' } },
+    { op: 'add', element: { kind: 'box', id: 'probe-box', title: 'Probe box', column: 'intake' } },
   ] });
 }
 
