@@ -347,7 +347,7 @@ test('an agent reads a board too large to return whole as an outline with the op
   assert.equal(twoCriteria.status, 400);
 });
 
-test('a session deletes a board it created and is refused a board another session created', async () => {
+test('a session deletes a board of its project and is refused a board of another project', async () => {
   const boardId = await newBoard('agent made');
   const refused = await whiteboard(BUILDER_ID, { sub: 'delete', board: boardId });
   assert.equal(refused.status, 403);
@@ -679,17 +679,18 @@ test('refs are checked in the code session worktree: a missing file, a line past
   assert.deepEqual(review, { codeSessionId: PLANNER_ID, anchorWarnings: expectedWarnings, stepWarnings: [], uncoveredPaths: [], worthALookPaths: [], flaggedStepIds: [], notChecked: null });
 });
 
-test('a board with no code session takes the first session that connects, and only the other sessions hear of it', async () => {
+test('a board with no code session takes the first session of its project that connects, a session of another project leaves it, and the other sessions hear of it', async () => {
   const boardId = await newBoard('unclaimed');
   assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'board', codeSessionId: null }] })).status, 200);
 
   assert.equal((await whiteboard(BUILDER_ID, { sub: 'connect', board: boardId })).status, 200);
+  assert.equal(((await boardOf(BUILDER_ID, boardId)).board as { codeSessionId?: string | null }).codeSessionId, null);
 
-  const builderRead = await boardOf(BUILDER_ID, boardId);
-  assert.equal((builderRead.board as { codeSessionId?: string }).codeSessionId, BUILDER_ID);
-  assert.deepEqual(builderRead.changes, []);
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'connect', board: boardId })).status, 200);
   const plannerRead = await boardOf(PLANNER_ID, boardId);
-  assert.deepEqual(plannerRead.changes.map((change) => change.summary), [`Glimmervoid set the code session to ${BUILDER_ID}`]);
+  assert.equal((plannerRead.board as { codeSessionId?: string | null }).codeSessionId, PLANNER_ID);
+  const builderRead = await boardOf(BUILDER_ID, boardId);
+  assert.deepEqual(builderRead.changes.map((change) => change.summary), [`Glimmervoid set the code session to ${PLANNER_ID}`]);
 });
 
 test('removing a box pins the boxes near it, and a box with no place is refused', async () => {
@@ -827,6 +828,40 @@ test('an agent lists its own project boards in use, all lists every board, a tit
   assert.equal(await archivedAfterIdleDays(31), true);
   await wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'board', caption: 'picked back up' }]));
   assert.deepEqual(await listedIds(planner, false), [boardId]);
+});
+
+test('once its code session is gone a board checks refs against its project, the next session to connect takes over the refs, and any session of the project may delete it', async () => {
+  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'project-refs-'));
+  const project = path.join(boardsRoot, 'app');
+  fs.mkdirSync(path.join(project, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(project, 'src', 'real.ts'), 'export {};\n', 'utf8');
+  const wiring = createWhiteboardWiring({ boardsRoot, codeContextOf: (sessionId) => (sessionId === 'refs-successor' ? { root: project, buildChangeMap: () => Promise.reject(new Error('no change map in this test')) } : null) });
+  const creator = { id: 'refs-creator', name: 'creator', project };
+  const successor = { id: 'refs-successor', name: 'successor', project };
+  const boardId = ((await wiring.handleAgent(creator, { sub: 'new', title: 'Refs plan' })).body as { board: { id: string } }).board.id;
+  await wiring.handleAgent(creator, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'parse', title: 'Parse', at: { x: 40, y: 40 }, refs: ['src/real.ts', 'src/missing.ts'] } }]) });
+
+  const review = (await wiring.handleOperator.review(boardId)).review;
+  assert.equal(review?.notChecked, null);
+  assert.deepEqual(review?.anchorWarnings.map((warning) => warning.split(':')[0]), ['ref src/missing.ts on box parse']);
+
+  await wiring.handleAgent({ id: 'refs-successor', name: 'stranger', project: path.join(boardsRoot, 'other') }, { sub: 'connect', board: boardId });
+  assert.equal((await wiring.handleOperator.get(boardId)).board?.codeSessionId, creator.id);
+  await wiring.handleAgent(successor, { sub: 'connect', board: boardId });
+  assert.equal((await wiring.handleOperator.get(boardId)).board?.codeSessionId, successor.id);
+
+  const unfiledBoardId = ((await wiring.handleOperator.create('Operator sketch')) as { summary: { id: string } }).summary.id;
+  assert.equal((await wiring.handleAgent(successor, { sub: 'delete', board: unfiledBoardId })).status, 403);
+  assert.equal((await wiring.handleOperator.get(unfiledBoardId)).board?.project, null);
+
+  assert.equal((await wiring.handleAgent(successor, { sub: 'delete', board: boardId })).status, 200);
+
+  const movedBoardId = ((await wiring.handleAgent(creator, { sub: 'new', title: 'Moved plan' })).body as { board: { id: string } }).board.id;
+  await wiring.handleAgent(creator, { sub: 'put', board: movedBoardId, ops: z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'parse', title: 'Parse', at: { x: 40, y: 40 }, refs: ['src/real.ts'] } }]) });
+  fs.rmSync(project, { recursive: true, force: true });
+  const movedReview = (await wiring.handleOperator.review(movedBoardId)).review;
+  assert.notEqual(movedReview?.notChecked, null);
+  assert.deepEqual(movedReview?.anchorWarnings.filter((warning) => warning.includes('could not be read')), []);
 });
 
 test('the next prompt tells a connected session once per new change to read the board before changing it, leaving the changes unread', async () => {

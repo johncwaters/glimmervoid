@@ -409,7 +409,7 @@ const WHITEBOARD_SUBCOMMANDS: readonly CommandSpec[] = [
   { name: 'resolve', summary: 'Mark a note on a board resolved', positionals: { usage: '<board> <note>', min: 2, max: null } },
   { name: 'doc', summary: 'Print the Markdown text of the document a box shows, as the operator last saved it', positionals: { usage: '<board> <box>', min: 2, max: 2 }, missingArgumentHint: 'doc needs a board and a box, for example "glimmervoid whiteboard doc flow abstract"' },
   { name: 'attach', summary: 'Store a PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML or Markdown file and print the media a box takes to show it', positionals: { usage: '<path>', min: 1, max: null } },
-  { name: 'delete', summary: 'Delete a board this session created; the operator deletes any board from the dashboard', positionals: BOARD_REFERENCE },
+  { name: 'delete', summary: "Delete a board of this session's project; the operator deletes any board from the dashboard", positionals: BOARD_REFERENCE },
   { name: 'plan', summary: 'Lay out plan steps on a board in dependency order, above its free drawing', subcommands: PLAN_SUBCOMMANDS, missingArgumentHint: null },
 ];
 

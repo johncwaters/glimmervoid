@@ -283,4 +283,4 @@ function shownBoxOp(board: Board, contentBounds: BoardBounds, card: ShownCard): 
 }
 
 export { pickShowBoardId, shownBoxOp };
-export { BOARD_CONTEXT_NOTE, upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, isFiledFor, isListedFor, markRead, recordPut, resolveBoardRef, summarizeBoard };
+export { BOARD_CONTEXT_NOTE, upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, isFiledFor, isListedFor, isSameProject, markRead, recordPut, resolveBoardRef, summarizeBoard };

@@ -25,7 +25,7 @@ import type { PlanStep } from '../../shared/whiteboard-plan-core.ts';
 import { DEVICE_NAMES } from '../../shared/whiteboard-devices.ts';
 import { ICON_NAMES } from '../../shared/whiteboard-icons.ts';
 import {
-  upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, pickShowBoardId, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard, isFiledFor, isListedFor,
+  upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, pickShowBoardId, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard, isFiledFor, isListedFor, isSameProject,
 } from '../core/whiteboard-store-core.ts';
 import { loadJsonStateFile } from '../json-file.ts';
 import { createKeyedSerialQueue } from '../spawn-gate.ts';
@@ -114,6 +114,10 @@ interface WhiteboardWiringOptions {
   logger?: Pick<Console, 'warn'>;
   codeContextOf?: (sessionId: string) => CodeContext | null;
   projectOf?: (sessionId: string) => string | null;
+}
+
+function isProjectFolderPresent(projectPath: string): Promise<boolean> {
+  return fsp.stat(projectPath).then((stats) => stats.isDirectory(), () => false);
 }
 
 interface CodeContext {
@@ -506,8 +510,11 @@ function createWhiteboardWiring({
 
   async function reviewFor(board: Board, { readsChanges, elementIds = null }: { readsChanges: boolean; elementIds?: ReadonlySet<string> | null }): Promise<BoardReview> {
     const codeContext = board.codeSessionId ? codeContextOf(board.codeSessionId) : null;
-    if (!codeContext) return reviewBoard(board, null, elementIds);
-    const fileFactByPath = await readFileFacts(codeContext.root, referencedPaths(board, elementIds));
+    const refRoot = codeContext?.root ?? board.project;
+    if (refRoot === null) return reviewBoard(board, null, elementIds);
+    if (!codeContext && !(await isProjectFolderPresent(refRoot))) return reviewBoard(board, null, elementIds);
+    const fileFactByPath = await readFileFacts(refRoot, referencedPaths(board, elementIds));
+    if (!codeContext) return reviewBoard(board, { fileFactByPath, changes: null }, elementIds);
     const changes = readsChanges ? await readChangeFacts(codeContext.buildChangeMap) : null;
     return reviewBoard(board, { fileFactByPath, changes }, elementIds);
   }
@@ -616,7 +623,9 @@ function createWhiteboardWiring({
 
   function connectBoard(boardId: string, sessionId: string, project: string | null): Promise<WhiteboardReply> {
     return changeRecord(boardId, async (record) => {
-      const claimed = record.board.codeSessionId === null ? await applyOpsToRecord(record, [{ op: 'board', codeSessionId: sessionId }], GLIMMERVOID_AUTHOR) : null;
+      const isCodeSessionGone = record.board.codeSessionId === null || codeContextOf(record.board.codeSessionId) === null;
+      const isOfBoardProject = record.board.project === null || isSameProject(record.board.project, project);
+      const claimed = isCodeSessionGone && isOfBoardProject ? await applyOpsToRecord(record, [{ op: 'board', codeSessionId: sessionId }], GLIMMERVOID_AUTHOR) : null;
       if (!claimed?.ok) {
         const next = filedUnder(connectSession(record, sessionId), project);
         return { ok: true, record: next, reply: connectionReply(next, PUT_GUIDE) };
@@ -697,9 +706,9 @@ function createWhiteboardWiring({
     return { status: 200, body: { ok: true, version: current.board.version } };
   }
 
-  function deleteOwnBoard(boardId: string, callerId: string): Promise<WhiteboardReply> {
-    if (recordsByBoardId.get(boardId)?.createdBy !== callerId) {
-      return Promise.resolve(refusal(403, 'a session deletes only a board it created, so this board is still here; the operator can delete it from the dashboard'));
+  function deleteProjectBoard(boardId: string, callerProject: string): Promise<WhiteboardReply> {
+    if (!isSameProject(recordsByBoardId.get(boardId)?.board.project ?? null, callerProject)) {
+      return Promise.resolve(refusal(403, 'a session deletes only a board of its own project, so this board is still here; the operator can delete it from the dashboard'));
     }
     return removeBoard(boardId);
   }
@@ -837,7 +846,7 @@ function createWhiteboardWiring({
     }
     const found = findBoardId(request.board, caller.project);
     if (!found.ok) return found.reply;
-    await adoptIfUnfiled(found.boardId, caller.project);
+    if (request.sub !== 'delete') await adoptIfUnfiled(found.boardId, caller.project);
     const author: Author = { id: caller.id, name: caller.name };
     switch (request.sub) {
       case 'connect': return connectBoard(found.boardId, caller.id, caller.project);
@@ -847,7 +856,7 @@ function createWhiteboardWiring({
       case 'put': return reviewedPut(found.boardId, request.ops, author);
       case 'resolve': return putOps(found.boardId, [{ op: 'resolve', id: request.note }], author);
       case 'doc': return readDocOf(found.boardId, request.box);
-      case 'delete': return deleteOwnBoard(found.boardId, caller.id);
+      case 'delete': return deleteProjectBoard(found.boardId, caller.project);
     }
   }
 
