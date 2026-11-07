@@ -90,6 +90,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Packages with install scripts work in a new session worktree.** Worktree installs still run no package scripts, so a package that builds or downloads something when installed (ffmpeg-static's ffmpeg for whiteboard media previews, node-pty's native module) used to arrive unbuilt. Now each such package is copied from the main checkout's node_modules when the main checkout has the same version installed, built output included. One with no matching install in the main checkout is named in the install warning with the `npm rebuild` command that builds it.
 - **Tapping a project in New session no longer highlights the agent.** The tapped project keeps focus instead of the agent picker taking it.
 - **The status icon holds still on session rows.** On the session list, on phone and desktop, a row's status icon, timer and close X now sit beside its second line, the task line under the title, so opening the selected row's board and PR links or any other growth of the row never moves them. A row with only a title keeps them centered on it. Before, they jumped to the top of the row when its links opened.
 - **The undo line under a closing session keeps time.** After you close a session, the draining line under its row now shows the time actually left to undo, even after you switch to another tab or screen and come back, and while several closes are pending at once undoing or finishing one no longer restarts the others' lines.

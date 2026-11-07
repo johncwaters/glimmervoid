@@ -18,6 +18,7 @@ import {
   packageDirsFromTrackedFiles,
   planDependencyClone,
   planDependencyInstall,
+  planInstallScriptCopies,
   skipDependencyClone,
   stagingPathFor,
 } from './core/dependency-clone-core.ts';
@@ -65,7 +66,7 @@ export function seedWorktreeDependencies({ mainCheckout, worktreeDir, signal, ho
 async function seedInQueue(mainCheckout: string, worktreeDir: string, signal: AbortSignal, isRootSeeded: boolean): Promise<DependencySeedOutcome | null> {
   const clone = await cloneDependencies(mainCheckout, worktreeDir).catch(() => skipDependencyClone('failed'));
   if (signal.aborted) return null;
-  const install = await installDependencies(worktreeDir, signal, isRootSeeded).catch((error: unknown) => unreadableInstallOutcome(error));
+  const install = await installDependencies(mainCheckout, worktreeDir, signal, isRootSeeded).catch((error: unknown) => unreadableInstallOutcome(error));
   if (signal.aborted) return null;
   const skippedDirs = clone.action === 'cloned' ? clone.skippedDirs : [];
   const reportedDirs = new Set([...install.unsupportedDirs, ...install.results.map((result) => result.dir)]);
@@ -119,7 +120,7 @@ async function hookConfigsNeedUnseededPackages(worktreeDir: string, hookConfigRe
   return hookConfigTexts.some((configText) => configText !== null && mentionsNodeModulesBeyondCoherence(configText));
 }
 
-async function installDependencies(worktreeDir: string, signal: AbortSignal, isRootSeeded: boolean): Promise<DependencyInstallOutcome> {
+async function installDependencies(mainCheckout: string, worktreeDir: string, signal: AbortSignal, isRootSeeded: boolean): Promise<DependencyInstallOutcome> {
   const startedAt = performance.now();
   const packageDirFacts = (await listPackageDirFacts(worktreeDir)).map((facts) => (isRootSeeded && facts.dir === '.' ? { ...facts, hasNodeModules: false } : facts));
   const plan = planDependencyInstall(process.platform, packageDirFacts);
@@ -127,7 +128,8 @@ async function installDependencies(worktreeDir: string, signal: AbortSignal, isR
   for (const install of plan.installs) {
     if (signal.aborted) break;
     const isStagedRootInstall = isRootSeeded && install.dir === '.' && install.command === 'npm';
-    results.push(await (isStagedRootInstall ? runStagedRootInstall(worktreeDir, install, signal) : runInstall(worktreeDir, install, signal)));
+    const mainPackageDir = path.join(mainCheckout, install.dir);
+    results.push(await (isStagedRootInstall ? runStagedRootInstall(mainPackageDir, worktreeDir, install, signal) : runInstall(mainPackageDir, worktreeDir, install, signal)));
   }
   return { results, unsupportedDirs: plan.unsupportedDirs, elapsedMs: Math.round(performance.now() - startedAt) };
 }
@@ -151,15 +153,15 @@ async function listPackageDirFacts(worktreeDir: string): Promise<PackageDirFacts
   return packageDirs;
 }
 
-async function runInstall(worktreeDir: string, install: PlannedInstall, signal: AbortSignal): Promise<InstallResult> {
+async function runInstall(mainPackageDir: string, worktreeDir: string, install: PlannedInstall, signal: AbortSignal): Promise<InstallResult> {
   const packageDir = path.join(worktreeDir, install.dir);
   const run = await runInstallCommand(packageDir, install, signal);
-  if (run.ok) return installSucceeded(install);
+  if (run.ok) return installSucceeded(install, await copyInstallScriptPackages(install, mainPackageDir, packageDir));
   await removeTree(path.join(packageDir, NODE_MODULES));
   return installRunFailed(install, run);
 }
 
-async function runStagedRootInstall(worktreeDir: string, install: PlannedInstall, signal: AbortSignal): Promise<InstallResult> {
+async function runStagedRootInstall(mainPackageDir: string, worktreeDir: string, install: PlannedInstall, signal: AbortSignal): Promise<InstallResult> {
   const stagingDir = stagingPathFor(worktreeDir, STAGED_ROOT_INSTALL_KEY);
   const previousNodeModules = `${stagingDir}-previous`;
   try {
@@ -168,8 +170,9 @@ async function runStagedRootInstall(worktreeDir: string, install: PlannedInstall
     for (const file of STAGED_INSTALL_FILES) await copyIfPresent(path.join(worktreeDir, file), path.join(stagingDir, file));
     const run = await runInstallCommand(stagingDir, install, signal);
     if (!run.ok) return installRunFailed(install, run);
+    const unbuiltPackages = await copyInstallScriptPackages(install, mainPackageDir, stagingDir);
     const isSwapped = await swapNodeModules(path.join(stagingDir, NODE_MODULES), path.join(worktreeDir, NODE_MODULES), previousNodeModules);
-    if (isSwapped) return installSucceeded(install);
+    if (isSwapped) return installSucceeded(install, unbuiltPackages);
     return installFailed(install, 'could not move the installed node_modules into the worktree', false);
   } finally {
     await removeTree(stagingDir);
@@ -195,8 +198,39 @@ function runInstallCommand(cwd: string, install: PlannedInstall, signal: AbortSi
   });
 }
 
-function installSucceeded(install: PlannedInstall): InstallResult {
-  return { dir: install.dir, command: [install.command, ...install.args].join(' '), ok: true };
+function installSucceeded(install: PlannedInstall, unbuiltPackages: string[]): InstallResult {
+  return { dir: install.dir, command: [install.command, ...install.args].join(' '), ok: true, unbuiltPackages };
+}
+
+async function copyInstallScriptPackages(install: PlannedInstall, mainPackageDir: string, installedPackageDir: string): Promise<string[]> {
+  if (install.command !== 'npm') return [];
+  const installStatePath = LOCKFILE_BY_KIND.npm.installState;
+  const [worktreeInstalledLockText, mainInstalledLockText] = await Promise.all([
+    readTextOrNull(path.join(installedPackageDir, installStatePath)),
+    readTextOrNull(path.join(mainPackageDir, installStatePath)),
+  ]);
+  const plan = planInstallScriptCopies(worktreeInstalledLockText, mainInstalledLockText);
+  const unbuiltPackages = [...plan.unbuilt];
+  for (const installPath of plan.copies) {
+    const isCopied = await replacedWithCopy(path.join(mainPackageDir, installPath), path.join(installedPackageDir, installPath));
+    if (!isCopied) unbuiltPackages.push(installPath);
+  }
+  return unbuiltPackages;
+}
+
+async function replacedWithCopy(source: string, destination: string): Promise<boolean> {
+  const incomingCopy = `${destination}.glimmervoid-copy`;
+  const outgoingCopy = `${destination}.glimmervoid-replaced`;
+  try {
+    await removeTree(incomingCopy);
+    await fsp.cp(source, incomingCopy, { recursive: true, verbatimSymlinks: true, errorOnExist: true, force: false });
+    return await swapNodeModules(incomingCopy, destination, outgoingCopy);
+  } catch {
+    return false;
+  } finally {
+    await removeTree(incomingCopy);
+    await removeTree(outgoingCopy);
+  }
 }
 
 function installRunFailed(install: PlannedInstall, run: CommandResult): InstallResult {
