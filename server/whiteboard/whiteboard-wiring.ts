@@ -10,6 +10,9 @@ import type { ControlMessageRecord } from '../core/control-replay-core.ts';
 import { OPERATOR_AUTHOR, applyOps, createBoard } from '../../shared/whiteboard-ops-core.ts';
 import type { Author } from '../../shared/whiteboard-ops-core.ts';
 import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
+import type { BoardLayout } from '../../shared/whiteboard-layout-core.ts';
+import { createBoardTileService } from './board-tile-service.ts';
+import type { BoardTileService } from './board-tile-service.ts';
 import { referencedPaths, reviewBoard } from '../../shared/whiteboard-anchor-core.ts';
 import { cappedWarnings } from '../../shared/whiteboard-route-core.ts';
 import { readChangeFacts, readFileFacts } from './whiteboard-anchor-facts.ts';
@@ -70,7 +73,7 @@ interface WhiteboardReply {
 
 type WhiteboardPatch = ServerMessageOf<'whiteboard-patch'>;
 
-type RecordChange = { ok: true; record: BoardRecord; reply: WhiteboardReply; patch?: WhiteboardPatch } | { ok: false; reply: WhiteboardReply };
+type RecordChange = { ok: true; record: BoardRecord; reply: WhiteboardReply; patch?: WhiteboardPatch; layout?: BoardLayout } | { ok: false; reply: WhiteboardReply };
 
 type AppliedOps = { ok: true; record: BoardRecord; patch: WhiteboardPatch } | { ok: false; error: string };
 
@@ -120,6 +123,7 @@ interface WhiteboardPort {
   takePromptContext(sessionId: string): string | null;
   isConnected(sessionId: string): boolean;
   snapshotMessage(): ServerMessageOf<'whiteboards-snapshot'>;
+  tiles: Pick<BoardTileService, 'view' | 'forget' | 'operatorViewOf'>;
 }
 
 function hasNoConnectedSessions(record: BoardRecord): boolean {
@@ -155,6 +159,7 @@ function createWhiteboardWiring({
   const writeQueue = createKeyedSerialQueue();
   const assets = createWhiteboardAssetStore({ boardsRoot, logger, now });
   const store = createBoardStore(boardsRoot);
+  const tiles = createBoardTileService({ boardOf: (boardId) => recordsByBoardId.get(boardId)?.board ?? null });
   let isEveryBoardLoaded = true;
   const loaded = Promise.all([loadBoards(), assets.loaded]).then(sweepUnusedAssets).then(() => {});
 
@@ -245,14 +250,16 @@ function createWhiteboardWiring({
     broadcastControl(snapshotMessage());
   }
 
-  async function saveRecordInSlot(current: BoardRecord, next: BoardRecord): Promise<boolean> {
+  async function saveRecordInSlot(current: BoardRecord, next: BoardRecord, nextLayout: BoardLayout | null): Promise<boolean> {
     const boardId = current.board.id;
     recordsByBoardId.set(boardId, next);
     try {
       await store.save(current, next);
+      tiles.boardChanged(boardId, nextLayout);
       return true;
     } catch (error) {
       recordsByBoardId.set(boardId, current);
+      tiles.boardChanged(boardId, null);
       logger.warn(`[whiteboard] board ${boardId} could not be saved: ${errorMessage(error)}`);
       return false;
     }
@@ -265,7 +272,7 @@ function createWhiteboardWiring({
       const outcome = change(current);
       if (!outcome.ok) return outcome.reply;
       if (outcome.record === current) return outcome.reply;
-      const isSaved = await saveRecordInSlot(current, outcome.record);
+      const isSaved = await saveRecordInSlot(current, outcome.record, outcome.layout ?? null);
       if (!isSaved) return refusal(500, 'the board could not be saved, so nothing changed');
       if (!outcome.patch) {
         broadcastSummariesIfChanged(current, outcome.record);
@@ -309,9 +316,10 @@ function createWhiteboardWiring({
     return changeRecord(boardId, (record) => {
       const applied = applyOpsToRecord(record, ops, author);
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
-      const { warnings } = layoutBoard(applied.record.board);
+      const layout = layoutBoard(applied.record.board);
+      const { warnings } = layout;
       const body = { ok: true as const, version: applied.record.board.version, ...(warnings.length > 0 ? { warnings } : {}) };
-      return { ok: true, record: applied.record, reply: { status: 200, body }, patch: applied.patch };
+      return { ok: true, record: applied.record, reply: { status: 200, body }, patch: applied.patch, layout };
     });
   }
 
@@ -440,6 +448,7 @@ function createWhiteboardWiring({
     }
     recordsByBoardId.delete(boardId);
     deletedBoardIds.add(boardId);
+    tiles.boardChanged(boardId, null);
     broadcastControl({ type: 'whiteboard-removed', boardId });
     broadcastSummariesIfChanged(current, null);
     void sweepUnusedAssets();
@@ -492,7 +501,7 @@ function createWhiteboardWiring({
       if (!current) return false;
       const next = closedSessionIds.reduce(disconnectSession, current);
       if (hasNoConnectedSessions(next)) return (await deleteRecordInSlot(current)).body.ok;
-      if (await saveRecordInSlot(current, next)) broadcastSummariesIfChanged(current, next);
+      if (await saveRecordInSlot(current, next, null)) broadcastSummariesIfChanged(current, next);
       return false;
     });
     if (isDeleted) await clearLinksTo(boardId);
@@ -599,7 +608,7 @@ function createWhiteboardWiring({
     }
   }
 
-  return { loaded, assets, handleAgent, handleOperator, forgetSession, forgetClosedSessions, takePromptContext, isConnected, snapshotMessage };
+  return { loaded, assets, handleAgent, handleOperator, forgetSession, forgetClosedSessions, takePromptContext, isConnected, snapshotMessage, tiles };
 }
 
 export { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME };

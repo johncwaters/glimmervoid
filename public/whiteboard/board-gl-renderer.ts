@@ -1,10 +1,12 @@
 import { boardMediaDrawnFilename, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
+import { BLOCK_RASTER_PX } from '#shared/contracts/whiteboard-tiles.ts';
 import type { Board } from '#shared/contracts/whiteboard.ts';
 import { elementSignature, layoutBoard } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutMedia, Rect } from '#shared/whiteboard-layout-core.ts';
 import { forEachSlotTouching, gridOfRects } from '#shared/spatial-grid-core.ts';
 import { PORT_RADIUS } from '#shared/whiteboard-svg-core.ts';
 import type { BoardMediaLayer } from './board-media-layer.ts';
+import type { BlockTile } from './board-tile-store.ts';
 import { createGlyphAtlas, RASTER_PX } from './board-gl-glyphs.ts';
 import type { GlyphAtlas } from './board-gl-glyphs.ts';
 import {
@@ -37,6 +39,7 @@ interface BoardHit {
 
 interface BoardRenderer {
   render(board: Board): BoardLayout;
+  renderLayout(layout: BoardLayout, blocks: readonly BlockTile[]): void;
   layout(): BoardLayout | null;
   setCamera(camera: Camera): void;
   hitTest(point: Point): BoardHit | null;
@@ -55,6 +58,7 @@ interface RendererOptions {
   fontSource: Element;
   mediaLayer: BoardMediaLayer;
   notice: HTMLElement;
+  onViewChange?: (view: Rect, scale: number) => void;
 }
 
 interface AttributeSpec {
@@ -298,11 +302,26 @@ void main() {
   outColor = vec4(color.rgb * color.a, color.a);
 }`;
 
+const BLOCK_FRAGMENT = `#version 300 es
+precision highp float;
+uniform sampler2D uImage;
+uniform vec4 uTint;
+in vec2 vUv;
+out vec4 outColor;
+void main() {
+  vec4 texel = texture(uImage, vUv);
+  vec3 color = texel.rgb == vec3(0.0) ? uTint.rgb : texel.rgb;
+  float alpha = texel.a * uTint.a;
+  outColor = vec4(color * alpha, alpha);
+}`;
+
+const BLOCK_ALPHA = 0.85;
+
 const RECT_ATTRIBUTES: readonly AttributeSpec[] = [{ location: 1, size: 4, offset: 0 }, { location: 2, size: 2, offset: 4 }, { location: 3, size: 4, offset: 6 }, { location: 4, size: 4, offset: 10 }, { location: 5, size: 1, offset: 14 }, { location: 6, size: 1, offset: 15 }];
 const SEGMENT_ATTRIBUTES: readonly AttributeSpec[] = [{ location: 1, size: 4, offset: 0 }, { location: 2, size: 4, offset: 4 }, { location: 3, size: 4, offset: 8 }, { location: 4, size: 1, offset: 12 }, { location: 5, size: 1, offset: 13 }];
 const TRIANGLE_ATTRIBUTES: readonly AttributeSpec[] = [{ location: 0, size: 2, offset: 0 }, { location: 1, size: 4, offset: 2 }, { location: 2, size: 1, offset: 6 }, { location: 3, size: 1, offset: 7 }];
 const GLYPH_ATTRIBUTES: readonly AttributeSpec[] = [{ location: 1, size: 4, offset: 0 }, { location: 2, size: 4, offset: 4 }, { location: 3, size: 1, offset: 8 }, { location: 4, size: 4, offset: 9 }, { location: 5, size: 1, offset: 13 }, { location: 6, size: 1, offset: 14 }];
-const UNIFORM_NAMES = ['uCamera', 'uScale', 'uResolution', 'uLodScale', 'uAtlas', 'uRect', 'uImage', 'uDepth'] as const;
+const UNIFORM_NAMES = ['uCamera', 'uScale', 'uResolution', 'uLodScale', 'uAtlas', 'uRect', 'uImage', 'uDepth', 'uTint'] as const;
 
 const UNSIZED_MEDIA_EDGE_PX = 1024;
 
@@ -462,10 +481,15 @@ function emptyRange(): LayerRange {
 }
 
 export function createBoardRenderer(options: RendererOptions): BoardRenderer {
-  const { canvas, viewport, mediaLayer, notice } = options;
+  const { canvas, viewport, mediaLayer, notice, onViewChange } = options;
   const contextAttributes: WebGLContextAttributes = { alpha: true, antialias: false, depth: true, premultipliedAlpha: true, preserveDrawingBuffer: false };
   let gl: WebGL2RenderingContext | null = canvas.getContext('webgl2', contextAttributes);
-  let primitives: { rect: PrimitiveProgram; segment: PrimitiveProgram; triangle: PrimitiveProgram; glyph: PrimitiveProgram; image: PrimitiveProgram } | null = null;
+  let primitives: { rect: PrimitiveProgram; segment: PrimitiveProgram; triangle: PrimitiveProgram; glyph: PrimitiveProgram; image: PrimitiveProgram; block: PrimitiveProgram } | null = null;
+  let blocks: readonly BlockTile[] = [];
+  const blockTextures = new Map<string, { raster: Uint8Array; texture: WebGLTexture }>();
+  let lastViewKey = '';
+  let lastRendered: { source: Board | BoardLayout; layout: BoardLayout; blocks: readonly BlockTile[] } | null = null;
+  const signatureOfElement = new WeakMap<LaidOutElement, string>();
   let palette: BoardPalette | null = null;
   let resolvedPaletteKey = '';
   let atlas: GlyphAtlas | null = null;
@@ -526,11 +550,14 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
       triangle: createPrimitive(context, corners, [TRIANGLE_VERTEX, TRIANGLE_FRAGMENT], TRIANGLE_VERTEX_FLOATS, TRIANGLE_ATTRIBUTES, false),
       glyph: createPrimitive(context, corners, [GLYPH_VERTEX, GLYPH_FRAGMENT], GLYPH_FLOATS, GLYPH_ATTRIBUTES, true),
       image: createPrimitive(context, corners, [IMAGE_VERTEX, IMAGE_FRAGMENT], 2, [], true),
+      block: createPrimitive(context, corners, [IMAGE_VERTEX, BLOCK_FRAGMENT], 2, [], true),
     };
-    context.bindVertexArray(primitives.image.vao);
-    context.bindBuffer(context.ARRAY_BUFFER, corners);
-    context.enableVertexAttribArray(0);
-    context.vertexAttribPointer(0, 2, context.FLOAT, false, 0, 0);
+    for (const quad of [primitives.image, primitives.block]) {
+      context.bindVertexArray(quad.vao);
+      context.bindBuffer(context.ARRAY_BUFFER, corners);
+      context.enableVertexAttribArray(0);
+      context.vertexAttribPointer(0, 2, context.FLOAT, false, 0, 0);
+    }
     context.bindVertexArray(null);
     context.enable(context.BLEND);
     context.blendFunc(context.ONE, context.ONE_MINUS_SRC_ALPHA);
@@ -830,6 +857,56 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     }
   }
 
+  function blockTextureOf(context: WebGL2RenderingContext, block: BlockTile): WebGLTexture | null {
+    const known = blockTextures.get(block.id);
+    if (known?.raster === block.raster) return known.texture;
+    const texture = known?.texture ?? context.createTexture();
+    context.bindTexture(context.TEXTURE_2D, texture);
+    context.texParameteri(context.TEXTURE_2D, context.TEXTURE_MIN_FILTER, context.NEAREST);
+    context.texParameteri(context.TEXTURE_2D, context.TEXTURE_MAG_FILTER, context.NEAREST);
+    context.texParameteri(context.TEXTURE_2D, context.TEXTURE_WRAP_S, context.CLAMP_TO_EDGE);
+    context.texParameteri(context.TEXTURE_2D, context.TEXTURE_WRAP_T, context.CLAMP_TO_EDGE);
+    context.texImage2D(context.TEXTURE_2D, 0, context.RGBA, BLOCK_RASTER_PX, BLOCK_RASTER_PX, 0, context.RGBA, context.UNSIGNED_BYTE, block.raster);
+    blockTextures.set(block.id, { raster: block.raster, texture });
+    return texture;
+  }
+
+  function forgetBlockTexturesNotIn(nextBlocks: readonly BlockTile[]): void {
+    const keptIds = new Set(nextBlocks.map((block) => block.id));
+    for (const [id, entry] of blockTextures) {
+      if (keptIds.has(id)) continue;
+      gl?.deleteTexture(entry.texture);
+      blockTextures.delete(id);
+    }
+  }
+
+  function drawBlocks(context: WebGL2RenderingContext, program: PrimitiveProgram, tint: Rgba): void {
+    if (blocks.length === 0) return;
+    context.disable(context.DEPTH_TEST);
+    context.depthMask(false);
+    setSharedUniforms(context, program);
+    context.bindVertexArray(program.vao);
+    context.uniform1i(program.uniforms.get('uImage') ?? null, 1);
+    context.uniform1f(program.uniforms.get('uDepth') ?? null, 0);
+    context.uniform4f(program.uniforms.get('uTint') ?? null, tint[0], tint[1], tint[2], BLOCK_ALPHA);
+    context.activeTexture(context.TEXTURE1);
+    for (const block of blocks) {
+      context.bindTexture(context.TEXTURE_2D, blockTextureOf(context, block));
+      context.uniform4f(program.uniforms.get('uRect') ?? null, block.rect.x, block.rect.y, block.rect.width, block.rect.height);
+      context.drawArrays(context.TRIANGLE_STRIP, 0, 4);
+    }
+    context.enable(context.DEPTH_TEST);
+  }
+
+  function reportView(): void {
+    if (!onViewChange || camera.scale <= 0) return;
+    const view = { x: camera.x, y: camera.y, width: canvas.clientWidth / camera.scale, height: canvas.clientHeight / camera.scale };
+    const viewKey = `${view.x}:${view.y}:${view.width}:${view.height}`;
+    if (viewKey === lastViewKey) return;
+    lastViewKey = viewKey;
+    onViewChange(view, camera.scale);
+  }
+
   function drawLayer(context: WebGL2RenderingContext, programs: NonNullable<typeof primitives>, glyphSource: GlyphAtlas, layer: number): void {
     const range = layerRanges[layer];
     if (!range) return;
@@ -881,6 +958,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     const current = scene;
     if (!current) return;
     const currentPalette = ensurePalette();
+    drawBlocks(context, programs.block, currentPalette.inkDim);
     const glyphSource = ensureAtlas();
     if (isGatherStale()) gather(current, currentPalette, glyphSource);
     upload(programs.rect, rects);
@@ -912,22 +990,44 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     return href !== null && mediaTextures.get(href)?.isFailed !== true;
   }
 
+  function signatureOf(element: LaidOutElement): string {
+    const known = signatureOfElement.get(element);
+    if (known !== undefined) return known;
+    const signature = elementSignature(element);
+    signatureOfElement.set(element, signature);
+    return signature;
+  }
+
   function render(board: Board): BoardLayout {
+    if (lastRendered?.source === board && scene?.layout === lastRendered.layout) return lastRendered.layout;
     const layout = layoutBoard(board);
+    drawLayout(layout, []);
+    lastRendered = { source: board, layout, blocks: [] };
+    return layout;
+  }
+
+  function renderLayout(layout: BoardLayout, nextBlocks: readonly BlockTile[]): void {
+    if (lastRendered?.source === layout && lastRendered.blocks === nextBlocks && scene?.layout === layout) return;
+    drawLayout(layout, nextBlocks);
+    lastRendered = { source: layout, layout, blocks: nextBlocks };
+  }
+
+  function drawLayout(layout: BoardLayout, nextBlocks: readonly BlockTile[]): void {
     if (atlas?.isFull()) {
       atlas.forgetUnusedGlyphs();
       geometryBySignature.clear();
     }
+    forgetBlockTexturesNotIn(nextBlocks);
+    blocks = nextBlocks;
     buildScene(layout);
     requestDraw();
-    return layout;
   }
 
   function buildScene(layout: BoardLayout): void {
     const currentPalette = ensurePalette();
     const glyphSource = ensureAtlas();
     const context: SceneContext = { palette: currentPalette, glyphs: glyphSource, hasDrawnMedia: isMediaDrawable };
-    const signatureByElement = new Map(layout.elements.map((element) => [element, elementSignature(element)]));
+    const signatureByElement = new Map(layout.elements.map((element) => [element, signatureOf(element)]));
     const built = sceneOf(layout, context, (element) => geometryBySignature.get(signatureByElement.get(element) ?? '') ?? null);
     geometryBySignature.clear();
     const elementById = new Map(layout.elements.map((element) => [element.id, element]));
@@ -1022,6 +1122,11 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
 
   function clear(): void {
     scene = null;
+    lastRendered = null;
+    forgetBlockTexturesNotIn([]);
+    blocks = [];
+    lastViewKey = '';
+    reportView();
     geometryBySignature.clear();
     mediaLayer.clear();
     hoveredBoxId = null;
@@ -1035,6 +1140,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     primitives = null;
     atlas?.forgetTexture();
     for (const entry of mediaTextures.values()) entry.texture = null;
+    blockTextures.clear();
     showNotice('The board is redrawing after the graphics card reset.');
   });
   canvas.addEventListener('webglcontextrestored', () => {
@@ -1045,6 +1151,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     requestDraw();
   });
   new ResizeObserver(() => {
+    reportView();
     isGatherDirty = true;
     requestDraw();
   }).observe(canvas);
@@ -1057,9 +1164,11 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
 
   return {
     render,
+    renderLayout,
     layout: () => scene?.layout ?? null,
     setCamera: (nextCamera) => {
       camera = nextCamera;
+      reportView();
       requestDraw();
     },
     hitTest,

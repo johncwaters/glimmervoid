@@ -1,4 +1,5 @@
 import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutPanel, LaidOutUnit, LaidOutWire, Rect } from '#shared/whiteboard-layout-core.ts';
+import { pointsOfPath } from '#shared/whiteboard-route-core.ts';
 import {
   BAND_LABEL_BASELINE, BODY_LINE_HEIGHT, BOX_TEXT_INSET, CODE_BAND_HEIGHT, CODE_BAND_RISE, COLUMN_TITLE_LINE_HEIGHT, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH, LINKED_BOARD_TEXT,
   LOOP_BADGE_INSET, LOOP_BADGE_RADIUS, MONO_CHAR_WIDTH, MUTED_INDENT, NOTE_LINE_HEIGHT, OUTPUT_DOT_RADIUS, OUTPUT_LABEL_BASELINE_OFFSET, PLAN_TITLE, PORT_RADIUS,
@@ -249,12 +250,6 @@ function pushText(part: PartBuilder, glyphs: GlyphSource, content: string, x: nu
   if (style.isUnderlined) pushPolyline(part, [{ x: left, y: baseline + 2 }, { x: left + width, y: baseline + 2 }], 1, color, SOLID, minScale);
 }
 
-function pathPoints(path: string): Point[] {
-  const numbers = path.match(/-?\d+(\.\d+)?(e-?\d+)?/gi)?.map(Number) ?? [];
-  const points: Point[] = [];
-  for (let index = 0; index + 1 < numbers.length; index += 2) points.push({ x: numbers[index] ?? 0, y: numbers[index + 1] ?? 0 });
-  return points;
-}
 
 function boundsOfPoints(points: readonly Point[], pad: number): Rect {
   const xs = points.map((point) => point.x);
@@ -406,7 +401,7 @@ function wireGeometry(wire: LaidOutWire, context: SceneContext): { parts: Layere
   const { palette, glyphs } = context;
   const part = createPart();
   const labelPart = createPart();
-  const points = pathPoints(wire.path);
+  const points = pointsOfPath(wire.path);
   const color = wireColor(wire, palette);
   pushPolyline(part, points, WIRE_WIDTH, color, wire.isDashed ? { on: 7, off: 6 } : SOLID, ALWAYS);
   if (wire.hasArrowhead) pushArrowAtEnd(part, points, color);
@@ -520,7 +515,7 @@ function chromeGeometry(layout: BoardLayout, context: SceneContext): ElementGeom
   if (layout.plan) {
     pushText(part, glyphs, PLAN_TITLE, layout.plan.titleAt.x, layout.plan.titleAt.y, headingStyle);
     for (const arrowPath of layout.plan.arrowPaths) {
-      const points = pathPoints(arrowPath);
+      const points = pointsOfPath(arrowPath);
       pushPolyline(part, points, WIRE_WIDTH, palette.inkDim, SOLID, ALWAYS);
       pushArrowAtEnd(part, points, palette.inkDim);
     }
@@ -549,7 +544,7 @@ type Decoration = { kind: 'selected'; element: LaidOutElement } | { kind: 'wire-
 
 function outlineDecoration(part: PartBuilder, element: LaidOutElement, color: Rgba, width: number): void {
   if (element.kind === 'wire') {
-    pushPolyline(part, pathPoints(element.path), 2.6, color, SOLID, ALWAYS);
+    pushPolyline(part, pointsOfPath(element.path), 2.6, color, SOLID, ALWAYS);
     return;
   }
   if (element.kind === 'box' && element.shape === 'decision') {

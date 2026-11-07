@@ -1034,5 +1034,12 @@ function routeWires(input: RouteInput): RouteResult {
   };
 }
 
-export { cappedWarnings, labelWidthOf, pathOf, rectsOverlap, routeWires, touchingPairsWithin, unionOf, withoutBends };
+function pointsOfPath(path: string): Point[] {
+  const numbers = path.match(/-?\d+(\.\d+)?(e-?\d+)?/gi)?.map(Number) ?? [];
+  const points: Point[] = [];
+  for (let index = 0; index + 1 < numbers.length; index += 2) points.push({ x: numbers[index] ?? 0, y: numbers[index + 1] ?? 0 });
+  return points;
+}
+
+export { cappedWarnings, labelWidthOf, pathOf, pointsOfPath, rectsOverlap, routeWires, touchingPairsWithin, unionOf, withoutBends };
 export type { Point };

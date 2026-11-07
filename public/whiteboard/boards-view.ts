@@ -20,8 +20,9 @@ import type { UndoDirection, UndoHistory } from '#shared/whiteboard-undo-core.ts
 import { createBoardInspector } from './board-inspect.ts';
 import type { BoardInspector } from './board-inspect.ts';
 import { createBoardRenderer } from './board-gl-renderer.ts';
-import { createBoardMediaLayer } from './board-media-layer.ts';
 import type { BoardRenderer } from './board-gl-renderer.ts';
+import { onTilesChanged, showTilesFor, tiledBoardOf } from './board-tile-store.ts';
+import { createBoardMediaLayer } from './board-media-layer.ts';
 import {
   boardSummariesOf, createBoard, deleteBoard, nudgeSessionAboutBoard, onBoardChanged, onBoardListChanged, openBoard, openBoardOf, openFileInReview, requestBoardReview, sendBoardOps, takeOpenBoardRequest, uploadBoardMedia,
 } from './board-store.ts';
@@ -518,17 +519,31 @@ function requestReviewOf(board: Board): void {
   });
 }
 
+function drawSelectedBoard(boardRenderer: BoardRenderer, board: Board | null): boolean {
+  const tiled = selectedBoardId ? tiledBoardOf(selectedBoardId) : null;
+  const shown = board ? (editor?.previewOf(board) ?? board) : null;
+  const isPreviewing = shown !== board;
+  const isTiledDrawable = tiled !== null && (!board || (tiled.version >= board.version && tiled.lod !== 'blocks'));
+  if (tiled && isTiledDrawable && !isPreviewing) {
+    boardRenderer.renderLayout(tiled.layout, tiled.blocks);
+    return true;
+  }
+  if (!shown) return false;
+  boardRenderer.render(shown);
+  return true;
+}
+
 function paintBoard(): void {
   if (!renderer) return;
   const board = selectedBoard();
+  const isDrawn = drawSelectedBoard(renderer, board);
   if (!board) {
-    renderer.clear();
+    if (!isDrawn) renderer.clear();
     if (parts) parts.emptyBoardHint.hidden = true;
     return;
   }
   requestReviewOf(board);
   editor?.pruneSelection(board);
-  renderer.render(editor?.previewOf(board) ?? board);
   if (parts) parts.emptyBoardHint.hidden = Object.keys(board.elements).length > 0;
   paintReview();
   editor?.openPendingTitleEdit();
@@ -864,7 +879,16 @@ export function mountBoardHost(): HTMLElement {
 
   host.replaceChildren(canvas, empty);
   parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, sendToAgent, buttons, toolButtons, toolHint, emptyBoardHint };
-  const boardRenderer = createBoardRenderer({ canvas: glCanvas, viewport, fontSource: svg, mediaLayer, notice: glNotice });
+  const boardRenderer = createBoardRenderer({
+    canvas: glCanvas,
+    viewport,
+    fontSource: svg,
+    mediaLayer,
+    notice: glNotice,
+    onViewChange: (view, scale) => {
+      if (selectedBoardId) showTilesFor(selectedBoardId, view, scale);
+    },
+  });
   renderer = boardRenderer;
   inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, openRef: openRefInReview });
   editor = createBoardEditor({
@@ -890,6 +914,7 @@ export function mountBoardHost(): HTMLElement {
     if (boardId !== selectedBoardId) return;
     paintBoard();
   });
+  onTilesChanged(paintBoard);
   paintList();
   return host;
 }

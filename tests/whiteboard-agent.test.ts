@@ -230,6 +230,40 @@ test('the operator deletes a board from the dashboard and a connected agent is t
   assert.equal(afterDelete.body.error, 'that board was deleted');
 });
 
+test('a dashboard viewing one region gets only the elements there, then a diff naming each edit that touches it, including a box moved in from far away', async () => {
+  const boardId = await newBoard('streamed region');
+  const placed = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
+    { op: 'add', element: { kind: 'box', id: 'near', title: 'Near', column: 'intake' } },
+    { op: 'add', element: { kind: 'box', id: 'far', title: 'Far', column: 'apply' } },
+    { op: 'set', id: 'near', fields: { at: { x: 40, y: 80 } } },
+    { op: 'set', id: 'far', fields: { at: { x: 40000, y: 80 } } },
+  ] });
+  assert.equal(placed.status, 200);
+  type TileFrame = { type: string; boardId?: string; version?: number; fromVersion?: number; chrome?: unknown; tiles?: { elements: { element: { id: string } }[] }[]; diff?: { changed: { element: { id: string; titleLines?: string[]; x?: number } }[]; removedIds: string[] } };
+  const client = await dashboardClient(boundPort(running().server));
+  const control = await openRecordingSocket<TileFrame>(client);
+  try {
+    control.ws.send(JSON.stringify({ type: 'whiteboard-view', boardId, view: { x: 0, y: 0, width: 1200, height: 800 }, lod: 'full', knownVersion: null }));
+    const tiles = await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-tiles' && frame.boardId === boardId, 'the first tiles');
+    assert.notEqual(tiles.chrome, null);
+    const shownIds = new Set(tiles.tiles?.flatMap((tile) => tile.elements.map((painted) => painted.element.id)));
+    assert.ok(shownIds.has('near'));
+    assert.equal(shownIds.has('far'), false);
+
+    const renamed = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'near', fields: { title: 'Near now' } }, { op: 'set', id: 'far', fields: { title: 'Far now' } }] });
+    assert.equal(renamed.status, 200);
+    const renameDiff = await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-tile-diff' && frame.fromVersion === tiles.version, 'the rename diff');
+    assert.deepEqual(renameDiff.diff?.changed.map((painted) => [painted.element.id, painted.element.titleLines?.join(' ')]), [['near', 'Near now']]);
+
+    const movedIn = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'far', fields: { at: { x: 400, y: 300 } } }] });
+    assert.equal(movedIn.status, 200);
+    const moveDiff = await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-tile-diff' && frame.fromVersion === renamed.body.version, 'the move diff');
+    assert.deepEqual(moveDiff.diff?.changed.map((painted) => [painted.element.id, painted.element.x]), [['far', 400]]);
+  } finally {
+    await closeSocket(control.ws);
+  }
+});
+
 test('a session deletes a board it created and is refused a board another session created', async () => {
   const boardId = await newBoard('agent made');
   const refused = await whiteboard(BUILDER_ID, { sub: 'delete', board: boardId });

@@ -1,11 +1,12 @@
 import { BOX_CHANGES, UNIT_STATUSES } from './contracts/whiteboard.ts';
-import type { Board, Box, BoxMedia, Element, Note, Panel, Unit, Wire } from './contracts/whiteboard.ts';
+import type { Board, Box, Element, Note, Panel, Unit, Wire } from './contracts/whiteboard.ts';
 
 type BoxLine = Box['lines'][number];
 import { planSteps } from './whiteboard-plan-core.ts';
 import { forEachSlotTouching, gridOfRects } from './spatial-grid-core.ts';
 import { cappedWarnings, labelWidthOf, pathOf, rectsOverlap, routeWires, touchingPairsWithin, unionOf, withoutBends } from './whiteboard-route-core.ts';
 import type { Point } from './whiteboard-route-core.ts';
+import type { LaidOutBand, LaidOutBox, LaidOutColumn, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutNote, LaidOutPanel, LaidOutUnit, LaidOutWire, LegendRow, PlanBand } from './contracts/whiteboard-tiles.ts';
 
 const MARGIN = 40;
 const COLUMN_HEADER_HEIGHT = 44;
@@ -60,132 +61,6 @@ interface Rect {
   y: number;
   width: number;
   height: number;
-}
-
-interface LaidOutLane {
-  label: string;
-  hex: string;
-}
-
-interface LaidOutBox extends Rect {
-  kind: 'box';
-  id: string;
-  titleLines: string[];
-  bodyLines: LaidOutLine[];
-  lane: LaidOutLane | null;
-  showsLanePill: boolean;
-  change: Box['change'];
-  wasLines: string[];
-  shape: Box['shape'];
-  headerHeight: number;
-  outputs: LaidOutOutput[];
-  media: LaidOutMedia | null;
-}
-
-interface LaidOutMedia extends Rect {
-  kind: BoxMedia['kind'];
-  asset: string;
-  mime: BoxMedia['mime'];
-  hasPreview: boolean;
-  alt: string;
-}
-
-interface LaidOutOutput {
-  id: string;
-  label: string;
-  port: Point;
-}
-
-interface LaidOutFrame extends Rect {
-  kind: 'frame';
-  id: string;
-  title: string;
-  isLoop: boolean;
-}
-
-interface LaidOutWire {
-  kind: 'wire';
-  id: string;
-  path: string;
-  start: { x: number; y: number };
-  end: { x: number; y: number };
-  label: string | null;
-  labelAt: { x: number; y: number };
-  isDashed: boolean;
-  isBack: boolean;
-  strokeHex: string | null;
-  tone: Wire['tone'];
-  hasArrowhead: boolean;
-  joinAt: { x: number; y: number } | null;
-}
-
-interface LaidOutNote extends Rect {
-  kind: 'note';
-  id: string;
-  lines: string[];
-  byline: string;
-  isResolved: boolean;
-}
-
-interface LaidOutUnit extends Rect {
-  kind: 'unit';
-  id: string;
-  label: string;
-  status: Unit['status'];
-  titleLines: string[];
-  bodyLines: LaidOutLine[];
-  linkedBoardId: string | null;
-}
-
-interface LaidOutLine {
-  text: string;
-  muted: boolean;
-  style: BoxLine['style'];
-  marker: string | null;
-  indentChars: number;
-  isFirstRow: boolean;
-}
-
-interface LaidOutPanel extends Rect {
-  kind: 'panel';
-  id: string;
-  titleLines: string[];
-  bodyLines: LaidOutLine[];
-}
-
-type LegendSwatch = { kind: 'lane'; hex: string } | { kind: 'wire'; tone: Wire['tone']; isDashed: boolean; isBack: boolean } | { kind: 'change'; change: Exclude<Box['change'], 'none'> } | { kind: 'status'; status: Unit['status'] };
-
-interface LegendRow {
-  label: string;
-  x: number;
-  y: number;
-  swatch: LegendSwatch;
-}
-
-type LaidOutElement = LaidOutBox | LaidOutFrame | LaidOutWire | LaidOutNote | LaidOutUnit | LaidOutPanel;
-
-interface PlanBand {
-  titleAt: { x: number; y: number };
-  arrowPaths: string[];
-}
-
-interface LaidOutBand {
-  id: string;
-  label: string;
-  hex: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-interface LaidOutColumn {
-  id: string;
-  titleLines: string[];
-  titleBaselineY: number;
-  ruleY: number;
-  x: number;
-  width: number;
 }
 
 interface NoteShape {
@@ -247,7 +122,7 @@ function laidOutLines(lines: readonly BoxLine[], bodyCharsPerLine = BODY_CHARS_P
   });
 }
 
-function laneOf(board: Board, box: Box): LaidOutLane | null {
+function laneOf(board: Board, box: Box): NonNullable<LaidOutBox['lane']> | null {
   const lane = board.lanes.find((candidate) => candidate.id === box.lane);
   if (!lane) return null;
   return { label: lane.label || lane.id, hex: LANE_HEX_BY_COLOR[lane.color] };
@@ -810,17 +685,17 @@ function defaultWireStyleLabel(tone: Wire['tone'], isDashed: boolean, isBack: bo
 
 const CHANGE_LEGEND_LABELS: Readonly<Record<Exclude<Box['change'], 'none'>, string>> = { added: 'added by this change', removed: 'removed by this change', relabeled: 'renamed, old title struck through' };
 
-function changeEntriesOf(board: Board): { label: string; swatch: LegendSwatch }[] {
+function changeEntriesOf(board: Board): { label: string; swatch: LegendRow['swatch'] }[] {
   const usedChanges = new Set(elementsOfKind(board, 'box').map((box) => box.change));
   return BOX_CHANGES.flatMap((change) => (change === 'none' || !usedChanges.has(change) ? [] : [{ label: CHANGE_LEGEND_LABELS[change], swatch: { kind: 'change' as const, change } }]));
 }
 
-function statusEntriesOf(unitsById: ReadonlyMap<string, LaidOutUnit>): { label: string; swatch: LegendSwatch }[] {
+function statusEntriesOf(unitsById: ReadonlyMap<string, LaidOutUnit>): { label: string; swatch: LegendRow['swatch'] }[] {
   if (unitsById.size === 0) return [];
   return UNIT_STATUSES.map((status) => ({ label: `plan step ${status}`, swatch: { kind: 'status' as const, status } }));
 }
 
-function legendEntriesOf(board: Board, unitsById: ReadonlyMap<string, LaidOutUnit>): { label: string; swatch: LegendSwatch }[] {
+function legendEntriesOf(board: Board, unitsById: ReadonlyMap<string, LaidOutUnit>): { label: string; swatch: LegendRow['swatch'] }[] {
   const laneEntries = board.lanes.map((lane) => ({ label: lane.label || lane.id, swatch: { kind: 'lane' as const, hex: LANE_HEX_BY_COLOR[lane.color] } }));
   const customLabelByKey = new Map(board.legend.map((entry) => [wireStyleKey(entry.tone, entry.dashed || entry.back, entry.back), entry.label]));
   const usedKeys = new Set<string>();
