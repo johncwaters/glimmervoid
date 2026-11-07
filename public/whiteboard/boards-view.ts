@@ -693,8 +693,6 @@ function boardDocSource(boardId: string, boxId: string, title: string): DocSourc
     key: boardDocKey(boardId),
     docs: () => [{ path: boxId, name: title }],
     isSaveable: () => docMediaOf(boardId, boxId) !== null,
-    hasMarkup: false,
-    openingMode: 'preview',
     conflictText: BOARD_DOC_CONFLICT_TEXT,
     unsaveableText: BOARD_DOC_GONE_TEXT,
     read: async () => {

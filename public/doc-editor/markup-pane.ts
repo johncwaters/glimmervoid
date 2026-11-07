@@ -1,17 +1,14 @@
-import { el, writeClipboardText } from '../dom-helpers.ts';
+import { el } from '../dom-helpers.ts';
 import { isStreamerMode } from '../streamer-mode.ts';
 import { button } from '../ui/button.ts';
-import { agentPromptFor, isEndNote, parseCriticMarkup, resolveMark, suggestEdit } from './markup-core.ts';
+import { isEndNote, parseCriticMarkup, resolveMark, suggestEdit } from './markup-core.ts';
 import type { MarkDecision, MarkSegment, SourceSelection, SuggestEdit, SuggestRefusal, SuggestRun, TextSegment } from './markup-core.ts';
 
 export interface MarkupHost {
-  docPath: string;
   baseHash: string | null;
-  hasUnsavedChanges: boolean;
   isBusy: boolean;
   textarea: HTMLTextAreaElement;
   markup: MarkupPane;
-  showStatus: (text: string, tone?: 'quiet' | 'warn') => void;
 }
 
 interface MarkupRow {
@@ -31,7 +28,6 @@ interface MarkupPane {
   btnAddNote: HTMLButtonElement;
   noteComposer: HTMLElement;
   noteInput: HTMLInputElement;
-  btnCopyPrompt: HTMLButtonElement;
   hint: HTMLElement;
   marginResizeObserver: ResizeObserver;
   rowObserver: IntersectionObserver | null;
@@ -104,11 +100,8 @@ export function buildMarkupPane(): MarkupPane {
   noteInput.setAttribute('aria-label', 'Note on the selected text');
   const noteComposer = el('div', 'doc-markup-float doc-markup-composer');
   noteComposer.append(noteInput);
-  const btnCopyPrompt = button({ variant: 'secondary', size: 'small', label: 'Copy agent prompt', action: 'copy-agent-prompt' });
   const hint = el('span', 'doc-markup-hint');
   hint.setAttribute('role', 'status');
-  const tools = el('div', 'doc-markup-tools');
-  tools.append(hint, btnCopyPrompt);
   const paper = el('div', 'doc-markup-paper');
   paper.spellcheck = false;
   paper.setAttribute('role', 'textbox');
@@ -116,11 +109,10 @@ export function buildMarkupPane(): MarkupPane {
   paper.setAttribute('aria-label', 'Doc in red pen; edits become marks');
   const endNotes = el('div', 'doc-markup-end');
   const root = el('div', 'doc-markup');
-  root.hidden = true;
   for (const float of [markCard, btnAddNote, noteComposer]) float.hidden = true;
-  root.append(buildInkFilter(), tools, paper, endNotes, markCard, btnAddNote, noteComposer);
+  root.append(buildInkFilter(), paper, endNotes, markCard, btnAddNote, noteComposer);
   const pane: MarkupPane = {
-    root, paper, endNotes, markCard, markCardText, btnAccept, btnReject, btnAddNote, noteComposer, noteInput, btnCopyPrompt, hint,
+    root, paper, endNotes, markCard, markCardText, btnAccept, btnReject, btnAddNote, noteComposer, noteInput, hint,
     marginResizeObserver: new ResizeObserver(() => placeRowNotes([...pane.visibleRows])),
     rowObserver: null, listeners: new AbortController(), rowsByElement: new Map(), visibleRows: new Set(),
     selection: null, noteSelection: null, compositionSelection: null, run: null, tip: '',
@@ -359,7 +351,6 @@ export function paintMarkupTools(editor: MarkupHost) {
   pane.paper.contentEditable = canSuggest(editor) ? 'true' : 'false';
   pane.btnAccept.disabled = isLocked;
   pane.btnReject.disabled = isLocked;
-  pane.btnCopyPrompt.disabled = isLocked || editor.hasUnsavedChanges || pane.marks.length === 0;
   pane.hint.textContent = pane.tip || markupHintFor(editor);
   pane.hint.dataset.tone = pane.tip ? 'warn' : 'quiet';
   paintFloats(editor);
@@ -369,7 +360,6 @@ function markupHintFor(editor: MarkupHost) {
   const openMarkCount = editor.markup.marks.length;
   const markCount = `${openMarkCount} open ${openMarkCount === 1 ? 'mark' : 'marks'}.`;
   if (isStreamerMode()) return `Editing marks is off in streamer mode. Accept and Reject still work. ${markCount}`;
-  if (editor.hasUnsavedChanges && openMarkCount > 0) return `Suggesting: edits become red pen. ${markCount} Save before copying the agent prompt.`;
   return `Suggesting: edits become red pen. ${markCount}`;
 }
 
@@ -581,20 +571,6 @@ function submitNote(editor: MarkupHost) {
   applySuggestion(editor, { kind: 'note', selection, body: pane.noteInput.value });
 }
 
-async function copyAgentPrompt(editor: MarkupHost) {
-  const pendingWrite = writeClipboardText(agentPromptFor(editor.docPath, editor.markup.marks.length));
-  if (!pendingWrite) {
-    editor.showStatus('This browser blocks clipboard writes here.', 'warn');
-    return;
-  }
-  try {
-    await pendingWrite;
-    editor.showStatus('Agent prompt copied');
-  } catch {
-    editor.showStatus('Could not copy the agent prompt', 'warn');
-  }
-}
-
 function selectMarkAt(editor: MarkupHost, target: EventTarget | null) {
   const markIndex = markIndexOf(target instanceof Element ? target : null);
   if (markIndex === null) return false;
@@ -630,7 +606,7 @@ export function wireMarkupPane(editor: MarkupHost) {
   });
   pane.paper.addEventListener('drop', (event) => event.preventDefault());
   document.addEventListener('selectionchange', () => {
-    if (pane.root.hidden || pane.compositionSelection) return;
+    if (pane.compositionSelection) return;
     trackPaperSelection(editor);
   }, { signal });
   for (const float of [pane.btnAddNote, pane.markCard]) float.addEventListener('mousedown', (event) => event.preventDefault());
@@ -648,5 +624,4 @@ export function wireMarkupPane(editor: MarkupHost) {
   pane.noteInput.addEventListener('blur', () => { if (pane.noteSelection) closeNoteComposer(editor); });
   pane.btnAccept.addEventListener('click', () => decideSelectedMark(editor, 'accept'));
   pane.btnReject.addEventListener('click', () => decideSelectedMark(editor, 'reject'));
-  pane.btnCopyPrompt.addEventListener('click', () => { void copyAgentPrompt(editor); });
 }

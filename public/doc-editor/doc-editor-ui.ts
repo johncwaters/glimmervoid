@@ -3,15 +3,11 @@ import { DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.t
 import { sendControlRequest } from '../control-ws.ts';
 import { docsOf } from './doc-editor.ts';
 import { el } from '../dom-helpers.ts';
-import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
-import { renderPlanBlocks } from '../plan/plan-render.ts';
-import { isStreamerMode } from '../streamer-mode.ts';
 import { applyDialogAria, createModalOverlay, openConfirmDialog } from '../session-card/modal.ts';
 import { button } from '../ui/button.ts';
+import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { buildMarkupPane, disposeMarkupPane, paintMarkupTools, renderMarkup, wireMarkupPane } from './markup-pane.ts';
 import type { MarkupHost } from './markup-pane.ts';
-
-type EditorMode = 'edit' | 'preview' | 'markup';
 
 type DocReadOutcome = { ok: true; text: string; hash: string } | { ok: false; error: string | null };
 type DocSaveOutcome = { ok: true; hash: string } | { ok: false; isConflict: boolean; error: string | null };
@@ -20,8 +16,6 @@ export interface DocSource {
   key: string;
   docs: () => readonly { path: string; name: string }[];
   isSaveable: (docPath: string) => boolean;
-  hasMarkup: boolean;
-  openingMode: 'edit' | 'preview';
   conflictText: string;
   unsaveableText: string;
   read: (docPath: string) => Promise<DocReadOutcome>;
@@ -30,18 +24,19 @@ export interface DocSource {
 
 interface OpenEditor extends MarkupHost {
   source: DocSource;
-  mode: EditorMode;
+  docPath: string;
+  hasUnsavedChanges: boolean;
+  needsReload: boolean;
   title: HTMLElement;
   select: HTMLSelectElement;
-  preview: HTMLElement;
   status: HTMLElement;
-  btnEdit: HTMLButtonElement;
-  btnPreview: HTMLButtonElement;
-  btnMarkup: HTMLButtonElement;
   btnReload: HTMLButtonElement;
-  btnSave: HTMLButtonElement;
+  autosaveTimer: ReturnType<typeof setTimeout> | null;
+  pendingSave: Promise<boolean> | null;
   close: () => void;
 }
+
+const AUTOSAVE_DELAY_MS = 1000;
 
 let openEditor: OpenEditor | null = null;
 
@@ -58,16 +53,9 @@ function fillDocPicker(editor: OpenEditor) {
 }
 
 function paintControls(editor: OpenEditor) {
-  const isSaveable = editor.source.isSaveable(editor.docPath);
-  editor.btnEdit.setAttribute('aria-pressed', String(editor.mode === 'edit'));
-  editor.btnPreview.setAttribute('aria-pressed', String(editor.mode === 'preview'));
-  editor.btnMarkup.setAttribute('aria-pressed', String(editor.mode === 'markup'));
-  editor.textarea.hidden = editor.mode !== 'edit';
-  editor.preview.hidden = editor.mode !== 'preview';
-  editor.markup.root.hidden = editor.mode !== 'markup';
   editor.select.disabled = editor.isBusy;
-  editor.btnReload.disabled = editor.isBusy || !isSaveable;
-  editor.btnSave.disabled = editor.isBusy || !isSaveable || editor.baseHash === null || !editor.hasUnsavedChanges;
+  editor.btnReload.hidden = !editor.needsReload;
+  editor.btnReload.disabled = editor.isBusy || !editor.source.isSaveable(editor.docPath);
   paintMarkupTools(editor);
 }
 
@@ -76,16 +64,46 @@ function setStatus(editor: OpenEditor, text: string, tone: 'quiet' | 'warn' = 'q
   editor.status.dataset.tone = tone;
 }
 
-function renderPreview(editor: OpenEditor) {
-  editor.preview.replaceChildren(renderPlanBlocks(parsePlanMarkdown(editor.textarea.value)));
+function showUnsavedChanges(editor: OpenEditor) {
+  if (editor.needsReload) return;
+  if (!editor.source.isSaveable(editor.docPath)) {
+    setStatus(editor, editor.source.unsaveableText, 'warn');
+    return;
+  }
+  setStatus(editor, 'Unsaved changes');
+}
+
+function cancelAutosave(editor: OpenEditor) {
+  if (editor.autosaveTimer !== null) clearTimeout(editor.autosaveTimer);
+  editor.autosaveTimer = null;
+}
+
+function scheduleAutosave(editor: OpenEditor) {
+  cancelAutosave(editor);
+  if (editor.needsReload || !editor.hasUnsavedChanges) return;
+  editor.autosaveTimer = setTimeout(() => {
+    editor.autosaveTimer = null;
+    void saveDoc(editor);
+  }, AUTOSAVE_DELAY_MS);
 }
 
 function confirmDiscard(title: string, onDiscard: () => void) {
   openConfirmDialog({ title, message: 'Your unsaved edits will be lost.', confirmLabel: 'Discard', danger: true, onConfirm: onDiscard });
 }
 
-function whenChangesAreSafe(editor: OpenEditor, title: string, proceed: () => void) {
-  if (!editor.hasUnsavedChanges) {
+async function saveEveryChange(editor: OpenEditor): Promise<boolean> {
+  while (editor.hasUnsavedChanges) {
+    cancelAutosave(editor);
+    const isSaved = await saveDoc(editor);
+    if (!isSaved || openEditor !== editor) return false;
+  }
+  return true;
+}
+
+async function whenChangesAreSaved(editor: OpenEditor, title: string, proceed: () => void) {
+  const isEverythingSaved = await saveEveryChange(editor);
+  if (openEditor !== editor) return;
+  if (isEverythingSaved) {
     proceed();
     return;
   }
@@ -121,8 +139,6 @@ function sessionDocSource(sessionId: string): DocSource {
     key: sessionId,
     docs: () => docsOf(sessionId),
     isSaveable: (docPath) => docsOf(sessionId).some((doc) => doc.path === docPath),
-    hasMarkup: true,
-    openingMode: isStreamerMode() ? 'preview' : 'edit',
     conflictText: 'The agent changed this file since you opened it. Reload to see its version.',
     unsaveableText: 'This doc is no longer surfaced, so it cannot be saved.',
     read: (docPath) => readSessionDoc(sessionId, docPath),
@@ -131,6 +147,7 @@ function sessionDocSource(sessionId: string): DocSource {
 }
 
 async function loadDoc(editor: OpenEditor, docPath: string) {
+  cancelAutosave(editor);
   editor.docPath = docPath;
   editor.isBusy = true;
   editor.baseHash = null;
@@ -142,6 +159,7 @@ async function loadDoc(editor: OpenEditor, docPath: string) {
   if (openEditor !== editor || editor.docPath !== docPath) return;
   editor.isBusy = false;
   editor.textarea.readOnly = false;
+  editor.needsReload = !read.ok;
   if (!read.ok) {
     setStatus(editor, read.error || 'Could not open this doc', 'warn');
     paintControls(editor);
@@ -150,39 +168,36 @@ async function loadDoc(editor: OpenEditor, docPath: string) {
   editor.textarea.value = read.text;
   editor.baseHash = read.hash;
   editor.hasUnsavedChanges = false;
-  if (editor.mode === 'preview') renderPreview(editor);
-  if (editor.mode === 'markup') renderMarkup(editor);
+  renderMarkup(editor);
   setStatus(editor, '');
   paintControls(editor);
 }
 
-async function saveDoc(editor: OpenEditor) {
-  if (editor.btnSave.disabled || editor.baseHash === null) return;
-  editor.isBusy = true;
-  setStatus(editor, 'Saving');
-  paintControls(editor);
+function saveDoc(editor: OpenEditor): Promise<boolean> {
+  editor.pendingSave ??= writeDoc(editor).finally(() => { editor.pendingSave = null; });
+  return editor.pendingSave;
+}
+
+async function writeDoc(editor: OpenEditor): Promise<boolean> {
+  if (!editor.hasUnsavedChanges) return true;
+  if (editor.baseHash === null || editor.needsReload || !editor.source.isSaveable(editor.docPath)) return false;
   const savedPath = editor.docPath;
   const savedText = editor.textarea.value;
   const saved = await editor.source.save(savedPath, savedText, editor.baseHash);
-  if (openEditor !== editor || editor.docPath !== savedPath) return;
-  editor.isBusy = false;
+  if (openEditor !== editor || editor.docPath !== savedPath) return false;
   if (!saved.ok) {
+    editor.needsReload = saved.isConflict;
     setStatus(editor, saved.isConflict ? editor.source.conflictText : saved.error || 'Save failed', 'warn');
     paintControls(editor);
-    return;
+    return false;
   }
   editor.baseHash = saved.hash;
   editor.hasUnsavedChanges = editor.textarea.value !== savedText;
-  setStatus(editor, editor.hasUnsavedChanges ? 'Unsaved changes' : 'Saved');
+  setStatus(editor, 'Saved');
+  if (editor.hasUnsavedChanges) showUnsavedChanges(editor);
   paintControls(editor);
-}
-
-function setMode(editor: OpenEditor, mode: EditorMode) {
-  editor.mode = mode;
-  if (mode === 'preview') renderPreview(editor);
-  if (mode === 'markup') renderMarkup(editor);
-  paintControls(editor);
-  if (mode === 'edit') editor.textarea.focus();
+  scheduleAutosave(editor);
+  return true;
 }
 
 export function openDocEditor(sessionId: string) {
@@ -192,43 +207,33 @@ export function openDocEditor(sessionId: string) {
 export function openDocEditorOn(source: DocSource) {
   const firstDoc = source.docs()[0];
   if (!firstDoc || openEditor) return;
-  const requestClose = () => whenChangesAreSafe(currentEditor, 'Close this doc?', () => currentEditor.close());
+  const requestClose = () => { void whenChangesAreSaved(currentEditor, 'Close this doc?', () => currentEditor.close()); };
   const modal = createModalOverlay({ dialogClass: 'doc-editor', closeOnBackdrop: false, onEscape: requestClose });
   const titleId = 'doc-editor-title';
   const title = el('h3', 'doc-editor-title', firstDoc.name);
   title.id = titleId;
   const select = el('select', 'plan-control doc-editor-picker');
   select.setAttribute('aria-label', 'Doc');
-  const status = el('span', 'doc-editor-status');
+  const status = el('span', 'doc-editor-status-text');
   status.setAttribute('role', 'status');
-  const btnEdit = button({ variant: 'quiet', size: 'small', label: 'Edit' });
-  const btnPreview = button({ variant: 'quiet', size: 'small', label: 'Preview' });
-  const btnMarkup = button({ variant: 'quiet', size: 'small', label: 'Markup' });
-  btnMarkup.hidden = !source.hasMarkup;
-  const btnReload = button({ variant: 'secondary', label: 'Reload', action: 'reload-doc' });
-  const btnSave = button({ variant: 'primary', label: 'Save', action: 'save-doc' });
-  const btnClose = button({ variant: 'secondary', label: 'Close', action: 'close-doc-editor' });
-  const modes = el('div', 'doc-editor-modes');
-  modes.append(btnEdit, btnPreview, btnMarkup);
-  const actions = el('div', 'doc-editor-actions');
-  actions.append(status, btnReload, btnSave, btnClose);
-  const header = el('div', 'doc-editor-header');
-  header.append(title, select, modes, actions);
-  const textarea = el('textarea', 'plan-editor doc-editor-text');
-  textarea.spellcheck = true;
-  textarea.setAttribute('aria-labelledby', titleId);
-  const preview = el('div', 'doc-editor-preview');
+  const btnReload = button({ variant: 'secondary', size: 'small', label: 'Reload', action: 'reload-doc' });
+  const btnClose = button({ variant: 'icon', size: 'small', label: 'Close', icon: createLineIcon(CLOSE_ICON_PATH), action: 'close-doc-editor' });
   const markup = buildMarkupPane();
+  const statusLine = el('div', 'doc-editor-status');
+  statusLine.append(markup.hint, status, btnReload);
+  const header = el('div', 'doc-editor-header');
+  header.append(title, select, statusLine, btnClose);
+  const textarea = el('textarea');
   const body = el('div', 'doc-editor-body');
-  body.append(textarea, preview, markup.root);
+  body.append(markup.root);
   modal.dialog.append(header, body);
   applyDialogAria(modal.dialog, titleId);
 
   const currentEditor: OpenEditor = {
-    source, docPath: firstDoc.path, baseHash: null, hasUnsavedChanges: false, isBusy: false, mode: source.openingMode,
-    title, select, textarea, preview, markup, status, btnEdit, btnPreview, btnMarkup, btnReload, btnSave,
-    showStatus: (text, tone) => setStatus(currentEditor, text, tone),
+    source, docPath: firstDoc.path, baseHash: null, hasUnsavedChanges: false, isBusy: false, needsReload: false,
+    title, select, textarea, markup, status, btnReload, autosaveTimer: null, pendingSave: null,
     close: () => {
+      cancelAutosave(currentEditor);
       openEditor = null;
       disposeMarkupPane(markup);
       modal.close();
@@ -237,33 +242,34 @@ export function openDocEditorOn(source: DocSource) {
   openEditor = currentEditor;
 
   textarea.addEventListener('input', () => {
-    if (currentEditor.hasUnsavedChanges) return;
     currentEditor.hasUnsavedChanges = true;
-    setStatus(currentEditor, 'Unsaved changes');
+    showUnsavedChanges(currentEditor);
     paintControls(currentEditor);
+    scheduleAutosave(currentEditor);
   });
-  textarea.addEventListener('keydown', (event) => {
+  modal.dialog.addEventListener('keydown', (event) => {
     if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's') return;
     event.preventDefault();
+    cancelAutosave(currentEditor);
     void saveDoc(currentEditor);
   });
   select.addEventListener('change', () => {
     const chosenPath = select.value;
     select.value = currentEditor.docPath;
-    whenChangesAreSafe(currentEditor, 'Open another doc?', () => { void loadDoc(currentEditor, chosenPath); });
+    void whenChangesAreSaved(currentEditor, 'Open another doc?', () => { void loadDoc(currentEditor, chosenPath); });
   });
-  btnEdit.addEventListener('click', () => setMode(currentEditor, 'edit'));
-  btnPreview.addEventListener('click', () => setMode(currentEditor, 'preview'));
-  btnMarkup.addEventListener('click', () => setMode(currentEditor, 'markup'));
   wireMarkupPane(currentEditor);
   btnReload.addEventListener('click', () => {
-    whenChangesAreSafe(currentEditor, 'Reload this doc?', () => { void loadDoc(currentEditor, currentEditor.docPath); });
+    const reload = () => { void loadDoc(currentEditor, currentEditor.docPath); };
+    if (!currentEditor.hasUnsavedChanges) {
+      reload();
+      return;
+    }
+    confirmDiscard('Reload this doc?', reload);
   });
-  btnSave.addEventListener('click', () => { void saveDoc(currentEditor); });
   btnClose.addEventListener('click', requestClose);
 
   void loadDoc(currentEditor, firstDoc.path);
-  if (currentEditor.mode === 'edit') textarea.focus();
 }
 
 export function applyDocsToOpenEditor(sourceKey: string) {
@@ -273,4 +279,3 @@ export function applyDocsToOpenEditor(sourceKey: string) {
   if (openEditor.source.isSaveable(openEditor.docPath)) return;
   setStatus(openEditor, openEditor.source.unsaveableText, 'warn');
 }
-

@@ -287,12 +287,3 @@ export function suggestEdit(source: string, edit: SuggestEdit, run: SuggestRun |
     case 'note': return isCollapsed(edit.selection) ? refused('nothing') : insertNote(source, edit.selection, edit.body);
   }
 }
-
-export function agentPromptFor(docPath: string, openMarkCount: number): string {
-  return [
-    `I marked up ${docPath} in red pen: ${openMarkCount} open CriticMarkup marks.`,
-    'Read the file. For each {--cut--}, {++add++} and {~~old~>new~~} apply it unless you disagree, {==text==}{>>note<<} is my note on that text.',
-    'A note may start with a margin code: wc word choice, awk awkward, frag fragment, tense, unclear, para new paragraph, must required, good keep this, end overall note.',
-    'Remove every mark once handled, then tell me which ones you pushed back on and why.',
-  ].join('\n');
-}

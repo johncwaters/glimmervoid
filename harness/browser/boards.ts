@@ -23,7 +23,6 @@ const BOARD_TIMEOUT_MS = 5000;
 const BOARD_DOC_BOX_ID = 'abstract';
 const BOARD_DOC_BOX_TITLE = 'docs/';
 const BOARD_DOC_FIRST_DRAFT = '# Abstract\n\n<b>First draft.</b>\n';
-const BOARD_DOC_SECOND_DRAFT = '# Abstract\n\nSecond draft.\n';
 
 interface OpenBoard {
   page: Page;
@@ -204,23 +203,25 @@ async function verifyBoardDoc(open: OpenBoard): Promise<void> {
   assert.equal(await docCard.locator('b').count(), 0, 'a document box draws Markdown as text, never as markup');
   await clickElement(open, BOARD_DOC_BOX_ID);
   const editor = page.locator('.doc-editor');
-  await editor.locator('.doc-editor-preview .plan-heading', { hasText: 'Abstract' }).waitFor();
-  assert.equal(await editor.getByRole('button', { name: 'Preview', exact: true }).getAttribute('aria-pressed'), 'true', 'a click on a document box opens it full size, rendered');
-  assert.equal(await editor.getByRole('button', { name: 'Markup', exact: true }).count(), 0, 'a board document offers no Markup mode');
-  await editor.getByRole('button', { name: 'Edit', exact: true }).click();
-  await editor.locator('textarea.doc-editor-text').fill(BOARD_DOC_SECOND_DRAFT);
-  await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Discard', exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  assert.equal(await editor.isVisible(), true, 'Esc with unsaved edits asks before closing the document');
-  await editor.getByRole('button', { name: 'Save', exact: true }).click();
-  await editor.locator('.doc-editor-status', { hasText: 'Saved' }).waitFor();
+  const paper = editor.locator('.doc-markup-paper');
+  await paper.locator('.doc-markup-text', { hasText: 'First draft.' }).waitFor();
+  assert.equal(await editor.getByRole('button').count(), 1, 'a document opens on the red pen paper with only its Close button');
+  await paper.locator('.doc-markup-text', { hasText: 'First draft.' }).click();
+  await page.keyboard.press('End');
+  await page.keyboard.type(' Again.');
+  await paper.locator('.doc-markup-insertion').waitFor();
+  await editor.locator('.doc-editor-status-text', { hasText: /^Saved$/ }).waitFor();
+  await docCard.locator('.plan-paragraph', { hasText: 'Again.' }).waitFor();
+  await page.keyboard.type(' Twice.');
   await page.keyboard.press('Escape');
   await editor.waitFor({ state: 'detached' });
-  await docCard.locator('.plan-paragraph', { hasText: 'Second draft.' }).waitFor();
+  await docCard.locator('.plan-paragraph', { hasText: 'Twice.' }).waitFor();
   const savedBox = (await boardOf(open)).elements[BOARD_DOC_BOX_ID];
   assert.ok(savedBox?.kind === 'box' && savedBox.media?.kind === 'doc' && savedBox.media.asset !== firstDraftMedia.asset, 'a saved document is stored on the board as a new asset');
-  await panel.getByRole('button', { name: 'undo', exact: true }).click();
+  for (const undoneText of ['Twice.', 'Again.']) {
+    await panel.getByRole('button', { name: 'undo', exact: true }).click();
+    await docCard.locator('.plan-paragraph', { hasText: undoneText }).waitFor({ state: 'detached' });
+  }
   await docCard.locator('.plan-paragraph', { hasText: 'First draft.' }).waitFor();
   await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'remove', id: BOARD_DOC_BOX_ID }] });
   await panel.locator('.wb-media[data-media-kind="doc"]').waitFor({ state: 'detached' });

@@ -14,7 +14,7 @@ const RECORDED_FLAG_COUNTS = new Map<string, number>([
   ['public/boot/connection-screen.ts', 3],
   ['public/control-ws.ts', 3],
   ['public/dialogs.ts', 9],
-  ['public/doc-editor/doc-editor-ui.ts', 6],
+  ['public/doc-editor/doc-editor-ui.ts', 4],
   ['public/flying-animals.ts', 3],
   ['public/github/team-review-detail-views.ts', 3],
   ['public/plan/plan-face.ts', 9],

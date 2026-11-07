@@ -11,23 +11,20 @@
   overflow: hidden;
   font-family: var(--font-mono);
 }
-.doc-editor-header { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--bg-header); }
-.doc-editor-title { flex: 1 1 auto; min-width: 0; margin: 0; overflow: hidden; color: var(--text-head); font-size: var(--type-body); font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
-.doc-editor-picker { max-width: 32ch; text-transform: none; letter-spacing: 0; }
-.doc-editor-modes { display: flex; gap: 6px; }
-.doc-editor-actions { display: flex; align-items: center; gap: 8px; }
-.doc-editor-status { color: var(--text-muted); font-size: var(--type-meta); }
-.doc-editor-status[data-tone="warn"] { color: var(--state-waiting); }
+.doc-editor-header { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--border); background: var(--bg-header); }
+.doc-editor-title { flex: 1 1 0; min-width: 4ch; margin: 0; overflow: hidden; color: var(--text-head); font-size: var(--type-body); font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.doc-editor-picker { flex: 1 1 0; min-width: 0; max-width: 32ch; text-transform: none; letter-spacing: 0; }
+.doc-editor-status { display: flex; flex: 0 1 auto; min-width: 0; align-items: center; justify-content: flex-end; gap: 8px; }
+.doc-editor-status-text, .doc-markup-hint { min-width: 0; overflow: hidden; color: var(--text-muted); font-size: var(--type-meta); text-overflow: ellipsis; white-space: nowrap; }
+.doc-editor-status-text:empty, .doc-markup-hint:empty { display: none; }
+.doc-editor-status:has([data-tone="warn"]) { order: 1; flex: 1 1 100%; justify-content: flex-start; }
+.doc-editor-status :is(.doc-editor-status-text, .doc-markup-hint)[data-tone="warn"] { color: var(--state-waiting); white-space: normal; }
 .doc-editor :is(button, select, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .doc-editor-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px; }
-.doc-editor-text { height: 100%; }
-.doc-editor-text[hidden], .doc-markup[hidden], .doc-markup-end[hidden] { display: none; }
+.doc-markup-end[hidden] { display: none; }
 .doc-markup { --pen-ink: var(--state-failed); --pen-paper: var(--bg-card); --pen-text: var(--text-head); position: relative; display: flex; flex-direction: column; gap: 12px; }
 .doc-markup-defs { position: absolute; width: 0; height: 0; }
-.doc-markup-tools { position: sticky; top: -16px; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 0; background: var(--bg-card); }
 .doc-markup-input { width: 100%; text-transform: none; letter-spacing: 0; }
-.doc-markup-hint { flex: 1 1 24ch; min-width: 0; color: var(--text-muted); font-size: var(--type-meta); }
-.doc-markup-hint[data-tone="warn"] { color: var(--state-waiting); }
 .doc-markup-paper:focus { outline: none; box-shadow: inset 0 0 0 1px var(--border-hover); }
 .doc-markup-paper[contenteditable="true"] { caret-color: var(--pen-ink); }
 .doc-markup-float { position: absolute; right: 0; z-index: 3; }
@@ -62,9 +59,7 @@ html[data-layout="phone"] .doc-markup-row { grid-template-columns: minmax(0, 1fr
 html[data-layout="phone"] :is(.doc-markup-card, .doc-markup-composer) { width: 14ch; }
 html[data-layout="phone"] .doc-markup-line { padding: 0 12px 0 16px; }
 html[data-layout="phone"] .doc-editor { width: 100vw; height: 100dvh; border: 0; border-radius: 0; }
-html[data-layout="phone"] .doc-editor-header { padding-top: max(8px, env(safe-area-inset-top)); }
-html[data-layout="phone"] .doc-editor .plan-control { min-height: 40px; }
-html[data-layout="phone"] .doc-editor-actions { flex: 1 1 100%; justify-content: flex-end; }
-html[data-layout="phone"] .doc-editor-status { margin-right: auto; }
+html[data-layout="phone"] .doc-editor-header { padding-top: max(6px, env(safe-area-inset-top)); }
 html[data-layout="phone"] .doc-editor-body { padding: 12px; }
+html[data-layout="phone"] .doc-editor-status :is(.doc-editor-status-text, .doc-markup-hint):not([data-tone="warn"]) { display: none; }
 }
