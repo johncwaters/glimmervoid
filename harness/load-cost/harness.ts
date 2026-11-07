@@ -17,6 +17,7 @@ import type { BoardReady, LoadCostResult, ScenarioResult, ShellCheck, StatusBurs
 import { CHANNELS, THREE_G_PROFILE, UNSHAPED_PROFILE, median, medianRunIndex } from './shaping-core.ts';
 import { PONG, fillCompleteMarker } from './scrollback-agent.ts';
 import { createShapingProxy } from './shaping-proxy.ts';
+import { runWhiteboardBench } from './whiteboard-bench.ts';
 import type { ChannelTallies, ShapingProxy } from './shaping-proxy.ts';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..');
@@ -978,7 +979,9 @@ async function main(): Promise<number> {
     console.error('the load-cost harness runs on Linux and macOS only: the agent shim it spawns is a POSIX sh script');
     return 2;
   }
-  const options = parseOptions(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  if (argv.includes('--whiteboard')) return runWhiteboardBench(argv, { repoRoot: REPO_ROOT, clientIndexPath: path.join(CLIENT_DIR, 'index.html'), findStaleBuildReason });
+  const options = parseOptions(argv);
   if (!fs.existsSync(path.join(CLIENT_DIR, 'index.html'))) {
     console.error('dist/client/index.html is missing: run npm run build first');
     return 1;
