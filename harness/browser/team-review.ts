@@ -51,7 +51,7 @@ function createStatus(): TeamReviewStatus {
       createDraft(4, { verdict: 'BLOCKED' }),
       createDraft(5, { status: 'error', error: 'Review timed out' }),
       createDraft(6, { status: 'discarded' }),
-      createDraft(7, { status: 'posted', postedAt: Date.now() - 600_000 }),
+      createDraft(7, { status: 'posted', postedAt: Date.now() - 600_000, isAuthorOrgMember: true }),
       createDraft(8, { githubReviews: [{ login: 'me', state: 'APPROVED', commit: REVIEWED_HEAD, isViewer: true }] }),
     ],
     inFlight: [{
@@ -206,7 +206,8 @@ async function verifyCanonicalTeamPrFields(page: Page, layout: Layout, snapshot:
     assert.equal(await teamRow.locator('.author-org-tag').textContent(), 'external');
     assert.equal(await fallbackRow.locator('.author-org-tag').count(), 0);
     await emitTeamReviewFrames(page, [frameFor({ ...pr, isAuthorOrgMember: true })]);
-    assert.equal(await teamRow.locator('.author-org-tag').isVisible(), false);
+    assert.equal(await teamRow.locator('.author-org-tag').textContent(), 'Acme');
+    assert.notEqual(await teamRow.locator('.author-org-tag').evaluate((tag) => getComputedStyle(tag).display), 'none');
     await emitTeamReviewFrames(page, [frameFor(pr)]);
     const teamGlyph = await teamRow.locator('.pr-queue-glyph').innerHTML();
     const teamIcon = await teamRow.locator('.pr-status-icon').evaluate((icon) => icon.outerHTML);
@@ -711,6 +712,21 @@ async function verifyAgeTones(page: Page): Promise<void> {
   assert.ok(tones.some(({ tones: rowTones }) => rowTones.some(({ tone }) => tone !== null)), JSON.stringify(tones));
 }
 
+async function verifyBoardCardBottomRowsFit(page: Page): Promise<void> {
+  const overflowingCardKeys = await page.locator('.review-board-cards .pr-queue-row').evaluateAll((cards) => cards.flatMap((card) => {
+    const cardRight = card.getBoundingClientRect().right;
+    const shownBottomRowItems = [...card.querySelector('.pr-queue-bottom')?.children ?? []].map((child) => child.getBoundingClientRect()).filter((box) => box.width > 0);
+    const itemCenters = shownBottomRowItems.map((box) => box.top + box.height / 2);
+    const isOneLine = itemCenters.length === 0 || Math.max(...itemCenters) - Math.min(...itemCenters) < 4;
+    const isInsideCard = shownBottomRowItems.every((box) => box.right <= cardRight);
+    return isOneLine && isInsideCard ? [] : [card.getAttribute('data-review-key')];
+  }));
+  assert.deepEqual(overflowingCardKeys, []);
+  const orgDot = page.locator('.review-board-cards .pr-queue-row[data-review-key="Acme/app#7"] .pr-queue-author > .author-org-tag');
+  assert.equal(await orgDot.isVisible(), true);
+  assert.deepEqual(await orgDot.evaluate((dot) => [dot.getBoundingClientRect().width, dot.getBoundingClientRect().height]), [8, 8]);
+}
+
 async function showPhoneScreen(page: Page, screen: string): Promise<void> {
   const navItem = page.locator(`.phone-nav > .phone-nav-item[data-screen="${screen}"]`);
   if (await navItem.isVisible()) {
@@ -992,6 +1008,7 @@ async function verifyBoard(page: Page): Promise<void> {
   await card.click();
   await verifyWideDetailKeepsBoard(page);
   await verifyAgeTones(page);
+  await verifyBoardCardBottomRowsFit(page);
   await verifyColumnSteps(page);
   await verifyReviewingNowPull(page);
   assert.equal(await root.getAttribute('data-reviews-layout'), 'list');
