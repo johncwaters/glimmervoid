@@ -1,10 +1,10 @@
 {
   "colors": {
-    "background": "#0f0e11",
-    "surface": "#201e23",
-    "ink": "#efedf3",
-    "accent": "#b39edc",
-    "accentInk": "#0f0e11"
+    "background": "#0f0d15",
+    "surface": "#211d29",
+    "ink": "#efedf6",
+    "accent": "#b688fe",
+    "accentInk": "#0f0d15"
   },
   "fonts": {
     "display": { "family": "CommitMono", "files": ["../../public/fonts/commit-mono-700-regular.woff2"], "weight": 700 },

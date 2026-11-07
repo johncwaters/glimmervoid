@@ -603,14 +603,14 @@
     },
     {
       "name": "glimmer",
-      "definition": "The default dashboard theme: graphite surfaces with a muted lavender accent; Glimmer Light is its light counterpart",
+      "definition": "The default dashboard theme: violet-tinted graphite surfaces with a vivid violet accent; Glimmer Light is its light counterpart",
       "aliases": [
         "glimmer light"
       ]
     },
     {
       "name": "graphite",
-      "definition": "The neutral color family of the Glimmer theme: its near-black surfaces (Graphite, Card, Header and Inset Graphite) carrying only a whisper of violet"
+      "definition": "The neutral color family of the Glimmer theme: its near-black surfaces (Graphite, Card, Header and Inset Graphite) tinted toward violet"
     },
     {
       "name": "paper",

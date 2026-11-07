@@ -8,6 +8,7 @@ import grokIcon from '../agent-icons/grok.svg?raw';
 import kimiIcon from '../agent-icons/kimi.svg?raw';
 import opencodeIcon from '../agent-icons/opencode.svg?raw';
 import qwenIcon from '../agent-icons/qwen.svg?raw';
+import { agentBrandColorReference } from '../agent-brand-colors.ts';
 import { monogramFor } from '../avatar-core.ts';
 import { SHELL_AGENT_ID } from './agent-core.ts';
 
@@ -31,8 +32,10 @@ export function paintAgentMark(markEl: HTMLElement, agentId: string | null, agen
   markEl.hidden = shownAgentId === null;
   if (shownAgentId === null) {
     markEl.replaceChildren();
+    markEl.style.removeProperty('--agent-brand');
     return;
   }
+  markEl.style.setProperty('--agent-brand', agentBrandColorReference(shownAgentId));
   const iconSvg = AGENT_ICON_SVG_BY_ID.get(shownAgentId);
   markEl.toggleAttribute('data-monogram', iconSvg === undefined);
   if (iconSvg !== undefined) {

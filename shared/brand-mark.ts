@@ -13,9 +13,9 @@ export const BRAND_MARK_LIGHT = 'M50 39L61 50L50 61L39 50Z';
 
 const BRAND_MARK_STROKE_WIDTH = 11;
 
-export const BRAND_INK = '#efedf3';
+export const BRAND_INK = '#efedf6';
 
-export const BRAND_ACCENT = '#b39edc';
+export const BRAND_ACCENT = '#b688fe';
 
 export function brandMarkMarkup({ frame, light, strokeWidth = BRAND_MARK_STROKE_WIDTH }: { frame: string; light: string; strokeWidth?: number }): string {
   const brackets = BRAND_MARK_BRACKETS.map(({ d }) => d).join('');

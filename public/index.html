@@ -13,8 +13,8 @@
       margin: 0;
       padding: 0;
       height: 100%;
-      background: var(--bg, #0f0e11);
-      color: var(--text, #cfccd5);
+      background: var(--bg, #0f0d15);
+      color: var(--text, #cfcbd9);
       font-family: var(--font-mono, 'CommitMono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Menlo', monospace);
     }
 
@@ -30,7 +30,7 @@
       align-items: center;
       justify-content: center;
       gap: 20px;
-      background: #0f0e11;
+      background: #0f0d15;
       transition: opacity 300ms ease;
     }
 
@@ -44,7 +44,7 @@
       font-size: 20px;
       font-weight: 700;
       letter-spacing: 0.1em;
-      color: #efedf3;
+      color: #efedf6;
       text-transform: uppercase;
     }
 
@@ -78,7 +78,7 @@
 
     .loading-mark-bracket {
       fill: none;
-      stroke: #efedf3;
+      stroke: #efedf6;
       stroke-width: 11;
       stroke-linejoin: miter;
       stroke-linecap: butt;
@@ -91,13 +91,13 @@
     .loading-mark-bracket[data-side="right"] { animation-delay: 325ms; }
 
     .loading-mark-light {
-      fill: #b39edc;
+      fill: #b688fe;
       transform: scale(0);
     }
 
     .loading-mark-halo {
       fill: none;
-      stroke: #b39edc;
+      stroke: #b688fe;
       stroke-width: 2;
       vector-effect: non-scaling-stroke;
       opacity: 0;
@@ -116,14 +116,14 @@
     }
 
     @keyframes loading-mark-scan {
-      0%, 30%, 100% { transform: none; stroke: #efedf3; }
-      12% { transform: translate(calc(var(--dx) * 6px), calc(var(--dy) * 6px)); stroke: #b39edc; }
+      0%, 30%, 100% { transform: none; stroke: #efedf6; }
+      12% { transform: translate(calc(var(--dx) * 6px), calc(var(--dy) * 6px)); stroke: #b688fe; }
     }
 
     .loading-status {
       font-family: 'CommitMono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Menlo', monospace;
       font-size: 12px;
-      color: #9d99a5;
+      color: #9e97af;
     }
 
     .loading-detail {
@@ -163,7 +163,7 @@
     .shutdown-status {
       font-family: 'CommitMono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Menlo', monospace;
       font-size: 12px;
-      color: #9d99a5;
+      color: #9e97af;
       transition: color 300ms ease;
     }
 
@@ -172,7 +172,7 @@
     }
 
     .shutdown-screen.done .shutdown-status {
-      color: #49464f;
+      color: #4b435a;
     }
   </style>
 </head>

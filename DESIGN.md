@@ -6,7 +6,7 @@ Values (colors, type, radius, shadows, motion) live in `brand-bible/`; this file
 
 **Creative North Star: "The Phyrexian Console"**
 
-Glimmervoid is a machine intelligence watching its constructs through the night. The surface is graphite with only a whisper of violet; a single muted lavender accent is the only chromatic voice in the chrome. State surfaces as cold, exact glints, a glow here, a flash there, only when something actually changes. The console is precise, unsentimental, and a little uncanny: it never blinks and never raises its voice. The operator should feel in command of a board of live agents, not entertained by it.
+Glimmervoid is a machine intelligence watching its constructs through the night. The surface is graphite tinted violet; a single vivid violet accent is the only chromatic voice in the chrome. State surfaces as cold, exact glints, a glow here, a flash there, only when something actually changes. The console is precise, unsentimental, and a little uncanny: it never blinks and never raises its voice. The operator should feel in command of a board of live agents, not entertained by it.
 
 Everything is monospace. Type is the voice of the interface, and the voice is even, technical, and quiet. Density is welcome where it pays for itself: the operator is watching several terminals at 2am and the layout must reward sustained attention, not a glance. Chrome recedes so the terminal output (the real product) holds the eye. Ornament is treated as suspicious. If a pixel does not carry data or guide the eye to data, it is cut.
 
@@ -14,7 +14,7 @@ This system explicitly rejects the generic AI-SaaS dashboard (no gradient hero, 
 
 **Key Characteristics:**
 - Mono-forward: one typeface family carries headings, labels, data, and body.
-- Graphite surfaces with a whisper of violet and one muted lavender accent used sparingly.
+- Violet-tinted graphite surfaces and one vivid violet accent used sparingly.
 - Flat by default; depth comes from tonal layering and 1px borders, never resting shadows.
 - Color and motion are reserved for genuine state signals, so a signal always means something.
 - Four sizes (the `--type-*` tokens) carry five roles; hierarchy is built from weight, tracking, color, and case, not size.
@@ -22,10 +22,10 @@ This system explicitly rejects the generic AI-SaaS dashboard (no gradient hero, 
 
 ## 2. Colors
 
-A near-monochrome graphite dark palette with a whisper of violet, one muted lavender accent, and a strict, color-blind-safe vocabulary of semantic state colors. Glimmer (the default theme) is documented here; Glimmer Light swaps the same token names to a light scheme, and Phyrexian, Midnight, Golgari, and Compleated swap them to oil-black violet with an orchid accent, blue-purple, green-black, and a light scheme respectively, among other alternate themes.
+A violet-tinted graphite dark palette, one vivid violet accent, and a strict, color-blind-safe vocabulary of semantic state colors. Glimmer (the default theme) is documented here; Glimmer Light swaps the same token names to a light scheme, and Phyrexian, Midnight, Golgari, and Compleated swap them to oil-black violet with an orchid accent, blue-purple, green-black, and a light scheme respectively, among other alternate themes.
 
 ### Primary
-- **Muted Lavender** (`--accent`): The one accent. Primary actions, current selection, focus rings, the active tab underline, the wordmark glyph, connection highlights. It appears on a small fraction of any screen on purpose.
+- **Glimmer Violet** (`--accent`): The one accent. Primary actions, current selection, focus rings, the active tab underline, the wordmark glyph, connection highlights. It appears on a small fraction of any screen on purpose.
 - **Dusk Plum** (`--accent-dim`): The accent's darker partner, for accent borders, CTA strokes, and pulse low-points where the full accent would shout.
 
 ### Neutral
@@ -51,8 +51,10 @@ Always paired with a status icon; never carried by hue alone.
 - **Complete** (`--state-complete`): Complete, a finished turn not yet looked at; also success: merged branches, passing checks.
 - **Starting (initializing)** (`--state-initializing`): No status uses it since worktree setup displays as Starting.
 
+Agent marks take their brand color (Claude clay, Gemini and Kimi blue, Qwen Code violet) only on the selected or hovered session row, because Claude clay reads as failed red to a red-green color-blind eye and Claude sits on most rows.
+
 ### Named Rules
-**The One Voice Rule.** Muted Lavender is the only accent, used on roughly 10% of any screen or less. Its rarity is the point. Never introduce a second decorative hue.
+**The One Voice Rule.** Glimmer Violet is the only accent, used on roughly 10% of any screen or less. Its rarity is the point. Never introduce a second decorative hue.
 
 **The Earned Signal Rule.** A state color that means nothing teaches the operator to ignore it. State color appears only on a real state change, never as decoration. A red on screen is a real failure. The one exception is the doc editor's Markup pen, which writes editing marks in `--state-failed` ink on `--bg-card` paper inside `.doc-markup` only, because a red pen is how a reader knows a mark is an edit; the state-failed on bg-card contrast pair keeps that ink legible in every theme.
 
@@ -117,7 +119,7 @@ Every action button is `button()` from `public/ui/button.ts`, and a link drawn a
 
 ### Inputs / Fields
 - **Style:** Inset Graphite fill, 1px Rule, `--radius`, padding 8px 12px, Paper text, mono `--type-body` (`--type-title` on phone).
-- **Focus:** border shifts to Muted Lavender (no glow). Placeholders use Faint Ash.
+- **Focus:** border shifts to Glimmer Violet (no glow). Placeholders use Faint Ash.
 - **Label:** sits above the field as an uppercase tracked Label.
 - **Error:** Failed red caption below the field, hidden when empty.
 
@@ -164,7 +166,7 @@ A primary view with a 220px sidebar of nine theme-first sections and one scrolli
 ## 6. Do's and Don'ts
 
 ### Do:
-- **Do** keep Muted Lavender (`--accent`) to ~10% of any screen. One voice, used rarely (the One Voice Rule).
+- **Do** keep Glimmer Violet (`--accent`) to ~10% of any screen. One voice, used rarely (the One Voice Rule).
 - **Do** carry state with an icon plus shape plus color, never hue alone. State must read for a color-blind operator.
 - **Do** speak in monospace (CommitMono) for all UI text, and build hierarchy from weight, tracking, color, and case rather than size.
 - **Do** keep surfaces flat at rest; convey depth with the canvas/card/surface tonal ramp and 1px borders.

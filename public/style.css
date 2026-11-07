@@ -56,40 +56,40 @@
   --rail-inset-block: 10px;
   --rail-inset-inline: 8px;
 
-  --bg:          #0f0e11;
-  --bg-card:     #1a191d;
-  --bg-header:   #141317;
-  --bg-surface:  #201e23;
-  --border:      #39373e;
-  --border-dim:  #2a282e;
-  --border-hover:#49464f;
-  --text:        #cfccd5;
+  --bg:          #0f0d15;
+  --bg-card:     #1b1721;
+  --bg-header:   #15121b;
+  --bg-surface:  #211d29;
+  --border:      #3b3448;
+  --border-dim:  #2b2636;
+  --border-hover:#4b435a;
+  --text:        #cfcbd9;
 
-  --text-dim:    #afacb7;
-  --text-head:   #efedf3;
+  --text-dim:    #b0aabf;
+  --text-head:   #efedf6;
 
-  --text-muted:  #9d99a5;
-  --accent:      #b39edc;
-  --accent-dim:  #745f98;
-  --state-monitoring:   #90b2eb;
+  --text-muted:  #9e97af;
+  --accent:      #b688fe;
+  --accent-dim:  #7a4aba;
+  --state-monitoring:   #60a5fa;
   --state-monitoring-bg: color-mix(in oklab, var(--state-monitoring) 6%, transparent);
-  --state-running:      #a0de93;
+  --state-running:      #22c55e;
   --state-running-bg:   color-mix(in oklab, var(--state-running) 6%, transparent);
-  --state-waiting:      #fd9320;
+  --state-waiting:      #f59e0b;
   --state-waiting-bg:   color-mix(in oklab, var(--state-waiting) 8%, transparent);
-  --state-failed:       #f5626a;
+  --state-failed:       #f84d4c;
   --state-failed-bg:    color-mix(in oklab, var(--state-failed) 6%, transparent);
-  --state-done:         #7f979f;
+  --state-done:         #67e8f9;
   --state-done-bg:      color-mix(in oklab, var(--state-done) 6%, transparent);
-  --state-initializing: #9c8895;
+  --state-initializing: #7b8290;
   --state-initializing-bg: color-mix(in oklab, var(--state-initializing) 6%, transparent);
-  --state-idle:         #848275;
+  --state-idle:         #eab308;
   --state-idle-bg:      color-mix(in oklab, var(--state-idle) 6%, transparent);
-  --state-starting:     #d1a7c2;
+  --state-starting:     #f472b6;
   --state-starting-bg:  color-mix(in oklab, var(--state-starting) 6%, transparent);
-  --state-complete:     #46cdb7;
+  --state-complete:     #34d399;
   --state-complete-bg:  color-mix(in oklab, var(--state-complete) 6%, transparent);
-  --state-dormant:      #56535d;
+  --state-dormant:      #5a527a;
   --state-dormant-bg:   color-mix(in oklab, var(--state-dormant) 6%, transparent);
 
   --state-waiting-glow:  color-mix(in oklab, var(--state-waiting) 25%, transparent);
@@ -97,7 +97,7 @@
   --state-done-glow:     color-mix(in oklab, var(--state-done) 25%, transparent);
   --accent-glow:         color-mix(in oklab, var(--accent) 25%, transparent);
 
-  --perms-warn: #d98941;
+  --perms-warn: #d97706;
 
   --shadow-tint: color-mix(in oklab, var(--accent) 15%, oklch(0.06 0 0));
   --shadow-sm:   0 2px 8px  color-mix(in srgb, var(--shadow-tint) 55%, transparent);
@@ -120,11 +120,6 @@
 
   --transition-fast: 150ms cubic-bezier(0.22, 1, 0.36, 1);
   --transition-med:  250ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-[data-theme='glimmer-light'] {
-  --state-dormant: #93909b;
-  --perms-warn: #864900;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3292,10 +3287,17 @@ html[data-layout="phone"] .plan-editor { font-size: var(--type-title); }
   align-items: stretch;
   border-bottom: 1px solid var(--border-dim);
 }
+.session-row, .session-row-item { --row-line: calc(var(--type-meta) * 1.5); }
+.session-row-item:has(> .session-row[data-prompt="plan"], > .session-row > .session-row-main > :is(.session-row-task, .session-row-ownership, .session-row-links):not([hidden]), > .session-row > .session-row-main > .session-row-meta > .session-row-signals:not([hidden])) {
+  --row-anchor-align: flex-start;
+  --second-line-top: calc(var(--row-line) + 3px);
+  --row-control-top: calc(6px + var(--row-line) * 1.5 + 3px);
+  --row-control-shift: -50%;
+}
 .session-row {
   flex: 1 1 0;
   display: flex;
-  align-items: center;
+  align-items: var(--row-anchor-align, center);
   gap: 10px;
   min-width: 0;
   min-height: 44px;
@@ -3332,7 +3334,7 @@ html[data-layout="phone"] .plan-editor { font-size: var(--type-title); }
 .session-row[data-manager-answered] .session-row-glyph::after {
   content: '';
   position: absolute;
-  top: -3px;
+  top: calc(50% - 9px);
   right: -4px;
   width: 6px;
   height: 6px;
@@ -3340,6 +3342,7 @@ html[data-layout="phone"] .plan-editor { font-size: var(--type-title); }
   background: var(--accent);
 }
 .session-row-glyph, .phone-terminal-glyph { flex: 0 0 12px; display: grid; place-items: center; width: 12px; height: 12px; color: var(--st, var(--text-muted)); }
+.session-row > .session-row-glyph { height: var(--row-line); margin-top: var(--second-line-top, 0px); }
 @property --status-icon-blend { syntax: '<percentage>'; inherits: true; initial-value: 100%; }
 .status-icon {
   display: grid;
@@ -3429,7 +3432,9 @@ html[data-layout="phone"] .plan-editor { font-size: var(--type-title); }
 .session-row:not([data-prompt="plan"]) .session-row-meta:has(.session-row-signals[hidden]) { display: none; }
 .session-row-elapsed {
   flex: 0 0 auto;
+  margin-top: var(--second-line-top, 0px);
   font-size: var(--type-meta);
+  line-height: var(--row-line);
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -3511,8 +3516,9 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
   .session-row .signal:hover { color: var(--text-head); text-decoration: underline; }
 }
 
-.session-row-item > [data-action="remove-session"] { align-self: center; margin: 0 5px; }
-.session-row-item > [data-action="undo-remove"] { display: none; align-self: center; margin-right: 8px; }
+.session-row-item > :is([data-action="remove-session"], [data-action="undo-remove"]) { align-self: var(--row-anchor-align, center); margin-top: var(--row-control-top, 0px); translate: 0 var(--row-control-shift, 0); }
+.session-row-item > [data-action="remove-session"] { margin-inline: 5px; }
+.session-row-item > [data-action="undo-remove"] { display: none; margin-right: 8px; }
 .session-row-close-countdown {
   display: none;
   position: absolute;
@@ -3545,7 +3551,12 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 .session-row:is([data-state="WAITING"], [data-state="FAILED"], [data-state="COMPLETE"], [data-merge="parked"]) {
   --tint: color-mix(in oklch, var(--st) 12%, transparent);
 }
-.session-row.focused { --tint: var(--bg-surface); }
+.session-row.focused { --tint: color-mix(in oklab, var(--accent) 10%, var(--bg-surface)); }
+.session-row.focused::before { box-shadow: inset 2px 0 0 var(--accent); }
+.session-row.focused .session-row-agent { color: var(--agent-brand, var(--text-head)); }
+@media (hover: hover) {
+  .session-row:hover .session-row-agent { color: var(--agent-brand, var(--text-head)); }
+}
 
 
 .focus-center {
