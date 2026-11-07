@@ -1,5 +1,6 @@
 import { WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Wire } from './contracts/whiteboard.ts';
+import { createSpatialGrid, forEachSlotTouching, gridOfRects, hasSlotTouching, placeSlot } from './spatial-grid-core.ts';
 import type { LaidOutBox, LaidOutPanel, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
 
 type Side = 'left' | 'right' | 'top' | 'bottom';
@@ -35,6 +36,7 @@ const LABEL_GAP = 5;
 const LABEL_ASCENT = 10;
 const LABEL_DESCENT = 3;
 const LABEL_CLEARANCE = 2;
+const BROADPHASE_CELL_SIZE = 256;
 const LABEL_SLIDE_FRACTIONS = [0.5, 0.35, 0.65, 0.2, 0.8];
 
 const STEP_BY_DIRECTION = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }] as const;
@@ -144,24 +146,6 @@ function unionOf(rects: readonly Rect[]): Rect | null {
   return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
-interface SweepItem {
-  group: 0 | 1;
-  index: number;
-  rect: Rect;
-}
-
-function sweepTouchingPairs(items: readonly SweepItem[], onPair: (first: SweepItem, second: SweepItem) => void): void {
-  const byLeftEdge = [...items].sort((first, second) => first.rect.x - second.rect.x);
-  let active: SweepItem[] = [];
-  for (const item of byLeftEdge) {
-    active = active.filter((open) => open.rect.x + open.rect.width >= item.rect.x);
-    for (const open of active) {
-      if (rectsTouch(open.rect, item.rect)) onPair(open, item);
-    }
-    active.push(item);
-  }
-}
-
 function rectsTouch(first: Rect, second: Rect): boolean {
   return first.x <= second.x + second.width && second.x <= first.x + first.width && first.y <= second.y + second.height && second.y <= first.y + first.height;
 }
@@ -171,23 +155,24 @@ function byIndexPair(first: readonly [number, number], second: readonly [number,
 }
 
 function touchingPairsWithin(bounds: readonly Rect[]): [number, number][] {
+  const grid = gridOfRects(bounds, BROADPHASE_CELL_SIZE);
   const pairs: [number, number][] = [];
-  sweepTouchingPairs(bounds.map((rect, index) => ({ group: 0, index, rect })), (first, second) => {
-    pairs.push(first.index < second.index ? [first.index, second.index] : [second.index, first.index]);
-  });
+  for (const [index, rect] of bounds.entries()) {
+    forEachSlotTouching(grid, rect, (otherIndex) => {
+      if (otherIndex > index) pairs.push([index, otherIndex]);
+    });
+  }
   return pairs.sort(byIndexPair);
 }
 
 function touchingPairsAcross(firstBounds: readonly Rect[], secondBounds: readonly Rect[]): [number, number][] {
+  const grid = gridOfRects(secondBounds, BROADPHASE_CELL_SIZE);
   const pairs: [number, number][] = [];
-  const items: SweepItem[] = [
-    ...firstBounds.map((rect, index): SweepItem => ({ group: 0, index, rect })),
-    ...secondBounds.map((rect, index): SweepItem => ({ group: 1, index, rect })),
-  ];
-  sweepTouchingPairs(items, (first, second) => {
-    if (first.group === second.group) return;
-    pairs.push(first.group === 0 ? [first.index, second.index] : [second.index, first.index]);
-  });
+  for (const [index, rect] of firstBounds.entries()) {
+    forEachSlotTouching(grid, rect, (otherIndex) => {
+      pairs.push([index, otherIndex]);
+    });
+  }
   return pairs.sort(byIndexPair);
 }
 
@@ -874,7 +859,11 @@ function labelCandidates(segments: readonly Segment[], width: number): Point[] {
 function placeLabels(drawn: readonly DrawnWire[], input: RouteInput, warnings: string[]): Map<string, { at: Point; bounds: Rect }> {
   const placedById = new Map<string, { at: Point; bounds: Rect }>();
   const allSegments = drawn.flatMap((wire) => wire.segments);
+  const segmentGrid = gridOfRects(allSegments.map((segment) => pointBoundsOf([segment.from, segment.to])), BROADPHASE_CELL_SIZE);
   const solids = [...input.boxesById.values(), ...input.softObstacles];
+  const solidGrid = gridOfRects(solids, BROADPHASE_CELL_SIZE);
+  const placedBounds: Rect[] = [];
+  const placedGrid = createSpatialGrid(BROADPHASE_CELL_SIZE);
   for (const wire of drawn) {
     const label = wire.plan.wire.label;
     if (!label) continue;
@@ -884,14 +873,17 @@ function placeLabels(drawn: readonly DrawnWire[], input: RouteInput, warnings: s
       const bounds = labelBoundsAt(baseline, width);
       if (bounds.y < input.contentTop) return false;
       const padded = inflated(bounds, LABEL_CLEARANCE);
-      if (allSegments.some((segment) => segmentHitsRect(segment, padded))) return false;
-      if (solids.some((rect) => rectsOverlap(bounds, rect))) return false;
-      return ![...placedById.values()].some((placed) => rectsOverlap(bounds, placed.bounds));
+      if (hasSlotTouching(segmentGrid, padded, (slot) => { const segment = allSegments[slot]; return segment !== undefined && segmentHitsRect(segment, padded); })) return false;
+      if (hasSlotTouching(solidGrid, bounds, (slot) => { const solid = solids[slot]; return solid !== undefined && rectsOverlap(bounds, solid); })) return false;
+      return !hasSlotTouching(placedGrid, bounds, (slot) => { const placed = placedBounds[slot]; return placed !== undefined && rectsOverlap(bounds, placed); });
     };
     const clearSpot = candidates.find(isClear);
     const at = clearSpot ?? candidates[0] ?? centerOf(wire.plan.from);
     if (!clearSpot) warnings.push(`wire ${wire.plan.wire.id} label "${label}" has no clear spot`);
-    placedById.set(wire.plan.wire.id, { at: { x: Math.round(at.x), y: Math.round(at.y) }, bounds: labelBoundsAt(at, width) });
+    const placedLabelBounds = labelBoundsAt(at, width);
+    placedById.set(wire.plan.wire.id, { at: { x: Math.round(at.x), y: Math.round(at.y) }, bounds: placedLabelBounds });
+    placeSlot(placedGrid, placedBounds.length, placedLabelBounds);
+    placedBounds.push(placedLabelBounds);
   }
   return placedById;
 }

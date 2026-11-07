@@ -222,6 +222,14 @@ test('laned boxes stack in their own labeled row band and a near box sits beside
   assert.equal(aside.y + aside.height / 2, stop.y + stop.height / 2);
   assert.ok(layout.warnings.includes('box stray sits near gone, which is not placed on the board'));
   assert.deepEqual(layout.warnings.filter((warning) => warning.includes('runs through')), []);
+
+  const removed = applyOps(lanedBoard, [{ op: 'remove', id: 'stop' }], { id: 'operator', name: 'operator' }, 0);
+  assert.ok(removed.ok);
+  const afterRemove = layoutBoard(removed.board);
+  assert.deepEqual(afterRemove.elements.filter((element) => element.id === 'stop' || element.id === 'w1'), [], 'a layout after a put that removed a box with near boxes no longer draws the removed box or its wires');
+
+  const farFlung = Board.parse({ ...lanedBoard, elements: { ...lanedBoard.elements, far: { kind: 'box', id: 'far', title: 'Far', at: { x: 1e9, y: 1e9 } }, w2: wire('w2', 'plain', 'far') } });
+  assert.ok(layoutBoard(farFlung).elements.some((element) => element.id === 'w2'), 'a wire to a box a billion units away lays out without walking every cell between');
 });
 
 test('wires keep their named sides, a back wire returns around the outside of the flow, and overlaps and crowding warn by name', () => {

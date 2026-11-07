@@ -3,6 +3,7 @@ import type { Board, Box, BoxMedia, Element, Note, Panel, Unit, Wire } from './c
 
 type BoxLine = Box['lines'][number];
 import { planSteps } from './whiteboard-plan-core.ts';
+import { forEachSlotTouching, gridOfRects } from './spatial-grid-core.ts';
 import { cappedWarnings, labelWidthOf, pathOf, rectsOverlap, routeWires, touchingPairsWithin, unionOf, withoutBends } from './whiteboard-route-core.ts';
 import type { Point } from './whiteboard-route-core.ts';
 
@@ -46,6 +47,8 @@ const BAND_HEADER_HEIGHT = 26;
 const BAND_GAP = 24;
 const MEDIA_GAP = 8;
 const MEDIA_MAX_HEIGHT = 320;
+const OVERLAP_CELL_SIZE = 256;
+const REMEMBERED_ROUTINGS = 8;
 
 const LANE_HEX_BY_COLOR = Object.freeze({
   blue: '#60a5fa', green: '#4ade80', orange: '#fb923c', pink: '#f472b6', cyan: '#22d3ee', yellow: '#facc15',
@@ -276,7 +279,21 @@ function laidOutMedia(box: Box, position: Point, mediaTop: number, mediaSize: { 
   return { kind: box.media.kind, asset: box.media.asset, mime: box.media.mime, hasPreview: box.media.hasPreview, alt: box.media.alt, x: position.x + BOX_PADDING, y: position.y + mediaTop, width: mediaSize.width, height: mediaSize.height };
 }
 
-function boxShape(board: Board, box: Box) {
+type BoxShape = ReturnType<typeof measuredBoxShape>;
+
+const boxShapeCache = new WeakMap<Box, { lanes: Board['lanes']; shape: BoxShape }>();
+const noteShapeCache = new WeakMap<Note, NoteShape>();
+let elementsByKindCache = new WeakMap<Board['elements'], Map<Element['kind'], Element[]>>();
+
+function boxShape(board: Board, box: Box): BoxShape {
+  const cached = boxShapeCache.get(box);
+  if (cached && cached.lanes === board.lanes) return cached.shape;
+  const shape = measuredBoxShape(board, box);
+  boxShapeCache.set(box, { lanes: board.lanes, shape });
+  return shape;
+}
+
+function measuredBoxShape(board: Board, box: Box) {
   const boxWidth = boxWidthOf(box);
   const titleCharsPerLine = charsPerLineAt(TITLE_CHARS_PER_LINE, boxWidth);
   const titleLines = wrapText(box.title, titleCharsPerLine);
@@ -292,13 +309,33 @@ function boxShape(board: Board, box: Box) {
   return { titleLines, wasLines, bodyLines, lane, showsLanePill, headerHeight, outputs, mediaTop: textHeight + MEDIA_GAP, mediaSize, height: headerHeight + outputs.length * OUTPUT_ROW_HEIGHT };
 }
 
-function elementsOfKind<Kind extends Element['kind']>(board: Board, kind: Kind): Extract<Element, { kind: Kind }>[] {
-  return Object.values(board.elements).filter((element): element is Extract<Element, { kind: Kind }> => element.kind === kind);
+function elementsByKindOf(elements: Board['elements']): Map<Element['kind'], Element[]> {
+  const cached = elementsByKindCache.get(elements);
+  if (cached) return cached;
+  const elementsByKind = new Map<Element['kind'], Element[]>();
+  for (const element of Object.values(elements)) {
+    const sameKind = elementsByKind.get(element.kind);
+    if (sameKind) {
+      sameKind.push(element);
+      continue;
+    }
+    elementsByKind.set(element.kind, [element]);
+  }
+  elementsByKindCache.set(elements, elementsByKind);
+  return elementsByKind;
+}
+
+function elementsOfKind<Kind extends Element['kind']>(board: Board, kind: Kind): readonly Extract<Element, { kind: Kind }>[] {
+  return (elementsByKindOf(board.elements).get(kind) ?? []).filter((element): element is Extract<Element, { kind: Kind }> => element.kind === kind);
 }
 
 function noteShape(note: Note): NoteShape {
+  const cached = noteShapeCache.get(note);
+  if (cached) return cached;
   const lines = wrapText(note.text, NOTE_CHARS_PER_LINE);
-  return { lines, height: BOX_PADDING * 2 + (lines.length + 1) * NOTE_LINE_HEIGHT };
+  const shape = { lines, height: BOX_PADDING * 2 + (lines.length + 1) * NOTE_LINE_HEIGHT };
+  noteShapeCache.set(note, shape);
+  return shape;
 }
 
 function noteStackHeightByBoxId(board: Board): Map<string, number> {
@@ -492,7 +529,7 @@ function placeNearBoxes(board: Board, boxesTop: number, boxesById: Map<string, L
 function layoutPanels(board: Board, besidePanels: readonly Rect[], columnLeftEdges: readonly number[], columnWidths: readonly number[], boxesTop: number): LaidOutPanel[] {
   const columnsRight = columnsRightOf(columnLeftEdges, columnWidths);
   const x = Math.max(columnsRight, ...besidePanels.map((rect) => rect.x + rect.width)) + COLUMN_GAP;
-  const panels = elementsOfKind(board, 'panel').sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
+  const panels = [...elementsOfKind(board, 'panel')].sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
   let nextY = boxesTop;
   return panels.map((panel: Panel): LaidOutPanel => {
     const titleLines = wrapText(panel.title, TITLE_CHARS_PER_LINE);
@@ -603,11 +640,58 @@ function overlapWarnings(boxesById: ReadonlyMap<string, LaidOutBox>, panels: rea
     return first && second && rectsOverlap(first, second) ? [`${first.kind} ${first.id} overlaps ${second.kind} ${second.id}`] : [];
   });
   const containedIdsByFrameId = new Map(elementsOfKind(board, 'frame').map((frame) => [frame.id, new Set(frame.contains)]));
-  const coveredTitles = frames.flatMap((frame) => boxes.flatMap((box) => {
+  const boxGrid = gridOfRects(boxes, OVERLAP_CELL_SIZE);
+  const coveredTitles = frames.flatMap((frame) => {
     const titleStrip = { x: frame.x, y: frame.y, width: frame.width, height: FRAME_TITLE_HEIGHT };
-    return !containedIdsByFrameId.get(frame.id)?.has(box.id) && rectsOverlap(box, titleStrip) ? [`box ${box.id} covers the title of frame ${frame.id}`] : [];
-  }));
+    const coveringBoxIndexes: number[] = [];
+    forEachSlotTouching(boxGrid, titleStrip, (boxIndex) => {
+      const box = boxes[boxIndex];
+      if (box && !containedIdsByFrameId.get(frame.id)?.has(box.id) && rectsOverlap(box, titleStrip)) coveringBoxIndexes.push(boxIndex);
+    });
+    return coveringBoxIndexes.sort((first, second) => first - second).map((boxIndex) => `box ${boxes[boxIndex]?.id} covers the title of frame ${frame.id}`);
+  });
   return [...boxOverlaps, ...coveredTitles];
+}
+
+type RouteInput = Parameters<typeof routeWires>[0];
+
+const recentRoutings: { inputKey: unknown[]; routing: ReturnType<typeof routeWires> }[] = [];
+
+function rectKeyOf(rect: Rect): number[] {
+  return [rect.x, rect.y, rect.width, rect.height];
+}
+
+function routeInputKeyOf(input: RouteInput): unknown[] {
+  const inputKey: unknown[] = [input.contentTop, input.wires.length, ...input.wires, input.boxesById.size];
+  for (const box of input.boxesById.values()) {
+    inputKey.push(box.id, ...rectKeyOf(box), box.lane?.hex ?? null, box.outputs.length);
+    for (const output of box.outputs) inputKey.push(output.id, output.port.x, output.port.y);
+  }
+  inputKey.push(input.panels.length);
+  for (const panel of input.panels) inputKey.push(panel.id, ...rectKeyOf(panel));
+  inputKey.push(input.softObstacles.length);
+  for (const obstacle of input.softObstacles) inputKey.push(...rectKeyOf(obstacle));
+  inputKey.push(input.loopFrames.length);
+  for (const loopFrame of input.loopFrames) inputKey.push(...rectKeyOf(loopFrame));
+  return inputKey;
+}
+
+function isSameKey(first: readonly unknown[], second: readonly unknown[]): boolean {
+  if (first.length !== second.length) return false;
+  for (let index = 0; index < first.length; index += 1) {
+    if (first[index] !== second[index]) return false;
+  }
+  return true;
+}
+
+function routeWiresReusingUnchanged(input: RouteInput): ReturnType<typeof routeWires> {
+  const inputKey = routeInputKeyOf(input);
+  const reusable = recentRoutings.find((recent) => isSameKey(recent.inputKey, inputKey));
+  if (reusable) return reusable.routing;
+  const routing = routeWires(input);
+  recentRoutings.unshift({ inputKey, routing });
+  recentRoutings.length = Math.min(recentRoutings.length, REMEMBERED_ROUTINGS);
+  return routing;
 }
 
 function placeAndRoute(board: Board, placement: Placement): PlacedBoard {
@@ -617,7 +701,7 @@ function placeAndRoute(board: Board, placement: Placement): PlacedBoard {
   const frames = layoutFrames(board, boxesById);
   const notes = layoutNotes(board, boxesById);
   const panels = layoutPanels(board, [...boxesById.values(), ...notes], columnLeftEdges, columnWidths, placement.boxesTop);
-  const routing = routeWires({
+  const routing = routeWiresReusingUnchanged({
     wires: elementsOfKind(board, 'wire'), boxesById, panels,
     softObstacles: [...notes, ...frames.map((frame) => ({ x: frame.x, y: frame.y, width: frame.width, height: FRAME_TITLE_HEIGHT }))],
     loopFrames: frames.filter((frame) => frame.isLoop),
@@ -755,6 +839,7 @@ function legendEntriesOf(board: Board, unitsById: ReadonlyMap<string, LaidOutUni
 }
 
 function layoutBoard(storedBoard: Board): BoardLayout {
+  elementsByKindCache = new WeakMap();
   const unitsById = layoutUnits(storedBoard);
   const freeformTop = planBandBottom(unitsById);
   const pinnedOffsetY = freeformTop - MARGIN;
