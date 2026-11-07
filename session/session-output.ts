@@ -33,6 +33,7 @@ interface SessionOutputOptions {
   on: SessionEventBinder;
   off: SessionEventBinder;
   screenKeeperFactory?: ScreenKeeperFactory | null;
+  onPasteExpired?: (text: string) => void;
 }
 
 type PasteResult = {
@@ -180,6 +181,7 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
     const expiredIndex = queuedPastes.indexOf(expired);
     if (expiredIndex === -1) return;
     queuedPastes.splice(expiredIndex, 1);
+    options.onPasteExpired?.(expired.text);
     if (queuedPastes.length === 0 && !isDrainingQueue) stopWatchingForReady();
   }
 

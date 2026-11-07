@@ -473,6 +473,7 @@ class Session extends EventEmitter {
       on: (event, listener) => { this.on(event, listener); },
       off: (event, listener) => { this.off(event, listener); },
       screenKeeperFactory,
+      onPasteExpired: (text) => { console.warn(`[session:${this.name}] dropped a queued paste of ${text.length} characters: the agent never became ready to take it (state ${this.state})`); },
     });
 
     const resolvedAdapter = adapter || resolveAdapter(agent, { label: `session:${name}` });

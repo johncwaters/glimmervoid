@@ -19,6 +19,7 @@ export const sessionClientVariants = [
     runInPlace: z.boolean().optional(),
     environment: z.string().optional(),
     resumeSessionId: z.string().optional(),
+    prompt: z.string().max(4000).optional(),
     requestId,
   }),
   loose('quick-session', { id: sessionId, requestId }),

@@ -99,5 +99,27 @@ function rootsToAutoSave(configuredRoots: readonly string[], suggestions: readon
   return suggestions.filter((suggestion) => suggestion.gitRepoCount > 0).map((suggestion) => suggestion.path);
 }
 
-export { canOpenShell, installableAgentsText, decideFirstRunSteps, decideOnboardingStepReports, onboardingStepReportKey, agentSummaryText, gitRepoCountText, rootsToAutoSave, withRepoRootsAdded, UPCOMING_STEPS };
-export type { FirstRunSteps };
+
+const FIRST_TASK_PROMPT = 'Get to know this repo, then draw its architecture on a Glimmervoid board: the main modules, how they connect, and where a typical change starts. Keep it to one screen.';
+
+type StartProject = { name: string; path: string };
+
+type ScannedDirectory = { projects: readonly { name: string; path: string }[] };
+
+function startProjects(directories: readonly ScannedDirectory[]): StartProject[] {
+  return directories.flatMap((directory) => directory.projects.map(({ name, path }) => ({ name, path })));
+}
+
+function decideStartAgents(agentListing: unknown) {
+  return decideAgentPicker(listedAgents(agentListing).filter((agent) => !isShellAgent(agent)));
+}
+
+function decideVisibleProjects(projects: readonly StartProject[], filterText: string, selectedPath: string | null) {
+  const needle = filterText.trim().toLowerCase();
+  const visibleProjects = needle ? projects.filter((project) => project.name.toLowerCase().includes(needle)) : [...projects];
+  const isSelectionVisible = visibleProjects.some((project) => project.path === selectedPath);
+  return { visibleProjects, selectedPath: isSelectionVisible ? selectedPath : visibleProjects[0]?.path ?? null };
+}
+
+export { FIRST_TASK_PROMPT, startProjects, decideStartAgents, decideVisibleProjects, canOpenShell, installableAgentsText, decideFirstRunSteps, decideOnboardingStepReports, onboardingStepReportKey, agentSummaryText, gitRepoCountText, rootsToAutoSave, withRepoRootsAdded, UPCOMING_STEPS };
+export type { FirstRunSteps, StartProject };

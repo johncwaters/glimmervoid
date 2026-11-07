@@ -1,31 +1,33 @@
 import { createActionStatus, requestFailureText, DEFAULT_REPLY_TIMEOUT_MS } from '../action-status.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
-import { openAddSessionDialog, openShellSessionDialog } from '../session-actions.ts';
+import { openShellSessionDialog } from '../session-actions.ts';
 import { el } from '../dom-helpers.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { createNotificationPermissionControl } from '../notifications.ts';
 import type { OperatorActionOf } from '#shared/contracts/control-messages.ts';
-import { agentSummaryText, canOpenShell, installableAgentsText, decideFirstRunSteps, decideOnboardingStepReports, onboardingStepReportKey, rootsToAutoSave, UPCOMING_STEPS } from './first-run-checklist-core.ts';
-import type { FirstRunSteps } from './first-run-checklist-core.ts';
+import { agentSummaryText, startProjects, canOpenShell, installableAgentsText, decideFirstRunSteps, decideOnboardingStepReports, onboardingStepReportKey, rootsToAutoSave, UPCOMING_STEPS } from './first-run-checklist-core.ts';
+import type { FirstRunSteps, StartProject } from './first-run-checklist-core.ts';
+import { createStartForm } from './start-form.ts';
 import { createRepoRootsAdder, saveRepoRoots } from './repo-roots-adder.ts';
 import { buildCommandRow, buildSetupStep } from './setup-step.ts';
 import { button } from '../ui/button.ts';
 
 const AGENT_INSTALL_COMMAND = 'npm install -g @anthropic-ai/claude-code';
 
-type FirstRunState = { steps: FirstRunSteps; agentSummary: string; installableAgents: string; repoRoots: string[]; isShellAvailable: boolean };
+type FirstRunState = { steps: FirstRunSteps; agentSummary: string; installableAgents: string; repoRoots: string[]; isShellAvailable: boolean; agentListing: unknown; startableProjects: StartProject[] };
 
 let checklistEl: HTMLElement | null = null;
 let stepsEl: HTMLOListElement | null = null;
 let rescanButton: HTMLButtonElement | null = null;
 let repoRootsAdder: ReturnType<typeof createRepoRootsAdder> | null = null;
-let currentState: FirstRunState = { steps: UPCOMING_STEPS, agentSummary: '', installableAgents: installableAgentsText(null), repoRoots: [], isShellAvailable: false };
+let currentState: FirstRunState = { steps: UPCOMING_STEPS, agentSummary: '', installableAgents: installableAgentsText(null), repoRoots: [], isShellAvailable: false, agentListing: null, startableProjects: [] };
 let loadSequence = 0;
 let hasRescanFoundNoAgent = false;
 let hasTriedSavingFoundRoots = false;
 const reportedStepKeys = new Set<string>();
 const loadStatus = createActionStatus('first-run-load-status');
 const notificationPermissionControl = createNotificationPermissionControl();
+const startForm = createStartForm({ onAction: reportOnboardingAction });
 
 function reportOnboardingAction(action: OperatorActionOf<'onboarding'>) {
   sendControlMsg({ type: 'dashboard-telemetry', event: 'operator_action', properties: { surface: 'onboarding', action } });
@@ -80,17 +82,8 @@ function repoRootsStepBody(): HTMLElement[] {
 }
 
 function firstSessionStepBody(): HTMLElement[] {
-  const actions = el('div', 'first-run-step-actions');
-  const addSessionButton = button({ variant: 'primary', label: '+ Session' });
-  addSessionButton.addEventListener('click', () => {
-    reportOnboardingAction('add-session');
-    openAddSessionDialog();
-  });
-  actions.append(addSessionButton);
-  return [
-    el('p', 'first-run-step-text', 'Pick a project and an agent. The session runs in its own git worktree, so your checkout is never touched.'),
-    actions,
-  ];
+  startForm.update({ agentListing: currentState.agentListing, startableProjects: currentState.startableProjects });
+  return [startForm.element];
 }
 
 function renderSteps() {
@@ -128,7 +121,7 @@ async function loadFirstRunState({ rescanAgents }: { rescanAgents: boolean }) {
     }
     const steps = decideFirstRunSteps({ agentListing, repoRoots });
     if (rescanAgents) hasRescanFoundNoAgent = steps.agent === 'current';
-    currentState = { steps, agentSummary: agentSummaryText(agentListing), installableAgents: installableAgentsText(agentListing), repoRoots, isShellAvailable: canOpenShell(agentListing) };
+    currentState = { steps, agentSummary: agentSummaryText(agentListing), installableAgents: installableAgentsText(agentListing), repoRoots, isShellAvailable: canOpenShell(agentListing), agentListing, startableProjects: isRootsScan ? startProjects(rootsScan.directories) : [] };
     loadStatus.clear();
     renderSteps();
     reportOnboardingStepChanges(currentState.steps);

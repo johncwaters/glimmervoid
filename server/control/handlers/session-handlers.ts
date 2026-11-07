@@ -123,9 +123,22 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       refuseAddSession(msg, ws, { error: created.error });
       return null;
     }
+    sendFirstPrompt(created.project.id, msg.prompt);
     if (msg.requestId) replyTo(ws, msg, 'add-session-result', { ok: true, error: null, sessionId: created.project.id });
     console.log(`[control] Added session via UI: ${created.project.name}${skipPerms ? ' (skip permissions)' : ' (permission prompts)'}${remote ? ` (Coder environment ${remote.environment.name})` : ''}`);
     return created.project;
+  }
+
+  function sendFirstPrompt(sessionId: string, prompt: string | undefined) {
+    const firstPrompt = prompt?.trim();
+    if (!firstPrompt) return;
+    const session = sessions.get(sessionId);
+    if (!session) {
+      console.warn(`[control] First prompt dropped: session ${sessionId} is not loaded`);
+      return;
+    }
+    const pasted = session.pasteTextWhenReady(firstPrompt, { submit: true });
+    if (!pasted.ok) console.warn(`[control] First prompt not sent to "${session.name}" (${pasted.reason})`);
   }
 
   async function remoteRepoSource(projectPath: string): Promise<{ ok: true; repoRemoteUrl: string; baseBranch: string } | { ok: false; error: string }> {
