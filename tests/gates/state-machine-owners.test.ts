@@ -35,7 +35,7 @@ const MACHINES: OwnedMachine[] = [
     handles: /\bPrActionRun(?:Record|State)\b/,
     writes: [/\bstate\s*:\s*["'`](?:running|started|done|failed|refused|interrupted)["'`]/],
     allowedOffenders: new Map([
-      ['server/github/pr-flows-wiring.ts', { writeCount: 2, reason: 'builds running runs and checks running alone for liveness until the pr action slice' }],
+      ['server/github/pr-flows-wiring.ts', { writeCount: 1, reason: 'seeds the in-memory rule ActionRun, a separate record that shares the state words' }],
     ]),
   },
   {

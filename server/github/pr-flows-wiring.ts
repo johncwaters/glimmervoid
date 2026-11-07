@@ -4,7 +4,7 @@ import { PR_ACTION_REPORT_URL_ENV, PR_ACTION_TOKEN_ENV, PrFlowRule, PrFlowsState
 import type { PrActionReportBody, PrActionRunRecord, PrActionRunRequest, PrActionRunView, PrFlowPrAction, PrFlowActionChoice, PrFlowActionOutput, PrFlowActionRunStatus, PrFlowApproveRequest, PrFlowCommand, PrFlowDisposeRequest, PrFlowDisposeResult, PrFlowItem, PrFlowItemRequest, PrFlowPendingApproval, PrFlowSaveRuleRequest, PrFlowSourceOutput, PrFlowSourceRunStatus, PrFlowsStatus } from '../../shared/contracts/pr-flows.ts';
 import { createJsonStateStore } from '../json-file.ts';
 import { fencedUntrusted } from '../lanes/core/lane-report-core.ts';
-import { acceptReport, branchMovedNote, commandFingerprint, prActionRunAfterExit, prFlowSetup, prFlowsConfig, visibleRun, withInterruptedRuns, withPrActionRun, fixLocallyPrompt, itemLocation, mergeItems, plannedActions, savedRuleFor, scopedToRepo, shouldTellBranchMoved, withRuleRun, sourceCandidates, threadCandidates, withHandled, withOnlyOpenPrs, withReopened } from './core/pr-flows-core.ts';
+import { acceptReport, branchMovedNote, isCommandStillRunning, newPrActionRun, commandFingerprint, prActionRunAfterExit, prFlowSetup, prFlowsConfig, visibleRun, withInterruptedRuns, withPrActionRun, fixLocallyPrompt, itemLocation, mergeItems, plannedActions, savedRuleFor, scopedToRepo, shouldTellBranchMoved, withRuleRun, sourceCandidates, threadCandidates, withHandled, withOnlyOpenPrs, withReopened } from './core/pr-flows-core.ts';
 import type { PrFlowsExternal } from './pr-flows-external.ts';
 import type { PackOnDisk } from '../../shared/contracts/pack.ts';
 
@@ -195,8 +195,10 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
 
   async function finishPrActionRun(prKey: string, startedRun: PrActionRunRecord, output: PrFlowActionOutput): Promise<void> {
     const current = state.prActionRunByPr[prKey]?.[startedRun.actionId];
-    if (current?.runId !== startedRun.runId || current.state !== 'running') return;
-    await persist(withPrActionRun(state, prKey, prActionRunAfterExit(current, output, now())));
+    if (current?.runId !== startedRun.runId || !isCommandStillRunning(current)) return;
+    const finished = prActionRunAfterExit(current, output, now());
+    if (!finished) return;
+    await persist(withPrActionRun(state, prKey, finished));
   }
 
   async function runPrAction(request: PrActionRunRequest): Promise<PrFlowDisposeResult> {
@@ -206,13 +208,12 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
     if (pr.headRefOid !== request.head) return { ok: false, error: 'The pull request has a new head since this view loaded; check it and click again.' };
     const action = scopedToRepo(setup.commands.prActions, pr.repo).find((candidate) => candidate.id === request.actionId && setup.approved.has(commandFingerprint('pr-action', candidate)));
     if (!action) return { ok: false, error: 'That action is not in prFlows.prActions for this repository, or it waits for your approval in My PRs.' };
-    if (state.prActionRunByPr[pr.key]?.[action.id]?.state === 'running') return { ok: false, error: `${action.label} is already running on this pull request.` };
+    const currentRun = state.prActionRunByPr[pr.key]?.[action.id];
+    if (currentRun && isCommandStillRunning(currentRun)) return { ok: false, error: `${action.label} is already running on this pull request.` };
     const runId = crypto.randomUUID();
     const reportUrl = reportUrlFor(runId);
     const reportToken = reportUrl === null ? null : crypto.randomBytes(32).toString('base64url');
-    const run: PrActionRunRecord = {
-      runId, actionId: action.id, label: action.label, head: pr.headRefOid, startedAt: now(), finishedAt: null, state: 'running', message: '', reportToken,
-    };
+    const run = newPrActionRun({ runId, actionId: action.id, label: action.label, head: pr.headRefOid, startedAt: now(), reportToken });
     await persist(withPrActionRun(state, pr.key, run));
     const reportEnv: Record<string, string> = reportUrl === null || reportToken === null ? {} : { [PR_ACTION_REPORT_URL_ENV]: reportUrl, [PR_ACTION_TOKEN_ENV]: reportToken };
     void external.runAction(action, pr, undefined, reportEnv).then((output) => finishPrActionRun(pr.key, run, output));

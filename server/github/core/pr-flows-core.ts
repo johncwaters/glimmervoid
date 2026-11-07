@@ -5,7 +5,8 @@ import type { TeamReviewThreadNode } from '../../../shared/contracts/team-review
 import type { PackOnDisk, PackPrFlows } from '../../../shared/contracts/pack.ts';
 import type { PackPrFlowRule } from '../../../shared/contracts/pr-flows.ts';
 import { PR_FLOW_PLACEHOLDERS_BY_KIND, PrFlowCommand, PrFlowPrAction, PrFlowRule, PrFlowSourceCommand, PrFlowsSettings } from '../../../shared/contracts/pr-flows.ts';
-import type { PrActionReportBody, PrActionRunRecord, PrActionRunView, PrFlowPendingApproval, PrFlowSourceFinding, PrFlowActionRef, PrFlowDisposition, PrFlowHandled, PrFlowItem, PrFlowPriority, PrFlowSource, PrFlowsState } from '../../../shared/contracts/pr-flows.ts';
+import { defineTransitions } from '../../../shared/state-transitions.ts';
+import type { PrActionReportBody, PrActionRunRecord, PrActionRunState, PrActionRunView, PrFlowPendingApproval, PrFlowSourceFinding, PrFlowActionRef, PrFlowDisposition, PrFlowHandled, PrFlowItem, PrFlowPriority, PrFlowSource, PrFlowsState } from '../../../shared/contracts/pr-flows.ts';
 
 type PrFlowCandidate = {
   path: string; lineStart: number | null; lineEnd: number | null; priority: PrFlowPriority; source: Omit<PrFlowSource, 'excerpt' | 'dismissalKey'>; body: string; url: string | null;
@@ -161,7 +162,7 @@ export function withOnlyOpenPrs(state: PrFlowsState, openPrKeys: ReadonlySet<str
     ruleRunsByPr: Object.fromEntries(Object.entries(state.ruleRunsByPr).filter(isOpen)),
     prActionRunByPr: Object.fromEntries(Object.entries(state.prActionRunByPr).flatMap(([prKey, runsByAction]) => {
       if (openPrKeys.has(prKey)) return [[prKey, runsByAction]];
-      const liveRuns = Object.entries(runsByAction).filter(([, run]) => run.state === 'running' || run.state === 'started');
+      const liveRuns = Object.entries(runsByAction).filter(([, run]) => isLiveRun(run));
       return liveRuns.length === 0 ? [] : [[prKey, Object.fromEntries(liveRuns)]];
     })),
   };
@@ -402,9 +403,37 @@ export function withPrActionRun(state: PrFlowsState, prKey: string, run: PrActio
   return { ...state, prActionRunByPr: { ...state.prActionRunByPr, [prKey]: { ...state.prActionRunByPr[prKey], [run.actionId]: run } } };
 }
 
-export function prActionRunAfterExit(run: PrActionRunRecord, output: { outcome: 'done' | 'started' | 'refused' | 'failed'; message: string }, nowMs: number): PrActionRunRecord {
-  if (output.outcome === 'started') return { ...run, state: 'started', message: output.message };
-  return { ...run, state: output.outcome, message: output.message, finishedAt: nowMs, reportToken: null };
+type PrActionRunEvent = 'done' | 'started' | 'refused' | 'failed' | 'server_restarted';
+
+const PR_ACTION_RUN_EVENTS: readonly PrActionRunEvent[] = ['done', 'started', 'refused', 'failed', 'server_restarted'];
+
+const PR_ACTION_RUN_MOVES = defineTransitions<PrActionRunState, PrActionRunEvent>({
+  running: { started: 'started', done: 'done', failed: 'failed', refused: 'refused', server_restarted: 'interrupted' },
+  started: { started: 'started', done: 'done', failed: 'failed', refused: 'refused' },
+  done: {}, failed: {}, refused: {}, interrupted: {},
+});
+
+export function newPrActionRun(fields: Pick<PrActionRunRecord, 'runId' | 'actionId' | 'label' | 'head' | 'startedAt' | 'reportToken'>): PrActionRunRecord {
+  return { ...fields, finishedAt: null, state: 'running', message: '' };
+}
+
+export function isCommandStillRunning(run: Pick<PrActionRunRecord, 'state'>): boolean {
+  return PR_ACTION_RUN_MOVES.next(run.state, 'server_restarted') !== null;
+}
+
+function isLiveRun(run: Pick<PrActionRunRecord, 'state'>): boolean {
+  return PR_ACTION_RUN_EVENTS.some((event) => PR_ACTION_RUN_MOVES.next(run.state, event) !== null);
+}
+
+function runAfter(run: PrActionRunRecord, event: PrActionRunEvent, message: string, nowMs: number): PrActionRunRecord | null {
+  const state = PR_ACTION_RUN_MOVES.next(run.state, event);
+  if (state === null) return null;
+  if (isLiveRun({ state })) return { ...run, state, message };
+  return { ...run, state, message, finishedAt: nowMs, reportToken: null };
+}
+
+export function prActionRunAfterExit(run: PrActionRunRecord, output: { outcome: 'done' | 'started' | 'refused' | 'failed'; message: string }, nowMs: number): PrActionRunRecord | null {
+  return runAfter(run, output.outcome, output.message, nowMs);
 }
 
 function isSameToken(presented: string, expected: string): boolean {
@@ -414,17 +443,20 @@ function isSameToken(presented: string, expected: string): boolean {
 }
 
 export function acceptReport(run: PrActionRunRecord, presentedToken: string, body: PrActionReportBody, nowMs: number): { ok: true; run: PrActionRunRecord } | { ok: false; status: 401 | 409 } {
-  if (run.state !== 'running' && run.state !== 'started') return { ok: false, status: 409 };
+  if (!isLiveRun(run)) return { ok: false, status: 409 };
   if (run.reportToken === null || !isSameToken(presentedToken, run.reportToken)) return { ok: false, status: 401 };
-  if (body.outcome === 'started') return { ok: true, run: { ...run, state: 'started', message: body.message ?? run.message } };
-  return { ok: true, run: { ...run, state: body.outcome, message: body.message ?? '', finishedAt: nowMs, reportToken: null } };
+  const reportedMessage = body.message ?? (body.outcome === 'started' ? run.message : '');
+  const reported = runAfter(run, body.outcome, reportedMessage, nowMs);
+  if (!reported) return { ok: false, status: 409 };
+  return { ok: true, run: reported };
 }
 
 const INTERRUPTED_MESSAGE = 'Glimmervoid restarted';
 
 function interruptedOnLoad(run: PrActionRunRecord): PrActionRunRecord {
-  if (run.state !== 'running') return run;
-  return { ...run, state: 'interrupted', message: INTERRUPTED_MESSAGE, reportToken: null };
+  const interrupted = runAfter(run, 'server_restarted', INTERRUPTED_MESSAGE, run.finishedAt ?? run.startedAt);
+  if (!interrupted) return run;
+  return { ...interrupted, finishedAt: run.finishedAt };
 }
 
 export function withInterruptedRuns(state: PrFlowsState): PrFlowsState {
@@ -436,8 +468,7 @@ export function withInterruptedRuns(state: PrFlowsState): PrFlowsState {
 
 export function visibleRun(run: PrActionRunRecord | undefined, pr: Pick<MyPr, 'headRefOid'>): PrActionRunView | null {
   if (!run) return null;
-  const isLive = run.state === 'running' || run.state === 'started';
-  if (!isLive && run.head !== pr.headRefOid) return null;
+  if (!isLiveRun(run) && run.head !== pr.headRefOid) return null;
   return { actionId: run.actionId, label: run.label, state: run.state, message: run.message };
 }
 
