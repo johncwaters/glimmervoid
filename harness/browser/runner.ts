@@ -910,6 +910,140 @@ async function runRemoveFromPhoneTerminal(viewer: Viewer, sessionId: string, dea
   return outcomeFor('returned-to-board', returnedToBoard);
 }
 
+const UNDO_CLOSE_WINDOW_MS = 8000;
+const UNDO_CLOSE_SCALE_TOLERANCE = 0.1;
+const UNDO_CLOSE_AWAY_MS = 3000;
+const UNDO_CLOSE_REMOVAL_SLACK_MS = 4000;
+
+function rosterItemSelector(viewer: Viewer, sessionId: string): string {
+  const list = viewer.layout === 'phone' ? '.phone-board-list' : '.focus-rail';
+  return `${list} .session-row-item:has(> button.session-row[data-id="${sessionId}"])`;
+}
+
+async function addUndoCloseSession(viewer: Viewer, projectDirectory: string, label: string): Promise<string> {
+  const reply = await sendControlMessage(viewer, { type: 'add-session', name: `undo-close ${label}`, path: projectDirectory, prompt: 'stop', requestId: `harness-undo-close-${label}` });
+  if (reply?.ok !== true || typeof reply.sessionId !== 'string') throw new Error(`add-session ${label} was refused: ${String(reply?.error)}`);
+  return reply.sessionId;
+}
+
+async function readCloseCountdown(viewer: Viewer, sessionId: string): Promise<{ isListed: boolean; isClosing: boolean; scale: number | null }> {
+  return viewer.page.evaluate((itemSelector) => {
+    const item = document.querySelector(itemSelector);
+    if (!item) return { isListed: false, isClosing: false, scale: null };
+    const countdown = item.querySelector(':scope > .session-row-close-countdown');
+    const transform = countdown ? getComputedStyle(countdown).transform : 'none';
+    const scale = transform === 'none' ? null : new DOMMatrixReadOnly(transform).a;
+    return { isListed: true, isClosing: item.hasAttribute('data-closing'), scale };
+  }, rosterItemSelector(viewer, sessionId));
+}
+
+async function closeFromRoster(viewer: Viewer, sessionId: string, deadlines: Deadlines): Promise<number> {
+  const clickedAt = Date.now();
+  await viewer.page.locator(`${rosterItemSelector(viewer, sessionId)} > [data-action="remove-session"]`).click();
+  const closing = await pollUntil(async () => {
+    const countdown = await readCloseCountdown(viewer, sessionId);
+    return countdown.isClosing ? { ok: true, detail: 'closing' } : { ok: false, detail: `listed ${countdown.isListed}, not closing` };
+  }, { label: `${sessionId} enters its undo window`, timeoutMs: deadlines.stepMs, intervalMs: 50 });
+  if (!closing.ok) throw new Error(closing.detail);
+  return clickedAt;
+}
+
+async function expectCountdownTracks(viewer: Viewer, sessionId: string, closedAt: number, label: string): Promise<string> {
+  const countdown = await readCloseCountdown(viewer, sessionId);
+  const expectedScale = Math.max(0, 1 - (Date.now() - closedAt) / UNDO_CLOSE_WINDOW_MS);
+  if (!countdown.isClosing || countdown.scale === null) throw new Error(`${label}: the row is not closing (listed ${countdown.isListed})`);
+  if (Math.abs(countdown.scale - expectedScale) > UNDO_CLOSE_SCALE_TOLERANCE) {
+    throw new Error(`${label}: the undo line reads ${countdown.scale.toFixed(2)} of its width, ${expectedScale.toFixed(2)} is left of the window`);
+  }
+  return `${label} ${countdown.scale.toFixed(2)}~${expectedScale.toFixed(2)}`;
+}
+
+async function expectRowOpen(viewer: Viewer, sessionId: string, label: string, deadlines: Deadlines): Promise<void> {
+  const open = await pollUntil(async () => {
+    const countdown = await readCloseCountdown(viewer, sessionId);
+    if (countdown.isListed && !countdown.isClosing) return { ok: true, detail: 'open' };
+    return { ok: false, detail: `listed ${countdown.isListed}, closing ${countdown.isClosing}` };
+  }, { label, timeoutMs: deadlines.stepMs, intervalMs: 50 });
+  if (!open.ok) throw new Error(open.detail);
+}
+
+async function expectRemovedOnSchedule(viewer: Viewer, sessionId: string, closedAt: number, label: string, deadlines: Deadlines): Promise<void> {
+  const removed = await pollUntil(async () => {
+    const countdown = await readCloseCountdown(viewer, sessionId);
+    return countdown.isListed ? { ok: false, detail: 'still listed' } : { ok: true, detail: 'gone' };
+  }, { label: `${label} removed`, timeoutMs: Math.max(0, closedAt + UNDO_CLOSE_WINDOW_MS + UNDO_CLOSE_REMOVAL_SLACK_MS - Date.now()), intervalMs: deadlines.pollIntervalMs });
+  if (!removed.ok) throw new Error(removed.detail);
+  const removedAfterMs = Date.now() - closedAt;
+  if (removedAfterMs < UNDO_CLOSE_WINDOW_MS) throw new Error(`${label} left the roster ${removedAfterMs}ms after Close, inside the undo window`);
+}
+
+async function leaveRosterAndReturn(viewer: Viewer, deadlines: Deadlines): Promise<void> {
+  if (viewer.layout === 'phone') {
+    await viewer.page.locator(PHONE_MORE_SELECTOR).first().click();
+    await viewer.page.locator(PHONE_SETTINGS_MENU_SELECTOR).first().click();
+    const atSettings = await waitForSettingsHistory(viewer, 'settings shown', { phoneScreen: 'settings' }, deadlines);
+    if (!atSettings.ok) throw new Error(atSettings.detail);
+    await sleep(UNDO_CLOSE_AWAY_MS);
+    await viewer.page.evaluate(() => history.back());
+    const atBoard = await waitForSettingsHistory(viewer, 'back on the board', { phoneScreen: 'board' }, deadlines);
+    if (!atBoard.ok) throw new Error(atBoard.detail);
+    return;
+  }
+  await viewer.page.locator(DESKTOP_LEAVE_FOCUS_SELECTOR).first().click();
+  await viewer.page.locator('.focus-rail').first().waitFor({ state: 'hidden', timeout: deadlines.stepMs });
+  await sleep(UNDO_CLOSE_AWAY_MS);
+  await viewer.page.locator(DESKTOP_ENTER_FOCUS_SELECTOR).first().click();
+  await viewer.page.locator('.focus-rail').first().waitFor({ state: 'visible', timeout: deadlines.stepMs });
+}
+
+async function runAssertUndoClose(viewer: Viewer, projectDirectory: string, deadlines: Deadlines): Promise<StepOutcome> {
+  const findings: string[] = [];
+  const [undone, leftBehind, firstToExpire, undoneByButton, lastToExpire] = await Promise.all(
+    ['undone', 'left-behind', 'first-to-expire', 'undone-by-button', 'last-to-expire'].map((label) => addUndoCloseSession(viewer, projectDirectory, label)),
+  );
+  for (const sessionId of [undone, leftBehind, firstToExpire, undoneByButton, lastToExpire]) {
+    await viewer.page.locator(`${rosterItemSelector(viewer, sessionId)} > button.session-row:is([data-state="IDLE"], [data-state="COMPLETE"])`).waitFor({ state: 'attached', timeout: deadlines.reattachMs });
+  }
+
+  await closeFromRoster(viewer, undone, deadlines);
+  await sleep(1000);
+  await viewer.page.locator(`${rosterItemSelector(viewer, undone)} > [data-action="undo-remove"]`).click();
+  await expectRowOpen(viewer, undone, 'Undo restores the row', deadlines);
+  findings.push('close then Undo restores');
+
+  const leftBehindClosedAt = await closeFromRoster(viewer, leftBehind, deadlines);
+  await leaveRosterAndReturn(viewer, deadlines);
+  findings.push(await expectCountdownTracks(viewer, leftBehind, leftBehindClosedAt, 'after leaving and returning'));
+  await expectRemovedOnSchedule(viewer, leftBehind, leftBehindClosedAt, 'the session closed before leaving', deadlines);
+  findings.push('closes on schedule after leaving');
+
+  const firstToExpireClosedAt = await closeFromRoster(viewer, firstToExpire, deadlines);
+  await sleep(1000);
+  const undoneByButtonClosedAt = await closeFromRoster(viewer, undoneByButton, deadlines);
+  await sleep(1000);
+  await closeFromRoster(viewer, lastToExpire, deadlines);
+  await viewer.page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); });
+  await viewer.page.keyboard.press('ControlOrMeta+z');
+  await expectRowOpen(viewer, lastToExpire, 'Ctrl+Z undoes the newest close', deadlines);
+  findings.push(await expectCountdownTracks(viewer, firstToExpire, firstToExpireClosedAt, 'oldest after Ctrl+Z'));
+  findings.push(await expectCountdownTracks(viewer, undoneByButton, undoneByButtonClosedAt, 'middle after Ctrl+Z'));
+
+  const lastToExpireClosedAt = await closeFromRoster(viewer, lastToExpire, deadlines);
+  await sleep(500);
+  await viewer.page.locator(`${rosterItemSelector(viewer, undoneByButton)} > [data-action="undo-remove"]`).click();
+  await expectRowOpen(viewer, undoneByButton, 'Undo on one of three pending closes', deadlines);
+  findings.push(await expectCountdownTracks(viewer, firstToExpire, firstToExpireClosedAt, 'oldest after another Undo'));
+  findings.push(await expectCountdownTracks(viewer, lastToExpire, lastToExpireClosedAt, 'newest after another Undo'));
+
+  await expectRemovedOnSchedule(viewer, firstToExpire, firstToExpireClosedAt, 'the oldest pending close', deadlines);
+  findings.push(await expectCountdownTracks(viewer, lastToExpire, lastToExpireClosedAt, 'newest after the oldest expired'));
+  await expectRemovedOnSchedule(viewer, lastToExpire, lastToExpireClosedAt, 'the newest pending close', deadlines);
+
+  await expectRowOpen(viewer, undone, 'the first undone session stays', deadlines);
+  await expectRowOpen(viewer, undoneByButton, 'the session undone by its button stays', deadlines);
+  return passedOutcome('undo-close', findings.join('; '));
+}
+
 async function runExpectSessionGone(viewer: Viewer, sessionId: string, deadlines: Deadlines): Promise<StepOutcome> {
   const rosterEntry = viewer.page.locator(rosterSelector(viewer, sessionId));
   const gone = await pollUntil(async () => {
@@ -1179,6 +1313,7 @@ export async function runCase({
     if (step.kind === 'expect-terminal-untouched') return runExpectTerminalUntouched(viewer, sessionId, step.durationMs);
     if (step.kind === 'expect-revealed') return runExpectRevealed(viewer, sessionId, tickAtWatchByViewer.get(viewer.id) ?? null, deadlines);
     if (step.kind === 'remove-session') return runRemoveSession(viewer, sessionId);
+    if (step.kind === 'assert-undo-close') return runAssertUndoClose(viewer, projectDirectory, deadlines);
     if (step.kind === 'remove-from-phone-terminal') return runRemoveFromPhoneTerminal(viewer, sessionId, deadlines);
     if (step.kind === 'expect-session-gone') return runExpectSessionGone(viewer, sessionId, deadlines);
     if (step.kind === 'rename-session') return runRenameSession(viewer, sessionId, harnessSessionName(step.newName, sessionId), deadlines);

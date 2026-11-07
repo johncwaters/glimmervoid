@@ -15,6 +15,7 @@ const WRITE_CHUNK_CAP_CHARS = 64 * 1024;
 const PLAN_BODY = '# Fake agent plan\n\nOne step, so the reviewer has something to decide on.\n';
 const ANY_MOTION_SGR_TRACKING = `${ESC}[?1003h${ESC}[?1006h`;
 const SGR_MOUSE_REPORT = /\x1b\[<(\d+);\d+;\d+([Mm])/g;
+const BRACKETED_PASTE_MARKER = /\x1b\[20[01]~/g;
 const MOTION_BUTTON_FLAG = 32;
 const WHEEL_BUTTON_FLAG = 64;
 
@@ -197,7 +198,7 @@ function dispatch(command: string): void {
 let pending = '';
 
 function onInput(chunk: string): void {
-  pending += chunk;
+  pending += chunk.replace(BRACKETED_PASTE_MARKER, '');
   pending = pending.replace(SGR_MOUSE_REPORT, (_report, buttonCode: string, pressOrRelease: string) => {
     const button = Number(buttonCode);
     if (button === WHEEL_BUTTON_FLAG || button === WHEEL_BUTTON_FLAG + 1) {
