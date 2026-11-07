@@ -369,7 +369,7 @@ test('a settings payload build reads the resolution cache and spawns no PATH pro
   }
 });
 
-test('a repo root scan lists a link to a directory once at its real path and skips broken links and links to files', async () => {
+test('a repo root scan lists a link to a directory once at its real path, skips broken links and links to files, and reports each git directory mtime on request, following the gitdir file of a worktree', async () => {
   const workArea = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-scan-links-')));
   try {
     const repoRoot = path.join(workArea, 'Projects');
@@ -386,6 +386,22 @@ test('a repo root scan lists a link to a directory once at its real path and ski
     const scanned = settings.sent.find((message) => message.type === 'repo-roots-scanned');
     assert.deepEqual(blockOf(scanned, 'directories'), [
       { root: repoRoot, projects: [{ name: 'posthog', path: linkedRepo }, { name: 'real-repo', path: path.join(repoRoot, 'real-repo') }] },
+      { root: workArea, projects: [{ name: 'Projects', path: repoRoot }] },
+    ]);
+    const lastCommitAt = new Date('2026-01-02T03:04:05Z');
+    fs.mkdirSync(path.join(repoRoot, 'real-repo', '.git'));
+    fs.utimesSync(path.join(repoRoot, 'real-repo', '.git'), lastCommitAt, lastCommitAt);
+    const worktreeCommitAt = new Date('2026-02-03T04:05:06Z');
+    const worktreeGitDir = path.join(repoRoot, 'real-repo', '.git', 'worktrees', 'feature');
+    fs.mkdirSync(worktreeGitDir, { recursive: true });
+    fs.mkdirSync(path.join(repoRoot, 'feature'));
+    fs.writeFileSync(path.join(repoRoot, 'feature', '.git'), `gitdir: ${worktreeGitDir}\n`, 'utf8');
+    fs.utimesSync(worktreeGitDir, worktreeCommitAt, worktreeCommitAt);
+    fs.utimesSync(path.join(repoRoot, 'real-repo', '.git'), lastCommitAt, lastCommitAt);
+    await settings.send({ type: 'scan-repo-roots', requestId: 'scan-activity', includeActivity: true });
+    const scannedWithActivity = settings.sent.filter((message) => message.type === 'repo-roots-scanned').at(-1);
+    assert.deepEqual(blockOf(scannedWithActivity, 'directories'), [
+      { root: repoRoot, projects: [{ name: 'feature', path: path.join(repoRoot, 'feature'), lastActivityMs: worktreeCommitAt.getTime() }, { name: 'posthog', path: linkedRepo }, { name: 'real-repo', path: path.join(repoRoot, 'real-repo'), lastActivityMs: lastCommitAt.getTime() }] },
       { root: workArea, projects: [{ name: 'Projects', path: repoRoot }] },
     ]);
   } finally {

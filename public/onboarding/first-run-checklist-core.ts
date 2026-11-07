@@ -117,12 +117,13 @@ function rootsToAutoSave(configuredRoots: readonly string[], suggestions: readon
 
 const FIRST_TASK_PROMPT = 'Get to know this repo, then draw its architecture on a Glimmervoid board: the main modules, how they connect, and where a typical change starts. Keep it to one screen.';
 
-type StartProject = { name: string; path: string };
+type StartProject = { name: string; path: string; lastActivityMs: number | null };
 
-type ScannedDirectory = { projects: readonly { name: string; path: string }[] };
+type ScannedDirectory = { projects: readonly { name: string; path: string; lastActivityMs?: number }[] };
 
 function startProjects(directories: readonly ScannedDirectory[]): StartProject[] {
-  return directories.flatMap((directory) => directory.projects.map(({ name, path }) => ({ name, path })));
+  const projects = directories.flatMap((directory) => directory.projects.map(({ name, path, lastActivityMs }) => ({ name, path, lastActivityMs: lastActivityMs ?? null })));
+  return projects.sort((first, second) => (second.lastActivityMs ?? 0) - (first.lastActivityMs ?? 0));
 }
 
 function decideStartAgents(agentListing: unknown) {

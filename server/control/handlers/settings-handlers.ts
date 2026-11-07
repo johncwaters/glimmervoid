@@ -33,7 +33,7 @@ import type { ControlContext } from '../control-context.ts';
 import { isExistingDirectory, replyTo, sendError } from '../control-context.ts';
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
 
-type ScannedProject = { name: string; path: string };
+type ScannedProject = { name: string; path: string; lastActivityMs?: number };
 
 function realPathOrSelf(candidate: string): string {
   try {
@@ -79,6 +79,32 @@ function scanRepoRoots(roots: string[] | undefined): { root: string; projects: S
     }
   }
   return results;
+}
+
+const GITDIR_LINE = /^gitdir:\s*(.+?)\s*$/m;
+
+async function gitDirectoryOf(projectPath: string): Promise<string | undefined> {
+  const gitEntry = path.join(projectPath, '.git');
+  const gitEntryStat = await fs.promises.stat(gitEntry);
+  if (gitEntryStat.isDirectory()) return gitEntry;
+  const linkedGitDir = GITDIR_LINE.exec(await fs.promises.readFile(gitEntry, 'utf8'))?.[1];
+  return linkedGitDir ? path.resolve(projectPath, linkedGitDir) : undefined;
+}
+
+async function projectLastActivityMs(projectPath: string): Promise<number | undefined> {
+  try {
+    const gitDirectory = await gitDirectoryOf(projectPath);
+    return gitDirectory ? (await fs.promises.stat(gitDirectory)).mtimeMs : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function withProjectActivity(directories: { root: string; projects: ScannedProject[] }[]) {
+  return Promise.all(directories.map(async ({ root, projects }) => ({
+    root,
+    projects: await Promise.all(projects.map(async (project) => ({ ...project, lastActivityMs: await projectLastActivityMs(project.path) }))),
+  })));
 }
 
 const SETTINGS_NOT_SAVED_MESSAGE = 'Settings were not saved: the config file could not be read, validated or written.';
@@ -257,7 +283,8 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
   }
 
   async function handleScanRepoRoots(msg: ClientMessageOf<'scan-repo-roots'>, ws: ControlSocket): Promise<void> {
-    const directories = scanRepoRoots(config.repoRoots);
+    const scannedDirectories = scanRepoRoots(config.repoRoots);
+    const directories = msg.includeActivity ? await withProjectActivity(scannedDirectories) : scannedDirectories;
     const suggestions = msg.includeSuggestions ? await suggestRepoRoots({ homeDir: os.homedir(), configuredRoots: config.repoRoots || [] }) : undefined;
     ws.send(JSON.stringify({
       type: 'repo-roots-scanned',

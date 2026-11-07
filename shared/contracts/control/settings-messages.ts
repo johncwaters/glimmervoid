@@ -9,7 +9,7 @@ export const settingsClientVariants = [
   loose('agent-connect', { agent: ConnectableAgent, action: z.enum(['start', 'cancel']), requestId }),
   loose('agent-connect-code', { agent: ConnectableAgent, code: z.string(), requestId }),
   loose('update-settings', { settings: z.record(z.string(), z.unknown()), requestId }),
-  loose('scan-repo-roots', { requestId, includeSuggestions: z.boolean().optional() }),
+  loose('scan-repo-roots', { requestId, includeSuggestions: z.boolean().optional(), includeActivity: z.boolean().optional() }),
   loose('list-agents', { requestId, rescan: z.boolean().optional() }),
   loose('telegram-test', { requestId }),
   loose('request-hooks-report', { requestId }),
@@ -48,7 +48,7 @@ export const settingsServerVariants = [
     requestId,
     directories: z.array(openObject({
       root: z.string(),
-      projects: z.array(openObject({ name: z.string(), path: z.string(), isGit: z.boolean().optional() })),
+      projects: z.array(openObject({ name: z.string(), path: z.string(), isGit: z.boolean().optional(), lastActivityMs: z.number().optional() })),
     })),
     suggestions: z.array(openObject({ path: z.string(), label: z.string(), gitRepoCount: z.number().int().nonnegative() })).optional(),
     error: z.string().optional(),

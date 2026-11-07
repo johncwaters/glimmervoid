@@ -5372,6 +5372,13 @@ html:has(:is(.focus-empty, .phone-empty) > .first-run-checklist:not([hidden])) [
   direction: rtl;
 }
 
+.first-run-start-project-age {
+  flex: none;
+  margin-left: auto;
+  padding-left: 12px;
+  color: var(--text-muted);
+}
+
 .first-run-start-project-choice[aria-selected="true"] {
   border-color: var(--accent);
   background: var(--bg-surface);

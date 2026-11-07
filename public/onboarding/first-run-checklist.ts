@@ -118,7 +118,7 @@ async function loadFirstRunState({ rescanAgents }: { rescanAgents: boolean }) {
   try {
     const [agentListing, rootsScan] = await Promise.all([
       sendControlRequest('list-agents', rescanAgents ? { rescan: true } : {}, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS }),
-      sendControlRequest('scan-repo-roots', { includeSuggestions: true }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS }),
+      sendControlRequest('scan-repo-roots', { includeSuggestions: true, includeActivity: true }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS }),
     ]);
     if (sequenceAtStart !== loadSequence) return;
     const isRootsScan = rootsScan.type === 'repo-roots-scanned';

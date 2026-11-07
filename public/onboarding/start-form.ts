@@ -6,6 +6,7 @@ import { suggestSessionName } from '../session-card/naming.ts';
 import { DEFAULT_AGENT_ID } from '../session-card/agent-core.ts';
 import { button } from '../ui/button.ts';
 import { createPressable } from '../ui/pressable.ts';
+import { formatRelativeAge } from '../plan/plan-view-core.ts';
 import { FIRST_TASK_PROMPT, decideStartAgents, decideVisibleProjects } from './first-run-checklist-core.ts';
 import type { StartProject } from './first-run-checklist-core.ts';
 
@@ -67,6 +68,7 @@ export function createStartForm({ onAction }: StartFormHandlers) {
       const row = el('li', 'first-run-start-project');
       const choice = createPressable('first-run-start-project-choice');
       choice.append(el('span', 'first-run-start-project-name', project.name), pathText(project.path));
+      if (project.lastActivityMs !== null) choice.append(el('span', 'first-run-start-project-age', formatRelativeAge(project.lastActivityMs, Date.now())));
       choice.setAttribute('role', 'option');
       choice.setAttribute('aria-selected', String(project.path === selectedPath));
       choice.addEventListener('click', () => {
