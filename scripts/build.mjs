@@ -10,6 +10,7 @@ const distDir = path.join(repoRoot, 'dist');
 const REQUIRED_OUTPUTS = [
   'client/index.html',
   'server/index.js',
+  'server/whiteboard/board-store-worker.js',
   'bin/glimmervoid.js',
   'session/hook-relay.js',
   'session/command-hook-relay.js',

@@ -18,6 +18,7 @@ import { closeSocket, dashboardClient, openRecordingSocket, waitForMessage } fro
 import type { Backend } from './helpers/lanes.ts';
 import { settleBackendShutdown } from './helpers/lanes.ts';
 import { createWhiteboardWiring } from '../server/whiteboard/whiteboard-wiring.ts';
+import { createBoardStore } from '../server/whiteboard/board-store-client.ts';
 import { execFileAsync } from '../server/child-process-safe.ts';
 import { resolveFfmpegPath } from '../server/runtime-paths.ts';
 import { waitFor } from './helpers/wait-for.ts';
@@ -792,7 +793,8 @@ test('deleting a board sweeps the pictures no live board shows, sparing a pendin
   assert.equal((await putBox(keptId, 'pending', pending)).ok, true);
 
   const keptFilePath = path.join(boardsRoot, `${keptId}.json`);
-  const savedKept = JSON.parse(fs.readFileSync(keptFilePath, 'utf8')) as { board: { elements: Record<string, Record<string, unknown>> } };
+  const savedKept = JSON.parse(JSON.stringify({ board: (await wiring.handleOperator.get(keptId)).board, log: [], cursorBySessionId: {}, createdBy: null })) as { board: { elements: Record<string, Record<string, unknown>> } };
+  await createBoardStore(boardsRoot).remove(keptId);
   const { media: sharedMedia, ...sharedWithoutMedia } = savedKept.board.elements.shared ?? {};
   const { kind: _kind, mime: _mime, hasPreview: _hasPreview, ...imageFromRelease051 } = sharedMedia as Record<string, unknown>;
   savedKept.board.elements.shared = { ...sharedWithoutMedia, image: imageFromRelease051 };
@@ -820,7 +822,7 @@ test('a board whose linked board vanished on restart still takes unrelated edits
   const detailId = detail.summary?.id ?? '';
   const linked = await before.handleOperator.put(plannedId, z.array(Op).parse([{ op: 'add', element: { kind: 'unit', id: 'u1', title: 'Unit', linkedBoardId: detailId } }]));
   assert.equal(linked.ok, true, linked.error ?? '');
-  fs.writeFileSync(path.join(boardsRoot, `${detailId}.json`), '{corrupt', 'utf8');
+  await createBoardStore(boardsRoot).remove(detailId);
 
   const after = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
   const renamed = await after.handleOperator.put(plannedId, z.array(Op).parse([{ op: 'board', title: 'renamed' }]));

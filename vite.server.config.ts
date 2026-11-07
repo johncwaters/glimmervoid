@@ -29,6 +29,7 @@ export default defineConfig({
       input: {
         'server/index': path.join(repoRoot, 'server', 'index.ts'),
         'bin/glimmervoid': path.join(repoRoot, 'bin', 'glimmervoid.ts'),
+        'server/whiteboard/board-store-worker': path.join(repoRoot, 'server', 'whiteboard', 'board-store-worker.ts'),
         'session/hook-relay': path.join(repoRoot, 'session', 'hook-relay.ts'),
         'session/command-hook-relay': path.join(repoRoot, 'session', 'command-hook-relay.ts'),
         'session/statusline-relay': path.join(repoRoot, 'session', 'statusline-relay.ts'),

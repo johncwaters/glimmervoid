@@ -1,0 +1,172 @@
+import { z } from 'zod';
+
+import { BoardChange, BoardRecord, Element } from '../../shared/contracts/whiteboard.ts';
+import type { Board } from '../../shared/contracts/whiteboard.ts';
+
+const BOARD_STORE_FILENAME = 'boards.sqlite';
+
+const BOARD_STORE_SCHEMA = `
+PRAGMA journal_mode = WAL;
+PRAGMA synchronous = NORMAL;
+PRAGMA foreign_keys = ON;
+PRAGMA busy_timeout = 5000;
+CREATE TABLE IF NOT EXISTS boards (
+  id TEXT PRIMARY KEY,
+  head TEXT NOT NULL,
+  cursors TEXT NOT NULL,
+  created_by TEXT,
+  version INTEGER NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS elements (
+  slot INTEGER PRIMARY KEY,
+  board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+  element_id TEXT NOT NULL,
+  revision INTEGER NOT NULL,
+  body TEXT NOT NULL,
+  UNIQUE (board_id, element_id)
+) STRICT;
+CREATE INDEX IF NOT EXISTS elements_by_revision ON elements (board_id, revision);
+CREATE VIRTUAL TABLE IF NOT EXISTS element_rects USING rtree(slot, min_x, max_x, min_y, max_y);
+CREATE VIRTUAL TABLE IF NOT EXISTS element_text USING fts5(text, tokenize = 'unicode61');
+CREATE TABLE IF NOT EXISTS board_log (
+  seq INTEGER PRIMARY KEY,
+  board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+  version INTEGER NOT NULL,
+  body TEXT NOT NULL
+) STRICT;
+CREATE INDEX IF NOT EXISTS board_log_by_version ON board_log (board_id, version);
+`;
+
+const Rect = z.strictObject({ minX: z.number(), maxX: z.number(), minY: z.number(), maxY: z.number() });
+
+const ElementWrite = z.strictObject({ elementId: z.string(), body: z.string(), text: z.string() });
+
+const BoardDelta = z.strictObject({
+  boardId: z.string(),
+  head: z.string(),
+  cursors: z.string(),
+  createdBy: z.string().nullable(),
+  version: z.number().int(),
+  writes: z.array(ElementWrite),
+  removedElementIds: z.array(z.string()),
+  reslottedElementIds: z.array(z.string()),
+  appendedLog: z.array(z.strictObject({ version: z.number().int(), body: z.string() })),
+  keptLogCount: z.number().int().nonnegative(),
+});
+
+const StoreRequest = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('load-all'), requestId: z.number().int() }),
+  z.strictObject({ kind: z.literal('write'), requestId: z.number().int(), deltas: z.array(BoardDelta) }),
+  z.strictObject({ kind: z.literal('delete'), requestId: z.number().int(), boardId: z.string() }),
+  z.strictObject({ kind: z.literal('set-rects'), requestId: z.number().int(), boardId: z.string(), rectsByElementId: z.record(z.string(), Rect) }),
+  z.strictObject({ kind: z.literal('query-region'), requestId: z.number().int(), boardId: z.string(), region: Rect, limit: z.number().int().positive() }),
+  z.strictObject({ kind: z.literal('search-text'), requestId: z.number().int(), boardId: z.string(), query: z.string(), limit: z.number().int().positive() }),
+  z.strictObject({ kind: z.literal('board-ids'), requestId: z.number().int() }),
+]);
+
+const StoredBoardRows = z.strictObject({
+  boardId: z.string(),
+  head: z.string(),
+  cursors: z.string(),
+  createdBy: z.string().nullable(),
+  elementBodies: z.array(z.string()),
+  logBodies: z.array(z.string()),
+});
+
+const StoreReply = z.discriminatedUnion('ok', [
+  z.strictObject({ requestId: z.number().int(), ok: z.literal(true), boards: z.array(StoredBoardRows).optional(), elementIds: z.array(z.string()).optional(), boardIds: z.array(z.string()).optional() }),
+  z.strictObject({ requestId: z.number().int(), ok: z.literal(false), error: z.string() }),
+]);
+
+type Rect = z.infer<typeof Rect>;
+type BoardDelta = z.infer<typeof BoardDelta>;
+type StoreRequest = z.infer<typeof StoreRequest>;
+type StoreReply = z.infer<typeof StoreReply>;
+type StoredBoardRows = z.infer<typeof StoredBoardRows>;
+type DistributiveOmit<Value, Key extends PropertyKey> = Value extends unknown ? Omit<Value, Key> : never;
+type StoreRequestBody = DistributiveOmit<StoreRequest, 'requestId'>;
+
+const BoardHead = BoardRecord.shape.board.omit({ elements: true });
+
+function searchableTextOf(element: Element): string {
+  if (element.kind === 'box') return [element.title, ...element.lines.map((line) => [line.key, line.text].filter(Boolean).join(' '))].join('\n');
+  if (element.kind === 'wire') return element.label ?? '';
+  if (element.kind === 'note') return element.text;
+  if (element.kind === 'frame') return element.title;
+  return [element.title, ...element.lines.map((line) => line.text)].join('\n');
+}
+
+function headOf(board: Board): string {
+  const { elements: _elements, ...head } = board;
+  return JSON.stringify(head);
+}
+
+function elementWriteOf(element: Element): z.infer<typeof ElementWrite> {
+  return { elementId: element.id, body: JSON.stringify(element), text: searchableTextOf(element) };
+}
+
+function reorderedElementIdsOf(elementsBefore: Board['elements'], elementsAfter: Board['elements']): Set<string> {
+  const keptInOrderBefore = Object.keys(elementsBefore).filter((elementId) => elementId in elementsAfter);
+  const idsInOrderAfter = Object.keys(elementsAfter);
+  const movedElementIds = new Set<string>();
+  let afterIndex = 0;
+  for (const elementId of keptInOrderBefore) {
+    if (idsInOrderAfter[afterIndex] === elementId) {
+      afterIndex += 1;
+      continue;
+    }
+    movedElementIds.add(elementId);
+  }
+  return movedElementIds;
+}
+
+function boardDeltaOf(before: BoardRecord | null, after: BoardRecord): BoardDelta {
+  const elementsBefore = before?.board.elements ?? {};
+  const reorderedElementIds = reorderedElementIdsOf(elementsBefore, after.board.elements);
+  const writes = Object.values(after.board.elements).filter((element) => elementsBefore[element.id] !== element || reorderedElementIds.has(element.id)).map(elementWriteOf);
+  const removedElementIds = Object.keys(elementsBefore).filter((elementId) => !(elementId in after.board.elements));
+  const newestLoggedVersion = before?.log.at(-1)?.version ?? Number.NEGATIVE_INFINITY;
+  const appendedLog = after.log.filter((change) => change.version > newestLoggedVersion).map((change) => ({ version: change.version, body: JSON.stringify(change) }));
+  return {
+    boardId: after.board.id,
+    head: headOf(after.board),
+    cursors: JSON.stringify(after.cursorBySessionId),
+    createdBy: after.createdBy,
+    version: after.board.version,
+    writes,
+    removedElementIds,
+    reslottedElementIds: [...reorderedElementIds],
+    appendedLog,
+    keptLogCount: after.log.length,
+  };
+}
+
+function parsedJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+function recordOfRows(rows: StoredBoardRows): BoardRecord | null {
+  const head = BoardHead.safeParse(parsedJson(rows.head));
+  if (!head.success) return null;
+  const elements: Board['elements'] = {};
+  for (const body of rows.elementBodies) {
+    const element = Element.safeParse(parsedJson(body));
+    if (!element.success) return null;
+    elements[element.data.id] = element.data;
+  }
+  const log = z.array(BoardChange).safeParse(rows.logBodies.map(parsedJson));
+  const cursors = BoardRecord.shape.cursorBySessionId.safeParse(parsedJson(rows.cursors));
+  if (!log.success || !cursors.success) return null;
+  return { board: { ...head.data, elements }, log: log.data, cursorBySessionId: cursors.data, createdBy: rows.createdBy };
+}
+
+function ftsQueryOf(query: string): string {
+  return query.split(/\s+/).filter(Boolean).map((word) => `"${word.replaceAll('"', '""')}"`).join(' ');
+}
+
+export { BOARD_STORE_FILENAME, BOARD_STORE_SCHEMA, StoreReply, StoreRequest, boardDeltaOf, ftsQueryOf, recordOfRows };
+export type { BoardDelta, Rect, StoreRequestBody, StoredBoardRows };

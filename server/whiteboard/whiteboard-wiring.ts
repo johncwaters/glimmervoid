@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 
-import { BoardRecord, sparseBoardRecord, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
+import { BoardRecord, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import type { Board, BoardReview, BoardSummary, Op, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import type { AgentReplyBodyOf } from '../../shared/contracts/session.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
@@ -18,16 +18,19 @@ import { unitsOf } from '../../shared/whiteboard-plan-core.ts';
 import {
   boardRecordWithMediaForImages, changesForReader, connectSession, disconnectSession, markRead, nudgeLineFor, pickShowBoardId, promptContextFor, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard,
 } from '../core/whiteboard-store-core.ts';
-import { loadJsonStateFile, writeJsonAtomic } from '../json-file.ts';
+import { loadJsonStateFile } from '../json-file.ts';
 import { createKeyedSerialQueue } from '../spawn-gate.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { readPageTitle, SHOWN_SNIFF_BYTES } from '../core/shown-files-core.ts';
 import { createWhiteboardAssetStore } from './whiteboard-assets.ts';
 import type { WhiteboardAssetStore } from './whiteboard-assets.ts';
+import { createBoardStore } from './board-store-client.ts';
+import { BOARD_STORE_FILENAME } from './board-store-core.ts';
 
 const WHITEBOARDS_FOLDER_NAME = 'whiteboards';
 const BOARD_FILE_EXTENSION = '.json';
-const BOARD_FILE_MODE = 0o600;
+const MIGRATED_JSON_FOLDER_NAME = 'migrated-json';
+const OLDER_READER_PICTURE_GUARD = `boards${BOARD_FILE_EXTENSION}.corrupt-moved-to-boards-sqlite`;
 
 const PUT_GUIDE = [
   'glimmervoid whiteboard put <board> <ops> takes a JSON array of ops, - to read it from stdin, or --file <path> to read it from a file, for example',
@@ -151,6 +154,7 @@ function createWhiteboardWiring({
   const deletedBoardIds = new Set<string>();
   const writeQueue = createKeyedSerialQueue();
   const assets = createWhiteboardAssetStore({ boardsRoot, logger, now });
+  const store = createBoardStore(boardsRoot);
   let isEveryBoardLoaded = true;
   const loaded = Promise.all([loadBoards(), assets.loaded]).then(sweepUnusedAssets).then(() => {});
 
@@ -166,31 +170,68 @@ function createWhiteboardWiring({
   }
 
   async function loadBoards(): Promise<void> {
+    const stored = await store.loadAll().catch((error: unknown) => {
+      logger.warn(`[whiteboard] the board store could not be read: ${errorMessage(error)}`);
+      return null;
+    });
+    if (!stored) {
+      keepPicturesWhileUnloaded(boardsRoot);
+      return;
+    }
+    await fsp.writeFile(path.join(boardsRoot, OLDER_READER_PICTURE_GUARD), '', { mode: 0o600 }).catch((error: unknown) => {
+      logger.warn(`[whiteboard] an older Glimmervoid started on ${boardsRoot} could clear board pictures: ${errorMessage(error)}`);
+    });
+    for (const record of stored.records) recordsByBoardId.set(record.board.id, record);
+    for (const boardId of stored.unreadableBoardIds) keepPicturesWhileUnloaded(`board ${boardId}`);
+    await migrateJsonBoards();
+  }
+
+  async function migrateJsonBoards(): Promise<void> {
     const filenames = await fsp.readdir(boardsRoot).catch((error: NodeJS.ErrnoException): string[] | null => (error.code === 'ENOENT' ? [] : null));
     if (filenames === null) {
       keepPicturesWhileUnloaded(boardsRoot);
       return;
     }
+    const migratedFilenames: string[] = [];
+    const importedRecords: BoardRecord[] = [];
     for (const filename of filenames) {
-      if (filename.includes(`${BOARD_FILE_EXTENSION}.corrupt-`)) keepPicturesWhileUnloaded(filename);
+      if (filename === OLDER_READER_PICTURE_GUARD) continue;
+      if (filename.includes(`${BOARD_FILE_EXTENSION}.corrupt-`) || filename.startsWith(`${BOARD_STORE_FILENAME}.corrupt-`)) keepPicturesWhileUnloaded(filename);
       if (!filename.endsWith(BOARD_FILE_EXTENSION)) continue;
       const outcome = await loadJsonStateFile({ filePath: path.join(boardsRoot, filename), parse: parseBoardRecord });
       if (outcome.status === 'loaded' && `${outcome.value.board.id}${BOARD_FILE_EXTENSION}` === filename) {
-        recordsByBoardId.set(outcome.value.board.id, outcome.value);
+        migratedFilenames.push(filename);
+        if (!recordsByBoardId.has(outcome.value.board.id)) importedRecords.push(outcome.value);
         continue;
       }
       if (outcome.status === 'missing') continue;
       logger.warn(`[whiteboard] ${filename} was not loaded: ${outcome.status}`);
       keepPicturesWhileUnloaded(filename);
     }
+    if (migratedFilenames.length === 0) return;
+    try {
+      await store.saveMany(importedRecords);
+    } catch (error) {
+      logger.warn(`[whiteboard] ${importedRecords.length} board file(s) could not be moved into the board store: ${errorMessage(error)}`);
+      keepPicturesWhileUnloaded(MIGRATED_JSON_FOLDER_NAME);
+      return;
+    }
+    for (const record of importedRecords) recordsByBoardId.set(record.board.id, record);
+    await moveMigratedFiles(migratedFilenames);
   }
 
-  function boardFilePath(boardId: string): string {
-    return path.join(boardsRoot, `${boardId}${BOARD_FILE_EXTENSION}`);
-  }
-
-  function writeRecord(record: BoardRecord): Promise<void> {
-    return writeJsonAtomic(boardFilePath(record.board.id), sparseBoardRecord(record), { mode: BOARD_FILE_MODE, mkdir: true });
+  async function moveMigratedFiles(filenames: readonly string[]): Promise<void> {
+    const migratedRoot = path.join(boardsRoot, MIGRATED_JSON_FOLDER_NAME);
+    const isFolderReady = await fsp.mkdir(migratedRoot, { recursive: true, mode: 0o700 }).then(() => true, (error: unknown) => {
+      logger.warn(`[whiteboard] ${filenames.length} board file(s) are in the board store but stayed in place: ${errorMessage(error)}`);
+      return false;
+    });
+    if (!isFolderReady) return;
+    for (const filename of filenames) {
+      await fsp.rename(path.join(boardsRoot, filename), path.join(migratedRoot, filename)).catch((error: unknown) => {
+        logger.warn(`[whiteboard] ${filename} is in the board store but stayed in place: ${errorMessage(error)}`);
+      });
+    }
   }
 
   function snapshotMessage(): ServerMessageOf<'whiteboards-snapshot'> {
@@ -208,7 +249,7 @@ function createWhiteboardWiring({
     const boardId = current.board.id;
     recordsByBoardId.set(boardId, next);
     try {
-      await writeRecord(next);
+      await store.save(current, next);
       return true;
     } catch (error) {
       recordsByBoardId.set(boardId, current);
@@ -251,7 +292,7 @@ function createWhiteboardWiring({
     const record: BoardRecord = { board, log: [], cursorBySessionId, createdBy: creator?.id ?? null };
     recordsByBoardId.set(boardId, record);
     try {
-      await writeQueue.run(boardId, () => writeRecord(record));
+      await writeQueue.run(boardId, () => store.save(null, record));
     } catch (error) {
       recordsByBoardId.delete(boardId);
       logger.warn(`[whiteboard] board ${boardId} could not be created: ${errorMessage(error)}`);
@@ -391,10 +432,11 @@ function createWhiteboardWiring({
   async function deleteRecordInSlot(current: BoardRecord): Promise<WhiteboardReply> {
     const boardId = current.board.id;
     try {
-      await fsp.rm(boardFilePath(boardId), { force: true });
+      await fsp.rm(path.join(boardsRoot, `${boardId}${BOARD_FILE_EXTENSION}`), { force: true });
+      await store.remove(boardId);
     } catch (error) {
       logger.warn(`[whiteboard] board ${boardId} could not be deleted: ${errorMessage(error)}`);
-      return refusal(500, 'the board file could not be deleted, so the board is still here');
+      return refusal(500, 'the board could not be deleted, so it is still here');
     }
     recordsByBoardId.delete(boardId);
     deletedBoardIds.add(boardId);

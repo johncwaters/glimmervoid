@@ -38,7 +38,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 ### Working In This Directory
 
 - Everything is TypeScript ESM. Erasable syntax only (no enums, namespaces, parameter properties); relative imports carry explicit `.ts` extensions; the browser reaches `shared/` through the `#shared/*` imports map. Never `any`, never `as unknown as`.
-- Node >=22.18.0 (where type stripping is on by default, which source mode and the `.test.ts` suite depend on). Windows 11, Linux and macOS, developed on v24.
+- Node >=24.15.0 (type stripping for source mode and the `.test.ts` suite; `node:sqlite` for the whiteboard store). Windows 11, Linux and macOS, developed on v24.
 - Do NOT add dependencies without explicit instruction.
 - Status detection is structural (hooks plus OSC-0 title). Never reintroduce PTY body or content scraping.
 - Claude Code, Codex and Kimi Code are first-class: a feature ships only when it works on all three, pinned by the agent parity matrix, where every scenario row needs a live-captured fixture per agent. Grok and custom agents are best effort.

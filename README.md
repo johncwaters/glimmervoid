@@ -3,7 +3,7 @@
 [![CI](https://github.com/johncwaters/glimmervoid/actions/workflows/test.yml/badge.svg)](https://github.com/johncwaters/glimmervoid/actions/workflows/test.yml)
 [![npm](https://img.shields.io/npm/v/glimmervoid.svg)](https://www.npmjs.com/package/glimmervoid)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D22.18-brightgreen.svg)](https://nodejs.org)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D24.15-brightgreen.svg)](https://nodejs.org)
 [![Platform: Windows | Linux | macOS](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-0078d4)](https://github.com/johncwaters/glimmervoid)
 
 **Mission control that ships. Not a terminal multiplexer. Grids are for watching. This is for shipping.**
@@ -57,7 +57,7 @@ To update, run `git pull --ff-only && npm ci && npm run build` and restart. The 
 
 ## Requirements
 
-- **Node.js 22.18 or newer.** Distro-packaged Node is usually older; use nvm, NodeSource or the official installer.
+- **Node.js 24.15 or newer.** Distro-packaged Node is usually older; use nvm, NodeSource or the official installer.
 - **Windows 11, Linux or macOS.** CI runs the suite on Linux and installs and starts the package on Windows; macOS is tested by hand.
 - **An agent CLI** on PATH: Claude Code, Codex, Kimi Code, Grok or another terminal agent.
 - **git** on PATH, for per-session worktrees.
