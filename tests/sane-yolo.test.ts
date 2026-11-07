@@ -79,13 +79,15 @@ function permissionDecisionOf(stdout: string): string | undefined {
   return verdict.hookSpecificOutput?.permissionDecision;
 }
 
-test('the production Claude settings command denies git reset --hard through a shell', async () => {
+test('the production Claude settings command denies git reset --hard and git stash behind any global git option', async () => {
   await withProductionHookFixture(async ({ cwd, env, saneYoloTool }) => {
     const settings = buildHookSettings({ port: 1, glimmervoidId: 'sane-yolo-e2e', token: 'token', hookTools: [saneYoloTool] });
     const command = saneYoloCommandOf(settings);
     assert.ok(command);
-    const stdout = execSync(command, { cwd, env, encoding: 'utf8', input: hookPayload('--coding-cli', 'git reset --hard', cwd) });
-    assert.equal(permissionDecisionOf(stdout), 'deny', stdout);
+    for (const shellCommand of ['git reset --hard', 'git stash', 'git stash push -u -m session-tag', 'git -c core.pager=cat stash pop', 'git -C . stash']) {
+      const stdout: string = execSync(command, { cwd, env, encoding: 'utf8', input: hookPayload('--coding-cli', shellCommand, cwd) });
+      assert.equal(permissionDecisionOf(stdout), 'deny', `${shellCommand}: ${stdout}`);
+    }
   });
 });
 

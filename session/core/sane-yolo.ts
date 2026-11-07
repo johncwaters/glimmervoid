@@ -77,7 +77,7 @@ function saneYoloPolicy(guardrailsTempRoot: string, unreadablePaths: readonly st
   };
 }
 
-const SANE_YOLO_RULES = { version: 1, rules: ['infra'], overrides: {}, transparent_wrappers: ['rtk', 'npx'] };
+const SANE_YOLO_RULES = { version: 1, rules: ['infra', 'git'], overrides: {}, transparent_wrappers: ['rtk', 'npx'] };
 const INFRA_REASON = 'Sane YOLO blocks infrastructure teardown; run this command by hand.';
 const TERRAFORM_DESTROY_FLAGS = ['-destroy', '--destroy', '-destroy=true', '--destroy=true'];
 const SANE_YOLO_INFRA_RULEBOOK = {
@@ -96,11 +96,21 @@ const SANE_YOLO_INFRA_RULEBOOK = {
   ],
 };
 
+const STASH_REASON = 'Sane YOLO blocks git stash: every worktree shares one stash stack. Set work aside with a WIP commit, or undo an edit with git show HEAD:<path> > <path>.';
+const SANE_YOLO_GIT_RULEBOOK = {
+  rulebook_version: 1,
+  name: 'git',
+  version: '1.0.0',
+  allowed_commands: ['git'],
+  rules: [{ name: 'stash', command: 'git', block_args: ['stash'], reason: STASH_REASON }],
+};
+
 function saneYoloFiles(guardrailsTempRoot: string, unreadablePaths: readonly string[]) {
   return {
     'policy.json': saneYoloPolicy(guardrailsTempRoot, unreadablePaths),
     'rules/rule.json': SANE_YOLO_RULES,
     'rules/infra/rulebook.json': SANE_YOLO_INFRA_RULEBOOK,
+    'rules/git/rulebook.json': SANE_YOLO_GIT_RULEBOOK,
   };
 }
 
