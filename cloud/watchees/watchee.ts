@@ -11,14 +11,21 @@ type DetectOutcome<Kind extends WatcheeJobKind> =
   | { ok: true; events: WatcherJobPayload<Kind>[] }
   | { ok: false; reason: string; retryAfterMs?: number };
 
+interface WatcheeFileStore {
+  read(fileName: string): Promise<unknown>;
+  write(fileName: string, value: unknown): Promise<void>;
+}
+
 interface WatcheeContext {
   watcherHome: string;
+  files: WatcheeFileStore;
   now: () => number;
   log: Pick<Console, 'log' | 'warn'>;
 }
 
 interface WatcheeDetector<Kind extends WatcheeJobKind> {
   detect(settings: WatcheeSettingsFile): Promise<DetectOutcome<Kind>>;
+  acknowledged?(payload: WatcherJobPayload<Kind>): Promise<void>;
   stop(): void;
 }
 
@@ -33,4 +40,4 @@ interface Watchee<Kind extends WatcheeJobKind> {
 
 type WatcheeRegistry = { [Kind in WatcheeJobKind]: Watchee<Kind> };
 
-export type { DetectOutcome, Watchee, WatcheeContext, WatcheeDetector, WatcheeGate, WatcheeRegistry, WatcheeTrigger };
+export type { DetectOutcome, Watchee, WatcheeContext, WatcheeFileStore, WatcheeDetector, WatcheeGate, WatcheeRegistry, WatcheeTrigger };

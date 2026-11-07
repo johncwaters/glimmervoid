@@ -141,9 +141,9 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
     return !isStopped && isCaptureAllowed();
   }
 
-  function persistState(nextState: TelemetryState): Promise<void> {
+  async function persistState(nextState: TelemetryState): Promise<void> {
     state = nextState;
-    return stateStore.write(nextState, () => JSON.stringify(nextState, null, 2));
+    await stateStore.write(nextState, () => JSON.stringify(nextState, null, 2));
   }
 
   async function ensureInstallState(): Promise<TelemetryState> {

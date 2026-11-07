@@ -6,7 +6,8 @@ import type { TeamReviewSettingsSource } from '../../server/github/core/team-rev
 import { WORKFLOWS_POLL_INTERVAL_MINUTES, resolveWorkflowsSettings, watchedWorkflowRepos, workflowsShouldStart } from '../../server/core/workflows-core.ts';
 import { DEFAULT_INTERVAL_MINUTES as RADAR_POLL_INTERVAL_MINUTES, radarShouldStart, resolvePosthogHost } from '../../server/radar/core/radar-lane-core.ts';
 import { DEFAULT_TRAFFIC_BASELINE_DAYS } from '../../server/core/traffic-spike-core.ts';
-import type { RadarWatcheeSettings, WatcheeSettingsFile } from '../../shared/contracts/watchee-settings.ts';
+import { communityGate, readCommunitySettings } from '../../server/community/core/community-core.ts';
+import type { CommunityWatcheeSettings, RadarWatcheeSettings, WatcheeSettingsFile } from '../../shared/contracts/watchee-settings.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { watcherHomeDir, writeWatcheeSettings } from '../watcher/watchee-settings.ts';
 
@@ -58,6 +59,18 @@ function radarWatcheeSettings(config: RadarSettingsSource): RadarWatcheeSettings
   };
 }
 
+function communityWatcheeSettings(config: { community?: unknown; posthog?: unknown; github?: { readToken?: string } | null }): CommunityWatcheeSettings {
+  const posthogHost = (config.posthog as { host?: unknown } | null | undefined)?.host;
+  const { projectId, discordChannels, intervalMinutes } = readCommunitySettings(config);
+  return {
+    enabled: communityGate(config, process.env).start,
+    host: resolvePosthogHost(typeof posthogHost === 'string' ? posthogHost : null),
+    projectId,
+    discordChannels,
+    intervalMinutes,
+  };
+}
+
 function watcheeSettingsFromConfig(config: WatcheeSettingsSource, issuesProjectRepos: readonly string[]): WatcheeSettingsFile {
   const { enabled, org, teams } = readTeamReviewSettings(config);
   const workflowsSettings = resolveWorkflowsSettings(config.workflows);
@@ -77,6 +90,7 @@ function watcheeSettingsFromConfig(config: WatcheeSettingsSource, issuesProjectR
       intervalMinutes: ISSUES_POLL_INTERVAL_MINUTES,
     },
     radar: radarWatcheeSettings(config),
+    community: communityWatcheeSettings(config),
   };
 }
 

@@ -290,7 +290,7 @@ function appendJsonLines(filePath: string, values: unknown[], options?: AppendOp
 }
 
 interface JsonStateWriter {
-  write(subject: unknown, buildPayload: () => string): Promise<void>;
+  write(subject: unknown, buildPayload: () => string): Promise<boolean>;
   reset(): void;
   idle(): Promise<void>;
 }
@@ -303,20 +303,22 @@ function createJsonStateWriter({ filePath, fsPromises = fs.promises, warn = () =
   let signature: string | null = null;
   const writeQueue = createSerialQueue();
 
-  async function commit(payload: string): Promise<void> {
+  async function commit(payload: string): Promise<boolean> {
     try {
       await writeTextAtomic(filePath, payload, { fsPromises, mkdir: true });
+      return true;
     } catch (error) {
       warn(error);
       signature = null;
+      return false;
     }
   }
 
-  async function write(subject: unknown, buildPayload: () => string): Promise<void> {
+  async function write(subject: unknown, buildPayload: () => string): Promise<boolean> {
     const next = JSON.stringify(subject);
-    if (next === signature) return;
+    if (next === signature) return true;
     signature = next;
-    await writeQueue.run(() => commit(buildPayload())).catch(() => {});
+    return writeQueue.run(() => commit(buildPayload())).catch(() => false);
   }
 
   function reset(): void {
@@ -328,7 +330,7 @@ function createJsonStateWriter({ filePath, fsPromises = fs.promises, warn = () =
 
 interface JsonStateStore {
   load(): Promise<void>;
-  write(subject: unknown, buildPayload: () => string): Promise<void>;
+  write(subject: unknown, buildPayload: () => string): Promise<boolean>;
   idle(): Promise<void>;
 }
 
@@ -379,9 +381,9 @@ function createJsonStateStore<T>({
     return loadPromise;
   }
 
-  async function write(subject: unknown, buildPayload: () => string): Promise<void> {
-    if (!writer || !isFileReadable) return;
-    await writer.write(subject, buildPayload);
+  async function write(subject: unknown, buildPayload: () => string): Promise<boolean> {
+    if (!writer || !isFileReadable) return false;
+    return writer.write(subject, buildPayload);
   }
 
   return { load, write, idle: () => (writer ? writer.idle() : Promise.resolve()) };

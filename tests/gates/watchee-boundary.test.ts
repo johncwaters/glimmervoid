@@ -16,6 +16,7 @@ const ALLOWED_IMPORT_PREFIXES = [
   'server/github/pr-gh.ts',
   'server/radar/posthog-api.ts',
   'server/radar/core/',
+  'server/community/core/',
 ];
 
 function sourceFilesUnder(repoDirectory: string): string[] {

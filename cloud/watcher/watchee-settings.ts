@@ -5,6 +5,7 @@ import { glimmervoidHomeDir } from '../../server/core/config-path-core.ts';
 import { writeJsonAtomic } from '../../server/json-file.ts';
 import { WATCHEE_SETTINGS_FILENAME, WATCHER_HOME_ENV, WatcheeSettingsFile } from '../../shared/contracts/watchee-settings.ts';
 import { errorMessage } from '../../shared/text.ts';
+import type { WatcheeFileStore } from '../watchees/watchee.ts';
 
 const OWNER_ONLY_FILE_MODE = 0o600;
 
@@ -38,4 +39,11 @@ async function readJsonFileOrUndefined(filePath: string): Promise<unknown> {
   return text === null ? undefined : parseJsonOrUndefined(text);
 }
 
-export { OWNER_ONLY_FILE_MODE, readJsonFileOrUndefined, readWatcheeSettings, watcherHomeDir, writeWatcheeSettings };
+function createWatcheeFileStore(watcherHome: string): WatcheeFileStore {
+  return {
+    read: (fileName) => readJsonFileOrUndefined(path.join(watcherHome, fileName)),
+    write: (fileName, value) => writeJsonAtomic(path.join(watcherHome, fileName), value, { mode: OWNER_ONLY_FILE_MODE, enforceMode: true, mkdir: true }),
+  };
+}
+
+export { createWatcheeFileStore, OWNER_ONLY_FILE_MODE, readJsonFileOrUndefined, readWatcheeSettings, watcherHomeDir, writeWatcheeSettings };

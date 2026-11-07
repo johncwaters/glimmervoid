@@ -38,9 +38,9 @@ function createFeatureHintsWiring({ statePath, broadcast, log, currentConfig, co
   });
   const loaded = store.load();
 
-  function persist(): Promise<void> {
+  async function persist(): Promise<void> {
     const persistedState = state;
-    return store.write(persistedState, () => `${JSON.stringify(persistedState, null, 2)}\n`);
+    await store.write(persistedState, () => `${JSON.stringify(persistedState, null, 2)}\n`);
   }
 
   function takeStarHint(): boolean {

@@ -19,7 +19,7 @@ const WATCHER_TOKEN = 'a-watcher-token-only-this-test-knows';
 const CLI_PATH = path.join(import.meta.dirname, '..', 'bin', 'glimmervoid.ts');
 const runFile = promisify(execFile);
 const QUIET_LOG = { log: () => {}, warn: () => {} };
-const IGNORING_HANDLERS = withBuiltInJobHandlers({ 'team-review.candidates': async () => {}, 'my-prs.candidates': async () => {}, 'workflows.candidates': async () => {}, 'issues.listing': async () => {}, 'radar.project': async () => {} });
+const IGNORING_HANDLERS = withBuiltInJobHandlers({ 'team-review.candidates': async () => {}, 'my-prs.candidates': async () => {}, 'workflows.candidates': async () => {}, 'issues.listing': async () => {}, 'radar.project': async () => {}, 'community.rows': async () => {} });
 
 function pingJob(jobId: string = crypto.randomUUID()) {
   return { version: 1, jobId, sentAt: new Date().toISOString(), kind: 'ping', payload: {} };

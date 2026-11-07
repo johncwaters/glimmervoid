@@ -45,6 +45,16 @@ export const RadarWatcheeSettings = z.object({
 
 export type RadarWatcheeSettings = z.infer<typeof RadarWatcheeSettings>;
 
+export const CommunityWatcheeSettings = z.object({
+  enabled: z.boolean(),
+  host: z.string().min(1),
+  projectId: z.number().int().positive(),
+  discordChannels: z.array(z.string().min(1)),
+  intervalMinutes: z.number().positive(),
+}).strict();
+
+export type CommunityWatcheeSettings = z.infer<typeof CommunityWatcheeSettings>;
+
 export const WatcheeSettingsFile = z.object({
   version: z.literal(1),
   teamReview: TeamReviewWatcheeSettings,
@@ -52,6 +62,7 @@ export const WatcheeSettingsFile = z.object({
   workflows: WorkflowsWatcheeSettings,
   issues: IssuesWatcheeSettings,
   radar: RadarWatcheeSettings,
+  community: CommunityWatcheeSettings,
 }).strict();
 
 export type WatcheeSettingsFile = z.infer<typeof WatcheeSettingsFile>;

@@ -4,6 +4,7 @@ import { MyPrsCandidatesPayload } from './my-prs-candidates.ts';
 import { WorkflowsCandidatesPayload } from './workflows-candidates.ts';
 import { TeamReviewCandidatesPayload } from './team-review-candidates.ts';
 import { RadarProjectPayload } from './radar-project.ts';
+import { CommunityRowsPayload } from './community.ts';
 
 const WATCHER_JOB_VERSION = 1;
 export const WATCHER_JOB_MAX_BYTES = 1024 * 1024;
@@ -16,6 +17,7 @@ const WATCHER_JOB_KINDS = Object.freeze({
   'workflows.candidates': WorkflowsCandidatesPayload,
   'issues.listing': IssuesListingPayload,
   'radar.project': RadarProjectPayload,
+  'community.rows': CommunityRowsPayload,
 });
 
 export type WatcherJobKind = keyof typeof WATCHER_JOB_KINDS;

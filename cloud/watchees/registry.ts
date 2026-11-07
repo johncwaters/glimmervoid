@@ -4,6 +4,7 @@ import { myPrsWatchee } from './my-prs/my-prs-watchee.ts';
 import { teamReviewWatchee } from './team-review/team-review-watchee.ts';
 import { workflowsWatchee } from './workflows/workflows-watchee.ts';
 import { radarWatchee } from './radar/radar-watchee.ts';
+import { communityWatchee } from './community/community-watchee.ts';
 
 const WATCHEES: WatcheeRegistry = Object.freeze({
   'team-review.candidates': teamReviewWatchee,
@@ -11,6 +12,7 @@ const WATCHEES: WatcheeRegistry = Object.freeze({
   'workflows.candidates': workflowsWatchee,
   'issues.listing': issuesWatchee,
   'radar.project': radarWatchee,
+  'community.rows': communityWatchee,
 });
 
 export { WATCHEES };

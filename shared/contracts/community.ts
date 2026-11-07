@@ -30,7 +30,12 @@ export const CommunityDraft = z.strictObject({
 });
 export type CommunityDraft = z.infer<typeof CommunityDraft>;
 
-const CommunityRunStatus = z.enum(['queued', 'running', 'ready', 'error', 'aside']);
+const CommunityRunStatus = z.enum(['pending', 'queued', 'running', 'ready', 'error', 'aside']);
+
+const DiscordReplyFacts = z.strictObject({
+  isReply: z.boolean(),
+  mentionCount: z.number().int().nonnegative(),
+});
 
 export const CommunityStateEntry = z.strictObject({
   item: CommunityItem,
@@ -46,19 +51,22 @@ export const CommunityStateEntry = z.strictObject({
   retriedAfterTimeout: z.boolean().optional(),
   seenAt: z.string(),
   finishedAt: z.string().nullable(),
+  replyFacts: DiscordReplyFacts.optional(),
 });
 export type CommunityStateEntry = z.infer<typeof CommunityStateEntry>;
 
-const CommunityWatermarks = z.strictObject({
-  forum: z.string().nullable(),
-  discord: z.string().nullable(),
-});
-
 export const CommunityState = z.strictObject({
-  watermarks: CommunityWatermarks,
   entries: z.record(z.string().regex(COMMUNITY_ITEM_KEY_RE), CommunityStateEntry),
 });
 export type CommunityState = z.infer<typeof CommunityState>;
+
+export const CommunityRowsPayload = z.strictObject({
+  observedAt: z.iso.datetime(),
+  source: CommunitySource,
+  rows: z.array(z.record(z.string(), z.unknown())),
+  cursorAfter: z.string().nullable(),
+});
+export type CommunityRowsPayload = z.infer<typeof CommunityRowsPayload>;
 
 export const CommunityStatus = z.object({
   type: z.literal('community-status'),

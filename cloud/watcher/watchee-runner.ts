@@ -11,7 +11,7 @@ import { WATCHEES } from '../watchees/registry.ts';
 import type { WatcheeDetector } from '../watchees/watchee.ts';
 import { createWatcheeJob, intervalStartMs, jobIdForEvent, pruneSentEvents } from './core/watchee-runner-core.ts';
 import { sendJob } from './job-inbox-client.ts';
-import { OWNER_ONLY_FILE_MODE, readJsonFileOrUndefined, readWatcheeSettings } from './watchee-settings.ts';
+import { OWNER_ONLY_FILE_MODE, createWatcheeFileStore, readJsonFileOrUndefined, readWatcheeSettings } from './watchee-settings.ts';
 
 const SENT_EVENTS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const JOB_DELIVERY_ATTEMPTS = 3;
@@ -83,7 +83,7 @@ function createWatcheeRunner({ watcherHome, jobsUrl, token, now = Date.now, log 
       return;
     }
     if (running) await stopWatchee(kind, running);
-    const detector = watchee.start({ watcherHome, now, log });
+    const detector = watchee.start({ watcherHome, files: createWatcheeFileStore(watcherHome), now, log });
     const loop = createTickLoop({
       tag: `watcher:${watchee.laneId}`,
       intervalMs: trigger.everyMs,
@@ -111,6 +111,7 @@ function createWatcheeRunner({ watcherHome, jobsUrl, token, now = Date.now, log 
       if (sentAtByJobId[jobId] !== undefined && !kindsToResend.has(kind)) continue;
       const delivery = await sendJob({ jobsUrl, token, job: createWatcheeJob(jobId, kind, payload, new Date(now())), maxAttempts: JOB_DELIVERY_ATTEMPTS });
       if (!delivery.ok) return { failed: true, error: `${watchee.laneId} job not delivered: ${delivery.reason}` };
+      await detector.acknowledged?.(payload);
       sentAtByJobId = { ...pruneSentEvents(sentAtByJobId, now(), SENT_EVENTS_MAX_AGE_MS), [jobId]: now() };
       await writeJsonAtomic(sentEventsPath, sentAtByJobId, { mode: OWNER_ONLY_FILE_MODE, enforceMode: true, mkdir: true });
     }

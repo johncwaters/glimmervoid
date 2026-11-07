@@ -630,6 +630,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       'workflows.candidates': laneAssembly.workflows.acceptCandidates,
       'issues.listing': issues.acceptListing,
       'radar.project': posthog.acceptProject,
+      'community.rows': community.acceptRows,
     }),
   });
   void issues.watchedProjectRepos().then((projectRepos) => syncWatcheeSettings(config, projectRepos));
