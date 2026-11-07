@@ -12,8 +12,7 @@ import { configuredIntegrationBranch } from '../core/integration-branch-core.ts'
 import type { SessionWorktree, WorktreeArgs } from '../git/git-workspace.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { removeSessionTempFolder } from '../session-temp/session-temp.ts';
-import { generatedAgentHomePath, releaseUnheldAgentHomeSecrets } from '../../session/agent-home.ts';
-import { AGENT_HOME_PROFILES } from '../../session/core/agent-home-core.ts';
+import { releaseEveryUnheldAgentHomeSecrets } from '../../session/agent-home.ts';
 
 interface RegistryConfig extends Record<string, unknown> {
   projects: RegistryProject[];
@@ -202,7 +201,7 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
 
   function startAutoResume(): void {
     pendingAutoResumeOnListening = null;
-    for (const profile of AGENT_HOME_PROFILES) releaseUnheldAgentHomeSecrets(generatedAgentHomePath(profile));
+    releaseEveryUnheldAgentHomeSecrets();
     void runAutoResume(sessions, config, dependencies.spawnGate, dependencies.logger);
   }
 

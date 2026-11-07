@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AgentSetup } from './agent-models.ts';
+import { AgentHomeKind, AgentSetup } from './agent-models.ts';
 
 const RACE_MIN_CONTESTANTS = 2;
 export const RACE_MAX_CONTESTANTS = 5;
@@ -19,6 +19,7 @@ export const RaceContestant = z.strictObject({
   id: RaceId,
   label: z.string().trim().min(1).max(60),
   setup: AgentSetup,
+  home: AgentHomeKind.default('operator'),
 });
 export type RaceContestant = z.infer<typeof RaceContestant>;
 

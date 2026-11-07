@@ -59,6 +59,7 @@ interface SessionHookOptions {
   getUserHooks?: (() => UserHook[]) | null;
   extraUserHooks?: UserHook[];
   scratchAgentHome?: ScratchAgentHome | null;
+  isCleanHome?: boolean;
   requiresHooks: boolean;
   bypassHookTrust: boolean;
   effectiveCwd: () => string;
@@ -203,7 +204,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
 
   function holdHookedHome(home: HookedAgentHome): { home: string; isTrusted: boolean } | { refusal: string } {
     const sessionFolder = options.effectiveCwd();
-    const prepared = home.prepareHome(process.env, sessionFolder);
+    const prepared = home.prepareHome(process.env, sessionFolder, options.isCleanHome ?? false);
     if ("refusal" in prepared) return prepared;
     heldGeneratedHome = { releaseHome: (heldHome) => home.releaseHome(heldHome, sessionFolder), home: prepared.home };
     return prepared;
@@ -284,7 +285,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
 
   function injectGeneratedHomeHooks(port: number, injection: GeneratedHomeInjection): HookInjectionResult {
     releaseGeneratedHome();
-    const prepared = options.scratchAgentHome ? injection.prepareScratchHome(process.env, options.scratchAgentHome) : injection.prepareHome(process.env, { listenerPort: port, folderTrustRoot: options.folderTrustRoot() });
+    const prepared = options.scratchAgentHome ? injection.prepareScratchHome(process.env, options.scratchAgentHome) : injection.prepareHome(process.env, { listenerPort: port, folderTrustRoot: options.folderTrustRoot(), isCleanHome: options.isCleanHome ?? false });
     if ("refusal" in prepared) return { ...NO_HOOK_INJECTION, refusal: `${options.agentId} cannot start: ${prepared.refusal}` };
     if (!options.scratchAgentHome) heldGeneratedHome = { releaseHome: injection.releaseHome, home: prepared.home };
     const hooksOffConfig = findProjectAgentConfig(injection.projectConfigCandidates, injection.userConfigFolders(options.agentEnv()), injection.mayTurnHooksOff);
@@ -317,6 +318,10 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
 
   function inject(): HookInjectionResult {
     const injected = injectHooks();
+    if (options.isCleanHome && !injected.refusal && !heldGeneratedHome && !settingsHandle) {
+      cleanup();
+      return { ...NO_HOOK_INJECTION, refusal: `${options.agentId} cannot start in a clean home: its hooks could not be injected, so it would read your own home` };
+    }
     if (!options.requiresHooks || injected.refusal || injected.isSaneYoloActive) return injected;
     cleanup();
     return { ...NO_HOOK_INJECTION, refusal: `${options.agentId} cannot start: Sane YOLO hooks could not be injected` };
@@ -347,6 +352,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
         detectScheduledWakeups: options.detectScheduledWakeups,
         observeToolCalls: options.observeToolCalls,
         enableProjectMcp: options.enableProjectMcp,
+        carryOperatorGuardrails: options.isCleanHome ?? false,
         hookTools: options.hookTools,
         planLimits: options.planLimits,
         planReview: options.planReview,

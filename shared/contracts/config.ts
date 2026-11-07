@@ -7,7 +7,7 @@ import { BranchGcControlSettings, GithubSettings,
   PlanReviewSettings, TelemetryFileSettings, TraceSettings, WatcherFileSettings,
 } from './browser-config.ts';
 import { WorkflowsSettingsUpdate } from './workflows.ts';
-import { AgentSetup } from './agent-models.ts';
+import { AgentHomeKind, AgentSetup } from './agent-models.ts';
 import { HostEntries } from './hosts.ts';
 import { GitObjectSha, RaceId } from './race.ts';
 import type { BranchGcFileSettings as BranchGcFileSettingsSchema } from './browser-config.ts';
@@ -168,6 +168,7 @@ export const ProjectConfig = z.object({
   questionManagerOn: z.boolean({ error: 'projects[].questionManagerOn must be a boolean' }).optional(),
   environment: ProjectEnvironment.optional(),
   agentSetup: AgentSetup.optional(),
+  agentHome: AgentHomeKind.optional(),
   raceId: RaceId.optional(),
   startSha: GitObjectSha.optional(),
 }).passthrough();

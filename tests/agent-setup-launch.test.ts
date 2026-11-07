@@ -16,9 +16,9 @@ const SETUP_CASES = [
   { agent: 'kimi', setup: { agent: 'kimi', model: 'kimi-code/kimi-for-coding', options: [], instructions: '' }, flags: ['-m', 'kimi-code/kimi-for-coding'] },
 ] as const;
 
-async function spawnedArgs(project: ProjectEntry, directory: string): Promise<string[]> {
+async function spawnedArgs(project: ProjectEntry, directory: string, hasHookRouter = false): Promise<string[]> {
   const makeSession = createSessionFactory({
-    configStore: { configPath: path.join(directory, 'config.json') }, hookRouter: null, getHookPort: () => null,
+    configStore: { configPath: path.join(directory, 'config.json') }, hookRouter: hasHookRouter ? { register: () => {}, unregister: () => {} } : null, getHookPort: () => (hasHookRouter ? 45999 : null),
     getGitWorkspace: () => null, getPlanReviewPort: () => null, getUserHooks: () => [], resolveHookTools: () => [],
   });
   const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, recordSignals: false, projects: [project] };
@@ -54,6 +54,20 @@ for (const { agent, setup, flags } of SETUP_CASES) {
     }
   });
 }
+
+test('a persisted clean home starts Claude Code on project and local settings only, refuses to start without its hooks, and the operator home keeps every source', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-clean-home-'));
+  try {
+    const project = (agentHome: string): ProjectEntry => ({ ...ProjectConfig.parse({ id: `home-${agentHome}`, name: agentHome, path: directory, agent: 'claude-code', agentHome }), id: `home-${agentHome}`, name: agentHome, path: directory });
+    await assert.rejects(spawnedArgs(project('clean'), directory), /cannot start in a clean home/);
+    const cleanArgs = await spawnedArgs(project('clean'), directory, true);
+    const sourcesAt = cleanArgs.indexOf('--setting-sources');
+    assert.deepEqual(cleanArgs.slice(sourcesAt, sourcesAt + 2), ['--setting-sources', 'project,local'], cleanArgs.join(' '));
+    assert.equal((await spawnedArgs(project('operator'), directory)).includes('--setting-sources'), false);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test('a Claude Code session trusts its own resolved folder in the Claude config before its agent starts, even through a symlink', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-claude-folder-trust-'));

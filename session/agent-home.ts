@@ -11,6 +11,7 @@ import type { AgentHomePlan, AgentHomeProfile, AgentHomeStep, GeneratedAgentHome
 
 const GENERATED_HOME_MODE = 0o700;
 const GENERATED_FILE_MODE = 0o600;
+const CLEAN_HOME_FOLDER_NAME = "clean";
 
 type AgentHomeEnv = Record<string, string | undefined>;
 
@@ -21,6 +22,7 @@ interface AgentHomeOptions {
   platform?: NodeJS.Platform;
   generatedHome?: string;
   generatedFiles?: Readonly<Record<string, string>>;
+  isClean?: boolean;
 }
 
 interface ScratchAgentHomeOptions {
@@ -35,8 +37,8 @@ function realAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv = process.en
   return resolveRealAgentHome(profile, env, homeDir, readOptionalText);
 }
 
-function generatedAgentHomePath(profile: AgentHomeProfile, env: AgentHomeEnv = process.env, homeDir: string = os.homedir()): string {
-  return path.join(glimmervoidHomeDir(homeDir, env), "agent-homes", profile.vendor, profile.homeEnvSubfolder ?? "");
+function generatedAgentHomePath(profile: AgentHomeProfile, env: AgentHomeEnv = process.env, homeDir: string = os.homedir(), isClean = false): string {
+  return path.join(glimmervoidHomeDir(homeDir, env), "agent-homes", profile.vendor, isClean ? CLEAN_HOME_FOLDER_NAME : "", profile.homeEnvSubfolder ?? "");
 }
 
 function agentHomeLinkRefusal(generatedHome: string): string | null {
@@ -155,7 +157,7 @@ interface AgentHomeReading {
 
 function inspectAgentHome(profile: AgentHomeProfile, options: AgentHomeOptions): AgentHomeReading {
   const realHome = realAgentHome(profile, options.env, options.homeDir);
-  const generatedHome = options.generatedHome ?? generatedAgentHomePath(profile, options.env, options.homeDir);
+  const generatedHome = options.generatedHome ?? generatedAgentHomePath(profile, options.env, options.homeDir, options.isClean);
   try {
     return { generatedHome, realHome, plan: planFromDisk(profile, options, realHome, generatedHome) };
   } catch (error) {
@@ -163,7 +165,7 @@ function inspectAgentHome(profile: AgentHomeProfile, options: AgentHomeOptions):
   }
 }
 
-function planFromDisk(profile: AgentHomeProfile, { renderBlock, platform = process.platform }: AgentHomeOptions, realHome: string, generatedHome: string): AgentHomePlan {
+function planFromDisk(profile: AgentHomeProfile, { renderBlock, platform = process.platform, isClean = false }: AgentHomeOptions, realHome: string, generatedHome: string): AgentHomePlan {
   const realConfig = readRealConfig(realHome, profile.config.configName);
   if ("refusal" in realConfig) return { kind: "refused", reason: realConfig.refusal };
   const generatedEntries = childNamesOf(generatedHome).map((name) => describeGeneratedEntry(generatedHome, realHome, name));
@@ -179,6 +181,7 @@ function planFromDisk(profile: AgentHomeProfile, { renderBlock, platform = proce
     renderBlock,
     sourceStamps: readSourceStamps(generatedHome),
     platform,
+    isClean,
   });
 }
 
@@ -319,7 +322,7 @@ function realFileStamps(realHome: string): Record<string, string> {
 }
 
 function prepareAgentHome(profile: AgentHomeProfile, options: AgentHomeOptions): { home: string } | { refusal: string } {
-  const generatedHome = options.generatedHome ?? generatedAgentHomePath(profile, options.env, options.homeDir);
+  const generatedHome = options.generatedHome ?? generatedAgentHomePath(profile, options.env, options.homeDir, options.isClean);
   try {
     fs.mkdirSync(generatedHome, { recursive: true, mode: GENERATED_HOME_MODE });
     fs.chmodSync(generatedHome, GENERATED_HOME_MODE);
@@ -358,13 +361,14 @@ function prepareAgentHome(profile: AgentHomeProfile, options: AgentHomeOptions):
   return { home: generatedHome };
 }
 
-function holdPreparedAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv, renderBlock: (operatorText: string) => string, renderGeneratedFiles: () => Readonly<Record<string, string>> = () => ({})): { home: string } | { refusal: string } {
-  const generatedHome = generatedAgentHomePath(profile, env);
+function holdPreparedAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv, renderBlock: (operatorText: string) => string, renderGeneratedFiles: () => Readonly<Record<string, string>> = () => ({}), isClean = false): { home: string } | { refusal: string } {
+  if (isClean && !profile.cleanOmits) return { refusal: `a clean ${profile.vendor} home is not supported` };
+  const generatedHome = generatedAgentHomePath(profile, env, os.homedir(), isClean);
   if (path.resolve(realAgentHome(profile, env)) === path.resolve(generatedHome)) return { refusal: `${profile.homeEnvName} already points at the generated home ${generatedHome}` };
   const linkRefusal = agentHomeLinkRefusal(generatedHome);
   if (linkRefusal !== null) return { refusal: linkRefusal };
   holdAgentHome(generatedHome);
-  const prepared = prepareAgentHome(profile, { env, renderBlock, generatedFiles: renderGeneratedFiles() });
+  const prepared = prepareAgentHome(profile, { env, renderBlock, generatedFiles: renderGeneratedFiles(), isClean });
   if ("refusal" in prepared) releaseAgentHome(generatedHome);
   return prepared;
 }
@@ -484,5 +488,12 @@ function releaseUnheldAgentHomeSecrets(generatedHome: string): void {
   releaseSecretsUnlessHeldElsewhere(generatedHome, { whenLocksMissing: "keep" });
 }
 
-export { describeAgentHome, generatedAgentHomePath, holdAgentHome, holdPreparedAgentHome, prepareAgentHome, prepareScratchAgentHome, readOptionalText, realAgentHome, releaseAgentHome, releaseUnheldAgentHomeSecrets };
+function releaseEveryUnheldAgentHomeSecrets(env: AgentHomeEnv = process.env): void {
+  for (const profile of AGENT_HOME_PROFILES) {
+    releaseUnheldAgentHomeSecrets(generatedAgentHomePath(profile, env));
+    if (profile.cleanOmits) releaseUnheldAgentHomeSecrets(generatedAgentHomePath(profile, env, undefined, true));
+  }
+}
+
+export { describeAgentHome, generatedAgentHomePath, holdAgentHome, holdPreparedAgentHome, prepareAgentHome, prepareScratchAgentHome, readOptionalText, realAgentHome, releaseAgentHome, releaseEveryUnheldAgentHomeSecrets, releaseUnheldAgentHomeSecrets };
 

@@ -1,4 +1,4 @@
-import { AgentModelCatalog } from '#shared/contracts/agent-models.ts';
+import { AgentHomeKind, AgentModelCatalog } from '#shared/contracts/agent-models.ts';
 import type { AgentSetup } from '#shared/contracts/agent-models.ts';
 import type { CheckOutcome, ContestantMetrics, PanelStanding, RaceCheck, RaceContestant, RaceRecord } from '#shared/contracts/race.ts';
 import { RACE_CRITERIA, RACE_JUDGE_AGENT, RACE_MAX_CONTESTANTS, RACE_MAX_JUDGES, RACE_MAX_ROUNDS, RaceSpec } from '#shared/contracts/race.ts';
@@ -388,8 +388,10 @@ function textField(label: string, value: string, onInput: (value: string) => voi
   return field;
 }
 
+const HOME_CHOICES = [{ value: 'operator', label: 'Your setup' }, { value: 'clean', label: 'Clean home' }];
+
 function relabel(contestants: RaceContestant[]): RaceContestant[] {
-  return contestantsFor(catalog, contestants.map((contestant) => contestant.setup));
+  return contestantsFor(catalog, contestants);
 }
 
 function buildLineupEditor(onChanged: () => void): HTMLElement {
@@ -401,6 +403,10 @@ function buildLineupEditor(onChanged: () => void): HTMLElement {
       draft.contestants = relabel(draft.contestants.map((existing, position) => (position === index ? { ...existing, setup: next } : existing)));
       onChanged();
     }));
+    column.append(buildSelect(HOME_CHOICES, contestant.home, (home) => {
+      draft.contestants = relabel(draft.contestants.map((existing, position) => (position === index ? { ...existing, home: AgentHomeKind.parse(home) } : existing)));
+      onChanged();
+    }, 'Home'));
     const instructions = el('textarea', 'settings-view-input');
     instructions.placeholder = 'Extra instructions for this contestant';
     instructions.rows = 3;
@@ -528,7 +534,7 @@ function buildNewRace(): HTMLElement {
     body.append(buildLineupEditor(paint));
     const addButton = button({ variant: 'quiet', size: 'small', label: 'Add contestant', disabled: draft.contestants.length >= RACE_MAX_CONTESTANTS, onClick: () => {
       const firstAgent = agentsWithModels(catalog)[0] ?? 'claude-code';
-      draft.contestants = relabel([...draft.contestants, { id: 'new', label: 'new', setup: draft.contestants.at(-1)?.setup ?? defaultSetup(catalog, firstAgent) }]);
+      draft.contestants = relabel([...draft.contestants, { id: 'new', label: 'new', setup: draft.contestants.at(-1)?.setup ?? defaultSetup(catalog, firstAgent), home: draft.contestants.at(-1)?.home ?? 'operator' }]);
       paint();
     } });
     body.append(addButton, buildJudgesEditor(paint));

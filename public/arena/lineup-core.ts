@@ -1,5 +1,5 @@
 import { CATALOG_AGENT_IDS, EFFORT_OPTION_ID } from '#shared/contracts/agent-models.ts';
-import type { AgentModelCatalog, AgentSetup, CatalogModel } from '#shared/contracts/agent-models.ts';
+import type { AgentHomeKind, AgentModelCatalog, AgentSetup, CatalogModel } from '#shared/contracts/agent-models.ts';
 import type { RaceContestant } from '#shared/contracts/race.ts';
 import { RACE_MAX_CONTESTANTS } from '#shared/contracts/race.ts';
 
@@ -72,16 +72,17 @@ function variedSetup(catalog: AgentModelCatalog, base: AgentSetup, setting: Vary
   return withEffort(base, value);
 }
 
-export function contestantsFor(catalog: AgentModelCatalog, setups: readonly AgentSetup[]): RaceContestant[] {
+export function contestantsFor(catalog: AgentModelCatalog, entries: readonly { setup: AgentSetup; home: AgentHomeKind }[]): RaceContestant[] {
   const labelCounts = new Map<string, number>();
-  return setups.slice(0, RACE_MAX_CONTESTANTS).map((setup, index) => {
-    const baseLabel = autoLabel(setup, catalog);
+  return entries.slice(0, RACE_MAX_CONTESTANTS).map(({ setup, home }, index) => {
+    const setupLabel = autoLabel(setup, catalog);
+    const baseLabel = (home === 'clean' ? `${setupLabel} clean` : setupLabel).slice(0, 60);
     const seen = (labelCounts.get(baseLabel) ?? 0) + 1;
     labelCounts.set(baseLabel, seen);
-    return { id: `c${index + 1}`, label: seen === 1 ? baseLabel : `${baseLabel} ${seen}`.slice(0, 60), setup };
+    return { id: `c${index + 1}`, label: seen === 1 ? baseLabel : `${baseLabel} ${seen}`.slice(0, 60), setup, home };
   });
 }
 
 export function varyLineup(catalog: AgentModelCatalog, base: AgentSetup, setting: VarySetting, values: readonly string[]): RaceContestant[] {
-  return contestantsFor(catalog, values.map((value) => variedSetup(catalog, base, setting, value)));
+  return contestantsFor(catalog, values.map((value) => ({ setup: variedSetup(catalog, base, setting, value), home: 'operator' as const })));
 }

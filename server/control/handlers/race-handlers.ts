@@ -1,6 +1,7 @@
 import { configIssueMessage, SHELL_AGENT_ID } from '../../../shared/contracts/index.ts';
 import type { ClientMessageOf } from '../../../shared/contracts/index.ts';
 import { RACE_JUDGE_AGENT, RaceSpec } from '../../../shared/contracts/race.ts';
+import { CatalogAgentId } from '../../../shared/contracts/agent-models.ts';
 import type { RaceContestant } from '../../../shared/contracts/race.ts';
 import { DEFAULT_AGENT_ID, isKnownAgentId } from '../../../session/adapters/index.ts';
 import type { ControlSocket } from '../../backend/backend-websockets.ts';
@@ -26,7 +27,7 @@ function createRaceHandlers(context: ControlContext, deps: ControlHandlerDeps, {
       agent: agent === DEFAULT_AGENT_ID ? undefined : agent,
       dangerouslySkipPermissions: machineSkipsPermissionsByDefault(config),
       requireExistingPath: true,
-      runSettings: { agentSetup: contestant.setup, raceId: race.raceId, startSha: race.startSha },
+      runSettings: { agentSetup: contestant.setup, agentHome: contestant.home, raceId: race.raceId, startSha: race.startSha },
     });
     if (!created.ok) return { ok: false as const, error: created.error };
     const session = sessions.get(created.project.id);
@@ -55,6 +56,11 @@ function createRaceHandlers(context: ControlContext, deps: ControlHandlerDeps, {
     const unknownAgent = spec.contestants.find((contestant) => contestant.setup.agent === SHELL_AGENT_ID || !isKnownAgentId(contestant.setup.agent));
     if (unknownAgent) {
       reply({ ok: false, error: `"${unknownAgent.setup.agent}" cannot race: a contestant must be a coding agent` });
+      return;
+    }
+    const uncleanable = spec.contestants.find((contestant) => contestant.home === 'clean' && !CatalogAgentId.safeParse(contestant.setup.agent).success);
+    if (uncleanable) {
+      reply({ ok: false, error: `"${uncleanable.setup.agent}" cannot race in a clean home: only Claude Code, Codex and Kimi Code can` });
       return;
     }
     const unknownJudge = spec.judges.find((judge) => judge.setup.agent !== RACE_JUDGE_AGENT);

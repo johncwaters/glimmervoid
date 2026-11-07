@@ -40,6 +40,7 @@ interface SettingsHookEntry {
 interface SessionPermissions {
   allow?: string[];
   deny?: string[];
+  ask?: string[];
   defaultMode?: string;
 }
 
@@ -49,6 +50,9 @@ interface HookSettings {
   enableAllProjectMcpServers?: boolean;
   statusLine?: { type: string; command: string };
   awaySummaryEnabled?: boolean;
+  sandbox?: unknown;
+  env?: unknown;
+  apiKeyHelper?: unknown;
 }
 
 interface BuildHookSettingsOptions {
@@ -64,6 +68,7 @@ interface BuildHookSettingsOptions {
   planLimits?: boolean;
   planReview?: boolean;
   userSettingsPath?: string | null;
+  carryOperatorGuardrails?: boolean;
   relayPath?: string;
   commandHookRelayPath?: string;
   hookToolRelayPath?: string;
@@ -110,12 +115,34 @@ function toForwardSlashes(value: string): string {
   return String(value).replace(/\\/g, '/');
 }
 
+interface OperatorGuardrails {
+  denyRules: string[];
+  askRules: string[];
+  carried: Pick<HookSettings, 'sandbox' | 'env' | 'apiKeyHelper'>;
+}
+
 interface OperatorClaudeSettings {
   statuslineCommand: string | null;
   awaySummaryEnabled: boolean | null;
+  guardrails: OperatorGuardrails;
 }
 
-const NO_OPERATOR_SETTINGS: OperatorClaudeSettings = { statuslineCommand: null, awaySummaryEnabled: null };
+const CARRIED_GUARDRAIL_KEYS = ['sandbox', 'env', 'apiKeyHelper'] as const;
+const NO_OPERATOR_GUARDRAILS: OperatorGuardrails = { denyRules: [], askRules: [], carried: {} };
+const NO_OPERATOR_SETTINGS: OperatorClaudeSettings = { statuslineCommand: null, awaySummaryEnabled: null, guardrails: NO_OPERATOR_GUARDRAILS };
+
+function ruleListOf(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((rule): rule is string => typeof rule === 'string') : [];
+}
+
+function guardrailsFrom(parsed: Record<string, unknown>): OperatorGuardrails {
+  const permissions = isRecord(parsed.permissions) ? parsed.permissions : {};
+  const carried: OperatorGuardrails['carried'] = {};
+  for (const key of CARRIED_GUARDRAIL_KEYS) {
+    if (parsed[key] !== undefined) carried[key] = parsed[key];
+  }
+  return { denyRules: ruleListOf(permissions.deny), askRules: ruleListOf(permissions.ask), carried };
+}
 
 function statuslineCommandFrom(parsed: Record<string, unknown>): string | null {
   if (!isRecord(parsed.statusLine) || parsed.statusLine.type !== 'command') return null;
@@ -131,6 +158,7 @@ function readOperatorClaudeSettings(settingsPath: string): OperatorClaudeSetting
       return {
         statuslineCommand: statuslineCommandFrom(parsed),
         awaySummaryEnabled: typeof parsed.awaySummaryEnabled === 'boolean' ? parsed.awaySummaryEnabled : null,
+        guardrails: guardrailsFrom(parsed),
       };
     },
   })) ?? NO_OPERATOR_SETTINGS;
@@ -157,7 +185,7 @@ function buildRemoteCommandHookCommand({ nodePath, postUrl }: { nodePath: string
   return `${shellQuote(nodePath)} -e ${shellQuote(inlineRelay)} ${shellQuote(postUrl)}`;
 }
 
-function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, detectScheduledWakeups = true, observeToolCalls = false, enableProjectMcp = false, hookTools = [], planLimits = false, planReview = false, userSettingsPath = null, relayPath = RELAY_PATH, commandHookRelayPath = COMMAND_HOOK_RELAY_PATH, hookToolRelayPath = HOOK_TOOL_RELAY_PATH, userHooks = [], remoteNodePath = null }: BuildHookSettingsOptions): HookSettings {
+function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, detectScheduledWakeups = true, observeToolCalls = false, enableProjectMcp = false, hookTools = [], planLimits = false, planReview = false, userSettingsPath = null, carryOperatorGuardrails = false, relayPath = RELAY_PATH, commandHookRelayPath = COMMAND_HOOK_RELAY_PATH, hookToolRelayPath = HOOK_TOOL_RELAY_PATH, userHooks = [], remoteNodePath = null }: BuildHookSettingsOptions): HookSettings {
   if (!port || !glimmervoidId || !token) {
     throw new Error('buildHookSettings requires port, glimmervoidId, token');
   }
@@ -218,21 +246,24 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
     hooks.PreToolUse = preToolUse;
   }
   appendUserHooks(hooks, Array.isArray(userHooks) ? userHooks : []);
-  const settings: HookSettings = { hooks };
+  const operatorSettingsPath = userSettingsPath || path.join(os.homedir(), '.claude', 'settings.json');
+  const operatorSettings = readOperatorClaudeSettings(operatorSettingsPath);
+  const guardrails = carryOperatorGuardrails ? operatorSettings.guardrails : NO_OPERATOR_GUARDRAILS;
+  const settings: HookSettings = { hooks, ...guardrails.carried };
   const allowRules = permissions && Array.isArray(permissions.allow) ? permissions.allow.slice() : [];
-  const denyRules = permissions && Array.isArray(permissions.deny) ? permissions.deny.slice() : [];
+  const denyRules = [...(permissions && Array.isArray(permissions.deny) ? permissions.deny : []), ...guardrails.denyRules];
+  const askRules = guardrails.askRules;
   const defaultMode = permissions && typeof permissions.defaultMode === 'string' ? permissions.defaultMode : null;
-  if (allowRules.length > 0 || denyRules.length > 0 || defaultMode) {
+  if (allowRules.length > 0 || denyRules.length > 0 || askRules.length > 0 || defaultMode) {
     settings.permissions = {};
     if (allowRules.length > 0) settings.permissions.allow = allowRules;
     if (denyRules.length > 0) settings.permissions.deny = denyRules;
+    if (askRules.length > 0) settings.permissions.ask = askRules;
     if (defaultMode) settings.permissions.defaultMode = defaultMode;
   }
   if (enableProjectMcp) {
     settings.enableAllProjectMcpServers = true;
   }
-  const operatorSettingsPath = userSettingsPath || path.join(os.homedir(), '.claude', 'settings.json');
-  const operatorSettings = readOperatorClaudeSettings(operatorSettingsPath);
   if (operatorSettings.awaySummaryEnabled !== null) {
     settings.awaySummaryEnabled = operatorSettings.awaySummaryEnabled;
   }

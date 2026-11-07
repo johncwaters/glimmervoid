@@ -84,7 +84,7 @@ test('every judge on the panel sees its own shuffled letter ids and no agent con
     id: 'race-blind',
     spec: {
       version: 1, title: 'Fix add', prompt: 'Fix add.', repoPath: mainRepo, judges: [{ setup }, { setup: { ...setup, model: 'claude-opus-5-5', options: [{ id: 'effort', value: 'high' }] } }], timeLimitMinutes: null, rounds: 1, check: { program: 'node', args: ['-e', 'console.log(require("fs").readdirSync(".").join("\\n")); import("./add.ts").then((m) => { console.log("add(1, 2) =", m.add(1, 2)); process.exit(m.add(1, 2) === 3 ? 0 : 7); })'], timeoutSeconds: 30 },
-      contestants: Object.keys(worktreeByContestant).map((id) => ({ id, label: `Label ${id}`, setup })),
+      contestants: Object.keys(worktreeByContestant).map((id) => ({ id, label: `Label ${id}`, setup, home: 'operator' as const })),
     },
     startSha, baseBranch: 'main', createdAt: 1, phase: 'running', diffStatsByContestant: {}, checkByContestant: {}, metricsByContestant: { 'kimi-only-config': { elapsedMs: 45, waits: 1, tokens: 900, costUSD: 0.01 } }, finishByContestant: {}, judge: null, panel: null, judgeError: null, winnerContestantId: null, series: null,
     sessionIdByContestant: Object.fromEntries(Object.keys(worktreeByContestant).map((id) => [id, `session-${id}`])),
@@ -229,7 +229,7 @@ test('a race with two rounds starts the second from the same start point once th
     integrationBranch: () => null, broadcast: () => {}, log: quietLog, sessionStateOf: () => 'COMPLETE', judgeRoot: path.join(root, 'judges'),
   });
   const setup = { agent: 'claude-code', model: null, options: [], instructions: '' };
-  const spec = { version: 1 as const, title: 'Series', prompt: 'Do it.', repoPath: root, judges: [], check: null, timeLimitMinutes: null, rounds: 2, contestants: [{ id: 'a', label: 'A', setup }, { id: 'b', label: 'B', setup }] };
+  const spec = { version: 1 as const, title: 'Series', prompt: 'Do it.', repoPath: root, judges: [], check: null, timeLimitMinutes: null, rounds: 2, contestants: [{ id: 'a', label: 'A', setup, home: 'operator' as const }, { id: 'b', label: 'B', setup, home: 'operator' as const }] };
   const started = await wiring.start(spec, (contestant) => ({ ok: true, sessionId: `round-${Math.floor(launches++ / 2) + 1}-${contestant.id}` }));
   assert.ok(started.ok);
   assert.deepEqual(wiring.status().races[0].series, { id: started.raceId, round: 1 });
@@ -259,7 +259,7 @@ test('a winner picked in an earlier round stops the settle poll judging a later 
   let launches = 0;
   const wiring = createRaceWiring({ store, git, integrationBranch: () => null, broadcast: () => {}, log: quietLog, sessionStateOf: () => 'COMPLETE', judgeRoot: path.join(root, 'judges') });
   const setup = { agent: 'claude-code', model: null, options: [], instructions: '' };
-  const spec = { version: 1 as const, title: 'Series', prompt: 'Do it.', repoPath: root, judges: [], check: null, timeLimitMinutes: null, rounds: 2, contestants: [{ id: 'a', label: 'A', setup }, { id: 'b', label: 'B', setup }] };
+  const spec = { version: 1 as const, title: 'Series', prompt: 'Do it.', repoPath: root, judges: [], check: null, timeLimitMinutes: null, rounds: 2, contestants: [{ id: 'a', label: 'A', setup, home: 'operator' as const }, { id: 'b', label: 'B', setup, home: 'operator' as const }] };
   const started = await wiring.start(spec, (contestant) => ({ ok: true, sessionId: `round-${Math.floor(launches++ / 2) + 1}-${contestant.id}` }));
   assert.ok(started.ok);
   await wiring.judge(started.raceId);
