@@ -9,14 +9,14 @@ type AgentReply = { status: number; body: Record<string, unknown> };
 
 const UNREAD_BOARD_TEXT = 'the board could not be read back for its plan steps and layout warnings';
 
-function boardIdFor(layouts: WhiteboardLayouts | null, boardRef: unknown): string | null {
+async function boardIdFor(layouts: WhiteboardLayouts | null, boardRef: unknown): Promise<string | null> {
   if (typeof boardRef !== 'string' || !layouts) return null;
-  const found = layouts.findBoardId(boardRef);
+  const found = await layouts.findBoardId(boardRef);
   return found.ok ? found.boardId : null;
 }
 
 async function boardReplyWithReading(session: Session, agentApi: AgentApiPort, layouts: WhiteboardLayouts | null, payload: Record<string, unknown>): Promise<AgentReply> {
-  const boardId = boardIdFor(layouts, payload.board);
+  const boardId = await boardIdFor(layouts, payload.board);
   const reply = await agentApi.handle(session, 'whiteboard', { ...payload, board: boardId ?? payload.board });
   if (reply.body.ok !== true) return reply;
   const reading = boardId ? await layouts?.readingOf(boardId).catch(() => null) : null;
@@ -42,7 +42,7 @@ const UNREADABLE_LAYOUT_REPLY: AgentReply = { status: 503, body: { ok: false, er
 async function boardPictureResult(session: Session, agentApi: AgentApiPort, assets: WhiteboardAssetStore | null, layouts: WhiteboardLayouts | null, payload: Record<string, unknown>): Promise<AgentReply | ToolImageResult> {
   if (!layouts) return UNREADABLE_LAYOUT_REPLY;
   if (typeof payload.board !== 'string') return agentApi.handle(session, 'whiteboard', { sub: 'get', board: payload.board, peek: true });
-  const found = layouts.findBoardId(payload.board);
+  const found = await layouts.findBoardId(payload.board);
   if (!found.ok) return found.reply;
   const { boardId } = found;
   const reading = await layouts.readingOf(boardId).catch(() => null);

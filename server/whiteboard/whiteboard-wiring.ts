@@ -149,7 +149,7 @@ interface BoardReadingOf {
 }
 
 interface WhiteboardLayouts {
-  findBoardId(ref: string): { ok: true; boardId: string } | { ok: false; reply: WhiteboardReply };
+  findBoardId(ref: string): Promise<{ ok: true; boardId: string } | { ok: false; reply: WhiteboardReply }>;
   readingOf(boardId: string): Promise<BoardReadingOf | null>;
   summaryOf(boardId: string): Promise<LayoutSummary | null>;
   pictureImagesOf(boardId: string): Promise<PictureImage[] | null>;
@@ -843,7 +843,10 @@ function createWhiteboardWiring({
   }
 
   const layouts: WhiteboardLayouts = {
-    findBoardId,
+    findBoardId: async (ref) => {
+      await loaded;
+      return findBoardId(ref);
+    },
     readingOf: async (boardId) => {
       const board = await loadedBoardOf(boardId);
       if (!board) return null;

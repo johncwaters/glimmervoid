@@ -237,4 +237,3 @@ function iconStrokesOf(name: IconName): IconStrokes {
 }
 
 export { iconStrokesOf };
-export type { IconStrokes };
