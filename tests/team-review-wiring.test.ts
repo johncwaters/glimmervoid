@@ -18,7 +18,8 @@ import { makeTeamReviewWorkDir, hooksPathPinnedSpawnEnv } from '../server/github
 import { sweepLeftoverCheckouts } from '../server/github/team-review-checkouts.ts';
 import type { TeamReviewDispatchOptions } from '../server/github/team-review-dispatcher.ts';
 import type { TeamReviewSpawn } from '../server/github/team-review-spawn.ts';
-import { comparablePrKey } from '../shared/contracts/github-prs.ts';
+import { comparablePrKey, GithubPr, GithubPrDetailNode } from '../shared/contracts/github-prs.ts';
+import { normalizeGithubPr } from '../server/github/core/github-store-core.ts';
 import { PrDetail, ReviewDraft } from '../shared/contracts/team-review.ts';
 import { UNTRUSTED_PAYLOAD_FILENAME, UNTRUSTED_PREAMBLE, UntrustedPayload } from '../shared/contracts/untrusted-payload.ts';
 import type { ResumableReview, ReviewDraft as ReviewDraftType, TeamReviewStatus as TeamReviewStatusType } from '../shared/contracts/team-review.ts';
@@ -982,5 +983,57 @@ test('an organization with no team has the watcher search only review requests t
     assert.deepEqual(searched, { ok: true, payload: { observedAt: '2026-11-06T00:00:00.000Z', viewer: 'me', isComplete: true, directRequested: [], teamRequested: [], authored: [] } });
   } finally {
     search.stop();
+  }
+});
+
+function teammatePrAt(head: string): GithubPr {
+  return GithubPr.parse(normalizeGithubPr(GithubPrDetailNode.parse({
+    __typename: 'PullRequest', id: 'PR_7', number: 7, title: 'Fix it', url: candidate.url,
+    repository: { nameWithOwner: 'Acme/app', viewerDefaultMergeMethod: 'SQUASH' },
+    author: { login: 'teammate' }, labels: { nodes: [] }, comments: { totalCount: 0 },
+    isDraft: false, state: 'OPEN', createdAt: '', mergedAt: null, updatedAt: '',
+    baseRefName: 'main', baseRefOid: 'b'.repeat(40), headRefName: 'feature', isCrossRepository: false, headRefOid: head,
+    isInMergeQueue: false, mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: null,
+    commits: { nodes: [] }, reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] },
+    reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, latestReviews: { nodes: [] },
+  }), 0, []));
+}
+
+test('a saved draft goes stale when the pull request head moves, is ready again when it returns, and a discarded draft restores or requeues as stale at a moved head', async () => {
+  const savedAt = Date.now();
+  const tickWaiters: (() => void)[] = [];
+  const isPlannedAt = (head: string) => poller._state()[ACTION_KEY]?.liveHead === head;
+  const poller = createTeamReviewPoller({
+    org: 'Acme', teams: [], github: {}, store: emptyGithubStore(),
+    spawnReview: () => new Promise(() => {}),
+    readState: async () => ({ [ACTION_KEY]: { draft: actionDraft(), reviewedHead: HEAD, inFlight: false, reviewAttempts: 1, updatedAt: savedAt } }),
+    writeState: async () => {}, beforeStart: async () => {},
+    firstTickDelayMs: () => 2 ** 30, setIntervalFn: () => setInterval(() => {}, 2 ** 30), clearIntervalFn: clearInterval,
+    onTickComplete: () => { for (const waiter of tickWaiters) waiter(); },
+  });
+  let observedSeconds = 0;
+  const headAt = async (head: string) => {
+    observedSeconds += 1;
+    const plannedAtHead = new Promise<void>((resolve) => { tickWaiters.push(() => { if (isPlannedAt(head)) resolve(); }); });
+    poller.acceptCandidates({ observedAt: new Date(savedAt + observedSeconds * 1000).toISOString(), viewer: 'me', isComplete: true, directRequested: [], teamRequested: [teammatePrAt(head)], authored: [] });
+    await plannedAtHead;
+  };
+  const draftStatus = () => poller.getDraft(ACTION_KEY)?.status;
+  try {
+    await poller.start();
+    await headAt(OTHER_HEAD);
+    assert.equal(draftStatus(), 'stale');
+    await headAt(HEAD);
+    assert.equal(draftStatus(), 'ready');
+    await headAt(OTHER_HEAD);
+    assert.deepEqual(await poller.markNotMine(ACTION_KEY), { ok: true });
+    assert.equal(draftStatus(), 'discarded');
+    assert.equal(await poller.restore(ACTION_KEY, HEAD), true);
+    assert.equal(draftStatus(), 'stale');
+    assert.deepEqual(await poller.markNotMine(ACTION_KEY), { ok: true });
+    assert.equal(await poller.requeue(ACTION_KEY, HEAD), true);
+    assert.equal(draftStatus(), 'stale');
+  } finally {
+    await poller.stop();
   }
 });
