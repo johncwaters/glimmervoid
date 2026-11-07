@@ -58,6 +58,8 @@ import {
 import { acceptsAttentionSignal, mapSignalToEvent, shouldDeferAttention } from "./core/status-mapper.ts";
 import { decideWaitingInput, isComposerSubmit, isOperatorKeystroke, isPromptSubmit } from "./core/waiting-input-core.ts";
 import { decideExitTransition } from "./core/exit-transition.ts";
+import { decideTeardown, NO_TEARDOWN } from "./core/session-teardown.ts";
+import type { Teardown, TeardownAction } from "./core/session-teardown.ts";
 import type { ExitSignal } from "./core/exit-transition.ts";
 import * as agentTracker from "./core/agent-tracker.ts";
 import { DEFAULT_GATE_RELEASE_SETTLE_MS } from "./core/gate-release.ts";
@@ -270,9 +272,7 @@ class Session extends EventEmitter {
   _hasPromptSinceSpawn: boolean;
   _titleQuietFallbackTimer: NodeJS.Timeout | null;
   _reaper: SessionProcessReaper;
-  _destroyed: boolean;
-  _pendingRestart: boolean;
-  _finishing: boolean;
+  _teardown: Teardown;
   _ptyAlive: boolean;
   _recorder: SessionRecorderPort | null;
   _output: ReturnType<typeof createSessionOutput>;
@@ -458,10 +458,7 @@ class Session extends EventEmitter {
     this.managerSeenSeq = 0;
     this._receivedFirstOutput = false;
     this._hasPromptSinceSpawn = false;
-    this._destroyed = false;
-    this._pendingRestart = false;
-
-    this._finishing = false;
+    this._teardown = NO_TEARDOWN;
 
     this._ptyAlive = false;
     this._recorder = null;
@@ -1246,8 +1243,12 @@ class Session extends EventEmitter {
     return !this._destroyed && !!this.ptyProcess && !!this._ptyAlive;
   }
 
+  get _destroyed(): boolean {
+    return this._teardown.kind === "destroyed";
+  }
+
   get pendingRestart(): boolean {
-    return this._pendingRestart;
+    return this._teardown.kind === "restart-pending";
   }
 
   setResumeConversation(id: string | null): void {
@@ -1384,7 +1385,7 @@ class Session extends EventEmitter {
       name: this.name,
       state: this.state,
       destroyed: this._destroyed,
-      pendingRestart: this._pendingRestart,
+      pendingRestart: this.pendingRestart,
       hasPty: this.ptyProcess !== null,
       ptyPid: this.ptyProcess ? this.ptyProcess.pid : null,
       outputBufferEntries: this._output.stats().entries,
@@ -1931,6 +1932,7 @@ class Session extends EventEmitter {
 
     const exitedOnItsOwn = isUnsignalledCleanExit && this.state === STATES.DONE && !this._teardownPending() && !this._destroyed;
     this.emit("exit", { exitCode, signal, reason, exitedOnItsOwn });
+    this._dispatchTeardown({ kind: "pty_exited" });
   }
 
   getScreenSnapshot(): ScreenSnapshot {
@@ -2051,7 +2053,25 @@ class Session extends EventEmitter {
   }
 
   _teardownPending(): boolean {
-    return this._pendingRestart || this._finishing;
+    return this._teardown.kind === "restart-pending" || this._teardown.kind === "finish-pending";
+  }
+
+  _dispatchTeardown(event: Parameters<typeof decideTeardown>[1]): boolean {
+    const decision = decideTeardown(this._teardown, event);
+    if (!decision) return false;
+    this._teardown = decision.teardown;
+    for (const action of decision.actions) this._runTeardownAction(action);
+    return true;
+  }
+
+  _runTeardownAction(action: TeardownAction): void {
+    if (action.kind === "merge-and-reset") {
+      void this._mergeAndReset().catch(() => {}).finally(() => this._dispatchTeardown({ kind: "merge_settled" }));
+      return;
+    }
+    if (!RESTARTABLE_STATES.includes(this.state)) return;
+    this.transition("user_restart");
+    this.start({ fresh: action.fresh, resumePrompt: action.resumePrompt });
   }
 
   killSession(): boolean {
@@ -2083,17 +2103,11 @@ class Session extends EventEmitter {
       return { ok: false, reason: this._teardownPending() ? "in-progress" : "destroyed" };
     }
     if (RESTARTABLE_STATES.includes(this.state)) {
-
-      this._finishing = true;
-      this._mergeAndReset().finally(() => { this._finishing = false; }).catch(() => {});
+      this._dispatchTeardown({ kind: "finish_requested", isProcessLive: false });
       return { ok: true };
     }
     if (this.state === STATES.COMPLETE || this.state === STATES.IDLE) {
-      this._finishing = true;
-      this.once("exit", async () => {
-        try { if (!this._destroyed) await this._mergeAndReset(); }
-        finally { this._finishing = false; }
-      });
+      this._dispatchTeardown({ kind: "finish_requested", isProcessLive: true });
       this.killSession();
       return { ok: true, pending: true };
     }
@@ -2111,15 +2125,7 @@ class Session extends EventEmitter {
     if (this._teardownPending()) return false;
     if (KILLABLE_STATES.includes(this.state)) {
       this._prepareRestart(options);
-      const fresh = options.fresh === true;
-      this._pendingRestart = true;
-      this.once("exit", () => {
-        this._pendingRestart = false;
-        if (this._destroyed) return;
-        if (!RESTARTABLE_STATES.includes(this.state)) return;
-        this.transition("user_restart");
-        this.start({ fresh, resumePrompt: options.resumePrompt ?? null });
-      });
+      this._dispatchTeardown({ kind: "restart_requested", fresh: options.fresh === true, resumePrompt: options.resumePrompt ?? null });
       this.kill();
       this.transition("user_kill");
       return true;
@@ -2134,8 +2140,7 @@ class Session extends EventEmitter {
   }
 
   destroy(cause: SessionEndCause = "removed"): void {
-    if (this._destroyed) return;
-    this._destroyed = true;
+    if (!this._dispatchTeardown({ kind: "destroy_requested" })) return;
     this._agentToken = null;
     this._commitSigningToken = null;
     this._pendingAttentionNotes = [];

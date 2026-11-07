@@ -7,7 +7,7 @@ interface OwnedMachine {
   owner: string;
   handles: RegExp;
   writes: RegExp[];
-  allowedOffenders: Map<string, string>;
+  allowedOffenders: Map<string, { writeCount: number; reason: string }>;
 }
 
 const MACHINES: OwnedMachine[] = [
@@ -17,7 +17,7 @@ const MACHINES: OwnedMachine[] = [
     handles: /\bmergeStatus\b/,
     writes: [/\.mergeStatus\s*=[^=]/, /\bObject\.assign\([^)]*mergeStatus/, /\bmergeStatus\s*:\s*["'`]/],
     allowedOffenders: new Map([
-      ['session/session-worktree-lifecycle.ts', 'seeds the initial none status and applies the owner verdict from nextMergeState'],
+      ['session/session-worktree-lifecycle.ts', { writeCount: 1, reason: 'seeds the initial none status and applies the owner verdict from nextMergeState' }],
     ]),
   },
   {
@@ -26,10 +26,10 @@ const MACHINES: OwnedMachine[] = [
     handles: /\b(?:ReviewDraft|TeamReviewStateEntry)\b/,
     writes: [/\bstatus\s*:\s*["'`](?:ready|stale|posted|discarded|error)["'`]/],
     allowedOffenders: new Map([
-      ['server/github/team-review-actions.ts', 'markDraft patches draft status directly until the team review slice'],
-      ['server/github/team-review-poller/team-review-operator-actions.ts', 'requeue, restore and not-mine spread draft status directly until the team review slice'],
-      ['server/github/team-review-poller/team-review-runs.ts', 'settleNotMineReview spreads draft status directly until the team review slice'],
-      ['server/packs/core/pack-preview-core.ts', 'builds a sample ready draft for the pack preview, never a stored draft'],
+      ['server/github/team-review-actions.ts', { writeCount: 4, reason: 'markDraft patches draft status directly until the team review slice' }],
+      ['server/github/team-review-poller/team-review-operator-actions.ts', { writeCount: 2, reason: 'requeue, restore and not-mine spread draft status directly until the team review slice' }],
+      ['server/github/team-review-poller/team-review-runs.ts', { writeCount: 1, reason: 'settleNotMineReview spreads draft status directly until the team review slice' }],
+      ['server/packs/core/pack-preview-core.ts', { writeCount: 1, reason: 'builds a sample ready draft for the pack preview, never a stored draft' }],
     ]),
   },
   {
@@ -38,7 +38,7 @@ const MACHINES: OwnedMachine[] = [
     handles: /\bPrActionRun(?:Record|State)\b/,
     writes: [/\bstate\s*:\s*["'`](?:running|started|done|failed|refused|interrupted)["'`]/],
     allowedOffenders: new Map([
-      ['server/github/pr-flows-wiring.ts', 'builds running runs and checks running alone for liveness until the pr action slice'],
+      ['server/github/pr-flows-wiring.ts', { writeCount: 2, reason: 'builds running runs and checks running alone for liveness until the pr action slice' }],
     ]),
   },
   {
@@ -52,9 +52,9 @@ const MACHINES: OwnedMachine[] = [
     name: 'session teardown',
     owner: 'session/core/session-teardown.ts',
     handles: /\bclass Session\b/,
-    writes: [/\b_(?:pendingRestart|finishing|ptyAlive)\b/, /\.once\(\s*["']exit["']/],
+    writes: [/\b_(?:pendingRestart|finishing)\b/, /\b_(?:destroyed|teardown)\s*=[^=]/, /\.(?:on|once|addListener|prependListener|prependOnceListener)\(\s*["'`]exit["'`]/],
     allowedOffenders: new Map([
-      ['session/sessions.ts', 'teardown runs on _pendingRestart, _finishing, _ptyAlive and once(exit) closures until the session teardown slice'],
+      ['session/sessions.ts', { writeCount: 2, reason: 'the constructor seeds NO_TEARDOWN and _dispatchTeardown applies the decideTeardown verdict' }],
     ]),
   },
 ];
@@ -73,6 +73,11 @@ const ALLOWED_FREE_STRING_STATUS_FIELDS = new Map<string, { count: number; reaso
   ['shared/contracts/pack-bridge.ts#state', { count: 1, reason: 'pack bridge mirrors session STATES in its describe text for third-party packs' }],
 ]);
 
+function machineWriteCount(machine: OwnedMachine, sourceText: string): number {
+  if (!machine.handles.test(sourceText)) return 0;
+  return machine.writes.reduce((total, pattern) => total + (sourceText.match(new RegExp(pattern.source, 'g')) ?? []).length, 0);
+}
+
 function trackedSourceFiles(): string[] {
   return trackedFiles(/^(?!.*\.test\.ts$).*\.ts$/);
 }
@@ -84,15 +89,15 @@ test('a registered state machine is written only by its owner module', () => {
   for (const machine of MACHINES) {
     const writingFiles = sourceFiles
       .filter((repoPath) => repoPath !== machine.owner)
-      .filter((repoPath) => {
-        const sourceText = readTracked(repoPath);
-        return machine.handles.test(sourceText) && machine.writes.some((pattern) => pattern.test(sourceText));
-      });
-    for (const repoPath of writingFiles) {
-      if (!machine.allowedOffenders.has(repoPath)) failures.push(`${repoPath} writes the ${machine.name} machine, which only ${machine.owner} may change`);
+      .map((repoPath) => ({ repoPath, writeCount: machineWriteCount(machine, readTracked(repoPath)) }))
+      .filter(({ writeCount }) => writeCount > 0);
+    for (const { repoPath, writeCount } of writingFiles) {
+      const allowed = machine.allowedOffenders.get(repoPath);
+      if (!allowed) failures.push(`${repoPath} writes the ${machine.name} machine, which only ${machine.owner} may change`);
+      if (allowed && writeCount !== allowed.writeCount) failures.push(`${repoPath} has ${writeCount} ${machine.name} writes, ${allowed.writeCount} allowed: route new writes through ${machine.owner}, or lower the count`);
     }
     for (const allowedPath of machine.allowedOffenders.keys()) {
-      if (!writingFiles.includes(allowedPath)) failures.push(`${allowedPath} no longer writes the ${machine.name} machine: delete its allowedOffenders entry`);
+      if (!writingFiles.some(({ repoPath }) => repoPath === allowedPath)) failures.push(`${allowedPath} no longer writes the ${machine.name} machine: delete its allowedOffenders entry`);
     }
   }
   assert.deepEqual(failures, []);
