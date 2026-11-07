@@ -8,10 +8,10 @@ import { parseArgs } from 'node:util';
 import { execFileAsync } from '../server/child-process-safe.ts';
 import type { Board } from '../shared/contracts/whiteboard.ts';
 import { Element } from '../shared/contracts/whiteboard.ts';
-import { layoutBoard, layoutBoardWithMemory } from '../shared/whiteboard-layout-core.ts';
+import { layoutBoard, placeBoardWithMemory } from '../shared/whiteboard-layout-core.ts';
 import { emptyFlatRects, flatRectsOf, forEachTouchingPairAcross, setFlatRect } from '../shared/whiteboard-sweep-core.ts';
 import { createBoard } from '../shared/whiteboard-ops-core.ts';
-import type { BoardLayout } from '../shared/whiteboard-layout-core.ts';
+import type { PlacedLayout } from '../shared/whiteboard-layout-core.ts';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..');
 const TIMED_RUNS = 3;
@@ -27,7 +27,7 @@ const BOX_INSET = 2;
 const EDITED_BOX_COUNT = 8;
 const EDIT_OFFSET = { x: 40, y: 30 };
 
-type LayoutBoard = (board: Board) => BoardLayout;
+type LayoutBoard = (board: Board) => PlacedLayout;
 
 function seededRandom(seed: number): () => number {
   let state = seed;
@@ -66,7 +66,7 @@ export function benchmarkBoard(elementCount: number): Board {
   return { ...board, elements };
 }
 
-function bestLayoutMs(layout: LayoutBoard, board: Board): { layoutMs: number; boardLayout: BoardLayout } {
+function bestLayoutMs(layout: LayoutBoard, board: Board): { layoutMs: number; boardLayout: PlacedLayout } {
   let layoutMs = Infinity;
   let boardLayout = layout(board);
   for (let run = 0; run < TIMED_RUNS; run += 1) {
@@ -89,13 +89,13 @@ function movedBoxesBoard(board: Board): Board {
   return { ...board, elements };
 }
 
-function bestEditMs(board: Board): { layoutMs: number; boardLayout: BoardLayout } {
-  const { memory } = layoutBoardWithMemory(board, null);
+function bestEditMs(board: Board): { layoutMs: number; boardLayout: PlacedLayout } {
+  const { memory } = placeBoardWithMemory(board, null);
   const editedBoard = movedBoxesBoard(board);
-  return bestLayoutMs((edited) => layoutBoardWithMemory(edited, memory).layout, editedBoard);
+  return bestLayoutMs((edited) => placeBoardWithMemory(edited, memory).layout, editedBoard);
 }
 
-function wiresThroughBoxesOf(board: Board, boardLayout: BoardLayout): number {
+function wiresThroughBoxesOf(board: Board, boardLayout: PlacedLayout): number {
   const boxes = boardLayout.elements.flatMap((element) => (element.kind === 'box' ? [element] : []));
   const endsByWireId = new Map(Object.values(board.elements).flatMap((element) => (element.kind === 'wire' ? [[element.id, [element.from, element.to]] as const] : [])));
   const pieces: { wireId: string; isHorizontal: boolean; line: number; from: number; to: number }[] = [];

@@ -1,8 +1,9 @@
 import { BLOCK_RASTER_PX } from './contracts/whiteboard-tiles.ts';
 import { sparseElement, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Board, BoardOutline, Element } from './contracts/whiteboard.ts';
-import type { BoardChrome, LaidOutElement, PaintedElement, Tile, TileDiff, TileKey, TileLod } from './contracts/whiteboard-tiles.ts';
-import type { BoardLayout, Rect } from './whiteboard-layout-core.ts';
+import type { BoardChrome, LaidOutElement, PaintedElement, PlacedElement, PlacedPaint, Tile, TileDiff, TileKey, TileLod } from './contracts/whiteboard-tiles.ts';
+import { dressedElement } from './whiteboard-layout-core.ts';
+import type { PlacedLayout, Rect } from './whiteboard-layout-core.ts';
 import { createSpatialGrid, forEachSlotTouching, placeSlot, removeSlot } from './spatial-grid-core.ts';
 import type { SpatialGrid } from './spatial-grid-core.ts';
 import { labelWidthOf, pointsOfPath } from './whiteboard-route-core.ts';
@@ -21,7 +22,7 @@ const PAINT_RANK_STRIDE = 2 ** 32;
 interface TileIndex {
   version: number;
   chrome: BoardChrome;
-  painted: (PaintedElement | null)[];
+  painted: (PlacedPaint | null)[];
   bounds: (Rect | null)[];
   slotById: Map<string, number>;
   grid: SpatialGrid;
@@ -37,7 +38,7 @@ interface TileChanges {
 interface TilePatch {
   version: number;
   chrome: BoardChrome;
-  changed: readonly LaidOutElement[];
+  changed: readonly PlacedElement[];
   removedIds: readonly string[];
   recordChangedIds: readonly string[];
 }
@@ -118,7 +119,7 @@ function boundsOfPoints(points: readonly { x: number; y: number }[], pad: number
   return { x: minX - pad, y: minY - pad, width: maxX - minX + pad * 2, height: maxY - minY + pad * 2 };
 }
 
-function paintedBoundsOf(element: LaidOutElement): Rect {
+function paintedBoundsOf(element: PlacedElement): Rect {
   if (element.kind === 'wire') {
     const points = [...pointsOfPath(element.path), element.start, element.end];
     if (element.label) {
@@ -135,11 +136,11 @@ function rectOf(rect: Rect): Rect {
   return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
 }
 
-function chromeOf(layout: BoardLayout): BoardChrome {
+function chromeOf(layout: PlacedLayout): BoardChrome {
   return { legend: layout.legend, caption: layout.caption, plan: layout.plan, pinnedOffsetY: layout.pinnedOffsetY, bounds: layout.bounds };
 }
 
-function paintRankOf(element: LaidOutElement, stored: Element | undefined): number {
+function paintRankOf(element: PlacedElement, stored: Element | undefined): number {
   switch (element.kind) {
     case 'frame': return 0;
     case 'wire': return 1;
@@ -148,16 +149,16 @@ function paintRankOf(element: LaidOutElement, stored: Element | undefined): numb
   }
 }
 
-function paintedAt(board: Board, element: LaidOutElement, slot: number): PaintedElement {
+function paintedAt(board: Board, element: PlacedElement, slot: number): PlacedPaint {
   const record = board.elements[element.id];
   return { paintOrder: paintRankOf(element, record) * PAINT_RANK_STRIDE + slot, element, record };
 }
 
-function tileIndexOf(layout: BoardLayout, version: number, board: Board): TileIndex {
+function tileIndexOf(layout: PlacedLayout, version: number, board: Board): TileIndex {
   return tileIndexOfPainted(version, chromeOf(layout), layout.elements.map((element, slot) => paintedAt(board, element, slot)));
 }
 
-function tileIndexOfPainted(version: number, chrome: BoardChrome, painted: (PaintedElement | null)[]): TileIndex {
+function tileIndexOfPainted(version: number, chrome: BoardChrome, painted: (PlacedPaint | null)[]): TileIndex {
   const bounds = painted.map((entry) => (entry ? paintedBoundsOf(entry.element) : null));
   const slotById = new Map<string, number>();
   const grid = createSpatialGrid(CHUNK_SIZE, painted.length);
@@ -188,10 +189,11 @@ interface ElementCluster {
   titles: string[];
 }
 
-function titleOf(element: LaidOutElement): string | null {
-  if (element.kind === 'box') return element.titleLines.join(' ') || null;
+function titleOf({ element, record }: PlacedPaint): string | null {
   if (element.kind === 'frame') return element.title || null;
-  return null;
+  if (element.kind !== 'box') return null;
+  const dressed = dressedElement(element, record);
+  return dressed.kind === 'box' ? dressed.titleLines.join(' ') || null : null;
 }
 
 function clustersOutside(index: TileIndex, focus: Rect, { maxClusters, titlesPerCluster }: { maxClusters: number; titlesPerCluster: number }): ElementCluster[] {
@@ -208,8 +210,8 @@ function clustersOutside(index: TileIndex, focus: Rect, { maxClusters, titlesPer
     cluster.rect.height = bottom - cluster.rect.y;
     cluster.elementCount += 1;
     const painted = index.painted[slot];
-    const title = painted ? titleOf(painted.element) : null;
-    if (title && cluster.titles.length < titlesPerCluster) cluster.titles.push(title);
+    const title = painted && cluster.titles.length < titlesPerCluster ? titleOf(painted) : null;
+    if (title) cluster.titles.push(title);
     clusterByCell.set(cellKey, cluster);
   });
   return [...clusterByCell.values()].sort((left, right) => right.elementCount - left.elementCount).slice(0, maxClusters);
@@ -263,17 +265,17 @@ function boardOutlineOf(board: Board, index: TileIndex, focus: Rect): BoardOutli
   };
 }
 
-function withTitlesOnly(painted: PaintedElement): PaintedElement {
-  const { element } = painted;
+function withTitlesOnly(element: LaidOutElement): LaidOutElement {
   switch (element.kind) {
-    case 'box': return { ...painted, element: { ...element, bodyLines: [] } };
-    case 'note': return { ...painted, element: { ...element, lines: element.lines.slice(0, 1) } };
-    default: return painted;
+    case 'box': return { ...element, bodyLines: [] };
+    case 'note': return { ...element, lines: element.lines.slice(0, 1) };
+    default: return element;
   }
 }
 
-function forLod(painted: PaintedElement, lod: TileLod): PaintedElement {
-  return lod === 'titles' ? withTitlesOnly(painted) : painted;
+function forLod(painted: PlacedPaint, lod: TileLod): PaintedElement {
+  const dressed = dressedElement(painted.element, painted.record);
+  return { ...painted, element: lod === 'titles' ? withTitlesOnly(dressed) : dressed };
 }
 
 function base64Of(bytes: Uint8Array): string {

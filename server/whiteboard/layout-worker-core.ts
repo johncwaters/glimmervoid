@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { BoardHead, BoardOutline, Element } from '../../shared/contracts/whiteboard.ts';
 import type { Board } from '../../shared/contracts/whiteboard.ts';
-import { BoardChrome, LaidOutBox, LaidOutMedia, LayoutRect, Tile, TileDiff, TileKey } from '../../shared/contracts/whiteboard-tiles.ts';
+import { BoardChrome, LaidOutMedia, LayoutRect, PlacedBox, Tile, TileDiff, TileKey } from '../../shared/contracts/whiteboard-tiles.ts';
 import { appendElement, boardIndexOf, dropElement, storeElement } from '../../shared/whiteboard-board-index.ts';
 import { boardPicture, pictureImagesOf } from '../../mcp/core/board-reading.ts';
 import { advanceBoardLayout, chromeOfBoard, layoutBoardRemembered, lineageLayoutOf, pinPositionsOfBoard, warningsOfBoard } from '../../shared/whiteboard-layout-cache.ts';
@@ -45,7 +45,7 @@ const LayoutAnswer = z.strictObject({
   tiles: z.array(Tile).optional(),
   elementCount: z.number().int().nonnegative().optional(),
   isCacheMiss: z.boolean().optional(),
-  pinnedBoxes: z.array(LaidOutBox).optional(),
+  pinnedBoxes: z.array(PlacedBox).optional(),
   pinnedOffsetY: z.number().optional(),
   focus: LayoutRect.optional(),
   elementIds: z.array(z.string()).optional(),
