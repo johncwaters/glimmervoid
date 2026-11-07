@@ -11,6 +11,7 @@ const REQUIRED_OUTPUTS = [
   'client/index.html',
   'server/index.js',
   'server/whiteboard/board-store-worker.js',
+  'server/whiteboard/layout-worker.js',
   'bin/glimmervoid.js',
   'session/hook-relay.js',
   'session/command-hook-relay.js',

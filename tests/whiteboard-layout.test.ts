@@ -240,6 +240,15 @@ test('a near box sits beside its target and a near box whose target is missing w
   const afterRemove = layoutBoard(removed.board);
   assert.deepEqual(afterRemove.elements.filter((element) => element.id === 'stop' || element.id === 'w1'), [], 'a layout after a put that removed a box with near boxes no longer draws the removed box or its wires');
 
+  const addedThenRemoved = applyOps(nearBoard, [
+    { op: 'add', element: Board.shape.elements.valueType.parse({ kind: 'box', id: 'temp', title: 'Temp', at: { x: 600, y: 300 } }) },
+    { op: 'add', element: Board.shape.elements.valueType.parse({ kind: 'box', id: 'kid', title: 'Kid', near: { of: 'temp', side: 'right' } }) },
+    { op: 'remove', id: 'temp' },
+  ], { id: 'operator', name: 'operator' }, 0);
+  assert.ok(addedThenRemoved.ok);
+  const kid = addedThenRemoved.board.elements.kid;
+  assert.ok(kid?.kind === 'box' && kid.near === null && kid.at !== null, 'a box placed near a box the same put adds and removes keeps a place on the board');
+
   const farFlung = Board.parse({ ...nearBoard, elements: { ...nearBoard.elements, far: { kind: 'box', id: 'far', title: 'Far', at: { x: 1e9, y: 1e9 } }, w2: wire('w2', 'plain', 'far') } });
   assert.ok(layoutBoard(farFlung).elements.some((element) => element.id === 'w2'), 'a wire to a box a billion units away lays out without walking every cell between');
 });

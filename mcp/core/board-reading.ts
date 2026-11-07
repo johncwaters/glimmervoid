@@ -1,6 +1,5 @@
 import type { Board } from '../../shared/contracts/whiteboard.ts';
-import { layoutBoardRemembered } from '../../shared/whiteboard-layout-cache.ts';
-import type { BoardLayout, LaidOutMedia } from '../../shared/whiteboard-layout-core.ts';
+import type { BoardLayout, LaidOutMedia, Rect } from '../../shared/whiteboard-layout-core.ts';
 import { planSteps } from '../../shared/whiteboard-plan-core.ts';
 import { boardSvgDocument } from '../../shared/whiteboard-svg-core.ts';
 import type { AssetHref } from '../../shared/whiteboard-svg-core.ts';
@@ -10,12 +9,8 @@ interface BoardReading {
   layoutWarnings: string[];
 }
 
-function readingOf(board: Board, layout: BoardLayout): BoardReading {
-  return { plan: planSteps(board), layoutWarnings: layout.warnings };
-}
-
-function boardReading(board: Board): BoardReading {
-  return readingOf(board, layoutBoardRemembered(board));
+function boardReading(board: Board, layoutWarnings: string[]): BoardReading {
+  return { plan: planSteps(board), layoutWarnings };
 }
 
 const SVG_POINTS_PER_INCH = 72;
@@ -34,25 +29,26 @@ interface PictureImage {
   height: number;
 }
 
-function pictureImagesOf(board: Board): PictureImage[] {
-  const layout = layoutBoardRemembered(board);
-  const scale = pictureScaleOf(layout);
+function pictureImagesOf(layout: BoardLayout): PictureImage[] {
+  const scale = pictureScaleOf(layout.bounds);
   return layout.elements.flatMap((element) => (element.kind === 'box' && element.media ? [{ media: element.media, width: element.media.width * scale, height: element.media.height * scale }] : []));
 }
 
-function pictureScaleOf(layout: BoardLayout): number {
-  return Math.min(1, PICTURE_MAX_WIDTH_PX / layout.bounds.width, PICTURE_MAX_HEIGHT_PX / layout.bounds.height);
+function pictureScaleOf(bounds: Rect): number {
+  return Math.min(1, PICTURE_MAX_WIDTH_PX / bounds.width, PICTURE_MAX_HEIGHT_PX / bounds.height);
 }
 
-function boardPicture(board: Board, assetHref?: AssetHref): BoardPicture {
-  const layout = layoutBoardRemembered(board);
-  const { width, height } = layout.bounds;
-  const svgDensity = SVG_POINTS_PER_INCH * pictureScaleOf(layout);
-  if (svgDensity < MIN_SVG_DENSITY) {
-    return { ok: false, error: `the board spans ${Math.round(width)} by ${Math.round(height)} units, too large to picture; move far-off elements closer` };
-  }
-  return { ok: true, svgDocument: boardSvgDocument(layout, assetHref), svgDensity, maxPixels: PICTURE_MAX_PIXELS, reading: readingOf(board, layout) };
+function pictureRefusalOf(bounds: Rect): string | null {
+  if (SVG_POINTS_PER_INCH * pictureScaleOf(bounds) >= MIN_SVG_DENSITY) return null;
+  return `the board spans ${Math.round(bounds.width)} by ${Math.round(bounds.height)} units, too large to picture; move far-off elements closer`;
 }
 
-export { boardPicture, boardReading, pictureImagesOf };
+function boardPicture(board: Board, layout: BoardLayout, assetHref?: AssetHref): BoardPicture {
+  const refusal = pictureRefusalOf(layout.bounds);
+  if (refusal) return { ok: false, error: refusal };
+  const svgDensity = SVG_POINTS_PER_INCH * pictureScaleOf(layout.bounds);
+  return { ok: true, svgDocument: boardSvgDocument(layout, assetHref), svgDensity, maxPixels: PICTURE_MAX_PIXELS, reading: boardReading(board, layout.warnings) };
+}
+
+export { boardPicture, boardReading, pictureImagesOf, pictureRefusalOf };
 export type { BoardPicture, BoardReading };

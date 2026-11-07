@@ -26,7 +26,7 @@ type Draft = {
   erasedIds: Set<string>;
   overlayDependentIdsByBoxId: Map<string, Set<string>>;
   elementCount: number;
-  pinPositions: PinPositions | null;
+  basePinPositions: PinPositions | null;
 };
 
 const ELEMENT_SCHEMAS = Object.freeze({ box: Box, frame: Frame, wire: Wire, note: Note });
@@ -198,34 +198,31 @@ function removeElement(draft: Draft, id: string): OpOutcome {
   return OK;
 }
 
-function draftBoard(draft: Draft): Board {
-  const elements = { ...draft.base.elements };
-  for (const [id, element] of draft.afterById) {
-    if (!element) {
-      delete elements[id];
-      continue;
-    }
-    if (draft.erasedIds.has(id)) delete elements[id];
-    elements[id] = element;
-  }
-  return { ...draft.head, elements };
-}
-
 function pinPositionsOf(board: Board): PinPositions {
   const layout = layoutBoard(board);
   const laidOutBoxById = new Map(layout.elements.flatMap((element) => (element.kind === 'box' ? [[element.id, element] as const] : [])));
   return { laidOutBoxOf: (id) => laidOutBoxById.get(id), pinnedOffsetY: layout.pinnedOffsetY };
 }
 
+const ORIGIN = Object.freeze({ x: 0, y: 0 });
+
+function drawnPlaceOf(draft: Draft, boxId: string, visitedIds: Set<string>): { x: number; y: number } {
+  const laidOut = draft.basePinPositions?.laidOutBoxOf(boxId);
+  if (laidOut) return { x: laidOut.x, y: laidOut.y - (draft.basePinPositions?.pinnedOffsetY ?? 0) };
+  const box = elementOf(draft, boxId) ?? draft.base.elements[boxId];
+  if (box?.kind !== 'box') return ORIGIN;
+  if (box.at) return box.at;
+  if (!box.near || visitedIds.has(box.near.of)) return ORIGIN;
+  visitedIds.add(boxId);
+  return drawnPlaceOf(draft, box.near.of, visitedIds);
+}
+
 function pinBoxesNear(draft: Draft, removedBoxId: string): void {
   const nearBoxes = currentDependentsOf(draft, removedBoxId).flatMap((element) => (element.kind === 'box' ? [element] : []));
-  if (nearBoxes.length === 0) return;
-  draft.pinPositions ??= pinPositionsOf(draftBoard(draft));
-  const { laidOutBoxOf, pinnedOffsetY } = draft.pinPositions;
   for (const box of nearBoxes) {
-    const laidOut = laidOutBoxOf(box.id);
-    if (!laidOut) continue;
-    writeElement(draft, { ...box, near: null, at: { x: laidOut.x, y: laidOut.y - pinnedOffsetY } });
+    const laidOut = draft.basePinPositions?.laidOutBoxOf(box.id);
+    const at = laidOut ? drawnPlaceOf(draft, box.id, new Set()) : drawnPlaceOf(draft, removedBoxId, new Set([box.id]));
+    writeElement(draft, { ...box, near: null, at });
   }
 }
 
@@ -255,7 +252,6 @@ function resolveNote(draft: Draft, id: string, author: Author): OpOutcome {
 }
 
 function applyOne(draft: Draft, op: Op, author: Author): OpOutcome {
-  if (op.op !== 'remove') draft.pinPositions = null;
   switch (op.op) {
     case 'add': return addElement(draft, op.element, author);
     case 'set': return setFields(draft, op.id, op.fields, author);
@@ -273,7 +269,7 @@ function applyOne(draft: Draft, op: Op, author: Author): OpOutcome {
 function stageOps(board: Board, ops: readonly Op[], author: Author, nowMs: number, basePinPositions: PinPositions | null): StagedOps {
   const draft: Draft = {
     base: board, head: { ...board }, afterById: new Map(), erasedIds: new Set(), overlayDependentIdsByBoxId: new Map(),
-    elementCount: boardIndexOf(board.elements).elementCount, pinPositions: basePinPositions,
+    elementCount: boardIndexOf(board.elements).elementCount, basePinPositions,
   };
   const lookup: ElementLookup = (id) => elementOf(draft, id);
   const version = board.version + 1;
@@ -305,7 +301,8 @@ function stageOps(board: Board, ops: readonly Op[], author: Author, nowMs: numbe
 }
 
 function applyOps(board: Board, ops: readonly Op[], author: Author, nowMs: number): ApplyResult {
-  const staged = stageOps({ ...board, elements: { ...board.elements } }, ops, author, nowMs, null);
+  const basePinPositions = ops.some((op) => op.op === 'remove') ? pinPositionsOf(board) : null;
+  const staged = stageOps({ ...board, elements: { ...board.elements } }, ops, author, nowMs, basePinPositions);
   if (!staged.ok) return staged;
   staged.commit();
   return { ok: true, board: staged.board, changes: staged.changes, diff: staged.diff };

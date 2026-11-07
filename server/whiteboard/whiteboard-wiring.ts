@@ -10,14 +10,11 @@ import type { ControlMessageRecord } from '../core/control-replay-core.ts';
 import { OPERATOR_AUTHOR, createBoard, stageOps } from '../../shared/whiteboard-ops-core.ts';
 import { assetIdOf, assetIdsOf, boardIndexOf } from '../../shared/whiteboard-board-index.ts';
 import type { StagedElements } from './board-store-core.ts';
-import type { Author } from '../../shared/whiteboard-ops-core.ts';
-import { advanceBoardLayout, chromeOfBoard, pinPositionsOfBoard, warningsOfBoard } from '../../shared/whiteboard-layout-cache.ts';
-import type { LayoutAdvance } from '../../shared/whiteboard-layout-cache.ts';
-import type { ElementChange } from '../../shared/whiteboard-layout-engine.ts';
+import type { Author, PinPositions } from '../../shared/whiteboard-ops-core.ts';
 import { createBoardTileService } from './board-tile-service.ts';
-import type { BoardTileService } from './board-tile-service.ts';
-import { boardOutlineOf, defaultFocusOf, elementIdsTouching, elementPageOf, fitsOnePage } from '../../shared/whiteboard-tile-core.ts';
-import type { TileIndex } from '../../shared/whiteboard-tile-core.ts';
+import type { BoardPictureRead, BoardTileService, LayoutSummary, PictureImage } from './board-tile-service.ts';
+import type { ChangedElement } from './layout-client.ts';
+import { elementPageOf, fitsOnePage } from '../../shared/whiteboard-tile-core.ts';
 import { referencedPaths, reviewBoard } from '../../shared/whiteboard-anchor-core.ts';
 import { cappedWarnings } from '../../shared/whiteboard-route-core.ts';
 import { readChangeFacts, readFileFacts } from './whiteboard-anchor-facts.ts';
@@ -82,7 +79,7 @@ type WhiteboardPatch = ServerMessageOf<'whiteboard-patch'>;
 type StagedWrite = StagedElements & { commit: () => void };
 type CommittedReply = { reply: WhiteboardReply };
 type RecordChange = {
-  ok: true; record: BoardRecord; reply: WhiteboardReply; patch?: WhiteboardPatch; staged?: StagedWrite; replyAfterCommit?: (record: BoardRecord, advance: LayoutAdvance | null) => CommittedReply;
+  ok: true; record: BoardRecord; reply: WhiteboardReply; patch?: WhiteboardPatch; staged?: StagedWrite; replyAfterCommit?: (record: BoardRecord, layout: LayoutSummary | null) => CommittedReply;
 } | { ok: false; reply: WhiteboardReply };
 
 type AppliedOps = { ok: true; record: BoardRecord; patch: WhiteboardPatch; staged: StagedWrite } | { ok: false; error: string };
@@ -99,6 +96,7 @@ type OperatorReply = {
 const GLIMMERVOID_AUTHOR: Author = Object.freeze({ id: 'glimmervoid', name: 'Glimmervoid' });
 const DELETED_BOARD_TEXT = 'that board was deleted';
 const RELEASE_HOLD_MS = 60 * 60_000;
+const UNREADABLE_LAYOUT_WARNING = 'the board could not be laid out after this put, so its layout warnings are unknown and the dashboard may not show it';
 
 interface WhiteboardWiringOptions {
   boardsRoot: string;
@@ -133,6 +131,13 @@ interface WhiteboardPort {
   isConnected(sessionId: string): boolean;
   snapshotMessage(): ServerMessageOf<'whiteboards-snapshot'>;
   tiles: Pick<BoardTileService, 'view' | 'forget' | 'operatorViewOf'>;
+  layouts: WhiteboardLayouts;
+}
+
+interface WhiteboardLayouts {
+  summaryOf(boardId: string): Promise<LayoutSummary | null>;
+  pictureImagesOf(boardId: string): Promise<PictureImage[] | null>;
+  pictureOf(boardId: string, dataUriByAssetId: Record<string, string>): Promise<BoardPictureRead | null>;
 }
 
 function hasNoConnectedSessions(record: BoardRecord): boolean {
@@ -199,7 +204,7 @@ function createWhiteboardWiring({
   const writeQueue = createKeyedSerialQueue();
   const assets = createWhiteboardAssetStore({ boardsRoot, logger, now });
   const store = createBoardStore(boardsRoot);
-  const tiles = createBoardTileService({ boardOf: (boardId) => recordsByBoardId.get(boardId)?.board ?? null });
+  const tiles = createBoardTileService({ boardOf: (boardId) => recordsByBoardId.get(boardId)?.board ?? null, logger });
   const agentFocusBySessionId = new Map<string, Map<string, AgentFocus>>();
   const pagedFocusBySessionId = new Map<string, Map<string, BoardRegion>>();
   let isEveryBoardLoaded = true;
@@ -297,7 +302,6 @@ function createWhiteboardWiring({
     try {
       await store.save(current, next, staged);
     } catch (error) {
-      tiles.boardChanged(boardId, null);
       logger.warn(`[whiteboard] board ${boardId} could not be saved: ${errorMessage(error)}`);
       return false;
     }
@@ -305,23 +309,23 @@ function createWhiteboardWiring({
     recordsByBoardId.set(boardId, next);
     return true;
   }
-  function elementChangesOf(boardBefore: Board, staged: StagedWrite): Map<string, ElementChange> {
-    return new Map(Object.entries(staged.diff.elements).map(([id, change]) => [id, { before: boardBefore.elements[id], after: staged.afterById.get(id) ?? null, isAppended: change[0] === 'put' }]));
+  function elementChangesOf(staged: StagedWrite): ChangedElement[] {
+    return Object.entries(staged.diff.elements).map(([id, change]) => ({ id, after: staged.afterById.get(id) ?? null, isAppended: change[0] === 'put' }));
   }
 
-  function changeRecord(boardId: string, change: (record: BoardRecord) => RecordChange): Promise<WhiteboardReply> {
+  function changeRecord(boardId: string, change: (record: BoardRecord) => RecordChange | Promise<RecordChange>): Promise<WhiteboardReply> {
     return writeQueue.run(boardId, async () => {
       const current = recordsByBoardId.get(boardId);
       if (!current) return refusal(404, DELETED_BOARD_TEXT);
-      const outcome = change(current);
+      const outcome = await change(current);
       if (!outcome.ok) return outcome.reply;
       if (outcome.record === current) return outcome.reply;
-      const elementChanges = outcome.staged ? elementChangesOf(current.board, outcome.staged) : null;
+      const elementChanges = outcome.staged ? elementChangesOf(outcome.staged) : null;
       const isSaved = await saveRecordInSlot(current, outcome.record, outcome.staged ?? null);
       if (!isSaved) return refusal(500, 'the board could not be saved, so nothing changed');
-      const advance = elementChanges ? advanceBoardLayout(outcome.record.board, elementChanges) : null;
-      const committed = outcome.replyAfterCommit?.(outcome.record, advance) ?? { reply: outcome.reply };
-      tiles.boardChanged(boardId, advance);
+      const isBoardChanged = outcome.record.board !== current.board;
+      const layout = isBoardChanged ? await tiles.advance(outcome.record.board, elementChanges) : null;
+      const committed = outcome.replyAfterCommit?.(outcome.record, layout) ?? { reply: outcome.reply };
       if (!outcome.patch) {
         broadcastSummariesIfChanged(current, outcome.record);
         return committed.reply;
@@ -361,11 +365,11 @@ function createWhiteboardWiring({
     if (Buffer.byteLength(JSON.stringify(ops)) > WHITEBOARD_LIMITS.putBytes) {
       return Promise.resolve(refusal(413, `one put carries at most ${WHITEBOARD_LIMITS.putBytes} bytes of ops, so nothing changed`));
     }
-    return changeRecord(boardId, (record) => {
-      const applied = applyOpsToRecord(record, ops, author);
+    return changeRecord(boardId, async (record) => {
+      const applied = await applyOpsToRecord(record, ops, author);
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
-      const replyAfterCommit = (saved: BoardRecord, advance: LayoutAdvance | null): CommittedReply => {
-        const warnings = advance?.warnings ?? warningsOfBoard(saved.board);
+      const replyAfterCommit = (saved: BoardRecord, layout: LayoutSummary | null): CommittedReply => {
+        const warnings = layout?.warnings ?? [UNREADABLE_LAYOUT_WARNING];
         const body = { ok: true as const, version: saved.board.version, ...(warnings.length > 0 ? { warnings } : {}) };
         return { reply: { status: 200, body } };
       };
@@ -396,8 +400,29 @@ function createWhiteboardWiring({
     }
   }
 
-  function applyOpsToRecord(record: BoardRecord, ops: readonly Op[], author: Author): AppliedOps {
-    const result = stageOps(record.board, ops, author, now(), pinPositionsOfBoard(record.board));
+  function hasNearBox(board: Board, boxId: string): boolean {
+    const dependentIds = boardIndexOf(board.elements).dependentIdsByBoxId.get(boxId) ?? [];
+    for (const dependentId of dependentIds) {
+      const dependent = board.elements[dependentId];
+      if (dependent?.kind === 'box' && dependent.near?.of === boxId) return true;
+    }
+    return false;
+  }
+
+  function basePinPositionsFor(board: Board, ops: readonly Op[]): Promise<PinPositions | null> {
+    const removedBoxIds = ops.flatMap((op) => (op.op === 'remove' && board.elements[op.id]?.kind === 'box' ? [op.id] : []));
+    const isPinNeeded = removedBoxIds.some((boxId) => hasNearBox(board, boxId)) || ops.some((op) => op.op === 'add' || op.op === 'set');
+    if (removedBoxIds.length === 0 || !isPinNeeded) return Promise.resolve(null);
+    const ids = ops.flatMap((op) => (op.op === 'remove' || op.op === 'set' ? [op.id] : []));
+    return tiles.pinPositionsOf(board, ids).catch((error: unknown) => {
+      logger.warn(`[whiteboard] board ${board.id} could not be laid out to pin boxes, so they keep their drawn anchors: ${errorMessage(error)}`);
+      return null;
+    });
+  }
+
+  async function applyOpsToRecord(record: BoardRecord, ops: readonly Op[], author: Author): Promise<AppliedOps> {
+    const basePinPositions = await basePinPositionsFor(record.board, ops);
+    const result = stageOps(record.board, ops, author, now(), basePinPositions);
     if (!result.ok) return result;
     const refusalText = stagedRefusalOf(record.board, result.afterById);
     if (refusalText) return { ok: false, error: refusalText };
@@ -443,7 +468,7 @@ function createWhiteboardWiring({
     return { status: reply.status, body: { ...reply.body, warnings: cappedWarnings([...reply.body.warnings ?? [], ...anchorWarnings, ...stepWarnings]) } };
   }
 
-  function focusFor(boardId: string, readerId: string, requested: BoardRegion | undefined, index: TileIndex): BoardRegion {
+  function focusFor(boardId: string, readerId: string, requested: BoardRegion | undefined): BoardRegion | null {
     const operatorView = tiles.operatorViewOf(boardId)?.view ?? null;
     const focusByBoardId = agentFocusBySessionId.get(readerId) ?? new Map<string, AgentFocus>();
     agentFocusBySessionId.set(readerId, focusByBoardId);
@@ -454,25 +479,29 @@ function createWhiteboardWiring({
     const kept = focusByBoardId.get(boardId);
     if (kept && kept.operatorView === operatorView) return kept.region;
     focusByBoardId.delete(boardId);
-    return operatorView ?? defaultFocusOf(index);
+    return operatorView;
   }
 
   async function readBoard(boardId: string, readerId: string, request: Extract<WhiteboardAgentRequest, { sub: 'get' }>): Promise<WhiteboardReply> {
-    const reply = await changeRecord(boardId, (record) => {
+    const reply = await changeRecord(boardId, async (record) => {
       const changes = changesForReader(record, readerId);
       const next = request.peek === true || record.cursorBySessionId[readerId] === record.board.version ? record : markRead(record, readerId);
-      const index = isWholeBoardRead(record.board, request) ? null : tiles.indexOf(boardId);
-      if (!index) return { ok: true, record: next, reply: { status: 200, body: { ok: true, board: boardSnapshotOf(record.board), changes } } };
+      if (isWholeBoardRead(record.board, request)) return { ok: true, record: next, reply: { status: 200, body: { ok: true, board: boardSnapshotOf(record.board), changes } } };
       const pageStart = pageStartOf(record.board, request.cursor);
       if (!pageStart.ok) return { ok: false, reply: pageStart.reply };
       const pagedFocus = request.cursor === undefined || request.region ? null : pagedFocusBySessionId.get(readerId)?.get(boardId) ?? null;
       if (request.cursor !== undefined && !request.region && !pagedFocus) return { ok: false, reply: refusal(409, 'that cursor is not from a read of this board by this session; read again without cursor') };
-      const focus = pagedFocus ?? focusFor(boardId, readerId, request.region, index);
+      const region = await tiles.regionOf(record.board, pagedFocus ?? focusFor(boardId, readerId, request.region), true).catch((error: unknown) => {
+        logger.warn(`[whiteboard] board ${boardId} could not be laid out for a read: ${errorMessage(error)}`);
+        return null;
+      });
+      if (!region?.outline) return { ok: false, reply: refusal(503, 'the board layout could not be read; try again') };
+      const { focus, outline } = region;
       const pagedFocusByBoardId = pagedFocusBySessionId.get(readerId) ?? new Map<string, BoardRegion>();
       pagedFocusByBoardId.set(boardId, focus);
       pagedFocusBySessionId.set(readerId, pagedFocusByBoardId);
-      const page = pageReplyOf(record.board, elementIdsTouching(index, focus), pageStart.offset);
-      return { ok: true, record: next, reply: { status: 200, body: { ok: true, board: summarizeBoard(next), outline: boardOutlineOf(record.board, index, focus), focus, ...page, changes } } };
+      const page = pageReplyOf(record.board, region.elementIds, pageStart.offset);
+      return { ok: true, record: next, reply: { status: 200, body: { ok: true, board: summarizeBoard(next), outline, focus, ...page, changes } } };
     });
     if (request.review !== true || !reply.body.ok || !('changes' in reply.body)) return reply;
     const board = recordsByBoardId.get(boardId)?.board;
@@ -491,9 +520,12 @@ function createWhiteboardWiring({
       return { status: 200, body: { ok: true, version: board.version, ...pageReplyOf(board, query.ids, offset), missingIds } };
     }
     if (query.region) {
-      const index = tiles.indexOf(boardId);
-      if (!index) return refusal(404, `no board ${boardId}`);
-      return { status: 200, body: { ok: true, version: board.version, ...pageReplyOf(board, elementIdsTouching(index, query.region), offset), missingIds: [] } };
+      const region = await tiles.regionOf(board, query.region, false).catch((error: unknown) => {
+        logger.warn(`[whiteboard] board ${boardId} could not be laid out for a query: ${errorMessage(error)}`);
+        return null;
+      });
+      if (!region) return refusal(503, 'the board layout could not be read, so the query found nothing; try again');
+      return { status: 200, body: { ok: true, version: board.version, ...pageReplyOf(board, region.elementIds, offset), missingIds: [] } };
     }
     const matchedIds = await store.searchText(boardId, query.text ?? '', offset + WHITEBOARD_LIMITS.readPage + 1).catch((error: unknown) => {
       logger.warn(`[whiteboard] text query on board ${boardId} failed: ${errorMessage(error)}`);
@@ -508,8 +540,8 @@ function createWhiteboardWiring({
   }
 
   function connectBoard(boardId: string, sessionId: string): Promise<WhiteboardReply> {
-    return changeRecord(boardId, (record) => {
-      const claimed = record.board.codeSessionId === null ? applyOpsToRecord(record, [{ op: 'board', codeSessionId: sessionId }], GLIMMERVOID_AUTHOR) : null;
+    return changeRecord(boardId, async (record) => {
+      const claimed = record.board.codeSessionId === null ? await applyOpsToRecord(record, [{ op: 'board', codeSessionId: sessionId }], GLIMMERVOID_AUTHOR) : null;
       if (!claimed?.ok) {
         const next = connectSession(record, sessionId);
         return { ok: true, record: next, reply: connectionReply(next, PUT_GUIDE) };
@@ -565,7 +597,7 @@ function createWhiteboardWiring({
     }
     recordsByBoardId.delete(boardId);
     deletedBoardIds.add(boardId);
-    tiles.boardChanged(boardId, null);
+    tiles.forgetBoard(boardId);
     broadcastControl({ type: 'whiteboard-removed', boardId });
     broadcastSummariesIfChanged(current, null);
     void sweepUnusedAssets();
@@ -686,11 +718,16 @@ function createWhiteboardWiring({
     if (!target.ok) return target.reply;
     const card = { media: ingested.media, title: pageTitle ?? path.basename(sourcePath), caption };
     const author: Author = { id: caller.id, name: caller.name };
-    return changeRecord(target.boardId, (record) => {
-      const shownBox = shownBoxOp(record.board, chromeOfBoard(record.board).bounds, card);
+    return changeRecord(target.boardId, async (record) => {
+      const layout = await tiles.summaryOf(record.board).catch((error: unknown) => {
+        logger.warn(`[whiteboard] board ${record.board.id} could not be laid out to place a shown file: ${errorMessage(error)}`);
+        return null;
+      });
+      if (!layout) return { ok: false, reply: refusal(503, 'the board layout could not be read, so nothing was shown; try again') };
+      const shownBox = shownBoxOp(record.board, layout.chrome.bounds, card);
       if (!shownBox.ok) return { ok: false, reply: refusal(400, `${shownBox.error}, so nothing changed`) };
       const { op, boxId } = shownBox;
-      const applied = applyOpsToRecord(record, [op], author);
+      const applied = await applyOpsToRecord(record, [op], author);
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
       const { board } = applied.record;
       const note = `showed ${card.title} as box ${boxId} on board "${board.title}" (${board.id}), where the operator sees it; change it with whiteboard put`;
@@ -721,8 +758,23 @@ function createWhiteboardWiring({
     }
   }
 
-  return { loaded, assets, handleAgent, handleOperator, forgetSession, forgetClosedSessions, takeBoardNotice, isConnected, snapshotMessage, tiles };
+  const layouts: WhiteboardLayouts = {
+    summaryOf: (boardId) => {
+      const board = recordsByBoardId.get(boardId)?.board;
+      return board ? tiles.summaryOf(board) : Promise.resolve(null);
+    },
+    pictureImagesOf: (boardId) => {
+      const board = recordsByBoardId.get(boardId)?.board;
+      return board ? tiles.pictureImagesOf(board) : Promise.resolve(null);
+    },
+    pictureOf: (boardId, dataUriByAssetId) => {
+      const board = recordsByBoardId.get(boardId)?.board;
+      return board ? tiles.pictureOf(board, dataUriByAssetId) : Promise.resolve(null);
+    },
+  };
+
+  return { loaded, assets, handleAgent, handleOperator, forgetSession, forgetClosedSessions, takeBoardNotice, isConnected, snapshotMessage, tiles, layouts };
 }
 
 export { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME };
-export type { WhiteboardPort };
+export type { WhiteboardLayouts, WhiteboardPort };

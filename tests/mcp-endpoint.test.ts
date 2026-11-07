@@ -12,6 +12,7 @@ import { REFUSAL_REASON } from '../server/core/agent-api-core.ts';
 import { mcpCredentialFor } from '../mcp/core/credentials.ts';
 import { spawnReplyForMcp } from '../mcp/core/replies.ts';
 import { boardPicture } from '../mcp/core/board-reading.ts';
+import { layoutBoard } from '../shared/whiteboard-layout-core.ts';
 import { Board } from '../shared/contracts/whiteboard.ts';
 import { MCP_CREDENTIAL_ENV } from '../mcp/core/agent-config.ts';
 import { HookRouter } from '../detection/hook-source.ts';
@@ -274,7 +275,7 @@ test('every board just past the picture width still pictures instead of being re
   for (let boxOffset = 1400; boxOffset <= 1800; boxOffset += 1) {
     const box = { kind: 'box', id: 'edge', title: 'Edge', at: { x: boxOffset, y: 0 } };
     const board = Board.parse({ id: 'edge-board', title: 'edge', version: 1, caption: null, elements: { edge: box }, createdAt: 0, updatedAt: 0 });
-    if (!boardPicture(board).ok) refusedOffsets.push(boxOffset);
+    if (!boardPicture(board, layoutBoard(board)).ok) refusedOffsets.push(boxOffset);
   }
   assert.deepEqual(refusedOffsets, []);
 });

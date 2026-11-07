@@ -10,6 +10,7 @@ export interface RuntimePaths {
   examplePacksDir: string;
   relayPath: (relayName: string) => string;
   boardStoreWorkerPath: string;
+  layoutWorkerPath: string;
 }
 
 interface RuntimePathsInput {
@@ -43,6 +44,7 @@ function computeRuntimePaths({ moduleFile, hasPackageJson }: RuntimePathsInput):
     examplePacksDir: path.join(assetRoot, 'examples', 'packs'),
     relayPath: (relayName: string) => path.join(assetRoot, 'session', `${relayName}${sourceExtension}`),
     boardStoreWorkerPath: path.join(assetRoot, 'server', 'whiteboard', `board-store-worker${sourceExtension}`),
+    layoutWorkerPath: path.join(assetRoot, 'server', 'whiteboard', `layout-worker${sourceExtension}`),
   };
 }
 

@@ -1,26 +1,23 @@
-import type { Board } from '../../shared/contracts/whiteboard.ts';
-import type { TileKey, TileLod } from '../../shared/contracts/whiteboard-tiles.ts';
+import type { Board, BoardOutline } from '../../shared/contracts/whiteboard.ts';
+import type { BoardChrome, TileKey, TileLod } from '../../shared/contracts/whiteboard-tiles.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
-import { lineageLayoutOf } from '../../shared/whiteboard-layout-cache.ts';
-import type { LayoutAdvance } from '../../shared/whiteboard-layout-cache.ts';
-import type { Rect } from '../../shared/whiteboard-layout-core.ts';
-import { patchTileIndex, tileDiffFor, tileDiffOf, tileIdOf, tileIndexOf, tileKeysFor, tileOf } from '../../shared/whiteboard-tile-core.ts';
-import type { TileIndex } from '../../shared/whiteboard-tile-core.ts';
-import type { TileDiff } from '../../shared/contracts/whiteboard-tiles.ts';
+import type { LaidOutMedia, Rect } from '../../shared/whiteboard-layout-core.ts';
+import type { PinPositions } from '../../shared/whiteboard-ops-core.ts';
+import { tileIdOf, tileKeysFor } from '../../shared/whiteboard-tile-core.ts';
+import { errorMessage } from '../../shared/text.ts';
+import { createLayoutClient } from './layout-client.ts';
+import type { ChangedElement } from './layout-client.ts';
+import type { LayoutAnswer, ViewerMessage, ViewerTiles } from './layout-worker-core.ts';
 
 interface TileViewer {
   send(message: ServerMessageOf<'whiteboard-tiles'> | ServerMessageOf<'whiteboard-tile-diff'>): void;
 }
 
 interface ViewerState {
+  viewerId: number;
   boardId: string;
-  version: number;
+  version: number | null;
   heldKeys: TileKey[];
-}
-
-interface ChangeSource {
-  fromVersion: number;
-  diffFor: (heldKeys: readonly TileKey[]) => TileDiff;
 }
 
 interface BoardView {
@@ -28,100 +25,154 @@ interface BoardView {
   lod: TileLod;
 }
 
-interface BoardTileService {
-  view(viewer: TileViewer, request: { boardId: string; view: Rect; lod: TileLod; knownVersion: number | null }): void;
-  boardChanged(boardId: string, advance: LayoutAdvance | null): void;
-  forget(viewer: TileViewer): void;
-  operatorViewOf(boardId: string): BoardView | null;
-  indexOf(boardId: string): TileIndex | null;
+interface LayoutSummary {
+  version: number;
+  warnings: string[];
+  chrome: BoardChrome;
 }
 
-function createBoardTileService({ boardOf }: { boardOf: (boardId: string) => Board | null }): BoardTileService {
-  const indexByBoardId = new Map<string, TileIndex>();
-  const lineageByBoardId = new Map<string, number>();
+interface PictureImage {
+  media: LaidOutMedia;
+  width: number;
+  height: number;
+}
+
+type BoardPictureRead = { ok: true; svgDocument: string; svgDensity: number; maxPixels: number } | { ok: false; error: string };
+
+interface BoardRegionRead {
+  focus: Rect;
+  elementIds: string[];
+  outline: BoardOutline | null;
+}
+
+interface BoardTileService {
+  view(viewer: TileViewer, request: { boardId: string; view: Rect; lod: TileLod; knownVersion: number | null }): Promise<void>;
+  advance(board: Board, changes: readonly ChangedElement[] | null): Promise<LayoutSummary | null>;
+  forget(viewer: TileViewer): void;
+  forgetBoard(boardId: string): void;
+  operatorViewOf(boardId: string): BoardView | null;
+  regionOf(board: Board, focus: Rect | null, withOutline: boolean): Promise<BoardRegionRead>;
+  pinPositionsOf(board: Board, ids: readonly string[]): Promise<PinPositions>;
+  summaryOf(board: Board): Promise<LayoutSummary>;
+  pictureImagesOf(board: Board): Promise<PictureImage[]>;
+  pictureOf(board: Board, dataUriByAssetId: Record<string, string>): Promise<BoardPictureRead>;
+}
+
+function summaryOfAnswer(board: Board, answer: LayoutAnswer): LayoutSummary {
+  if (!answer.chrome) throw new Error(`the whiteboard layout sent no chrome for board ${board.id}`);
+  return { version: board.version, warnings: answer.warnings ?? [], chrome: answer.chrome };
+}
+
+function createBoardTileService({ boardOf, logger }: { boardOf: (boardId: string) => Board | null; logger: Pick<Console, 'warn'> }): BoardTileService {
+  const layouts = createLayoutClient();
   const stateByViewer = new Map<TileViewer, ViewerState>();
+  const viewerById = new Map<number, TileViewer>();
   const lastViewByBoardId = new Map<string, BoardView>();
+  let nextViewerId = 1;
 
-  function viewersOf(boardId: string): [TileViewer, ViewerState][] {
-    return [...stateByViewer].filter(([, state]) => state.boardId === boardId);
+  function viewerTilesOf(boardId: string): ViewerTiles[] {
+    return [...stateByViewer.values()].filter((state) => state.boardId === boardId).map(({ viewerId, version, heldKeys }) => ({ viewerId, version, heldKeys }));
   }
 
-  function indexFor(boardId: string): TileIndex | null {
-    const board = boardOf(boardId);
-    if (!board) return null;
-    const cached = indexByBoardId.get(boardId);
-    if (cached?.version === board.version) return cached;
-    const { lineage, layout } = lineageLayoutOf(board);
-    const index = tileIndexOf(layout, board.version, board);
-    indexByBoardId.set(boardId, index);
-    lineageByBoardId.set(boardId, lineage);
-    return index;
+  function setViewerVersions(boardId: string, version: number | null): void {
+    for (const state of stateByViewer.values()) {
+      if (state.boardId === boardId) state.version = version;
+    }
   }
 
-  function view(viewer: TileViewer, request: { boardId: string; view: Rect; lod: TileLod; knownVersion: number | null }): void {
-    lastViewByBoardId.set(request.boardId, { view: request.view, lod: request.lod });
-    const index = indexFor(request.boardId);
-    if (!index) return;
+  function deliver(boardId: string, version: number, messages: readonly ViewerMessage[]): void {
+    for (const message of messages) {
+      const viewer = viewerById.get(message.viewerId);
+      if (!viewer || stateByViewer.get(viewer)?.boardId !== boardId) continue;
+      if (message.kind === 'diff') {
+        viewer.send({ type: 'whiteboard-tile-diff', boardId, fromVersion: message.fromVersion, toVersion: version, diff: message.diff });
+        continue;
+      }
+      viewer.send({ type: 'whiteboard-tiles', boardId, version, chrome: message.chrome, tiles: message.tiles });
+    }
+  }
+
+  async function view(viewer: TileViewer, request: { boardId: string; view: Rect; lod: TileLod; knownVersion: number | null }, board: Board): Promise<void> {
     const previous = stateByViewer.get(viewer);
-    const isInSync = previous?.boardId === request.boardId && previous.version === index.version && request.knownVersion === index.version;
+    const isInSync = previous?.boardId === request.boardId && previous.version === board.version && request.knownVersion === board.version;
     const heldIds = new Set(isInSync ? previous.heldKeys.map(tileIdOf) : []);
     const wantedKeys = tileKeysFor(request.view, request.lod);
     const missingKeys = wantedKeys.filter((key) => !heldIds.has(tileIdOf(key)));
-    stateByViewer.set(viewer, { boardId: request.boardId, version: index.version, heldKeys: wantedKeys });
+    const viewerId = previous?.viewerId ?? nextViewerId;
+    if (!previous) nextViewerId += 1;
+    viewerById.set(viewerId, viewer);
+    stateByViewer.set(viewer, { viewerId, boardId: request.boardId, version: board.version, heldKeys: wantedKeys });
     if (isInSync && missingKeys.length === 0) return;
-    viewer.send({ type: 'whiteboard-tiles', boardId: request.boardId, version: index.version, chrome: isInSync ? null : index.chrome, tiles: missingKeys.map((key) => tileOf(index, key)) });
+    const answer = await layouts.ask(board, { kind: 'tiles', boardId: board.id, keys: missingKeys, withChrome: !isInSync });
+    if (stateByViewer.get(viewer)?.boardId !== request.boardId) return;
+    viewer.send({ type: 'whiteboard-tiles', boardId: request.boardId, version: board.version, chrome: answer.chrome ?? null, tiles: answer.tiles ?? [] });
   }
 
-  function sendChange(boardId: string, previous: ChangeSource | null, next: TileIndex): void {
-    for (const [viewer, state] of viewersOf(boardId)) {
-      const fromVersion = state.version;
-      state.version = next.version;
-      if (previous?.fromVersion === fromVersion) {
-        viewer.send({ type: 'whiteboard-tile-diff', boardId, fromVersion, toVersion: next.version, diff: previous.diffFor(state.heldKeys) });
-        continue;
-      }
-      viewer.send({ type: 'whiteboard-tiles', boardId, version: next.version, chrome: next.chrome, tiles: state.heldKeys.map((key) => tileOf(next, key)) });
+  async function advance(board: Board, changes: readonly ChangedElement[] | null): Promise<LayoutSummary | null> {
+    const viewers = viewerTilesOf(board.id);
+    setViewerVersions(board.id, board.version);
+    try {
+      const answer = changes ? await layouts.advance(board, changes, viewers) : await layouts.refresh(board, viewers);
+      deliver(board.id, board.version, answer.viewerMessages ?? []);
+      return summaryOfAnswer(board, answer);
+    } catch (error) {
+      setViewerVersions(board.id, null);
+      logger.warn(`[whiteboard] board ${board.id} could not be laid out: ${errorMessage(error)}`);
+      return null;
     }
   }
 
   function forgetBoard(boardId: string): void {
-    indexByBoardId.delete(boardId);
-    lineageByBoardId.delete(boardId);
-    for (const [viewer] of viewersOf(boardId)) stateByViewer.delete(viewer);
+    layouts.forget(boardId);
+    for (const [viewer, state] of stateByViewer) {
+      if (state.boardId !== boardId) continue;
+      stateByViewer.delete(viewer);
+      viewerById.delete(state.viewerId);
+    }
   }
 
-  function boardChanged(boardId: string, advance: LayoutAdvance | null): void {
-    const board = boardOf(boardId);
-    if (!board) {
-      forgetBoard(boardId);
-      return;
-    }
-    const cached = indexByBoardId.get(boardId) ?? null;
-    if (cached?.version === board.version) return;
-    const isSameLineage = advance !== null && lineageByBoardId.get(boardId) === advance.lineage;
-    if (cached && advance && isSameLineage && !advance.delta.isRebuilt && cached.version === board.version - 1) {
-      const fromVersion = cached.version;
-      const changes = patchTileIndex(cached, board, { version: board.version, chrome: advance.chrome, changed: advance.delta.changed, removedIds: advance.delta.removedIds });
-      sendChange(boardId, { fromVersion, diffFor: (heldKeys) => tileDiffOf(cached, changes, heldKeys) }, cached);
-      return;
-    }
-    indexByBoardId.delete(boardId);
-    if (viewersOf(boardId).length === 0) return;
-    const next = indexFor(boardId);
-    if (!next) return;
-    sendChange(boardId, cached ? { fromVersion: cached.version, diffFor: (heldKeys) => tileDiffFor(cached, next, heldKeys) } : null, next);
+  async function regionOf(board: Board, focus: Rect | null, withOutline: boolean): Promise<BoardRegionRead> {
+    const answer = await layouts.ask(board, { kind: 'region', boardId: board.id, focus, withOutline });
+    if (!answer.focus) throw new Error(`the whiteboard layout sent no focus for board ${board.id}`);
+    return { focus: answer.focus, elementIds: answer.elementIds ?? [], outline: answer.outline ?? null };
+  }
+
+  async function pinPositionsOf(board: Board, ids: readonly string[]): Promise<PinPositions> {
+    const answer = await layouts.ask(board, { kind: 'pins', boardId: board.id, ids: [...ids] });
+    const pinnedBoxById = new Map((answer.pinnedBoxes ?? []).map((box) => [box.id, box]));
+    return { laidOutBoxOf: (id) => pinnedBoxById.get(id), pinnedOffsetY: answer.pinnedOffsetY ?? 0 };
+  }
+
+  async function pictureOf(board: Board, dataUriByAssetId: Record<string, string>): Promise<BoardPictureRead> {
+    const answer = await layouts.ask(board, { kind: 'picture', boardId: board.id, dataUriByAssetId });
+    if (!answer.picture) throw new Error(`the whiteboard layout sent no picture for board ${board.id}`);
+    return answer.picture;
   }
 
   return {
-    view,
-    boardChanged,
-    forget: (viewer) => {
-      stateByViewer.delete(viewer);
+    view: (viewer, request) => {
+      lastViewByBoardId.set(request.boardId, { view: request.view, lod: request.lod });
+      const board = boardOf(request.boardId);
+      if (!board) return Promise.resolve();
+      return view(viewer, request, board).catch((error: unknown) => {
+        logger.warn(`[whiteboard] tiles of board ${request.boardId} could not be sent: ${errorMessage(error)}`);
+      });
     },
+    advance,
+    forget: (viewer) => {
+      const state = stateByViewer.get(viewer);
+      stateByViewer.delete(viewer);
+      if (state) viewerById.delete(state.viewerId);
+    },
+    forgetBoard,
     operatorViewOf: (boardId) => lastViewByBoardId.get(boardId) ?? null,
-    indexOf: (boardId) => indexFor(boardId),
+    regionOf,
+    pinPositionsOf,
+    summaryOf: async (board) => summaryOfAnswer(board, await layouts.ask(board, { kind: 'summary', boardId: board.id })),
+    pictureImagesOf: async (board) => (await layouts.ask(board, { kind: 'picture-images', boardId: board.id })).pictureImages ?? [],
+    pictureOf,
   };
 }
 
 export { createBoardTileService };
-export type { BoardTileService, TileViewer };
+export type { BoardPictureRead, BoardTileService, LayoutSummary, PictureImage, TileViewer };

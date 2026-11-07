@@ -193,6 +193,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     },
     getAgentApi: () => agentApi,
     getWhiteboardAssets: () => whiteboards.assets,
+    getWhiteboardLayouts: () => whiteboards.layouts,
     getPrActionReports: () => laneAssembly.prFlows,
     sshSigner,
     recordOutcome,

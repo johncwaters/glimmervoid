@@ -42,7 +42,7 @@ function createWhiteboardHandlers(context: ControlContext, deps: ControlHandlerD
     'whiteboard-disconnect': (msg: ClientMessageOf<'whiteboard-disconnect'>, ws: ControlSocket) => answerWhiteboard(ws, msg, (port) => port.disconnect(msg.boardId, msg.sessionId)),
     'whiteboard-view': (msg: ClientMessageOf<'whiteboard-view'>, ws: ControlSocket) => {
       if (!whiteboards) return;
-      whiteboards.tiles.view(tileViewerOf(ws, whiteboards), { boardId: msg.boardId, view: msg.view, lod: msg.lod, knownVersion: msg.knownVersion });
+      void whiteboards.tiles.view(tileViewerOf(ws, whiteboards), { boardId: msg.boardId, view: msg.view, lod: msg.lod, knownVersion: msg.knownVersion });
     },
   } satisfies ControlHandlerTable;
 

@@ -7,6 +7,7 @@ import type { Express, Request, Response } from 'express';
 import type { AgentApiPort } from '../server/agent-api-wiring.ts';
 import { REFUSAL_REASON, REFUSAL_STATUS, decideAgentRequest } from '../server/core/agent-api-core.ts';
 import type { WhiteboardAssetStore } from '../server/whiteboard/whiteboard-assets.ts';
+import type { WhiteboardLayouts } from '../server/whiteboard/whiteboard-wiring.ts';
 import type { Session } from '../session/sessions.ts';
 import { parsePresentedCredential } from './core/credentials.ts';
 import { boardReplyWithoutCommandGuide, settingsListForMcp, spawnReplyForMcp } from './core/replies.ts';
@@ -25,6 +26,7 @@ const LOADS_UPFRONT_META_KEY = 'anthropic/alwaysLoad';
 
 interface FileStores {
   getWhiteboardAssets(): WhiteboardAssetStore | null;
+  getWhiteboardLayouts(): WhiteboardLayouts | null;
 }
 
 interface AgentMcpDependencies extends FileStores {
@@ -66,8 +68,8 @@ function reshapedReply(reshape: (body: Record<string, unknown>) => Record<string
 
 const PRESENTERS: Readonly<Record<Presenter, (target: CallTarget, verb: AgentApiVerb, payload: Record<string, unknown>) => Promise<PresentedReply>>> = {
   'agent-reply': ({ session, agentApi }, verb, payload) => agentApi.handle(session, verb, payload),
-  'board-with-reading': ({ session, agentApi }, _verb, payload) => boardReplyWithReading(session, agentApi, payload),
-  'board-picture': ({ session, agentApi, getWhiteboardAssets }, _verb, payload) => boardPictureResult(session, agentApi, getWhiteboardAssets(), payload),
+  'board-with-reading': ({ session, agentApi, getWhiteboardLayouts }, _verb, payload) => boardReplyWithReading(session, agentApi, getWhiteboardLayouts(), payload),
+  'board-picture': ({ session, agentApi, getWhiteboardAssets, getWhiteboardLayouts }, _verb, payload) => boardPictureResult(session, agentApi, getWhiteboardAssets(), getWhiteboardLayouts(), payload),
   'spawn-reply': reshapedReply(spawnReplyForMcp),
   'board-without-command-guide': reshapedReply(boardReplyWithoutCommandGuide),
   'settings-list': reshapedReply(settingsListForMcp),
@@ -93,7 +95,7 @@ function registerGroupedTool(server: McpServer, tool: GroupedTool, session: Sess
   }, async (toolArguments: ToolArguments) => {
     const route = routeToolCall(tool, toolArguments, callContextFor(session, agentApi));
     if (!route.ok) return toolErrorResult(route.error);
-    return toolResultOf(await PRESENTERS[route.presenter]({ session, agentApi, getWhiteboardAssets: stores.getWhiteboardAssets }, route.verb, route.payload));
+    return toolResultOf(await PRESENTERS[route.presenter]({ session, agentApi, getWhiteboardAssets: stores.getWhiteboardAssets, getWhiteboardLayouts: stores.getWhiteboardLayouts }, route.verb, route.payload));
   });
 }
 

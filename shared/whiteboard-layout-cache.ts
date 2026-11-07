@@ -71,4 +71,3 @@ function warningsOfBoard(board: Board): string[] {
 }
 
 export { advanceBoardLayout, chromeOfBoard, layoutBoardRemembered, lineageLayoutOf, pinPositionsOfBoard, warningsOfBoard };
-export type { LayoutAdvance };
