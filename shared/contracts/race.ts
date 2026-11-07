@@ -5,6 +5,7 @@ const RACE_MIN_CONTESTANTS = 2;
 export const RACE_MAX_CONTESTANTS = 5;
 export const RACE_JUDGE_AGENT = 'claude-code';
 export const RACE_MAX_JUDGES = 3;
+export const RACE_MAX_ROUNDS = 5;
 export const RACE_CRITERIA = ['correctness', 'completeness', 'scope', 'quality'] as const;
 export const RaceCriterion = z.enum(RACE_CRITERIA);
 export type RaceCriterion = z.infer<typeof RaceCriterion>;
@@ -46,6 +47,7 @@ export const RaceSpec = z.preprocess(foldLegacyJudge, z.strictObject({
   judges: z.array(RaceJudge).max(RACE_MAX_JUDGES).default([]),
   check: RaceCheck.nullable().default(null),
   timeLimitMinutes: z.number().int().min(1).max(720).nullable().default(null),
+  rounds: z.number().int().min(1).max(RACE_MAX_ROUNDS).default(1),
 }).refine((spec) => new Set(spec.contestants.map((contestant) => contestant.id)).size === spec.contestants.length, {
   error: 'contestant ids must be unique',
   path: ['contestants'],
@@ -148,5 +150,6 @@ export const RaceRecord = z.strictObject({
   panel: PanelResult.nullable().default(null),
   judgeError: z.string().nullable().default(null),
   winnerContestantId: RaceId.nullable().default(null),
+  series: z.strictObject({ id: RaceId, round: z.number().int().min(1) }).nullable().default(null),
 });
 export type RaceRecord = z.infer<typeof RaceRecord>;

@@ -1,8 +1,8 @@
 import { AgentModelCatalog } from '#shared/contracts/agent-models.ts';
 import type { AgentSetup } from '#shared/contracts/agent-models.ts';
 import type { CheckOutcome, ContestantMetrics, PanelStanding, RaceCheck, RaceContestant, RaceRecord } from '#shared/contracts/race.ts';
-import { RACE_CRITERIA, RACE_JUDGE_AGENT, RACE_MAX_CONTESTANTS, RACE_MAX_JUDGES, RaceSpec } from '#shared/contracts/race.ts';
-import { REMOVED_CONTESTANT, raceProgress, winnerNotesOf } from '#shared/race-core.ts';
+import { RACE_CRITERIA, RACE_JUDGE_AGENT, RACE_MAX_CONTESTANTS, RACE_MAX_JUDGES, RACE_MAX_ROUNDS, RaceSpec } from '#shared/contracts/race.ts';
+import { REMOVED_CONTESTANT, raceProgress, seriesKey, seriesStanding, winnerNotesOf } from '#shared/race-core.ts';
 import { BADGE_LABELS } from '#shared/states.ts';
 import { benchmarkSnapshot, subscribeBenchmarks } from '../benchmark-store.ts';
 import { sendControlRequest } from '../control-ws.ts';
@@ -31,6 +31,7 @@ interface RaceDraft {
   check: RaceCheck | null;
   checkTimeoutSeconds: number;
   timeLimitMinutes: number | null;
+  rounds: number;
 }
 
 const DEFAULT_CHECK_TIMEOUT_SECONDS = 600;
@@ -38,7 +39,7 @@ const DEFAULT_CHECK_TIMEOUT_SECONDS = 600;
 let root: HTMLElement | null = null;
 let racesEl: HTMLElement | null = null;
 let catalog: AgentModelCatalog = { agents: [] };
-let draft: RaceDraft = { raceTitle: '', prompt: '', repoPath: '', contestants: [], judges: [], check: null, checkTimeoutSeconds: DEFAULT_CHECK_TIMEOUT_SECONDS, timeLimitMinutes: null };
+let draft: RaceDraft = { raceTitle: '', prompt: '', repoPath: '', contestants: [], judges: [], check: null, checkTimeoutSeconds: DEFAULT_CHECK_TIMEOUT_SECONDS, timeLimitMinutes: null, rounds: 1 };
 let hasDefaultJudge = false;
 let isEditingAsFile = false;
 const shownDiffByKey = new Map<string, string>();
@@ -239,7 +240,8 @@ function buildPanelSummary(race: RaceRecord): HTMLElement | null {
 function buildRace(race: RaceRecord): HTMLElement {
   const item = el('article', 'arena-race');
   item.append(el('h3', 'arena-race-title', race.spec.title));
-  item.append(el('p', 'arena-race-meta', `${race.baseBranch} at ${race.startSha.slice(0, SHORT_SHA_LENGTH)}, ${new Date(race.createdAt).toLocaleString()}`));
+  const roundText = race.series ? `, round ${race.series.round} of ${race.spec.rounds}` : '';
+  item.append(el('p', 'arena-race-meta', `${race.baseBranch} at ${race.startSha.slice(0, SHORT_SHA_LENGTH)}, ${new Date(race.createdAt).toLocaleString()}${roundText}`));
   const actions = el('div', 'arena-race-actions');
   const judgeButton = button({ variant: 'secondary', size: 'small', label: 'Judge now', disabled: race.phase === 'judging', onClick: () => judgeRace(race) });
   const statusEl = el('span', 'arena-status', judgeStatusByRace.get(race.id) || phaseText(race));
@@ -251,7 +253,22 @@ function buildRace(race: RaceRecord): HTMLElement {
   const lineup = el('ul', 'arena-contestants');
   for (const contestant of rankedContestants(race)) lineup.append(buildContestantLine(race, contestant));
   item.append(lineup);
+  const seriesSummary = buildSeriesSummary(race);
+  if (seriesSummary) item.append(seriesSummary);
   return item;
+}
+
+function buildSeriesSummary(race: RaceRecord): HTMLElement | null {
+  if (!race.series) return null;
+  const rounds = raceList().filter((candidate) => seriesKey(candidate) === seriesKey(race));
+  const latestRound = Math.max(...rounds.map((round) => round.series?.round ?? 1));
+  if (race.series.round !== latestRound) return null;
+  const labelById = new Map(race.spec.contestants.map((contestant) => [contestant.id, contestant.label]));
+  const parts = seriesStanding(rounds).map((standing) => {
+    const spread = standing.lowestScore === null ? 'no scores' : `scores ${standing.lowestScore} to ${standing.highestScore}`;
+    return `${labelById.get(standing.contestantId) ?? standing.contestantId} ${standing.wins} of ${standing.roundsJudged} (${spread})`;
+  });
+  return el('p', 'arena-panel-summary', `Series wins: ${parts.join(', ')}`);
 }
 
 function renderRaces(): void {
@@ -299,6 +316,7 @@ function draftSpec(): Record<string, unknown> {
     judges: draft.judges.map((setup) => ({ setup })),
     check: draft.check,
     timeLimitMinutes: draft.timeLimitMinutes,
+    rounds: draft.rounds,
   };
 }
 
@@ -339,6 +357,22 @@ function buildTimeLimitField(): HTMLElement {
   input.addEventListener('input', () => {
     const minutes = Number(input.value);
     draft.timeLimitMinutes = input.value.trim() === '' || !Number.isInteger(minutes) || minutes < 1 ? null : Math.min(minutes, 720);
+  });
+  field.append(input);
+  return field;
+}
+
+function buildRoundsField(): HTMLElement {
+  const field = el('label', 'arena-field');
+  field.append(el('span', 'arena-field-label', `Rounds, 1 to ${RACE_MAX_ROUNDS}, run one after another`));
+  const input = el('input', 'settings-view-input');
+  input.type = 'number';
+  input.min = '1';
+  input.max = String(RACE_MAX_ROUNDS);
+  input.value = String(draft.rounds);
+  input.addEventListener('input', () => {
+    const rounds = Number(input.value);
+    draft.rounds = Number.isInteger(rounds) ? Math.min(Math.max(rounds, 1), RACE_MAX_ROUNDS) : 1;
   });
   field.append(input);
   return field;
@@ -454,7 +488,7 @@ function readDraftFromFile(text: string): string | null {
   const parsed = RaceSpec.safeParse(parseJsonText(text));
   if (!parsed.success) return `The race file is not valid: ${parsed.error.issues.map((issue) => `${issue.path.join('.') || 'file'}: ${issue.message}`).join('; ')}`;
   const spec = parsed.data;
-  draft = { raceTitle: spec.title, prompt: spec.prompt, repoPath: spec.repoPath, contestants: spec.contestants, judges: spec.judges.map((judge) => judge.setup), check: spec.check, checkTimeoutSeconds: spec.check?.timeoutSeconds ?? DEFAULT_CHECK_TIMEOUT_SECONDS, timeLimitMinutes: spec.timeLimitMinutes };
+  draft = { raceTitle: spec.title, prompt: spec.prompt, repoPath: spec.repoPath, contestants: spec.contestants, judges: spec.judges.map((judge) => judge.setup), check: spec.check, checkTimeoutSeconds: spec.check?.timeoutSeconds ?? DEFAULT_CHECK_TIMEOUT_SECONDS, timeLimitMinutes: spec.timeLimitMinutes, rounds: spec.rounds };
   hasDefaultJudge = true;
   return null;
 }
@@ -489,6 +523,7 @@ function buildNewRace(): HTMLElement {
     body.append(textField('Prompt', draft.prompt, (value) => { draft.prompt = value; }, true));
     body.append(buildCheckField());
     body.append(buildTimeLimitField());
+    body.append(buildRoundsField());
     body.append(buildVaryBuilder(paint));
     body.append(buildLineupEditor(paint));
     const addButton = button({ variant: 'quiet', size: 'small', label: 'Add contestant', disabled: draft.contestants.length >= RACE_MAX_CONTESTANTS, onClick: () => {
