@@ -35,6 +35,7 @@ import {
 } from '../session/session-registry.ts';
 import { createBackendLanes } from './backend-lanes.ts';
 import { createWatcherLink } from '../../cloud/link/watcher-link.ts';
+import { loadOrCreateLinkSecret } from '../../cloud/link/link-secret.ts';
 import { laneAccessConfigOf } from '../lanes/core/lane-permissions-core.ts';
 import type { BackendLaneOptions } from './backend-lanes.ts';
 import type { AgentIngressDependencies } from './backend-http.ts';
@@ -650,6 +651,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const lifecycleServers: Server[] = [agentIngressServer];
   const watcherLink = createWatcherLink({
     watcherHome: path.join(glimmervoidHomeDir(), 'watcher'),
+    linkSecret: loadOrCreateLinkSecret(path.join(glimmervoidHomeDir(), 'watcher-link.key')),
     credentials: () => ({ github: laneAccessConfigOf(configStore.config).readToken, posthog: null }),
   });
   watcherLink.registerProbeSource(laneAssembly.githubStore.probeSource);

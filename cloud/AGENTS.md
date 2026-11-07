@@ -8,6 +8,7 @@ The watcher, a process that runs the probes the server compiles and nudges the s
 |------|------|
 | `link/core/link-signing-core.ts` | Per-direction keys from the link secret, request signing and verification |
 | `link/watcher-link.ts` | Server half: compiles the probe set, delivers it and the credentials, takes nudges, switches each probe source between timers and nudges |
+| `link/link-secret.ts` | The link secret kept 0600 in the Glimmervoid home, so the watcher's sealed credentials survive a server restart |
 | `link/watcher-supervisor.ts` | Runs `glimmervoid watch` as an IPC child of the server, restarting it with backoff |
 | `watcher/watch-cli.ts`, `watcher/watcher-listener.ts` | `glimmervoid watch` and its signed loopback listener |
 | `watcher/probe-runner.ts`, `watcher/core/probe-core.ts` | Runs each probe on its interval and decides when a result is a nudge |

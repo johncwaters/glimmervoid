@@ -56,10 +56,10 @@ function jsonOrNull(text: string): unknown {
   }
 }
 
-function createWatcherLink({ watcherHome, credentials, linkSecret = crypto.randomBytes(32), fetchFn = fetch, now = Date.now, startWatcher = createWatcherSupervisor, log = console }: {
+function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fetch, now = Date.now, startWatcher = createWatcherSupervisor, log = console }: {
   watcherHome: string;
   credentials: () => WatcherCredentials;
-  linkSecret?: Buffer;
+  linkSecret: Buffer;
   fetchFn?: FetchFn;
   now?: () => number;
   startWatcher?: typeof createWatcherSupervisor;

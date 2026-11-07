@@ -1,6 +1,7 @@
 import type { GithubPrsFreshness } from '../../shared/contracts/github-polling.ts';
 import { GithubPrsFrame } from '../../shared/contracts/github-prs.ts';
-import { DEFAULT_TIMER_FNS } from '../../shared/timer-deps.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from '../../shared/timer-deps.ts';
+import type { SetTimeoutFn } from '../../shared/timer-deps.ts';
 import type { SharedClock } from '../lanes/lane-runner.ts';
 import { GITHUB_CLOCK_INTERVAL_MINUTES } from './core/github-clock-core.ts';
 import { createGithubStorePoller } from './github-store-poller.ts';
@@ -19,13 +20,14 @@ interface GithubStoreWiringOptions {
   isDashboardConnected: () => boolean;
   broadcast: (frame: GithubPrsFrame) => void;
   log: Pick<Console, 'warn'>;
+  setTimeoutFn?: SetTimeoutFn;
 }
 
 export function storeReadingLaneClock(clock: SharedClock | undefined): SharedClock | undefined {
   return clock ? { schedule: clock.schedule, exclusive: async (work) => work(), githubStatus: clock.githubStatus } : undefined;
 }
 
-export function createGithubStoreWiring({ github, clock, now = Date.now, isDashboardConnected, broadcast, log }: GithubStoreWiringOptions) {
+export function createGithubStoreWiring({ github, clock, now = Date.now, isDashboardConnected, broadcast, log, setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn }: GithubStoreWiringOptions) {
   const poller = createGithubStorePoller({
     github,
     now,
@@ -48,7 +50,7 @@ export function createGithubStoreWiring({ github, clock, now = Date.now, isDashb
     return poller.probeInputs().watches.map((watch) => watch.name);
   }
 
-  let catchUpTimer: ReturnType<typeof setTimeout> | null = null;
+  let catchUpTimer: ReturnType<SetTimeoutFn> | null = null;
   let coveredProbeKeys: ReadonlySet<string> = new Set();
   const newlyCoveredProbeIds = new Set<string>();
 
@@ -58,8 +60,7 @@ export function createGithubStoreWiring({ github, clock, now = Date.now, isDashb
     const poll = 'watchName' in nudgedPoll ? poller.tick([nudgedPoll.watchName]) : poller.tick(undefined, nudgedPoll.poll);
     void poll.then((outcome) => {
       if (!outcome.failed || attempt >= MAX_NUDGED_POLL_ATTEMPTS) return;
-      const retryTimer = setTimeout(() => runStorePoll(probeId, attempt + 1), Math.min(MAX_NUDGED_POLL_RETRY_MS, outcome.retryAfterMs ?? MAX_NUDGED_POLL_RETRY_MS));
-      retryTimer.unref?.();
+      unrefTimer(setTimeoutFn(() => runStorePoll(probeId, attempt + 1), Math.min(MAX_NUDGED_POLL_RETRY_MS, outcome.retryAfterMs ?? MAX_NUDGED_POLL_RETRY_MS)));
     });
   }
 
@@ -74,8 +75,7 @@ export function createGithubStoreWiring({ github, clock, now = Date.now, isDashb
     }
     coveredProbeKeys = new Set(coveredProbes.map(coveredProbeKey));
     if (newlyCoveredProbeIds.size === 0 || catchUpTimer !== null) return;
-    catchUpTimer = setTimeout(catchUpNewlyCovered, CATCH_UP_DEBOUNCE_MS);
-    catchUpTimer.unref?.();
+    catchUpTimer = unrefTimer(setTimeoutFn(catchUpNewlyCovered, CATCH_UP_DEBOUNCE_MS));
   }
 
   function catchUpNewlyCovered(): void {

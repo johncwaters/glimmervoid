@@ -10,7 +10,9 @@ import { createNudgeSender, createProbeRunner } from '../cloud/watcher/probe-run
 import { createWatcherHome } from '../cloud/watcher/watcher-home.ts';
 import { createWatcherListener } from '../cloud/watcher/watcher-listener.ts';
 import { createGithubStorePoller } from '../server/github/github-store-poller.ts';
-import { githubStoreProbes } from '../server/github/github-store-probes.ts';
+import { githubStoreProbes, watchProbeId } from '../server/github/github-store-probes.ts';
+import { createGithubStoreWiring } from '../server/github/github-store-wiring.ts';
+import { createPrGh } from '../server/github/pr-gh.ts';
 import { HEALTH_PATH, NUDGES_PATH } from '../shared/contracts/watcher-link.ts';
 import type { Nudge, Probe } from '../shared/contracts/watcher-link.ts';
 
@@ -142,4 +144,69 @@ test('a timer tick still searches a watch the watcher does not cover yet, and le
   searchedQualifiers.length = 0;
   await store.tick();
   assert.deepEqual(searchedQualifiers, ['repo:c/d']);
+});
+
+function storeWiringWithSearches(t: test.TestContext, searchAnswers: ('ok' | 'bad-gateway')[]) {
+  const searchedQualifiers: string[] = [];
+  const pendingTimers: (() => void)[] = [];
+  const github = {
+    ...createPrGh(os.tmpdir()),
+    searchPrsLight: async (qualifiers: string) => {
+      searchedQualifiers.push(qualifiers);
+      const answer = searchAnswers.shift() ?? 'ok';
+      if (answer === 'bad-gateway') return { ok: false as const, items: [], isComplete: false, error: 'HTTP 502 from GitHub' };
+      return { ok: true as const, items: [], isComplete: true, totalCount: 0, error: '' };
+    },
+    prsLightByKey: async () => ({ byKey: new Map(), goneKeys: new Set<string>() }),
+    rateLimitWaitMs: async () => null,
+  };
+  const wiring = createGithubStoreWiring({
+    github,
+    clock: { exclusive: async (work) => work(), schedule: () => () => {} },
+    isDashboardConnected: () => true,
+    broadcast: () => {},
+    log: QUIET_LOG,
+    setTimeoutFn: (run) => {
+      pendingTimers.push(run);
+      return { unref() {} } as NodeJS.Timeout;
+    },
+  });
+  t.after(() => { pendingTimers.length = 0; });
+  async function settle(): Promise<void> {
+    for (let round = 0; round < 10; round += 1) await new Promise((resolve) => setImmediate(resolve));
+  }
+  async function firePendingTimers(): Promise<number> {
+    const timersToFire = pendingTimers.splice(0);
+    for (const run of timersToFire) run();
+    await settle();
+    return timersToFire.length;
+  }
+  return { wiring, searchedQualifiers, settle, firePendingTimers };
+}
+
+test('a nudged store poll that fails runs again until it succeeds, then stops', async (t) => {
+  const { wiring, searchedQualifiers, settle, firePendingTimers } = storeWiringWithSearches(t, ['bad-gateway', 'bad-gateway']);
+  wiring.laneStore.registerWatch({ name: 'repo-watch', qualifiers: 'repo:a/b', needsDetail: false });
+  wiring.probeSource.onNudge({ nudgeId: crypto.randomUUID(), probeId: watchProbeId('repo-watch'), kind: 'changed', failure: null, at: new Date().toISOString() });
+  await settle();
+  assert.equal(searchedQualifiers.length, 1);
+  assert.equal(await firePendingTimers(), 1);
+  assert.equal(searchedQualifiers.length, 2);
+  assert.equal(await firePendingTimers(), 1);
+  assert.equal(searchedQualifiers.length, 3);
+  assert.equal(await firePendingTimers(), 0);
+  assert.equal(wiring.getFreshness().error, null);
+});
+
+test('a probe the watcher newly covers gets one catch-up read, and the same coverage again gets none', async (t) => {
+  const { wiring, searchedQualifiers, firePendingTimers } = storeWiringWithSearches(t, []);
+  wiring.laneStore.registerWatch({ name: 'repo-watch', qualifiers: 'repo:a/b', needsDetail: false });
+  const coveredProbes = wiring.probeSource.probes().filter((probe) => probe.id === watchProbeId('repo-watch'));
+  assert.equal(coveredProbes.length, 1);
+  wiring.probeSource.onCoverageChange(coveredProbes);
+  assert.equal(await firePendingTimers(), 1);
+  assert.deepEqual(searchedQualifiers, ['repo:a/b']);
+  wiring.probeSource.onCoverageChange(coveredProbes);
+  assert.equal(await firePendingTimers(), 0);
+  assert.equal(searchedQualifiers.length, 1);
 });
