@@ -3,9 +3,11 @@ import { SHELL_AGENT_ID, decideAgentAvailability, decideAgentPicker } from '../s
 
 type FirstRunStepState = 'done' | 'current' | 'upcoming';
 
-type FirstRunSteps = { agent: FirstRunStepState; repoRoots: FirstRunStepState; firstSession: FirstRunStepState };
+type FirstRunSteps = { agent: FirstRunStepState; repoRoots: FirstRunStepState; notifications: FirstRunStepState };
 
-const UPCOMING_STEPS: FirstRunSteps = { agent: 'upcoming', repoRoots: 'upcoming', firstSession: 'upcoming' };
+type NotificationChoice = 'on' | 'off' | 'ask';
+
+const UPCOMING_STEPS: FirstRunSteps = { agent: 'upcoming', repoRoots: 'upcoming', notifications: 'upcoming' };
 
 function stepStateFor(stepNumber: number, currentStepNumber: number): FirstRunStepState {
   if (stepNumber < currentStepNumber) return 'done';
@@ -30,21 +32,39 @@ function withoutShell(agentListing: unknown): unknown {
   return { ...reply, agents: listedAgents(reply).filter((agent) => !isShellAgent(agent)) };
 }
 
-function decideFirstRunSteps({ agentListing, repoRoots }: { agentListing: unknown; repoRoots: readonly string[] }): FirstRunSteps {
+function currentStepNumberFor(hasAgent: boolean, hasRepoRoots: boolean, notificationChoice: NotificationChoice): number {
+  if (!hasAgent) return 1;
+  if (!hasRepoRoots) return 2;
+  if (notificationChoice === 'ask') return 3;
+  return 4;
+}
+
+function decideFirstRunSteps({ agentListing, repoRoots, notificationChoice }: { agentListing: unknown; repoRoots: readonly string[]; notificationChoice: NotificationChoice }): FirstRunSteps {
   const hasAgent = decideAgentAvailability(withoutShell(agentListing)).canSpawn;
-  const currentStepNumber = !hasAgent ? 1 : repoRoots.length === 0 ? 2 : 3;
+  const currentStepNumber = currentStepNumberFor(hasAgent, repoRoots.length > 0, notificationChoice);
   return {
     agent: stepStateFor(1, currentStepNumber),
     repoRoots: stepStateFor(2, currentStepNumber),
-    firstSession: stepStateFor(3, currentStepNumber),
+    notifications: stepStateFor(3, currentStepNumber),
   };
 }
 
-const REPORTED_STEP_BY_CHECKLIST_STEP = [
-  ['agent', 'agent'],
-  ['repoRoots', 'repo_roots'],
-  ['firstSession', 'first_session'],
-] as const;
+function isSetupDone(steps: FirstRunSteps): boolean {
+  return steps.agent === 'done' && steps.repoRoots === 'done' && steps.notifications === 'done';
+}
+
+function notificationChoiceSummary(notificationChoice: NotificationChoice): string {
+  return notificationChoice === 'on' ? 'On' : 'Off';
+}
+
+function reportedStepStates(steps: FirstRunSteps): ReadonlyArray<readonly [OnboardingStepReport['step'], FirstRunStepState]> {
+  return [
+    ['agent', steps.agent],
+    ['repo_roots', steps.repoRoots],
+    ['notifications', steps.notifications],
+    ['first_session', isSetupDone(steps) ? 'current' : 'upcoming'],
+  ];
+}
 
 function onboardingStepReportKey({ step, state }: OnboardingStepReport): string {
   return `${step}:${state}`;
@@ -52,8 +72,7 @@ function onboardingStepReportKey({ step, state }: OnboardingStepReport): string 
 
 function decideOnboardingStepReports(reportedStepKeys: ReadonlySet<string>, steps: FirstRunSteps): OnboardingStepReport[] {
   const reports: OnboardingStepReport[] = [];
-  for (const [checklistStep, reportedStep] of REPORTED_STEP_BY_CHECKLIST_STEP) {
-    const state = steps[checklistStep];
+  for (const [reportedStep, state] of reportedStepStates(steps)) {
     if (state === 'upcoming') continue;
     const report = { step: reportedStep, state };
     if (!reportedStepKeys.has(onboardingStepReportKey(report))) reports.push(report);
@@ -75,10 +94,6 @@ function installableAgentsText(agentListing: unknown): string {
     .filter((label): label is string => typeof label === 'string' && label.length > 0);
   if (labels.length === 0) return 'an agent CLI';
   return agentChoiceJoiner.format(labels);
-}
-
-function canOpenShell(agentListing: unknown): boolean {
-  return decideAgentPicker(listedAgents(agentListing), { defaultId: SHELL_AGENT_ID }).options.some((agentOption) => agentOption.id === SHELL_AGENT_ID);
 }
 
 function gitRepoCountText(gitRepoCount: number): string {
@@ -121,5 +136,5 @@ function decideVisibleProjects(projects: readonly StartProject[], filterText: st
   return { visibleProjects, selectedPath: isSelectionVisible ? selectedPath : visibleProjects[0]?.path ?? null };
 }
 
-export { FIRST_TASK_PROMPT, startProjects, decideStartAgents, decideVisibleProjects, canOpenShell, installableAgentsText, decideFirstRunSteps, decideOnboardingStepReports, onboardingStepReportKey, agentSummaryText, gitRepoCountText, rootsToAutoSave, withRepoRootsAdded, UPCOMING_STEPS };
-export type { FirstRunSteps, StartProject };
+export { FIRST_TASK_PROMPT, startProjects, decideStartAgents, decideVisibleProjects, installableAgentsText, decideFirstRunSteps, isSetupDone, notificationChoiceSummary, decideOnboardingStepReports, onboardingStepReportKey, agentSummaryText, gitRepoCountText, rootsToAutoSave, withRepoRootsAdded, UPCOMING_STEPS };
+export type { FirstRunSteps, NotificationChoice, StartProject };

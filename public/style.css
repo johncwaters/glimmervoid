@@ -5066,6 +5066,73 @@ html:has(:is(.focus-empty, .phone-empty) > .first-run-checklist:not([hidden])) [
   color: var(--text-head);
 }
 
+.first-run-lockup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.first-run-mark,
+.first-run-sample-mark {
+  display: inline-flex;
+  flex: none;
+}
+
+.first-run-mark svg {
+  width: 22px;
+  height: 22px;
+  overflow: visible;
+}
+
+.first-run-sample-mark svg {
+  width: 16px;
+  height: 16px;
+}
+
+.first-run-mark-bracket {
+  fill: none;
+  stroke: var(--text-head);
+  stroke-width: 11;
+  stroke-linejoin: miter;
+  stroke-linecap: butt;
+}
+
+.first-run-mark-dial {
+  transform-box: view-box;
+  transform-origin: 50% 50%;
+}
+
+.first-run-mark-light {
+  fill: var(--accent);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.first-run-wordmark {
+  font-size: var(--type-display);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-head);
+}
+
+.first-run-sample-notification {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 340px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  font-size: var(--type-meta);
+  color: var(--text-head);
+}
+
+.first-run-start-host {
+  margin-top: 16px;
+}
+
 .first-run-step-text {
   margin: 0;
   font-size: var(--type-meta);
@@ -5340,21 +5407,6 @@ html:has(:is(.focus-empty, .phone-empty) > .first-run-checklist:not([hidden])) [
 
 .first-run-load-status {
   margin: 14px 0 0;
-}
-
-.first-run-optional {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 14px;
-}
-
-.first-run-optional .notification-permission {
-  margin: 0;
-}
-
-[data-layout="phone"] .first-run-optional {
-  display: none;
 }
 
 .repo-roots-adder {

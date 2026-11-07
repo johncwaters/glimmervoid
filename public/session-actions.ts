@@ -6,7 +6,6 @@ import type { SessionOpenStatePolicy } from './session-actions-core.ts';
 import { decideSessionOpenAction, pickRestorableSessionId } from './session-actions-core.ts';
 import { sendSessionAction } from './session-card/card-actions.ts';
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
-import { SHELL_AGENT_ID } from './session-card/agent-core.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { sessionName, sessionUIs } from './session-card/card-registry.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
@@ -76,10 +75,6 @@ function openWithDialogs(openDialog: (dialogs: DialogsModule) => void) {
 
 export function openAddSessionDialog() {
   openWithDialogs((dialogs) => dialogs.createAddSessionDialog());
-}
-
-export function openShellSessionDialog() {
-  openWithDialogs((dialogs) => dialogs.createAddSessionDialog({ preferredAgentId: SHELL_AGENT_ID }));
 }
 
 let revealSessionInView: (id: string) => void = selectSession;

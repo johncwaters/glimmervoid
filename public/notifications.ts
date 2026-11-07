@@ -62,6 +62,14 @@ function notificationPermissionHint(): string | null {
   return null;
 }
 
+export function currentNotificationChoice(): 'on' | 'off' | 'ask' {
+  if (!notificationsSupported() || !isNotificationsEnabled()) return 'off';
+  const permission = notificationPermission();
+  if (permission === 'granted') return 'on';
+  if (permission === 'default') return 'ask';
+  return 'off';
+}
+
 function canAskNotificationPermission() {
   return isNotificationsEnabled() && notificationPermission() === 'default';
 }
