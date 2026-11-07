@@ -8,7 +8,7 @@ import { cappedWarningLists, previewWires, rectsOverlap, routeWires, unionOf, wa
 import { touchingPairsWithin } from './whiteboard-sweep-core.ts';
 import type { Point, RouteMemory, WarningList } from './whiteboard-route-core.ts';
 import { forEachSlotTouching, gridOfRects } from './spatial-grid-core.ts';
-import type { LaidOutBox, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutNote, LaidOutStep, LaidOutWire, LegendRow, PlanBand } from './contracts/whiteboard-tiles.ts';
+import type { LaidOutBox, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutNote, LaidOutStep, LaidOutWire, LegendRow, PlanBand, PlanColumn } from './contracts/whiteboard-tiles.ts';
 
 const MARGIN = 40;
 const DEFAULT_BOX_WIDTH = 220;
@@ -439,6 +439,7 @@ function isInStepBand(box: Box): boolean {
 interface StepBand {
   positionById: Map<string, Point>;
   bottom: number;
+  columns: PlanColumn[];
 }
 
 function stepBandOf(board: Board): StepBand {
@@ -447,7 +448,7 @@ function stepBandOf(board: Board): StepBand {
     if (element.kind === 'box' && isInStepBand(element)) bandBoxById.set(element.id, element);
   }
   const positionById = new Map<string, Point>();
-  if (bandBoxById.size === 0) return { positionById, bottom: MARGIN };
+  if (bandBoxById.size === 0) return { positionById, bottom: MARGIN, columns: [] };
   const bandBoxesByLevel = new Map<number, Box[]>();
   for (const step of planSteps(board)) {
     const box = bandBoxById.get(step.boxId);
@@ -455,18 +456,22 @@ function stepBandOf(board: Board): StepBand {
   }
   let levelX = MARGIN;
   let lowestBottom = MARGIN;
+  const columns: PlanColumn[] = [];
   for (const level of [...bandBoxesByLevel.keys()].sort((left, right) => left - right)) {
     const boxesAtLevel = bandBoxesByLevel.get(level) ?? [];
     let nextY = MARGIN + PLAN_TITLE_HEIGHT;
+    let columnBottom = nextY;
     for (const box of boxesAtLevel) {
       positionById.set(box.id, { x: levelX, y: nextY });
       nextY += boxShape(box).height;
+      columnBottom = nextY;
       lowestBottom = Math.max(lowestBottom, nextY);
       nextY += BOX_GAP;
     }
+    if (boxesAtLevel.length > 0) columns.push({ x: levelX, bottom: columnBottom, boxCount: boxesAtLevel.length });
     levelX += Math.max(...boxesAtLevel.map(boxWidthOf)) + FREE_GAP;
   }
-  return { positionById, bottom: lowestBottom + PLAN_BAND_GAP };
+  return { positionById, bottom: lowestBottom + PLAN_BAND_GAP, columns };
 }
 
 function wireCeilingOf(freeformTop: number): number {
@@ -475,6 +480,16 @@ function wireCeilingOf(freeformTop: number): number {
 
 function pinnedOffsetYOf(board: Board): number {
   return stepBandOf(board).bottom - MARGIN;
+}
+
+function pinnedOffsetYAfterLeaving(plan: PlanBand | null, leavingBoxes: readonly { x: number; height: number }[]): number {
+  const remainingBottoms = (plan?.columns ?? []).flatMap((column) => {
+    const leavingHere = leavingBoxes.filter((box) => box.x === column.x);
+    if (leavingHere.length >= column.boxCount) return [];
+    return [column.bottom - leavingHere.reduce((shrink, box) => shrink + box.height + BOX_GAP, 0)];
+  });
+  if (remainingBottoms.length === 0) return 0;
+  return Math.max(MARGIN, ...remainingBottoms) + PLAN_BAND_GAP - MARGIN;
 }
 
 function withPinnedBoxesShifted(board: Board, offsetY: number): Board {
@@ -542,7 +557,7 @@ function layoutBoard(storedBoard: Board): BoardLayout {
 }
 
 function layoutBoardWithMemory(storedBoard: Board, previous: LayoutMemory | null): { layout: BoardLayout; memory: LayoutMemory; warningLists: WarningList[] } {
-  const { positionById: stepBandPositions, bottom: freeformTop } = stepBandOf(storedBoard);
+  const { positionById: stepBandPositions, bottom: freeformTop, columns: planColumns } = stepBandOf(storedBoard);
   const pinnedOffsetY = freeformTop - MARGIN;
   const board = indexedBoardOf(withPinnedBoxesShifted(storedBoard, pinnedOffsetY));
   const stackHeightByBoxId = noteStackHeightByBoxId(board);
@@ -555,12 +570,12 @@ function layoutBoardWithMemory(storedBoard: Board, previous: LayoutMemory | null
     ...placed.boxesById.values(),
     ...placed.notes,
   ];
-  const chrome = chromeAround(board.caption, boundsOf(elements, placed.routing.extent, boxesTop), legendEntriesOf(board), stepBandPositions.size > 0, pinnedOffsetY);
+  const chrome = chromeAround(board.caption, boundsOf(elements, placed.routing.extent, boxesTop), legendEntriesOf(board), stepBandPositions.size > 0 ? planColumns : [], pinnedOffsetY);
   const warningLists = [...placed.routing.collectWarnings(), warningListOf(placed.collectPlacementWarnings())];
   return { layout: { elements, ...chrome, warnings: cappedWarningLists(warningLists) }, memory, warningLists };
 }
 
-function chromeAround(caption: string | null, contentBounds: Rect, legendEntries: readonly LegendEntry[], hasPlanBand: boolean, pinnedOffsetY: number): Omit<BoardLayout, 'elements' | 'warnings'> {
+function chromeAround(caption: string | null, contentBounds: Rect, legendEntries: readonly LegendEntry[], planColumns: readonly PlanColumn[], pinnedOffsetY: number): Omit<BoardLayout, 'elements' | 'warnings'> {
   const legendTop = contentBounds.y + contentBounds.height;
   const legend = legendEntries.map((entry, index): LegendRow => ({ ...entry, x: MARGIN, y: legendTop + index * LEGEND_ROW_HEIGHT }));
   const captionTop = legendTop + legend.length * LEGEND_ROW_HEIGHT + (legend.length > 0 ? 12 : 0);
@@ -570,7 +585,7 @@ function chromeAround(caption: string | null, contentBounds: Rect, legendEntries
     legend,
     caption: placedCaption,
     pinnedOffsetY,
-    plan: hasPlanBand ? { titleAt: { x: MARGIN, y: MARGIN + PLAN_TITLE_BASELINE } } : null,
+    plan: planColumns.length > 0 ? { titleAt: { x: MARGIN, y: MARGIN + PLAN_TITLE_BASELINE }, columns: [...planColumns] } : null,
     bounds: { ...contentBounds, height: contentBounds.height + extraHeight },
   };
 }
@@ -617,7 +632,7 @@ function createDragPreview(storedBoard: Board, layout: BoardLayout, draggedBoxId
   }
   const movingBoxes = [...movingIds].flatMap((elementId) => boxesById.get(elementId) ?? []);
   const wires = Object.values(storedBoard.elements).flatMap((element) => (element.kind === 'wire' && (movingIds.has(element.from) || movingIds.has(element.to)) ? [element] : []));
-  const contentTop = wireCeilingOf(stepBandOf(storedBoard).bottom);
+  const contentTop = wireCeilingOf(layout.pinnedOffsetY + MARGIN);
   return (offsetX, offsetY) => {
     const moved = movingBoxes.map((box) => movedBox(box, offsetX, offsetY));
     for (const box of moved) boxesById.set(box.id, box);
@@ -628,6 +643,6 @@ function createDragPreview(storedBoard: Board, layout: BoardLayout, draggedBoxId
 
 export {
   boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, createDragPreview, elementSignature, frameTitleStripOf, headerRectOf, isInStepBand, isStackedPanel,
-  laidOutBox, laidOutFrameOf, laidOutNearBox, layoutBoard, layoutBoardWithMemory, legendEntriesFrom, noteStackOn, pinnedOffsetYOf, stepBandOf, wireCeilingOf,
+  laidOutBox, laidOutFrameOf, laidOutNearBox, layoutBoard, layoutBoardWithMemory, legendEntriesFrom, movedBox, noteStackOn, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, wireCeilingOf,
 };
 export type { BoardLayout, DragPreview, LegendEntry, LaidOutBox, LaidOutMedia, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutStep, LaidOutWire, Rect };

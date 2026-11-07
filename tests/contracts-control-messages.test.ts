@@ -222,18 +222,16 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'usage-budget-alert', scope: 'daily', periodKey: '2026-08-26', threshold: 50, spentUsd: 5, budgetUsd: 10, text: 'budget crossed', ts: NOW },
   { type: 'client-trust', trust: 'local' },
   { type: 'whiteboards-snapshot', boards: [{ id: 'board-1', title: 'Ingest plan', version: 3, updatedAt: NOW, connectedSessionIds: ['session-1'], queuedBySessionId: { 'session-1': 2 } }] },
-  {
-    type: 'whiteboard-patch', boardId: 'board-1', fromVersion: 3, toVersion: 4, author: { id: 'operator', name: 'operator' }, updatedAt: NOW,
-    diff: { fields: { title: 'Ingest plan' }, elements: { parse: ['patch', { at: { x: 120, y: 80 } }], old: ['remove'] } },
-  },
   { type: 'whiteboard-removed', boardId: 'board-1' },
   {
-    type: 'whiteboard-tiles', boardId: 'board-1', version: 4,
+    type: 'whiteboard-tiles', boardId: 'board-1', version: 4, elementCount: 1,
+    head: { id: 'board-1', title: 'Ingest plan', version: 4, caption: null, legend: [], codeSessionId: null, createdAt: NOW, updatedAt: NOW },
     chrome: { legend: [], caption: null, plan: null, pinnedOffsetY: 0, bounds: { x: 0, y: 0, width: 400, height: 300 } },
     tiles: [{ key: { chunkX: 0, chunkY: 0, lod: 'full', level: 0 }, elements: [{ paintOrder: 0, element: { kind: 'frame', id: 'frame-1', title: 'Ingest', isLoop: false, x: 0, y: 0, width: 400, height: 300 } }], raster: null }],
   },
   {
-    type: 'whiteboard-tile-diff', boardId: 'board-1', fromVersion: 4, toVersion: 5,
+    type: 'whiteboard-tile-diff', boardId: 'board-1', fromVersion: 4, toVersion: 5, elementCount: 0,
+    head: { id: 'board-1', title: 'Ingest plan', version: 5, caption: null, legend: [], codeSessionId: null, createdAt: NOW, updatedAt: NOW },
     diff: { changed: [], removedIds: ['frame-1'], rasters: [], chrome: null },
   },
   {
@@ -244,6 +242,11 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
       createdAt: NOW, updatedAt: NOW,
     },
     summary: { id: 'board-1', title: 'Ingest plan', version: 1, updatedAt: NOW, connectedSessionIds: [], queuedBySessionId: {} },
+    patch: {
+      boardId: 'board-1', fromVersion: 0, toVersion: 1, author: { id: 'operator', name: 'operator' }, updatedAt: NOW,
+      diff: { fields: { title: 'Ingest plan' }, elements: { parse: ['patch', { at: { x: 40, y: 40 } }], old: ['remove'] } },
+      before: { fields: { title: 'Ingest' }, elements: { parse: { kind: 'box', id: 'parse', title: 'Parse feed', lines: [], refs: [], change: 'none', was: null, near: null, order: 0, at: { x: 0, y: 0 }, shape: 'box', outputs: [], media: null, width: null, step: null }, old: null } },
+    },
   },
   { type: 'session-worktree-warning', id: 'session-1', session: 'Session 1', branch: 'glimmervoid/session/session-1', notice: 'offline', timestamp: NOW },
   { type: 'shutting-down' },

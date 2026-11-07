@@ -6,6 +6,7 @@ import { BoardRecord, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboar
 import type { Board, BoardRegion, BoardReview, BoardSummary, BoxMedia, Element, Op, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import type { AgentReplyBodyOf } from '../../shared/contracts/session.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
+import type { WhiteboardPatch } from '../../shared/contracts/control/whiteboard-messages.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
 import { OPERATOR_AUTHOR, createBoard, stageOps } from '../../shared/whiteboard-ops-core.ts';
 import { assetIdOf, assetIdsOf, boardIndexOf } from '../../shared/whiteboard-board-index.ts';
@@ -73,8 +74,6 @@ interface WhiteboardReply {
   body: AgentReplyBodyOf<'whiteboard'>;
   patch?: WhiteboardPatch;
 }
-
-type WhiteboardPatch = ServerMessageOf<'whiteboard-patch'>;
 
 type StagedWrite = StagedElements & { commit: () => void };
 type CommittedReply = { reply: WhiteboardReply };
@@ -326,13 +325,8 @@ function createWhiteboardWiring({
       const isBoardChanged = outcome.record.board !== current.board;
       const layout = isBoardChanged ? await tiles.advance(outcome.record.board, elementChanges) : null;
       const committed = outcome.replyAfterCommit?.(outcome.record, layout) ?? { reply: outcome.reply };
-      if (!outcome.patch) {
-        broadcastSummariesIfChanged(current, outcome.record);
-        return committed.reply;
-      }
-      broadcastControl(outcome.patch);
       broadcastSummariesIfChanged(current, outcome.record);
-      return { ...committed.reply, patch: outcome.patch };
+      return outcome.patch ? { ...committed.reply, patch: outcome.patch } : committed.reply;
     });
   }
 
@@ -429,8 +423,8 @@ function createWhiteboardWiring({
     const releasedAssetIds = new Set([...result.afterById.keys()].flatMap((id) => assetIdOf(record.board.elements[id]) ?? []));
     const next = recordPut(record, result);
     const patch: WhiteboardPatch = {
-      type: 'whiteboard-patch', boardId: record.board.id, fromVersion: record.board.version, toVersion: next.board.version,
-      author: { id: author.id, name: author.name }, updatedAt: next.board.updatedAt, diff: result.diff,
+      boardId: record.board.id, fromVersion: record.board.version, toVersion: next.board.version,
+      author: { id: author.id, name: author.name }, updatedAt: next.board.updatedAt, diff: result.diff, before: result.before,
     };
     const commit = (): void => {
       result.commit();

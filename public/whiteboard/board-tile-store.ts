@@ -1,4 +1,5 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
+import type { Board, BoardHead, Element } from '#shared/contracts/whiteboard.ts';
 import type { BoardChrome, PaintedElement, TileKey, TileLod } from '#shared/contracts/whiteboard-tiles.ts';
 import type { BoardLayout, Rect } from '#shared/whiteboard-layout-core.ts';
 import { lodForScale, paintedBoundsOf, tileIdOf, tileKeysFor, tileRectOf } from '#shared/whiteboard-tile-core.ts';
@@ -24,11 +25,15 @@ interface TiledBoard {
   lod: TileLod;
   layout: BoardLayout;
   blocks: BlockTile[];
+  board: Board;
+  elementCount: number;
 }
 
 interface TileState {
   boardId: string;
   version: number | null;
+  head: BoardHead | null;
+  elementCount: number;
   chrome: BoardChrome | null;
   lod: TileLod;
   view: Rect;
@@ -92,7 +97,7 @@ function isViewRequested(current: TileState): boolean {
 }
 
 function freshState(boardId: string, view: Rect, lod: TileLod): TileState {
-  return { boardId, version: null, chrome: null, lod, view, sentTileIds: new Set(), tiles: new Map(), elementById: new Map(), assembled: null };
+  return { boardId, version: null, head: null, elementCount: 0, chrome: null, lod, view, sentTileIds: new Set(), tiles: new Map(), elementById: new Map(), assembled: null };
 }
 
 function showTilesFor(boardId: string, view: Rect, scale: number): void {
@@ -141,6 +146,8 @@ function applyBoardTiles(message: ServerMessageOf<'whiteboard-tiles'>): void {
     current.chrome = message.chrome;
   }
   if (!current.chrome) return;
+  current.head = message.head;
+  current.elementCount = message.elementCount;
   current.version = message.version;
   for (const tile of message.tiles) holdTile(current, tile);
   evictUnsentTiles(current, () => true);
@@ -182,6 +189,8 @@ function applyBoardTileDiff(message: ServerMessageOf<'whiteboard-tile-diff'>): v
     if (held) held.raster = tile.raster ? bytesOf(tile.raster) : null;
   }
   if (message.diff.chrome) current.chrome = message.diff.chrome;
+  current.head = message.head;
+  current.elementCount = message.elementCount;
   current.version = message.toVersion;
   current.assembled = null;
   notifyTilesChanged();
@@ -189,11 +198,16 @@ function applyBoardTileDiff(message: ServerMessageOf<'whiteboard-tile-diff'>): v
 
 function tiledBoardOf(boardId: string): TiledBoard | null {
   const current = state;
-  if (!current || current.boardId !== boardId || current.version === null || !current.chrome) return null;
+  if (!current || current.boardId !== boardId || current.version === null || !current.chrome || !current.head) return null;
   if (current.assembled) return current.assembled;
-  const elements = [...current.elementById.values()].sort((left, right) => left.paintOrder - right.paintOrder).map((painted) => painted.element);
+  const painted = [...current.elementById.values()].sort((left, right) => left.paintOrder - right.paintOrder);
+  const recordById: Record<string, Element> = {};
+  for (const { record } of painted) {
+    if (record) recordById[record.id] = record;
+  }
   const blocks = [...current.tiles].flatMap(([id, tile]) => (tile.raster ? [{ id, rect: tile.rect, raster: tile.raster }] : []));
-  current.assembled = { version: current.version, lod: current.lod, layout: { ...current.chrome, elements, warnings: [] }, blocks };
+  const layout = { ...current.chrome, elements: painted.map(({ element }) => element), warnings: [] };
+  current.assembled = { version: current.version, lod: current.lod, layout, blocks, board: { ...current.head, elements: recordById }, elementCount: current.elementCount };
   return current.assembled;
 }
 
@@ -205,6 +219,12 @@ function resyncTilesIfBehind(versionByBoardId: ReadonlyMap<string, number>): voi
     return;
   }
   if (boardVersion === state.version) return;
+  state.version = null;
+  sendView(state);
+}
+
+function resendTilesView(): void {
+  if (!state) return;
   state.version = null;
   sendView(state);
 }
@@ -221,5 +241,5 @@ function onTilesChanged(listener: () => void): void {
   listeners.push(listener);
 }
 
-export { applyBoardTileDiff, applyBoardTiles, forgetTilesOf, onTilesChanged, resyncTilesIfBehind, showTilesFor, tiledBoardOf };
+export { applyBoardTileDiff, applyBoardTiles, forgetTilesOf, onTilesChanged, resendTilesView, resyncTilesIfBehind, showTilesFor, tiledBoardOf };
 export type { BlockTile };

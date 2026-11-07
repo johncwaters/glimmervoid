@@ -150,6 +150,8 @@ export const Board = z.object({
   updatedAt: z.number(),
 }).strict();
 
+export const BoardHead = Board.omit({ elements: true });
+
 export const Op = z.discriminatedUnion('op', [
   z.object({ op: z.literal('add'), element: Element }).strict(),
   z.object({ op: z.literal('set'), id: ElementId, fields: z.record(z.string(), z.unknown()).describe('the element fields to change, as in {"title":"Gateway"}') }).strict(),
@@ -331,6 +333,7 @@ export type Board = z.infer<typeof Board>;
 export type Op = z.infer<typeof Op>;
 export type BoardChange = z.infer<typeof BoardChange>;
 export type BoardReview = z.infer<typeof BoardReview>;
+export type BoardHead = z.infer<typeof BoardHead>;
 export type BoardSummary = z.infer<typeof BoardSummary>;
 export type BoardOutline = z.infer<typeof BoardOutline>;
 export type BoardRegion = z.infer<typeof BoardRegion>;

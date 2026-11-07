@@ -15,18 +15,18 @@ import type { ViewModule } from '../view-registry-core.ts';
 import { createBoardEditor, newElementId } from './board-edit.ts';
 import type { BoardEditor, BoardTool, PressedImage } from './board-edit.ts';
 import { EMPTY_HISTORY, recordEdit, recordStep, takeStep, undoOpsOf } from '#shared/whiteboard-undo-core.ts';
-import type { BoardDiff } from '#shared/contracts/control/whiteboard-messages.ts';
+import type { WhiteboardPatch } from '#shared/contracts/control/whiteboard-messages.ts';
 import type { UndoDirection, UndoHistory } from '#shared/whiteboard-undo-core.ts';
 import { createBoardInspector } from './board-inspect.ts';
 import type { BoardInspector } from './board-inspect.ts';
 import { createBoardRenderer } from './board-gl-renderer.ts';
 import type { BoardRenderer } from './board-gl-renderer.ts';
-import { onTilesChanged, showTilesFor, tiledBoardOf } from './board-tile-store.ts';
+import { onTilesChanged, resendTilesView, showTilesFor, tiledBoardOf } from './board-tile-store.ts';
 import { createBoardMediaLayer, fetchBoardDocText } from './board-media-layer.ts';
 import { applyDocsToOpenEditor, openDocEditorOn } from '../doc-editor/doc-editor.ts';
 import type { DocSource } from '../doc-editor/doc-editor.ts';
 import {
-  boardSummariesOf, createBoard, deleteBoard, onBoardChanged, onBoardListChanged, openBoard, openBoardOf, openFileInReview, requestBoardReview, sendBoardOps, takeOpenBoardRequest, uploadBoardMedia,
+  boardSummariesOf, createBoard, deleteBoard, onBoardChanged, onBoardListChanged, openFileInReview, requestBoardReview, sendBoardOps, takeOpenBoardRequest, uploadBoardMedia,
 } from './board-store.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
@@ -93,6 +93,7 @@ let shouldFitOnNextRender = true;
 let pairedSessionId: string | null = null;
 let shownReview: { boardId: string; review: BoardReview } | null = null;
 let reviewRequestKey: string | null = null;
+let openDocBox: { boardId: string; box: Extract<Element, { kind: 'box' }> } | null = null;
 type RecordedSend = { ok: true; isUndoable: boolean } | { ok: false; error: string };
 
 const status = createActionStatus('action-status wb-status');
@@ -149,8 +150,12 @@ function openTextDialog(options: TextDialogOptions): void {
   requestAnimationFrame(() => input.focus());
 }
 
+function heldBoardOf(boardId: string): Board | null {
+  return tiledBoardOf(boardId)?.board ?? null;
+}
+
 function selectedBoard(): Board | null {
-  return selectedBoardId ? openBoardOf(selectedBoardId) : null;
+  return selectedBoardId ? heldBoardOf(selectedBoardId) : null;
 }
 
 function selectedSummary(): BoardSummary | null {
@@ -171,17 +176,16 @@ function fitsOnePut(ops: readonly Op[]): boolean {
   return ops.length <= WHITEBOARD_LIMITS.opsPerPut && new TextEncoder().encode(JSON.stringify(ops)).length <= WHITEBOARD_LIMITS.putBytes;
 }
 
-function undoEntryOf(before: Board | null, boardId: string, diff: BoardDiff | null): Op[] | null {
-  if (!before || before.id !== boardId || !diff) return [];
-  const entry = undoOpsOf(before, diff);
+function undoEntryOf(patch: WhiteboardPatch | null): Op[] | null {
+  if (!patch) return [];
+  const entry = undoOpsOf(patch.before, patch.diff);
   return fitsOnePut(entry) ? entry : null;
 }
 
 async function sendAndRecord(boardId: string, ops: Op[]): Promise<RecordedSend> {
-  const before = selectedBoard();
   const outcome = await sendBoardOps(boardId, ops);
   if (!outcome.ok) return outcome;
-  const entry = undoEntryOf(before, boardId, outcome.diff);
+  const entry = undoEntryOf(outcome.patch);
   if (!entry) {
     historyByBoardId.set(boardId, EMPTY_HISTORY);
     return { ok: true, isUndoable: false };
@@ -196,8 +200,7 @@ function stepHistory(direction: UndoDirection): Promise<void> {
 
 async function runHistoryStep(direction: UndoDirection): Promise<void> {
   const boardId = selectedBoardId;
-  const board = selectedBoard();
-  if (!boardId || !board) return;
+  if (!boardId) return;
   const step = takeStep(historyByBoardId.get(boardId) ?? EMPTY_HISTORY, direction);
   if (!step) return;
   historyByBoardId.set(boardId, step.history);
@@ -206,7 +209,7 @@ async function runHistoryStep(direction: UndoDirection): Promise<void> {
     status.show('error', `could not ${direction} that change, so it was dropped: ${outcome.error}`);
     return;
   }
-  const entry = undoEntryOf(board, boardId, outcome.diff);
+  const entry = undoEntryOf(outcome.patch);
   if (!entry) {
     historyByBoardId.set(boardId, EMPTY_HISTORY);
     status.show('ok', TOO_BIG_TO_UNDO_TEXT);
@@ -509,32 +512,19 @@ function requestReviewOf(board: Board): void {
   });
 }
 
-function drawSelectedBoard(boardRenderer: BoardRenderer, board: Board | null): boolean {
-  const tiled = selectedBoardId ? tiledBoardOf(selectedBoardId) : null;
-  const shown = board ? (editor?.previewOf(board) ?? board) : null;
-  const isPreviewing = shown !== board;
-  const isTiledDrawable = tiled !== null && (!board || (tiled.version >= board.version && tiled.lod !== 'blocks'));
-  if (tiled && isTiledDrawable && !isPreviewing) {
-    boardRenderer.renderLayout(tiled.layout, tiled.blocks);
-    return true;
-  }
-  if (!shown) return false;
-  boardRenderer.render(shown);
-  return true;
-}
-
 function paintBoard(): void {
   if (!renderer) return;
-  const board = selectedBoard();
-  const isDrawn = drawSelectedBoard(renderer, board);
-  if (!board) {
-    if (!isDrawn) renderer.clear();
+  const tiled = selectedBoardId ? tiledBoardOf(selectedBoardId) : null;
+  if (!tiled) {
     if (parts) parts.emptyBoardHint.hidden = true;
     return;
   }
+  renderer.renderLayout(tiled.layout, tiled.blocks);
+  editor?.repaintPreview();
+  const { board } = tiled;
   requestReviewOf(board);
   editor?.pruneSelection(board);
-  if (parts) parts.emptyBoardHint.hidden = Object.keys(board.elements).length > 0;
+  if (parts) parts.emptyBoardHint.hidden = tiled.elementCount > 0;
   paintReview();
   editor?.openPendingTitleEdit();
   if (shouldFitOnNextRender) {
@@ -554,7 +544,7 @@ function selectBoard(boardId: string): void {
   renderer?.clear();
   status.clear();
   paintList();
-  void openBoard(boardId).then(paintBoard);
+  paintBoard();
 }
 
 function addStepFromDialog(): void {
@@ -615,9 +605,17 @@ function closeOnEscapeInsidePage(pageFrame: HTMLIFrameElement, overlay: HTMLElem
   overlayWatcher.observe(document.body, { childList: true });
 }
 
+function docBoxOf(boardId: string, boxId: string): Extract<Element, { kind: 'box' }> | null {
+  const isOpenDoc = openDocBox?.boardId === boardId && openDocBox.box.id === boxId;
+  const held = heldBoardOf(boardId)?.elements[boxId];
+  if (held?.kind !== 'box') return isOpenDoc ? (openDocBox?.box ?? null) : null;
+  if (isOpenDoc) openDocBox = { boardId, box: held };
+  return held;
+}
+
 function docMediaOf(boardId: string, boxId: string): BoxMedia | null {
-  const box = openBoardOf(boardId)?.elements[boxId];
-  return box?.kind === 'box' && box.media?.kind === 'doc' ? box.media : null;
+  const box = docBoxOf(boardId, boxId);
+  return box?.media?.kind === 'doc' ? box.media : null;
 }
 
 function boardDocKey(boardId: string): string {
@@ -626,14 +624,16 @@ function boardDocKey(boardId: string): string {
 
 async function saveBoardDoc(boardId: string, boxId: string, docText: string, loadedAsset: string): ReturnType<DocSource['save']> {
   const media = docMediaOf(boardId, boxId);
-  const box = openBoardOf(boardId)?.elements[boxId];
-  if (!media || box?.kind !== 'box' || media.asset !== loadedAsset) return { ok: false, isConflict: true, error: null };
+  if (!media || media.asset !== loadedAsset) return { ok: false, isConflict: true, error: null };
   const stored = await uploadBoardMedia(new File([docText], `${boxId}.md`, { type: 'text/markdown' }));
   if (!stored.ok) return { ok: false, isConflict: false, error: stored.error };
   if (stored.media.kind !== 'doc') return { ok: false, isConflict: false, error: BOARD_DOC_NOT_MARKDOWN_TEXT };
   if (docMediaOf(boardId, boxId)?.asset !== loadedAsset) return { ok: false, isConflict: true, error: null };
-  const sent = await sendRecordedOps(boardId, [{ op: 'set', id: boxId, fields: { media: { ...stored.media, alt: media.alt } } }]);
+  const savedMedia = { ...stored.media, alt: media.alt };
+  const sent = await sendRecordedOps(boardId, [{ op: 'set', id: boxId, fields: { media: savedMedia } }]);
   if (!sent.ok) return { ok: false, isConflict: false, error: sent.error };
+  const savedBox = docBoxOf(boardId, boxId);
+  if (savedBox && openDocBox?.box.id === boxId) openDocBox = { boardId, box: { ...savedBox, media: savedMedia } };
   return { ok: true, hash: stored.media.asset };
 }
 
@@ -658,8 +658,9 @@ function boardDocSource(boardId: string, boxId: string, title: string): DocSourc
 }
 
 function openBoardDoc(boardId: string, boxId: string): void {
-  const box = openBoardOf(boardId)?.elements[boxId];
+  const box = heldBoardOf(boardId)?.elements[boxId];
   if (box?.kind !== 'box') return;
+  openDocBox = { boardId, box };
   openDocEditorOn(boardDocSource(boardId, boxId, box.title));
 }
 
@@ -966,6 +967,7 @@ export function mountBoardHost(): HTMLElement {
     canvas,
     renderer: boardRenderer,
     currentBoard: selectedBoard,
+    repaint: paintBoard,
     sendOps,
     onSelectionChange: paintToolbar,
     onPhoneTapBox: addNoteOn,
@@ -983,7 +985,10 @@ export function mountBoardHost(): HTMLElement {
     if (boardId !== selectedBoardId) return;
     paintBoard();
   });
-  onTilesChanged(paintBoard);
+  onTilesChanged(() => {
+    if (selectedBoardId) applyDocsToOpenEditor(boardDocKey(selectedBoardId));
+    paintBoard();
+  });
   paintList();
   return host;
 }
@@ -1010,7 +1015,8 @@ export function showBoardBeside(boardId: string | null, sessionId: string | null
 export function reopenSelectedBoard(): void {
   paintList();
   reviewRequestKey = null;
-  if (selectedBoardId) void openBoard(selectedBoardId).then(paintBoard);
+  resendTilesView();
+  paintBoard();
 }
 
 let boardsScreen: HTMLElement | null = null;

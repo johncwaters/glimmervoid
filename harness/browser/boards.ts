@@ -929,6 +929,28 @@ function placesOf(board: Board, boxIds: readonly string[]): Record<string, strin
   }));
 }
 
+async function countDashboardBoardFetches(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const counter = { boardFetches: 0 };
+    Object.assign(window, { harnessBoardFetches: counter });
+    const send = WebSocket.prototype.send;
+    WebSocket.prototype.send = function sendCounted(this: WebSocket, frame: Parameters<WebSocket['send']>[0]): void {
+      const message: unknown = typeof frame === 'string' ? JSON.parse(frame) : null;
+      const isDashboardFetch = typeof message === 'object' && message !== null && 'type' in message && message.type === 'whiteboard-get'
+        && !('requestId' in message && typeof message.requestId === 'string' && message.requestId.startsWith('harness-'));
+      if (isDashboardFetch) counter.boardFetches += 1;
+      send.call(this, frame);
+    };
+  });
+}
+
+async function dashboardBoardFetchesOf(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const counter: unknown = Reflect.get(window, 'harnessBoardFetches');
+    return typeof counter === 'object' && counter !== null && 'boardFetches' in counter && typeof counter.boardFetches === 'number' ? counter.boardFetches : -1;
+  });
+}
+
 async function startFrameRecorder(page: Page): Promise<void> {
   await page.evaluate(() => {
     const recorder = { gapsMs: [] as number[], isRecording: true };
@@ -998,6 +1020,7 @@ export async function verifyBoardScale(page: Page, sessionId: string): Promise<s
   for (const ops of scaleBoardPuts()) await controlReplyOf(page, 'whiteboard-op', { boardId, ops });
   const fillMs = Date.now() - fillStartedAt;
   await controlReplyOf(page, 'whiteboard-connect', { boardId, sessionId });
+  await countDashboardBoardFetches(page);
   const openStartedAt = Date.now();
   const panel = await showBoardInFocus(page, sessionId, SCALE_BOARD_TITLE);
   const open: OpenBoard = { page, panel, boardId };
@@ -1065,6 +1088,7 @@ export async function verifyBoardScale(page: Page, sessionId: string): Promise<s
     return draggedBoxIds.every((boxId) => placesRestored[boxId] === placesBefore[boxId]) ? true : null;
   });
   const undoMs = Date.now() - undoStartedAt;
+  assert.equal(await dashboardBoardFetchesOf(page), 0, 'the dashboard opens, drags and undoes from tiles without fetching the whole board');
 
   const elementCount = Object.keys(before.elements).length;
   const measured = `${elementCount} elements: fill ${fillMs} ms, first draw ${firstDrawMs} ms, pan max ${pan.maxMs} ms p50 ${pan.p50Ms} ms over ${pan.frames} frames, drag max ${drag.maxMs} ms p50 ${drag.p50Ms} ms over ${drag.frames} frames, save ${saveMs} ms, undo ${undoMs} ms`;

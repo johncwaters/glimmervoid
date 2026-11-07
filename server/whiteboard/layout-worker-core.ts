@@ -1,15 +1,15 @@
 import { z } from 'zod';
 
-import { Board, BoardOutline, Element } from '../../shared/contracts/whiteboard.ts';
+import { BoardHead, BoardOutline, Element } from '../../shared/contracts/whiteboard.ts';
+import type { Board } from '../../shared/contracts/whiteboard.ts';
 import { BoardChrome, LaidOutBox, LaidOutMedia, LayoutRect, Tile, TileDiff, TileKey } from '../../shared/contracts/whiteboard-tiles.ts';
 import { appendElement, boardIndexOf, dropElement, storeElement } from '../../shared/whiteboard-board-index.ts';
 import { boardPicture, pictureImagesOf } from '../../mcp/core/board-reading.ts';
 import { advanceBoardLayout, chromeOfBoard, layoutBoardRemembered, lineageLayoutOf, pinPositionsOfBoard, warningsOfBoard } from '../../shared/whiteboard-layout-cache.ts';
 import type { ElementChange } from '../../shared/whiteboard-layout-engine.ts';
-import { boardOutlineOf, defaultFocusOf, elementIdsTouching, patchTileIndex, tileDiffFor, tileDiffOf, tileIndexOf, tileOf } from '../../shared/whiteboard-tile-core.ts';
+import { boardOutlineOf, defaultFocusOf, elementIdsTouching, patchTileIndex, tileDiffOf, tileIndexOf, tileOf } from '../../shared/whiteboard-tile-core.ts';
 import type { TileIndex } from '../../shared/whiteboard-tile-core.ts';
 
-const BoardHead = Board.omit({ elements: true });
 const RequestId = z.number().int();
 const ViewerTiles = z.strictObject({ viewerId: z.number().int(), version: z.number().int().nullable(), heldKeys: z.array(TileKey) });
 const ChangedElement = z.strictObject({ id: z.string(), after: Element.nullable(), isAppended: z.boolean() });
@@ -75,7 +75,6 @@ interface LayoutHost {
 function createLayoutHost(): LayoutHost {
   const boardById = new Map<string, Board>();
   const tilesByBoardId = new Map<string, HeldTiles>();
-  const outdatedTilesByBoardId = new Map<string, HeldTiles>();
   const syncIdByBoardId = new Map<string, number>();
 
   function boardNamed(boardId: string): Board {
@@ -97,16 +96,11 @@ function createLayoutHost(): LayoutHost {
     return { kind: 'tiles', viewerId: viewer.viewerId, chrome: index.chrome, tiles: viewer.heldKeys.map((key) => tileOf(index, key)) };
   }
 
-  function refreshed(board: Board, previous: HeldTiles | null, viewers: readonly ViewerTiles[], warnings: string[]): AnswerFields {
+  function refreshed(board: Board, viewers: readonly ViewerTiles[], warnings: string[]): AnswerFields {
     tilesByBoardId.delete(board.id);
-    outdatedTilesByBoardId.delete(board.id);
     if (viewers.length === 0) return { version: board.version, warnings, chrome: chromeOfBoard(board) };
     const next = heldTilesOf(board).index;
-    const viewerMessages = viewers.map((viewer): ViewerMessage => {
-      if (previous && viewer.version === previous.index.version) return { kind: 'diff', viewerId: viewer.viewerId, fromVersion: previous.index.version, diff: tileDiffFor(previous.index, next, viewer.heldKeys) };
-      return wholeTilesOf(viewer, next);
-    });
-    return { version: board.version, warnings, chrome: next.chrome, viewerMessages };
+    return { version: board.version, warnings, chrome: next.chrome, viewerMessages: viewers.map((viewer) => wholeTilesOf(viewer, next)) };
   }
 
   function advance(head: z.infer<typeof BoardHead>, changed: readonly z.infer<typeof ChangedElement>[], viewers: readonly ViewerTiles[]): AnswerFields {
@@ -124,10 +118,10 @@ function createLayoutHost(): LayoutHost {
     const layoutAdvance = advanceBoardLayout(board, changes);
     const tiles = tilesByBoardId.get(board.id) ?? null;
     if (!tiles || !layoutAdvance || tiles.lineage !== layoutAdvance.lineage || layoutAdvance.delta.isRebuilt || tiles.index.version !== board.version - 1) {
-      return refreshed(board, tiles, viewers, layoutAdvance?.warnings ?? warningsOfBoard(board));
+      return refreshed(board, viewers, layoutAdvance?.warnings ?? warningsOfBoard(board));
     }
     const fromVersion = tiles.index.version;
-    const tileChanges = patchTileIndex(tiles.index, board, { version: board.version, chrome: layoutAdvance.chrome, changed: layoutAdvance.delta.changed, removedIds: layoutAdvance.delta.removedIds });
+    const tileChanges = patchTileIndex(tiles.index, board, { version: board.version, chrome: layoutAdvance.chrome, changed: layoutAdvance.delta.changed, removedIds: layoutAdvance.delta.removedIds, recordChangedIds: [...changes.keys()] });
     const viewerMessages = viewers.map((viewer): ViewerMessage => (viewer.version === fromVersion
       ? { kind: 'diff', viewerId: viewer.viewerId, fromVersion, diff: tileDiffOf(tiles.index, tileChanges, viewer.heldKeys) }
       : wholeTilesOf(viewer, tiles.index)));
@@ -158,9 +152,7 @@ function createLayoutHost(): LayoutHost {
   function handle(request: LayoutRequestBody): AnswerFields {
     switch (request.kind) {
       case 'sync-start': {
-        const outdated = tilesByBoardId.get(request.head.id) ?? outdatedTilesByBoardId.get(request.head.id);
         tilesByBoardId.delete(request.head.id);
-        if (outdated) outdatedTilesByBoardId.set(request.head.id, outdated);
         syncIdByBoardId.set(request.head.id, request.syncId);
         boardById.set(request.head.id, { ...request.head, elements: {} });
         return {};
@@ -175,7 +167,7 @@ function createLayoutHost(): LayoutHost {
       case 'refresh': {
         const board = boardNamed(request.boardId);
         const current = tilesByBoardId.get(board.id) ?? null;
-        if (current?.index.version !== board.version) return refreshed(board, current ?? outdatedTilesByBoardId.get(board.id) ?? null, request.viewers, warningsOfBoard(board));
+        if (current?.index.version !== board.version) return refreshed(board, request.viewers, warningsOfBoard(board));
         const viewerMessages = request.viewers.filter((viewer) => viewer.version !== board.version).map((viewer) => wholeTilesOf(viewer, current.index));
         return { version: board.version, warnings: warningsOfBoard(board), chrome: current.index.chrome, viewerMessages };
       }
@@ -199,7 +191,6 @@ function createLayoutHost(): LayoutHost {
       case 'forget':
         boardById.delete(request.boardId);
         tilesByBoardId.delete(request.boardId);
-        outdatedTilesByBoardId.delete(request.boardId);
         syncIdByBoardId.delete(request.boardId);
         return {};
     }

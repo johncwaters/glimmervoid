@@ -1,7 +1,6 @@
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
-import type { BoardDiff } from '#shared/contracts/control/whiteboard-messages.ts';
-import type { Board, BoardReview, BoardSummary, BoxMedia, Op } from '#shared/contracts/whiteboard.ts';
-import { applyBoardDiff } from '#shared/whiteboard-ops-core.ts';
+import type { WhiteboardPatch } from '#shared/contracts/control/whiteboard-messages.ts';
+import type { BoardReview, BoardSummary, BoxMedia, Op } from '#shared/contracts/whiteboard.ts';
 import { BoardMediaUploadReply, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
@@ -9,8 +8,6 @@ import { DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.t
 type BoardCommandOutcome = { ok: true; reply: ServerMessageOf<'whiteboard-result'> } | { ok: false; error: string };
 type BoardListener = (boardId: string) => void;
 
-const openBoardsById = new Map<string, Board>();
-const pendingFetchByBoardId = new Map<string, Promise<void>>();
 const listListeners: (() => void)[] = [];
 const boardListeners: BoardListener[] = [];
 let boardSummaries: BoardSummary[] = [];
@@ -39,30 +36,8 @@ async function runBoardCommand(type: string, payload: Record<string, unknown>): 
   }
 }
 
-function fetchBoard(boardId: string): Promise<void> {
-  const pending = pendingFetchByBoardId.get(boardId);
-  if (pending) return pending;
-  const started = runBoardCommand('whiteboard-get', { boardId }).then((outcome) => {
-    pendingFetchByBoardId.delete(boardId);
-    if (!outcome.ok || !outcome.reply.board) return;
-    openBoardsById.set(boardId, outcome.reply.board);
-    notifyBoard(boardId);
-  });
-  pendingFetchByBoardId.set(boardId, started);
-  return started;
-}
-
 export function boardSummariesOf(): readonly BoardSummary[] {
   return boardSummaries;
-}
-
-export function openBoardOf(boardId: string): Board | null {
-  return openBoardsById.get(boardId) ?? null;
-}
-
-export function openBoard(boardId: string): Promise<void> {
-  if (openBoardsById.has(boardId)) return Promise.resolve();
-  return fetchBoard(boardId);
 }
 
 export function onBoardListChanged(listener: () => void): () => void {
@@ -95,40 +70,10 @@ function indexBoardsBySession(): void {
 export function applyWhiteboardsSnapshot(message: ServerMessageOf<'whiteboards-snapshot'>): void {
   boardSummaries = [...message.boards].sort((left, right) => right.updatedAt - left.updatedAt);
   indexBoardsBySession();
-  const versionByBoardId = new Map(boardSummaries.map((summary) => [summary.id, summary.version]));
-  for (const [boardId, board] of [...openBoardsById]) {
-    const knownVersion = versionByBoardId.get(boardId);
-    if (knownVersion === board.version) continue;
-    openBoardsById.delete(boardId);
-    if (knownVersion !== undefined) {
-      void fetchBoard(boardId);
-      continue;
-    }
-    notifyBoard(boardId);
-  }
   notifyList();
 }
 
-export function applyWhiteboardPatch(message: ServerMessageOf<'whiteboard-patch'>): void {
-  const board = openBoardsById.get(message.boardId);
-  if (!board || board.version >= message.toVersion) return;
-  if (board.version !== message.fromVersion) {
-    openBoardsById.delete(message.boardId);
-    void fetchBoard(message.boardId);
-    return;
-  }
-  const patched = applyBoardDiff(board, message.diff, message.toVersion, message.updatedAt);
-  if (!patched) {
-    openBoardsById.delete(message.boardId);
-    void fetchBoard(message.boardId);
-    return;
-  }
-  openBoardsById.set(message.boardId, patched);
-  notifyBoard(message.boardId);
-}
-
 export function applyWhiteboardRemoved(message: ServerMessageOf<'whiteboard-removed'>): void {
-  openBoardsById.delete(message.boardId);
   boardSummaries = boardSummaries.filter((summary) => summary.id !== message.boardId);
   indexBoardsBySession();
   notifyBoard(message.boardId);
@@ -143,9 +88,9 @@ export async function createBoard(title: string): Promise<{ ok: true; boardId: s
   return { ok: true, boardId };
 }
 
-export async function sendBoardOps(boardId: string, ops: readonly Op[]): Promise<{ ok: true; diff: BoardDiff | null } | { ok: false; error: string }> {
+export async function sendBoardOps(boardId: string, ops: readonly Op[]): Promise<{ ok: true; patch: WhiteboardPatch | null } | { ok: false; error: string }> {
   const outcome = await runBoardCommand('whiteboard-op', { boardId, ops });
-  return outcome.ok ? { ok: true, diff: outcome.reply.patch?.diff ?? null } : outcome;
+  return outcome.ok ? { ok: true, patch: outcome.reply.patch ?? null } : outcome;
 }
 
 export async function uploadBoardMedia(file: File): Promise<{ ok: true; media: BoxMedia } | { ok: false; error: string }> {

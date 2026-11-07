@@ -1,9 +1,10 @@
-import type { Board, BoardOutline } from '../../shared/contracts/whiteboard.ts';
+import type { Board, BoardHead, BoardOutline } from '../../shared/contracts/whiteboard.ts';
 import type { BoardChrome, TileKey, TileLod } from '../../shared/contracts/whiteboard-tiles.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import type { LaidOutMedia, Rect } from '../../shared/whiteboard-layout-core.ts';
 import type { PinPositions } from '../../shared/whiteboard-ops-core.ts';
 import { tileIdOf, tileKeysFor } from '../../shared/whiteboard-tile-core.ts';
+import { boardIndexOf } from '../../shared/whiteboard-board-index.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { createLayoutClient } from './layout-client.ts';
 import type { ChangedElement } from './layout-client.ts';
@@ -58,6 +59,11 @@ interface BoardTileService {
   pictureOf(board: Board, dataUriByAssetId: Record<string, string>): Promise<BoardPictureRead>;
 }
 
+function headOf(board: Board): { head: BoardHead; elementCount: number } {
+  const { elements, ...head } = board;
+  return { head, elementCount: boardIndexOf(elements).elementCount };
+}
+
 function summaryOfAnswer(board: Board, answer: LayoutAnswer): LayoutSummary {
   if (!answer.chrome) throw new Error(`the whiteboard layout sent no chrome for board ${board.id}`);
   return { version: board.version, warnings: answer.warnings ?? [], chrome: answer.chrome };
@@ -80,15 +86,17 @@ function createBoardTileService({ boardOf, logger }: { boardOf: (boardId: string
     }
   }
 
-  function deliver(boardId: string, version: number, messages: readonly ViewerMessage[]): void {
+  function deliver(board: Board, messages: readonly ViewerMessage[]): void {
+    const { id: boardId, version } = board;
+    const { head, elementCount } = headOf(board);
     for (const message of messages) {
       const viewer = viewerById.get(message.viewerId);
       if (!viewer || stateByViewer.get(viewer)?.boardId !== boardId) continue;
       if (message.kind === 'diff') {
-        viewer.send({ type: 'whiteboard-tile-diff', boardId, fromVersion: message.fromVersion, toVersion: version, diff: message.diff });
+        viewer.send({ type: 'whiteboard-tile-diff', boardId, fromVersion: message.fromVersion, toVersion: version, head, elementCount, diff: message.diff });
         continue;
       }
-      viewer.send({ type: 'whiteboard-tiles', boardId, version, chrome: message.chrome, tiles: message.tiles });
+      viewer.send({ type: 'whiteboard-tiles', boardId, version, head, elementCount, chrome: message.chrome, tiles: message.tiles });
     }
   }
 
@@ -105,7 +113,7 @@ function createBoardTileService({ boardOf, logger }: { boardOf: (boardId: string
     if (isInSync && missingKeys.length === 0) return;
     const answer = await layouts.ask(board, { kind: 'tiles', boardId: board.id, keys: missingKeys, withChrome: !isInSync });
     if (stateByViewer.get(viewer)?.boardId !== request.boardId) return;
-    viewer.send({ type: 'whiteboard-tiles', boardId: request.boardId, version: board.version, chrome: answer.chrome ?? null, tiles: answer.tiles ?? [] });
+    viewer.send({ type: 'whiteboard-tiles', boardId: request.boardId, version: board.version, ...headOf(board), chrome: answer.chrome ?? null, tiles: answer.tiles ?? [] });
   }
 
   async function advance(board: Board, changes: readonly ChangedElement[] | null): Promise<LayoutSummary | null> {
@@ -113,7 +121,7 @@ function createBoardTileService({ boardOf, logger }: { boardOf: (boardId: string
     setViewerVersions(board.id, board.version);
     try {
       const answer = changes ? await layouts.advance(board, changes, viewers) : await layouts.refresh(board, viewers);
-      deliver(board.id, board.version, answer.viewerMessages ?? []);
+      deliver(board, answer.viewerMessages ?? []);
       return summaryOfAnswer(board, answer);
     } catch (error) {
       setViewerVersions(board.id, null);

@@ -1,8 +1,8 @@
 import { WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import type { Board, Element as BoardElement, Op } from '#shared/contracts/whiteboard.ts';
 import { el } from '../dom-helpers.ts';
-import { createDragPreview, pinnedOffsetYOf } from '#shared/whiteboard-layout-core.ts';
-import type { BoardLayout, DragPreview, Rect } from '#shared/whiteboard-layout-core.ts';
+import { createDragPreview, isInStepBand, layoutBoard, movedBox, pinnedOffsetYAfterLeaving } from '#shared/whiteboard-layout-core.ts';
+import type { BoardLayout, DragPreview, LaidOutElement, Rect } from '#shared/whiteboard-layout-core.ts';
 import type { BoardHit, BoardRenderer, Camera } from './board-gl-renderer.ts';
 
 const DRAG_THRESHOLD_PX = 4;
@@ -27,6 +27,7 @@ interface BoardEditorOptions {
   canvas: HTMLElement;
   renderer: BoardRenderer;
   currentBoard: () => Board | null;
+  repaint: () => void;
   sendOps: (ops: Op[]) => Promise<boolean>;
   onSelectionChange: (selectedIds: ReadonlySet<string>) => void;
   onPhoneTapBox: (boxId: string) => void;
@@ -233,22 +234,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (drag.mode === 'resize') return drag.movingBoxes.map((movingBox) => ({ boxId: movingBox.boxId, fields: { width: draggedWidth(drag, movingBox.start) } }));
     const droppedAts = drag.movingBoxes.map((movingBox) => ({ boxId: movingBox.boxId, at: draggedAt(drag, movingBox.start) }));
     const board = options.currentBoard();
-    const bandShrinkY = board ? drag.pinnedOffsetY - pinnedOffsetYOf(withBoxFields(board, droppedAts.map(({ boxId, at }) => ({ boxId, fields: { at } })))) : 0;
+    const leavingBand = drag.movingBoxes.filter((movingBox) => {
+      const record = board?.elements[movingBox.boxId];
+      return record?.kind === 'box' && isInStepBand(record);
+    });
+    const bandShrinkY = drag.pinnedOffsetY - pinnedOffsetYAfterLeaving(renderer.layout()?.plan ?? null, leavingBand.map((movingBox) => movingBox.start));
     return droppedAts.map(({ boxId, at }) => ({ boxId, fields: { at: { x: at.x, y: at.y + bandShrinkY } } }));
-  }
-
-  function withBoxFields(board: Board, changes: readonly { boxId: string; fields: BoxFields }[]): Board {
-    const elements = { ...board.elements };
-    for (const { boxId, fields } of changes) {
-      const box = elements[boxId];
-      if (box?.kind === 'box') elements[boxId] = { ...box, ...fields };
-    }
-    return { ...board, elements };
-  }
-
-  function previewOf(board: Board): Board {
-    if (gesture?.kind !== 'drag' || !gesture.hasMoved) return board;
-    return withBoxFields(board, draggedBoxFields(gesture));
   }
 
   function cancelPreviewFrame(): void {
@@ -275,12 +266,48 @@ export function createBoardEditor(options: BoardEditorOptions) {
     return true;
   }
 
+  function resizedElementsOf(drag: Extract<Gesture, { kind: 'drag' }>, board: Board, layout: BoardLayout): LaidOutElement[] {
+    const resizedIds = new Set(drag.movingBoxes.map((movingBox) => movingBox.boxId));
+    const laidOutById = new Map(layout.elements.flatMap((element) => (element.kind === 'box' && resizedIds.has(element.id) ? [[element.id, element]] : [])));
+    const resizedElements: Record<string, BoardElement> = {};
+    for (const { boxId, fields } of draggedBoxFields(drag)) {
+      const box = board.elements[boxId];
+      const laidOut = laidOutById.get(boxId);
+      if (box?.kind !== 'box' || !laidOut) continue;
+      resizedElements[boxId] = { ...box, ...fields, near: null, step: null, at: { x: laidOut.x, y: laidOut.y } };
+    }
+    const resizedById = new Map<string, LaidOutElement>();
+    for (const element of layoutBoard({ ...board, elements: resizedElements }).elements) {
+      const laidOut = laidOutById.get(element.id);
+      if (element.kind === 'box' && laidOut) resizedById.set(element.id, movedBox(element, laidOut.x - element.x, laidOut.y - element.y));
+    }
+    const resizedLayout = { ...layout, elements: layout.elements.map((element) => resizedById.get(element.id) ?? element) };
+    return createDragPreview(board, resizedLayout, new Set(resizedById.keys()))(0, 0);
+  }
+
+  function paintResizePreview(drag: Extract<Gesture, { kind: 'drag' }>, board: Board): boolean {
+    const layout = renderer.layout();
+    if (drag.mode !== 'resize' || !drag.hasMoved || !layout) return false;
+    renderer.paintElements(resizedElementsOf(drag, board, layout));
+    return true;
+  }
+
   function paintPreview(): void {
     cancelPreviewFrame();
     const board = options.currentBoard();
-    if (!board) return;
-    if (gesture?.kind === 'drag' && paintMovePreview(gesture, board)) return;
-    renderer.render(previewOf(board));
+    if (gesture?.kind !== 'drag' || !board) {
+      options.repaint();
+      return;
+    }
+    if (paintMovePreview(gesture, board) || paintResizePreview(gesture, board)) return;
+    options.repaint();
+  }
+
+  function repaintPreview(): void {
+    const board = options.currentBoard();
+    if (gesture?.kind !== 'drag' || !board) return;
+    if (paintMovePreview(gesture, board)) return;
+    paintResizePreview(gesture, board);
   }
 
   function requestPreviewFrame(): void {
@@ -539,7 +566,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     drag.latest = toViewPoint(event.clientX, event.clientY);
     const changes = draggedBoxFields(drag);
     const board = options.currentBoard();
-    if (board) renderer.render(withBoxFields(board, changes));
+    if (board && !paintMovePreview(drag, board)) paintResizePreview(drag, board);
     const isSent = await options.sendOps(changes.map(({ boxId, fields }) => ({ op: 'set', id: boxId, fields })));
     if (!isSent) paintPreview();
   }
@@ -700,7 +727,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     selectedIds: (): ReadonlySet<string> => selectedIds,
     clearSelection: () => setSelection(new Set()),
     pruneSelection,
-    previewOf,
+    repaintPreview,
     closeTitleInput,
     setTool,
     placeMediaBox,

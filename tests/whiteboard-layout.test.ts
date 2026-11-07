@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Board, Op } from '../shared/contracts/whiteboard.ts';
 import { reviewBoard } from '../shared/whiteboard-anchor-core.ts';
-import { layoutBoard, pinnedOffsetYOf } from '../shared/whiteboard-layout-core.ts';
+import { layoutBoard, pinnedOffsetYAfterLeaving, pinnedOffsetYOf } from '../shared/whiteboard-layout-core.ts';
 import { boardSvgDocument } from '../shared/whiteboard-svg-core.ts';
 import { applyBoardDiff, applyOps, stageOps } from '../shared/whiteboard-ops-core.ts';
 import { applyLayoutDelta, createLayoutWorld, layoutOf } from '../shared/whiteboard-layout-engine.ts';
@@ -166,6 +166,11 @@ test('unplaced step boxes draw as a plan band above the free drawing, one level 
   const draggedBoard = Board.parse({ ...plannedBoard, elements: { ...plannedBoard.elements, searchbox: { ...stepBox('searchbox', 'Search box'), at: droppedAt } } });
   const dragged = layoutBoard(draggedBoard).elements.find((element) => element.id === 'searchbox');
   assert.deepEqual(dragged?.kind === 'box' ? { x: dragged.x, y: dragged.y, label: dragged.step?.label } : null, { x: droppedAt.x, y: droppedAt.y + pinnedOffsetYOf(draggedBoard), label: '3' });
+  for (const leaving of [[searchbox], [endpoint], [endpoint, backfill], [diff, endpoint, backfill, searchbox]]) {
+    const leavingIds = new Set(leaving.map((laidOut) => laidOut.id));
+    const leftBoard = Board.parse({ ...plannedBoard, elements: Object.fromEntries(Object.entries(plannedBoard.elements).map(([id, element]) => [id, leavingIds.has(id) && element.kind === 'box' ? { ...element, at: droppedAt } : element])) });
+    assert.equal(pinnedOffsetYAfterLeaving(layout.plan, leaving), pinnedOffsetYOf(leftBoard), `the band left by ${[...leavingIds].join(', ')} matches a whole-board layout`);
+  }
 });
 
 test('a step status that disagrees with the code session changes warns, changed files no ref covers come back as uncovered, and an unread code session says it was not checked', () => {
@@ -450,7 +455,7 @@ test('a dashboard applying an edit diff reaches the server board exactly, and un
   const edited = applyOps(start, [{ op: 'remove', id: 'w1' }, ...edits], author, 2);
   assert.ok(edited.ok);
   assert.equal(JSON.stringify(applyBoardDiff(start, edited.diff, edited.board.version, edited.board.updatedAt)), JSON.stringify(edited.board));
-  const undone = applyOps(edited.board, undoOpsOf(start, edited.diff), author, 3);
+  const undone = applyOps(edited.board, undoOpsOf(edited.before, edited.diff), author, 3);
   assert.ok(undone.ok, undone.ok ? '' : undone.error);
   const comparable = (board: Board) => ({ title: board.title, legend: board.legend, codeSessionId: board.codeSessionId, elements: board.elements });
   assert.deepEqual(comparable(undone.board), comparable(start));
@@ -550,7 +555,7 @@ test('a layout world kept across puts places what a fresh layout places, and its
     const applied = applyLayoutDelta(world, board, changes);
     assert.equal(applied.delta.isRebuilt, false);
     world = applied.world;
-    patchTileIndex(tileIndex, board, { version: board.version, chrome: world.chrome, changed: applied.delta.changed, removedIds: applied.delta.removedIds });
+    patchTileIndex(tileIndex, board, { version: board.version, chrome: world.chrome, changed: applied.delta.changed, removedIds: applied.delta.removedIds, recordChangedIds: [...changes.keys()] });
   }
   const kept = layoutOf(world);
   const fresh = layoutBoard(board);

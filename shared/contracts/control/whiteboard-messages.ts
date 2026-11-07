@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Board, BoardReview, BoardSummary, Element, Op, WHITEBOARD_LIMITS } from '../whiteboard.ts';
+import { Board, BoardHead, BoardReview, BoardSummary, Element, Op, WHITEBOARD_LIMITS } from '../whiteboard.ts';
 import { BoardChrome, LayoutRect, Tile, TileDiff, TILE_LODS } from '../whiteboard-tiles.ts';
 import { requestId, loose, optionalError } from './control-fields.ts';
 
@@ -19,17 +19,22 @@ export const BoardDiff = z.object({
   elements: z.record(z.string(), ElementChange),
 }).strict();
 
-const whiteboardPatchFields = {
+export const DiffBefore = z.object({ fields: BoardDiff.shape.fields, elements: z.record(z.string(), Element.nullable()) }).strict();
+
+export const WhiteboardPatch = z.object({
   boardId: z.string(),
   fromVersion: z.number().int(),
   toVersion: z.number().int(),
   author: z.object({ id: z.string(), name: z.string() }),
   updatedAt: z.number(),
   diff: BoardDiff,
-};
+  before: DiffBefore,
+});
 
 export type ElementChange = z.infer<typeof ElementChange>;
 export type BoardDiff = z.infer<typeof BoardDiff>;
+export type DiffBefore = z.infer<typeof DiffBefore>;
+export type WhiteboardPatch = z.infer<typeof WhiteboardPatch>;
 
 export const whiteboardClientVariants = [
   loose('whiteboard-create', { title: Board.shape.title, requestId }),
@@ -44,9 +49,8 @@ export const whiteboardClientVariants = [
 
 export const whiteboardServerVariants = [
   loose('whiteboards-snapshot', { boards: z.array(BoardSummary) }),
-  loose('whiteboard-patch', whiteboardPatchFields),
   loose('whiteboard-removed', { boardId: z.string() }),
-  loose('whiteboard-tiles', { boardId: z.string(), version: z.number().int(), chrome: BoardChrome.nullable(), tiles: z.array(Tile) }),
-  loose('whiteboard-tile-diff', { boardId: z.string(), fromVersion: z.number().int(), toVersion: z.number().int(), diff: TileDiff }),
-  loose('whiteboard-result', { requestId, ok: z.boolean(), error: optionalError, board: Board.optional(), summary: BoardSummary.optional(), review: BoardReview.optional(), patch: z.object(whiteboardPatchFields).optional() }),
+  loose('whiteboard-tiles', { boardId: z.string(), version: z.number().int(), head: BoardHead, elementCount: z.number().int().nonnegative(), chrome: BoardChrome.nullable(), tiles: z.array(Tile) }),
+  loose('whiteboard-tile-diff', { boardId: z.string(), fromVersion: z.number().int(), toVersion: z.number().int(), head: BoardHead, elementCount: z.number().int().nonnegative(), diff: TileDiff }),
+  loose('whiteboard-result', { requestId, ok: z.boolean(), error: optionalError, board: Board.optional(), summary: BoardSummary.optional(), review: BoardReview.optional(), patch: WhiteboardPatch.optional() }),
 ] as const;

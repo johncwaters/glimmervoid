@@ -229,16 +229,18 @@ test('the operator deletes a board from the dashboard and a connected agent is t
   assert.equal(afterDelete.body.error, 'that board was deleted');
 });
 
-test('a dashboard viewing one region gets only the elements there, then a diff naming each edit that touches it, including a box moved in from far away', async () => {
+test('a dashboard viewing one region of a board past the incremental layout floor gets only the elements there, then a diff naming each edit that touches it with its record, including a box moved in from far away', async () => {
   const boardId = await newBoard('streamed region');
+  const fillerBoxCount = 2000;
   const placed = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
+    ...Array.from({ length: fillerBoxCount }, (_, fillerIndex) => ({ op: 'add', element: { kind: 'box', id: `filler-${fillerIndex}`, title: 'Filler', at: { x: (fillerIndex % 50) * 300, y: 100000 + Math.floor(fillerIndex / 50) * 200 } } })),
     { op: 'add', element: { kind: 'box', id: 'near', title: 'Near', at: { x: 0, y: 0 } } },
     { op: 'add', element: { kind: 'box', id: 'far', title: 'Far', at: { x: 0, y: 0 } } },
     { op: 'set', id: 'near', fields: { at: { x: 40, y: 80 } } },
     { op: 'set', id: 'far', fields: { at: { x: 40000, y: 80 } } },
   ] });
   assert.equal(placed.status, 200);
-  type TileFrame = { type: string; boardId?: string; version?: number; fromVersion?: number; chrome?: unknown; tiles?: { elements: { element: { id: string } }[] }[]; diff?: { changed: { element: { id: string; titleLines?: string[]; x?: number } }[]; removedIds: string[] } };
+  type TileFrame = { type: string; boardId?: string; version?: number; fromVersion?: number; chrome?: unknown; tiles?: { elements: { element: { id: string } }[] }[]; diff?: { changed: { element: { id: string; titleLines?: string[]; x?: number }; record?: { title?: string } }[]; removedIds: string[] } };
   const client = await dashboardClient(boundPort(running().server));
   const control = await openRecordingSocket<TileFrame>(client);
   try {
@@ -252,7 +254,7 @@ test('a dashboard viewing one region gets only the elements there, then a diff n
     const renamed = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'near', fields: { title: 'Near now' } }, { op: 'set', id: 'far', fields: { title: 'Far now' } }] });
     assert.equal(renamed.status, 200);
     const renameDiff = await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-tile-diff' && frame.fromVersion === tiles.version, 'the rename diff');
-    assert.deepEqual(renameDiff.diff?.changed.map((painted) => [painted.element.id, painted.element.titleLines?.join(' ')]), [['near', 'Near now']]);
+    assert.deepEqual(renameDiff.diff?.changed.map((painted) => [painted.element.id, painted.element.titleLines?.join(' '), painted.record?.title]), [['near', 'Near now', 'Near now']]);
 
     const movedIn = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'far', fields: { at: { x: 400, y: 300 } } }] });
     assert.equal(movedIn.status, 200);

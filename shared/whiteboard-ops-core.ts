@@ -3,16 +3,17 @@ import type { Board, BoardChange, Element, Op } from './contracts/whiteboard.ts'
 import { isRecord } from './coerce.ts';
 import { isStackedPanel, layoutBoard } from './whiteboard-layout-core.ts';
 import type { LaidOutBox } from './whiteboard-layout-core.ts';
-import type { BoardDiff, ElementChange } from './contracts/control/whiteboard-messages.ts';
+import type { BoardDiff, DiffBefore, ElementChange } from './contracts/control/whiteboard-messages.ts';
 import { appendElement, boardIndexOf, boxIdsDependedOnBy, dropElement, storeElement } from './whiteboard-board-index.ts';
 
 type Author = { id: string; name: string };
-type ApplyResult = { ok: true; board: Board; changes: BoardChange[]; diff: BoardDiff } | { ok: false; error: string; opIndex: number };
+type ApplyResult = { ok: true; board: Board; changes: BoardChange[]; diff: BoardDiff; before: DiffBefore } | { ok: false; error: string; opIndex: number };
 type StagedOps = {
   ok: true;
   board: Board;
   changes: BoardChange[];
   diff: BoardDiff;
+  before: DiffBefore;
   afterById: ReadonlyMap<string, Element | null>;
   commit: () => void;
 } | { ok: false; error: string; opIndex: number };
@@ -282,6 +283,7 @@ function stageOps(board: Board, ops: readonly Op[], author: Author, nowMs: numbe
     changes.push({ version, author: author.id, elementId, summary: `${author.name} ${describeOp(op, previous, lookup)}` });
   }
   const diff = diffOf(draft);
+  const before = beforeOf(board, diff);
   const elements = board.elements;
   const commit = (): void => {
     for (const [id, change] of Object.entries(diff.elements)) {
@@ -297,7 +299,7 @@ function stageOps(board: Board, ops: readonly Op[], author: Author, nowMs: numbe
       storeElement(elements, element);
     }
   };
-  return { ok: true, board: { ...draft.head, elements, version, updatedAt: nowMs }, changes, diff, afterById: draft.afterById, commit };
+  return { ok: true, board: { ...draft.head, elements, version, updatedAt: nowMs }, changes, diff, before, afterById: draft.afterById, commit };
 }
 
 function applyOps(board: Board, ops: readonly Op[], author: Author, nowMs: number): ApplyResult {
@@ -305,7 +307,7 @@ function applyOps(board: Board, ops: readonly Op[], author: Author, nowMs: numbe
   const staged = stageOps({ ...board, elements: { ...board.elements } }, ops, author, nowMs, basePinPositions);
   if (!staged.ok) return staged;
   staged.commit();
-  return { ok: true, board: staged.board, changes: staged.changes, diff: staged.diff };
+  return { ok: true, board: staged.board, changes: staged.changes, diff: staged.diff, before: staged.before };
 }
 
 function isSameValue(left: unknown, right: unknown): boolean {
@@ -352,6 +354,18 @@ function appliedChangeOf(existing: Element | undefined, id: string, change: Elem
   if (change[0] === 'remove' || !existing) return null;
   const parsed = ELEMENT_SCHEMAS[existing.kind].safeParse({ ...existing, ...change[1] });
   return parsed.success && parsed.data.id === id ? parsed.data : null;
+}
+
+function beforeOf(board: Board, diff: BoardDiff): DiffBefore {
+  return {
+    fields: {
+      ...('title' in diff.fields ? { title: board.title } : {}),
+      ...('caption' in diff.fields ? { caption: board.caption } : {}),
+      ...('legend' in diff.fields ? { legend: board.legend } : {}),
+      ...('codeSessionId' in diff.fields ? { codeSessionId: board.codeSessionId } : {}),
+    },
+    elements: Object.fromEntries(Object.keys(diff.elements).map((id) => [id, board.elements[id] ?? null])),
+  };
 }
 
 function applyBoardDiff(board: Board, diff: BoardDiff, version: number, updatedAt: number): Board | null {

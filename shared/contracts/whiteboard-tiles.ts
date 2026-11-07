@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { BOX_CHANGES, Box, BoxMedia, STEP_STATUSES, Wire } from './whiteboard.ts';
+import { BOX_CHANGES, Box, BoxMedia, Element, STEP_STATUSES, Wire } from './whiteboard.ts';
 
 export const TILE_LODS = ['full', 'titles', 'blocks'] as const;
 export const BLOCK_RASTER_PX = 64;
@@ -73,7 +73,8 @@ const LegendSwatch = z.discriminatedUnion('kind', [
 ]);
 
 export const LegendRow = z.object({ label: z.string(), x: z.number(), y: z.number(), swatch: LegendSwatch });
-export const PlanBand = z.object({ titleAt: LayoutPoint });
+export const PlanColumn = z.object({ x: z.number(), bottom: z.number(), boxCount: z.number().int().positive() });
+export const PlanBand = z.object({ titleAt: LayoutPoint, columns: z.array(PlanColumn) });
 
 export const BoardChrome = z.object({
   legend: z.array(LegendRow),
@@ -85,7 +86,7 @@ export const BoardChrome = z.object({
 
 export const TileKey = z.object({ chunkX: z.number().int(), chunkY: z.number().int(), lod: z.enum(TILE_LODS), level: z.number().int().min(0).max(30) });
 
-export const PaintedElement = z.object({ paintOrder: z.number().int().min(0), element: LaidOutElement });
+export const PaintedElement = z.object({ paintOrder: z.number().int().min(0), element: LaidOutElement, record: Element.optional() });
 
 export const Tile = z.object({
   key: TileKey,
@@ -109,6 +110,7 @@ export type LaidOutNote = z.infer<typeof LaidOutNote>;
 export type LaidOutElement = z.infer<typeof LaidOutElement>;
 export type LegendRow = z.infer<typeof LegendRow>;
 export type PlanBand = z.infer<typeof PlanBand>;
+export type PlanColumn = z.infer<typeof PlanColumn>;
 export type BoardChrome = z.infer<typeof BoardChrome>;
 export type TileKey = z.infer<typeof TileKey>;
 export type TileLod = TileKey['lod'];

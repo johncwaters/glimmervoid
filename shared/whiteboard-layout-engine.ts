@@ -1,6 +1,6 @@
 import { WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Board, Box, Element } from './contracts/whiteboard.ts';
-import type { LaidOutBox, LaidOutElement, LaidOutFrame, LaidOutNote, LaidOutWire } from './contracts/whiteboard-tiles.ts';
+import type { LaidOutBox, LaidOutElement, LaidOutFrame, LaidOutNote, LaidOutWire, PlanColumn } from './contracts/whiteboard-tiles.ts';
 import { boardIndexOf } from './whiteboard-board-index.ts';
 import {
   boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, elementSignature, frameTitleStripOf, headerRectOf, isInStepBand, laidOutBox, laidOutFrameOf,
@@ -75,7 +75,7 @@ interface LayoutWorld {
   pinnedOffsetY: number;
   contentTop: number;
   boxesTop: number;
-  hasPlanBand: boolean;
+  planColumns: PlanColumn[];
   around: Rect | null;
   chrome: Omit<BoardLayout, 'elements' | 'warnings'>;
   layout: BoardLayout | null;
@@ -260,7 +260,7 @@ function recomputedAround(world: LayoutWorld): Rect | null {
 function chromeOfWorld(world: LayoutWorld, board: Board): Omit<BoardLayout, 'elements' | 'warnings'> {
   const usedStyles = [...world.wireStyleByKey.values()].map((entry) => entry.style);
   const legend = legendEntriesFrom(board.legend, usedStyles, new Set(world.boxCountByChange.keys()), boardIndexOf(board.elements).stepBoxIds.size > 0);
-  return chromeAround(board.caption, contentBoundsOf(world.around), legend, world.hasPlanBand, world.pinnedOffsetY);
+  return chromeAround(board.caption, contentBoundsOf(world.around), legend, world.planColumns, world.pinnedOffsetY);
 }
 
 let lastLineage = 0;
@@ -272,7 +272,7 @@ function emptyWorld(board: Board, minIncrementalElements: number): LayoutWorld {
     boxGrid: createIdGrid(SOLID_CELL_SIZE), softGrid: createIdGrid(SOLID_CELL_SIZE), frameGrid: createIdGrid(SOLID_CELL_SIZE), wireGrid: createIdGrid(WIRE_CELL_SIZE),
     loopFrameIds: new Set(), routeMemory: { contentTop: 0, rectByKey: new Map(), routeById: new Map(), warningPairs: null, wholeBoardObstacles: null },
     noteOrderById: new Map(), nextNoteOrder: 0, routeWarnings: createWarningBook(), placementWarnings: createWarningBook(),
-    wireStyleByKey: new Map(), boxCountByChange: new Map(), floatingBoxCount: 0, pinnedOffsetY: 0, contentTop: 0, boxesTop: 0, hasPlanBand: false, around: null,
+    wireStyleByKey: new Map(), boxCountByChange: new Map(), floatingBoxCount: 0, pinnedOffsetY: 0, contentTop: 0, boxesTop: 0, planColumns: [], around: null,
     chrome: { legend: [], caption: null, plan: null, pinnedOffsetY: 0, bounds: { x: 0, y: 0, width: 0, height: 0 } }, layout: null,
   };
 }
@@ -297,7 +297,7 @@ function rebuiltWorld(board: Board, previous: LayoutWorld | null, minIncremental
   world.pinnedOffsetY = layout.pinnedOffsetY;
   world.boxesTop = freeformTop;
   world.contentTop = wireCeilingOf(freeformTop);
-  world.hasPlanBand = layout.plan !== null;
+  world.planColumns = layout.plan?.columns ?? [];
   if (boardIndexOf(board.elements).elementCount < minIncrementalElements) {
     for (const element of layout.elements) world.laidOutById.set(element.id, element);
     return world;

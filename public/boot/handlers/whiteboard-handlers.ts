@@ -1,4 +1,4 @@
-import { applyWhiteboardPatch, applyWhiteboardRemoved, applyWhiteboardsSnapshot } from '../../whiteboard/board-store.ts';
+import { applyWhiteboardRemoved, applyWhiteboardsSnapshot } from '../../whiteboard/board-store.ts';
 import { applyBoardTileDiff, applyBoardTiles, forgetTilesOf, resyncTilesIfBehind } from '../../whiteboard/board-tile-store.ts';
 import type { DashboardHandlerTable } from '../core/message-dispatch-core.ts';
 
@@ -7,7 +7,6 @@ const messageHandlers = {
     applyWhiteboardsSnapshot(msg);
     resyncTilesIfBehind(new Map(msg.boards.map((board) => [board.id, board.version])));
   },
-  'whiteboard-patch': (msg) => applyWhiteboardPatch(msg),
   'whiteboard-removed': (msg) => {
     forgetTilesOf(msg.boardId);
     applyWhiteboardRemoved(msg);

@@ -41,6 +41,7 @@ interface TilePatch {
   chrome: BoardChrome;
   changed: readonly LaidOutElement[];
   removedIds: readonly string[];
+  recordChangedIds: readonly string[];
 }
 
 function lodForScale(scale: number): TileLod {
@@ -150,7 +151,8 @@ function paintRankOf(element: LaidOutElement, stored: Element | undefined): numb
 }
 
 function paintedAt(board: Board, element: LaidOutElement, slot: number): PaintedElement {
-  return { paintOrder: paintRankOf(element, board.elements[element.id]) * PAINT_RANK_STRIDE + slot, element };
+  const record = board.elements[element.id];
+  return { paintOrder: paintRankOf(element, record) * PAINT_RANK_STRIDE + slot, element, record };
 }
 
 function tileIndexOf(layout: BoardLayout, version: number, board: Board): TileIndex {
@@ -320,30 +322,6 @@ interface ChangedSlot {
   rects: Rect[];
 }
 
-function changedSlotsBetween(previous: TileIndex, next: TileIndex): TileChanges {
-  const changedSlots: ChangedSlot[] = [];
-  const touchedRects: Rect[] = [];
-  for (const [slot, painted] of next.painted.entries()) {
-    if (!painted) continue;
-    const previousSlot = previous.slotById.get(painted.element.id);
-    const isSame = previousSlot !== undefined && previous.signatures[previousSlot] === next.signatures[slot];
-    if (isSame) continue;
-    const nextBounds = next.bounds[slot];
-    const previousBounds = previousSlot === undefined ? null : previous.bounds[previousSlot];
-    const rects = [nextBounds, previousBounds].filter((rect): rect is Rect => rect !== undefined && rect !== null);
-    changedSlots.push({ slot, rects });
-    touchedRects.push(...rects);
-  }
-  const removedIds: string[] = [];
-  for (const [id, slot] of previous.slotById) {
-    if (next.slotById.has(id)) continue;
-    removedIds.push(id);
-    const previousBounds = previous.bounds[slot];
-    if (previousBounds) touchedRects.push(previousBounds);
-  }
-  return { changedSlots, removedIds, touchedRects, isChromeChanged: JSON.stringify(previous.chrome) !== JSON.stringify(next.chrome) };
-}
-
 function patchTileIndex(index: TileIndex, board: Board, patch: TilePatch): TileChanges {
   const changedSlots: ChangedSlot[] = [];
   const touchedRects: Rect[] = [];
@@ -374,14 +352,19 @@ function patchTileIndex(index: TileIndex, board: Board, patch: TilePatch): TileC
     changedSlots.push({ slot, rects });
     touchedRects.push(...rects);
   }
+  const layoutChangedIds = new Set(patch.changed.map((element) => element.id));
+  for (const id of patch.recordChangedIds) {
+    const slot = index.slotById.get(id);
+    const painted = slot === undefined ? null : index.painted[slot];
+    const bounds = slot === undefined ? null : index.bounds[slot];
+    if (slot === undefined || !painted || !bounds || layoutChangedIds.has(id)) continue;
+    index.painted[slot] = paintedAt(board, painted.element, slot);
+    changedSlots.push({ slot, rects: [bounds] });
+  }
   const isChromeChanged = JSON.stringify(index.chrome) !== JSON.stringify(patch.chrome);
   index.chrome = patch.chrome;
   index.version = patch.version;
   return { changedSlots, removedIds, touchedRects, isChromeChanged };
-}
-
-function tileDiffFor(previous: TileIndex, next: TileIndex, heldKeys: readonly TileKey[]): TileDiff {
-  return tileDiffOf(next, changedSlotsBetween(previous, next), heldKeys);
 }
 
 function tileDiffOf(next: TileIndex, { changedSlots, removedIds, touchedRects, isChromeChanged }: TileChanges, heldKeys: readonly TileKey[]): TileDiff {
@@ -398,5 +381,5 @@ function tileDiffOf(next: TileIndex, { changedSlots, removedIds, touchedRects, i
   return { changed, removedIds, rasters, chrome: isChromeChanged ? next.chrome : null };
 }
 
-export { boardOutlineOf, defaultFocusOf, elementIdsTouching, elementPageOf, fitsOnePage, lodForScale, paintedBoundsOf, patchTileIndex, tileDiffFor, tileDiffOf, tileIdOf, tileIndexOf, tileKeysFor, tileOf, tileRectOf };
+export { boardOutlineOf, defaultFocusOf, elementIdsTouching, elementPageOf, fitsOnePage, lodForScale, paintedBoundsOf, patchTileIndex, tileDiffOf, tileIdOf, tileIndexOf, tileKeysFor, tileOf, tileRectOf };
 export type { TileIndex };
