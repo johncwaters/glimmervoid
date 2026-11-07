@@ -306,7 +306,7 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 | `GLIMMERVOID_DEBUG_SPAWN` | operator | Any non-empty value logs which executable each agent command resolved to at spawn. |
 | `GLIMMERVOID_SANE_YOLO_PATH` | internal | Names the Sane YOLO binary only in supervised sessions, so an installed Grok hook stays inert outside Glimmervoid. Not an operator setting. |
 | `GLIMMERVOID_HOOK_URL` | internal | Set by Glimmervoid in each session environment as the hook relay target. Not an operator setting. |
-| `GLIMMERVOID_AGENT_URL` | internal | Set by Glimmervoid in each session environment; `glimmervoid push`, `spawn`, `attention` and `board` read it. Not an operator setting. |
+| `GLIMMERVOID_AGENT_URL` | internal | Set by Glimmervoid in each session environment; `glimmervoid push`, `spawn`, `attention` and `sessions` read it. Not an operator setting. |
 | `GLIMMERVOID_CODEX_REMOTE_TOKEN` | internal | Set by Glimmervoid in the environment of a Codex session that runs in a Coder workspace; the Codex TUI sends it as the bearer token to the forwarded app-server. Not an operator setting. |
 | `GLIMMERVOID_PR_ACTION_REPORT_URL` | internal | Set by Glimmervoid in the environment of each `prFlows.prActions` run; `glimmervoid pr-action report` posts the run outcome there. Not an operator setting. |
 | `GLIMMERVOID_PR_ACTION_TOKEN` | internal | The per-run token `glimmervoid pr-action report` sends with a report; it stops working once the run has a final outcome. Not an operator setting. |

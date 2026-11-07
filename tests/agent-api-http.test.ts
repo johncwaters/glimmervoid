@@ -115,7 +115,7 @@ test.after(async () => {
 
 test('the board answers a session presenting its own agent token', async () => {
   const { base, token } = enabledBackend();
-  const response = await post(base, 'board', {}, token);
+  const response = await post(base, 'sessions', {}, token);
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.ok, true);
@@ -129,7 +129,7 @@ test('a missing, wrong or hook token is refused with the unknown-session answer'
   const hookToken = backend.getSession(SESSION_ID)?._hooks.token();
   assert.ok(hookToken);
   for (const token of [null, 'not-the-token', hookToken]) {
-    const response = await post(base, 'board', {}, token);
+    const response = await post(base, 'sessions', {}, token);
     assert.equal(response.status, 404, String(token));
     assert.deepEqual(await response.json(), { ok: false, error: REFUSAL_REASON });
   }
@@ -156,7 +156,7 @@ test('an oversize body is aborted and the server survives', async () => {
   await post(base, 'attention', `{"note":"${'x'.repeat(70 * 1024)}"}`, token)
     .then((response) => assert.notEqual(response.status, 200, 'oversize never yields 200'))
     .catch(() => {});
-  const after = await post(base, 'board', {}, token);
+  const after = await post(base, 'sessions', {}, token);
   assert.equal(after.status, 200, 'the server is still routing after the aborted request');
 });
 
@@ -597,12 +597,12 @@ test('limits tells a session which commands answer and its boundary', async () =
     const operatorLimits = await limitsOf(fixture.parent);
     assert.deepEqual(operatorLimits.commands, [
       { name: 'push', answers: false, reason: 'this session has no worktree of its own, so there is nothing of its own to land' },
-      ...['spawn', 'send', 'read', 'close', 'attention', 'board', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'show'].map((name) => ({ name, answers: true })),
+      ...['spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'show'].map((name) => ({ name, answers: true })),
     ]);
     assert.deepEqual([operatorLimits.boundary, operatorLimits.environment], ['none', null]);
     const laneLimits = await limitsOf(ephemeralLane);
     assert.deepEqual(laneLimits.commands.map(({ name, answers }) => [name, answers]), [
-      ['push', false], ['spawn', false], ['send', false], ['read', false], ['close', false], ['attention', false], ['board', true], ['edit', false],
+      ['push', false], ['spawn', false], ['send', false], ['read', false], ['close', false], ['attention', false], ['sessions', true], ['edit', false],
       ['review', false], ['reviews', false], ['prs', false], ['link-pr', false], ['settings', false], ['why', true], ['whiteboard', false], ['checkout', false], ['packs', false], ['show', false],
     ]);
     const refusedCalls: [Session, AgentLimitsReply, string, Record<string, unknown>][] = [

@@ -116,7 +116,7 @@ export const SshSignReply = z.union([
 
 export type SshSignRequest = z.infer<typeof SshSignRequest>;
 export type SshSignReply = z.infer<typeof SshSignReply>;
-const CLI_SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'board', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs'] as const;
+const CLI_SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs'] as const;
 export const SESSION_COMMANDS = [...CLI_SESSION_COMMANDS, 'show'] as const;
 export const AGENT_API_VERBS = [...CLI_SESSION_COMMANDS, 'limits', 'answer'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
@@ -303,7 +303,7 @@ export const AGENT_REPLY_SCHEMAS = Object.freeze({
   read: z.union([AgentReadReply, AgentRefusal]),
   close: z.union([z.object({ ok: z.literal(true), closed: z.string() }).strict(), AgentRefusal]),
   attention: z.union([AgentAttentionReply, AgentRefusal]),
-  board: z.union([z.object({ ok: z.literal(true), sessions: z.array(AgentBoardRow) }).strict(), AgentRefusal]),
+  sessions: z.union([z.object({ ok: z.literal(true), sessions: z.array(AgentBoardRow) }).strict(), AgentRefusal]),
   edit: z.union([z.object({ ok: z.literal(true), path: z.string(), name: z.string() }).strict(), AgentRefusal]),
   review: z.union([z.object({ ok: z.literal(true), key: z.string(), status: z.enum(['queued', 'running']), note: z.string() }).strict(), AgentRefusal]),
   reviews: z.union([AgentReviewsReply, AgentReviewDetailReply, AgentRefusal]),

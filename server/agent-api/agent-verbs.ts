@@ -29,7 +29,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     return { status: reply.ok ? 200 : 429, body: reply };
   }
 
-  function board(): AgentBoardRow[] {
+  function liveSessionRows(): AgentBoardRow[] {
     return listBoardSessions().map((session) => ({
       id: session.id,
       name: session.name,
@@ -214,7 +214,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     close,
     answer,
     attention,
-    board: () => ({ status: 200, body: { ok: true, sessions: board() } }),
+    sessions: () => ({ status: 200, body: { ok: true, sessions: liveSessionRows() } }),
     push,
     edit,
     limits: (session) => ({ status: 200, body: limits(session) }),

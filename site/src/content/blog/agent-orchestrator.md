@@ -31,7 +31,7 @@ It's a small Node.js process on your own machine with a browser dashboard in fro
   <figcaption>The focus view: the session rail on the left, the selected agent's live terminal in the middle, and its worktree review on the right.</figcaption>
 </figure>
 
-**Agents can orchestrate too.** With the agent API switched on, a session can run `glimmervoid spawn` to start a sibling agent in its own worktree, `glimmervoid attention` to flag that it needs you, and `glimmervoid board` to read what every other session is doing. Spawning is fenced on purpose: at most three live children per session, and a child can't spawn children of its own.
+**Agents can orchestrate too.** With the agent API switched on, a session can run `glimmervoid spawn` to start a sibling agent in its own worktree, `glimmervoid attention` to flag that it needs you, and `glimmervoid sessions` to read what every other session is doing. Spawning is fenced on purpose: at most three live children per session, and a child can't spawn children of its own.
 
 **It follows you to your phone.** The phone layout is a separate design with its own board, terminal, and review screens, not the desktop squeezed down. You pair a phone once with a single-use link behind your own HTTPS proxy (I use Tailscale), and if no dashboard tab is open anywhere, Glimmervoid can ping you on Telegram instead.
 

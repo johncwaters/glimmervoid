@@ -118,7 +118,7 @@ test('a session without its own worktree lists every grouped tool but push and r
   const showTool = tools.find((tool: { name: string }) => tool.name === 'show');
   assert.equal(showTool.inputSchema.properties.action, undefined);
 
-  const called = await resultOf(await callMcp('tools/call', { name: 'session', arguments: { action: 'board' } }, credential));
+  const called = await resultOf(await callMcp('tools/call', { name: 'session', arguments: { action: 'sessions' } }, credential));
   assert.notEqual(called.isError, true, JSON.stringify(called));
   const structured = called.structuredContent;
   assert.ok(typeof structured === 'object' && structured !== null && 'sessions' in structured && Array.isArray(structured.sessions));

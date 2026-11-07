@@ -63,7 +63,7 @@ Inside a Glimmervoid session:
   close <child>       End a session this one spawned and discard its worktree; refused while it holds unpushed work unless --discard. Use it once a spawned session's work has landed or is no longer wanted
   answer <child> <json>|--operator Answer a spawned session's held question, or pass it to the operator with --operator. Use it when a spawned session waits on a question this session can settle
   attention <note>    Flag this session as needing the operator. Use it when the task is blocked on the operator, such as a refused call a retry will not change
-  board               List the live sessions. Use it to see what other sessions are working on before touching shared code
+  sessions            List the live sessions. Use it to see what other sessions are working on before touching shared code
   push                Land this session's commits on the integration branch and push it. Use it when this session's commits are ready to land
   edit <path>         Open a text file for the operator to edit in the dashboard. Use it when the operator should write or correct text, such as a plan or a prompt
   review <pr>         Queue a team review of a pull request; the draft waits in the Reviews tab for the operator to post. Use it instead of gh pr review when a pull request needs a review the operator posts

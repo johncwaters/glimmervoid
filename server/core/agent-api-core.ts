@@ -55,7 +55,7 @@ interface AgentRequestByVerb {
   close: AgentCloseRequest;
   answer: AgentAnswerRequest;
   attention: AgentAttentionRequest;
-  board: EmptyRequest;
+  sessions: EmptyRequest;
   push: EmptyRequest;
   edit: AgentEditRequest;
   limits: EmptyRequest;
@@ -196,7 +196,7 @@ const REQUEST_PARSERS: { readonly [V in AgentApiVerb]: RequestParser<AgentReques
   close: bodyParser(AgentCloseRequest),
   answer: bodyParser(AgentAnswerRequest),
   attention: bodyParser(AgentAttentionRequest),
-  board: parseEmptyBody,
+  sessions: parseEmptyBody,
   push: parseEmptyBody,
   edit: bodyParser(AgentEditRequest),
   limits: parseEmptyBody,
@@ -458,7 +458,7 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     summary: 'Flag this session as needing the operator',
     missingArgumentHint: 'this command needs text, for example "glimmervoid attention check the failing test"',
   },
-  board: { usage: 'board', whenToUse: 'Use it to see what other sessions are working on before touching shared code', summary: 'List the live sessions', missingArgumentHint: null },
+  sessions: { usage: 'sessions', whenToUse: 'Use it to see what other sessions are working on before touching shared code', summary: 'List the live sessions', missingArgumentHint: null },
   push: { usage: 'push', whenToUse: "Use it when this session's commits are ready to land", summary: "Land this session's commits on the integration branch and push it", missingArgumentHint: null },
   edit: {
     whenToUse: 'Use it when the operator should write or correct text, such as a plan or a prompt',

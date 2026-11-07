@@ -104,7 +104,7 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
     const note = joinedText(positionals);
     return note ? { note } : null;
   },
-  board: () => ({}),
+  sessions: () => ({}),
   push: () => ({}),
   edit: ({ positionals }) => {
     const docPath = joinedText(positionals);

@@ -100,7 +100,7 @@ function boardPictureRoute(): ActionRoute {
 const SESSION_TOOL: GroupedTool = {
   name: 'session',
   title: 'Glimmervoid sessions',
-  description: 'Spawn, message and manage Glimmervoid sessions. spawn starts a new supervised session with its own dashboard card and worktree, an option beside an in-process subagent. send and read talk with a spawned child (or, from a child, its parent); answer replies to a question a child asked; close ends a child; board lists every live session; edit opens a file for the operator to write or correct, such as a plan or a prompt; limits reports what this session may do.',
+  description: 'Spawn, message and manage Glimmervoid sessions. spawn starts a new supervised session with its own dashboard card and worktree, an option beside an in-process subagent. send and read talk with a spawned child (or, from a child, its parent); answer replies to a question a child asked; close ends a child; sessions lists every live session; edit opens a file for the operator to write or correct, such as a plan or a prompt; limits reports what this session may do.',
   loadsUpfront: true,
   fields: {
     prompt: AgentSpawnRequest.shape.prompt.optional().describe('spawn: the task for the new session'),
@@ -119,7 +119,7 @@ const SESSION_TOOL: GroupedTool = {
     read: routeTo('read', ['child'], { hints: WRITES }),
     close: routeTo('close', ['child', 'discard'], { required: ['child'], hints: DESTROYS }),
     answer: { verb: 'answer', required: ['child'], accepts: ['child', 'answers', 'toOperator'], hints: WRITES, toPayload: answerPayload },
-    board: routeTo('board', [], { hints: READS }),
+    sessions: routeTo('sessions', [], { hints: READS }),
     edit: { verb: 'edit', required: ['path'], accepts: ['path'], hints: WRITES, toPayload: editPayload },
     limits: routeTo('limits', [], { hints: READS }),
   },

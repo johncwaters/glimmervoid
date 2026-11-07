@@ -124,7 +124,7 @@ const COMMAND_ROUTES: Readonly<Record<AgentApiVerb | SessionCommand, (facts: Ses
   close: closeRoute,
   answer: closeRoute,
   attention: attentionRoute,
-  board: () => ANSWERS,
+  sessions: () => ANSWERS,
   edit: editRoute,
   show: whiteboardRoute,
   review: operatorStateRoute,
