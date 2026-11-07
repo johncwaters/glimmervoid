@@ -6,6 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { setTimeout as sleep } from 'node:timers/promises';
+import v8 from 'node:v8';
+import vm from 'node:vm';
 import type { Browser, Page } from 'playwright-core';
 import type WebSocket from 'ws';
 import { z } from 'zod';
@@ -17,7 +19,9 @@ import { createBoardStore } from '../../server/whiteboard/board-store-client.ts'
 import { BOARD_STORE_FILENAME } from '../../server/whiteboard/board-store-core.ts';
 import { WHITEBOARDS_FOLDER_NAME } from '../../server/whiteboard/whiteboard-wiring.ts';
 import type { Board, BoardRecord, BoxMedia, Op } from '../../shared/contracts/whiteboard.ts';
+import { boardIndexOf } from '../../shared/whiteboard-board-index.ts';
 import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
+import { createLayoutWorld, layoutOf } from '../../shared/whiteboard-layout-engine.ts';
 import type { BoardLayout } from '../../shared/whiteboard-layout-core.ts';
 import { boardOutlineOf, defaultFocusOf, elementIdsTouching, elementPageOf, fitsOnePage, tileIndexOf } from '../../shared/whiteboard-tile-core.ts';
 import { isolateTranscriptHomes } from '../../tests/helpers/transcript-homes.ts';
@@ -73,6 +77,7 @@ const PREVIEW_WIDTH_PX = 1024;
 const PAGE_WIDTH_PX = 1280;
 const PAGE_HEIGHT_PX = 800;
 const BENCH_PAGE_HTML = '<!doctype html><html><body><h1>Bench page</h1><p>A page on the bench board.</p></body></html>';
+const GC_SETTLE_PASSES = 4;
 const SECTION_FLAGS: Record<string, BenchSection> = { '--server-only': 'server', '--browser': 'browser', '--mcp': 'mcp' };
 
 function parseWhiteboardOptions(argv: readonly string[]): WhiteboardBenchOptions {
@@ -414,6 +419,40 @@ async function measureInProcessLayout(elementCount: number, options: WhiteboardB
   }
 }
 
+function collectGarbage(): () => void {
+  v8.setFlagsFromString('--expose-gc');
+  const gc: unknown = vm.runInNewContext('gc');
+  if (typeof gc !== 'function') throw new Error('the bench could not reach the garbage collector');
+  return () => { gc(); };
+}
+
+async function retainedBytes(runGc: () => void): Promise<number> {
+  for (let pass = 0; pass < GC_SETTLE_PASSES; pass += 1) {
+    runGc();
+    await sleep(20);
+  }
+  const usage = process.memoryUsage();
+  return usage.heapUsed + usage.arrayBuffers;
+}
+
+async function measureRetainedPerThread(elementCount: number): Promise<WhiteboardMetric[]> {
+  const runGc = collectGarbage();
+  const boardOf = () => generateBoardRecord({ boardId: BOARD_ID, title: BOARD_TITLE, elementCount, seed: elementCount, createdAt: 0 }).board;
+  boardOf();
+  const atStart = await retainedBytes(runGc);
+  const board = boardOf();
+  boardIndexOf(board.elements);
+  const withBoard = await retainedBytes(runGc);
+  const world = createLayoutWorld(board);
+  const tiles = tileIndexOf(layoutOf(world), board.version, board);
+  const withLayout = await retainedBytes(runGc);
+  if (tiles.painted.length === 0 || world.version !== board.version) throw new Error('the retained-memory board was not laid out');
+  return [
+    metricOf('heap-main', 'Main thread heap and buffers per element, board and index, after a forced GC', 'bytes', Math.round((withBoard - atStart) / elementCount)),
+    metricOf('heap-worker', 'Layout worker heap and buffers per element, board, index, layout and tiles, after a forced GC', 'bytes', Math.round((withLayout - atStart) / elementCount)),
+  ];
+}
+
 async function measureSize(elementCount: number, options: WhiteboardBenchOptions, browser: Browser | null): Promise<WhiteboardMetric[]> {
   const tempDirectory = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-whiteboard-bench-'));
   const restoreEnvironment = snapshotEnvironment();
@@ -451,7 +490,7 @@ async function measureSize(elementCount: number, options: WhiteboardBenchOptions
     removeHarnessTempDirectory(tempDirectory);
     restoreEnvironment();
   }
-  return [...seeded.metrics, ...await measureInProcessLayout(elementCount, options)];
+  return [...seeded.metrics, ...await measureInProcessLayout(elementCount, options), ...await measureRetainedPerThread(elementCount)];
 }
 
 async function launchBenchBrowser(executablePath: string | undefined): Promise<Browser> {
