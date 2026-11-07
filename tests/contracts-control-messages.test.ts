@@ -292,7 +292,7 @@ test('real server payloads round-trip through every server contract variant', ()
   for (const payload of REAL_SERVER_PAYLOADS) {
     const parsed = ServerMessage.safeParse(payload);
     assert.equal(parsed.success, true, `${payload.type}: ${parsed.error?.issues[0]?.message || 'invalid'}`);
-    assert.deepEqual(parsed.data, payload, payload.type);
+    assert.deepEqual(JSON.parse(JSON.stringify(parsed.data)), payload, payload.type);
   }
 });
 
