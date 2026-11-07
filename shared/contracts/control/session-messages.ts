@@ -93,7 +93,7 @@ export const sessionServerVariants = [
     error: z.string().optional(),
     requestId,
   }),
-  loose('session-secret-request', { id: sessionId, names: z.array(SecretName) }),
-  loose('secret-requests-snapshot', { requests: z.record(z.string(), z.array(SecretName)) }),
+  loose('session-secret-request', { id: sessionId, names: z.array(SecretName), newItemsVault: z.string().nullable() }),
+  loose('secret-requests-snapshot', { requests: z.record(z.string(), z.array(SecretName)), newItemsVault: z.string().nullable() }),
   loose('secret-approvals', { projects: z.array(ProjectApprovals) }),
 ] as const;

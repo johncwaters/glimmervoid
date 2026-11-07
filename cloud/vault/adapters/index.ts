@@ -1,4 +1,5 @@
 import type { VaultFailure } from '../../../shared/contracts/secrets.ts';
+import { onePasswordAdapter } from './onepassword.ts';
 
 type VaultId = '1password';
 
@@ -21,11 +22,11 @@ interface VaultAdapter {
   open(options: { accountName: string }): Promise<VaultSession | VaultFailure>;
 }
 
-const BUILT_IN_VAULTS: readonly VaultAdapter[] = Object.freeze([]);
+const BUILT_IN_VAULTS: readonly VaultAdapter[] = Object.freeze([onePasswordAdapter]);
 
 function vaultAdapterFor(id: VaultId): VaultAdapter | null {
   return BUILT_IN_VAULTS.find((adapter) => adapter.id === id) ?? null;
 }
 
 export { vaultAdapterFor };
-export type { VaultAdapter, VaultId, VaultSession };
+export type { VaultAdapter, VaultId, VaultItemDraft, VaultSession };

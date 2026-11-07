@@ -49,7 +49,6 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 - Localhost-only trust boundary: never bind `0.0.0.0`, and keep the per-session bearer token check on `POST /hook/:glimmervoidId/:event`.
 - Secrets resolve in the config loader from `GLIMMERVOID_POSTHOG_API_KEY` and `GLIMMERVOID_TELEGRAM_BOT_TOKEN`, and an environment-provided one is stripped from every write, so a dashboard save cannot re-persist it (`server/core/config-secrets-core.ts`).
 - House character style: no literal em dash, en dash, ellipsis character, or emoji anywhere (source, tests, docs, commits). When code must emit one, build it via `String.fromCharCode`.
-- Avoid `else`: prefer early returns and guard clauses.
 - Prefer the seam pattern: pure logic in `session/core/` or a `*-core` module, thin IO shells around it. A pure core imports no Session and reads no clock.
 - Inter-module communication via Node `EventEmitter`, not globals or direct coupling.
 - The published package ships `dist/` only and runs built `.js`, because Node refuses type stripping inside `node_modules`. Resolve a shipped asset (relay, CLI, dashboard) through `server/runtime-paths.ts`, never from `import.meta.dirname`: the same module runs from a source checkout and from `dist/`.
@@ -109,8 +108,6 @@ Runtime: `express`, `ws` (no Socket.IO and no abstraction over WebSockets, ever)
 
 `@modelcontextprotocol/server` and `@modelcontextprotocol/node` serve the agent MCP endpoint, the one integration every agent CLI speaks.
 
+`@1password/sdk` lets the `glimmervoid vault` companion read and create 1Password items through the desktop app, so no secret value passes through argv or a CLI's output; only that command loads it.
+
 Dev: the toolchain in `package.json`.
-
-## Parallel Agent Work
-
-Fan out over this repo by giving each agent its own git worktree, integrated back once clean, so lanes cannot collide in the working tree. A convention, not a runtime feature.

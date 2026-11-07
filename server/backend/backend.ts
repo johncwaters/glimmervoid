@@ -371,11 +371,14 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const vaultSocket = createVaultSocket({
     envToken: isRecord(vaultConfig) && typeof vaultConfig.token === 'string' ? vaultConfig.token : null,
     companionFile: path.join(glimmervoidHomeDir(), 'vault-companion.json'),
+    onCompanionChanged: () => secretsBroker.refreshCards(),
   });
   const secretsBroker = createSecretsBroker({
     readSecrets: () => config.secrets,
     isCompanionOnline: vaultSocket.isOnline,
     readVault: vaultSocket.resolve,
+    createInVault: vaultSocket.create,
+    newItemsVault: vaultSocket.newItemsVault,
     writeEnvFile,
     writeSecrets: async (mutate) => {
       const saved = await configStore.saveAsync((savedConfig) => {

@@ -9,7 +9,7 @@ import { nextBackoffMs } from '../../shared/backoff.ts';
 import { isRecord } from '../../shared/coerce.ts';
 import { isLoopbackHostname } from '../../shared/loopback-hosts.ts';
 import { VAULT_REPLACED_CLOSE_CODE, VAULT_SOCKET_PATH, VaultCompanionFile, VaultJob } from '../../shared/contracts/secrets.ts';
-import type { VaultResult } from '../../shared/contracts/secrets.ts';
+import type { CreateJob, CreatedResult, ResolveJob, ResolvedResult, VaultCompanionMessage } from '../../shared/contracts/secrets.ts';
 import { glimmervoidHomeDir } from '../../server/core/config-path-core.ts';
 
 const VAULT_TOKEN_ENV = 'GLIMMERVOID_VAULT_TOKEN';
@@ -49,13 +49,36 @@ function parsedCompanionFileOrNull(text: string): VaultCompanionFile | null {
   }
 }
 
-async function resolvedItems(vaultSession: VaultSession, job: VaultJob): Promise<VaultResult['items']> {
-  const items: VaultResult['items'] = [];
+function failureFromError(error: unknown) {
+  return { kind: 'unavailable' as const, message: error instanceof Error ? error.message : String(error) };
+}
+
+async function resolvedItems(vaultSession: VaultSession, job: ResolveJob): Promise<ResolvedResult['items']> {
+  const items: ResolvedResult['items'] = [];
   for (const { name, reference } of job.items) {
-    const outcome = await vaultSession.resolve(reference).catch((error: unknown) => ({ kind: 'unavailable' as const, message: error instanceof Error ? error.message : String(error) }));
+    const outcome = await vaultSession.resolve(reference).catch(failureFromError);
     items.push(typeof outcome === 'string' ? { name, value: outcome } : { name, failure: outcome });
   }
   return items;
+}
+
+async function createdItems(vaultSession: VaultSession, job: CreateJob, newItemsVault: string | null): Promise<CreatedResult['items']> {
+  const items: CreatedResult['items'] = [];
+  for (const { name, title, value, vaultName } of job.items) {
+    const targetVault = vaultName || newItemsVault;
+    if (!targetVault) {
+      items.push({ name, failure: { kind: 'not-found', message: 'no vault named for new items; type one on the card or start the companion with --new-items-vault' } });
+      continue;
+    }
+    const outcome = await vaultSession.create({ title, fieldLabel: name, value, vaultName: targetVault }).catch(failureFromError);
+    items.push('reference' in outcome ? { name, reference: outcome.reference } : { name, failure: outcome });
+  }
+  return items;
+}
+
+async function answerFor(vaultSession: VaultSession, job: VaultJob, newItemsVault: string | null): Promise<ResolvedResult | CreatedResult> {
+  if (job.type === 'create') return { type: 'created', jobId: job.jobId, items: await createdItems(vaultSession, job, newItemsVault) };
+  return { type: 'resolved', jobId: job.jobId, items: await resolvedItems(vaultSession, job) };
 }
 
 function parsedJobOrNull(rawMessage: unknown): VaultJob | null {
@@ -70,7 +93,7 @@ function parsedJobOrNull(rawMessage: unknown): VaultJob | null {
 
 type ServeOutcome = 'served' | 'unreached' | 'replaced';
 
-function serveOnce(connection: { url: string; token: string }, vaultSession: VaultSession, stopSignal: AbortSignal): Promise<ServeOutcome> {
+function serveOnce(connection: { url: string; token: string }, vaultSession: VaultSession, newItemsVault: string | null, stopSignal: AbortSignal): Promise<ServeOutcome> {
   return new Promise((settle) => {
     const socket = new WebSocket(connection.url, { headers: { Authorization: `Bearer ${connection.token}` } });
     let hasOpened = false;
@@ -78,15 +101,17 @@ function serveOnce(connection: { url: string; token: string }, vaultSession: Vau
     stopSignal.addEventListener('abort', stop, { once: true });
     socket.on('open', () => {
       hasOpened = true;
+      const hello: VaultCompanionMessage = { type: 'hello', newItemsVault };
+      socket.send(JSON.stringify(hello));
       console.log(`vault: connected to ${connection.url}`);
     });
     socket.on('message', (rawMessage) => {
       const job = parsedJobOrNull(rawMessage);
       if (job === null) return;
-      void resolvedItems(vaultSession, job).then((items) => {
-        const result: VaultResult = { type: 'resolved', jobId: job.jobId, items };
-        socket.send(JSON.stringify(result));
-        console.log(`vault: answered ${items.length} ${items.length === 1 ? 'secret' : 'secrets'} (${items.map((item) => item.name).join(', ')})`);
+      void answerFor(vaultSession, job, newItemsVault).then((answer) => {
+        socket.send(JSON.stringify(answer));
+        const names = answer.items.map((item) => item.name);
+        console.log(`vault: ${job.type === 'create' ? 'created' : 'answered'} ${names.length} ${names.length === 1 ? 'secret' : 'secrets'} (${names.join(', ')})`);
       });
     });
     socket.on('unexpected-response', (_request, response) => {
@@ -124,13 +149,14 @@ function waitMs(delayMs: number, stopSignal: AbortSignal): Promise<void> {
   });
 }
 
-async function runVaultCli({ serverUrl, accountName, adapter = vaultAdapterFor('1password') }: {
+async function runVaultCli({ serverUrl, accountName, newItemsVault, adapter = vaultAdapterFor('1password') }: {
   serverUrl: string | null;
   accountName: string | null;
+  newItemsVault: string | null;
   adapter?: VaultAdapter | null;
 }): Promise<number> {
   if (adapter === null) {
-    console.error('vault: this Glimmervoid has no 1Password support yet');
+    console.error('vault: this Glimmervoid has no 1Password support');
     return 1;
   }
   const companionFile = path.join(glimmervoidHomeDir(os.homedir(), process.env), 'vault-companion.json');
@@ -150,7 +176,7 @@ async function runVaultCli({ serverUrl, accountName, adapter = vaultAdapterFor('
   let failedAttempts = 0;
   while (!stopSignal.aborted) {
     const connection = await connect();
-    const outcome = connection.ok ? await serveOnce(connection, vaultSession, stopSignal) : 'unreached';
+    const outcome = connection.ok ? await serveOnce(connection, vaultSession, newItemsVault, stopSignal) : 'unreached';
     if (!connection.ok) console.error(`vault: ${connection.reason}`);
     if (outcome === 'replaced') {
       console.error('vault: another vault companion connected to this Glimmervoid, so this one stops');

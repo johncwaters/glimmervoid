@@ -7,19 +7,20 @@ import { WebSocket, WebSocketServer } from 'ws';
 
 import { authorizeInboxRequest } from '../../cloud/inbox/core/job-inbox-core.ts';
 import { watcherChildInboxUrl } from '../../cloud/watcher/core/watcher-core.ts';
-import { VAULT_REPLACED_CLOSE_CODE, VAULT_SOCKET_PATH, VaultResult } from '../../shared/contracts/secrets.ts';
-import type { VaultJob } from '../../shared/contracts/secrets.ts';
+import { VAULT_REPLACED_CLOSE_CODE, VAULT_SOCKET_PATH, VaultCompanionMessage, VaultJob } from '../../shared/contracts/secrets.ts';
+import type { CreateJob, CreatedResult, ResolveJob, ResolvedResult } from '../../shared/contracts/secrets.ts';
 
-const RESOLVE_TIMEOUT_MS = 120_000;
+const JOB_TIMEOUT_MS = 120_000;
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const MAX_MESSAGE_BYTES = 4 * 1024 * 1024;
 const COMPANION_FILE_MODE = 0o600;
 
-type ResolvedItems = VaultResult['items'];
+type JobResult = ResolvedResult | CreatedResult;
+type CreateMiss = 'offline' | 'outdated' | 'invalid' | 'no-answer';
 
 interface PendingJob {
   socket: WebSocket;
-  settle: (items: ResolvedItems | null) => void;
+  settle: (result: JobResult | null) => void;
   timer: NodeJS.Timeout;
 }
 
@@ -27,19 +28,20 @@ function refuseUpgrade(socket: Duplex, statusLine: string): void {
   socket.end(`HTTP/1.1 ${statusLine}\r\nConnection: close\r\n\r\n`);
 }
 
-function parsedResultOrNull(rawMessage: unknown): VaultResult | null {
+function parsedMessageOrNull(rawMessage: unknown): VaultCompanionMessage | null {
   if (!Buffer.isBuffer(rawMessage)) return null;
   try {
-    const parsed = VaultResult.safeParse(JSON.parse(rawMessage.toString('utf8')));
+    const parsed = VaultCompanionMessage.safeParse(JSON.parse(rawMessage.toString('utf8')));
     return parsed.success ? parsed.data : null;
   } catch {
     return null;
   }
 }
 
-function createVaultSocket({ envToken, companionFile, log = console }: {
+function createVaultSocket({ envToken, companionFile, onCompanionChanged = () => {}, log = console }: {
   envToken: string | null;
   companionFile: string;
+  onCompanionChanged?: () => void;
   log?: Pick<Console, 'log' | 'warn'>;
 }) {
   const isPerBootToken = envToken === null || envToken === '';
@@ -47,6 +49,8 @@ function createVaultSocket({ envToken, companionFile, log = console }: {
   const server = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES });
   const pendingJobs = new Map<string, PendingJob>();
   let companion: WebSocket | null = null;
+  let companionNewItemsVault: string | null = null;
+  const greetedSockets = new WeakSet<WebSocket>();
   let heartbeat: NodeJS.Timeout | null = null;
 
   function settleJobsOf(socket: WebSocket | null): void {
@@ -58,12 +62,23 @@ function createVaultSocket({ envToken, companionFile, log = console }: {
     }
   }
 
-  function settleJob(result: VaultResult): void {
+  function settleJob(socket: WebSocket, result: JobResult): void {
     const pending = pendingJobs.get(result.jobId);
-    if (!pending) return;
+    if (!pending || pending.socket !== socket) return;
     clearTimeout(pending.timer);
     pendingJobs.delete(result.jobId);
-    pending.settle(result.items);
+    pending.settle(result);
+  }
+
+  function handleMessage(socket: WebSocket, message: VaultCompanionMessage): void {
+    if (message.type !== 'hello') {
+      settleJob(socket, message);
+      return;
+    }
+    greetedSockets.add(socket);
+    if (companion !== socket) return;
+    companionNewItemsVault = message.newItemsVault;
+    onCompanionChanged();
   }
 
   function adopt(socket: WebSocket): void {
@@ -72,13 +87,15 @@ function createVaultSocket({ envToken, companionFile, log = console }: {
     let isAlive = true;
     socket.on('pong', () => { isAlive = true; });
     socket.on('message', (rawMessage) => {
-      const result = parsedResultOrNull(rawMessage);
-      if (result !== null) settleJob(result);
+      const message = parsedMessageOrNull(rawMessage);
+      if (message !== null) handleMessage(socket, message);
     });
     socket.on('close', () => {
       settleJobsOf(socket);
       if (companion !== socket) return;
       companion = null;
+      companionNewItemsVault = null;
+      onCompanionChanged();
       log.log('[vault] companion disconnected');
     });
     socket.on('error', () => {});
@@ -113,18 +130,34 @@ function createVaultSocket({ envToken, companionFile, log = console }: {
     return companion !== null && companion.readyState === WebSocket.OPEN;
   }
 
-  function resolve(items: VaultJob['items']): Promise<ResolvedItems | null> {
+  function newItemsVault(): string | null {
+    return isOnline() ? companionNewItemsVault : null;
+  }
+
+  function sendJob(job: VaultJob): Promise<JobResult | 'offline' | 'invalid' | 'no-answer'> {
     const socket = companion;
-    if (socket === null || socket.readyState !== WebSocket.OPEN) return Promise.resolve(null);
-    const job: VaultJob = { type: 'resolve', jobId: crypto.randomUUID(), items };
+    if (socket === null || socket.readyState !== WebSocket.OPEN) return Promise.resolve('offline');
+    if (!VaultJob.safeParse(job).success) return Promise.resolve('invalid');
     return new Promise((settle) => {
       const timer = setTimeout(() => {
         pendingJobs.delete(job.jobId);
-        settle(null);
-      }, RESOLVE_TIMEOUT_MS);
-      pendingJobs.set(job.jobId, { socket, settle, timer });
+        settle('no-answer');
+      }, JOB_TIMEOUT_MS);
+      pendingJobs.set(job.jobId, { socket, settle: (result) => settle(result ?? 'no-answer'), timer });
       socket.send(JSON.stringify(job));
     });
+  }
+
+  async function resolve(items: ResolveJob['items']): Promise<ResolvedResult['items'] | null> {
+    const result = await sendJob({ type: 'resolve', jobId: crypto.randomUUID(), items });
+    return typeof result !== 'string' && result.type === 'resolved' ? result.items : null;
+  }
+
+  async function create(items: CreateJob['items']): Promise<CreatedResult['items'] | CreateMiss> {
+    if (companion !== null && !greetedSockets.has(companion)) return 'outdated';
+    const result = await sendJob({ type: 'create', jobId: crypto.randomUUID(), items });
+    if (typeof result === 'string') return result;
+    return result.type === 'created' ? result.items : 'no-answer';
   }
 
   let publishedText: string | null = null;
@@ -164,7 +197,8 @@ function createVaultSocket({ envToken, companionFile, log = console }: {
     });
   }
 
-  return { attach, isOnline, resolve };
+  return { attach, isOnline, newItemsVault, resolve, create };
 }
 
 export { createVaultSocket };
+export type { CreateMiss };

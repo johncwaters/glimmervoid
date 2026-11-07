@@ -130,7 +130,7 @@ const OWNED_COMMAND_RUNNERS: Record<OwnedCommandName, OwnedCommandRunner> = {
   },
   vault: async ({ values }) => {
     const { runVaultCli } = await import('../cloud/vault/vault-cli.ts');
-    return runVaultCli({ serverUrl: typeof values.server === 'string' ? values.server : null, accountName: typeof values.account === 'string' ? values.account : null });
+    return runVaultCli({ serverUrl: typeof values.server === 'string' ? values.server : null, accountName: typeof values.account === 'string' ? values.account : null, newItemsVault: typeof values['new-items-vault'] === 'string' ? values['new-items-vault'] : null });
   },
   'ssh-sign': async ({ rawArgs }) => {
     const { runSshSignCli } = await import('../server/ssh-sign-cli.ts');

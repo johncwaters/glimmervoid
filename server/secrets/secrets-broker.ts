@@ -1,7 +1,10 @@
 import { EventEmitter } from 'node:events';
+import path from 'node:path';
 
-import type { AgentNeedReply, NeedStatus, ProjectApprovals, SecretDecision, SecretRevoke, VaultJob, VaultResult } from '../../shared/contracts/secrets.ts';
+import type { AgentNeedReply, NeedStatus, ProjectApprovals, SecretDecision, SecretRevoke, CreateJob, CreatedResult, ResolveJob, ResolvedResult } from '../../shared/contracts/secrets.ts';
 import type { EnvFileWrite } from './env-file.ts';
+import type { CreateMiss } from './vault-socket.ts';
+import { MAX_VAULT_NAME_LENGTH } from '../../shared/contracts/secrets.ts';
 import { unwritableEnvNames } from './core/env-file-core.ts';
 import { approvalRowsOf, approvalsOf, decideNeed, denialEndsAtMs, missingReferenceNames, withApprovals, withoutApproval } from './core/secrets-broker-core.ts';
 import type { ProjectSecretState } from './core/secrets-broker-core.ts';
@@ -28,7 +31,9 @@ interface SecretsBrokerOptions {
   readSecrets: () => unknown;
   writeSecrets: (mutate: (rawSecrets: unknown) => Record<string, unknown> | null) => Promise<boolean>;
   isCompanionOnline?: () => boolean;
-  readVault?: (items: VaultJob['items']) => Promise<VaultResult['items'] | null>;
+  readVault?: (items: ResolveJob['items']) => Promise<ResolvedResult['items'] | null>;
+  createInVault?: (items: CreateJob['items']) => Promise<CreatedResult['items'] | CreateMiss>;
+  newItemsVault?: () => string | null;
   writeEnvFile?: (directory: string, valuesByName: Readonly<Record<string, string>>) => Promise<EnvFileWrite>;
   now?: () => number;
 }
@@ -43,12 +48,19 @@ const NOTE_BY_STATUS: Readonly<Record<NeedStatus, string>> = Object.freeze({
 
 const REMOTE_SESSION_NOTE = 'this session runs on another machine, where Glimmervoid cannot write an env file yet';
 const UNWRITABLE_VALUE_NOTE = 'the value holds every kind of quote, so no env file reader would get it back unchanged';
+const CREATE_MISS_REFUSALS: Readonly<Record<CreateMiss, string>> = Object.freeze({
+  offline: 'The vault companion is not connected, so the pasted values cannot go into the vault; run glimmervoid vault, or give a reference instead.',
+  outdated: 'The running vault companion predates pasting values; restart glimmervoid vault, or give a reference instead.',
+  invalid: 'The pasted values or vault name are too long for a vault item; give a reference instead.',
+  'no-answer': 'The vault companion did not answer in time, so the items may or may not exist; check the vault for them, then give their references instead of pasting again.',
+});
 const COMPANION_LOST_NOTE = 'the vault companion did not answer, so ask again once glimmervoid vault is running';
 
-function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = () => false, readVault = async () => null, writeEnvFile = async () => ({ ok: false, reason: 'no env file writer' }), now = Date.now }: SecretsBrokerOptions) {
+function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = () => false, readVault = async () => null, createInVault = async () => 'offline', newItemsVault = () => null, writeEnvFile = async () => ({ ok: false, reason: 'no env file writer' }), now = Date.now }: SecretsBrokerOptions) {
   const events = new EventEmitter();
   const deniedUntilMsByProject = new Map<string, Record<string, number>>();
   const cardsBySession = new Map<string, PendingCard>();
+  const decidingSessionIds = new Set<string>();
   const deliveriesBySession = new Map<string, Map<string, { source: string; envFile: string }>>();
 
   function projectState(project: string): ProjectSecretState {
@@ -154,17 +166,11 @@ function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = ()
   }
 
   function emitCard(sessionId: string, newNames: readonly string[]): void {
-    events.emit('card-changed', { sessionId, names: cardsBySession.get(sessionId)?.names ?? [], newNames });
+    events.emit('card-changed', { sessionId, names: cardsBySession.get(sessionId)?.names ?? [], newItemsVault: newItemsVault(), newNames });
   }
 
   function closeCard(sessionId: string): void {
     if (!cardsBySession.delete(sessionId)) return;
-    emitCard(sessionId, []);
-  }
-
-  function restoreCard(sessionId: string, claimed: PendingCard): void {
-    const raisedMeanwhile = cardsBySession.get(sessionId)?.names ?? [];
-    cardsBySession.set(sessionId, { project: claimed.project, names: [...claimed.names, ...raisedMeanwhile.filter((name) => !claimed.names.includes(name))] });
     emitCard(sessionId, []);
   }
 
@@ -183,24 +189,72 @@ function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = ()
   async function decide(decision: SecretDecision): Promise<string | null> {
     const card = cardsBySession.get(decision.id);
     if (!card) return 'This secret request was already answered.';
+    if (decidingSessionIds.has(decision.id)) return 'This secret request is already being answered.';
     if (!decision.isAllowed) {
       holdDenial(card.project, card.names);
       closeCard(decision.id);
       return null;
     }
-    const referenceByName = Object.fromEntries(card.names.map((name) => [name, decision.referenceByName[name] ?? '']));
-    const missingNames = missingReferenceNames(card.names, referenceByName);
-    if (missingNames.length > 0) return `Give a vault reference for ${missingNames.join(', ')} before allowing.`;
-    cardsBySession.delete(decision.id);
-    const isSaved = await writeSecrets((rawSecrets) => withApprovals(rawSecrets, card.project, referenceByName));
-    if (!isSaved) {
-      restoreCard(decision.id, card);
-      return 'Glimmervoid could not save the approval to config.json.';
+    const decidedNames = [...card.names];
+    const referenceByName = Object.fromEntries(decidedNames.map((name) => [name, decision.referenceByName[name] ?? '']));
+    const pastedNames = decidedNames.filter((name) => !referenceByName[name] && decision.valueByName[name]);
+    const missingNames = missingReferenceNames(decidedNames, referenceByName).filter((name) => !pastedNames.includes(name));
+    if (missingNames.length > 0) return `Give a vault reference or paste the value for ${missingNames.join(', ')} before allowing.`;
+    decidingSessionIds.add(decision.id);
+    try {
+      return await allow(decision, card.project, referenceByName, pastedNames);
+    } finally {
+      decidingSessionIds.delete(decision.id);
     }
-    releaseDenial(card.project, card.names);
-    emitCard(decision.id, []);
+  }
+
+  async function allow(decision: SecretDecision, project: string, referenceByName: Record<string, string>, pastedNames: readonly string[]): Promise<string | null> {
+    const creation = await createPastedItems(project, pastedNames, decision);
+    if (typeof creation === 'string') return creation;
+    const referencesToSave = Object.fromEntries(Object.entries({ ...referenceByName, ...creation.referenceByName }).filter(([, reference]) => reference !== ''));
+    const isSaved = await writeSecrets((rawSecrets) => withApprovals(rawSecrets, project, referencesToSave));
+    if (!isSaved) return 'Glimmervoid could not save the approval to config.json.';
+    const savedNames = Object.keys(referencesToSave);
+    releaseDenial(project, savedNames);
+    dropFromCard(decision.id, savedNames);
     events.emit('approvals-changed');
-    return null;
+    if (creation.failures.length === 0) return null;
+    return `The vault could not create ${creation.failures.map((failure) => `${failure.name} (${failure.message})`).join(', ')}.`;
+  }
+
+  function dropFromCard(sessionId: string, names: readonly string[]): void {
+    const card = cardsBySession.get(sessionId);
+    if (!card) return;
+    card.names = card.names.filter((name) => !names.includes(name));
+    if (card.names.length === 0) cardsBySession.delete(sessionId);
+    emitCard(sessionId, []);
+  }
+
+  function vaultItemTitle(name: string, project: string): string {
+    const projectRoom = MAX_VAULT_NAME_LENGTH - name.length - ' ()'.length;
+    return `${name} (${path.basename(project).slice(0, projectRoom)})`;
+  }
+
+  async function createPastedItems(project: string, pastedNames: readonly string[], decision: SecretDecision): Promise<string | { referenceByName: Record<string, string>; failures: { name: string; message: string }[] }> {
+    if (pastedNames.length === 0) return { referenceByName: {}, failures: [] };
+    const createdItems = await createInVault(pastedNames.map((name) => ({ name, title: vaultItemTitle(name, project), value: decision.valueByName[name] ?? '', vaultName: decision.newItemsVault })));
+    if (typeof createdItems === 'string') return CREATE_MISS_REFUSALS[createdItems];
+    const referenceByName: Record<string, string> = {};
+    const failures: { name: string; message: string }[] = [];
+    for (const item of createdItems) {
+      if (!pastedNames.includes(item.name)) continue;
+      if ('reference' in item) {
+        referenceByName[item.name] = item.reference;
+        continue;
+      }
+      failures.push({ name: item.name, message: item.failure.message });
+    }
+    const unansweredNames = pastedNames.filter((name) => !Object.hasOwn(referenceByName, name) && !failures.some((failure) => failure.name === name));
+    return { referenceByName, failures: [...failures, ...unansweredNames.map((name) => ({ name, message: 'the companion did not answer' }))] };
+  }
+
+  function refreshCards(): void {
+    for (const sessionId of cardsBySession.keys()) emitCard(sessionId, []);
   }
 
   async function revoke({ project, name }: SecretRevoke): Promise<string | null> {
@@ -223,7 +277,7 @@ function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = ()
     closeCard(sessionId);
   }
 
-  return { events, need, decide, revoke, requestsSnapshot, approvalRows, forgetSession };
+  return { events, need, decide, revoke, requestsSnapshot, approvalRows, forgetSession, refreshCards, newItemsVault };
 }
 
 type SecretsBroker = ReturnType<typeof createSecretsBroker>;

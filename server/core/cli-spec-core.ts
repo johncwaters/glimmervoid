@@ -264,6 +264,7 @@ const OWNED_COMMAND_SPECS = {
     options: [
       { name: 'server', type: 'string', valueName: 'url', summary: 'The Glimmervoid server to serve, with GLIMMERVOID_VAULT_TOKEN set (default: the Glimmervoid running on this machine)' },
       { name: 'account', type: 'string', valueName: 'name', summary: 'The 1Password account to read from, as the desktop app names it' },
+      { name: 'new-items-vault', type: 'string', valueName: 'name', summary: 'The 1Password vault that values pasted on a secret request card go into (the card can name another)' },
     ],
   },
   'ssh-sign': { name: 'ssh-sign', summary: "Sign a commit with the operator's forwarded ssh agent (git runs this)", isPassthrough: true },

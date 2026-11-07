@@ -225,7 +225,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
   };
 
   sendLaneSnapshotOnConnect('session-docs', () => dependencies.sessionDocs);
-  sendLaneSnapshotOnConnect('secret-requests', () => ({ snapshotMessage: () => ({ type: 'secret-requests-snapshot', requests: dependencies.secrets.requestsSnapshot() }) }));
+  sendLaneSnapshotOnConnect('secret-requests', () => ({ snapshotMessage: () => ({ type: 'secret-requests-snapshot', requests: dependencies.secrets.requestsSnapshot(), newItemsVault: dependencies.secrets.newItemsVault() }) }));
   sendLaneSnapshotOnConnect('secret-approvals', () => ({ snapshotMessage: () => ({ type: 'secret-approvals', projects: dependencies.secrets.approvalRows() }) }));
   sendLaneSnapshotOnConnect('coherence-feed', () => dependencies.coherenceFeed);
   sendLaneSnapshotOnConnect('whiteboards', () => dependencies.whiteboards);

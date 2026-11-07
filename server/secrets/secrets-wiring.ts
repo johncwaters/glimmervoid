@@ -4,6 +4,7 @@ import type { SecretsBroker } from './secrets-broker.ts';
 interface CardChange {
   sessionId: string;
   names: string[];
+  newItemsVault: string | null;
   newNames: string[];
 }
 
@@ -23,8 +24,8 @@ function wireSecretsBroker({ broker, findSession, broadcastControl }: SecretsWir
       broker.forgetSession(session.id);
     });
   }
-  broker.events.on('card-changed', ({ sessionId, names, newNames }: CardChange) => {
-    broadcastControl({ type: 'session-secret-request', id: sessionId, names });
+  broker.events.on('card-changed', ({ sessionId, names, newItemsVault, newNames }: CardChange) => {
+    broadcastControl({ type: 'session-secret-request', id: sessionId, names, newItemsVault });
     if (newNames.length === 0) return;
     const session = findSession(sessionId);
     if (!session) return;
