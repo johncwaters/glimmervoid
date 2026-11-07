@@ -92,7 +92,8 @@ export function createIssuesWiring({ config, gitWorkspace, broadcast, hasSession
   }
   const emptyStatus = () => core.issuesStatus({ ts: Date.now(), ...core.issuesCachedSourcesGate(cachedState.issues, teams()), issues: cachedState.issues, sessionLinks: pruneSessionLinks(), lastSyncAt: cachedState.lastSyncAt });
   let pollerStatus: IssuesStatusType | null = null;
-  const currentStatus = () => core.issuesStatus({ ...(pollerStatus ?? emptyStatus()), sessionLinks: pruneSessionLinks() });
+  let watcherProblem: string | null = null;
+  const currentStatus = () => core.issuesStatus({ ...(pollerStatus ?? emptyStatus()), sessionLinks: pruneSessionLinks(), watcherProblem });
 
   async function lookupOriginUrls(repoPaths: readonly string[]): Promise<Map<string, string | null>> {
     const originUrlByRepoPath = new Map<string, string | null>();
@@ -193,6 +194,10 @@ export function createIssuesWiring({ config, gitWorkspace, broadcast, hasSession
     laneId: core.ISSUES_LANE_ID, credential: 'github' as const, probes,
     onNudge: () => { runner.getPoller()?.pollSoon(); },
     onCoverageChange: coverWithWatcher,
+    onWatcherProblem: (problem: string | null) => {
+      watcherProblem = problem;
+      runner.setWatcherProblem(problem);
+    },
   };
   function restartIfConfigChanged(): void {
     runner.restartIfConfigChanged();

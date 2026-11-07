@@ -34,20 +34,22 @@ async function startLinkedWatcher(t: test.TestContext, probe: Probe = LIGHT_PROB
   const linkSecret = crypto.randomBytes(32);
   const clock = { nowMs: Date.now() };
   const now = () => clock.nowMs;
-  const github = { body: '{"data":{"viewer":{"login":"first"}}}', requests: [] as string[] };
+  const github = { body: '{"data":{"viewer":{"login":"first"}}}', status: 200, requests: [] as string[] };
   const githubFetch: typeof fetch = async (_input, init) => {
     github.requests.push(new Headers(init?.headers).get('authorization') ?? '');
-    return new Response(github.body, { status: 200, headers: { 'content-type': 'application/json' } });
+    return new Response(github.body, { status: github.status, headers: { 'content-type': 'application/json' } });
   };
   const nudges: Nudge[] = [];
   const coveredProbeCounts: number[] = [];
+  const watcherProblems: (string | null)[] = [];
+  const linkCredentials: { github: string | null } = { github: 'read-token' };
   const watcher: { runner: ReturnType<typeof createProbeRunner> | null; url: string | null; nudgeUrl: string | null } = { runner: null, url: null, nudgeUrl: null };
   const link = createWatcherLink({
     watcherHome,
     linkSecret,
     now,
     log: QUIET_LOG,
-    credentials: () => ({ github: 'read-token', posthog: { host: 'https://us.posthog.com', apiKey: 'posthog-read-key' } }),
+    credentials: () => ({ github: linkCredentials.github, posthog: { host: 'https://us.posthog.com', apiKey: 'posthog-read-key' } }),
     startWatcher: ({ serverUrl, onListening }) => {
       const home = createWatcherHome({ homeDir: watcherHome, credentialKey: credentialStoreKey(linkSecret), log: QUIET_LOG });
       const sender = createNudgeSender({ serverUrl, signingKey: directionKey(linkSecret, 'watcher-to-server'), now, log: QUIET_LOG });
@@ -71,13 +73,13 @@ async function startLinkedWatcher(t: test.TestContext, probe: Probe = LIGHT_PROB
       };
     },
   });
-  link.registerProbeSource({ laneId: 'test-lane', credential: 'github', probes: () => [probe], onNudge: (nudge) => nudges.push(nudge), onCoverageChange: (coveredProbes) => coveredProbeCounts.push(coveredProbes.length) });
+  link.registerProbeSource({ laneId: 'test-lane', credential: 'github', probes: () => [probe], onNudge: (nudge) => nudges.push(nudge), onCoverageChange: (coveredProbes) => coveredProbeCounts.push(coveredProbes.length), onWatcherProblem: (problem) => watcherProblems.push(problem) });
   t.after(async () => {
     link.stop();
     await fsp.rm(watcherHome, { recursive: true, force: true });
   });
   await link.start();
-  return { linkSecret, clock, github, nudges, coveredProbeCounts, watcher };
+  return { linkSecret, clock, github, nudges, coveredProbeCounts, watcherProblems, linkCredentials, link, watcher };
 }
 
 test('a probe whose GitHub answer changes nudges its lane, and the lane hears the watcher covers that probe', async (t) => {
@@ -93,6 +95,38 @@ test('a probe whose GitHub answer changes nudges its lane, and the lane hears th
   const nudge = await eventually(() => nudges[0]);
   assert.equal(nudge.probeId, LIGHT_PROBE.id);
   assert.equal(nudge.kind, 'changed');
+});
+
+test('a probe GitHub refuses shows on its lane as a watcher problem and leaves watcher coverage until it recovers', async (t) => {
+  const { clock, github, nudges, coveredProbeCounts, watcherProblems, linkCredentials, link, watcher } = await startLinkedWatcher(t);
+  const runProbeAgain = async () => {
+    const requestCount = github.requests.length;
+    clock.nowMs += 61_000;
+    await watcher.runner?.applyCredentials({ github: 'read-token', posthog: null });
+    await eventually(() => github.requests.length > requestCount ? true : undefined);
+  };
+  await eventually(() => coveredProbeCounts.at(-1) === 1 ? true : undefined);
+  await eventually(() => github.requests.length >= 1 ? true : undefined);
+
+  github.status = 401;
+  await runProbeAgain();
+  await eventually(() => watcherProblems.at(-1) === 'Watcher cannot read GitHub: 401' ? true : undefined);
+  assert.equal(coveredProbeCounts.at(-1), 0);
+  assert.equal(nudges.length, 0);
+
+  github.status = 200;
+  github.body = '{"data":{"viewer":{"login":"back"}}}';
+  await runProbeAgain();
+  await eventually(() => watcherProblems.at(-1) === null && watcherProblems.length > 1 ? true : undefined);
+  assert.equal(coveredProbeCounts.at(-1), 1);
+  assert.equal((await eventually(() => nudges[0])).kind, 'recovered');
+
+  github.status = 401;
+  await runProbeAgain();
+  await eventually(() => watcherProblems.at(-1) === 'Watcher cannot read GitHub: 401' ? true : undefined);
+  linkCredentials.github = null;
+  link.credentialsMayHaveChanged();
+  await eventually(() => watcherProblems.at(-1) === null ? true : undefined);
 });
 
 test('a probe naming an answer field nudges only when that field changes, never on per-run fields beside it', async (t) => {

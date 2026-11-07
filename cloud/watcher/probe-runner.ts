@@ -14,6 +14,7 @@ const NUDGE_TIMEOUT_MS = 30_000;
 const NUDGE_RETRY_BASE_MS = 1000;
 const NUDGE_RETRY_MAX_MS = 300_000;
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+const CHECK_IN_EVERY_MS = 24 * 60 * 60_000;
 const USER_AGENT = 'glimmervoid-watcher';
 
 function requestFingerprint(probe: Probe): string {
@@ -135,6 +136,7 @@ function createProbeRunner({ home, nudges, fetchFn = fetch, now = Date.now, log 
   let credentials: WatcherCredentials = NO_CREDENTIALS;
   let memoryByProbeId = new Map<string, ProbeMemory>();
   let wakeTimer: NodeJS.Timeout | null = null;
+  let checkInTimer: NodeJS.Timeout | null = null;
   let runState: 'idle' | 'running' | 'stopped' = 'idle';
 
   function memoryOf(probe: Probe): ProbeMemory {
@@ -216,11 +218,13 @@ function createProbeRunner({ home, nudges, fetchFn = fetch, now = Date.now, log 
     credentials = await home.loadCredentials();
     probeSet = await home.loadProbeSet();
     scheduleWake();
+    checkInTimer = setInterval(() => nudges.send('check-in', null, null), CHECK_IN_EVERY_MS);
   }
 
   function stop(): void {
     runState = 'stopped';
     if (wakeTimer !== null) clearTimeout(wakeTimer);
+    if (checkInTimer !== null) clearInterval(checkInTimer);
   }
 
   function status(): WatcherStatus {

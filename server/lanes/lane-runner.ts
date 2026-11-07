@@ -305,14 +305,18 @@ interface LaneRunner<Poller extends RestartablePoller> {
   restartIfConfigChanged(): void;
   stopPoller(): Promise<void>;
   patchStatus(patch: LaneStatusRecord): void;
+  setWatcherProblem(problem: string | null): void;
   getStatus(): LaneStatusRecord;
   getPoller(): Poller | null;
   isStopped(): boolean;
 }
 
 function createLaneRunner<Poller extends RestartablePoller>({
-  tag, gate, cfgKey, emptyStatus, createPoller, broadcast = () => {}, beforeStop = () => {},
+  tag, gate, cfgKey, emptyStatus: emptyLaneStatus, createPoller, broadcast: broadcastLaneStatus = () => {}, beforeStop = () => {},
 }: LaneRunnerOptions<Poller>): LaneRunner<Poller> {
+  let watcherProblem: string | null = null;
+  const emptyStatus = (): LaneStatusRecord => ({ ...emptyLaneStatus(), watcherProblem });
+  const broadcast = (status: LaneStatusRecord): void => broadcastLaneStatus({ ...status, watcherProblem });
   let lastStatus: LaneStatusRecord | null = null;
   let poller: Poller | null = null;
   const restartQueue = createSerialQueue();
@@ -363,12 +367,19 @@ function createLaneRunner<Poller extends RestartablePoller>({
     if (lastStatus) broadcast(lastStatus);
   }
 
+  function setWatcherProblem(problem: string | null): void {
+    if (problem === watcherProblem) return;
+    watcherProblem = problem;
+    broadcast(lastStatus || emptyStatus());
+  }
+
   return {
     startPoller,
     restartIfConfigChanged,
     stopPoller,
     patchStatus,
-    getStatus: () => lastStatus || emptyStatus(),
+    setWatcherProblem,
+    getStatus: () => ({ ...(lastStatus || emptyStatus()), watcherProblem }),
     getPoller: () => poller,
     isStopped: () => stopped,
   };

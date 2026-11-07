@@ -646,6 +646,7 @@ function createRadarWiring({
     laneId: RADAR_LANE_ID, credential: 'posthog' as const, probes,
     onNudge: () => { queueForcedTick(); },
     onCoverageChange: () => {},
+    onWatcherProblem: runner.setWatcherProblem,
   };
   async function stopPoller(): Promise<void> {
     await runner.stopPoller();

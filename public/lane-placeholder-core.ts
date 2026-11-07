@@ -5,3 +5,10 @@ export function lanePlaceholder(status: { configured?: boolean; reason?: unknown
   if (status.configured === false) return `${label} is off.`;
   return `${label} is on. Waiting for the first poll.`;
 }
+
+export function watcherProblemNotice(status: object | null | undefined): string | null {
+  const watcherProblem: unknown = status ? Object.getOwnPropertyDescriptor(status, 'watcherProblem')?.value : null;
+  const problem = typeof watcherProblem === 'string' ? watcherProblem.trim() : '';
+  if (!problem) return null;
+  return `${problem}. Polling on a timer until it recovers.`;
+}

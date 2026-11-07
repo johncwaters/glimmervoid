@@ -352,7 +352,7 @@ export function combinedPollingStatus(statuses: readonly (GithubPollingStatus | 
   const configuredStatuses = statuses.filter((status): status is GithubPollingStatus => status?.configured === true);
   if (configuredStatuses.length === 0) return statuses.find((status) => status !== null) ?? null;
   const oldestFirst = configuredStatuses.toSorted((first, second) => (first.lastRefreshedAt ?? first.lastSyncAt ?? 0) - (second.lastRefreshedAt ?? second.lastSyncAt ?? 0));
-  const representative = configuredStatuses.find((status) => status.error) ?? oldestFirst[0];
+  const representative = configuredStatuses.find((status) => status.error) ?? configuredStatuses.find((status) => status.watcherProblem) ?? oldestFirst[0];
   return { ...representative, isRefreshing: configuredStatuses.some((status) => status.isRefreshing) };
 }
 

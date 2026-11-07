@@ -266,6 +266,7 @@ function createCommunityWiring({
     laneId: core.COMMUNITY_LANE_ID, credential: 'posthog' as const, probes,
     onNudge: () => { runner.getPoller()?.pollSoon(); },
     onCoverageChange: coverWithWatcher,
+    onWatcherProblem: runner.setWatcherProblem,
   };
 
   function startPoller(): void {

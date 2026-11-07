@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';
 import http from 'node:http';
 import { nextBackoffMs } from '../../shared/backoff.ts';
-import { CREDENTIALS_PATH, MAX_LINK_BODY_BYTES, Nudge, NUDGES_PATH, PROBE_SET_PATH } from '../../shared/contracts/watcher-link.ts';
-import type { Probe, ProbeSet, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
+import { CREDENTIALS_PATH, MAX_LINK_BODY_BYTES, Nudge, NUDGES_PATH, PROBE_SET_PATH, STATUS_PATH, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
+import type { Probe, ProbeFailure, ProbeSet, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
 import { createRecentRequestIds, directionKey, signedHeaders, signedRequestFromHeaders, verifyRequest } from './core/link-signing-core.ts';
 import { createWatcherSupervisor } from './watcher-supervisor.ts';
 
@@ -12,6 +12,7 @@ interface ProbeSource {
   probes: () => Probe[];
   onNudge: (nudge: Nudge) => void;
   onCoverageChange: (coveredProbes: readonly Probe[]) => void;
+  onWatcherProblem: (problem: string | null) => void;
 }
 
 type FetchFn = typeof fetch;
@@ -24,6 +25,12 @@ const DELIVERY_RETRY_MAX_MS = 60_000;
 
 function requestOf(probe: Probe): string {
   return JSON.stringify([probe.method, probe.url, probe.body, probe.credential, probe.answerField ?? null]);
+}
+
+const CREDENTIAL_LABELS: Record<Probe['credential'], string> = { github: 'GitHub', posthog: 'PostHog' };
+
+function watcherProblemOf(probe: Probe, failure: ProbeFailure): string {
+  return `Watcher cannot read ${CREDENTIAL_LABELS[probe.credential]}: ${failure.status ?? failure.reason}`;
 }
 
 function revisionOf(probes: readonly Probe[]): string {
@@ -69,8 +76,9 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
   const commandKey = directionKey(linkSecret, 'server-to-watcher');
   const seenRequestIds = createRecentRequestIds();
   const sourcesByLaneId = new Map<string, ProbeSource>();
-  const failingProbeIds = new Set<string>();
+  const failureByProbeId = new Map<string, ProbeFailure>();
   const coverageByLaneId = new Map<string, string>();
+  const problemByLaneId = new Map<string, string | null>();
   let watcherUrl: string | null = null;
   let deliveredProbeSet: ProbeSet | null = null;
   let deliveredCredentialsDigest: string | null = null;
@@ -78,6 +86,8 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
   let deliveryTimer: NodeJS.Timeout | null = null;
   let recompileTimer: NodeJS.Timeout | null = null;
   let isDelivering = false;
+  let watcherStartCount = 0;
+  let statusReadCount = 0;
   let supervisor: ReturnType<typeof createWatcherSupervisor> | null = null;
   let nudgeServer: http.Server | null = null;
 
@@ -87,23 +97,38 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
     for (const source of sourcesByLaneId.values()) {
       const hasCredential = source.credential === 'github' ? currentCredentials.github !== null : currentCredentials.posthog !== null;
       const deliveredProbes = isLinked && hasCredential ? deliveredProbeSet?.probes.filter((probe) => probe.laneId === source.laneId) ?? [] : [];
-      const coveredProbes = deliveredProbes.filter((probe) => !failingProbeIds.has(probe.id));
+      const coveredProbes = deliveredProbes.filter((probe) => !failureByProbeId.has(probe.id));
       const coverageDigest = JSON.stringify(coveredProbes.map((probe) => [probe.id, requestOf(probe)]));
       if (coverageByLaneId.get(source.laneId) === coverageDigest) continue;
       coverageByLaneId.set(source.laneId, coverageDigest);
       log.log(`[watcher] ${source.laneId}: the watcher covers ${coveredProbes.length} of its probes`);
       source.onCoverageChange(coveredProbes);
     }
+    updateProblems();
+  }
+
+  function updateProblems(): void {
+    const isLinked = watcherUrl !== null && deliveredProbeSet !== null && deliveredCredentialsDigest !== null;
+    const currentCredentials = credentials();
+    for (const source of sourcesByLaneId.values()) {
+      const hasCredential = source.credential === 'github' ? currentCredentials.github !== null : currentCredentials.posthog !== null;
+      const failingProbe = !isLinked || !hasCredential ? undefined : deliveredProbeSet?.probes.find((probe) => probe.laneId === source.laneId && failureByProbeId.has(probe.id));
+      const failure = failingProbe === undefined ? undefined : failureByProbeId.get(failingProbe.id);
+      const problem = failingProbe === undefined || failure === undefined ? null : watcherProblemOf(failingProbe, failure);
+      if (problemByLaneId.get(source.laneId) === problem) continue;
+      problemByLaneId.set(source.laneId, problem);
+      source.onWatcherProblem(problem);
+    }
   }
 
   function forgetFailuresOfChangedRequests(previousProbeSet: ProbeSet | null, nextProbeSet: ProbeSet): void {
     const previousRequestById = new Map((previousProbeSet?.probes ?? []).map((probe) => [probe.id, requestOf(probe)]));
     for (const probe of nextProbeSet.probes) {
-      if (previousRequestById.get(probe.id) !== requestOf(probe)) failingProbeIds.delete(probe.id);
+      if (previousRequestById.get(probe.id) !== requestOf(probe)) failureByProbeId.delete(probe.id);
     }
     const liveProbeIds = new Set(nextProbeSet.probes.map((probe) => probe.id));
-    for (const probeId of failingProbeIds) {
-      if (!liveProbeIds.has(probeId)) failingProbeIds.delete(probeId);
+    for (const probeId of failureByProbeId.keys()) {
+      if (!liveProbeIds.has(probeId)) failureByProbeId.delete(probeId);
     }
   }
 
@@ -129,6 +154,38 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
       log.warn(`[watcher] could not reach the watcher at ${path}: ${(postError as Error).message}`);
       return false;
     }
+  }
+
+  async function readWatcherStatus(): Promise<WatcherStatus | null> {
+    if (watcherUrl === null) return null;
+    try {
+      const response = await fetchFn(new URL(STATUS_PATH, watcherUrl), {
+        method: 'GET',
+        headers: signedHeaders(commandKey, { method: 'GET', path: STATUS_PATH, body: '' }, now()),
+        signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
+      });
+      if (!response.ok) {
+        await response.body?.cancel();
+        log.warn(`[watcher] ${STATUS_PATH} answered ${response.status}`);
+        return null;
+      }
+      const status = WatcherStatus.safeParse(await response.json());
+      return status.success ? status.data : null;
+    } catch (statusError) {
+      log.warn(`[watcher] could not read the watcher status: ${(statusError as Error).message}`);
+      return null;
+    }
+  }
+
+  async function adoptWatcherStatus(): Promise<boolean> {
+    const status = await readWatcherStatus();
+    if (status === null) return false;
+    if (deliveredProbeSet === null || status.probeSetRevision !== deliveredProbeSet.revision) return true;
+    for (const probeStatus of status.probes) {
+      if (probeStatus.status === 'failing' && probeStatus.failure !== null) failureByProbeId.set(probeStatus.probeId, probeStatus.failure);
+    }
+    updateCoverage();
+    return true;
   }
 
   function scheduleDeliveryRetry(): void {
@@ -157,6 +214,11 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
       }
       deliveryAttempts = 0;
       updateCoverage();
+      const startCountAtRead = watcherStartCount;
+      if (statusReadCount < startCountAtRead) {
+        if (!await adoptWatcherStatus()) return scheduleDeliveryRetry();
+        statusReadCount = startCountAtRead;
+      }
     } finally {
       isDelivering = false;
     }
@@ -172,14 +234,17 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
   }
 
   function handleNudge(nudge: Nudge): void {
-    if (nudge.kind === 'check-in' || nudge.probeId === null) return;
+    if (nudge.kind === 'check-in' || nudge.probeId === null) {
+      log.log(`[watcher] check-in at ${nudge.at}`);
+      return;
+    }
     const probe = deliveredProbeSet?.probes.find((candidate) => candidate.id === nudge.probeId);
     if (probe === undefined) return;
     if (nudge.kind === 'failing') {
-      failingProbeIds.add(probe.id);
+      failureByProbeId.set(probe.id, nudge.failure ?? { status: null, reason: 'unknown reason' });
       log.warn(`[watcher] probe ${probe.id} is failing: ${nudge.failure?.reason ?? 'unknown reason'}`);
     }
-    if (nudge.kind === 'recovered') failingProbeIds.delete(probe.id);
+    if (nudge.kind === 'recovered') failureByProbeId.delete(probe.id);
     updateCoverage();
     if (nudge.kind !== 'failing') sourcesByLaneId.get(probe.laneId)?.onNudge(nudge);
   }
@@ -225,7 +290,7 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
     watcherUrl = null;
     deliveredProbeSet = null;
     deliveredCredentialsDigest = null;
-    failingProbeIds.clear();
+    failureByProbeId.clear();
     updateCoverage();
   }
 
@@ -237,6 +302,7 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
       watcherHome,
       onListening: (listeningUrl) => {
         watcherUrl = listeningUrl;
+        watcherStartCount += 1;
         void deliver();
       },
       onEnded: watcherEnded,
@@ -255,6 +321,7 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
   function registerProbeSource(source: ProbeSource): void {
     sourcesByLaneId.set(source.laneId, source);
     coverageByLaneId.set(source.laneId, '[]');
+    problemByLaneId.set(source.laneId, null);
     source.onCoverageChange([]);
     probesMayHaveChanged();
   }

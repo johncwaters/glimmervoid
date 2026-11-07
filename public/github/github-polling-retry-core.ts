@@ -1,13 +1,14 @@
 import type { MyPrsStatus } from '#shared/contracts/my-prs.ts';
+import { watcherProblemNotice } from '../lane-placeholder-core.ts';
 
-export type GithubPollingStatus = Pick<MyPrsStatus, 'error' | 'incident' | 'lastRefreshedAt' | 'nextAttemptAt' | 'retry' | 'isRefreshing' | 'refreshNotice' | 'configured'> & { lastSyncAt?: number | null };
+export type GithubPollingStatus = Pick<MyPrsStatus, 'error' | 'incident' | 'lastRefreshedAt' | 'nextAttemptAt' | 'retry' | 'isRefreshing' | 'refreshNotice' | 'configured' | 'watcherProblem'> & { lastSyncAt?: number | null };
 
 export function hasGithubPollingCountdown(status: GithubPollingStatus | null, nowMs: number): boolean {
   return !!status?.error && !status.isRefreshing && typeof status.nextAttemptAt === 'number' && status.nextAttemptAt > nowMs;
 }
 
 export function githubPollingErrorNotice(status: GithubPollingStatus | null, nowMs: number): string | null {
-  if (!status?.error) return null;
+  if (!status?.error) return watcherProblemNotice(status);
   const errorText = status.error.trim().replace(/[.!]+$/, '');
   const incidentText = status.incident?.trim().replace(/[.!]+$/, '');
   const prefix = `Could not reach GitHub: ${errorText}.${incidentText ? ` GitHub reports: ${incidentText}.` : ''}`;

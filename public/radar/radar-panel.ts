@@ -1,3 +1,4 @@
+import { watcherProblemNotice } from '../lane-placeholder-core.ts';
 import './radar-panel.css';
 import type { ServerMessage } from '#shared/contracts/control-messages.ts';
 import { buildPanelSection, el, externalLink, isPanelHidden, projectsOf } from '../dom-helpers.ts';
@@ -621,6 +622,12 @@ function alertLineText(alert: RadarQueue['projectAlerts'][number]) {
 
 function buildFooter(queue: RadarQueue, intervalMinutes: number) {
   const footer = el('div', 'radar-footer');
+  const problemNotice = watcherProblemNotice(radarSnapshot().latest);
+  if (problemNotice) {
+    const problemLine = el('p', 'radar-footer-alert', problemNotice);
+    problemLine.dataset.tone = 'warn';
+    footer.append(problemLine);
+  }
   for (const alert of queue.projectAlerts) {
     const line = el('p', 'radar-footer-alert', alertLineText(alert));
     line.dataset.tone = alert.error ? 'crit' : 'warn';

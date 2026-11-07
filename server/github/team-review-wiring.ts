@@ -303,6 +303,7 @@ function createTeamReviewWiring({
     startPoller: runner.startPoller,
     stopPoller,
     restartIfConfigChanged: runner.restartIfConfigChanged,
+    setWatcherProblem: runner.setWatcherProblem,
     getStatus,
     refresh,
     isRunning,

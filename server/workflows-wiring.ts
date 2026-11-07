@@ -128,6 +128,7 @@ export function createWorkflowsWiring({
   store.subscribe('snapshot-changed', () => { runner.getPoller()?.tickSoon(); });
   return {
     startPoller: runner.startPoller,
+    setWatcherProblem: runner.setWatcherProblem,
     restartIfConfigChanged(): void {
       if (!core.areWorkflowActionsEnabled(settings())) sessions.cancelSessions();
       runner.restartIfConfigChanged();

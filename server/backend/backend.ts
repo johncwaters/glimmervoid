@@ -655,7 +655,12 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     linkSecret: loadOrCreateLinkSecret(path.join(glimmervoidHomeDir(), 'watcher-link.key')),
     credentials: () => ({ github: laneAccessConfigOf(configStore.config).readToken, posthog: readPosthogReadConnection(configStore.config) }),
   });
-  watcherLink.registerProbeSource(laneAssembly.githubStore.probeSource);
+  watcherLink.registerProbeSource({
+    ...laneAssembly.githubStore.probeSource,
+    onWatcherProblem: (problem) => {
+      for (const githubLane of [laneAssembly.myPrs, laneAssembly.teamReview, laneAssembly.workflows]) githubLane.setWatcherProblem(problem);
+    },
+  });
   laneAssembly.githubStore.onProbesMayHaveChanged(watcherLink.probesMayHaveChanged);
   watcherLink.registerProbeSource(laneAssembly.issues.probeSource);
   laneAssembly.issues.onProbesMayHaveChanged(watcherLink.probesMayHaveChanged);

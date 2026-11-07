@@ -1,3 +1,4 @@
+import { watcherProblemNotice } from '../lane-placeholder-core.ts';
 import './issues-panel.css';
 import { createPressable } from '../ui/pressable.ts';
 import { button, linkButton } from '../ui/button.ts';
@@ -363,8 +364,11 @@ function onIssuesKey(event: KeyboardEvent): void {
 function updateAges(): void {
   if (!root || root.closest('[hidden]') || document.hidden) return;
   const nowMs = Date.now();
-  const lastSyncAt = issuesSnapshot().latestStatus?.lastSyncAt;
-  if (syncStatus) syncStatus.textContent = lastSyncAt ? `Synced ${issueAgo(lastSyncAt, nowMs)}.` : 'Not synced yet.';
+  const latestStatus = issuesSnapshot().latestStatus;
+  const lastSyncAt = latestStatus?.lastSyncAt;
+  const syncText = lastSyncAt ? `Synced ${issueAgo(lastSyncAt, nowMs)}.` : 'Not synced yet.';
+  const problemNotice = watcherProblemNotice(latestStatus);
+  if (syncStatus) syncStatus.textContent = problemNotice ? `${syncText} ${problemNotice}` : syncText;
   for (const age of root.querySelectorAll<HTMLElement>('[data-issue-age]')) age.textContent = issueRelativeAge(age.dataset.issueAge ?? '', nowMs);
 }
 

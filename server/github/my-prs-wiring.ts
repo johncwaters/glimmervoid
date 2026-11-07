@@ -449,5 +449,5 @@ export function createMyPrsWiring({ config, broadcast, log = console, homeDir = 
     await runner.stopPoller();
   }
 
-  return { startPoller: runner.startPoller, stopPoller, restartIfConfigChanged: runner.restartIfConfigChanged, getStatus, mergePr, refresh, setKeepMergeable, setMergeWhenReady };
+  return { startPoller: runner.startPoller, stopPoller, restartIfConfigChanged: runner.restartIfConfigChanged, setWatcherProblem: runner.setWatcherProblem, getStatus, mergePr, refresh, setKeepMergeable, setMergeWhenReady };
 }

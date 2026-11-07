@@ -1,3 +1,4 @@
+import { watcherProblemNotice } from '../lane-placeholder-core.ts';
 import '../github/review-queue-panel.css';
 import './community-panel.css';
 import type { CommunityAction, CommunityStateEntry } from '#shared/contracts/community.ts';
@@ -303,11 +304,11 @@ function render(): void {
   if (syncSetupCard()) return;
   currentGroups = communityQueue();
   selectedKey = chooseQueueSelection(currentGroups.filter((group) => group.id !== 'aside' || isSetAsideOpen), selectedKey);
-  const signature = JSON.stringify([currentGroups, selectedKey, isSetAsideOpen, communityUnseenSignature(), communityStatusView()?.error ?? null]);
+  const signature = JSON.stringify([currentGroups, selectedKey, isSetAsideOpen, communityUnseenSignature(), communityStatusView()?.error ?? null, watcherProblemNotice(communityStatusView())]);
   if (signature !== renderedSignature) {
     renderedSignature = signature;
     rowsByKey.clear();
-    const laneError = communityStatusView()?.error;
+    const laneError = communityStatusView()?.error || watcherProblemNotice(communityStatusView());
     const notices = laneError ? [el('p', 'my-pr-note', laneError)] : [];
     const sections = currentGroups.filter((group) => group.items.length > 0).map(createGroupSection);
     queueElement.replaceChildren(...notices, ...(sections.length > 0 ? sections : [el('p', 'pr-empty', communityEmptyText(communityStatusView()))]));

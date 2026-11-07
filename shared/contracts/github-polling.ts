@@ -11,6 +11,7 @@ export const githubPollingShape = {
   retry: GithubPollingRetry.nullable().optional(),
   isRefreshing: z.boolean().optional(),
   refreshNotice: z.string().nullable().optional(),
+  watcherProblem: z.string().nullable().optional(),
 };
 
 export const GithubPrsFreshness = z.strictObject({ lastRefreshedAt: z.number().finite().nonnegative().nullable(), error: z.string().nullable() });
