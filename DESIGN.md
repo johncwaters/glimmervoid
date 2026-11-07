@@ -6,7 +6,7 @@ Values (colors, type, radius, shadows, motion) live in `brand-bible/`; this file
 
 **Creative North Star: "The Phyrexian Console"**
 
-Glimmervoid is a machine intelligence watching its constructs through the night. The surface is deep oil-black tinted toward violet; a single iridescent orchid accent is the only chromatic voice in the chrome. State surfaces as cold, exact glints, a glow here, a flash there, only when something actually changes. The console is precise, unsentimental, and a little uncanny: it never blinks and never raises its voice. The operator should feel in command of a board of live agents, not entertained by it.
+Glimmervoid is a machine intelligence watching its constructs through the night. The surface is graphite with only a whisper of violet; a single muted lavender accent is the only chromatic voice in the chrome. State surfaces as cold, exact glints, a glow here, a flash there, only when something actually changes. The console is precise, unsentimental, and a little uncanny: it never blinks and never raises its voice. The operator should feel in command of a board of live agents, not entertained by it.
 
 Everything is monospace. Type is the voice of the interface, and the voice is even, technical, and quiet. Density is welcome where it pays for itself: the operator is watching several terminals at 2am and the layout must reward sustained attention, not a glance. Chrome recedes so the terminal output (the real product) holds the eye. Ornament is treated as suspicious. If a pixel does not carry data or guide the eye to data, it is cut.
 
@@ -14,49 +14,49 @@ This system explicitly rejects the generic AI-SaaS dashboard (no gradient hero, 
 
 **Key Characteristics:**
 - Mono-forward: one typeface family carries headings, labels, data, and body.
-- Oil-black violet surfaces with one iridescent accent used sparingly.
+- Graphite surfaces with a whisper of violet and one muted lavender accent used sparingly.
 - Flat by default; depth comes from tonal layering and 1px borders, never resting shadows.
 - Color and motion are reserved for genuine state signals, so a signal always means something.
 - Four sizes (the `--type-*` tokens) carry five roles; hierarchy is built from weight, tracking, color, and case, not size.
-- Four shipping themes (Phyrexian is the default); the system is theme-agnostic and reads colors from CSS variables.
+- Glimmer is the default theme, Glimmer Light its light counterpart, with Phyrexian, Midnight, Golgari and Compleated among the alternates; the system is theme-agnostic and reads colors from CSS variables.
 
 ## 2. Colors
 
-A near-monochrome violet-tinted dark palette with one iridescent accent and a strict, color-blind-safe vocabulary of semantic state colors. Phyrexian (the default theme) is documented here; Midnight, Golgari, and Compleated are alternate themes that swap the same token names to blue-purple, green-black, and a single light scheme respectively.
+A near-monochrome graphite dark palette with a whisper of violet, one muted lavender accent, and a strict, color-blind-safe vocabulary of semantic state colors. Glimmer (the default theme) is documented here; Glimmer Light swaps the same token names to a light scheme, and Phyrexian, Midnight, Golgari, and Compleated swap them to oil-black violet with an orchid accent, blue-purple, green-black, and a light scheme respectively, among other alternate themes.
 
 ### Primary
-- **Iridescent Orchid** (`--accent`): The one accent. Primary actions, current selection, focus rings, the active tab underline, the wordmark glyph, connection highlights. It appears on a small fraction of any screen on purpose.
-- **Deep Orchid** (`--accent-dim`): The accent's darker partner, for accent borders, CTA strokes, and pulse low-points where full orchid would shout.
+- **Muted Lavender** (`--accent`): The one accent. Primary actions, current selection, focus rings, the active tab underline, the wordmark glyph, connection highlights. It appears on a small fraction of any screen on purpose.
+- **Dusk Plum** (`--accent-dim`): The accent's darker partner, for accent borders, CTA strokes, and pulse low-points where the full accent would shout.
 
 ### Neutral
-- **Near-Black Violet** (`--bg`): The base canvas behind everything.
-- **Ink Violet** (`--bg-card`): Card and panel fills, the terminal pane background, one step up from the canvas.
-- **Shadow Violet** (`--bg-header`): The sticky header bar.
-- **Deep Violet Slate** (`--bg-surface`): Inset surfaces, inputs, the next tonal step up.
-- **Violet Border** (`--border`) / **Dim Violet Border** (`--border-dim`) / **Lifted Violet Border** (`--border-hover`): The three-step border ramp. Dim for quiet internal dividers, base for component edges, lifted for hover and elevated surfaces (menus, tooltips, dialogs).
-- **Bright Lavender White** (`--text-head`): Headings and emphasized text.
-- **Soft Lavender Grey** (`--text`): Default body text.
-- **Muted Lavender** (`--text-dim`): Secondary text, descriptions (meets WCAG AA on bg, card, and surface).
-- **Faint Lavender** (`--text-muted`): Tertiary labels, captions, the quietest legible text (AA on bg, card, and surface).
+- **Graphite** (`--bg`): The base canvas behind everything.
+- **Card Graphite** (`--bg-card`): Card and panel fills, the terminal pane background, one step up from the canvas.
+- **Header Graphite** (`--bg-header`): The sticky header bar.
+- **Inset Graphite** (`--bg-surface`): Inset surfaces, inputs, the next tonal step up.
+- **Rule** (`--border`) / **Dim Rule** (`--border-dim`) / **Lifted Rule** (`--border-hover`): The three-step border ramp. Dim for quiet internal dividers, base for component edges, lifted for hover and elevated surfaces (menus, tooltips, dialogs).
+- **Paper** (`--text-head`): Headings and emphasized text.
+- **Pewter** (`--text`): Default body text.
+- **Ash** (`--text-dim`): Secondary text, descriptions (meets WCAG AA on bg, card, and surface).
+- **Faint Ash** (`--text-muted`): Tertiary labels, captions, the quietest legible text (AA on bg, card, and surface).
 
 ### State (semantic, color-blind-safe)
 Always paired with a status icon; never carried by hue alone.
-- **Signal Green** (`--state-running`): Working.
-- **Signal Amber** (`--state-waiting`): Needs Input / needs attention / setup-required.
-- **Signal Red** (`--state-failed`): Failed, disconnected, destructive.
-- **Signal Cyan** (`--state-done`): Exited, the agent process ended (Phyrexian).
-- **Signal Gold** (`--state-idle`): Idle.
-- **Signal Pink** (`--state-starting`): Starting, including worktree preparation (Phyrexian).
-- **Signal Sky** (`--state-monitoring`): Monitoring, a turn ended while background tasks still run.
-- **Signal Emerald** (`--state-complete`): Complete, a finished turn not yet looked at; also success: merged branches, passing checks.
-- **Signal Slate** (`--state-initializing`): No status uses it since worktree setup displays as Starting.
+- **Working** (`--state-running`): Working.
+- **Needs Input** (`--state-waiting`): Needs Input / needs attention / setup-required.
+- **Failed** (`--state-failed`): Failed, disconnected, destructive.
+- **Exited** (`--state-done`): Exited, the agent process ended.
+- **Idle** (`--state-idle`): Idle.
+- **Starting** (`--state-starting`): Starting, including worktree preparation.
+- **Monitoring** (`--state-monitoring`): Monitoring, a turn ended while background tasks still run.
+- **Complete** (`--state-complete`): Complete, a finished turn not yet looked at; also success: merged branches, passing checks.
+- **Starting (initializing)** (`--state-initializing`): No status uses it since worktree setup displays as Starting.
 
 ### Named Rules
-**The One Voice Rule.** Iridescent Orchid is the only accent, used on roughly 10% of any screen or less. Its rarity is the point. Never introduce a second decorative hue.
+**The One Voice Rule.** Muted Lavender is the only accent, used on roughly 10% of any screen or less. Its rarity is the point. Never introduce a second decorative hue.
 
 **The Earned Signal Rule.** A state color that means nothing teaches the operator to ignore it. State color appears only on a real state change, never as decoration. A red on screen is a real failure. The one exception is the doc editor's Markup pen, which writes editing marks in `--state-failed` ink on `--bg-card` paper inside `.doc-markup` only, because a red pen is how a reader knows a mark is an edit; the state-failed on bg-card contrast pair keeps that ink legible in every theme.
 
-**The Tinted Neutral Rule.** No pure black, no pure white. Every neutral is tinted toward the brand violet. Backgrounds run near-black with a trace of violet; the lightest text is lavender-white, not #fff.
+**The Tinted Neutral Rule.** No pure black, no pure white. Every neutral is tinted toward the brand violet. Backgrounds run graphite with a trace of violet; the lightest text is a violet-tinted paper white, not #fff.
 
 ## 3. Typography
 
@@ -104,32 +104,32 @@ Shadows and glows exist for exactly two jobs: lifting true overlays (dialogs, me
 
 ## 5. Components
 
-Every interactive element ships default, hover, focus-visible, active, and disabled states. Focus is always a visible 2px orchid outline with an offset; it is never removed without replacement.
+Every interactive element ships default, hover, focus-visible, active, and disabled states. Focus is always a visible 2px lavender outline with an offset; it is never removed without replacement.
 
 ### Buttons
 Every action button is `button()` from `public/ui/button.ts`, and a link drawn as a button is `linkButton()` beside it (look in `public/ui/button.css`); `tests/gates/ui-primitives.test.ts` fails on a hand-rolled one.
 - **Look:** flat, nearly square (`--radius`), uppercase tracked mono like the card face tabs, so an action reads as an instrument control, not a web link.
-- **Variants:** primary (orchid outline, the one forward action in a group), secondary (base border, Cancel, Edit, Copy), danger (red-tinted outline, an action that loses work, always behind a confirm), quiet (no border, a low-stakes extra), icon (square, glyph only, label carried as the accessible name and hover tip).
+- **Variants:** primary (lavender outline, the one forward action in a group), secondary (base border, Cancel, Edit, Copy), danger (red-tinted outline, an action that loses work, always behind a confirm), quiet (no border, a low-stakes extra), icon (square, glyph only, label carried as the accessible name and hover tip).
 - **Sizes:** default for dialogs and panels, small for dense rows and card chrome. The phone layout draws default buttons 44px tall and small ones 32px; an invisible extension brings any smaller button's hit area to 32px tall, and to 44px on every side on a coarse pointer, since a mouse extension that also reached sideways would steal clicks from a neighbor 2px away (`tests/gates/ui-primitives.test.ts` fails without it).
 - **No state in the button:** the label never changes and nothing renders inside it while work runs; disable it and put progress or a new-output dot beside it.
-- **Pressed and shortcut:** a button that toggles or marks the picked choice carries `aria-pressed`, drawn with an orchid fill; a keyboard shortcut shows as a key cap after the label, hidden on the phone, which has no keyboard.
+- **Pressed and shortcut:** a button that toggles or marks the picked choice carries `aria-pressed`, drawn with a lavender fill; a keyboard shortcut shows as a key cap after the label, hidden on the phone, which has no keyboard.
 - **Layout belongs to the parent:** `button()` takes no class, so spacing, alignment and placement come from the container.
 
 ### Inputs / Fields
-- **Style:** Deep Violet Slate fill, 1px Violet Border, `--radius`, padding 8px 12px, Bright Lavender White text, mono `--type-body` (`--type-title` on phone).
-- **Focus:** border shifts to Iridescent Orchid (no glow). Placeholders use Faint Lavender.
+- **Style:** Inset Graphite fill, 1px Rule, `--radius`, padding 8px 12px, Paper text, mono `--type-body` (`--type-title` on phone).
+- **Focus:** border shifts to Muted Lavender (no glow). Placeholders use Faint Ash.
 - **Label:** sits above the field as an uppercase tracked Label.
-- **Error:** Signal Red caption below the field, hidden when empty.
+- **Error:** Failed red caption below the field, hidden when empty.
 
 ### Cards / Containers
 - **Corner style:** `--radius-lg` (the large step).
-- **Background:** Ink Violet on the Near-Black Violet canvas.
-- **Border:** 1px Violet Border at rest, shifting to Lifted Violet Border on hover. No resting shadow.
+- **Background:** Card Graphite on the Graphite canvas.
+- **Border:** 1px Rule at rest, shifting to Lifted Rule on hover. No resting shadow.
 - **State:** session cards drive their entire treatment from a `data-state` attribute, layering state-colored border and glow (RUNNING, WAITING, COMPLETE, FAILED, etc.). Never nest a card inside a card.
 - **Internal padding:** 20px to 28px on large panels; the session-card header and terminal pane carry their own rhythm.
 
 ### Navigation
-- **Primary view tabs:** mono `--type-meta`, Muted Lavender at rest to Bright Lavender White when selected. Each tab leads with its view's line icon, the same one the phone bar and More menu draw, so a view looks the same on every device; the selected tab's icon turns orchid. The active tab draws a 2px orchid underline that animates in via `transform: scaleX` (ease-out-quart), never a layout shift. An optional activity dot shows steady orchid when a tab has something new; it never pulses, because a tab dot that animates for minutes reads as noise.
+- **Primary view tabs:** mono `--type-meta`, Ash at rest to Paper when selected. Each tab leads with its view's line icon, the same one the phone bar and More menu draw, so a view looks the same on every device; the selected tab's icon turns lavender. The active tab draws a 2px lavender underline that animates in via `transform: scaleX` (ease-out-quart), never a layout shift. An optional activity dot shows steady lavender when a tab has something new; it never pulses, because a tab dot that animates for minutes reads as noise.
 
 ### State Badge (signature)
 - Uppercase mono, `--type-meta`, 700, 0.08em tracking, colored by `data-state` and always preceded by a status icon: a bare SVG mark, never a symbol cut out of a filled circle, because the shape alone must name the status at 12px. Every surface and the site legend draw it from `shared/state-icons.ts`, so no view keeps its own copy. The live states borrow the brand mark (Working a small solid diamond, Monitoring an eye, Starting spinning brackets, an ended session a closed outline, a session not started yet the unlit brackets); the states you act on or read an outcome from keep plain symbols (question mark, check, X, pause bars), because clarity at 12px beats family resemblance. Starting spins and blurs at top speed, Working pings once per burst of terminal output, and a change of state animates to the next icon in under half a second with its color blended in OKLCH. Icon motion is transform and opacity inside a fixed box, so it never shifts layout.
@@ -138,10 +138,10 @@ Every action button is `button()` from `public/ui/button.ts`, and a link drawn a
 - Four corner brackets around a small diamond light, from `shared/brand-mark.ts`: the wordmark glyph (site nav and dashboard header), the favicon (whose light turns amber or red when a session needs you or failed) and the loading screen. While connecting the brackets scan; when the dashboard is ready the mark spins once like a vault dial, the brackets clamp, the light comes on and the mark bursts away.
 
 ### Terminal Pane (signature, the product)
-- An xterm.js surface filling each card on the Ink Violet background. The server is a dumb pipe; xterm renders all ANSI. The terminal theme is derived from the active CSS-variable palette at runtime, so it stays in lockstep with the chrome. Chrome around it must never compete with it for contrast or color.
+- An xterm.js surface filling each card on the Card Graphite background. The server is a dumb pipe; xterm renders all ANSI. The terminal theme is derived from the active CSS-variable palette at runtime, so it stays in lockstep with the chrome. Chrome around it must never compete with it for contrast or color.
 
 ### Minimized Session Bar
-The collapsed dock at the bottom of the screen. It sits in-flow below the sessions grid (which shrinks to make room) so open terminals are never overlapped. The bar is Shadow Violet with a 1px dim top border, 8px padding, and a 6px gap, and it wraps; it caps at 30vh and scrolls past that so a long dock never squeezes the live terminals.
+The collapsed dock at the bottom of the screen. It sits in-flow below the sessions grid (which shrinks to make room) so open terminals are never overlapped. The bar is Header Graphite with a 1px dim top border, 8px padding, and a 6px gap, and it wraps; it caps at 30vh and scrolls past that so a long dock never squeezes the live terminals.
 - **Minimized card:** a 120px chip at `--radius` and 0.85 opacity (1 on hover). The terminal is hidden; the header collapses to a centered name flanked by a single state dot.
 - **State at a glance:** badges are dropped; state rides the border color and the dot. Only two states get a loud treatment, RUNNING (saturated green border, a steady green dot with a soft glow) and WAITING (full amber border, amber-tinted fill, a breathing inset glow and a pulsing dot). Everything else is a quiet neutral dot at 0.45 opacity.
 - **Color-blind safe by construction:** amber-plus-motion versus green-plus-steady differ on hue, saturation, and animation at once. This is the Earned Signal and Flat-By-Default rules at miniature scale.
@@ -150,27 +150,27 @@ The collapsed dock at the bottom of the screen. It sits in-flow below the sessio
 A small uppercase warning chip on any session spawned with skip-permissions. `--type-meta`, 700, 0.08em uppercase in the perms-warn amber-orange (`--perms-warn`), with a full 1px border at 55% and a 14% tinted fill at 2px radius, the same box weight as every other header tag so it never reads larger than its neighbors. Quiet but unmistakable. The chip reads SANE YOLO when the guard is active, retaining amber to signal skipped permission prompts. Note the full border: it deliberately replaced an earlier colored `border-left`, per the side-stripe ban.
 
 ### Dropdown Menu
-The header overflow menu. An Ink Violet panel with a 1px lifted border, `--radius`, and shadow-lg to lift it off the plane; min-width 180px; scales in over 100ms.
-- **Items:** `--type-meta`, 700 mono, 8px 14px padding, with a fixed 1.2em mono-safe glyph column so labels stay aligned. Hover is a 6% text wash to Bright Lavender White.
-- **Variants:** warning items recolor to Signal Amber, danger items to Signal Red, each tinting its own hover. A muted glyph uses a line-through to mark an off or disabled option.
-- **Divider:** a 1px Violet Border rule inset 8px from each edge.
+The header overflow menu. An Card Graphite panel with a 1px lifted border, `--radius`, and shadow-lg to lift it off the plane; min-width 180px; scales in over 100ms.
+- **Items:** `--type-meta`, 700 mono, 8px 14px padding, with a fixed 1.2em mono-safe glyph column so labels stay aligned. Hover is a 6% text wash to Paper.
+- **Variants:** warning items recolor to Needs Input amber, danger items to Failed red, each tinting its own hover. A muted glyph uses a line-through to mark an off or disabled option.
+- **Divider:** a 1px Rule rule inset 8px from each edge.
 
 ### Settings View
 A primary view with a 220px sidebar of nine theme-first sections and one scrolling section page.
-- **Navigation:** search replaces the content column with one flat result list; each hit carries a section breadcrumb and its matched text highlighted, anchored rows accept stable deep links, and `#settings?q=` links to a search. The selected section takes orchid text, a faint orchid wash and a full 1px border. An experimental section or setting carries an amber EXPERIMENTAL tag in the nav and beside its title, in the warning amber, and an experimental page opens with one caution line. Tab order is one bordered list of rows, each with a grip, the tab name and quiet up and down arrow icons; a row drags onto another to take its place. A failed update shows one plain line in the dialog error style, with the steps, raw reason and build output folded behind Show details. On phone, Settings opens as a section list under the search box, a section opens as a nested screen with a Back control, and search results use the same flat list.
+- **Navigation:** search replaces the content column with one flat result list; each hit carries a section breadcrumb and its matched text highlighted, anchored rows accept stable deep links, and `#settings?q=` links to a search. The selected section takes lavender text, a faint lavender wash and a full 1px border. An experimental section or setting carries an amber EXPERIMENTAL tag in the nav and beside its title, in the warning amber, and an experimental page opens with one caution line. Tab order is one bordered list of rows, each with a grip, the tab name and quiet up and down arrow icons; a row drags onto another to take its place. A failed update shows one plain line in the dialog error style, with the steps, raw reason and build output folded behind Show details. On phone, Settings opens as a section list under the search box, a section opens as a nested screen with a Back control, and search results use the same flat list.
 - **Content:** all settings in the selected section stack under anchored headings, text on the left and every control in one fixed 280px column on the right. The page title carries the scope most of its rows share; a row carries a scope chip only when it differs, and an effect chip only when the change waits for new sessions or a restart. Reset appears only off the default, and the copy-link `#` only on hover or focus. A change saves at once and the row shows saved or the server's error beside the control. The flying-animal controls sit behind one Advanced disclosure.
-- **Controls:** boolean settings are orchid switches (`role="switch"`) right-aligned in the control column; other checkboxes use an orchid accent-color; a config.json-only result shows a mono key plus a quiet config caption. Danger settings use an amber full-border warning and a confirm dialog before the save. Field errors use Signal Red. On phone, fields fill the width with 44px targets and 16px inputs.
+- **Controls:** boolean settings are lavender switches (`role="switch"`) right-aligned in the control column; other checkboxes use a lavender accent-color; a config.json-only result shows a mono key plus a quiet config caption. Danger settings use an amber full-border warning and a confirm dialog before the save. Field errors use Failed red. On phone, fields fill the width with 44px targets and 16px inputs.
 
 ## 6. Do's and Don'ts
 
 ### Do:
-- **Do** keep Iridescent Orchid (`--accent`) to ~10% of any screen. One voice, used rarely (the One Voice Rule).
+- **Do** keep Muted Lavender (`--accent`) to ~10% of any screen. One voice, used rarely (the One Voice Rule).
 - **Do** carry state with an icon plus shape plus color, never hue alone. State must read for a color-blind operator.
 - **Do** speak in monospace (CommitMono) for all UI text, and build hierarchy from weight, tracking, color, and case rather than size.
 - **Do** keep surfaces flat at rest; convey depth with the canvas/card/surface tonal ramp and 1px borders.
 - **Do** reserve glow and motion for genuine state changes (running, waiting, failed, connecting).
-- **Do** tint every neutral toward violet; use Bright Lavender White (`--text-head`), never #fff, and Near-Black Violet (`--bg`), never #000.
-- **Do** give every interactive element a visible 2px orchid focus ring with offset; the tool is keyboard-first.
+- **Do** tint every neutral toward violet; use Paper (`--text-head`), never #fff, and Graphite (`--bg`), never #000.
+- **Do** give every interactive element a visible 2px lavender focus ring with offset; the tool is keyboard-first.
 - **Do** let the terminal output be the loudest thing on screen. Chrome recedes.
 
 ### Don't:

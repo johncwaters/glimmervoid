@@ -604,6 +604,14 @@
     {
       "name": "glimmer",
       "definition": "The default dashboard theme: graphite surfaces with a muted lavender accent; Glimmer Light is its light counterpart"
+    },
+    {
+      "name": "graphite",
+      "definition": "The neutral color family of the Glimmer theme: its near-black surfaces (Graphite, Card, Header and Inset Graphite) carrying only a whisper of violet"
+    },
+    {
+      "name": "paper",
+      "definition": "Paper, the Glimmer brand-bible name for the headings color --text-head; also the bg-card paper of the doc editor's Markup mode"
     }
   ]
 }
