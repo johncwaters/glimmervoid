@@ -7,6 +7,7 @@ import type { BoardLayout } from '#shared/whiteboard-layout-core.ts';
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import { refsOfElement } from '#shared/whiteboard-anchor-core.ts';
+import { iconPicker } from './board-icon-picker.ts';
 
 type DecisionBox = Extract<Box, { shape: 'decision' }>;
 type DeviceBox = Extract<Box, { shape: 'device' }>;
@@ -57,6 +58,12 @@ function heading(text: string): HTMLElement {
 
 function fieldRow(label: string, control: HTMLElement): HTMLElement {
   const row = el('label', 'wb-inspect-field');
+  row.append(el('span', 'wb-inspect-label', label), control);
+  return row;
+}
+
+function controlRow(label: string, control: HTMLElement): HTMLElement {
+  const row = el('div', 'wb-inspect-field');
   row.append(el('span', 'wb-inspect-label', label), control);
   return row;
 }
@@ -185,6 +192,7 @@ function linesEditor(owner: string, lines: readonly BoxLine[], latestLines: Late
       }, `Line ${lineNumber} key`));
     }
     row.append(
+      iconPicker({ field: `line-${index}-icon`, icon: line.icon, isRequired: false, accessibleName: `Line ${lineNumber} icon`, commit: (icon) => editing.edit(index, (latestLine) => ({ ...latestLine, icon })) }),
       textField(`line-${index}-text`, line.text, WHITEBOARD_LIMITS.line, (text) => editing.edit(index, (latestLine) => ({ ...latestLine, text })), `Line ${lineNumber} text`),
       optionalRefField(`line-${index}-ref`, line.ref, (ref) => editing.edit(index, (latestLine) => ({ ...latestLine, ref })), `Line ${lineNumber} ref`),
       actionButton(`line-${index}-remove`, 'remove', () => editing.remove(index), `Remove line ${lineNumber}`),
@@ -262,6 +270,7 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     fieldRow('Title', textField('title', box.title, WHITEBOARD_LIMITS.title, (title) => {
       if (title.trim()) set({ title: title.trim() });
     })),
+    controlRow('Icon', iconPicker({ field: 'icon', icon: box.icon, isRequired: box.shape === 'icon', accessibleName: 'Box icon', commit: (icon) => set({ icon }) })),
     fieldRow('Shape', selectField('shape', SHAPE_CHOICES, box.shape, commitShape)),
     fieldRow('Change', selectField('change', CHANGE_CHOICES, box.change, commitChange)),
     ...(box.change === 'relabeled' ? [fieldRow('Was', textField('was', box.was ?? '', WHITEBOARD_LIMITS.title, (was) => {
@@ -398,7 +407,9 @@ function openInReviewSection(board: Board, element: BoardElement, openRef: (ref:
 
 function isTypingIn(container: HTMLElement): boolean {
   const active = document.activeElement;
-  return container.contains(active) && active instanceof HTMLInputElement && active.type === 'text';
+  if (!active || !container.contains(active)) return false;
+  if (active instanceof HTMLInputElement && active.type === 'text') return true;
+  return active.closest('.wb-icon-popover') !== null;
 }
 
 export function createBoardInspector(options: BoardInspectorOptions) {

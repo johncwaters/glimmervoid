@@ -884,3 +884,13 @@
 .wb-top-right > * { pointer-events: auto; }
 
 }
+
+.wb-icon-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.wb-icon-current { display: inline-flex; align-items: center; gap: 4px; font-size: var(--type-meta); color: var(--wb-ink); }
+.wb-icon-current-label { color: var(--wb-ink-dim); }
+.wb-icon-popover { flex-basis: 100%; display: flex; flex-direction: column; gap: 6px; max-height: 280px; overflow-y: auto; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--wb-board); }
+.wb-icon-popover[hidden], .wb-icon-group[hidden] { display: none; }
+.wb-icon-group { display: flex; flex-direction: column; gap: 2px; }
+.wb-icon-group-label { font-size: var(--type-meta); color: var(--wb-ink-dim); }
+.wb-icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(28px, 1fr)); gap: 2px; }
+.wb-icon-choice[aria-pressed='true'] { color: var(--accent); }

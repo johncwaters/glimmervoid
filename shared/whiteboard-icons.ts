@@ -1,4 +1,4 @@
-const ICON_CATEGORIES = ['infra', 'interface', 'security', 'people', 'objects', 'signals', 'design'] as const;
+export const ICON_CATEGORIES = ['infra', 'interface', 'security', 'people', 'objects', 'signals', 'design'] as const;
 
 export const ICON_NAMES = [
   'database', 'server', 'cloud', 'storage', 'cache', 'queue', 'network', 'router', 'api', 'webhook',
