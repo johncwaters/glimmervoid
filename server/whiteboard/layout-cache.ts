@@ -209,4 +209,4 @@ function openLayoutCache(filePath: string | null, codeStamp: string | null): Lay
 }
 
 export { LAYOUT_CACHE_FILENAME, openLayoutCache };
-export type { ChangedPaint, LayoutCache, LayoutStamp };
+export type { LayoutCache, LayoutStamp };
