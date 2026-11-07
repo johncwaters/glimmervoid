@@ -21,6 +21,7 @@ interface IssuesPollerDependencies {
   store: Pick<GithubLaneStore, 'requestIssueLinkedPullRequests' | 'setWatchedKeys' | 'rateLimitWaitMs'>;
   latestListings: () => readonly IssuesListingPayload[];
   feedSilenceMs: () => number;
+  heldClosedKeys: () => ReadonlySet<string>;
   getSessionLinks?: () => Record<string, string>;
   readState: () => Promise<unknown>;
   writeState: (state: IssuesStateType) => Promise<void>;
@@ -94,7 +95,7 @@ export function createIssuesPoller(dependencies: IssuesPollerDependencies) {
     if (unplannedListings.length > 0) {
       hasResolvedSources = true;
       const batches = core.issuesListingBatches(unplannedListings, projects, teams);
-      const issues = core.withListedPullRequests(core.mergeIssues(state.issues, batches, projects, teams), unplannedListings);
+      const issues = core.withListedPullRequests(core.mergeIssues(state.issues, batches, projects, teams, dependencies.heldClosedKeys()), unplannedListings);
       for (const listing of unplannedListings) plannedListings.add(listing);
       state = { ...state, issues, lastSyncAt: now() };
     }

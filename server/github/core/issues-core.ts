@@ -7,6 +7,7 @@ import { githubRepoSlugFromRemote } from './team-review-core.ts';
 export const ISSUES_LANE_ID = 'issues';
 export const ISSUES_STATE_FILENAME = 'issues-cache.json';
 export const POLL_INTERVAL_MINUTES = 5;
+export const CLOSED_ISSUE_HOLD_MS = 2 * POLL_INTERVAL_MINUTES * 60_000;
 export const MAX_REPO_ISSUES = 300;
 const MAX_TOTAL_ISSUES = 1000;
 
@@ -67,7 +68,7 @@ function matchesSource(issue: CachedIssueRow, batch: IssuesSourceBatch): boolean
   return issue.sources.includes('me');
 }
 
-export function mergeIssues(previous: readonly CachedIssueRow[], batches: readonly IssuesSourceBatch[], projects: readonly IssuesProjectRepo[], activeTeams?: readonly string[]): CachedIssueRow[] {
+export function mergeIssues(previous: readonly CachedIssueRow[], batches: readonly IssuesSourceBatch[], projects: readonly IssuesProjectRepo[], activeTeams?: readonly string[], heldClosedKeys: ReadonlySet<string> = new Set()): CachedIssueRow[] {
   const projectByRepo = new Map(projects.map((project) => [project.repo.toLowerCase(), project]));
   const issuesByKey = new Map<string, CachedIssueRow>();
   for (const issue of previous) {
@@ -77,7 +78,7 @@ export function mergeIssues(previous: readonly CachedIssueRow[], batches: readon
     if (sources.length === 0) continue;
     issuesByKey.set(issue.key.toLowerCase(), { ...issue, sources, teams, projectId: project?.projectId ?? null });
   }
-  const closedKeys = new Set<string>();
+  const closedKeys = new Set(heldClosedKeys);
   for (const batch of batches) {
     if (!batch.fetched.ok) continue;
     if (batch.fetched.isComplete) {

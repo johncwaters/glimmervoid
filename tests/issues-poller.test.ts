@@ -32,12 +32,12 @@ function openIssue(repo: string, number: number): IssueUpdate {
   };
 }
 
-function watcherStore(github: { issuePage: (pagePath: string, etag: string | null) => Promise<Awaited<ReturnType<ReturnType<typeof createPrGh>['issuePage']>>>; issueLinkedPullRequests: (keys: readonly string[]) => Promise<Map<string, IssuePullRequest[]>> }) {
+function watcherStore(github: { issuePage: (pagePath: string, etag: string | null) => Promise<Awaited<ReturnType<ReturnType<typeof createPrGh>['issuePage']>>>; issueLinkedPullRequests: (keys: readonly string[]) => Promise<Map<string, IssuePullRequest[]>>; searchIssues?: ReturnType<typeof createPrGh>['searchIssues'] }) {
   return createGithubStorePoller({
     github: {
       ...github,
       async viewer() { return 'alice'; },
-      async searchIssues() { return { ok: true, isComplete: true, error: '', items: [openIssue('acme/infra', 3)] }; },
+      searchIssues: github.searchIssues ?? (async () => ({ ok: true, isComplete: true, error: '', items: [openIssue('acme/infra', 3)] })),
       async searchPrsLight() { assert.fail('Unexpected PR search'); },
       async prsLightByKey() { assert.fail('Unexpected PR read'); },
       async prDetails() { assert.fail('Unexpected PR details'); },
@@ -54,7 +54,7 @@ function watcherStore(github: { issuePage: (pagePath: string, etag: string | nul
   });
 }
 
-test('issue lists from the watcher fill the Issues tab with project, assigned and team issues, an unchanged page costs a 304 and no linked pull request read, a failed source shows its error, and a closed issue stays gone after Refresh', async () => {
+test('issue lists from the watcher fill the Issues tab with project, assigned and team issues, an unchanged page costs a 304 and no linked pull request read, a restarted watcher that could not read linked pull requests keeps the held ones, a failed source shows its error, a list older than the last one for its source changes nothing, a closed issue stays gone after Refresh even when a list taken before the close is planned after it or after a settings restart, and comes back with the next list once reopened', async () => {
   const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'issues-watchee-'));
   const sentValidators: (string | undefined)[] = [];
   const linkedPullRequestReads: string[][] = [];
@@ -77,15 +77,16 @@ test('issue lists from the watcher fill the Issues tab with project, assigned an
     }),
   });
   const statuses: IssuesStatus[] = [];
+  const config = { projects: [{ id: 'project-1', name: 'App', path: '/work/app' }], issues: { enabled: true }, github: { teams: ['acme/core'] } };
   const wiring = createIssuesWiring({
-    config: { projects: [{ id: 'project-1', name: 'App', path: '/work/app' }], issues: { enabled: true }, github: { teams: ['acme/core'] } },
+    config,
     homeDir, hasSession: () => true, broadcast: (status) => { statuses.push(status); },
     gitWorkspace: { originUrl: async () => 'git@github.com:acme/app.git' }, log: { warn() {} },
     github: { setIssueState: async () => ({ ok: true, err: '' }) },
     store: { ...noIssueReads, requestIssueLinkedPullRequests: async () => ({ isRateLimited: false, value: new Map() }) },
   });
-  const deliverLists = async () => {
-    const listed = await listing.list({ enabled: true, projectRepos: await wiring.watchedProjectRepos(), teams: ['acme/core'], intervalMinutes: 5 });
+  const deliverLists = async (fromListing = listing) => {
+    const listed = await fromListing.list({ enabled: true, projectRepos: await wiring.watchedProjectRepos(), teams: ['acme/core'], intervalMinutes: 5 });
     assert.ok(listed.ok);
     for (const payload of listed.payloads) await wiring.acceptListing({ payload });
   };
@@ -101,17 +102,76 @@ test('issue lists from the watcher fill the Issues tab with project, assigned an
     assert.deepEqual(sentValidators, [undefined, undefined, '"app"', '"assigned"']);
     assert.equal(linkedPullRequestReads.length, 1);
     assert.equal(Object.keys(sourcesByKey()).length, 3);
+    const restartedListing = createIssuesListing({
+      now: () => Date.parse('2026-11-06T12:00:00Z'),
+      store: watcherStore({
+        async issuePage(pagePath) { return { kind: 'ok', etag: null, nextPath: null, issues: [openIssue(pagePath.startsWith('repos/') ? 'acme/app' : 'acme/other', pagePath.startsWith('repos/') ? 1 : 2)] }; },
+        async issueLinkedPullRequests() { return new Map(); },
+      }),
+    });
+    await deliverLists(restartedListing);
+    await wiring.refresh();
+    assert.deepEqual(statuses.at(-1)?.issues.find((issue) => issue.key === 'acme/app#1')?.pullRequests, [linkedPullRequest]);
     await wiring.setIssueState({ repo: 'acme/app', number: 1, state: 'closed' });
     await wiring.refresh();
     assert.deepEqual(Object.keys(sourcesByKey()).sort(), ['acme/infra#3', 'acme/other#2']);
+    config.projects.push({ id: 'project-2', name: 'App mirror', path: '/work/app-mirror' });
+    wiring.restartIfConfigChanged();
+    let restartedRefresh = await wiring.refresh();
+    while (restartedRefresh.error === 'A refresh is already running.') {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      restartedRefresh = await wiring.refresh();
+    }
+    assert.deepEqual(restartedRefresh, { ok: true });
+    assert.deepEqual(Object.keys(sourcesByKey()).sort(), ['acme/infra#3', 'acme/other#2']);
+    await wiring.setIssueState({ repo: 'acme/app', number: 1, state: 'open' });
+    await deliverLists();
+    await waitFor(() => sourcesByKey()['acme/app#1'] !== undefined, 'the reopened issue came back with the next list', 3000);
     isAssignedListingDown = true;
     await deliverLists();
     await waitFor(() => /Assigned to you: gh HTTP 502/.test(statuses.at(-1)?.error ?? ''), 'the failed assigned listing was shown', 3000);
     assert.ok(sourcesByKey()['acme/other#2']);
+    await wiring.acceptListing({ payload: { source: 'me', observedAt: '2026-11-06T11:00:00.000Z', viewer: 'alice', isComplete: true, error: null, issues: [] } });
+    await wiring.refresh();
+    assert.deepEqual(sourcesByKey()['acme/other#2'], ['me']);
   } finally {
     await wiring.stopPoller();
     await fs.rm(homeDir, { recursive: true, force: true });
   }
+});
+
+test('a repository whose first listing pages are crowded with pull requests is listed newest-updated first and then through issue search from that list on', async () => {
+  const busyPageReads: string[] = [];
+  const searchQueries: string[] = [];
+  const listing = createIssuesListing({
+    now: () => Date.parse('2026-11-06T12:00:00Z'),
+    store: watcherStore({
+      async issuePage(pagePath) {
+        if (!pagePath.startsWith('repos/acme/busy/')) return { kind: 'ok', etag: null, nextPath: null, issues: [] };
+        busyPageReads.push(pagePath);
+        return { kind: 'ok', etag: null, nextPath: `repos/acme/busy/issues?page=${busyPageReads.length + 1}`, issues: [openIssue('acme/busy', busyPageReads.length)] };
+      },
+      async issueLinkedPullRequests(keys) { return new Map(keys.map((key) => [key, []])); },
+      async searchIssues(query) {
+        searchQueries.push(query);
+        return { ok: true, isComplete: true, error: '', items: [openIssue('acme/busy', 50)] };
+      },
+    }),
+  });
+  const settings = { enabled: true, projectRepos: ['acme/busy'], teams: [], intervalMinutes: 5 };
+  const busyListing = async () => {
+    const listed = await listing.list(settings);
+    assert.ok(listed.ok);
+    return listed.payloads.find((payload) => payload.source === 'project');
+  };
+  const firstListing = await busyListing();
+  assert.match(busyPageReads[0] ?? '', /sort=updated&direction=desc/);
+  assert.deepEqual(firstListing?.issues.map((issue) => issue.number), [50]);
+  assert.equal(firstListing?.isComplete, true);
+  const pageReadsBeforeSecondList = busyPageReads.length;
+  assert.deepEqual((await busyListing())?.issues.map((issue) => issue.number), [50]);
+  assert.equal(busyPageReads.length, pageReadsBeforeSecondList);
+  assert.deepEqual(searchQueries, ['repo:acme/busy is:issue is:open', 'repo:acme/busy is:issue is:open']);
 });
 
 test('issues wiring retries an unreadable cache and keeps links made while it was unreadable', async () => {
@@ -149,7 +209,7 @@ test('a refresh on the shared GitHub clock re-reads held issues through the gate
   const githubStore = createGithubStoreWiring({ github, clock, isDashboardConnected: () => false, broadcast: () => {}, log: { warn() {} } });
   const poller = createIssuesPoller({
     teams: [], resolveProjects: async () => [], store: githubStore.laneStore, clock,
-    latestListings: () => [], feedSilenceMs: () => 0,
+    latestListings: () => [], feedSilenceMs: () => 0, heldClosedKeys: () => new Set(),
     readState: async () => ({ ...emptyIssuesState(), issues: [cached] }), writeState: async () => {}, onTickComplete: () => {},
     setIntervalFn: timer, clearIntervalFn: () => {}, setTimeoutFn: timer, clearTimeoutFn: () => {}, log: { warn() {} },
   });

@@ -61,6 +61,7 @@ export function createIssuesWiring({ config, gitWorkspace, broadcast, hasSession
   let hasWritesBeforeLoad = false;
   const listingFeed = createWatcheeFeed<IssuesListingPayload>();
   const listingsBySourceKey = new Map<string, IssuesListingPayload>();
+  const closedAtMsByKey = new Map<string, number>();
   const stateWrites = createSerialQueue();
   function pruneSessionLinks(): Record<string, string> {
     const sessionIds = new Set(Object.values(cachedState.sessionLinks).filter(hasSession));
@@ -123,7 +124,7 @@ export function createIssuesWiring({ config, gitWorkspace, broadcast, hasSession
     emptyStatus, broadcast: () => broadcast(currentStatus()),
     createPoller: ({ onTickComplete }) => createIssuesPoller({
       teams: teams(), resolveProjects, store, clock, log, firstTickDelayMs: bootStaggerDelay,
-      latestListings: () => [...listingsBySourceKey.values()], feedSilenceMs: listingFeed.silenceMs,
+      latestListings: () => [...listingsBySourceKey.values()], feedSilenceMs: listingFeed.silenceMs, heldClosedKeys,
       onTickComplete: (status) => { pollerStatus = status; onTickComplete(status); },
       getSessionLinks: pruneSessionLinks,
       readState: async () => { await loadState(); return cachedState; }, writeState,
@@ -155,18 +156,30 @@ export function createIssuesWiring({ config, gitWorkspace, broadcast, hasSession
     broadcast(currentStatus());
     await saved;
   }
+  function heldClosedKeys(): ReadonlySet<string> {
+    const nowMs = Date.now();
+    for (const [issueKey, closedAtMs] of closedAtMsByKey) {
+      if (nowMs - closedAtMs >= core.CLOSED_ISSUE_HOLD_MS) closedAtMsByKey.delete(issueKey);
+    }
+    return new Set(closedAtMsByKey.keys());
+  }
   async function setIssueState(change: { repo: string; number: number; state: 'closed' | 'open' }): Promise<{ ok: boolean; err: string }> {
     const applied = await github.setIssueState(change);
-    if (!applied.ok || change.state !== 'closed') return applied;
-    const closedKey = `${change.repo}#${change.number}`.toLowerCase();
+    if (!applied.ok) return applied;
+    const changedKey = `${change.repo}#${change.number}`.toLowerCase();
+    if (change.state === 'open') {
+      closedAtMsByKey.delete(changedKey);
+      return applied;
+    }
+    closedAtMsByKey.set(changedKey, Date.now());
     const poller = runner.getPoller();
     if (poller) {
-      await poller.forgetIssue(closedKey);
+      await poller.forgetIssue(changedKey);
       return applied;
     }
     await loadState();
-    const saved = writeState({ ...cachedState, issues: cachedState.issues.filter((issue) => issue.key.toLowerCase() !== closedKey) });
-    pollerStatus = pollerStatus && { ...pollerStatus, issues: pollerStatus.issues.filter((issue) => issue.key.toLowerCase() !== closedKey) };
+    const saved = writeState({ ...cachedState, issues: cachedState.issues.filter((issue) => issue.key.toLowerCase() !== changedKey) });
+    pollerStatus = pollerStatus && { ...pollerStatus, issues: pollerStatus.issues.filter((issue) => issue.key.toLowerCase() !== changedKey) };
     broadcast(currentStatus());
     await saved;
     return applied;
