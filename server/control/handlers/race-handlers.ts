@@ -1,6 +1,6 @@
 import { configIssueMessage, SHELL_AGENT_ID } from '../../../shared/contracts/index.ts';
 import type { ClientMessageOf } from '../../../shared/contracts/index.ts';
-import { RACE_JUDGE_AGENT, RaceSpec } from '../../../shared/contracts/race.ts';
+import { RaceJudgeAgent, RaceSpec } from '../../../shared/contracts/race.ts';
 import { CatalogAgentId } from '../../../shared/contracts/agent-models.ts';
 import type { RaceContestant } from '../../../shared/contracts/race.ts';
 import { DEFAULT_AGENT_ID, isKnownAgentId } from '../../../session/adapters/index.ts';
@@ -63,9 +63,9 @@ function createRaceHandlers(context: ControlContext, deps: ControlHandlerDeps, {
       reply({ ok: false, error: `"${uncleanable.setup.agent}" cannot race in a clean home: only Claude Code, Codex and Kimi Code can` });
       return;
     }
-    const unknownJudge = spec.judges.find((judge) => judge.setup.agent !== RACE_JUDGE_AGENT);
+    const unknownJudge = spec.judges.find((judge) => !RaceJudgeAgent.safeParse(judge.setup.agent).success);
     if (unknownJudge) {
-      reply({ ok: false, error: `"${unknownJudge.setup.agent}" cannot judge: a judge runs on Claude Code` });
+      reply({ ok: false, error: `"${unknownJudge.setup.agent}" cannot judge: a judge runs on Claude Code or Codex` });
       return;
     }
     const started = await races.start(spec, (contestant, race) => launchContestant(spec, contestant, race));

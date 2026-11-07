@@ -1,4 +1,5 @@
 import fsPromises from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 
 import type { HookRouter } from '../../detection/hook-source.ts';
@@ -21,7 +22,10 @@ import type { RecordLane, SpawnGate } from './ephemeral-session.ts';
 const SETTINGS_DIR_PREFIX = 'glimmervoid-lane-settings-';
 const GH_CONFIG_DIR_PREFIX = 'glimmervoid-lane-gh-';
 const KIMI_AGENT_ID = 'kimi';
-const CODEX_READ_ONLY_ARGS = Object.freeze(['-s', 'read-only']);
+const CODEX_AGENT_ID = 'codex';
+const CODEX_LANE_PERMISSION_PROFILE = 'glimmervoid_lane';
+const CODEX_PROMPT_FILENAME = 'lane-prompt.md';
+const CODEX_PROMPT_BOOTSTRAP = `Read ${CODEX_PROMPT_FILENAME} in the current folder and follow its instructions.`;
 const GUARD_HOOK_UNAVAILABLE_ERROR = 'Sane YOLO is unavailable';
 
 const LANE_SPAWN_DENY_TOOLS = Object.freeze(['Edit', 'NotebookEdit', 'Task', 'Bash(git push:*)']);
@@ -76,15 +80,25 @@ async function makeLaneGhConfigDirectory(): Promise<{ path: string; remove(): Pr
 
 function headlessPromptLaunch(agent: string, prompt: string): { args: string[]; initialPrompt: string | null } {
   if (agent === KIMI_AGENT_ID) return { args: ['-p', prompt], initialPrompt: null };
+  if (agent === CODEX_AGENT_ID) return { args: [CODEX_PROMPT_BOOTSTRAP], initialPrompt: null };
   return { args: [], initialPrompt: prompt };
 }
 
-function laneAgentArgs({ agent, isClaude, isCodex, extraArgs, model, postureArgs, standaloneArgs }: {
-  agent: string; isClaude: boolean; isCodex: boolean; extraArgs: readonly string[]; model: string | null; postureArgs: readonly string[]; standaloneArgs: readonly string[];
+function codexLaneExecArgs(laneDir: string, homeDir: string): string[] {
+  const filesystem = [[':root', 'read'], [homeDir, 'none'], [laneDir, 'write']].map(([folder, access]) => `${JSON.stringify(folder)}=${JSON.stringify(access)}`).join(',');
+  return [
+    'exec', '--skip-git-repo-check',
+    '-c', `default_permissions="${CODEX_LANE_PERMISSION_PROFILE}"`,
+    '-c', `permissions.${CODEX_LANE_PERMISSION_PROFILE}.filesystem={${filesystem}}`,
+  ];
+}
+
+function laneAgentArgs({ agent, isClaude, isCodex, extraArgs, model, postureArgs, standaloneArgs, laneDir }: {
+  agent: string; isClaude: boolean; isCodex: boolean; extraArgs: readonly string[]; model: string | null; postureArgs: readonly string[]; standaloneArgs: readonly string[]; laneDir: string;
 }): string[] {
   const modelArgs = selectionArgs(choiceSelection(isClaude ? DEFAULT_AGENT_ID : agent, { model }));
   if (isClaude) return ['-p', ...postureArgs, ...extraArgs, ...standaloneArgs, ...modelArgs];
-  if (isCodex) return [...CODEX_READ_ONLY_ARGS, ...extraArgs, ...modelArgs];
+  if (isCodex) return [...codexLaneExecArgs(laneDir, os.homedir()), ...extraArgs, ...modelArgs];
   return [...extraArgs, ...modelArgs];
 }
 
@@ -95,7 +109,7 @@ function createLaneSpawn({
   prepareMcp = prepareLaneMcp, getLaneAccessConfig = () => CLOSED_LANE_ACCESS_CONFIG,
 }: LaneSpawnOptions): LaneSpawn {
   return async function spawnLaneSession({ id, name, prompt, cwd, agent = DEFAULT_AGENT_ID, extraArgs = [], model = null, signal = null, onOutput }) {
-    const isCodex = agent === 'codex';
+    const isCodex = agent === CODEX_AGENT_ID;
     const isKimi = agent === KIMI_AGENT_ID;
     const isClaude = !isCodex && !isKimi;
     const guardHookTools = hookRouter ? resolveRequiredSaneYoloHookTools(getSaneYoloUnreadablePaths()) : [];
@@ -120,8 +134,9 @@ function createLaneSpawn({
       const standalone = !hookRouter && permissions ? await writeStandaloneDenySettings(permissions, []) : null;
       const hookTools = [...saneYoloHookTools, ...(laneMcp ? [laneMcp.posture.hookTool] : [])];
       const promptLaunch = headlessPromptLaunch(agent, prompt);
+      if (isCodex) await fsPromises.writeFile(path.join(cwd, CODEX_PROMPT_FILENAME), prompt, 'utf8');
       const agentExtraArgs = isCodex && laneMcp ? [...extraArgs, ...laneMcp.posture.args] : extraArgs;
-      const extraClaudeArgs = laneAgentArgs({ agent, isClaude, isCodex, extraArgs: agentExtraArgs, model, postureArgs: [...(posture?.args ?? []), ...(laneMcp?.posture.args ?? [])], standaloneArgs: standalone?.args ?? [] });
+      const extraClaudeArgs = laneAgentArgs({ agent, isClaude, isCodex, extraArgs: agentExtraArgs, model, postureArgs: [...(posture?.args ?? []), ...(laneMcp?.posture.args ?? [])], standaloneArgs: standalone?.args ?? [], laneDir: cwd });
       extraClaudeArgs.push(...promptLaunch.args);
       const options: SessionOptions = {
         ...(hookTools.length > 0 ? { hookTools } : {}),
@@ -141,6 +156,7 @@ function createLaneSpawn({
         hookRouter,
         getHookPort,
         ...(laneMcp?.scratchAgentHome ? { scratchAgentHome: laneMcp.scratchAgentHome } : {}),
+        ...(isCodex ? { isCleanHome: true } : {}),
       };
       try {
         const laneSession = createSession(options);
