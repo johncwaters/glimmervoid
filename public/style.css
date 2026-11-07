@@ -3525,11 +3525,7 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 .session-row-item[data-closing] > .session-row { opacity: 0.45; }
 .session-row-item[data-closing] > [data-action="remove-session"] { display: none; }
 .session-row-item[data-closing] > [data-action="undo-remove"] { display: inline-flex; }
-.session-row-item[data-closing] > .session-row-close-countdown { display: block; animation: session-row-close-drain linear forwards; }
-@keyframes session-row-close-drain {
-  from { transform: scaleX(1); }
-  to { transform: scaleX(0); }
-}
+.session-row-item[data-closing] > .session-row-close-countdown { display: block; }
 
 :is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="RUNNING"] { --st: var(--state-running); }
 :is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="RUNNING"][data-monitoring] { --st: var(--state-monitoring); }

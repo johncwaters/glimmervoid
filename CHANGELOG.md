@@ -66,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The undo line under a closing session keeps time.** After you close a session, the draining line under its row now shows the time actually left to undo, even after you switch to another tab or screen and come back, and while several closes are pending at once undoing or finishing one no longer restarts the others' lines.
 - **Esc closes a board page you clicked into.** With a page from a whiteboard open full size, Esc did nothing once you had clicked or typed inside the page, because the page kept the key to itself. The full-size page now reports Esc to the dashboard, so it closes like a picture or a video does. A page that handles Esc itself and cancels it keeps the view open.
 - **An alert sound blocked by the browser no longer reports an error.** When an alert played before you had clicked or typed on the dashboard, the browser held the sound back, and closing it afterwards raised an unhandled InvalidStateError that reached error reports. A blocked alert stays silent as before, now without the error.
 - **A blocked jingle no longer leaves an audio context open.** When the browser held back the jingle because you had not yet clicked or typed on the dashboard, its audio context stayed open, and each blocked play left another one behind. A blocked jingle now closes its context at once.

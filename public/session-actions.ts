@@ -168,7 +168,11 @@ async function requestCheckedSessionRemoval(ui: SessionUi, id: string, discardWo
 export const SESSION_CLOSE_UNDO_WINDOW_MS = 8000;
 export const CLOSING_ROW_STATE = 'CLOSING';
 
-const pendingCloseById = new Map<string, { timer: number; wasOpen: boolean }>();
+const pendingCloseById = new Map<string, { timer: number; wasOpen: boolean; startedAt: number }>();
+
+export function pendingCloseStartedAt(id: string) {
+  return pendingCloseById.get(id)?.startedAt ?? null;
+}
 
 export function isSessionShown(id: string) {
   return sessionUIs.has(id) && !pendingCloseById.has(id) && !removingSessionIds.has(id);
@@ -192,7 +196,7 @@ function finishPendingClose(id: string) {
 function beginPendingClose(id: string) {
   if (pendingCloseById.has(id)) return;
   const timer = window.setTimeout(() => finishPendingClose(id), SESSION_CLOSE_UNDO_WINDOW_MS);
-  pendingCloseById.set(id, { timer, wasOpen: getSelectedId() === id });
+  pendingCloseById.set(id, { timer, wasOpen: getSelectedId() === id, startedAt: performance.now() });
   markStatusDirty(id);
 }
 

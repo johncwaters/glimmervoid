@@ -5,7 +5,7 @@ import { createPressable } from './ui/pressable.ts';
 import { describeOwnership } from './focus-view/attention-core.ts';
 import { paintCardOwnership, remoteWorkspaceText } from './session-card/card-dom.ts';
 import { attentionTally, sessionName, sessionUIs } from './session-card/card-registry.ts';
-import { CLOSING_ROW_STATE, SESSION_CLOSE_UNDO_WINDOW_MS } from './session-actions.ts';
+import { CLOSING_ROW_STATE, SESSION_CLOSE_UNDO_WINDOW_MS, pendingCloseStartedAt } from './session-actions.ts';
 import { paintStatusIcon } from './status-icon.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { SHELL_AGENT_ID } from './session-card/agent-core.ts';
@@ -131,9 +131,26 @@ export function wrapSessionRow(row: HTMLElement, onRemove: () => void, onUndoRem
   } });
   const closeCountdown = el('span', 'session-row-close-countdown');
   closeCountdown.setAttribute('aria-hidden', 'true');
-  closeCountdown.style.animationDuration = `${SESSION_CLOSE_UNDO_WINDOW_MS}ms`;
   item.append(row, removeButton, undoButton, closeCountdown);
   return { item, removeButton };
+}
+
+const closeDrainByCountdown = new WeakMap<HTMLElement, Animation>();
+
+function paintCloseCountdown(row: HTMLElement, closeStartedAt: number | null) {
+  const item = row.closest<HTMLElement>('.session-row-item');
+  if (!item) return;
+  item.toggleAttribute('data-closing', closeStartedAt !== null);
+  const countdown = item.querySelector<HTMLElement>(':scope > .session-row-close-countdown');
+  if (!countdown) return;
+  const drain = closeDrainByCountdown.get(countdown);
+  if (drain && drain.startTime === closeStartedAt) return;
+  drain?.cancel();
+  closeDrainByCountdown.delete(countdown);
+  if (closeStartedAt === null) return;
+  const pinnedDrain = countdown.animate([{ transform: 'scaleX(1)' }, { transform: 'scaleX(0)' }], { duration: SESSION_CLOSE_UNDO_WINDOW_MS, fill: 'forwards' });
+  pinnedDrain.startTime = closeStartedAt;
+  closeDrainByCountdown.set(countdown, pinnedDrain);
 }
 
 export function paintSessionRowStatus(
@@ -224,7 +241,7 @@ export function paintSessionRow(
   { ui, state, name, mergeStatus, attentionPosition }: { ui: SessionUi; state: string; name: string; mergeStatus: string; attentionPosition: number | null },
 ) {
   const statusLabel = paintSessionRowMark(row, refs, ui, state);
-  row.closest<HTMLElement>('.session-row-item')?.toggleAttribute('data-closing', state === CLOSING_ROW_STATE);
+  paintCloseCountdown(row, state === CLOSING_ROW_STATE && row.dataset.id !== undefined ? pendingCloseStartedAt(row.dataset.id) : null);
   writeTextIfChanged(refs.name, name);
   paintAgentMark(refs.agent, ui.agent ?? null);
   const cloudText = paintSessionRowCloud(refs.cloud, ui.card.dataset.remoteWorkspace);
