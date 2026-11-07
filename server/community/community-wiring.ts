@@ -9,17 +9,18 @@ import { emptyLaneStatus } from '../lanes/lane-status.ts';
 import { bootStaggerDelay } from '../boot-stagger.ts';
 import { stableConfigKey } from '../core/config-secrets-core.ts';
 import type { LaneAccessConfig } from '../lanes/core/lane-permissions-core.ts';
+import { createPosthogApi, extractRows } from '../radar/posthog-api.ts';
+import type { PosthogApi } from '../radar/posthog-api.ts';
 import * as core from './core/community-core.ts';
 import { createCommunityPoller } from './community-poller.ts';
-import type { DiscordSource } from './community-poller.ts';
-import { createWatcheeFeed } from '../lanes/watchee-feed.ts';
+import type { DiscordSource, SourceRows } from './community-poller.ts';
 import { COMMUNITY_JUDGE_TOOLS, createCommunityJudge } from './community-judge.ts';
 import { createLaneSpawn } from '../lanes/lane-spawn.ts';
 import { writeUntrustedPayload } from '../lanes/untrusted-payload.ts';
 import { sendTelegramMessage } from '../telegram-transport.ts';
 import { decideTelegramNotification } from '../../notifications/channels/telegram.ts';
 import { CommunityState } from '../../shared/contracts/community.ts';
-import type { CommunityActionRequest, CommunityActionResult, CommunityRowsPayload, CommunityStateEntry } from '../../shared/contracts/community.ts';
+import type { CommunityActionRequest, CommunityActionResult, CommunityStateEntry } from '../../shared/contracts/community.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { TEAM_REVIEW_SESSION_DENY_RULES, createTeamReviewSpawn } from '../github/team-review-spawn.ts';
 import { absolutePathReadRule } from '../github/core/team-review-core.ts';
@@ -48,11 +49,17 @@ function createCommunityStateIo(statePath: string, log: Pick<Console, 'warn'>) {
     },
     async writeState(state: CommunityState): Promise<void> {
       const parsed = CommunityState.parse(state);
-      const isWritten = await store.write(parsed, () => `${JSON.stringify(parsed, null, 2)}\n`);
+      await store.write(parsed, () => `${JSON.stringify(parsed, null, 2)}\n`);
       loaded = parsed;
-      if (!isWritten) throw new Error('the community state file could not be written');
     },
   };
+}
+
+function hogQLRows(api: PosthogApi, projectId: number, query: string, values: Record<string, unknown>): Promise<SourceRows> {
+  return api.runHogQL(projectId, query, values).then((response) => {
+    if (!response.ok) return { ok: false, error: response.error, isRateLimited: 'status' in response && response.status === 429, retryAfterMs: 'retryAfterMs' in response ? response.retryAfterMs : undefined };
+    return { ok: true, rows: extractRows(response.body) };
+  });
 }
 
 function communityClaudeArgs(workDir: string): string[] {
@@ -151,7 +158,7 @@ function createCommunityRunner({ spawnDependencies, homeDir, getSettings, hookTo
   };
 }
 
-function createDiscordSource(settings: core.CommunitySettings, spawnDependencies: CommunitySpawnDependencies | null, getSaneYoloUnreadablePaths: () => readonly string[]): DiscordSource | null {
+function createDiscordSource(api: PosthogApi, settings: core.CommunitySettings, spawnDependencies: CommunitySpawnDependencies | null, getSaneYoloUnreadablePaths: () => readonly string[]): DiscordSource | null {
   if (!spawnDependencies || settings.discordChannels.length === 0) return null;
   const judgeSpawn = createLaneSpawn({
     laneName: core.COMMUNITY_LANE_ID,
@@ -165,13 +172,18 @@ function createDiscordSource(settings: core.CommunitySettings, spawnDependencies
     replayBufferKB: spawnDependencies.replayBufferKB,
     allowTools: COMMUNITY_JUDGE_TOOLS,
   });
-  return { judgeQuestions: createCommunityJudge(judgeSpawn) };
+  return {
+    channels: settings.discordChannels,
+    query: (sinceIso) => hogQLRows(api, settings.projectId, core.discordQuery(), { since: sinceIso, channels: settings.discordChannels }),
+    judgeQuestions: createCommunityJudge(judgeSpawn),
+  };
 }
 
 interface CommunityWiringOptions {
   config: GlimmervoidConfig;
   broadcast?: (status: Record<string, unknown>) => void;
   homeDir?: string;
+  createApi?: (connection: core.PosthogConnection) => PosthogApi;
   spawnDependencies?: CommunitySpawnDependencies | null;
   controlClientCount?: () => number;
   sendTelegram?: typeof sendTelegramMessage;
@@ -180,10 +192,9 @@ interface CommunityWiringOptions {
 
 function createCommunityWiring({
   config, broadcast = () => {}, homeDir = glimmervoidHomeDir(),
-  spawnDependencies = null,
+  createApi = (connection) => createPosthogApi(connection), spawnDependencies = null,
   controlClientCount = () => 0, sendTelegram = sendTelegramMessage, log = console,
 }: CommunityWiringOptions) {
-  const rowsFeed = createWatcheeFeed<CommunityRowsPayload>();
   const stateIo = createCommunityStateIo(path.join(homeDir, core.COMMUNITY_STATE_FILENAME), log);
   const runItem = spawnDependencies
     ? createCommunityRunner({ spawnDependencies, homeDir, getSettings: () => core.readCommunitySettings(config), hookToolConfig: config, getLaneAccessConfig: () => laneAccessConfigOf(config) })
@@ -207,12 +218,14 @@ function createCommunityWiring({
     emptyStatus: () => ({ ...emptyLaneStatus('community-status', core.communityGate(config, process.env)), entries: [] }),
     broadcast,
     createPoller: ({ onTickComplete }) => {
+      const connection = core.readPosthogConnection(config);
+      if (!connection) throw new Error('Community poller started without a PostHog apiKey');
       const settings = core.readCommunitySettings(config);
+      const api = createApi(connection);
       return createCommunityPoller({
         intervalMinutes: settings.intervalMinutes,
-        discordChannels: settings.discordChannels,
-        feedSilenceMs: rowsFeed.silenceMs,
-        discord: createDiscordSource(settings, spawnDependencies, () => config.saneYoloUnreadablePaths ?? []),
+        queryForum: (sinceIso) => hogQLRows(api, settings.projectId, core.forumQuery(), { since: sinceIso }),
+        discord: createDiscordSource(api, settings, spawnDependencies, () => config.saneYoloUnreadablePaths ?? []),
         readState: stateIo.readState,
         writeState: stateIo.writeState,
         runItem,
@@ -225,13 +238,6 @@ function createCommunityWiring({
   });
 
   const notRunning = 'The community lane is not running';
-
-  async function acceptRows(job: { payload: CommunityRowsPayload }): Promise<void> {
-    rowsFeed.accept(job.payload);
-    const poller = runner.getPoller();
-    if (!poller) throw new Error(notRunning);
-    await poller.acceptRows(job.payload);
-  }
 
   async function submitAction(request: CommunityActionRequest): Promise<Omit<CommunityActionResult, 'key'>> {
     const poller = runner.getPoller();
@@ -248,14 +254,10 @@ function createCommunityWiring({
   }
 
   return {
-    acceptRows,
     submitAction,
     sessionPromptFor,
     startPoller: runner.startPoller,
-    stopPoller: async () => {
-      rowsFeed.stop();
-      await runner.stopPoller();
-    },
+    stopPoller: runner.stopPoller,
     restartIfConfigChanged: runner.restartIfConfigChanged,
     getStatus: runner.getStatus,
     getPoller: runner.getPoller,

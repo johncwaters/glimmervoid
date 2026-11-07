@@ -73,7 +73,6 @@ import { isRecord } from '../../shared/coerce.ts';
 import { wireSecretsBroker } from '../secrets/secrets-wiring.ts';
 import { createHostLinksWiring } from '../hosts/host-links-wiring.ts';
 import type { SpawnHostTunnel } from '../hosts/host-links-wiring.ts';
-import { POSTHOG_API_KEY_ENV } from '../../cloud/watchees/posthog-watchee.ts';
 import { createJobInbox } from '../../cloud/inbox/job-inbox-wiring.ts';
 import { withBuiltInJobHandlers } from '../../cloud/inbox/watchee-handlers.ts';
 import { watcheeSettingsFromConfig } from '../../cloud/inbox/watchee-settings-sync.ts';
@@ -539,8 +538,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     }
     notifications.applySettings();
     laneAssembly.restartServiceLanes();
-    jobInbox.publishWatcheeSettings(watcheeSettingsFromConfig(config));
-    jobInbox.refreshWatcherEnvironment();
+    jobInbox.publishWatcheeSettings(watcheeSettingsFromConfig());
   }
 
   function downloadUpdateOnceListening() {
@@ -651,19 +649,11 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     dataWss,
   });
   const lifecycleServers: Server[] = [agentIngressServer];
-  function watcherSecretEnvironment(): Record<string, string> {
-    const posthogApiKey = config.posthog?.apiKey;
-    return typeof posthogApiKey === 'string' && posthogApiKey !== '' ? { [POSTHOG_API_KEY_ENV]: posthogApiKey } : {};
-  }
   const jobInbox = createJobInbox({
     watcherConfig: config.watcher,
-    watcherEnvironment: watcherSecretEnvironment,
-    handlers: withBuiltInJobHandlers({
-      'radar.project': posthog.acceptProject,
-      'community.rows': community.acceptRows,
-    }),
+    handlers: withBuiltInJobHandlers({}),
   });
-  jobInbox.publishWatcheeSettings(watcheeSettingsFromConfig(config));
+  jobInbox.publishWatcheeSettings(watcheeSettingsFromConfig());
   const { requestShutdown, requestRestart } = createLifecycle({
     shutdown,
     httpServer,

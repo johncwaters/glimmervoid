@@ -7,7 +7,7 @@ const VERDICT_TEXT: Readonly<Record<CommunityVerdict, string>> = { HIGH: 'High c
 const VERDICT_TONES: Readonly<Record<CommunityVerdict, StateTone>> = { HIGH: 'ok', MEDIUM: 'warn', LOW: 'muted' };
 
 const STATUS_TEXT: Readonly<Record<Exclude<CommunityStateEntry['status'], 'ready'>, string>> = {
-  pending: 'Waiting to be checked', queued: 'Waiting to be researched', running: 'Researching', error: 'Research failed', aside: 'Set aside',
+  queued: 'Waiting to be researched', running: 'Researching', error: 'Research failed', aside: 'Set aside',
 };
 
 const SOURCE_TEXT: Readonly<Record<CommunityStateEntry['item']['source'], string>> = { forum: 'Forum', discord: 'Discord' };

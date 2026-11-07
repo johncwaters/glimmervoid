@@ -12,7 +12,6 @@ const COMMUNITY_STATE_FILENAME = 'community-state.json';
 const DEFAULT_PROJECT_ID = 2;
 const DEFAULT_INTERVAL_MINUTES = 30;
 const SOURCE_ROW_LIMIT = 50;
-const MAX_PENDING_DISCORD_ENTRIES = 10 * SOURCE_ROW_LIMIT;
 const ENTRY_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 const FORUM_QUESTION_URL = 'https://posthog.com/forum/p/';
 const MAX_FORUM_TAGS = 20;
@@ -121,7 +120,7 @@ function communityGate(
 }
 
 function emptyCommunityState(): CommunityState {
-  return { entries: {} };
+  return { watermarks: { forum: null, discord: null }, entries: {} };
 }
 
 function forumQuery(): string {
@@ -215,44 +214,28 @@ function queuedEntry(item: CommunityItem, nowIso: string): CommunityStateEntry {
   };
 }
 
-type CommunitySourceName = CommunityItem['source'];
-
-function pendingEntry(item: CommunityItem, nowIso: string, replyFacts: DiscordReplyFacts | undefined): CommunityStateEntry {
-  const entry: CommunityStateEntry = { ...queuedEntry(item, nowIso), status: 'pending' };
-  return replyFacts ? { ...entry, replyFacts } : entry;
+function latestCreatedAt(items: readonly CommunityItem[], watermark: string): string {
+  return items.reduce((latest, item) => (Date.parse(item.createdAt) > Date.parse(latest) ? item.createdAt : latest), watermark);
 }
 
-function withPendingItems(state: CommunityState, items: readonly CommunityItem[], nowIso: string, replyFacts: ReadonlyMap<string, DiscordReplyFacts> = new Map()): CommunityState {
-  const unseenItems = items.filter((item) => !state.entries[item.key]);
-  if (unseenItems.length === 0) return state;
+type CommunitySourceName = keyof CommunityState['watermarks'];
+
+function freshItems(state: CommunityState, source: CommunitySourceName, items: readonly CommunityItem[]): CommunityItem[] {
+  const watermark = state.watermarks[source];
+  if (watermark === null) return [];
+  return items.filter((item) => Date.parse(item.createdAt) > Date.parse(watermark) && !state.entries[item.key]);
+}
+
+function admitSourceItems(state: CommunityState, source: CommunitySourceName, items: readonly CommunityItem[], nowIso: string, isQuestion: (key: string) => boolean = () => true): { state: CommunityState; admittedKeys: string[] } {
+  const watermark = state.watermarks[source];
+  if (watermark === null) return { state: { ...state, watermarks: { ...state.watermarks, [source]: nowIso } }, admittedKeys: [] };
+  const admitted = freshItems(state, source, items).filter((item) => isQuestion(item.key));
   const entries = { ...state.entries };
-  for (const item of unseenItems) entries[item.key] = pendingEntry(item, nowIso, replyFacts.get(item.key));
-  return { ...state, entries };
-}
-
-function pendingEntries(state: CommunityState, source: CommunitySourceName): CommunityStateEntry[] {
-  return Object.values(state.entries)
-    .filter((entry) => entry.status === 'pending' && entry.item.source === source)
-    .sort((left, right) => Date.parse(left.item.createdAt) - Date.parse(right.item.createdAt));
-}
-
-function admitPendingItems(state: CommunityState, pendingKeys: readonly string[], isQuestion: (key: string) => boolean = () => true): CommunityState {
-  const entries = { ...state.entries };
-  for (const key of pendingKeys) {
-    const entry = entries[key];
-    if (entry?.status !== 'pending') continue;
-    if (!isQuestion(key)) {
-      delete entries[key];
-      continue;
-    }
-    const { replyFacts: _judgedReplyFacts, ...admitted } = entry;
-    entries[key] = { ...admitted, status: 'queued' };
-  }
-  return { ...state, entries };
-}
-
-function shownEntries(state: CommunityState): CommunityStateEntry[] {
-  return Object.values(state.entries).filter((entry) => entry.status !== 'pending');
+  for (const item of admitted) entries[item.key] = queuedEntry(item, nowIso);
+  return {
+    state: { watermarks: { ...state.watermarks, [source]: latestCreatedAt(items, watermark) }, entries },
+    admittedKeys: admitted.map((item) => item.key),
+  };
 }
 
 const DISCORD_CHANNEL_NAME_EXPRESSION = "replaceRegexpAll(lower(coalesce(properties.root_channel_name, properties.parent_channel_name)), '^[^a-z0-9]+', '')";
@@ -383,6 +366,12 @@ function newestRowTimestamp(rows: readonly Record<string, unknown>[]): string | 
   return rows.map(discordTimestamp).reduce<string | null>((newest, timestamp) => (timestamp && (!newest || Date.parse(timestamp) > Date.parse(newest)) ? timestamp : newest), null);
 }
 
+function withWatermarkAtLeast(state: CommunityState, source: CommunitySourceName, seenAt: string | null): CommunityState {
+  const watermark = state.watermarks[source];
+  if (!seenAt || watermark === null || Date.parse(seenAt) <= Date.parse(watermark)) return state;
+  return { ...state, watermarks: { ...state.watermarks, [source]: seenAt } };
+}
+
 function discordItemsFromRows(rows: readonly Record<string, unknown>[], allowlist: readonly string[]): { items: CommunityItem[]; replyFacts: Map<string, DiscordReplyFacts>; dropReasons: Map<DiscordDropReason, number>; newestRowAt: string | null } {
   const allowed = new Set(allowlist);
   const threadRows = rows.filter((row) => stringField(row, 'event') === 'thread_created');
@@ -490,7 +479,6 @@ function queuedForRerun(entry: CommunityStateEntry): CommunityStateEntry {
 }
 
 function applyCommunityAction(entry: CommunityStateEntry, action: CommunityAction): { ok: true; entry: CommunityStateEntry } | { ok: false; error: string } {
-  if (entry.status === 'pending') return { ok: false, error: 'That question is no longer tracked' };
   if (action === 'set-aside') return { ok: true, entry: { ...entry, status: 'aside' } };
   if (entry.status === 'running') return { ok: false, error: 'The research run for this question is still going' };
   return { ok: true, entry: queuedForRerun(entry) };
@@ -641,29 +629,43 @@ function communitySessionPrompt(entry: CommunityStateEntry): string {
   ].join('\n');
 }
 
+function entryWithoutWatcherFields(savedEntry: unknown): Record<string, unknown> {
+  const fields = Object.entries(recordOf(savedEntry)).filter(([field]) => field !== 'replyFacts');
+  const entry = Object.fromEntries(fields);
+  return entry.status === 'pending' ? { ...entry, status: 'queued' } : entry;
+}
+
+function newestAskedAt(entries: CommunityState['entries'], source: CommunitySourceName): string | null {
+  const askedTimes = Object.values(entries).filter((entry) => entry.item.source === source).map((entry) => entry.item.createdAt).filter((askedAt) => Number.isFinite(Date.parse(askedAt)));
+  return askedTimes.reduce<string | null>((newest, askedAt) => (newest === null || Date.parse(askedAt) > Date.parse(newest) ? askedAt : newest), null);
+}
+
 function parseCommunityState(raw: unknown, warn: (message: string) => void): CommunityState | null {
   const block = recordOf(raw);
-  if (raw === null || typeof raw !== 'object') return null;
+  const isWatcherEraState = block.watermarks === undefined;
+  const watermarks = CommunityState.shape.watermarks.safeParse(block.watermarks);
+  if (!watermarks.success && !isWatcherEraState) return null;
   const entries: CommunityState['entries'] = {};
   for (const [key, value] of Object.entries(recordOf(block.entries))) {
-    const parsed = CommunityState.shape.entries.safeParse({ [key]: value });
+    const parsed = CommunityState.shape.entries.safeParse({ [key]: entryWithoutWatcherFields(value) });
     if (!parsed.success) {
       warn(`dropped an invalid saved community item ${key.slice(0, 160)}`);
       continue;
     }
     Object.assign(entries, parsed.data);
   }
-  return { entries };
+  if (watermarks.success) return { watermarks: watermarks.data, entries };
+  return { watermarks: { forum: newestAskedAt(entries, 'forum'), discord: newestAskedAt(entries, 'discord') }, entries };
 }
 
 export {
   COMMUNITY_BOOTSTRAP_PROMPT, COMMUNITY_LANE_ID, COMMUNITY_POSTING_FILENAME, COMMUNITY_PROMPT_FILENAME, COMMUNITY_REPORT_FILENAME, COMMUNITY_STATE_FILENAME,
-  MAX_CONCURRENT_RUNS, MAX_PENDING_DISCORD_ENTRIES, RUN_TIMEOUT_SECONDS, SOURCE_ROW_LIMIT,
+  MAX_CONCURRENT_RUNS, RUN_TIMEOUT_SECONDS,
   JUDGE_BOOTSTRAP_PROMPT, JUDGE_MODEL, JUDGE_PROMPT_FILENAME, JUDGE_RESULT_FILENAME, JUDGE_TIMEOUT_MS,
   COMMUNITY_UNTRUSTED_SOURCE, JUDGE_UNTRUSTED_SOURCE, JUDGE_MESSAGE_CHARS, MAX_BODY_CHARS,
   NOTIFICATION_CATEGORY, draftNotificationText, shouldNotifyDraft,
-  admitPendingItems, applyCommunityAction, buildJudgeRequest, discordDropSummary, discordItemsFromRows, discordQuery, parseJudgeResult, buildCommunityRequest, communityGate, communitySessionPrompt, emptyCommunityState, entryFromRun, forumItemsFromRows, forumQuery, markRunning,
-  parseCommunityState, pendingEntries, prunedState, readCommunitySettings, readPosthogConnection, readTelegramTarget, requeueInterruptedRuns, selectRuns,
-  shouldPruneEntry, shownEntries, withPendingItems,
+  admitSourceItems, withWatermarkAtLeast, applyCommunityAction, buildJudgeRequest, discordDropSummary, discordItemsFromRows, discordQuery, freshItems, parseJudgeResult, buildCommunityRequest, communityGate, communitySessionPrompt, emptyCommunityState, entryFromRun, forumItemsFromRows, forumQuery, markRunning,
+  parseCommunityState, prunedState, readCommunitySettings, readPosthogConnection, readTelegramTarget, requeueInterruptedRuns, selectRuns,
+  shouldPruneEntry,
 };
-export type { CommunityRunResult, DiscordReplyFacts, CommunitySettings };
+export type { CommunityRunResult, DiscordReplyFacts, CommunitySettings, PosthogConnection };

@@ -1,17 +1,22 @@
 import { createTickLoop } from '../lanes/lane-runner.ts';
 import type { TickOutcome } from '../lanes/lane-runner.ts';
 import * as core from './core/community-core.ts';
-import type { CommunityAction, CommunityItem, CommunityRowsPayload, CommunityState, CommunityStateEntry } from '../../shared/contracts/community.ts';
-import { watcherFeedError } from '../lanes/core/watchee-feed-core.ts';
+import type { CommunityAction, CommunityItem, CommunityState, CommunityStateEntry } from '../../shared/contracts/community.ts';
 import { errorMessage } from '../../shared/text.ts';
+
+type SourceRows = { ok: true; rows: Record<string, unknown>[] } | { ok: false; error: string; isRateLimited?: boolean; retryAfterMs?: number | undefined };
+type SourceFailure = { error: string; isRateLimited: boolean; retryAfterMs?: number | undefined };
 
 const MAX_RATE_LIMIT_WAIT_MS = 60 * 60000;
 
+function sourceFailure(fetched: { error: string; isRateLimited?: boolean; retryAfterMs?: number | undefined }): SourceFailure {
+  return { error: fetched.error, isRateLimited: fetched.isRateLimited === true, retryAfterMs: fetched.retryAfterMs };
+}
+
 interface CommunityPollerDependencies {
   intervalMinutes: number;
+  queryForum: (sinceIso: string) => Promise<SourceRows>;
   discord?: DiscordSource | null;
-  feedSilenceMs?: () => number;
-  discordChannels?: readonly string[];
   readState: () => Promise<CommunityState>;
   writeState: (state: CommunityState) => Promise<void>;
   runItem?: (entry: CommunityStateEntry, signal: AbortSignal) => Promise<core.CommunityRunResult>;
@@ -24,6 +29,8 @@ interface CommunityPollerDependencies {
 }
 
 interface DiscordSource {
+  channels: readonly string[];
+  query: (sinceIso: string) => Promise<SourceRows>;
   judgeQuestions: (candidates: readonly CommunityItem[], replyFacts: ReadonlyMap<string, core.DiscordReplyFacts>) => Promise<Set<string> | null>;
 }
 
@@ -32,12 +39,11 @@ interface CommunityPoller {
   stop(): Promise<void>;
   tick(): Promise<void>;
   state(): CommunityState;
-  acceptRows(payload: CommunityRowsPayload): Promise<void>;
   applyAction(key: string, action: CommunityAction): Promise<{ ok: true } | { ok: false; error: string }>;
 }
 
 function createCommunityPoller({
-  intervalMinutes, discordChannels = [], discord = null, feedSilenceMs = () => 0, readState, writeState, runItem, maxConcurrentRuns = core.MAX_CONCURRENT_RUNS,
+  intervalMinutes, queryForum, discord = null, readState, writeState, runItem, maxConcurrentRuns = core.MAX_CONCURRENT_RUNS,
   onTickComplete = () => {}, onDraftReady = () => {}, firstTickDelayMs, now = Date.now, log = console,
 }: CommunityPollerDependencies): CommunityPoller {
   let state: CommunityState = core.emptyCommunityState();
@@ -57,38 +63,41 @@ function createCommunityPoller({
   });
 
   function publishStatus(error: string | null): void {
-    onTickComplete({ type: 'community-status', ts: now(), intervalMinutes, error, entries: core.shownEntries(state) });
+    onTickComplete({ type: 'community-status', ts: now(), intervalMinutes, error, entries: Object.values(state.entries) });
   }
 
-  let stateLoaded: () => void = () => {};
-  const stateLoading = new Promise<void>((resolve) => { stateLoaded = resolve; });
-
-  async function acceptRows(payload: CommunityRowsPayload): Promise<void> {
-    await stateLoading;
-    if (loop.isStopped()) throw new Error('The community lane is not running');
+  async function pollForum(): Promise<SourceFailure | null> {
+    const watermark = state.watermarks.forum;
     const nowIso = new Date(now()).toISOString();
-    if (payload.source === 'forum') {
-      const { items, droppedRows } = core.forumItemsFromRows(payload.rows);
-      if (droppedRows > 0) log.warn(`[${core.COMMUNITY_LANE_ID}] dropped ${droppedRows} malformed forum row(s)`);
-      state = core.withPendingItems(state, items, nowIso);
+    if (watermark === null) {
+      state = core.admitSourceItems(state, 'forum', [], nowIso).state;
+      return null;
     }
-    if (payload.source === 'discord') {
-      if (core.pendingEntries(state, 'discord').length >= core.MAX_PENDING_DISCORD_ENTRIES) throw new Error('Too many Discord messages are waiting for the question judge');
-      const { items, replyFacts, dropReasons } = core.discordItemsFromRows(payload.rows, discordChannels);
-      const dropSummary = core.discordDropSummary(dropReasons);
-      if (dropSummary) log.warn(`[${core.COMMUNITY_LANE_ID}] ${dropSummary}`);
-      state = core.withPendingItems(state, items, nowIso, replyFacts);
-    }
-    if (!await loop.save()) throw new Error('The community rows could not be saved');
+    const fetched = await queryForum(watermark);
+    if (!fetched.ok) return sourceFailure(fetched);
+    const { items, droppedRows, newestRowAt } = core.forumItemsFromRows(fetched.rows);
+    if (droppedRows > 0) log.warn(`[${core.COMMUNITY_LANE_ID}] dropped ${droppedRows} malformed forum row(s)`);
+    state = core.withWatermarkAtLeast(core.admitSourceItems(state, 'forum', items, nowIso).state, 'forum', newestRowAt);
+    return null;
   }
 
-  async function judgePendingDiscord(source: DiscordSource): Promise<string | null> {
-    const candidates = core.pendingEntries(state, 'discord').slice(0, core.SOURCE_ROW_LIMIT);
-    if (candidates.length === 0) return null;
-    const replyFacts = new Map(candidates.flatMap((entry) => entry.replyFacts ? [[entry.item.key, entry.replyFacts] as const] : []));
-    const questionKeys = await source.judgeQuestions(candidates.map((entry) => entry.item), replyFacts).catch(() => null);
-    if (questionKeys === null) return 'The Discord question judge gave no usable answer; these messages are checked again next poll';
-    state = core.admitPendingItems(state, candidates.map((entry) => entry.item.key), (key) => questionKeys.has(key));
+  async function pollDiscord(source: DiscordSource): Promise<SourceFailure | null> {
+    const watermark = state.watermarks.discord;
+    const nowIso = new Date(now()).toISOString();
+    if (watermark === null) {
+      state = core.admitSourceItems(state, 'discord', [], nowIso).state;
+      return null;
+    }
+    const fetched = await source.query(watermark);
+    if (!fetched.ok) return sourceFailure(fetched);
+    const { items, replyFacts, dropReasons, newestRowAt } = core.discordItemsFromRows(fetched.rows, source.channels);
+    const dropSummary = core.discordDropSummary(dropReasons);
+    if (dropSummary) log.warn(`[${core.COMMUNITY_LANE_ID}] ${dropSummary}`);
+    const candidates = core.freshItems(state, 'discord', items);
+    const questionKeys = candidates.length > 0 ? await source.judgeQuestions(candidates, replyFacts).catch(() => null) : new Set<string>();
+    if (questionKeys === null) return { error: 'The Discord question judge gave no usable answer; these messages are checked again next poll', isRateLimited: false };
+    const admitted = core.admitSourceItems(state, 'discord', items, nowIso, (key) => questionKeys.has(key)).state;
+    state = core.withWatermarkAtLeast(admitted, 'discord', newestRowAt);
     return null;
   }
 
@@ -130,15 +139,19 @@ function createCommunityPoller({
   }
 
   async function runTick(): Promise<TickOutcome> {
-    state = core.admitPendingItems(state, core.pendingEntries(state, 'forum').map((entry) => entry.item.key));
-    const judgeError = discord === null ? null : await judgePendingDiscord(discord);
-    const feedError = watcherFeedError('Community has no forum or Discord rows', feedSilenceMs(), intervalMs, 'PostHog');
-    const pollError = judgeError ?? feedError;
+    const forumFailure = await pollForum();
+    const shouldPollDiscord = discord !== null && discord.channels.length > 0 && !forumFailure?.isRateLimited;
+    const discordFailure = shouldPollDiscord ? await pollDiscord(discord) : null;
+    const pollFailure = forumFailure ?? discordFailure;
+    const pollError = pollFailure?.error ?? null;
+    const retryAfterWaits = [forumFailure?.retryAfterMs, discordFailure?.retryAfterMs].filter((waitMs) => waitMs !== undefined);
+    const longestRetryAfterMs = retryAfterWaits.length > 0 ? Math.max(...retryAfterWaits) : undefined;
     state = core.prunedState(state, now());
     dispatchRuns();
     await loop.persist();
     publishStatus(pollError);
-    if (judgeError) return { failed: true, error: judgeError };
+    if (pollError && longestRetryAfterMs !== undefined) return { failed: true, error: pollError, retryAfterMs: longestRetryAfterMs };
+    if (pollError) return { failed: true, error: pollError };
     return {};
   }
 
@@ -161,20 +174,18 @@ function createCommunityPoller({
   async function start(): Promise<void> {
     await loop.start(async () => {
       state = core.requeueInterruptedRuns(await readState());
-      stateLoaded();
       publishStatus(null);
     });
   }
 
   async function stop(): Promise<void> {
     const stopping = loop.stop();
-    stateLoaded();
     for (const controller of runAborts.values()) controller.abort();
     await stopping;
   }
 
-  return { start, stop, tick: loop.tick, state: () => state, acceptRows, applyAction };
+  return { start, stop, tick: loop.tick, state: () => state, applyAction };
 }
 
 export { createCommunityPoller };
-export type { DiscordSource };
+export type { DiscordSource, SourceRows };
