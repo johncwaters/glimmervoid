@@ -182,6 +182,50 @@ test('each lockfile dir of a session worktree gets its own install without runni
   assert.deepEqual(rerun.install.results, []);
 });
 
+async function packInstallScriptPackage(mainCheckout: string, name: string): Promise<string> {
+  const sourceDir = path.join(mainCheckout, 'vendor-src', name);
+  writeJson(path.join(sourceDir, 'package.json'), { name, version: '1.0.0', scripts: { install: 'node -e "require(\'fs\').writeFileSync(\'install-ran\', \'\')"' } });
+  fs.mkdirSync(path.join(mainCheckout, 'vendor'), { recursive: true });
+  const packed = await runCommand('npm', ['pack', sourceDir, '--pack-destination', path.join(mainCheckout, 'vendor')], { cwd: mainCheckout, timeoutMs: 120_000 });
+  assert.ok(packed.ok, packed.err);
+  fs.rmSync(path.join(mainCheckout, 'vendor-src'), { recursive: true });
+  return `file:vendor/${name}-1.0.0.tgz`;
+}
+
+test('an install-script package arrives built from a matching main checkout install, and one whose own or nested install differs is named', { skip: !CAN_INSTALL || CAN_CLONE }, async () => {
+  const { root, mainCheckout } = makeMainCheckout('gv-dependency-install-script-');
+  const dependencies = {
+    'built-pkg': await packInstallScriptPackage(mainCheckout, 'built-pkg'),
+    'drifted-pkg': await packInstallScriptPackage(mainCheckout, 'drifted-pkg'),
+    'nested-drift-pkg': await packInstallScriptPackage(mainCheckout, 'nested-drift-pkg'),
+  };
+  writeJson(path.join(mainCheckout, 'package.json'), { name: 'fixture', version: '1.0.0', dependencies });
+  await writeLockfileFor(mainCheckout);
+  git(['add', '-A'], mainCheckout);
+  git(['commit', '-m', 'init'], mainCheckout);
+  const mainInstall = await runCommand('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: mainCheckout, timeoutMs: 120_000 });
+  assert.ok(mainInstall.ok, mainInstall.err);
+  fs.writeFileSync(path.join(mainCheckout, 'node_modules', 'built-pkg', 'built.node'), 'native\n');
+  fs.writeFileSync(path.join(mainCheckout, 'node_modules', 'drifted-pkg', 'built.node'), 'native\n');
+  fs.writeFileSync(path.join(mainCheckout, 'node_modules', 'nested-drift-pkg', 'built.node'), 'native\n');
+  const mainInstalledLockPath = path.join(mainCheckout, 'node_modules', '.package-lock.json');
+  const mainInstalled = JSON.parse(fs.readFileSync(mainInstalledLockPath, 'utf8'));
+  mainInstalled.packages['node_modules/drifted-pkg'].integrity = 'sha512-drifted';
+  mainInstalled.packages['node_modules/nested-drift-pkg/node_modules/left-pad'] = { version: '1.3.0', resolved: 'https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz', integrity: 'sha512-nested' };
+  writeJson(mainInstalledLockPath, mainInstalled);
+  const worktreeDir = path.join(root, 'session-worktree');
+  git(['worktree', 'add', '-b', 'session', worktreeDir], mainCheckout);
+
+  const { install } = await seedToCompletion(mainCheckout, worktreeDir);
+
+  assert.deepEqual(install.results.map((result) => [result.dir, result.ok]), [['.', true]]);
+  assert.equal(fs.readFileSync(path.join(worktreeDir, 'node_modules', 'built-pkg', 'built.node'), 'utf8'), 'native\n');
+  assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules', 'drifted-pkg', 'built.node')), false);
+  assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules', 'nested-drift-pkg', 'built.node')), false);
+  assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules', 'drifted-pkg', 'install-ran')), false);
+  assert.deepEqual(describeInstallWarnings(install), ['drifted-pkg, nested-drift-pkg in . installed without running install scripts and the main checkout has no matching install to copy; run npm rebuild drifted-pkg nested-drift-pkg there']);
+});
+
 test('a failed install leaves no node_modules and a yarn lockfile dir is named, not installed', { skip: !CAN_INSTALL }, async () => {
   const { mainCheckout, worktreeDir } = await makeInstallableRepoWithWorktree();
   writeJson(path.join(worktreeDir, 'package.json'), { name: 'fixture', version: '1.0.0', dependencies: { 'left-pad': 'file:vendor/left-pad', 'not-in-lockfile': 'file:missing' } });

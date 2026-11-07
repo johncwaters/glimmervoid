@@ -102,7 +102,7 @@ function installSatisfiesLockfile(kind: LockKind, worktreeLockText: string, main
   return true;
 }
 
-type NpmPackageEntry = { version?: unknown; integrity?: unknown; resolved?: unknown; optional?: unknown; link?: unknown };
+type NpmPackageEntry = { version?: unknown; integrity?: unknown; resolved?: unknown; optional?: unknown; link?: unknown; hasInstallScript?: unknown };
 
 function readNpmPackages(lockText: string): Map<string, NpmPackageEntry> | null {
   let parsed: unknown;
@@ -118,6 +118,47 @@ function readNpmPackages(lockText: string): Map<string, NpmPackageEntry> | null 
 
 function isSameNpmPackage(wanted: NpmPackageEntry, installed: NpmPackageEntry): boolean {
   return wanted.version === installed.version && wanted.integrity === installed.integrity && wanted.resolved === installed.resolved;
+}
+
+type InstallScriptCopyPlan = { copies: string[]; unbuilt: string[] };
+
+const INSTALLED_PACKAGE_PATH = /^node_modules\/(?:@[\w.-]+\/)?[\w.-]+(?:\/node_modules\/(?:@[\w.-]+\/)?[\w.-]+)*$/;
+
+export function planInstallScriptCopies(worktreeInstalledLockText: string | null, mainInstalledLockText: string | null): InstallScriptCopyPlan {
+  const installedPackages = worktreeInstalledLockText === null ? null : readNpmPackages(worktreeInstalledLockText);
+  const mainPackages = mainInstalledLockText === null ? null : readNpmPackages(mainInstalledLockText);
+  const plan: InstallScriptCopyPlan = { copies: [], unbuilt: [] };
+  if (!installedPackages) return plan;
+  for (const [installPath, installed] of installedPackages) {
+    if (installed.hasInstallScript !== true || installed.link === true || !isPlainInstalledPackagePath(installPath)) continue;
+    const hasMatchingMainInstall = mainPackages !== null && typeof installed.integrity === 'string' && isSameInstalledTree(installPath, installedPackages, mainPackages);
+    plan[hasMatchingMainInstall ? 'copies' : 'unbuilt'].push(installPath);
+  }
+  return plan;
+}
+
+function isSameInstalledTree(installPath: string, installedPackages: Map<string, NpmPackageEntry>, mainPackages: Map<string, NpmPackageEntry>): boolean {
+  const installedTree = installedTreeOf(installPath, installedPackages);
+  const mainTree = installedTreeOf(installPath, mainPackages);
+  if (installedTree.size !== mainTree.size) return false;
+  for (const [treePath, installed] of installedTree) {
+    const mainEntry = mainTree.get(treePath);
+    if (!mainEntry || !isSameNpmPackage(installed, mainEntry)) return false;
+  }
+  return true;
+}
+
+function installedTreeOf(installPath: string, packages: Map<string, NpmPackageEntry>): Map<string, NpmPackageEntry> {
+  const nestedPrefix = `${installPath}/node_modules/`;
+  return new Map([...packages].filter(([treePath]) => treePath === installPath || treePath.startsWith(nestedPrefix)));
+}
+
+function isPlainInstalledPackagePath(installPath: string): boolean {
+  return INSTALLED_PACKAGE_PATH.test(installPath) && installPath.split('/').every((segment) => segment !== '.' && segment !== '..');
+}
+
+function packageNameOfInstallPath(installPath: string): string {
+  return installPath.slice(installPath.lastIndexOf('node_modules/') + 'node_modules/'.length);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -179,7 +220,7 @@ export type PackageDirFacts = { dir: string; hasNodeModules: boolean; lockfiles:
 export type PlannedInstall = { dir: string; command: string; args: readonly string[] };
 type DependencyInstallPlan = { installs: PlannedInstall[]; unsupportedDirs: string[] };
 export type InstallResult =
-  | { dir: string; command: string; ok: true }
+  | { dir: string; command: string; ok: true; unbuiltPackages: string[] }
   | { dir: string; command: string; ok: false; lastOutputLine: string; timedOut: boolean };
 export type DependencyInstallOutcome = { results: InstallResult[]; unsupportedDirs: string[]; elapsedMs: number };
 
@@ -242,6 +283,7 @@ export function describeInstalledDirs(outcome: DependencyInstallOutcome): string
 export function describeInstallWarnings(outcome: DependencyInstallOutcome): string[] {
   const warnings: string[] = [];
   for (const result of outcome.results) {
+    if (result.ok && result.unbuiltPackages.length) warnings.push(describeUnbuiltPackages(result.dir, result.unbuiltPackages));
     if (result.ok) continue;
     const failure = result.timedOut ? 'timed out after 10 minutes' : `failed: ${result.lastOutputLine || 'no output'}`;
     warnings.push(`${result.command} in ${result.dir} ${failure}; install dependencies in the worktree`);
@@ -250,6 +292,11 @@ export function describeInstallWarnings(outcome: DependencyInstallOutcome): stri
     warnings.push(`node_modules in ${outcome.unsupportedDirs.join(', ')} was not installed because the worktree has no package-lock.json or pnpm-lock.yaml there; install dependencies there`);
   }
   return warnings;
+}
+
+function describeUnbuiltPackages(dir: string, unbuiltPackages: readonly string[]): string {
+  const names = unbuiltPackages.map(packageNameOfInstallPath);
+  return `${names.join(', ')} in ${dir} installed without running install scripts and the main checkout has no matching install to copy; run npm rebuild ${names.join(' ')} there`;
 }
 
 export function describeDependencyCloneSkip(reason: DependencyCloneSkipReason): string {
