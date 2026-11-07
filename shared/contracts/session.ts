@@ -5,6 +5,9 @@ import { LinkedPr, MyPr } from './my-prs.ts';
 import { InFlightReview, QueuedReview, ReviewDraft } from './team-review.ts';
 import { WhiteboardAgentReply } from './whiteboard.ts';
 
+export const MergeStatus = z.enum(['none', 'pending-review', 'merging', 'parked', 'merged']);
+export type MergeStatus = z.infer<typeof MergeStatus>;
+
 export const TASK_TITLE_MAX_LENGTH = 120;
 export const SESSION_NAME_PATTERN = /^[a-zA-Z0-9_\-. ()]{1,64}$/;
 export const SESSION_NAME_RULE_TEXT = 'Session name may only contain letters, numbers, spaces, dashes, dots, underscores, and parentheses (max 64 chars)';
@@ -74,7 +77,7 @@ export const SessionSnapshot = z.object({
   awaitingBackgroundTasks: z.boolean(),
   pendingPromptKind: z.string().nullable(),
   hasPlan: z.boolean().default(false),
-  mergeStatus: z.string().nullable(),
+  mergeStatus: MergeStatus.nullable(),
   mergeReason: z.string().nullable(),
   worktreeNotice: z.string().nullable(),
   failureReason: z.string().nullable().optional(),

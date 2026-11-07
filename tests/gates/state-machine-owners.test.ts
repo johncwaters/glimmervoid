@@ -15,9 +15,9 @@ const MACHINES: OwnedMachine[] = [
     name: 'merge status',
     owner: 'session/core/worktree-state.ts',
     handles: /\bmergeStatus\b/,
-    writes: [/\.mergeStatus\s*=[^=]/, /\bprojectMergeState\(/, /\bmergeStatus\s*:\s*["'`]/],
+    writes: [/\.mergeStatus\s*=[^=]/, /\bObject\.assign\([^)]*mergeStatus/, /\bmergeStatus\s*:\s*["'`]/],
     allowedOffenders: new Map([
-      ['session/session-worktree-lifecycle.ts', 'setMergeStatus assigns projectMergeState with no transition check until the merge status slice'],
+      ['session/session-worktree-lifecycle.ts', 'seeds the initial none status and applies the owner verdict from nextMergeState'],
     ]),
   },
   {
@@ -64,9 +64,6 @@ const MACHINE_WRITER_SOURCE = /^(?:server|session|mcp|cloud|detection|notificati
 const STATUS_FIELD_AS_FREE_STRING = /["'`]?\b(status|state|phase|mode|\w+Status|\w+State)["'`]?\s*:\s*z\s*\.\s*(?:coerce\s*\.\s*)?string\s*\(/g;
 
 const ALLOWED_FREE_STRING_STATUS_FIELDS = new Map<string, { count: number; reason: string }>([
-  ['shared/contracts/session.ts#mergeStatus', { count: 1, reason: 'merge status, narrowed to an enum by the merge status slice' }],
-  ['shared/contracts/control/session-messages.ts#mergeStatus', { count: 1, reason: 'merge status, narrowed to an enum by the merge status slice' }],
-  ['shared/contracts/control/worktree-messages.ts#mergeStatus', { count: 1, reason: 'merge status, narrowed to an enum by the merge status slice' }],
   ['shared/contracts/control/worktree-messages.ts#state', { count: 1, reason: 'branch sync verdict from decideBranchSyncState, not yet a contract enum' }],
   ['shared/contracts/my-prs.ts#state', { count: 5, reason: 'GitHub GraphQL review and status states, an external vocabulary that grows without notice' }],
   ['shared/contracts/my-prs.ts#mergeStateStatus', { count: 2, reason: 'GitHub GraphQL mergeStateStatus, an external vocabulary' }],

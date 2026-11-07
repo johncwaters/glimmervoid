@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CoherenceHooksState, SessionSnapshot, SessionState, TaskTitle } from '../session.ts';
+import { CoherenceHooksState, MergeStatus, SessionSnapshot, SessionState, TaskTitle } from '../session.ts';
 import { LinkedPr } from '../my-prs.ts';
 import { ManagerDecision } from '../question-manager.ts';
 import { requestId, sessionId, KeptWorkPath, PullRequestKey, loose, openObject, nullableString, timestamp, optionalError, SessionCardFields, NotifyAlertGroup, SessionStatusFields } from './control-fields.ts';
@@ -49,7 +49,7 @@ export const sessionServerVariants = [
   loose('session-added', SessionCardFields.shape),
   loose('session-modified', SessionCardFields.shape),
   loose('session-removed', { id: sessionId, session: z.string() }),
-  loose('session-close-confirm', { id: sessionId, mergeStatus: z.string() }),
+  loose('session-close-confirm', { id: sessionId, mergeStatus: MergeStatus }),
   loose('session-renamed', { id: sessionId, oldName: z.string(), newName: z.string() }),
   loose('session-title', { id: sessionId, taskTitle: TaskTitle.nullable(), isCustom: z.boolean() }),
   loose('session-prs', { id: sessionId, linkedPrs: z.array(LinkedPr) }),
