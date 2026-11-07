@@ -17,10 +17,19 @@ export const MyPrsWatcheeSettings = z.object({
 
 export type MyPrsWatcheeSettings = z.infer<typeof MyPrsWatcheeSettings>;
 
+export const WorkflowsWatcheeSettings = z.object({
+  enabled: z.boolean(),
+  repos: z.array(z.string().min(1)),
+  intervalMinutes: z.number().positive(),
+}).strict();
+
+export type WorkflowsWatcheeSettings = z.infer<typeof WorkflowsWatcheeSettings>;
+
 export const WatcheeSettingsFile = z.object({
   version: z.literal(1),
   teamReview: TeamReviewWatcheeSettings,
   myPrs: MyPrsWatcheeSettings,
+  workflows: WorkflowsWatcheeSettings,
 }).strict();
 
 export type WatcheeSettingsFile = z.infer<typeof WatcheeSettingsFile>;

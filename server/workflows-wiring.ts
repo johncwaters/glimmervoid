@@ -12,6 +12,9 @@ import type { TeamReviewSettingsSource } from './github/core/team-review-core.ts
 import { drainPending, firstLine } from './lanes/ephemeral-session.ts';
 import { createJsonStateStore } from './json-file.ts';
 import { createLaneRunner } from './lanes/lane-runner.ts';
+import { createWatcheeFeed } from './lanes/watchee-feed.ts';
+import { isOlderObservation } from './lanes/core/watchee-feed-core.ts';
+import type { WorkflowsCandidatesPayload } from '../shared/contracts/workflows-candidates.ts';
 import type { SharedClock } from './lanes/lane-runner.ts';
 import type { createGuardedPrStaging } from './github/my-prs-wiring.ts';
 import { createPrGh } from './github/pr-gh.ts';
@@ -105,6 +108,8 @@ export function createWorkflowsWiring({
   };
   const teamName = () => core.workflowTeamName(readTeamReviewSettings(config));
   const gate = () => core.workflowsShouldStart(settings());
+  const candidatesFeed = createWatcheeFeed<WorkflowsCandidatesPayload>();
+  const listsByRepoKey = new Map<string, WorkflowsCandidatesPayload>();
   const runner = createLaneRunner<WorkflowsPoller>({
     tag: core.WORKFLOWS_LANE_ID,
     gate,
@@ -117,7 +122,7 @@ export function createWorkflowsWiring({
         areActionsEnabled: () => core.areWorkflowActionsEnabled(settings()),
         maxActionsPerPoll: resolved.ok ? resolved.maxActionsPerPoll : core.DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL,
         teamName: teamName(),
-        github, store, log, onTickComplete, clock, firstTickDelayMs: bootStaggerDelay, beforeStart: sweepLeftoversBeforeFirstStart,
+        github, store, latestLists: () => [...listsByRepoKey.values()], feedSilenceMs: candidatesFeed.silenceMs, log, onTickComplete, clock, firstTickDelayMs: bootStaggerDelay, beforeStart: sweepLeftoversBeforeFirstStart,
         readState: stateIo.readState, writeState: stateIo.writeState,
         notify: ({ sessionName, message }) => { notificationManager.trigger(sessionName, core.WORKFLOW_NOTIFY_CATEGORY, message); },
         startSession: sessions.enqueue,
@@ -131,7 +136,15 @@ export function createWorkflowsWiring({
       runner.restartIfConfigChanged();
     },
     async stopPoller(): Promise<void> {
+      candidatesFeed.stop();
       await Promise.all([runner.stopPoller(), sessions.stop()]);
+    },
+    async acceptCandidates(job: { payload: WorkflowsCandidatesPayload }): Promise<void> {
+      candidatesFeed.accept(job.payload);
+      const repoKey = job.payload.repo.toLowerCase();
+      if (isOlderObservation(job.payload, listsByRepoKey.get(repoKey) ?? null)) return;
+      listsByRepoKey.set(repoKey, job.payload);
+      runner.getPoller()?.tickSoon();
     },
   };
 }

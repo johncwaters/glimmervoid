@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { MyPrsCandidatesPayload } from './my-prs-candidates.ts';
+import { WorkflowsCandidatesPayload } from './workflows-candidates.ts';
 import { TeamReviewCandidatesPayload } from './team-review-candidates.ts';
 
 const WATCHER_JOB_VERSION = 1;
@@ -10,6 +11,7 @@ const WATCHER_JOB_KINDS = Object.freeze({
   ping: z.object({}).strict(),
   'team-review.candidates': TeamReviewCandidatesPayload,
   'my-prs.candidates': MyPrsCandidatesPayload,
+  'workflows.candidates': WorkflowsCandidatesPayload,
 });
 
 export type WatcherJobKind = keyof typeof WATCHER_JOB_KINDS;

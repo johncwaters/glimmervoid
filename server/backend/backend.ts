@@ -620,6 +620,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     handlers: withBuiltInJobHandlers({
       'team-review.candidates': laneAssembly.teamReview.acceptCandidates,
       'my-prs.candidates': myPrs.acceptCandidates,
+      'workflows.candidates': laneAssembly.workflows.acceptCandidates,
     }),
   });
   void syncWatcheeSettings(config);
