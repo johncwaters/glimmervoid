@@ -1,4 +1,3 @@
-import crypto from 'node:crypto';
 import { createGithubStorePoller } from '../../server/github/github-store-poller.ts';
 import { createPrGh } from '../../server/github/pr-gh.ts';
 import { DEFAULT_TIMER_FNS } from '../../shared/timer-deps.ts';
@@ -16,9 +15,4 @@ function createWatcheeGithubStore({ watcherHome, now, log }: WatcheeContext) {
   });
 }
 
-function observedPayloadEventKey(payload: { observedAt: string }, intervalStartMs: number): string {
-  const { observedAt: _observedAt, ...observed } = payload;
-  return `${intervalStartMs}:${crypto.createHash('sha256').update(JSON.stringify(observed)).digest('hex')}`;
-}
-
-export { createWatcheeGithubStore, observedPayloadEventKey };
+export { createWatcheeGithubStore };

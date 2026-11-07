@@ -6,8 +6,12 @@ import path from 'node:path';
 
 import { checkFixBranch, commitFixWork, createRadarWiring, readWorktreeGitPointer } from '../server/radar/radar-wiring.ts';
 import { createRadarPoller } from '../server/radar/radar-poller.ts';
+import { createRadarDetect } from '../cloud/watchees/radar/radar-watchee.ts';
+import { RadarProjectPayload } from '../shared/contracts/radar-project.ts';
+import type { RadarWatcheeSettings } from '../shared/contracts/watchee-settings.ts';
+import { watcheeSettingsFromConfig } from '../cloud/inbox/watchee-settings-sync.ts';
+import { WatcheeSettingsFile } from '../shared/contracts/watchee-settings.ts';
 import type { PendingFix } from '../server/radar/core/radar-lane-core.ts';
-import type { PosthogApi } from '../server/radar/posthog-api.ts';
 import { UNTRUSTED_PAYLOAD_FILENAME, UntrustedPayload } from '../shared/contracts/untrusted-payload.ts';
 import type { PosthogWorkspace } from '../server/radar/radar-wiring.ts';
 import { createSpawnGate } from '../server/spawn-gate.ts';
@@ -214,7 +218,6 @@ test('an unapproved fix branch is released on dismiss and on expiry, and approva
   const timerHandle = setTimeout(() => {}, 0);
   clearTimeout(timerHandle);
   const poller = createRadarPoller({
-    api: {} as PosthogApi,
     spawnInvestigation: async () => null,
     readState: async () => ({ _investigations: [
       record('expired', fixFor('glimmervoid/radar-fix/expired', nowMs - 1)),
@@ -281,4 +284,75 @@ test('a fix aborted while Glimmervoid commits it deletes its branch instead of k
     await wiring.stopPoller();
     fs.rmSync(repoDir, { recursive: true, force: true });
   }
+});
+
+const WATCHED_RADAR: RadarWatcheeSettings = {
+  enabled: true, host: 'https://us.posthog.com', projects: [7], projectNames: { 7: 'web' }, intervalMinutes: 15, traffic: { enabled: false, baselineDays: 7 },
+};
+
+function posthogReplying(issueUsers: number, sentAuthorizations: string[]): typeof fetch {
+  return async (input, init) => {
+    sentAuthorizations.push(new Headers(init?.headers).get('authorization') ?? '');
+    const url = String(input);
+    if (url.endsWith('/error_tracking/query/issues/')) return Response.json({ results: [{ id: 'iss-1', name: 'TypeError', status: 'active', aggregations: { occurrences: 9, users: issueUsers } }] });
+    if (url.endsWith('/error_tracking/spikes/')) return Response.json({ results: [] });
+    return Response.json({ columns: ['issue_id', 'days_ago', 'occurrences'], results: [['iss-1', 0, 9]] });
+  };
+}
+
+async function detectRadarProject(issueUsers: number, sentAuthorizations: string[], observedAtMs: number): Promise<RadarProjectPayload> {
+  const previousKey = process.env.GLIMMERVOID_POSTHOG_API_KEY;
+  process.env.GLIMMERVOID_POSTHOG_API_KEY = 'phx_watcher_only';
+  try {
+    const detected = await createRadarDetect({ now: () => observedAtMs }, posthogReplying(issueUsers, sentAuthorizations))({ radar: WATCHED_RADAR });
+    assert.equal(detected.ok, true);
+    const [payload] = detected.ok ? detected.events : [];
+    return RadarProjectPayload.parse(payload);
+  } finally {
+    if (previousKey === undefined) delete process.env.GLIMMERVOID_POSTHOG_API_KEY;
+    if (previousKey !== undefined) process.env.GLIMMERVOID_POSTHOG_API_KEY = previousKey;
+  }
+}
+
+test('Radar plans an issue once from the radar.project job the watcher detected, and names the watcher when no job arrives', async () => {
+  const nowMs = Date.parse('2026-11-07T12:00:00Z');
+  const sentAuthorizations: string[] = [];
+  const payload = await detectRadarProject(5, sentAuthorizations, nowMs);
+  assert.ok(sentAuthorizations.every((authorization) => authorization === 'Bearer phx_watcher_only'));
+  assert.equal(JSON.stringify(payload).includes('phx_watcher_only'), false);
+  const watcheeSettings = watcheeSettingsFromConfig({ posthog: { enabled: true, apiKey: 'phx_watcher_only' }, telegram: { botToken: 'bot', chatId: '1' } }, []);
+  assert.equal(watcheeSettings.radar.enabled, true);
+  assert.equal(JSON.stringify(watcheeSettings).includes('phx_watcher_only'), false);
+  const handEditedPosthog = { enabled: false, trafficSpikeBaselineDays: 0, projectMap: { '123': 42 }, projects: [1, null] };
+  assert.equal(WatcheeSettingsFile.safeParse(watcheeSettingsFromConfig({ posthog: handEditedPosthog }, [])).success, true);
+  const spawnedIssueIds: unknown[] = [];
+  const statuses: Record<string, unknown>[] = [];
+  let deliveredPayloads: RadarProjectPayload[] = [payload];
+  let feedSilenceMs = 0;
+  const timerHandle = setTimeout(() => {}, 0);
+  clearTimeout(timerHandle);
+  const poller = createRadarPoller({
+    host: WATCHED_RADAR.host,
+    latestProjects: () => deliveredPayloads,
+    feedSilenceMs: () => feedSilenceMs,
+    spawnInvestigation: async ({ issue }) => { spawnedIssueIds.push(issue.issueId); return { verdict: 'NEEDS_HUMAN', summary: 'looked' }; },
+    onTickComplete: (status) => statuses.push(status),
+    setTimeoutFn: () => timerHandle,
+    setIntervalFn: () => timerHandle,
+    now: () => nowMs,
+  });
+  await poller.start();
+  await poller.tick();
+  await poller.tick();
+  assert.deepEqual(spawnedIssueIds, ['iss-1']);
+  const [project] = (statuses.at(-1)?.projects ?? []) as { name: string; issues: { issueId: string }[]; dailyVolumeByIssueId?: Record<string, number[]> }[];
+  assert.equal(project?.name, 'web');
+  assert.deepEqual(project?.issues.map((issue) => issue.issueId), ['iss-1']);
+  assert.equal(project?.dailyVolumeByIssueId?.['iss-1']?.at(-1), 9);
+
+  deliveredPayloads = [];
+  feedSilenceMs = 2 * WATCHED_RADAR.intervalMinutes * 60_000;
+  await poller.tick();
+  assert.match(String(statuses.at(-1)?.reason), /none arrived from glimmervoid watch.*held back by PostHog/);
+  await poller.stop();
 });

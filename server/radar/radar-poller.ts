@@ -8,8 +8,10 @@ import type { TrafficState } from '../core/traffic-spike-core.ts';
 import { firstLine, raceWithAbort } from '../lanes/ephemeral-session.ts';
 import { createTickLoop } from '../lanes/lane-runner.ts';
 import type { TickOutcome } from '../lanes/lane-runner.ts';
-import { extractRows, normalizeIssues, parseSpikeIssueIds } from './posthog-api.ts';
-import type { NormalizedIssue, PosthogApi } from './posthog-api.ts';
+import { normalizeIssues, parseSpikeIssueIds } from './posthog-api.ts';
+import type { NormalizedIssue } from './posthog-api.ts';
+import { watcherFeedError } from '../lanes/core/watchee-feed-core.ts';
+import type { RadarProjectPayload } from '../../shared/contracts/radar-project.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { TELEMETRY_EVENT_SCHEMAS } from '../../shared/contracts/telemetry.ts';
 import type { RadarErrorReason } from '../../shared/contracts/telemetry.ts';
@@ -38,7 +40,8 @@ const TRAFFIC_PING_KIND: Record<string, string | undefined> = {
 
 const META_KEY = '_meta';
 const ACTIVITY_COALESCE_MS = 400;
-const TRAFFIC_RETRY_DELAY_MS = 1000;
+const WATCHED_PROJECT_INTERVALS = 2;
+const MS_PER_MINUTE = 60000;
 
 type PosthogState = Record<string, unknown>;
 
@@ -126,15 +129,10 @@ interface ProjectSummary {
   error?: string;
 }
 
-interface PollerProject {
-  projectId: string | number;
-  name?: string;
-}
-
 interface RadarPollerDependencies {
-  api: PosthogApi;
   host?: string;
-  resolveProjects?: () => Promise<PollerProject[]>;
+  latestProjects?: () => RadarProjectPayload[];
+  feedSilenceMs?: () => number;
   spawnInvestigation: (args: SpawnInvestigationArgs) => Promise<JobResult | null | undefined>;
   telegram?: (message: string) => void;
   readState?: () => Promise<PosthogState>;
@@ -156,7 +154,6 @@ interface RadarPollerDependencies {
   fixTimeoutSeconds?: number;
   minUsersToInvestigate?: number;
   userEscalationThreshold?: number;
-  dateRangeHours?: number;
   entryRetentionDays?: number;
   archivedRetentionDays?: number;
   recurrenceDedupe?: boolean;
@@ -166,8 +163,6 @@ interface RadarPollerDependencies {
   trafficSpikeMultiplier?: number;
   trafficSpikeMinUsers?: number;
   trafficSpikeCooldownMinutes?: number;
-  trafficSpikeBaselineDays?: number;
-  waitForTrafficRetry?: () => Promise<void>;
   releasePendingFix?: (fix: PendingFix) => Promise<void>;
 }
 
@@ -194,9 +189,9 @@ function issueEntryOf(state: PosthogState, key: string): PosthogStateEntry | und
 
 function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
   const {
-    api,
     host = '',
-    resolveProjects = async () => [],
+    latestProjects = () => [],
+    feedSilenceMs = () => 0,
     spawnInvestigation,
     telegram = () => {},
     readState = async () => ({}),
@@ -220,7 +215,6 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
   const fixTimeoutSeconds = deps.fixTimeoutSeconds || 1800;
   const minUsersToInvestigate = deps.minUsersToInvestigate ?? core.DEFAULT_MIN_USERS_TO_INVESTIGATE;
   const userEscalationThreshold = deps.userEscalationThreshold ?? core.DEFAULT_USER_ESCALATION_THRESHOLD;
-  const dateRangeHours = deps.dateRangeHours || 24;
   const entryRetentionDays = deps.entryRetentionDays ?? core.DEFAULT_ENTRY_RETENTION_DAYS;
   const archivedRetentionDays = deps.archivedRetentionDays ?? core.DEFAULT_ARCHIVED_RETENTION_DAYS;
   const recurrenceDedupe = deps.recurrenceDedupe !== false;
@@ -230,14 +224,12 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
   const trafficSpikeMultiplier = deps.trafficSpikeMultiplier ?? traffic.DEFAULT_TRAFFIC_SPIKE_MULTIPLIER;
   const trafficSpikeMinUsers = deps.trafficSpikeMinUsers ?? traffic.DEFAULT_TRAFFIC_SPIKE_MIN_USERS;
   const trafficSpikeCooldownMinutes = deps.trafficSpikeCooldownMinutes ?? traffic.DEFAULT_TRAFFIC_SPIKE_COOLDOWN_MINUTES;
-  const trafficSpikeBaselineDays = deps.trafficSpikeBaselineDays ?? traffic.DEFAULT_TRAFFIC_BASELINE_DAYS;
-  const waitForTrafficRetry = deps.waitForTrafficRetry ?? (() => new Promise<void>((resolve) => {
-    setTimeoutFn(resolve, TRAFFIC_RETRY_DELAY_MS);
-  }));
 
   let state: PosthogState = {};
   const trails = new Map<string, InvestigationTrail>();
-  let lastTickStatus: { ts: number; projects: ProjectSummary[] } | null = null;
+  let lastTickStatus: { ts: number; projects: ProjectSummary[]; feedError: string | null } | null = null;
+  const plannedPayloads = new WeakSet<RadarProjectPayload>();
+  const summaryByProjectId = new Map<string, ProjectSummary>();
   const pendingActivityTimers = new Map<string, NodeJS.Timeout>();
   const activeRunIds = new Map<string, number>();
   let lastRunId = 0;
@@ -401,7 +393,7 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
       startedAt: trail?.startedAt ?? null,
       trail: trail?.steps ?? [],
     });
-    if (lastTickStatus) emitStatus(lastTickStatus.ts, lastTickStatus.projects);
+    if (lastTickStatus) emitStatus(lastTickStatus.ts, lastTickStatus.projects, lastTickStatus.feedError);
     return persist();
   }
 
@@ -493,7 +485,7 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
     state[core.INVESTIGATIONS_KEY] = claimed.log;
     if (releaseBranch) releaseFixes([claimed.fix]);
     await persist();
-    if (lastTickStatus) emitStatus(lastTickStatus.ts, lastTickStatus.projects);
+    if (lastTickStatus) emitStatus(lastTickStatus.ts, lastTickStatus.projects, lastTickStatus.feedError);
     return { ok: true, investigations: currentInvestigations() };
   }
 
@@ -596,59 +588,39 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
     }
   }
 
-  async function collectSpikeIssueIds(projectId: string | number, sinceTs: number): Promise<Set<string>> {
-    const res = await api.listSpikeEvents(projectId).catch(() => null);
-    if (!res || !res.ok) return new Set();
-    return parseSpikeIssueIds(res.body, sinceTs);
-  }
-
   function trafficState(): Record<string, TrafficState> {
     const slice = state[traffic.TRAFFIC_KEY];
     if (!slice || typeof slice !== 'object' || Array.isArray(slice)) state[traffic.TRAFFIC_KEY] = {};
     return state[traffic.TRAFFIC_KEY] as Record<string, TrafficState>;
   }
 
-  async function tickTraffic(projectId: string | number, projectName: string, nowTs: number): Promise<void> {
+  function tickTraffic(payload: RadarProjectPayload, projectName: string, nowTs: number): void {
     if (!trafficSpikeEnabled) return;
-    if (typeof api.queryTrafficBuckets !== 'function') return;
-    try {
-      let res = await api.queryTrafficBuckets(projectId, { baselineDays: trafficSpikeBaselineDays });
-      if (!res.ok && 'status' in res && traffic.shouldRetryTrafficQuery(res.status)) {
-        await waitForTrafficRetry();
-        res = await api.queryTrafficBuckets(projectId, { baselineDays: trafficSpikeBaselineDays });
-      }
-      if (!res || !res.ok || !('buckets' in res)) {
-        const reason = res && 'error' in res ? res.error : null;
-        log.warn(`[posthog-poller] traffic query failed for ${projectName}: ${reason || 'no response'}`);
-        return;
-      }
-      const baseline = traffic.computeBaseline(res.buckets);
-      const key = String(projectId);
-      const verdict = traffic.decideTrafficSpike({
-        currentUsers: res.currentUsers,
-        baseline,
-        prev: trafficState()[key],
-        now: nowTs,
-        cfg: {
-          multiplier: trafficSpikeMultiplier,
-          minUsers: trafficSpikeMinUsers,
-          cooldownMinutes: trafficSpikeCooldownMinutes,
-        },
-      });
-      trafficState()[key] = verdict.nextState;
-      const kind = TRAFFIC_PING_KIND[verdict.action];
-      if (!kind) return;
-      pingAlways(kind, {
-        projectName,
-        title: traffic.spikeSummaryLine({
-          currentUsers: res.currentUsers,
-          baseline,
-          multiple: verdict.multiple,
-        }),
-      });
-    } catch (e) {
-      log.warn(`[posthog-poller] traffic check failed for ${projectName}: ${errorMessage(e)}`);
+    if (payload.traffic === null) {
+      if (payload.trafficError !== null) log.warn(`[posthog-poller] traffic query failed for ${projectName}: ${payload.trafficError}`);
+      return;
     }
+    const { currentUsers, buckets } = payload.traffic;
+    const baseline = traffic.computeBaseline(buckets);
+    const key = String(payload.projectId);
+    const verdict = traffic.decideTrafficSpike({
+      currentUsers,
+      baseline,
+      prev: trafficState()[key],
+      now: nowTs,
+      cfg: {
+        multiplier: trafficSpikeMultiplier,
+        minUsers: trafficSpikeMinUsers,
+        cooldownMinutes: trafficSpikeCooldownMinutes,
+      },
+    });
+    trafficState()[key] = verdict.nextState;
+    const kind = TRAFFIC_PING_KIND[verdict.action];
+    if (!kind) return;
+    pingAlways(kind, {
+      projectName,
+      title: traffic.spikeSummaryLine({ currentUsers, baseline, multiple: verdict.multiple }),
+    });
   }
 
   function issueStateFields(projectId: string | number, issueId: PosthogIssue['issueId']) {
@@ -664,30 +636,25 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
     };
   }
 
-  async function fetchDailyVolumes(projectId: string | number, projectName: string, liveIssueIds: readonly string[]): Promise<Record<string, number[]> | null> {
-    const investigatedIssueIds = currentInvestigations()
-      .filter((record) => String(record.projectId) === String(projectId))
-      .map((record) => record.issueId);
-    const query = core.dailyVolumeQuery(projectId, [...liveIssueIds, ...investigatedIssueIds]);
-    if (!query) return null;
-    try {
-      const res = await api.runHogQL(projectId, query);
-      if (res.ok) return core.dailyVolumeSeries(extractRows(res.body));
-      log.warn(`[posthog-poller] daily volume query failed for ${projectName}: ${res.error}`);
-      return null;
-    } catch (e) {
-      log.warn(`[posthog-poller] daily volume query failed for ${projectName}: ${errorMessage(e)}`);
-      return null;
-    }
+  function dailyVolumes(payload: RadarProjectPayload, listedIssueIds: ReadonlySet<string>): Record<string, number[]> | undefined {
+    const previousStrips = summaryByProjectId.get(String(payload.projectId))?.dailyVolumeByIssueId ?? {};
+    const keptInvestigatedStrips = Object.fromEntries(currentInvestigations()
+      .filter((record) => String(record.projectId) === String(payload.projectId) && !listedIssueIds.has(String(record.issueId)))
+      .flatMap((record) => {
+        const strip = previousStrips[String(record.issueId)];
+        return strip ? [[String(record.issueId), strip]] : [];
+      }));
+    const listedStrips = payload.dailyVolumeRows === null ? {} : core.dailyVolumeSeries(payload.dailyVolumeRows);
+    const strips = { ...keptInvestigatedStrips, ...listedStrips };
+    return Object.keys(strips).length > 0 ? strips : undefined;
   }
 
-  async function tickProject(project: PollerProject): Promise<{ dirty: boolean; summary: ProjectSummary }> {
-    const { projectId } = project;
-    const projectName = project.name || String(projectId);
+  async function tickProject(payload: RadarProjectPayload): Promise<{ dirty: boolean; summary: ProjectSummary }> {
+    const { projectId } = payload;
+    const projectName = payload.projectName || String(projectId);
     const tickStartedAt = now();
-    const issuesRes = await api.queryIssues(projectId, { dateRangeHours });
-    if (!issuesRes || !issuesRes.ok) {
-      const error = String((issuesRes && 'error' in issuesRes ? issuesRes.error : null) || 'no response');
+    if (payload.error !== null) {
+      const error = payload.error;
       log.warn(`[posthog-poller] issue query failed for ${projectName}: ${error}`);
       return {
         dirty: false,
@@ -702,9 +669,9 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
       };
     }
 
-    const issues = normalizeIssues(issuesRes.body);
+    const issues = normalizeIssues(payload.issuesBody);
     const lastTickAt = meta().lastTickAt[String(projectId)] || 0;
-    const spikeIssueIds = await collectSpikeIssueIds(projectId, lastTickAt);
+    const spikeIssueIds = parseSpikeIssueIds(payload.spikesBody, lastTickAt);
 
     const changes: IssueChange[] = issues.map((issue) => ({
       key: core.issueKey(host, projectId, issue.issueId),
@@ -787,10 +754,10 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
       });
     }
 
-    await tickTraffic(projectId, projectName, tickStartedAt);
-    const dailyVolumeByIssueId = await fetchDailyVolumes(projectId, projectName, changes.map((change) => change.issue.issueId));
+    tickTraffic(payload, projectName, tickStartedAt);
+    const dailyVolumeByIssueId = dailyVolumes(payload, new Set(changes.map((change) => change.issue.issueId)));
 
-    meta().lastTickAt[String(projectId)] = tickStartedAt;
+    meta().lastTickAt[String(projectId)] = Date.parse(payload.observedAt);
 
     return {
       dirty: true,
@@ -820,47 +787,57 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
     };
   }
 
-  async function runTick(): Promise<TickOutcome | undefined> {
-    let failures = 0;
-    const projects = await resolveProjects().catch((e: unknown) => {
-      log.warn(`[posthog-poller] project resolution failed: ${errorMessage(e)}`);
-      failures += 1;
-      return [];
+  function watchedPayloads(): RadarProjectPayload[] {
+    const payloads = latestProjects().filter((payload) => payload.host === host);
+    const newestObservedAtMs = Math.max(...payloads.map((payload) => Date.parse(payload.observedAt)));
+    const oldestWatchedMs = newestObservedAtMs - WATCHED_PROJECT_INTERVALS * intervalMinutes * MS_PER_MINUTE;
+    return payloads.filter((payload) => Date.parse(payload.observedAt) >= oldestWatchedMs);
+  }
+
+  async function planPayload(payload: RadarProjectPayload): Promise<boolean> {
+    if (plannedPayloads.has(payload)) return false;
+    plannedPayloads.add(payload);
+    const planned = await tickProject(payload).catch((e: unknown) => {
+      log.warn(`[posthog-poller] tick failed for ${payload.projectId}: ${errorMessage(e)}`);
+      return null;
     });
+    if (!planned) return false;
+    summaryByProjectId.set(String(payload.projectId), planned.summary);
+    return planned.dirty;
+  }
+
+  async function runTick(): Promise<TickOutcome | undefined> {
+    const feedError = watcherFeedError('Radar has no PostHog issue list', feedSilenceMs(), intervalMinutes * MS_PER_MINUTE, 'PostHog');
+    const payloads = watchedPayloads();
     let dirty = false;
-    const summaries: ProjectSummary[] = [];
-    for (const project of projects) {
-      const res = await tickProject(project).catch((e: unknown) => {
-        log.warn(`[posthog-poller] tick failed for ${project?.projectId}: ${errorMessage(e)}`);
-        return null;
-      });
-      if (!res || res.summary.error) failures += 1;
-      if (!res) continue;
-      if (res.dirty) dirty = true;
-      summaries.push(res.summary);
+    for (const payload of payloads) {
+      if (await planPayload(payload)) dirty = true;
     }
+    const watchedProjectKeys = new Set(payloads.map((payload) => String(payload.projectId)));
+    const summaries = [...summaryByProjectId.values()].filter((summary) => watchedProjectKeys.has(String(summary.projectId)));
     if (releaseExpiredFixes()) dirty = true;
     if (pruneInvestigationLog()) dirty = true;
     if (pruneSignatureRegistry()) dirty = true;
     if (dirty) await persist();
-    emitStatus(now(), summaries);
-    if (failures > 0) return { failed: true };
+    emitStatus(now(), summaries, feedError);
     return undefined;
   }
 
-  function emitStatus(ts: number, summaries: ProjectSummary[]): void {
+  function emitStatus(ts: number, summaries: ProjectSummary[], feedError: string | null): void {
     const projects = summaries.map((summary) => ({
       ...summary,
+      ...(feedError !== null && !summary.error ? { error: feedError } : {}),
       issues: summary.issues.map((issue) => ({
         ...issue,
         ...issueStateFields(summary.projectId, issue.issueId),
       })),
     }));
-    lastTickStatus = { ts, projects };
+    lastTickStatus = { ts, projects: summaries, feedError };
     onTickComplete({
       type: 'radar-status',
       ts,
       intervalMinutes,
+      reason: feedError,
       projects,
       investigations: currentInvestigations(),
     });

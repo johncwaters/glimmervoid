@@ -13,13 +13,15 @@ interface JobInbox {
   token: string | null;
   attach(inboxServer: Server): void;
   startWatcher(boundInboxPort: number): void;
+  refreshWatcherEnvironment(): void;
 }
 
-const NO_OP_INBOX = { attach: () => {}, startWatcher: () => {} };
+const NO_OP_INBOX = { attach: () => {}, startWatcher: () => {}, refreshWatcherEnvironment: () => {} };
 
-function createJobInbox({ watcherConfig, handlers, log = console }: {
+function createJobInbox({ watcherConfig, handlers, watcherEnvironment, log = console }: {
   watcherConfig: Config['watcher'];
   handlers: WatcherJobHandlers;
+  watcherEnvironment?: () => Record<string, string>;
   log?: Pick<Console, 'log' | 'warn'>;
 }): JobInbox {
   const envToken = watcherConfig?.token ?? null;
@@ -37,6 +39,7 @@ function createJobInbox({ watcherConfig, handlers, log = console }: {
   const token = decision.tokenSource === 'env' && envToken !== null ? envToken : crypto.randomBytes(32).toString('hex');
   const handleRequest = createJobInboxRequestHandler({ token, handlers, log });
   const stopCallbacks: (() => void)[] = [];
+  const environmentRefreshes: (() => void)[] = [];
   return {
     decision,
     token,
@@ -51,9 +54,13 @@ function createJobInbox({ watcherConfig, handlers, log = console }: {
         log.warn(`[watcher] not started: watcher.inboxHost ${decision.host} is neither this machine nor every interface, so the local watcher cannot reach it over http`);
         return;
       }
-      const supervisor = createWatcherSupervisor({ inboxUrl, token, log });
+      const supervisor = createWatcherSupervisor({ inboxUrl, token, environment: watcherEnvironment, log });
       stopCallbacks.push(supervisor.stop);
+      environmentRefreshes.push(supervisor.refreshEnvironment);
       supervisor.start();
+    },
+    refreshWatcherEnvironment() {
+      for (const refresh of environmentRefreshes) refresh();
     },
   };
 }

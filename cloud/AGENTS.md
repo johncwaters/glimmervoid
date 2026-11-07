@@ -36,4 +36,5 @@ The Glimmervoid Cloud split: an always-on watcher process and the job inbox it d
 
 - A lane on the watcher is a pair keyed by job kind: a `Watchee` in `watchees/registry.ts` and a handler in `withBuiltInJobHandlers`; both are mapped types over `WATCHER_JOB_KINDS`, so a kind missing either half fails typecheck.
 - A watchee only detects and delivers; planning, drafts and spawning stay on the server. A boundary gate pins its imports.
+- A watchee's API key reaches the watcher only in its child env, never `watchees.json`, so the settings file never holds a secret.
 - A watchee re-sends its whole level every interval (jobId from interval start plus a payload hash): a restarted server recovers without a resync protocol, and the server drops a payload older than the last one it accepted.
