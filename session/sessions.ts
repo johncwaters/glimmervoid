@@ -404,7 +404,7 @@ class Session extends EventEmitter {
     getTerminalColors = null,
     extraUserHooks = [],
     scratchAgentHome = null,
-    isCleanHome = false,
+    isCleanHome,
     requiresHooks = false,
     prepareCoherence = null,
 
@@ -541,7 +541,7 @@ class Session extends EventEmitter {
     this._queuedCommandHints = [];
     this._extraClaudeArgs = Array.isArray(extraClaudeArgs) ? extraClaudeArgs : [];
     this._agentSetup = agentSetup;
-    this._isCleanHome = isCleanHome;
+    this._isCleanHome = isCleanHome === true;
     this._resumeSessionId = resumeSessionId || null;
     this.workspaceRepos = workspaceRepos ? [...workspaceRepos] : null;
     this._transcriptPath = null;

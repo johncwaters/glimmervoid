@@ -42,7 +42,7 @@ let historyEl: HTMLElement | null = null;
 const shownPastRaceIds = new Set<string>();
 let catalog: AgentModelCatalog = { agents: [] };
 let draft: RaceDraft = { raceTitle: '', prompt: '', repoPath: '', contestants: [], judges: [], check: null, checkTimeoutSeconds: DEFAULT_CHECK_TIMEOUT_SECONDS, timeLimitMinutes: null, rounds: 1 };
-let hasDefaultJudge = false;
+let judgeSeed: 'pending' | 'settled' = 'pending';
 let isEditingAsFile = false;
 const shownDiffByKey = new Map<string, string>();
 const shownCheckOutputKeys = new Set<string>();
@@ -593,7 +593,7 @@ function readDraftFromFile(text: string): string | null {
   if (!parsed.success) return `The race file is not valid: ${parsed.error.issues.map((issue) => `${issue.path.join('.') || 'file'}: ${issue.message}`).join('; ')}`;
   const spec = parsed.data;
   draft = { raceTitle: spec.title, prompt: spec.prompt, repoPath: spec.repoPath, contestants: spec.contestants, judges: spec.judges.map((judge) => judge.setup), check: spec.check, checkTimeoutSeconds: spec.check?.timeoutSeconds ?? DEFAULT_CHECK_TIMEOUT_SECONDS, timeLimitMinutes: spec.timeLimitMinutes, rounds: spec.rounds };
-  hasDefaultJudge = true;
+  judgeSeed = 'settled';
   return null;
 }
 
@@ -672,8 +672,8 @@ function buildNewRace(): HTMLElement {
       const parsed = AgentModelCatalog.safeParse(reply.settings.agentModels);
       if (!parsed.success) return;
       catalog = parsed.data;
-      if (!hasDefaultJudge) draft.judges = [defaultSetup(catalog, RACE_JUDGE_AGENTS[0])];
-      hasDefaultJudge = true;
+      if (judgeSeed === 'pending') draft.judges = [defaultSetup(catalog, RACE_JUDGE_AGENTS[0])];
+      judgeSeed = 'settled';
       if (draft.contestants.length === 0) draft.contestants = varyLineup(catalog, defaultSetup(catalog, agentsWithModels(catalog)[0] ?? 'claude-code'), 'agent', agentsWithModels(catalog).slice(0, 2));
       paint();
     })
