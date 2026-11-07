@@ -1,7 +1,7 @@
 import { AgentHomeKind, AgentModelCatalog } from '#shared/contracts/agent-models.ts';
 import type { AgentSetup } from '#shared/contracts/agent-models.ts';
 import type { CheckOutcome, ContestantMetrics, PanelStanding, RaceCheck, RaceContestant, RaceRecord } from '#shared/contracts/race.ts';
-import { RACE_CRITERIA, RACE_JUDGE_AGENT, RACE_MAX_CONTESTANTS, RACE_MAX_JUDGES, RACE_MAX_ROUNDS, RaceSpec } from '#shared/contracts/race.ts';
+import { RACE_CRITERIA, RACE_JUDGE_AGENTS, RACE_MAX_CONTESTANTS, RACE_MAX_JUDGES, RACE_MAX_ROUNDS, RaceSpec } from '#shared/contracts/race.ts';
 import { REMOVED_CONTESTANT, raceProgress, seriesKey, seriesStanding, winnerNotesOf } from '#shared/race-core.ts';
 import { BADGE_LABELS } from '#shared/states.ts';
 import { benchmarkSnapshot, subscribeBenchmarks } from '../benchmark-store.ts';
@@ -432,7 +432,7 @@ function buildJudgesEditor(onChanged: () => void): HTMLElement {
     row.append(setupControls(judge, (next) => {
       draft.judges = draft.judges.map((existing, position) => (position === index ? next : existing));
       onChanged();
-    }, [RACE_JUDGE_AGENT]));
+    }, RACE_JUDGE_AGENTS));
     row.append(button({ variant: 'quiet', size: 'small', label: 'Remove', onClick: () => {
       draft.judges = draft.judges.filter((_existing, position) => position !== index);
       onChanged();
@@ -440,7 +440,7 @@ function buildJudgesEditor(onChanged: () => void): HTMLElement {
     judges.append(row);
   });
   judges.append(button({ variant: 'quiet', size: 'small', label: 'Add judge', disabled: draft.judges.length >= RACE_MAX_JUDGES, onClick: () => {
-    draft.judges = [...draft.judges, draft.judges.at(-1) ?? defaultSetup(catalog, RACE_JUDGE_AGENT)];
+    draft.judges = [...draft.judges, draft.judges.at(-1) ?? defaultSetup(catalog, RACE_JUDGE_AGENTS[0])];
     onChanged();
   } }));
   return judges;
@@ -574,7 +574,7 @@ function buildNewRace(): HTMLElement {
       const parsed = AgentModelCatalog.safeParse(reply.settings.agentModels);
       if (!parsed.success) return;
       catalog = parsed.data;
-      if (!hasDefaultJudge) draft.judges = [defaultSetup(catalog, RACE_JUDGE_AGENT)];
+      if (!hasDefaultJudge) draft.judges = [defaultSetup(catalog, RACE_JUDGE_AGENTS[0])];
       hasDefaultJudge = true;
       if (draft.contestants.length === 0) draft.contestants = varyLineup(catalog, defaultSetup(catalog, agentsWithModels(catalog)[0] ?? 'claude-code'), 'agent', agentsWithModels(catalog).slice(0, 2));
       paint();

@@ -3,7 +3,8 @@ import { AgentHomeKind, AgentSetup } from './agent-models.ts';
 
 const RACE_MIN_CONTESTANTS = 2;
 export const RACE_MAX_CONTESTANTS = 5;
-export const RACE_JUDGE_AGENT = 'claude-code';
+export const RACE_JUDGE_AGENTS = ['claude-code', 'codex'] as const;
+export const RaceJudgeAgent = z.enum(RACE_JUDGE_AGENTS);
 export const RACE_MAX_JUDGES = 3;
 export const RACE_MAX_ROUNDS = 5;
 export const RACE_CRITERIA = ['correctness', 'completeness', 'scope', 'quality'] as const;

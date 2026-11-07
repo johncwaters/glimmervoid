@@ -374,7 +374,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     })({
       ...request, agent: setup.agent, model: setup.model,
       extraArgs: [
-        '--allowedTools', ...readPaths.flatMap((readPath) => ['Read', 'Glob', 'Grep'].map((tool) => absolutePathReadRule(readPath).replace(/^Read/, tool))),
+        ...(setup.agent === 'claude-code' ? ['--allowedTools', ...readPaths.flatMap((readPath) => ['Read', 'Glob', 'Grep'].map((tool) => absolutePathReadRule(readPath).replace(/^Read/, tool)))] : []),
         ...selectionArgs({ agent: setup.agent, model: null, options: setup.options }),
       ],
     }),
