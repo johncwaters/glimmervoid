@@ -31,6 +31,10 @@ function wireSecretsBroker({ broker, findSession, broadcastControl }: SecretsWir
     forgetOnTeardown(session);
     session.noteAttention(`asks for ${newNames.join(', ')}: allow or deny on this session's card`);
   });
+  broker.events.on('delivered', (sessionId: string) => {
+    const session = findSession(sessionId);
+    if (session) forgetOnTeardown(session);
+  });
   broker.events.on('approvals-changed', () => broadcastControl({ type: 'secret-approvals', projects: broker.approvalRows() }));
 }
 

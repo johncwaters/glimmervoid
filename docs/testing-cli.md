@@ -55,6 +55,7 @@ Commands:
   pair --revoke <id>  Revoke a paired device
   agent setup grok    Install the Grok hook relay, which does nothing outside Glimmervoid
   watch --inbox <url> Run the watcher, delivering jobs to a job inbox; --ping sends one ping and exits
+  vault               Run the vault companion that reads approved secrets from 1Password; --server <url> serves another machine
 
 Inside a Glimmervoid session:
   spawn <prompt>      Start a session on that prompt, with its own dashboard card, that this session owns until its task is done. An option beside an in-process subagent when the work should run in its own supervised session and worktree

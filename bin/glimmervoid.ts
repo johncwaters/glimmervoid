@@ -41,6 +41,7 @@ Commands:
   pair --revoke <id>  Revoke a paired device
   agent setup grok    Install the Grok hook relay, which does nothing outside Glimmervoid
   watch --inbox <url> Run the watcher, delivering jobs to a job inbox; --ping sends one ping and exits
+  vault               Run the vault companion that reads approved secrets from 1Password; --server <url> serves another machine
 
 Inside a Glimmervoid session:
 ${agentCommandHelpLines().join('\n')}
@@ -126,6 +127,10 @@ const OWNED_COMMAND_RUNNERS: Record<OwnedCommandName, OwnedCommandRunner> = {
   watch: async ({ values }) => {
     const { runWatchCli } = await import('../cloud/watcher/watch-cli.ts');
     return runWatchCli({ inboxUrl: typeof values.inbox === 'string' ? values.inbox : null, isPingOnly: values.ping === true });
+  },
+  vault: async ({ values }) => {
+    const { runVaultCli } = await import('../cloud/vault/vault-cli.ts');
+    return runVaultCli({ serverUrl: typeof values.server === 'string' ? values.server : null, accountName: typeof values.account === 'string' ? values.account : null });
   },
   'ssh-sign': async ({ rawArgs }) => {
     const { runSshSignCli } = await import('../server/ssh-sign-cli.ts');

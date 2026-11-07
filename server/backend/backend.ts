@@ -67,6 +67,9 @@ import { decideIsDevInstall, parsePosthogReleaseId } from '../core/telemetry-cor
 import { promptContextReplyOf } from '../../session/core/refocus-core.ts';
 import { lookupWhy } from '../why-lookup.ts';
 import { createSecretsBroker } from '../secrets/secrets-broker.ts';
+import { createVaultSocket } from '../secrets/vault-socket.ts';
+import { writeEnvFile } from '../secrets/env-file.ts';
+import { isRecord } from '../../shared/coerce.ts';
 import { wireSecretsBroker } from '../secrets/secrets-wiring.ts';
 import { createHostLinksWiring } from '../hosts/host-links-wiring.ts';
 import type { SpawnHostTunnel } from '../hosts/host-links-wiring.ts';
@@ -364,8 +367,16 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     usage,
   } = laneAssembly;
   gitWorkspace = assembledGitWorkspace;
+  const vaultConfig: unknown = config.vault;
+  const vaultSocket = createVaultSocket({
+    envToken: isRecord(vaultConfig) && typeof vaultConfig.token === 'string' ? vaultConfig.token : null,
+    companionFile: path.join(glimmervoidHomeDir(), 'vault-companion.json'),
+  });
   const secretsBroker = createSecretsBroker({
     readSecrets: () => config.secrets,
+    isCompanionOnline: vaultSocket.isOnline,
+    readVault: vaultSocket.resolve,
+    writeEnvFile,
     writeSecrets: async (mutate) => {
       const saved = await configStore.saveAsync((savedConfig) => {
         const nextSecrets = mutate(savedConfig.secrets);
@@ -760,6 +771,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       startWatcher: jobInbox.startWatcher,
       attach(inboxHttpServer: Server) {
         jobInbox.attach(inboxHttpServer);
+        vaultSocket.attach(inboxHttpServer);
         lifecycleServers.push(inboxHttpServer);
       },
     },

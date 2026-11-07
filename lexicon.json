@@ -619,6 +619,14 @@
     {
       "name": "light",
       "definition": "A theme mode: a light theme (Glimmer Light, Compleated, PostHog Light) puts dark text on pale surfaces, and the terminal takes ANSI_HUES_BY_MODE.light colors for it"
+    },
+    {
+      "name": "allow",
+      "definition": "The operator's answer on a secret request card that saves each named secret's vault reference for the session's project, so later requests for it need no card; Deny is the other answer"
+    },
+    {
+      "name": "vault companion",
+      "definition": "The glimmervoid vault process on the operator's machine that holds a WebSocket to a Glimmervoid server's job inbox and reads approved secrets from the operator's vault (1Password) through a vault adapter; with none connected an approved secret answers companion offline (also: companion)"
     }
   ]
 }

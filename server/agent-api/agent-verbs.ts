@@ -226,7 +226,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     why: (session, { target }) => why(session, target),
     checkout,
     packs,
-    need: (session, { names }) => (secrets ? { status: 200, body: secrets.need({ id: session.id, project: session.path }, names) } : refusal(503, 'secrets are not available in this Glimmervoid')),
+    need: async (session, { names }) => (secrets ? { status: 200, body: await secrets.need({ id: session.id, project: session.path, cwd: session.effectiveCwd(), isRemote: session.remoteWorkspace !== null }, names) } : refusal(503, 'secrets are not available in this Glimmervoid')),
     whiteboard: (session, request) => (whiteboards ? whiteboards.handleAgent({ id: session.id, name: session.name, project: session.path, cwd: session.effectiveCwd(), remoteWorkspace: session.remoteWorkspace }, request) : refusal(503, 'whiteboards are not available in this Glimmervoid')),
   };
 
