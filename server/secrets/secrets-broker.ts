@@ -73,4 +73,4 @@ function createSecretsBroker({ readConfig, isCompanionOnline = () => false, now 
 type SecretsBroker = ReturnType<typeof createSecretsBroker>;
 
 export { createSecretsBroker };
-export type { NeedingSession, SecretRequestEvent, SecretsBroker };
+export type { SecretsBroker };

@@ -5,7 +5,7 @@ export const MAX_NAMES_PER_NEED = 32;
 export const SecretName = z.string({ error: 'a secret name must be a string' })
   .regex(/^[A-Z_][A-Z0-9_]{0,127}$/, { error: 'a secret name must be an environment variable name in capitals, for example OPENAI_API_KEY' });
 
-export const NEED_STATUSES = ['delivered', 'pending', 'denied', 'companion-offline', 'failed'] as const;
+const NEED_STATUSES = ['delivered', 'pending', 'denied', 'companion-offline', 'failed'] as const;
 export const NeedStatus = z.enum(NEED_STATUSES);
 
 export const AgentNeedRequest = z.object({

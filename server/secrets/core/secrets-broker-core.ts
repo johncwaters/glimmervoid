@@ -54,4 +54,4 @@ function needExitCode(statusByName: Readonly<Record<string, NeedStatus>>): NeedE
 }
 
 export { decideNeed, needExitCode };
-export type { NeedDecision, NeedExitCode, ProjectSecretState };
+export type { ProjectSecretState };
