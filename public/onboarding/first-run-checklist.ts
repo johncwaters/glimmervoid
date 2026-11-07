@@ -174,7 +174,7 @@ async function foldIntoSetupDone(steps: HTMLElement, startHost: HTMLElement) {
   if (answeredRow) drawCheck(answeredRow);
   await playLockupMark();
   for (const row of foldingRows) {
-    row.animate([{ transform: 'none', opacity: 1 }, { transform: `translateY(${firstRow.offsetTop - row.offsetTop}px)`, opacity: 0 }], { duration: ARRIVE_MS, easing: EASE_OUT_QUART, fill: 'forwards' });
+    row.animate([{ transform: 'none', opacity: 1 }, { opacity: 0, offset: 0.35 }, { transform: `translateY(${firstRow.offsetTop - row.offsetTop}px)`, opacity: 0 }], { duration: ARRIVE_MS, easing: EASE_OUT_QUART, fill: 'forwards' });
   }
   firstRow.querySelector('.first-run-step-head')?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: DRAW_MS, fill: 'forwards' });
   await afterMs(ARRIVE_MS);
