@@ -7,7 +7,7 @@ import { BOARD_STORE_SCHEMA, StoreRequest, ftsQueryOf } from './board-store-core
 import type { BoardDelta, Rect, StoreRequestBody, StoredHeadRows } from './board-store-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 
-type ReplyFields = { heads?: StoredHeadRows[]; elementBodies?: string[]; elementIds?: string[]; boardIds?: string[]; assetIds?: string[] };
+type ReplyFields = { heads?: StoredHeadRows[]; elementBodies?: string[]; lastSlot?: number; elementIds?: string[]; boardIds?: string[]; assetIds?: string[] };
 
 const STORE_FOLDER_MODE = 0o700;
 const STORE_FILE_MODE = 0o600;
@@ -52,7 +52,7 @@ function preparedStatementsOf(database: DatabaseSync) {
     pruneLog: database.prepare('DELETE FROM board_log WHERE board_id = ? AND seq NOT IN (SELECT seq FROM board_log WHERE board_id = ? ORDER BY seq DESC LIMIT ?)'),
     allBoards: database.prepare('SELECT id, head, cursors, created_by FROM boards'),
     boardIds: database.prepare('SELECT id FROM boards'),
-    elementBodies: database.prepare('SELECT body FROM elements WHERE board_id = ? ORDER BY slot'),
+    elementBodies: database.prepare('SELECT slot, body FROM elements WHERE board_id = ? AND slot > ? ORDER BY slot LIMIT ?'),
     logBodies: database.prepare('SELECT body FROM board_log WHERE board_id = ? ORDER BY seq'),
     boardSlots: database.prepare('SELECT slot FROM elements WHERE board_id = ?'),
     assetIds: database.prepare("SELECT DISTINCT json_extract(body, '$.media.asset') AS asset_id FROM elements WHERE body LIKE '%\"asset\"%' AND json_extract(body, '$.media.asset') IS NOT NULL"),
@@ -147,9 +147,15 @@ function openStore(databasePath: string) {
     });
   }
 
+  function elementPageOf(boardId: string, afterSlot: number, limit: number): ReplyFields {
+    const rows = statements.elementBodies.all(boardId, afterSlot, limit);
+    const lastRow = rows.at(-1);
+    return { elementBodies: rows.map((row) => textColumn(row, 'body')), ...(lastRow ? { lastSlot: slotNumberOf(lastRow) } : {}) };
+  }
+
   function handle(request: StoreRequestBody): ReplyFields {
     if (request.kind === 'load-heads') return { heads: loadHeads() };
-    if (request.kind === 'load-board') return { elementBodies: statements.elementBodies.all(request.boardId).map((row) => textColumn(row, 'body')) };
+    if (request.kind === 'load-board') return elementPageOf(request.boardId, request.afterSlot, request.limit);
     if (request.kind === 'asset-ids') return { assetIds: statements.assetIds.all().map((row) => textColumn(row, 'asset_id')) };
     if (request.kind === 'boards-linking-to') return { boardIds: statements.boardsLinkingTo.all(request.boardId).map((row) => textColumn(row, 'board_id')) };
     if (request.kind === 'board-ids') return { boardIds: statements.boardIds.all().map((row) => textColumn(row, 'id')) };
