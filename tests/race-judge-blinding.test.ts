@@ -13,6 +13,7 @@ import type { CheckOutcome, RaceCheck } from '../shared/contracts/race.ts';
 import { contestantDiff } from '../server/race/race-diff.ts';
 import { createRaceStore } from '../server/race/race-store.ts';
 import { createRaceWiring } from '../server/race/race-wiring.ts';
+import { seriesStanding } from '../shared/race-core.ts';
 
 const quietLog = { log: () => {}, warn: () => {} };
 
@@ -82,10 +83,10 @@ test('every judge on the panel sees its own shuffled letter ids and no agent con
   const record: RaceRecord = {
     id: 'race-blind',
     spec: {
-      version: 1, title: 'Fix add', prompt: 'Fix add.', repoPath: mainRepo, judges: [{ setup }, { setup: { ...setup, model: 'claude-opus-5-5', options: [{ id: 'effort', value: 'high' }] } }], timeLimitMinutes: null, check: { program: 'node', args: ['-e', 'console.log(require("fs").readdirSync(".").join("\\n")); import("./add.ts").then((m) => { console.log("add(1, 2) =", m.add(1, 2)); process.exit(m.add(1, 2) === 3 ? 0 : 7); })'], timeoutSeconds: 30 },
+      version: 1, title: 'Fix add', prompt: 'Fix add.', repoPath: mainRepo, judges: [{ setup }, { setup: { ...setup, model: 'claude-opus-5-5', options: [{ id: 'effort', value: 'high' }] } }], timeLimitMinutes: null, rounds: 1, check: { program: 'node', args: ['-e', 'console.log(require("fs").readdirSync(".").join("\\n")); import("./add.ts").then((m) => { console.log("add(1, 2) =", m.add(1, 2)); process.exit(m.add(1, 2) === 3 ? 0 : 7); })'], timeoutSeconds: 30 },
       contestants: Object.keys(worktreeByContestant).map((id) => ({ id, label: `Label ${id}`, setup })),
     },
-    startSha, baseBranch: 'main', createdAt: 1, phase: 'running', diffStatsByContestant: {}, checkByContestant: {}, metricsByContestant: { 'kimi-only-config': { elapsedMs: 45, waits: 1, tokens: 900, costUSD: 0.01 } }, finishByContestant: {}, judge: null, panel: null, judgeError: null, winnerContestantId: null,
+    startSha, baseBranch: 'main', createdAt: 1, phase: 'running', diffStatsByContestant: {}, checkByContestant: {}, metricsByContestant: { 'kimi-only-config': { elapsedMs: 45, waits: 1, tokens: 900, costUSD: 0.01 } }, finishByContestant: {}, judge: null, panel: null, judgeError: null, winnerContestantId: null, series: null,
     sessionIdByContestant: Object.fromEntries(Object.keys(worktreeByContestant).map((id) => [id, `session-${id}`])),
   };
   const store = createRaceStore({ directory: path.join(root, 'races'), log: quietLog });
@@ -216,4 +217,77 @@ test('a contestant is did-not-finish after two minutes on a question or past the
   assert.deepEqual(contestantFinish({ ...working, state: 'COMPLETE' }, 60_000, 90_000), { status: 'finished', reason: null });
   assert.deepEqual(contestantFinish(null, null, 0), { status: 'finished', reason: null });
   assert.deepEqual(contestantFinish({ ...working, state: 'IDLE', hasSettled: true }, 60_000, 90_000), { status: 'finished', reason: null }, 'a finish dismissed to idle stays finished past the time limit');
+});
+
+test('a race with two rounds starts the second from the same start point once the first is judged, and a winner discards every other session of the series', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'race-series-'));
+  const startSha = 'a'.repeat(40);
+  let launches = 0;
+  const wiring = createRaceWiring({
+    store: createRaceStore({ directory: path.join(root, 'races'), log: quietLog }),
+    git: { fetchOrigin: async () => ({ ok: true }), listIntegrationTips: async () => ({ ok: true, integrationTips: [{ branch: 'main', sha: startSha }] }) },
+    integrationBranch: () => null, broadcast: () => {}, log: quietLog, sessionStateOf: () => 'COMPLETE', judgeRoot: path.join(root, 'judges'),
+  });
+  const setup = { agent: 'claude-code', model: null, options: [], instructions: '' };
+  const spec = { version: 1 as const, title: 'Series', prompt: 'Do it.', repoPath: root, judges: [], check: null, timeLimitMinutes: null, rounds: 2, contestants: [{ id: 'a', label: 'A', setup }, { id: 'b', label: 'B', setup }] };
+  const started = await wiring.start(spec, (contestant) => ({ ok: true, sessionId: `round-${Math.floor(launches++ / 2) + 1}-${contestant.id}` }));
+  assert.ok(started.ok);
+  assert.deepEqual(wiring.status().races[0].series, { id: started.raceId, round: 1 });
+  await wiring.judge(started.raceId);
+  await waitFor(() => wiring.status().races.length === 2);
+  const secondRound = wiring.status().races.find((race) => race.series?.round === 2);
+  assert.ok(secondRound, 'the second round starts once the first is judged');
+  assert.equal(secondRound.series?.id, started.raceId);
+  assert.equal(secondRound.startSha, startSha);
+  assert.deepEqual(secondRound.sessionIdByContestant, { a: 'round-2-a', b: 'round-2-b' });
+  await wiring.judge(secondRound.id);
+  await waitFor(() => wiring.status().races.every((race) => race.phase === 'judged'));
+  assert.equal(wiring.status().races.length, 2, 'no round past the spec rounds');
+  const picked = await wiring.pickWinner(secondRound.id, 'a');
+  assert.ok(picked.ok);
+  assert.deepEqual([...picked.loserSessionIds].sort(), ['round-1-a', 'round-1-b', 'round-2-b']);
+  assert.deepEqual(await wiring.pickWinner(started.raceId, 'b'), { ok: false, error: 'Another round of this race already has a winner.' });
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('a winner picked in an earlier round stops the settle poll judging a later round, and a restart reloads every round of the series', async (context) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'race-series-won-'));
+  const startSha = 'a'.repeat(40);
+  const store = createRaceStore({ directory: path.join(root, 'races'), log: quietLog });
+  const git = { fetchOrigin: async () => ({ ok: true }), listIntegrationTips: async () => ({ ok: true, integrationTips: [{ branch: 'main', sha: startSha }] }) };
+  context.mock.timers.enable({ apis: ['setInterval'] });
+  let launches = 0;
+  const wiring = createRaceWiring({ store, git, integrationBranch: () => null, broadcast: () => {}, log: quietLog, sessionStateOf: () => 'COMPLETE', judgeRoot: path.join(root, 'judges') });
+  const setup = { agent: 'claude-code', model: null, options: [], instructions: '' };
+  const spec = { version: 1 as const, title: 'Series', prompt: 'Do it.', repoPath: root, judges: [], check: null, timeLimitMinutes: null, rounds: 2, contestants: [{ id: 'a', label: 'A', setup }, { id: 'b', label: 'B', setup }] };
+  const started = await wiring.start(spec, (contestant) => ({ ok: true, sessionId: `round-${Math.floor(launches++ / 2) + 1}-${contestant.id}` }));
+  assert.ok(started.ok);
+  await wiring.judge(started.raceId);
+  await waitFor(() => wiring.status().races.length === 2);
+  assert.ok((await wiring.pickWinner(started.raceId, 'a')).ok);
+  wiring.startWatching();
+  context.mock.timers.tick(15_000);
+  await new Promise((resolve) => setImmediate(resolve));
+  const secondRound = wiring.status().races.find((race) => race.series?.round === 2);
+  assert.equal(secondRound?.phase, 'running', 'the discarded round is not judged');
+  assert.equal(secondRound?.judgeError, null);
+  wiring.stopWatching();
+  const restarted = createRaceWiring({ store, git, integrationBranch: () => null, broadcast: () => {}, log: quietLog });
+  await restarted.loadRaces([started.raceId]);
+  assert.deepEqual(restarted.status().races.map((race) => race.series?.round).sort(), [1, 2]);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('series wins count every round a contestant shares first rank, with its lowest and highest score', () => {
+  const standingRow = (contestantId: string, rank: number, criteriaPassed: number) => ({ contestantId, rank, criteriaPassed, criteria: { correctness: 'pass' as const, completeness: 'pass' as const, scope: 'pass' as const, quality: 'pass' as const }, meanTier: 1, summary: '' });
+  const setup = { agent: 'claude-code', model: null, options: [], instructions: '' };
+  const round = (id: string, standing: ReturnType<typeof standingRow>[]): RaceRecord => RaceRecord.parse({
+    id, spec: { version: 1, title: 'Series', prompt: 'Do it.', repoPath: '/repo', rounds: 3, contestants: [{ id: 'a', label: 'A', setup }, { id: 'b', label: 'B', setup }] },
+    startSha: 'a'.repeat(40), baseBranch: 'main', createdAt: 1, sessionIdByContestant: {}, series: { id: 'series', round: 1 },
+    panel: { verdicts: [], failures: [], standing, firstPlaceAgreement: { agreeing: 0, judges: 0 } },
+  });
+  assert.deepEqual(seriesStanding([round('r1', [standingRow('a', 1, 4), standingRow('b', 1, 4)]), round('r2', [standingRow('a', 1, 3.5), standingRow('b', 2, 2.5)])]), [
+    { contestantId: 'a', wins: 2, roundsJudged: 2, lowestScore: 3.5, highestScore: 4 },
+    { contestantId: 'b', wins: 1, roundsJudged: 2, lowestScore: 2.5, highestScore: 4 },
+  ]);
 });

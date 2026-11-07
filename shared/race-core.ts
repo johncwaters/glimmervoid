@@ -31,5 +31,39 @@ function winnerNotesOf(record: RaceRecord, contestantId: string): string | null 
   return record.judge?.notes[contestantId] ?? null;
 }
 
-export { REMOVED_CONTESTANT, contestantTimeline, isSettledContestantState, raceProgress, winnerNotesOf };
+interface SeriesStanding {
+  contestantId: string;
+  wins: number;
+  roundsJudged: number;
+  lowestScore: number | null;
+  highestScore: number | null;
+}
+
+function seriesKey(record: RaceRecord): string {
+  return record.series?.id ?? record.id;
+}
+
+function seriesRoundIds(record: RaceRecord): string[] {
+  if (!record.series) return [record.id];
+  const seriesId = record.series.id;
+  return Array.from({ length: record.spec.rounds }, (_, index) => (index === 0 ? seriesId : `${seriesId}-round-${index + 1}`));
+}
+
+function seriesStanding(records: readonly RaceRecord[]): SeriesStanding[] {
+  const contestantIds = records[0]?.spec.contestants.map((contestant) => contestant.id) ?? [];
+  const judgedRounds = records.filter((record) => record.panel !== null);
+  return contestantIds.map((contestantId) => {
+    const standings = judgedRounds.flatMap((record) => record.panel?.standing.filter((standing) => standing.contestantId === contestantId) ?? []);
+    const scores = standings.map((standing) => standing.criteriaPassed);
+    return {
+      contestantId,
+      wins: standings.filter((standing) => standing.rank === 1).length,
+      roundsJudged: judgedRounds.length,
+      lowestScore: scores.length > 0 ? Math.min(...scores) : null,
+      highestScore: scores.length > 0 ? Math.max(...scores) : null,
+    };
+  });
+}
+
+export { REMOVED_CONTESTANT, seriesKey, seriesRoundIds, seriesStanding, contestantTimeline, isSettledContestantState, raceProgress, winnerNotesOf };
 export type { StateTransition };

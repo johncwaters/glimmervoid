@@ -5,7 +5,7 @@ import path from 'node:path';
 import type { AgentSetup } from '../../shared/contracts/agent-models.ts';
 import { ContestantMetrics } from '../../shared/contracts/race.ts';
 import type { CheckOutcome, ContestantFinish, JudgeVerdict, PanelResult, RaceCheck, RaceContestant, RaceJudge, RaceRecord, RaceSpec } from '../../shared/contracts/race.ts';
-import { REMOVED_CONTESTANT, contestantTimeline, winnerNotesOf } from '../../shared/race-core.ts';
+import { REMOVED_CONTESTANT, contestantTimeline, seriesKey, seriesRoundIds, winnerNotesOf } from '../../shared/race-core.ts';
 import type { StateTransition } from '../../shared/race-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { readLaneResultFile } from '../lanes/lane-spawn.ts';
@@ -82,6 +82,7 @@ function createRaceWiring({
   transitionsOf = () => null, usageLookup = () => () => null, judgeRoot = null, now = Date.now, random = Math.random,
 }: RaceWiringDependencies) {
   const raceById = new Map<string, RaceRecord>();
+  const launchBySeries = new Map<string, ContestantLaunch>();
   let settleTimer: ReturnType<typeof setInterval> | null = null;
   let isWatchingStopped = false;
 
@@ -90,9 +91,15 @@ function createRaceWiring({
   }
 
   async function loadRaces(raceIds: readonly string[]): Promise<void> {
-    for (const raceId of raceIds) {
+    const pending = [...raceIds];
+    const visited = new Set<string>();
+    for (let raceId = pending.shift(); raceId !== undefined; raceId = pending.shift()) {
+      if (visited.has(raceId)) continue;
+      visited.add(raceId);
       const record = await store.read(raceId);
-      if (record) raceById.set(record.id, record.phase === 'judging' ? { ...record, phase: 'running' } : record);
+      if (!record) continue;
+      raceById.set(record.id, record.phase === 'judging' ? { ...record, phase: 'running' } : record);
+      pending.push(...seriesRoundIds(record));
     }
     if (raceById.size > 0) broadcast(status());
   }
@@ -120,8 +127,15 @@ function createRaceWiring({
     const startPoint = await resolveStartPoint(spec.repoPath);
     if (!startPoint) return { ok: false, error: `Could not find the integration branch of ${spec.repoPath}.` };
     const raceId = randomUUID();
+    const series = spec.rounds > 1 ? { id: raceId, round: 1 } : null;
+    if (series) launchBySeries.set(series.id, launch);
+    return startRound(raceId, spec, launch, startPoint, series);
+  }
+
+  async function startRound(raceId: string, spec: RaceSpec, launch: ContestantLaunch, startPoint: RaceStartPoint, series: RaceRecord['series']): Promise<{ ok: true; raceId: string; error: string | null } | { ok: false; error: string }> {
     const sessionIdByContestant: Record<string, string> = {};
-    const savedBeforeLaunch = await saveRecord({ id: raceId, spec, ...startPoint, createdAt: now(), sessionIdByContestant, phase: 'running', diffStatsByContestant: {}, checkByContestant: {}, metricsByContestant: {}, finishByContestant: {}, judge: null, panel: null, judgeError: null, winnerContestantId: null });
+    const freshRecord = (): RaceRecord => ({ id: raceId, spec, ...startPoint, createdAt: now(), sessionIdByContestant, phase: 'running', diffStatsByContestant: {}, checkByContestant: {}, metricsByContestant: {}, finishByContestant: {}, judge: null, panel: null, judgeError: null, winnerContestantId: null, series });
+    const savedBeforeLaunch = await saveRecord(freshRecord());
     if (savedBeforeLaunch !== null) return { ok: false, error: `Could not save the race, so no contestant started: ${savedBeforeLaunch}` };
     const failures: string[] = [];
     for (const contestant of spec.contestants) {
@@ -130,13 +144,34 @@ function createRaceWiring({
       if (!launched.ok) failures.push(`${contestant.label}: ${launched.error}`);
     }
     if (Object.keys(sessionIdByContestant).length === 0) return { ok: false, error: failures.join(' ') };
-    const record: RaceRecord = { id: raceId, spec, ...startPoint, createdAt: now(), sessionIdByContestant, phase: 'running', diffStatsByContestant: {}, checkByContestant: {}, metricsByContestant: {}, finishByContestant: {}, judge: null, panel: null, judgeError: null, winnerContestantId: null };
+    const record = freshRecord();
     raceById.set(raceId, record);
     const savedAfterLaunch = await saveRecord(record);
     if (savedAfterLaunch !== null) failures.push(`(the race file could not be updated: ${savedAfterLaunch})`);
     broadcast(status());
-    log.log(`[race] started ${spec.title} with ${Object.keys(sessionIdByContestant).length} contestants from ${startPoint.baseBranch} at ${startPoint.startSha}`);
+    log.log(`[race] started ${spec.title}${series ? ` round ${series.round} of ${spec.rounds}` : ''} with ${Object.keys(sessionIdByContestant).length} contestants from ${startPoint.baseBranch} at ${startPoint.startSha}`);
     return { ok: true, raceId, error: failures.length > 0 ? `Started with problems: ${failures.join(' ')}` : null };
+  }
+
+  function seriesRecords(record: RaceRecord): RaceRecord[] {
+    const key = seriesKey(record);
+    return [...raceById.values()].filter((candidate) => seriesKey(candidate) === key);
+  }
+
+  async function startNextRound(record: RaceRecord): Promise<void> {
+    if (!record.series || record.series.round >= record.spec.rounds) return;
+    const launch = launchBySeries.get(record.series.id);
+    if (!launch) {
+      log.warn(`[race] ${record.spec.title} cannot start round ${record.series.round + 1}: the server restarted since the race began`);
+      return;
+    }
+    const siblings = seriesRecords(record);
+    if (siblings.some((sibling) => sibling.winnerContestantId !== null)) return;
+    if (siblings.some((sibling) => sibling.series && record.series && sibling.series.round > record.series.round)) return;
+    const nextRound = { id: record.series.id, round: record.series.round + 1 };
+    const nextRoundId = seriesRoundIds(record)[nextRound.round - 1] ?? randomUUID();
+    const started = await startRound(nextRoundId, record.spec, launch, { startSha: record.startSha, baseBranch: record.baseBranch }, nextRound);
+    if (!started.ok) log.warn(`[race] ${record.spec.title} round ${nextRound.round} did not start: ${started.error}`);
   }
 
   async function updateRecord(raceId: string, change: (record: RaceRecord) => RaceRecord): Promise<RaceRecord | null> {
@@ -294,6 +329,7 @@ function createRaceWiring({
       const outcome = await runJudgeOnce({ ...record, finishByContestant }, judgeDir).catch((error: unknown) => ({ diffStatsByContestant: record.diffStatsByContestant, checkByContestant: record.checkByContestant, panel: null, judgeError: `The judge failed: ${errorMessage(error)}.` }));
       await updateRecord(raceId, (current) => ({ ...current, ...outcome, metricsByContestant, finishByContestant, judge: null, phase: 'judged' }));
       log.log(`[race] judged ${record.spec.title}${outcome.judgeError ? `: ${outcome.judgeError}` : ''}`);
+      await startNextRound(record);
     } finally {
       await fsp.rm(judgeDir, { recursive: true, force: true }).catch(() => {});
     }
@@ -313,6 +349,8 @@ function createRaceWiring({
     const record = raceById.get(raceId);
     if (!record) return { ok: false, error: 'That race is not loaded.' };
     if (record.winnerContestantId && record.winnerContestantId !== contestantId) return { ok: false, error: 'This race already has a different winner.' };
+    const siblings = seriesRecords(record);
+    if (siblings.some((sibling) => sibling.id !== record.id && sibling.winnerContestantId !== null)) return { ok: false, error: 'Another round of this race already has a winner.' };
     const winnerSessionId = record.sessionIdByContestant[contestantId];
     if (!winnerSessionId) return { ok: false, error: 'That contestant is not in this race.' };
     if (sessionStateOf(winnerSessionId) === REMOVED_CONTESTANT) return { ok: false, error: 'That contestant was removed, so it cannot win.' };
@@ -326,13 +364,13 @@ function createRaceWiring({
       }
       broadcast(status());
     }
-    const loserSessionIds = Object.entries(record.sessionIdByContestant).filter(([id]) => id !== contestantId).map(([, sessionId]) => sessionId);
+    const loserSessionIds = siblings.flatMap((sibling) => Object.values(sibling.sessionIdByContestant)).filter((sessionId) => sessionId !== winnerSessionId);
     return { ok: true, winnerSessionId, loserSessionIds, notes: winnerNotesOf(record, contestantId) };
   }
 
   function judgeSettledRaces(): void {
     for (const record of raceById.values()) {
-      if (record.phase !== 'running' || record.winnerContestantId) continue;
+      if (record.phase !== 'running' || seriesRecords(record).some((round) => round.winnerContestantId !== null)) continue;
       const finishes = finishesNow(record);
       const isUndecided = Object.values(finishes).some((finish) => finish === null);
       if (Object.keys(finishes).length === 0 || isUndecided) continue;
