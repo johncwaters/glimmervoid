@@ -17,6 +17,7 @@ import { WHITEBOARDS_FOLDER_NAME } from '../../server/whiteboard/whiteboard-wiri
 import { sparseBoardRecord } from '../../shared/contracts/whiteboard.ts';
 import type { Board, BoxMedia, Op } from '../../shared/contracts/whiteboard.ts';
 import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
+import { boardOutlineOf, defaultFocusOf, elementIdsTouching, elementPageOf, fitsOnePage, tileIndexOf } from '../../shared/whiteboard-tile-core.ts';
 import { isolateTranscriptHomes } from '../../tests/helpers/transcript-homes.ts';
 import { runCommand, snapshotEnvironment } from '../site-capture/isolated-glimmervoid.ts';
 import { connectControl, prepareIsolatedEnvironment, removeHarnessTempDirectory } from '../support/backend-harness.ts';
@@ -160,9 +161,16 @@ function measureLayoutMs(board: Board): number {
   return median(runsMs);
 }
 
+function mcpGetReplyBody(board: Board): Record<string, unknown> {
+  if (fitsOnePage(board)) return { ok: true, board, changes: [], readingVersion: board.version, ...boardReading(board) };
+  const index = tileIndexOf(layoutBoard(board), board.version);
+  const focus = defaultFocusOf(index);
+  const summary = { id: board.id, title: board.title, version: board.version, updatedAt: board.updatedAt, connectedSessionIds: [], queuedBySessionId: {} };
+  return { ok: true, board: summary, outline: boardOutlineOf(board, index, focus), focus, elements: elementPageOf(board, elementIdsTouching(index, focus), 0).elements, nextCursor: null, changes: [] };
+}
+
 function measureMcpChars(board: Board): number {
-  const replyBody = { ok: true, board, changes: [], readingVersion: board.version, ...boardReading(board) };
-  return JSON.stringify(toolResultFromReply({ status: 200, body: replyBody })).length;
+  return JSON.stringify(toolResultFromReply({ status: 200, body: mcpGetReplyBody(board) })).length;
 }
 
 const ControlReplySchema = z.object({ requestId: z.string(), ok: z.boolean(), error: z.string().nullish() });

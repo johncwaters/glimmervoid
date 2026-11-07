@@ -3,7 +3,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 
 import { BoardRecord, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
-import type { Board, BoardReview, BoardSummary, Op, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
+import type { Board, BoardRegion, BoardReview, BoardSummary, Element, Op, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import type { AgentReplyBodyOf } from '../../shared/contracts/session.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
@@ -13,6 +13,8 @@ import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
 import type { BoardLayout } from '../../shared/whiteboard-layout-core.ts';
 import { createBoardTileService } from './board-tile-service.ts';
 import type { BoardTileService } from './board-tile-service.ts';
+import { boardOutlineOf, defaultFocusOf, elementIdsTouching, elementPageOf, fitsOnePage } from '../../shared/whiteboard-tile-core.ts';
+import type { TileIndex } from '../../shared/whiteboard-tile-core.ts';
 import { referencedPaths, reviewBoard } from '../../shared/whiteboard-anchor-core.ts';
 import { cappedWarnings } from '../../shared/whiteboard-route-core.ts';
 import { readChangeFacts, readFileFacts } from './whiteboard-anchor-facts.ts';
@@ -143,10 +145,34 @@ function parseBoardRecord(raw: unknown): BoardRecord | null {
   return parsed.success ? parsed.data : null;
 }
 
+interface AgentFocus {
+  region: BoardRegion;
+  operatorView: BoardRegion | null;
+}
+
+type PageStart = { ok: true; offset: number } | { ok: false; reply: WhiteboardReply };
+
+function isWholeBoardRead(board: Board, request: Extract<WhiteboardAgentRequest, { sub: 'get' }>): boolean {
+  if (request.whole === true) return true;
+  return request.region === undefined && request.cursor === undefined && fitsOnePage(board);
+}
+
+function pageStartOf(board: Board, cursor: string | undefined): PageStart {
+  if (cursor === undefined) return { ok: true, offset: 0 };
+  const [cursorVersion, cursorOffset] = cursor.split('.').map(Number);
+  if (cursorVersion !== board.version) return { ok: false, reply: refusal(409, `the board changed since that page (it was version ${cursorVersion}, now ${board.version}), so its cursor no longer lines up; read again without cursor`) };
+  return { ok: true, offset: cursorOffset ?? 0 };
+}
+
+function pageReplyOf(board: Board, elementIds: readonly string[], offset: number): { elements: Element[]; nextCursor: string | null } {
+  const { elements, nextOffset } = elementPageOf(board, elementIds, offset);
+  return { elements, nextCursor: nextOffset === null ? null : `${board.version}.${nextOffset}` };
+}
+
 function operatorReplyOf(reply: WhiteboardReply): OperatorReply {
   if (!reply.body.ok) return { ok: false, error: reply.body.error };
   const patch = reply.patch ? { patch: reply.patch } : {};
-  if ('board' in reply.body && 'changes' in reply.body) return { ok: true, error: null, board: reply.body.board, ...patch };
+  if ('board' in reply.body && 'changes' in reply.body && !('outline' in reply.body)) return { ok: true, error: null, board: reply.body.board, ...patch };
   if ('board' in reply.body) return { ok: true, error: null, summary: reply.body.board, ...patch };
   return { ok: true, error: null, ...patch };
 }
@@ -160,6 +186,8 @@ function createWhiteboardWiring({
   const assets = createWhiteboardAssetStore({ boardsRoot, logger, now });
   const store = createBoardStore(boardsRoot);
   const tiles = createBoardTileService({ boardOf: (boardId) => recordsByBoardId.get(boardId)?.board ?? null });
+  const agentFocusBySessionId = new Map<string, Map<string, AgentFocus>>();
+  const pagedFocusBySessionId = new Map<string, Map<string, BoardRegion>>();
   let isEveryBoardLoaded = true;
   const loaded = Promise.all([loadBoards(), assets.loaded]).then(sweepUnusedAssets).then(() => {});
 
@@ -370,20 +398,70 @@ function createWhiteboardWiring({
   async function reviewedPut(boardId: string, ops: readonly Op[], author: Author): Promise<WhiteboardReply> {
     const reply = await putOps(boardId, ops, author);
     const board = recordsByBoardId.get(boardId)?.board;
-    if (!reply.body.ok || !('version' in reply.body) || !board) return reply;
+    if (!reply.body.ok || !('version' in reply.body) || 'elements' in reply.body || !board) return reply;
     const { anchorWarnings, unitWarnings } = await reviewFor(board, { readsChanges: unitsOf(board).length > 0 });
     if (anchorWarnings.length === 0 && unitWarnings.length === 0) return reply;
     return { status: reply.status, body: { ...reply.body, warnings: cappedWarnings([...reply.body.warnings ?? [], ...anchorWarnings, ...unitWarnings]) } };
   }
 
-  async function readBoard(boardId: string, readerId: string, { isPeek, wantsReview }: { isPeek: boolean; wantsReview: boolean }): Promise<WhiteboardReply> {
+  function focusFor(boardId: string, readerId: string, requested: BoardRegion | undefined, index: TileIndex): BoardRegion {
+    const operatorView = tiles.operatorViewOf(boardId)?.view ?? null;
+    const focusByBoardId = agentFocusBySessionId.get(readerId) ?? new Map<string, AgentFocus>();
+    agentFocusBySessionId.set(readerId, focusByBoardId);
+    if (requested) {
+      focusByBoardId.set(boardId, { region: requested, operatorView });
+      return requested;
+    }
+    const kept = focusByBoardId.get(boardId);
+    if (kept && kept.operatorView === operatorView) return kept.region;
+    focusByBoardId.delete(boardId);
+    return operatorView ?? defaultFocusOf(index);
+  }
+
+  async function readBoard(boardId: string, readerId: string, request: Extract<WhiteboardAgentRequest, { sub: 'get' }>): Promise<WhiteboardReply> {
     const reply = await changeRecord(boardId, (record) => {
       const changes = changesForReader(record, readerId);
-      const next = isPeek || record.cursorBySessionId[readerId] === record.board.version ? record : markRead(record, readerId);
-      return { ok: true, record: next, reply: { status: 200, body: { ok: true, board: record.board, changes } } };
+      const next = request.peek === true || record.cursorBySessionId[readerId] === record.board.version ? record : markRead(record, readerId);
+      const index = isWholeBoardRead(record.board, request) ? null : tiles.indexOf(boardId);
+      if (!index) return { ok: true, record: next, reply: { status: 200, body: { ok: true, board: record.board, changes } } };
+      const pageStart = pageStartOf(record.board, request.cursor);
+      if (!pageStart.ok) return { ok: false, reply: pageStart.reply };
+      const pagedFocus = request.cursor === undefined || request.region ? null : pagedFocusBySessionId.get(readerId)?.get(boardId) ?? null;
+      if (request.cursor !== undefined && !request.region && !pagedFocus) return { ok: false, reply: refusal(409, 'that cursor is not from a read of this board by this session; read again without cursor') };
+      const focus = pagedFocus ?? focusFor(boardId, readerId, request.region, index);
+      const pagedFocusByBoardId = pagedFocusBySessionId.get(readerId) ?? new Map<string, BoardRegion>();
+      pagedFocusByBoardId.set(boardId, focus);
+      pagedFocusBySessionId.set(readerId, pagedFocusByBoardId);
+      const page = pageReplyOf(record.board, elementIdsTouching(index, focus), pageStart.offset);
+      return { ok: true, record: next, reply: { status: 200, body: { ok: true, board: summarizeBoard(next), outline: boardOutlineOf(record.board, index, focus), focus, ...page, changes } } };
     });
-    if (!wantsReview || !reply.body.ok || !('changes' in reply.body)) return reply;
-    return { status: reply.status, body: { ...reply.body, review: await reviewFor(reply.body.board, { readsChanges: true }) } };
+    if (request.review !== true || !reply.body.ok || !('changes' in reply.body)) return reply;
+    const board = recordsByBoardId.get(boardId)?.board;
+    if (!board) return reply;
+    return { status: reply.status, body: { ...reply.body, review: await reviewFor(board, { readsChanges: true }) } };
+  }
+
+  async function queryBoard(boardId: string, query: Extract<WhiteboardAgentRequest, { sub: 'query' }>): Promise<WhiteboardReply> {
+    const board = recordsByBoardId.get(boardId)?.board;
+    if (!board) return refusal(404, `no board ${boardId}`);
+    const pageStart = pageStartOf(board, query.cursor);
+    if (!pageStart.ok) return pageStart.reply;
+    const { offset } = pageStart;
+    if (query.ids) {
+      const missingIds = query.ids.filter((elementId) => !board.elements[elementId]);
+      return { status: 200, body: { ok: true, version: board.version, ...pageReplyOf(board, query.ids, offset), missingIds } };
+    }
+    if (query.region) {
+      const index = tiles.indexOf(boardId);
+      if (!index) return refusal(404, `no board ${boardId}`);
+      return { status: 200, body: { ok: true, version: board.version, ...pageReplyOf(board, elementIdsTouching(index, query.region), offset), missingIds: [] } };
+    }
+    const matchedIds = await store.searchText(boardId, query.text ?? '', offset + WHITEBOARD_LIMITS.readPage + 1).catch((error: unknown) => {
+      logger.warn(`[whiteboard] text query on board ${boardId} failed: ${errorMessage(error)}`);
+      return null;
+    });
+    if (!matchedIds) return refusal(503, 'the board text index could not be read, so the query found nothing; try again');
+    return { status: 200, body: { ok: true, version: board.version, ...pageReplyOf(board, matchedIds, offset), missingIds: [] } };
   }
 
   function connectionReply(record: BoardRecord, note: string): WhiteboardReply {
@@ -516,6 +594,8 @@ function createWhiteboardWiring({
   }
 
   function forgetSession(sessionId: string): Promise<void> {
+    agentFocusBySessionId.delete(sessionId);
+    pagedFocusBySessionId.delete(sessionId);
     return forgetClosedSessions((connectedSessionId) => connectedSessionId === sessionId);
   }
 
@@ -601,7 +681,8 @@ function createWhiteboardWiring({
     switch (request.sub) {
       case 'connect': return connectBoard(found.boardId, caller.id);
       case 'disconnect': return disconnectBoard(found.boardId, caller.id);
-      case 'get': return readBoard(found.boardId, caller.id, { isPeek: request.peek === true, wantsReview: request.review === true });
+      case 'get': return readBoard(found.boardId, caller.id, request);
+      case 'query': return queryBoard(found.boardId, request);
       case 'put': return reviewedPut(found.boardId, request.ops, author);
       case 'resolve': return putOps(found.boardId, [{ op: 'resolve', id: request.note }], author);
       case 'delete': return deleteOwnBoard(found.boardId, caller.id);

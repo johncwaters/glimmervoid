@@ -12,7 +12,7 @@ import { z } from 'zod';
 import { createBackend } from '../server/backend/backend.ts';
 import { AGENT_REPLY_SCHEMAS, AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import { runAgentApiCli } from '../server/agent-api-cli.ts';
-import { Board, Op, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
+import { Board, BoardOutline, BoardRegion, Element, Op, sparseElement, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { closeSocket, dashboardClient, openRecordingSocket, waitForMessage } from './helpers/dashboard-ws.ts';
 import type { Backend } from './helpers/lanes.ts';
@@ -262,6 +262,87 @@ test('a dashboard viewing one region gets only the elements there, then a diff n
   } finally {
     await closeSocket(control.ws);
   }
+});
+
+test('an agent reads a board too large to return whole as an outline with the operator view in full, moves its own focus, and pages the rest by region, ids and text', async () => {
+  const boardId = await newBoard('large outline');
+  const gridBoxCount = WHITEBOARD_LIMITS.readPage + 60;
+  const gridBoxes = Array.from({ length: gridBoxCount }, (_, boxIndex) => ({ op: 'add', element: { kind: 'box', id: `cell-${boxIndex}`, title: `Cell ${boxIndex}`, at: { x: (boxIndex % 20) * 300, y: (boxIndex % 13) * 200 + Math.floor(boxIndex / 260) * 3000 } } }));
+  const placed = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [...gridBoxes, { op: 'add', element: { kind: 'box', id: 'far-away', title: 'Zebra lantern', at: { x: 60000, y: 40 } } }] });
+  assert.equal(placed.status, 200);
+  const ElementPage = z.object({ elements: z.array(z.object({ id: z.string() })), nextCursor: z.string().nullable() });
+  const OutlineRead = ElementPage.extend({ outline: BoardOutline, focus: BoardRegion });
+  const idsOf = (reply: { body: Record<string, unknown> }) => ElementPage.parse(reply.body).elements.map((element) => element.id);
+  const focusOf = (reply: { body: Record<string, unknown> }) => OutlineRead.parse(reply.body).focus;
+
+  const firstRead = await whiteboard(BUILDER_ID, { sub: 'get', board: boardId });
+  const outline = OutlineRead.parse(firstRead.body);
+  assert.equal(outline.outline.elementCount, gridBoxCount + 1);
+  assert.equal(idsOf(firstRead).includes('far-away'), false);
+  assert.ok(outline.outline.clustersOutsideFocus.some((cluster) => cluster.titles.includes('Zebra lantern')));
+
+  const operatorView = { x: 59000, y: -200, width: 2000, height: 1200 };
+  const client = await dashboardClient(boundPort(running().server));
+  const control = await openRecordingSocket<{ type: string; boardId?: string }>(client);
+  try {
+    control.ws.send(JSON.stringify({ type: 'whiteboard-view', boardId, view: operatorView, lod: 'full', knownVersion: null }));
+    await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-tiles' && frame.boardId === boardId, 'the operator view tiles');
+    const operatorRead = await whiteboard(BUILDER_ID, { sub: 'get', board: boardId });
+    assert.deepEqual(focusOf(operatorRead), operatorView);
+    assert.deepEqual(idsOf(operatorRead), ['far-away']);
+
+    const gridRegion = { x: -100, y: -100, width: 7000, height: 6000 };
+    const gridFirstPage = await whiteboard(BUILDER_ID, { sub: 'get', board: boardId, region: gridRegion });
+    const gridCursor = ElementPage.parse(gridFirstPage.body).nextCursor;
+    assert.ok(gridCursor);
+    control.ws.send(JSON.stringify({ type: 'whiteboard-view', boardId, view: { ...operatorView, y: 0 }, lod: 'full', knownVersion: null }));
+    await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-tiles' && frame.boardId === boardId, 'the panned view tiles');
+    const gridSecondPage = await whiteboard(BUILDER_ID, { sub: 'get', board: boardId, cursor: gridCursor });
+    assert.deepEqual(focusOf(gridSecondPage), gridRegion);
+    assert.equal(new Set([...idsOf(gridFirstPage), ...idsOf(gridSecondPage)]).size, gridBoxCount);
+
+    const ownFocus = { x: 0, y: 0, width: 700, height: 300 };
+    await whiteboard(BUILDER_ID, { sub: 'get', board: boardId, region: ownFocus });
+    const keptRead = await whiteboard(BUILDER_ID, { sub: 'get', board: boardId });
+    assert.deepEqual(focusOf(keptRead), ownFocus);
+    assert.ok(idsOf(keptRead).includes('cell-0'));
+
+    const movedView = { ...operatorView, x: 58000 };
+    control.received.length = 0;
+    control.ws.send(JSON.stringify({ type: 'whiteboard-view', boardId, view: movedView, lod: 'full', knownVersion: null }));
+    await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-tiles' && frame.boardId === boardId, 'the moved view tiles');
+    const followedRead = await whiteboard(BUILDER_ID, { sub: 'get', board: boardId });
+    assert.deepEqual(focusOf(followedRead), movedView);
+  } finally {
+    await closeSocket(control.ws);
+  }
+
+  const byText = await whiteboard(BUILDER_ID, { sub: 'query', board: boardId, text: 'zebra' });
+  assert.deepEqual(idsOf(byText), ['far-away']);
+  const byIds = await whiteboard(BUILDER_ID, { sub: 'query', board: boardId, ids: ['cell-3', 'not-there'] });
+  assert.deepEqual([idsOf(byIds), byIds.body.missingIds], [['cell-3'], ['not-there']]);
+  const wholeRegion = { x: -1000, y: -1000, width: 100000, height: 10000 };
+  const firstPage = await whiteboard(BUILDER_ID, { sub: 'query', board: boardId, region: wholeRegion });
+  assert.equal(idsOf(firstPage).length, WHITEBOARD_LIMITS.readPage);
+  const secondPage = await whiteboard(BUILDER_ID, { sub: 'query', board: boardId, region: wholeRegion, cursor: ElementPage.parse(firstPage.body).nextCursor });
+  assert.equal(secondPage.body.nextCursor, null);
+  assert.equal(new Set([...idsOf(firstPage), ...idsOf(secondPage)]).size, gridBoxCount + 1);
+  const editedBetweenPages = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'cell-1', fields: { title: 'Cell one' } }] });
+  assert.equal(editedBetweenPages.status, 200);
+  const staleCursorPage = await whiteboard(BUILDER_ID, { sub: 'query', board: boardId, region: wholeRegion, cursor: ElementPage.parse(firstPage.body).nextCursor });
+  assert.equal(staleCursorPage.status, 409);
+
+  const longLine = 'word '.repeat(24).trim();
+  const heavyBoxes = Array.from({ length: 40 }, (_, boxIndex) => ({ op: 'add', element: { kind: 'box', id: `heavy-${boxIndex}`, title: `Heavy ${boxIndex}`, lines: Array.from({ length: WHITEBOARD_LIMITS.linesPerBox }, () => ({ text: longLine })), at: { x: 90000 + (boxIndex % 8) * 1000, y: Math.floor(boxIndex / 8) * 1000 } } }));
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: heavyBoxes })).status, 200);
+  const heavyPage = await whiteboard(BUILDER_ID, { sub: 'query', board: boardId, region: { x: 89000, y: -1000, width: 10000, height: 7000 } });
+  const heavyElements = z.array(Element).parse(heavyPage.body.elements);
+  assert.ok(ElementPage.parse(heavyPage.body).nextCursor);
+  assert.ok(heavyElements.length < 40);
+  assert.ok(JSON.stringify(heavyElements.map(sparseElement)).length <= WHITEBOARD_LIMITS.readPageChars + 2 * heavyElements.length);
+
+  const twoCriteria = await whiteboard(BUILDER_ID, { sub: 'query', board: boardId, text: 'zebra', ids: ['cell-3'] });
+  assert.equal(twoCriteria.status, 400);
 });
 
 test('a session deletes a board it created and is refused a board another session created', async () => {

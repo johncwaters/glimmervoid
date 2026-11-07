@@ -14,7 +14,7 @@ function boardOf(reply: AgentReply): Board | null {
 }
 
 async function peekBoard(session: Session, agentApi: AgentApiPort, boardRef: unknown): Promise<AgentReply> {
-  return agentApi.handle(session, 'whiteboard', { sub: 'get', board: boardRef, peek: true });
+  return agentApi.handle(session, 'whiteboard', { sub: 'get', board: boardRef, peek: true, whole: true });
 }
 
 async function boardIdFor(session: Session, agentApi: AgentApiPort, boardRef: unknown): Promise<unknown> {

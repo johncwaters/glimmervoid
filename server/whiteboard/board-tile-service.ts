@@ -26,6 +26,7 @@ interface BoardTileService {
   boardChanged(boardId: string, layout: BoardLayout | null): void;
   forget(viewer: TileViewer): void;
   operatorViewOf(boardId: string): BoardView | null;
+  indexOf(boardId: string): TileIndex | null;
 }
 
 function createBoardTileService({ boardOf }: { boardOf: (boardId: string) => Board | null }): BoardTileService {
@@ -87,6 +88,7 @@ function createBoardTileService({ boardOf }: { boardOf: (boardId: string) => Boa
       stateByViewer.delete(viewer);
     },
     operatorViewOf: (boardId) => lastViewByBoardId.get(boardId) ?? null,
+    indexOf: (boardId) => indexFor(boardId, null),
   };
 }
 

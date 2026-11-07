@@ -1,4 +1,6 @@
 import { BLOCK_RASTER_PX } from './contracts/whiteboard-tiles.ts';
+import { sparseElement, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
+import type { Board, BoardOutline, Element } from './contracts/whiteboard.ts';
 import type { BoardChrome, LaidOutElement, PaintedElement, Tile, TileDiff, TileKey, TileLod } from './contracts/whiteboard-tiles.ts';
 import type { BoardLayout, Rect } from './whiteboard-layout-core.ts';
 import { elementSignature } from './whiteboard-layout-core.ts';
@@ -145,6 +147,96 @@ function slotsTouching(index: TileIndex, rect: Rect): number[] {
   return slots.sort((left, right) => left - right);
 }
 
+function elementIdsTouching(index: TileIndex, rect: Rect): string[] {
+  return slotsTouching(index, rect).flatMap((slot) => index.painted[slot]?.element.id ?? []);
+}
+
+interface ElementCluster {
+  rect: Rect;
+  elementCount: number;
+  titles: string[];
+}
+
+function titleOf(element: LaidOutElement): string | null {
+  if (element.kind === 'box') return element.titleLines.join(' ') || null;
+  if (element.kind === 'frame') return element.title || null;
+  return null;
+}
+
+function clustersOutside(index: TileIndex, focus: Rect, { maxClusters, titlesPerCluster }: { maxClusters: number; titlesPerCluster: number }): ElementCluster[] {
+  const clusterByCell = new Map<string, ElementCluster>();
+  index.bounds.forEach((bounds, slot) => {
+    if (rectsTouch(bounds, focus)) return;
+    const cellKey = `${Math.floor(bounds.x / CHUNK_SIZE)},${Math.floor(bounds.y / CHUNK_SIZE)}`;
+    const cluster = clusterByCell.get(cellKey) ?? { rect: rectOf(bounds), elementCount: 0, titles: [] };
+    const right = Math.max(cluster.rect.x + cluster.rect.width, bounds.x + bounds.width);
+    const bottom = Math.max(cluster.rect.y + cluster.rect.height, bounds.y + bounds.height);
+    cluster.rect.x = Math.min(cluster.rect.x, bounds.x);
+    cluster.rect.y = Math.min(cluster.rect.y, bounds.y);
+    cluster.rect.width = right - cluster.rect.x;
+    cluster.rect.height = bottom - cluster.rect.y;
+    cluster.elementCount += 1;
+    const painted = index.painted[slot];
+    const title = painted ? titleOf(painted.element) : null;
+    if (title && cluster.titles.length < titlesPerCluster) cluster.titles.push(title);
+    clusterByCell.set(cellKey, cluster);
+  });
+  return [...clusterByCell.values()].sort((left, right) => right.elementCount - left.elementCount).slice(0, maxClusters);
+}
+
+const DEFAULT_FOCUS_WIDTH = 1440;
+const DEFAULT_FOCUS_HEIGHT = 900;
+const CLUSTER_TITLES = 3;
+
+function defaultFocusOf(index: TileIndex): Rect {
+  const { bounds } = index.chrome;
+  return { x: bounds.x, y: bounds.y, width: DEFAULT_FOCUS_WIDTH, height: DEFAULT_FOCUS_HEIGHT };
+}
+
+function elementPageOf(board: Board, elementIds: readonly string[], offset: number): { elements: Element[]; nextOffset: number | null } {
+  const elements: Element[] = [];
+  let pageChars = 0;
+  let nextIndex = offset;
+  for (; nextIndex < elementIds.length && elements.length < WHITEBOARD_LIMITS.readPage; nextIndex += 1) {
+    const element = board.elements[elementIds[nextIndex] ?? ''];
+    if (!element) continue;
+    const elementChars = JSON.stringify(sparseElement(element)).length;
+    if (elements.length > 0 && pageChars + elementChars > WHITEBOARD_LIMITS.readPageChars) break;
+    elements.push(element);
+    pageChars += elementChars;
+  }
+  return { elements, nextOffset: nextIndex < elementIds.length ? nextIndex : null };
+}
+
+function fitsOnePage(board: Board): boolean {
+  const elements = Object.values(board.elements);
+  if (elements.length > WHITEBOARD_LIMITS.readPage) return false;
+  return elements.reduce((pageChars, element) => pageChars + JSON.stringify(sparseElement(element)).length, 0) <= WHITEBOARD_LIMITS.readPageChars;
+}
+
+function boardOutlineOf(board: Board, index: TileIndex, focus: Rect): BoardOutline {
+  const elements = Object.values(board.elements);
+  const countsByKind: Record<string, number> = {};
+  const boxCountByColumnId = new Map<string, number>();
+  for (const element of elements) {
+    countsByKind[element.kind] = (countsByKind[element.kind] ?? 0) + 1;
+    if (element.kind === 'box' && element.column) boxCountByColumnId.set(element.column, (boxCountByColumnId.get(element.column) ?? 0) + 1);
+  }
+  const frames = elements.flatMap((element) => {
+    const slot = index.slotById.get(element.id);
+    const rect = slot === undefined ? undefined : index.bounds[slot];
+    return element.kind === 'frame' && rect ? [{ id: element.id, title: element.title, rect }] : [];
+  }).slice(0, WHITEBOARD_LIMITS.readPage);
+  return {
+    elementCount: elements.length,
+    countsByKind,
+    bounds: index.chrome.bounds,
+    frames,
+    columns: board.columns.map((column) => ({ name: column.title, boxCount: boxCountByColumnId.get(column.id) ?? 0 })),
+    clustersOutsideFocus: clustersOutside(index, focus, { maxClusters: WHITEBOARD_LIMITS.outlineClusters, titlesPerCluster: CLUSTER_TITLES }),
+  };
+}
+
 function withTitlesOnly(painted: PaintedElement): PaintedElement {
   const { element } = painted;
   switch (element.kind) {
@@ -258,5 +350,5 @@ function tileDiffFor(previous: TileIndex, next: TileIndex, heldKeys: readonly Ti
   return { changed, removedIds, rasters, chrome: isChromeChanged ? next.chrome : null };
 }
 
-export { lodForScale, paintedBoundsOf, tileDiffFor, tileIdOf, tileIndexOf, tileKeysFor, tileOf, tileRectOf };
+export { boardOutlineOf, defaultFocusOf, elementIdsTouching, elementPageOf, fitsOnePage, lodForScale, paintedBoundsOf, tileDiffFor, tileIdOf, tileIndexOf, tileKeysFor, tileOf, tileRectOf };
 export type { TileIndex };
