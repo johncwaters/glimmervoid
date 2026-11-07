@@ -3,7 +3,8 @@ import path from 'node:path';
 import type { FileHandle } from 'node:fs/promises';
 
 import type { TraceRecord } from '../../shared/contracts/trace.ts';
-import { TraceRecord as TraceRecordSchema } from '../../shared/contracts/trace.ts';
+import { MAX_RAW_LINE_CHARS, TraceRecord as TraceRecordSchema } from '../../shared/contracts/trace.ts';
+import { maskSecretStrings } from '../../shared/secret-patterns.ts';
 import { containmentRefusalReason } from '../core/trace-tail-core.ts';
 import { readSessionTracePage } from '../session/core/session-trace-core.ts';
 import { isSafePathSegment } from '../core/upload-core.ts';
@@ -28,6 +29,13 @@ interface TracePage {
 function isRewoundCursor(request: TracePageRequest, next: number): boolean {
   if (request.endingAt !== undefined) return false;
   return next < request.after;
+}
+
+function clippedToTraceLimits(record: unknown): unknown {
+  if (typeof record !== 'object' || record === null || !('kind' in record)) return record;
+  if (record.kind === 'raw' && 'line' in record && typeof record.line === 'string' && record.line.length > MAX_RAW_LINE_CHARS) return { ...record, line: record.line.slice(0, MAX_RAW_LINE_CHARS), truncated: true };
+  if (record.kind === 'notice' && 'text' in record && typeof record.text === 'string') return { ...record, text: record.text.slice(0, MAX_RAW_LINE_CHARS) };
+  return record;
 }
 
 function createTraceRecordStore(context: TraceWiringContext) {
@@ -70,7 +78,8 @@ function createTraceRecordStore(context: TraceWiringContext) {
 
   function queueRecord(glimmervoidSessionId: string, record: unknown): void {
     if (!traceFilePath(glimmervoidSessionId)) return;
-    const parsed = TraceRecordSchema.safeParse(record);
+    const deliveredValues = context.deliveredSecretValuesBySessionId.get(glimmervoidSessionId)?.() ?? [];
+    const parsed = TraceRecordSchema.safeParse(clippedToTraceLimits(maskSecretStrings(record, deliveredValues)));
     if (!parsed.success) {
       laneLog.warn('record refused', { session: glimmervoidSessionId });
       return;

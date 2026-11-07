@@ -34,7 +34,9 @@ function wireSecretsBroker({ broker, findSession, broadcastControl }: SecretsWir
   });
   broker.events.on('delivered', (sessionId: string) => {
     const session = findSession(sessionId);
-    if (session) forgetOnTeardown(session);
+    if (!session) return;
+    session.maskDeliveredSecretValues(broker.deliveredValuesOf(sessionId));
+    forgetOnTeardown(session);
   });
   broker.events.on('approvals-changed', () => broadcastControl({ type: 'secret-approvals', projects: broker.approvalRows() }));
 }

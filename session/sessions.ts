@@ -141,6 +141,7 @@ interface SessionRecorderPort {
   writeFooter(reason: string, exitCode: number | null | undefined): void;
   finishRecordingFile(): void;
   close(): void;
+  maskDeliveredValues?(values: readonly string[]): void;
 }
 
 interface SessionPty {
@@ -276,6 +277,7 @@ class Session extends EventEmitter {
   _teardown: Teardown;
   _ptyAlive: boolean;
   _recorder: SessionRecorderPort | null;
+  _deliveredSecretValues: readonly string[] = [];
   _output: ReturnType<typeof createSessionOutput>;
   _adapter: AgentAdapter;
   _observability: ReturnType<typeof createSessionObservability>;
@@ -789,6 +791,16 @@ class Session extends EventEmitter {
 
   setRecorder(recorder: SessionRecorderPort | null): void {
     this._recorder = recorder;
+    recorder?.maskDeliveredValues?.(this._deliveredSecretValues);
+  }
+
+  deliveredSecretValues(): readonly string[] {
+    return this._deliveredSecretValues;
+  }
+
+  maskDeliveredSecretValues(values: readonly string[]): void {
+    this._deliveredSecretValues = values;
+    this._recorder?.maskDeliveredValues?.(values);
   }
 
   get auditLog(): Record<string, unknown>[] {

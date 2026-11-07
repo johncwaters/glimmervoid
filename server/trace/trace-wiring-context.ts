@@ -52,6 +52,7 @@ interface TraceWiringContext {
   emitter: EventEmitter;
   laneLog: LaneLog;
   nowFn: () => number;
+  deliveredSecretValuesBySessionId: Map<string, () => readonly string[]>;
   maxRememberedSubagents: number;
   bindingByGlimmervoidSessionId: Map<string, TraceBinding>;
   awaitingTranscriptByGlimmervoidSessionId: Map<string, Record<string, unknown>>;

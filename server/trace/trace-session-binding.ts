@@ -15,6 +15,7 @@ import type { TraceSubagentCapture } from './trace-subagent-capture.ts';
 
 interface TraceSession {
   id: string;
+  deliveredSecretValues?(): readonly string[];
   on(event: string, listener: (payload: Record<string, unknown>) => void): unknown;
 }
 
@@ -39,6 +40,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
     bindingByGlimmervoidSessionId,
     awaitingTranscriptByGlimmervoidSessionId,
     closedSessionIds,
+    deliveredSecretValuesBySessionId,
     chain,
     isStopped,
   } = context;
@@ -153,16 +155,24 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
     }, 'final drain failed');
   }
 
+  async function drainClosingBinding(glimmervoidSessionId: string): Promise<void> {
+    const binding = bindingByGlimmervoidSessionId.get(glimmervoidSessionId);
+    if (!binding) return;
+    binding.isClosing = true;
+    await drainBinding(binding);
+  }
+
   function closeSession(glimmervoidSessionId: string): void {
     closedSessionIds.add(glimmervoidSessionId);
     awaitingTranscriptByGlimmervoidSessionId.delete(glimmervoidSessionId);
     conversationVendorSessionIdByGlimmervoidSessionId.delete(glimmervoidSessionId);
     trimOldest(closedSessionIds, MAX_REMEMBERED_CLOSED_SESSIONS);
     chain(async () => {
-      const binding = bindingByGlimmervoidSessionId.get(glimmervoidSessionId);
-      if (!binding) return;
-      binding.isClosing = true;
-      await drainBinding(binding);
+      try {
+        await drainClosingBinding(glimmervoidSessionId);
+      } finally {
+        deliveredSecretValuesBySessionId.delete(glimmervoidSessionId);
+      }
     }, 'final drain failed');
   }
 
@@ -200,6 +210,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
   function attachSession(session: TraceSession): void {
     if (attachedSessions.has(session)) return;
     attachedSessions.add(session);
+    deliveredSecretValuesBySessionId.set(session.id, () => session.deliveredSecretValues?.() ?? []);
     session.on('claude-session-id', (payload) => { noteVendorSession(session.id, payload); });
     session.on('hook-event', (record) => { noteHookEvent(session.id, record); });
     session.on('conversation-records', ({ records }) => { appendConversationRecords(session.id, records); });

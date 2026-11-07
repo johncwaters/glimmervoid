@@ -8,6 +8,7 @@ import type { WriteStream } from "node:fs";
 
 import { glimmervoidHomeDir } from "../server/core/config-path-core.ts";
 import { safePathSegment } from "../shared/paths.ts";
+import { maskSecretStrings } from "../shared/secret-patterns.ts";
 import type { DecisionEntry } from "./core/decision-log.ts";
 import type { SessionState } from "../shared/states.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
@@ -57,6 +58,10 @@ interface CaptureConfig {
   retainBytes?: number;
 }
 
+function isRecordWithData(value: unknown): value is { data: string; len: number } {
+  return typeof value === "object" && value !== null && "len" in value && "data" in value && typeof value.data === "string";
+}
+
 class SessionRecorder {
   _name: string;
   _safeName: string;
@@ -73,6 +78,7 @@ class SessionRecorder {
   _closed: boolean;
   _disabled: boolean;
   _isAwaitingRunHeader: boolean;
+  _deliveredSecretValues: readonly string[] = [];
   retentionDone: Promise<void>;
 
   constructor({ name, baseDir, recordData = false, maxFileSize, retainDays, retainFiles, retainBytes }: SessionRecorderOptions) {
@@ -124,6 +130,10 @@ class SessionRecorder {
       cols: rest.cols || 80,
       rows: rest.rows || 24,
     });
+  }
+
+  maskDeliveredValues(values: readonly string[]): void {
+    this._deliveredSecretValues = values;
   }
 
   writeData(data: string): void {
@@ -190,7 +200,7 @@ class SessionRecorder {
     if (!this._opened) this.open();
     if (!this._stream) return;
     try {
-      const line = `${JSON.stringify(record)}\n`;
+      const line = `${JSON.stringify(this._masked(record))}\n`;
       this._stream.write(line);
       this._currentSize += Buffer.byteLength(line, "utf8");
 
@@ -200,6 +210,12 @@ class SessionRecorder {
     } catch (err) {
       this._disableWithWarning("write", err);
     }
+  }
+
+  _masked(record: Record<string, unknown>): unknown {
+    const masked = maskSecretStrings(record, this._deliveredSecretValues);
+    if (!isRecordWithData(masked)) return masked;
+    return { ...masked, len: masked.data.length };
   }
 
   _releaseOpenPath(): void {

@@ -62,6 +62,7 @@ function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = ()
   const cardsBySession = new Map<string, PendingCard>();
   const decidingSessionIds = new Set<string>();
   const deliveriesBySession = new Map<string, Map<string, { source: string; envFile: string }>>();
+  const deliveredValuesBySession = new Map<string, Set<string>>();
 
   function projectState(project: string): ProjectSecretState {
     return { approvals: approvalsOf(readSecrets(), project), deniedUntilMs: deniedUntilMsByProject.get(project) ?? {} };
@@ -88,10 +89,11 @@ function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = ()
     return JSON.stringify([session.cwd, reference]);
   }
 
-  function rememberDelivery(session: NeedingSession, items: readonly { name: string; reference: string }[], envFile: string): void {
+  function rememberDelivery(session: NeedingSession, items: readonly { name: string; reference: string }[], envFile: string, valuesByName: Readonly<Record<string, string>>): void {
     const deliveries = deliveriesBySession.get(session.id) ?? new Map<string, { source: string; envFile: string }>();
     for (const { name, reference } of items) deliveries.set(name, { source: deliverySource(session, reference), envFile });
     deliveriesBySession.set(session.id, deliveries);
+    deliveredValuesBySession.set(session.id, new Set([...deliveredValuesOf(session.id), ...Object.values(valuesByName)]));
     events.emit('delivered', session.id);
   }
 
@@ -137,7 +139,7 @@ function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = ()
     if (deliveredNames.length === 0) return answered;
     const written = await writeEnvFile(session.cwd, valuesByName);
     if (!written.ok) return mergedDelivery(answered, failedDelivery(deliveredNames, written.reason));
-    rememberDelivery(session, items.filter((item) => deliveredNames.includes(item.name)), written.envFile);
+    rememberDelivery(session, items.filter((item) => deliveredNames.includes(item.name)), written.envFile, valuesByName);
     return mergedDelivery(answered, {
       statusByName: Object.fromEntries(deliveredNames.map((name) => [name, 'delivered'])),
       noteByName: Object.fromEntries(deliveredNames.map((name) => [name, `written to ${written.envFile}`])),
@@ -272,12 +274,17 @@ function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = ()
     return approvalRowsOf(readSecrets());
   }
 
+  function deliveredValuesOf(sessionId: string): string[] {
+    return [...(deliveredValuesBySession.get(sessionId) ?? [])];
+  }
+
   function forgetSession(sessionId: string): void {
     deliveriesBySession.delete(sessionId);
+    deliveredValuesBySession.delete(sessionId);
     closeCard(sessionId);
   }
 
-  return { events, need, decide, revoke, requestsSnapshot, approvalRows, forgetSession, refreshCards, newItemsVault };
+  return { events, need, decide, revoke, requestsSnapshot, approvalRows, forgetSession, refreshCards, newItemsVault, deliveredValuesOf };
 }
 
 type SecretsBroker = ReturnType<typeof createSecretsBroker>;
