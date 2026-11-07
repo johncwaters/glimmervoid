@@ -94,6 +94,9 @@ type OperatorReply = {
 
 const GLIMMERVOID_AUTHOR: Author = Object.freeze({ id: 'glimmervoid', name: 'Glimmervoid' });
 const DELETED_BOARD_TEXT = 'that board was deleted';
+const UNREADABLE_BOARD_TEXT = 'that board could not be read from the board store, so nothing changed; try again';
+const DAMAGED_BOARD_TEXT = 'that board has stored elements that cannot be read, so nothing changed';
+const DAMAGED_ROWS = Symbol('damaged element rows');
 const RELEASE_HOLD_MS = 60 * 60_000;
 const UNREADABLE_LAYOUT_WARNING = 'the board could not be laid out after this put, so its layout warnings are unknown and the dashboard may not show it';
 
@@ -164,6 +167,7 @@ interface AgentFocus {
 }
 
 type PageStart = { ok: true; offset: number } | { ok: false; reply: WhiteboardReply };
+type RecordLoad = { ok: true; record: BoardRecord } | { ok: false; reply: WhiteboardReply };
 
 function boardSnapshotOf(board: Board): Board {
   return { ...board, elements: { ...board.elements } };
@@ -203,16 +207,53 @@ function createWhiteboardWiring({
   const writeQueue = createKeyedSerialQueue();
   const assets = createWhiteboardAssetStore({ boardsRoot, logger, now });
   const store = createBoardStore(boardsRoot);
-  const tiles = createBoardTileService({ boardOf: (boardId) => recordsByBoardId.get(boardId)?.board ?? null, logger });
+  const unloadedBoardIds = new Set<string>();
+  const loadingByBoardId = new Map<string, Promise<RecordLoad>>();
+  const tiles = createBoardTileService({ boardOf: (boardId) => (unloadedBoardIds.has(boardId) ? null : recordsByBoardId.get(boardId)?.board ?? null), logger });
   const agentFocusBySessionId = new Map<string, Map<string, AgentFocus>>();
   const pagedFocusBySessionId = new Map<string, Map<string, BoardRegion>>();
   let isEveryBoardLoaded = true;
   const loaded = Promise.all([loadBoards(), assets.loaded]).then(sweepUnusedAssets).then(() => {});
 
-  function sweepUnusedAssets(): Promise<number> {
-    if (!isEveryBoardLoaded) return Promise.resolve(0);
-    const referencedAssetIds = new Set([...recordsByBoardId.values()].flatMap((record) => [...assetIdsOf(record.board)]));
-    return assets.sweep(referencedAssetIds);
+  async function sweepUnusedAssets(): Promise<number> {
+    if (!isEveryBoardLoaded) return 0;
+    const storedAssetIds = await store.assetIds().catch((error: unknown) => {
+      logger.warn(`[whiteboard] board pictures are kept, not cleared, while the stored boards cannot be read: ${errorMessage(error)}`);
+      return null;
+    });
+    if (!storedAssetIds) return 0;
+    const loadedRecords = [...recordsByBoardId.values()].filter((record) => !unloadedBoardIds.has(record.board.id));
+    return assets.sweep(new Set([...storedAssetIds, ...loadedRecords.flatMap((record) => [...assetIdsOf(record.board)])]));
+  }
+
+  function loadedRecordOf(boardId: string): Promise<RecordLoad> {
+    const record = recordsByBoardId.get(boardId);
+    if (!record) return Promise.resolve({ ok: false, reply: refusal(404, DELETED_BOARD_TEXT) });
+    if (!unloadedBoardIds.has(boardId)) return Promise.resolve({ ok: true, record });
+    const loading = loadingByBoardId.get(boardId) ?? loadElementsOf(record);
+    loadingByBoardId.set(boardId, loading);
+    return loading;
+  }
+
+  async function loadElementsOf(head: BoardRecord): Promise<RecordLoad> {
+    const boardId = head.board.id;
+    const stored = await store.loadElements(head).then((record) => record ?? DAMAGED_ROWS, (error: unknown) => {
+      logger.warn(`[whiteboard] board ${boardId} could not be read: ${errorMessage(error)}`);
+      return null;
+    });
+    loadingByBoardId.delete(boardId);
+    const current = recordsByBoardId.get(boardId);
+    if (!current) return { ok: false, reply: refusal(404, DELETED_BOARD_TEXT) };
+    if (!unloadedBoardIds.has(boardId)) return { ok: true, record: current };
+    if (!stored) return { ok: false, reply: refusal(503, UNREADABLE_BOARD_TEXT) };
+    if (stored === DAMAGED_ROWS) {
+      logger.warn(`[whiteboard] board ${boardId} has stored elements that cannot be parsed, so it refuses reads and edits`);
+      return { ok: false, reply: refusal(500, DAMAGED_BOARD_TEXT) };
+    }
+    const record = { ...current, board: { ...current.board, elements: stored.board.elements } };
+    recordsByBoardId.set(boardId, record);
+    unloadedBoardIds.delete(boardId);
+    return { ok: true, record };
   }
 
   function keepPicturesWhileUnloaded(filename: string): void {
@@ -221,7 +262,7 @@ function createWhiteboardWiring({
   }
 
   async function loadBoards(): Promise<void> {
-    const stored = await store.loadAll().catch((error: unknown) => {
+    const stored = await store.loadHeads().catch((error: unknown) => {
       logger.warn(`[whiteboard] the board store could not be read: ${errorMessage(error)}`);
       return null;
     });
@@ -232,7 +273,10 @@ function createWhiteboardWiring({
     await fsp.writeFile(path.join(boardsRoot, OLDER_READER_PICTURE_GUARD), '', { mode: 0o600 }).catch((error: unknown) => {
       logger.warn(`[whiteboard] an older Glimmervoid started on ${boardsRoot} could clear board pictures: ${errorMessage(error)}`);
     });
-    for (const record of stored.records) recordsByBoardId.set(record.board.id, record);
+    for (const record of stored.records) {
+      recordsByBoardId.set(record.board.id, record);
+      unloadedBoardIds.add(record.board.id);
+    }
     for (const boardId of stored.unreadableBoardIds) keepPicturesWhileUnloaded(`board ${boardId}`);
     await migrateJsonBoards();
   }
@@ -305,7 +349,9 @@ function createWhiteboardWiring({
       return false;
     }
     staged?.commit();
-    recordsByBoardId.set(boardId, next);
+    const latest = recordsByBoardId.get(boardId);
+    const isLoadedMeanwhile = latest !== undefined && latest !== current && next.board.elements === current.board.elements;
+    recordsByBoardId.set(boardId, isLoadedMeanwhile ? { ...next, board: { ...next.board, elements: latest.board.elements } } : next);
     return true;
   }
   function elementChangesOf(staged: StagedWrite): ChangedElement[] {
@@ -314,8 +360,9 @@ function createWhiteboardWiring({
 
   function changeRecord(boardId: string, change: (record: BoardRecord) => RecordChange | Promise<RecordChange>): Promise<WhiteboardReply> {
     return writeQueue.run(boardId, async () => {
-      const current = recordsByBoardId.get(boardId);
-      if (!current) return refusal(404, DELETED_BOARD_TEXT);
+      const loading = await loadedRecordOf(boardId);
+      if (!loading.ok) return loading.reply;
+      const current = loading.record;
       const outcome = await change(current);
       if (!outcome.ok) return outcome.reply;
       if (outcome.record === current) return outcome.reply;
@@ -442,8 +489,9 @@ function createWhiteboardWiring({
   }
 
   async function readDocOf(boardId: string, boxId: string): Promise<WhiteboardReply> {
-    const board = recordsByBoardId.get(boardId)?.board;
-    if (!board) return refusal(404, DELETED_BOARD_TEXT);
+    const loading = await loadedRecordOf(boardId);
+    if (!loading.ok) return loading.reply;
+    const { board } = loading.record;
     const element = board.elements[boxId];
     if (element?.kind !== 'box' || element.media?.kind !== 'doc') {
       return refusal(400, `${boxId} on board "${board.title}" holds no document; whiteboard doc reads a box whose media kind is doc`);
@@ -504,8 +552,9 @@ function createWhiteboardWiring({
   }
 
   async function queryBoard(boardId: string, query: Extract<WhiteboardAgentRequest, { sub: 'query' }>): Promise<WhiteboardReply> {
-    const board = recordsByBoardId.get(boardId)?.board;
-    if (!board) return refusal(404, `no board ${boardId}`);
+    const loading = await loadedRecordOf(boardId);
+    if (!loading.ok) return loading.reply;
+    const { board } = loading.record;
     const pageStart = pageStartOf(board, query.cursor);
     if (!pageStart.ok) return pageStart.reply;
     const { offset } = pageStart;
@@ -553,17 +602,26 @@ function createWhiteboardWiring({
   }
 
   async function clearLinksTo(deletedBoardId: string): Promise<void> {
-    const unlinkPuts = [...recordsByBoardId.values()].flatMap((record) => {
-      const ops: Op[] = stepBoxesOf(record.board)
-        .filter((stepBox) => stepBox.step.linkedBoardId === deletedBoardId)
-        .map((stepBox) => ({ op: 'set', id: stepBox.id, fields: { step: { linkedBoardId: null } } }));
-      if (ops.length === 0) return [];
-      const linkingBoardId = record.board.id;
-      return [putOps(linkingBoardId, ops, GLIMMERVOID_AUTHOR).then((reply) => {
-        if (!reply.body.ok) logger.warn(`[whiteboard] steps on board ${linkingBoardId} still link to deleted board ${deletedBoardId}: ${reply.body.error}`);
-      })];
+    const storedLinkingBoardIds = await store.boardsLinkingTo(deletedBoardId).catch((error: unknown) => {
+      logger.warn(`[whiteboard] steps on boards not yet opened may still link to deleted board ${deletedBoardId}: ${errorMessage(error)}`);
+      return [];
     });
-    await Promise.all(unlinkPuts);
+    const loadedBoardIds = [...recordsByBoardId.keys()].filter((boardId) => !unloadedBoardIds.has(boardId));
+    await Promise.all([...new Set([...loadedBoardIds, ...storedLinkingBoardIds])].map((linkingBoardId) => unlinkStepsTo(linkingBoardId, deletedBoardId)));
+  }
+
+  async function unlinkStepsTo(linkingBoardId: string, deletedBoardId: string): Promise<void> {
+    const loading = await loadedRecordOf(linkingBoardId);
+    if (!loading.ok) {
+      logger.warn(`[whiteboard] steps on board ${linkingBoardId} may still link to deleted board ${deletedBoardId}: ${loading.reply.body.ok ? '' : loading.reply.body.error}`);
+      return;
+    }
+    const ops: Op[] = stepBoxesOf(loading.record.board)
+      .filter((stepBox) => stepBox.step.linkedBoardId === deletedBoardId)
+      .map((stepBox) => ({ op: 'set', id: stepBox.id, fields: { step: { linkedBoardId: null } } }));
+    if (ops.length === 0) return;
+    const reply = await putOps(linkingBoardId, ops, GLIMMERVOID_AUTHOR);
+    if (!reply.body.ok) logger.warn(`[whiteboard] steps on board ${linkingBoardId} still link to deleted board ${deletedBoardId}: ${reply.body.error}`);
   }
 
   async function removeBoard(boardId: string): Promise<WhiteboardReply> {
@@ -590,6 +648,7 @@ function createWhiteboardWiring({
       return refusal(500, 'the board could not be deleted, so it is still here');
     }
     recordsByBoardId.delete(boardId);
+    unloadedBoardIds.delete(boardId);
     deletedBoardIds.add(boardId);
     tiles.forgetBoard(boardId);
     broadcastControl({ type: 'whiteboard-removed', boardId });
@@ -620,15 +679,15 @@ function createWhiteboardWiring({
     put: (boardId, ops) => operatorBoardCommand(boardId, (foundBoardId) => putOps(foundBoardId, ops, OPERATOR_AUTHOR)),
     remove: (boardId) => operatorBoardCommand(boardId, removeBoard),
     get: (boardId) => operatorBoardCommand(boardId, async (foundBoardId) => {
-      const record = recordsByBoardId.get(foundBoardId);
-      if (!record) return refusal(404, DELETED_BOARD_TEXT);
-      return { status: 200, body: { ok: true, board: boardSnapshotOf(record.board), changes: [] } };
+      const loading = await loadedRecordOf(foundBoardId);
+      if (!loading.ok) return loading.reply;
+      return { status: 200, body: { ok: true, board: boardSnapshotOf(loading.record.board), changes: [] } };
     }),
     review: async (boardId) => {
       await loaded;
-      const record = recordsByBoardId.get(boardId);
-      if (!record) return { ok: false, error: DELETED_BOARD_TEXT };
-      return { ok: true, error: null, review: await reviewFor(record.board, { readsChanges: true }) };
+      const loading = await loadedRecordOf(boardId);
+      if (!loading.ok) return operatorReplyOf(loading.reply);
+      return { ok: true, error: null, review: await reviewFor(loading.record.board, { readsChanges: true }) };
     },
     connect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => connectBoard(foundBoardId, sessionId)),
     disconnect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => disconnectBoard(foundBoardId, sessionId)),
@@ -752,22 +811,36 @@ function createWhiteboardWiring({
     }
   }
 
+  async function loadedBoardOf(boardId: string): Promise<Board | null> {
+    const loading = await loadedRecordOf(boardId);
+    return loading.ok ? loading.record.board : null;
+  }
+
   const layouts: WhiteboardLayouts = {
-    summaryOf: (boardId) => {
-      const board = recordsByBoardId.get(boardId)?.board;
-      return board ? tiles.summaryOf(board) : Promise.resolve(null);
+    summaryOf: async (boardId) => {
+      const board = await loadedBoardOf(boardId);
+      return board ? tiles.summaryOf(board) : null;
     },
-    pictureImagesOf: (boardId) => {
-      const board = recordsByBoardId.get(boardId)?.board;
-      return board ? tiles.pictureImagesOf(board) : Promise.resolve(null);
+    pictureImagesOf: async (boardId) => {
+      const board = await loadedBoardOf(boardId);
+      return board ? tiles.pictureImagesOf(board) : null;
     },
-    pictureOf: (boardId, dataUriByAssetId) => {
-      const board = recordsByBoardId.get(boardId)?.board;
-      return board ? tiles.pictureOf(board, dataUriByAssetId) : Promise.resolve(null);
+    pictureOf: async (boardId, dataUriByAssetId) => {
+      const board = await loadedBoardOf(boardId);
+      return board ? tiles.pictureOf(board, dataUriByAssetId) : null;
     },
   };
 
-  return { loaded, assets, handleAgent, handleOperator, forgetSession, forgetClosedSessions, takeBoardNotice, isConnected, snapshotMessage, tiles, layouts };
+  const tilesOnFirstUse: WhiteboardPort['tiles'] = {
+    view: async (viewer, request) => {
+      await loadedRecordOf(request.boardId);
+      return tiles.view(viewer, request);
+    },
+    forget: tiles.forget,
+    operatorViewOf: tiles.operatorViewOf,
+  };
+
+  return { loaded, assets, handleAgent, handleOperator, forgetSession, forgetClosedSessions, takeBoardNotice, isConnected, snapshotMessage, tiles: tilesOnFirstUse, layouts };
 }
 
 export { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME };

@@ -60,7 +60,10 @@ const BoardDelta = z.strictObject({
 });
 
 const StoreRequest = z.discriminatedUnion('kind', [
-  z.strictObject({ kind: z.literal('load-all'), requestId: z.number().int() }),
+  z.strictObject({ kind: z.literal('load-heads'), requestId: z.number().int() }),
+  z.strictObject({ kind: z.literal('load-board'), requestId: z.number().int(), boardId: z.string() }),
+  z.strictObject({ kind: z.literal('asset-ids'), requestId: z.number().int() }),
+  z.strictObject({ kind: z.literal('boards-linking-to'), requestId: z.number().int(), boardId: z.string() }),
   z.strictObject({ kind: z.literal('write'), requestId: z.number().int(), deltas: z.array(BoardDelta) }),
   z.strictObject({ kind: z.literal('delete'), requestId: z.number().int(), boardId: z.string() }),
   z.strictObject({ kind: z.literal('set-rects'), requestId: z.number().int(), boardId: z.string(), rectsByElementId: z.record(z.string(), Rect) }),
@@ -69,17 +72,24 @@ const StoreRequest = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('board-ids'), requestId: z.number().int() }),
 ]);
 
-const StoredBoardRows = z.strictObject({
+const StoredHeadRows = z.strictObject({
   boardId: z.string(),
   head: z.string(),
   cursors: z.string(),
   createdBy: z.string().nullable(),
-  elementBodies: z.array(z.string()),
   logBodies: z.array(z.string()),
 });
 
 const StoreReply = z.discriminatedUnion('ok', [
-  z.strictObject({ requestId: z.number().int(), ok: z.literal(true), boards: z.array(StoredBoardRows).optional(), elementIds: z.array(z.string()).optional(), boardIds: z.array(z.string()).optional() }),
+  z.strictObject({
+    requestId: z.number().int(),
+    ok: z.literal(true),
+    heads: z.array(StoredHeadRows).optional(),
+    elementBodies: z.array(z.string()).optional(),
+    elementIds: z.array(z.string()).optional(),
+    boardIds: z.array(z.string()).optional(),
+    assetIds: z.array(z.string()).optional(),
+  }),
   z.strictObject({ requestId: z.number().int(), ok: z.literal(false), error: z.string() }),
 ]);
 
@@ -87,7 +97,7 @@ type Rect = z.infer<typeof Rect>;
 type BoardDelta = z.infer<typeof BoardDelta>;
 type StoreRequest = z.infer<typeof StoreRequest>;
 type StoreReply = z.infer<typeof StoreReply>;
-type StoredBoardRows = z.infer<typeof StoredBoardRows>;
+type StoredHeadRows = z.infer<typeof StoredHeadRows>;
 type DistributiveOmit<Value, Key extends PropertyKey> = Value extends unknown ? Omit<Value, Key> : never;
 type StoreRequestBody = DistributiveOmit<StoreRequest, 'requestId'>;
 
@@ -171,11 +181,15 @@ function parsedJson(text: string): unknown {
   }
 }
 
-function recordOfRows(rows: StoredBoardRows): BoardRecord | null {
+function headRowsOf(record: BoardRecord): StoredHeadRows {
+  return { boardId: record.board.id, head: headOf(record.board), cursors: JSON.stringify(record.cursorBySessionId), createdBy: record.createdBy, logBodies: record.log.map((change) => JSON.stringify(change)) };
+}
+
+function recordOfRows(rows: StoredHeadRows, elementBodies: readonly string[]): BoardRecord | null {
   const head = BoardHeadFields.safeParse(parsedJson(rows.head));
   if (!head.success) return null;
   const elements: Record<string, unknown> = {};
-  for (const body of rows.elementBodies) {
+  for (const body of elementBodies) {
     const element = parsedJson(body);
     const identity = ElementIdentity.safeParse(element);
     if (!identity.success) return null;
@@ -191,5 +205,5 @@ function ftsQueryOf(query: string): string {
 }
 
 export type { StagedElements };
-export { BOARD_STORE_FILENAME, BOARD_STORE_SCHEMA, StoreReply, StoreRequest, boardDeltaOf, ftsQueryOf, recordOfRows };
-export type { BoardDelta, Rect, StoreRequestBody, StoredBoardRows };
+export { BOARD_STORE_FILENAME, BOARD_STORE_SCHEMA, StoreReply, StoreRequest, boardDeltaOf, ftsQueryOf, headRowsOf, recordOfRows };
+export type { BoardDelta, Rect, StoreRequestBody, StoredHeadRows };

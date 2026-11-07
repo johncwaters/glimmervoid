@@ -2,7 +2,7 @@ import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 
 import { boardStoreWorkerPath } from '../runtime-paths.ts';
-import { BOARD_STORE_FILENAME, StoreReply, boardDeltaOf, recordOfRows } from './board-store-core.ts';
+import { BOARD_STORE_FILENAME, StoreReply, boardDeltaOf, headRowsOf, recordOfRows } from './board-store-core.ts';
 import type { StagedElements } from './board-store-core.ts';
 import type { Rect, StoreRequestBody } from './board-store-core.ts';
 import type { BoardRecord } from '../../shared/contracts/whiteboard.ts';
@@ -15,7 +15,10 @@ interface PendingRequest {
 }
 
 interface BoardStore {
-  loadAll(): Promise<{ records: BoardRecord[]; unreadableBoardIds: string[] }>;
+  loadHeads(): Promise<{ records: BoardRecord[]; unreadableBoardIds: string[] }>;
+  loadElements(head: BoardRecord): Promise<BoardRecord | null>;
+  assetIds(): Promise<Set<string>>;
+  boardsLinkingTo(boardId: string): Promise<string[]>;
   boardIds(): Promise<Set<string>>;
   save(before: BoardRecord | null, after: BoardRecord, staged?: StagedElements | null): Promise<void>;
   saveMany(records: readonly BoardRecord[]): Promise<void>;
@@ -70,20 +73,28 @@ function createBoardStore(boardsRoot: string): BoardStore {
     });
   }
 
-  async function loadAll(): Promise<{ records: BoardRecord[]; unreadableBoardIds: string[] }> {
-    const answer = await request({ kind: 'load-all' });
+  async function loadHeads(): Promise<{ records: BoardRecord[]; unreadableBoardIds: string[] }> {
+    const answer = await request({ kind: 'load-heads' });
     const records: BoardRecord[] = [];
     const unreadableBoardIds: string[] = [];
-    for (const rows of answer.boards ?? []) {
-      const record = recordOfRows(rows);
+    for (const rows of answer.heads ?? []) {
+      const record = recordOfRows(rows, []);
       if (record) records.push(record);
       if (!record) unreadableBoardIds.push(rows.boardId);
     }
     return { records, unreadableBoardIds };
   }
 
+  async function loadElements(head: BoardRecord): Promise<BoardRecord | null> {
+    const answer = await request({ kind: 'load-board', boardId: head.board.id });
+    return recordOfRows(headRowsOf(head), answer.elementBodies ?? []);
+  }
+
   return {
-    loadAll,
+    loadHeads,
+    loadElements,
+    assetIds: async () => new Set((await request({ kind: 'asset-ids' })).assetIds ?? []),
+    boardsLinkingTo: async (boardId) => (await request({ kind: 'boards-linking-to', boardId })).boardIds ?? [],
     boardIds: async () => new Set((await request({ kind: 'board-ids' })).boardIds ?? []),
     save: async (before, after, staged = null) => { await request({ kind: 'write', deltas: [boardDeltaOf(before, after, staged)] }); },
     saveMany: async (records) => { await request({ kind: 'write', deltas: records.map((record) => boardDeltaOf(null, record)) }); },

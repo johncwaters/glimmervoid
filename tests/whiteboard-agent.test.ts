@@ -1009,7 +1009,10 @@ test('a board saved with units, panels, columns and lanes loads them as step box
   assert.deepEqual([priorPanel.shape, priorPanel.title, priorPanel.lines.map((line) => line.text), priorPanel.order, priorPanel.at], ['panel', 'Prior art', ['the old router'], 2, null]);
   const renamed = await after.handleOperator.put(plannedId, z.array(Op).parse([{ op: 'board', title: 'renamed' }]));
   assert.equal(renamed.ok, true, renamed.error ?? '');
-  const storedPlanned = (await createBoardStore(boardsRoot).loadAll()).records.find((record) => record.board.id === plannedId);
+  const store = createBoardStore(boardsRoot);
+  const plannedHead = (await store.loadHeads()).records.find((record) => record.board.id === plannedId);
+  const storedPlanned = plannedHead ? await store.loadElements(plannedHead) : null;
+  assert.ok(storedPlanned);
   assert.equal(/"kind":"(unit|panel)"|"columns"|"lanes"|"column"|"lane"/.test(JSON.stringify(storedPlanned)), false);
   const relinked = await after.handleOperator.put(plannedId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'u2', title: 'Other', step: { linkedBoardId: detailId } } }]));
   assert.equal(relinked.ok, false);

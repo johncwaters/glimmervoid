@@ -4,10 +4,10 @@ import { DatabaseSync } from 'node:sqlite';
 import { parentPort, workerData } from 'node:worker_threads';
 
 import { BOARD_STORE_SCHEMA, StoreRequest, ftsQueryOf } from './board-store-core.ts';
-import type { BoardDelta, Rect, StoreRequestBody, StoredBoardRows } from './board-store-core.ts';
+import type { BoardDelta, Rect, StoreRequestBody, StoredHeadRows } from './board-store-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 
-type ReplyFields = { boards?: StoredBoardRows[]; elementIds?: string[]; boardIds?: string[] };
+type ReplyFields = { heads?: StoredHeadRows[]; elementBodies?: string[]; elementIds?: string[]; boardIds?: string[]; assetIds?: string[] };
 
 const STORE_FOLDER_MODE = 0o700;
 const STORE_FILE_MODE = 0o600;
@@ -55,6 +55,8 @@ function preparedStatementsOf(database: DatabaseSync) {
     elementBodies: database.prepare('SELECT body FROM elements WHERE board_id = ? ORDER BY slot'),
     logBodies: database.prepare('SELECT body FROM board_log WHERE board_id = ? ORDER BY seq'),
     boardSlots: database.prepare('SELECT slot FROM elements WHERE board_id = ?'),
+    assetIds: database.prepare("SELECT DISTINCT json_extract(body, '$.media.asset') AS asset_id FROM elements WHERE body LIKE '%\"asset\"%' AND json_extract(body, '$.media.asset') IS NOT NULL"),
+    boardsLinkingTo: database.prepare("SELECT DISTINCT board_id FROM elements WHERE body LIKE '%\"linkedBoardId\"%' AND json_extract(body, '$.step.linkedBoardId') = ?"),
     deleteBoard: database.prepare('DELETE FROM boards WHERE id = ?'),
     region: database.prepare('SELECT elements.element_id AS element_id FROM element_rects JOIN elements ON elements.slot = element_rects.slot WHERE elements.board_id = ? AND element_rects.max_x >= ? AND element_rects.min_x <= ? AND element_rects.max_y >= ? AND element_rects.min_y <= ? LIMIT ?'),
     search: database.prepare('SELECT elements.element_id AS element_id FROM element_text JOIN elements ON elements.slot = element_text.rowid WHERE element_text MATCH ? AND elements.board_id = ? ORDER BY rank LIMIT ?'),
@@ -109,10 +111,11 @@ function openStore(databasePath: string) {
       const row = statements.slotOf.get(delta.boardId, elementId);
       if (row) removeSlot(slotNumberOf(row));
     }
-    for (const write of delta.writes) {
-      const slot = slotNumberOf(statements.upsertElement.get(delta.boardId, write.elementId, delta.version, write.body));
+    const slots = delta.writes.map((write) => slotNumberOf(statements.upsertElement.get(delta.boardId, write.elementId, delta.version, write.body)));
+    for (const [index, slot] of slots.entries()) {
+      const text = delta.writes[index]?.text;
       statements.removeText.run(slot);
-      if (write.text) statements.insertText.run(slot, write.text);
+      if (text) statements.insertText.run(slot, text);
     }
     for (const change of delta.appendedLog) statements.appendLog.run(delta.boardId, change.version, change.body);
     statements.pruneLog.run(delta.boardId, delta.boardId, delta.keptLogCount);
@@ -130,7 +133,7 @@ function openStore(databasePath: string) {
     }
   }
 
-  function loadAll(): StoredBoardRows[] {
+  function loadHeads(): StoredHeadRows[] {
     return statements.allBoards.all().map((row) => {
       const boardId = textColumn(row, 'id');
       const createdBy: unknown = Reflect.get(row, 'created_by');
@@ -139,14 +142,16 @@ function openStore(databasePath: string) {
         head: textColumn(row, 'head'),
         cursors: textColumn(row, 'cursors'),
         createdBy: typeof createdBy === 'string' ? createdBy : null,
-        elementBodies: statements.elementBodies.all(boardId).map((elementRow) => textColumn(elementRow, 'body')),
         logBodies: statements.logBodies.all(boardId).map((logRow) => textColumn(logRow, 'body')),
       };
     });
   }
 
   function handle(request: StoreRequestBody): ReplyFields {
-    if (request.kind === 'load-all') return { boards: loadAll() };
+    if (request.kind === 'load-heads') return { heads: loadHeads() };
+    if (request.kind === 'load-board') return { elementBodies: statements.elementBodies.all(request.boardId).map((row) => textColumn(row, 'body')) };
+    if (request.kind === 'asset-ids') return { assetIds: statements.assetIds.all().map((row) => textColumn(row, 'asset_id')) };
+    if (request.kind === 'boards-linking-to') return { boardIds: statements.boardsLinkingTo.all(request.boardId).map((row) => textColumn(row, 'board_id')) };
     if (request.kind === 'board-ids') return { boardIds: statements.boardIds.all().map((row) => textColumn(row, 'id')) };
     if (request.kind === 'write') {
       inTransaction(() => { for (const delta of request.deltas) applyDelta(delta); });
@@ -183,15 +188,15 @@ function openStoreOrSetAside(databasePath: string): ReturnType<typeof openStore>
   }
 }
 
-function loadAllOrSetAside(databasePath: string, store: ReturnType<typeof openStore>): { store: ReturnType<typeof openStore>; fields: ReplyFields } {
+function loadHeadsOrSetAside(databasePath: string, store: ReturnType<typeof openStore>): { store: ReturnType<typeof openStore>; fields: ReplyFields } {
   try {
-    return { store, fields: store.handle({ kind: 'load-all' }) };
+    return { store, fields: store.handle({ kind: 'load-heads' }) };
   } catch (error) {
     if (!isUnreadableDatabase(error)) throw error;
     store.close();
     setAside(databasePath);
     const freshStore = openStore(databasePath);
-    return { store: freshStore, fields: freshStore.handle({ kind: 'load-all' }) };
+    return { store: freshStore, fields: freshStore.handle({ kind: 'load-heads' }) };
   }
 }
 
@@ -210,8 +215,8 @@ function serve(): void {
     }
     const { requestId, ...request } = parsed.data;
     try {
-      if (request.kind === 'load-all') {
-        const loaded = loadAllOrSetAside(databasePath, store);
+      if (request.kind === 'load-heads') {
+        const loaded = loadHeadsOrSetAside(databasePath, store);
         store = loaded.store;
         port.postMessage({ requestId, ok: true, ...loaded.fields });
         return;

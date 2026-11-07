@@ -129,3 +129,46 @@ test('a JSON board moves into the board store once, keeps its edits across resta
     assert.equal((await recoveredFromPage.handleOperator.create('After damaged page')).ok, true);
   }
 });
+
+test('a restart lists stored boards without reading their elements, and a board with a damaged element row refuses only its own reads', async () => {
+  const boardsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-store-lazy-'));
+  const first = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
+  await first.loaded;
+  const boxOf = (id: string) => z.array(Op).parse([{ op: 'add', element: { kind: 'box', id, title: id, at: { x: 0, y: 0 } } }]);
+  const damagedId = (await first.handleOperator.create('Damaged rows')).summary?.id ?? '';
+  const healthyId = (await first.handleOperator.create('Healthy rows')).summary?.id ?? '';
+  assert.equal((await first.handleOperator.put(damagedId, boxOf('a'))).ok, true);
+  assert.equal((await first.handleOperator.put(healthyId, boxOf('b'))).ok, true);
+  const database = new DatabaseSync(path.join(boardsRoot, 'boards.sqlite'));
+  database.prepare('UPDATE elements SET body = ? WHERE board_id = ?').run('{ not json', damagedId);
+  database.close();
+
+  const restarted = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
+  await restarted.loaded;
+  assert.deepEqual(restarted.snapshotMessage().boards.map((board) => board.title).sort(), ['Damaged rows', 'Healthy rows']);
+  const damagedRead = await restarted.handleOperator.get(damagedId);
+  assert.equal(damagedRead.ok, false);
+  assert.match(damagedRead.error ?? '', /cannot be read/);
+  assert.equal((await restarted.handleOperator.put(damagedId, boxOf('c'))).ok, false);
+  assert.deepEqual(Object.keys((await restarted.handleOperator.get(healthyId)).board?.elements ?? {}), ['b']);
+});
+
+test('a session closing while its board loads after a restart keeps the loaded elements', async () => {
+  const boardsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-store-close-during-load-'));
+  const first = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
+  await first.loaded;
+  const created = await first.handleAgent({ id: 'closing-agent', name: 'closing' }, { sub: 'new', title: 'Shared plan' });
+  assert.equal(created.body.ok, true);
+  const boardId = first.snapshotMessage().boards[0]?.id ?? '';
+  const boxes = Array.from({ length: 2000 }, (_, index) => ({ op: 'add', element: { kind: 'box', id: `box-${index}`, title: `box ${index}`, at: { x: index * 300, y: 0 } } }));
+  assert.equal((await first.handleOperator.connect(boardId, 'staying-agent')).ok, true);
+  assert.equal((await first.handleOperator.put(boardId, z.array(Op).parse(boxes))).ok, true);
+
+  const restarted = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
+  await restarted.loaded;
+  const firstRead = restarted.handleOperator.get(boardId);
+  await new Promise((resolve) => setImmediate(resolve));
+  await restarted.forgetSession('closing-agent');
+  assert.equal(Object.keys((await firstRead).board?.elements ?? {}).length, 2000);
+  assert.equal(Object.keys((await restarted.handleOperator.get(boardId)).board?.elements ?? {}).length, 2000);
+});
