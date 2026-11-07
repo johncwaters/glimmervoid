@@ -25,6 +25,11 @@ export const LANES_POSTHOG: SettingsSection = {
       control: 'password', keywords: ['credential', 'token'], defaultValue: '', ...MACHINE_NOW,
     },
     {
+      id: 'posthog-read-api-key', path: 'posthog.readApiKey', title: 'Read-only API key for the watcher',
+      description: 'Personal API key with read scopes only. The watcher uses it to notice new errors and community questions, so Radar and Community stop polling on a timer.',
+      control: 'password', keywords: ['credential', 'token', 'watcher', 'read access'], defaultValue: '', ...MACHINE_NOW,
+    },
+    {
       id: 'posthog-projects', path: 'posthog.projects', title: 'Projects',
       description: 'Project ids to watch, where empty watches all and none watches none.',
       control: 'list', keywords: ['project ids', 'filter'], defaultValue: 'all', valueKind: 'posthog-projects',

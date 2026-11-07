@@ -22,6 +22,7 @@ export const Probe = z.strictObject({
   url: z.url({ protocol: /^https$/ }),
   body: z.string().max(64 * 1024).nullable(),
   credential: ProbeCredential,
+  answerField: z.string().regex(/^[a-z_]{1,40}$/).optional(),
 });
 export type Probe = z.infer<typeof Probe>;
 

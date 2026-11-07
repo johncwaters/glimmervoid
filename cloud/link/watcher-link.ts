@@ -23,7 +23,7 @@ const DELIVERY_RETRY_BASE_MS = 1_000;
 const DELIVERY_RETRY_MAX_MS = 60_000;
 
 function requestOf(probe: Probe): string {
-  return JSON.stringify([probe.method, probe.url, probe.body, probe.credential]);
+  return JSON.stringify([probe.method, probe.url, probe.body, probe.credential, probe.answerField ?? null]);
 }
 
 function revisionOf(probes: readonly Probe[]): string {

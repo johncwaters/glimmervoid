@@ -92,11 +92,22 @@ function readCommunitySettings(config: { community?: unknown }): CommunitySettin
   };
 }
 
-function readPosthogConnection(config: { posthog?: unknown }): PosthogConnection | null {
+function posthogConnectionWith(config: { posthog?: unknown }, keyField: 'apiKey' | 'readApiKey'): PosthogConnection | null {
   const block = recordOf(config.posthog);
-  const apiKey = typeof block.apiKey === 'string' ? block.apiKey.trim() : '';
+  const keyValue = block[keyField];
+  const apiKey = typeof keyValue === 'string' ? keyValue.trim() : '';
   if (!apiKey) return null;
   return { host: resolvePosthogHost(typeof block.host === 'string' ? block.host.trim() : null), apiKey };
+}
+
+function readPosthogConnection(config: { posthog?: unknown }): PosthogConnection | null {
+  return posthogConnectionWith(config, 'apiKey');
+}
+
+function readPosthogReadConnection(config: { posthog?: unknown }): PosthogConnection | null {
+  const connection = posthogConnectionWith(config, 'readApiKey');
+  if (connection === null || !connection.host.startsWith('https://')) return null;
+  return connection;
 }
 
 function readTelegramTarget(config: { telegram?: unknown }): { botToken: string; chatId: string } {
@@ -664,8 +675,8 @@ export {
   JUDGE_BOOTSTRAP_PROMPT, JUDGE_MODEL, JUDGE_PROMPT_FILENAME, JUDGE_RESULT_FILENAME, JUDGE_TIMEOUT_MS,
   COMMUNITY_UNTRUSTED_SOURCE, JUDGE_UNTRUSTED_SOURCE, JUDGE_MESSAGE_CHARS, MAX_BODY_CHARS,
   NOTIFICATION_CATEGORY, draftNotificationText, shouldNotifyDraft,
-  admitSourceItems, withWatermarkAtLeast, applyCommunityAction, buildJudgeRequest, discordDropSummary, discordItemsFromRows, discordQuery, freshItems, parseJudgeResult, buildCommunityRequest, communityGate, communitySessionPrompt, emptyCommunityState, entryFromRun, forumItemsFromRows, forumQuery, markRunning,
-  parseCommunityState, prunedState, readCommunitySettings, readPosthogConnection, readTelegramTarget, requeueInterruptedRuns, selectRuns,
+  DISCORD_CHANNEL_NAME_EXPRESSION, SOURCE_ROW_LIMIT, admitSourceItems, withWatermarkAtLeast, applyCommunityAction, buildJudgeRequest, discordDropSummary, discordItemsFromRows, discordQuery, freshItems, parseJudgeResult, buildCommunityRequest, communityGate, communitySessionPrompt, emptyCommunityState, entryFromRun, forumItemsFromRows, forumQuery, markRunning,
+  parseCommunityState, prunedState, readCommunitySettings, readPosthogConnection, readPosthogReadConnection, readTelegramTarget, requeueInterruptedRuns, selectRuns,
   shouldPruneEntry,
 };
 export type { CommunityRunResult, DiscordReplyFacts, CommunitySettings, PosthogConnection };

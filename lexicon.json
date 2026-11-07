@@ -651,6 +651,10 @@
     {
       "name": "link secret",
       "definition": "The random secret the server hands the watcher it starts, from which each direction of the watcher link derives its own signing key; never shown in settings"
+    },
+    {
+      "name": "answer field",
+      "definition": "The one top-level JSON field of a probe's answer, such as results, that the watcher hashes alone, so per-run fields beside it never nudge"
     }
   ],
   "retired": [

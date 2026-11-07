@@ -26,6 +26,7 @@ interface CommunityPollerDependencies {
   firstTickDelayMs?: () => number;
   now?: () => number;
   log?: Pick<Console, 'warn'>;
+  isCoveredByWatcher?: () => boolean;
 }
 
 interface DiscordSource {
@@ -38,15 +39,20 @@ interface CommunityPoller {
   start(): Promise<void>;
   stop(): Promise<void>;
   tick(): Promise<void>;
+  pollSoon(): void;
   state(): CommunityState;
   applyAction(key: string, action: CommunityAction): Promise<{ ok: true } | { ok: false; error: string }>;
 }
 
 function createCommunityPoller({
   intervalMinutes, queryForum, discord = null, readState, writeState, runItem, maxConcurrentRuns = core.MAX_CONCURRENT_RUNS,
-  onTickComplete = () => {}, onDraftReady = () => {}, firstTickDelayMs, now = Date.now, log = console,
+  onTickComplete = () => {}, onDraftReady = () => {}, firstTickDelayMs, now = Date.now, log = console, isCoveredByWatcher = () => false,
 }: CommunityPollerDependencies): CommunityPoller {
   let state: CommunityState = core.emptyCommunityState();
+  let lastPollOutcome: 'none' | 'ok' | 'failed' = 'none';
+  let requestedPollCount = 0;
+  let handledPollCount = 0;
+  let fullPageCount = 0;
   const runAborts = new Map<string, AbortController>();
 
   const intervalMs = intervalMinutes * 60000;
@@ -75,6 +81,7 @@ function createCommunityPoller({
     }
     const fetched = await queryForum(watermark);
     if (!fetched.ok) return sourceFailure(fetched);
+    if (fetched.rows.length >= core.SOURCE_ROW_LIMIT) fullPageCount += 1;
     const { items, droppedRows, newestRowAt } = core.forumItemsFromRows(fetched.rows);
     if (droppedRows > 0) log.warn(`[${core.COMMUNITY_LANE_ID}] dropped ${droppedRows} malformed forum row(s)`);
     state = core.withWatermarkAtLeast(core.admitSourceItems(state, 'forum', items, nowIso).state, 'forum', newestRowAt);
@@ -90,6 +97,7 @@ function createCommunityPoller({
     }
     const fetched = await source.query(watermark);
     if (!fetched.ok) return sourceFailure(fetched);
+    if (fetched.rows.length >= core.SOURCE_ROW_LIMIT) fullPageCount += 1;
     const { items, replyFacts, dropReasons, newestRowAt } = core.discordItemsFromRows(fetched.rows, source.channels);
     const dropSummary = core.discordDropSummary(dropReasons);
     if (dropSummary) log.warn(`[${core.COMMUNITY_LANE_ID}] ${dropSummary}`);
@@ -138,7 +146,19 @@ function createCommunityPoller({
     for (const key of core.selectRuns(state, maxConcurrentRuns - runAborts.size)) startRun(key);
   }
 
+  function isWatcherKeepingWatch(): boolean {
+    return lastPollOutcome === 'ok' && handledPollCount === requestedPollCount && isCoveredByWatcher();
+  }
+
+  function pollSoon(): void {
+    requestedPollCount += 1;
+    loop.tickSoon();
+  }
+
   async function runTick(): Promise<TickOutcome> {
+    if (isWatcherKeepingWatch()) return {};
+    const pollCountAtStart = requestedPollCount;
+    fullPageCount = 0;
     const forumFailure = await pollForum();
     const shouldPollDiscord = discord !== null && discord.channels.length > 0 && !forumFailure?.isRateLimited;
     const discordFailure = shouldPollDiscord ? await pollDiscord(discord) : null;
@@ -150,6 +170,9 @@ function createCommunityPoller({
     dispatchRuns();
     await loop.persist();
     publishStatus(pollError);
+    lastPollOutcome = pollError ? 'failed' : 'ok';
+    if (!pollError) handledPollCount = pollCountAtStart;
+    if (!pollError && fullPageCount > 0) pollSoon();
     if (pollError && longestRetryAfterMs !== undefined) return { failed: true, error: pollError, retryAfterMs: longestRetryAfterMs };
     if (pollError) return { failed: true, error: pollError };
     return {};
@@ -184,7 +207,7 @@ function createCommunityPoller({
     await stopping;
   }
 
-  return { start, stop, tick: loop.tick, state: () => state, applyAction };
+  return { start, stop, tick: loop.tick, pollSoon, state: () => state, applyAction };
 }
 
 export { createCommunityPoller };

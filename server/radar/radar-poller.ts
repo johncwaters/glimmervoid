@@ -179,6 +179,7 @@ interface RadarPoller {
   pendingFixFor: (id: string) => { record: InvestigationRecord; fix: PendingFix } | null;
   settlePendingFix: (id: string, options: { releaseBranch: boolean }) => Promise<{ ok: boolean; error?: string; investigations?: InvestigationRecord[] }>;
   investigations: () => InvestigationRecord[];
+  watchedProjectIds: () => (string | number)[];
   _state: () => PosthogState;
 }
 
@@ -885,7 +886,8 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
   }
 
   return {
-    start, stop, tick: loop.tick, archiveInvestigation, pendingFixFor, settlePendingFix,
+    start, stop, tick: loop.tick, archiveInvestigation,
+    watchedProjectIds: () => lastTickStatus?.projects.map((project) => project.projectId) ?? [], pendingFixFor, settlePendingFix,
     investigations: currentInvestigations,
     _state: () => state,
   };

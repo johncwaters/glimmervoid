@@ -142,6 +142,7 @@ const PosthogSettings = optionalObject('posthog', {
   autoFix: optionalBoolean('posthog.autoFix'),
   host: optionalString('posthog.host', true).refine((value) => value == null || !value || /^https?:\/\//i.test(value), { message: 'posthog.host must be an http(s) URL' }),
   apiKey: optionalString('posthog.apiKey', true),
+  readApiKey: optionalString('posthog.readApiKey', true),
   repoPath: optionalString('posthog.repoPath', true),
   projects: z.union([
     z.literal('all'),

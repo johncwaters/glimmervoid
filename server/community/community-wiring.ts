@@ -1,3 +1,5 @@
+import { communityProbes } from './community-probes.ts';
+import type { Probe } from '../../shared/contracts/watcher-link.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { GlimmervoidConfig } from '../config-store.ts';
@@ -233,9 +235,53 @@ function createCommunityWiring({
         onDraftReady: notifyDraftReady,
         firstTickDelayMs: bootStaggerDelay,
         log,
+        isCoveredByWatcher,
       });
     },
   });
+
+  const probesChangedListeners = new Set<() => void>();
+  const announceProbesMayHaveChanged = () => { for (const listener of probesChangedListeners) listener(); };
+  let coveredProbeIds: ReadonlySet<string> = new Set();
+
+  function probes(): Probe[] {
+    const connection = core.readPosthogReadConnection(config);
+    if (runner.getPoller() === null || connection === null) return [];
+    const settings = core.readCommunitySettings(config);
+    return communityProbes({ host: connection.host, settings, hasDiscordSource: spawnDependencies !== null && settings.discordChannels.length > 0 });
+  }
+
+  function isCoveredByWatcher(): boolean {
+    const currentProbes = probes();
+    return currentProbes.length > 0 && currentProbes.every((probe) => coveredProbeIds.has(probe.id));
+  }
+
+  function coverWithWatcher(coveredProbes: readonly Probe[]): void {
+    const wasCovered = isCoveredByWatcher();
+    coveredProbeIds = new Set(coveredProbes.map((probe) => probe.id));
+    if (!wasCovered && isCoveredByWatcher()) runner.getPoller()?.pollSoon();
+  }
+
+  const probeSource = {
+    laneId: core.COMMUNITY_LANE_ID, credential: 'posthog' as const, probes,
+    onNudge: () => { runner.getPoller()?.pollSoon(); },
+    onCoverageChange: coverWithWatcher,
+  };
+
+  function startPoller(): void {
+    runner.startPoller();
+    announceProbesMayHaveChanged();
+  }
+
+  async function stopPoller(): Promise<void> {
+    await runner.stopPoller();
+    announceProbesMayHaveChanged();
+  }
+
+  function restartIfConfigChanged(): void {
+    runner.restartIfConfigChanged();
+    announceProbesMayHaveChanged();
+  }
 
   const notRunning = 'The community lane is not running';
 
@@ -256,11 +302,13 @@ function createCommunityWiring({
   return {
     submitAction,
     sessionPromptFor,
-    startPoller: runner.startPoller,
-    stopPoller: runner.stopPoller,
-    restartIfConfigChanged: runner.restartIfConfigChanged,
+    startPoller,
+    stopPoller,
+    restartIfConfigChanged,
     getStatus: runner.getStatus,
     getPoller: runner.getPoller,
+    probeSource,
+    onProbesMayHaveChanged: (listener: () => void) => { probesChangedListeners.add(listener); },
   };
 }
 

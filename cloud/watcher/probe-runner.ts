@@ -17,7 +17,7 @@ const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
 const USER_AGENT = 'glimmervoid-watcher';
 
 function requestFingerprint(probe: Probe): string {
-  return crypto.createHash('sha256').update(JSON.stringify([probe.method, probe.url, probe.body, probe.credential])).digest('hex');
+  return crypto.createHash('sha256').update(JSON.stringify([probe.method, probe.url, probe.body, probe.credential, probe.answerField ?? null])).digest('hex');
 }
 
 function authorizationFor(probe: Probe, credentials: WatcherCredentials): string | { refusal: string } {
@@ -37,6 +37,24 @@ async function sha256OfBody(response: Response): Promise<string> {
   if (response.body === null) return hash.digest('hex');
   for await (const chunk of response.body) hash.update(chunk);
   return hash.digest('hex');
+}
+
+function fieldOfAnswer(answerText: string, answerField: string): unknown {
+  try {
+    const answer: unknown = JSON.parse(answerText);
+    if (typeof answer !== 'object' || answer === null || !Object.hasOwn(answer, answerField)) return undefined;
+    return Object.getOwnPropertyDescriptor(answer, answerField)?.value;
+  } catch {
+    return undefined;
+  }
+}
+
+async function sha256OfAnswer(response: Response, answerField: string | undefined): Promise<string> {
+  if (answerField === undefined) return sha256OfBody(response);
+  const answerText = await response.text();
+  const field = fieldOfAnswer(answerText, answerField);
+  const hashedText = field === undefined ? answerText : JSON.stringify(field);
+  return crypto.createHash('sha256').update(hashedText).digest('hex');
 }
 
 function createNudgeSender({ serverUrl, signingKey, fetchFn = fetch, now = Date.now, log = console }: {
@@ -136,7 +154,7 @@ function createProbeRunner({ home, nudges, fetchFn = fetch, now = Date.now, log 
     if (probe.body !== null) headers['content-type'] = 'application/json';
     try {
       const response = await fetchFn(probe.url, { method: probe.method, headers, body: probe.body ?? undefined, redirect: 'error', signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
-      const bodySha256 = await sha256OfBody(response);
+      const bodySha256 = await sha256OfAnswer(response, probe.answerField);
       const retryAfterMs = retryAfterMsFromHeaders(response.status, {
         retryAfter: response.headers.get('retry-after'),
         rateLimitRemaining: response.headers.get('x-ratelimit-remaining'),

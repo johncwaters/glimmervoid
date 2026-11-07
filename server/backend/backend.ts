@@ -1,3 +1,4 @@
+import { readPosthogReadConnection } from '../community/core/community-core.ts';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import type { Server } from 'node:http';
@@ -652,12 +653,16 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const watcherLink = createWatcherLink({
     watcherHome: path.join(glimmervoidHomeDir(), 'watcher'),
     linkSecret: loadOrCreateLinkSecret(path.join(glimmervoidHomeDir(), 'watcher-link.key')),
-    credentials: () => ({ github: laneAccessConfigOf(configStore.config).readToken, posthog: null }),
+    credentials: () => ({ github: laneAccessConfigOf(configStore.config).readToken, posthog: readPosthogReadConnection(configStore.config) }),
   });
   watcherLink.registerProbeSource(laneAssembly.githubStore.probeSource);
   laneAssembly.githubStore.onProbesMayHaveChanged(watcherLink.probesMayHaveChanged);
   watcherLink.registerProbeSource(laneAssembly.issues.probeSource);
   laneAssembly.issues.onProbesMayHaveChanged(watcherLink.probesMayHaveChanged);
+  for (const posthogLane of [laneAssembly.posthog, laneAssembly.community]) {
+    watcherLink.registerProbeSource(posthogLane.probeSource);
+    posthogLane.onProbesMayHaveChanged(watcherLink.probesMayHaveChanged);
+  }
   const { requestShutdown, requestRestart } = createLifecycle({
     shutdown,
     httpServer,

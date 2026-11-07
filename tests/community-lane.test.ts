@@ -352,3 +352,34 @@ test('community state saved by the watcher-era lane loads with its questions que
     await fs.rm(directory, { recursive: true, force: true });
   }
 });
+
+test('while the watcher covers community, a nudge that reads a full page keeps polling until every new question is read', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'community-lane-'));
+  const stateIo = createCommunityStateIo(path.join(directory, 'community-state.json'), { warn() {} });
+  let currentMs = ENABLED_AT;
+  const forumRows: Record<string, unknown>[] = [];
+  const queryForum = async (sinceIso: string): Promise<SourceRows> => ({
+    ok: true,
+    rows: forumRows.filter((row) => JSON.parse(String(row.attributes)).createdAt > sinceIso).slice(0, 50),
+  });
+  const poller = createCommunityPoller({
+    intervalMinutes: 5, queryForum, readState: stateIo.readState, writeState: stateIo.writeState,
+    now: () => currentMs, log: { warn() {} }, isCoveredByWatcher: () => true,
+  });
+  try {
+    await poller.start();
+    await poller.tick();
+    for (let questionNumber = 1; questionNumber <= 60; questionNumber += 1) {
+      forumRows.push(forumRow(questionNumber, new Date(ENABLED_AT + questionNumber * 1000).toISOString(), `burst question ${questionNumber}`));
+    }
+    currentMs += 60_000;
+    poller.pollSoon();
+    for (let attempt = 0; attempt < 50 && Object.keys(poller.state().entries).length < 60; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.equal(Object.keys(poller.state().entries).length, 60);
+  } finally {
+    await poller.stop();
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});

@@ -96,6 +96,7 @@ The PostHog lane only starts when `posthog.host`, `posthog.apiKey`, `telegram.bo
 | `posthog.enabled` | Enable PostHog monitoring | `false` | Watch PostHog error tracking and investigate issues that move. |
 | `posthog.host` | Host | `"https://us.posthog.com"` | PostHog cloud or self-hosted URL. |
 | `posthog.apiKey` | Personal API key | `""` | Personal API key with read access to your projects. |
+| `posthog.readApiKey` | Read-only API key for the watcher | `""` | Personal API key with read scopes only. The watcher uses it to notice new errors and community questions, so Radar and Community stop polling on a timer. |
 | `posthog.projects` | Projects | `"all"` | Project ids to watch, where empty watches all and none watches none. |
 | `posthog.intervalMinutes` | Poll interval | `15` | Time between PostHog checks. |
 | `posthog.maxConcurrentInvestigations` | Max concurrent investigations | `2` | Most investigations running at once. |
@@ -287,6 +288,7 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 | `GLIMMERVOID_SUPERVISOR` | operator | Set to `launchd` in a launchd job that keeps Glimmervoid alive, so Restart exits with code 75 for launchd to start it again instead of starting its own replacement. A systemd unit needs nothing: its `INVOCATION_ID` does the same. |
 | `GLIMMERVOID_POSTHOG_API_KEY` | operator | Supplies `posthog.apiKey`, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
 | `GLIMMERVOID_TELEGRAM_BOT_TOKEN` | operator | Supplies `telegram.botToken`, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
+| `GLIMMERVOID_POSTHOG_READ_API_KEY` | operator | Supplies `posthog.readApiKey`, the read-only PostHog key the watcher uses, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
 | `GLIMMERVOID_GITHUB_READ_TOKEN` | operator | Supplies `github.readToken`, the read-only GitHub token lanes use for gh, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
 | `GLIMMERVOID_VAULT_TOKEN` | operator | The bearer token a vault companion sends to this server's job inbox; set the same value where `glimmervoid vault` runs. Unset, the server makes one per boot and hands it to a companion on this machine. A companion on another machine (`glimmervoid vault --server <url>`) also needs the job inbox reachable there: `GLIMMERVOID_WATCHER_TOKEN`, `watcher.inboxHost` and a fixed `watcher.inboxPort`, behind https or an ssh tunnel to the loopback port. Stripped from every write and from every agent session's environment. |
 | `GLIMMERVOID_CLAUDE_OAUTH_TOKEN` | operator | A long-lived Claude Code token (`claude setup-token`) that benchmark arms authenticate with instead of the login token Glimmervoid reads from the keychain or `~/.claude/.credentials.json`. Passed only to benchmark sessions, never stored. |

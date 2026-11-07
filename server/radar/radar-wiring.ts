@@ -1,4 +1,7 @@
 
+import { readPosthogReadConnection } from '../community/core/community-core.ts';
+import { RADAR_LANE_ID, radarProbes } from './radar-probes.ts';
+import type { Probe } from '../../shared/contracts/watcher-link.ts';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -612,11 +615,46 @@ function createRadarWiring({
         trafficSpikeMinUsers: posthogConfig.trafficSpikeMinUsers,
         trafficSpikeCooldownMinutes: posthogConfig.trafficSpikeCooldownMinutes,
         trafficSpikeBaselineDays: posthogConfig.trafficSpikeBaselineDays,
-        onTickComplete,
+        onTickComplete: (status) => {
+          onTickComplete(status);
+          announceIfProbesChanged();
+        },
         onInvestigationActivity: (activity) => broadcast({ ...activity }),
       });
     },
   });
+
+  const probesChangedListeners = new Set<() => void>();
+  let announcedProbesKey = '';
+  function probes(): Probe[] {
+    const poller = runner.getPoller();
+    const readConnection = readPosthogReadConnection(config);
+    if (poller === null || readConnection === null) return [];
+    return radarProbes({
+      host: readConnection.host,
+      projectIds: poller.watchedProjectIds(),
+      intervalMinutes: config.posthog?.intervalMinutes || core.DEFAULT_INTERVAL_MINUTES,
+    });
+  }
+  function announceIfProbesChanged(): void {
+    const probesKey = JSON.stringify(probes());
+    if (probesKey === announcedProbesKey) return;
+    announcedProbesKey = probesKey;
+    for (const listener of probesChangedListeners) listener();
+  }
+  const probeSource = {
+    laneId: RADAR_LANE_ID, credential: 'posthog' as const, probes,
+    onNudge: () => { queueForcedTick(); },
+    onCoverageChange: () => {},
+  };
+  async function stopPoller(): Promise<void> {
+    await runner.stopPoller();
+    announceIfProbesChanged();
+  }
+  function restartIfConfigChanged(): void {
+    runner.restartIfConfigChanged();
+    announceIfProbesChanged();
+  }
 
   async function setIssueStatus(
     { projectId, issueId, action }: { projectId: string; issueId: string; action: unknown },
@@ -663,8 +701,10 @@ function createRadarWiring({
 
   return {
     startPoller: runner.startPoller,
-    restartIfConfigChanged: runner.restartIfConfigChanged,
-    stopPoller: runner.stopPoller,
+    restartIfConfigChanged,
+    stopPoller,
+    probeSource,
+    onProbesMayHaveChanged: (listener: () => void) => { probesChangedListeners.add(listener); },
     getStatus: runner.getStatus,
     setIssueStatus,
     archiveInvestigation,
