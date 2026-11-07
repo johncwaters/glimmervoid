@@ -560,9 +560,9 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     assert.equal(await panel.getByRole('button', { name: 'select', exact: true }).getAttribute('aria-pressed'), 'true', 'the tool returns to select after one placement');
     assert.equal(await toolHint.isVisible(), false, 'the hint line hides once the select tool is back');
     await verifyResizedBoxes(open, [parseFeed.id]);
-    if (desktopBoard) await verifyBoardDoc(open);
     await verifyDroppedPicture(open);
     await verifyLiveMedia(open);
+    if (desktopBoard) await verifyBoardDoc(open);
     await panel.getByRole('button', { name: 'more', exact: true }).click();
     const moreMenu = page.getByRole('menu', { name: 'More tools', exact: true });
     assert.deepEqual(await moreMenu.getByRole('menuitem').allTextContents(), ['note on box', 'frame selected boxes', 'plan step']);
@@ -694,10 +694,16 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await addPlanStep(panel);
     await submitTextDialog(page, 'Step title', 'Index the diffs', 'Add step');
     const step = await elementWhere(open, 'the planned step', (element) => element.kind === 'box' && element.title === 'Index the diffs' && element.step?.status === 'planned');
+    await panel.locator('.wb-viewport').focus();
+    await page.keyboard.press('Escape');
+    await inspect.waitFor({ state: 'hidden' });
     await clickElement(open, step.id);
     await inspect.getByRole('heading', { name: 'Step', exact: true }).waitFor();
     await inspect.getByRole('combobox', { name: 'Status', exact: true }).selectOption('landed');
     await elementWhere(open, 'the landed step', (element) => element.id === step.id && element.kind === 'box' && element.step?.status === 'landed');
+    await panel.locator('.wb-viewport').focus();
+    await page.keyboard.press('Escape');
+    await inspect.waitFor({ state: 'hidden' });
     await verifyBoxStaysWhereDropped(open, step.id, 'a plan step');
     await openBoardMenuItem(page, panel, 'board settings');
     await inspect.getByRole('heading', { name: 'Board', exact: true }).waitFor({ timeout: 3000 });

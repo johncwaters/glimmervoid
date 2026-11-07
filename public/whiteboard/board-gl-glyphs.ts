@@ -27,6 +27,7 @@ interface PlacedGlyph {
 interface GlyphAtlas extends GlyphSource {
   bind: (gl: WebGL2RenderingContext, unit: number) => void;
   forgetTexture: () => void;
+  release: (gl: WebGL2RenderingContext) => void;
   rasterizeAgain: () => void;
   isFull: () => boolean;
   forgetUnusedGlyphs: () => void;
@@ -139,6 +140,11 @@ function createGlyphAtlas(fontFamily: string): GlyphAtlas {
     ascentEm: BASELINE_PX / RASTER_PX,
     bind,
     forgetTexture: () => {
+      texture = null;
+      texturePageCapacity = 0;
+    },
+    release: (gl) => {
+      if (texture) gl.deleteTexture(texture);
       texture = null;
       texturePageCapacity = 0;
     },

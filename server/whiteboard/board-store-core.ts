@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
-import { BoardChange, BoardRecord, Element } from '../../shared/contracts/whiteboard.ts';
-import type { Board } from '../../shared/contracts/whiteboard.ts';
+import { upgradedBoardRecord } from '../core/whiteboard-store-core.ts';
+import { BoardRecord } from '../../shared/contracts/whiteboard.ts';
+import type { Board, Element } from '../../shared/contracts/whiteboard.ts';
 import type { StagedOps } from '../../shared/whiteboard-ops-core.ts';
 
 type StagedElements = Pick<Extract<StagedOps, { ok: true }>, 'diff' | 'afterById'>;
@@ -90,7 +91,8 @@ type StoredBoardRows = z.infer<typeof StoredBoardRows>;
 type DistributiveOmit<Value, Key extends PropertyKey> = Value extends unknown ? Omit<Value, Key> : never;
 type StoreRequestBody = DistributiveOmit<StoreRequest, 'requestId'>;
 
-const BoardHead = BoardRecord.shape.board.omit({ elements: true });
+const BoardHeadFields = z.record(z.string(), z.unknown());
+const ElementIdentity = z.object({ id: z.string() });
 
 function searchableTextOf(element: Element): string {
   if (element.kind === 'box') return [element.title, ...element.lines.map((line) => [line.key, line.text].filter(Boolean).join(' '))].join('\n');
@@ -170,18 +172,18 @@ function parsedJson(text: string): unknown {
 }
 
 function recordOfRows(rows: StoredBoardRows): BoardRecord | null {
-  const head = BoardHead.safeParse(parsedJson(rows.head));
+  const head = BoardHeadFields.safeParse(parsedJson(rows.head));
   if (!head.success) return null;
-  const elements: Board['elements'] = {};
+  const elements: Record<string, unknown> = {};
   for (const body of rows.elementBodies) {
-    const element = Element.safeParse(parsedJson(body));
-    if (!element.success) return null;
-    elements[element.data.id] = element.data;
+    const element = parsedJson(body);
+    const identity = ElementIdentity.safeParse(element);
+    if (!identity.success) return null;
+    elements[identity.data.id] = element;
   }
-  const log = z.array(BoardChange).safeParse(rows.logBodies.map(parsedJson));
-  const cursors = BoardRecord.shape.cursorBySessionId.safeParse(parsedJson(rows.cursors));
-  if (!log.success || !cursors.success) return null;
-  return { board: { ...head.data, elements }, log: log.data, cursorBySessionId: cursors.data, createdBy: rows.createdBy };
+  const storedRecord = { board: { ...head.data, elements }, log: rows.logBodies.map(parsedJson), cursorBySessionId: parsedJson(rows.cursors), createdBy: rows.createdBy };
+  const record = BoardRecord.safeParse(upgradedBoardRecord(storedRecord));
+  return record.success ? record.data : null;
 }
 
 function ftsQueryOf(query: string): string {

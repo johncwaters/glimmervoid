@@ -489,6 +489,8 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   let palette: BoardPalette | null = null;
   let resolvedPaletteKey = '';
   let atlas: GlyphAtlas | null = null;
+  let atlasFontFamily = '';
+  let pendingAtlasFontLoad: Promise<void> | null = null;
   let scene: GlScene | null = null;
   let camera: Camera = { x: 0, y: 0, scale: 1 };
   let selectedIds: ReadonlySet<string> = new Set();
@@ -518,14 +520,40 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
 
   function ensureAtlas(): GlyphAtlas {
     if (atlas) return atlas;
+    return createAtlas(getComputedStyle(options.fontSource).fontFamily || 'monospace');
+  }
+
+  function ensureAtlasInBoardFont(): GlyphAtlas {
     const fontFamily = getComputedStyle(options.fontSource).fontFamily || 'monospace';
+    if (atlas && (atlasFontFamily === fontFamily || !options.fontSource.isConnected)) {
+      if (!pendingAtlasFontLoad && !isFontLoaded(atlasFontFamily)) loadAtlasFont(atlas, atlasFontFamily);
+      return atlas;
+    }
+    if (atlas && gl) atlas.release(gl);
+    geometryBySignature.clear();
+    return createAtlas(fontFamily);
+  }
+
+  function createAtlas(fontFamily: string): GlyphAtlas {
     const created = createGlyphAtlas(fontFamily);
     atlas = created;
-    void Promise.all([document.fonts.load(`400 ${RASTER_PX}px ${fontFamily}`), document.fonts.load(`700 ${RASTER_PX}px ${fontFamily}`)]).then(() => {
-      created.rasterizeAgain();
-      requestDraw();
-    }, () => {});
+    atlasFontFamily = fontFamily;
+    loadAtlasFont(created, fontFamily);
     return created;
+  }
+
+  function isFontLoaded(fontFamily: string): boolean {
+    return document.fonts.check(`400 ${RASTER_PX}px ${fontFamily}`) && document.fonts.check(`700 ${RASTER_PX}px ${fontFamily}`);
+  }
+
+  function loadAtlasFont(target: GlyphAtlas, fontFamily: string): void {
+    const fontLoad = Promise.all([document.fonts.load(`400 ${RASTER_PX}px ${fontFamily}`), document.fonts.load(`700 ${RASTER_PX}px ${fontFamily}`)]).then(() => {
+      target.rasterizeAgain();
+      requestDraw();
+    }, () => {}).finally(() => {
+      if (pendingAtlasFontLoad === fontLoad) pendingAtlasFontLoad = null;
+    });
+    pendingAtlasFontLoad = fontLoad;
   }
 
   function ensurePalette(): BoardPalette {
@@ -1058,7 +1086,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
 
   function buildScene(layout: BoardLayout): void {
     const currentPalette = ensurePalette();
-    const glyphSource = ensureAtlas();
+    const glyphSource = ensureAtlasInBoardFont();
     const context: SceneContext = { palette: currentPalette, glyphs: glyphSource, hasDrawnMedia: isMediaDrawable };
     const signatureByElement = new Map(layout.elements.map((element) => [element, signatureOf(element)]));
     const built = sceneOf(layout, context, (element) => geometryBySignature.get(signatureByElement.get(element) ?? '') ?? null);

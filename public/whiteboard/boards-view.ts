@@ -796,9 +796,14 @@ function historyDirectionOf(event: KeyboardEvent): UndoDirection | null {
   return event.shiftKey ? 'redo' : 'undo';
 }
 
+function isFieldOwningHistoryKey(event: KeyboardEvent): boolean {
+  if (document.activeElement instanceof HTMLSelectElement) return false;
+  return isRealInputOwningKey(event);
+}
+
 function onHistoryKey(host: HTMLElement, event: KeyboardEvent): void {
   const direction = historyDirectionOf(event);
-  if (!direction || !host.checkVisibility() || isModalOpen() || isRealInputOwningKey(event)) return;
+  if (!direction || !host.checkVisibility() || isModalOpen() || isFieldOwningHistoryKey(event)) return;
   if (document.activeElement?.classList.contains('xterm-helper-textarea')) return;
   event.preventDefault();
   void stepHistory(direction);

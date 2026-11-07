@@ -57,6 +57,10 @@ test('a JSON board moves into the board store once, keeps its edits across resta
   ]));
   assert.equal(renamed.ok, true, renamed.error ?? '');
   const versionBeforeRestart = (await first.handleOperator.get('legacy-board')).board?.version;
+  const storeWrittenBeforeFreeCanvas = new DatabaseSync(path.join(boardsRoot, 'boards.sqlite'));
+  storeWrittenBeforeFreeCanvas.prepare(`UPDATE boards SET head = json_set(head, '$.columns', json('[]'), '$.lanes', json('[]')) WHERE id = ?`).run('legacy-board');
+  storeWrittenBeforeFreeCanvas.prepare(`UPDATE elements SET body = json_set(body, '$.lane', NULL, '$.column', NULL) WHERE board_id = ? AND element_id = ?`).run('legacy-board', firstBoxId);
+  storeWrittenBeforeFreeCanvas.close();
 
   const restarted = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
   await restarted.loaded;
