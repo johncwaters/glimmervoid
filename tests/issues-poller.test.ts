@@ -3,110 +3,114 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { createIssuesListing } from '../cloud/watchees/issues/issues-listing.ts';
 import { createIssuesPoller } from '../server/github/issues-poller.ts';
 import { createIssuesStateIo, createIssuesWiring } from '../server/github/issues-wiring.ts';
 import { emptyIssuesState } from '../server/github/core/issues-core.ts';
 import { createGithubClock } from '../server/github/github-clock.ts';
 import { createGithubStoreWiring } from '../server/github/github-store-wiring.ts';
+import { createGithubStorePoller } from '../server/github/github-store-poller.ts';
 import { createPrGh } from '../server/github/pr-gh.ts';
-import type { CachedIssueRow, IssuePullRequest, IssueUpdate, IssuesFetchResult, IssuesState, IssuesStatus } from '../shared/contracts/issues.ts';
+import type { CachedIssueRow, IssuePullRequest, IssueUpdate, IssuesStatus } from '../shared/contracts/issues.ts';
+import { waitFor } from './helpers/wait-for.ts';
 
-const NOW = Date.parse('2026-10-10T12:00:00Z');
 const cached: CachedIssueRow = {
   key: 'acme/app#1', repo: 'acme/app', number: 1, title: 'Fix reconnect', url: 'https://github.com/acme/app/issues/1',
   labels: [], assignees: ['alice'], author: 'bob', isAuthorOrgMember: null, comments: 1, createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-10T00:00:00Z',
   sources: ['team'], teams: ['acme/core'], projectId: null, pullRequests: [],
 };
-const { sources: _sources, teams: _teams, projectId: _projectId, ...issueFields } = cached;
-const issue: IssueUpdate = { ...issueFields, state: 'open' };
-const complete = (items: IssueUpdate[] = []): IssuesFetchResult => ({ ok: true, items, isComplete: true, error: '' });
 const timer = () => ({ unref() {} }) as NodeJS.Timeout;
+const noIssueReads = {
+  requestIssueLinkedPullRequests: async () => assert.fail('the server read issues of its own'),
+  setWatchedKeys: () => {}, rateLimitWaitMs: async () => null,
+};
 
-function harness(savedState: IssuesState = emptyIssuesState()) {
-  let saved = savedState;
-  const statuses: IssuesStatus[] = [];
-  const repoCalls: (string | null)[] = [];
-  const queries: string[] = [];
-  let timestamp = NOW;
-  let teamFailure = false;
-  let repoResponse = complete([issue]);
-  let teamResponse = complete([issue]);
-  const pullRequestCalls: string[][] = [];
-  let pullRequestsByIssue: Map<string, IssuePullRequest[]> | null = new Map();
-  let hasPullRequestFailure = false;
-  let rateLimitedRead: 'repo' | 'search' | 'linked' | null = null;
-  const watchedKeys: { owner: string; keys: readonly string[] }[] = [];
-  const poller = createIssuesPoller({
-    teams: ['acme/core'], now: () => timestamp,
-    resolveProjects: async () => [{ repo: 'acme/app', projectId: 'project-1' }],
-    readState: async () => saved,
-    writeState: async (state) => { saved = state; },
-    onTickComplete: (status) => { statuses.push(status); },
-    setIntervalFn: timer, clearIntervalFn: () => {}, setTimeoutFn: timer, clearTimeoutFn: () => {}, log: { warn() {} },
-    store: {
-      requestViewer: async () => {
-        assert.equal(statuses[0]?.issues[0]?.key, savedState.issues[0]?.key);
-        return { isRateLimited: false, value: 'alice' };
-      },
-      rateLimitWaitMs: async () => null,
-      setWatchedKeys: (owner, keys) => { watchedKeys.push({ owner, keys }); },
-      requestIssueLinkedPullRequests: async (keys, mode) => {
-        assert.equal(mode, 'no-wait');
-        if (rateLimitedRead === 'linked') return { isRateLimited: true, waitMs: 120000 };
-        pullRequestCalls.push([...keys]);
-        if (hasPullRequestFailure) throw new Error('PR fetch offline');
-        if (!pullRequestsByIssue) return { isRateLimited: false, value: new Map() };
-        const cachedPullRequests = pullRequestsByIssue;
-        return { isRateLimited: false, value: new Map(keys.map((key) => [key, cachedPullRequests.get(key) ?? []])) };
-      },
-      requestRepoIssues: async (_repo, since, maxIssues, mode) => {
-        assert.equal(mode, 'no-wait');
-        assert.equal(maxIssues, 300);
-        repoCalls.push(since);
-        if (rateLimitedRead === 'repo') return { isRateLimited: true, waitMs: 120000 };
-        return { isRateLimited: false, value: repoResponse };
-      },
-      requestIssueSearch: async (query, mode) => {
-        assert.equal(mode, 'no-wait');
-        queries.push(query);
-        if (rateLimitedRead === 'search') return { isRateLimited: true, waitMs: 120000 };
-        if (query.includes('team:') && teamFailure) return { isRateLimited: false, value: { ok: false, items: [], isComplete: false, error: 'team offline' } };
-        return { isRateLimited: false, value: query.includes('team:') ? teamResponse : complete() };
-      },
-    },
-  });
+function openIssue(repo: string, number: number): IssueUpdate {
   return {
-    poller, statuses, repoCalls, queries, pullRequestCalls, watchedKeys,
-    limitRead: (read: typeof rateLimitedRead) => { rateLimitedRead = read; },
-    saved: () => saved,
-    setPullRequests: (pullRequests: Map<string, IssuePullRequest[]> | null) => { pullRequestsByIssue = pullRequests; },
-    failPullRequests: (shouldFail: boolean) => { hasPullRequestFailure = shouldFail; },
-    advance: () => { timestamp += 5 * 60000; },
-    failTeam: () => { teamFailure = true; },
-    setRepoResponse: (response: IssuesFetchResult) => { repoResponse = response; },
-    setTeamResponse: (response: IssuesFetchResult) => { teamResponse = response; },
+    key: `${repo}#${number}`, repo, number, title: `Issue ${number}`, url: `https://github.com/${repo}/issues/${number}`, labels: [],
+    assignees: ['alice'], author: 'bob', isAuthorOrgMember: null, comments: 0, createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-10T00:00:00Z', state: 'open',
   };
 }
 
-test('cached issues broadcast before first fetch and a failing team search retains team membership on disk', async () => {
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'issues-poller-'));
-  const stateIo = createIssuesStateIo(path.join(directory, 'issues-cache.json'), { warn() {} });
+function watcherStore(github: { issuePage: (pagePath: string, etag: string | null) => Promise<Awaited<ReturnType<ReturnType<typeof createPrGh>['issuePage']>>>; issueLinkedPullRequests: (keys: readonly string[]) => Promise<Map<string, IssuePullRequest[]>> }) {
+  return createGithubStorePoller({
+    github: {
+      ...github,
+      async viewer() { return 'alice'; },
+      async searchIssues() { return { ok: true, isComplete: true, error: '', items: [openIssue('acme/infra', 3)] }; },
+      async searchPrsLight() { assert.fail('Unexpected PR search'); },
+      async prsLightByKey() { assert.fail('Unexpected PR read'); },
+      async prDetails() { assert.fail('Unexpected PR details'); },
+      async notificationsSince() { return { kind: 'unchanged' as const }; },
+      async behindCounts() { return new Map(); },
+      async reviewThreadsBatch() { return new Map(); },
+      async rateLimitWaitMs() { return null; },
+      async viewPr() { assert.fail('Unexpected PR view'); },
+      async prDiff() { assert.fail('Unexpected PR diff'); },
+      async prHead() { assert.fail('Unexpected PR head'); },
+    },
+    now: Date.now, isDashboardConnected: () => true, exclusive: (work) => work(),
+    setTimeoutFn: setTimeout, clearTimeoutFn: clearTimeout, log: { warn() {} },
+  });
+}
+
+test('issue lists from the watcher fill the Issues tab with project, assigned and team issues, an unchanged page costs a 304 and no linked pull request read, a failed source shows its error, and a closed issue stays gone after Refresh', async () => {
+  const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'issues-watchee-'));
+  const sentValidators: (string | undefined)[] = [];
+  const linkedPullRequestReads: string[][] = [];
+  let isAssignedListingDown = false;
+  const linkedPullRequest: IssuePullRequest = { number: 9, url: 'https://github.com/acme/app/pull/9', title: 'Reconnect', state: 'open' };
+  const listing = createIssuesListing({
+    now: () => Date.parse('2026-11-06T12:00:00Z'),
+    store: watcherStore({
+      async issuePage(pagePath, etag) {
+        sentValidators.push(etag ?? undefined);
+        if (pagePath.startsWith('issues?') && isAssignedListingDown) return { kind: 'error', message: 'gh HTTP 502' };
+        if (etag !== null) return { kind: 'unchanged' };
+        if (pagePath.startsWith('repos/acme/app/issues')) return { kind: 'ok', etag: '"app"', nextPath: null, issues: [openIssue('acme/app', 1)] };
+        return { kind: 'ok', etag: '"assigned"', nextPath: null, issues: [openIssue('acme/other', 2)] };
+      },
+      async issueLinkedPullRequests(keys) {
+        linkedPullRequestReads.push([...keys]);
+        return new Map(keys.map((key) => [key, key === 'acme/app#1' ? [linkedPullRequest] : []]));
+      },
+    }),
+  });
+  const statuses: IssuesStatus[] = [];
+  const wiring = createIssuesWiring({
+    config: { projects: [{ id: 'project-1', name: 'App', path: '/work/app' }], issues: { enabled: true }, github: { teams: ['acme/core'] } },
+    homeDir, hasSession: () => true, broadcast: (status) => { statuses.push(status); },
+    gitWorkspace: { originUrl: async () => 'git@github.com:acme/app.git' }, log: { warn() {} },
+    github: { setIssueState: async () => ({ ok: true, err: '' }) },
+    store: { ...noIssueReads, requestIssueLinkedPullRequests: async () => ({ isRateLimited: false, value: new Map() }) },
+  });
+  const deliverLists = async () => {
+    const listed = await listing.list({ enabled: true, projectRepos: await wiring.watchedProjectRepos(), teams: ['acme/core'], intervalMinutes: 5 });
+    assert.ok(listed.ok);
+    for (const payload of listed.payloads) await wiring.acceptListing({ payload });
+  };
+  const sourcesByKey = () => Object.fromEntries((statuses.at(-1)?.issues ?? []).map((issue) => [issue.key, issue.sources]));
   try {
-    await stateIo.writeState({ ...emptyIssuesState(), issues: [cached], lastSyncAt: NOW - 300000, perRepoSync: {} });
-    const saved = await createIssuesStateIo(path.join(directory, 'issues-cache.json'), { warn() {} }).readState();
-    const tested = harness(saved);
-    tested.failTeam();
-    await tested.poller.start();
-    assert.deepEqual(tested.statuses[0].issues, [{ ...cached, sessionId: null }]);
-    assert.equal(tested.statuses.at(-1)?.issues[0].teams[0], 'acme/core');
-    assert.deepEqual(tested.statuses.at(-1)?.issues[0].sources, ['team', 'project']);
-    assert.match(tested.statuses.at(-1)?.error ?? '', /team offline/);
-    assert.equal(tested.saved().lastSyncAt, saved.lastSyncAt);
-    await stateIo.writeState(tested.saved());
-    assert.deepEqual((await createIssuesStateIo(path.join(directory, 'issues-cache.json'), { warn() {} }).readState()).issues, tested.saved().issues);
-    await tested.poller.stop();
+    await wiring.startPoller();
+    await deliverLists();
+    await waitFor(() => Object.keys(sourcesByKey()).length === 3, 'all three issue sources were listed', 3000);
+    assert.deepEqual(sourcesByKey(), { 'acme/app#1': ['project'], 'acme/other#2': ['me'], 'acme/infra#3': ['team'] });
+    assert.deepEqual(statuses.at(-1)?.issues.find((issue) => issue.key === 'acme/app#1')?.pullRequests, [linkedPullRequest]);
+    assert.equal(statuses.at(-1)?.error, null);
+    await deliverLists();
+    assert.deepEqual(sentValidators, [undefined, undefined, '"app"', '"assigned"']);
+    assert.equal(linkedPullRequestReads.length, 1);
+    assert.equal(Object.keys(sourcesByKey()).length, 3);
+    await wiring.setIssueState({ repo: 'acme/app', number: 1, state: 'closed' });
+    await wiring.refresh();
+    assert.deepEqual(Object.keys(sourcesByKey()).sort(), ['acme/infra#3', 'acme/other#2']);
+    isAssignedListingDown = true;
+    await deliverLists();
+    await waitFor(() => /Assigned to you: gh HTTP 502/.test(statuses.at(-1)?.error ?? ''), 'the failed assigned listing was shown', 3000);
+    assert.ok(sourcesByKey()['acme/other#2']);
   } finally {
-    await fs.rm(directory, { recursive: true, force: true });
+    await wiring.stopPoller();
+    await fs.rm(homeDir, { recursive: true, force: true });
   }
 });
 
@@ -116,14 +120,7 @@ test('issues wiring retries an unreadable cache and keeps links made while it wa
   const wiring = createIssuesWiring({
     config: { projects: [] }, homeDir: directory, hasSession: () => true, broadcast: () => {},
     gitWorkspace: { originUrl: async () => null }, log: { warn() {} }, github: { setIssueState: async () => ({ ok: true, err: '' }) },
-    store: {
-      requestViewer: async () => ({ isRateLimited: false, value: null }),
-      rateLimitWaitMs: async () => null,
-      setWatchedKeys: () => {},
-      requestIssueLinkedPullRequests: async () => ({ isRateLimited: false, value: new Map() }),
-      requestRepoIssues: async () => ({ isRateLimited: false, value: complete() }),
-      requestIssueSearch: async () => ({ isRateLimited: false, value: complete() }),
-    },
+    store: noIssueReads,
   });
   try {
     await fs.mkdir(statePath);
@@ -141,28 +138,28 @@ test('issues wiring retries an unreadable cache and keeps links made while it wa
   }
 });
 
-test('a tick on the shared GitHub clock reads through the gated store without deadlocking the clock', async () => {
-  const listedRepos: string[] = [];
+test('a refresh on the shared GitHub clock re-reads held issues through the gated store without deadlocking the clock', async () => {
+  const linkedPullRequestReads: string[][] = [];
   const github = {
     ...createPrGh(os.tmpdir(), async () => ({ ok: false, out: '', err: 'unexpected gh call' })),
     viewer: async () => 'alice', rateLimitWaitMs: async () => null,
-    listRepoIssues: async (repo: string) => { listedRepos.push(repo); return complete([issue]); },
-    searchIssues: async () => complete(), issueLinkedPullRequests: async () => new Map<string, IssuePullRequest[]>(),
+    issueLinkedPullRequests: async (keys: readonly string[]) => { linkedPullRequestReads.push([...keys]); return new Map<string, IssuePullRequest[]>(); },
   };
   const clock = createGithubClock({ baseIntervalMs: 60000, setIntervalFn: timer, clearIntervalFn: () => {}, log: { warn() {} } });
   const githubStore = createGithubStoreWiring({ github, clock, isDashboardConnected: () => false, broadcast: () => {}, log: { warn() {} } });
   const poller = createIssuesPoller({
-    teams: [], resolveProjects: async () => [{ repo: 'acme/app', projectId: 'project-1' }], store: githubStore.laneStore, clock,
-    readState: async () => emptyIssuesState(), writeState: async () => {}, onTickComplete: () => {},
+    teams: [], resolveProjects: async () => [], store: githubStore.laneStore, clock,
+    latestListings: () => [], feedSilenceMs: () => 0,
+    readState: async () => ({ ...emptyIssuesState(), issues: [cached] }), writeState: async () => {}, onTickComplete: () => {},
     setIntervalFn: timer, clearIntervalFn: () => {}, setTimeoutFn: timer, clearTimeoutFn: () => {}, log: { warn() {} },
   });
   const deadlockTimeoutMs = 2000;
   let deadlockTimer: NodeJS.Timeout | undefined;
   const deadlocked = new Promise<string>((resolve) => { deadlockTimer = setTimeout(() => resolve('deadlocked'), deadlockTimeoutMs); });
   try {
-    assert.equal(await Promise.race([poller.tick().then(() => 'resolved'), deadlocked]), 'resolved');
+    assert.equal(await Promise.race([poller.refresh().then(() => 'resolved'), deadlocked]), 'resolved');
     assert.equal(await Promise.race([clock.exclusive(async () => 'resolved'), deadlocked]), 'resolved');
-    assert.deepEqual(listedRepos, ['acme/app']);
+    assert.deepEqual(linkedPullRequestReads, [['acme/app#1']]);
   } finally {
     clearTimeout(deadlockTimer);
     await poller.stop();

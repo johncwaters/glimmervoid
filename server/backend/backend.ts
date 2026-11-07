@@ -504,7 +504,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     }
     notifications.applySettings();
     laneAssembly.restartServiceLanes();
-    void syncWatcheeSettings(config);
+    void issues.watchedProjectRepos().then((projectRepos) => syncWatcheeSettings(config, projectRepos));
   }
 
   function downloadUpdateOnceListening() {
@@ -621,9 +621,10 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       'team-review.candidates': laneAssembly.teamReview.acceptCandidates,
       'my-prs.candidates': myPrs.acceptCandidates,
       'workflows.candidates': laneAssembly.workflows.acceptCandidates,
+      'issues.listing': issues.acceptListing,
     }),
   });
-  void syncWatcheeSettings(config);
+  void issues.watchedProjectRepos().then((projectRepos) => syncWatcheeSettings(config, projectRepos));
   const { requestShutdown, requestRestart } = createLifecycle({
     shutdown,
     httpServer,

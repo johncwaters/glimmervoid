@@ -44,7 +44,7 @@ interface RestValidators {
   lastModified?: string;
 }
 
-type RestMetadata = RestValidators & { pollIntervalSeconds?: number };
+type RestMetadata = RestValidators & { pollIntervalSeconds?: number; nextPath?: string };
 
 type ConditionalGetResult =
   | ({ kind: 'unchanged' } & RestMetadata)
@@ -105,6 +105,10 @@ function uniqueValidPrs(prs: readonly PrReference[]): PrReference[] {
   return [...byKey.values()];
 }
 
+function isArchivedRepositoryIssue(candidate: unknown): boolean {
+  return z.object({ repository: z.object({ archived: z.literal(true) }) }).safeParse(candidate).success;
+}
+
 function isPullRequest(candidate: unknown): boolean {
   const parsed = z.object({ pull_request: z.unknown().optional() }).safeParse(candidate);
   return parsed.success && parsed.data.pull_request !== undefined;
@@ -149,6 +153,13 @@ function normalizeIssue(row: GithubIssueRow): GithubIssue | null {
   };
 }
 
+function nextPagePath(linkHeader: string | undefined): string | null {
+  const nextLink = linkHeader?.split(',').map((link) => /^\s*<([^>]+)>\s*;\s*rel="next"\s*$/.exec(link)).find((match) => match !== null);
+  if (!nextLink) return null;
+  const nextUrl = URL.parse(nextLink[1]);
+  return nextUrl ? `${nextUrl.pathname.slice(1)}${nextUrl.search}` : null;
+}
+
 function conditionalGetResult(response: CommandResult): ConditionalGetResult {
   const statusLine = /^HTTP\/\d+(?:\.\d+)?\s+(\d{3})(?:\s|$)/.exec(response.out);
   if (!statusLine) return { kind: 'error', message: response.err.trim() || 'invalid gh HTTP response' };
@@ -165,10 +176,12 @@ function conditionalGetResult(response: CommandResult): ConditionalGetResult {
   const lastModified = headers.get('last-modified');
   const pollInterval = headers.get('x-poll-interval');
   const pollIntervalSeconds = pollInterval && /^\d+$/.test(pollInterval) ? Number(pollInterval) : NaN;
+  const nextPath = nextPagePath(headers.get('link'));
   const metadata: RestMetadata = {
     ...(etag === undefined ? {} : { etag }),
     ...(lastModified === undefined ? {} : { lastModified }),
     ...(Number.isSafeInteger(pollIntervalSeconds) ? { pollIntervalSeconds } : {}),
+    ...(nextPath === null ? {} : { nextPath }),
   };
   if (status === 304) return { kind: 'unchanged', ...metadata };
   const message = response.err.trim() || `gh HTTP ${status}`;
@@ -184,5 +197,5 @@ function conditionalGetResult(response: CommandResult): ConditionalGetResult {
   }
 }
 
-export { aliasesOfErrors, aliasesReportedGone, conditionalGetResult, isPrNumber, isPullRequest, mergeKindFromPrState, normalizeIssue, parseGithubIssue, reviewSnapshotKey, uniqueValidPrs };
+export { aliasesOfErrors, aliasesReportedGone, conditionalGetResult, isArchivedRepositoryIssue, isPrNumber, isPullRequest, mergeKindFromPrState, normalizeIssue, parseGithubIssue, reviewSnapshotKey, uniqueValidPrs };
 export type { ConditionalGetResult, GithubIssue, GithubIssueRow, RestValidators };

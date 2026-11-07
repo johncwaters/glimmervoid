@@ -21,7 +21,7 @@ interface GithubStoreWatch {
 }
 
 interface GithubStoreDependencies {
-  github: Pick<PrGh, 'searchPrsLight' | 'prsLightByKey' | 'prDetails' | 'notificationsSince' | 'behindCounts' | 'reviewThreadsBatch' | 'rateLimitWaitMs' | 'viewPr' | 'prDiff' | 'prHead'> & Partial<Pick<PrGh, 'teamReviewCompare' | 'teamReviewThreads' | 'listRepoIssues' | 'searchIssues' | 'issueLinkedPullRequests' | 'viewer' | 'viewerTeams' | 'teamProfile' | 'teamMembers' | 'viewIssue' | 'listMergedPrs' | 'benchmarkReviewData' | 'compareCommits'>>;
+  github: Pick<PrGh, 'searchPrsLight' | 'prsLightByKey' | 'prDetails' | 'notificationsSince' | 'behindCounts' | 'reviewThreadsBatch' | 'rateLimitWaitMs' | 'viewPr' | 'prDiff' | 'prHead'> & Partial<Pick<PrGh, 'teamReviewCompare' | 'teamReviewThreads' | 'searchIssues' | 'issuePage' | 'issueLinkedPullRequests' | 'viewer' | 'viewerTeams' | 'teamProfile' | 'teamMembers' | 'viewIssue' | 'listMergedPrs' | 'benchmarkReviewData' | 'compareCommits'>>;
   now: () => number;
   isDashboardConnected: () => boolean;
   exclusive: SharedClock['exclusive'];
@@ -521,14 +521,14 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     return requestRead(() => github.teamReviewThreads?.(prs) ?? Promise.resolve(new Map()), new Map(), () => false, mode);
   }
 
-  function requestRepoIssues(repo: string, since: string | null, maxIssues: number, mode: GithubStoreReadMode = 'wait'): Promise<GithubStoreRead<Awaited<ReturnType<PrGh['listRepoIssues']>>>> {
-    const fallback = { ok: false, items: [], isComplete: false, error: 'Issue listing failed.' };
-    return requestRead(() => github.listRepoIssues?.(repo, since, maxIssues) ?? Promise.resolve(fallback), fallback, () => false, mode, ['core', 'search']);
+  function requestIssuePage(pagePath: string, etag: string | null, mode: GithubStoreReadMode = 'wait'): Promise<GithubStoreRead<Awaited<ReturnType<PrGh['issuePage']>>>> {
+    const fallback = { kind: 'error' as const, message: 'Issue listing failed.' };
+    return requestRead(() => github.issuePage?.(pagePath, etag) ?? Promise.resolve(fallback), fallback, () => false, mode, ['core']);
   }
 
   function requestIssueSearch(query: string, mode: GithubStoreReadMode = 'wait'): Promise<GithubStoreRead<Awaited<ReturnType<PrGh['searchIssues']>>>> {
     const fallback = { ok: false, items: [], isComplete: false, error: 'Issue search failed.' };
-    return requestRead(() => github.searchIssues?.(query) ?? Promise.resolve(fallback), fallback, () => false, mode, ['core', 'search']);
+    return requestRead(() => github.searchIssues?.(query) ?? Promise.resolve(fallback), fallback, () => false, mode, ['search']);
   }
 
   function requestIssueLinkedPullRequests(issueKeys: readonly string[], mode: GithubStoreReadMode = 'wait'): Promise<GithubStoreRead<Awaited<ReturnType<PrGh['issueLinkedPullRequests']>>>> {
@@ -540,7 +540,7 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     requestViewer, requestViewerTeams, requestTeamProfile, requestTeamMembers, requestIssue, requestMergedPrs, requestBenchmarkReviewData, requestCompareCommits,
     rateLimitWaitMs: (nowMs: number, resources: readonly string[]) => github.rateLimitWaitMs(nowMs, resources),
     requestPrView, requestPrDiff, requestTeamReviewCompare, requestTeamReviewThreads,
-    requestRepoIssues, requestIssueSearch, requestIssueLinkedPullRequests,
+    requestIssuePage, requestIssueSearch, requestIssueLinkedPullRequests,
     requestPrHead: (repo: string, number: number, mode: GithubStoreReadMode = 'wait') => requestRead(() => github.prHead(repo, number), null, () => false, mode),
   };
 }
