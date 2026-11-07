@@ -2,10 +2,10 @@ import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 
 import { boardStoreWorkerPath } from '../runtime-paths.ts';
-import { BOARD_STORE_FILENAME, StoreReply, boardDeltaOf, headRowsOf, recordOfRows } from './board-store-core.ts';
+import { BOARD_STORE_FILENAME, ELEMENT_PAGE_SIZE, StoreReply, addParsedElements, boardDeltaOf, headRowsOf, recordOfRows, upgradedRecordOfRows } from './board-store-core.ts';
 import type { StagedElements } from './board-store-core.ts';
 import type { Rect, StoreRequestBody } from './board-store-core.ts';
-import type { BoardRecord } from '../../shared/contracts/whiteboard.ts';
+import type { BoardRecord, Element } from '../../shared/contracts/whiteboard.ts';
 
 type StoreAnswer = Extract<StoreReply, { ok: true }>;
 
@@ -78,16 +78,40 @@ function createBoardStore(boardsRoot: string): BoardStore {
     const records: BoardRecord[] = [];
     const unreadableBoardIds: string[] = [];
     for (const rows of answer.heads ?? []) {
-      const record = recordOfRows(rows, []);
+      const record = recordOfRows(rows, {});
       if (record) records.push(record);
       if (!record) unreadableBoardIds.push(rows.boardId);
     }
     return { records, unreadableBoardIds };
   }
 
+  async function forEachElementPage(boardId: string, takePage: (elementBodies: readonly string[]) => boolean): Promise<boolean> {
+    let afterSlot = 0;
+    let isLastPage = false;
+    while (!isLastPage) {
+      const page = await request({ kind: 'load-board', boardId, afterSlot, limit: ELEMENT_PAGE_SIZE });
+      const elementBodies = page.elementBodies ?? [];
+      if (!takePage(elementBodies)) return false;
+      isLastPage = elementBodies.length < ELEMENT_PAGE_SIZE || page.lastSlot === undefined;
+      afterSlot = page.lastSlot ?? afterSlot;
+    }
+    return true;
+  }
+
+  async function upgradedRecordOf(head: BoardRecord): Promise<BoardRecord | null> {
+    const elementBodies: string[] = [];
+    await forEachElementPage(head.board.id, (page) => {
+      elementBodies.push(...page);
+      return true;
+    });
+    return upgradedRecordOfRows(headRowsOf(head), elementBodies);
+  }
+
   async function loadElements(head: BoardRecord): Promise<BoardRecord | null> {
-    const answer = await request({ kind: 'load-board', boardId: head.board.id });
-    return recordOfRows(headRowsOf(head), answer.elementBodies ?? []);
+    const elements: Record<string, Element> = {};
+    const isCurrentShape = await forEachElementPage(head.board.id, (page) => addParsedElements(elements, page));
+    if (!isCurrentShape) return upgradedRecordOf(head);
+    return recordOfRows(headRowsOf(head), elements) ?? upgradedRecordOf(head);
   }
 
   return {

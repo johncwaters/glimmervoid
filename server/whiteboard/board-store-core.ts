@@ -1,14 +1,16 @@
 import { z } from 'zod';
 
 import { upgradedBoardRecord } from '../core/whiteboard-store-core.ts';
-import { BoardRecord, linesOfBox } from '../../shared/contracts/whiteboard.ts';
+import { BoardRecord, Element as ElementSchema, WHITEBOARD_LIMITS, linesOfBox } from '../../shared/contracts/whiteboard.ts';
 import type { Board, Element } from '../../shared/contracts/whiteboard.ts';
 import type { StagedOps } from '../../shared/whiteboard-ops-core.ts';
+import { boardIndexOf, storeElement } from '../../shared/whiteboard-board-index.ts';
 
 type StagedElements = Pick<Extract<StagedOps, { ok: true }>, 'diff' | 'afterById'>;
 type ElementDelta = { writes: z.infer<typeof ElementWrite>[]; removedElementIds: string[]; reslottedElementIds: string[] };
 
 const BOARD_STORE_FILENAME = 'boards.sqlite';
+const ELEMENT_PAGE_SIZE = 5_000;
 
 const BOARD_STORE_SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -61,7 +63,7 @@ const BoardDelta = z.strictObject({
 
 const StoreRequest = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('load-heads'), requestId: z.number().int() }),
-  z.strictObject({ kind: z.literal('load-board'), requestId: z.number().int(), boardId: z.string() }),
+  z.strictObject({ kind: z.literal('load-board'), requestId: z.number().int(), boardId: z.string(), afterSlot: z.number().int(), limit: z.number().int().positive() }),
   z.strictObject({ kind: z.literal('asset-ids'), requestId: z.number().int() }),
   z.strictObject({ kind: z.literal('boards-linking-to'), requestId: z.number().int(), boardId: z.string() }),
   z.strictObject({ kind: z.literal('write'), requestId: z.number().int(), deltas: z.array(BoardDelta) }),
@@ -86,6 +88,7 @@ const StoreReply = z.discriminatedUnion('ok', [
     ok: z.literal(true),
     heads: z.array(StoredHeadRows).optional(),
     elementBodies: z.array(z.string()).optional(),
+    lastSlot: z.number().int().optional(),
     elementIds: z.array(z.string()).optional(),
     boardIds: z.array(z.string()).optional(),
     assetIds: z.array(z.string()).optional(),
@@ -185,19 +188,37 @@ function headRowsOf(record: BoardRecord): StoredHeadRows {
   return { boardId: record.board.id, head: headOf(record.board), cursors: JSON.stringify(record.cursorBySessionId), createdBy: record.createdBy, logBodies: record.log.map((change) => JSON.stringify(change)) };
 }
 
-function recordOfRows(rows: StoredHeadRows, elementBodies: readonly string[]): BoardRecord | null {
+function addParsedElements(elements: Record<string, Element>, elementBodies: readonly string[]): boolean {
+  for (const body of elementBodies) {
+    const element = ElementSchema.safeParse(parsedJson(body));
+    if (!element.success) return false;
+    storeElement(elements, element.data);
+  }
+  return boardIndexOf(elements).elementCount <= WHITEBOARD_LIMITS.elements;
+}
+
+function upgradedRecordWith(rows: StoredHeadRows, storedElements: Record<string, unknown>): BoardRecord | null {
   const head = BoardHeadFields.safeParse(parsedJson(rows.head));
   if (!head.success) return null;
-  const elements: Record<string, unknown> = {};
+  const storedRecord = { board: { ...head.data, elements: storedElements }, log: rows.logBodies.map(parsedJson), cursorBySessionId: parsedJson(rows.cursors), createdBy: rows.createdBy };
+  const record = BoardRecord.safeParse(upgradedBoardRecord(storedRecord));
+  return record.success ? record.data : null;
+}
+
+function recordOfRows(rows: StoredHeadRows, elements: Record<string, Element>): BoardRecord | null {
+  const record = upgradedRecordWith(rows, {});
+  return record ? { ...record, board: { ...record.board, elements } } : null;
+}
+
+function upgradedRecordOfRows(rows: StoredHeadRows, elementBodies: readonly string[]): BoardRecord | null {
+  const storedElements: Record<string, unknown> = {};
   for (const body of elementBodies) {
     const element = parsedJson(body);
     const identity = ElementIdentity.safeParse(element);
     if (!identity.success) return null;
-    elements[identity.data.id] = element;
+    storedElements[identity.data.id] = element;
   }
-  const storedRecord = { board: { ...head.data, elements }, log: rows.logBodies.map(parsedJson), cursorBySessionId: parsedJson(rows.cursors), createdBy: rows.createdBy };
-  const record = BoardRecord.safeParse(upgradedBoardRecord(storedRecord));
-  return record.success ? record.data : null;
+  return upgradedRecordWith(rows, storedElements);
 }
 
 function ftsQueryOf(query: string): string {
@@ -205,5 +226,5 @@ function ftsQueryOf(query: string): string {
 }
 
 export type { StagedElements };
-export { BOARD_STORE_FILENAME, BOARD_STORE_SCHEMA, StoreReply, StoreRequest, boardDeltaOf, ftsQueryOf, headRowsOf, recordOfRows };
+export { BOARD_STORE_FILENAME, BOARD_STORE_SCHEMA, ELEMENT_PAGE_SIZE, StoreReply, StoreRequest, addParsedElements, boardDeltaOf, ftsQueryOf, headRowsOf, recordOfRows, upgradedRecordOfRows };
 export type { BoardDelta, Rect, StoreRequestBody, StoredHeadRows };

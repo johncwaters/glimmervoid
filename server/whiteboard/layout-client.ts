@@ -4,10 +4,10 @@ import { Worker } from 'node:worker_threads';
 
 import type { Board, Element } from '../../shared/contracts/whiteboard.ts';
 import { layoutWorkerPath } from '../runtime-paths.ts';
+import { ELEMENT_PAGE_SIZE } from './board-store-core.ts';
 import { LayoutReply } from './layout-worker-core.ts';
 import type { LayoutAnswer, LayoutRequestBody, ViewerTiles } from './layout-worker-core.ts';
 
-const SYNC_CHUNK_ELEMENTS = 20_000;
 const WORKER_HEAP_SHARE = 0.5;
 const BYTES_PER_MB = 2 ** 20;
 
@@ -100,10 +100,10 @@ function createLayoutClient(): LayoutClient {
     const { syncId } = sync;
     forgetSyncOnFailure(board.id, sync, post({ kind: 'sync-start', syncId, head }));
     const syncWorker = worker;
-    for (let start = 0; start < elements.length; start += SYNC_CHUNK_ELEMENTS) {
+    for (let start = 0; start < elements.length; start += ELEMENT_PAGE_SIZE) {
       await yieldToEventLoop();
       if (!isCurrentSync(board.id, sync) || worker !== syncWorker) return;
-      forgetSyncOnFailure(board.id, sync, post({ kind: 'sync-elements', syncId, boardId: board.id, elements: elements.slice(start, start + SYNC_CHUNK_ELEMENTS) }));
+      forgetSyncOnFailure(board.id, sync, post({ kind: 'sync-elements', syncId, boardId: board.id, elements: elements.slice(start, start + ELEMENT_PAGE_SIZE) }));
     }
   }
 
