@@ -35,6 +35,7 @@ export const WatcherJobEnvelope = z.object({
 export const WatcherJobAck = z.object({
   jobId: z.uuid(),
   status: z.enum(['accepted', 'duplicate']),
+  settingsRevision: z.string().min(1).optional(),
 }).strict();
 
 export type WatcherJobAck = z.infer<typeof WatcherJobAck>;

@@ -11,8 +11,11 @@ import { promisify } from 'node:util';
 import { createJobInboxRequestHandler } from '../cloud/inbox/job-inbox-listener.ts';
 import { createJobInbox } from '../cloud/inbox/job-inbox-wiring.ts';
 import { withBuiltInJobHandlers } from '../cloud/inbox/watchee-handlers.ts';
+import { watcheeSettingsFromConfig } from '../cloud/inbox/watchee-settings-sync.ts';
 import { loadConfigFile } from '../server/config/config-file.ts';
 import { WATCHER_JOBS_PATH } from '../shared/contracts/watcher-jobs.ts';
+import { WATCHEE_SETTINGS_FILENAME, WATCHEE_SETTINGS_PATH, WATCHER_HOME_ENV } from '../shared/contracts/watchee-settings.ts';
+import type { WatcheeSettingsFile } from '../shared/contracts/watchee-settings.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 
 const WATCHER_TOKEN = 'a-watcher-token-only-this-test-knows';
@@ -23,6 +26,25 @@ const IGNORING_HANDLERS = withBuiltInJobHandlers({ 'team-review.candidates': asy
 
 function pingJob(jobId: string = crypto.randomUUID()) {
   return { version: 1, jobId, sentAt: new Date().toISOString(), kind: 'ping', payload: {} };
+}
+
+async function waitUntil(isDone: () => boolean, timeoutMs: number, describe: () => string): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!isDone()) {
+    if (Date.now() > deadline) assert.fail(describe());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+function savedSettingsRevision(watcherHome: string): string | null {
+  const settingsPath = path.join(watcherHome, WATCHEE_SETTINGS_FILENAME);
+  if (!fs.existsSync(settingsPath)) return null;
+  return (JSON.parse(fs.readFileSync(settingsPath, 'utf8')) as { revision: string }).revision;
+}
+
+function communityWatchedEvery(intervalMinutes: number, heartbeatHost: string): WatcheeSettingsFile {
+  const settings = watcheeSettingsFromConfig({ posthog: { apiKey: 'phx_server_secret' } }, []);
+  return { ...settings, community: { enabled: true, host: heartbeatHost, projectId: 2, discordChannels: [], intervalMinutes } };
 }
 
 async function postJob(port: number, body: unknown, authorization: string | null) {
@@ -199,5 +221,83 @@ test('a supervised watcher whose server goes away mid-ping exits instead of idli
     watcherChild.kill('SIGKILL');
     silentInbox.closeAllConnections();
     await closeServer(silentInbox);
+  }
+});
+
+test('a watcher on another machine retries its first fetch until settings are published, refetches when an ack names a newer revision, and keeps them while the inbox is gone', async () => {
+  const watcherHome = fs.mkdtempSync(path.join(os.tmpdir(), 'watcher-home-'));
+  const unusedPosthogHost = 'http://127.0.0.1:9';
+  let inbox: ReturnType<typeof createJobInbox> | null = null;
+  let hasPublishedNewer = false;
+  inbox = createJobInbox({
+    watcherConfig: {},
+    handlers: {
+      ...IGNORING_HANDLERS,
+      'community.rows': async () => {
+        if (hasPublishedNewer) return;
+        hasPublishedNewer = true;
+        inbox?.publishWatcheeSettings(communityWatchedEvery(45, unusedPosthogHost));
+      },
+    },
+    log: QUIET_LOG,
+  });
+  const server = http.createServer();
+  inbox.attach(server);
+  const port = await listenOnLoopback(server);
+  const watcherEnvironment = { ...process.env, GLIMMERVOID_WATCHER_TOKEN: inbox.token ?? '', [WATCHER_HOME_ENV]: watcherHome, GLIMMERVOID_POSTHOG_API_KEY: 'phx_watcher_only' };
+  const watcherOutput: string[] = [];
+  const startWatcher = () => {
+    const child = spawn(process.execPath, [CLI_PATH, 'watch', '--inbox', `http://127.0.0.1:${port}`], { stdio: ['ignore', 'pipe', 'pipe'], env: watcherEnvironment });
+    child.stdout.on('data', (chunk: Buffer) => watcherOutput.push(chunk.toString()));
+    child.stderr.on('data', (chunk: Buffer) => watcherOutput.push(chunk.toString()));
+    return child;
+  };
+  let watcher = startWatcher();
+  try {
+    const settingsUrl = `http://127.0.0.1:${port}${WATCHEE_SETTINGS_PATH}`;
+    assert.equal((await fetch(settingsUrl, { headers: { authorization: `Bearer ${inbox.token}` } })).status, 503);
+    await waitUntil(() => /no saved ones to watch with, trying again/.test(watcherOutput.join('')), 15_000, () => watcherOutput.join(''));
+    inbox.publishWatcheeSettings(communityWatchedEvery(30, unusedPosthogHost));
+    assert.equal((await fetch(settingsUrl)).status, 401);
+    const settingsReplyText = await (await fetch(settingsUrl, { headers: { authorization: `Bearer ${inbox.token}` } })).text();
+    assert.doesNotMatch(settingsReplyText, /phx_server_secret/);
+    const firstRevision = JSON.parse(settingsReplyText).revision;
+
+    await waitUntil(() => hasPublishedNewer && savedSettingsRevision(watcherHome) !== null && savedSettingsRevision(watcherHome) !== firstRevision, 15_000, () => watcherOutput.join(''));
+    assert.match(watcherOutput.join(''), /community watching every 30 min/);
+    watcher.kill('SIGKILL');
+    await closeServer(server);
+
+    watcherOutput.length = 0;
+    watcher = startWatcher();
+    await waitUntil(() => /community watching every 45 min/.test(watcherOutput.join('')), 15_000, () => watcherOutput.join(''));
+  } finally {
+    watcher.kill('SIGKILL');
+    if (server.listening) await closeServer(server);
+    fs.rmSync(watcherHome, { recursive: true, force: true });
+  }
+});
+
+test('a settings save reaches the watcher the server started at once, without waiting for a delivery', async () => {
+  const watcherHome = fs.mkdtempSync(path.join(os.tmpdir(), 'watcher-home-'));
+  const previousWatcherHome = process.env[WATCHER_HOME_ENV];
+  process.env[WATCHER_HOME_ENV] = watcherHome;
+  let hasPinged = false;
+  const inbox = createJobInbox({ watcherConfig: {}, handlers: { ...IGNORING_HANDLERS, ping: async () => { hasPinged = true; } }, log: QUIET_LOG });
+  const server = http.createServer();
+  inbox.attach(server);
+  const port = await listenOnLoopback(server);
+  try {
+    inbox.publishWatcheeSettings(watcheeSettingsFromConfig({}, []));
+    inbox.startWatcher(port);
+    await waitUntil(() => hasPinged && savedSettingsRevision(watcherHome) !== null, 10_000, () => 'the watcher never saved its first settings');
+    const firstRevision = savedSettingsRevision(watcherHome);
+    inbox.publishWatcheeSettings({ ...watcheeSettingsFromConfig({}, []), issues: { enabled: false, projectRepos: ['acme/widgets'], teams: [], intervalMinutes: 5 } });
+    await waitUntil(() => savedSettingsRevision(watcherHome) !== firstRevision, 3_000, () => 'the watcher did not fetch the new settings within 3 s');
+  } finally {
+    await closeServer(server);
+    if (previousWatcherHome === undefined) delete process.env[WATCHER_HOME_ENV];
+    if (previousWatcherHome !== undefined) process.env[WATCHER_HOME_ENV] = previousWatcherHome;
+    fs.rmSync(watcherHome, { recursive: true, force: true });
   }
 });

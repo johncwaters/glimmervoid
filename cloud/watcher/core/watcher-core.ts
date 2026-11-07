@@ -1,6 +1,7 @@
 import { nextBackoffMs } from '../../../shared/backoff.ts';
 import { isLoopbackHostname } from '../../../shared/loopback-hosts.ts';
 import { WATCHER_JOBS_PATH } from '../../../shared/contracts/watcher-jobs.ts';
+import { WATCHEE_SETTINGS_PATH } from '../../../shared/contracts/watchee-settings.ts';
 
 const RESTART_BASE_MS = 1000;
 const RESTART_MAX_MS = 5 * 60_000;
@@ -32,7 +33,7 @@ function deliveryRetryDelayMs(attempt: number, random: () => number): number {
   return nextBackoffMs({ attempt, baseMs: DELIVERY_RETRY_BASE_MS, maxMs: DELIVERY_RETRY_MAX_MS, jitter: 'half', random });
 }
 
-function parseInboxUrl(rawInboxUrl: string | null): { ok: true; jobsUrl: string } | { ok: false; reason: string } {
+function parseInboxUrl(rawInboxUrl: string | null): { ok: true; jobsUrl: string; settingsUrl: string } | { ok: false; reason: string } {
   if (rawInboxUrl === null || rawInboxUrl === '') return { ok: false, reason: 'pass --inbox <url>, for example --inbox http://127.0.0.1:7700' };
   if (!URL.canParse(rawInboxUrl)) return { ok: false, reason: `--inbox ${rawInboxUrl} is not a URL` };
   const inboxUrl = new URL(rawInboxUrl);
@@ -40,7 +41,7 @@ function parseInboxUrl(rawInboxUrl: string | null): { ok: true; jobsUrl: string 
   if (inboxUrl.protocol === 'http:' && !isLoopbackHostname(inboxUrl.hostname)) {
     return { ok: false, reason: `--inbox ${rawInboxUrl} would send the watcher token unencrypted; use https for a host other than this machine` };
   }
-  return { ok: true, jobsUrl: new URL(WATCHER_JOBS_PATH, inboxUrl).href };
+  return { ok: true, jobsUrl: new URL(WATCHER_JOBS_PATH, inboxUrl).href, settingsUrl: new URL(WATCHEE_SETTINGS_PATH, inboxUrl).href };
 }
 
 function restartDelayMs(crashCount: number): number {

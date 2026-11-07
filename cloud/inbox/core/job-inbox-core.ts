@@ -1,7 +1,9 @@
+import crypto from 'node:crypto';
 import { decideBindHost } from '../../../server/core/remote-config.ts';
 import { tokensMatch } from '../../../server/core/agent-api-core.ts';
 import { WATCHER_JOB_PAYLOADS, WatcherJobEnvelope, isWatcherJobKind } from '../../../shared/contracts/watcher-jobs.ts';
 import type { ParsedWatcherJob, WatcherJobKind, WatcherJobOfKind } from '../../../shared/contracts/watcher-jobs.ts';
+import type { WatcheeSettingsFile, WatcheeSettingsReply } from '../../../shared/contracts/watchee-settings.ts';
 
 const BEARER_PREFIX = 'Bearer ';
 const ANY_FREE_PORT = 0;
@@ -61,5 +63,9 @@ function createRecentJobIds(capacity: number): { hasSeen(jobId: string): boolean
   };
 }
 
-export { authorizeInboxRequest, createRecentJobIds, decideInboxBind, parseWatcherJob };
+function watcheeSettingsReply(settings: WatcheeSettingsFile): WatcheeSettingsReply {
+  return { revision: crypto.createHash('sha256').update(JSON.stringify(settings)).digest('hex'), settings };
+}
+
+export { authorizeInboxRequest, createRecentJobIds, decideInboxBind, parseWatcherJob, watcheeSettingsReply };
 export type { InboxBindDecision };

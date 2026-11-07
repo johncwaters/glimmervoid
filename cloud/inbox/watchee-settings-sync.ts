@@ -8,8 +8,6 @@ import { DEFAULT_INTERVAL_MINUTES as RADAR_POLL_INTERVAL_MINUTES, radarShouldSta
 import { DEFAULT_TRAFFIC_BASELINE_DAYS } from '../../server/core/traffic-spike-core.ts';
 import { communityGate, readCommunitySettings } from '../../server/community/core/community-core.ts';
 import type { CommunityWatcheeSettings, RadarWatcheeSettings, WatcheeSettingsFile } from '../../shared/contracts/watchee-settings.ts';
-import { errorMessage } from '../../shared/text.ts';
-import { watcherHomeDir, writeWatcheeSettings } from '../watcher/watchee-settings.ts';
 
 interface RadarSettingsSource {
   posthog?: {
@@ -94,9 +92,4 @@ function watcheeSettingsFromConfig(config: WatcheeSettingsSource, issuesProjectR
   };
 }
 
-function syncWatcheeSettings(config: WatcheeSettingsSource, issuesProjectRepos: readonly string[], log: Pick<Console, 'warn'> = console): Promise<void> {
-  return writeWatcheeSettings(watcherHomeDir(), watcheeSettingsFromConfig(config, issuesProjectRepos))
-    .catch((error: unknown) => log.warn(`[watcher] could not write the watchee settings: ${errorMessage(error)}`));
-}
-
-export { syncWatcheeSettings, watcheeSettingsFromConfig };
+export { watcheeSettingsFromConfig };

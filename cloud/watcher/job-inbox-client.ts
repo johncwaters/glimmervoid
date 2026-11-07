@@ -1,4 +1,5 @@
 import { WatcherJobAck } from '../../shared/contracts/watcher-jobs.ts';
+import { WatcheeSettingsReply } from '../../shared/contracts/watchee-settings.ts';
 import { isRecord } from '../../shared/coerce.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { classifyInboxReply, deliveryRetryDelayMs, describeRefusal } from './core/watcher-core.ts';
@@ -77,4 +78,17 @@ async function sendJob({ jobsUrl, token, job, maxAttempts }: {
   return { ok: false, reason: lastFailureReason };
 }
 
-export { sendJob };
+async function fetchWatcheeSettings({ settingsUrl, token }: { settingsUrl: string; token: string }): Promise<{ ok: true; reply: WatcheeSettingsReply } | { ok: false; reason: string }> {
+  try {
+    const response = await fetch(settingsUrl, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    const replyBody = parseReplyText(await response.text());
+    if (!response.ok) return { ok: false, reason: `the inbox answered ${response.status}: ${replyErrorOf(replyBody) ?? 'no reason given'}` };
+    const reply = WatcheeSettingsReply.safeParse(replyBody);
+    if (!reply.success) return { ok: false, reason: 'the inbox sent malformed watchee settings' };
+    return { ok: true, reply: reply.data };
+  } catch (error) {
+    return { ok: false, reason: describeUnreachable(error) };
+  }
+}
+
+export { fetchWatcheeSettings, sendJob };

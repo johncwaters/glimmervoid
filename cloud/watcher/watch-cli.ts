@@ -3,6 +3,8 @@ import { sendJob } from './job-inbox-client.ts';
 import { createPingJob, parseInboxUrl } from './core/watcher-core.ts';
 import { createWatcheeRunner } from './watchee-runner.ts';
 import { watcherHomeDir } from './watchee-settings.ts';
+import { WATCHEE_SETTINGS_CHANGED_MESSAGE } from '../../shared/contracts/watchee-settings.ts';
+import { isRecord } from '../../shared/coerce.ts';
 
 const WATCHER_TOKEN_ENV = 'GLIMMERVOID_WATCHER_TOKEN';
 const PING_DELIVERY_ATTEMPTS = 3;
@@ -51,7 +53,10 @@ async function runWatchCli({ inboxUrl, isPingOnly }: { inboxUrl: string | null; 
   }
   if (delivery.ok) console.log(`ping acked by ${inbox.jobsUrl} in ${Date.now() - startedAtMs} ms`);
   if (isPingOnly) return 0;
-  const watcheeRunner = createWatcheeRunner({ watcherHome: watcherHomeDir(), jobsUrl: inbox.jobsUrl, token });
+  const watcheeRunner = createWatcheeRunner({ watcherHome: watcherHomeDir(), jobsUrl: inbox.jobsUrl, settingsUrl: inbox.settingsUrl, token });
+  process.on('message', (message: unknown) => {
+    if (isRecord(message) && message.type === WATCHEE_SETTINGS_CHANGED_MESSAGE) void watcheeRunner.refreshSettings();
+  });
   await watcheeRunner.start();
   await untilStopSignal(supervisorLeft);
   await watcheeRunner.stop();

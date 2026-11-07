@@ -1,6 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { WATCHER_JOB_MAX_BYTES, WATCHER_JOBS_PATH } from '../../shared/contracts/watcher-jobs.ts';
 import type { WatcherJobAck, WatcherJobKind, WatcherJobOfKind } from '../../shared/contracts/watcher-jobs.ts';
+import { WATCHEE_SETTINGS_PATH } from '../../shared/contracts/watchee-settings.ts';
+import type { WatcheeSettingsReply } from '../../shared/contracts/watchee-settings.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { authorizeInboxRequest, createRecentJobIds, parseWatcherJob } from './core/job-inbox-core.ts';
 
@@ -51,21 +53,45 @@ function runJob<Kind extends WatcherJobKind>(handlers: WatcherJobHandlers, job: 
   return handler(job);
 }
 
-function createJobInboxRequestHandler({ token, handlers, log = console }: {
+function createJobInboxRequestHandler({ token, handlers, watcheeSettings = () => null, log = console }: {
   token: string;
   handlers: WatcherJobHandlers;
+  watcheeSettings?: () => WatcheeSettingsReply | null;
   log?: Pick<Console, 'warn'>;
 }): (request: IncomingMessage, response: ServerResponse) => void {
   const recentJobIds = createRecentJobIds(RECENT_JOB_ID_CAPACITY);
   const inFlightJobIds = new Set<string>();
 
+  function ackFor(jobId: string, status: WatcherJobAck['status']): WatcherJobAck {
+    const settingsRevision = watcheeSettings()?.revision;
+    return settingsRevision === undefined ? { jobId, status } : { jobId, status, settingsRevision };
+  }
+
+  function isInboxRoute(request: IncomingMessage): boolean {
+    if (request.method === 'POST' && request.url === WATCHER_JOBS_PATH) return true;
+    return request.method === 'GET' && request.url === WATCHEE_SETTINGS_PATH;
+  }
+
+  function sendWatcheeSettings(response: ServerResponse): void {
+    const published = watcheeSettings();
+    if (published === null) {
+      sendJson(response, 503, { error: 'the server has not published watchee settings yet' });
+      return;
+    }
+    sendJson(response, 200, published);
+  }
+
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    if (request.method !== 'POST' || request.url !== WATCHER_JOBS_PATH) {
+    if (!isInboxRoute(request)) {
       sendJson(response, 404, { error: 'not found' });
       return;
     }
     if (!authorizeInboxRequest(request.headers.authorization, token)) {
       sendJson(response, 401, { error: 'missing or wrong watcher token' });
+      return;
+    }
+    if (request.method === 'GET') {
+      sendWatcheeSettings(response);
       return;
     }
     const body = await readBody(request);
@@ -76,7 +102,7 @@ function createJobInboxRequestHandler({ token, handlers, log = console }: {
     }
     const { job } = parsed;
     if (recentJobIds.hasSeen(job.jobId)) {
-      sendJson(response, 200, { jobId: job.jobId, status: 'duplicate' } satisfies WatcherJobAck);
+      sendJson(response, 200, ackFor(job.jobId, 'duplicate'));
       return;
     }
     if (inFlightJobIds.has(job.jobId)) {
@@ -94,7 +120,7 @@ function createJobInboxRequestHandler({ token, handlers, log = console }: {
       inFlightJobIds.delete(job.jobId);
     }
     recentJobIds.remember(job.jobId);
-    sendJson(response, 200, { jobId: job.jobId, status: 'accepted' } satisfies WatcherJobAck);
+    sendJson(response, 200, ackFor(job.jobId, 'accepted'));
   }
 
   return (request, response) => {

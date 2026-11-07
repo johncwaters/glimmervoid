@@ -71,7 +71,7 @@ import type { SpawnHostTunnel } from '../hosts/host-links-wiring.ts';
 import { POSTHOG_API_KEY_ENV } from '../../cloud/watchees/posthog-watchee.ts';
 import { createJobInbox } from '../../cloud/inbox/job-inbox-wiring.ts';
 import { withBuiltInJobHandlers } from '../../cloud/inbox/watchee-handlers.ts';
-import { syncWatcheeSettings } from '../../cloud/inbox/watchee-settings-sync.ts';
+import { watcheeSettingsFromConfig } from '../../cloud/inbox/watchee-settings-sync.ts';
 
 interface CreateBackendOptions extends BackendLaneOptions {
   staticDir?: string | null;
@@ -505,7 +505,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     }
     notifications.applySettings();
     laneAssembly.restartServiceLanes();
-    void issues.watchedProjectRepos().then((projectRepos) => syncWatcheeSettings(config, projectRepos));
+    void issues.watchedProjectRepos().then((projectRepos) => jobInbox.publishWatcheeSettings(watcheeSettingsFromConfig(config, projectRepos)));
     jobInbox.refreshWatcherEnvironment();
   }
 
@@ -633,7 +633,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       'community.rows': community.acceptRows,
     }),
   });
-  void issues.watchedProjectRepos().then((projectRepos) => syncWatcheeSettings(config, projectRepos));
+  void issues.watchedProjectRepos().then((projectRepos) => jobInbox.publishWatcheeSettings(watcheeSettingsFromConfig(config, projectRepos)));
   const { requestShutdown, requestRestart } = createLifecycle({
     shutdown,
     httpServer,

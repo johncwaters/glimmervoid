@@ -2,7 +2,7 @@ import type { ChildProcess } from 'node:child_process';
 import { spawn } from '../../server/child-process-safe.ts';
 import { cliPath } from '../../server/runtime-paths.ts';
 import { stableNodePath } from '../../server/stable-node-path.ts';
-import { WATCHER_HOME_ENV } from '../../shared/contracts/watchee-settings.ts';
+import { WATCHEE_SETTINGS_CHANGED_MESSAGE, WATCHER_HOME_ENV } from '../../shared/contracts/watchee-settings.ts';
 import { nextCrashCount, restartDelayMs } from './core/watcher-core.ts';
 import { watcherHomeDir } from './watchee-settings.ts';
 
@@ -18,7 +18,7 @@ function createWatcherSupervisor({ inboxUrl, token, environment = () => ({}), lo
   token: string;
   environment?: () => Record<string, string>;
   log?: Pick<Console, 'log' | 'warn'>;
-}): { start(): void; stop(): void; refreshEnvironment(): void } {
+}): { start(): void; stop(): void; refreshEnvironment(): void; notifySettingsChanged(): void } {
   let crashCount = 0;
   let supervision: 'watching' | 'restarting' | 'stopped' = 'watching';
   let childEnvironment: Record<string, string> = {};
@@ -86,7 +86,14 @@ function createWatcherSupervisor({ inboxUrl, token, environment = () => ({}), lo
     runningChild.kill();
   }
 
-  return { start, stop, refreshEnvironment };
+  function notifySettingsChanged(): void {
+    if (runningChild === null || !runningChild.connected) return;
+    runningChild.send({ type: WATCHEE_SETTINGS_CHANGED_MESSAGE }, (sendError) => {
+      if (sendError) log.warn(`[watcher] could not tell the child to fetch new settings: ${sendError.message}; it fetches them when it restarts`);
+    });
+  }
+
+  return { start, stop, refreshEnvironment, notifySettingsChanged };
 }
 
 export { createWatcherSupervisor };
