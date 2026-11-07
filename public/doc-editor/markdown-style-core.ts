@@ -3,7 +3,7 @@ import { parseAtxHeading } from '#shared/contracts/plan-review.ts';
 export type BlockStyle = 'h1' | 'h2' | 'h3' | 'quote' | 'list' | 'fence' | 'table' | 'plain';
 export type InlineStyle = 'syntax' | 'strong' | 'emphasis' | 'code';
 
-export interface InlineRun {
+interface InlineRun {
   start: number;
   end: number;
   style: InlineStyle;
