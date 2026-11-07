@@ -7,8 +7,9 @@ import { appendElement, boardIndexOf, dropElement, storeElement } from '../../sh
 import { boardPicture, pictureImagesOf } from '../../mcp/core/board-reading.ts';
 import { advanceBoardLayout, chromeOfBoard, layoutBoardRemembered, lineageLayoutOf, pinPositionsOfBoard, warningsOfBoard } from '../../shared/whiteboard-layout-cache.ts';
 import type { ElementChange } from '../../shared/whiteboard-layout-engine.ts';
-import { boardOutlineOf, defaultFocusOf, elementIdsTouching, patchTileIndex, tileDiffOf, tileIndexOf, tileOf } from '../../shared/whiteboard-tile-core.ts';
+import { boardOutlineOf, defaultFocusOf, elementIdsTouching, patchTileIndex, tileDiffOf, tileIndexOf, tileIndexOfPainted, tileOf } from '../../shared/whiteboard-tile-core.ts';
 import type { TileIndex } from '../../shared/whiteboard-tile-core.ts';
+import type { LayoutCache, LayoutStamp } from './layout-cache.ts';
 
 const RequestId = z.number().int();
 const ViewerTiles = z.strictObject({ viewerId: z.number().int(), version: z.number().int().nullable(), heldKeys: z.array(TileKey) });
@@ -22,6 +23,7 @@ const LayoutRequest = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('picture-images'), requestId: RequestId, boardId: z.string() }),
   z.strictObject({ kind: z.literal('picture'), requestId: RequestId, boardId: z.string(), dataUriByAssetId: z.record(z.string(), z.string()) }),
   z.strictObject({ kind: z.literal('tiles'), requestId: RequestId, boardId: z.string(), keys: z.array(TileKey), withChrome: z.boolean() }),
+  z.strictObject({ kind: z.literal('cached-tiles'), requestId: RequestId, boardId: z.string(), version: z.number().int(), updatedAt: z.number(), keys: z.array(TileKey), withChrome: z.boolean() }),
   z.strictObject({ kind: z.literal('pins'), requestId: RequestId, boardId: z.string(), ids: z.array(z.string()) }),
   z.strictObject({ kind: z.literal('region'), requestId: RequestId, boardId: z.string(), focus: LayoutRect.nullable(), withOutline: z.boolean() }),
   z.strictObject({ kind: z.literal('summary'), requestId: RequestId, boardId: z.string() }),
@@ -41,6 +43,8 @@ const LayoutAnswer = z.strictObject({
   chrome: BoardChrome.optional(),
   viewerMessages: z.array(ViewerMessage).optional(),
   tiles: z.array(Tile).optional(),
+  elementCount: z.number().int().nonnegative().optional(),
+  isCacheMiss: z.boolean().optional(),
   pinnedBoxes: z.array(LaidOutBox).optional(),
   pinnedOffsetY: z.number().optional(),
   focus: LayoutRect.optional(),
@@ -66,13 +70,16 @@ type AnswerFields = Omit<LayoutAnswer, 'requestId' | 'ok'>;
 interface HeldTiles {
   index: TileIndex;
   lineage: number;
+  updatedAt: number;
 }
+
+const CACHED_LINEAGE = -1;
 
 interface LayoutHost {
   handle(request: LayoutRequestBody): AnswerFields;
 }
 
-function createLayoutHost(): LayoutHost {
+function createLayoutHost(cache: LayoutCache): LayoutHost {
   const boardById = new Map<string, Board>();
   const tilesByBoardId = new Map<string, HeldTiles>();
   const syncIdByBoardId = new Map<string, number>();
@@ -83,13 +90,28 @@ function createLayoutHost(): LayoutHost {
     return board;
   }
 
+  function cachedTilesOf(boardId: string, stamp: LayoutStamp): HeldTiles | null {
+    const held = tilesByBoardId.get(boardId);
+    if (held?.index.version === stamp.version && held.updatedAt === stamp.updatedAt) return held;
+    const cached = cache.layoutOf(boardId, stamp);
+    if (!cached) return null;
+    const fromCache = { index: tileIndexOfPainted(stamp.version, cached.chrome, cached.painted), lineage: CACHED_LINEAGE, updatedAt: stamp.updatedAt };
+    tilesByBoardId.set(boardId, fromCache);
+    return fromCache;
+  }
+
   function heldTilesOf(board: Board): HeldTiles {
-    const held = tilesByBoardId.get(board.id);
-    if (held?.index.version === board.version) return held;
+    const held = cachedTilesOf(board.id, board);
+    if (held) return held;
     const { lineage, layout } = lineageLayoutOf(board);
-    const fresh = { index: tileIndexOf(layout, board.version, board), lineage };
+    const fresh = { index: tileIndexOf(layout, board.version, board), lineage, updatedAt: board.updatedAt };
     tilesByBoardId.set(board.id, fresh);
+    cache.saveWhole(board.id, board, fresh.index.chrome, fresh.index.painted);
     return fresh;
+  }
+
+  function countOf(index: TileIndex): number {
+    return index.slotById.size;
   }
 
   function wholeTilesOf(viewer: ViewerTiles, index: TileIndex): ViewerMessage {
@@ -121,7 +143,14 @@ function createLayoutHost(): LayoutHost {
       return refreshed(board, viewers, layoutAdvance?.warnings ?? warningsOfBoard(board));
     }
     const fromVersion = tiles.index.version;
+    const fromStamp = { version: fromVersion, updatedAt: tiles.updatedAt };
+    tiles.updatedAt = board.updatedAt;
     const tileChanges = patchTileIndex(tiles.index, board, { version: board.version, chrome: layoutAdvance.chrome, changed: layoutAdvance.delta.changed, removedIds: layoutAdvance.delta.removedIds, recordChangedIds: [...changes.keys()] });
+    const changedPaints = tileChanges.changedSlots.flatMap(({ slot }) => {
+      const painted = tiles.index.painted[slot];
+      return painted ? [{ slot, painted }] : [];
+    });
+    cache.save(board.id, fromStamp, board, tiles.index.chrome, changedPaints, tileChanges.removedIds);
     const viewerMessages = viewers.map((viewer): ViewerMessage => (viewer.version === fromVersion
       ? { kind: 'diff', viewerId: viewer.viewerId, fromVersion, diff: tileDiffOf(tiles.index, tileChanges, viewer.heldKeys) }
       : wholeTilesOf(viewer, tiles.index)));
@@ -152,7 +181,7 @@ function createLayoutHost(): LayoutHost {
   function handle(request: LayoutRequestBody): AnswerFields {
     switch (request.kind) {
       case 'sync-start': {
-        tilesByBoardId.delete(request.head.id);
+        if (tilesByBoardId.get(request.head.id)?.index.version !== request.head.version) tilesByBoardId.delete(request.head.id);
         syncIdByBoardId.set(request.head.id, request.syncId);
         boardById.set(request.head.id, { ...request.head, elements: {} });
         return {};
@@ -182,6 +211,12 @@ function createLayoutHost(): LayoutHost {
         const { index } = heldTilesOf(boardNamed(request.boardId));
         return { version: index.version, tiles: request.keys.map((key) => tileOf(index, key)), ...(request.withChrome ? { chrome: index.chrome } : {}) };
       }
+      case 'cached-tiles': {
+        const held = cachedTilesOf(request.boardId, request);
+        if (!held) return { isCacheMiss: true };
+        const { index } = held;
+        return { version: index.version, elementCount: countOf(index), tiles: request.keys.map((key) => tileOf(index, key)), ...(request.withChrome ? { chrome: index.chrome } : {}) };
+      }
       case 'pins': return pinsFor(boardNamed(request.boardId), request.ids);
       case 'region': return regionOf(boardNamed(request.boardId), request.focus, request.withOutline);
       case 'summary': {
@@ -189,6 +224,7 @@ function createLayoutHost(): LayoutHost {
         return { version: board.version, chrome: chromeOfBoard(board), warnings: warningsOfBoard(board) };
       }
       case 'forget':
+        cache.forget(request.boardId);
         boardById.delete(request.boardId);
         tilesByBoardId.delete(request.boardId);
         syncIdByBoardId.delete(request.boardId);

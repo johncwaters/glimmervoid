@@ -13,6 +13,7 @@ import { assetIdOf, assetIdsOf, boardIndexOf } from '../../shared/whiteboard-boa
 import type { StagedElements } from './board-store-core.ts';
 import type { Author, PinPositions } from '../../shared/whiteboard-ops-core.ts';
 import { createBoardTileService } from './board-tile-service.ts';
+import { LAYOUT_CACHE_FILENAME } from './layout-cache.ts';
 import type { BoardPictureRead, BoardTileService, LayoutSummary, PictureImage } from './board-tile-service.ts';
 import type { ChangedElement } from './layout-client.ts';
 import { elementPageOf, fitsOnePage } from '../../shared/whiteboard-tile-core.ts';
@@ -233,7 +234,12 @@ function createWhiteboardWiring({
   const store = createBoardStore(boardsRoot);
   const unloadedBoardIds = new Set<string>();
   const loadingByBoardId = new Map<string, Promise<RecordLoad>>();
-  const tiles = createBoardTileService({ boardOf: (boardId) => (unloadedBoardIds.has(boardId) ? null : recordsByBoardId.get(boardId)?.board ?? null), logger });
+  const tiles = createBoardTileService({
+    boardOf: (boardId) => (unloadedBoardIds.has(boardId) ? null : recordsByBoardId.get(boardId)?.board ?? null),
+    unloadedBoardOf: (boardId) => (unloadedBoardIds.has(boardId) ? recordsByBoardId.get(boardId)?.board ?? null : null),
+    layoutCachePath: path.join(boardsRoot, LAYOUT_CACHE_FILENAME),
+    logger,
+  });
   const agentFocusBySessionId = new Map<string, Map<string, AgentFocus>>();
   const pagedFocusBySessionId = new Map<string, Map<string, BoardRegion>>();
   let isEveryBoardLoaded = true;
@@ -897,6 +903,7 @@ function createWhiteboardWiring({
   const tilesOnFirstUse: WhiteboardPort['tiles'] = {
     view: async (viewer, request) => {
       await loaded;
+      if (await tiles.viewCached(viewer, request)) return;
       await loadedRecordOf(request.boardId);
       return tiles.view(viewer, request);
     },

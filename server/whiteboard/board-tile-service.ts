@@ -21,6 +21,19 @@ interface ViewerState {
   heldKeys: TileKey[];
 }
 
+interface ViewRequest {
+  boardId: string;
+  view: Rect;
+  lod: TileLod;
+  knownVersion: number | null;
+}
+
+interface TileSource {
+  version: number;
+  fetch(keys: TileKey[], withChrome: boolean): Promise<LayoutAnswer>;
+  framing(answer: LayoutAnswer): { head: BoardHead; elementCount: number };
+}
+
 interface BoardView {
   view: Rect;
   lod: TileLod;
@@ -47,7 +60,8 @@ interface BoardRegionRead {
 }
 
 interface BoardTileService {
-  view(viewer: TileViewer, request: { boardId: string; view: Rect; lod: TileLod; knownVersion: number | null }): Promise<void>;
+  view(viewer: TileViewer, request: ViewRequest): Promise<void>;
+  viewCached(viewer: TileViewer, request: ViewRequest): Promise<boolean>;
   advance(board: Board, changes: readonly ChangedElement[] | null): Promise<LayoutSummary | null>;
   forget(viewer: TileViewer): void;
   forgetBoard(boardId: string): void;
@@ -69,8 +83,15 @@ function summaryOfAnswer(board: Board, answer: LayoutAnswer): LayoutSummary {
   return { version: board.version, warnings: answer.warnings ?? [], chrome: answer.chrome };
 }
 
-function createBoardTileService({ boardOf, logger }: { boardOf: (boardId: string) => Board | null; logger: Pick<Console, 'warn'> }): BoardTileService {
-  const layouts = createLayoutClient();
+interface TileServiceOptions {
+  boardOf: (boardId: string) => Board | null;
+  unloadedBoardOf: (boardId: string) => Board | null;
+  layoutCachePath: string | null;
+  logger: Pick<Console, 'warn'>;
+}
+
+function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, logger }: TileServiceOptions): BoardTileService {
+  const layouts = createLayoutClient({ cachePath: layoutCachePath });
   const stateByViewer = new Map<TileViewer, ViewerState>();
   const viewerById = new Map<number, TileViewer>();
   const lastViewByBoardId = new Map<string, BoardView>();
@@ -100,20 +121,48 @@ function createBoardTileService({ boardOf, logger }: { boardOf: (boardId: string
     }
   }
 
-  async function view(viewer: TileViewer, request: { boardId: string; view: Rect; lod: TileLod; knownVersion: number | null }, board: Board): Promise<void> {
+  function forgetViewer(viewer: TileViewer): void {
+    const state = stateByViewer.get(viewer);
+    stateByViewer.delete(viewer);
+    if (state) viewerById.delete(state.viewerId);
+  }
+
+  async function sendView(viewer: TileViewer, request: ViewRequest, source: TileSource): Promise<boolean> {
     const previous = stateByViewer.get(viewer);
-    const isInSync = previous?.boardId === request.boardId && previous.version === board.version && request.knownVersion === board.version;
+    const isInSync = previous?.boardId === request.boardId && previous.version === source.version && request.knownVersion === source.version;
     const heldIds = new Set(isInSync ? previous.heldKeys.map(tileIdOf) : []);
     const wantedKeys = tileKeysFor(request.view, request.lod);
     const missingKeys = wantedKeys.filter((key) => !heldIds.has(tileIdOf(key)));
     const viewerId = previous?.viewerId ?? nextViewerId;
     if (!previous) nextViewerId += 1;
     viewerById.set(viewerId, viewer);
-    stateByViewer.set(viewer, { viewerId, boardId: request.boardId, version: board.version, heldKeys: wantedKeys });
-    if (isInSync && missingKeys.length === 0) return;
-    const answer = await layouts.ask(board, { kind: 'tiles', boardId: board.id, keys: missingKeys, withChrome: !isInSync });
-    if (stateByViewer.get(viewer)?.boardId !== request.boardId) return;
-    viewer.send({ type: 'whiteboard-tiles', boardId: request.boardId, version: board.version, ...headOf(board), chrome: answer.chrome ?? null, tiles: answer.tiles ?? [] });
+    stateByViewer.set(viewer, { viewerId, boardId: request.boardId, version: source.version, heldKeys: wantedKeys });
+    if (isInSync && missingKeys.length === 0) return true;
+    const answer = await source.fetch(missingKeys, !isInSync);
+    if (answer.isCacheMiss) {
+      forgetViewer(viewer);
+      return false;
+    }
+    if (stateByViewer.get(viewer)?.boardId !== request.boardId) return true;
+    viewer.send({ type: 'whiteboard-tiles', boardId: request.boardId, version: source.version, ...source.framing(answer), chrome: answer.chrome ?? null, tiles: answer.tiles ?? [] });
+    return true;
+  }
+
+  function loadedSource(board: Board): TileSource {
+    return {
+      version: board.version,
+      fetch: (keys, withChrome) => layouts.ask(board, { kind: 'tiles', boardId: board.id, keys, withChrome }),
+      framing: () => headOf(board),
+    };
+  }
+
+  function cachedSource(board: Board): TileSource {
+    const { elements: _elements, ...head } = board;
+    return {
+      version: board.version,
+      fetch: (keys, withChrome) => layouts.cachedTiles(board.id, board, keys, withChrome),
+      framing: (answer) => ({ head, elementCount: answer.elementCount ?? 0 }),
+    };
   }
 
   async function advance(board: Board, changes: readonly ChangedElement[] | null): Promise<LayoutSummary | null> {
@@ -158,20 +207,22 @@ function createBoardTileService({ boardOf, logger }: { boardOf: (boardId: string
   }
 
   return {
-    view: (viewer, request) => {
+    view: async (viewer, request) => {
       lastViewByBoardId.set(request.boardId, { view: request.view, lod: request.lod });
       const board = boardOf(request.boardId);
-      if (!board) return Promise.resolve();
-      return view(viewer, request, board).catch((error: unknown) => {
+      if (!board) return;
+      await sendView(viewer, request, loadedSource(board)).catch((error: unknown) => {
         logger.warn(`[whiteboard] tiles of board ${request.boardId} could not be sent: ${errorMessage(error)}`);
       });
     },
-    advance,
-    forget: (viewer) => {
-      const state = stateByViewer.get(viewer);
-      stateByViewer.delete(viewer);
-      if (state) viewerById.delete(state.viewerId);
+    viewCached: async (viewer, request) => {
+      const board = unloadedBoardOf(request.boardId);
+      if (!board) return false;
+      lastViewByBoardId.set(request.boardId, { view: request.view, lod: request.lod });
+      return sendView(viewer, request, cachedSource(board)).catch(() => false);
     },
+    advance,
+    forget: forgetViewer,
     forgetBoard,
     operatorViewOf: (boardId) => lastViewByBoardId.get(boardId) ?? null,
     regionOf,

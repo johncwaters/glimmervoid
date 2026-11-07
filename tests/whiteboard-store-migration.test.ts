@@ -174,3 +174,62 @@ test('a session closing while its board loads after a restart keeps the loaded e
   assert.equal(Object.keys((await firstRead).board?.elements ?? {}).length, 2000);
   assert.equal(Object.keys((await restarted.handleOperator.get(boardId)).board?.elements ?? {}).length, 2000);
 });
+
+test('a restart draws a viewed board from its saved layout, and a layout saved by other code, for a lost edit, or unreadable is laid out again', async () => {
+  const boardsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-layout-cache-'));
+  const cachePath = path.join(boardsRoot, 'layout-cache.sqlite');
+  const boardView = { view: { x: -200, y: -200, width: 4000, height: 3000 }, lod: 'full' as const, knownVersion: null };
+  const tilesSeenBy = async (wiring: ReturnType<typeof createWhiteboardWiring>, boardId: string): Promise<unknown[]> => {
+    const sent: unknown[] = [];
+    await wiring.loaded;
+    await wiring.tiles.view({ send: (message) => sent.push(message.type === 'whiteboard-tiles' ? { version: message.version, chrome: message.chrome, tiles: message.tiles } : message.type) }, { boardId, ...boardView });
+    return sent;
+  };
+  const restartIn = (root: string) => createWhiteboardWiring({ boardsRoot: root, logger: { warn: () => {} } });
+  const boxesFrom = (first: number, count: number) => z.array(Op).parse(Array.from({ length: count }, (_, index) => ({ op: 'add', element: { kind: 'box', id: `box-${first + index}`, title: `box ${first + index}`, at: { x: (first + index) * 260, y: 0 } } })));
+  const retitle = (id: string, title: string) => z.array(Op).parse([{ op: 'set', id, fields: { title } }]);
+  const editCache = (sql: string) => {
+    const cache = new DatabaseSync(cachePath);
+    cache.exec(sql);
+    cache.close();
+  };
+  const copyFiles = (fromRoot: string, toRoot: string, filename: string) => {
+    for (const suffix of ['', '-wal']) {
+      if (fs.existsSync(path.join(fromRoot, `${filename}${suffix}`))) fs.copyFileSync(path.join(fromRoot, `${filename}${suffix}`), path.join(toRoot, `${filename}${suffix}`));
+    }
+  };
+
+  const first = restartIn(boardsRoot);
+  await first.loaded;
+  const boardId = (await first.handleOperator.create('Cached plan')).summary?.id ?? '';
+  assert.equal((await first.handleOperator.put(boardId, boxesFrom(0, 2000))).ok, true);
+  const drawnBeforeRestart = await tilesSeenBy(first, boardId);
+
+  const restarted = restartIn(boardsRoot);
+  assert.deepEqual(await tilesSeenBy(restarted, boardId), drawnBeforeRestart);
+  editCache(`UPDATE laid_out SET body = json_set(body, '$.element.x', 1800) WHERE element_id = 'box-1'`);
+  assert.match(JSON.stringify(await tilesSeenBy(restartIn(boardsRoot), boardId)), /"x":1800/);
+  editCache(`UPDATE layout_head SET code_stamp = 'older layout code'`);
+  assert.deepEqual(await tilesSeenBy(restartIn(boardsRoot), boardId), drawnBeforeRestart);
+
+  const storeBeforeLostEdit = fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-layout-cache-lost-'));
+  copyFiles(boardsRoot, storeBeforeLostEdit, 'boards.sqlite');
+  const editing = restartIn(boardsRoot);
+  assert.equal((await editing.handleOperator.put(boardId, retitle('box-1', 'lost edit'))).ok, true);
+  await tilesSeenBy(editing, boardId);
+  copyFiles(boardsRoot, storeBeforeLostEdit, 'layout-cache.sqlite');
+  const afterLostEdit = restartIn(storeBeforeLostEdit);
+  await afterLostEdit.loaded;
+  assert.equal((await afterLostEdit.handleOperator.put(boardId, retitle('box-0', 'kept edit'))).ok, true);
+  const drawnAfterLostEdit = JSON.stringify(await tilesSeenBy(afterLostEdit, boardId));
+  assert.match(drawnAfterLostEdit, /kept edit/);
+  assert.doesNotMatch(drawnAfterLostEdit, /lost edit/);
+
+  assert.equal((await editing.handleOperator.put(boardId, boxesFrom(2000, 2))).ok, true);
+  assert.equal((await editing.handleOperator.put(boardId, retitle('box-1', 'renamed after restart'))).ok, true);
+  const drawnFromCache = await tilesSeenBy(restartIn(boardsRoot), boardId);
+  fs.writeFileSync(cachePath, 'not a database');
+  const drawnFromFullLayout = await tilesSeenBy(restartIn(boardsRoot), boardId);
+  assert.deepEqual(drawnFromCache, drawnFromFullLayout);
+  assert.match(JSON.stringify(drawnFromCache), /renamed after restart/);
+});

@@ -3,7 +3,7 @@ import { sparseElement, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Board, BoardOutline, Element } from './contracts/whiteboard.ts';
 import type { BoardChrome, LaidOutElement, PaintedElement, Tile, TileDiff, TileKey, TileLod } from './contracts/whiteboard-tiles.ts';
 import type { BoardLayout, Rect } from './whiteboard-layout-core.ts';
-import { forEachSlotTouching, gridOfRects, placeSlot, removeSlot } from './spatial-grid-core.ts';
+import { createSpatialGrid, forEachSlotTouching, placeSlot, removeSlot } from './spatial-grid-core.ts';
 import type { SpatialGrid } from './spatial-grid-core.ts';
 import { labelWidthOf, pointsOfPath } from './whiteboard-route-core.ts';
 
@@ -154,16 +154,20 @@ function paintedAt(board: Board, element: LaidOutElement, slot: number): Painted
 }
 
 function tileIndexOf(layout: BoardLayout, version: number, board: Board): TileIndex {
-  const painted = layout.elements.map((element, slot) => paintedAt(board, element, slot));
-  const bounds = layout.elements.map(paintedBoundsOf);
-  return {
-    version,
-    chrome: chromeOf(layout),
-    painted,
-    bounds,
-    slotById: new Map(layout.elements.map((element, slot) => [element.id, slot])),
-    grid: gridOfRects(bounds, CHUNK_SIZE),
-  };
+  return tileIndexOfPainted(version, chromeOf(layout), layout.elements.map((element, slot) => paintedAt(board, element, slot)));
+}
+
+function tileIndexOfPainted(version: number, chrome: BoardChrome, painted: (PaintedElement | null)[]): TileIndex {
+  const bounds = painted.map((entry) => (entry ? paintedBoundsOf(entry.element) : null));
+  const slotById = new Map<string, number>();
+  const grid = createSpatialGrid(CHUNK_SIZE, painted.length);
+  for (const [slot, entry] of painted.entries()) {
+    const entryBounds = bounds[slot];
+    if (!entry || !entryBounds) continue;
+    slotById.set(entry.element.id, slot);
+    placeSlot(grid, slot, entryBounds);
+  }
+  return { version, chrome, painted, bounds, slotById, grid };
 }
 
 function slotsTouching(index: TileIndex, rect: Rect): number[] {
@@ -376,5 +380,5 @@ function tileDiffOf(next: TileIndex, { changedSlots, removedIds, touchedRects, i
   return { changed, removedIds, rasters, chrome: isChromeChanged ? next.chrome : null };
 }
 
-export { boardOutlineOf, defaultFocusOf, elementIdsTouching, elementPageOf, fitsOnePage, lodForScale, paintedBoundsOf, patchTileIndex, tileDiffOf, tileIdOf, tileIndexOf, tileKeysFor, tileOf, tileRectOf };
+export { boardOutlineOf, defaultFocusOf, elementIdsTouching, elementPageOf, fitsOnePage, lodForScale, paintedBoundsOf, patchTileIndex, tileDiffOf, tileIdOf, tileIndexOf, tileIndexOfPainted, tileKeysFor, tileOf, tileRectOf };
 export type { TileIndex };
