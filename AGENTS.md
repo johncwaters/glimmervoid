@@ -18,6 +18,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 | `docs/`, `bin/` | Design records and npm CLI |
 | `Glimmervoid.spec.md`, `*.spec.md`, `coherence.config.json`, `lexicon.json` | Coherence: the entry spec at the root, a component spec beside each unit's code, its config and vocabulary; `npm test` fails on a spec or lexicon problem |
 | `mcp/` | Agent MCP endpoint; all MCP code (`mcp/AGENTS.md`) |
+| `cloud/` | Cloud split: watcher and job inbox (`cloud/AGENTS.md`) |
 | `server/` | Backend runtime and lanes (`server/AGENTS.md`) |
 | `server/child-process-safe.ts` | The ONLY importer of `node:child_process` |
 | `server/git/git-workspace.ts` | The ONLY module allowed to run `git worktree` |
@@ -54,7 +55,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 - The published package ships `dist/` only and runs built `.js`, because Node refuses type stripping inside `node_modules`. Resolve a shipped asset (relay, CLI, dashboard) through `server/runtime-paths.ts`, never from `import.meta.dirname`: the same module runs from a source checkout and from `dist/`.
 - Sessions are keyed by stable UUID `id`; `name` is display-only.
 - Wire and persisted shapes are Zod schemas in `shared/contracts/`; boundaries parse and fail closed, and types come from `z.infer`, never hand-duplicated.
-- `npm run typecheck` gates every tree at zero errors under full `strict` plus `erasableSyntaxOnly` and `verbatimModuleSyntax` (`tsconfig.json` for node code, `tsconfig.public.json` for the browser). No suppressions of any kind: `@ts-*` pragmas, `biome-ignore`, `as any`, and `as unknown as` all fail the gate.
+- Coherence reports are work, not backlog: anything a Coherence hook or `coherence query status` reports open (a requirement, an undefined recurring term, an entrance, a failing check) an operator session hands at once to one child session (`glimmervoid spawn`); a spawned child or subagent settles it itself, and a lane leaves it.
 
 ### Testing Requirements
 
@@ -71,14 +72,13 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 
 ## Invariants
 
-Each subsystem states its own rules beside its code, so a rule is loaded when that code is open and never charged to every session. Never restate one here.
-
 | Subsystem | Rules live in |
 |---|---|
 | Status Detection, Operator Hooks, Session Recording, Session Trace | `detection/AGENTS.md` |
 | Agent Adapters | `session/adapters/AGENTS.md` |
 | Session Spawning, Auto-Resume and Shutdown | `session/AGENTS.md` |
 | Notifications | `notifications/AGENTS.md` |
+| Watcher Job Inbox, Watchees | `cloud/AGENTS.md` |
 | Worktree Auto-Rebase, Worktree Base Branch, Remote Branch GC, Benchmarks, Plan Review, Security: Trust Boundary, Transport and Session Identity | `server/AGENTS.md` |
 | Ephemeral Lane Write Boundaries, Lane PostHog MCP | `server/lanes/AGENTS.md` |
 | Usage Tracking | `server/usage/AGENTS.md` |

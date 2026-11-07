@@ -8,6 +8,7 @@ import { PrFlowsSettings } from './pr-flows.ts';
 import { repoParts } from './github-ids.ts';
 import { DISCORD_CHANNEL_NAME_RE, SKILL_NAME_RE } from './community.ts';
 import { UpdateChannel } from './update-journal.ts';
+import { QuestionManagerSettings } from './question-manager.ts';
 
 export const optionalBoolean = (field: string) => z.boolean({ error: `${field} must be a boolean` }).optional();
 const optionalString = (field: string, trim = false) => {
@@ -221,6 +222,14 @@ const telemetryShape = { enabled: optionalBoolean('telemetry.enabled') };
 const TelemetrySettings = z.object(telemetryShape, { error: 'telemetry must be an object' }).strict().optional();
 export const TelemetryFileSettings = z.object(telemetryShape, { error: 'telemetry must be an object' }).passthrough().optional();
 
+const watcherShape = {
+  autoStart: optionalBoolean('watcher.autoStart'),
+  inboxHost: optionalString('watcher.inboxHost', true),
+  inboxPort: z.number({ error: 'watcher.inboxPort must be a port from 1 to 65535 or null' }).int().min(ranges.FIXED_PORT_RANGE.min).max(ranges.FIXED_PORT_RANGE.max).nullable().optional(),
+};
+const WatcherSettings = z.object(watcherShape, { error: 'watcher must be an object' }).strict().optional();
+export const WatcherFileSettings = z.object({ ...watcherShape, token: z.string().optional() }, { error: 'watcher must be an object' }).passthrough().optional();
+
 const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean) => ({
   port: z.number().int().min(ranges.PORT_RANGE.min).max(ranges.PORT_RANGE.max).optional(),
   notifyDebounceMs: z.number().finite().nonnegative().optional(),
@@ -230,7 +239,9 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   cursorBlink: optionalBoolean('cursorBlink'),
   debugMode: optionalBoolean('debugMode'),
   streamerMode: optionalBoolean('streamerMode'),
+  linkPreviews: optionalBoolean('linkPreviews'),
   viewTabOrder: z.array(z.string({ error: 'viewTabOrder must be an array of view ids' }), { error: 'viewTabOrder must be an array of view ids' }).optional(),
+  hiddenAgents: z.array(z.string({ error: 'hiddenAgents must be an array of agent ids' }), { error: 'hiddenAgents must be an array of agent ids' }).optional(),
   remoteSessions: optionalBoolean('remoteSessions'),
   hintCards: optionalBoolean('hintCards'),
   detectBackgroundAgents: optionalBoolean('detectBackgroundAgents'),
@@ -255,10 +266,12 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   coherence: CoherenceSettings,
   issues: IssuesSettings,
   community: CommunitySettings,
+  questionManager: QuestionManagerSettings.nullable().optional(),
   posthog: PosthogSettings,
   usage: createUsageSettings(isAbsolutePath),
   telegram: TelegramSettings,
   telemetry: TelemetrySettings,
+  watcher: WatcherSettings,
   workflows: WorkflowsSettings.nullable().optional(),
   prFlows: PrFlowsSettings.nullable().optional(),
 });

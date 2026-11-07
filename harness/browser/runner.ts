@@ -6,8 +6,8 @@ import type { Browser, BrowserContext, ConsoleMessage, Page, WebSocketRoute } fr
 import { safeTextTail } from '../support/backend-harness.ts';
 import { heightWithKeyboardUp, layoutFor, needsSocketRoute } from './cases-core.ts';
 import type { CardControl, HarnessCase, Layout, ResolvedStep, Step, ViewerId, Viewport } from './cases-core.ts';
-import { expectedRows, parseStatusRow } from './frame-core.ts';
-import { verifyBoardPane, verifyBoards } from './boards.ts';
+import { DECEPTIVE_LINK_ROW_NUMBER, DECEPTIVE_LINK_TEXT, DECEPTIVE_LINK_URL, LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, MOTION_REPORT_PREFIX, expectedRows, parseStatusRow } from './frame-core.ts';
+import { verifyBoardPane, verifyBoardScale, verifyBoards } from './boards.ts';
 import { verifyIssues } from './issues.ts';
 import { verifyPhoneChanges, verifyReviewMerge } from './review-merge.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
@@ -193,6 +193,7 @@ function describeStep(step: Step): string {
   if (step.kind === 'click') return `click ${step.control}`;
   if (step.kind === 'expect-terminal-untouched') return `expect-terminal-untouched ${step.durationMs}ms`;
   if (step.kind === 'shot') return `shot ${step.name}`;
+  if (step.kind === 'expect-session-name') return `expect-session-name ${step.name}`;
   return step.kind;
 }
 
@@ -420,6 +421,153 @@ async function runType(viewer: Viewer, text: string): Promise<StepOutcome> {
   await viewer.page.keyboard.type(text);
   await viewer.page.keyboard.press('Enter');
   return passedOutcome('typed', `sent ${JSON.stringify(text)}`);
+}
+
+const LINK_HOVER_TIMEOUT_MS = 3000;
+
+async function waitForLinkRowText(viewer: Viewer, sessionId: string, text: string, deadlines: Deadlines): Promise<PollResult> {
+  return pollUntil(async () => {
+    const reading = await readGridOf(viewer, sessionId);
+    const row = reading?.lines[LINK_ROW_NUMBER - 1] ?? '';
+    return { ok: row.includes(text), reading, detail: `row ${LINK_ROW_NUMBER} reads ${JSON.stringify(row)}` };
+  }, { label: `row ${LINK_ROW_NUMBER} shows ${text}`, timeoutMs: deadlines.stepMs, intervalMs: deadlines.pollIntervalMs });
+}
+
+async function waitForLinkHover(viewer: Viewer, label: string): Promise<PollResult> {
+  const screen = viewer.page.locator(`${cardSlotSelector(viewer)} .xterm-screen`).first();
+  return pollUntil(async () => {
+    const isHovered = await screen.evaluate((element) => element.classList.contains('xterm-cursor-pointer'));
+    return { ok: isHovered, detail: isHovered ? 'the link under the pointer is hovered' : 'no link is hovered under the pointer' };
+  }, { label, timeoutMs: LINK_HOVER_TIMEOUT_MS, intervalMs: 50 });
+}
+
+type LinkPopupReading = { isVisible: boolean; host: string; mismatch: string; previewTitle: string; hasPreviewIcon: boolean; topPx: number; bottomPx: number; leftPx: number; rightPx: number };
+
+type PointAt = (column: number, rowNumber: number) => [number, number];
+
+const LINK_POPUP_HIDE_TIMEOUT_MS = 1000;
+const LINK_POPUP_HOVER_HOLD_MS = 400;
+const BLANK_COLUMN = 70;
+const BLANK_ROW_NUMBER = 20;
+const LINK_PREVIEW_SWEEP_MS = 200;
+const LINK_PREVIEW_QUIET_MS = 800;
+const LINK_PREVIEW_TIMEOUT_MS = 2000;
+const HARNESS_PREVIEW_TITLE = 'Harness preview page';
+const HARNESS_PREVIEW_ICON = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
+
+async function recordLinkPreviewRequests(viewer: Viewer): Promise<string[]> {
+  const requestedUrls: string[] = [];
+  await viewer.page.route('**/link-preview', (route) => {
+    const body: unknown = route.request().postDataJSON();
+    const url = typeof body === 'object' && body !== null && 'url' in body ? String(body.url) : '';
+    requestedUrls.push(url);
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ title: HARNESS_PREVIEW_TITLE, iconDataUrl: HARNESS_PREVIEW_ICON }) });
+  });
+  return requestedUrls;
+}
+
+async function readLinkPopup(viewer: Viewer): Promise<LinkPopupReading> {
+  return viewer.page.locator(`${cardSlotSelector(viewer)} .terminal-link-popup`).first().evaluate((popup) => {
+    const bounds = popup.getBoundingClientRect();
+    return {
+      isVisible: !(popup as HTMLElement).hidden && bounds.height > 0,
+      host: popup.querySelector('.terminal-link-popup-host')?.textContent ?? '',
+      mismatch: popup.querySelector('.terminal-link-popup-mismatch')?.textContent ?? '',
+      previewTitle: popup.querySelector('.terminal-link-popup-title')?.textContent ?? '',
+      hasPreviewIcon: popup.querySelector('.terminal-link-popup-icon') !== null,
+      topPx: bounds.top,
+      bottomPx: bounds.bottom,
+      leftPx: bounds.left,
+      rightPx: bounds.right,
+    };
+  });
+}
+
+async function waitForLinkPopup(viewer: Viewer, label: string, isWanted: (reading: LinkPopupReading) => boolean, timeoutMs: number): Promise<PollResult> {
+  return pollUntil(async () => {
+    const reading = await readLinkPopup(viewer);
+    return { ok: isWanted(reading), detail: JSON.stringify(reading) };
+  }, { label, timeoutMs, intervalMs: 25 });
+}
+
+async function runAssertLinkPopup(viewer: Viewer, pointAt: PointAt, linkRowBottomPx: number, previewRequestUrls: string[]): Promise<StepOutcome | null> {
+  const shown = await waitForLinkPopup(viewer, 'link popup shows the real host', (reading) => reading.isVisible && reading.host === 'example.com', LINK_HOVER_TIMEOUT_MS);
+  if (!shown.ok) return outcomeFor('link-popup-shown', shown);
+  const placed = await readLinkPopup(viewer);
+  if (placed.topPx < linkRowBottomPx - 1) return failedOutcome('link-popup-below-row', `the popup top ${placed.topPx} covers the link row ending at ${linkRowBottomPx}`);
+  if (placed.mismatch !== '') return failedOutcome('link-popup-no-mismatch', `plain link text showed a mismatch: ${placed.mismatch}`);
+  await viewer.page.mouse.move((placed.leftPx + placed.rightPx) / 2, (placed.topPx + placed.bottomPx) / 2);
+  await sleep(LINK_POPUP_HOVER_HOLD_MS);
+  const held = await readLinkPopup(viewer);
+  if (!held.isVisible) return failedOutcome('link-popup-hoverable', 'the popup closed while the pointer rested on it');
+  await viewer.page.keyboard.press('Escape');
+  const escaped = await waitForLinkPopup(viewer, 'Esc closes the link popup', (reading) => !reading.isVisible, 100);
+  if (!escaped.ok) return outcomeFor('link-popup-escape', escaped);
+  await viewer.page.keyboard.press('Enter');
+  await viewer.page.mouse.move(...pointAt(BLANK_COLUMN, BLANK_ROW_NUMBER));
+  await viewer.page.mouse.move(...pointAt(6, LINK_ROW_NUMBER));
+  const reshown = await waitForLinkPopup(viewer, 'link popup shows again on re-entering the link', (reading) => reading.isVisible, LINK_HOVER_TIMEOUT_MS);
+  if (!reshown.ok) return outcomeFor('link-popup-reshown', reshown);
+  await viewer.page.mouse.move(...pointAt(BLANK_COLUMN, BLANK_ROW_NUMBER));
+  const left = await waitForLinkPopup(viewer, 'leaving link and popup closes it', (reading) => !reading.isVisible, LINK_POPUP_HIDE_TIMEOUT_MS);
+  if (!left.ok) return outcomeFor('link-popup-leave', left);
+  await viewer.page.mouse.move(...pointAt(3, DECEPTIVE_LINK_ROW_NUMBER));
+  await sleep(LINK_PREVIEW_SWEEP_MS);
+  const passedOver = await readLinkPopup(viewer);
+  if (!passedOver.isVisible) return failedOutcome('link-preview-sweep-popup', 'the popup did not show for the passed-over link');
+  await viewer.page.mouse.move((passedOver.leftPx + passedOver.rightPx) / 2, (passedOver.topPx + passedOver.bottomPx) / 2);
+  await sleep(LINK_PREVIEW_QUIET_MS);
+  if (previewRequestUrls.includes(DECEPTIVE_LINK_URL)) return failedOutcome('link-preview-needs-dwell', 'passing over a link onto its popup fetched the page preview');
+  await viewer.page.mouse.move(...pointAt(BLANK_COLUMN, BLANK_ROW_NUMBER));
+  const sweptAway = await waitForLinkPopup(viewer, 'the passed-over popup closes', (reading) => !reading.isVisible, LINK_POPUP_HIDE_TIMEOUT_MS);
+  if (!sweptAway.ok) return outcomeFor('link-preview-sweep-closed', sweptAway);
+  await viewer.page.mouse.move(...pointAt(3, DECEPTIVE_LINK_ROW_NUMBER));
+  const warned = await waitForLinkPopup(viewer, 'deceptive link text shows the mismatch warning', (reading) => reading.isVisible && reading.mismatch.includes('example.com') && reading.mismatch.includes('login.example.net'), LINK_HOVER_TIMEOUT_MS);
+  if (!warned.ok) return outcomeFor('link-popup-mismatch', warned);
+  const previewed = await waitForLinkPopup(viewer, 'resting on a link adds its page title and icon', (reading) => reading.isVisible && reading.previewTitle === HARNESS_PREVIEW_TITLE && reading.hasPreviewIcon, LINK_PREVIEW_TIMEOUT_MS);
+  if (!previewed.ok) return outcomeFor('link-preview-after-dwell', previewed);
+  if (!previewRequestUrls.includes(DECEPTIVE_LINK_URL)) return failedOutcome('link-preview-requested', `no preview request named ${DECEPTIVE_LINK_URL}: ${previewRequestUrls.join(', ')}`);
+  return null;
+}
+
+async function runAssertLinkRepaint(viewer: Viewer, sessionId: string, deadlines: Deadlines): Promise<StepOutcome> {
+  const previewRequestUrls = await recordLinkPreviewRequests(viewer);
+  await runType(viewer, 'link-row');
+  const plainShown = await waitForLinkRowText(viewer, sessionId, LINK_ROW_PLAIN_TEXT, deadlines);
+  if (!plainShown.ok) return outcomeFor('link-row-plain', plainShown);
+  const reading = plainShown.last?.reading ?? null;
+  const bounds = await viewer.page.locator(`${cardSlotSelector(viewer)} .xterm-screen`).first().boundingBox();
+  if (!reading || !bounds) return failedOutcome('link-row-bounds', 'the terminal screen has no grid or bounds');
+  const cellWidth = bounds.width / reading.cols;
+  const cellHeight = bounds.height / reading.rows;
+  const pointAt = (column: number, rowNumber: number): [number, number] => [bounds.x + (column + 0.5) * cellWidth, bounds.y + (rowNumber - 0.5) * cellHeight];
+  await viewer.page.mouse.move(...pointAt(4, LINK_ROW_NUMBER + 1));
+  await viewer.page.mouse.move(...pointAt(4, LINK_ROW_NUMBER));
+  await viewer.page.mouse.move(...pointAt(5, LINK_ROW_NUMBER));
+  await sleep(200);
+  await viewer.page.keyboard.type('link-paint');
+  await viewer.page.keyboard.press('Enter');
+  const linkShown = await waitForLinkRowText(viewer, sessionId, LINK_ROW_LINK_TEXT, deadlines);
+  if (!linkShown.ok) return outcomeFor('link-row-painted', linkShown);
+  const hoveredInPlace = await waitForLinkHover(viewer, 'link hovered under a resting pointer after an in-place repaint');
+  if (!hoveredInPlace.ok) return outcomeFor('link-hover-after-repaint', hoveredInPlace);
+  await viewer.page.keyboard.type('link-motion');
+  await viewer.page.keyboard.press('Enter');
+  const motionReported = await pollUntil(async () => {
+    const motionReading = await readGridOf(viewer, sessionId);
+    const row = motionReading?.lines[LINK_ROW_NUMBER + 1] ?? '';
+    return { ok: row.includes(MOTION_REPORT_PREFIX), reading: motionReading, detail: row };
+  }, { label: 'fake agent reports motion it received', timeoutMs: deadlines.stepMs, intervalMs: deadlines.pollIntervalMs });
+  if (!motionReported.ok) return outcomeFor('link-motion-report', motionReported);
+  if (!motionReported.detail.includes(`${MOTION_REPORT_PREFIX} 0`)) {
+    return failedOutcome('link-recheck-sends-no-motion', `the agent received motion from the recheck: ${motionReported.detail}`);
+  }
+  await viewer.page.mouse.move(...pointAt(9, LINK_ROW_NUMBER));
+  const hoveredAlongRow = await waitForLinkHover(viewer, 'link stays hovered moving along its row');
+  if (!hoveredAlongRow.ok) return outcomeFor('link-hover-along-row', hoveredAlongRow);
+  const popupFailure = await runAssertLinkPopup(viewer, pointAt, bounds.y + LINK_ROW_NUMBER * cellHeight, previewRequestUrls);
+  if (popupFailure) return popupFailure;
+  return passedOutcome('link-hover-after-repaint', `a link repainted under a resting pointer is hovered in place and along its row, the agent received no motion from the recheck, and the popup names the real host, stays while hovered, closes on Esc and on leave, warns on ${DECEPTIVE_LINK_TEXT}, and adds the page title only after a dwell`);
 }
 
 async function runOffline(viewer: Viewer, sessionId: string, deadlines: Deadlines): Promise<StepOutcome> {
@@ -762,6 +910,140 @@ async function runRemoveFromPhoneTerminal(viewer: Viewer, sessionId: string, dea
   return outcomeFor('returned-to-board', returnedToBoard);
 }
 
+const UNDO_CLOSE_WINDOW_MS = 8000;
+const UNDO_CLOSE_SCALE_TOLERANCE = 0.1;
+const UNDO_CLOSE_AWAY_MS = 3000;
+const UNDO_CLOSE_REMOVAL_SLACK_MS = 4000;
+
+function rosterItemSelector(viewer: Viewer, sessionId: string): string {
+  const list = viewer.layout === 'phone' ? '.phone-board-list' : '.focus-rail';
+  return `${list} .session-row-item:has(> button.session-row[data-id="${sessionId}"])`;
+}
+
+async function addUndoCloseSession(viewer: Viewer, projectDirectory: string, label: string): Promise<string> {
+  const reply = await sendControlMessage(viewer, { type: 'add-session', name: `undo-close ${label}`, path: projectDirectory, prompt: 'stop', requestId: `harness-undo-close-${label}` });
+  if (reply?.ok !== true || typeof reply.sessionId !== 'string') throw new Error(`add-session ${label} was refused: ${String(reply?.error)}`);
+  return reply.sessionId;
+}
+
+async function readCloseCountdown(viewer: Viewer, sessionId: string): Promise<{ isListed: boolean; isClosing: boolean; scale: number | null }> {
+  return viewer.page.evaluate((itemSelector) => {
+    const item = document.querySelector(itemSelector);
+    if (!item) return { isListed: false, isClosing: false, scale: null };
+    const countdown = item.querySelector(':scope > .session-row-close-countdown');
+    const transform = countdown ? getComputedStyle(countdown).transform : 'none';
+    const scale = transform === 'none' ? null : new DOMMatrixReadOnly(transform).a;
+    return { isListed: true, isClosing: item.hasAttribute('data-closing'), scale };
+  }, rosterItemSelector(viewer, sessionId));
+}
+
+async function closeFromRoster(viewer: Viewer, sessionId: string, deadlines: Deadlines): Promise<number> {
+  const clickedAt = Date.now();
+  await viewer.page.locator(`${rosterItemSelector(viewer, sessionId)} > [data-action="remove-session"]`).click();
+  const closing = await pollUntil(async () => {
+    const countdown = await readCloseCountdown(viewer, sessionId);
+    return countdown.isClosing ? { ok: true, detail: 'closing' } : { ok: false, detail: `listed ${countdown.isListed}, not closing` };
+  }, { label: `${sessionId} enters its undo window`, timeoutMs: deadlines.stepMs, intervalMs: 50 });
+  if (!closing.ok) throw new Error(closing.detail);
+  return clickedAt;
+}
+
+async function expectCountdownTracks(viewer: Viewer, sessionId: string, closedAt: number, label: string): Promise<string> {
+  const countdown = await readCloseCountdown(viewer, sessionId);
+  const expectedScale = Math.max(0, 1 - (Date.now() - closedAt) / UNDO_CLOSE_WINDOW_MS);
+  if (!countdown.isClosing || countdown.scale === null) throw new Error(`${label}: the row is not closing (listed ${countdown.isListed})`);
+  if (Math.abs(countdown.scale - expectedScale) > UNDO_CLOSE_SCALE_TOLERANCE) {
+    throw new Error(`${label}: the undo line reads ${countdown.scale.toFixed(2)} of its width, ${expectedScale.toFixed(2)} is left of the window`);
+  }
+  return `${label} ${countdown.scale.toFixed(2)}~${expectedScale.toFixed(2)}`;
+}
+
+async function expectRowOpen(viewer: Viewer, sessionId: string, label: string, deadlines: Deadlines): Promise<void> {
+  const open = await pollUntil(async () => {
+    const countdown = await readCloseCountdown(viewer, sessionId);
+    if (countdown.isListed && !countdown.isClosing) return { ok: true, detail: 'open' };
+    return { ok: false, detail: `listed ${countdown.isListed}, closing ${countdown.isClosing}` };
+  }, { label, timeoutMs: deadlines.stepMs, intervalMs: 50 });
+  if (!open.ok) throw new Error(open.detail);
+}
+
+async function expectRemovedOnSchedule(viewer: Viewer, sessionId: string, closedAt: number, label: string, deadlines: Deadlines): Promise<void> {
+  const removed = await pollUntil(async () => {
+    const countdown = await readCloseCountdown(viewer, sessionId);
+    return countdown.isListed ? { ok: false, detail: 'still listed' } : { ok: true, detail: 'gone' };
+  }, { label: `${label} removed`, timeoutMs: Math.max(0, closedAt + UNDO_CLOSE_WINDOW_MS + UNDO_CLOSE_REMOVAL_SLACK_MS - Date.now()), intervalMs: deadlines.pollIntervalMs });
+  if (!removed.ok) throw new Error(removed.detail);
+  const removedAfterMs = Date.now() - closedAt;
+  if (removedAfterMs < UNDO_CLOSE_WINDOW_MS) throw new Error(`${label} left the roster ${removedAfterMs}ms after Close, inside the undo window`);
+}
+
+async function leaveRosterAndReturn(viewer: Viewer, deadlines: Deadlines): Promise<void> {
+  if (viewer.layout === 'phone') {
+    await viewer.page.locator(PHONE_MORE_SELECTOR).first().click();
+    await viewer.page.locator(PHONE_SETTINGS_MENU_SELECTOR).first().click();
+    const atSettings = await waitForSettingsHistory(viewer, 'settings shown', { phoneScreen: 'settings' }, deadlines);
+    if (!atSettings.ok) throw new Error(atSettings.detail);
+    await sleep(UNDO_CLOSE_AWAY_MS);
+    await viewer.page.evaluate(() => history.back());
+    const atBoard = await waitForSettingsHistory(viewer, 'back on the board', { phoneScreen: 'board' }, deadlines);
+    if (!atBoard.ok) throw new Error(atBoard.detail);
+    return;
+  }
+  await viewer.page.locator(DESKTOP_LEAVE_FOCUS_SELECTOR).first().click();
+  await viewer.page.locator('.focus-rail').first().waitFor({ state: 'hidden', timeout: deadlines.stepMs });
+  await sleep(UNDO_CLOSE_AWAY_MS);
+  await viewer.page.locator(DESKTOP_ENTER_FOCUS_SELECTOR).first().click();
+  await viewer.page.locator('.focus-rail').first().waitFor({ state: 'visible', timeout: deadlines.stepMs });
+}
+
+async function runAssertUndoClose(viewer: Viewer, projectDirectory: string, deadlines: Deadlines): Promise<StepOutcome> {
+  const findings: string[] = [];
+  const [undone, leftBehind, firstToExpire, undoneByButton, lastToExpire] = await Promise.all(
+    ['undone', 'left-behind', 'first-to-expire', 'undone-by-button', 'last-to-expire'].map((label) => addUndoCloseSession(viewer, projectDirectory, label)),
+  );
+  for (const sessionId of [undone, leftBehind, firstToExpire, undoneByButton, lastToExpire]) {
+    await viewer.page.locator(`${rosterItemSelector(viewer, sessionId)} > button.session-row:is([data-state="IDLE"], [data-state="COMPLETE"])`).waitFor({ state: 'attached', timeout: deadlines.reattachMs });
+  }
+
+  await closeFromRoster(viewer, undone, deadlines);
+  await sleep(1000);
+  await viewer.page.locator(`${rosterItemSelector(viewer, undone)} > [data-action="undo-remove"]`).click();
+  await expectRowOpen(viewer, undone, 'Undo restores the row', deadlines);
+  findings.push('close then Undo restores');
+
+  const leftBehindClosedAt = await closeFromRoster(viewer, leftBehind, deadlines);
+  await leaveRosterAndReturn(viewer, deadlines);
+  findings.push(await expectCountdownTracks(viewer, leftBehind, leftBehindClosedAt, 'after leaving and returning'));
+  await expectRemovedOnSchedule(viewer, leftBehind, leftBehindClosedAt, 'the session closed before leaving', deadlines);
+  findings.push('closes on schedule after leaving');
+
+  const firstToExpireClosedAt = await closeFromRoster(viewer, firstToExpire, deadlines);
+  await sleep(1000);
+  const undoneByButtonClosedAt = await closeFromRoster(viewer, undoneByButton, deadlines);
+  await sleep(1000);
+  await closeFromRoster(viewer, lastToExpire, deadlines);
+  await viewer.page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); });
+  await viewer.page.keyboard.press('ControlOrMeta+z');
+  await expectRowOpen(viewer, lastToExpire, 'Ctrl+Z undoes the newest close', deadlines);
+  findings.push(await expectCountdownTracks(viewer, firstToExpire, firstToExpireClosedAt, 'oldest after Ctrl+Z'));
+  findings.push(await expectCountdownTracks(viewer, undoneByButton, undoneByButtonClosedAt, 'middle after Ctrl+Z'));
+
+  const lastToExpireClosedAt = await closeFromRoster(viewer, lastToExpire, deadlines);
+  await sleep(500);
+  await viewer.page.locator(`${rosterItemSelector(viewer, undoneByButton)} > [data-action="undo-remove"]`).click();
+  await expectRowOpen(viewer, undoneByButton, 'Undo on one of three pending closes', deadlines);
+  findings.push(await expectCountdownTracks(viewer, firstToExpire, firstToExpireClosedAt, 'oldest after another Undo'));
+  findings.push(await expectCountdownTracks(viewer, lastToExpire, lastToExpireClosedAt, 'newest after another Undo'));
+
+  await expectRemovedOnSchedule(viewer, firstToExpire, firstToExpireClosedAt, 'the oldest pending close', deadlines);
+  findings.push(await expectCountdownTracks(viewer, lastToExpire, lastToExpireClosedAt, 'newest after the oldest expired'));
+  await expectRemovedOnSchedule(viewer, lastToExpire, lastToExpireClosedAt, 'the newest pending close', deadlines);
+
+  await expectRowOpen(viewer, undone, 'the first undone session stays', deadlines);
+  await expectRowOpen(viewer, undoneByButton, 'the session undone by its button stays', deadlines);
+  return passedOutcome('undo-close', findings.join('; '));
+}
+
 async function runExpectSessionGone(viewer: Viewer, sessionId: string, deadlines: Deadlines): Promise<StepOutcome> {
   const rosterEntry = viewer.page.locator(rosterSelector(viewer, sessionId));
   const gone = await pollUntil(async () => {
@@ -771,16 +1053,24 @@ async function runExpectSessionGone(viewer: Viewer, sessionId: string, deadlines
   return outcomeFor('session-gone', gone);
 }
 
-async function runRenameSession(viewer: Viewer, sessionId: string, newName: string, deadlines: Deadlines): Promise<StepOutcome> {
-  await sendControlMessage(viewer, { type: 'rename-session', id: sessionId, newName });
-  if (viewer.layout === 'phone') await viewer.page.locator(PHONE_BACK_SELECTOR).first().click();
+function harnessSessionName(baseName: string, sessionId: string): string {
+  return `${baseName} ${sessionId.slice(0, 8)}`;
+}
+
+async function runExpectSessionName(viewer: Viewer, sessionId: string, wantedName: string, timeoutMs: number, deadlines: Deadlines): Promise<StepOutcome> {
   const rosterName = viewer.page.locator(`${rosterSelector(viewer, sessionId)} .session-row-name`).first();
   const repainted = await pollUntil(async () => {
     const shownName = await rosterName.textContent();
-    if (shownName === newName) return { ok: true, detail: `the roster row reads ${newName}` };
+    if (shownName === wantedName) return { ok: true, detail: `the roster row reads ${wantedName}` };
     return { ok: false, detail: `the roster row still reads ${shownName}` };
-  }, { label: `roster renamed for viewer ${viewer.id}`, timeoutMs: deadlines.stepMs, intervalMs: deadlines.pollIntervalMs });
+  }, { label: `roster renamed for viewer ${viewer.id}`, timeoutMs, intervalMs: deadlines.pollIntervalMs });
   return outcomeFor('roster-renamed', repainted);
+}
+
+async function runRenameSession(viewer: Viewer, sessionId: string, newName: string, deadlines: Deadlines): Promise<StepOutcome> {
+  await sendControlMessage(viewer, { type: 'rename-session', id: sessionId, newName });
+  if (viewer.layout === 'phone') await viewer.page.locator(PHONE_BACK_SELECTOR).first().click();
+  return runExpectSessionName(viewer, sessionId, newName, deadlines.stepMs, deadlines);
 }
 
 async function takeShot(viewer: Viewer, artifacts: ArtifactPaths, key: string, name: string): Promise<StepOutcome> {
@@ -946,6 +1236,9 @@ export async function runCase({
       await verifyBoards(viewer.page, viewer.layout, sessionId);
       return passedOutcome('boards', 'board create, live box add and Comic Mono board text verified');
     }
+    if (step.kind === 'assert-board-scale') {
+      return passedOutcome('board-scale', await verifyBoardScale(viewer.page, sessionId));
+    }
     if (step.kind === 'assert-board-pane') {
       await verifyBoardPane(viewer.page, sessionId, projectDirectory);
       return passedOutcome('board-pane', 'connect board from the card menu, board chip opens the Board tab in Focus above the terminal');
@@ -962,6 +1255,7 @@ export async function runCase({
       await verifyPhoneChanges(viewer.page, projectDirectory);
       return passedOutcome('phone-changes-back', 'a tapped file opens its diff, back returns to the file list, back again returns to the terminal');
     }
+    if (step.kind === 'assert-link-repaint') return runAssertLinkRepaint(viewer, sessionId, deadlines);
     if (step.kind === 'open') return runOpen(viewer, sessionId, deadlines);
     if (step.kind === 'back') return runBack(viewer, sessionId, deadlines);
     if (step.kind === 'assert-settings-back') return runAssertSettingsBack(viewer, deadlines);
@@ -1019,9 +1313,11 @@ export async function runCase({
     if (step.kind === 'expect-terminal-untouched') return runExpectTerminalUntouched(viewer, sessionId, step.durationMs);
     if (step.kind === 'expect-revealed') return runExpectRevealed(viewer, sessionId, tickAtWatchByViewer.get(viewer.id) ?? null, deadlines);
     if (step.kind === 'remove-session') return runRemoveSession(viewer, sessionId);
+    if (step.kind === 'assert-undo-close') return runAssertUndoClose(viewer, projectDirectory, deadlines);
     if (step.kind === 'remove-from-phone-terminal') return runRemoveFromPhoneTerminal(viewer, sessionId, deadlines);
     if (step.kind === 'expect-session-gone') return runExpectSessionGone(viewer, sessionId, deadlines);
-    if (step.kind === 'rename-session') return runRenameSession(viewer, sessionId, `${step.newName} ${sessionId.slice(0, 8)}`, deadlines);
+    if (step.kind === 'rename-session') return runRenameSession(viewer, sessionId, harnessSessionName(step.newName, sessionId), deadlines);
+    if (step.kind === 'expect-session-name') return runExpectSessionName(viewer, sessionId, harnessSessionName(step.name, sessionId), deadlines.reattachMs, deadlines);
     if (step.kind === 'load-deep-history') return runLoadDeepHistory(viewer, sessionId, deadlines);
     const shot = await takeShot(viewer, artifacts, key, step.name);
     if (shot.shot) shots.push(shot.shot);

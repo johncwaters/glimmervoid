@@ -185,6 +185,7 @@ export function isRealInputOwningKey(event: KeyboardEvent): boolean {
   const focused = document.activeElement;
   if (!(focused instanceof HTMLElement)) return false;
   if (focused.isContentEditable) return true;
+  if (focused instanceof HTMLSelectElement) return true;
   if (focused instanceof HTMLTextAreaElement && focused.dataset.dashboardShortcuts === 'allowed') return isComposerOwningKey(focused, event);
   return (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA')
     && !focused.classList.contains('xterm-helper-textarea');

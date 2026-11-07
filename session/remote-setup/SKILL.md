@@ -11,6 +11,7 @@ The end state:
 
 - Glimmervoid runs on the remote host as a systemd user service that survives logout and reboot.
 - The operator reaches its dashboard from the laptop, and from the phone through a paired device link.
+- The host is linked to the operator's current Glimmervoid, so its sessions show in this dashboard's rail.
 - Sessions on the host can sign commits through the operator's forwarded ssh agent.
 
 ## Ground rules
@@ -91,11 +92,21 @@ Set git on the host to sign with the public key only: `git config --global gpg.f
 
 ## 7. Prove it
 
-Finish only when each of these holds, and show the operator the evidence:
+Each of these must hold before you link the host, and show the operator the evidence:
 
 1. `systemctl --user is-active glimmervoid` prints `active`, and `systemctl --user is-enabled glimmervoid` prints `enabled`.
 2. `glimmervoid doctor` passes on the host.
 3. The operator opened the dashboard through the chosen route and sees it.
 4. If Tailscale was set up: a paired device loads the dashboard.
+
+## 8. Link it to this dashboard
+
+This machine's Glimmervoid reaches the host with its own `ssh -N -L` tunnel, run as this machine's service user with `BatchMode=yes` and `StrictHostKeyChecking=yes`. Your session prompt names the exact command that runs this machine's Glimmervoid; use it below as `<this glimmervoid>`, never a `glimmervoid` from `PATH`, which may be a different build.
+
+1. Confirm the tunnel's ssh works with no prompt: `ssh -o BatchMode=yes -o StrictHostKeyChecking=yes <host> true`. A host key failure means the operator connects once by hand and accepts the key.
+2. Compare versions: `<this glimmervoid> --version` here, `glimmervoid --version` on the host. They must match or the link shows "version differs"; install the matching version on the host with `npm install -g glimmervoid@<version>`, or tell the operator when this machine runs a build npm does not have.
+3. Pick a host id the operator agrees to: 1 to 32 lowercase letters, digits and dashes, starting with a letter.
+4. Run `<this glimmervoid> host add <id> --ssh <host> --port <the host's dashboard port>` on this machine. It writes this machine's config, and the running Glimmervoid links the host without a restart.
+5. The operator sees the host as connected in Settings, Hosts, and its sessions in the rail. `<this glimmervoid> host remove <id>` undoes it and leaves the host's sessions running.
 
 Then summarize for the operator: the host, the dashboard URL, which steps they still own (logins, keeping `ssh -A` open for signing), and how to undo each change you made.

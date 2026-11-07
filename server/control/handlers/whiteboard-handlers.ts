@@ -44,16 +44,6 @@ function createWhiteboardHandlers(context: ControlContext, deps: ControlHandlerD
       if (!whiteboards) return;
       whiteboards.tiles.view(tileViewerOf(ws, whiteboards), { boardId: msg.boardId, view: msg.view, lod: msg.lod, knownVersion: msg.knownVersion });
     },
-    'whiteboard-nudge': (msg: ClientMessageOf<'whiteboard-nudge'>, ws: ControlSocket) => answerWhiteboard(ws, msg, async (port) => {
-      const session = findSession({ id: msg.sessionId });
-      if (!session) return { ok: false, error: 'That session is no longer on the dashboard.' };
-      const nudgeLine = port.nudgeLine(msg.boardId);
-      if (!nudgeLine) return { ok: false, error: 'That board was deleted.' };
-      if (session.hasPendingPaste()) return { ok: false, error: 'That session already has a prompt waiting to be pasted, so nothing was sent.' };
-      const pasted = session.pasteTextWhenReady(nudgeLine, { submit: true });
-      if (!pasted.ok) return { ok: false, error: 'That session has no live terminal, so nothing was sent.' };
-      return { ok: true, error: null };
-    }),
   } satisfies ControlHandlerTable;
 
   const invalidReplies = {
@@ -64,7 +54,6 @@ function createWhiteboardHandlers(context: ControlContext, deps: ControlHandlerD
     'whiteboard-review': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
     'whiteboard-connect': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
     'whiteboard-disconnect': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
-    'whiteboard-nudge': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
     'whiteboard-view': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
   } satisfies InvalidReplyTable;
 

@@ -65,15 +65,32 @@ function createTeamReviewOperatorActions(
     entry.reviewedHead = null;
     entry.requeuedHead = entry.liveHead ?? head;
     if (core.isUnreviewedDraft(entry.draft)) entry.draft = null;
-    if (entry.draft?.status === 'discarded') {
+    const requeuedDraft = entry.draft ? core.draftAfter(entry.draft, 'requeued') : null;
+    if (entry.draft && requeuedDraft) {
       entry.discardedReviewHead = entry.draft.reviewedHead;
-      entry.draft = { ...entry.draft, status: 'stale' };
+      entry.draft = requeuedDraft;
     }
     core.markDraftStale(entry, now());
     entry.updatedAt = now();
     await persist();
     emitStatus();
     loop.tickSoon();
+    return true;
+  }
+
+  async function restore(key: string, head: string): Promise<boolean> {
+    const entry = runtime.state[key];
+    const draft = entry?.draft;
+    if (!entry || !draft || entry.inFlight || draft.status !== 'discarded' || draft.reviewedHead !== head) return false;
+    const isFinishedReviewAtEntryHead = !core.isUnreviewedDraft(draft) && draft.error === undefined && entry.reviewedHead === draft.reviewedHead;
+    if (!isFinishedReviewAtEntryHead) return requeue(key, head);
+    const hasHeadMoved = entry.liveHead !== undefined && entry.liveHead !== draft.reviewedHead;
+    const restoredDraft = core.draftAfter(draft, hasHeadMoved ? 'restored_moved' : 'restored_current');
+    if (!restoredDraft) return false;
+    entry.draft = restoredDraft;
+    entry.updatedAt = now();
+    await persist();
+    emitStatus();
     return true;
   }
 
@@ -88,7 +105,9 @@ function createTeamReviewOperatorActions(
     if (entry?.inFlight) return cancelReviewAsNotMine(key);
     if (entry?.draft?.status === 'posted') return { ok: false, error: 'That review was already posted' };
     if (entry?.draft && !isThreadPlaceholderDraft(entry.draft)) {
-      entry.draft = { ...entry.draft, status: 'discarded' };
+      const discardedDraft = core.draftAfter(entry.draft, 'not_mine');
+      if (!discardedDraft) return { ok: false, error: 'That review was already posted' };
+      entry.draft = discardedDraft;
       return settleNotMine(key, entry);
     }
     const candidate = runtime.waitingForSlot.find((queued) => queued.key === key) ?? entry?.draft ?? undefined;
@@ -160,7 +179,7 @@ function createTeamReviewOperatorActions(
     return { ok: true, key, status: 'queued' };
   }
 
-  return { getDraft, updateDraft, updateThread, requeue, requestReview, markNotMine };
+  return { getDraft, updateDraft, updateThread, requeue, restore, requestReview, markNotMine };
 }
 
 export { createTeamReviewOperatorActions };

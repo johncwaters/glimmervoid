@@ -8,7 +8,7 @@ import { SESSION_COMMANDS } from './session.ts';
 const TELEMETRY_ADAPTERS = Object.freeze([...BUILTIN_AGENT_IDS, 'custom'] as const);
 const SESSION_END_CAUSES = Object.freeze(['removed', 'replaced', 'server_stopped'] as const);
 const SESSION_EXIT_KINDS = Object.freeze(['clean', 'error', 'signal', 'no_output', ...SESSION_END_CAUSES] as const);
-const TEAM_REVIEW_SETTLED_OUTCOMES = Object.freeze(['approve', 'comment', 'request-changes', 'approve-only', 'discarded'] as const);
+const TEAM_REVIEW_SETTLED_OUTCOMES = Object.freeze(['approve', 'comment', 'request-changes', 'approve-only', 'discarded', 'restored'] as const);
 const TEAM_REVIEW_POST_REFUSAL_REASONS = Object.freeze([
   'unknown-action', 'not-postable', 'comments-already-posted', 'empty-comment', 'rate-limited',
   'head-unreadable', 'head-moved', 'diff-unreadable', 'misplaced-comments', 'github-refused',
@@ -201,7 +201,7 @@ export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description:
   { name: 'onboarding_step', description: 'The first-run checklist moved a step to current or done, with which step. Sent once per change while the page is open.' },
   { name: 'header_error_shown', description: 'An error the dashboard showed in its header line: which part of the dashboard raised it and the message text, cut to 512 characters, with your home folder shown as ~. The message can name a session, folder or branch. Each distinct message is sent once per page load.' },
   { name: 'team_review_drafted', description: 'A team review draft became ready, with how many inline comments it drafted.' },
-  { name: 'team_review_settled', description: 'A team review draft was posted (approve, comment or approve-only) or discarded, with how many inline comments were drafted and how many were posted, plus the total action duration in milliseconds.' },
+  { name: 'team_review_settled', description: 'A team review draft was posted (approve, comment or approve-only), discarded, or restored from discarded (which undoes that discard), with how many inline comments were drafted and how many were posted, plus the total action duration in milliseconds.' },
   { name: 'team_review_post_refused', description: 'Posting a team review was refused, with a reason from a fixed list and the total action duration in milliseconds. Never the error text.' },
   { name: 'radar_investigation_finished', description: 'A Radar investigation or fix run finished, with its verdict and mode, plus a reason from a fixed list when it ended in ERROR. Never the summary text.' },
   { name: 'radar_fix_handoff_failed', description: 'Committing or checking a Radar fix branch failed, with which step failed. Never the branch or the error text.' },

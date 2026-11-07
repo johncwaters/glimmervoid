@@ -167,9 +167,10 @@
     {
       "op": "add",
       "element": {
-        "kind": "panel",
+        "kind": "box",
         "id": "source",
         "title": "src/invoice.js",
+        "shape": "panel",
         "lines": [
           {
             "text": "export function invoiceTotal(rows, rate)",
@@ -194,7 +195,7 @@
     {
       "op": "add",
       "element": {
-        "kind": "unit",
+        "kind": "box",
         "id": "fix-drift",
         "title": "Fix the cent drift",
         "lines": [
@@ -202,7 +203,9 @@
             "text": "pick a rounding rule"
           }
         ],
-        "status": "planned"
+        "step": {
+          "status": "planned"
+        }
       }
     }
   ]

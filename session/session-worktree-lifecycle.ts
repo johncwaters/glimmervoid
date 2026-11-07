@@ -14,9 +14,10 @@ import { createRerereWatcher } from "../detection/rerere-watch.ts";
 import { buildMergePrompt } from "./core/merge-prompt.ts";
 import { decideSignatureDemotion } from "./core/merge-gate.ts";
 import { decideAutoRebase, decideRerereCooldownClear, AUTO_REBASE_STATES, SPAWN_GAP_TRIGGER } from "./core/rebase-gate.ts";
-import { projectMergeState } from "./core/worktree-state.ts";
+import { nextMergeState } from "./core/worktree-state.ts";
 import type { MergeStatus } from "./core/worktree-state.ts";
 import { BRANCH_UPSTREAM_FORMAT, parseBranchUpstream } from "../server/core/branch-sync-core.ts";
+import type { BranchUpstream } from "../server/core/branch-sync-core.ts";
 import { planWorkspaceMembers } from "./core/workspace-core.ts";
 import { sanitizeWorktreeName } from "../shared/paths.ts";
 import { createSessionWorkspaceMembers } from "./session-workspace-members.ts";
@@ -98,8 +99,11 @@ function createSessionWorktreeLifecycle({
       throw error;
     });
   }
-  async function readUpstreamOf(branch: string, options: RunGitOptions): Promise<string | null> {
+  async function readBranchUpstreamOf(branch: string, options: RunGitOptions): Promise<BranchUpstream | null> {
     return parseBranchUpstream(await gitOut(["for-each-ref", `--format=${BRANCH_UPSTREAM_FORMAT}`, `refs/heads/${branch}`], options), branch);
+  }
+  async function readUpstreamOf(branch: string, options: RunGitOptions): Promise<string | null> {
+    return (await readBranchUpstreamOf(branch, options))?.upstream ?? null;
   }
   const workspaceMembers = workspaceRepos
     ? setUpWorkspaceMembers({ folder: currentProjectPath(), sessionId: id, sessionName, repoPaths: workspaceRepos, shareList: worktreeShare, gitWorkspace })
@@ -169,7 +173,12 @@ function createSessionWorktreeLifecycle({
   }
 
   function setMergeStatus(status: MergeStatus, detail: Record<string, unknown> = {}, { emit = true }: { emit?: boolean } = {}): void {
-    Object.assign(lifecycleState, projectMergeState(status, detail));
+    const nextState = nextMergeState(lifecycleState.mergeStatus, status, detail);
+    if (!nextState) {
+      console.warn(`[session ${id}] merge status ${lifecycleState.mergeStatus} cannot move to ${status}`);
+      return;
+    }
+    Object.assign(lifecycleState, nextState);
     if (!emit) return;
     port.emit("merge-status", { id, mergeStatus: status, ...detail });
   }
@@ -280,7 +289,7 @@ function createSessionWorktreeLifecycle({
   }
 
   const context: WorktreeLifecycleContext = {
-    id, projectPath, integrationBranch, startSha, gitWorkspace, syncOnStart, worktreeRoot, worktreeShare, seedDependencies, port, workspaceMembers, lifecycleState, currentProjectPath, gitOut, gitLookup, readUpstreamOf, effectiveIntegrationBranch, setMergeStatus,
+    id, projectPath, integrationBranch, startSha, gitWorkspace, syncOnStart, worktreeRoot, worktreeShare, seedDependencies, port, workspaceMembers, lifecycleState, currentProjectPath, gitOut, gitLookup, readUpstreamOf, readBranchUpstreamOf, effectiveIntegrationBranch, setMergeStatus,
   };
   const { provision, stopSeeding } = createWorktreeProvisioning(context, { adoptWorktree, resolveCommonGitDir, runAutoRebase, api: { computeWorktreeSignature: () => api.computeWorktreeSignature() } });
   const { resolveEffectiveBase, resolveVerifiedBaseRef, diffGitOptions, getChangeScopes, getDiff } = createWorktreeDiffScopes(context);

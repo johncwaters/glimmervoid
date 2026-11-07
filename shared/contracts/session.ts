@@ -5,6 +5,9 @@ import { LinkedPr, MyPr } from './my-prs.ts';
 import { InFlightReview, QueuedReview, ReviewDraft } from './team-review.ts';
 import { WhiteboardAgentReply } from './whiteboard.ts';
 
+export const MergeStatus = z.enum(['none', 'pending-review', 'merging', 'parked', 'merged']);
+export type MergeStatus = z.infer<typeof MergeStatus>;
+
 export const TASK_TITLE_MAX_LENGTH = 120;
 export const SESSION_NAME_PATTERN = /^[a-zA-Z0-9_\-. ()]{1,64}$/;
 export const SESSION_NAME_RULE_TEXT = 'Session name may only contain letters, numbers, spaces, dashes, dots, underscores, and parentheses (max 64 chars)';
@@ -15,6 +18,7 @@ export const SessionState = z.enum(STATES);
 export const UnseenOutcome = z.enum(['finished', 'failed']);
 
 export const ASK_USER_QUESTION_TOOL_NAME = 'AskUserQuestion';
+export const REQUEST_USER_INPUT_TOOL_NAME = 'request_user_input';
 
 export const CONVERSATION_APPROVAL_SUMMARY_MAX_CHARS = 4000;
 export const CONVERSATION_PERMISSION_HOOK_EVENT = 'permissionrequest-conversation';
@@ -46,7 +50,6 @@ const COHERENCE_HOOKS_REASON_MAX_CHARS = 80;
 export const COHERENCE_HOOKS_INACTIVE = Object.freeze({
   notInstalled: 'not installed',
   unsupportedVersion: 'unsupported version',
-  codexHooksUntrusted: 'Codex hooks need trust in /hooks',
 });
 export const CoherenceHooksState = z.discriminatedUnion('active', [
   z.object({ active: z.literal(true) }).strict(),
@@ -74,11 +77,13 @@ export const SessionSnapshot = z.object({
   awaitingBackgroundTasks: z.boolean(),
   pendingPromptKind: z.string().nullable(),
   hasPlan: z.boolean().default(false),
-  mergeStatus: z.string().nullable(),
+  mergeStatus: MergeStatus.nullable(),
   mergeReason: z.string().nullable(),
   worktreeNotice: z.string().nullable(),
   failureReason: z.string().nullable().optional(),
   unseenOutcome: UnseenOutcome.nullable().default(null),
+  managerSeenSeq: z.number().int().nonnegative().default(0),
+  isQuestionManagerOn: z.boolean().nullable().default(null),
   effectiveBase: z.string().nullable(),
   linkedPrs: z.array(LinkedPr).default([]),
   coherenceHooks: CoherenceHooksState.nullable().default(null),

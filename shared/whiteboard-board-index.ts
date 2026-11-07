@@ -9,6 +9,7 @@ interface BoardIndex {
   indexKeyIdsByKind: Map<ElementKind, Set<string>>;
   assetRefCount: Map<string, number>;
   dependentIdsByBoxId: Map<string, Set<string>>;
+  stepBoxIds: Set<string>;
 }
 
 const indexByElements = new WeakMap<Board['elements'], BoardIndex>();
@@ -45,6 +46,15 @@ function boxIdsDependedOnBy(element: Element): readonly string[] {
   return [];
 }
 
+function trackStep(index: BoardIndex, element: Element, isPresent: boolean): void {
+  if (element.kind !== 'box' || element.step === null) return;
+  if (isPresent) {
+    index.stepBoxIds.add(element.id);
+    return;
+  }
+  index.stepBoxIds.delete(element.id);
+}
+
 function linkDependent(index: BoardIndex, element: Element): void {
   for (const boxId of boxIdsDependedOnBy(element)) {
     const dependentIds = index.dependentIdsByBoxId.get(boxId) ?? new Set<string>();
@@ -69,6 +79,7 @@ function addToIndex(index: BoardIndex, element: Element): void {
   index.elementCount += 1;
   countAsset(index, assetIdOf(element), 1);
   linkDependent(index, element);
+  trackStep(index, element, true);
 }
 
 function removeFromIndex(index: BoardIndex, element: Element): void {
@@ -76,12 +87,13 @@ function removeFromIndex(index: BoardIndex, element: Element): void {
   index.elementCount -= 1;
   countAsset(index, assetIdOf(element), -1);
   unlinkDependent(index, element);
+  trackStep(index, element, false);
 }
 
 function boardIndexOf(elements: Board['elements']): BoardIndex {
   const known = indexByElements.get(elements);
   if (known) return known;
-  const index: BoardIndex = { elementCount: 0, idsByKind: new Map(), indexKeyIdsByKind: new Map(), assetRefCount: new Map(), dependentIdsByBoxId: new Map() };
+  const index: BoardIndex = { elementCount: 0, idsByKind: new Map(), indexKeyIdsByKind: new Map(), assetRefCount: new Map(), dependentIdsByBoxId: new Map(), stepBoxIds: new Set() };
   for (const element of Object.values(elements)) addToIndex(index, element);
   indexByElements.set(elements, index);
   return index;
@@ -93,10 +105,6 @@ function isOfKind<Kind extends ElementKind>(element: Element | undefined, kind: 
 
 function sortedIndexKeyIds(index: BoardIndex, kind: ElementKind): string[] {
   return [...index.indexKeyIdsByKind.get(kind) ?? []].sort((left, right) => Number(left) - Number(right));
-}
-
-function idsOfKindInKeyOrder(index: BoardIndex, kind: ElementKind): string[] {
-  return [...sortedIndexKeyIds(index, kind), ...index.idsByKind.get(kind) ?? []];
 }
 
 function elementsOfKind<Kind extends ElementKind>(board: Board, kind: Kind): ElementOfKind<Kind>[] {
@@ -124,6 +132,8 @@ function storeElement(elements: Board['elements'], element: Element): void {
   countAsset(index, assetIdOf(element), 1);
   unlinkDependent(index, previous);
   linkDependent(index, element);
+  trackStep(index, previous, false);
+  trackStep(index, element, true);
 }
 
 function appendElement(elements: Board['elements'], element: Element): void {
@@ -143,4 +153,4 @@ function assetIdsOf(board: Board): Set<string> {
   return new Set(boardIndexOf(board.elements).assetRefCount.keys());
 }
 
-export { appendElement, assetIdOf, assetIdsOf, boardIndexOf, boxIdsDependedOnBy, dropElement, elementsOfKind, idsOfKindInKeyOrder, storeElement };
+export { appendElement, assetIdOf, assetIdsOf, boardIndexOf, boxIdsDependedOnBy, dropElement, elementsOfKind, storeElement };

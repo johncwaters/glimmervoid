@@ -38,6 +38,7 @@ import type { createCoderEnvWiring } from './coder/coder-env-wiring.ts';
 import type { createAgentConnect } from './agent-login/agent-connect.ts';
 import type { RemoteSetupAgent, RemoteSetupOutcome } from './remote-setup-wiring.ts';
 import type { GitWorkspaceInstance } from './git/git-workspace.ts';
+import type { createHostLinksWiring } from './hosts/host-links-wiring.ts';
 import { createControlContext } from './control/control-context.ts';
 import { mergeHandlerGroups, validationErrorReply } from './control/core/control-dispatch-core.ts';
 import { createCommunityHandlers } from './control/handlers/community-handlers.ts';
@@ -163,6 +164,7 @@ interface ControlHandlerDeps {
   remoteSetup?: { start: (agent: RemoteSetupAgent) => Promise<RemoteSetupOutcome> } | null;
   remoteRepoGit?: Pick<GitWorkspaceInstance, 'originUrl' | 'detectDefaultBranch'> | null;
   featureHints?: Pick<FeatureHintsWiring, 'noteViewShown' | 'settle' | 'settleStar' | 'pendingHintMessages'> | null;
+  hostLinks?: Pick<ReturnType<typeof createHostLinksWiring>, 'statusFrame'> | null;
 }
 
 function parseSinceParam(url: string | undefined): number | null {
@@ -176,11 +178,12 @@ function parseSinceParam(url: string | undefined): number | null {
 }
 
 function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandlerDeps) {
-  const { serverBuild = () => null, controlReplayLog = null } = deps;
+  const { serverBuild = () => null, controlReplayLog = null, hostLinks = null } = deps;
   const context = createControlContext(deps);
   const session = createSessionHandlers(context, deps);
   const github = createGithubHandlers(context, deps);
   const merged = mergeHandlerGroups([
+    { handlers: {}, connectFrames: () => (hostLinks ? [hostLinks.statusFrame()] : []) },
     createServerHandlers(context, deps),
     createRadarHandlers(context, deps),
     github,

@@ -1,12 +1,13 @@
 import type { FindingSeverity, InFlightReview, QueuedReview, ReviewDraft } from '#shared/contracts/team-review.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { createAuthorOrgTag, createAvatar, createReviewerStack, el, externalLink } from '../dom-helpers.ts';
-import { formatAgo } from '../poll-ago.ts';
+import { formatAgo, formatDuration } from '../poll-ago.ts';
 import { createPrStatusIcon } from './pr-status-icon.ts';
 import { createSvgIcon as svgIcon, createSvgShape as svgShape } from '../svg-dom.ts';
 import { githubReviewItems, githubReviewTitle, inFlightElapsedText, queueRowAgentParts, phaseLabel, pullRequestLabel, queueRowTitle, queueRowRefLabel, severityPresentation, queueRowGlyph, verdictHeading, verdictSealKind, verdictTone, viewerApprovalContext, viewerApprovalNotice } from './team-review-view-core.ts';
 import type { QueueRowKind } from './team-review-view-core.ts';
 import { isStreamerMode, onStreamerModeChanged } from '../streamer-mode.ts';
+import { teamWaitStartMs, validTimestampMs } from './review-queue-core.ts';
 import { _ageTicker, _progressTicker, _root, _view } from './team-review-panel-state.ts';
 
 const SHARD_PATH = 'M4.5 0.5L8.5 5.5L4.5 10.5L0.5 5.5Z';
@@ -63,14 +64,8 @@ function pullRequestLink(review: Pick<ReviewDraft, 'repo' | 'number' | 'url'>): 
   return externalLink('pr-link', pullRequestLabel(review.repo, review.number), review.url);
 }
 
-function ageTimestamp(timestamp: number | string | null | undefined): number | null {
-  const at = typeof timestamp === 'string' ? Date.parse(timestamp) : timestamp;
-  if (typeof at !== 'number' || !Number.isFinite(at) || at <= 0) return null;
-  return at;
-}
-
 function createAgeReadout(label: string, timestamp: number | string | null | undefined): HTMLElement | null {
-  const at = ageTimestamp(timestamp);
+  const at = validTimestampMs(timestamp);
   if (at === null) return null;
   const readout = el('span', null, `${label}${label ? ' ' : ''}${formatAgo(at)}`);
   readout.dataset.ageAt = String(at);
@@ -120,7 +115,8 @@ function trackAges(root: Element | null): void {
     if (readout.dataset.reviewTitle !== undefined) continue;
     const at = Number(readout.dataset.ageAt);
     const label = readout.dataset.ageLabel ?? '';
-    _ageTicker.track(readout, at, () => `${label}${label ? ' ' : ''}${formatAgo(at)}`);
+    const ageText = readout.dataset.ageFormat === 'duration' ? () => formatDuration(Date.now() - at) : () => formatAgo(at);
+    _ageTicker.track(readout, at, () => `${label}${label ? ' ' : ''}${ageText()}`);
   }
 }
 
@@ -137,7 +133,7 @@ function createGithubReviewSummary(draft: ReviewDraft, className: string, avatar
     const avatar = stack.children[index];
     if (!(avatar instanceof HTMLElement)) continue;
     avatar.dataset.reviewTitle = review.text;
-    const at = ageTimestamp(review.submittedAt);
+    const at = validTimestampMs(review.submittedAt);
     if (at !== null) avatar.dataset.ageAt = String(at);
   }
   summary.append(stack);
@@ -145,7 +141,7 @@ function createGithubReviewSummary(draft: ReviewDraft, className: string, avatar
 }
 
 function formatTimestampAge(timestampValue: number | string | null | undefined): string | null {
-  const timestamp = ageTimestamp(timestampValue);
+  const timestamp = validTimestampMs(timestampValue);
   return timestamp === null ? null : formatAgo(timestamp);
 }
 
@@ -181,20 +177,10 @@ function createTeamQueueRow(review: ReviewDraft | InFlightReview | QueuedReview,
     _progressTicker.track(elapsed, inFlight.startedAt, () => inFlightElapsedText(inFlight, Date.now()));
     top.append(elapsed);
   }
-  if (kind === 'queued') {
-    const openedAge = createAgeReadout('', review.prCreatedAt);
-    if (openedAge) {
-      openedAge.classList.add('pr-queue-elapsed');
-      top.append(openedAge);
-    }
-  }
-  if (kind !== 'inReview' && kind !== 'queued') {
-    const draft = review as ReviewDraft;
-    const visibleAge = createAgeReadout('', draft.reviewedAt) ?? createAgeReadout('', draft.prCreatedAt);
-    if (visibleAge) {
-      visibleAge.classList.add('pr-queue-elapsed');
-      top.append(visibleAge);
-    }
+  const waitAge = kind === 'inReview' ? null : createAgeReadout('', teamWaitStartMs(review, kind));
+  if (waitAge) {
+    waitAge.classList.add('pr-queue-elapsed');
+    top.append(waitAge);
   }
   if (kind === 'discarded') {
     row.classList.add('pr-queue-row-compact');

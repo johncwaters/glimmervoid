@@ -64,6 +64,33 @@ test('add-session for a shell with no folder runs it in the home folder', () => 
   assert.equal(config.projects[0]?.agent, 'shell');
 });
 
+test('add-session with a prompt submits it as the new session first prompt once the agent is ready', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-control-add-prompt-'));
+  try {
+    const config: { projects: ProjectEntry[] } = { projects: [] };
+    const sessions = new Map<string, Session>();
+    const pastedPrompts: Array<{ text: string; submit: boolean | undefined }> = [];
+    const applyConfigReload = () => {
+      for (const project of config.projects) {
+        if (sessions.has(project.id)) continue;
+        const session = plainSession(project.id, project.name, project.path);
+        session.pasteTextWhenReady = (text, options = {}) => {
+          pastedPrompts.push({ text, submit: options.submit });
+          return { ok: true, deferred: true };
+        };
+        sessions.set(project.id, session);
+      }
+    };
+    const server = createControlServer(controlDeps(config, { sessions, applyConfigReload, generateProjectId: () => 'dddddddd-first' }));
+    const connection = connectControl<{ type: string; requestId?: string; ok?: boolean }>(server);
+    connection.send({ type: 'add-session', requestId: 'p1', name: 'first', path: root, prompt: '  Draw this repo on a board.  ' });
+    assert.equal(connection.sent.find((frame) => frame.requestId === 'p1')?.ok, true);
+    assert.deepEqual(pastedPrompts, [{ text: 'Draw this repo on a board.', submit: true }]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('quick-session copies a workspace session under the next free name and names a single-repo copy after its folder, without its conversation', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-control-workspace-'));
   try {

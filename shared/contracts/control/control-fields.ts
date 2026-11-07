@@ -57,6 +57,7 @@ export const CustomAgentSummaryRow = z.object({
   command: z.string(),
   args: z.array(z.string()),
   resolvable: z.boolean().nullable(),
+  isShadowedByBuiltIn: z.boolean(),
 }).strict();
 export type CustomAgentSummaryRow = z.infer<typeof CustomAgentSummaryRow>;
 
@@ -101,6 +102,7 @@ export const SessionCardFields = z.object({
   stateSince: timestamp,
   skipPerms: z.boolean(),
   saneYolo: z.boolean(),
+  isQuestionManagerOn: z.boolean().optional(),
   worktree: z.boolean(),
   workspace: z.boolean().optional(),
   remoteWorkspace: z.string().optional(),
@@ -126,6 +128,8 @@ export const SessionStatusFields = z.object({
   activeAgents: z.number().int().nonnegative().optional(),
   awaitingBackgroundTasks: z.boolean().optional(),
   unseenOutcome: UnseenOutcome.nullable().optional(),
+  managerSeenSeq: z.number().int().nonnegative().optional(),
+  isQuestionManagerOn: z.boolean().optional(),
   pendingPromptKind: nullableString.optional(),
 });
 export type SessionStatusFields = z.infer<typeof SessionStatusFields>;
@@ -188,13 +192,13 @@ export const OPERATOR_ACTIONS_BY_SURFACE = Object.freeze({
   usage: ['sort', 'range', 'period', 'expand', 'refresh'],
   issues: ['step', 'search', 'select', 'back', 'go-to-session', 'open-session', 'open-reviews', 'close', 'reopen', 'refresh'],
   radar: ['report', 'open-session', 'resolve', 'suppress', 'archive-investigation', 'approve-fix', 'dismiss-fix'],
-  onboarding: ['rescan', 'add-root-typed', 'add-root-suggested', 'add-session', 'open-shell', 'check-github-again', 'save-github-teams', 'save-github-org', 'save-lane-read-token', 'save-review-skill', 'save-community-key', 'save-community-project', 'save-community-skill', 'save-community-discord', 'finish-community-setup'],
-  reviews: ['open-session', 'approve', 'approve-only', 'comment', 'request-changes', 'discard', 'requeue', 'resolve-thread', 'merge', 'keep-mergeable', 'merge-when-ready', 'refresh', 'pr-flow-dismiss', 'pr-flow-fix-local', 'pr-flow-undo', 'pr-flow-save-rule', 'pr-flow-approve', 'pr-flow-run'],
+  onboarding: ['rescan', 'add-root-typed', 'add-root-suggested', 'add-session', 'start-session', 'open-advanced', 'allow-notifications', 'skip-notifications', 'check-github-again', 'save-github-teams', 'save-github-org', 'save-lane-read-token', 'save-review-skill', 'save-community-key', 'save-community-project', 'save-community-skill', 'save-community-discord', 'finish-community-setup'],
+  reviews: ['open-session', 'approve', 'approve-only', 'comment', 'request-changes', 'discard', 'requeue', 'restore', 'resolve-thread', 'merge', 'keep-mergeable', 'merge-when-ready', 'refresh', 'pr-flow-dismiss', 'pr-flow-fix-local', 'pr-flow-undo', 'pr-flow-save-rule', 'pr-flow-approve', 'pr-flow-run'],
   hints: ['shown', 'open', 'dismiss'],
   star: ['shown', 'open', 'dismiss'],
   community: ['open-session', 'rerun', 'set-aside'],
 } as const);
-export const ONBOARDING_STEPS = Object.freeze(['agent', 'repo_roots', 'first_session'] as const);
+export const ONBOARDING_STEPS = Object.freeze(['agent', 'repo_roots', 'notifications', 'first_session'] as const);
 export const ONBOARDING_STEP_STATES = Object.freeze(['current', 'done'] as const);
 export type OnboardingStepReport = { step: (typeof ONBOARDING_STEPS)[number]; state: (typeof ONBOARDING_STEP_STATES)[number] };
 export const OPERATOR_SURFACES = Object.freeze(['usage', 'issues', 'radar', 'onboarding', 'reviews', 'hints', 'star', 'community'] as const);

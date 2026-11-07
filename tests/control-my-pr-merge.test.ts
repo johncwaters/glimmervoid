@@ -10,13 +10,14 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { createMyPrsSearch } from '../cloud/watchees/my-prs/my-prs-search.ts';
 import { createMyPrsWiring } from '../server/github/my-prs-wiring.ts';
 import { createMyPrsPoller } from '../server/github/my-prs-poller.ts';
 import { createPrGh } from '../server/github/pr-gh.ts';
 import type { CommandResult } from '../server/github/pr-gh.ts';
 import { myPrsStatus, toMyPr } from '../server/github/core/my-prs-core.ts';
 import { MyPrsStatus } from '../shared/contracts/my-prs.ts';
-import type { MyPr, MyPrSearchNode } from '../shared/contracts/my-prs.ts';
+import type { MyPr, MyPrSearchNode, MyPrThreadNode } from '../shared/contracts/my-prs.ts';
 import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
 
 const SEEN_HEAD = 'a'.repeat(40);
@@ -44,23 +45,44 @@ function readyNode(overrides: Partial<MyPrSearchNode> = {}): MyPrSearchNode {
   };
 }
 
+function detailNodeOf(pr: MyPrSearchNode) {
+  return GithubPrDetailNode.parse({ ...pr, author: { login: 'me' }, labels: { nodes: [] }, comments: { totalCount: 0 } });
+}
+
 function storeReads(readNodes: () => MyPrSearchNode[]): Pick<PrGh, 'searchPrsLight' | 'prsLightByKey' | 'prDetails' | 'notificationsSince'> {
+  const requestedNodes = (references: readonly { repo: string; number: number }[]) => {
+    const keys = new Set(references.map(comparablePrKey));
+    const nodes = readNodes().filter((pr) => keys.has(comparablePrKey({ repo: pr.repository.nameWithOwner, number: pr.number })));
+    const foundKeys = new Set(nodes.map((pr) => comparablePrKey({ repo: pr.repository.nameWithOwner, number: pr.number })));
+    return { nodes, goneKeys: new Set([...keys].filter((key) => !foundKeys.has(key))) };
+  };
   return {
     async searchPrsLight(qualifiers) {
       const items = readNodes().filter((pr) => (pr.state === 'MERGED') === qualifiers.startsWith('is:merged'));
       return { ok: true, items: items.map((pr) => GithubPrLightSearchNode.parse(pr)), isComplete: true, totalCount: items.length, error: '' };
     },
     async prsLightByKey(references) {
-      const keys = new Set(references.map(comparablePrKey));
-      return new Map(readNodes().filter((pr) => keys.has(comparablePrKey({ repo: pr.repository.nameWithOwner, number: pr.number })))
-        .map((pr) => [comparablePrKey({ repo: pr.repository.nameWithOwner, number: pr.number }), GithubPrLightSearchNode.parse(pr)]));
+      const { nodes, goneKeys } = requestedNodes(references);
+      return { byKey: new Map(nodes.map((pr) => [comparablePrKey({ repo: pr.repository.nameWithOwner, number: pr.number }), GithubPrLightSearchNode.parse(pr)])), goneKeys };
     },
     async prDetails(references) {
-      return new Map(readNodes().filter((pr) => references.some((reference) => comparablePrKey(reference) === comparablePrKey({ repo: pr.repository.nameWithOwner, number: pr.number })))
-        .map((pr) => [comparablePrKey({ repo: pr.repository.nameWithOwner, number: pr.number }), GithubPrDetailNode.parse({ ...pr, author: { login: 'me' }, labels: { nodes: [] }, comments: { totalCount: 0 } })]));
+      const { nodes, goneKeys } = requestedNodes(references);
+      return { byKey: new Map(nodes.map((pr) => [comparablePrKey({ repo: pr.repository.nameWithOwner, number: pr.number }), detailNodeOf(pr)])), goneKeys };
     },
     async notificationsSince() { return { kind: 'unchanged' }; },
   };
+}
+
+async function noBehindCounts(prs: Parameters<PrGh['behindCounts']>[0]) {
+  return new Map<string, number | null>(prs.map((pr) => [`${pr.repo}#${pr.number}`, null]));
+}
+
+function recordedGithubReply(reply: CommandResult | (() => CommandResult), homeDir: string): PrGh {
+  return createPrGh(homeDir, async () => (typeof reply === 'function' ? reply() : reply));
+}
+
+function refusedReply(body: object): CommandResult {
+  return { ok: false, out: JSON.stringify(body), err: 'gh: Resource not accessible by personal access token' };
 }
 
 function createTestStore(github: PrGh) {
@@ -78,24 +100,79 @@ function createTestStore(github: PrGh) {
   };
 }
 
+async function deliverMyPrsCandidates(github: PrGh, wiring: Pick<ReturnType<typeof createMyPrsWiring>, 'acceptCandidates'>, now: () => number = Date.now): Promise<void> {
+  const search = createMyPrsSearch({ store: createTestStore(github), now });
+  const searched = await search.search({ enabled: true, org: 'Acme', intervalMinutes: 5 });
+  assert.ok(searched.ok);
+  await wiring.acceptCandidates({ payload: searched.payload });
+}
+
 function mergeStateResponse(state: string, isInMergeQueue: boolean): CommandResult {
   return { ok: true, out: JSON.stringify({ data: { repository: { pullRequest: { state, isInMergeQueue, autoMergeRequest: null } } } }), err: '' };
 }
 
 const MERGED_STATE = mergeStateResponse('MERGED', false);
 
-test('a store rollup change broadcasts my-prs status without a lane tick and Refresh polls its watches', async () => {
+test('a store rollup change broadcasts my-prs status and its stage clock without a lane tick, the clock survives a restart and GitHub recomputing mergeability, a merge state GitHub settles later is read again, a pull request and its review items survive GitHub failing, refusing or garbling its reads and leave only once GitHub reports it gone, and Refresh re-reads the held pull request without searching', async () => {
   const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'control-my-pr-store-'));
   let nowMs = Date.now();
-  let checksState: 'PENDING' | 'SUCCESS' = 'PENDING';
+  let checksState: 'PENDING' | 'SUCCESS' | 'FAILURE' = 'PENDING';
+  let mergeable: 'MERGEABLE' | 'UNKNOWN' = 'MERGEABLE';
+  let mergeStateStatus = 'CLEAN';
+  let reviewDecision: 'APPROVED' | 'REVIEW_REQUIRED' = 'APPROVED';
+  let lastUpdatedAt = '2026-09-28T11:00:00Z';
+  let isWorkflowCheckListed = false;
+  let unresolvedThreadNodes: MyPrThreadNode[] = [];
+  let lightReadAnswer: 'live' | 'refused' = 'live';
+  let detailReadAnswer: 'live' | 'bad-gateway' | 'one-field-forbidden' | 'unparseable' | 'refused-rollup' | 'refused-workflow' | 'not-found' = 'live';
+  let threadsReadAnswer: 'live' | 'bad-gateway' = 'live';
   let laneTicks = 0;
+  let heldPrReads = 0;
   const searches: string[] = [];
   const statuses: MyPrsStatus[] = [];
-  const reads = storeReads(() => [readyNode({ commits: { nodes: [{ commit: { statusCheckRollup: { state: checksState, contexts: { nodes: [] } } } }] } })]);
+  const storeWarnings: string[] = [];
+  const workflowCheckWithRefusedRun = { __typename: 'CheckRun' as const, name: 'build', conclusion: 'SUCCESS', status: 'COMPLETED', startedAt: '2026-09-28T11:30:00Z', checkSuite: { app: { databaseId: 15368 }, workflowRun: null } };
+  const currentNode = () => readyNode({
+    mergeable, mergeStateStatus, reviewDecision, updatedAt: lastUpdatedAt,
+    commits: { nodes: [{ commit: { statusCheckRollup: { state: checksState, contexts: { nodes: isWorkflowCheckListed ? [workflowCheckWithRefusedRun] : [] } } } }] },
+    reviewThreads: { pageInfo: { hasNextPage: false }, nodes: unresolvedThreadNodes.map(() => ({ isResolved: false })) },
+  });
+  const reads = storeReads(() => [currentNode()]);
+  const badGateway = recordedGithubReply({ ok: false, out: '', err: 'HTTP 502: Bad Gateway' }, homeDir);
+  const lightReadersByAnswer = {
+    'live': reads,
+    'refused': recordedGithubReply(refusedReply({ data: { pr0: null }, errors: [{ type: 'FORBIDDEN', path: ['pr0'], message: 'Resource protected by organization SAML enforcement.' }] }), homeDir),
+  };
+  const detailReadersByAnswer = {
+    'live': reads,
+    'bad-gateway': badGateway,
+    'one-field-forbidden': recordedGithubReply(refusedReply({ data: { pr0: null }, errors: [{ type: 'FORBIDDEN', path: ['pr0', 'pullRequest', 'commits'], message: 'Resource not accessible by personal access token' }] }), homeDir),
+    'unparseable': recordedGithubReply({ ok: true, out: JSON.stringify({ data: { pr0: { pullRequest: { id: 'PR_node' } } } }), err: '' }, homeDir),
+    'refused-rollup': recordedGithubReply(() => refusedReply({
+      data: { pr0: { pullRequest: { ...detailNodeOf(currentNode()), commits: { nodes: [{ commit: { statusCheckRollup: null } }] } } } },
+      errors: [{ type: 'FORBIDDEN', path: ['pr0', 'pullRequest', 'commits', 'nodes', 0, 'commit', 'statusCheckRollup'], message: 'Resource not accessible by personal access token' }],
+    }), homeDir),
+    'refused-workflow': recordedGithubReply(() => refusedReply({
+      data: { pr0: { pullRequest: detailNodeOf(currentNode()) } },
+      errors: [{ type: 'FORBIDDEN', path: ['pr0', 'pullRequest', 'commits', 'nodes', 0, 'commit', 'statusCheckRollup', 'contexts', 'nodes', 0, 'checkSuite', 'workflowRun'], message: 'Resource not accessible by personal access token' }],
+    }), homeDir),
+    'not-found': recordedGithubReply({
+      ok: false,
+      out: JSON.stringify({ data: { pr0: { pullRequest: null } }, errors: [{ type: 'NOT_FOUND', path: ['pr0', 'pullRequest'], message: 'Could not resolve to a PullRequest with the number of 7.' }] }),
+      err: 'gh: Could not resolve to a PullRequest with the number of 7.',
+    }, homeDir),
+  };
+  const threadsReadersByAnswer = {
+    'live': { reviewThreadsBatch: async (prs: Parameters<PrGh['reviewThreadsBatch']>[0]) => new Map(prs.map((pr) => [`${pr.repo}#${pr.number}`, unresolvedThreadNodes])) },
+    'bad-gateway': badGateway,
+  };
   const github = {
     ...createPrGh(homeDir), ...reads,
-    viewer: async () => 'me', behindCounts: async () => new Map<string, number>(), reviewThreadsBatch: async () => new Map(), rateLimitWaitMs: async () => null,
+    viewer: async () => 'me', behindCounts: noBehindCounts, rateLimitWaitMs: async () => null,
     searchPrsLight: async (qualifiers: string) => { searches.push(qualifiers); return reads.searchPrsLight(qualifiers); },
+    prsLightByKey: async (references: Parameters<PrGh['prsLightByKey']>[0]) => { heldPrReads += 1; return lightReadersByAnswer[lightReadAnswer].prsLightByKey(references); },
+    prDetails: async (references: Parameters<PrGh['prDetails']>[0]) => detailReadersByAnswer[detailReadAnswer].prDetails(references),
+    reviewThreadsBatch: async (prs: Parameters<PrGh['reviewThreadsBatch']>[0]) => threadsReadersByAnswer[threadsReadAnswer].reviewThreadsBatch(prs),
   };
   const queue = createSerialQueue();
   let storeTick = async () => {};
@@ -106,7 +183,7 @@ test('a store rollup change broadcasts my-prs status without a lane tick and Ref
       return () => {};
     },
   };
-  const githubStore = createGithubStoreWiring({ github, clock, now: () => nowMs, isDashboardConnected: () => true, broadcast: () => {}, log: { warn() {} } });
+  const githubStore = createGithubStoreWiring({ github, clock, now: () => nowMs, isDashboardConnected: () => true, broadcast: () => {}, log: { warn: (warning: string) => { storeWarnings.push(warning); } } });
   const store = githubStore.laneStore;
   let markFirstStatus = () => {};
   const firstStatus = new Promise<void>((resolve) => { markFirstStatus = resolve; });
@@ -114,17 +191,19 @@ test('a store rollup change broadcasts my-prs status without a lane tick and Ref
     homeDir, config: { teamReview: { enabled: true, org: 'Acme' } }, github, store, clock, log: { warn() {} },
     broadcast: (status) => { statuses.push(status); if (status.prs.length > 0 && !status.isRefreshing) markFirstStatus(); },
     createPoller: (dependencies) => {
-      const poller = createMyPrsPoller({ ...dependencies, firstTickDelayMs: () => 0, setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {} });
+      const poller = createMyPrsPoller({ ...dependencies, now: () => nowMs, firstTickDelayMs: () => 0, setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {} });
       return { ...poller, tick: async () => { laneTicks += 1; await poller.tick(); } };
     },
   });
   try {
     wiring.startPoller();
     await new Promise<void>((resolve) => setImmediate(resolve));
+    await deliverMyPrsCandidates(github, wiring, () => nowMs);
     await storeTick();
     await firstStatus;
     assert.equal(statuses.at(-1)?.prs[0]?.key, KEY);
     assert.equal(wiring.getStatus().prs[0]?.stage, 'checks-pending');
+    assert.equal(wiring.getStatus().prs[0]?.stageSinceMs, Date.parse('2026-09-28T11:00:00Z'));
     assert.equal(store.getSnapshot().prs[KEY.toLowerCase()]?.checks.state, 'PENDING');
     const updatedAt = wiring.getStatus().prs[0]?.updatedAt;
     checksState = 'SUCCESS';
@@ -139,9 +218,18 @@ test('a store rollup change broadcasts my-prs status without a lane tick and Ref
     assert.equal('stage' in broadcastEntry, false);
     assert.equal('checks' in broadcastEntry, false);
     assert.equal('updatedAt' in broadcastEntry, false);
+    assert.equal(broadcastEntry.stageSinceMs, nowMs);
+    const stageChangedAtMs = nowMs;
     assert.equal(store.getSnapshot().prs[KEY.toLowerCase()]?.checks.state, 'SUCCESS');
     assert.equal(wiring.getStatus().prs[0]?.stage, 'ready');
     assert.equal(wiring.getStatus().prs[0]?.updatedAt, updatedAt);
+    for (const mergeabilityWhileGithubComputes of ['UNKNOWN', 'MERGEABLE'] as const) {
+      mergeable = mergeabilityWhileGithubComputes;
+      nowMs += 60_000;
+      await storeTick();
+    }
+    assert.equal(wiring.getStatus().prs[0]?.stage, 'ready');
+    assert.equal(wiring.getStatus().prs[0]?.stageSinceMs, stageChangedAtMs);
     assert.deepEqual(searches.slice(0, 2), [
       'is:open author:@me org:Acme sort:updated-desc',
       `is:merged author:@me org:Acme merged:>=${new Date(Date.now() - 86400000).toISOString().slice(0, 10)} sort:updated-desc`,
@@ -150,10 +238,196 @@ test('a store rollup change broadcasts my-prs status without a lane tick and Ref
       myPrs: wiring, githubStore,
     })));
     const searchCount = searches.length;
+    const heldPrReadCount = heldPrReads;
     await connection.send({ type: 'github-polling-refresh', requestId: 'refresh-my-prs', lane: 'my-prs' });
-    assert.equal(searches.length, searchCount + 2);
+    assert.equal(searches.length, searchCount);
+    assert.equal(heldPrReads, heldPrReadCount + 1);
     assert.equal(connection.sent.at(-1)?.ok, true);
     assert.deepEqual(connection.sent.at(-1)?.freshness, store.getSnapshot().freshness);
+    await wiring.stopPoller();
+    nowMs += 60_000;
+    let markRestartedStatus = () => {};
+    const restartedStatus = new Promise<void>((resolve) => { markRestartedStatus = resolve; });
+    const restarted = createMyPrsWiring({
+      homeDir, config: { teamReview: { enabled: true, org: 'Acme' } }, github, store, clock, log: { warn() {} },
+      broadcast: (status) => { if (status.prs.length > 0 && !status.isRefreshing) markRestartedStatus(); },
+      createPoller: (dependencies) => createMyPrsPoller({ ...dependencies, now: () => nowMs, firstTickDelayMs: () => 0, setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {} }),
+    });
+    try {
+      restarted.startPoller();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      await deliverMyPrsCandidates(github, restarted, () => nowMs);
+      await storeTick();
+      await restartedStatus;
+      assert.equal(restarted.getStatus().prs[0]?.stageSinceMs, stageChangedAtMs);
+      mergeStateStatus = 'BEHIND';
+      reviewDecision = 'REVIEW_REQUIRED';
+      nowMs += 60_000;
+      await storeTick();
+      assert.equal(restarted.getStatus().prs[0]?.stage, 'behind');
+      const behindSinceMs = nowMs;
+      assert.equal(restarted.getStatus().prs[0]?.stageSinceMs, behindSinceMs);
+      for (const [mergeabilityWhileGithubComputes, mergeStateWhileGithubComputes] of [['UNKNOWN', 'UNKNOWN'], ['MERGEABLE', 'BEHIND']] as const) {
+        mergeable = mergeabilityWhileGithubComputes;
+        mergeStateStatus = mergeStateWhileGithubComputes;
+        nowMs += 60_000;
+        await storeTick();
+      }
+      assert.equal(restarted.getStatus().prs[0]?.stage, 'behind');
+      assert.equal(restarted.getStatus().prs[0]?.stageSinceMs, behindSinceMs);
+      mergeStateStatus = 'CLEAN';
+      reviewDecision = 'APPROVED';
+      checksState = 'PENDING';
+      nowMs += 60_000;
+      await storeTick();
+      assert.equal(restarted.getStatus().prs[0]?.stage, 'checks-pending');
+      checksState = 'FAILURE';
+      mergeStateStatus = 'UNKNOWN';
+      nowMs += 60_000;
+      await storeTick();
+      assert.equal(restarted.getStatus().prs[0]?.stage, 'checks-failing');
+      assert.equal(restarted.getStatus().prs[0]?.stageSinceMs, nowMs);
+      detailReadAnswer = 'one-field-forbidden';
+      nowMs += 60_000;
+      await storeTick();
+      assert.equal(restarted.getStatus().prs[0]?.stage, 'checks-failing');
+      assert.equal(store.getSnapshot().freshness.error, null);
+      detailReadAnswer = 'bad-gateway';
+      checksState = 'SUCCESS';
+      nowMs += 60_000;
+      await storeTick();
+      assert.equal(restarted.getStatus().prs[0]?.stage, 'checks-failing');
+      assert.match(store.getSnapshot().freshness.error ?? '', /502/);
+      detailReadAnswer = 'unparseable';
+      nowMs += 60_000;
+      await storeTick();
+      assert.equal(restarted.getStatus().prs[0]?.stage, 'checks-failing');
+      assert.equal(store.getSnapshot().freshness.error, null);
+      storeWarnings.length = 0;
+      detailReadAnswer = 'refused-rollup';
+      nowMs += 60_000;
+      await storeTick();
+      assert.equal(restarted.getStatus().prs[0]?.stage, 'checks-failing');
+      assert.equal(store.getSnapshot().freshness.error, null);
+      assert.ok(storeWarnings.some((warning) => warning.includes(KEY.toLowerCase())));
+      storeWarnings.length = 0;
+      lightReadAnswer = 'refused';
+      nowMs += 60_000;
+      await storeTick();
+      assert.equal(restarted.getStatus().prs[0]?.key, KEY);
+      assert.equal(store.getSnapshot().freshness.error, null);
+      assert.ok(storeWarnings.some((warning) => warning.includes(KEY.toLowerCase())));
+      lightReadAnswer = 'live';
+      detailReadAnswer = 'live';
+      mergeStateStatus = 'BEHIND';
+      nowMs += 60_000;
+      await storeTick();
+      assert.equal(restarted.getStatus().prs[0]?.stage, 'behind');
+      assert.equal(restarted.getStatus().prs[0]?.stageSinceMs, nowMs);
+      detailReadAnswer = 'refused-workflow';
+      isWorkflowCheckListed = true;
+      mergeStateStatus = 'CLEAN';
+      lastUpdatedAt = '2026-09-28T12:00:00Z';
+      nowMs += 60_000;
+      await storeTick();
+      assert.equal(restarted.getStatus().prs[0]?.stage, 'ready');
+      assert.deepEqual(store.getSnapshot().prs[KEY.toLowerCase()]?.checks, { state: 'SUCCESS', failing: [], pendingCount: 0 });
+      detailReadAnswer = 'live';
+      unresolvedThreadNodes = [{
+        id: 'PRRT_rename', isResolved: false, isOutdated: false, path: 'src/app.ts', line: 3,
+        firstComment: { totalCount: 1, nodes: [{ author: { login: 'reviewer' }, bodyText: 'Rename this helper', url: 'https://github.com/Acme/app/pull/7#discussion_r1', createdAt: '2026-09-28T12:30:00Z' }] },
+        lastComment: { nodes: [{ author: { login: 'reviewer' }, createdAt: '2026-09-28T12:30:00Z' }] },
+      }];
+      lastUpdatedAt = '2026-09-28T13:00:00Z';
+      nowMs += 60_000;
+      await storeTick();
+      assert.equal(store.getSnapshot().prs[KEY.toLowerCase()]?.reviewItems.length, 1);
+      threadsReadAnswer = 'bad-gateway';
+      lastUpdatedAt = '2026-09-28T14:00:00Z';
+      storeWarnings.length = 0;
+      nowMs += 60_000;
+      await storeTick();
+      assert.equal(store.getSnapshot().prs[KEY.toLowerCase()]?.reviewItems.length, 1);
+      assert.equal(store.getSnapshot().freshness.error, null);
+      assert.ok(storeWarnings.some((warning) => warning.includes(KEY.toLowerCase())));
+      threadsReadAnswer = 'live';
+      detailReadAnswer = 'not-found';
+      lastUpdatedAt = '2026-09-28T15:00:00Z';
+      nowMs += 60_000;
+      await storeTick();
+      assert.equal(store.getSnapshot().prs[KEY.toLowerCase()], undefined);
+      assert.equal(restarted.getStatus().prs.some((pr) => pr.key === KEY), false);
+    } finally {
+      await restarted.stopPoller();
+    }
+  } finally {
+    await wiring.stopPoller();
+    await fs.rm(homeDir, { recursive: true, force: true });
+  }
+});
+
+test('a stage the store shows while a rebase is in flight keeps its clock when the tick finishes on its older snapshot, and a pull request list older than the last one changes nothing', async () => {
+  const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'control-my-pr-rebase-race-'));
+  let nowMs = Date.parse('2026-11-05T10:10:00Z');
+  let checksState: 'PENDING' | 'SUCCESS' = 'PENDING';
+  let storeTick = async () => {};
+  let isChecksFlipArmed = false;
+  let checksPassedAtMs: number | null = null;
+  const behindNode = readyNode({ id: 'PR_behind', number: 1, url: 'https://github.com/Acme/app/pull/1', mergeStateStatus: 'BEHIND' });
+  const reads = storeReads(() => [behindNode, readyNode({ commits: { nodes: [{ commit: { statusCheckRollup: { state: checksState, contexts: { nodes: [] } } } }] } })]);
+  const github = {
+    ...createPrGh(homeDir), ...reads,
+    viewer: async () => 'me', reviewThreadsBatch: async () => new Map(), rateLimitWaitMs: async () => null,
+    behindCounts: async (prs: Parameters<PrGh['behindCounts']>[0]) => new Map(prs.map((pr) => [`${pr.repo}#${pr.number}`, pr.number === 1 ? 3 : null])),
+    rebasePr: async () => {
+      if (!isChecksFlipArmed || checksPassedAtMs !== null) return { ok: true, err: '' };
+      checksState = 'SUCCESS';
+      nowMs += 60_000;
+      checksPassedAtMs = nowMs;
+      await storeTick();
+      return { ok: true, err: '' };
+    },
+  };
+  const queue = createSerialQueue();
+  const clock: SharedClock = {
+    exclusive: (work) => queue.run(work),
+    schedule: (run, intervalMs) => {
+      if (intervalMs === 60_000) storeTick = run;
+      return () => {};
+    },
+  };
+  const githubStore = createGithubStoreWiring({ github, clock, now: () => nowMs, isDashboardConnected: () => true, broadcast: () => {}, log: { warn() {} } });
+  const lanePollers: ReturnType<typeof createMyPrsPoller>[] = [];
+  let markFirstStatus = () => {};
+  const firstStatus = new Promise<void>((resolve) => { markFirstStatus = resolve; });
+  const wiring = createMyPrsWiring({
+    homeDir, config: { teamReview: { enabled: true, org: 'Acme', autoRebaseMyPrs: true } }, github, store: githubStore.laneStore, clock, log: { warn() {} },
+    broadcast: (status) => { if (status.prs.length > 0 && !status.isRefreshing) markFirstStatus(); },
+    createPoller: (dependencies) => {
+      const poller = createMyPrsPoller({ ...dependencies, now: () => nowMs, firstTickDelayMs: () => 0, setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {} });
+      lanePollers.push(poller);
+      return poller;
+    },
+  });
+  const stageClockOf = () => wiring.getStatus().prs.find((pr) => pr.key === KEY);
+  try {
+    wiring.startPoller();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await deliverMyPrsCandidates(github, wiring, () => nowMs);
+    await storeTick();
+    await firstStatus;
+    assert.equal(stageClockOf()?.stage, 'checks-pending');
+    nowMs += 30 * 60_000;
+    isChecksFlipArmed = true;
+    await lanePollers[0]?.tick();
+    assert.notEqual(checksPassedAtMs, null);
+    nowMs += 30 * 60_000;
+    await lanePollers[0]?.tick();
+    assert.equal(stageClockOf()?.stage, 'ready');
+    assert.equal(stageClockOf()?.stageSinceMs, checksPassedAtMs);
+    await wiring.acceptCandidates({ payload: { observedAt: '2026-11-05T09:00:00.000Z', viewer: 'me', isComplete: true, returnedCount: 0, totalCount: 0, open: [], merged: [] } });
+    await lanePollers[0]?.tick();
+    assert.equal(stageClockOf()?.stage, 'ready');
   } finally {
     await wiring.stopPoller();
     await fs.rm(homeDir, { recursive: true, force: true });
@@ -170,7 +444,7 @@ test('keep mergeable control reaches the real lane, persists across restarts, an
     ...createPrGh(homeDir),
     viewer: async () => 'me',
     ...storeReads(() => [readyNode({ mergeable: 'CONFLICTING' })]),
-    behindCounts: async () => new Map<string, number>(),
+    behindCounts: noBehindCounts,
     reviewThreadsBatch: async () => new Map(),
     rateLimitWaitMs: async () => null,
   };
@@ -190,7 +464,8 @@ test('keep mergeable control reaches the real lane, persists across restarts, an
     });
     wiring.startPoller();
     await new Promise<void>((resolve) => setImmediate(resolve));
-    await store.refreshWatches(['my-prs-open', 'my-prs-merged']);
+    await deliverMyPrsCandidates(github, wiring);
+    await store.refreshWatches([]);
     await firstPoll;
     return wiring;
   }
@@ -206,7 +481,7 @@ test('keep mergeable control reaches the real lane, persists across restarts, an
     assert.deepEqual(fixes, [`${KEY}@${SEEN_HEAD}`]);
     await repairFinished;
     const savedState = JSON.parse(await fs.readFile(path.join(homeDir, 'my-prs-state.json'), 'utf8'));
-    assert.deepEqual(savedState, { keepMergeableKeys: [KEY], keepMergeableAttemptKeys: [`${KEY}@${SEEN_HEAD}`], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [], keepMergeableAttempts: [{ key: KEY, headRefOid: SEEN_HEAD, baseRefOid: 'b'.repeat(40), outcome: 'pushed', at: statuses.at(-1)?.prs[0]?.keepMergeableAttempt?.at, consecutiveAttempts: 1 }] });
+    assert.deepEqual(savedState, { keepMergeableKeys: [KEY], keepMergeableAttemptKeys: [`${KEY}@${SEEN_HEAD}`], mergeQueueKeys: [], keepMergeablePushedHeadKeys: [], keepMergeableAttempts: [{ key: KEY, headRefOid: SEEN_HEAD, baseRefOid: 'b'.repeat(40), outcome: 'pushed', at: statuses.at(-1)?.prs[0]?.keepMergeableAttempt?.at, consecutiveAttempts: 1 }], stageSince: [{ key: KEY, stage: 'conflicts', sinceMs: Date.parse('2026-09-28T11:00:00Z') }] });
     await wiring.stopPoller();
     const restarted = await startWiring();
     try {
@@ -246,7 +521,7 @@ test('merge when ready control reaches the real lane and persists the queue', as
     ...createPrGh(homeDir),
     viewer: async () => 'me',
     ...storeReads(() => [readyNode({ commits: { nodes: [{ commit: { statusCheckRollup: { state: 'PENDING', contexts: { nodes: [] } } } }] } })]),
-    behindCounts: async () => new Map<string, number>(),
+    behindCounts: noBehindCounts,
     reviewThreadsBatch: async () => new Map(),
     rateLimitWaitMs: async () => null,
   };
@@ -259,14 +534,15 @@ test('merge when ready control reaches the real lane and persists the queue', as
   wiring.startPoller();
   try {
     await new Promise<void>((resolve) => setImmediate(resolve));
-    await store.refreshWatches(['my-prs-open', 'my-prs-merged']);
+    await deliverMyPrsCandidates(github, wiring);
+    await store.refreshWatches([]);
     await firstPoll;
     const connection = connectControl<MergeFrame>(createControlServer(controlDeps({ projects: [] }, { myPrs: wiring })));
     await connection.send({ type: 'my-pr-merge-when-ready', requestId: 'queue-1', repo: 'Acme/app', number: 7, mergeWhenReady: true });
     assert.deepEqual(connection.sent.at(-1), { type: 'my-pr-merge-when-ready-result', requestId: 'queue-1', key: KEY, ok: true });
     assert.equal(statuses.at(-1)?.prs[0]?.mergeQueuePosition, 1);
     const savedState = JSON.parse(await fs.readFile(path.join(homeDir, 'my-prs-state.json'), 'utf8'));
-    assert.deepEqual(savedState, { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [KEY], keepMergeablePushedHeadKeys: [], keepMergeableAttempts: [] });
+    assert.deepEqual(savedState, { keepMergeableKeys: [], keepMergeableAttemptKeys: [], mergeQueueKeys: [KEY], keepMergeablePushedHeadKeys: [], keepMergeableAttempts: [], stageSince: [{ key: KEY, stage: 'checks-pending', sinceMs: Date.parse('2026-09-28T11:00:00Z') }] });
   } finally {
     await wiring.stopPoller();
     await fs.rm(homeDir, { recursive: true, force: true });
@@ -292,6 +568,7 @@ async function harness({ trackedPrs = [toMyPr(readyNode(), 0)], ghOutcome = { ok
       stop: async () => {},
       tick: async () => { refreshCount += 1; },
       rebuild: () => {},
+      acceptCandidates: () => {},
       refresh: async () => { refreshCount += 1; return { ok: true }; },
       setKeepMergeable: async () => ({ ok: false, error: 'Not available in this merge fixture' }),
       setMergeWhenReady: async () => ({ ok: false, error: 'Not available in this merge fixture' }),
@@ -349,7 +626,7 @@ function queueMergeHarness(trackedPr: MyPr) {
       queueMerge = mergePr;
       return {
         start: async () => { onTickComplete(myPrsStatus({ ts: 1, configured: true, viewer: 'me', prs: [trackedPr] })); },
-        stop: async () => {}, tick: async () => {}, rebuild: () => {}, refresh: async () => ({ ok: true }),
+        stop: async () => {}, tick: async () => {}, rebuild: () => {}, acceptCandidates: () => {}, refresh: async () => ({ ok: true }),
         setKeepMergeable: async () => ({ ok: false, error: 'Not available in this merge fixture' }),
         setMergeWhenReady: async () => ({ ok: false, error: 'Not available in this merge fixture' }),
       };

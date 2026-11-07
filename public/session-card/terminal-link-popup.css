@@ -1,0 +1,79 @@
+.terminal-link-popup {
+  position: absolute;
+  z-index: 11;
+  box-sizing: border-box;
+  max-width: min(560px, calc(100% - 16px));
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--border-hover);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-md);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  line-height: 1.4;
+  cursor: default;
+  user-select: text;
+}
+
+.terminal-link-popup[hidden] {
+  display: none;
+}
+
+.terminal-link-popup-url {
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+
+.terminal-link-popup-url-dim {
+  color: var(--text-dim);
+}
+
+.terminal-link-popup-host {
+  color: var(--text-head);
+  font-weight: 700;
+}
+
+.terminal-link-popup-mismatch {
+  color: var(--state-waiting);
+  overflow-wrap: anywhere;
+}
+
+.terminal-link-popup-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.terminal-link-popup-hint {
+  color: var(--text-muted);
+}
+
+.terminal-link-popup-preview {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text);
+}
+
+.terminal-link-popup-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+.terminal-link-popup-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

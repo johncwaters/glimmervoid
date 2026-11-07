@@ -1,12 +1,17 @@
 import { FLYING_ANIMALS_DEFAULTS, normalizeExcludedSprites, normalizeFlyingAnimalsOptions } from './flying-animals-core.ts';
 import type { FlyingAnimalsOptions } from './flying-animals-core.ts';
 import { DEFAULT_SOUND_ID } from './alert-sound-core.ts';
+import { parseRememberedStarts } from './add-session-core.ts';
+import type { RememberedStarts } from './add-session-core.ts';
 import type { FocusLayout } from '#shared/contracts/focus-layout.ts';
+import { REVIEWS_TURN_LIMIT_DEFAULT, REVIEWS_TURN_LIMIT_RANGE } from '#shared/settings-ranges.ts';
 import { getJSON, setJSON } from './local-store.ts';
 import { parseFocusLayout } from './focus-view/pane-layout-core.ts';
 import { DEFAULT_NEXT_ATTENTION_KEY_CODE, isNextAttentionKeyCode } from './shortcuts-core.ts';
 
 const STORAGE_KEY = 'glimmervoid-ui-prefs';
+
+export type ReviewsLayout = 'board' | 'list';
 
 interface UiPrefs extends FlyingAnimalsOptions {
   soundEnabled: boolean;
@@ -23,6 +28,10 @@ interface UiPrefs extends FlyingAnimalsOptions {
   railStatusKeyOpen: boolean;
   focusLayout: FocusLayout;
   prsQueueWidth: number | null;
+  reviewsLayout: ReviewsLayout;
+  reviewsBoardDetailWidth: number | null;
+  reviewsTurnLimit: number;
+  reviewsPulledKeys: string[];
   traceHiddenKinds: string[];
   dismissedUpdate: string | null;
   telemetryNoticeDismissed: boolean;
@@ -32,6 +41,7 @@ interface UiPrefs extends FlyingAnimalsOptions {
   communityAttentionAck: string;
   communityUnseenRows: string;
   usageAttentionAck: string;
+  addSessionStarts: RememberedStarts;
 }
 
 const asBoolean = (fallback: boolean) => (value: unknown): boolean => (typeof value === 'boolean' ? value : fallback);
@@ -41,6 +51,11 @@ const asNullableNumber = (value: unknown): number | null => (typeof value === 'n
 const asFiniteNumber = (fallback: number) => (value: unknown): number => asNullableNumber(value) ?? fallback;
 const asStringList = (value: unknown): string[] =>
   Array.isArray(value) ? [...new Set(value.filter((entry): entry is string => typeof entry === 'string' && entry !== ''))] : [];
+
+function normalizeReviewsTurnLimit(value: unknown): number {
+  const isInRange = typeof value === 'number' && Number.isInteger(value) && value >= REVIEWS_TURN_LIMIT_RANGE.min && value <= REVIEWS_TURN_LIMIT_RANGE.max;
+  return isInRange ? value : REVIEWS_TURN_LIMIT_DEFAULT;
+}
 
 const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   soundEnabled: asBoolean(true),
@@ -64,6 +79,10 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   railStatusKeyOpen: asBoolean(false),
   focusLayout: parseFocusLayout,
   prsQueueWidth: asNullableNumber,
+  reviewsLayout: (value: unknown): ReviewsLayout => (value === 'list' ? 'list' : 'board'),
+  reviewsBoardDetailWidth: asNullableNumber,
+  reviewsTurnLimit: normalizeReviewsTurnLimit,
+  reviewsPulledKeys: asStringList,
   traceHiddenKinds: asStringList,
   dismissedUpdate: asNullableString,
   telemetryNoticeDismissed: asBoolean(false),
@@ -73,6 +92,7 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   communityAttentionAck: asString(''),
   communityUnseenRows: asString(''),
   usageAttentionAck: asString(''),
+  addSessionStarts: parseRememberedStarts,
 };
 
 function normalizeInto<Key extends keyof UiPrefs>(prefs: Partial<UiPrefs>, key: Key, raw: unknown) {
@@ -134,6 +154,18 @@ export const setFocusLayout = (layout: FocusLayout) => write('focusLayout', layo
 export const getPrsQueueWidth = () => read('prsQueueWidth');
 export const setPrsQueueWidth = (px: number | null) => write('prsQueueWidth', px);
 
+export const getReviewsLayout = () => read('reviewsLayout');
+export const setReviewsLayout = (layout: ReviewsLayout) => write('reviewsLayout', layout);
+
+export const getReviewsTurnLimit = () => read('reviewsTurnLimit');
+export const setReviewsTurnLimit = (limit: number) => write('reviewsTurnLimit', limit);
+
+export const getReviewsPulledKeys = () => read('reviewsPulledKeys');
+export const setReviewsPulledKeys = (queueKeys: string[]) => write('reviewsPulledKeys', queueKeys);
+
+export const getReviewsBoardDetailWidth = () => read('reviewsBoardDetailWidth');
+export const setReviewsBoardDetailWidth = (px: number | null) => write('reviewsBoardDetailWidth', px);
+
 
 export const getTraceHiddenKinds = () => read('traceHiddenKinds');
 export const setTraceHiddenKinds = (kinds: string[]) => write('traceHiddenKinds', kinds);
@@ -188,3 +220,6 @@ export const getFlyingAnimalsEnteredValues = () => {
 };
 
 export const resetFlyingAnimalsAdvanced = () => setJSON(STORAGE_KEY, { ...load(), ...FLYING_ANIMALS_DEFAULTS });
+
+export const getAddSessionStarts = () => read('addSessionStarts');
+export const setAddSessionStarts = (starts: RememberedStarts) => write('addSessionStarts', starts);

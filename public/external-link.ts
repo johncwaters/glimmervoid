@@ -1,3 +1,4 @@
+import { LinkPreview } from '#shared/contracts/link-preview.ts';
 import { isExternalHttpUrl, isNewTabActivation, shouldOpenLinksOnHost } from './external-link-core.ts';
 import { loadPageToken } from './ws-token.ts';
 
@@ -23,6 +24,46 @@ async function askHostToOpen(url: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+const MAX_CACHED_LINK_PREVIEWS = 500;
+const linkPreviewsByUrl = new Map<string, Promise<LinkPreview>>();
+
+async function requestLinkPreview(url: string): Promise<LinkPreview> {
+  try {
+    const token = await loadPageToken();
+    const response = await fetch('/link-preview', {
+      method: 'POST',
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: { 'content-type': 'application/json', 'x-glimmervoid-page-token': token },
+      body: JSON.stringify({ url }),
+    });
+    if (!response.ok) return {};
+    const parsed = LinkPreview.safeParse(await response.json());
+    return parsed.success ? parsed.data : {};
+  } catch {
+    return {};
+  }
+}
+
+function hasPreviewContent(preview: LinkPreview) {
+  return preview.title !== undefined || preview.iconDataUrl !== undefined;
+}
+
+export function fetchLinkPreview(url: string): Promise<LinkPreview> {
+  const cached = linkPreviewsByUrl.get(url);
+  if (cached) return cached;
+  const preview = requestLinkPreview(url).then((answer) => {
+    if (!hasPreviewContent(answer) && linkPreviewsByUrl.get(url) === preview) linkPreviewsByUrl.delete(url);
+    return answer;
+  });
+  linkPreviewsByUrl.set(url, preview);
+  if (linkPreviewsByUrl.size > MAX_CACHED_LINK_PREVIEWS) {
+    const oldestUrl = linkPreviewsByUrl.keys().next().value;
+    if (oldestUrl !== undefined) linkPreviewsByUrl.delete(oldestUrl);
+  }
+  return preview;
 }
 
 export function openExternalUrl(url: string): void {

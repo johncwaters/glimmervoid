@@ -183,14 +183,18 @@ test('validateConfig rejects a config missing the projects key entirely', () => 
   assert.match((validation.ok ? [] : validation.errors).join('\n'), /projects must be an array/);
 });
 
-test('a loaded config carries the contract defaults, so a bare custom agent declaration reaches the registry intact', () => {
-  withStore(richConfig({ customAgents: [{ id: 'opencode', label: 'OpenCode', command: 'opencode' }] }), (store) => {
+test('a loaded config carries the contract defaults, so a bare custom agent declaration reaches the registry intact, and one shadowed by a built-in id survives a save', () => {
+  const shadowedDeclaration = { id: 'gemini', label: 'My Gemini', command: 'my-gemini', args: [] };
+  withStore(richConfig({ customAgents: [{ id: 'aider', label: 'Aider', command: 'aider' }, shadowedDeclaration] }), (store) => {
     assert.deepEqual(store.config.customAgents, [
-      { id: 'opencode', label: 'OpenCode', command: 'opencode', args: [] },
+      { id: 'aider', label: 'Aider', command: 'aider', args: [] },
+      shadowedDeclaration,
     ]);
     try {
-      setCustomAgents(store.config.customAgents ?? []);
-      assert.deepEqual(getAdapter('opencode')?.buildArgs(), []);
+      assert.deepEqual(setCustomAgents(store.config.customAgents ?? []), ['gemini']);
+      assert.deepEqual(getAdapter('aider')?.buildArgs(), []);
+      assert.equal(getAdapter('gemini')?.label, 'Gemini CLI');
+      assert.deepEqual(store.save(() => {})?.customAgents?.[1], shadowedDeclaration);
     } finally {
       setCustomAgents([]);
     }
@@ -201,10 +205,10 @@ test('a dashboard save returns the validated config, so a contract default reach
   withStore(richConfig(), (store) => {
     const saved = store.save((cfg) => {
       const draft: Record<string, unknown> = cfg;
-      draft.customAgents = [{ id: 'opencode', label: 'OpenCode', command: 'opencode' }];
+      draft.customAgents = [{ id: 'aider', label: 'Aider', command: 'aider' }];
     });
     assert.deepEqual(saved?.customAgents, [
-      { id: 'opencode', label: 'OpenCode', command: 'opencode', args: [] },
+      { id: 'aider', label: 'Aider', command: 'aider', args: [] },
     ]);
   });
 });
@@ -515,14 +519,15 @@ test('a config.json still carrying the retired postTurnChecks block loads and le
   });
 });
 
-test('the environment secret bindings and the password leaves of the registry are the same set, so each shows as configured and never as its value', () => {
-  const boundPaths = ENV_SECRET_BINDINGS.map((binding) => `${binding.blockName}.${binding.secretKey}`).sort();
+test('the environment secret bindings shown in Settings and the password leaves of the registry are the same set, so each shows as configured and never as its value', () => {
+  const settingsBindings = ENV_SECRET_BINDINGS.filter((binding) => !binding.isEnvironmentOnly);
+  const boundPaths = settingsBindings.map((binding) => `${binding.blockName}.${binding.secretKey}`).sort();
   const passwordPaths = [...settingsOf(SETTINGS_REGISTRY.sections), ...SETTINGS_REGISTRY.fileOnly]
     .filter((setting) => setting.control === 'password')
     .map((setting) => setting.path)
     .sort();
   assert.deepEqual(passwordPaths, boundPaths);
-  for (const binding of ENV_SECRET_BINDINGS) {
+  for (const binding of settingsBindings) {
     const leaf = settingsBlockSpecFor(binding.blockName).values?.[binding.secretKey];
     assert.equal(leaf?.control, 'password', `${binding.blockName}.${binding.secretKey}`);
   }

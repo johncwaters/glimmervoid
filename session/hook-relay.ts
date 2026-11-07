@@ -14,9 +14,9 @@ async function main(
   const [event] = argv;
   const body = await readStdin(stdin);
   const verdict = decideRelayPost({ env, event, payloadBytes: body.length });
-  if (!verdict.post || !verdict.url) return { code: 0, reason: verdict.reason };
-  const response = await postToLoopback(verdict.url, body);
-  const contextOutput = relayedHookContextOutput(response.responseBody);
+  if (!verdict.post || !verdict.url || !verdict.event) return { code: 0, reason: verdict.reason };
+  const response = await postToLoopback(verdict.url, body, verdict.postTimeoutMs);
+  const contextOutput = relayedHookContextOutput(verdict.event, response.responseBody);
   if (contextOutput !== null) stdout.write(contextOutput);
   return { code: 0, reason: response.reason };
 }

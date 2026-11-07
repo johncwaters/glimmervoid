@@ -36,6 +36,7 @@ import { createGitWorkspace, createGitWorkspaceSync } from '../git/git-workspace
 import { createOwnedPathsLedger } from '../owned-paths-ledger.ts';
 import { TASK_TITLE_LANE_TOOLS, createTaskTitleRefiner } from '../task-title-refiner.ts';
 import { createLaneSpawn } from '../lanes/lane-spawn.ts';
+import { createQuestionManagerLane, QUESTION_MANAGER_LANE_TOOLS } from '../question-manager/question-manager.ts';
 import { createPlanReviewWiring } from '../plan-review-wiring.ts';
 import { createRadarWiring } from '../radar/radar-wiring.ts';
 import { createCommunityWiring } from '../community/community-wiring.ts';
@@ -94,9 +95,11 @@ interface BackendLaneDependencies {
   dashboardPort: number;
   broadcastControl: ControlBroadcast;
   controlWss: {
-    clients: Set<WebSocket>;
     on(event: 'connection', listener: (socket: WebSocket) => void): unknown;
   };
+  viewerControlClientCount: () => number;
+  isViewerConnected: () => boolean;
+  isHubControlSocket: (socket: WebSocket) => boolean;
   options: BackendLaneOptions;
   notificationManager: { trigger(sessionName: string, category: string, message: string): unknown };
   telemetry: Telemetry;
@@ -120,6 +123,9 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     dashboardPort,
     broadcastControl,
     controlWss,
+    viewerControlClientCount,
+    isViewerConnected,
+    isHubControlSocket,
     options,
     notificationManager,
     telemetry,
@@ -148,7 +154,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   void laneLedger.load();
   const recordLane = laneLedger.record;
   const liveSessionMaps = (): Map<string, Session>[] => [
-    sessions, agentSessions, reviewSessions, investigationSessions, taskTitleSessions, benchmarkSessions,
+    sessions, agentSessions, reviewSessions, investigationSessions, taskTitleSessions, benchmarkSessions, questionManagerSessions,
   ];
   const allLiveSessions = (): Session[] => liveSessionMaps().flatMap((sessionsById) => [...sessionsById.values()]);
   const findLiveSession = (id: string): Session | null => {
@@ -226,7 +232,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   });
   const community = createCommunityWiring({
     config, broadcast: broadcastControl, homeDir: glimmervoidHomeDir(), log: logger,
-    controlClientCount: () => controlWss.clients.size,
+    controlClientCount: viewerControlClientCount,
     spawnDependencies: { investigationSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane, replayBufferKB: config.replayBufferKB },
   });
   const githubStatus = createGithubStatus({ log: logger });
@@ -236,7 +242,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const githubStore = createGithubStoreWiring({
     github,
     clock: githubClock,
-    isDashboardConnected: () => [...controlWss.clients].some((client) => client.readyState === 1),
+    isDashboardConnected: isViewerConnected,
     broadcast: broadcastControl,
     log: logger,
   });
@@ -261,7 +267,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     telemetry: laneTelemetry,
   });
   const sessionPrLink = createSessionPrLinkWiring({ store: githubStore.laneStore, git: gitWorkspace, log: logger });
-  const featureHints = createFeatureHintsWiring({ statePath: configSiblingPath(configStore.configPath, 'feature-hints.json'), broadcast: broadcastControl, log: logger, currentConfig: () => configStore.config, controlClientCount: () => controlWss.clients.size });
+  const featureHints = createFeatureHintsWiring({ statePath: configSiblingPath(configStore.configPath, 'feature-hints.json'), broadcast: broadcastControl, log: logger, currentConfig: () => configStore.config, controlClientCount: viewerControlClientCount });
   const myPrsWorkRoot = path.join(glimmervoidHome, 'my-prs-work');
   const myPrs = createMyPrsWiring({
     config, github, store: githubStore.laneStore, log: logger, clock: githubClock,
@@ -420,11 +426,17 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     }),
   });
 
+  const questionManagerSessions = new Map<string, Session>();
+  const questionManagerLane = createQuestionManagerLane(createLaneSpawn({
+    sessions: questionManagerSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
+    replayBufferKB: config.replayBufferKB, laneName: 'question-manager', allowTools: QUESTION_MANAGER_LANE_TOOLS, getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
+  }));
+
   const usage = createUsageWiring({
     config,
     sessions,
     broadcast: broadcastControl,
-    controlClientCount: () => controlWss.clients.size,
+    controlClientCount: viewerControlClientCount,
     warehousePath: configSiblingPath(configStore.configPath, 'usage-warehouse.json'),
     laneMap: () => laneLedger.laneMap(),
     telemetry,
@@ -433,7 +445,8 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     debug: () => configStore.getSettings().debugMode === true,
     ...(options.usageWiringOptions || {}),
   });
-  controlWss.on('connection', () => {
+  controlWss.on('connection', (socket) => {
+    if (isHubControlSocket(socket)) return;
     void usage.start();
   });
   const fixedLaneEntries = {
@@ -514,6 +527,8 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     coderEnv,
     taskTitleRefiner,
     taskTitleSessions,
+    questionManagerLane,
+    questionManagerSessions,
     current,
     featureHints,
     gitWorkspace,

@@ -12,7 +12,7 @@
 
 Glimmervoid takes a feature from start to finish. Every agent works in its own git worktree, status comes from the agent's own hooks, and the one session that needs you comes to the front. Review and merge from the same page.
 
-It is an orchestrator, not a harness. Claude Code, Codex, Kimi Code and Grok run unmodified, as real processes in real terminals on your own machine, with your own login, subscription, skills, hooks and settings, talking straight to their model. No cloud service, no account. Glimmervoid is developed inside Glimmervoid.
+It is an orchestrator, not a harness. Your coding agents run unmodified, as real processes in real terminals on your own machine, with your own login, subscription, skills, hooks and settings, talking straight to their model. No cloud service, no account. Glimmervoid is developed inside Glimmervoid.
 
 ![Glimmervoid dashboard replaying recorded Claude Code sessions: one fixes a flaky upload test with its diff in the terminal, three more work on their own projects in the session rail](assets/pictures/glimmervoid-demo.gif)
 
@@ -114,6 +114,7 @@ glimmervoid                    # start the server on port 3000
 glimmervoid --port 3001        # start on another port
 glimmervoid doctor             # check the install, PATH, agents and native module
 glimmervoid settings list      # read and change settings from the terminal
+glimmervoid host add devbox --ssh devbox  # link another machine running Glimmervoid
 glimmervoid pair --name phone  # pair a remote device
 ```
 

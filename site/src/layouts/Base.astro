@@ -5,6 +5,7 @@ import { extractAnimalStyles } from '../lib/animal-styles.ts';
 import { extractDemoStyles } from '../lib/demo-styles.ts';
 import { extractDashboardTokens } from '../lib/dashboard-tokens.ts';
 import { sitePath } from '../lib/site-path.ts';
+import { PRODUCT_SUMMARY } from '../lib/product-facts.ts';
 import ConsentBanner from '../components/ConsentBanner.astro';
 
 type Props = {
@@ -20,7 +21,7 @@ type Props = {
 
 const {
   title = 'Glimmervoid',
-  description = 'Open-source orchestrator for Claude Code and Codex. Run coding agents in parallel worktrees, see which one needs you, steer from your phone.',
+  description = PRODUCT_SUMMARY,
   socialImagePath = 'capture/og.png',
   socialImageAlt = 'Glimmervoid: Mission control that ships. Not a terminal multiplexer. Grids are for watching. This is for working. Below, the real dashboard, its attention banner showing one session that needs you and one that finished.',
   pageType = 'website',

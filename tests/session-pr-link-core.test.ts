@@ -11,6 +11,7 @@ import { createGithubStorePoller } from '../server/github/github-store-poller.ts
 import { createSerialQueue } from '../server/spawn-gate.ts';
 import { GithubPrDetailNode, GithubPrLightSearchNode, comparablePrKey } from '../shared/contracts/github-prs.ts';
 import { git, hasGit } from './helpers/git-fixture.ts';
+import { MY_PRS_HELD_WATCH_OWNER } from '../server/github/core/my-prs-core.ts';
 import { manualTimers } from './helpers/manual-timers.ts';
 
 const LINKED_AT_MS = 1_700_000_000_000;
@@ -28,17 +29,19 @@ function storeHarness(context: TestContext, initialNodes: GithubPrDetailNode[] =
       },
       async prsLightByKey(references) {
         const keys = new Set(references.map(comparablePrKey));
-        return new Map(nodes.filter((node) => keys.has(comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number })))
+        const byKey = new Map(nodes.filter((node) => keys.has(comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number })))
           .map((node) => [comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number }), GithubPrLightSearchNode.parse(node)]));
+        return { byKey, goneKeys: new Set([...keys].filter((key) => !byKey.has(key))) };
       },
       async prDetails(references) {
         const keys = references.map(comparablePrKey);
         detailCalls.push(keys);
-        return new Map(nodes.filter((node) => keys.includes(comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number })))
+        const byKey = new Map(nodes.filter((node) => keys.includes(comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number })))
           .map((node) => [comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number }), node]));
+        return { byKey, goneKeys: new Set(keys.filter((key) => !byKey.has(key))) };
       },
       async notificationsSince() { return { kind: 'unchanged' }; },
-      async behindCounts() { return new Map<string, number>(); },
+      async behindCounts(prs) { return new Map<string, number | null>(prs.map((pr) => [`${pr.repo}#${pr.number}`, null])); },
       async reviewThreadsBatch() { return new Map(); },
       async rateLimitWaitMs() { return null; },
       async viewPr() { assert.fail('Unexpected PR view'); },
@@ -129,7 +132,7 @@ test('a store snapshot links each session to the operator open PRs whose head it
   const pushingSession = sessionFor('pushing', pushing.repoDir);
   const settledSession = sessionFor('settled', settled.repoDir);
   const elsewhereSession = sessionFor('elsewhere', elsewhere.repoDir);
-  store.registerWatch({ name: 'my-prs-open', qualifiers: 'is:open author:@me', needsDetail: true });
+  store.setWatchedKeys(MY_PRS_HELD_WATCH_OWNER, ['acme/widgets#1', 'acme/widgets#2', 'acme/widgets#3', 'acme/widgets#4', 'acme/widgets#6', 'acme/gadgets#5']);
   store.setWatchedKeys('other-lane', ['acme/widgets#7']);
   try {
     await store.tick();

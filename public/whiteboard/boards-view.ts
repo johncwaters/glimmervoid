@@ -1,7 +1,7 @@
 import './whiteboard.css';
 import type { Board, BoardReview, BoardSummary, BoxMedia, Element, Op } from '#shared/contracts/whiteboard.ts';
 import { refPathOf, refsOfElement } from '#shared/whiteboard-anchor-core.ts';
-import { boardMediaOriginalFilename, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
+import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_VIEWER_PARAM, boardMediaOriginalFilename, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import { createActionStatus } from '../action-status.ts';
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
 import { createSandboxedFrame } from '../sandboxed-frame.ts';
@@ -22,19 +22,24 @@ import type { BoardInspector } from './board-inspect.ts';
 import { createBoardRenderer } from './board-gl-renderer.ts';
 import type { BoardRenderer } from './board-gl-renderer.ts';
 import { onTilesChanged, showTilesFor, tiledBoardOf } from './board-tile-store.ts';
-import { createBoardMediaLayer } from './board-media-layer.ts';
+import { createBoardMediaLayer, fetchBoardDocText } from './board-media-layer.ts';
+import { applyDocsToOpenEditor, openDocEditorOn } from '../doc-editor/doc-editor.ts';
+import type { DocSource } from '../doc-editor/doc-editor.ts';
 import {
-  boardSummariesOf, createBoard, deleteBoard, nudgeSessionAboutBoard, onBoardChanged, onBoardListChanged, openBoard, openBoardOf, openFileInReview, requestBoardReview, sendBoardOps, takeOpenBoardRequest, uploadBoardMedia,
+  boardSummariesOf, createBoard, deleteBoard, onBoardChanged, onBoardListChanged, openBoard, openBoardOf, openFileInReview, requestBoardReview, sendBoardOps, takeOpenBoardRequest, uploadBoardMedia,
 } from './board-store.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const EMPTY_TEXT = 'No boards yet. Make one here, or have an agent run glimmervoid whiteboard new <title>.';
 const PICK_TEXT = 'Pick a board above.';
 const TITLE_RENAME_CLASS = 'wb-board-title-rename';
-const SEND_TO_CHAT_ICON_PATH = 'M13.5 8H3 M7 4L3 8l4 4';
 const MORE_ICON_PATH = 'M4.5 6.5L8 10l3.5-3.5';
 const MENU_GAP_PX = 4;
 const STACKED_MEDIA_OFFSET_PX = 32;
+const BOARD_DOC_CONFLICT_TEXT = 'This document changed on the board since you opened it. Reload to see that version.';
+const BOARD_DOC_GONE_TEXT = 'This document is no longer on the board, so it cannot be saved.';
+const BOARD_DOC_UNREAD_TEXT = 'This document could not be read from the board.';
+const BOARD_DOC_NOT_MARKDOWN_TEXT = 'Not saved: this text starts like a picture or an HTML page, so the board would not keep it as a document.';
 const BOARD_MEDIA_FILE_TYPES = new Set(['video/mp4', 'video/webm', 'text/html']);
 const BOARD_MEDIA_FILE_NAME_RE = /\.(png|jpe?g|gif|webp|svg|mp4|webm|html?)$/i;
 const FIT_ICON_PATH = 'M2.5 6V2.5H6 M10 2.5h3.5V6 M13.5 10v3.5H10 M6 13.5H2.5V10';
@@ -73,8 +78,7 @@ interface BoardsViewParts {
   emptyText: HTMLElement;
   agentIsland: HTMLElement;
   queuedForSession: HTMLElement;
-  sendToAgent: HTMLButtonElement;
-  buttons: Record<'note' | 'frame' | 'unit' | 'fit' | 'undo' | 'redo', HTMLButtonElement>;
+  buttons: Record<'note' | 'frame' | 'step' | 'fit' | 'undo' | 'redo', HTMLButtonElement>;
   toolButtons: ReadonlyMap<BoardTool, HTMLButtonElement>;
   toolHint: HTMLElement;
   emptyBoardHint: HTMLElement;
@@ -92,7 +96,6 @@ let reviewRequestKey: string | null = null;
 type RecordedSend = { ok: true; isUndoable: boolean } | { ok: false; error: string };
 
 const status = createActionStatus('action-status wb-status');
-const pairedStatus = createActionStatus('action-status wb-status');
 const historyByBoardId = new Map<string, UndoHistory>();
 let historyQueue: Promise<unknown> = Promise.resolve();
 
@@ -261,7 +264,7 @@ function paintToolbar(): void {
   for (const button of parts.toolButtons.values()) button.disabled = !board;
   parts.buttons.note.disabled = selectedBoxCount !== 1;
   parts.buttons.frame.disabled = selectedBoxCount === 0;
-  for (const button of [parts.buttons.unit, parts.buttons.fit, parts.buttons.undo, parts.buttons.redo]) button.disabled = !board;
+  for (const button of [parts.buttons.step, parts.buttons.fit, parts.buttons.undo, parts.buttons.redo]) button.disabled = !board;
   inspector?.paint(editor?.selectedIds() ?? new Set());
 }
 
@@ -439,6 +442,7 @@ function paintPresence(connectedSessionIds: readonly string[]): void {
   const connectedNames = connectedSessionIds.map(sessionLabel);
   const pillNames = connectedSessionIds.filter((sessionId) => sessionId !== pairedSessionId).map(sessionLabel);
   const connectedCount = el('span', connectedNames.length === 0 ? 'wb-presence-count wb-presence-none' : 'wb-presence-count wb-presence-pill', `${connectedNames.length} connected`);
+  if (connectedNames.length > 0) connectedCount.append(el('span', 'sr-only', `: ${connectedNames.join(', ')}`));
   parts.presence.replaceChildren(...pillNames.map((name) => el('span', 'wb-presence-pill', name)), connectedCount);
   if (connectedNames.length === 0) parts.presence.prepend(el('span', 'wb-presence-none', 'no sessions connected'));
 }
@@ -459,25 +463,11 @@ function paintPairedSession(): void {
   if (!pairedSessionId) return;
   parts.agentIsland.toggleAttribute('data-idle', !hasNewsForPairedSession(summary, pairedSessionId));
   parts.queuedForSession.textContent = queuedForSessionText(summary, pairedSessionId);
-  parts.sendToAgent.disabled = !summary?.connectedSessionIds.includes(pairedSessionId);
 }
 
 function hasNewsForPairedSession(summary: BoardSummary | null, sessionId: string): boolean {
   if (!summary?.connectedSessionIds.includes(sessionId)) return true;
   return (summary.queuedBySessionId[sessionId] ?? 0) > 0;
-}
-
-async function sendBoardNudge(): Promise<void> {
-  if (!parts || !selectedBoardId || !pairedSessionId) return;
-  parts.sendToAgent.disabled = true;
-  pairedStatus.show('busy', 'sending');
-  const outcome = await nudgeSessionAboutBoard(selectedBoardId, pairedSessionId);
-  paintPairedSession();
-  if (!outcome.ok) {
-    pairedStatus.show('error', outcome.error);
-    return;
-  }
-  pairedStatus.show('ok', 'sent; the agent reads the board when it is ready');
 }
 
 function worthALookIdsOf(board: Board, worthALookPaths: readonly string[]): Set<string> {
@@ -500,7 +490,7 @@ function paintReview(): void {
   const review = board && shownReview?.boardId === board.id ? shownReview.review : null;
   renderer.setReviewMarks({
     worthALookIds: board && review ? worthALookIdsOf(board, review.worthALookPaths) : new Set(),
-    flaggedUnitIds: new Set(review?.flaggedUnitIds ?? []),
+    flaggedStepIds: new Set(review?.flaggedStepIds ?? []),
   });
 }
 
@@ -567,19 +557,25 @@ function selectBoard(boardId: string): void {
   void openBoard(boardId).then(paintBoard);
 }
 
-function addUnitFromDialog(): void {
+function addStepFromDialog(): void {
   const board = selectedBoard();
   if (!board) return;
   const otherBoards = boardSummariesOf().filter((summary) => summary.id !== board.id);
   const linkOptions = [{ value: '', text: 'No linked board' }, ...otherBoards.map((summary) => ({ value: summary.id, text: summary.title }))];
   openTextDialog({
-    title: 'Add a unit',
-    label: 'Unit title',
+    title: 'Add a plan step',
+    label: 'Step title',
     placeholder: 'index the diffs',
     maxLength: WHITEBOARD_LIMITS.title,
-    confirmLabel: 'Add unit',
+    confirmLabel: 'Add step',
     choices: otherBoards.length > 0 ? { label: 'Linked board', options: linkOptions } : undefined,
-    onSubmit: (title, linkedBoardId) => sendOpsFromDialog([{ op: 'add', element: { kind: 'unit', id: newElementId('unit'), title, lines: [], refs: [], status: 'planned', after: [], linkedBoardId: linkedBoardId || null } }]),
+    onSubmit: (title, linkedBoardId) => sendOpsFromDialog([{
+      op: 'add',
+      element: {
+        kind: 'box', id: newElementId('box'), title, lines: [], refs: [], change: 'none', was: null, near: null, order: 0, at: null,
+        shape: 'box', outputs: [], media: null, width: null, step: { status: 'planned', linkedBoardId: linkedBoardId || null },
+      },
+    }]),
   });
 }
 
@@ -590,7 +586,7 @@ function pressedMediaOf({ boxId }: PressedImage): BoxMedia | null {
 
 function enlargedMediaOf(pressedImage: PressedImage, media: BoxMedia | null): HTMLElement {
   const originalHref = media ? `${WHITEBOARD_ASSET_ROUTE}/${boardMediaOriginalFilename(media)}` : pressedImage.href;
-  if (media?.kind === 'page') return createSandboxedFrame({ source: { kind: 'url', url: originalHref }, className: 'wb-image-viewer-page', title: pressedImage.alt || 'page', allowsScripts: true });
+  if (media?.kind === 'page') return createSandboxedFrame({ source: { kind: 'url', url: `${originalHref}?${BOARD_PAGE_VIEWER_PARAM}=1` }, className: 'wb-image-viewer-page', title: pressedImage.alt || 'page', allowsScripts: true });
   if (media?.kind === 'video') {
     const video = el('video', 'wb-image-viewer-video');
     video.src = originalHref;
@@ -605,15 +601,83 @@ function enlargedMediaOf(pressedImage: PressedImage, media: BoxMedia | null): HT
   return picture;
 }
 
+function closeOnEscapeInsidePage(pageFrame: HTMLIFrameElement, overlay: HTMLElement, close: () => void): void {
+  const listening = new AbortController();
+  window.addEventListener('message', (event) => {
+    if (event.source !== pageFrame.contentWindow || event.data !== BOARD_PAGE_ESCAPE_MESSAGE) return;
+    close();
+  }, { signal: listening.signal });
+  const overlayWatcher = new MutationObserver(() => {
+    if (overlay.isConnected) return;
+    listening.abort();
+    overlayWatcher.disconnect();
+  });
+  overlayWatcher.observe(document.body, { childList: true });
+}
+
+function docMediaOf(boardId: string, boxId: string): BoxMedia | null {
+  const box = openBoardOf(boardId)?.elements[boxId];
+  return box?.kind === 'box' && box.media?.kind === 'doc' ? box.media : null;
+}
+
+function boardDocKey(boardId: string): string {
+  return `whiteboard:${boardId}`;
+}
+
+async function saveBoardDoc(boardId: string, boxId: string, docText: string, loadedAsset: string): ReturnType<DocSource['save']> {
+  const media = docMediaOf(boardId, boxId);
+  const box = openBoardOf(boardId)?.elements[boxId];
+  if (!media || box?.kind !== 'box' || media.asset !== loadedAsset) return { ok: false, isConflict: true, error: null };
+  const stored = await uploadBoardMedia(new File([docText], `${boxId}.md`, { type: 'text/markdown' }));
+  if (!stored.ok) return { ok: false, isConflict: false, error: stored.error };
+  if (stored.media.kind !== 'doc') return { ok: false, isConflict: false, error: BOARD_DOC_NOT_MARKDOWN_TEXT };
+  if (docMediaOf(boardId, boxId)?.asset !== loadedAsset) return { ok: false, isConflict: true, error: null };
+  const sent = await sendRecordedOps(boardId, [{ op: 'set', id: boxId, fields: { media: { ...stored.media, alt: media.alt } } }]);
+  if (!sent.ok) return { ok: false, isConflict: false, error: sent.error };
+  return { ok: true, hash: stored.media.asset };
+}
+
+function boardDocSource(boardId: string, boxId: string, title: string): DocSource {
+  return {
+    key: boardDocKey(boardId),
+    docs: () => [{ path: boxId, name: title }],
+    isSaveable: () => docMediaOf(boardId, boxId) !== null,
+    hasMarkup: false,
+    openingMode: 'preview',
+    conflictText: BOARD_DOC_CONFLICT_TEXT,
+    unsaveableText: BOARD_DOC_GONE_TEXT,
+    read: async () => {
+      const media = docMediaOf(boardId, boxId);
+      if (!media) return { ok: false, error: BOARD_DOC_GONE_TEXT };
+      const docText = await fetchBoardDocText(media);
+      if (docText === null) return { ok: false, error: BOARD_DOC_UNREAD_TEXT };
+      return { ok: true, text: docText, hash: media.asset };
+    },
+    save: (_docPath, docText, loadedAsset) => saveBoardDoc(boardId, boxId, docText, loadedAsset),
+  };
+}
+
+function openBoardDoc(boardId: string, boxId: string): void {
+  const box = openBoardOf(boardId)?.elements[boxId];
+  if (box?.kind !== 'box') return;
+  openDocEditorOn(boardDocSource(boardId, boxId, box.title));
+}
+
 function openImageViewer(pressedImage: PressedImage): void {
   const { alt } = pressedImage;
   const media = pressedMediaOf(pressedImage);
   if (!media && !pressedImage.href) return;
-  const { dialog, close, titleEl, btnCancel } = buildDialogShell({ title: alt || 'Picture', dialogClass: 'dialog wb-image-viewer', cancelLabel: 'Close' });
+  if (media?.kind === 'doc' && selectedBoardId && pressedImage.boxId) {
+    openBoardDoc(selectedBoardId, pressedImage.boxId);
+    return;
+  }
+  const { overlay, dialog, close, titleEl, btnCancel } = buildDialogShell({ title: alt || 'Picture', dialogClass: 'dialog wb-image-viewer', cancelLabel: 'Close' });
   const header = el('div', 'wb-image-viewer-header');
   titleEl.replaceWith(header);
   header.append(titleEl, btnCancel);
-  dialog.append(enlargedMediaOf(pressedImage, media));
+  const enlargedMedia = enlargedMediaOf(pressedImage, media);
+  dialog.append(enlargedMedia);
+  if (enlargedMedia instanceof HTMLIFrameElement) closeOnEscapeInsidePage(enlargedMedia, overlay, close);
   btnCancel.addEventListener('click', close);
   requestAnimationFrame(() => btnCancel.focus());
 }
@@ -823,7 +887,7 @@ export function mountBoardHost(): HTMLElement {
       if (box) addNoteOn(box.id);
     }),
     frame: moreMenuItem('frame selected boxes', 'add-frame', addFrame),
-    unit: moreMenuItem('plan step', 'add-unit', addUnitFromDialog),
+    step: moreMenuItem('plan step', 'add-step', addStepFromDialog),
     fit: iconButton('fit', FIT_ICON_PATH, 'fit-board', () => editor?.fit()),
     undo: iconButton('undo', UNDO_ICON_PATH, 'undo-board-edit', () => void stepHistory('undo')),
     redo: iconButton('redo', REDO_ICON_PATH, 'redo-board-edit', () => void stepHistory('redo')),
@@ -831,7 +895,7 @@ export function mountBoardHost(): HTMLElement {
   buttons.fit.dataset.phoneVisible = '';
   const toolDivider = el('span', 'wb-divider');
   toolDivider.setAttribute('aria-hidden', 'true');
-  const toolsIsland = island('wb-island-tools', 'Board tools', toolGroup, toolDivider, buildMoreMenu([buttons.note, buttons.frame, buttons.unit]));
+  const toolsIsland = island('wb-island-tools', 'Board tools', toolGroup, toolDivider, buildMoreMenu([buttons.note, buttons.frame, buttons.step]));
   const toolHint = el('p', 'wb-tool-hint');
   toolHint.setAttribute('aria-live', 'polite');
   toolHint.hidden = true;
@@ -855,8 +919,7 @@ export function mountBoardHost(): HTMLElement {
   viewport.append(glCanvas, world, glNotice);
   const inspectPanel = el('aside', 'wb-inspect');
   const queuedForSession = el('span', 'wb-session-queued');
-  const sendToAgent = iconButton('send to agent', SEND_TO_CHAT_ICON_PATH, 'send-board-to-agent', () => void sendBoardNudge());
-  const agentIsland = island('wb-island-agent', 'Session', sendToAgent, queuedForSession, pairedStatus.element);
+  const agentIsland = island('wb-island-agent', 'Session', queuedForSession);
   agentIsland.hidden = true;
   const bottomLeftStack = el('div', 'wb-bottom-left');
   bottomLeftStack.append(agentIsland);
@@ -878,7 +941,7 @@ export function mountBoardHost(): HTMLElement {
   empty.append(emptyText, button({ variant: 'secondary', label: 'new board', action: 'new-board', onClick: newBoardFromDialog }));
 
   host.replaceChildren(canvas, empty);
-  parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, sendToAgent, buttons, toolButtons, toolHint, emptyBoardHint };
+  parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, buttons, toolButtons, toolHint, emptyBoardHint };
   const boardRenderer = createBoardRenderer({
     canvas: glCanvas,
     viewport,
@@ -911,6 +974,7 @@ export function mountBoardHost(): HTMLElement {
   wireMediaDrops(host, canvas);
   onBoardListChanged(paintList);
   onBoardChanged((boardId) => {
+    applyDocsToOpenEditor(boardDocKey(boardId));
     if (boardId !== selectedBoardId) return;
     paintBoard();
   });
@@ -933,7 +997,6 @@ export function placeBoardTitle(titleSlot: HTMLElement | null): void {
 }
 
 export function showBoardBeside(boardId: string | null, sessionId: string | null): void {
-  if (sessionId !== pairedSessionId) pairedStatus.clear();
   pairedSessionId = sessionId;
   if (boardId) selectBoard(boardId);
   paintPairedSession();

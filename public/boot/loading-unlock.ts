@@ -25,8 +25,8 @@ function isBrandMarkSide(value: string | undefined): value is BrandMarkSide {
   return value !== undefined && Object.hasOwn(INWARD, value);
 }
 
-function bracketsOf(mark: SVGElement): Array<{ bracket: SVGElement; dx: number; dy: number }> {
-  return [...mark.querySelectorAll('.loading-mark-bracket')].flatMap((bracket) => {
+function bracketsOf(mark: Element): Array<{ bracket: SVGElement; dx: number; dy: number }> {
+  return [...mark.querySelectorAll('[data-side]')].flatMap((bracket) => {
     const side = bracket instanceof SVGElement ? bracket.dataset.side : undefined;
     if (!(bracket instanceof SVGElement) || !isBrandMarkSide(side)) return [];
     const [dx, dy] = INWARD[side];
@@ -83,6 +83,15 @@ function burst(brackets: ReturnType<typeof bracketsOf>, light: Element, halo: El
     { transform: 'scale(9)', opacity: 0 },
   ], { duration: BURST_MS, easing: 'cubic-bezier(0.5, 0, 0.2, 1)', fill: 'forwards' });
   halo.animate([{ transform: 'scale(1)', opacity: 0 }, { transform: 'scale(1)', opacity: 1, offset: 0.2 }, { transform: 'scale(12)', opacity: 0 }], { duration: 900, easing: 'ease-out' });
+}
+
+export function playMarkLock({ mark, dial, light, halo }: { mark: Element; dial: Element; light: Element; halo: Element }): Promise<void> {
+  if (reducedMotion?.matches || document.hidden) return Promise.resolve();
+  spinDial(dial);
+  throwBolts(bracketsOf(mark));
+  light.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.35)', offset: 0.4 }, { transform: 'scale(1)' }], { duration: 480, delay: LIGHT_AT_MS, easing: SNAP });
+  halo.animate([{ transform: 'scale(1)', opacity: 0.8 }, { transform: 'scale(3.4)', opacity: 0 }], { duration: 700, delay: LIGHT_AT_MS + 20, easing: 'ease-out' });
+  return wait(LIGHT_AT_MS);
 }
 
 export async function playLoadingUnlock(screen: HTMLElement): Promise<void> {

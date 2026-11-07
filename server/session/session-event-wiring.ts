@@ -17,6 +17,9 @@ import type { Telemetry } from '../telemetry.ts';
 import type { CommitSessions } from '../commit-sessions.ts';
 import type { SessionEndCause, SessionExitKind } from '../../shared/contracts/telemetry.ts';
 import { errorMessage } from '../../shared/text.ts';
+import { MANAGER_DECISION_EVENT, QUESTION_ANSWERED_NOTIFY_CATEGORY } from '../../shared/contracts/question-manager.ts';
+import type { ManagerDecision } from '../../shared/contracts/question-manager.ts';
+import { answeredSummary } from '../question-manager/core/question-manager-core.ts';
 
 const IDLE_COMPACTION_CONFIRM_MS = 10000;
 
@@ -309,6 +312,12 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     session.on('command-hint', ({ command, outcome }: { command: HintedCommand; outcome: 'shown' | 'followed' }) => {
       dependencies.telemetry?.capture(outcome === 'shown' ? 'command_hint_shown' : 'command_hint_followed', { command, adapter: adapterBucket(session.agentId) });
     });
+    session.on(MANAGER_DECISION_EVENT, ({ decision }: { decision: ManagerDecision }) => {
+      dependencies.broadcastControl({ type: 'session-manager-decision', id: session.id, decision });
+      if (decision.outcome !== 'answered') return;
+      const verdict = { kind: 'answer', answers: decision.answers, ruleName: decision.rule, by: decision.by } as const;
+      dependencies.notificationManager.trigger(session.id, QUESTION_ANSWERED_NOTIFY_CATEGORY, `${session.name} answered ${answeredSummary(verdict)}`);
+    });
     session.on('agent-attention', ({ note }: { note: string }) => {
       pendingAgentNote = pendingAgentNote === null ? note : `${pendingAgentNote}${AGENT_ATTENTION_NOTE_SEPARATOR}${note}`;
     });
@@ -332,6 +341,11 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     session.on('wakeup-change', persistWasWorking);
     session.on('prompt-kind-change', ({ pendingPromptKind: nextKind }: { pendingPromptKind: string | null }) => noteStatus({ pendingPromptKind: nextKind }));
     session.on('unseen-outcome-change', ({ unseenOutcome }: { unseenOutcome: UnseenOutcome | null }) => noteStatus({ unseenOutcome }));
+    session.on('manager-seen-change', ({ managerSeenSeq }: { managerSeenSeq: number }) => noteStatus({ managerSeenSeq }));
+    session.on('question-manager-change', ({ isQuestionManagerOn }: { isQuestionManagerOn: boolean }) => {
+      persistProjectField('questionManagerOn', isQuestionManagerOn ? true : undefined);
+      noteStatus({ isQuestionManagerOn });
+    });
 
     session.on('merge-status', ({ mergeStatus, reason, parked }: {
       mergeStatus: string;

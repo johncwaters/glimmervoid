@@ -45,6 +45,7 @@ function makeInstall({ npmExitCode = 0 } = {}) {
   fs.writeFileSync(path.join(nodeBin, 'npm'), [
     '#!/bin/sh',
     `[ ${npmExitCode} -ne 0 ] && { echo "npm ERR! registry unreachable" >&2; exit ${npmExitCode}; }`,
+    `printf '%s\\n' "$@" > ${JSON.stringify(path.join(root, 'npm-argv.txt'))}`,
     'while [ "$1" != "--prefix" ]; do shift; done',
     'mkdir -p "$2/lib/node_modules"',
     `cp -R ${JSON.stringify(publishedPackage)} "$2/lib/node_modules/glimmervoid"`,
@@ -102,6 +103,8 @@ test('an npm global install stages the channel version, swaps it in at hand-off,
     const lane = startLane(install);
     const staged = await lane.applyUpdate();
     assert.equal(staged.ok, true, staged.message);
+    const npmArguments = fs.readFileSync(path.join(install.root, 'npm-argv.txt'), 'utf8').split('\n');
+    assert.ok(npmArguments.includes('--prefer-online'), 'a stale cached package list must not hide a just-published version');
     assert.equal(lane.getJournal().state, 'staged');
     assert.equal(installedVersion(install.packageRoot), '1.0.0');
 

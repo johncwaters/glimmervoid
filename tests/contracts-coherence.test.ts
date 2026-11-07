@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import test from 'node:test';
 import { CoherenceJournalOutput } from '../shared/contracts/coherence.ts';
-import { areCodexHooksTrusted, codexHookHashes, trustedCodexHookHashes } from '../server/coherence/core/coherence-codex-trust-core.ts';
 import { judgeCoherenceSupport } from '../server/coherence/core/coherence-support-core.ts';
 
 const fixtures = new URL('./fixtures/coherence/1.8.0/', import.meta.url);
@@ -27,18 +25,4 @@ test('Coherence version fixture and supported range reject prereleases and unrel
     assert.deepEqual(judgeCoherenceSupport(`coherence ${version}: the installed package (node_modules).`), { status: 'unsupported', version });
   }
   assert.deepEqual(judgeCoherenceSupport('unrelated output'), { status: 'unreadable' });
-});
-
-test('Coherence 1.8.0 Codex inline hooks hash additionalContextLimit and require current trust', () => {
-  const text = fs.readFileSync(new URL('codex-hooks.json', fixtures), 'utf8');
-  const hashes = codexHookHashes('/repo/.codex/hooks.json', text);
-  assert.equal(hashes.size, 7);
-  assert.equal([...hashes.values()].every((hash) => hash !== null), true);
-  const hooks = JSON.parse(text) as { hooks: { SessionStart: { hooks: { command: string }[] }[] } };
-  const identity = { event_name: 'session_start', hooks: [{ additionalContextLimit: 4000, async: false, command: hooks.hooks.SessionStart[0].hooks[0].command, timeout: 60, type: 'command' }] };
-  const expectedHash = `sha256:${createHash('sha256').update(JSON.stringify(identity)).digest('hex')}`;
-  assert.equal(hashes.get('/repo/.codex/hooks.json:session_start:0:0'), expectedHash);
-  const trust = [...hashes].map(([key, hash]) => `[hooks.state.${JSON.stringify(key)}]\ntrusted_hash = ${JSON.stringify(hash)}`).join('\n');
-  assert.equal(areCodexHooksTrusted(hashes, trustedCodexHookHashes(trust)), true);
-  assert.equal(areCodexHooksTrusted(hashes, trustedCodexHookHashes(trust.replace(expectedHash, 'stale'))), false);
 });

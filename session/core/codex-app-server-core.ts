@@ -205,3 +205,82 @@ export function remoteCodexAppServerScript({ version, workingDirectory, appServe
     `exec "$codex_bin" ${quotedArgs}`,
   ].join('\n');
 }
+
+export type BridgeStartup = 'starting' | 'ready' | 'failed' | 'stopped';
+
+export type ThreadJoin =
+  | { kind: 'idle'; generation: number }
+  | { kind: 'waiting'; threadId: string; generation: number; deadlineMs: number }
+  | { kind: 'joining'; threadId: string; generation: number; deadlineMs: number }
+  | { kind: 'joined'; threadId: string; generation: number }
+  | { kind: 'abandoned'; threadId: string; generation: number };
+
+export type ThreadJoinEvent =
+  | { kind: 'thread_followed'; threadId: string; nowMs: number }
+  | { kind: 'thread_active'; nowMs: number }
+  | { kind: 'attempt_due'; nowMs: number }
+  | { kind: 'resume_ok'; generation: number }
+  | { kind: 'resume_no_rollout'; generation: number; nowMs: number }
+  | { kind: 'resume_failed'; generation: number };
+
+type ThreadJoinAction =
+  | { kind: 'request-resume'; threadId: string; generation: number; timeoutMs: number }
+  | { kind: 'schedule-attempt' }
+  | { kind: 'cancel-attempt' }
+  | { kind: 'hydrate'; threadId: string }
+  | { kind: 'report-error' };
+
+const JOIN_RETRY_WINDOW_MS = 15000;
+const MAX_RESUME_TIMEOUT_MS = 15000;
+
+export const NO_THREAD_JOIN: ThreadJoin = { kind: 'idle', generation: 0 };
+
+export function followedThreadIdOf(join: ThreadJoin): string | null {
+  return join.kind === 'idle' ? null : join.threadId;
+}
+
+function settleResume(join: ThreadJoin, generation: number): Extract<ThreadJoin, { kind: 'joining' }> | null {
+  if (join.kind !== 'joining' || join.generation !== generation) return null;
+  return join;
+}
+
+function retryWhileOpen(join: Extract<ThreadJoin, { kind: 'waiting' }>, nowMs: number): { join: ThreadJoin; actions: ThreadJoinAction[] } {
+  return { join, actions: nowMs < join.deadlineMs ? [{ kind: 'schedule-attempt' }] : [] };
+}
+
+export function decideThreadJoin(join: ThreadJoin, event: ThreadJoinEvent): { join: ThreadJoin; actions: ThreadJoinAction[] } | null {
+  switch (event.kind) {
+    case 'thread_followed': {
+      if (followedThreadIdOf(join) === event.threadId) return null;
+      const waiting: ThreadJoin = { kind: 'waiting', threadId: event.threadId, generation: join.generation + 1, deadlineMs: event.nowMs + JOIN_RETRY_WINDOW_MS };
+      const attempt = decideThreadJoin(waiting, { kind: 'attempt_due', nowMs: event.nowMs });
+      return { join: attempt?.join ?? waiting, actions: [{ kind: 'cancel-attempt' }, ...(attempt?.actions ?? [])] };
+    }
+    case 'thread_active': {
+      if (join.kind !== 'waiting' && join.kind !== 'joining') return null;
+      const extended = { ...join, deadlineMs: Math.max(join.deadlineMs, event.nowMs + JOIN_RETRY_WINDOW_MS) };
+      if (extended.kind === 'joining') return { join: extended, actions: [] };
+      return retryWhileOpen(extended, event.nowMs);
+    }
+    case 'attempt_due': {
+      if (join.kind !== 'waiting' || event.nowMs >= join.deadlineMs) return null;
+      const timeoutMs = Math.max(1, Math.min(MAX_RESUME_TIMEOUT_MS, join.deadlineMs - event.nowMs));
+      return { join: { ...join, kind: 'joining' }, actions: [{ kind: 'request-resume', threadId: join.threadId, generation: join.generation, timeoutMs }] };
+    }
+    case 'resume_ok': {
+      const joining = settleResume(join, event.generation);
+      if (!joining) return null;
+      return { join: { kind: 'joined', threadId: joining.threadId, generation: joining.generation }, actions: [{ kind: 'cancel-attempt' }, { kind: 'hydrate', threadId: joining.threadId }] };
+    }
+    case 'resume_no_rollout': {
+      const joining = settleResume(join, event.generation);
+      if (!joining) return null;
+      return retryWhileOpen({ ...joining, kind: 'waiting' }, event.nowMs);
+    }
+    case 'resume_failed': {
+      const joining = settleResume(join, event.generation);
+      if (!joining) return null;
+      return { join: { kind: 'abandoned', threadId: joining.threadId, generation: joining.generation }, actions: [{ kind: 'report-error' }] };
+    }
+  }
+}

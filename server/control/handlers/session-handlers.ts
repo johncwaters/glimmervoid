@@ -9,8 +9,8 @@ import { SESSION_NAME_PATTERN, SESSION_NAME_RULE_TEXT, TASK_TITLE_MAX_LENGTH, Ta
 import { sanitizeWorktreeName } from '../../../shared/paths.ts';
 import { STATES } from '../../../shared/states.ts';
 import { errorMessage } from '../../../shared/text.ts';
-import { DEFAULT_AGENT_ID, isKnownAgentId } from '../../../session/adapters/index.ts';
-import { RESUME_ID_RE } from '../../../session/core/auto-resume.ts';
+import { DEFAULT_AGENT_ID, getAdapter, isKnownAgentId } from '../../../session/adapters/index.ts';
+import { RESUME_ID_RE, resolveResumeTarget } from '../../../session/core/auto-resume.ts';
 import { claudeProjectsDir, listRepoConversations } from '../../../session/core/conversation-history.ts';
 import { planQuickSession } from '../../session/core/quick-session-core.ts';
 import { manualPrLink } from '../../../session/core/session-pr-links-core.ts';
@@ -24,12 +24,14 @@ import { configuredIntegrationBranch } from '../../core/integration-branch-core.
 import { sanitizeOneLine } from '../../core/text-core.ts';
 import { runGit } from '../../git/git-exec.ts';
 import { machineSkipsPermissionsByDefault } from '../../session/core/session-registry-core.ts';
+import { projectDirCandidates } from '../../usage/core/usage-scan-core.ts';
 import type { ControlContext } from '../control-context.ts';
 import { SESSION_GONE_TEXT, isExistingDirectory, missingFolderError, replyTo, sendError } from '../control-context.ts';
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
 
 type AddSessionRefusal = { error: string };
-type AddSessionRequest = ClientMessageOf<'add-session'> & { runSettings?: Partial<ProjectEntry> };
+type AddSessionRequest = ClientMessageOf<'add-session'>;
+type RunSettings = Partial<ProjectEntry>;
 type RemovalRefusal = { ok: false; error: string; canDiscardWork?: boolean; keptPaths?: KeptWorkPath[] };
 type SessionRemoval = { ok: true } | RemovalRefusal;
 type DiscardSession = (id: string) => Promise<SessionRemoval>;
@@ -65,6 +67,10 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
   } = deps;
 
   function handleAddSession(request: AddSessionRequest, ws: ControlSocket): Promise<void> | undefined {
+    return addSession(request, ws, {});
+  }
+
+  function addSession(request: AddSessionRequest, ws: ControlSocket, runSettings: RunSettings): Promise<void> | undefined {
     const msg = withShellDefaults(request);
     const refusal = shellAddSessionRefusal(msg) ?? addSessionRefusal(msg);
     if (refusal) {
@@ -72,8 +78,8 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       return undefined;
     }
     const environmentName = typeof msg.environment === 'string' ? msg.environment.trim() : '';
-    if (environmentName) return createRemoteAddedSession(msg, ws, environmentName);
-    createAddedSession(msg, ws);
+    if (environmentName) return createRemoteAddedSession(msg, ws, runSettings, environmentName);
+    createAddedSession(msg, ws, runSettings);
     return undefined;
   }
 
@@ -88,10 +94,10 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       project: config.projects.find((project) => project.id === source.id) ?? null,
       sessionNames: liveSessionNames(),
     });
-    return handleAddSession({ type: 'add-session', requestId: msg.requestId, ...plan.request, runSettings: plan.runSettings }, ws);
+    return addSession({ type: 'add-session', requestId: msg.requestId, ...plan.request }, ws, plan.runSettings);
   }
 
-  function createAddedSession(msg: AddSessionRequest, ws: ControlSocket, remote?: { id: string; environment: NonNullable<ProjectEntry['environment']> }): ProjectEntry | null {
+  function createAddedSession(msg: AddSessionRequest, ws: ControlSocket, runSettings: RunSettings, remote?: { id: string; environment: NonNullable<ProjectEntry['environment']> }): ProjectEntry | null {
     const name = (msg.name || '').trim();
     const projectPath = (msg.path || '').trim();
     const repos = msg.repos;
@@ -111,15 +117,28 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       saneYolo: skipPerms && msg.saneYolo === true,
       requireExistingPath: !repos,
       environment: remote?.environment,
-      runSettings: msg.runSettings,
+      runSettings: runSettingsWithConversation(msg, runSettings),
     });
     if (!created.ok) {
       refuseAddSession(msg, ws, { error: created.error });
       return null;
     }
+    sendFirstPrompt(created.project.id, msg.prompt);
     if (msg.requestId) replyTo(ws, msg, 'add-session-result', { ok: true, error: null, sessionId: created.project.id });
     console.log(`[control] Added session via UI: ${created.project.name}${skipPerms ? ' (skip permissions)' : ' (permission prompts)'}${remote ? ` (Coder environment ${remote.environment.name})` : ''}`);
     return created.project;
+  }
+
+  function sendFirstPrompt(sessionId: string, prompt: string | undefined) {
+    const firstPrompt = prompt?.trim();
+    if (!firstPrompt) return;
+    const session = sessions.get(sessionId);
+    if (!session) {
+      console.warn(`[control] First prompt dropped: session ${sessionId} is not loaded`);
+      return;
+    }
+    const pasted = session.pasteTextWhenReady(firstPrompt, { submit: true });
+    if (!pasted.ok) console.warn(`[control] First prompt not sent to "${session.name}" (${pasted.reason})`);
   }
 
   async function remoteRepoSource(projectPath: string): Promise<{ ok: true; repoRemoteUrl: string; baseBranch: string } | { ok: false; error: string }> {
@@ -186,7 +205,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     return null;
   }
 
-  async function createRemoteAddedSession(msg: AddSessionRequest, ws: ControlSocket, environmentName: string): Promise<void> {
+  async function createRemoteAddedSession(msg: AddSessionRequest, ws: ControlSocket, runSettings: RunSettings, environmentName: string): Promise<void> {
     const refusal = remoteAddSessionRefusal(msg);
     if (refusal) {
       refuseAddSession(msg, ws, refusal);
@@ -213,7 +232,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       refuseAddSession(msg, ws, { error: reserved.reason });
       return;
     }
-    const project = createAddedSession(msg, ws, { id, environment: reserved.mapping });
+    const project = createAddedSession(msg, ws, runSettings, { id, environment: reserved.mapping });
     if (!project) return;
     void coderEnv.provision({ projectId: id, mapping: reserved.mapping, repoRemoteUrl, baseBranch }).then((provisioned) => {
       if (!provisioned.ok) console.warn(`[control] Coder provision failed for ${project.name}: ${provisioned.reason}`);
@@ -236,6 +255,30 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     return null;
   }
 
+  function runSettingsWithConversation(msg: AddSessionRequest, runSettings: RunSettings): RunSettings {
+    const resumeSessionId = requestedConversationId(msg.resumeSessionId);
+    if (!resumeSessionId) return runSettings;
+    return { ...runSettings, resumeSessionId };
+  }
+
+  function addSessionResumeRefusal(msg: AddSessionRequest, agentId: string): AddSessionRefusal | null {
+    const resumeSessionId = requestedConversationId(msg.resumeSessionId);
+    if (!resumeSessionId) return null;
+    const adapter = getAdapter(agentId);
+    if (!adapter?.capabilities.resume) return { error: `A ${adapter?.label ?? agentId} session cannot resume a conversation` };
+    if (!RESUME_ID_RE.test(resumeSessionId)) return { error: 'Invalid conversation id' };
+    const isCoderSession = typeof msg.environment === 'string' && msg.environment.trim() !== '';
+    if (adapter.usageVendor !== 'claude' || isCoderSession) return null;
+    const projectsDirs = projectDirCandidates(process.env, [], os.homedir());
+    const sessionFolders = msg.repos ?? [(msg.path || '').trim()];
+    const resumeTarget = resolveResumeTarget(
+      { resumeSessionId, transcriptPath: null, projectsDirs, cwds: sessionFolders.filter(Boolean) },
+      { existsSync: fs.existsSync, readdirSync: fs.readdirSync },
+    );
+    if (resumeTarget.resumeSessionId) return null;
+    return { error: `No conversation ${resumeSessionId} was found under ${projectsDirs.join(', ')}` };
+  }
+
   function addSessionRefusal(msg: AddSessionRequest): AddSessionRefusal | null {
     const name = (msg.name || '').trim();
     const projectPath = (msg.path || '').trim();
@@ -243,6 +286,8 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     if (!SESSION_NAME_PATTERN.test(name)) return { error: SESSION_NAME_RULE_TEXT };
     const requestedAgent = typeof msg.agent === 'string' ? msg.agent.trim() : '';
     if (requestedAgent && !isKnownAgentId(requestedAgent)) return { error: `Unknown agent "${requestedAgent}"` };
+    const resumeRefusal = addSessionResumeRefusal(msg, requestedAgent || DEFAULT_AGENT_ID);
+    if (resumeRefusal) return resumeRefusal;
     const missingRepo = msg.repos?.find((repoPath) => !isExistingDirectory(repoPath));
     if (missingRepo) return { error: missingFolderError(missingRepo) };
     if (msg.repos) return null;
@@ -462,6 +507,19 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     reply(null);
   }
 
+  function handleSetSessionQuestionManager(msg: ClientMessageOf<'set-session-question-manager'>, ws: ControlSocket): void {
+    const session = findSession(msg);
+    if (!session) {
+      sendError(ws, SESSION_GONE_TEXT);
+      return;
+    }
+    if (session.isQuestionManagerOn === null) {
+      sendError(ws, 'The question manager cannot answer for this session.', { id: session.id });
+      return;
+    }
+    session.setQuestionManagerOn(msg.isOn);
+  }
+
   function handleSetSessionTitle(msg: ClientMessageOf<'set-session-title'>, ws: ControlSocket): void {
     const session = findSession(msg);
     const parsedTitle = TaskTitle.safeParse(msg.title);
@@ -590,6 +648,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     'get-workspace-repos': handleGetWorkspaceRepos,
     'set-workspace-repos': handleSetWorkspaceRepos,
     'set-session-title': handleSetSessionTitle,
+    'set-session-question-manager': handleSetSessionQuestionManager,
     'link-session-pr': handleLinkSessionPr,
     'unlink-session-pr': handleUnlinkSessionPr,
     'kill': (msg: ClientMessageOf<'kill'>) => { const s = findSession(msg); if (s) s.killSession(); },
@@ -601,6 +660,9 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       if (!session) return;
       if (msg.expectedState !== undefined && session.state !== msg.expectedState) return;
       session.dismiss();
+    },
+    'manager-seen': (msg: ClientMessageOf<'manager-seen'>) => {
+      findSession(msg)?.markManagerDecisionsSeen(msg.throughSeq);
     },
   } satisfies ControlHandlerTable;
 

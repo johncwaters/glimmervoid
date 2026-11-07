@@ -128,13 +128,14 @@ const SESSION_TOOL: GroupedTool = {
 const WHITEBOARD_TOOL: GroupedTool = {
   name: 'whiteboard',
   title: 'Glimmervoid whiteboards',
-  description: `Draw diagrams, architecture maps and plans on a shared whiteboard the operator sees and edits on the dashboard; prefer it to a diagram in chat. new creates a board and list names them; every other action needs a board that exists, so call list or new first. get reads one with what changed since this session last read it; a board over ${WHITEBOARD_LIMITS.readPage} elements or too much text for one page comes back as an outline (counts, bounds, frames, columns, clusters elsewhere) plus the elements in its focus region, which is the operator's current view until you pass region to look elsewhere; query pages elements by region, ids or text; view returns a picture of it as the operator sees it, put applies element ops (add, set, remove; a unit element is a plan step); get and put also return the plan steps in build order and any layout warnings to fix, connect and disconnect follow a board's changes, resolve closes a note, delete removes a board this session created, attach stores a PNG, JPEG, WebP, GIF, SVG, MP4, WebM or HTML file and returns the media a box takes to show it.`,
+  description: `Draw diagrams, architecture maps and plans on a shared whiteboard the operator sees and edits on the dashboard; prefer it to a diagram in chat. new creates a board and list names them; every other action needs a board that exists, so call list or new first. get reads one with what changed since this session last read it; a board over ${WHITEBOARD_LIMITS.readPage} elements or too much text for one page comes back as an outline (counts, bounds, frames, clusters elsewhere) plus the elements in its focus region, which is the operator's current view until you pass region to look elsewhere; query pages elements by region, ids or text; view returns a picture of it as the operator sees it, put applies element ops (add, set, remove; a box with a step is a plan step, and a wire from one step to another orders them); get and put also return the plan steps in build order and any layout warnings to fix, connect and disconnect follow a board's changes, resolve closes a note, delete removes a board this session created, attach stores a PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML or Markdown file and returns the media a box takes to show it, and doc reads the Markdown text of the document a box shows, as the operator last saved it.`,
   loadsUpfront: true,
   fields: {
     board: BoardField.optional(),
     title: z.string().min(1).max(200).optional().describe('new: the board title'),
     ops: z.array(Op).min(1).optional().describe('put: the element ops to apply'),
     note: z.string().min(1).max(200).optional().describe('resolve: the note element id'),
+    box: z.string().min(1).max(40).optional().describe('doc: the id of the box whose document to read'),
     peek: z.boolean().optional().describe('get: read without marking changes as seen; view never marks them'),
     review: z.boolean().optional().describe('get: include the plan review against the code session'),
     region: BoardRegion.optional().describe('get: the focus region to read in full, kept as this session\'s focus until the operator view changes; query: the region to page through'),
@@ -153,6 +154,7 @@ const WHITEBOARD_TOOL: GroupedTool = {
     connect: whiteboardRoute('connect', ['board'], { required: ['board'], hints: REWRITES, presenter: 'board-without-command-guide' }),
     disconnect: whiteboardRoute('disconnect', ['board'], { required: ['board'], hints: REWRITES }),
     resolve: whiteboardRoute('resolve', ['board', 'note'], { required: ['board', 'note'], hints: REWRITES }),
+    doc: whiteboardRoute('doc', ['board', 'box'], { required: ['board', 'box'], hints: READS, presenter: 'reply-text' }),
     delete: whiteboardRoute('delete', ['board'], { required: ['board'], hints: { ...DESTROYS, idempotent: true } }),
     attach: { verb: 'whiteboard', required: ['path'], accepts: ['path'], hints: { ...WRITES, idempotent: true }, toPayload: attachPayload },
   },
@@ -201,7 +203,7 @@ function showPayload(toolArguments: ToolArguments, context: CallContext): Record
 const SHOW_TOOL: GroupedTool = {
   name: 'show',
   title: 'Glimmervoid show',
-  description: 'Show the operator an image, video or HTML page you made (a screenshot, a rendered chart, a report, a mockup, a demo clip) as a card on a whiteboard on their dashboard. Use it instead of publishing an artifact, pasting a picture into chat, or asking the operator to open a file: the operator is already watching the board, and the card stays there for them and other sessions to see and edit. It puts the card on the board this session is connected to, creating one named after this session when there is none, and returns the board and the box id so whiteboard put can change it. Accepts PNG, JPEG, WebP, GIF, SVG, MP4, WebM or HTML on this machine, up to 200 MB.',
+  description: 'Show the operator an image, video, HTML page or Markdown document you made (a screenshot, a rendered chart, a report, a mockup, a demo clip, a draft they should edit) as a card on a whiteboard on their dashboard. Use it instead of publishing an artifact, pasting a picture into chat, or asking the operator to open a file: the operator is already watching the board, and the card stays there for them and other sessions to see and edit. It puts the card on the board this session is connected to, creating one named after this session when there is none, and returns the board and the box id so whiteboard put can change it. Accepts PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML or Markdown on this machine, up to 200 MB, a Markdown document up to 256 KiB; the operator can edit a Markdown document on the board.',
   loadsUpfront: true,
   fields: {
     path: z.string().min(1).max(4096).describe('The file, absolute or relative to this session\'s directory'),

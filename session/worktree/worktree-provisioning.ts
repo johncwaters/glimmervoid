@@ -112,6 +112,7 @@ function createWorktreeProvisioning(context: WorktreeLifecycleContext, deps: Wor
   }
 
   async function provision(options: { fresh?: boolean } = {}): Promise<boolean> {
+    provisionAbort.abort();
     provisionAbort = new AbortController();
     return provisionWorktree(options);
   }
@@ -212,22 +213,25 @@ function createWorktreeProvisioning(context: WorktreeLifecycleContext, deps: Wor
   }
 
   let provisionAbort = new AbortController();
-  let seedInFlight: Promise<unknown> | null = null;
+  const seedsInFlight = new Set<Promise<unknown>>();
 
   async function stopSeeding(): Promise<void> {
     provisionAbort.abort();
-    await seedInFlight;
+    await Promise.all(seedsInFlight);
   }
 
   async function seedWorktreeDependencies(mainCheckout: string, worktreeDir: string, branch: string | null): Promise<void> {
     if (!seedDependencies) return;
     const { signal } = provisionAbort;
     if (signal.aborted) return;
-    const seeding = seedDependencies({ mainCheckout, worktreeDir, signal });
-    seedInFlight = seeding;
-    const outcome = await seeding.finally(() => {
-      if (seedInFlight === seeding) seedInFlight = null;
-    });
+    const seedRun = seedDependencies({ mainCheckout, worktreeDir, signal });
+    const reported = seedRun.completion.then((outcome) => reportSeedOutcome(outcome, worktreeDir, branch));
+    seedsInFlight.add(reported);
+    void reported.finally(() => seedsInFlight.delete(reported));
+    if (await seedRun.blocksSpawn) await reported;
+  }
+
+  function reportSeedOutcome(outcome: DependencySeedOutcome | null, worktreeDir: string, branch: string | null): void {
     if (!outcome) return;
     const { clone, install } = outcome;
     logCloneOutcome(clone, worktreeDir);

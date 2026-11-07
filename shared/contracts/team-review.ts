@@ -270,7 +270,7 @@ export function canApproveAfterComment(draft: Pick<ReviewDraft, 'status' | 'post
   return draft.status === 'posted' && draft.postedEvent === 'COMMENT';
 }
 
-export const TeamReviewAction = z.enum(['approve', 'approve-only', 'comment', 'request-changes', 'discard', 'requeue', 'resolve-thread']);
+export const TeamReviewAction = z.enum(['approve', 'approve-only', 'comment', 'request-changes', 'discard', 'requeue', 'restore', 'resolve-thread']);
 export type TeamReviewAction = z.infer<typeof TeamReviewAction>;
 
 export function hasRequiredActionHead(request: { action: TeamReviewAction; head?: string }): boolean {

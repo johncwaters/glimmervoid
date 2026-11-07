@@ -9,7 +9,7 @@ import { errorMessage } from '../../../shared/text.ts';
 import { parseJsonOrNull } from '../../core/json-core.ts';
 import { isOrgMemberAssociation } from '../core/github-store-core.ts';
 import type { PrReference } from './pr-gh-queries.ts';
-import { GRAPHQL_ERROR_ALIAS } from './pr-gh-responses.ts';
+import { GRAPHQL_ALIAS_NOT_FOUND_ERROR, GRAPHQL_ERROR_ALIAS } from './pr-gh-responses.ts';
 
 interface GithubIssueLabelRow {
   name?: unknown;
@@ -44,7 +44,7 @@ interface RestValidators {
   lastModified?: string;
 }
 
-type RestMetadata = RestValidators & { pollIntervalSeconds?: number };
+type RestMetadata = RestValidators & { pollIntervalSeconds?: number; nextPath?: string };
 
 type ConditionalGetResult =
   | ({ kind: 'unchanged' } & RestMetadata)
@@ -71,9 +71,21 @@ function aliasesOfErrors(errors: readonly unknown[]): Set<string> | null {
   for (const error of errors) {
     const parsed = GRAPHQL_ERROR_ALIAS.safeParse(error);
     if (!parsed.success) return null;
+    if (isWorkflowRunPath(parsed.data.path)) continue;
     aliases.add(parsed.data.path[0]);
   }
   return aliases;
+}
+
+function isWorkflowRunPath(path: readonly (string | number)[]): boolean {
+  return path.some((segment, index) => segment === 'checkSuite' && path[index + 1] === 'workflowRun');
+}
+
+function aliasesReportedGone(errors: readonly unknown[]): Set<string> {
+  return new Set(errors.flatMap((error) => {
+    const parsed = GRAPHQL_ALIAS_NOT_FOUND_ERROR.safeParse(error);
+    return parsed.success ? [parsed.data.path[0]] : [];
+  }));
 }
 
 function isPrNumber(number: number): boolean {
@@ -91,6 +103,10 @@ function uniqueValidPrs(prs: readonly PrReference[]): PrReference[] {
     byKey.set(reviewSnapshotKey(pr.repo, pr.number), { repo: pr.repo, number: pr.number });
   }
   return [...byKey.values()];
+}
+
+function isArchivedRepositoryIssue(candidate: unknown): boolean {
+  return z.object({ repository: z.object({ archived: z.literal(true) }) }).safeParse(candidate).success;
 }
 
 function isPullRequest(candidate: unknown): boolean {
@@ -137,6 +153,13 @@ function normalizeIssue(row: GithubIssueRow): GithubIssue | null {
   };
 }
 
+function nextPagePath(linkHeader: string | undefined): string | null {
+  const nextLink = linkHeader?.split(',').map((link) => /^\s*<([^>]+)>\s*;\s*rel="next"\s*$/.exec(link)).find((match) => match !== null);
+  if (!nextLink) return null;
+  const nextUrl = URL.parse(nextLink[1]);
+  return nextUrl ? `${nextUrl.pathname.slice(1)}${nextUrl.search}` : null;
+}
+
 function conditionalGetResult(response: CommandResult): ConditionalGetResult {
   const statusLine = /^HTTP\/\d+(?:\.\d+)?\s+(\d{3})(?:\s|$)/.exec(response.out);
   if (!statusLine) return { kind: 'error', message: response.err.trim() || 'invalid gh HTTP response' };
@@ -153,10 +176,12 @@ function conditionalGetResult(response: CommandResult): ConditionalGetResult {
   const lastModified = headers.get('last-modified');
   const pollInterval = headers.get('x-poll-interval');
   const pollIntervalSeconds = pollInterval && /^\d+$/.test(pollInterval) ? Number(pollInterval) : NaN;
+  const nextPath = nextPagePath(headers.get('link'));
   const metadata: RestMetadata = {
     ...(etag === undefined ? {} : { etag }),
     ...(lastModified === undefined ? {} : { lastModified }),
     ...(Number.isSafeInteger(pollIntervalSeconds) ? { pollIntervalSeconds } : {}),
+    ...(nextPath === null ? {} : { nextPath }),
   };
   if (status === 304) return { kind: 'unchanged', ...metadata };
   const message = response.err.trim() || `gh HTTP ${status}`;
@@ -172,5 +197,5 @@ function conditionalGetResult(response: CommandResult): ConditionalGetResult {
   }
 }
 
-export { aliasesOfErrors, conditionalGetResult, isPrNumber, isPullRequest, mergeKindFromPrState, normalizeIssue, parseGithubIssue, reviewSnapshotKey, uniqueValidPrs };
+export { aliasesOfErrors, aliasesReportedGone, conditionalGetResult, isArchivedRepositoryIssue, isPrNumber, isPullRequest, mergeKindFromPrState, normalizeIssue, parseGithubIssue, reviewSnapshotKey, uniqueValidPrs };
 export type { ConditionalGetResult, GithubIssue, GithubIssueRow, RestValidators };

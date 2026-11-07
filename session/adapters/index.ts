@@ -2,6 +2,9 @@ import type { ResolvedHookTool } from '../core/hook-tools.ts';
 import type { InstalledHookFlags, InstalledHooks, UserHook } from '../core/user-hooks-core.ts';
 import claudeCode from "./claude-code.ts";
 import codex from "./codex.ts";
+import gemini from "./gemini.ts";
+import qwen from "./qwen.ts";
+import copilot from "./copilot.ts";
 import grok from "./grok.ts";
 import kimi from "./kimi.ts";
 import shell from "./shell.ts";
@@ -42,7 +45,7 @@ interface SettingsFileInjection {
 
 interface HookedAgentHome {
   homeEnvName: string;
-  readTrust(): Promise<void>;
+  readTrust(sessionFolder: string): Promise<void>;
   prepareHome(env: Record<string, string | undefined>, sessionFolder: string): { home: string; isTrusted: boolean } | { refusal: string };
   releaseHome(home: string, sessionFolder: string): void;
 }
@@ -86,6 +89,7 @@ interface ScratchAgentHome {
 
 interface GeneratedHomeLaunch {
   listenerPort: number;
+  folderTrustRoot: string;
 }
 
 interface GeneratedHomeInjection {
@@ -94,6 +98,9 @@ interface GeneratedHomeInjection {
   prepareHome(env: Record<string, string | undefined>, launch: GeneratedHomeLaunch): { home: string } | { refusal: string };
   prepareScratchHome(env: Record<string, string | undefined>, scratch: ScratchAgentHome): { home: string } | { refusal: string };
   releaseHome(home: string): void;
+  projectConfigCandidates: readonly ProjectConfigCandidate[];
+  userConfigFolders(env: Record<string, string | undefined>): string[];
+  mayTurnHooksOff(configText: unknown): boolean;
 }
 
 type HookInjection = SettingsFileInjection | ArgvConfigInjection | HomeHooksFileInjection | GeneratedHomeInjection;
@@ -146,7 +153,6 @@ interface AgentAdapter {
   buildArgs(options?: AgentArgsOptions): string[];
   settingsArgs?(settingsPath: string): string[];
   trustFolder?(sessionFolder: string, env: SpawnEnv): Promise<void>;
-  operatorConfigPath?(env: SpawnEnv): string | null;
   sessionIdOf?(payload: HookPayload): unknown;
 }
 
@@ -154,14 +160,45 @@ type AgentAdapterShape = AgentAdapter & Record<string, unknown>;
 
 const DEFAULT_AGENT_ID = claudeCode.id;
 
-const adapterEntries: [string, AgentAdapter][] = [
-  [claudeCode.id, claudeCode],
-  [codex.id, codex],
-  [grok.id, grok],
-  [kimi.id, kimi],
-  [shell.id, shell],
-];
-const ADAPTERS = new Map(adapterEntries);
+type AgentTier = "first-class" | "hooked" | "title-only" | "shell";
+
+const OPENCODE = createCustomAdapter(
+  { id: "opencode", label: "OpenCode", command: "opencode", args: [] },
+  { initialPromptArgs: (initialPrompt) => [`--prompt=${initialPrompt}`] },
+);
+const GOOSE = createCustomAdapter(
+  { id: "goose", label: "Goose", command: "goose", args: ["session"] },
+  { initialPromptArgs: (initialPrompt) => ["run", "--interactive", `--text=${initialPrompt}`] },
+);
+const CURSOR = createCustomAdapter(
+  { id: "cursor", label: "Cursor CLI", command: "agent", args: [] },
+  { initialPromptArgs: (initialPrompt) => ["--", initialPrompt] },
+);
+
+interface BuiltInAgent {
+  adapter: AgentAdapter;
+  tier: AgentTier;
+}
+
+const BUILT_IN_AGENTS: readonly BuiltInAgent[] = Object.freeze([
+  { adapter: claudeCode, tier: "first-class" },
+  { adapter: codex, tier: "first-class" },
+  { adapter: kimi, tier: "first-class" },
+  { adapter: gemini, tier: "hooked" },
+  { adapter: qwen, tier: "hooked" },
+  { adapter: copilot, tier: "hooked" },
+  { adapter: grok, tier: "hooked" },
+  { adapter: OPENCODE, tier: "title-only" },
+  { adapter: GOOSE, tier: "title-only" },
+  { adapter: CURSOR, tier: "title-only" },
+  { adapter: shell, tier: "shell" },
+]);
+const ADAPTERS = new Map(BUILT_IN_AGENTS.map(({ adapter }) => [adapter.id, adapter]));
+
+function isFirstClassAgent(agentId: string): boolean {
+  return BUILT_IN_AGENTS.some(({ adapter, tier }) => adapter.id === agentId && tier === "first-class");
+}
+
 const customAdapters = new Map<string, AgentAdapter>();
 const customAgentFingerprints = new Map<string, string>();
 
@@ -181,7 +218,13 @@ function customAgentFingerprint(agentId: string | null | undefined): string | nu
   return customAgentFingerprints.get(agentId) ?? null;
 }
 
-function setCustomAgents(declared: readonly CustomAgentDeclaration[]): void {
+function isBuiltInAgentId(agentId: string): boolean {
+  return ADAPTERS.has(agentId);
+}
+
+function setCustomAgents(allDeclared: readonly CustomAgentDeclaration[]): string[] {
+  const shadowedIds = allDeclared.filter(({ id }) => isBuiltInAgentId(id)).map(({ id }) => id);
+  const declared = allDeclared.filter(({ id }) => !isBuiltInAgentId(id));
   const nextFingerprintById = new Map<string, string>();
   for (const declaration of declared) nextFingerprintById.set(declaration.id, declarationFingerprint(declaration));
   for (const [customId, previousFingerprint] of customAgentFingerprints) {
@@ -194,11 +237,22 @@ function setCustomAgents(declared: readonly CustomAgentDeclaration[]): void {
     customAdapters.set(declaration.id, createCustomAdapter(declaration));
     customAgentFingerprints.set(declaration.id, nextFingerprintById.get(declaration.id) ?? declarationFingerprint(declaration));
   }
+  return shadowedIds;
 }
 
 function hookProfileOf(adapter: AgentAdapter): AgentHookProfile | null {
   if (!adapter.capabilities.hooks) return null;
   return adapter.hooks;
+}
+
+function projectHookConfigRelPaths(): string[] {
+  const relPaths = new Set<string>();
+  for (const { adapter } of BUILT_IN_AGENTS) {
+    const injection = hookProfileOf(adapter)?.injection;
+    if (!injection || !("projectConfigCandidates" in injection)) continue;
+    for (const { relPath } of injection.projectConfigCandidates) relPaths.add(relPath);
+  }
+  return [...relPaths];
 }
 
 function listAgentIds(): string[] {
@@ -255,11 +309,13 @@ function resetCommandCache(): void {
 }
 
 export {
+  BUILT_IN_AGENTS,
   DEFAULT_AGENT_ID,
   listAgentIds,
   isKnownAgentId,
   getAdapter,
   hookProfileOf,
+  projectHookConfigRelPaths,
   resolveAdapter,
   cachedAgentResolvability,
   commandFor,
@@ -267,5 +323,7 @@ export {
   describeAgentResolvability,
   resetCommandCache,
   setCustomAgents,
+  isBuiltInAgentId,
+  isFirstClassAgent,
 };
 export type { AgentAdapter, AgentAdapterShape, AgentArgsOptions, AgentCapabilities, AgentCommandOptions, AgentHookProfile, AgentSpawnCommandOptions, AgentTitleProfile, ArgvConfigInjection, GeneratedHomeInjection, GeneratedHomeLaunch, HomeHooksFileInjection, HookedAgentHome, ProjectConfigCandidate, ScratchAgentHome };

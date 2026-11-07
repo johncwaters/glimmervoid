@@ -13,6 +13,7 @@ import { createLifecycle } from '../server-lifecycle.ts';
 import { execFileAsync, spawn } from '../child-process-safe.ts';
 import { refuseRunningNodeLaunches } from '../stable-node-path.ts';
 import { createAgentIngressApp, createBackendHttpApp } from './backend-http.ts';
+import { createLinkPreviewFetcher } from '../link-preview-fetcher.ts';
 import { createHostUrlOpener } from '../host-url-opener.ts';
 import { createAgentApiWiring } from '../agent-api-wiring.ts';
 import { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME } from '../whiteboard/whiteboard-wiring.ts';
@@ -53,7 +54,8 @@ import { trackedReportCleanupCommands } from '../../shared/post-turn-leftovers.t
 import type { RepositoryTrackingReports } from '../../shared/post-turn-leftovers.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { chooseRefinedSessionName } from '../../session/core/task-title-core.ts';
-import { assetRoot, bundled, examplePacksDir, packageRoot } from '../runtime-paths.ts';
+import { assetRoot, bundled, cliPath, examplePacksDir, packageRoot } from '../runtime-paths.ts';
+import { shellQuote } from '../../session/core/hook-command-core.ts';
 import { createAccountIdReader, createTelemetry } from '../telemetry.ts';
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
 import { configSiblingPath } from '../pairings-store.ts';
@@ -64,6 +66,11 @@ import { glimmervoidHomeDir as resolveGlimmervoidHomeDir, isOperatorHomeUnderTes
 import { decideIsDevInstall, parsePosthogReleaseId } from '../core/telemetry-core.ts';
 import { promptContextReplyOf } from '../../session/core/refocus-core.ts';
 import { lookupWhy } from '../why-lookup.ts';
+import { createHostLinksWiring } from '../hosts/host-links-wiring.ts';
+import type { SpawnHostTunnel } from '../hosts/host-links-wiring.ts';
+import { createJobInbox } from '../../cloud/inbox/job-inbox-wiring.ts';
+import { withBuiltInJobHandlers } from '../../cloud/inbox/watchee-handlers.ts';
+import { syncWatcheeSettings } from '../../cloud/inbox/watchee-settings-sync.ts';
 
 interface CreateBackendOptions extends BackendLaneOptions {
   staticDir?: string | null;
@@ -74,6 +81,7 @@ interface CreateBackendOptions extends BackendLaneOptions {
   downloadUpdatesInBackground?: boolean;
   configReloadDebounceMs?: number;
   isExperimentalBuild?: boolean;
+  spawnHostTunnel?: SpawnHostTunnel;
 }
 
 const AGENT_INGRESS_HOST = '127.0.0.1';
@@ -155,6 +163,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getGitWorkspace: () => gitWorkspace,
     getPlanReviewPort: () => laneAssembly.planReview?.port ?? null,
     getCoderEnv: () => laneAssembly.coderEnv,
+    getQuestionManagerLane: () => laneAssembly.questionManagerLane,
     getBroadcastControl: () => broadcastControl,
     recordOutcome,
     logger: console,
@@ -178,7 +187,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       if (!session || !replyShape) return null;
       const isConnectedToBoard = whiteboards.isConnected(glimmervoidId);
       const keepsHint = (command: HintedCommand) => (agentApi?.refuseRole(session, command) ?? null) === null && !(command === 'whiteboard' && isConnectedToBoard);
-      const promptMessages = [...session.takePromptNotes(keepsHint), whiteboards.takePromptContext(glimmervoidId)];
+      const promptMessages = [...session.takePromptNotes(keepsHint), whiteboards.takeBoardNotice(glimmervoidId)];
       const deliverable = promptMessages.filter((promptMessage) => promptMessage !== null);
       return deliverable.length === 0 ? null : promptContextReplyOf(replyShape, deliverable.join('\n\n'));
     },
@@ -200,6 +209,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     remoteListenerPort,
     tokenMatches,
     openUrlOnHost: createHostUrlOpener(),
+    isLinkPreviewEnabled: () => config.linkPreviews !== false,
+    fetchLinkPreview: createLinkPreviewFetcher(),
     getPackFile: (packName, accessKey, filePath) => laneAssembly.packStore.servableFile(packName, accessKey, filePath),
   });
   agentIngressServer.on('request', createAgentIngressApp(agentIngressDependencies));
@@ -221,6 +232,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getSession: getSessionAny,
     recordOutcome,
     logger: console,
+    relayToHost: (request, socket, head) => hostLinks.relayUpgrade(request, socket, head),
   });
   const {
     controlWss,
@@ -229,11 +241,23 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     sessionDataClients,
     broadcastControl: broadcastControlFromWebSockets,
     closeSessionDataClients,
+    viewerControlClientCount,
+    isViewerConnected,
+    isHubControlSocket,
+    hubControlClientCount,
+    sendToHubControlSockets,
   } = webSockets;
   broadcastControl = (message) => {
     broadcastControlFromWebSockets(message);
     if (message.type === 'session-removed' && typeof message.id === 'string') void whiteboards.forgetSession(message.id);
   };
+  const hostLinks = createHostLinksWiring({
+    hosts: config.hosts ?? [],
+    hubBuild: serverBuild,
+    broadcast: broadcastControlFromWebSockets,
+    relayPhoneAlert: (hostName, text) => notifications.relayHostPhoneAlert(hostName, text),
+    spawnHostTunnel: options.spawnHostTunnel,
+  });
   const sessionDocs = createSessionDocsWiring({ broadcastControl: broadcastControlFromWebSockets });
   const whiteboards = createWhiteboardWiring({
     boardsRoot: configSiblingPath(configStore.configPath, WHITEBOARDS_FOLDER_NAME),
@@ -254,6 +278,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     sessionDataClients,
     getMemoryGateStatus: () => laneAssembly.memoryAdmission.gateStatus(),
     controlWss,
+    viewerControlClientCount,
+    hubControlClientCount,
     dataWss,
     broadcastControl,
   });
@@ -264,6 +290,10 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     configStore,
     sessions,
     controlWss,
+    viewerControlClientCount,
+    hubControlClientCount,
+    isHubControlSocket,
+    sendToHubControlSockets,
     dataWss,
     broadcastControl,
     recordOutcome,
@@ -299,6 +329,9 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     dashboardPort: port,
     broadcastControl,
     controlWss,
+    viewerControlClientCount,
+    isViewerConnected,
+    isHubControlSocket,
     options,
     notificationManager,
     telemetry,
@@ -366,6 +399,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     recordLane,
     setupRootDir: path.join(glimmervoidHomeDir(), 'remote-setup'),
     skillSourceDir: path.join(assetRoot, 'session', 'remote-setup'),
+    hubCliCommand: `${shellQuote(process.execPath)} ${shellQuote(cliPath)} --config ${shellQuote(configStore.configPath)}`,
   });
 
   const wireSessionEvents = createSessionEventWiring({
@@ -433,10 +467,13 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   laneAssembly.startRuntimeLanes();
 
   function applyCustomAgents(sourceConfig: GlimmervoidConfig): void {
-    setCustomAgents(sourceConfig.customAgents ?? []);
+    for (const shadowedId of setCustomAgents(sourceConfig.customAgents ?? [])) {
+      console.warn(`[glimmervoid] customAgents entry "${shadowedId}" is ignored: a built-in agent now has that id; rename the entry to keep using it`);
+    }
   }
 
   function applyConfigReload(newConfig: GlimmervoidConfig): void {
+    hostLinks.reconcile(newConfig.hosts ?? []);
     applyCustomAgents(newConfig);
     reconcileProjectsOnReload(newConfig);
   }
@@ -458,6 +495,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
 
   function applySettingsReload(newConfig: GlimmervoidConfig): void {
     configStore.applySettings(newConfig);
+    hostLinks.reconcile(newConfig.hosts ?? []);
     telemetry.applyConfig();
     applyCustomAgents(newConfig);
     updateCheck.applySettings();
@@ -466,6 +504,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     }
     notifications.applySettings();
     laneAssembly.restartServiceLanes();
+    void issues.watchedProjectRepos().then((projectRepos) => syncWatcheeSettings(config, projectRepos));
   }
 
   function downloadUpdateOnceListening() {
@@ -480,7 +519,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getUpdateJournal: () => updateApply.getJournal(),
     isRestartRequested: () => updateApply.isRestartRequested(),
     getNpmGlobalInstall: () => updateApply.getNpmGlobalInstall(),
-    getControlClientCount: () => controlWss.clients.size,
+    getControlClientCount: viewerControlClientCount,
     broadcastControl,
     logger: console,
     ...(options.downloadUpdatesInBackground ? { downloadUpdate: downloadUpdateOnceListening } : {}),
@@ -547,6 +586,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     reviewSessions,
     investigationSessions,
     taskTitleSessions: laneAssembly.taskTitleSessions,
+    questionManagerSessions: laneAssembly.questionManagerSessions,
     benchmarkSessions: laneAssembly.benchmarkSessions,
     branchGc,
     coderActivity,
@@ -570,10 +610,21 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     heartbeat,
     outcomes,
     telemetry,
+    hostLinks,
     controlWss,
     dataWss,
   });
   const lifecycleServers: Server[] = [agentIngressServer];
+  const jobInbox = createJobInbox({
+    watcherConfig: config.watcher,
+    handlers: withBuiltInJobHandlers({
+      'team-review.candidates': laneAssembly.teamReview.acceptCandidates,
+      'my-prs.candidates': myPrs.acceptCandidates,
+      'workflows.candidates': laneAssembly.workflows.acceptCandidates,
+      'issues.listing': issues.acceptListing,
+    }),
+  });
+  void issues.watchedProjectRepos().then((projectRepos) => syncWatcheeSettings(config, projectRepos));
   const { requestShutdown, requestRestart } = createLifecycle({
     shutdown,
     httpServer,
@@ -594,6 +645,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     configStore,
     broadcastControl,
     controlReplayLog,
+    hostLinks,
     agentConnect,
     remoteSetup,
     telegramDelivery: notifications.telegramDelivery,
@@ -670,6 +722,14 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
         remoteHttpServer.on('request', app);
         remoteHttpServer.on('upgrade', handleUpgrade);
         lifecycleServers.push(remoteHttpServer);
+      },
+    },
+    jobInbox: {
+      decision: jobInbox.decision,
+      startWatcher: jobInbox.startWatcher,
+      attach(inboxHttpServer: Server) {
+        jobInbox.attach(inboxHttpServer);
+        lifecycleServers.push(inboxHttpServer);
       },
     },
   };

@@ -2,6 +2,8 @@ import './review-queue-panel.css';
 import { createPressable } from '../ui/pressable.ts';
 import { button } from '../ui/button.ts';
 import { createAvatar, el, isPanelHidden, isRealInputOwningKey } from '../dom-helpers.ts';
+import { pullRequestLabel } from './github-store-core.ts';
+import { EASE_OUT_EXPO, canAnimate, eased, prefersReducedMotion } from '../attention-banner.ts';
 import { isModalOpen } from '../session-card/modal.ts';
 import { buildNextAttentionKeys } from '../shortcuts.ts';
 import type { ViewModule } from '../view-registry-core.ts';
@@ -10,16 +12,21 @@ import { myPrsSnapshot } from './my-prs-store.ts';
 import type { LinkedLiveSession } from './my-prs-view-core.ts';
 import { emptyStateText as myPrsEmptyStateText, queueNotices as myPrsQueueNotices } from './my-prs-view-core.ts';
 import { createPrQueueColumns } from './pr-queue-columns.ts';
+import { createReviewBoard } from './review-queue-board.ts';
+import { onLayoutChange } from '../form-factor.ts';
+import { getReviewsBoardDetailWidth, getReviewsLayout, getReviewsPulledKeys, getReviewsTurnLimit, setReviewsBoardDetailWidth, setReviewsLayout, setReviewsPulledKeys } from '../ui-prefs.ts';
+import type { ReviewsLayout } from '../ui-prefs.ts';
 import { createReviewSetupCard } from './review-setup-card.ts';
 import { createReviewSkillNotice } from './review-skill-notice.ts';
 import { subscribeSettings } from '../settings/settings-store.ts';
 import {
-  caughtUpText, chooseQueueSelection, combinedPollingStatus, nextTurnKey,
-  queueItemActivityEntry, queueItemByKey, reviewKeyActionOf, spansMultipleRepos, steppedRowKey, turnItems, turnPositionText,
+  COLLAPSED_GROUP_IDS, ageToneOf, caughtUpText, chooseQueueSelection, combinedPollingStatus, nextTurnKey,
+  isOverTurnLimit, queueItemActivityEntry, queueItemByKey, queueItemWaitStartMs, reviewKeyActionOf, reviewingNowCountText, spansMultipleRepos, splitReviewingNow, steppedColumnKey, steppedRowKey,
+  togglePulledKey, turnItems, turnPositionText,
 } from './review-queue-core.ts';
-import type { QueueGroup, QueueItem, ReviewKeyAction } from './review-queue-core.ts';
+import type { DisplayGroup, DisplayGroupId, QueueGroup, QueueItem, ReviewKeyAction } from './review-queue-core.ts';
 import {
-  attachReviewQueueView, isQueueEntryUnseen, markQueueEntrySeen, rebuildReviewQueue, returnToReviewQueue, reviewQueueNavigation, reviewQueueUnseenSignature, setReviewDetailScreenOpen,
+  attachReviewQueueView, hasBothLanes, isQueueEntryUnseen, markQueueEntrySeen, rebuildReviewQueue, returnToReviewQueue, reviewQueueNavigation, reviewQueueUnseenSignature, setReviewDetailScreenOpen,
   subscribeReviewQueue, takePendingReveal,
 } from './review-queue-store.ts';
 import type { ReviewQueueChange } from './review-queue-store.ts';
@@ -34,17 +41,17 @@ let root: HTMLElement | null = null;
 let queueElement: HTMLElement | null = null;
 let detailHost: HTMLElement | null = null;
 let turnPosition: HTMLElement | null = null;
-let teamChipSlot: HTMLElement | null = null;
 let teamDetail: HTMLElement | null = null;
 let mineDetail: HTMLElement | null = null;
 let pollingControls: ReturnType<typeof createGithubPollingControls> | null = null;
 let setupCard: ReturnType<typeof createReviewSetupCard> | null = null;
 let skillNotice: ReturnType<typeof createReviewSkillNotice> | null = null;
 let currentGroups: QueueGroup[] = [];
+let displayGroups: DisplayGroup[] = [];
 let selectedKey: string | null = null;
 let shownKey: string | null | undefined;
 let isCaughtUp = false;
-let isSetAsideOpen = false;
+const openCollapsedGroupIds = new Set<string>();
 let renderedSignature: string | null = null;
 let isRenderQueued = false;
 let caughtUpReceipt: string | null = null;
@@ -52,6 +59,16 @@ let justActedKey: string | null = null;
 let justActedTimer = 0;
 const JUST_ACTED_MS = 2000;
 const rowsByKey = new Map<string, HTMLButtonElement>();
+const REVIEWS_LAYOUT_LABELS: Readonly<Record<ReviewsLayout, string>> = { list: 'List', board: 'Board' };
+
+function shownLayout(): ReviewsLayout {
+  if (document.documentElement.dataset.layout === 'phone') return 'list';
+  return getReviewsLayout();
+}
+
+function isBoardShown(): boolean {
+  return root?.dataset.reviewsLayout === 'board';
+}
 
 function markSeen(item: QueueItem, row: HTMLButtonElement): void {
   if (!markQueueEntrySeen(queueItemActivityEntry(item))) return;
@@ -65,13 +82,23 @@ function setDetailScreenOpen(isOpen: boolean): void {
   setReviewDetailScreenOpen(isOpen);
 }
 
+function isBoardDetailClosed(): boolean {
+  return isBoardShown() && root?.dataset.detailOpen !== 'true';
+}
+
+function closeBoardDetail(): boolean {
+  if (!isBoardShown() || isBoardDetailClosed()) return false;
+  returnToQueue();
+  return true;
+}
+
 function returnToQueue(): void {
   setDetailScreenOpen(false);
   if (selectedKey) rowsByKey.get(selectedKey)?.focus({ preventScroll: true });
 }
 
 function paintTurnPosition(): void {
-  if (turnPosition) turnPosition.textContent = turnPositionText(currentGroups, selectedKey);
+  if (turnPosition) turnPosition.textContent = turnPositionText(displayGroups, selectedKey);
 }
 
 function swapDetail(element: HTMLElement): void {
@@ -88,7 +115,9 @@ function caughtUpElement(receipt: string | null): HTMLElement {
 
 function showSelectedDetail(receiptMode: 'keep' | 'clear'): void {
   const item = queueItemByKey(currentGroups, selectedKey);
+  const isSwitchingReview = shownKey !== null && item !== null && item.key !== shownKey;
   shownKey = item?.key ?? null;
+  if (isSwitchingReview) fadeInDetail();
   if (!item) {
     caughtUpReceipt = takePostedReceipt() ?? caughtUpReceipt;
     releaseTeamReviewSelection();
@@ -111,6 +140,7 @@ function selectItem(key: string, { isFromQueue }: { isFromQueue: boolean }): voi
   selectedKey = key;
   isCaughtUp = false;
   caughtUpReceipt = null;
+  moveOutlineTo(key);
   for (const [rowKey, row] of rowsByKey) row.setAttribute('aria-current', String(rowKey === key));
   const item = queueItemByKey(currentGroups, key);
   const row = rowsByKey.get(key);
@@ -124,7 +154,8 @@ function selectItem(key: string, { isFromQueue }: { isFromQueue: boolean }): voi
 function revealItem(key: string): void {
   const item = queueItemByKey(currentGroups, key);
   if (!item) return;
-  if (currentGroups.find((group) => group.items.includes(item))?.id === 'aside') isSetAsideOpen = true;
+  const revealedGroupId = currentGroups.find((group) => group.items.includes(item))?.id;
+  if (revealedGroupId && COLLAPSED_GROUP_IDS.has(revealedGroupId)) openCollapsedGroupIds.add(revealedGroupId);
   selectedKey = key;
   render();
   selectItem(key, { isFromQueue: false });
@@ -140,10 +171,48 @@ function stepSelection(step: 1 | -1): boolean {
   return true;
 }
 
+function boardColumnRowKeys(): string[][] {
+  if (!queueElement) return [];
+  return [...queueElement.querySelectorAll('.review-board-column')].map((column) =>
+    [...column.querySelectorAll<HTMLElement>('[data-queue-key]')].map((row) => row.dataset.queueKey ?? ''));
+}
+
+function stepColumn(step: 1 | -1): boolean {
+  if (!isBoardShown()) return false;
+  const nextKey = steppedColumnKey(boardColumnRowKeys(), selectedKey, step);
+  if (!nextKey) return false;
+  if (nextKey !== selectedKey) revealItem(nextKey);
+  return true;
+}
+
+function movePulled(queueKey: string, shouldBePulled: boolean): boolean {
+  const turnKeys = turnItems(currentGroups).map((item) => item.key);
+  if (!turnKeys.includes(queueKey)) return false;
+  const pulledKeys = getReviewsPulledKeys();
+  if (pulledKeys.includes(queueKey) === shouldBePulled) return true;
+  const nextPulledKeys = togglePulledKey({ pulledKeys, key: queueKey, turnKeys, limit: getReviewsTurnLimit() });
+  if (nextPulledKeys.length === pulledKeys.length) return true;
+  setReviewsPulledKeys(nextPulledKeys);
+  renderedSignature = null;
+  render();
+  rowsByKey.get(queueKey)?.focus({ preventScroll: true });
+  return true;
+}
+
+function toggleSelectedPulled(): boolean {
+  if (!selectedKey) return false;
+  return movePulled(selectedKey, !getReviewsPulledKeys().includes(selectedKey));
+}
+
 function runReviewKey(action: ReviewKeyAction): boolean {
   if (action === 'next-row') return stepSelection(1);
   if (action === 'previous-row') return stepSelection(-1);
-  return runTeamReviewKey(action);
+  if (action === 'toggle-pulled') return toggleSelectedPulled();
+  if (action === 'next-column') return stepColumn(1);
+  if (action === 'previous-column') return stepColumn(-1);
+  if (isBoardDetailClosed()) return false;
+  if (runTeamReviewKey(action)) return true;
+  return action === 'cancel' && closeBoardDetail();
 }
 
 function isReviewNoteFocused(): boolean {
@@ -155,6 +224,9 @@ function onReviewKey(event: KeyboardEvent): void {
   if (document.activeElement?.classList.contains('xterm-helper-textarea')) return;
   const action = reviewKeyActionOf(event);
   if (!action) return;
+  const focused = document.activeElement;
+  const isArrowOwnedByFocus = event.key.startsWith('Arrow') && (focused instanceof HTMLSelectElement || (focused instanceof Node && detailHost?.contains(focused) === true));
+  if (isArrowOwnedByFocus) return;
   const isNoteChord = (action === 'post' || action === 'cancel') && isReviewNoteFocused();
   if (isRealInputOwningKey(event) && !isNoteChord) return;
   if (runReviewKey(action)) event.preventDefault();
@@ -190,8 +262,15 @@ function rowFor(item: QueueItem, hasMultipleRepos: boolean, sessionsByPrKey: Rea
   return { container: mineRow.group, row: mineRow.row };
 }
 
-function createItemRow(item: QueueItem, isTurn: boolean, hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): HTMLElement {
+function itemAgeTone(item: QueueItem, groupId: DisplayGroupId) {
+  return ageToneOf(groupId, queueItemWaitStartMs(item), Date.now());
+}
+
+function createItemRow(item: QueueItem, groupId: DisplayGroupId, hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): HTMLElement {
+  const isTurn = groupId === 'turn' || groupId === 'now';
   const { container, row } = rowFor(item, hasMultipleRepos, sessionsByPrKey);
+  const ageTone = itemAgeTone(item, groupId);
+  if (ageTone) row.dataset.ageTone = ageTone;
   row.dataset.queueKey = item.key;
   row.setAttribute('aria-current', String(item.key === selectedKey));
   if (item.key === justActedKey) row.dataset.justActed = 'true';
@@ -208,14 +287,171 @@ function createItemRow(item: QueueItem, isTurn: boolean, hasMultipleRepos: boole
   return container;
 }
 
-function createGroupHeading(group: QueueGroup): HTMLElement {
+function tileIdentity(item: QueueItem): { label: string; author: string | null } {
+  if (item.source === 'team') return { label: pullRequestLabel(item.review.repo, item.review.number), author: item.review.author };
+  return { label: pullRequestLabel(item.pr.repo, item.pr.number), author: myPrsSnapshot().status?.viewer ?? null };
+}
+
+function createItemTile(item: QueueItem, groupId: DisplayGroupId): HTMLElement {
+  const tile = createPressable('pr-queue-tile');
+  const { label, author } = tileIdentity(item);
+  tile.setAttribute('aria-label', author ? `${label} by ${author}` : label);
+  if (author) tile.append(createAvatar({ login: author, cssPx: 24 }));
+  tile.append(el('span', 'pr-queue-tile-number', `#${label.slice(label.lastIndexOf('#') + 1)}`));
+  const ageTone = itemAgeTone(item, groupId);
+  if (ageTone) tile.dataset.ageTone = ageTone;
+  tile.dataset.queueKey = item.key;
+  tile.setAttribute('aria-current', String(item.key === selectedKey));
+  tile.addEventListener('click', () => selectItem(item.key, { isFromQueue: true }));
+  rowsByKey.set(item.key, tile);
+  return tile;
+}
+
+const CARD_MOVE_MS = 480;
+const CARD_ARRIVE_MS = 480;
+const CARD_LEAVE_MS = 200;
+const SELECTION_SLIDE_MS = 250;
+const DETAIL_FADE_MS = 250;
+const MIN_MOVE_PX = 1;
+
+type RowSnapshot = { rect: DOMRect; element: HTMLElement };
+const runningQueueAnimations = new Set<Animation>();
+const leavingGhosts = new Set<HTMLElement>();
+let outlinedKey: string | null = null;
+let motionLayout: string | null = null;
+
+function isQueueMotionOn(): boolean {
+  return queueElement !== null && !prefersReducedMotion() && canAnimate(queueElement);
+}
+
+function trackAnimation(animation: Animation): void {
+  runningQueueAnimations.add(animation);
+  animation.addEventListener('finish', () => runningQueueAnimations.delete(animation));
+  animation.addEventListener('cancel', () => runningQueueAnimations.delete(animation));
+}
+
+function finishQueueMotion(): void {
+  for (const animation of [...runningQueueAnimations]) animation.finish();
+  runningQueueAnimations.clear();
+  for (const ghost of leavingGhosts) ghost.remove();
+  leavingGhosts.clear();
+}
+
+function snapshotRows(): Map<string, RowSnapshot> {
+  const snapshots = new Map<string, RowSnapshot>();
+  if (!isQueueMotionOn() || motionLayout !== shownLayout()) return snapshots;
+  for (const [key, row] of rowsByKey) {
+    if (row.isConnected) snapshots.set(key, { rect: row.getBoundingClientRect(), element: row });
+  }
+  return snapshots;
+}
+
+function flyLeavingRow({ rect, element }: RowSnapshot): void {
+  const ghostRow = element.cloneNode(true);
+  const ghostHost = element.parentElement?.cloneNode(false);
+  if (!queueElement || !(ghostRow instanceof HTMLElement) || !(ghostHost instanceof HTMLElement)) return;
+  ghostHost.removeAttribute('id');
+  ghostHost.classList.add('review-motion-ghost');
+  Object.assign(ghostHost.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px` });
+  ghostHost.append(ghostRow);
+  queueElement.append(ghostHost);
+  leavingGhosts.add(ghostHost);
+  const leave = ghostHost.animate(eased([{ opacity: 1 }, { opacity: 0, transform: 'scale(0.96)' }]), { duration: CARD_LEAVE_MS, fill: 'forwards' });
+  trackAnimation(leave);
+  leave.addEventListener('finish', () => {
+    leavingGhosts.delete(ghostHost);
+    ghostHost.remove();
+  });
+}
+
+function slideSelectionOutline(fromRect: DOMRect, toRow: HTMLElement, toRect: DOMRect): void {
+  const ghost = el('div', 'review-selection-ghost');
+  Object.assign(ghost.style, { left: `${toRect.left}px`, top: `${toRect.top}px`, width: `${toRect.width}px`, height: `${toRect.height}px` });
+  document.body.append(ghost);
+  leavingGhosts.add(ghost);
+  toRow.dataset.selectionArriving = 'true';
+  const scaleX = fromRect.width / Math.max(toRect.width, 1);
+  const scaleY = fromRect.height / Math.max(toRect.height, 1);
+  const slide = ghost.animate(eased([
+    { transform: `translate(${fromRect.left - toRect.left}px, ${fromRect.top - toRect.top}px) scale(${scaleX}, ${scaleY})` },
+    { transform: 'none' },
+  ]), { duration: SELECTION_SLIDE_MS });
+  trackAnimation(slide);
+  const land = () => {
+    delete toRow.dataset.selectionArriving;
+    leavingGhosts.delete(ghost);
+    ghost.remove();
+  };
+  slide.addEventListener('finish', land);
+  slide.addEventListener('cancel', land);
+}
+
+function playRowMotion(before: ReadonlyMap<string, RowSnapshot>): void {
+  if (before.size === 0 || !isQueueMotionOn()) return;
+  const afterRects = new Map([...rowsByKey].map(([key, row]) => [key, row.getBoundingClientRect()]));
+  for (const [key, row] of rowsByKey) {
+    const fromRect = before.get(key)?.rect;
+    const toRect = afterRects.get(key);
+    if (!toRect) continue;
+    if (!fromRect) {
+      trackAnimation(row.animate(eased([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }]), { duration: CARD_ARRIVE_MS }));
+      continue;
+    }
+    const deltaX = fromRect.left - toRect.left;
+    const deltaY = fromRect.top - toRect.top;
+    if (Math.abs(deltaX) + Math.abs(deltaY) < MIN_MOVE_PX) continue;
+    trackAnimation(row.animate(eased([{ transform: `translate(${deltaX}px, ${deltaY}px)` }, { transform: 'none' }]), { duration: CARD_MOVE_MS }));
+  }
+  for (const [key, snapshot] of before) {
+    if (!rowsByKey.has(key)) flyLeavingRow(snapshot);
+  }
+  const fromSelectedRect = outlinedKey ? before.get(outlinedKey)?.rect : undefined;
+  const toSelectedRow = selectedKey ? rowsByKey.get(selectedKey) : undefined;
+  const toSelectedRect = selectedKey ? afterRects.get(selectedKey) : undefined;
+  if (outlinedKey !== selectedKey && fromSelectedRect && toSelectedRow && toSelectedRect && rowsByKey.has(outlinedKey ?? '')) slideSelectionOutline(fromSelectedRect, toSelectedRow, toSelectedRect);
+}
+
+function moveOutlineTo(key: string): void {
+  const fromRow = outlinedKey ? rowsByKey.get(outlinedKey) : undefined;
+  const toRow = rowsByKey.get(key);
+  const isMove = outlinedKey !== key && fromRow?.isConnected === true && toRow?.isConnected === true && isQueueMotionOn();
+  if (isMove && fromRow && toRow) {
+    finishQueueMotion();
+    slideSelectionOutline(fromRow.getBoundingClientRect(), toRow, toRow.getBoundingClientRect());
+  }
+  outlinedKey = key;
+}
+
+function fadeInDetail(): void {
+  if (!detailHost || prefersReducedMotion() || !canAnimate(detailHost)) return;
+  detailHost.animate([{ opacity: 0 }, { opacity: 1 }], { duration: DETAIL_FADE_MS, easing: EASE_OUT_EXPO });
+}
+
+function toggleCollapsedGroup(groupId: string): void {
+  if (openCollapsedGroupIds.delete(groupId)) return;
+  openCollapsedGroupIds.add(groupId);
+}
+
+function createGroupCount(group: DisplayGroup): HTMLElement {
+  if (group.id !== 'now') return el('span', 'review-group-count', String(group.items.length));
+  const turnLimit = getReviewsTurnLimit();
+  const count = el('span', 'review-group-count', reviewingNowCountText(group.items.length, turnLimit));
+  if (isOverTurnLimit(group.items.length, turnLimit)) count.dataset.over = 'true';
+  return count;
+}
+
+function headingExtrasOf(group: DisplayGroup): HTMLElement[] {
+  return group.id === 'turn' ? [buildNextAttentionKeys()] : [];
+}
+
+function createGroupHeading(group: DisplayGroup): HTMLElement {
   const heading = el('h3', 'pr-section-heading review-group-heading');
-  const count = el('span', 'review-group-count', String(group.items.length));
-  if (group.id === 'turn') {
-    heading.append(el('span', null, group.title), count, buildNextAttentionKeys());
+  const count = createGroupCount(group);
+  if (group.id === 'turn' || group.id === 'now') {
+    heading.append(el('span', null, group.title), count, ...headingExtrasOf(group));
     return heading;
   }
-  if (group.id !== 'aside') {
+  if (!COLLAPSED_GROUP_IDS.has(group.id)) {
     heading.append(el('span', null, group.title), count);
     return heading;
   }
@@ -223,9 +459,9 @@ function createGroupHeading(group: QueueGroup): HTMLElement {
   const chevron = el('span', 'review-group-chevron', String.fromCharCode(0x25b8));
   chevron.setAttribute('aria-hidden', 'true');
   toggle.append(chevron, group.title);
-  toggle.setAttribute('aria-expanded', String(isSetAsideOpen));
+  toggle.setAttribute('aria-expanded', String(openCollapsedGroupIds.has(group.id)));
   toggle.addEventListener('click', () => {
-    isSetAsideOpen = !isSetAsideOpen;
+    toggleCollapsedGroup(group.id);
     renderedSignature = null;
     render();
   });
@@ -233,12 +469,12 @@ function createGroupHeading(group: QueueGroup): HTMLElement {
   return heading;
 }
 
-function createGroupSection(group: QueueGroup, hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): HTMLElement {
+function createGroupSection(group: DisplayGroup, hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): HTMLElement {
   const section = el('section', 'pr-queue-section');
   section.dataset.group = group.id;
   section.append(createGroupHeading(group));
-  if (group.id === 'aside' && !isSetAsideOpen) return section;
-  for (const item of group.items) section.append(createItemRow(item, group.id === 'turn', hasMultipleRepos, sessionsByPrKey));
+  if (COLLAPSED_GROUP_IDS.has(group.id) && !openCollapsedGroupIds.has(group.id)) return section;
+  for (const item of group.items) section.append(createItemRow(item, group.id, hasMultipleRepos, sessionsByPrKey));
   return section;
 }
 
@@ -251,20 +487,61 @@ function emptyQueueElements(): HTMLElement[] {
   return [teamReviewEmptyState(), el('p', 'pr-empty', myPrsEmptyStateText(myPrsSnapshot().status))];
 }
 
-function syncTeamChip(): void {
-  if (!teamChipSlot) return;
-  const team = teamReviewStatusView()?.team;
-  if (!team) {
-    teamChipSlot.replaceChildren();
-    return;
-  }
-  const chip = el('span', 'pr-team-chip');
-  chip.append(createAvatar({ login: team.slug, url: team.avatarUrl, cssPx: 16 }), el('span', null, team.name));
-  teamChipSlot.replaceChildren(chip);
+function rowsSignature(groups: readonly DisplayGroup[], sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): string {
+  const ageTones = groups.flatMap((group) => group.items.map((item) => itemAgeTone(item, group.id)));
+  return JSON.stringify([shownLayout(), getReviewsTurnLimit(), ageTones, groups, [...sessionsByPrKey], selectedKey, [...openCollapsedGroupIds], reviewQueueUnseenSignature(), queueNoticeElements().map((notice) => notice.textContent)], (key, value) => (key === 'recentSteps' ? undefined : value));
 }
 
-function rowsSignature(groups: readonly QueueGroup[], sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): string {
-  return JSON.stringify([groups, [...sessionsByPrKey], selectedKey, isSetAsideOpen, reviewQueueUnseenSignature(), queueNoticeElements().map((notice) => notice.textContent)], (key, value) => (key === 'recentSteps' ? undefined : value));
+function createBoard(hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): HTMLElement {
+  const hasReadyItems = turnItems(currentGroups).length > 0;
+  return createReviewBoard(displayGroups, {
+    createCard: (item, group) => createItemRow(item, group.id, hasMultipleRepos, sessionsByPrKey),
+    createTile: (item, group) => createItemTile(item, group.id),
+    createCount: createGroupCount,
+    createHeadingExtras: headingExtrasOf,
+    dropHintOf: (group) => (group.id === 'now' && hasReadyItems ? 'Drag a Ready card here, or select one and press M.' : null),
+    isParkedOpen: openCollapsedGroupIds.has('parked'),
+    onToggleParked: () => {
+      toggleCollapsedGroup('parked');
+      renderedSignature = null;
+      render();
+    },
+    onDropCard: (queueKey, groupId) => movePulled(queueKey, groupId === 'now'),
+  });
+}
+
+function queueContent(hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): HTMLElement[] {
+  const hasItems = currentGroups.some((group) => group.items.length > 0);
+  if (isBoardShown()) return [...(hasItems ? [] : emptyQueueElements()), createBoard(hasMultipleRepos, sessionsByPrKey)];
+  if (!hasItems) return emptyQueueElements();
+  return displayGroups.filter((group) => group.items.length > 0).map((group) => createGroupSection(group, hasMultipleRepos, sessionsByPrKey));
+}
+
+function syncLayout(): void {
+  if (!root) return;
+  const layout = shownLayout();
+  root.dataset.reviewsLayout = layout;
+  for (const option of root.querySelectorAll<HTMLButtonElement>('.review-layout-option')) option.setAttribute('aria-pressed', String(option.dataset.reviewsLayout === layout));
+}
+
+function chooseLayout(layout: ReviewsLayout): void {
+  if (getReviewsLayout() === layout) return;
+  setReviewsLayout(layout);
+  renderedSignature = null;
+  render();
+}
+
+function createLayoutSwitch(): HTMLElement {
+  const group = el('div', 'review-layout-switch');
+  group.setAttribute('role', 'group');
+  group.setAttribute('aria-label', 'Reviews layout');
+  for (const layout of ['list', 'board'] as const) {
+    const option = createPressable('review-layout-option', REVIEWS_LAYOUT_LABELS[layout]);
+    option.dataset.reviewsLayout = layout;
+    option.addEventListener('click', () => chooseLayout(layout));
+    group.append(option);
+  }
+  return group;
 }
 
 function syncSetupCard(): boolean {
@@ -277,26 +554,41 @@ function syncSetupCard(): boolean {
   return isSetupNeeded;
 }
 
+function splitDisplayGroups(): void {
+  const storedPulledKeys = getReviewsPulledKeys();
+  const split = splitReviewingNow(currentGroups, storedPulledKeys);
+  displayGroups = split.groups;
+  if (hasBothLanes() && split.pulledKeys.length !== storedPulledKeys.length) setReviewsPulledKeys(split.pulledKeys);
+}
+
 function render(): void {
   if (!queueElement) return;
   skillNotice?.sync();
   if (syncSetupCard()) return;
+  syncLayout();
   const { sessionsByPrKey, status: myPrsStatus } = myPrsSnapshot();
   currentGroups = rebuildReviewQueue();
-  syncTeamChip();
+  splitDisplayGroups();
   pollingControls?.update(combinedPollingStatus([teamReviewStatusView(), myPrsStatus]));
   if (!isCaughtUp) selectedKey = chooseQueueSelection(currentGroups, selectedKey);
   paintTurnPosition();
-  const signature = rowsSignature(currentGroups, sessionsByPrKey);
+  const signature = rowsSignature(displayGroups, sessionsByPrKey);
   if (signature !== renderedSignature) {
     renderedSignature = signature;
     const focusedKey = document.activeElement instanceof HTMLElement && queueElement.contains(document.activeElement) ? document.activeElement.dataset.queueKey : undefined;
     resetTeamQueueTickers();
+    finishQueueMotion();
+    const rowsBefore = snapshotRows();
+    const boardScrollLeft = queueElement.querySelector('.review-board')?.scrollLeft ?? 0;
     rowsByKey.clear();
     const hasMultipleRepos = spansMultipleRepos(currentGroups);
-    const sections = currentGroups.filter((group) => group.items.length > 0).map((group) => createGroupSection(group, hasMultipleRepos, sessionsByPrKey));
-    queueElement.replaceChildren(...queueNoticeElements(), ...(sections.length > 0 ? sections : emptyQueueElements()));
+    queueElement.replaceChildren(...queueNoticeElements(), ...queueContent(hasMultipleRepos, sessionsByPrKey));
+    const rebuiltBoard = queueElement.querySelector('.review-board');
+    if (rebuiltBoard) rebuiltBoard.scrollLeft = boardScrollLeft;
     if (focusedKey) rowsByKey.get(focusedKey)?.focus({ preventScroll: true });
+    playRowMotion(rowsBefore);
+    outlinedKey = selectedKey;
+    motionLayout = shownLayout();
     refreshTeamReviewAges();
   }
   if (selectedKey !== shownKey || isCaughtUp) showSelectedDetail('keep');
@@ -329,19 +621,27 @@ function mountReviewQueue(parent: HTMLElement): void {
   const queueNavigation = reviewQueueNavigation() ?? undefined;
   root = el('div', 'pr-content review-queue');
   parent.append(root);
-  const shell = createPrQueueColumns({ queueLabel: 'Review queue', scopeTabs: null, resizerLabel: 'Resize review queue' });
+  const shell = createPrQueueColumns({
+    queueLabel: 'Review queue',
+    scopeTabs: null,
+    resizerLabel: 'Resize review queue',
+    detailResizer: { label: 'Resize review detail', getStoredWidth: getReviewsBoardDetailWidth, setStoredWidth: setReviewsBoardDetailWidth },
+  });
   queueElement = shell.queue;
   detailHost = el('div', 'review-queue-detail');
   const phoneBar = el('div', 'review-queue-phone-bar');
   const back = button({ variant: 'secondary', label: 'Back to queue', action: 'back-to-queue', onClick: returnToReviewQueue });
   turnPosition = el('span', 'review-queue-position');
   phoneBar.append(back, turnPosition);
-  shell.detail.append(phoneBar, detailHost);
+  const boardBar = el('div', 'review-board-detail-bar');
+  const closeDetail = button({ variant: 'secondary', label: 'Close', action: 'close-review-detail', onClick: returnToQueue });
+  closeDetail.setAttribute('aria-label', 'Close review detail');
+  boardBar.append(closeDetail);
+  shell.detail.append(phoneBar, boardBar, detailHost);
   skillNotice = createReviewSkillNotice();
   shell.queue.before(skillNotice.element);
   pollingControls = createGithubPollingControls(['team-review', 'my-prs'], root);
-  teamChipSlot = el('span', 'review-team-chip-slot');
-  shell.foot.append(teamChipSlot, pollingControls.control);
+  shell.foot.append(pollingControls.control, createLayoutSwitch());
   setupCard = createReviewSetupCard();
   setupCard.element.hidden = true;
   root.append(setupCard.element, shell.columns);
@@ -356,8 +656,14 @@ function mountReviewQueue(parent: HTMLElement): void {
   subscribeReviewQueue(applyReviewQueueChange);
   subscribeSettings((change) => { if (change.kind === 'broadcast') skillNotice?.sync(); });
   document.addEventListener('keydown', onReviewKey);
+  onLayoutChange(() => render());
   render();
   revealPendingItem();
 }
 
-export const view: ViewModule<HTMLElement> = { mount: mountReviewQueue, refresh: repaintSessionPills };
+function refreshReviewQueue(): void {
+  repaintSessionPills();
+  queueRender();
+}
+
+export const view: ViewModule<HTMLElement> = { mount: mountReviewQueue, refresh: refreshReviewQueue };

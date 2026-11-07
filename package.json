@@ -1,7 +1,7 @@
 {
   "name": "glimmervoid",
-  "version": "0.52.2-next.0",
-  "description": "Mission control that ships. Not a terminal multiplexer: Claude Code, Codex, Kimi Code and Grok each work in their own git worktree. Only the one that needs you asks for your attention.",
+  "version": "0.52.3-next.0",
+  "description": "Mission control that ships. Not a terminal multiplexer: every terminal coding agent works in its own git worktree. Only the one that needs you asks for your attention.",
   "main": "dist/server/index.js",
   "type": "module",
   "imports": {
@@ -82,26 +82,26 @@
     "@xterm/addon-webgl": "0.19.0",
     "@xterm/headless": "6.0.0",
     "@xterm/xterm": "6.0.0",
-    "cc-safety-net": "2.6.16",
+    "cc-safety-net": "2.7.1",
     "express": "5.3.0",
     "ffmpeg-static": "5.3.0",
-    "fs-native-extensions": "1.5.2",
+    "fs-native-extensions": "1.5.3",
     "node-pty": "1.1.0",
     "sharp": "0.35.5",
-    "ws": "8.22.0",
+    "ws": "8.22.1",
     "zod": "4.6.7"
   },
   "allowScripts": {
     "node-pty": true
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.15",
-    "@posthog/coherence": "1.12.1",
-    "@tailwindcss/vite": "4.3.3",
-    "@types/node": "26.6.5",
+    "@biomejs/biome": "2.6.4",
+    "@posthog/coherence": "1.13.0",
+    "@tailwindcss/vite": "4.3.4",
+    "@types/node": "26.6.6",
     "playwright-core": "1.64.1",
-    "tailwindcss": "4.3.3",
+    "tailwindcss": "4.3.4",
     "typescript": "7.0.2",
-    "vite": "8.3.4"
+    "vite": "8.3.5"
   }
 }

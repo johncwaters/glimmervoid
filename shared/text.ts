@@ -21,4 +21,8 @@ function isMissingFileError(error: unknown, { includeNotDir = true }: { includeN
   return code === 'ENOENT' || (includeNotDir && code === 'ENOTDIR');
 }
 
-export { errorCode, errorLabel, errorMessage, errorText, isMissingFileError };
+function firstCodePoints(text: string, maxCodePoints: number): string {
+  return Array.from(text).slice(0, maxCodePoints).join('');
+}
+
+export { errorCode, errorLabel, errorMessage, errorText, firstCodePoints, isMissingFileError };

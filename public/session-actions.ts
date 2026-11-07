@@ -6,7 +6,6 @@ import type { SessionOpenStatePolicy } from './session-actions-core.ts';
 import { decideSessionOpenAction, pickRestorableSessionId } from './session-actions-core.ts';
 import { sendSessionAction } from './session-card/card-actions.ts';
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
-import { SHELL_AGENT_ID } from './session-card/agent-core.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { sessionName, sessionUIs } from './session-card/card-registry.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
@@ -76,10 +75,6 @@ function openWithDialogs(openDialog: (dialogs: DialogsModule) => void) {
 
 export function openAddSessionDialog() {
   openWithDialogs((dialogs) => dialogs.createAddSessionDialog());
-}
-
-export function openShellSessionDialog() {
-  openWithDialogs((dialogs) => dialogs.createAddSessionDialog({ preferredAgentId: SHELL_AGENT_ID }));
 }
 
 let revealSessionInView: (id: string) => void = selectSession;
@@ -173,7 +168,11 @@ async function requestCheckedSessionRemoval(ui: SessionUi, id: string, discardWo
 export const SESSION_CLOSE_UNDO_WINDOW_MS = 8000;
 export const CLOSING_ROW_STATE = 'CLOSING';
 
-const pendingCloseById = new Map<string, { timer: number; wasOpen: boolean }>();
+const pendingCloseById = new Map<string, { timer: number; wasOpen: boolean; startedAt: number }>();
+
+export function pendingCloseStartedAt(id: string) {
+  return pendingCloseById.get(id)?.startedAt ?? null;
+}
 
 export function isSessionShown(id: string) {
   return sessionUIs.has(id) && !pendingCloseById.has(id) && !removingSessionIds.has(id);
@@ -197,7 +196,7 @@ function finishPendingClose(id: string) {
 function beginPendingClose(id: string) {
   if (pendingCloseById.has(id)) return;
   const timer = window.setTimeout(() => finishPendingClose(id), SESSION_CLOSE_UNDO_WINDOW_MS);
-  pendingCloseById.set(id, { timer, wasOpen: getSelectedId() === id });
+  pendingCloseById.set(id, { timer, wasOpen: getSelectedId() === id, startedAt: performance.now() });
   markStatusDirty(id);
 }
 

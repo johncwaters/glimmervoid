@@ -8,11 +8,14 @@ export type UpstreamVariant = 'none' | 'conflict' | 'diverged' | 'push-rejected'
 
 export type Step =
   | { kind: 'assert-issues'; viewer?: ViewerId }
+  | { kind: 'assert-undo-close'; viewer?: ViewerId }
   | { kind: 'assert-boards'; viewer?: ViewerId }
   | { kind: 'assert-board-pane'; viewer?: ViewerId }
+  | { kind: 'assert-board-scale'; viewer?: ViewerId }
   | { kind: 'assert-team-review'; viewer?: ViewerId }
   | { kind: 'assert-review-merge'; upstream: UpstreamVariant; viewer?: ViewerId }
   | { kind: 'assert-phone-changes'; viewer?: ViewerId }
+  | { kind: 'assert-link-repaint'; viewer?: ViewerId }
   | { kind: 'open'; viewer?: ViewerId }
   | { kind: 'back'; viewer?: ViewerId }
   | { kind: 'assert-settings-back'; viewer?: ViewerId }
@@ -46,6 +49,7 @@ export type Step =
   | { kind: 'remove-session'; viewer?: ViewerId }
   | { kind: 'remove-from-phone-terminal'; viewer?: ViewerId }
   | { kind: 'expect-session-gone'; viewer?: ViewerId }
+  | { kind: 'expect-session-name'; name: string; viewer?: ViewerId }
   | { kind: 'shot'; name: string; viewer?: ViewerId };
 
 export type ResolvedStep = Exclude<Step, { kind: 'resize-by' }>;
@@ -140,6 +144,23 @@ export const SCENARIOS: readonly Scenario[] = [
     ],
   },
   {
+    name: 'reconnect-catches-up-rename',
+    companionViewport: 'desktop-800',
+    viewports: ['desktop-1280'],
+    steps: [
+      { kind: 'open', viewer: 'a' },
+      { kind: 'settle', viewer: 'a' },
+      { kind: 'open', viewer: 'b' },
+      { kind: 'settle', viewer: 'b' },
+      { kind: 'suspend', viewer: 'a' },
+      { kind: 'rename-session', newName: 'renamed while away', viewer: 'b' },
+      { kind: 'wait', durationMs: 11000 },
+      { kind: 'foreground', viewer: 'a' },
+      { kind: 'expect-session-name', name: 'renamed while away', viewer: 'a' },
+      { kind: 'shot', name: 'caught-up', viewer: 'a' },
+    ],
+  },
+  {
     name: 'phone-resume-desktop-grid',
     phoneOnly: true,
     companionViewport: 'desktop-1280',
@@ -193,8 +214,23 @@ export const SCENARIOS: readonly Scenario[] = [
     steps: [{ kind: 'assert-issues' }, { kind: 'shot', name: 'issues' }],
   },
   {
+    name: 'undo-close',
+    viewports: ['phone-393', 'desktop-1280'],
+    steps: [{ kind: 'assert-undo-close' }, { kind: 'shot', name: 'undo-close' }],
+  },
+  {
     name: 'boards',
     steps: [{ kind: 'assert-boards' }, { kind: 'shot', name: 'boards' }],
+  },
+  {
+    name: 'board-scale',
+    viewports: ['desktop-1280'],
+    steps: [{ kind: 'assert-board-scale' }, { kind: 'shot', name: 'board-scale' }],
+  },
+  {
+    name: 'terminal-link-repaint',
+    viewports: ['desktop-1280'],
+    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'assert-link-repaint' }, { kind: 'shot', name: 'link-hovered' }],
   },
   {
     name: 'board-pane',
@@ -203,6 +239,7 @@ export const SCENARIOS: readonly Scenario[] = [
   },
   {
     name: 'team-review',
+    viewports: ['phone-393', 'desktop-1280', 'desktop-800', 'desktop-1920'],
     steps: [{ kind: 'assert-team-review' }, { kind: 'shot', name: 'team-review' }],
   },
   ...(['none', 'conflict', 'diverged', 'push-rejected'] as const).map((upstream): Scenario => ({

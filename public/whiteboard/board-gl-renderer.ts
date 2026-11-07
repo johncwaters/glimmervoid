@@ -23,7 +23,7 @@ interface Camera {
 
 interface ReviewMarks {
   worthALookIds: ReadonlySet<string>;
-  flaggedUnitIds: ReadonlySet<string>;
+  flaggedStepIds: ReadonlySet<string>;
 }
 
 type HitPart = 'body' | 'port' | 'resize' | 'link' | 'media';
@@ -40,6 +40,7 @@ interface BoardHit {
 interface BoardRenderer {
   render(board: Board): BoardLayout;
   renderLayout(layout: BoardLayout, blocks: readonly BlockTile[]): void;
+  paintElements(elements: readonly LaidOutElement[]): void;
   layout(): BoardLayout | null;
   setCamera(camera: Camera): void;
   hitTest(point: Point): BoardHit | null;
@@ -114,7 +115,7 @@ interface GlScene {
   grid: ReturnType<typeof gridOfRects>;
 }
 
-const NO_REVIEW_MARKS: ReviewMarks = { worthALookIds: new Set(), flaggedUnitIds: new Set() };
+const NO_REVIEW_MARKS: ReviewMarks = { worthALookIds: new Set(), flaggedStepIds: new Set() };
 const CULL_CELL_SIZE = 512;
 const GATHER_MARGIN_FACTOR = 0.75;
 const LOD_STEPS_PER_OCTAVE = 4;
@@ -311,10 +312,8 @@ uniform vec4 uTint;
 in vec2 vUv;
 out vec4 outColor;
 void main() {
-  vec4 texel = texture(uImage, vUv);
-  vec3 color = texel.rgb == vec3(0.0) ? uTint.rgb : texel.rgb;
-  float alpha = texel.a * uTint.a;
-  outColor = vec4(color * alpha, alpha);
+  float alpha = texture(uImage, vUv).a * uTint.a;
+  outColor = vec4(uTint.rgb * alpha, alpha);
 }`;
 
 const BLOCK_ALPHA = 0.85;
@@ -435,7 +434,6 @@ function createColorReader(host: HTMLElement): { colorOf: (expression: string) =
 
 function resolvePalette(host: HTMLElement): BoardPalette {
   const reader = createColorReader(host);
-  const hexColors = new Map<string, Rgba>();
   const palette: BoardPalette = {
     board: reader.colorOf('var(--wb-board)'),
     ink: reader.colorOf('var(--wb-ink)'),
@@ -458,14 +456,8 @@ function resolvePalette(host: HTMLElement): BoardPalette {
     metaSize: reader.sizeOf('var(--type-meta)'),
     bodySize: reader.sizeOf('var(--type-body)'),
     titleSize: reader.sizeOf('var(--type-title)'),
-    colorOfHex: (hex) => {
-      const known = hexColors.get(hex);
-      if (known) return known;
-      const color = reader.colorOf(hex);
-      hexColors.set(hex, color);
-      return color;
-    },
   };
+  reader.dispose();
   return palette;
 }
 
@@ -643,7 +635,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
 
   function decorations(current: GlScene): Decoration[] {
     const listed: Decoration[] = [];
-    for (const elementId of reviewMarks.flaggedUnitIds) {
+    for (const elementId of reviewMarks.flaggedStepIds) {
       const element = current.elementById.get(elementId);
       if (element) listed.push({ kind: 'flagged', element });
     }
@@ -1046,6 +1038,13 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     lastRendered = { source: layout, layout, blocks: nextBlocks };
   }
 
+  function paintElements(elements: readonly LaidOutElement[]): void {
+    if (!lastRendered) return;
+    const replacementById = new Map(elements.map((element) => [element.id, element]));
+    const base = lastRendered.layout;
+    drawLayout({ ...base, elements: base.elements.map((element) => replacementById.get(element.id) ?? element) }, lastRendered.blocks);
+  }
+
   function drawLayout(layout: BoardLayout, nextBlocks: readonly BlockTile[]): void {
     if (atlas?.isFull()) {
       atlas.forgetUnusedGlyphs();
@@ -1200,7 +1199,8 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   return {
     render,
     renderLayout,
-    layout: () => scene?.layout ?? null,
+    layout: () => lastRendered?.layout ?? null,
+    paintElements,
     setCamera: (nextCamera) => {
       camera = nextCamera;
       reportView();

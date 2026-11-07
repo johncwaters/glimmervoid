@@ -1,48 +1,26 @@
-<h2 class="dialog-title" id="add-session-title">Add Session</h2>
-<fieldset class="dialog-mode-controls add-session-agent-only" id="add-session-mode-controls" aria-label="Session kind"></fieldset>
-<p class="dialog-mode-hint add-session-agent-only">Workspace runs one session across several repos.</p>
-<label class="dialog-label add-session-agent-only" id="add-session-picker-label">
-  Pick a project:
-  <select class="dialog-input project-picker" id="add-session-picker">
-    <option value="" disabled selected>Scanning...</option>
-  </select>
-</label>
-<fieldset class="dialog-workspace-list add-session-agent-only" id="add-session-workspace-list" aria-label="Workspace repositories" hidden></fieldset>
-<div class="dialog-repo-roots add-session-agent-only" id="add-session-repo-roots" hidden>
-  <p class="dialog-repo-roots-title" id="add-session-repo-roots-title">No repository roots yet</p>
-  <p class="dialog-repo-roots-desc">Add the folder that holds your git checkouts. Its repos show up right here.</p>
+<h2 class="dialog-title" id="add-session-title">New session</h2>
+<p class="add-session-sentence">Start <span class="add-session-word add-session-agent-word"><span class="agent-mark" id="add-session-agent-mark" aria-hidden="true" hidden></span><select class="add-session-word-select" id="add-session-agent" aria-label="Agent"></select></span> in <span id="add-session-repo-word-slot"></span><span class="add-session-place" id="add-session-place" hidden> on <span class="add-session-word"><select class="add-session-word-select" id="add-session-place-select" aria-label="Where it runs"></select></span></span></p>
+<input type="text" class="dialog-input add-session-task" id="add-session-task" placeholder="Add a task (optional)" maxlength="4000" autocomplete="off" aria-label="Task">
+<div class="add-session-pick" id="add-session-pick">
+  <input type="text" class="dialog-input add-session-find" id="add-session-find" placeholder="Find a project" autocomplete="off" spellcheck="false" aria-label="Find a project">
+  <div class="add-session-list" id="add-session-list" role="listbox" aria-label="Projects"></div>
+  <div class="dialog-repo-roots" id="add-session-repo-roots" hidden>
+    <p class="dialog-repo-roots-title" id="add-session-repo-roots-title">No repository roots yet</p>
+    <p class="dialog-repo-roots-desc">Add the folder that holds your git checkouts. Its repos show up right here.</p>
+  </div>
 </div>
-<label class="dialog-label" id="add-session-agent-label" hidden>
-  Agent
-  <select class="dialog-input" id="add-session-agent"></select>
-</label>
-<label class="dialog-label add-session-agent-only" id="add-session-environment-label" hidden>
-  Environment
-  <select class="dialog-input" id="add-session-environment"></select>
-  <span class="dialog-hint" id="add-session-environment-hint" hidden></span>
-</label>
-<div class="dialog-label add-session-agent-only" id="add-session-agent-login" hidden>
+<div class="add-session-panel" id="add-session-workspace" hidden>
+  <div id="add-session-workspace-back-slot"></div>
+  <fieldset class="dialog-workspace-list" id="add-session-workspace-list" aria-label="Workspace repositories"></fieldset>
+</div>
+<div class="add-session-panel" id="add-session-folder" hidden>
+  <div id="add-session-folder-back-slot"></div>
+  <input type="text" class="dialog-input" id="add-session-path" placeholder="Full path to the folder" autocomplete="off" spellcheck="false" aria-label="Folder path">
+</div>
+<div class="dialog-label" id="add-session-agent-login" hidden>
   <span class="dialog-hint" id="add-session-agent-login-text"></span>
 </div>
-<div id="add-session-advanced-toggle-row"></div>
-<div class="dialog-advanced-panel" id="add-session-advanced" hidden>
-  <label class="dialog-label">
-    Name
-    <input type="text" class="dialog-input" id="add-session-name" placeholder="my-project" autocomplete="off" spellcheck="false">
-  </label>
-  <label class="dialog-label" id="add-session-path-label">
-    Path
-    <input type="text" class="dialog-input" id="add-session-path" placeholder="Full path to the project folder" autocomplete="off" spellcheck="false">
-  </label>
-</div>
-<div class="dialog-sane-yolo-row add-session-agent-only">
-  <label class="dialog-label dialog-checkbox-label" id="add-session-skip-perms-label">
-    <input type="checkbox" class="dialog-checkbox" id="add-session-skip-perms">
-    <span>Sane YOLO mode</span>
-  </label>
-  <a class="dialog-help-link" id="add-session-sane-yolo-help" href="#settings/machine-safety/sane-yolo" aria-label="What Sane YOLO mode does">?</a>
-</div>
-<p class="dialog-hint dialog-hint-warning add-session-agent-only" id="add-session-sane-yolo-unavailable" hidden>Sane YOLO cannot protect this session here, so this mode skips permission prompts unprotected.</p>
-<p class="dialog-hint" id="add-session-shell-hint" hidden>A plain terminal on the machine Glimmervoid runs on, started in this folder. Leave Path blank for your home folder.</p>
+<p class="dialog-hint" id="add-session-environment-hint" hidden></p>
+<p class="dialog-hint" id="add-session-unprotected" hidden></p>
 <div class="dialog-error" id="add-session-error"></div>
 <div class="dialog-actions" id="add-session-actions"></div>

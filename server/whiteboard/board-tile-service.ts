@@ -1,7 +1,7 @@
 import type { Board } from '../../shared/contracts/whiteboard.ts';
 import type { TileKey, TileLod } from '../../shared/contracts/whiteboard-tiles.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
-import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
+import { layoutBoardRemembered } from '../../shared/whiteboard-layout-cache.ts';
 import type { BoardLayout, Rect } from '../../shared/whiteboard-layout-core.ts';
 import { tileDiffFor, tileIdOf, tileIndexOf, tileKeysFor, tileOf } from '../../shared/whiteboard-tile-core.ts';
 import type { TileIndex } from '../../shared/whiteboard-tile-core.ts';
@@ -43,7 +43,7 @@ function createBoardTileService({ boardOf }: { boardOf: (boardId: string) => Boa
     if (!board) return null;
     const cached = indexByBoardId.get(boardId);
     if (cached?.board === board) return cached.index;
-    const index = tileIndexOf(layout ?? layoutBoard(board), board.version);
+    const index = tileIndexOf(layout ?? layoutBoardRemembered(board), board.version);
     indexByBoardId.set(boardId, { board, index });
     return index;
   }

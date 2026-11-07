@@ -36,6 +36,39 @@ interface RemoteLaunch {
 
 const REMOTE_CODEX_STARTUP_TIMEOUT_MS = 300_000;
 
+type RemoteSpawnFailureCode =
+  | "REMOTE_HOOKS_UNAVAILABLE"
+  | "REMOTE_WORKSPACE_UNAVAILABLE"
+  | "REMOTE_CLAUDE_LOGIN_FAILED"
+  | "REMOTE_SETTINGS_UPLOAD_FAILED"
+  | "REMOTE_LAUNCH_COMMAND_UNBUILDABLE"
+  | "REMOTE_CODEX_VERSION_UNREADABLE"
+  | "REMOTE_CODEX_BRIDGE_FAILED"
+  | "REMOTE_SPAWN_FAILED";
+
+interface RemoteSpawnFailure {
+  ok: false;
+  code: RemoteSpawnFailureCode;
+  reason: string;
+}
+
+function remoteSpawnFailure(code: RemoteSpawnFailureCode, reason: string): RemoteSpawnFailure {
+  return { ok: false, code, reason };
+}
+
+async function runRemoteStep<Success extends { ok: true }>(
+  code: RemoteSpawnFailureCode,
+  run: () => Promise<Success | { ok: false; reason: string }>,
+): Promise<Success | RemoteSpawnFailure> {
+  const outcome = await run().catch((error: unknown) => ({ ok: false as const, reason: errorMessage(error) }));
+  if (outcome.ok) return outcome;
+  return remoteSpawnFailure(code, outcome.reason);
+}
+
+function remoteSpawnError(workspace: string, failure: RemoteSpawnFailure): Error {
+  return Object.assign(new Error(`Coder workspace ${workspace}: ${failure.reason}`), { code: failure.code });
+}
+
 interface SpawnCommand {
   file: string;
   args: string[];
@@ -147,26 +180,26 @@ function createSessionLaunch({ id, adapter, platform, startCodexBridge, getRemot
 
   async function startRemoteCodexBridge(remote: RemoteLaunch, agentArgs: string[], env: SpawnEnv): Promise<{ tuiArgs: string[]; token: string } | null> {
     await stopCodexBridge();
-    const prepared = await prepareRemoteCodexBridge(remote, agentArgs, env).catch((error: unknown) => ({ ok: false as const, reason: errorMessage(error) }));
+    const prepared = await prepareRemoteCodexBridge(remote, agentArgs, env).catch((error: unknown) => remoteSpawnFailure("REMOTE_SPAWN_FAILED", errorMessage(error)));
     if (port.isDestroyed()) {
       hooks.cleanup();
       await stopCodexBridge();
       return null;
     }
     if (!prepared.ok) {
-      port.abandonSpawn(new Error(`Coder workspace ${remote.workspace}: ${prepared.reason}`));
+      port.abandonSpawn(remoteSpawnError(remote.workspace, prepared));
       return null;
     }
     return prepared.launch;
   }
 
-  async function prepareRemoteCodexBridge(remote: RemoteLaunch, agentArgs: string[], env: SpawnEnv): Promise<{ ok: true; launch: { tuiArgs: string[]; token: string } } | { ok: false; reason: string }> {
-    const running = await remote.ensureRunning();
+  async function prepareRemoteCodexBridge(remote: RemoteLaunch, agentArgs: string[], env: SpawnEnv): Promise<{ ok: true; launch: { tuiArgs: string[]; token: string } } | RemoteSpawnFailure> {
+    const running = await runRemoteStep("REMOTE_WORKSPACE_UNAVAILABLE", remote.ensureRunning);
     if (!running.ok) return running;
     const version = await remote.codexVersion();
-    if (version === null) return { ok: false, reason: "the host codex version could not be read, so the workspace cannot install a matching codex" };
+    if (version === null) return remoteSpawnFailure("REMOTE_CODEX_VERSION_UNREADABLE", "the host codex version could not be read, so the workspace cannot install a matching codex");
     const launch = splitCodexRemoteLaunch(agentArgs, port.promptSupervisionLine());
-    const bridge = await startCodexBridge({
+    const started = await runRemoteStep("REMOTE_CODEX_BRIDGE_FAILED", async () => ({ ok: true as const, bridge: await startCodexBridge({
       command: { file: "coder", argsBeforeAppServer: [] },
       configArgs: launch.appServerConfigArgs,
       cwd: port.effectiveCwd(),
@@ -184,9 +217,10 @@ function createSessionLaunch({ id, adapter, platform, startCodexBridge, getRemot
         login: remote.codexLoginParams,
         refreshLogin: remote.codexRefreshResult,
       },
-    });
-    attachCodexBridge(bridge);
-    return { ok: true, launch: { tuiArgs: remoteTuiArgs(bridge.url, launch.tuiArgs), token: bridge.token } };
+    }) }));
+    if (!started.ok) return started;
+    attachCodexBridge(started.bridge);
+    return { ok: true, launch: { tuiArgs: remoteTuiArgs(started.bridge.url, launch.tuiArgs), token: started.bridge.token } };
   }
 
   function attachCodexBridge(bridge: CodexAppServerBridge): void {
@@ -200,29 +234,33 @@ function createSessionLaunch({ id, adapter, platform, startCodexBridge, getRemot
   }
 
   async function remoteSpawnCommand(remote: RemoteLaunch, agentArgs: string[]): Promise<SpawnCommand | null> {
-    const prepared = await prepareRemoteSpawn(remote, agentArgs).catch((error: unknown) => ({ ok: false as const, reason: errorMessage(error) }));
+    const prepared = await prepareRemoteSpawn(remote, agentArgs).catch((error: unknown) => remoteSpawnFailure("REMOTE_SPAWN_FAILED", errorMessage(error)));
     if (port.isDestroyed()) {
       hooks.cleanup();
       return null;
     }
     if (!prepared.ok) {
-      port.abandonSpawn(new Error(`Coder workspace ${remote.workspace}: ${prepared.reason}`));
+      port.abandonSpawn(remoteSpawnError(remote.workspace, prepared));
       return null;
     }
     return prepared.spawnCommand;
   }
 
-  async function prepareRemoteSpawn(remote: RemoteLaunch, agentArgs: string[]): Promise<{ ok: true; spawnCommand: SpawnCommand } | { ok: false; reason: string }> {
+  async function prepareRemoteSpawn(remote: RemoteLaunch, agentArgs: string[]): Promise<{ ok: true; spawnCommand: SpawnCommand } | RemoteSpawnFailure> {
     const hookToken = hooks.token();
     const ingressPort = hooks.listenerPort();
-    if (hookToken === null || ingressPort === null) return { ok: false, reason: "hooks are unavailable, so the remote session could not report its status" };
-    const running = await remote.ensureRunning();
+    if (hookToken === null || ingressPort === null) return remoteSpawnFailure("REMOTE_HOOKS_UNAVAILABLE", "hooks are unavailable, so the remote session could not report its status");
+    const running = await runRemoteStep("REMOTE_WORKSPACE_UNAVAILABLE", remote.ensureRunning);
     if (!running.ok) return running;
-    const login = await remote.claudeToken();
+    const login = await runRemoteStep("REMOTE_CLAUDE_LOGIN_FAILED", remote.claudeToken);
     if (!login.ok) return login;
     const settingsPath = path.posix.join(path.posix.dirname(remote.checkoutDirectory), ".glimmervoid-sessions", safePathSegment(id), "settings.json");
     const settings = buildHookSettings({ port: remote.remotePort, glimmervoidId: id, token: hookToken, remoteNodePath: remote.nodePath });
-    await remote.uploadFile({ remotePath: settingsPath, contents: JSON.stringify(settings), mode: 0o600 });
+    const uploaded = await runRemoteStep("REMOTE_SETTINGS_UPLOAD_FAILED", async () => {
+      await remote.uploadFile({ remotePath: settingsPath, contents: JSON.stringify(settings), mode: 0o600 });
+      return { ok: true as const };
+    });
+    if (!uploaded.ok) return uploaded;
     const remoteCommand = remoteLaunchScript({
       workingDirectory: remote.checkoutDirectory,
       argv: ["claude", ...(adapter.settingsArgs?.(settingsPath) ?? []), ...agentArgs],
@@ -230,7 +268,7 @@ function createSessionLaunch({ id, adapter, platform, startCodexBridge, getRemot
     });
     const sshArgs = remoteCommand === null ? null : coderSshArgs({ workspace: remote.workspace, remotePort: remote.remotePort, ingressPort, remoteCommand });
     const sshEnv = encodeCoderSshEnv({ [CLAUDE_TOKEN_ALIAS_ENV]: login.token });
-    if (sshArgs === null || sshEnv === null) return { ok: false, reason: "the remote launch command could not be built" };
+    if (sshArgs === null || sshEnv === null) return remoteSpawnFailure("REMOTE_LAUNCH_COMMAND_UNBUILDABLE", "the remote launch command could not be built");
     return { ok: true, spawnCommand: { file: "coder", args: sshArgs, env: { [CODER_SSH_ENV]: sshEnv } } };
   }
 

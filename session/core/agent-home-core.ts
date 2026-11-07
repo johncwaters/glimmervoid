@@ -1,6 +1,9 @@
 import path from "node:path";
+import { parseEnv } from "node:util";
 
 import { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME } from "../../mcp/core/agent-config.ts";
+import { cleanJsonc } from "../../server/core/tsconfig-paths-core.ts";
+import { isRecord } from "../../shared/coerce.ts";
 import { buildHookCommand } from "./hook-command-core.ts";
 
 type BlockClassification = "absent" | "current" | "managed-stale" | "foreign" | "conflicting";
@@ -10,6 +13,7 @@ interface KimiHooksBlockOptions {
   events: readonly string[];
   toolEvents: readonly string[];
   matchedToolNames: readonly string[];
+  questionHold: { toolName: string; event: string; timeoutSeconds: number };
   saneYolo: { relayPath: string; toolNames: readonly string[]; agentFlavor: string };
 }
 
@@ -22,13 +26,15 @@ const MANAGED_LINE_PATTERNS: readonly RegExp[] = Object.freeze([
   /^\[\[hooks\]\]$/,
   /^event = "[A-Za-z][A-Za-z0-9_-]{0,63}"$/,
   /^matcher = '\^[A-Za-z0-9_]+\$'$/,
+  /^timeout = [1-9][0-9]{0,2}$/,
   /^command = 'node (?:"[^"'\r\n]*\/(?:hook-relay|hook-tool-relay)\.(?:js|ts)"|[^\s"']*\/(?:hook-relay|hook-tool-relay)\.(?:js|ts)) [A-Za-z][A-Za-z0-9_-]{0,63}(?: [A-Za-z0-9_-]+)*'$/,
 ]);
 
-function hookTable(event: string, command: string, matcher: string | null = null): string[] {
+function hookTable(event: string, command: string, matcher: string | null = null, timeoutSeconds: number | null = null): string[] {
   const lines = ["[[hooks]]", `event = "${event}"`];
   if (matcher !== null) lines.push(`matcher = '${matcher}'`);
   lines.push(`command = '${command}'`);
+  if (timeoutSeconds !== null) lines.push(`timeout = ${timeoutSeconds}`);
   return lines;
 }
 
@@ -44,6 +50,9 @@ function renderKimiHooksBlock(options: KimiHooksBlockOptions): string | null {
     if (!command) return null;
     for (const toolName of options.matchedToolNames) lines.push(...hookTable(event, command, `^${toolName}$`));
   }
+  const questionHoldCommand = buildHookCommand(options.relayPath, options.questionHold.event);
+  if (!questionHoldCommand) return null;
+  lines.push(...hookTable("PreToolUse", questionHoldCommand, `^${options.questionHold.toolName}$`, options.questionHold.timeoutSeconds));
   const saneYoloCommand = buildHookCommand(options.saneYolo.relayPath, "saneYolo", [options.saneYolo.agentFlavor]);
   if (!saneYoloCommand) return null;
   for (const toolName of options.saneYolo.toolNames) lines.push(...hookTable("PreToolUse", saneYoloCommand, `^${toolName}$`));
@@ -103,12 +112,12 @@ function definesHooksOutsideArrayTables(operatorText: string): boolean {
   return false;
 }
 
-function classifyConfig(configText: string | null, expectedBlock: string, profile: AgentHomeProfile): BlockClassification {
+function classifyConfig(configText: string | null, expectedBlock: string, format: TomlConfigFormat): BlockClassification {
   if (configText === null) return "absent";
   const span = locateBlock(configText);
   if (span === "foreign") return span;
   const operatorText = span === "absent" ? configText : `${configText.slice(0, span.start)}${configText.slice(span.end)}`;
-  if (profile.hooksConflict(operatorText) !== null) return "conflicting";
+  if (format.hooksConflict(operatorText) !== null) return "conflicting";
   if (span === "absent") return span;
   const blockText = configText.slice(span.start, span.end);
   if (blockText === expectedBlock) return "current";
@@ -116,9 +125,9 @@ function classifyConfig(configText: string | null, expectedBlock: string, profil
   return "foreign";
 }
 
-function spliceHooksBlock(configText: string | null, block: string, profile: AgentHomeProfile): BlockSpliceResult {
+function spliceHooksBlock(configText: string | null, block: string, format: TomlConfigFormat): BlockSpliceResult {
   if (configText === null || configText === "") return { contents: block, changed: true };
-  const classification = classifyConfig(configText, block, profile);
+  const classification = classifyConfig(configText, block, format);
   if (classification === "current") return { contents: configText, changed: false };
   if (classification === "foreign" || classification === "conflicting") return { refused: classification };
   if (classification === "absent") {
@@ -134,18 +143,44 @@ const AGENT_HOME_CONFIG_NAME = "config.toml";
 const AGENT_HOME_SOURCES_NAME = ".glimmervoid-sources.json";
 const AGENT_HOME_CONFLICTS_NAME = ".glimmervoid-conflicts";
 const AGENT_HOME_BASE_NAME = ".glimmervoid-base.toml";
+const AGENT_HOME_JSON_BASE_NAME = ".glimmervoid-base.json";
 const AGENT_HOME_IN_USE_LOCK_NAME = ".glimmervoid-in-use.lock";
-const GENERATED_ONLY_NAMES: ReadonlySet<string> = new Set([AGENT_HOME_CONFIG_NAME, AGENT_HOME_SOURCES_NAME, AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_BASE_NAME, AGENT_HOME_IN_USE_LOCK_NAME]);
+const GENERATED_ONLY_NAMES: ReadonlySet<string> = new Set([AGENT_HOME_SOURCES_NAME, AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_IN_USE_LOCK_NAME]);
 const FILE_STAMP_PREFIX = "file:";
 
-type AgentHomeVendor = "kimi" | "codex";
+type AgentHomeVendor = "kimi" | "codex" | "gemini" | "qwen" | "copilot";
+
+interface TomlConfigFormat {
+  kind: "toml";
+  configName: string;
+  baseName: string;
+  hooksConflict(operatorText: string): string | null;
+  sessionOnlyTablePrefixes: readonly string[];
+}
+
+interface JsonHooksSwitch {
+  managedKeys: readonly string[];
+  areHooksOff(operatorConfig: Record<string, unknown>): boolean | { refusal: string };
+  turnHooksOn(operatorConfig: Record<string, unknown>): Record<string, unknown>;
+}
+
+interface JsonConfigFormat {
+  kind: "json";
+  configName: string;
+  baseName: string;
+  hooksSwitch: JsonHooksSwitch;
+}
 
 interface AgentHomeProfile {
   vendor: AgentHomeVendor;
   homeEnvName: string;
   defaultHomeFolderName: string;
-  hooksConflict(operatorText: string): string | null;
-  sessionOnlyTablePrefixes: readonly string[];
+  homeEnvSubfolder: string | null;
+  homeEnvDotenvNames: readonly string[];
+  expandsHomeTilde: boolean;
+  homeRootLinkNames: readonly string[];
+  renderLauncherConfig: ((operatorLauncherText: string) => string) | null;
+  config: TomlConfigFormat | JsonConfigFormat;
   generatedFileNames: readonly string[];
   isPrivateEntryName(name: string, platform: NodeJS.Platform): boolean;
 }
@@ -289,7 +324,7 @@ function withoutSessionOnlyTables(ours: string, base: string, sessionOnlyTablePr
 }
 
 interface AgentConfigSources {
-  profile: AgentHomeProfile;
+  format: TomlConfigFormat;
   realConfigText: string | null;
   baseConfigText: string | null;
   generatedConfigText: string | null;
@@ -299,10 +334,12 @@ interface AgentConfigSources {
 function isGeneratedConfigCurrent(generatedConfigText: string, sources: AgentConfigSources): boolean {
   const generatedOperatorText = withoutBlock(generatedConfigText);
   if (generatedOperatorText === "foreign") return false;
-  return classifyConfig(generatedConfigText, sources.renderBlock(generatedOperatorText), sources.profile) === "current";
+  return classifyConfig(generatedConfigText, sources.renderBlock(generatedOperatorText), sources.format) === "current";
 }
 
-function generatedAgentConfig(sources: AgentConfigSources): { text: string; base: string; hadBlock: boolean } | { refusal: string } {
+type GeneratedConfig = { text: string; base: string; hadBlock: boolean } | { refusal: string };
+
+function generatedAgentConfig(sources: AgentConfigSources): GeneratedConfig {
   const realText = sources.realConfigText ?? "";
   const theirs = withoutBlock(realText);
   if (theirs === "foreign") return { refusal: "its Glimmervoid hooks block markers are unbalanced" };
@@ -314,12 +351,96 @@ function generatedAgentConfig(sources: AgentConfigSources): { text: string; base
   const ours = sources.generatedConfigText === null ? "foreign" : withoutBlock(sources.generatedConfigText);
   const operatorText = ours === "foreign" || sources.baseConfigText === null
     ? theirs
-    : mergeTopLevelKeys(sources.baseConfigText, withoutSessionOnlyTables(ours, sources.baseConfigText, sources.profile.sessionOnlyTablePrefixes), theirs);
-  const conflict = sources.profile.hooksConflict(operatorText);
+    : mergeTopLevelKeys(sources.baseConfigText, withoutSessionOnlyTables(ours, sources.baseConfigText, sources.format.sessionOnlyTablePrefixes), theirs);
+  const conflict = sources.format.hooksConflict(operatorText);
   if (conflict !== null) return { refusal: conflict };
-  const spliced = spliceHooksBlock(operatorText, sources.renderBlock(operatorText), sources.profile);
+  const spliced = spliceHooksBlock(operatorText, sources.renderBlock(operatorText), sources.format);
   if ("refused" in spliced) return { refusal: `its hooks are ${spliced.refused}` };
   return { text: spliced.contents, base: theirs, hadBlock };
+}
+
+type JsonObject = Record<string, unknown>;
+
+function parseJsonObject(text: string): JsonObject | null {
+  const cleaned = cleanJsonc(text);
+  if (cleaned === null) return null;
+  try {
+    const parsed: unknown = JSON.parse(cleaned);
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function doesProjectConfigTurnHooksOff(profile: AgentHomeProfile, configText: unknown): boolean {
+  if (profile.config.kind !== "json") return false;
+  if (typeof configText !== "string") return true;
+  const projectConfig = parseJsonObject(configText);
+  if (!projectConfig) return true;
+  return profile.config.hooksSwitch.areHooksOff(projectConfig) !== false;
+}
+
+function isSameJson(first: unknown, second: unknown): boolean {
+  return JSON.stringify(first) === JSON.stringify(second);
+}
+
+function mergeJsonKeys(base: JsonObject, ours: JsonObject, theirs: JsonObject): JsonObject {
+  const merged: JsonObject = {};
+  for (const [key, theirValue] of Object.entries(theirs)) {
+    const isOnlySessionChange = !isSameJson(ours[key], base[key]) && isSameJson(theirValue, base[key]);
+    if (!isOnlySessionChange) merged[key] = theirValue;
+    if (isOnlySessionChange && Object.hasOwn(ours, key)) merged[key] = ours[key];
+  }
+  for (const [key, ourValue] of Object.entries(ours)) {
+    if (!Object.hasOwn(theirs, key) && !Object.hasOwn(base, key)) merged[key] = ourValue;
+  }
+  return merged;
+}
+
+function withManagedHooks(operatorConfig: JsonObject, managedHooks: JsonObject, hooksSwitch: JsonHooksSwitch): { config: JsonObject } | { refusal: string } {
+  const areOperatorHooksOff = hooksSwitch.areHooksOff(operatorConfig);
+  if (typeof areOperatorHooksOff !== "boolean") return areOperatorHooksOff;
+  const operatorHooks = areOperatorHooksOff ? {} : operatorConfig.hooks ?? {};
+  if (!isRecord(operatorHooks)) return { refusal: "its hooks key is not an object, which Glimmervoid hooks cannot extend" };
+  const hooks: JsonObject = { ...operatorHooks };
+  for (const [event, managedGroups] of Object.entries(managedHooks)) {
+    const operatorGroups = hooks[event] ?? [];
+    if (!Array.isArray(operatorGroups) || !Array.isArray(managedGroups)) return { refusal: `its hooks.${event} is not a list, which Glimmervoid hooks cannot extend` };
+    hooks[event] = [...operatorGroups, ...managedGroups];
+  }
+  const switchedConfig = areOperatorHooksOff ? hooksSwitch.turnHooksOn(operatorConfig) : operatorConfig;
+  return { config: { ...switchedConfig, hooks } };
+}
+
+function parseStoredJsonObject(text: string | null): JsonObject | null {
+  if (text === null) return null;
+  if (text.trim() === "") return {};
+  return parseJsonObject(text);
+}
+
+function generatedJsonAgentConfig(sources: Omit<AgentConfigSources, "format">, format: JsonConfigFormat): GeneratedConfig {
+  const realText = sources.realConfigText ?? "";
+  const theirs = parseStoredJsonObject(realText);
+  if (theirs === null) return { refusal: "it is not a JSON object" };
+  const base = parseStoredJsonObject(sources.baseConfigText);
+  const generated = parseStoredJsonObject(sources.generatedConfigText);
+  const ours: JsonObject = { ...generated };
+  for (const managedKey of format.hooksSwitch.managedKeys) {
+    delete ours[managedKey];
+    if (Object.hasOwn(theirs, managedKey)) ours[managedKey] = theirs[managedKey];
+  }
+  const operatorConfig = base === null || generated === null ? theirs : mergeJsonKeys(base, ours, theirs);
+  const managedHooks = parseJsonObject(sources.renderBlock(JSON.stringify(operatorConfig)));
+  if (managedHooks === null) return { refusal: "the Glimmervoid hooks could not be rendered" };
+  const hooked = withManagedHooks(operatorConfig, managedHooks, format.hooksSwitch);
+  if ("refusal" in hooked) return hooked;
+  return { text: `${JSON.stringify(hooked.config, null, 2)}\n`, base: realText, hadBlock: false };
+}
+
+function generatedConfigFor(inputs: AgentHomeInputs): GeneratedConfig {
+  const format = inputs.profile.config;
+  if (format.kind === "json") return generatedJsonAgentConfig(inputs, format);
+  return generatedAgentConfig({ ...inputs, format });
 }
 
 function linkKindFor(kind: RealAgentHomeEntry["kind"], platform: NodeJS.Platform): AgentHomeLinkKind {
@@ -355,12 +476,13 @@ function planEntryLink(real: RealAgentHomeEntry, generated: GeneratedAgentHomeEn
 }
 
 function isKeptOutOfLinks(name: string, inputs: AgentHomeInputs): boolean {
-  return GENERATED_ONLY_NAMES.has(name) || inputs.profile.generatedFileNames.includes(name) || inputs.profile.isPrivateEntryName(name, inputs.platform);
+  const { configName, baseName } = inputs.profile.config;
+  return GENERATED_ONLY_NAMES.has(name) || name === configName || name === baseName || inputs.profile.generatedFileNames.includes(name) || inputs.profile.isPrivateEntryName(name, inputs.platform);
 }
 
 function planAgentHome(inputs: AgentHomeInputs): AgentHomePlan {
-  const config = generatedAgentConfig(inputs);
-  if ("refusal" in config) return { kind: "refused", reason: `the real ${AGENT_HOME_CONFIG_NAME} cannot take the hooks block: ${config.refusal}` };
+  const config = generatedConfigFor(inputs);
+  if ("refusal" in config) return { kind: "refused", reason: `the real ${inputs.profile.config.configName} cannot take the hooks block: ${config.refusal}` };
   const steps: AgentHomeStep[] = [];
   if (config.text !== inputs.generatedConfigText) steps.push({ kind: "write-config", text: config.text });
   if (config.base !== inputs.baseConfigText) steps.push({ kind: "write-base", text: config.base });
@@ -392,8 +514,18 @@ const KIMI_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   vendor: "kimi",
   homeEnvName: "KIMI_CODE_HOME",
   defaultHomeFolderName: ".kimi-code",
-  hooksConflict: (operatorText: string) => definesHooksOutsideArrayTables(operatorText) ? "it defines hooks as a key or [hooks] table, which a [[hooks]] block cannot extend" : null,
-  sessionOnlyTablePrefixes: Object.freeze(["[[hooks#"]),
+  homeEnvSubfolder: null,
+  homeEnvDotenvNames: Object.freeze([]),
+  expandsHomeTilde: false,
+  homeRootLinkNames: Object.freeze([]),
+  renderLauncherConfig: null,
+  config: Object.freeze({
+    kind: "toml",
+    configName: AGENT_HOME_CONFIG_NAME,
+    baseName: AGENT_HOME_BASE_NAME,
+    hooksConflict: (operatorText: string) => definesHooksOutsideArrayTables(operatorText) ? "it defines hooks as a key or [hooks] table, which a [[hooks]] block cannot extend" : null,
+    sessionOnlyTablePrefixes: Object.freeze(["[[hooks#"]),
+  }),
   generatedFileNames: Object.freeze([KIMI_MCP_CONFIG_NAME, KIMI_MCP_BASE_NAME]),
   isPrivateEntryName: () => false,
 });
@@ -415,11 +547,113 @@ const CODEX_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   vendor: "codex",
   homeEnvName: "CODEX_HOME",
   defaultHomeFolderName: ".codex",
-  hooksConflict: (operatorText: string) => definesCodexHooksOutsideArrayTables(operatorText) ? "it defines hooks as a key or a [hooks] table other than [hooks.state], which [[hooks.<event>]] tables cannot extend" : null,
-  sessionOnlyTablePrefixes: Object.freeze(["[[hooks.", "[hooks.state."]),
+  homeEnvSubfolder: null,
+  homeEnvDotenvNames: Object.freeze([]),
+  expandsHomeTilde: false,
+  homeRootLinkNames: Object.freeze([]),
+  renderLauncherConfig: null,
+  config: Object.freeze({
+    kind: "toml",
+    configName: AGENT_HOME_CONFIG_NAME,
+    baseName: AGENT_HOME_BASE_NAME,
+    hooksConflict: (operatorText: string) => definesCodexHooksOutsideArrayTables(operatorText) ? "it defines hooks as a key or a [hooks] table other than [hooks.state], which [[hooks.<event>]] tables cannot extend" : null,
+    sessionOnlyTablePrefixes: Object.freeze(["[[hooks.", "[hooks.state."]),
+  }),
   generatedFileNames: Object.freeze([]),
   isPrivateEntryName: (name: string, platform: NodeJS.Platform) => platform === "win32" && CODEX_SQLITE_NAME_PATTERN.test(name),
 });
+
+function renderGeminiLauncherConfig(operatorLauncherText: string): string {
+  const advanced = parseJsonObject(operatorLauncherText)?.advanced;
+  const autoConfigureMemory = isRecord(advanced) ? advanced.autoConfigureMemory : undefined;
+  if (typeof autoConfigureMemory !== "boolean") return "{}\n";
+  return `${JSON.stringify({ advanced: { autoConfigureMemory } }, null, 2)}\n`;
+}
+
+const GEMINI_HOOKS_SWITCH: JsonHooksSwitch = Object.freeze({
+  managedKeys: Object.freeze(["hooks", "hooksConfig"]),
+  areHooksOff: (operatorConfig: JsonObject) => {
+    const operatorHooksConfig = operatorConfig.hooksConfig;
+    if (operatorHooksConfig !== undefined && !isRecord(operatorHooksConfig)) return { refusal: "its hooksConfig key is not an object, which Glimmervoid hooks cannot turn on" };
+    return operatorHooksConfig?.enabled === false;
+  },
+  turnHooksOn: (operatorConfig: JsonObject) => ({ ...operatorConfig, hooksConfig: { ...(isRecord(operatorConfig.hooksConfig) ? operatorConfig.hooksConfig : {}), enabled: true } }),
+});
+
+const GEMINI_HOME_PROFILE: AgentHomeProfile = Object.freeze({
+  vendor: "gemini",
+  homeEnvName: "GEMINI_CLI_HOME",
+  defaultHomeFolderName: ".gemini",
+  homeEnvSubfolder: ".gemini",
+  homeEnvDotenvNames: Object.freeze([]),
+  expandsHomeTilde: false,
+  homeRootLinkNames: Object.freeze([".agents", ".env"]),
+  renderLauncherConfig: renderGeminiLauncherConfig,
+  config: Object.freeze({ kind: "json", configName: "settings.json", baseName: AGENT_HOME_JSON_BASE_NAME, hooksSwitch: GEMINI_HOOKS_SWITCH }),
+  generatedFileNames: Object.freeze([]),
+  isPrivateEntryName: () => false,
+});
+
+const DISABLE_ALL_HOOKS_SWITCH: JsonHooksSwitch = Object.freeze({
+  managedKeys: Object.freeze(["hooks", "disableAllHooks"]),
+  areHooksOff: (operatorConfig: JsonObject) => operatorConfig.disableAllHooks === true,
+  turnHooksOn: (operatorConfig: JsonObject) => ({ ...operatorConfig, disableAllHooks: false }),
+});
+
+const QWEN_HOME_PROFILE: AgentHomeProfile = Object.freeze({
+  vendor: "qwen",
+  homeEnvName: "QWEN_HOME",
+  defaultHomeFolderName: ".qwen",
+  homeEnvSubfolder: null,
+  homeEnvDotenvNames: Object.freeze([path.join(".qwen", ".env"), ".env"]),
+  expandsHomeTilde: true,
+  homeRootLinkNames: Object.freeze([]),
+  renderLauncherConfig: null,
+  config: Object.freeze({ kind: "json", configName: "settings.json", baseName: AGENT_HOME_JSON_BASE_NAME, hooksSwitch: DISABLE_ALL_HOOKS_SWITCH }),
+  generatedFileNames: Object.freeze([]),
+  isPrivateEntryName: () => false,
+});
+
+const COPILOT_HOME_PROFILE: AgentHomeProfile = Object.freeze({
+  vendor: "copilot",
+  homeEnvName: "COPILOT_HOME",
+  defaultHomeFolderName: ".copilot",
+  homeEnvSubfolder: null,
+  homeEnvDotenvNames: Object.freeze([]),
+  expandsHomeTilde: false,
+  homeRootLinkNames: Object.freeze([]),
+  renderLauncherConfig: null,
+  config: Object.freeze({ kind: "json", configName: "settings.json", baseName: AGENT_HOME_JSON_BASE_NAME, hooksSwitch: DISABLE_ALL_HOOKS_SWITCH }),
+  generatedFileNames: Object.freeze([]),
+  isPrivateEntryName: () => false,
+});
+
+function expandHomeTilde(configuredHome: string, homeDir: string): string {
+  if (configuredHome === "~") return homeDir;
+  if (!/^~[\\/]/.test(configuredHome)) return configuredHome;
+  return path.join(homeDir, ...configuredHome.slice(2).split(/[\\/]+/).filter(Boolean));
+}
+
+function configuredAgentHome(profile: AgentHomeProfile, env: Readonly<Record<string, string | undefined>>, homeDir: string, readOptionalText: (filePath: string) => string | null): string {
+  const homeFromEnv = env[profile.homeEnvName]?.trim() ?? "";
+  if (homeFromEnv) return homeFromEnv;
+  for (const dotenvName of profile.homeEnvDotenvNames) {
+    const dotenvText = readOptionalText(path.join(homeDir, dotenvName));
+    if (dotenvText === null) continue;
+    const homeFromDotenv = parseEnv(dotenvText)[profile.homeEnvName]?.trim() ?? "";
+    if (homeFromDotenv) return homeFromDotenv;
+  }
+  return "";
+}
+
+function resolveRealAgentHome(profile: AgentHomeProfile, env: Readonly<Record<string, string | undefined>>, homeDir: string, readOptionalText: (filePath: string) => string | null): string {
+  const configuredHome = configuredAgentHome(profile, env, homeDir, readOptionalText);
+  if (!configuredHome) return path.join(homeDir, profile.defaultHomeFolderName);
+  const expandedHome = profile.expandsHomeTilde ? expandHomeTilde(configuredHome, homeDir) : configuredHome;
+  return path.resolve(expandedHome, profile.homeEnvSubfolder ?? "");
+}
+
+const AGENT_HOME_PROFILES: readonly AgentHomeProfile[] = Object.freeze([KIMI_HOME_PROFILE, CODEX_HOME_PROFILE, GEMINI_HOME_PROFILE, QWEN_HOME_PROFILE, COPILOT_HOME_PROFILE]);
 
 interface CodexHomeHook {
   event: string;
@@ -484,9 +718,15 @@ function rekeyedOperatorTrust(operatorText: string, realHome: string, generatedH
   });
 }
 
+interface ProjectHookTrust {
+  key: string;
+  currentHash: string;
+}
+
 interface CodexHooksBlockOptions {
   hooks: readonly CodexHomeHook[];
   trustedHashes: readonly string[] | null;
+  projectHookTrust: readonly ProjectHookTrust[];
   operatorText: string;
   realHome: string;
   generatedHome: string;
@@ -512,23 +752,33 @@ function ownHookTrust(options: CodexHooksBlockOptions): HookStateEntry[] {
   });
 }
 
+function projectHookTrustEntries(options: CodexHooksBlockOptions, ownKeys: ReadonlySet<string>): HookStateEntry[] {
+  const knownKeys = new Set(ownKeys);
+  return options.projectHookTrust.flatMap(({ key, currentHash }) => {
+    if (knownKeys.has(key) || namesAsQuotedKey(options.operatorText, key)) return [];
+    knownKeys.add(key);
+    return [{ key, bodyLines: [`trusted_hash = ${tomlBasicString(currentHash)}`] }];
+  });
+}
+
 function isProjectsInlineTable(operatorText: string): boolean {
   return splitTomlUnits(operatorText).keys.some((unit) => unit.id === "projects");
 }
 
-function namesFolderAsKey(operatorText: string, folder: string): boolean {
-  return [tomlBasicString(folder), `'${folder}'`].some((quotedFolder) => operatorText.includes(quotedFolder));
+function namesAsQuotedKey(operatorText: string, key: string): boolean {
+  return [tomlBasicString(key), `'${key}'`].some((quotedKey) => operatorText.includes(quotedKey));
 }
 
 function folderTrustTables(operatorText: string, trustedFolders: readonly string[]): string[] {
   if (isProjectsInlineTable(operatorText)) return [];
   return trustedFolders
-    .filter((folder) => !namesFolderAsKey(operatorText, folder))
+    .filter((folder) => !namesAsQuotedKey(operatorText, folder))
     .flatMap((folder) => [`[projects.${tomlBasicString(folder)}]`, `trust_level = "trusted"`]);
 }
 
 function renderCodexHooksBlock(options: CodexHooksBlockOptions): string {
-  const ownTrust = ownHookTrust(options);
+  const glimmervoidTrust = ownHookTrust(options);
+  const ownTrust = [...glimmervoidTrust, ...projectHookTrustEntries(options, new Set(glimmervoidTrust.map(({ key }) => key)))];
   const lines = [
     BLOCK_START,
     ...options.hooks.flatMap(codexHookTables),
@@ -541,19 +791,26 @@ function renderCodexHooksBlock(options: CodexHooksBlockOptions): string {
 }
 
 export {
-  AGENT_HOME_BASE_NAME,
   AGENT_HOME_CONFIG_NAME,
+  COPILOT_HOME_PROFILE,
+  AGENT_HOME_PROFILES,
+  resolveRealAgentHome,
   AGENT_HOME_CONFLICTS_NAME,
   AGENT_HOME_IN_USE_LOCK_NAME,
   AGENT_HOME_SOURCES_NAME,
   BLOCK_END,
   BLOCK_START,
   CODEX_HOME_PROFILE,
+  GEMINI_HOME_PROFILE,
   KIMI_HOME_PROFILE,
+  QWEN_HOME_PROFILE,
+  doesProjectConfigTurnHooksOff,
   fileStampKey,
+  linkKindFor,
   planAgentHome,
   renderCodexHookTables,
   renderCodexHooksBlock,
+  tomlBasicString,
   renderKimiHooksBlock,
 };
-export type { AgentHomePlan, AgentHomeProfile, AgentHomeStep, CodexHomeHook, GeneratedAgentHomeEntry, RealAgentHomeEntry };
+export type { AgentHomePlan, AgentHomeProfile, AgentHomeStep, CodexHomeHook, GeneratedAgentHomeEntry, ProjectHookTrust, RealAgentHomeEntry };

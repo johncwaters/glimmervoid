@@ -83,8 +83,7 @@ function createWsSender(ws: WsSenderSocket, opts: WsSenderOptions = {}): WsSende
   let sentOffset = initialOffset;
   let desynced = false;
   let refusedOutOfBand: string | Uint8Array | null = null;
-  let isOutputPaused = opts.isStartedPaused === true;
-  let isScreenSnapshotOwed = opts.isStartedPaused === true;
+  let outputMode: 'streaming' | 'paused' | 'paused-snapshot-owed' = opts.isStartedPaused === true ? 'paused-snapshot-owed' : 'streaming';
   let heldAttachSnapshot = opts.heldAttachSnapshot ?? null;
   const onPausedData = opts.onPausedData ?? (() => {});
 
@@ -122,7 +121,7 @@ function createWsSender(ws: WsSenderSocket, opts: WsSenderOptions = {}): WsSende
   }
 
   function maybeBackfill(): void {
-    if (!desynced || !source || destroyed || isOutputPaused || !isOpen()) return;
+    if (!desynced || !source || destroyed || outputMode !== 'streaming' || !isOpen()) return;
     if (overHighWater()) return;
     const { data, end, evicted } = source.getBufferSince(sentOffset);
     if (evicted) ws.send(SCREEN_RESET + data);
@@ -160,7 +159,7 @@ function createWsSender(ws: WsSenderSocket, opts: WsSenderOptions = {}): WsSende
 
   function onData(data: string): void {
     if (destroyed || !isOpen()) return;
-    if (isOutputPaused) {
+    if (outputMode !== 'streaming') {
       onPausedData();
       return;
     }
@@ -228,9 +227,9 @@ function createWsSender(ws: WsSenderSocket, opts: WsSenderOptions = {}): WsSende
   }
 
   function pauseOutput(): void {
-    if (destroyed || isOutputPaused) return;
+    if (destroyed || outputMode !== 'streaming') return;
     flushSend();
-    isOutputPaused = true;
+    outputMode = 'paused';
   }
 
   function resetToScreenSnapshot(snapshot: ScreenSnapshotForResume): void {
@@ -248,11 +247,11 @@ function createWsSender(ws: WsSenderSocket, opts: WsSenderOptions = {}): WsSende
   }
 
   function resumeOutput({ outputOffset, hasResizedWhilePaused, readScreenSnapshot }: ResumeOutputInput): void {
-    if (destroyed || !isOutputPaused) return;
-    isOutputPaused = false;
+    if (destroyed || outputMode === 'streaming') return;
+    const isScreenSnapshotOwed = outputMode === 'paused-snapshot-owed';
+    outputMode = 'streaming';
     if (!source || !isOpen()) return;
     if (isScreenSnapshotOwed) {
-      isScreenSnapshotOwed = false;
       const attachSnapshot = heldAttachSnapshot;
       heldAttachSnapshot = null;
       const canResumeFromAttachSnapshot = attachSnapshot !== null

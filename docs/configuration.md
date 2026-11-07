@@ -36,8 +36,10 @@ How sessions start, where projects are found, and branch cleanup.
 | `viewTabOrder` | Tab order | `[]` | Order of the dashboard tabs, also set by dragging tabs in the header. |
 | `remoteSessions` | Remote Coder sessions | `false` | Offer Coder workspaces when adding a session. |
 | `streamerMode` | Streamer mode | `false` | Hide sensitive details while screen sharing. |
+| `linkPreviews` | Link page previews | `true` | Resting the pointer on a terminal link for about 600 ms fetches that page from this machine to show its title and icon. Off, the link card shows the address only. |
 | `hintCards` | Hint cards | `false` | Show tip cards: Your day tips and feature suggestions. |
 | `repoRoots` | Repository roots | `[]` | Folders scanned for projects when adding a session. |
+| `hiddenAgents` | Agents in Add Session | `[]` | Agents left out of the Add Session picker. Switch an agent off here to hide it; the default agent always stays. |
 | `branchGc.deleteUnmerged` | Delete unmerged branches | `false` | Also delete stale remote branches with no proof they were merged. |
 | `debugMode` | Debug mode | `false` | Show session-card diagnostics for state, transitions and detection signals. **File-only.** A diagnostic switch kept out of the Settings view; change it in config.json while investigating. |
 | `sessionMemoryReserveMB` | Session memory reserve | `600` | Free memory an automatic session start waits for; 0 starts sessions without checking. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
@@ -60,6 +62,14 @@ Which version is running, and updating to the newest.
 |-----|---------|---------|-------|
 | `updateChannel` | Channel | `"release"` | Stable releases, or Experimental builds from every change to main. |
 | `checkForUpdates` | Check for updates automatically | `true` | Check for a newer version at launch and while the dashboard is open. |
+
+### Server
+
+Restart or shut down the Glimmervoid server.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `watcher.autoStart` | Start the watcher with the server | `true` | Runs the watcher beside this server and delivers its jobs to this server. Turn off when the watcher runs on another machine. Needs a server restart. |
 
 ### Usage
 
@@ -233,6 +243,8 @@ Config-file-only detection, timing, worktree and process settings.
 | `integrationBranch` | Integration branch | `null` | Base branch for session worktrees. Empty = each repo's default branch. Existing sessions are never retargeted. Applies to new sessions. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
 | `worktreeRoot` | Worktree root | `""` | Directory that contains session worktrees. Existing worktrees are never relocated. Applies to new sessions. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
 | `worktreeShare` | Shared worktree paths | `[".env*",".claude"]` | Local paths copied or linked during worktree preparation. A * matches names at the project root, never one containing production; name such a file in full to share it. Applies to new sessions. **File-only.** Never editable from the dashboard by rule; edit it in config.json. |
+| `watcher.inboxHost` | Job inbox address | `"127.0.0.1"` | Address the job inbox listens on for watcher jobs. Any address other than this machine needs GLIMMERVOID_WATCHER_TOKEN. Needs a server restart. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
+| `watcher.inboxPort` | Job inbox port | `null` | Port the job inbox listens on; empty picks any free port. Required with GLIMMERVOID_WATCHER_TOKEN. Needs a server restart. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
 | `port` | Local port | `3000` | Port used by the local dashboard listener. Needs a server restart. **File-only.** Never editable from the dashboard by rule; edit it in config.json. |
 | `notifyDebounceMs` | Notification grouping window | `3000` | Alerts from any session within this long of the first one fold into one sound, one desktop notification and one Telegram message. Applies to new sessions. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `phoneEscalationMs` | Phone escalation delay | `300000` | Delay before off-dashboard escalation. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
@@ -248,6 +260,15 @@ Config-file-only detection, timing, worktree and process settings.
 | `taskTitle.refiner.minIntervalSeconds` | Task title refresh interval | `60` | Shortest pause between two title refinements of one session. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `taskTitle.refiner.timeoutSeconds` | Task title timeout | `60` | Maximum time allowed for one title refinement. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 
+### Question manager
+
+Rules that answer a session question in the sessions you switch the question manager on for.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `questionManager.rules` | Question manager rules | `[]` | Rules the question manager answers from. An object with name, question (text the question contains) and pick (the exact option labels to choose) answers at once. A plain sentence is a rule a model applies when no object matches; it must cite one rule and pick exact option labels within 60 seconds, or the question comes to you. A question with a risk word such as push, delete or deploy always comes to you. **File-only.** A structured value with no dashboard control; edit it in config.json. |
+| `questionManager.model` | Question manager model | `"haiku"` | Claude model alias that applies the plain-language question manager rules. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+
 ## Keys outside the Settings view
 
 Edit these in `config.json` unless the note names another dashboard surface.
@@ -259,6 +280,7 @@ Edit these in `config.json` unless the note names another dashboard surface.
 | `planReview` | `{"enabled":true}` | Hold Claude Code plan approvals (`ExitPlanMode`) so the plan can be read and approved from the dashboard or phone (`planReview.enabled`). |
 | `hooks` |  | Operator-defined hooks per project, managed from the dashboard Hooks panel. |
 | `remote` | `{"enabled":false,"port":null,"publicHost":"","allowedOrigins":[]}` | Opt-in remote listener: `enabled`, `port` (required when enabled, must differ from the local port), `publicHost`, `allowedOrigins` and `ownerLogin` (when set, only that Tailscale login is answered; trustworthy only when the remote port is reached solely through HTTP-mode `tailscale serve`, since any other proxy, or `tailscale serve --tcp` or `--tls-terminated-tcp`, lets a client send its own `Tailscale-User-Login`). Needs a server restart. See [Remote access](../README.md#remote-access). |
+| `hosts` |  | Other machines running Glimmervoid that this dashboard links over ssh and shows in the sidebar. Each entry has `id` (lowercase letters, digits and dashes), `name`, `sshTarget` (an ssh host or `~/.ssh/config` alias, never starting with a dash) and `dashboardPort` (that machine's loopback dashboard port). The tunnel runs `ssh` with `BatchMode=yes` and `StrictHostKeyChecking=yes`, so the host key must already be known. A host on a different Glimmervoid version is refused. Managed from Settings, Hosts, or with `glimmervoid host add`, `list` and `remove`; a running Glimmervoid applies a change without a restart. |
 | `projects` | `[]` | Projects shown in the dashboard, added from the Add Session dialog. Each entry has `path` (required), optional `name`, `repos` (two or more member repositories for a workspace session), `baseBranch` (the branch sessions of this project start from and merge back into, set by Open in session on a team review pull request), `agent` (an agent id, see `customAgents`) and `codexBypassHookTrust` (file-only, default off). |
 
 ## Environment variables
@@ -276,6 +298,8 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 | `GLIMMERVOID_POSTHOG_API_KEY` | operator | Supplies `posthog.apiKey`, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
 | `GLIMMERVOID_TELEGRAM_BOT_TOKEN` | operator | Supplies `telegram.botToken`, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
 | `GLIMMERVOID_GITHUB_READ_TOKEN` | operator | Supplies `github.readToken`, the read-only GitHub token lanes use for gh, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
+| `GLIMMERVOID_WATCHER_HOME` | operator | Folder the watcher keeps its own state in: the watchee settings the server writes, the events it already sent, and its GitHub cache. Defaults to `watcher` inside the Glimmervoid home; the server passes it to the watcher it auto-starts. |
+| `GLIMMERVOID_WATCHER_TOKEN` | operator | Supplies `watcher.token`, the bearer token a watcher on another machine sends to this server's job inbox. Required for a non-loopback `watcher.inboxHost`, together with a fixed `watcher.inboxPort`. Stripped from every write and from every agent session's environment. |
 | `GLIMMERVOID_CLAUDE_OAUTH_TOKEN` | operator | A long-lived Claude Code token (`claude setup-token`) that benchmark arms authenticate with instead of the login token Glimmervoid reads from the keychain or `~/.claude/.credentials.json`. Passed only to benchmark sessions, never stored. |
 | `GLIMMERVOID_TELEMETRY` | operator | Set to `0` to turn off usage and error telemetry (error type, error code and scrubbed stack frames, never messages or paths) whatever `telemetry.enabled` says. `DO_NOT_TRACK=1` and `CI=true` turn it off too. |
 | `GLIMMERVOID_TELEMETRY_PROJECT_TOKEN` | internal | Sends telemetry to another PostHog project instead of the Glimmervoid one, so end-to-end checks of a development build stay out of real usage data. Not an operator setting. |
@@ -311,7 +335,7 @@ Every event also carries `app_version`, `os_platform`, `node_major`, `install_fl
 | `onboarding_step` | `step`, `state` | The first-run checklist moved a step to current or done, with which step. Sent once per change while the page is open. |
 | `header_error_shown` | `source`, `message` | An error the dashboard showed in its header line: which part of the dashboard raised it and the message text, cut to 512 characters, with your home folder shown as ~. The message can name a session, folder or branch. Each distinct message is sent once per page load. |
 | `team_review_drafted` | `inline_comment_count` | A team review draft became ready, with how many inline comments it drafted. |
-| `team_review_settled` | `duration_ms`, `outcome`, `drafted_comment_count`, `posted_comment_count` | A team review draft was posted (approve, comment or approve-only) or discarded, with how many inline comments were drafted and how many were posted, plus the total action duration in milliseconds. |
+| `team_review_settled` | `duration_ms`, `outcome`, `drafted_comment_count`, `posted_comment_count` | A team review draft was posted (approve, comment or approve-only), discarded, or restored from discarded (which undoes that discard), with how many inline comments were drafted and how many were posted, plus the total action duration in milliseconds. |
 | `team_review_post_refused` | `duration_ms`, `reason` | Posting a team review was refused, with a reason from a fixed list and the total action duration in milliseconds. Never the error text. |
 | `radar_investigation_finished` | `verdict`, `mode`, `error_reason` | A Radar investigation or fix run finished, with its verdict and mode, plus a reason from a fixed list when it ended in ERROR. Never the summary text. |
 | `radar_fix_handoff_failed` | `step` | Committing or checking a Radar fix branch failed, with which step failed. Never the branch or the error text. |
@@ -332,6 +356,7 @@ Stored in each browser, not in `config.json`, so every device keeps its own. Cha
 | Flight duration: maximum | `11.5` | Longest flight, for slower animals. |
 | Size multiplier | `1` | Scale applied on top of the viewport size. |
 | Show on phone layout | `true` | Allow flights on the phone layout. |
+| Reviewing now limit | `5` | How many pull requests the Reviews Reviewing now column holds at once. 0 means no cap. |
 | Alert sounds | `true` | Play a sound when a session needs you, like the note button in the header. |
 | Alert sound | `"chime"` | Sound played when a session needs you, including files you add to ~/.glimmervoid/sounds/. |
 | Desktop notifications | `true` | Notify you when a session needs you and the dashboard is in the background. |

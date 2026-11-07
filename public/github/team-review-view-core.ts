@@ -262,8 +262,9 @@ const ACTION_OUTCOME_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.f
   'approve-only': 'Approved on GitHub',
   comment: 'Comment posted on GitHub',
   'request-changes': 'Changes requested on GitHub',
-  discard: 'Marked not mine. Not reviewed again until you re-run it.',
+  discard: 'Marked not mine. Not reviewed again until you restore or re-run it.',
   requeue: 'Queued. The review starts as soon as a slot is free.',
+  restore: 'Moved back to the queue.',
   'resolve-thread': 'Thread resolved on GitHub',
 });
 
@@ -274,6 +275,7 @@ const ACTION_PROGRESS_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.
   'request-changes': 'Requesting changes',
   discard: 'Marking not mine',
   requeue: 'Queueing the review',
+  restore: 'Restoring',
   'resolve-thread': 'Resolving thread',
 });
 
@@ -611,7 +613,7 @@ export function attentionNextStep(draft: Pick<ReviewDraft, 'status'>): string | 
 export function attentionDetail(draft: ReviewDraft): string {
   if (draft.status === 'stale' && draft.earlierReview) return 'Out of date. New commits landed after this review, so its findings may not match the code any more. Automatic review runs after the configured wait; Re-run review starts it now and hands it these findings.';
   if (draft.status === 'stale') return 'Out of date. New commits landed after this review, so its findings may not match the code any more. Automatic review runs after the configured wait; Re-run review starts it now.';
-  if (draft.status === 'discarded') return 'Marked not mine. Not reviewed again until you re-run it.';
+  if (draft.status === 'discarded') return 'Marked not mine. Not reviewed again until you restore or re-run it.';
   return draft.error || draft.summary || 'The review failed.';
 }
 
@@ -706,6 +708,7 @@ const ACTION_LABELS: Readonly<Record<TeamReviewAction, string>> = Object.freeze(
   'request-changes': 'Request changes',
   discard: 'Not mine',
   requeue: 'Re-run review',
+  restore: 'Restore',
   'resolve-thread': 'Resolve',
 });
 
@@ -759,6 +762,7 @@ export function detailActionLayout(draft: Pick<ReviewDraft, 'status' | 'postedEv
   if (draft.status === 'ready') return { leading: READY_DECISION_ORDER, trailing: ['requeue', 'discard'], recommended: leadingDecision(draft.verdict) };
   if (canApproveAfterComment(draft)) return { leading: ['approve-only'], trailing: ['requeue'], recommended: 'approve-only' };
   if (draft.status === 'error' || draft.status === 'stale') return { leading: ['requeue'], trailing: ['discard'], recommended: 'requeue' };
+  if (draft.status === 'discarded') return { leading: ['restore'], trailing: ['requeue'], recommended: 'restore' };
   if (hasRequeueFooter(draft.status)) return { leading: ['requeue'], trailing: [], recommended: 'requeue' };
   return { leading: [], trailing: [], recommended: null };
 }

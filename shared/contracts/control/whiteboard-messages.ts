@@ -14,8 +14,6 @@ export const BoardDiff = z.object({
     title: Board.shape.title.optional(),
     caption: Board.shape.caption.optional(),
     legend: Board.shape.legend.unwrap().optional(),
-    columns: Board.shape.columns.optional(),
-    lanes: Board.shape.lanes.optional(),
     codeSessionId: Board.shape.codeSessionId.unwrap().optional(),
   }).strict(),
   elements: z.record(z.string(), ElementChange),
@@ -41,7 +39,6 @@ export const whiteboardClientVariants = [
   loose('whiteboard-review', { boardId: Board.shape.id, requestId }),
   loose('whiteboard-connect', { boardId: Board.shape.id, sessionId: z.string().min(1), requestId }),
   loose('whiteboard-disconnect', { boardId: Board.shape.id, sessionId: z.string().min(1), requestId }),
-  loose('whiteboard-nudge', { boardId: Board.shape.id, sessionId: z.string().min(1), requestId }),
   loose('whiteboard-view', { boardId: Board.shape.id, view: LayoutRect, lod: z.enum(TILE_LODS), knownVersion: z.number().int().nullable(), requestId }),
 ] as const;
 

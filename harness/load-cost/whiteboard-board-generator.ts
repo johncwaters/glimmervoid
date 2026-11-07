@@ -1,13 +1,11 @@
 import { Element } from '../../shared/contracts/whiteboard.ts';
 import type { Board, BoardRecord } from '../../shared/contracts/whiteboard.ts';
 
-const GROUP_PATTERN = ['box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'column-box', 'wire', 'wire', 'wire', 'wire', 'note', 'note', 'frame'] as const;
+const GROUP_PATTERN = ['box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'near-box', 'wire', 'wire', 'wire', 'wire', 'note', 'note', 'frame'] as const;
 const BOXES_PER_GROUP = GROUP_PATTERN.filter((kind) => kind === 'box').length;
 const GROUP_COLUMNS = 4;
 const CELL_WIDTH = 320;
 const CELL_HEIGHT = 240;
-const COLUMN_COUNT = 12;
-const LANE_COLORS = ['blue', 'green', 'orange', 'pink', 'cyan', 'yellow'] as const;
 const WORDS = ['ingest', 'queue', 'parse', 'store', 'index', 'render', 'cache', 'retry', 'merge', 'review', 'deploy', 'notify', 'trace', 'shard', 'replay', 'audit'];
 
 interface GeneratedBoardOptions {
@@ -45,7 +43,6 @@ function generateElements({ elementCount, seed }: Pick<GeneratedBoardOptions, 'e
   const groupsPerRow = Math.max(1, Math.ceil(Math.sqrt(groupCount)));
   const elements: Board['elements'] = {};
   let made = 0;
-  let columnOrder = 0;
   for (let groupIndex = 0; groupIndex < groupCount && made < elementCount; groupIndex += 1) {
     const origin = groupOrigin(groupIndex, groupsPerRow);
     const boxIds: string[] = [];
@@ -55,12 +52,11 @@ function generateElements({ elementCount, seed }: Pick<GeneratedBoardOptions, 'e
     for (const kind of GROUP_PATTERN) {
       if (made >= elementCount) break;
       const id = `g${groupIndex}-${kind}-${boxInGroup + wireInGroup + noteInGroup}`;
-      const candidate = elementOfKind(kind, { id, groupIndex, boxInGroup, wireInGroup, noteInGroup, origin, boxIds, nextRandom, columnOrder });
+      const candidate = elementOfKind(kind, { id, groupIndex, boxInGroup, wireInGroup, noteInGroup, origin, boxIds, nextRandom });
       if (!candidate) continue;
       elements[id] = Element.parse(candidate);
       made += 1;
       if (kind === 'box') { boxIds.push(id); boxInGroup += 1; }
-      if (kind === 'column-box') columnOrder += 1;
       if (kind === 'wire') wireInGroup += 1;
       if (kind === 'note') noteInGroup += 1;
     }
@@ -77,23 +73,23 @@ interface ElementContext {
   origin: { x: number; y: number };
   boxIds: readonly string[];
   nextRandom: () => number;
-  columnOrder: number;
 }
 
 function elementOfKind(kind: (typeof GROUP_PATTERN)[number], context: ElementContext): unknown {
-  const { id, groupIndex, boxInGroup, wireInGroup, noteInGroup, origin, boxIds, nextRandom, columnOrder } = context;
+  const { id, groupIndex, boxInGroup, wireInGroup, noteInGroup, origin, boxIds, nextRandom } = context;
   if (kind === 'box') {
     const cellX = boxInGroup % GROUP_COLUMNS;
     const cellY = Math.floor(boxInGroup / GROUP_COLUMNS);
     return {
       kind: 'box', id, title: `${phraseOf(nextRandom, 2)} ${groupIndex}`,
       lines: [{ text: phraseOf(nextRandom, 4) }, { text: phraseOf(nextRandom, 3), style: 'item' }],
-      lane: `lane-${groupIndex % LANE_COLORS.length}`,
       at: { x: origin.x + cellX * CELL_WIDTH, y: origin.y + cellY * CELL_HEIGHT },
     };
   }
-  if (kind === 'column-box') {
-    return { kind: 'box', id, title: `column ${phraseOf(nextRandom, 2)}`, column: `col-${columnOrder % COLUMN_COUNT}`, order: Math.floor(columnOrder / COLUMN_COUNT) };
+  if (kind === 'near-box') {
+    const of = boxIds.at(-1);
+    if (!of) return null;
+    return { kind: 'box', id, title: `near ${phraseOf(nextRandom, 2)}`, near: { of, side: 'bottom' } };
   }
   if (kind === 'wire') {
     const from = boxIds[wireInGroup];
@@ -117,8 +113,6 @@ function generateBoardRecord(options: GeneratedBoardOptions): BoardRecord {
     title: options.title,
     version: 1,
     caption: null,
-    columns: Array.from({ length: COLUMN_COUNT }, (_, index) => ({ id: `col-${index}`, title: `column ${index}` })),
-    lanes: LANE_COLORS.map((color, index) => ({ id: `lane-${index}`, label: `lane ${color}`, color })),
     legend: [],
     codeSessionId: null,
     elements: generateElements(options),

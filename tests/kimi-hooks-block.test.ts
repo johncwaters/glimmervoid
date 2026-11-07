@@ -3,11 +3,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import copilot from '../session/adapters/copilot.ts';
 import kimi from '../session/adapters/kimi.ts';
-import { BLOCK_END, BLOCK_START, KIMI_HOME_PROFILE, renderCodexHooksBlock } from '../session/core/agent-home-core.ts';
+import { BLOCK_END, BLOCK_START, GEMINI_HOME_PROFILE, KIMI_HOME_PROFILE, QWEN_HOME_PROFILE, renderCodexHooksBlock } from '../session/core/agent-home-core.ts';
 import { loadFileLocks } from '../server/session-temp/session-temp-locks.ts';
 import { generatedAgentHomePath, holdAgentHome, prepareAgentHome, releaseAgentHome, releaseUnheldAgentHomeSecrets } from '../session/agent-home.ts';
 
+const KIMI_LAUNCH = { listenerPort: 41234, folderTrustRoot: os.tmpdir() };
 const OPERATOR_CONFIG = 'default_model = "kimi-code/k3.1-pro"\r\n\n[models."kimi-code/k3.1-pro"]\ndisplay_name = "K3.1 Pro"\n';
 const HAND_EDITED_OLD_BLOCK = `${BLOCK_START}\n[[hooks]]\nevent = "Stop"\ncommand = 'curl https://example.invalid'\n${BLOCK_END}\n`;
 
@@ -188,12 +190,12 @@ test('a kimi spawn refuses a generated home a session swapped for a symlink or a
     fs.mkdirSync(swapTarget);
     fs.mkdirSync(path.dirname(generatedHome), { recursive: true });
     fs.symlinkSync(swapTarget, generatedHome);
-    const prepared = kimi.hooks.injection.kind === 'generated-home' ? kimi.hooks.injection.prepareHome(env, { listenerPort: 41234 }) : null;
+    const prepared = kimi.hooks.injection.kind === 'generated-home' ? kimi.hooks.injection.prepareHome(env, KIMI_LAUNCH) : null;
     assert.ok(prepared && 'refusal' in prepared);
     assert.deepEqual(fs.readdirSync(swapTarget), []);
     fs.unlinkSync(generatedHome);
     fs.writeFileSync(generatedHome, '');
-    const preparedOverFile = kimi.hooks.injection.kind === 'generated-home' ? kimi.hooks.injection.prepareHome(env, { listenerPort: 41234 }) : null;
+    const preparedOverFile = kimi.hooks.injection.kind === 'generated-home' ? kimi.hooks.injection.prepareHome(env, KIMI_LAUNCH) : null;
     assert.ok(preparedOverFile && 'refusal' in preparedOverFile);
   });
 });
@@ -207,7 +209,7 @@ test('a kimi spawn loads the operator MCP servers beside the Glimmervoid server,
     fs.writeFileSync(path.join(generatedHome, 'mcp.json'), JSON.stringify({ mcpServers: { legacy: { transport: 'http', url: 'https://legacy.example/mcp' } } }));
     assert.equal(kimi.hooks.injection.kind, 'generated-home');
     if (kimi.hooks.injection.kind !== 'generated-home') return;
-    const prepared = kimi.hooks.injection.prepareHome(env, { listenerPort: 41234 });
+    const prepared = kimi.hooks.injection.prepareHome(env, KIMI_LAUNCH);
     assert.ok('home' in prepared, 'refusal' in prepared ? prepared.refusal : '');
     try {
       const generatedMcp = JSON.parse(fs.readFileSync(path.join(prepared.home, 'mcp.json'), 'utf8'));
@@ -221,7 +223,7 @@ test('a kimi spawn loads the operator MCP servers beside the Glimmervoid server,
       const operatorEditedMcpJson = JSON.stringify({ mcpServers: { docs: { transport: 'http', url: 'https://docs.example/v2/mcp' } } });
       fs.writeFileSync(path.join(realHome, 'mcp.json'), operatorEditedMcpJson);
       kimi.hooks.injection.releaseHome(prepared.home);
-      const preparedAgain = kimi.hooks.injection.prepareHome(env, { listenerPort: 41234 });
+      const preparedAgain = kimi.hooks.injection.prepareHome(env, KIMI_LAUNCH);
       assert.ok('home' in preparedAgain, 'refusal' in preparedAgain ? preparedAgain.refusal : '');
       const regeneratedMcp = JSON.parse(fs.readFileSync(path.join(preparedAgain.home, 'mcp.json'), 'utf8'));
       assert.deepEqual(Object.keys(regeneratedMcp.mcpServers).sort(), ['docs', 'glimmervoid', 'legacy', 'notes']);
@@ -232,11 +234,11 @@ test('a kimi spawn loads the operator MCP servers beside the Glimmervoid server,
       fs.writeFileSync(path.join(preparedAgain.home, 'mcp.json'), JSON.stringify(regeneratedMcp));
       fs.writeFileSync(path.join(realHome, 'mcp.json'), '{ "mcpServers": {');
       kimi.hooks.injection.releaseHome(preparedAgain.home);
-      const preparedWhileMalformed = kimi.hooks.injection.prepareHome(env, { listenerPort: 41234 });
+      const preparedWhileMalformed = kimi.hooks.injection.prepareHome(env, KIMI_LAUNCH);
       assert.ok('home' in preparedWhileMalformed, 'refusal' in preparedWhileMalformed ? preparedWhileMalformed.refusal : '');
       fs.writeFileSync(path.join(realHome, 'mcp.json'), operatorEditedMcpJson);
       kimi.hooks.injection.releaseHome(preparedWhileMalformed.home);
-      const preparedAfterRepair = kimi.hooks.injection.prepareHome(env, { listenerPort: 41234 });
+      const preparedAfterRepair = kimi.hooks.injection.prepareHome(env, KIMI_LAUNCH);
       assert.ok('home' in preparedAfterRepair, 'refusal' in preparedAfterRepair ? preparedAfterRepair.refusal : '');
       const repairedMcp = JSON.parse(fs.readFileSync(path.join(preparedAfterRepair.home, 'mcp.json'), 'utf8'));
       assert.deepEqual(Object.keys(repairedMcp.mcpServers).sort(), ['docs', 'glimmervoid', 'legacy', 'notes']);
@@ -254,6 +256,7 @@ test('a stale operator codex trust entry for a removed hook group does not redef
   const block = renderCodexHooksBlock({
     hooks: [{ event: 'PreToolUse', matcher: 'Bash', command: 'relay' }],
     trustedHashes: ['sha256:glimmervoid'],
+    projectHookTrust: [],
     operatorText: `[hooks.state.${JSON.stringify(staleKey)}]\ntrusted_hash = "sha256:stale"\n`,
     realHome,
     generatedHome,
@@ -263,6 +266,42 @@ test('a stale operator codex trust entry for a removed hook group does not redef
   assert.equal(new Set(trustHeaders).size, trustHeaders.length, block);
   assert.ok(block.includes('trusted_hash = "sha256:glimmervoid"'), block);
   assert.ok(!block.includes('sha256:stale'), block);
+});
+
+test('a codex block trusts each listed project hook once and leaves a key the operator config already defines to the operator', () => {
+  const listedKey = '/repos/main/.codex/hooks.json:session_start:0:0';
+  const operatorKey = '/repos/main/.codex/hooks.json:stop:0:0';
+  const block = renderCodexHooksBlock({
+    hooks: [],
+    trustedHashes: null,
+    projectHookTrust: [
+      { key: listedKey, currentHash: 'sha256:project' },
+      { key: listedKey, currentHash: 'sha256:project' },
+      { key: operatorKey, currentHash: 'sha256:listed' },
+    ],
+    operatorText: `[hooks.state.${JSON.stringify(operatorKey)}]\ntrusted_hash = "sha256:operator"\n`,
+    realHome: path.join(path.sep, 'real-codex'),
+    generatedHome: path.join(path.sep, 'generated-codex'),
+    trustedFolders: [],
+  });
+  assert.equal(block.split(`[hooks.state.${JSON.stringify(listedKey)}]\ntrusted_hash = "sha256:project"`).length, 2, block);
+  assert.ok(!block.includes(operatorKey), block);
+  const operatorForms = [
+    `[hooks.state.${JSON.stringify(operatorKey)}] # trusted by hand\ntrusted_hash = "sha256:operator"\n`,
+    `[hooks.state]\n${JSON.stringify(operatorKey)} = { trusted_hash = "sha256:operator" }\n`,
+  ];
+  for (const operatorText of operatorForms) {
+    const formBlock = renderCodexHooksBlock({
+      hooks: [],
+      trustedHashes: null,
+      projectHookTrust: [{ key: operatorKey, currentHash: 'sha256:listed' }],
+      operatorText,
+      realHome: path.join(path.sep, 'real-codex'),
+      generatedHome: path.join(path.sep, 'generated-codex'),
+      trustedFolders: [],
+    });
+    assert.ok(!formBlock.includes(operatorKey), formBlock);
+  }
 });
 
 test('a codex session folder the operator config already declares in any toml form keeps only the operator entry', () => {
@@ -279,6 +318,7 @@ test('a codex session folder the operator config already declares in any toml fo
     const block = renderCodexHooksBlock({
       hooks: [],
       trustedHashes: null,
+      projectHookTrust: [],
       operatorText,
       realHome: path.join(path.sep, 'real-codex'),
       generatedHome: path.join(path.sep, 'generated-codex'),
@@ -293,10 +333,163 @@ test('an operator projects inline table gets no codex folder trust tables', () =
   const block = renderCodexHooksBlock({
     hooks: [],
     trustedHashes: null,
+    projectHookTrust: [],
     operatorText: 'projects = { "/repos/other" = { trust_level = "trusted" } }\n',
     realHome: path.join(path.sep, 'real-codex'),
     generatedHome: path.join(path.sep, 'generated-codex'),
     trustedFolders: [path.join(path.sep, 'repos', 'new')],
   });
   assert.ok(!block.includes('[projects.'), block);
+});
+
+test('a gemini spawn merges the hooks into a JSON copy of the real settings, keeps a session edit, and never writes the real settings', () => {
+  const scratchRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-gemini-'));
+  try {
+    const realHome = path.join(scratchRoot, 'gemini-cli-home', '.gemini');
+    fs.mkdirSync(path.join(realHome, 'tmp'), { recursive: true });
+    const realSettingsPath = path.join(realHome, 'settings.json');
+    const operatorHook = { hooks: [{ type: 'command', command: 'say done' }] };
+    const realSettings = `{\n  // operator note\n  "ui": { "theme": "GitHub" },\n  "hooks": { "AfterAgent": [${JSON.stringify(operatorHook)}] },\n}\n`;
+    fs.writeFileSync(realSettingsPath, realSettings);
+    const env = { GEMINI_CLI_HOME: path.dirname(realHome), GLIMMERVOID_HOME: path.join(scratchRoot, 'glimmervoid') };
+    const managedHook = { hooks: [{ type: 'command', command: 'node relay.js AfterAgent' }] };
+    const renderBlock = () => JSON.stringify({ AfterAgent: [managedHook] });
+    function prepareGemini(platform: NodeJS.Platform = process.platform): string {
+      const prepared = prepareAgentHome(GEMINI_HOME_PROFILE, { env, renderBlock, platform });
+      assert.ok('home' in prepared, 'refusal' in prepared ? prepared.refusal : '');
+      return prepared.home;
+    }
+
+    const generatedHome = prepareGemini();
+    assert.equal(path.basename(generatedHome), '.gemini');
+    const generatedSettingsPath = path.join(generatedHome, 'settings.json');
+    const generated = JSON.parse(fs.readFileSync(generatedSettingsPath, 'utf8'));
+    assert.deepEqual(generated.hooks.AfterAgent, [operatorHook, managedHook]);
+    assert.equal(fs.realpathSync(path.join(generatedHome, 'tmp')), fs.realpathSync(path.join(realHome, 'tmp')));
+
+    fs.writeFileSync(generatedSettingsPath, JSON.stringify({ ...generated, ui: { theme: 'Dracula' } }));
+    fs.writeFileSync(realSettingsPath, realSettings.replace('"ui"', '"general": { "vimMode": true },\n  "ui"'));
+    prepareGemini();
+    const merged = JSON.parse(fs.readFileSync(generatedSettingsPath, 'utf8'));
+    assert.deepEqual(merged.ui, { theme: 'Dracula' });
+    assert.deepEqual(merged.general, { vimMode: true });
+    assert.deepEqual(merged.hooks.AfterAgent, [operatorHook, managedHook]);
+    assert.match(fs.readFileSync(realSettingsPath, 'utf8'), /operator note/);
+
+    holdAgentHome(generatedHome);
+    releaseAgentHome(generatedHome);
+    assert.equal(fs.existsSync(generatedSettingsPath), false);
+
+    fs.rmSync(realSettingsPath);
+    const unsetHome = prepareGemini();
+    const unsetSettingsPath = path.join(unsetHome, 'settings.json');
+    const firstRun = JSON.parse(fs.readFileSync(unsetSettingsPath, 'utf8'));
+    fs.writeFileSync(unsetSettingsPath, JSON.stringify({ ...firstRun, security: { auth: { selectedType: 'oauth-personal' } } }));
+    prepareGemini();
+    const afterSecondSpawn = JSON.parse(fs.readFileSync(unsetSettingsPath, 'utf8'));
+    assert.deepEqual(afterSecondSpawn.security, { auth: { selectedType: 'oauth-personal' } });
+    assert.deepEqual(afterSecondSpawn.hooks.AfterAgent, [managedHook]);
+    assert.equal(fs.existsSync(realSettingsPath), false);
+
+    fs.writeFileSync(realSettingsPath, JSON.stringify({ hooksConfig: { enabled: false }, hooks: { AfterAgent: [operatorHook] } }));
+    const realRoot = path.dirname(realHome);
+    fs.writeFileSync(path.join(realRoot, 'settings.json'), JSON.stringify({ advanced: { autoConfigureMemory: false } }));
+    fs.mkdirSync(path.join(realRoot, '.agents', 'skills'), { recursive: true });
+    fs.writeFileSync(path.join(realRoot, '.env'), 'GEMINI_API_KEY=operator\n');
+    const generatedRoot = path.dirname(prepareGemini());
+    const hooksOff = JSON.parse(fs.readFileSync(unsetSettingsPath, 'utf8'));
+    assert.deepEqual(hooksOff.hooksConfig, { enabled: true });
+    assert.deepEqual(hooksOff.hooks.AfterAgent, [managedHook]);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(generatedRoot, 'settings.json'), 'utf8')), { advanced: { autoConfigureMemory: false } });
+    assert.equal(fs.realpathSync(path.join(generatedRoot, '.agents')), fs.realpathSync(path.join(realRoot, '.agents')));
+    assert.equal(fs.readFileSync(path.join(generatedRoot, '.env'), 'utf8'), 'GEMINI_API_KEY=operator\n');
+    assert.deepEqual(JSON.parse(fs.readFileSync(realSettingsPath, 'utf8')).hooksConfig, { enabled: false });
+
+    fs.unlinkSync(path.join(generatedRoot, '.env'));
+    prepareGemini('win32');
+    fs.writeFileSync(path.join(realRoot, '.env.next'), 'GEMINI_API_KEY=rotated\n');
+    fs.renameSync(path.join(realRoot, '.env.next'), path.join(realRoot, '.env'));
+    prepareGemini('win32');
+    assert.equal(fs.readFileSync(path.join(generatedRoot, '.env'), 'utf8'), 'GEMINI_API_KEY=rotated\n');
+  } finally {
+    fs.rmSync(scratchRoot, { recursive: true, force: true });
+  }
+});
+
+test('a qwen spawn turns its hooks on where the real settings disable all hooks, drops the operator hooks, and leaves the real settings alone', () => {
+  const scratchRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-qwen-'));
+  try {
+    const realHome = path.join(scratchRoot, 'qwen-home');
+    fs.mkdirSync(realHome);
+    const realSettingsPath = path.join(realHome, 'settings.json');
+    const realSettings = JSON.stringify({ disableAllHooks: true, hooks: { Stop: [{ hooks: [{ type: 'command', command: 'say done' }] }] }, ui: { theme: 'Qwen Dark' } });
+    fs.writeFileSync(realSettingsPath, realSettings);
+    const managedHook = { hooks: [{ type: 'command', command: 'node relay.js Stop' }] };
+    const prepared = prepareAgentHome(QWEN_HOME_PROFILE, {
+      env: { QWEN_HOME: realHome, GLIMMERVOID_HOME: path.join(scratchRoot, 'glimmervoid') },
+      renderBlock: () => JSON.stringify({ Stop: [managedHook] }),
+    });
+    assert.ok('home' in prepared, 'refusal' in prepared ? prepared.refusal : '');
+    const generated = JSON.parse(fs.readFileSync(path.join(prepared.home, 'settings.json'), 'utf8'));
+    assert.equal(generated.disableAllHooks, false);
+    assert.deepEqual(generated.hooks, { Stop: [managedHook] });
+    assert.deepEqual(generated.ui, { theme: 'Qwen Dark' });
+    assert.equal(fs.readFileSync(realSettingsPath, 'utf8'), realSettings);
+  } finally {
+    fs.rmSync(scratchRoot, { recursive: true, force: true });
+  }
+});
+
+test('a qwen spawn copies the real settings from the home qwen itself reads, through a ~/ QWEN_HOME or one set only in its env files', () => {
+  const scratchRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-qwen-home-'));
+  try {
+    const homeDir = path.join(scratchRoot, 'home');
+    const qwenHome = path.join(homeDir, 'qwen-config');
+    fs.mkdirSync(qwenHome, { recursive: true });
+    fs.writeFileSync(path.join(qwenHome, 'settings.json'), JSON.stringify({ model: { name: 'operator-model' } }));
+    const prepareFrom = (env: Record<string, string>): { model?: { name?: string } } => {
+      const prepared = prepareAgentHome(QWEN_HOME_PROFILE, { env: { ...env, GLIMMERVOID_HOME: path.join(scratchRoot, 'glimmervoid') }, homeDir, renderBlock: () => '{}' });
+      assert.ok('home' in prepared, 'refusal' in prepared ? prepared.refusal : '');
+      return JSON.parse(fs.readFileSync(path.join(prepared.home, 'settings.json'), 'utf8'));
+    };
+    assert.equal(prepareFrom({ QWEN_HOME: '~/qwen-config' }).model?.name, 'operator-model');
+    fs.writeFileSync(path.join(homeDir, '.env'), 'QWEN_HOME="~/qwen-config"\n');
+    assert.equal(prepareFrom({}).model?.name, 'operator-model');
+  } finally {
+    fs.rmSync(scratchRoot, { recursive: true, force: true });
+  }
+});
+
+test('a copilot spawn trusts its folder root in the real copilot state file once, keeping the rest of the file', () => {
+  const scratchRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-copilot-'));
+  try {
+    const realHome = path.join(scratchRoot, 'copilot-home');
+    fs.mkdirSync(realHome);
+    const statePath = path.join(realHome, 'config.json');
+    const worktreeRoot = path.join(scratchRoot, 'worktrees');
+    fs.writeFileSync(statePath, `// This file is managed automatically.\n${JSON.stringify({ firstLaunchAt: 'then', trustedFolders: ['/elsewhere'] })}\n`);
+    const env = { COPILOT_HOME: realHome, GLIMMERVOID_HOME: path.join(scratchRoot, 'glimmervoid') };
+    assert.equal(copilot.hooks.injection.kind, 'generated-home');
+    const prepareWithRoot = (folderTrustRoot: string) => copilot.hooks.injection.kind === 'generated-home' ? copilot.hooks.injection.prepareHome(env, { listenerPort: 41234, folderTrustRoot }) : null;
+    const prepared = prepareWithRoot(worktreeRoot);
+    assert.ok(prepared && 'home' in prepared);
+    const stateText = fs.readFileSync(statePath, 'utf8');
+    assert.ok(stateText.startsWith('// This file is managed automatically.\n'), stateText);
+    const state = JSON.parse(stateText.split('\n').slice(1).join('\n'));
+    assert.deepEqual(state, { firstLaunchAt: 'then', trustedFolders: ['/elsewhere', worktreeRoot] });
+    copilot.hooks.injection.releaseHome(prepared.home);
+    const preparedAgain = prepareWithRoot(path.join(worktreeRoot, 'session-one'));
+    assert.ok(preparedAgain && 'home' in preparedAgain);
+    assert.equal(fs.readFileSync(statePath, 'utf8'), stateText);
+    const sessionStatePath = path.join(preparedAgain.home, 'config.json');
+    fs.rmSync(sessionStatePath);
+    fs.writeFileSync(sessionStatePath, JSON.stringify({ ...state, loggedInUsers: [{ login: 'operator' }] }));
+    copilot.hooks.injection.releaseHome(preparedAgain.home);
+    const otherRoot = path.join(scratchRoot, 'other');
+    prepareWithRoot(otherRoot);
+    const promotedState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    assert.deepEqual(promotedState, { firstLaunchAt: 'then', trustedFolders: ['/elsewhere', worktreeRoot, otherRoot], loggedInUsers: [{ login: 'operator' }] });
+  } finally {
+    fs.rmSync(scratchRoot, { recursive: true, force: true });
+  }
 });

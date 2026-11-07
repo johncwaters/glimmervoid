@@ -1,6 +1,6 @@
 import type { CommunityStateEntry, CommunityStatus, CommunityVerdict } from '#shared/contracts/community.ts';
 import type { StateTone } from '../state-tone-core.ts';
-import type { CommunityQueueItem, QueueGroup } from '../github/review-queue-core.ts';
+import type { CommunityQueueGroup, CommunityQueueItem } from '../github/review-queue-core.ts';
 
 const VERDICT_TEXT: Readonly<Record<CommunityVerdict, string>> = { HIGH: 'High confidence', MEDIUM: 'Medium confidence', LOW: 'Low confidence' };
 
@@ -40,7 +40,7 @@ export function canSetAsideCommunityEntry(entry: CommunityStateEntry): boolean {
   return entry.status !== 'aside';
 }
 
-export function communityCaughtUpText(groups: readonly QueueGroup<CommunityQueueItem>[]): string {
+export function communityCaughtUpText(groups: readonly CommunityQueueGroup[]): string {
   const workingCount = groups.find((group) => group.id === 'working')?.items.length ?? 0;
   if (workingCount === 0) return 'No community question needs you right now.';
   return `No community question needs you right now. ${workingCount} ${workingCount === 1 ? 'question is' : 'questions are'} being researched.`;

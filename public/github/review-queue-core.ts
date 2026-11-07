@@ -7,10 +7,11 @@ import { attentionSignature } from '../attention-ack-core.ts';
 import type { AttentionKind, AttentionTile } from '../focus-view/attention-core.ts';
 import type { GithubPollingStatus } from './github-polling-retry-core.ts';
 import { comparablePrKey } from '#shared/contracts/github-prs.ts';
-import { PRIORITY_BAND_ORDER, classifyReviewPriority, draftPriorityBand, hasFailedKeepMergeableRepair, pullRequestLabel, sectionStackedMyPrs } from './github-store-core.ts';
+import { PRIORITY_BAND_ORDER, answeredNonNitThreads, classifyReviewPriority, draftPriorityBand, hasFailedKeepMergeableRepair, pullRequestLabel, sectionStackedMyPrs } from './github-store-core.ts';
 import type { QueueRowKind, TeamReviewSections } from './github-store-core.ts';
 
 type QueueGroupId = z.infer<typeof ReviewQueueGroupId>;
+export type DisplayGroupId = QueueGroupId | 'now';
 type QueueAction = z.infer<typeof ReviewQueueAction>;
 
 export type QueueItem = z.infer<typeof ReviewQueueItem>;
@@ -19,7 +20,11 @@ export type CommunityQueueItem = { source: 'community'; key: string; entry: Comm
 
 interface KeyedQueueItem { key: string; attention: AttentionKind | null }
 
-export interface QueueGroup<Item extends KeyedQueueItem = QueueItem> { id: QueueGroupId; title: string; items: Item[] }
+export interface QueueGroup<Item extends KeyedQueueItem = QueueItem, GroupId extends string = QueueGroupId> { id: GroupId; title: string; items: Item[] }
+
+type CommunityGroupId = 'turn' | 'working' | 'aside';
+
+export type CommunityQueueGroup = QueueGroup<CommunityQueueItem, CommunityGroupId>;
 
 interface QueueStateRow { state: string; group: QueueGroupId; kind: AttentionKind | null; action: QueueAction | null }
 
@@ -39,26 +44,63 @@ const QUEUE_STATE_ORDER = [
   { state: 'mine-repairing', group: 'working', kind: null, action: null },
   { state: 'mine-agent-fixing', group: 'working', kind: null, action: null },
   { state: 'review-in-flight', group: 'working', kind: null, action: null },
-  { state: 'review-queued', group: 'working', kind: null, action: null },
-  { state: 'review-settled', group: 'waiting', kind: null, action: null },
   { state: 'review-posted', group: 'waiting', kind: null, action: null },
   { state: 'mine-checks-pending', group: 'waiting', kind: null, action: null },
   { state: 'mine-needs-approval', group: 'waiting', kind: null, action: null },
   { state: 'mine-unknown', group: 'waiting', kind: null, action: null },
-  { state: 'review-discarded', group: 'aside', kind: null, action: null },
-  { state: 'mine-draft', group: 'aside', kind: null, action: null },
-  { state: 'mine-merged', group: 'aside', kind: null, action: null },
+  { state: 'review-queued', group: 'queued', kind: null, action: null },
+  { state: 'mine-merged', group: 'done', kind: null, action: null },
+  { state: 'review-settled', group: 'done', kind: null, action: null },
+  { state: 'review-discarded', group: 'parked', kind: null, action: null },
+  { state: 'mine-draft', group: 'parked', kind: null, action: null },
 ] as const satisfies readonly QueueStateRow[];
 
 type QueueState = typeof QUEUE_STATE_ORDER[number]['state'];
 
 const QUEUE_STATE_ROWS: ReadonlyMap<QueueState, QueueStateRow & { rank: number }> = new Map(QUEUE_STATE_ORDER.map((row, rank) => [row.state, { ...row, rank }]));
 
-const GROUP_TITLES: Readonly<Record<QueueGroupId, string>> = {
-  turn: 'Your turn', working: 'Agent working', waiting: 'Waiting on others', aside: 'Set aside',
+const GROUP_TITLES: Readonly<Record<QueueGroupId | CommunityGroupId, string>> = {
+  turn: 'Your turn', working: 'Agent working', queued: 'Queued', waiting: 'Waiting on others', done: 'Done', parked: 'Parked', aside: 'Set aside',
 };
 
-const GROUP_ORDER: readonly QueueGroupId[] = ['turn', 'working', 'waiting', 'aside'];
+const GROUP_ORDER: readonly QueueGroupId[] = ['turn', 'working', 'queued', 'waiting', 'done', 'parked'];
+
+export const COLLAPSED_GROUP_IDS: ReadonlySet<string> = new Set<QueueGroupId>(['done', 'parked']);
+
+const BOARD_COLUMN_ORDER: readonly DisplayGroupId[] = ['queued', 'working', 'turn', 'now', 'waiting', 'done', 'parked'];
+
+const DISPLAY_GROUP_TITLES: Readonly<Record<DisplayGroupId, string>> = { ...GROUP_TITLES, turn: 'Ready', now: 'Reviewing now' };
+
+export type DisplayGroup = QueueGroup<QueueItem, DisplayGroupId>;
+
+export function boardColumns(groups: readonly DisplayGroup[]): DisplayGroup[] {
+  return BOARD_COLUMN_ORDER.map((id) => groups.find((group) => group.id === id) ?? { id, title: DISPLAY_GROUP_TITLES[id], items: [] });
+}
+
+export function splitReviewingNow(groups: readonly QueueGroup[], pulledKeys: readonly string[]): { groups: DisplayGroup[]; pulledKeys: string[] } {
+  const turnKeys = new Set(turnItems(groups).map((item) => item.key));
+  const keptPulledKeys = pulledKeys.filter((key) => turnKeys.has(key));
+  const pulledKeySet = new Set(keptPulledKeys);
+  const displayGroups = groups.flatMap((group): DisplayGroup[] => {
+    if (group.id !== 'turn') return [group];
+    return [
+      { id: 'now', title: DISPLAY_GROUP_TITLES.now, items: group.items.filter((item) => pulledKeySet.has(item.key)) },
+      { id: 'turn', title: DISPLAY_GROUP_TITLES.turn, items: group.items.filter((item) => !pulledKeySet.has(item.key)) },
+    ];
+  });
+  return { groups: displayGroups, pulledKeys: keptPulledKeys };
+}
+
+export function togglePulledKey({ pulledKeys, key, turnKeys, limit }: { pulledKeys: readonly string[]; key: string; turnKeys: readonly string[]; limit: number }): string[] {
+  if (pulledKeys.includes(key)) return pulledKeys.filter((pulledKey) => pulledKey !== key);
+  const isFull = limit > 0 && pulledKeys.length >= limit;
+  if (isFull || !turnKeys.includes(key)) return [...pulledKeys];
+  return [...pulledKeys, key];
+}
+
+export function reviewingNowCountText(pulledCount: number, limit: number): string {
+  return limit > 0 ? `${pulledCount} / ${limit}` : String(pulledCount);
+}
 
 const MINE_STATE_BY_STAGE: Readonly<Record<MyPrStage, QueueState>> = {
   conflicts: 'mine-conflicts', behind: 'mine-behind', 'checks-failing': 'mine-checks-failing', 'changes-requested': 'mine-changes-requested',
@@ -71,7 +113,9 @@ const TEAM_STATE_BY_KIND: Readonly<Record<Exclude<QueueRowKind, 'ready' | 'atten
   settled: 'review-settled', inReview: 'review-in-flight', queued: 'review-queued', posted: 'review-posted', discarded: 'review-discarded',
 };
 
-interface StatedItem { item: QueueItem; row: QueueStateRow & { rank: number }; priorityBandRank: number; openedAtMs: number }
+interface StatedItem { item: QueueItem; row: QueueStateRow & { rank: number }; priorityBandRank: number; waitStartMs: number }
+
+const BLOCKED_PRIORITY_BAND_RANK = PRIORITY_BAND_ORDER.indexOf('waiting-on-author');
 
 function readyReviewState(draft: ReviewDraft): QueueState {
   if (draft.status !== 'ready') return 'review-follow-up';
@@ -95,16 +139,60 @@ function mineState(pr: MyPr, sessionPrKeys: ReadonlySet<string>, isKeepMergeable
 }
 
 function teamPriorityBandRank(review: ReviewDraft | InFlightReview | QueuedReview, kind: QueueRowKind): number {
-  if (kind === 'ready') return PRIORITY_BAND_ORDER.indexOf(draftPriorityBand(review as ReviewDraft));
+  if (kind === 'ready' || kind === 'attention') return PRIORITY_BAND_ORDER.indexOf(draftPriorityBand(review as ReviewDraft));
   if (kind === 'queued') return PRIORITY_BAND_ORDER.indexOf(classifyReviewPriority(review as QueuedReview).band);
   return 0;
 }
 
-function statedItem(state: QueueState, priorityBandRank: number, openedAt: string | undefined, toItem: (row: QueueStateRow) => QueueItem): StatedItem[] {
+export function validTimestampMs(timestamp: number | string | null | undefined): number | null {
+  const timestampMs = typeof timestamp === 'string' ? Date.parse(timestamp) : timestamp;
+  return typeof timestampMs === 'number' && Number.isFinite(timestampMs) && timestampMs > 0 ? timestampMs : null;
+}
+
+function latestAnsweredReplyMs(draft: ReviewDraft): number | null {
+  const replyTimesMs = answeredNonNitThreads(draft).flatMap((thread) => validTimestampMs(thread.lastReplyAt) ?? []);
+  return replyTimesMs.length > 0 ? Math.max(...replyTimesMs) : null;
+}
+
+export function teamWaitStartMs(review: ReviewDraft | InFlightReview | QueuedReview, kind: QueueRowKind): number {
+  if (kind === 'inReview') return validTimestampMs((review as InFlightReview).startedAt) ?? Number.POSITIVE_INFINITY;
+  if (kind === 'queued') return validTimestampMs(review.prCreatedAt) ?? Number.POSITIVE_INFINITY;
+  const draft = review as ReviewDraft;
+  const postedAtMs = kind === 'posted' ? validTimestampMs(draft.postedAt) : null;
+  return latestAnsweredReplyMs(draft) ?? postedAtMs ?? validTimestampMs(draft.reviewedAt) ?? validTimestampMs(draft.prCreatedAt) ?? Number.POSITIVE_INFINITY;
+}
+
+function mineWaitStartMs(pr: MyPr): number {
+  const waitStartAt = pr.mergedAt ?? pr.stageSinceMs ?? pr.updatedAt;
+  return validTimestampMs(waitStartAt) ?? Number.POSITIVE_INFINITY;
+}
+
+type AgeTone = 'fresh' | 'aging' | 'old';
+
+const AGING_AFTER_MS = 24 * 60 * 60 * 1000;
+const OLD_AFTER_MS = 3 * AGING_AFTER_MS;
+
+export function queueItemWaitStartMs(item: QueueItem): number {
+  if (item.source === 'team') return teamWaitStartMs(item.review, item.kind);
+  return mineWaitStartMs(item.pr);
+}
+
+export function ageToneOf(groupId: DisplayGroupId, waitStartMs: number, nowMs: number): AgeTone | null {
+  if (groupId === 'done' || groupId === 'parked' || !Number.isFinite(waitStartMs)) return null;
+  const waitedMs = nowMs - waitStartMs;
+  if (waitedMs > OLD_AFTER_MS) return 'old';
+  if (waitedMs >= AGING_AFTER_MS) return 'aging';
+  return 'fresh';
+}
+
+export function isOverTurnLimit(turnCount: number, turnLimit: number): boolean {
+  return turnLimit > 0 && turnCount > turnLimit;
+}
+
+function statedItem(state: QueueState, priorityBandRank: number, waitStartMs: number, toItem: (row: QueueStateRow) => QueueItem): StatedItem[] {
   const row = QUEUE_STATE_ROWS.get(state);
   if (!row) return [];
-  const openedAtMs = openedAt ? Date.parse(openedAt) : Number.NaN;
-  return [{ item: toItem(row), row, priorityBandRank, openedAtMs: Number.isNaN(openedAtMs) ? Number.POSITIVE_INFINITY : openedAtMs }];
+  return [{ item: toItem(row), row, priorityBandRank, waitStartMs }];
 }
 
 function teamItems(sections: TeamReviewSections): StatedItem[] {
@@ -112,19 +200,28 @@ function teamItems(sections: TeamReviewSections): StatedItem[] {
     ['ready', sections.ready], ['attention', sections.attention], ['inReview', sections.inReview], ['queued', sections.queued],
     ['settled', sections.noReviewNeeded], ['posted', sections.posted], ['discarded', sections.discarded],
   ];
-  return entries.flatMap(([kind, reviews]) => reviews.flatMap((review) => statedItem(teamState(review, kind), teamPriorityBandRank(review, kind), review.prCreatedAt, ({ action, kind: attention }) => (
+  return entries.flatMap(([kind, reviews]) => reviews.flatMap((review) => statedItem(teamState(review, kind), teamPriorityBandRank(review, kind), teamWaitStartMs(review, kind), ({ action, kind: attention }) => (
     { source: 'team', key: `team:${review.key}`, prKey: comparablePrKey(review), kind, review, action, attention }
   ))));
 }
 
 function mineItems(prs: readonly MyPr[], sessionPrKeys: ReadonlySet<string>, isKeepMergeableEnabled: boolean): StatedItem[] {
-  return sectionStackedMyPrs(prs).flatMap((section) => section.rows).flatMap((stackRow) => statedItem(mineState(stackRow.pr, sessionPrKeys, isKeepMergeableEnabled), 0, stackRow.pr.createdAt, ({ action, kind: attention }) => (
+  return sectionStackedMyPrs(prs).flatMap((section) => section.rows).flatMap((stackRow) => statedItem(mineState(stackRow.pr, sessionPrKeys, isKeepMergeableEnabled), 0, mineWaitStartMs(stackRow.pr), ({ action, kind: attention }) => (
     { source: 'mine', key: `mine:${stackRow.pr.key}`, prKey: comparablePrKey(stackRow.pr), pr: stackRow.pr, stackRow, action, attention }
   )));
 }
 
+function turnUrgencyRank(stated: StatedItem): number {
+  if (stated.row.kind === 'failed') return 0;
+  if (stated.row.state === 'review-direct-ask') return 1;
+  if (stated.priorityBandRank >= BLOCKED_PRIORITY_BAND_RANK) return 3;
+  return 2;
+}
+
 function compareStatedItems(first: StatedItem, second: StatedItem): number {
-  return first.row.rank - second.row.rank || first.priorityBandRank - second.priorityBandRank || first.openedAtMs - second.openedAtMs;
+  const waitOrder = first.waitStartMs - second.waitStartMs;
+  if (first.row.group === 'turn') return turnUrgencyRank(first) - turnUrgencyRank(second) || waitOrder || first.item.key.localeCompare(second.item.key);
+  return first.row.rank - second.row.rank || first.priorityBandRank - second.priorityBandRank || waitOrder;
 }
 
 export function buildReviewQueue(sections: TeamReviewSections, myPrs: readonly MyPr[], sessionPrKeys: ReadonlySet<string>, isKeepMergeableEnabled: boolean): QueueGroup[] {
@@ -133,9 +230,9 @@ export function buildReviewQueue(sections: TeamReviewSections, myPrs: readonly M
   return GROUP_ORDER.map((id) => ({ id, title: GROUP_TITLES[id], items: (itemsByGroup.get(id) ?? []).toSorted(compareStatedItems).map((stated) => stated.item) }));
 }
 
-const COMMUNITY_GROUP_ORDER: readonly QueueGroupId[] = ['turn', 'working', 'aside'];
+const COMMUNITY_GROUP_ORDER: readonly CommunityGroupId[] = ['turn', 'working', 'aside'];
 
-interface CommunityStateRow { group: QueueGroupId; kind: AttentionKind | null }
+interface CommunityStateRow { group: CommunityGroupId; kind: AttentionKind | null }
 
 const COMMUNITY_STATE_ORDER = [
   { state: 'error', group: 'turn', kind: 'failed' },
@@ -160,7 +257,7 @@ function askedAtMs(entry: CommunityStateEntry): number {
   return Number.isNaN(createdAtMs) ? Number.POSITIVE_INFINITY : createdAtMs;
 }
 
-export function buildCommunityQueue(entries: readonly CommunityStateEntry[]): QueueGroup<CommunityQueueItem>[] {
+export function buildCommunityQueue(entries: readonly CommunityStateEntry[]): CommunityQueueGroup[] {
   const stated = entries.flatMap((entry) => {
     const row = COMMUNITY_STATE_ROWS.get(communityState(entry));
     if (!row) return [];
@@ -173,16 +270,16 @@ export function communityActivityEntry(item: CommunityQueueItem): string {
   return `${item.key}@${item.entry.status}:${item.entry.finishedAt ?? ''}`;
 }
 
-export function turnItems<Item extends KeyedQueueItem>(groups: readonly QueueGroup<Item>[]): Item[] {
+export function turnItems<Item extends KeyedQueueItem>(groups: readonly QueueGroup<Item, string>[]): Item[] {
   return groups.find((group) => group.id === 'turn')?.items ?? [];
 }
 
-export function queueItemByKey<Item extends KeyedQueueItem>(groups: readonly QueueGroup<Item>[], key: string | null): Item | null {
+export function queueItemByKey<Item extends KeyedQueueItem>(groups: readonly QueueGroup<Item, string>[], key: string | null): Item | null {
   if (!key) return null;
   return groups.flatMap((group) => group.items).find((item) => item.key === key) ?? null;
 }
 
-export function chooseQueueSelection<Item extends KeyedQueueItem>(visibleGroups: readonly QueueGroup<Item>[], selectedKey: string | null): string | null {
+export function chooseQueueSelection<Item extends KeyedQueueItem>(visibleGroups: readonly QueueGroup<Item, string>[], selectedKey: string | null): string | null {
   if (queueItemByKey(visibleGroups, selectedKey)) return selectedKey;
   return visibleGroups.flatMap((group) => group.items)[0]?.key ?? null;
 }
@@ -192,7 +289,7 @@ function itemLabel(item: QueueItem): string {
   return pullRequestLabel(item.review.repo, item.review.number);
 }
 
-function labeledAttentionTiles<Item extends KeyedQueueItem>(groups: readonly QueueGroup<Item>[], labelOf: (item: Item) => string): AttentionTile[] {
+function labeledAttentionTiles<Item extends KeyedQueueItem>(groups: readonly QueueGroup<Item, string>[], labelOf: (item: Item) => string): AttentionTile[] {
   return turnItems(groups).map((item) => ({ id: item.key, kind: item.attention ?? 'waiting', name: labelOf(item) }));
 }
 
@@ -204,18 +301,20 @@ export function bannerTilesOf(groups: readonly QueueGroup[], selectedKey: string
   return attentionTilesOf(groups).filter((tile) => tile.id !== selectedKey);
 }
 
-export function nextTurnKey<Item extends KeyedQueueItem>({ capturedOrder, actedKey, groups }: { capturedOrder: readonly string[]; actedKey: string; groups: readonly QueueGroup<Item>[] }): string | null {
+export function nextTurnKey<Item extends KeyedQueueItem>({ capturedOrder, actedKey, groups }: { capturedOrder: readonly string[]; actedKey: string; groups: readonly QueueGroup<Item, string>[] }): string | null {
   const remainingKeys = turnItems(groups).map((item) => item.key).filter((key) => key !== actedKey);
   const remainingKeySet = new Set(remainingKeys);
   const nextKey = capturedOrder.slice(capturedOrder.indexOf(actedKey) + 1).find((key) => remainingKeySet.has(key));
   return nextKey ?? capturedOrder.find((key) => remainingKeySet.has(key)) ?? remainingKeys[0] ?? null;
 }
 
-export function turnPositionText<Item extends KeyedQueueItem>(groups: readonly QueueGroup<Item>[], key: string | null): string {
-  const turnKeys = turnItems(groups).map((item) => item.key);
-  const position = key ? turnKeys.indexOf(key) : -1;
-  if (position === -1) return '';
-  return `${position + 1} of ${turnKeys.length} in Your turn`;
+const POSITION_GROUP_IDS: ReadonlySet<string> = new Set<DisplayGroupId>(['turn', 'now']);
+
+export function turnPositionText(groups: readonly DisplayGroup[], key: string | null): string {
+  const shownGroup = groups.find((group) => POSITION_GROUP_IDS.has(group.id) && group.items.some((item) => item.key === key));
+  if (!shownGroup) return '';
+  const position = shownGroup.items.findIndex((item) => item.key === key);
+  return `${position + 1} of ${shownGroup.items.length} in ${shownGroup.title}`;
 }
 
 export function queueItemActivityEntry(item: QueueItem): string {
@@ -258,11 +357,12 @@ export function combinedPollingStatus(statuses: readonly (GithubPollingStatus | 
 }
 
 export type ReviewDetailKeyAction = 'next-finding' | 'previous-finding' | 'toggle-finding' | 'open-session' | 'pick-approve' | 'pick-request-changes' | 'pick-comment' | 'post' | 'cancel';
-export type ReviewKeyAction = 'next-row' | 'previous-row' | ReviewDetailKeyAction;
+export type ReviewKeyAction = 'next-row' | 'previous-row' | 'next-column' | 'previous-column' | 'toggle-pulled' | ReviewDetailKeyAction;
 
 const REVIEW_LETTER_ACTIONS: ReadonlyMap<string, ReviewKeyAction> = new Map([
   ['j', 'next-row'], ['k', 'previous-row'], ['n', 'next-finding'], ['p', 'previous-finding'], ['x', 'toggle-finding'], ['o', 'open-session'],
-  ['a', 'pick-approve'], ['r', 'pick-request-changes'], ['c', 'pick-comment'],
+  ['a', 'pick-approve'], ['r', 'pick-request-changes'], ['c', 'pick-comment'], ['m', 'toggle-pulled'],
+  ['h', 'previous-column'], ['l', 'next-column'], ['ArrowLeft', 'previous-column'], ['ArrowRight', 'next-column'],
 ]);
 
 interface ReviewKeyEvent { key: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean }
@@ -273,6 +373,16 @@ export function reviewKeyActionOf(event: ReviewKeyEvent): ReviewKeyAction | null
   if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return null;
   if (event.key === 'Escape') return 'cancel';
   return REVIEW_LETTER_ACTIONS.get(event.key) ?? null;
+}
+
+export function steppedColumnKey(columnRowKeys: readonly (readonly string[])[], selectedKey: string | null, step: 1 | -1): string | null {
+  const filledColumns = columnRowKeys.filter((rowKeys) => rowKeys.length > 0);
+  if (filledColumns.length === 0) return null;
+  const columnIndex = filledColumns.findIndex((rowKeys) => selectedKey !== null && rowKeys.includes(selectedKey));
+  if (columnIndex === -1) return filledColumns[0][0];
+  const rowIndex = filledColumns[columnIndex].indexOf(selectedKey ?? '');
+  const targetColumn = filledColumns[Math.min(filledColumns.length - 1, Math.max(0, columnIndex + step))];
+  return targetColumn[Math.min(rowIndex, targetColumn.length - 1)];
 }
 
 export function steppedRowKey(rowKeys: readonly string[], selectedKey: string | null, step: 1 | -1): string | null {

@@ -4,10 +4,11 @@ import { TaskTitle } from './session.ts';
 import { SessionPrLinks } from './my-prs.ts';
 import { BranchGcControlSettings, GithubSettings,
   createBrowserConfig, optionalBoolean, optionalLooseObject,
-  PlanReviewSettings, TelemetryFileSettings, TraceSettings,
+  PlanReviewSettings, TelemetryFileSettings, TraceSettings, WatcherFileSettings,
 } from './browser-config.ts';
 import { WorkflowsSettingsUpdate } from './workflows.ts';
 import { AgentSetup } from './agent-models.ts';
+import { HostEntries } from './hosts.ts';
 import { GitObjectSha, RaceId } from './race.ts';
 import type { BranchGcFileSettings as BranchGcFileSettingsSchema } from './browser-config.ts';
 
@@ -32,7 +33,7 @@ export const ConfigUpdate = z.object({
 }).omit({ port: true, worktreeShare: true }).strict();
 const AGENT_ID_RE = /^[a-z][a-z0-9-]{1,31}$/;
 export const SHELL_AGENT_ID = 'shell';
-export const BUILTIN_AGENT_IDS = Object.freeze(['claude-code', 'codex', 'grok', 'kimi', SHELL_AGENT_ID] as const);
+export const BUILTIN_AGENT_IDS = Object.freeze(['claude-code', 'codex', 'gemini', 'grok', 'kimi', 'qwen', 'copilot', 'opencode', 'goose', 'cursor', SHELL_AGENT_ID] as const);
 export const AGENT_ID_SHAPE_MESSAGE = 'an agent id of 2 to 32 characters of lowercase letters, digits and dashes, starting with a letter';
 
 const AGENT_COMMAND_BASENAME_RE = /^[A-Za-z0-9._+-]+$/;
@@ -120,16 +121,13 @@ export const CustomAgentDeclaration = z.object({
 
 const CustomAgentDeclarations = z.array(CustomAgentDeclaration, { error: 'customAgents must be an array' })
   .superRefine((declarations, ctx) => {
-    const claimedIds = new Set<string>(BUILTIN_AGENT_IDS);
+    const claimedIds = new Set<string>();
     for (const [index, declaration] of declarations.entries()) {
       if (!claimedIds.has(declaration.id)) {
         claimedIds.add(declaration.id);
         continue;
       }
-      const message = BUILTIN_AGENT_IDS.some((builtinAgentId) => builtinAgentId === declaration.id)
-        ? `customAgents[${index}].id "${declaration.id}" collides with the builtin agent of the same id`
-        : `customAgents[${index}].id "${declaration.id}" is declared more than once`;
-      ctx.addIssue({ code: 'custom', path: [index, 'id'], message });
+      ctx.addIssue({ code: 'custom', path: [index, 'id'], message: `customAgents[${index}].id "${declaration.id}" is declared more than once` });
     }
   });
 
@@ -167,6 +165,7 @@ export const ProjectConfig = z.object({
   codexBypassHookTrust: z.boolean().optional(),
   dangerouslySkipPermissions: z.boolean({ error: 'projects[].dangerouslySkipPermissions must be a boolean' }).optional(),
   saneYolo: z.boolean({ error: 'projects[].saneYolo must be a boolean' }).optional(),
+  questionManagerOn: z.boolean({ error: 'projects[].questionManagerOn must be a boolean' }).optional(),
   environment: ProjectEnvironment.optional(),
   agentSetup: AgentSetup.optional(),
   raceId: RaceId.optional(),
@@ -182,6 +181,7 @@ const FILE_CONFIG_SHAPE = {
   coherence: optionalLooseObject('coherence'),
   issues: optionalLooseObject('issues'),
   community: optionalLooseObject('community'),
+  questionManager: optionalLooseObject('questionManager'),
   posthog: optionalLooseObject('posthog'),
   usage: optionalLooseObject('usage'),
   telegram: optionalLooseObject('telegram'),
@@ -210,6 +210,8 @@ export const Config = z.object({
     allowedOrigins: z.array(z.string()).optional(),
     ownerLogin: z.string().optional(),
   }).passthrough().optional(),
+  hosts: HostEntries.optional(),
+  watcher: WatcherFileSettings,
   projects: z.array(ProjectConfig),
 }).passthrough().superRefine((config, ctx) => {
   if (!Array.isArray(config.projects)) return;
@@ -238,8 +240,8 @@ export const Config = z.object({
 });
 
 export const CONFIG_BLOCK_KEYS = Object.freeze([
-  'taskTitle', 'branchGc', 'github', 'lanes', 'teamReview', 'benchmarks', 'coherence', 'issues', 'community', 'posthog', 'usage', 'telegram',
-  'telemetry', 'workflows', 'coder',
+  'taskTitle', 'branchGc', 'github', 'lanes', 'teamReview', 'benchmarks', 'coherence', 'issues', 'community', 'questionManager', 'posthog', 'usage', 'telegram',
+  'telemetry', 'watcher', 'workflows', 'coder',
 ]);
 export const CONFIG_SCALAR_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE).filter((key) => {
   if (CONFIG_BLOCK_KEYS.includes(key)) return false;

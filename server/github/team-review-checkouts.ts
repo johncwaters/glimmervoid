@@ -138,7 +138,7 @@ async function findLocalCheckout({ repo, config, excludedRoots, gitWorkspace, lo
       log.warn(`[${core.TEAM_REVIEW_LANE_ID}] could not list local repositories in ${root}: ${errorMessage(error)}`);
       return [];
     });
-    const childNames = children.filter((entry) => entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules')
+    const childNames = children.filter((entry) => (entry.isDirectory() || entry.isSymbolicLink()) && !entry.name.startsWith('.') && entry.name !== 'node_modules')
       .map((entry) => entry.name).sort();
     for (const childName of childNames) {
       candidatePaths.push(path.join(root, childName));

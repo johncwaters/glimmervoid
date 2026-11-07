@@ -18,15 +18,17 @@ import { needsAttention, sessionAttentionTier, tallyAdd, tallyRemove, titleAlert
 import { closeSessionNotifications } from '../notifications.ts';
 import { ensureTerminalReady, ensureTerminalSetup } from './terminal.ts';
 import { closeDataWs } from './terminal-data-socket.ts';
+import { setLinkPreviewsEnabled } from './terminal-link-popup.ts';
 import { setTerminalCursorBlink } from './terminal-setup.ts';
 import { releaseWebgl } from './webgl-pool.ts';
 import { currentTerminalFontFamily } from '../mono-font.ts';
 import { applyTerminalFontFamily } from '../mono-font-core.ts';
 import { createDeferredPlanFace, loadedPlanFaceModule } from './deferred-loads.ts';
-import { reportSessionProblem } from './card-problems.ts';
+import { openManagerDecisionLine, reportSessionProblem } from './card-problems.ts';
 import { updateButtonVisibility } from './card-faces.ts';
 import { wireCardEvents } from './card-events.ts';
 import { cancelWatchedCompletionDismiss, holdThenDismissWatchedCompletion, isCompletionWatchedAt } from './watched-completion.ts';
+import { paintAgentMark } from './agent-mark.ts';
 
 const asText = (value: unknown) => (value == null ? '' : String(value));
 
@@ -51,7 +53,8 @@ export function getSessionCount() {
 
 export function applyTerminalSettings(settings: unknown) {
 
-  const terminalSettings = (settings || {}) as { cursorBlink?: boolean; debugMode?: boolean };
+  const terminalSettings = (settings || {}) as { cursorBlink?: boolean; debugMode?: boolean; linkPreviews?: boolean };
+  if (terminalSettings.linkPreviews != null) setLinkPreviewsEnabled(terminalSettings.linkPreviews);
   if (terminalSettings.cursorBlink != null) setTerminalCursorBlink(terminalSettings.cursorBlink);
   if (terminalSettings.debugMode != null) {
     setDebugMode(terminalSettings.debugMode);
@@ -184,6 +187,8 @@ export function setSessionAgent(sessionId: unknown, agent: unknown) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
   ui.agent = typeof agent === 'string' ? agent : null;
+  const agentMarkEl = ui.card.querySelector<HTMLElement>('.session-agent-mark');
+  if (agentMarkEl) paintAgentMark(agentMarkEl, ui.agent);
   updateButtonVisibility(ui);
 }
 
@@ -284,9 +289,11 @@ function _handleRestartTransition(ui: SessionUi, prevState: string) {
 
 export function markSessionSeen(sessionId: string) {
   const ui = sessionUIs.get(sessionId);
-  if (!ui || !needsAttention({ state: ui.currentState, unseenOutcome: ui.unseenOutcome })) return;
+  if (!ui) return;
   if (document.visibilityState !== 'visible') return;
   if (!isPhoneLayout() && !document.hasFocus()) return;
+  openManagerDecisionLine(sessionId);
+  if (!needsAttention({ state: ui.currentState, unseenOutcome: ui.unseenOutcome })) return;
   sendControlMsg({ type: 'dismiss', id: sessionId, expectedState: ui.currentState });
 }
 

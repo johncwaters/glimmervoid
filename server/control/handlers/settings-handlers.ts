@@ -17,6 +17,9 @@ import type { InstalledHookFlags } from '../../../session/core/user-hooks-core.t
 import { agentHookGroupOf, HOOK_EVENT_CATALOG, ID_RE as HOOK_ID_RE, MAX_TIMEOUT_SEC as HOOK_MAX_TIMEOUT_SEC, normalizeHook, rawStoredHooks, readStoredHooks, removeHook, upsertHook } from '../../../session/core/user-hooks-core.ts';
 import type { ControlSocket } from '../../backend/backend-websockets.ts';
 import { ABORT_CONFIG_SAVE } from '../../config-store.ts';
+import { addHostTo, removeHostFrom } from '../../hosts/core/host-registry-core.ts';
+import type { HostRegistryChange } from '../../hosts/core/host-registry-core.ts';
+import type { HostEntry } from '../../../shared/contracts/hosts.ts';
 import type { ProjectEntry } from '../../config-store.ts';
 import type { ControlHandlerDeps } from '../../control-handlers.ts';
 import { mergeSettingsBlock, settingsBlockSpecFor, validateSettingsBlock } from '../../core/settings-block-core.ts';
@@ -30,9 +33,27 @@ import type { ControlContext } from '../control-context.ts';
 import { isExistingDirectory, replyTo, sendError } from '../control-context.ts';
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
 
-function scanRepoRoots(roots: string[] | undefined): { root: string; projects: { name: string; path: string }[] }[] {
-  const results: { root: string; projects: { name: string; path: string }[] }[] = [];
+type ScannedProject = { name: string; path: string; lastActivityMs?: number };
+
+function realPathOrSelf(candidate: string): string {
+  try {
+    return fs.realpathSync(candidate);
+  } catch {
+    return candidate;
+  }
+}
+
+function scannedProjectOf(root: string, entry: fs.Dirent): ScannedProject | null {
+  const entryPath = path.join(root, entry.name);
+  if (entry.isDirectory()) return { name: entry.name, path: entryPath };
+  if (!entry.isSymbolicLink() || !isExistingDirectory(entryPath)) return null;
+  return { name: entry.name, path: realPathOrSelf(entryPath) };
+}
+
+function scanRepoRoots(roots: string[] | undefined): { root: string; projects: ScannedProject[] }[] {
+  const results: { root: string; projects: ScannedProject[] }[] = [];
   if (!roots) return results;
+  const seenRealPaths = new Set<string>();
   for (const root of roots) {
     try {
       if (!fs.existsSync(root)) {
@@ -41,9 +62,16 @@ function scanRepoRoots(roots: string[] | undefined): { root: string; projects: {
       }
       const entries = fs.readdirSync(root, { withFileTypes: true });
       const projects = entries
-        .filter(d => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'node_modules')
-        .map(d => ({ name: d.name, path: path.join(root, d.name) }))
-        .sort((a, b) => a.name.localeCompare(b.name));
+        .filter(d => !d.name.startsWith('.') && d.name !== 'node_modules')
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(d => scannedProjectOf(root, d))
+        .filter((project): project is ScannedProject => project !== null)
+        .filter((project) => {
+          const projectRealPath = realPathOrSelf(project.path);
+          if (seenRealPaths.has(projectRealPath)) return false;
+          seenRealPaths.add(projectRealPath);
+          return true;
+        });
       results.push({ root, projects });
     } catch (err) {
       console.warn(`[settings] Failed to scan root: ${root}: ${errorCode(err) || errorMessage(err)}`);
@@ -51,6 +79,32 @@ function scanRepoRoots(roots: string[] | undefined): { root: string; projects: {
     }
   }
   return results;
+}
+
+const GITDIR_LINE = /^gitdir:\s*(.+?)\s*$/m;
+
+async function gitDirectoryOf(projectPath: string): Promise<string | undefined> {
+  const gitEntry = path.join(projectPath, '.git');
+  const gitEntryStat = await fs.promises.stat(gitEntry);
+  if (gitEntryStat.isDirectory()) return gitEntry;
+  const linkedGitDir = GITDIR_LINE.exec(await fs.promises.readFile(gitEntry, 'utf8'))?.[1];
+  return linkedGitDir ? path.resolve(projectPath, linkedGitDir) : undefined;
+}
+
+async function projectLastActivityMs(projectPath: string): Promise<number | undefined> {
+  try {
+    const gitDirectory = await gitDirectoryOf(projectPath);
+    return gitDirectory ? (await fs.promises.stat(gitDirectory)).mtimeMs : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function withProjectActivity(directories: { root: string; projects: ScannedProject[] }[]) {
+  return Promise.all(directories.map(async ({ root, projects }) => ({
+    root,
+    projects: await Promise.all(projects.map(async (project) => ({ ...project, lastActivityMs: await projectLastActivityMs(project.path) }))),
+  })));
 }
 
 const SETTINGS_NOT_SAVED_MESSAGE = 'Settings were not saved: the config file could not be read, validated or written.';
@@ -216,9 +270,10 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
 
   function handleListAgents(msg: ClientMessageOf<'list-agents'>, ws: ControlSocket): void {
     if (msg.rescan) resetCommandCache();
+    const hiddenAgentIds = new Set(config.hiddenAgents ?? []);
     const agents = listAgentIds().map((id) => {
       const { label, resolvable } = describeAgentResolvability(id);
-      return { id, label, resolvable };
+      return { id, label, resolvable, hidden: hiddenAgentIds.has(id) };
     });
     ws.send(JSON.stringify({
       type: 'agents-listed',
@@ -228,7 +283,8 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
   }
 
   async function handleScanRepoRoots(msg: ClientMessageOf<'scan-repo-roots'>, ws: ControlSocket): Promise<void> {
-    const directories = scanRepoRoots(config.repoRoots);
+    const scannedDirectories = scanRepoRoots(config.repoRoots);
+    const directories = msg.includeActivity ? await withProjectActivity(scannedDirectories) : scannedDirectories;
     const suggestions = msg.includeSuggestions ? await suggestRepoRoots({ homeDir: os.homedir(), configuredRoots: config.repoRoots || [] }) : undefined;
     ws.send(JSON.stringify({
       type: 'repo-roots-scanned',
@@ -256,7 +312,6 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
       observeToolCalls: false,
       hookTools,
       planReview: config.planReview?.enabled !== false,
-      holdsQuestionsForParent: true,
     };
     return listAgentIds().flatMap((agentId) => {
       const adapter = getAdapter(agentId);
@@ -331,6 +386,31 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     console.log(`[control] delete-hook: ${id}`);
   }
 
+  function changeHosts(msg: ClientMessageOf<'add-host' | 'remove-host'>, ws: ControlSocket, change: (hosts: readonly HostEntry[]) => HostRegistryChange): void {
+    const reply = (error: string | null) => replyTo(ws, msg, 'host-change-result', { ok: error === null, error });
+    const refusal: { error: string | null } = { error: null };
+    const freshConfig = configStore.save((cfg) => {
+      const changed = change(cfg.hosts ?? []);
+      if (!changed.ok) {
+        refusal.error = changed.error;
+        return ABORT_CONFIG_SAVE;
+      }
+      if (changed.hosts.length === 0) delete cfg.hosts;
+      if (changed.hosts.length > 0) cfg.hosts = changed.hosts;
+      return undefined;
+    });
+    if (refusal.error !== null) {
+      reply(refusal.error);
+      return;
+    }
+    if (!freshConfig) {
+      reply(settingsNotSavedText(configStore.lastSaveFailureReason()));
+      return;
+    }
+    applySettingsReload(freshConfig);
+    reply(null);
+  }
+
   async function handlePackApprove(msg: ClientMessageOf<'pack-approve'>, ws: ControlSocket): Promise<void> {
     const reply = (outcome: { ok: boolean; error?: string }) => replyTo(ws, msg, 'pack-approve-result', outcome);
     const parsed = PackApproveRequest.safeParse({ fingerprint: msg.fingerprint });
@@ -366,6 +446,8 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'request-hooks-report': handleRequestHooksReport,
     'save-hook': handleSaveHook,
     'delete-hook': handleDeleteHook,
+    'add-host': (msg, ws) => changeHosts(msg, ws, (hosts) => addHostTo(hosts, msg.host)),
+    'remove-host': (msg, ws) => changeHosts(msg, ws, (hosts) => removeHostFrom(hosts, msg.id)),
     'pack-approve': handlePackApprove,
     'pack-data-get': handlePackDataGet,
     'pack-data-set': handlePackDataSet,
@@ -384,6 +466,8 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'request-hooks-report': (_msg, requestId, message) => ({ type: 'hooks-report', requestId, error: message }),
     'save-hook': (_msg, requestId, message) => ({ type: 'save-hook-result', requestId, ok: false, error: message }),
     'delete-hook': (_msg, requestId, message) => ({ type: 'delete-hook-result', requestId, ok: false, error: message }),
+    'add-host': (_msg, requestId, message) => ({ type: 'host-change-result', requestId, ok: false, error: message }),
+    'remove-host': (_msg, requestId, message) => ({ type: 'host-change-result', requestId, ok: false, error: message }),
     'pack-approve': (_msg, requestId, message) => ({ type: 'pack-approve-result', requestId, ok: false, error: message }),
     'pack-data-get': (_msg, requestId, message) => ({ type: 'pack-data-result', requestId, ok: false, error: message }),
     'pack-data-set': (_msg, requestId, message) => ({ type: 'pack-data-result', requestId, ok: false, error: message }),

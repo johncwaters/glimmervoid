@@ -145,7 +145,7 @@ function formatMinutes(minutes: unknown) {
 }
 
 export function yourDayHint(yourDay: YourDay, now: number) {
-  const yesterdayKey = localDayKey(now - 86_400_000);
+  const yesterdayKey = shiftedDayKey(localDayKey(now), -1);
   const [, month, day] = yourDay.yesterday.day.split('-').map(Number);
   const dayLabel = yourDay.yesterday.day === yesterdayKey ? 'yesterday' : `${MONTH_NAMES[month - 1]} ${day}`;
   const sessionWord = yourDay.yesterday.sessionCount === 1 ? 'session' : 'sessions';

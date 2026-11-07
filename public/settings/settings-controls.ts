@@ -15,6 +15,9 @@ import { settingsFeatureTabViews, requestTeamReviewEnvironmentOnce } from './set
 import { draftByControl, settingsPayload, storedValue, storedValues, viewMap } from './settings-panel-state.ts';
 import { renderReadout } from './settings-readouts.ts';
 import { commitSetting, setFieldError } from './settings-save.ts';
+import { sendControlRequest } from '../control-ws.ts';
+import { DEFAULT_AGENT_ID } from '../session-card/agent-core.ts';
+import { paintAgentMark } from '../session-card/agent-mark.ts';
 
 const MOVE_UP_ICON_PATH = 'M4 10L8 6L12 10';
 const MOVE_DOWN_ICON_PATH = 'M4 6L8 10L12 6';
@@ -405,6 +408,62 @@ function buildTabOrderMove(
   return moveButton;
 }
 
+interface ListedAgent {
+  id: string;
+  label: string;
+  resolvable: boolean;
+}
+
+let lastListedAgents: readonly ListedAgent[] | null = null;
+
+function requestListedAgents(): Promise<readonly ListedAgent[]> {
+  return sendControlRequest('list-agents', {}).then((message) => {
+    if (message.type !== 'agents-listed') throw new Error('the agent list did not arrive');
+    lastListedAgents = message.agents.map(({ id, label, resolvable }) => ({ id, label, resolvable }));
+    return lastListedAgents;
+  });
+}
+
+function buildAgentVisibilityItem(setting: SettingsSetting, agent: ListedAgent) {
+  const item = el('li', 'settings-view-agent-visibility-item');
+  const mark = el('span', 'agent-mark');
+  mark.setAttribute('aria-hidden', 'true');
+  paintAgentMark(mark, agent.id, agent.label);
+  const label = el('span', 'settings-view-agent-visibility-label', agent.label);
+  label.id = `${setting.id}-${agent.id}`;
+  const input = el('input', 'settings-view-switch');
+  input.type = 'checkbox';
+  input.setAttribute('role', 'switch');
+  input.setAttribute('aria-labelledby', label.id);
+  input.checked = !listValue(storedValue(setting)).includes(agent.id);
+  input.disabled = agent.id === DEFAULT_AGENT_ID;
+  input.addEventListener('change', () => {
+    const otherHiddenIds = listValue(storedValue(setting)).filter((hiddenId) => hiddenId !== agent.id);
+    commitSetting(setting, input.checked ? otherHiddenIds : [...otherHiddenIds, agent.id]);
+  });
+  item.append(mark, label, input);
+  return item;
+}
+
+function paintAgentVisibility(setting: SettingsSetting, list: HTMLElement, note: HTMLElement, agents: readonly ListedAgent[]) {
+  list.replaceChildren(...agents.filter((agent) => agent.resolvable).map((agent) => buildAgentVisibilityItem(setting, agent)));
+  const missingLabels = agents.filter((agent) => !agent.resolvable).map((agent) => agent.label);
+  note.textContent = missingLabels.length > 0 ? `Not installed: ${missingLabels.join(', ')}.` : '';
+}
+
+function renderAgentVisibility(setting: SettingsSetting) {
+  const wrapper = el('div', 'settings-view-agent-visibility');
+  const list = el('ul', 'settings-view-agent-visibility-list');
+  list.setAttribute('aria-labelledby', setting.id);
+  const note = el('span', 'settings-view-list-hint', 'Checking which agents are installed.');
+  wrapper.append(list, note);
+  if (lastListedAgents) paintAgentVisibility(setting, list, note, lastListedAgents);
+  requestListedAgents()
+    .then((agents) => paintAgentVisibility(setting, list, note, agents))
+    .catch(() => { note.textContent = 'Could not load the agent list. Reopen Settings to try again.'; });
+  return wrapper;
+}
+
 function renderControl(setting: SettingsSetting) {
   if (setting.control === 'readonly') return renderReadout(setting);
   if (setting.control === 'toggle') return renderToggle(setting);
@@ -413,6 +472,7 @@ function renderControl(setting: SettingsSetting) {
   if (setting.control === 'list') return renderList(setting);
   if (setting.control === 'shortcut-key') return renderShortcutKey(setting);
   if (setting.control === 'tab-order') return renderTabOrder(setting);
+  if (setting.control === 'agent-visibility') return renderAgentVisibility(setting);
   return renderInput(setting);
 }
 

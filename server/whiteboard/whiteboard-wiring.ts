@@ -3,7 +3,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 
 import { BoardRecord, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
-import type { Board, BoardRegion, BoardReview, BoardSummary, Element, Op, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
+import type { Board, BoardRegion, BoardReview, BoardSummary, BoxMedia, Element, Op, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import type { AgentReplyBodyOf } from '../../shared/contracts/session.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
@@ -11,7 +11,7 @@ import { OPERATOR_AUTHOR, createBoard, stageOps } from '../../shared/whiteboard-
 import { assetIdOf, assetIdsOf, boardIndexOf } from '../../shared/whiteboard-board-index.ts';
 import type { StagedElements } from './board-store-core.ts';
 import type { Author } from '../../shared/whiteboard-ops-core.ts';
-import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
+import { layoutBoardRemembered } from '../../shared/whiteboard-layout-cache.ts';
 import type { BoardLayout } from '../../shared/whiteboard-layout-core.ts';
 import { createBoardTileService } from './board-tile-service.ts';
 import type { BoardTileService } from './board-tile-service.ts';
@@ -21,9 +21,9 @@ import { referencedPaths, reviewBoard } from '../../shared/whiteboard-anchor-cor
 import { cappedWarnings } from '../../shared/whiteboard-route-core.ts';
 import { readChangeFacts, readFileFacts } from './whiteboard-anchor-facts.ts';
 import type { ChangeMap } from '../../shared/contracts/change-map.ts';
-import { unitsOf } from '../../shared/whiteboard-plan-core.ts';
+import { stepBoxesOf } from '../../shared/whiteboard-plan-core.ts';
 import {
-  boardRecordWithMediaForImages, changesForReader, connectSession, disconnectSession, markRead, nudgeLineFor, pickShowBoardId, promptContextFor, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard,
+  upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, pickShowBoardId, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard,
 } from '../core/whiteboard-store-core.ts';
 import { loadJsonStateFile } from '../json-file.ts';
 import { createKeyedSerialQueue } from '../spawn-gate.ts';
@@ -46,18 +46,19 @@ const PUT_GUIDE = [
   '{"op":"add","element":{"kind":"wire","id":"w1","from":"parse","to":"store","dashed":true,"label":"on retry"}},',
   '{"op":"set","id":"parse","fields":{"title":"Parse feed"}},{"op":"remove","id":"w1"}]\'.',
   'Pick the layout that fits what you draw; the example shows op syntax, not a preferred shape.',
-  'Element kinds: box (title, column, lane, near, at, lines, refs, change none|added|removed|relabeled, was, order, shape box|decision, outputs), wire (from, to, fromOutput, dashed, tone plain|fail|join|lane, label, fromSide and toSide left|right|top|bottom, back), frame (title, contains, loop), note (on, text, ref), unit (title, lines, refs, status, after, linkedBoardId), panel (title, lines, order) for side notes such as prior art, stacked right of the board.',
-  'To show a picture, video or HTML page, run glimmervoid whiteboard attach <path> (PNG, JPEG, WebP, GIF, SVG, MP4, WebM or HTML) and set the media it returns on a box unchanged except alt, as in "media":{"kind":"image","asset":"<id>","mime":"image/png","width":800,"height":600,"alt":"login screen","hasPreview":false}; a picture or video first frame draws under the box lines, and a page or a video without a first frame shows as a labelled placeholder.',
+  'Element kinds: box (title, near, at, lines, refs, change none|added|removed|relabeled, was, order, shape box|decision|panel, outputs, step {status planned|building|landed, linkedBoardId} to make it a plan step), wire (from, to, fromOutput, dashed, tone plain|fail|join, label, fromSide and toSide left|right|top|bottom, back), frame (title, contains, loop), note (on, text, ref).',
+  'To show a picture, video, HTML page or Markdown document, run glimmervoid whiteboard attach <path> (PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML or Markdown) and set the media it returns on a box unchanged except alt, as in "media":{"kind":"image","asset":"<id>","mime":"image/png","width":800,"height":600,"alt":"login screen","hasPreview":false}; a picture or video first frame draws under the box lines, a page or a video without a first frame shows as a labelled placeholder, and a Markdown document shows the operator its rendered text, which they can edit and save on the board.',
   'A line takes style text|code|item|numbered|kv; kv needs a key, as in {"style":"kv","key":"timeout","text":"30s"}, and numbered lines count up through each run.',
-  'Units lay out work in dependency order: glimmervoid whiteboard plan add|after|show edits and reads them.',
-  'Every box needs one place: column and lane on a grid of columns and lane row bands, set by a columns op such as {"op":"columns","columns":[{"id":"intake","title":"Intake"}]} and a lanes op such as {"op":"lanes","lanes":[{"id":"pr1","label":"PR 1","color":"blue"}]} before any box names them; near another box with near {"of":"parse","side":"right|left|top|bottom","gap":60}; or at {"x","y"} pixels.',
-  'A unit takes status planned|building|landed; a planned unit whose ref files already changed, or a landed one whose ref files are unchanged or uncommitted, comes back as a warning.',
-  'Point a box or unit at code with refs ["path", "path#L12", "path#L12-L30"], relative to the board code session worktree (codeSessionId, the creating session by default); any line or note takes one ref. A ref that names no file or runs past the end comes back as a warning.',
+  'A plan step is a box with a step; a wire from one step to another means the second is built after the first, cycles allowed. A step with no place sits in the build-order band above the free drawing until moved. glimmervoid whiteboard plan add|after|status|show edits and reads them.',
+  'A box with shape panel is a side note card for text such as prior art: with no place it stacks right of the drawing, lowest order first, until it is given one, and no box can sit near it while it is stacked.',
+  'The board is a free canvas: every box but a plan step or a panel needs one place, near another box with near {"of":"parse","side":"right|left|top|bottom","gap":60} or at {"x","y"} pixels; build columns, rows or lanes yourself from at positions, frames and text boxes.',
+  'A planned step whose ref files already changed, or a landed one whose ref files are unchanged or uncommitted, comes back as a warning.',
+  'Point a box at code with refs ["path", "path#L12", "path#L12-L30"], relative to the board code session worktree (codeSessionId, the creating session by default); any line or note takes one ref. A ref that names no file or runs past the end comes back as a warning.',
   'Mark what a change does to a box with change: added and removed for parts it brings or takes away, relabeled with was set to the old title for a rename.',
   'A decision is a box with shape:"decision" and outputs [{id, label}] drawn as rows in that order; a wire with fromOutput set to an output id leaves from that row, so each branch starts at its own named exit.',
   'Wires route around every box on their own; set fromSide or toSide to pick where one attaches, back:true for a return edge that loops around the outside, and loop:true on a frame to mark what repeats.',
   'The legend lists every wire style in use on its own; a board op with legend [{tone, dashed, back, label}] renames an entry or adds one.',
-  'A columns op takes move {"old-column":"new-column"} to carry boxes when it drops or renames a column. A put is applied whole or refused whole.',
+  'A put is applied whole or refused whole.',
   'glimmervoid whiteboard get <board> returns the board and a one-line summary of each change others made since this session last read it;',
   'add --layout to see where every box, wire and label landed, which refs need fixing, which changed files no ref covers and which referenced files the review tab calls worth a look, or run glimmervoid whiteboard render <board> --out board.svg to draw it as the dashboard does.',
 ].join(' ');
@@ -124,11 +125,10 @@ interface WhiteboardPort {
     review(boardId: string): Promise<OperatorReply>;
     connect(boardId: string, sessionId: string): Promise<OperatorReply>;
     disconnect(boardId: string, sessionId: string): Promise<OperatorReply>;
-    nudgeLine(boardId: string): string | null;
   };
   forgetSession(sessionId: string): Promise<void>;
   forgetClosedSessions(isClosedSession: (sessionId: string) => boolean): Promise<void>;
-  takePromptContext(sessionId: string): string | null;
+  takeBoardNotice(sessionId: string): string | null;
   isConnected(sessionId: string): boolean;
   snapshotMessage(): ServerMessageOf<'whiteboards-snapshot'>;
   tiles: Pick<BoardTileService, 'view' | 'forget' | 'operatorViewOf'>;
@@ -142,8 +142,14 @@ function refusal(status: number, error: string): WhiteboardReply {
   return { status, body: { ok: false, error } };
 }
 
+function attachedMediaUse(media: BoxMedia): string {
+  if (media.kind === 'doc') return 'to show the operator the document, which they can edit and save on the board';
+  if (media.kind === 'image' || media.hasPreview) return 'to draw it';
+  return 'to show it as a labelled placeholder until live playback ships';
+}
+
 function parseBoardRecord(raw: unknown): BoardRecord | null {
-  const parsed = BoardRecord.safeParse(boardRecordWithMediaForImages(raw));
+  const parsed = BoardRecord.safeParse(upgradedBoardRecord(raw));
   return parsed.success ? parsed.data : null;
 }
 
@@ -187,6 +193,7 @@ function createWhiteboardWiring({
   boardsRoot, broadcastControl = () => {}, now = Date.now, newBoardId = () => crypto.randomUUID(), logger = console, codeContextOf = () => null,
 }: WhiteboardWiringOptions): WhiteboardPort {
   const recordsByBoardId = new Map<string, BoardRecord>();
+  const announcedVersionByBoardIdBySessionId = new Map<string, Map<string, number>>();
   const deletedBoardIds = new Set<string>();
   const writeQueue = createKeyedSerialQueue();
   const assets = createWhiteboardAssetStore({ boardsRoot, logger, now });
@@ -351,7 +358,7 @@ function createWhiteboardWiring({
       const applied = applyOpsToRecord(record, ops, author);
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
       const replyAfterCommit = (saved: BoardRecord): CommittedReply => {
-        const layout = layoutBoard(saved.board);
+        const layout = layoutBoardRemembered(saved.board);
         const { warnings } = layout;
         const body = { ok: true as const, version: saved.board.version, ...(warnings.length > 0 ? { warnings } : {}) };
         return { reply: { status: 200, body }, layout };
@@ -363,11 +370,11 @@ function createWhiteboardWiring({
   function stagedRefusalOf(boardBefore: Board, afterById: ReadonlyMap<string, Element | null>): string | null {
     for (const element of afterById.values()) {
       const before = element ? boardBefore.elements[element.id] : undefined;
-      if (element?.kind === 'unit') {
-        const isNewLink = before?.kind !== 'unit' || before.linkedBoardId !== element.linkedBoardId;
-        if (isNewLink && element.linkedBoardId !== null && !recordsByBoardId.has(element.linkedBoardId)) return `unit ${element.id} links to board ${element.linkedBoardId}, which does not exist`;
-      }
-      if (element?.kind !== 'box' || !element.media) continue;
+      if (element?.kind !== 'box') continue;
+      const linkedBoardId = element.step?.linkedBoardId ?? null;
+      const isNewLink = before?.kind !== 'box' || (before.step?.linkedBoardId ?? null) !== linkedBoardId;
+      if (isNewLink && linkedBoardId !== null && !recordsByBoardId.has(linkedBoardId)) return `step ${element.id} links to board ${linkedBoardId}, which does not exist`;
+      if (!element.media) continue;
       const mediaBefore = before?.kind === 'box' ? before.media : null;
       if (JSON.stringify(mediaBefore) === JSON.stringify(element.media)) continue;
       const mismatch = assets.mismatchOf(element.media);
@@ -409,13 +416,25 @@ function createWhiteboardWiring({
     return reviewBoard(board, { fileFactByPath, changes });
   }
 
+  async function readDocOf(boardId: string, boxId: string): Promise<WhiteboardReply> {
+    const board = recordsByBoardId.get(boardId)?.board;
+    if (!board) return refusal(404, DELETED_BOARD_TEXT);
+    const element = board.elements[boxId];
+    if (element?.kind !== 'box' || element.media?.kind !== 'doc') {
+      return refusal(400, `${boxId} on board "${board.title}" holds no document; whiteboard doc reads a box whose media kind is doc`);
+    }
+    const text = await assets.readDocText(element.media);
+    if (text === null) return refusal(404, `the document ${boxId} on board "${board.title}" shows is not stored any more`);
+    return { status: 200, body: { ok: true, box: boxId, text } };
+  }
+
   async function reviewedPut(boardId: string, ops: readonly Op[], author: Author): Promise<WhiteboardReply> {
     const reply = await putOps(boardId, ops, author);
     const board = recordsByBoardId.get(boardId)?.board;
     if (!reply.body.ok || !('version' in reply.body) || 'elements' in reply.body || !board) return reply;
-    const { anchorWarnings, unitWarnings } = await reviewFor(board, { readsChanges: unitsOf(board).length > 0 });
-    if (anchorWarnings.length === 0 && unitWarnings.length === 0) return reply;
-    return { status: reply.status, body: { ...reply.body, warnings: cappedWarnings([...reply.body.warnings ?? [], ...anchorWarnings, ...unitWarnings]) } };
+    const { anchorWarnings, stepWarnings } = await reviewFor(board, { readsChanges: stepBoxesOf(board).length > 0 });
+    if (anchorWarnings.length === 0 && stepWarnings.length === 0) return reply;
+    return { status: reply.status, body: { ...reply.body, warnings: cappedWarnings([...reply.body.warnings ?? [], ...anchorWarnings, ...stepWarnings]) } };
   }
 
   function focusFor(boardId: string, readerId: string, requested: BoardRegion | undefined, index: TileIndex): BoardRegion {
@@ -497,19 +516,19 @@ function createWhiteboardWiring({
   function disconnectBoard(boardId: string, sessionId: string): Promise<WhiteboardReply> {
     return changeRecord(boardId, (record) => {
       const next = disconnectSession(record, sessionId);
-      return { ok: true, record: next, reply: connectionReply(next, 'this session no longer gets summaries of changes to this board') };
+      return { ok: true, record: next, reply: connectionReply(next, 'this session is no longer told when this board changes') };
     });
   }
 
   async function clearLinksTo(deletedBoardId: string): Promise<void> {
     const unlinkPuts = [...recordsByBoardId.values()].flatMap((record) => {
-      const ops: Op[] = unitsOf(record.board)
-        .filter((unit) => unit.linkedBoardId === deletedBoardId)
-        .map((unit) => ({ op: 'set', id: unit.id, fields: { linkedBoardId: null } }));
+      const ops: Op[] = stepBoxesOf(record.board)
+        .filter((stepBox) => stepBox.step.linkedBoardId === deletedBoardId)
+        .map((stepBox) => ({ op: 'set', id: stepBox.id, fields: { step: { linkedBoardId: null } } }));
       if (ops.length === 0) return [];
       const linkingBoardId = record.board.id;
       return [putOps(linkingBoardId, ops, GLIMMERVOID_AUTHOR).then((reply) => {
-        if (!reply.body.ok) logger.warn(`[whiteboard] units on board ${linkingBoardId} still link to deleted board ${deletedBoardId}: ${reply.body.error}`);
+        if (!reply.body.ok) logger.warn(`[whiteboard] steps on board ${linkingBoardId} still link to deleted board ${deletedBoardId}: ${reply.body.error}`);
       })];
     });
     await Promise.all(unlinkPuts);
@@ -581,10 +600,6 @@ function createWhiteboardWiring({
     },
     connect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => connectBoard(foundBoardId, sessionId)),
     disconnect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => disconnectBoard(foundBoardId, sessionId)),
-    nudgeLine: (boardId) => {
-      const record = recordsByBoardId.get(boardId);
-      return record ? nudgeLineFor(record.board) : null;
-    },
   };
 
   async function closeConnections(boardId: string, closedSessionIds: readonly string[]): Promise<void> {
@@ -601,6 +616,7 @@ function createWhiteboardWiring({
 
   async function forgetClosedSessions(isClosedSession: (sessionId: string) => boolean): Promise<void> {
     await loaded;
+    for (const sessionId of [...announcedVersionByBoardIdBySessionId.keys()].filter(isClosedSession)) announcedVersionByBoardIdBySessionId.delete(sessionId);
     const closedConnectionsPerBoard = [...recordsByBoardId].map(([boardId, record]) => ({ boardId, closedSessionIds: Object.keys(record.cursorBySessionId).filter(isClosedSession) }));
     await Promise.all(closedConnectionsPerBoard
       .filter(({ closedSessionIds }) => closedSessionIds.length > 0)
@@ -617,25 +633,20 @@ function createWhiteboardWiring({
     return [...recordsByBoardId.values()].some((record) => sessionId in record.cursorBySessionId);
   }
 
-  function takePromptContext(sessionId: string): string | null {
-    const context = promptContextFor([...recordsByBoardId.values()], sessionId);
-    if (!context) return null;
-    for (const { boardId, version } of context.readThrough) {
-      void changeRecord(boardId, (record) => {
-        const next = markRead(record, sessionId, version);
-        return { ok: true, record: next, reply: { status: 200, body: { ok: true, version: next.board.version } } };
-      });
-    }
-    return context.text;
+  function takeBoardNotice(sessionId: string): string | null {
+    const announcedVersionByBoardId = announcedVersionByBoardIdBySessionId.get(sessionId) ?? new Map<string, number>();
+    const notice = boardNoticeFor([...recordsByBoardId.values()], sessionId, announcedVersionByBoardId);
+    if (!notice) return null;
+    for (const { boardId, version } of notice.announced) announcedVersionByBoardId.set(boardId, version);
+    announcedVersionByBoardIdBySessionId.set(sessionId, announcedVersionByBoardId);
+    return notice.text;
   }
 
   async function attachMedia(caller: WhiteboardCaller, requestedPath: string): Promise<WhiteboardReply> {
     if (caller.remoteWorkspace) return refusal(409, `attach reads files on the Glimmervoid machine, and this session runs in the Coder workspace ${caller.remoteWorkspace}, so its files are not there`);
     const ingested = await assets.ingestFile(path.resolve(caller.cwd ?? boardsRoot, requestedPath));
     if (!ingested.ok) return refusal(ingested.status, ingested.error);
-    const isDrawn = ingested.media.kind === 'image' || ingested.media.hasPreview;
-    const shownAs = isDrawn ? 'to draw it' : 'to show it as a labelled placeholder until live playback ships';
-    const note = `put a box with "media":${JSON.stringify({ ...ingested.media, alt: '<what it shows>' })} ${shownAs}`;
+    const note = `put a box with "media":${JSON.stringify({ ...ingested.media, alt: '<what it shows>' })} ${attachedMediaUse(ingested.media)}`;
     return { status: 200, body: { ok: true, media: ingested.media, note } };
   }
 
@@ -670,7 +681,7 @@ function createWhiteboardWiring({
     const card = { media: ingested.media, title: pageTitle ?? path.basename(sourcePath), caption };
     const author: Author = { id: caller.id, name: caller.name };
     return changeRecord(target.boardId, (record) => {
-      const shownBox = shownBoxOp(record.board, layoutBoard(record.board).bounds, card);
+      const shownBox = shownBoxOp(record.board, layoutBoardRemembered(record.board).bounds, card);
       if (!shownBox.ok) return { ok: false, reply: refusal(400, `${shownBox.error}, so nothing changed`) };
       const { op, boxId } = shownBox;
       const applied = applyOpsToRecord(record, [op], author);
@@ -699,11 +710,12 @@ function createWhiteboardWiring({
       case 'query': return queryBoard(found.boardId, request);
       case 'put': return reviewedPut(found.boardId, request.ops, author);
       case 'resolve': return putOps(found.boardId, [{ op: 'resolve', id: request.note }], author);
+      case 'doc': return readDocOf(found.boardId, request.box);
       case 'delete': return deleteOwnBoard(found.boardId, caller.id);
     }
   }
 
-  return { loaded, assets, handleAgent, handleOperator, forgetSession, forgetClosedSessions, takePromptContext, isConnected, snapshotMessage, tiles };
+  return { loaded, assets, handleAgent, handleOperator, forgetSession, forgetClosedSessions, takeBoardNotice, isConnected, snapshotMessage, tiles };
 }
 
 export { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME };

@@ -5,7 +5,7 @@ import path from 'node:path';
 import {
   buildTaskTitleRefinementPrompt, decideTaskTitleRefinement, parseRefinedSessionName, parseRefinedTaskTitle,
 } from '../session/core/task-title-core.ts';
-import type { TaskTitleRefinementResult } from '../session/core/task-title-core.ts';
+import type { TaskTitleRefinementResult, TaskTitleSources } from '../session/core/task-title-core.ts';
 import type { Session } from '../session/sessions.ts';
 import { BrowserConfig } from '../shared/contracts/config.ts';
 import { isAutoNameOf } from '../shared/session-naming.ts';
@@ -34,6 +34,7 @@ interface RefinementRequest {
   revision: number;
   currentTitle: string | null;
   recentPrompts: readonly string[];
+  titleSources: TaskTitleSources;
   wantsSessionName: boolean;
 }
 
@@ -67,7 +68,8 @@ async function refineTaskTitle(request: RefinementRequest, model: string, spawnL
   const resultPath = path.join(workDir, RESULT_FILE);
   try {
     await fs.writeFile(path.join(workDir, PROMPT_FILE), buildTaskTitleRefinementPrompt({
-      currentTitle: request.currentTitle, recentPrompts: request.recentPrompts, resultPath, wantsSessionName: request.wantsSessionName,
+      currentTitle: request.currentTitle, recentPrompts: request.recentPrompts, titleSources: request.titleSources, resultPath,
+      wantsSessionName: request.wantsSessionName,
     }), 'utf8');
     if (signal.aborted) return INVALID_OUTCOME;
     await spawnLane({
@@ -209,7 +211,7 @@ function createTaskTitleRefiner({ getConfig, spawnLane, renameSession, nowFn = (
     }
     const request: RefinementRequest = {
       session, revision: session.taskTitlePromptRevision, currentTitle: session.refinedTaskTitle, recentPrompts: session.recentTaskPrompts,
-      wantsSessionName: Boolean(renameSession) && hasAutoSessionName(session),
+      titleSources: session.persistedTaskTitle?.sources ?? {}, wantsSessionName: Boolean(renameSession) && hasAutoSessionName(session),
     };
     queuedBySession.set(session, request);
     startNext();

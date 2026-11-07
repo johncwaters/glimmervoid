@@ -8,7 +8,9 @@ import {
   HOOK_URL_ENV,
   MAX_PAYLOAD_BYTES,
   MAX_RESPONSE_BYTES,
+  POST_TIMEOUT_MS,
 } from '../session/core/hook-relay-core.ts';
+import { QUESTION_TOOL_HOLD_HOOK_EVENT } from '../shared/contracts/question-manager.ts';
 
 interface IngressRequest {
   method: string | undefined;
@@ -81,6 +83,28 @@ test('the relay POSTs the stdin bytes untouched to /hook/:glimmervoidId/:event',
     assert.equal(received[0].contentType, 'application/json');
     assert.equal(received[0].body, payload);
   } finally {
+    server.close();
+  }
+});
+
+test('the question hold event outwaits the plain post timeout and prints only its PreToolUse deny', async () => {
+  const deny = { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'The operator picked short.' } };
+  const server = http.createServer((req, res) => {
+    req.resume();
+    req.on('end', () => setTimeout(() => res.end(JSON.stringify({ ok: true, reason: 'ok', ...deny })), POST_TIMEOUT_MS + 300));
+  });
+  await new Promise<void>((resolve) => { server.listen(0, '127.0.0.1', resolve); });
+  const env = { [HOOK_URL_ENV]: `http://127.0.0.1:${(server.address() as AddressInfo).port}/hook/s?t=t` };
+  const printed: string[] = [];
+  const stdout = { write: (text: string) => printed.push(text) };
+  try {
+    const held = await main([QUESTION_TOOL_HOLD_HOOK_EVENT], fakeStdin('{}'), env, stdout);
+    const plain = await main(['PreToolUse'], fakeStdin('{}'), env, stdout);
+    assert.equal(held.reason, 'status-200');
+    assert.equal(plain.reason, 'timeout');
+    assert.deepEqual(printed.map((text) => JSON.parse(text)), [deny]);
+  } finally {
+    server.closeAllConnections();
     server.close();
   }
 });

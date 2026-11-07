@@ -13,7 +13,7 @@ import type { ActionStatusTone } from '../action-status.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { createAvatar, createReviewerStack, el, externalLink, isPanelHidden, query } from '../dom-helpers.ts';
 import { buildSessionRow, paintSessionRowStatus } from '../session-row.ts';
-import { formatAgo } from '../poll-ago.ts';
+import { formatAgo, formatDuration } from '../poll-ago.ts';
 import { writeAttributeIfChanged, writeTextIfChanged } from '../status-paint.ts';
 import { createPrStatusIcon } from './pr-status-icon.ts';
 import { myPrStackRowsOf, stackBadgeOf } from './github-store-core.ts';
@@ -649,8 +649,12 @@ export function createMyPrQueueRow(pr: MyPr, stackRow: MyPrStackRow, linkedSessi
     bottom.append(badge);
   }
   const mergedAt = pr.state === 'MERGED' ? pr.mergedAt : null;
-  const ageText = mergedAt ? `merged ${formatAgo(Date.parse(mergedAt))}` : `opened ${formatAgo(Date.parse(pr.createdAt))}`;
-  bottom.append(el('span', 'pr-queue-elapsed', ageText));
+  const ageAtMs = mergedAt ? Date.parse(mergedAt) : pr.stageSinceMs ?? Date.parse(pr.updatedAt);
+  const ageReadout = el('span', 'pr-queue-elapsed', mergedAt ? `merged ${formatAgo(ageAtMs)}` : `for ${formatDuration(Date.now() - ageAtMs)}`);
+  ageReadout.dataset.ageAt = String(ageAtMs);
+  ageReadout.dataset.ageLabel = mergedAt ? 'merged' : 'for';
+  if (!mergedAt) ageReadout.dataset.ageFormat = 'duration';
+  bottom.append(ageReadout);
   const repairLabel = keepMergeableRowLabel(pr, keepMergeableToggle.isFeatureEnabled(latest));
   if (repairLabel) {
     const repairChip = el('span', 'my-pr-stage', repairLabel.text);

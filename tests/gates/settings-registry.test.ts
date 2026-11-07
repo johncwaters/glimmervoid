@@ -113,7 +113,7 @@ function expectedControls(def: SchemaDef): readonly string[] {
   if (def.type === 'number') return ['number'];
   if (def.type === 'string') return ['text', 'password'];
   if (def.type === 'enum') return ['select'];
-  if (def.type === 'array') return leafDef(def.element).type === 'string' ? ['list', 'tab-order'] : ['json'];
+  if (def.type === 'array') return leafDef(def.element).type === 'string' ? ['list', 'tab-order', 'agent-visibility'] : ['json'];
   if (def.type === 'record' || def.type === 'object') return ['json'];
   if (def.type === 'union') return ['list'];
   assert.fail(`no control is defined for a ${def.type} leaf`);
@@ -247,6 +247,7 @@ test('the alias and moved-setting tables come from the legacy ids and resolve to
   assert.deepEqual(SETTINGS_MOVED_SETTINGS, {
     'browser-appearance': { 'alert-sounds-enabled': 'browser-notifications', 'alert-sound': 'browser-notifications', 'desktop-notifications': 'browser-notifications' },
     'machine-safety': { 'branch-gc-delete-unmerged': 'machine-sessions' },
+    'machine-sessions': { 'remote-setup': 'machine-hosts' },
     'machine-updates': { 'update-summary': 'machine-updates', 'update-installed': 'machine-updates', 'update-latest': 'machine-updates', 'update-last-checked': 'machine-updates' },
   });
   const sectionIds = new Set(SETTINGS_REGISTRY.sections.map((section) => section.id));

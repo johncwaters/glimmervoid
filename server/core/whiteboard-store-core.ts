@@ -4,6 +4,7 @@ import type { Rect as BoardBounds } from '../../shared/whiteboard-layout-core.ts
 import type { ApplyResult } from '../../shared/whiteboard-ops-core.ts';
 import type { AgentNote } from '../../shared/contracts/hooks.ts';
 import { isRecord } from '../../shared/coerce.ts';
+import { dependencyWireId } from '../../shared/whiteboard-plan-core.ts';
 
 function elementWithMediaForImage(element: unknown): unknown {
   if (!isRecord(element) || !('image' in element)) return element;
@@ -12,11 +13,97 @@ function elementWithMediaForImage(element: unknown): unknown {
   return { ...elementWithoutImage, media: { kind: 'image', mime: 'image/webp', hasPreview: false, ...image } };
 }
 
-function boardRecordWithMediaForImages(raw: unknown): unknown {
+function stepBoxForUnit(unit: Record<string, unknown>): Record<string, unknown> {
+  return {
+    kind: 'box', id: unit.id, title: unit.title, lines: unit.lines ?? [], refs: unit.refs ?? [],
+    step: { status: unit.status ?? 'planned', linkedBoardId: unit.linkedBoardId ?? null },
+  };
+}
+
+function boxForPanel(element: unknown): unknown {
+  if (!isRecord(element) || element.kind !== 'panel') return element;
+  return { kind: 'box', id: element.id, title: element.title, lines: element.lines ?? [], order: element.order ?? 0, shape: 'panel' };
+}
+
+function elementsWithStepBoxesForUnits(elements: Record<string, unknown>): Record<string, unknown> {
+  const takenIds = new Set(Object.keys(elements));
+  const upgraded: Record<string, unknown> = {};
+  for (const [elementId, element] of Object.entries(elements)) {
+    if (!isRecord(element) || element.kind !== 'unit') {
+      upgraded[elementId] = element;
+      continue;
+    }
+    upgraded[elementId] = stepBoxForUnit(element);
+    const afterIds = Array.isArray(element.after) ? element.after.filter((afterId) => typeof afterId === 'string') : [];
+    for (const afterId of afterIds) {
+      const wireId = dependencyWireId(afterId, elementId, takenIds);
+      takenIds.add(wireId);
+      upgraded[wireId] = { kind: 'wire', id: wireId, from: afterId, to: elementId };
+    }
+  }
+  return upgraded;
+}
+
+const UPGRADE_MARGIN = 40;
+const UPGRADE_COLUMN_WIDTH = 220;
+const UPGRADE_COLUMN_GAP = 90;
+const UPGRADE_BOX_GAP = 30;
+
+function idsOf(entries: unknown): string[] {
+  if (!Array.isArray(entries)) return [];
+  return entries.flatMap((entry) => (isRecord(entry) && typeof entry.id === 'string' ? [entry.id] : []));
+}
+
+function isGridPlacedBox(element: unknown, columnId: string): element is Record<string, unknown> {
+  return isRecord(element) && element.kind === 'box' && element.column === columnId && (element.at ?? null) === null && (element.near ?? null) === null;
+}
+
+function freePlacementByBoxId(board: Record<string, unknown>, elements: Record<string, unknown>): Map<string, Record<string, unknown>> {
+  const laneIds = idsOf(board.lanes);
+  const laneRankOf = (box: Record<string, unknown>) => (typeof box.lane === 'string' ? laneIds.indexOf(box.lane) + 1 : 0);
+  const orderOf = (box: Record<string, unknown>) => (typeof box.order === 'number' ? box.order : 0);
+  const placementByBoxId = new Map<string, Record<string, unknown>>();
+  let columnLeftEdge = UPGRADE_MARGIN;
+  for (const columnId of idsOf(board.columns)) {
+    const columnBoxes = Object.values(elements).filter((element) => isGridPlacedBox(element, columnId))
+      .map((box, index) => ({ box, index }))
+      .sort((left, right) => laneRankOf(left.box) - laneRankOf(right.box) || orderOf(left.box) - orderOf(right.box) || left.index - right.index)
+      .map(({ box }) => box);
+    columnBoxes.forEach((box, index) => {
+      const boxAbove = columnBoxes[index - 1];
+      placementByBoxId.set(String(box.id), boxAbove ? { near: { of: boxAbove.id, side: 'bottom', gap: UPGRADE_BOX_GAP } } : { at: { x: columnLeftEdge, y: UPGRADE_MARGIN } });
+    });
+    const widestBox = Math.max(UPGRADE_COLUMN_WIDTH, ...columnBoxes.map((box) => (typeof box.width === 'number' ? box.width : UPGRADE_COLUMN_WIDTH)));
+    columnLeftEdge += widestBox + UPGRADE_COLUMN_GAP;
+  }
+  return placementByBoxId;
+}
+
+function withoutColumnAndLane(element: unknown, placementByBoxId: ReadonlyMap<string, Record<string, unknown>>): unknown {
+  if (!isRecord(element)) return element;
+  if (element.kind === 'wire' && element.tone === 'lane') return { ...element, tone: 'plain' };
+  if (element.kind !== 'box') return element;
+  const { column: _column, lane: _lane, ...freeBox } = element;
+  return { ...freeBox, ...placementByBoxId.get(String(element.id)) };
+}
+
+function legendWithoutLaneTone(legend: unknown): unknown {
+  if (!Array.isArray(legend)) return legend;
+  return legend.map((entry) => (isRecord(entry) && entry.tone === 'lane' ? { ...entry, tone: 'plain' } : entry));
+}
+
+function freeCanvasBoard(board: Record<string, unknown>, elements: Record<string, unknown>): Record<string, unknown> {
+  const placementByBoxId = freePlacementByBoxId(board, elements);
+  const { columns: _columns, lanes: _lanes, ...freeBoard } = board;
+  const freeElements = Object.fromEntries(Object.entries(elements).map(([elementId, element]) => [elementId, withoutColumnAndLane(element, placementByBoxId)]));
+  return { ...freeBoard, ...('legend' in board ? { legend: legendWithoutLaneTone(board.legend) } : {}), elements: freeElements };
+}
+
+function upgradedBoardRecord(raw: unknown): unknown {
   const board = isRecord(raw) ? raw.board : null;
   if (!isRecord(raw) || !isRecord(board) || !isRecord(board.elements)) return raw;
-  const elements = Object.fromEntries(Object.entries(board.elements).map(([elementId, element]) => [elementId, elementWithMediaForImage(element)]));
-  return { ...raw, board: { ...board, elements } };
+  const elements = Object.fromEntries(Object.entries(elementsWithStepBoxesForUnits(board.elements)).map(([elementId, element]) => [elementId, boxForPanel(elementWithMediaForImage(element))]));
+  return { ...raw, board: freeCanvasBoard(board, elements) };
 }
 
 function lowestCursor(record: BoardRecord): number {
@@ -62,10 +149,10 @@ function changesForReader(record: BoardRecord, sessionId: string): BoardChange[]
   });
 }
 
-function markRead(record: BoardRecord, sessionId: string, throughVersion: number = record.board.version): BoardRecord {
+function markRead(record: BoardRecord, sessionId: string): BoardRecord {
   const cursor = record.cursorBySessionId[sessionId];
-  if (cursor === undefined || cursor >= throughVersion) return record;
-  return pruneLog({ ...record, cursorBySessionId: { ...record.cursorBySessionId, [sessionId]: throughVersion } });
+  if (cursor === undefined || cursor >= record.board.version) return record;
+  return pruneLog({ ...record, cursorBySessionId: { ...record.cursorBySessionId, [sessionId]: record.board.version } });
 }
 
 function summarizeBoard(record: BoardRecord): BoardSummary {
@@ -75,86 +162,31 @@ function summarizeBoard(record: BoardRecord): BoardSummary {
   return { id, title, version, updatedAt, connectedSessionIds: sessionIds, queuedBySessionId };
 }
 
-interface PromptContext {
+interface BoardNotice {
   text: string;
-  readThrough: { boardId: string; version: number }[];
+  announced: { boardId: string; version: number }[];
 }
 
-interface PromptContextDraft {
-  lines: string[];
-  characterCount: number;
-}
-
-function hasRoomFor(draft: PromptContextDraft, addedLines: readonly string[]): boolean {
-  const addedCharacters = addedLines.reduce((total, line) => total + line.length + 1, 0);
-  return draft.lines.length + addedLines.length <= WHITEBOARD_LIMITS.promptContextLines
-    && draft.characterCount + addedCharacters <= WHITEBOARD_LIMITS.promptContextCharacters;
-}
-
-function appendLines(draft: PromptContextDraft, addedLines: readonly string[]): void {
-  for (const line of addedLines) {
-    draft.lines.push(line);
-    draft.characterCount += line.length + 1;
-  }
-}
-
-function summaryLineOf(change: BoardChange): string {
-  const line = `- ${change.summary}`;
-  if (line.length <= WHITEBOARD_LIMITS.promptContextLineCharacters) return line;
-  return `${line.slice(0, WHITEBOARD_LIMITS.promptContextLineCharacters - 3)}...`;
-}
-
-function boardChangesHeader({ title, id }: Pick<Board, 'title' | 'id'>): string {
-  return `Board "${title}" (${id}) changed since your last read:`;
+function boardNoticeLineFor({ title, id }: Pick<Board, 'title' | 'id'>): string {
+  return `Board "${title}" (${id}) changed since your last read. Read it with whiteboard get ${id} before you change it.`;
 }
 
 const BOARD_CONTEXT_NOTE: AgentNote = {
   name: 'Board changes',
   carriedBy: 'UserPromptSubmit',
-  firesWhen: 'a board the session is connected to changed since its last read',
-  text: `${boardChangesHeader({ title: '<title>', id: '<board id>' })} <one line per change>`,
+  firesWhen: 'a board the session is connected to has a change it was not yet told about',
+  text: boardNoticeLineFor({ title: '<title>', id: '<board id>' }),
   isTemplate: true,
 };
 
-function appendBoardChanges(draft: PromptContextDraft, board: Board, changes: readonly BoardChange[]): boolean {
-  const header = boardChangesHeader(board);
-  const pointer = `read the rest with whiteboard get ${board.id}`;
-  if (!hasRoomFor(draft, [header, pointer])) {
-    const brief = `Board "${board.title}" (${board.id}) has ${changes.length} unread changes: read them with whiteboard get ${board.id}`;
-    if (hasRoomFor(draft, [brief])) appendLines(draft, [brief]);
-    return false;
-  }
-  appendLines(draft, [header]);
-  let isComplete = true;
-  for (const [index, change] of changes.entries()) {
-    const line = summaryLineOf(change);
-    const isClipped = line !== `- ${change.summary}`;
-    const needsPointerRoom = index < changes.length - 1 || isClipped;
-    if (!hasRoomFor(draft, needsPointerRoom ? [line, pointer] : [line])) {
-      isComplete = false;
-      break;
-    }
-    appendLines(draft, [line]);
-    if (isClipped) isComplete = false;
-  }
-  if (!isComplete) appendLines(draft, [pointer]);
-  return isComplete;
-}
-
-function promptContextFor(records: readonly BoardRecord[], sessionId: string): PromptContext | null {
-  const draft: PromptContextDraft = { lines: [], characterCount: 0 };
-  const readThrough: PromptContext['readThrough'] = [];
-  for (const record of records) {
-    const changes = changesForReader(record, sessionId);
-    if (changes.length === 0) continue;
-    if (appendBoardChanges(draft, record.board, changes)) readThrough.push({ boardId: record.board.id, version: record.board.version });
-  }
-  if (draft.lines.length === 0) return null;
-  return { text: draft.lines.join('\n'), readThrough };
-}
-
-function nudgeLineFor(board: Board): string {
-  return `The operator changed board "${board.title}"; read it with whiteboard get ${board.id}`;
+function boardNoticeFor(records: readonly BoardRecord[], sessionId: string, announcedVersionByBoardId: ReadonlyMap<string, number>): BoardNotice | null {
+  const announced = records.flatMap((record) => {
+    const newestUnreadVersion = changesForReader(record, sessionId).at(-1)?.version;
+    if (newestUnreadVersion === undefined || newestUnreadVersion <= (announcedVersionByBoardId.get(record.board.id) ?? -1)) return [];
+    return [{ boardId: record.board.id, version: newestUnreadVersion, line: boardNoticeLineFor(record.board) }];
+  });
+  if (announced.length === 0) return null;
+  return { text: announced.map((entry) => entry.line).join('\n'), announced: announced.map(({ boardId, version }) => ({ boardId, version })) };
 }
 
 function resolveBoardRef(boards: readonly Board[], ref: string): Board | { error: string } {
@@ -223,4 +255,4 @@ function shownBoxOp(board: Board, contentBounds: BoardBounds, card: ShownCard): 
 }
 
 export { pickShowBoardId, shownBoxOp };
-export { BOARD_CONTEXT_NOTE, boardRecordWithMediaForImages, changesForReader, connectSession, disconnectSession, markRead, nudgeLineFor, promptContextFor, recordPut, resolveBoardRef, summarizeBoard };
+export { BOARD_CONTEXT_NOTE, upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, recordPut, resolveBoardRef, summarizeBoard };

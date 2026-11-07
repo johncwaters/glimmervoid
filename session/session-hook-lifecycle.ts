@@ -56,13 +56,13 @@ interface SessionHookOptions {
   hookTools: ResolvedHookTool[];
   planLimits: boolean;
   planReview: boolean;
-  holdsQuestionsForParent: boolean;
   getUserHooks?: (() => UserHook[]) | null;
   extraUserHooks?: UserHook[];
   scratchAgentHome?: ScratchAgentHome | null;
   requiresHooks: boolean;
   bypassHookTrust: boolean;
   effectiveCwd: () => string;
+  folderTrustRoot: () => string;
   agentEnv: () => Record<string, string | undefined>;
   ingestSignal: (signal: HookSignal) => void;
   observeHook: ((event: string, payload: Record<string, unknown>) => void) | null;
@@ -284,10 +284,15 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
 
   function injectGeneratedHomeHooks(port: number, injection: GeneratedHomeInjection): HookInjectionResult {
     releaseGeneratedHome();
-    const prepared = options.scratchAgentHome ? injection.prepareScratchHome(process.env, options.scratchAgentHome) : injection.prepareHome(process.env, { listenerPort: port });
+    const prepared = options.scratchAgentHome ? injection.prepareScratchHome(process.env, options.scratchAgentHome) : injection.prepareHome(process.env, { listenerPort: port, folderTrustRoot: options.folderTrustRoot() });
     if ("refusal" in prepared) return { ...NO_HOOK_INJECTION, refusal: `${options.agentId} cannot start: ${prepared.refusal}` };
     if (!options.scratchAgentHome) heldGeneratedHome = { releaseHome: injection.releaseHome, home: prepared.home };
-    const relayHooks = registerRelayHooks(port, [], saneYoloTool() !== undefined);
+    const hooksOffConfig = findProjectAgentConfig(injection.projectConfigCandidates, injection.userConfigFolders(options.agentEnv()), injection.mayTurnHooksOff);
+    if (hooksOffConfig) {
+      console.warn(`[session:${options.name}] ${hooksOffConfig} turns ${options.agentId} hooks off, so Sane YOLO and hook status are off for this session`);
+      options.recordDecision({ kind: "hook-trust", ts: Date.now(), decision: "hooks-off-by-project", reason: "project agent config turns hooks off" });
+    }
+    const relayHooks = registerRelayHooks(port, [], saneYoloTool() !== undefined && !hooksOffConfig);
     if (relayHooks === NO_HOOK_INJECTION) {
       releaseGeneratedHome();
       return { ...NO_HOOK_INJECTION, refusal: `${options.agentId} cannot start: its hooks could not be registered` };
@@ -307,7 +312,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
   async function prepare(): Promise<void> {
     const injection = hookProfileOf(options.adapter)?.injection;
     if (injection?.kind !== "argv-config" || !injection.home || !options.hookRouter || !options.getHookPort) return;
-    await injection.home.readTrust();
+    await injection.home.readTrust(options.effectiveCwd());
   }
 
   function inject(): HookInjectionResult {
@@ -345,7 +350,6 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
         hookTools: options.hookTools,
         planLimits: options.planLimits,
         planReview: options.planReview,
-        holdsQuestionsForParent: options.holdsQuestionsForParent,
         userHooks: [
           ...(typeof options.getUserHooks === "function" ? options.getUserHooks() : []),
           ...glimmervoidSuppliedHooks(),

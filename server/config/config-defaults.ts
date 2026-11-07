@@ -14,7 +14,9 @@ const DEFAULT_CONFIG = {
   cursorBlink: false,
   debugMode: false,
   streamerMode: false,
+  linkPreviews: true,
   viewTabOrder: [] as string[],
+  hiddenAgents: [] as string[],
   remoteSessions: false,
   hintCards: false,
 
@@ -41,6 +43,11 @@ const DEFAULT_CONFIG = {
   },
   telemetry: {
     enabled: true,
+  },
+  watcher: {
+    autoStart: true,
+    inboxHost: '127.0.0.1',
+    inboxPort: null,
   },
 
   checkForUpdates: true,

@@ -1,0 +1,22 @@
+---
+import { FAQ_ENTRIES } from '../lib/faq.ts';
+---
+<section id="faq">
+  <div class="section-head reveal">
+    <h2>Asked and answered.</h2>
+  </div>
+  <div class="faq-entries reveal">
+    {FAQ_ENTRIES.map(({ question, answer }) => (
+      <div class="faq-entry">
+        <h3>{question}</h3>
+        <p>{answer}</p>
+      </div>
+    ))}
+  </div>
+</section>
+
+<style>
+  .faq-entries { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 32px 48px; }
+  .faq-entry { display: flex; flex-direction: column; gap: 10px; max-width: 62ch; }
+  .faq-entry p { margin: 0; color: var(--text-dim); }
+</style>

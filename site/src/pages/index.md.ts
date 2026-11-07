@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { AGENT_COMMAND_HELP } from '../../../server/core/agent-api-core.ts';
 import { agentMarkdownPage, markdownResponse } from '../lib/agent-markdown.ts';
+import { FAQ_ENTRIES } from '../lib/faq.ts';
 import { INSTALL_COMMAND, LINUX_INSTALL_COMMAND } from '../lib/install-command.ts';
 import { AGENT_CARDS, DEFAULT_PORT, MINIMUM_NODE_VERSION, SANE_YOLO_AGENT_LABELS, PRODUCT_VERSION, REPOSITORY_URL } from '../lib/product-facts.ts';
 import { sitePath } from '../lib/site-path.ts';
@@ -8,7 +9,7 @@ import { sitePath } from '../lib/site-path.ts';
 export const GET: APIRoute = ({ site }) => {
   const urlOf = (pathWithinSite: string) => new URL(sitePath(pathWithinSite), site).href;
   const body = [
-    `Glimmervoid is a local orchestrator for coding agents. A small Node.js process on your own machine starts each agent as a real process in a real terminal, with your own login, subscription, skills, hooks and settings, gives each session its own git worktree, and serves a browser dashboard that shows which session needs you. It never sits between an agent and its model. It binds to localhost, needs no account, and is open source under MIT. Current version: ${PRODUCT_VERSION}.`,
+    `Glimmervoid is an open-source agentic development environment (ADE): a local orchestrator for coding agents. A small Node.js process on your own machine starts each agent as a real process in a real terminal, with your own login, subscription, skills, hooks and settings, gives each session its own git worktree, and serves a browser dashboard that shows which session needs you. It never sits between an agent and its model. It binds to localhost, needs no account, and is open source under MIT. Current version: ${PRODUCT_VERSION}.`,
     '## Install',
     [
       `- Windows and macOS: \`${INSTALL_COMMAND}\``,
@@ -27,6 +28,7 @@ export const GET: APIRoute = ({ site }) => {
       '- Reviews, Team: your teammates\' pull requests get a review drafted by an agent, and nothing posts to GitHub until you keep the comments you agree with and click Approve or Comment. Re-reviews after new commits raise only high findings. Opt-in.',
       '- Reviews, Mine: every pull request you opened shows its merge readiness (checks, review, threads, conflicts, base). Per pull request you can turn on Merge when ready, which merges it once everything is green, and Keep mergeable, which has an agent repair conflicts and failing checks.',
       '- Worktrees: every session in a git repo runs in its own git worktree, so parallel agents never collide. One click merges a session\'s work back; a conflict goes back to the agent that wrote the code.',
+      '- Arena: run one prompt on 2 to 5 agent setups at once (agent, model, effort and extra instructions), each in its own session and worktree from the same commit. A judge ranks the contestants that changed something, with one reason each; you pick the winner, and the other sessions and their worktrees are removed without pushing.',
       '- Helper agents: every session gets the `glimmervoid` CLI, so an agent can spawn a helper session, message it, and close it.',
       `- Guardrails: accident protection, not a security boundary, for ${SANE_YOLO_AGENT_LABELS}. Safe commands run without prompts; destructive ones such as \`git reset --hard\` are blocked.`,
       '- Remote: one machine hosts everything; a phone or other device pairs once with a single-use link over your own HTTPS proxy, such as Tailscale.',
@@ -37,6 +39,8 @@ export const GET: APIRoute = ({ site }) => {
     ].join('\n'),
     '## Commands inside a session',
     Object.values(AGENT_COMMAND_HELP).map(({ usage, summary }) => `- \`glimmervoid ${usage}\`: ${summary}`).join('\n'),
+    '## Questions',
+    FAQ_ENTRIES.map(({ question, answer }) => `### ${question}\n\n${answer}`).join('\n\n'),
     '## Links',
     [
       `- Source: ${REPOSITORY_URL}`,

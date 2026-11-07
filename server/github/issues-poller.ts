@@ -1,6 +1,7 @@
 import * as core from './core/issues-core.ts';
 import { IssuesState } from '../../shared/contracts/issues.ts';
-import type { CachedIssueRow, IssuePullRequest, IssuesState as IssuesStateType, IssuesStatus } from '../../shared/contracts/issues.ts';
+import type { CachedIssueRow, IssuesState as IssuesStateType, IssuesStatus } from '../../shared/contracts/issues.ts';
+import type { IssuesListingPayload } from '../../shared/contracts/issues-listing.ts';
 import type { GithubPollingRefreshResult } from '../../shared/contracts/github-polling.ts';
 import type { GithubLaneStore } from './github-store-wiring.ts';
 import { storeReadingLaneClock } from './github-store-wiring.ts';
@@ -8,13 +9,19 @@ import { createTickLoop } from '../lanes/lane-runner.ts';
 import type { SharedClock } from '../lanes/lane-runner.ts';
 import { GITHUB_RATE_LIMIT_WINDOW_MS } from './core/github-rate-limit-core.ts';
 import { secondaryRateLimitWaitMs } from '../lanes/core/lane-backoff.ts';
+import { watcherFeedError } from '../lanes/core/watchee-feed-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
+
+const POLL_INTERVAL_MS = core.POLL_INTERVAL_MINUTES * 60000;
 
 interface IssuesPollerDependencies {
   teams: string[];
   resolveProjects: (cachedIssues: readonly CachedIssueRow[]) => Promise<core.IssuesProjectRepo[]>;
-  store: Pick<GithubLaneStore, 'requestRepoIssues' | 'requestIssueSearch' | 'requestIssueLinkedPullRequests' | 'setWatchedKeys' | 'requestViewer' | 'rateLimitWaitMs'>;
+  store: Pick<GithubLaneStore, 'requestIssueLinkedPullRequests' | 'setWatchedKeys' | 'rateLimitWaitMs'>;
+  latestListings: () => readonly IssuesListingPayload[];
+  feedSilenceMs: () => number;
+  heldClosedKeys: () => ReadonlySet<string>;
   getSessionLinks?: () => Record<string, string>;
   readState: () => Promise<unknown>;
   writeState: (state: IssuesStateType) => Promise<void>;
@@ -37,9 +44,9 @@ export function createIssuesPoller(dependencies: IssuesPollerDependencies) {
   let hasResolvedSources = false;
   let pollingError: string | null = null;
   let stateLoad: Promise<void> | null = null;
-  let shouldReconcile = false;
-  let laneTickCount = 0;
-  const rateLimitWaitMs = () => store.rateLimitWaitMs(now(), ['core', 'search']);
+  let shouldRereadHeldIssues = false;
+  const plannedListings = new WeakSet<IssuesListingPayload>();
+  const rateLimitWaitMs = () => store.rateLimitWaitMs(now(), ['core']);
 
   function publishStatus(): void {
     if (loop.isStopped()) return;
@@ -61,94 +68,49 @@ export function createIssuesPoller(dependencies: IssuesPollerDependencies) {
     return waitMs === null ? { failed: true, error } : { failed: true, retryAfterMs: waitMs, error };
   }
 
+  async function rereadHeldIssues(): Promise<{ isRateLimited: true; waitMs: number } | null> {
+    if (state.issues.length === 0) return null;
+    const response = await store.requestIssueLinkedPullRequests(state.issues.map((issue) => issue.key.toLowerCase()), 'no-wait');
+    if (response.isRateLimited) return response;
+    const pullRequestsByIssue = response.value;
+    state = { ...state, issues: state.issues.map((issue) => ({ ...issue, pullRequests: pullRequestsByIssue.get(issue.key.toLowerCase()) ?? issue.pullRequests })) };
+    return null;
+  }
+
   async function runTick() {
     await loadState();
     if (loop.isStopped()) return { failed: false };
     projects = await dependencies.resolveProjects(state.issues);
     if (loop.isStopped()) return { failed: false };
-    if (!viewer) {
-      const viewerRead = await store.requestViewer('no-wait');
-      if (viewerRead.isRateLimited) return { failed: true, retryAfterMs: viewerRead.waitMs };
-      viewer = viewerRead.value;
+    const latestListings = dependencies.latestListings();
+    pollingError = watcherFeedError('Issues has no issue list', dependencies.feedSilenceMs(), POLL_INTERVAL_MS) ?? core.issuesListingErrors(latestListings);
+    const unplannedListings = latestListings.filter((listing) => !plannedListings.has(listing));
+    viewer = unplannedListings[0]?.viewer ?? viewer;
+    const isRereadingHeldIssues = shouldRereadHeldIssues;
+    shouldRereadHeldIssues = false;
+    if (unplannedListings.length === 0 && !isRereadingHeldIssues) {
+      publishStatus();
+      return { failed: false };
     }
-    if (loop.isStopped()) return { failed: false };
-    hasResolvedSources = true;
-    const timestamp = now();
-    const isFullRefresh = shouldReconcile;
-    const isLaneReconcileTick = (laneTickCount + 1) % 6 === 0;
-    const batches: core.IssuesSourceBatch[] = [];
-    const failures: string[] = [];
-    const perRepoSync = { ...state.perRepoSync };
-    const reconciledRepos = new Set<string>();
-    for (const project of projects) {
-      const sync = perRepoSync[project.repo];
-      const isReconcile = isFullRefresh || ((sync?.ticks ?? 0) + 1) % 6 === 0;
-      if (isReconcile) reconciledRepos.add(project.repo.toLowerCase());
-      const isFull = isReconcile || !sync?.lastSyncAt || sync.needsFullReconcile;
-      const response = await store.requestRepoIssues(project.repo, isFull ? null : new Date(sync.lastSyncAt ?? timestamp).toISOString(), core.MAX_REPO_ISSUES, 'no-wait');
+    if (unplannedListings.length > 0) {
+      hasResolvedSources = true;
+      const batches = core.issuesListingBatches(unplannedListings, projects, teams);
+      const issues = core.withListedPullRequests(core.mergeIssues(state.issues, batches, projects, teams, dependencies.heldClosedKeys()), unplannedListings);
+      for (const listing of unplannedListings) plannedListings.add(listing);
+      state = { ...state, issues, lastSyncAt: now() };
+    }
+    if (isRereadingHeldIssues) {
+      const rateLimited = await rereadHeldIssues();
       if (loop.isStopped()) return { failed: false };
-      if (response.isRateLimited) return { failed: true, retryAfterMs: response.waitMs };
-      const fetched = response.value;
-      batches.push({ source: 'project', repo: project.repo, isIncremental: !isFull, fetched });
-      const isSuccessful = fetched.ok && fetched.isComplete;
-      perRepoSync[project.repo] = {
-        lastSyncAt: isSuccessful ? timestamp : sync?.lastSyncAt ?? null,
-        ticks: (sync?.ticks ?? 0) + 1,
-        needsFullReconcile: !isSuccessful,
-      };
-      if (!fetched.ok) failures.push(`${project.repo}: ${fetched.error || 'Issue listing failed.'}`);
+      if (rateLimited) return { failed: true, retryAfterMs: rateLimited.waitMs };
     }
-    const searchedSources = [{ source: 'me' as const, query: 'is:issue is:open assignee:@me archived:false' }, ...teams.map((team) => ({ source: 'team' as const, team, query: `is:issue is:open team:${team} archived:false` }))];
-    for (const searched of searchedSources) {
-      const response = await store.requestIssueSearch(searched.query, 'no-wait');
-      if (loop.isStopped()) return { failed: false };
-      if (response.isRateLimited) return { failed: true, retryAfterMs: response.waitMs };
-      const fetched = response.value;
-      batches.push({ ...searched, fetched });
-      if (!fetched.ok) failures.push(`${'team' in searched ? searched.team : 'Assigned to you'}: ${fetched.error || 'Issue search failed.'}`);
-    }
-    const activeRepos = new Set(projects.map((project) => project.repo));
-    const projectRepos = new Set(projects.map((project) => project.repo.toLowerCase()));
-    const mergedIssues = core.mergeIssues(state.issues, batches, projects, teams);
-    const hasPendingPullRequest = (issue: CachedIssueRow) => issue.pullRequests.some((pullRequest) => pullRequest.state === 'open' || pullRequest.state === 'draft');
-    const isReconcileDue = (repo: string) => isFullRefresh || reconciledRepos.has(repo) || (isLaneReconcileTick && !projectRepos.has(repo));
-    const isReconciledPending = (issue: CachedIssueRow) => isReconcileDue(issue.repo.toLowerCase()) && hasPendingPullRequest(issue);
-    const changedIssues = mergedIssues.filter((issue) => state.pullRequestsFetchedAt[issue.key.toLowerCase()] !== issue.updatedAt || isReconciledPending(issue));
-    let pullRequestsByIssue = new Map<string, IssuePullRequest[]>();
-    if (changedIssues.length > 0) {
-      try {
-        const response = await store.requestIssueLinkedPullRequests(changedIssues.map((issue) => issue.key.toLowerCase()), 'no-wait');
-        if (loop.isStopped()) return { failed: false };
-        if (response.isRateLimited) return { failed: true, retryAfterMs: response.waitMs };
-        pullRequestsByIssue = response.value;
-      } catch (error: unknown) {
-        log.warn(`[issues] linked pull requests fetch failed: ${errorMessage(error)}`);
-      }
-    }
-    if (loop.isStopped()) return { failed: false };
-    const pullRequestsFetchedAt: Record<string, string> = {};
-    const issues = mergedIssues.map((issue) => {
-      const key = issue.key.toLowerCase();
-      const pullRequests = pullRequestsByIssue.get(key);
-      const fetchedAt = pullRequests ? issue.updatedAt : state.pullRequestsFetchedAt[key];
-      if (fetchedAt) pullRequestsFetchedAt[key] = fetchedAt;
-      return { ...issue, pullRequests: pullRequests ?? issue.pullRequests };
-    });
-    state = {
-      issues, pullRequestsFetchedAt, sessionLinks: dependencies.getSessionLinks?.() ?? state.sessionLinks,
-      lastSyncAt: failures.length === 0 ? timestamp : state.lastSyncAt,
-      perRepoSync: Object.fromEntries(Object.entries(perRepoSync).filter(([repo]) => activeRepos.has(repo))),
-    };
-    shouldReconcile = false;
-    laneTickCount += 1;
-    pollingError = failures.length > 0 ? failures.join(' ') : null;
+    state = { ...state, sessionLinks: dependencies.getSessionLinks?.() ?? state.sessionLinks };
     await loop.persist();
-    if (pollingError) return failedOutcome(pollingError);
     return { failed: false };
   }
 
   const loop = createTickLoop({
-    tag: core.ISSUES_LANE_ID, intervalMs: core.POLL_INTERVAL_MINUTES * 60000, quickRetries: true,
+    tag: core.ISSUES_LANE_ID, intervalMs: POLL_INTERVAL_MS, quickRetries: true,
     now, clock: storeReadingLaneClock(dependencies.clock), firstTickDelayMs: dependencies.firstTickDelayMs,
     setIntervalFn: dependencies.setIntervalFn, clearIntervalFn: dependencies.clearIntervalFn,
     setTimeoutFn: dependencies.setTimeoutFn, clearTimeoutFn: dependencies.clearTimeoutFn,
@@ -162,11 +124,19 @@ export function createIssuesPoller(dependencies: IssuesPollerDependencies) {
     })),
   });
 
+  async function forgetIssue(issueKey: string): Promise<void> {
+    await loadState();
+    const forgottenKey = issueKey.toLowerCase();
+    state = { ...state, issues: state.issues.filter((issue) => issue.key.toLowerCase() !== forgottenKey) };
+    await loop.persist();
+    publishStatus();
+  }
+
   async function refresh(): Promise<GithubPollingRefreshResult> {
     if (loop.scheduleStatus().isRefreshing) return loop.refresh();
-    shouldReconcile = true;
+    shouldRereadHeldIssues = true;
     return loop.refresh();
   }
 
-  return { start: () => loop.start(loadState), stop: loop.stop, tick: loop.tick, tickSoon: loop.tickSoon, refresh };
+  return { start: () => loop.start(loadState), stop: loop.stop, tick: loop.tick, tickSoon: loop.tickSoon, refresh, forgetIssue };
 }

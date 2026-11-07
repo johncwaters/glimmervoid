@@ -4,6 +4,7 @@ interface EnvSecretBinding {
   blockName: string;
   secretKey: string;
   environmentVariable: string;
+  isEnvironmentOnly: boolean;
 }
 
 interface ResolvedEnvSecret extends EnvSecretBinding {
@@ -13,10 +14,13 @@ interface ResolvedEnvSecret extends EnvSecretBinding {
 type ConfigBlocks = Record<string, unknown>;
 
 const ENV_SECRET_BINDINGS: readonly EnvSecretBinding[] = Object.freeze([
-  { blockName: 'posthog', secretKey: 'apiKey', environmentVariable: 'GLIMMERVOID_POSTHOG_API_KEY' },
-  { blockName: 'telegram', secretKey: 'botToken', environmentVariable: 'GLIMMERVOID_TELEGRAM_BOT_TOKEN' },
-  { blockName: 'github', secretKey: 'readToken', environmentVariable: 'GLIMMERVOID_GITHUB_READ_TOKEN' },
+  { blockName: 'posthog', secretKey: 'apiKey', environmentVariable: 'GLIMMERVOID_POSTHOG_API_KEY', isEnvironmentOnly: false },
+  { blockName: 'telegram', secretKey: 'botToken', environmentVariable: 'GLIMMERVOID_TELEGRAM_BOT_TOKEN', isEnvironmentOnly: false },
+  { blockName: 'github', secretKey: 'readToken', environmentVariable: 'GLIMMERVOID_GITHUB_READ_TOKEN', isEnvironmentOnly: false },
+  { blockName: 'watcher', secretKey: 'token', environmentVariable: 'GLIMMERVOID_WATCHER_TOKEN', isEnvironmentOnly: true },
 ]);
+
+const ENVIRONMENT_ONLY_BINDINGS = ENV_SECRET_BINDINGS.filter((binding) => binding.isEnvironmentOnly);
 
 function readEnvSecrets(env: Record<string, string | undefined>): ResolvedEnvSecret[] {
   const resolvedSecrets: ResolvedEnvSecret[] = [];
@@ -35,15 +39,16 @@ function copyOfBlock(config: ConfigBlocks, blockName: string): Record<string, un
 }
 
 function withEnvSecrets<T extends ConfigBlocks>(config: T, envSecrets: readonly ResolvedEnvSecret[]): T {
-  if (envSecrets.length === 0) return config;
-  const overlaid: ConfigBlocks = { ...config };
+  const withoutFileHeldEnvironmentOnlySecrets = withoutEnvSecrets(config, ENVIRONMENT_ONLY_BINDINGS);
+  if (envSecrets.length === 0) return withoutFileHeldEnvironmentOnlySecrets;
+  const overlaid: ConfigBlocks = { ...withoutFileHeldEnvironmentOnlySecrets };
   for (const secret of envSecrets) {
     overlaid[secret.blockName] = { ...copyOfBlock(overlaid, secret.blockName), [secret.secretKey]: secret.value };
   }
   return overlaid as T;
 }
 
-function withoutEnvSecrets<T extends ConfigBlocks>(config: T, envSecrets: readonly ResolvedEnvSecret[]): T {
+function withoutEnvSecrets<T extends ConfigBlocks>(config: T, envSecrets: readonly EnvSecretBinding[]): T {
   if (envSecrets.length === 0) return config;
   const stripped: ConfigBlocks = { ...config };
   for (const secret of envSecrets) {

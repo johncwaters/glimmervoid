@@ -4,12 +4,13 @@ import path from 'node:path';
 
 import type { HookRouter } from '../../detection/hook-source.ts';
 import type { UserHook } from '../../session/core/user-hooks-core.ts';
+import type { QuestionManagerPort } from '../../session/session-approval-holds.ts';
 import type { TerminalColors } from '../../session/core/terminal-color-query.ts';
 import { createRecorder } from '../../session/session-recorder.ts';
 import type { GitWorkspace } from '../../session/worktree/worktree-lifecycle-context.ts';
 import { Session } from '../../session/sessions.ts';
 import type { RemoteLaunch, SessionOptions, SessionPlanReviewPort } from '../../session/sessions.ts';
-import { getAdapter } from '../../session/adapters/index.ts';
+import { getAdapter, projectHookConfigRelPaths } from '../../session/adapters/index.ts';
 import { SHELL_AGENT_ID } from '../../shared/contracts/config.ts';
 import { DEFAULT_CONFIG } from '../config-store.ts';
 import { seedWorktreeDependencies } from '../git/dependency-clone.ts';
@@ -33,6 +34,7 @@ interface SessionFactoryDependencies {
   resolveHookTools: (config: GlimmervoidConfig) => ResolvedHookTool[];
   getUserHooks: (projectId: string) => UserHook[];
   getTerminalColors?: () => TerminalColors;
+  questionManager?: { forSession: (session: { projectPath: string; isOn: boolean }) => QuestionManagerPort } | null;
   commitSigningProgram?: string | null;
   homeDir?: string;
   getCoderEnv?: () => CoderWorkspacePort | null;
@@ -126,7 +128,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       liveWorktreeReview: config.liveWorktreeReview !== false,
       worktreeRoot: config.worktreeRoot || path.join(path.dirname(path.resolve(project.path)), '.glimmervoid-worktrees'),
       worktreeShare: config.worktreeShare || DEFAULT_CONFIG.worktreeShare,
-      seedDependencies: config.worktreeCloneDependencies === false ? null : seedWorktreeDependencies,
+      seedDependencies: config.worktreeCloneDependencies === false ? null : (seedArgs) => seedWorktreeDependencies({ ...seedArgs, hookConfigRelPaths: projectHookConfigRelPaths() }),
       detectBackgroundAgents: config.detectBackgroundAgents,
       detectScheduledWakeups: config.detectScheduledWakeups,
       hookTools: originalHookTools,
@@ -137,6 +139,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       getTerminalColors: dependencies.getTerminalColors ?? null,
       prepareCoherence: builtMapping || isMachineShell ? null : prepareCoherence,
       commitSigningProgram: dependencies.commitSigningProgram ?? null,
+      questionManager: isMachineShell ? null : dependencies.questionManager?.forSession({ projectPath: project.path, isOn: project.questionManagerOn === true }) ?? null,
       getRemoteLaunch: builtMapping ? () => remoteLaunchFor(project, builtMapping, dependencies.getConfig?.() ?? config) : null,
       ...overrides,
       spawnEnv: sessionTempFolder ? { CLAUDE_CODE_TMPDIR: sessionTempFolder, ...(overrides.spawnEnv ?? {}) } : overrides.spawnEnv,

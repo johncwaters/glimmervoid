@@ -28,6 +28,15 @@ A local agent orchestrator: a Node.js process that spawns and supervises coding 
 - postinstall: npm runs the package's post-install steps for the operator's install
   handler: scripts/postinstall.mjs
   trust: operator
+- harness: the operator runs the browser harness, which serves the dashboard from the Vite dev server, drives it in a real browser and reports what broke
+  handler: harness/browser/harness.ts
+  trust: operator
+- capture: the operator captures the public site's screenshots of the dashboard
+  handler: harness/site-capture/capture.ts
+  trust: operator
+- record: the operator records the public site's dashboard video
+  handler: harness/site-capture/record.ts
+  trust: operator
 - prepare build: npm builds dist before packing or after a source install
   handler: scripts/prepare-build.js
   trust: operator

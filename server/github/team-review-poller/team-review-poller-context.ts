@@ -60,6 +60,7 @@ interface TeamReviewPollerDependencies {
   onTickComplete?: (status: TeamReviewStatus) => void;
   now?: () => number;
   intervalMinutes?: number;
+  feedSilenceMs?: () => number;
   maxConcurrentReviews?: number;
   reReviewAfterMs?: number;
   skipIdleAfterMs?: number;
@@ -100,7 +101,6 @@ interface TeamReviewPollerContext {
   progressByKey: Map<string, InFlightReview>;
   reviewCancellersByKey: Map<string, AbortController>;
   notMineWhileReviewingKeys: Set<string>;
-  watches: Map<string, { qualifiers: string; source: 'direct' | 'team' | 'authored' }>;
   loop: ReturnType<typeof createTickLoop>;
   persist: () => Promise<void>;
 }

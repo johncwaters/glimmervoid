@@ -122,7 +122,7 @@ function rectOf(rect: Rect): Rect {
 }
 
 function chromeOf(layout: BoardLayout): BoardChrome {
-  return { columns: layout.columns, bands: layout.bands, legend: layout.legend, caption: layout.caption, plan: layout.plan, pinnedOffsetY: layout.pinnedOffsetY, bounds: layout.bounds };
+  return { legend: layout.legend, caption: layout.caption, plan: layout.plan, pinnedOffsetY: layout.pinnedOffsetY, bounds: layout.bounds };
 }
 
 function tileIndexOf(layout: BoardLayout, version: number): TileIndex {
@@ -217,11 +217,7 @@ function fitsOnePage(board: Board): boolean {
 function boardOutlineOf(board: Board, index: TileIndex, focus: Rect): BoardOutline {
   const elements = Object.values(board.elements);
   const countsByKind: Record<string, number> = {};
-  const boxCountByColumnId = new Map<string, number>();
-  for (const element of elements) {
-    countsByKind[element.kind] = (countsByKind[element.kind] ?? 0) + 1;
-    if (element.kind === 'box' && element.column) boxCountByColumnId.set(element.column, (boxCountByColumnId.get(element.column) ?? 0) + 1);
-  }
+  for (const element of elements) countsByKind[element.kind] = (countsByKind[element.kind] ?? 0) + 1;
   const frames = elements.flatMap((element) => {
     const slot = index.slotById.get(element.id);
     const rect = slot === undefined ? undefined : index.bounds[slot];
@@ -232,7 +228,6 @@ function boardOutlineOf(board: Board, index: TileIndex, focus: Rect): BoardOutli
     countsByKind,
     bounds: index.chrome.bounds,
     frames,
-    columns: board.columns.map((column) => ({ name: column.title, boxCount: boxCountByColumnId.get(column.id) ?? 0 })),
     clustersOutsideFocus: clustersOutside(index, focus, { maxClusters: WHITEBOARD_LIMITS.outlineClusters, titlesPerCluster: CLUSTER_TITLES }),
   };
 }
@@ -241,8 +236,6 @@ function withTitlesOnly(painted: PaintedElement): PaintedElement {
   const { element } = painted;
   switch (element.kind) {
     case 'box': return { ...painted, element: { ...element, bodyLines: [] } };
-    case 'unit': return { ...painted, element: { ...element, bodyLines: [] } };
-    case 'panel': return { ...painted, element: { ...element, bodyLines: [] } };
     case 'note': return { ...painted, element: { ...element, lines: element.lines.slice(0, 1) } };
     default: return painted;
   }
@@ -250,14 +243,6 @@ function withTitlesOnly(painted: PaintedElement): PaintedElement {
 
 function forLod(painted: PaintedElement, lod: TileLod): PaintedElement {
   return lod === 'titles' ? withTitlesOnly(painted) : painted;
-}
-
-function laneRgbOf(element: LaidOutElement): readonly [number, number, number] {
-  if (element.kind !== 'box' || !element.lane) return [0, 0, 0];
-  const hex = element.lane.hex.replace('#', '');
-  const value = Number.parseInt(hex.length === 3 ? [...hex].map((digit) => digit + digit).join('') : hex, 16);
-  if (!Number.isFinite(value)) return [0, 0, 0];
-  return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
 }
 
 function base64Of(bytes: Uint8Array): string {
@@ -274,7 +259,6 @@ function rasterOf(index: TileIndex, key: TileKey): string | null {
   for (const slot of slotsTouching(index, tileRect)) {
     const element = index.painted[slot]?.element;
     if (!element || element.kind === 'wire' || element.kind === 'frame') continue;
-    const [red, green, blue] = laneRgbOf(element);
     const left = Math.max(0, Math.floor((element.x - tileRect.x) / unitsPerPixel));
     const top = Math.max(0, Math.floor((element.y - tileRect.y) / unitsPerPixel));
     const right = Math.min(BLOCK_RASTER_PX - 1, Math.floor((element.x + element.width - tileRect.x) / unitsPerPixel));
@@ -282,9 +266,6 @@ function rasterOf(index: TileIndex, key: TileKey): string | null {
     for (let row = top; row <= bottom; row += 1) {
       for (let column = left; column <= right; column += 1) {
         const offset = (row * BLOCK_RASTER_PX + column) * 4;
-        pixels[offset] = red;
-        pixels[offset + 1] = green;
-        pixels[offset + 2] = blue;
         pixels[offset + 3] = 255;
         isEmpty = false;
       }

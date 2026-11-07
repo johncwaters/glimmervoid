@@ -6,6 +6,7 @@ import { escapesFocusedTerminal, resolveDashboardShortcut } from '../shortcuts-c
 import { getTerminalTheme } from '../theme.ts';
 import type { TerminalGrid } from './grid-core.ts';
 import { decideGridActions, decideGridEngagementEdge, retainGridClaimForReconnect, isFollowingGrid, isViewerEngaged } from './grid-core.ts';
+import { createTerminalLinkPopup } from './terminal-link-popup.ts';
 import { osc8LinkHandler, registerUrlLinkProvider } from './terminal-links.ts';
 import { installTerminalSecretMask } from './terminal-secret-mask.ts';
 import { wireTouchScroll } from './touch-scroll.ts';
@@ -62,7 +63,6 @@ function setupTerminal(termWrap: HTMLElement, ui: SessionUi, xtermRuntime: Xterm
     theme: getTerminalTheme(),
     scrollback: TERMINAL_SCROLLBACK,
     allowProposedApi: true,
-    linkHandler: osc8LinkHandler(),
   });
 
   const fitAddon = new xtermRuntime.FitAddon();
@@ -70,7 +70,9 @@ function setupTerminal(termWrap: HTMLElement, ui: SessionUi, xtermRuntime: Xterm
   ensureConnectingOverlay(termWrap);
   term.open(termWrap);
   buildTerminalNotices(termWrap, ui, term);
-  registerUrlLinkProvider(term);
+  const linkPopup = createTerminalLinkPopup(term, ui);
+  term.options.linkHandler = osc8LinkHandler(term, linkPopup);
+  registerUrlLinkProvider(term, linkPopup);
   installTerminalSecretMask(term, ui.abortController.signal);
 
   ui.term = term;

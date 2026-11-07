@@ -4,6 +4,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { Session } from '../session/sessions.ts';
+import { extractPromptTaskTitle, resolveTaskTitle } from '../session/core/task-title-core.ts';
 import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
 import type { GlimmervoidConfig } from '../server/config-store.ts';
 
@@ -144,4 +145,16 @@ test('a startup SessionStart with a new id never replaces the saved conversation
   } finally {
     session.destroy();
   }
+});
+
+const hasLoneSurrogate = (text: string | null | undefined) => /\p{Surrogate}/u.test(text ?? '');
+
+test('prompt and resolved task titles never cut an astral character in half', () => {
+  const astralCharacter = String.fromCodePoint(0x1F600);
+  const promptTitle = extractPromptTaskTitle('a'.repeat(56) + astralCharacter + 'b'.repeat(24));
+  const resolvedTitle = resolveTaskTitle({ promptTitle: 'x'.repeat(119) + astralCharacter }).taskTitle;
+  assert.ok(promptTitle);
+  assert.ok(resolvedTitle);
+  assert.equal(hasLoneSurrogate(promptTitle), false);
+  assert.equal(hasLoneSurrogate(resolvedTitle), false);
 });

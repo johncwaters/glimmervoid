@@ -14,6 +14,7 @@ import { TeamReviewEnvironment } from '../shared/contracts/team-review-environme
 import { commandFor, resetCommandCache, setCustomAgents } from '../session/adapters/index.ts';
 import { CustomAgentDeclaration } from '../shared/contracts/index.ts';
 import { connectControl, controlDeps, createControlServer, testConfigStore } from './helpers/control-harness.ts';
+import { decideAgentPicker } from '../public/session-card/agent-core.ts';
 
 interface SettingsFrame {
   type: string;
@@ -126,6 +127,21 @@ test('a list value is one leaf: a saved list replaces the stored list whole and 
   h.send({ type: 'update-settings', settings: { community: { discordChannels: ['questions'] } } });
   assert.equal(errorFrom(h), undefined);
   assert.deepEqual(h.cfg.community, { discordChannels: ['questions'], skill: 'answering' });
+});
+
+test('an agent hidden in Settings drops out of the Add Session picker while the default agent stays offered', () => {
+  const h = harness({ projects: [] });
+  h.send({ type: 'update-settings', settings: { hiddenAgents: ['shell', 'claude-code'] } });
+  assert.equal(errorFrom(h), undefined);
+  h.sent.length = 0;
+  h.send({ type: 'list-agents' });
+  const listing = h.sent.find((message) => message.type === 'agents-listed');
+  const listedAgents = blockOf(listing, 'agents');
+  const installedAgents = (listedAgents as Array<{ id: string; resolvable: boolean }>).map((agent) => ({ ...agent, resolvable: true }));
+  const offeredIds = decideAgentPicker(installedAgents).options.map((option) => option.id);
+  assert.ok(!offeredIds.includes('shell'));
+  assert.ok(offeredIds.includes('claude-code'));
+  assert.ok(offeredIds.includes('codex'));
 });
 
 test('the block validator refuses by name a leaf the registry does not list', () => {
@@ -319,9 +335,10 @@ test('the browser round trip never sees a credential and never blanks one', asyn
 });
 
 test('a settings payload build reads the resolution cache and spawns no PATH probe', () => {
-  const warm = CustomAgentDeclaration.parse({ id: 'opencode', label: 'OpenCode', command: 'opencode' });
+  const warm = CustomAgentDeclaration.parse({ id: 'aider', label: 'Aider', command: 'aider' });
   const missing = CustomAgentDeclaration.parse({ id: 'ghostcode', label: 'GhostCode', command: 'ghostcode' });
   const unprobed = CustomAgentDeclaration.parse({ id: 'shadowcode', label: 'ShadowCode', command: 'node' });
+  const shadowedByBuiltIn = CustomAgentDeclaration.parse({ id: 'gemini', label: 'My Gemini', command: 'my-gemini' });
   const realExecFileSync = childProcess.execFileSync;
   let probes = 0;
   childProcess.execFileSync = (): never => {
@@ -329,23 +346,65 @@ test('a settings payload build reads the resolution cache and spawns no PATH pro
     throw new Error('a settings payload build must not probe PATH');
   };
   try {
-    setCustomAgents([warm, missing, unprobed]);
-    commandFor('opencode', { platform: process.platform, execFile: () => '/usr/local/bin/opencode\n' });
+    setCustomAgents([warm, missing, unprobed, shadowedByBuiltIn]);
+    commandFor('aider', { platform: process.platform, execFile: () => '/usr/local/bin/aider\n' });
     commandFor('ghostcode', { platform: process.platform, execFile: () => '', pathExists: () => false });
+    commandFor('gemini', { platform: process.platform, execFile: () => '/usr/local/bin/gemini\n' });
     probes = 0;
     const payload = buildSettingsPayload({
-      configStore: { getSettings: () => ({}), config: { customAgents: [warm, missing, unprobed] } },
+      configStore: { getSettings: () => ({}), config: { customAgents: [warm, missing, unprobed, shadowedByBuiltIn] } },
     });
     assert.equal(probes, 0, 'a settings payload build never probes PATH');
     assert.ok(TeamReviewEnvironment.safeParse(payload.teamReviewEnvironment).success, 'the team review environment matches its wire contract');
     assert.deepEqual(payload.customAgents, [
-      { id: 'opencode', label: 'OpenCode', command: 'opencode', args: [], resolvable: true },
-      { id: 'ghostcode', label: 'GhostCode', command: 'ghostcode', args: [], resolvable: false },
-      { id: 'shadowcode', label: 'ShadowCode', command: 'node', args: [], resolvable: null },
+      { id: 'aider', label: 'Aider', command: 'aider', args: [], resolvable: true, isShadowedByBuiltIn: false },
+      { id: 'ghostcode', label: 'GhostCode', command: 'ghostcode', args: [], resolvable: false, isShadowedByBuiltIn: false },
+      { id: 'shadowcode', label: 'ShadowCode', command: 'node', args: [], resolvable: null, isShadowedByBuiltIn: false },
+      { id: 'gemini', label: 'My Gemini', command: 'my-gemini', args: [], resolvable: null, isShadowedByBuiltIn: true },
     ]);
   } finally {
     childProcess.execFileSync = realExecFileSync;
     setCustomAgents([]);
     resetCommandCache();
+  }
+});
+
+test('a repo root scan lists a link to a directory once at its real path, skips broken links and links to files, and reports each git directory mtime on request, following the gitdir file of a worktree', async () => {
+  const workArea = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-scan-links-')));
+  try {
+    const repoRoot = path.join(workArea, 'Projects');
+    const linkedRepo = path.join(workArea, 'posthog');
+    fs.mkdirSync(path.join(repoRoot, 'real-repo'), { recursive: true });
+    fs.mkdirSync(linkedRepo);
+    fs.writeFileSync(path.join(workArea, 'notes.txt'), 'not a repo', 'utf8');
+    fs.symlinkSync(linkedRepo, path.join(repoRoot, 'posthog'));
+    fs.symlinkSync(linkedRepo, path.join(repoRoot, 'posthog-again'));
+    fs.symlinkSync(path.join(workArea, 'gone'), path.join(repoRoot, 'broken'));
+    fs.symlinkSync(path.join(workArea, 'notes.txt'), path.join(repoRoot, 'notes'));
+    const settings = harness({ projects: [], repoRoots: [repoRoot, workArea] });
+    await settings.send({ type: 'scan-repo-roots', requestId: 'scan-links' });
+    const scanned = settings.sent.find((message) => message.type === 'repo-roots-scanned');
+    assert.deepEqual(blockOf(scanned, 'directories'), [
+      { root: repoRoot, projects: [{ name: 'posthog', path: linkedRepo }, { name: 'real-repo', path: path.join(repoRoot, 'real-repo') }] },
+      { root: workArea, projects: [{ name: 'Projects', path: repoRoot }] },
+    ]);
+    const lastCommitAt = new Date('2026-01-02T03:04:05Z');
+    fs.mkdirSync(path.join(repoRoot, 'real-repo', '.git'));
+    fs.utimesSync(path.join(repoRoot, 'real-repo', '.git'), lastCommitAt, lastCommitAt);
+    const worktreeCommitAt = new Date('2026-02-03T04:05:06Z');
+    const worktreeGitDir = path.join(repoRoot, 'real-repo', '.git', 'worktrees', 'feature');
+    fs.mkdirSync(worktreeGitDir, { recursive: true });
+    fs.mkdirSync(path.join(repoRoot, 'feature'));
+    fs.writeFileSync(path.join(repoRoot, 'feature', '.git'), `gitdir: ${worktreeGitDir}\n`, 'utf8');
+    fs.utimesSync(worktreeGitDir, worktreeCommitAt, worktreeCommitAt);
+    fs.utimesSync(path.join(repoRoot, 'real-repo', '.git'), lastCommitAt, lastCommitAt);
+    await settings.send({ type: 'scan-repo-roots', requestId: 'scan-activity', includeActivity: true });
+    const scannedWithActivity = settings.sent.filter((message) => message.type === 'repo-roots-scanned').at(-1);
+    assert.deepEqual(blockOf(scannedWithActivity, 'directories'), [
+      { root: repoRoot, projects: [{ name: 'feature', path: path.join(repoRoot, 'feature'), lastActivityMs: worktreeCommitAt.getTime() }, { name: 'posthog', path: linkedRepo }, { name: 'real-repo', path: path.join(repoRoot, 'real-repo'), lastActivityMs: lastCommitAt.getTime() }] },
+      { root: workArea, projects: [{ name: 'Projects', path: repoRoot }] },
+    ]);
+  } finally {
+    fs.rmSync(workArea, { recursive: true, force: true });
   }
 });

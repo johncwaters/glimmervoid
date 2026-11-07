@@ -4,7 +4,7 @@ import { MyPr } from './my-prs.ts';
 import { UnseenOutcome } from './session.ts';
 import { InFlightReview, QueuedReview, ReviewDraft } from './team-review.ts';
 
-export const ReviewQueueGroupId = z.enum(['turn', 'working', 'waiting', 'aside']);
+export const ReviewQueueGroupId = z.enum(['turn', 'working', 'queued', 'waiting', 'done', 'parked']);
 export const ReviewQueueAction = z.enum(['fix', 'review', 'reply', 'update', 'merge']).describe('What the operator does next on this item; null when nothing is theirs to do');
 const ReviewQueueRowKind = z.enum(['ready', 'settled', 'inReview', 'queued', 'attention', 'posted', 'discarded']);
 const ReviewAttentionKind = z.enum(['waiting', ...UnseenOutcome.options]);
@@ -51,5 +51,5 @@ const REVIEW_ACTION_GRANTS: { readonly [Type in (typeof REVIEW_ACTION_TYPES)[num
 
 export const REVIEW_ACTIONS_GRANT_TEXT = REVIEW_ACTION_TYPES.map((type) => REVIEW_ACTION_GRANTS[type]).join(', ');
 
-export const ReviewsSnapshot = z.object({ groups: z.array(ReviewQueueGroup).describe('The Reviews tab queue in display order: your turn, agent working, waiting on others, set aside') });
+export const ReviewsSnapshot = z.object({ groups: z.array(ReviewQueueGroup).describe('The Reviews tab queue in list order: your turn, agent working, queued, waiting on others, done, parked') });
 export type ReviewsSnapshot = z.infer<typeof ReviewsSnapshot>;

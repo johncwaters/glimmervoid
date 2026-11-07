@@ -8,8 +8,14 @@ import { z } from 'zod';
 import { spawn } from '../server/child-process-safe.ts';
 import type { TraceRecord } from '../shared/contracts/trace.ts';
 import {
+  type BridgeStartup,
+  decideThreadJoin,
+  followedThreadIdOf,
   isFollowableThread,
   isNoRolloutError,
+  NO_THREAD_JOIN,
+  type ThreadJoin,
+  type ThreadJoinEvent,
   parseListenUrl,
   traceRecordsForItemEvent,
 } from './core/codex-app-server-core.ts';
@@ -57,7 +63,6 @@ const itemNotification = notificationParams.extend({ item: z.unknown(), turnId: 
 const historyTurn = z.object({ id: z.string().min(1), items: z.array(z.unknown()) }).passthrough();
 const resumeResponse = z.object({ thread: threadIdentity.extend({ turns: z.array(historyTurn) }) }).passthrough();
 const itemIdentity = z.object({ id: z.string().min(1), status: z.string().optional() }).passthrough();
-const JOIN_RETRY_WINDOW_MS = 15000;
 
 function toError(failure: unknown): Error {
   if (failure instanceof Error) return failure;
@@ -90,16 +95,11 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
     let socket: WebSocket | null = null;
     let portForward: { url: string; stop: () => Promise<void> } | null = null;
     let isForwarding = false;
-    let isStarting = true;
-    let isStopped = false;
+    let startup: BridgeStartup = 'starting';
     let hasExited = false;
     let stopPromise: Promise<void> | null = null;
     let nextRequestId = 1;
-    let followedThreadId: string | null = null;
-    let hasJoined = false;
-    let isJoining = false;
-    let joinDeadlineMs = 0;
-    let joinGeneration = 0;
+    let threadJoin: ThreadJoin = NO_THREAD_JOIN;
     let lastJoinAttemptMs = Number.NEGATIVE_INFINITY;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     const startedItemIds = new Map<string, Set<string>>();
@@ -117,9 +117,17 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
     bridge.on('error', (failure: Error) => logger.warn('Codex app-server bridge:', failure.message));
     const startupTimer = setTimeout(() => failStartup(new Error('Codex app-server startup timed out')), options.startupTimeoutMs ?? 15000);
 
+    function isStopped(): boolean {
+      return startup === 'stopped';
+    }
+
+    function isStarting(): boolean {
+      return startup === 'starting';
+    }
+
     function reportError(failure: unknown): void {
       const error = toError(failure);
-      if (isStarting) {
+      if (isStarting()) {
         failStartup(error);
         return;
       }
@@ -135,8 +143,8 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
     }
 
     function failStartup(error: Error): void {
-      if (!isStarting) return;
-      isStarting = false;
+      if (!isStarting()) return;
+      startup = 'failed';
       clearTimeout(startupTimer);
       void stop().then(() => rejectStartup(error), (cleanupFailure: unknown) => {
         rejectStartup(new AggregateError([error, toError(cleanupFailure)], error.message));
@@ -153,7 +161,7 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
 
     function stop(): Promise<void> {
       if (stopPromise) return stopPromise;
-      isStopped = true;
+      startup = 'stopped';
       clearTimeout(startupTimer);
       clearTimeout(retryTimer);
       cancelRequests();
@@ -178,7 +186,7 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
     }
 
     function send(message: unknown): void {
-      if (isStopped || socket?.readyState !== WebSocket.OPEN) throw new Error('Codex app-server socket is not open');
+      if (isStopped() || socket?.readyState !== WebSocket.OPEN) throw new Error('Codex app-server socket is not open');
       socket.send(JSON.stringify(message));
     }
 
@@ -229,49 +237,58 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
     }
 
     function scheduleJoin(): void {
-      if (isStopped || hasJoined || isJoining || !followedThreadId || retryTimer || now() >= joinDeadlineMs) return;
+      if (retryTimer) return;
       retryTimer = setTimeout(() => {
         retryTimer = undefined;
-        guard(attemptJoin);
+        guard(() => dispatchJoin({ kind: 'attempt_due', nowMs: now() }));
       }, Math.max(0, 500 - (now() - lastJoinAttemptMs)));
     }
 
-    function attemptJoin(): void {
-      if (isStopped || hasJoined || isJoining || !followedThreadId || now() >= joinDeadlineMs) return;
-      const threadId = followedThreadId;
-      const generation = joinGeneration;
-      isJoining = true;
+    function requestResume(threadId: string, generation: number, timeoutMs: number): void {
       lastJoinAttemptMs = now();
-      void request('thread/resume', { threadId, excludeTurns: false }, Math.max(1, Math.min(15000, joinDeadlineMs - now()))).then((response) => {
-        if (generation !== joinGeneration || isStopped || hasJoined) return;
-        isJoining = false;
-        hasJoined = true;
-        clearTimeout(retryTimer);
-        guard(() => hydrateHistory(response, threadId));
+      void request('thread/resume', { threadId, excludeTurns: false }, timeoutMs).then((response) => {
+        dispatchJoin({ kind: 'resume_ok', generation }, response);
       }, (failure: unknown) => {
-        if (generation !== joinGeneration || isStopped || hasJoined) return;
-        isJoining = false;
         if (isNoRolloutError(failure)) {
-          scheduleJoin();
+          dispatchJoin({ kind: 'resume_no_rollout', generation, nowMs: now() });
           return;
         }
-        hasJoined = true;
-        reportError(failure);
+        dispatchJoin({ kind: 'resume_failed', generation }, failure);
       });
+    }
+
+    function dispatchJoin(event: ThreadJoinEvent, outcome?: unknown): void {
+      if (isStopped()) return;
+      const decision = decideThreadJoin(threadJoin, event);
+      if (!decision) return;
+      threadJoin = decision.join;
+      for (const action of decision.actions) {
+        switch (action.kind) {
+          case 'cancel-attempt':
+            clearTimeout(retryTimer);
+            retryTimer = undefined;
+            break;
+          case 'schedule-attempt':
+            scheduleJoin();
+            break;
+          case 'request-resume':
+            requestResume(action.threadId, action.generation, action.timeoutMs);
+            break;
+          case 'hydrate':
+            guard(() => hydrateHistory(outcome, action.threadId));
+            break;
+          case 'report-error':
+            reportError(outcome);
+            break;
+        }
+      }
     }
 
     function followThread(thread: unknown): void {
       const parsedThread = threadIdentity.safeParse(thread);
-      if (!parsedThread.success || !isFollowableThread(thread) || followedThreadId === parsedThread.data.id) return;
-      clearTimeout(retryTimer);
-      retryTimer = undefined;
-      followedThreadId = parsedThread.data.id;
-      joinGeneration++;
-      hasJoined = false;
-      isJoining = false;
-      joinDeadlineMs = now() + JOIN_RETRY_WINDOW_MS;
+      if (!parsedThread.success || !isFollowableThread(thread) || followedThreadIdOf(threadJoin) === parsedThread.data.id) return;
       lastJoinAttemptMs = Number.NEGATIVE_INFINITY;
-      attemptJoin();
+      dispatchJoin({ kind: 'thread_followed', threadId: parsedThread.data.id, nowMs: now() });
     }
 
     async function discoverLoadedThread(): Promise<void> {
@@ -279,15 +296,15 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
       const loadedThreads = z.object({ data: z.array(z.string().min(1)) }).passthrough().safeParse(response);
       if (!loadedThreads.success) throw new Error('Invalid Codex thread/loaded/list response');
       for (const threadId of loadedThreads.data.data) {
-        if (followedThreadId || isStopped) return;
+        if (followedThreadIdOf(threadJoin) || isStopped()) return;
         try {
           const metadata = await request('thread/read', { threadId, includeTurns: false });
           const parsedMetadata = z.object({ thread: threadIdentity }).passthrough().safeParse(metadata);
-          if (followedThreadId || isStopped) return;
+          if (followedThreadIdOf(threadJoin) || isStopped()) return;
           if (!parsedMetadata.success || parsedMetadata.data.thread.id !== threadId) throw new Error('Invalid Codex thread/read response');
           followThread(parsedMetadata.data.thread);
         } catch (failure) {
-          if (isStopped) return;
+          if (isStopped()) return;
           reportError(failure);
         }
       }
@@ -300,11 +317,8 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
         return;
       }
       const parsedParams = notificationParams.safeParse(params);
-      if (!parsedParams.success || parsedParams.data.threadId !== followedThreadId) return;
-      if (method === 'thread/status/changed' || method === 'turn/started') {
-        joinDeadlineMs = Math.max(joinDeadlineMs, now() + JOIN_RETRY_WINDOW_MS);
-        scheduleJoin();
-      }
+      if (!parsedParams.success || parsedParams.data.threadId !== followedThreadIdOf(threadJoin)) return;
+      if (method === 'thread/status/changed' || method === 'turn/started') dispatchJoin({ kind: 'thread_active', nowMs: now() });
       if (method !== 'item/started' && method !== 'item/completed') return;
       const parsedItem = itemNotification.safeParse(params);
       if (!parsedItem.success) return;
@@ -314,7 +328,7 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
     }
 
     function handleMessage(frame: Buffer, isBinary: boolean): void {
-      if (isStopped || isBinary) return;
+      if (isStopped() || isBinary) return;
       const parsedMessage = rpcMessage.safeParse(JSON.parse(frame.toString('utf8')));
       if (!parsedMessage.success) throw new Error('Invalid Codex JSON-RPC message');
       const message = parsedMessage.data;
@@ -366,11 +380,11 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
         connect(url);
         return;
       }
-      if (isForwarding || socket || isStopped) return;
+      if (isForwarding || socket || isStopped()) return;
       isForwarding = true;
       void remote.forward(Number(new URL(url).port)).then((forwarded) => {
         portForward = forwarded;
-        if (isStopped) {
+        if (isStopped()) {
           void forwarded.stop();
           return;
         }
@@ -379,29 +393,29 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
     }
 
     function connect(url: string): void {
-      if (socket || isStopped) return;
+      if (socket || isStopped()) return;
       bridge.url = url;
       socket = options.createSocket?.(url, { Authorization: `Bearer ${token}` }) ?? new WebSocket(url, { headers: { Authorization: `Bearer ${token}` } });
       socket.on('error', (failure) => guard(() => reportError(failure)));
       socket.on('message', (frame, isBinary) => guard(() => handleMessage(frame, isBinary)));
       socket.on('close', () => guard(() => {
         cancelRequests();
-        if (isStarting) failStartup(new Error('Codex app-server socket closed during startup'));
+        if (isStarting()) failStartup(new Error('Codex app-server socket closed during startup'));
         void stop().catch(reportError);
       }));
       socket.on('open', () => guard(() => {
         const capabilities = options.remote ? { experimentalApi: true } : null;
         void request('initialize', { clientInfo: { name: 'glimmervoid', title: null, version: '0.1.0' }, capabilities }).then((response) => {
           guard(() => {
-            if (isStopped || !isStarting) return;
+            if (!isStarting()) return;
             if (!z.object({ userAgent: z.string() }).passthrough().safeParse(response).success) throw new Error('Invalid Codex initialize response');
             send({ jsonrpc: '2.0', method: 'initialized' });
             void loginRemote().then(() => guard(() => {
-              if (isStopped || !isStarting) return;
-              isStarting = false;
+              if (!isStarting()) return;
+              startup = 'ready';
               clearTimeout(startupTimer);
               resolveStartup(bridge);
-              void discoverLoadedThread().catch((failure: unknown) => { if (!isStopped) reportError(failure); });
+              void discoverLoadedThread().catch((failure: unknown) => { if (!isStopped()) reportError(failure); });
             }), reportError);
           });
         }, reportError);
@@ -437,7 +451,7 @@ export async function startCodexAppServerBridge(options: CodexAppServerBridgeOpt
     child.on('exit', (code, signal) => guard(() => {
       hasExited = true;
       resolveExit();
-      if (isStarting) failStartup(new Error(`Codex app-server exited before initialization: ${code ?? signal}`));
+      if (isStarting()) failStartup(new Error(`Codex app-server exited before initialization: ${code ?? signal}`));
       bridge.emit('exit', code, signal);
       void stop().catch(reportError);
     }));

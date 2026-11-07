@@ -6,6 +6,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileAsync, execFileSync } from "../../server/child-process-safe.ts";
 import { relayPath } from "../../server/runtime-paths.ts";
+import { QUESTION_TOOL_HOLD_HOOK_EVENT } from "../../shared/contracts/question-manager.ts";
+import { REQUEST_USER_INPUT_TOOL_NAME } from "../../shared/contracts/session.ts";
 import { resolveAgentCommand, buildAgentSpawnCommand } from "../core/spawn-command.ts";
 import { classifyAgentTitle, isBrailleChar } from "../core/title-classifier-core.ts";
 import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.ts";
@@ -17,7 +19,7 @@ import { openContainedFile } from "../../server/contained-file.ts";
 import { isRelevantRolloutLine, isTurnStartLine, turnEndedWithProposedPlan } from "../core/codex-plan-rollout-core.ts";
 import { codexHookPlanFor, LEGACY_HOOK_EVENTS, parseCodexVersion } from "../core/codex-version-core.ts";
 import { CODEX_HOME_PROFILE, renderCodexHookTables, renderCodexHooksBlock } from "../core/agent-home-core.ts";
-import type { CodexHomeHook } from "../core/agent-home-core.ts";
+import type { CodexHomeHook, ProjectHookTrust } from "../core/agent-home-core.ts";
 import { CODEX_SANE_YOLO_FLAVOR } from "../core/sane-yolo.ts";
 import { generatedAgentHomePath, holdPreparedAgentHome, realAgentHome, releaseAgentHome } from "../agent-home.ts";
 import { readCodexHookHashes } from "../codex-hook-trust.ts";
@@ -77,7 +79,11 @@ const titleProfile: AgentTitleProfile = {
   taskTitle: { readsTranscriptTitle: false, genericTitles: [ID], agentSuffix: ` - ${ID}` },
 };
 
-const REQUEST_USER_INPUT_TOOL_NAME = "request_user_input";
+const QUESTION_HOLD_MATCHER = `^${REQUEST_USER_INPUT_TOOL_NAME}$`;
+
+function hasQuestionHook(matchedRelayHooks: readonly MatchedRelayHook[]): boolean {
+  return matchedRelayHooks.some(({ event, matcher }) => event === "PreToolUse" && matcher === REQUEST_USER_INPUT_TOOL_NAME);
+}
 
 function isRequestUserInput(event: string, payload?: HookPayload): boolean {
   return event === "pretooluse" && payload?.tool_name === REQUEST_USER_INPUT_TOOL_NAME;
@@ -250,6 +256,11 @@ function buildHookArgs({
     }
     groupsByEvent.set(event, [...(groupsByEvent.get(event) ?? []), group]);
   }
+  if (hasQuestionHook(argvMatchedHooks)) {
+    const questionHoldCommand = buildHookCommand(relayPath, QUESTION_TOOL_HOLD_HOOK_EVENT);
+    if (!questionHoldCommand) return null;
+    preToolUseGroups.push(`{matcher='${QUESTION_HOLD_MATCHER}',hooks=[{type='command',command='${questionHoldCommand}'}]}`);
+  }
   const groups = argvHookTools.flatMap((tool) => {
     const group = HOOK_TOOLS[tool.id].codexGroup(tool, hookToolRelayPath);
     return group ? [group] : [];
@@ -331,6 +342,11 @@ function codexHomeHooks(plan: CodexHookPlan = hookPlanForInstalledCodex()): Code
     if (!command) return null;
     hooks.push({ event, matcher, command, isAsync });
   }
+  if (hasQuestionHook(plan.matchedRelayHooks)) {
+    const questionHoldCommand = buildHookCommand(RELAY_PATH, QUESTION_TOOL_HOLD_HOOK_EVENT);
+    if (!questionHoldCommand) return null;
+    hooks.push({ event: "PreToolUse", matcher: QUESTION_HOLD_MATCHER, command: questionHoldCommand });
+  }
   const saneYoloCommand = saneYoloHookCommand();
   if (!saneYoloCommand) return null;
   hooks.push({ event: "PreToolUse", matcher: "Bash", command: saneYoloCommand });
@@ -341,57 +357,73 @@ function saneYoloHookCommand(): string | null {
   return buildHookCommand(HOOK_TOOL_RELAY_PATH, "saneYolo", [CODEX_SANE_YOLO_FLAVOR]);
 }
 
+function installedHookRoute(command: string, saneYoloCommand: string | null, questionHoldCommand: string | null): string | null {
+  if (command === saneYoloCommand) return "saneYolo";
+  if (command === questionHoldCommand) return QUESTION_TOOL_HOLD_HOOK_EVENT;
+  return null;
+}
+
 function describeInstalledHooks(): InstalledHooks {
   const version = installedCodexVersion();
   if (version === null) return { unavailableReason: "Codex was not found, or codex --version printed no version, so its hook set is unknown.", isBestEffort: false };
   const homeHooks = codexHomeHooks();
   if (!homeHooks) return { unavailableReason: HOOKS_BLOCK_REFUSAL, isBestEffort: false };
   const saneYoloCommand = saneYoloHookCommand();
-  const hooks = homeHooks.map((hook) => ({ event: hook.event, matcher: hook.matcher, route: hook.command === saneYoloCommand ? "saneYolo" : null }));
+  const questionHoldCommand = buildHookCommand(RELAY_PATH, QUESTION_TOOL_HOLD_HOOK_EVENT);
+  const hooks = homeHooks.map((hook) => ({ event: hook.event, matcher: hook.matcher, route: installedHookRoute(hook.command, saneYoloCommand, questionHoldCommand) }));
   return { version, isBestEffort: false, hooks };
 }
 
 const trustedHashesByHookTables = new Map<string, readonly string[]>();
-let pendingTrustReading: Promise<void> | null = null;
+const pendingTrustReadingByFolder = new Map<string, Promise<void>>();
 
 function installedAppServerCommand(): CodexAppServerCommand {
   const command = buildSpawnCommand({ platform: process.platform, resolved: resolveCommand(), agentArgs: [] });
   return { file: command.file, argsBeforeAppServer: command.args };
 }
 
-async function readHomeHookTrust(hooks: readonly CodexHomeHook[], hookTables: string): Promise<void> {
+type TrustedFolder = { liveSessionCount: number; projectHookTrust: readonly ProjectHookTrust[] };
+
+const trustedFolderByPath = new Map<string, TrustedFolder>();
+const projectHookTrustReadByFolder = new Map<string, readonly ProjectHookTrust[]>();
+
+async function readHomeHookTrust(hooks: readonly CodexHomeHook[], hookTables: string, sessionFolder: string): Promise<void> {
   const reading = await Promise.resolve()
-    .then(() => readCodexHookHashes(installedAppServerCommand(), hooks))
+    .then(() => readCodexHookHashes(installedAppServerCommand(), hooks, sessionFolder))
     .catch((error: unknown) => ({ failure: errorMessage(error) }));
   if ("failure" in reading) {
-    console.warn(`[codex] Glimmervoid's hooks stay untrusted in the generated Codex home, so Sane YOLO is off for this launch: ${reading.failure}`);
+    console.warn(`[codex] Glimmervoid's hooks and the project hooks of ${sessionFolder} stay untrusted in the generated Codex home, so Sane YOLO and project hooks are off for this launch: ${reading.failure}`);
     return;
   }
   trustedHashesByHookTables.set(hookTables, reading.hashes);
+  projectHookTrustReadByFolder.set(sessionFolder, reading.projectHookTrust);
 }
 
-function readTrust(): Promise<void> {
+function readTrust(sessionFolder: string): Promise<void> {
   const hooks = codexHomeHooks();
   if (!hooks) return Promise.resolve();
-  const hookTables = renderCodexHookTables(hooks);
-  if (trustedHashesByHookTables.has(hookTables)) return Promise.resolve();
-  pendingTrustReading ??= readHomeHookTrust(hooks, hookTables).finally(() => { pendingTrustReading = null; });
-  return pendingTrustReading;
+  const pendingReading = pendingTrustReadingByFolder.get(sessionFolder);
+  if (pendingReading) return pendingReading;
+  const reading = readHomeHookTrust(hooks, renderCodexHookTables(hooks), sessionFolder).finally(() => { pendingTrustReadingByFolder.delete(sessionFolder); });
+  pendingTrustReadingByFolder.set(sessionFolder, reading);
+  return reading;
 }
 
-const liveSessionCountByFolder = new Map<string, number>();
-
 function holdTrustedFolder(sessionFolder: string): void {
-  liveSessionCountByFolder.set(sessionFolder, (liveSessionCountByFolder.get(sessionFolder) ?? 0) + 1);
+  const heldFolder = trustedFolderByPath.get(sessionFolder);
+  const projectHookTrust = projectHookTrustReadByFolder.get(sessionFolder) ?? heldFolder?.projectHookTrust ?? [];
+  projectHookTrustReadByFolder.delete(sessionFolder);
+  trustedFolderByPath.set(sessionFolder, { liveSessionCount: (heldFolder?.liveSessionCount ?? 0) + 1, projectHookTrust });
 }
 
 function releaseTrustedFolder(sessionFolder: string): void {
-  const remainingSessionCount = (liveSessionCountByFolder.get(sessionFolder) ?? 0) - 1;
-  if (remainingSessionCount > 0) {
-    liveSessionCountByFolder.set(sessionFolder, remainingSessionCount);
+  const heldFolder = trustedFolderByPath.get(sessionFolder);
+  if (!heldFolder) return;
+  if (heldFolder.liveSessionCount > 1) {
+    trustedFolderByPath.set(sessionFolder, { ...heldFolder, liveSessionCount: heldFolder.liveSessionCount - 1 });
     return;
   }
-  liveSessionCountByFolder.delete(sessionFolder);
+  trustedFolderByPath.delete(sessionFolder);
 }
 
 function prepareHome(env: Record<string, string | undefined>, sessionFolder: string): { home: string; isTrusted: boolean } | { refusal: string } {
@@ -401,8 +433,9 @@ function prepareHome(env: Record<string, string | undefined>, sessionFolder: str
   const realHome = realAgentHome(CODEX_HOME_PROFILE, env);
   const generatedHome = generatedAgentHomePath(CODEX_HOME_PROFILE, env);
   holdTrustedFolder(sessionFolder);
-  const trustedFolders = [...liveSessionCountByFolder.keys()];
-  const prepared = holdPreparedAgentHome(CODEX_HOME_PROFILE, env, (operatorText) => renderCodexHooksBlock({ hooks, trustedHashes, operatorText, realHome, generatedHome, trustedFolders }));
+  const trustedFolders = [...trustedFolderByPath.keys()];
+  const projectHookTrust = [sessionFolder, ...trustedFolders.filter((folder) => folder !== sessionFolder)].flatMap((folder) => trustedFolderByPath.get(folder)?.projectHookTrust ?? []);
+  const prepared = holdPreparedAgentHome(CODEX_HOME_PROFILE, env, (operatorText) => renderCodexHooksBlock({ hooks, trustedHashes, projectHookTrust, operatorText, realHome, generatedHome, trustedFolders }));
   if ("refusal" in prepared) {
     releaseTrustedFolder(sessionFolder);
     return prepared;
@@ -472,14 +505,6 @@ const UPDATE_CHECK_ARGS = ["-c", "check_for_update_on_startup=false"];
 
 const SKIP_PERMISSIONS_ARGS = ["-a", "never", "-s", "danger-full-access"];
 
-const OPERATOR_CONFIG_FILE_NAME = "config.toml";
-
-function operatorConfigPath(env: SpawnEnv): string | null {
-  const [codexHome] = codexHomes(env, null);
-  if (!codexHome) return null;
-  return path.join(codexHome, OPERATOR_CONFIG_FILE_NAME);
-}
-
 function buildArgs({
   dangerouslySkipPermissions = false,
   resumeSessionId = null,
@@ -506,7 +531,6 @@ const codex = {
   buildSpawnCommand,
   buildEnv,
   buildArgs,
-  operatorConfigPath,
   buildHookArgs,
   buildHookCommand,
   mayContributeHooks,

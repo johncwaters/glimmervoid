@@ -1,9 +1,9 @@
-import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutPanel, LaidOutUnit, LaidOutWire, Rect } from '#shared/whiteboard-layout-core.ts';
+import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutStep, LaidOutWire, Rect } from '#shared/whiteboard-layout-core.ts';
 import { pointsOfPath } from '#shared/whiteboard-route-core.ts';
 import {
-  BAND_LABEL_BASELINE, BODY_LINE_HEIGHT, BOX_TEXT_INSET, CODE_BAND_HEIGHT, CODE_BAND_RISE, COLUMN_TITLE_LINE_HEIGHT, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH, LINKED_BOARD_TEXT,
+  BODY_LINE_HEIGHT, BOX_TEXT_INSET, CODE_BAND_HEIGHT, CODE_BAND_RISE, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH, LINKED_BOARD_TEXT,
   LOOP_BADGE_INSET, LOOP_BADGE_RADIUS, MONO_CHAR_WIDTH, MUTED_INDENT, NOTE_LINE_HEIGHT, OUTPUT_DOT_RADIUS, OUTPUT_LABEL_BASELINE_OFFSET, PLAN_TITLE, PORT_RADIUS,
-  RESIZE_HANDLE_SIZE, TITLE_BASELINE, TITLE_LINE_HEIGHT, UNIT_LABEL_BASELINE, UNIT_LABEL_HEIGHT, decisionOutlinePoints,
+  RESIZE_HANDLE_SIZE, STEP_HEADER_HEIGHT, STEP_LABEL_BASELINE, TITLE_BASELINE, TITLE_LINE_HEIGHT, TITLE_RULE_RISE, decisionOutlinePoints,
 } from '#shared/whiteboard-svg-core.ts';
 
 type Rgba = readonly [number, number, number, number];
@@ -35,7 +35,6 @@ interface BoardPalette {
   metaSize: number;
   bodySize: number;
   titleSize: number;
-  colorOfHex: (hex: string) => Rgba;
 }
 
 interface GlyphCell {
@@ -92,11 +91,11 @@ const SEGMENT_FLOATS = 14;
 const TRIANGLE_VERTEX_FLOATS = 8;
 const GLYPH_FLOATS = 15;
 const UNSET_DEPTH = 0;
-const LAYER_COUNT = 7;
+const LAYER_COUNT = 6;
 const CHROME_LAYER = 0;
 const WIRE_LABEL_LAYER = 3;
 const BOX_LAYER = 4;
-const LAYER_BY_KIND: Record<LaidOutElement['kind'], number> = { frame: 1, wire: 2, box: BOX_LAYER, panel: BOX_LAYER, note: 5, unit: 6 };
+const LAYER_BY_KIND: Record<LaidOutElement['kind'], number> = { frame: 1, wire: 2, box: BOX_LAYER, note: 5 };
 const MIN_TEXT_PX = 4;
 const MIN_DETAIL_BOX_PX = 12;
 const MIN_WIRE_LABEL_PX = 8;
@@ -289,12 +288,23 @@ function pushBodyLines(part: PartBuilder, context: SceneContext, lines: readonly
   });
 }
 
-function boxOutlineColors(box: Pick<LaidOutBox, 'change' | 'lane'>, palette: BoardPalette): { fill: Rgba; stroke: Rgba; dash: Dash } {
-  const laneStroke = box.lane ? palette.colorOfHex(box.lane.hex) : null;
-  if (box.change === 'added') return { fill: palette.board, stroke: laneStroke ?? palette.running, dash: { on: 7, off: 5 } };
-  if (box.change === 'removed') return { fill: [0, 0, 0, 0], stroke: laneStroke ?? palette.failed, dash: { on: 7, off: 5 } };
-  if (box.change === 'relabeled') return { fill: palette.board, stroke: laneStroke ?? palette.noteStroke, dash: SOLID };
-  return { fill: palette.board, stroke: laneStroke ?? palette.inkDim, dash: SOLID };
+type OutlinedBox = Pick<LaidOutBox, 'change' | 'shape'> & { step: unknown };
+
+function boxOutlineColors(box: OutlinedBox, palette: BoardPalette): { fill: Rgba; stroke: Rgba; dash: Dash; width: number } {
+  const isPanel = box.shape === 'panel';
+  const width = isPanel && !box.step ? 1.4 : OUTLINE_WIDTH;
+  const stepStroke = box.step ? palette.accent : null;
+  const restingFill = isPanel ? palette.panelFill : palette.board;
+  if (box.change === 'added') return { fill: restingFill, stroke: stepStroke ?? palette.running, dash: { on: 7, off: 5 }, width };
+  if (box.change === 'removed') return { fill: [0, 0, 0, 0], stroke: stepStroke ?? palette.failed, dash: { on: 7, off: 5 }, width };
+  if (box.change === 'relabeled') return { fill: restingFill, stroke: stepStroke ?? palette.noteStroke, dash: SOLID, width };
+  return { fill: restingFill, stroke: stepStroke ?? (isPanel ? palette.line : palette.inkDim), dash: SOLID, width };
+}
+
+function stepStatusColor(status: LaidOutStep['status'], palette: BoardPalette): Rgba {
+  if (status === 'building') return palette.waiting;
+  if (status === 'landed') return palette.running;
+  return palette.muted;
 }
 
 function boxGeometry(box: LaidOutBox, context: SceneContext): { part: PartBuilder; hitShape: HitShape } {
@@ -309,9 +319,9 @@ function boxGeometry(box: LaidOutBox, context: SceneContext): { part: PartBuilde
     const polygon = decisionOutlinePoints(box);
     pushConvexFill(part, polygon, fill, ALWAYS);
     const [firstCorner] = polygon;
-    if (firstCorner) pushPolyline(part, [...polygon, firstCorner], OUTLINE_WIDTH, stroke, outline.dash, ALWAYS);
+    if (firstCorner) pushPolyline(part, [...polygon, firstCorner], outline.width, stroke, outline.dash, ALWAYS);
   }
-  if (box.shape !== 'decision') pushOutlinedRect(part, box, 8, fill, stroke, OUTLINE_WIDTH, outline.dash, ALWAYS);
+  if (box.shape !== 'decision') pushOutlinedRect(part, box, 8, fill, stroke, outline.width, outline.dash, ALWAYS);
   for (const output of box.outputs) {
     const rowHalfHeight = (box.height - box.headerHeight) / box.outputs.length / 2;
     const rowTop = output.port.y - rowHalfHeight;
@@ -319,14 +329,20 @@ function boxGeometry(box: LaidOutBox, context: SceneContext): { part: PartBuilde
     pushText(part, glyphs, output.label, box.x + BOX_TEXT_INSET, output.port.y + OUTPUT_LABEL_BASELINE_OFFSET, { size: palette.metaSize, color: faded(palette.ink, opacity), isBold: true, isUppercase: true });
     pushCircle(part, output.port, OUTPUT_DOT_RADIUS, faded(palette.inkDim, opacity), faded(palette.inkDim, opacity), 0, detailMinScale);
   }
+  const stepHeaderHeight = box.step ? STEP_HEADER_HEIGHT : 0;
+  if (box.step) {
+    pushText(part, glyphs, box.step.label, box.x + BOX_TEXT_INSET, box.y + STEP_LABEL_BASELINE, { size: palette.metaSize, color: faded(palette.accent, opacity), isBold: true });
+    pushText(part, glyphs, box.step.status, box.x + box.width - BOX_TEXT_INSET, box.y + STEP_LABEL_BASELINE, { size: palette.metaSize, color: faded(stepStatusColor(box.step.status, palette), opacity), anchor: 'end' });
+  }
   box.wasLines.forEach((line, index) => {
-    pushText(part, glyphs, line, box.x + BOX_TEXT_INSET, box.y + TITLE_BASELINE + index * TITLE_LINE_HEIGHT, { size: palette.titleSize, color: faded(palette.inkDim, opacity), isStruckThrough: true });
+    pushText(part, glyphs, line, box.x + BOX_TEXT_INSET, box.y + TITLE_BASELINE + stepHeaderHeight + index * TITLE_LINE_HEIGHT, { size: palette.titleSize, color: faded(palette.inkDim, opacity), isStruckThrough: true });
   });
-  const titleTop = box.y + TITLE_BASELINE + box.wasLines.length * TITLE_LINE_HEIGHT;
+  const titleTop = box.y + TITLE_BASELINE + stepHeaderHeight + box.wasLines.length * TITLE_LINE_HEIGHT;
   box.titleLines.forEach((line, index) => {
     pushText(part, glyphs, line, box.x + BOX_TEXT_INSET, titleTop + index * TITLE_LINE_HEIGHT, { size: palette.titleSize, color: faded(palette.ink, opacity), isBold: true, isStruckThrough: box.change === 'removed' });
   });
   const bodyTop = titleTop + box.titleLines.length * TITLE_LINE_HEIGHT;
+  if (box.shape === 'panel' && box.bodyLines.length > 0) pushPolyline(part, [{ x: box.x + BOX_TEXT_INSET, y: bodyTop - TITLE_RULE_RISE }, { x: box.x + box.width - BOX_TEXT_INSET, y: bodyTop - TITLE_RULE_RISE }], 1, faded(palette.line, opacity), SOLID, detailMinScale);
   pushBodyLines(part, context, box.bodyLines, box.x, box.width, bodyTop, opacity, detailMinScale);
   const hasDrawnMedia = box.media !== null && context.hasDrawnMedia(box);
   if (box.media && !hasDrawnMedia) {
@@ -334,28 +350,13 @@ function boxGeometry(box: LaidOutBox, context: SceneContext): { part: PartBuilde
     pushOutlinedRect(part, box.media, 6, faded(palette.placeholderFill, opacity), faded(palette.inkDim, opacity), 1, { on: 4, off: 4 }, detailMinScale);
     pushText(part, glyphs, placeholderText, box.media.x + box.media.width / 2, box.media.y + box.media.height / 2 + 4, { size: palette.metaSize, color: faded(palette.inkDim, opacity), anchor: 'middle' });
   }
-  if (box.lane && box.showsLanePill) {
-    const laneColor = faded(palette.colorOfHex(box.lane.hex), opacity);
-    const pillY = box.y + box.headerHeight - 28;
-    const pillWidth = Math.min(box.width - BOX_TEXT_INSET * 2, 16 + box.lane.label.length * 8);
-    pushRect(part, { x: box.x + BOX_TEXT_INSET, y: pillY, width: pillWidth, height: 18 }, 9, [0, 0, 0, 0], laneColor, 1.2, detailMinScale);
-    pushText(part, glyphs, box.lane.label, box.x + BOX_TEXT_INSET + 8, pillY + 13, { size: palette.metaSize, color: laneColor, isBold: true });
-  }
-  return { part, hitShape: { kind: 'rect', rect: box, linkRect: null, mediaRect: box.media, hasDrawnMedia } };
-}
-
-function panelGeometry(panel: LaidOutPanel, context: SceneContext): { part: PartBuilder; hitShape: HitShape } {
-  const { palette, glyphs } = context;
-  const part = createPart();
-  pushRect(part, panel, 6, palette.panelFill, palette.line, 1.4, ALWAYS);
-  panel.titleLines.forEach((line, index) => {
-    pushText(part, glyphs, line, panel.x + BOX_TEXT_INSET, panel.y + TITLE_BASELINE + index * TITLE_LINE_HEIGHT, { size: palette.titleSize, color: palette.ink, isBold: true });
-  });
-  const bodyTop = panel.y + TITLE_BASELINE + panel.titleLines.length * TITLE_LINE_HEIGHT;
-  const detailMinScale = MIN_DETAIL_BOX_PX / Math.max(1, panel.height);
-  if (panel.bodyLines.length > 0) pushPolyline(part, [{ x: panel.x + BOX_TEXT_INSET, y: bodyTop - 12 }, { x: panel.x + panel.width - BOX_TEXT_INSET, y: bodyTop - 12 }], 1, palette.line, SOLID, detailMinScale);
-  pushBodyLines(part, context, panel.bodyLines, panel.x, panel.width, bodyTop, 1, detailMinScale);
-  return { part, hitShape: { kind: 'rect', rect: panel, linkRect: null, mediaRect: null, hasDrawnMedia: false } };
+  const linkedBoardId = box.step?.linkedBoardId ?? null;
+  if (!linkedBoardId) return { part, hitShape: { kind: 'rect', rect: box, linkRect: null, mediaRect: box.media, hasDrawnMedia } };
+  const linkStyle: TextStyle = { size: palette.metaSize, color: faded(palette.accent, opacity), isUnderlined: true };
+  const linkBaseline = bodyTop + box.bodyLines.length * BODY_LINE_HEIGHT;
+  pushText(part, glyphs, LINKED_BOARD_TEXT, box.x + BOX_TEXT_INSET, linkBaseline, linkStyle);
+  const linkRect = { x: box.x + BOX_TEXT_INSET, y: linkBaseline - palette.metaSize, width: textWidth(LINKED_BOARD_TEXT, linkStyle), height: palette.metaSize + 4, linkedBoardId };
+  return { part, hitShape: { kind: 'rect', rect: box, linkRect, mediaRect: box.media, hasDrawnMedia } };
 }
 
 function arcPoints(center: Point, radius: number, startAngle: number, sweep: number): Point[] {
@@ -384,8 +385,7 @@ function frameGeometry(frame: LaidOutFrame, context: SceneContext): { part: Part
   return { part, hitShape: { kind: 'outline', rect: frame, titleRect } };
 }
 
-function wireColor(wire: Pick<LaidOutWire, 'strokeHex' | 'tone' | 'isBack'>, palette: BoardPalette): Rgba {
-  if (wire.strokeHex) return palette.colorOfHex(wire.strokeHex);
+function wireColor(wire: Pick<LaidOutWire, 'tone' | 'isBack'>, palette: BoardPalette): Rgba {
   if (wire.tone === 'fail') return palette.failed;
   if (wire.tone === 'join' || wire.isBack) return palette.accent;
   return palette.inkDim;
@@ -432,32 +432,6 @@ function noteGeometry(note: LaidOutNote, context: SceneContext): { part: PartBui
   return { part, hitShape: { kind: 'rect', rect: note, linkRect: null, mediaRect: null, hasDrawnMedia: false } };
 }
 
-function unitStatusColor(status: LaidOutUnit['status'], palette: BoardPalette): Rgba {
-  if (status === 'building') return palette.waiting;
-  if (status === 'landed') return palette.running;
-  return palette.muted;
-}
-
-function unitGeometry(unit: LaidOutUnit, context: SceneContext): { part: PartBuilder; hitShape: HitShape } {
-  const { palette, glyphs } = context;
-  const part = createPart();
-  pushRect(part, unit, 8, palette.board, palette.accent, OUTLINE_WIDTH, ALWAYS);
-  pushText(part, glyphs, unit.label, unit.x + BOX_TEXT_INSET, unit.y + UNIT_LABEL_BASELINE, { size: palette.metaSize, color: palette.accent, isBold: true });
-  pushText(part, glyphs, unit.status, unit.x + unit.width - BOX_TEXT_INSET, unit.y + UNIT_LABEL_BASELINE, { size: palette.metaSize, color: unitStatusColor(unit.status, palette), anchor: 'end' });
-  const titleTop = unit.y + UNIT_LABEL_BASELINE + UNIT_LABEL_HEIGHT;
-  unit.titleLines.forEach((line, index) => {
-    pushText(part, glyphs, line, unit.x + BOX_TEXT_INSET, titleTop + index * TITLE_LINE_HEIGHT, { size: palette.titleSize, color: palette.ink, isBold: true });
-  });
-  const bodyTop = titleTop + unit.titleLines.length * TITLE_LINE_HEIGHT;
-  pushBodyLines(part, context, unit.bodyLines, unit.x, unit.width, bodyTop, 1, MIN_DETAIL_BOX_PX / Math.max(1, unit.height));
-  if (!unit.linkedBoardId) return { part, hitShape: { kind: 'rect', rect: unit, linkRect: null, mediaRect: null, hasDrawnMedia: false } };
-  const linkStyle: TextStyle = { size: palette.metaSize, color: palette.accent, isUnderlined: true };
-  const linkBaseline = bodyTop + unit.bodyLines.length * BODY_LINE_HEIGHT;
-  pushText(part, glyphs, LINKED_BOARD_TEXT, unit.x + BOX_TEXT_INSET, linkBaseline, linkStyle);
-  const linkRect = { x: unit.x + BOX_TEXT_INSET, y: linkBaseline - palette.metaSize, width: textWidth(LINKED_BOARD_TEXT, linkStyle), height: palette.metaSize + 4, linkedBoardId: unit.linkedBoardId };
-  return { part, hitShape: { kind: 'rect', rect: unit, linkRect, mediaRect: null, hasDrawnMedia: false } };
-}
-
 function singleLayer(element: Exclude<LaidOutElement, LaidOutWire>, drawn: { part: PartBuilder; hitShape: HitShape }): { parts: LayeredPart[]; hitShape: HitShape; bounds: Rect } {
   return { parts: [{ layer: LAYER_BY_KIND[element.kind], part: sealPart(drawn.part) }], hitShape: drawn.hitShape, bounds: paintedBoundsOf(element, drawn.hitShape) };
 }
@@ -471,11 +445,9 @@ function paintedBoundsOf(element: Rect, hitShape: HitShape): Rect {
 function geometryOf(element: LaidOutElement, context: SceneContext): { parts: LayeredPart[]; hitShape: HitShape; bounds: Rect } {
   switch (element.kind) {
     case 'box': return singleLayer(element, boxGeometry(element, context));
-    case 'panel': return singleLayer(element, panelGeometry(element, context));
     case 'frame': return singleLayer(element, frameGeometry(element, context));
     case 'wire': return wireGeometry(element, context);
     case 'note': return singleLayer(element, noteGeometry(element, context));
-    case 'unit': return singleLayer(element, unitGeometry(element, context));
   }
 }
 
@@ -486,23 +458,18 @@ function elementGeometry(element: LaidOutElement, paintRank: number, context: Sc
 
 function legendSwatch(part: PartBuilder, entry: BoardLayout['legend'][number], palette: BoardPalette): void {
   const { swatch } = entry;
-  if (swatch.kind === 'lane') {
-    const laneColor = palette.colorOfHex(swatch.hex);
-    pushRect(part, { x: entry.x, y: entry.y, width: 14, height: 14 }, 3, laneColor, laneColor, 0, ALWAYS);
-    return;
-  }
   if (swatch.kind === 'status') {
-    pushRect(part, { x: entry.x, y: entry.y, width: 14, height: 14 }, 3, unitStatusColor(swatch.status, palette), palette.accent, OUTLINE_WIDTH, ALWAYS);
+    pushRect(part, { x: entry.x, y: entry.y, width: 14, height: 14 }, 3, stepStatusColor(swatch.status, palette), palette.accent, OUTLINE_WIDTH, ALWAYS);
     return;
   }
   if (swatch.kind === 'change') {
     const sample = { x: entry.x, y: entry.y, width: LEGEND_SAMPLE_WIDTH, height: 14 };
-    const colors = boxOutlineColors({ change: swatch.change, lane: null }, palette);
+    const colors = boxOutlineColors({ change: swatch.change, shape: 'box', step: null }, palette);
     const opacity = swatch.change === 'removed' ? 0.6 : 1;
-    pushOutlinedRect(part, sample, 3, faded(colors.fill, opacity), faded(colors.stroke, opacity), OUTLINE_WIDTH, colors.dash, ALWAYS);
+    pushOutlinedRect(part, sample, 3, faded(colors.fill, opacity), faded(colors.stroke, opacity), colors.width, colors.dash, ALWAYS);
     return;
   }
-  const color = wireColor({ strokeHex: null, tone: swatch.tone, isBack: swatch.isBack }, palette);
+  const color = wireColor(swatch, palette);
   const points = [{ x: entry.x, y: entry.y + 7 }, { x: entry.x + LEGEND_SAMPLE_WIDTH, y: entry.y + 7 }];
   pushPolyline(part, points, WIRE_WIDTH, color, swatch.isDashed ? { on: 7, off: 6 } : SOLID, ALWAYS);
   pushArrowAtEnd(part, points, color);
@@ -512,28 +479,10 @@ function chromeGeometry(layout: BoardLayout, context: SceneContext): ElementGeom
   const { palette, glyphs } = context;
   const part = createPart();
   const headingStyle: TextStyle = { size: palette.metaSize, color: palette.inkDim, isBold: true, isUppercase: true };
-  if (layout.plan) {
-    pushText(part, glyphs, PLAN_TITLE, layout.plan.titleAt.x, layout.plan.titleAt.y, headingStyle);
-    for (const arrowPath of layout.plan.arrowPaths) {
-      const points = pointsOfPath(arrowPath);
-      pushPolyline(part, points, WIRE_WIDTH, palette.inkDim, SOLID, ALWAYS);
-      pushArrowAtEnd(part, points, palette.inkDim);
-    }
-  }
-  for (const band of layout.bands) {
-    pushPolyline(part, [{ x: band.x, y: band.y }, { x: band.x + band.width, y: band.y }], 1, faded(palette.line, 0.6), SOLID, ALWAYS);
-    if (band.label) pushText(part, glyphs, band.label, band.x, band.y + BAND_LABEL_BASELINE, { size: palette.metaSize, color: palette.colorOfHex(band.hex), isBold: true });
-  }
-  for (const column of layout.columns) {
-    if (column.titleLines.length === 0) continue;
-    column.titleLines.forEach((line, index) => {
-      pushText(part, glyphs, line, column.x, column.titleBaselineY + index * COLUMN_TITLE_LINE_HEIGHT, headingStyle);
-    });
-    pushPolyline(part, [{ x: column.x, y: column.ruleY }, { x: column.x + column.width, y: column.ruleY }], 1, palette.line, { on: 2, off: 5 }, ALWAYS);
-  }
+  if (layout.plan) pushText(part, glyphs, PLAN_TITLE, layout.plan.titleAt.x, layout.plan.titleAt.y, headingStyle);
   for (const entry of layout.legend) {
     legendSwatch(part, entry, palette);
-    const labelX = entry.x + (entry.swatch.kind === 'lane' || entry.swatch.kind === 'status' ? 22 : LEGEND_SAMPLE_WIDTH + 12);
+    const labelX = entry.x + (entry.swatch.kind === 'status' ? 22 : LEGEND_SAMPLE_WIDTH + 12);
     pushText(part, glyphs, entry.label, labelX, entry.y + 12, { size: palette.metaSize, color: palette.inkDim });
   }
   if (layout.caption) pushText(part, glyphs, layout.caption.text, layout.caption.x, layout.caption.y + 16, { size: palette.bodySize, color: palette.inkDim });
@@ -553,7 +502,7 @@ function outlineDecoration(part: PartBuilder, element: LaidOutElement, color: Rg
     if (firstCorner) pushPolyline(part, [...polygon, firstCorner], width, color, SOLID, ALWAYS);
     return;
   }
-  const radiusByKind: Record<Exclude<LaidOutElement['kind'], 'wire'>, number> = { box: 8, panel: 6, note: 4, unit: 8, frame: 12 };
+  const radiusByKind: Record<Exclude<LaidOutElement['kind'], 'wire'>, number> = { box: 8, note: 4, frame: 12 };
   pushRect(part, element, radiusByKind[element.kind], [0, 0, 0, 0], color, width, ALWAYS);
 }
 

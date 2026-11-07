@@ -9,22 +9,24 @@ import { refreshMyPrsSessionState } from '../github/my-prs-store.ts';
 import { forgetSessionLinkedPrs, setSessionLinkedPrs } from '../github/session-pr-chips.ts';
 import { refreshPhoneBoard } from '../phone/phone-shell-gate.ts';
 import { decideReloadOnBuild } from '../server-build-core.ts';
-import { setSessionSaneYolo } from '../session-card/card-dom.ts';
+import { sessionQuestionManagerOf, setSessionQuestionManager, setSessionSaneYolo } from '../session-card/card-dom.ts';
 import { handleDebugStateRefresh } from '../session-card/card-debug.ts';
 import { buildSessionCardOptions } from '../session-card/card-options-core.ts';
 import { attentionTally, sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
-import { applyState, createSessionCard, hasSession, removeSessionCard, seedSessionMergeStatus, setSessionAgent, setSessionAgents, setSessionEffectiveBase, setSessionPrompt, setSessionTaskTitle, setSessionUnseenOutcome, updateAttentionTitle } from '../session-card/lifecycle.ts';
-import { setSessionFailureReason } from '../session-card/card-problems.ts';
+import { applyState, createSessionCard, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionAgent, setSessionAgents, setSessionEffectiveBase, setSessionPrompt, setSessionTaskTitle, setSessionUnseenOutcome, setSessionWorktree, updateAttentionTitle } from '../session-card/lifecycle.ts';
+import { forgetManagerDecisions, seedManagerDecisions, setManagerSeenSeq, setSessionFailureReason } from '../session-card/card-problems.ts';
 import { setSessionHasPlan } from '../session-card/card-faces.ts';
 import { reconnectDataWs } from '../session-card/terminal-data-socket.ts';
 import { applySettingsProjects } from '../settings/settings-store.ts';
 import { forgetReview, refreshReview } from '../review/review-store.ts';
+import { getSelectedId, setSelectedId } from '../review/selection.ts';
 import { markStatusDirty, setStatusPainter } from '../status-paint.ts';
 import { setTraceSessions } from '../trace-store.ts';
 import { noteSnapshotReceived } from './connection-screen.ts';
 import { activatePlanHash } from './hash-routes.ts';
 import { markShownPhoneSessionSeen } from './viewer-focus.ts';
+import { forgetSessionHost, hostOfSession, rememberSessionHost, sessionsOfHost } from '../hosts/session-hosts.ts';
 
 
 function refreshAttentionSurfaces() {
@@ -59,30 +61,38 @@ function forgetSession(sessionId: string) {
   forgetSessionCoherence(sessionId);
   forgetReview(sessionId);
   forgetSessionLinkedPrs(sessionId);
+  forgetManagerDecisions(sessionId);
+  forgetSessionHost(sessionId);
 }
 
-function forgetSessionsMissingFromSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
+function forgetHostSessions(hostId: string) {
+  for (const sessionId of sessionsOfHost(hostId)) forgetSession(sessionId);
+}
+
+function forgetSessionsMissingFromSnapshot(rows: ServerMessageOf<'snapshot'>['sessions'], hostId: string | null) {
   const liveSessionIds = new Set(rows.map((row) => row.id));
   for (const cachedSessionId of [...sessionUIs.keys()]) {
+    if (hostOfSession(cachedSessionId) !== hostId) continue;
     if (!liveSessionIds.has(cachedSessionId)) forgetSession(cachedSessionId);
   }
 }
 
-function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
-  forgetSessionsMissingFromSnapshot(rows);
-  applySettingsProjects(rows.filter((session) => !session.ephemeral).map((session) => ({
-    id: session.id,
-    name: session.name,
-    agent: session.agent,
-    permissionMode: session.dangerouslySkipPermissions ? 'Skip permissions' : 'Default',
-  })));
+function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions'], hostId: string | null = null) {
+  if (hostId) for (const row of rows) rememberSessionHost(row.id, hostId);
+  forgetSessionsMissingFromSnapshot(rows, hostId);
+  if (!hostId) {
+    applySettingsProjects(rows.filter((session) => !session.ephemeral).map((session) => ({
+      id: session.id,
+      name: session.name,
+      agent: session.agent,
+      permissionMode: session.dangerouslySkipPermissions ? 'Skip permissions' : 'Default',
+    })));
+  }
   for (const s of rows) {
+    if (hasSession(s.id)) catchUpExistingCard(s);
+    if (!hasSession(s.id)) createSessionCard(s.id, s.name, s.state, buildSessionCardOptions(s));
     setSessionCoherenceHooks(s.id, s.coherenceHooks);
     setSessionLinkedPrs(s.id, s.linkedPrs);
-    const exists = hasSession(s.id);
-    if (exists) applyState(s.id, s.state, s.stateSince);
-    if (exists) setSessionSaneYolo(s.id, !!s.saneYolo);
-    if (!exists) createSessionCard(s.id, s.name, s.state, buildSessionCardOptions(s));
     setSessionFailureReason(s.id, s.failureReason);
 
     setSessionTaskTitle(s.id, s.taskTitle, s.taskTitleIsCustom);
@@ -95,6 +105,7 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
 
     setSessionPrompt(s.id, s.pendingPromptKind);
     setSessionUnseenOutcome(s.id, s.unseenOutcome);
+    seedManagerDecisions(s.id, s.auditLog, s.managerSeenSeq);
 
     setSessionHasPlan(s.id, s.hasPlan);
 
@@ -109,6 +120,39 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
   activatePlanHash(location.hash);
   markShownPhoneSessionSeen();
   noteSnapshotReceived();
+}
+
+type SnapshotSessionRow = ServerMessageOf<'snapshot'>['sessions'][number];
+
+function snapshotChangesCardIdentity(card: HTMLElement, row: SnapshotSessionRow) {
+  const cardSkipsPermissions = card.dataset.skipPerms !== undefined;
+  return (card.dataset.path ?? '') !== row.path || cardSkipsPermissions !== row.dangerouslySkipPermissions;
+}
+
+function catchUpExistingCard(row: SnapshotSessionRow) {
+  const card = sessionUIs.get(row.id)?.card;
+  if (card && snapshotChangesCardIdentity(card, row)) {
+    rebuildSessionCard(row.id, row.name, row.state, row, row.linkedPrs);
+    return;
+  }
+  applyState(row.id, row.state, row.stateSince);
+  setSessionSaneYolo(row.id, !!row.saneYolo);
+  setSessionQuestionManager(row.id, row.isQuestionManagerOn);
+  if (card && card.dataset.session !== row.name) renameSessionCard(row.id, row.name);
+  setSessionWorktree(row.id, row.isWorktree);
+}
+
+function rebuildSessionCard(sessionId: string, sessionName: string, state: string, cardFields: Parameters<typeof buildSessionCardOptions>[0], linkedPrs: unknown) {
+  const previousUi = sessionUIs.get(sessionId);
+  const wasSelected = getSelectedId() === sessionId;
+  setSessionCoherenceHooks(sessionId, null);
+  removeSessionCard(sessionId);
+  forgetReview(sessionId);
+  forgetManagerDecisions(sessionId);
+  setSessionLinkedPrs(sessionId, linkedPrs);
+  createSessionCard(sessionId, sessionName, state, buildSessionCardOptions(cardFields));
+  if (wasSelected) setSelectedId(sessionId);
+  carryOverClientSessionFields(sessionId, previousUi);
 }
 
 function syncTraceSessionsFromCards() {
@@ -141,7 +185,7 @@ function rebuildAsDormantCard(msg: SessionStatusMessage) {
 
   const path = card ? card.dataset.path : undefined;
   removeSessionCard(msg.id);
-  createSessionCard(msg.id, msg.session, STATES.DORMANT, buildSessionCardOptions({ skipPerms, saneYolo, worktree: card?.dataset.worktree !== undefined, workspace: card?.dataset.workspace !== undefined, remoteWorkspace: card?.dataset.remoteWorkspace ?? null, ephemeral: card?.dataset.ephemeral !== undefined, path, stateSince: msg.timestamp, taskTitle: previousUi?.taskTitle, taskTitleIsCustom: previousUi?.taskTitleIsCustom }));
+  createSessionCard(msg.id, msg.session, STATES.DORMANT, buildSessionCardOptions({ skipPerms, saneYolo, isQuestionManagerOn: msg.isQuestionManagerOn ?? sessionQuestionManagerOf(card), worktree: card?.dataset.worktree !== undefined, workspace: card?.dataset.workspace !== undefined, remoteWorkspace: card?.dataset.remoteWorkspace ?? null, ephemeral: card?.dataset.ephemeral !== undefined, path, stateSince: msg.timestamp, taskTitle: previousUi?.taskTitle, taskTitleIsCustom: previousUi?.taskTitleIsCustom }));
   setSessionAgent(msg.id, previousUi?.agent);
   carryOverClientSessionFields(msg.id, previousUi);
 }
@@ -172,6 +216,8 @@ function handleSessionStatus(msg: SessionStatusMessage) {
   if (msg.activeAgents !== undefined) setSessionAgents(msg.id, msg.activeAgents, msg.awaitingBackgroundTasks);
   if (msg.unseenOutcome !== undefined) setSessionUnseenOutcome(msg.id, msg.unseenOutcome);
   if (msg.pendingPromptKind !== undefined) setSessionPrompt(msg.id, msg.pendingPromptKind);
+  if (msg.managerSeenSeq !== undefined) setManagerSeenSeq(msg.id, msg.managerSeenSeq);
+  if (msg.isQuestionManagerOn !== undefined) setSessionQuestionManager(msg.id, msg.isQuestionManagerOn);
   if (msg.unseenOutcome !== undefined) updateAttentionTitle();
   refreshFavicon(attentionTally.counts);
   markStatusDirty(msg.id);
@@ -179,11 +225,12 @@ function handleSessionStatus(msg: SessionStatusMessage) {
 }
 
 export {
-  carryOverClientSessionFields,
+  forgetHostSessions,
   forgetSession,
   handleSessionStatus,
   handleSnapshot,
   noteServerBuild,
+  rebuildSessionCard,
   refreshAttentionSurfaces,
   refreshRosterAndAttentionSurfaces,
   syncTraceSessionsFromCards,

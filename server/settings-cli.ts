@@ -153,8 +153,8 @@ function validationErrorOf(view: ConfigFileView, mutate: ConfigMutation, setting
   return null;
 }
 
-function applyValidatedMutation(view: ConfigFileView, setting: SettingsSetting, mutate: ConfigMutation, checks: readonly CandidateCheck[] = []): GlimmervoidConfig {
-  const validationError = validationErrorOf(view, mutate, setting.path, checks);
+function saveValidatedConfig(view: ConfigFileView, settingPath: string, mutate: ConfigMutation, checks: readonly CandidateCheck[] = []): GlimmervoidConfig {
+  const validationError = validationErrorOf(view, mutate, settingPath, checks);
   if (validationError) throw new Error(validationError);
   const saved = saveConfigFileOnce(view.configPath, mutate);
   if (!saved.ok) throw new Error(saved.message);
@@ -253,7 +253,7 @@ const commands: Record<string, (context: CommandContext) => number> = {
     if (!parsed.ok) throw new Error(parsed.message);
     const previous = cloneValue(valueAtPath(view.config, setting.path)) ?? null;
     const checks: CandidateCheck[] = [() => registryValueError(setting, parsed.value), dashboardSchemaCheck(setting)];
-    const written = applyValidatedMutation(view, setting, (config) => setValueAtPath(config, setting.path, parsed.value), checks);
+    const written = saveValidatedConfig(view, setting.path, (config) => setValueAtPath(config, setting.path, parsed.value), checks);
     const readout = readSetting(setting, { ...view, config: written });
     return print(
       context,
@@ -267,7 +267,7 @@ const commands: Record<string, (context: CommandContext) => number> = {
     if (valueAtPath(view.config, setting.path) === undefined) {
       return print(context, { ...readSetting(setting, view), configPath: view.configPath, changed: false }, `${setting.path} is not set in config.json; the default ${defaultText(setting)} already applies`);
     }
-    const written = applyValidatedMutation(view, setting, (config) => deleteValueAtPath(config, setting.path), [dashboardSchemaCheck(setting)]);
+    const written = saveValidatedConfig(view, setting.path, (config) => deleteValueAtPath(config, setting.path), [dashboardSchemaCheck(setting)]);
     const readout = readSetting(setting, { ...view, config: written });
     return print(
       context,
@@ -338,6 +338,9 @@ function runParsedSettingsCommand(parsed: ParsedSettingsRun, io: SettingsCliIo):
     return 1;
   }
 }
+
+export { processIo, requireView, saveValidatedConfig };
+export type { SettingsCliIo };
 
 export async function runParsedSettingsCli(parsed: ParsedSettingsRun, io: SettingsCliIo = processIo()): Promise<number> {
   const serverRequest = settingsRequestForServer(parsed, process.env);

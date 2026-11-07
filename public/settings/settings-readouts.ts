@@ -11,6 +11,7 @@ import { secretEnvironmentSource, workflowRuleSummaryLines, workflowRuleToggleRo
 import type { WorkflowRuleToggleRow } from './settings-view-core.ts';
 import { usageStatusLines } from '../usage/usage-store.ts';
 import { applySettingsBroadcast, mergeSettingsPayload } from './settings-store.ts';
+import { buildHostsSettings } from '../hosts/hosts-settings.ts';
 import { agentLoginOf, agentLoginSummary, openAgentConnectDialog, openRemoteSetupDialog } from '../dialogs.ts';
 import { panelRefresher, pendingSaveById, setSettingsPayload, settingsPayload, storedValues, websiteUrl } from './settings-panel-state.ts';
 import { buildUpdateStatusBlock } from './settings-update-status.ts';
@@ -48,7 +49,8 @@ function customAgentLines(): string[] {
   if (rows.length === 0) return ['None declared. Add customAgents to config.json.'];
   return rows.map((row) => {
     const invocation = row.args.length > 0 ? `${row.command} ${row.args.join(' ')}` : row.command;
-    return `${row.id}  ${row.label}  ${invocation}  ${resolvabilityLabel(row.resolvable)}`;
+    const status = row.isShadowedByBuiltIn ? 'ignored: a built-in agent has this id, rename it' : resolvabilityLabel(row.resolvable);
+    return `${row.id}  ${row.label}  ${invocation}  ${status}`;
   });
 }
 
@@ -165,6 +167,7 @@ function renderReadout(setting: SettingsSetting) {
   if (setting.status === 'server-power') return buildServerPowerStatus();
   if (setting.status === 'agent-logins') return buildAgentLoginsStatus();
   if (setting.status === 'remote-setup') return buildRemoteSetupStatus();
+  if (setting.status === 'hosts') return buildHostsSettings();
   if (setting.status === 'update-actions') return buildUpdateStatusBlock();
   if (setting.status === 'custom-agents') return buildCustomAgentsStatus();
   if (setting.status === 'workflows') return buildWorkflowsStatus();

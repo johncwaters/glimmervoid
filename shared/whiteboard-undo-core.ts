@@ -7,8 +7,8 @@ type UndoHistory = Readonly<Record<UndoDirection, readonly Op[][]>>;
 
 const UNDO_LIMIT = 100;
 const EMPTY_HISTORY: UndoHistory = Object.freeze({ undo: [], redo: [] });
-const EARLY_ADD_KINDS: ReadonlySet<Element['kind']> = new Set(['box', 'unit', 'panel']);
-const REMOVAL_ORDER: readonly Element['kind'][] = ['wire', 'note', 'frame', 'box', 'panel', 'unit'];
+const EARLY_ADD_KINDS: ReadonlySet<Element['kind']> = new Set(['box']);
+const REMOVAL_ORDER: readonly Element['kind'][] = ['wire', 'note', 'frame', 'box'];
 const UNSETTABLE_FIELDS: ReadonlySet<string> = new Set(['kind', 'id']);
 
 function isSameValue(left: unknown, right: unknown): boolean {
@@ -17,7 +17,6 @@ function isSameValue(left: unknown, right: unknown): boolean {
 
 function dependencyIdsOf(element: Element): readonly string[] {
   if (element.kind === 'box') return element.near ? [element.near.of] : [];
-  if (element.kind === 'unit') return element.after;
   return [];
 }
 
@@ -50,13 +49,6 @@ function boardFieldOps(current: Board, target: Board): Op[] {
   return Object.keys(fields).length === 0 ? [] : [{ op: 'board', ...fields }];
 }
 
-function columnOps(current: Board, target: Board): { widen: Op[]; narrow: Op[] } {
-  if (isSameValue(current.columns, target.columns)) return { widen: [], narrow: [] };
-  const targetColumnIds = new Set(target.columns.map((column) => column.id));
-  const widenedColumns = [...target.columns, ...current.columns.filter((column) => !targetColumnIds.has(column.id))];
-  return { widen: [{ op: 'columns', columns: widenedColumns, move: {} }], narrow: [{ op: 'columns', columns: target.columns, move: {} }] };
-}
-
 function restoringOps(current: Board, target: Board): Op[] {
   const currentElements = Object.values(current.elements);
   const targetElements = Object.values(target.elements);
@@ -68,15 +60,11 @@ function restoringOps(current: Board, target: Board): Op[] {
     const fields = changedFields(existing, element);
     return Object.keys(fields).length === 0 ? [] : [{ op: 'set', id: element.id, fields }];
   });
-  const { widen, narrow } = columnOps(current, target);
   return [
-    ...(isSameValue(current.lanes, target.lanes) ? [] : [{ op: 'lanes', lanes: target.lanes } satisfies Op]),
-    ...widen,
     ...removed.map((element): Op => ({ op: 'remove', id: element.id })),
     ...added.filter((element) => EARLY_ADD_KINDS.has(element.kind)).map((element): Op => ({ op: 'add', element })),
     ...setOps,
     ...added.filter((element) => !EARLY_ADD_KINDS.has(element.kind)).map((element): Op => ({ op: 'add', element })),
-    ...narrow,
     ...boardFieldOps(current, target),
   ];
 }

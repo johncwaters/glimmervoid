@@ -11,12 +11,15 @@ import type { PrGh } from './pr-gh.ts';
 import type { MyPr, MyPrAutoRebase, MyPrsSnapshot, MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrKeepMergeableAttemptRecord, MyPrMergeabilityFixResult, MyPrMergeQueueFailure, MyPrMergeResult, MyPrMergeWhenReadyRequest, MyPrMergeWhenReadyResult } from '../../shared/contracts/my-prs.ts';
 import { myPrFromGithubPr } from '../../shared/my-pr-merge.ts';
 import { errorMessage } from '../../shared/text.ts';
+import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
+import type { GithubPr } from '../../shared/contracts/github-prs.ts';
+import type { MyPrsCandidatesPayload } from '../../shared/contracts/my-prs-candidates.ts';
+import { isOlderObservation, watcherFeedError } from '../lanes/core/watchee-feed-core.ts';
 import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
 
 const MY_PRS_RATE_LIMIT_RESOURCES = ['graphql'] as const;
 
 interface MyPrsPollerDependencies {
-  org: string;
   shouldAutoRebase?: boolean;
   isKeepMergeableEnabled?: boolean;
   isMergeQueueEnabled?: boolean;
@@ -37,12 +40,14 @@ interface MyPrsPollerDependencies {
   clock?: SharedClock;
   firstTickDelayMs?: () => number;
   log?: Pick<Console, 'warn'>;
+  feedSilenceMs?: () => number;
 }
 
 export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
-  const { org, shouldAutoRebase = false, isKeepMergeableEnabled = true, isMergeQueueEnabled = true, github, store, onTickComplete, now = Date.now, intervalMinutes = core.POLL_INTERVAL_MINUTES, setIntervalFn, clearIntervalFn, setTimeoutFn, clearTimeoutFn, clock, firstTickDelayMs, log } = dependencies;
+  const { shouldAutoRebase = false, isKeepMergeableEnabled = true, isMergeQueueEnabled = true, github, store, onTickComplete, now = Date.now, intervalMinutes = core.POLL_INTERVAL_MINUTES, setIntervalFn, clearIntervalFn, setTimeoutFn, clearTimeoutFn, clock, firstTickDelayMs, log } = dependencies;
   let viewer: string | null = null;
-  let hasLookedUpViewer = false;
+  let acceptedCandidates: MyPrsCandidatesPayload | null = null;
+  const feedSilenceMs = dependencies.feedSilenceMs ?? (() => 0);
   let previousPrs: MyPr[] = [];
   let previousTruncatedNote: string | null = null;
   let pollingError: string | null = null;
@@ -54,6 +59,8 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
   const keepMergeableAttemptsByKey = new Map<string, MyPrKeepMergeableAttemptRecord>();
   const keepMergeablePushedHeadKeys = new Set<string>();
   let mergeQueueKeys: string[] = [];
+  let stageSinceByKey = new Map<string, core.StageSinceRecord>();
+  let latestStageObservationMs = Number.NEGATIVE_INFINITY;
   const attemptedMergeKeys = new Set<string>();
   const mergeFailuresByKey = new Map<string, { attemptKey: string; failure: MyPrMergeQueueFailure }>();
   const fixesInFlight = new Set<string>();
@@ -63,44 +70,43 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
   let stateLoad: Promise<void> | null = null;
   let isLeftoverSweepRunning = false;
 
-  const watchNames = ['my-prs-open', 'my-prs-merged'];
-  let registeredMergedSince: string | null = null;
   let hasLoadedState = false;
 
-  function registerWatches(): void {
-    const mergedSince = core.mergedSinceDate(now());
-    if (registeredMergedSince === mergedSince) return;
-    store.registerWatch({ name: watchNames[0], qualifiers: `is:open author:@me org:${org} sort:updated-desc`, needsDetail: true });
-    store.registerWatch({ name: watchNames[1], qualifiers: `is:merged author:@me org:${org} merged:>=${mergedSince} sort:updated-desc`, needsDetail: true });
-    registeredMergedSince = mergedSince;
-  }
-
-  function readStore() {
+  function readCandidates() {
     const snapshot = store.getSnapshot();
-    const watches = watchNames.flatMap((name) => snapshot.watches[name] ? [snapshot.watches[name]] : []);
-    const keys = new Set(watches.flatMap((watch) => watch.keys));
-    const items = [...keys].flatMap((key) => snapshot.prs[key] ? [snapshot.prs[key]] : []);
-    return {
-      items, error: snapshot.freshness.error,
-      isLoaded: watches.length === watchNames.length && watches.every((watch) => watch.isLoaded),
-      returnedCount: watches.reduce((count, watch) => count + watch.returnedCount, 0),
-      totalCount: watches.reduce((count, watch) => count + watch.totalCount, 0),
-      isComplete: watches.every((watch) => watch.isComplete) && items.length === keys.size,
-    };
+    if (acceptedCandidates === null) return { items: [], viewer: null, error: snapshot.freshness.error, isLoaded: false, returnedCount: 0, totalCount: 0, isComplete: false };
+    const listedPrs = [...acceptedCandidates.open, ...acceptedCandidates.merged];
+    const listedKeys = listedPrs.map(comparablePrKey);
+    const heldPrs: GithubPr[] = [];
+    for (const listedPr of listedPrs) {
+      const heldPr = snapshot.prs[comparablePrKey(listedPr)];
+      if (heldPr !== undefined) heldPrs.push(core.heldOrListedPr(listedPr, heldPr));
+    }
+    const { viewer: listedViewer, returnedCount, totalCount, isComplete: isListComplete } = acceptedCandidates;
+    const isComplete = isListComplete && heldPrs.length === new Set(listedKeys).size;
+    return { items: heldPrs, viewer: listedViewer, error: snapshot.freshness.error, isLoaded: true, returnedCount, totalCount, isComplete };
   }
 
   function rebuild(): void {
     if (loop.isStopped() || !hasLoadedState) return;
-    registerWatches();
-    const snapshot = readStore();
+    const snapshot = readCandidates();
     if (snapshot.isLoaded) {
-      previousPrs = withOperatorFlags(core.sortedMyPrs(snapshot.items.map((pr) => core.withAutoRebase(myPrFromGithubPr(pr), autoRebaseByKey.get(prKey(pr.repo, pr.number)))), now()));
+      const rebuiltAtMs = now();
+      const listedPrs = core.sortedMyPrs(snapshot.items.map((pr) => core.withAutoRebase(myPrFromGithubPr(pr), autoRebaseByKey.get(prKey(pr.repo, pr.number)))), rebuiltAtMs);
+      previousPrs = withOperatorFlags(stampStageClock(listedPrs, rebuiltAtMs, snapshot.isComplete));
       previousTruncatedNote = core.truncatedSearchNote(snapshot.returnedCount, snapshot.totalCount);
     }
     publishStatus();
   }
 
-  registerWatches();
+  function stampStageClock(prs: MyPr[], observedAtMs: number, isComplete: boolean): MyPr[] {
+    if (observedAtMs < latestStageObservationMs) return core.withStageSince(prs, stageSinceByKey);
+    latestStageObservationMs = observedAtMs;
+    const stamped = core.stampStageSince(stageSinceByKey, prs, observedAtMs, isComplete);
+    stageSinceByKey = stamped.stageSinceByKey;
+    if (stamped.hasChanged) void loop.persist();
+    return stamped.prs;
+  }
 
   async function loadState(): Promise<void> {
     if (stateLoad) return stateLoad;
@@ -115,6 +121,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
       for (const key of state.keepMergeablePushedHeadKeys) keepMergeablePushedHeadKeys.add(key);
       for (const attempt of state.keepMergeableAttempts) keepMergeableAttemptsByKey.set(attempt.key, attempt);
       mergeQueueKeys = [...new Set(state.mergeQueueKeys)];
+      stageSinceByKey = new Map((state.stageSince ?? []).map((record) => [record.key, record]));
       hasLoadedState = true;
     })();
     return stateLoad;
@@ -128,7 +135,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
   }
 
   async function writeCurrentState(): Promise<void> {
-    await dependencies.writeState?.(core.MyPrsLaneState.parse({ keepMergeableKeys: [...keepMergeableKeys], keepMergeableAttemptKeys: [...keepMergeableAttemptKeys], mergeQueueKeys, keepMergeablePushedHeadKeys: [...keepMergeablePushedHeadKeys], keepMergeableAttempts: [...keepMergeableAttemptsByKey.values()], ...(failedAutoRebaseAttempts.size > 0 ? { failedAutoRebaseAttemptKeys: [...failedAutoRebaseAttempts] } : {}), ...(failedAutoRebaseRecordsByAttemptKey.size > 0 ? { failedAutoRebaseRecords: [...failedAutoRebaseRecordsByAttemptKey].map(([attemptKey, autoRebase]) => ({ attemptKey, autoRebase })) } : {}) }));
+    await dependencies.writeState?.(core.MyPrsLaneState.parse({ keepMergeableKeys: [...keepMergeableKeys], keepMergeableAttemptKeys: [...keepMergeableAttemptKeys], mergeQueueKeys, keepMergeablePushedHeadKeys: [...keepMergeablePushedHeadKeys], keepMergeableAttempts: [...keepMergeableAttemptsByKey.values()], ...(failedAutoRebaseAttempts.size > 0 ? { failedAutoRebaseAttemptKeys: [...failedAutoRebaseAttempts] } : {}), ...(failedAutoRebaseRecordsByAttemptKey.size > 0 ? { failedAutoRebaseRecords: [...failedAutoRebaseRecordsByAttemptKey].map(([attemptKey, autoRebase]) => ({ attemptKey, autoRebase })) } : {}), ...(stageSinceByKey.size > 0 ? { stageSince: [...stageSinceByKey.values()] } : {}) }));
   }
 
   const loop = createTickLoop({
@@ -153,22 +160,16 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
   async function runTick() {
     await loadState();
     if (loop.isStopped()) return { failed: false };
-    if (!hasLookedUpViewer) {
-      const viewerRead = await store.requestViewer('no-wait');
-      if (viewerRead.isRateLimited) return { failed: true, retryAfterMs: viewerRead.waitMs };
-      viewer = viewerRead.value;
-      if (loop.isStopped()) return { failed: false };
-      if (viewer === null) {
-        pollingError = 'Could not look up your GitHub account.';
-        return failedOutcome(pollingError);
-      }
-      hasLookedUpViewer = true;
-    }
-    registerWatches();
     const timestamp = now();
-    const snapshot = readStore();
+    const feedError = watcherFeedError('My pull requests has no pull request list', feedSilenceMs(), intervalMinutes * 60000);
+    const snapshot = readCandidates();
     if (snapshot.error) return failedOutcome(snapshot.error);
-    if (!snapshot.isLoaded) return { failed: false };
+    if (!snapshot.isLoaded) {
+      pollingError = feedError;
+      publishStatus();
+      return { failed: false };
+    }
+    viewer = snapshot.viewer;
     const items = snapshot.items.map(myPrFromGithubPr);
     const prs: MyPr[] = [];
     failedAutoRebaseAttempts = core.prunedFailedAutoRebaseAttempts(failedAutoRebaseAttempts, items, failedAutoRebaseRecordsByAttemptKey, timestamp);
@@ -204,14 +205,14 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
     for (const key of [...autoRebaseByKey.keys()]) {
       if (!listedKeys.has(key)) autoRebaseByKey.delete(key);
     }
-    previousPrs = core.sortedMyPrs(prs, timestamp);
+    previousPrs = stampStageClock(core.sortedMyPrs(prs, timestamp), timestamp, snapshot.isComplete);
     pruneMergeFailures(timestamp);
     if (snapshot.isComplete) pruneKeepMergeableState(snapshot.returnedCount, snapshot.totalCount);
     if (isMergeQueueEnabled) mergeQueueKeys = core.prunedMergeQueueKeys({ mergeQueueKeys, prs, returnedCount: snapshot.returnedCount, totalCount: snapshot.totalCount, isComplete: snapshot.isComplete });
     previousPrs = withOperatorFlags(previousPrs);
     cancelFixes(core.keepMergeableFixesToCancel(fixControllersByKey.keys(), keepMergeableKeys, previousPrs));
     previousTruncatedNote = core.truncatedSearchNote(snapshot.returnedCount, snapshot.totalCount);
-    pollingError = null;
+    pollingError = feedError;
     await mergeQueuedPrs(rebasedThisTickKeys);
     if (loop.isStopped()) return { failed: false };
     await loop.persist();
@@ -400,7 +401,7 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
 
   async function stop(): Promise<void> {
     shutdownController.abort();
-    for (const name of watchNames) store.unregisterWatch(name);
+    store.setWatchedKeys(core.MY_PRS_HELD_WATCH_OWNER, []);
     await loop.stop();
     await drainPending(Promise.allSettled([...pendingFixes]));
   }
@@ -421,13 +422,21 @@ export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
 
   async function refresh() {
     if (loop.isStopped()) return { ok: false, error: 'Reviews polling is stopped.' };
-    registerWatches();
     return loop.refresh(async () => {
-      const refreshed = await store.refreshWatches(watchNames);
+      const refreshed = await store.refreshWatches([]);
       rebuild();
       return refreshed;
     });
   }
 
-  return { start, stop, tick: loop.tick, refresh, rebuild, setKeepMergeable, setMergeWhenReady };
+  function acceptCandidates(searched: MyPrsCandidatesPayload): void {
+    if (isOlderObservation(searched, acceptedCandidates)) return;
+    acceptedCandidates = searched;
+    if (loop.isStopped()) return;
+    store.setWatchedKeys(core.MY_PRS_HELD_WATCH_OWNER, [...searched.open, ...searched.merged].map(comparablePrKey));
+    rebuild();
+    if (hasLoadedState && !loop.isStopped()) loop.tickSoon();
+  }
+
+  return { start, stop, tick: loop.tick, refresh, rebuild, acceptCandidates, setKeepMergeable, setMergeWhenReady };
 }

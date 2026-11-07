@@ -5,7 +5,7 @@ import { createPressable } from './ui/pressable.ts';
 import { describeOwnership } from './focus-view/attention-core.ts';
 import { paintCardOwnership, remoteWorkspaceText } from './session-card/card-dom.ts';
 import { attentionTally, sessionName, sessionUIs } from './session-card/card-registry.ts';
-import { CLOSING_ROW_STATE, SESSION_CLOSE_UNDO_WINDOW_MS } from './session-actions.ts';
+import { CLOSING_ROW_STATE, SESSION_CLOSE_UNDO_WINDOW_MS, pendingCloseStartedAt } from './session-actions.ts';
 import { paintStatusIcon } from './status-icon.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { SHELL_AGENT_ID } from './session-card/agent-core.ts';
@@ -16,6 +16,8 @@ import { createSignal, paintSignalLine } from './signal.ts';
 import { CLOSE_ICON_PATH, CLOUD_ICON_PATH, createLineIcon } from './svg-dom.ts';
 import { createPrStatusIcon } from './github/pr-status-icon.ts';
 import type { ActivatableSignal } from './signal.ts';
+import { paintAgentMark } from './session-card/agent-mark.ts';
+import { unseenManagerAnswersFor } from './session-card/card-problems.ts';
 
 export type SessionRowRefs = ReturnType<typeof buildSessionRow>['refs'];
 type SessionRowSignalSource = (sessionId: string) => ActivatableSignal[];
@@ -91,7 +93,7 @@ export function buildSessionRow(extraClassName = '') {
   const row = createPressable(`session-row ${extraClassName}`.trim());
   row.innerHTML = '<span class="session-row-glyph" aria-hidden="true"></span>'
     + '<span class="session-row-main">'
-    + '<span class="session-row-title"><span class="session-row-name"></span><span class="session-row-cloud" hidden></span></span>'
+    + '<span class="session-row-title"><span class="agent-mark session-row-agent" aria-hidden="true" hidden></span><span class="session-row-name"></span><span class="session-row-cloud" hidden></span></span>'
     + '<span class="session-row-task" hidden></span>'
     + '<span class="session-row-ownership" hidden></span>'
     + '<span class="session-row-meta">'
@@ -107,6 +109,7 @@ export function buildSessionRow(extraClassName = '') {
     label: query(row, '.session-row-label'),
     ownership: query(row, '.session-row-ownership'),
     name: query(row, '.session-row-name'),
+    agent: query(row, '.session-row-agent'),
     cloud: query(row, '.session-row-cloud'),
     task: query(row, '.session-row-task'),
     signals: query(row, '.session-row-signals'),
@@ -128,9 +131,26 @@ export function wrapSessionRow(row: HTMLElement, onRemove: () => void, onUndoRem
   } });
   const closeCountdown = el('span', 'session-row-close-countdown');
   closeCountdown.setAttribute('aria-hidden', 'true');
-  closeCountdown.style.animationDuration = `${SESSION_CLOSE_UNDO_WINDOW_MS}ms`;
   item.append(row, removeButton, undoButton, closeCountdown);
   return { item, removeButton };
+}
+
+const closeDrainByCountdown = new WeakMap<HTMLElement, Animation>();
+
+function paintCloseCountdown(row: HTMLElement, closeStartedAt: number | null) {
+  const item = row.closest<HTMLElement>('.session-row-item');
+  if (!item) return;
+  item.toggleAttribute('data-closing', closeStartedAt !== null);
+  const countdown = item.querySelector<HTMLElement>(':scope > .session-row-close-countdown');
+  if (!countdown) return;
+  const drain = closeDrainByCountdown.get(countdown);
+  if (drain && drain.startTime === closeStartedAt) return;
+  drain?.cancel();
+  closeDrainByCountdown.delete(countdown);
+  if (closeStartedAt === null) return;
+  const pinnedDrain = countdown.animate([{ transform: 'scaleX(1)' }, { transform: 'scaleX(0)' }], { duration: SESSION_CLOSE_UNDO_WINDOW_MS, fill: 'forwards' });
+  pinnedDrain.startTime = closeStartedAt;
+  closeDrainByCountdown.set(countdown, pinnedDrain);
 }
 
 export function paintSessionRowStatus(
@@ -221,8 +241,9 @@ export function paintSessionRow(
   { ui, state, name, mergeStatus, attentionPosition }: { ui: SessionUi; state: string; name: string; mergeStatus: string; attentionPosition: number | null },
 ) {
   const statusLabel = paintSessionRowMark(row, refs, ui, state);
-  row.closest<HTMLElement>('.session-row-item')?.toggleAttribute('data-closing', state === CLOSING_ROW_STATE);
+  paintCloseCountdown(row, state === CLOSING_ROW_STATE && row.dataset.id !== undefined ? pendingCloseStartedAt(row.dataset.id) : null);
   writeTextIfChanged(refs.name, name);
+  paintAgentMark(refs.agent, ui.agent ?? null);
   const cloudText = paintSessionRowCloud(refs.cloud, ui.card.dataset.remoteWorkspace);
   writeTextIfChanged(refs.task, ui.taskTitle ?? '');
   writeHiddenIfChanged(refs.task, !ui.taskTitle || ui.taskTitle === name);
@@ -232,7 +253,9 @@ export function paintSessionRow(
   writeTextIfChanged(refs.elapsed, sessionElapsedText(ui));
   const ownershipText = paintSessionRowOwnership(row, refs, ui);
   paintSessionRowAttentionTab(row, refs.attentionTab, attentionPosition);
-  const accessibleLabel = [name, cloudText, ui.taskTitle, statusLabel, ownershipText, attentionPositionText(attentionPosition)].filter(Boolean).join(', ');
+  const hasUnseenAnswer = row.dataset.id !== undefined && unseenManagerAnswersFor(row.dataset.id).length > 0;
+  row.toggleAttribute('data-manager-answered', hasUnseenAnswer);
+  const accessibleLabel = [name, cloudText, ui.taskTitle, statusLabel, ownershipText, attentionPositionText(attentionPosition), hasUnseenAnswer ? 'answered for you' : ''].filter(Boolean).join(', ');
   writeAttributeIfChanged(row, 'aria-label', accessibleLabel);
   return statusLabel;
 }

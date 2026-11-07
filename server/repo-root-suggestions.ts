@@ -10,7 +10,7 @@ function hasGitEntry(directory: string): Promise<boolean> {
 
 async function countGitRepoChildren(folder: string): Promise<number> {
   const entries = await fs.promises.readdir(folder, { withFileTypes: true });
-  const childDirectories = entries.filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'));
+  const childDirectories = entries.filter((entry) => (entry.isDirectory() || entry.isSymbolicLink()) && !entry.name.startsWith('.'));
   const gitChecks = await Promise.all(childDirectories.map((entry) => hasGitEntry(path.join(folder, entry.name))));
   return gitChecks.filter(Boolean).length;
 }

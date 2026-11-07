@@ -1,8 +1,10 @@
 import { isLoopbackHostname } from "../../shared/loopback-hosts.ts";
+import { QUESTION_TOOL_HOLD_HOOK_EVENT, QUESTION_TOOL_HOLD_TIMEOUT_MS } from "../../shared/contracts/question-manager.ts";
 const HOOK_URL_ENV = "GLIMMERVOID_HOOK_URL";
 
 const MAX_PAYLOAD_BYTES = 65536;
 const MAX_RESPONSE_BYTES = 65536;
+const POST_TIMEOUT_MS = 1500;
 
 
 const EVENT_RE = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
@@ -11,6 +13,8 @@ const HOOK_PATH_PREFIX = "/hook/";
 interface RelayPostVerdict {
   post: boolean;
   url: string | null;
+  event: string | null;
+  postTimeoutMs: number;
   reason: string;
 }
 
@@ -47,6 +51,10 @@ function resolveHookTarget(
   return { url: target.toString(), reason: "ok" };
 }
 
+function refusedPost(reason: string): RelayPostVerdict {
+  return { post: false, url: null, event: null, postTimeoutMs: POST_TIMEOUT_MS, reason };
+}
+
 function decideRelayPost(
   { env = {}, event = null, payloadBytes = 0 }: {
     env?: Record<string, string | undefined>;
@@ -55,20 +63,22 @@ function decideRelayPost(
   } = {},
 ): RelayPostVerdict {
   const baseUrl = readHookUrl(env);
-  if (!baseUrl) return { post: false, url: null, reason: "no-hook-url" };
+  if (!baseUrl) return refusedPost("no-hook-url");
   const name = normalizeEvent(event);
-  if (!name) return { post: false, url: null, reason: "bad-event" };
-  if (!Number.isFinite(payloadBytes) || payloadBytes < 0) return { post: false, url: null, reason: "bad-payload" };
-  if (payloadBytes > MAX_PAYLOAD_BYTES) return { post: false, url: null, reason: "payload-too-large" };
+  if (!name) return refusedPost("bad-event");
+  if (!Number.isFinite(payloadBytes) || payloadBytes < 0) return refusedPost("bad-payload");
+  if (payloadBytes > MAX_PAYLOAD_BYTES) return refusedPost("payload-too-large");
   const target = resolveHookTarget(baseUrl, name);
-  if (!target.url) return { post: false, url: null, reason: target.reason };
-  return { post: true, url: target.url, reason: "ok" };
+  if (!target.url) return refusedPost(target.reason);
+  const postTimeoutMs = name === QUESTION_TOOL_HOLD_HOOK_EVENT ? QUESTION_TOOL_HOLD_TIMEOUT_MS : POST_TIMEOUT_MS;
+  return { post: true, url: target.url, event: name, postTimeoutMs, reason: "ok" };
 }
 
 export {
   HOOK_URL_ENV,
   MAX_PAYLOAD_BYTES,
   MAX_RESPONSE_BYTES,
+  POST_TIMEOUT_MS,
   resolveHookTarget,
   decideRelayPost,
 };

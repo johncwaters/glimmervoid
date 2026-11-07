@@ -10,13 +10,18 @@ import { runAgentApiCli } from '../server/agent-api-cli.ts';
 import { createAgentIngressApp } from '../server/backend/backend-http.ts';
 import { DEFAULT_CONFIG } from '../server/config-store.ts';
 import { createSessionDocsWiring } from '../server/session/session-docs-wiring.ts';
+import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
 import { createSpawnGate } from '../server/spawn-gate.ts';
 import type { Session } from '../session/sessions.ts';
 import { AGENT_URL_ENV, AgentReadReply } from '../shared/contracts/session.ts';
 import { STATES } from '../shared/states.ts';
 import { capturingPty } from './helpers/fake-pty.ts';
 import { recordingSessionFactory } from './helpers/fake-session.ts';
+import { createQuestionManager, createQuestionManagerLane } from '../server/question-manager/question-manager.ts';
+import type { LaneSpawn } from '../server/lanes/lane-spawn.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
+import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
+import type { GlimmervoidConfig } from '../server/config-store.ts';
 
 test('a parent reads and answers held child questions through the agent API or releases them to the operator', async (context) => {
   const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-question-relay-'));
@@ -156,6 +161,168 @@ test('a parent reads and answers held child questions through the agent API or r
     for (const session of factory.created) session.destroy();
     server.closeAllConnections();
     await closeServer(server);
+    fs.rmSync(projectPath, { recursive: true, force: true });
+  }
+});
+
+test('the question manager answers a covered question only in a session switched on for it and leaves risky questions to the operator', async () => {
+  const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-question-manager-'));
+  const settings = { rules: [{ name: 'store choice', question: 'store', pick: ['SQLite'] }] };
+  const manager = createQuestionManager({ getSettings: () => settings });
+  const factory = recordingSessionFactory();
+  const session = factory.makeSession({ id: 'managed', name: 'managed', path: projectPath, questionManager: manager.forSession({ projectPath, isOn: true }) });
+  const switchedOff = factory.makeSession({ id: 'switched-off', name: 'switched-off', path: projectPath, questionManager: manager.forSession({ projectPath, isOn: false }) });
+  const codex = factory.makeSession({ id: 'codex', name: 'codex', path: projectPath, agent: 'codex', questionManager: manager.forSession({ projectPath, isOn: true }) });
+  const askPayload = (question: string) => ({ tool_name: 'AskUserQuestion', tool_input: { questions: [{ question, options: [{ label: 'sqlite' }, { label: 'postgres' }] }] } });
+  const questionStatus = (question: string) => ({ signal: 'awaiting-input', source: 'hook' as const, ts: Date.now(), promptKind: 'permission', promptToolName: 'AskUserQuestion', event: 'PermissionRequest', payload: askPayload(question) });
+  const answeredEvents: unknown[] = [];
+  session.on('manager-decision', (detail) => answeredEvents.push(detail));
+  try {
+    session.transition('user_start');
+    session.transition('spawn_success', { spawnCwdExists: true });
+    session.transition('first_output');
+    session.transition('new_output');
+    const runningState = session.state;
+    session.ingestHookSignal(questionStatus('Which store?'));
+    const answered = await session.holdClaudePermission(askPayload('Which store?'), new AbortController().signal);
+    assert.deepEqual(answered?.hookSpecificOutput.decision, {
+      behavior: 'allow',
+      updatedInput: { questions: askPayload('Which store?').tool_input.questions, answers: { 'Which store?': 'sqlite' } },
+    });
+    assert.equal(session.state, runningState);
+    assert.equal(answeredEvents.length, 1);
+    const managerEntries = () => session.auditLog.filter((entry) => entry.kind === 'question-manager');
+    assert.deepEqual(managerEntries().map((entry) => [entry.outcome, entry.rule]), [['answered', 'store choice']]);
+    session.ingestHookSignal(questionStatus('Delete the sqlite store?'));
+    assert.equal(await session.holdClaudePermission(askPayload('Delete the sqlite store?'), new AbortController().signal), null);
+    assert.equal(session.state, STATES.WAITING);
+    assert.match(String(managerEntries().at(-1)?.reason), /delete/i);
+    assert.equal(await switchedOff.holdClaudePermission(askPayload('Which store?'), new AbortController().signal), null);
+    const codexAsk = { tool_name: 'request_user_input', tool_input: { questions: [{ header: 'Store', id: 'store', question: 'Which store?', options: [{ label: 'sqlite', description: '' }, { label: 'postgres', description: '' }] }] } };
+    codex.transition('user_start');
+    codex.transition('spawn_success', { spawnCwdExists: true });
+    codex.transition('first_output');
+    codex.transition('new_output');
+    const codexRunningState = codex.state;
+    codex.ingestHookSignal({ signal: 'awaiting-input', source: 'hook', ts: Date.now(), promptKind: 'elicitation', event: 'pretooluse', payload: codexAsk });
+    const denied = await codex.holdQuestionTool(codexAsk, new AbortController().signal);
+    assert.equal(denied?.hookSpecificOutput.permissionDecision, 'deny');
+    assert.match(String(denied?.hookSpecificOutput.permissionDecisionReason), /Which store\?: sqlite/);
+    assert.equal(codex.state, codexRunningState);
+    assert.equal(session.holdQuestionTool(codexAsk, new AbortController().signal), null);
+  } finally {
+    for (const created of factory.created) created.destroy();
+    fs.rmSync(projectPath, { recursive: true, force: true });
+  }
+});
+
+test('the operator switches the question manager per session over the control channel, and the switch is saved with the session', async () => {
+  const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-question-manager-switch-'));
+  const settings = { rules: [{ name: 'store choice', question: 'store', pick: ['SQLite'] }] };
+  const manager = createQuestionManager({ getSettings: () => settings });
+  const factory = recordingSessionFactory();
+  const offeredPort = () => manager.forSession({ projectPath, isOn: false });
+  const session = factory.makeSession({ id: 'operator', name: 'operator', path: projectPath, questionManager: offeredPort() });
+  const lane = factory.makeSession({ id: 'lane', name: 'lane', path: projectPath, ephemeral: true, questionManager: offeredPort() });
+  const child = factory.makeSession({ id: 'child', name: 'child', path: projectPath, holdsQuestionsForParent: true, questionManager: offeredPort() });
+  const grok = factory.makeSession({ id: 'grok', name: 'grok', path: projectPath, agent: 'grok', questionManager: offeredPort() });
+  const config: GlimmervoidConfig = { projects: [{ id: 'operator', name: 'operator', path: projectPath }, { id: 'lane', name: 'lane', path: projectPath }] };
+  const statusFrames: Record<string, unknown>[] = [];
+  createSessionEventWiring({
+    configStore: { save: (mutate) => { mutate(config); return config; } }, config, recordLane: () => {},
+    usage: { refreshSessions: () => {}, nudgeSession: () => {} },
+    broadcastControl: (message) => { if (message.type === 'session-status') statusFrames.push(message); },
+    telegramChannel: { noteStateChange: () => {}, recheck: () => {} },
+    notificationManager: { acknowledge: () => {}, trigger: () => {}, noteOperatorActivity: () => {} },
+    attachSessionPrLink: () => {}, closeSessionDataClients: () => {},
+    logger: { error: () => {}, log: () => {}, warn: () => {} },
+  })(session);
+  const connection = connectControl<{ type: string; message?: string }>(createControlServer(controlDeps(config, { sessions: new Map(factory.created.map((created) => [created.id, created])) })));
+  const askPayload = { tool_name: 'AskUserQuestion', tool_input: { questions: [{ question: 'Which store?', options: [{ label: 'sqlite' }, { label: 'postgres' }] }] } };
+  const answerOf = async () => (await session.holdClaudePermission(askPayload, new AbortController().signal))?.hookSpecificOutput.decision.behavior ?? null;
+  try {
+    session.transition('user_start');
+    session.transition('spawn_success', { spawnCwdExists: true });
+    session.transition('first_output');
+    session.transition('new_output');
+    assert.equal(session.isQuestionManagerOn, false);
+    assert.equal(await answerOf(), null);
+    connection.send({ type: 'set-session-question-manager', id: 'operator', isOn: true });
+    assert.equal(session.isQuestionManagerOn, true);
+    assert.equal(config.projects[0].questionManagerOn, true);
+    assert.equal(await answerOf(), 'allow');
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(statusFrames.at(-1)?.isQuestionManagerOn, true);
+    connection.send({ type: 'set-session-question-manager', id: 'operator', isOn: false });
+    assert.equal('questionManagerOn' in config.projects[0], false);
+    assert.equal(await answerOf(), null);
+    for (const unoffered of [lane, child, grok]) {
+      assert.equal(unoffered.isQuestionManagerOn, null);
+      connection.send({ type: 'set-session-question-manager', id: unoffered.id, isOn: true });
+      assert.equal(connection.sent.at(-1)?.type, 'error');
+      assert.equal(unoffered.isQuestionManagerOn, null);
+    }
+    assert.equal('questionManagerOn' in config.projects[1], false);
+  } finally {
+    for (const created of factory.created) created.destroy();
+    fs.rmSync(projectPath, { recursive: true, force: true });
+  }
+});
+
+test('the manager lane answers from a plain-language rule only with exact labels and yields to the operator', async () => {
+  const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-question-manager-lane-'));
+  const settings = { rules: [{ name: 'readme length', question: 'README', pick: ['short'] }, 'Prefer the database the project already runs.'] };
+  const laneResults: unknown[] = [
+    { rule: 1, answers: [{ question: 'question-1', labels: ['POSTGRES'] }] },
+    { rule: 1, answers: [{ question: 'question-1', labels: ['whichever is faster'] }] },
+    { rule: 1, answers: [{ question: 'question-1', labels: ['sqlite'] }, { question: 'question-2', labels: ['long'] }] },
+  ];
+  const laneQuestionTexts: string[] = [];
+  const spawnLane: LaneSpawn = async ({ cwd, signal }) => {
+    laneQuestionTexts.push(fs.readFileSync(path.join(cwd, 'untrusted.json'), 'utf8'));
+    const laneResult = laneResults.shift();
+    if (laneResult === undefined) {
+      await new Promise((resolve) => signal?.addEventListener('abort', resolve, { once: true }));
+      return;
+    }
+    fs.writeFileSync(path.join(cwd, 'manager-result.json'), JSON.stringify(laneResult));
+  };
+  const managerLane = createQuestionManagerLane(spawnLane);
+  const manager = createQuestionManager({ getSettings: () => settings, getLane: () => managerLane });
+  const factory = recordingSessionFactory();
+  const session = factory.makeSession({ id: 'lane-managed', name: 'lane-managed', path: projectPath, questionManager: manager.forSession({ projectPath, isOn: true }) });
+  const askPayload = (question: string) => ({ tool_name: 'AskUserQuestion', tool_input: { questions: [{ question, options: [{ label: 'sqlite' }, { label: 'postgres' }] }] } });
+  const managerEntries = () => session.auditLog.filter((entry) => entry.kind === 'question-manager');
+  try {
+    const answered = await session.holdClaudePermission(askPayload('Which store?'), new AbortController().signal);
+    assert.deepEqual(answered?.hookSpecificOutput.decision, {
+      behavior: 'allow',
+      updatedInput: { questions: askPayload('Which store?').tool_input.questions, answers: { 'Which store?': 'postgres' } },
+    });
+    assert.match(laneQuestionTexts[0] ?? '', /Which store\?/);
+    assert.deepEqual(managerEntries().map((entry) => [entry.outcome, entry.by]), [['answered', 'manager']]);
+    assert.match(String(managerEntries()[0]?.rule), /^rule 1: Prefer the database/);
+    assert.equal(await session.holdClaudePermission(askPayload('Which cache?'), new AbortController().signal), null);
+    assert.match(String(managerEntries().at(-1)?.reason), /exact option labels/);
+    const readmeQuestion = { question: 'How long should the README be?', options: [{ label: 'short' }, { label: 'long' }] };
+    const mixedAsk = { tool_name: 'AskUserQuestion', tool_input: { questions: [readmeQuestion, ...askPayload('Which store?').tool_input.questions] } };
+    const mixed = await session.holdClaudePermission(mixedAsk, new AbortController().signal);
+    assert.deepEqual(mixed?.hookSpecificOutput.decision, {
+      behavior: 'allow',
+      updatedInput: { questions: mixedAsk.tool_input.questions, answers: { 'How long should the README be?': 'short', 'Which store?': 'sqlite' } },
+    });
+    assert.doesNotMatch(laneQuestionTexts[2] ?? '', /README/);
+    const heldUntilTyping = session.holdClaudePermission(askPayload('Which queue?'), new AbortController().signal);
+    await new Promise((resolve) => setImmediate(resolve));
+    session.noteOperatorInput('a');
+    assert.equal(await heldUntilTyping, null);
+    assert.match(String(managerEntries().at(-1)?.reason), /typed/);
+    const heldUntilPaste = session.holdClaudePermission(askPayload('Which broker?'), new AbortController().signal);
+    await new Promise((resolve) => setImmediate(resolve));
+    session.noteOperatorDraft();
+    assert.equal(await heldUntilPaste, null);
+  } finally {
+    for (const created of factory.created) created.destroy();
     fs.rmSync(projectPath, { recursive: true, force: true });
   }
 });

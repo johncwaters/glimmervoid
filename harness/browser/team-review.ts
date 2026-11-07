@@ -251,7 +251,7 @@ async function verifyPhoneDetailScreen(page: Page, status: TeamReviewStatus): Pr
   await page.locator('.pr-queue-row[data-review-key="Acme/app#1"]').click();
   assert.equal(await root.getAttribute('data-detail-open'), 'true');
   assert.equal(await pane.isVisible(), false);
-  assert.match(await root.locator('.review-queue-position').textContent() ?? '', /^2 of \d+ in Your turn$/);
+  assert.match(await root.locator('.review-queue-position').textContent() ?? '', /^2 of \d+ in Ready$/);
   const barBox = await root.locator('.pr-decision-bar').boundingBox();
   const navBox = await page.locator('.phone-nav').boundingBox();
   assert.ok(barBox && navBox && barBox.y + barBox.height <= navBox.y + 1);
@@ -328,22 +328,22 @@ async function verifyViewerThreadCounts(page: Page, snapshot: TeamReviewStatus):
   assert.doesNotMatch(await row.locator('.pr-queue-bottom').textContent() ?? '', /drafted|resolved/);
   assert.match(await row.getAttribute('aria-label') ?? '', /2 of 5 of your comments resolved/);
   const sectionHeading = () => row.evaluate((element) => element.closest('.pr-queue-section')?.querySelector('.pr-section-heading')?.textContent);
-  assert.match(await sectionHeading() ?? '', /Waiting on others/);
+  assert.match(await sectionHeading() ?? '', /Done/);
   await showQueue(page);
   await row.click();
   assert.equal(await threadsFact().textContent(), '2 of 5 of your comments resolved');
   const resolved = { ...review, viewerThreads: { total: 5, resolved: 5 } };
   await applyStatus(page, withDraft(resolved));
-  assert.doesNotMatch(await sectionHeading() ?? '', /Waiting on others/);
+  assert.doesNotMatch(await sectionHeading() ?? '', /Done/);
   assert.equal(await readRowMeaning(row), 'Comments resolved');
   assert.equal(await threadsFact().textContent(), 'All 5 of your comments resolved');
   assert.match(await row.getAttribute('aria-label') ?? '', /All 5 of your comments resolved/);
   await applyStatus(page, withDraft({ ...resolved, viewerThreads: { total: 5, resolved: 3 } }));
   assert.equal(await threadsFact().textContent(), '3 of 5 of your comments resolved');
   await applyStatus(page, withDraft({ ...resolved, reviewDecision: 'APPROVED', githubReviews: [{ login: 'me', state: 'APPROVED', commit: REVIEWED_HEAD, isViewer: true }] }));
-  assert.match(await sectionHeading() ?? '', /Waiting on others/);
+  assert.match(await sectionHeading() ?? '', /Done/);
   await applyStatus(page, withDraft({ ...resolved, status: 'posted', postedEvent: 'COMMENT', postedAt: Date.now() }));
-  assert.match(await sectionHeading() ?? '', /Your turn/);
+  assert.match(await sectionHeading() ?? '', /Ready/);
   assert.equal(await readRowMeaning(row), 'Comments resolved');
   await showQueue(page);
   await row.click();
@@ -504,7 +504,9 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
     await page.keyboard.press('c');
     assert.deepEqual(await pickedActions(), ['comment']);
     assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('pr-note-input')), true);
-    assert.match(await barStatus.textContent() ?? '', /^Comment selected\. (Cmd|Ctrl)\+Enter posts, Esc cancels\.$/);
+    assert.equal(await barStatus.textContent(), '');
+    assert.match(await page.locator('.pr-detail .pr-note [role="status"]').textContent() ?? '', /^Comment selected\. (Cmd|Ctrl)\+Enter posts, Esc cancels\.$/);
+    assert.match(await page.locator('.pr-detail .pr-note .pr-finding-keys').textContent() ?? '', /^(Cmd|Ctrl)\+Enter posts/);
     await page.keyboard.type('a');
     assert.deepEqual(await pickedActions(), ['comment']);
     assert.equal(await sentActionName(), undefined);
@@ -534,7 +536,7 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
       await replyToCapturedAction(page, true);
       assert.equal(await reviewRow(1).getAttribute('aria-current'), 'true');
       assert.equal(await barStatus.textContent(), '');
-      assert.match(await page.locator('.pr-queue-section', { has: reviewRow(unreviewed) }).locator('.pr-section-heading').textContent() ?? '', /Set aside/);
+      assert.match(await page.locator('.pr-queue-section', { has: reviewRow(unreviewed) }).locator('.pr-section-heading').textContent() ?? '', /Parked/);
     }
     const postReceipts: Partial<Record<TeamReviewAction, string>> = { approve: 'Posted to Acme/app#1: Approved on GitHub with 1 finding.', comment: 'Posted to Acme/app#1: Commented on GitHub with 1 finding.', 'request-changes': 'Posted to Acme/app#1: Requested changes on GitHub with 1 finding.' };
     for (const action of ['approve', 'comment', 'request-changes', 'discard', 'requeue'] as const) {
@@ -598,7 +600,7 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
     await applyStatus(page, withDrafts([createDraft(1, { verdict: 'BLOCKED', summary: 'Re-reviewed' }), createDraft(2), createDraft(3)]));
     assert.equal(await page.locator('.pr-detail .pr-verdict-recommendation').count(), 0);
     const decisionButtons = await page.locator('.pr-detail .pr-decision-bar > button').evaluateAll((buttons) => buttons.map((button) => [button.getAttribute('data-action'), button.getAttribute('data-variant')]));
-    assert.deepEqual(decisionButtons, [['approve', 'secondary'], ['comment', 'secondary'], ['request-changes', 'primary'], ['requeue', 'secondary'], ['discard', 'secondary']]);
+    assert.deepEqual(decisionButtons, [['approve', 'secondary'], ['comment', 'secondary'], ['request-changes', 'primary'], ['requeue', 'quiet'], ['discard', 'quiet']]);
     assert.equal(await page.locator('.pr-detail [data-action="open-session"]').getAttribute('data-variant'), 'secondary');
     assert.equal(await page.locator('.pr-detail button[data-action="approve"]').isDisabled(), false);
     await applyStatus(page, withDrafts([createDraft(4, { status: 'posted', threads: [{
@@ -660,6 +662,341 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
     await showQueue(page);
     await reviewRow(1).click();
   }
+}
+
+async function storedReviewsLayout(page: Page): Promise<unknown> {
+  return page.evaluate(() => (JSON.parse(localStorage.getItem('glimmervoid-ui-prefs') ?? '{}') as { reviewsLayout?: unknown }).reviewsLayout);
+}
+
+async function verifyClosedBoardDetailIgnoresActionKeys(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const captureWindow = window as ActionCaptureWindow;
+    const originalSend = WebSocket.prototype.send;
+    captureWindow.teamReviewOriginalSend = originalSend;
+    WebSocket.prototype.send = function(message) {
+      if (typeof message === 'string' && (JSON.parse(message) as { type?: string }).type === 'team-review-action') {
+        document.documentElement.dataset.teamReviewAction = message;
+        return;
+      }
+      originalSend.call(this, message);
+    };
+  });
+  try {
+    await page.keyboard.press('a');
+    await page.keyboard.press('Control+Enter');
+    assert.equal(await page.evaluate(() => document.documentElement.dataset.teamReviewAction), undefined);
+    assert.equal(await page.locator('.review-queue').getAttribute('data-detail-open'), 'false');
+  } finally {
+    await page.evaluate(() => {
+      const captureWindow = window as ActionCaptureWindow;
+      if (captureWindow.teamReviewOriginalSend) WebSocket.prototype.send = captureWindow.teamReviewOriginalSend;
+      delete captureWindow.teamReviewOriginalSend;
+      delete document.documentElement.dataset.teamReviewAction;
+    });
+  }
+}
+
+async function verifyAgeTones(page: Page): Promise<void> {
+  const tones = await page.locator('.review-board-column').evaluateAll((columns) => columns.map((column) => ({
+    group: column.getAttribute('data-group'),
+    tones: [...column.querySelectorAll('.pr-queue-row')].map((row) => ({ tone: row.getAttribute('data-age-tone'), hasAge: /\d/.test(row.querySelector('.pr-queue-elapsed')?.textContent ?? '') })),
+  })));
+  for (const { group, tones: rowTones } of tones) {
+    if (group === 'done' || group === 'parked') {
+      assert.ok(rowTones.every(({ tone }) => tone === null), `${group} cards carry no age tone`);
+      continue;
+    }
+    assert.ok(rowTones.every(({ tone, hasAge }) => !hasAge || tone === 'fresh' || tone === 'aging' || tone === 'old'), `${group} cards with an age each carry a tone: ${JSON.stringify(rowTones)}`);
+  }
+  assert.ok(tones.some(({ tones: rowTones }) => rowTones.some(({ tone }) => tone !== null)), JSON.stringify(tones));
+}
+
+async function showPhoneScreen(page: Page, screen: string): Promise<void> {
+  const navItem = page.locator(`.phone-nav > .phone-nav-item[data-screen="${screen}"]`);
+  if (await navItem.isVisible()) {
+    await navItem.click();
+    return;
+  }
+  await page.locator('.phone-nav > .phone-nav-item', { hasText: 'More' }).click();
+  await page.locator(`.phone-nav-more-menu [data-screen="${screen}"]`).click();
+}
+
+async function writeUiPrefs(page: Page, patch: Record<string, unknown>): Promise<void> {
+  await page.evaluate((prefsPatch) => {
+    const prefs = JSON.parse(localStorage.getItem('glimmervoid-ui-prefs') ?? '{}') as Record<string, unknown>;
+    localStorage.setItem('glimmervoid-ui-prefs', JSON.stringify({ ...prefs, ...prefsPatch }));
+  }, patch);
+}
+
+const REVIEWING_NOW_COUNT = '.pr-queue-section[data-group="now"] .review-group-count';
+
+async function waitForText(page: Page, selector: string, text: string | null): Promise<void> {
+  await page.waitForFunction(({ target, expected }) => (document.querySelector(target)?.textContent?.trim() ?? null) === expected, { target: selector, expected: text });
+}
+
+async function verifyPhoneReviewingNowAfterReturn(page: Page): Promise<void> {
+  assert.equal(await page.locator('.pr-queue-section[data-group="now"]').count(), 0);
+  assert.equal((await page.locator('.pr-queue-section[data-group="turn"] .review-group-heading > span').first().textContent())?.trim(), 'Ready');
+  await showPhoneScreen(page, 'board');
+  await writeUiPrefs(page, { reviewsTurnLimit: 1, reviewsPulledKeys: ['team:Acme/app#1', 'team:Acme/app#2'] });
+  await showPhoneScreen(page, 'prs');
+  await waitForText(page, REVIEWING_NOW_COUNT, '2 / 1');
+  assert.equal(await page.locator(REVIEWING_NOW_COUNT).getAttribute('data-over'), 'true');
+  await writeUiPrefs(page, { reviewsTurnLimit: 5, reviewsPulledKeys: [] });
+  await showPhoneScreen(page, 'board');
+  await showPhoneScreen(page, 'prs');
+  await waitForText(page, REVIEWING_NOW_COUNT, null);
+}
+
+async function dragCardBetweenColumns(page: Page, reviewKey: string, targetGroupId: string): Promise<void> {
+  await page.evaluate(({ cardKey, groupId }) => {
+    const card = document.querySelector(`.review-board .pr-queue-row[data-review-key="${cardKey}"]`);
+    const column = document.querySelector(`.review-board-column[data-group="${groupId}"]`);
+    if (!card || !column) throw new Error('Missing drag card or target column');
+    const dataTransfer = new DataTransfer();
+    const fire = (target: Element, type: string) => target.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer }));
+    fire(card, 'dragstart');
+    if (fire(column, 'dragover')) throw new Error('Target column refused the drag');
+    fire(column, 'drop');
+  }, { cardKey: reviewKey, groupId: targetGroupId });
+}
+
+async function selectedBoardKey(page: Page): Promise<string | null> {
+  return page.locator('.review-board [data-queue-key][aria-current="true"]').getAttribute('data-queue-key');
+}
+
+async function firstBoardKeyIn(page: Page, groupId: string, rowIndex: number): Promise<string | null> {
+  return page.locator(`.review-board-column[data-group="${groupId}"] [data-queue-key]`).nth(rowIndex).getAttribute('data-queue-key');
+}
+
+async function verifyColumnSteps(page: Page): Promise<void> {
+  await page.locator('.review-board .pr-queue-row[data-review-key="Acme/app#1"]').click();
+  await page.locator('.review-board .pr-queue-row[data-review-key="Acme/app#1"]').focus();
+  const readyRowIndex = await page.locator('.review-board-column[data-group="turn"] .pr-queue-row').evaluateAll((rows) => rows.findIndex((row) => row.getAttribute('data-review-key') === 'Acme/app#1'));
+  assert.ok(readyRowIndex > 0);
+  await page.keyboard.press('h');
+  assert.equal(await selectedBoardKey(page), await firstBoardKeyIn(page, 'working', 0));
+  await page.keyboard.press('l');
+  assert.equal(await selectedBoardKey(page), await firstBoardKeyIn(page, 'turn', 0));
+  await page.keyboard.press('ArrowRight');
+  assert.equal(await selectedBoardKey(page), await firstBoardKeyIn(page, 'waiting', 0));
+  await page.keyboard.press('ArrowLeft');
+  assert.equal(await selectedBoardKey(page), await firstBoardKeyIn(page, 'turn', 0));
+  await page.locator('.review-queue select').first().focus();
+  await page.keyboard.press('ArrowRight');
+  assert.equal(await selectedBoardKey(page), await firstBoardKeyIn(page, 'turn', 0));
+  await page.locator('.review-board .pr-queue-row[data-review-key="Acme/app#1"]').click();
+}
+
+async function verifyReviewingNowPull(page: Page): Promise<void> {
+  const nowColumn = page.locator('.review-board-column[data-group="now"]');
+  assert.equal((await nowColumn.locator('.review-board-drop-hint').textContent())?.trim(), 'Drag a Ready card here, or select one and press M.');
+  await dragCardBetweenColumns(page, 'Acme/app#1', 'now');
+  await nowColumn.locator('.pr-queue-row[data-review-key="Acme/app#1"]').waitFor({ state: 'visible' });
+  assert.equal((await nowColumn.locator('.review-group-count').textContent())?.trim(), '1 / 5');
+  assert.deepEqual(await page.evaluate(() => (JSON.parse(localStorage.getItem('glimmervoid-ui-prefs') ?? '{}') as { reviewsPulledKeys?: unknown }).reviewsPulledKeys), ['team:Acme/app#1']);
+  await writeUiPrefs(page, { reviewsTurnLimit: 1 });
+  await page.getByRole('button', { name: 'List', exact: true }).click();
+  await waitForText(page, REVIEWING_NOW_COUNT, '1 / 1');
+  const otherReadyRow = page.locator('.pr-queue-section[data-group="turn"] .pr-queue-row').first();
+  const otherReadyKey = await otherReadyRow.getAttribute('data-queue-key');
+  await otherReadyRow.click();
+  await page.keyboard.press('m');
+  assert.equal((await page.locator(REVIEWING_NOW_COUNT).textContent())?.trim(), '1 / 1');
+  assert.equal(await page.locator(`.pr-queue-section[data-group="turn"] .pr-queue-row[data-queue-key="${otherReadyKey}"]`).count(), 1);
+  await page.locator('.pr-queue-section[data-group="now"] .pr-queue-row[data-review-key="Acme/app#1"]').click();
+  await page.keyboard.press('m');
+  await waitForText(page, REVIEWING_NOW_COUNT, null);
+  await writeUiPrefs(page, { reviewsTurnLimit: 5 });
+}
+
+const BOARD_RESERVE_PX = 320;
+
+async function boardDetailGeometry(page: Page) {
+  return page.locator('.review-queue').evaluate((queue) => {
+    const board = queue.querySelector('.review-board');
+    const boardPane = queue.querySelector('.pr-queue-pane');
+    const detail = queue.querySelector('.pr-detail-host');
+    const separator = queue.querySelector('.pr-detail-resizer');
+    const close = queue.querySelector('[data-action="close-review-detail"]');
+    if (!board || !boardPane || !detail || !separator || !close) throw new Error('Missing board detail parts');
+    return {
+      boardWidth: boardPane.getBoundingClientRect().width,
+      boardScrolls: board.scrollWidth > board.clientWidth,
+      detailWidth: Math.round(detail.getBoundingClientRect().width),
+      closeRight: close.getBoundingClientRect().right,
+      viewportWidth: window.innerWidth,
+      valueNow: separator.getAttribute('aria-valuenow'),
+      storedWidth: (JSON.parse(localStorage.getItem('glimmervoid-ui-prefs') ?? '{}') as { reviewsBoardDetailWidth?: unknown }).reviewsBoardDetailWidth,
+    };
+  });
+}
+
+async function waitForDetailWidthSettled(page: Page): Promise<void> {
+  await page.waitForFunction(() => {
+    const detailWidth = document.querySelector('.review-queue .pr-detail-host')?.getBoundingClientRect().width ?? 0;
+    const valueNow = Number(document.querySelector('.review-queue .pr-detail-resizer')?.getAttribute('aria-valuenow'));
+    return Math.abs(detailWidth - valueNow) <= 1;
+  });
+}
+
+async function verifyHeldDragMovesDetail(page: Page): Promise<void> {
+  const separatorBox = await page.locator('.pr-detail-resizer').boundingBox();
+  if (!separatorBox) throw new Error('Missing detail separator');
+  const widthBeforeDrag = await page.locator('.pr-detail-host').evaluate((detail) => Math.round(detail.getBoundingClientRect().width));
+  const separatorCenterY = separatorBox.y + separatorBox.height / 2;
+  await page.mouse.move(separatorBox.x + separatorBox.width / 2, separatorCenterY);
+  await page.mouse.down();
+  await page.mouse.move(separatorBox.x + separatorBox.width / 2 + 40, separatorCenterY, { steps: 5 });
+  await page.waitForFunction((startWidth) => Math.round(document.querySelector('.review-queue .pr-detail-host')?.getBoundingClientRect().width ?? 0) <= startWidth - 39, widthBeforeDrag);
+  await page.mouse.up();
+}
+
+async function verifyWideDetailKeepsBoard(page: Page): Promise<void> {
+  await page.locator('.pr-detail-host').waitFor({ state: 'visible' });
+  await page.waitForFunction(() => document.querySelector('.pr-detail-resizer')?.hasAttribute('aria-valuenow') === true);
+  const separator = page.locator('.pr-detail-resizer');
+  await separator.focus();
+  for (let press = 0; press < 50; press += 1) await page.keyboard.press('ArrowLeft');
+  await waitForDetailWidthSettled(page);
+  const widest = await boardDetailGeometry(page);
+  assert.ok(widest.boardWidth >= BOARD_RESERVE_PX - 1, JSON.stringify(widest));
+  assert.ok(widest.closeRight <= widest.viewportWidth, JSON.stringify(widest));
+  assert.equal(Number(widest.valueNow), widest.detailWidth, JSON.stringify(widest));
+  assert.ok(widest.boardScrolls, JSON.stringify(widest));
+  const originalViewport = page.viewportSize();
+  if (!originalViewport) throw new Error('Missing viewport');
+  await page.evaluate(() => {
+    const prefs = JSON.parse(localStorage.getItem('glimmervoid-ui-prefs') ?? '{}') as Record<string, unknown>;
+    localStorage.setItem('glimmervoid-ui-prefs', JSON.stringify({ ...prefs, reviewsBoardDetailWidth: 960 }));
+  });
+  await page.setViewportSize({ width: 1600, height: originalViewport.height });
+  await page.waitForFunction(() => Math.round(document.querySelector('.pr-detail-host')?.getBoundingClientRect().width ?? 0) === 960);
+  await page.setViewportSize(originalViewport);
+  await page.waitForFunction((reservePx) => {
+    const boardPane = document.querySelector('.review-queue .pr-queue-pane');
+    return boardPane !== null && boardPane.getBoundingClientRect().width >= reservePx - 1;
+  }, BOARD_RESERVE_PX);
+  await waitForDetailWidthSettled(page);
+  const narrowed = await boardDetailGeometry(page);
+  assert.equal(narrowed.storedWidth, 960, JSON.stringify(narrowed));
+  assert.ok(narrowed.closeRight <= narrowed.viewportWidth, JSON.stringify(narrowed));
+  await verifyHeldDragMovesDetail(page);
+  await separator.dblclick();
+}
+
+const MIN_BOARD_COLUMN_PX = 200;
+const MIN_CARD_TITLE_PX = 60;
+
+async function verifyBoardReadable(page: Page): Promise<void> {
+  await waitForDetailWidthSettled(page).catch(() => undefined);
+  const readability = await page.locator('.review-board').evaluate((board) => {
+    const openColumns = [...board.querySelectorAll('.review-board-column:not([data-collapsed="true"], [data-slim="true"])')];
+    const turnTitle = board.querySelector('.review-board-column[data-group="turn"] .review-board-column-title');
+    if (!(turnTitle instanceof HTMLElement)) throw new Error('Missing Ready title');
+    const allColumns = [...board.querySelectorAll('.review-board-column')];
+    const openHeadings = openColumns.map((column) => column.querySelector('.review-board-column-heading'));
+    const turnKeys = board.querySelector('.review-board-column[data-group="turn"] .shortcut-keys');
+    const turnKeysStyle = turnKeys ? getComputedStyle(turnKeys) : null;
+    return {
+      columnHeights: allColumns.map((column) => Math.round(column.getBoundingClientRect().height)),
+      headingHeights: openHeadings.map((heading) => Math.round(heading?.getBoundingClientRect().height ?? 0)),
+      turnKeysChrome: turnKeysStyle ? `${turnKeysStyle.borderTopWidth} ${turnKeysStyle.paddingLeft} ${turnKeysStyle.paddingTop}` : null,
+      columnWidths: openColumns.map((column) => Math.round(column.getBoundingClientRect().width)),
+      cardTitleWidths: [...board.querySelectorAll('.pr-queue-row .pr-queue-title')].map((title) => Math.round(title.getBoundingClientRect().width)),
+      turnTitleClipped: turnTitle.scrollWidth > turnTitle.clientWidth,
+      turnTitleText: turnTitle.textContent,
+    };
+  });
+  const readabilityText = JSON.stringify(readability);
+  assert.ok(readability.columnWidths.every((width) => width >= MIN_BOARD_COLUMN_PX - 1), readabilityText);
+  assert.ok(readability.cardTitleWidths.length > 0, readabilityText);
+  assert.ok(readability.cardTitleWidths.every((width) => width >= MIN_CARD_TITLE_PX), readabilityText);
+  assert.equal(readability.turnTitleClipped, false, readabilityText);
+  assert.equal(new Set(readability.columnHeights).size, 1, readabilityText);
+  assert.ok(Math.max(...readability.headingHeights) - Math.min(...readability.headingHeights) <= 1, readabilityText);
+  assert.ok(readability.turnKeysChrome === null || readability.turnKeysChrome === '0px 0px 0px', readabilityText);
+}
+
+async function verifyCloseBarStaysVisible(page: Page): Promise<void> {
+  const closeBar = await page.locator('.review-queue .pr-detail-host').evaluate((detailHost) => {
+    const bar = detailHost.querySelector('.review-board-detail-bar');
+    if (!bar) throw new Error('Missing close bar');
+    detailHost.scrollTop = detailHost.scrollHeight;
+    return { scrolled: detailHost.scrollTop, barTop: bar.getBoundingClientRect().top, hostTop: detailHost.getBoundingClientRect().top };
+  });
+  assert.ok(closeBar.scrolled > 0, JSON.stringify(closeBar));
+  assert.ok(Math.abs(closeBar.barTop - closeBar.hostTop) <= 1, JSON.stringify(closeBar));
+  await page.locator('.review-queue .pr-detail-host').evaluate((detailHost) => {
+    detailHost.scrollTop = 0;
+  });
+}
+
+async function verifyParkedToggleControlsColumn(page: Page): Promise<void> {
+  const controlledId = await page.locator('.review-board-parked-toggle').getAttribute('aria-controls');
+  assert.ok(controlledId, 'Parked toggle names no controlled element');
+  assert.equal(await page.locator(`#${controlledId}`).getAttribute('data-group'), 'parked');
+}
+
+async function verifyEscapeClosesBoardFromNote(page: Page, card: Locator): Promise<void> {
+  const root = page.locator('.review-queue');
+  const noteInput = page.locator('.pr-detail .pr-note-input');
+  const pickedCount = () => page.locator('.pr-detail .pr-decision-bar > button[aria-pressed="true"]').count();
+  await page.keyboard.press('c');
+  assert.equal(await pickedCount(), 1);
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('pr-note-input')), true);
+  await page.keyboard.type('keep this note');
+  await page.keyboard.press('Escape');
+  assert.equal(await pickedCount(), 0);
+  assert.equal(await root.getAttribute('data-detail-open'), 'true');
+  await noteInput.focus();
+  await page.keyboard.press('Escape');
+  assert.equal(await root.getAttribute('data-detail-open'), 'false');
+  await card.click();
+  await noteInput.waitFor({ state: 'visible' });
+  assert.equal(await noteInput.inputValue(), 'keep this note');
+  await noteInput.fill('');
+}
+
+async function verifyBoard(page: Page): Promise<void> {
+  const root = page.locator('.review-queue');
+  const detail = root.locator('.pr-detail-host');
+  const card = page.locator('.review-board .pr-queue-row[data-review-key="Acme/app#1"]');
+  assert.equal(await root.getAttribute('data-reviews-layout'), 'board');
+  assert.equal(await page.getByRole('button', { name: 'Board', exact: true }).getAttribute('aria-pressed'), 'true');
+  const titles = await page.locator('.review-board-column .review-board-column-title').allTextContents();
+  assert.deepEqual(titles, ['Queued', 'Agent working', 'Ready', 'Reviewing now', 'Waiting on others', 'Done', 'Parked']);
+  assert.equal(await detail.isVisible(), false);
+  await verifyBoardReadable(page);
+  await verifyParkedToggleControlsColumn(page);
+  await card.click();
+  assert.equal(await root.getAttribute('data-detail-open'), 'true');
+  await detail.waitFor({ state: 'visible' });
+  await verifyBoardReadable(page);
+  await verifyCloseBarStaysVisible(page);
+  await verifyEscapeClosesBoardFromNote(page, card);
+  await page.keyboard.press('Escape');
+  await detail.waitFor({ state: 'hidden' });
+  await page.keyboard.press('j');
+  await detail.waitFor({ state: 'visible' });
+  await page.getByRole('button', { name: 'Close review detail', exact: true }).click();
+  await detail.waitFor({ state: 'hidden' });
+  await verifyClosedBoardDetailIgnoresActionKeys(page);
+  const parkedCard = page.locator('.review-board .pr-queue-tile[data-queue-key="team:Acme/app#6"]');
+  assert.equal(await parkedCard.count(), 0);
+  const parkedToggle = page.locator('.review-board-parked-toggle');
+  await parkedToggle.click();
+  await parkedCard.waitFor({ state: 'visible' });
+  await parkedToggle.click();
+  await parkedCard.waitFor({ state: 'detached' });
+  await card.click();
+  await verifyWideDetailKeepsBoard(page);
+  await verifyAgeTones(page);
+  await verifyColumnSteps(page);
+  await verifyReviewingNowPull(page);
+  assert.equal(await root.getAttribute('data-reviews-layout'), 'list');
+  assert.equal(await storedReviewsLayout(page), 'list');
+  await page.locator('.pr-queue-row[data-review-key="Acme/app#5"]').click();
 }
 
 async function openReviewsView(page: Page, layout: Layout): Promise<void> {
@@ -734,7 +1071,14 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout, sessionId
   const status = createStatus();
   await applyStatus(page, status);
   await showQueue(page);
-  await page.getByRole('button', { name: 'Set aside', exact: true }).click();
+  if (layout === 'desktop') await verifyBoard(page);
+  if (layout === 'phone') {
+    assert.equal(await page.locator('.review-queue').getAttribute('data-reviews-layout'), 'list');
+    assert.equal(await page.locator('.review-layout-switch').isVisible(), false);
+    await verifyPhoneReviewingNowAfterReturn(page);
+  }
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByRole('button', { name: 'Parked', exact: true }).click();
   await page.evaluate(async () => { await document.fonts.ready; });
   await verifyRows(page);
   await verifyLayout(page);
@@ -779,8 +1123,8 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout, sessionId
   assert.equal(await earlierPreview.textContent(), '0 comments, posted');
   const handChecks = page.locator('.pr-detail .pr-hand-checks');
   assert.equal(await handChecks.locator('li').textContent(), 'Look at what these changed UI files render: public/header.css');
-  assert.deepEqual(await page.locator('.pr-detail .pr-desk-column > :is(section, .pr-earlier-review)').evaluateAll((blocks) => blocks.map((block) => block.classList.contains('pr-earlier-review') ? 'Earlier review' : block.getAttribute('aria-label')).filter((label) => label === 'Verdict' || label === 'Check by hand' || label === 'Findings' || label === 'Earlier review')), ['Verdict', 'Check by hand', 'Findings', 'Earlier review']);
-  assert.deepEqual(await page.locator('.pr-detail .pr-desk-rail > *').evaluateAll((blocks) => blocks.map((block) => block.className)), ['pr-session-open', 'pr-will-post', 'pr-desk-facts', 'pr-about-box']);
+  assert.deepEqual(await page.locator('.pr-detail .pr-desk-column > :is(section, .pr-earlier-review)').evaluateAll((blocks) => blocks.map((block) => block.classList.contains('pr-earlier-review') ? 'Earlier review' : block.getAttribute('aria-label')).filter((label) => label === 'About this PR' || label === 'Verdict' || label === 'Check by hand' || label === 'Findings' || label === 'Earlier review')), ['About this PR', 'Verdict', 'Check by hand', 'Findings', 'Earlier review']);
+  assert.deepEqual(await page.locator('.pr-detail .pr-desk-rail > *').evaluateAll((blocks) => blocks.map((block) => block.className)), ['pr-session-open', 'pr-will-post', 'pr-desk-facts']);
   assert.equal(await page.locator('.pr-detail .pr-detail-heading .pr-session-open').count(), 0);
   await showQueue(page);
   await nitsRow.click();

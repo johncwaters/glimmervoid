@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { BURST_CAP, paintFull, repaintInPlace } from './frame-core.ts';
+import { BURST_CAP, DECEPTIVE_LINK_ROW_NUMBER, DECEPTIVE_LINK_TEXT, DECEPTIVE_LINK_URL, LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, LINK_ROW_URL, MOTION_REPORT_PREFIX, paintFull, repaintInPlace } from './frame-core.ts';
 
 const ESC = String.fromCharCode(0x1b);
 const BEL = String.fromCharCode(0x07);
@@ -13,6 +13,11 @@ const DEFAULT_ROWS = 24;
 const DEFAULT_BURST_LINES = 100;
 const WRITE_CHUNK_CAP_CHARS = 64 * 1024;
 const PLAN_BODY = '# Fake agent plan\n\nOne step, so the reviewer has something to decide on.\n';
+const ANY_MOTION_SGR_TRACKING = `${ESC}[?1003h${ESC}[?1006h`;
+const SGR_MOUSE_REPORT = /\x1b\[<(\d+);\d+;\d+([Mm])/g;
+const BRACKETED_PASTE_MARKER = /\x1b\[20[01]~/g;
+const MOTION_BUTTON_FLAG = 32;
+const WHEEL_BUTTON_FLAG = 64;
 
 interface HookEndpoint {
   base: string;
@@ -20,6 +25,7 @@ interface HookEndpoint {
 }
 
 const screen = { cols: DEFAULT_COLS, rows: DEFAULT_ROWS, tick: 0 };
+let motionReportsSinceLinkPaint = 0;
 
 function settingsPathFromArgv(argv: string[]): string | null {
   for (let index = 0; index < argv.length; index += 1) {
@@ -133,7 +139,30 @@ function requestPlanReview(): void {
   });
 }
 
+function writeRow(rowNumber: number, text: string): void {
+  process.stdout.write(`${ESC}[${rowNumber};1H${ESC}[2K${text}`);
+}
+
+function osc8Link(url: string, text: string): string {
+  return `${ESC}]8;;${url}${BEL}${text}${ESC}]8;;${BEL}`;
+}
+
 function dispatch(command: string): void {
+  if (command === 'link-row') {
+    process.stdout.write(ANY_MOTION_SGR_TRACKING);
+    writeRow(LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT);
+    return;
+  }
+  if (command === 'link-paint') {
+    motionReportsSinceLinkPaint = 0;
+    writeRow(LINK_ROW_NUMBER, osc8Link(LINK_ROW_URL, LINK_ROW_LINK_TEXT));
+    writeRow(DECEPTIVE_LINK_ROW_NUMBER, osc8Link(DECEPTIVE_LINK_URL, DECEPTIVE_LINK_TEXT));
+    return;
+  }
+  if (command === 'link-motion') {
+    writeRow(LINK_ROW_NUMBER + 2, `${MOTION_REPORT_PREFIX} ${motionReportsSinceLinkPaint}`);
+    return;
+  }
   if (command === 'history' || command === 'mouse-history') {
     writeBurst(200);
     if (command === 'mouse-history') process.stdout.write(`${ESC}[?1000h${ESC}[?1006h`);
@@ -169,9 +198,14 @@ function dispatch(command: string): void {
 let pending = '';
 
 function onInput(chunk: string): void {
-  pending += chunk;
-  pending = pending.replace(/\x1b\[<6[45];\d+;\d+M/g, () => {
-    process.stdout.write('mouse-scroll\r\n');
+  pending += chunk.replace(BRACKETED_PASTE_MARKER, '');
+  pending = pending.replace(SGR_MOUSE_REPORT, (_report, buttonCode: string, pressOrRelease: string) => {
+    const button = Number(buttonCode);
+    if (button === WHEEL_BUTTON_FLAG || button === WHEEL_BUTTON_FLAG + 1) {
+      if (pressOrRelease === 'M') process.stdout.write('mouse-scroll\r\n');
+      return '';
+    }
+    if (button & MOTION_BUTTON_FLAG) motionReportsSinceLinkPaint += 1;
     return '';
   });
   const lines = pending.split(/[\r\n]/);

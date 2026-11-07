@@ -135,6 +135,23 @@ if (backend.remote.enabled) {
   });
 }
 
+function listenForWatcherJobs(): void {
+  const { decision } = backend.jobInbox;
+  if (!decision.listen) return;
+  const inboxServer = http.createServer();
+  backend.jobInbox.attach(inboxServer);
+  inboxServer.on('error', (err) => {
+    console.warn(`[job-inbox] listener on ${decision.host}:${decision.port} failed, the job inbox is off: ${err.message}`);
+  });
+  inboxServer.listen(decision.port, decision.host, () => {
+    const boundInboxPort = listeningPort(inboxServer, decision.port);
+    console.log(`[job-inbox] listening on ${decision.host}:${boundInboxPort}`);
+    backend.jobInbox.startWatcher(boundInboxPort);
+  });
+}
+
+listenForWatcherJobs();
+
 function exitWithClearedTerminalTitle(code?: number): never {
   writeTerminalTitle(buildTitleClearSequence());
   process.exit(code);

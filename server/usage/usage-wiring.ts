@@ -258,9 +258,10 @@ function createUsageWiring({
   let kimiPollInFlight: Promise<void> | null = null;
   const officialCostByClaudeId = new Map<string, number>();
   let budgetFiredState: BudgetFiredState = { daily: {}, monthly: {} };
-  let budgetEvaluationChain: Promise<void> = Promise.resolve();
-  let budgetEvaluationRunning = false;
-  let budgetEvaluationQueued: Promise<void> | null = null;
+  let budgetEvaluation:
+    | { kind: 'idle' }
+    | { kind: 'running'; settled: Promise<void> }
+    | { kind: 'running-queued'; settled: Promise<void>; queued: Promise<void> } = { kind: 'idle' };
 
   const budgetStateStore = createJsonStateStore<BudgetFiredState>({
     name: 'budget state',
@@ -607,20 +608,21 @@ function createUsageWiring({
   }
 
   function startBudgetEvaluation(): Promise<void> {
-    budgetEvaluationRunning = true;
     const evaluation = evaluateBudgetsOnce();
-    budgetEvaluationChain = evaluation.catch(() => {}).then(() => { budgetEvaluationRunning = false; });
+    const settled = evaluation.catch(() => {}).then(() => {
+      if (budgetEvaluation.kind === 'running') budgetEvaluation = { kind: 'idle' };
+    });
+    budgetEvaluation = { kind: 'running', settled };
     return evaluation;
   }
 
   function evaluateBudgets(): Promise<void> {
-    if (!budgetEvaluationRunning) return startBudgetEvaluation();
-    if (budgetEvaluationQueued) return budgetEvaluationQueued;
-    budgetEvaluationQueued = budgetEvaluationChain.then(() => {
-      budgetEvaluationQueued = null;
-      return startBudgetEvaluation();
-    });
-    return budgetEvaluationQueued;
+    if (budgetEvaluation.kind === 'idle') return startBudgetEvaluation();
+    if (budgetEvaluation.kind === 'running-queued') return budgetEvaluation.queued;
+    const { settled } = budgetEvaluation;
+    const queued = settled.then(() => startBudgetEvaluation());
+    budgetEvaluation = { kind: 'running-queued', settled, queued };
+    return queued;
   }
 
   async function buildSavings(report: { models: { model?: string | null; vendor?: string; cacheRead?: unknown }[] }) {

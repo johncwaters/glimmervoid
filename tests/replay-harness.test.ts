@@ -114,6 +114,20 @@ test('v2 fixture (conflict Stop+permission): awaiting-input dominates, no ready'
   assert.equal(c.ready || 0, 0, 'ready must be suppressed by conflict rule');
 });
 
+test('two-turn recording: replay counts each turn on the recorded clock, never merges them into one', async () => {
+  const twoTurnRecording = [
+    JSON.stringify({ type: 'header', version: 2, agent: 'claude-code' }),
+    JSON.stringify({ type: 'hook', ts: 1000, event: 'UserPromptSubmit', payload: {} }),
+    JSON.stringify({ type: 'hook', ts: 60000, event: 'Stop', payload: {} }),
+    JSON.stringify({ type: 'hook', ts: 120000, event: 'UserPromptSubmit', payload: {} }),
+    JSON.stringify({ type: 'hook', ts: 180000, event: 'Stop', payload: {} }),
+  ].join('\n');
+  const { agent, records } = parseRecording(twoTurnRecording);
+  const { signals } = await replayDetection(records, { agent });
+  assert.deepEqual(signals.map((signal) => signal.signal), ['resume', 'ready', 'resume', 'ready']);
+  assert.deepEqual(signals.map((signal) => signal.ts), [1000, 60000, 120000, 180000]);
+});
+
 test('codex fixture (approval turn): the recorded sequence replays through the codex adapter', async () => {
   const { version, agent, records } = load('v2-codex-approval-turn.jsonl');
   assert.equal(version, 2);
@@ -164,8 +178,8 @@ test('grok fixture replays the live approval race from title WAITING to hook COM
 test('a config-declared custom agent replays title-only: working, then ready, never awaiting-input', async () => {
   const { version, agent, records } = load('v2-custom-title-only.jsonl');
   assert.equal(version, 2);
-  assert.equal(agent, 'opencode');
-  setCustomAgents([CustomAgentDeclaration.parse({ id: 'opencode', label: 'OpenCode', command: 'opencode' })]);
+  assert.equal(agent, 'my-agent');
+  setCustomAgents([CustomAgentDeclaration.parse({ id: 'my-agent', label: 'My Agent', command: 'my-agent' })]);
   try {
     const { signals } = await replayDetection(records, { ...FAST, agent, titleContext: { cwdBasename: 'project' } });
     const counts = summarize(signals);

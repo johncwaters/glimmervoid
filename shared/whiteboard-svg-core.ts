@@ -1,5 +1,5 @@
 import { escapeMarkup } from './escape-markup.ts';
-import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutMedia, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutPanel, LaidOutUnit, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
+import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutMedia, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutStep, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const BOX_TEXT_INSET = 12;
@@ -8,14 +8,12 @@ const TITLE_LINE_HEIGHT = 20;
 const BODY_LINE_HEIGHT = 18;
 const NOTE_LINE_HEIGHT = 17;
 const MUTED_INDENT = 14;
-const COLUMN_TITLE_LINE_HEIGHT = 16;
-const UNIT_LABEL_BASELINE = 24;
-const UNIT_LABEL_HEIGHT = 18;
+const STEP_LABEL_BASELINE = 22;
+const STEP_HEADER_HEIGHT = 18;
 const PLAN_TITLE = 'Plan';
 const LINKED_BOARD_TEXT = 'open linked board';
 const PORT_RADIUS = 5;
 const RESIZE_HANDLE_SIZE = 10;
-const BAND_LABEL_BASELINE = 17;
 const LOOP_BADGE_RADIUS = 6;
 const LOOP_BADGE_INSET = 20;
 const OCCLUDER_MARGIN = 6;
@@ -27,16 +25,15 @@ const MONO_CHAR_WIDTH = 7.2;
 const CODE_BAND_RISE = 13;
 const CODE_BAND_HEIGHT = 17;
 const ITEM_DOT_RADIUS = 2.2;
+const TITLE_RULE_RISE = 12;
 const LEGEND_SAMPLE_WIDTH = 28;
 
 const STANDALONE_STYLE = `
 svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospace; }
 .wb-backdrop { fill: #0d0b16; }
-.wb-column-title { fill: #a79fc4; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
-.wb-column-rule { stroke: #4a4268; stroke-width: 1; stroke-dasharray: 2 5; }
-.wb-band-rule { stroke: #2a2440; stroke-width: 1; }
-.wb-band-label { font-size: 12px; font-weight: 700; }
+.wb-plan-title { fill: #a79fc4; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 .wb-box-outline { fill: #15122a; stroke: #a79fc4; stroke-width: 1.6; }
+.wb-panel .wb-box-outline { fill: #110f20; stroke: #4a4268; stroke-width: 1.4; }
 .wb-change-added .wb-box-outline { stroke: #22c55e; stroke-dasharray: 7 5; }
 .wb-change-removed { opacity: 0.6; }
 .wb-change-removed .wb-box-outline { fill: transparent; stroke: #ef4444; stroke-dasharray: 7 5; }
@@ -52,19 +49,16 @@ svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospac
 .wb-line-marker { fill: #a79fc4; font-size: 12px; }
 .wb-line-key { fill: #a79fc4; font-size: 12px; font-weight: 700; }
 .wb-item-dot { fill: #a79fc4; }
-.wb-panel-outline { fill: #110f20; stroke: #4a4268; stroke-width: 1.4; }
 .wb-panel-rule { stroke: #4a4268; stroke-width: 1; }
 .wb-output-divider { stroke: #4a4268; stroke-width: 1; }
 .wb-output-label { fill: #e6e0f5; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 .wb-output-dot { fill: #a79fc4; }
-.wb-lane-pill { fill: transparent; stroke-width: 1.2; }
-.wb-lane-pill-text { font-size: 12px; font-weight: 700; }
-.wb-unit-outline { fill: #15122a; stroke: #c084fc; stroke-width: 1.6; }
-.wb-unit-label, .wb-unit-link { fill: #c084fc; font-size: 12px; font-weight: 700; }
-.wb-unit-status { fill: #a79fc4; font-size: 11px; }
-.wb-unit-planned { fill: #a79fc4; }
-.wb-unit-building { fill: #f59e0b; }
-.wb-unit-landed { fill: #22c55e; }
+.wb-step .wb-box-outline, .wb-step-swatch { stroke: #c084fc; }
+.wb-step-label, .wb-step-link { fill: #c084fc; font-size: 12px; font-weight: 700; }
+.wb-step-status { fill: #a79fc4; font-size: 11px; }
+.wb-step-planned { fill: #a79fc4; }
+.wb-step-building { fill: #f59e0b; }
+.wb-step-landed { fill: #22c55e; }
 .wb-frame-outline { fill: rgba(192, 132, 252, 0.04); stroke: #4a4268; stroke-width: 1.4; stroke-dasharray: 10 6; }
 .wb-frame-title { fill: #a79fc4; font-size: 12px; font-weight: 700; }
 .wb-loop .wb-frame-outline { stroke: #c084fc; }
@@ -111,10 +105,6 @@ function elementGroup(element: LaidOutElement, className: string, children: read
   return tag('g', { class: `wb-element ${className}`, 'data-element-id': element.id, 'data-element-kind': element.kind }, children.join(''));
 }
 
-function laneStroke(hex: string | undefined): string | null {
-  return hex ? `stroke:${hex}` : null;
-}
-
 function decisionOutlinePoints(box: LaidOutBox): { x: number; y: number }[] {
   const right = box.x + box.width;
   const bottom = box.y + box.height;
@@ -159,20 +149,9 @@ function bodyLinesMarkup(lines: readonly LaidOutLine[], left: number, width: num
   return lines.flatMap((line, index) => lineRowMarkup(line, left, width, top + index * BODY_LINE_HEIGHT));
 }
 
-function panelMarkup(panel: LaidOutPanel): string {
-  const parts = [tag('rect', { x: panel.x, y: panel.y, width: panel.width, height: panel.height, rx: 6, class: 'wb-panel-outline' })];
-  panel.titleLines.forEach((line, index) => {
-    parts.push(text(line, panel.x + BOX_TEXT_INSET, panel.y + TITLE_BASELINE + index * TITLE_LINE_HEIGHT, 'wb-box-title'));
-  });
-  const bodyTop = panel.y + TITLE_BASELINE + panel.titleLines.length * TITLE_LINE_HEIGHT;
-  if (panel.bodyLines.length > 0) parts.push(tag('line', { x1: panel.x + BOX_TEXT_INSET, y1: bodyTop - 12, x2: panel.x + panel.width - BOX_TEXT_INSET, y2: bodyTop - 12, class: 'wb-panel-rule' }));
-  parts.push(...bodyLinesMarkup(panel.bodyLines, panel.x, panel.width, bodyTop));
-  return elementGroup(panel, 'wb-panel', parts);
-}
-
 function boxOutlineMarkup(box: LaidOutBox): string {
-  if (box.shape === 'decision') return tag('path', { d: decisionOutlinePath(box), class: 'wb-box-outline', style: laneStroke(box.lane?.hex) });
-  return tag('rect', { x: box.x, y: box.y, width: box.width, height: box.height, rx: 8, class: 'wb-box-outline', style: laneStroke(box.lane?.hex) });
+  if (box.shape === 'decision') return tag('path', { d: decisionOutlinePath(box), class: 'wb-box-outline' });
+  return tag('rect', { x: box.x, y: box.y, width: box.width, height: box.height, rx: 8, class: 'wb-box-outline' });
 }
 
 function mediaMarkup(media: LaidOutMedia, assetHref: AssetHref): string[] {
@@ -186,6 +165,13 @@ function mediaMarkup(media: LaidOutMedia, assetHref: AssetHref): string[] {
   ];
 }
 
+function stepHeaderMarkup(box: LaidOutBox, step: LaidOutStep): string[] {
+  return [
+    text(step.label, box.x + BOX_TEXT_INSET, box.y + STEP_LABEL_BASELINE, 'wb-step-label'),
+    text(step.status, box.x + box.width - BOX_TEXT_INSET, box.y + STEP_LABEL_BASELINE, `wb-step-status wb-step-${step.status}`, { 'text-anchor': 'end' }),
+  ];
+}
+
 function boxMarkup(box: LaidOutBox, assetHref: AssetHref): string {
   const parts = [boxOutlineMarkup(box), ...outputRowsMarkup(box)];
   const midX = box.x + box.width / 2;
@@ -193,26 +179,27 @@ function boxMarkup(box: LaidOutBox, assetHref: AssetHref): string {
   for (const [cx, cy] of [[midX, box.y], [box.x + box.width, midY], [midX, box.y + box.height], [box.x, midY]] as const) {
     parts.push(tag('circle', { cx, cy, r: PORT_RADIUS, class: 'wb-port' }));
   }
+  const stepHeaderHeight = box.step ? STEP_HEADER_HEIGHT : 0;
+  if (box.step) parts.push(...stepHeaderMarkup(box, box.step));
   box.wasLines.forEach((line, index) => {
-    parts.push(text(line, box.x + BOX_TEXT_INSET, box.y + TITLE_BASELINE + index * TITLE_LINE_HEIGHT, 'wb-box-was'));
+    parts.push(text(line, box.x + BOX_TEXT_INSET, box.y + TITLE_BASELINE + stepHeaderHeight + index * TITLE_LINE_HEIGHT, 'wb-box-was'));
   });
-  const titleTop = box.y + TITLE_BASELINE + box.wasLines.length * TITLE_LINE_HEIGHT;
+  const titleTop = box.y + TITLE_BASELINE + stepHeaderHeight + box.wasLines.length * TITLE_LINE_HEIGHT;
   box.titleLines.forEach((line, index) => {
     parts.push(text(line, box.x + BOX_TEXT_INSET, titleTop + index * TITLE_LINE_HEIGHT, 'wb-box-title'));
   });
   const bodyTop = titleTop + box.titleLines.length * TITLE_LINE_HEIGHT;
+  if (box.shape === 'panel' && box.bodyLines.length > 0) parts.push(tag('line', { x1: box.x + BOX_TEXT_INSET, y1: bodyTop - TITLE_RULE_RISE, x2: box.x + box.width - BOX_TEXT_INSET, y2: bodyTop - TITLE_RULE_RISE, class: 'wb-panel-rule' }));
   parts.push(...bodyLinesMarkup(box.bodyLines, box.x, box.width, bodyTop));
-  if (box.media) parts.push(...mediaMarkup(box.media, assetHref));
-  if (box.lane && box.showsLanePill) {
-    const pillY = box.y + box.headerHeight - 28;
-    const pillWidth = Math.min(box.width - BOX_TEXT_INSET * 2, 16 + box.lane.label.length * 8);
-    parts.push(
-      tag('rect', { x: box.x + BOX_TEXT_INSET, y: pillY, width: pillWidth, height: 18, rx: 9, class: 'wb-lane-pill', style: laneStroke(box.lane.hex) }),
-      text(box.lane.label, box.x + BOX_TEXT_INSET + 8, pillY + 13, 'wb-lane-pill-text', { style: `fill:${box.lane.hex}` }),
-    );
+  if (box.step?.linkedBoardId) {
+    parts.push(text(LINKED_BOARD_TEXT, box.x + BOX_TEXT_INSET, bodyTop + box.bodyLines.length * BODY_LINE_HEIGHT, 'wb-step-link', { 'data-linked-board-id': box.step.linkedBoardId }));
   }
+  if (box.media) parts.push(...mediaMarkup(box.media, assetHref));
   parts.push(tag('rect', { x: box.x + box.width - RESIZE_HANDLE_SIZE, y: box.y + box.height - RESIZE_HANDLE_SIZE, width: RESIZE_HANDLE_SIZE, height: RESIZE_HANDLE_SIZE, rx: 2, class: 'wb-resize-handle' }));
-  return elementGroup(box, box.change === 'none' ? 'wb-box' : `wb-box wb-change-${box.change}`, parts);
+  const shapeClass = box.shape === 'panel' ? ' wb-panel' : '';
+  const stepClass = box.step ? ' wb-step' : '';
+  const changeClass = box.change === 'none' ? '' : ` wb-change-${box.change}`;
+  return elementGroup(box, `wb-box${shapeClass}${stepClass}${changeClass}`, parts);
 }
 
 function loopBadgeMarkup(frame: LaidOutFrame): string {
@@ -234,7 +221,7 @@ function frameMarkup(frame: LaidOutFrame): string {
 function wireMarkup(wire: LaidOutWire): string {
   const parts = [
     tag('path', { d: wire.path, class: 'wb-wire-hit' }),
-    tag('path', { d: wire.path, 'marker-end': wire.hasArrowhead ? 'url(#wb-arrow)' : null, class: wire.isDashed ? 'wb-wire-line wb-dashed' : 'wb-wire-line', style: laneStroke(wire.strokeHex ?? undefined) }),
+    tag('path', { d: wire.path, 'marker-end': wire.hasArrowhead ? 'url(#wb-arrow)' : null, class: wire.isDashed ? 'wb-wire-line wb-dashed' : 'wb-wire-line' }),
     tag('circle', { cx: wire.start.x, cy: wire.start.y, r: 3, class: 'wb-wire-dot' }),
   ];
   if (wire.joinAt) parts.push(tag('circle', { cx: wire.joinAt.x, cy: wire.joinAt.y, r: 3, class: 'wb-wire-dot' }));
@@ -251,32 +238,12 @@ function noteMarkup(note: LaidOutNote): string {
   return elementGroup(note, note.isResolved ? 'wb-note wb-resolved' : 'wb-note', parts);
 }
 
-function unitMarkup(unit: LaidOutUnit): string {
-  const parts = [
-    tag('rect', { x: unit.x, y: unit.y, width: unit.width, height: unit.height, rx: 8, class: 'wb-unit-outline' }),
-    text(unit.label, unit.x + BOX_TEXT_INSET, unit.y + UNIT_LABEL_BASELINE, 'wb-unit-label'),
-    text(unit.status, unit.x + unit.width - BOX_TEXT_INSET, unit.y + UNIT_LABEL_BASELINE, `wb-unit-status wb-unit-${unit.status}`, { 'text-anchor': 'end' }),
-  ];
-  const titleTop = unit.y + UNIT_LABEL_BASELINE + UNIT_LABEL_HEIGHT;
-  unit.titleLines.forEach((line, index) => {
-    parts.push(text(line, unit.x + BOX_TEXT_INSET, titleTop + index * TITLE_LINE_HEIGHT, 'wb-box-title'));
-  });
-  const bodyTop = titleTop + unit.titleLines.length * TITLE_LINE_HEIGHT;
-  parts.push(...bodyLinesMarkup(unit.bodyLines, unit.x, unit.width, bodyTop));
-  if (unit.linkedBoardId) {
-    parts.push(text(LINKED_BOARD_TEXT, unit.x + BOX_TEXT_INSET, bodyTop + unit.bodyLines.length * BODY_LINE_HEIGHT, 'wb-unit-link', { 'data-linked-board-id': unit.linkedBoardId }));
-  }
-  return elementGroup(unit, 'wb-unit', parts);
-}
-
 function elementMarkup(element: LaidOutElement, assetHref: AssetHref = NO_ASSET_HREF): string {
   switch (element.kind) {
     case 'box': return boxMarkup(element, assetHref);
     case 'frame': return frameMarkup(element);
     case 'wire': return wireMarkup(element);
     case 'note': return noteMarkup(element);
-    case 'unit': return unitMarkup(element);
-    case 'panel': return panelMarkup(element);
   }
 }
 
@@ -299,19 +266,7 @@ function pageMaskImage(page: Rect, occluders: readonly PageOccluder[]): string |
 function chromeMarkup(layout: BoardLayout): string {
   const parts: string[] = [];
   if (layout.plan) {
-    parts.push(text(PLAN_TITLE, layout.plan.titleAt.x, layout.plan.titleAt.y, 'wb-column-title'));
-    for (const arrowPath of layout.plan.arrowPaths) parts.push(tag('path', { d: arrowPath, 'marker-end': 'url(#wb-arrow)', class: 'wb-wire-line' }));
-  }
-  for (const band of layout.bands) {
-    parts.push(tag('line', { x1: band.x, y1: band.y, x2: band.x + band.width, y2: band.y, class: 'wb-band-rule' }));
-    if (band.label) parts.push(text(band.label, band.x, band.y + BAND_LABEL_BASELINE, 'wb-band-label', { style: `fill:${band.hex}` }));
-  }
-  for (const column of layout.columns) {
-    if (column.titleLines.length === 0) continue;
-    column.titleLines.forEach((line, index) => {
-      parts.push(text(line, column.x, column.titleBaselineY + index * COLUMN_TITLE_LINE_HEIGHT, 'wb-column-title'));
-    });
-    parts.push(tag('line', { x1: column.x, y1: column.ruleY, x2: column.x + column.width, y2: column.ruleY, class: 'wb-column-rule' }));
+    parts.push(text(PLAN_TITLE, layout.plan.titleAt.x, layout.plan.titleAt.y, 'wb-plan-title'));
   }
   for (const entry of layout.legend) parts.push(legendRowMarkup(entry));
   if (layout.caption) parts.push(text(layout.caption.text, layout.caption.x, layout.caption.y + 16, 'wb-caption'));
@@ -320,15 +275,14 @@ function chromeMarkup(layout: BoardLayout): string {
 
 function legendSwatchMarkup(entry: BoardLayout['legend'][number]): string {
   const { swatch } = entry;
-  if (swatch.kind === 'lane') return tag('rect', { x: entry.x, y: entry.y, width: 14, height: 14, rx: 3, class: 'wb-legend-swatch', style: `fill:${swatch.hex}` });
-  if (swatch.kind === 'status') return tag('rect', { x: entry.x, y: entry.y, width: 14, height: 14, rx: 3, class: `wb-legend-swatch wb-unit-outline wb-unit-${swatch.status}` });
+  if (swatch.kind === 'status') return tag('rect', { x: entry.x, y: entry.y, width: 14, height: 14, rx: 3, class: `wb-legend-swatch wb-step-swatch wb-step-${swatch.status}` });
   if (swatch.kind === 'change') return tag('g', { class: `wb-change-${swatch.change}` }, tag('rect', { x: entry.x, y: entry.y, width: LEGEND_SAMPLE_WIDTH, height: 14, rx: 3, class: 'wb-legend-swatch wb-box-outline' }));
   const sample = tag('path', { d: `M${entry.x},${entry.y + 7} H${entry.x + LEGEND_SAMPLE_WIDTH}`, 'marker-end': 'url(#wb-arrow)', class: swatch.isDashed ? 'wb-wire-line wb-dashed' : 'wb-wire-line' });
   return tag('g', { class: swatch.isBack ? `wb-back wb-tone-${swatch.tone}` : `wb-tone-${swatch.tone}` }, sample);
 }
 
 function legendRowMarkup(entry: BoardLayout['legend'][number]): string {
-  const labelX = entry.x + (entry.swatch.kind === 'lane' || entry.swatch.kind === 'status' ? 22 : LEGEND_SAMPLE_WIDTH + 12);
+  const labelX = entry.x + (entry.swatch.kind === 'status' ? 22 : LEGEND_SAMPLE_WIDTH + 12);
   return legendSwatchMarkup(entry) + text(entry.label, labelX, entry.y + 12, 'wb-legend-text');
 }
 
@@ -337,7 +291,7 @@ function arrowDefinitionsMarkup(): string {
   return tag('defs', {}, tag('marker', { id: 'wb-arrow', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 8, markerHeight: 8, orient: 'auto-start-reverse' }, arrowhead));
 }
 
-const LAYER_ORDER: readonly LaidOutElement['kind'][] = ['frame', 'wire', 'box', 'panel', 'note', 'unit'];
+const LAYER_ORDER: readonly LaidOutElement['kind'][] = ['frame', 'wire', 'box', 'note'];
 
 function boardSvgDocument(layout: BoardLayout, assetHref: AssetHref = NO_ASSET_HREF): string {
   const { x, y, width, height } = layout.bounds;
@@ -354,8 +308,8 @@ function boardSvgDocument(layout: BoardLayout, assetHref: AssetHref = NO_ASSET_H
 
 export type { AssetHref, PageOccluder };
 export {
-  BAND_LABEL_BASELINE, BODY_LINE_HEIGHT, BOX_TEXT_INSET, CODE_BAND_HEIGHT, CODE_BAND_RISE, COLUMN_TITLE_LINE_HEIGHT, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH, LINKED_BOARD_TEXT,
+  BODY_LINE_HEIGHT, BOX_TEXT_INSET, CODE_BAND_HEIGHT, CODE_BAND_RISE, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH, LINKED_BOARD_TEXT,
   LOOP_BADGE_INSET, LOOP_BADGE_RADIUS, MONO_CHAR_WIDTH, MUTED_INDENT, NOTE_LINE_HEIGHT, OUTPUT_DOT_RADIUS, OUTPUT_LABEL_BASELINE_OFFSET, PLAN_TITLE, PORT_RADIUS,
-  RESIZE_HANDLE_SIZE, TITLE_BASELINE, TITLE_LINE_HEIGHT, UNIT_LABEL_BASELINE, UNIT_LABEL_HEIGHT,
+  RESIZE_HANDLE_SIZE, STEP_HEADER_HEIGHT, STEP_LABEL_BASELINE, TITLE_BASELINE, TITLE_LINE_HEIGHT, TITLE_RULE_RISE,
   boardSvgDocument, decisionOutlinePoints, pageMaskImage,
 };

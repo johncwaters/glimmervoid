@@ -29,7 +29,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   rail.setAttribute('aria-label', 'Decision');
   const threads = el('div');
   threads.dataset.reviewThreads = '';
-  column.append(createDetailHeading(draft, { hasFactsRail: true }));
+  column.append(createDetailHeading(draft, { hasFactsRail: true }), ...createAboutPr(draft));
   column.append(threads, createVerdictBlock(draft), ...createHandChecks(draft));
 
   let isTouched = false;
@@ -44,14 +44,14 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   findingsHeading.append(el('h3', null, 'Findings'), findingsTally);
   if (findingCount > 0) findingsHeading.append(createFindingKeysHint());
   findings.append(findingsHeading);
-  const note = createNoteField(onEdit);
+  const note = createNoteField(onEdit, reviewPostChordText(SHORTCUT_PLATFORM));
   const willPost = el('section', 'pr-will-post');
   willPost.setAttribute('aria-label', 'Will post to GitHub');
   const willPostEvent = el('strong', 'pr-will-post-event');
   const willPostDetail = el('p', 'pr-will-post-detail');
   willPostDetail.setAttribute('aria-live', 'polite');
   willPost.append(el('h3', 'pr-assessment-title', 'Will post to GitHub'), willPostEvent, willPostDetail, note.section);
-  rail.append(createOpenSessionControl(draft), willPost, createDeskFacts(draft), ...createAboutPr(draft));
+  rail.append(createOpenSessionControl(draft), willPost, createDeskFacts(draft));
   const selection = (): ReviewSelection => ({
     note: note.input.value,
     comments: draft.comments.filter((_comment, index) => includedComments.has(index)),
@@ -120,7 +120,8 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
     pickedControl = control;
     paintPick();
     note.input.focus();
-    paintActionStatus(bar.status, 'ok', pickedDecisionText(control, reviewPostChordText(SHORTCUT_PLATFORM)));
+    paintActionStatus(bar.status, null, '');
+    note.pickAnnouncer.textContent = pickedDecisionText(control, reviewPostChordText(SHORTCUT_PLATFORM));
     return true;
   }
   function postDecision(): boolean {
@@ -140,6 +141,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
     pickedControl = null;
     paintPick();
     paintActionStatus(bar.status, null, '');
+    note.pickAnnouncer.textContent = '';
     return true;
   }
   function runKey(action: ReviewDetailKeyAction): boolean {
@@ -247,7 +249,8 @@ function refreshThreadDetails(detail: HTMLElement, draft: ReviewDraft): void {
   const threads = detail.querySelector<HTMLElement>('[data-review-threads]');
   const signature = JSON.stringify([draft.liveHead, draft.threads, draft.otherReviewItems]);
   if (!threads || threads.dataset.reviewThreads === signature) return;
-  threads.replaceChildren(...createThreadDetails(draft), ...createOtherReviewItems(draft));
+  const isOtherReviewersOpen = threads.querySelector<HTMLDetailsElement>('.pr-other-reviewers')?.open === true;
+  threads.replaceChildren(...createThreadDetails(draft), ...createOtherReviewItems(draft, isOtherReviewersOpen));
   threads.dataset.reviewThreads = signature;
 }
 
@@ -310,11 +313,15 @@ function createThreadDetails(draft: ReviewDraft): HTMLElement[] {
   return [section];
 }
 
-function createOtherReviewItems(draft: ReviewDraft): HTMLElement[] {
+function createOtherReviewItems(draft: ReviewDraft, isOpen: boolean): HTMLElement[] {
   const rows = otherReviewRows(draft);
   if (rows.length === 0) return [];
-  const section = el('section', 'my-pr-threads-section');
-  section.append(el('h3', 'pr-section-heading', 'Other reviewers'));
+  const section = el('details', 'pr-disclosure pr-other-reviewers');
+  const summary = el('summary', 'pr-disclosure-summary');
+  const reviewerNames = [...new Set((draft.otherReviewItems ?? []).flatMap((item) => item.sources.map((source) => source.name)))];
+  summary.append(el('span', 'pr-disclosure-label', `Other reviewers (${rows.length})`), el('span', 'pr-disclosure-preview', reviewerNames.join(', ')));
+  section.append(summary);
+  section.open = isOpen;
   const list = el('div', 'my-pr-threads');
   for (const row of rows) {
     const card = el('div', 'my-pr-thread pr-thread-card');

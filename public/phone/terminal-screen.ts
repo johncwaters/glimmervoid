@@ -6,6 +6,7 @@ import { button } from '../ui/button.ts';
 import { isRenameInProgress, makeTitleEditable, paintTaskTitle, startInlineRename, startInlineTitleEdit } from '../session-card/card-titles.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
+import { paintAgentMark } from '../session-card/agent-mark.ts';
 import { markSessionSeen } from '../session-card/lifecycle.ts';
 import { onSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
 import { setTerminalActiveViewer } from '../session-card/terminal.ts';
@@ -34,7 +35,10 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
   const glyphEl = queryTag(badgeEl, '.phone-terminal-glyph', 'span');
   const labelEl = queryTag(badgeEl, '.phone-terminal-label', 'span');
   const elapsedEl = queryTag(badgeEl, '.phone-terminal-elapsed', 'span');
-  labelEl.before(nameEl);
+  const agentMarkEl = el('span', 'agent-mark');
+  agentMarkEl.setAttribute('aria-hidden', 'true');
+  agentMarkEl.hidden = true;
+  labelEl.before(agentMarkEl, nameEl);
   identity.append(taskTitleEl, badgeEl);
 
   const pageButtons = createSessionPageButtons({ style: 'phone' });
@@ -130,6 +134,7 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
     const state = ui.currentState || STATES.DORMANT;
     paintSessionRowStatus(topBar, { glyph: glyphEl, label: labelEl }, state, ui.awaitingBackgroundTasks, ui.pendingPromptKind);
 
+    paintAgentMark(agentMarkEl, ui.agent ?? null);
     const sessionName = ui.card?.dataset.session || shownId;
     if (!isRenameInProgress(nameEl)) nameEl.textContent = sessionName;
     taskTitleEl.dataset.sessionName = sessionName ?? '';

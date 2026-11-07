@@ -192,6 +192,24 @@ const OWNED_COMMAND_SPECS = {
       { name: 'schema', summary: 'Every setting: id, path, type, default, unit, effect and section (needs no config file)', options: [JSON_OPTION] },
     ],
   },
+  host: {
+    name: 'host',
+    summary: 'Register other machines running Glimmervoid that this dashboard links over ssh',
+    subcommands: [
+      {
+        name: 'add', summary: 'Register a host; a running Glimmervoid links it without a restart', positionals: { usage: '<id>', min: 1, max: 1 },
+        options: [
+          { name: 'ssh', type: 'string', valueName: 'target', summary: 'An ssh host or ~/.ssh/config alias whose host key is already known' },
+          { name: 'name', type: 'string', valueName: 'label', summary: 'Name shown in the sidebar (default: the id)' },
+          { name: 'port', type: 'string', valueName: 'number', summary: 'That machine\'s dashboard port (default: 3000)' },
+          CONFIG_OPTION,
+        ],
+        missingArgumentHint: 'this command needs <id>, such as glimmervoid host add devbox --ssh devbox',
+      },
+      { name: 'list', summary: 'Every registered host', options: [JSON_OPTION, CONFIG_OPTION] },
+      { name: 'remove', summary: 'Unregister a host; its sessions keep running there', positionals: { usage: '<id>', min: 1, max: 1 }, options: [CONFIG_OPTION] },
+    ],
+  },
   'pr-flows': {
     name: 'pr-flows',
     summary: 'Check the PR flows sources, actions, PR actions and rules in config.json and its packs',
@@ -230,6 +248,14 @@ const OWNED_COMMAND_SPECS = {
         missingArgumentHint: 'preview needs a pack folder, for example "glimmervoid packs preview ./my-pack"',
       },
       { name: 'list', summary: 'The packs the running Glimmervoid found and whether each is approved; works inside a Glimmervoid session' },
+    ],
+  },
+  watch: {
+    name: 'watch',
+    summary: 'Run the watcher: deliver jobs to a Glimmervoid job inbox with the GLIMMERVOID_WATCHER_TOKEN bearer token',
+    options: [
+      { name: 'inbox', type: 'string', valueName: 'url', summary: 'The job inbox to deliver to, for example http://127.0.0.1:7700 (https for another machine)' },
+      { name: 'ping', type: 'boolean', summary: 'Send one ping job, then exit 0 on its ack or 1 with the reason' },
     ],
   },
   'ssh-sign': { name: 'ssh-sign', summary: "Sign a commit with the operator's forwarded ssh agent (git runs this)", isPassthrough: true },

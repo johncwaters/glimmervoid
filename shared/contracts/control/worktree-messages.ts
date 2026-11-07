@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ChangeMap } from '../change-map.ts';
+import { MergeStatus } from '../session.ts';
 import { sessionId, loose, openObject, nullableString, DiffBase, timestamp, optionalError } from './control-fields.ts';
 
 export const worktreeClientVariants = [
@@ -9,7 +10,7 @@ export const worktreeClientVariants = [
 export const worktreeServerVariants = [
   loose('session-merge-status', {
     id: sessionId,
-    mergeStatus: z.string(),
+    mergeStatus: MergeStatus,
     reason: nullableString,
     parked: z.boolean(),
     timestamp,

@@ -57,6 +57,11 @@ export const MACHINE_SESSIONS: SettingsSection = {
       control: 'toggle', keywords: ['streaming', 'screen share', 'privacy'], defaultValue: false, ...MACHINE_NOW,
     },
     {
+      id: 'link-previews', path: 'linkPreviews', title: 'Link page previews',
+      description: 'Resting the pointer on a terminal link for about 600 ms fetches that page from this machine to show its title and icon. Off, the link card shows the address only.',
+      control: 'toggle', keywords: ['links', 'preview', 'title', 'favicon', 'hover', 'privacy'], defaultValue: true, ...MACHINE_NOW,
+    },
+    {
       id: 'hint-cards', path: 'hintCards', title: 'Hint cards',
       description: 'Show tip cards: Your day tips and feature suggestions.',
       control: 'toggle', keywords: ['experimental', 'hints', 'tips', 'your day'], defaultValue: false, ...MACHINE_NOW,
@@ -68,6 +73,11 @@ export const MACHINE_SESSIONS: SettingsSection = {
       listPlaceholder: 'Repository root path', listEmptyText: 'No repository roots configured.', ...MACHINE_NOW,
     },
     {
+      id: 'hidden-agents', path: 'hiddenAgents', title: 'Agents in Add Session',
+      description: 'Agents left out of the Add Session picker. Switch an agent off here to hide it; the default agent always stays.',
+      control: 'agent-visibility', keywords: ['agents', 'picker', 'hide', 'show', 'add session', 'gemini', 'qwen', 'copilot', 'opencode', 'goose', 'cursor'], defaultValue: [], ...MACHINE_NOW,
+    },
+    {
       id: 'custom-agents', path: 'status:custom-agents', title: 'Custom agents',
       description: 'Extra agent CLIs a session can run.',
       control: 'readonly', keywords: ['adapters', 'cli'], status: 'custom-agents', ...READOUT,
@@ -76,11 +86,6 @@ export const MACHINE_SESSIONS: SettingsSection = {
       id: 'agent-logins', path: 'status:agent-logins', title: 'Agent logins',
       description: 'How Claude Code and Codex sign in inside a Coder workspace.',
       control: 'readonly', keywords: ['claude', 'codex', 'sign in', 'login', 'coder', 'remote'], status: 'agent-logins', ...READOUT,
-    },
-    {
-      id: 'remote-setup', path: 'status:remote-setup', title: 'Remote host setup',
-      description: 'Start a session that helps you run Glimmervoid on another Linux machine over ssh.',
-      control: 'readonly', keywords: ['remote', 'ssh', 'server', 'devbox', 'tailscale', 'pair', 'host'], status: 'remote-setup', ...READOUT,
     },
     {
       id: 'branch-gc-delete-unmerged', path: 'branchGc.deleteUnmerged', title: 'Delete unmerged branches',
@@ -121,6 +126,26 @@ export const MACHINE_SAFETY: SettingsSection = {
   ],
 };
 
+export const MACHINE_HOSTS: SettingsSection = {
+  id: 'machine-hosts',
+  level: 'machine',
+  title: 'Hosts',
+  description: 'Other machines running Glimmervoid that this dashboard links over ssh and shows in the sidebar.',
+  settings: [
+    {
+      id: 'hosts', path: 'status:hosts', title: 'Linked hosts',
+      description: 'Each host\'s link and build. The host key must already be known to ssh. Removing a host leaves its sessions running there.',
+      control: 'readonly', keywords: ['remote', 'ssh', 'machine', 'devbox', 'server', 'link', 'tunnel', 'add host', 'remove host'], status: 'hosts', ...READOUT,
+    },
+    {
+      id: 'remote-setup', path: 'status:remote-setup', title: 'Remote host setup',
+      description: 'Start a session that helps you run Glimmervoid on another Linux machine over ssh.',
+      control: 'readonly', keywords: ['remote', 'ssh', 'server', 'devbox', 'tailscale', 'pair', 'host'], status: 'remote-setup', ...READOUT,
+      legacyIds: [{ sectionId: 'machine-sessions', settingId: 'remote-setup' }],
+    },
+  ],
+};
+
 export const MACHINE_SERVER: SettingsSection = {
   id: 'machine-server',
   level: 'machine',
@@ -132,6 +157,12 @@ export const MACHINE_SERVER: SettingsSection = {
       description: 'Ends every running session first.',
       control: 'readonly', keywords: ['power', 'restart', 'shutdown', 'stop', 'quit', 'reboot', 'server'],
       status: 'server-power', ...READOUT,
+    },
+    {
+      id: 'watcher-auto-start', path: 'watcher.autoStart', title: 'Start the watcher with the server',
+      description: 'Runs the watcher beside this server and delivers its jobs to this server. Turn off when the watcher runs on another machine.',
+      control: 'toggle', keywords: ['watcher', 'cloud', 'job inbox', 'background'], defaultValue: true,
+      scope: 'machine', access: 'editable', takesEffect: 'restart',
     },
   ],
 };

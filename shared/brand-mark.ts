@@ -9,7 +9,7 @@ export const BRAND_MARK_BRACKETS: ReadonlyArray<{ side: BrandMarkSide; d: string
   { side: 'left', d: 'M29 67L12 50L29 33' },
 ]);
 
-const BRAND_MARK_LIGHT = 'M50 39L61 50L50 61L39 50Z';
+export const BRAND_MARK_LIGHT = 'M50 39L61 50L50 61L39 50Z';
 
 const BRAND_MARK_STROKE_WIDTH = 11;
 

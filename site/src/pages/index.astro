@@ -7,13 +7,16 @@ import AsTheyAre from '../components/AsTheyAre.astro';
 import Remote from '../components/Remote.astro';
 import Status from '../components/Status.astro';
 import WorktreeFlow from '../components/WorktreeFlow.astro';
+import Arena from '../components/Arena.astro';
 import Reviews from '../components/Reviews.astro';
 import Guardrails from '../components/Guardrails.astro';
 import Features from '../components/Features.astro';
 import Celebrations from '../components/Celebrations.astro';
 import Install from '../components/Install.astro';
+import Faq from '../components/Faq.astro';
 import Footer from '../components/Footer.astro';
-import { PRODUCT_VERSION, REPOSITORY_URL } from '../lib/product-facts.ts';
+import { FAQ_ENTRIES } from '../lib/faq.ts';
+import { PRODUCT_SUMMARY, PRODUCT_VERSION, REPOSITORY_URL } from '../lib/product-facts.ts';
 
 const HOME_URL = new URL('/', Astro.site).href;
 const HOME_STRUCTURED_DATA = {
@@ -23,6 +26,7 @@ const HOME_STRUCTURED_DATA = {
       '@type': 'SoftwareApplication',
       name: 'Glimmervoid',
       url: HOME_URL,
+      description: PRODUCT_SUMMARY,
       applicationCategory: 'DeveloperApplication',
       operatingSystem: 'Windows, macOS, Linux',
       softwareVersion: PRODUCT_VERSION,
@@ -30,21 +34,27 @@ const HOME_STRUCTURED_DATA = {
       sameAs: REPOSITORY_URL,
       offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
     },
+    {
+      '@type': 'FAQPage',
+      mainEntity: FAQ_ENTRIES.map(({ question, answer }) => ({ '@type': 'Question', name: question, acceptedAnswer: { '@type': 'Answer', text: answer } })),
+    },
   ],
 };
 ---
-<Base title="Glimmervoid: open-source orchestrator for Claude Code and Codex" structuredData={HOME_STRUCTURED_DATA} markdownPath="index.md">
+<Base title="Glimmervoid: open-source orchestrator for terminal coding agents" structuredData={HOME_STRUCTURED_DATA} markdownPath="index.md">
   <Nav />
   <Hero />
   <UsedBy />
   <Status />
   <AsTheyAre />
   <WorktreeFlow />
+  <Arena />
   <Guardrails />
   <Reviews />
   <Remote />
   <Features />
   <Celebrations />
   <Install />
+  <Faq />
   <Footer />
 </Base>

@@ -83,7 +83,7 @@ const GITHUB_STORE_CACHE_CAP = 128;
 
 export const GITHUB_STORE_BEHIND_INTERVAL_MS = 300_000;
 
-export function githubPrsWithChangedBehindCounts(prs: readonly GithubPr[], behindCountsByKey: ReadonlyMap<string, number>): GithubPr[] {
+export function githubPrsWithChangedBehindCounts(prs: readonly GithubPr[], behindCountsByKey: ReadonlyMap<string, number | null>): GithubPr[] {
   return prs.flatMap((pr) => {
     const behindBy = behindCountsByKey.get(pr.key);
     if (behindBy === undefined || behindBy === pr.behindBy) return [];

@@ -74,6 +74,7 @@ interface BackendControlDependencies {
   controlReplayLog: ReplayLog;
   agentConnect: NonNullable<ControlHandlerDeps['agentConnect']>;
   remoteSetup: NonNullable<ControlHandlerDeps['remoteSetup']>;
+  hostLinks: NonNullable<ControlHandlerDeps['hostLinks']>;
   telegramDelivery: TelegramDeliveryControl;
   generateProjectId: () => string;
   makeSession: (project: ProjectEntry, config: GlimmervoidConfig) => Session;
@@ -201,6 +202,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     remoteRepoGit: laneAssembly.gitWorkspace,
     agentConnect: dependencies.agentConnect,
     remoteSetup: dependencies.remoteSetup,
+    hostLinks: dependencies.hostLinks,
   });
 
   const sendLaneSnapshotOnConnect = (

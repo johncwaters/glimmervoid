@@ -81,8 +81,7 @@ function createTickLoop({
   let unschedule: (() => void) | null = null;
   let firstTickTimer: NodeJS.Timeout | null = null;
   let stopped = false;
-  let tickRunning = false;
-  let isTickRequestedAfterRun = false;
+  let tickPhase: 'idle' | 'running' | 'running-rerun-queued' = 'idle';
   const persistQueue = createSerialQueue();
 
   let backoffUntil = 0;
@@ -92,7 +91,6 @@ function createTickLoop({
   let nextAttemptAt: number | null = null;
   let retry: GithubPollingRetry | null = null;
   let rateLimitedUntil = 0;
-  let isRefreshing = false;
   let refreshNotice: string | null = null;
   let lastRefreshedAt: number | null = null;
   let hasTransientFailure = false;
@@ -136,14 +134,14 @@ function createTickLoop({
 
   function scheduleStatus() {
     const incident = hasTransientFailure ? clock?.githubStatus?.incident() ?? null : null;
-    return { nextAttemptAt, retry, isRefreshing, refreshNotice, lastRefreshedAt, incident };
+    return { nextAttemptAt, retry, isRefreshing: tickPhase !== 'idle', refreshNotice, lastRefreshedAt, incident };
   }
 
   async function runTick(trigger: TickTrigger, beforeTick?: () => Promise<GithubPollingRefreshResult>): Promise<GithubPollingRefreshResult> {
     const isManual = trigger === 'manual';
     const tickStartedAt = now();
     if (stopped) return { ok: false, error: 'Reviews polling is stopped.' };
-    if (tickRunning) {
+    if (tickPhase !== 'idle') {
       if (isManual) {
         refreshNotice = 'A refresh is already running.';
         onScheduleChange();
@@ -156,8 +154,7 @@ function createTickLoop({
       onScheduleChange();
       return { ok: false, error: refreshNotice };
     }
-    tickRunning = true;
-    isRefreshing = true;
+    tickPhase = 'running';
     refreshNotice = null;
     try {
       if (isManual) {
@@ -206,11 +203,15 @@ function createTickLoop({
       log.warn(`[${tag}] poll failed (${failureStreak} in a row)${outcome.error ? `: ${outcome.error}` : ''} - backing off ${Math.round(waitMs / 1000)}s`);
       return { ok: false, error: 'Could not refresh from GitHub.' };
     } finally {
-      tickRunning = false;
-      isRefreshing = false;
+      const isRerunQueued = isTickRerunQueued();
+      tickPhase = 'idle';
       if (!stopped) onScheduleChange();
-      if (isTickRequestedAfterRun && !stopped) tickSoon();
+      if (isRerunQueued && !stopped) tickSoon();
     }
+  }
+
+  function isTickRerunQueued(): boolean {
+    return tickPhase === 'running-rerun-queued';
   }
 
   async function tick(): Promise<void> {
@@ -218,8 +219,10 @@ function createTickLoop({
   }
 
   function tickSoon(): void {
-    isTickRequestedAfterRun = tickRunning;
-    if (tickRunning) return;
+    if (tickPhase !== 'idle') {
+      tickPhase = 'running-rerun-queued';
+      return;
+    }
     void runTick('interval');
   }
 

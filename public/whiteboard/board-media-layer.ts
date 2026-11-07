@@ -1,14 +1,19 @@
 import { boardMediaOriginalFilename, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
+import type { BoxMedia } from '#shared/contracts/whiteboard.ts';
 import type { BoardLayout, LaidOutElement, LaidOutMedia, Rect } from '#shared/whiteboard-layout-core.ts';
 import { pageMaskImage } from '#shared/whiteboard-svg-core.ts';
 import type { PageOccluder } from '#shared/whiteboard-svg-core.ts';
 import { el } from '../dom-helpers.ts';
+import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
+import { renderPlanBlocks } from '../plan/plan-render.ts';
 import { createSandboxedFrame } from '../sandboxed-frame.ts';
 
-const PAGE_VIEWPORT_WIDTH_PX = 1280;
+const VIEWPORT_WIDTH_PX_BY_KIND = { page: 1280, doc: 800 } as const;
+const DOC_CARD_TEXT_MAX_CHARS = 16 * 1024;
+const DOC_UNREAD_TEXT = 'This document could not be read.';
 const OCCLUDER_REACH = 8;
 
-type PageMedia = LaidOutMedia & { kind: 'page' };
+type PageMedia = LaidOutMedia & { kind: keyof typeof VIEWPORT_WIDTH_PX_BY_KIND };
 
 interface PlacedPage {
   identity: string;
@@ -16,7 +21,7 @@ interface PlacedPage {
 }
 
 function isPageMedia(media: LaidOutMedia | null): media is PageMedia {
-  return media?.kind === 'page';
+  return media?.kind === 'page' || media?.kind === 'doc';
 }
 
 function identityOf(media: PageMedia): string {
@@ -28,12 +33,13 @@ function placeNode(node: HTMLElement, media: PageMedia): void {
   node.style.top = `${media.y}px`;
   node.style.width = `${media.width}px`;
   node.style.height = `${media.height}px`;
-  const frame = node.querySelector<HTMLIFrameElement>('iframe.wb-media-page');
-  if (!frame) return;
-  const scale = media.width / PAGE_VIEWPORT_WIDTH_PX;
-  frame.style.width = `${PAGE_VIEWPORT_WIDTH_PX}px`;
-  frame.style.height = `${media.height / scale}px`;
-  frame.style.transform = `scale(${scale})`;
+  const scaledContent = node.querySelector<HTMLElement>('.wb-media-page, .wb-media-doc');
+  if (!scaledContent) return;
+  const viewportWidth = VIEWPORT_WIDTH_PX_BY_KIND[media.kind];
+  const scale = media.width / viewportWidth;
+  scaledContent.style.width = `${viewportWidth}px`;
+  scaledContent.style.height = `${media.height / scale}px`;
+  scaledContent.style.transform = `scale(${scale})`;
 }
 
 function isOccluder(element: LaidOutElement): element is PageOccluder {
@@ -57,13 +63,44 @@ function applyMask(node: HTMLElement, maskImage: string | null): void {
   node.style.setProperty('-webkit-mask-image', nextMaskImage);
 }
 
+export async function fetchBoardDocText(media: Pick<BoxMedia, 'asset' | 'mime'>): Promise<string | null> {
+  const response = await fetch(`${WHITEBOARD_ASSET_ROUTE}/${boardMediaOriginalFilename(media)}`).catch(() => null);
+  if (!response?.ok) return null;
+  return response.text().catch(() => null);
+}
+
+function openingOf(docText: string): string {
+  if (docText.length <= DOC_CARD_TEXT_MAX_CHARS) return docText;
+  const lastWholeLineEnd = docText.lastIndexOf('\n', DOC_CARD_TEXT_MAX_CHARS);
+  return docText.slice(0, lastWholeLineEnd > 0 ? lastWholeLineEnd : DOC_CARD_TEXT_MAX_CHARS);
+}
+
+function renderedDocOpening(docText: string): HTMLElement {
+  const rendered = renderPlanBlocks(parsePlanMarkdown(openingOf(docText)));
+  for (const identified of rendered.querySelectorAll('[id]')) identified.removeAttribute('id');
+  return rendered;
+}
+
+function docCardOf(media: PageMedia): HTMLElement {
+  const card = el('div', 'wb-media-doc');
+  card.inert = true;
+  void fetchBoardDocText(media).then((docText) => {
+    card.replaceChildren(docText === null ? el('p', 'wb-media-doc-unread', DOC_UNREAD_TEXT) : renderedDocOpening(docText));
+  });
+  return card;
+}
+
+function pageFrameOf(media: PageMedia): HTMLElement {
+  const frame = createSandboxedFrame({ source: { kind: 'url', url: `${WHITEBOARD_ASSET_ROUTE}/${boardMediaOriginalFilename(media)}` }, className: 'wb-media-page', title: media.alt || 'page', allowsScripts: true });
+  frame.tabIndex = -1;
+  return frame;
+}
+
 function placedNodeOf(boxId: string, media: PageMedia): HTMLElement {
   const node = el('div', 'wb-media');
   node.dataset.boxId = boxId;
   node.dataset.mediaKind = media.kind;
-  const frame = createSandboxedFrame({ source: { kind: 'url', url: `${WHITEBOARD_ASSET_ROUTE}/${boardMediaOriginalFilename(media)}` }, className: 'wb-media-page', title: media.alt || 'page', allowsScripts: true });
-  frame.tabIndex = -1;
-  node.append(frame);
+  node.append(media.kind === 'doc' ? docCardOf(media) : pageFrameOf(media));
   placeNode(node, media);
   return node;
 }

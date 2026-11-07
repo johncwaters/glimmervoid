@@ -13,9 +13,19 @@ import { createPressable } from './ui/pressable.ts';
 import { applyDialogAria, buildDialogShell, createModalOverlay } from './session-card/modal.ts';
 import { buildRepoCheckbox } from './session-card/workspace-repos-dialog.ts';
 import { DEFAULT_AGENT_ID, SHELL_AGENT_ID, decideAgentAvailability, decideAgentPicker } from './session-card/agent-core.ts';
-import { countSessionsByName, suggestSessionName } from './session-card/naming.ts';
+import { paintAgentMark } from './session-card/agent-mark.ts';
+import { suggestSessionName } from './session-card/naming.ts';
+import { sessionUIs } from './session-card/card-registry.ts';
+import { needsAttention } from './focus-view/attention-core.ts';
+import { STATES } from '#shared/states.ts';
+import { formatRelativeAge } from './plan/plan-view-core.ts';
+import { getAddSessionStarts, setAddSessionStarts } from './ui-prefs.ts';
+import { decidePermissions, filterRows, lastPathSegment, orderRecentRows, pickInitialRow, rememberStart, sessionNameBase } from './add-session-core.ts';
+import type { LiveSession, RecentRow, ScannedProject } from './add-session-core.ts';
 import { onSessionTick } from './session-card/session-tick.ts';
 import { formatAgo } from './poll-ago.ts';
+import { hostStatuses } from './hosts/host-status.ts';
+import { requestOnHost } from './hosts/host-clients.ts';
 import { addSessionRefusalText, revealAddedSession } from './session-actions.ts';
 import { formatTrailOffset, trailContentKey, trailStatusText, trailTimelineRows } from './radar/radar-core.ts';
 import type { InvestigationView } from './radar/radar-core.ts';
@@ -215,196 +225,250 @@ export function openRemoteSetupDialog() {
   refreshAgentLogins();
 }
 
-export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: { preferredAgentId?: string } = {}) {
-  const { dialog, close } = createModalOverlay();
+type AddSessionTarget =
+  | { kind: 'none' }
+  | { kind: 'project'; row: RecentRow }
+  | { kind: 'workspace' }
+  | { kind: 'folder' };
+
+type AddSessionRequest = { message: Record<string, unknown>; rememberedPath: string | null };
+
+const NO_TARGET: AddSessionTarget = { kind: 'none' };
+const HOST_PLACE_PREFIX = 'host:';
+const ENVIRONMENT_PLACE_PREFIX = 'environment:';
+const UNPROTECTED_ASKS_TEXT = 'Sane YOLO is not available here, so the agent asks before acting.';
+const UNPROTECTED_SKIPS_TEXT = 'Sane YOLO is not available here, so this session skips permission prompts unprotected.';
+
+function liveSessionsByPath(): LiveSession[] {
+  return [...sessionUIs.values()].map((ui) => ({
+    path: ui.path,
+    isRunning: ui.currentState === STATES.RUNNING,
+    isWaiting: needsAttention({ state: ui.currentState, unseenOutcome: ui.unseenOutcome }),
+  }));
+}
+
+function scannedProjectsOf(message: ServerMessage): ScannedProject[] {
+  if (message.type !== 'repo-roots-scanned') return [];
+  return message.directories.flatMap((directory) => directory.projects.map(({ name, path, lastActivityMs }) => ({ name, path, lastActivityMs })));
+}
+
+function settingFlag(settings: unknown, key: string): boolean | null {
+  if (typeof settings !== 'object' || settings === null || !(key in settings)) return null;
+  const value: unknown = Reflect.get(settings, key);
+  return typeof value === 'boolean' ? value : null;
+}
+
+function liveCountText(row: RecentRow): HTMLElement | null {
+  const counts = [
+    { count: row.runningCount, label: 'running', tone: 'running' },
+    { count: row.waitingCount, label: 'waiting', tone: 'waiting' },
+  ].filter(({ count }) => count > 0);
+  if (counts.length === 0) return null;
+  const meta = el('span', 'add-session-row-meta');
+  for (const { count, label, tone } of counts) {
+    const part = el('span', 'add-session-row-count');
+    part.dataset.tone = tone;
+    part.textContent = `${count} ${label}`;
+    meta.append(part);
+  }
+  return meta;
+}
+
+export function createAddSessionDialog() {
+  const { overlay, dialog, close } = createModalOverlay({ dialogClass: 'dialog add-session-dialog' });
+  overlay.classList.add('add-session-overlay');
   dialog.innerHTML = addSessionHTML;
   applyDialogAria(dialog, 'add-session-title');
 
-  const pickerEl = queryTag(dialog, '#add-session-picker', 'select');
-  const pickerLabelEl = query(dialog, '#add-session-picker-label');
-  const workspaceListEl = query(dialog, '#add-session-workspace-list');
-  const singleModeButton = createPressable('dialog-mode-button', 'Single repo');
-  const workspaceModeButton = createPressable('dialog-mode-button', 'Workspace');
-  singleModeButton.setAttribute('aria-pressed', 'true');
-  workspaceModeButton.setAttribute('aria-pressed', 'false');
-  query(dialog, '#add-session-mode-controls').append(singleModeButton, workspaceModeButton);
-  const agentLabelEl = query(dialog, '#add-session-agent-label');
   const agentSelectEl = queryTag(dialog, '#add-session-agent', 'select');
-  const environmentLabelEl = query(dialog, '#add-session-environment-label');
-  const environmentSelectEl = queryTag(dialog, '#add-session-environment', 'select');
-  const environmentHintEl = query(dialog, '#add-session-environment-hint');
-  const agentLoginEl = query(dialog, '#add-session-agent-login');
-  const agentLoginTextEl = query(dialog, '#add-session-agent-login-text');
-  const agentConnectButton = button({ variant: 'secondary', label: 'Connect' });
-  agentLoginEl.append(agentConnectButton);
+  const agentMarkEl = query(dialog, '#add-session-agent-mark');
+  const placeEl = query(dialog, '#add-session-place');
+  const placeSelectEl = queryTag(dialog, '#add-session-place-select', 'select');
+  const taskInput = queryTag(dialog, '#add-session-task', 'input');
+  const pickEl = query(dialog, '#add-session-pick');
+  const findInput = queryTag(dialog, '#add-session-find', 'input');
+  const listEl = query(dialog, '#add-session-list');
   const repoRootsEl = query(dialog, '#add-session-repo-roots');
   const repoRootsTitleEl = query(dialog, '#add-session-repo-roots-title');
-  const advancedToggle = createPressable('dialog-advanced-toggle add-session-agent-only', 'Run in a folder outside your repository roots');
-  advancedToggle.setAttribute('aria-controls', 'add-session-advanced');
-  query(dialog, '#add-session-advanced-toggle-row').replaceWith(advancedToggle);
-  const advancedPanel = query(dialog, '#add-session-advanced');
-  const nameInput = queryTag(dialog, '#add-session-name', 'input');
+  const workspacePanel = query(dialog, '#add-session-workspace');
+  const workspaceListEl = query(dialog, '#add-session-workspace-list');
+  const folderPanel = query(dialog, '#add-session-folder');
   const pathInput = queryTag(dialog, '#add-session-path', 'input');
-  const pathLabelEl = query(dialog, '#add-session-path-label');
-  const skipPermsCheckbox = queryTag(dialog, '#add-session-skip-perms', 'input');
-  const saneYoloHelpLink = queryTag(dialog, '#add-session-sane-yolo-help', 'a');
-  const saneYoloUnavailableEl = query(dialog, '#add-session-sane-yolo-unavailable');
+  const agentLoginEl = query(dialog, '#add-session-agent-login');
+  const agentLoginTextEl = query(dialog, '#add-session-agent-login-text');
+  const environmentHintEl = query(dialog, '#add-session-environment-hint');
+  const unprotectedHintEl = query(dialog, '#add-session-unprotected');
   const errorEl = query(dialog, '#add-session-error');
-  const shellHintEl = query(dialog, '#add-session-shell-hint');
+  const agentConnectButton = button({ variant: 'secondary', label: 'Connect' });
+  agentLoginEl.append(agentConnectButton);
+  const repoWord = createPressable('add-session-word add-session-repo-word');
+  query(dialog, '#add-session-repo-word-slot').replaceWith(repoWord);
+  const workspaceBackButton = createPressable('add-session-back', 'All projects');
+  query(dialog, '#add-session-workspace-back-slot').replaceWith(workspaceBackButton);
+  const folderBackButton = createPressable('add-session-back', 'All projects');
+  query(dialog, '#add-session-folder-back-slot').replaceWith(folderBackButton);
+  const startStatus = createActionStatus('dialog-hint');
   const btnCancel = button({ variant: 'secondary', label: 'Cancel' });
-  const btnConfirm = button({ variant: 'primary', label: 'Add' });
-  query(dialog, '#add-session-actions').append(btnCancel, btnConfirm);
-  let isWorkspaceMode = false;
-  let coderEnvironments: CoderEnvironmentOffer[] = [];
-  let selectedEnvironment: CoderEnvironmentOffer | null = null;
+  const btnConfirm = button({ variant: 'primary', label: 'Start session' });
+  query(dialog, '#add-session-actions').append(startStatus.element, btnCancel, btnConfirm);
 
-  function setWorkspaceMode(enabled: boolean) {
-    isWorkspaceMode = enabled;
-    singleModeButton.setAttribute('aria-pressed', String(!enabled));
-    workspaceModeButton.setAttribute('aria-pressed', String(enabled));
-    pickerLabelEl.hidden = enabled;
-    workspaceListEl.hidden = !enabled;
-    advancedToggle.hidden = enabled;
-    advancedToggle.setAttribute('aria-expanded', String(enabled));
-    advancedPanel.hidden = !enabled;
-    pathLabelEl.hidden = enabled;
-    if (enabled) requestAnimationFrame(() => nameInput.focus());
-  }
-  singleModeButton.addEventListener('click', () => setWorkspaceMode(false));
-  workspaceModeButton.addEventListener('click', () => setWorkspaceMode(true));
-
-  advancedToggle.setAttribute('aria-expanded', 'false');
-  advancedToggle.addEventListener('click', () => {
-    const expanded = advancedPanel.hidden;
-    advancedPanel.hidden = !expanded;
-    advancedToggle.setAttribute('aria-expanded', String(expanded));
-    if (expanded) requestAnimationFrame(() => nameInput.focus());
-  });
-
-  saneYoloHelpLink.addEventListener('click', () => close());
-
-  const repoRootsAdder = createRepoRootsAdder({ onAdded: fillProjectPicker });
-  repoRootsEl.append(repoRootsAdder.element);
-
-  const scanStatus = createActionStatus('dialog-hint');
-  const btnScanAgain = button({ variant: 'secondary', label: 'Scan again', hidden: true });
-  btnScanAgain.addEventListener('click', () => { void fillProjectPicker(); });
-  const scanRow = el('div', 'flex items-center gap-2');
-  scanRow.append(scanStatus.element, btnScanAgain);
-  repoRootsEl.before(scanRow);
-
-  function showScanFailure(reason: string) {
-    pickerEl.textContent = '';
-    pickerEl.appendChild(option('Scan failed', { disabled: true, selected: true }));
-    workspaceListEl.textContent = '';
-    scanStatus.show('error', `The project scan failed: ${reason}`);
-    btnScanAgain.hidden = false;
-    btnScanAgain.disabled = false;
-  }
-
-  function showRepoRootsAdder(message: ServerMessage) {
-    const isScan = message.type === 'repo-roots-scanned';
-    repoRootsTitleEl.textContent = isScan && message.directories.length > 0 ? 'No projects in your repository roots yet' : 'No repository roots yet';
-    repoRootsAdder.setSuggestions(isScan ? message.suggestions ?? [] : []);
-    repoRootsEl.hidden = false;
-  }
-
-  function fillProjectPicker() {
-    btnScanAgain.disabled = true;
-    scanStatus.show('busy', 'Scanning your repository roots');
-    return sendControlRequest('scan-repo-roots', { includeSuggestions: true }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS })
-      .then((message) => {
-        if (message.type === 'repo-roots-scanned' && message.error) { showScanFailure(message.error); return; }
-        scanStatus.clear();
-        btnScanAgain.hidden = true;
-        pickerEl.textContent = '';
-        workspaceListEl.textContent = '';
-        repoRootsEl.hidden = true;
-        pickerEl.appendChild(option('-- Select a project --', { value: '', disabled: true, selected: true }));
-        let hasProjects = false;
-        const directories = message.type === 'repo-roots-scanned' ? message.directories : [];
-        for (const directory of directories) {
-          if (directory.projects.length === 0) continue;
-          const group = el('optgroup');
-          group.label = directory.root;
-          for (const project of directory.projects) {
-            const existingCount = countSessionsByName(project.name);
-            const openLabel = existingCount > 0 ? `${project.name} (${existingCount} open)` : project.name;
-            group.appendChild(option(openLabel, { value: JSON.stringify({ name: project.name, path: project.path }) }));
-            workspaceListEl.appendChild(buildRepoCheckbox(project.name, project.path));
-            hasProjects = true;
-          }
-          pickerEl.appendChild(group);
-        }
-        if (hasProjects) return;
-        pickerEl.textContent = '';
-        pickerEl.appendChild(option('No projects yet', { disabled: true, selected: true }));
-        workspaceListEl.textContent = 'No projects yet.';
-        showRepoRootsAdder(message);
-      })
-      .catch((reason) => { showScanFailure(requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)); });
-  }
-  void fillProjectPicker();
-
-  pickerEl.addEventListener('change', () => {
-    try {
-      const project = JSON.parse(pickerEl.value) as { name: string; path: string };
-      nameInput.value = suggestSessionName(project.name);
-      pathInput.value = project.path;
-    } catch {}
-  });
-
+  const rememberedStarts = getAddSessionStarts();
+  let target: AddSessionTarget = NO_TARGET;
+  let lastProjectTarget: AddSessionTarget = NO_TARGET;
+  let scannedProjects: ScannedProject[] = [];
+  let recentRows: RecentRow[] = [];
+  let agentOptions: { id: string; label: string }[] = [];
+  let defaultAgentId = DEFAULT_AGENT_ID;
   let selectedAgentId = DEFAULT_AGENT_ID;
+  let selectedHostId: string | null = null;
+  let hostLoadGeneration = 0;
+  let localCoderEnvironments: CoderEnvironmentOffer[] = [];
+  let selectedEnvironment: CoderEnvironmentOffer | null = null;
+  let hasSettingsLoaded = false;
+  let isSaneYoloInstalled = false;
+  let isSaneYoloSettingOn = true;
+  let skipsPermissionsByDefault = false;
   let isSpawnBlocked = false;
-  function showWarning(text: string) {
-    const warningEl = el('p', 'dialog-hint dialog-hint-warning', text);
-    warningEl.setAttribute('role', 'status');
-    errorEl.before(warningEl);
-    return warningEl;
-  }
-  function blockSpawnWithGuidance(guidance: string) {
-    isSpawnBlocked = true;
-    btnConfirm.disabled = true;
-    showWarning(guidance).id = 'add-session-agent-guidance';
-  }
-  sendControlRequest('list-agents', {}, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS })
-    .then((message) => {
-      const availability = decideAgentAvailability(message);
-      if (!availability.canSpawn) blockSpawnWithGuidance(availability.guidance);
-      const decision = decideAgentPicker(message.type === 'agents-listed' ? message.agents : [], { defaultId: preferredAgentId });
-      selectedAgentId = decision.selectedId;
-      showShellMode();
-      if (!decision.show) return;
-      agentSelectEl.textContent = '';
-      for (const agentOption of decision.options) {
-        agentSelectEl.appendChild(option(agentOption.label, {
-          value: agentOption.id,
-          selected: agentOption.id === decision.selectedId,
-        }));
-      }
-      agentLabelEl.hidden = false;
-    })
-    .catch((reason) => { showWarning(`Could not load the agent list (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}), so the session uses the default agent.`); });
-  agentSelectEl.addEventListener('change', () => {
-    selectedAgentId = agentSelectEl.value;
-    showShellMode();
-    showAgentLogin();
-  });
+  let isAddPending = false;
 
-  function showShellMode() {
-    const isShell = selectedAgentId === SHELL_AGENT_ID;
-    if (isShell && isWorkspaceMode) setWorkspaceMode(false);
-    if (isShell && selectedEnvironment) {
-      environmentSelectEl.value = '';
-      environmentSelectEl.dispatchEvent(new Event('change'));
-    }
-    dialog.classList.toggle('add-session-shell', isShell);
-    shellHintEl.hidden = !isShell;
-    advancedPanel.hidden = !isShell && advancedToggle.getAttribute('aria-expanded') !== 'true';
-    if (!isShell) return;
-    if (!nameInput.value.trim()) nameInput.value = SHELL_AGENT_ID;
-    requestAnimationFrame(() => nameInput.focus());
+  function requestOnSelectedHost(type: string, payload: Record<string, unknown>) {
+    const options = { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS };
+    return selectedHostId ? requestOnHost(selectedHostId, type, payload, options) : sendControlRequest(type, payload, options);
   }
+  function whileHostUnchanged<Value>(apply: (value: Value) => void) {
+    const generation = hostLoadGeneration;
+    return (value: Value) => {
+      if (generation === hostLoadGeneration) apply(value);
+    };
+  }
+
+  const isShellChosen = () => selectedAgentId === SHELL_AGENT_ID;
+  const agentLabelOf = (agentId: string) => agentOptions.find((agentOption) => agentOption.id === agentId)?.label ?? null;
+  const pickAgentId = (rememberedAgentId: string | null) => {
+    if (rememberedAgentId === null || rememberedAgentId === SHELL_AGENT_ID) return defaultAgentId;
+    return agentOptions.some((agentOption) => agentOption.id === rememberedAgentId) ? rememberedAgentId : defaultAgentId;
+  };
+
+  function renderRepoWord() {
+    const wordByKind: Record<AddSessionTarget['kind'], string> = {
+      none: 'a project',
+      project: target.kind === 'project' ? target.row.name : '',
+      workspace: 'several repos',
+      folder: lastPathSegment(pathInput.value.trim()) || 'a folder',
+    };
+    repoWord.textContent = wordByKind[target.kind];
+    pickEl.hidden = target.kind === 'workspace' || target.kind === 'folder';
+    workspacePanel.hidden = target.kind !== 'workspace';
+    folderPanel.hidden = target.kind !== 'folder';
+  }
+
+  function buildChoiceRow(label: string, onPick: () => void) {
+    const row = createPressable('add-session-row add-session-row-choice');
+    row.append(el('span', 'add-session-row-name', label), el('span', 'add-session-row-chevron'));
+    row.addEventListener('click', onPick);
+    return row;
+  }
+
+  function buildProjectRow(row: RecentRow) {
+    const rowEl = createPressable('add-session-row');
+    rowEl.setAttribute('role', 'option');
+    const isPicked = target.kind === 'project' && target.row.path === row.path;
+    rowEl.setAttribute('aria-selected', String(isPicked));
+    const markEl = el('span', 'agent-mark');
+    markEl.setAttribute('aria-hidden', 'true');
+    paintAgentMark(markEl, row.agentId, agentLabelOf(row.agentId));
+    rowEl.append(markEl, el('span', 'add-session-row-name', row.name));
+    const meta = liveCountText(row) ?? (row.lastActivityMs !== null ? el('span', 'add-session-row-meta', formatRelativeAge(row.lastActivityMs, Date.now())) : null);
+    if (meta) rowEl.append(meta);
+    rowEl.addEventListener('click', () => pickProject(row));
+    return rowEl;
+  }
+
+  function renderList() {
+    const visibleRows = filterRows(recentRows, findInput.value);
+    listEl.replaceChildren(...visibleRows.map(buildProjectRow));
+    if (!isShellChosen() && selectedEnvironment === null && scannedProjects.length >= 2) listEl.append(buildChoiceRow('Several repos', pickWorkspace));
+    listEl.append(buildChoiceRow('Any folder', pickFolder));
+  }
+
+  function pickProject(row: RecentRow) {
+    target = { kind: 'project', row };
+    lastProjectTarget = target;
+    errorEl.textContent = '';
+    setAgent(row.agentId);
+    renderRepoWord();
+    renderList();
+  }
+
+  function pickWorkspace() {
+    target = { kind: 'workspace' };
+    errorEl.textContent = '';
+    workspaceListEl.replaceChildren(...scannedProjects.map((project) => buildRepoCheckbox(project.name, project.path)));
+    renderRepoWord();
+    workspaceBackButton.focus();
+  }
+
+  function pickFolder() {
+    target = { kind: 'folder' };
+    errorEl.textContent = '';
+    renderRepoWord();
+    pathInput.focus();
+  }
+
+  function returnToProjects() {
+    target = lastProjectTarget;
+    renderRepoWord();
+    renderList();
+    findInput.focus();
+  }
+
+  function rebuildRows() {
+    recentRows = orderRecentRows(scannedProjects, rememberedStarts, liveSessionsByPath(), pickAgentId);
+    const pickedPath = target.kind === 'project' ? target.row.path : null;
+    const pickedRow = recentRows.find((row) => row.path === pickedPath) ?? null;
+    if (pickedRow) {
+      pickProject(pickedRow);
+      return;
+    }
+    if (target.kind !== 'none') {
+      renderList();
+      return;
+    }
+    const initialRow = pickInitialRow(recentRows);
+    if (initialRow) {
+      pickProject(initialRow);
+      return;
+    }
+    renderRepoWord();
+    renderList();
+  }
+
+  function renderPermissionHint() {
+    const choice = decidePermissions({ isSaneYoloInstalled, isSaneYoloSettingOn, hasEnvironment: selectedEnvironment !== null, isShell: isShellChosen() });
+    unprotectedHintEl.hidden = !hasSettingsLoaded || !choice.isUnprotectedHintShown;
+    unprotectedHintEl.textContent = skipsPermissionsByDefault ? UNPROTECTED_SKIPS_TEXT : UNPROTECTED_ASKS_TEXT;
+  }
+
+  function setAgent(agentId: string) {
+    selectedAgentId = agentId;
+    agentSelectEl.value = agentId;
+    paintAgentMark(agentMarkEl, agentId, agentLabelOf(agentId));
+    applyAgentRules();
+  }
+
+  function applyAgentRules() {
+    const isShell = isShellChosen();
+    taskInput.hidden = isShell;
+    if (isShell && target.kind === 'workspace') returnToProjects();
+    if (isShell && selectedEnvironment) selectEnvironment(null);
+    renderPermissionHint();
+    showAgentLogin();
+  }
+
+  agentSelectEl.addEventListener('change', () => {
+    setAgent(agentSelectEl.value);
+    renderList();
+  });
 
   function showAgentLogin() {
     if (!dialog.isConnected) {
@@ -423,125 +487,281 @@ export function createAddSessionDialog({ preferredAgentId = DEFAULT_AGENT_ID }: 
   const unsubscribeAgentLogins = onAgentLoginsChanged(showAgentLogin);
   refreshAgentLogins();
 
-  let hasOperatorChosenPermissions = false;
-  let isSaneYoloInstalled = false;
-  skipPermsCheckbox.addEventListener('change', () => { hasOperatorChosenPermissions = true; });
-  function offerSaneYolo() {
-    const canProtectWithSaneYolo = isSaneYoloInstalled && selectedEnvironment === null;
-    saneYoloUnavailableEl.hidden = canProtectWithSaneYolo;
-    if (hasOperatorChosenPermissions) return;
-    skipPermsCheckbox.checked = canProtectWithSaneYolo;
-  }
-  sendControlRequest('get-settings', {}, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS })
-    .then((message) => {
-      if (message.type === 'settings-error') {
-        showWarning(`Could not load your settings (${message.message}). Check Sane YOLO mode yourself.`);
-        offerSaneYolo();
-        return;
-      }
-      showCoderEnvironments(offeredCoderEnvironments(message.settings));
-      isSaneYoloInstalled = isSaneYoloAvailable(message.settings);
-      offerSaneYolo();
-    })
-    .catch((reason) => {
-      showWarning(`Could not load your settings (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}). Check Sane YOLO mode yourself.`);
-      offerSaneYolo();
-    });
-
-  function showCoderEnvironments(environments: CoderEnvironmentOffer[]) {
-    if (environments.length === 0) return;
-    coderEnvironments = environments;
-    environmentSelectEl.textContent = '';
-    environmentSelectEl.appendChild(option('Local', { value: '', selected: true }));
-    for (const environment of environments) environmentSelectEl.appendChild(option(environment.name, { value: environment.name }));
-    environmentLabelEl.hidden = false;
+  function renderPlaces() {
+    const hosts = hostStatuses();
+    placeEl.hidden = hosts.length === 0 && localCoderEnvironments.length === 0;
+    placeSelectEl.replaceChildren(option('this machine', { value: '' }));
+    for (const status of hosts) {
+      const isConnected = status.state === 'connected';
+      placeSelectEl.appendChild(option(isConnected ? status.name : `${status.name} (${status.state})`, { value: `${HOST_PLACE_PREFIX}${status.id}`, disabled: !isConnected }));
+    }
+    for (const environment of localCoderEnvironments) placeSelectEl.appendChild(option(environment.name, { value: `${ENVIRONMENT_PLACE_PREFIX}${environment.name}` }));
+    const hostValue = selectedHostId ? `${HOST_PLACE_PREFIX}${selectedHostId}` : '';
+    placeSelectEl.value = selectedEnvironment ? `${ENVIRONMENT_PLACE_PREFIX}${selectedEnvironment.name}` : hostValue;
   }
 
-  environmentSelectEl.addEventListener('change', () => {
-    selectedEnvironment = coderEnvironments.find((environment) => environment.name === environmentSelectEl.value) ?? null;
-    workspaceModeButton.hidden = selectedEnvironment !== null;
+  function selectEnvironment(environmentName: string | null) {
+    selectedEnvironment = localCoderEnvironments.find((environment) => environment.name === environmentName) ?? null;
     environmentHintEl.hidden = selectedEnvironment === null;
     environmentHintEl.textContent = selectedEnvironment ? coderEnvironmentHint(selectedEnvironment) : '';
+    if (selectedEnvironment && isShellChosen()) setAgent(defaultAgentId);
+    if (selectedEnvironment && target.kind === 'workspace') returnToProjects();
+    renderPlaces();
+    renderPermissionHint();
     showAgentLogin();
-    offerSaneYolo();
-    if (selectedEnvironment === null) return;
-    if (isWorkspaceMode) setWorkspaceMode(false);
-  });
-
-  nameInput.addEventListener('input', () => { pickerEl.selectedIndex = 0; });
-  pathInput.addEventListener('input', () => { pickerEl.selectedIndex = 0; });
-
-  function submit() {
-    if (isSpawnBlocked) return;
-    const name = nameInput.value.trim();
-    const projectPath = pathInput.value.trim();
-    if (selectedAgentId === SHELL_AGENT_ID) {
-      if (!name) {
-        errorEl.textContent = 'Enter a name.';
-        return;
-      }
-      requestAddSession({ name: suggestSessionName(name), path: projectPath, agent: SHELL_AGENT_ID });
-      return;
-    }
-    if (isWorkspaceMode) {
-      const repos = [...workspaceListEl.querySelectorAll<HTMLInputElement>('input:checked')].map((checkbox) => checkbox.value);
-      if (!name || repos.length < 2) {
-        errorEl.textContent = 'Enter a name and select at least two repositories.';
-        return;
-      }
-      const message: Record<string, unknown> = {
-        name: suggestSessionName(name),
-        path: repos[0],
-        repos,
-        dangerouslySkipPermissions: skipPermsCheckbox.checked,
-        saneYolo: skipPermsCheckbox.checked,
-      };
-      if (selectedAgentId && selectedAgentId !== DEFAULT_AGENT_ID) message.agent = selectedAgentId;
-      requestAddSession(message);
-      return;
-    }
-    if (!name || !projectPath) {
-      errorEl.textContent = 'Both fields are required. Select a project or use Advanced options.';
-      return;
-    }
-    const message: Record<string, unknown> = {
-      name: suggestSessionName(name),
-      path: projectPath,
-      dangerouslySkipPermissions: skipPermsCheckbox.checked,
-      saneYolo: skipPermsCheckbox.checked,
-    };
-    if (selectedAgentId && selectedAgentId !== DEFAULT_AGENT_ID) message.agent = selectedAgentId;
-    if (selectedEnvironment) message.environment = selectedEnvironment.name;
-    requestAddSession(message);
+    renderList();
   }
 
-  function requestAddSession(message: Record<string, unknown>) {
+  placeSelectEl.addEventListener('change', () => {
+    const place = placeSelectEl.value;
+    const hostId = place.startsWith(HOST_PLACE_PREFIX) ? place.slice(HOST_PLACE_PREFIX.length) : null;
+    const environmentName = place.startsWith(ENVIRONMENT_PLACE_PREFIX) ? place.slice(ENVIRONMENT_PLACE_PREFIX.length) : null;
+    if (hostId !== selectedHostId) {
+      selectedHostId = hostId;
+      resetForHostChange();
+      loadFromSelectedHost();
+    }
+    selectEnvironment(environmentName);
+  });
+
+  const repoRootsAdder = createRepoRootsAdder({ onAdded: fillProjectList });
+  repoRootsEl.append(repoRootsAdder.element);
+  const scanStatus = createActionStatus('dialog-hint');
+  const btnScanAgain = button({ variant: 'secondary', label: 'Scan again', hidden: true });
+  btnScanAgain.addEventListener('click', () => { void fillProjectList(); });
+  const scanRow = el('div', 'flex items-center gap-2');
+  scanRow.append(scanStatus.element, btnScanAgain);
+  repoRootsEl.before(scanRow);
+
+  function showScanFailure(reason: string) {
+    scannedProjects = [];
+    recentRows = [];
+    listEl.replaceChildren();
+    scanStatus.show('error', `The project scan failed: ${reason}`);
+    btnScanAgain.hidden = false;
+    btnScanAgain.disabled = false;
+  }
+
+  function showRepoRootsAdder(message: ServerMessage) {
+    if (selectedHostId) return;
+    const isScan = message.type === 'repo-roots-scanned';
+    repoRootsTitleEl.textContent = isScan && message.directories.length > 0 ? 'No projects in your repository roots yet' : 'No repository roots yet';
+    repoRootsAdder.setSuggestions(isScan ? message.suggestions ?? [] : []);
+    repoRootsEl.hidden = false;
+  }
+
+  function fillProjectList() {
+    btnScanAgain.disabled = true;
+    scanStatus.show('busy', 'Scanning your repository roots');
+    return requestOnSelectedHost('scan-repo-roots', { includeSuggestions: true, includeActivity: true })
+      .then(whileHostUnchanged((message: ServerMessage) => {
+        if (message.type === 'repo-roots-scanned' && message.error) { showScanFailure(message.error); return; }
+        scanStatus.clear();
+        btnScanAgain.hidden = true;
+        repoRootsEl.hidden = true;
+        scannedProjects = scannedProjectsOf(message);
+        rebuildRows();
+        if (scannedProjects.length === 0) showRepoRootsAdder(message);
+      }))
+      .catch(whileHostUnchanged((reason: unknown) => { showScanFailure(requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)); }));
+  }
+
+  findInput.addEventListener('input', () => {
+    const visibleRows = filterRows(recentRows, findInput.value);
+    const pickedPath = target.kind === 'project' ? target.row.path : null;
+    const isPickVisible = visibleRows.some((row) => row.path === pickedPath);
+    if (!isPickVisible && visibleRows[0]) {
+      pickProject(visibleRows[0]);
+      return;
+    }
+    renderList();
+  });
+
+  repoWord.addEventListener('click', () => {
+    if (target.kind === 'workspace' || target.kind === 'folder') {
+      returnToProjects();
+      return;
+    }
+    findInput.focus();
+  });
+  workspaceBackButton.addEventListener('click', returnToProjects);
+  folderBackButton.addEventListener('click', returnToProjects);
+  pathInput.addEventListener('input', renderRepoWord);
+
+  const shownWarnings: HTMLElement[] = [];
+  function showWarning(text: string) {
+    const warningEl = el('p', 'dialog-hint dialog-hint-warning', text);
+    warningEl.setAttribute('role', 'status');
+    errorEl.before(warningEl);
+    shownWarnings.push(warningEl);
+    return warningEl;
+  }
+  function blockSpawnWithGuidance(guidance: string) {
+    isSpawnBlocked = true;
     btnConfirm.disabled = true;
+    showWarning(guidance).id = 'add-session-agent-guidance';
+  }
+
+  function loadAgents() {
+    return requestOnSelectedHost('list-agents', {})
+      .then(whileHostUnchanged((message: ServerMessage) => {
+        const availability = decideAgentAvailability(message);
+        if (!availability.canSpawn) blockSpawnWithGuidance(availability.guidance);
+        const decision = decideAgentPicker(message.type === 'agents-listed' ? message.agents : []);
+        agentOptions = decision.options;
+        defaultAgentId = decision.selectedId;
+        agentSelectEl.replaceChildren(...agentOptions.map((agentOption) => option(agentOption.label, { value: agentOption.id })));
+        setAgent(defaultAgentId);
+        rebuildRows();
+      }))
+      .catch(whileHostUnchanged((reason: unknown) => { showWarning(`Could not load the agent list (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}), so the session uses the default agent.`); }));
+  }
+
+  function loadSettings() {
+    return requestOnSelectedHost('get-settings', {})
+      .then(whileHostUnchanged((message: ServerMessage) => {
+        if (message.type === 'settings-error') {
+          showWarning(`Could not load your settings (${message.message}), so the session follows your machine permission setting.`);
+          return;
+        }
+        if (message.type !== 'settings') return;
+        if (!selectedHostId) {
+          localCoderEnvironments = offeredCoderEnvironments(message.settings);
+          renderPlaces();
+        }
+        isSaneYoloInstalled = isSaneYoloAvailable(message.settings);
+        isSaneYoloSettingOn = settingFlag(message.settings, 'saneYolo') !== false;
+        skipsPermissionsByDefault = settingFlag(message.settings, 'skipPermissionsByDefault') === true;
+        hasSettingsLoaded = true;
+        renderPermissionHint();
+      }))
+      .catch(whileHostUnchanged((reason: unknown) => {
+        showWarning(`Could not load your settings (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}), so the session follows your machine permission setting.`);
+      }));
+  }
+
+  function permissionFields() {
+    if (!hasSettingsLoaded) return { dangerouslySkipPermissions: false };
+    return decidePermissions({ isSaneYoloInstalled, isSaneYoloSettingOn, hasEnvironment: selectedEnvironment !== null, isShell: isShellChosen() }).fields;
+  }
+
+  function buildRequest(): AddSessionRequest | null {
+    const isShell = isShellChosen();
+    const prompt = taskInput.value.trim();
+    const shared: Record<string, unknown> = { ...permissionFields() };
+    if (selectedAgentId !== DEFAULT_AGENT_ID) shared.agent = selectedAgentId;
+    if (prompt && !isShell) shared.prompt = prompt;
+    if (selectedEnvironment && target.kind !== 'workspace') shared.environment = selectedEnvironment.name;
+    if (target.kind === 'project') {
+      return { message: { ...shared, name: suggestSessionName(sessionNameBase(target.row.name)), path: target.row.path }, rememberedPath: isShell ? null : target.row.path };
+    }
+    if (target.kind === 'workspace') {
+      const repos = [...workspaceListEl.querySelectorAll<HTMLInputElement>('input:checked')].map((checkbox) => checkbox.value);
+      if (repos.length < 2) {
+        errorEl.textContent = 'Check at least two repositories.';
+        return null;
+      }
+      return { message: { ...shared, name: suggestSessionName(sessionNameBase(lastPathSegment(repos[0]))), path: repos[0], repos }, rememberedPath: null };
+    }
+    if (target.kind === 'folder') {
+      const folderPath = pathInput.value.trim();
+      if (!folderPath && !isShell) {
+        errorEl.textContent = 'Enter a folder path.';
+        return null;
+      }
+      return { message: { ...shared, name: suggestSessionName(sessionNameBase(folderPath ? lastPathSegment(folderPath) : SHELL_AGENT_ID)), path: folderPath }, rememberedPath: null };
+    }
+    errorEl.textContent = 'Pick a project.';
+    return null;
+  }
+
+  function submit() {
+    if (isSpawnBlocked || isAddPending) return;
     errorEl.textContent = '';
-    sendControlRequest('add-session', message, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS })
+    const request = buildRequest();
+    if (request) requestAddSession(request);
+  }
+
+  function rememberSuccessfulStart(rememberedPath: string | null) {
+    if (rememberedPath === null) return;
+    setAddSessionStarts(rememberStart(getAddSessionStarts(), rememberedPath, selectedAgentId, Date.now()));
+  }
+
+  function requestAddSession({ message, rememberedPath }: AddSessionRequest) {
+    isAddPending = true;
+    btnConfirm.disabled = true;
+    placeSelectEl.disabled = true;
+    startStatus.show('busy', 'Starting the session');
+    const showRefusal = whileHostUnchanged((text: string) => { errorEl.textContent = text; });
+    requestOnSelectedHost('add-session', message)
       .then((reply) => {
         if (reply.type === 'add-session-result' && reply.ok) {
+          rememberSuccessfulStart(rememberedPath);
           close();
           revealAddedSession(reply.sessionId);
           return;
         }
-        errorEl.textContent = addSessionRefusalText(reply);
+        showRefusal(addSessionRefusalText(reply));
       })
-      .catch((reason) => { errorEl.textContent = `The session was not added: ${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}`; })
-      .finally(() => { btnConfirm.disabled = isSpawnBlocked; });
+      .catch((reason) => { showRefusal(`The session was not added: ${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}`); })
+      .finally(() => {
+        isAddPending = false;
+        startStatus.clear();
+        btnConfirm.disabled = isSpawnBlocked;
+        placeSelectEl.disabled = false;
+      });
+  }
+
+  function resetForHostChange() {
+    hostLoadGeneration += 1;
+    for (const warningEl of shownWarnings.splice(0)) warningEl.remove();
+    errorEl.textContent = '';
+    isSpawnBlocked = false;
+    btnConfirm.disabled = isAddPending;
+    agentOptions = [];
+    defaultAgentId = DEFAULT_AGENT_ID;
+    agentSelectEl.replaceChildren();
+    hasSettingsLoaded = false;
+    isSaneYoloInstalled = false;
+    isSaneYoloSettingOn = true;
+    skipsPermissionsByDefault = false;
+    scannedProjects = [];
+    recentRows = [];
+    target = NO_TARGET;
+    lastProjectTarget = NO_TARGET;
+    repoRootsEl.hidden = true;
+    pathInput.value = '';
+    setAgent(DEFAULT_AGENT_ID);
+    renderRepoWord();
+    renderList();
+  }
+
+  function loadFromSelectedHost() {
+    void fillProjectList();
+    void loadAgents();
+    void loadSettings();
   }
 
   btnCancel.addEventListener('click', close);
   btnConfirm.addEventListener('click', submit);
-  nameInput.addEventListener('keydown', (event) => {
-    if (event.key !== 'Enter') return;
-    if (isWorkspaceMode) submit();
-    if (!isWorkspaceMode) pathInput.focus();
+  taskInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') submit();
   });
   pathInput.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') submit();
   });
-  requestAnimationFrame(() => pickerEl.focus());
+  findInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') submit();
+  });
+
+  renderPlaces();
+  renderRepoWord();
+  loadFromSelectedHost();
+  if (document.documentElement.dataset.layout === 'phone') {
+    dialog.focus();
+    return;
+  }
+  requestAnimationFrame(() => findInput.focus());
 }
 
 export function createRadarReportDialog({

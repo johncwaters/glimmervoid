@@ -1,4 +1,5 @@
 import type { NotifyAlertGroup, ServerMessageOf } from '#shared/contracts/control-messages.ts';
+import { QUESTION_ANSWERED_NOTIFY_CATEGORY } from '#shared/contracts/question-manager.ts';
 import { clearHeaderError, reportHeaderError } from './action-status.ts';
 import { describeFailure } from './client-error-core.ts';
 import { reportToServerLog, sendControlMsg } from './control-ws.ts';
@@ -59,6 +60,14 @@ function notificationPermissionHint(): string | null {
   if (!notificationsSupported()) return 'This browser does not support desktop notifications.';
   if (notificationPermission() === 'denied' && isNotificationsEnabled()) return 'Blocked by the browser. Allow notifications for this site in its site settings.';
   return null;
+}
+
+export function currentNotificationChoice(): 'on' | 'off' | 'ask' {
+  if (!notificationsSupported() || !isNotificationsEnabled()) return 'off';
+  const permission = notificationPermission();
+  if (permission === 'granted') return 'on';
+  if (permission === 'default') return 'ask';
+  return 'off';
 }
 
 function canAskNotificationPermission() {
@@ -181,7 +190,16 @@ function isBannerSilentOnThisPlatform() {
   return Reflect.get(userAgentData, 'platform') === 'macOS';
 }
 
+function showQuietNotice(msg: ServerMessageOf<'notify'>) {
+  if (document.hasFocus() || !canShowDesktopNotification()) return;
+  showDesktopNotification(msg);
+}
+
 export function alertFromNotify(msg: ServerMessageOf<'notify'>) {
+  if (msg.category === QUESTION_ANSWERED_NOTIFY_CATEGORY) {
+    showQuietNotice(msg);
+    return;
+  }
   if (document.hasFocus()) {
     alertWhileFocused(msg);
     return;

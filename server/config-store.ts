@@ -201,13 +201,16 @@ function createConfigStore({
       cursorBlink: config.cursorBlink ?? effectiveDefaults.cursorBlink,
       debugMode: config.debugMode ?? effectiveDefaults.debugMode,
       streamerMode: config.streamerMode ?? effectiveDefaults.streamerMode,
+      linkPreviews: config.linkPreviews ?? effectiveDefaults.linkPreviews,
       viewTabOrder: config.viewTabOrder ?? DEFAULT_CONFIG.viewTabOrder,
+      hiddenAgents: config.hiddenAgents ?? DEFAULT_CONFIG.hiddenAgents,
       remoteSessions: config.remoteSessions ?? effectiveDefaults.remoteSessions,
       hintCards: config.hintCards ?? effectiveDefaults.hintCards,
       detectBackgroundAgents: config.detectBackgroundAgents ?? effectiveDefaults.detectBackgroundAgents,
       recordSignals: config.recordSignals ?? effectiveDefaults.recordSignals,
       trace: pickBlock('trace', { ...DEFAULT_CONFIG.trace, ...config.trace }),
       telemetry: pickBlock('telemetry', { ...DEFAULT_CONFIG.telemetry, ...config.telemetry }),
+      watcher: pickBlock('watcher', { ...DEFAULT_CONFIG.watcher, ...config.watcher }),
       telemetryForcedOff: isTelemetryForcedOff(process.env),
       telemetryInstallId: readTelemetryInstallId?.() ?? null,
       saneYolo: config.saneYolo ?? effectiveDefaults.saneYolo,
@@ -231,6 +234,7 @@ function createConfigStore({
       coherence: pickBlock('coherence', config.coherence),
       issues: pickBlock('issues', config.issues),
       community: pickBlock('community', config.community),
+      questionManager: pickBlock('questionManager', config.questionManager),
       workflows: config.workflows ?? null,
 
       posthog: pickBlock('posthog', config.posthog),
@@ -277,15 +281,20 @@ function createConfigStore({
     if (newConfig.coherence != null) config.coherence = newConfig.coherence;
     if (newConfig.issues != null) config.issues = newConfig.issues;
     if (newConfig.community != null) config.community = newConfig.community;
+    if (newConfig.questionManager == null) delete config.questionManager;
+    if (newConfig.questionManager != null) config.questionManager = newConfig.questionManager;
     if (newConfig.posthog != null) config.posthog = newConfig.posthog;
     if (newConfig.usage != null) config.usage = newConfig.usage;
     if (newConfig.telegram != null) config.telegram = newConfig.telegram;
     if (newConfig.telemetry != null) config.telemetry = newConfig.telemetry;
+    if (newConfig.watcher != null) config.watcher = { ...config.watcher, ...newConfig.watcher };
     if (newConfig.workflows == null) delete config.workflows;
     if (newConfig.workflows != null) config.workflows = newConfig.workflows;
     if (newConfig.coder == null) delete config.coder;
     if (newConfig.coder != null) config.coder = newConfig.coder;
     config.customAgents = newConfig.customAgents ?? [];
+    if (newConfig.hosts == null) delete config.hosts;
+    if (newConfig.hosts != null) config.hosts = newConfig.hosts;
 
     config.hooks = Array.isArray(newConfig.hooks) ? newConfig.hooks : [];
     if (newConfig.port != null && newConfig.port !== config.port) {

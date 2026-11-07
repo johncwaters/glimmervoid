@@ -32,7 +32,7 @@ export async function loadCustomSounds(): Promise<void> {
 
 function openAlertAudioContext() {
   const audioContext = new AudioContext();
-  if (audioContext.state === 'suspended') audioContext.resume();
+  if (audioContext.state === 'suspended') audioContext.resume().catch(() => {});
   return audioContext;
 }
 
@@ -110,8 +110,11 @@ const NYAN_NOTES = [
 export function playNyanJingle() {
   try {
     const ctx = new AudioContext();
-    if (ctx.state === 'suspended') ctx.resume();
-    if (ctx.state === 'suspended') return;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    if (ctx.state === 'suspended') {
+      ctx.close().catch(() => {});
+      return;
+    }
 
     const master = ctx.createGain();
     master.gain.value = 0.05;

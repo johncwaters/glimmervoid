@@ -384,8 +384,10 @@ function createNotMineFooter(review: QueuedReview | InFlightReview): HTMLElement
   return footer;
 }
 
-function createFooterButton(action: TeamReviewAction, runAction: (action: TeamReviewAction) => void, isSecondary = false, shortcutKey?: string): HTMLButtonElement {
-  return button({ variant: isSecondary ? 'secondary' : 'primary', label: actionLabel(action), action, shortcutKey, onClick: () => runAction(action) });
+type FooterButtonVariant = 'primary' | 'secondary' | 'quiet';
+
+function createFooterButton(action: TeamReviewAction, runAction: (action: TeamReviewAction) => void, variant: FooterButtonVariant = 'primary', shortcutKey?: string): HTMLButtonElement {
+  return button({ variant, label: actionLabel(action), action, shortcutKey, onClick: () => runAction(action) });
 }
 
 interface DecisionBar {
@@ -400,8 +402,8 @@ function createDecisionBar(draft: Pick<ReviewDraft, 'status' | 'postedEvent' | '
   const status = el('span', 'pr-action-status', statusText);
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
-  const leading = layout.leading.map((action) => createFooterButton(action, runAction, action !== layout.recommended, shortcutByAction[action]));
-  const trailing = layout.trailing.map((action) => createFooterButton(action, runAction, true, shortcutByAction[action]));
+  const leading = layout.leading.map((action) => createFooterButton(action, runAction, action === layout.recommended ? 'primary' : 'secondary', shortcutByAction[action]));
+  const trailing = layout.trailing.map((action) => createFooterButton(action, runAction, 'quiet', shortcutByAction[action]));
   footer.append(...leading, el('span', 'pr-decision-spacer'), ...trailing, status);
   return { footer, status, buttons: [...leading, ...trailing] };
 }
@@ -415,7 +417,14 @@ function createFindingKeysHint(): HTMLElement {
 
 let _noteFieldCount = 0;
 
-function createNoteField(onInput: () => void): { section: HTMLElement; input: HTMLTextAreaElement } {
+function createNoteKeysHint(postChordText: string): HTMLElement {
+  const hint = el('span', 'pr-finding-keys');
+  hint.setAttribute('aria-hidden', 'true');
+  hint.append(el('kbd', 'review-shortcut', postChordText), ' posts', el('kbd', 'review-shortcut', 'Esc'), ' cancels');
+  return hint;
+}
+
+function createNoteField(onInput: () => void, postChordText: string): { section: HTMLElement; input: HTMLTextAreaElement; pickAnnouncer: HTMLElement } {
   const section = el('section', 'pr-note');
   _noteFieldCount += 1;
   const input = el('textarea', 'pr-body-input pr-note-input');
@@ -426,8 +435,13 @@ function createNoteField(onInput: () => void): { section: HTMLElement; input: HT
   input.addEventListener('input', onInput);
   const label = el('label', 'pr-section-heading', 'Note');
   label.htmlFor = input.id;
-  section.append(label, input);
-  return { section, input };
+  const heading = el('div', 'pr-posts-heading');
+  heading.append(label, createNoteKeysHint(postChordText));
+  const pickAnnouncer = el('span', 'sr-only');
+  pickAnnouncer.setAttribute('role', 'status');
+  pickAnnouncer.setAttribute('aria-live', 'polite');
+  section.append(heading, input, pickAnnouncer);
+  return { section, input, pickAnnouncer };
 }
 
 function createFactRow(label: string, ...value: (HTMLElement | string)[]): HTMLElement {

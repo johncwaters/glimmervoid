@@ -81,6 +81,8 @@ const SESSION = {
   mergeReason: null,
   worktreeNotice: null,
   unseenOutcome: null,
+  managerSeenSeq: 0,
+  isQuestionManagerOn: true,
   effectiveBase: 'develop',
   linkedPrs: [{ repo: 'acme/app', number: 42, url: 'https://github.com/acme/app/pull/42', source: 'hook', linkedAt: NOW }],
   coherenceHooks: { active: false, reason: 'not installed' },
@@ -99,6 +101,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'session-modified', id: 'session-1', session: 'glimmervoid', path: '/repo/glimmervoid', agent: 'claude-code', state: STATES.DORMANT, stateSince: NOW, skipPerms: true, saneYolo: true, worktree: false, resumeSessionId: null },
   { type: 'session-git', id: 'session-1', worktree: true },
   { type: 'session-coherence-hooks', id: 'session-1', coherenceHooks: { active: false, reason: 'check failed with exit code 1' } },
+  { type: 'session-manager-decision', id: 'session-1', decision: { kind: 'question-manager', seq: 1, ts: 1, outcome: 'escalated', questions: ['Delete the old exporter?'], reason: 'the question names a risk word: delete' } },
   { type: 'session-status', id: 'session-1', session: 'glimmervoid', timestamp: NOW, unseenOutcome: null },
   { type: 'session-merge-status', id: 'session-1', session: 'glimmervoid', mergeStatus: 'pending-review', reason: null, parked: false, timestamp: NOW },
   { type: 'session-worktree-blocked', id: 'session-1', session: 'glimmervoid', branch: 'develop', notice: 'missing branch', timestamp: NOW },
@@ -236,8 +239,8 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   {
     type: 'whiteboard-result', requestId: 'wb-1', ok: true, error: null,
     board: {
-      id: 'board-1', title: 'Ingest plan', version: 1, caption: null, columns: [{ id: 'now', title: 'Now' }], lanes: [], legend: [], codeSessionId: null,
-      elements: { parse: { kind: 'box', id: 'parse', title: 'Parse feed', lines: [], lane: null, refs: [], change: 'none', was: null, column: 'now', near: null, order: 0, at: null, shape: 'box', outputs: [], media: null, width: null } },
+      id: 'board-1', title: 'Ingest plan', version: 1, caption: null, legend: [], codeSessionId: null,
+      elements: { parse: { kind: 'box', id: 'parse', title: 'Parse feed', lines: [], refs: [], change: 'none', was: null, near: null, order: 0, at: { x: 40, y: 40 }, shape: 'box', outputs: [], media: null, width: null, step: null } },
       createdAt: NOW, updatedAt: NOW,
     },
     summary: { id: 'board-1', title: 'Ingest plan', version: 1, updatedAt: NOW, connectedSessionIds: [], queuedBySessionId: {} },
@@ -258,6 +261,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'save-hook-result', requestId: 'r2', ok: true, error: null, hook: { id: 'h1' } },
   { type: 'add-session-result', requestId: 'r6', ok: false, error: '/repos/notes is not a git repository', reason: 'not-git' },
   { type: 'start-remote-setup-result', requestId: 'r8', ok: true, error: null, sessionId: 'remote-setup-0b1c', sessionName: 'Remote host setup' },
+  { type: 'host-change-result', requestId: 'r8h', ok: false, error: 'a host with id devbox is already registered' },
   { type: 'remove-session-result', requestId: 'r7', ok: false, error: 'Branch feature in Coder workspace gv-0123456789ab has commits that are not pushed', canDiscardWork: true },
   { type: 'delete-hook-result', requestId: 'r3', ok: false, error: 'Unknown hook' },
   { type: 'workspace-repos', requestId: 'r4', id: 'session-1', ok: true, repos: ['/repos/one', '/repos/two'], error: null },
@@ -265,6 +269,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'hooks-updated', count: 1 },
   { type: 'feature-hint', hint: { feature: 'teamReview', distinctTargetCount: 3, raisedAt: 1761740000000 } },
   { type: 'star-hint' },
+  { type: 'hosts-status', hosts: [{ id: 'devbox', name: 'Devbox', sshTarget: 'devbox', dashboardPort: 3000, state: 'version-differs', hostVersion: '0.51.0', hubVersion: '0.52.3-next.0', lastError: null }] },
   { type: 'packs-status', warnings: [], packs: [
     { name: 'ci-board', version: 3, description: null, dir: '/home/me/.glimmervoid/packs/ci-board', state: 'pending', fingerprint: 'f'.repeat(64), files: ['pack.json'], needs: ['program gh'], missingRequires: [], prFlows: null, themes: [{ id: 'night-shift', label: 'Night Shift', mode: 'dark' }], panels: [{ id: 'board', label: 'CI', reads: ['sessions'], acts: ['reviews'] }], errors: [] },
     { name: 'broken', version: null, description: null, dir: '/home/me/.glimmervoid/packs/broken', state: 'invalid', fingerprint: null, files: [], needs: [], missingRequires: [], prFlows: null, themes: [], panels: [], errors: ['there is no pack.json'] },

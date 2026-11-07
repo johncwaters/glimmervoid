@@ -1,0 +1,155 @@
+---
+import { framePart } from '../lib/frame-parts.ts';
+
+const PROMPT_FRAME = 1;
+const FIRST_BRANCH_FRAME = 2;
+const COMMIT_FRAMES = [7, 8];
+const JUDGE_FRAME = 9;
+const FIRST_RANK_FRAME = 10;
+const MERGE_FRAME = 16;
+const KEPT_FRAME = 17;
+
+const CONTESTANTS = [
+  { name: 'Claude Haiku, high effort', shortName: 'Haiku high', rank: 2, reason: 'extra code', tone: 'running', commitXs: [300, 450], compactCommitXs: [130, 176] },
+  { name: 'Codex', shortName: 'Codex', rank: 3, reason: 'rounding', tone: 'starting', commitXs: [340, 500], compactCommitXs: [146, 186] },
+  { name: 'Claude Sonnet', shortName: 'Sonnet', rank: 1, reason: 'minimal', tone: 'accent', commitXs: [280, 430], compactCommitXs: [124, 170] },
+  { name: 'Kimi Code', shortName: 'Kimi Code', rank: 4, reason: 'unrelated edit', tone: 'monitoring', commitXs: [320, 480], compactCommitXs: [140, 182] },
+  { name: 'Codex, low effort', shortName: 'Codex low', rank: 5, reason: 'skipped tests', tone: 'waiting', commitXs: [360], compactCommitXs: [156] },
+].map((contestant, laneIndex) => ({
+  ...contestant,
+  laneIndex,
+  isWinner: contestant.rank === 1,
+  wideY: 110 + laneIndex * 52,
+  compactY: 92 + laneIndex * 56,
+  wideForkX: 124 + laneIndex * 16,
+  branchFrame: FIRST_BRANCH_FRAME + laneIndex,
+  rankFrame: FIRST_RANK_FRAME + (5 - contestant.rank),
+}));
+const WINNER = CONTESTANTS.find((contestant) => contestant.isWinner) ?? CONTESTANTS[0];
+
+function shownAtRest(fromFrame: number) {
+  return { ...framePart(fromFrame), 'data-on': 'true' };
+}
+
+const DIAGRAM_LABEL = `One prompt forks from main into five agent setups, each on its own branch. A judge ranks them with one reason each. The other four fade and ${WINNER.name}, ranked first, merges back and is kept.`;
+---
+<section id="arena">
+  <div class="section-head reveal">
+    <h2>One prompt. Five agents. A judge.</h2>
+    <p>Race agents, models or efforts on the same task. Keep the best diff.</p>
+  </div>
+  <div class="diagram arena-race reveal" data-settled="true">
+    <svg class="diagram-wide" viewBox="0 0 860 350" role="img" aria-label={DIAGRAM_LABEL}>
+      <text class="lbl-main" x="20" y="34">main</text>
+      <path class="main" d="M70 30 L 840 30"/>
+      <g {...shownAtRest(PROMPT_FRAME)} class="pops-in"><circle class="prompt-dot" cx="110" cy="30" r="7"/></g>
+      <text {...shownAtRest(PROMPT_FRAME)} class="note prompt-note" x="96" y="16">one prompt</text>
+      {CONTESTANTS.map((contestant) => (
+        <g class:list={['lane', `tone-${contestant.tone}`, { loser: !contestant.isWinner }]}>
+          <path {...shownAtRest(contestant.branchFrame)} class="branch" pathLength="1" d={`M110 30 C ${contestant.wideForkX} 30, ${contestant.wideForkX} ${contestant.wideY}, ${contestant.wideForkX + 40} ${contestant.wideY} L 560 ${contestant.wideY}`}/>
+          <text {...shownAtRest(contestant.branchFrame)} class="lbl" x="240" y={contestant.wideY - 10}>{contestant.name}</text>
+          {contestant.commitXs.map((commitX, commitIndex) => (
+            <circle {...shownAtRest(COMMIT_FRAMES[commitIndex])} class="commit-dot pops-in" cx={commitX} cy={contestant.wideY} r="6"/>
+          ))}
+        </g>
+      ))}
+      <g {...shownAtRest(JUDGE_FRAME)}>
+        <rect class="judge" x="580" y="72" width="170" height="268" rx="6"/>
+        <text class="judge-title" x="596" y="92">judge</text>
+      </g>
+      {CONTESTANTS.map((contestant) => (
+        <g class:list={['rank', { loser: !contestant.isWinner, winner: contestant.isWinner }]}>
+          <g {...shownAtRest(contestant.rankFrame)} class="pops-in">
+            <text class="rank-number" x="596" y={contestant.wideY + 5}>#{contestant.rank}</text>
+            <text class="lbl" x="626" y={contestant.wideY + 5}>{contestant.reason}</text>
+          </g>
+        </g>
+      ))}
+      <path {...shownAtRest(MERGE_FRAME)} class="branch winner-merge" pathLength="1" d={`M750 ${WINNER.wideY} L 770 ${WINNER.wideY} C 800 ${WINNER.wideY}, 800 30, 820 30`}/>
+      <g {...shownAtRest(KEPT_FRAME)} class="pops-in"><circle class="merged" cx="820" cy="30" r="8"/></g>
+      <text {...shownAtRest(KEPT_FRAME)} class="note kept-note" x="736" y="16">winner kept</text>
+    </svg>
+    <svg class="diagram-compact" viewBox="0 0 340 360" role="img" aria-label={DIAGRAM_LABEL}>
+      <text class="lbl-main" x="12" y="28">main</text>
+      <path class="main" d="M58 24 L 330 24"/>
+      <g {...shownAtRest(PROMPT_FRAME)} class="pops-in"><circle class="prompt-dot" cx="72" cy="24" r="7"/></g>
+      <text {...shownAtRest(PROMPT_FRAME)} class="note prompt-note" x="58" y="10">one prompt</text>
+      {CONTESTANTS.map((contestant) => (
+        <g class:list={['lane', `tone-${contestant.tone}`, { loser: !contestant.isWinner }]}>
+          <path {...shownAtRest(contestant.branchFrame)} class="branch" pathLength="1" d={`M72 24 C 90 24, 90 ${contestant.compactY}, 108 ${contestant.compactY} L 200 ${contestant.compactY}`}/>
+          <text {...shownAtRest(contestant.branchFrame)} class="lbl" x="112" y={contestant.compactY - 10}>{contestant.shortName}</text>
+          {contestant.compactCommitXs.map((commitX, commitIndex) => (
+            <circle {...shownAtRest(COMMIT_FRAMES[commitIndex])} class="commit-dot pops-in" cx={commitX} cy={contestant.compactY} r="5"/>
+          ))}
+        </g>
+      ))}
+      <g {...shownAtRest(JUDGE_FRAME)}>
+        <rect class="judge" x="212" y="58" width="76" height="290" rx="6"/>
+        <text class="judge-title" x="222" y="76">judge</text>
+      </g>
+      {CONTESTANTS.map((contestant) => (
+        <g class:list={['rank', { loser: !contestant.isWinner, winner: contestant.isWinner }]}>
+          <g {...shownAtRest(contestant.rankFrame)} class="pops-in">
+            <text class="rank-number" x="232" y={contestant.compactY + 5}>#{contestant.rank}</text>
+          </g>
+        </g>
+      ))}
+      <path {...shownAtRest(MERGE_FRAME)} class="branch winner-merge" pathLength="1" d={`M288 ${WINNER.compactY} L 300 ${WINNER.compactY} C 316 ${WINNER.compactY}, 316 24, 316 24`}/>
+      <g {...shownAtRest(KEPT_FRAME)} class="pops-in"><circle class="merged" cx="316" cy="24" r="7"/></g>
+      <text {...shownAtRest(KEPT_FRAME)} class="note kept-note" x="236" y="10">winner kept</text>
+    </svg>
+  </div>
+</section>
+
+<style>
+  .arena-race .main { stroke: var(--text-dim); stroke-width: 3; fill: none; }
+  .arena-race .lbl-main { font-size: 13px; fill: var(--text-head); font-weight: 700; }
+  .arena-race .lbl { font-size: 12px; fill: var(--text-dim); }
+  .arena-race .note { font-size: 12px; font-weight: 700; letter-spacing: 0.02em; }
+  .arena-race .prompt-note { fill: var(--text-head); }
+  .arena-race .kept-note { fill: var(--state-complete); }
+  .arena-race .prompt-dot { fill: var(--bg-card); stroke: var(--text-head); stroke-width: 2.5; }
+  .arena-race .branch { fill: none; stroke-width: 2.5; stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset var(--leave-ms) var(--ease-in-expo); }
+  .arena-race .branch[data-on="false"] { opacity: 1; transform: none; }
+  .arena-race .branch[data-on="true"] { stroke-dashoffset: 0; transition: stroke-dashoffset 900ms var(--ease-out-expo); }
+  .arena-race .winner-merge { stroke: var(--accent); }
+  .arena-race .commit-dot { fill: var(--bg-card); stroke-width: 2.5; }
+  .arena-race .tone-running { --lane: var(--state-running); }
+  .arena-race .tone-starting { --lane: var(--state-starting); }
+  .arena-race .tone-accent { --lane: var(--accent); }
+  .arena-race .tone-monitoring { --lane: var(--state-monitoring); }
+  .arena-race .tone-waiting { --lane: var(--state-waiting); }
+  .arena-race .lane .branch, .arena-race .lane .commit-dot { stroke: var(--lane); }
+  .arena-race .lane .lbl { fill: var(--lane); }
+  .arena-race .judge { fill: var(--bg-surface); stroke: var(--border); }
+  .arena-race .judge-title { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; fill: var(--text-head); }
+  .arena-race .rank-number { font-size: 13px; font-weight: 700; fill: var(--accent); }
+  .arena-race .rank.winner .lbl { fill: var(--text-head); font-weight: 700; }
+  .arena-race .merged { fill: var(--state-complete); }
+  .arena-race .loser { transition: opacity 600ms var(--ease-out-expo); }
+  .arena-race[data-settled="true"] .loser { opacity: 0.3; }
+  .arena-race .diagram-compact .lbl, .arena-race .diagram-compact .lbl-main { font-size: 13px; }
+  .arena-race .diagram-compact .note { font-size: 12.5px; }
+</style>
+
+<script>
+  import { runFramesWhileVisible } from '../lib/dom.ts';
+  import { BEAT_MS } from '../lib/feature-frames.ts';
+  import { showFrameParts } from '../lib/frame-parts.ts';
+
+  const FINAL_FRAME = 17;
+  const FIRST_SETTLED_FRAME = 15;
+  const HOLD_BEATS_BY_FRAME = [6, 1, 0.5, 0.5, 0.5, 0.5, 1, 1, 1.5, 1, 0.75, 0.75, 0.75, 0.75, 1.5, 1.5, 1, 1];
+
+  function startArenaRace(): void {
+    const diagram = document.querySelector<HTMLElement>('.diagram.arena-race');
+    if (!diagram) return;
+    const showFrame = (frameIndex: number) => {
+      showFrameParts(diagram, frameIndex === 0 ? FINAL_FRAME : frameIndex);
+      diagram.dataset.settled = String(frameIndex === 0 || frameIndex >= FIRST_SETTLED_FRAME);
+    };
+    runFramesWhileVisible(diagram, HOLD_BEATS_BY_FRAME.map((beats) => beats * BEAT_MS), showFrame);
+  }
+
+  startArenaRace();
+</script>

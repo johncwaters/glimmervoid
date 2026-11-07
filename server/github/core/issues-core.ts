@@ -1,26 +1,27 @@
 import { pullRequestKeyFromReference } from '../../../shared/contracts/control-messages.ts';
 import { IssuesStatus } from '../../../shared/contracts/issues.ts';
 import type { CachedIssueRow, IssueSource, IssuesFetchResult, IssuesState, IssuesStatus as IssuesStatusType } from '../../../shared/contracts/issues.ts';
+import type { IssuesListingPayload } from '../../../shared/contracts/issues-listing.ts';
 import { githubRepoSlugFromRemote } from './team-review-core.ts';
 
 export const ISSUES_LANE_ID = 'issues';
 export const ISSUES_STATE_FILENAME = 'issues-cache.json';
 export const POLL_INTERVAL_MINUTES = 5;
+export const CLOSED_ISSUE_HOLD_MS = 2 * POLL_INTERVAL_MINUTES * 60_000;
 export const MAX_REPO_ISSUES = 300;
 const MAX_TOTAL_ISSUES = 1000;
 
 export interface IssuesProjectRepo { repo: string; projectId: string }
 interface IssuesProjectConfig { id?: string; path: string; repos?: readonly string[] }
-export interface IssuesSourceBatch {
+interface IssuesSourceBatch {
   source: IssueSource;
   repo?: string;
   team?: string;
-  isIncremental?: boolean;
   fetched: IssuesFetchResult;
 }
 
 export function emptyIssuesState(): IssuesState {
-  return { issues: [], lastSyncAt: null, perRepoSync: {}, sessionLinks: {}, pullRequestsFetchedAt: {} };
+  return { issues: [], lastSyncAt: null, sessionLinks: {} };
 }
 
 export function issuesSettingsGate(projects: readonly IssuesProjectRepo[], teams: readonly string[], viewer: string | null) {
@@ -67,7 +68,7 @@ function matchesSource(issue: CachedIssueRow, batch: IssuesSourceBatch): boolean
   return issue.sources.includes('me');
 }
 
-export function mergeIssues(previous: readonly CachedIssueRow[], batches: readonly IssuesSourceBatch[], projects: readonly IssuesProjectRepo[], activeTeams?: readonly string[]): CachedIssueRow[] {
+export function mergeIssues(previous: readonly CachedIssueRow[], batches: readonly IssuesSourceBatch[], projects: readonly IssuesProjectRepo[], activeTeams?: readonly string[], heldClosedKeys: ReadonlySet<string> = new Set()): CachedIssueRow[] {
   const projectByRepo = new Map(projects.map((project) => [project.repo.toLowerCase(), project]));
   const issuesByKey = new Map<string, CachedIssueRow>();
   for (const issue of previous) {
@@ -77,10 +78,10 @@ export function mergeIssues(previous: readonly CachedIssueRow[], batches: readon
     if (sources.length === 0) continue;
     issuesByKey.set(issue.key.toLowerCase(), { ...issue, sources, teams, projectId: project?.projectId ?? null });
   }
-  const closedKeys = new Set<string>();
+  const closedKeys = new Set(heldClosedKeys);
   for (const batch of batches) {
     if (!batch.fetched.ok) continue;
-    if (batch.fetched.isComplete && !batch.isIncremental) {
+    if (batch.fetched.isComplete) {
       for (const [key, issue] of issuesByKey) {
         if (!matchesSource(issue, batch)) continue;
         const teams = issue.teams.filter((team) => team !== batch.team);
@@ -118,6 +119,40 @@ export function mergeIssues(previous: readonly CachedIssueRow[], batches: readon
       repoCounts.set(repo, count + 1);
       return count < MAX_REPO_ISSUES;
     }).slice(0, MAX_TOTAL_ISSUES);
+}
+
+export function issuesListingSourceKey(listing: IssuesListingPayload): string {
+  if (listing.source === 'project') return `project:${listing.repo.toLowerCase()}`;
+  if (listing.source === 'team') return `team:${listing.team.toLowerCase()}`;
+  return 'me';
+}
+
+export function issuesListingBatches(listings: readonly IssuesListingPayload[], projects: readonly IssuesProjectRepo[], teams: readonly string[]): IssuesSourceBatch[] {
+  const projectRepos = new Set(projects.map((project) => project.repo.toLowerCase()));
+  return listings.flatMap((listing): IssuesSourceBatch[] => {
+    if (listing.error !== null) return [];
+    if (listing.source === 'project' && !projectRepos.has(listing.repo.toLowerCase())) return [];
+    if (listing.source === 'team' && !teams.includes(listing.team)) return [];
+    const items = listing.issues.map(({ pullRequests: _pullRequests, ...issue }) => ({ ...issue, state: 'open' as const }));
+    const fetched = { ok: true, items, isComplete: listing.isComplete, error: '' };
+    if (listing.source === 'project') return [{ source: 'project', repo: listing.repo, fetched }];
+    if (listing.source === 'team') return [{ source: 'team', team: listing.team, fetched }];
+    return [{ source: 'me', fetched }];
+  });
+}
+
+export function issuesListingErrors(listings: readonly IssuesListingPayload[]): string | null {
+  const errors = listings.flatMap((listing) => {
+    if (listing.error === null) return [];
+    const sourceName = listing.source === 'project' ? listing.repo : listing.source === 'team' ? listing.team : 'Assigned to you';
+    return [`${sourceName}: ${listing.error}`];
+  });
+  return errors.length > 0 ? errors.join(' ') : null;
+}
+
+export function withListedPullRequests(issues: readonly CachedIssueRow[], listings: readonly IssuesListingPayload[]): CachedIssueRow[] {
+  const pullRequestsByIssueKey = new Map(listings.flatMap((listing) => listing.issues.flatMap((issue) => issue.pullRequests ? [[issue.key.toLowerCase(), issue.pullRequests] as const] : [])));
+  return issues.map((issue) => ({ ...issue, pullRequests: pullRequestsByIssueKey.get(issue.key.toLowerCase()) ?? issue.pullRequests }));
 }
 
 export function pruneIssueSessionLinks(sessionLinks: Readonly<Record<string, string>>, sessionIds: ReadonlySet<string>): Record<string, string> {

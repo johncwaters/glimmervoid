@@ -1,4 +1,5 @@
 import type { GithubPr } from '../../shared/contracts/github-prs.ts';
+import type { WorkflowsCandidatesPayload } from '../../shared/contracts/workflows-candidates.ts';
 import { DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL, DEFAULT_WORKFLOW_MAX_CONCURRENT_SESSIONS, WorkflowsSettings } from '../../shared/contracts/workflows.ts';
 import type {
   WorkflowAction, WorkflowPr, WorkflowRepoSnapshot, WorkflowRule, WorkflowsSettings as WorkflowsSettingsType, WorkflowsSettingsUpdate, WorkflowsState, WorkflowTrigger,
@@ -93,7 +94,7 @@ export function workflowsShouldStart(resolution: WorkflowsSettingsResolution): {
   return { start: true };
 }
 
-export function workflowRepoKey(repo: string): string {
+function workflowRepoKey(repo: string): string {
   return repo.toLowerCase();
 }
 
@@ -139,7 +140,7 @@ function isWorthKeepingUnreturned(pr: WorkflowPr, nowMs: number): boolean {
   return pr.state === 'MERGED' && isTimestampAfter(pr.mergedAt, nowMs - MERGED_RETENTION_MS);
 }
 
-export function nextRepoSnapshot(previous: WorkflowRepoSnapshot | undefined, returned: readonly WorkflowPr[], isComplete: boolean, polledAtMs: number): WorkflowRepoSnapshot {
+function nextRepoSnapshot(previous: WorkflowRepoSnapshot | undefined, returned: readonly WorkflowPr[], isComplete: boolean, polledAtMs: number): WorkflowRepoSnapshot {
   if (isComplete || !previous) return { polledAtMs, prs: [...returned] };
   const returnedNumbers = new Set(returned.map((pr) => pr.number));
   const keptUnreturned = previous.prs.filter((pr) => !returnedNumbers.has(pr.number) && isWorthKeepingUnreturned(pr, polledAtMs));
@@ -177,6 +178,19 @@ function repoEvents(previous: WorkflowRepoSnapshot, next: readonly WorkflowPr[])
     if (!before) return unseenPrEvents(pr, previous.polledAtMs);
     return transitionEvents(before, pr);
   });
+}
+
+export function nextListedRepos(previousRepos: WorkflowsState['repos'], rules: readonly WorkflowRule[], unplannedLists: readonly WorkflowsCandidatesPayload[], plannedAtMs: number): WorkflowsState['repos'] {
+  const listedByRepoKey = new Map(unplannedLists.map((listed) => [workflowRepoKey(listed.repo), listed]));
+  const nextRepos: WorkflowsState['repos'] = {};
+  for (const repo of watchedWorkflowRepos(rules)) {
+    const repoKey = workflowRepoKey(repo);
+    const previousRepo = previousRepos[repoKey];
+    const listed = listedByRepoKey.get(repoKey);
+    if (listed) nextRepos[repoKey] = nextRepoSnapshot(previousRepo, listed.prs, listed.isComplete, plannedAtMs);
+    if (!listed && previousRepo) nextRepos[repoKey] = previousRepo;
+  }
+  return nextRepos;
 }
 
 export function diffPrEvents(previousSnapshot: WorkflowsState['repos'], nextSnapshot: WorkflowsState['repos']): WorkflowEvent[] {

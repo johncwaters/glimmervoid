@@ -26,6 +26,7 @@ interface TeamReviewDraftStore {
   getDraft(key: string): ReviewDraft | null;
   updateDraft(key: string, expected: DraftExpectation, patch: DraftPatch): Promise<ReviewDraft | null>;
   requeue(key: string, head: string): Promise<boolean>;
+  restore(key: string, head: string): Promise<boolean>;
   markNotMine(key: string): Promise<NotMineOutcome>;
   updateThread?: (key: string, threadId: string, patch: { isResolved?: boolean; resolveError?: string }) => Promise<boolean>;
 }
@@ -107,9 +108,14 @@ function createTeamReviewActions({ drafts, github, store, log = console, telemet
     });
   }
 
-  async function markDraft(timing: ActionTiming, key: string, draft: ReviewDraft, patch: DraftPatch): Promise<ReviewDraft | null> {
-    const updated = await timeStep(timing, 'mark', () => drafts.updateDraft(key, { reviewedHead: draft.reviewedHead, status: draft.status }, patch));
-    if (!updated) log.warn(`[${core.TEAM_REVIEW_LANE_ID}] could not mark ${key} ${patch.status ?? 'updated'}, the draft changed underneath the action`);
+  async function markDraft(timing: ActionTiming, key: string, draft: ReviewDraft, event: 'head_moved' | 'posted', fields: DraftPatch = {}): Promise<ReviewDraft | null> {
+    const nextStatus = core.nextDraftStatus(draft.status, event);
+    if (!nextStatus) {
+      log.warn(`[${core.TEAM_REVIEW_LANE_ID}] could not mark ${key} on ${event}, a ${draft.status} draft cannot move that way`);
+      return null;
+    }
+    const updated = await timeStep(timing, 'mark', () => drafts.updateDraft(key, { reviewedHead: draft.reviewedHead, status: draft.status }, { ...fields, status: nextStatus }));
+    if (!updated) log.warn(`[${core.TEAM_REVIEW_LANE_ID}] could not mark ${key} ${nextStatus}, the draft changed underneath the action`);
     return updated;
   }
 
@@ -119,6 +125,13 @@ function createTeamReviewActions({ drafts, github, store, log = console, telemet
     const outcome = await drafts.markNotMine(request.key);
     if (outcome.ok && isDraftedReview(draft)) timing.settled = { outcome: 'discarded', draft, postedCommentCount: 0 };
     return outcome;
+  }
+
+  async function restoreNotMine(timing: ActionTiming, key: string, draft: ReviewDraft): Promise<TeamReviewActionOutcome> {
+    if (draft.status !== 'discarded') return { ok: false, error: 'Only a pull request marked not mine can be restored' };
+    if (!await drafts.restore(key, draft.reviewedHead)) return { ok: false, error: REPLACED_DRAFT_ERROR };
+    if (!core.isUnreviewedDraft(draft) && !isThreadPlaceholderDraft(draft)) timing.settled = { outcome: 'restored', draft, postedCommentCount: 0 };
+    return { ok: true };
   }
 
   async function misplacedCommentsRefusal(timing: ActionTiming, draft: ReviewDraft, comments: readonly ReviewComment[]): Promise<PostRefusal | null> {
@@ -132,7 +145,7 @@ function createTeamReviewActions({ drafts, github, store, log = console, telemet
   }
 
   async function retractApproval(timing: ActionTiming, key: string, draft: ReviewDraft, movedHead: string, reviewId: number | null): Promise<TeamReviewActionOutcome> {
-    if (draft.status !== 'posted') await markDraft(timing, key, draft, { status: 'stale' });
+    if (draft.status !== 'posted') await markDraft(timing, key, draft, 'head_moved');
     const moved = `The pull request moved to ${shortSha(movedHead)} while the approval was posting`;
     if (reviewId === null) return { ok: false, error: `${moved}, and GitHub did not return the review id, so the approval still stands. Dismiss it on GitHub` };
     const dismissal = await timeStep(timing, 'dismiss', () => github.dismissReview({ repo: draft.repo, number: draft.number, reviewId, message: STALE_APPROVAL_DISMISSAL }));
@@ -159,7 +172,7 @@ function createTeamReviewActions({ drafts, github, store, log = console, telemet
     if (!liveHead) return refusePost(timing, { reason: 'head-unreadable', error: 'Could not read the pull request head from GitHub' });
     if (!core.canPost(draft, draft.reviewedHead, liveHead, event)) {
       if (isFollowUpApproval) return refusePost(timing, { reason: 'head-moved', error: `The pull request moved to ${shortSha(liveHead)} after the comments were posted, so nothing was approved. Queue a review to look at the new commits` });
-      await markDraft(timing, key, draft, { status: 'stale' });
+      await markDraft(timing, key, draft, 'head_moved');
       return refusePost(timing, { reason: 'head-moved', error: `The pull request moved to ${shortSha(liveHead)} after this review, so nothing was posted. It will be reviewed again` });
     }
     const commentsRefusal = await misplacedCommentsRefusal(timing, draft, comments);
@@ -175,8 +188,8 @@ function createTeamReviewActions({ drafts, github, store, log = console, telemet
     const headAfterPostRead = event === 'APPROVE' ? await readStep(timing, 'head-after-post', () => store.requestPrHead(draft.repo, draft.number, 'priority')) : { isRateLimited: false as const, value: draft.reviewedHead };
     const headAfterPost = headAfterPostRead.isRateLimited ? null : headAfterPostRead.value;
     if (headAfterPost !== null && headAfterPost !== draft.reviewedHead) return retractApproval(timing, key, draft, headAfterPost, posted.reviewId);
-    const postedPatch: DraftPatch = isFollowUpApproval ? { status: 'posted', postedEvent: event } : { status: 'posted', postedEvent: event, body: postedBody, comments };
-    const marked = await markDraft(timing, key, draft, postedPatch);
+    const postedFields: DraftPatch = isFollowUpApproval ? { postedEvent: event } : { postedEvent: event, body: postedBody, comments };
+    const marked = await markDraft(timing, key, draft, 'posted', postedFields);
     const warnings = [
       headAfterPost === null ? 'Could not confirm the pull request head after approving. Check the approval on GitHub' : '',
       marked ? '' : UNMARKED_POST_WARNING,
@@ -214,6 +227,7 @@ function createTeamReviewActions({ drafts, github, store, log = console, telemet
     if (!draft) return { ok: false, error: 'That review draft no longer exists' };
     if (draft.reviewedHead !== request.head) return { ok: false, error: REPLACED_DRAFT_ERROR };
     if (request.action === 'resolve-thread') return resolveThread(timing, draft, request);
+    if (request.action === 'restore') return restoreNotMine(timing, request.key, draft);
     if (request.action === 'requeue') {
       const isQueued = await drafts.requeue(request.key, draft.reviewedHead);
       return isQueued ? { ok: true } : { ok: false, error: 'only a failed, ready, stale, discarded or posted review can be queued again' };

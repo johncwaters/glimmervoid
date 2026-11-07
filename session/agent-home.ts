@@ -6,7 +6,7 @@ import { glimmervoidHomeDir } from "../server/core/config-path-core.ts";
 import { loadFileLocks } from "../server/session-temp/session-temp-locks.ts";
 import { writeTextAtomicSync } from "../server/json-file.ts";
 import { errorMessage, isMissingFileError } from "../shared/text.ts";
-import { AGENT_HOME_BASE_NAME, AGENT_HOME_CONFIG_NAME, AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_IN_USE_LOCK_NAME, AGENT_HOME_SOURCES_NAME, fileStampKey, planAgentHome } from "./core/agent-home-core.ts";
+import { AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_IN_USE_LOCK_NAME, AGENT_HOME_SOURCES_NAME, AGENT_HOME_PROFILES, fileStampKey, resolveRealAgentHome, linkKindFor, planAgentHome } from "./core/agent-home-core.ts";
 import type { AgentHomePlan, AgentHomeProfile, AgentHomeStep, GeneratedAgentHomeEntry, RealAgentHomeEntry } from "./core/agent-home-core.ts";
 
 const GENERATED_HOME_MODE = 0o700;
@@ -32,13 +32,11 @@ interface ScratchAgentHomeOptions {
 }
 
 function realAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv = process.env, homeDir: string = os.homedir()): string {
-  const configuredHome = env[profile.homeEnvName]?.trim() ?? "";
-  if (configuredHome) return path.resolve(configuredHome);
-  return path.join(homeDir, profile.defaultHomeFolderName);
+  return resolveRealAgentHome(profile, env, homeDir, readOptionalText);
 }
 
 function generatedAgentHomePath(profile: AgentHomeProfile, env: AgentHomeEnv = process.env, homeDir: string = os.homedir()): string {
-  return path.join(glimmervoidHomeDir(homeDir, env), "agent-homes", profile.vendor);
+  return path.join(glimmervoidHomeDir(homeDir, env), "agent-homes", profile.vendor, profile.homeEnvSubfolder ?? "");
 }
 
 function agentHomeLinkRefusal(generatedHome: string): string | null {
@@ -129,8 +127,8 @@ function readOptionalText(filePath: string): string | null {
   }
 }
 
-function readRealConfig(realHome: string): { text: string | null } | { refusal: string } {
-  const configPath = path.join(realHome, AGENT_HOME_CONFIG_NAME);
+function readRealConfig(realHome: string, configName: string): { text: string | null } | { refusal: string } {
+  const configPath = path.join(realHome, configName);
   try {
     return { text: fs.readFileSync(configPath, "utf8") };
   } catch (error) {
@@ -166,7 +164,7 @@ function inspectAgentHome(profile: AgentHomeProfile, options: AgentHomeOptions):
 }
 
 function planFromDisk(profile: AgentHomeProfile, { renderBlock, platform = process.platform }: AgentHomeOptions, realHome: string, generatedHome: string): AgentHomePlan {
-  const realConfig = readRealConfig(realHome);
+  const realConfig = readRealConfig(realHome, profile.config.configName);
   if ("refusal" in realConfig) return { kind: "refused", reason: realConfig.refusal };
   const generatedEntries = childNamesOf(generatedHome).map((name) => describeGeneratedEntry(generatedHome, realHome, name));
   const privateFolderNames = new Set(generatedEntries.filter((entry) => entry.kind === "folder").map((entry) => entry.name));
@@ -176,17 +174,17 @@ function planFromDisk(profile: AgentHomeProfile, { renderBlock, platform = proce
     realEntries: listRealEntries(realHome, privateFolderNames),
     generatedEntries,
     realConfigText: realConfig.text,
-    baseConfigText: readOptionalText(path.join(generatedHome, AGENT_HOME_BASE_NAME)),
-    generatedConfigText: readOptionalText(path.join(generatedHome, AGENT_HOME_CONFIG_NAME)),
+    baseConfigText: readOptionalText(path.join(generatedHome, profile.config.baseName)),
+    generatedConfigText: readOptionalText(path.join(generatedHome, profile.config.configName)),
     renderBlock,
     sourceStamps: readSourceStamps(generatedHome),
     platform,
   });
 }
 
-function stepEntryPath(generatedHome: string, step: AgentHomeStep): string {
-  if (step.kind === "write-config") return path.join(generatedHome, AGENT_HOME_CONFIG_NAME);
-  if (step.kind === "write-base") return path.join(generatedHome, AGENT_HOME_BASE_NAME);
+function stepEntryPath(profile: AgentHomeProfile, generatedHome: string, step: AgentHomeStep): string {
+  if (step.kind === "write-config") return path.join(generatedHome, profile.config.configName);
+  if (step.kind === "write-base") return path.join(generatedHome, profile.config.baseName);
   return path.join(generatedHome, step.name);
 }
 
@@ -227,8 +225,8 @@ function adoptFolder(entryPath: string, target: string, childNames: readonly str
   fs.rmdirSync(entryPath);
 }
 
-function applyStep(generatedHome: string, step: AgentHomeStep): void {
-  const entryPath = stepEntryPath(generatedHome, step);
+function applyStep(profile: AgentHomeProfile, generatedHome: string, step: AgentHomeStep): void {
+  const entryPath = stepEntryPath(profile, generatedHome, step);
   switch (step.kind) {
     case "write-config":
     case "write-base":
@@ -254,11 +252,62 @@ function applyStep(generatedHome: string, step: AgentHomeStep): void {
   fs.symlinkSync(step.target, entryPath, step.linkKind === "junction" ? "junction" : undefined);
 }
 
-function stepFailure(generatedHome: string, step: AgentHomeStep, error: unknown): string {
-  const entryPath = stepEntryPath(generatedHome, step);
+function stepFailure(profile: AgentHomeProfile, generatedHome: string, step: AgentHomeStep, error: unknown): string {
+  const entryPath = stepEntryPath(profile, generatedHome, step);
   if (step.kind === "link") return `${entryPath} cannot be linked to ${step.target}: ${errorMessage(error)}`;
   if (step.kind === "promote") return `${entryPath} cannot be moved into ${step.target}: ${errorMessage(error)}`;
   return `${entryPath} cannot be written: ${errorMessage(error)}`;
+}
+
+function isLinkTo(entryPath: string, entryStat: fs.Stats, target: string): boolean {
+  if (entryStat.isSymbolicLink()) return path.resolve(path.dirname(entryPath), fs.readlinkSync(entryPath)) === target;
+  const targetStat = statOrNull(target);
+  return targetStat !== null && isSameFile(entryStat, targetStat);
+}
+
+function isReplaceableRootEntry(entryStat: fs.Stats): boolean {
+  return entryStat.isSymbolicLink() || !entryStat.isDirectory();
+}
+
+function linkHomeRootEntries(profile: AgentHomeProfile, realHome: string, generatedHome: string, platform: NodeJS.Platform): string | null {
+  if (profile.homeEnvSubfolder === null) return null;
+  const realRoot = path.dirname(realHome);
+  const generatedRoot = path.dirname(generatedHome);
+  for (const name of profile.homeRootLinkNames) {
+    const target = path.join(realRoot, name);
+    const entryPath = path.join(generatedRoot, name);
+    const targetStat = statOrNull(target);
+    const entryStat = fs.lstatSync(entryPath, { throwIfNoEntry: false }) ?? null;
+    if (entryStat !== null && !isReplaceableRootEntry(entryStat)) continue;
+    if (entryStat !== null && targetStat !== null && isLinkTo(entryPath, entryStat, target)) continue;
+    try {
+      if (entryStat !== null) fs.unlinkSync(entryPath);
+      if (targetStat === null) continue;
+      const linkKind = linkKindFor(targetStat.isDirectory() ? "folder" : "file", platform);
+      applyStep(profile, generatedRoot, { kind: "link", name, target, linkKind });
+    } catch (error) {
+      return `${entryPath} cannot be linked to ${target}: ${errorMessage(error)}`;
+    }
+  }
+  return null;
+}
+
+function operatorLauncherConfigPath(profile: AgentHomeProfile, env: AgentHomeEnv = process.env, homeDir: string = os.homedir()): string {
+  const configuredHome = env[profile.homeEnvName]?.trim() ?? "";
+  if (configuredHome) return path.resolve(configuredHome, profile.config.configName);
+  return path.join(realAgentHome(profile, env, homeDir), profile.config.configName);
+}
+
+function writeLauncherConfig(profile: AgentHomeProfile, options: AgentHomeOptions, generatedHome: string): string | null {
+  if (profile.renderLauncherConfig === null) return null;
+  const launcherConfigPath = path.join(path.dirname(generatedHome), profile.config.configName);
+  try {
+    const operatorLauncherText = readOptionalText(operatorLauncherConfigPath(profile, options.env, options.homeDir)) ?? "";
+    writeTextAtomicSync(launcherConfigPath, profile.renderLauncherConfig(operatorLauncherText), { mode: GENERATED_FILE_MODE, enforceMode: true });
+    return null;
+  } catch (error) {
+    return `${launcherConfigPath} cannot be written: ${errorMessage(error)}`;
+  }
 }
 
 function realFileStamps(realHome: string): Record<string, string> {
@@ -283,9 +332,9 @@ function prepareAgentHome(profile: AgentHomeProfile, options: AgentHomeOptions):
   for (const step of plan.steps) {
     if ("name" in step && keptPrivateNames.has(step.name)) continue;
     try {
-      applyStep(generatedHome, step);
+      applyStep(profile, generatedHome, step);
     } catch (error) {
-      if (step.kind !== "adopt") return { refusal: stepFailure(generatedHome, step, error) };
+      if (step.kind !== "adopt") return { refusal: stepFailure(profile, generatedHome, step, error) };
       keptPrivateNames.add(step.name);
     }
   }
@@ -297,6 +346,10 @@ function prepareAgentHome(profile: AgentHomeProfile, options: AgentHomeOptions):
     }
   }
   const realHome = realAgentHome(profile, options.env, options.homeDir);
+  const rootLinkRefusal = linkHomeRootEntries(profile, realHome, generatedHome, options.platform ?? process.platform);
+  if (rootLinkRefusal !== null) return { refusal: rootLinkRefusal };
+  const launcherConfigRefusal = writeLauncherConfig(profile, options, generatedHome);
+  if (launcherConfigRefusal !== null) return { refusal: launcherConfigRefusal };
   try {
     writeTextAtomicSync(path.join(generatedHome, AGENT_HOME_SOURCES_NAME), `${JSON.stringify(realFileStamps(realHome), null, 2)}\n`, { mode: GENERATED_FILE_MODE });
   } catch (error) {
@@ -317,6 +370,7 @@ function holdPreparedAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv, ren
 }
 
 function prepareScratchAgentHome(profile: AgentHomeProfile, { env, renderBlock, home, configSuffix, files }: ScratchAgentHomeOptions): { home: string } | { refusal: string } {
+  if (profile.config.kind !== "toml") return { refusal: `a ${profile.vendor} lane home is not supported` };
   const prepared = prepareAgentHome(profile, { env, renderBlock, generatedHome: home });
   if ("refusal" in prepared) return prepared;
   try {
@@ -324,7 +378,7 @@ function prepareScratchAgentHome(profile: AgentHomeProfile, { env, renderBlock, 
       fs.rmSync(path.join(home, name), { force: true });
       fs.writeFileSync(path.join(home, name), text, { mode: GENERATED_FILE_MODE });
     }
-    fs.appendFileSync(path.join(home, AGENT_HOME_CONFIG_NAME), configSuffix);
+    fs.appendFileSync(path.join(home, profile.config.configName), configSuffix);
   } catch (error) {
     return { refusal: `${home} cannot take the lane files: ${errorMessage(error)}` };
   }
@@ -333,7 +387,7 @@ function prepareScratchAgentHome(profile: AgentHomeProfile, { env, renderBlock, 
 
 function agentHomeNotes(profile: AgentHomeProfile, generatedHome: string, plan: Extract<AgentHomePlan, { kind: "ready" }>): string[] {
   const notes: string[] = [];
-  if (plan.hasStaleBlockInRealConfig) notes.push(`the real config.toml still holds an old Glimmervoid hooks block, which ${profile.vendor} sessions here ignore and you can delete`);
+  if (plan.hasStaleBlockInRealConfig) notes.push(`the real ${profile.config.configName} still holds an old Glimmervoid hooks block, which ${profile.vendor} sessions here ignore and you can delete`);
   if (plan.privateNames.length > 0) notes.push(`kept only in the generated home: ${plan.privateNames.join(", ")}`);
   const conflictNames = childNamesOf(path.join(generatedHome, AGENT_HOME_CONFLICTS_NAME));
   if (conflictNames.length > 0) notes.push(`${conflictNames.length} ${profile.vendor} copies set aside after a conflict in ${path.join(generatedHome, AGENT_HOME_CONFLICTS_NAME)}`);
@@ -403,8 +457,10 @@ function holdAgentHome(generatedHome: string): void {
   if (liveSessionCount === 1) takeSharedInUseLock(generatedHome);
 }
 
+const SECRET_CONFIG_NAMES: readonly string[] = [...new Set(AGENT_HOME_PROFILES.flatMap(({ config }) => [config.configName, config.baseName]))];
+
 function releaseAgentHomeSecrets(generatedHome: string): void {
-  for (const name of [AGENT_HOME_CONFIG_NAME, AGENT_HOME_BASE_NAME]) {
+  for (const name of SECRET_CONFIG_NAMES) {
     try {
       fs.rmSync(path.join(generatedHome, name), { force: true });
     } catch (error) {
@@ -428,5 +484,5 @@ function releaseUnheldAgentHomeSecrets(generatedHome: string): void {
   releaseSecretsUnlessHeldElsewhere(generatedHome, { whenLocksMissing: "keep" });
 }
 
-export { describeAgentHome, generatedAgentHomePath, holdAgentHome, holdPreparedAgentHome, prepareAgentHome, prepareScratchAgentHome, realAgentHome, releaseAgentHome, releaseUnheldAgentHomeSecrets };
+export { describeAgentHome, generatedAgentHomePath, holdAgentHome, holdPreparedAgentHome, prepareAgentHome, prepareScratchAgentHome, readOptionalText, realAgentHome, releaseAgentHome, releaseUnheldAgentHomeSecrets };
 

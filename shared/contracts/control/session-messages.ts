@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { CoherenceHooksState, SessionSnapshot, SessionState, TaskTitle } from '../session.ts';
+import { CoherenceHooksState, MergeStatus, SessionSnapshot, SessionState, TaskTitle } from '../session.ts';
 import { LinkedPr } from '../my-prs.ts';
+import { ManagerDecision } from '../question-manager.ts';
 import { requestId, sessionId, KeptWorkPath, PullRequestKey, loose, openObject, nullableString, timestamp, optionalError, SessionCardFields, NotifyAlertGroup, SessionStatusFields } from './control-fields.ts';
 
 const restartClientShape = { id: sessionId, force: z.unknown().optional(), fresh: z.unknown().optional(), conversationId: z.string().optional() };
@@ -17,6 +18,8 @@ export const sessionClientVariants = [
     saneYolo: z.boolean().optional(),
     runInPlace: z.boolean().optional(),
     environment: z.string().optional(),
+    resumeSessionId: z.string().optional(),
+    prompt: z.string().max(4000).optional(),
     requestId,
   }),
   loose('quick-session', { id: sessionId, requestId }),
@@ -30,6 +33,8 @@ export const sessionClientVariants = [
   loose('link-session-pr', { id: sessionId, key: PullRequestKey }),
   loose('unlink-session-pr', { id: sessionId, key: PullRequestKey }),
   loose('dismiss', { id: sessionId, force: z.unknown().optional(), expectedState: SessionState.optional() }),
+  loose('manager-seen', { id: sessionId, throughSeq: z.number().int().min(1) }),
+  loose('set-session-question-manager', { id: sessionId, isOn: z.boolean() }),
 ] as const;
 
 export const sessionServerVariants = [
@@ -45,12 +50,13 @@ export const sessionServerVariants = [
   loose('session-added', SessionCardFields.shape),
   loose('session-modified', SessionCardFields.shape),
   loose('session-removed', { id: sessionId, session: z.string() }),
-  loose('session-close-confirm', { id: sessionId, mergeStatus: z.string() }),
+  loose('session-close-confirm', { id: sessionId, mergeStatus: MergeStatus }),
   loose('session-renamed', { id: sessionId, oldName: z.string(), newName: z.string() }),
   loose('session-title', { id: sessionId, taskTitle: TaskTitle.nullable(), isCustom: z.boolean() }),
   loose('session-prs', { id: sessionId, linkedPrs: z.array(LinkedPr) }),
   loose('session-git', { id: sessionId, worktree: z.boolean() }),
   loose('session-coherence-hooks', { id: sessionId, coherenceHooks: CoherenceHooksState.nullable() }),
+  loose('session-manager-decision', { id: sessionId, decision: ManagerDecision }),
   loose('notify', {
     session: z.string(),
     category: z.string(),

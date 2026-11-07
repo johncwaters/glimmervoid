@@ -63,7 +63,6 @@ interface BuildHookSettingsOptions {
   hookTools?: ResolvedHookTool[];
   planLimits?: boolean;
   planReview?: boolean;
-  holdsQuestionsForParent?: boolean;
   userSettingsPath?: string | null;
   relayPath?: string;
   commandHookRelayPath?: string;
@@ -158,7 +157,7 @@ function buildRemoteCommandHookCommand({ nodePath, postUrl }: { nodePath: string
   return `${shellQuote(nodePath)} -e ${shellQuote(inlineRelay)} ${shellQuote(postUrl)}`;
 }
 
-function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, detectScheduledWakeups = true, observeToolCalls = false, enableProjectMcp = false, hookTools = [], planLimits = false, planReview = false, holdsQuestionsForParent = false, userSettingsPath = null, relayPath = RELAY_PATH, commandHookRelayPath = COMMAND_HOOK_RELAY_PATH, hookToolRelayPath = HOOK_TOOL_RELAY_PATH, userHooks = [], remoteNodePath = null }: BuildHookSettingsOptions): HookSettings {
+function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, detectScheduledWakeups = true, observeToolCalls = false, enableProjectMcp = false, hookTools = [], planLimits = false, planReview = false, userSettingsPath = null, relayPath = RELAY_PATH, commandHookRelayPath = COMMAND_HOOK_RELAY_PATH, hookToolRelayPath = HOOK_TOOL_RELAY_PATH, userHooks = [], remoteNodePath = null }: BuildHookSettingsOptions): HookSettings {
   if (!port || !glimmervoidId || !token) {
     throw new Error('buildHookSettings requires port, glimmervoidId, token');
   }
@@ -184,7 +183,7 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
       hooks: [{ type: 'http', url: hookUrl(PLAN_HOOK_EVENT), timeout: PLAN_HOOK_TIMEOUT_SEC }],
     });
   }
-  if (holdsQuestionsForParent && permissionRequestEntries) {
+  if (permissionRequestEntries) {
     permissionRequestEntries.push({
       matcher: ASK_USER_QUESTION_TOOL_NAME,
       hooks: [{ type: 'http', url: hookUrl(CONVERSATION_PERMISSION_HOOK_EVENT), timeout: PLAN_HOOK_TIMEOUT_SEC }],
@@ -202,12 +201,10 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
       hooks: [{ type: 'http', url: hookUrl(PLAN_RESULT_HOOK_EVENT), timeout: timeoutSec }],
     });
   }
-  if (holdsQuestionsForParent) {
-    postToolUse.push({
-      matcher: ASK_USER_QUESTION_TOOL_NAME,
-      hooks: [{ type: 'http', url: hookUrl(CONVERSATION_TOOL_RESULT_HOOK_EVENT), timeout: timeoutSec }],
-    });
-  }
+  postToolUse.push({
+    matcher: ASK_USER_QUESTION_TOOL_NAME,
+    hooks: [{ type: 'http', url: hookUrl(CONVERSATION_TOOL_RESULT_HOOK_EVENT), timeout: timeoutSec }],
+  });
   if (postToolUse.length > 0) {
     hooks.PostToolUse = postToolUse;
   }

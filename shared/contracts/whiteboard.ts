@@ -1,10 +1,9 @@
 import { z } from 'zod';
 
 export const WHITEBOARD_LIMITS = Object.freeze({
-  elements: 1_000_000, opsPerPut: 5000, putBytes: 1_728_576, title: 80, line: 120, linesPerBox: 12, columns: 12, lanes: 12, noteText: 400, logEntries: 2000, promptContextLines: 20, promptContextCharacters: 6000, promptContextLineCharacters: 300, layoutWarnings: 20, readPage: 150, readPageChars: 32_000, outlineClusters: 40, queryText: 200, boxWidthMin: 160, boxWidthMax: 960, units: 40, unitDependencies: 12, linesPerUnit: 4,
+  elements: 1_000_000, opsPerPut: 5000, putBytes: 1_728_576, title: 80, line: 120, linesPerBox: 12, noteText: 400, logEntries: 2000, layoutWarnings: 20, readPage: 150, readPageChars: 32_000, outlineClusters: 40, queryText: 200, boxWidthMin: 160, boxWidthMax: 960,
 });
 
-const LANE_COLORS = ['blue', 'green', 'orange', 'pink', 'cyan', 'yellow'] as const;
 
 const ElementId = z.string({ error: 'an id must be a string' })
   .regex(/^[a-z0-9][a-z0-9-]{0,39}$/, { error: 'an id is 1 to 40 lowercase letters, digits or dashes, starting with a letter or digit' })
@@ -18,7 +17,7 @@ export const AnchorRef = z.string().min(1).max(200, { error: 'a ref is at most 2
 
 const AnchorRefs = z.array(AnchorRef).max(8, { error: 'an element carries at most 8 refs' }).default([]);
 
-const BoxLine = z.object({
+export const BoxLine = z.object({
   text: z.string().max(WHITEBOARD_LIMITS.line, { error: `a box line is at most ${WHITEBOARD_LIMITS.line} characters` }),
   muted: z.boolean().default(false),
   style: z.enum(['text', 'code', 'item', 'numbered', 'kv']).default('text'),
@@ -30,7 +29,7 @@ const Point = z.object({ x: z.number(), y: z.number() }).strict().meta({ id: 'Po
 
 export const BOX_CHANGES = ['none', 'added', 'removed', 'relabeled'] as const;
 
-export const UNIT_STATUSES = ['planned', 'building', 'landed'] as const;
+export const STEP_STATUSES = ['planned', 'building', 'landed'] as const;
 
 const Side = z.enum(['left', 'right', 'top', 'bottom']).meta({ id: 'Side' });
 
@@ -46,14 +45,17 @@ const Output = z.object({
 }).strict().meta({ id: 'Output' });
 
 export const WHITEBOARD_ASSET_ROUTE = '/whiteboards/assets';
+export const BOARD_PAGE_VIEWER_PARAM = 'viewer';
+export const BOARD_PAGE_ESCAPE_MESSAGE = 'glimmervoid-board-page-escape';
 
 const AssetId = z.string().regex(/^[0-9a-f]{64}$/, { error: 'an asset is the 64 hex character id whiteboard attach returned' }).meta({ id: 'AssetId' });
 
-const BOARD_MEDIA_KINDS = ['image', 'video', 'page'] as const;
-const BOARD_MEDIA_MIMES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml', 'video/mp4', 'video/webm', 'text/html'] as const;
+const BOARD_MEDIA_KINDS = ['image', 'video', 'page', 'doc'] as const;
+const BOARD_MEDIA_MIMES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml', 'video/mp4', 'video/webm', 'text/html', 'text/markdown'] as const;
 export const BOARD_MEDIA_MAX_EDGE_PX = 16384;
+export const BOARD_DOC_CAP_BYTES = 256 * 1024;
 
-const BoxMedia = z.object({
+export const BoxMedia = z.object({
   kind: z.enum(BOARD_MEDIA_KINDS).describe('what the media is, as attach returned it'),
   asset: AssetId,
   mime: z.enum(BOARD_MEDIA_MIMES).describe('the media type, as attach returned it'),
@@ -65,27 +67,31 @@ const BoxMedia = z.object({
 
 export const BoardMediaUploadReply = z.object({ ok: z.literal(true), media: BoxMedia }).strict();
 
+export const Step = z.object({
+  status: z.enum(STEP_STATUSES).default('planned'),
+  linkedBoardId: z.string().min(1).max(64).nullable().default(null).describe('a board holding this step in detail'),
+}).strict().meta({ id: 'Step' });
+
 export const Box = z.object({
   kind: z.literal('box'),
   id: ElementId,
   title: Title.min(1, { error: 'a box needs a title' }),
   lines: z.array(BoxLine).max(WHITEBOARD_LIMITS.linesPerBox, { error: `a box holds at most ${WHITEBOARD_LIMITS.linesPerBox} lines` }).default([]),
-  lane: ElementId.nullable().default(null).describe('a lane id from a lanes op'),
   refs: AnchorRefs,
   change: z.enum(BOX_CHANGES).default('none').describe('marks the box in a diff'),
   was: Title.nullable().default(null).describe('the old title, required when change is relabeled'),
-  column: ElementId.nullable().default(null).describe('place: a column id from a columns op'),
   near: Near.nullable().default(null).describe('place: beside another box'),
-  order: z.number().int().default(0).describe('position in its column, lowest first'),
+  order: z.number().int().default(0).describe('position in the panel stack, lowest first'),
   at: Point.nullable().default(null).describe('place: a point on the board'),
-  shape: z.enum(['box', 'decision']).default('box').describe('decision draws a diamond with outputs'),
+  shape: z.enum(['box', 'decision', 'panel']).default('box').describe('decision draws a diamond with outputs; panel draws a side note card'),
   outputs: z.array(Output).max(8, { error: 'a decision has at most 8 outputs' }).default([]).describe('decision branches; a wire leaves one through fromOutput'),
   media: BoxMedia.nullable().default(null).describe('media drawn under the lines, from whiteboard attach'),
   width: z.number().int()
     .min(WHITEBOARD_LIMITS.boxWidthMin, { error: `a box width is ${WHITEBOARD_LIMITS.boxWidthMin} to ${WHITEBOARD_LIMITS.boxWidthMax}` })
     .max(WHITEBOARD_LIMITS.boxWidthMax, { error: `a box width is ${WHITEBOARD_LIMITS.boxWidthMin} to ${WHITEBOARD_LIMITS.boxWidthMax}` })
     .nullable().default(null).describe(`the box width in board units, ${WHITEBOARD_LIMITS.boxWidthMin} to ${WHITEBOARD_LIMITS.boxWidthMax}; null is the 220 default`),
-}).strict().describe('a box needs one place: column, near or at');
+  step: Step.nullable().default(null).describe('makes the box a plan step; a wire from one step to another means the second is built after the first'),
+}).strict().describe('a box needs one place: near or at; a plan step may have none and joins the build-order band, and a panel may have none and stacks right of the drawing');
 
 export const Frame = z.object({
   kind: z.literal('frame'),
@@ -102,7 +108,7 @@ export const Wire = z.object({
   to: ElementId.describe('the element id it ends at'),
   fromOutput: ElementId.nullable().default(null).describe('the output id of a decision from'),
   dashed: z.boolean().default(false),
-  tone: z.enum(['plain', 'fail', 'join', 'lane']).default('plain'),
+  tone: z.enum(['plain', 'fail', 'join']).default('plain'),
   label: z.string().max(40, { error: 'a wire label is at most 40 characters' }).nullable().default(null),
   fromSide: Side.nullable().default(null),
   toSide: Side.nullable().default(null),
@@ -119,26 +125,7 @@ export const Note = z.object({
   resolvedBy: z.string().max(200).nullable().default(null),
 }).strict();
 
-export const Unit = z.object({
-  kind: z.literal('unit'),
-  id: ElementId,
-  title: Title.min(1, { error: 'a unit needs a title' }),
-  lines: z.array(BoxLine).max(WHITEBOARD_LIMITS.linesPerUnit, { error: `a unit holds at most ${WHITEBOARD_LIMITS.linesPerUnit} lines` }).default([]),
-  refs: AnchorRefs,
-  status: z.enum(UNIT_STATUSES).default('planned'),
-  after: z.array(ElementId).max(WHITEBOARD_LIMITS.unitDependencies, { error: `a unit comes after at most ${WHITEBOARD_LIMITS.unitDependencies} units` }).default([]).describe('the unit ids built before it'),
-  linkedBoardId: z.string().min(1).max(64).nullable().default(null).describe('a board holding this step in detail'),
-}).strict();
-
-export const Panel = z.object({
-  kind: z.literal('panel'),
-  id: ElementId,
-  title: Title.min(1, { error: 'a panel needs a title' }),
-  lines: z.array(BoxLine).max(WHITEBOARD_LIMITS.linesPerBox, { error: `a panel holds at most ${WHITEBOARD_LIMITS.linesPerBox} lines` }).default([]),
-  order: z.number().int().default(0),
-}).strict();
-
-export const Element = z.discriminatedUnion('kind', [Box, Frame, Wire, Note, Unit, Panel], { error: 'an element kind is box, frame, wire, note, unit or panel' });
+export const Element = z.discriminatedUnion('kind', [Box, Frame, Wire, Note], { error: 'an element kind is box, frame, wire or note' });
 
 const LegendEntries = z.array(z.object({
   tone: Wire.shape.tone,
@@ -147,12 +134,6 @@ const LegendEntries = z.array(z.object({
   label: z.string().min(1, { error: 'a legend entry needs a label' }).max(40, { error: 'a legend label is at most 40 characters' }),
 }).strict()).max(12, { error: 'a legend has at most 12 entries' });
 
-const BoardColumns = z.array(z.object({ id: ElementId, title: z.string().max(60) }).strict())
-  .max(WHITEBOARD_LIMITS.columns, { error: `a board has at most ${WHITEBOARD_LIMITS.columns} columns` });
-
-const BoardLanes = z.array(z.object({ id: ElementId, label: z.string().max(60), color: z.enum(LANE_COLORS) }).strict())
-  .max(WHITEBOARD_LIMITS.lanes, { error: `a board has at most ${WHITEBOARD_LIMITS.lanes} lanes` });
-
 const CodeSessionId = z.string().min(1).max(64);
 
 export const Board = z.object({
@@ -160,8 +141,6 @@ export const Board = z.object({
   title: Title.min(1),
   version: z.number().int().nonnegative(),
   caption: z.string().max(400).nullable(),
-  columns: BoardColumns,
-  lanes: BoardLanes,
   legend: LegendEntries.default([]),
   codeSessionId: CodeSessionId.nullable().default(null),
   elements: z.record(ElementId, Element)
@@ -176,10 +155,8 @@ export const Op = z.discriminatedUnion('op', [
   z.object({ op: z.literal('set'), id: ElementId, fields: z.record(z.string(), z.unknown()).describe('the element fields to change, as in {"title":"Gateway"}') }).strict(),
   z.object({ op: z.literal('remove'), id: ElementId }).strict(),
   z.object({ op: z.literal('resolve'), id: ElementId.describe('a note id') }).strict(),
-  z.object({ op: z.literal('columns'), columns: BoardColumns.describe('every column, in order'), move: z.record(ElementId, ElementId).default({}).describe('element id to its new column id') }).strict(),
-  z.object({ op: z.literal('lanes'), lanes: BoardLanes }).strict(),
   z.object({ op: z.literal('board'), title: Title.min(1).optional(), caption: z.string().max(400).nullable().optional(), legend: LegendEntries.optional(), codeSessionId: CodeSessionId.nullable().optional() }).strict(),
-], { error: 'an op is add, set, remove, resolve, columns, lanes or board' });
+], { error: 'an op is add, set, remove, resolve or board' });
 
 export const BoardChange = z.object({
   version: z.number().int(),
@@ -237,6 +214,7 @@ export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
     ops: z.array(Op).min(1, { error: 'put needs at least one op' }).max(WHITEBOARD_LIMITS.opsPerPut, { error: `one put carries at most ${WHITEBOARD_LIMITS.opsPerPut} ops` }),
   }).strict(),
   z.object({ sub: z.literal('resolve'), board: BoardRef, note: ElementId }).strict(),
+  z.object({ sub: z.literal('doc'), board: BoardRef, box: ElementId }).strict(),
   z.object({ sub: z.literal('delete'), board: BoardRef }).strict(),
   z.object({ sub: z.literal('attach'), path: z.string().min(1, { error: 'attach needs the media path' }).max(4096) }).strict(),
   z.object({
@@ -244,15 +222,15 @@ export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
     path: z.string().min(1, { error: 'show needs the file path' }).max(4096),
     caption: z.string().max(WHITEBOARD_LIMITS.line, { error: `a show caption is at most ${WHITEBOARD_LIMITS.line} characters` }).optional(),
   }).strict(),
-], { error: 'whiteboard takes new, list, connect, disconnect, get, query, put, resolve, delete, attach or show' });
+], { error: 'whiteboard takes new, list, connect, disconnect, get, query, put, resolve, doc, delete, attach or show' });
 
 export const BoardReview = z.object({
   codeSessionId: z.string().nullable(),
   anchorWarnings: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings),
-  unitWarnings: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings),
+  stepWarnings: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings),
   uncoveredPaths: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings),
   worthALookPaths: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings),
-  flaggedUnitIds: z.array(ElementId).max(WHITEBOARD_LIMITS.units),
+  flaggedStepIds: z.array(ElementId).max(WHITEBOARD_LIMITS.elements),
   notChecked: z.string().nullable(),
 }).strict();
 
@@ -261,7 +239,6 @@ export const BoardOutline = z.object({
   countsByKind: z.record(z.string(), z.number().int()),
   bounds: BoardRegion,
   frames: z.array(z.object({ id: z.string(), title: z.string(), rect: BoardRegion }).strict()).max(WHITEBOARD_LIMITS.readPage),
-  columns: z.array(z.object({ name: z.string(), boxCount: z.number().int() }).strict()),
   clustersOutsideFocus: z.array(z.object({ rect: BoardRegion, elementCount: z.number().int(), titles: z.array(z.string()) }).strict()).max(WHITEBOARD_LIMITS.outlineClusters),
 }).strict();
 
@@ -278,6 +255,7 @@ export const WhiteboardAgentReply = z.union([
   z.object({ ok: z.literal(true), board: Board, changes: z.array(BoardChange), review: BoardReview.optional() }).strict(),
   z.object({ ok: z.literal(true), version: z.number().int(), warnings: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings).optional() }).strict(),
   z.object({ ok: z.literal(true), media: BoxMedia, note: z.string() }).strict(),
+  z.object({ ok: z.literal(true), box: ElementId, text: z.string().max(BOARD_DOC_CAP_BYTES) }).strict(),
 ]);
 
 function isDefaultValue(value: unknown, defaultValue: unknown): boolean {
@@ -310,7 +288,7 @@ function withoutDefaults(schema: z.core.$ZodType, value: unknown): unknown {
 }
 
 const BOARD_MEDIA_EXTENSION_BY_MIME: Record<BoxMedia['mime'], string> = {
-  'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp', 'image/svg+xml': '.svg', 'video/mp4': '.mp4', 'video/webm': '.webm', 'text/html': '.html',
+  'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp', 'image/svg+xml': '.svg', 'video/mp4': '.mp4', 'video/webm': '.webm', 'text/html': '.html', 'text/markdown': '.md',
 };
 
 export function boardMediaOriginalFilename(media: Pick<BoxMedia, 'asset' | 'mime'>): string {
@@ -347,8 +325,7 @@ export type BoxMedia = z.infer<typeof BoxMedia>;
 export type Frame = z.infer<typeof Frame>;
 export type Wire = z.infer<typeof Wire>;
 export type Note = z.infer<typeof Note>;
-export type Unit = z.infer<typeof Unit>;
-export type Panel = z.infer<typeof Panel>;
+export type Step = z.infer<typeof Step>;
 export type Element = z.infer<typeof Element>;
 export type Board = z.infer<typeof Board>;
 export type Op = z.infer<typeof Op>;

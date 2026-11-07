@@ -8,6 +8,7 @@ import type { Express, Request, RequestHandler, Response } from 'express';
 import { HOOK_EVENTS } from '../../detection/settings-injector.ts';
 import { PLAN_HOOK_EVENT, PLAN_RESULT_HOOK_EVENT } from '../../shared/contracts/plan-review.ts';
 import { CONVERSATION_PERMISSION_HOOK_EVENT, CONVERSATION_TOOL_RESULT_HOOK_EVENT } from '../../shared/contracts/session.ts';
+import { QUESTION_TOOL_HOLD_HOOK_EVENT } from '../../shared/contracts/question-manager.ts';
 import { sparseBoardReply } from '../../shared/contracts/whiteboard.ts';
 import type { Session } from '../../session/sessions.ts';
 import { refocusReplyFor, toolHookContextReplyOf } from '../../session/core/refocus-core.ts';
@@ -25,6 +26,9 @@ import { errorMessage } from '../../shared/text.ts';
 import { isSignableGitObject, parseSshPublicKey } from '../core/ssh-signing-core.ts';
 import type { SshSigner } from '../ssh-signing.ts';
 import { decideOpenExternalRequest, OPEN_EXTERNAL_BODY_CAP_BYTES } from '../core/open-external-core.ts';
+import { offsetAfterPagePrelude } from '../core/shown-files-core.ts';
+import { decideLinkPreviewRequest } from '../core/link-preview-core.ts';
+import type { LinkPreviewFetcher } from '../link-preview-fetcher.ts';
 import { decideOriginAllowed } from '../core/origin-policy.ts';
 import { classifyRequestOrigin } from '../core/request-trust.ts';
 import type { HostUrlOpener } from '../host-url-opener.ts';
@@ -36,7 +40,7 @@ import { configSiblingPath } from '../pairings-store.ts';
 import { clientDir } from '../runtime-paths.ts';
 import type { WhiteboardAssetStore } from '../whiteboard/whiteboard-assets.ts';
 import { ASSET_INPUT_CAP_BYTES } from '../whiteboard/whiteboard-assets.ts';
-import { WHITEBOARD_ASSET_ROUTE } from '../../shared/contracts/whiteboard.ts';
+import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_VIEWER_PARAM, WHITEBOARD_ASSET_ROUTE } from '../../shared/contracts/whiteboard.ts';
 import { buildUploadFilename, decideUploadType, exceedsUploadCap, imageMimeForUploadFilename, isSafePathSegment } from '../core/upload-core.ts';
 import { declaredContentLength, decodeHeaderText, parseJsonBody, readCappedBody } from './http/backend-http-body.ts';
 import { UPLOAD_FAILURE_REPLIES, UPLOAD_OVER_CAP_ERROR, receiveUpload, streamRequestToFile } from './http/backend-http-uploads.ts';
@@ -109,6 +113,8 @@ interface BackendHttpDependencies {
   remoteListenerPort?: number | null;
   tokenMatches?: (presented: unknown) => boolean;
   openUrlOnHost?: HostUrlOpener;
+  isLinkPreviewEnabled?: () => boolean;
+  fetchLinkPreview?: LinkPreviewFetcher;
   hookRouter: {
     handle: (input: Record<string, unknown>) => HookRouterOutput;
     enrich?: (input: { glimmervoidId: string; event: string; token: string | null; payload: Record<string, unknown> }) => Promise<Record<string, unknown>>;
@@ -183,12 +189,55 @@ function answerOpenExternal({ req, res, remoteListenerPort, listenerPortsFor, to
   });
 }
 
+function answerLinkPreview({ req, res, remoteListenerPort, listenerPortsFor, tokenMatches, isLinkPreviewEnabled, fetchLinkPreview }: {
+  req: Request;
+  res: Response;
+  remoteListenerPort: number | null;
+  listenerPortsFor: BackendHttpDependencies['listenerPortsFor'];
+  tokenMatches: (presented: unknown) => boolean;
+  isLinkPreviewEnabled: () => boolean;
+  fetchLinkPreview: LinkPreviewFetcher;
+}): void {
+  void readCappedBody(req, OPEN_EXTERNAL_BODY_CAP_BYTES, () => {}).then(async (body) => {
+    if (body === null) return;
+    const verdict = decideLinkPreviewRequest({
+      isLoopback: isLoopbackRequest(req),
+      trust: classifyRequestOrigin({ localPort: req.socket.localPort, remoteListenerPort }),
+      origin: req.headers.origin,
+      listenerPorts: listenerPortsFor(req.socket),
+      tokenOk: tokenMatches(req.headers['x-glimmervoid-page-token']),
+      requestedUrl: parseJsonBody(body).url,
+      isEnabled: isLinkPreviewEnabled(),
+    });
+    if (!verdict.ok) {
+      res.status(verdict.status).json({ ok: false, error: verdict.error });
+      return;
+    }
+    const preview = await fetchLinkPreview(verdict.url);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(preview);
+  });
+}
+
 type AgentIngressDependencies = Pick<BackendHttpDependencies,
   'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'getPlanReview' | 'refocusContextFor' | 'takePromptSupervision' | 'getAgentApi' | 'getWhiteboardAssets' | 'getPrActionReports' | 'sshSigner' | 'recordOutcome' | 'logger'>;
 
 const BOARD_PAGE_SANDBOX_POLICY = 'sandbox allow-scripts allow-popups allow-modals allow-forms';
 const BOARD_MEDIA_SANDBOX_POLICY = "default-src 'none'; sandbox";
 const DASHBOARD_FRAME_POLICY = "frame-src 'self' blob: data:";
+const BOARD_PAGE_ESCAPE_REPORTER = Buffer.from(`<script>(function(later,dashboard){addEventListener("keydown",function(event){if(event.key==="Escape")later(function(){if(!event.defaultPrevented)dashboard.postMessage(${JSON.stringify(BOARD_PAGE_ESCAPE_MESSAGE)},"*")})},true)})(setTimeout,parent)</script>`);
+async function escapeReporterOffsetOf(pagePath: string): Promise<number> {
+  const page = await fsp.open(pagePath, 'r');
+  try {
+    return await offsetAfterPagePrelude(async (position, byteCount) => {
+      const window = Buffer.alloc(byteCount);
+      const { bytesRead } = await page.read(window, 0, byteCount, position);
+      return window.subarray(0, bytesRead);
+    });
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
 
 function sendBoardAssetBytes(req: Request, res: Response, servable: { path: string; contentType: string }, sizeBytes: number): void {
   res.setHeader('Content-Security-Policy', servable.contentType.startsWith('text/html') ? BOARD_PAGE_SANDBOX_POLICY : BOARD_MEDIA_SANDBOX_POLICY);
@@ -213,13 +262,32 @@ function sendBoardAssetBytes(req: Request, res: Response, servable: { path: stri
   pipeline(fs.createReadStream(servable.path), res, () => {});
 }
 
+function sendBoardPageForViewer(res: Response, servable: { path: string; contentType: string }, sizeBytes: number, reporterOffset: number): void {
+  res.setHeader('Content-Security-Policy', BOARD_PAGE_SANDBOX_POLICY);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Content-Type', servable.contentType);
+  res.setHeader('Content-Length', String(sizeBytes + BOARD_PAGE_ESCAPE_REPORTER.byteLength));
+  pipeline(async function* pageWithEscapeReporterAfterPrelude() {
+    if (reporterOffset > 0) yield* fs.createReadStream(servable.path, { end: reporterOffset - 1 });
+    yield BOARD_PAGE_ESCAPE_REPORTER;
+    yield* fs.createReadStream(servable.path, { start: reporterOffset });
+  }, res, () => {});
+}
+
+function isPageAskedForViewer(req: Request, servable: { contentType: string }): boolean {
+  return servable.contentType.startsWith('text/html') && req.query[BOARD_PAGE_VIEWER_PARAM] === '1';
+}
+
 function serveBoardAsset(req: Request, res: Response, servable: { path: string; contentType: string }): void {
-  fsp.stat(servable.path).then(
-    (stats) => sendBoardAssetBytes(req, res, servable, stats.size),
-    () => {
-      if (!res.headersSent) res.status(404).end();
-    },
-  );
+  const answerMissing = () => {
+    if (!res.headersSent) res.status(404).end();
+  };
+  if (!isPageAskedForViewer(req, servable)) {
+    fsp.stat(servable.path).then((stats) => sendBoardAssetBytes(req, res, servable, stats.size), answerMissing);
+    return;
+  }
+  Promise.all([fsp.stat(servable.path), escapeReporterOffsetOf(servable.path)]).then(([stats, reporterOffset]) => sendBoardPageForViewer(res, servable, stats.size, reporterOffset), answerMissing);
 }
 
 async function receiveBoardMedia({ req, assets, name }: { req: Request; assets: WhiteboardAssetStore; name: string }): ReturnType<WhiteboardAssetStore['adoptIncoming']> {
@@ -326,8 +394,10 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
         signal: abandonedByClaudeCode.signal,
       }) || null;
       const isConversationPermission = output.status === 200 && req.params.event.toLowerCase() === CONVERSATION_PERMISSION_HOOK_EVENT;
+      const isQuestionToolHold = output.status === 200 && req.params.event.toLowerCase() === QUESTION_TOOL_HOLD_HOOK_EVENT;
       const heldDecision = planDecision
-        || (isConversationPermission ? getSession(req.params.glimmervoidId)?.holdClaudePermission(payload, abandonedByClaudeCode.signal) ?? null : null);
+        || (isConversationPermission ? getSession(req.params.glimmervoidId)?.holdClaudePermission(payload, abandonedByClaudeCode.signal) ?? null : null)
+        || (isQuestionToolHold ? getSession(req.params.glimmervoidId)?.holdQuestionTool(payload, abandonedByClaudeCode.signal) ?? null : null);
       if (!heldDecision) {
         answer(null);
         return;
@@ -479,6 +549,8 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
     remoteListenerPort = null,
     tokenMatches = () => false,
     openUrlOnHost = async () => 'unsupported-platform',
+    isLinkPreviewEnabled = () => false,
+    fetchLinkPreview = async () => ({}),
     getSession,
     logger = console,
   } = dependencies;
@@ -511,6 +583,10 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
 
   app.post('/open-external', (req, res) => {
     answerOpenExternal({ req, res, remoteListenerPort, listenerPortsFor, tokenMatches, openUrlOnHost, logger });
+  });
+
+  app.post('/link-preview', (req, res) => {
+    answerLinkPreview({ req, res, remoteListenerPort, listenerPortsFor, tokenMatches, isLinkPreviewEnabled, fetchLinkPreview });
   });
 
   mountAgentIngressRoutes(app, dependencies);

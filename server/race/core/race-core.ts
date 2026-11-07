@@ -23,19 +23,35 @@ const RACE_JUDGE_RESULT_FILENAME = 'race-judge-result.json';
 const RACE_TASK_MAX_CHARS = 20000;
 
 interface JudgeInput {
-  contestant: RaceContestant;
-  worktreeDir: string;
+  judgeId: string;
+  checkoutDirName: string;
   diffFileName: string;
   stats: DiffStats;
 }
 
-function judgeDiffFileName(contestant: RaceContestant): string {
-  return `diff-${contestant.id}.patch`;
+function judgeIdAt(judgeOrderIndex: number): string {
+  return String.fromCharCode('A'.charCodeAt(0) + judgeOrderIndex);
+}
+
+function judgeDiffFileName(judgeId: string): string {
+  return `diff-${judgeId}.patch`;
+}
+
+function judgeCheckoutDirName(judgeId: string): string {
+  return `checkout-${judgeId}`;
+}
+
+function unblindJudgeResult(result: JudgeResult, contestantIdByJudgeId: ReadonlyMap<string, string>): JudgeResult {
+  const contestantIdOf = (judgeId: string) => contestantIdByJudgeId.get(judgeId) ?? judgeId;
+  return {
+    ranking: result.ranking.map((entry) => ({ ...entry, contestantId: contestantIdOf(entry.contestantId) })),
+    notes: Object.fromEntries(Object.entries(result.notes).map(([judgeId, note]) => [contestantIdOf(judgeId), note])),
+  };
 }
 
 function judgePrompt(record: RaceRecord, inputs: readonly JudgeInput[]): string {
-  const contestantLines = inputs.map(({ contestant, worktreeDir, diffFileName, stats }) =>
-    `- id ${contestant.id}: diff in ./${diffFileName} (${stats.filesChanged} files, +${stats.linesAdded} -${stats.linesRemoved}), full checkout at ${worktreeDir}`);
+  const contestantLines = inputs.map(({ judgeId, checkoutDirName, diffFileName, stats }) =>
+    `- id ${judgeId}: diff in ./${diffFileName} (${stats.filesChanged} files, +${stats.linesAdded} -${stats.linesRemoved}), full checkout in ./${checkoutDirName}`);
   return [
     'You judge a race: several coding agents were given the same task, each in its own checkout from the same commit.',
     'Rank every contestant listed below from best (rank 1) to worst, judging whether the change does the task correctly, completely and without unrelated edits.',
@@ -79,5 +95,5 @@ function winnerNotesPrompt(notes: string): string {
   return ['Your change won the race. The judge left these notes on it; address them:', '', notes].join('\n');
 }
 
-export { RACE_JUDGE_RESULT_FILENAME, winnerNotesPrompt, contestantPrompt, contestantSessionName, judgeDiffFileName, judgePrompt, parseJudgeResult, parseShortstat, raceIdsOf };
+export { RACE_JUDGE_RESULT_FILENAME, judgeCheckoutDirName, judgeIdAt, unblindJudgeResult, winnerNotesPrompt, contestantPrompt, contestantSessionName, judgeDiffFileName, judgePrompt, parseJudgeResult, parseShortstat, raceIdsOf };
 export type { JudgeInput };

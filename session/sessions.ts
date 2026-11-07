@@ -12,7 +12,7 @@ import { buildPersistedTaskTitle, cleanTaskPrompt, extractHookTaskTitle, extract
 import type { PersistedTaskTitle } from "../shared/contracts/config.ts";
 import type { SessionEndCause } from "../shared/contracts/telemetry.ts";
 import type { LinkedPr, SessionPrLinks } from "../shared/contracts/my-prs.ts";
-import type { PromptContextReply } from "../shared/contracts/refocus.ts";
+import type { PromptContextReply, QuestionToolDenyResponse } from "../shared/contracts/refocus.ts";
 import { mergeSessionPrLink, seedSessionPrLinks, withManualPrLink, withoutPrLink } from "./core/session-pr-links-core.ts";
 import type { TaskTitleRefinementResult, TaskTitleSources } from "./core/task-title-core.ts";
 import { readTranscriptTaskTitle } from "./session-task-title.ts";
@@ -40,7 +40,7 @@ import { createStatusSource } from "../detection/status-source.ts";
 import type { MetaStatusSignal, ResolvedStatusSignal } from "../detection/status-source.ts";
 import type { HookSignal } from "../detection/hook-source.ts";
 import type { ResolvedCommand } from "./core/spawn-command.ts";
-import { DEFAULT_AGENT_ID, resolveAdapter, commandFor } from "./adapters/index.ts";
+import { DEFAULT_AGENT_ID, isFirstClassAgent, resolveAdapter, commandFor } from "./adapters/index.ts";
 import { startCodexAppServerBridge } from "./codex-app-server-bridge.ts";
 import { CODEX_REMOTE_TOKEN_ENV } from "./core/codex-remote-launch-core.ts";
 import type { CoherenceAttachment } from '../server/coherence/coherence-runtime.ts';
@@ -56,8 +56,10 @@ import {
   UNSEEN_OUTCOME_ON_ENTRY,
 } from "./core/state-machine.ts";
 import { acceptsAttentionSignal, mapSignalToEvent, shouldDeferAttention } from "./core/status-mapper.ts";
-import { decideWaitingInput, isOperatorKeystroke, isPromptSubmit } from "./core/waiting-input-core.ts";
+import { decideWaitingInput, isComposerSubmit, isOperatorKeystroke, isPromptSubmit } from "./core/waiting-input-core.ts";
 import { decideExitTransition } from "./core/exit-transition.ts";
+import { decideTeardown, NO_TEARDOWN } from "./core/session-teardown.ts";
+import type { Teardown, TeardownAction } from "./core/session-teardown.ts";
 import type { ExitSignal } from "./core/exit-transition.ts";
 import * as agentTracker from "./core/agent-tracker.ts";
 import { DEFAULT_GATE_RELEASE_SETTLE_MS } from "./core/gate-release.ts";
@@ -70,12 +72,13 @@ import { createSessionOutput } from "./session-output.ts";
 import type { ScreenSnapshot } from "./session-output.ts";
 import type { ScreenKeeperFactory } from "./screen-keeper.ts";
 import { createSessionHookLifecycle } from "./session-hook-lifecycle.ts";
+import { folderTrustRoot } from "./core/copilot-trust-core.ts";
 import type { HookRouterPort } from "./session-hook-lifecycle.ts";
 import { createSessionWorktreeLifecycle } from "./session-worktree-lifecycle.ts";
 import type { SeedDependencies } from "../server/git/dependency-clone.ts";
 import type { GitWorkspace } from "./worktree/worktree-lifecycle-context.ts";
 import { createSessionApprovalHolds } from "./session-approval-holds.ts";
-import type { SessionApprovalHolds } from "./session-approval-holds.ts";
+import type { QuestionManagerPort, SessionApprovalHolds } from "./session-approval-holds.ts";
 import { createSessionBackgroundTracking } from "./session-background-tracking.ts";
 import { createSessionLaunch } from "./session-launch.ts";
 import type { RemoteLaunch, SessionLaunch } from "./session-launch.ts";
@@ -182,6 +185,7 @@ interface SessionOptions {
   adapter?: AgentAdapter | null;
   bypassHookTrust?: boolean;
   holdsQuestionsForParent?: boolean;
+  questionManager?: QuestionManagerPort | null;
   startCodexBridge?: typeof startCodexAppServerBridge;
   titleQuietFallbackMs?: number;
   spawnCommand?: ResolvedCommand | null;
@@ -253,13 +257,13 @@ class Session extends EventEmitter {
   stateSince: number;
   failureReason: string | null;
   unseenOutcome: UnseenOutcome | null;
+  managerSeenSeq: number;
   ephemeral: boolean;
   agentId: string;
   usageVendor: string;
   bypassHookTrust: boolean;
-  _holdsQuestionsForParent: boolean;
   _launch: SessionLaunch;
-  _approvals: SessionApprovalHolds;
+  _approvals: SessionApprovalHolds<HookSignal>;
   backgroundTracking: ReturnType<typeof createSessionBackgroundTracking>;
   worktreeLifecycle: ReturnType<typeof createSessionWorktreeLifecycle>;
   _worktreeReaderHolds = new Set<() => Promise<() => void>>();
@@ -268,9 +272,7 @@ class Session extends EventEmitter {
   _hasPromptSinceSpawn: boolean;
   _titleQuietFallbackTimer: NodeJS.Timeout | null;
   _reaper: SessionProcessReaper;
-  _destroyed: boolean;
-  _pendingRestart: boolean;
-  _finishing: boolean;
+  _teardown: Teardown;
   _ptyAlive: boolean;
   _recorder: SessionRecorderPort | null;
   _output: ReturnType<typeof createSessionOutput>;
@@ -303,6 +305,7 @@ class Session extends EventEmitter {
   _prependPathDirs: string[];
   _hookTools: ResolvedHookTool[];
   _isSaneYoloActive: boolean;
+  _questionManager: QuestionManagerPort | null;
   _planLimits: boolean;
   _planReviewPort: SessionPlanReviewPort | null;
   _prepareCoherence: ((cwd: string) => Promise<CoherenceAttachment | null>) | null;
@@ -366,6 +369,7 @@ class Session extends EventEmitter {
 
     bypassHookTrust = false,
     holdsQuestionsForParent = false,
+    questionManager = null,
     startCodexBridge = startCodexAppServerBridge,
 
     titleQuietFallbackMs = 30000,
@@ -451,12 +455,10 @@ class Session extends EventEmitter {
     this.stateSince = Date.now();
     this.failureReason = null;
     this.unseenOutcome = null;
+    this.managerSeenSeq = 0;
     this._receivedFirstOutput = false;
     this._hasPromptSinceSpawn = false;
-    this._destroyed = false;
-    this._pendingRestart = false;
-
-    this._finishing = false;
+    this._teardown = NO_TEARDOWN;
 
     this._ptyAlive = false;
     this._recorder = null;
@@ -469,9 +471,9 @@ class Session extends EventEmitter {
       start: () => { this.start(); },
       restart: () => { this.restart(); },
       on: (event, listener) => { this.on(event, listener); },
-      once: (event, listener) => { this.once(event, listener); },
       off: (event, listener) => { this.off(event, listener); },
       screenKeeperFactory,
+      onPasteExpired: (text) => { console.warn(`[session:${this.name}] dropped a queued paste of ${text.length} characters: the agent never became ready to take it (state ${this.state})`); },
     });
 
     const resolvedAdapter = adapter || resolveAdapter(agent, { label: `session:${name}` });
@@ -485,11 +487,17 @@ class Session extends EventEmitter {
 
     this.usageVendor = this._adapter.usageVendor || "claude";
     this.bypassHookTrust = bypassHookTrust === true;
-    this._holdsQuestionsForParent = holdsQuestionsForParent;
+    this._questionManager = isFirstClassAgent(this.agentId) && !ephemeral && !holdsQuestionsForParent ? questionManager : null;
     this._approvals = createSessionApprovalHolds({
       agentId: this.agentId,
       holdsQuestionsForParent,
-      port: { emit: (event, detail) => this.emit(event, detail) },
+      questionManager: this._questionManager,
+      port: {
+        emit: (event, detail) => this.emit(event, detail),
+        ingestStatus: (signal) => this._ingestHookSignal(signal),
+        pushAuditEntry: (entry) => this._pushAuditEntry(entry),
+        taskTitle: () => this.refocusTaskTitle,
+      },
     });
     this._titleQuietFallbackMs = titleQuietFallbackMs;
     this._titleQuietFallbackTimer = null;
@@ -562,13 +570,13 @@ class Session extends EventEmitter {
       hookTools: this._hookTools,
       planLimits: this._planLimits,
       planReview: planReviewPort !== null,
-      holdsQuestionsForParent: this._holdsQuestionsForParent,
       getUserHooks,
       extraUserHooks,
       scratchAgentHome,
       requiresHooks: requiresHooks && hookRouter !== null,
       bypassHookTrust: this.bypassHookTrust,
       effectiveCwd: () => this.effectiveCwd(),
+      folderTrustRoot: () => folderTrustRoot(this.effectiveCwd(), worktreeRoot),
       agentEnv: () => this._launch.buildEnv(),
       ingestSignal: (raw) => this.ingestHookSignal(raw),
       observeHook: (event, payload) => {
@@ -809,6 +817,12 @@ class Session extends EventEmitter {
   }
 
   ingestHookSignal(raw: HookSignal): void {
+    if (this._destroyed) return;
+    if (this._approvals.parksQuestionStatus(raw)) return;
+    this._ingestHookSignal(raw);
+  }
+
+  _ingestHookSignal(raw: HookSignal): void {
     if (this._destroyed) return;
     if (raw?.signal === "auth-failed") {
       if (this._launch.respawnAfterAuthFailure()) return;
@@ -1142,6 +1156,10 @@ class Session extends EventEmitter {
     return this._approvals.hold(payload, abandoned);
   }
 
+  holdQuestionTool(payload: unknown, abandoned: AbortSignal): Promise<QuestionToolDenyResponse | null> | null {
+    return this._approvals.holdQuestionTool(payload, abandoned);
+  }
+
   answerConversationApproval(requestId: number | string, answers: ConversationAnswers): boolean {
     return this._approvals.answer(requestId, answers);
   }
@@ -1226,8 +1244,12 @@ class Session extends EventEmitter {
     return !this._destroyed && !!this.ptyProcess && !!this._ptyAlive;
   }
 
+  get _destroyed(): boolean {
+    return this._teardown.kind === "destroyed";
+  }
+
   get pendingRestart(): boolean {
-    return this._pendingRestart;
+    return this._teardown.kind === "restart-pending";
   }
 
   setResumeConversation(id: string | null): void {
@@ -1241,6 +1263,10 @@ class Session extends EventEmitter {
 
   get saneYolo(): boolean {
     return this._isSaneYoloActive;
+  }
+
+  get isQuestionManagerOn(): boolean | null {
+    return this._questionManager?.isOn ?? null;
   }
 
   _prepareRestart(options: { fresh?: boolean; conversationId?: string | null } = {}): void {
@@ -1360,7 +1386,7 @@ class Session extends EventEmitter {
       name: this.name,
       state: this.state,
       destroyed: this._destroyed,
-      pendingRestart: this._pendingRestart,
+      pendingRestart: this.pendingRestart,
       hasPty: this.ptyProcess !== null,
       ptyPid: this.ptyProcess ? this.ptyProcess.pid : null,
       outputBufferEntries: this._output.stats().entries,
@@ -1408,6 +1434,8 @@ class Session extends EventEmitter {
       worktreeNotice: this.worktreeNotice,
       failureReason: this.failureReason,
       unseenOutcome: this.unseenOutcome,
+      managerSeenSeq: this.managerSeenSeq,
+      isQuestionManagerOn: this.isQuestionManagerOn,
       effectiveBase: this.worktreeLifecycle.snapshot().effectiveBase,
       linkedPrs: this.linkedPrs,
       coherenceHooks: this.coherenceHooks,
@@ -1691,7 +1719,7 @@ class Session extends EventEmitter {
 
     const initialPrompt = this._initialPrompt;
     const argsForLog = initialPrompt
-      ? args.map((a) => (a === initialPrompt ? `<prompt:${initialPrompt.length}c>` : a)).join(" ")
+      ? args.map((a) => a.replace(initialPrompt, `<prompt:${initialPrompt.length}c>`)).join(" ")
       : args.join(" ");
     console.log(
       `[session ${this.id}] spawn: ${file} ${argsForLog} (cwd=${this.effectiveCwd()})`,
@@ -1905,6 +1933,7 @@ class Session extends EventEmitter {
 
     const exitedOnItsOwn = isUnsignalledCleanExit && this.state === STATES.DONE && !this._teardownPending() && !this._destroyed;
     this.emit("exit", { exitCode, signal, reason, exitedOnItsOwn });
+    this._dispatchTeardown({ kind: "pty_exited" });
   }
 
   getScreenSnapshot(): ScreenSnapshot {
@@ -1942,16 +1971,21 @@ class Session extends EventEmitter {
     if (!this.ptyProcess || !this._ptyAlive) return;
     this.ptyProcess.write(text);
     if (!isPromptSubmit(text)) return;
+    if (isComposerSubmit(text, this.state)) this._output.forgetUnsubmittedComposerPaste();
     this._observeCompaction("resume");
     this._titleQuiet = false;
   }
 
   noteOperatorDraft(): void {
+    this._approvals.yieldManagerDecisions();
     this.emit("operator-input");
   }
 
   noteOperatorInput(input: string): void {
-    if (isOperatorKeystroke(input)) this.emit("operator-input");
+    if (isOperatorKeystroke(input)) {
+      this._approvals.yieldManagerDecisions();
+      this.emit("operator-input");
+    }
     const decision = decideWaitingInput({
       state: this.state,
       hasHookAwaitingInput: this._can("hooks") && this._can("awaitingInput"),
@@ -2000,6 +2034,19 @@ class Session extends EventEmitter {
     return this.transition("user_dismiss");
   }
 
+  markManagerDecisionsSeen(throughSeq: number): void {
+    const seenSeq = Math.min(throughSeq, this._approvals.latestManagerDecisionSeq);
+    if (seenSeq <= this.managerSeenSeq) return;
+    this.managerSeenSeq = seenSeq;
+    this.emit("manager-seen-change", { managerSeenSeq: seenSeq });
+  }
+
+  setQuestionManagerOn(isOn: boolean): void {
+    if (!this._questionManager || this._questionManager.isOn === isOn) return;
+    this._questionManager.setOn(isOn);
+    this.emit("question-manager-change", { isQuestionManagerOn: isOn });
+  }
+
   _setUnseenOutcome(nextUnseenOutcome: UnseenOutcome | null): void {
     if (this.unseenOutcome === nextUnseenOutcome) return;
     this.unseenOutcome = nextUnseenOutcome;
@@ -2007,7 +2054,25 @@ class Session extends EventEmitter {
   }
 
   _teardownPending(): boolean {
-    return this._pendingRestart || this._finishing;
+    return this._teardown.kind === "restart-pending" || this._teardown.kind === "finish-pending";
+  }
+
+  _dispatchTeardown(event: Parameters<typeof decideTeardown>[1]): boolean {
+    const decision = decideTeardown(this._teardown, event);
+    if (!decision) return false;
+    this._teardown = decision.teardown;
+    for (const action of decision.actions) this._runTeardownAction(action);
+    return true;
+  }
+
+  _runTeardownAction(action: TeardownAction): void {
+    if (action.kind === "merge-and-reset") {
+      void this._mergeAndReset().catch(() => {}).finally(() => this._dispatchTeardown({ kind: "merge_settled" }));
+      return;
+    }
+    if (!RESTARTABLE_STATES.includes(this.state)) return;
+    this.transition("user_restart");
+    this.start({ fresh: action.fresh, resumePrompt: action.resumePrompt });
   }
 
   killSession(): boolean {
@@ -2039,17 +2104,11 @@ class Session extends EventEmitter {
       return { ok: false, reason: this._teardownPending() ? "in-progress" : "destroyed" };
     }
     if (RESTARTABLE_STATES.includes(this.state)) {
-
-      this._finishing = true;
-      this._mergeAndReset().finally(() => { this._finishing = false; }).catch(() => {});
+      this._dispatchTeardown({ kind: "finish_requested", isProcessLive: false });
       return { ok: true };
     }
     if (this.state === STATES.COMPLETE || this.state === STATES.IDLE) {
-      this._finishing = true;
-      this.once("exit", async () => {
-        try { if (!this._destroyed) await this._mergeAndReset(); }
-        finally { this._finishing = false; }
-      });
+      this._dispatchTeardown({ kind: "finish_requested", isProcessLive: true });
       this.killSession();
       return { ok: true, pending: true };
     }
@@ -2067,15 +2126,7 @@ class Session extends EventEmitter {
     if (this._teardownPending()) return false;
     if (KILLABLE_STATES.includes(this.state)) {
       this._prepareRestart(options);
-      const fresh = options.fresh === true;
-      this._pendingRestart = true;
-      this.once("exit", () => {
-        this._pendingRestart = false;
-        if (this._destroyed) return;
-        if (!RESTARTABLE_STATES.includes(this.state)) return;
-        this.transition("user_restart");
-        this.start({ fresh, resumePrompt: options.resumePrompt ?? null });
-      });
+      this._dispatchTeardown({ kind: "restart_requested", fresh: options.fresh === true, resumePrompt: options.resumePrompt ?? null });
       this.kill();
       this.transition("user_kill");
       return true;
@@ -2090,8 +2141,7 @@ class Session extends EventEmitter {
   }
 
   destroy(cause: SessionEndCause = "removed"): void {
-    if (this._destroyed) return;
-    this._destroyed = true;
+    if (!this._dispatchTeardown({ kind: "destroy_requested" })) return;
     this._agentToken = null;
     this._commitSigningToken = null;
     this._pendingAttentionNotes = [];

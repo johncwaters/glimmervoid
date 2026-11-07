@@ -156,6 +156,45 @@ test('Sane YOLO capability filters both the Claude hook and its environment', as
   });
 });
 
+test('a gemini session reports Sane YOLO off when the repo settings turn hooks off', async (t) => {
+  const scratchRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-gemini-hooks-off-'));
+  t.after(() => fsp.rm(scratchRoot, { recursive: true, force: true }));
+  const projectDir = path.join(scratchRoot, 'project');
+  await fsp.mkdir(path.join(scratchRoot, 'gemini-home', '.gemini'), { recursive: true });
+  await fsp.mkdir(path.join(projectDir, '.gemini'), { recursive: true });
+  const hookTools: NonNullable<SessionOptions['hookTools']> = [{ id: 'saneYolo', binPath: '/g/guard.js' }];
+  async function saneYoloShownFor(id: string): Promise<boolean> {
+    const { session } = makeSession({
+      id, name: id, path: projectDir, agent: 'gemini', hookTools,
+      hookRouter: new HookRouter(), getHookPort: () => 41234,
+      spawnEnv: { GEMINI_CLI_HOME: path.join(scratchRoot, 'gemini-home'), GLIMMERVOID_HOME: path.join(scratchRoot, 'glimmervoid') },
+    });
+    try {
+      await session.start();
+      return session.toSnapshot().saneYolo;
+    } finally {
+      session.destroy();
+    }
+  }
+  assert.equal(await saneYoloShownFor('gemini-hooks-on'), true);
+  await fsp.writeFile(path.join(projectDir, '.gemini', 'settings.json'), '{ "hooksConfig": { "enabled": false } }');
+  assert.equal(await saneYoloShownFor('gemini-hooks-off'), false);
+});
+
+test('an opencode first prompt starting with a dash reaches opencode as one --prompt= argument and stays out of the spawn log', async (t) => {
+  const prompt = '- fix the login bug';
+  const loggedLines: string[] = [];
+  t.mock.method(console, 'log', (...parts: unknown[]) => { loggedLines.push(parts.join(' ')); });
+  const { session, calls } = makeSession({ id: 'opencode-dash-prompt', name: 'opencode-dash-prompt', agent: 'opencode', initialPrompt: prompt });
+  try {
+    await session.start();
+  } finally {
+    session.destroy();
+  }
+  assert.ok(calls[0].args.includes(`--prompt=${prompt}`));
+  assert.equal(loggedLines.some((line) => line.includes('fix the login bug')), false);
+});
+
 test('a kimi session in a fresh folder starts pre-trusted and gets its initial prompt typed in', async (t) => {
   const kimiHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-kimi-trust-'));
   t.after(() => fsp.rm(kimiHome, { recursive: true, force: true }));
@@ -180,7 +219,7 @@ test('a kimi session in a fresh folder starts pre-trusted and gets its initial p
 });
 
 for (const agent of ['kimi', 'claude-code']) {
-  test(`a prompt pasted into a starting ${agent} session waits for its input box to settle and stays pending meanwhile, so a race prompt is not lost or overtaken at first ready, while a session already ready takes a paste at once`, async (t) => {
+  test(`a prompt pasted into a starting ${agent} session waits for its input box to settle and stays pending meanwhile, so race prompts queued before or during the settle all arrive in order ahead of a prompt left for the operator to submit, while a session already ready takes a paste at once and never submits one over a prompt the operator has yet to send`, async (t) => {
     const agentHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-paste-settle-'));
     t.after(() => fsp.rm(agentHome, { recursive: true, force: true }));
     const writes: string[] = [];
@@ -192,18 +231,45 @@ for (const agent of ['kimi', 'claude-code']) {
     });
     try {
       await session.start();
+      assert.deepEqual(session.pasteTextWhenReady('Read before sending'), { ok: true, deferred: true });
       assert.equal(session.pasteTextWhenReady('Race task', { submit: true }).ok, true);
+      assert.deepEqual(session.pasteTextWhenReady('Second race task', { submit: true }), { ok: true, deferred: true });
       session.transition('first_output');
       await new Promise((resolve) => setTimeout(resolve, 200));
       const writesBeforeSettle = [...writes];
       const isPendingDuringSettle = session.hasPendingPaste();
-      await new Promise((resolve) => setTimeout(resolve, 2200));
+      assert.deepEqual(session.pasteTextWhenReady('Settle window task', { submit: true }), { ok: true, deferred: true });
+      await new Promise((resolve) => setTimeout(resolve, 2600));
       assert.deepEqual(writesBeforeSettle, []);
       assert.equal(isPendingDuringSettle, true);
       assert.equal(session.hasPendingPaste(), false);
-      assert.deepEqual(writes, ['\x1b[200~Race task\x1b[201~', '\r']);
+      assert.deepEqual(writes, [
+        '\x1b[200~Race task\x1b[201~', '\r',
+        '\x1b[200~Second race task\x1b[201~', '\r',
+        '\x1b[200~Settle window task\x1b[201~', '\r',
+        '\x1b[200~Read before sending\x1b[201~',
+      ]);
       assert.deepEqual(session.pasteTextWhenReady('Fix it'), { ok: true });
-      assert.equal(writes[2], '\x1b[200~Fix it\x1b[201~');
+      assert.equal(writes[7], '\x1b[200~Fix it\x1b[201~');
+      assert.deepEqual(session.pasteTextWhenReady('Sent while the operator still reads', { submit: true }), { ok: true });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      assert.deepEqual(writes.slice(8), ['\x1b[200~Sent while the operator still reads\x1b[201~']);
+      session.write('\r');
+      assert.deepEqual(session.pasteTextWhenReady('Sent after the operator submitted', { submit: true }), { ok: true });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      assert.deepEqual(writes.slice(9), ['\r', '\x1b[200~Sent after the operator submitted\x1b[201~', '\r']);
+      assert.deepEqual(session.pasteTextWhenReady('Sent at once', { submit: true }), { ok: true });
+      assert.deepEqual(session.pasteTextWhenReady('Held until that one is sent'), { ok: true, deferred: true });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      assert.deepEqual(writes.slice(12), ['\x1b[200~Sent at once\x1b[201~', '\r', '\x1b[200~Held until that one is sent\x1b[201~']);
+      session.transition('prompt_detected');
+      for (const dialogKey of ['\x1b[B', '\r']) {
+        session.write(dialogKey);
+        session.noteOperatorInput(dialogKey);
+      }
+      assert.deepEqual(session.pasteTextWhenReady('Sent after a dialog was answered', { submit: true }), { ok: true });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      assert.deepEqual(writes.slice(15), ['\x1b[B', '\r', '\x1b[200~Sent after a dialog was answered\x1b[201~']);
     } finally {
       session.destroy();
     }

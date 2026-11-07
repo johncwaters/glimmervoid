@@ -59,11 +59,12 @@ function groupSection(group) {
   return section;
 }
 
-const showAsideToggle = document.getElementById('show-aside');
+const FINISHED_GROUP_IDS = new Set(['done', 'parked']);
+const showFinishedToggle = document.getElementById('show-finished');
 let latestGroups = [];
 
 function render() {
-  const shownGroups = latestGroups.filter((group) => group.items.length > 0 && (showAsideToggle.checked || group.id !== 'aside'));
+  const shownGroups = latestGroups.filter((group) => group.items.length > 0 && (showFinishedToggle.checked || !FINISHED_GROUP_IDS.has(group.id)));
   const turnCount = latestGroups.find((group) => group.id === 'turn')?.items.length ?? 0;
   document.getElementById('summary').textContent = `${turnCount} waiting on you`;
   document.getElementById('groups').replaceChildren(...(shownGroups.length === 0 ? [element('p', 'empty', 'Nothing in Reviews.')] : shownGroups.map(groupSection)));
@@ -71,12 +72,12 @@ function render() {
 
 window.addEventListener('message', (event) => {
   if (event.source !== window.parent || event.data?.v !== 1 || event.data.kind !== 'store') return;
-  showAsideToggle.checked = event.data.data.showAside === true;
+  showFinishedToggle.checked = event.data.data.showFinished === true;
   render();
 });
 
-showAsideToggle.addEventListener('change', () => {
-  window.parent.postMessage({ v: 1, kind: 'store-set', key: 'showAside', value: showAsideToggle.checked }, '*');
+showFinishedToggle.addEventListener('change', () => {
+  window.parent.postMessage({ v: 1, kind: 'store-set', key: 'showFinished', value: showFinishedToggle.checked }, '*');
   render();
 });
 

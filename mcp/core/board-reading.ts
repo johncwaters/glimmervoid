@@ -1,5 +1,5 @@
 import type { Board } from '../../shared/contracts/whiteboard.ts';
-import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
+import { layoutBoardRemembered } from '../../shared/whiteboard-layout-cache.ts';
 import type { BoardLayout, LaidOutMedia } from '../../shared/whiteboard-layout-core.ts';
 import { planSteps } from '../../shared/whiteboard-plan-core.ts';
 import { boardSvgDocument } from '../../shared/whiteboard-svg-core.ts';
@@ -15,7 +15,7 @@ function readingOf(board: Board, layout: BoardLayout): BoardReading {
 }
 
 function boardReading(board: Board): BoardReading {
-  return readingOf(board, layoutBoard(board));
+  return readingOf(board, layoutBoardRemembered(board));
 }
 
 const SVG_POINTS_PER_INCH = 72;
@@ -35,7 +35,7 @@ interface PictureImage {
 }
 
 function pictureImagesOf(board: Board): PictureImage[] {
-  const layout = layoutBoard(board);
+  const layout = layoutBoardRemembered(board);
   const scale = pictureScaleOf(layout);
   return layout.elements.flatMap((element) => (element.kind === 'box' && element.media ? [{ media: element.media, width: element.media.width * scale, height: element.media.height * scale }] : []));
 }
@@ -45,7 +45,7 @@ function pictureScaleOf(layout: BoardLayout): number {
 }
 
 function boardPicture(board: Board, assetHref?: AssetHref): BoardPicture {
-  const layout = layoutBoard(board);
+  const layout = layoutBoardRemembered(board);
   const { width, height } = layout.bounds;
   const svgDensity = SVG_POINTS_PER_INCH * pictureScaleOf(layout);
   if (svgDensity < MIN_SVG_DENSITY) {
