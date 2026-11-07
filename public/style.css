@@ -1574,14 +1574,12 @@ html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, 
   cursor: pointer;
 }
 
-.add-session-repo-word:has(+ .add-session-place[hidden]),
-.add-session-place .add-session-word {
+.add-session-repo-word {
   position: relative;
   margin-right: 0.6em;
 }
 
-.add-session-repo-word:has(+ .add-session-place[hidden])::after,
-.add-session-place .add-session-word::after {
+.add-session-repo-word::after {
   content: '.';
   position: absolute;
   left: 100%;
@@ -1595,17 +1593,7 @@ html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, 
   height: 16px;
 }
 
-.add-session-word-select {
-  appearance: none;
-  border: 0;
-  background: none;
-  padding: 0;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-
-.add-session-word:focus-within,
+.add-session-word[aria-expanded="true"],
 .add-session-word:focus-visible {
   border-bottom-color: var(--accent);
   outline: none;
@@ -1644,7 +1632,6 @@ html[data-layout="phone"] .add-session-dialog .dialog-actions {
   html[data-layout="phone"] .add-session-dialog { animation: none; }
 }
 
-.add-session-task[hidden],
 .add-session-pick[hidden],
 .add-session-panel[hidden] {
   display: none;
@@ -1656,6 +1643,10 @@ html[data-layout="phone"] .add-session-dialog .dialog-actions {
   flex-direction: column;
   gap: 8px;
   min-width: 0;
+}
+
+.add-session-pick:not([data-slot="project"]) > :not(.add-session-list) {
+  display: none;
 }
 
 .add-session-list {
@@ -1696,6 +1687,11 @@ html[data-layout="phone"] .add-session-dialog .dialog-actions {
   .add-session-row:hover {
     background: color-mix(in srgb, var(--accent) 6%, transparent);
   }
+}
+
+.add-session-row:disabled {
+  color: var(--text-muted);
+  cursor: default;
 }
 
 .add-session-row:focus-visible {

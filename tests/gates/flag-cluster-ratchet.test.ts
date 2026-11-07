@@ -13,7 +13,7 @@ const RECORDED_FLAG_COUNTS = new Map<string, number>([
   ['notifications/telegram-outbox.ts', 3],
   ['public/boot/connection-screen.ts', 3],
   ['public/control-ws.ts', 3],
-  ['public/dialogs.ts', 9],
+  ['public/dialogs.ts', 8],
   ['public/doc-editor/doc-editor-ui.ts', 6],
   ['public/flying-animals.ts', 3],
   ['public/github/team-review-detail-views.ts', 3],
