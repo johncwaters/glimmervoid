@@ -28,7 +28,7 @@ const ANSI_HUES_BY_MODE: Record<ThemeMode, Record<string, string>> = {
     red:          '#b91c1c',
     brightRed:    '#dc2626',
     green:        '#15803d',
-    brightGreen:  '#16a34a',
+    brightGreen:  '#008223',
     yellow:       '#92400e',
     brightYellow: '#a16207',
     blue:         '#1d4ed8',
@@ -36,7 +36,7 @@ const ANSI_HUES_BY_MODE: Record<ThemeMode, Record<string, string>> = {
     magenta:      '#6d28d9',
     brightMagenta:'#7c3aed',
     cyan:         '#0e7490',
-    brightCyan:   '#0891b2',
+    brightCyan:   '#00799a',
   },
 };
 

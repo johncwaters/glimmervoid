@@ -603,7 +603,10 @@
     },
     {
       "name": "glimmer",
-      "definition": "The default dashboard theme: graphite surfaces with a muted lavender accent; Glimmer Light is its light counterpart"
+      "definition": "The default dashboard theme: graphite surfaces with a muted lavender accent; Glimmer Light is its light counterpart",
+      "aliases": [
+        "glimmer light"
+      ]
     },
     {
       "name": "graphite",
@@ -612,6 +615,10 @@
     {
       "name": "paper",
       "definition": "Paper, the Glimmer brand-bible name for the headings color --text-head; also the bg-card paper of the doc editor's Markup mode"
+    },
+    {
+      "name": "light",
+      "definition": "A theme mode: a light theme (Glimmer Light, Compleated, PostHog Light) puts dark text on pale surfaces, and the terminal takes ANSI_HUES_BY_MODE.light colors for it"
     }
   ]
 }
