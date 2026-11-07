@@ -108,9 +108,14 @@ function createTeamReviewActions({ drafts, github, store, log = console, telemet
     });
   }
 
-  async function markDraft(timing: ActionTiming, key: string, draft: ReviewDraft, patch: DraftPatch): Promise<ReviewDraft | null> {
-    const updated = await timeStep(timing, 'mark', () => drafts.updateDraft(key, { reviewedHead: draft.reviewedHead, status: draft.status }, patch));
-    if (!updated) log.warn(`[${core.TEAM_REVIEW_LANE_ID}] could not mark ${key} ${patch.status ?? 'updated'}, the draft changed underneath the action`);
+  async function markDraft(timing: ActionTiming, key: string, draft: ReviewDraft, event: 'head_moved' | 'posted', fields: DraftPatch = {}): Promise<ReviewDraft | null> {
+    const nextStatus = core.nextDraftStatus(draft.status, event);
+    if (!nextStatus) {
+      log.warn(`[${core.TEAM_REVIEW_LANE_ID}] could not mark ${key} on ${event}, a ${draft.status} draft cannot move that way`);
+      return null;
+    }
+    const updated = await timeStep(timing, 'mark', () => drafts.updateDraft(key, { reviewedHead: draft.reviewedHead, status: draft.status }, { ...fields, status: nextStatus }));
+    if (!updated) log.warn(`[${core.TEAM_REVIEW_LANE_ID}] could not mark ${key} ${nextStatus}, the draft changed underneath the action`);
     return updated;
   }
 
@@ -140,7 +145,7 @@ function createTeamReviewActions({ drafts, github, store, log = console, telemet
   }
 
   async function retractApproval(timing: ActionTiming, key: string, draft: ReviewDraft, movedHead: string, reviewId: number | null): Promise<TeamReviewActionOutcome> {
-    if (draft.status !== 'posted') await markDraft(timing, key, draft, { status: 'stale' });
+    if (draft.status !== 'posted') await markDraft(timing, key, draft, 'head_moved');
     const moved = `The pull request moved to ${shortSha(movedHead)} while the approval was posting`;
     if (reviewId === null) return { ok: false, error: `${moved}, and GitHub did not return the review id, so the approval still stands. Dismiss it on GitHub` };
     const dismissal = await timeStep(timing, 'dismiss', () => github.dismissReview({ repo: draft.repo, number: draft.number, reviewId, message: STALE_APPROVAL_DISMISSAL }));
@@ -167,7 +172,7 @@ function createTeamReviewActions({ drafts, github, store, log = console, telemet
     if (!liveHead) return refusePost(timing, { reason: 'head-unreadable', error: 'Could not read the pull request head from GitHub' });
     if (!core.canPost(draft, draft.reviewedHead, liveHead, event)) {
       if (isFollowUpApproval) return refusePost(timing, { reason: 'head-moved', error: `The pull request moved to ${shortSha(liveHead)} after the comments were posted, so nothing was approved. Queue a review to look at the new commits` });
-      await markDraft(timing, key, draft, { status: 'stale' });
+      await markDraft(timing, key, draft, 'head_moved');
       return refusePost(timing, { reason: 'head-moved', error: `The pull request moved to ${shortSha(liveHead)} after this review, so nothing was posted. It will be reviewed again` });
     }
     const commentsRefusal = await misplacedCommentsRefusal(timing, draft, comments);
@@ -183,8 +188,8 @@ function createTeamReviewActions({ drafts, github, store, log = console, telemet
     const headAfterPostRead = event === 'APPROVE' ? await readStep(timing, 'head-after-post', () => store.requestPrHead(draft.repo, draft.number, 'priority')) : { isRateLimited: false as const, value: draft.reviewedHead };
     const headAfterPost = headAfterPostRead.isRateLimited ? null : headAfterPostRead.value;
     if (headAfterPost !== null && headAfterPost !== draft.reviewedHead) return retractApproval(timing, key, draft, headAfterPost, posted.reviewId);
-    const postedPatch: DraftPatch = isFollowUpApproval ? { status: 'posted', postedEvent: event } : { status: 'posted', postedEvent: event, body: postedBody, comments };
-    const marked = await markDraft(timing, key, draft, postedPatch);
+    const postedFields: DraftPatch = isFollowUpApproval ? { postedEvent: event } : { postedEvent: event, body: postedBody, comments };
+    const marked = await markDraft(timing, key, draft, 'posted', postedFields);
     const warnings = [
       headAfterPost === null ? 'Could not confirm the pull request head after approving. Check the approval on GitHub' : '',
       marked ? '' : UNMARKED_POST_WARNING,

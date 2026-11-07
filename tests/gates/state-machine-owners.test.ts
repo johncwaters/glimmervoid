@@ -26,9 +26,6 @@ const MACHINES: OwnedMachine[] = [
     handles: /\b(?:ReviewDraft|TeamReviewStateEntry)\b/,
     writes: [/\bstatus\s*:\s*["'`](?:ready|stale|posted|discarded|error)["'`]/],
     allowedOffenders: new Map([
-      ['server/github/team-review-actions.ts', { writeCount: 4, reason: 'markDraft patches draft status directly until the team review slice' }],
-      ['server/github/team-review-poller/team-review-operator-actions.ts', { writeCount: 2, reason: 'requeue, restore and not-mine spread draft status directly until the team review slice' }],
-      ['server/github/team-review-poller/team-review-runs.ts', { writeCount: 1, reason: 'settleNotMineReview spreads draft status directly until the team review slice' }],
       ['server/packs/core/pack-preview-core.ts', { writeCount: 1, reason: 'builds a sample ready draft for the pack preview, never a stored draft' }],
     ]),
   },

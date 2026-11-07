@@ -68,8 +68,8 @@ function createTeamReviewRuns(
   async function settleNotMineReview(entry: TeamReviewStateEntry, args: SpawnReviewArgs, outcome: ReviewOutcome): Promise<void> {
     if ('kind' in outcome && outcome.resumable) await discardResumable(outcome.resumable);
     entry.resumable = null;
-    const hasFinishedReview = !('kind' in outcome) && outcome.status !== 'error';
-    entry.draft = hasFinishedReview ? { ...outcome, status: 'discarded' } : core.notMineDraft(args.candidate, args.detail.headRefOid);
+    const discardedReview = 'kind' in outcome || outcome.status === 'error' ? null : core.draftAfter(outcome, 'not_mine');
+    entry.draft = discardedReview ?? core.notMineDraft(args.candidate, args.detail.headRefOid);
     entry.reviewedHead = entry.draft.reviewedHead;
     await settleNotMine(args.candidate.key, entry);
     if (runtime.waitingForSlot.length > 0 && !loop.isStopped()) void loop.tick();

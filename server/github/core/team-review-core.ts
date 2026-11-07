@@ -9,6 +9,7 @@ import type {
 } from '../../../shared/contracts/team-review.ts';
 import { choiceSelection, selectionArgs } from '../../../shared/agent-models-core.ts';
 import { positiveNumberOr } from '../../../shared/coerce.ts';
+import { defineTransitions } from '../../../shared/state-transitions.ts';
 import { GH_SEGMENT } from '../../../shared/contracts/github-ids.ts';
 import type { Config } from '../../../shared/contracts/config.ts';
 import { isRecord } from '../../../shared/coerce.ts';
@@ -463,19 +464,40 @@ function reviewAttemptsAfter(entry: TeamReviewStateEntry, reviewedHead: string):
   return entry.reviewAttempts + 1;
 }
 
+type DraftEvent = 'head_moved' | 'head_returned' | 'not_mine' | 'posted' | 'requeued' | 'restored_current' | 'restored_moved';
+
+const DRAFT_STATUS_MOVES = defineTransitions<ReviewDraft['status'], DraftEvent>({
+  ready: { head_moved: 'stale', not_mine: 'discarded', posted: 'posted' },
+  stale: { head_returned: 'ready', not_mine: 'discarded' },
+  error: { not_mine: 'discarded' },
+  discarded: { requeued: 'stale', restored_current: 'ready', restored_moved: 'stale', not_mine: 'discarded' },
+  posted: { posted: 'posted' },
+});
+
+function nextDraftStatus(status: ReviewDraft['status'], event: DraftEvent): ReviewDraft['status'] | null {
+  return DRAFT_STATUS_MOVES.next(status, event);
+}
+
+function draftAfter(draft: ReviewDraft, event: DraftEvent): ReviewDraft | null {
+  const status = nextDraftStatus(draft.status, event);
+  return status === null ? null : { ...draft, status };
+}
+
 function markDraftStale(entry: TeamReviewStateEntry, nowMs: number): boolean {
-  if (entry.draft?.status !== 'ready') return false;
-  entry.draft = { ...entry.draft, status: 'stale' };
+  const staleDraft = entry.draft ? draftAfter(entry.draft, 'head_moved') : null;
+  if (!staleDraft) return false;
+  entry.draft = staleDraft;
   entry.updatedAt = nowMs;
   return true;
 }
 
 function restoreDraftAtReviewedHead(entry: TeamReviewStateEntry, currentHead: string, nowMs: number): boolean {
-  if (entry.draft?.status !== 'stale') return false;
+  const restoredDraft = entry.draft ? draftAfter(entry.draft, 'head_returned') : null;
+  if (!restoredDraft) return false;
   if (entry.reviewedHead === null || entry.reviewedHead !== currentHead) return false;
-  if (entry.draft.reviewedHead !== currentHead) return false;
-  if (isUnreviewedDraft(entry.draft)) return false;
-  entry.draft = { ...entry.draft, status: 'ready' };
+  if (restoredDraft.reviewedHead !== currentHead) return false;
+  if (isUnreviewedDraft(restoredDraft)) return false;
+  entry.draft = restoredDraft;
   entry.updatedAt = nowMs;
   return true;
 }
@@ -1184,5 +1206,5 @@ function absolutePathReadRule(absolutePath: string): string {
   return `Read(/${posixPath}/**)`;
 }
 
-export { reviewSnapshotFromGithubPr, DEFAULT_REVIEWER, REVIEW_AGENT_ADAPTER_ID, reviewerAgentArgs, reviewerFor, MAX_CONCURRENT_REVIEWS, MAX_ASKED_FOR_REVIEWS, ASKED_FOR_FETCH_GRACE_MS, askedForRefusal, advanceAwakeElapsed, REVIEW_TIMEOUT_SECONDS, POLL_INTERVAL_MINUTES, DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, PROGRESS_EMIT_INTERVAL_MS, TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME, REMERGE_OBJECTS_DIRNAME, REVIEW_PROMPT_FILENAME, REVIEW_UNTRUSTED_ITEM_MAX_CHARS, remergeGitEnvPrefix, reviewUntrustedItems, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE, uiFilesOf, parseFindingLine, sectionAfter, fencedUntrusted, absolutePathReadRule, buildReviewPrompt, githubRepoSlugFromRemote, remoteMatchesGithubRepo, parsePostingPlan, parseReviewReport, canPost, commentableLines, draftsNewestFirst, earlierReviewToKeep, errorDraft, eventForAction, githubReviewsFrom, postedReviewBody, isPostableStatus, hasViewerReviewedAt, invalidComments, isUnreviewedDraft, isSameGithubReviews, shouldAutoReview, markDraftStale, notMineDraft, restoreDraftAtReviewedHead, applyReviewProgress, orgSearchPlans, readTeamReviewSettings, prBaseRef, prHeadRef, prKey, prSessionName, prSessionPrompt, priorReviewFor, sessionLinkedToPr, readyDraft, reReviewResult, resumeDecision, resumeTimeoutMs, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr, watcherFeedError };
+export { reviewSnapshotFromGithubPr, DEFAULT_REVIEWER, REVIEW_AGENT_ADAPTER_ID, reviewerAgentArgs, reviewerFor, MAX_CONCURRENT_REVIEWS, MAX_ASKED_FOR_REVIEWS, ASKED_FOR_FETCH_GRACE_MS, askedForRefusal, advanceAwakeElapsed, REVIEW_TIMEOUT_SECONDS, POLL_INTERVAL_MINUTES, DEFAULT_RE_REVIEW_AFTER_HOURS, DEFAULT_SKIP_IDLE_AFTER_DAYS, PROGRESS_EMIT_INTERVAL_MS, TEAM_REVIEW_LANE_ID, TEAM_REVIEW_STATE_FILENAME, REMERGE_OBJECTS_DIRNAME, REVIEW_PROMPT_FILENAME, REVIEW_UNTRUSTED_ITEM_MAX_CHARS, remergeGitEnvPrefix, reviewUntrustedItems, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_REPORT_FILENAME, REVIEW_POSTING_FILENAME, AUTOMATED_REVIEW_NOTE, uiFilesOf, parseFindingLine, sectionAfter, fencedUntrusted, absolutePathReadRule, buildReviewPrompt, githubRepoSlugFromRemote, remoteMatchesGithubRepo, parsePostingPlan, parseReviewReport, canPost, commentableLines, draftsNewestFirst, earlierReviewToKeep, errorDraft, eventForAction, githubReviewsFrom, postedReviewBody, isPostableStatus, hasViewerReviewedAt, invalidComments, isUnreviewedDraft, isSameGithubReviews, shouldAutoReview, markDraftStale, nextDraftStatus, draftAfter, notMineDraft, restoreDraftAtReviewedHead, applyReviewProgress, orgSearchPlans, readTeamReviewSettings, prBaseRef, prHeadRef, prKey, prSessionName, prSessionPrompt, priorReviewFor, sessionLinkedToPr, readyDraft, reReviewResult, resumeDecision, resumeTimeoutMs, reviewAttemptsAfter, selectCandidates, shouldPruneEntry, startReviewProgress, teamReviewStatus, triagePr, watcherFeedError };
 export type { CommentableLines, NewWorkPointer, NewWorkRange, ReviewerChoice, ReviewProgressEvent, ReviewTier, TeamReviewCandidate, TeamReviewSettings, TeamReviewSettingsSource };
