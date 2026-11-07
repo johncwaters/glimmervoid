@@ -13,8 +13,8 @@
       margin: 0;
       padding: 0;
       height: 100%;
-      background: var(--bg, #0a0810);
-      color: var(--text, #c8c0e0);
+      background: var(--bg, #0f0e11);
+      color: var(--text, #cfccd5);
       font-family: var(--font-mono, 'CommitMono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Menlo', monospace);
     }
 
@@ -30,7 +30,7 @@
       align-items: center;
       justify-content: center;
       gap: 20px;
-      background: #0a0810;
+      background: #0f0e11;
       transition: opacity 300ms ease;
     }
 
@@ -44,7 +44,7 @@
       font-size: 20px;
       font-weight: 700;
       letter-spacing: 0.1em;
-      color: #e8e0ff;
+      color: #efedf3;
       text-transform: uppercase;
     }
 
@@ -78,7 +78,7 @@
 
     .loading-mark-bracket {
       fill: none;
-      stroke: #e8e0ff;
+      stroke: #efedf3;
       stroke-width: 11;
       stroke-linejoin: miter;
       stroke-linecap: butt;
@@ -91,13 +91,13 @@
     .loading-mark-bracket[data-side="right"] { animation-delay: 325ms; }
 
     .loading-mark-light {
-      fill: #c084fc;
+      fill: #b39edc;
       transform: scale(0);
     }
 
     .loading-mark-halo {
       fill: none;
-      stroke: #c084fc;
+      stroke: #b39edc;
       stroke-width: 2;
       vector-effect: non-scaling-stroke;
       opacity: 0;
@@ -116,14 +116,14 @@
     }
 
     @keyframes loading-mark-scan {
-      0%, 30%, 100% { transform: none; stroke: #e8e0ff; }
-      12% { transform: translate(calc(var(--dx) * 6px), calc(var(--dy) * 6px)); stroke: #c084fc; }
+      0%, 30%, 100% { transform: none; stroke: #efedf3; }
+      12% { transform: translate(calc(var(--dx) * 6px), calc(var(--dy) * 6px)); stroke: #b39edc; }
     }
 
     .loading-status {
       font-family: 'CommitMono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Menlo', monospace;
       font-size: 12px;
-      color: #8276b0;
+      color: #9d99a5;
     }
 
     .loading-detail {
@@ -132,7 +132,7 @@
       font-family: 'CommitMono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Menlo', monospace;
       font-size: 12px;
       line-height: 1.6;
-      color: #5e5584;
+      color: #5d5a62;
       text-align: center;
       text-wrap: balance;
     }
@@ -146,7 +146,7 @@
       align-items: center;
       justify-content: center;
       gap: 20px;
-      background: rgba(10, 8, 16, 0);
+      background: rgba(15, 14, 17, 0);
       backdrop-filter: blur(0px);
       pointer-events: none;
       opacity: 0;
@@ -154,7 +154,7 @@
     }
 
     .shutdown-screen.active {
-      background: rgba(10, 8, 16, 0.92);
+      background: rgba(15, 14, 17, 0.92);
       backdrop-filter: blur(8px);
       pointer-events: auto;
       opacity: 1;
@@ -163,7 +163,7 @@
     .shutdown-status {
       font-family: 'CommitMono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Menlo', monospace;
       font-size: 12px;
-      color: #8276b0;
+      color: #9d99a5;
       transition: color 300ms ease;
     }
 
@@ -172,7 +172,7 @@
     }
 
     .shutdown-screen.done .shutdown-status {
-      color: #4a4268;
+      color: #49464f;
     }
   </style>
 </head>

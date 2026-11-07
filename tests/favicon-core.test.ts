@@ -1,13 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { decideFaviconVariant, renderFaviconSvg } from '../public/favicon-core.ts';
+import { BRAND_ACCENT } from '../shared/brand-mark.ts';
 
 test('an attention favicon keeps the mark and only recolors its light', () => {
   const idle = renderFaviconSvg('idle');
   for (const [variant, light] of [['waiting', '#f59e0b'], ['failed', '#ef4444']] as const) {
     const attention = renderFaviconSvg(variant);
     assert.ok(attention.includes(`fill="${light}"`), `${variant} lights the mark ${light}`);
-    assert.equal(attention.replace(light, '#c084fc'), idle);
+    assert.equal(attention.replace(light, BRAND_ACCENT), idle);
   }
 });
 

@@ -1,3 +1,4 @@
+import { BRAND_ACCENT } from './brand-mark.ts';
 import type { IconName } from './contracts/whiteboard.ts';
 import { escapeMarkup } from './escape-markup.ts';
 import { DEVICE_CATALOG } from './whiteboard-devices.ts';
@@ -70,22 +71,22 @@ svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospac
 .wb-output-divider { stroke: #4a4268; stroke-width: 1; }
 .wb-output-label { fill: #e6e0f5; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 .wb-output-dot { fill: #a79fc4; }
-.wb-step .wb-box-outline, .wb-step-swatch { stroke: #c084fc; }
-.wb-step-label, .wb-step-link { fill: #c084fc; font-size: 12px; font-weight: 700; }
+.wb-step .wb-box-outline, .wb-step-swatch { stroke: ${BRAND_ACCENT}; }
+.wb-step-label, .wb-step-link { fill: ${BRAND_ACCENT}; font-size: 12px; font-weight: 700; }
 .wb-step-status { fill: #a79fc4; font-size: 11px; }
 .wb-step-planned { fill: #a79fc4; }
 .wb-step-building { fill: #f59e0b; }
 .wb-step-landed { fill: #22c55e; }
-.wb-frame-outline { fill: rgba(192, 132, 252, 0.04); stroke: #4a4268; stroke-width: 1.4; stroke-dasharray: 10 6; }
+.wb-frame-outline { fill: ${BRAND_ACCENT}; fill-opacity: 0.04; stroke: #4a4268; stroke-width: 1.4; stroke-dasharray: 10 6; }
 .wb-frame-title { fill: #a79fc4; font-size: 12px; font-weight: 700; }
-.wb-loop .wb-frame-outline { stroke: #c084fc; }
-.wb-loop-badge { fill: none; stroke: #c084fc; stroke-width: 1.6; }
-.wb-back .wb-wire-line { stroke: #c084fc; }
+.wb-loop .wb-frame-outline { stroke: ${BRAND_ACCENT}; }
+.wb-loop-badge { fill: none; stroke: ${BRAND_ACCENT}; stroke-width: 1.6; }
+.wb-back .wb-wire-line { stroke: ${BRAND_ACCENT}; }
 .wb-wire-hit, .wb-port, .wb-resize-handle { display: none; }
 .wb-wire-line { fill: none; stroke: #a79fc4; stroke-width: 1.6; }
 .wb-wire-line.wb-dashed { stroke-dasharray: 7 6; }
 .wb-tone-fail .wb-wire-line { stroke: #ef4444; }
-.wb-tone-join .wb-wire-line { stroke: #c084fc; }
+.wb-tone-join .wb-wire-line { stroke: ${BRAND_ACCENT}; }
 .wb-wire-dot { fill: #a79fc4; }
 .wb-wire-label { fill: #e6e0f5; font-size: 12px; text-anchor: middle; paint-order: stroke; stroke: #0d0b16; stroke-width: 5; }
 .wb-note-card { fill: #2a2213; stroke: #f5c26b; stroke-width: 1.2; }
