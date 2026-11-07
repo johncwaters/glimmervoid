@@ -225,13 +225,7 @@ function setupTerminal(termWrap: HTMLElement, ui: SessionUi, xtermRuntime: Xterm
       reportClipboardFailure(ui, 'osc52 decode', err);
       return true;
     }
-    const hasActivation = document.hasFocus()
-      && navigator.userActivation?.isActive !== false;
-    if (!hasActivation) {
-      offerClipboardCopy(ui, text);
-      return true;
-    }
-    copyTextToClipboard(ui, text, 'osc52 write');
+    offerClipboardCopy(ui, text);
     return true;
   });
 
