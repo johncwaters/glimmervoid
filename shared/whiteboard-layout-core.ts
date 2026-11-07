@@ -510,6 +510,7 @@ function placeAndRoute(board: IndexedBoard, placement: Placement, previousRoute:
     softObstacles: [...notes, ...frames.map(frameTitleStripOf)],
     loopFrames: frames.filter((frame) => frame.isLoop),
     contentTop: placement.contentTop,
+    storedWireKeyOf: (wire) => board.elements.bodyOf(wire.id),
   }, previousRoute);
   return {
     boxesById, frames, notes, routing,

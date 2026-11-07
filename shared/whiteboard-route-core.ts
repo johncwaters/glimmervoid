@@ -67,6 +67,7 @@ interface RouteInput {
   contentTop: number;
   contextWires?: readonly Wire[];
   obstaclesIn?: (area: Rect) => AreaObstacles;
+  storedWireKeyOf?: (wire: Wire) => string | undefined;
 }
 
 interface PortEnds {
@@ -1327,8 +1328,8 @@ function touchedPieceIndexes(pieceRects: readonly Rect[], changedRects: readonly
   });
 }
 
-function wireKeyOf(wire: Wire): string {
-  return JSON.stringify(wire);
+function wireKeyOf(input: RouteInput, wire: Wire): string {
+  return input.storedWireKeyOf?.(wire) ?? JSON.stringify(wire);
 }
 
 function routeReuseOf(input: RouteInput, previous: RouteMemory | null, changes: ObstacleChanges | null): RouteReuse | null {
@@ -1337,7 +1338,7 @@ function routeReuseOf(input: RouteInput, previous: RouteMemory | null, changes: 
   const changedRects = changes.rects.map((rect) => inflated(rect, CLEARANCE));
   const candidates = input.wires.flatMap((wire) => {
     const remembered = previous.routeById.get(wire.id);
-    return remembered && remembered.wireKey === wireKeyOf(wire) ? [{ wire, remembered }] : [];
+    return remembered && remembered.wireKey === wireKeyOf(input, wire) ? [{ wire, remembered }] : [];
   });
   const pieceRects = candidates.flatMap(({ wire, remembered }) => segmentsOf(remembered.points).map((segment) => ({ wireId: wire.id, rect: pointBoundsOf(segment.from, segment.to) })));
   const touchedWireIds = new Set<string>();
@@ -1355,7 +1356,7 @@ function pointBoundsOf(first: Point, second: Point): Rect {
 
 function routeMemoryOf(input: RouteInput, rectByKey: Map<string, Rect>, drawn: readonly DrawnWire[]): RouteMemory {
   const routeById = new Map(drawn.map((wire): [string, RememberedRoute] => [wire.plan.wire.id, {
-    wireKey: wireKeyOf(wire.plan.wire), exitSide: wire.plan.exitSide, entrySide: wire.plan.entrySide,
+    wireKey: wireKeyOf(input, wire.plan.wire), exitSide: wire.plan.exitSide, entrySide: wire.plan.entrySide,
     start: wire.plan.start, end: wire.plan.end, points: wire.routedPoints, isRouted: wire.states !== null,
   }]));
   return { contentTop: input.contentTop, rectByKey, routeById, warningPairs: null, wholeBoardObstacles: preparedObstaclesByInput.get(input)?.get(WHOLE_BOARD_AREA_KEY) ?? null };

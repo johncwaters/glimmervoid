@@ -3,7 +3,7 @@ import { sparseElement, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Board, BoardOutline, Element } from './contracts/whiteboard.ts';
 import type { BoardChrome, LaidOutElement, PaintedElement, PlacedElement, PlacedPaint, Tile, TileDiff, TileKey, TileLod } from './contracts/whiteboard-tiles.ts';
 import { dressedElement } from './whiteboard-layout-core.ts';
-import { boardIndexOf, elementsOfKind } from './whiteboard-board-index.ts';
+import { elementsOfKind } from './whiteboard-board-index.ts';
 import { elementTableOf } from './whiteboard-element-table.ts';
 import type { PlacedLayout, Rect } from './whiteboard-layout-core.ts';
 import { createSpatialGrid, forEachSlotTouching, placeSlot, removeSlot } from './spatial-grid-core.ts';
@@ -259,19 +259,12 @@ function elementPageOf(board: Board, elementIds: readonly string[], offset: numb
 function fitsOnePage(board: Board): boolean {
   if (board.elements.size > WHITEBOARD_LIMITS.readPage) return false;
   let pageChars = 0;
-  for (const id of board.elements.keys()) pageChars += board.elements.bodyOf(id)?.length ?? 0;
+  for (const id of board.elements.keys()) pageChars += board.elements.sparseLengthOf(id);
   return pageChars <= WHITEBOARD_LIMITS.readPageChars;
 }
 
 function elementCountsByKind(board: Board): Record<string, number> {
-  const { idsByKind, indexKeyIdsByKind } = boardIndexOf(board.elements);
-  const countsByKind: Record<string, number> = {};
-  for (const idsOfKind of [indexKeyIdsByKind, idsByKind]) {
-    for (const [kind, ids] of idsOfKind) {
-      if (ids.size > 0) countsByKind[kind] = (countsByKind[kind] ?? 0) + ids.size;
-    }
-  }
-  return countsByKind;
+  return Object.fromEntries(board.elements.countsByKind());
 }
 
 function boardOutlineOf(board: Board, index: TileIndex, focus: Rect): BoardOutline {

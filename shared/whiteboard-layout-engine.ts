@@ -15,7 +15,7 @@ import type { SpatialGrid } from './spatial-grid-core.ts';
 import { CLEARANCE } from './whiteboard-visibility-core.ts';
 
 const INCREMENTAL_MIN_ELEMENTS = 2000;
-const SOLID_CELL_SIZE = 256;
+const SOLID_CELL_SIZE = 1024;
 const WIRE_CELL_SIZE = 1024;
 const MAX_CONTEXT_ROUNDS = 4;
 const MENTIONED_ID = /\b(?:box|wire|frame|note) ([a-z0-9][a-z0-9-]*)/g;
@@ -302,6 +302,7 @@ function rebuiltWorld(board: Board, previous: LayoutWorld | null, minIncremental
     for (const element of layout.elements) world.laidOutById.set(element.id, element);
     return world;
   }
+  world.routeMemory.wholeBoardObstacles = null;
   for (const element of layout.elements) storeLaidOut(world, element);
   for (const element of board.elements.values()) {
     countElement(world, element, 1);
@@ -603,6 +604,7 @@ function routeInputOver(world: LayoutWorld, board: Board, rerouteIds: ReadonlySe
   return {
     wires: wiresOf(rerouteIds), contextWires: wiresOf(contextIds), boxesById, softObstacles: [...softById.values()], loopFrames, contentTop: world.contentTop,
     obstaclesIn: (area): AreaObstacles => ({ hardRects: boxesTouching(world, area), softRects: softRectsTouching(world, area) }),
+    storedWireKeyOf: (wire) => board.elements.bodyOf(wire.id),
   };
 }
 
