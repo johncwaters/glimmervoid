@@ -37,3 +37,8 @@ The backend runtime: the HTTP server and both WebSockets on loopback, the lanes,
   via: branch-gc removes a clean merged worktree an agent made under the worktree root only once it sits untouched a day, never one inside a live session or a configured project
   because: an agent still working in a worktree it made by hand would have it force-removed under it
   kinds: none
+- paused cards get no live bytes: A dashboard data socket that asks to pause output gets no terminal bytes until it resumes, whether it attached paused or paused mid-stream, and resuming lands it on the live screen.
+  over: every pause-output and resume-output a data socket sends, at attach or mid-stream
+  via: a hidden card attaching paused gets no screen until it resumes, then lands on the live screen without reconnecting, and pausing again stops live bytes
+  because: hidden cards that keep streaming spend the browser's render budget on terminals nobody sees, and nothing on screen shows it
+  kinds: none

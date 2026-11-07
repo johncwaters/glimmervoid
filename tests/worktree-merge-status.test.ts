@@ -8,7 +8,7 @@ import { createSessionWorktreeLifecycle } from '../session/session-worktree-life
 import { STATES, type SessionState } from '../shared/states.ts';
 import type { GitWorkspace, MergeResult } from '../session/worktree/worktree-lifecycle-context.ts';
 
-function lifecycleWithHeldMerge() {
+function lifecycleWithHeldMerge(hasUnmergedWork = true) {
   const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-merge-status-'));
   let sessionState: SessionState = STATES.IDLE;
   let releaseMerge: (outcome: MergeResult) => void = () => {};
@@ -16,7 +16,7 @@ function lifecycleWithHeldMerge() {
   const gitWorkspace: GitWorkspace = {
     create: () => { throw new Error('not used'); },
     populate: () => {},
-    hasUnmergedWork: () => true,
+    hasUnmergedWork: () => hasUnmergedWork,
     discard: () => {},
     mergeBack: heldMerge,
     mergeKeep: heldMerge,
@@ -43,7 +43,7 @@ function lifecycleWithHeldMerge() {
   };
 }
 
-test('a merge outcome lands even when the agent exits while the merge runs', async () => {
+test('a merge outcome lands whether the agent stays alive or exits while the merge runs', async () => {
   const parkedRun = lifecycleWithHeldMerge();
   const parkedMerge = parkedRun.lifecycle.mergeAndContinue();
   parkedRun.exitAgent();
@@ -62,4 +62,20 @@ test('a merge outcome lands even when the agent exits while the merge runs', asy
   await fullMerge;
   assert.equal(mergedRun.lifecycle.snapshot().mergeStatus, 'merged');
   mergedRun.cleanup();
+
+  const discardedRun = lifecycleWithHeldMerge(false);
+  const mergeDuringDiscard = discardedRun.lifecycle.mergeWorktree();
+  discardedRun.exitAgent();
+  await discardedRun.lifecycle.settleOnExit();
+  discardedRun.releaseMerge({ merged: true });
+  await mergeDuringDiscard;
+  assert.equal(discardedRun.lifecycle.snapshot().mergeStatus, 'merged');
+  discardedRun.cleanup();
+
+  const liveRun = lifecycleWithHeldMerge();
+  const liveMerge = liveRun.lifecycle.mergeWorktree();
+  liveRun.releaseMerge({ merged: true });
+  await liveMerge;
+  assert.equal(liveRun.lifecycle.snapshot().mergeStatus, 'merged');
+  liveRun.cleanup();
 });
