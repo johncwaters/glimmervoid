@@ -110,6 +110,11 @@ const MAX_FIT_ZOOM = 2;
 const BOX_LINE_FONT_UNITS = 12;
 const MIN_READABLE_FONT_PX = 10;
 const MAX_READABLE_UNITS_PER_PIXEL = BOX_LINE_FONT_UNITS / MIN_READABLE_FONT_PX;
+const WHOLE_BOARD_ZOOM_OUT_MARGIN = 1.25;
+
+function unitsPerPixelShowing(area: { width: number; height: number }, canvasWidth: number, canvasHeight: number): number {
+  return Math.max(area.width / canvasWidth, area.height / Math.max(1, canvasHeight));
+}
 
 export function createBoardEditor(options: BoardEditorOptions) {
   const { viewport, world, svg, canvas, renderer } = options;
@@ -136,6 +141,14 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function viewWidth(): number {
     return (viewport.clientWidth || 1) / camera.scale;
+  }
+
+  function maxViewWidth(): number {
+    const layout = renderer.layout();
+    const canvasWidth = viewport.clientWidth || 1;
+    if (!layout) return MAX_VIEW_WIDTH;
+    const wholeBoardViewWidth = canvasWidth * unitsPerPixelShowing(layout.bounds, canvasWidth, viewport.clientHeight) * WHOLE_BOARD_ZOOM_OUT_MARGIN;
+    return Math.max(MAX_VIEW_WIDTH, wholeBoardViewWidth);
   }
 
   function islandFreeBand(): { topPx: number; heightPx: number } {
@@ -166,7 +179,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     isFitOwedOnceSized = false;
     const band = islandFreeBand();
     const maxZoom = layout.elements.length === 0 ? 1 : MAX_FIT_ZOOM;
-    const wholeBoardUnitsPerPixel = Math.max(1 / maxZoom, bounds.width / canvasWidth, bounds.height / band.heightPx);
+    const wholeBoardUnitsPerPixel = Math.max(1 / maxZoom, unitsPerPixelShowing(bounds, canvasWidth, band.heightPx));
     const isWholeBoardTooSmallToRead = wholeBoardUnitsPerPixel > MAX_READABLE_UNITS_PER_PIXEL;
     const unitsPerPixel = isWholeBoardTooSmallToRead ? MAX_READABLE_UNITS_PER_PIXEL : wholeBoardUnitsPerPixel;
     const fittedViewWidth = canvasWidth * unitsPerPixel;
@@ -191,7 +204,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function zoomAround(anchor: ViewPoint, factor: number): void {
     const currentViewWidth = viewWidth();
-    const nextViewWidth = Math.min(MAX_VIEW_WIDTH, Math.max(MIN_VIEW_WIDTH, currentViewWidth * factor));
+    const nextViewWidth = Math.min(maxViewWidth(), Math.max(MIN_VIEW_WIDTH, currentViewWidth * factor));
     const appliedFactor = nextViewWidth / currentViewWidth;
     camera = {
       x: anchor.x - (anchor.x - camera.x) * appliedFactor,
