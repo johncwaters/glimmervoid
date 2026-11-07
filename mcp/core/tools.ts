@@ -128,7 +128,7 @@ const SESSION_TOOL: GroupedTool = {
 const WHITEBOARD_TOOL: GroupedTool = {
   name: 'whiteboard',
   title: 'Glimmervoid whiteboards',
-  description: `Draw diagrams, architecture maps and plans on a shared whiteboard the operator sees and edits on the dashboard; prefer it to a diagram in chat. new creates a board and list names them; every other action needs a board that exists, so call list or new first. get reads one with what changed since this session last read it; a board over ${WHITEBOARD_LIMITS.readPage} elements or too much text for one page comes back as an outline (counts, bounds, frames, clusters elsewhere) plus the elements in its focus region, which is the operator's current view until you pass region to look elsewhere; query pages elements by region, ids or text; view returns a picture of it as the operator sees it, put applies element ops (add, set, remove; a box with a step is a plan step, and a wire from one step to another orders them); get and put also return the plan steps in build order and any layout warnings to fix, connect and disconnect follow a board's changes, resolve closes a note, delete removes a board this session created, attach stores a PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML or Markdown file and returns the media a box takes to show it, and doc reads the Markdown text of the document a box shows, as the operator last saved it.`,
+  description: `Draw diagrams, architecture maps and plans on a shared whiteboard the operator sees and edits on the dashboard; prefer it to a diagram in chat. new creates a board and list names this project's boards in use (all: true names every board); every other action needs a board that exists, so call list or new first. get reads one with what changed since this session last read it; a board over ${WHITEBOARD_LIMITS.readPage} elements or too much text for one page comes back as an outline (counts, bounds, frames, clusters elsewhere) plus the elements in its focus region, which is the operator's current view until you pass region to look elsewhere; query pages elements by region, ids or text; view returns a picture of it as the operator sees it, put applies element ops (add, set, remove; a box with a step is a plan step, and a wire from one step to another orders them); get and put also return the plan steps in build order and any layout warnings to fix, connect and disconnect follow a board's changes, resolve closes a note, delete removes a board this session created, attach stores a PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML or Markdown file and returns the media a box takes to show it, and doc reads the Markdown text of the document a box shows, as the operator last saved it.`,
   loadsUpfront: true,
   fields: {
     board: BoardField.optional(),
@@ -136,6 +136,7 @@ const WHITEBOARD_TOOL: GroupedTool = {
     ops: z.array(Op).min(1).optional().describe('put: the element ops to apply'),
     note: z.string().min(1).max(200).optional().describe('resolve: the note element id'),
     box: z.string().min(1).max(40).optional().describe('doc: the id of the box whose document to read'),
+    all: z.boolean().optional().describe('list: every board in every project, archived ones too, instead of this project\'s boards in use'),
     peek: z.boolean().optional().describe('get: read without marking changes as seen; view never marks them'),
     review: z.boolean().optional().describe('get: include the plan review against the code session'),
     region: BoardRegion.optional().describe('get: the focus region to read in full, kept as this session\'s focus until the operator view changes; query: the region to page through'),
@@ -145,7 +146,7 @@ const WHITEBOARD_TOOL: GroupedTool = {
     path: z.string().min(1).max(4096).optional().describe('attach: the image file, absolute or relative to this session\'s directory'),
   },
   actions: {
-    list: whiteboardRoute('list', [], { hints: READS }),
+    list: whiteboardRoute('list', ['all'], { hints: READS }),
     new: whiteboardRoute('new', ['title'], { required: ['title'], hints: WRITES, presenter: 'board-without-command-guide' }),
     get: whiteboardRoute('get', ['board', 'peek', 'review', 'region', 'cursor'], { required: ['board'], hints: REWRITES, presenter: 'board-with-reading' }),
     query: whiteboardRoute('query', ['board', 'region', 'ids', 'text', 'cursor'], { required: ['board'], hints: READS }),

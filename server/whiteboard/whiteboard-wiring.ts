@@ -25,7 +25,7 @@ import type { PlanStep } from '../../shared/whiteboard-plan-core.ts';
 import { DEVICE_NAMES } from '../../shared/whiteboard-devices.ts';
 import { ICON_NAMES } from '../../shared/whiteboard-icons.ts';
 import {
-  upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, pickShowBoardId, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard,
+  upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, pickShowBoardId, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard, isFiledFor, isListedFor,
 } from '../core/whiteboard-store-core.ts';
 import { loadJsonStateFile } from '../json-file.ts';
 import { createKeyedSerialQueue } from '../spawn-gate.ts';
@@ -151,7 +151,7 @@ interface BoardReadingOf {
 }
 
 interface WhiteboardLayouts {
-  findBoardId(ref: string): Promise<{ ok: true; boardId: string } | { ok: false; reply: WhiteboardReply }>;
+  findBoardId(ref: string, callerProject: string | null): Promise<{ ok: true; boardId: string } | { ok: false; reply: WhiteboardReply }>;
   readingOf(boardId: string): Promise<BoardReadingOf | null>;
   summaryOf(boardId: string): Promise<LayoutSummary | null>;
   pictureImagesOf(boardId: string): Promise<PictureImage[] | null>;
@@ -350,12 +350,12 @@ function createWhiteboardWiring({
   }
 
   function snapshotMessage(): ServerMessageOf<'whiteboards-snapshot'> {
-    return { type: 'whiteboards-snapshot', boards: [...recordsByBoardId.values()].map(summarizeBoard) };
+    return { type: 'whiteboards-snapshot', boards: [...recordsByBoardId.values()].map((record) => summarizeBoard(record, now())) };
   }
 
   function broadcastSummariesIfChanged(before: BoardRecord | null, after: BoardRecord | null): void {
-    const summaryBefore = before ? JSON.stringify(summarizeBoard(before)) : null;
-    const summaryAfter = after ? JSON.stringify(summarizeBoard(after)) : null;
+    const summaryBefore = before ? JSON.stringify(summarizeBoard(before, now())) : null;
+    const summaryAfter = after ? JSON.stringify(summarizeBoard(after, now())) : null;
     if (summaryBefore === summaryAfter) return;
     broadcastControl(snapshotMessage());
   }
@@ -397,9 +397,12 @@ function createWhiteboardWiring({
     });
   }
 
-  function findBoardId(ref: string): { ok: true; boardId: string } | { ok: false; reply: WhiteboardReply } {
+  function findBoardId(ref: string, callerProject: string | null): { ok: true; boardId: string } | { ok: false; reply: WhiteboardReply } {
     if (deletedBoardIds.has(ref)) return { ok: false, reply: refusal(404, DELETED_BOARD_TEXT) };
-    const resolved = resolveBoardRef([...recordsByBoardId.values()].map((record) => record.board), ref);
+    const byId = recordsByBoardId.get(ref);
+    if (byId) return { ok: true, boardId: byId.board.id };
+    const searched = [...recordsByBoardId.values()].filter((record) => callerProject === null || isFiledFor(record, callerProject));
+    const resolved = resolveBoardRef(searched.map((record) => record.board), ref);
     if ('error' in resolved) return { ok: false, reply: refusal(404, resolved.error) };
     return { ok: true, boardId: resolved.id };
   }
@@ -419,7 +422,7 @@ function createWhiteboardWiring({
       return refusal(500, 'the board could not be saved, so it was not created');
     }
     broadcastSummariesIfChanged(null, record);
-    return { status: 200, body: { ok: true, board: summarizeBoard(record), note: PUT_GUIDE } };
+    return { status: 200, body: { ok: true, board: summarizeBoard(record, now()), note: PUT_GUIDE } };
   }
 
   function putOps(boardId: string, ops: readonly Op[], author: Author): Promise<WhiteboardReply> {
@@ -567,7 +570,7 @@ function createWhiteboardWiring({
       pagedFocusByBoardId.set(boardId, focus);
       pagedFocusBySessionId.set(readerId, pagedFocusByBoardId);
       const page = pageReplyOf(record.board, region.elementIds, pageStart.offset);
-      return { ok: true, record: next, reply: { status: 200, body: { ok: true, board: summarizeBoard(next), outline, focus, ...page, changes } } };
+      return { ok: true, record: next, reply: { status: 200, body: { ok: true, board: summarizeBoard(next, now()), outline, focus, ...page, changes } } };
     });
     if (request.review !== true || !reply.body.ok || !('changes' in reply.body)) return reply;
     const board = recordsByBoardId.get(boardId)?.board;
@@ -603,7 +606,7 @@ function createWhiteboardWiring({
   }
 
   function connectionReply(record: BoardRecord, note: string): WhiteboardReply {
-    return { status: 200, body: { ok: true, board: summarizeBoard(record), note } };
+    return { status: 200, body: { ok: true, board: summarizeBoard(record, now()), note } };
   }
 
   function filedUnder(record: BoardRecord, project: string | null): BoardRecord {
@@ -703,7 +706,7 @@ function createWhiteboardWiring({
 
   async function operatorBoardCommand(boardId: string, command: (foundBoardId: string) => Promise<WhiteboardReply>): Promise<OperatorReply> {
     await loaded;
-    const found = findBoardId(boardId);
+    const found = findBoardId(boardId, null);
     if (!found.ok) return operatorReplyOf(found.reply);
     return operatorReplyOf(await command(found.boardId));
   }
@@ -818,7 +821,7 @@ function createWhiteboardWiring({
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
       const { board } = applied.record;
       const note = `showed ${card.title} as box ${boxId} on board "${board.title}" (${board.id}), where the operator sees it; change it with whiteboard put`;
-      return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, board: summarizeBoard(applied.record), note } }, patch: applied.patch, staged: applied.staged };
+      return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, board: summarizeBoard(applied.record, now()), note } }, patch: applied.patch, staged: applied.staged };
     });
   }
 
@@ -828,9 +831,11 @@ function createWhiteboardWiring({
     if (request.sub === 'attach') return attachMedia(caller, request.path);
     if (request.sub === 'show') return showOnBoard(caller, request.path, request.caption?.trim() || null);
     if (request.sub === 'list') {
-      return { status: 200, body: { ok: true, boards: [...recordsByBoardId.values()].map(summarizeBoard) } };
+      const nowMs = now();
+      const listed = [...recordsByBoardId.values()].filter((record) => request.all === true || isListedFor(record, caller.project, nowMs));
+      return { status: 200, body: { ok: true, boards: listed.map((record) => summarizeBoard(record, nowMs)) } };
     }
-    const found = findBoardId(request.board);
+    const found = findBoardId(request.board, caller.project);
     if (!found.ok) return found.reply;
     await adoptIfUnfiled(found.boardId, caller.project);
     const author: Author = { id: caller.id, name: caller.name };
@@ -852,9 +857,9 @@ function createWhiteboardWiring({
   }
 
   const layouts: WhiteboardLayouts = {
-    findBoardId: async (ref) => {
+    findBoardId: async (ref, callerProject) => {
       await loaded;
-      return findBoardId(ref);
+      return findBoardId(ref, callerProject);
     },
     readingOf: async (boardId) => {
       const board = await loadedBoardOf(boardId);

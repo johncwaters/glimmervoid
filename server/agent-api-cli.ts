@@ -58,7 +58,7 @@ function readOpsArgument(opsText: string, opsFilePath: string | null): unknown {
 function whiteboardBody({ commandPath, positionals, values }: ParsedArguments): Record<string, unknown> | null {
   const subcommand = commandPath[1];
   const joined = joinedText(positionals);
-  if (subcommand === 'list') return { sub: 'list' };
+  if (subcommand === 'list') return values.all === true ? { sub: 'list', all: true } : { sub: 'list' };
   if (subcommand === 'new') return joined ? { sub: 'new', title: joined } : null;
   if (subcommand === 'connect' || subcommand === 'disconnect' || subcommand === 'get' || subcommand === 'delete') return joined ? { sub: subcommand, board: joined } : null;
   if (subcommand === 'attach') return joined ? { sub: 'attach', path: path.resolve(joined) } : null;
@@ -217,21 +217,16 @@ async function askWhiteboard(body: Record<string, unknown>): Promise<WhiteboardA
   return typeof error === 'string' ? error : 'Glimmervoid gave no usable answer';
 }
 
-async function listBoards(): Promise<BoardSummary[] | string> {
-  const reply = await askWhiteboard({ sub: 'list' });
+async function listBoards(scope: { all: boolean }): Promise<BoardSummary[] | string> {
+  const reply = await askWhiteboard(scope.all ? { sub: 'list', all: true } : { sub: 'list' });
   if (typeof reply === 'string') return reply;
   return 'boards' in reply ? reply.boards : 'Glimmervoid did not list the boards';
 }
 
 async function resolveLinkedBoardId(ref: string): Promise<{ boardId: string } | { error: string }> {
-  const boards = await listBoards();
-  if (typeof boards === 'string') return { error: boards };
-  const byId = boards.find((board) => board.id === ref);
-  if (byId) return { boardId: byId.id };
-  const byTitle = boards.filter((board) => board.title.toLowerCase() === ref.trim().toLowerCase());
-  if (byTitle.length === 1 && byTitle[0]) return { boardId: byTitle[0].id };
-  if (byTitle.length > 1) return { error: `${byTitle.length} boards are titled "${ref}", so link it by id` };
-  return { error: `no board is called ${ref}, so run glimmervoid whiteboard list to see the boards` };
+  const reply = await askWhiteboard({ sub: 'get', board: ref, peek: true });
+  if (typeof reply === 'string') return { error: reply };
+  return 'board' in reply ? { boardId: reply.board.id } : { error: `Glimmervoid did not resolve the board ${ref}` };
 }
 
 async function putPlanOps(boardRef: string, ops: BoardOp[], doneText: string): Promise<PlanReply> {
@@ -332,7 +327,7 @@ function formatPlan(board: Board, boards: readonly BoardSummary[], changes: read
 async function showPlan(boardRef: string): Promise<PlanReply> {
   const read = await readBoard(boardRef, { isPeek: false });
   if (typeof read === 'string') return { ok: false, text: read };
-  const boards = await listBoards();
+  const boards = await listBoards({ all: true });
   return { ok: true, text: formatPlan(read.board, typeof boards === 'string' ? [] : boards, read.changes) };
 }
 

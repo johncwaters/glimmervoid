@@ -137,7 +137,7 @@ test('an agent builds a board of boxes, wires, frames, notes and boxes marked ad
 
 test('two writers keep both different fields, the later write of one field wins, and the overwritten writer gets every change to the element in one line', async () => {
   const boardId = await newBoard('shared edits');
-  assert.equal((await whiteboard(BUILDER_ID, { sub: 'connect', board: 'shared edits' })).status, 200);
+  assert.equal((await whiteboard(BUILDER_ID, { sub: 'connect', board: boardId })).status, 200);
   await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'add', element: { kind: 'box', id: 'parse', title: 'Parse', at: { x: 40, y: 40 } } }] });
   await boardOf(PLANNER_ID, boardId);
   await boardOf(BUILDER_ID, boardId);
@@ -792,6 +792,41 @@ test('a board an agent creates carries its project, and an unfiled board is file
   };
   assert.equal(await projectOfBoard(firstProject), firstProject);
   assert.equal(await projectOfBoard(path.join(boardsRoot, 'second')), firstProject);
+});
+
+test('an agent lists its own project boards in use, all lists every board, a title resolves only in its project, and a board idle 30 days unconnected is archived until a connect or an edit', async () => {
+  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'project-scope-'));
+  let clockMs = Date.UTC(2026, 0, 1);
+  const wiring = createWhiteboardWiring({ boardsRoot, now: () => clockMs });
+  const planner = { id: 'scope-planner', name: 'planner', project: path.join(boardsRoot, 'app') };
+  const stranger = { id: 'scope-stranger', name: 'stranger', project: path.join(boardsRoot, 'other') };
+  const boardId = ((await wiring.handleAgent(planner, { sub: 'new', title: 'App plan' })).body as { board: { id: string } }).board.id;
+  const listedIds = async (caller: typeof planner, all: boolean) => ((await wiring.handleAgent(caller, all ? { sub: 'list', all: true } : { sub: 'list' })).body as { boards: { id: string }[] }).boards.map((board) => board.id);
+
+  assert.deepEqual(await listedIds(planner, false), [boardId]);
+  assert.deepEqual(await listedIds(stranger, false), []);
+  assert.deepEqual(await listedIds(stranger, true), [boardId]);
+  assert.equal((await wiring.handleAgent(stranger, { sub: 'get', board: 'App plan', peek: true })).status, 404);
+  assert.equal((await wiring.handleAgent(stranger, { sub: 'get', board: boardId, peek: true })).status, 200);
+  const unfiledBoardId = ((await wiring.handleOperator.create('Dashboard sketch')) as { summary: { id: string } }).summary.id;
+  assert.deepEqual(await listedIds(stranger, false), [unfiledBoardId]);
+  assert.equal((await wiring.handleAgent(stranger, { sub: 'get', board: 'Dashboard sketch', peek: true })).status, 200);
+  assert.deepEqual(await listedIds(planner, false), [boardId]);
+
+  const archivedAfterIdleDays = async (idleDays: number) => {
+    await wiring.handleAgent(planner, { sub: 'disconnect', board: boardId });
+    clockMs += idleDays * 24 * 60 * 60 * 1000;
+    return wiring.snapshotMessage().boards.find((board) => board.id === boardId)?.isArchived;
+  };
+  assert.equal(await archivedAfterIdleDays(29), false);
+  assert.equal(await archivedAfterIdleDays(2), true);
+  assert.deepEqual(await listedIds(planner, false), []);
+  assert.equal((await wiring.handleAgent(planner, { sub: 'connect', board: 'App plan' })).status, 200);
+  assert.deepEqual(await listedIds(planner, false), [boardId]);
+
+  assert.equal(await archivedAfterIdleDays(31), true);
+  await wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'board', caption: 'picked back up' }]));
+  assert.deepEqual(await listedIds(planner, false), [boardId]);
 });
 
 test('the next prompt tells a connected session once per new change to read the board before changing it, leaving the changes unread', async () => {

@@ -237,6 +237,8 @@ export const BoardSummary = z.object({
   title: z.string(),
   version: z.number().int(),
   updatedAt: z.number(),
+  project: ProjectPath.nullable(),
+  isArchived: z.boolean(),
   connectedSessionIds: z.array(z.string()),
   queuedBySessionId: z.record(z.string(), z.number().int()),
 }).strict();
@@ -270,7 +272,7 @@ const BoardQuery = z.object({
 
 export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
   z.object({ sub: z.literal('new'), title: Title.min(1, { error: 'a new board needs a title' }) }).strict(),
-  z.object({ sub: z.literal('list') }).strict(),
+  z.object({ sub: z.literal('list'), all: z.boolean().optional() }).strict(),
   z.object({ sub: z.literal('connect'), board: BoardRef }).strict(),
   z.object({ sub: z.literal('disconnect'), board: BoardRef }).strict(),
   z.object({ sub: z.literal('get'), board: BoardRef, peek: z.boolean().optional(), review: z.boolean().optional(), region: BoardRegion.optional(), cursor: ReadCursor.optional(), whole: z.boolean().optional() }).strict(),

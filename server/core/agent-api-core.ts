@@ -379,7 +379,11 @@ const PLAN_SUBCOMMANDS: readonly CommandSpec[] = [
 
 const WHITEBOARD_SUBCOMMANDS: readonly CommandSpec[] = [
   { name: 'new', summary: 'Create a board; this session is its creator and is told when others change it', positionals: requiredText('<title>'), missingArgumentHint: 'a new board needs a title, for example "glimmervoid whiteboard new release plan"' },
-  { name: 'list', summary: 'List the boards with their connected sessions' },
+  {
+    name: 'list',
+    summary: "List this project's boards in use with their connected sessions; --all lists every board, archived ones too",
+    options: [{ name: 'all', type: 'boolean', summary: 'List every board in every project, archived ones too' }],
+  },
   { name: 'connect', summary: 'Be told in this session when others change a board', positionals: BOARD_REFERENCE },
   { name: 'disconnect', summary: 'Stop being told when others change a board', positionals: BOARD_REFERENCE },
   {

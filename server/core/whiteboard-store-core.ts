@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { Box, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import type { Board, BoardChange, BoardRecord, BoardSummary, BoxMedia, Op } from '../../shared/contracts/whiteboard.ts';
 import type { Rect as BoardBounds } from '../../shared/whiteboard-layout-core.ts';
@@ -5,6 +6,7 @@ import type { ApplyResult } from '../../shared/whiteboard-ops-core.ts';
 import type { AgentNote } from '../../shared/contracts/hooks.ts';
 import { isRecord } from '../../shared/coerce.ts';
 import { dependencyWireId } from '../../shared/whiteboard-plan-core.ts';
+import { caseFoldedPathKey } from '../../shared/paths.ts';
 
 function elementWithMediaForImage(element: unknown): unknown {
   if (!isRecord(element) || !('image' in element)) return element;
@@ -162,11 +164,30 @@ function markRead(record: BoardRecord, sessionId: string): BoardRecord {
   return pruneLog({ ...record, cursorBySessionId: { ...record.cursorBySessionId, [sessionId]: record.board.version } });
 }
 
-function summarizeBoard(record: BoardRecord): BoardSummary {
-  const { id, title, version, updatedAt } = record.board;
+const ARCHIVE_AFTER_IDLE_MS = 30 * 24 * 60 * 60 * 1000;
+
+function isBoardArchived(record: BoardRecord, nowMs: number): boolean {
+  return Object.keys(record.cursorBySessionId).length === 0 && nowMs - record.board.updatedAt > ARCHIVE_AFTER_IDLE_MS;
+}
+
+function isSameProject(left: string | null, right: string | null): boolean {
+  if (left === null || right === null) return false;
+  return caseFoldedPathKey(path.resolve(left)) === caseFoldedPathKey(path.resolve(right));
+}
+
+function isFiledFor(record: BoardRecord, callerProject: string): boolean {
+  return record.board.project === null || isSameProject(record.board.project, callerProject);
+}
+
+function isListedFor(record: BoardRecord, callerProject: string, nowMs: number): boolean {
+  return isFiledFor(record, callerProject) && !isBoardArchived(record, nowMs);
+}
+
+function summarizeBoard(record: BoardRecord, nowMs: number): BoardSummary {
+  const { id, title, version, updatedAt, project } = record.board;
   const sessionIds = Object.keys(record.cursorBySessionId);
   const queuedBySessionId = Object.fromEntries(sessionIds.map((sessionId) => [sessionId, changesForReader(record, sessionId).length]));
-  return { id, title, version, updatedAt, connectedSessionIds: sessionIds, queuedBySessionId };
+  return { id, title, version, updatedAt, project, isArchived: isBoardArchived(record, nowMs), connectedSessionIds: sessionIds, queuedBySessionId };
 }
 
 interface BoardNotice {
@@ -262,4 +283,4 @@ function shownBoxOp(board: Board, contentBounds: BoardBounds, card: ShownCard): 
 }
 
 export { pickShowBoardId, shownBoxOp };
-export { BOARD_CONTEXT_NOTE, upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, recordPut, resolveBoardRef, summarizeBoard };
+export { BOARD_CONTEXT_NOTE, upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, isFiledFor, isListedFor, markRead, recordPut, resolveBoardRef, summarizeBoard };

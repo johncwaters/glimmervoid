@@ -221,7 +221,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'plan-limits', ts: NOW, fiveHour: { pct: 10, resetsAtMs: NOW + 1000 }, sevenDay: null, source: 'statusline' },
   { type: 'usage-budget-alert', scope: 'daily', periodKey: '2026-08-26', threshold: 50, spentUsd: 5, budgetUsd: 10, text: 'budget crossed', ts: NOW },
   { type: 'client-trust', trust: 'local' },
-  { type: 'whiteboards-snapshot', boards: [{ id: 'board-1', title: 'Ingest plan', version: 3, updatedAt: NOW, connectedSessionIds: ['session-1'], queuedBySessionId: { 'session-1': 2 } }] },
+  { type: 'whiteboards-snapshot', boards: [{ id: 'board-1', title: 'Ingest plan', version: 3, updatedAt: NOW, project: null, isArchived: false, connectedSessionIds: ['session-1'], queuedBySessionId: { 'session-1': 2 } }] },
   { type: 'whiteboard-removed', boardId: 'board-1' },
   {
     type: 'whiteboard-tiles', boardId: 'board-1', version: 4, elementCount: 1,
@@ -241,7 +241,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
       elements: { parse: { kind: 'box', id: 'parse', title: 'Parse feed', icon: null, lines: [], refs: [], change: 'none', was: null, near: null, order: 0, at: { x: 40, y: 40 }, shape: 'box', outputs: [], media: null, width: null, step: null } },
       createdAt: NOW, updatedAt: NOW,
     },
-    summary: { id: 'board-1', title: 'Ingest plan', version: 1, updatedAt: NOW, connectedSessionIds: [], queuedBySessionId: {} },
+    summary: { id: 'board-1', title: 'Ingest plan', version: 1, updatedAt: NOW, project: null, isArchived: false, connectedSessionIds: [], queuedBySessionId: {} },
     patch: {
       boardId: 'board-1', fromVersion: 0, toVersion: 1, author: { id: 'operator', name: 'operator' }, updatedAt: NOW,
       diff: { fields: { title: 'Ingest plan' }, elements: { parse: ['patch', { at: { x: 40, y: 40 } }], old: ['remove'] } },
