@@ -1,0 +1,225 @@
+import crypto from 'node:crypto';
+import { signedHeaders } from '../link/core/link-signing-core.ts';
+import { GITHUB_API_HOST, NUDGES_PATH } from '../../shared/contracts/watcher-link.ts';
+import type { Nudge, Probe, ProbeSet, WatcherCredentials, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
+import { freshProbeMemory, nextRunAtMs, probeOutcome, retryAfterMsFromHeaders } from './core/probe-core.ts';
+import type { ProbeMemory, ProbeResponse } from './core/probe-core.ts';
+import { NO_CREDENTIALS } from './watcher-home.ts';
+import type { WatcherHome } from './watcher-home.ts';
+
+type FetchFn = typeof fetch;
+
+const PROBE_TIMEOUT_MS = 30_000;
+const NUDGE_TIMEOUT_MS = 30_000;
+const NUDGE_RETRY_BASE_MS = 1000;
+const NUDGE_RETRY_MAX_MS = 300_000;
+const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+const USER_AGENT = 'glimmervoid-watcher';
+
+function requestFingerprint(probe: Probe): string {
+  return crypto.createHash('sha256').update(JSON.stringify([probe.method, probe.url, probe.body, probe.credential])).digest('hex');
+}
+
+function authorizationFor(probe: Probe, credentials: WatcherCredentials): string | { refusal: string } {
+  const probeHost = new URL(probe.url).host;
+  if (probe.credential === 'github') {
+    if (credentials.github === null) return { refusal: 'no GitHub read credential yet' };
+    if (probeHost !== GITHUB_API_HOST) return { refusal: `a GitHub probe may only reach ${GITHUB_API_HOST}` };
+    return `Bearer ${credentials.github}`;
+  }
+  if (credentials.posthog === null) return { refusal: 'no PostHog read credential yet' };
+  if (probeHost !== new URL(credentials.posthog.host).host) return { refusal: 'a PostHog probe may only reach the connected PostHog host' };
+  return `Bearer ${credentials.posthog.apiKey}`;
+}
+
+async function sha256OfBody(response: Response): Promise<string> {
+  const hash = crypto.createHash('sha256');
+  if (response.body === null) return hash.digest('hex');
+  for await (const chunk of response.body) hash.update(chunk);
+  return hash.digest('hex');
+}
+
+function createNudgeSender({ serverUrl, signingKey, fetchFn = fetch, now = Date.now, log = console }: {
+  serverUrl: string;
+  signingKey: Buffer;
+  fetchFn?: FetchFn;
+  now?: () => number;
+  log?: Pick<Console, 'warn'>;
+}) {
+  const nudgesUrl = new URL(NUDGES_PATH, serverUrl);
+  const pendingNudges: Nudge[] = [];
+  let failedAttempts = 0;
+  let retryTimer: NodeJS.Timeout | null = null;
+  let isSending = false;
+
+  async function postNudge(nudge: Nudge): Promise<boolean> {
+    const body = JSON.stringify(nudge);
+    try {
+      const response = await fetchFn(nudgesUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...signedHeaders(signingKey, { method: 'POST', path: nudgesUrl.pathname, body }, now()) },
+        body,
+        signal: AbortSignal.timeout(NUDGE_TIMEOUT_MS),
+      });
+      await response.body?.cancel();
+      if (response.ok) return true;
+      log.warn(`[watcher] the server answered a nudge with ${response.status}`);
+      return response.status === 400;
+    } catch (postError) {
+      log.warn(`[watcher] could not reach the server with a nudge: ${(postError as Error).message}`);
+      return false;
+    }
+  }
+
+  async function drain(): Promise<void> {
+    if (isSending) return;
+    isSending = true;
+    retryTimer = null;
+    while (pendingNudges.length > 0) {
+      const isDelivered = await postNudge(pendingNudges[0]);
+      if (!isDelivered) {
+        failedAttempts += 1;
+        const delayMs = Math.min(NUDGE_RETRY_MAX_MS, NUDGE_RETRY_BASE_MS * 2 ** Math.min(failedAttempts, 20));
+        retryTimer = setTimeout(() => void drain(), delayMs);
+        isSending = false;
+        return;
+      }
+      failedAttempts = 0;
+      pendingNudges.shift();
+    }
+    isSending = false;
+  }
+
+  function send(kind: Nudge['kind'], probeId: string | null, failure: Nudge['failure']): void {
+    const isAlreadyPending = pendingNudges.some((pending) => pending.probeId === probeId && pending.kind === kind);
+    if (isAlreadyPending) return;
+    pendingNudges.push({ nudgeId: crypto.randomUUID(), probeId, kind, failure, at: new Date(now()).toISOString() });
+    if (retryTimer === null) void drain();
+  }
+
+  function stop(): void {
+    if (retryTimer !== null) clearTimeout(retryTimer);
+  }
+
+  return { send, stop };
+}
+
+type NudgeSender = ReturnType<typeof createNudgeSender>;
+
+function createProbeRunner({ home, nudges, fetchFn = fetch, now = Date.now, log = console }: {
+  home: WatcherHome;
+  nudges: Pick<NudgeSender, 'send'>;
+  fetchFn?: FetchFn;
+  now?: () => number;
+  log?: Pick<Console, 'log' | 'warn'>;
+}) {
+  let probeSet: ProbeSet | null = null;
+  let credentials: WatcherCredentials = NO_CREDENTIALS;
+  let memoryByProbeId = new Map<string, ProbeMemory>();
+  let wakeTimer: NodeJS.Timeout | null = null;
+  let runState: 'idle' | 'running' | 'stopped' = 'idle';
+
+  function memoryOf(probe: Probe): ProbeMemory {
+    const fingerprint = requestFingerprint(probe);
+    const memory = memoryByProbeId.get(probe.id);
+    if (memory?.requestFingerprint === fingerprint) return memory;
+    const freshMemory = freshProbeMemory(fingerprint);
+    memoryByProbeId.set(probe.id, freshMemory);
+    return freshMemory;
+  }
+
+  async function responseOf(probe: Probe, memory: ProbeMemory): Promise<ProbeResponse> {
+    const authorization = authorizationFor(probe, credentials);
+    if (typeof authorization !== 'string') return { kind: 'unreachable', error: authorization.refusal };
+    const headers: Record<string, string> = { authorization, 'user-agent': USER_AGENT, accept: 'application/json' };
+    if (probe.method === 'GET' && memory.etag !== null) headers['if-none-match'] = memory.etag;
+    if (probe.body !== null) headers['content-type'] = 'application/json';
+    try {
+      const response = await fetchFn(probe.url, { method: probe.method, headers, body: probe.body ?? undefined, redirect: 'error', signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
+      const bodySha256 = await sha256OfBody(response);
+      const retryAfterMs = retryAfterMsFromHeaders(response.status, {
+        retryAfter: response.headers.get('retry-after'),
+        rateLimitRemaining: response.headers.get('x-ratelimit-remaining'),
+        rateLimitReset: response.headers.get('x-ratelimit-reset'),
+      }, now());
+      return { kind: 'answered', status: response.status, etag: response.headers.get('etag'), bodySha256, retryAfterMs };
+    } catch (fetchError) {
+      return { kind: 'unreachable', error: (fetchError as Error).message };
+    }
+  }
+
+  async function runProbe(probe: Probe): Promise<void> {
+    const memory = memoryOf(probe);
+    const response = await responseOf(probe, memory);
+    if (memoryByProbeId.get(probe.id) !== memory) return;
+    const outcome = probeOutcome(memory, response, now());
+    memoryByProbeId.set(probe.id, outcome.memory);
+    if (outcome.nudge !== null) nudges.send(outcome.nudge, probe.id, outcome.memory.failure);
+  }
+
+  function scheduleWake(): void {
+    if (wakeTimer !== null) clearTimeout(wakeTimer);
+    wakeTimer = null;
+    if (runState === 'stopped' || probeSet === null || probeSet.probes.length === 0) return;
+    const nowMs = now();
+    const earliestRunAtMs = Math.min(...probeSet.probes.map((probe) => nextRunAtMs(probe, memoryOf(probe), nowMs)));
+    wakeTimer = setTimeout(() => void runDueProbes(), Math.min(MAX_TIMER_DELAY_MS, Math.max(0, earliestRunAtMs - nowMs)));
+  }
+
+  async function runDueProbes(): Promise<void> {
+    if (runState !== 'idle' || probeSet === null) return;
+    runState = 'running';
+    const nowMs = now();
+    const dueProbes = probeSet.probes.filter((probe) => nextRunAtMs(probe, memoryOf(probe), nowMs) <= nowMs);
+    for (const probe of dueProbes) {
+      if (runState !== 'running') return;
+      await runProbe(probe);
+    }
+    if (runState === 'running') runState = 'idle';
+    scheduleWake();
+  }
+
+  async function applyProbeSet(nextProbeSet: ProbeSet): Promise<void> {
+    await home.saveProbeSet(nextProbeSet);
+    probeSet = nextProbeSet;
+    const liveProbeIds = new Set(nextProbeSet.probes.map((probe) => probe.id));
+    memoryByProbeId = new Map([...memoryByProbeId].filter(([probeId]) => liveProbeIds.has(probeId)));
+    log.log(`[watcher] probe set ${nextProbeSet.revision} holds ${nextProbeSet.probes.length} probes`);
+    scheduleWake();
+  }
+
+  async function applyCredentials(nextCredentials: WatcherCredentials): Promise<void> {
+    await home.saveCredentials(nextCredentials);
+    credentials = nextCredentials;
+    scheduleWake();
+  }
+
+  async function start(): Promise<void> {
+    credentials = await home.loadCredentials();
+    probeSet = await home.loadProbeSet();
+    scheduleWake();
+  }
+
+  function stop(): void {
+    runState = 'stopped';
+    if (wakeTimer !== null) clearTimeout(wakeTimer);
+  }
+
+  function status(): WatcherStatus {
+    return {
+      probeSetRevision: probeSet?.revision ?? null,
+      hasCredentials: { github: credentials.github !== null, posthog: credentials.posthog !== null },
+      probes: (probeSet?.probes ?? []).map((probe) => {
+        const memory = memoryOf(probe);
+        return { probeId: probe.id, status: memory.status, lastRunAt: memory.lastRunAtMs === null ? null : new Date(memory.lastRunAtMs).toISOString(), failure: memory.failure };
+      }),
+    };
+  }
+
+  return { applyProbeSet, applyCredentials, start, stop, status };
+}
+
+type ProbeRunner = ReturnType<typeof createProbeRunner>;
+
+export { createNudgeSender, createProbeRunner };
+export type { NudgeSender, ProbeRunner };

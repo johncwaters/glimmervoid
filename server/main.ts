@@ -110,6 +110,9 @@ server.listen(port, bind.host, () => {
   });
   telemetry.capture('app_started', { is_first_start: isFirstStart });
   writeTerminalTitle(buildTitleSequence(`glimmervoid :${boundPort}`));
+  backend.watcherLink.start().catch((error: unknown) => {
+    console.warn(`[watcher] link failed to start, lanes keep their own timers: ${error instanceof Error ? error.message : String(error)}`);
+  });
   if (bind.reason === 'insecure-bind') {
     console.warn(`WARNING: bound ${bind.host} with GLIMMERVOID_INSECURE_BIND=1 - this listener has NO authentication.`);
   }

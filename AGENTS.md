@@ -18,6 +18,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 | `docs/`, `bin/` | Design records and npm CLI |
 | `Glimmervoid.spec.md`, `*.spec.md`, `coherence.config.json`, `lexicon.json` | Coherence: the entry spec at the root, a component spec beside each unit's code, its config and vocabulary; `npm test` fails on a spec or lexicon problem |
 | `mcp/` | Agent MCP endpoint; all MCP code (`mcp/AGENTS.md`) |
+| `cloud/` | The watcher and the server's link to it (`cloud/AGENTS.md`) |
 | `server/` | Backend runtime and lanes (`server/AGENTS.md`) |
 | `server/child-process-safe.ts` | The ONLY importer of `node:child_process` |
 | `server/git/git-workspace.ts` | The ONLY module allowed to run `git worktree` |
@@ -83,6 +84,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 | Radar / PostHog Auto-Fix | `server/radar/AGENTS.md` |
 | Community Questions | `server/community/AGENTS.md` |
 | Dashboard Layouts | `public/AGENTS.md` |
+| Watcher Link | `cloud/AGENTS.md` |
 
 ## Coding Style
 

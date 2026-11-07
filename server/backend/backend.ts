@@ -34,6 +34,8 @@ import {
   runAutoResume,
 } from '../session/session-registry.ts';
 import { createBackendLanes } from './backend-lanes.ts';
+import { createWatcherLink } from '../../cloud/link/watcher-link.ts';
+import { laneAccessConfigOf } from '../lanes/core/lane-permissions-core.ts';
 import type { BackendLaneOptions } from './backend-lanes.ts';
 import type { AgentIngressDependencies } from './backend-http.ts';
 import { decideWasActiveFlip, shouldStartAfterModify } from '../session/core/session-registry-core.ts';
@@ -535,6 +537,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     }
     notifications.applySettings();
     laneAssembly.restartServiceLanes();
+    watcherLink.credentialsMayHaveChanged();
   }
 
   function downloadUpdateOnceListening() {
@@ -645,6 +648,12 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     dataWss,
   });
   const lifecycleServers: Server[] = [agentIngressServer];
+  const watcherLink = createWatcherLink({
+    watcherHome: path.join(glimmervoidHomeDir(), 'watcher'),
+    credentials: () => ({ github: laneAccessConfigOf(configStore.config).readToken, posthog: null }),
+  });
+  watcherLink.registerProbeSource(laneAssembly.githubStore.probeSource);
+  laneAssembly.githubStore.onProbesMayHaveChanged(watcherLink.probesMayHaveChanged);
   const { requestShutdown, requestRestart } = createLifecycle({
     shutdown,
     httpServer,
@@ -726,6 +735,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
 
   return {
     shutdown,
+    watcherLink,
     requestShutdown,
     requestRestart,
     handOffStagedUpdate: updateApply.handOffStagedUpdate,

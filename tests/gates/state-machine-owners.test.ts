@@ -65,7 +65,7 @@ const MACHINES: OwnedMachine[] = [
   },
 ];
 
-const MACHINE_WRITER_SOURCE = /^(?:server|session|mcp|detection|notifications)\/(?!.*\.test\.ts$).*\.ts$/;
+const MACHINE_WRITER_SOURCE = /^(?:server|session|mcp|cloud|detection|notifications)\/(?!.*\.test\.ts$).*\.ts$/;
 
 const STATUS_FIELD_AS_FREE_STRING = /["'`]?\b(status|state|phase|mode|\w+Status|\w+State)["'`]?\s*:\s*z\s*\.\s*(?:coerce\s*\.\s*)?string\s*\(/g;
 

@@ -293,6 +293,9 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 | `GLIMMERVOID_TELEMETRY` | operator | Set to `0` to turn off usage and error telemetry (error type, error code and scrubbed stack frames, never messages or paths) whatever `telemetry.enabled` says. `DO_NOT_TRACK=1` and `CI=true` turn it off too. |
 | `GLIMMERVOID_TELEMETRY_PROJECT_TOKEN` | internal | Sends telemetry to another PostHog project instead of the Glimmervoid one, so end-to-end checks of a development build stay out of real usage data. Not an operator setting. |
 | `GLIMMERVOID_DEBUG_SPAWN` | operator | Any non-empty value logs which executable each agent command resolved to at spawn. |
+| `GLIMMERVOID_LINK_SECRET` | internal | The link secret the server hands the watcher it starts, from which each direction of the link derives its own signing key. Read once and removed from the watcher's environment. Not an operator setting. |
+| `GLIMMERVOID_LINK_SERVER_URL` | internal | Where the watcher sends its nudges: plain http only on loopback, https otherwise. Not an operator setting. |
+| `GLIMMERVOID_WATCHER_HOME` | internal | Folder the watcher keeps its probe set and encrypted credentials in. The server passes `watcher` inside the Glimmervoid home. Not an operator setting. |
 | `GLIMMERVOID_SANE_YOLO_PATH` | internal | Names the Sane YOLO binary only in supervised sessions, so an installed Grok hook stays inert outside Glimmervoid. Not an operator setting. |
 | `GLIMMERVOID_HOOK_URL` | internal | Set by Glimmervoid in each session environment as the hook relay target. Not an operator setting. |
 | `GLIMMERVOID_AGENT_URL` | internal | Set by Glimmervoid in each session environment; `glimmervoid push`, `spawn`, `attention` and `sessions` read it. Not an operator setting. |

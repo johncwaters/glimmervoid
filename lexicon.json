@@ -635,6 +635,22 @@
     {
       "name": "split",
       "definition": "A session and one board open side by side in Focus, shown as one item in the rail; each session has at most one and each board is in at most one"
+    },
+    {
+      "name": "probe",
+      "definition": "One GitHub or PostHog read the server compiles from exactly what a lane already polls and the watcher runs on an interval, hashing the answer and never parsing it"
+    },
+    {
+      "name": "probe set",
+      "definition": "The whole list of probes the server sends the watcher, with a revision that changes whenever any probe does"
+    },
+    {
+      "name": "nudge",
+      "definition": "The watcher's signed note to the server that one probe's answer changed, started failing or recovered; it carries no response data, and the lane that owns the probe runs its own poll"
+    },
+    {
+      "name": "link secret",
+      "definition": "The random secret the server hands the watcher it starts, from which each direction of the watcher link derives its own signing key; never shown in settings"
     }
   ],
   "retired": [

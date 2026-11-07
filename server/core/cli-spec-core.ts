@@ -259,6 +259,13 @@ const OWNED_COMMAND_SPECS = {
       { name: 'new-items-vault', type: 'string', valueName: 'name', summary: 'The 1Password vault that values pasted on a secret request card go into (the card can name another)' },
     ],
   },
+  watch: {
+    name: 'watch',
+    summary: 'Run the watcher: run the probes the server sends and nudge the server when one changes, reading the link secret and server URL from the environment',
+    options: [
+      { name: 'port', type: 'string', valueName: 'number', summary: 'The loopback port the server sends probes to (default: any free port)' },
+    ],
+  },
   'ssh-sign': { name: 'ssh-sign', summary: "Sign a commit with the operator's forwarded ssh agent (git runs this)", isPassthrough: true },
 } as const satisfies Record<string, CommandSpec>;
 
