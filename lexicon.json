@@ -576,6 +576,10 @@
     {
       "name": "thread join",
       "definition": "The Codex app-server bridge attaching to the agent's live thread with thread/resume (idle, waiting, joining, joined or abandoned), moved only by decideThreadJoin in session/core/codex-app-server-core.ts"
+    },
+    {
+      "name": "outcome",
+      "definition": "What a finished operation reports back: a worktree merge's outcome (merged, parked or refused) that becomes the merge status, or a review run's outcome (a draft or an error) that the team review poller settles"
     }
   ]
 }

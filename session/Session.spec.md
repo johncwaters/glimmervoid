@@ -28,3 +28,8 @@ The session domain: spawning, supervising, resuming and shutting down agent sess
   via: finishing a live agent runs merge-and-reset once its process exits, and an agent that already exited finishes at once
   because: a finish whose merge-and-reset never runs strands the worktree's work on a session stuck refusing every later finish as in progress
   kinds: none
+- merge outcome lands last: A worktree merge's outcome is the merge status the session shows, whether the agent stays alive, exits, or has its clean worktree discarded while git merges.
+  over: every merge outcome landing on a session worktree, with the agent alive, exited with unmerged work, or exited clean
+  via: a merge outcome lands whether the agent stays alive or exits while the merge runs
+  because: an exit, discard or reset writes pending-review or none while git merges, and a refused outcome leaves a merged worktree shown as unmerged with nothing to act on
+  kinds: none

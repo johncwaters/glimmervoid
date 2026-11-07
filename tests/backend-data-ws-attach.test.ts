@@ -216,38 +216,49 @@ test('a second socket attaching to the same session lands on the same screen', a
   secondReplay.dispose();
 });
 
-test('a hidden card attaching paused gets no screen until it resumes, then lands on the live screen without reconnecting', async () => {
+test('a hidden card attaching paused gets no screen until it resumes, then lands on the live screen without reconnecting, and pausing again stops live bytes', async () => {
   attachFakePty();
   const session = ctx().session;
   for (let index = 300; index < 340; index += 1) session._handlePtyData(buildLine(index));
   await settle(30);
 
   const hidden = await openDataRecordingSocket(ctx().client, `/terminals/${SESSION_ID}?output=paused`);
-  for (let index = 340; index < 360; index += 1) session._handlePtyData(buildLine(index));
-  await settle(150);
+  let live: Awaited<ReturnType<typeof openViewer>> | null = null;
+  try {
+    for (let index = 340; index < 360; index += 1) session._handlePtyData(buildLine(index));
+    await settle(150);
 
-  assert.deepEqual(textFramesOf(hidden), [], 'no replay or live bytes reach a paused card');
-  const beatFrames = binaryFramesOf(hidden).filter((frame) => frame.includes('output-beat'));
-  assert.ok(beatFrames.length >= 1, 'output while paused still reaches the card as an activity beat');
+    assert.deepEqual(textFramesOf(hidden), [], 'no replay or live bytes reach a paused card');
+    const beatFrames = binaryFramesOf(hidden).filter((frame) => frame.includes('output-beat'));
+    assert.ok(beatFrames.length >= 1, 'output while paused still reaches the card as an activity beat');
 
-  hidden.ws.send(JSON.stringify({ type: 'resume-output' }));
-  await settle(150);
-  for (let index = 360; index < 380; index += 1) session._handlePtyData(buildLine(index));
-  await settle(150);
-  const live = await openViewer();
-  await settle(150);
+    hidden.ws.send(JSON.stringify({ type: 'resume-output' }));
+    await settle(150);
+    for (let index = 360; index < 380; index += 1) session._handlePtyData(buildLine(index));
+    await settle(150);
+    live = await openViewer();
+    await settle(150);
 
-  assert.ok((textFramesOf(hidden)[0] ?? '').startsWith(SCREEN_RESET), 'resume opens with the shared reset prefix and the current screen');
-  const hiddenReplay = newTerminal(80, 24);
-  await write(hiddenReplay, textFramesOf(hidden).join(''));
-  const liveReplay = newTerminal(80, 24);
-  await write(liveReplay, textFramesOf(live).join(''));
-  assert.deepEqual(dump(hiddenReplay), dump(liveReplay), 'the resumed socket sees what a live socket sees');
+    assert.ok((textFramesOf(hidden)[0] ?? '').startsWith(SCREEN_RESET), 'resume opens with the shared reset prefix and the current screen');
+    const hiddenReplay = newTerminal(80, 24);
+    await write(hiddenReplay, textFramesOf(hidden).join(''));
+    const liveReplay = newTerminal(80, 24);
+    await write(liveReplay, textFramesOf(live).join(''));
+    assert.deepEqual(dump(hiddenReplay), dump(liveReplay), 'the resumed socket sees what a live socket sees');
 
-  await closeSocket(hidden.ws);
-  await closeSocket(live.ws);
-  hiddenReplay.dispose();
-  liveReplay.dispose();
+    const textFrameCountBeforePause = textFramesOf(hidden).length;
+    hidden.ws.send(JSON.stringify({ type: 'pause-output' }));
+    await settle(150);
+    for (let index = 380; index < 400; index += 1) session._handlePtyData(buildLine(index));
+    await settle(150);
+    assert.equal(textFramesOf(hidden).length, textFrameCountBeforePause, 'a card that pauses again mid-stream gets no live bytes');
+
+    hiddenReplay.dispose();
+    liveReplay.dispose();
+  } finally {
+    await closeSocket(hidden.ws);
+    if (live) await closeSocket(live.ws);
+  }
 });
 
 test('a deep attach carries history past the attach depth, loses no live byte and keeps input sent while it serializes', async () => {
