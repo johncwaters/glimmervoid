@@ -42,6 +42,7 @@ import type { GitWorkspaceInstance } from './git/git-workspace.ts';
 import type { createHostLinksWiring } from './hosts/host-links-wiring.ts';
 import { createControlContext } from './control/control-context.ts';
 import { mergeHandlerGroups, validationErrorReply } from './control/core/control-dispatch-core.ts';
+import type { SecretsBroker } from './secrets/secrets-broker.ts';
 import { createCommunityHandlers } from './control/handlers/community-handlers.ts';
 import { createGithubHandlers } from './control/handlers/github-handlers.ts';
 import { createInspectHandlers } from './control/handlers/inspect-handlers.ts';
@@ -157,6 +158,7 @@ interface ControlHandlerDeps {
   readPlanRevision?: ((sessionId: string, request: PlanReadRequest) => Promise<PlanReadResult | null>) | null;
   decidePlanReview?: ((sessionId: string, decision: PlanDecision) => string | null) | null;
   sessionDocs?: SessionDocsPort | null;
+  secrets?: Pick<SecretsBroker, 'decide' | 'revoke'> | null;
   whiteboards?: Pick<WhiteboardPort, 'handleOperator' | 'tiles'> | null;
   coherenceFeed?: Pick<CoherenceSessionFeed, 'readJournal'> | null;
   telemetry?: (Pick<Telemetry, 'captureException' | 'captureClientError'> & Partial<Pick<Telemetry, 'capture' | 'requestDataDeletion'>>) | null;

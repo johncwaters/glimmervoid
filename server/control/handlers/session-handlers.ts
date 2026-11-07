@@ -64,7 +64,20 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     conversationProjectsDir = claudeProjectsDir(process.env, os.homedir()),
     coderEnv = null,
     remoteRepoGit = null,
+    secrets = null,
   } = deps;
+
+  async function handleSecretDecision(msg: ClientMessageOf<'secret-decision'>, ws: ControlSocket): Promise<void> {
+    if (!secrets) return sendError(ws, 'Secret requests are unavailable on this host.', { id: msg.id });
+    const refusal = await secrets.decide(msg);
+    if (refusal) sendError(ws, refusal, { id: msg.id });
+  }
+
+  async function handleSecretRevoke(msg: ClientMessageOf<'secret-revoke'>, ws: ControlSocket): Promise<void> {
+    if (!secrets) return sendError(ws, 'Secret approvals are unavailable on this host.');
+    const refusal = await secrets.revoke(msg);
+    if (refusal) sendError(ws, refusal);
+  }
 
   function handleAddSession(request: AddSessionRequest, ws: ControlSocket): Promise<void> | undefined {
     return addSession(request, ws, {});
@@ -661,6 +674,8 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       if (msg.expectedState !== undefined && session.state !== msg.expectedState) return;
       session.dismiss();
     },
+    'secret-decision': handleSecretDecision,
+    'secret-revoke': handleSecretRevoke,
     'manager-seen': (msg: ClientMessageOf<'manager-seen'>) => {
       findSession(msg)?.markManagerDecisionsSeen(msg.throughSeq);
     },

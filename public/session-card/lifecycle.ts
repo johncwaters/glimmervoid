@@ -1,3 +1,4 @@
+import { paintSecretRequest } from './secret-request-face.ts';
 import type { UnseenOutcome } from '#shared/contracts/session.ts';
 import { STATES } from '#shared/states.ts';
 import { hasSessionDocs } from '../doc-editor/doc-editor.ts';
@@ -166,6 +167,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
   wireCardEvents(sessionUi, id);
   updateButtonVisibility(sessionUi);
   sessionUi.btnDocs.hidden = !hasSessionDocs(id);
+  paintSecretRequest(id);
 
   if (state === STATES.RUNNING) setRunningActivity(sessionUi, true);
 

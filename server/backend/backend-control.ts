@@ -26,6 +26,7 @@ import type { SessionDocsPort } from '../session/session-docs-wiring.ts';
 import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
 import type { CoherenceSessionFeed } from '../coherence/coherence-session-feed.ts';
 import type { ChangeMapService } from '../change-map/change-map-wiring.ts';
+import type { SecretsBroker } from '../secrets/secrets-broker.ts';
 
 interface SnapshotLane {
   snapshotMessage: () => Record<string, unknown>;
@@ -108,6 +109,7 @@ interface BackendControlDependencies {
   ) => Promise<PlanReadResult | null>) | null;
   decidePlanReview: ((sessionId: string, decision: PlanDecision) => string | null) | null;
   sessionDocs: SessionDocsPort;
+  secrets: SecretsBroker;
   whiteboards: Pick<WhiteboardPort, 'handleOperator' | 'snapshotMessage' | 'tiles'>;
   changeMaps: ChangeMapService;
   coherenceFeed: CoherenceSessionFeed;
@@ -195,6 +197,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     readPlanRevision: dependencies.readPlanRevision,
     decidePlanReview: dependencies.decidePlanReview,
     sessionDocs: dependencies.sessionDocs,
+    secrets: dependencies.secrets,
     whiteboards: dependencies.whiteboards,
     changeMaps: dependencies.changeMaps,
     coherenceFeed: dependencies.coherenceFeed,
@@ -222,6 +225,8 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
   };
 
   sendLaneSnapshotOnConnect('session-docs', () => dependencies.sessionDocs);
+  sendLaneSnapshotOnConnect('secret-requests', () => ({ snapshotMessage: () => ({ type: 'secret-requests-snapshot', requests: dependencies.secrets.requestsSnapshot() }) }));
+  sendLaneSnapshotOnConnect('secret-approvals', () => ({ snapshotMessage: () => ({ type: 'secret-approvals', projects: dependencies.secrets.approvalRows() }) }));
   sendLaneSnapshotOnConnect('coherence-feed', () => dependencies.coherenceFeed);
   sendLaneSnapshotOnConnect('whiteboards', () => dependencies.whiteboards);
 

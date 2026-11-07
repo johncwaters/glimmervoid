@@ -1,4 +1,7 @@
-import type { NeedStatus, SecretApproval } from '../../../shared/contracts/secrets.ts';
+import { SecretApproval, SecretName } from '../../../shared/contracts/secrets.ts';
+import type { NeedStatus, ProjectApprovals } from '../../../shared/contracts/secrets.ts';
+
+const DENIAL_HOLD_MS = 24 * 60 * 60 * 1000;
 
 interface ProjectSecretState {
   approvals: Readonly<Record<string, SecretApproval>>;
@@ -53,5 +56,70 @@ function needExitCode(statusByName: Readonly<Record<string, NeedStatus>>): NeedE
   return EXIT_CODE_BY_STATUS[worstStatus];
 }
 
-export { decideNeed, needExitCode };
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function secretsRecordOf(rawSecrets: unknown): Record<string, unknown> | null {
+  if (rawSecrets === undefined || rawSecrets === null) return {};
+  return isPlainRecord(rawSecrets) ? rawSecrets : null;
+}
+
+function byProjectOf(rawSecrets: unknown): Record<string, unknown> | null {
+  const byProject = secretsRecordOf(rawSecrets)?.byProject ?? {};
+  return isPlainRecord(byProject) ? byProject : null;
+}
+
+function projectEntriesOf(rawSecrets: unknown, project: string): Record<string, unknown> {
+  const entries = byProjectOf(rawSecrets)?.[project];
+  return isPlainRecord(entries) ? entries : {};
+}
+
+function approvalsOf(rawSecrets: unknown, project: string): Record<string, SecretApproval> {
+  const approvals: Record<string, SecretApproval> = {};
+  for (const [name, entry] of Object.entries(projectEntriesOf(rawSecrets, project))) {
+    const approval = SecretApproval.safeParse(entry);
+    if (SecretName.safeParse(name).success && approval.success) approvals[name] = approval.data;
+  }
+  return approvals;
+}
+
+function approvalRowsOf(rawSecrets: unknown): ProjectApprovals[] {
+  return Object.keys(byProjectOf(rawSecrets) ?? {}).sort().map((project) => ({
+    project,
+    approvals: Object.entries(approvalsOf(rawSecrets, project))
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([name, approval]) => ({ name, reference: approval.reference, isAllowed: approval.isAllowed })),
+  })).filter((row) => row.approvals.length > 0);
+}
+
+function withProjectEntries(rawSecrets: unknown, project: string, entries: Record<string, unknown>): Record<string, unknown> | null {
+  const secretsRecord = secretsRecordOf(rawSecrets);
+  const byProject = byProjectOf(rawSecrets);
+  if (!secretsRecord || !byProject) return null;
+  const { [project]: _replaced, ...otherProjects } = byProject;
+  const nextByProject = Object.keys(entries).length === 0 ? otherProjects : { ...otherProjects, [project]: entries };
+  return { ...secretsRecord, byProject: nextByProject };
+}
+
+function withApprovals(rawSecrets: unknown, project: string, referenceByName: Readonly<Record<string, string>>): Record<string, unknown> | null {
+  const entries = { ...projectEntriesOf(rawSecrets, project) };
+  for (const [name, reference] of Object.entries(referenceByName)) entries[name] = { reference, isAllowed: true };
+  return withProjectEntries(rawSecrets, project, entries);
+}
+
+function withoutApproval(rawSecrets: unknown, project: string, name: string): Record<string, unknown> | null {
+  const { [name]: _revoked, ...remaining } = projectEntriesOf(rawSecrets, project);
+  return withProjectEntries(rawSecrets, project, remaining);
+}
+
+function missingReferenceNames(names: readonly string[], referenceByName: Readonly<Record<string, string>>): string[] {
+  return names.filter((name) => !referenceByName[name]);
+}
+
+function denialEndsAtMs(nowMs: number): number {
+  return nowMs + DENIAL_HOLD_MS;
+}
+
+export { approvalRowsOf, approvalsOf, decideNeed, denialEndsAtMs, missingReferenceNames, needExitCode, withApprovals, withoutApproval };
 export type { ProjectSecretState };

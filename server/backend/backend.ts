@@ -6,7 +6,7 @@ import path from 'node:path';
 import { customAgentFingerprint, resolveAdapter, setCustomAgents } from '../../session/adapters/index.ts';
 import type { Session } from '../../session/sessions.ts';
 import type { HintedCommand } from '../../session/core/session-routes.ts';
-import { createConfigStore, DEFAULT_CONFIG, generateProjectId, ensureProjectIds, glimmervoidHomeDir } from '../config-store.ts';
+import { ABORT_CONFIG_SAVE, createConfigStore, DEFAULT_CONFIG, generateProjectId, ensureProjectIds, glimmervoidHomeDir } from '../config-store.ts';
 import { reconcileOwnedPaths } from '../owned-paths-ledger.ts';
 import type { GlimmervoidConfig } from '../config-store.ts';
 import { createLifecycle } from '../server-lifecycle.ts';
@@ -67,6 +67,7 @@ import { decideIsDevInstall, parsePosthogReleaseId } from '../core/telemetry-cor
 import { promptContextReplyOf } from '../../session/core/refocus-core.ts';
 import { lookupWhy } from '../why-lookup.ts';
 import { createSecretsBroker } from '../secrets/secrets-broker.ts';
+import { wireSecretsBroker } from '../secrets/secrets-wiring.ts';
 import { createHostLinksWiring } from '../hosts/host-links-wiring.ts';
 import type { SpawnHostTunnel } from '../hosts/host-links-wiring.ts';
 import { POSTHOG_API_KEY_ENV } from '../../cloud/watchees/posthog-watchee.ts';
@@ -363,7 +364,21 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     usage,
   } = laneAssembly;
   gitWorkspace = assembledGitWorkspace;
-  const secretsBroker = createSecretsBroker({ readConfig: () => config.secrets });
+  const secretsBroker = createSecretsBroker({
+    readSecrets: () => config.secrets,
+    writeSecrets: async (mutate) => {
+      const saved = await configStore.saveAsync((savedConfig) => {
+        const nextSecrets = mutate(savedConfig.secrets);
+        if (!nextSecrets) return ABORT_CONFIG_SAVE;
+        savedConfig.secrets = nextSecrets;
+        return undefined;
+      });
+      if (!saved) return false;
+      config.secrets = saved.secrets;
+      return true;
+    },
+  });
+  wireSecretsBroker({ broker: secretsBroker, findSession: getSessionAny, broadcastControl: broadcastControlFromWebSockets });
   agentApi = createAgentApiWiring({
     config,
     agentSessions,
@@ -695,6 +710,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     readPlanRevision: laneAssembly.planReview?.readPlanRevision ?? null,
     decidePlanReview: laneAssembly.planReview?.decide ?? null,
     sessionDocs,
+    secrets: secretsBroker,
     whiteboards,
     changeMaps,
     coherenceFeed,
@@ -713,6 +729,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   stopConfigWatch = configStore.watchForChanges((newConfig) => {
     applyConfigReload(newConfig);
     broadcastSettings?.();
+    broadcastControl?.({ type: 'secret-approvals', projects: secretsBroker.approvalRows() });
   }, { reloadDebounceMs: options.configReloadDebounceMs });
   updateCheck.start();
 

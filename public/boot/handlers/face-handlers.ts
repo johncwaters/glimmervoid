@@ -2,6 +2,8 @@ import { applyCoherenceJournalResponse, applySessionCoherence, applySessionCoher
 import { applySessionDocsChanged, applySessionDocsSnapshot } from '../../doc-editor/doc-editor.ts';
 import { applySessionPlanChanged, applySessionPlanDraft, applySessionPlanResponse } from '../../session-card/card-faces.ts';
 import { addManagerDecision } from '../../session-card/card-problems.ts';
+import { applySecretApprovals } from '../../secrets/secrets-settings.ts';
+import { applySecretRequest, applySecretRequestsSnapshot } from '../../session-card/secret-request-face.ts';
 import { applyTraceChanged, applyTraceResponse } from '../../trace-store.ts';
 import type { DashboardHandlerTable } from '../core/message-dispatch-core.ts';
 import { refreshAttentionSurfaces, refreshRosterAndAttentionSurfaces } from '../session-frames.ts';
@@ -14,6 +16,9 @@ const messageHandlers = {
   'session-plan-response': (msg) => { applySessionPlanResponse(msg); },
   'session-docs-changed': (msg) => applySessionDocsChanged(msg),
   'session-docs-snapshot': (msg) => applySessionDocsSnapshot(msg),
+  'session-secret-request': (msg) => applySecretRequest(msg),
+  'secret-requests-snapshot': (msg) => applySecretRequestsSnapshot(msg),
+  'secret-approvals': (msg) => applySecretApprovals(msg),
   'session-manager-decision': (msg) => { addManagerDecision(msg.id, msg.decision); refreshRosterAndAttentionSurfaces(); },
   'session-coherence-hooks': (msg) => { setSessionCoherenceHooks(msg.id, msg.coherenceHooks); refreshRosterAndAttentionSurfaces(); },
   'session-coherence': (msg) => { applySessionCoherence(msg); refreshRosterAndAttentionSurfaces(); },
