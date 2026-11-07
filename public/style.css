@@ -5291,6 +5291,20 @@ html:has(:is(.focus-empty, .phone-empty) > .first-run-checklist:not([hidden])) [
   cursor: pointer;
 }
 
+.first-run-start-project-name {
+  flex: none;
+}
+
+.first-run-start-project-path {
+  min-width: 0;
+  margin-left: 12px;
+  overflow: hidden;
+  color: var(--text-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+}
+
 .first-run-start-project-choice[aria-selected="true"] {
   border-color: var(--accent);
   background: var(--bg-surface);

@@ -19,6 +19,12 @@ function labelledField(labelText: string, controlId: string, ...controls: HTMLEl
   return field;
 }
 
+function pathText(path: string): HTMLElement {
+  const pathLine = el('span', 'first-run-start-project-path');
+  pathLine.append(el('bdi', null, path));
+  return pathLine;
+}
+
 export function createStartForm({ onAction }: StartFormHandlers) {
   let projects: StartProject[] = [];
   let selectedPath: string | null = null;
@@ -59,10 +65,10 @@ export function createStartForm({ onAction }: StartFormHandlers) {
     selectedPath = decision.selectedPath;
     projectList.replaceChildren(...decision.visibleProjects.map((project) => {
       const row = el('li', 'first-run-start-project');
-      const choice = createPressable('first-run-start-project-choice', project.name);
+      const choice = createPressable('first-run-start-project-choice');
+      choice.append(el('span', 'first-run-start-project-name', project.name), pathText(project.path));
       choice.setAttribute('role', 'option');
       choice.setAttribute('aria-selected', String(project.path === selectedPath));
-      choice.title = project.path;
       choice.addEventListener('click', () => {
         selectedPath = project.path;
         renderProjects();
