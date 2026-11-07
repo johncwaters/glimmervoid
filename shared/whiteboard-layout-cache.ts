@@ -1,6 +1,7 @@
 import type { Board } from './contracts/whiteboard.ts';
 import type { BoardChrome } from './contracts/whiteboard-tiles.ts';
-import type { BoardLayout } from './whiteboard-layout-core.ts';
+import { dressedLayout } from './whiteboard-layout-core.ts';
+import type { BoardLayout, PlacedLayout } from './whiteboard-layout-core.ts';
 import type { PinPositions } from './whiteboard-ops-core.ts';
 import { applyLayoutDelta, createLayoutWorld, layoutOf, warningsOfWorld } from './whiteboard-layout-engine.ts';
 import type { ElementChange, LayoutDelta, LayoutWorld } from './whiteboard-layout-engine.ts';
@@ -34,10 +35,10 @@ function worldFor(board: Board): LayoutWorld {
 }
 
 function layoutBoardRemembered(board: Board): BoardLayout {
-  return layoutOf(worldFor(board));
+  return dressedLayout(layoutOf(worldFor(board)), board);
 }
 
-function lineageLayoutOf(board: Board): { lineage: number; layout: BoardLayout } {
+function lineageLayoutOf(board: Board): { lineage: number; layout: PlacedLayout } {
   const world = worldFor(board);
   return { lineage: world.lineage, layout: layoutOf(world) };
 }

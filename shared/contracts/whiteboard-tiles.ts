@@ -73,6 +73,10 @@ export const LaidOutNote = z.object({ ...rectShape, kind: z.literal('note'), id:
 
 export const LaidOutElement = z.discriminatedUnion('kind', [LaidOutBox, LaidOutFrame, LaidOutWire, LaidOutNote]);
 
+export const PlacedBox = LaidOutBox.omit({ titleLines: true, bodyLines: true, wasLines: true });
+export const PlacedNote = LaidOutNote.omit({ lines: true });
+export const PlacedElement = z.discriminatedUnion('kind', [PlacedBox, LaidOutFrame, LaidOutWire, PlacedNote]);
+
 const LegendSwatch = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('wire'), tone: Wire.shape.tone.unwrap(), isDashed: z.boolean(), isBack: z.boolean() }),
   z.object({ kind: z.literal('change'), change: z.enum(['added', 'removed', 'relabeled']) }),
@@ -94,6 +98,7 @@ export const BoardChrome = z.object({
 export const TileKey = z.object({ chunkX: z.number().int(), chunkY: z.number().int(), lod: z.enum(TILE_LODS), level: z.number().int().min(0).max(30) });
 
 export const PaintedElement = z.object({ paintOrder: z.number().int().min(0), element: LaidOutElement, record: Element.optional() });
+export const PlacedPaint = z.object({ paintOrder: z.number().int().min(0), element: PlacedElement, record: Element.optional() });
 
 export const Tile = z.object({
   key: TileKey,
@@ -116,6 +121,10 @@ export type LaidOutFrame = z.infer<typeof LaidOutFrame>;
 export type LaidOutWire = z.infer<typeof LaidOutWire>;
 export type LaidOutNote = z.infer<typeof LaidOutNote>;
 export type LaidOutElement = z.infer<typeof LaidOutElement>;
+export type PlacedBox = z.infer<typeof PlacedBox>;
+export type PlacedNote = z.infer<typeof PlacedNote>;
+export type PlacedElement = z.infer<typeof PlacedElement>;
+export type PlacedPaint = z.infer<typeof PlacedPaint>;
 export type LegendRow = z.infer<typeof LegendRow>;
 export type PlanBand = z.infer<typeof PlanBand>;
 export type PlanColumn = z.infer<typeof PlanColumn>;

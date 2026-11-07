@@ -1,12 +1,12 @@
 import { WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Board, Box, Element } from './contracts/whiteboard.ts';
-import type { LaidOutBox, LaidOutElement, LaidOutFrame, LaidOutNote, LaidOutWire, PlanColumn } from './contracts/whiteboard-tiles.ts';
+import type { PlacedBox, PlacedElement, LaidOutFrame, PlacedNote, LaidOutWire, PlanColumn } from './contracts/whiteboard-tiles.ts';
 import { boardIndexOf } from './whiteboard-board-index.ts';
 import {
   boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, elementSignature, frameTitleStripOf, headerRectOf, isInStepBand, laidOutBox, laidOutFrameOf,
-  laidOutNearBox, layoutBoardWithMemory, legendEntriesFrom, noteStackOn, stepBandOf, wireCeilingOf,
+  laidOutNearBox, placeBoardWithMemory, legendEntriesFrom, noteStackOn, stepBandOf, wireCeilingOf,
 } from './whiteboard-layout-core.ts';
-import type { BoardLayout, Rect } from './whiteboard-layout-core.ts';
+import type { PlacedLayout, Rect } from './whiteboard-layout-core.ts';
 import type { PlanStep } from './whiteboard-plan-core.ts';
 import { cappedWarningLists, inflated, obstacleRectsByKey, pointsOfPath, rectsOverlap, routeWires, unionOf, wireExtentOf } from './whiteboard-route-core.ts';
 import type { AreaObstacles, Point, RouteInput, RouteMemory, WarningList } from './whiteboard-route-core.ts';
@@ -46,8 +46,8 @@ interface ElementChange {
 }
 
 interface LayoutDelta {
-  changed: LaidOutElement[];
-  previousById: Map<string, LaidOutElement>;
+  changed: PlacedElement[];
+  previousById: Map<string, PlacedElement>;
   removedIds: string[];
   isChromeChanged: boolean;
   isRebuilt: boolean;
@@ -58,7 +58,7 @@ interface LayoutWorld {
   version: number;
   board: Board;
   minIncrementalElements: number;
-  laidOutById: Map<string, LaidOutElement>;
+  laidOutById: Map<string, PlacedElement>;
   boxGrid: IdGrid;
   softGrid: IdGrid;
   frameGrid: IdGrid;
@@ -77,8 +77,8 @@ interface LayoutWorld {
   boxesTop: number;
   planColumns: PlanColumn[];
   around: Rect | null;
-  chrome: Omit<BoardLayout, 'elements' | 'warnings'>;
-  layout: BoardLayout | null;
+  chrome: Omit<PlacedLayout, 'elements' | 'warnings'>;
+  layout: PlacedLayout | null;
 }
 
 function createIdGrid(cellSize: number): IdGrid {
@@ -216,13 +216,13 @@ function isFloating(box: Box, board: Board): boolean {
   return box.near === null || board.elements[box.near.of]?.kind !== 'box';
 }
 
-function obstacleRectOf(element: LaidOutElement): Rect | null {
+function obstacleRectOf(element: PlacedElement): Rect | null {
   if (element.kind === 'wire') return null;
   if (element.kind === 'frame') return frameTitleStripOf(element);
   return element;
 }
 
-function extentOf(element: LaidOutElement): Rect | null {
+function extentOf(element: PlacedElement): Rect | null {
   return element.kind === 'wire' ? wireExtentOf(element) : element;
 }
 
@@ -230,7 +230,7 @@ function isOnEdge(rect: Rect, around: Rect): boolean {
   return rect.x <= around.x || rect.y <= around.y || rect.x + rect.width >= around.x + around.width || rect.y + rect.height >= around.y + around.height;
 }
 
-function storeLaidOut(world: LayoutWorld, element: LaidOutElement): void {
+function storeLaidOut(world: LayoutWorld, element: PlacedElement): void {
   world.laidOutById.set(element.id, element);
   if (element.kind === 'box') placeId(world.boxGrid, element.id, element);
   if (element.kind === 'note') placeId(world.softGrid, element.id, element);
@@ -257,7 +257,7 @@ function recomputedAround(world: LayoutWorld): Rect | null {
   return [world.boxGrid, world.softGrid, world.frameGrid, world.wireGrid].reduce<Rect | null>((around, idGrid) => unionOfStored(idGrid, around), header);
 }
 
-function chromeOfWorld(world: LayoutWorld, board: Board): Omit<BoardLayout, 'elements' | 'warnings'> {
+function chromeOfWorld(world: LayoutWorld, board: Board): Omit<PlacedLayout, 'elements' | 'warnings'> {
   const usedStyles = [...world.wireStyleByKey.values()].map((entry) => entry.style);
   const legend = legendEntriesFrom(board.legend, usedStyles, new Set(world.boxCountByChange.keys()), boardIndexOf(board.elements).stepBoxIds.size > 0);
   return chromeAround(board.caption, contentBoundsOf(world.around), legend, world.planColumns, world.pinnedOffsetY);
@@ -288,7 +288,7 @@ function nextNoteOrderOf(world: LayoutWorld, id: string): number {
 }
 
 function rebuiltWorld(board: Board, previous: LayoutWorld | null, minIncrementalElements: number): LayoutWorld {
-  const { layout, memory, warningLists } = layoutBoardWithMemory(board, previous ? { route: previous.routeMemory } : null);
+  const { layout, memory, warningLists } = placeBoardWithMemory(board, previous ? { route: previous.routeMemory } : null);
   const world = emptyWorld(board, minIncrementalElements);
   const freeformTop = stepBandOf(board).bottom;
   world.routeMemory = memory.route;
@@ -353,10 +353,10 @@ function dirtyBoxIdsOf(board: Board, changes: ReadonlyMap<string, ElementChange>
   return dirtyIds;
 }
 
-function placedDirtyBoxes(world: LayoutWorld, board: Board, dirtyIds: ReadonlySet<string>): Map<string, LaidOutBox | null> | null {
-  const placedById = new Map<string, LaidOutBox | null>();
+function placedDirtyBoxes(world: LayoutWorld, board: Board, dirtyIds: ReadonlySet<string>): Map<string, PlacedBox | null> | null {
+  const placedById = new Map<string, PlacedBox | null>();
   const visitingIds = new Set<string>();
-  const boxNow = (id: string): LaidOutBox | null | undefined => {
+  const boxNow = (id: string): PlacedBox | null | undefined => {
     const placed = placedById.get(id);
     if (placed !== undefined || placedById.has(id)) return placed;
     if (!dirtyIds.has(id)) {
@@ -375,7 +375,7 @@ function placedDirtyBoxes(world: LayoutWorld, board: Board, dirtyIds: ReadonlySe
     if (laidOut) placedById.set(id, laidOut);
     return laidOut;
   };
-  const placedBoxOf = (box: Box): LaidOutBox | undefined => {
+  const placedBoxOf = (box: Box): PlacedBox | undefined => {
     if (box.at) return laidOutBox(NO_PLAN_STEPS, box, { x: box.at.x, y: box.at.y + world.pinnedOffsetY });
     if (!box.near) return undefined;
     const target = boxNow(box.near.of);
@@ -401,7 +401,7 @@ function hasKind<Kind extends Element['kind']>(element: Element, kind: Kind): el
 }
 
 interface SolidOutcome {
-  nextById: Map<string, LaidOutElement | null>;
+  nextById: Map<string, PlacedElement | null>;
   dirtyBoxIds: Set<string>;
   dirtyFrameIds: Set<string>;
 }
@@ -410,8 +410,8 @@ function laidOutSolids(world: LayoutWorld, board: Board, changes: ReadonlyMap<st
   const dirtyBoxIds = dirtyBoxIdsOf(board, changes);
   const placedBoxes = placedDirtyBoxes(world, board, dirtyBoxIds);
   if (!placedBoxes) return null;
-  const nextById = new Map<string, LaidOutElement | null>(placedBoxes);
-  const boxNow = (id: string): LaidOutBox | null => {
+  const nextById = new Map<string, PlacedElement | null>(placedBoxes);
+  const boxNow = (id: string): PlacedBox | null => {
     if (placedBoxes.has(id)) return placedBoxes.get(id) ?? null;
     const known = world.laidOutById.get(id);
     return known?.kind === 'box' ? known : null;
@@ -450,11 +450,11 @@ function laidOutSolids(world: LayoutWorld, board: Board, changes: ReadonlyMap<st
   return { nextById, dirtyBoxIds, dirtyFrameIds };
 }
 
-type SolidElement = Exclude<LaidOutElement, LaidOutWire>;
+type SolidElement = Exclude<PlacedElement, LaidOutWire>;
 
 interface Commit {
-  previousById: Map<string, LaidOutElement>;
-  changed: LaidOutElement[];
+  previousById: Map<string, PlacedElement>;
+  changed: PlacedElement[];
   removedIds: string[];
   oldObstacles: SolidElement[];
   newObstacles: SolidElement[];
@@ -466,7 +466,7 @@ function isSameGeometry(first: Rect | null, second: Rect | null): boolean {
   return first.x === second.x && first.y === second.y && first.width === second.width && first.height === second.height;
 }
 
-function commitElement(world: LayoutWorld, commit: Commit, id: string, next: LaidOutElement | null): void {
+function commitElement(world: LayoutWorld, commit: Commit, id: string, next: PlacedElement | null): void {
   const previous = world.laidOutById.get(id);
   if (!previous && !next) return;
   if (previous && next && elementSignature(previous) === elementSignature(next)) return;
@@ -493,8 +493,8 @@ function commitElement(world: LayoutWorld, commit: Commit, id: string, next: Lai
   if (nextExtent && !commit.isAroundStale) world.around = unionOf([...(world.around ? [world.around] : []), nextExtent]);
 }
 
-function boxesTouching(world: LayoutWorld, rect: Rect): LaidOutBox[] {
-  const boxes: LaidOutBox[] = [];
+function boxesTouching(world: LayoutWorld, rect: Rect): PlacedBox[] {
+  const boxes: PlacedBox[] = [];
   forEachIdTouching(world.boxGrid, rect, (id) => {
     const box = world.laidOutById.get(id);
     if (box?.kind === 'box') boxes.push(box);
@@ -572,7 +572,7 @@ interface SubRoute {
 }
 
 function routeInputOver(world: LayoutWorld, board: Board, rerouteIds: ReadonlySet<string>, contextIds: ReadonlySet<string>): RouteInput {
-  const boxesById = new Map<string, LaidOutBox>();
+  const boxesById = new Map<string, PlacedBox>();
   const softById = new Map<string, Rect>();
   const addBox = (id: string) => {
     const box = world.laidOutById.get(id);
@@ -610,13 +610,13 @@ function rectKeyOf(rect: Rect): string {
   return `${rect.x},${rect.y},${rect.width},${rect.height}`;
 }
 
-function softRectsOf(elements: readonly LaidOutElement[]): Rect[] {
+function softRectsOf(elements: readonly PlacedElement[]): Rect[] {
   return elements.flatMap((element) => (element.kind === 'note' || element.kind === 'frame' ? obstacleRectOf(element) ?? [] : []));
 }
 
 function previousInputOf(input: RouteInput, commit: Commit): RouteInput {
   const movedIds = new Set([...commit.oldObstacles, ...commit.newObstacles].map((element) => element.id));
-  const boxesById = new Map<string, LaidOutBox>();
+  const boxesById = new Map<string, PlacedBox>();
   for (const [id, box] of input.boxesById) {
     if (!movedIds.has(id)) boxesById.set(id, box);
   }
@@ -685,7 +685,7 @@ function routedSubBoard(world: LayoutWorld, board: Board, seedIds: ReadonlySet<s
 }
 
 function rememberObstacles(world: LayoutWorld, commit: Commit): void {
-  const tinyInput = (elements: readonly LaidOutElement[]): RouteInput => ({
+  const tinyInput = (elements: readonly PlacedElement[]): RouteInput => ({
     wires: [], contentTop: world.contentTop,
     boxesById: new Map(elements.flatMap((element) => (element.kind === 'box' ? [[element.id, element] as const] : []))),
     softObstacles: softRectsOf(elements),
@@ -771,13 +771,13 @@ function applyLayoutDelta(world: LayoutWorld, board: Board, changes: ReadonlyMap
   return { world: rebuilt, delta: { changed: [], previousById: new Map(), removedIds: [], isChromeChanged: true, isRebuilt: true } };
 }
 
-function layoutOf(world: LayoutWorld): BoardLayout {
+function layoutOf(world: LayoutWorld): PlacedLayout {
   if (world.layout) return world.layout;
   const frames: LaidOutFrame[] = [];
   const wires: LaidOutWire[] = [];
-  const pinnedBoxes: LaidOutBox[] = [];
-  const nearBoxes: LaidOutBox[] = [];
-  const notes: LaidOutNote[] = [];
+  const pinnedBoxes: PlacedBox[] = [];
+  const nearBoxes: PlacedBox[] = [];
+  const notes: PlacedNote[] = [];
   for (const element of Object.values(world.board.elements)) {
     const laidOut = world.laidOutById.get(element.id);
     if (laidOut?.kind === 'frame') frames.push(laidOut);
@@ -786,7 +786,7 @@ function layoutOf(world: LayoutWorld): BoardLayout {
     if (laidOut?.kind === 'box' && element.kind === 'box' && !element.at) nearBoxes.push(laidOut);
     if (laidOut?.kind === 'note') notes.push(laidOut);
   }
-  const layout: BoardLayout = { elements: [...frames, ...wires, ...pinnedBoxes, ...nearBoxes, ...notes], ...world.chrome, warnings: warningsOf(world) };
+  const layout: PlacedLayout = { elements: [...frames, ...wires, ...pinnedBoxes, ...nearBoxes, ...notes], ...world.chrome, warnings: warningsOf(world) };
   world.layout = layout;
   return layout;
 }

@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
 
-import { BoardChrome, PaintedElement } from '../../shared/contracts/whiteboard-tiles.ts';
+import { BoardChrome, PlacedPaint } from '../../shared/contracts/whiteboard-tiles.ts';
 import { isUnreadableDatabase, openDatabase, setAside } from './sqlite-files.ts';
 
 const LAYOUT_CACHE_FILENAME = 'layout-cache.sqlite';
@@ -35,7 +35,7 @@ const LaidOutRow = z.object({ slot: z.number().int().nonnegative(), body: z.stri
 
 interface CachedLayout {
   chrome: BoardChrome;
-  painted: (PaintedElement | null)[];
+  painted: (PlacedPaint | null)[];
 }
 
 interface LayoutStamp {
@@ -45,13 +45,13 @@ interface LayoutStamp {
 
 interface ChangedPaint {
   slot: number;
-  painted: PaintedElement;
+  painted: PlacedPaint;
 }
 
 interface LayoutCache {
   layoutOf(boardId: string, stamp: LayoutStamp): CachedLayout | null;
   save(boardId: string, from: LayoutStamp, to: LayoutStamp, chrome: BoardChrome, changed: readonly ChangedPaint[], removedIds: readonly string[]): void;
-  saveWhole(boardId: string, stamp: LayoutStamp, chrome: BoardChrome, painted: readonly (PaintedElement | null)[]): void;
+  saveWhole(boardId: string, stamp: LayoutStamp, chrome: BoardChrome, painted: readonly (PlacedPaint | null)[]): void;
   forget(boardId: string): void;
 }
 
@@ -111,11 +111,11 @@ function cacheOver(database: DatabaseSync, codeStamp: string): OpenCache {
     if (!head) return null;
     const chrome = BoardChrome.safeParse(parsedJson(head.chrome));
     if (!chrome.success) return null;
-    const painted: (PaintedElement | null)[] = [];
+    const painted: (PlacedPaint | null)[] = [];
     for (const row of statements.rows.iterate(boardId)) {
       const laidOut = LaidOutRow.safeParse(row);
       if (!laidOut.success) return null;
-      const entry = PaintedElement.safeParse(parsedJson(laidOut.data.body));
+      const entry = PlacedPaint.safeParse(parsedJson(laidOut.data.body));
       if (!entry.success) return null;
       while (painted.length < laidOut.data.slot) painted.push(null);
       painted[laidOut.data.slot] = entry.data;
@@ -135,7 +135,7 @@ function cacheOver(database: DatabaseSync, codeStamp: string): OpenCache {
     });
   }
 
-  function saveWhole(boardId: string, stamp: LayoutStamp, chrome: BoardChrome, painted: readonly (PaintedElement | null)[]): void {
+  function saveWhole(boardId: string, stamp: LayoutStamp, chrome: BoardChrome, painted: readonly (PlacedPaint | null)[]): void {
     inTransaction(() => {
       statements.removeRows.run(boardId);
       for (const [slot, entry] of painted.entries()) {

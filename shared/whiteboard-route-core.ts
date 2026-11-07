@@ -1,6 +1,6 @@
 import { WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Wire } from './contracts/whiteboard.ts';
-import type { LaidOutBox, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
+import type { PlacedBox, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
 import { emptyFlatRects, flatRectsOf, forEachTouchingPairAcross, forEachTouchingPairWithin, orderOfPairs, setFlatRect } from './whiteboard-sweep-core.ts';
 import type { FlatRects } from './whiteboard-sweep-core.ts';
 import { nudgeSharedLines } from './whiteboard-nudge-core.ts';
@@ -61,7 +61,7 @@ interface AreaObstacles {
 
 interface RouteInput {
   wires: readonly Wire[];
-  boxesById: ReadonlyMap<string, LaidOutBox>;
+  boxesById: ReadonlyMap<string, PlacedBox>;
   softObstacles: readonly Rect[];
   loopFrames: readonly Rect[];
   contentTop: number;
@@ -130,8 +130,8 @@ interface RouteResult {
 
 interface WirePlan {
   wire: Wire;
-  from: LaidOutBox;
-  to: LaidOutBox;
+  from: PlacedBox;
+  to: PlacedBox;
   styleKey: string;
   exitSide: Side;
   entrySide: Side;
@@ -303,7 +303,7 @@ interface SidePair {
   entrySide: Side;
 }
 
-function facingSides(from: LaidOutBox, to: LaidOutBox, isBack: boolean): SidePair {
+function facingSides(from: PlacedBox, to: PlacedBox, isBack: boolean): SidePair {
   if (from.id === to.id) return { exitSide: 'right', entrySide: 'top' };
   if (isBack) return { exitSide: 'bottom', entrySide: 'bottom' };
   const fromCenter = centerOf(from);
@@ -327,7 +327,7 @@ function pointsOfStates(graph: VisibilityGraph, states: readonly number[]): Poin
   return withoutBends(states.map((state) => ({ x: graph.xs[state >> 2] ?? 0, y: graph.ys[state >> 2] ?? 0 })));
 }
 
-function sideTerminalsOf(box: LaidOutBox, sides: readonly Side[], facingSide: Side, facingPoint: Point, directionBySide: Record<Side, number>): SideTerminal[] {
+function sideTerminalsOf(box: PlacedBox, sides: readonly Side[], facingSide: Side, facingPoint: Point, directionBySide: Record<Side, number>): SideTerminal[] {
   return sides.map((side) => ({
     side,
     point: side === facingSide ? facingPoint : portPositions(box, side, 1)[0] ?? centerOf(box),
@@ -478,7 +478,7 @@ function planWires(input: RouteInput, reuse: RouteReuse | null): PlannedWires {
   return { plans, contextPlans };
 }
 
-function portPositions(box: LaidOutBox, side: Side, count: number): Point[] {
+function portPositions(box: PlacedBox, side: Side, count: number): Point[] {
   const indexes = Array.from({ length: count }, (_, index) => index);
   if (isSideways(side)) {
     const x = Math.round(side === 'left' ? box.x : box.x + box.width);
@@ -492,13 +492,13 @@ function portPositions(box: LaidOutBox, side: Side, count: number): Point[] {
   return indexes.map((index) => ({ x: Math.round(firstX + index * PORT_SPACING), y }));
 }
 
-function portCapacity(box: LaidOutBox, side: Side): number {
+function portCapacity(box: PlacedBox, side: Side): number {
   const sideLength = isSideways(side) ? box.height : box.width;
   return Math.max(1, Math.floor((sideLength - PORT_INSET * 2) / PORT_SPACING) + 1);
 }
 
 interface PortRequest {
-  box: LaidOutBox;
+  box: PlacedBox;
   side: Side;
   groupKey: string;
   wireId: string;
@@ -545,7 +545,7 @@ function isFacing(exitSide: Side, entrySide: Side): boolean {
     || (exitSide === 'bottom' && entrySide === 'top') || (exitSide === 'top' && entrySide === 'bottom');
 }
 
-function alignedAlong(point: Point, side: Side, box: LaidOutBox, target: Point): Point {
+function alignedAlong(point: Point, side: Side, box: PlacedBox, target: Point): Point {
   if (isSideways(side)) {
     const isInRange = target.y >= box.y + PORT_INSET && target.y <= box.y + box.height - PORT_INSET;
     return isInRange ? { x: point.x, y: target.y } : point;
@@ -555,7 +555,7 @@ function alignedAlong(point: Point, side: Side, box: LaidOutBox, target: Point):
 }
 
 function alignLonePorts(plans: readonly WirePlan[], groupOrderBySide: ReadonlyMap<string, readonly string[]>): void {
-  const isLonePort = (box: LaidOutBox, side: Side) => (groupOrderBySide.get(`${box.id}|${side}`)?.length ?? 0) === 1;
+  const isLonePort = (box: PlacedBox, side: Side) => (groupOrderBySide.get(`${box.id}|${side}`)?.length ?? 0) === 1;
   const memberCountByExitKey = new Map([...groupedBy(plans, (plan) => plan.exitKey)].map(([exitKey, members]) => [exitKey, members.length]));
   for (const plan of plans) {
     if (plan.from.id === plan.to.id || !isFacing(plan.exitSide, plan.entrySide)) continue;
@@ -1139,9 +1139,9 @@ function orderedWarningList(pairs: IndexPairs, firstCount: number, secondCount: 
   };
 }
 
-const solidsByInput = new WeakMap<RouteInput, LaidOutBox[]>();
+const solidsByInput = new WeakMap<RouteInput, PlacedBox[]>();
 
-function solidsOf(input: RouteInput): LaidOutBox[] {
+function solidsOf(input: RouteInput): PlacedBox[] {
   const known = solidsByInput.get(input);
   if (known) return known;
   const solids = [...input.boxesById.values()];
@@ -1149,11 +1149,11 @@ function solidsOf(input: RouteInput): LaidOutBox[] {
   return solids;
 }
 
-function solidKeyOf(solid: LaidOutBox): string {
+function solidKeyOf(solid: PlacedBox): string {
   return `box ${solid.id}`;
 }
 
-function addRunThrough(crossedPairKeys: Map<number, boolean>, drawn: readonly DrawnWire[], pieces: WirePieces, solids: readonly LaidOutBox[], insets: readonly Rect[], piece: number, solidIndex: number): void {
+function addRunThrough(crossedPairKeys: Map<number, boolean>, drawn: readonly DrawnWire[], pieces: WirePieces, solids: readonly PlacedBox[], insets: readonly Rect[], piece: number, solidIndex: number): void {
   const wireIndex = pieces.wireIndexByPiece[piece] ?? 0;
   const pairKey = wireIndex * solids.length + solidIndex;
   if (crossedPairKeys.has(pairKey)) return;
@@ -1166,7 +1166,7 @@ function addRunThrough(crossedPairKeys: Map<number, boolean>, drawn: readonly Dr
   if (segmentHitsRect(segment, inset)) crossedPairKeys.set(pairKey, true);
 }
 
-function runsThroughPairsOf(drawn: readonly DrawnWire[], pieces: WirePieces, solids: readonly LaidOutBox[], reusable: ReusablePairs | null): IndexPairs {
+function runsThroughPairsOf(drawn: readonly DrawnWire[], pieces: WirePieces, solids: readonly PlacedBox[], reusable: ReusablePairs | null): IndexPairs {
   const insets = solids.map((solid) => inflated(solid, -2));
   const insetRects = flatRectsOf(insets);
   const crossedPairKeys = new Map<number, boolean>();

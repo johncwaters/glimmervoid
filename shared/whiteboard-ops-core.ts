@@ -2,7 +2,7 @@ import { BOX_SHAPES, Box, Frame, Note, Wire, WHITEBOARD_LIMITS, fieldNamesOfShap
 import type { Board, BoardChange, Element, Op } from './contracts/whiteboard.ts';
 import { isRecord } from './coerce.ts';
 import { isStackedPanel, layoutBoard } from './whiteboard-layout-core.ts';
-import type { LaidOutBox } from './whiteboard-layout-core.ts';
+import type { PlacedBox } from './whiteboard-layout-core.ts';
 import type { BoardDiff, DiffBefore, ElementChange } from './contracts/control/whiteboard-messages.ts';
 import { appendElement, boardIndexOf, boxIdsDependedOnBy, dropElement, storeElement } from './whiteboard-board-index.ts';
 
@@ -18,7 +18,7 @@ type StagedOps = {
   commit: () => void;
 } | { ok: false; error: string; opIndex: number };
 type OpOutcome = { ok: true } | { ok: false; error: string };
-type PinPositions = { laidOutBoxOf: (id: string) => LaidOutBox | undefined; pinnedOffsetY: number };
+type PinPositions = { laidOutBoxOf: (id: string) => PlacedBox | undefined; pinnedOffsetY: number };
 type ElementLookup = (id: string) => Element | undefined;
 type Draft = {
   base: Board;

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Board, Op } from '../shared/contracts/whiteboard.ts';
 import { reviewBoard } from '../shared/whiteboard-anchor-core.ts';
-import { layoutBoard, pinnedOffsetYAfterLeaving, pinnedOffsetYOf } from '../shared/whiteboard-layout-core.ts';
+import { layoutBoard, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, placeBoardWithMemory } from '../shared/whiteboard-layout-core.ts';
 import { boardSvgDocument } from '../shared/whiteboard-svg-core.ts';
 import { applyBoardDiff, applyOps, stageOps } from '../shared/whiteboard-ops-core.ts';
 import { applyLayoutDelta, createLayoutWorld, layoutOf } from '../shared/whiteboard-layout-engine.ts';
@@ -10,7 +10,7 @@ import { layoutBoardRemembered, pinPositionsOfBoard } from '../shared/whiteboard
 import { patchTileIndex, tileIndexOf, tileKeysFor, tileOf } from '../shared/whiteboard-tile-core.ts';
 import { generateBoardRecord } from '../harness/load-cost/whiteboard-board-generator.ts';
 import { EMPTY_HISTORY, UNDO_LIMIT, recordEdit, takeStep, undoOpsOf } from '../shared/whiteboard-undo-core.ts';
-import type { LaidOutElement, Rect } from '../shared/whiteboard-layout-core.ts';
+import type { LaidOutElement, PlacedElement, Rect } from '../shared/whiteboard-layout-core.ts';
 
 function box(id: string) {
   return { kind: 'box', id, title: `step ${id} with a longer title`, lines: [{ text: 'a body line long enough to wrap twice over' }] };
@@ -558,8 +558,8 @@ test('a layout world kept across puts places what a fresh layout places, and its
     patchTileIndex(tileIndex, board, { version: board.version, chrome: world.chrome, changed: applied.delta.changed, removedIds: applied.delta.removedIds, recordChangedIds: [...changes.keys()] });
   }
   const kept = layoutOf(world);
-  const fresh = layoutBoard(board);
-  const solidsOf = (elements: readonly LaidOutElement[]) => elements.filter((element) => element.kind !== 'wire').map((element) => JSON.stringify(element)).sort();
+  const fresh = placeBoardWithMemory(board, null).layout;
+  const solidsOf = (elements: readonly PlacedElement[]) => elements.filter((element) => element.kind !== 'wire').map((element) => JSON.stringify(element)).sort();
   assert.deepEqual(solidsOf(kept.elements), solidsOf(fresh.elements));
   assert.deepEqual(kept.elements.filter((element) => element.kind === 'wire').map((element) => element.id).sort(), fresh.elements.filter((element) => element.kind === 'wire').map((element) => element.id).sort());
   assert.deepEqual(kept.bounds, fresh.bounds);
