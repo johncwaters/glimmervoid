@@ -12,7 +12,7 @@ import { z } from 'zod';
 import { createBackend } from '../server/backend/backend.ts';
 import { AGENT_REPLY_SCHEMAS, AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import { runAgentApiCli } from '../server/agent-api-cli.ts';
-import { Board, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_VIEWER_PARAM, BoardOutline, BoardRegion, Element, Op, sparseElement, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
+import { Board, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_VIEWER_PARAM, BoardOutline, BoardRegion, Element, mediaOfBox, Op, sparseElement, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { closeSocket, dashboardClient, openRecordingSocket, waitForMessage } from './helpers/dashboard-ws.ts';
 import type { Backend } from './helpers/lanes.ts';
@@ -77,7 +77,8 @@ async function boardOf(sessionId: string, boardId: string) {
   const reply = await whiteboard(sessionId, { sub: 'get', board: boardId });
   assert.equal(reply.status, 200);
   const body = reply.body as { board: unknown; changes: { summary: string }[] };
-  const board: { version: number; elements: Record<string, Record<string, unknown>> } = Board.parse(body.board);
+  const parsed = Board.parse(body.board);
+  const board: { version: number; elements: Record<string, Record<string, unknown>> } = { ...parsed, elements: parsed.elements.toJSON() };
   return { ...body, board };
 }
 
@@ -1086,8 +1087,9 @@ test('deleting a board sweeps the pictures no live board shows, sparing a pendin
   const restarted = createWhiteboardWiring({ boardsRoot, now: () => clockMs });
   await restarted.loaded;
   assert.deepEqual(storedFiles(), filesOf([shared.asset, pending.asset]));
-  const migrated = (await restarted.handleOperator.get(keptId)) as { board?: { elements: Record<string, { media?: unknown }> } };
-  assert.deepEqual([migrated.board?.elements.shared?.media, migrated.board?.elements.plain?.media], [{ alt: '', ...imageFromRelease051, kind: 'image', mime: 'image/webp', hasPreview: false }, null], 'a board saved by 0.51.0 loads with media');
+  const migrated = (await restarted.handleOperator.get(keptId)).board?.elements;
+  const [sharedBox, plainBox] = [migrated?.get('shared'), migrated?.get('plain')];
+  assert.deepEqual([sharedBox?.kind === 'box' ? mediaOfBox(sharedBox) : undefined, plainBox?.kind === 'box' ? mediaOfBox(plainBox) : undefined], [{ alt: '', ...imageFromRelease051, kind: 'image', mime: 'image/webp', hasPreview: false }, null], 'a board saved by 0.51.0 loads with media');
 
   fs.writeFileSync(path.join(boardsRoot, `${keptId}.json`), '{"board": "from a newer build"}');
   clockMs += 61 * 60_000;
@@ -1126,7 +1128,7 @@ test('a board saved with units, panels, columns and lanes loads them as step box
   const upgraded = Board.parse((await after.handleOperator.get(plannedId) as { board?: unknown }).board);
   assert.deepEqual(planSteps(upgraded).map((step) => [step.boxId, step.label, step.status, step.afterLabels]), [['schema', '1a', 'landed', []], ['u1', '1b', 'planned', []], ['route', '2', 'building', ['1a']]]);
   const placeOf = (boxId: string) => {
-    const element = upgraded.elements[boxId];
+    const element = upgraded.elements.get(boxId);
     return element?.kind === 'box' ? { at: element.at, near: element.near } : null;
   };
   assert.deepEqual(['queue', 'read', 'write', 'pinned'].map(placeOf), [
@@ -1135,8 +1137,9 @@ test('a board saved with units, panels, columns and lanes loads them as step box
     { at: { x: 530, y: 40 }, near: null },
     { at: { x: 900, y: 500 }, near: null },
   ]);
-  assert.deepEqual([upgraded.elements.handoff?.kind === 'wire' && upgraded.elements.handoff.tone, upgraded.legend.map((entry) => entry.tone)], ['plain', ['plain']]);
-  const priorPanel = upgraded.elements.prior;
+  const handoff = upgraded.elements.get('handoff');
+  assert.deepEqual([handoff?.kind === 'wire' && handoff.tone, upgraded.legend.map((entry) => entry.tone)], ['plain', ['plain']]);
+  const priorPanel = upgraded.elements.get('prior');
   assert.ok(priorPanel?.kind === 'box' && priorPanel.shape === 'panel');
   assert.deepEqual([priorPanel.shape, priorPanel.title, priorPanel.lines.map((line) => line.text), priorPanel.order, priorPanel.at], ['panel', 'Prior art', ['the old router'], 2, null]);
   const renamed = await after.handleOperator.put(plannedId, z.array(Op).parse([{ op: 'board', title: 'renamed' }]));
@@ -1170,8 +1173,8 @@ test('show puts each file on a board the session is connected to, creating one n
 
   const read = await wiring.handleAgent(shower, { sub: 'get', board: boardId });
   const { elements } = Board.parse((read.body as { board: unknown }).board);
-  const firstCard = elements['shown-1'];
-  const secondCard = elements['shown-2'];
+  const firstCard = elements.get('shown-1');
+  const secondCard = elements.get('shown-2');
   assert.ok(firstCard?.kind === 'box' && firstCard.shape === 'box' && secondCard?.kind === 'box' && secondCard.shape === 'box');
   assert.deepEqual([firstCard.title, firstCard.lines.map((line) => line.text), firstCard.media?.kind, firstCard.media?.alt], ['login.png', ['login after fix'], 'image', 'login after fix']);
   assert.deepEqual([secondCard.title, secondCard.media?.kind, secondCard.near], ['Weekly report', 'page', { of: 'shown-1', side: 'right', gap: 60 }]);

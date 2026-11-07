@@ -1,6 +1,7 @@
 import type { Board, Element, Op } from './contracts/whiteboard.ts';
 import type { BoardDiff, DiffBefore } from './contracts/control/whiteboard-messages.ts';
 import { applyBoardDiff } from './whiteboard-ops-core.ts';
+import { elementTableOf } from './whiteboard-element-table.ts';
 
 type UndoDirection = 'undo' | 'redo';
 type UndoHistory = Readonly<Record<UndoDirection, readonly Op[][]>>;
@@ -50,12 +51,12 @@ function boardFieldOps(current: Board, target: Board): Op[] {
 }
 
 function restoringOps(current: Board, target: Board): Op[] {
-  const currentElements = Object.values(current.elements);
-  const targetElements = Object.values(target.elements);
-  const removed = REMOVAL_ORDER.flatMap((kind) => currentElements.filter((element) => element.kind === kind && !target.elements[element.id]));
-  const added = inDependencyOrder(targetElements.filter((element) => !current.elements[element.id]));
+  const currentElements = [...current.elements.values()];
+  const targetElements = [...target.elements.values()];
+  const removed = REMOVAL_ORDER.flatMap((kind) => currentElements.filter((element) => element.kind === kind && !target.elements.get(element.id)));
+  const added = inDependencyOrder(targetElements.filter((element) => !current.elements.get(element.id)));
   const setOps: Op[] = targetElements.flatMap((element) => {
-    const existing = current.elements[element.id];
+    const existing = current.elements.get(element.id);
     if (!existing || existing === element) return [];
     const fields = changedFields(existing, element);
     return Object.keys(fields).length === 0 ? [] : [{ op: 'set', id: element.id, fields }];
@@ -72,7 +73,7 @@ function restoringOps(current: Board, target: Board): Op[] {
 const TOUCHED_ONLY_HEAD = Object.freeze({ id: 'touched', title: 'touched', version: 0, caption: null, legend: [], codeSessionId: null, project: null, createdAt: 0, updatedAt: 0 });
 
 function undoOpsOf(before: DiffBefore, diff: BoardDiff): Op[] {
-  const beforeElements = Object.fromEntries(Object.entries(before.elements).flatMap(([id, element]) => (element ? [[id, element]] : [])));
+  const beforeElements = elementTableOf(Object.values(before.elements).flatMap((element) => element ?? []));
   const touchedBefore: Board = { ...TOUCHED_ONLY_HEAD, ...before.fields, elements: beforeElements };
   const touchedAfter = applyBoardDiff(touchedBefore, diff, 0, 0);
   return touchedAfter ? restoringOps(touchedAfter, touchedBefore) : [];

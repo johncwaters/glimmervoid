@@ -12,6 +12,7 @@ import { layoutBoard, placeBoardWithMemory } from '../shared/whiteboard-layout-c
 import { emptyFlatRects, flatRectsOf, forEachTouchingPairAcross, setFlatRect } from '../shared/whiteboard-sweep-core.ts';
 import { createBoard } from '../shared/whiteboard-ops-core.ts';
 import type { PlacedLayout } from '../shared/whiteboard-layout-core.ts';
+import { elementTableOf } from '../shared/whiteboard-element-table.ts';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..');
 const TIMED_RUNS = 3;
@@ -42,7 +43,7 @@ export function benchmarkBoard(elementCount: number): Board {
   const boxCount = Math.round(elementCount * BOX_SHARE);
   const boxesPerRow = Math.ceil(Math.sqrt(boxCount));
   const atGridLeft = AT_GRID_LEFT + elementCount * AT_GRID_LEFT_PER_ELEMENT;
-  const elements: Board['elements'] = {};
+  const elements = elementTableOf();
   const lastStackedIdByName = new Map<string, string>();
   const stackedPlaceOf = (boxIndex: number) => {
     const stackName = boxIndex % (STACKED_BOX_EVERY * 2) === 0 ? 'one' : 'two';
@@ -55,12 +56,12 @@ export function benchmarkBoard(elementCount: number): Board {
     const place = isStacked
       ? stackedPlaceOf(boxIndex)
       : { at: { x: atGridLeft + (boxIndex % boxesPerRow) * BOX_SPACING_X, y: AT_GRID_TOP + Math.floor(boxIndex / boxesPerRow) * BOX_SPACING_Y } };
-    elements[`b${boxIndex}`] = Element.parse({ kind: 'box', id: `b${boxIndex}`, title: `box ${boxIndex}`, lines: [{ text: 'a line' }], ...place });
+    elements.put(Element.parse({ kind: 'box', id: `b${boxIndex}`, title: `box ${boxIndex}`, lines: [{ text: 'a line' }], ...place }));
   }
   for (let wireIndex = 0; wireIndex < elementCount - boxCount; wireIndex += 1) {
     const fromIndex = Math.floor(nextRandom() * boxCount);
     const toIndex = Math.min(boxCount - 1, fromIndex + 1 + Math.floor(nextRandom() * 3));
-    elements[`w${wireIndex}`] = Element.parse({ kind: 'wire', id: `w${wireIndex}`, from: `b${fromIndex}`, to: `b${toIndex}` });
+    elements.put(Element.parse({ kind: 'wire', id: `w${wireIndex}`, from: `b${fromIndex}`, to: `b${toIndex}` }));
   }
   const board = createBoard({ id: '00000000-0000-4000-8000-000000000000', title: 'layout cost', nowMs: 0 });
   return { ...board, elements };
@@ -79,12 +80,12 @@ function bestLayoutMs(layout: LayoutBoard, board: Board): { layoutMs: number; bo
 
 function movedBoxesBoard(board: Board): Board {
   const nextRandom = seededRandom(11);
-  const placedBoxes = Object.values(board.elements).flatMap((element) => (element.kind === 'box' && element.at ? [element] : []));
-  const elements = { ...board.elements };
+  const placedBoxes = [...board.elements.values()].flatMap((element) => (element.kind === 'box' && element.at ? [element] : []));
+  const elements = board.elements.copy();
   for (let moved = 0; moved < EDITED_BOX_COUNT; moved += 1) {
     const box = placedBoxes[Math.floor(nextRandom() * placedBoxes.length)];
     if (!box?.at) continue;
-    elements[box.id] = { ...box, at: { x: box.at.x + EDIT_OFFSET.x, y: box.at.y + EDIT_OFFSET.y } };
+    elements.put({ ...box, at: { x: box.at.x + EDIT_OFFSET.x, y: box.at.y + EDIT_OFFSET.y } });
   }
   return { ...board, elements };
 }
@@ -97,7 +98,7 @@ function bestEditMs(board: Board): { layoutMs: number; boardLayout: PlacedLayout
 
 function wiresThroughBoxesOf(board: Board, boardLayout: PlacedLayout): number {
   const boxes = boardLayout.elements.flatMap((element) => (element.kind === 'box' ? [element] : []));
-  const endsByWireId = new Map(Object.values(board.elements).flatMap((element) => (element.kind === 'wire' ? [[element.id, [element.from, element.to]] as const] : [])));
+  const endsByWireId = new Map([...board.elements.values()].flatMap((element) => (element.kind === 'wire' ? [[element.id, [element.from, element.to]] as const] : [])));
   const pieces: { wireId: string; isHorizontal: boolean; line: number; from: number; to: number }[] = [];
   for (const element of boardLayout.elements) {
     if (element.kind !== 'wire') continue;

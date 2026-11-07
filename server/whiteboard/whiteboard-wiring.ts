@@ -195,7 +195,7 @@ type PageStart = { ok: true; offset: number } | { ok: false; reply: WhiteboardRe
 type RecordLoad = { ok: true; record: BoardRecord } | { ok: false; reply: WhiteboardReply };
 
 function boardSnapshotOf(board: Board): Board {
-  return { ...board, elements: { ...board.elements } };
+  return { ...board, elements: board.elements.copy() };
 }
 
 function isWholeBoardRead(board: Board, request: Extract<WhiteboardAgentRequest, { sub: 'get' }>): boolean {
@@ -453,7 +453,7 @@ function createWhiteboardWiring({
 
   function stagedRefusalOf(boardBefore: Board, afterById: ReadonlyMap<string, Element | null>): string | null {
     for (const element of afterById.values()) {
-      const before = element ? boardBefore.elements[element.id] : undefined;
+      const before = element ? boardBefore.elements.get(element.id) : undefined;
       if (element?.kind !== 'box') continue;
       const linkedBoardId = element.step?.linkedBoardId ?? null;
       const isNewLink = before?.kind !== 'box' || (before.step?.linkedBoardId ?? null) !== linkedBoardId;
@@ -478,14 +478,14 @@ function createWhiteboardWiring({
   function hasNearBox(board: Board, boxId: string): boolean {
     const dependentIds = boardIndexOf(board.elements).dependentIdsByBoxId.get(boxId) ?? [];
     for (const dependentId of dependentIds) {
-      const dependent = board.elements[dependentId];
+      const dependent = board.elements.get(dependentId);
       if (dependent?.kind === 'box' && dependent.near?.of === boxId) return true;
     }
     return false;
   }
 
   function basePinPositionsFor(board: Board, ops: readonly Op[]): Promise<PinPositions | null> {
-    const removedBoxIds = ops.flatMap((op) => (op.op === 'remove' && board.elements[op.id]?.kind === 'box' ? [op.id] : []));
+    const removedBoxIds = ops.flatMap((op) => (op.op === 'remove' && board.elements.get(op.id)?.kind === 'box' ? [op.id] : []));
     const isPinNeeded = removedBoxIds.some((boxId) => hasNearBox(board, boxId)) || ops.some((op) => op.op === 'add' || op.op === 'set');
     if (removedBoxIds.length === 0 || !isPinNeeded) return Promise.resolve(null);
     const ids = ops.flatMap((op) => (op.op === 'remove' || op.op === 'set' ? [op.id] : []));
@@ -501,7 +501,7 @@ function createWhiteboardWiring({
     if (!result.ok) return result;
     const refusalText = stagedRefusalOf(record.board, result.afterById);
     if (refusalText) return { ok: false, error: refusalText };
-    const releasedAssetIds = new Set([...result.afterById.keys()].flatMap((id) => assetIdOf(record.board.elements[id]) ?? []));
+    const releasedAssetIds = new Set([...result.afterById.keys()].flatMap((id) => assetIdOf(record.board.elements.get(id)) ?? []));
     const next = recordPut(record, result);
     const patch: WhiteboardPatch = {
       boardId: record.board.id, fromVersion: record.board.version, toVersion: next.board.version,
@@ -529,7 +529,7 @@ function createWhiteboardWiring({
     const loading = await loadedRecordOf(boardId);
     if (!loading.ok) return loading.reply;
     const { board } = loading.record;
-    const element = board.elements[boxId];
+    const element = board.elements.get(boxId);
     const media = element?.kind === 'box' ? mediaOfBox(element) : null;
     if (media?.kind !== 'doc') {
       return refusal(400, `${boxId} on board "${board.title}" holds no document; whiteboard doc reads a box whose media kind is doc`);
@@ -599,7 +599,7 @@ function createWhiteboardWiring({
     if (!pageStart.ok) return pageStart.reply;
     const { offset } = pageStart;
     if (query.ids) {
-      const missingIds = query.ids.filter((elementId) => !board.elements[elementId]);
+      const missingIds = query.ids.filter((elementId) => !board.elements.get(elementId));
       return { status: 200, body: { ok: true, version: board.version, ...pageReplyOf(board, query.ids, offset), missingIds } };
     }
     if (query.region) {

@@ -137,12 +137,12 @@ async function withBenchMedia(board: Board, assetsRoot: string): Promise<number>
   const { pictures, page } = await writeBenchMedia(assetsRoot);
   let mediaCount = 0;
   for (const boxId of boxIdsOf(board).filter((_, boxIndex) => boxIndex % MEDIA_EVERY_NTH_BOX === 0)) {
-    const box = board.elements[boxId];
+    const box = board.elements.get(boxId);
     if (box?.kind !== 'box' || box.shape === 'icon') continue;
     const picture = pictures[mediaCount % pictures.length];
     const media = mediaCount % PAGE_EVERY_NTH_MEDIA === PAGE_EVERY_NTH_MEDIA - 1 ? page : picture;
     if (!media) continue;
-    board.elements[boxId] = { ...box, media };
+    board.elements.put({ ...box, media });
     mediaCount += 1;
   }
   return mediaCount;
@@ -156,7 +156,7 @@ async function benchBoardRecordOf(elementCount: number, boardsRoot: string, hasM
 }
 
 function measureLayout(board: Board): { layoutMs: number; layout: BoardLayout } {
-  const runCount = Object.keys(board.elements).length >= SINGLE_LAYOUT_RUN_FROM_ELEMENTS ? 1 : LAYOUT_RUNS;
+  const runCount = board.elements.size >= SINGLE_LAYOUT_RUN_FROM_ELEMENTS ? 1 : LAYOUT_RUNS;
   const runs = Array.from({ length: runCount }, () => {
     const startedAt = performance.now();
     const layout = layoutBoard(board);

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Board, Op } from '../shared/contracts/whiteboard.ts';
+import { Board, Element, Op } from '../shared/contracts/whiteboard.ts';
 import { reviewBoard } from '../shared/whiteboard-anchor-core.ts';
 import { layoutBoard, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, placeBoardWithMemory } from '../shared/whiteboard-layout-core.ts';
 import { boardSvgDocument } from '../shared/whiteboard-svg-core.ts';
@@ -51,7 +51,7 @@ function contains(outer: Rect, inner: Rect): boolean {
 }
 
 function isNoteOnItsOwnBox(note: LaidOutElement, other: LaidOutElement): boolean {
-  const stored = crowdedBoard.elements[note.id];
+  const stored = crowdedBoard.elements.get(note.id);
   return stored?.kind === 'note' && stored.on === other.id;
 }
 
@@ -81,7 +81,7 @@ function wire(id: string, from: string, to: string, extra: Record<string, unknow
 const wiredBoard = Board.parse({
   ...crowdedBoard,
   elements: {
-    ...crowdedBoard.elements,
+    ...crowdedBoard.elements.toJSON(),
     w1: wire('w1', 'a1', 'b2'), w2: wire('w2', 'a2', 'b2'), w3: wire('w3', 'b1', 'b2', { dashed: true }),
     w4: wire('w4', 'a1', 'c3', { label: 'skips the adapters' }), w5: wire('w5', 'c2', 'a2', { tone: 'fail', label: 'refused' }),
     w6: wire('w6', 'c1', 'c3'), w7: wire('w7', 'b2', 'c1', { label: 'yes' }),
@@ -105,7 +105,7 @@ test('wires run at right angles around boxes, and same-style wires into one box 
   const boxes = layout.elements.flatMap((element) => (element.kind === 'box' ? [element] : []));
   assert.equal(wires.length, 7);
   for (const laidOut of wires) {
-    const stored = wiredBoard.elements[laidOut.id];
+    const stored = wiredBoard.elements.get(laidOut.id);
     assert.ok(stored?.kind === 'wire');
     for (const segment of segmentsOfPath(laidOut.path)) {
       assert.ok(segment.x1 === segment.x2 || segment.y1 === segment.y2, `${laidOut.id} has a slanted segment`);
@@ -135,7 +135,7 @@ test('unplaced step boxes draw as a plan band above the free drawing, one level 
   const plannedBoard = Board.parse({
     ...wiredBoard,
     elements: {
-      ...wiredBoard.elements,
+      ...wiredBoard.elements.toJSON(),
       diff: stepBox('diff', 'Diff index'), endpoint: stepBox('endpoint', 'Search endpoint'),
       backfill: stepBox('backfill', 'Index backfill', 'backfill-board'), searchbox: stepBox('searchbox', 'Search box'),
       ...Object.fromEntries([dependency('diff', 'endpoint'), dependency('diff', 'backfill'), dependency('endpoint', 'searchbox'), dependency('diff', 'searchbox')].map((wire) => [wire.id, wire])),
@@ -163,12 +163,12 @@ test('unplaced step boxes draw as a plan band above the free drawing, one level 
   assert.equal(layoutBoard(wiredBoard).plan, null);
 
   const droppedAt = { x: 900, y: 700 };
-  const draggedBoard = Board.parse({ ...plannedBoard, elements: { ...plannedBoard.elements, searchbox: { ...stepBox('searchbox', 'Search box'), at: droppedAt } } });
+  const draggedBoard = Board.parse({ ...plannedBoard, elements: { ...plannedBoard.elements.toJSON(), searchbox: { ...stepBox('searchbox', 'Search box'), at: droppedAt } } });
   const dragged = layoutBoard(draggedBoard).elements.find((element) => element.id === 'searchbox');
   assert.deepEqual(dragged?.kind === 'box' ? { x: dragged.x, y: dragged.y, label: dragged.step?.label } : null, { x: droppedAt.x, y: droppedAt.y + pinnedOffsetYOf(draggedBoard), label: '3' });
   for (const leaving of [[searchbox], [endpoint], [endpoint, backfill], [diff, endpoint, backfill, searchbox]]) {
     const leavingIds = new Set(leaving.map((laidOut) => laidOut.id));
-    const leftBoard = Board.parse({ ...plannedBoard, elements: Object.fromEntries(Object.entries(plannedBoard.elements).map(([id, element]) => [id, leavingIds.has(id) && element.kind === 'box' ? { ...element, at: droppedAt } : element])) });
+    const leftBoard = Board.parse({ ...plannedBoard, elements: Object.fromEntries([...plannedBoard.elements.entries()].map(([id, element]) => [id, leavingIds.has(id) && element.kind === 'box' ? { ...element, at: droppedAt } : element])) });
     assert.equal(pinnedOffsetYAfterLeaving(layout.plan, leaving), pinnedOffsetYOf(leftBoard), `the band left by ${[...leavingIds].join(', ')} matches a whole-board layout`);
   }
 });
@@ -246,15 +246,15 @@ test('a near box sits beside its target and a near box whose target is missing w
   assert.deepEqual(afterRemove.elements.filter((element) => element.id === 'stop' || element.id === 'w1'), [], 'a layout after a put that removed a box with near boxes no longer draws the removed box or its wires');
 
   const addedThenRemoved = applyOps(nearBoard, [
-    { op: 'add', element: Board.shape.elements.valueType.parse({ kind: 'box', id: 'temp', title: 'Temp', at: { x: 600, y: 300 } }) },
-    { op: 'add', element: Board.shape.elements.valueType.parse({ kind: 'box', id: 'kid', title: 'Kid', near: { of: 'temp', side: 'right' } }) },
+    { op: 'add', element: Element.parse({ kind: 'box', id: 'temp', title: 'Temp', at: { x: 600, y: 300 } }) },
+    { op: 'add', element: Element.parse({ kind: 'box', id: 'kid', title: 'Kid', near: { of: 'temp', side: 'right' } }) },
     { op: 'remove', id: 'temp' },
   ], { id: 'operator', name: 'operator' }, 0);
   assert.ok(addedThenRemoved.ok);
-  const kid = addedThenRemoved.board.elements.kid;
+  const kid = addedThenRemoved.board.elements.get('kid');
   assert.ok(kid?.kind === 'box' && kid.near === null && kid.at !== null, 'a box placed near a box the same put adds and removes keeps a place on the board');
 
-  const farFlung = Board.parse({ ...nearBoard, elements: { ...nearBoard.elements, far: { kind: 'box', id: 'far', title: 'Far', at: { x: 1e9, y: 1e9 } }, w2: wire('w2', 'plain', 'far') } });
+  const farFlung = Board.parse({ ...nearBoard, elements: { ...nearBoard.elements.toJSON(), far: { kind: 'box', id: 'far', title: 'Far', at: { x: 1e9, y: 1e9 } }, w2: wire('w2', 'plain', 'far') } });
   assert.ok(layoutBoard(farFlung).elements.some((element) => element.id === 'w2'), 'a wire to a box a billion units away lays out without walking every cell between');
 });
 
@@ -375,7 +375,7 @@ test('a decision draws its outputs as rows in order and each output wire leaves 
   assert.deepEqual(wireStart('w1'), cleanOutput.port);
   assert.equal(layout.warnings.filter((warning) => warning.includes('runs through')).length, 0, layout.warnings.join('\n'));
   const author = { id: 'agent', name: 'agent' };
-  const missingOutput = applyOps(decisionBoard, [{ op: 'add', element: Board.shape.elements.valueType.parse({ kind: 'wire', id: 'w3', from: 'classify', to: 'stop', fromOutput: 'maybe' }) }], author, 0);
+  const missingOutput = applyOps(decisionBoard, [{ op: 'add', element: Element.parse({ kind: 'wire', id: 'w3', from: 'classify', to: 'stop', fromOutput: 'maybe' }) }], author, 0);
   assert.equal(missingOutput.ok ? '' : missingOutput.error, 'op 1: wire w3 starts at output maybe, which decision classify does not have');
   const droppedOutput = applyOps(decisionBoard, [{ op: 'set', id: 'classify', fields: { outputs: [{ id: 'failed', label: 'failed' }] } }], author, 0);
   assert.equal(droppedOutput.ok ? '' : droppedOutput.error, 'op 1: wire w1 still starts at output clean of classify, so change or remove that wire first');
@@ -399,7 +399,7 @@ test('styled lines carry their markers, a panel with no place stacks clear right
       w2: { kind: 'wire', id: 'w2', from: 'second', to: 'first', back: true },
     },
   });
-  assert.throws(() => Board.parse({ ...styledBoard, elements: { ...styledBoard.elements, first: { ...styledBoard.elements.first, lines: [{ text: 'x', style: 'kv' }] } } }), /a kv line needs a key/);
+  assert.throws(() => Board.parse({ ...styledBoard, elements: { ...styledBoard.elements.toJSON(), first: { ...styledBoard.elements.get('first'), lines: [{ text: 'x', style: 'kv' }] } } }), /a kv line needs a key/);
   const layout = layoutBoard(styledBoard);
   const first = layout.elements.find((element) => element.id === 'first');
   assert.ok(first?.kind === 'box');
@@ -411,35 +411,36 @@ test('styled lines carry their markers, a panel with no place stacks clear right
   assert.deepEqual(layout.legend.map((row) => row.label), ['gives up', 'retry', 'merges back']);
   assert.equal(layout.warnings.filter((warning) => warning.includes('prior')).length, 0, layout.warnings.join('\n'));
   const author = { id: 'agent', name: 'agent' };
-  const nearStacked = applyOps(styledBoard, [{ op: 'add', element: Board.shape.elements.valueType.parse({ kind: 'box', id: 'beside', title: 'Beside', near: { of: 'prior', side: 'bottom' } }) }], author, 0);
+  const nearStacked = applyOps(styledBoard, [{ op: 'add', element: Element.parse({ kind: 'box', id: 'beside', title: 'Beside', near: { of: 'prior', side: 'bottom' } }) }], author, 0);
   assert.equal(nearStacked.ok ? '' : nearStacked.error, 'op 1: box beside sits near prior, a panel with no place yet, so give that panel a near or at first');
   const dragged = applyOps(styledBoard, [{ op: 'set', id: 'prior', fields: { at: { x: 40, y: 900 } } }], author, 0);
   assert.ok(dragged.ok, dragged.ok ? '' : dragged.error);
   const droppedPanel = layoutBoard(dragged.board).elements.find((element) => element.id === 'prior');
   assert.ok(droppedPanel?.kind === 'box');
   assert.deepEqual([droppedPanel.x, droppedPanel.y], [40, 900]);
-  const withBoxNearPanel = applyOps(dragged.board, [{ op: 'add', element: Board.shape.elements.valueType.parse({ kind: 'box', id: 'beside', title: 'Beside', near: { of: 'prior', side: 'bottom' } }) }], author, 0);
+  const withBoxNearPanel = applyOps(dragged.board, [{ op: 'add', element: Element.parse({ kind: 'box', id: 'beside', title: 'Beside', near: { of: 'prior', side: 'bottom' } }) }], author, 0);
   assert.ok(withBoxNearPanel.ok, withBoxNearPanel.ok ? '' : withBoxNearPanel.error);
   const restacked = applyOps(withBoxNearPanel.board, [{ op: 'set', id: 'prior', fields: { at: null } }], author, 0);
   assert.equal(restacked.ok ? '' : restacked.error, 'op 1: box beside sits near prior, so prior cannot go back to the panel stack with no place: keep a near or at on it, or move box beside first');
-  assert.throws(() => Board.shape.elements.valueType.parse({ kind: 'panel', id: 'old', title: 'Old' }), /an element kind is box, frame, wire or note/);
+  assert.throws(() => Element.parse({ kind: 'panel', id: 'old', title: 'Old' }), /an element kind is box, frame, wire or note/);
 });
 
 test('a dashboard applying an edit diff reaches the server board exactly, and undoing it restores the board it started from, note authors and cascades included, while agents cannot forge a note author, and the history keeps only the newest entries', () => {
   const author = { id: 'operator', name: 'operator' };
   const decision = { kind: 'box', id: 'gate', title: 'gate', at: { x: 1200, y: 40 }, shape: 'decision', outputs: [{ id: 'ok', label: 'ok' }] };
   const before = applyOps(crowdedBoard, [
-    { op: 'add', element: Board.shape.elements.valueType.parse(decision) },
-    { op: 'add', element: Board.shape.elements.valueType.parse({ kind: 'wire', id: 'w1', from: 'gate', to: 'c1', fromOutput: 'ok' }) },
+    { op: 'add', element: Element.parse(decision) },
+    { op: 'add', element: Element.parse({ kind: 'wire', id: 'w1', from: 'gate', to: 'c1', fromOutput: 'ok' }) },
     { op: 'set', id: 'n1', fields: { author: 'agent-c' } },
     { op: 'set', id: 'n2', fields: { author: 'agent-c' } },
     { op: 'resolve', id: 'n2' },
   ], author, 1);
   assert.ok(before.ok);
-  const agentNote = Board.shape.elements.valueType.parse({ kind: 'note', id: 'n3', on: 'gate', text: 'agent finding', author: 'forged' });
+  const agentNote = Element.parse({ kind: 'note', id: 'n3', on: 'gate', text: 'agent finding', author: 'forged' });
   const noted = applyOps(before.board, [{ op: 'add', element: agentNote }], { id: 'session-uuid', name: 'agent-a' }, 1);
   assert.ok(noted.ok);
-  assert.equal(noted.board.elements.n3?.kind === 'note' && noted.board.elements.n3.author, 'agent-a');
+  const n3 = noted.board.elements.get('n3');
+  assert.equal(n3?.kind === 'note' && n3.author, 'agent-a');
   const forged = applyOps(noted.board, [{ op: 'set', id: 'n3', fields: { author: 'operator', resolvedBy: 'operator' } }], { id: 'session-uuid', name: 'agent-a' }, 1);
   assert.equal(forged.ok, false);
   const resolved = applyOps(noted.board, [{ op: 'resolve', id: 'n3' }], { id: 'other-uuid', name: 'agent-b' }, 1);
@@ -457,7 +458,7 @@ test('a dashboard applying an edit diff reaches the server board exactly, and un
   assert.equal(JSON.stringify(applyBoardDiff(start, edited.diff, edited.board.version, edited.board.updatedAt)), JSON.stringify(edited.board));
   const undone = applyOps(edited.board, undoOpsOf(edited.before, edited.diff), author, 3);
   assert.ok(undone.ok, undone.ok ? '' : undone.error);
-  const comparable = (board: Board) => ({ title: board.title, legend: board.legend, codeSessionId: board.codeSessionId, elements: board.elements });
+  const comparable = (board: Board) => ({ title: board.title, legend: board.legend, codeSessionId: board.codeSessionId, elements: board.elements.toJSON() });
   assert.deepEqual(comparable(undone.board), comparable(start));
 
   let history = EMPTY_HISTORY;
@@ -473,14 +474,14 @@ test('a dashboard keeps the server element order when an edit removes and re-add
     elements: Object.fromEntries(ids.map((id) => [id, placedBox(id)])),
   });
   const readdingEdits: [string[], Op[]][] = [
-    [['a', 'b', 'c'], [{ op: 'remove', id: 'a' }, { op: 'remove', id: 'c' }, { op: 'add', element: Board.shape.elements.valueType.parse(placedBox('a')) }, { op: 'add', element: Board.shape.elements.valueType.parse(placedBox('c')) }]],
-    [['a', 'b'], [{ op: 'add', element: Board.shape.elements.valueType.parse(placedBox('n')) }, { op: 'remove', id: 'b' }, { op: 'add', element: Board.shape.elements.valueType.parse(placedBox('b')) }]],
+    [['a', 'b', 'c'], [{ op: 'remove', id: 'a' }, { op: 'remove', id: 'c' }, { op: 'add', element: Element.parse(placedBox('a')) }, { op: 'add', element: Element.parse(placedBox('c')) }]],
+    [['a', 'b'], [{ op: 'add', element: Element.parse(placedBox('n')) }, { op: 'remove', id: 'b' }, { op: 'add', element: Element.parse(placedBox('b')) }]],
   ];
   for (const [ids, edits] of readdingEdits) {
     const start = orderedBoard(ids);
     const edited = applyOps(start, edits, { id: 'operator', name: 'operator' }, 1);
     assert.ok(edited.ok, edited.ok ? '' : edited.error);
-    assert.deepEqual(Object.keys(applyBoardDiff(start, edited.diff, edited.board.version, edited.board.updatedAt)?.elements ?? {}), Object.keys(edited.board.elements));
+    assert.deepEqual([...applyBoardDiff(start, edited.diff, edited.board.version, edited.board.updatedAt)?.elements.keys() ?? []], [...edited.board.elements.keys()]);
   }
 });
 
@@ -531,9 +532,9 @@ test('a layout world kept across puts places what a fresh layout places, and its
   const author = { id: 'operator', name: 'operator' };
   let world = createLayoutWorld(board, null, 0);
   const tileIndex = tileIndexOf(layoutOf(world), board.version, board);
-  const pinnedBoxes = Object.values(board.elements).flatMap((element) => (element.kind === 'box' && element.at ? [element] : []));
+  const pinnedBoxes = [...board.elements.values()].flatMap((element) => (element.kind === 'box' && element.at ? [element] : []));
   const [moved, noted, framed, removed, wired] = pinnedBoxes;
-  const anyNote = Object.values(board.elements).find((element) => element.kind === 'note');
+  const anyNote = [...board.elements.values()].find((element) => element.kind === 'note');
   assert.ok(moved?.at && noted && framed && removed && wired && anyNote);
   const puts = [
     [{ op: 'set', id: moved.id, fields: { at: { x: moved.at.x + 180, y: moved.at.y + 60 } } }],
@@ -549,7 +550,7 @@ test('a layout world kept across puts places what a fresh layout places, and its
   for (const ops of puts) {
     const staged = stageOps(board, ops.map((op) => Op.parse(op)), author, 0, null);
     assert.ok(staged.ok, staged.ok ? '' : staged.error);
-    const changes = new Map(Object.entries(staged.diff.elements).map(([id, change]) => [id, { before: board.elements[id], after: staged.afterById.get(id) ?? null, isAppended: change[0] === 'put' }]));
+    const changes = new Map(Object.entries(staged.diff.elements).map(([id, change]) => [id, { before: board.elements.get(id), after: staged.afterById.get(id) ?? null, isAppended: change[0] === 'put' }]));
     staged.commit();
     board = staged.board;
     const applied = applyLayoutDelta(world, board, changes);

@@ -267,7 +267,7 @@ function pickShowBoardId(records: readonly BoardRecord[], sessionId: string): st
 }
 
 function shownBoxNumbers(board: Board): number[] {
-  return Object.keys(board.elements).flatMap((elementId) => {
+  return [...board.elements.keys()].flatMap((elementId) => {
     const shownNumber = SHOWN_BOX_ID_RE.exec(elementId)?.[1];
     return shownNumber ? [Number(shownNumber)] : [];
   });
@@ -283,7 +283,7 @@ function shownBoxOp(board: Board, contentBounds: BoardBounds, card: ShownCard): 
   const lastShownNumber = Math.max(0, ...shownBoxNumbers(board));
   const boxId = `shown-${lastShownNumber + 1}`;
   const caption = card.caption?.slice(0, WHITEBOARD_LIMITS.line) ?? null;
-  const isEmptyBoard = Object.keys(board.elements).length === 0;
+  const isEmptyBoard = board.elements.size === 0;
   const belowContent = { x: contentBounds.x, y: contentBounds.y + contentBounds.height + SHOWN_BOX_GAP };
   const placement = lastShownNumber > 0
     ? { near: { of: `shown-${lastShownNumber}`, side: 'right' as const, gap: SHOWN_BOX_GAP } }

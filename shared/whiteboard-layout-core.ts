@@ -10,6 +10,7 @@ import { touchingPairsWithin } from './whiteboard-sweep-core.ts';
 import type { Point, RouteMemory, WarningList } from './whiteboard-route-core.ts';
 import { forEachSlotTouching, gridOfRects } from './spatial-grid-core.ts';
 import type { LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutNote, LaidOutStep, LaidOutWire, LegendRow, PlacedBox, PlacedElement, PlacedNote, PlanBand, PlanColumn } from './contracts/whiteboard-tiles.ts';
+import { elementTableOf } from './whiteboard-element-table.ts';
 
 const MARGIN = 40;
 const DEFAULT_BOX_WIDTH = 220;
@@ -263,7 +264,7 @@ function addByKind(elementsByKind: ElementsByKind, element: Element): void {
 
 function indexedBoardOf(board: Board): IndexedBoard {
   const elementsByKind: ElementsByKind = { box: [], frame: [], wire: [], note: [] };
-  for (const element of Object.values(board.elements)) addByKind(elementsByKind, element);
+  for (const element of board.elements.values()) addByKind(elementsByKind, element);
   return { ...board, elementsByKind, planStepById: new Map(planSteps(board).map((step) => [step.boxId, step])) };
 }
 
@@ -344,7 +345,7 @@ function placeNearBoxes(board: IndexedBoard, boxesTop: number, boxesById: Map<st
   const place = (box: Box, chainIds: ReadonlySet<string>): PlacedBox | undefined => {
     const settled = boxesById.get(box.id);
     if (settled || !box.near) return settled;
-    const target = board.elements[box.near.of];
+    const target = board.elements.get(box.near.of);
     const canFollow = target?.kind === 'box' && !chainIds.has(target.id) && (boxesById.has(target.id) || pendingIds.has(target.id));
     const targetBox = canFollow ? place(target, new Set([...chainIds, box.id])) : undefined;
     if (!targetBox) warnings.push(`box ${box.id} sits near ${box.near.of}, which is not placed on the board`);
@@ -528,7 +529,7 @@ interface StepBand {
 
 function stepBandOf(board: Board): StepBand {
   const bandBoxById = new Map<string, Box>();
-  for (const element of Object.values(board.elements)) {
+  for (const element of board.elements.values()) {
     if (element.kind === 'box' && isInStepBand(element)) bandBoxById.set(element.id, element);
   }
   const positionById = new Map<string, Point>();
@@ -578,11 +579,8 @@ function pinnedOffsetYAfterLeaving(plan: PlanBand | null, leavingBoxes: readonly
 
 function withPinnedBoxesShifted(board: Board, offsetY: number): Board {
   if (offsetY === 0) return board;
-  const elements = Object.fromEntries(Object.entries(board.elements).map(([elementId, element]) => {
-    if (element.kind !== 'box' || !element.at) return [elementId, element];
-    return [elementId, { ...element, at: { x: element.at.x, y: element.at.y + offsetY } }];
-  }));
-  return { ...board, elements };
+  const elements = [...board.elements.values()].map((element) => (element.kind !== 'box' || !element.at ? element : { ...element, at: { x: element.at.x, y: element.at.y + offsetY } }));
+  return { ...board, elements: elementTableOf(elements) };
 }
 
 const WIRE_STYLE_WORDS: Readonly<Record<Wire['tone'], string | null>> = { plain: null, fail: 'failure path', join: 'joins' };
@@ -654,7 +652,7 @@ function dressedElement(placed: PlacedElement, record: Element | undefined): Lai
 }
 
 function dressedLayout(placed: PlacedLayout, board: Board): BoardLayout {
-  return { ...placed, elements: placed.elements.map((element) => dressedElement(element, board.elements[element.id])) };
+  return { ...placed, elements: placed.elements.map((element) => dressedElement(element, board.elements.get(element.id))) };
 }
 
 function layoutBoard(storedBoard: Board): BoardLayout {
@@ -713,7 +711,7 @@ function movingIdsOf(storedBoard: Board, draggedBoxIds: ReadonlySet<string>): Se
   let hasGrown = true;
   while (hasGrown) {
     hasGrown = false;
-    for (const element of Object.values(storedBoard.elements)) {
+    for (const element of storedBoard.elements.values()) {
       const anchorId = element.kind === 'box' ? element.near?.of : element.kind === 'note' ? element.on : undefined;
       if (movingIds.has(element.id) || !anchorId || !movingIds.has(anchorId)) continue;
       movingIds.add(element.id);
@@ -737,7 +735,7 @@ function createDragPreview(storedBoard: Board, layout: BoardLayout, draggedBoxId
     if (element.kind === 'frame' && element.isLoop) loopFrames.push(element);
   }
   const movingBoxes = [...movingIds].flatMap((elementId) => boxesById.get(elementId) ?? []);
-  const wires = Object.values(storedBoard.elements).flatMap((element) => (element.kind === 'wire' && (movingIds.has(element.from) || movingIds.has(element.to)) ? [element] : []));
+  const wires = [...storedBoard.elements.values()].flatMap((element) => (element.kind === 'wire' && (movingIds.has(element.from) || movingIds.has(element.to)) ? [element] : []));
   const contentTop = wireCeilingOf(layout.pinnedOffsetY + MARGIN);
   return (offsetX, offsetY) => {
     const moved = movingBoxes.map((box) => movedBox(box, offsetX, offsetY));

@@ -213,7 +213,7 @@ function isFloatingShaped(box: Box): boolean {
 
 function isFloating(box: Box, board: Board): boolean {
   if (box.at !== null || isInStepBand(box)) return false;
-  return box.near === null || board.elements[box.near.of]?.kind !== 'box';
+  return box.near === null || board.elements.get(box.near.of)?.kind !== 'box';
 }
 
 function obstacleRectOf(element: PlacedElement): Rect | null {
@@ -303,7 +303,7 @@ function rebuiltWorld(board: Board, previous: LayoutWorld | null, minIncremental
     return world;
   }
   for (const element of layout.elements) storeLaidOut(world, element);
-  for (const element of Object.values(board.elements)) {
+  for (const element of board.elements.values()) {
     countElement(world, element, 1);
     if (element.kind === 'note') world.noteOrderById.set(element.id, nextNoteOrderOf(world, element.id));
     if (element.kind === 'box' && isFloating(element, board)) world.floatingBoxCount += 1;
@@ -344,7 +344,7 @@ function dirtyBoxIdsOf(board: Board, changes: ReadonlyMap<string, ElementChange>
   const pending = [...dirtyIds];
   for (let id = pending.pop(); id !== undefined; id = pending.pop()) {
     for (const dependentId of index.dependentIdsByBoxId.get(id) ?? []) {
-      const dependent = board.elements[dependentId];
+      const dependent = board.elements.get(dependentId);
       if (dependent?.kind !== 'box' || dependent.near?.of !== id || dirtyIds.has(dependentId)) continue;
       dirtyIds.add(dependentId);
       pending.push(dependentId);
@@ -364,7 +364,7 @@ function placedDirtyBoxes(world: LayoutWorld, board: Board, dirtyIds: ReadonlySe
       return known?.kind === 'box' ? known : null;
     }
     if (visitingIds.has(id)) return undefined;
-    const box = board.elements[id];
+    const box = board.elements.get(id);
     if (box?.kind !== 'box') {
       placedById.set(id, null);
       return null;
@@ -390,7 +390,7 @@ function placedDirtyBoxes(world: LayoutWorld, board: Board, dirtyIds: ReadonlySe
 function dependentsOfKind<Kind extends Element['kind']>(board: Board, boxId: string, kind: Kind): Extract<Element, { kind: Kind }>[] {
   const found: Extract<Element, { kind: Kind }>[] = [];
   for (const id of boardIndexOf(board.elements).dependentIdsByBoxId.get(boxId) ?? []) {
-    const element = board.elements[id];
+    const element = board.elements.get(id);
     if (element && hasKind(element, kind)) found.push(element);
   }
   return found;
@@ -436,7 +436,7 @@ function laidOutSolids(world: LayoutWorld, board: Board, changes: ReadonlyMap<st
     for (const frame of dependentsOfKind(board, boxId, 'frame')) dirtyFrameIds.add(frame.id);
   }
   for (const frameId of dirtyFrameIds) {
-    const frame = board.elements[frameId];
+    const frame = board.elements.get(frameId);
     if (!frame || !hasKind(frame, 'frame')) {
       nextById.set(frameId, null);
       continue;
@@ -527,7 +527,7 @@ function updatePlacementWarnings(world: LayoutWorld, board: Board, solids: Solid
   }
   for (const frameId of solids.dirtyFrameIds) {
     const frame = world.laidOutById.get(frameId);
-    const stored = board.elements[frameId];
+    const stored = board.elements.get(frameId);
     if (frame?.kind !== 'frame' || stored?.kind !== 'frame') continue;
     const containedIds = new Set(stored.contains);
     const strip = frameTitleStripOf(frame);
@@ -553,7 +553,7 @@ function wireIdsOn(board: Board, boxId: string): string[] {
 function endpointIdsOf(board: Board, wireIds: Iterable<string>): Set<string> {
   const endpointIds = new Set<string>();
   for (const id of wireIds) {
-    const wire = board.elements[id];
+    const wire = board.elements.get(id);
     if (wire?.kind !== 'wire') continue;
     endpointIds.add(wire.from);
     endpointIds.add(wire.to);
@@ -597,7 +597,7 @@ function routeInputOver(world: LayoutWorld, board: Board, rerouteIds: ReadonlySe
     return frame?.kind === 'frame' && areas.some((area) => rectsOverlap(area, frame)) ? [frame] : [];
   });
   const wiresOf = (ids: ReadonlySet<string>) => [...ids].flatMap((id) => {
-    const wire = board.elements[id];
+    const wire = board.elements.get(id);
     return wire?.kind === 'wire' ? [wire] : [];
   });
   return {
@@ -670,7 +670,7 @@ function routedSubBoard(world: LayoutWorld, board: Board, seedIds: ReadonlySet<s
     const promotedIds = [...contextIds].filter((id) => {
       const ends = result.portEndsById.get(id);
       const remembered = world.routeMemory.routeById.get(id);
-      const wire = board.elements[id];
+      const wire = board.elements.get(id);
       if (!ends || !remembered || wire?.kind !== 'wire') return true;
       if (ends.busKey !== null && reroutedBusKeys.has(ends.busKey)) return true;
       return (completeBoxIds.has(wire.from) && !isSamePoint(ends.start, remembered.start)) || (completeBoxIds.has(wire.to) && !isSamePoint(ends.end, remembered.end));
@@ -778,7 +778,7 @@ function layoutOf(world: LayoutWorld): PlacedLayout {
   const pinnedBoxes: PlacedBox[] = [];
   const nearBoxes: PlacedBox[] = [];
   const notes: PlacedNote[] = [];
-  for (const element of Object.values(world.board.elements)) {
+  for (const element of world.board.elements.values()) {
     const laidOut = world.laidOutById.get(element.id);
     if (laidOut?.kind === 'frame') frames.push(laidOut);
     if (laidOut?.kind === 'wire') wires.push(laidOut);

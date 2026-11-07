@@ -111,9 +111,32 @@ function boardIndexOf(elements: Board['elements']): BoardIndex {
   const known = indexByElements.get(elements);
   if (known) return known;
   const index: BoardIndex = { elementCount: 0, idsByKind: new Map(), indexKeyIdsByKind: new Map(), assetRefCount: new Map(), dependentIdsByBoxId: new Map(), stepBoxIds: new Set(), anchoredIds: new Set() };
-  for (const element of Object.values(elements)) addToIndex(index, element);
+  for (const element of elements.values()) addToIndex(index, element);
   indexByElements.set(elements, index);
   return index;
+}
+
+function copiedSetsById<Key>(setsById: Map<Key, Set<string>>): Map<Key, Set<string>> {
+  return new Map([...setsById].map(([key, ids]) => [key, new Set(ids)]));
+}
+
+function copyOfIndex(index: BoardIndex): BoardIndex {
+  return {
+    elementCount: index.elementCount,
+    idsByKind: copiedSetsById(index.idsByKind),
+    indexKeyIdsByKind: copiedSetsById(index.indexKeyIdsByKind),
+    assetRefCount: new Map(index.assetRefCount),
+    dependentIdsByBoxId: copiedSetsById(index.dependentIdsByBoxId),
+    stepBoxIds: new Set(index.stepBoxIds),
+    anchoredIds: new Set(index.anchoredIds),
+  };
+}
+
+function copyOfElements(elements: Board['elements']): Board['elements'] {
+  const copied = elements.copy();
+  const known = indexByElements.get(elements);
+  if (known) indexByElements.set(copied, copyOfIndex(known));
+  return copied;
 }
 
 function isOfKind<Kind extends ElementKind>(element: Element | undefined, kind: Kind): element is ElementOfKind<Kind> {
@@ -128,7 +151,7 @@ function elementsOfKind<Kind extends ElementKind>(board: Board, kind: Kind): Ele
   const index = boardIndexOf(board.elements);
   const found: ElementOfKind<Kind>[] = [];
   const collect = (id: string): void => {
-    const element = board.elements[id];
+    const element = board.elements.get(id);
     if (isOfKind(element, kind)) found.push(element);
   };
   for (const id of sortedIndexKeyIds(index, kind)) collect(id);
@@ -138,8 +161,8 @@ function elementsOfKind<Kind extends ElementKind>(board: Board, kind: Kind): Ele
 
 function storeElement(elements: Board['elements'], element: Element): void {
   const index = indexByElements.get(elements);
-  const previous = elements[element.id];
-  elements[element.id] = element;
+  const previous = elements.get(element.id);
+  elements.put(element);
   if (!index) return;
   if (!previous) {
     addToIndex(index, element);
@@ -160,9 +183,9 @@ function appendElement(elements: Board['elements'], element: Element): void {
 }
 
 function dropElement(elements: Board['elements'], id: string): void {
-  const previous = elements[id];
+  const previous = elements.get(id);
   if (!previous) return;
-  delete elements[id];
+  elements.remove(id);
   const index = indexByElements.get(elements);
   if (index) removeFromIndex(index, previous);
 }
@@ -171,4 +194,4 @@ function assetIdsOf(board: Board): Set<string> {
   return new Set(boardIndexOf(board.elements).assetRefCount.keys());
 }
 
-export { appendElement, assetIdOf, assetIdsOf, boardIndexOf, boxIdsDependedOnBy, dropElement, elementsOfKind, storeElement };
+export { appendElement, assetIdOf, assetIdsOf, boardIndexOf, boxIdsDependedOnBy, copyOfElements, dropElement, elementsOfKind, storeElement };

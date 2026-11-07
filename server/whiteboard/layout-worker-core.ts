@@ -7,9 +7,10 @@ import { appendElement, boardIndexOf, dropElement, storeElement } from '../../sh
 import { boardPicture, pictureImagesOf } from '../../mcp/core/board-reading.ts';
 import { advanceBoardLayout, chromeOfBoard, layoutBoardRemembered, lineageLayoutOf, pinPositionsOfBoard, warningsOfBoard } from '../../shared/whiteboard-layout-cache.ts';
 import type { ElementChange } from '../../shared/whiteboard-layout-engine.ts';
-import { boardOutlineOf, defaultFocusOf, elementIdsTouching, patchTileIndex, tileDiffOf, tileIndexOf, tileIndexOfPainted, tileOf } from '../../shared/whiteboard-tile-core.ts';
+import { boardOutlineOf, defaultFocusOf, elementIdsTouching, patchTileIndex, tileDiffOf, tileIndexOf, tileIndexOfPainted, tileOf, withRecord } from '../../shared/whiteboard-tile-core.ts';
 import type { TileIndex } from '../../shared/whiteboard-tile-core.ts';
 import type { LayoutCache, LayoutStamp } from './layout-cache.ts';
+import { elementTableOf } from '../../shared/whiteboard-element-table.ts';
 
 const RequestId = z.number().int();
 const ViewerTiles = z.strictObject({ viewerId: z.number().int(), version: z.number().int().nullable(), heldKeys: z.array(TileKey) });
@@ -106,7 +107,7 @@ function createLayoutHost(cache: LayoutCache): LayoutHost {
     const { lineage, layout } = lineageLayoutOf(board);
     const fresh = { index: tileIndexOf(layout, board.version, board), lineage, updatedAt: board.updatedAt };
     tilesByBoardId.set(board.id, fresh);
-    cache.saveWhole(board.id, board, fresh.index.chrome, fresh.index.painted);
+    cache.saveWhole(board.id, board, fresh.index.chrome, fresh.index.painted.map((painted) => (painted ? withRecord(fresh.index, painted) : null)));
     return fresh;
   }
 
@@ -130,7 +131,7 @@ function createLayoutHost(cache: LayoutCache): LayoutHost {
     if (held.version !== head.version - 1) throw new Error(`the layout worker holds board ${head.id} at version ${held.version}, not ${head.version - 1}`);
     const changes = new Map<string, ElementChange>();
     for (const { id, after, isAppended } of changed) {
-      changes.set(id, { before: held.elements[id], after, isAppended });
+      changes.set(id, { before: held.elements.get(id), after, isAppended });
       if (!after) dropElement(held.elements, id);
       if (after && isAppended) appendElement(held.elements, after);
       if (after && !isAppended) storeElement(held.elements, after);
@@ -148,7 +149,7 @@ function createLayoutHost(cache: LayoutCache): LayoutHost {
     const tileChanges = patchTileIndex(tiles.index, board, { version: board.version, chrome: layoutAdvance.chrome, changed: layoutAdvance.delta.changed, removedIds: layoutAdvance.delta.removedIds, recordChangedIds: [...changes.keys()] });
     const changedPaints = tileChanges.changedSlots.flatMap(({ slot }) => {
       const painted = tiles.index.painted[slot];
-      return painted ? [{ slot, painted }] : [];
+      return painted ? [{ slot, painted: withRecord(tiles.index, painted) }] : [];
     });
     cache.save(board.id, fromStamp, board, tiles.index.chrome, changedPaints, tileChanges.removedIds);
     const viewerMessages = viewers.map((viewer): ViewerMessage => (viewer.version === fromVersion
@@ -165,7 +166,7 @@ function createLayoutHost(cache: LayoutCache): LayoutHost {
     const { dependentIdsByBoxId } = boardIndexOf(board.elements);
     for (const id of ids) {
       for (const dependentId of dependentIdsByBoxId.get(id) ?? []) {
-        if (board.elements[dependentId]?.kind === 'box') wantedIds.add(dependentId);
+        if (board.elements.get(dependentId)?.kind === 'box') wantedIds.add(dependentId);
       }
     }
     const pinnedBoxes = [...wantedIds].flatMap((id) => pinPositions.laidOutBoxOf(id) ?? []);
@@ -183,7 +184,7 @@ function createLayoutHost(cache: LayoutCache): LayoutHost {
       case 'sync-start': {
         if (tilesByBoardId.get(request.head.id)?.index.version !== request.head.version) tilesByBoardId.delete(request.head.id);
         syncIdByBoardId.set(request.head.id, request.syncId);
-        boardById.set(request.head.id, { ...request.head, elements: {} });
+        boardById.set(request.head.id, { ...request.head, elements: elementTableOf() });
         return {};
       }
       case 'sync-elements': {

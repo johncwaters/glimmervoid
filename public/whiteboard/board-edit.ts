@@ -6,6 +6,7 @@ import { el } from '../dom-helpers.ts';
 import { createDragPreview, isInStepBand, layoutBoard, movedBox, pinnedOffsetYAfterLeaving } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout, DragPreview, LaidOutElement, Rect } from '#shared/whiteboard-layout-core.ts';
 import type { BoardHit, BoardRenderer, Camera } from './board-gl-renderer.ts';
+import { elementTableOf } from '#shared/whiteboard-element-table.ts';
 
 const DRAG_THRESHOLD_PX = 4;
 const MIN_VIEW_WIDTH = 200;
@@ -252,7 +253,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const droppedAts = drag.movingBoxes.map((movingBox) => ({ boxId: movingBox.boxId, at: draggedAt(drag, movingBox.start) }));
     const board = options.currentBoard();
     const leavingBand = drag.movingBoxes.filter((movingBox) => {
-      const record = board?.elements[movingBox.boxId];
+      const record = board?.elements.get(movingBox.boxId);
       return record?.kind === 'box' && isInStepBand(record);
     });
     const bandShrinkY = drag.pinnedOffsetY - pinnedOffsetYAfterLeaving(renderer.layout()?.plan ?? null, leavingBand.map((movingBox) => movingBox.start));
@@ -286,12 +287,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
   function resizedElementsOf(drag: Extract<Gesture, { kind: 'drag' }>, board: Board, layout: BoardLayout): LaidOutElement[] {
     const resizedIds = new Set(drag.movingBoxes.map((movingBox) => movingBox.boxId));
     const laidOutById = new Map(layout.elements.flatMap((element) => (element.kind === 'box' && resizedIds.has(element.id) ? [[element.id, element]] : [])));
-    const resizedElements: Record<string, BoardElement> = {};
+    const resizedElements = elementTableOf();
     for (const { boxId, fields } of draggedBoxFields(drag)) {
-      const box = board.elements[boxId];
+      const box = board.elements.get(boxId);
       const laidOut = laidOutById.get(boxId);
       if (box?.kind !== 'box' || !laidOut) continue;
-      resizedElements[boxId] = { ...box, ...fields, near: null, step: null, at: { x: laidOut.x, y: laidOut.y } };
+      resizedElements.put({ ...box, ...fields, near: null, step: null, at: { x: laidOut.x, y: laidOut.y } });
     }
     const resizedById = new Map<string, LaidOutElement>();
     for (const element of layoutBoard({ ...board, elements: resizedElements }).elements) {
@@ -333,9 +334,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   function pruneSelection(board: Board | null): void {
-    if (gesture?.kind === 'drag' && board?.elements[gesture.boxId]?.kind !== 'box') gesture = null;
-    if (gesture?.kind === 'drag' && gesture.hasMoved) gesture.movingBoxes = gesture.movingBoxes.filter((movingBox) => board?.elements[movingBox.boxId]?.kind === 'box');
-    const surviving = new Set([...selectedIds].filter((elementId) => board?.elements[elementId]));
+    if (gesture?.kind === 'drag' && board?.elements.get(gesture.boxId)?.kind !== 'box') gesture = null;
+    if (gesture?.kind === 'drag' && gesture.hasMoved) gesture.movingBoxes = gesture.movingBoxes.filter((movingBox) => board?.elements.get(movingBox.boxId)?.kind === 'box');
+    const surviving = new Set([...selectedIds].filter((elementId) => board?.elements.get(elementId)));
     if (surviving.size === selectedIds.size) return;
     setSelection(surviving);
   }
@@ -373,7 +374,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (isAdditive || !selectedIds.has(pressedBoxId)) return [{ boxId: pressedBoxId, start: pressedRect }];
     const board = options.currentBoard();
     return [...selectedIds].flatMap((elementId) => {
-      const start = board?.elements[elementId]?.kind === 'box' ? renderer.boundsOf(elementId) : null;
+      const start = board?.elements.get(elementId)?.kind === 'box' ? renderer.boundsOf(elementId) : null;
       return start ? [{ boxId: elementId, start }] : [];
     });
   }
@@ -459,7 +460,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   function openPendingTitleEdit(): void {
-    if (!pendingTitleEditId || !renderer.boundsOf(pendingTitleEditId) || !options.currentBoard()?.elements[pendingTitleEditId]) return;
+    if (!pendingTitleEditId || !renderer.boundsOf(pendingTitleEditId) || !options.currentBoard()?.elements.get(pendingTitleEditId)) return;
     const elementId = pendingTitleEditId;
     pendingTitleEditId = null;
     editTitle(elementId);
@@ -647,7 +648,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function editTitle(elementId: string): void {
     const board = options.currentBoard();
-    const titled = board?.elements[elementId];
+    const titled = board?.elements.get(elementId);
     const bounds = renderer.boundsOf(elementId);
     if (titled?.kind !== 'box' || !bounds) return;
     closeTitleInput();
@@ -694,7 +695,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   function removeSelected(): void {
     const board = options.currentBoard();
     if (!board || selectedIds.size === 0) return;
-    const selected = [...selectedIds].flatMap((elementId) => board.elements[elementId] ?? []);
+    const selected = [...selectedIds].flatMap((elementId) => board.elements.get(elementId) ?? []);
     const ops: Op[] = REMOVAL_ORDER.flatMap((kind) => selected.filter((element) => element.kind === kind))
       .map((element) => ({ op: 'remove', id: element.id }));
     setSelection(new Set());

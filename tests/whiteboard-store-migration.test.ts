@@ -49,7 +49,7 @@ test('a JSON board moves into the board store once, keeps its edits across resta
   assert.ok(fs.existsSync(path.join(boardsRoot, 'boards.json.corrupt-moved-to-boards-sqlite')), 'an older Glimmervoid started on this folder keeps every picture');
   assert.ok(fs.readdirSync(boardsRoot).some((filename) => filename.startsWith('broken.json')));
 
-  const [firstBoxId] = Object.values(legacy.board.elements).flatMap((element) => (element.kind === 'box' ? [element.id] : []));
+  const [firstBoxId] = [...legacy.board.elements.values()].flatMap((element) => (element.kind === 'box' ? [element.id] : []));
   assert.ok(firstBoxId);
   const renamed = await first.handleOperator.put('legacy-board', z.array(Op).parse([
     { op: 'set', id: firstBoxId, fields: { title: 'Renamed in sqlite' } },
@@ -65,9 +65,8 @@ test('a JSON board moves into the board store once, keeps its edits across resta
   const restarted = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
   await restarted.loaded;
   const reloaded = await restarted.handleOperator.get('legacy-board');
-  const elements = reloaded.board?.elements ?? {};
-  assert.equal(Object.keys(elements).length, Object.keys(legacy.board.elements).length + 1);
-  const renamedBox = elements[firstBoxId];
+  assert.equal(reloaded.board?.elements.size, legacy.board.elements.size + 1);
+  const renamedBox = reloaded.board?.elements.get(firstBoxId);
   assert.equal(renamedBox?.kind === 'box' ? renamedBox.title : null, 'Renamed in sqlite');
   assert.equal(reloaded.board?.version, versionBeforeRestart);
 
@@ -76,10 +75,10 @@ test('a JSON board moves into the board store once, keeps its edits across resta
   assert.equal((await restarted.handleOperator.put(smallBoardId, z.array(Op).parse([boxAt('a'), boxAt('b')]))).ok, true);
   const readded = await restarted.handleOperator.put(smallBoardId, z.array(Op).parse([boxAt('n'), { op: 'remove', id: 'b' }, boxAt('b'), { op: 'remove', id: 'a' }, boxAt('a')]));
   assert.equal(readded.ok, true, readded.error ?? '');
-  assert.deepEqual(Object.keys((await restarted.handleOperator.get(smallBoardId)).board?.elements ?? {}), ['n', 'b', 'a']);
+  assert.deepEqual([...(await restarted.handleOperator.get(smallBoardId)).board?.elements.keys() ?? []], ['n', 'b', 'a']);
   const reordered = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
   await reordered.loaded;
-  assert.deepEqual(Object.keys((await reordered.handleOperator.get(smallBoardId)).board?.elements ?? {}), ['n', 'b', 'a'], 'elements removed and added back in one put keep their new places after a restart');
+  assert.deepEqual([...(await reordered.handleOperator.get(smallBoardId)).board?.elements.keys() ?? []], ['n', 'b', 'a'], 'elements removed and added back in one put keep their new places after a restart');
   await restarted.handleOperator.remove(smallBoardId);
 
   const store = createBoardStore(boardsRoot);
@@ -152,7 +151,7 @@ test('a restart lists stored boards without reading their elements, answers a vi
   assert.equal(damagedRead.ok, false);
   assert.match(damagedRead.error ?? '', /cannot be read/);
   assert.equal((await restarted.handleOperator.put(damagedId, boxOf('c'))).ok, false);
-  assert.deepEqual(Object.keys((await restarted.handleOperator.get(healthyId)).board?.elements ?? {}), ['b']);
+  assert.deepEqual([...(await restarted.handleOperator.get(healthyId)).board?.elements.keys() ?? []], ['b']);
 });
 
 test('a session closing while its board loads after a restart keeps the loaded elements', async () => {
@@ -171,8 +170,8 @@ test('a session closing while its board loads after a restart keeps the loaded e
   const firstRead = restarted.handleOperator.get(boardId);
   await new Promise((resolve) => setImmediate(resolve));
   await restarted.forgetSession('closing-agent');
-  assert.equal(Object.keys((await firstRead).board?.elements ?? {}).length, 2000);
-  assert.equal(Object.keys((await restarted.handleOperator.get(boardId)).board?.elements ?? {}).length, 2000);
+  assert.equal((await firstRead).board?.elements.size, 2000);
+  assert.equal((await restarted.handleOperator.get(boardId)).board?.elements.size, 2000);
 });
 
 test('a restart draws a viewed board from its saved layout, and a layout saved by other code, for a lost edit, or unreadable is laid out again', async () => {

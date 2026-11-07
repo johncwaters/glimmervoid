@@ -3,6 +3,8 @@ import { sparseElement, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Board, BoardOutline, Element } from './contracts/whiteboard.ts';
 import type { BoardChrome, LaidOutElement, PaintedElement, PlacedElement, PlacedPaint, Tile, TileDiff, TileKey, TileLod } from './contracts/whiteboard-tiles.ts';
 import { dressedElement } from './whiteboard-layout-core.ts';
+import { boardIndexOf, elementsOfKind } from './whiteboard-board-index.ts';
+import { elementTableOf } from './whiteboard-element-table.ts';
 import type { PlacedLayout, Rect } from './whiteboard-layout-core.ts';
 import { createSpatialGrid, forEachSlotTouching, placeSlot, removeSlot } from './spatial-grid-core.ts';
 import type { SpatialGrid } from './spatial-grid-core.ts';
@@ -19,9 +21,14 @@ const WIRE_PAD = 12;
 const FRAME_TITLE_PAD = 28;
 const PAINT_RANK_STRIDE = 2 ** 32;
 
+interface RecordLookup {
+  get(id: string): Element | undefined;
+}
+
 interface TileIndex {
   version: number;
   chrome: BoardChrome;
+  records: RecordLookup;
   painted: (PlacedPaint | null)[];
   bounds: (Rect | null)[];
   slotById: Map<string, number>;
@@ -150,15 +157,23 @@ function paintRankOf(element: PlacedElement, stored: Element | undefined): numbe
 }
 
 function paintedAt(board: Board, element: PlacedElement, slot: number): PlacedPaint {
-  const record = board.elements[element.id];
-  return { paintOrder: paintRankOf(element, record) * PAINT_RANK_STRIDE + slot, element, record };
+  return { paintOrder: paintRankOf(element, board.elements.get(element.id)) * PAINT_RANK_STRIDE + slot, element };
+}
+
+function withRecord(index: TileIndex, painted: PlacedPaint): PlacedPaint {
+  return { ...painted, record: painted.record ?? index.records.get(painted.element.id) };
 }
 
 function tileIndexOf(layout: PlacedLayout, version: number, board: Board): TileIndex {
-  return tileIndexOfPainted(version, chromeOf(layout), layout.elements.map((element, slot) => paintedAt(board, element, slot)));
+  return indexOfPainted(version, chromeOf(layout), board.elements, layout.elements.map((element, slot) => paintedAt(board, element, slot)));
 }
 
 function tileIndexOfPainted(version: number, chrome: BoardChrome, painted: (PlacedPaint | null)[]): TileIndex {
+  const records = elementTableOf(painted.flatMap((entry) => entry?.record ?? []));
+  return indexOfPainted(version, chrome, records, painted.map((entry) => (entry ? { paintOrder: entry.paintOrder, element: entry.element } : null)));
+}
+
+function indexOfPainted(version: number, chrome: BoardChrome, records: RecordLookup, painted: (PlacedPaint | null)[]): TileIndex {
   const bounds = painted.map((entry) => (entry ? paintedBoundsOf(entry.element) : null));
   const slotById = new Map<string, number>();
   const grid = createSpatialGrid(CHUNK_SIZE, painted.length);
@@ -168,7 +183,7 @@ function tileIndexOfPainted(version: number, chrome: BoardChrome, painted: (Plac
     slotById.set(entry.element.id, slot);
     placeSlot(grid, slot, entryBounds);
   }
-  return { version, chrome, painted, bounds, slotById, grid };
+  return { version, chrome, records, painted, bounds, slotById, grid };
 }
 
 function slotsTouching(index: TileIndex, rect: Rect): number[] {
@@ -189,10 +204,10 @@ interface ElementCluster {
   titles: string[];
 }
 
-function titleOf({ element, record }: PlacedPaint): string | null {
+function titleOf(index: TileIndex, { element }: PlacedPaint): string | null {
   if (element.kind === 'frame') return element.title || null;
   if (element.kind !== 'box') return null;
-  const dressed = dressedElement(element, record);
+  const dressed = dressedElement(element, index.records.get(element.id));
   return dressed.kind === 'box' ? dressed.titleLines.join(' ') || null : null;
 }
 
@@ -210,7 +225,7 @@ function clustersOutside(index: TileIndex, focus: Rect, { maxClusters, titlesPer
     cluster.rect.height = bottom - cluster.rect.y;
     cluster.elementCount += 1;
     const painted = index.painted[slot];
-    const title = painted && cluster.titles.length < titlesPerCluster ? titleOf(painted) : null;
+    const title = painted && cluster.titles.length < titlesPerCluster ? titleOf(index, painted) : null;
     if (title) cluster.titles.push(title);
     clusterByCell.set(cellKey, cluster);
   });
@@ -231,7 +246,7 @@ function elementPageOf(board: Board, elementIds: readonly string[], offset: numb
   let pageChars = 0;
   let nextIndex = offset;
   for (; nextIndex < elementIds.length && elements.length < WHITEBOARD_LIMITS.readPage; nextIndex += 1) {
-    const element = board.elements[elementIds[nextIndex] ?? ''];
+    const element = board.elements.get(elementIds[nextIndex] ?? '');
     if (!element) continue;
     const elementChars = JSON.stringify(sparseElement(element)).length;
     if (elements.length > 0 && pageChars + elementChars > WHITEBOARD_LIMITS.readPageChars) break;
@@ -242,22 +257,32 @@ function elementPageOf(board: Board, elementIds: readonly string[], offset: numb
 }
 
 function fitsOnePage(board: Board): boolean {
-  const elements = Object.values(board.elements);
-  if (elements.length > WHITEBOARD_LIMITS.readPage) return false;
-  return elements.reduce((pageChars, element) => pageChars + JSON.stringify(sparseElement(element)).length, 0) <= WHITEBOARD_LIMITS.readPageChars;
+  if (board.elements.size > WHITEBOARD_LIMITS.readPage) return false;
+  let pageChars = 0;
+  for (const id of board.elements.keys()) pageChars += board.elements.bodyOf(id)?.length ?? 0;
+  return pageChars <= WHITEBOARD_LIMITS.readPageChars;
+}
+
+function elementCountsByKind(board: Board): Record<string, number> {
+  const { idsByKind, indexKeyIdsByKind } = boardIndexOf(board.elements);
+  const countsByKind: Record<string, number> = {};
+  for (const idsOfKind of [indexKeyIdsByKind, idsByKind]) {
+    for (const [kind, ids] of idsOfKind) {
+      if (ids.size > 0) countsByKind[kind] = (countsByKind[kind] ?? 0) + ids.size;
+    }
+  }
+  return countsByKind;
 }
 
 function boardOutlineOf(board: Board, index: TileIndex, focus: Rect): BoardOutline {
-  const elements = Object.values(board.elements);
-  const countsByKind: Record<string, number> = {};
-  for (const element of elements) countsByKind[element.kind] = (countsByKind[element.kind] ?? 0) + 1;
-  const frames = elements.flatMap((element) => {
-    const slot = index.slotById.get(element.id);
+  const countsByKind = elementCountsByKind(board);
+  const frames = elementsOfKind(board, 'frame').flatMap((frame) => {
+    const slot = index.slotById.get(frame.id);
     const rect = slot === undefined ? null : index.bounds[slot];
-    return element.kind === 'frame' && rect ? [{ id: element.id, title: element.title, rect }] : [];
+    return rect ? [{ id: frame.id, title: frame.title, rect }] : [];
   }).slice(0, WHITEBOARD_LIMITS.readPage);
   return {
-    elementCount: elements.length,
+    elementCount: board.elements.size,
     countsByKind,
     bounds: index.chrome.bounds,
     frames,
@@ -273,9 +298,10 @@ function withTitlesOnly(element: LaidOutElement): LaidOutElement {
   }
 }
 
-function forLod(painted: PlacedPaint, lod: TileLod): PaintedElement {
-  const dressed = dressedElement(painted.element, painted.record);
-  return { ...painted, element: lod === 'titles' ? withTitlesOnly(dressed) : dressed };
+function forLod(index: TileIndex, painted: PlacedPaint, lod: TileLod): PaintedElement {
+  const recorded = withRecord(index, painted);
+  const dressed = dressedElement(recorded.element, recorded.record);
+  return { ...recorded, element: lod === 'titles' ? withTitlesOnly(dressed) : dressed };
 }
 
 function base64Of(bytes: Uint8Array): string {
@@ -311,7 +337,7 @@ function tileOf(index: TileIndex, key: TileKey): Tile {
   if (key.lod === 'blocks') return { key, elements: [], raster: rasterOf(index, key) };
   const elements = slotsTouching(index, tileRectOf(key)).flatMap((slot) => {
     const painted = index.painted[slot];
-    return painted ? [forLod(painted, key.lod)] : [];
+    return painted ? [forLod(index, painted, key.lod)] : [];
   });
   return { key, elements, raster: null };
 }
@@ -329,6 +355,7 @@ function patchTileIndex(index: TileIndex, board: Board, patch: TilePatch): TileC
   const changedSlots: ChangedSlot[] = [];
   const touchedRects: Rect[] = [];
   const removedIds: string[] = [];
+  index.records = board.elements;
   for (const id of patch.removedIds) {
     const slot = index.slotById.get(id);
     if (slot === undefined) continue;
@@ -376,11 +403,11 @@ function tileDiffOf(next: TileIndex, { changedSlots, removedIds, touchedRects, i
   const changed = changedSlots.flatMap(({ slot, rects }) => {
     const painted = next.painted[slot];
     if (!painted) return [];
-    return elementRects.some((held) => rects.some((rect) => rectsTouch(held, rect))) ? [forLod(painted, lod)] : [];
+    return elementRects.some((held) => rects.some((rect) => rectsTouch(held, rect))) ? [forLod(next, painted, lod)] : [];
   });
   const rasters = heldRects.filter(({ key, rect }) => key.lod === 'blocks' && touchedRects.some((touched) => rectsTouch(rect, touched))).map(({ key }) => tileOf(next, key));
   return { changed, removedIds, rasters, chrome: isChromeChanged ? next.chrome : null };
 }
 
-export { boardOutlineOf, defaultFocusOf, elementIdsTouching, elementPageOf, fitsOnePage, lodForScale, paintedBoundsOf, patchTileIndex, tileDiffOf, tileIdOf, tileIndexOf, tileIndexOfPainted, tileKeysFor, tileOf, tileRectOf };
+export { boardOutlineOf, defaultFocusOf, elementIdsTouching, elementPageOf, fitsOnePage, lodForScale, paintedBoundsOf, patchTileIndex, tileDiffOf, tileIdOf, tileIndexOf, tileIndexOfPainted, tileKeysFor, tileOf, tileRectOf, withRecord };
 export type { TileIndex };

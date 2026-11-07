@@ -314,7 +314,7 @@ function deviceSections(box: DeviceBox, set: FieldCommit): HTMLElement[] {
 }
 
 function wireSections(board: Board, wire: Wire, set: FieldCommit): HTMLElement[] {
-  const from = board.elements[wire.from];
+  const from = board.elements.get(wire.from);
   const heldOutputs = from?.kind === 'box' && from.shape === 'decision' ? from.outputs : null;
   const unloadedOutputs = !from && wire.fromOutput ? [{ id: wire.fromOutput, label: wire.fromOutput }] : [];
   const outputs = heldOutputs ?? unloadedOutputs;
@@ -414,7 +414,7 @@ function selectionActionsRow(selected: readonly BoardElement[], actions: Selecti
 
 function elementSections(board: Board, element: BoardElement, latestBoard: () => Board | null, layout: BoardLayout | null, linkedBoardChoices: readonly Choice[], send: (ops: Op[]) => void): HTMLElement[] {
   const set: FieldCommit = (fields) => send([{ op: 'set', id: element.id, fields }]);
-  const latest = () => latestBoard()?.elements[element.id];
+  const latest = () => latestBoard()?.elements.get(element.id);
   switch (element.kind) {
     case 'box': return boxSections(element, latest, layout, linkedBoardChoices, set);
     case 'wire': return wireSections(board, element, set);
@@ -462,7 +462,7 @@ export function createBoardInspector(options: BoardInspectorOptions) {
   function soleSelectedElement(board: Board, selectedIds: ReadonlySet<string>): BoardElement | undefined {
     if (selectedIds.size !== 1) return undefined;
     const [selectedId] = selectedIds;
-    return selectedId === undefined ? undefined : board.elements[selectedId];
+    return selectedId === undefined ? undefined : board.elements.get(selectedId);
   }
 
   function repaintReviewWhileTyping(board: Board, selectedIds: ReadonlySet<string>): void {
