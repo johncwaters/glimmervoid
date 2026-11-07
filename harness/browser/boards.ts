@@ -951,6 +951,12 @@ async function dashboardBoardFetchesOf(page: Page): Promise<number> {
   });
 }
 
+async function sceneBuildsOf(panel: Locator): Promise<number> {
+  const sceneBuilds = await panel.locator('.wb-gl').evaluate((canvas) => (canvas instanceof HTMLElement ? canvas.dataset.sceneBuilds : undefined));
+  assert.ok(sceneBuilds, 'the board renderer counts its scene builds on its canvas');
+  return Number(sceneBuilds);
+}
+
 async function startFrameRecorder(page: Page): Promise<void> {
   await page.evaluate(() => {
     const recorder = { gapsMs: [] as number[], isRecording: true };
@@ -1053,9 +1059,11 @@ export async function verifyBoardScale(page: Page, sessionId: string): Promise<s
   await startFrameRecorder(page);
   await page.mouse.move(grabAt.x, grabAt.y);
   await page.mouse.down();
+  const sceneBuildsAtGrab = await sceneBuildsOf(panel);
   await page.mouse.move(grabAt.x + SCALE_DRAG_OFFSET.x, grabAt.y + SCALE_DRAG_OFFSET.y, { steps: 30 });
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const drag = await stopFrameRecorder(page);
+  assert.equal(await sceneBuildsOf(panel), sceneBuildsAtGrab, 'a drag frame moves only the dragged boxes and their wires, never rebuilding the board scene');
   const versionBeforeUpdate = (await boardOf(open)).version;
   await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'set', id: untouchedBoxId, fields: { title: SCALE_HELD_UPDATE_TITLE } }] });
   await panel.locator('.wb-board-meta', { hasText: `v${versionBeforeUpdate + 1}` }).waitFor({ timeout: SCALE_SAVE_TIMEOUT_MS });

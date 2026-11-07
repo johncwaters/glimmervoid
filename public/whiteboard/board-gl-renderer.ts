@@ -113,6 +113,13 @@ interface GlScene {
   geometryIndexById: Map<string, number>;
   elementById: Map<string, LaidOutElement>;
   grid: ReturnType<typeof gridOfRects>;
+  hasPageMedia: boolean;
+}
+
+interface ScenePreview {
+  hiddenIds: ReadonlySet<string>;
+  geometries: ElementGeometry[];
+  elementById: Map<string, LaidOutElement>;
 }
 
 const NO_REVIEW_MARKS: ReviewMarks = { worthALookIds: new Set(), flaggedStepIds: new Set() };
@@ -502,6 +509,10 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   let gatheredArea: Rect | null = null;
   let gatheredLodStep = Number.NaN;
   let decorationStart: LayerRange = emptyRange();
+  let previewStart: LayerRange = emptyRange();
+  let preview: ScenePreview | null = null;
+  let baseDrawnMediaCount = 0;
+  const previewRanges: LayerRange[] = Array.from({ length: LAYER_COUNT }, emptyRange);
   let visibleDrawnMedia: { href: string; rect: Rect; depth: number }[] = [];
   const geometryBySignature = new Map<string, ElementGeometry>();
   const glyphMinScaleByPart = new WeakMap<GeometryPart, number>();
@@ -512,6 +523,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   const layerRanges: LayerRange[] = Array.from({ length: LAYER_COUNT + 1 }, emptyRange);
   const mediaTextures = new Map<string, MediaTexture>();
   let gatherNumber = 0;
+  let sceneBuildCount = 0;
 
   function showNotice(text: string | null): void {
     notice.hidden = text === null;
@@ -661,29 +673,56 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     return indexes.sort((left, right) => left - right);
   }
 
+  function elementOf(current: GlScene, elementId: string): LaidOutElement | undefined {
+    return preview?.elementById.get(elementId) ?? current.elementById.get(elementId);
+  }
+
   function decorations(current: GlScene): Decoration[] {
     const listed: Decoration[] = [];
     for (const elementId of reviewMarks.flaggedStepIds) {
-      const element = current.elementById.get(elementId);
+      const element = elementOf(current, elementId);
       if (element) listed.push({ kind: 'flagged', element });
     }
     for (const elementId of selectedIds) {
-      const element = current.elementById.get(elementId);
+      const element = elementOf(current, elementId);
       if (element) listed.push({ kind: 'selected', element });
     }
-    const target = wireTargetId ? current.elementById.get(wireTargetId) : undefined;
+    const target = wireTargetId ? elementOf(current, wireTargetId) : undefined;
     if (target) listed.push({ kind: 'wire-target', element: target });
     const isPhone = document.documentElement.dataset.layout === 'phone';
     const handleBoxIds = isPhone ? new Set<string>() : new Set([...selectedIds, ...(hoveredBoxId ? [hoveredBoxId] : [])]);
     for (const boxId of handleBoxIds) {
-      const box = current.elementById.get(boxId);
+      const box = elementOf(current, boxId);
       if (box?.kind === 'box') listed.push({ kind: 'hover-handles', box });
     }
     for (const elementId of reviewMarks.worthALookIds) {
-      const element = current.elementById.get(elementId);
+      const element = elementOf(current, elementId);
       if (element && element.kind !== 'wire') listed.push({ kind: 'look', element });
     }
     return listed;
+  }
+
+  function writePreview(current: GlScene, currentPalette: BoardPalette, glyphSource: GlyphAtlas): void {
+    truncateTo(previewStart);
+    visibleDrawnMedia.length = baseDrawnMediaCount;
+    const upperScale = lodUpperScale(gatheredLodStep);
+    for (let layer = 0; layer < LAYER_COUNT; layer += 1) {
+      const range = previewRanges[layer] ?? emptyRange();
+      startRange(range);
+      for (const geometry of preview?.geometries ?? []) {
+        for (const layered of geometry.parts) {
+          if (layered.layer === layer) appendPart(layered.part, upperScale, depthOf(geometry.paintRank, current));
+        }
+        if (layer === BOX_LAYER) collectDrawnMedia(current, geometry);
+      }
+      endRange(range);
+    }
+    decorationStart = rangeMarkHere();
+    writeDecorations(current, currentPalette, glyphSource);
+  }
+
+  function rangeMarkHere(): LayerRange {
+    return { ...emptyRange(), rectStart: rects.length / RECT_FLOATS, segmentStart: segments.length / SEGMENT_FLOATS, triangleStart: triangles.length / TRIANGLE_VERTEX_FLOATS, glyphStart: glyphs.length / GLYPH_FLOATS };
   }
 
   function writeDecorations(current: GlScene, currentPalette: BoardPalette, glyphSource: GlyphAtlas): void {
@@ -715,7 +754,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
       }
       for (const index of visible) {
         const geometry = current.geometries[index];
-        if (!geometry) continue;
+        if (!geometry || preview?.hiddenIds.has(geometry.id)) continue;
         for (const layered of geometry.parts) {
           if (layered.layer === layer) appendPart(layered.part, upperScale, depthOf(geometry.paintRank, current));
         }
@@ -723,18 +762,19 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
       }
       endRange(range);
     }
-    decorationStart = { ...emptyRange(), rectStart: rects.length / RECT_FLOATS, segmentStart: segments.length / SEGMENT_FLOATS, triangleStart: triangles.length / TRIANGLE_VERTEX_FLOATS, glyphStart: glyphs.length / GLYPH_FLOATS };
-    writeDecorations(current, currentPalette, glyphSource);
-    evictMediaTexturesOverBudget();
-    mediaLayer.showArea(area);
+    previewStart = rangeMarkHere();
+    baseDrawnMediaCount = visibleDrawnMedia.length;
     gatheredArea = area;
     gatheredLodStep = lodStep;
     isGatherDirty = false;
+    writePreview(current, currentPalette, glyphSource);
+    evictMediaTexturesOverBudget();
+    mediaLayer.showArea(area);
   }
 
   function collectDrawnMedia(current: GlScene, geometry: ElementGeometry): void {
     if (geometry.hitShape.kind !== 'rect' || !geometry.hitShape.hasDrawnMedia) return;
-    const box = current.elementById.get(geometry.id);
+    const box = elementOf(current, geometry.id);
     if (box?.kind !== 'box' || !box.media) return;
     const href = servedAssetHref(box.media);
     if (!href) return;
@@ -961,22 +1001,26 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   }
 
   function drawLayer(context: WebGL2RenderingContext, programs: NonNullable<typeof primitives>, glyphSource: GlyphAtlas, layer: number): void {
-    const range = layerRanges[layer];
-    if (!range) return;
+    const baseRange = layerRanges[layer];
+    if (!baseRange) return;
+    const ranges = [baseRange, ...(previewRanges[layer] ? [previewRanges[layer]] : [])];
     if (layer === DECORATION_LAYER) context.disable(context.DEPTH_TEST);
     context.depthMask(true);
-    drawTriangles(context, programs.triangle, range.triangleStart, range.triangleCount);
-    drawInstances(context, programs.rect, range.rectStart, range.rectCount);
+    for (const range of ranges) drawTriangles(context, programs.triangle, range.triangleStart, range.triangleCount);
+    for (const range of ranges) drawInstances(context, programs.rect, range.rectStart, range.rectCount);
     context.depthMask(false);
-    drawInstances(context, programs.segment, range.segmentStart, range.segmentCount);
+    for (const range of ranges) drawInstances(context, programs.segment, range.segmentStart, range.segmentCount);
     if (layer === BOX_LAYER) drawMedia(context, programs.image);
-    if (range.glyphCount === 0) return;
+    const glyphRanges = ranges.filter((range) => range.glyphCount > 0);
+    if (glyphRanges.length === 0) return;
     glyphSource.bind(context, 0);
     setSharedUniforms(context, programs.glyph);
     context.uniform1i(programs.glyph.uniforms.get('uAtlas') ?? null, 0);
     context.bindVertexArray(programs.glyph.vao);
-    pointAttributesAt(context, programs.glyph, range.glyphStart);
-    context.drawArraysInstanced(context.TRIANGLE_STRIP, 0, 4, range.glyphCount);
+    for (const range of glyphRanges) {
+      pointAttributesAt(context, programs.glyph, range.glyphStart);
+      context.drawArraysInstanced(context.TRIANGLE_STRIP, 0, 4, range.glyphCount);
+    }
   }
 
   function isGatherStale(): boolean {
@@ -1060,20 +1104,52 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     return layout;
   }
 
+  function dropPreview(current: GlScene): void {
+    if (!preview) return;
+    preview = null;
+    isGatherDirty = true;
+    if (current.hasPageMedia) mediaLayer.sync(current.layout, current.geometries.map((geometry) => geometry.id));
+    requestDraw();
+  }
+
   function renderLayout(layout: BoardLayout, nextBlocks: readonly BlockTile[]): void {
-    if (lastRendered?.source === layout && lastRendered.blocks === nextBlocks && scene?.layout === layout) return;
+    const current = scene;
+    if (lastRendered?.source === layout && lastRendered.blocks === nextBlocks && current?.layout === layout) {
+      dropPreview(current);
+      return;
+    }
     drawLayout(layout, nextBlocks);
     lastRendered = { source: layout, layout, blocks: nextBlocks };
   }
 
+  function isSameIdSet(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+    if (left.size !== right.size) return false;
+    for (const elementId of left) {
+      if (!right.has(elementId)) return false;
+    }
+    return true;
+  }
+
   function paintElements(elements: readonly LaidOutElement[]): void {
-    if (!lastRendered) return;
-    const replacementById = new Map(elements.map((element) => [element.id, element]));
-    const base = lastRendered.layout;
-    drawLayout({ ...base, elements: base.elements.map((element) => replacementById.get(element.id) ?? element) }, lastRendered.blocks);
+    if (scene && paletteKey(viewport) !== resolvedPaletteKey) buildScene(scene.layout);
+    const current = scene;
+    if (!current) return;
+    const currentPalette = ensurePalette();
+    const glyphSource = ensureAtlasInBoardFont();
+    const context: SceneContext = { palette: currentPalette, glyphs: glyphSource, hasDrawnMedia: isMediaDrawable };
+    const built = sceneOf({ ...current.layout, elements: [...elements], legend: [], caption: null, plan: null }, context, () => null);
+    const geometries = built.elements.map((geometry) => ({ ...geometry, paintRank: current.geometries[current.geometryIndexById.get(geometry.id) ?? -1]?.paintRank ?? 0 }));
+    const hiddenIds = new Set(elements.map((element) => element.id));
+    const isSameHidden = preview !== null && isSameIdSet(preview.hiddenIds, hiddenIds);
+    preview = { hiddenIds: isSameHidden && preview ? preview.hiddenIds : hiddenIds, geometries, elementById: new Map(elements.map((element) => [element.id, element])) };
+    if (!isSameHidden) isGatherDirty = true;
+    if (current.hasPageMedia) mediaLayer.sync({ ...current.layout, elements: current.layout.elements.map((element) => preview?.elementById.get(element.id) ?? element) }, current.geometries.map((geometry) => geometry.id));
+    if (!isGatherDirty && gatheredArea) writePreview(current, currentPalette, glyphSource);
+    requestDraw();
   }
 
   function drawLayout(layout: BoardLayout, nextBlocks: readonly BlockTile[]): void {
+    preview = null;
     if (atlas?.isFull()) {
       atlas.forgetUnusedGlyphs();
       geometryBySignature.clear();
@@ -1103,14 +1179,17 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
       geometryIndexById: new Map(built.elements.map((geometry, index) => [geometry.id, index])),
       elementById,
       grid: gridOfRects(built.elements.map((geometry) => geometry.bounds), CULL_CELL_SIZE),
+      hasPageMedia: layout.elements.some((element) => element.kind === 'box' && (element.media?.kind === 'page' || element.media?.kind === 'doc')),
     };
     forgetMediaNotIn(layout);
     mediaLayer.sync(layout, built.elements.map((geometry) => geometry.id));
     isGatherDirty = true;
+    sceneBuildCount += 1;
+    canvas.dataset.sceneBuilds = String(sceneBuildCount);
   }
 
-  function hitPartOf(geometry: ElementGeometry, point: Point, slop: number): BoardHit | null {
-    const element = scene?.elementById.get(geometry.id);
+  function hitPartOf(current: GlScene, geometry: ElementGeometry, point: Point, slop: number): BoardHit | null {
+    const element = elementOf(current, geometry.id);
     if (!element) return null;
     const hit: BoardHit = { id: geometry.id, kind: geometry.kind, part: 'body', port: null, linkedBoardId: null, media: null };
     const shape = geometry.hitShape;
@@ -1150,24 +1229,30 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     const portReach = PORT_RADIUS + slop;
     let best: BoardHit | null = null;
     let bestRank = -1;
-    forEachSlotTouching(current.grid, { x: point.x - portReach, y: point.y - portReach, width: portReach * 2, height: portReach * 2 }, (slot) => {
-      const geometry = current.geometries[slot];
-      if (!geometry || geometry.paintRank <= bestRank) return;
-      const hit = hitPartOf(geometry, point, slop);
+    const considerHit = (geometry: ElementGeometry): void => {
+      if (geometry.paintRank <= bestRank) return;
+      const hit = hitPartOf(current, geometry, point, slop);
       if (!hit) return;
       best = hit;
       bestRank = geometry.paintRank;
+    };
+    forEachSlotTouching(current.grid, { x: point.x - portReach, y: point.y - portReach, width: portReach * 2, height: portReach * 2 }, (slot) => {
+      const geometry = current.geometries[slot];
+      if (geometry && !preview?.hiddenIds.has(geometry.id)) considerHit(geometry);
     });
+    for (const geometry of preview?.geometries ?? []) considerHit(geometry);
     return best;
   }
 
   function boundsOf(elementId: string): Rect | null {
     const current = scene;
-    const index = current?.geometryIndexById.get(elementId);
-    if (!current || index === undefined) return null;
-    const element = current.elementById.get(elementId);
-    if (!element || element.kind === 'wire') return current.geometries[index]?.bounds ?? null;
-    return { x: element.x, y: element.y, width: element.width, height: element.height };
+    if (!current) return null;
+    const element = elementOf(current, elementId);
+    if (element && element.kind !== 'wire') return { x: element.x, y: element.y, width: element.width, height: element.height };
+    const previewGeometry = preview?.geometries.find((geometry) => geometry.id === elementId);
+    if (previewGeometry) return previewGeometry.bounds;
+    const index = current.geometryIndexById.get(elementId);
+    return index === undefined ? null : (current.geometries[index]?.bounds ?? null);
   }
 
   function elementsInRect(area: Rect): string[] {
@@ -1175,14 +1260,19 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     if (!current) return [];
     const inside: string[] = [];
     forEachSlotTouching(current.grid, area, (slot) => {
-      const element = current.elementById.get(current.geometries[slot]?.id ?? '');
+      const elementId = current.geometries[slot]?.id ?? '';
+      const element = preview?.hiddenIds.has(elementId) ? undefined : current.elementById.get(elementId);
       if (element && element.kind !== 'wire' && isRectInside(element, area)) inside.push(element.id);
     });
+    for (const element of preview?.elementById.values() ?? []) {
+      if (element.kind !== 'wire' && isRectInside(element, area)) inside.push(element.id);
+    }
     return inside;
   }
 
   function clear(): void {
     scene = null;
+    preview = null;
     lastRendered = null;
     forgetBlockTexturesNotIn([]);
     blocks = [];
