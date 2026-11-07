@@ -61,7 +61,7 @@ const RECORDED_FLAG_COUNTS = new Map<string, number>([
   ['server/usage/usage-wiring.ts', 5],
   ['server/ws-sender.ts', 4],
   ['session/adapters/codex.ts', 5],
-  ['session/codex-app-server-bridge.ts', 7],
+  ['session/codex-app-server-bridge.ts', 3],
   ['session/core/agent-home-core.ts', 4],
   ['session/screen-keeper.ts', 4],
   ['session/session-output.ts', 3],

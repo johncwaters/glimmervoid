@@ -46,6 +46,15 @@ const MACHINES: OwnedMachine[] = [
     allowedOffenders: new Map(),
   },
   {
+    name: 'codex thread join',
+    owner: 'session/core/codex-app-server-core.ts',
+    handles: /\bThreadJoin\b/,
+    writes: [/\bkind\s*:\s*["'`](?:waiting|joining|joined|abandoned)["'`]/, /\bthreadJoin\s*=[^=]/],
+    allowedOffenders: new Map([
+      ['session/codex-app-server-bridge.ts', { writeCount: 1, reason: 'dispatchJoin applies the decideThreadJoin verdict' }],
+    ]),
+  },
+  {
     name: 'session teardown',
     owner: 'session/core/session-teardown.ts',
     handles: /\bclass Session\b/,
