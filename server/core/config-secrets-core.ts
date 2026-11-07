@@ -17,7 +17,6 @@ const ENV_SECRET_BINDINGS: readonly EnvSecretBinding[] = Object.freeze([
   { blockName: 'posthog', secretKey: 'apiKey', environmentVariable: 'GLIMMERVOID_POSTHOG_API_KEY', isEnvironmentOnly: false },
   { blockName: 'telegram', secretKey: 'botToken', environmentVariable: 'GLIMMERVOID_TELEGRAM_BOT_TOKEN', isEnvironmentOnly: false },
   { blockName: 'github', secretKey: 'readToken', environmentVariable: 'GLIMMERVOID_GITHUB_READ_TOKEN', isEnvironmentOnly: false },
-  { blockName: 'watcher', secretKey: 'token', environmentVariable: 'GLIMMERVOID_WATCHER_TOKEN', isEnvironmentOnly: true },
   { blockName: 'vault', secretKey: 'token', environmentVariable: 'GLIMMERVOID_VAULT_TOKEN', isEnvironmentOnly: true },
 ]);
 

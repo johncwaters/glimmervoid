@@ -63,14 +63,6 @@ Which version is running, and updating to the newest.
 | `updateChannel` | Channel | `"release"` | Stable releases, or Experimental builds from every change to main. |
 | `checkForUpdates` | Check for updates automatically | `true` | Check for a newer version at launch and while the dashboard is open. |
 
-### Server
-
-Restart or shut down the Glimmervoid server.
-
-| Key | Setting | Default | Notes |
-|-----|---------|---------|-------|
-| `watcher.autoStart` | Start the watcher with the server | `true` | Runs the watcher beside this server and delivers its jobs to this server. Turn off when the watcher runs on another machine. Needs a server restart. |
-
 ### Usage
 
 Token accounting and estimated-cost budgets.
@@ -243,8 +235,6 @@ Config-file-only detection, timing, worktree and process settings.
 | `integrationBranch` | Integration branch | `null` | Base branch for session worktrees. Empty = each repo's default branch. Existing sessions are never retargeted. Applies to new sessions. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
 | `worktreeRoot` | Worktree root | `""` | Directory that contains session worktrees. Existing worktrees are never relocated. Applies to new sessions. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
 | `worktreeShare` | Shared worktree paths | `[".env*",".claude"]` | Local paths copied or linked during worktree preparation. A * matches names at the project root, never one containing production; name such a file in full to share it. Applies to new sessions. **File-only.** Never editable from the dashboard by rule; edit it in config.json. |
-| `watcher.inboxHost` | Job inbox address | `"127.0.0.1"` | Address the job inbox listens on for watcher jobs. Any address other than this machine needs GLIMMERVOID_WATCHER_TOKEN. Needs a server restart. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
-| `watcher.inboxPort` | Job inbox port | `null` | Port the job inbox listens on; empty picks any free port. Required with GLIMMERVOID_WATCHER_TOKEN. Needs a server restart. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
 | `port` | Local port | `3000` | Port used by the local dashboard listener. Needs a server restart. **File-only.** Never editable from the dashboard by rule; edit it in config.json. |
 | `notifyDebounceMs` | Notification grouping window | `3000` | Alerts from any session within this long of the first one fold into one sound, one desktop notification and one Telegram message. Applies to new sessions. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `phoneEscalationMs` | Phone escalation delay | `300000` | Delay before off-dashboard escalation. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
@@ -298,8 +288,6 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 | `GLIMMERVOID_POSTHOG_API_KEY` | operator | Supplies `posthog.apiKey`, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
 | `GLIMMERVOID_TELEGRAM_BOT_TOKEN` | operator | Supplies `telegram.botToken`, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
 | `GLIMMERVOID_GITHUB_READ_TOKEN` | operator | Supplies `github.readToken`, the read-only GitHub token lanes use for gh, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
-| `GLIMMERVOID_WATCHER_HOME` | operator | Folder the watcher keeps its own state in: the watchee settings the server writes, the events it already sent, and its GitHub cache. Defaults to `watcher` inside the Glimmervoid home; the server passes it to the watcher it auto-starts. |
-| `GLIMMERVOID_WATCHER_TOKEN` | operator | Supplies `watcher.token`, the bearer token a watcher on another machine sends to this server's job inbox. Required for a non-loopback `watcher.inboxHost`, together with a fixed `watcher.inboxPort`. Stripped from every write and from every agent session's environment. |
 | `GLIMMERVOID_VAULT_TOKEN` | operator | The bearer token a vault companion sends to this server's job inbox; set the same value where `glimmervoid vault` runs. Unset, the server makes one per boot and hands it to a companion on this machine. A companion on another machine (`glimmervoid vault --server <url>`) also needs the job inbox reachable there: `GLIMMERVOID_WATCHER_TOKEN`, `watcher.inboxHost` and a fixed `watcher.inboxPort`, behind https or an ssh tunnel to the loopback port. Stripped from every write and from every agent session's environment. |
 | `GLIMMERVOID_CLAUDE_OAUTH_TOKEN` | operator | A long-lived Claude Code token (`claude setup-token`) that benchmark arms authenticate with instead of the login token Glimmervoid reads from the keychain or `~/.claude/.credentials.json`. Passed only to benchmark sessions, never stored. |
 | `GLIMMERVOID_TELEMETRY` | operator | Set to `0` to turn off usage and error telemetry (error type, error code and scrubbed stack frames, never messages or paths) whatever `telemetry.enabled` says. `DO_NOT_TRACK=1` and `CI=true` turn it off too. |

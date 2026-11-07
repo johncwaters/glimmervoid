@@ -250,14 +250,6 @@ const OWNED_COMMAND_SPECS = {
       { name: 'list', summary: 'The packs the running Glimmervoid found and whether each is approved; works inside a Glimmervoid session' },
     ],
   },
-  watch: {
-    name: 'watch',
-    summary: 'Run the watcher: deliver jobs to a Glimmervoid job inbox with the GLIMMERVOID_WATCHER_TOKEN bearer token',
-    options: [
-      { name: 'inbox', type: 'string', valueName: 'url', summary: 'The job inbox to deliver to, for example http://127.0.0.1:7700 (https for another machine)' },
-      { name: 'ping', type: 'boolean', summary: 'Send one ping job, then exit 0 on its ack or 1 with the reason' },
-    ],
-  },
   vault: {
     name: 'vault',
     summary: "Run the vault companion on the operator's machine: read approved secrets from 1Password for a Glimmervoid server's sessions",

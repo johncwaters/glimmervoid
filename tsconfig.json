@@ -7,7 +7,6 @@
   },
   "include": [
     "server/**/*.ts",
-    "cloud/**/*.ts",
     "session/**/*.ts",
     "detection/**/*.ts",
     "notifications/**/*.ts",

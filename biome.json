@@ -101,7 +101,6 @@
     {
       "includes": [
         "server/**/core/**",
-        "cloud/**/core/**",
         "session/**/core/**",
         "notifications/**/core/**"
       ],

@@ -18,7 +18,6 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 | `docs/`, `bin/` | Design records and npm CLI |
 | `Glimmervoid.spec.md`, `*.spec.md`, `coherence.config.json`, `lexicon.json` | Coherence: the entry spec at the root, a component spec beside each unit's code, its config and vocabulary; `npm test` fails on a spec or lexicon problem |
 | `mcp/` | Agent MCP endpoint; all MCP code (`mcp/AGENTS.md`) |
-| `cloud/` | Cloud split: watcher and job inbox (`cloud/AGENTS.md`) |
 | `server/` | Backend runtime and lanes (`server/AGENTS.md`) |
 | `server/child-process-safe.ts` | The ONLY importer of `node:child_process` |
 | `server/git/git-workspace.ts` | The ONLY module allowed to run `git worktree` |
@@ -77,7 +76,6 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 | Agent Adapters | `session/adapters/AGENTS.md` |
 | Session Spawning, Auto-Resume and Shutdown | `session/AGENTS.md` |
 | Notifications | `notifications/AGENTS.md` |
-| Watcher Job Inbox, Watchees | `cloud/AGENTS.md` |
 | Worktree Auto-Rebase, Worktree Base Branch, Remote Branch GC, Benchmarks, Plan Review, Security: Trust Boundary, Transport and Session Identity | `server/AGENTS.md` |
 | Ephemeral Lane Write Boundaries, Lane PostHog MCP | `server/lanes/AGENTS.md` |
 | Usage Tracking | `server/usage/AGENTS.md` |
@@ -100,7 +98,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 
 ## Dependencies
 
-Runtime: `express`, `ws` (no Socket.IO and no abstraction over WebSockets, ever), `node-pty` (a real PTY; needs C++ build tools, VS Build Tools on Windows), and browser-only `@xterm/xterm` with `@xterm/addon-fit` and `@xterm/addon-webgl`.
+Runtime: `express`, `ws`, `node-pty` (a real PTY; needs C++ build tools, VS Build Tools on Windows), and browser-only `@xterm/xterm` with `@xterm/addon-fit` and `@xterm/addon-webgl`.
 
 `@xterm/headless` with `@xterm/addon-serialize` keeps a server-side screen per live session (`session/screen-keeper.ts`). `zod` defines every wire and persisted shape. `cc-safety-net` backs Sane YOLO, the risky-command catcher. `sharp` and `ffmpeg-static` make the small WebP previews of whiteboard media. Glimmervoid runs each repository's own `@posthog/coherence` CLI and takes no runtime dependency on it.
 

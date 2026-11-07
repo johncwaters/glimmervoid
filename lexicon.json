@@ -242,25 +242,17 @@
     },
     {
       "name": "watcher",
-      "definition": "The always-on glimmervoid watch process that runs no sessions or dashboard and delivers jobs to a Glimmervoid server's job inbox; auto-started by the server on one machine, or run on its own box for Glimmervoid Cloud",
+      "definition": "The always-on glimmervoid watch process that runs no sessions, dashboard or lane logic: it runs the probes the server sends it and nudges the server when one changes; started by the server on one machine, or run on its own box so the server can sleep",
       "aliases": [
         "watch"
       ]
     },
     {
-      "name": "job inbox",
-      "definition": "The bearer-token listener inside a Glimmervoid server that accepts watcher jobs, parses each against its registered kind and acks it once"
-    },
-    {
       "name": "server",
-      "definition": "The Glimmervoid Node.js background process on the operator's machine that supervises sessions, serves the dashboard and hosts the job inbox",
+      "definition": "The Glimmervoid Node.js background process on the operator's machine that supervises sessions, serves the dashboard and runs the lanes",
       "aliases": [
         "backend"
       ]
-    },
-    {
-      "name": "watchee",
-      "definition": "One lane's watching half on the watcher: detects external events on its trigger and delivers a job of its own kind, which a paired server handler acts on"
     },
     {
       "name": "reviewing now",
@@ -367,7 +359,7 @@
     },
     {
       "name": "payload",
-      "definition": "The body a structural message carries: an agent hook event's JSON posted to the hook route, or a watcher job's kind-specific body parsed against its registered schema in the job inbox"
+      "definition": "The body a structural message carries: an agent hook event's JSON posted to the hook route"
     },
     {
       "name": "workspace",
@@ -643,6 +635,28 @@
     {
       "name": "split",
       "definition": "A session and one board open side by side in Focus, shown as one item in the rail; each session has at most one and each board is in at most one"
+    }
+  ],
+  "retired": [
+    {
+      "name": "watchee",
+      "definition": "One lane's watching half on the watcher: detects external events on its trigger and delivers a job of its own kind, which a paired server handler acts on",
+      "because": "the watchee halves of lanes are deleted with the old watcher (dumb-fetcher-watcher U4); the new watcher runs probes the server compiles"
+    },
+    {
+      "name": "job inbox",
+      "definition": "The bearer-token listener inside a Glimmervoid server that accepts watcher jobs, parses each against its registered kind and acks it once",
+      "because": "the bearer-token job inbox is deleted with the old watcher (dumb-fetcher-watcher U4)"
+    }
+  ],
+  "rejected": [
+    {
+      "concept": "watchee",
+      "because": "the watchee halves of lanes are deleted with the old watcher (dumb-fetcher-watcher U4); the new watcher runs probes the server compiles"
+    },
+    {
+      "concept": "job inbox",
+      "because": "the bearer-token job inbox is deleted with the old watcher (dumb-fetcher-watcher U4)"
     }
   ]
 }

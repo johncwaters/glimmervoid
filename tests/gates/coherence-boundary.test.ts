@@ -15,7 +15,7 @@ function sourceFiles(directory: string): string[] {
 
 test('Coherence execution and journal paths stay inside server/coherence with no runtime package dependency', () => {
   const violations: string[] = [];
-  for (const directory of ['server', 'cloud', 'session', 'shared', 'public', 'bin', 'detection', 'notifications', 'scripts']) {
+  for (const directory of ['server', 'session', 'shared', 'public', 'bin', 'detection', 'notifications', 'scripts']) {
     for (const file of sourceFiles(path.join(root, directory))) {
       if (file.startsWith(path.join(root, 'server', 'coherence') + path.sep)) continue;
       const source = fs.readFileSync(file, 'utf8');

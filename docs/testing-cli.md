@@ -54,7 +54,6 @@ Commands:
   pair --list         List paired devices
   pair --revoke <id>  Revoke a paired device
   agent setup grok    Install the Grok hook relay, which does nothing outside Glimmervoid
-  watch --inbox <url> Run the watcher, delivering jobs to a job inbox; --ping sends one ping and exits
   vault               Run the vault companion that reads approved secrets from 1Password; --server <url> serves another machine
 
 Inside a Glimmervoid session:
