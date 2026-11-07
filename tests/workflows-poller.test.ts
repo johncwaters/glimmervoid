@@ -49,12 +49,13 @@ function watcherStore(currentNode: () => GithubPrDetailNode, now: () => number) 
   });
 }
 
-test('a pull request list from the watcher drives a workflow rule: approving the operator pull request labels it once, using the viewer the watcher looked up', async () => {
+test('a pull request list from the watcher drives a workflow rule: approving the operator pull request labels it once, using the viewer the watcher looked up, stamps its snapshot with the server clock, and ignores a list older than the last one', async () => {
   const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'workflows-watchee-'));
   let nowMs = Date.parse('2026-11-06T12:00:00Z');
   let node = pullRequestNode('REVIEW_REQUIRED', '2026-11-06T11:00:00Z');
   const labels: string[] = [];
-  const search = createWorkflowsSearch({ store: watcherStore(() => node, () => nowMs), now: () => nowMs });
+  const search = createWorkflowsSearch({ store: watcherStore(() => node, () => nowMs), now: () => nowMs + 3_600_000 });
+  const laneRefreshingFlags: boolean[] = [];
   const config = {
     workflows: { enabled: true, rules: [{ id: 'label-approved', name: 'Label approved', enabled: true, repos: [REPO], filters: { mine: true }, trigger: 'approved', actions: [{ type: 'label', name: 'ready' }] }] },
   };
@@ -67,7 +68,13 @@ test('a pull request list from the watcher drives a workflow rule: approving the
       commentOnPr: async () => ({ ok: true, err: '' }),
     },
     store: { rateLimitWaitMs: async () => null },
-    createPoller: (dependencies) => createWorkflowsPoller({ ...dependencies, now: () => nowMs, firstTickDelayMs: () => 0, setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {} }),
+    createPoller: (dependencies) => {
+      const onTickComplete: typeof dependencies.onTickComplete = (status) => {
+        if ('isRefreshing' in status) laneRefreshingFlags.push(status.isRefreshing === true);
+        dependencies.onTickComplete(status);
+      };
+      return createWorkflowsPoller({ ...dependencies, onTickComplete, now: () => nowMs, firstTickDelayMs: () => 0, setIntervalFn: () => ({ unref() {} }) as NodeJS.Timeout, clearIntervalFn: () => {} });
+    },
   });
   const deliverList = async () => {
     const searched = await search.search({ enabled: true, repos: [REPO], intervalMinutes: 5 });
@@ -91,6 +98,11 @@ test('a pull request list from the watcher drives a workflow rule: approving the
     await deliverList();
     await waitFor(() => { void savedPolledAtMs().then((saved) => { polledAtMs = saved; }, () => {}); return polledAtMs === nowMs; }, 'the repeated list was planned', 3000);
     assert.deepEqual(labels, [`${REPO}#1:ready`]);
+    const plannedAtMs = polledAtMs;
+    nowMs += 5 * 60_000;
+    await wiring.acceptCandidates({ payload: { observedAt: new Date(nowMs - 3_600_000).toISOString(), viewer: 'operator', repo: REPO, isComplete: true, prs: [] } });
+    await waitFor(() => laneRefreshingFlags.at(-1) === false, 'the lane is idle after the older list', 3000);
+    assert.equal(await savedPolledAtMs(), plannedAtMs);
   } finally {
     search.stop();
     await wiring.stopPoller();

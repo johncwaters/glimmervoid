@@ -366,7 +366,7 @@ test('a store rollup change broadcasts my-prs status and its stage clock without
   }
 });
 
-test('a stage the store shows while a rebase is in flight keeps its clock when the tick finishes on its older snapshot', async () => {
+test('a stage the store shows while a rebase is in flight keeps its clock when the tick finishes on its older snapshot, and a pull request list older than the last one changes nothing', async () => {
   const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'control-my-pr-rebase-race-'));
   let nowMs = Date.parse('2026-11-05T10:10:00Z');
   let checksState: 'PENDING' | 'SUCCESS' = 'PENDING';
@@ -425,6 +425,9 @@ test('a stage the store shows while a rebase is in flight keeps its clock when t
     await lanePollers[0]?.tick();
     assert.equal(stageClockOf()?.stage, 'ready');
     assert.equal(stageClockOf()?.stageSinceMs, checksPassedAtMs);
+    await wiring.acceptCandidates({ payload: { observedAt: '2026-11-05T09:00:00.000Z', viewer: 'me', isComplete: true, returnedCount: 0, totalCount: 0, open: [], merged: [] } });
+    await lanePollers[0]?.tick();
+    assert.equal(stageClockOf()?.stage, 'ready');
   } finally {
     await wiring.stopPoller();
     await fs.rm(homeDir, { recursive: true, force: true });

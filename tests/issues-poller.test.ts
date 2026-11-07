@@ -90,6 +90,14 @@ test('issue lists from the watcher fill the Issues tab with project, assigned an
     assert.ok(listed.ok);
     for (const payload of listed.payloads) await wiring.acceptListing({ payload });
   };
+  const refreshOnceIdle = async () => {
+    let refreshed = await wiring.refresh();
+    while (refreshed.error === 'A refresh is already running.') {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      refreshed = await wiring.refresh();
+    }
+    return refreshed;
+  };
   const sourcesByKey = () => Object.fromEntries((statuses.at(-1)?.issues ?? []).map((issue) => [issue.key, issue.sources]));
   try {
     await wiring.startPoller();
@@ -117,12 +125,7 @@ test('issue lists from the watcher fill the Issues tab with project, assigned an
     assert.deepEqual(Object.keys(sourcesByKey()).sort(), ['acme/infra#3', 'acme/other#2']);
     config.projects.push({ id: 'project-2', name: 'App mirror', path: '/work/app-mirror' });
     wiring.restartIfConfigChanged();
-    let restartedRefresh = await wiring.refresh();
-    while (restartedRefresh.error === 'A refresh is already running.') {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      restartedRefresh = await wiring.refresh();
-    }
-    assert.deepEqual(restartedRefresh, { ok: true });
+    assert.deepEqual(await refreshOnceIdle(), { ok: true });
     assert.deepEqual(Object.keys(sourcesByKey()).sort(), ['acme/infra#3', 'acme/other#2']);
     await wiring.setIssueState({ repo: 'acme/app', number: 1, state: 'open' });
     await deliverLists();
@@ -132,7 +135,7 @@ test('issue lists from the watcher fill the Issues tab with project, assigned an
     await waitFor(() => /Assigned to you: gh HTTP 502/.test(statuses.at(-1)?.error ?? ''), 'the failed assigned listing was shown', 3000);
     assert.ok(sourcesByKey()['acme/other#2']);
     await wiring.acceptListing({ payload: { source: 'me', observedAt: '2026-11-06T11:00:00.000Z', viewer: 'alice', isComplete: true, error: null, issues: [] } });
-    await wiring.refresh();
+    assert.deepEqual(await refreshOnceIdle(), { ok: true });
     assert.deepEqual(sourcesByKey()['acme/other#2'], ['me']);
   } finally {
     await wiring.stopPoller();
