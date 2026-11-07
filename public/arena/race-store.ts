@@ -1,8 +1,9 @@
-import type { RaceRecord } from '#shared/contracts/race.ts';
+import type { RaceHistory, RaceRecord } from '#shared/contracts/race.ts';
 import { REMOVED_CONTESTANT, raceProgress } from '#shared/race-core.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 
 let races: readonly RaceRecord[] = [];
+let history: RaceHistory | null = null;
 const subscribers = new Set<() => void>();
 
 export function subscribeRaces(subscriber: () => void): void {
@@ -15,6 +16,15 @@ export function raceList(): readonly RaceRecord[] {
 
 export function applyRaceStatus(message: { races: RaceRecord[] }): void {
   races = message.races;
+  for (const subscriber of subscribers) subscriber();
+}
+
+export function raceHistory(): RaceHistory | null {
+  return history;
+}
+
+export function applyRaceHistory(message: { history: RaceHistory }): void {
+  history = message.history;
   for (const subscriber of subscribers) subscriber();
 }
 

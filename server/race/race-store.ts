@@ -26,7 +26,18 @@ function createRaceStore({ directory, log }: { directory: string; log: Pick<Cons
     await writeJsonAtomic(fileOf(record.id), record);
   }
 
-  return { read, write };
+  async function list(): Promise<RaceRecord[]> {
+    const names = await fsp.readdir(directory).catch(() => []);
+    const records: RaceRecord[] = [];
+    for (const name of names) {
+      if (!name.endsWith('.json')) continue;
+      const record = await read(name.slice(0, -'.json'.length));
+      if (record) records.push(record);
+    }
+    return records;
+  }
+
+  return { read, write, list };
 }
 
 type RaceStore = ReturnType<typeof createRaceStore>;

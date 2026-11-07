@@ -9,7 +9,7 @@ import { RaceRecord } from '../shared/contracts/race.ts';
 import { runCommandSafely } from '../server/child-process-safe.ts';
 import { buildAllowlistedChildEnv } from '../server/git/core/git-invocation-core.ts';
 import { checkOutcomeOf, contestantFinish, panelStanding } from '../server/race/core/race-core.ts';
-import type { CheckOutcome, RaceCheck } from '../shared/contracts/race.ts';
+import type { CheckOutcome, RaceCheck, RaceHistory } from '../shared/contracts/race.ts';
 import { contestantDiff } from '../server/race/race-diff.ts';
 import { createRaceStore } from '../server/race/race-store.ts';
 import { createRaceWiring } from '../server/race/race-wiring.ts';
@@ -99,7 +99,7 @@ test('every judge on the panel sees its own shuffled letter ids and no agent con
   const broadcasts: RaceRecord[][] = [];
   const wiring = createRaceWiring({
     store, git: { fetchOrigin: async () => ({ ok: true }), listIntegrationTips: async () => ({ ok: false }) },
-    integrationBranch: () => null, broadcast: (frame) => broadcasts.push(frame.races), log: quietLog,
+    integrationBranch: () => null, broadcast: (frame) => { if (frame.type === 'race-status') broadcasts.push(frame.races); }, log: quietLog,
     sessionStateOf: () => 'complete', sessionWatchOf: (sessionId) => (sessionId === 'session-sonnet-stalled' ? { state: 'WAITING', stateSince: 0, waitingOn: 'Resume spec?' } : { state: 'COMPLETE', stateSince: 0, waitingOn: null }), worktreeOf: (sessionId) => worktreeByContestant[sessionId.replace(/^session-/, '')] ?? null,
     diffOf: contestantDiff, judgeRoot: path.join(root, 'judges'), random: () => 0, runCheck,
     transitionsOf: (sessionId) => (sessionId === 'session-sonnet-stalled' ? [{ to: 'WAITING', at: 20 }] : sessionId === 'session-kimi-only-config' ? [{ to: 'COMPLETE', at: 500 }] : [{ to: 'RUNNING', at: 0 }, { to: 'RUNNING', at: 10 }, { to: 'WAITING', at: 20 }, { to: 'RUNNING', at: 30 }, { to: 'WAITING', at: 40 }, { to: 'COMPLETE', at: 61 }, { to: 'IDLE', at: 70 }, { to: 'COMPLETE', at: 90 }]),
@@ -290,4 +290,40 @@ test('series wins count every round a contestant shares first rank, with its low
     { contestantId: 'a', wins: 2, roundsJudged: 2, lowestScore: 3.5, highestScore: 4 },
     { contestantId: 'b', wins: 1, roundsJudged: 2, lowestScore: 2.5, highestScore: 4 },
   ]);
+});
+
+test('history folds every stored race a judge scored into standings per setup and judge matches, lists past races apart from live ones, and refolds on a judged write', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'race-history-'));
+  const store = createRaceStore({ directory: path.join(root, 'races'), log: quietLog });
+  const haiku = { id: 'a', label: 'Haiku', setup: { agent: 'claude-code', model: 'claude-haiku-5-5', options: [], instructions: '' }, home: 'clean' };
+  const opus = { id: 'b', label: 'Opus', setup: { agent: 'claude-code', model: 'claude-opus-5-5', options: [{ id: 'effort', value: 'high' }], instructions: '' }, home: 'operator' };
+  const base = { spec: { version: 1, title: 'Fix calc', prompt: 'Fix it.', repoPath: '/repo', contestants: [haiku, opus] }, startSha: 'a'.repeat(40), baseBranch: 'main', sessionIdByContestant: { a: 'session-a', b: 'session-b' } };
+  const verdict = (label: string, tierA: number, tierB: number) => ({ judge: { agent: 'claude-code', model: null, label }, contestants: { a: { criteria: allPass, tier: tierA, notes: '' }, b: { criteria: allPass, tier: tierB, notes: '' } } });
+  const paneled = RaceRecord.parse({
+    ...base, id: 'paneled', createdAt: 2, phase: 'judged', winnerContestantId: 'a',
+    metricsByContestant: { a: { elapsedMs: 60_000, tokens: 1000, costUSD: 0.04, waits: 0 }, b: { elapsedMs: null, tokens: null, costUSD: 0.6, waits: 1 } },
+    panel: { verdicts: [verdict('judge one', 1, 2), verdict('judge two', 2, 1)], failures: [], firstPlaceAgreement: { agreeing: 1, judges: 2 }, standing: [
+      { contestantId: 'a', rank: 1, criteriaPassed: 4, criteria: { correctness: 'pass', completeness: 'pass', scope: 'pass', quality: 'pass' }, meanTier: 1.5, summary: 'Fixed' },
+      { contestantId: 'b', rank: 2, criteriaPassed: 2.5, criteria: { correctness: 'pass', completeness: 'pass', scope: 'split', quality: 'fail' }, meanTier: 1.5, summary: 'Wide' },
+    ] },
+  });
+  const legacy = RaceRecord.parse({ ...base, id: 'legacy', createdAt: 1, phase: 'judged', judge: { ranking: [{ contestantId: 'b', rank: 1, reason: 'Better' }, { contestantId: 'a', rank: 2, reason: 'Worse' }], notes: {} } });
+  const running = RaceRecord.parse({ ...base, id: 'running', createdAt: 3 });
+  const unscored = RaceRecord.parse({ ...base, id: 'unscored', createdAt: 4, phase: 'judged', judgeError: 'Every judge failed: rate limited.' });
+  for (const record of [paneled, legacy, running, unscored]) await store.write(record);
+  fs.writeFileSync(path.join(root, 'races', 'broken.json'), '{ not json');
+  const histories: RaceHistory[] = [];
+  const wiring = createRaceWiring({ store, git: { fetchOrigin: async () => ({ ok: true }), listIntegrationTips: async () => ({ ok: false }) }, integrationBranch: () => null, broadcast: (frame) => { if (frame.type === 'race-history') histories.push(frame.history); }, log: quietLog, sessionStateOf: () => 'COMPLETE' });
+  await wiring.loadRaces(['legacy']);
+  const history = wiring.historyFrame().history;
+  assert.equal(history.judgedRaces, 2);
+  const rowOf = (label: string) => history.standings.find((row) => row.label.startsWith(label));
+  assert.deepEqual(rowOf('claude-code claude-haiku-5-5'), { setupKey: rowOf('claude-code claude-haiku-5-5')?.setupKey, label: 'claude-code claude-haiku-5-5, clean home', races: 2, wins: 1, passRate: { correctness: 1, completeness: 1, scope: 1, quality: 1 }, meanCostUSD: 0.04, meanElapsedMs: 60_000 });
+  assert.deepEqual(rowOf('claude-code claude-opus-5-5 high'), { setupKey: rowOf('claude-code claude-opus-5-5 high')?.setupKey, label: 'claude-code claude-opus-5-5 high, your setup', races: 2, wins: 1, passRate: { correctness: 1, completeness: 1, scope: 0.5, quality: 0 }, meanCostUSD: 0.6, meanElapsedMs: null });
+  assert.deepEqual(history.judges, [{ label: 'judge one', matched: 1, races: 1 }, { label: 'judge two', matched: 0, races: 1 }]);
+  assert.deepEqual(history.past.map((record) => record.id), ['paneled'], 'the live race, the unjudged race and the race no judge scored stay out of past races');
+  const foldsBeforeWrite = histories.length;
+  assert.ok((await wiring.pickWinner('legacy', 'b')).ok);
+  assert.equal(histories.length, foldsBeforeWrite + 1, 'a judged write refolds the history once');
+  fs.rmSync(root, { recursive: true, force: true });
 });

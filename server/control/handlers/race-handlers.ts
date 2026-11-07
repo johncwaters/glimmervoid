@@ -122,7 +122,7 @@ function createRaceHandlers(context: ControlContext, deps: ControlHandlerDeps, {
     'race-pick-winner': (_msg, requestId, message) => ({ type: 'race-pick-winner-result', requestId, ok: false, error: message }),
   } satisfies InvalidReplyTable;
 
-  return { handlers, invalidReplies, connectFrames: () => (races ? [races.status()] : []) };
+  return { handlers, invalidReplies, connectFrames: () => (races ? [races.status(), races.historyFrame()] : []) };
 }
 
 export { createRaceHandlers };

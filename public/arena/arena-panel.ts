@@ -1,6 +1,6 @@
 import { AgentHomeKind, AgentModelCatalog } from '#shared/contracts/agent-models.ts';
 import type { AgentSetup } from '#shared/contracts/agent-models.ts';
-import type { CheckOutcome, ContestantMetrics, PanelStanding, RaceCheck, RaceContestant, RaceRecord } from '#shared/contracts/race.ts';
+import type { CheckOutcome, ContestantMetrics, JudgeRow, PanelStanding, RaceCheck, RaceContestant, RaceHistory, RaceRecord, StandingRow } from '#shared/contracts/race.ts';
 import { RACE_CRITERIA, RACE_JUDGE_AGENTS, RACE_MAX_CONTESTANTS, RACE_MAX_JUDGES, RACE_MAX_ROUNDS, RaceSpec } from '#shared/contracts/race.ts';
 import { REMOVED_CONTESTANT, raceProgress, seriesKey, seriesStanding, winnerNotesOf } from '#shared/race-core.ts';
 import { BADGE_LABELS } from '#shared/states.ts';
@@ -16,7 +16,7 @@ import { buildDialogShell } from '../session-card/modal.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import { agentLabel, agentsWithModels, contestantsFor, defaultSetup, effortOf, effortsOf, modelsOf, VARY_SETTINGS, varyChoices, varyLineup, withEffortChoice, withModel } from './lineup-core.ts';
 import type { VarySetting } from './lineup-core.ts';
-import { openRaceSession, raceList, subscribeRaces } from './race-store.ts';
+import { openRaceSession, raceHistory, raceList, subscribeRaces } from './race-store.ts';
 
 const START_TIMEOUT_MS = 120_000;
 const REQUEST_TIMEOUT_MS = 60_000;
@@ -38,6 +38,8 @@ const DEFAULT_CHECK_TIMEOUT_SECONDS = 600;
 
 let root: HTMLElement | null = null;
 let racesEl: HTMLElement | null = null;
+let historyEl: HTMLElement | null = null;
+const shownPastRaceIds = new Set<string>();
 let catalog: AgentModelCatalog = { agents: [] };
 let draft: RaceDraft = { raceTitle: '', prompt: '', repoPath: '', contestants: [], judges: [], check: null, checkTimeoutSeconds: DEFAULT_CHECK_TIMEOUT_SECONDS, timeLimitMinutes: null, rounds: 1 };
 let hasDefaultJudge = false;
@@ -269,6 +271,102 @@ function buildSeriesSummary(race: RaceRecord): HTMLElement | null {
     return `${labelById.get(standing.contestantId) ?? standing.contestantId} ${standing.wins} of ${standing.roundsJudged} (${spread})`;
   });
   return el('p', 'arena-panel-summary', `Series wins: ${parts.join(', ')}`);
+}
+
+const NO_VALUE = '-';
+
+function percentText(rate: number | null): string {
+  return rate === null ? NO_VALUE : `${Math.round(rate * 100)}%`;
+}
+
+function tableOf(headings: readonly string[], rows: readonly (readonly string[])[]): HTMLElement {
+  const table = el('table', 'arena-history-table');
+  const headRow = el('tr');
+  for (const heading of headings) headRow.append(el('th', null, heading));
+  const head = el('thead');
+  head.append(headRow);
+  const body = el('tbody');
+  for (const cells of rows) {
+    const row = el('tr');
+    for (const cell of cells) row.append(el('td', null, cell));
+    body.append(row);
+  }
+  table.append(head, body);
+  return table;
+}
+
+function standingCells(row: StandingRow): string[] {
+  return [
+    row.label, String(row.races), String(row.wins), percentText(row.wins / row.races),
+    ...RACE_CRITERIA.map((criterion) => percentText(row.passRate[criterion])),
+    row.meanCostUSD === null ? NO_VALUE : `$${row.meanCostUSD.toFixed(2)}`,
+    row.meanElapsedMs === null ? NO_VALUE : elapsedText(row.meanElapsedMs),
+  ];
+}
+
+function judgeCells(row: JudgeRow): string[] {
+  return [row.label, `${row.matched} of ${row.races}`];
+}
+
+function pastContestantText(race: RaceRecord, contestant: RaceContestant): string {
+  const standing = standingOf(race, contestant.id);
+  const finish = race.finishByContestant[contestant.id];
+  const metrics = race.metricsByContestant[contestant.id];
+  return [
+    standing ? `#${standing.rank} ${contestant.label}, ${standing.criteriaPassed} of ${RACE_CRITERIA.length}` : contestant.label,
+    finish?.status === 'did-not-finish' ? `did not finish: ${finish.reason ?? 'no reason given'}` : null,
+    metrics ? metricsText(metrics) : null,
+    standing?.summary ?? null,
+  ].filter((part): part is string => part !== null && part !== '').join('. ');
+}
+
+function buildPastRace(race: RaceRecord): HTMLElement {
+  const item = el('li', 'arena-past-race');
+  const winner = race.spec.contestants.find((contestant) => contestant.id === race.winnerContestantId);
+  const isShown = shownPastRaceIds.has(race.id);
+  const summary = el('div', 'arena-past-summary');
+  summary.append(
+    el('span', 'arena-past-title', race.spec.title),
+    el('span', 'arena-status', `${new Date(race.createdAt).toLocaleDateString()}, ${race.spec.contestants.length} contestants${winner ? `, winner ${winner.label}` : ''}`),
+    button({ variant: 'quiet', size: 'small', label: isShown ? 'Hide' : 'Show', onClick: () => {
+      if (isShown) shownPastRaceIds.delete(race.id);
+      if (!isShown) shownPastRaceIds.add(race.id);
+      renderHistory();
+    } }),
+  );
+  item.append(summary);
+  if (!isShown) return item;
+  const lines = el('ul', 'arena-contestants');
+  for (const contestant of rankedContestants(race)) lines.append(el('li', 'arena-contestant', pastContestantText(race, contestant)));
+  item.append(lines);
+  return item;
+}
+
+function buildHistory(history: RaceHistory): HTMLElement[] {
+  const parts: HTMLElement[] = [el('h2', 'arena-section-title', `Standings, ${history.judgedRaces} judged ${history.judgedRaces === 1 ? 'race' : 'races'}`)];
+  if (history.standings.length === 0) {
+    parts.push(el('p', 'arena-empty', 'No judged races yet.'));
+    return parts;
+  }
+  parts.push(tableOf(['Setup', 'Races', 'Wins', 'Win rate', 'Correct', 'Complete', 'Scope', 'Quality', 'Cost', 'Time'], history.standings.map(standingCells)));
+  if (history.judges.length > 0) {
+    parts.push(el('h3', 'arena-history-heading', 'Judges'));
+    parts.push(tableOf(['Judge', 'Ranked your pick first'], history.judges.map(judgeCells)));
+  }
+  if (history.past.length > 0) {
+    parts.push(el('h3', 'arena-history-heading', `Past races, latest ${history.past.length}`));
+    const list = el('ul', 'arena-past-races');
+    for (const race of history.past) list.append(buildPastRace(race));
+    parts.push(list);
+  }
+  return parts;
+}
+
+function renderHistory(): void {
+  if (!historyEl) return;
+  const history = raceHistory();
+  historyEl.hidden = history === null;
+  historyEl.replaceChildren(...(history ? buildHistory(history) : []));
 }
 
 function renderRaces(): void {
@@ -589,6 +687,8 @@ function mountArenaView(parent: HTMLElement): void {
   racesEl = el('section', 'arena-races');
   root.append(racesEl);
   if (!isPhoneLayout()) root.append(buildNewRace());
+  historyEl = el('section', 'arena-history');
+  root.append(historyEl);
   const benchEl = el('section', 'arena-bench');
   root.append(benchEl);
   const paintBenchVisibility = () => { benchEl.hidden = benchmarkSnapshot().status?.configured !== true; };
@@ -596,8 +696,10 @@ function mountArenaView(parent: HTMLElement): void {
   paintBenchVisibility();
   parent.append(root);
   subscribeRaces(renderRaces);
+  subscribeRaces(renderHistory);
   onSessionTick(renderRaces);
   renderRaces();
+  renderHistory();
   void import('../benchmark-panel.ts').then((panel) => panel.view.mount(benchEl));
 }
 

@@ -1,7 +1,7 @@
 import type { AgentSetup } from '../../../shared/contracts/agent-models.ts';
 import { EFFORT_OPTION_ID } from '../../../shared/contracts/agent-models.ts';
-import { RACE_CRITERIA } from '../../../shared/contracts/race.ts';
-import type { CheckOutcome, ContestantFinish, ContestantVerdict, CriterionStanding, DiffStats, JudgeVerdict, PanelResult, PanelStanding, RaceCheck, RaceContestant, RaceCriterion, RaceRecord, RaceSpec } from '../../../shared/contracts/race.ts';
+import { RACE_CRITERIA, RACE_HISTORY_PAST_LIMIT } from '../../../shared/contracts/race.ts';
+import type { CheckOutcome, ContestantFinish, ContestantVerdict, CriterionStanding, DiffStats, JudgeRow, JudgeVerdict, PanelResult, PanelStanding, RaceCheck, RaceContestant, RaceCriterion, RaceHistory, RaceRecord, RaceSpec, StandingRow } from '../../../shared/contracts/race.ts';
 import { z } from 'zod';
 import { fencedUntrusted } from '../../lanes/core/lane-report-core.ts';
 import { isSettledContestantState } from '../../../shared/race-core.ts';
@@ -227,5 +227,102 @@ function raceDeadline(record: RaceRecord): number | null {
   return record.spec.timeLimitMinutes === null ? null : record.createdAt + record.spec.timeLimitMinutes * 60 * 1000;
 }
 
-export { AGENT_CONFIG_FOLDERS, contestantFinish, raceDeadline, RACE_JUDGE_RESULT_FILENAME, checkOutcomeOf, judgeCheckFileName, judgeCheckoutDirName, judgeIdAt, judgeLabel, panelStanding, parseJudgeVerdict, unblindVerdict, winnerNotesPrompt, contestantPrompt, contestantSessionName, judgeDiffFileName, judgePrompt, parseShortstat, raceIdsOf };
+const CRITERION_CREDIT: Readonly<Record<CriterionStanding, number>> = { pass: 1, split: 0.5, fail: 0 };
+
+function setupKey(contestant: RaceContestant): string {
+  const effort = contestant.setup.options.find((option) => option.id === EFFORT_OPTION_ID)?.value ?? null;
+  return JSON.stringify([contestant.setup.agent, contestant.setup.model, effort, contestant.home, contestant.setup.instructions.trim()]);
+}
+
+function setupLabel(contestant: RaceContestant): string {
+  const parts = [judgeLabel(contestant.setup), contestant.home === 'clean' ? 'clean home' : 'your setup'];
+  if (contestant.setup.instructions.trim() !== '') parts.push(`instructions: ${contestant.setup.instructions.trim().slice(0, 60)}`);
+  return parts.join(', ');
+}
+
+function isScored(record: RaceRecord): boolean {
+  return record.phase === 'judged' && (record.panel !== null || record.judge !== null);
+}
+
+function isWinnerOf(record: RaceRecord, contestantId: string): boolean {
+  if (record.panel) return record.panel.standing.some((standing) => standing.contestantId === contestantId && standing.rank === 1);
+  return record.judge?.ranking.some((entry) => entry.contestantId === contestantId && entry.rank === 1) ?? false;
+}
+
+interface Total {
+  sum: number;
+  count: number;
+}
+
+interface StandingTally {
+  setupKey: string;
+  label: string;
+  races: number;
+  wins: number;
+  credit: Record<RaceCriterion, Total>;
+  cost: Total;
+  elapsed: Total;
+}
+
+function perCriterion<Value>(make: (criterion: RaceCriterion) => Value): Record<RaceCriterion, Value> {
+  return { correctness: make('correctness'), completeness: make('completeness'), scope: make('scope'), quality: make('quality') };
+}
+
+function meanOf(total: Total): number | null {
+  return total.count === 0 ? null : total.sum / total.count;
+}
+
+function addTo(total: Total, value: number | null | undefined): void {
+  if (value === null || value === undefined) return;
+  total.sum += value;
+  total.count += 1;
+}
+
+function standings(records: readonly RaceRecord[]): StandingRow[] {
+  const tallyByKey = new Map<string, StandingTally>();
+  for (const record of records) {
+    if (!isScored(record)) continue;
+    for (const contestant of record.spec.contestants) {
+      const key = setupKey(contestant);
+      const tally = tallyByKey.get(key) ?? { setupKey: key, label: setupLabel(contestant), races: 0, wins: 0, credit: perCriterion(() => ({ sum: 0, count: 0 })), cost: { sum: 0, count: 0 }, elapsed: { sum: 0, count: 0 } };
+      tallyByKey.set(key, tally);
+      tally.races += 1;
+      if (isWinnerOf(record, contestant.id)) tally.wins += 1;
+      const standing = record.panel?.standing.find((entry) => entry.contestantId === contestant.id);
+      for (const criterion of RACE_CRITERIA) {
+        const verdict = standing?.criteria[criterion];
+        if (verdict) addTo(tally.credit[criterion], CRITERION_CREDIT[verdict]);
+      }
+      const metrics = record.metricsByContestant[contestant.id];
+      addTo(tally.cost, metrics?.costUSD);
+      addTo(tally.elapsed, metrics?.elapsedMs);
+    }
+  }
+  return [...tallyByKey.values()]
+    .map((tally) => ({ setupKey: tally.setupKey, label: tally.label, races: tally.races, wins: tally.wins, passRate: perCriterion((criterion) => meanOf(tally.credit[criterion])), meanCostUSD: meanOf(tally.cost), meanElapsedMs: meanOf(tally.elapsed) }))
+    .sort((left, right) => right.wins / right.races - left.wins / left.races || right.races - left.races);
+}
+
+function judgeRows(records: readonly RaceRecord[]): JudgeRow[] {
+  const rowByLabel = new Map<string, JudgeRow>();
+  for (const record of records) {
+    const winner = record.winnerContestantId;
+    if (!winner || !record.panel) continue;
+    for (const verdict of record.panel.verdicts) {
+      const row = rowByLabel.get(verdict.judge.label) ?? { label: verdict.judge.label, matched: 0, races: 0 };
+      rowByLabel.set(verdict.judge.label, row);
+      row.races += 1;
+      if (verdict.contestants[winner]?.tier === 1) row.matched += 1;
+    }
+  }
+  return [...rowByLabel.values()].sort((left, right) => right.matched / right.races - left.matched / left.races || right.races - left.races);
+}
+
+function raceHistory(records: readonly RaceRecord[], liveIds: ReadonlySet<string>): RaceHistory {
+  const judged = records.filter(isScored);
+  const past = judged.filter((record) => !liveIds.has(record.id)).sort((left, right) => right.createdAt - left.createdAt).slice(0, RACE_HISTORY_PAST_LIMIT);
+  return { judgedRaces: judged.length, standings: standings(judged), judges: judgeRows(judged), past };
+}
+
+export { AGENT_CONFIG_FOLDERS, raceHistory, setupKey, contestantFinish, raceDeadline, RACE_JUDGE_RESULT_FILENAME, checkOutcomeOf, judgeCheckFileName, judgeCheckoutDirName, judgeIdAt, judgeLabel, panelStanding, parseJudgeVerdict, unblindVerdict, winnerNotesPrompt, contestantPrompt, contestantSessionName, judgeDiffFileName, judgePrompt, parseShortstat, raceIdsOf };
 export type { CheckRun, JudgeInput, SessionWatch };

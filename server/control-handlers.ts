@@ -137,7 +137,7 @@ interface ControlHandlerDeps {
   packData?: PackData | null;
   getBenchmarkStatus?: (() => BenchmarkStatus | null) | null;
   benchmarks?: BenchmarkControl | null;
-  races?: Pick<RaceWiring, 'start' | 'status' | 'judge' | 'pickWinner' | 'contestantDiffText'> | null;
+  races?: Pick<RaceWiring, 'start' | 'status' | 'historyFrame' | 'judge' | 'pickWinner' | 'contestantDiffText'> | null;
   requestIssue?: GithubLaneStore['requestIssue'];
   requestViewer?: GithubLaneStore['requestViewer'];
   requestViewerTeams?: GithubLaneStore['requestViewerTeams'];

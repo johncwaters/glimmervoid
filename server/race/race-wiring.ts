@@ -4,13 +4,13 @@ import path from 'node:path';
 
 import type { AgentSetup } from '../../shared/contracts/agent-models.ts';
 import { ContestantMetrics } from '../../shared/contracts/race.ts';
-import type { CheckOutcome, ContestantFinish, JudgeVerdict, PanelResult, RaceCheck, RaceContestant, RaceJudge, RaceRecord, RaceSpec } from '../../shared/contracts/race.ts';
+import type { CheckOutcome, ContestantFinish, JudgeVerdict, PanelResult, RaceCheck, RaceContestant, RaceHistory, RaceJudge, RaceRecord, RaceSpec } from '../../shared/contracts/race.ts';
 import { REMOVED_CONTESTANT, contestantTimeline, seriesKey, seriesRoundIds, winnerNotesOf } from '../../shared/race-core.ts';
 import type { StateTransition } from '../../shared/race-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { readLaneResultFile } from '../lanes/lane-spawn.ts';
 import type { JudgeInput, SessionWatch } from './core/race-core.ts';
-import { RACE_JUDGE_RESULT_FILENAME, contestantFinish, judgeCheckFileName, judgeCheckoutDirName, judgeDiffFileName, judgeIdAt, judgeLabel, judgePrompt, panelStanding, parseJudgeVerdict, raceDeadline, unblindVerdict } from './core/race-core.ts';
+import { RACE_JUDGE_RESULT_FILENAME, contestantFinish, judgeCheckFileName, judgeCheckoutDirName, judgeDiffFileName, judgeIdAt, judgeLabel, judgePrompt, panelStanding, parseJudgeVerdict, raceDeadline, raceHistory, unblindVerdict } from './core/race-core.ts';
 import type { ContestantDiff } from './race-diff.ts';
 import type { RaceStore } from './race-store.ts';
 
@@ -48,11 +48,13 @@ interface JudgeSpawnRequest {
   signal: AbortSignal;
 }
 
+type RaceFrame = { type: 'race-status'; races: RaceRecord[] } | { type: 'race-history'; history: RaceHistory };
+
 interface RaceWiringDependencies {
   store: RaceStore;
   git: RaceGit;
   integrationBranch: () => string | null;
-  broadcast: (frame: { type: 'race-status'; races: RaceRecord[] }) => void;
+  broadcast: (frame: RaceFrame) => void;
   log: Pick<Console, 'log' | 'warn'>;
   sessionStateOf?: (sessionId: string) => string;
   sessionWatchOf?: (sessionId: string) => Omit<SessionWatch, 'hasSettled'> | null;
@@ -83,11 +85,22 @@ function createRaceWiring({
 }: RaceWiringDependencies) {
   const raceById = new Map<string, RaceRecord>();
   const launchBySeries = new Map<string, ContestantLaunch>();
+  const historyById = new Map<string, RaceRecord>();
+  let history: RaceHistory = raceHistory([], new Set());
   let settleTimer: ReturnType<typeof setInterval> | null = null;
   let isWatchingStopped = false;
 
   function status(): { type: 'race-status'; races: RaceRecord[] } {
     return { type: 'race-status', races: [...raceById.values()].sort((left, right) => right.createdAt - left.createdAt) };
+  }
+
+  function historyFrame(): { type: 'race-history'; history: RaceHistory } {
+    return { type: 'race-history', history };
+  }
+
+  function refoldHistory(): void {
+    history = raceHistory([...historyById.values()], new Set(raceById.keys()));
+    broadcast(historyFrame());
   }
 
   async function loadRaces(raceIds: readonly string[]): Promise<void> {
@@ -102,6 +115,8 @@ function createRaceWiring({
       pending.push(...seriesRoundIds(record));
     }
     if (raceById.size > 0) broadcast(status());
+    for (const record of await store.list()) historyById.set(record.id, record);
+    refoldHistory();
   }
 
   async function resolveStartPoint(repoPath: string): Promise<RaceStartPoint | null> {
@@ -116,6 +131,10 @@ function createRaceWiring({
   async function saveRecord(record: RaceRecord): Promise<string | null> {
     try {
       await store.write(record);
+      if (record.phase === 'judged') {
+        historyById.set(record.id, record);
+        refoldHistory();
+      }
       return null;
     } catch (error) {
       log.warn(`[race] could not save race ${record.id}: ${errorMessage(error)}`);
@@ -400,7 +419,7 @@ function createRaceWiring({
     return { ok: true, diff: diff.diff.slice(0, RACE_DIFF_MAX_CHARS) };
   }
 
-  return { status, loadRaces, start, judge, pickWinner, startWatching, stopWatching, contestantDiffText };
+  return { status, historyFrame, loadRaces, start, judge, pickWinner, startWatching, stopWatching, contestantDiffText };
 }
 
 type RaceWiring = ReturnType<typeof createRaceWiring>;
