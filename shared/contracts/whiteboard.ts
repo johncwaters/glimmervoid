@@ -198,6 +198,7 @@ const LegendEntries = z.array(z.object({
 }).strict()).max(12, { error: 'a legend has at most 12 entries' });
 
 const CodeSessionId = z.string().min(1).max(64);
+const ProjectPath = z.string().min(1).max(4096);
 
 export const Board = z.object({
   id: z.string().min(1).max(64),
@@ -206,6 +207,7 @@ export const Board = z.object({
   caption: z.string().max(400).nullable(),
   legend: LegendEntries.default([]),
   codeSessionId: CodeSessionId.nullable().default(null),
+  project: ProjectPath.nullable().default(null),
   elements: z.record(ElementId, Element)
     .refine((elements) => Object.keys(elements).length <= WHITEBOARD_LIMITS.elements, { error: `a board holds at most ${WHITEBOARD_LIMITS.elements} elements` })
     .refine((elements) => Object.entries(elements).every(([id, element]) => element.id === id), { error: 'every element is stored under its own id' }),

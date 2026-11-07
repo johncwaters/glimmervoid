@@ -713,7 +713,7 @@ test('removing a box pins the boxes near it, and a box with no place is refused'
   assert.match(String(placeless.body.error), /needs a place/);
 });
 
-test('the operator connects and disconnects a session from the dashboard, and a removed session leaves every board and takes the boards only it was on', async () => {
+test('the operator connects and disconnects a session from the dashboard, and a removed session leaves every board and keeps the boards only it was on', async () => {
   const boardId = await newBoard('operator links');
   const leaverOnlyBoardId = await newBoard('leaver only');
   const plannerLeft = await whiteboard(PLANNER_ID, { sub: 'disconnect', board: leaverOnlyBoardId });
@@ -751,9 +751,10 @@ test('the operator connects and disconnects a session from the dashboard, and a 
     assert.equal(removed.ok, true, String(removed.error));
     await waitForMessage(control.received, (frame) => control.received.indexOf(frame) >= framesBeforeRemoval && frame.type === 'whiteboards-snapshot'
       && frame.boards?.some((board) => board.id === boardId && !board.connectedSessionIds.includes(LEAVER_ID)) === true
-      && frame.boards.every((board) => board.id !== leaverOnlyBoardId), 'the snapshot without the removed session or the board only it was on');
+      && frame.boards.some((board) => board.id === leaverOnlyBoardId && board.connectedSessionIds.length === 0), 'the snapshot without the removed session, still holding the board only it was on');
     const listed = await whiteboard(PLANNER_ID, { sub: 'list' });
-    assert.deepEqual((listed.body.boards as { id: string }[]).filter((board) => board.id === leaverOnlyBoardId), []);
+    assert.deepEqual((listed.body.boards as { id: string; connectedSessionIds: string[] }[]).filter((board) => board.id === leaverOnlyBoardId).map((board) => board.connectedSessionIds), [[]]);
+    assert.equal((await boardOf(PLANNER_ID, leaverOnlyBoardId)).board.version, 0);
   } finally {
     await closeSocket(control.ws);
   }
@@ -772,10 +773,31 @@ test('boards and their connections survive a restart', async () => {
   assert.deepEqual(durable.connectedSessionIds.sort(), [BUILDER_ID, PLANNER_ID].sort());
 });
 
+test('a board an agent creates carries its project, and an unfiled board is filed under the first session that acts on it', async () => {
+  const boardId = await newBoard('filed plan');
+  assert.equal(Board.parse((await whiteboard(PLANNER_ID, { sub: 'get', board: boardId })).body.board).project, path.join(fixture.tmpDir, PLANNER_ID));
+
+  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'unfiled-'));
+  const operatorConnectedProject = path.join(boardsRoot, 'operator-connected');
+  const wiring = createWhiteboardWiring({ boardsRoot, projectOf: (sessionId) => (sessionId === 'operator-connected' ? operatorConnectedProject : null) });
+  const operatorConnectedBoardId = ((await wiring.handleOperator.create('connected from the dashboard')) as { summary: { id: string } }).summary.id;
+  await wiring.handleOperator.connect(operatorConnectedBoardId, 'operator-connected');
+  assert.equal((await wiring.handleOperator.get(operatorConnectedBoardId)).board?.project, operatorConnectedProject);
+
+  const unfiledBoardId = ((await wiring.handleOperator.create('unfiled')) as { summary: { id: string } }).summary.id;
+  const firstProject = path.join(boardsRoot, 'first');
+  const projectOfBoard = async (project: string) => {
+    const read = await wiring.handleAgent({ id: `reader-${path.basename(project)}`, name: 'reader', project }, { sub: 'get', board: unfiledBoardId });
+    return Board.parse((read.body as { board: unknown }).board).project;
+  };
+  assert.equal(await projectOfBoard(firstProject), firstProject);
+  assert.equal(await projectOfBoard(path.join(boardsRoot, 'second')), firstProject);
+});
+
 test('the next prompt tells a connected session once per new change to read the board before changing it, leaving the changes unread', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'prompt-notice-'));
   const wiring = createWhiteboardWiring({ boardsRoot });
-  const agent = { id: 'prompt-agent', name: 'prompt agent' };
+  const agent = { id: 'prompt-agent', name: 'prompt agent', project: boardsRoot };
   const created = await wiring.handleAgent(agent, { sub: 'new', title: 'Prompt plan' });
   const boardId = (created.body as { board: { id: string } }).board.id;
   const notice = `Board "Prompt plan" (${boardId}) changed since your last read. Read it with whiteboard get ${boardId} before you change it.`;
@@ -1030,7 +1052,7 @@ test('show puts each file on a board the session is connected to, creating one n
   fs.writeFileSync(path.join(showerDir, 'login.png'), await sharp({ create: { width: 64, height: 32, channels: 3, background: '#38bdf8' } }).png().toBuffer());
   fs.writeFileSync(path.join(showerDir, 'report.html'), '<!doctype html><html><head><title>Weekly report</title></head><body>numbers</body></html>');
   const wiring = createWhiteboardWiring({ boardsRoot });
-  const shower = { id: 'show-agent', name: 'checkout fix', cwd: showerDir };
+  const shower = { id: 'show-agent', name: 'checkout fix', project: showerDir, cwd: showerDir };
 
   const first = await wiring.handleAgent(shower, { sub: 'show', path: 'login.png', caption: 'login after fix' });
   assert.equal(first.status, 200, JSON.stringify(first.body));

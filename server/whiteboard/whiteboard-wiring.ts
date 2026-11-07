@@ -70,6 +70,7 @@ const PUT_GUIDE = [
 interface WhiteboardCaller {
   id: string;
   name: string;
+  project: string;
   cwd?: string;
   remoteWorkspace?: string | null;
 }
@@ -112,6 +113,7 @@ interface WhiteboardWiringOptions {
   newBoardId?: () => string;
   logger?: Pick<Console, 'warn'>;
   codeContextOf?: (sessionId: string) => CodeContext | null;
+  projectOf?: (sessionId: string) => string | null;
 }
 
 interface CodeContext {
@@ -162,10 +164,6 @@ function elementIdsNamedBy(op: Op): string[] {
     case 'board': return [];
     default: return [op.id];
   }
-}
-
-function hasNoConnectedSessions(record: BoardRecord): boolean {
-  return Object.keys(record.cursorBySessionId).length === 0;
 }
 
 function refusal(status: number, error: string): WhiteboardReply {
@@ -221,7 +219,7 @@ function operatorReplyOf(reply: WhiteboardReply): OperatorReply {
 }
 
 function createWhiteboardWiring({
-  boardsRoot, broadcastControl = () => {}, now = Date.now, newBoardId = () => crypto.randomUUID(), logger = console, codeContextOf = () => null,
+  boardsRoot, broadcastControl = () => {}, now = Date.now, newBoardId = () => crypto.randomUUID(), logger = console, codeContextOf = () => null, projectOf = () => null,
 }: WhiteboardWiringOptions): WhiteboardPort {
   const recordsByBoardId = new Map<string, BoardRecord>();
   const announcedVersionByBoardIdBySessionId = new Map<string, Map<string, number>>();
@@ -410,7 +408,7 @@ function createWhiteboardWiring({
     const boardId = newBoardId();
     const nowMs = now();
     const cursorBySessionId: Record<string, number> = creator ? { [creator.id]: 0 } : {};
-    const board = createBoard({ id: boardId, title, nowMs, codeSessionId: creator?.id ?? null });
+    const board = createBoard({ id: boardId, title, nowMs, codeSessionId: creator?.id ?? null, project: creator?.project ?? null });
     const record: BoardRecord = { board, log: [], cursorBySessionId, createdBy: creator?.id ?? null };
     recordsByBoardId.set(boardId, record);
     try {
@@ -608,15 +606,28 @@ function createWhiteboardWiring({
     return { status: 200, body: { ok: true, board: summarizeBoard(record), note } };
   }
 
-  function connectBoard(boardId: string, sessionId: string): Promise<WhiteboardReply> {
+  function filedUnder(record: BoardRecord, project: string | null): BoardRecord {
+    if (record.board.project !== null || project === null) return record;
+    return { ...record, board: { ...record.board, project } };
+  }
+
+  function connectBoard(boardId: string, sessionId: string, project: string | null): Promise<WhiteboardReply> {
     return changeRecord(boardId, async (record) => {
       const claimed = record.board.codeSessionId === null ? await applyOpsToRecord(record, [{ op: 'board', codeSessionId: sessionId }], GLIMMERVOID_AUTHOR) : null;
       if (!claimed?.ok) {
-        const next = connectSession(record, sessionId);
+        const next = filedUnder(connectSession(record, sessionId), project);
         return { ok: true, record: next, reply: connectionReply(next, PUT_GUIDE) };
       }
-      const next = connectSession(claimed.record, sessionId);
+      const next = filedUnder(connectSession(claimed.record, sessionId), project);
       return { ok: true, record: next, reply: connectionReply(next, PUT_GUIDE), patch: claimed.patch, staged: claimed.staged };
+    });
+  }
+
+  async function adoptIfUnfiled(boardId: string, project: string): Promise<void> {
+    if (recordsByBoardId.get(boardId)?.board.project !== null) return;
+    await changeRecord(boardId, (record) => {
+      const next = filedUnder(record, project);
+      return { ok: true, record: next, reply: connectionReply(next, `filed under ${next.board.project}`) };
     });
   }
 
@@ -715,20 +726,17 @@ function createWhiteboardWiring({
       if (!loading.ok) return operatorReplyOf(loading.reply);
       return { ok: true, error: null, review: await reviewFor(loading.record.board, { readsChanges: true }) };
     },
-    connect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => connectBoard(foundBoardId, sessionId)),
+    connect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => connectBoard(foundBoardId, sessionId, projectOf(sessionId))),
     disconnect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => disconnectBoard(foundBoardId, sessionId)),
   };
 
   async function closeConnections(boardId: string, closedSessionIds: readonly string[]): Promise<void> {
-    const isDeleted = await writeQueue.run(boardId, async () => {
+    await writeQueue.run(boardId, async () => {
       const current = recordsByBoardId.get(boardId);
-      if (!current) return false;
+      if (!current) return;
       const next = closedSessionIds.reduce(disconnectSession, current);
-      if (hasNoConnectedSessions(next)) return (await deleteRecordInSlot(current)).body.ok;
       if (await saveRecordInSlot(current, next, null)) broadcastSummariesIfChanged(current, next);
-      return false;
     });
-    if (isDeleted) await clearLinksTo(boardId);
   }
 
   async function forgetClosedSessions(isClosedSession: (sessionId: string) => boolean): Promise<void> {
@@ -824,9 +832,10 @@ function createWhiteboardWiring({
     }
     const found = findBoardId(request.board);
     if (!found.ok) return found.reply;
+    await adoptIfUnfiled(found.boardId, caller.project);
     const author: Author = { id: caller.id, name: caller.name };
     switch (request.sub) {
-      case 'connect': return connectBoard(found.boardId, caller.id);
+      case 'connect': return connectBoard(found.boardId, caller.id, caller.project);
       case 'disconnect': return disconnectBoard(found.boardId, caller.id);
       case 'get': return readBoard(found.boardId, caller.id, request);
       case 'query': return queryBoard(found.boardId, request);

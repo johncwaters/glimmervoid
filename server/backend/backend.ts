@@ -268,6 +268,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       const session = getSessionAny(sessionId);
       return session ? { root: session.effectiveCwd(), buildChangeMap: () => changeMaps.build(session) } : null;
     },
+    projectOf: (sessionId) => getSessionAny(sessionId)?.path ?? null,
   });
   const coherenceFeed = createCoherenceSessionFeed({ broadcastControl: broadcastControlFromWebSockets });
 

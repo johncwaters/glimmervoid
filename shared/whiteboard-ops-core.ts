@@ -470,11 +470,12 @@ function describeOp(op: Op, previous: Element | undefined, after: ElementLookup)
   }
 }
 
-function createBoard({ id, title, nowMs, codeSessionId = null }: { id: string; title: string; nowMs: number; codeSessionId?: string | null }): Board {
+function createBoard({ id, title, nowMs, codeSessionId = null, project = null }: { id: string; title: string; nowMs: number; codeSessionId?: string | null; project?: string | null }): Board {
   return {
     id, title, version: 0, caption: null,
     legend: [],
     codeSessionId,
+    project,
     elements: {},
     createdAt: nowMs,
     updatedAt: nowMs,

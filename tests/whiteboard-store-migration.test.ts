@@ -159,7 +159,7 @@ test('a session closing while its board loads after a restart keeps the loaded e
   const boardsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-store-close-during-load-'));
   const first = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
   await first.loaded;
-  const created = await first.handleAgent({ id: 'closing-agent', name: 'closing' }, { sub: 'new', title: 'Shared plan' });
+  const created = await first.handleAgent({ id: 'closing-agent', name: 'closing', project: boardsRoot }, { sub: 'new', title: 'Shared plan' });
   assert.equal(created.body.ok, true);
   const boardId = first.snapshotMessage().boards[0]?.id ?? '';
   const boxes = Array.from({ length: 2000 }, (_, index) => ({ op: 'add', element: { kind: 'box', id: `box-${index}`, title: `box ${index}`, at: { x: index * 300, y: 0 } } }));

@@ -113,6 +113,7 @@ function generateBoardRecord(options: GeneratedBoardOptions): BoardRecord {
     title: options.title,
     version: 1,
     caption: null,
+    project: null,
     legend: [],
     codeSessionId: null,
     elements: generateElements(options),

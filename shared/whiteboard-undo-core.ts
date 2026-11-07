@@ -69,7 +69,7 @@ function restoringOps(current: Board, target: Board): Op[] {
   ];
 }
 
-const TOUCHED_ONLY_HEAD = Object.freeze({ id: 'touched', title: 'touched', version: 0, caption: null, legend: [], codeSessionId: null, createdAt: 0, updatedAt: 0 });
+const TOUCHED_ONLY_HEAD = Object.freeze({ id: 'touched', title: 'touched', version: 0, caption: null, legend: [], codeSessionId: null, project: null, createdAt: 0, updatedAt: 0 });
 
 function undoOpsOf(before: DiffBefore, diff: BoardDiff): Op[] {
   const beforeElements = Object.fromEntries(Object.entries(before.elements).flatMap(([id, element]) => (element ? [[id, element]] : [])));
