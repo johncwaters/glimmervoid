@@ -12,8 +12,6 @@ import { nulSeparatedPaths } from '../git/core/git-changed-paths-core.ts';
 import { createLaneRunner } from '../lanes/lane-runner.ts';
 import type { SharedClock } from '../lanes/lane-runner.ts';
 import { createMyPrsPoller } from './my-prs-poller.ts';
-import { createWatcheeFeed } from '../lanes/watchee-feed.ts';
-import type { MyPrsCandidatesPayload } from '../../shared/contracts/my-prs-candidates.ts';
 import { bootStaggerDelay } from '../boot-stagger.ts';
 import type { GithubLaneStore } from './github-store-wiring.ts';
 import type { PrGh } from './pr-gh.ts';
@@ -371,7 +369,6 @@ export function createMyPrsWiring({ config, broadcast, log = console, homeDir = 
     const verdict = gate();
     return core.myPrsStatus({ ts: Date.now(), configured: verdict.start, reason: verdict.reason ?? null });
   };
-  const candidatesFeed = createWatcheeFeed<MyPrsCandidatesPayload>();
   const runner = createLaneRunner<MyPrsPoller>({
     tag: core.MY_PRS_LANE_ID,
     gate,
@@ -384,18 +381,12 @@ export function createMyPrsWiring({ config, broadcast, log = console, homeDir = 
       const parsed = MyPrsSnapshot.safeParse(status);
       if (parsed.success) broadcast(core.toMyPrsWireStatus(parsed.data));
     },
-    createPoller: ({ onTickComplete }) => {
-      const createdPoller = createPoller({
-        shouldAutoRebase: settings().autoRebaseMyPrs,
-        isKeepMergeableEnabled: features().isKeepMergeableEnabled, isMergeQueueEnabled: features().isMergeQueueEnabled, github, store, log, onTickComplete, clock, firstTickDelayMs: bootStaggerDelay,
-        readState: stateIo.readState, writeState: stateIo.writeState, fixMergeability, beforeStart: sweepLeftovers,
-        mergePr: (queuedPr) => mergeTrackedPr(queuedPr.key, queuedPr, queuedPr.headRefOid),
-        feedSilenceMs: candidatesFeed.silenceMs,
-      });
-      const latestCandidates = candidatesFeed.latest();
-      if (latestCandidates !== null) createdPoller.acceptCandidates(latestCandidates);
-      return createdPoller;
-    },
+    createPoller: ({ onTickComplete }) => createPoller({
+      org: settings().org, shouldAutoRebase: settings().autoRebaseMyPrs,
+      isKeepMergeableEnabled: features().isKeepMergeableEnabled, isMergeQueueEnabled: features().isMergeQueueEnabled, github, store, log, onTickComplete, clock, firstTickDelayMs: bootStaggerDelay,
+      readState: stateIo.readState, writeState: stateIo.writeState, fixMergeability, beforeStart: sweepLeftovers,
+      mergePr: (queuedPr) => mergeTrackedPr(queuedPr.key, queuedPr, queuedPr.headRefOid),
+    }),
   });
   const unsubscribe = store.subscribe('snapshot-changed', () => runner.getPoller()?.rebuild());
 
@@ -455,14 +446,8 @@ export function createMyPrsWiring({ config, broadcast, log = console, homeDir = 
   }
   async function stopPoller(): Promise<void> {
     unsubscribe();
-    candidatesFeed.stop();
     await runner.stopPoller();
   }
 
-  async function acceptCandidates(job: { payload: MyPrsCandidatesPayload }): Promise<void> {
-    if (!candidatesFeed.accept(job.payload)) return;
-    runner.getPoller()?.acceptCandidates(job.payload);
-  }
-
-  return { startPoller: runner.startPoller, acceptCandidates, stopPoller, restartIfConfigChanged: runner.restartIfConfigChanged, getStatus, mergePr, refresh, setKeepMergeable, setMergeWhenReady };
+  return { startPoller: runner.startPoller, stopPoller, restartIfConfigChanged: runner.restartIfConfigChanged, getStatus, mergePr, refresh, setKeepMergeable, setMergeWhenReady };
 }

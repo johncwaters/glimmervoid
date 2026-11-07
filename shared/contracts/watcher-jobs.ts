@@ -1,8 +1,6 @@
 import { z } from 'zod';
 import { IssuesListingPayload } from './issues-listing.ts';
-import { MyPrsCandidatesPayload } from './my-prs-candidates.ts';
 import { WorkflowsCandidatesPayload } from './workflows-candidates.ts';
-import { TeamReviewCandidatesPayload } from './team-review-candidates.ts';
 import { RadarProjectPayload } from './radar-project.ts';
 import { CommunityRowsPayload } from './community.ts';
 
@@ -12,8 +10,6 @@ export const WATCHER_JOBS_PATH = '/jobs';
 
 const WATCHER_JOB_KINDS = Object.freeze({
   ping: z.object({}).strict(),
-  'team-review.candidates': TeamReviewCandidatesPayload,
-  'my-prs.candidates': MyPrsCandidatesPayload,
   'workflows.candidates': WorkflowsCandidatesPayload,
   'issues.listing': IssuesListingPayload,
   'radar.project': RadarProjectPayload,

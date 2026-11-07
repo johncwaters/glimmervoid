@@ -4,7 +4,6 @@ import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
 import type { GithubLaneStore } from './github-store-wiring.ts';
 import { runGit } from '../git/git-exec.ts';
 import { githubRepoSlugFromRemote } from './core/team-review-core.ts';
-import { MY_PRS_HELD_WATCH_OWNER } from './core/my-prs-core.ts';
 import {
   candidatesForRepo, commitsAheadArgs, distinctBaseRefNames, hookPrLink, openPrCandidatesByRepo,
   parseRevListShas, partitionByCommitsAhead, shaPrLink, shouldLinkSession, shouldRefreshHookPrs,
@@ -172,9 +171,9 @@ function createSessionPrLinkWiring({ store, now = Date.now, git, log = console }
 
   async function onSnapshotChanged(): Promise<void> {
     const snapshot = store.getSnapshot();
-    const myPrKeys = snapshot.watchedKeysByOwner[MY_PRS_HELD_WATCH_OWNER] ?? [];
-    if (!git || myPrKeys.length === 0 || snapshot.freshness.error !== null) return;
-    const prs = myPrKeys.flatMap((key) => snapshot.prs[key] ? [snapshot.prs[key]] : []);
+    const watch = snapshot.watches['my-prs-open'];
+    if (!git || !watch?.isLoaded || snapshot.freshness.error !== null) return;
+    const prs = watch.keys.flatMap((key) => snapshot.prs[key] ? [snapshot.prs[key]] : []);
     const candidatesByRepo = openPrCandidatesByRepo(prs);
     if (candidatesByRepo.size === 0) return;
     await Promise.all([...joinableSessions].map((session) => scheduleJoin(session, candidatesByRepo, git)));

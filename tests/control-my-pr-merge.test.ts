@@ -10,7 +10,6 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createMyPrsSearch } from '../cloud/watchees/my-prs/my-prs-search.ts';
 import { createMyPrsWiring } from '../server/github/my-prs-wiring.ts';
 import { createMyPrsPoller } from '../server/github/my-prs-poller.ts';
 import { createPrGh } from '../server/github/pr-gh.ts';
@@ -100,20 +99,13 @@ function createTestStore(github: PrGh) {
   };
 }
 
-async function deliverMyPrsCandidates(github: PrGh, wiring: Pick<ReturnType<typeof createMyPrsWiring>, 'acceptCandidates'>, now: () => number = Date.now): Promise<void> {
-  const search = createMyPrsSearch({ store: createTestStore(github), now });
-  const searched = await search.search({ enabled: true, org: 'Acme', intervalMinutes: 5 });
-  assert.ok(searched.ok);
-  await wiring.acceptCandidates({ payload: searched.payload });
-}
-
 function mergeStateResponse(state: string, isInMergeQueue: boolean): CommandResult {
   return { ok: true, out: JSON.stringify({ data: { repository: { pullRequest: { state, isInMergeQueue, autoMergeRequest: null } } } }), err: '' };
 }
 
 const MERGED_STATE = mergeStateResponse('MERGED', false);
 
-test('a store rollup change broadcasts my-prs status and its stage clock without a lane tick, the clock survives a restart and GitHub recomputing mergeability, a merge state GitHub settles later is read again, a pull request and its review items survive GitHub failing, refusing or garbling its reads and leave only once GitHub reports it gone, and Refresh re-reads the held pull request without searching', async () => {
+test('a store rollup change broadcasts my-prs status and its stage clock without a lane tick, the clock survives a restart and GitHub recomputing mergeability, a merge state GitHub settles later is read again, a pull request and its review items survive GitHub failing, refusing or garbling its reads and leave only once GitHub reports it gone, and Refresh polls its watches', async () => {
   const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'control-my-pr-store-'));
   let nowMs = Date.now();
   let checksState: 'PENDING' | 'SUCCESS' | 'FAILURE' = 'PENDING';
@@ -127,7 +119,6 @@ test('a store rollup change broadcasts my-prs status and its stage clock without
   let detailReadAnswer: 'live' | 'bad-gateway' | 'one-field-forbidden' | 'unparseable' | 'refused-rollup' | 'refused-workflow' | 'not-found' = 'live';
   let threadsReadAnswer: 'live' | 'bad-gateway' = 'live';
   let laneTicks = 0;
-  let heldPrReads = 0;
   const searches: string[] = [];
   const statuses: MyPrsStatus[] = [];
   const storeWarnings: string[] = [];
@@ -170,7 +161,7 @@ test('a store rollup change broadcasts my-prs status and its stage clock without
     ...createPrGh(homeDir), ...reads,
     viewer: async () => 'me', behindCounts: noBehindCounts, rateLimitWaitMs: async () => null,
     searchPrsLight: async (qualifiers: string) => { searches.push(qualifiers); return reads.searchPrsLight(qualifiers); },
-    prsLightByKey: async (references: Parameters<PrGh['prsLightByKey']>[0]) => { heldPrReads += 1; return lightReadersByAnswer[lightReadAnswer].prsLightByKey(references); },
+    prsLightByKey: async (references: Parameters<PrGh['prsLightByKey']>[0]) => lightReadersByAnswer[lightReadAnswer].prsLightByKey(references),
     prDetails: async (references: Parameters<PrGh['prDetails']>[0]) => detailReadersByAnswer[detailReadAnswer].prDetails(references),
     reviewThreadsBatch: async (prs: Parameters<PrGh['reviewThreadsBatch']>[0]) => threadsReadersByAnswer[threadsReadAnswer].reviewThreadsBatch(prs),
   };
@@ -198,7 +189,6 @@ test('a store rollup change broadcasts my-prs status and its stage clock without
   try {
     wiring.startPoller();
     await new Promise<void>((resolve) => setImmediate(resolve));
-    await deliverMyPrsCandidates(github, wiring, () => nowMs);
     await storeTick();
     await firstStatus;
     assert.equal(statuses.at(-1)?.prs[0]?.key, KEY);
@@ -238,10 +228,8 @@ test('a store rollup change broadcasts my-prs status and its stage clock without
       myPrs: wiring, githubStore,
     })));
     const searchCount = searches.length;
-    const heldPrReadCount = heldPrReads;
     await connection.send({ type: 'github-polling-refresh', requestId: 'refresh-my-prs', lane: 'my-prs' });
-    assert.equal(searches.length, searchCount);
-    assert.equal(heldPrReads, heldPrReadCount + 1);
+    assert.equal(searches.length, searchCount + 2);
     assert.equal(connection.sent.at(-1)?.ok, true);
     assert.deepEqual(connection.sent.at(-1)?.freshness, store.getSnapshot().freshness);
     await wiring.stopPoller();
@@ -256,7 +244,6 @@ test('a store rollup change broadcasts my-prs status and its stage clock without
     try {
       restarted.startPoller();
       await new Promise<void>((resolve) => setImmediate(resolve));
-      await deliverMyPrsCandidates(github, restarted, () => nowMs);
       await storeTick();
       await restartedStatus;
       assert.equal(restarted.getStatus().prs[0]?.stageSinceMs, stageChangedAtMs);
@@ -366,7 +353,7 @@ test('a store rollup change broadcasts my-prs status and its stage clock without
   }
 });
 
-test('a stage the store shows while a rebase is in flight keeps its clock when the tick finishes on its older snapshot, and a pull request list older than the last one changes nothing', async () => {
+test('a stage the store shows while a rebase is in flight keeps its clock when the tick finishes on its older snapshot', async () => {
   const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'control-my-pr-rebase-race-'));
   let nowMs = Date.parse('2026-11-05T10:10:00Z');
   let checksState: 'PENDING' | 'SUCCESS' = 'PENDING';
@@ -413,7 +400,6 @@ test('a stage the store shows while a rebase is in flight keeps its clock when t
   try {
     wiring.startPoller();
     await new Promise<void>((resolve) => setImmediate(resolve));
-    await deliverMyPrsCandidates(github, wiring, () => nowMs);
     await storeTick();
     await firstStatus;
     assert.equal(stageClockOf()?.stage, 'checks-pending');
@@ -425,9 +411,6 @@ test('a stage the store shows while a rebase is in flight keeps its clock when t
     await lanePollers[0]?.tick();
     assert.equal(stageClockOf()?.stage, 'ready');
     assert.equal(stageClockOf()?.stageSinceMs, checksPassedAtMs);
-    await wiring.acceptCandidates({ payload: { observedAt: '2026-11-05T09:00:00.000Z', viewer: 'me', isComplete: true, returnedCount: 0, totalCount: 0, open: [], merged: [] } });
-    await lanePollers[0]?.tick();
-    assert.equal(stageClockOf()?.stage, 'ready');
   } finally {
     await wiring.stopPoller();
     await fs.rm(homeDir, { recursive: true, force: true });
@@ -464,8 +447,7 @@ test('keep mergeable control reaches the real lane, persists across restarts, an
     });
     wiring.startPoller();
     await new Promise<void>((resolve) => setImmediate(resolve));
-    await deliverMyPrsCandidates(github, wiring);
-    await store.refreshWatches([]);
+    await store.refreshWatches(['my-prs-open', 'my-prs-merged']);
     await firstPoll;
     return wiring;
   }
@@ -534,8 +516,7 @@ test('merge when ready control reaches the real lane and persists the queue', as
   wiring.startPoller();
   try {
     await new Promise<void>((resolve) => setImmediate(resolve));
-    await deliverMyPrsCandidates(github, wiring);
-    await store.refreshWatches([]);
+    await store.refreshWatches(['my-prs-open', 'my-prs-merged']);
     await firstPoll;
     const connection = connectControl<MergeFrame>(createControlServer(controlDeps({ projects: [] }, { myPrs: wiring })));
     await connection.send({ type: 'my-pr-merge-when-ready', requestId: 'queue-1', repo: 'Acme/app', number: 7, mergeWhenReady: true });
@@ -568,7 +549,6 @@ async function harness({ trackedPrs = [toMyPr(readyNode(), 0)], ghOutcome = { ok
       stop: async () => {},
       tick: async () => { refreshCount += 1; },
       rebuild: () => {},
-      acceptCandidates: () => {},
       refresh: async () => { refreshCount += 1; return { ok: true }; },
       setKeepMergeable: async () => ({ ok: false, error: 'Not available in this merge fixture' }),
       setMergeWhenReady: async () => ({ ok: false, error: 'Not available in this merge fixture' }),
@@ -626,7 +606,7 @@ function queueMergeHarness(trackedPr: MyPr) {
       queueMerge = mergePr;
       return {
         start: async () => { onTickComplete(myPrsStatus({ ts: 1, configured: true, viewer: 'me', prs: [trackedPr] })); },
-        stop: async () => {}, tick: async () => {}, rebuild: () => {}, acceptCandidates: () => {}, refresh: async () => ({ ok: true }),
+        stop: async () => {}, tick: async () => {}, rebuild: () => {}, refresh: async () => ({ ok: true }),
         setKeepMergeable: async () => ({ ok: false, error: 'Not available in this merge fixture' }),
         setMergeWhenReady: async () => ({ ok: false, error: 'Not available in this merge fixture' }),
       };

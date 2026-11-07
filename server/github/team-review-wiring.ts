@@ -1,7 +1,6 @@
 import type { GithubLaneStore } from './github-store-wiring.ts';
 import { githubStoreRateLimitedError } from './github-store-poller.ts';
 import { TeamReviewStateEntry, TeamReviewStatus } from '../../shared/contracts/team-review.ts';
-import type { TeamReviewCandidatesPayload } from '../../shared/contracts/team-review-candidates.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { HookRouter } from '../../detection/hook-source.ts';
@@ -21,7 +20,6 @@ import { createRepoCache } from '../git/repo-cache.ts';
 import { reapTeamReviewProcesses } from './team-review-reaper.ts';
 import { createTeamReviewPoller } from './team-review-poller.ts';
 import { bootStaggerDelay } from '../boot-stagger.ts';
-import { createWatcheeFeed } from '../lanes/watchee-feed.ts';
 import type { DraftExpectation, DraftPatch, NotMineOutcome, ReviewOutcome, SpawnReviewArgs, TeamReviewGithub, TeamReviewPoller } from './team-review-poller.ts';
 import type { PrDetail, ReviewDraft, TeamReviewState as TeamReviewStateType, TeamReviewStateEntry as TeamReviewStateEntryType, TeamReviewStatus as TeamReviewStatusType } from '../../shared/contracts/team-review.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -154,7 +152,6 @@ function createTeamReviewWiring({
     return review;
   }
 
-  const candidatesFeed = createWatcheeFeed<TeamReviewCandidatesPayload>();
   const runner = createLaneRunner<TeamReviewPoller>({
     tag: core.TEAM_REVIEW_LANE_ID,
     gate: () => teamReviewShouldStart(config),
@@ -163,7 +160,7 @@ function createTeamReviewWiring({
     broadcast,
     createPoller: ({ onTickComplete }) => {
       const settings = core.readTeamReviewSettings(config);
-      const createdPoller = createPoller({
+      return createPoller({
         org: settings.org,
         teams: settings.teams,
         reReviewAfterMs: settings.reReviewAfterHours * 60 * 60 * 1000,
@@ -188,11 +185,7 @@ function createTeamReviewWiring({
         onTickComplete,
         clock,
         firstTickDelayMs: bootStaggerDelay,
-        feedSilenceMs: candidatesFeed.silenceMs,
       });
-      const latestCandidates = candidatesFeed.latest();
-      if (latestCandidates !== null) createdPoller.acceptCandidates(latestCandidates);
-      return createdPoller;
     },
   });
 
@@ -212,7 +205,6 @@ function createTeamReviewWiring({
   async function stopPoller(): Promise<void> {
     unsubscribe();
     shutdownController.abort();
-    candidatesFeed.stop();
     await Promise.allSettled([drainPending(Promise.allSettled([...inFlightReviews])), runner.stopPoller()]);
   }
 
@@ -242,12 +234,6 @@ function createTeamReviewWiring({
     const poller = runner.getPoller();
     if (!poller) return { ok: false as const, error: 'team review is off, and the operator turns it on in the dashboard settings' };
     return poller.requestReview(reference);
-  }
-
-  async function acceptCandidates(job: { payload: TeamReviewCandidatesPayload }): Promise<void> {
-    if (shutdownController.signal.aborted) return;
-    if (!candidatesFeed.accept(job.payload)) return;
-    runner.getPoller()?.acceptCandidates(job.payload);
   }
 
   async function markNotMineForPoller(key: string): Promise<NotMineOutcome> {
@@ -314,7 +300,6 @@ function createTeamReviewWiring({
   });
 
   return {
-    acceptCandidates,
     startPoller: runner.startPoller,
     stopPoller,
     restartIfConfigChanged: runner.restartIfConfigChanged,

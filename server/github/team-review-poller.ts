@@ -10,7 +10,6 @@ import type { InFlightReview } from '../../shared/contracts/team-review.ts';
 import type { GithubPr } from '../../shared/contracts/github-prs.ts';
 import type { TeamReviewCandidatesPayload } from '../../shared/contracts/team-review-candidates.ts';
 import { errorMessage } from '../../shared/text.ts';
-import { isOlderObservation, watcherFeedError } from '../lanes/core/watchee-feed-core.ts';
 import { DEFAULT_TIMER_FNS } from '../../shared/timer-deps.ts';
 import { TEAM_REVIEW_RATE_LIMIT_RESOURCES } from './team-review-poller/team-review-poller-context.ts';
 import type {
@@ -48,13 +47,11 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   const progressByKey = new Map<string, InFlightReview>();
   const reviewCancellersByKey = new Map<string, AbortController>();
   const notMineWhileReviewingKeys = new Set<string>();
+  const watches = new Map<string, { qualifiers: string; source: 'direct' | 'team' | 'authored' }>();
   let lastRebuildQueueSignature: string | null = null;
-  let acceptedCandidates: TeamReviewCandidatesPayload | null = null;
-  const feedSilenceMs = deps.feedSilenceMs ?? (() => 0);
-  const pollIntervalMs = (deps.intervalMinutes ?? core.POLL_INTERVAL_MINUTES) * 60000;
 
   const loop = createTickLoop({
-    tag: core.TEAM_REVIEW_LANE_ID, intervalMs: pollIntervalMs,
+    tag: core.TEAM_REVIEW_LANE_ID, intervalMs: (deps.intervalMinutes ?? core.POLL_INTERVAL_MINUTES) * 60000,
     tick: async () => {
       try {
         return await runTick();
@@ -73,7 +70,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   const context: TeamReviewPollerContext = {
     deps, org, teams, github, store, spawnReview, discardResumable, log, telemetry, onTickComplete, now, setTimeoutFn, clearTimeoutFn,
     maxConcurrentReviews, reReviewAfterMs, skipIdleAfterMs,
-    runtime, progressByKey, reviewCancellersByKey, notMineWhileReviewingKeys, loop, persist,
+    runtime, progressByKey, reviewCancellersByKey, notMineWhileReviewingKeys, watches, loop, persist,
   };
   const statusReporter = createTeamReviewStatusReporter(context);
   const candidateSearch = createTeamReviewCandidateSearch(context);
@@ -82,13 +79,13 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   const reviewRuns = createTeamReviewRuns(context, statusReporter, headPlanning, candidateSearch);
   const { getDraft, updateDraft, updateThread, requeue, restore, requestReview, markNotMine } = createTeamReviewOperatorActions(context, statusReporter, headPlanning, candidateSearch, reviewRuns);
   const { inFlightKeys, cancelPendingProgressEmit, emitStatus } = statusReporter;
-  const { closedEntryKeys, pruneDeparted, candidatesFrom, requestTeamProfile, watchAskedFor, unregisterWatches } = candidateSearch;
+  const { closedEntryKeys, pruneDeparted, searchCandidates, searchResultFromSnapshot, candidatesFrom, watchAskedFor, unregisterWatches } = candidateSearch;
   const { headsToReview } = headPlanning;
   const { startReviews } = reviewRuns;
 
   function rebuild(): void {
-    if (!runtime.hasLoadedState || loop.isStopped() || acceptedCandidates === null) return;
-    const { candidates, prsByKey } = candidatesFrom(acceptedCandidates);
+    if (!runtime.hasLoadedState || loop.isStopped() || runtime.self === null) return;
+    const { candidates, prsByKey } = candidatesFrom(searchResultFromSnapshot(runtime.self));
     const planned = headsToReview(candidates, prsByKey);
     if (planned.isDirty) loop.track(persist());
     emitStatus();
@@ -119,25 +116,28 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   async function runTick(): Promise<TickOutcome | undefined> {
     runtime.pollingError = null;
     runtime.tickRateLimitWaitMs = null;
-    if (!runtime.hasLoadedState) return undefined;
-    const feedError = watcherFeedError('Team review has no pull request list', feedSilenceMs(), pollIntervalMs);
-    if (acceptedCandidates === null) {
-      runtime.pollingError = feedError;
-      return undefined;
+    const searched = await searchCandidates().catch((error: unknown) => {
+      runtime.pollingError = errorMessage(error);
+      log.warn(`[${core.TEAM_REVIEW_LANE_ID}] candidate search failed: ${runtime.pollingError}`);
+      return null;
+    });
+    if (runtime.tickRateLimitWaitMs !== null) {
+      runtime.pollingError = 'GitHub rate limit asks to wait.';
+      return { failed: true, retryAfterMs: runtime.tickRateLimitWaitMs, error: runtime.pollingError };
     }
-    await requestTeamProfile();
-    const outcome = await planFrom(acceptedCandidates);
-    if (outcome === undefined) runtime.pollingError = feedError;
-    return outcome;
+    if (searched === null) {
+      runtime.pollingError ??= 'Could not look up your GitHub account or team members.';
+      return rateLimitedOutcome();
+    }
+    const storeError = store.getSnapshot().freshness.error;
+    if (storeError) {
+      runtime.pollingError = storeError;
+      return rateLimitedOutcome();
+    }
+    return acceptCandidates(searched);
   }
 
-  function acceptCandidates(searched: TeamReviewCandidatesPayload): void {
-    if (isOlderObservation(searched, acceptedCandidates)) return;
-    acceptedCandidates = searched;
-    if (runtime.hasLoadedState && !loop.isStopped()) loop.tickSoon();
-  }
-
-  async function planFrom(searched: TeamReviewCandidatesPayload): Promise<TickOutcome | undefined> {
+  async function acceptCandidates(searched: TeamReviewCandidatesPayload): Promise<TickOutcome | undefined> {
     runtime.self = searched.viewer;
     const { candidates, prsByKey, isComplete } = candidatesFrom(searched);
     const rateLimitWaitMs = isComplete ? null : await store.rateLimitWaitMs(now(), TEAM_REVIEW_RATE_LIMIT_RESOURCES);
@@ -181,9 +181,11 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
 
   async function refresh() {
     if (loop.isStopped()) return { ok: false, error: 'Reviews polling is stopped.' };
+    if (watches.size === 0) await searchCandidates();
     return loop.refresh(async () => {
-      for (const key of Object.keys(runtime.state)) store.requestRefresh(key);
-      return { ok: true };
+      const refreshed = await store.refreshWatches([...watches.keys()]);
+      rebuild();
+      return refreshed;
     });
   }
 
@@ -195,7 +197,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     cancelPendingProgressEmit();
   }
 
-  return { start, stop, tick: loop.tick, refresh, rebuild, acceptCandidates, getDraft, updateDraft, updateThread, requeue, restore, requestReview, markNotMine, _state: () => runtime.state };
+  return { start, stop, tick: loop.tick, refresh, rebuild, getDraft, updateDraft, updateThread, requeue, restore, requestReview, markNotMine, _state: () => runtime.state };
 }
 
 type TeamReviewPoller = ReturnType<typeof createTeamReviewPoller>;

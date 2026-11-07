@@ -18,11 +18,6 @@ GitHub lanes: issue and pull request polling, the canonical PR store (`core/gith
   via: a pull request list from the watcher drives a workflow rule: approving the operator pull request labels it once, using the viewer the watcher looked up, stamps its snapshot with the server clock, and ignores a list older than the last one
   because: a snapshot stamped by a watcher clock running ahead silenced the lane across restarts, and an out-of-order list would replay or drop rule events
   kinds: none
-- my pull requests list order: A my pull requests candidate list older than the last one accepted changes nothing.
-  over: every my pull requests candidate list the watcher delivers
-  via: a stage the store shows while a rebase is in flight keeps its clock when the tick finishes on its older snapshot, and a pull request list older than the last one changes nothing
-  because: an out-of-order list would drop held pull requests from the watched set and the tab
-  kinds: none
 - drafts follow the reviewed head: A team review draft is never left ready for posting at a pull request head it was not reviewed at: a moved head makes it stale, a returned head makes it ready again, and restoring or requeueing a discarded draft while the head has moved leaves it stale.
   over: the moves that can leave a draft ready at an unreviewed head: a head moving off and back onto the reviewed head, a restore while the head has moved, and a requeue of a discarded draft
   via: a saved draft goes stale when the pull request head moves, is ready again when it returns, and a discarded draft restores or requeues as stale at a moved head

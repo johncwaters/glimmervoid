@@ -659,8 +659,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     watcherConfig: config.watcher,
     watcherEnvironment: watcherSecretEnvironment,
     handlers: withBuiltInJobHandlers({
-      'team-review.candidates': laneAssembly.teamReview.acceptCandidates,
-      'my-prs.candidates': myPrs.acceptCandidates,
       'workflows.candidates': laneAssembly.workflows.acceptCandidates,
       'issues.listing': issues.acceptListing,
       'radar.project': posthog.acceptProject,

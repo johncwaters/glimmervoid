@@ -1,5 +1,4 @@
 import { createGithubStorePoller } from '../server/github/github-store-poller.ts';
-import { createTeamReviewSearch } from '../cloud/watchees/team-review/team-review-search.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -22,7 +21,7 @@ import { comparablePrKey, GithubPr, GithubPrDetailNode } from '../shared/contrac
 import { normalizeGithubPr } from '../server/github/core/github-store-core.ts';
 import { PrDetail, ReviewDraft } from '../shared/contracts/team-review.ts';
 import { UNTRUSTED_PAYLOAD_FILENAME, UNTRUSTED_PREAMBLE, UntrustedPayload } from '../shared/contracts/untrusted-payload.ts';
-import type { ResumableReview, ReviewDraft as ReviewDraftType, TeamReviewStatus as TeamReviewStatusType } from '../shared/contracts/team-review.ts';
+import type { ResumableReview, ReviewDraft as ReviewDraftType } from '../shared/contracts/team-review.ts';
 
 const HEAD = 'c'.repeat(40);
 const OTHER_HEAD = 'd'.repeat(40);
@@ -742,79 +741,6 @@ test('discarding a saved review reaps its processes before removing its director
   }
 });
 
-test('team review says it has no pull request list once two awake poll intervals pass without one, and clears it when one arrives', async () => {
-  let feedSilenceMs = 0;
-  const statuses: TeamReviewStatusType[] = [];
-  const statusWaiters: ((status: TeamReviewStatusType) => void)[] = [];
-  const nextStatusWithoutError = () => new Promise<TeamReviewStatusType>((resolve) => { statusWaiters.push(resolve); });
-  const poller = createTeamReviewPoller({
-    org: 'Acme', teams: [], github: {}, store: emptyGithubStore(),
-    spawnReview: async () => { throw new Error('no review is expected'); },
-    readState: async () => ({}), writeState: async () => {}, beforeStart: async () => {},
-    feedSilenceMs: () => feedSilenceMs, firstTickDelayMs: () => 0, setIntervalFn: () => setInterval(() => {}, 2 ** 30), clearIntervalFn: clearInterval,
-    onTickComplete: (status) => {
-      statuses.push(status);
-      if (status.error === null) for (const resolve of statusWaiters.splice(0)) resolve(status);
-    },
-  });
-  const latestError = () => statuses.at(-1)?.error ?? null;
-  try {
-    await poller.start();
-    await poller.tick();
-    assert.equal(latestError(), null);
-    feedSilenceMs = 31 * 60_000;
-    await poller.tick();
-    assert.match(latestError() ?? '', /no pull request list/);
-    const clearedStatus = nextStatusWithoutError();
-    feedSilenceMs = 0;
-    poller.acceptCandidates({ observedAt: '2026-11-06T12:31:00Z', viewer: 'me', isComplete: true, directRequested: [], teamRequested: [], authored: [] });
-    assert.equal((await clearedStatus).error, null);
-  } finally {
-    await poller.stop();
-  }
-});
-
-test('a pull request list stamped earlier than the last one still counts as the watcher feed arriving', async () => {
-  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-feed-test-'));
-  let readFeedSilenceMs: (() => number) | undefined;
-  const pollerCreated = deferredSignal();
-  const wiring = createTeamReviewWiring({
-    config: { github: { readToken: 'read-token' }, teamReview: { enabled: true, org: 'Acme', team: 'core' } },
-    store: emptyGithubStore(),
-    reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
-    spawnGate: { run: async (task) => task() }, homeDir, log: { warn: () => {} }, reapProcesses: async () => {},
-    github: {},
-    repoCache: {
-      listRepos: async () => [], ensureRepo: async () => null,
-      fetchPr: async () => ({ ok: false, headSha: null, err: '' }), hydrateTree: async () => ({ ok: true, err: '' }), hydrateRange: async () => ({ ok: false, err: '' }), hydrateSince: async () => false, isolateNewWork: async () => ({ ok: false, reason: '' }),
-    },
-    gitWorkspace: {
-      stageDetachedWorktree: async () => ({ ok: false }), removeWorktreeByPath: async () => ({ ok: false }),
-      pruneWorktrees: async () => ({ ok: true }), originUrl: async () => null, populate: async () => {},
-    },
-    createPoller: (dependencies) => {
-      readFeedSilenceMs = dependencies.feedSilenceMs;
-      pollerCreated.resolve();
-      return createTeamReviewPoller({ ...dependencies, beforeStart: async () => {} });
-    },
-  });
-  const listObservedAt = (observedAt: string) => ({ payload: { observedAt, viewer: 'me', isComplete: true, directRequested: [], teamRequested: [], authored: [] } });
-  try {
-    wiring.startPoller();
-    await pollerCreated.promise;
-    const feedSilenceMs = readFeedSilenceMs;
-    assert.ok(feedSilenceMs);
-    await wiring.acceptCandidates(listObservedAt('2026-11-06T13:00:00Z'));
-    await new Promise((resolve) => setTimeout(resolve, 80));
-    assert.ok(feedSilenceMs() >= 60);
-    await wiring.acceptCandidates(listObservedAt('2026-11-06T12:15:00Z'));
-    assert.ok(feedSilenceMs() < 60);
-  } finally {
-    await wiring.stopPoller();
-    fs.rmSync(homeDir, { recursive: true, force: true });
-  }
-});
-
 function deferredSignal(): { promise: Promise<void>; resolve: () => void; reject: (reason: unknown) => void } {
   let resolve: () => void = () => {};
   let reject: (reason: unknown) => void = () => {};
@@ -968,21 +894,44 @@ test('a pull request session starts from the main checkout under a repo root eve
   }
 });
 
-test('an organization with no team has the watcher search only review requests to the operator in that organization', async () => {
+test('an organization with no team starts team review watching only review requests to the operator in that organization', async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'team-review-org-only-test-'));
   const teamReads: string[] = [];
   const githubStore = emptyGithubStore({
     async viewer() { return 'me'; },
     async teamProfile(org, slug) { teamReads.push(`profile:${org}/${slug}`); return null; },
     async teamMembers(org, slug) { teamReads.push(`members:${org}/${slug}`); return []; },
   });
-  const search = createTeamReviewSearch({ store: githubStore, now: () => Date.parse('2026-11-06T00:00:00Z') });
+  const registeredQualifiers: string[] = [];
+  const searchSettled = deferredSignal();
+  const wiring = createTeamReviewWiring({
+    config: { github: { readToken: 'read-token' }, teamReview: { enabled: true, org: 'Acme' } },
+    store: { ...githubStore, registerWatch: (watch) => { registeredQualifiers.push(watch.qualifiers); githubStore.registerWatch(watch); searchSettled.resolve(); } },
+    reviewSessions: new Map(), closeSessionDataClients: () => {}, hookRouter: null, getHookPort: null,
+    spawnGate: { run: async (task) => task() }, homeDir, log: { warn: () => {} }, reapProcesses: async () => {},
+    github: {},
+    repoCache: {
+      listRepos: async () => [], ensureRepo: async () => null,
+      fetchPr: async () => ({ ok: false, headSha: null, err: '' }), hydrateTree: async () => ({ ok: true, err: '' }), hydrateRange: async () => ({ ok: false, err: '' }), hydrateSince: async () => false, isolateNewWork: async () => ({ ok: false, reason: '' }),
+    },
+    gitWorkspace: {
+      stageDetachedWorktree: async () => ({ ok: false }), removeWorktreeByPath: async () => ({ ok: false }),
+      pruneWorktrees: async () => ({ ok: true }), originUrl: async () => null, populate: async () => {},
+    },
+    createPoller: (dependencies) => createTeamReviewPoller({
+      ...dependencies, beforeStart: async () => {}, firstTickDelayMs: () => 0,
+      onTickComplete: (status) => { dependencies.onTickComplete?.(status); if (status.error) searchSettled.reject(new Error(status.error)); },
+    }),
+  });
   try {
-    const searched = await search.search({ enabled: true, org: 'Acme', teams: [], intervalMinutes: 15 });
-    assert.deepEqual(githubStore.searches, ['is:open draft:false org:Acme user-review-requested:@me']);
+    assert.equal(wiring.getStatus().configured, true);
+    wiring.startPoller();
+    await searchSettled.promise;
+    assert.deepEqual(registeredQualifiers, ['is:open draft:false org:Acme user-review-requested:@me']);
     assert.deepEqual(teamReads, []);
-    assert.deepEqual(searched, { ok: true, payload: { observedAt: '2026-11-06T00:00:00.000Z', viewer: 'me', isComplete: true, directRequested: [], teamRequested: [], authored: [] } });
   } finally {
-    search.stop();
+    await wiring.stopPoller();
+    fs.rmSync(homeDir, { recursive: true, force: true });
   }
 });
 
@@ -1003,19 +952,29 @@ test('a saved draft goes stale when the pull request head moves, is ready again 
   const savedAt = Date.now();
   const tickWaiters: (() => void)[] = [];
   const isPlannedAt = (head: string) => poller._state()[ACTION_KEY]?.liveHead === head;
+  let teammatePr = teammatePrAt(OTHER_HEAD);
+  const store = emptyGithubStore({ viewer: async () => 'me' });
+  const directWatchName = 'team-review-direct:acme';
+  const storeServingTeammatePr = {
+    ...store,
+    getSnapshot: () => {
+      const snapshot = store.getSnapshot();
+      const directWatch = { keys: [ACTION_KEY], returnedCount: 1, totalCount: 1, isComplete: true, isLoaded: true };
+      return { ...snapshot, prs: { ...snapshot.prs, [ACTION_KEY]: teammatePr }, watches: { ...snapshot.watches, [directWatchName]: directWatch } };
+    },
+  };
   const poller = createTeamReviewPoller({
-    org: 'Acme', teams: [], github: {}, store: emptyGithubStore(),
+    org: 'Acme', teams: [], github: {}, store: storeServingTeammatePr,
     spawnReview: () => new Promise(() => {}),
     readState: async () => ({ [ACTION_KEY]: { draft: actionDraft(), reviewedHead: HEAD, inFlight: false, reviewAttempts: 1, updatedAt: savedAt } }),
     writeState: async () => {}, beforeStart: async () => {},
     firstTickDelayMs: () => 2 ** 30, setIntervalFn: () => setInterval(() => {}, 2 ** 30), clearIntervalFn: clearInterval,
     onTickComplete: () => { for (const waiter of tickWaiters) waiter(); },
   });
-  let observedSeconds = 0;
   const headAt = async (head: string) => {
-    observedSeconds += 1;
+    teammatePr = teammatePrAt(head);
     const plannedAtHead = new Promise<void>((resolve) => { tickWaiters.push(() => { if (isPlannedAt(head)) resolve(); }); });
-    poller.acceptCandidates({ observedAt: new Date(savedAt + observedSeconds * 1000).toISOString(), viewer: 'me', isComplete: true, directRequested: [], teamRequested: [teammatePrAt(head)], authored: [] });
+    await poller.tick();
     await plannedAtHead;
   };
   const draftStatus = () => poller.getDraft(ACTION_KEY)?.status;
