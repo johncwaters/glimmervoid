@@ -142,6 +142,14 @@ interface WhiteboardLayouts {
   pictureOf(boardId: string, dataUriByAssetId: Record<string, string>): Promise<BoardPictureRead | null>;
 }
 
+function elementIdsNamedBy(op: Op): string[] {
+  switch (op.op) {
+    case 'add': return [op.element.id];
+    case 'board': return [];
+    default: return [op.id];
+  }
+}
+
 function hasNoConnectedSessions(record: BoardRecord): boolean {
   return Object.keys(record.cursorBySessionId).length === 0;
 }
@@ -480,12 +488,12 @@ function createWhiteboardWiring({
     return { ok: true, record: next, patch, staged: { diff: result.diff, afterById: result.afterById, commit } };
   }
 
-  async function reviewFor(board: Board, { readsChanges }: { readsChanges: boolean }): Promise<BoardReview> {
+  async function reviewFor(board: Board, { readsChanges, elementIds = null }: { readsChanges: boolean; elementIds?: ReadonlySet<string> | null }): Promise<BoardReview> {
     const codeContext = board.codeSessionId ? codeContextOf(board.codeSessionId) : null;
-    if (!codeContext) return reviewBoard(board, null);
-    const fileFactByPath = await readFileFacts(codeContext.root, referencedPaths(board));
+    if (!codeContext) return reviewBoard(board, null, elementIds);
+    const fileFactByPath = await readFileFacts(codeContext.root, referencedPaths(board, elementIds));
     const changes = readsChanges ? await readChangeFacts(codeContext.buildChangeMap) : null;
-    return reviewBoard(board, { fileFactByPath, changes });
+    return reviewBoard(board, { fileFactByPath, changes }, elementIds);
   }
 
   async function readDocOf(boardId: string, boxId: string): Promise<WhiteboardReply> {
@@ -505,7 +513,9 @@ function createWhiteboardWiring({
     const reply = await putOps(boardId, ops, author);
     const board = recordsByBoardId.get(boardId)?.board;
     if (!reply.body.ok || !('version' in reply.body) || 'elements' in reply.body || !board) return reply;
-    const { anchorWarnings, stepWarnings } = await reviewFor(board, { readsChanges: stepBoxesOf(board).length > 0 });
+    const isCodeSessionChanged = ops.some((op) => op.op === 'board' && op.codeSessionId !== undefined);
+    const elementIds = isCodeSessionChanged ? null : new Set(ops.flatMap(elementIdsNamedBy));
+    const { anchorWarnings, stepWarnings } = await reviewFor(board, { readsChanges: stepBoxesOf(board).length > 0, elementIds });
     if (anchorWarnings.length === 0 && stepWarnings.length === 0) return reply;
     return { status: reply.status, body: { ...reply.body, warnings: cappedWarnings([...reply.body.warnings ?? [], ...anchorWarnings, ...stepWarnings]) } };
   }

@@ -644,7 +644,7 @@ test('an agent attaches media once by content at full fidelity, a box shows it f
   assert.match(String(huge.body.error), /huge\.png is larger than the 200 MB/);
 });
 
-test('refs are checked in the code session worktree: a missing file, a line past the end and a path leaving the worktree land as warnings that get --layout repeats', async (context) => {
+test('refs are checked in the code session worktree: a missing file, a line past the end and a path leaving the worktree land as warnings on the put that wrote them, and get --layout repeats them all', async (context) => {
   const worktree = path.join(fixture.tmpDir, PLANNER_ID);
   fs.mkdirSync(path.join(worktree, 'src'), { recursive: true });
   fs.writeFileSync(path.join(worktree, 'src', 'feed.ts'), 'one\ntwo\nthree\n');
@@ -667,6 +667,11 @@ test('refs are checked in the code session worktree: a missing file, a line past
   ];
   assert.equal(put.status, 200);
   assert.deepEqual(put.body.warnings, expectedWarnings);
+  const unrelatedPut = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
+    { op: 'add', element: { kind: 'box', id: 'save', title: 'Save', at: { x: 400, y: 40 }, refs: ['src/feed.ts#L4'] } },
+  ] });
+  assert.deepEqual(unrelatedPut.body.warnings, ['ref src/feed.ts#L4 on box save: the file has 3 lines']);
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'remove', id: 'save' }] })).status, 200);
 
   const laidOut = await runPlannerCli(context, ['whiteboard', 'get', boardId, '--layout']);
   assert.equal(laidOut.exitCode, 0);

@@ -1,6 +1,7 @@
 import { WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Board, BoardReview, Box, Element } from './contracts/whiteboard.ts';
 import { cappedWarnings } from './whiteboard-route-core.ts';
+import { boardIndexOf } from './whiteboard-board-index.ts';
 import { stepBoxesOf } from './whiteboard-plan-core.ts';
 import type { StepBox } from './whiteboard-plan-core.ts';
 
@@ -80,13 +81,18 @@ function sitesOfElement(element: Element): AnchorSite[] {
   }
 }
 
-function anchorSitesOf(board: Board): AnchorSite[] {
-  return Object.values(board.elements).flatMap(sitesOfElement);
+function anchorSitesOf(board: Board, elementIds: ReadonlySet<string> | null): AnchorSite[] {
+  const { anchoredIds } = boardIndexOf(board.elements);
+  const reviewedIds = elementIds ? [...elementIds].filter((id) => anchoredIds.has(id)) : [...anchoredIds];
+  return reviewedIds.flatMap((id) => {
+    const element = board.elements[id];
+    return element ? sitesOfElement(element) : [];
+  });
 }
 
-function referencedPaths(board: Board): string[] {
+function referencedPaths(board: Board, elementIds: ReadonlySet<string> | null = null): string[] {
   const paths = new Set<string>();
-  for (const site of anchorSitesOf(board)) {
+  for (const site of anchorSitesOf(board, elementIds)) {
     const parsed = parseRef(site.ref);
     if ('path' in parsed) paths.add(parsed.path);
   }
@@ -165,9 +171,9 @@ function changeReviewOf(board: Board, sites: readonly AnchorSite[], changes: Cha
   return { stepWarnings: cappedWarnings(stepWarnings), uncoveredPaths: uncoveredPaths.slice(0, WHITEBOARD_LIMITS.layoutWarnings), worthALookPaths: worthALookPaths.slice(0, WHITEBOARD_LIMITS.layoutWarnings), flaggedStepIds, notChecked: null };
 }
 
-function reviewBoard(board: Board, facts: AnchorFacts | null): BoardReview {
+function reviewBoard(board: Board, facts: AnchorFacts | null, elementIds: ReadonlySet<string> | null = null): BoardReview {
   const { codeSessionId } = board;
-  const sites = anchorSitesOf(board);
+  const sites = anchorSitesOf(board, elementIds);
   if (!facts) {
     const hasAnythingToCheck = sites.length > 0 || stepBoxesOf(board).length > 0;
     const notChecked = hasAnythingToCheck ? missingCodeSessionText(codeSessionId) : null;

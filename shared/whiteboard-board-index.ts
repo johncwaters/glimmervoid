@@ -10,6 +10,7 @@ interface BoardIndex {
   assetRefCount: Map<string, number>;
   dependentIdsByBoxId: Map<string, Set<string>>;
   stepBoxIds: Set<string>;
+  anchoredIds: Set<string>;
 }
 
 const indexByElements = new WeakMap<Board['elements'], BoardIndex>();
@@ -55,6 +56,19 @@ function trackStep(index: BoardIndex, element: Element, isPresent: boolean): voi
   index.stepBoxIds.delete(element.id);
 }
 
+function hasAnchorRef(element: Element): boolean {
+  if (element.kind === 'note') return element.ref !== null;
+  return element.kind === 'box' && (element.refs.length > 0 || element.lines.some((line) => line.ref !== null));
+}
+
+function trackAnchor(index: BoardIndex, element: Element): void {
+  if (hasAnchorRef(element)) {
+    index.anchoredIds.add(element.id);
+    return;
+  }
+  index.anchoredIds.delete(element.id);
+}
+
 function linkDependent(index: BoardIndex, element: Element): void {
   for (const boxId of boxIdsDependedOnBy(element)) {
     const dependentIds = index.dependentIdsByBoxId.get(boxId) ?? new Set<string>();
@@ -80,6 +94,7 @@ function addToIndex(index: BoardIndex, element: Element): void {
   countAsset(index, assetIdOf(element), 1);
   linkDependent(index, element);
   trackStep(index, element, true);
+  trackAnchor(index, element);
 }
 
 function removeFromIndex(index: BoardIndex, element: Element): void {
@@ -88,12 +103,13 @@ function removeFromIndex(index: BoardIndex, element: Element): void {
   countAsset(index, assetIdOf(element), -1);
   unlinkDependent(index, element);
   trackStep(index, element, false);
+  index.anchoredIds.delete(element.id);
 }
 
 function boardIndexOf(elements: Board['elements']): BoardIndex {
   const known = indexByElements.get(elements);
   if (known) return known;
-  const index: BoardIndex = { elementCount: 0, idsByKind: new Map(), indexKeyIdsByKind: new Map(), assetRefCount: new Map(), dependentIdsByBoxId: new Map(), stepBoxIds: new Set() };
+  const index: BoardIndex = { elementCount: 0, idsByKind: new Map(), indexKeyIdsByKind: new Map(), assetRefCount: new Map(), dependentIdsByBoxId: new Map(), stepBoxIds: new Set(), anchoredIds: new Set() };
   for (const element of Object.values(elements)) addToIndex(index, element);
   indexByElements.set(elements, index);
   return index;
@@ -134,6 +150,7 @@ function storeElement(elements: Board['elements'], element: Element): void {
   linkDependent(index, element);
   trackStep(index, previous, false);
   trackStep(index, element, true);
+  trackAnchor(index, element);
 }
 
 function appendElement(elements: Board['elements'], element: Element): void {
