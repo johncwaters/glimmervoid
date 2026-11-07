@@ -225,19 +225,19 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'whiteboard-removed', boardId: 'board-1' },
   {
     type: 'whiteboard-tiles', boardId: 'board-1', version: 4, elementCount: 1,
-    head: { id: 'board-1', title: 'Ingest plan', version: 4, caption: null, legend: [], codeSessionId: null, createdAt: NOW, updatedAt: NOW },
+    head: { id: 'board-1', title: 'Ingest plan', version: 4, caption: null, legend: [], codeSessionId: null, project: null, createdAt: NOW, updatedAt: NOW },
     chrome: { legend: [], caption: null, plan: null, pinnedOffsetY: 0, bounds: { x: 0, y: 0, width: 400, height: 300 } },
     tiles: [{ key: { chunkX: 0, chunkY: 0, lod: 'full', level: 0 }, elements: [{ paintOrder: 0, element: { kind: 'frame', id: 'frame-1', title: 'Ingest', isLoop: false, x: 0, y: 0, width: 400, height: 300 } }], raster: null }],
   },
   {
     type: 'whiteboard-tile-diff', boardId: 'board-1', fromVersion: 4, toVersion: 5, elementCount: 0,
-    head: { id: 'board-1', title: 'Ingest plan', version: 5, caption: null, legend: [], codeSessionId: null, createdAt: NOW, updatedAt: NOW },
+    head: { id: 'board-1', title: 'Ingest plan', version: 5, caption: null, legend: [], codeSessionId: null, project: null, createdAt: NOW, updatedAt: NOW },
     diff: { changed: [], removedIds: ['frame-1'], rasters: [], chrome: null },
   },
   {
     type: 'whiteboard-result', requestId: 'wb-1', ok: true, error: null,
     board: {
-      id: 'board-1', title: 'Ingest plan', version: 1, caption: null, legend: [], codeSessionId: null,
+      id: 'board-1', title: 'Ingest plan', version: 1, caption: null, legend: [], codeSessionId: null, project: null,
       elements: { parse: { kind: 'box', id: 'parse', title: 'Parse feed', icon: null, lines: [], refs: [], change: 'none', was: null, near: null, order: 0, at: { x: 40, y: 40 }, shape: 'box', outputs: [], media: null, width: null, step: null } },
       createdAt: NOW, updatedAt: NOW,
     },
