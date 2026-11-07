@@ -9,6 +9,7 @@ import type { SharedClock } from '../lanes/lane-runner.ts';
 import { GITHUB_RATE_LIMIT_WINDOW_MS } from './core/github-rate-limit-core.ts';
 import { secondaryRateLimitWaitMs } from '../lanes/core/lane-backoff.ts';
 import { errorMessage } from '../../shared/text.ts';
+import type { IssuesProbeInputs } from './issues-probes.ts';
 import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
 
 interface IssuesPollerDependencies {
@@ -19,6 +20,8 @@ interface IssuesPollerDependencies {
   readState: () => Promise<unknown>;
   writeState: (state: IssuesStateType) => Promise<void>;
   onTickComplete: (status: IssuesStatus) => void;
+  onProbeInputsChange?: () => void;
+  isCoveredByWatcher?: () => boolean;
   now?: () => number;
   clock?: SharedClock;
   firstTickDelayMs?: () => number;
@@ -40,6 +43,18 @@ export function createIssuesPoller(dependencies: IssuesPollerDependencies) {
   let shouldReconcile = false;
   let laneTickCount = 0;
   const rateLimitWaitMs = () => store.rateLimitWaitMs(now(), ['core', 'search']);
+  let announcedProbeInputsKey = '';
+  let requestedPollCount = 0;
+  let handledPollCount = 0;
+  const staleLinkedPullRequestKeys = new Set<string>();
+
+  function probeInputs(): IssuesProbeInputs {
+    return { projectRepos: projects.map((project) => project.repo), teams, viewerLogin: viewer };
+  }
+
+  function probeInputsKey(): string {
+    return JSON.stringify(probeInputs());
+  }
 
   function publishStatus(): void {
     if (loop.isStopped()) return;
@@ -61,9 +76,15 @@ export function createIssuesPoller(dependencies: IssuesPollerDependencies) {
     return waitMs === null ? { failed: true, error } : { failed: true, retryAfterMs: waitMs, error };
   }
 
+  function isWatcherKeepingWatch(): boolean {
+    return hasResolvedSources && pollingError === null && handledPollCount === requestedPollCount && staleLinkedPullRequestKeys.size === 0 && !shouldReconcile && dependencies.isCoveredByWatcher?.() === true;
+  }
+
   async function runTick() {
     await loadState();
-    if (loop.isStopped()) return { failed: false };
+    if (loop.isStopped() || isWatcherKeepingWatch()) return { failed: false };
+    const pollCountAtStart = requestedPollCount;
+    const linkedPullRequestKeysAtStart = [...staleLinkedPullRequestKeys];
     projects = await dependencies.resolveProjects(state.issues);
     if (loop.isStopped()) return { failed: false };
     if (!viewer) {
@@ -73,6 +94,10 @@ export function createIssuesPoller(dependencies: IssuesPollerDependencies) {
     }
     if (loop.isStopped()) return { failed: false };
     hasResolvedSources = true;
+    if (probeInputsKey() !== announcedProbeInputsKey) {
+      announcedProbeInputsKey = probeInputsKey();
+      dependencies.onProbeInputsChange?.();
+    }
     const timestamp = now();
     const isFullRefresh = shouldReconcile;
     const isLaneReconcileTick = (laneTickCount + 1) % 6 === 0;
@@ -113,14 +138,17 @@ export function createIssuesPoller(dependencies: IssuesPollerDependencies) {
     const hasPendingPullRequest = (issue: CachedIssueRow) => issue.pullRequests.some((pullRequest) => pullRequest.state === 'open' || pullRequest.state === 'draft');
     const isReconcileDue = (repo: string) => isFullRefresh || reconciledRepos.has(repo) || (isLaneReconcileTick && !projectRepos.has(repo));
     const isReconciledPending = (issue: CachedIssueRow) => isReconcileDue(issue.repo.toLowerCase()) && hasPendingPullRequest(issue);
-    const changedIssues = mergedIssues.filter((issue) => state.pullRequestsFetchedAt[issue.key.toLowerCase()] !== issue.updatedAt || isReconciledPending(issue));
+    const hasStaleLinkedPullRequest = (issue: CachedIssueRow) => core.issuesLinkedPrKeys([issue]).some((key) => staleLinkedPullRequestKeys.has(key));
+    const changedIssues = mergedIssues.filter((issue) => state.pullRequestsFetchedAt[issue.key.toLowerCase()] !== issue.updatedAt || isReconciledPending(issue) || hasStaleLinkedPullRequest(issue));
     let pullRequestsByIssue = new Map<string, IssuePullRequest[]>();
+    if (changedIssues.length === 0) for (const key of linkedPullRequestKeysAtStart) staleLinkedPullRequestKeys.delete(key);
     if (changedIssues.length > 0) {
       try {
         const response = await store.requestIssueLinkedPullRequests(changedIssues.map((issue) => issue.key.toLowerCase()), 'no-wait');
         if (loop.isStopped()) return { failed: false };
         if (response.isRateLimited) return { failed: true, retryAfterMs: response.waitMs };
         pullRequestsByIssue = response.value;
+        for (const key of linkedPullRequestKeysAtStart) staleLinkedPullRequestKeys.delete(key);
       } catch (error: unknown) {
         log.warn(`[issues] linked pull requests fetch failed: ${errorMessage(error)}`);
       }
@@ -140,6 +168,7 @@ export function createIssuesPoller(dependencies: IssuesPollerDependencies) {
       perRepoSync: Object.fromEntries(Object.entries(perRepoSync).filter(([repo]) => activeRepos.has(repo))),
     };
     shouldReconcile = false;
+    if (failures.length === 0) handledPollCount = pollCountAtStart;
     laneTickCount += 1;
     pollingError = failures.length > 0 ? failures.join(' ') : null;
     await loop.persist();
@@ -162,11 +191,25 @@ export function createIssuesPoller(dependencies: IssuesPollerDependencies) {
     })),
   });
 
+  function pollSoon(): void {
+    requestedPollCount += 1;
+    loop.tickSoon();
+  }
+
+  function linkedPullRequestsChanged(keys: readonly string[]): void {
+    for (const key of keys) staleLinkedPullRequestKeys.add(key);
+    pollSoon();
+  }
+
+  function linkedPullRequestKeys(): string[] {
+    return core.issuesLinkedPrKeys(state.issues);
+  }
+
   async function refresh(): Promise<GithubPollingRefreshResult> {
     if (loop.scheduleStatus().isRefreshing) return loop.refresh();
     shouldReconcile = true;
     return loop.refresh();
   }
 
-  return { start: () => loop.start(loadState), stop: loop.stop, tick: loop.tick, tickSoon: loop.tickSoon, refresh };
+  return { start: () => loop.start(loadState), stop: loop.stop, tick: loop.tick, tickSoon: loop.tickSoon, pollSoon, linkedPullRequestsChanged, linkedPullRequestKeys, refresh, probeInputs };
 }

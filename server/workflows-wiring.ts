@@ -16,6 +16,7 @@ import type { SharedClock } from './lanes/lane-runner.ts';
 import type { createGuardedPrStaging } from './github/my-prs-wiring.ts';
 import { createPrGh } from './github/pr-gh.ts';
 import { makeTeamReviewWorkDir } from './github/team-review-spawn.ts';
+import type { GithubLaneStore } from './github/github-store-wiring.ts';
 import { createWorkflowSessionQueue, createWorkflowsPoller } from './workflows-poller.ts';
 import type { SpawnSession, WorkflowsPoller, WorkflowsPollerDependencies } from './workflows-poller.ts';
 
@@ -81,7 +82,7 @@ interface WorkflowsWiringOptions {
   log?: Pick<Console, 'warn'>;
   homeDir?: string;
   github?: WorkflowsPollerDependencies['github'];
-  store: WorkflowsPollerDependencies['store'];
+  store: WorkflowsPollerDependencies['store'] & Pick<GithubLaneStore, 'subscribe'>;
   clock?: SharedClock;
   sweepLeftovers?: () => Promise<void>;
   createPoller?: (dependencies: WorkflowsPollerDependencies) => WorkflowsPoller;
@@ -124,6 +125,7 @@ export function createWorkflowsWiring({
       });
     },
   });
+  store.subscribe('snapshot-changed', () => { runner.getPoller()?.tickSoon(); });
   return {
     startPoller: runner.startPoller,
     restartIfConfigChanged(): void {

@@ -22,7 +22,12 @@ const issue: IssueUpdate = { ...issueFields, state: 'open' };
 const complete = (items: IssueUpdate[] = []): IssuesFetchResult => ({ ok: true, items, isComplete: true, error: '' });
 const timer = () => ({ unref() {} }) as NodeJS.Timeout;
 
-function harness(savedState: IssuesState = emptyIssuesState()) {
+async function eventuallyEqual(read: () => unknown, expected: unknown): Promise<void> {
+  for (let attempt = 0; attempt < 200 && read() !== expected; attempt += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(read(), expected);
+}
+
+function harness(savedState: IssuesState = emptyIssuesState(), isCoveredByWatcher?: () => boolean) {
   let saved = savedState;
   const statuses: IssuesStatus[] = [];
   const repoCalls: (string | null)[] = [];
@@ -41,7 +46,7 @@ function harness(savedState: IssuesState = emptyIssuesState()) {
     resolveProjects: async () => [{ repo: 'acme/app', projectId: 'project-1' }],
     readState: async () => saved,
     writeState: async (state) => { saved = state; },
-    onTickComplete: (status) => { statuses.push(status); },
+    onTickComplete: (status) => { statuses.push(status); }, isCoveredByWatcher,
     setIntervalFn: timer, clearIntervalFn: () => {}, setTimeoutFn: timer, clearTimeoutFn: () => {}, log: { warn() {} },
     store: {
       requestViewer: async () => {
@@ -123,6 +128,8 @@ test('issues wiring retries an unreadable cache and keeps links made while it wa
       requestIssueLinkedPullRequests: async () => ({ isRateLimited: false, value: new Map() }),
       requestRepoIssues: async () => ({ isRateLimited: false, value: complete() }),
       requestIssueSearch: async () => ({ isRateLimited: false, value: complete() }),
+      getSnapshot: () => { throw new Error('not read in this test'); },
+      subscribe: () => () => {},
     },
   });
   try {
@@ -167,4 +174,38 @@ test('a tick on the shared GitHub clock reads through the gated store without de
     clearTimeout(deadlockTimer);
     await poller.stop();
   }
+});
+
+test('a scheduled tick leaves issues the watcher covers to its nudges, and a nudge, a failed nudged poll, a linked pull request change or a refresh still polls GitHub', async () => {
+  let isCovered = false;
+  const lane = harness(emptyIssuesState(), () => isCovered);
+  lane.setPullRequests(new Map([['acme/app#1', [{ number: 9, url: 'https://github.com/acme/app/pull/9', title: 'Fix it', state: 'open' }]]]));
+  await lane.poller.tick();
+  assert.equal(lane.repoCalls.length, 1);
+  assert.deepEqual(lane.poller.probeInputs(), { projectRepos: ['acme/app'], teams: ['acme/core'], viewerLogin: 'alice' });
+
+  isCovered = true;
+  await lane.poller.tick();
+  assert.equal(lane.repoCalls.length, 1);
+
+  lane.setRepoResponse({ ok: false, items: [], isComplete: false, error: 'HTTP 502' });
+  lane.poller.pollSoon();
+  await eventuallyEqual(() => lane.repoCalls.length, 2);
+  lane.setRepoResponse(complete([issue]));
+  lane.advance();
+  await lane.poller.tick();
+  assert.equal(lane.repoCalls.length, 3);
+  await lane.poller.tick();
+  assert.equal(lane.repoCalls.length, 3);
+
+  assert.deepEqual(lane.poller.linkedPullRequestKeys(), ['acme/app#9']);
+  lane.pullRequestCalls.length = 0;
+  lane.poller.linkedPullRequestsChanged(['acme/app#9']);
+  await eventuallyEqual(() => lane.repoCalls.length, 4);
+  assert.deepEqual(lane.pullRequestCalls, [['acme/app#1']]);
+  await lane.poller.tick();
+  assert.equal(lane.repoCalls.length, 4);
+  await lane.poller.refresh();
+  assert.equal(lane.repoCalls.length, 5);
+  await lane.poller.stop();
 });

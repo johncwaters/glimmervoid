@@ -656,6 +656,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   });
   watcherLink.registerProbeSource(laneAssembly.githubStore.probeSource);
   laneAssembly.githubStore.onProbesMayHaveChanged(watcherLink.probesMayHaveChanged);
+  watcherLink.registerProbeSource(laneAssembly.issues.probeSource);
+  laneAssembly.issues.onProbesMayHaveChanged(watcherLink.probesMayHaveChanged);
   const { requestShutdown, requestRestart } = createLifecycle({
     shutdown,
     httpServer,

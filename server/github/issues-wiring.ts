@@ -7,6 +7,8 @@ import { glimmervoidHomeDir } from '../config-store.ts';
 import * as core from './core/issues-core.ts';
 import { readGithubTeams } from './core/github-teams-core.ts';
 import { createIssuesPoller } from './issues-poller.ts';
+import { issuesProbes } from './issues-probes.ts';
+import type { Probe } from '../../shared/contracts/watcher-link.ts';
 import { createLaneRunner } from '../lanes/lane-runner.ts';
 import type { SharedClock } from '../lanes/lane-runner.ts';
 import { createJsonStateStore } from '../json-file.ts';
@@ -42,7 +44,7 @@ interface IssuesWiringOptions {
   gitWorkspace: Pick<ReturnType<typeof createGitWorkspace>, 'originUrl'>;
   broadcast: (status: IssuesStatusType) => void;
   hasSession: (id: string) => boolean;
-  store: Pick<GithubLaneStore, 'requestRepoIssues' | 'requestIssueSearch' | 'requestIssueLinkedPullRequests' | 'setWatchedKeys' | 'requestViewer' | 'rateLimitWaitMs'>;
+  store: Pick<GithubLaneStore, 'requestRepoIssues' | 'requestIssueSearch' | 'requestIssueLinkedPullRequests' | 'setWatchedKeys' | 'requestViewer' | 'rateLimitWaitMs' | 'getSnapshot' | 'subscribe'>;
   github: Pick<PrGh, 'setIssueState'>;
   homeDir?: string;
   clock?: SharedClock;
@@ -57,6 +59,8 @@ export function createIssuesWiring({ config, gitWorkspace, broadcast, hasSession
   let hasLoadedState = false;
   let hasWritesBeforeLoad = false;
   const stateWrites = createSerialQueue();
+  const probesChangedListeners = new Set<() => void>();
+  const announceProbesMayHaveChanged = () => { for (const listener of probesChangedListeners) listener(); };
   function pruneSessionLinks(): Record<string, string> {
     const sessionIds = new Set(Object.values(cachedState.sessionLinks).filter(hasSession));
     cachedState = { ...cachedState, sessionLinks: core.pruneIssueSessionLinks(cachedState.sessionLinks, sessionIds) };
@@ -120,6 +124,8 @@ export function createIssuesWiring({ config, gitWorkspace, broadcast, hasSession
       teams: teams(), resolveProjects, store, clock, log, firstTickDelayMs: bootStaggerDelay,
       onTickComplete: (status) => { pollerStatus = status; onTickComplete(status); },
       getSessionLinks: pruneSessionLinks,
+      onProbeInputsChange: announceProbesMayHaveChanged,
+      isCoveredByWatcher,
       readState: async () => { await loadState(); return cachedState; }, writeState,
     }),
   });
@@ -156,10 +162,45 @@ export function createIssuesWiring({ config, gitWorkspace, broadcast, hasSession
   }
   async function stopPoller(): Promise<void> {
     await runner.stopPoller();
+    announceProbesMayHaveChanged();
     await stateWrites.idle();
   }
+  let linkedPullRequestDigestByKey = new Map<string, string>();
+  store.subscribe('snapshot-changed', () => {
+    const poller = runner.getPoller();
+    if (poller === null) return;
+    const snapshot = store.getSnapshot();
+    const nextDigestByKey = new Map(poller.linkedPullRequestKeys().map((key) => [key, JSON.stringify(snapshot.prs[key] ?? null)]));
+    const changedKeys = [...nextDigestByKey].filter(([key, digest]) => linkedPullRequestDigestByKey.has(key) && linkedPullRequestDigestByKey.get(key) !== digest).map(([key]) => key);
+    linkedPullRequestDigestByKey = nextDigestByKey;
+    if (changedKeys.length > 0) poller.linkedPullRequestsChanged(changedKeys);
+  });
+  let coveredProbeIds: ReadonlySet<string> = new Set();
+  function probes(): Probe[] {
+    const poller = runner.getPoller();
+    return poller === null ? [] : issuesProbes(poller.probeInputs());
+  }
+  function isCoveredByWatcher(): boolean {
+    const currentProbes = probes();
+    return currentProbes.length > 0 && currentProbes.every((probe) => coveredProbeIds.has(probe.id));
+  }
+  function coverWithWatcher(coveredProbes: readonly Probe[]): void {
+    const wasCovered = isCoveredByWatcher();
+    coveredProbeIds = new Set(coveredProbes.map((probe) => probe.id));
+    if (!wasCovered && isCoveredByWatcher()) runner.getPoller()?.pollSoon();
+  }
+  const probeSource = {
+    laneId: core.ISSUES_LANE_ID, credential: 'github' as const, probes,
+    onNudge: () => { runner.getPoller()?.pollSoon(); },
+    onCoverageChange: coverWithWatcher,
+  };
+  function restartIfConfigChanged(): void {
+    runner.restartIfConfigChanged();
+    announceProbesMayHaveChanged();
+  }
   return {
-    startPoller, stopPoller, restartIfConfigChanged: runner.restartIfConfigChanged,
+    startPoller, stopPoller, restartIfConfigChanged, probeSource,
+    onProbesMayHaveChanged: (listener: () => void) => { probesChangedListeners.add(listener); },
     getStatus: currentStatus, refresh, projectRepoSlugs, getLinkedSessionId, linkSession, setIssueState,
   };
 }

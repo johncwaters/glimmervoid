@@ -242,11 +242,13 @@ export function createWorkflowsPoller(dependencies: WorkflowsPollerDependencies)
     return { failed: false };
   }
 
+  let lifecycle: 'created' | 'started' = 'created';
   registerWatches(now());
 
   return {
     async start(): Promise<void> {
       await loop.start(dependencies.beforeStart ?? null);
+      lifecycle = 'started';
     },
     async stop(): Promise<void> {
       await loop.stop();
@@ -254,6 +256,7 @@ export function createWorkflowsPoller(dependencies: WorkflowsPollerDependencies)
       watches.clear();
     },
     tick: loop.tick,
+    tickSoon: () => { if (lifecycle === 'started') loop.tickSoon(); },
   };
 }
 
