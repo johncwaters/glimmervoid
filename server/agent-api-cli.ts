@@ -258,7 +258,7 @@ function dependencyWireOps(board: Board, stepId: string, afterIds: readonly stri
   const notAStep = afterIds.find((afterId) => afterId === stepId || !stepIds.has(afterId));
   if (notAStep === stepId) return `${stepId} cannot come after itself`;
   if (notAStep !== undefined) return `${notAStep} is not a plan step on this board`;
-  const takenIds = new Set(Object.keys(board.elements));
+  const takenIds = new Set([...board.elements.keys()]);
   return afterIds.map((afterId) => {
     const id = dependencyWireId(afterId, stepId, takenIds);
     takenIds.add(id);
@@ -287,7 +287,7 @@ async function addStep({ values, positionals }: ParsedArguments, boardRef: strin
 async function boardWithStep(boardRef: string, stepId: string): Promise<Board | string> {
   const read = await readBoard(boardRef, { isPeek: true });
   if (typeof read === 'string') return read;
-  const element = read.board.elements[stepId];
+  const element = read.board.elements.get(stepId);
   if (element?.kind !== 'box' || element.step === null) return `${stepId} is not a plan step on ${boardRef}`;
   return read.board;
 }

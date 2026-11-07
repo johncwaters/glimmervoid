@@ -1,5 +1,6 @@
 import { Element } from '../../shared/contracts/whiteboard.ts';
 import type { Board, BoardRecord } from '../../shared/contracts/whiteboard.ts';
+import { elementTableOf } from '../../shared/whiteboard-element-table.ts';
 
 const GROUP_PATTERN = ['box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'near-box', 'wire', 'wire', 'wire', 'wire', 'note', 'note', 'frame'] as const;
 const BOXES_PER_GROUP = GROUP_PATTERN.filter((kind) => kind === 'box').length;
@@ -41,7 +42,7 @@ function generateElements({ elementCount, seed }: Pick<GeneratedBoardOptions, 'e
   const nextRandom = seededRandom(seed);
   const groupCount = Math.ceil(elementCount / GROUP_PATTERN.length);
   const groupsPerRow = Math.max(1, Math.ceil(Math.sqrt(groupCount)));
-  const elements: Board['elements'] = {};
+  const elements = elementTableOf();
   let made = 0;
   for (let groupIndex = 0; groupIndex < groupCount && made < elementCount; groupIndex += 1) {
     const origin = groupOrigin(groupIndex, groupsPerRow);
@@ -54,7 +55,7 @@ function generateElements({ elementCount, seed }: Pick<GeneratedBoardOptions, 'e
       const id = `g${groupIndex}-${kind}-${boxInGroup + wireInGroup + noteInGroup}`;
       const candidate = elementOfKind(kind, { id, groupIndex, boxInGroup, wireInGroup, noteInGroup, origin, boxIds, nextRandom });
       if (!candidate) continue;
-      elements[id] = Element.parse(candidate);
+      elements.put(Element.parse(candidate));
       made += 1;
       if (kind === 'box') { boxIds.push(id); boxInGroup += 1; }
       if (kind === 'wire') wireInGroup += 1;
@@ -123,7 +124,7 @@ function generateBoardRecord(options: GeneratedBoardOptions): BoardRecord {
 }
 
 function boxIdsOf(board: Board): string[] {
-  return Object.values(board.elements).flatMap((element) => (element.kind === 'box' && element.at ? [element.id] : []));
+  return [...board.elements.values()].flatMap((element) => (element.kind === 'box' && element.at ? [element.id] : []));
 }
 
 export { boxIdsOf, generateBoardRecord, seededRandom };

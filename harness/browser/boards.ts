@@ -10,7 +10,7 @@ import path from 'node:path';
 import { execFileAsync } from '../../server/child-process-safe.ts';
 import { resolveFfmpegPath } from '../../server/runtime-paths.ts';
 import { Board, BoardMediaUploadReply, BoardReview, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS, boardMediaDrawnFilename, linesOfBox } from '../../shared/contracts/whiteboard.ts';
-import type { Op } from '../../shared/contracts/whiteboard.ts';
+import type { Element, Op } from '../../shared/contracts/whiteboard.ts';
 import { benchmarkBoard } from '../board-layout-cost.ts';
 import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
 
@@ -38,7 +38,7 @@ interface ScreenRect {
   height: number;
 }
 
-type BoardElement = Board['elements'][string];
+type BoardElement = Element;
 
 const BoardReply = z.object({ board: Board });
 const ReviewReply = z.object({ review: BoardReview });
@@ -64,13 +64,13 @@ async function shownBoardOf(open: OpenBoard): Promise<Board> {
 }
 
 async function elementWhere(open: OpenBoard, label: string, isMatch: (element: BoardElement) => boolean): Promise<BoardElement> {
-  const found = await pollFor(label, BOARD_TIMEOUT_MS, async () => Object.values((await boardOf(open)).elements).find(isMatch) ?? null);
+  const found = await pollFor(label, BOARD_TIMEOUT_MS, async () => [...(await boardOf(open)).elements.values()].find(isMatch) ?? null);
   await shownBoardOf(open);
   return found;
 }
 
 async function boardWithout(open: OpenBoard, label: string, isMatch: (element: BoardElement) => boolean): Promise<void> {
-  await pollFor(label, BOARD_TIMEOUT_MS, async () => (Object.values((await boardOf(open)).elements).some(isMatch) ? null : true));
+  await pollFor(label, BOARD_TIMEOUT_MS, async () => ([...(await boardOf(open)).elements.values()].some(isMatch) ? null : true));
   await shownBoardOf(open);
 }
 
@@ -218,7 +218,7 @@ async function verifyBoardDoc(open: OpenBoard): Promise<void> {
   await page.keyboard.press('Escape');
   await editor.waitFor({ state: 'detached' });
   await docCard.locator('.plan-paragraph', { hasText: 'Second draft.' }).waitFor();
-  const savedBox = (await boardOf(open)).elements[BOARD_DOC_BOX_ID];
+  const savedBox = (await boardOf(open)).elements.get(BOARD_DOC_BOX_ID);
   assert.ok(savedBox?.kind === 'box' && savedBox.media?.kind === 'doc' && savedBox.media.asset !== firstDraftMedia.asset, 'a saved document is stored on the board as a new asset');
   await panel.getByRole('button', { name: 'undo', exact: true }).click();
   await docCard.locator('.plan-paragraph', { hasText: 'First draft.' }).waitFor();
@@ -335,7 +335,7 @@ async function verifyBoxAbovePageCoversIt(open: OpenBoard, pageMedia: Locator): 
   await page.keyboard.press('r');
   const boxAbove = await placeBoxWithTool(open, { x: pageBounds.x - canvasBounds.x + pageBounds.width * 0.7, y: pageBounds.y - canvasBounds.y + pageBounds.height * 0.6 }, 'Above the page');
   await page.waitForFunction(() => /data:image\/svg\+xml/.test(getComputedStyle(document.querySelector('.wb-media[data-media-kind="page"]') ?? document.body).maskImage));
-  while ((await boardOf(open)).elements[boxAbove.id]) {
+  while ((await boardOf(open)).elements.get(boxAbove.id)) {
     const versionBeforeUndo = (await boardOf(open)).version;
     await panel.getByRole('button', { name: 'undo', exact: true }).click();
     await pollFor('undo takes back one edit', BOARD_TIMEOUT_MS, async () => ((await boardOf(open)).version !== versionBeforeUndo ? true : null));
@@ -906,7 +906,7 @@ function scaleBoardPuts(): Op[][] {
   const board = benchmarkBoard(Math.min(SCALE_BOARD_ELEMENTS, WHITEBOARD_LIMITS.elements));
   const puts: Op[][] = [[]];
   let putBytes = 0;
-  for (const element of Object.values(board.elements)) {
+  for (const element of board.elements.values()) {
     const op: Op = { op: 'add', element };
     const opBytes = JSON.stringify(op).length + 1;
     const current = puts[puts.length - 1] ?? [];
@@ -924,7 +924,7 @@ function scaleBoardPuts(): Op[][] {
 
 function placesOf(board: Board, boxIds: readonly string[]): Record<string, string> {
   return Object.fromEntries(boxIds.map((boxId) => {
-    const element = board.elements[boxId];
+    const element = board.elements.get(boxId);
     return [boxId, element?.kind === 'box' && element.at ? `${element.at.x},${element.at.y}` : ''];
   }));
 }
@@ -1054,7 +1054,7 @@ export async function verifyBoardScale(page: Page, sessionId: string): Promise<s
     if (index > 0) await page.keyboard.up('Shift');
   }
   const placesBefore = placesOf(before, draggedBoxIds);
-  const untouchedBoxId = Object.keys(before.elements).find((elementId) => before.elements[elementId]?.kind === 'box' && !draggedBoxIds.includes(elementId)) ?? '';
+  const untouchedBoxId = [...before.elements.keys()].find((elementId) => before.elements.get(elementId)?.kind === 'box' && !draggedBoxIds.includes(elementId)) ?? '';
   const grabAt = centerOf(draggedRects.get(draggedBoxIds[0] ?? '') ?? { x: 0, y: 0, width: 0, height: 0 });
   await startFrameRecorder(page);
   await page.mouse.move(grabAt.x, grabAt.y);
@@ -1083,8 +1083,8 @@ export async function verifyBoardScale(page: Page, sessionId: string): Promise<s
   });
   const saveMs = Date.now() - dropStartedAt;
   for (const boxId of draggedBoxIds) {
-    const beforeBox = before.elements[boxId];
-    const savedBox = saved.elements[boxId];
+    const beforeBox = before.elements.get(boxId);
+    const savedBox = saved.elements.get(boxId);
     assert.ok(beforeBox?.kind === 'box' && beforeBox.at && savedBox?.kind === 'box' && savedBox.at);
     assert.ok(Math.abs(savedBox.at.x - beforeBox.at.x - droppedDeltaX) <= 2, `a board update during a drag keeps ${boxId} under the pointer, it moved ${savedBox.at.x - beforeBox.at.x} of ${droppedDeltaX}`);
   }
@@ -1098,7 +1098,7 @@ export async function verifyBoardScale(page: Page, sessionId: string): Promise<s
   const undoMs = Date.now() - undoStartedAt;
   assert.equal(await dashboardBoardFetchesOf(page), 0, 'the dashboard opens, drags and undoes from tiles without fetching the whole board');
 
-  const elementCount = Object.keys(before.elements).length;
+  const elementCount = before.elements.size;
   const measured = `${elementCount} elements: fill ${fillMs} ms, first draw ${firstDrawMs} ms, pan max ${pan.maxMs} ms p50 ${pan.p50Ms} ms over ${pan.frames} frames, drag max ${drag.maxMs} ms p50 ${drag.p50Ms} ms over ${drag.frames} frames, save ${saveMs} ms, undo ${undoMs} ms`;
   console.log(`board-scale ${measured}`);
   assert.ok(firstDrawMs <= SCALE_FIRST_DRAW_BUDGET_MS, `the board first draws within ${SCALE_FIRST_DRAW_BUDGET_MS} ms; ${measured}`);

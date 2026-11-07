@@ -83,7 +83,7 @@ function anchorSitesOf(board: Board, elementIds: ReadonlySet<string> | null): An
   const { anchoredIds } = boardIndexOf(board.elements);
   const reviewedIds = elementIds ? [...elementIds].filter((id) => anchoredIds.has(id)) : [...anchoredIds];
   return reviewedIds.flatMap((id) => {
-    const element = board.elements[id];
+    const element = board.elements.get(id);
     return element ? sitesOfElement(element) : [];
   });
 }

@@ -14,14 +14,14 @@ function isStepBox(box: Box): box is StepBox {
 
 function stepBoxesOf(board: Board): StepBox[] {
   return [...boardIndexOf(board.elements).stepBoxIds].flatMap((id) => {
-    const element = board.elements[id];
+    const element = board.elements.get(id);
     return element?.kind === 'box' && isStepBox(element) ? [element] : [];
   });
 }
 
 function dependencyWiresInto(board: Board, stepId: string, stepIds: ReadonlySet<string>): Wire[] {
   return [...boardIndexOf(board.elements).dependentIdsByBoxId.get(stepId) ?? []].flatMap((dependentId) => {
-    const element = board.elements[dependentId];
+    const element = board.elements.get(dependentId);
     return element?.kind === 'wire' && element.to === stepId && element.from !== stepId && stepIds.has(element.from) ? [element] : [];
   });
 }

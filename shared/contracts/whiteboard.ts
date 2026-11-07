@@ -1,7 +1,8 @@
 import { z } from 'zod';
-
 import { DEVICE_FITS, DEVICE_NAMES } from '../whiteboard-devices.ts';
 import { ICON_NAMES } from '../whiteboard-icons.ts';
+import { elementTableOf, isElementTable } from '../whiteboard-element-table.ts';
+import type { ElementTable } from '../whiteboard-element-table.ts';
 
 export const WHITEBOARD_LIMITS = Object.freeze({
   elements: 1_000_000, opsPerPut: 5000, putBytes: 1_728_576, title: 80, line: 120, linesPerBox: 12, noteText: 400, logEntries: 2000, layoutWarnings: 20, readPage: 150, readPageChars: 32_000, outlineClusters: 40, queryText: 200, boxWidthMin: 160, boxWidthMax: 960,
@@ -206,9 +207,10 @@ export const Board = z.object({
   caption: z.string().max(400).nullable(),
   legend: LegendEntries.default([]),
   codeSessionId: CodeSessionId.nullable().default(null),
-  elements: z.record(ElementId, Element)
+  elements: z.custom<ElementTable>(isElementTable).or(z.record(ElementId, Element)
     .refine((elements) => Object.keys(elements).length <= WHITEBOARD_LIMITS.elements, { error: `a board holds at most ${WHITEBOARD_LIMITS.elements} elements` })
-    .refine((elements) => Object.entries(elements).every(([id, element]) => element.id === id), { error: 'every element is stored under its own id' }),
+    .refine((elements) => Object.entries(elements).every(([id, element]) => element.id === id), { error: 'every element is stored under its own id' })
+    .transform((elements) => elementTableOf(Object.values(elements)))),
   createdAt: z.number(),
   updatedAt: z.number(),
 }).strict();
@@ -333,6 +335,7 @@ function matchingOption(options: readonly z.core.$ZodType[], value: unknown): z.
 
 function withoutDefaults(schema: z.core.$ZodType, value: unknown): unknown {
   if (value === null || value === undefined) return value;
+  if (isElementTable(value)) return Object.fromEntries([...value.entries()].map(([id, element]) => [id, withoutDefaults(Element, element)]));
   if (schema instanceof z.core.$ZodDefault || schema instanceof z.core.$ZodNullable || schema instanceof z.core.$ZodOptional) return withoutDefaults(schema._zod.def.innerType, value);
   if (schema instanceof z.core.$ZodArray && Array.isArray(value)) return value.map((item) => withoutDefaults(schema._zod.def.element, item));
   if (schema instanceof z.core.$ZodUnion) {
@@ -367,6 +370,49 @@ export function boardMediaDrawnFilename(media: Pick<BoxMedia, 'kind' | 'asset' |
 
 export function sparseElement(element: Element): unknown {
   return withoutDefaults(Element, element);
+}
+
+type SparseElement = z.input<typeof Element>;
+type SparseBox = z.input<typeof Box>;
+
+function filledLine(line: z.input<typeof BoxLine>): BoxLine {
+  return { text: line.text, muted: line.muted ?? false, style: line.style ?? 'text', key: line.key ?? null, ref: line.ref ?? null, icon: line.icon ?? null };
+}
+
+function filledMedia(media: z.input<typeof BoxMedia> | null | undefined): BoxMedia | null {
+  if (!media) return null;
+  return { kind: media.kind, asset: media.asset, mime: media.mime, width: media.width, height: media.height, alt: media.alt ?? '', hasPreview: media.hasPreview ?? false };
+}
+
+function filledBoxBase(box: SparseBox) {
+  return {
+    kind: 'box' as const, id: box.id, title: box.title, icon: box.icon ?? null, refs: box.refs ?? [], change: box.change ?? 'none', was: box.was ?? null,
+    near: box.near ? { of: box.near.of, side: box.near.side, gap: box.near.gap ?? 60 } : null,
+    order: box.order ?? 0, at: box.at ?? null, width: box.width ?? null,
+    step: box.step ? { status: box.step.status ?? 'planned', linkedBoardId: box.step.linkedBoardId ?? null } : null,
+  };
+}
+
+function filledBox(box: SparseBox): Box {
+  switch (box.shape) {
+    case 'icon': return { ...filledBoxBase(box), icon: box.icon, shape: 'icon' };
+    case 'device': return { ...filledBoxBase(box), shape: 'device', device: box.device, fit: box.fit ?? 'fill', media: filledMedia(box.media) };
+    case 'decision': return { ...filledBoxBase(box), shape: 'decision', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), outputs: box.outputs ?? [] };
+    case 'panel': return { ...filledBoxBase(box), shape: 'panel', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), ...(box.outputs ? { outputs: box.outputs } : {}) };
+    default: return { ...filledBoxBase(box), shape: 'box', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), ...(box.outputs ? { outputs: box.outputs } : {}) };
+  }
+}
+
+export function filledElement(element: SparseElement): Element {
+  switch (element.kind) {
+    case 'box': return filledBox(element);
+    case 'frame': return { kind: 'frame', id: element.id, title: element.title, contains: element.contains, loop: element.loop ?? false };
+    case 'wire': return {
+      kind: 'wire', id: element.id, from: element.from, to: element.to, fromOutput: element.fromOutput ?? null, dashed: element.dashed ?? false, tone: element.tone ?? 'plain',
+      label: element.label ?? null, fromSide: element.fromSide ?? null, toSide: element.toSide ?? null, back: element.back ?? false,
+    };
+    case 'note': return { kind: 'note', id: element.id, on: element.on, text: element.text, ref: element.ref ?? null, author: element.author ?? '', resolvedBy: element.resolvedBy ?? null };
+  }
 }
 
 function withSparseElements<Body extends object>(body: Body): Body | Record<string, unknown> {

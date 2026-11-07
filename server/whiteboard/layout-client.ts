@@ -116,7 +116,7 @@ function createLayoutClient({ cachePath }: { cachePath: string | null }): Layout
     const sync: BoardSync = { syncId: nextSyncId, version: board.version, posted: Promise.resolve() };
     nextSyncId += 1;
     syncByBoardId.set(board.id, sync);
-    sync.posted = postBoard(board, Object.values(board.elements), held?.posted ?? Promise.resolve(), sync);
+    sync.posted = postBoard(board, [...board.elements.values()], held?.posted ?? Promise.resolve(), sync);
     return sync;
   }
 

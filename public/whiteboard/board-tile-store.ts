@@ -1,9 +1,10 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
-import type { Board, BoardHead, Element } from '#shared/contracts/whiteboard.ts';
+import type { Board, BoardHead } from '#shared/contracts/whiteboard.ts';
 import type { BoardChrome, PaintedElement, TileKey, TileLod } from '#shared/contracts/whiteboard-tiles.ts';
 import type { BoardLayout, Rect } from '#shared/whiteboard-layout-core.ts';
 import { lodForScale, paintedBoundsOf, tileIdOf, tileKeysFor, tileRectOf } from '#shared/whiteboard-tile-core.ts';
 import { sendControlMsg } from '../control-ws.ts';
+import { elementTableOf } from '#shared/whiteboard-element-table.ts';
 
 const VIEW_SEND_DELAY_MS = 100;
 
@@ -201,13 +202,10 @@ function tiledBoardOf(boardId: string): TiledBoard | null {
   if (!current || current.boardId !== boardId || current.version === null || !current.chrome || !current.head) return null;
   if (current.assembled) return current.assembled;
   const painted = [...current.elementById.values()].sort((left, right) => left.paintOrder - right.paintOrder);
-  const recordById: Record<string, Element> = {};
-  for (const { record } of painted) {
-    if (record) recordById[record.id] = record;
-  }
+  const records = elementTableOf(painted.flatMap(({ record }) => record ?? []));
   const blocks = [...current.tiles].flatMap(([id, tile]) => (tile.raster ? [{ id, rect: tile.rect, raster: tile.raster }] : []));
   const layout = { ...current.chrome, elements: painted.map(({ element }) => element), warnings: [] };
-  current.assembled = { version: current.version, lod: current.lod, layout, blocks, board: { ...current.head, elements: recordById }, elementCount: current.elementCount };
+  current.assembled = { version: current.version, lod: current.lod, layout, blocks, board: { ...current.head, elements: records }, elementCount: current.elementCount };
   return current.assembled;
 }
 

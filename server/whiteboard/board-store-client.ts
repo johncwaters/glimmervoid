@@ -5,7 +5,8 @@ import { boardStoreWorkerPath } from '../runtime-paths.ts';
 import { BOARD_STORE_FILENAME, ELEMENT_PAGE_SIZE, StoreReply, addParsedElements, boardDeltaOf, headRowsOf, recordOfRows, upgradedRecordOfRows } from './board-store-core.ts';
 import type { StagedElements } from './board-store-core.ts';
 import type { Rect, StoreRequestBody } from './board-store-core.ts';
-import type { BoardRecord, Element } from '../../shared/contracts/whiteboard.ts';
+import type { BoardRecord } from '../../shared/contracts/whiteboard.ts';
+import { elementTableOf } from '../../shared/whiteboard-element-table.ts';
 
 type StoreAnswer = Extract<StoreReply, { ok: true }>;
 
@@ -78,7 +79,7 @@ function createBoardStore(boardsRoot: string): BoardStore {
     const records: BoardRecord[] = [];
     const unreadableBoardIds: string[] = [];
     for (const rows of answer.heads ?? []) {
-      const record = recordOfRows(rows, {});
+      const record = recordOfRows(rows, elementTableOf());
       if (record) records.push(record);
       if (!record) unreadableBoardIds.push(rows.boardId);
     }
@@ -108,7 +109,7 @@ function createBoardStore(boardsRoot: string): BoardStore {
   }
 
   async function loadElements(head: BoardRecord): Promise<BoardRecord | null> {
-    const elements: Record<string, Element> = {};
+    const elements = elementTableOf();
     const isCurrentShape = await forEachElementPage(head.board.id, (page) => addParsedElements(elements, page));
     if (!isCurrentShape) return upgradedRecordOf(head);
     return recordOfRows(headRowsOf(head), elements) ?? upgradedRecordOf(head);

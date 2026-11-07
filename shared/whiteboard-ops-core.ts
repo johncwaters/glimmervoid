@@ -4,7 +4,8 @@ import { isRecord } from './coerce.ts';
 import { isStackedPanel, layoutBoard } from './whiteboard-layout-core.ts';
 import type { PlacedBox } from './whiteboard-layout-core.ts';
 import type { BoardDiff, DiffBefore, ElementChange } from './contracts/control/whiteboard-messages.ts';
-import { appendElement, boardIndexOf, boxIdsDependedOnBy, dropElement, storeElement } from './whiteboard-board-index.ts';
+import { elementTableOf } from './whiteboard-element-table.ts';
+import { appendElement, boardIndexOf, boxIdsDependedOnBy, copyOfElements, dropElement, storeElement } from './whiteboard-board-index.ts';
 
 type Author = { id: string; name: string };
 type ApplyResult = { ok: true; board: Board; changes: BoardChange[]; diff: BoardDiff; before: DiffBefore } | { ok: false; error: string; opIndex: number };
@@ -51,7 +52,7 @@ function refuse(error: string): OpOutcome {
 
 function elementOf(draft: Draft, id: string): Element | undefined {
   if (draft.afterById.has(id)) return draft.afterById.get(id) ?? undefined;
-  return draft.base.elements[id];
+  return draft.base.elements.get(id);
 }
 
 function writeElement(draft: Draft, element: Element): void {
@@ -234,7 +235,7 @@ const ORIGIN = Object.freeze({ x: 0, y: 0 });
 function drawnPlaceOf(draft: Draft, boxId: string, visitedIds: Set<string>): { x: number; y: number } {
   const laidOut = draft.basePinPositions?.laidOutBoxOf(boxId);
   if (laidOut) return { x: laidOut.x, y: laidOut.y - (draft.basePinPositions?.pinnedOffsetY ?? 0) };
-  const box = elementOf(draft, boxId) ?? draft.base.elements[boxId];
+  const box = elementOf(draft, boxId) ?? draft.base.elements.get(boxId);
   if (box?.kind !== 'box') return ORIGIN;
   if (box.at) return box.at;
   if (!box.near || visitedIds.has(box.near.of)) return ORIGIN;
@@ -328,7 +329,7 @@ function stageOps(board: Board, ops: readonly Op[], author: Author, nowMs: numbe
 
 function applyOps(board: Board, ops: readonly Op[], author: Author, nowMs: number): ApplyResult {
   const basePinPositions = ops.some((op) => op.op === 'remove') ? pinPositionsOf(board) : null;
-  const staged = stageOps({ ...board, elements: { ...board.elements } }, ops, author, nowMs, basePinPositions);
+  const staged = stageOps({ ...board, elements: copyOfElements(board.elements) }, ops, author, nowMs, basePinPositions);
   if (!staged.ok) return staged;
   staged.commit();
   return { ok: true, board: staged.board, changes: staged.changes, diff: staged.diff, before: staged.before };
@@ -358,7 +359,7 @@ function changeOf(previous: Element, element: Element): ElementChange | null {
 function diffOf(draft: Draft): BoardDiff {
   const elements: Record<string, ElementChange> = {};
   for (const [id, element] of draft.afterById) {
-    const previous = draft.base.elements[id];
+    const previous = draft.base.elements.get(id);
     if (!element) {
       if (previous) elements[id] = ['remove'];
       continue;
@@ -392,25 +393,28 @@ function beforeOf(board: Board, diff: BoardDiff): DiffBefore {
       ...('legend' in diff.fields ? { legend: board.legend } : {}),
       ...('codeSessionId' in diff.fields ? { codeSessionId: board.codeSessionId } : {}),
     },
-    elements: Object.fromEntries(Object.keys(diff.elements).map((id) => [id, board.elements[id] ?? null])),
+    elements: Object.fromEntries(Object.keys(diff.elements).map((id) => [id, board.elements.get(id) ?? null])),
   };
 }
 
 function applyBoardDiff(board: Board, diff: BoardDiff, version: number, updatedAt: number): Board | null {
-  const elements = { ...board.elements };
+  const elements = copyOfElements(board.elements);
   for (const [id, change] of Object.entries(diff.elements)) {
-    const existing = elements[id];
+    const existing = elements.get(id);
     if (change[0] === 'remove') {
       if (!existing) return null;
-      delete elements[id];
+      dropElement(elements, id);
       continue;
     }
     const element = appliedChangeOf(existing, id, change);
     if (!element) return null;
-    if (change[0] === 'put') delete elements[id];
-    elements[id] = element;
+    if (change[0] === 'put') {
+      appendElement(elements, element);
+      continue;
+    }
+    storeElement(elements, element);
   }
-  if (Object.keys(elements).length > WHITEBOARD_LIMITS.elements) return null;
+  if (elements.size > WHITEBOARD_LIMITS.elements) return null;
   return { ...board, ...diff.fields, elements, version, updatedAt };
 }
 
@@ -475,7 +479,7 @@ function createBoard({ id, title, nowMs, codeSessionId = null }: { id: string; t
     id, title, version: 0, caption: null,
     legend: [],
     codeSessionId,
-    elements: {},
+    elements: elementTableOf(),
     createdAt: nowMs,
     updatedAt: nowMs,
   };

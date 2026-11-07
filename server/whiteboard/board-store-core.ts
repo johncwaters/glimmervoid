@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { upgradedBoardRecord } from '../core/whiteboard-store-core.ts';
 import { BoardRecord, Element as ElementSchema, WHITEBOARD_LIMITS, linesOfBox } from '../../shared/contracts/whiteboard.ts';
 import type { Board, Element } from '../../shared/contracts/whiteboard.ts';
+import { elementTableOf } from '../../shared/whiteboard-element-table.ts';
+import type { ElementTable } from '../../shared/whiteboard-element-table.ts';
 import type { StagedOps } from '../../shared/whiteboard-ops-core.ts';
 import { boardIndexOf, storeElement } from '../../shared/whiteboard-board-index.ts';
 
@@ -124,8 +126,8 @@ function elementWriteOf(element: Element): z.infer<typeof ElementWrite> {
 }
 
 function reorderedElementIdsOf(elementsBefore: Board['elements'], elementsAfter: Board['elements']): Set<string> {
-  const keptInOrderBefore = Object.keys(elementsBefore).filter((elementId) => elementId in elementsAfter);
-  const idsInOrderAfter = Object.keys(elementsAfter);
+  const keptInOrderBefore = [...elementsBefore.keys()].filter((elementId) => elementsAfter.has(elementId));
+  const idsInOrderAfter = [...elementsAfter.keys()];
   const movedElementIds = new Set<string>();
   let afterIndex = 0;
   for (const elementId of keptInOrderBefore) {
@@ -155,13 +157,13 @@ function stagedElementDeltaOf(staged: StagedElements): ElementDelta {
 function comparedElementDeltaOf(elementsBefore: Board['elements'], elementsAfter: Board['elements']): ElementDelta {
   if (elementsBefore === elementsAfter) return { writes: [], removedElementIds: [], reslottedElementIds: [] };
   const reorderedElementIds = reorderedElementIdsOf(elementsBefore, elementsAfter);
-  const writes = Object.values(elementsAfter).filter((element) => elementsBefore[element.id] !== element || reorderedElementIds.has(element.id)).map(elementWriteOf);
-  const removedElementIds = Object.keys(elementsBefore).filter((elementId) => !(elementId in elementsAfter));
+  const writes = [...elementsAfter.values()].filter((element) => elementsBefore.bodyOf(element.id) !== elementsAfter.bodyOf(element.id) || reorderedElementIds.has(element.id)).map(elementWriteOf);
+  const removedElementIds = [...elementsBefore.keys()].filter((elementId) => !elementsAfter.has(elementId));
   return { writes, removedElementIds, reslottedElementIds: [...reorderedElementIds] };
 }
 
 function boardDeltaOf(before: BoardRecord | null, after: BoardRecord, staged: StagedElements | null = null): BoardDelta {
-  const elementDelta = staged ? stagedElementDeltaOf(staged) : comparedElementDeltaOf(before?.board.elements ?? {}, after.board.elements);
+  const elementDelta = staged ? stagedElementDeltaOf(staged) : comparedElementDeltaOf(before?.board.elements ?? elementTableOf(), after.board.elements);
   const newestLoggedVersion = before?.log.at(-1)?.version ?? Number.NEGATIVE_INFINITY;
   const appendedLog = after.log.filter((change) => change.version > newestLoggedVersion).map((change) => ({ version: change.version, body: JSON.stringify(change) }));
   return {
@@ -188,7 +190,7 @@ function headRowsOf(record: BoardRecord): StoredHeadRows {
   return { boardId: record.board.id, head: headOf(record.board), cursors: JSON.stringify(record.cursorBySessionId), createdBy: record.createdBy, logBodies: record.log.map((change) => JSON.stringify(change)) };
 }
 
-function addParsedElements(elements: Record<string, Element>, elementBodies: readonly string[]): boolean {
+function addParsedElements(elements: ElementTable, elementBodies: readonly string[]): boolean {
   for (const body of elementBodies) {
     const element = ElementSchema.safeParse(parsedJson(body));
     if (!element.success) return false;
@@ -205,7 +207,7 @@ function upgradedRecordWith(rows: StoredHeadRows, storedElements: Record<string,
   return record.success ? record.data : null;
 }
 
-function recordOfRows(rows: StoredHeadRows, elements: Record<string, Element>): BoardRecord | null {
+function recordOfRows(rows: StoredHeadRows, elements: ElementTable): BoardRecord | null {
   const record = upgradedRecordWith(rows, {});
   return record ? { ...record, board: { ...record.board, elements } } : null;
 }

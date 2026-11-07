@@ -258,7 +258,7 @@ function selectedElementsOfKind<Kind extends Element['kind']>(kind: Kind): Extra
   const board = selectedBoard();
   const selectedIds = editor?.selectedIds() ?? new Set<string>();
   return [...selectedIds]
-    .flatMap((elementId) => board?.elements[elementId] ?? [])
+    .flatMap((elementId) => board?.elements.get(elementId) ?? [])
     .filter((element): element is Extract<Element, { kind: Kind }> => element.kind === kind);
 }
 
@@ -477,7 +477,7 @@ function hasNewsForPairedSession(summary: BoardSummary | null, sessionId: string
 
 function worthALookIdsOf(board: Board, worthALookPaths: readonly string[]): Set<string> {
   const worthALook = new Set(worthALookPaths);
-  return new Set(Object.values(board.elements)
+  return new Set([...board.elements.values()]
     .filter((element) => refsOfElement(element).some((ref) => worthALook.has(refPathOf(ref) ?? '')))
     .map((element) => element.id));
 }
@@ -572,7 +572,7 @@ function addStepFromDialog(): void {
 }
 
 function pressedMediaOf({ boxId }: PressedImage): BoxMedia | null {
-  const pressedBox = boxId ? selectedBoard()?.elements[boxId] : undefined;
+  const pressedBox = boxId ? selectedBoard()?.elements.get(boxId) : undefined;
   return pressedBox?.kind === 'box' ? mediaOfBox(pressedBox) : null;
 }
 
@@ -609,7 +609,7 @@ function closeOnEscapeInsidePage(pageFrame: HTMLIFrameElement, overlay: HTMLElem
 
 function docBoxOf(boardId: string, boxId: string): Extract<Element, { kind: 'box' }> | null {
   const isOpenDoc = openDocBox?.boardId === boardId && openDocBox.box.id === boxId;
-  const held = heldBoardOf(boardId)?.elements[boxId];
+  const held = heldBoardOf(boardId)?.elements.get(boxId);
   if (held?.kind !== 'box') return isOpenDoc ? (openDocBox?.box ?? null) : null;
   if (isOpenDoc) openDocBox = { boardId, box: held };
   return held;
@@ -661,7 +661,7 @@ function boardDocSource(boardId: string, boxId: string, title: string): DocSourc
 }
 
 function openBoardDoc(boardId: string, boxId: string): void {
-  const box = heldBoardOf(boardId)?.elements[boxId];
+  const box = heldBoardOf(boardId)?.elements.get(boxId);
   if (box?.kind !== 'box') return;
   openDocBox = { boardId, box };
   openDocEditorOn(boardDocSource(boardId, boxId, box.title));
@@ -700,7 +700,7 @@ function addNoteOn(boxId: string): void {
 function connectBoxes(fromBoxId: string, toBoxId: string): void {
   const board = selectedBoard();
   if (!board || fromBoxId === toBoxId) return;
-  const isAlreadyWired = Object.values(board.elements).some((element) => element.kind === 'wire' && element.from === fromBoxId && element.to === toBoxId);
+  const isAlreadyWired = [...board.elements.values()].some((element) => element.kind === 'wire' && element.from === fromBoxId && element.to === toBoxId);
   if (isAlreadyWired) return;
   void sendOps([{ op: 'add', element: { kind: 'wire', id: newElementId('wire'), from: fromBoxId, to: toBoxId, fromOutput: null, dashed: false, tone: 'plain', label: null, fromSide: null, toSide: null, back: false } }]);
 }
