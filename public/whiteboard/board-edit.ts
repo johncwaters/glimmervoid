@@ -396,7 +396,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   function openPendingTitleEdit(): void {
-    if (!pendingTitleEditId || !renderer.boundsOf(pendingTitleEditId)) return;
+    if (!pendingTitleEditId || !renderer.boundsOf(pendingTitleEditId) || !options.currentBoard()?.elements[pendingTitleEditId]) return;
     const elementId = pendingTitleEditId;
     pendingTitleEditId = null;
     editTitle(elementId);

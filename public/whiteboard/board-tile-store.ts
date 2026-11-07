@@ -61,7 +61,7 @@ function sendView(current: TileState): void {
   if (sendTimer !== null) clearTimeout(sendTimer);
   sendTimer = null;
   current.sentTileIds = new Set(tileKeysFor(current.view, current.lod).map(tileIdOf));
-  if (evictUnsentTiles(current, (tile) => tile.key.lod === current.lod)) notifyTilesChanged();
+  if (evictUnsentTiles(current, (tile) => tile.key.lod === current.lod && !rectsTouch(tile.rect, current.view))) notifyTilesChanged();
   sendControlMsg({ type: 'whiteboard-view', boardId: current.boardId, view: current.view, lod: current.lod, knownVersion: current.version });
 }
 
@@ -87,6 +87,10 @@ function forgetUnheldElements(current: TileState): void {
   }
 }
 
+function isViewRequested(current: TileState): boolean {
+  return tileKeysFor(current.view, current.lod).every((key) => current.tiles.has(tileIdOf(key)) || current.sentTileIds.has(tileIdOf(key)));
+}
+
 function freshState(boardId: string, view: Rect, lod: TileLod): TileState {
   return { boardId, version: null, chrome: null, lod, view, sentTileIds: new Set(), tiles: new Map(), elementById: new Map(), assembled: null };
 }
@@ -99,7 +103,7 @@ function showTilesFor(boardId: string, view: Rect, scale: number): void {
   state = current;
   current.view = view;
   current.lod = lod;
-  if (isNewBoard || isLodChanged || current.version === null) {
+  if (isNewBoard || isLodChanged || current.version === null || !isViewRequested(current)) {
     sendView(current);
     return;
   }
