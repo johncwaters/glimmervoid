@@ -183,6 +183,12 @@ interface AgentHomeProfile {
   config: TomlConfigFormat | JsonConfigFormat;
   generatedFileNames: readonly string[];
   isPrivateEntryName(name: string, platform: NodeJS.Platform): boolean;
+  cleanOmits: CleanHomeOmits | null;
+}
+
+interface CleanHomeOmits {
+  entryNames: readonly string[];
+  configTablePrefixes: readonly string[];
 }
 
 type AgentHomeLinkKind = "symlink" | "junction" | "hardlink";
@@ -212,6 +218,7 @@ interface AgentHomeInputs {
   renderBlock: (operatorText: string) => string;
   sourceStamps: Readonly<Record<string, string>>;
   platform: NodeJS.Platform;
+  isClean: boolean;
 }
 
 type AgentHomeStep =
@@ -437,10 +444,24 @@ function generatedJsonAgentConfig(sources: Omit<AgentConfigSources, "format">, f
   return { text: `${JSON.stringify(hooked.config, null, 2)}\n`, base: realText, hadBlock: false };
 }
 
+function withoutOperatorTables(configText: string, tablePrefixes: readonly string[]): string {
+  const units = splitTomlUnits(configText);
+  const keptTables = units.tables.filter((table) => !tablePrefixes.some((prefix) => table.id.startsWith(prefix)));
+  return [units.preamble, ...units.keys.map((key) => key.text), ...keptTables.map((table) => table.text)].join("");
+}
+
+function cleanRealConfigText(inputs: AgentHomeInputs): string | null {
+  const omits = inputs.profile.cleanOmits;
+  if (!inputs.isClean || !omits || inputs.realConfigText === null) return inputs.realConfigText;
+  const operatorText = withoutBlock(inputs.realConfigText);
+  if (operatorText === "foreign") return inputs.realConfigText;
+  return withoutOperatorTables(operatorText, omits.configTablePrefixes);
+}
+
 function generatedConfigFor(inputs: AgentHomeInputs): GeneratedConfig {
   const format = inputs.profile.config;
   if (format.kind === "json") return generatedJsonAgentConfig(inputs, format);
-  return generatedAgentConfig({ ...inputs, format });
+  return generatedAgentConfig({ ...inputs, realConfigText: cleanRealConfigText(inputs), format });
 }
 
 function linkKindFor(kind: RealAgentHomeEntry["kind"], platform: NodeJS.Platform): AgentHomeLinkKind {
@@ -477,6 +498,7 @@ function planEntryLink(real: RealAgentHomeEntry, generated: GeneratedAgentHomeEn
 
 function isKeptOutOfLinks(name: string, inputs: AgentHomeInputs): boolean {
   const { configName, baseName } = inputs.profile.config;
+  if (inputs.isClean && inputs.profile.cleanOmits?.entryNames.includes(name)) return true;
   return GENERATED_ONLY_NAMES.has(name) || name === configName || name === baseName || inputs.profile.generatedFileNames.includes(name) || inputs.profile.isPrivateEntryName(name, inputs.platform);
 }
 
@@ -528,6 +550,7 @@ const KIMI_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   }),
   generatedFileNames: Object.freeze([KIMI_MCP_CONFIG_NAME, KIMI_MCP_BASE_NAME]),
   isPrivateEntryName: () => false,
+  cleanOmits: Object.freeze({ entryNames: Object.freeze(["AGENTS.md", "skills", "plugins"]), configTablePrefixes: Object.freeze(["[[hooks"]) }),
 });
 
 const CODEX_HOOK_HANDLER_TABLE_HEADER_PATTERN = /^\s*\[(?!\[)\s*hooks\s*(?:\]|\.(?!\s*state\s*[\].]))/;
@@ -561,6 +584,7 @@ const CODEX_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   }),
   generatedFileNames: Object.freeze([]),
   isPrivateEntryName: (name: string, platform: NodeJS.Platform) => platform === "win32" && CODEX_SQLITE_NAME_PATTERN.test(name),
+  cleanOmits: Object.freeze({ entryNames: Object.freeze(["AGENTS.md", "AGENTS.override.md", "hooks.json", "skills", "prompts", "rules", "plugins"]), configTablePrefixes: Object.freeze(["[hooks", "[[hooks"]) }),
 });
 
 function renderGeminiLauncherConfig(operatorLauncherText: string): string {
@@ -592,6 +616,7 @@ const GEMINI_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   config: Object.freeze({ kind: "json", configName: "settings.json", baseName: AGENT_HOME_JSON_BASE_NAME, hooksSwitch: GEMINI_HOOKS_SWITCH }),
   generatedFileNames: Object.freeze([]),
   isPrivateEntryName: () => false,
+  cleanOmits: null,
 });
 
 const DISABLE_ALL_HOOKS_SWITCH: JsonHooksSwitch = Object.freeze({
@@ -612,6 +637,7 @@ const QWEN_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   config: Object.freeze({ kind: "json", configName: "settings.json", baseName: AGENT_HOME_JSON_BASE_NAME, hooksSwitch: DISABLE_ALL_HOOKS_SWITCH }),
   generatedFileNames: Object.freeze([]),
   isPrivateEntryName: () => false,
+  cleanOmits: null,
 });
 
 const COPILOT_HOME_PROFILE: AgentHomeProfile = Object.freeze({
@@ -626,6 +652,7 @@ const COPILOT_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   config: Object.freeze({ kind: "json", configName: "settings.json", baseName: AGENT_HOME_JSON_BASE_NAME, hooksSwitch: DISABLE_ALL_HOOKS_SWITCH }),
   generatedFileNames: Object.freeze([]),
   isPrivateEntryName: () => false,
+  cleanOmits: null,
 });
 
 function expandHomeTilde(configuredHome: string, homeDir: string): string {

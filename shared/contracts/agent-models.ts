@@ -6,6 +6,9 @@ export type CatalogAgentId = z.infer<typeof CatalogAgentId>;
 
 export const EFFORT_OPTION_ID = 'effort';
 
+export const AgentHomeKind = z.enum(['operator', 'clean']);
+export type AgentHomeKind = z.infer<typeof AgentHomeKind>;
+
 export const ModelOption = z.strictObject({
   id: z.string().min(1),
   label: z.string().min(1),

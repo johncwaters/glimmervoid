@@ -150,6 +150,11 @@ function launchArgs(agent: string, setup: AgentSetup | null): string[] {
   return selectionArgs({ agent, model: setup.model, options: setup.options });
 }
 
+function cleanHomeArgs(agent: string, isCleanHome: boolean): string[] {
+  if (!isCleanHome || agent !== 'claude-code') return [];
+  return ['--setting-sources', 'project,local'];
+}
+
 function choiceSelection(agent: string, choice: { model?: string | null; effort?: string | null } | null | undefined): ModelSelection | null {
   const model = trimmedText(choice?.model);
   const effort = trimmedText(choice?.effort);
@@ -157,4 +162,4 @@ function choiceSelection(agent: string, choice: { model?: string | null; effort?
   return { agent, model, options: effort === null ? [] : [{ id: EFFORT_OPTION_ID, value: effort }] };
 }
 
-export { choiceSelection, launchArgs, parseClaudeInitialize, parseCodexModels, parseKimiModels, selectionArgs };
+export { choiceSelection, cleanHomeArgs, launchArgs, parseClaudeInitialize, parseCodexModels, parseKimiModels, selectionArgs };

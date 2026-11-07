@@ -85,7 +85,7 @@ import type { RemoteLaunch, SessionLaunch } from "./session-launch.ts";
 import { createSessionProcessReaper } from "./session-process-reaper.ts";
 import type { KillProc, SessionProcessReaper, SignalProc } from "./session-process-reaper.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
-import { launchArgs } from "../shared/agent-models-core.ts";
+import { cleanHomeArgs, launchArgs } from "../shared/agent-models-core.ts";
 import type { AgentSetup } from "../shared/contracts/agent-models.ts";
 
 const MAX_PENDING_ATTENTION_NOTES = 5;
@@ -206,6 +206,7 @@ interface SessionOptions {
   getTerminalColors?: (() => TerminalColors) | null;
   extraUserHooks?: UserHook[];
   scratchAgentHome?: ScratchAgentHome | null;
+  isCleanHome?: boolean;
   requiresHooks?: boolean;
   prepareCoherence?: ((cwd: string) => Promise<CoherenceAttachment | null>) | null;
   ptySpawn?: PtySpawn | null;
@@ -296,6 +297,7 @@ class Session extends EventEmitter {
   _queuedCommandHints: PromptHint[];
   _extraClaudeArgs: string[];
   _agentSetup: AgentSetup | null;
+  _isCleanHome: boolean;
   _resumeSessionId: string | null;
   readonly workspaceRepos: string[] | null;
   _transcriptPath: string | null;
@@ -402,6 +404,7 @@ class Session extends EventEmitter {
     getTerminalColors = null,
     extraUserHooks = [],
     scratchAgentHome = null,
+    isCleanHome = false,
     requiresHooks = false,
     prepareCoherence = null,
 
@@ -538,6 +541,7 @@ class Session extends EventEmitter {
     this._queuedCommandHints = [];
     this._extraClaudeArgs = Array.isArray(extraClaudeArgs) ? extraClaudeArgs : [];
     this._agentSetup = agentSetup;
+    this._isCleanHome = isCleanHome;
     this._resumeSessionId = resumeSessionId || null;
     this.workspaceRepos = workspaceRepos ? [...workspaceRepos] : null;
     this._transcriptPath = null;
@@ -573,6 +577,7 @@ class Session extends EventEmitter {
       getUserHooks,
       extraUserHooks,
       scratchAgentHome,
+      isCleanHome,
       requiresHooks: requiresHooks && hookRouter !== null,
       bypassHookTrust: this.bypassHookTrust,
       effectiveCwd: () => this.effectiveCwd(),
@@ -1662,7 +1667,7 @@ class Session extends EventEmitter {
     const agentArgs = this._adapter.buildArgs({
       dangerouslySkipPermissions: this.dangerouslySkipPermissions,
       resumeSessionId: spawnResumeSessionId,
-      extraArgs: [...this._extraClaudeArgs, ...launchArgs(this._adapter.id, this._agentSetup)],
+      extraArgs: [...this._extraClaudeArgs, ...launchArgs(this._adapter.id, this._agentSetup), ...cleanHomeArgs(this._adapter.id, this._isCleanHome)],
       initialPrompt: launchPrompt,
     });
 

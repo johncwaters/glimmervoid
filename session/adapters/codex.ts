@@ -115,7 +115,7 @@ async function readTurnRolloutLines(handle: fs.promises.FileHandle, fileSize: nu
 }
 
 async function readTurnRolloutLinesFromCodexHome(transcriptPath: string, turnId: string, agentEnv: Record<string, string | undefined>): Promise<string[] | null> {
-  const rolloutHomes = [...codexHomes(agentEnv, null), generatedAgentHomePath(CODEX_HOME_PROFILE, agentEnv)];
+  const rolloutHomes = [...codexHomes(agentEnv, null), generatedAgentHomePath(CODEX_HOME_PROFILE, agentEnv), generatedAgentHomePath(CODEX_HOME_PROFILE, agentEnv, undefined, true)];
   for (const codexHome of rolloutHomes) {
     const opened = await openContainedFile(path.resolve(transcriptPath), path.join(codexHome, "sessions"));
     if (!opened.ok) continue;
@@ -426,16 +426,16 @@ function releaseTrustedFolder(sessionFolder: string): void {
   trustedFolderByPath.delete(sessionFolder);
 }
 
-function prepareHome(env: Record<string, string | undefined>, sessionFolder: string): { home: string; isTrusted: boolean } | { refusal: string } {
+function prepareHome(env: Record<string, string | undefined>, sessionFolder: string, isCleanHome: boolean): { home: string; isTrusted: boolean } | { refusal: string } {
   const hooks = codexHomeHooks();
   if (!hooks) return { refusal: HOOKS_BLOCK_REFUSAL };
   const trustedHashes = trustedHashesByHookTables.get(renderCodexHookTables(hooks)) ?? null;
   const realHome = realAgentHome(CODEX_HOME_PROFILE, env);
-  const generatedHome = generatedAgentHomePath(CODEX_HOME_PROFILE, env);
+  const generatedHome = generatedAgentHomePath(CODEX_HOME_PROFILE, env, undefined, isCleanHome);
   holdTrustedFolder(sessionFolder);
   const trustedFolders = [...trustedFolderByPath.keys()];
   const projectHookTrust = [sessionFolder, ...trustedFolders.filter((folder) => folder !== sessionFolder)].flatMap((folder) => trustedFolderByPath.get(folder)?.projectHookTrust ?? []);
-  const prepared = holdPreparedAgentHome(CODEX_HOME_PROFILE, env, (operatorText) => renderCodexHooksBlock({ hooks, trustedHashes, projectHookTrust, operatorText, realHome, generatedHome, trustedFolders }));
+  const prepared = holdPreparedAgentHome(CODEX_HOME_PROFILE, env, (operatorText) => renderCodexHooksBlock({ hooks, trustedHashes, projectHookTrust, operatorText, realHome, generatedHome, trustedFolders }), undefined, isCleanHome);
   if ("refusal" in prepared) {
     releaseTrustedFolder(sessionFolder);
     return prepared;

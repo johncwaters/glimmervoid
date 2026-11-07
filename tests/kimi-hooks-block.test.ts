@@ -7,9 +7,9 @@ import copilot from '../session/adapters/copilot.ts';
 import kimi from '../session/adapters/kimi.ts';
 import { BLOCK_END, BLOCK_START, GEMINI_HOME_PROFILE, KIMI_HOME_PROFILE, QWEN_HOME_PROFILE, renderCodexHooksBlock } from '../session/core/agent-home-core.ts';
 import { loadFileLocks } from '../server/session-temp/session-temp-locks.ts';
-import { generatedAgentHomePath, holdAgentHome, prepareAgentHome, releaseAgentHome, releaseUnheldAgentHomeSecrets } from '../session/agent-home.ts';
+import { generatedAgentHomePath, holdAgentHome, prepareAgentHome, releaseAgentHome, releaseEveryUnheldAgentHomeSecrets, releaseUnheldAgentHomeSecrets } from '../session/agent-home.ts';
 
-const KIMI_LAUNCH = { listenerPort: 41234, folderTrustRoot: os.tmpdir() };
+const KIMI_LAUNCH = { listenerPort: 41234, folderTrustRoot: os.tmpdir(), isCleanHome: false };
 const OPERATOR_CONFIG = 'default_model = "kimi-code/k3.1-pro"\r\n\n[models."kimi-code/k3.1-pro"]\ndisplay_name = "K3.1 Pro"\n';
 const HAND_EDITED_OLD_BLOCK = `${BLOCK_START}\n[[hooks]]\nevent = "Stop"\ncommand = 'curl https://example.invalid'\n${BLOCK_END}\n`;
 
@@ -180,6 +180,54 @@ test('a kimi spawn heals a file kimi replaced and adopts a private folder once t
     prepare(env);
     assert.equal(fs.lstatSync(path.join(generatedHome, 'cache')).isDirectory(), true);
     fs.chmodSync(path.join(realHome, 'cache'), 0o755);
+  });
+});
+
+test('a clean kimi home keeps credentials and models but leaves out the operator instructions, skills, plugins and hooks', () => {
+  withKimiHomes(({ realHome, env }) => {
+    fs.writeFileSync(path.join(realHome, 'config.toml'), `${OPERATOR_CONFIG}\n[[hooks]]\nevent = "Stop"\ncommand = 'operator-hook'\n`);
+    fs.writeFileSync(path.join(realHome, 'AGENTS.md'), 'Always answer in French.\n');
+    fs.mkdirSync(path.join(realHome, 'skills', 'mine'), { recursive: true });
+    fs.mkdirSync(path.join(realHome, 'plugins'));
+    assert.equal(kimi.hooks.injection.kind, 'generated-home');
+    if (kimi.hooks.injection.kind !== 'generated-home') return;
+    const clean = kimi.hooks.injection.prepareHome(env, { ...KIMI_LAUNCH, isCleanHome: true });
+    assert.ok('home' in clean, 'refusal' in clean ? clean.refusal : '');
+    const operator = kimi.hooks.injection.prepareHome(env, KIMI_LAUNCH);
+    assert.ok('home' in operator, 'refusal' in operator ? operator.refusal : '');
+    try {
+      assert.notEqual(clean.home, operator.home);
+      for (const name of ['AGENTS.md', 'skills', 'plugins']) {
+        assert.equal(fs.existsSync(path.join(clean.home, name)), false, `${name} stays out of the clean home`);
+        assert.equal(fs.existsSync(path.join(operator.home, name)), true, `${name} stays in the operator home`);
+      }
+      assert.equal(fs.existsSync(path.join(clean.home, 'credentials')), true);
+      const cleanConfig = fs.readFileSync(path.join(clean.home, 'config.toml'), 'utf8');
+      assert.match(cleanConfig, /default_model = "kimi-code\/k3\.1-pro"/);
+      assert.match(cleanConfig, /display_name = "K3\.1 Pro"/);
+      assert.doesNotMatch(cleanConfig, /operator-hook/);
+      assert.ok(cleanConfig.includes(BLOCK_START), 'the Glimmervoid hooks block stays');
+      assert.match(fs.readFileSync(path.join(operator.home, 'config.toml'), 'utf8'), /operator-hook/);
+    } finally {
+      kimi.hooks.injection.releaseHome(clean.home);
+      kimi.hooks.injection.releaseHome(operator.home);
+    }
+  });
+});
+
+test('the startup sweep removes the config copies a crash left in both the operator and the clean generated home', () => {
+  withKimiHomes(({ env }) => {
+    const leftHomes = [generatedAgentHomePath(KIMI_HOME_PROFILE, env), generatedAgentHomePath(KIMI_HOME_PROFILE, env, undefined, true)];
+    for (const home of leftHomes) {
+      fs.mkdirSync(home, { recursive: true });
+      fs.writeFileSync(path.join(home, 'config.toml'), OPERATOR_CONFIG);
+      fs.writeFileSync(path.join(home, '.glimmervoid-base.toml'), OPERATOR_CONFIG);
+    }
+    releaseEveryUnheldAgentHomeSecrets(env);
+    for (const home of leftHomes) {
+      assert.equal(fs.existsSync(path.join(home, 'config.toml')), false, `${home} config copy removed`);
+      assert.equal(fs.existsSync(path.join(home, '.glimmervoid-base.toml')), false, `${home} base copy removed`);
+    }
   });
 });
 
@@ -470,7 +518,7 @@ test('a copilot spawn trusts its folder root in the real copilot state file once
     fs.writeFileSync(statePath, `// This file is managed automatically.\n${JSON.stringify({ firstLaunchAt: 'then', trustedFolders: ['/elsewhere'] })}\n`);
     const env = { COPILOT_HOME: realHome, GLIMMERVOID_HOME: path.join(scratchRoot, 'glimmervoid') };
     assert.equal(copilot.hooks.injection.kind, 'generated-home');
-    const prepareWithRoot = (folderTrustRoot: string) => copilot.hooks.injection.kind === 'generated-home' ? copilot.hooks.injection.prepareHome(env, { listenerPort: 41234, folderTrustRoot }) : null;
+    const prepareWithRoot = (folderTrustRoot: string) => copilot.hooks.injection.kind === 'generated-home' ? copilot.hooks.injection.prepareHome(env, { listenerPort: 41234, folderTrustRoot, isCleanHome: false }) : null;
     const prepared = prepareWithRoot(worktreeRoot);
     assert.ok(prepared && 'home' in prepared);
     const stateText = fs.readFileSync(statePath, 'utf8');
