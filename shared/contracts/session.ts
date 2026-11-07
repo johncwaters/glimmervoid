@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { STATES } from '../states.ts';
 import { LinkedPr, MyPr } from './my-prs.ts';
+import { AgentNeedReply } from './secrets.ts';
 import { InFlightReview, QueuedReview, ReviewDraft } from './team-review.ts';
 import { WhiteboardAgentReply } from './whiteboard.ts';
 
@@ -116,7 +117,7 @@ export const SshSignReply = z.union([
 
 export type SshSignRequest = z.infer<typeof SshSignRequest>;
 export type SshSignReply = z.infer<typeof SshSignReply>;
-const CLI_SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs'] as const;
+const CLI_SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need'] as const;
 export const SESSION_COMMANDS = [...CLI_SESSION_COMMANDS, 'show'] as const;
 export const AGENT_API_VERBS = [...CLI_SESSION_COMMANDS, 'limits', 'answer'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
@@ -314,6 +315,7 @@ export const AGENT_REPLY_SCHEMAS = Object.freeze({
   whiteboard: z.union([WhiteboardAgentReply, AgentRefusal]),
   checkout: z.union([z.object({ ok: z.literal(true), path: z.string(), branch: z.string() }).strict(), AgentRefusal]),
   packs: z.union([z.object({ ok: z.literal(true), text: z.string(), hasProblem: z.boolean() }).strict(), AgentRefusal]),
+  need: z.union([AgentNeedReply, AgentRefusal]),
   limits: z.union([AgentLimitsReply, AgentRefusal]),
   answer: z.union([AgentOkReply, AgentRefusal]),
 }) satisfies { readonly [V in AgentApiVerb]: z.ZodType };

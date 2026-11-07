@@ -11,6 +11,7 @@ import type { SessionSpawnOverrides } from '../session/session-factory.ts';
 import type { SessionDocsPort } from '../session/session-docs-wiring.ts';
 import type { MemoryAdmission } from '../spawn-gate.ts';
 import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
+import type { SecretsBroker } from '../secrets/secrets-broker.ts';
 import type { WhyLookup } from '../why-lookup.ts';
 import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from '../../shared/timer-deps.ts';
 
@@ -50,6 +51,7 @@ interface AgentApiWiringOptions {
   lookupWhy?: ((request: { target: string; cwd: string }) => Promise<WhyLookup>) | null;
   coderWorkspaceStatus?: (workspace: string) => string | null;
   settleSessionCoherence?: (id: string) => Promise<void>;
+  secrets?: Pick<SecretsBroker, 'need'> | null;
   logger?: Pick<Console, 'warn'>;
   setTimeoutFn?: SetTimeoutFn;
   clearTimeoutFn?: ClearTimeoutFn;

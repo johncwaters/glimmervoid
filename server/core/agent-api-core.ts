@@ -8,6 +8,7 @@ import {
 } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb, SessionCommand, AgentPrsReply, AgentRefusal, AgentReplyBodyOf, AgentReviewDetailReply, AgentReviewsReply } from '../../shared/contracts/session.ts';
 import type { MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
+import { AgentNeedRequest, MAX_NAMES_PER_NEED } from '../../shared/contracts/secrets.ts';
 import { WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import { renderOverviewLine } from './cli-spec-core.ts';
 import type { CommandSpec, OptionSpec, PositionalSpec } from './cli-spec-core.ts';
@@ -68,6 +69,7 @@ interface AgentRequestByVerb {
   whiteboard: WhiteboardAgentRequest;
   checkout: AgentCheckoutRequest;
   packs: AgentPacksRequest;
+  need: AgentNeedRequest;
 }
 
 type AgentRequestOf<V extends AgentApiVerb> = AgentRequestByVerb[V];
@@ -209,6 +211,7 @@ const REQUEST_PARSERS: { readonly [V in AgentApiVerb]: RequestParser<AgentReques
   whiteboard: bodyParser(WhiteboardAgentRequest),
   checkout: bodyParser(AgentCheckoutRequest),
   packs: bodyParser(AgentPacksRequest),
+  need: bodyParser(AgentNeedRequest),
 });
 
 type CheckedAgentReply = { ok: true; reply: AgentReplyOf<AgentApiVerb> } | { ok: false; reply: AgentRefusalReply; issue: string };
@@ -511,6 +514,14 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     positionals: requiredText('<repo>'),
     summary: 'Make a worktree of a configured project or a local git repository, owned by this session and removed when it closes',
     missingArgumentHint: 'this command needs a repository, for example "glimmervoid checkout dotfiles" or "glimmervoid checkout ~/projects/dotfiles"',
+  },
+  need: {
+    whenToUse: 'Use it when the task needs an API key or other secret, instead of asking the operator to paste it into chat',
+    usage: 'need <NAME>...',
+    positionals: { usage: '<NAME>...', min: 1, max: MAX_NAMES_PER_NEED },
+    options: [{ name: 'wait', type: 'boolean', summary: 'Wait a few minutes for the operator to approve instead of returning at once' }],
+    summary: "Ask for secrets by environment variable name; once the operator approves, Glimmervoid writes them to .env.local in this session's directory and never shows the values; exits 0 delivered, 10 pending, 20 denied, 30 companion offline, 1 failed",
+    missingArgumentHint: 'this command needs secret names, for example "glimmervoid need OPENAI_API_KEY"',
   },
   limits: { usage: 'limits', whenToUse: 'Use it when a command is refused, to see why', summary: 'List which of these commands answer here and why the rest do not', missingArgumentHint: null },
 });

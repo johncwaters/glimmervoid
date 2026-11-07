@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPacksRequest, AgentPullRequestRequest, AgentSettingsRequest, AgentSpawnRequest, AgentWhyRequest,
 } from '../../shared/contracts/session.ts';
+import { AgentNeedRequest } from '../../shared/contracts/secrets.ts';
 import type { AgentApiVerb } from '../../shared/contracts/session.ts';
 import { BoardRegion, Op, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import { BUILTIN_AGENT_IDS, SHELL_AGENT_ID } from '../../shared/contracts/config.ts';
@@ -195,6 +196,15 @@ const ATTENTION_TOOL: GroupedTool = {
   actions: { attention: routeTo('attention', ['note'], { hints: { ...WRITES, openWorld: true } }) },
 };
 
+const SECRETS_TOOL: GroupedTool = {
+  name: 'secrets',
+  title: 'Glimmervoid secrets',
+  description: "Ask for API keys and other secrets by environment variable name instead of asking the operator to paste them into chat. The first time, the operator approves each name on this session's card; Glimmervoid then reads it from the operator's vault and writes it to .env.local in this session's directory. The reply gives a status per name, never a value: delivered, pending (ask again later), denied, companion-offline or failed.",
+  loadsUpfront: false,
+  fields: { names: AgentNeedRequest.shape.names.describe('The secret names, for example ["OPENAI_API_KEY"]') },
+  actions: { need: routeTo('need', ['names'], { required: ['names'], hints: { ...WRITES, openWorld: true } }) },
+};
+
 function showPayload(toolArguments: ToolArguments, context: CallContext): Record<string, unknown> {
   const caption = typeof toolArguments.caption === 'string' ? { caption: toolArguments.caption } : {};
   if (typeof toolArguments.path !== 'string') return { sub: 'show', ...caption };
@@ -247,7 +257,7 @@ const WHY_TOOL: GroupedTool = {
   actions: { why: routeTo('why', ['target'], { required: ['target'], hints: READS }) },
 };
 
-const GROUPED_TOOLS: readonly GroupedTool[] = Object.freeze([SESSION_TOOL, WHITEBOARD_TOOL, REVIEW_TOOL, SHOW_TOOL, PUSH_TOOL, ATTENTION_TOOL, SETTINGS_TOOL, PACKS_TOOL, WHY_TOOL]);
+const GROUPED_TOOLS: readonly GroupedTool[] = Object.freeze([SESSION_TOOL, WHITEBOARD_TOOL, REVIEW_TOOL, SHOW_TOOL, PUSH_TOOL, ATTENTION_TOOL, SECRETS_TOOL, SETTINGS_TOOL, PACKS_TOOL, WHY_TOOL]);
 
 function allowedActionNames(tool: GroupedTool, isVerbAllowed: (verb: AgentApiVerb) => boolean): string[] {
   return Object.entries(tool.actions).filter(([, route]) => isVerbAllowed(route.verb)).map(([actionName]) => actionName);

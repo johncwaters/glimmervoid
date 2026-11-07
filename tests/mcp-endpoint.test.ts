@@ -111,7 +111,7 @@ test('a session without its own worktree lists every grouped tool but push and r
   const tools = listed.tools;
   assert.ok(Array.isArray(tools));
   const toolNames = tools.map((tool: { name: string }) => tool.name).sort();
-  assert.deepEqual(toolNames, ['attention', 'packs', 'review', 'session', 'settings', 'show', 'whiteboard', 'why']);
+  assert.deepEqual(toolNames, ['attention', 'packs', 'review', 'secrets', 'session', 'settings', 'show', 'whiteboard', 'why']);
   const sessionTool = tools.find((tool: { name: string }) => tool.name === 'session');
   assert.ok(sessionTool.inputSchema.properties.action.enum.includes('spawn'));
   assert.match(sessionTool.inputSchema.properties.agent.description, /claude-code, codex/);

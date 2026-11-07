@@ -116,6 +116,11 @@ function checkoutRoute(caller: SessionKindFacts): RouteVerdict {
   return { answers: false, reason: 'a lane session cannot make a checkout, because a lane runs on input the operator has not vetted' };
 }
 
+function needRoute(caller: SessionKindFacts): RouteVerdict {
+  if (hasOperatorCard(caller)) return ANSWERS;
+  return { answers: false, reason: 'a lane session cannot ask for secrets, because a lane runs on input the operator has not vetted' };
+}
+
 const COMMAND_ROUTES: Readonly<Record<AgentApiVerb | SessionCommand, (facts: SessionRoleFacts) => RouteVerdict>> = Object.freeze({
   push: pushRoute,
   spawn: spawnRoute,
@@ -136,6 +141,7 @@ const COMMAND_ROUTES: Readonly<Record<AgentApiVerb | SessionCommand, (facts: Ses
   whiteboard: whiteboardRoute,
   checkout: checkoutRoute,
   packs: operatorStateRoute,
+  need: needRoute,
   limits: () => ANSWERS,
 });
 

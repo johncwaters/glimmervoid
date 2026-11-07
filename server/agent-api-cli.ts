@@ -6,6 +6,7 @@ import { z } from 'zod';
 
 import { resolveHookTarget } from '../session/core/hook-relay-core.ts';
 import { formatSessionLimits } from '../session/core/session-routes.ts';
+import { AgentNeedReply } from '../shared/contracts/secrets.ts';
 import { AgentLimitsReply, AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import type { AgentApiVerb } from '../shared/contracts/session.ts';
 import { Op, STEP_STATUSES, WhiteboardAgentReply } from '../shared/contracts/whiteboard.ts';
@@ -18,9 +19,12 @@ import { AGENT_COMMAND_HELP, agentCommandSpec, isAgentApiVerb } from './core/age
 import { parseCommand } from './core/cli-spec-core.ts';
 import type { ParsedCommand } from './core/cli-spec-core.ts';
 import { parseJsonOrNull } from './core/json-core.ts';
+import { needExitCode } from './secrets/core/secrets-broker-core.ts';
 
 const AGENT_PATH_PREFIX = '/agent/';
 const HELP_LIMITS_TIMEOUT_MS = 2000;
+const NEED_WAIT_LIMIT_MS = 5 * 60 * 1000;
+const NEED_POLL_INTERVAL_MS = 3000;
 const HELP_LIMITS_UNKNOWN_LINE = 'This session: Glimmervoid did not report its limits, so run glimmervoid limits to see why';
 
 type ParsedArguments = Extract<ParsedCommand, { kind: 'run' }>;
@@ -119,6 +123,7 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
   why: ({ positionals: [target] }) => (target ? { target: absoluteWhyTarget(target) } : null),
   whiteboard: whiteboardBody,
   packs: ({ positionals: [command, packPath] }) => ({ command, ...(packPath === undefined ? {} : { path: path.resolve(packPath) }) }),
+  need: ({ positionals }) => (positionals.length > 0 ? { names: positionals } : null),
   checkout: ({ positionals: [repo] }) => (repo ? { repo: /[\\/]|^\./.test(repo) ? path.resolve(repo) : repo } : null),
 };
 
@@ -424,6 +429,7 @@ async function runAgentApiCli(args: string[]): Promise<number> {
   }
   if (verb === 'whiteboard' && parsed.commandPath[1] === 'plan') return runPlanCommand(parsed);
   if (verb === 'whiteboard' && isLayoutCommand(parsed)) return runLayoutCommand(parsed);
+  if (verb === 'need') return runNeedCommand(parsed);
   const body = BODY_BUILDERS[verb](parsed);
   if (!body) {
     console.error(`glimmervoid ${parsed.commandPath.join(' ')}: ${AGENT_COMMAND_HELP[verb].missingArgumentHint ?? 'those arguments are not understood'}; run it with --help for its usage`);
@@ -438,6 +444,39 @@ async function runAgentApiCli(args: string[]): Promise<number> {
   if (verb === 'whiteboard' && parsed.commandPath[1] === 'doc' && reply.hasSuccessStatus) return printDocText(reply.text);
   console.log(reply.text);
   return reply.hasSuccessStatus && bodySaysOk(reply.text) ? 0 : 1;
+}
+
+async function askNeedOnce(names: readonly string[]): Promise<AgentNeedReply | string> {
+  const reply: unknown = await askAgentApi('need', { names }).catch((error: unknown) => ({ error: `Glimmervoid could not be reached: ${error instanceof Error ? error.message : String(error)}` }));
+  const parsed = AgentNeedReply.safeParse(reply);
+  if (parsed.success) return parsed.data;
+  const error = typeof reply === 'object' && reply !== null ? (reply as { error?: unknown }).error : null;
+  return typeof error === 'string' ? error : 'Glimmervoid gave no usable answer';
+}
+
+function isStillPending(reply: AgentNeedReply | string): boolean {
+  if (typeof reply === 'string') return true;
+  return reply.results.some((result) => result.status === 'pending');
+}
+
+async function waitedNeedReply(names: readonly string[], { isWaiting }: { isWaiting: boolean }): Promise<AgentNeedReply | string> {
+  const deadlineMs = Date.now() + NEED_WAIT_LIMIT_MS;
+  let reply = await askNeedOnce(names);
+  while (isWaiting && isStillPending(reply) && Date.now() < deadlineMs) {
+    await new Promise((resolve) => setTimeout(resolve, NEED_POLL_INTERVAL_MS));
+    reply = await askNeedOnce(names);
+  }
+  return reply;
+}
+
+async function runNeedCommand(parsed: ParsedArguments): Promise<number> {
+  const reply = await waitedNeedReply(parsed.positionals, { isWaiting: parsed.values.wait === true });
+  if (typeof reply === 'string') {
+    console.log(JSON.stringify({ ok: false, error: reply }));
+    return 1;
+  }
+  console.log(JSON.stringify(reply));
+  return needExitCode(Object.fromEntries(reply.results.map((result) => [result.name, result.status])));
 }
 
 function printDocText(replyText: string): number {

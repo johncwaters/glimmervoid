@@ -66,6 +66,7 @@ import { glimmervoidHomeDir as resolveGlimmervoidHomeDir, isOperatorHomeUnderTes
 import { decideIsDevInstall, parsePosthogReleaseId } from '../core/telemetry-core.ts';
 import { promptContextReplyOf } from '../../session/core/refocus-core.ts';
 import { lookupWhy } from '../why-lookup.ts';
+import { createSecretsBroker } from '../secrets/secrets-broker.ts';
 import { createHostLinksWiring } from '../hosts/host-links-wiring.ts';
 import type { SpawnHostTunnel } from '../hosts/host-links-wiring.ts';
 import { POSTHOG_API_KEY_ENV } from '../../cloud/watchees/posthog-watchee.ts';
@@ -362,6 +363,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     usage,
   } = laneAssembly;
   gitWorkspace = assembledGitWorkspace;
+  const secretsBroker = createSecretsBroker({ readConfig: () => config.secrets });
   agentApi = createAgentApiWiring({
     config,
     agentSessions,
@@ -389,6 +391,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     lookupWhy: (request) => lookupWhy({ ...request, configPath: configStore.configPath }),
     coderWorkspaceStatus: (workspace) => laneAssembly.coderEnv.workspaceStatus(workspace),
     settleSessionCoherence: coherenceFeed.settle,
+    secrets: secretsBroker,
     logger: console,
   });
   const remoteSetup = createRemoteSetupWiring({

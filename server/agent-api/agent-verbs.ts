@@ -13,7 +13,7 @@ import type { ChildChannels } from './child-channels.ts';
 import type { AgentSpawner } from './agent-spawn.ts';
 
 function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn }: AgentSpawner) {
-  const { config, agentSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, coderWorkspaceStatus, channelsByChildId, childIdsToDiscard } = runtime;
+  const { config, agentSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, coderWorkspaceStatus, channelsByChildId, childIdsToDiscard, secrets } = runtime;
   const { noteEndCause, post, drain, ownedChannels, findChildOf } = channels;
 
   function roleFactsOf(session: Session): SessionRoleFacts {
@@ -226,6 +226,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     why: (session, { target }) => why(session, target),
     checkout,
     packs,
+    need: (session, { names }) => (secrets ? { status: 200, body: secrets.need({ id: session.id, project: session.path }, names) } : refusal(503, 'secrets are not available in this Glimmervoid')),
     whiteboard: (session, request) => (whiteboards ? whiteboards.handleAgent({ id: session.id, name: session.name, project: session.path, cwd: session.effectiveCwd(), remoteWorkspace: session.remoteWorkspace }, request) : refusal(503, 'whiteboards are not available in this Glimmervoid')),
   };
 
