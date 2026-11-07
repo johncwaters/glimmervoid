@@ -3,9 +3,9 @@ import type { Board, Element as BoardElement, BoxMedia, Op } from '#shared/contr
 import { PLACED_DEVICE } from '#shared/whiteboard-devices.ts';
 import { PLACED_ICON } from '#shared/whiteboard-icons.ts';
 import { el } from '../dom-helpers.ts';
-import { createDragPreview, pinnedOffsetYOf } from '#shared/whiteboard-layout-core.ts';
-import type { BoardLayout, DragPreview, Rect } from '#shared/whiteboard-layout-core.ts';
-import type { BoardRenderer } from './board-render.ts';
+import { createDragPreview, isInStepBand, layoutBoard, movedBox, pinnedOffsetYAfterLeaving } from '#shared/whiteboard-layout-core.ts';
+import type { BoardLayout, DragPreview, LaidOutElement, Rect } from '#shared/whiteboard-layout-core.ts';
+import type { BoardHit, BoardRenderer, Camera } from './board-gl-renderer.ts';
 
 const DRAG_THRESHOLD_PX = 4;
 const MIN_VIEW_WIDTH = 200;
@@ -22,12 +22,6 @@ interface ViewPoint {
   y: number;
 }
 
-interface Camera {
-  x: number;
-  y: number;
-  scale: number;
-}
-
 interface BoardEditorOptions {
   viewport: HTMLElement;
   world: HTMLElement;
@@ -35,6 +29,7 @@ interface BoardEditorOptions {
   canvas: HTMLElement;
   renderer: BoardRenderer;
   currentBoard: () => Board | null;
+  repaint: () => void;
   sendOps: (ops: Op[]) => Promise<boolean>;
   onSelectionChange: (selectedIds: ReadonlySet<string>) => void;
   onPhoneTapBox: (boxId: string) => void;
@@ -63,9 +58,6 @@ function rectBetween(first: ViewPoint, second: ViewPoint): Rect {
   return { x: Math.min(first.x, second.x), y: Math.min(first.y, second.y), width: Math.abs(first.x - second.x), height: Math.abs(first.y - second.y) };
 }
 
-function isRectInside(inner: Rect, outer: Rect): boolean {
-  return inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.width <= outer.x + outer.width && inner.y + inner.height <= outer.y + outer.height;
-}
 
 type Gesture =
   | { kind: 'drag'; mode: 'move' | 'resize'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; movingBoxes: readonly MovingBox[]; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; pressedImage: PressedImage | null; preview: DragPreview | null; previewLayout: BoardLayout | null; laidOutOffset: ViewPoint }
@@ -82,10 +74,6 @@ export function newElementId(kind: BoardElement['kind']): string {
 
 function isPhoneLayout(): boolean {
   return document.documentElement.dataset.layout === 'phone';
-}
-
-function portOf(target: EventTarget | null): SVGCircleElement | null {
-  return target instanceof SVGCircleElement && target.classList.contains('wb-port') ? target : null;
 }
 
 function isPlacementTool(tool: BoardTool): tool is PlacementTool {
@@ -105,22 +93,17 @@ function placedBox(at: ViewPoint, title: string, media: BoxMedia | null, shape: 
   }
 }
 
-function pressedImageOf(target: EventTarget | null): PressedImage | null {
-  if (!(target instanceof Element)) return null;
-  const image = target.closest<SVGImageElement>('image.wb-image');
-  const href = image?.getAttribute('href');
-  if (!image || !href) return null;
-  const boxId = image.closest<SVGElement>('[data-element-id]')?.dataset.elementId ?? null;
-  return { boxId, href, alt: image.querySelector('title')?.textContent ?? '' };
+function pressedImageOf(hit: BoardHit | null): PressedImage | null {
+  if (hit?.part !== 'media' || !hit.media) return null;
+  return { boxId: hit.id, href: hit.media.href, alt: hit.media.alt };
 }
 
-function isResizeHandle(target: EventTarget | null): boolean {
-  return target instanceof SVGRectElement && target.classList.contains('wb-resize-handle');
-}
+const CURSOR_BY_HIT_PART: Readonly<Record<BoardHit['part'], string>> = { body: 'pointer', port: 'crosshair', resize: 'ew-resize', link: 'pointer', media: 'zoom-in' };
 
-function linkedBoardIdOf(target: EventTarget | null): string | null {
-  if (!(target instanceof Element)) return null;
-  return target.closest<SVGElement>('[data-linked-board-id]')?.dataset.linkedBoardId ?? null;
+function hoverCursorOf(hit: BoardHit | null): string {
+  if (!hit) return '';
+  if (hit.part === 'body' && hit.kind === 'box') return 'move';
+  return CURSOR_BY_HIT_PART[hit.part];
 }
 
 const MAX_FIT_ZOOM = 2;
@@ -139,12 +122,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
   let activeTool: BoardTool = 'select';
   let pendingTitleEditId: string | null = null;
   let isFitOwedOnceSized = false;
-  let viewportBox = measureViewport();
-
-  function measureViewport(): { left: number; top: number; width: number; height: number } {
-    const viewportRect = viewport.getBoundingClientRect();
-    return { left: viewportRect.left + viewport.clientLeft, top: viewportRect.top + viewport.clientTop, width: viewport.clientWidth, height: viewport.clientHeight };
-  }
 
   function setTool(tool: BoardTool): void {
     activeTool = tool;
@@ -154,11 +131,11 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function applyCamera(): void {
     world.style.transform = `translate(${-camera.x * camera.scale}px, ${-camera.y * camera.scale}px) scale(${camera.scale})`;
-    renderer.setView({ left: camera.x, top: camera.y, right: camera.x + viewportBox.width / camera.scale, bottom: camera.y + viewportBox.height / camera.scale });
+    renderer.setCamera(camera);
   }
 
   function viewWidth(): number {
-    return (viewportBox.width || 1) / camera.scale;
+    return (viewport.clientWidth || 1) / camera.scale;
   }
 
   function islandFreeBand(): { topPx: number; heightPx: number } {
@@ -178,9 +155,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const layout = renderer.layout();
     if (!layout) return;
     const { bounds } = layout;
-    viewportBox = measureViewport();
-    const canvasWidth = viewportBox.width;
-    const canvasHeight = viewportBox.height;
+    const canvasWidth = viewport.clientWidth;
+    const canvasHeight = viewport.clientHeight;
     if (canvasWidth === 0 || canvasHeight === 0) {
       camera = { x: bounds.x, y: bounds.y, scale: 1 };
       applyCamera();
@@ -205,7 +181,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   function toViewPoint(clientX: number, clientY: number): ViewPoint {
-    return { x: camera.x + (clientX - viewportBox.left) / camera.scale, y: camera.y + (clientY - viewportBox.top) / camera.scale };
+    const viewportRect = viewport.getBoundingClientRect();
+    return { x: camera.x + (clientX - viewportRect.left - viewport.clientLeft) / camera.scale, y: camera.y + (clientY - viewportRect.top - viewport.clientTop) / camera.scale };
   }
 
   function viewUnitsPerPixel(): number {
@@ -261,22 +238,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (drag.mode === 'resize') return drag.movingBoxes.map((movingBox) => ({ boxId: movingBox.boxId, fields: { width: draggedWidth(drag, movingBox.start) } }));
     const droppedAts = drag.movingBoxes.map((movingBox) => ({ boxId: movingBox.boxId, at: draggedAt(drag, movingBox.start) }));
     const board = options.currentBoard();
-    const bandShrinkY = board ? drag.pinnedOffsetY - pinnedOffsetYOf(withBoxFields(board, droppedAts.map(({ boxId, at }) => ({ boxId, fields: { at } })))) : 0;
+    const leavingBand = drag.movingBoxes.filter((movingBox) => {
+      const record = board?.elements[movingBox.boxId];
+      return record?.kind === 'box' && isInStepBand(record);
+    });
+    const bandShrinkY = drag.pinnedOffsetY - pinnedOffsetYAfterLeaving(renderer.layout()?.plan ?? null, leavingBand.map((movingBox) => movingBox.start));
     return droppedAts.map(({ boxId, at }) => ({ boxId, fields: { at: { x: at.x, y: at.y + bandShrinkY } } }));
-  }
-
-  function withBoxFields(board: Board, changes: readonly { boxId: string; fields: BoxFields }[]): Board {
-    const elements = { ...board.elements };
-    for (const { boxId, fields } of changes) {
-      const box = elements[boxId];
-      if (box?.kind === 'box') elements[boxId] = { ...box, ...fields };
-    }
-    return { ...board, elements };
-  }
-
-  function previewOf(board: Board): Board {
-    if (gesture?.kind !== 'drag' || !gesture.hasMoved) return board;
-    return withBoxFields(board, draggedBoxFields(gesture));
   }
 
   function cancelPreviewFrame(): void {
@@ -294,7 +261,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const offset = dragOffsetOf(drag);
     if (!drag.preview || drag.previewLayout !== layout) {
       const laidOutBox = layout.elements.find((element) => element.kind === 'box' && element.id === drag.boxId);
-      const laidOutStart = laidOutBox && laidOutBox.kind === 'box' ? laidOutBox : null;
+      const laidOutStart = laidOutBox?.kind === 'box' ? laidOutBox : null;
       drag.laidOutOffset = laidOutStart ? { x: laidOutStart.x - drag.start.x, y: laidOutStart.y - drag.start.y } : { x: 0, y: 0 };
       drag.preview = createDragPreview(board, layout, new Set(drag.movingBoxes.map((movingBox) => movingBox.boxId)));
       drag.previewLayout = layout;
@@ -303,12 +270,48 @@ export function createBoardEditor(options: BoardEditorOptions) {
     return true;
   }
 
+  function resizedElementsOf(drag: Extract<Gesture, { kind: 'drag' }>, board: Board, layout: BoardLayout): LaidOutElement[] {
+    const resizedIds = new Set(drag.movingBoxes.map((movingBox) => movingBox.boxId));
+    const laidOutById = new Map(layout.elements.flatMap((element) => (element.kind === 'box' && resizedIds.has(element.id) ? [[element.id, element]] : [])));
+    const resizedElements: Record<string, BoardElement> = {};
+    for (const { boxId, fields } of draggedBoxFields(drag)) {
+      const box = board.elements[boxId];
+      const laidOut = laidOutById.get(boxId);
+      if (box?.kind !== 'box' || !laidOut) continue;
+      resizedElements[boxId] = { ...box, ...fields, near: null, step: null, at: { x: laidOut.x, y: laidOut.y } };
+    }
+    const resizedById = new Map<string, LaidOutElement>();
+    for (const element of layoutBoard({ ...board, elements: resizedElements }).elements) {
+      const laidOut = laidOutById.get(element.id);
+      if (element.kind === 'box' && laidOut) resizedById.set(element.id, movedBox(element, laidOut.x - element.x, laidOut.y - element.y));
+    }
+    const resizedLayout = { ...layout, elements: layout.elements.map((element) => resizedById.get(element.id) ?? element) };
+    return createDragPreview(board, resizedLayout, new Set(resizedById.keys()))(0, 0);
+  }
+
+  function paintResizePreview(drag: Extract<Gesture, { kind: 'drag' }>, board: Board): boolean {
+    const layout = renderer.layout();
+    if (drag.mode !== 'resize' || !drag.hasMoved || !layout) return false;
+    renderer.paintElements(resizedElementsOf(drag, board, layout));
+    return true;
+  }
+
   function paintPreview(): void {
     cancelPreviewFrame();
     const board = options.currentBoard();
-    if (!board) return;
-    if (gesture?.kind === 'drag' && paintMovePreview(gesture, board)) return;
-    renderer.render(previewOf(board), true);
+    if (gesture?.kind !== 'drag' || !board) {
+      options.repaint();
+      return;
+    }
+    if (paintMovePreview(gesture, board) || paintResizePreview(gesture, board)) return;
+    options.repaint();
+  }
+
+  function repaintPreview(): void {
+    const board = options.currentBoard();
+    if (gesture?.kind !== 'drag' || !board) return;
+    if (paintMovePreview(gesture, board)) return;
+    paintResizePreview(gesture, board);
   }
 
   function requestPreviewFrame(): void {
@@ -324,10 +327,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
     setSelection(surviving);
   }
 
-  function boxRectOf(boxId: string): Rect | null {
-    const laidOut = renderer.layout()?.elements.find((element) => element.id === boxId);
-    if (laidOut?.kind !== 'box') return null;
-    return laidOut;
+  function hitAt(clientX: number, clientY: number): BoardHit | null {
+    return renderer.hitTest(toViewPoint(clientX, clientY));
   }
 
   function pinchDistance(): number {
@@ -357,20 +358,23 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function movingBoxesFor(pressedBoxId: string, pressedRect: Rect, isAdditive: boolean): MovingBox[] {
     if (isAdditive || !selectedIds.has(pressedBoxId)) return [{ boxId: pressedBoxId, start: pressedRect }];
-    return (renderer.layout()?.elements ?? []).flatMap((element) => (element.kind === 'box' && selectedIds.has(element.id) ? [{ boxId: element.id, start: element }] : []));
+    const board = options.currentBoard();
+    return [...selectedIds].flatMap((elementId) => {
+      const start = board?.elements[elementId]?.kind === 'box' ? renderer.boundsOf(elementId) : null;
+      return start ? [{ boxId: elementId, start }] : [];
+    });
   }
 
   function onPointerDown(event: PointerEvent): void {
-    viewportBox = measureViewport();
     if (titleInput) return;
     if (event.pointerType === 'mouse' && MOUSE_PAN_BUTTONS.has(event.button) && !gesture) {
       startButtonPan(event);
       return;
     }
     if (event.button !== 0) return;
-    const linkedBoardId = linkedBoardIdOf(event.target);
-    if (linkedBoardId) {
-      options.onOpenLinkedBoard(linkedBoardId);
+    const hit = hitAt(event.clientX, event.clientY);
+    if (hit?.part === 'link' && hit.linkedBoardId) {
+      options.onOpenLinkedBoard(hit.linkedBoardId);
       return;
     }
     activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
@@ -379,32 +383,31 @@ export function createBoardEditor(options: BoardEditorOptions) {
       startPinch();
       return;
     }
-    const hit = renderer.elementFromTarget(event.target);
     if (isPlacementTool(activeTool)) {
       void placeElement(activeTool, toViewPoint(event.clientX, event.clientY));
       return;
     }
-    const resizeRect = hit?.kind === 'box' && isResizeHandle(event.target) && !isPhoneLayout() ? boxRectOf(hit.id) : null;
+    const hitBoxRect = hit?.kind === 'box' ? renderer.boundsOf(hit.id) : null;
+    const resizeRect = hit?.part === 'resize' && !isPhoneLayout() ? hitBoxRect : null;
     if (hit && resizeRect) {
       const origin = toViewPoint(event.clientX, event.clientY);
       gesture = { kind: 'drag', mode: 'resize', pointerId: event.pointerId, boxId: hit.id, origin, start: resizeRect, movingBoxes: movingBoxesFor(hit.id, resizeRect, false), pinnedOffsetY: 0, latest: origin, hasMoved: false, isAdditive: false, pressedImage: null, preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 } };
       return;
     }
-    const port = portOf(event.target);
-    if (hit?.kind === 'box' && port && !isPhoneLayout()) {
-      startWire(event.pointerId, hit.id, { x: port.cx.baseVal.value, y: port.cy.baseVal.value });
+    if (hit?.kind === 'box' && hit.port && !isPhoneLayout()) {
+      startWire(event.pointerId, hit.id, hit.port);
       return;
     }
-    const wireToolRect = activeTool === 'wire' && hit?.kind === 'box' ? boxRectOf(hit.id) : null;
+    const wireToolRect = activeTool === 'wire' ? hitBoxRect : null;
     if (hit && wireToolRect) {
       startWire(event.pointerId, hit.id, { x: wireToolRect.x + wireToolRect.width / 2, y: wireToolRect.y + wireToolRect.height / 2 });
       return;
     }
-    const boxRect = hit?.kind === 'box' && !isPhoneLayout() ? boxRectOf(hit.id) : null;
+    const boxRect = isPhoneLayout() ? null : hitBoxRect;
     if (hit && boxRect) {
       const origin = toViewPoint(event.clientX, event.clientY);
       const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
-      gesture = { kind: 'drag', mode: 'move', pointerId: event.pointerId, boxId: hit.id, origin, start: boxRect, movingBoxes: movingBoxesFor(hit.id, boxRect, event.shiftKey), pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: event.shiftKey, pressedImage: pressedMediaOf(event), preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 } };
+      gesture = { kind: 'drag', mode: 'move', pointerId: event.pointerId, boxId: hit.id, origin, start: boxRect, movingBoxes: movingBoxesFor(hit.id, boxRect, event.shiftKey), pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: event.shiftKey, pressedImage: pressedImageOf(hit), preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 } };
       return;
     }
     if (hit && !isPhoneLayout()) {
@@ -416,7 +419,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
       return;
     }
     const tappedBoxId = hit?.kind === 'box' ? hit.id : null;
-    gesture = { kind: 'pan', pointerId: event.pointerId, lastClient: { x: event.clientX, y: event.clientY }, hasMoved: false, isAuxiliaryButton: false, tappedBoxId, pressedImage: pressedMediaOf(event) };
+    gesture = { kind: 'pan', pointerId: event.pointerId, lastClient: { x: event.clientX, y: event.clientY }, hasMoved: false, isAuxiliaryButton: false, tappedBoxId, pressedImage: pressedImageOf(hit) };
   }
 
   async function placeElement(tool: PlacementTool, point: ViewPoint): Promise<void> {
@@ -434,7 +437,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   async function placeMediaBox(title: string, media: BoxMedia, clientPoint: ViewPoint | null): Promise<boolean> {
     const board = options.currentBoard();
     if (!board) return false;
-    const point = clientPoint ? toViewPoint(clientPoint.x, clientPoint.y) : { x: camera.x + viewWidth() / 2, y: camera.y + (viewportBox.height || 1) / camera.scale / 2 };
+    const point = clientPoint ? toViewPoint(clientPoint.x, clientPoint.y) : { x: camera.x + viewWidth() / 2, y: camera.y + (viewport.clientHeight || 1) / camera.scale / 2 };
     const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
     const element = placedBox({ x: Math.round(point.x), y: Math.round(point.y - pinnedOffsetY) }, title, media, 'box');
     const isSent = await options.sendOps([{ op: 'add', element }]);
@@ -443,7 +446,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   function openPendingTitleEdit(): void {
-    if (!pendingTitleEditId || !renderer.nodeOf(pendingTitleEditId)) return;
+    if (!pendingTitleEditId || !renderer.boundsOf(pendingTitleEditId) || !options.currentBoard()?.elements[pendingTitleEditId]) return;
     const elementId = pendingTitleEditId;
     pendingTitleEditId = null;
     editTitle(elementId);
@@ -458,15 +461,14 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   function markWireTarget(wire: Extract<Gesture, { kind: 'wire' }>, targetBoxId: string | null): void {
-    if (wire.targetBoxId) renderer.nodeOf(wire.targetBoxId)?.classList.remove('is-wire-target');
     wire.targetBoxId = targetBoxId;
-    if (targetBoxId) renderer.nodeOf(targetBoxId)?.classList.add('is-wire-target');
+    renderer.setWireTarget(targetBoxId);
   }
 
   function moveWire(wire: Extract<Gesture, { kind: 'wire' }>, event: PointerEvent): void {
     const point = toViewPoint(event.clientX, event.clientY);
     wire.draftLine.setAttribute('d', `M ${wire.start.x} ${wire.start.y} L ${point.x} ${point.y}`);
-    const hit = renderer.elementFromTarget(document.elementFromPoint(event.clientX, event.clientY));
+    const hit = renderer.hitTest(point);
     const isOtherBox = hit?.kind === 'box' && hit.id !== wire.fromBoxId;
     markWireTarget(wire, isOtherBox ? hit.id : null);
   }
@@ -495,10 +497,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
     panByPixels(deltaX, deltaY);
   }
 
-  function elementIdsInside(area: Rect): string[] {
-    return (renderer.layout()?.elements ?? []).flatMap((element) => (element.kind !== 'wire' && isRectInside(element, area) ? [element.id] : []));
-  }
-
   function moveMarquee(marquee: Extract<Gesture, { kind: 'marquee' }>, event: PointerEvent): void {
     const point = toViewPoint(event.clientX, event.clientY);
     if (!marquee.hasMoved && Math.hypot(point.x - marquee.origin.x, point.y - marquee.origin.y) < DRAG_THRESHOLD_PX * viewUnitsPerPixel()) return;
@@ -510,7 +508,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     marquee.outline.setAttribute('y', String(area.y));
     marquee.outline.setAttribute('width', String(area.width));
     marquee.outline.setAttribute('height', String(area.height));
-    const nextSelectedIds = new Set([...marquee.baseSelection, ...elementIdsInside(area)]);
+    const nextSelectedIds = new Set([...marquee.baseSelection, ...renderer.elementsInRect(area)]);
     if (nextSelectedIds.size === selectedIds.size && [...nextSelectedIds].every((elementId) => selectedIds.has(elementId))) return;
     setSelection(nextSelectedIds);
   }
@@ -530,7 +528,16 @@ export function createBoardEditor(options: BoardEditorOptions) {
     zoomAround(midpoint, targetWidth / viewWidth());
   }
 
+  function showHover(event: PointerEvent): void {
+    if (event.pointerType !== 'mouse' || isPhoneLayout()) return;
+    const hit = hitAt(event.clientX, event.clientY);
+    renderer.setHover(hit?.kind === 'box' ? hit.id : null);
+    viewport.dataset.hoverKind = hit?.kind ?? '';
+    viewport.style.cursor = activeTool === 'select' ? hoverCursorOf(hit) : '';
+  }
+
   function onPointerMove(event: PointerEvent): void {
+    if (!gesture) showHover(event);
     if (!activePointers.has(event.pointerId)) return;
     activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     if (gesture?.kind === 'pinch') {
@@ -563,8 +570,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     drag.latest = toViewPoint(event.clientX, event.clientY);
     const changes = draggedBoxFields(drag);
     const board = options.currentBoard();
-    if (board) paintMovePreview(drag, board);
-    if (board) renderer.render(withBoxFields(board, changes), true);
+    if (board && !paintMovePreview(drag, board)) paintResizePreview(drag, board);
     const isSent = await options.sendOps(changes.map(({ boxId, fields }) => ({ op: 'set', id: boxId, fields })));
     if (!isSent) paintPreview();
   }
@@ -629,11 +635,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
   function editTitle(elementId: string): void {
     const board = options.currentBoard();
     const titled = board?.elements[elementId];
-    const node = renderer.nodeOf(elementId);
-    if (titled?.kind !== 'box' || !node) return;
+    const bounds = renderer.boundsOf(elementId);
+    if (titled?.kind !== 'box' || !bounds) return;
     closeTitleInput();
     const canvasRect = canvas.getBoundingClientRect();
-    const boxRect = node.getBoundingClientRect();
+    const viewportRect = viewport.getBoundingClientRect();
+    const boxRect = { left: viewportRect.left + viewport.clientLeft + (bounds.x - camera.x) * camera.scale, top: viewportRect.top + viewport.clientTop + (bounds.y - camera.y) * camera.scale, width: bounds.width * camera.scale };
     const input = el('input', 'wb-title-input');
     input.type = 'text';
     input.value = titled.title;
@@ -664,17 +671,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
     input.select();
   }
 
-  function pressedMediaOf(event: PointerEvent): PressedImage | null {
-    const point = toViewPoint(event.clientX, event.clientY);
-    const liveMediaBox = renderer.layout()?.elements.find((element) => element.kind === 'box' && element.media && element.media.kind !== 'image'
-      && point.x >= element.media.x && point.x <= element.media.x + element.media.width && point.y >= element.media.y && point.y <= element.media.y + element.media.height);
-    if (liveMediaBox?.kind === 'box' && liveMediaBox.media) return { boxId: liveMediaBox.id, href: '', alt: liveMediaBox.media.alt };
-    return pressedImageOf(event.target);
-  }
-
   function onDoubleClick(event: MouseEvent): void {
     if (isPhoneLayout()) return;
-    const hit = renderer.elementFromTarget(document.elementFromPoint(event.clientX, event.clientY));
+    const hit = hitAt(event.clientX, event.clientY);
     if (hit?.kind !== 'box') return;
     editTitle(hit.id);
   }
@@ -718,12 +717,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
   viewport.addEventListener('dblclick', onDoubleClick);
   viewport.addEventListener('contextmenu', (event) => event.preventDefault());
   viewport.addEventListener('keydown', onKeyDown);
-  viewport.addEventListener('pointerenter', () => {
-    viewportBox = measureViewport();
+  viewport.addEventListener('pointerleave', () => {
+    if (gesture) return;
+    renderer.setHover(null);
+    viewport.dataset.hoverKind = '';
   });
   new ResizeObserver(() => {
-    viewportBox = measureViewport();
-    applyCamera();
     if (isFitOwedOnceSized && viewport.clientWidth > 0 && viewport.clientHeight > 0) fit();
   }).observe(viewport);
 
@@ -732,7 +731,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     selectedIds: (): ReadonlySet<string> => selectedIds,
     clearSelection: () => setSelection(new Set()),
     pruneSelection,
-    previewOf,
+    repaintPreview,
     closeTitleInput,
     setTool,
     placeMediaBox,

@@ -131,12 +131,17 @@ function elementGroup(element: LaidOutElement, className: string, children: read
   return tag('g', { class: `wb-element ${className}`, 'data-element-id': element.id, 'data-element-kind': element.kind }, children.join(''));
 }
 
-function decisionOutlinePath(box: LaidOutBox): string {
+function decisionOutlinePoints(box: LaidOutBox): { x: number; y: number }[] {
   const right = box.x + box.width;
+  const bottom = box.y + box.height;
   const headerMidY = box.y + box.headerHeight / 2;
-  const top = `M${box.x + DECISION_POINT_INSET},${box.y} H${right - DECISION_POINT_INSET} L${right},${headerMidY}`;
-  if (box.outputs.length === 0) return `${top} L${right - DECISION_POINT_INSET},${box.y + box.height} H${box.x + DECISION_POINT_INSET} L${box.x},${headerMidY} Z`;
-  return `${top} V${box.y + box.height} H${box.x} V${headerMidY} Z`;
+  const top = [{ x: box.x + DECISION_POINT_INSET, y: box.y }, { x: right - DECISION_POINT_INSET, y: box.y }, { x: right, y: headerMidY }];
+  if (box.outputs.length === 0) return [...top, { x: right - DECISION_POINT_INSET, y: bottom }, { x: box.x + DECISION_POINT_INSET, y: bottom }, { x: box.x, y: headerMidY }];
+  return [...top, { x: right, y: bottom }, { x: box.x, y: bottom }, { x: box.x, y: headerMidY }];
+}
+
+function decisionOutlinePath(box: LaidOutBox): string {
+  return `${decisionOutlinePoints(box).map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x},${point.y}`).join(' ')} Z`;
 }
 
 function outputRowsMarkup(box: LaidOutBox): string[] {
@@ -417,4 +422,11 @@ function boardSvgDocument(layout: BoardLayout, assetHref: AssetHref = NO_ASSET_H
 }
 
 export type { AssetHref, PageOccluder };
-export { boardSvgDocument, chromeMarkup, definitionsMarkup, elementMarkup, pageMaskImage, SVG_NAMESPACE };
+export {
+  BODY_LINE_HEIGHT, BOX_TEXT_INSET, CODE_BAND_HEIGHT, CODE_BAND_RISE, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH, LINKED_BOARD_TEXT,
+  LOOP_BADGE_INSET, LOOP_BADGE_RADIUS, MONO_CHAR_WIDTH, MUTED_INDENT, NOTE_LINE_HEIGHT, OUTPUT_DOT_RADIUS, OUTPUT_LABEL_BASELINE_OFFSET, PLAN_TITLE, PORT_RADIUS,
+  RESIZE_HANDLE_SIZE, STEP_HEADER_HEIGHT, STEP_LABEL_BASELINE, TITLE_BASELINE, TITLE_LINE_HEIGHT, TITLE_RULE_RISE,
+  ICON_BOX_TOP_INSET, LINE_ICON_RISE, LINE_ICON_SIZE, STAND_FOOT_HEIGHT, STAND_FOOT_WIDTH, STAND_NECK_WIDTH, TITLE_CHAR_WIDTH, TITLE_ICON_RISE, TITLE_ICON_SIZE,
+  TOOLBAR_ADDRESS_HEIGHT, TOOLBAR_ADDRESS_INSET, TOOLBAR_DOT_RADIUS, TOOLBAR_DOT_SPACING,
+  boardSvgDocument, decisionOutlinePoints, pageMaskImage,
+};

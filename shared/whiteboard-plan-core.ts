@@ -1,4 +1,5 @@
-import type { Board, Box, Step } from './contracts/whiteboard.ts';
+import type { Board, Box, Step, Wire } from './contracts/whiteboard.ts';
+import { boardIndexOf } from './whiteboard-board-index.ts';
 
 type StepBox = Box & { step: Step };
 type PlanStep = { boxId: string; title: string; status: Step['status']; level: number; label: string; afterLabels: string[]; linkedBoardId: string | null };
@@ -12,15 +13,24 @@ function isStepBox(box: Box): box is StepBox {
 }
 
 function stepBoxesOf(board: Board): StepBox[] {
-  return Object.values(board.elements).flatMap((element) => (element.kind === 'box' && isStepBox(element) ? [element] : []));
+  return [...boardIndexOf(board.elements).stepBoxIds].flatMap((id) => {
+    const element = board.elements[id];
+    return element?.kind === 'box' && isStepBox(element) ? [element] : [];
+  });
+}
+
+function dependencyWiresInto(board: Board, stepId: string, stepIds: ReadonlySet<string>): Wire[] {
+  return [...boardIndexOf(board.elements).dependentIdsByBoxId.get(stepId) ?? []].flatMap((dependentId) => {
+    const element = board.elements[dependentId];
+    return element?.kind === 'wire' && element.to === stepId && element.from !== stepId && stepIds.has(element.from) ? [element] : [];
+  });
 }
 
 function afterIdsByStepIdOf(board: Board, stepIds: ReadonlySet<string>): Map<string, string[]> {
   const afterIdsByStepId = new Map<string, string[]>();
-  for (const element of Object.values(board.elements)) {
-    if (element.kind !== 'wire' || element.from === element.to) continue;
-    if (!stepIds.has(element.from) || !stepIds.has(element.to)) continue;
-    afterIdsByStepId.set(element.to, [...(afterIdsByStepId.get(element.to) ?? []), element.from]);
+  for (const stepId of stepIds) {
+    const afterIds = dependencyWiresInto(board, stepId, stepIds).map((wire) => wire.from);
+    if (afterIds.length > 0) afterIdsByStepId.set(stepId, afterIds);
   }
   return afterIdsByStepId;
 }
@@ -88,8 +98,7 @@ function dependencyWireId(fromId: string, toId: string, takenIds: ReadonlySet<st
 }
 
 function dependencyWireIdsInto(board: Board, stepId: string): string[] {
-  const stepIds = new Set(stepBoxesOf(board).map((step) => step.id));
-  return Object.values(board.elements).flatMap((element) => (element.kind === 'wire' && element.to === stepId && element.from !== stepId && stepIds.has(element.from) ? [element.id] : []));
+  return dependencyWiresInto(board, stepId, boardIndexOf(board.elements).stepBoxIds).map((wire) => wire.id);
 }
 
 export { dependencyWireId, dependencyWireIdsInto, planSteps, stepBoxesOf };

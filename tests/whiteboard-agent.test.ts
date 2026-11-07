@@ -12,12 +12,13 @@ import { z } from 'zod';
 import { createBackend } from '../server/backend/backend.ts';
 import { AGENT_REPLY_SCHEMAS, AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import { runAgentApiCli } from '../server/agent-api-cli.ts';
-import { Board, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_VIEWER_PARAM, Op, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
+import { Board, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_VIEWER_PARAM, BoardOutline, BoardRegion, Element, Op, sparseElement, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { closeSocket, dashboardClient, openRecordingSocket, waitForMessage } from './helpers/dashboard-ws.ts';
 import type { Backend } from './helpers/lanes.ts';
 import { settleBackendShutdown } from './helpers/lanes.ts';
 import { createWhiteboardWiring } from '../server/whiteboard/whiteboard-wiring.ts';
+import { createBoardStore } from '../server/whiteboard/board-store-client.ts';
 import { planSteps } from '../shared/whiteboard-plan-core.ts';
 import { execFileAsync } from '../server/child-process-safe.ts';
 import { resolveFfmpegPath } from '../server/runtime-paths.ts';
@@ -226,6 +227,124 @@ test('the operator deletes a board from the dashboard and a connected agent is t
   const afterDelete = await whiteboard(PLANNER_ID, { sub: 'get', board: boardId });
   assert.equal(afterDelete.status, 404);
   assert.equal(afterDelete.body.error, 'that board was deleted');
+});
+
+test('a dashboard viewing one region of a board past the incremental layout floor gets only the elements there, then a diff naming each edit that touches it with its record, including a box moved in from far away', async () => {
+  const boardId = await newBoard('streamed region');
+  const fillerBoxCount = 2000;
+  const placed = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
+    ...Array.from({ length: fillerBoxCount }, (_, fillerIndex) => ({ op: 'add', element: { kind: 'box', id: `filler-${fillerIndex}`, title: 'Filler', at: { x: (fillerIndex % 50) * 300, y: 100000 + Math.floor(fillerIndex / 50) * 200 } } })),
+    { op: 'add', element: { kind: 'box', id: 'near', title: 'Near', at: { x: 0, y: 0 } } },
+    { op: 'add', element: { kind: 'box', id: 'far', title: 'Far', at: { x: 0, y: 0 } } },
+    { op: 'set', id: 'near', fields: { at: { x: 40, y: 80 } } },
+    { op: 'set', id: 'far', fields: { at: { x: 40000, y: 80 } } },
+  ] });
+  assert.equal(placed.status, 200);
+  type TileFrame = { type: string; boardId?: string; version?: number; fromVersion?: number; chrome?: unknown; tiles?: { elements: { element: { id: string } }[] }[]; diff?: { changed: { element: { id: string; titleLines?: string[]; x?: number }; record?: { title?: string } }[]; removedIds: string[] } };
+  const client = await dashboardClient(boundPort(running().server));
+  const control = await openRecordingSocket<TileFrame>(client);
+  try {
+    control.ws.send(JSON.stringify({ type: 'whiteboard-view', boardId, view: { x: 0, y: 0, width: 1200, height: 800 }, lod: 'full', knownVersion: null }));
+    const tiles = await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-tiles' && frame.boardId === boardId, 'the first tiles');
+    assert.notEqual(tiles.chrome, null);
+    const shownIds = new Set(tiles.tiles?.flatMap((tile) => tile.elements.map((painted) => painted.element.id)));
+    assert.ok(shownIds.has('near'));
+    assert.equal(shownIds.has('far'), false);
+
+    const renamed = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'near', fields: { title: 'Near now' } }, { op: 'set', id: 'far', fields: { title: 'Far now' } }] });
+    assert.equal(renamed.status, 200);
+    const renameDiff = await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-tile-diff' && frame.fromVersion === tiles.version, 'the rename diff');
+    assert.deepEqual(renameDiff.diff?.changed.map((painted) => [painted.element.id, painted.element.titleLines?.join(' '), painted.record?.title]), [['near', 'Near now', 'Near now']]);
+
+    const movedIn = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'far', fields: { at: { x: 400, y: 300 } } }] });
+    assert.equal(movedIn.status, 200);
+    const moveDiff = await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-tile-diff' && frame.fromVersion === renamed.body.version, 'the move diff');
+    assert.deepEqual(moveDiff.diff?.changed.map((painted) => [painted.element.id, painted.element.x]), [['far', 400]]);
+  } finally {
+    await closeSocket(control.ws);
+  }
+});
+
+test('an agent reads a board too large to return whole as an outline with the operator view in full, moves its own focus, and pages the rest by region, ids and text', async () => {
+  const boardId = await newBoard('large outline');
+  const gridBoxCount = WHITEBOARD_LIMITS.readPage + 60;
+  const gridBoxes = Array.from({ length: gridBoxCount }, (_, boxIndex) => ({ op: 'add', element: { kind: 'box', id: `cell-${boxIndex}`, title: `Cell ${boxIndex}`, at: { x: (boxIndex % 20) * 300, y: (boxIndex % 13) * 200 + Math.floor(boxIndex / 260) * 3000 } } }));
+  const placed = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [...gridBoxes, { op: 'add', element: { kind: 'box', id: 'far-away', title: 'Zebra lantern', at: { x: 60000, y: 40 } } }] });
+  assert.equal(placed.status, 200);
+  const ElementPage = z.object({ elements: z.array(z.object({ id: z.string() })), nextCursor: z.string().nullable() });
+  const OutlineRead = ElementPage.extend({ outline: BoardOutline, focus: BoardRegion });
+  const idsOf = (reply: { body: Record<string, unknown> }) => ElementPage.parse(reply.body).elements.map((element) => element.id);
+  const focusOf = (reply: { body: Record<string, unknown> }) => OutlineRead.parse(reply.body).focus;
+
+  const firstRead = await whiteboard(BUILDER_ID, { sub: 'get', board: boardId });
+  const outline = OutlineRead.parse(firstRead.body);
+  assert.equal(outline.outline.elementCount, gridBoxCount + 1);
+  assert.equal(idsOf(firstRead).includes('far-away'), false);
+  assert.ok(outline.outline.clustersOutsideFocus.some((cluster) => cluster.titles.includes('Zebra lantern')));
+
+  const operatorView = { x: 59000, y: -200, width: 2000, height: 1200 };
+  const client = await dashboardClient(boundPort(running().server));
+  const control = await openRecordingSocket<{ type: string; boardId?: string }>(client);
+  try {
+    control.ws.send(JSON.stringify({ type: 'whiteboard-view', boardId, view: operatorView, lod: 'full', knownVersion: null }));
+    await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-tiles' && frame.boardId === boardId, 'the operator view tiles');
+    const operatorRead = await whiteboard(BUILDER_ID, { sub: 'get', board: boardId });
+    assert.deepEqual(focusOf(operatorRead), operatorView);
+    assert.deepEqual(idsOf(operatorRead), ['far-away']);
+
+    const gridRegion = { x: -100, y: -100, width: 7000, height: 6000 };
+    const gridFirstPage = await whiteboard(BUILDER_ID, { sub: 'get', board: boardId, region: gridRegion });
+    const gridCursor = ElementPage.parse(gridFirstPage.body).nextCursor;
+    assert.ok(gridCursor);
+    control.received.length = 0;
+    control.ws.send(JSON.stringify({ type: 'whiteboard-view', boardId, view: { ...operatorView, y: 0 }, lod: 'full', knownVersion: null }));
+    await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-tiles' && frame.boardId === boardId, 'the panned view tiles');
+    const gridSecondPage = await whiteboard(BUILDER_ID, { sub: 'get', board: boardId, cursor: gridCursor });
+    assert.deepEqual(focusOf(gridSecondPage), gridRegion);
+    assert.equal(new Set([...idsOf(gridFirstPage), ...idsOf(gridSecondPage)]).size, gridBoxCount);
+
+    const ownFocus = { x: 0, y: 0, width: 700, height: 300 };
+    await whiteboard(BUILDER_ID, { sub: 'get', board: boardId, region: ownFocus });
+    const keptRead = await whiteboard(BUILDER_ID, { sub: 'get', board: boardId });
+    assert.deepEqual(focusOf(keptRead), ownFocus);
+    assert.ok(idsOf(keptRead).includes('cell-0'));
+
+    const movedView = { ...operatorView, x: 58000 };
+    control.received.length = 0;
+    control.ws.send(JSON.stringify({ type: 'whiteboard-view', boardId, view: movedView, lod: 'full', knownVersion: null }));
+    await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-tiles' && frame.boardId === boardId, 'the moved view tiles');
+    const followedRead = await whiteboard(BUILDER_ID, { sub: 'get', board: boardId });
+    assert.deepEqual(focusOf(followedRead), movedView);
+  } finally {
+    await closeSocket(control.ws);
+  }
+
+  const byText = await whiteboard(BUILDER_ID, { sub: 'query', board: boardId, text: 'zebra' });
+  assert.deepEqual(idsOf(byText), ['far-away']);
+  const byIds = await whiteboard(BUILDER_ID, { sub: 'query', board: boardId, ids: ['cell-3', 'not-there'] });
+  assert.deepEqual([idsOf(byIds), byIds.body.missingIds], [['cell-3'], ['not-there']]);
+  const wholeRegion = { x: -1000, y: -1000, width: 100000, height: 10000 };
+  const firstPage = await whiteboard(BUILDER_ID, { sub: 'query', board: boardId, region: wholeRegion });
+  assert.equal(idsOf(firstPage).length, WHITEBOARD_LIMITS.readPage);
+  const secondPage = await whiteboard(BUILDER_ID, { sub: 'query', board: boardId, region: wholeRegion, cursor: ElementPage.parse(firstPage.body).nextCursor });
+  assert.equal(secondPage.body.nextCursor, null);
+  assert.equal(new Set([...idsOf(firstPage), ...idsOf(secondPage)]).size, gridBoxCount + 1);
+  const editedBetweenPages = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'cell-1', fields: { title: 'Cell one' } }] });
+  assert.equal(editedBetweenPages.status, 200);
+  const staleCursorPage = await whiteboard(BUILDER_ID, { sub: 'query', board: boardId, region: wholeRegion, cursor: ElementPage.parse(firstPage.body).nextCursor });
+  assert.equal(staleCursorPage.status, 409);
+
+  const longLine = 'word '.repeat(24).trim();
+  const heavyBoxes = Array.from({ length: 40 }, (_, boxIndex) => ({ op: 'add', element: { kind: 'box', id: `heavy-${boxIndex}`, title: `Heavy ${boxIndex}`, lines: Array.from({ length: WHITEBOARD_LIMITS.linesPerBox }, () => ({ text: longLine })), at: { x: 90000 + (boxIndex % 8) * 1000, y: Math.floor(boxIndex / 8) * 1000 } } }));
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: heavyBoxes })).status, 200);
+  const heavyPage = await whiteboard(BUILDER_ID, { sub: 'query', board: boardId, region: { x: 89000, y: -1000, width: 10000, height: 7000 } });
+  const heavyElements = z.array(Element).parse(heavyPage.body.elements);
+  assert.ok(ElementPage.parse(heavyPage.body).nextCursor);
+  assert.ok(heavyElements.length < 40);
+  assert.ok(JSON.stringify(heavyElements.map(sparseElement)).length <= WHITEBOARD_LIMITS.readPageChars + 2 * heavyElements.length);
+
+  const twoCriteria = await whiteboard(BUILDER_ID, { sub: 'query', board: boardId, text: 'zebra', ids: ['cell-3'] });
+  assert.equal(twoCriteria.status, 400);
 });
 
 test('a session deletes a board it created and is refused a board another session created', async () => {
@@ -525,7 +644,7 @@ test('an agent attaches media once by content at full fidelity, a box shows it f
   assert.match(String(huge.body.error), /huge\.png is larger than the 200 MB/);
 });
 
-test('refs are checked in the code session worktree: a missing file, a line past the end and a path leaving the worktree land as warnings that get --layout repeats', async (context) => {
+test('refs are checked in the code session worktree: a missing file, a line past the end and a path leaving the worktree land as warnings on the put that wrote them, and get --layout repeats them all', async (context) => {
   const worktree = path.join(fixture.tmpDir, PLANNER_ID);
   fs.mkdirSync(path.join(worktree, 'src'), { recursive: true });
   fs.writeFileSync(path.join(worktree, 'src', 'feed.ts'), 'one\ntwo\nthree\n');
@@ -548,6 +667,11 @@ test('refs are checked in the code session worktree: a missing file, a line past
   ];
   assert.equal(put.status, 200);
   assert.deepEqual(put.body.warnings, expectedWarnings);
+  const unrelatedPut = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
+    { op: 'add', element: { kind: 'box', id: 'save', title: 'Save', at: { x: 400, y: 40 }, refs: ['src/feed.ts#L4'] } },
+  ] });
+  assert.deepEqual(unrelatedPut.body.warnings, ['ref src/feed.ts#L4 on box save: the file has 3 lines']);
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'remove', id: 'save' }] })).status, 200);
 
   const laidOut = await runPlannerCli(context, ['whiteboard', 'get', boardId, '--layout']);
   assert.equal(laidOut.exitCode, 0);
@@ -824,7 +948,8 @@ test('deleting a board sweeps the pictures no live board shows, sparing a pendin
   assert.equal((await putBox(keptId, 'pending', pending)).ok, true);
 
   const keptFilePath = path.join(boardsRoot, `${keptId}.json`);
-  const savedKept = JSON.parse(fs.readFileSync(keptFilePath, 'utf8')) as { board: { elements: Record<string, Record<string, unknown>> } };
+  const savedKept = JSON.parse(JSON.stringify({ board: (await wiring.handleOperator.get(keptId)).board, log: [], cursorBySessionId: {}, createdBy: null })) as { board: { elements: Record<string, Record<string, unknown>> } };
+  await createBoardStore(boardsRoot).remove(keptId);
   const { media: sharedMedia, ...sharedWithoutMedia } = savedKept.board.elements.shared ?? {};
   const { kind: _kind, mime: _mime, hasPreview: _hasPreview, ...imageFromRelease051 } = sharedMedia as Record<string, unknown>;
   savedKept.board.elements.shared = { ...sharedWithoutMedia, image: imageFromRelease051 };
@@ -853,7 +978,9 @@ test('a board saved with units, panels, columns and lanes loads them as step box
   const linked = await before.handleOperator.put(plannedId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'u1', title: 'Unit', step: { linkedBoardId: detailId } } }]));
   assert.equal(linked.ok, true, linked.error ?? '');
   const plannedPath = path.join(boardsRoot, `${plannedId}.json`);
-  const savedPlanned = JSON.parse(fs.readFileSync(plannedPath, 'utf8')) as { board: Record<string, unknown> & { elements: Record<string, unknown> } };
+  const savedPlanned = JSON.parse(JSON.stringify({ board: (await before.handleOperator.get(plannedId)).board, log: [], cursorBySessionId: {}, createdBy: null })) as { board: Record<string, unknown> & { elements: Record<string, unknown> } };
+  await createBoardStore(boardsRoot).remove(plannedId);
+  await createBoardStore(boardsRoot).remove(detailId);
   savedPlanned.board.columns = [{ id: 'intake', title: 'Intake' }, { id: 'apply', title: 'Apply' }];
   savedPlanned.board.lanes = [{ id: 'main', label: 'Main', color: 'blue' }];
   savedPlanned.board.legend = [{ tone: 'lane', label: 'per lane' }];
@@ -866,7 +993,6 @@ test('a board saved with units, panels, columns and lanes loads them as step box
   savedPlanned.board.elements.route = { kind: 'unit', id: 'route', title: 'Serve the route', lines: [], refs: [], status: 'building', after: ['schema'], linkedBoardId: null };
   savedPlanned.board.elements.prior = { kind: 'panel', id: 'prior', title: 'Prior art', lines: [{ text: 'the old router', style: 'item', muted: false, ref: null, key: null }], order: 2 };
   fs.writeFileSync(plannedPath, JSON.stringify(savedPlanned));
-  fs.writeFileSync(path.join(boardsRoot, `${detailId}.json`), '{corrupt', 'utf8');
 
   const after = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
   await after.loaded;
@@ -888,7 +1014,11 @@ test('a board saved with units, panels, columns and lanes loads them as step box
   assert.deepEqual([priorPanel.shape, priorPanel.title, priorPanel.lines.map((line) => line.text), priorPanel.order, priorPanel.at], ['panel', 'Prior art', ['the old router'], 2, null]);
   const renamed = await after.handleOperator.put(plannedId, z.array(Op).parse([{ op: 'board', title: 'renamed' }]));
   assert.equal(renamed.ok, true, renamed.error ?? '');
-  assert.equal(/"kind":"(unit|panel)"|"columns"|"lanes"|"column"|"lane"/.test(fs.readFileSync(plannedPath, 'utf8')), false);
+  const store = createBoardStore(boardsRoot);
+  const plannedHead = (await store.loadHeads()).records.find((record) => record.board.id === plannedId);
+  const storedPlanned = plannedHead ? await store.loadElements(plannedHead) : null;
+  assert.ok(storedPlanned);
+  assert.equal(/"kind":"(unit|panel)"|"columns"|"lanes"|"column"|"lane"/.test(JSON.stringify(storedPlanned)), false);
   const relinked = await after.handleOperator.put(plannedId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'u2', title: 'Other', step: { linkedBoardId: detailId } } }]));
   assert.equal(relinked.ok, false);
 });

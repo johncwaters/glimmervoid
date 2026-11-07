@@ -241,9 +241,9 @@ async function putPlanOps(boardRef: string, ops: BoardOp[], doneText: string): P
 }
 
 async function readBoard(boardRef: string, { isPeek }: { isPeek: boolean }): Promise<{ board: Board; changes: BoardChange[] } | string> {
-  const reply = await askWhiteboard({ sub: 'get', board: boardRef, ...(isPeek ? { peek: true } : {}) });
+  const reply = await askWhiteboard({ sub: 'get', board: boardRef, whole: true, ...(isPeek ? { peek: true } : {}) });
   if (typeof reply === 'string') return reply;
-  if (!('changes' in reply)) return 'Glimmervoid did not return the board';
+  if (!('changes' in reply) || 'outline' in reply) return 'Glimmervoid did not return the board';
   return { board: reply.board, changes: reply.changes };
 }
 
@@ -378,9 +378,9 @@ function summarizeLayout(layout: BoardLayout) {
 }
 
 async function fetchReviewedBoard(boardRef: string): Promise<{ board: Board; review: BoardReview | null } | string> {
-  const reply = await askWhiteboard({ sub: 'get', board: boardRef, peek: true, review: true });
+  const reply = await askWhiteboard({ sub: 'get', board: boardRef, peek: true, review: true, whole: true });
   if (typeof reply === 'string') return reply;
-  if (!('changes' in reply)) return 'Glimmervoid did not return the board';
+  if (!('changes' in reply) || 'outline' in reply) return 'Glimmervoid did not return the board';
   return { board: reply.board, review: reply.review ?? null };
 }
 

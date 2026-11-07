@@ -1,5 +1,5 @@
 import type { Board, Element, Op } from './contracts/whiteboard.ts';
-import type { BoardDiff } from './contracts/control/whiteboard-messages.ts';
+import type { BoardDiff, DiffBefore } from './contracts/control/whiteboard-messages.ts';
 import { applyBoardDiff } from './whiteboard-ops-core.ts';
 
 type UndoDirection = 'undo' | 'redo';
@@ -69,9 +69,13 @@ function restoringOps(current: Board, target: Board): Op[] {
   ];
 }
 
-function undoOpsOf(before: Board, diff: BoardDiff): Op[] {
-  const after = applyBoardDiff(before, diff, before.version, before.updatedAt);
-  return after ? restoringOps(after, before) : [];
+const TOUCHED_ONLY_HEAD = Object.freeze({ id: 'touched', title: 'touched', version: 0, caption: null, legend: [], codeSessionId: null, createdAt: 0, updatedAt: 0 });
+
+function undoOpsOf(before: DiffBefore, diff: BoardDiff): Op[] {
+  const beforeElements = Object.fromEntries(Object.entries(before.elements).flatMap(([id, element]) => (element ? [[id, element]] : [])));
+  const touchedBefore: Board = { ...TOUCHED_ONLY_HEAD, ...before.fields, elements: beforeElements };
+  const touchedAfter = applyBoardDiff(touchedBefore, diff, 0, 0);
+  return touchedAfter ? restoringOps(touchedAfter, touchedBefore) : [];
 }
 
 function withEntry(stack: readonly Op[][], entry: Op[]): Op[][] {

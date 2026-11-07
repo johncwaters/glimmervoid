@@ -293,9 +293,10 @@ function deviceSections(box: DeviceBox, set: FieldCommit): HTMLElement[] {
 
 function wireSections(board: Board, wire: Wire, set: FieldCommit): HTMLElement[] {
   const from = board.elements[wire.from];
-  const outputChoices = from?.kind === 'box' && from.shape === 'decision'
-    ? [{ value: '', text: 'none' }, ...from.outputs.map((output) => ({ value: output.id, text: output.label }))]
-    : [];
+  const heldOutputs = from?.kind === 'box' && from.shape === 'decision' ? from.outputs : null;
+  const unloadedOutputs = !from && wire.fromOutput ? [{ id: wire.fromOutput, label: wire.fromOutput }] : [];
+  const outputs = heldOutputs ?? unloadedOutputs;
+  const outputChoices = outputs.length > 0 ? [{ value: '', text: 'none' }, ...outputs.map((output) => ({ value: output.id, text: output.label }))] : [];
   return [
     heading('Wire'),
     fieldRow('Label', textField('label', wire.label ?? '', MAX_WIRE_LABEL, (label) => set({ label: label.trim() || null }))),

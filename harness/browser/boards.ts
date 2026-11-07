@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import type { Locator, Page } from 'playwright-core';
+import { z } from 'zod';
 import type { Layout } from './cases-core.ts';
 import { git } from '../site-capture/isolated-glimmervoid.ts';
 import { commitFile, findSessionWorktree, pollFor, readOriginFile } from './review-merge.ts';
@@ -8,84 +9,233 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileAsync } from '../../server/child-process-safe.ts';
 import { resolveFfmpegPath } from '../../server/runtime-paths.ts';
-import { Board, BoardMediaUploadReply, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
+import { Board, BoardMediaUploadReply, BoardReview, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS, boardMediaDrawnFilename, linesOfBox } from '../../shared/contracts/whiteboard.ts';
 import type { Op } from '../../shared/contracts/whiteboard.ts';
 import { benchmarkBoard } from '../board-layout-cost.ts';
+import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
 
 const UNCOVERED_FILE_NAME = 'board-uncovered.txt';
 const MERGE_SETTLE_MS = 1500;
 const WORKTREE_TIMEOUT_MS = 15000;
 const REVIEW_TIMEOUT_MS = 20000;
 const RESIZE_TIMEOUT_MS = 5000;
+const BOARD_TIMEOUT_MS = 5000;
 const BOARD_DOC_BOX_ID = 'abstract';
 const BOARD_DOC_BOX_TITLE = 'docs/';
 const BOARD_DOC_FIRST_DRAFT = '# Abstract\n\n<b>First draft.</b>\n';
 const BOARD_DOC_SECOND_DRAFT = '# Abstract\n\nSecond draft.\n';
+
+interface OpenBoard {
+  page: Page;
+  panel: Locator;
+  boardId: string;
+}
+
+interface ScreenRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+type BoardElement = Board['elements'][string];
+
+const BoardReply = z.object({ board: Board });
+const ReviewReply = z.object({ review: BoardReview });
+const CreatedReply = z.object({ summary: z.object({ id: z.string() }) });
+const CAMERA_TRANSFORM_PATTERN = /translate\((-?[\d.e-]+)px, (-?[\d.e-]+)px\) scale\(([\d.e-]+)\)/;
+
+function titled(title: string): (element: BoardElement) => boolean {
+  return (element) => 'title' in element && element.title === title;
+}
+
+async function boardOf(open: OpenBoard): Promise<Board> {
+  return BoardReply.parse(await controlReplyOf(open.page, 'whiteboard-get', { boardId: open.boardId })).board;
+}
+
+async function reviewOf(open: OpenBoard): Promise<BoardReview> {
+  return ReviewReply.parse(await controlReplyOf(open.page, 'whiteboard-review', { boardId: open.boardId })).review;
+}
+
+async function shownBoardOf(open: OpenBoard): Promise<Board> {
+  const board = await boardOf(open);
+  await open.panel.locator('.wb-board-meta', { hasText: `v${board.version}` }).waitFor();
+  return board;
+}
+
+async function elementWhere(open: OpenBoard, label: string, isMatch: (element: BoardElement) => boolean): Promise<BoardElement> {
+  const found = await pollFor(label, BOARD_TIMEOUT_MS, async () => Object.values((await boardOf(open)).elements).find(isMatch) ?? null);
+  await shownBoardOf(open);
+  return found;
+}
+
+async function boardWithout(open: OpenBoard, label: string, isMatch: (element: BoardElement) => boolean): Promise<void> {
+  await pollFor(label, BOARD_TIMEOUT_MS, async () => (Object.values((await boardOf(open)).elements).some(isMatch) ? null : true));
+  await shownBoardOf(open);
+}
+
+async function laidOutOf(open: OpenBoard, elementId: string) {
+  const laidOut = layoutBoard(await shownBoardOf(open)).elements.find((element) => element.id === elementId);
+  assert.ok(laidOut, `the board lays out ${elementId}`);
+  return laidOut;
+}
+
+async function wirePathOf(open: OpenBoard, wireId: string): Promise<string> {
+  const laidOut = await laidOutOf(open, wireId);
+  assert.ok(laidOut.kind === 'wire');
+  return laidOut.path;
+}
+
+async function screenRectOf(open: OpenBoard, elementId: string): Promise<ScreenRect> {
+  const laidOut = await laidOutOf(open, elementId);
+  assert.ok(laidOut.kind !== 'wire', `${elementId} is drawn as a rect`);
+  return screenRectOn(await cameraOf(open), laidOut);
+}
+
+interface Camera {
+  left: number;
+  top: number;
+  translateX: number;
+  translateY: number;
+  scale: number;
+}
+
+function screenRectOn(camera: Camera, rect: ScreenRect): ScreenRect {
+  return { x: camera.left + camera.translateX + rect.x * camera.scale, y: camera.top + camera.translateY + rect.y * camera.scale, width: rect.width * camera.scale, height: rect.height * camera.scale };
+}
+
+async function cameraOf(open: OpenBoard): Promise<Camera> {
+  const placement = await open.panel.locator('.wb-viewport').evaluate((viewport) => {
+    const viewportRect = viewport.getBoundingClientRect();
+    const world = viewport.querySelector('.wb-world');
+    return { left: viewportRect.left + viewport.clientLeft, top: viewportRect.top + viewport.clientTop, transform: world instanceof HTMLElement ? world.style.transform : '' };
+  });
+  const camera = CAMERA_TRANSFORM_PATTERN.exec(placement.transform);
+  assert.ok(camera, `the board camera is readable from ${placement.transform}`);
+  return { left: placement.left, top: placement.top, translateX: Number(camera[1]), translateY: Number(camera[2]), scale: Number(camera[3]) };
+}
+
+function centerOf(rect: ScreenRect): { x: number; y: number } {
+  return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+}
+
+async function clickElement(open: OpenBoard, elementId: string): Promise<void> {
+  const center = centerOf(await screenRectOf(open, elementId));
+  await open.page.mouse.click(center.x, center.y);
+}
+
+async function cursorAt(open: OpenBoard, point: { x: number; y: number }): Promise<string> {
+  await open.page.mouse.move(point.x, point.y);
+  return open.panel.locator('.wb-viewport').evaluate((viewport) => (viewport instanceof HTMLElement ? viewport.style.cursor : ''));
+}
 
 async function addPlanStep(panel: Locator): Promise<void> {
   await panel.getByRole('button', { name: 'more', exact: true }).click();
   await panel.page().getByRole('menuitem', { name: 'plan step', exact: true }).click();
 }
 
-async function verifyBoxStaysWhereDropped(page: Page, panel: Locator, boxOnBoard: Locator, boxName: string): Promise<void> {
-  const startBounds = await boxOnBoard.locator('.wb-box-outline').boundingBox();
-  assert.ok(startBounds);
-  await page.mouse.move(startBounds.x + startBounds.width / 2, startBounds.y + startBounds.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(startBounds.x + startBounds.width / 2 + 120, startBounds.y + startBounds.height / 2 + 220, { steps: 8 });
-  const droppedBounds = await boxOnBoard.locator('.wb-box-outline').boundingBox();
-  assert.ok(droppedBounds);
-  const versionBeforeDrop = await panel.locator('.wb-board-meta').textContent();
-  await page.mouse.up();
-  await page.waitForFunction((before) => document.querySelector('.wb-board-meta')?.textContent !== before, versionBeforeDrop);
-  const restingBounds = await boxOnBoard.locator('.wb-box-outline').boundingBox();
-  assert.ok(restingBounds);
-  assert.ok(droppedBounds.y - startBounds.y > 100, `dragging ${boxName} moves it away from where it sat, moved ${droppedBounds.y - startBounds.y}px`);
-  assert.ok(Math.abs(restingBounds.x - droppedBounds.x) < 2 && Math.abs(restingBounds.y - droppedBounds.y) < 2, `${boxName} stays where it was dropped, drifted ${restingBounds.x - droppedBounds.x}, ${restingBounds.y - droppedBounds.y}px`);
-}
-
-async function placeBoxWithTool(page: Page, panel: Locator, offset: { x: number; y: number }, title: string, titleInputName = 'Box title'): Promise<void> {
-  const canvasBox = await panel.locator('.wb-canvas').boundingBox();
+async function placeBoxWithTool(open: OpenBoard, offset: { x: number; y: number }, title: string, titleInputName = 'Box title'): Promise<BoardElement> {
+  const canvasBox = await open.panel.locator('.wb-canvas').boundingBox();
   assert.ok(canvasBox);
-  await page.mouse.click(canvasBox.x + offset.x, canvasBox.y + offset.y);
-  const titleInput = page.getByRole('textbox', { name: titleInputName, exact: true });
+  await open.page.mouse.click(canvasBox.x + offset.x, canvasBox.y + offset.y);
+  const titleInput = open.page.getByRole('textbox', { name: titleInputName, exact: true });
   await titleInput.fill(title);
-  await page.keyboard.press('Enter');
-  await panel.locator('.wb-box-title', { hasText: title }).waitFor();
+  await open.page.keyboard.press('Enter');
+  return elementWhere(open, `a box titled ${title}`, titled(title));
 }
 
-async function verifyResizedBoxes(page: Page, panel: Locator, titles: readonly [string, ...string[]]): Promise<void> {
-  const outlines = titles.map((title) => panel.locator('.wb-box', { has: page.locator('.wb-box-title', { hasText: title }) }).locator('.wb-box-outline'));
-  const widthsOf = (): Promise<number[]> => Promise.all(outlines.map(async (outline) => Number(await outline.getAttribute('width'))));
+async function verifyResizedBoxes(open: OpenBoard, boxIds: readonly [string, ...string[]]): Promise<void> {
+  const widthsOf = () => Promise.all(boxIds.map(async (boxId) => {
+    const laidOut = await laidOutOf(open, boxId);
+    return laidOut.kind === 'wire' ? 0 : laidOut.width;
+  }));
   const widthsBefore = await widthsOf();
-  const pressedBox = panel.locator('.wb-box', { has: page.locator('.wb-box-title', { hasText: titles[0] }) });
-  await pressedBox.hover();
-  const handle = await pressedBox.locator('.wb-resize-handle').boundingBox();
-  assert.ok(handle);
-  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(handle.x + 120, handle.y + handle.height / 2, { steps: 6 });
-  await page.mouse.up();
+  const rect = await screenRectOf(open, boxIds[0]);
+  await open.page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
+  const handle = { x: rect.x + rect.width - 4, y: rect.y + rect.height - 4 };
+  assert.equal(await cursorAt(open, handle), 'ew-resize', 'the bottom right corner of a hovered box is its resize handle');
+  await open.page.mouse.down();
+  await open.page.mouse.move(handle.x + 120, handle.y, { steps: 6 });
+  await open.page.mouse.up();
   const widenings = await pollFor('dragging the corner handle widens every selected box', RESIZE_TIMEOUT_MS, async () => {
     const widthsAfter = await widthsOf();
     return widthsAfter.every((width, index) => width > (widthsBefore[index] ?? width)) ? widthsAfter.map((width, index) => width - (widthsBefore[index] ?? width)) : null;
   });
   assert.ok(widenings.every((widening) => widening === widenings[0]), `every selected box widens by the same amount, got ${widenings.join(', ')}`);
-  await panel.getByRole('button', { name: 'undo', exact: true }).click();
+  await open.panel.getByRole('button', { name: 'undo', exact: true }).click();
   await pollFor('one undo puts every box back to its width', RESIZE_TIMEOUT_MS, async () => ((await widthsOf()).every((width, index) => width === widthsBefore[index]) ? true : null));
 }
 
-async function selectBoxes(page: Page, panel: Locator, titles: readonly string[]): Promise<void> {
-  for (const [index, title] of titles.entries()) {
-    const outline = await panel.locator('.wb-box', { has: page.locator('.wb-box-title', { hasText: title }) }).locator('.wb-box-outline').boundingBox();
-    assert.ok(outline);
-    if (index > 0) await page.keyboard.down('Shift');
-    await page.mouse.click(outline.x + outline.width / 2, outline.y + outline.height / 2);
-    if (index > 0) await page.keyboard.up('Shift');
+async function selectBoxes(open: OpenBoard, boxIds: readonly string[]): Promise<void> {
+  for (const [index, boxId] of boxIds.entries()) {
+    const center = centerOf(await screenRectOf(open, boxId));
+    if (index > 0) await open.page.keyboard.down('Shift');
+    await open.page.mouse.click(center.x, center.y);
+    if (index > 0) await open.page.keyboard.up('Shift');
   }
 }
 
-async function verifyDroppedPicture(panel: Locator): Promise<void> {
+async function verifyBoxStaysWhereDropped(open: OpenBoard, boxId: string, boxName: string): Promise<void> {
+  const startRect = await screenRectOf(open, boxId);
+  const versionBeforeDrop = (await boardOf(open)).version;
+  const start = centerOf(startRect);
+  await open.page.mouse.move(start.x, start.y);
+  await open.page.mouse.down();
+  await open.page.mouse.move(start.x + 120, start.y + 220, { steps: 8 });
+  await open.page.mouse.up();
+  await pollFor(`dropping ${boxName} saves its place`, BOARD_TIMEOUT_MS, async () => ((await boardOf(open)).version !== versionBeforeDrop ? true : null));
+  const restingRect = await screenRectOf(open, boxId);
+  assert.ok(Math.abs(restingRect.x - startRect.x - 120) < 2 && Math.abs(restingRect.y - startRect.y - 220) < 2, `${boxName} stays where it was dropped, landed ${restingRect.x - startRect.x}, ${restingRect.y - startRect.y} from where it sat`);
+}
+
+async function verifyBoardDoc(open: OpenBoard): Promise<void> {
+  const { page, panel, boardId } = open;
+  const uploadReply: unknown = await page.evaluate(async ({ assetRoute, docText }) => {
+    const response = await fetch(assetRoute, { method: 'POST', body: docText, headers: { 'content-type': 'text/markdown', 'x-glimmervoid-upload-name': 'abstract.md' } });
+    const reply: unknown = await response.json();
+    return reply;
+  }, { assetRoute: WHITEBOARD_ASSET_ROUTE, docText: BOARD_DOC_FIRST_DRAFT });
+  const firstDraftMedia = BoardMediaUploadReply.parse(uploadReply).media;
+  assert.equal(firstDraftMedia.kind, 'doc', 'the board keeps a Markdown upload as a document');
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'add', element: { kind: 'box', id: BOARD_DOC_BOX_ID, title: BOARD_DOC_BOX_TITLE, at: { x: 640, y: 40 }, media: firstDraftMedia } }] });
+  await panel.getByRole('button', { name: 'fit', exact: true }).click();
+  const docCard = panel.locator('.wb-media[data-media-kind="doc"] .wb-media-doc');
+  await docCard.locator('.plan-heading', { hasText: 'Abstract' }).waitFor();
+  assert.equal(await docCard.locator('b').count(), 0, 'a document box draws Markdown as text, never as markup');
+  await clickElement(open, BOARD_DOC_BOX_ID);
+  const editor = page.locator('.doc-editor');
+  await editor.locator('.doc-editor-preview .plan-heading', { hasText: 'Abstract' }).waitFor();
+  assert.equal(await editor.getByRole('button', { name: 'Preview', exact: true }).getAttribute('aria-pressed'), 'true', 'a click on a document box opens it full size, rendered');
+  assert.equal(await editor.getByRole('button', { name: 'Markup', exact: true }).count(), 0, 'a board document offers no Markup mode');
+  await editor.getByRole('button', { name: 'Edit', exact: true }).click();
+  await editor.locator('textarea.doc-editor-text').fill(BOARD_DOC_SECOND_DRAFT);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Discard', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  assert.equal(await editor.isVisible(), true, 'Esc with unsaved edits asks before closing the document');
+  await editor.getByRole('button', { name: 'Save', exact: true }).click();
+  await editor.locator('.doc-editor-status', { hasText: 'Saved' }).waitFor();
+  await page.keyboard.press('Escape');
+  await editor.waitFor({ state: 'detached' });
+  await docCard.locator('.plan-paragraph', { hasText: 'Second draft.' }).waitFor();
+  const savedBox = (await boardOf(open)).elements[BOARD_DOC_BOX_ID];
+  assert.ok(savedBox?.kind === 'box' && savedBox.media?.kind === 'doc' && savedBox.media.asset !== firstDraftMedia.asset, 'a saved document is stored on the board as a new asset');
+  await panel.getByRole('button', { name: 'undo', exact: true }).click();
+  await docCard.locator('.plan-paragraph', { hasText: 'First draft.' }).waitFor();
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'remove', id: BOARD_DOC_BOX_ID }] });
+  await panel.locator('.wb-media[data-media-kind="doc"]').waitFor({ state: 'detached' });
+  await panel.getByRole('button', { name: 'fit', exact: true }).click();
+}
+
+function drawnMediaUrlOf(element: BoardElement): string {
+  assert.ok(element.kind === 'box' && element.media, `${element.id} carries media`);
+  const drawnFilename = boardMediaDrawnFilename(element.media);
+  assert.ok(drawnFilename, `${element.id} has a drawn picture`);
+  return `${WHITEBOARD_ASSET_ROUTE}/${drawnFilename}`;
+}
+
+async function verifyDroppedPicture(open: OpenBoard): Promise<void> {
+  const { page, panel } = open;
   await panel.locator('.wb-canvas').evaluate(async (canvas) => {
     const painted = document.createElement('canvas');
     painted.width = 2400;
@@ -100,21 +250,22 @@ async function verifyDroppedPicture(panel: Locator): Promise<void> {
     const canvasRect = canvas.getBoundingClientRect();
     canvas.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer, clientX: canvasRect.left + 420, clientY: canvasRect.top + 80 }));
   });
-  const picture = panel.locator('image.wb-image');
-  await picture.waitFor();
-  await panel.locator('.wb-box-title', { hasText: 'dropped-shot' }).waitFor();
-  const servedStatus = await picture.evaluate(async (node) => (await fetch(node.getAttribute('href') ?? '')).status);
-  assert.equal(servedStatus, 200, 'a dropped picture draws from the served asset');
-  assert.match(await picture.getAttribute('href') ?? '', /\/[0-9a-f]{64}\.preview\.webp$/, 'a dropped png wider than 1024 draws from its preview');
-  const previewWidth = await picture.evaluate(async (node) => {
+  const picture = await elementWhere(open, 'the dropped picture box', titled('dropped-shot'));
+  const drawnUrl = drawnMediaUrlOf(picture);
+  assert.match(drawnUrl, /\/[0-9a-f]{64}\.preview\.webp$/, 'a dropped png wider than 1024 draws from its preview');
+  const served = await page.evaluate(async (url) => {
+    const status = (await fetch(url)).status;
     const preview = new Image();
-    preview.src = node.getAttribute('href') ?? '';
+    preview.src = url;
     await preview.decode();
-    return preview.naturalWidth;
-  });
-  assert.equal(previewWidth, 1024, 'a dropped picture draws from the capped preview');
-  await picture.click();
-  const viewer = panel.page().locator('.wb-image-viewer');
+    return { status, width: preview.naturalWidth };
+  }, drawnUrl);
+  assert.deepEqual(served, { status: 200, width: 1024 }, 'a dropped picture draws from the served, capped preview');
+  const pictureRect = await screenRectOf(open, picture.id);
+  const pictureCenter = centerOf(pictureRect);
+  assert.equal(await cursorAt(open, pictureCenter), 'zoom-in', 'a picture shows the zoom-in cursor');
+  await page.mouse.click(pictureCenter.x, pictureCenter.y);
+  const viewer = page.locator('.wb-image-viewer');
   const enlarged = viewer.locator('img.wb-image-viewer-picture');
   await enlarged.waitFor();
   const naturalWidth = await enlarged.evaluate(async (node) => (node instanceof HTMLImageElement ? node.decode().then(() => node.naturalWidth) : 0));
@@ -128,10 +279,10 @@ async function verifyDroppedPicture(panel: Locator): Promise<void> {
   assert.equal(await viewer.locator('.dialog-actions').count(), 0, 'the viewer has no bottom actions row');
   await viewerClose.click();
   await viewer.waitFor({ state: 'detached' });
-  await verifyGesturesOverMedia(panel, picture);
+  await verifyGesturesOverMedia(open, picture.id);
   await panel.getByRole('button', { name: 'undo', exact: true }).click();
   await panel.getByRole('button', { name: 'undo', exact: true }).click();
-  await picture.waitFor({ state: 'detached' });
+  await boardWithout(open, 'undo removes the dropped picture', titled('dropped-shot'));
 }
 
 const PROBE_PAGE_HTML = `<!doctype html><html><body><input aria-label="probe field"><script>
@@ -173,8 +324,8 @@ async function panTowardTopOfCanvas(panel: Locator, target: Locator): Promise<vo
   await page.mouse.wheel(targetBounds.x - (canvasBounds.x + canvasBounds.width / 3), targetBounds.y - (canvasBounds.y + 60));
 }
 
-async function verifyBoxAbovePageCoversIt(panel: Locator, pageMedia: Locator): Promise<void> {
-  const page = panel.page();
+async function verifyBoxAbovePageCoversIt(open: OpenBoard, pageMedia: Locator): Promise<void> {
+  const { page, panel } = open;
   const pageMaskOf = () => pageMedia.evaluate((node) => getComputedStyle(node).maskImage || getComputedStyle(node).getPropertyValue('-webkit-mask-image'));
   assert.equal(await pageMaskOf(), 'none', 'a page box with nothing drawn above it is shown whole');
   const canvasBounds = await panel.locator('.wb-canvas').boundingBox();
@@ -182,15 +333,18 @@ async function verifyBoxAbovePageCoversIt(panel: Locator, pageMedia: Locator): P
   assert.ok(canvasBounds && pageBounds);
   await panel.locator('.wb-viewport').focus();
   await page.keyboard.press('r');
-  await placeBoxWithTool(page, panel, { x: pageBounds.x - canvasBounds.x + pageBounds.width * 0.7, y: pageBounds.y - canvasBounds.y + pageBounds.height * 0.6 }, 'Above the page');
-  assert.match(await pageMaskOf(), /data:image\/svg\+xml/, 'a box drawn after a page box and over it masks the page preview under it');
-  const boxAbove = panel.locator('.wb-box-title', { hasText: 'Above the page' });
-  while (await boxAbove.count() > 0) await panel.getByRole('button', { name: 'undo', exact: true }).click();
+  const boxAbove = await placeBoxWithTool(open, { x: pageBounds.x - canvasBounds.x + pageBounds.width * 0.7, y: pageBounds.y - canvasBounds.y + pageBounds.height * 0.6 }, 'Above the page');
+  await page.waitForFunction(() => /data:image\/svg\+xml/.test(getComputedStyle(document.querySelector('.wb-media[data-media-kind="page"]') ?? document.body).maskImage));
+  while ((await boardOf(open)).elements[boxAbove.id]) {
+    const versionBeforeUndo = (await boardOf(open)).version;
+    await panel.getByRole('button', { name: 'undo', exact: true }).click();
+    await pollFor('undo takes back one edit', BOARD_TIMEOUT_MS, async () => ((await boardOf(open)).version !== versionBeforeUndo ? true : null));
+  }
   await page.waitForFunction(() => getComputedStyle(document.querySelector('.wb-media[data-media-kind="page"]') ?? document.body).maskImage === 'none');
 }
 
-async function verifyLiveMedia(panel: Locator): Promise<void> {
-  const page = panel.page();
+async function verifyLiveMedia(open: OpenBoard): Promise<void> {
+  const { page, panel } = open;
   await page.evaluate(() => {
     window.addEventListener('message', (event) => {
       const readings: unknown = event.data?.boardPageProbe;
@@ -198,11 +352,10 @@ async function verifyLiveMedia(panel: Locator): Promise<void> {
     });
   });
   await dropFileOnCanvas(panel, { name: 'clip.webm', type: 'video/webm', base64: await webmClipBase64() }, { x: 420, y: 80 });
-  const videoPoster = panel.locator('image.wb-image', { has: page.locator('title', { hasText: 'clip.webm' }) });
-  await videoPoster.waitFor({ state: 'attached' });
+  const isClip = (element: BoardElement) => element.kind === 'box' && element.media?.kind === 'video' && element.media.alt === 'clip.webm';
+  const clip = await elementWhere(open, 'the dropped video box', isClip);
   assert.equal(await panel.locator('.wb-media[data-media-kind="video"], video').count(), 0, 'a video box draws only its first frame on the board');
-  const posterBounds = await videoPoster.boundingBox();
-  assert.ok(posterBounds);
+  const posterBounds = await screenRectOf(open, clip.id);
   await page.mouse.click(posterBounds.x + posterBounds.width / 3, posterBounds.y + posterBounds.height / 3);
   const viewer = page.locator('.wb-image-viewer');
   const viewerVideo = viewer.locator('video.wb-image-viewer-video');
@@ -216,8 +369,7 @@ async function verifyLiveMedia(panel: Locator): Promise<void> {
   await viewer.waitFor({ state: 'detached' });
   const worldTransform = () => panel.locator('.wb-world').evaluate((world) => world instanceof HTMLElement ? world.style.transform : '');
   const transformBeforePan = await worldTransform();
-  const videoBounds = await videoPoster.boundingBox();
-  assert.ok(videoBounds);
+  const videoBounds = await screenRectOf(open, clip.id);
   await page.mouse.move(videoBounds.x + 10, videoBounds.y + 10);
   await page.mouse.wheel(0, 40);
   assert.notEqual(await worldTransform(), transformBeforePan, 'a wheel over a video box pans the board');
@@ -233,10 +385,7 @@ async function verifyLiveMedia(panel: Locator): Promise<void> {
   assert.equal(await pageFrame.evaluate((frame) => getComputedStyle(frame).pointerEvents), 'none', 'an idle page ignores the pointer');
   const idlePageBounds = await pageMedia.boundingBox();
   assert.ok(idlePageBounds);
-  const cursorOverPage = await page.evaluate(({ x, y }) => {
-    const hovered = document.elementFromPoint(x, y);
-    return hovered ? getComputedStyle(hovered).cursor : '';
-  }, { x: idlePageBounds.x + idlePageBounds.width / 2, y: idlePageBounds.y + idlePageBounds.height / 2 });
+  const cursorOverPage = await cursorAt(open, { x: idlePageBounds.x + idlePageBounds.width / 2, y: idlePageBounds.y + idlePageBounds.height / 2 });
   assert.equal(cursorOverPage, 'zoom-in', 'a page box shows the zoom-in cursor like a picture');
   await page.mouse.click(idlePageBounds.x + idlePageBounds.width / 2, idlePageBounds.y + idlePageBounds.height / 2);
   const viewerPage = viewer.locator('iframe.wb-image-viewer-page');
@@ -247,7 +396,7 @@ async function verifyLiveMedia(panel: Locator): Promise<void> {
   await page.keyboard.press('Escape');
   await viewer.waitFor({ state: 'detached', timeout: 5000 }).catch(() => assert.fail('Esc closes the full size page while focus is inside the page'));
   assert.equal(await panel.locator('.wb-media button').count(), 0, 'a page box carries no overlay buttons');
-  await verifyBoxAbovePageCoversIt(panel, pageMedia);
+  await verifyBoxAbovePageCoversIt(open, pageMedia);
   await pageFrame.evaluate((frame) => {
     frame.dataset.loadedOnce = '';
   });
@@ -265,76 +414,31 @@ async function verifyLiveMedia(panel: Locator): Promise<void> {
   await panel.getByRole('button', { name: 'undo', exact: true }).click();
   await pageMedia.waitFor({ state: 'detached' });
   await panel.getByRole('button', { name: 'undo', exact: true }).click();
-  await videoPoster.waitFor({ state: 'detached' });
+  await boardWithout(open, 'undo removes the dropped video', isClip);
   await panel.getByRole('button', { name: 'fit', exact: true }).click();
 }
 
-async function verifyBoardDoc(panel: Locator, boardId: string): Promise<void> {
-  const page = panel.page();
-  const uploadReply: unknown = await page.evaluate(async ({ assetRoute, docText }) => {
-    const response = await fetch(assetRoute, { method: 'POST', body: docText, headers: { 'content-type': 'text/markdown', 'x-glimmervoid-upload-name': 'abstract.md' } });
-    const reply: unknown = await response.json();
-    return reply;
-  }, { assetRoute: WHITEBOARD_ASSET_ROUTE, docText: BOARD_DOC_FIRST_DRAFT });
-  const firstDraftMedia = BoardMediaUploadReply.parse(uploadReply).media;
-  assert.equal(firstDraftMedia.kind, 'doc', 'the board keeps a Markdown upload as a document');
-  await boardControlReply(page, 'whiteboard-op', { boardId, ops: [{ op: 'add', element: { kind: 'box', id: BOARD_DOC_BOX_ID, title: BOARD_DOC_BOX_TITLE, at: { x: 640, y: 40 }, media: firstDraftMedia } }] });
-  const docCard = panel.locator('.wb-media[data-media-kind="doc"] .wb-media-doc');
-  await docCard.locator('.plan-heading', { hasText: 'Abstract' }).waitFor();
-  assert.equal(await docCard.locator('b').count(), 0, 'a document box draws Markdown as text, never as markup');
-  await panel.getByRole('button', { name: 'fit', exact: true }).click();
-  const cardBounds = await docCard.boundingBox();
-  assert.ok(cardBounds);
-  await page.mouse.click(cardBounds.x + cardBounds.width / 2, cardBounds.y + cardBounds.height / 2);
-  const editor = page.locator('.doc-editor');
-  await editor.locator('.doc-editor-preview .plan-heading', { hasText: 'Abstract' }).waitFor();
-  assert.equal(await editor.getByRole('button', { name: 'Preview', exact: true }).getAttribute('aria-pressed'), 'true', 'a click on a document box opens it full size, rendered');
-  assert.equal(await editor.getByRole('button', { name: 'Markup', exact: true }).count(), 0, 'a board document offers no Markup mode');
-  await editor.getByRole('button', { name: 'Edit', exact: true }).click();
-  await editor.locator('textarea.doc-editor-text').fill(BOARD_DOC_SECOND_DRAFT);
-  await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Discard', exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  assert.equal(await editor.isVisible(), true, 'Esc with unsaved edits asks before closing the document');
-  await editor.getByRole('button', { name: 'Save', exact: true }).click();
-  await editor.locator('.doc-editor-status', { hasText: 'Saved' }).waitFor();
-  await page.keyboard.press('Escape');
-  await editor.waitFor({ state: 'detached' });
-  await docCard.locator('.plan-paragraph', { hasText: 'Second draft.' }).waitFor();
-  const savedBox = Board.parse((await boardControlReply(page, 'whiteboard-get', { boardId })).board).elements[BOARD_DOC_BOX_ID];
-  assert.ok(savedBox?.kind === 'box' && savedBox.media?.kind === 'doc' && savedBox.media.asset !== firstDraftMedia.asset, 'a saved document is stored on the board as a new asset');
-  await panel.getByRole('button', { name: 'undo', exact: true }).click();
-  await docCard.locator('.plan-paragraph', { hasText: 'First draft.' }).waitFor();
-  await boardControlReply(page, 'whiteboard-op', { boardId, ops: [{ op: 'remove', id: BOARD_DOC_BOX_ID }] });
-  await panel.locator('.wb-media[data-media-kind="doc"]').waitFor({ state: 'detached' });
-  await panel.getByRole('button', { name: 'fit', exact: true }).click();
-}
-
-async function verifyGesturesOverMedia(panel: Locator, picture: Locator): Promise<void> {
-  const page = panel.page();
-  const resting = await picture.boundingBox();
-  assert.ok(resting);
+async function verifyGesturesOverMedia(open: OpenBoard, pictureId: string): Promise<void> {
+  const { page, panel } = open;
+  const resting = await screenRectOf(open, pictureId);
   const anchor = { x: resting.x + resting.width / 4, y: resting.y + resting.height / 2 };
   await page.mouse.move(anchor.x, anchor.y);
   await page.keyboard.down('Control');
   await page.mouse.wheel(0, -100);
   await page.keyboard.up('Control');
-  const zoomed = await picture.boundingBox();
-  assert.ok(zoomed);
+  const zoomed = await screenRectOf(open, pictureId);
   assert.ok(Math.abs(zoomed.width / resting.width - 1.1) < 0.01, 'a ctrl wheel over a picture zooms the board one step');
   assert.ok(Math.abs(zoomed.x + (anchor.x - resting.x) * 1.1 - anchor.x) < 1.5, 'zooming keeps the point under the pointer still');
   await page.mouse.wheel(0, 60);
-  const panned = await picture.boundingBox();
-  assert.ok(panned);
+  const panned = await screenRectOf(open, pictureId);
   assert.ok(Math.abs(zoomed.y - panned.y - 60) < 1.5, 'a wheel over a picture pans the board');
-  const versionBeforeDrag = await panel.locator('.wb-board-meta').textContent();
+  const versionBeforeDrag = (await boardOf(open)).version;
   await page.mouse.move(panned.x + panned.width / 2, panned.y + panned.height / 2);
   await page.mouse.down();
   await page.mouse.move(panned.x + panned.width / 2 + 120, panned.y + panned.height / 2, { steps: 6 });
   await page.mouse.up();
-  await page.waitForFunction((before) => document.querySelector('.wb-board-meta')?.textContent !== before, versionBeforeDrag);
-  const dragged = await picture.boundingBox();
-  assert.ok(dragged);
+  await pollFor('dragging a picture box saves its move', BOARD_TIMEOUT_MS, async () => ((await boardOf(open)).version !== versionBeforeDrag ? true : null));
+  const dragged = await screenRectOf(open, pictureId);
   assert.ok(Math.abs(dragged.x - panned.x - 120) < 2, 'dragging a picture box moves it with the pointer');
   assert.equal(await page.locator('.wb-image-viewer').count(), 0, 'dragging a picture does not open the viewer');
   await panel.getByRole('button', { name: 'fit', exact: true }).click();
@@ -366,14 +470,14 @@ function openBoardTitle(panel: Locator, boardTitle: string): Locator {
   return panel.locator('.wb-board-title', { hasText: boardTitle });
 }
 
-async function boardControlReply(page: Page, type: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+async function controlReplyOf(page: Page, type: string, payload: Record<string, unknown>): Promise<unknown> {
   return page.evaluate(async ({ type, payload }) => {
     const tokenReply: unknown = await fetch('/control-token', { credentials: 'same-origin', cache: 'no-store' }).then((response) => response.json());
     const token = typeof tokenReply === 'object' && tokenReply !== null && 'token' in tokenReply && typeof tokenReply.token === 'string' ? tokenReply.token : '';
     const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
     const socket = new WebSocket(`${scheme}://${location.host}/control?token=${encodeURIComponent(token)}`);
-    const requestId = `harness-${type}-${Date.now()}`;
-    return new Promise<Record<string, unknown>>((resolve, reject) => {
+    const requestId = `harness-${type}-${Date.now()}-${Math.random()}`;
+    return new Promise<unknown>((resolve, reject) => {
       socket.addEventListener('open', () => socket.send(JSON.stringify({ type, requestId, ...payload })));
       socket.addEventListener('error', () => reject(new Error(`${type} could not reach the control socket`)));
       socket.addEventListener('message', (event) => {
@@ -381,7 +485,7 @@ async function boardControlReply(page: Page, type: string, payload: Record<strin
         if (typeof reply !== 'object' || reply === null || !('requestId' in reply) || reply.requestId !== requestId) return;
         socket.close();
         if ('ok' in reply && reply.ok === true) {
-          resolve({ ...reply });
+          resolve(reply);
           return;
         }
         reject(new Error(`${type} was refused: ${JSON.stringify(reply)}`));
@@ -390,16 +494,8 @@ async function boardControlReply(page: Page, type: string, payload: Record<strin
   }, { type, payload });
 }
 
-async function runBoardControl(page: Page, type: string, payload: Record<string, unknown>): Promise<string | null> {
-  const reply = await boardControlReply(page, type, payload);
-  const summary = reply.summary;
-  return typeof summary === 'object' && summary !== null && 'id' in summary && typeof summary.id === 'string' ? summary.id : null;
-}
-
 async function createBoardOverControl(page: Page, boardTitle: string): Promise<string> {
-  const boardId = await runBoardControl(page, 'whiteboard-create', { title: boardTitle });
-  assert.ok(boardId, 'the server created the board');
-  return boardId;
+  return CreatedReply.parse(await controlReplyOf(page, 'whiteboard-create', { title: boardTitle })).summary.id;
 }
 
 async function showBoardInFocus(page: Page, sessionId: string, boardTitle: string): Promise<Locator> {
@@ -439,7 +535,8 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     assert.equal(await page.getByRole('menuitem', { name: 'board settings', exact: true }).isVisible(), false, 'phone hides the properties panel, so the menu offers no board settings');
     await page.keyboard.press('Escape');
   }
-  if (layout === 'desktop') {
+  if (desktopBoard) {
+    const open = desktopBoard;
     assert.equal(await panel.locator('.wb-inspect').isVisible(), false, 'no properties panel covers the canvas with nothing selected');
     const canvasBounds = await panel.locator('.wb-canvas').boundingBox();
     const toolsIslandBounds = await panel.getByRole('toolbar', { name: 'Board tools', exact: true }).boundingBox();
@@ -459,13 +556,13 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     assert.equal(await boxTool.getAttribute('aria-pressed'), 'true');
     const toolHint = panel.locator('.wb-tool-hint');
     await toolHint.filter({ hasText: 'Click the board to place a box' }).waitFor();
-    await placeBoxWithTool(page, panel, { x: 60, y: 60 }, 'Parse feed');
+    const parseFeed = await placeBoxWithTool(open, { x: 60, y: 60 }, 'Parse feed');
     assert.equal(await panel.getByRole('button', { name: 'select', exact: true }).getAttribute('aria-pressed'), 'true', 'the tool returns to select after one placement');
     assert.equal(await toolHint.isVisible(), false, 'the hint line hides once the select tool is back');
-    await verifyResizedBoxes(page, panel, ['Parse feed']);
-    await verifyDroppedPicture(panel);
-    await verifyLiveMedia(panel);
-    if (desktopBoard) await verifyBoardDoc(panel, desktopBoard.boardId);
+    await verifyResizedBoxes(open, [parseFeed.id]);
+    await verifyDroppedPicture(open);
+    await verifyLiveMedia(open);
+    if (desktopBoard) await verifyBoardDoc(open);
     await panel.getByRole('button', { name: 'more', exact: true }).click();
     const moreMenu = page.getByRole('menu', { name: 'More tools', exact: true });
     assert.deepEqual(await moreMenu.getByRole('menuitem').allTextContents(), ['note on box', 'frame selected boxes', 'plan step']);
@@ -476,71 +573,58 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
       return document.fonts.check('700 16px ComicMono');
     });
     assert.equal(isComicMonoLoaded, true);
-    const boxTitleFont = await panel.locator('.wb-box-title').first().evaluate((node) => getComputedStyle(node).fontFamily);
-    assert.match(boxTitleFont, /ComicMono/);
     const canvasBox = await panel.locator('.wb-canvas').boundingBox();
-    const boxOutline = await panel.locator('.wb-box-outline').first().boundingBox();
-    assert.ok(canvasBox && boxOutline);
+    const boxOutline = await screenRectOf(open, parseFeed.id);
+    assert.ok(canvasBox);
     assert.ok(boxOutline.x >= canvasBox.x && boxOutline.y >= canvasBox.y, 'the box starts inside the canvas');
     assert.ok(boxOutline.x + boxOutline.width <= canvasBox.x + canvasBox.width && boxOutline.y + boxOutline.height <= canvasBox.y + canvasBox.height, 'the box ends inside the canvas');
-    await panel.locator('.wb-box-outline').first().dblclick();
+    const outlineCenter = centerOf(boxOutline);
+    await page.mouse.dblclick(outlineCenter.x, outlineCenter.y);
     await page.getByRole('textbox', { name: 'Box title', exact: true }).fill('Parse and store');
     await page.keyboard.press('Enter');
-    await panel.locator('.wb-box-title', { hasText: 'Parse and store' }).waitFor();
+    const sourceBox = await elementWhere(open, 'the renamed box', titled('Parse and store'));
     await panel.locator('.wb-viewport').focus();
     await page.keyboard.press('r');
-    await placeBoxWithTool(page, panel, { x: 60, y: 260 }, 'Index rows');
-    const sourceBox = panel.locator('.wb-box', { hasText: 'Parse and store' });
-    const targetBox = panel.locator('.wb-box', { hasText: 'Index rows' });
-    await targetBox.waitFor();
+    const targetBox = await placeBoxWithTool(open, { x: 60, y: 260 }, 'Index rows');
     await panel.locator('.wb-viewport').focus();
     await page.keyboard.press('p');
-    await placeBoxWithTool(page, panel, { x: 520, y: 30 }, 'Prior art', 'Panel title');
-    await verifyBoxStaysWhereDropped(page, panel, panel.locator('.wb-panel', { hasText: 'Prior art' }), 'a panel');
-    await selectBoxes(page, panel, ['Parse and store', 'Index rows']);
-    await verifyResizedBoxes(page, panel, ['Parse and store', 'Index rows']);
+    const priorArt = await placeBoxWithTool(open, { x: 520, y: 30 }, 'Prior art', 'Panel title');
+    await verifyBoxStaysWhereDropped(open, priorArt.id, 'a panel');
+    await selectBoxes(open, [sourceBox.id, targetBox.id]);
+    await verifyResizedBoxes(open, [sourceBox.id, targetBox.id]);
     await page.keyboard.press('Escape');
-    await sourceBox.hover();
-    const bottomPort = await sourceBox.locator('.wb-port').nth(2).boundingBox();
-    const dropTarget = await targetBox.boundingBox();
-    assert.ok(bottomPort && dropTarget);
-    await page.mouse.move(bottomPort.x + bottomPort.width / 2, bottomPort.y + bottomPort.height / 2);
+    const sourceRect = await screenRectOf(open, sourceBox.id);
+    await page.mouse.move(sourceRect.x + sourceRect.width / 2, sourceRect.y + sourceRect.height / 2);
+    const bottomPort = { x: sourceRect.x + sourceRect.width / 2, y: sourceRect.y + sourceRect.height };
+    assert.equal(await cursorAt(open, bottomPort), 'crosshair', 'the bottom edge middle of a hovered box is a wire port');
+    const dropTarget = centerOf(await screenRectOf(open, targetBox.id));
     await page.mouse.down();
-    await page.mouse.move(dropTarget.x + dropTarget.width / 2, dropTarget.y + dropTarget.height / 2, { steps: 6 });
-    await panel.locator('.wb-box.is-wire-target', { hasText: 'Index rows' }).waitFor({ state: 'attached' });
+    await page.mouse.move(dropTarget.x, dropTarget.y, { steps: 6 });
+    assert.equal(await panel.locator('.wb-wire-draft').count(), 1, 'a port drag draws a dashed line');
     await page.mouse.up();
     assert.equal(await panel.locator('.wb-wire-draft').count(), 0, 'releasing a port drag removes its dashed line');
-    const wireLine = panel.locator('.wb-wire .wb-wire-line').first();
-    await wireLine.waitFor({ state: 'attached' });
-    const restingPath = await wireLine.getAttribute('d');
-    const targetOutline = await targetBox.boundingBox();
-    assert.ok(targetOutline);
-    await page.mouse.move(targetOutline.x + targetOutline.width / 2, targetOutline.y + targetOutline.height / 2);
+    const wire = await elementWhere(open, 'the dragged wire', (element) => element.kind === 'wire' && element.from === sourceBox.id && element.to === targetBox.id);
+    const restingPath = await wirePathOf(open, wire.id);
+    const restingTarget = await screenRectOf(open, targetBox.id);
+    const versionBeforeDrop = (await boardOf(open)).version;
+    await page.mouse.move(restingTarget.x + restingTarget.width / 2, restingTarget.y + restingTarget.height / 2);
     await page.mouse.down();
-    await page.mouse.move(targetOutline.x + targetOutline.width / 2 + 260, targetOutline.y + targetOutline.height / 2 + 40, { steps: 8 });
-    await page.waitForFunction((before) => document.querySelector('.boards-view .wb-wire .wb-wire-line')?.getAttribute('d') !== before, restingPath);
-    const draggingPath = await wireLine.getAttribute('d');
-    const versionBeforeDrop = await panel.locator('.wb-board-meta').textContent();
+    await page.mouse.move(restingTarget.x + restingTarget.width / 2 + 260, restingTarget.y + restingTarget.height / 2 + 40, { steps: 8 });
     await page.mouse.up();
-    await page.waitForFunction((before) => document.querySelector('.wb-board-meta')?.textContent !== before, versionBeforeDrop);
-    assert.equal(await wireLine.getAttribute('d'), draggingPath, 'the wire lands where the drag preview routed it');
+    await pollFor('dropping the dragged box saves its move', BOARD_TIMEOUT_MS, async () => ((await boardOf(open)).version !== versionBeforeDrop ? true : null));
+    const draggedPath = await wirePathOf(open, wire.id);
+    assert.notEqual(draggedPath, restingPath, 'moving a box reroutes its wire');
+    const stepHistory = async (label: string, press: () => Promise<void>, expectedPath: string) => {
+      const versionBefore = (await boardOf(open)).version;
+      await press();
+      await pollFor(label, BOARD_TIMEOUT_MS, async () => ((await boardOf(open)).version !== versionBefore ? true : null));
+      assert.equal(await wirePathOf(open, wire.id), expectedPath, label);
+    };
     await panel.locator('.wb-viewport').focus();
-    const versionBeforeUndo = await panel.locator('.wb-board-meta').textContent();
-    await page.keyboard.press('ControlOrMeta+z');
-    await page.waitForFunction((before) => document.querySelector('.wb-board-meta')?.textContent !== before, versionBeforeUndo);
-    assert.equal(await wireLine.getAttribute('d'), restingPath, 'undo puts the dragged box back');
-    const versionBeforeRedo = await panel.locator('.wb-board-meta').textContent();
-    await page.keyboard.press('ControlOrMeta+Shift+z');
-    await page.waitForFunction((before) => document.querySelector('.wb-board-meta')?.textContent !== before, versionBeforeRedo);
-    assert.equal(await wireLine.getAttribute('d'), draggingPath, 'redo moves it again');
-    const versionBeforeUndoButton = await panel.locator('.wb-board-meta').textContent();
-    await panel.getByRole('button', { name: 'undo', exact: true }).click();
-    await page.waitForFunction((before) => document.querySelector('.wb-board-meta')?.textContent !== before, versionBeforeUndoButton);
-    assert.equal(await wireLine.getAttribute('d'), restingPath, 'the undo button steps back like Ctrl+Z');
-    const versionBeforeRedoButton = await panel.locator('.wb-board-meta').textContent();
-    await panel.getByRole('button', { name: 'redo', exact: true }).click();
-    await page.waitForFunction((before) => document.querySelector('.wb-board-meta')?.textContent !== before, versionBeforeRedoButton);
-    assert.equal(await wireLine.getAttribute('d'), draggingPath, 'the redo button steps forward again');
+    await stepHistory('undo puts the dragged box back', () => page.keyboard.press('ControlOrMeta+z'), restingPath);
+    await stepHistory('redo moves it again', () => page.keyboard.press('ControlOrMeta+Shift+z'), draggedPath);
+    await stepHistory('the undo button steps back like Ctrl+Z', () => panel.getByRole('button', { name: 'undo', exact: true }).click(), restingPath);
+    await stepHistory('the redo button steps forward again', () => panel.getByRole('button', { name: 'redo', exact: true }).click(), draggedPath);
     await panel.locator('.wb-viewport').focus();
     const inspect = panel.locator('.wb-inspect');
     await page.keyboard.press('Escape');
@@ -554,41 +638,40 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await page.getByRole('menuitemradio', { name: boardTitle }).waitFor();
     await page.getByRole('menuitem', { name: 'delete board', exact: true }).waitFor();
     await page.keyboard.press('Escape');
-    await targetBox.locator('.wb-box-outline').click();
+    await clickElement(open, targetBox.id);
     await inspect.getByRole('heading', { name: 'Box', exact: true }).waitFor();
+    const isTargetWith = (isMatch: (box: Extract<BoardElement, { kind: 'box' }>) => boolean) => (element: BoardElement) => element.id === targetBox.id && element.kind === 'box' && isMatch(element);
     await inspect.getByRole('combobox', { name: 'Shape', exact: true }).selectOption('decision');
-    await panel.locator('.wb-box', { hasText: 'Index rows' }).locator('.wb-output-label').first().waitFor();
+    await elementWhere(open, 'the box turned into a decision', isTargetWith((box) => box.shape === 'decision' && box.outputs.length > 0));
     await inspect.getByRole('heading', { name: 'Decision', exact: true }).waitFor();
-    const versionBeforePanelUndo = await panel.locator('.wb-board-meta').textContent();
     await inspect.getByRole('combobox', { name: 'Shape', exact: true }).focus();
     await page.keyboard.press('ControlOrMeta+z');
-    await page.waitForFunction((before) => document.querySelector('.wb-board-meta')?.textContent !== before, versionBeforePanelUndo);
+    await elementWhere(open, 'undo right after a panel change takes the decision back', isTargetWith((box) => box.shape !== 'decision'));
     await inspect.getByRole('heading', { name: 'Box', exact: true }).waitFor();
-    assert.equal(await panel.locator('.wb-box', { hasText: 'Index rows' }).locator('.wb-output-label').count(), 0, 'undo right after a panel change takes the decision back');
     await page.keyboard.press('ControlOrMeta+Shift+z');
     await inspect.getByRole('heading', { name: 'Decision', exact: true }).waitFor();
     assert.equal(await inspect.getByRole('textbox', { name: 'Output yes label', exact: true }).inputValue(), 'yes');
     const titleField = inspect.getByRole('textbox', { name: 'Title', exact: true });
     await titleField.fill('Index first');
     await page.keyboard.press('Enter');
-    await panel.locator('.wb-box-title', { hasText: 'Index first' }).waitFor();
+    await elementWhere(open, 'the panel title edit', titled('Index first'));
     await titleField.fill('Index second');
     await page.keyboard.press('Enter');
-    await panel.locator('.wb-box-title', { hasText: 'Index second' }).waitFor();
+    await elementWhere(open, 'the second panel title edit', titled('Index second'));
     await inspect.getByRole('combobox', { name: 'Shape', exact: true }).focus();
     await page.keyboard.press('ControlOrMeta+z');
     await page.keyboard.press('ControlOrMeta+z');
-    await panel.locator('.wb-box-title', { hasText: 'Index rows' }).waitFor();
+    await elementWhere(open, 'two undos take both title edits back', titled('Index rows'));
     await page.keyboard.press('ControlOrMeta+Shift+z');
-    await panel.locator('.wb-box-title', { hasText: 'Index first' }).waitFor({ timeout: 3000 });
+    await elementWhere(open, 'redo brings the first title back', titled('Index first'));
     await page.keyboard.press('ControlOrMeta+Shift+z');
-    await panel.locator('.wb-box-title', { hasText: 'Index second' }).waitFor({ timeout: 3000 });
+    await elementWhere(open, 'redo brings the second title back', titled('Index second'));
     await inspect.getByRole('combobox', { name: 'Change', exact: true }).selectOption('relabeled');
-    await panel.locator('.wb-box-was', { hasText: 'Index second' }).waitFor();
+    await elementWhere(open, 'a relabeled box keeps its old title', isTargetWith((box) => box.change === 'relabeled' && box.was === 'Index second'));
     await titleField.fill('Index rows by day');
     await page.keyboard.press('Enter');
-    await panel.locator('.wb-change-relabeled .wb-box-title', { hasText: 'Index rows by day' }).waitFor();
-    await panel.locator('.wb-legend-text', { hasText: 'renamed, old title struck through' }).waitFor();
+    await elementWhere(open, 'the relabeled box takes its new title', isTargetWith((box) => box.change === 'relabeled' && box.title === 'Index rows by day'));
+    assert.ok(layoutBoard(await boardOf(open)).legend.some((row) => row.label === 'renamed, old title struck through'), 'the legend explains a relabeled box');
     await inspect.getByRole('button', { name: 'Add a ref to this box', exact: true }).click();
     const refField = inspect.getByRole('textbox', { name: 'Ref 1', exact: true });
     await refField.fill('src/feed.ts#L2');
@@ -601,22 +684,27 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await inspect.getByRole('textbox', { name: 'Line 1 text', exact: true }).waitFor();
     await inspect.getByRole('button', { name: 'Add a line to this box', exact: true }).click();
     await inspect.getByRole('textbox', { name: 'Line 2 text', exact: true }).waitFor();
+    const hasLine = (text: string) => isTargetWith((box) => linesOfBox(box).some((line) => line.text === text));
     await inspect.getByRole('textbox', { name: 'Line 1 text', exact: true }).fill('first edited');
     await page.keyboard.press('Enter');
-    await panel.locator('.wb-box', { hasText: 'first edited' }).waitFor();
+    await elementWhere(open, 'the first line edit', hasLine('first edited'));
     await inspect.getByRole('textbox', { name: 'Line 2 text', exact: true }).fill('second edited');
     await page.keyboard.press('Enter');
-    await panel.locator('.wb-box', { hasText: 'second edited' }).waitFor();
-    assert.equal(await panel.locator('.wb-box', { hasText: 'first edited' }).count(), 1, 'a second line edit keeps the first one');
+    await elementWhere(open, 'a second line edit keeps the first one', (element) => hasLine('second edited')(element) && hasLine('first edited')(element));
     await addPlanStep(panel);
     await submitTextDialog(page, 'Step title', 'Index the diffs', 'Add step');
-    const stepOnBoard = panel.locator('.wb-step', { hasText: 'Index the diffs' });
-    await stepOnBoard.locator('.wb-step-status', { hasText: 'planned' }).waitFor();
-    await stepOnBoard.locator('.wb-box-title').click();
+    const step = await elementWhere(open, 'the planned step', (element) => element.kind === 'box' && element.title === 'Index the diffs' && element.step?.status === 'planned');
+    await panel.locator('.wb-viewport').focus();
+    await page.keyboard.press('Escape');
+    await inspect.waitFor({ state: 'hidden' });
+    await clickElement(open, step.id);
     await inspect.getByRole('heading', { name: 'Step', exact: true }).waitFor();
     await inspect.getByRole('combobox', { name: 'Status', exact: true }).selectOption('landed');
-    await stepOnBoard.locator('.wb-step-status.wb-step-landed', { hasText: 'landed' }).waitFor();
-    await verifyBoxStaysWhereDropped(page, panel, stepOnBoard, 'a plan step');
+    await elementWhere(open, 'the landed step', (element) => element.id === step.id && element.kind === 'box' && element.step?.status === 'landed');
+    await panel.locator('.wb-viewport').focus();
+    await page.keyboard.press('Escape');
+    await inspect.waitFor({ state: 'hidden' });
+    await verifyBoxStaysWhereDropped(open, step.id, 'a plan step');
     await openBoardMenuItem(page, panel, 'board settings');
     await inspect.getByRole('heading', { name: 'Board', exact: true }).waitFor({ timeout: 3000 });
   }
@@ -624,16 +712,16 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
   assert.equal(await panel.getByRole('button', { name: boardTitle, exact: true }).count(), 1);
 }
 
-async function openDesktopBoard(page: Page, sessionId: string, boardTitle: string): Promise<{ panel: Locator; boardId: string }> {
+async function openDesktopBoard(page: Page, sessionId: string, boardTitle: string): Promise<OpenBoard> {
   assert.equal(await page.locator('#tab-boards').isVisible(), false, 'Boards has no desktop header tab; boards live in Focus');
   const boardId = await createBoardOverControl(page, boardTitle);
-  await runBoardControl(page, 'whiteboard-connect', { boardId, sessionId });
-  return { panel: await showBoardInFocus(page, sessionId, boardTitle), boardId };
+  await controlReplyOf(page, 'whiteboard-connect', { boardId, sessionId });
+  return { page, panel: await showBoardInFocus(page, sessionId, boardTitle), boardId };
 }
 
 export async function verifyBoardPane(page: Page, sessionId: string, projectDirectory: string): Promise<void> {
   const boardTitle = `Pane plan ${sessionId.slice(0, 8)}`;
-  await createBoardOverControl(page, boardTitle);
+  const boardId = await createBoardOverControl(page, boardTitle);
   await page.locator(`.focus-rail .session-row[data-id="${sessionId}"] .session-row-glyph`).first().click();
   const card = page.locator(`.session-card[data-id="${sessionId}"]`).first();
   await card.waitFor({ state: 'visible' });
@@ -655,6 +743,7 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   assert.equal(await boardChip.locator('.pr-status-icon').count(), 1, 'the board chip carries an icon like a PR chip');
   await boardChip.click();
   const panel = page.locator('#focus-center');
+  const open: OpenBoard = { page, panel, boardId };
   await openBoardTitle(panel, boardTitle).waitFor();
   await page.locator('.pane-tab[data-tab="board"][aria-selected="true"]').waitFor();
   await verifyBoardToolsInBoardPane(panel, boardTitle);
@@ -670,22 +759,22 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   assert.equal(await panel.locator('.wb-presence-pill:not(.wb-presence-count)', { hasText: centeredSessionName }).count(), 0, 'the strip does not repeat the centered session as a presence pill');
   await addPlanStep(panel);
   await submitTextDialog(page, 'Step title', 'Uncovered change', 'Add step');
-  const stepOnBoard = panel.locator('.wb-step', { hasText: 'Uncovered change' });
+  const step = await elementWhere(open, 'the uncovered step', (element) => element.kind === 'box' && element.step !== null && element.title === 'Uncovered change');
   await agentIsland.locator('.wb-session-queued', { hasText: 'queued for' }).waitFor();
   const agentBox = await agentIsland.boundingBox();
   assert.ok(agentBox);
   assert.ok(Math.abs(agentBox.y + agentBox.height - (canvasBox.y + canvasBox.height - 10)) < 2 && Math.abs(agentBox.x - (canvasBox.x + 10)) < 2, 'the session island sits bottom left on the board');
   assert.equal(await agentIsland.getByRole('button').count(), 0, 'the session island holds no send control, since board changes reach the agent with its next prompt');
-  await stepOnBoard.locator('.wb-box-title').click();
+  await clickElement(open, step.id);
   const inspect = panel.locator('.wb-inspect');
   await inspect.getByRole('button', { name: 'Add a ref to this box', exact: true }).click();
   await inspect.getByRole('textbox', { name: 'Ref 1', exact: true }).fill(UNCOVERED_FILE_NAME);
   await page.keyboard.press('Enter');
-  await panel.locator('.wb-step.is-flagged', { hasText: 'Uncovered change' }).waitFor({ timeout: REVIEW_TIMEOUT_MS });
+  await pollFor('the review flags the uncovered step', REVIEW_TIMEOUT_MS, async () => ((await reviewOf(open)).flaggedStepIds.includes(step.id) ? true : null));
   await panel.getByRole('button', { name: 'fit', exact: true }).click();
-  const fittedStepBox = await stepOnBoard.boundingBox();
+  const fittedStepBox = await screenRectOf(open, step.id);
   const islandBox = await agentIsland.boundingBox();
-  assert.ok(fittedStepBox && islandBox);
+  assert.ok(islandBox);
   const spaceAboveStepPx = fittedStepBox.y - canvasBox.y;
   const spaceBelowStepPx = islandBox.y - (fittedStepBox.y + fittedStepBox.height);
   assert.ok(spaceAboveStepPx > 0 && spaceBelowStepPx > 0, 'fit keeps the board clear of the session island');
@@ -732,7 +821,7 @@ async function verifySessionlessBoardRows(page: Page, panel: Locator, sessionId:
 async function verifyBoardPaneFallsBackToSessionBoard(page: Page, panel: Locator, sessionId: string, shownBoardTitle: string): Promise<void> {
   const secondTitle = `Second plan ${sessionId.slice(0, 8)}`;
   const secondBoardId = await createBoardOverControl(page, secondTitle);
-  await runBoardControl(page, 'whiteboard-connect', { boardId: secondBoardId, sessionId });
+  await controlReplyOf(page, 'whiteboard-connect', { boardId: secondBoardId, sessionId });
   const unrelatedTitle = `Unrelated plan ${sessionId.slice(0, 8)}`;
   await createBoardOverControl(page, unrelatedTitle);
   await panel.getByRole('button', { name: 'board menu', exact: true }).click();
@@ -801,23 +890,24 @@ async function verifyBoardToolsInBoardPane(panel: Locator, boardTitle: string): 
   assert.equal(await boardPane.locator('.wb-presence .wb-presence-pill:not(.wb-presence-count)').count(), 0, 'the board names no pill for the only connected session, the one centered beside it');
 }
 
+const SCALE_BOARD_ELEMENTS = 20000;
+const SCALE_BOARD_TITLE = 'Large board';
 const SCALE_HELD_FRAME_SAMPLES = 30;
-const SCALE_HELD_POINTER_STEPS = 20;
 const SCALE_HELD_UPDATE_TITLE = 'Changed while dragging';
-const SCALE_BOARD_TITLE = 'Board at the limit';
 const SCALE_FIRST_DRAW_BUDGET_MS = 1500;
 const SCALE_FRAME_BUDGET_MS = 100;
 const SCALE_DRAGGED_BOX_COUNT = 8;
 const SCALE_DRAG_OFFSET = { x: 120, y: 0 };
 const SCALE_PUT_BYTES_SHARE = 0.9;
 const SCALE_SAVE_TIMEOUT_MS = 30000;
+const STACKED_BOX_EVERY = 10;
 
 function scaleBoardPuts(): Op[][] {
-  const board = benchmarkBoard(WHITEBOARD_LIMITS.elements);
-  const ops: Op[] = Object.values(board.elements).map((element): Op => ({ op: 'add', element }));
+  const board = benchmarkBoard(Math.min(SCALE_BOARD_ELEMENTS, WHITEBOARD_LIMITS.elements));
   const puts: Op[][] = [[]];
   let putBytes = 0;
-  for (const op of ops) {
+  for (const element of Object.values(board.elements)) {
+    const op: Op = { op: 'add', element };
     const opBytes = JSON.stringify(op).length + 1;
     const current = puts[puts.length - 1] ?? [];
     const isFull = current.length >= WHITEBOARD_LIMITS.opsPerPut || putBytes + opBytes > WHITEBOARD_LIMITS.putBytes * SCALE_PUT_BYTES_SHARE;
@@ -832,15 +922,39 @@ function scaleBoardPuts(): Op[][] {
   return puts;
 }
 
-async function readBoxPlace(page: Page, boardId: string, boxIds: readonly string[]): Promise<{ version: number; atById: Record<string, string>; attachedWireId: string | null }> {
-  const reply = await boardControlReply(page, 'whiteboard-get', { boardId });
-  const board = Board.parse(reply.board);
-  const attachedWire = Object.values(board.elements).find((element) => element.kind === 'wire' && (boxIds.includes(element.from) || boxIds.includes(element.to)));
-  const atById = Object.fromEntries(boxIds.map((boxId) => {
+function placesOf(board: Board, boxIds: readonly string[]): Record<string, string> {
+  return Object.fromEntries(boxIds.map((boxId) => {
     const element = board.elements[boxId];
     return [boxId, element?.kind === 'box' && element.at ? `${element.at.x},${element.at.y}` : ''];
   }));
-  return { version: board.version, atById, attachedWireId: attachedWire?.id ?? null };
+}
+
+async function countDashboardBoardFetches(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const counter = { boardFetches: 0 };
+    Object.assign(window, { harnessBoardFetches: counter });
+    const send = WebSocket.prototype.send;
+    WebSocket.prototype.send = function sendCounted(this: WebSocket, frame: Parameters<WebSocket['send']>[0]): void {
+      const message: unknown = typeof frame === 'string' ? JSON.parse(frame) : null;
+      const isDashboardFetch = typeof message === 'object' && message !== null && 'type' in message && message.type === 'whiteboard-get'
+        && !('requestId' in message && typeof message.requestId === 'string' && message.requestId.startsWith('harness-'));
+      if (isDashboardFetch) counter.boardFetches += 1;
+      send.call(this, frame);
+    };
+  });
+}
+
+async function dashboardBoardFetchesOf(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const counter: unknown = Reflect.get(window, 'harnessBoardFetches');
+    return typeof counter === 'object' && counter !== null && 'boardFetches' in counter && typeof counter.boardFetches === 'number' ? counter.boardFetches : -1;
+  });
+}
+
+async function sceneBuildsOf(panel: Locator): Promise<number> {
+  const sceneBuilds = await panel.locator('.wb-gl').evaluate((canvas) => (canvas instanceof HTMLElement ? canvas.dataset.sceneBuilds : undefined));
+  assert.ok(sceneBuilds, 'the board renderer counts its scene builds on its canvas');
+  return Number(sceneBuilds);
 }
 
 async function startFrameRecorder(page: Page): Promise<void> {
@@ -869,24 +983,24 @@ async function stopFrameRecorder(page: Page): Promise<{ maxMs: number; p50Ms: nu
   return { maxMs: Math.round(sorted.at(-1) ?? 0), p50Ms: Math.round(sorted[Math.floor(sorted.length / 2)] ?? 0), frames: sorted.length };
 }
 
-async function visibleAtBoxIds(panel: Locator, count: number): Promise<string[]> {
-  return panel.locator('.wb-canvas').evaluate((canvas, wanted) => {
-    const canvasRect = canvas.getBoundingClientRect();
-    const inner = { left: canvasRect.left + 8, top: canvasRect.top + 8, right: canvasRect.right - 8, bottom: canvasRect.bottom - 8 };
-    const picked: string[] = [];
-    for (const node of canvas.querySelectorAll<SVGGElement>('.wb-element[data-element-kind="box"]')) {
-      const boxId = node.dataset.elementId ?? '';
-      if (Number(boxId.slice(1)) % 10 === 0) continue;
-      const rect = node.getBoundingClientRect();
-      const isInside = rect.left > inner.left && rect.top > inner.top && rect.right < inner.right && rect.bottom < inner.bottom;
-      if (isInside) picked.push(boxId);
-      if (picked.length === wanted) break;
-    }
-    return picked;
-  }, count);
+async function visibleAtBoxRects(open: OpenBoard, board: Board, count: number): Promise<Map<string, ScreenRect>> {
+  const canvasBox = await open.panel.locator('.wb-canvas').boundingBox();
+  assert.ok(canvasBox);
+  const camera = await cameraOf(open);
+  const inner = { left: canvasBox.x + 8, top: canvasBox.y + 8, right: canvasBox.x + canvasBox.width - 8, bottom: canvasBox.y + canvasBox.height - 8 };
+  const picked = new Map<string, ScreenRect>();
+  for (const laidOut of layoutBoard(board).elements) {
+    if (laidOut.kind !== 'box' || Number(laidOut.id.slice(1)) % STACKED_BOX_EVERY === 0) continue;
+    const rect = screenRectOn(camera, laidOut);
+    const isInside = rect.x > inner.left && rect.y > inner.top && rect.x + rect.width < inner.right && rect.y + rect.height < inner.bottom;
+    if (isInside) picked.set(laidOut.id, rect);
+    if (picked.size === count) break;
+  }
+  return picked;
 }
 
-async function panToAtGrid(page: Page, panel: Locator): Promise<void> {
+async function panToAtGrid(open: OpenBoard, board: Board): Promise<Map<string, ScreenRect>> {
+  const { page, panel } = open;
   const canvasBox = await panel.locator('.wb-canvas').boundingBox();
   assert.ok(canvasBox);
   const start = { x: canvasBox.x + canvasBox.width * 0.8, y: canvasBox.y + canvasBox.height * 0.5 };
@@ -895,25 +1009,28 @@ async function panToAtGrid(page: Page, panel: Locator): Promise<void> {
   for (let notch = 0; notch < 4; notch += 1) await page.mouse.wheel(0, 400);
   await page.keyboard.up('Control');
   for (let attempt = 0; attempt < 30; attempt += 1) {
-    if ((await visibleAtBoxIds(panel, SCALE_DRAGGED_BOX_COUNT)).length === SCALE_DRAGGED_BOX_COUNT) return;
+    const visible = await visibleAtBoxRects(open, board, SCALE_DRAGGED_BOX_COUNT);
+    if (visible.size === SCALE_DRAGGED_BOX_COUNT) return visible;
     await page.mouse.move(start.x, start.y);
     await page.mouse.down({ button: 'right' });
     await page.mouse.move(start.x - canvasBox.width * 0.4, start.y - canvasBox.height * 0.25, { steps: 10 });
     await page.mouse.up({ button: 'right' });
   }
+  return visibleAtBoxRects(open, board, SCALE_DRAGGED_BOX_COUNT);
 }
 
 export async function verifyBoardScale(page: Page, sessionId: string): Promise<string> {
   await page.locator('#loading-screen').waitFor({ state: 'hidden' });
   const boardId = await createBoardOverControl(page, SCALE_BOARD_TITLE);
   const fillStartedAt = Date.now();
-  for (const ops of scaleBoardPuts()) await boardControlReply(page, 'whiteboard-op', { boardId, ops });
+  for (const ops of scaleBoardPuts()) await controlReplyOf(page, 'whiteboard-op', { boardId, ops });
   const fillMs = Date.now() - fillStartedAt;
-  await runBoardControl(page, 'whiteboard-connect', { boardId, sessionId });
-  const expectedElements = WHITEBOARD_LIMITS.elements;
+  await controlReplyOf(page, 'whiteboard-connect', { boardId, sessionId });
+  await countDashboardBoardFetches(page);
   const openStartedAt = Date.now();
   const panel = await showBoardInFocus(page, sessionId, SCALE_BOARD_TITLE);
-  await page.waitForFunction(() => document.querySelectorAll('#focus-center .wb-element[data-element-kind="box"]').length > 0, null, { timeout: 60000 });
+  const open: OpenBoard = { page, panel, boardId };
+  await page.waitForFunction(() => Number(document.querySelector<HTMLCanvasElement>('#focus-center canvas[data-drawn-elements]')?.dataset.drawnElements ?? 0) > 0, null, { timeout: 60000 });
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const firstDrawMs = Date.now() - openStartedAt;
 
@@ -926,84 +1043,63 @@ export async function verifyBoardScale(page: Page, sessionId: string): Promise<s
   await page.mouse.up({ button: 'right' });
   const pan = await stopFrameRecorder(page);
 
-  await panToAtGrid(page, panel);
-  const draggedBoxIds = await visibleAtBoxIds(panel, SCALE_DRAGGED_BOX_COUNT);
+  const before = await shownBoardOf(open);
+  const draggedRects = await panToAtGrid(open, before);
+  const draggedBoxIds = [...draggedRects.keys()];
   assert.equal(draggedBoxIds.length, SCALE_DRAGGED_BOX_COUNT, `found ${SCALE_DRAGGED_BOX_COUNT} boxes to drag on screen`);
-  for (const [index, boxId] of draggedBoxIds.entries()) {
-    const boxBounds = await panel.locator(`.wb-element[data-element-id="${boxId}"]`).boundingBox();
-    assert.ok(boxBounds);
+  for (const [index, rect] of [...draggedRects.values()].entries()) {
+    const center = centerOf(rect);
     if (index > 0) await page.keyboard.down('Shift');
-    await page.mouse.click(boxBounds.x + boxBounds.width / 2, boxBounds.y + boxBounds.height / 2);
+    await page.mouse.click(center.x, center.y);
     if (index > 0) await page.keyboard.up('Shift');
   }
-  const before = await readBoxPlace(page, boardId, draggedBoxIds);
-  const grabbedBox = panel.locator(`.wb-element[data-element-id="${draggedBoxIds[0]}"]`);
-  const grabbedBounds = await grabbedBox.boundingBox();
-  assert.ok(grabbedBounds);
-  const attachedWire = before.attachedWireId;
-  const wirePathOf = async (): Promise<string> => (attachedWire ? (await panel.locator(`.wb-element[data-element-id="${attachedWire}"] path`).first().getAttribute('d')) ?? '' : '');
-  const wirePathBefore = await wirePathOf();
-  const grabAt = { x: grabbedBounds.x + grabbedBounds.width / 2, y: grabbedBounds.y + grabbedBounds.height / 2 };
-  const grabbedXById = await page.evaluate((boxIds) => Object.fromEntries(boxIds.map((boxId) => [boxId, document.querySelector(`#focus-center .wb-element[data-element-id="${boxId}"]`)?.getBoundingClientRect().x ?? 0])), draggedBoxIds);
+  const placesBefore = placesOf(before, draggedBoxIds);
+  const untouchedBoxId = Object.keys(before.elements).find((elementId) => before.elements[elementId]?.kind === 'box' && !draggedBoxIds.includes(elementId)) ?? '';
+  const grabAt = centerOf(draggedRects.get(draggedBoxIds[0] ?? '') ?? { x: 0, y: 0, width: 0, height: 0 });
   await startFrameRecorder(page);
   await page.mouse.move(grabAt.x, grabAt.y);
   await page.mouse.down();
+  const sceneBuildsAtGrab = await sceneBuildsOf(panel);
   await page.mouse.move(grabAt.x + SCALE_DRAG_OFFSET.x, grabAt.y + SCALE_DRAG_OFFSET.y, { steps: 30 });
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const drag = await stopFrameRecorder(page);
-  const movedBounds = await grabbedBox.boundingBox();
-  assert.ok(movedBounds);
-  assert.ok(movedBounds.x - grabbedBounds.x > SCALE_DRAG_OFFSET.x / 2, `the dragged box follows the pointer, moved ${movedBounds.x - grabbedBounds.x}px`);
-  if (attachedWire) assert.notEqual(await wirePathOf(), wirePathBefore, 'a wire attached to a dragged box follows it during the drag');
-  const untouchedBoxId = await panel.locator('.wb-element[data-element-kind="box"]').evaluateAll((nodes, dragged) => nodes.map((node) => node.getAttribute('data-element-id') ?? '').find((elementId) => elementId !== '' && !dragged.includes(elementId)) ?? '', draggedBoxIds);
-  const heldSamples = page.evaluate(({ boxIds, changedBoxId, changedTitle, sampleCount, timeoutMs }) => new Promise<{ hasShownUpdate: boolean; samples: Record<string, number>[] }>((resolve) => {
-    const samples: Record<string, number>[] = [];
-    const startedAt = performance.now();
-    let framesAfterUpdate = -1;
-    const sample = () => {
-      samples.push(Object.fromEntries(boxIds.map((boxId) => [boxId, document.querySelector(`#focus-center .wb-element[data-element-id="${boxId}"]`)?.getBoundingClientRect().x ?? Number.NEGATIVE_INFINITY])));
-      const hasShownUpdate = document.querySelector(`#focus-center .wb-element[data-element-id="${changedBoxId}"]`)?.textContent?.replace(/\s/g, '').includes(changedTitle.replace(/\s/g, '')) ?? false;
-      if (hasShownUpdate && framesAfterUpdate < 0) framesAfterUpdate = 0;
-      if (framesAfterUpdate >= 0) framesAfterUpdate += 1;
-      if (framesAfterUpdate >= sampleCount || performance.now() - startedAt > timeoutMs) {
-        resolve({ hasShownUpdate: framesAfterUpdate >= 0, samples });
-        return;
-      }
-      requestAnimationFrame(sample);
-    };
-    requestAnimationFrame(sample);
-  }), { boxIds: draggedBoxIds, changedBoxId: untouchedBoxId, changedTitle: SCALE_HELD_UPDATE_TITLE, sampleCount: SCALE_HELD_FRAME_SAMPLES, timeoutMs: SCALE_SAVE_TIMEOUT_MS });
-  let isSamplingDone = false;
-  void heldSamples.then(() => {
-    isSamplingDone = true;
-  });
-  const updateSent = boardControlReply(page, 'whiteboard-op', { boardId, ops: [{ op: 'set', id: untouchedBoxId, fields: { title: SCALE_HELD_UPDATE_TITLE } }] });
-  for (let step = 1; !isSamplingDone; step += 1) {
-    await page.mouse.move(grabAt.x + SCALE_DRAG_OFFSET.x + (step % SCALE_HELD_POINTER_STEPS), grabAt.y + SCALE_DRAG_OFFSET.y);
+  assert.equal(await sceneBuildsOf(panel), sceneBuildsAtGrab, 'a drag frame moves only the dragged boxes and their wires, never rebuilding the board scene');
+  const versionBeforeUpdate = (await boardOf(open)).version;
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'set', id: untouchedBoxId, fields: { title: SCALE_HELD_UPDATE_TITLE } }] });
+  await panel.locator('.wb-board-meta', { hasText: `v${versionBeforeUpdate + 1}` }).waitFor({ timeout: SCALE_SAVE_TIMEOUT_MS });
+  for (let step = 0; step < SCALE_HELD_FRAME_SAMPLES; step += 1) {
+    await page.mouse.move(grabAt.x + SCALE_DRAG_OFFSET.x + (step % 2), grabAt.y + SCALE_DRAG_OFFSET.y);
     await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
   }
-  await updateSent;
-  const held = await heldSamples;
-  assert.ok(held.hasShownUpdate, 'the board update sent during the drag reaches the page');
-  const snappedBack = held.samples.flatMap((sample) => draggedBoxIds.filter((boxId) => (sample[boxId] ?? Number.NEGATIVE_INFINITY) - (grabbedXById[boxId] ?? 0) <= SCALE_DRAG_OFFSET.x / 2));
-  assert.deepEqual(snappedBack, [], 'a board update during a drag keeps every held box under the pointer');
+  await page.mouse.move(grabAt.x + SCALE_DRAG_OFFSET.x, grabAt.y + SCALE_DRAG_OFFSET.y);
   const dropStartedAt = Date.now();
   await page.mouse.up();
-  await pollFor('the drop saves every dragged box', SCALE_SAVE_TIMEOUT_MS, async () => {
-    const after = await readBoxPlace(page, boardId, draggedBoxIds);
-    return after.version > before.version && draggedBoxIds.every((boxId) => after.atById[boxId] !== before.atById[boxId]) ? after : null;
+  const camera = await cameraOf(open);
+  const droppedDeltaX = Math.round(SCALE_DRAG_OFFSET.x / camera.scale);
+  const saved = await pollFor('the drop saves every dragged box', SCALE_SAVE_TIMEOUT_MS, async () => {
+    const after = await boardOf(open);
+    const placesAfter = placesOf(after, draggedBoxIds);
+    return after.version > versionBeforeUpdate + 1 && draggedBoxIds.every((boxId) => placesAfter[boxId] !== placesBefore[boxId]) ? after : null;
   });
   const saveMs = Date.now() - dropStartedAt;
+  for (const boxId of draggedBoxIds) {
+    const beforeBox = before.elements[boxId];
+    const savedBox = saved.elements[boxId];
+    assert.ok(beforeBox?.kind === 'box' && beforeBox.at && savedBox?.kind === 'box' && savedBox.at);
+    assert.ok(Math.abs(savedBox.at.x - beforeBox.at.x - droppedDeltaX) <= 2, `a board update during a drag keeps ${boxId} under the pointer, it moved ${savedBox.at.x - beforeBox.at.x} of ${droppedDeltaX}`);
+  }
 
   const undoStartedAt = Date.now();
   await page.keyboard.press('Control+z');
   await pollFor('one undo restores every dragged box', SCALE_SAVE_TIMEOUT_MS, async () => {
-    const restored = await readBoxPlace(page, boardId, draggedBoxIds);
-    return draggedBoxIds.every((boxId) => restored.atById[boxId] === before.atById[boxId]) ? restored : null;
+    const placesRestored = placesOf(await boardOf(open), draggedBoxIds);
+    return draggedBoxIds.every((boxId) => placesRestored[boxId] === placesBefore[boxId]) ? true : null;
   });
   const undoMs = Date.now() - undoStartedAt;
+  assert.equal(await dashboardBoardFetchesOf(page), 0, 'the dashboard opens, drags and undoes from tiles without fetching the whole board');
 
-  const measured = `${expectedElements} elements: fill ${fillMs} ms, first draw ${firstDrawMs} ms, pan max ${pan.maxMs} ms p50 ${pan.p50Ms} ms over ${pan.frames} frames, drag max ${drag.maxMs} ms p50 ${drag.p50Ms} ms over ${drag.frames} frames, save ${saveMs} ms, undo ${undoMs} ms`;
+  const elementCount = Object.keys(before.elements).length;
+  const measured = `${elementCount} elements: fill ${fillMs} ms, first draw ${firstDrawMs} ms, pan max ${pan.maxMs} ms p50 ${pan.p50Ms} ms over ${pan.frames} frames, drag max ${drag.maxMs} ms p50 ${drag.p50Ms} ms over ${drag.frames} frames, save ${saveMs} ms, undo ${undoMs} ms`;
   console.log(`board-scale ${measured}`);
   assert.ok(firstDrawMs <= SCALE_FIRST_DRAW_BUDGET_MS, `the board first draws within ${SCALE_FIRST_DRAW_BUDGET_MS} ms; ${measured}`);
   assert.ok(pan.maxMs <= SCALE_FRAME_BUDGET_MS, `panning keeps every frame within ${SCALE_FRAME_BUDGET_MS} ms; ${measured}`);

@@ -108,7 +108,7 @@ interface BackendControlDependencies {
   ) => Promise<PlanReadResult | null>) | null;
   decidePlanReview: ((sessionId: string, decision: PlanDecision) => string | null) | null;
   sessionDocs: SessionDocsPort;
-  whiteboards: Pick<WhiteboardPort, 'handleOperator' | 'snapshotMessage'>;
+  whiteboards: Pick<WhiteboardPort, 'handleOperator' | 'snapshotMessage' | 'tiles'>;
   changeMaps: ChangeMapService;
   coherenceFeed: CoherenceSessionFeed;
   serverBuild: () => string;

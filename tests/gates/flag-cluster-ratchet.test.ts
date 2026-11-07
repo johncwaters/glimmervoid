@@ -30,7 +30,6 @@ const RECORDED_FLAG_COUNTS = new Map<string, number>([
   ['public/trace-store.ts', 3],
   ['public/usage/usage-store.ts', 3],
   ['public/whiteboard/board-edit.ts', 4],
-  ['public/whiteboard/board-render.ts', 3],
   ['public/whiteboard/boards-view.ts', 5],
   ['server/agent-api/child-channels.ts', 3],
   ['server/backend/backend-health.ts', 3],

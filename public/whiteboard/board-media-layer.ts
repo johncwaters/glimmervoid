@@ -13,22 +13,22 @@ const DOC_CARD_TEXT_MAX_CHARS = 16 * 1024;
 const DOC_UNREAD_TEXT = 'This document could not be read.';
 const OCCLUDER_REACH = 8;
 
-type LiveMedia = LaidOutMedia & { kind: keyof typeof VIEWPORT_WIDTH_PX_BY_KIND };
+type PageMedia = LaidOutMedia & { kind: keyof typeof VIEWPORT_WIDTH_PX_BY_KIND };
 
-interface PlacedMedia {
+interface PlacedPage {
   identity: string;
   node: HTMLElement;
 }
 
-function isLiveMedia(media: LaidOutMedia | null): media is LiveMedia {
+function isPageMedia(media: LaidOutMedia | null): media is PageMedia {
   return media?.kind === 'page' || media?.kind === 'doc';
 }
 
-function identityOf(media: LiveMedia): string {
+function identityOf(media: PageMedia): string {
   return JSON.stringify([media.asset, media.mime, media.alt]);
 }
 
-function placeNode(node: HTMLElement, media: LiveMedia): void {
+function placeNode(node: HTMLElement, media: PageMedia): void {
   node.style.left = `${media.x}px`;
   node.style.top = `${media.y}px`;
   node.style.width = `${media.width}px`;
@@ -81,7 +81,7 @@ function renderedDocOpening(docText: string): HTMLElement {
   return rendered;
 }
 
-function docCardOf(media: LiveMedia): HTMLElement {
+function docCardOf(media: PageMedia): HTMLElement {
   const card = el('div', 'wb-media-doc');
   card.inert = true;
   void fetchBoardDocText(media).then((docText) => {
@@ -90,13 +90,13 @@ function docCardOf(media: LiveMedia): HTMLElement {
   return card;
 }
 
-function pageFrameOf(media: LiveMedia): HTMLElement {
+function pageFrameOf(media: PageMedia): HTMLElement {
   const frame = createSandboxedFrame({ source: { kind: 'url', url: `${WHITEBOARD_ASSET_ROUTE}/${boardMediaOriginalFilename(media)}` }, className: 'wb-media-page', title: media.alt || 'page', allowsScripts: true });
   frame.tabIndex = -1;
   return frame;
 }
 
-function placedNodeOf(boxId: string, media: LiveMedia): HTMLElement {
+function placedNodeOf(boxId: string, media: PageMedia): HTMLElement {
   const node = el('div', 'wb-media');
   node.dataset.boxId = boxId;
   node.dataset.mediaKind = media.kind;
@@ -105,44 +105,69 @@ function placedNodeOf(boxId: string, media: LiveMedia): HTMLElement {
   return node;
 }
 
+interface ShownPage {
+  boxId: string;
+  media: PageMedia;
+  identity: string;
+  maskImage: string | null;
+}
+
 export function createBoardMediaLayer() {
   const layer = el('div', 'wb-media-layer');
-  const placedByBoxId = new Map<string, PlacedMedia>();
+  const placedByBoxId = new Map<string, PlacedPage>();
+  let shownPages: ShownPage[] = [];
+  let liveArea: Rect | null = null;
 
-  function sync(layout: BoardLayout, elementIdsInPaintOrder: readonly string[]): void {
-    const seenBoxIds = new Set<string>();
-    const elementById = new Map(layout.elements.map((element) => [element.id, element]));
-    const elementsInPaintOrder = elementIdsInPaintOrder.flatMap((elementId) => elementById.get(elementId) ?? []);
-    for (const element of layout.elements) {
-      if (element.kind !== 'box' || !isLiveMedia(element.media)) continue;
-      seenBoxIds.add(element.id);
-      const identity = identityOf(element.media);
-      const placed = placedByBoxId.get(element.id);
-      const maskImage = pageMaskImage(element.media, occludersAbove(element.id, element.media, elementsInPaintOrder));
-      if (placed?.identity === identity) {
-        placeNode(placed.node, element.media);
-        applyMask(placed.node, maskImage);
+  function isLive(page: ShownPage): boolean {
+    return liveArea !== null && overlaps(liveArea, page.media);
+  }
+
+  function placeLivePages(): void {
+    const liveBoxIds = new Set<string>();
+    for (const page of shownPages) {
+      if (!isLive(page)) continue;
+      liveBoxIds.add(page.boxId);
+      const placed = placedByBoxId.get(page.boxId);
+      if (placed?.identity === page.identity) {
+        placeNode(placed.node, page.media);
+        applyMask(placed.node, page.maskImage);
         continue;
       }
-      const node = placedNodeOf(element.id, element.media);
-      applyMask(node, maskImage);
+      const node = placedNodeOf(page.boxId, page.media);
+      applyMask(node, page.maskImage);
       if (placed) placed.node.replaceWith(node);
       if (!placed) layer.append(node);
-      placedByBoxId.set(element.id, { identity, node });
+      placedByBoxId.set(page.boxId, { identity: page.identity, node });
     }
     for (const [boxId, placed] of placedByBoxId) {
-      if (seenBoxIds.has(boxId)) continue;
+      if (liveBoxIds.has(boxId)) continue;
       placed.node.remove();
       placedByBoxId.delete(boxId);
     }
   }
 
+  function sync(layout: BoardLayout, elementIdsInPaintOrder: readonly string[]): void {
+    const elementById = new Map(layout.elements.map((element) => [element.id, element]));
+    const elementsInPaintOrder = elementIdsInPaintOrder.flatMap((elementId) => elementById.get(elementId) ?? []);
+    shownPages = layout.elements.flatMap((element) => {
+      if (element.kind !== 'box' || !isPageMedia(element.media)) return [];
+      return [{ boxId: element.id, media: element.media, identity: identityOf(element.media), maskImage: pageMaskImage(element.media, occludersAbove(element.id, element.media, elementsInPaintOrder)) }];
+    });
+    placeLivePages();
+  }
+
+  function showArea(area: Rect): void {
+    liveArea = area;
+    placeLivePages();
+  }
+
   function clear(): void {
     for (const placed of placedByBoxId.values()) placed.node.remove();
     placedByBoxId.clear();
+    shownPages = [];
   }
 
-  return { element: layer, sync, clear };
+  return { element: layer, sync, showArea, clear };
 }
 
 export type BoardMediaLayer = ReturnType<typeof createBoardMediaLayer>;

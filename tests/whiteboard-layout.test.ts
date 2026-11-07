@@ -1,12 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Board } from '../shared/contracts/whiteboard.ts';
+import { Board, Op } from '../shared/contracts/whiteboard.ts';
 import { reviewBoard } from '../shared/whiteboard-anchor-core.ts';
-import { layoutBoard, pinnedOffsetYOf } from '../shared/whiteboard-layout-core.ts';
+import { layoutBoard, pinnedOffsetYAfterLeaving, pinnedOffsetYOf } from '../shared/whiteboard-layout-core.ts';
 import { boardSvgDocument } from '../shared/whiteboard-svg-core.ts';
-import { applyBoardDiff, applyOps } from '../shared/whiteboard-ops-core.ts';
+import { applyBoardDiff, applyOps, stageOps } from '../shared/whiteboard-ops-core.ts';
+import { applyLayoutDelta, createLayoutWorld, layoutOf } from '../shared/whiteboard-layout-engine.ts';
+import { layoutBoardRemembered, pinPositionsOfBoard } from '../shared/whiteboard-layout-cache.ts';
+import { patchTileIndex, tileIndexOf, tileKeysFor, tileOf } from '../shared/whiteboard-tile-core.ts';
+import { generateBoardRecord } from '../harness/load-cost/whiteboard-board-generator.ts';
 import { EMPTY_HISTORY, UNDO_LIMIT, recordEdit, takeStep, undoOpsOf } from '../shared/whiteboard-undo-core.ts';
-import type { Op } from '../shared/contracts/whiteboard.ts';
 import type { LaidOutElement, Rect } from '../shared/whiteboard-layout-core.ts';
 
 function box(id: string) {
@@ -163,6 +166,11 @@ test('unplaced step boxes draw as a plan band above the free drawing, one level 
   const draggedBoard = Board.parse({ ...plannedBoard, elements: { ...plannedBoard.elements, searchbox: { ...stepBox('searchbox', 'Search box'), at: droppedAt } } });
   const dragged = layoutBoard(draggedBoard).elements.find((element) => element.id === 'searchbox');
   assert.deepEqual(dragged?.kind === 'box' ? { x: dragged.x, y: dragged.y, label: dragged.step?.label } : null, { x: droppedAt.x, y: droppedAt.y + pinnedOffsetYOf(draggedBoard), label: '3' });
+  for (const leaving of [[searchbox], [endpoint], [endpoint, backfill], [diff, endpoint, backfill, searchbox]]) {
+    const leavingIds = new Set(leaving.map((laidOut) => laidOut.id));
+    const leftBoard = Board.parse({ ...plannedBoard, elements: Object.fromEntries(Object.entries(plannedBoard.elements).map(([id, element]) => [id, leavingIds.has(id) && element.kind === 'box' ? { ...element, at: droppedAt } : element])) });
+    assert.equal(pinnedOffsetYAfterLeaving(layout.plan, leaving), pinnedOffsetYOf(leftBoard), `the band left by ${[...leavingIds].join(', ')} matches a whole-board layout`);
+  }
 });
 
 test('a step status that disagrees with the code session changes warns, changed files no ref covers come back as uncovered, and an unread code session says it was not checked', () => {
@@ -231,6 +239,23 @@ test('a near box sits beside its target and a near box whose target is missing w
   assert.equal(aside.y + aside.height / 2, stop.y + stop.height / 2);
   assert.ok(layout.warnings.includes('box stray sits near gone, which is not placed on the board'));
   assert.deepEqual(layout.warnings.filter((warning) => warning.includes('runs through')), []);
+
+  const removed = applyOps(nearBoard, [{ op: 'remove', id: 'stop' }], { id: 'operator', name: 'operator' }, 0);
+  assert.ok(removed.ok);
+  const afterRemove = layoutBoard(removed.board);
+  assert.deepEqual(afterRemove.elements.filter((element) => element.id === 'stop' || element.id === 'w1'), [], 'a layout after a put that removed a box with near boxes no longer draws the removed box or its wires');
+
+  const addedThenRemoved = applyOps(nearBoard, [
+    { op: 'add', element: Board.shape.elements.valueType.parse({ kind: 'box', id: 'temp', title: 'Temp', at: { x: 600, y: 300 } }) },
+    { op: 'add', element: Board.shape.elements.valueType.parse({ kind: 'box', id: 'kid', title: 'Kid', near: { of: 'temp', side: 'right' } }) },
+    { op: 'remove', id: 'temp' },
+  ], { id: 'operator', name: 'operator' }, 0);
+  assert.ok(addedThenRemoved.ok);
+  const kid = addedThenRemoved.board.elements.kid;
+  assert.ok(kid?.kind === 'box' && kid.near === null && kid.at !== null, 'a box placed near a box the same put adds and removes keeps a place on the board');
+
+  const farFlung = Board.parse({ ...nearBoard, elements: { ...nearBoard.elements, far: { kind: 'box', id: 'far', title: 'Far', at: { x: 1e9, y: 1e9 } }, w2: wire('w2', 'plain', 'far') } });
+  assert.ok(layoutBoard(farFlung).elements.some((element) => element.id === 'w2'), 'a wire to a box a billion units away lays out without walking every cell between');
 });
 
 test('wires keep their named sides, a back wire returns around the outside of the flow, and overlaps and crowding warn by name', () => {
@@ -430,7 +455,7 @@ test('a dashboard applying an edit diff reaches the server board exactly, and un
   const edited = applyOps(start, [{ op: 'remove', id: 'w1' }, ...edits], author, 2);
   assert.ok(edited.ok);
   assert.equal(JSON.stringify(applyBoardDiff(start, edited.diff, edited.board.version, edited.board.updatedAt)), JSON.stringify(edited.board));
-  const undone = applyOps(edited.board, undoOpsOf(start, edited.diff), author, 3);
+  const undone = applyOps(edited.board, undoOpsOf(edited.before, edited.diff), author, 3);
   assert.ok(undone.ok, undone.ok ? '' : undone.error);
   const comparable = (board: Board) => ({ title: board.title, legend: board.legend, codeSessionId: board.codeSessionId, elements: board.elements });
   assert.deepEqual(comparable(undone.board), comparable(start));
@@ -499,4 +524,65 @@ test('a box width rewraps its text and grows its picture, while an unsized box k
   assert.equal(next.x, wide.x + wide.width + 90, 'a box beside the widened one clears its new width');
   const refused = applyOps(sizedBoard, [{ op: 'set', id: 'narrow', fields: { width: 2000 } }], { id: 'agent', name: 'agent' }, 0);
   assert.equal(refused.ok ? '' : refused.error, 'op 1: narrow: a box width is 160 to 960');
+});
+
+test('a layout world kept across puts places what a fresh layout places, and its patched tile index paints what a fresh index paints', () => {
+  let { board } = generateBoardRecord({ elementCount: 400, seed: 7, boardId: 'kept', title: 'kept', createdAt: 0 });
+  const author = { id: 'operator', name: 'operator' };
+  let world = createLayoutWorld(board, null, 0);
+  const tileIndex = tileIndexOf(layoutOf(world), board.version, board);
+  const pinnedBoxes = Object.values(board.elements).flatMap((element) => (element.kind === 'box' && element.at ? [element] : []));
+  const [moved, noted, framed, removed, wired] = pinnedBoxes;
+  const anyNote = Object.values(board.elements).find((element) => element.kind === 'note');
+  assert.ok(moved?.at && noted && framed && removed && wired && anyNote);
+  const puts = [
+    [{ op: 'set', id: moved.id, fields: { at: { x: moved.at.x + 180, y: moved.at.y + 60 } } }],
+    [{ op: 'add', element: { kind: 'note', id: 'kept-note', on: noted.id, text: 'a note added after the first layout' } }],
+    [{ op: 'add', element: { kind: 'note', id: '5', on: noted.id, text: 'a note whose id the board object lists first' } }],
+    [{ op: 'remove', id: anyNote.id }],
+    [{ op: 'add', element: { kind: 'box', id: 'kept-near', title: 'beside', near: { of: noted.id, side: 'right' } } }],
+    [{ op: 'add', element: { kind: 'frame', id: 'kept-frame', title: 'kept frame', contains: [framed.id, moved.id] } }],
+    [{ op: 'add', element: { kind: 'wire', id: 'kept-wire', from: wired.id, to: noted.id, label: 'kept' } }],
+    [{ op: 'set', id: noted.id, fields: { title: 'a much longer title that wraps over several lines of the box' } }],
+    [{ op: 'remove', id: removed.id }],
+  ];
+  for (const ops of puts) {
+    const staged = stageOps(board, ops.map((op) => Op.parse(op)), author, 0, null);
+    assert.ok(staged.ok, staged.ok ? '' : staged.error);
+    const changes = new Map(Object.entries(staged.diff.elements).map(([id, change]) => [id, { before: board.elements[id], after: staged.afterById.get(id) ?? null, isAppended: change[0] === 'put' }]));
+    staged.commit();
+    board = staged.board;
+    const applied = applyLayoutDelta(world, board, changes);
+    assert.equal(applied.delta.isRebuilt, false);
+    world = applied.world;
+    patchTileIndex(tileIndex, board, { version: board.version, chrome: world.chrome, changed: applied.delta.changed, removedIds: applied.delta.removedIds, recordChangedIds: [...changes.keys()] });
+  }
+  const kept = layoutOf(world);
+  const fresh = layoutBoard(board);
+  const solidsOf = (elements: readonly LaidOutElement[]) => elements.filter((element) => element.kind !== 'wire').map((element) => JSON.stringify(element)).sort();
+  assert.deepEqual(solidsOf(kept.elements), solidsOf(fresh.elements));
+  assert.deepEqual(kept.elements.filter((element) => element.kind === 'wire').map((element) => element.id).sort(), fresh.elements.filter((element) => element.kind === 'wire').map((element) => element.id).sort());
+  assert.deepEqual(kept.bounds, fresh.bounds);
+  const freshIndex = tileIndexOf(kept, board.version, board);
+  const paintedIn = (index: typeof tileIndex, key: ReturnType<typeof tileKeysFor>[number]) => tileOf(index, key).elements.map((painted) => JSON.stringify(painted.element)).sort();
+  for (const key of tileKeysFor(kept.bounds, 'full')) assert.deepEqual(paintedIn(tileIndex, key), paintedIn(freshIndex, key));
+  assert.deepEqual(tileIndex.chrome, freshIndex.chrome);
+});
+
+test('removing a box on a small remembered board pins the boxes placed near it where they were drawn', () => {
+  const board = Board.parse({
+    id: 'small-pin', title: 'small pin', version: 1, caption: null, createdAt: 0, updatedAt: 0,
+    elements: {
+      anchor: { kind: 'box', id: 'anchor', title: 'Anchor', at: { x: 40, y: 40 } },
+      follower: { kind: 'box', id: 'follower', title: 'Follower', near: { of: 'anchor', side: 'right' } },
+    },
+  });
+  const drawnFollower = layoutBoardRemembered(board).elements.find((element) => element.id === 'follower');
+  assert.ok(drawnFollower?.kind === 'box');
+  const staged = stageOps(board, [Op.parse({ op: 'remove', id: 'anchor' })], { id: 'operator', name: 'operator' }, 0, pinPositionsOfBoard(board));
+  assert.ok(staged.ok);
+  const follower = staged.afterById.get('follower');
+  assert.ok(follower?.kind === 'box');
+  assert.equal(follower.near, null);
+  assert.deepEqual(follower.at, { x: drawnFollower.x, y: drawnFollower.y });
 });

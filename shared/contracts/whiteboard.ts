@@ -4,7 +4,7 @@ import { DEVICE_FITS, DEVICE_NAMES } from '../whiteboard-devices.ts';
 import { ICON_NAMES } from '../whiteboard-icons.ts';
 
 export const WHITEBOARD_LIMITS = Object.freeze({
-  elements: 20000, opsPerPut: 5000, putBytes: 1_728_576, title: 80, line: 120, linesPerBox: 12, noteText: 400, logEntries: 2000, layoutWarnings: 20, boxWidthMin: 160, boxWidthMax: 960,
+  elements: 1_000_000, opsPerPut: 5000, putBytes: 1_728_576, title: 80, line: 120, linesPerBox: 12, noteText: 400, logEntries: 2000, layoutWarnings: 20, readPage: 150, readPageChars: 32_000, outlineClusters: 40, queryText: 200, boxWidthMin: 160, boxWidthMax: 960,
 });
 
 
@@ -213,6 +213,8 @@ export const Board = z.object({
   updatedAt: z.number(),
 }).strict();
 
+export const BoardHead = Board.omit({ elements: true });
+
 export const Op = z.discriminatedUnion('op', [
   z.object({ op: z.literal('add'), element: Element }).strict(),
   z.object({ op: z.literal('set'), id: ElementId, fields: z.record(z.string(), z.unknown()).describe('the element fields to change, as in {"title":"Gateway"}') }).strict(),
@@ -246,12 +248,31 @@ export const BoardRecord = z.object({
 
 const BoardRef = z.string({ error: 'the board must be a string' }).min(1, { error: 'name the board by id or title' }).max(200);
 
+export const BoardRegion = z.object({
+  x: z.number().finite(),
+  y: z.number().finite(),
+  width: z.number().finite().positive({ error: 'a region width is above 0' }),
+  height: z.number().finite().positive({ error: 'a region height is above 0' }),
+}).strict().meta({ id: 'BoardRegion' });
+
+const ReadCursor = z.string().max(40).regex(/^\d+\.\d+$/, { error: 'a cursor is the nextCursor a previous read returned' }).describe('the nextCursor a previous read returned, to read the next page');
+
+const BoardQuery = z.object({
+  sub: z.literal('query'),
+  board: BoardRef,
+  region: BoardRegion.optional(),
+  ids: z.array(ElementId).min(1).max(WHITEBOARD_LIMITS.readPage, { error: `a query names at most ${WHITEBOARD_LIMITS.readPage} ids` }).optional(),
+  text: z.string().trim().min(1).max(WHITEBOARD_LIMITS.queryText, { error: `query text is at most ${WHITEBOARD_LIMITS.queryText} characters` }).optional(),
+  cursor: ReadCursor.optional(),
+}).strict().refine((query) => [query.region, query.ids, query.text].filter((criterion) => criterion !== undefined).length === 1, { error: 'a query takes exactly one of region, ids or text' });
+
 export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
   z.object({ sub: z.literal('new'), title: Title.min(1, { error: 'a new board needs a title' }) }).strict(),
   z.object({ sub: z.literal('list') }).strict(),
   z.object({ sub: z.literal('connect'), board: BoardRef }).strict(),
   z.object({ sub: z.literal('disconnect'), board: BoardRef }).strict(),
-  z.object({ sub: z.literal('get'), board: BoardRef, peek: z.boolean().optional(), review: z.boolean().optional() }).strict(),
+  z.object({ sub: z.literal('get'), board: BoardRef, peek: z.boolean().optional(), review: z.boolean().optional(), region: BoardRegion.optional(), cursor: ReadCursor.optional(), whole: z.boolean().optional() }).strict(),
+  BoardQuery,
   z.object({
     sub: z.literal('put'),
     board: BoardRef,
@@ -266,7 +287,7 @@ export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
     path: z.string().min(1, { error: 'show needs the file path' }).max(4096),
     caption: z.string().max(WHITEBOARD_LIMITS.line, { error: `a show caption is at most ${WHITEBOARD_LIMITS.line} characters` }).optional(),
   }).strict(),
-], { error: 'whiteboard takes new, list, connect, disconnect, get, put, resolve, doc, delete, attach or show' });
+], { error: 'whiteboard takes new, list, connect, disconnect, get, query, put, resolve, doc, delete, attach or show' });
 
 export const BoardReview = z.object({
   codeSessionId: z.string().nullable(),
@@ -278,7 +299,22 @@ export const BoardReview = z.object({
   notChecked: z.string().nullable(),
 }).strict();
 
+export const BoardOutline = z.object({
+  elementCount: z.number().int(),
+  countsByKind: z.record(z.string(), z.number().int()),
+  bounds: BoardRegion,
+  frames: z.array(z.object({ id: z.string(), title: z.string(), rect: BoardRegion }).strict()).max(WHITEBOARD_LIMITS.readPage),
+  clustersOutsideFocus: z.array(z.object({ rect: BoardRegion, elementCount: z.number().int(), titles: z.array(z.string()) }).strict()).max(WHITEBOARD_LIMITS.outlineClusters),
+}).strict();
+
+const ElementPage = {
+  elements: z.array(Element).max(WHITEBOARD_LIMITS.readPage),
+  nextCursor: z.string().nullable(),
+};
+
 export const WhiteboardAgentReply = z.union([
+  z.object({ ok: z.literal(true), board: BoardSummary, outline: BoardOutline, focus: BoardRegion, ...ElementPage, changes: z.array(BoardChange), review: BoardReview.optional() }).strict(),
+  z.object({ ok: z.literal(true), version: z.number().int(), ...ElementPage, missingIds: z.array(z.string()) }).strict(),
   z.object({ ok: z.literal(true), board: BoardSummary, note: z.string() }).strict(),
   z.object({ ok: z.literal(true), boards: z.array(BoardSummary) }).strict(),
   z.object({ ok: z.literal(true), board: Board, changes: z.array(BoardChange), review: BoardReview.optional() }).strict(),
@@ -329,14 +365,20 @@ export function boardMediaDrawnFilename(media: Pick<BoxMedia, 'kind' | 'asset' |
   return media.kind === 'image' ? boardMediaOriginalFilename(media) : null;
 }
 
-export function sparseBoardRecord(record: BoardRecord): unknown {
-  return withoutDefaults(BoardRecord, record);
+export function sparseElement(element: Element): unknown {
+  return withoutDefaults(Element, element);
+}
+
+function withSparseElements<Body extends object>(body: Body): Body | Record<string, unknown> {
+  if (!('elements' in body) || !Array.isArray(body.elements)) return body;
+  return { ...body, elements: body.elements.map((element: unknown) => withoutDefaults(Element, element)) };
 }
 
 export function sparseBoardReply<Body extends object>(body: Body): Body | Record<string, unknown> {
-  if (!('changes' in body) || !('board' in body)) return body;
-  const board = Board.safeParse(body.board);
-  return board.success ? { ...body, board: withoutDefaults(Board, board.data) } : body;
+  const sparse = withSparseElements(body);
+  if (!('changes' in sparse) || !('board' in sparse)) return sparse;
+  const board = Board.safeParse(sparse.board);
+  return board.success ? { ...sparse, board: withoutDefaults(Board, board.data) } : sparse;
 }
 
 export type Box = z.infer<typeof Box>;
@@ -352,7 +394,10 @@ export type Board = z.infer<typeof Board>;
 export type Op = z.infer<typeof Op>;
 export type BoardChange = z.infer<typeof BoardChange>;
 export type BoardReview = z.infer<typeof BoardReview>;
+export type BoardHead = z.infer<typeof BoardHead>;
 export type BoardSummary = z.infer<typeof BoardSummary>;
+export type BoardOutline = z.infer<typeof BoardOutline>;
+export type BoardRegion = z.infer<typeof BoardRegion>;
 export type BoardRecord = z.infer<typeof BoardRecord>;
 export type WhiteboardAgentRequest = z.infer<typeof WhiteboardAgentRequest>;
 export type WhiteboardAgentReply = z.infer<typeof WhiteboardAgentReply>;

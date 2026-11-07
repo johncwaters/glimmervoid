@@ -219,3 +219,96 @@ export function renderT3Markdown(result: T3ProfileResult): string {
   }
   return `${lines.join('\n')}\n`;
 }
+
+const WhiteboardMetricUnitSchema = z.enum(['ms', 'bytes', 'mb', 'count', 'chars', 'fps']);
+
+const WhiteboardMetricSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  unit: WhiteboardMetricUnitSchema,
+  value: z.number().nullable(),
+});
+
+const WhiteboardSizeResultSchema = z.object({
+  elementCount: z.number(),
+  metrics: z.array(WhiteboardMetricSchema),
+});
+
+export const WhiteboardBenchResultSchema = z.object({
+  schemaVersion: z.literal(1),
+  kind: z.literal('whiteboard'),
+  commit: z.string(),
+  hasUncommittedChanges: z.boolean().optional(),
+  recordedAt: z.string(),
+  node: z.string(),
+  sections: z.array(z.enum(['server', 'browser', 'mcp'])),
+  viewport: z.string(),
+  sizes: z.array(WhiteboardSizeResultSchema),
+});
+
+export type WhiteboardMetric = z.infer<typeof WhiteboardMetricSchema>;
+export type WhiteboardMetricUnit = z.infer<typeof WhiteboardMetricUnitSchema>;
+export type WhiteboardBenchResult = z.infer<typeof WhiteboardBenchResultSchema>;
+
+export function percentile(values: readonly number[], fraction: number): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((left, right) => left - right);
+  const rank = Math.min(sorted.length - 1, Math.max(0, Math.ceil(fraction * sorted.length) - 1));
+  return sorted[rank] ?? 0;
+}
+
+function formatWhiteboardValue(value: number | null, unit: WhiteboardMetricUnit): string {
+  if (value === null) return 'n/a';
+  if (unit === 'bytes') return formatBytes(value);
+  if (unit === 'ms') return `${value.toFixed(value < 10 ? 2 : 1)} ms`;
+  if (unit === 'mb') return `${value.toFixed(1)} MB`;
+  if (unit === 'fps') return `${value.toFixed(1)} fps`;
+  return `${Math.round(value)}${unit === 'chars' ? ' chars' : ''}`;
+}
+
+function commitLabel(result: WhiteboardBenchResult): string {
+  const shortCommit = result.commit.slice(0, 8);
+  if (result.hasUncommittedChanges === undefined) return `${shortCommit}-tree-unknown`;
+  return result.hasUncommittedChanges ? `${shortCommit}-dirty` : shortCommit;
+}
+
+export function renderWhiteboardMarkdown(result: WhiteboardBenchResult): string {
+  const lines = [
+    '# Whiteboard bench',
+    '',
+    `Commit ${commitLabel(result)}, ${result.recordedAt}, node ${result.node}, ${result.viewport}, sections ${result.sections.join(', ')}.`,
+  ];
+  for (const size of result.sizes) {
+    lines.push('', `## ${size.elementCount} elements`, '', '| Metric | Value |', '|---|---:|');
+    for (const metric of size.metrics) lines.push(`| ${metric.label} | ${formatWhiteboardValue(metric.value, metric.unit)} |`);
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+function whiteboardFactor(before: number | null, after: number | null, unit: WhiteboardMetricUnit): string {
+  if (before === null || after === null) return 'n/a';
+  if (before === after) return 'same';
+  if (unit === 'fps') return fpsFactor(before, after);
+  if (after === 0) return 'eliminated';
+  if (before === 0) return 'new';
+  return formatFactor(before, after);
+}
+
+function fpsFactor(before: number, after: number): string {
+  if (after === 0) return 'stalled';
+  if (before === 0) return 'recovered';
+  return formatFactor(after, before);
+}
+
+export function renderWhiteboardComparison(before: WhiteboardBenchResult, after: WhiteboardBenchResult): string {
+  const lines = [`# Whiteboard bench: ${commitLabel(before)} (${before.recordedAt}) vs ${commitLabel(after)} (${after.recordedAt})`];
+  for (const size of after.sizes) {
+    const previous = before.sizes.find((candidate) => candidate.elementCount === size.elementCount);
+    lines.push('', `## ${size.elementCount} elements`, '', '| Metric | Was | Now | Better by |', '|---|---:|---:|---:|');
+    for (const metric of size.metrics) {
+      const previousValue = previous?.metrics.find((candidate) => candidate.key === metric.key)?.value ?? null;
+      lines.push(`| ${metric.label} | ${formatWhiteboardValue(previousValue, metric.unit)} | ${formatWhiteboardValue(metric.value, metric.unit)} | ${whiteboardFactor(previousValue, metric.value, metric.unit)} |`);
+    }
+  }
+  return `${lines.join('\n')}\n`;
+}

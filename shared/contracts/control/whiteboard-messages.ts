@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { Board, BoardReview, BoardSummary, Element, Op, WHITEBOARD_LIMITS } from '../whiteboard.ts';
-import { LaidOutBoard } from '../whiteboard-layout.ts';
+import { Board, BoardHead, BoardReview, BoardSummary, Element, Op, WHITEBOARD_LIMITS } from '../whiteboard.ts';
+import { BoardChrome, LayoutRect, Tile, TileDiff, TILE_LODS } from '../whiteboard-tiles.ts';
 import { requestId, loose, optionalError } from './control-fields.ts';
 
 export const ElementChange = z.union([
@@ -19,17 +19,22 @@ export const BoardDiff = z.object({
   elements: z.record(z.string(), ElementChange),
 }).strict();
 
-const whiteboardPatchFields = {
+export const DiffBefore = z.object({ fields: BoardDiff.shape.fields, elements: z.record(z.string(), Element.nullable()) }).strict();
+
+export const WhiteboardPatch = z.object({
   boardId: z.string(),
   fromVersion: z.number().int(),
   toVersion: z.number().int(),
   author: z.object({ id: z.string(), name: z.string() }),
   updatedAt: z.number(),
   diff: BoardDiff,
-};
+  before: DiffBefore,
+});
 
 export type ElementChange = z.infer<typeof ElementChange>;
 export type BoardDiff = z.infer<typeof BoardDiff>;
+export type DiffBefore = z.infer<typeof DiffBefore>;
+export type WhiteboardPatch = z.infer<typeof WhiteboardPatch>;
 
 export const whiteboardClientVariants = [
   loose('whiteboard-create', { title: Board.shape.title, requestId }),
@@ -37,14 +42,15 @@ export const whiteboardClientVariants = [
   loose('whiteboard-delete', { boardId: Board.shape.id, requestId }),
   loose('whiteboard-get', { boardId: Board.shape.id, requestId }),
   loose('whiteboard-review', { boardId: Board.shape.id, requestId }),
-  loose('whiteboard-layout', { boardId: Board.shape.id, requestId }),
   loose('whiteboard-connect', { boardId: Board.shape.id, sessionId: z.string().min(1), requestId }),
   loose('whiteboard-disconnect', { boardId: Board.shape.id, sessionId: z.string().min(1), requestId }),
+  loose('whiteboard-view', { boardId: Board.shape.id, view: LayoutRect, lod: z.enum(TILE_LODS), knownVersion: z.number().int().nullable(), requestId }),
 ] as const;
 
 export const whiteboardServerVariants = [
   loose('whiteboards-snapshot', { boards: z.array(BoardSummary) }),
-  loose('whiteboard-patch', whiteboardPatchFields),
   loose('whiteboard-removed', { boardId: z.string() }),
-  loose('whiteboard-result', { requestId, ok: z.boolean(), error: optionalError, board: Board.optional(), summary: BoardSummary.optional(), review: BoardReview.optional(), patch: z.object(whiteboardPatchFields).optional(), laidOut: z.object({ version: z.number().int(), layout: LaidOutBoard }).optional() }),
+  loose('whiteboard-tiles', { boardId: z.string(), version: z.number().int(), head: BoardHead, elementCount: z.number().int().nonnegative(), chrome: BoardChrome.nullable(), tiles: z.array(Tile) }),
+  loose('whiteboard-tile-diff', { boardId: z.string(), fromVersion: z.number().int(), toVersion: z.number().int(), head: BoardHead, elementCount: z.number().int().nonnegative(), diff: TileDiff }),
+  loose('whiteboard-result', { requestId, ok: z.boolean(), error: optionalError, board: Board.optional(), summary: BoardSummary.optional(), review: BoardReview.optional(), patch: WhiteboardPatch.optional() }),
 ] as const;

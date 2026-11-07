@@ -1,0 +1,398 @@
+{
+  "schemaVersion": 1,
+  "kind": "whiteboard",
+  "commit": "27961d2541d0137e1154a1f69218a29baa7b6c97",
+  "hasUncommittedChanges": true,
+  "recordedAt": "2026-11-07T00:24:14.550Z",
+  "node": "v22.23.2",
+  "sections": [
+    "server",
+    "browser",
+    "mcp"
+  ],
+  "viewport": "Desktop viewport 1440x900, headless Chromium",
+  "sizes": [
+    {
+      "elementCount": 1000,
+      "metrics": [
+        {
+          "key": "file-bytes",
+          "label": "Stored board size",
+          "unit": "bytes",
+          "value": 164560
+        },
+        {
+          "key": "layout",
+          "label": "Whole-board layout",
+          "unit": "ms",
+          "value": 71.671783
+        },
+        {
+          "key": "mcp-get-chars",
+          "label": "MCP whiteboard get tool result, text plus structured copy",
+          "unit": "chars",
+          "value": 361778
+        },
+        {
+          "key": "get-first",
+          "label": "First get over the control socket",
+          "unit": "ms",
+          "value": 17.625316999999995
+        },
+        {
+          "key": "get-warm",
+          "label": "Warm get over the control socket",
+          "unit": "ms",
+          "value": 7.901563000000124
+        },
+        {
+          "key": "get-bytes",
+          "label": "Get reply size",
+          "unit": "bytes",
+          "value": 324228
+        },
+        {
+          "key": "rss-growth",
+          "label": "Server RSS growth after boot and open",
+          "unit": "mb",
+          "value": 7.184384
+        },
+        {
+          "key": "put-1-p50",
+          "label": "Put of 1 op(s), p50",
+          "unit": "ms",
+          "value": 73.38475100000005
+        },
+        {
+          "key": "put-1-p95",
+          "label": "Put of 1 op(s), p95",
+          "unit": "ms",
+          "value": 93.6392679999999
+        },
+        {
+          "key": "put-10-p50",
+          "label": "Put of 10 op(s), p50",
+          "unit": "ms",
+          "value": 71.01465000000007
+        },
+        {
+          "key": "put-10-p95",
+          "label": "Put of 10 op(s), p95",
+          "unit": "ms",
+          "value": 78.30751700000019
+        },
+        {
+          "key": "put-100-p50",
+          "label": "Put of 100 op(s), p50",
+          "unit": "ms",
+          "value": 77.32924100000037
+        },
+        {
+          "key": "put-100-p95",
+          "label": "Put of 100 op(s), p95",
+          "unit": "ms",
+          "value": 87.61890300000005
+        },
+        {
+          "key": "open",
+          "label": "Open the board, first element drawn",
+          "unit": "ms",
+          "value": 838.4613140000001
+        },
+        {
+          "key": "pan-frame-p50",
+          "label": "Pan, frame time p50",
+          "unit": "ms",
+          "value": 33.29999999999927
+        },
+        {
+          "key": "pan-frame-p95",
+          "label": "Pan, frame time p95",
+          "unit": "ms",
+          "value": 50
+        },
+        {
+          "key": "pan-frame-max",
+          "label": "Pan, frame time max",
+          "unit": "ms",
+          "value": 50.100000000000364
+        },
+        {
+          "key": "pan-fps",
+          "label": "Pan, frames per second",
+          "unit": "fps",
+          "value": 36.42931488397722
+        },
+        {
+          "key": "pan-dropped",
+          "label": "Pan, dropped frames",
+          "unit": "count",
+          "value": 67
+        },
+        {
+          "key": "zoom-frame-p50",
+          "label": "Zoom sweep, frame time p50",
+          "unit": "ms",
+          "value": 33.400000000000546
+        },
+        {
+          "key": "zoom-frame-p95",
+          "label": "Zoom sweep, frame time p95",
+          "unit": "ms",
+          "value": 133.39999999999964
+        },
+        {
+          "key": "zoom-frame-max",
+          "label": "Zoom sweep, frame time max",
+          "unit": "ms",
+          "value": 150
+        },
+        {
+          "key": "zoom-fps",
+          "label": "Zoom sweep, frames per second",
+          "unit": "fps",
+          "value": 18.646458368195834
+        },
+        {
+          "key": "zoom-dropped",
+          "label": "Zoom sweep, dropped frames",
+          "unit": "count",
+          "value": 58
+        },
+        {
+          "key": "drag-frame-p50",
+          "label": "Drag a box, frame time p50",
+          "unit": "ms",
+          "value": 16.69999999999891
+        },
+        {
+          "key": "drag-frame-p95",
+          "label": "Drag a box, frame time p95",
+          "unit": "ms",
+          "value": 16.799999999999272
+        },
+        {
+          "key": "drag-frame-max",
+          "label": "Drag a box, frame time max",
+          "unit": "ms",
+          "value": 83.29999999999927
+        },
+        {
+          "key": "drag-fps",
+          "label": "Drag a box, frames per second",
+          "unit": "fps",
+          "value": 56.84509711037424
+        },
+        {
+          "key": "drag-dropped",
+          "label": "Drag a box, dropped frames",
+          "unit": "count",
+          "value": 3
+        },
+        {
+          "key": "dom-nodes",
+          "label": "DOM nodes after the run",
+          "unit": "count",
+          "value": 10206
+        },
+        {
+          "key": "js-heap",
+          "label": "JS heap after the run",
+          "unit": "mb",
+          "value": 12.045258
+        }
+      ]
+    },
+    {
+      "elementCount": 5000,
+      "metrics": [
+        {
+          "key": "file-bytes",
+          "label": "Stored board size",
+          "unit": "bytes",
+          "value": 835431
+        },
+        {
+          "key": "layout",
+          "label": "Whole-board layout",
+          "unit": "ms",
+          "value": 732.5830249999999
+        },
+        {
+          "key": "mcp-get-chars",
+          "label": "MCP whiteboard get tool result, text plus structured copy",
+          "unit": "chars",
+          "value": 1826004
+        },
+        {
+          "key": "get-first",
+          "label": "First get over the control socket",
+          "unit": "ms",
+          "value": 69.84683500000028
+        },
+        {
+          "key": "get-warm",
+          "label": "Warm get over the control socket",
+          "unit": "ms",
+          "value": 56.23281800000041
+        },
+        {
+          "key": "get-bytes",
+          "label": "Get reply size",
+          "unit": "bytes",
+          "value": 1632900
+        },
+        {
+          "key": "rss-growth",
+          "label": "Server RSS growth after boot and open",
+          "unit": "mb",
+          "value": 13.012992
+        },
+        {
+          "key": "put-1-p50",
+          "label": "Put of 1 op(s), p50",
+          "unit": "ms",
+          "value": 747.8517869999996
+        },
+        {
+          "key": "put-1-p95",
+          "label": "Put of 1 op(s), p95",
+          "unit": "ms",
+          "value": 838.2709810000015
+        },
+        {
+          "key": "put-10-p50",
+          "label": "Put of 10 op(s), p50",
+          "unit": "ms",
+          "value": 731.7915800000046
+        },
+        {
+          "key": "put-10-p95",
+          "label": "Put of 10 op(s), p95",
+          "unit": "ms",
+          "value": 769.2047240000029
+        },
+        {
+          "key": "put-100-p50",
+          "label": "Put of 100 op(s), p50",
+          "unit": "ms",
+          "value": 758.0467260000005
+        },
+        {
+          "key": "put-100-p95",
+          "label": "Put of 100 op(s), p95",
+          "unit": "ms",
+          "value": 818.8518509999994
+        },
+        {
+          "key": "open",
+          "label": "Open the board, first element drawn",
+          "unit": "ms",
+          "value": 3255.425906999997
+        },
+        {
+          "key": "pan-frame-p50",
+          "label": "Pan, frame time p50",
+          "unit": "ms",
+          "value": 16.699999999999818
+        },
+        {
+          "key": "pan-frame-p95",
+          "label": "Pan, frame time p95",
+          "unit": "ms",
+          "value": 33.30000000000018
+        },
+        {
+          "key": "pan-frame-max",
+          "label": "Pan, frame time max",
+          "unit": "ms",
+          "value": 33.400000000000546
+        },
+        {
+          "key": "pan-fps",
+          "label": "Pan, frames per second",
+          "unit": "fps",
+          "value": 54.5071454745328
+        },
+        {
+          "key": "pan-dropped",
+          "label": "Pan, dropped frames",
+          "unit": "count",
+          "value": 12
+        },
+        {
+          "key": "zoom-frame-p50",
+          "label": "Zoom sweep, frame time p50",
+          "unit": "ms",
+          "value": 33.29999999999927
+        },
+        {
+          "key": "zoom-frame-p95",
+          "label": "Zoom sweep, frame time p95",
+          "unit": "ms",
+          "value": 116.70000000000073
+        },
+        {
+          "key": "zoom-frame-max",
+          "label": "Zoom sweep, frame time max",
+          "unit": "ms",
+          "value": 149.89999999999964
+        },
+        {
+          "key": "zoom-fps",
+          "label": "Zoom sweep, frames per second",
+          "unit": "fps",
+          "value": 24.000738484261056
+        },
+        {
+          "key": "zoom-dropped",
+          "label": "Zoom sweep, dropped frames",
+          "unit": "count",
+          "value": 44
+        },
+        {
+          "key": "drag-frame-p50",
+          "label": "Drag a box, frame time p50",
+          "unit": "ms",
+          "value": 16.700000000000728
+        },
+        {
+          "key": "drag-frame-p95",
+          "label": "Drag a box, frame time p95",
+          "unit": "ms",
+          "value": 899.9000000000015
+        },
+        {
+          "key": "drag-frame-max",
+          "label": "Drag a box, frame time max",
+          "unit": "ms",
+          "value": 1283.2999999999993
+        },
+        {
+          "key": "drag-fps",
+          "label": "Drag a box, frames per second",
+          "unit": "fps",
+          "value": 3.67959123086508
+        },
+        {
+          "key": "drag-dropped",
+          "label": "Drag a box, dropped frames",
+          "unit": "count",
+          "value": 66
+        },
+        {
+          "key": "dom-nodes",
+          "label": "DOM nodes after the run",
+          "unit": "count",
+          "value": 49063
+        },
+        {
+          "key": "js-heap",
+          "label": "JS heap after the run",
+          "unit": "mb",
+          "value": 28.576007
+        }
+      ]
+    }
+  ]
+}

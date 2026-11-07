@@ -39,6 +39,7 @@ import { mountCustomSoundRoutes } from '../custom-sounds-routes.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import { clientDir } from '../runtime-paths.ts';
 import type { WhiteboardAssetStore } from '../whiteboard/whiteboard-assets.ts';
+import type { WhiteboardLayouts } from '../whiteboard/whiteboard-wiring.ts';
 import { ASSET_INPUT_CAP_BYTES } from '../whiteboard/whiteboard-assets.ts';
 import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_VIEWER_PARAM, WHITEBOARD_ASSET_ROUTE } from '../../shared/contracts/whiteboard.ts';
 import { buildUploadFilename, decideUploadType, exceedsUploadCap, imageMimeForUploadFilename, isSafePathSegment } from '../core/upload-core.ts';
@@ -127,6 +128,7 @@ interface BackendHttpDependencies {
   getAgentApi?: () => AgentApiPort | null;
   getPackFile?: PackFileSource;
   getWhiteboardAssets?: () => WhiteboardAssetStore | null;
+  getWhiteboardLayouts?: () => WhiteboardLayouts | null;
   getPrActionReports?: () => Pick<PrFlowsWiring, 'acceptPrActionReport'> | null;
   sshSigner?: Pick<SshSigner, 'signWithAgent'> | null;
   recordOutcome?: OutcomeRecorder;
@@ -220,7 +222,7 @@ function answerLinkPreview({ req, res, remoteListenerPort, listenerPortsFor, tok
 }
 
 type AgentIngressDependencies = Pick<BackendHttpDependencies,
-  'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'getPlanReview' | 'refocusContextFor' | 'takePromptSupervision' | 'getAgentApi' | 'getWhiteboardAssets' | 'getPrActionReports' | 'sshSigner' | 'recordOutcome' | 'logger'>;
+  'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'getPlanReview' | 'refocusContextFor' | 'takePromptSupervision' | 'getAgentApi' | 'getWhiteboardAssets' | 'getWhiteboardLayouts' | 'getPrActionReports' | 'sshSigner' | 'recordOutcome' | 'logger'>;
 
 const BOARD_PAGE_SANDBOX_POLICY = 'sandbox allow-scripts allow-popups allow-modals allow-forms';
 const BOARD_MEDIA_SANDBOX_POLICY = "default-src 'none'; sandbox";
@@ -332,6 +334,7 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
     takePromptSupervision = () => null,
     getAgentApi = () => null,
     getWhiteboardAssets = () => null,
+    getWhiteboardLayouts = () => null,
     recordOutcome = () => {},
     logger = console,
   } = dependencies;
@@ -411,7 +414,7 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
   });
 
   mountAgentMcp(app, {
-    getSession, getAgentApi, getWhiteboardAssets, isLoopback: isLoopbackRequest, logger,
+    getSession, getAgentApi, getWhiteboardAssets, getWhiteboardLayouts, isLoopback: isLoopbackRequest, logger,
     isOriginAllowed: (req) => decideOriginAllowed(req.headers.origin, [], { listenerPorts: req.socket.localPort ?? [] }),
   });
 

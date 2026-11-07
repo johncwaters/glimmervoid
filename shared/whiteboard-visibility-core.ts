@@ -18,6 +18,7 @@ const CACHED_NODES_PER_PIECE = 32;
 const UNKNOWN_NEIGHBOR = -2;
 const CLEAR_STEP = 1;
 const SOFT_STEP = 2;
+const EMPTY_NODE_SLOT = -1;
 
 interface GraphPort {
   x: number;
@@ -808,6 +809,12 @@ function grownNodes(graph: VisibilityGraph, nodes: NodeStore): NodeStore {
   return grown;
 }
 
+function nodeSlotOf(horizontalPiece: number, verticalPiece: number, slotMask: number): number {
+  let mixed = Math.imul(horizontalPiece, 0x9e3779b1) ^ Math.imul(verticalPiece, 0x85ebca6b);
+  mixed = Math.imul(mixed ^ (mixed >>> 16), 0x7feb352d);
+  return (mixed ^ (mixed >>> 15)) & slotMask;
+}
+
 function preparedFor(input: ObstacleInput, ports: readonly GraphPort[]): PreparedObstacles | null {
   const frame = frameOf(input, ports);
   if (!frame) return null;
@@ -864,20 +871,31 @@ function buildGraphOn(givenPrepared: PreparedObstacles, ports: readonly GraphPor
   const verticalIndex = lineIndexOf(vertical, distinctLinesOf(horizontal));
   const horizontalIndex = lineIndexOf(horizontal, distinctLinesOf(vertical));
   const componentOfPiece = pieceComponents(horizontal, vertical);
-  const nodeByPieces = new Map<number, number>();
   let nodes = emptyNodeStore(INITIAL_NODE_CAPACITY);
+  let nodeBySlot = new Int32Array(INITIAL_NODE_CAPACITY * 2).fill(EMPTY_NODE_SLOT);
+  const slotOfPieces = (horizontalPiece: number, verticalPiece: number) => {
+    const slotMask = nodeBySlot.length - 1;
+    for (let slot = nodeSlotOf(horizontalPiece, verticalPiece, slotMask); ; slot = (slot + 1) & slotMask) {
+      const node = nodeBySlot[slot] ?? EMPTY_NODE_SLOT;
+      if (node === EMPTY_NODE_SLOT || (nodes.horizontalPieces[node] === horizontalPiece && nodes.verticalPieces[node] === verticalPiece)) return slot;
+    }
+  };
+  const growNodeSlots = () => {
+    nodeBySlot = new Int32Array(nodeBySlot.length * 2).fill(EMPTY_NODE_SLOT);
+    for (let node = 0; node < graph.nodeCount; node += 1) nodeBySlot[slotOfPieces(nodes.horizontalPieces[node] ?? 0, nodes.verticalPieces[node] ?? 0)] = node;
+  };
   const nodeOf = (horizontalPiece: number, verticalPiece: number) => {
-    const key = horizontalPiece * vertical.count + verticalPiece;
-    const known = nodeByPieces.get(key);
-    if (known !== undefined) return known;
+    const known = nodeBySlot[slotOfPieces(horizontalPiece, verticalPiece)] ?? EMPTY_NODE_SLOT;
+    if (known !== EMPTY_NODE_SLOT) return known;
     const node = graph.nodeCount;
     if (node === graph.xs.length) nodes = grownNodes(graph, nodes);
+    if ((node + 1) * 2 > nodeBySlot.length) growNodeSlots();
     graph.xs[node] = vertical.lines[verticalPiece] ?? 0;
     graph.ys[node] = horizontal.lines[horizontalPiece] ?? 0;
     nodes.horizontalPieces[node] = horizontalPiece;
     nodes.verticalPieces[node] = verticalPiece;
+    nodeBySlot[slotOfPieces(horizontalPiece, verticalPiece)] = node;
     graph.nodeCount += 1;
-    nodeByPieces.set(key, node);
     return node;
   };
   const nextNodeAlong = (node: number, direction: number) => {
@@ -926,7 +944,7 @@ function buildGraphOn(givenPrepared: PreparedObstacles, ports: readonly GraphPor
   const cachedNodeBudget = (horizontal.count + vertical.count) * CACHED_NODES_PER_PIECE;
   const beginSearch = () => {
     if (graph.nodeCount <= cachedNodeBudget) return;
-    nodeByPieces.clear();
+    nodeBySlot.fill(EMPTY_NODE_SLOT);
     nodes.neighbors.fill(UNKNOWN_NEIGHBOR, 0, graph.nodeCount * 4);
     nodes.softSteps.fill(0, 0, graph.nodeCount * 4);
     graph.nodeCount = 0;

@@ -6,7 +6,7 @@ Run them from the root of a checkout after `npm ci`. Commands are bash, with Pow
 
 ## Prerequisites
 
-- Node.js >= 22.18.0 (`node --version`); npm 12 needs 22.22.2 or newer for the global install checks
+- Node.js >= 24.15.0 (`node --version`)
 - Windows 11, Linux or macOS
 
 ## Config resolution order

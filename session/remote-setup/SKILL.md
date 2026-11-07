@@ -31,7 +31,7 @@ The end state:
 
 ## 2. Prerequisites on the host
 
-- Node.js 22.18.0 or newer (`node --version`). If missing, propose a user-level install (nvm or fnm) rather than a system package, and note the absolute `node` path for the unit file.
+- Node.js 24.15.0 or newer (`node --version`). If missing, propose a user-level install (nvm or fnm) rather than a system package, and note the absolute `node` path for the unit file.
 - Build tools for `node-pty`: `make`, `g++`, `python3`. On Debian or Ubuntu that is `sudo apt-get install -y build-essential python3`.
 - `git`.
 - The agent CLIs the operator chose: `npm install -g @anthropic-ai/claude-code` and or `npm install -g @openai/codex`. Logging in is interactive: hand the operator `ssh -t <host> claude` and `ssh -t <host> codex login` and wait.

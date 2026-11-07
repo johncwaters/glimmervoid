@@ -2,36 +2,44 @@ import crypto from 'node:crypto';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 
-import { BoardRecord, mediaOfBox, sparseBoardRecord, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
-import type { Board, BoardReview, BoardSummary, BoxMedia, Op, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
+import { BoardRecord, mediaOfBox, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
+import type { Board, BoardRegion, BoardReview, BoardSummary, BoxMedia, Element, Op, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import type { AgentReplyBodyOf } from '../../shared/contracts/session.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
+import type { WhiteboardPatch } from '../../shared/contracts/control/whiteboard-messages.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
-import { OPERATOR_AUTHOR, applyOps, createBoard } from '../../shared/whiteboard-ops-core.ts';
-import type { Author } from '../../shared/whiteboard-ops-core.ts';
-import { layoutBoardRemembered, rememberedLayoutOf } from '../../shared/whiteboard-layout-cache.ts';
-import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
-import type { BoardLayout } from '../../shared/whiteboard-layout-core.ts';
+import { OPERATOR_AUTHOR, createBoard, stageOps } from '../../shared/whiteboard-ops-core.ts';
+import { assetIdOf, assetIdsOf, boardIndexOf } from '../../shared/whiteboard-board-index.ts';
+import type { StagedElements } from './board-store-core.ts';
+import type { Author, PinPositions } from '../../shared/whiteboard-ops-core.ts';
+import { createBoardTileService } from './board-tile-service.ts';
+import type { BoardPictureRead, BoardTileService, LayoutSummary, PictureImage } from './board-tile-service.ts';
+import type { ChangedElement } from './layout-client.ts';
+import { elementPageOf, fitsOnePage } from '../../shared/whiteboard-tile-core.ts';
 import { referencedPaths, reviewBoard } from '../../shared/whiteboard-anchor-core.ts';
 import { cappedWarnings } from '../../shared/whiteboard-route-core.ts';
 import { readChangeFacts, readFileFacts } from './whiteboard-anchor-facts.ts';
 import type { ChangeMap } from '../../shared/contracts/change-map.ts';
-import { stepBoxesOf } from '../../shared/whiteboard-plan-core.ts';
+import { planSteps, stepBoxesOf } from '../../shared/whiteboard-plan-core.ts';
+import type { PlanStep } from '../../shared/whiteboard-plan-core.ts';
 import { DEVICE_NAMES } from '../../shared/whiteboard-devices.ts';
 import { ICON_NAMES } from '../../shared/whiteboard-icons.ts';
 import {
   upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, pickShowBoardId, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard,
 } from '../core/whiteboard-store-core.ts';
-import { loadJsonStateFile, writeJsonAtomic } from '../json-file.ts';
+import { loadJsonStateFile } from '../json-file.ts';
 import { createKeyedSerialQueue } from '../spawn-gate.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { readPageTitle, SHOWN_SNIFF_BYTES } from '../core/shown-files-core.ts';
 import { createWhiteboardAssetStore } from './whiteboard-assets.ts';
 import type { WhiteboardAssetStore } from './whiteboard-assets.ts';
+import { createBoardStore } from './board-store-client.ts';
+import { BOARD_STORE_FILENAME } from './board-store-core.ts';
 
 const WHITEBOARDS_FOLDER_NAME = 'whiteboards';
 const BOARD_FILE_EXTENSION = '.json';
-const BOARD_FILE_MODE = 0o600;
+const MIGRATED_JSON_FOLDER_NAME = 'migrated-json';
+const OLDER_READER_PICTURE_GUARD = `boards${BOARD_FILE_EXTENSION}.corrupt-moved-to-boards-sqlite`;
 
 const PUT_GUIDE = [
   'glimmervoid whiteboard put <board> <ops> takes a JSON array of ops, - to read it from stdin, or --file <path> to read it from a file, for example',
@@ -72,11 +80,13 @@ interface WhiteboardReply {
   patch?: WhiteboardPatch;
 }
 
-type WhiteboardPatch = ServerMessageOf<'whiteboard-patch'>;
+type StagedWrite = StagedElements & { commit: () => void };
+type CommittedReply = { reply: WhiteboardReply };
+type RecordChange = {
+  ok: true; record: BoardRecord; reply: WhiteboardReply; patch?: WhiteboardPatch; staged?: StagedWrite; replyAfterCommit?: (record: BoardRecord, layout: LayoutSummary | null) => CommittedReply;
+} | { ok: false; reply: WhiteboardReply };
 
-type RecordChange = { ok: true; record: BoardRecord; reply: WhiteboardReply; patch?: WhiteboardPatch } | { ok: false; reply: WhiteboardReply };
-
-type AppliedOps = { ok: true; record: BoardRecord; patch: WhiteboardPatch } | { ok: false; error: string };
+type AppliedOps = { ok: true; record: BoardRecord; patch: WhiteboardPatch; staged: StagedWrite } | { ok: false; error: string };
 
 type OperatorReply = {
   ok: boolean;
@@ -85,12 +95,15 @@ type OperatorReply = {
   summary?: BoardSummary;
   review?: BoardReview;
   patch?: WhiteboardPatch;
-  laidOut?: { version: number; layout: BoardLayout };
 };
 
 const GLIMMERVOID_AUTHOR: Author = Object.freeze({ id: 'glimmervoid', name: 'Glimmervoid' });
 const DELETED_BOARD_TEXT = 'that board was deleted';
+const UNREADABLE_BOARD_TEXT = 'that board could not be read from the board store, so nothing changed; try again';
+const DAMAGED_BOARD_TEXT = 'that board has stored elements that cannot be read, so nothing changed';
+const DAMAGED_ROWS = Symbol('damaged element rows');
 const RELEASE_HOLD_MS = 60 * 60_000;
+const UNREADABLE_LAYOUT_WARNING = 'the board could not be laid out after this put, so its layout warnings are unknown and the dashboard may not show it';
 
 interface WhiteboardWiringOptions {
   boardsRoot: string;
@@ -116,7 +129,6 @@ interface WhiteboardPort {
     remove(boardId: string): Promise<OperatorReply>;
     get(boardId: string): Promise<OperatorReply>;
     review(boardId: string): Promise<OperatorReply>;
-    layout(boardId: string): Promise<OperatorReply>;
     connect(boardId: string, sessionId: string): Promise<OperatorReply>;
     disconnect(boardId: string, sessionId: string): Promise<OperatorReply>;
   };
@@ -125,17 +137,35 @@ interface WhiteboardPort {
   takeBoardNotice(sessionId: string): string | null;
   isConnected(sessionId: string): boolean;
   snapshotMessage(): ServerMessageOf<'whiteboards-snapshot'>;
+  tiles: Pick<BoardTileService, 'view' | 'forget' | 'operatorViewOf'>;
+  layouts: WhiteboardLayouts;
+}
+
+interface BoardReadingOf {
+  title: string;
+  version: number;
+  plan: PlanStep[];
+  layoutWarnings: string[];
+}
+
+interface WhiteboardLayouts {
+  findBoardId(ref: string): { ok: true; boardId: string } | { ok: false; reply: WhiteboardReply };
+  readingOf(boardId: string): Promise<BoardReadingOf | null>;
+  summaryOf(boardId: string): Promise<LayoutSummary | null>;
+  pictureImagesOf(boardId: string): Promise<PictureImage[] | null>;
+  pictureOf(boardId: string, dataUriByAssetId: Record<string, string>): Promise<BoardPictureRead | null>;
+}
+
+function elementIdsNamedBy(op: Op): string[] {
+  switch (op.op) {
+    case 'add': return [op.element.id];
+    case 'board': return [];
+    default: return [op.id];
+  }
 }
 
 function hasNoConnectedSessions(record: BoardRecord): boolean {
   return Object.keys(record.cursorBySessionId).length === 0;
-}
-
-function assetIdsOf(board: Board): Set<string> {
-  return new Set(Object.values(board.elements).flatMap((element) => {
-    const media = element.kind === 'box' ? mediaOfBox(element) : null;
-    return media ? [media.asset] : [];
-  }));
 }
 
 function refusal(status: number, error: string): WhiteboardReply {
@@ -153,10 +183,39 @@ function parseBoardRecord(raw: unknown): BoardRecord | null {
   return parsed.success ? parsed.data : null;
 }
 
+interface AgentFocus {
+  region: BoardRegion;
+  operatorView: BoardRegion | null;
+}
+
+type PageStart = { ok: true; offset: number } | { ok: false; reply: WhiteboardReply };
+type RecordLoad = { ok: true; record: BoardRecord } | { ok: false; reply: WhiteboardReply };
+
+function boardSnapshotOf(board: Board): Board {
+  return { ...board, elements: { ...board.elements } };
+}
+
+function isWholeBoardRead(board: Board, request: Extract<WhiteboardAgentRequest, { sub: 'get' }>): boolean {
+  if (request.whole === true) return true;
+  return request.region === undefined && request.cursor === undefined && fitsOnePage(board);
+}
+
+function pageStartOf(board: Board, cursor: string | undefined): PageStart {
+  if (cursor === undefined) return { ok: true, offset: 0 };
+  const [cursorVersion, cursorOffset] = cursor.split('.').map(Number);
+  if (cursorVersion !== board.version) return { ok: false, reply: refusal(409, `the board changed since that page (it was version ${cursorVersion}, now ${board.version}), so its cursor no longer lines up; read again without cursor`) };
+  return { ok: true, offset: cursorOffset ?? 0 };
+}
+
+function pageReplyOf(board: Board, elementIds: readonly string[], offset: number): { elements: Element[]; nextCursor: string | null } {
+  const { elements, nextOffset } = elementPageOf(board, elementIds, offset);
+  return { elements, nextCursor: nextOffset === null ? null : `${board.version}.${nextOffset}` };
+}
+
 function operatorReplyOf(reply: WhiteboardReply): OperatorReply {
   if (!reply.body.ok) return { ok: false, error: reply.body.error };
   const patch = reply.patch ? { patch: reply.patch } : {};
-  if ('board' in reply.body && 'changes' in reply.body) return { ok: true, error: null, board: reply.body.board, ...patch };
+  if ('board' in reply.body && 'changes' in reply.body && !('outline' in reply.body)) return { ok: true, error: null, board: reply.body.board, ...patch };
   if ('board' in reply.body) return { ok: true, error: null, summary: reply.body.board, ...patch };
   return { ok: true, error: null, ...patch };
 }
@@ -169,13 +228,54 @@ function createWhiteboardWiring({
   const deletedBoardIds = new Set<string>();
   const writeQueue = createKeyedSerialQueue();
   const assets = createWhiteboardAssetStore({ boardsRoot, logger, now });
+  const store = createBoardStore(boardsRoot);
+  const unloadedBoardIds = new Set<string>();
+  const loadingByBoardId = new Map<string, Promise<RecordLoad>>();
+  const tiles = createBoardTileService({ boardOf: (boardId) => (unloadedBoardIds.has(boardId) ? null : recordsByBoardId.get(boardId)?.board ?? null), logger });
+  const agentFocusBySessionId = new Map<string, Map<string, AgentFocus>>();
+  const pagedFocusBySessionId = new Map<string, Map<string, BoardRegion>>();
   let isEveryBoardLoaded = true;
   const loaded = Promise.all([loadBoards(), assets.loaded]).then(sweepUnusedAssets).then(() => {});
 
-  function sweepUnusedAssets(): Promise<number> {
-    if (!isEveryBoardLoaded) return Promise.resolve(0);
-    const referencedAssetIds = new Set([...recordsByBoardId.values()].flatMap((record) => [...assetIdsOf(record.board)]));
-    return assets.sweep(referencedAssetIds);
+  async function sweepUnusedAssets(): Promise<number> {
+    if (!isEveryBoardLoaded) return 0;
+    const storedAssetIds = await store.assetIds().catch((error: unknown) => {
+      logger.warn(`[whiteboard] board pictures are kept, not cleared, while the stored boards cannot be read: ${errorMessage(error)}`);
+      return null;
+    });
+    if (!storedAssetIds) return 0;
+    const loadedRecords = [...recordsByBoardId.values()].filter((record) => !unloadedBoardIds.has(record.board.id));
+    return assets.sweep(new Set([...storedAssetIds, ...loadedRecords.flatMap((record) => [...assetIdsOf(record.board)])]));
+  }
+
+  function loadedRecordOf(boardId: string): Promise<RecordLoad> {
+    const record = recordsByBoardId.get(boardId);
+    if (!record) return Promise.resolve({ ok: false, reply: refusal(404, DELETED_BOARD_TEXT) });
+    if (!unloadedBoardIds.has(boardId)) return Promise.resolve({ ok: true, record });
+    const loading = loadingByBoardId.get(boardId) ?? loadElementsOf(record);
+    loadingByBoardId.set(boardId, loading);
+    return loading;
+  }
+
+  async function loadElementsOf(head: BoardRecord): Promise<RecordLoad> {
+    const boardId = head.board.id;
+    const stored = await store.loadElements(head).then((record) => record ?? DAMAGED_ROWS, (error: unknown) => {
+      logger.warn(`[whiteboard] board ${boardId} could not be read: ${errorMessage(error)}`);
+      return null;
+    });
+    loadingByBoardId.delete(boardId);
+    const current = recordsByBoardId.get(boardId);
+    if (!current) return { ok: false, reply: refusal(404, DELETED_BOARD_TEXT) };
+    if (!unloadedBoardIds.has(boardId)) return { ok: true, record: current };
+    if (!stored) return { ok: false, reply: refusal(503, UNREADABLE_BOARD_TEXT) };
+    if (stored === DAMAGED_ROWS) {
+      logger.warn(`[whiteboard] board ${boardId} has stored elements that cannot be parsed, so it refuses reads and edits`);
+      return { ok: false, reply: refusal(500, DAMAGED_BOARD_TEXT) };
+    }
+    const record = { ...current, board: { ...current.board, elements: stored.board.elements } };
+    recordsByBoardId.set(boardId, record);
+    unloadedBoardIds.delete(boardId);
+    return { ok: true, record };
   }
 
   function keepPicturesWhileUnloaded(filename: string): void {
@@ -184,31 +284,71 @@ function createWhiteboardWiring({
   }
 
   async function loadBoards(): Promise<void> {
+    const stored = await store.loadHeads().catch((error: unknown) => {
+      logger.warn(`[whiteboard] the board store could not be read: ${errorMessage(error)}`);
+      return null;
+    });
+    if (!stored) {
+      keepPicturesWhileUnloaded(boardsRoot);
+      return;
+    }
+    await fsp.writeFile(path.join(boardsRoot, OLDER_READER_PICTURE_GUARD), '', { mode: 0o600 }).catch((error: unknown) => {
+      logger.warn(`[whiteboard] an older Glimmervoid started on ${boardsRoot} could clear board pictures: ${errorMessage(error)}`);
+    });
+    for (const record of stored.records) {
+      recordsByBoardId.set(record.board.id, record);
+      unloadedBoardIds.add(record.board.id);
+    }
+    for (const boardId of stored.unreadableBoardIds) keepPicturesWhileUnloaded(`board ${boardId}`);
+    await migrateJsonBoards();
+  }
+
+  async function migrateJsonBoards(): Promise<void> {
     const filenames = await fsp.readdir(boardsRoot).catch((error: NodeJS.ErrnoException): string[] | null => (error.code === 'ENOENT' ? [] : null));
     if (filenames === null) {
       keepPicturesWhileUnloaded(boardsRoot);
       return;
     }
+    const migratedFilenames: string[] = [];
+    const importedRecords: BoardRecord[] = [];
     for (const filename of filenames) {
-      if (filename.includes(`${BOARD_FILE_EXTENSION}.corrupt-`)) keepPicturesWhileUnloaded(filename);
+      if (filename === OLDER_READER_PICTURE_GUARD) continue;
+      if (filename.includes(`${BOARD_FILE_EXTENSION}.corrupt-`) || filename.startsWith(`${BOARD_STORE_FILENAME}.corrupt-`)) keepPicturesWhileUnloaded(filename);
       if (!filename.endsWith(BOARD_FILE_EXTENSION)) continue;
       const outcome = await loadJsonStateFile({ filePath: path.join(boardsRoot, filename), parse: parseBoardRecord });
       if (outcome.status === 'loaded' && `${outcome.value.board.id}${BOARD_FILE_EXTENSION}` === filename) {
-        recordsByBoardId.set(outcome.value.board.id, outcome.value);
+        migratedFilenames.push(filename);
+        if (!recordsByBoardId.has(outcome.value.board.id)) importedRecords.push(outcome.value);
         continue;
       }
       if (outcome.status === 'missing') continue;
       logger.warn(`[whiteboard] ${filename} was not loaded: ${outcome.status}`);
       keepPicturesWhileUnloaded(filename);
     }
+    if (migratedFilenames.length === 0) return;
+    try {
+      await store.saveMany(importedRecords);
+    } catch (error) {
+      logger.warn(`[whiteboard] ${importedRecords.length} board file(s) could not be moved into the board store: ${errorMessage(error)}`);
+      keepPicturesWhileUnloaded(MIGRATED_JSON_FOLDER_NAME);
+      return;
+    }
+    for (const record of importedRecords) recordsByBoardId.set(record.board.id, record);
+    await moveMigratedFiles(migratedFilenames);
   }
 
-  function boardFilePath(boardId: string): string {
-    return path.join(boardsRoot, `${boardId}${BOARD_FILE_EXTENSION}`);
-  }
-
-  function writeRecord(record: BoardRecord): Promise<void> {
-    return writeJsonAtomic(boardFilePath(record.board.id), sparseBoardRecord(record), { mode: BOARD_FILE_MODE, mkdir: true });
+  async function moveMigratedFiles(filenames: readonly string[]): Promise<void> {
+    const migratedRoot = path.join(boardsRoot, MIGRATED_JSON_FOLDER_NAME);
+    const isFolderReady = await fsp.mkdir(migratedRoot, { recursive: true, mode: 0o700 }).then(() => true, (error: unknown) => {
+      logger.warn(`[whiteboard] ${filenames.length} board file(s) are in the board store but stayed in place: ${errorMessage(error)}`);
+      return false;
+    });
+    if (!isFolderReady) return;
+    for (const filename of filenames) {
+      await fsp.rename(path.join(boardsRoot, filename), path.join(migratedRoot, filename)).catch((error: unknown) => {
+        logger.warn(`[whiteboard] ${filename} is in the board store but stayed in place: ${errorMessage(error)}`);
+      });
+    }
   }
 
   function snapshotMessage(): ServerMessageOf<'whiteboards-snapshot'> {
@@ -222,35 +362,40 @@ function createWhiteboardWiring({
     broadcastControl(snapshotMessage());
   }
 
-  async function saveRecordInSlot(current: BoardRecord, next: BoardRecord): Promise<boolean> {
+  async function saveRecordInSlot(current: BoardRecord, next: BoardRecord, staged: StagedWrite | null): Promise<boolean> {
     const boardId = current.board.id;
-    recordsByBoardId.set(boardId, next);
     try {
-      await writeRecord(next);
-      return true;
+      await store.save(current, next, staged);
     } catch (error) {
-      recordsByBoardId.set(boardId, current);
       logger.warn(`[whiteboard] board ${boardId} could not be saved: ${errorMessage(error)}`);
       return false;
     }
+    staged?.commit();
+    const latest = recordsByBoardId.get(boardId);
+    const isLoadedMeanwhile = latest !== undefined && latest !== current && next.board.elements === current.board.elements;
+    recordsByBoardId.set(boardId, isLoadedMeanwhile ? { ...next, board: { ...next.board, elements: latest.board.elements } } : next);
+    return true;
+  }
+  function elementChangesOf(staged: StagedWrite): ChangedElement[] {
+    return Object.entries(staged.diff.elements).map(([id, change]) => ({ id, after: staged.afterById.get(id) ?? null, isAppended: change[0] === 'put' }));
   }
 
-  function changeRecord(boardId: string, change: (record: BoardRecord) => RecordChange): Promise<WhiteboardReply> {
+  function changeRecord(boardId: string, change: (record: BoardRecord) => RecordChange | Promise<RecordChange>): Promise<WhiteboardReply> {
     return writeQueue.run(boardId, async () => {
-      const current = recordsByBoardId.get(boardId);
-      if (!current) return refusal(404, DELETED_BOARD_TEXT);
-      const outcome = change(current);
+      const loading = await loadedRecordOf(boardId);
+      if (!loading.ok) return loading.reply;
+      const current = loading.record;
+      const outcome = await change(current);
       if (!outcome.ok) return outcome.reply;
       if (outcome.record === current) return outcome.reply;
-      const isSaved = await saveRecordInSlot(current, outcome.record);
+      const elementChanges = outcome.staged ? elementChangesOf(outcome.staged) : null;
+      const isSaved = await saveRecordInSlot(current, outcome.record, outcome.staged ?? null);
       if (!isSaved) return refusal(500, 'the board could not be saved, so nothing changed');
-      if (!outcome.patch) {
-        broadcastSummariesIfChanged(current, outcome.record);
-        return outcome.reply;
-      }
-      broadcastControl(outcome.patch);
+      const isBoardChanged = outcome.record.board !== current.board;
+      const layout = isBoardChanged ? await tiles.advance(outcome.record.board, elementChanges) : null;
+      const committed = outcome.replyAfterCommit?.(outcome.record, layout) ?? { reply: outcome.reply };
       broadcastSummariesIfChanged(current, outcome.record);
-      return { ...outcome.reply, patch: outcome.patch };
+      return outcome.patch ? { ...committed.reply, patch: outcome.patch } : committed.reply;
     });
   }
 
@@ -269,7 +414,7 @@ function createWhiteboardWiring({
     const record: BoardRecord = { board, log: [], cursorBySessionId, createdBy: creator?.id ?? null };
     recordsByBoardId.set(boardId, record);
     try {
-      await writeQueue.run(boardId, () => writeRecord(record));
+      await writeQueue.run(boardId, () => store.save(null, record));
     } catch (error) {
       recordsByBoardId.delete(boardId);
       logger.warn(`[whiteboard] board ${boardId} could not be created: ${errorMessage(error)}`);
@@ -283,20 +428,27 @@ function createWhiteboardWiring({
     if (Buffer.byteLength(JSON.stringify(ops)) > WHITEBOARD_LIMITS.putBytes) {
       return Promise.resolve(refusal(413, `one put carries at most ${WHITEBOARD_LIMITS.putBytes} bytes of ops, so nothing changed`));
     }
-    return changeRecord(boardId, (record) => {
-      const applied = applyOpsToRecord(record, ops, author);
+    return changeRecord(boardId, async (record) => {
+      const applied = await applyOpsToRecord(record, ops, author);
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
-      const { warnings } = layoutBoardRemembered(applied.record.board);
-      const body = { ok: true as const, version: applied.record.board.version, ...(warnings.length > 0 ? { warnings } : {}) };
-      return { ok: true, record: applied.record, reply: { status: 200, body }, patch: applied.patch };
+      const replyAfterCommit = (saved: BoardRecord, layout: LayoutSummary | null): CommittedReply => {
+        const warnings = layout?.warnings ?? [UNREADABLE_LAYOUT_WARNING];
+        const body = { ok: true as const, version: saved.board.version, ...(warnings.length > 0 ? { warnings } : {}) };
+        return { reply: { status: 200, body } };
+      };
+      return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, version: applied.record.board.version } }, patch: applied.patch, staged: applied.staged, replyAfterCommit };
     });
   }
 
-  function changedMediaRefusalOf(boardBefore: Board, boardAfter: Board): string | null {
-    for (const element of Object.values(boardAfter.elements)) {
-      const media = element.kind === 'box' ? mediaOfBox(element) : null;
+  function stagedRefusalOf(boardBefore: Board, afterById: ReadonlyMap<string, Element | null>): string | null {
+    for (const element of afterById.values()) {
+      const before = element ? boardBefore.elements[element.id] : undefined;
+      if (element?.kind !== 'box') continue;
+      const linkedBoardId = element.step?.linkedBoardId ?? null;
+      const isNewLink = before?.kind !== 'box' || (before.step?.linkedBoardId ?? null) !== linkedBoardId;
+      if (isNewLink && linkedBoardId !== null && !recordsByBoardId.has(linkedBoardId)) return `step ${element.id} links to board ${linkedBoardId}, which does not exist`;
+      const media = mediaOfBox(element);
       if (!media) continue;
-      const before = boardBefore.elements[element.id];
       const mediaBefore = before?.kind === 'box' ? mediaOfBox(before) : null;
       if (JSON.stringify(mediaBefore) === JSON.stringify(media)) continue;
       const mismatch = assets.mismatchOf(media);
@@ -305,47 +457,70 @@ function createWhiteboardWiring({
     return null;
   }
 
-  function applyOpsToRecord(record: BoardRecord, ops: readonly Op[], author: Author): AppliedOps {
-    const result = applyOps(record.board, ops, author, now());
-    if (!result.ok) return result;
-    const strandedStep = stepBoxesOf(result.board).find((stepBox) => {
-      const before = record.board.elements[stepBox.id];
-      const linkedBoardId = stepBox.step.linkedBoardId;
-      const isNewLink = before?.kind !== 'box' || before.step?.linkedBoardId !== linkedBoardId;
-      return isNewLink && linkedBoardId !== null && !recordsByBoardId.has(linkedBoardId);
-    });
-    if (strandedStep) return { ok: false, error: `step ${strandedStep.id} links to board ${strandedStep.step.linkedBoardId ?? ''}, which does not exist` };
-    const assetIdsBefore = assetIdsOf(record.board);
-    const assetIdsAfter = assetIdsOf(result.board);
-    const mediaRefusal = changedMediaRefusalOf(record.board, result.board);
-    if (mediaRefusal) return { ok: false, error: mediaRefusal };
-    for (const releasedAssetId of assetIdsBefore) {
-      if (!assetIdsAfter.has(releasedAssetId)) assets.hold(releasedAssetId, RELEASE_HOLD_MS);
+  function holdReleasedAssets(board: Board, releasedAssetIds: ReadonlySet<string>): void {
+    const assetRefCount = boardIndexOf(board.elements).assetRefCount;
+    for (const releasedAssetId of releasedAssetIds) {
+      if (!assetRefCount.has(releasedAssetId)) assets.hold(releasedAssetId, RELEASE_HOLD_MS);
     }
-    const next = recordPut(record, result);
-    const patch: WhiteboardPatch = {
-      type: 'whiteboard-patch', boardId: record.board.id, fromVersion: record.board.version, toVersion: next.board.version,
-      author: { id: author.id, name: author.name }, updatedAt: next.board.updatedAt, diff: result.diff,
-    };
-    return { ok: true, record: next, patch };
   }
 
-  async function reviewFor(board: Board, { readsChanges }: { readsChanges: boolean }): Promise<BoardReview> {
+  function hasNearBox(board: Board, boxId: string): boolean {
+    const dependentIds = boardIndexOf(board.elements).dependentIdsByBoxId.get(boxId) ?? [];
+    for (const dependentId of dependentIds) {
+      const dependent = board.elements[dependentId];
+      if (dependent?.kind === 'box' && dependent.near?.of === boxId) return true;
+    }
+    return false;
+  }
+
+  function basePinPositionsFor(board: Board, ops: readonly Op[]): Promise<PinPositions | null> {
+    const removedBoxIds = ops.flatMap((op) => (op.op === 'remove' && board.elements[op.id]?.kind === 'box' ? [op.id] : []));
+    const isPinNeeded = removedBoxIds.some((boxId) => hasNearBox(board, boxId)) || ops.some((op) => op.op === 'add' || op.op === 'set');
+    if (removedBoxIds.length === 0 || !isPinNeeded) return Promise.resolve(null);
+    const ids = ops.flatMap((op) => (op.op === 'remove' || op.op === 'set' ? [op.id] : []));
+    return tiles.pinPositionsOf(board, ids).catch((error: unknown) => {
+      logger.warn(`[whiteboard] board ${board.id} could not be laid out to pin boxes, so they keep their drawn anchors: ${errorMessage(error)}`);
+      return null;
+    });
+  }
+
+  async function applyOpsToRecord(record: BoardRecord, ops: readonly Op[], author: Author): Promise<AppliedOps> {
+    const basePinPositions = await basePinPositionsFor(record.board, ops);
+    const result = stageOps(record.board, ops, author, now(), basePinPositions);
+    if (!result.ok) return result;
+    const refusalText = stagedRefusalOf(record.board, result.afterById);
+    if (refusalText) return { ok: false, error: refusalText };
+    const releasedAssetIds = new Set([...result.afterById.keys()].flatMap((id) => assetIdOf(record.board.elements[id]) ?? []));
+    const next = recordPut(record, result);
+    const patch: WhiteboardPatch = {
+      boardId: record.board.id, fromVersion: record.board.version, toVersion: next.board.version,
+      author: { id: author.id, name: author.name }, updatedAt: next.board.updatedAt, diff: result.diff, before: result.before,
+    };
+    const commit = (): void => {
+      result.commit();
+      holdReleasedAssets(record.board, releasedAssetIds);
+    };
+    return { ok: true, record: next, patch, staged: { diff: result.diff, afterById: result.afterById, commit } };
+  }
+
+  async function reviewFor(board: Board, { readsChanges, elementIds = null }: { readsChanges: boolean; elementIds?: ReadonlySet<string> | null }): Promise<BoardReview> {
     const codeContext = board.codeSessionId ? codeContextOf(board.codeSessionId) : null;
-    if (!codeContext) return reviewBoard(board, null);
-    const fileFactByPath = await readFileFacts(codeContext.root, referencedPaths(board));
+    if (!codeContext) return reviewBoard(board, null, elementIds);
+    const fileFactByPath = await readFileFacts(codeContext.root, referencedPaths(board, elementIds));
     const changes = readsChanges ? await readChangeFacts(codeContext.buildChangeMap) : null;
-    return reviewBoard(board, { fileFactByPath, changes });
+    return reviewBoard(board, { fileFactByPath, changes }, elementIds);
   }
 
   async function readDocOf(boardId: string, boxId: string): Promise<WhiteboardReply> {
-    const board = recordsByBoardId.get(boardId)?.board;
-    if (!board) return refusal(404, DELETED_BOARD_TEXT);
+    const loading = await loadedRecordOf(boardId);
+    if (!loading.ok) return loading.reply;
+    const { board } = loading.record;
     const element = board.elements[boxId];
-    if (element?.kind !== 'box' || element.media?.kind !== 'doc') {
+    const media = element?.kind === 'box' ? mediaOfBox(element) : null;
+    if (media?.kind !== 'doc') {
       return refusal(400, `${boxId} on board "${board.title}" holds no document; whiteboard doc reads a box whose media kind is doc`);
     }
-    const text = await assets.readDocText(element.media);
+    const text = await assets.readDocText(media);
     if (text === null) return refusal(404, `the document ${boxId} on board "${board.title}" shows is not stored any more`);
     return { status: 200, body: { ok: true, box: boxId, text } };
   }
@@ -353,20 +528,80 @@ function createWhiteboardWiring({
   async function reviewedPut(boardId: string, ops: readonly Op[], author: Author): Promise<WhiteboardReply> {
     const reply = await putOps(boardId, ops, author);
     const board = recordsByBoardId.get(boardId)?.board;
-    if (!reply.body.ok || !('version' in reply.body) || !board) return reply;
-    const { anchorWarnings, stepWarnings } = await reviewFor(board, { readsChanges: stepBoxesOf(board).length > 0 });
+    if (!reply.body.ok || !('version' in reply.body) || 'elements' in reply.body || !board) return reply;
+    const isCodeSessionChanged = ops.some((op) => op.op === 'board' && op.codeSessionId !== undefined);
+    const elementIds = isCodeSessionChanged ? null : new Set(ops.flatMap(elementIdsNamedBy));
+    const { anchorWarnings, stepWarnings } = await reviewFor(board, { readsChanges: stepBoxesOf(board).length > 0, elementIds });
     if (anchorWarnings.length === 0 && stepWarnings.length === 0) return reply;
     return { status: reply.status, body: { ...reply.body, warnings: cappedWarnings([...reply.body.warnings ?? [], ...anchorWarnings, ...stepWarnings]) } };
   }
 
-  async function readBoard(boardId: string, readerId: string, { isPeek, wantsReview }: { isPeek: boolean; wantsReview: boolean }): Promise<WhiteboardReply> {
-    const reply = await changeRecord(boardId, (record) => {
+  function focusFor(boardId: string, readerId: string, requested: BoardRegion | undefined): BoardRegion | null {
+    const operatorView = tiles.operatorViewOf(boardId)?.view ?? null;
+    const focusByBoardId = agentFocusBySessionId.get(readerId) ?? new Map<string, AgentFocus>();
+    agentFocusBySessionId.set(readerId, focusByBoardId);
+    if (requested) {
+      focusByBoardId.set(boardId, { region: requested, operatorView });
+      return requested;
+    }
+    const kept = focusByBoardId.get(boardId);
+    if (kept && kept.operatorView === operatorView) return kept.region;
+    focusByBoardId.delete(boardId);
+    return operatorView;
+  }
+
+  async function readBoard(boardId: string, readerId: string, request: Extract<WhiteboardAgentRequest, { sub: 'get' }>): Promise<WhiteboardReply> {
+    const reply = await changeRecord(boardId, async (record) => {
       const changes = changesForReader(record, readerId);
-      const next = isPeek || record.cursorBySessionId[readerId] === record.board.version ? record : markRead(record, readerId);
-      return { ok: true, record: next, reply: { status: 200, body: { ok: true, board: record.board, changes } } };
+      const next = request.peek === true || record.cursorBySessionId[readerId] === record.board.version ? record : markRead(record, readerId);
+      if (isWholeBoardRead(record.board, request)) return { ok: true, record: next, reply: { status: 200, body: { ok: true, board: boardSnapshotOf(record.board), changes } } };
+      const pageStart = pageStartOf(record.board, request.cursor);
+      if (!pageStart.ok) return { ok: false, reply: pageStart.reply };
+      const pagedFocus = request.cursor === undefined || request.region ? null : pagedFocusBySessionId.get(readerId)?.get(boardId) ?? null;
+      if (request.cursor !== undefined && !request.region && !pagedFocus) return { ok: false, reply: refusal(409, 'that cursor is not from a read of this board by this session; read again without cursor') };
+      const region = await tiles.regionOf(record.board, pagedFocus ?? focusFor(boardId, readerId, request.region), true).catch((error: unknown) => {
+        logger.warn(`[whiteboard] board ${boardId} could not be laid out for a read: ${errorMessage(error)}`);
+        return null;
+      });
+      if (!region?.outline) return { ok: false, reply: refusal(503, 'the board layout could not be read; try again') };
+      const { focus, outline } = region;
+      const pagedFocusByBoardId = pagedFocusBySessionId.get(readerId) ?? new Map<string, BoardRegion>();
+      pagedFocusByBoardId.set(boardId, focus);
+      pagedFocusBySessionId.set(readerId, pagedFocusByBoardId);
+      const page = pageReplyOf(record.board, region.elementIds, pageStart.offset);
+      return { ok: true, record: next, reply: { status: 200, body: { ok: true, board: summarizeBoard(next), outline, focus, ...page, changes } } };
     });
-    if (!wantsReview || !reply.body.ok || !('changes' in reply.body)) return reply;
-    return { status: reply.status, body: { ...reply.body, review: await reviewFor(reply.body.board, { readsChanges: true }) } };
+    if (request.review !== true || !reply.body.ok || !('changes' in reply.body)) return reply;
+    const board = recordsByBoardId.get(boardId)?.board;
+    if (!board) return reply;
+    return { status: reply.status, body: { ...reply.body, review: await reviewFor(board, { readsChanges: true }) } };
+  }
+
+  async function queryBoard(boardId: string, query: Extract<WhiteboardAgentRequest, { sub: 'query' }>): Promise<WhiteboardReply> {
+    const loading = await loadedRecordOf(boardId);
+    if (!loading.ok) return loading.reply;
+    const { board } = loading.record;
+    const pageStart = pageStartOf(board, query.cursor);
+    if (!pageStart.ok) return pageStart.reply;
+    const { offset } = pageStart;
+    if (query.ids) {
+      const missingIds = query.ids.filter((elementId) => !board.elements[elementId]);
+      return { status: 200, body: { ok: true, version: board.version, ...pageReplyOf(board, query.ids, offset), missingIds } };
+    }
+    if (query.region) {
+      const region = await tiles.regionOf(board, query.region, false).catch((error: unknown) => {
+        logger.warn(`[whiteboard] board ${boardId} could not be laid out for a query: ${errorMessage(error)}`);
+        return null;
+      });
+      if (!region) return refusal(503, 'the board layout could not be read, so the query found nothing; try again');
+      return { status: 200, body: { ok: true, version: board.version, ...pageReplyOf(board, region.elementIds, offset), missingIds: [] } };
+    }
+    const matchedIds = await store.searchText(boardId, query.text ?? '', offset + WHITEBOARD_LIMITS.readPage + 1).catch((error: unknown) => {
+      logger.warn(`[whiteboard] text query on board ${boardId} failed: ${errorMessage(error)}`);
+      return null;
+    });
+    if (!matchedIds) return refusal(503, 'the board text index could not be read, so the query found nothing; try again');
+    return { status: 200, body: { ok: true, version: board.version, ...pageReplyOf(board, matchedIds, offset), missingIds: [] } };
   }
 
   function connectionReply(record: BoardRecord, note: string): WhiteboardReply {
@@ -374,14 +609,14 @@ function createWhiteboardWiring({
   }
 
   function connectBoard(boardId: string, sessionId: string): Promise<WhiteboardReply> {
-    return changeRecord(boardId, (record) => {
-      const claimed = record.board.codeSessionId === null ? applyOpsToRecord(record, [{ op: 'board', codeSessionId: sessionId }], GLIMMERVOID_AUTHOR) : null;
+    return changeRecord(boardId, async (record) => {
+      const claimed = record.board.codeSessionId === null ? await applyOpsToRecord(record, [{ op: 'board', codeSessionId: sessionId }], GLIMMERVOID_AUTHOR) : null;
       if (!claimed?.ok) {
         const next = connectSession(record, sessionId);
         return { ok: true, record: next, reply: connectionReply(next, PUT_GUIDE) };
       }
       const next = connectSession(claimed.record, sessionId);
-      return { ok: true, record: next, reply: connectionReply(next, PUT_GUIDE), patch: claimed.patch };
+      return { ok: true, record: next, reply: connectionReply(next, PUT_GUIDE), patch: claimed.patch, staged: claimed.staged };
     });
   }
 
@@ -393,17 +628,26 @@ function createWhiteboardWiring({
   }
 
   async function clearLinksTo(deletedBoardId: string): Promise<void> {
-    const unlinkPuts = [...recordsByBoardId.values()].flatMap((record) => {
-      const ops: Op[] = stepBoxesOf(record.board)
-        .filter((stepBox) => stepBox.step.linkedBoardId === deletedBoardId)
-        .map((stepBox) => ({ op: 'set', id: stepBox.id, fields: { step: { linkedBoardId: null } } }));
-      if (ops.length === 0) return [];
-      const linkingBoardId = record.board.id;
-      return [putOps(linkingBoardId, ops, GLIMMERVOID_AUTHOR).then((reply) => {
-        if (!reply.body.ok) logger.warn(`[whiteboard] steps on board ${linkingBoardId} still link to deleted board ${deletedBoardId}: ${reply.body.error}`);
-      })];
+    const storedLinkingBoardIds = await store.boardsLinkingTo(deletedBoardId).catch((error: unknown) => {
+      logger.warn(`[whiteboard] steps on boards not yet opened may still link to deleted board ${deletedBoardId}: ${errorMessage(error)}`);
+      return [];
     });
-    await Promise.all(unlinkPuts);
+    const loadedBoardIds = [...recordsByBoardId.keys()].filter((boardId) => !unloadedBoardIds.has(boardId));
+    await Promise.all([...new Set([...loadedBoardIds, ...storedLinkingBoardIds])].map((linkingBoardId) => unlinkStepsTo(linkingBoardId, deletedBoardId)));
+  }
+
+  async function unlinkStepsTo(linkingBoardId: string, deletedBoardId: string): Promise<void> {
+    const loading = await loadedRecordOf(linkingBoardId);
+    if (!loading.ok) {
+      logger.warn(`[whiteboard] steps on board ${linkingBoardId} may still link to deleted board ${deletedBoardId}: ${loading.reply.body.ok ? '' : loading.reply.body.error}`);
+      return;
+    }
+    const ops: Op[] = stepBoxesOf(loading.record.board)
+      .filter((stepBox) => stepBox.step.linkedBoardId === deletedBoardId)
+      .map((stepBox) => ({ op: 'set', id: stepBox.id, fields: { step: { linkedBoardId: null } } }));
+    if (ops.length === 0) return;
+    const reply = await putOps(linkingBoardId, ops, GLIMMERVOID_AUTHOR);
+    if (!reply.body.ok) logger.warn(`[whiteboard] steps on board ${linkingBoardId} still link to deleted board ${deletedBoardId}: ${reply.body.error}`);
   }
 
   async function removeBoard(boardId: string): Promise<WhiteboardReply> {
@@ -423,13 +667,16 @@ function createWhiteboardWiring({
   async function deleteRecordInSlot(current: BoardRecord): Promise<WhiteboardReply> {
     const boardId = current.board.id;
     try {
-      await fsp.rm(boardFilePath(boardId), { force: true });
+      await fsp.rm(path.join(boardsRoot, `${boardId}${BOARD_FILE_EXTENSION}`), { force: true });
+      await store.remove(boardId);
     } catch (error) {
       logger.warn(`[whiteboard] board ${boardId} could not be deleted: ${errorMessage(error)}`);
-      return refusal(500, 'the board file could not be deleted, so the board is still here');
+      return refusal(500, 'the board could not be deleted, so it is still here');
     }
     recordsByBoardId.delete(boardId);
+    unloadedBoardIds.delete(boardId);
     deletedBoardIds.add(boardId);
+    tiles.forgetBoard(boardId);
     broadcastControl({ type: 'whiteboard-removed', boardId });
     broadcastSummariesIfChanged(current, null);
     void sweepUnusedAssets();
@@ -458,23 +705,15 @@ function createWhiteboardWiring({
     put: (boardId, ops) => operatorBoardCommand(boardId, (foundBoardId) => putOps(foundBoardId, ops, OPERATOR_AUTHOR)),
     remove: (boardId) => operatorBoardCommand(boardId, removeBoard),
     get: (boardId) => operatorBoardCommand(boardId, async (foundBoardId) => {
-      const record = recordsByBoardId.get(foundBoardId);
-      if (!record) return refusal(404, DELETED_BOARD_TEXT);
-      return { status: 200, body: { ok: true, board: record.board, changes: [] } };
+      const loading = await loadedRecordOf(foundBoardId);
+      if (!loading.ok) return loading.reply;
+      return { status: 200, body: { ok: true, board: boardSnapshotOf(loading.record.board), changes: [] } };
     }),
     review: async (boardId) => {
       await loaded;
-      const record = recordsByBoardId.get(boardId);
-      if (!record) return { ok: false, error: DELETED_BOARD_TEXT };
-      return { ok: true, error: null, review: await reviewFor(record.board, { readsChanges: true }) };
-    },
-    layout: async (boardId) => {
-      await loaded;
-      const record = recordsByBoardId.get(boardId);
-      if (!record) return { ok: false, error: DELETED_BOARD_TEXT };
-      const layout = rememberedLayoutOf(record.board);
-      if (!layout) return { ok: true, error: null };
-      return { ok: true, error: null, laidOut: { version: record.board.version, layout } };
+      const loading = await loadedRecordOf(boardId);
+      if (!loading.ok) return operatorReplyOf(loading.reply);
+      return { ok: true, error: null, review: await reviewFor(loading.record.board, { readsChanges: true }) };
     },
     connect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => connectBoard(foundBoardId, sessionId)),
     disconnect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => disconnectBoard(foundBoardId, sessionId)),
@@ -486,7 +725,7 @@ function createWhiteboardWiring({
       if (!current) return false;
       const next = closedSessionIds.reduce(disconnectSession, current);
       if (hasNoConnectedSessions(next)) return (await deleteRecordInSlot(current)).body.ok;
-      if (await saveRecordInSlot(current, next)) broadcastSummariesIfChanged(current, next);
+      if (await saveRecordInSlot(current, next, null)) broadcastSummariesIfChanged(current, next);
       return false;
     });
     if (isDeleted) await clearLinksTo(boardId);
@@ -502,6 +741,8 @@ function createWhiteboardWiring({
   }
 
   function forgetSession(sessionId: string): Promise<void> {
+    agentFocusBySessionId.delete(sessionId);
+    pagedFocusBySessionId.delete(sessionId);
     return forgetClosedSessions((connectedSessionId) => connectedSessionId === sessionId);
   }
 
@@ -556,15 +797,20 @@ function createWhiteboardWiring({
     if (!target.ok) return target.reply;
     const card = { media: ingested.media, title: pageTitle ?? path.basename(sourcePath), caption };
     const author: Author = { id: caller.id, name: caller.name };
-    return changeRecord(target.boardId, (record) => {
-      const shownBox = shownBoxOp(record.board, layoutBoard(record.board).bounds, card);
+    return changeRecord(target.boardId, async (record) => {
+      const layout = await tiles.summaryOf(record.board).catch((error: unknown) => {
+        logger.warn(`[whiteboard] board ${record.board.id} could not be laid out to place a shown file: ${errorMessage(error)}`);
+        return null;
+      });
+      if (!layout) return { ok: false, reply: refusal(503, 'the board layout could not be read, so nothing was shown; try again') };
+      const shownBox = shownBoxOp(record.board, layout.chrome.bounds, card);
       if (!shownBox.ok) return { ok: false, reply: refusal(400, `${shownBox.error}, so nothing changed`) };
       const { op, boxId } = shownBox;
-      const applied = applyOpsToRecord(record, [op], author);
+      const applied = await applyOpsToRecord(record, [op], author);
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
       const { board } = applied.record;
       const note = `showed ${card.title} as box ${boxId} on board "${board.title}" (${board.id}), where the operator sees it; change it with whiteboard put`;
-      return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, board: summarizeBoard(applied.record), note } }, patch: applied.patch };
+      return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, board: summarizeBoard(applied.record), note } }, patch: applied.patch, staged: applied.staged };
     });
   }
 
@@ -582,7 +828,8 @@ function createWhiteboardWiring({
     switch (request.sub) {
       case 'connect': return connectBoard(found.boardId, caller.id);
       case 'disconnect': return disconnectBoard(found.boardId, caller.id);
-      case 'get': return readBoard(found.boardId, caller.id, { isPeek: request.peek === true, wantsReview: request.review === true });
+      case 'get': return readBoard(found.boardId, caller.id, request);
+      case 'query': return queryBoard(found.boardId, request);
       case 'put': return reviewedPut(found.boardId, request.ops, author);
       case 'resolve': return putOps(found.boardId, [{ op: 'resolve', id: request.note }], author);
       case 'doc': return readDocOf(found.boardId, request.box);
@@ -590,8 +837,45 @@ function createWhiteboardWiring({
     }
   }
 
-  return { loaded, assets, handleAgent, handleOperator, forgetSession, forgetClosedSessions, takeBoardNotice, isConnected, snapshotMessage };
+  async function loadedBoardOf(boardId: string): Promise<Board | null> {
+    const loading = await loadedRecordOf(boardId);
+    return loading.ok ? loading.record.board : null;
+  }
+
+  const layouts: WhiteboardLayouts = {
+    findBoardId,
+    readingOf: async (boardId) => {
+      const board = await loadedBoardOf(boardId);
+      if (!board) return null;
+      const summary = await tiles.summaryOf(board);
+      return { title: board.title, version: board.version, plan: planSteps(board), layoutWarnings: summary.warnings };
+    },
+    summaryOf: async (boardId) => {
+      const board = await loadedBoardOf(boardId);
+      return board ? tiles.summaryOf(board) : null;
+    },
+    pictureImagesOf: async (boardId) => {
+      const board = await loadedBoardOf(boardId);
+      return board ? tiles.pictureImagesOf(board) : null;
+    },
+    pictureOf: async (boardId, dataUriByAssetId) => {
+      const board = await loadedBoardOf(boardId);
+      return board ? tiles.pictureOf(board, dataUriByAssetId) : null;
+    },
+  };
+
+  const tilesOnFirstUse: WhiteboardPort['tiles'] = {
+    view: async (viewer, request) => {
+      await loaded;
+      await loadedRecordOf(request.boardId);
+      return tiles.view(viewer, request);
+    },
+    forget: tiles.forget,
+    operatorViewOf: tiles.operatorViewOf,
+  };
+
+  return { loaded, assets, handleAgent, handleOperator, forgetSession, forgetClosedSessions, takeBoardNotice, isConnected, snapshotMessage, tiles: tilesOnFirstUse, layouts };
 }
 
 export { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME };
-export type { WhiteboardPort };
+export type { WhiteboardLayouts, WhiteboardPort };

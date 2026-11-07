@@ -3,13 +3,32 @@ import type { Board, BoardChange, Element, Op } from './contracts/whiteboard.ts'
 import { isRecord } from './coerce.ts';
 import { isStackedPanel, layoutBoard } from './whiteboard-layout-core.ts';
 import type { LaidOutBox } from './whiteboard-layout-core.ts';
-import type { BoardDiff, ElementChange } from './contracts/control/whiteboard-messages.ts';
+import type { BoardDiff, DiffBefore, ElementChange } from './contracts/control/whiteboard-messages.ts';
+import { appendElement, boardIndexOf, boxIdsDependedOnBy, dropElement, storeElement } from './whiteboard-board-index.ts';
 
 type Author = { id: string; name: string };
-type ApplyResult = { ok: true; board: Board; changes: BoardChange[]; diff: BoardDiff } | { ok: false; error: string; opIndex: number };
+type ApplyResult = { ok: true; board: Board; changes: BoardChange[]; diff: BoardDiff; before: DiffBefore } | { ok: false; error: string; opIndex: number };
+type StagedOps = {
+  ok: true;
+  board: Board;
+  changes: BoardChange[];
+  diff: BoardDiff;
+  before: DiffBefore;
+  afterById: ReadonlyMap<string, Element | null>;
+  commit: () => void;
+} | { ok: false; error: string; opIndex: number };
 type OpOutcome = { ok: true } | { ok: false; error: string };
-type PinPositions = { laidOutBoxById: ReadonlyMap<string, LaidOutBox>; pinnedOffsetY: number };
-type Draft = { board: Board; elementCount: number; pinPositions: PinPositions | null; dependentIdsByBoxId: ReadonlyMap<string, ReadonlySet<string>> | null };
+type PinPositions = { laidOutBoxOf: (id: string) => LaidOutBox | undefined; pinnedOffsetY: number };
+type ElementLookup = (id: string) => Element | undefined;
+type Draft = {
+  base: Board;
+  head: Board;
+  afterById: Map<string, Element | null>;
+  erasedIds: Set<string>;
+  overlayDependentIdsByBoxId: Map<string, Set<string>>;
+  elementCount: number;
+  basePinPositions: PinPositions | null;
+};
 
 const ELEMENT_SCHEMAS = Object.freeze({ box: Box, frame: Frame, wire: Wire, note: Note });
 const NOTE_PREVIEW_CHARS = 80;
@@ -30,30 +49,59 @@ function refuse(error: string): OpOutcome {
   return { ok: false, error };
 }
 
-function isBox(board: Board, id: string): boolean {
-  return board.elements[id]?.kind === 'box';
+function elementOf(draft: Draft, id: string): Element | undefined {
+  if (draft.afterById.has(id)) return draft.afterById.get(id) ?? undefined;
+  return draft.base.elements[id];
 }
 
-function checkReferences(board: Board, element: Element, previous: Element | undefined): OpOutcome {
-  if (element.kind === 'box') return checkBoxReferences(board, element, previous);
+function writeElement(draft: Draft, element: Element): void {
+  if (draft.afterById.get(element.id) === null) draft.afterById.delete(element.id);
+  draft.afterById.set(element.id, element);
+  for (const boxId of boxIdsDependedOnBy(element)) {
+    const dependentIds = draft.overlayDependentIdsByBoxId.get(boxId) ?? new Set<string>();
+    dependentIds.add(element.id);
+    draft.overlayDependentIdsByBoxId.set(boxId, dependentIds);
+  }
+}
+
+function eraseElement(draft: Draft, id: string): void {
+  draft.afterById.set(id, null);
+  draft.erasedIds.add(id);
+  draft.elementCount -= 1;
+}
+
+function isBox(draft: Draft, id: string): boolean {
+  return elementOf(draft, id)?.kind === 'box';
+}
+
+function currentDependentsOf(draft: Draft, boxId: string): Element[] {
+  const candidateIds = new Set([...boardIndexOf(draft.base.elements).dependentIdsByBoxId.get(boxId) ?? [], ...draft.overlayDependentIdsByBoxId.get(boxId) ?? []]);
+  return [...candidateIds].flatMap((dependentId) => {
+    const element = elementOf(draft, dependentId);
+    return element && boxIdsDependedOnBy(element).includes(boxId) ? [element] : [];
+  });
+}
+
+function checkReferences(draft: Draft, element: Element, previous: Element | undefined): OpOutcome {
+  if (element.kind === 'box') return checkBoxReferences(draft, element, previous);
   if (element.kind === 'wire') {
-    if (!isBox(board, element.from)) return refuse(`wire ${element.id} starts at ${element.from}, which is not a box`);
-    if (!isBox(board, element.to)) return refuse(`wire ${element.id} ends at ${element.to}, which is not a box`);
-    return checkWireOutput(board, element);
+    if (!isBox(draft, element.from)) return refuse(`wire ${element.id} starts at ${element.from}, which is not a box`);
+    if (!isBox(draft, element.to)) return refuse(`wire ${element.id} ends at ${element.to}, which is not a box`);
+    return checkWireOutput(draft, element);
   }
   if (element.kind === 'note') {
-    if (!isBox(board, element.on)) return refuse(`note ${element.id} is on ${element.on}, which is not a box`);
+    if (!isBox(draft, element.on)) return refuse(`note ${element.id} is on ${element.on}, which is not a box`);
     return OK;
   }
   if (element.kind !== 'frame') return OK;
-  const strangerId = element.contains.find((id) => !isBox(board, id));
+  const strangerId = element.contains.find((id) => !isBox(draft, id));
   if (strangerId) return refuse(`frame ${element.id} contains ${strangerId}, which is not a box`);
   return OK;
 }
 
-function checkWireOutput(board: Board, wire: Wire): OpOutcome {
+function checkWireOutput(draft: Draft, wire: Wire): OpOutcome {
   if (wire.fromOutput === null) return OK;
-  const from = board.elements[wire.from];
+  const from = elementOf(draft, wire.from);
   if (from?.kind !== 'box' || from.shape !== 'decision') return refuse(`wire ${wire.id} starts at output ${wire.fromOutput}, but ${wire.from} is not a decision`);
   if (!from.outputs.some((output) => output.id === wire.fromOutput)) return refuse(`wire ${wire.id} starts at output ${wire.fromOutput}, which decision ${wire.from} does not have`);
   return OK;
@@ -66,48 +114,48 @@ function decisionOutputsOf(element: Element | undefined): DecisionOutputs {
   return element.outputs;
 }
 
-function checkBoxOutputs(board: Board, box: Box, previous: Element | undefined): OpOutcome {
+function checkBoxOutputs(draft: Draft, box: Box, previous: Element | undefined): OpOutcome {
   const outputs = decisionOutputsOf(box);
   const outputIds = new Set(outputs.map((output) => output.id));
   if (outputIds.size !== outputs.length) return refuse(`box ${box.id} has two outputs with the same id`);
   const previousOutputs = decisionOutputsOf(previous);
   if (previousOutputs.every((output) => outputIds.has(output.id))) return OK;
-  const strandedWire = Object.values(board.elements).find((element) => element.kind === 'wire' && element.from === box.id && element.fromOutput !== null && !outputIds.has(element.fromOutput));
+  const strandedWire = currentDependentsOf(draft, box.id).find((element) => element.kind === 'wire' && element.from === box.id && element.fromOutput !== null && !outputIds.has(element.fromOutput));
   if (strandedWire?.kind === 'wire') return refuse(`wire ${strandedWire.id} still starts at output ${strandedWire.fromOutput} of ${box.id}, so change or remove that wire first`);
   return OK;
 }
 
-function boxSittingNear(board: Board, boxId: string): Box | null {
-  const sitting = Object.values(board.elements).find((element) => element.kind === 'box' && element.near?.of === boxId);
+function boxSittingNear(draft: Draft, boxId: string): Box | null {
+  const sitting = currentDependentsOf(draft, boxId).find((element) => element.kind === 'box' && element.near?.of === boxId);
   return sitting?.kind === 'box' ? sitting : null;
 }
 
-function checkBoxReferences(board: Board, box: Box, previous: Element | undefined): OpOutcome {
-  const outputs = checkBoxOutputs(board, box, previous);
+function checkBoxReferences(draft: Draft, box: Box, previous: Element | undefined): OpOutcome {
+  const outputs = checkBoxOutputs(draft, box, previous);
   if (!outputs.ok) return outputs;
   if (box.change === 'relabeled' && !box.was) return refuse(`box ${box.id} is relabeled, so give its old title in was`);
   if (box.step === null && box.shape !== 'panel' && box.near === null && box.at === null) {
     return refuse(`box ${box.id} needs a place: near another box or at a point`);
   }
   const isJoiningPanelStack = isStackedPanel(box) && previous?.kind === 'box' && !isStackedPanel(previous);
-  const sittingNear = isJoiningPanelStack ? boxSittingNear(board, box.id) : null;
+  const sittingNear = isJoiningPanelStack ? boxSittingNear(draft, box.id) : null;
   if (sittingNear) return refuse(`box ${sittingNear.id} sits near ${box.id}, so ${box.id} cannot go back to the panel stack with no place: keep a near or at on it, or move box ${sittingNear.id} first`);
   if (box.near === null) return OK;
   if (box.near.of === box.id) return refuse(`box ${box.id} cannot sit near itself`);
-  const nearTarget = board.elements[box.near.of];
+  const nearTarget = elementOf(draft, box.near.of);
   if (nearTarget?.kind !== 'box') return refuse(`box ${box.id} sits near ${box.near.of}, which is not a box`);
   if (isStackedPanel(nearTarget)) return refuse(`box ${box.id} sits near ${box.near.of}, a panel with no place yet, so give that panel a near or at first`);
-  if (nearChainReaches(board, box.near.of, box.id)) return refuse(`box ${box.id} sits near ${box.near.of}, which already sits near ${box.id}, so they would place each other`);
+  if (nearChainReaches(draft, box.near.of, box.id)) return refuse(`box ${box.id} sits near ${box.near.of}, which already sits near ${box.id}, so they would place each other`);
   return OK;
 }
 
-function nearChainReaches(board: Board, startId: string, soughtId: string): boolean {
+function nearChainReaches(draft: Draft, startId: string, soughtId: string): boolean {
   const visitedIds = new Set<string>();
   let currentId: string | undefined = startId;
   while (currentId !== undefined && !visitedIds.has(currentId)) {
     if (currentId === soughtId) return true;
     visitedIds.add(currentId);
-    const current: Element | undefined = board.elements[currentId];
+    const current: Element | undefined = elementOf(draft, currentId);
     currentId = current?.kind === 'box' ? current.near?.of : undefined;
   }
   return false;
@@ -120,13 +168,12 @@ function withoutEmptyOutputsOffDecision(element: Element): Element {
 }
 
 function addElement(draft: Draft, element: Element, author: Author): OpOutcome {
-  const { board } = draft;
-  if (board.elements[element.id]) return refuse(`an element with id ${element.id} already exists`);
+  if (elementOf(draft, element.id)) return refuse(`an element with id ${element.id} already exists`);
   if (draft.elementCount >= WHITEBOARD_LIMITS.elements) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.elements} elements`);
   const stored: Element = element.kind === 'note' ? storedNote(element, author) : withoutEmptyOutputsOffDecision(element);
-  const references = checkReferences(board, stored, undefined);
+  const references = checkReferences(draft, stored, undefined);
   if (!references.ok) return references;
-  board.elements[element.id] = stored;
+  writeElement(draft, stored);
   draft.elementCount += 1;
   return OK;
 }
@@ -151,8 +198,8 @@ function existingFieldsKeptBy(existing: Element, fields: Record<string, unknown>
   return Object.fromEntries(Object.entries(existing).filter(([fieldName]) => fieldNames.has(fieldName)));
 }
 
-function setFields(board: Board, id: string, rawFields: Record<string, unknown>, author: Author): OpOutcome {
-  const existing = board.elements[id];
+function setFields(draft: Draft, id: string, rawFields: Record<string, unknown>, author: Author): OpOutcome {
+  const existing = elementOf(draft, id);
   if (!existing) return refuse(`no element has id ${id}`);
   const fields = withStepMerged(existing, rawFields);
   if ('kind' in fields || 'id' in fields) return refuse('set cannot change an element kind or id; remove it and add a new one');
@@ -160,52 +207,17 @@ function setFields(board: Board, id: string, rawFields: Record<string, unknown>,
   const parsed = ELEMENT_SCHEMAS[existing.kind].safeParse({ ...existingFieldsKeptBy(existing, fields), ...rewrittenNoteStamp(existing, fields, author), ...fields });
   if (!parsed.success) return refuse(`${id}: ${parsed.error.issues[0]?.message ?? 'invalid fields'}`);
   const stored = withoutEmptyOutputsOffDecision(parsed.data);
-  const references = checkReferences(board, stored, existing);
+  const references = checkReferences(draft, stored, existing);
   if (!references.ok) return references;
-  board.elements[id] = stored;
+  writeElement(draft, stored);
   return OK;
 }
 
-function boxIdsDependedOnBy(element: Element): readonly string[] {
-  if (element.kind === 'box') return element.near ? [element.near.of] : [];
-  if (element.kind === 'wire') return [element.from, element.to];
-  if (element.kind === 'note') return [element.on];
-  if (element.kind === 'frame') return element.contains;
-  return [];
-}
-
-function dependentIdsByBoxIdOf(board: Board): Map<string, Set<string>> {
-  const dependentIdsByBoxId = new Map<string, Set<string>>();
-  for (const element of Object.values(board.elements)) {
-    for (const boxId of boxIdsDependedOnBy(element)) {
-      const dependentIds = dependentIdsByBoxId.get(boxId) ?? new Set<string>();
-      dependentIds.add(element.id);
-      dependentIdsByBoxId.set(boxId, dependentIds);
-    }
-  }
-  return dependentIdsByBoxId;
-}
-
-function currentDependentsOf(draft: Draft, boxId: string): Element[] {
-  draft.dependentIdsByBoxId ??= dependentIdsByBoxIdOf(draft.board);
-  const dependentIds = [...draft.dependentIdsByBoxId.get(boxId) ?? []];
-  return dependentIds.flatMap((dependentId) => {
-    const element = draft.board.elements[dependentId];
-    return element && boxIdsDependedOnBy(element).includes(boxId) ? [element] : [];
-  });
-}
-
-function deleteElement(draft: Draft, id: string): void {
-  delete draft.board.elements[id];
-  draft.elementCount -= 1;
-}
-
 function removeElement(draft: Draft, id: string): OpOutcome {
-  const { board } = draft;
-  const existing = board.elements[id];
+  const existing = elementOf(draft, id);
   if (!existing) return refuse(`no element has id ${id}`);
   if (existing.kind === 'box') pinBoxesNear(draft, id);
-  deleteElement(draft, id);
+  eraseElement(draft, id);
   if (existing.kind !== 'box') return OK;
   for (const dependent of currentDependentsOf(draft, id)) removeDependent(draft, dependent, id);
   return OK;
@@ -214,79 +226,112 @@ function removeElement(draft: Draft, id: string): OpOutcome {
 function pinPositionsOf(board: Board): PinPositions {
   const layout = layoutBoard(board);
   const laidOutBoxById = new Map(layout.elements.flatMap((element) => (element.kind === 'box' ? [[element.id, element] as const] : [])));
-  return { laidOutBoxById, pinnedOffsetY: layout.pinnedOffsetY };
+  return { laidOutBoxOf: (id) => laidOutBoxById.get(id), pinnedOffsetY: layout.pinnedOffsetY };
+}
+
+const ORIGIN = Object.freeze({ x: 0, y: 0 });
+
+function drawnPlaceOf(draft: Draft, boxId: string, visitedIds: Set<string>): { x: number; y: number } {
+  const laidOut = draft.basePinPositions?.laidOutBoxOf(boxId);
+  if (laidOut) return { x: laidOut.x, y: laidOut.y - (draft.basePinPositions?.pinnedOffsetY ?? 0) };
+  const box = elementOf(draft, boxId) ?? draft.base.elements[boxId];
+  if (box?.kind !== 'box') return ORIGIN;
+  if (box.at) return box.at;
+  if (!box.near || visitedIds.has(box.near.of)) return ORIGIN;
+  visitedIds.add(boxId);
+  return drawnPlaceOf(draft, box.near.of, visitedIds);
 }
 
 function pinBoxesNear(draft: Draft, removedBoxId: string): void {
-  const { board } = draft;
   const nearBoxes = currentDependentsOf(draft, removedBoxId).flatMap((element) => (element.kind === 'box' ? [element] : []));
-  if (nearBoxes.length === 0) return;
-  draft.pinPositions ??= pinPositionsOf(board);
-  const { laidOutBoxById, pinnedOffsetY } = draft.pinPositions;
   for (const box of nearBoxes) {
-    const laidOut = laidOutBoxById.get(box.id);
-    if (!laidOut) continue;
-    board.elements[box.id] = { ...box, near: null, at: { x: laidOut.x, y: laidOut.y - pinnedOffsetY } };
+    const laidOut = draft.basePinPositions?.laidOutBoxOf(box.id);
+    const at = laidOut ? drawnPlaceOf(draft, box.id, new Set()) : drawnPlaceOf(draft, removedBoxId, new Set([box.id]));
+    writeElement(draft, { ...box, near: null, at });
   }
 }
 
 function removeDependent(draft: Draft, element: Element, removedBoxId: string): void {
   if (element.kind === 'wire' && (element.from === removedBoxId || element.to === removedBoxId)) {
-    deleteElement(draft, element.id);
+    eraseElement(draft, element.id);
     return;
   }
   if (element.kind === 'note' && element.on === removedBoxId) {
-    deleteElement(draft, element.id);
+    eraseElement(draft, element.id);
     return;
   }
   if (element.kind !== 'frame') return;
   const contains = element.contains.filter((id) => id !== removedBoxId);
   if (contains.length === 0) {
-    deleteElement(draft, element.id);
+    eraseElement(draft, element.id);
     return;
   }
-  draft.board.elements[element.id] = { ...element, contains };
+  writeElement(draft, { ...element, contains });
 }
 
-function resolveNote(board: Board, id: string, author: Author): OpOutcome {
-  const note = board.elements[id];
+function resolveNote(draft: Draft, id: string, author: Author): OpOutcome {
+  const note = elementOf(draft, id);
   if (note?.kind !== 'note') return refuse(`no note has id ${id}`);
-  board.elements[id] = { ...note, resolvedBy: author.name };
+  writeElement(draft, { ...note, resolvedBy: author.name });
   return OK;
 }
 
 function applyOne(draft: Draft, op: Op, author: Author): OpOutcome {
-  const { board } = draft;
-  if (op.op !== 'remove') {
-    draft.pinPositions = null;
-    draft.dependentIdsByBoxId = null;
-  }
   switch (op.op) {
     case 'add': return addElement(draft, op.element, author);
-    case 'set': return setFields(board, op.id, op.fields, author);
+    case 'set': return setFields(draft, op.id, op.fields, author);
     case 'remove': return removeElement(draft, op.id);
-    case 'resolve': return resolveNote(board, op.id, author);
+    case 'resolve': return resolveNote(draft, op.id, author);
     case 'board':
-      if (op.title !== undefined) board.title = op.title;
-      if (op.caption !== undefined) board.caption = op.caption;
-      if (op.legend !== undefined) board.legend = op.legend;
-      if (op.codeSessionId !== undefined) board.codeSessionId = op.codeSessionId;
+      if (op.title !== undefined) draft.head.title = op.title;
+      if (op.caption !== undefined) draft.head.caption = op.caption;
+      if (op.legend !== undefined) draft.head.legend = op.legend;
+      if (op.codeSessionId !== undefined) draft.head.codeSessionId = op.codeSessionId;
       return OK;
   }
 }
 
-function applyOps(board: Board, ops: readonly Op[], author: Author, nowMs: number): ApplyResult {
-  const draft: Draft = { board: { ...board, elements: { ...board.elements } }, elementCount: Object.keys(board.elements).length, pinPositions: null, dependentIdsByBoxId: null };
+function stageOps(board: Board, ops: readonly Op[], author: Author, nowMs: number, basePinPositions: PinPositions | null): StagedOps {
+  const draft: Draft = {
+    base: board, head: { ...board }, afterById: new Map(), erasedIds: new Set(), overlayDependentIdsByBoxId: new Map(),
+    elementCount: boardIndexOf(board.elements).elementCount, basePinPositions,
+  };
+  const lookup: ElementLookup = (id) => elementOf(draft, id);
   const version = board.version + 1;
   const changes: BoardChange[] = [];
   for (const [opIndex, op] of ops.entries()) {
     const elementId = changedElementId(op);
-    const previous = elementId === null ? undefined : draft.board.elements[elementId];
+    const previous = elementId === null ? undefined : elementOf(draft, elementId);
     const outcome = applyOne(draft, op, author);
     if (!outcome.ok) return { ok: false, error: `op ${opIndex + 1}: ${outcome.error}`, opIndex };
-    changes.push({ version, author: author.id, elementId, summary: `${author.name} ${describeOp(op, previous, draft.board)}` });
+    changes.push({ version, author: author.id, elementId, summary: `${author.name} ${describeOp(op, previous, lookup)}` });
   }
-  return { ok: true, board: { ...draft.board, version, updatedAt: nowMs }, changes, diff: diffOf(board, draft.board) };
+  const diff = diffOf(draft);
+  const before = beforeOf(board, diff);
+  const elements = board.elements;
+  const commit = (): void => {
+    for (const [id, change] of Object.entries(diff.elements)) {
+      const element = draft.afterById.get(id);
+      if (change[0] === 'remove' || !element) {
+        dropElement(elements, id);
+        continue;
+      }
+      if (change[0] === 'put') {
+        appendElement(elements, element);
+        continue;
+      }
+      storeElement(elements, element);
+    }
+  };
+  return { ok: true, board: { ...draft.head, elements, version, updatedAt: nowMs }, changes, diff, before, afterById: draft.afterById, commit };
+}
+
+function applyOps(board: Board, ops: readonly Op[], author: Author, nowMs: number): ApplyResult {
+  const basePinPositions = ops.some((op) => op.op === 'remove') ? pinPositionsOf(board) : null;
+  const staged = stageOps({ ...board, elements: { ...board.elements } }, ops, author, nowMs, basePinPositions);
+  if (!staged.ok) return staged;
+  staged.commit();
+  return { ok: true, board: staged.board, changes: staged.changes, diff: staged.diff, before: staged.before };
 }
 
 function isSameValue(left: unknown, right: unknown): boolean {
@@ -310,27 +355,24 @@ function changeOf(previous: Element, element: Element): ElementChange | null {
   return Object.keys(changedFields).length === 0 ? null : ['patch', changedFields];
 }
 
-function diffOf(before: Board, after: Board): BoardDiff {
+function diffOf(draft: Draft): BoardDiff {
   const elements: Record<string, ElementChange> = {};
-  for (const id of Object.keys(before.elements)) {
-    if (!after.elements[id]) elements[id] = ['remove'];
-  }
-  const positionById = new Map(Object.keys(before.elements).map((id, position) => [id, position]));
-  let lastKeptPosition = -1;
-  let isPastMovedElement = false;
-  for (const [id, element] of Object.entries(after.elements)) {
-    const previous = before.elements[id];
-    const position = positionById.get(id);
-    isPastMovedElement ||= !previous || position === undefined || position < lastKeptPosition;
-    if (!previous || position === undefined || isPastMovedElement) {
+  for (const [id, element] of draft.afterById) {
+    const previous = draft.base.elements[id];
+    if (!element) {
+      if (previous) elements[id] = ['remove'];
+      continue;
+    }
+    if (!previous || draft.erasedIds.has(id)) {
       elements[id] = ['put', element];
       continue;
     }
-    lastKeptPosition = position;
     if (previous === element) continue;
     const change = changeOf(previous, element);
     if (change) elements[id] = change;
   }
+  const before = draft.base;
+  const after = draft.head;
   const fields = Object.fromEntries(DIFFED_BOARD_FIELDS.filter((name) => !isSameValue(before[name], after[name])).map((name) => [name, after[name]]));
   return { fields, elements };
 }
@@ -340,6 +382,18 @@ function appliedChangeOf(existing: Element | undefined, id: string, change: Elem
   if (change[0] === 'remove' || !existing) return null;
   const parsed = ELEMENT_SCHEMAS[existing.kind].safeParse({ ...existingFieldsKeptBy(existing, change[1]), ...change[1] });
   return parsed.success && parsed.data.id === id ? parsed.data : null;
+}
+
+function beforeOf(board: Board, diff: BoardDiff): DiffBefore {
+  return {
+    fields: {
+      ...('title' in diff.fields ? { title: board.title } : {}),
+      ...('caption' in diff.fields ? { caption: board.caption } : {}),
+      ...('legend' in diff.fields ? { legend: board.legend } : {}),
+      ...('codeSessionId' in diff.fields ? { codeSessionId: board.codeSessionId } : {}),
+    },
+    elements: Object.fromEntries(Object.keys(diff.elements).map((id) => [id, board.elements[id] ?? null])),
+  };
 }
 
 function applyBoardDiff(board: Board, diff: BoardDiff, version: number, updatedAt: number): Board | null {
@@ -366,10 +420,10 @@ function changedElementId(op: Op): string | null {
   return null;
 }
 
-function nameOf(board: Board, id: string, element: Element | undefined = board.elements[id]): string {
+function nameOf(after: ElementLookup, id: string, element: Element | undefined = after(id)): string {
   if (!element) return id;
   if (element.kind === 'box' || element.kind === 'frame') return `"${element.title || id}"`;
-  if (element.kind === 'wire') return `wire ${nameOf(board, element.from)} to ${nameOf(board, element.to)}`;
+  if (element.kind === 'wire') return `wire ${nameOf(after, element.from)} to ${nameOf(after, element.to)}`;
   return `note ${id}`;
 }
 
@@ -381,9 +435,9 @@ function describeStepChange(name: string, before: Box['step'], after: Box['step'
   return `linked ${name} to a board`;
 }
 
-function describeSet(op: Extract<Op, { op: 'set' }>, previous: Element | undefined, after: Board): string {
+function describeSet(op: Extract<Op, { op: 'set' }>, previous: Element | undefined, after: ElementLookup): string {
   const fieldNames = Object.keys(op.fields);
-  const afterElement = after.elements[op.id];
+  const afterElement = after(op.id);
   if (fieldNames.length === 1 && fieldNames[0] === 'at') return `moved ${nameOf(after, op.id)}`;
   if (fieldNames.length === 1 && fieldNames[0] === 'step' && previous?.kind === 'box' && afterElement?.kind === 'box') return describeStepChange(nameOf(after, op.id), previous.step, afterElement.step);
   if (previous?.kind === 'box' && afterElement?.kind === 'box' && fieldNames.length === 1 && fieldNames[0] === 'title') {
@@ -402,7 +456,7 @@ function describeBoardOp(op: Extract<Op, { op: 'board' }>): string {
   return 'set the legend';
 }
 
-function describeOp(op: Op, previous: Element | undefined, after: Board): string {
+function describeOp(op: Op, previous: Element | undefined, after: ElementLookup): string {
   switch (op.op) {
     case 'add': {
       const element = op.element;
@@ -427,5 +481,5 @@ function createBoard({ id, title, nowMs, codeSessionId = null }: { id: string; t
   };
 }
 
-export { OPERATOR_AUTHOR, applyBoardDiff, applyOps, createBoard };
-export type { ApplyResult, Author };
+export { OPERATOR_AUTHOR, applyBoardDiff, applyOps, createBoard, stageOps };
+export type { ApplyResult, Author, PinPositions, StagedOps };
