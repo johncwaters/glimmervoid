@@ -46,9 +46,7 @@ const MACHINES: OwnedMachine[] = [
     owner: 'server/community/core/community-core.ts',
     handles: /\bCommunityStateEntry\b|community-core\.ts/,
     writes: [/\bstatus\s*:\s*["'`](?:queued|running|ready|error|aside)["'`]/, /\.status\s*!==?\s*["'`]running["'`]/],
-    allowedOffenders: new Map([
-      ['server/community/community-poller.ts', 'finishRun checks the still-running guard in the shell until the community slice'],
-    ]),
+    allowedOffenders: new Map(),
   },
   {
     name: 'session teardown',

@@ -109,11 +109,11 @@ function createCommunityPoller({
     runAborts.delete(key);
     const entry = state.entries[key];
     if (loop.isStopped() || !entry) return;
-    if (entry.status !== 'running') {
+    const finished = core.entryFromRun(entry, run, new Date(now()).toISOString());
+    if (!finished) {
       dispatchRuns();
       return;
     }
-    const finished = core.entryFromRun(entry, run, new Date(now()).toISOString());
     if (finished.warning) log.warn(`[${core.COMMUNITY_LANE_ID}] ${finished.warning}`);
     replaceEntry(finished.entry);
     if (core.shouldNotifyDraft(finished.entry)) onDraftReady(finished.entry);

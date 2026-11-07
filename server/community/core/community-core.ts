@@ -517,7 +517,8 @@ function failedEntry(entry: CommunityStateEntry, error: string, nowIso: string):
   return { ...settled(entry), status: 'error', error: error.slice(0, MAX_REPORT_BULLET_CHARS), finishedAt: nowIso };
 }
 
-function entryFromRun(entry: CommunityStateEntry, run: CommunityRunResult, nowIso: string): { entry: CommunityStateEntry; warning: string | null } {
+function entryFromRun(entry: CommunityStateEntry, run: CommunityRunResult, nowIso: string): { entry: CommunityStateEntry; warning: string | null } | null {
+  if (entry.status !== 'running') return null;
   if (run.timedOut && !entry.retriedAfterTimeout) {
     return { entry: { ...withoutError(entry), status: 'queued', retriedAfterTimeout: true, finishedAt: null }, warning: `${entry.item.key}: ${run.error ?? 'the research run timed out'}, queued to run once more` };
   }
