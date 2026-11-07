@@ -49,6 +49,7 @@ const LAYOUT_RUNS = 3;
 const PAN_FRAMES = 120;
 const ZOOM_FRAMES = 40;
 const DRAG_STEPS = 60;
+const BOX_SEARCH_STEP_PX = 40;
 const FRAME_BUDGET_MS = 1000 / 60;
 const DROPPED_FRAME_FACTOR = 1.5;
 const CONTROL_REPLY_TIMEOUT_MS = 120_000;
@@ -232,22 +233,24 @@ async function openBoardInFocus(page: Page, port: number): Promise<number> {
   await boardRow.waitFor({ timeout: OPEN_TIMEOUT_MS });
   const startedAt = performance.now();
   await boardRow.click();
-  await page.waitForFunction(() => document.querySelectorAll('.wb-viewport .wb-element').length > 0, null, { timeout: OPEN_TIMEOUT_MS, polling: 50 });
+  await page.waitForFunction(() => Number(document.querySelector<HTMLCanvasElement>('.wb-viewport .wb-gl')?.dataset.drawnElements ?? 0) > 0, null, { timeout: OPEN_TIMEOUT_MS, polling: 50 });
   return performance.now() - startedAt;
 }
 
-async function dragOneBox(page: Page): Promise<void> {
-  const boxCenter = await page.evaluate(() => {
-    const viewport = document.querySelector('.wb-viewport')?.getBoundingClientRect();
-    if (!viewport) return null;
-    for (const node of document.querySelectorAll('.wb-viewport .wb-element[data-element-kind="box"]')) {
-      const rect = node.getBoundingClientRect();
-      const isInView = rect.left > viewport.left && rect.top > viewport.top && rect.right < viewport.right && rect.bottom < viewport.bottom;
-      if (isInView && rect.width > 8 && rect.height > 8) return { x: rect.left + rect.width / 2, y: rect.top + 6 };
+async function boxBodyPoint(page: Page): Promise<{ x: number; y: number } | null> {
+  const viewport = await page.locator('.wb-viewport').boundingBox();
+  if (!viewport) return null;
+  for (let y = viewport.y + BOX_SEARCH_STEP_PX; y < viewport.y + viewport.height - BOX_SEARCH_STEP_PX; y += BOX_SEARCH_STEP_PX) {
+    for (let x = viewport.x + BOX_SEARCH_STEP_PX; x < viewport.x + viewport.width - BOX_SEARCH_STEP_PX; x += BOX_SEARCH_STEP_PX) {
+      await page.mouse.move(x, y);
+      const isBoxBody = await page.locator('.wb-viewport').evaluate((node) => node instanceof HTMLElement && node.style.cursor === 'move');
+      if (isBoxBody) return { x, y };
     }
-    return null;
-  });
-  if (!boxCenter) throw new Error('no box is fully in view to drag');
+  }
+  return null;
+}
+
+async function dragOneBox(page: Page, boxCenter: { x: number; y: number }): Promise<void> {
   await page.mouse.move(boxCenter.x, boxCenter.y);
   await page.mouse.down();
   for (let step = 1; step <= DRAG_STEPS; step += 1) await page.mouse.move(boxCenter.x + step * 2, boxCenter.y + step);
@@ -265,7 +268,9 @@ async function measureBrowser(browser: Browser, port: number): Promise<Whiteboar
       await wheelEveryFrame(page, ZOOM_FRAMES, { deltaX: 0, deltaY: 1, ctrlKey: true });
       await wheelEveryFrame(page, ZOOM_FRAMES, { deltaX: 0, deltaY: -1, ctrlKey: true });
     });
-    const drag = await sampleFrames(page, 'drag', 'Drag a box', () => dragOneBox(page));
+    const boxCenter = await boxBodyPoint(page);
+    if (!boxCenter) throw new Error('no box body is in view to drag');
+    const drag = await sampleFrames(page, 'drag', 'Drag a box', () => dragOneBox(page, boxCenter));
     const pageFacts = await page.evaluate(() => ({
       domNodes: document.querySelectorAll('*').length,
       heapBytes: Number(Reflect.get(Reflect.get(performance, 'memory') ?? {}, 'usedJSHeapSize')) || null,

@@ -358,6 +358,28 @@
   pointer-events: none;
 }
 
+.wb-gl {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.wb-gl-notice {
+  position: absolute;
+  inset: auto 0 16px;
+  width: fit-content;
+  margin: 0 auto;
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  color: var(--text-dim);
+  font-size: var(--type-meta);
+}
+
+.wb-gl-notice[hidden] { display: none; }
+
 .wb-svg {
   position: absolute;
   display: block;
@@ -395,180 +417,6 @@
 
 .wb-dialog-select { margin-top: 8px; }
 
-.wb-column-title {
-  fill: var(--wb-ink-dim);
-  font-size: var(--type-meta);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.wb-column-rule {
-  stroke: var(--wb-line);
-  stroke-width: 1;
-  stroke-dasharray: 2 5;
-}
-
-.wb-band-rule {
-  stroke: var(--wb-line);
-  stroke-width: 1;
-  opacity: 0.6;
-}
-
-.wb-band-label {
-  font-size: var(--type-meta);
-  font-weight: 700;
-}
-
-.wb-box { cursor: move; }
-
-.wb-box-outline {
-  fill: var(--wb-board);
-  stroke: var(--wb-ink-dim);
-  stroke-width: 1.6;
-}
-
-.wb-change-added .wb-box-outline { stroke: var(--state-running); stroke-dasharray: 7 5; }
-.wb-change-removed { opacity: 0.6; }
-.wb-change-removed .wb-box-outline { fill: transparent; stroke: var(--state-failed); stroke-dasharray: 7 5; }
-.wb-change-removed .wb-box-title { text-decoration: line-through; }
-.wb-change-relabeled .wb-box-outline { stroke: var(--wb-note); }
-
-.wb-box-was {
-  fill: var(--wb-ink-dim);
-  font-size: var(--type-title);
-  text-decoration: line-through;
-}
-
-.wb-box-title {
-  fill: var(--wb-ink);
-  font-size: var(--type-title);
-  font-weight: 700;
-}
-
-.wb-box-line {
-  fill: var(--wb-ink);
-  font-size: var(--type-meta);
-}
-
-.wb-box-line.wb-muted { fill: var(--wb-ink-dim); }
-
-.wb-line-code { fill: var(--accent); }
-
-.wb-code-band { fill: color-mix(in oklab, var(--accent) 14%, var(--wb-board)); }
-
-.wb-line-marker {
-  fill: var(--wb-ink-dim);
-  font-size: var(--type-meta);
-}
-
-.wb-line-key {
-  fill: var(--wb-ink-dim);
-  font-size: var(--type-meta);
-  font-weight: 700;
-}
-
-.wb-item-dot { fill: var(--wb-ink-dim); }
-
-.wb-panel { cursor: pointer; }
-
-.wb-panel-outline {
-  fill: color-mix(in oklab, var(--wb-board) 80%, var(--bg));
-  stroke: var(--wb-line);
-  stroke-width: 1.4;
-}
-
-.wb-panel-rule {
-  stroke: var(--wb-line);
-  stroke-width: 1;
-}
-
-.wb-output-divider {
-  stroke: var(--wb-line);
-  stroke-width: 1;
-}
-
-.wb-output-label {
-  fill: var(--wb-ink);
-  font-size: var(--type-meta);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.wb-output-dot { fill: var(--wb-ink-dim); pointer-events: none; }
-
-.wb-lane-pill {
-  fill: transparent;
-  stroke-width: 1.2;
-}
-
-.wb-lane-pill-text {
-  font-size: var(--type-meta);
-  font-weight: 700;
-}
-
-.wb-unit { cursor: pointer; }
-
-.wb-unit-outline {
-  fill: var(--wb-board);
-  stroke: var(--accent);
-  stroke-width: 1.6;
-}
-
-.wb-unit-label {
-  fill: var(--accent);
-  font-size: var(--type-meta);
-  font-weight: 700;
-}
-
-.wb-unit-status {
-  fill: var(--text-muted);
-  font-size: var(--type-meta);
-}
-
-.wb-unit-planned { fill: var(--text-muted); }
-.wb-unit-building { fill: var(--state-waiting); }
-.wb-unit-landed { fill: var(--state-running); }
-
-.wb-unit-link {
-  fill: var(--accent);
-  font-size: var(--type-meta);
-  text-decoration: underline;
-  cursor: pointer;
-}
-
-.wb-frame-outline {
-  fill: color-mix(in srgb, var(--accent) 4%, transparent);
-  stroke: var(--wb-line);
-  stroke-width: 1.4;
-  stroke-dasharray: 10 6;
-  pointer-events: stroke;
-}
-
-.wb-frame-title {
-  fill: var(--wb-ink-dim);
-  font-size: var(--type-meta);
-  font-weight: 700;
-}
-
-.wb-loop .wb-frame-outline { stroke: var(--accent); }
-
-.wb-loop-badge {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 1.6;
-}
-
-.wb-back .wb-wire-line { stroke: var(--accent); }
-
-.wb-wire-hit {
-  fill: none;
-  stroke: transparent;
-  stroke-width: 14;
-  cursor: pointer;
-}
-
 .wb-wire-line {
   fill: none;
   stroke: var(--wb-ink-dim);
@@ -577,56 +425,6 @@
 }
 
 .wb-wire-line.wb-dashed { stroke-dasharray: 7 6; }
-.wb-tone-fail .wb-wire-line { stroke: var(--state-failed); }
-.wb-tone-join .wb-wire-line { stroke: var(--accent); }
-
-.wb-wire-dot { fill: var(--wb-ink-dim); pointer-events: none; }
-
-.wb-wire-label {
-  fill: var(--wb-ink);
-  font-size: var(--type-meta);
-  text-anchor: middle;
-  paint-order: stroke;
-  stroke: var(--wb-board);
-  stroke-width: 5;
-  pointer-events: none;
-}
-
-.wb-note { cursor: pointer; }
-
-.wb-note-card {
-  fill: #2a2213;
-  stroke: var(--wb-note);
-  stroke-width: 1.2;
-}
-
-.wb-note-text {
-  fill: #f8e7c4;
-  font-size: var(--type-meta);
-}
-
-.wb-note-byline {
-  fill: #c9a868;
-  font-size: var(--type-meta);
-}
-
-.wb-resolved { opacity: 0.5; }
-
-.wb-legend-text {
-  fill: var(--wb-ink-dim);
-  font-size: var(--type-meta);
-}
-
-.wb-caption {
-  fill: var(--wb-ink-dim);
-  font-size: var(--type-body);
-}
-
-.wb-image,
-.wb-image-placeholder,
-.wb-image-placeholder-text {
-  cursor: zoom-in;
-}
 
 .wb-image-viewer {
   width: calc(100vw - 32px);
@@ -672,59 +470,7 @@
   object-fit: contain;
 }
 
-.wb-image-placeholder {
-  fill: color-mix(in oklab, var(--accent) 8%, var(--wb-board));
-  stroke: var(--wb-ink-dim);
-  stroke-width: 1;
-  stroke-dasharray: 4 4;
-}
-
-.wb-image-placeholder-text {
-  fill: var(--wb-ink-dim);
-  font-size: var(--type-meta);
-}
-
-.wb-element.is-selected .wb-box-outline,
-.wb-element.is-selected .wb-frame-outline,
-.wb-element.is-selected .wb-note-card,
-.wb-element.is-selected .wb-unit-outline,
-.wb-element.is-selected .wb-panel-outline {
-  stroke: var(--accent);
-  stroke-width: 2.4;
-}
-
-.wb-port {
-  fill: var(--wb-board);
-  stroke: var(--accent);
-  stroke-width: 1.6;
-  cursor: crosshair;
-  opacity: 0;
-  transition: opacity var(--transition-fast);
-}
-
-.wb-resize-handle {
-  fill: var(--wb-board);
-  stroke: var(--accent);
-  stroke-width: 1.6;
-  cursor: ew-resize;
-  opacity: 0;
-  transition: opacity var(--transition-fast);
-}
-
-.wb-box:hover :is(.wb-port, .wb-resize-handle),
-.wb-element.is-selected :is(.wb-port, .wb-resize-handle) { opacity: 1; }
-
 .wb-wire-draft { stroke: var(--accent); }
-
-.wb-element.is-wire-target .wb-box-outline {
-  stroke: var(--accent);
-  stroke-width: 2.4;
-}
-
-.wb-element.is-selected .wb-wire-line {
-  stroke: var(--accent);
-  stroke-width: 2.6;
-}
 
 .wb-inspect {
   display: flex;
@@ -759,11 +505,6 @@
   font-size: var(--type-meta);
   overflow-wrap: anywhere;
 }
-
-.wb-look-marker circle { fill: var(--state-waiting); stroke: var(--bg-card); stroke-width: 2; }
-.wb-look-marker text { fill: var(--bg-card); font-size: var(--type-meta); font-weight: 700; pointer-events: none; }
-
-.wb-unit.is-flagged .wb-unit-outline { stroke: var(--state-waiting); stroke-width: 2.4; }
 
 .wb-inspect-heading {
   margin: 0;
@@ -846,10 +587,6 @@
 }
 
 [data-layout='phone'] .wb-inspect {
-  display: none;
-}
-
-[data-layout='phone'] :is(.wb-port, .wb-resize-handle) {
   display: none;
 }
 

@@ -19,9 +19,9 @@ import type { BoardDiff } from '#shared/contracts/control/whiteboard-messages.ts
 import type { UndoDirection, UndoHistory } from '#shared/whiteboard-undo-core.ts';
 import { createBoardInspector } from './board-inspect.ts';
 import type { BoardInspector } from './board-inspect.ts';
-import { createBoardRenderer } from './board-render.ts';
+import { createBoardRenderer } from './board-gl-renderer.ts';
 import { createBoardMediaLayer } from './board-media-layer.ts';
-import type { BoardRenderer } from './board-render.ts';
+import type { BoardRenderer } from './board-gl-renderer.ts';
 import {
   boardSummariesOf, createBoard, deleteBoard, nudgeSessionAboutBoard, onBoardChanged, onBoardListChanged, openBoard, openBoardOf, openFileInReview, requestBoardReview, sendBoardOps, takeOpenBoardRequest, uploadBoardMedia,
 } from './board-store.ts';
@@ -832,7 +832,12 @@ export function mountBoardHost(): HTMLElement {
   svg.setAttribute('aria-hidden', 'true');
   const mediaLayer = createBoardMediaLayer();
   world.append(svg, mediaLayer.element);
-  viewport.append(world);
+  const glCanvas = el('canvas', 'wb-gl');
+  glCanvas.setAttribute('aria-hidden', 'true');
+  const glNotice = el('p', 'wb-gl-notice');
+  glNotice.setAttribute('role', 'status');
+  glNotice.hidden = true;
+  viewport.append(glCanvas, world, glNotice);
   const inspectPanel = el('aside', 'wb-inspect');
   const queuedForSession = el('span', 'wb-session-queued');
   const sendToAgent = iconButton('send to agent', SEND_TO_CHAT_ICON_PATH, 'send-board-to-agent', () => void sendBoardNudge());
@@ -859,7 +864,7 @@ export function mountBoardHost(): HTMLElement {
 
   host.replaceChildren(canvas, empty);
   parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, sendToAgent, buttons, toolButtons, toolHint, emptyBoardHint };
-  const boardRenderer = createBoardRenderer(svg, mediaLayer);
+  const boardRenderer = createBoardRenderer({ canvas: glCanvas, viewport, fontSource: svg, mediaLayer, notice: glNotice });
   renderer = boardRenderer;
   inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, openRef: openRefInReview });
   editor = createBoardEditor({

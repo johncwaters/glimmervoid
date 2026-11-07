@@ -115,12 +115,17 @@ function laneStroke(hex: string | undefined): string | null {
   return hex ? `stroke:${hex}` : null;
 }
 
-function decisionOutlinePath(box: LaidOutBox): string {
+function decisionOutlinePoints(box: LaidOutBox): { x: number; y: number }[] {
   const right = box.x + box.width;
+  const bottom = box.y + box.height;
   const headerMidY = box.y + box.headerHeight / 2;
-  const top = `M${box.x + DECISION_POINT_INSET},${box.y} H${right - DECISION_POINT_INSET} L${right},${headerMidY}`;
-  if (box.outputs.length === 0) return `${top} L${right - DECISION_POINT_INSET},${box.y + box.height} H${box.x + DECISION_POINT_INSET} L${box.x},${headerMidY} Z`;
-  return `${top} V${box.y + box.height} H${box.x} V${headerMidY} Z`;
+  const top = [{ x: box.x + DECISION_POINT_INSET, y: box.y }, { x: right - DECISION_POINT_INSET, y: box.y }, { x: right, y: headerMidY }];
+  if (box.outputs.length === 0) return [...top, { x: right - DECISION_POINT_INSET, y: bottom }, { x: box.x + DECISION_POINT_INSET, y: bottom }, { x: box.x, y: headerMidY }];
+  return [...top, { x: right, y: bottom }, { x: box.x, y: bottom }, { x: box.x, y: headerMidY }];
+}
+
+function decisionOutlinePath(box: LaidOutBox): string {
+  return `${decisionOutlinePoints(box).map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x},${point.y}`).join(' ')} Z`;
 }
 
 function outputRowsMarkup(box: LaidOutBox): string[] {
@@ -348,4 +353,9 @@ function boardSvgDocument(layout: BoardLayout, assetHref: AssetHref = NO_ASSET_H
 }
 
 export type { AssetHref, PageOccluder };
-export { arrowDefinitionsMarkup, boardSvgDocument, chromeMarkup, elementMarkup, pageMaskImage, SVG_NAMESPACE };
+export {
+  BAND_LABEL_BASELINE, BODY_LINE_HEIGHT, BOX_TEXT_INSET, CODE_BAND_HEIGHT, CODE_BAND_RISE, COLUMN_TITLE_LINE_HEIGHT, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH, LINKED_BOARD_TEXT,
+  LOOP_BADGE_INSET, LOOP_BADGE_RADIUS, MONO_CHAR_WIDTH, MUTED_INDENT, NOTE_LINE_HEIGHT, OUTPUT_DOT_RADIUS, OUTPUT_LABEL_BASELINE_OFFSET, PLAN_TITLE, PORT_RADIUS,
+  RESIZE_HANDLE_SIZE, TITLE_BASELINE, TITLE_LINE_HEIGHT, UNIT_LABEL_BASELINE, UNIT_LABEL_HEIGHT,
+  boardSvgDocument, decisionOutlinePoints, pageMaskImage,
+};
