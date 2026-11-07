@@ -22,7 +22,7 @@ const RESIZE_TIMEOUT_MS = 5000;
 const BOARD_TIMEOUT_MS = 5000;
 const BOARD_DOC_BOX_ID = 'abstract';
 const BOARD_DOC_BOX_TITLE = 'docs/';
-const BOARD_DOC_FIRST_DRAFT = '# Abstract\n\n<b>First draft.</b>\n';
+const BOARD_DOC_FIRST_DRAFT = '# Abstract\n\n<b>First draft.</b> **Bold**\n';
 
 interface OpenBoard {
   page: Page;
@@ -206,10 +206,13 @@ async function verifyBoardDoc(open: OpenBoard): Promise<void> {
   const paper = editor.locator('.doc-markup-paper');
   await paper.locator('.doc-markup-text', { hasText: 'First draft.' }).waitFor();
   assert.equal(await editor.getByRole('button').count(), 1, 'a document opens on the red pen paper with only its Close button');
+  await paper.locator('.doc-markup-line[data-block="h1"] .doc-markup-text[data-inline="syntax"]', { hasText: '#' }).waitFor();
+  await paper.locator('.doc-markup-text[data-inline="strong"]', { hasText: /^Bold$/ }).waitFor();
   await paper.locator('.doc-markup-text', { hasText: 'First draft.' }).click();
   await page.keyboard.press('End');
   await page.keyboard.type(' Again.');
   await paper.locator('.doc-markup-insertion').waitFor();
+  assert.equal(await paper.locator('.doc-markup-line > .doc-markup-insertion:last-child').count(), 1, 'typing at the end of a styled line marks the end of its source');
   await editor.locator('.doc-editor-status-text', { hasText: /^Saved$/ }).waitFor();
   await docCard.locator('.plan-paragraph', { hasText: 'Again.' }).waitFor();
   await page.keyboard.type(' Twice.');

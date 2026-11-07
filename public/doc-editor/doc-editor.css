@@ -39,6 +39,14 @@
 .doc-markup-row { display: grid; grid-template-columns: minmax(0, 1fr) 22ch; }
 .doc-markup-line { min-height: calc(var(--type-body) * 2.3); padding: 0 24px; border-right: 2px solid color-mix(in srgb, var(--pen-ink) 35%, transparent); font-family: var(--font-mono); font-size: var(--type-body); line-height: 2.3; white-space: pre-wrap; overflow-wrap: anywhere; }
 .doc-markup-row-margin { position: relative; }
+.doc-markup-line[data-block="h1"] { font-size: var(--type-display); font-weight: 700; }
+.doc-markup-line[data-block="h2"] { font-size: var(--type-title); font-weight: 700; }
+.doc-markup-line[data-block="h3"] { font-weight: 700; }
+.doc-markup-line:is([data-block="quote"], [data-block="table"]) { color: var(--text-dim); }
+.doc-markup-line[data-block="fence"], .doc-markup-text[data-inline="code"] { background: var(--bg-surface); }
+.doc-markup-text[data-inline="syntax"] { color: var(--text-muted); font-weight: 400; }
+.doc-markup-text[data-inline="strong"] { font-weight: 700; }
+.doc-markup-text[data-inline="emphasis"] { font-style: italic; }
 .doc-markup-mark { cursor: pointer; border-radius: 2px; }
 .doc-markup-mark:focus-visible, .doc-markup-mark.is-selected { outline: 2px dashed var(--pen-ink); outline-offset: 2px; }
 .doc-markup-mark del { color: inherit; text-decoration: line-through 2px var(--pen-ink); }

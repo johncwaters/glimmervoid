@@ -2,6 +2,8 @@ import { el } from '../dom-helpers.ts';
 import { isStreamerMode } from '../streamer-mode.ts';
 import { button } from '../ui/button.ts';
 import { isEndNote, parseCriticMarkup, resolveMark, suggestEdit } from './markup-core.ts';
+import { blockStylesOf, inlineRunsOf } from './markdown-style-core.ts';
+import type { BlockStyle, InlineStyle } from './markdown-style-core.ts';
 import type { MarkDecision, MarkSegment, SourceSelection, SuggestEdit, SuggestRefusal, SuggestRun, TextSegment } from './markup-core.ts';
 
 export interface MarkupHost {
@@ -173,29 +175,57 @@ function buildEndNote(mark: MarkSegment, markIndex: number) {
   return note;
 }
 
-function buildTextElement(text: string, sourceStart: number, segmentStart: number) {
+function buildTextElement(text: string, sourceStart: number, segmentStart: number, inlineStyle?: InlineStyle) {
   const textElement = el('span', 'doc-markup-text', text);
   textElement.dataset.start = String(sourceStart);
   textElement.dataset.segmentStart = String(segmentStart);
+  if (inlineStyle) textElement.dataset.inline = inlineStyle;
   return textElement;
 }
 
-function buildRow(lineStart: number): MarkupRow & { row: HTMLElement } {
+function buildStyledTextElements(text: string, sourceStart: number, segmentStart: number, block: BlockStyle, startsLine: boolean) {
+  const textElements: HTMLElement[] = [];
+  let styledUpTo = 0;
+  for (const run of inlineRunsOf(text, block, startsLine)) {
+    if (run.start > styledUpTo) textElements.push(buildTextElement(text.slice(styledUpTo, run.start), sourceStart + styledUpTo, segmentStart));
+    textElements.push(buildTextElement(text.slice(run.start, run.end), sourceStart + run.start, segmentStart, run.style));
+    styledUpTo = run.end;
+  }
+  if (styledUpTo < text.length) textElements.push(buildTextElement(text.slice(styledUpTo), sourceStart + styledUpTo, segmentStart));
+  return textElements;
+}
+
+function blockStyleByLineStart(source: string) {
+  const blockStyles = blockStylesOf(source);
+  const styleByLineStart = new Map<number, BlockStyle>();
+  let lineStart = 0;
+  for (const [lineIndex, lineText] of source.split('\n').entries()) {
+    styleByLineStart.set(lineStart, blockStyles[lineIndex] ?? 'plain');
+    lineStart += lineText.length + 1;
+  }
+  return styleByLineStart;
+}
+
+function buildRow(lineStart: number, block: BlockStyle): MarkupRow & { row: HTMLElement; block: BlockStyle } {
   const line = el('div', 'doc-markup-line');
   line.dataset.start = String(lineStart);
+  line.dataset.block = block;
   const margin = el('div', 'doc-markup-row-margin');
   margin.setAttribute('aria-hidden', 'true');
   margin.contentEditable = 'false';
   const row = el('div', 'doc-markup-row');
   row.append(line, margin);
-  return { row, line, margin, notesWithAnchors: [] };
+  return { row, line, margin, notesWithAnchors: [], block };
 }
 
-function appendTextLines(rows: Array<MarkupRow & { row: HTMLElement }>, segment: TextSegment) {
+type PaperRow = ReturnType<typeof buildRow>;
+
+function appendTextLines(rows: PaperRow[], segment: TextSegment, styleByLineStart: Map<number, BlockStyle>) {
   let sourceOffset = segment.start;
   segment.text.split('\n').forEach((lineText, lineIndex) => {
-    if (lineIndex > 0) rows.push(buildRow(sourceOffset));
-    if (lineText) rows.at(-1)?.line.append(buildTextElement(lineText, sourceOffset, segment.start));
+    if (lineIndex > 0) rows.push(buildRow(sourceOffset, styleByLineStart.get(sourceOffset) ?? 'plain'));
+    const currentRow = rows.at(-1);
+    if (lineText && currentRow) currentRow.line.append(...buildStyledTextElements(lineText, sourceOffset, segment.start, currentRow.block, currentRow.line.childElementCount === 0));
     sourceOffset += lineText.length + 1;
   });
 }
@@ -234,15 +264,17 @@ function paintPaper(editor: MarkupHost) {
   const pane = editor.markup;
   const rowObserver = rowObserverFor(pane);
   rowObserver.disconnect();
-  const rows = [buildRow(0)];
+  const source = editor.textarea.value;
+  const styleByLineStart = blockStyleByLineStart(source);
+  const rows = [buildRow(0, styleByLineStart.get(0) ?? 'plain')];
   const endNoteElements: HTMLElement[] = [];
   pane.marks = [];
   pane.elementsByMarkIndex = [];
   pane.rowsByElement.clear();
   pane.visibleRows.clear();
-  for (const segment of parseCriticMarkup(editor.textarea.value)) {
+  for (const segment of parseCriticMarkup(source)) {
     if (segment.kind === 'text') {
-      appendTextLines(rows, segment);
+      appendTextLines(rows, segment, styleByLineStart);
       continue;
     }
     const markIndex = pane.marks.push(segment) - 1;
