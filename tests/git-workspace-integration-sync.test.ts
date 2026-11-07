@@ -84,23 +84,85 @@ test('syncIntegrationBranch skips a repository without origin', { skip: !GIT }, 
   }
 });
 
-test('syncIntegrationBranch fetch is bounded and non-interactive', async () => {
-  let fetchCall: { args: string[]; cwd: string; extra?: unknown } | null = null;
+test('syncIntegrationBranch fetches only the integration branch, bounded and non-interactive', async () => {
+  const fetchCalls: { args: string[]; cwd: string; extra?: { timeout?: number; env?: unknown } }[] = [];
   const gitWorkspace = createGitWorkspace({
     git: (args, cwd, extra) => {
       if (args.join(' ') === 'remote get-url origin') return 'remote.git';
-      if (args[0] === 'fetch' && args[1] === '--prune') fetchCall = { args, cwd, extra };
+      if (args[0] === 'fetch') fetchCalls.push({ args, cwd, extra });
       return '';
     },
   });
 
   await gitWorkspace.syncIntegrationBranch({ projectPath: '/repo', branch: 'main' });
 
-  assert.deepEqual(fetchCall, {
-    args: ['fetch', '--prune', 'origin', '+refs/heads/*:refs/remotes/origin/*'],
-    cwd: '/repo',
-    extra: { timeout: 8000, env: { GIT_TERMINAL_PROMPT: '0' } },
-  });
+  assert.equal(fetchCalls.length, 1);
+  const [{ extra: fetchOptions, ...fetchTarget }] = fetchCalls;
+  assert.deepEqual(fetchTarget, { args: ['fetch', '--quiet', '--no-tags', 'origin', '+refs/heads/main:refs/remotes/origin/main'], cwd: '/repo' });
+  assert.deepEqual(fetchOptions?.env, { GIT_TERMINAL_PROMPT: '0' });
+  assert.ok((fetchOptions?.timeout ?? 0) > 10_000 && (fetchOptions?.timeout ?? Number.POSITIVE_INFINITY) <= 15_000);
+});
+
+test('an integration branch origin lacks reports no-remote and drops its stale tracking ref', { skip: !GIT }, async () => {
+  const fixture = createFixture();
+  try {
+    git(['update-ref', 'refs/remotes/origin/main', 'HEAD'], fixture.repo);
+    const synced = await createGitWorkspace().syncIntegrationBranch({ projectPath: fixture.repo, branch: 'main' });
+    assert.equal(synced.outcome, 'no-remote');
+    assert.throws(() => git(['rev-parse', '--verify', '--quiet', 'refs/remotes/origin/main'], fixture.repo));
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('a stale tracking ref that blocks the integration branch name is dropped and the fetch retried, whatever refspec origin is configured with, in any letter case', { skip: !GIT }, async () => {
+  const fixture = createFixture();
+  try {
+    git(['push', 'origin', 'HEAD:refs/heads/release/1.0'], fixture.publisher);
+    git(['config', 'remote.origin.fetch', '+refs/heads/develop:refs/remotes/origin/develop'], fixture.repo);
+    git(['update-ref', 'refs/remotes/origin/release', 'HEAD'], fixture.repo);
+    const synced = await createGitWorkspace().syncIntegrationBranch({ projectPath: fixture.repo, branch: 'release/1.0' });
+    assert.notEqual(synced.outcome, 'fetch-failed');
+    assert.equal(git(['rev-parse', 'refs/remotes/origin/release/1.0'], fixture.repo), git(['rev-parse', 'HEAD'], fixture.publisher));
+    git(['push', 'origin', 'HEAD:refs/heads/hotfix/2.0'], fixture.publisher);
+    git(['update-ref', 'refs/remotes/origin/Hotfix', 'HEAD'], fixture.repo);
+    const caseOnlySync = await createGitWorkspace().syncIntegrationBranch({ projectPath: fixture.repo, branch: 'hotfix/2.0' });
+    assert.notEqual(caseOnlySync.outcome, 'fetch-failed');
+    git(['push', 'origin', 'HEAD:refs/heads/head/1.0'], fixture.publisher);
+    git(['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/develop'], fixture.repo);
+    await createGitWorkspace().syncIntegrationBranch({ projectPath: fixture.repo, branch: 'head/1.0' });
+    assert.equal(git(['rev-parse', 'refs/remotes/origin/develop'], fixture.repo), git(['rev-parse', 'HEAD'], fixture.publisher));
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('a missing integration branch whose stale tracking ref cannot be dropped, or a name git refuses, reports fetch-failed', { skip: !GIT }, async () => {
+  const fixture = createFixture();
+  try {
+    git(['update-ref', 'refs/remotes/origin/main', 'HEAD'], fixture.repo);
+    fs.writeFileSync(path.join(fixture.repo, '.git', 'refs', 'remotes', 'origin', 'main.lock'), '');
+    const lockedSync = await createGitWorkspace().syncIntegrationBranch({ projectPath: fixture.repo, branch: 'main' });
+    assert.equal(lockedSync.outcome, 'fetch-failed');
+    assert.match(lockedSync.error ?? '', /main/);
+    const badNameSync = await createGitWorkspace().syncIntegrationBranch({ projectPath: fixture.repo, branch: 'a..b' });
+    assert.equal(badNameSync.outcome, 'fetch-failed');
+    assert.match(badNameSync.error ?? '', /not a branch name: a\.\.b/);
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('a failed integration sync fetch carries git\'s first error line', { skip: !GIT }, async () => {
+  const fixture = createFixture();
+  try {
+    git(['remote', 'set-url', 'origin', path.join(fixture.root, 'missing.git')], fixture.repo);
+    const synced = await createGitWorkspace().syncIntegrationBranch({ projectPath: fixture.repo, branch: 'develop' });
+    assert.equal(synced.outcome, 'fetch-failed');
+    assert.match(synced.error ?? '', /missing\.git/);
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
 });
 
 test('syncIntegrationBranch fast-forwards an unchecked local integration branch', { skip: !GIT }, async () => {

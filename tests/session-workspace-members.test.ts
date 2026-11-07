@@ -89,7 +89,7 @@ test('workspace member shell preserves existing maps, reports partial failure an
   }
 });
 
-test('workspace session diff prefixes member paths and change checks announce member edits once', { skip: !hasGit() }, async () => {
+test('workspace session diff prefixes member paths, shows an untracked file without adding it to the index, and change checks announce member edits once', { skip: !hasGit() }, async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-workspace-diff-'));
   const first = makeRepo(root, 'first');
   const second = makeRepo(root, 'second');
@@ -117,6 +117,7 @@ test('workspace session diff prefixes member paths and change checks announce me
     const diff = await session.getDiff();
     assert.match(diff.uncommitted.diff, /^diff --git a\/first\/README\.md b\/first\/README\.md$/m);
     assert.match(diff.uncommitted.diff, /^diff --git a\/second\/added\.txt b\/second\/added\.txt$/m);
+    assert.equal(git(['status', '--porcelain', '--', 'added.txt'], path.join(path.dirname(firstScope.root), 'second')), '?? added.txt\n');
     assert.deepEqual(diff.bases.map((base) => [base.member, base.ref, base.sha]), [
       ['first', 'main', git(['rev-parse', 'main'], first).trim()],
       ['second', 'main', git(['rev-parse', 'main'], second).trim()],

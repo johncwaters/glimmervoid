@@ -1,4 +1,5 @@
 import type { RunGitOptions } from "../../server/git/git-exec.ts";
+import { withScratchIndex } from "../../server/git/scratch-index.ts";
 import { errorMessage } from "../../shared/text.ts";
 import fs from "node:fs";
 import path from "node:path";
@@ -6,6 +7,8 @@ import { decideDiffSelfHeal } from "../core/merge-gate.ts";
 import type { WorkspaceMember } from "../core/workspace-core.ts";
 import { branchFromHeadRef, branchFromRemoteRef, isOwnRemoteCopy, prefixRenameAndCopyHeaders } from "./worktree-lifecycle-context.ts";
 import type { ChangeScope, DiffSection, MemberDiff, WorktreeLifecycleContext } from "./worktree-lifecycle-context.ts";
+
+const DIFF_TIMEOUT_MS = 15000;
 
 function createWorktreeDiffScopes(context: WorktreeLifecycleContext) {
   const { id, lifecycleState, currentProjectPath, gitOut, gitLookup, readUpstreamOf, effectiveIntegrationBranch, setMergeStatus } = context;
@@ -41,7 +44,7 @@ function createWorktreeDiffScopes(context: WorktreeLifecycleContext) {
   }
 
   function diffGitOptions(cwd: string): RunGitOptions {
-    return { cwd, timeoutMs: 15000, maxBuffer: 64 * 1024 * 1024 };
+    return { cwd, timeoutMs: DIFF_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024 };
   }
 
   async function resolveDiffBase(opts: RunGitOptions): Promise<{ base: string; aheadCount: string; ref: string | null; verified: boolean }> {
@@ -103,16 +106,18 @@ function createWorktreeDiffScopes(context: WorktreeLifecycleContext) {
   async function readMemberDiff(member: WorkspaceMember): Promise<MemberDiff> {
     const run = (args: string[]): Promise<string> => gitOut(args, diffGitOptions(member.dir));
     const prefixArgs = [`--src-prefix=a/${member.name}/`, `--dst-prefix=b/${member.name}/`];
-    await markUntrackedIntentToAdd(member.dir);
+    const readPrefixedDiff = async (range: string, options: RunGitOptions): Promise<string> => prefixRenameAndCopyHeaders(await gitOut(["diff", ...prefixArgs, range], options), member.name);
     const { ref: baseRef, sha: base } = await memberMergeBase(member);
     const aheadCount = base ? (await run(["rev-list", "--count", `${base}..HEAD`])).trim() : "0";
-    const readPrefixedDiff = async (range: string): Promise<string> => prefixRenameAndCopyHeaders(await run(["diff", ...prefixArgs, range]), member.name);
     return {
       name: member.name,
       committed: base
-        ? { stat: (await run(["diff", "--stat", `${base}..HEAD`])).trim(), diff: await readPrefixedDiff(`${base}..HEAD`) }
+        ? { stat: (await run(["diff", "--stat", `${base}..HEAD`])).trim(), diff: await readPrefixedDiff(`${base}..HEAD`, diffGitOptions(member.dir)) }
         : { stat: "", diff: "" },
-      uncommitted: { stat: (await run(["diff", "--stat", "HEAD"])).trim(), diff: await readPrefixedDiff("HEAD") },
+      uncommitted: await readUncommittedWithUntracked(member.dir, async (options) => ({
+        stat: (await gitOut(["diff", "--stat", "HEAD"], options)).trim(),
+        diff: await readPrefixedDiff("HEAD", options),
+      })),
       hasCommits: aheadCount !== "" && aheadCount !== "0",
       baseRef,
       baseSha: base,
@@ -140,12 +145,24 @@ function createWorktreeDiffScopes(context: WorktreeLifecycleContext) {
     };
   }
 
-  async function markUntrackedIntentToAdd(dir: string): Promise<void> {
+  async function markUntrackedIntentToAdd(dir: string, scratchOptions: RunGitOptions): Promise<void> {
     try {
-      await gitOut(["add", "-N", "--", "."], diffGitOptions(dir));
+      await gitOut(["add", "-N", "--", "."], scratchOptions);
     } catch (error) {
       console.warn(`[session ${id}] intent-to-add in ${dir} failed: ${errorMessage(error)}`);
     }
+  }
+
+  async function readUncommittedWithUntracked(dir: string, readUncommitted: (options: RunGitOptions) => Promise<DiffSection>): Promise<DiffSection> {
+    const options = diffGitOptions(dir);
+    const scratchRun = await withScratchIndex(dir, DIFF_TIMEOUT_MS, async (scratchIndexEnv) => {
+      const scratchOptions = { ...options, env: scratchIndexEnv };
+      await markUntrackedIntentToAdd(dir, scratchOptions);
+      return readUncommitted(scratchOptions);
+    });
+    if (scratchRun.ok) return scratchRun.value;
+    console.warn(`[session ${id}] diff in ${dir} leaves out untracked files: ${scratchRun.reason}`);
+    return readUncommitted(options);
   }
 
   async function getDiff() {
@@ -154,12 +171,14 @@ function createWorktreeDiffScopes(context: WorktreeLifecycleContext) {
     if (!lifecycleState.worktreeDir) return { committed: empty, uncommitted: empty, hasCommits: false, bases: [] };
     const opts = diffGitOptions(lifecycleState.worktreeDir);
     const run = (args: string[]): Promise<string> => gitOut(args, opts);
-    await markUntrackedIntentToAdd(lifecycleState.worktreeDir);
     const { base, aheadCount, ref, verified } = await resolveDiffBase(opts);
     const committed = base
       ? { stat: (await run(["diff", "--stat", `${base}..HEAD`])).trim(), diff: await run(["diff", `${base}..HEAD`]) }
       : empty;
-    const uncommitted = { stat: (await run(["diff", "--stat", "HEAD"])).trim(), diff: await run(["diff", "HEAD"]) };
+    const uncommitted = await readUncommittedWithUntracked(lifecycleState.worktreeDir, async (options) => ({
+      stat: (await gitOut(["diff", "--stat", "HEAD"], options)).trim(),
+      diff: await gitOut(["diff", "HEAD"], options),
+    }));
     const healed = decideDiffSelfHeal(lifecycleState.mergeStatus, committed.diff, uncommitted.diff);
     if (healed) setMergeStatus(healed);
     const bases = base ? [{ member: null, ref, sha: base, verified }] : [];

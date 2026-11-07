@@ -169,17 +169,25 @@ function createOriginOps(context: GitWorkspaceContext) {
     return run(['fetch', '--prune', 'origin'], projectPath, fetchOptions);
   }
 
+  async function isFetchableBranchName(projectPath: string, branchName: string): Promise<boolean> {
+    const isBranchName = await run(['check-ref-format', '--branch', branchName], projectPath);
+    return isBranchName.ok && !branchName.startsWith('-');
+  }
+
+  async function fetchOriginBranch(projectPath: string, branchName: string, timeoutMs: number): Promise<GitResult> {
+    if (!(await isFetchableBranchName(projectPath, branchName))) return { ok: false, out: '', err: `not a branch name: ${branchName}` };
+    return run(
+      ['fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${branchName}:refs/remotes/origin/${branchName}`],
+      projectPath,
+      { timeout: timeoutMs, env: { GIT_TERMINAL_PROMPT: '0' } },
+    );
+  }
+
   async function seedBranchFromOriginBody({ projectPath, name }: WorktreeArgs): Promise<GitResult> {
     const branchName = name ?? '';
-    const isBranchName = await run(['check-ref-format', '--branch', branchName], projectPath);
-    if (!isBranchName.ok || branchName.startsWith('-')) return { ok: false, out: '', err: `not a branch name: ${branchName}` };
-    const remoteRef = `refs/remotes/origin/${branchName}`;
-    const fetched = await run(
-      ['fetch', '--quiet', 'origin', `+refs/heads/${branchName}:${remoteRef}`],
-      projectPath,
-      { timeout: GIT_FETCH_TIMEOUT_MS, env: { GIT_TERMINAL_PROMPT: '0' } },
-    );
+    const fetched = await fetchOriginBranch(projectPath, branchName, GIT_FETCH_TIMEOUT_MS);
     if (!fetched.ok) return fetched;
+    const remoteRef = `refs/remotes/origin/${branchName}`;
     const originTip = await run(['rev-parse', '--verify', '--quiet', remoteRef], projectPath);
     if (!originTip.ok) return originTip;
     const localRef = `refs/heads/${branchName}`;
@@ -267,7 +275,7 @@ function createOriginOps(context: GitWorkspaceContext) {
     }
   }
 
-  return { detectDefaultBranch, migrateMarkerBase, hasOriginRemote, originUrl, synchronizeBaseWithOrigin, pushBaseToOrigin, pushProvenanceNotes, ensureLocalBranch, fetchOriginBody, seedBranchFromOriginBody, isAncestor, listRemoteBranches, listIntegrationTips };
+  return { detectDefaultBranch, migrateMarkerBase, hasOriginRemote, originUrl, synchronizeBaseWithOrigin, pushBaseToOrigin, pushProvenanceNotes, ensureLocalBranch, fetchOriginBody, fetchOriginBranch, isFetchableBranchName, seedBranchFromOriginBody, isAncestor, listRemoteBranches, listIntegrationTips };
 }
 
 type OriginOps = ReturnType<typeof createOriginOps>;

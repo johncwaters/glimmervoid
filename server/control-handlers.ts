@@ -1,4 +1,5 @@
 import type fs from 'node:fs';
+import type { z } from 'zod';
 import type { WebSocket, WebSocketServer } from 'ws';
 import { ClientMessage, configIssueMessage, type ClientMessageOf, type ServerMessageOf } from '../shared/contracts/index.ts';
 import type { IssuesStatus } from '../shared/contracts/issues.ts';
@@ -167,6 +168,13 @@ interface ControlHandlerDeps {
   hostLinks?: Pick<ReturnType<typeof createHostLinksWiring>, 'statusFrame'> | null;
 }
 
+function describeDroppedClientMessage(msg: Record<string, unknown> | null, error: z.ZodError): string {
+  const receivedType = typeof msg?.type === 'string' ? JSON.stringify(msg.type.slice(0, 64)) : 'none';
+  const [firstIssue] = error.issues;
+  const isUnknownType = firstIssue?.code === 'invalid_union' && 'discriminator' in firstIssue && firstIssue.path.length === 1 && firstIssue.path[0] === 'type';
+  return `type=${receivedType}: ${isUnknownType ? 'unknown message type' : configIssueMessage(error)}`;
+}
+
 function parseSinceParam(url: string | undefined): number | null {
   if (!url) return null;
   const qIndex = url.indexOf('?');
@@ -247,7 +255,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
       const parsedMessage = ClientMessage.safeParse(msg);
       if (!parsedMessage.success) {
         const message = configIssueMessage(parsedMessage.error);
-        console.warn(`[control] Dropped invalid client message: ${message}`);
+        console.warn(`[control] Dropped invalid client message ${describeDroppedClientMessage(msg, parsedMessage.error)}`);
         const reply = validationErrorReply(merged, msg, message);
         if (reply) ws.send(JSON.stringify(reply));
         return;

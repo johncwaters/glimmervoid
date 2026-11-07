@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { GIT_FETCH_TIMEOUT_MS, firstGitErrorLine } from '../../core/branch-sync-core.ts';
+import { firstGitErrorLine } from '../../core/branch-sync-core.ts';
 import { decideIntegrationSync, classifyRefusedIntegrationSync } from '../../core/integration-sync-core.ts';
 import { MERGE_DRIVER_KEY_PATTERN, driverEnumerationEnv, mergeProbeEnv, neutralGitConfigEnv } from '../../core/merge-proof-core.ts';
 import type { MergeProbeEnvResult } from '../../core/merge-proof-core.ts';
@@ -14,11 +14,15 @@ import type { OriginOps } from './origin-ops.ts';
 import type { RebaseOps } from './rebase-ops.ts';
 
 const fsp = fs.promises;
+const INTEGRATION_SYNC_FETCH_BUDGET_MS = 15_000;
+const GIT_LS_REMOTE_TIMEOUT_MS = 15_000;
+const MIN_INTEGRATION_SYNC_STEP_MS = 1_000;
+const LS_REMOTE_NO_MATCHING_REF_EXIT_CODE = 2;
 
 function createIntegrationOps(context: GitWorkspaceContext, origin: OriginOps, rebase: RebaseOps) {
   const { git, run, runUntrusted, serialized, admitted } = context;
   const { listWorktreePorcelain } = context.worktrees;
-  const { hasOriginRemote, isAncestor } = origin;
+  const { hasOriginRemote, isAncestor, fetchOriginBranch, isFetchableBranchName } = origin;
   const { fastForwardTarget } = rebase;
 
   async function checkoutDetachedBody({ worktreePath, sha, ...isolation }: CheckoutDetachedArgs): Promise<GitResult> {
@@ -208,17 +212,43 @@ function createIntegrationOps(context: GitWorkspaceContext, origin: OriginOps, r
     return refused(firstGitErrorLine(merged.err ?? ''));
   }
 
+  function budgetLeftMs(deadline: number): number {
+    return deadline - Date.now();
+  }
+
+  async function recoverFailedIntegrationFetch(projectPath: string, branch: string, fetched: GitResult, deadline: number): Promise<GitResult> {
+    if (budgetLeftMs(deadline) < MIN_INTEGRATION_SYNC_STEP_MS) return fetched;
+    if (!(await isFetchableBranchName(projectPath, branch))) return fetched;
+    const presence = await readOriginBranchPresence(projectPath, branch, Math.min(GIT_LS_REMOTE_TIMEOUT_MS, budgetLeftMs(deadline)));
+    if (presence === 'missing') return run(['update-ref', '-d', `refs/remotes/origin/${branch}`], projectPath);
+    if (presence === 'unknown' || budgetLeftMs(deadline) < MIN_INTEGRATION_SYNC_STEP_MS) return fetched;
+    const pruned = await run(['-c', 'remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*', 'remote', 'prune', 'origin'], projectPath, { timeout: budgetLeftMs(deadline), env: { GIT_TERMINAL_PROMPT: '0' } });
+    if (!pruned.ok) return pruned;
+    if (budgetLeftMs(deadline) < MIN_INTEGRATION_SYNC_STEP_MS) return fetched;
+    return fetchOriginBranch(projectPath, branch, budgetLeftMs(deadline));
+  }
+
+  async function readOriginBranchPresence(projectPath: string, branch: string, timeoutMs: number): Promise<'present' | 'missing' | 'unknown'> {
+    try {
+      await git(['ls-remote', '--exit-code', 'origin', `refs/heads/${branch}`], projectPath, { timeout: timeoutMs, env: { GIT_TERMINAL_PROMPT: '0' } });
+      return 'present';
+    } catch (err) {
+      return errorExitCode(err) === LS_REMOTE_NO_MATCHING_REF_EXIT_CODE ? 'missing' : 'unknown';
+    }
+  }
+
   async function syncIntegrationBranchBody({ projectPath, branch }: WorktreeArgs): Promise<IntegrationSyncResult> {
+    const fetchDeadline = Date.now() + INTEGRATION_SYNC_FETCH_BUDGET_MS;
     if (!(await hasOriginRemote(projectPath))) return { outcome: 'no-remote', from: null, to: null };
     const localRef = `refs/heads/${branch}`;
     const remoteRef = `refs/remotes/origin/${branch}`;
 
-    const fetched = await run(
-      ['fetch', '--prune', 'origin', '+refs/heads/*:refs/remotes/origin/*'],
-      projectPath,
-      { timeout: GIT_FETCH_TIMEOUT_MS, env: { GIT_TERMINAL_PROMPT: '0' } },
-    );
-    if (!fetched.ok) return { outcome: 'fetch-failed', from: null, to: null };
+    if (budgetLeftMs(fetchDeadline) < MIN_INTEGRATION_SYNC_STEP_MS) return { outcome: 'fetch-failed', from: null, to: null, error: 'integration sync fetch budget spent before the fetch' };
+    const fetched = await fetchOriginBranch(projectPath, branch ?? '', budgetLeftMs(fetchDeadline));
+    if (!fetched.ok) {
+      const recovered = await recoverFailedIntegrationFetch(projectPath, branch ?? '', fetched, fetchDeadline);
+      if (!recovered.ok) return { outcome: 'fetch-failed', from: null, to: null, error: firstGitErrorLine(recovered.err || fetched.err || '') };
+    }
 
     const local = await run(['rev-parse', '--verify', '--quiet', localRef], projectPath);
     const remote = await run(['rev-parse', '--verify', '--quiet', remoteRef], projectPath);
