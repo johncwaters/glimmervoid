@@ -5026,6 +5026,7 @@ html[data-layout="phone"] .issues-content .pr-footer { margin-inline: 0; padding
 .focus-empty:has(> .first-run-checklist:not([hidden])) {
   width: 100%;
   min-width: 0;
+  margin: 0 auto auto;
 }
 
 html:has(:is(.focus-empty, .phone-empty) > .first-run-checklist:not([hidden])) [data-action="add-session"] {
@@ -5101,6 +5102,13 @@ html:has(:is(.focus-empty, .phone-empty) > .first-run-checklist:not([hidden])) [
 .first-run-mark-dial {
   transform-box: view-box;
   transform-origin: 50% 50%;
+}
+
+.first-run-mark-halo {
+  fill: var(--accent);
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
 }
 
 .first-run-mark-light {

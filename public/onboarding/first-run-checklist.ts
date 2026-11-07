@@ -9,6 +9,7 @@ import { BRAND_MARK_BRACKETS, BRAND_MARK_LIGHT, BRAND_MARK_VIEWBOX } from '#shar
 import { agentSummaryText, startProjects, installableAgentsText, decideFirstRunSteps, decideOnboardingStepReports, isSetupDone, notificationChoiceSummary, onboardingStepReportKey, rootsToAutoSave, UPCOMING_STEPS } from './first-run-checklist-core.ts';
 import type { FirstRunSteps, NotificationChoice, StartProject } from './first-run-checklist-core.ts';
 import { createStartForm } from './start-form.ts';
+import { playMarkLock } from '../boot/loading-unlock.ts';
 import { createRepoRootsAdder, saveRepoRoots } from './repo-roots-adder.ts';
 import { buildCommandRow, buildSetupStep } from './setup-step.ts';
 import { button } from '../ui/button.ts';
@@ -20,6 +21,8 @@ type FirstRunState = { steps: FirstRunSteps; agentSummary: string; installableAg
 let checklistEl: HTMLElement | null = null;
 let stepsEl: HTMLOListElement | null = null;
 let startHostEl: HTMLElement | null = null;
+let lockupEl: HTMLElement | null = null;
+let setupPhase: 'unloaded' | 'in-progress' | 'folding' | 'done' = 'unloaded';
 let rescanButton: HTMLButtonElement | null = null;
 let repoRootsAdder: ReturnType<typeof createRepoRootsAdder> | null = null;
 let currentState: FirstRunState = { steps: UPCOMING_STEPS, agentSummary: '', installableAgents: installableAgentsText(null), repoRoots: [], notificationChoice: 'ask', agentListing: null, startableProjects: [] };
@@ -96,19 +99,102 @@ function notificationsStepBody(): HTMLElement[] {
   return [el('p', 'first-run-step-text', 'Know when a session needs you.'), sample, actions];
 }
 
-function renderSteps() {
-  if (!stepsEl || !startHostEl) return;
+function setupStepRows(): HTMLLIElement[] {
   const { steps, agentSummary, repoRoots, notificationChoice } = currentState;
-  stepsEl.replaceChildren(
+  return [
     buildSetupStep({ title: '1. Agent CLI', state: steps.agent, summary: agentSummary, badge: '', body: agentStepBody }),
     buildSetupStep({ title: '2. Repository roots', state: steps.repoRoots, summary: repoRoots.join(', '), badge: '', body: repoRootsStepBody }),
     buildSetupStep({ title: '3. Notifications', state: steps.notifications, summary: notificationChoiceSummary(notificationChoice), badge: '', body: notificationsStepBody }),
-  );
-  const isStartShown = isSetupDone(steps);
-  startHostEl.hidden = !isStartShown;
-  if (!isStartShown) return;
+  ];
+}
+
+function setupDoneRow(): HTMLLIElement {
+  const { agentSummary, repoRoots, notificationChoice } = currentState;
+  const notificationsText = `notifications ${notificationChoiceSummary(notificationChoice).toLowerCase()}`;
+  const summary = [agentSummary, repoRoots.join(', '), notificationsText].filter(Boolean).join(' \u00b7 ');
+  return buildSetupStep({ title: 'Setup done', state: 'done', summary, badge: '', body: () => [] });
+}
+
+function showStartForm(startHost: HTMLElement) {
   startForm.update({ agentListing: currentState.agentListing, startableProjects: currentState.startableProjects });
-  if (!startHostEl.contains(startForm.element)) startHostEl.append(startForm.element);
+  if (!startHost.contains(startForm.element)) startHost.append(startForm.element);
+  startHost.hidden = false;
+}
+
+function renderSteps() {
+  if (!stepsEl || !startHostEl || setupPhase === 'folding') return;
+  if (!isSetupDone(currentState.steps)) {
+    stepsEl.replaceChildren(...setupStepRows());
+    startHostEl.hidden = true;
+    return;
+  }
+  stepsEl.replaceChildren(setupDoneRow());
+  showStartForm(startHostEl);
+}
+
+const FADE_MS = 200;
+const DRAW_MS = 250;
+const ARRIVE_MS = 480;
+const EASE_OUT_QUART = 'cubic-bezier(0.22, 1, 0.36, 1)';
+const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+
+function canAnimateFold(): boolean {
+  return !reducedMotion?.matches && !document.hidden;
+}
+
+function drawCheck(row: HTMLElement) {
+  const strokes = [...row.querySelectorAll('.first-run-step-icon circle, .first-run-step-icon path')];
+  strokes.forEach((stroke, strokeIndex) => {
+    stroke.setAttribute('pathLength', '1');
+    stroke.animate([{ strokeDasharray: '1', strokeDashoffset: '1' }, { strokeDasharray: '1', strokeDashoffset: '0' }], { duration: DRAW_MS, delay: strokeIndex * DRAW_MS, easing: EASE_OUT_QUART, fill: 'backwards' });
+  });
+}
+
+function playLockupMark(): Promise<void> {
+  const mark = lockupEl?.querySelector('svg');
+  const dial = mark?.querySelector('.first-run-mark-dial');
+  const light = mark?.querySelector('.first-run-mark-light');
+  const halo = mark?.querySelector('.first-run-mark-halo');
+  if (!mark || !dial || !light || !halo) return Promise.resolve();
+  return playMarkLock({ mark, dial, light, halo });
+}
+
+function afterMs(durationMs: number): Promise<void> {
+  return new Promise((resolve) => { setTimeout(resolve, durationMs); });
+}
+
+async function foldIntoSetupDone(steps: HTMLElement, startHost: HTMLElement) {
+  setupPhase = 'folding';
+  const answeredBody = steps.querySelector('[aria-current="step"] .first-run-step-body');
+  await answeredBody?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: FADE_MS, fill: 'forwards' }).finished;
+  const rows = setupStepRows();
+  steps.replaceChildren(...rows);
+  const [firstRow, ...foldingRows] = rows;
+  const answeredRow = rows.at(-1);
+  if (answeredRow) drawCheck(answeredRow);
+  await playLockupMark();
+  for (const row of foldingRows) {
+    row.animate([{ transform: 'none', opacity: 1 }, { transform: `translateY(${firstRow.offsetTop - row.offsetTop}px)`, opacity: 0 }], { duration: ARRIVE_MS, easing: EASE_OUT_QUART, fill: 'forwards' });
+  }
+  firstRow.querySelector('.first-run-step-head')?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: DRAW_MS, fill: 'forwards' });
+  await afterMs(ARRIVE_MS);
+  setupPhase = 'done';
+  renderSteps();
+  steps.firstElementChild?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: DRAW_MS, easing: EASE_OUT_QUART });
+  startHost.animate([{ transform: 'translateY(12px)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: ARRIVE_MS, easing: EASE_OUT_QUART });
+  startForm.focusTask();
+}
+
+function showLoadedSteps() {
+  if (setupPhase === 'folding') return;
+  const isNowSetupDone = isSetupDone(currentState.steps);
+  const shouldFold = setupPhase === 'in-progress' && isNowSetupDone && canAnimateFold();
+  setupPhase = isNowSetupDone ? 'done' : 'in-progress';
+  if (!shouldFold || !stepsEl || !startHostEl) {
+    renderSteps();
+    return;
+  }
+  void foldIntoSetupDone(stepsEl, startHostEl);
 }
 
 async function loadFirstRunState({ rescanAgents }: { rescanAgents: boolean }) {
@@ -139,7 +225,7 @@ async function loadFirstRunState({ rescanAgents }: { rescanAgents: boolean }) {
     if (rescanAgents) hasRescanFoundNoAgent = steps.agent === 'current';
     currentState = { steps, agentSummary: agentSummaryText(agentListing), installableAgents: installableAgentsText(agentListing), repoRoots, notificationChoice, agentListing, startableProjects: isRootsScan ? startProjects(rootsScan.directories) : [] };
     loadStatus.clear();
-    renderSteps();
+    showLoadedSteps();
     reportOnboardingStepChanges(currentState.steps);
     repoRootsAdder?.setSuggestions(suggestions);
   } catch (reason) {
@@ -151,7 +237,7 @@ async function loadFirstRunState({ rescanAgents }: { rescanAgents: boolean }) {
 
 function brandMark(className: string): HTMLElement {
   const brackets = BRAND_MARK_BRACKETS.map(({ side, d }) => `<path class="first-run-mark-bracket" data-side="${side}" d="${d}"/>`).join('');
-  return elWithMarkup('span', className, `<svg viewBox="${BRAND_MARK_VIEWBOX}" aria-hidden="true"><g class="first-run-mark-dial">${brackets}</g><path class="first-run-mark-light" d="${BRAND_MARK_LIGHT}"/></svg>`);
+  return elWithMarkup('span', className, `<svg viewBox="${BRAND_MARK_VIEWBOX}" aria-hidden="true"><path class="first-run-mark-halo" d="${BRAND_MARK_LIGHT}"/><g class="first-run-mark-dial">${brackets}</g><path class="first-run-mark-light" d="${BRAND_MARK_LIGHT}"/></svg>`);
 }
 
 const AUTO_RESCAN_GAP_MS = 5000;
@@ -170,6 +256,7 @@ function ensureChecklist(): HTMLElement {
   const checklist = el('section', 'first-run-checklist');
   checklist.setAttribute('aria-label', 'Glimmervoid setup');
   const lockup = el('div', 'first-run-lockup');
+  lockupEl = lockup;
   lockup.append(brandMark('first-run-mark'), el('span', 'first-run-wordmark', 'GLIMMERVOID'));
   stepsEl = el('ol', 'first-run-steps');
   startHostEl = el('div', 'first-run-start-host');
