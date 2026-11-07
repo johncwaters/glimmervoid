@@ -588,6 +588,10 @@
     {
       "name": "device",
       "definition": "A machine the operator reaches the dashboard from (a paired remote device under remote mode); on a whiteboard, a catalog device (phone, tablet, laptop, desktop or browser, shared/whiteboard-devices.ts) a box with shape device draws around its media"
+    },
+    {
+      "name": "live session",
+      "definition": "A session the server still holds in one of its session maps (an operator config session, an agent-spawned session or a lane session), whatever its status and whether its agent is running or has exited, until it is torn down or removed; branch and worktree cleanup, uploads and session temp folders keep what a live session owns; not the running status, which means mid-turn"
     }
   ]
 }
