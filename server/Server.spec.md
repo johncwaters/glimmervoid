@@ -42,3 +42,33 @@ The backend runtime: the HTTP server and both WebSockets on loopback, the lanes,
   via: a hidden card attaching paused gets no screen until it resumes, then lands on the live screen without reconnecting, and pausing again stops live bytes
   because: hidden cards that keep streaming spend the browser's render budget on terminals nobody sees, and nothing on screen shows it
   kinds: none
+- boards outlive sessions: A whiteboard is removed only by an explicit delete; a session closing or being removed disconnects it from its boards and leaves every board in place.
+  over: every board a closing or removed session was connected to, whether it was the board's last connection or not
+  via: the operator connects and disconnects a session from the dashboard, and a removed session leaves every board and keeps the boards only it was on
+  because: boards now carry plans and designs across sessions and restarts; deleting a board with its last session threw away the operator's work the moment the agent exited
+  kinds: none
+- agent board list is the project's: An agent's board list holds only boards of its own project or unfiled, leaves out archived boards unless it asks for all, and a title names only a board of its project or an unfiled one.
+  over: every board list and title lookup an agent makes, through the MCP tool or the agent CLI
+  via: an agent lists its own project boards in use, all lists every board, a title resolves only in its project, and a board idle 30 days unconnected is archived until a connect or an edit
+  because: boards outlive their sessions, so without the project scope every agent would wade through every other repository's boards and a common title would open another project's board
+  kinds: none
+- code session claimed only within the project: A board's code session passes to a connecting session only once the old one is gone and only to a session of the board's project or an unfiled board's first session.
+  over: every connect of a board whose code session is gone or whose project differs from the connecting session's
+  via: once its code session is gone a board checks refs against its project, the next session of its project to connect takes over the refs and keeps them while live, and no agent deletes an unfiled board
+  because: a session of another repository taking a board's code session would check its refs against the wrong tree and show another tree's changes on the board
+  kinds: none
+- boards deleted only within the project: An agent deletes a board only when the board is filed under the agent's own project; another project's board is refused and stays.
+  over: every delete an agent sends, through the MCP tool or the agent CLI
+  via: a session deletes a board of its project and is refused a board of another project
+  because: boards outlive their sessions, so an agent of one repository deleting another repository's board destroys work it never owned
+  kinds: none
+- unfiled boards deleted only by the operator: An agent's delete of an unfiled board is refused and leaves the board unfiled, so only the operator deletes a board no project owns.
+  over: every delete an agent sends for a board whose project is null
+  via: once its code session is gone a board checks refs against its project, the next session of its project to connect takes over the refs and keeps them while live, and no agent deletes an unfiled board
+  because: a board made on the dashboard belongs to the operator until a session files it; an agent's delete would otherwise first file it under its own project and then destroy it
+  kinds: none
+- first prompt names other sessions' project boards: A new session's first prompt names at most the five newest unarchived boards of its own project that it neither made nor is connected to, and later prompts in the same server run name none; after a restart, a session never names its own boards.
+  over: every session's first prompt, and every prompt of a session after a server restart
+  via: a new session first prompt names the five newest boards of its project in use, once
+  because: boards outlive their sessions, so a new session would otherwise not know a plan for its repository already exists; naming its own board or another repository's sends it to the wrong place
+  kinds: none

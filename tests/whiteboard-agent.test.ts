@@ -822,6 +822,7 @@ test('an agent lists its own project boards in use, all lists every board, a tit
   assert.equal(await archivedAfterIdleDays(29), false);
   assert.equal(await archivedAfterIdleDays(2), true);
   assert.deepEqual(await listedIds(planner, false), []);
+  assert.ok((await listedIds(planner, true)).includes(boardId));
   assert.equal((await wiring.handleAgent(planner, { sub: 'connect', board: 'App plan' })).status, 200);
   assert.deepEqual(await listedIds(planner, false), [boardId]);
 
@@ -830,7 +831,7 @@ test('an agent lists its own project boards in use, all lists every board, a tit
   assert.deepEqual(await listedIds(planner, false), [boardId]);
 });
 
-test('once its code session is gone a board checks refs against its project, the next session to connect takes over the refs, and any session of the project may delete it', async () => {
+test('once its code session is gone a board checks refs against its project, the next session of its project to connect takes over the refs and keeps them while live, and no agent deletes an unfiled board', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'project-refs-'));
   const project = path.join(boardsRoot, 'app');
   fs.mkdirSync(path.join(project, 'src'), { recursive: true });
@@ -849,10 +850,14 @@ test('once its code session is gone a board checks refs against its project, the
   assert.equal((await wiring.handleOperator.get(boardId)).board?.codeSessionId, creator.id);
   await wiring.handleAgent(successor, { sub: 'connect', board: boardId });
   assert.equal((await wiring.handleOperator.get(boardId)).board?.codeSessionId, successor.id);
+  await wiring.handleAgent({ id: 'refs-latecomer', name: 'latecomer', project }, { sub: 'connect', board: boardId });
+  assert.equal((await wiring.handleOperator.get(boardId)).board?.codeSessionId, successor.id);
 
   const unfiledBoardId = ((await wiring.handleOperator.create('Operator sketch')) as { summary: { id: string } }).summary.id;
   assert.equal((await wiring.handleAgent(successor, { sub: 'delete', board: unfiledBoardId })).status, 403);
   assert.equal((await wiring.handleOperator.get(unfiledBoardId)).board?.project, null);
+  await wiring.handleOperator.connect(unfiledBoardId, successor.id);
+  assert.equal((await wiring.handleOperator.get(unfiledBoardId)).board?.codeSessionId, successor.id);
 
   assert.equal((await wiring.handleAgent(successor, { sub: 'delete', board: boardId })).status, 200);
 
