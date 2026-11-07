@@ -3,10 +3,12 @@ import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
 import { Worker } from 'node:worker_threads';
 
 import type { Board, Element } from '../../shared/contracts/whiteboard.ts';
+import type { TileKey } from '../../shared/contracts/whiteboard-tiles.ts';
 import { layoutWorkerPath } from '../runtime-paths.ts';
 import { ELEMENT_PAGE_SIZE } from './board-store-core.ts';
 import { LayoutReply } from './layout-worker-core.ts';
 import type { LayoutAnswer, LayoutRequestBody, ViewerTiles } from './layout-worker-core.ts';
+import type { LayoutStamp } from './layout-cache.ts';
 
 const WORKER_HEAP_SHARE = 0.5;
 const BYTES_PER_MB = 2 ** 20;
@@ -32,10 +34,11 @@ interface LayoutClient {
   advance(board: Board, changes: readonly ChangedElement[], viewers: readonly ViewerTiles[]): Promise<LayoutAnswer>;
   refresh(board: Board, viewers: readonly ViewerTiles[]): Promise<LayoutAnswer>;
   ask(board: Board, body: LayoutRequestBody): Promise<LayoutAnswer>;
+  cachedTiles(boardId: string, stamp: LayoutStamp, keys: readonly TileKey[], withChrome: boolean): Promise<LayoutAnswer>;
   forget(boardId: string): void;
 }
 
-function createLayoutClient(): LayoutClient {
+function createLayoutClient({ cachePath }: { cachePath: string | null }): LayoutClient {
   const pendingByRequestId = new Map<number, PendingRequest>();
   const syncByBoardId = new Map<string, BoardSync>();
   let nextRequestId = 1;
@@ -52,7 +55,7 @@ function createLayoutClient(): LayoutClient {
 
   function startWorker(): Worker {
     const maxOldGenerationSizeMb = Math.floor((os.totalmem() * WORKER_HEAP_SHARE) / BYTES_PER_MB);
-    const started = new Worker(layoutWorkerPath, { resourceLimits: { maxOldGenerationSizeMb } });
+    const started = new Worker(layoutWorkerPath, { workerData: cachePath, resourceLimits: { maxOldGenerationSizeMb } });
     started.on('error', (error: unknown) => failAll(started, error instanceof Error ? error : new Error(String(error))));
     started.on('exit', (exitCode) => failAll(started, new Error(`the whiteboard layout stopped with exit code ${exitCode}`)));
     started.on('message', (message: unknown) => {
@@ -149,7 +152,11 @@ function createLayoutClient(): LayoutClient {
     void (held?.posted ?? Promise.resolve()).then(() => post({ kind: 'forget', boardId })).catch(() => {});
   }
 
-  return { advance, refresh, ask, forget };
+  function cachedTiles(boardId: string, stamp: LayoutStamp, keys: readonly TileKey[], withChrome: boolean): Promise<LayoutAnswer> {
+    return post({ kind: 'cached-tiles', boardId, version: stamp.version, updatedAt: stamp.updatedAt, keys: [...keys], withChrome });
+  }
+
+  return { advance, refresh, ask, cachedTiles, forget };
 }
 
 export { createLayoutClient };

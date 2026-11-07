@@ -1,12 +1,16 @@
-import { parentPort } from 'node:worker_threads';
+import { parentPort, workerData } from 'node:worker_threads';
 
 import { errorMessage } from '../../shared/text.ts';
+import { layoutWorkerPath } from '../runtime-paths.ts';
+import { codeStampOf } from './code-stamp.ts';
+import { openLayoutCache } from './layout-cache.ts';
 import { LayoutRequest, createLayoutHost } from './layout-worker-core.ts';
 
 function serve(): void {
   const port = parentPort;
   if (!port) throw new Error('the whiteboard layout runs only as a worker thread');
-  const host = createLayoutHost();
+  const cachePath: unknown = workerData;
+  const host = createLayoutHost(openLayoutCache(typeof cachePath === 'string' ? cachePath : null, codeStampOf(layoutWorkerPath)));
   port.on('message', (message: unknown) => {
     const parsed = LayoutRequest.safeParse(message);
     if (!parsed.success) {

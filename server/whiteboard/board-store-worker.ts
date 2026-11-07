@@ -1,43 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from 'node:sqlite';
 import { parentPort, workerData } from 'node:worker_threads';
 
 import { BOARD_STORE_SCHEMA, StoreRequest, ftsQueryOf } from './board-store-core.ts';
 import type { BoardDelta, Rect, StoreRequestBody, StoredHeadRows } from './board-store-core.ts';
 import { errorMessage } from '../../shared/text.ts';
+import { isUnreadableDatabase, openDatabase, setAside } from './sqlite-files.ts';
 
 type ReplyFields = { heads?: StoredHeadRows[]; elementBodies?: string[]; lastSlot?: number; elementIds?: string[]; boardIds?: string[]; assetIds?: string[] };
 
 const STORE_FOLDER_MODE = 0o700;
-const STORE_FILE_MODE = 0o600;
-const UNREADABLE_DATABASE_CODES = new Set([11, 26]);
-
-function openDatabase(databasePath: string): DatabaseSync {
-  fs.closeSync(fs.openSync(databasePath, 'a', STORE_FILE_MODE));
-  fs.chmodSync(databasePath, STORE_FILE_MODE);
-  const database = new DatabaseSync(databasePath);
-  try {
-    database.exec(BOARD_STORE_SCHEMA);
-    return database;
-  } catch (error) {
-    database.close();
-    throw error;
-  }
-}
-
-function isUnreadableDatabase(error: unknown): boolean {
-  const code: unknown = typeof error === 'object' && error !== null ? Reflect.get(error, 'errcode') : undefined;
-  return typeof code === 'number' && UNREADABLE_DATABASE_CODES.has(code);
-}
-
-function setAside(databasePath: string): void {
-  const setAsidePath = `${databasePath}.corrupt-${Date.now()}`;
-  for (const suffix of ['', '-wal', '-shm']) {
-    if (fs.existsSync(`${databasePath}${suffix}`)) fs.renameSync(`${databasePath}${suffix}`, `${setAsidePath}${suffix}`);
-  }
-}
-
 function preparedStatementsOf(database: DatabaseSync) {
   return {
     upsertBoard: database.prepare('INSERT INTO boards (id, head, cursors, created_by, version) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET head = excluded.head, cursors = excluded.cursors, created_by = excluded.created_by, version = excluded.version'),
@@ -73,7 +46,7 @@ function preparedStatementsOrClose(database: DatabaseSync): ReturnType<typeof pr
 }
 
 function openStore(databasePath: string) {
-  const database = openDatabase(databasePath);
+  const database = openDatabase(databasePath, BOARD_STORE_SCHEMA);
   const statements = preparedStatementsOrClose(database);
 
   function inTransaction<Value>(work: () => Value): Value {
