@@ -32,20 +32,6 @@ import type { InvestigationView } from './radar/radar-core.ts';
 
 export { agentLoginOf, onAgentLoginsChanged } from './agent-logins.ts';
 
-interface OptionSettings {
-  value?: string;
-  disabled?: boolean;
-  selected?: boolean;
-}
-
-function option(text: string, { value, disabled = false, selected = false }: OptionSettings = {}) {
-  const optionEl = el('option', null, text);
-  if (value != null) optionEl.value = value;
-  if (disabled) optionEl.disabled = true;
-  if (selected) optionEl.selected = true;
-  return optionEl;
-}
-
 function isSaneYoloAvailable(settings: unknown): boolean {
   if (typeof settings !== 'object' || settings === null) return false;
   return 'saneYoloAvailable' in settings && settings.saneYoloAvailable === true;
@@ -235,6 +221,9 @@ type AddSessionTarget =
 
 type AddSessionRequest = { message: Record<string, unknown>; rememberedPath: string | null };
 
+type AddSessionSlot = 'place' | 'agent' | 'project';
+
+const ADD_SESSION_SLOTS: readonly AddSessionSlot[] = ['place', 'agent', 'project'];
 const NO_TARGET: AddSessionTarget = { kind: 'none' };
 const HOST_PLACE_PREFIX = 'host:';
 const ENVIRONMENT_PLACE_PREFIX = 'environment:';
@@ -282,11 +271,8 @@ export function createAddSessionDialog() {
   dialog.innerHTML = addSessionHTML;
   applyDialogAria(dialog, 'add-session-title');
 
-  const agentSelectEl = queryTag(dialog, '#add-session-agent', 'select');
-  const agentMarkEl = query(dialog, '#add-session-agent-mark');
   const placeEl = query(dialog, '#add-session-place');
-  const placeSelectEl = queryTag(dialog, '#add-session-place-select', 'select');
-  const taskInput = queryTag(dialog, '#add-session-task', 'input');
+  const startWordEl = query(dialog, '#add-session-start-word');
   const pickEl = query(dialog, '#add-session-pick');
   const findInput = queryTag(dialog, '#add-session-find', 'input');
   const listEl = query(dialog, '#add-session-list');
@@ -303,8 +289,18 @@ export function createAddSessionDialog() {
   const errorEl = query(dialog, '#add-session-error');
   const agentConnectButton = button({ variant: 'secondary', label: 'Connect' });
   agentLoginEl.append(agentConnectButton);
+  const placeWord = createPressable('add-session-word');
+  query(dialog, '#add-session-place-word-slot').replaceWith(placeWord);
+  const agentWord = createPressable('add-session-word');
+  const agentMarkEl = el('span', 'agent-mark');
+  agentMarkEl.setAttribute('aria-hidden', 'true');
+  agentMarkEl.hidden = true;
+  const agentWordTextEl = el('span', '', 'an agent');
+  agentWord.append(agentMarkEl, agentWordTextEl);
+  query(dialog, '#add-session-agent-word-slot').replaceWith(agentWord);
   const repoWord = createPressable('add-session-word add-session-repo-word');
   query(dialog, '#add-session-repo-word-slot').replaceWith(repoWord);
+  const wordBySlot: Record<AddSessionSlot, HTMLButtonElement> = { place: placeWord, agent: agentWord, project: repoWord };
   const workspaceBackButton = createPressable('add-session-back', 'All projects');
   query(dialog, '#add-session-workspace-back-slot').replaceWith(workspaceBackButton);
   const folderBackButton = createPressable('add-session-back', 'All projects');
@@ -332,6 +328,10 @@ export function createAddSessionDialog() {
   let skipsPermissionsByDefault = false;
   let isSpawnBlocked = false;
   let isAddPending = false;
+  let isAgentListSettled = false;
+  let chosenPlace: string | null = null;
+  let openSlot: AddSessionSlot | null = null;
+  let operatorTouch: 'untouched' | 'acted' | 'reopened' = 'untouched';
 
   function requestOnSelectedHost(type: string, payload: Record<string, unknown>) {
     const options = { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS };
@@ -351,7 +351,20 @@ export function createAddSessionDialog() {
     return agentOptions.some((agentOption) => agentOption.id === rememberedAgentId) ? rememberedAgentId : defaultAgentId;
   };
 
-  function renderRepoWord() {
+  const isPlaceShown = () => hostStatuses().length > 0 || localCoderEnvironments.length > 0;
+  const isSlotEmpty: Record<AddSessionSlot, () => boolean> = {
+    place: () => isPlaceShown() && chosenPlace === null,
+    agent: () => selectedAgentId === NO_AGENT_ID && (!isAgentListSettled || agentOptions.length > 0),
+    project: () => target.kind === 'none',
+  };
+  const firstEmptySlot = () => ADD_SESSION_SLOTS.find((slot) => isSlotEmpty[slot]()) ?? null;
+
+  function placeName() {
+    if (selectedEnvironment) return selectedEnvironment.name;
+    return hostStatuses().find((status) => status.id === selectedHostId)?.name ?? 'this machine';
+  }
+
+  function renderSentence() {
     const wordByKind: Record<AddSessionTarget['kind'], string> = {
       none: 'a project',
       project: target.kind === 'project' ? target.row.name : '',
@@ -359,90 +372,193 @@ export function createAddSessionDialog() {
       folder: lastPathSegment(pathInput.value.trim()) || 'a folder',
     };
     repoWord.textContent = wordByKind[target.kind];
-    pickEl.hidden = target.kind === 'workspace' || target.kind === 'folder';
-    workspacePanel.hidden = target.kind !== 'workspace';
-    folderPanel.hidden = target.kind !== 'folder';
+    agentWordTextEl.textContent = agentLabelOf(selectedAgentId) ?? 'an agent';
+    placeWord.textContent = chosenPlace !== null ? placeName() : 'a place';
+    placeEl.hidden = !isPlaceShown();
+    startWordEl.textContent = isPlaceShown() ? 'start' : 'Start';
+    for (const slot of ADD_SESSION_SLOTS) wordBySlot[slot].setAttribute('aria-expanded', String(openSlot === slot));
+    pickEl.hidden = openSlot === null;
+    if (openSlot) pickEl.dataset.slot = openSlot;
+    workspacePanel.hidden = openSlot !== null || target.kind !== 'workspace';
+    folderPanel.hidden = openSlot !== null || target.kind !== 'folder';
   }
 
-  function buildChoiceRow(label: string, onPick: () => void) {
-    const row = createPressable('add-session-row add-session-row-choice');
-    row.append(el('span', 'add-session-row-name', label), el('span', 'add-session-row-chevron'));
-    row.addEventListener('click', onPick);
-    return row;
-  }
-
-  function buildProjectRow(row: RecentRow) {
+  function buildSlotRow(key: string, name: string, isPicked: boolean, onPick: () => void) {
     const rowEl = createPressable('add-session-row');
     rowEl.setAttribute('role', 'option');
-    const isPicked = target.kind === 'project' && target.row.path === row.path;
     rowEl.setAttribute('aria-selected', String(isPicked));
-    const markEl = el('span', 'agent-mark');
-    markEl.setAttribute('aria-hidden', 'true');
-    paintAgentMark(markEl, row.agentId, agentLabelOf(row.agentId));
-    rowEl.append(markEl, el('span', 'add-session-row-name', row.name));
-    const meta = liveCountText(row) ?? (row.lastActivityMs !== null ? el('span', 'add-session-row-meta', formatRelativeAge(row.lastActivityMs, Date.now())) : null);
-    if (meta) rowEl.append(meta);
+    rowEl.dataset.key = key;
+    rowEl.append(el('span', 'add-session-row-name', name));
     rowEl.addEventListener('click', () => {
-      setProjectTarget(row);
-      markPickedRow(rowEl);
+      markOperatorActed();
+      onPick();
     });
     return rowEl;
   }
 
+  function buildAgentMark(agentId: string) {
+    const markEl = el('span', 'agent-mark');
+    markEl.setAttribute('aria-hidden', 'true');
+    paintAgentMark(markEl, agentId, agentLabelOf(agentId));
+    return markEl;
+  }
+
+  function buildChoiceRow(label: string, onPick: () => void) {
+    const row = createPressable('add-session-row add-session-row-choice');
+    row.dataset.key = label;
+    row.append(el('span', 'add-session-row-name', label), el('span', 'add-session-row-chevron'));
+    row.addEventListener('click', () => {
+      markOperatorActed();
+      onPick();
+    });
+    return row;
+  }
+
+  function buildProjectRow(row: RecentRow) {
+    const isPicked = target.kind === 'project' && target.row.path === row.path;
+    const rowEl = buildSlotRow(row.path, row.name, isPicked, () => {
+      setProjectTarget(row);
+      advance();
+    });
+    rowEl.prepend(buildAgentMark(row.agentId));
+    const meta = liveCountText(row) ?? (row.lastActivityMs !== null ? el('span', 'add-session-row-meta', formatRelativeAge(row.lastActivityMs, Date.now())) : null);
+    if (meta) rowEl.append(meta);
+    return rowEl;
+  }
+
+  function buildAgentRow(agentOption: { id: string; label: string }) {
+    const rowEl = buildSlotRow(agentOption.id, agentOption.label, agentOption.id === selectedAgentId, () => {
+      setAgent(agentOption.id);
+      advance();
+    });
+    rowEl.prepend(buildAgentMark(agentOption.id));
+    return rowEl;
+  }
+
+  function buildPlaceRows() {
+    const buildPlaceRow = (name: string, place: string) => buildSlotRow(place, name, place === chosenPlace, () => {
+      choosePlace(place);
+      advance();
+    });
+    const hostRows = hostStatuses().map((status) => {
+      const isConnected = status.state === 'connected';
+      const rowEl = buildPlaceRow(isConnected ? status.name : `${status.name} (${status.state})`, `${HOST_PLACE_PREFIX}${status.id}`);
+      rowEl.disabled = !isConnected;
+      return rowEl;
+    });
+    const environmentRows = localCoderEnvironments.map((environment) => buildPlaceRow(environment.name, `${ENVIRONMENT_PLACE_PREFIX}${environment.name}`));
+    return [buildPlaceRow('this machine', HOST_PLACE_PREFIX), ...hostRows, ...environmentRows];
+  }
+
+  function buildProjectRows() {
+    const rows: HTMLElement[] = filterRows(recentRows, findInput.value).map(buildProjectRow);
+    if (!isShellChosen() && selectedEnvironment === null && scannedProjects.length >= 2) rows.push(buildChoiceRow('Several repos', pickWorkspace));
+    rows.push(buildChoiceRow('Any folder', pickFolder));
+    return rows;
+  }
+
   function renderList() {
-    const visibleRows = filterRows(recentRows, findInput.value);
-    listEl.replaceChildren(...visibleRows.map(buildProjectRow));
-    if (!isShellChosen() && selectedEnvironment === null && scannedProjects.length >= 2) listEl.append(buildChoiceRow('Several repos', pickWorkspace));
-    listEl.append(buildChoiceRow('Any folder', pickFolder));
+    const focusedRowKey = document.activeElement instanceof HTMLElement && listEl.contains(document.activeElement) ? document.activeElement.dataset.key ?? null : null;
+    renderSentence();
+    if (openSlot === 'place') listEl.replaceChildren(...buildPlaceRows());
+    if (openSlot === 'agent') listEl.replaceChildren(...agentOptions.map(buildAgentRow));
+    if (openSlot === 'project') listEl.replaceChildren(...buildProjectRows());
+    if (focusedRowKey !== null) [...listEl.querySelectorAll<HTMLElement>('.add-session-row')].find((rowEl) => rowEl.dataset.key === focusedRowKey)?.focus();
+  }
+
+  function isFocusAdrift() {
+    const focused = document.activeElement;
+    return focused === null || focused === document.body || focused === dialog || ADD_SESSION_SLOTS.some((slot) => wordBySlot[slot] === focused);
+  }
+
+  function focusOpenSlot() {
+    if (openSlot === null) {
+      focusAfterLastSlot();
+      return;
+    }
+    if (document.documentElement.dataset.layout === 'phone') {
+      dialog.focus();
+      return;
+    }
+    if (openSlot === 'project') {
+      findInput.focus();
+      return;
+    }
+    listEl.querySelector<HTMLElement>('.add-session-row:not(:disabled)')?.focus();
+  }
+
+  function focusAfterLastSlot() {
+    if (target.kind === 'workspace') {
+      workspaceBackButton.focus();
+      return;
+    }
+    if (target.kind === 'folder') {
+      pathInput.focus();
+      return;
+    }
+    btnConfirm.focus();
+  }
+
+  function openSlotList(slot: AddSessionSlot | null) {
+    openSlot = slot;
+    renderList();
+    focusOpenSlot();
+  }
+
+  function markOperatorActed() {
+    if (operatorTouch === 'untouched') operatorTouch = 'acted';
+  }
+
+  function advance() {
+    if (operatorTouch === 'reopened') operatorTouch = 'acted';
+    openSlotList(firstEmptySlot());
+  }
+
+  function settleOpenSlot() {
+    if (operatorTouch !== 'untouched' && pickEl.contains(document.activeElement)) {
+      renderList();
+      return;
+    }
+    const isOpenSlotDone = openSlot === null ? firstEmptySlot() !== null : operatorTouch !== 'reopened' && !isSlotEmpty[openSlot]();
+    const isUntouchedReorder = operatorTouch === 'untouched' && openSlot !== firstEmptySlot();
+    if (isOpenSlotDone || isUntouchedReorder) {
+      advance();
+      return;
+    }
+    renderList();
+    if (operatorTouch !== 'reopened' && isFocusAdrift()) focusOpenSlot();
   }
 
   function setProjectTarget(row: RecentRow) {
     target = { kind: 'project', row };
     lastProjectTarget = target;
     errorEl.textContent = '';
-    renderRepoWord();
-  }
-
-  function markPickedRow(pickedRowEl: HTMLElement) {
-    for (const rowEl of listEl.querySelectorAll('[role="option"]')) rowEl.setAttribute('aria-selected', String(rowEl === pickedRowEl));
-  }
-
-  function pickProject(row: RecentRow) {
-    setProjectTarget(row);
-    renderList();
   }
 
   function pickWorkspace() {
     target = { kind: 'workspace' };
     errorEl.textContent = '';
     workspaceListEl.replaceChildren(...scannedProjects.map((project) => buildRepoCheckbox(project.name, project.path)));
-    renderRepoWord();
-    workspaceBackButton.focus();
+    advance();
   }
 
   function pickFolder() {
     target = { kind: 'folder' };
     errorEl.textContent = '';
-    renderRepoWord();
-    pathInput.focus();
+    advance();
   }
 
   function returnToProjects() {
     target = lastProjectTarget;
-    renderRepoWord();
+    openSlot = 'project';
     renderList();
-    findInput.focus();
   }
 
   function rebuildRows() {
     recentRows = orderRecentRows(scannedProjects, rememberedStarts, liveSessionsByPath(), pickAgentId);
     const pickedPath = target.kind === 'project' ? target.row.path : null;
     const pickedRow = recentRows.find((row) => row.path === pickedPath) ?? null;
-    if (pickedRow) {
-      pickProject(pickedRow);
-      return;
-    }
-    renderRepoWord();
+    if (pickedRow) setProjectTarget(pickedRow);
     renderList();
   }
 
@@ -454,24 +570,18 @@ export function createAddSessionDialog() {
 
   function setAgent(agentId: string) {
     selectedAgentId = agentId;
-    agentSelectEl.value = agentId;
     paintAgentMark(agentMarkEl, agentId === NO_AGENT_ID ? null : agentId, agentLabelOf(agentId));
     applyAgentRules();
+    renderSentence();
   }
 
   function applyAgentRules() {
     const isShell = isShellChosen();
-    taskInput.hidden = isShell;
     if (isShell && target.kind === 'workspace') returnToProjects();
     if (isShell && selectedEnvironment) selectEnvironment(null);
     renderPermissionHint();
     showAgentLogin();
   }
-
-  agentSelectEl.addEventListener('change', () => {
-    setAgent(agentSelectEl.value);
-    renderList();
-  });
 
   function showAgentLogin() {
     if (!dialog.isConnected) {
@@ -490,34 +600,20 @@ export function createAddSessionDialog() {
   const unsubscribeAgentLogins = onAgentLoginsChanged(showAgentLogin);
   refreshAgentLogins();
 
-  function renderPlaces() {
-    const hosts = hostStatuses();
-    placeEl.hidden = hosts.length === 0 && localCoderEnvironments.length === 0;
-    placeSelectEl.replaceChildren(option('this machine', { value: '' }));
-    for (const status of hosts) {
-      const isConnected = status.state === 'connected';
-      placeSelectEl.appendChild(option(isConnected ? status.name : `${status.name} (${status.state})`, { value: `${HOST_PLACE_PREFIX}${status.id}`, disabled: !isConnected }));
-    }
-    for (const environment of localCoderEnvironments) placeSelectEl.appendChild(option(environment.name, { value: `${ENVIRONMENT_PLACE_PREFIX}${environment.name}` }));
-    const hostValue = selectedHostId ? `${HOST_PLACE_PREFIX}${selectedHostId}` : '';
-    placeSelectEl.value = selectedEnvironment ? `${ENVIRONMENT_PLACE_PREFIX}${selectedEnvironment.name}` : hostValue;
-  }
-
   function selectEnvironment(environmentName: string | null) {
     selectedEnvironment = localCoderEnvironments.find((environment) => environment.name === environmentName) ?? null;
     environmentHintEl.hidden = selectedEnvironment === null;
     environmentHintEl.textContent = selectedEnvironment ? coderEnvironmentHint(selectedEnvironment) : '';
     if (selectedEnvironment && isShellChosen()) setAgent(NO_AGENT_ID);
     if (selectedEnvironment && target.kind === 'workspace') returnToProjects();
-    renderPlaces();
     renderPermissionHint();
     showAgentLogin();
     renderList();
   }
 
-  placeSelectEl.addEventListener('change', () => {
-    const place = placeSelectEl.value;
-    const hostId = place.startsWith(HOST_PLACE_PREFIX) ? place.slice(HOST_PLACE_PREFIX.length) : null;
+  function choosePlace(place: string) {
+    chosenPlace = place;
+    const hostId = place.startsWith(HOST_PLACE_PREFIX) ? place.slice(HOST_PLACE_PREFIX.length) || null : null;
     const environmentName = place.startsWith(ENVIRONMENT_PLACE_PREFIX) ? place.slice(ENVIRONMENT_PLACE_PREFIX.length) : null;
     if (hostId !== selectedHostId) {
       selectedHostId = hostId;
@@ -525,7 +621,14 @@ export function createAddSessionDialog() {
       loadFromSelectedHost();
     }
     selectEnvironment(environmentName);
-  });
+  }
+
+  for (const slot of ADD_SESSION_SLOTS) {
+    wordBySlot[slot].addEventListener('click', () => {
+      operatorTouch = 'reopened';
+      openSlotList(slot);
+    });
+  }
 
   const repoRootsAdder = createRepoRootsAdder({ onAdded: fillProjectList });
   repoRootsEl.append(repoRootsAdder.element);
@@ -539,7 +642,7 @@ export function createAddSessionDialog() {
   function showScanFailure(reason: string) {
     scannedProjects = [];
     recentRows = [];
-    listEl.replaceChildren();
+    renderList();
     scanStatus.show('error', `The project scan failed: ${reason}`);
     btnScanAgain.hidden = false;
     btnScanAgain.disabled = false;
@@ -570,26 +673,21 @@ export function createAddSessionDialog() {
   }
 
   findInput.addEventListener('input', () => {
+    markOperatorActed();
     const visibleRows = filterRows(recentRows, findInput.value);
     const pickedPath = target.kind === 'project' ? target.row.path : null;
     const isPickVisible = visibleRows.some((row) => row.path === pickedPath);
-    if (!isPickVisible && visibleRows[0]) {
-      pickProject(visibleRows[0]);
-      return;
-    }
+    if (!isPickVisible && visibleRows[0]) setProjectTarget(visibleRows[0]);
     renderList();
   });
 
-  repoWord.addEventListener('click', () => {
-    if (target.kind === 'workspace' || target.kind === 'folder') {
+  for (const backButton of [workspaceBackButton, folderBackButton]) {
+    backButton.addEventListener('click', () => {
       returnToProjects();
-      return;
-    }
-    findInput.focus();
-  });
-  workspaceBackButton.addEventListener('click', returnToProjects);
-  folderBackButton.addEventListener('click', returnToProjects);
-  pathInput.addEventListener('input', renderRepoWord);
+      focusOpenSlot();
+    });
+  }
+  pathInput.addEventListener('input', renderSentence);
 
   const shownWarnings: HTMLElement[] = [];
   function showWarning(text: string) {
@@ -613,11 +711,16 @@ export function createAddSessionDialog() {
         const decision = decideAgentPicker(message.type === 'agents-listed' ? message.agents : []);
         agentOptions = decision.options;
         defaultAgentId = decision.selectedId;
-        agentSelectEl.replaceChildren(option('an agent', { value: NO_AGENT_ID, disabled: true }), ...agentOptions.map((agentOption) => option(agentOption.label, { value: agentOption.id })));
+        isAgentListSettled = true;
         setAgent(NO_AGENT_ID);
         rebuildRows();
+        settleOpenSlot();
       }))
-      .catch(whileHostUnchanged((reason: unknown) => { showWarning(`Could not load the agent list (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}), so the session uses the default agent.`); }));
+      .catch(whileHostUnchanged((reason: unknown) => {
+        isAgentListSettled = true;
+        showWarning(`Could not load the agent list (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}), so the session uses the default agent.`);
+        settleOpenSlot();
+      }));
   }
 
   function loadSettings() {
@@ -630,7 +733,7 @@ export function createAddSessionDialog() {
         if (message.type !== 'settings') return;
         if (!selectedHostId) {
           localCoderEnvironments = offeredCoderEnvironments(message.settings);
-          renderPlaces();
+          settleOpenSlot();
         }
         isSaneYoloInstalled = isSaneYoloAvailable(message.settings);
         isSaneYoloSettingOn = settingFlag(message.settings, 'saneYolo') !== false;
@@ -654,10 +757,8 @@ export function createAddSessionDialog() {
       return null;
     }
     const isShell = isShellChosen();
-    const prompt = taskInput.value.trim();
     const shared: Record<string, unknown> = { ...permissionFields() };
     if (selectedAgentId !== NO_AGENT_ID && selectedAgentId !== DEFAULT_AGENT_ID) shared.agent = selectedAgentId;
-    if (prompt && !isShell) shared.prompt = prompt;
     if (selectedEnvironment && target.kind !== 'workspace') shared.environment = selectedEnvironment.name;
     if (target.kind === 'project') {
       return { message: { ...shared, name: suggestSessionName(sessionNameBase(target.row.name)), path: target.row.path }, rememberedPath: isShell ? null : target.row.path };
@@ -697,7 +798,7 @@ export function createAddSessionDialog() {
   function requestAddSession({ message, rememberedPath }: AddSessionRequest) {
     isAddPending = true;
     btnConfirm.disabled = true;
-    placeSelectEl.disabled = true;
+    placeWord.disabled = true;
     startStatus.show('busy', 'Starting the session');
     const showRefusal = whileHostUnchanged((text: string) => { errorEl.textContent = text; });
     requestOnSelectedHost('add-session', message)
@@ -715,7 +816,7 @@ export function createAddSessionDialog() {
         isAddPending = false;
         startStatus.clear();
         btnConfirm.disabled = isSpawnBlocked;
-        placeSelectEl.disabled = false;
+        placeWord.disabled = false;
       });
   }
 
@@ -727,7 +828,7 @@ export function createAddSessionDialog() {
     btnConfirm.disabled = isAddPending;
     agentOptions = [];
     defaultAgentId = DEFAULT_AGENT_ID;
-    agentSelectEl.replaceChildren();
+    isAgentListSettled = false;
     hasSettingsLoaded = false;
     isSaneYoloInstalled = false;
     isSaneYoloSettingOn = true;
@@ -739,7 +840,6 @@ export function createAddSessionDialog() {
     repoRootsEl.hidden = true;
     pathInput.value = '';
     setAgent(NO_AGENT_ID);
-    renderRepoWord();
     renderList();
   }
 
@@ -751,24 +851,17 @@ export function createAddSessionDialog() {
 
   btnCancel.addEventListener('click', close);
   btnConfirm.addEventListener('click', submit);
-  taskInput.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') submit();
-  });
   pathInput.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') submit();
   });
   findInput.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') submit();
+    if (event.key !== 'Enter' || target.kind !== 'project') return;
+    event.preventDefault();
+    advance();
   });
 
-  renderPlaces();
-  renderRepoWord();
+  advance();
   loadFromSelectedHost();
-  if (document.documentElement.dataset.layout === 'phone') {
-    dialog.focus();
-    return;
-  }
-  requestAnimationFrame(() => findInput.focus());
 }
 
 export function createRadarReportDialog({
