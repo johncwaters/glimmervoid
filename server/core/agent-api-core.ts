@@ -415,7 +415,7 @@ const WHITEBOARD_SUBCOMMANDS: readonly CommandSpec[] = [
 
 const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = Object.freeze({
   spawn: {
-    whenToUse: 'Use it for work that edits files or runs long; an in-process subagent stays fine for a quick read-only lookup',
+    whenToUse: 'An option beside an in-process subagent when the work should run in its own supervised session and worktree',
     usage: 'spawn <prompt>',
     positionals: requiredText('<prompt>'),
     summary: 'Start a session on that prompt, with its own dashboard card, that this session owns until its task is done',

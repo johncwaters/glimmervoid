@@ -57,7 +57,7 @@ Commands:
   watch --inbox <url> Run the watcher, delivering jobs to a job inbox; --ping sends one ping and exits
 
 Inside a Glimmervoid session:
-  spawn <prompt>      Start a session on that prompt, with its own dashboard card, that this session owns until its task is done. Use it for work that edits files or runs long; an in-process subagent stays fine for a quick read-only lookup
+  spawn <prompt>      Start a session on that prompt, with its own dashboard card, that this session owns until its task is done. An option beside an in-process subagent when the work should run in its own supervised session and worktree
   send [child] <text> Message a session this one spawned; a spawned session messages its parent with send <text>. Use it to steer a spawned session, or to report back to the parent
   read [child]        Read what this session's spawned sessions sent; a spawned session reads its parent's messages. Use it when a spawned session or the parent has messaged this session
   close <child>       End a session this one spawned and discard its worktree; refused while it holds unpushed work unless --discard. Use it once a spawned session's work has landed or is no longer wanted

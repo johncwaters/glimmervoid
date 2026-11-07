@@ -400,7 +400,7 @@ test('a Kimi agent that starts a subagent gets the spawn hint with its next prom
   kimiSession.noteCommandRan('spawn');
   assert.deepEqual(commandHintOutcomes, []);
   const promptReply = await postKimiHook('UserPromptSubmit', recordedNextPrompt);
-  assert.match(String(promptReply.message), /glimmervoid spawn <prompt> gives it its own dashboard card/);
+  assert.match(String(promptReply.message), /glimmervoid spawn <prompt> is also available/);
   assert.equal((await postKimiHook('UserPromptSubmit', { prompt: 'again' })).message, undefined);
   const diagramPrompt = { ...recordedNextPrompt, prompt: [{ type: 'text', text: 'create a graph showing how state can transition' }] };
   assert.match(String((await postKimiHook('UserPromptSubmit', diagramPrompt)).message), /glimmervoid whiteboard new <title>/);
