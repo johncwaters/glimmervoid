@@ -21,7 +21,7 @@ import { createRepoCache } from '../git/repo-cache.ts';
 import { reapTeamReviewProcesses } from './team-review-reaper.ts';
 import { createTeamReviewPoller } from './team-review-poller.ts';
 import { bootStaggerDelay } from '../boot-stagger.ts';
-import { startAwakeStopwatch } from '../awake-timer.ts';
+import { createWatcheeFeed } from '../lanes/watchee-feed.ts';
 import type { DraftExpectation, DraftPatch, NotMineOutcome, ReviewOutcome, SpawnReviewArgs, TeamReviewGithub, TeamReviewPoller } from './team-review-poller.ts';
 import type { PrDetail, ReviewDraft, TeamReviewState as TeamReviewStateType, TeamReviewStateEntry as TeamReviewStateEntryType, TeamReviewStatus as TeamReviewStatusType } from '../../shared/contracts/team-review.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -154,8 +154,7 @@ function createTeamReviewWiring({
     return review;
   }
 
-  let latestCandidates: TeamReviewCandidatesPayload | null = null;
-  let feedStopwatch = startAwakeStopwatch();
+  const candidatesFeed = createWatcheeFeed<TeamReviewCandidatesPayload>();
   const runner = createLaneRunner<TeamReviewPoller>({
     tag: core.TEAM_REVIEW_LANE_ID,
     gate: () => teamReviewShouldStart(config),
@@ -189,8 +188,9 @@ function createTeamReviewWiring({
         onTickComplete,
         clock,
         firstTickDelayMs: bootStaggerDelay,
-        feedSilenceMs: () => feedStopwatch.awakeElapsedMs(),
+        feedSilenceMs: candidatesFeed.silenceMs,
       });
+      const latestCandidates = candidatesFeed.latest();
       if (latestCandidates !== null) createdPoller.acceptCandidates(latestCandidates);
       return createdPoller;
     },
@@ -212,7 +212,7 @@ function createTeamReviewWiring({
   async function stopPoller(): Promise<void> {
     unsubscribe();
     shutdownController.abort();
-    feedStopwatch.stop();
+    candidatesFeed.stop();
     await Promise.allSettled([drainPending(Promise.allSettled([...inFlightReviews])), runner.stopPoller()]);
   }
 
@@ -246,10 +246,7 @@ function createTeamReviewWiring({
 
   async function acceptCandidates(job: { payload: TeamReviewCandidatesPayload }): Promise<void> {
     if (shutdownController.signal.aborted) return;
-    feedStopwatch.stop();
-    feedStopwatch = startAwakeStopwatch();
-    if (latestCandidates !== null && Date.parse(job.payload.observedAt) < Date.parse(latestCandidates.observedAt)) return;
-    latestCandidates = job.payload;
+    if (!candidatesFeed.accept(job.payload)) return;
     runner.getPoller()?.acceptCandidates(job.payload);
   }
 

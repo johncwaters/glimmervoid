@@ -10,6 +10,7 @@ import type { InFlightReview } from '../../shared/contracts/team-review.ts';
 import type { GithubPr } from '../../shared/contracts/github-prs.ts';
 import type { TeamReviewCandidatesPayload } from '../../shared/contracts/team-review-candidates.ts';
 import { errorMessage } from '../../shared/text.ts';
+import { isOlderObservation, watcherFeedError } from '../lanes/core/watchee-feed-core.ts';
 import { DEFAULT_TIMER_FNS } from '../../shared/timer-deps.ts';
 import { TEAM_REVIEW_RATE_LIMIT_RESOURCES } from './team-review-poller/team-review-poller-context.ts';
 import type {
@@ -119,7 +120,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     runtime.pollingError = null;
     runtime.tickRateLimitWaitMs = null;
     if (!runtime.hasLoadedState) return undefined;
-    const feedError = core.watcherFeedError(feedSilenceMs(), pollIntervalMs);
+    const feedError = watcherFeedError('Team review has no pull request list', feedSilenceMs(), pollIntervalMs);
     if (acceptedCandidates === null) {
       runtime.pollingError = feedError;
       return undefined;
@@ -131,7 +132,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   }
 
   function acceptCandidates(searched: TeamReviewCandidatesPayload): void {
-    if (acceptedCandidates !== null && Date.parse(searched.observedAt) < Date.parse(acceptedCandidates.observedAt)) return;
+    if (isOlderObservation(searched, acceptedCandidates)) return;
     acceptedCandidates = searched;
     if (runtime.hasLoadedState && !loop.isStopped()) loop.tickSoon();
   }
