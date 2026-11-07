@@ -617,7 +617,10 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const lifecycleServers: Server[] = [agentIngressServer];
   const jobInbox = createJobInbox({
     watcherConfig: config.watcher,
-    handlers: withBuiltInJobHandlers({ 'team-review.candidates': laneAssembly.teamReview.acceptCandidates }),
+    handlers: withBuiltInJobHandlers({
+      'team-review.candidates': laneAssembly.teamReview.acceptCandidates,
+      'my-prs.candidates': myPrs.acceptCandidates,
+    }),
   });
   void syncWatcheeSettings(config);
   const { requestShutdown, requestRestart } = createLifecycle({

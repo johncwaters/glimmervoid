@@ -15,7 +15,7 @@ The Glimmervoid Cloud split: an always-on watcher process and the job inbox it d
 | `watcher/watch-cli.ts` | `glimmervoid watch`: no sessions, PTYs or dashboard |
 | `inbox/watchee-handlers.ts`, `inbox/watchee-settings-sync.ts` | Server half of a watchee: the handler per job kind; writes `watchees.json` on boot and on every settings save |
 | `watchees/watchee.ts`, `watchees/registry.ts` | The watchee shape and the registry keyed by job kind |
-| `watchees/<lane>/` | One lane's watching code; `team-review/` is the first |
+| `watchees/<lane>/`, `watchees/github-store-watchee.ts` | One lane's watching code; the GitHub store and event key every GitHub watchee shares |
 | `watcher/watchee-runner.ts`, `watcher/core/watchee-runner-core.ts` | Runs each gated watchee on its trigger, derives jobIds, keeps `sent-events.json` |
 | `watcher/watchee-settings.ts` | The watcher home and the atomic `watchees.json` read and write |
 | `shared/contracts/watcher-jobs.ts`, `shared/contracts/watchee-settings.ts` | The job envelope, the per-kind payload registry every lane registers into, and the watchee settings file |

@@ -30,4 +30,3 @@ function createWatcheeFeed<Payload extends Observation>(): WatcheeFeed<Payload> 
 }
 
 export { createWatcheeFeed };
-export type { WatcheeFeed };

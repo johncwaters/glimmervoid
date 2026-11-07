@@ -1,13 +1,15 @@
 import { z } from 'zod';
+import { MyPrsCandidatesPayload } from './my-prs-candidates.ts';
 import { TeamReviewCandidatesPayload } from './team-review-candidates.ts';
 
 const WATCHER_JOB_VERSION = 1;
 export const WATCHER_JOB_MAX_BYTES = 1024 * 1024;
 export const WATCHER_JOBS_PATH = '/jobs';
 
-export const WATCHER_JOB_KINDS = Object.freeze({
+const WATCHER_JOB_KINDS = Object.freeze({
   ping: z.object({}).strict(),
   'team-review.candidates': TeamReviewCandidatesPayload,
+  'my-prs.candidates': MyPrsCandidatesPayload,
 });
 
 export type WatcherJobKind = keyof typeof WATCHER_JOB_KINDS;
@@ -29,9 +31,11 @@ export const WatcherJobAck = z.object({
 
 export type WatcherJobAck = z.infer<typeof WatcherJobAck>;
 
-export type ParsedWatcherJob = {
-  [Kind in WatcherJobKind]: { jobId: string; kind: Kind; payload: z.infer<(typeof WATCHER_JOB_KINDS)[Kind]> };
-}[WatcherJobKind];
+export type WatcherJobOfKind<Kind extends WatcherJobKind> = { jobId: string; kind: Kind; payload: WatcherJobPayload<Kind> };
+
+export type ParsedWatcherJob = WatcherJobOfKind<WatcherJobKind>;
+
+export const WATCHER_JOB_PAYLOADS: { [Kind in WatcherJobKind]: z.ZodType<WatcherJobPayload<Kind>> } = WATCHER_JOB_KINDS;
 
 export function isWatcherJobKind(kind: string): kind is WatcherJobKind {
   return Object.hasOwn(WATCHER_JOB_KINDS, kind);

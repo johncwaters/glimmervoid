@@ -1,8 +1,5 @@
-import crypto from 'node:crypto';
 import type { Watchee } from '../watchee.ts';
-import { createGithubStorePoller } from '../../../server/github/github-store-poller.ts';
-import { createPrGh } from '../../../server/github/pr-gh.ts';
-import { DEFAULT_TIMER_FNS } from '../../../shared/timer-deps.ts';
+import { createWatcheeGithubStore, observedPayloadEventKey } from '../github-store-watchee.ts';
 import { createTeamReviewSearch } from './team-review-search.ts';
 
 const MS_PER_MINUTE = 60_000;
@@ -16,17 +13,8 @@ const teamReviewWatchee: Watchee<'team-review.candidates'> = {
     if (!teamReview.org) return { run: false, reason: 'team review has no GitHub organization or team' };
     return { run: true };
   },
-  start: ({ watcherHome, now, log }) => {
-    const store = createGithubStorePoller({
-      github: createPrGh(watcherHome),
-      now,
-      isDashboardConnected: () => false,
-      exclusive: async (work) => work(),
-      setTimeoutFn: DEFAULT_TIMER_FNS.setTimeoutFn,
-      clearTimeoutFn: DEFAULT_TIMER_FNS.clearTimeoutFn,
-      log,
-    });
-    const search = createTeamReviewSearch({ store, now });
+  start: (context) => {
+    const search = createTeamReviewSearch({ store: createWatcheeGithubStore(context), now: context.now });
     return {
       detect: async ({ teamReview }) => {
         const searched = await search.search(teamReview);
@@ -36,10 +24,7 @@ const teamReviewWatchee: Watchee<'team-review.candidates'> = {
       stop: search.stop,
     };
   },
-  eventKey: (payload, intervalStartMs) => {
-    const { observedAt: _observedAt, ...observed } = payload;
-    return `${intervalStartMs}:${crypto.createHash('sha256').update(JSON.stringify(observed)).digest('hex')}`;
-  },
+  eventKey: observedPayloadEventKey,
 };
 
 export { teamReviewWatchee };

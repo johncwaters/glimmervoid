@@ -64,6 +64,13 @@ const STAGE_ORDER: MyPrStage[] = ['conflicts', 'behind', 'checks-failing', 'chan
 const THREAD_EXCERPT_MAX_CHARACTERS = 200;
 const FAILING_CONCLUSIONS = new Set(['FAILURE', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE']);
 
+export const MY_PRS_HELD_WATCH_OWNER = 'my-prs-held';
+
+export function heldOrListedPr<Pr extends { updatedAt: string }>(listedPr: Pr, heldPr: Pr): Pr {
+  if (Date.parse(heldPr.updatedAt) < Date.parse(listedPr.updatedAt)) return listedPr;
+  return heldPr;
+}
+
 export function mergedSinceDate(nowMs: number): string {
   return new Date(nowMs - MERGED_RETENTION_MS).toISOString().slice(0, 10);
 }

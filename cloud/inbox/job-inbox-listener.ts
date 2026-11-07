@@ -1,12 +1,12 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { WATCHER_JOB_MAX_BYTES, WATCHER_JOBS_PATH } from '../../shared/contracts/watcher-jobs.ts';
-import type { ParsedWatcherJob, WatcherJobAck, WatcherJobKind } from '../../shared/contracts/watcher-jobs.ts';
+import type { WatcherJobAck, WatcherJobKind, WatcherJobOfKind } from '../../shared/contracts/watcher-jobs.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { authorizeInboxRequest, createRecentJobIds, parseWatcherJob } from './core/job-inbox-core.ts';
 
 const RECENT_JOB_ID_CAPACITY = 1000;
 
-type WatcherJobHandlers = { [Kind in WatcherJobKind]: (job: Extract<ParsedWatcherJob, { kind: Kind }>) => Promise<void> };
+type WatcherJobHandlers = { [Kind in WatcherJobKind]: (job: WatcherJobOfKind<Kind>) => Promise<void> };
 
 const OVERSIZED_BODY_MESSAGE = 'the job is over 1 MiB';
 
@@ -46,11 +46,9 @@ function parseJsonBody(text: string): unknown {
   }
 }
 
-function runJob(handlers: WatcherJobHandlers, job: ParsedWatcherJob): Promise<void> {
-  switch (job.kind) {
-    case 'ping': return handlers.ping(job);
-    case 'team-review.candidates': return handlers['team-review.candidates'](job);
-  }
+function runJob<Kind extends WatcherJobKind>(handlers: WatcherJobHandlers, job: WatcherJobOfKind<Kind>): Promise<void> {
+  const handler: (job: WatcherJobOfKind<Kind>) => Promise<void> = handlers[job.kind];
+  return handler(job);
 }
 
 function createJobInboxRequestHandler({ token, handlers, log = console }: {

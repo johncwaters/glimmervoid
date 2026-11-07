@@ -1,7 +1,7 @@
 import { decideBindHost } from '../../../server/core/remote-config.ts';
 import { tokensMatch } from '../../../server/core/agent-api-core.ts';
-import { WATCHER_JOB_KINDS, WatcherJobEnvelope, isWatcherJobKind } from '../../../shared/contracts/watcher-jobs.ts';
-import type { ParsedWatcherJob, WatcherJobKind } from '../../../shared/contracts/watcher-jobs.ts';
+import { WATCHER_JOB_PAYLOADS, WatcherJobEnvelope, isWatcherJobKind } from '../../../shared/contracts/watcher-jobs.ts';
+import type { ParsedWatcherJob, WatcherJobKind, WatcherJobOfKind } from '../../../shared/contracts/watcher-jobs.ts';
 
 const BEARER_PREFIX = 'Bearer ';
 const ANY_FREE_PORT = 0;
@@ -43,17 +43,9 @@ function parseWatcherJob(body: unknown): { ok: true; job: ParsedWatcherJob } | {
   return { ok: true, job };
 }
 
-function parsedJobOfKind(jobId: string, kind: WatcherJobKind, payload: unknown): ParsedWatcherJob | null {
-  switch (kind) {
-    case 'ping': {
-      const parsed = WATCHER_JOB_KINDS.ping.safeParse(payload);
-      return parsed.success ? { jobId, kind, payload: parsed.data } : null;
-    }
-    case 'team-review.candidates': {
-      const parsed = WATCHER_JOB_KINDS['team-review.candidates'].safeParse(payload);
-      return parsed.success ? { jobId, kind, payload: parsed.data } : null;
-    }
-  }
+function parsedJobOfKind<Kind extends WatcherJobKind>(jobId: string, kind: Kind, payload: unknown): WatcherJobOfKind<Kind> | null {
+  const parsed = WATCHER_JOB_PAYLOADS[kind].safeParse(payload);
+  return parsed.success ? { jobId, kind, payload: parsed.data } : null;
 }
 
 function createRecentJobIds(capacity: number): { hasSeen(jobId: string): boolean; remember(jobId: string): void } {

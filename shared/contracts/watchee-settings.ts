@@ -9,9 +9,18 @@ export const TeamReviewWatcheeSettings = z.object({
 
 export type TeamReviewWatcheeSettings = z.infer<typeof TeamReviewWatcheeSettings>;
 
+export const MyPrsWatcheeSettings = z.object({
+  enabled: z.boolean(),
+  org: z.string(),
+  intervalMinutes: z.number().positive(),
+}).strict();
+
+export type MyPrsWatcheeSettings = z.infer<typeof MyPrsWatcheeSettings>;
+
 export const WatcheeSettingsFile = z.object({
   version: z.literal(1),
   teamReview: TeamReviewWatcheeSettings,
+  myPrs: MyPrsWatcheeSettings,
 }).strict();
 
 export type WatcheeSettingsFile = z.infer<typeof WatcheeSettingsFile>;

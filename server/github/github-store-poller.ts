@@ -78,7 +78,8 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
       keys: watch.returnedKeys,
       returnedCount: watch.returnedCount, totalCount: watch.totalCount, isComplete: watch.isComplete, isLoaded: watch.isLoaded,
     }]));
-    return { prs, freshness: { lastRefreshedAt, error: pollingError }, watches: watchSnapshots };
+    const watchedKeysByOwnerSnapshot = Object.fromEntries([...watchedKeysByOwner].map(([owner, keys]) => [owner, [...keys]]));
+    return { prs, freshness: { lastRefreshedAt, error: pollingError }, watches: watchSnapshots, watchedKeysByOwner: watchedKeysByOwnerSnapshot };
   }
 
   function registerWatch(watch: GithubStoreWatch): void {
@@ -283,6 +284,7 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
   async function pollBehindCounts(tickStartedAt: number, refreshedKeys: ReadonlySet<string>): Promise<GithubPr[]> {
     const detailWatchKeys = new Set([...watches.values()].filter((watch) => watch.needsDetail)
       .flatMap((watch) => watch.nodes.map((node) => comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number }))));
+    for (const key of watchedKeys()) detailWatchKeys.add(key);
     const openPrs = Object.values(prs).filter((pr) => pr.state === 'OPEN' && detailWatchKeys.has(pr.key) && !refreshedKeys.has(pr.key));
     const behindCounts = openPrs.length === 0 ? new Map<string, number | null>() : await github.behindCounts(openPrs.map((pr) => ({ repo: pr.repo, number: pr.number, headSha: pr.headRefOid })));
     const changedPrs = githubPrsWithChangedBehindCounts(openPrs, new Map([...behindCounts].map(([key, count]) => [key.toLowerCase(), count])));
