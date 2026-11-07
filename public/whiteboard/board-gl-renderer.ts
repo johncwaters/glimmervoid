@@ -101,6 +101,8 @@ interface MediaTexture {
   height: number;
   image: HTMLImageElement | null;
   isFailed: boolean;
+  textureBytes: number;
+  lastGatherNumber: number;
 }
 
 interface GlScene {
@@ -324,6 +326,8 @@ const GLYPH_ATTRIBUTES: readonly AttributeSpec[] = [{ location: 1, size: 4, offs
 const UNIFORM_NAMES = ['uCamera', 'uScale', 'uResolution', 'uLodScale', 'uAtlas', 'uRect', 'uImage', 'uDepth', 'uTint'] as const;
 
 const UNSIZED_MEDIA_EDGE_PX = 1024;
+const MEDIA_TEXTURE_BUDGET_BYTES = 128 * 1024 * 1024;
+const MIPMAPPED_BYTES_PER_PIXEL = 4 * (4 / 3);
 
 function servedAssetHref(media: LaidOutMedia): string | null {
   const drawnFilename = boardMediaDrawnFilename(media);
@@ -513,6 +517,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   const glyphs = growableFloats();
   const layerRanges: LayerRange[] = Array.from({ length: LAYER_COUNT + 1 }, emptyRange);
   const mediaTextures = new Map<string, MediaTexture>();
+  let gatherNumber = 0;
 
   function showNotice(text: string | null): void {
     notice.hidden = text === null;
@@ -681,6 +686,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     triangles.length = 0;
     glyphs.length = 0;
     visibleDrawnMedia = [];
+    gatherNumber += 1;
     for (let layer = 0; layer < LAYER_COUNT; layer += 1) {
       const range = layerRanges[layer] ?? emptyRange();
       startRange(range);
@@ -699,6 +705,8 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     }
     decorationStart = { ...emptyRange(), rectStart: rects.length / RECT_FLOATS, segmentStart: segments.length / SEGMENT_FLOATS, triangleStart: triangles.length / TRIANGLE_VERTEX_FLOATS, glyphStart: glyphs.length / GLYPH_FLOATS };
     writeDecorations(current, currentPalette, glyphSource);
+    evictMediaTexturesOverBudget();
+    mediaLayer.showArea(area);
     gatheredArea = area;
     gatheredLodStep = lodStep;
     isGatherDirty = false;
@@ -715,9 +723,13 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   }
 
   function ensureMediaTexture(href: string, mediaRect: Rect): void {
-    if (mediaTextures.has(href)) return;
+    const known = mediaTextures.get(href);
+    if (known) {
+      known.lastGatherNumber = gatherNumber;
+      return;
+    }
     const fallbackFit = UNSIZED_MEDIA_EDGE_PX / Math.max(mediaRect.width, mediaRect.height, 1);
-    const entry: MediaTexture = { href, texture: null, width: Math.round(mediaRect.width * fallbackFit), height: Math.round(mediaRect.height * fallbackFit), image: new Image(), isFailed: false };
+    const entry: MediaTexture = { href, texture: null, width: Math.round(mediaRect.width * fallbackFit), height: Math.round(mediaRect.height * fallbackFit), image: new Image(), isFailed: false, textureBytes: 0, lastGatherNumber: gatherNumber };
     mediaTextures.set(href, entry);
     const image = entry.image;
     if (!image) return;
@@ -778,6 +790,25 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     entry.texture = texture;
+    entry.textureBytes = Math.round(raster.width * raster.height * MIPMAPPED_BYTES_PER_PIXEL);
+    evictMediaTexturesOverBudget();
+  }
+
+  function forgetMediaTexture(href: string, entry: MediaTexture): void {
+    if (gl && entry.texture) gl.deleteTexture(entry.texture);
+    mediaTextures.delete(href);
+  }
+
+  function evictMediaTexturesOverBudget(): void {
+    let heldBytes = 0;
+    for (const entry of mediaTextures.values()) heldBytes += entry.textureBytes;
+    if (heldBytes <= MEDIA_TEXTURE_BUDGET_BYTES) return;
+    const leastRecentlyDrawnFirst = [...mediaTextures].filter(([, entry]) => entry.lastGatherNumber !== gatherNumber).sort(([, first], [, second]) => first.lastGatherNumber - second.lastGatherNumber);
+    for (const [href, entry] of leastRecentlyDrawnFirst) {
+      if (heldBytes <= MEDIA_TEXTURE_BUDGET_BYTES) return;
+      heldBytes -= entry.textureBytes;
+      forgetMediaTexture(href, entry);
+    }
   }
 
   function forgetMediaNotIn(layout: BoardLayout): void {
@@ -787,10 +818,12 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
       return href ? [href] : [];
     }));
     for (const [href, entry] of mediaTextures) {
-      if (hrefsInUse.has(href)) continue;
-      if (gl && entry.texture) gl.deleteTexture(entry.texture);
-      mediaTextures.delete(href);
+      if (!hrefsInUse.has(href)) forgetMediaTexture(href, entry);
     }
+  }
+
+  function forgetAllMediaTextures(): void {
+    for (const [href, entry] of mediaTextures) forgetMediaTexture(href, entry);
   }
 
   function upload(program: PrimitiveProgram, values: GrowableFloats): void {
@@ -967,6 +1000,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     upload(programs.glyph, glyphs);
     for (let layer = 0; layer <= LAYER_COUNT; layer += 1) drawLayer(context, programs, glyphSource, layer);
     canvas.dataset.drawnElements = String(current.geometries.length);
+    canvas.dataset.mediaTextures = String(mediaTextures.size);
   }
 
   function requestDraw(): void {
@@ -1128,6 +1162,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     lastViewKey = '';
     reportView();
     geometryBySignature.clear();
+    forgetAllMediaTextures();
     mediaLayer.clear();
     hoveredBoxId = null;
     wireTargetId = null;

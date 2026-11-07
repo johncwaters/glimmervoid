@@ -1,4 +1,5 @@
 import '../support/disable-telemetry.ts';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -14,7 +15,7 @@ import { toolResultFromReply } from '../../mcp/core/tool-result.ts';
 import { createBackend } from '../../server/backend/backend.ts';
 import { WHITEBOARDS_FOLDER_NAME } from '../../server/whiteboard/whiteboard-wiring.ts';
 import { sparseBoardRecord } from '../../shared/contracts/whiteboard.ts';
-import type { Board, Op } from '../../shared/contracts/whiteboard.ts';
+import type { Board, BoxMedia, Op } from '../../shared/contracts/whiteboard.ts';
 import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
 import { isolateTranscriptHomes } from '../../tests/helpers/transcript-homes.ts';
 import { runCommand, snapshotEnvironment } from '../site-capture/isolated-glimmervoid.ts';
@@ -32,6 +33,7 @@ interface WhiteboardBenchOptions {
   comparePath: string | null;
   sections: BenchSection[];
   executablePath: string | undefined;
+  hasMedia: boolean;
 }
 
 interface BenchEnvironment {
@@ -55,13 +57,23 @@ const DROPPED_FRAME_FACTOR = 1.5;
 const CONTROL_REPLY_TIMEOUT_MS = 120_000;
 const OPEN_TIMEOUT_MS = 180_000;
 const SHUTDOWN_CAP_MS = 5_000;
+const MEDIA_EVERY_NTH_BOX = 10;
+const PAGE_EVERY_NTH_MEDIA = 8;
+const DISTINCT_PICTURE_COUNT = 48;
+const PICTURE_WIDTH_PX = 1600;
+const PICTURE_HEIGHT_PX = 1000;
+const PREVIEW_WIDTH_PX = 1024;
+const PAGE_WIDTH_PX = 1280;
+const PAGE_HEIGHT_PX = 800;
+const BENCH_PAGE_HTML = '<!doctype html><html><body><h1>Bench page</h1><p>A page on the bench board.</p></body></html>';
 const SECTION_FLAGS: Record<string, BenchSection> = { '--server-only': 'server', '--browser': 'browser', '--mcp': 'mcp' };
 
 function parseWhiteboardOptions(argv: readonly string[]): WhiteboardBenchOptions {
-  const options: WhiteboardBenchOptions = { sizes: [1000], outPath: null, comparePath: null, sections: [], executablePath: process.env.CHROME_PATH };
+  const options: WhiteboardBenchOptions = { sizes: [1000], outPath: null, comparePath: null, sections: [], executablePath: process.env.CHROME_PATH, hasMedia: false };
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index] ?? '';
     if (flag === '--whiteboard') continue;
+    if (flag === '--media') { options.hasMedia = true; continue; }
     const section = SECTION_FLAGS[flag];
     if (section) { options.sections.push(section); continue; }
     const value = argv[index + 1];
@@ -92,13 +104,51 @@ function megabytes(byteCount: number): number {
   return byteCount / 1_000_000;
 }
 
-async function seedBoard(configPath: string, elementCount: number): Promise<{ board: Board; fileBytes: number }> {
+function assetIdOf(content: Buffer | string): string {
+  return crypto.createHash('sha256').update(content).digest('hex');
+}
+
+async function writeBenchMedia(assetsRoot: string): Promise<{ pictures: BoxMedia[]; page: BoxMedia }> {
+  const { default: sharp } = await import('sharp');
+  await fs.promises.mkdir(assetsRoot, { recursive: true });
+  const pictures: BoxMedia[] = [];
+  for (let pictureIndex = 0; pictureIndex < DISTINCT_PICTURE_COUNT; pictureIndex += 1) {
+    const hue = Math.round((pictureIndex * 360) / DISTINCT_PICTURE_COUNT);
+    const png = await sharp({ create: { width: PICTURE_WIDTH_PX, height: PICTURE_HEIGHT_PX, channels: 3, background: `hsl(${hue}, 60%, 55%)` } }).png().toBuffer();
+    const asset = assetIdOf(png);
+    const preview = await sharp(png).resize({ width: PREVIEW_WIDTH_PX }).webp().toBuffer();
+    await fs.promises.writeFile(path.join(assetsRoot, `${asset}.png`), png);
+    await fs.promises.writeFile(path.join(assetsRoot, `${asset}.preview.webp`), preview);
+    pictures.push({ kind: 'image', asset, mime: 'image/png', width: PICTURE_WIDTH_PX, height: PICTURE_HEIGHT_PX, alt: `picture ${pictureIndex}`, hasPreview: true });
+  }
+  const pageAsset = assetIdOf(BENCH_PAGE_HTML);
+  await fs.promises.writeFile(path.join(assetsRoot, `${pageAsset}.html`), BENCH_PAGE_HTML);
+  return { pictures, page: { kind: 'page', asset: pageAsset, mime: 'text/html', width: PAGE_WIDTH_PX, height: PAGE_HEIGHT_PX, alt: 'bench page', hasPreview: false } };
+}
+
+async function withBenchMedia(board: Board, assetsRoot: string): Promise<number> {
+  const { pictures, page } = await writeBenchMedia(assetsRoot);
+  let mediaCount = 0;
+  for (const boxId of boxIdsOf(board).filter((_, boxIndex) => boxIndex % MEDIA_EVERY_NTH_BOX === 0)) {
+    const box = board.elements[boxId];
+    if (box?.kind !== 'box') continue;
+    const picture = pictures[mediaCount % pictures.length];
+    const media = mediaCount % PAGE_EVERY_NTH_MEDIA === PAGE_EVERY_NTH_MEDIA - 1 ? page : picture;
+    if (!media) continue;
+    board.elements[boxId] = { ...box, media };
+    mediaCount += 1;
+  }
+  return mediaCount;
+}
+
+async function seedBoard(configPath: string, elementCount: number, hasMedia: boolean): Promise<{ board: Board; fileBytes: number; mediaCount: number }> {
   const record = generateBoardRecord({ elementCount, seed: elementCount, boardId: BOARD_ID, title: BOARD_TITLE, createdAt: Date.now() });
   const boardsRoot = path.join(path.dirname(configPath), WHITEBOARDS_FOLDER_NAME);
   await fs.promises.mkdir(boardsRoot, { recursive: true });
+  const mediaCount = hasMedia ? await withBenchMedia(record.board, path.join(boardsRoot, 'assets')) : 0;
   const serialized = JSON.stringify(sparseBoardRecord(record));
   await fs.promises.writeFile(path.join(boardsRoot, `${BOARD_ID}.json`), serialized, { mode: 0o600 });
-  return { board: record.board, fileBytes: Buffer.byteLength(serialized) };
+  return { board: record.board, fileBytes: Buffer.byteLength(serialized), mediaCount };
 }
 
 function measureLayoutMs(board: Board): number {
@@ -272,12 +322,16 @@ async function measureBrowser(browser: Browser, port: number): Promise<Whiteboar
     if (!boxCenter) throw new Error('no box body is in view to drag');
     const drag = await sampleFrames(page, 'drag', 'Drag a box', () => dragOneBox(page, boxCenter));
     const pageFacts = await page.evaluate(() => ({
+      mediaTextures: Number(document.querySelector<HTMLCanvasElement>('.wb-viewport .wb-gl')?.dataset.mediaTextures ?? 0),
+      livePages: document.querySelectorAll('.wb-media-layer iframe').length,
       domNodes: document.querySelectorAll('*').length,
       heapBytes: Number(Reflect.get(Reflect.get(performance, 'memory') ?? {}, 'usedJSHeapSize')) || null,
     }));
     return [
       metricOf('open', 'Open the board, first element drawn', 'ms', openMs),
       ...pan, ...zoom, ...drag,
+      metricOf('media-textures', 'Picture textures held after the run', 'count', pageFacts.mediaTextures),
+      metricOf('live-pages', 'Live page frames after the run', 'count', pageFacts.livePages),
       metricOf('dom-nodes', 'DOM nodes after the run', 'count', pageFacts.domNodes),
       metricOf('js-heap', 'JS heap after the run', 'mb', pageFacts.heapBytes === null ? null : megabytes(pageFacts.heapBytes)),
     ];
@@ -303,8 +357,9 @@ async function measureSize(elementCount: number, options: WhiteboardBenchOptions
   try {
     isolateTranscriptHomes(tempDirectory);
     const { port, configPath } = await prepareIsolatedEnvironment({ tempDirectory, repoRoots: [], recordSessions: false });
-    const { board, fileBytes } = await seedBoard(configPath, elementCount);
+    const { board, fileBytes, mediaCount } = await seedBoard(configPath, elementCount, options.hasMedia);
     const metrics: WhiteboardMetric[] = [
+      metricOf('media-count', 'Boxes carrying media', 'count', mediaCount),
       metricOf('file-bytes', 'Stored board size', 'bytes', fileBytes),
       metricOf('layout', 'Whole-board layout', 'ms', measureLayoutMs(board)),
     ];

@@ -68,44 +68,69 @@ function placedNodeOf(boxId: string, media: PageMedia): HTMLElement {
   return node;
 }
 
+interface ShownPage {
+  boxId: string;
+  media: PageMedia;
+  identity: string;
+  maskImage: string | null;
+}
+
 export function createBoardMediaLayer() {
   const layer = el('div', 'wb-media-layer');
   const placedByBoxId = new Map<string, PlacedPage>();
+  let shownPages: ShownPage[] = [];
+  let liveArea: Rect | null = null;
 
-  function sync(layout: BoardLayout, elementIdsInPaintOrder: readonly string[]): void {
-    const seenBoxIds = new Set<string>();
-    const elementById = new Map(layout.elements.map((element) => [element.id, element]));
-    const elementsInPaintOrder = elementIdsInPaintOrder.flatMap((elementId) => elementById.get(elementId) ?? []);
-    for (const element of layout.elements) {
-      if (element.kind !== 'box' || !isPageMedia(element.media)) continue;
-      seenBoxIds.add(element.id);
-      const identity = identityOf(element.media);
-      const placed = placedByBoxId.get(element.id);
-      const maskImage = pageMaskImage(element.media, occludersAbove(element.id, element.media, elementsInPaintOrder));
-      if (placed?.identity === identity) {
-        placeNode(placed.node, element.media);
-        applyMask(placed.node, maskImage);
+  function isLive(page: ShownPage): boolean {
+    return liveArea !== null && overlaps(liveArea, page.media);
+  }
+
+  function placeLivePages(): void {
+    const liveBoxIds = new Set<string>();
+    for (const page of shownPages) {
+      if (!isLive(page)) continue;
+      liveBoxIds.add(page.boxId);
+      const placed = placedByBoxId.get(page.boxId);
+      if (placed?.identity === page.identity) {
+        placeNode(placed.node, page.media);
+        applyMask(placed.node, page.maskImage);
         continue;
       }
-      const node = placedNodeOf(element.id, element.media);
-      applyMask(node, maskImage);
+      const node = placedNodeOf(page.boxId, page.media);
+      applyMask(node, page.maskImage);
       if (placed) placed.node.replaceWith(node);
       if (!placed) layer.append(node);
-      placedByBoxId.set(element.id, { identity, node });
+      placedByBoxId.set(page.boxId, { identity: page.identity, node });
     }
     for (const [boxId, placed] of placedByBoxId) {
-      if (seenBoxIds.has(boxId)) continue;
+      if (liveBoxIds.has(boxId)) continue;
       placed.node.remove();
       placedByBoxId.delete(boxId);
     }
   }
 
+  function sync(layout: BoardLayout, elementIdsInPaintOrder: readonly string[]): void {
+    const elementById = new Map(layout.elements.map((element) => [element.id, element]));
+    const elementsInPaintOrder = elementIdsInPaintOrder.flatMap((elementId) => elementById.get(elementId) ?? []);
+    shownPages = layout.elements.flatMap((element) => {
+      if (element.kind !== 'box' || !isPageMedia(element.media)) return [];
+      return [{ boxId: element.id, media: element.media, identity: identityOf(element.media), maskImage: pageMaskImage(element.media, occludersAbove(element.id, element.media, elementsInPaintOrder)) }];
+    });
+    placeLivePages();
+  }
+
+  function showArea(area: Rect): void {
+    liveArea = area;
+    placeLivePages();
+  }
+
   function clear(): void {
     for (const placed of placedByBoxId.values()) placed.node.remove();
     placedByBoxId.clear();
+    shownPages = [];
   }
 
-  return { element: layer, sync, clear };
+  return { element: layer, sync, showArea, clear };
 }
 
 export type BoardMediaLayer = ReturnType<typeof createBoardMediaLayer>;
