@@ -39,8 +39,6 @@ export const IssueRow = z.object({ ...cachedIssueFields, sessionId: z.string().n
 export type IssueRow = z.infer<typeof IssueRow>;
 export const IssueUpdate = z.object({ ...issueFields, state: z.enum(['open', 'closed']) });
 export type IssueUpdate = z.infer<typeof IssueUpdate>;
-export const ListedIssue = z.object({ ...issueFields, pullRequests: z.array(IssuePullRequest).max(5).optional() }).strict();
-export type ListedIssue = z.infer<typeof ListedIssue>;
 export const GithubIssueResponse = z.object({
   number: issueFields.number, title: issueFields.title, html_url: issueFields.url, state: z.enum(['open', 'closed']),
   labels: z.array(z.union([z.string(), z.object({ name: z.string() })])),
@@ -57,7 +55,9 @@ export const IssuesFetchResult = z.object({ ok: z.boolean(), items: z.array(Issu
 export type IssuesFetchResult = z.infer<typeof IssuesFetchResult>;
 export const IssuesState = z.object({
   issues: z.array(CachedIssueRow), lastSyncAt: z.number().finite().nonnegative().nullable(),
+  perRepoSync: z.record(IssueRepoSlug, z.object({ lastSyncAt: z.number().finite().nonnegative().nullable(), ticks: z.number().int().nonnegative(), needsFullReconcile: z.boolean() })).default({}),
   sessionLinks: z.record(IssueKey, z.string()).default({}),
+  pullRequestsFetchedAt: z.record(IssueKey, z.iso.datetime()).default({}),
 });
 export type IssuesState = z.infer<typeof IssuesState>;
 export const IssuesStatus = z.object({

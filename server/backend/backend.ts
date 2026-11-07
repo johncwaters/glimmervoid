@@ -539,7 +539,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     }
     notifications.applySettings();
     laneAssembly.restartServiceLanes();
-    void issues.watchedProjectRepos().then((projectRepos) => jobInbox.publishWatcheeSettings(watcheeSettingsFromConfig(config, projectRepos)));
+    jobInbox.publishWatcheeSettings(watcheeSettingsFromConfig(config));
     jobInbox.refreshWatcherEnvironment();
   }
 
@@ -659,13 +659,11 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     watcherConfig: config.watcher,
     watcherEnvironment: watcherSecretEnvironment,
     handlers: withBuiltInJobHandlers({
-      'workflows.candidates': laneAssembly.workflows.acceptCandidates,
-      'issues.listing': issues.acceptListing,
       'radar.project': posthog.acceptProject,
       'community.rows': community.acceptRows,
     }),
   });
-  void issues.watchedProjectRepos().then((projectRepos) => jobInbox.publishWatcheeSettings(watcheeSettingsFromConfig(config, projectRepos)));
+  jobInbox.publishWatcheeSettings(watcheeSettingsFromConfig(config));
   const { requestShutdown, requestRestart } = createLifecycle({
     shutdown,
     httpServer,

@@ -1,22 +1,5 @@
 import { z } from 'zod';
 
-export const WorkflowsWatcheeSettings = z.object({
-  enabled: z.boolean(),
-  repos: z.array(z.string().min(1)),
-  intervalMinutes: z.number().positive(),
-}).strict();
-
-export type WorkflowsWatcheeSettings = z.infer<typeof WorkflowsWatcheeSettings>;
-
-export const IssuesWatcheeSettings = z.object({
-  enabled: z.boolean(),
-  projectRepos: z.array(z.string().min(1)),
-  teams: z.array(z.string().min(1)),
-  intervalMinutes: z.number().positive(),
-}).strict();
-
-export type IssuesWatcheeSettings = z.infer<typeof IssuesWatcheeSettings>;
-
 export const RadarWatcheeSettings = z.object({
   enabled: z.boolean(),
   host: z.string().min(1),
@@ -40,8 +23,6 @@ export type CommunityWatcheeSettings = z.infer<typeof CommunityWatcheeSettings>;
 
 export const WatcheeSettingsFile = z.object({
   version: z.literal(1),
-  workflows: WorkflowsWatcheeSettings,
-  issues: IssuesWatcheeSettings,
   radar: RadarWatcheeSettings,
   community: CommunityWatcheeSettings,
 }).strict();

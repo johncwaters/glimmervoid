@@ -22,7 +22,7 @@ const WATCHER_TOKEN = 'a-watcher-token-only-this-test-knows';
 const CLI_PATH = path.join(import.meta.dirname, '..', 'bin', 'glimmervoid.ts');
 const runFile = promisify(execFile);
 const QUIET_LOG = { log: () => {}, warn: () => {} };
-const IGNORING_HANDLERS = withBuiltInJobHandlers({ 'workflows.candidates': async () => {}, 'issues.listing': async () => {}, 'radar.project': async () => {}, 'community.rows': async () => {} });
+const IGNORING_HANDLERS = withBuiltInJobHandlers({ 'radar.project': async () => {}, 'community.rows': async () => {} });
 
 function pingJob(jobId: string = crypto.randomUUID()) {
   return { version: 1, jobId, sentAt: new Date().toISOString(), kind: 'ping', payload: {} };
@@ -43,7 +43,7 @@ function savedSettingsRevision(watcherHome: string): string | null {
 }
 
 function communityWatchedEvery(intervalMinutes: number, heartbeatHost: string): WatcheeSettingsFile {
-  const settings = watcheeSettingsFromConfig({ posthog: { apiKey: 'phx_server_secret' } }, []);
+  const settings = watcheeSettingsFromConfig({ posthog: { apiKey: 'phx_server_secret' } });
   return { ...settings, community: { enabled: true, host: heartbeatHost, projectId: 2, discordChannels: [], intervalMinutes } };
 }
 
@@ -288,11 +288,12 @@ test('a settings save reaches the watcher the server started at once, without wa
   inbox.attach(server);
   const port = await listenOnLoopback(server);
   try {
-    inbox.publishWatcheeSettings(watcheeSettingsFromConfig({}, []));
+    inbox.publishWatcheeSettings(watcheeSettingsFromConfig({}));
     inbox.startWatcher(port);
     await waitUntil(() => hasPinged && savedSettingsRevision(watcherHome) !== null, 10_000, () => 'the watcher never saved its first settings');
     const firstRevision = savedSettingsRevision(watcherHome);
-    inbox.publishWatcheeSettings({ ...watcheeSettingsFromConfig({}, []), issues: { enabled: false, projectRepos: ['acme/widgets'], teams: [], intervalMinutes: 5 } });
+    const firstSettings = watcheeSettingsFromConfig({});
+    inbox.publishWatcheeSettings({ ...firstSettings, community: { ...firstSettings.community, discordChannels: ['help'] } });
     await waitUntil(() => savedSettingsRevision(watcherHome) !== firstRevision, 3_000, () => 'the watcher did not fetch the new settings within 3 s');
   } finally {
     await closeServer(server);

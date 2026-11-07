@@ -1,7 +1,3 @@
-import { POLL_INTERVAL_MINUTES as ISSUES_POLL_INTERVAL_MINUTES } from '../../server/github/core/issues-core.ts';
-import { readGithubTeams } from '../../server/github/core/github-teams-core.ts';
-import type { TeamReviewSettingsSource } from '../../server/github/core/team-review-core.ts';
-import { WORKFLOWS_POLL_INTERVAL_MINUTES, resolveWorkflowsSettings, watchedWorkflowRepos, workflowsShouldStart } from '../../server/core/workflows-core.ts';
 import { DEFAULT_INTERVAL_MINUTES as RADAR_POLL_INTERVAL_MINUTES, radarShouldStart, resolvePosthogHost } from '../../server/radar/core/radar-lane-core.ts';
 import { DEFAULT_TRAFFIC_BASELINE_DAYS } from '../../server/core/traffic-spike-core.ts';
 import { communityGate, readCommunitySettings } from '../../server/community/core/community-core.ts';
@@ -21,7 +17,7 @@ interface RadarSettingsSource {
   telegram?: { botToken?: string; chatId?: string } | null;
 }
 
-type WatcheeSettingsSource = TeamReviewSettingsSource & RadarSettingsSource & { workflows?: unknown; issues?: { enabled?: unknown } | null };
+type WatcheeSettingsSource = RadarSettingsSource & { community?: unknown; github?: { readToken?: string } | null };
 
 function positiveNumberOr(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
@@ -67,21 +63,9 @@ function communityWatcheeSettings(config: { community?: unknown; posthog?: unkno
   };
 }
 
-function watcheeSettingsFromConfig(config: WatcheeSettingsSource, issuesProjectRepos: readonly string[]): WatcheeSettingsFile {
-  const workflowsSettings = resolveWorkflowsSettings(config.workflows);
+function watcheeSettingsFromConfig(config: WatcheeSettingsSource): WatcheeSettingsFile {
   return {
     version: 1,
-    workflows: {
-      enabled: workflowsShouldStart(workflowsSettings).start,
-      repos: workflowsSettings.ok ? watchedWorkflowRepos(workflowsSettings.rules) : [],
-      intervalMinutes: WORKFLOWS_POLL_INTERVAL_MINUTES,
-    },
-    issues: {
-      enabled: config.issues?.enabled === true,
-      projectRepos: [...issuesProjectRepos],
-      teams: readGithubTeams(config).map((team) => `${team.org}/${team.slug}`),
-      intervalMinutes: ISSUES_POLL_INTERVAL_MINUTES,
-    },
     radar: radarWatcheeSettings(config),
     community: communityWatcheeSettings(config),
   };

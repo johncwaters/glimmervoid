@@ -320,11 +320,11 @@ test('Radar plans an issue once from the radar.project job the watcher detected,
   const payload = await detectRadarProject(5, sentAuthorizations, nowMs);
   assert.ok(sentAuthorizations.every((authorization) => authorization === 'Bearer phx_watcher_only'));
   assert.equal(JSON.stringify(payload).includes('phx_watcher_only'), false);
-  const watcheeSettings = watcheeSettingsFromConfig({ posthog: { enabled: true, apiKey: 'phx_watcher_only' }, telegram: { botToken: 'bot', chatId: '1' } }, []);
+  const watcheeSettings = watcheeSettingsFromConfig({ posthog: { enabled: true, apiKey: 'phx_watcher_only' }, telegram: { botToken: 'bot', chatId: '1' } });
   assert.equal(watcheeSettings.radar.enabled, true);
   assert.equal(JSON.stringify(watcheeSettings).includes('phx_watcher_only'), false);
   const handEditedPosthog = { enabled: false, trafficSpikeBaselineDays: 0, projectMap: { '123': 42 }, projects: [1, null] };
-  assert.equal(WatcheeSettingsFile.safeParse(watcheeSettingsFromConfig({ posthog: handEditedPosthog }, [])).success, true);
+  assert.equal(WatcheeSettingsFile.safeParse(watcheeSettingsFromConfig({ posthog: handEditedPosthog })).success, true);
   const spawnedIssueIds: unknown[] = [];
   const statuses: Record<string, unknown>[] = [];
   let deliveredPayloads: RadarProjectPayload[] = [payload];

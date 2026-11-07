@@ -2,15 +2,12 @@ import path from 'node:path';
 import { IssueKey, IssuesState } from '../../shared/contracts/issues.ts';
 import type { CachedIssueRow, IssuesStatus as IssuesStatusType } from '../../shared/contracts/issues.ts';
 import type { GithubPollingRefreshResult } from '../../shared/contracts/github-polling.ts';
-import type { IssuesListingPayload } from '../../shared/contracts/issues-listing.ts';
 import type { GlimmervoidConfig } from '../config-store.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
 import * as core from './core/issues-core.ts';
 import { readGithubTeams } from './core/github-teams-core.ts';
 import { createIssuesPoller } from './issues-poller.ts';
 import { createLaneRunner } from '../lanes/lane-runner.ts';
-import { createWatcheeFeed } from '../lanes/watchee-feed.ts';
-import { isOlderObservation } from '../lanes/core/watchee-feed-core.ts';
 import type { SharedClock } from '../lanes/lane-runner.ts';
 import { createJsonStateStore } from '../json-file.ts';
 import { bootStaggerDelay } from '../boot-stagger.ts';
@@ -45,7 +42,7 @@ interface IssuesWiringOptions {
   gitWorkspace: Pick<ReturnType<typeof createGitWorkspace>, 'originUrl'>;
   broadcast: (status: IssuesStatusType) => void;
   hasSession: (id: string) => boolean;
-  store: Pick<GithubLaneStore, 'requestIssueLinkedPullRequests' | 'setWatchedKeys' | 'rateLimitWaitMs'>;
+  store: Pick<GithubLaneStore, 'requestRepoIssues' | 'requestIssueSearch' | 'requestIssueLinkedPullRequests' | 'setWatchedKeys' | 'requestViewer' | 'rateLimitWaitMs'>;
   github: Pick<PrGh, 'setIssueState'>;
   homeDir?: string;
   clock?: SharedClock;
@@ -59,9 +56,6 @@ export function createIssuesWiring({ config, gitWorkspace, broadcast, hasSession
   let stateLoad: Promise<void> | null = null;
   let hasLoadedState = false;
   let hasWritesBeforeLoad = false;
-  const listingFeed = createWatcheeFeed<IssuesListingPayload>();
-  const listingsBySourceKey = new Map<string, IssuesListingPayload>();
-  const closedAtMsByKey = new Map<string, number>();
   const stateWrites = createSerialQueue();
   function pruneSessionLinks(): Record<string, string> {
     const sessionIds = new Set(Object.values(cachedState.sessionLinks).filter(hasSession));
@@ -124,7 +118,6 @@ export function createIssuesWiring({ config, gitWorkspace, broadcast, hasSession
     emptyStatus, broadcast: () => broadcast(currentStatus()),
     createPoller: ({ onTickComplete }) => createIssuesPoller({
       teams: teams(), resolveProjects, store, clock, log, firstTickDelayMs: bootStaggerDelay,
-      latestListings: () => [...listingsBySourceKey.values()], feedSilenceMs: listingFeed.silenceMs, heldClosedKeys,
       onTickComplete: (status) => { pollerStatus = status; onTickComplete(status); },
       getSessionLinks: pruneSessionLinks,
       readState: async () => { await loadState(); return cachedState; }, writeState,
@@ -156,53 +149,17 @@ export function createIssuesWiring({ config, gitWorkspace, broadcast, hasSession
     broadcast(currentStatus());
     await saved;
   }
-  function heldClosedKeys(): ReadonlySet<string> {
-    const nowMs = Date.now();
-    for (const [issueKey, closedAtMs] of closedAtMsByKey) {
-      if (nowMs - closedAtMs >= core.CLOSED_ISSUE_HOLD_MS) closedAtMsByKey.delete(issueKey);
-    }
-    return new Set(closedAtMsByKey.keys());
-  }
   async function setIssueState(change: { repo: string; number: number; state: 'closed' | 'open' }): Promise<{ ok: boolean; err: string }> {
     const applied = await github.setIssueState(change);
-    if (!applied.ok) return applied;
-    const changedKey = `${change.repo}#${change.number}`.toLowerCase();
-    if (change.state === 'open') {
-      closedAtMsByKey.delete(changedKey);
-      return applied;
-    }
-    closedAtMsByKey.set(changedKey, Date.now());
-    const poller = runner.getPoller();
-    if (poller) {
-      await poller.forgetIssue(changedKey);
-      return applied;
-    }
-    await loadState();
-    const saved = writeState({ ...cachedState, issues: cachedState.issues.filter((issue) => issue.key.toLowerCase() !== changedKey) });
-    pollerStatus = pollerStatus && { ...pollerStatus, issues: pollerStatus.issues.filter((issue) => issue.key.toLowerCase() !== changedKey) };
-    broadcast(currentStatus());
-    await saved;
+    if (applied.ok) runner.getPoller()?.tickSoon();
     return applied;
   }
-  async function watchedProjectRepos(): Promise<string[]> {
-    if (config.issues?.enabled !== true) return [];
-    await loadState();
-    return (await resolveProjects(cachedState.issues)).map((project) => project.repo);
-  }
-  async function acceptListing(job: { payload: IssuesListingPayload }): Promise<void> {
-    listingFeed.accept(job.payload);
-    const sourceKey = core.issuesListingSourceKey(job.payload);
-    if (isOlderObservation(job.payload, listingsBySourceKey.get(sourceKey) ?? null)) return;
-    listingsBySourceKey.set(sourceKey, job.payload);
-    runner.getPoller()?.tickSoon();
-  }
   async function stopPoller(): Promise<void> {
-    listingFeed.stop();
     await runner.stopPoller();
     await stateWrites.idle();
   }
   return {
     startPoller, stopPoller, restartIfConfigChanged: runner.restartIfConfigChanged,
-    getStatus: currentStatus, refresh, projectRepoSlugs, getLinkedSessionId, linkSession, setIssueState, watchedProjectRepos, acceptListing,
+    getStatus: currentStatus, refresh, projectRepoSlugs, getLinkedSessionId, linkSession, setIssueState,
   };
 }

@@ -294,7 +294,7 @@ test('the community watcher starts at now, moves a source cursor only after the 
     askedSince.push(JSON.parse(String(init?.body)).query.values.since);
     return Response.json({ columns: ['id', 'attributes'], results: [[2, String(forumRow(2, '2026-10-28T12:01:00Z', 'new question').attributes)]] });
   };
-  const settings = { ...watcheeSettingsFromConfig({}, []), community: { enabled: true, host: 'https://us.posthog.com', projectId: 2, discordChannels: [], intervalMinutes: 30 } };
+  const settings = { ...watcheeSettingsFromConfig({}), community: { enabled: true, host: 'https://us.posthog.com', projectId: 2, discordChannels: [], intervalMinutes: 30 } };
   const statuses: Record<string, unknown>[] = [];
   const stateIo = createCommunityStateIo(path.join(directory, 'community-state.json'), { warn() {} });
   const poller = createCommunityPoller({

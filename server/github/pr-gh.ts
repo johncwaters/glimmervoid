@@ -23,7 +23,7 @@ import type { GithubTeam } from '../../shared/contracts/control-messages.ts';
 import { MERGED_PRS_QUERY, MY_PR_CHECK_CONTEXTS_QUERY, MY_PR_MERGE_STATE_QUERY, MY_PR_THREADS_QUERY, REBASE_PR_MUTATION, REPLY_THREAD_MUTATION, RESOLVE_THREAD_MUTATION, REVIEW_THREAD_FIELDS, TEAM_PROFILE_QUERY, UNRESOLVE_THREAD_MUTATION, TEAM_THREAD_COMMENT_FIELDS, TEAM_THREAD_FIELDS, behindCountsQuery, benchmarkReviewDataQuery, githubPrDetailsQuery, githubPrsLightByKeyQuery, githubPrsLightSearchQuery, issueLinkedPullRequestsQuery, reviewThreadsBatchQuery, teamThreadsQuery } from './pr-gh/pr-gh-queries.ts';
 import type { PrHeadReference, PrReference } from './pr-gh/pr-gh-queries.ts';
 import { COMPARE_RESPONSE, CREATED_REVIEW, GH_LOGIN, GH_MEMBERS, GH_TEAMS, GITHUB_NOTIFICATIONS, GITHUB_PRS_LIGHT_RESPONSE, GITHUB_PR_DETAIL_REPOSITORY, GITHUB_PR_LIGHT_REPOSITORY, GRAPHQL_BEHIND_REPOSITORY, GRAPHQL_RESPONSE, GRAPHQL_THREADS_REPOSITORY, MERGED_PRS_RESPONSE, PR_DIFF, TEAM_PROFILE } from './pr-gh/pr-gh-responses.ts';
-import { aliasesOfErrors, aliasesReportedGone, conditionalGetResult, isArchivedRepositoryIssue, isPrNumber, isPullRequest, mergeKindFromPrState, normalizeIssue, parseGithubIssue, reviewSnapshotKey, uniqueValidPrs } from './pr-gh/pr-gh-parsing.ts';
+import { aliasesOfErrors, aliasesReportedGone, conditionalGetResult, isPrNumber, isPullRequest, mergeKindFromPrState, normalizeIssue, parseGithubIssue, reviewSnapshotKey, uniqueValidPrs } from './pr-gh/pr-gh-parsing.ts';
 import type { ConditionalGetResult, GithubIssue, GithubIssueRow, RestValidators } from './pr-gh/pr-gh-parsing.ts';
 
 type GhMergeFlag = '--merge' | '--squash' | '--rebase';
@@ -38,11 +38,6 @@ interface GithubIssueDetail {
 
 type NotificationsSinceResult = Exclude<ConditionalGetResult, { kind: 'ok' }>
   | { kind: 'ok'; prKeys: string[]; lastModified?: string; pollIntervalSeconds?: number };
-
-type IssuePageRead =
-  | { kind: 'unchanged' }
-  | { kind: 'ok'; issues: IssueUpdate[]; etag: string | null; nextPath: string | null }
-  | { kind: 'error'; message: string };
 
 interface PrGh {
   conditionalGet(path: string, validators?: RestValidators): Promise<ConditionalGetResult>;
@@ -67,7 +62,7 @@ interface PrGh {
   benchmarkReviewData(repo: string, numbers: readonly number[]): Promise<Map<number, MinedPrReviewDataType>>;
   compareCommits(repo: string, base: string, head: string): Promise<CommitComparisonType | null>;
   searchIssues(query: string): Promise<IssuesFetchResult>;
-  issuePage(pagePath: string, etag: string | null): Promise<IssuePageRead>;
+  listRepoIssues(repo: string, since: string | null, maxIssues: number): Promise<IssuesFetchResult>;
   issueLinkedPullRequests(keys: readonly string[]): Promise<Map<string, IssuePullRequest[]>>;
   viewIssue(issueNumber: number | string, repo?: string): Promise<GithubIssueDetail>;
   viewer(): Promise<string | null>;
@@ -227,7 +222,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     }
   }
 
-  async function searchIssuePages(query: string, maxPages: number): Promise<IssuesFetchResult> {
+  async function searchIssuePages(query: string, maxPages: number, pageLimit: 'ends the list' | 'truncates the list'): Promise<IssuesFetchResult> {
     const references = query.matchAll(/(?:^|\s)(?:repo|team):([^\s]+)/g);
     for (const reference of references) {
       if (!repoParts(reference[1])) return { ok: false, items: [], isComplete: false, error: 'invalid repository or team' };
@@ -249,6 +244,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       if (page * SEARCH_PAGE_SIZE >= parsed.data.total_count) return { ok: true, items, isComplete, error: isComplete ? '' : 'GitHub issue search returned incomplete results.' };
       if (parsed.data.items.length < SEARCH_PAGE_SIZE) break;
     }
+    if (pageLimit === 'ends the list') return { ok: true, items, isComplete, error: isComplete ? '' : 'GitHub issue search returned incomplete results.' };
     return { ok: true, items, isComplete: false, error: 'GitHub issue search reached its pagination limit.' };
   }
 
@@ -541,18 +537,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       return { ok: true, kind: prState.ok ? mergeKindFromPrState(prState.out) : 'unconfirmed' };
     },
     async searchIssues(query) {
-      return searchIssuePages(query, MAX_SEARCH_PAGES);
-    },
-
-    async issuePage(pagePath, etag) {
-      const response = await conditionalGet(pagePath, etag === null ? {} : { etag });
-      if (response.kind === 'unchanged') return { kind: 'unchanged' };
-      if (response.kind !== 'ok') return { kind: 'error', message: response.message };
-      if (!Array.isArray(response.body)) return { kind: 'error', message: 'invalid gh issue page' };
-      const issues = response.body
-        .filter((candidate) => !isPullRequest(candidate) && !isArchivedRepositoryIssue(candidate))
-        .flatMap((candidate) => parseGithubIssue(candidate) ?? []);
-      return { kind: 'ok', issues, etag: response.etag ?? null, nextPath: response.nextPath ?? null };
+      return searchIssuePages(query, MAX_SEARCH_PAGES, 'truncates the list');
     },
 
     async issueLinkedPullRequests(keys) {
@@ -577,6 +562,13 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
         return 'found';
       }, 50, true);
       return pullRequestsByIssue;
+    },
+
+    async listRepoIssues(repo, since, maxIssues) {
+      if (!Number.isInteger(maxIssues) || maxIssues <= 0) return { ok: false, items: [], isComplete: false, error: 'invalid issue limit' };
+      if (!repoParts(repo) || (since !== null && !z.iso.datetime().safeParse(since).success)) return { ok: false, items: [], isComplete: false, error: 'invalid repository or date' };
+      const query = since === null ? `repo:${repo} is:issue is:open` : `repo:${repo} is:issue updated:>=${since}`;
+      return searchIssuePages(query, Math.ceil(maxIssues / SEARCH_PAGE_SIZE), since === null ? 'ends the list' : 'truncates the list');
     },
 
     async viewIssue(issueNumber, repo) {
