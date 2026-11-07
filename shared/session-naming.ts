@@ -6,14 +6,6 @@ export function isAutoNameOf(name: string, baseName: string) {
   return /^\d+$/.test(inner);
 }
 
-export function countAutoNames(baseName: string, names: readonly string[]) {
-  let n = 0;
-  for (const name of names) {
-    if (isAutoNameOf(name, baseName)) n++;
-  }
-  return n;
-}
-
 export function nextSuggestedName(baseName: string, names: readonly string[]) {
   const taken = new Set(names);
   if (!taken.has(baseName)) return baseName;
