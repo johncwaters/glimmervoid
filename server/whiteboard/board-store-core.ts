@@ -157,7 +157,7 @@ function stagedElementDeltaOf(staged: StagedElements): ElementDelta {
 function comparedElementDeltaOf(elementsBefore: Board['elements'], elementsAfter: Board['elements']): ElementDelta {
   if (elementsBefore === elementsAfter) return { writes: [], removedElementIds: [], reslottedElementIds: [] };
   const reorderedElementIds = reorderedElementIdsOf(elementsBefore, elementsAfter);
-  const writes = [...elementsAfter.values()].filter((element) => elementsBefore.bodyOf(element.id) !== elementsAfter.bodyOf(element.id) || reorderedElementIds.has(element.id)).map(elementWriteOf);
+  const writes = [...elementsAfter.values()].filter((element) => elementsBefore.bodyOf(element.id) !== elementsAfter.bodyOf(element.id) || elementsBefore.kindOf(element.id) !== element.kind || reorderedElementIds.has(element.id)).map(elementWriteOf);
   const removedElementIds = [...elementsBefore.keys()].filter((elementId) => !elementsAfter.has(elementId));
   return { writes, removedElementIds, reslottedElementIds: [...reorderedElementIds] };
 }
