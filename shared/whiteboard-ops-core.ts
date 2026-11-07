@@ -17,7 +17,7 @@ type StagedOps = {
   commit: () => void;
 } | { ok: false; error: string; opIndex: number };
 type OpOutcome = { ok: true } | { ok: false; error: string };
-type PinPositions = { laidOutBoxById: ReadonlyMap<string, LaidOutBox>; pinnedOffsetY: number };
+type PinPositions = { laidOutBoxOf: (id: string) => LaidOutBox | undefined; pinnedOffsetY: number };
 type ElementLookup = (id: string) => Element | undefined;
 type Draft = {
   base: Board;
@@ -214,16 +214,16 @@ function draftBoard(draft: Draft): Board {
 function pinPositionsOf(board: Board): PinPositions {
   const layout = layoutBoard(board);
   const laidOutBoxById = new Map(layout.elements.flatMap((element) => (element.kind === 'box' ? [[element.id, element] as const] : [])));
-  return { laidOutBoxById, pinnedOffsetY: layout.pinnedOffsetY };
+  return { laidOutBoxOf: (id) => laidOutBoxById.get(id), pinnedOffsetY: layout.pinnedOffsetY };
 }
 
 function pinBoxesNear(draft: Draft, removedBoxId: string): void {
   const nearBoxes = currentDependentsOf(draft, removedBoxId).flatMap((element) => (element.kind === 'box' ? [element] : []));
   if (nearBoxes.length === 0) return;
   draft.pinPositions ??= pinPositionsOf(draftBoard(draft));
-  const { laidOutBoxById, pinnedOffsetY } = draft.pinPositions;
+  const { laidOutBoxOf, pinnedOffsetY } = draft.pinPositions;
   for (const box of nearBoxes) {
-    const laidOut = laidOutBoxById.get(box.id);
+    const laidOut = laidOutBoxOf(box.id);
     if (!laidOut) continue;
     writeElement(draft, { ...box, near: null, at: { x: laidOut.x, y: laidOut.y - pinnedOffsetY } });
   }
@@ -270,10 +270,10 @@ function applyOne(draft: Draft, op: Op, author: Author): OpOutcome {
   }
 }
 
-function stageOps(board: Board, ops: readonly Op[], author: Author, nowMs: number): StagedOps {
+function stageOps(board: Board, ops: readonly Op[], author: Author, nowMs: number, basePinPositions: PinPositions | null): StagedOps {
   const draft: Draft = {
     base: board, head: { ...board }, afterById: new Map(), erasedIds: new Set(), overlayDependentIdsByBoxId: new Map(),
-    elementCount: boardIndexOf(board.elements).elementCount, pinPositions: null,
+    elementCount: boardIndexOf(board.elements).elementCount, pinPositions: basePinPositions,
   };
   const lookup: ElementLookup = (id) => elementOf(draft, id);
   const version = board.version + 1;
@@ -305,7 +305,7 @@ function stageOps(board: Board, ops: readonly Op[], author: Author, nowMs: numbe
 }
 
 function applyOps(board: Board, ops: readonly Op[], author: Author, nowMs: number): ApplyResult {
-  const staged = stageOps({ ...board, elements: { ...board.elements } }, ops, author, nowMs);
+  const staged = stageOps({ ...board, elements: { ...board.elements } }, ops, author, nowMs, null);
   if (!staged.ok) return staged;
   staged.commit();
   return { ok: true, board: staged.board, changes: staged.changes, diff: staged.diff };
@@ -443,4 +443,4 @@ function createBoard({ id, title, nowMs, codeSessionId = null }: { id: string; t
 }
 
 export { OPERATOR_AUTHOR, applyBoardDiff, applyOps, createBoard, stageOps };
-export type { ApplyResult, Author, StagedOps };
+export type { ApplyResult, Author, PinPositions, StagedOps };

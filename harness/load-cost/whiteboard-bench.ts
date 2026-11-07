@@ -163,7 +163,7 @@ function measureLayoutMs(board: Board): number {
 
 function mcpGetReplyBody(board: Board): Record<string, unknown> {
   if (fitsOnePage(board)) return { ok: true, board, changes: [], readingVersion: board.version, ...boardReading(board) };
-  const index = tileIndexOf(layoutBoard(board), board.version);
+  const index = tileIndexOf(layoutBoard(board), board.version, board);
   const focus = defaultFocusOf(index);
   const summary = { id: board.id, title: board.title, version: board.version, updatedAt: board.updatedAt, connectedSessionIds: [], queuedBySessionId: {} };
   return { ok: true, board: summary, outline: boardOutlineOf(board, index, focus), focus, elements: elementPageOf(board, elementIdsTouching(index, focus), 0).elements, nextCursor: null, changes: [] };

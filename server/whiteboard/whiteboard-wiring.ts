@@ -11,8 +11,9 @@ import { OPERATOR_AUTHOR, createBoard, stageOps } from '../../shared/whiteboard-
 import { assetIdOf, assetIdsOf, boardIndexOf } from '../../shared/whiteboard-board-index.ts';
 import type { StagedElements } from './board-store-core.ts';
 import type { Author } from '../../shared/whiteboard-ops-core.ts';
-import { layoutBoardRemembered } from '../../shared/whiteboard-layout-cache.ts';
-import type { BoardLayout } from '../../shared/whiteboard-layout-core.ts';
+import { advanceBoardLayout, chromeOfBoard, pinPositionsOfBoard, warningsOfBoard } from '../../shared/whiteboard-layout-cache.ts';
+import type { LayoutAdvance } from '../../shared/whiteboard-layout-cache.ts';
+import type { ElementChange } from '../../shared/whiteboard-layout-engine.ts';
 import { createBoardTileService } from './board-tile-service.ts';
 import type { BoardTileService } from './board-tile-service.ts';
 import { boardOutlineOf, defaultFocusOf, elementIdsTouching, elementPageOf, fitsOnePage } from '../../shared/whiteboard-tile-core.ts';
@@ -79,9 +80,9 @@ interface WhiteboardReply {
 type WhiteboardPatch = ServerMessageOf<'whiteboard-patch'>;
 
 type StagedWrite = StagedElements & { commit: () => void };
-type CommittedReply = { reply: WhiteboardReply; layout: BoardLayout | null };
+type CommittedReply = { reply: WhiteboardReply };
 type RecordChange = {
-  ok: true; record: BoardRecord; reply: WhiteboardReply; patch?: WhiteboardPatch; staged?: StagedWrite; replyAfterCommit?: (record: BoardRecord) => CommittedReply;
+  ok: true; record: BoardRecord; reply: WhiteboardReply; patch?: WhiteboardPatch; staged?: StagedWrite; replyAfterCommit?: (record: BoardRecord, advance: LayoutAdvance | null) => CommittedReply;
 } | { ok: false; reply: WhiteboardReply };
 
 type AppliedOps = { ok: true; record: BoardRecord; patch: WhiteboardPatch; staged: StagedWrite } | { ok: false; error: string };
@@ -304,6 +305,10 @@ function createWhiteboardWiring({
     recordsByBoardId.set(boardId, next);
     return true;
   }
+  function elementChangesOf(boardBefore: Board, staged: StagedWrite): Map<string, ElementChange> {
+    return new Map(Object.entries(staged.diff.elements).map(([id, change]) => [id, { before: boardBefore.elements[id], after: staged.afterById.get(id) ?? null, isAppended: change[0] === 'put' }]));
+  }
+
   function changeRecord(boardId: string, change: (record: BoardRecord) => RecordChange): Promise<WhiteboardReply> {
     return writeQueue.run(boardId, async () => {
       const current = recordsByBoardId.get(boardId);
@@ -311,10 +316,12 @@ function createWhiteboardWiring({
       const outcome = change(current);
       if (!outcome.ok) return outcome.reply;
       if (outcome.record === current) return outcome.reply;
+      const elementChanges = outcome.staged ? elementChangesOf(current.board, outcome.staged) : null;
       const isSaved = await saveRecordInSlot(current, outcome.record, outcome.staged ?? null);
       if (!isSaved) return refusal(500, 'the board could not be saved, so nothing changed');
-      const committed = outcome.replyAfterCommit?.(outcome.record) ?? { reply: outcome.reply, layout: null };
-      tiles.boardChanged(boardId, committed.layout);
+      const advance = elementChanges ? advanceBoardLayout(outcome.record.board, elementChanges) : null;
+      const committed = outcome.replyAfterCommit?.(outcome.record, advance) ?? { reply: outcome.reply };
+      tiles.boardChanged(boardId, advance);
       if (!outcome.patch) {
         broadcastSummariesIfChanged(current, outcome.record);
         return committed.reply;
@@ -357,11 +364,10 @@ function createWhiteboardWiring({
     return changeRecord(boardId, (record) => {
       const applied = applyOpsToRecord(record, ops, author);
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
-      const replyAfterCommit = (saved: BoardRecord): CommittedReply => {
-        const layout = layoutBoardRemembered(saved.board);
-        const { warnings } = layout;
+      const replyAfterCommit = (saved: BoardRecord, advance: LayoutAdvance | null): CommittedReply => {
+        const warnings = advance?.warnings ?? warningsOfBoard(saved.board);
         const body = { ok: true as const, version: saved.board.version, ...(warnings.length > 0 ? { warnings } : {}) };
-        return { reply: { status: 200, body }, layout };
+        return { reply: { status: 200, body } };
       };
       return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, version: applied.record.board.version } }, patch: applied.patch, staged: applied.staged, replyAfterCommit };
     });
@@ -391,7 +397,7 @@ function createWhiteboardWiring({
   }
 
   function applyOpsToRecord(record: BoardRecord, ops: readonly Op[], author: Author): AppliedOps {
-    const result = stageOps(record.board, ops, author, now());
+    const result = stageOps(record.board, ops, author, now(), pinPositionsOfBoard(record.board));
     if (!result.ok) return result;
     const refusalText = stagedRefusalOf(record.board, result.afterById);
     if (refusalText) return { ok: false, error: refusalText };
@@ -681,7 +687,7 @@ function createWhiteboardWiring({
     const card = { media: ingested.media, title: pageTitle ?? path.basename(sourcePath), caption };
     const author: Author = { id: caller.id, name: caller.name };
     return changeRecord(target.boardId, (record) => {
-      const shownBox = shownBoxOp(record.board, layoutBoardRemembered(record.board).bounds, card);
+      const shownBox = shownBoxOp(record.board, chromeOfBoard(record.board).bounds, card);
       if (!shownBox.ok) return { ok: false, reply: refusal(400, `${shownBox.error}, so nothing changed`) };
       const { op, boxId } = shownBox;
       const applied = applyOpsToRecord(record, [op], author);

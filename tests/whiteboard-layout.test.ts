@@ -1,12 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Board } from '../shared/contracts/whiteboard.ts';
+import { Board, Op } from '../shared/contracts/whiteboard.ts';
 import { reviewBoard } from '../shared/whiteboard-anchor-core.ts';
 import { layoutBoard, pinnedOffsetYOf } from '../shared/whiteboard-layout-core.ts';
 import { boardSvgDocument } from '../shared/whiteboard-svg-core.ts';
-import { applyBoardDiff, applyOps } from '../shared/whiteboard-ops-core.ts';
+import { applyBoardDiff, applyOps, stageOps } from '../shared/whiteboard-ops-core.ts';
+import { applyLayoutDelta, createLayoutWorld, layoutOf } from '../shared/whiteboard-layout-engine.ts';
+import { layoutBoardRemembered, pinPositionsOfBoard } from '../shared/whiteboard-layout-cache.ts';
+import { patchTileIndex, tileIndexOf, tileKeysFor, tileOf } from '../shared/whiteboard-tile-core.ts';
+import { generateBoardRecord } from '../harness/load-cost/whiteboard-board-generator.ts';
 import { EMPTY_HISTORY, UNDO_LIMIT, recordEdit, takeStep, undoOpsOf } from '../shared/whiteboard-undo-core.ts';
-import type { Op } from '../shared/contracts/whiteboard.ts';
 import type { LaidOutElement, Rect } from '../shared/whiteboard-layout-core.ts';
 
 function box(id: string) {
@@ -507,4 +510,65 @@ test('a box width rewraps its text and grows its picture, while an unsized box k
   assert.equal(next.x, wide.x + wide.width + 90, 'a box beside the widened one clears its new width');
   const refused = applyOps(sizedBoard, [{ op: 'set', id: 'narrow', fields: { width: 2000 } }], { id: 'agent', name: 'agent' }, 0);
   assert.equal(refused.ok ? '' : refused.error, 'op 1: narrow: a box width is 160 to 960');
+});
+
+test('a layout world kept across puts places what a fresh layout places, and its patched tile index paints what a fresh index paints', () => {
+  let { board } = generateBoardRecord({ elementCount: 400, seed: 7, boardId: 'kept', title: 'kept', createdAt: 0 });
+  const author = { id: 'operator', name: 'operator' };
+  let world = createLayoutWorld(board, null, 0);
+  const tileIndex = tileIndexOf(layoutOf(world), board.version, board);
+  const pinnedBoxes = Object.values(board.elements).flatMap((element) => (element.kind === 'box' && element.at ? [element] : []));
+  const [moved, noted, framed, removed, wired] = pinnedBoxes;
+  const anyNote = Object.values(board.elements).find((element) => element.kind === 'note');
+  assert.ok(moved?.at && noted && framed && removed && wired && anyNote);
+  const puts = [
+    [{ op: 'set', id: moved.id, fields: { at: { x: moved.at.x + 180, y: moved.at.y + 60 } } }],
+    [{ op: 'add', element: { kind: 'note', id: 'kept-note', on: noted.id, text: 'a note added after the first layout' } }],
+    [{ op: 'add', element: { kind: 'note', id: '5', on: noted.id, text: 'a note whose id the board object lists first' } }],
+    [{ op: 'remove', id: anyNote.id }],
+    [{ op: 'add', element: { kind: 'box', id: 'kept-near', title: 'beside', near: { of: noted.id, side: 'right' } } }],
+    [{ op: 'add', element: { kind: 'frame', id: 'kept-frame', title: 'kept frame', contains: [framed.id, moved.id] } }],
+    [{ op: 'add', element: { kind: 'wire', id: 'kept-wire', from: wired.id, to: noted.id, label: 'kept' } }],
+    [{ op: 'set', id: noted.id, fields: { title: 'a much longer title that wraps over several lines of the box' } }],
+    [{ op: 'remove', id: removed.id }],
+  ];
+  for (const ops of puts) {
+    const staged = stageOps(board, ops.map((op) => Op.parse(op)), author, 0, null);
+    assert.ok(staged.ok, staged.ok ? '' : staged.error);
+    const changes = new Map(Object.entries(staged.diff.elements).map(([id, change]) => [id, { before: board.elements[id], after: staged.afterById.get(id) ?? null, isAppended: change[0] === 'put' }]));
+    staged.commit();
+    board = staged.board;
+    const applied = applyLayoutDelta(world, board, changes);
+    assert.equal(applied.delta.isRebuilt, false);
+    world = applied.world;
+    patchTileIndex(tileIndex, board, { version: board.version, chrome: world.chrome, changed: applied.delta.changed, removedIds: applied.delta.removedIds });
+  }
+  const kept = layoutOf(world);
+  const fresh = layoutBoard(board);
+  const solidsOf = (elements: readonly LaidOutElement[]) => elements.filter((element) => element.kind !== 'wire').map((element) => JSON.stringify(element)).sort();
+  assert.deepEqual(solidsOf(kept.elements), solidsOf(fresh.elements));
+  assert.deepEqual(kept.elements.filter((element) => element.kind === 'wire').map((element) => element.id).sort(), fresh.elements.filter((element) => element.kind === 'wire').map((element) => element.id).sort());
+  assert.deepEqual(kept.bounds, fresh.bounds);
+  const freshIndex = tileIndexOf(kept, board.version, board);
+  const paintedIn = (index: typeof tileIndex, key: ReturnType<typeof tileKeysFor>[number]) => tileOf(index, key).elements.map((painted) => JSON.stringify(painted.element)).sort();
+  for (const key of tileKeysFor(kept.bounds, 'full')) assert.deepEqual(paintedIn(tileIndex, key), paintedIn(freshIndex, key));
+  assert.deepEqual(tileIndex.chrome, freshIndex.chrome);
+});
+
+test('removing a box on a small remembered board pins the boxes placed near it where they were drawn', () => {
+  const board = Board.parse({
+    id: 'small-pin', title: 'small pin', version: 1, caption: null, createdAt: 0, updatedAt: 0,
+    elements: {
+      anchor: { kind: 'box', id: 'anchor', title: 'Anchor', at: { x: 40, y: 40 } },
+      follower: { kind: 'box', id: 'follower', title: 'Follower', near: { of: 'anchor', side: 'right' } },
+    },
+  });
+  const drawnFollower = layoutBoardRemembered(board).elements.find((element) => element.id === 'follower');
+  assert.ok(drawnFollower?.kind === 'box');
+  const staged = stageOps(board, [Op.parse({ op: 'remove', id: 'anchor' })], { id: 'operator', name: 'operator' }, 0, pinPositionsOfBoard(board));
+  assert.ok(staged.ok);
+  const follower = staged.afterById.get('follower');
+  assert.ok(follower?.kind === 'box');
+  assert.equal(follower.near, null);
+  assert.deepEqual(follower.at, { x: drawnFollower.x, y: drawnFollower.y });
 });

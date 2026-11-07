@@ -4,7 +4,7 @@ import type { Board, BoardOutline, Element } from './contracts/whiteboard.ts';
 import type { BoardChrome, LaidOutElement, PaintedElement, Tile, TileDiff, TileKey, TileLod } from './contracts/whiteboard-tiles.ts';
 import type { BoardLayout, Rect } from './whiteboard-layout-core.ts';
 import { elementSignature } from './whiteboard-layout-core.ts';
-import { forEachSlotTouching, gridOfRects } from './spatial-grid-core.ts';
+import { forEachSlotTouching, gridOfRects, placeSlot, removeSlot } from './spatial-grid-core.ts';
 import type { SpatialGrid } from './spatial-grid-core.ts';
 import { labelWidthOf, pointsOfPath } from './whiteboard-route-core.ts';
 
@@ -17,15 +17,30 @@ const MAX_TILES_PER_VIEW = 256;
 const MAX_TILE_LEVEL = 30;
 const WIRE_PAD = 12;
 const FRAME_TITLE_PAD = 28;
+const PAINT_RANK_STRIDE = 2 ** 32;
 
 interface TileIndex {
   version: number;
   chrome: BoardChrome;
-  painted: PaintedElement[];
-  bounds: Rect[];
-  signatures: string[];
+  painted: (PaintedElement | null)[];
+  bounds: (Rect | null)[];
+  signatures: (string | null)[];
   slotById: Map<string, number>;
   grid: SpatialGrid;
+}
+
+interface TileChanges {
+  changedSlots: ChangedSlot[];
+  removedIds: string[];
+  touchedRects: Rect[];
+  isChromeChanged: boolean;
+}
+
+interface TilePatch {
+  version: number;
+  chrome: BoardChrome;
+  changed: readonly LaidOutElement[];
+  removedIds: readonly string[];
 }
 
 function lodForScale(scale: number): TileLod {
@@ -125,8 +140,21 @@ function chromeOf(layout: BoardLayout): BoardChrome {
   return { legend: layout.legend, caption: layout.caption, plan: layout.plan, pinnedOffsetY: layout.pinnedOffsetY, bounds: layout.bounds };
 }
 
-function tileIndexOf(layout: BoardLayout, version: number): TileIndex {
-  const painted = layout.elements.map((element, paintOrder) => ({ paintOrder, element }));
+function paintRankOf(element: LaidOutElement, stored: Element | undefined): number {
+  switch (element.kind) {
+    case 'frame': return 0;
+    case 'wire': return 1;
+    case 'box': return stored?.kind === 'box' && stored.at ? 2 : 3;
+    default: return 4;
+  }
+}
+
+function paintedAt(board: Board, element: LaidOutElement, slot: number): PaintedElement {
+  return { paintOrder: paintRankOf(element, board.elements[element.id]) * PAINT_RANK_STRIDE + slot, element };
+}
+
+function tileIndexOf(layout: BoardLayout, version: number, board: Board): TileIndex {
+  const painted = layout.elements.map((element, slot) => paintedAt(board, element, slot));
   const bounds = layout.elements.map(paintedBoundsOf);
   return {
     version,
@@ -166,7 +194,7 @@ function titleOf(element: LaidOutElement): string | null {
 function clustersOutside(index: TileIndex, focus: Rect, { maxClusters, titlesPerCluster }: { maxClusters: number; titlesPerCluster: number }): ElementCluster[] {
   const clusterByCell = new Map<string, ElementCluster>();
   index.bounds.forEach((bounds, slot) => {
-    if (rectsTouch(bounds, focus)) return;
+    if (!bounds || rectsTouch(bounds, focus)) return;
     const cellKey = `${Math.floor(bounds.x / CHUNK_SIZE)},${Math.floor(bounds.y / CHUNK_SIZE)}`;
     const cluster = clusterByCell.get(cellKey) ?? { rect: rectOf(bounds), elementCount: 0, titles: [] };
     const right = Math.max(cluster.rect.x + cluster.rect.width, bounds.x + bounds.width);
@@ -220,7 +248,7 @@ function boardOutlineOf(board: Board, index: TileIndex, focus: Rect): BoardOutli
   for (const element of elements) countsByKind[element.kind] = (countsByKind[element.kind] ?? 0) + 1;
   const frames = elements.flatMap((element) => {
     const slot = index.slotById.get(element.id);
-    const rect = slot === undefined ? undefined : index.bounds[slot];
+    const rect = slot === undefined ? null : index.bounds[slot];
     return element.kind === 'frame' && rect ? [{ id: element.id, title: element.title, rect }] : [];
   }).slice(0, WHITEBOARD_LIMITS.readPage);
   return {
@@ -292,16 +320,17 @@ interface ChangedSlot {
   rects: Rect[];
 }
 
-function changedSlotsBetween(previous: TileIndex, next: TileIndex): { changedSlots: ChangedSlot[]; removedIds: string[]; touchedRects: Rect[] } {
+function changedSlotsBetween(previous: TileIndex, next: TileIndex): TileChanges {
   const changedSlots: ChangedSlot[] = [];
   const touchedRects: Rect[] = [];
   for (const [slot, painted] of next.painted.entries()) {
+    if (!painted) continue;
     const previousSlot = previous.slotById.get(painted.element.id);
     const isSame = previousSlot !== undefined && previous.signatures[previousSlot] === next.signatures[slot];
     if (isSame) continue;
     const nextBounds = next.bounds[slot];
-    const previousBounds = previousSlot === undefined ? undefined : previous.bounds[previousSlot];
-    const rects = [nextBounds, previousBounds].filter((rect): rect is Rect => rect !== undefined);
+    const previousBounds = previousSlot === undefined ? null : previous.bounds[previousSlot];
+    const rects = [nextBounds, previousBounds].filter((rect): rect is Rect => rect !== undefined && rect !== null);
     changedSlots.push({ slot, rects });
     touchedRects.push(...rects);
   }
@@ -312,12 +341,50 @@ function changedSlotsBetween(previous: TileIndex, next: TileIndex): { changedSlo
     const previousBounds = previous.bounds[slot];
     if (previousBounds) touchedRects.push(previousBounds);
   }
-  return { changedSlots, removedIds, touchedRects };
+  return { changedSlots, removedIds, touchedRects, isChromeChanged: JSON.stringify(previous.chrome) !== JSON.stringify(next.chrome) };
+}
+
+function patchTileIndex(index: TileIndex, board: Board, patch: TilePatch): TileChanges {
+  const changedSlots: ChangedSlot[] = [];
+  const touchedRects: Rect[] = [];
+  const removedIds: string[] = [];
+  for (const id of patch.removedIds) {
+    const slot = index.slotById.get(id);
+    if (slot === undefined) continue;
+    const previousBounds = index.bounds[slot];
+    if (previousBounds) touchedRects.push(previousBounds);
+    index.slotById.delete(id);
+    index.painted[slot] = null;
+    index.bounds[slot] = null;
+    index.signatures[slot] = null;
+    removeSlot(index.grid, slot);
+    removedIds.push(id);
+  }
+  for (const element of patch.changed) {
+    const knownSlot = index.slotById.get(element.id);
+    const slot = knownSlot ?? index.painted.length;
+    const previousBounds = knownSlot === undefined ? null : index.bounds[knownSlot];
+    const bounds = paintedBoundsOf(element);
+    const rects = previousBounds ? [bounds, previousBounds] : [bounds];
+    index.slotById.set(element.id, slot);
+    index.painted[slot] = paintedAt(board, element, slot);
+    index.bounds[slot] = bounds;
+    index.signatures[slot] = elementSignature(element);
+    placeSlot(index.grid, slot, bounds);
+    changedSlots.push({ slot, rects });
+    touchedRects.push(...rects);
+  }
+  const isChromeChanged = JSON.stringify(index.chrome) !== JSON.stringify(patch.chrome);
+  index.chrome = patch.chrome;
+  index.version = patch.version;
+  return { changedSlots, removedIds, touchedRects, isChromeChanged };
 }
 
 function tileDiffFor(previous: TileIndex, next: TileIndex, heldKeys: readonly TileKey[]): TileDiff {
-  const { changedSlots, removedIds, touchedRects } = changedSlotsBetween(previous, next);
-  const isChromeChanged = JSON.stringify(previous.chrome) !== JSON.stringify(next.chrome);
+  return tileDiffOf(next, changedSlotsBetween(previous, next), heldKeys);
+}
+
+function tileDiffOf(next: TileIndex, { changedSlots, removedIds, touchedRects, isChromeChanged }: TileChanges, heldKeys: readonly TileKey[]): TileDiff {
   const heldRects = heldKeys.map((key) => ({ key, rect: tileRectOf(key) }));
   const elementLods = new Set(heldKeys.filter((key) => key.lod !== 'blocks').map((key) => key.lod));
   const lod: TileLod = elementLods.has('titles') && !elementLods.has('full') ? 'titles' : 'full';
@@ -331,5 +398,5 @@ function tileDiffFor(previous: TileIndex, next: TileIndex, heldKeys: readonly Ti
   return { changed, removedIds, rasters, chrome: isChromeChanged ? next.chrome : null };
 }
 
-export { boardOutlineOf, defaultFocusOf, elementIdsTouching, elementPageOf, fitsOnePage, lodForScale, paintedBoundsOf, tileDiffFor, tileIdOf, tileIndexOf, tileKeysFor, tileOf, tileRectOf };
+export { boardOutlineOf, defaultFocusOf, elementIdsTouching, elementPageOf, fitsOnePage, lodForScale, paintedBoundsOf, patchTileIndex, tileDiffFor, tileDiffOf, tileIdOf, tileIndexOf, tileKeysFor, tileOf, tileRectOf };
 export type { TileIndex };

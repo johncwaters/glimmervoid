@@ -182,5 +182,5 @@ function gridOfRects(rects: readonly GridRect[], cellSize: number): SpatialGrid 
   return grid;
 }
 
-export { createSpatialGrid, forEachSlotTouching, gridOfRects, hasSlotTouching, placeSlot };
+export { createSpatialGrid, forEachSlotTouching, gridOfRects, hasSlotTouching, placeSlot, removeSlot };
 export type { SpatialGrid };
