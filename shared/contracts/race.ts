@@ -155,3 +155,31 @@ export const RaceRecord = z.strictObject({
   series: z.strictObject({ id: RaceId, round: z.number().int().min(1) }).nullable().default(null),
 });
 export type RaceRecord = z.infer<typeof RaceRecord>;
+
+export const RACE_HISTORY_PAST_LIMIT = 20;
+
+export const StandingRow = z.strictObject({
+  setupKey: z.string().min(1),
+  label: z.string().max(200),
+  races: z.number().int().min(0),
+  wins: z.number().int().min(0),
+  passRate: z.record(RaceCriterion, z.number().min(0).max(1).nullable()),
+  meanCostUSD: z.number().min(0).nullable(),
+  meanElapsedMs: z.number().min(0).nullable(),
+});
+export type StandingRow = z.infer<typeof StandingRow>;
+
+export const JudgeRow = z.strictObject({
+  label: z.string().max(60),
+  matched: z.number().int().min(0),
+  races: z.number().int().min(0),
+});
+export type JudgeRow = z.infer<typeof JudgeRow>;
+
+export const RaceHistory = z.strictObject({
+  judgedRaces: z.number().int().min(0),
+  standings: z.array(StandingRow),
+  judges: z.array(JudgeRow),
+  past: z.array(RaceRecord).max(RACE_HISTORY_PAST_LIMIT),
+});
+export type RaceHistory = z.infer<typeof RaceHistory>;

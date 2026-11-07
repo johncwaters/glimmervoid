@@ -205,6 +205,53 @@
   font-weight: 700;
 }
 
+.arena-history {
+  overflow-x: auto;
+}
+
+.arena-history-heading {
+  color: var(--text-head);
+  font-weight: 700;
+  margin: 16px 0 8px;
+}
+
+.arena-history-table {
+  border-collapse: collapse;
+  font-size: var(--type-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+.arena-history-table th,
+.arena-history-table td {
+  padding: 4px 12px 4px 0;
+  text-align: left;
+  border-bottom: 1px solid var(--border-dim);
+  white-space: nowrap;
+}
+
+.arena-history-table th {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.arena-past-races {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.arena-past-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.arena-past-title {
+  color: var(--text-head);
+}
+
 }
 
 .arena-contestant-winner {
