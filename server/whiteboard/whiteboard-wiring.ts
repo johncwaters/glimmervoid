@@ -7,7 +7,9 @@ import type { Board, BoardRegion, BoardReview, BoardSummary, Element, Op, Whiteb
 import type { AgentReplyBodyOf } from '../../shared/contracts/session.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
-import { OPERATOR_AUTHOR, applyOps, createBoard } from '../../shared/whiteboard-ops-core.ts';
+import { OPERATOR_AUTHOR, createBoard, stageOps } from '../../shared/whiteboard-ops-core.ts';
+import { assetIdOf, assetIdsOf, boardIndexOf } from '../../shared/whiteboard-board-index.ts';
+import type { StagedElements } from './board-store-core.ts';
 import type { Author } from '../../shared/whiteboard-ops-core.ts';
 import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
 import type { BoardLayout } from '../../shared/whiteboard-layout-core.ts';
@@ -75,9 +77,13 @@ interface WhiteboardReply {
 
 type WhiteboardPatch = ServerMessageOf<'whiteboard-patch'>;
 
-type RecordChange = { ok: true; record: BoardRecord; reply: WhiteboardReply; patch?: WhiteboardPatch; layout?: BoardLayout } | { ok: false; reply: WhiteboardReply };
+type StagedWrite = StagedElements & { commit: () => void };
+type CommittedReply = { reply: WhiteboardReply; layout: BoardLayout | null };
+type RecordChange = {
+  ok: true; record: BoardRecord; reply: WhiteboardReply; patch?: WhiteboardPatch; staged?: StagedWrite; replyAfterCommit?: (record: BoardRecord) => CommittedReply;
+} | { ok: false; reply: WhiteboardReply };
 
-type AppliedOps = { ok: true; record: BoardRecord; patch: WhiteboardPatch } | { ok: false; error: string };
+type AppliedOps = { ok: true; record: BoardRecord; patch: WhiteboardPatch; staged: StagedWrite } | { ok: false; error: string };
 
 type OperatorReply = {
   ok: boolean;
@@ -132,10 +138,6 @@ function hasNoConnectedSessions(record: BoardRecord): boolean {
   return Object.keys(record.cursorBySessionId).length === 0;
 }
 
-function assetIdsOf(board: Board): Set<string> {
-  return new Set(Object.values(board.elements).flatMap((element) => (element.kind === 'box' && element.media ? [element.media.asset] : [])));
-}
-
 function refusal(status: number, error: string): WhiteboardReply {
   return { status, body: { ok: false, error } };
 }
@@ -151,6 +153,10 @@ interface AgentFocus {
 }
 
 type PageStart = { ok: true; offset: number } | { ok: false; reply: WhiteboardReply };
+
+function boardSnapshotOf(board: Board): Board {
+  return { ...board, elements: { ...board.elements } };
+}
 
 function isWholeBoardRead(board: Board, request: Extract<WhiteboardAgentRequest, { sub: 'get' }>): boolean {
   if (request.whole === true) return true;
@@ -278,21 +284,19 @@ function createWhiteboardWiring({
     broadcastControl(snapshotMessage());
   }
 
-  async function saveRecordInSlot(current: BoardRecord, next: BoardRecord, nextLayout: BoardLayout | null): Promise<boolean> {
+  async function saveRecordInSlot(current: BoardRecord, next: BoardRecord, staged: StagedWrite | null): Promise<boolean> {
     const boardId = current.board.id;
-    recordsByBoardId.set(boardId, next);
     try {
-      await store.save(current, next);
-      tiles.boardChanged(boardId, nextLayout);
-      return true;
+      await store.save(current, next, staged);
     } catch (error) {
-      recordsByBoardId.set(boardId, current);
       tiles.boardChanged(boardId, null);
       logger.warn(`[whiteboard] board ${boardId} could not be saved: ${errorMessage(error)}`);
       return false;
     }
+    staged?.commit();
+    recordsByBoardId.set(boardId, next);
+    return true;
   }
-
   function changeRecord(boardId: string, change: (record: BoardRecord) => RecordChange): Promise<WhiteboardReply> {
     return writeQueue.run(boardId, async () => {
       const current = recordsByBoardId.get(boardId);
@@ -300,15 +304,17 @@ function createWhiteboardWiring({
       const outcome = change(current);
       if (!outcome.ok) return outcome.reply;
       if (outcome.record === current) return outcome.reply;
-      const isSaved = await saveRecordInSlot(current, outcome.record, outcome.layout ?? null);
+      const isSaved = await saveRecordInSlot(current, outcome.record, outcome.staged ?? null);
       if (!isSaved) return refusal(500, 'the board could not be saved, so nothing changed');
+      const committed = outcome.replyAfterCommit?.(outcome.record) ?? { reply: outcome.reply, layout: null };
+      tiles.boardChanged(boardId, committed.layout);
       if (!outcome.patch) {
         broadcastSummariesIfChanged(current, outcome.record);
-        return outcome.reply;
+        return committed.reply;
       }
       broadcastControl(outcome.patch);
       broadcastSummariesIfChanged(current, outcome.record);
-      return { ...outcome.reply, patch: outcome.patch };
+      return { ...committed.reply, patch: outcome.patch };
     });
   }
 
@@ -344,17 +350,24 @@ function createWhiteboardWiring({
     return changeRecord(boardId, (record) => {
       const applied = applyOpsToRecord(record, ops, author);
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
-      const layout = layoutBoard(applied.record.board);
-      const { warnings } = layout;
-      const body = { ok: true as const, version: applied.record.board.version, ...(warnings.length > 0 ? { warnings } : {}) };
-      return { ok: true, record: applied.record, reply: { status: 200, body }, patch: applied.patch, layout };
+      const replyAfterCommit = (saved: BoardRecord): CommittedReply => {
+        const layout = layoutBoard(saved.board);
+        const { warnings } = layout;
+        const body = { ok: true as const, version: saved.board.version, ...(warnings.length > 0 ? { warnings } : {}) };
+        return { reply: { status: 200, body }, layout };
+      };
+      return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, version: applied.record.board.version } }, patch: applied.patch, staged: applied.staged, replyAfterCommit };
     });
   }
 
-  function changedMediaRefusalOf(boardBefore: Board, boardAfter: Board): string | null {
-    for (const element of Object.values(boardAfter.elements)) {
-      if (element.kind !== 'box' || !element.media) continue;
-      const before = boardBefore.elements[element.id];
+  function stagedRefusalOf(boardBefore: Board, afterById: ReadonlyMap<string, Element | null>): string | null {
+    for (const element of afterById.values()) {
+      const before = element ? boardBefore.elements[element.id] : undefined;
+      if (element?.kind === 'unit') {
+        const isNewLink = before?.kind !== 'unit' || before.linkedBoardId !== element.linkedBoardId;
+        if (isNewLink && element.linkedBoardId !== null && !recordsByBoardId.has(element.linkedBoardId)) return `unit ${element.id} links to board ${element.linkedBoardId}, which does not exist`;
+      }
+      if (element?.kind !== 'box' || !element.media) continue;
       const mediaBefore = before?.kind === 'box' ? before.media : null;
       if (JSON.stringify(mediaBefore) === JSON.stringify(element.media)) continue;
       const mismatch = assets.mismatchOf(element.media);
@@ -363,28 +376,29 @@ function createWhiteboardWiring({
     return null;
   }
 
-  function applyOpsToRecord(record: BoardRecord, ops: readonly Op[], author: Author): AppliedOps {
-    const result = applyOps(record.board, ops, author, now());
-    if (!result.ok) return result;
-    const strandedUnit = unitsOf(result.board).find((unit) => {
-      const before = record.board.elements[unit.id];
-      const isNewLink = before?.kind !== 'unit' || before.linkedBoardId !== unit.linkedBoardId;
-      return isNewLink && unit.linkedBoardId !== null && !recordsByBoardId.has(unit.linkedBoardId);
-    });
-    if (strandedUnit) return { ok: false, error: `unit ${strandedUnit.id} links to board ${strandedUnit.linkedBoardId ?? ''}, which does not exist` };
-    const assetIdsBefore = assetIdsOf(record.board);
-    const assetIdsAfter = assetIdsOf(result.board);
-    const mediaRefusal = changedMediaRefusalOf(record.board, result.board);
-    if (mediaRefusal) return { ok: false, error: mediaRefusal };
-    for (const releasedAssetId of assetIdsBefore) {
-      if (!assetIdsAfter.has(releasedAssetId)) assets.hold(releasedAssetId, RELEASE_HOLD_MS);
+  function holdReleasedAssets(board: Board, releasedAssetIds: ReadonlySet<string>): void {
+    const assetRefCount = boardIndexOf(board.elements).assetRefCount;
+    for (const releasedAssetId of releasedAssetIds) {
+      if (!assetRefCount.has(releasedAssetId)) assets.hold(releasedAssetId, RELEASE_HOLD_MS);
     }
+  }
+
+  function applyOpsToRecord(record: BoardRecord, ops: readonly Op[], author: Author): AppliedOps {
+    const result = stageOps(record.board, ops, author, now());
+    if (!result.ok) return result;
+    const refusalText = stagedRefusalOf(record.board, result.afterById);
+    if (refusalText) return { ok: false, error: refusalText };
+    const releasedAssetIds = new Set([...result.afterById.keys()].flatMap((id) => assetIdOf(record.board.elements[id]) ?? []));
     const next = recordPut(record, result);
     const patch: WhiteboardPatch = {
       type: 'whiteboard-patch', boardId: record.board.id, fromVersion: record.board.version, toVersion: next.board.version,
       author: { id: author.id, name: author.name }, updatedAt: next.board.updatedAt, diff: result.diff,
     };
-    return { ok: true, record: next, patch };
+    const commit = (): void => {
+      result.commit();
+      holdReleasedAssets(record.board, releasedAssetIds);
+    };
+    return { ok: true, record: next, patch, staged: { diff: result.diff, afterById: result.afterById, commit } };
   }
 
   async function reviewFor(board: Board, { readsChanges }: { readsChanges: boolean }): Promise<BoardReview> {
@@ -423,7 +437,7 @@ function createWhiteboardWiring({
       const changes = changesForReader(record, readerId);
       const next = request.peek === true || record.cursorBySessionId[readerId] === record.board.version ? record : markRead(record, readerId);
       const index = isWholeBoardRead(record.board, request) ? null : tiles.indexOf(boardId);
-      if (!index) return { ok: true, record: next, reply: { status: 200, body: { ok: true, board: record.board, changes } } };
+      if (!index) return { ok: true, record: next, reply: { status: 200, body: { ok: true, board: boardSnapshotOf(record.board), changes } } };
       const pageStart = pageStartOf(record.board, request.cursor);
       if (!pageStart.ok) return { ok: false, reply: pageStart.reply };
       const pagedFocus = request.cursor === undefined || request.region ? null : pagedFocusBySessionId.get(readerId)?.get(boardId) ?? null;
@@ -476,7 +490,7 @@ function createWhiteboardWiring({
         return { ok: true, record: next, reply: connectionReply(next, PUT_GUIDE) };
       }
       const next = connectSession(claimed.record, sessionId);
-      return { ok: true, record: next, reply: connectionReply(next, PUT_GUIDE), patch: claimed.patch };
+      return { ok: true, record: next, reply: connectionReply(next, PUT_GUIDE), patch: claimed.patch, staged: claimed.staged };
     });
   }
 
@@ -557,7 +571,7 @@ function createWhiteboardWiring({
     get: (boardId) => operatorBoardCommand(boardId, async (foundBoardId) => {
       const record = recordsByBoardId.get(foundBoardId);
       if (!record) return refusal(404, DELETED_BOARD_TEXT);
-      return { status: 200, body: { ok: true, board: record.board, changes: [] } };
+      return { status: 200, body: { ok: true, board: boardSnapshotOf(record.board), changes: [] } };
     }),
     review: async (boardId) => {
       await loaded;
@@ -663,7 +677,7 @@ function createWhiteboardWiring({
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
       const { board } = applied.record;
       const note = `showed ${card.title} as box ${boxId} on board "${board.title}" (${board.id}), where the operator sees it; change it with whiteboard put`;
-      return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, board: summarizeBoard(applied.record), note } }, patch: applied.patch };
+      return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, board: summarizeBoard(applied.record), note } }, patch: applied.patch, staged: applied.staged };
     });
   }
 

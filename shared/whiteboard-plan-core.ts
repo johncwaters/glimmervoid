@@ -1,4 +1,5 @@
 import type { Board, Unit } from './contracts/whiteboard.ts';
+import { elementsOfKind } from './whiteboard-board-index.ts';
 
 type PlanStep = { unitId: string; title: string; status: Unit['status']; level: number; label: string; afterLabels: string[]; linkedBoardId: string | null };
 
@@ -6,7 +7,7 @@ const LETTERS_IN_ALPHABET = 26;
 const FIRST_LETTER_CODE = 97;
 
 function unitsOf(board: Board): Unit[] {
-  return Object.values(board.elements).filter((element): element is Unit => element.kind === 'unit');
+  return elementsOfKind(board, 'unit');
 }
 
 function letterFor(index: number): string {
@@ -62,8 +63,8 @@ function planSteps(board: Board): PlanStep[] {
   }));
 }
 
-function findDependencyCycle(board: Board): string[] | null {
-  const unitById = new Map(unitsOf(board).map((unit) => [unit.id, unit]));
+function findDependencyCycle(units: readonly Unit[]): string[] | null {
+  const unitById = new Map(units.map((unit) => [unit.id, unit]));
   const finished = new Set<string>();
   const path: string[] = [];
   function walk(unitId: string): string[] | null {

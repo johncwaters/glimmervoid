@@ -295,6 +295,7 @@ test('an agent reads a board too large to return whole as an outline with the op
     const gridFirstPage = await whiteboard(BUILDER_ID, { sub: 'get', board: boardId, region: gridRegion });
     const gridCursor = ElementPage.parse(gridFirstPage.body).nextCursor;
     assert.ok(gridCursor);
+    control.received.length = 0;
     control.ws.send(JSON.stringify({ type: 'whiteboard-view', boardId, view: { ...operatorView, y: 0 }, lod: 'full', knownVersion: null }));
     await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-tiles' && frame.boardId === boardId, 'the panned view tiles');
     const gridSecondPage = await whiteboard(BUILDER_ID, { sub: 'get', board: boardId, cursor: gridCursor });

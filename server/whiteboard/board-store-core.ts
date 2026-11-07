@@ -2,6 +2,10 @@ import { z } from 'zod';
 
 import { BoardChange, BoardRecord, Element } from '../../shared/contracts/whiteboard.ts';
 import type { Board } from '../../shared/contracts/whiteboard.ts';
+import type { StagedOps } from '../../shared/whiteboard-ops-core.ts';
+
+type StagedElements = Pick<Extract<StagedOps, { ok: true }>, 'diff' | 'afterById'>;
+type ElementDelta = { writes: z.infer<typeof ElementWrite>[]; removedElementIds: string[]; reslottedElementIds: string[] };
 
 const BOARD_STORE_FILENAME = 'boards.sqlite';
 
@@ -120,11 +124,30 @@ function reorderedElementIdsOf(elementsBefore: Board['elements'], elementsAfter:
   return movedElementIds;
 }
 
-function boardDeltaOf(before: BoardRecord | null, after: BoardRecord): BoardDelta {
-  const elementsBefore = before?.board.elements ?? {};
-  const reorderedElementIds = reorderedElementIdsOf(elementsBefore, after.board.elements);
-  const writes = Object.values(after.board.elements).filter((element) => elementsBefore[element.id] !== element || reorderedElementIds.has(element.id)).map(elementWriteOf);
-  const removedElementIds = Object.keys(elementsBefore).filter((elementId) => !(elementId in after.board.elements));
+function stagedElementDeltaOf(staged: StagedElements): ElementDelta {
+  const delta: ElementDelta = { writes: [], removedElementIds: [], reslottedElementIds: [] };
+  for (const [elementId, change] of Object.entries(staged.diff.elements)) {
+    const element = staged.afterById.get(elementId);
+    if (change[0] === 'remove' || !element) {
+      delta.removedElementIds.push(elementId);
+      continue;
+    }
+    if (change[0] === 'put') delta.reslottedElementIds.push(elementId);
+    delta.writes.push(elementWriteOf(element));
+  }
+  return delta;
+}
+
+function comparedElementDeltaOf(elementsBefore: Board['elements'], elementsAfter: Board['elements']): ElementDelta {
+  if (elementsBefore === elementsAfter) return { writes: [], removedElementIds: [], reslottedElementIds: [] };
+  const reorderedElementIds = reorderedElementIdsOf(elementsBefore, elementsAfter);
+  const writes = Object.values(elementsAfter).filter((element) => elementsBefore[element.id] !== element || reorderedElementIds.has(element.id)).map(elementWriteOf);
+  const removedElementIds = Object.keys(elementsBefore).filter((elementId) => !(elementId in elementsAfter));
+  return { writes, removedElementIds, reslottedElementIds: [...reorderedElementIds] };
+}
+
+function boardDeltaOf(before: BoardRecord | null, after: BoardRecord, staged: StagedElements | null = null): BoardDelta {
+  const elementDelta = staged ? stagedElementDeltaOf(staged) : comparedElementDeltaOf(before?.board.elements ?? {}, after.board.elements);
   const newestLoggedVersion = before?.log.at(-1)?.version ?? Number.NEGATIVE_INFINITY;
   const appendedLog = after.log.filter((change) => change.version > newestLoggedVersion).map((change) => ({ version: change.version, body: JSON.stringify(change) }));
   return {
@@ -133,9 +156,7 @@ function boardDeltaOf(before: BoardRecord | null, after: BoardRecord): BoardDelt
     cursors: JSON.stringify(after.cursorBySessionId),
     createdBy: after.createdBy,
     version: after.board.version,
-    writes,
-    removedElementIds,
-    reslottedElementIds: [...reorderedElementIds],
+    ...elementDelta,
     appendedLog,
     keptLogCount: after.log.length,
   };
@@ -168,5 +189,6 @@ function ftsQueryOf(query: string): string {
   return query.split(/\s+/).filter(Boolean).map((word) => `"${word.replaceAll('"', '""')}"`).join(' ');
 }
 
+export type { StagedElements };
 export { BOARD_STORE_FILENAME, BOARD_STORE_SCHEMA, StoreReply, StoreRequest, boardDeltaOf, ftsQueryOf, recordOfRows };
 export type { BoardDelta, Rect, StoreRequestBody, StoredBoardRows };

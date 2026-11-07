@@ -3,13 +3,31 @@ import type { Board, BoardChange, Element, Op } from './contracts/whiteboard.ts'
 import { layoutBoard } from './whiteboard-layout-core.ts';
 import type { LaidOutBox } from './whiteboard-layout-core.ts';
 import type { BoardDiff, ElementChange } from './contracts/control/whiteboard-messages.ts';
-import { findDependencyCycle, unitsOf } from './whiteboard-plan-core.ts';
+import { findDependencyCycle } from './whiteboard-plan-core.ts';
+import { appendElement, boardIndexOf, boxIdsDependedOnBy, dropElement, elementsOfKind, idsOfKindInKeyOrder, storeElement } from './whiteboard-board-index.ts';
 
 type Author = { id: string; name: string };
 type ApplyResult = { ok: true; board: Board; changes: BoardChange[]; diff: BoardDiff } | { ok: false; error: string; opIndex: number };
+type StagedOps = {
+  ok: true;
+  board: Board;
+  changes: BoardChange[];
+  diff: BoardDiff;
+  afterById: ReadonlyMap<string, Element | null>;
+  commit: () => void;
+} | { ok: false; error: string; opIndex: number };
 type OpOutcome = { ok: true } | { ok: false; error: string };
 type PinPositions = { laidOutBoxById: ReadonlyMap<string, LaidOutBox>; pinnedOffsetY: number };
-type Draft = { board: Board; elementCount: number; pinPositions: PinPositions | null; dependentIdsByBoxId: ReadonlyMap<string, ReadonlySet<string>> | null };
+type ElementLookup = (id: string) => Element | undefined;
+type Draft = {
+  base: Board;
+  head: Board;
+  afterById: Map<string, Element | null>;
+  erasedIds: Set<string>;
+  overlayDependentIdsByBoxId: Map<string, Set<string>>;
+  elementCount: number;
+  pinPositions: PinPositions | null;
+};
 
 const ELEMENT_SCHEMAS = Object.freeze({ box: Box, frame: Frame, wire: Wire, note: Note, unit: Unit, panel: Panel });
 const NOTE_PREVIEW_CHARS = 80;
@@ -30,95 +48,136 @@ function refuse(error: string): OpOutcome {
   return { ok: false, error };
 }
 
-function isBox(board: Board, id: string): boolean {
-  return board.elements[id]?.kind === 'box';
+function elementOf(draft: Draft, id: string): Element | undefined {
+  if (draft.afterById.has(id)) return draft.afterById.get(id) ?? undefined;
+  return draft.base.elements[id];
 }
 
-function checkReferences(board: Board, element: Element, previous: Element | undefined): OpOutcome {
-  if (element.kind === 'box') return checkBoxReferences(board, element, previous);
-  if (element.kind === 'unit') return checkUnitReferences(board, element);
+function writeElement(draft: Draft, element: Element): void {
+  if (draft.afterById.get(element.id) === null) draft.afterById.delete(element.id);
+  draft.afterById.set(element.id, element);
+  for (const boxId of boxIdsDependedOnBy(element)) {
+    const dependentIds = draft.overlayDependentIdsByBoxId.get(boxId) ?? new Set<string>();
+    dependentIds.add(element.id);
+    draft.overlayDependentIdsByBoxId.set(boxId, dependentIds);
+  }
+}
+
+function eraseElement(draft: Draft, id: string): void {
+  draft.afterById.set(id, null);
+  draft.erasedIds.add(id);
+  draft.elementCount -= 1;
+}
+
+function isBox(draft: Draft, id: string): boolean {
+  return elementOf(draft, id)?.kind === 'box';
+}
+
+function unitsOfDraft(draft: Draft): Unit[] {
+  const units: Unit[] = [];
+  const baseUnitIds = new Set(idsOfKindInKeyOrder(boardIndexOf(draft.base.elements), 'unit'));
+  for (const id of baseUnitIds) {
+    const element = elementOf(draft, id);
+    if (element?.kind === 'unit') units.push(element);
+  }
+  for (const [id, element] of draft.afterById) {
+    if (!baseUnitIds.has(id) && element?.kind === 'unit') units.push(element);
+  }
+  return units;
+}
+
+function currentDependentsOf(draft: Draft, boxId: string): Element[] {
+  const candidateIds = new Set([...boardIndexOf(draft.base.elements).dependentIdsByBoxId.get(boxId) ?? [], ...draft.overlayDependentIdsByBoxId.get(boxId) ?? []]);
+  return [...candidateIds].flatMap((dependentId) => {
+    const element = elementOf(draft, dependentId);
+    return element && boxIdsDependedOnBy(element).includes(boxId) ? [element] : [];
+  });
+}
+
+function checkReferences(draft: Draft, element: Element, previous: Element | undefined): OpOutcome {
+  if (element.kind === 'box') return checkBoxReferences(draft, element, previous);
+  if (element.kind === 'unit') return checkUnitReferences(draft, element);
   if (element.kind === 'wire') {
-    if (!isBox(board, element.from)) return refuse(`wire ${element.id} starts at ${element.from}, which is not a box`);
-    if (!isBox(board, element.to)) return refuse(`wire ${element.id} ends at ${element.to}, which is not a box`);
-    return checkWireOutput(board, element);
+    if (!isBox(draft, element.from)) return refuse(`wire ${element.id} starts at ${element.from}, which is not a box`);
+    if (!isBox(draft, element.to)) return refuse(`wire ${element.id} ends at ${element.to}, which is not a box`);
+    return checkWireOutput(draft, element);
   }
   if (element.kind === 'note') {
-    if (!isBox(board, element.on)) return refuse(`note ${element.id} is on ${element.on}, which is not a box`);
+    if (!isBox(draft, element.on)) return refuse(`note ${element.id} is on ${element.on}, which is not a box`);
     return OK;
   }
   if (element.kind !== 'frame') return OK;
-  const strangerId = element.contains.find((id) => !isBox(board, id));
+  const strangerId = element.contains.find((id) => !isBox(draft, id));
   if (strangerId) return refuse(`frame ${element.id} contains ${strangerId}, which is not a box`);
   return OK;
 }
 
-function checkWireOutput(board: Board, wire: Wire): OpOutcome {
+function checkWireOutput(draft: Draft, wire: Wire): OpOutcome {
   if (wire.fromOutput === null) return OK;
-  const from = board.elements[wire.from];
+  const from = elementOf(draft, wire.from);
   if (from?.kind !== 'box' || from.shape !== 'decision') return refuse(`wire ${wire.id} starts at output ${wire.fromOutput}, but ${wire.from} is not a decision`);
   if (!from.outputs.some((output) => output.id === wire.fromOutput)) return refuse(`wire ${wire.id} starts at output ${wire.fromOutput}, which decision ${wire.from} does not have`);
   return OK;
 }
 
-function checkBoxOutputs(board: Board, box: Box, previous: Element | undefined): OpOutcome {
+function checkBoxOutputs(draft: Draft, box: Box, previous: Element | undefined): OpOutcome {
   if (box.shape !== 'decision' && box.outputs.length > 0) return refuse(`box ${box.id} has outputs, which only a decision has, so set shape to decision`);
   const outputIds = new Set(box.outputs.map((output) => output.id));
   if (outputIds.size !== box.outputs.length) return refuse(`box ${box.id} has two outputs with the same id`);
   const previousOutputs = previous?.kind === 'box' ? previous.outputs : [];
   if (previousOutputs.every((output) => outputIds.has(output.id))) return OK;
-  const strandedWire = Object.values(board.elements).find((element) => element.kind === 'wire' && element.from === box.id && element.fromOutput !== null && !outputIds.has(element.fromOutput));
+  const strandedWire = currentDependentsOf(draft, box.id).find((element) => element.kind === 'wire' && element.from === box.id && element.fromOutput !== null && !outputIds.has(element.fromOutput));
   if (strandedWire?.kind === 'wire') return refuse(`wire ${strandedWire.id} still starts at output ${strandedWire.fromOutput} of ${box.id}, so change or remove that wire first`);
   return OK;
 }
 
-function checkBoxReferences(board: Board, box: Box, previous: Element | undefined): OpOutcome {
-  const outputs = checkBoxOutputs(board, box, previous);
+function checkBoxReferences(draft: Draft, box: Box, previous: Element | undefined): OpOutcome {
+  const outputs = checkBoxOutputs(draft, box, previous);
   if (!outputs.ok) return outputs;
   if (box.change === 'relabeled' && !box.was) return refuse(`box ${box.id} is relabeled, so give its old title in was`);
   if (box.column === null && box.near === null && box.at === null) {
     return refuse(`box ${box.id} needs a place: a column, near another box, or at a point`);
   }
-  if (box.column !== null && !board.columns.some((column) => column.id === box.column)) {
+  if (box.column !== null && !draft.head.columns.some((column) => column.id === box.column)) {
     return refuse(`box ${box.id} names column ${box.column}, which the board does not have, so add it with a columns op first`);
   }
-  if (box.lane !== null && !board.lanes.some((lane) => lane.id === box.lane)) {
+  if (box.lane !== null && !draft.head.lanes.some((lane) => lane.id === box.lane)) {
     return refuse(`box ${box.id} names lane ${box.lane}, which the board does not have, so add it with a lanes op first`);
   }
   if (box.near === null) return OK;
   if (box.near.of === box.id) return refuse(`box ${box.id} cannot sit near itself`);
-  if (!isBox(board, box.near.of)) return refuse(`box ${box.id} sits near ${box.near.of}, which is not a box`);
-  if (nearChainReaches(board, box.near.of, box.id)) return refuse(`box ${box.id} sits near ${box.near.of}, which already sits near ${box.id}, so they would place each other`);
+  if (!isBox(draft, box.near.of)) return refuse(`box ${box.id} sits near ${box.near.of}, which is not a box`);
+  if (nearChainReaches(draft, box.near.of, box.id)) return refuse(`box ${box.id} sits near ${box.near.of}, which already sits near ${box.id}, so they would place each other`);
   return OK;
 }
 
-function nearChainReaches(board: Board, startId: string, soughtId: string): boolean {
+function nearChainReaches(draft: Draft, startId: string, soughtId: string): boolean {
   const visitedIds = new Set<string>();
   let currentId: string | undefined = startId;
   while (currentId !== undefined && !visitedIds.has(currentId)) {
     if (currentId === soughtId) return true;
     visitedIds.add(currentId);
-    const current: Element | undefined = board.elements[currentId];
+    const current: Element | undefined = elementOf(draft, currentId);
     currentId = current?.kind === 'box' ? current.near?.of : undefined;
   }
   return false;
 }
 
-function checkUnitReferences(board: Board, unit: Unit): OpOutcome {
+function checkUnitReferences(draft: Draft, unit: Unit): OpOutcome {
   if (unit.after.includes(unit.id)) return refuse(`unit ${unit.id} cannot come after itself`);
-  const strangerId = unit.after.find((id) => board.elements[id]?.kind !== 'unit');
+  const strangerId = unit.after.find((id) => elementOf(draft, id)?.kind !== 'unit');
   if (strangerId) return refuse(`unit ${unit.id} comes after ${strangerId}, which is not a unit on this board`);
   return OK;
 }
 
 function addElement(draft: Draft, element: Element, author: Author): OpOutcome {
-  const { board } = draft;
-  if (board.elements[element.id]) return refuse(`an element with id ${element.id} already exists`);
+  if (elementOf(draft, element.id)) return refuse(`an element with id ${element.id} already exists`);
   if (draft.elementCount >= WHITEBOARD_LIMITS.elements) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.elements} elements`);
-  if (element.kind === 'unit' && unitsOf(board).length >= WHITEBOARD_LIMITS.units) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.units} units`);
+  if (element.kind === 'unit' && unitsOfDraft(draft).length >= WHITEBOARD_LIMITS.units) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.units} units`);
   const stored: Element = element.kind === 'note' ? storedNote(element, author) : element;
-  const references = checkReferences(board, stored, undefined);
+  const references = checkReferences(draft, stored, undefined);
   if (!references.ok) return references;
-  board.elements[element.id] = stored;
+  writeElement(draft, stored);
   draft.elementCount += 1;
   return OK;
 }
@@ -128,68 +187,46 @@ function rewrittenNoteStamp(existing: Element, fields: Record<string, unknown>, 
   return { author: author.name, resolvedBy: null };
 }
 
-function setFields(board: Board, id: string, fields: Record<string, unknown>, author: Author): OpOutcome {
-  const existing = board.elements[id];
+function setFields(draft: Draft, id: string, fields: Record<string, unknown>, author: Author): OpOutcome {
+  const existing = elementOf(draft, id);
   if (!existing) return refuse(`no element has id ${id}`);
   if ('kind' in fields || 'id' in fields) return refuse('set cannot change an element kind or id; remove it and add a new one');
   if (!canKeepNoteStamps(author) && ('author' in fields || 'resolvedBy' in fields)) return refuse('set cannot change who wrote or resolved a note; resolve it with a resolve op');
   const parsed = ELEMENT_SCHEMAS[existing.kind].safeParse({ ...existing, ...rewrittenNoteStamp(existing, fields, author), ...fields });
   if (!parsed.success) return refuse(`${id}: ${parsed.error.issues[0]?.message ?? 'invalid fields'}`);
-  const references = checkReferences(board, parsed.data, existing);
+  const references = checkReferences(draft, parsed.data, existing);
   if (!references.ok) return references;
-  board.elements[id] = parsed.data;
+  writeElement(draft, parsed.data);
   return OK;
 }
 
-function boxIdsDependedOnBy(element: Element): readonly string[] {
-  if (element.kind === 'box') return element.near ? [element.near.of] : [];
-  if (element.kind === 'wire') return [element.from, element.to];
-  if (element.kind === 'note') return [element.on];
-  if (element.kind === 'frame') return element.contains;
-  return [];
-}
-
-function dependentIdsByBoxIdOf(board: Board): Map<string, Set<string>> {
-  const dependentIdsByBoxId = new Map<string, Set<string>>();
-  for (const element of Object.values(board.elements)) {
-    for (const boxId of boxIdsDependedOnBy(element)) {
-      const dependentIds = dependentIdsByBoxId.get(boxId) ?? new Set<string>();
-      dependentIds.add(element.id);
-      dependentIdsByBoxId.set(boxId, dependentIds);
-    }
-  }
-  return dependentIdsByBoxId;
-}
-
-function currentDependentsOf(draft: Draft, boxId: string): Element[] {
-  draft.dependentIdsByBoxId ??= dependentIdsByBoxIdOf(draft.board);
-  const dependentIds = [...draft.dependentIdsByBoxId.get(boxId) ?? []];
-  return dependentIds.flatMap((dependentId) => {
-    const element = draft.board.elements[dependentId];
-    return element && boxIdsDependedOnBy(element).includes(boxId) ? [element] : [];
-  });
-}
-
-function deleteElement(draft: Draft, id: string): void {
-  delete draft.board.elements[id];
-  draft.elementCount -= 1;
-}
-
 function removeElement(draft: Draft, id: string): OpOutcome {
-  const { board } = draft;
-  const existing = board.elements[id];
+  const existing = elementOf(draft, id);
   if (!existing) return refuse(`no element has id ${id}`);
   if (existing.kind === 'box') pinBoxesNear(draft, id);
-  deleteElement(draft, id);
+  eraseElement(draft, id);
   if (existing.kind === 'unit') {
-    for (const unit of unitsOf(board)) {
-      if (unit.after.includes(id)) board.elements[unit.id] = { ...unit, after: unit.after.filter((afterId) => afterId !== id) };
+    for (const unit of unitsOfDraft(draft)) {
+      if (unit.after.includes(id)) writeElement(draft, { ...unit, after: unit.after.filter((afterId) => afterId !== id) });
     }
     return OK;
   }
   if (existing.kind !== 'box') return OK;
   for (const dependent of currentDependentsOf(draft, id)) removeDependent(draft, dependent, id);
   return OK;
+}
+
+function draftBoard(draft: Draft): Board {
+  const elements = { ...draft.base.elements };
+  for (const [id, element] of draft.afterById) {
+    if (!element) {
+      delete elements[id];
+      continue;
+    }
+    if (draft.erasedIds.has(id)) delete elements[id];
+    elements[id] = element;
+  }
+  return { ...draft.head, elements };
 }
 
 function pinPositionsOf(board: Board): PinPositions {
@@ -199,105 +236,142 @@ function pinPositionsOf(board: Board): PinPositions {
 }
 
 function pinBoxesNear(draft: Draft, removedBoxId: string): void {
-  const { board } = draft;
   const nearBoxes = currentDependentsOf(draft, removedBoxId).flatMap((element) => (element.kind === 'box' ? [element] : []));
   if (nearBoxes.length === 0) return;
-  draft.pinPositions ??= pinPositionsOf(board);
+  draft.pinPositions ??= pinPositionsOf(draftBoard(draft));
   const { laidOutBoxById, pinnedOffsetY } = draft.pinPositions;
   for (const box of nearBoxes) {
     const laidOut = laidOutBoxById.get(box.id);
     if (!laidOut) continue;
-    board.elements[box.id] = { ...box, near: null, at: { x: laidOut.x, y: laidOut.y - pinnedOffsetY } };
+    writeElement(draft, { ...box, near: null, at: { x: laidOut.x, y: laidOut.y - pinnedOffsetY } });
   }
 }
 
 function removeDependent(draft: Draft, element: Element, removedBoxId: string): void {
   if (element.kind === 'wire' && (element.from === removedBoxId || element.to === removedBoxId)) {
-    deleteElement(draft, element.id);
+    eraseElement(draft, element.id);
     return;
   }
   if (element.kind === 'note' && element.on === removedBoxId) {
-    deleteElement(draft, element.id);
+    eraseElement(draft, element.id);
     return;
   }
   if (element.kind !== 'frame') return;
   const contains = element.contains.filter((id) => id !== removedBoxId);
   if (contains.length === 0) {
-    deleteElement(draft, element.id);
+    eraseElement(draft, element.id);
     return;
   }
-  draft.board.elements[element.id] = { ...element, contains };
+  writeElement(draft, { ...element, contains });
 }
 
-function resolveNote(board: Board, id: string, author: Author): OpOutcome {
-  const note = board.elements[id];
+function resolveNote(draft: Draft, id: string, author: Author): OpOutcome {
+  const note = elementOf(draft, id);
   if (note?.kind !== 'note') return refuse(`no note has id ${id}`);
-  board.elements[id] = { ...note, resolvedBy: author.name };
+  writeElement(draft, { ...note, resolvedBy: author.name });
   return OK;
 }
 
-function replaceColumns(board: Board, columns: Board['columns'], moveByColumnId: Readonly<Record<string, string>>): OpOutcome {
+function boxesOfDraft(draft: Draft): Box[] {
+  const boxes: Box[] = [];
+  for (const box of elementsOfKind(draft.base, 'box')) {
+    const current = elementOf(draft, box.id);
+    if (current?.kind === 'box') boxes.push(current);
+  }
+  for (const [id, element] of draft.afterById) {
+    if (element?.kind === 'box' && draft.base.elements[id]?.kind !== 'box') boxes.push(element);
+  }
+  return boxes;
+}
+
+function replaceColumns(draft: Draft, columns: Board['columns'], moveByColumnId: Readonly<Record<string, string>>): OpOutcome {
   const columnIds = new Set(columns.map((column) => column.id));
   if (columnIds.size !== columns.length) return refuse('column ids must be unique');
   const strayTarget = Object.entries(moveByColumnId).find(([, targetId]) => !columnIds.has(targetId));
   if (strayTarget) return refuse(`move sends column ${strayTarget[0]} to ${strayTarget[1]}, which is not in the new columns`);
-  const movedBoxes = Object.values(board.elements).flatMap((element) => {
-    if (element.kind !== 'box' || element.column === null) return [];
-    return [{ ...element, column: Object.hasOwn(moveByColumnId, element.column) ? moveByColumnId[element.column] ?? element.column : element.column }];
+  const movedBoxes = boxesOfDraft(draft).flatMap((box) => {
+    if (box.column === null) return [];
+    const column = Object.hasOwn(moveByColumnId, box.column) ? moveByColumnId[box.column] ?? box.column : box.column;
+    return [{ box, moved: column === box.column ? box : { ...box, column } }];
   });
-  const strandedBox = movedBoxes.find((box) => box.column !== null && !columnIds.has(box.column));
-  if (strandedBox) return refuse(`box ${strandedBox.id} is still in removed column ${strandedBox.column}, so name it in move or remove the box first`);
-  for (const box of movedBoxes) board.elements[box.id] = box;
-  board.columns = columns;
+  const stranded = movedBoxes.find(({ moved }) => moved.column !== null && !columnIds.has(moved.column));
+  if (stranded) return refuse(`box ${stranded.moved.id} is still in removed column ${stranded.moved.column}, so name it in move or remove the box first`);
+  for (const { box, moved } of movedBoxes) {
+    if (moved !== box) writeElement(draft, moved);
+  }
+  draft.head.columns = columns;
   return OK;
 }
 
-function replaceLanes(board: Board, lanes: Board['lanes']): OpOutcome {
+function replaceLanes(draft: Draft, lanes: Board['lanes']): OpOutcome {
   const laneIds = new Set(lanes.map((lane) => lane.id));
   if (laneIds.size !== lanes.length) return refuse('lane ids must be unique');
-  board.lanes = lanes;
-  for (const element of Object.values(board.elements)) {
-    if (element.kind === 'box' && element.lane !== null && !laneIds.has(element.lane)) board.elements[element.id] = { ...element, lane: null };
+  draft.head.lanes = lanes;
+  for (const box of boxesOfDraft(draft)) {
+    if (box.lane !== null && !laneIds.has(box.lane)) writeElement(draft, { ...box, lane: null });
   }
   return OK;
 }
 
 function applyOne(draft: Draft, op: Op, author: Author): OpOutcome {
-  const { board } = draft;
-  if (op.op !== 'remove') {
-    draft.pinPositions = null;
-    draft.dependentIdsByBoxId = null;
-  }
+  if (op.op !== 'remove') draft.pinPositions = null;
   switch (op.op) {
     case 'add': return addElement(draft, op.element, author);
-    case 'set': return setFields(board, op.id, op.fields, author);
+    case 'set': return setFields(draft, op.id, op.fields, author);
     case 'remove': return removeElement(draft, op.id);
-    case 'resolve': return resolveNote(board, op.id, author);
-    case 'columns': return replaceColumns(board, op.columns, op.move);
-    case 'lanes': return replaceLanes(board, op.lanes);
+    case 'resolve': return resolveNote(draft, op.id, author);
+    case 'columns': return replaceColumns(draft, op.columns, op.move);
+    case 'lanes': return replaceLanes(draft, op.lanes);
     case 'board':
-      if (op.title !== undefined) board.title = op.title;
-      if (op.caption !== undefined) board.caption = op.caption;
-      if (op.legend !== undefined) board.legend = op.legend;
-      if (op.codeSessionId !== undefined) board.codeSessionId = op.codeSessionId;
+      if (op.title !== undefined) draft.head.title = op.title;
+      if (op.caption !== undefined) draft.head.caption = op.caption;
+      if (op.legend !== undefined) draft.head.legend = op.legend;
+      if (op.codeSessionId !== undefined) draft.head.codeSessionId = op.codeSessionId;
       return OK;
   }
 }
 
-function applyOps(board: Board, ops: readonly Op[], author: Author, nowMs: number): ApplyResult {
-  const draft: Draft = { board: { ...board, elements: { ...board.elements } }, elementCount: Object.keys(board.elements).length, pinPositions: null, dependentIdsByBoxId: null };
+function stageOps(board: Board, ops: readonly Op[], author: Author, nowMs: number): StagedOps {
+  const draft: Draft = {
+    base: board, head: { ...board }, afterById: new Map(), erasedIds: new Set(), overlayDependentIdsByBoxId: new Map(),
+    elementCount: boardIndexOf(board.elements).elementCount, pinPositions: null,
+  };
+  const lookup: ElementLookup = (id) => elementOf(draft, id);
   const version = board.version + 1;
   const changes: BoardChange[] = [];
   for (const [opIndex, op] of ops.entries()) {
     const elementId = changedElementId(op);
-    const previous = elementId === null ? undefined : draft.board.elements[elementId];
+    const previous = elementId === null ? undefined : elementOf(draft, elementId);
     const outcome = applyOne(draft, op, author);
     if (!outcome.ok) return { ok: false, error: `op ${opIndex + 1}: ${outcome.error}`, opIndex };
-    changes.push({ version, author: author.id, elementId, summary: `${author.name} ${describeOp(op, previous, draft.board)}` });
+    changes.push({ version, author: author.id, elementId, summary: `${author.name} ${describeOp(op, previous, lookup)}` });
   }
-  const cycle = findDependencyCycle(draft.board);
+  const cycle = findDependencyCycle(unitsOfDraft(draft));
   if (cycle) return { ok: false, error: `that makes a dependency cycle: ${cycle.join(', ')}`, opIndex: ops.length - 1 };
-  return { ok: true, board: { ...draft.board, version, updatedAt: nowMs }, changes, diff: diffOf(board, draft.board) };
+  const diff = diffOf(draft);
+  const elements = board.elements;
+  const commit = (): void => {
+    for (const [id, change] of Object.entries(diff.elements)) {
+      const element = draft.afterById.get(id);
+      if (change[0] === 'remove' || !element) {
+        dropElement(elements, id);
+        continue;
+      }
+      if (change[0] === 'put') {
+        appendElement(elements, element);
+        continue;
+      }
+      storeElement(elements, element);
+    }
+  };
+  return { ok: true, board: { ...draft.head, elements, version, updatedAt: nowMs }, changes, diff, afterById: draft.afterById, commit };
+}
+
+function applyOps(board: Board, ops: readonly Op[], author: Author, nowMs: number): ApplyResult {
+  const staged = stageOps({ ...board, elements: { ...board.elements } }, ops, author, nowMs);
+  if (!staged.ok) return staged;
+  staged.commit();
+  return { ok: true, board: staged.board, changes: staged.changes, diff: staged.diff };
 }
 
 function isSameValue(left: unknown, right: unknown): boolean {
@@ -317,27 +391,24 @@ function changeOf(previous: Element, element: Element): ElementChange | null {
   return Object.keys(changedFields).length === 0 ? null : ['patch', changedFields];
 }
 
-function diffOf(before: Board, after: Board): BoardDiff {
+function diffOf(draft: Draft): BoardDiff {
   const elements: Record<string, ElementChange> = {};
-  for (const id of Object.keys(before.elements)) {
-    if (!after.elements[id]) elements[id] = ['remove'];
-  }
-  const positionById = new Map(Object.keys(before.elements).map((id, position) => [id, position]));
-  let lastKeptPosition = -1;
-  let isPastMovedElement = false;
-  for (const [id, element] of Object.entries(after.elements)) {
-    const previous = before.elements[id];
-    const position = positionById.get(id);
-    isPastMovedElement ||= !previous || position === undefined || position < lastKeptPosition;
-    if (!previous || position === undefined || isPastMovedElement) {
+  for (const [id, element] of draft.afterById) {
+    const previous = draft.base.elements[id];
+    if (!element) {
+      if (previous) elements[id] = ['remove'];
+      continue;
+    }
+    if (!previous || draft.erasedIds.has(id)) {
       elements[id] = ['put', element];
       continue;
     }
-    lastKeptPosition = position;
     if (previous === element) continue;
     const change = changeOf(previous, element);
     if (change) elements[id] = change;
   }
+  const before = draft.base;
+  const after = draft.head;
   const fields = Object.fromEntries(DIFFED_BOARD_FIELDS.filter((name) => !isSameValue(before[name], after[name])).map((name) => [name, after[name]]));
   return { fields, elements };
 }
@@ -373,21 +444,21 @@ function changedElementId(op: Op): string | null {
   return null;
 }
 
-function nameOf(board: Board, id: string, element: Element | undefined = board.elements[id]): string {
+function nameOf(after: ElementLookup, id: string, element: Element | undefined = after(id)): string {
   if (!element) return id;
   if (element.kind === 'box' || element.kind === 'frame' || element.kind === 'unit' || element.kind === 'panel') return `"${element.title || id}"`;
-  if (element.kind === 'wire') return `wire ${nameOf(board, element.from)} to ${nameOf(board, element.to)}`;
+  if (element.kind === 'wire') return `wire ${nameOf(after, element.from)} to ${nameOf(after, element.to)}`;
   return `note ${id}`;
 }
 
-function describeUnitAfter(board: Board, unitId: string, afterIds: readonly string[]): string {
-  if (afterIds.length === 0) return `cleared what ${nameOf(board, unitId)} comes after`;
-  return `set ${nameOf(board, unitId)} to come after ${afterIds.map((afterId) => nameOf(board, afterId)).join(', ')}`;
+function describeUnitAfter(after: ElementLookup, unitId: string, afterIds: readonly string[]): string {
+  if (afterIds.length === 0) return `cleared what ${nameOf(after, unitId)} comes after`;
+  return `set ${nameOf(after, unitId)} to come after ${afterIds.map((afterId) => nameOf(after, afterId)).join(', ')}`;
 }
 
-function describeSet(op: Extract<Op, { op: 'set' }>, previous: Element | undefined, after: Board): string {
+function describeSet(op: Extract<Op, { op: 'set' }>, previous: Element | undefined, after: ElementLookup): string {
   const fieldNames = Object.keys(op.fields);
-  const afterElement = after.elements[op.id];
+  const afterElement = after(op.id);
   if (fieldNames.length === 1 && fieldNames[0] === 'at') return `moved ${nameOf(after, op.id)}`;
   if (fieldNames.length === 1 && fieldNames[0] === 'linkedBoardId') return afterElement?.kind === 'unit' && afterElement.linkedBoardId === null ? `unlinked ${nameOf(after, op.id)} from its board` : `linked ${nameOf(after, op.id)} to a board`;
   if (fieldNames.length === 1 && fieldNames[0] === 'after' && afterElement?.kind === 'unit') return describeUnitAfter(after, afterElement.id, afterElement.after);
@@ -405,7 +476,7 @@ function describeBoardOp(op: Extract<Op, { op: 'board' }>): string {
   return 'set the legend';
 }
 
-function describeOp(op: Op, previous: Element | undefined, after: Board): string {
+function describeOp(op: Op, previous: Element | undefined, after: ElementLookup): string {
   switch (op.op) {
     case 'add': {
       const element = op.element;
@@ -434,5 +505,5 @@ function createBoard({ id, title, nowMs, codeSessionId = null }: { id: string; t
   };
 }
 
-export { OPERATOR_AUTHOR, applyBoardDiff, applyOps, createBoard };
-export type { ApplyResult, Author };
+export { OPERATOR_AUTHOR, applyBoardDiff, applyOps, createBoard, stageOps };
+export type { ApplyResult, Author, StagedOps };

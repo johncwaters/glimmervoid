@@ -3,6 +3,7 @@ import { Worker } from 'node:worker_threads';
 
 import { boardStoreWorkerPath } from '../runtime-paths.ts';
 import { BOARD_STORE_FILENAME, StoreReply, boardDeltaOf, recordOfRows } from './board-store-core.ts';
+import type { StagedElements } from './board-store-core.ts';
 import type { Rect, StoreRequestBody } from './board-store-core.ts';
 import type { BoardRecord } from '../../shared/contracts/whiteboard.ts';
 
@@ -16,7 +17,7 @@ interface PendingRequest {
 interface BoardStore {
   loadAll(): Promise<{ records: BoardRecord[]; unreadableBoardIds: string[] }>;
   boardIds(): Promise<Set<string>>;
-  save(before: BoardRecord | null, after: BoardRecord): Promise<void>;
+  save(before: BoardRecord | null, after: BoardRecord, staged?: StagedElements | null): Promise<void>;
   saveMany(records: readonly BoardRecord[]): Promise<void>;
   remove(boardId: string): Promise<void>;
   setRects(boardId: string, rectsByElementId: Record<string, Rect>): Promise<void>;
@@ -84,7 +85,7 @@ function createBoardStore(boardsRoot: string): BoardStore {
   return {
     loadAll,
     boardIds: async () => new Set((await request({ kind: 'board-ids' })).boardIds ?? []),
-    save: async (before, after) => { await request({ kind: 'write', deltas: [boardDeltaOf(before, after)] }); },
+    save: async (before, after, staged = null) => { await request({ kind: 'write', deltas: [boardDeltaOf(before, after, staged)] }); },
     saveMany: async (records) => { await request({ kind: 'write', deltas: records.map((record) => boardDeltaOf(null, record)) }); },
     remove: async (boardId) => { await request({ kind: 'delete', boardId }); },
     setRects: async (boardId, rectsByElementId) => { await request({ kind: 'set-rects', boardId, rectsByElementId }); },

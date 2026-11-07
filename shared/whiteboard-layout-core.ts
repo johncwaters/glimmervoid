@@ -1,8 +1,9 @@
 import { BOX_CHANGES, UNIT_STATUSES } from './contracts/whiteboard.ts';
-import type { Board, Box, Element, Note, Panel, Unit, Wire } from './contracts/whiteboard.ts';
+import type { Board, Box, Note, Panel, Unit, Wire } from './contracts/whiteboard.ts';
 
 type BoxLine = Box['lines'][number];
 import { planSteps } from './whiteboard-plan-core.ts';
+import { elementsOfKind } from './whiteboard-board-index.ts';
 import { forEachSlotTouching, gridOfRects } from './spatial-grid-core.ts';
 import { cappedWarnings, labelWidthOf, pathOf, rectsOverlap, routeWires, touchingPairsWithin, unionOf, withoutBends } from './whiteboard-route-core.ts';
 import type { Point } from './whiteboard-route-core.ts';
@@ -158,7 +159,6 @@ type BoxShape = ReturnType<typeof measuredBoxShape>;
 
 const boxShapeCache = new WeakMap<Box, { lanes: Board['lanes']; shape: BoxShape }>();
 const noteShapeCache = new WeakMap<Note, NoteShape>();
-let elementsByKindCache = new WeakMap<Board['elements'], Map<Element['kind'], Element[]>>();
 
 function boxShape(board: Board, box: Box): BoxShape {
   const cached = boxShapeCache.get(box);
@@ -184,25 +184,6 @@ function measuredBoxShape(board: Board, box: Box) {
   return { titleLines, wasLines, bodyLines, lane, showsLanePill, headerHeight, outputs, mediaTop: textHeight + MEDIA_GAP, mediaSize, height: headerHeight + outputs.length * OUTPUT_ROW_HEIGHT };
 }
 
-function elementsByKindOf(elements: Board['elements']): Map<Element['kind'], Element[]> {
-  const cached = elementsByKindCache.get(elements);
-  if (cached) return cached;
-  const elementsByKind = new Map<Element['kind'], Element[]>();
-  for (const element of Object.values(elements)) {
-    const sameKind = elementsByKind.get(element.kind);
-    if (sameKind) {
-      sameKind.push(element);
-      continue;
-    }
-    elementsByKind.set(element.kind, [element]);
-  }
-  elementsByKindCache.set(elements, elementsByKind);
-  return elementsByKind;
-}
-
-function elementsOfKind<Kind extends Element['kind']>(board: Board, kind: Kind): readonly Extract<Element, { kind: Kind }>[] {
-  return (elementsByKindOf(board.elements).get(kind) ?? []).filter((element): element is Extract<Element, { kind: Kind }> => element.kind === kind);
-}
 
 function noteShape(note: Note): NoteShape {
   const cached = noteShapeCache.get(note);
@@ -714,7 +695,6 @@ function legendEntriesOf(board: Board, unitsById: ReadonlyMap<string, LaidOutUni
 }
 
 function layoutBoard(storedBoard: Board): BoardLayout {
-  elementsByKindCache = new WeakMap();
   const unitsById = layoutUnits(storedBoard);
   const freeformTop = planBandBottom(unitsById);
   const pinnedOffsetY = freeformTop - MARGIN;

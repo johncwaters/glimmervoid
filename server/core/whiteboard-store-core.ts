@@ -30,7 +30,7 @@ function pruneLog(record: BoardRecord): BoardRecord {
   return { ...record, log: unread.slice(-WHITEBOARD_LIMITS.logEntries) };
 }
 
-function recordPut(record: BoardRecord, result: Extract<ApplyResult, { ok: true }>): BoardRecord {
+function recordPut(record: BoardRecord, result: Pick<Extract<ApplyResult, { ok: true }>, 'board' | 'changes'>): BoardRecord {
   return pruneLog({ ...record, board: result.board, log: [...record.log, ...result.changes] });
 }
 
