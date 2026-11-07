@@ -130,7 +130,7 @@ test('a JSON board moves into the board store once, keeps its edits across resta
   }
 });
 
-test('a restart lists stored boards without reading their elements, and a board with a damaged element row refuses only its own reads', async () => {
+test('a restart lists stored boards without reading their elements, answers a view sent before it finished loading, and a board with a damaged element row refuses only its own reads', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-store-lazy-'));
   const first = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
   await first.loaded;
@@ -144,7 +144,9 @@ test('a restart lists stored boards without reading their elements, and a board 
   database.close();
 
   const restarted = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
-  await restarted.loaded;
+  const sentTypes: unknown[] = [];
+  await restarted.tiles.view({ send: (message) => sentTypes.push(message.type) }, { boardId: healthyId, view: { x: -100, y: -100, width: 800, height: 600 }, lod: 'full', knownVersion: null });
+  assert.deepEqual(sentTypes, ['whiteboard-tiles']);
   assert.deepEqual(restarted.snapshotMessage().boards.map((board) => board.title).sort(), ['Damaged rows', 'Healthy rows']);
   const damagedRead = await restarted.handleOperator.get(damagedId);
   assert.equal(damagedRead.ok, false);

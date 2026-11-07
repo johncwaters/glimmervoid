@@ -302,10 +302,6 @@ export function boardMediaDrawnFilename(media: Pick<BoxMedia, 'kind' | 'asset' |
   return media.kind === 'image' ? boardMediaOriginalFilename(media) : null;
 }
 
-export function sparseBoardRecord(record: BoardRecord): unknown {
-  return withoutDefaults(BoardRecord, record);
-}
-
 export function sparseElement(element: Element): unknown {
   return withoutDefaults(Element, element);
 }

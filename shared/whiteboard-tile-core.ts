@@ -3,7 +3,6 @@ import { sparseElement, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Board, BoardOutline, Element } from './contracts/whiteboard.ts';
 import type { BoardChrome, LaidOutElement, PaintedElement, Tile, TileDiff, TileKey, TileLod } from './contracts/whiteboard-tiles.ts';
 import type { BoardLayout, Rect } from './whiteboard-layout-core.ts';
-import { elementSignature } from './whiteboard-layout-core.ts';
 import { forEachSlotTouching, gridOfRects, placeSlot, removeSlot } from './spatial-grid-core.ts';
 import type { SpatialGrid } from './spatial-grid-core.ts';
 import { labelWidthOf, pointsOfPath } from './whiteboard-route-core.ts';
@@ -24,7 +23,6 @@ interface TileIndex {
   chrome: BoardChrome;
   painted: (PaintedElement | null)[];
   bounds: (Rect | null)[];
-  signatures: (string | null)[];
   slotById: Map<string, number>;
   grid: SpatialGrid;
 }
@@ -163,7 +161,6 @@ function tileIndexOf(layout: BoardLayout, version: number, board: Board): TileIn
     chrome: chromeOf(layout),
     painted,
     bounds,
-    signatures: layout.elements.map(elementSignature),
     slotById: new Map(layout.elements.map((element, slot) => [element.id, slot])),
     grid: gridOfRects(bounds, CHUNK_SIZE),
   };
@@ -334,7 +331,6 @@ function patchTileIndex(index: TileIndex, board: Board, patch: TilePatch): TileC
     index.slotById.delete(id);
     index.painted[slot] = null;
     index.bounds[slot] = null;
-    index.signatures[slot] = null;
     removeSlot(index.grid, slot);
     removedIds.push(id);
   }
@@ -347,7 +343,6 @@ function patchTileIndex(index: TileIndex, board: Board, patch: TilePatch): TileC
     index.slotById.set(element.id, slot);
     index.painted[slot] = paintedAt(board, element, slot);
     index.bounds[slot] = bounds;
-    index.signatures[slot] = elementSignature(element);
     placeSlot(index.grid, slot, bounds);
     changedSlots.push({ slot, rects });
     touchedRects.push(...rects);

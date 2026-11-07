@@ -13,10 +13,12 @@ import { z } from 'zod';
 import { boardReading } from '../../mcp/core/board-reading.ts';
 import { toolResultFromReply } from '../../mcp/core/tool-result.ts';
 import { createBackend } from '../../server/backend/backend.ts';
+import { createBoardStore } from '../../server/whiteboard/board-store-client.ts';
+import { BOARD_STORE_FILENAME } from '../../server/whiteboard/board-store-core.ts';
 import { WHITEBOARDS_FOLDER_NAME } from '../../server/whiteboard/whiteboard-wiring.ts';
-import { sparseBoardRecord } from '../../shared/contracts/whiteboard.ts';
-import type { Board, BoxMedia, Op } from '../../shared/contracts/whiteboard.ts';
+import type { Board, BoardRecord, BoxMedia, Op } from '../../shared/contracts/whiteboard.ts';
 import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
+import type { BoardLayout } from '../../shared/whiteboard-layout-core.ts';
 import { boardOutlineOf, defaultFocusOf, elementIdsTouching, elementPageOf, fitsOnePage, tileIndexOf } from '../../shared/whiteboard-tile-core.ts';
 import { isolateTranscriptHomes } from '../../tests/helpers/transcript-homes.ts';
 import { runCommand, snapshotEnvironment } from '../site-capture/isolated-glimmervoid.ts';
@@ -49,6 +51,9 @@ const BOARD_TITLE = 'Bench board';
 const PUT_BATCH_SIZES = [1, 10, 100] as const;
 const PUT_ROUNDS = 10;
 const LAYOUT_RUNS = 3;
+const SINGLE_LAYOUT_RUN_FROM_ELEMENTS = 100_000;
+const OPEN_VIEW = { x: 0, y: 0, width: DESKTOP_VIEWPORT.width, height: DESKTOP_VIEWPORT.height };
+const PANNED_VIEW = { ...OPEN_VIEW, x: DESKTOP_VIEWPORT.width * 4 };
 const PAN_FRAMES = 120;
 const ZOOM_FRAMES = 40;
 const DRAG_STEPS = 60;
@@ -57,6 +62,7 @@ const FRAME_BUDGET_MS = 1000 / 60;
 const DROPPED_FRAME_FACTOR = 1.5;
 const CONTROL_REPLY_TIMEOUT_MS = 120_000;
 const OPEN_TIMEOUT_MS = 180_000;
+const FIRST_VIEW_TIMEOUT_MS = 900_000;
 const SHUTDOWN_CAP_MS = 5_000;
 const MEDIA_EVERY_NTH_BOX = 10;
 const PAGE_EVERY_NTH_MEDIA = 8;
@@ -142,27 +148,26 @@ async function withBenchMedia(board: Board, assetsRoot: string): Promise<number>
   return mediaCount;
 }
 
-async function seedBoard(configPath: string, elementCount: number, hasMedia: boolean): Promise<{ board: Board; fileBytes: number; mediaCount: number }> {
+async function benchBoardRecordOf(elementCount: number, boardsRoot: string, hasMedia: boolean): Promise<{ record: BoardRecord; mediaCount: number }> {
   const record = generateBoardRecord({ elementCount, seed: elementCount, boardId: BOARD_ID, title: BOARD_TITLE, createdAt: Date.now() });
-  const boardsRoot = path.join(path.dirname(configPath), WHITEBOARDS_FOLDER_NAME);
   await fs.promises.mkdir(boardsRoot, { recursive: true });
   const mediaCount = hasMedia ? await withBenchMedia(record.board, path.join(boardsRoot, 'assets')) : 0;
-  const serialized = JSON.stringify(sparseBoardRecord(record));
-  await fs.promises.writeFile(path.join(boardsRoot, `${BOARD_ID}.json`), serialized, { mode: 0o600 });
-  return { board: record.board, fileBytes: Buffer.byteLength(serialized), mediaCount };
+  return { record, mediaCount };
 }
 
-function measureLayoutMs(board: Board): number {
-  const runsMs = Array.from({ length: LAYOUT_RUNS }, () => {
+function measureLayout(board: Board): { layoutMs: number; layout: BoardLayout } {
+  const runCount = Object.keys(board.elements).length >= SINGLE_LAYOUT_RUN_FROM_ELEMENTS ? 1 : LAYOUT_RUNS;
+  const runs = Array.from({ length: runCount }, () => {
     const startedAt = performance.now();
-    layoutBoard(board);
-    return performance.now() - startedAt;
+    const layout = layoutBoard(board);
+    return { layout, elapsedMs: performance.now() - startedAt };
   });
-  return median(runsMs);
+  const lastRun = runs.at(-1);
+  if (!lastRun) throw new Error('the layout ran no times');
+  return { layoutMs: median(runs.map((run) => run.elapsedMs)), layout: lastRun.layout };
 }
 
-function mcpGetReplyBody(board: Board): Record<string, unknown> {
-  const layout = layoutBoard(board);
+function mcpGetReplyBody(board: Board, layout: BoardLayout): Record<string, unknown> {
   if (fitsOnePage(board)) return { ok: true, board, changes: [], readingVersion: board.version, ...boardReading(board, layout.warnings) };
   const index = tileIndexOf(layout, board.version, board);
   const focus = defaultFocusOf(index);
@@ -170,11 +175,33 @@ function mcpGetReplyBody(board: Board): Record<string, unknown> {
   return { ok: true, board: summary, outline: boardOutlineOf(board, index, focus), focus, elements: elementPageOf(board, elementIdsTouching(index, focus), 0).elements, nextCursor: null, changes: [] };
 }
 
-function measureMcpChars(board: Board): number {
-  return JSON.stringify(toolResultFromReply({ status: 200, body: mcpGetReplyBody(board) })).length;
+function measureMcpChars(board: Board, layout: BoardLayout): number {
+  return JSON.stringify(toolResultFromReply({ status: 200, body: mcpGetReplyBody(board, layout) })).length;
+}
+
+function viewRequest(socket: WebSocket, view: typeof OPEN_VIEW, knownVersion: number | null): Promise<{ version: number; tileCount: number; replyBytes: number; elapsedMs: number }> {
+  const startedAt = performance.now();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.off('message', onMessage);
+      reject(new Error(`whiteboard-view got no tiles in ${FIRST_VIEW_TIMEOUT_MS} ms`));
+    }, FIRST_VIEW_TIMEOUT_MS);
+    function onMessage(data: Buffer | ArrayBuffer | Buffer[]): void {
+      const text = Array.isArray(data) ? Buffer.concat(data).toString() : Buffer.from(new Uint8Array(data)).toString();
+      if (!text.includes('"whiteboard-tiles"')) return;
+      const parsed = TilesReplySchema.safeParse(JSON.parse(text));
+      if (!parsed.success || parsed.data.boardId !== BOARD_ID) return;
+      clearTimeout(timer);
+      socket.off('message', onMessage);
+      resolve({ version: parsed.data.version, tileCount: parsed.data.tiles.length, replyBytes: Buffer.byteLength(text), elapsedMs: performance.now() - startedAt });
+    }
+    socket.on('message', onMessage);
+    socket.send(JSON.stringify({ type: 'whiteboard-view', requestId: `bench-view-${startedAt}`, boardId: BOARD_ID, view, lod: 'full', knownVersion }));
+  });
 }
 
 const ControlReplySchema = z.object({ requestId: z.string(), ok: z.boolean(), error: z.string().nullish() });
+const TilesReplySchema = z.object({ type: z.literal('whiteboard-tiles'), boardId: z.string(), version: z.number(), tiles: z.array(z.unknown()) });
 
 type ControlReply = z.infer<typeof ControlReplySchema>;
 
@@ -207,9 +234,14 @@ function retitleOps(boxIds: readonly string[], count: number, round: number, nex
   });
 }
 
-async function measurePuts(socket: WebSocket, board: Board): Promise<WhiteboardMetric[]> {
-  const boxIds = boxIdsOf(board);
-  const nextRandom = seededRandom(board.version + boxIds.length);
+interface SeededBoard {
+  boxIds: string[];
+  version: number;
+  metrics: WhiteboardMetric[];
+}
+
+async function measurePuts(socket: WebSocket, { boxIds, version }: SeededBoard): Promise<WhiteboardMetric[]> {
+  const nextRandom = seededRandom(version + boxIds.length);
   const metrics: WhiteboardMetric[] = [];
   for (const batchSize of PUT_BATCH_SIZES) {
     const runsMs: number[] = [];
@@ -357,22 +389,45 @@ async function stopBackend(backend: ReturnType<typeof createBackend>, httpServer
   await new Promise<void>((resolve) => { httpServer.close(() => resolve()); });
 }
 
+async function seedAndMeasureStore(configPath: string, elementCount: number, options: WhiteboardBenchOptions): Promise<SeededBoard> {
+  const boardsRoot = path.join(path.dirname(configPath), WHITEBOARDS_FOLDER_NAME);
+  const { record, mediaCount } = await benchBoardRecordOf(elementCount, boardsRoot, options.hasMedia);
+  await createBoardStore(boardsRoot).saveMany([record]);
+  const storeFilenames = (await fs.promises.readdir(boardsRoot)).filter((filename) => filename.startsWith(BOARD_STORE_FILENAME));
+  const storeFileSizes = await Promise.all(storeFilenames.map(async (filename) => (await fs.promises.stat(path.join(boardsRoot, filename))).size));
+  const fileBytes = storeFileSizes.reduce((total, size) => total + size, 0);
+  const metrics: WhiteboardMetric[] = [
+    metricOf('media-count', 'Boxes carrying media', 'count', mediaCount),
+    metricOf('file-bytes', 'Stored board size', 'bytes', fileBytes),
+  ];
+  return { boxIds: boxIdsOf(record.board), version: record.board.version, metrics };
+}
+
+async function measureInProcessLayout(elementCount: number, options: WhiteboardBenchOptions): Promise<WhiteboardMetric[]> {
+  const scratchDirectory = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-whiteboard-layout-'));
+  try {
+    const { record: { board } } = await benchBoardRecordOf(elementCount, scratchDirectory, options.hasMedia);
+    const { layoutMs, layout } = measureLayout(board);
+    const metrics = [metricOf('layout', 'Whole-board layout', 'ms', layoutMs)];
+    if (options.sections.includes('mcp')) metrics.push(metricOf('mcp-get-chars', 'MCP whiteboard get tool result, text plus structured copy', 'chars', measureMcpChars(board, layout)));
+    return metrics;
+  } finally {
+    removeHarnessTempDirectory(scratchDirectory);
+  }
+}
+
 async function measureSize(elementCount: number, options: WhiteboardBenchOptions, browser: Browser | null): Promise<WhiteboardMetric[]> {
   const tempDirectory = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-whiteboard-bench-'));
   const restoreEnvironment = snapshotEnvironment();
   const httpServer = http.createServer();
   let backend: ReturnType<typeof createBackend> | undefined;
   let controlSocket: WebSocket | undefined;
+  let seeded: SeededBoard | undefined;
   try {
     isolateTranscriptHomes(tempDirectory);
     const { port, configPath } = await prepareIsolatedEnvironment({ tempDirectory, repoRoots: [], recordSessions: false });
-    const { board, fileBytes, mediaCount } = await seedBoard(configPath, elementCount, options.hasMedia);
-    const metrics: WhiteboardMetric[] = [
-      metricOf('media-count', 'Boxes carrying media', 'count', mediaCount),
-      metricOf('file-bytes', 'Stored board size', 'bytes', fileBytes),
-      metricOf('layout', 'Whole-board layout', 'ms', measureLayoutMs(board)),
-    ];
-    if (options.sections.includes('mcp')) metrics.push(metricOf('mcp-get-chars', 'MCP whiteboard get tool result, text plus structured copy', 'chars', measureMcpChars(board)));
+    seeded = await seedAndMeasureStore(configPath, elementCount, options);
+    const { metrics } = seeded;
     const rssBeforeBoot = process.memoryUsage().rss;
     backend = createBackend(httpServer, { staticDir: 'auto' });
     httpServer.on('request', backend.app);
@@ -381,24 +436,24 @@ async function measureSize(elementCount: number, options: WhiteboardBenchOptions
       httpServer.listen(port, '127.0.0.1', () => resolve());
     });
     controlSocket = await connectControl(port);
-    const firstGet = await controlRequest(controlSocket, 'whiteboard-get', { boardId: BOARD_ID });
-    if (!firstGet.reply.ok) throw new Error(`the seeded board did not load: ${firstGet.reply.error ?? 'no reason'}`);
-    const warmGet = await controlRequest(controlSocket, 'whiteboard-get', { boardId: BOARD_ID });
+    const firstView = await viewRequest(controlSocket, OPEN_VIEW, null);
+    if (firstView.tileCount === 0) throw new Error('the seeded board sent no tiles for the open view');
+    const pannedView = await viewRequest(controlSocket, PANNED_VIEW, firstView.version);
     metrics.push(
-      metricOf('get-first', 'First get over the control socket', 'ms', firstGet.elapsedMs),
-      metricOf('get-warm', 'Warm get over the control socket', 'ms', warmGet.elapsedMs),
-      metricOf('get-bytes', 'Get reply size', 'bytes', warmGet.replyBytes),
+      metricOf('view-first', 'First open view over the control socket, board load and layout included', 'ms', firstView.elapsedMs),
+      metricOf('view-pan', 'Panned view over the control socket, warm', 'ms', pannedView.elapsedMs),
+      metricOf('view-bytes', 'Open view reply size, head and tiles in view', 'bytes', firstView.replyBytes),
       metricOf('rss-growth', 'Server RSS growth after boot and open', 'mb', megabytes(process.memoryUsage().rss - rssBeforeBoot)),
-      ...await measurePuts(controlSocket, board),
+      ...await measurePuts(controlSocket, seeded),
     );
     if (browser && options.sections.includes('browser')) metrics.push(...await measureBrowser(browser, port));
-    return metrics;
   } finally {
     controlSocket?.terminate();
     if (backend) await stopBackend(backend, httpServer);
     removeHarnessTempDirectory(tempDirectory);
     restoreEnvironment();
   }
+  return [...seeded.metrics, ...await measureInProcessLayout(elementCount, options)];
 }
 
 async function launchBenchBrowser(executablePath: string | undefined): Promise<Browser> {

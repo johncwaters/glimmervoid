@@ -843,6 +843,7 @@ function createWhiteboardWiring({
 
   const tilesOnFirstUse: WhiteboardPort['tiles'] = {
     view: async (viewer, request) => {
+      await loaded;
       await loadedRecordOf(request.boardId);
       return tiles.view(viewer, request);
     },
