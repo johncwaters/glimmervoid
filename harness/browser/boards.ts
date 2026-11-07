@@ -504,9 +504,7 @@ async function createBoardOverControl(page: Page, boardTitle: string): Promise<s
 
 async function showBoardInFocus(page: Page, sessionId: string, boardTitle: string): Promise<Locator> {
   await page.locator(`.focus-rail .session-row[data-id="${sessionId}"] .session-row-glyph`).first().click();
-  const boardTab = page.locator('.pane-tab[data-tab="board"]');
-  await boardTab.click();
-  await page.locator('.pane-tab[data-tab="board"][aria-selected="true"]').waitFor();
+  await page.locator('#focus-pane-board').waitFor({ state: 'visible' });
   const center = page.locator('#focus-center');
   await openBoardTitle(center, boardTitle).waitFor();
   return center;
@@ -729,13 +727,13 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   await page.locator(`.focus-rail .session-row[data-id="${sessionId}"] .session-row-glyph`).first().click();
   const card = page.locator(`.session-card[data-id="${sessionId}"]`).first();
   await card.waitFor({ state: 'visible' });
-  assert.equal(await page.locator('.pane-tab[data-tab="board"]').count(), 0, 'a session with no board shows Terminal only');
-  await verifyPaneTerminalTabOwnsTheFace(page, card);
+  assert.equal(await page.locator('.pane-layout').getAttribute('data-direction'), 'single', 'a session with no board shows Terminal only');
+  assert.equal(await page.locator('.pane-tab').count(), 0, 'Focus shows no pane tabs');
+  await verifyPlanFaceMinimizesToTerminal(page, card);
   await card.getByRole('button', { name: 'Session actions', exact: true }).click();
   await card.locator('.overflow-connect-board').click();
   await page.getByRole('combobox', { name: 'Board to connect', exact: true }).selectOption({ label: boardTitle });
   await page.getByRole('button', { name: 'Connect', exact: true }).click();
-  await page.locator('.pane-tab[data-tab="board"]').waitFor();
   await page.locator('#focus-pane-board').waitFor({ state: 'visible' });
   assert.equal(await page.locator('#focus-pane-terminal').isVisible(), true, 'a board arriving for the centered session splits the pane and keeps Terminal showing');
   assert.notEqual(await page.locator('.pane-layout').getAttribute('data-direction'), 'single', 'a board arriving for the centered session opens the stored split');
@@ -749,12 +747,11 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   const panel = page.locator('#focus-center');
   const open: OpenBoard = { page, panel, boardId };
   await openBoardTitle(panel, boardTitle).waitFor();
-  await page.locator('.pane-tab[data-tab="board"][aria-selected="true"]').waitFor();
   await verifyBoardToolsInBoardPane(panel, boardTitle);
   const canvasBox = await panel.locator('.wb-canvas').boundingBox();
   const cardBox = await card.boundingBox();
   assert.ok(canvasBox && cardBox);
-  assert.ok(canvasBox.y + canvasBox.height <= cardBox.y, 'the default layout puts the board above the terminal');
+  assert.ok(canvasBox.x >= cardBox.x + cardBox.width, 'the default layout puts the board right of the terminal');
   await page.waitForFunction((id) => document.querySelector(`#focus-pane-terminal .session-card[data-id="${id}"]`)?.getAttribute('data-grid') === 'exact', sessionId);
   const agentIsland = panel.getByRole('toolbar', { name: 'Session', exact: true });
   assert.equal(await agentIsland.isVisible(), false, 'the session island stays hidden while the session has read every change');
@@ -803,7 +800,7 @@ async function verifySessionlessBoardRows(page: Page, panel: Locator, sessionId:
   assert.equal(await page.locator('.focus-board-list .session-row', { hasText: `Second plan ${sessionId.slice(0, 8)}` }).count(), 0, 'a board connected to a session has no BOARD row');
   await laterRow.click();
   await openBoardTitle(panel, laterTitle).waitFor();
-  await page.locator('.pane-tab[data-tab="terminal"]').waitFor({ state: 'hidden' });
+  await page.locator('#focus-pane-terminal').waitFor({ state: 'hidden' });
   await verifyMergeShortcutIgnoredWhileBoardCentered(page, projectDirectory);
   await verifyRailArrowsReachBoardRows(page);
   await panel.getByRole('button', { name: 'board menu', exact: true }).click();
@@ -818,7 +815,7 @@ async function verifySessionlessBoardRows(page: Page, panel: Locator, sessionId:
   await openBoardTitle(panel, railTitle).waitFor();
   await page.locator('.focus-board-list .session-row.focused', { hasText: railTitle }).waitFor();
   await page.locator(`.focus-rail .session-row[data-id="${sessionId}"] .session-row-glyph`).first().click();
-  await page.locator('.pane-tab[data-tab="terminal"]').waitFor();
+  await page.locator('#focus-pane-terminal').waitFor({ state: 'visible' });
   assert.equal(await page.locator('.focus-board-list .session-row.focused').count(), 0, 'picking a session leaves the board row');
 }
 
@@ -834,7 +831,7 @@ async function verifyBoardPaneFallsBackToSessionBoard(page: Page, panel: Locator
   await openBoardMenuItem(page, panel, 'delete board');
   await page.getByRole('button', { name: 'Delete board', exact: true }).click();
   await openBoardTitle(panel, secondTitle).waitFor();
-  assert.equal(await page.locator('.pane-tab[data-tab="board"]').count(), 1, 'the session keeps its Board tab while it has a board');
+  assert.equal(await page.locator('#focus-pane-board').isVisible(), true, 'the session keeps its board pane while it has a board');
   await panel.getByRole('button', { name: 'board menu', exact: true }).click();
   await page.getByRole('menuitemradio', { name: unrelatedTitle }).click();
   await openBoardTitle(panel, unrelatedTitle).waitFor();
@@ -872,8 +869,8 @@ async function verifyRailArrowsReachBoardRows(page: Page): Promise<void> {
   await page.locator('.rail-boards-details').evaluate((details) => { if (details instanceof HTMLDetailsElement) details.open = true; });
 }
 
-async function verifyPaneTerminalTabOwnsTheFace(page: Page, card: Locator): Promise<void> {
-  assert.equal(await page.locator('.card-face-tabs').count(), 0, 'Terminal shows once, on the pane tab, with no view tabs beside it');
+async function verifyPlanFaceMinimizesToTerminal(page: Page, card: Locator): Promise<void> {
+  assert.equal(await page.locator('.card-face-tabs').count(), 0, 'Terminal shows once, with no view tabs');
   const sessionId = await card.getAttribute('data-id');
   const isPlanShown = await page.evaluate(async (id) => {
     const cardFacesUrl = '/session-card/card-faces.ts';
@@ -882,7 +879,7 @@ async function verifyPaneTerminalTabOwnsTheFace(page: Page, card: Locator): Prom
     return cardFaces.showSessionPlanFace(id);
   }, sessionId);
   assert.equal(isPlanShown, true, 'the centered card switches to its Plan face');
-  await page.locator('.pane-tab[data-tab="terminal"]').click();
+  await card.getByRole('button', { name: 'Minimize', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('#focus-pane-terminal .session-card')?.getAttribute('data-face') === 'terminal');
 }
 
@@ -890,7 +887,7 @@ async function verifyBoardToolsInBoardPane(panel: Locator, boardTitle: string): 
   await openBoardTitle(panel, boardTitle).waitFor();
   const boardPane = panel.locator('#focus-pane-board');
   assert.equal(await boardPane.locator('.wb-top-left').isVisible(), true, 'the board tools sit inside the Board pane');
-  assert.equal(await panel.locator('.pane-strip .wb-top-left').count(), 0, 'the tab row carries no board tools');
+  assert.equal(await panel.locator('.pane-strip .wb-top-left').count(), 0, 'the board title bar carries no board tools');
   assert.equal(await boardPane.locator('.wb-presence .wb-presence-pill:not(.wb-presence-count)').count(), 0, 'the board names no pill for the only connected session, the one centered beside it');
 }
 

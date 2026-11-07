@@ -78,7 +78,7 @@ export async function readOriginFile(originPath: string, fileName: string): Prom
 
 async function readReviewBarPlaces(page: Page): Promise<number[]> {
   await page.locator('.session-page-button[data-page="changes"]:not([data-slot-held])').waitFor();
-  return page.evaluate(() => ['.pane-tab[data-tab="terminal"]', '.session-page-bar [data-action="open-changes"]'].map((selector) => document.querySelector(selector)?.getBoundingClientRect().left ?? -1));
+  return page.evaluate(() => ['#focus-pane-terminal .session-name', '.session-page-bar [data-action="open-changes"]'].map((selector) => document.querySelector(selector)?.getBoundingClientRect().left ?? -1));
 }
 
 async function waitForReaderStatus(page: Page, sentence: string): Promise<void> {

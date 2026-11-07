@@ -631,6 +631,10 @@
     {
       "name": "connection",
       "definition": "A live WebSocket between two Glimmervoid parts: a dashboard's control or data WebSocket to the server, or the vault companion's WebSocket to a server's job inbox; a dropped one is retried with backoff"
+    },
+    {
+      "name": "pane",
+      "definition": "One window in the Focus center, the terminal or the board, each with its own title bar; with a board open beside a session the two panes sit side by side or stacked"
     }
   ]
 }

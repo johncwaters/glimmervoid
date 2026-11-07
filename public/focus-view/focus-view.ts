@@ -31,7 +31,7 @@ import { buildSessionRow, paintBoardRow, paintSessionRow, wrapSessionRow } from 
 import { describeFailure } from '../client-error-core.ts';
 import { reportToServerLog } from '../control-ws.ts';
 import { boardSummariesOf, boardsConnectedTo, onBoardListChanged, takeOpenBoardRequest } from '../whiteboard/board-store.ts';
-import type { PaneTab } from '#shared/contracts/focus-layout.ts';
+import type { Pane } from '#shared/contracts/focus-layout.ts';
 import type { PaneLayout } from './pane-layout.ts';
 import { createPaneLayout } from './pane-layout.ts';
 import { registerSessionPages } from '../session-pages/pages.ts';
@@ -44,9 +44,9 @@ type RosterRow = SessionRow<SessionUi, string | null>;
 
 type BoardsViewModule = typeof import('../whiteboard/boards-view.ts');
 
-const TERMINAL_ONLY: ReadonlySet<PaneTab> = new Set<PaneTab>(['terminal']);
-const TERMINAL_AND_BOARD: ReadonlySet<PaneTab> = new Set<PaneTab>(['terminal', 'board']);
-const BOARD_ONLY: ReadonlySet<PaneTab> = new Set<PaneTab>(['board']);
+const TERMINAL_ONLY: ReadonlySet<Pane> = new Set<Pane>(['terminal']);
+const TERMINAL_AND_BOARD: ReadonlySet<Pane> = new Set<Pane>(['terminal', 'board']);
+const BOARD_ONLY: ReadonlySet<Pane> = new Set<Pane>(['board']);
 
 const projectPathOf = (row: RosterRow) => row.ui.path;
 const hostOfRow = (row: RosterRow) => hostGroupOf(row.id);
@@ -70,7 +70,7 @@ let boardsViewLoad: Promise<BoardsViewModule> | null = null;
 let loadedBoardsView: BoardsViewModule | null = null;
 let boardPairedSessionId: string | null = null;
 let pairedBoardId: string | null = null;
-let shownPaneTabs: ReadonlySet<PaneTab> | null = null;
+let shownPanes: ReadonlySet<Pane> | null = null;
 let centeredBoardId: string | null = null;
 let boardsGroup: ReturnType<typeof buildBoardsGroup> | null = null;
 const boardRowById = new Map<string, BoardRow>();
@@ -171,7 +171,6 @@ export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | 
   emptyDescEl = emptyEl.querySelector<HTMLElement>('.focus-empty-desc');
 
   paneLayout = createPaneLayout();
-  paneLayout.element.addEventListener('click', showTerminalFaceOnTerminalTab);
   cardSlotEl = paneLayout.bodyOf('terminal');
   boardsGroup = buildBoardsGroup();
   registerSessionPages();
@@ -191,7 +190,7 @@ export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | 
   mountedRail.addEventListener('keydown', onRailKeydown);
 }
 
-const RAIL_BOUNDS = { minPx: 180, maxPx: 480 };
+const RAIL_BOUNDS = { minPx: 280, maxPx: 480 };
 const RAIL_KEY_STEP_PX = 16;
 
 function wireRailResizer(resizer: HTMLElement | null) {
@@ -531,7 +530,7 @@ function borrowToCenter(ui: SessionUi, id: string) {
     className: 'focus-centered',
     onRelease: () => {
       header?.classList.remove('pane-header');
-      paneLayout?.setStripHost('terminal', null);
+      paneLayout?.setHeaderHost('terminal', null);
     },
   });
   header?.classList.add('pane-header');
@@ -541,15 +540,9 @@ function borrowToCenter(ui: SessionUi, id: string) {
 
 function moveStripToHeaderStart(header: HTMLElement) {
   const firstOwnChild = header.querySelector<HTMLElement>(':scope > .session-name');
-  paneLayout?.setStripHost('terminal', { parent: header, before: firstOwnChild });
+  paneLayout?.setHeaderHost('terminal', { parent: header, before: firstOwnChild });
 }
 
-function showTerminalFaceOnTerminalTab(event: MouseEvent) {
-  if (!(event.target instanceof Element) || !event.target.closest('.pane-tab[data-tab="terminal"]')) return;
-  const centeredId = getFocusedSessionId();
-  const ui = centeredId ? sessionUIs.get(centeredId) : null;
-  if (ui && ui.face !== 'terminal') ui._showTerminalFace?.();
-}
 
 function loadBoardsView() {
   boardsViewLoad ??= import('../whiteboard/boards-view.ts').then((boardsView) => {
@@ -564,14 +557,14 @@ function reportBoardsViewLoadFailure(error: unknown) {
   reportToServerLog('focus', `the board pane failed to load: ${describeFailure(error)}`);
 }
 
-function showPaneTabs(tabs: ReadonlySet<PaneTab>) {
-  if (!paneLayout || shownPaneTabs === tabs) return;
-  shownPaneTabs = tabs;
-  paneLayout.showTabs(tabs);
+function showPanes(panes: ReadonlySet<Pane>) {
+  if (!paneLayout || shownPanes === panes) return;
+  shownPanes = panes;
+  paneLayout.showPanes(panes);
 }
 
 function paintBoardOnlyPane(boardId: string) {
-  showPaneTabs(BOARD_ONLY);
+  showPanes(BOARD_ONLY);
   const isNewSubject = boardPairedSessionId !== null || pairedBoardId !== boardId;
   boardPairedSessionId = null;
   pairedBoardId = boardId;
@@ -586,7 +579,7 @@ function paintBoardPane(requestedBoardId: string | null = null) {
   const centeredId = getFocusedSessionId();
   const connectedBoards = centeredId ? boardsConnectedTo(centeredId) : [];
   const [newestBoard] = connectedBoards;
-  showPaneTabs(newestBoard ? TERMINAL_AND_BOARD : TERMINAL_ONLY);
+  showPanes(newestBoard ? TERMINAL_AND_BOARD : TERMINAL_ONLY);
   if (!centeredId || !newestBoard) {
     boardPairedSessionId = null;
     pairedBoardId = null;
@@ -605,7 +598,7 @@ function placeBoardPane(boardsView: BoardsViewModule, sessionId: string | null, 
   const boardBody = paneLayout.bodyOf('board');
   const host = boardsView.mountBoardHost();
   if (host.parentElement !== boardBody) boardBody.replaceChildren(host);
-  boardsView.placeBoardTitle(paneLayout.titleSlotOf('board'));
+  boardsView.placeBoardTitle(paneLayout.boardTitleSlot);
   if (boardId) boardsView.showBoardBeside(boardId, sessionId);
 }
 
@@ -619,7 +612,6 @@ export function openRequestedBoardInFocus() {
   if (!active || !request?.sessionId || !sessionUIs.has(request.sessionId)) return;
   focusSession(request.sessionId);
   paintBoardPane(request.boardId);
-  paneLayout?.showTab('board');
 }
 
 function releaseCenter() {

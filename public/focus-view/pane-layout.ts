@@ -1,42 +1,40 @@
-import type { FocusLayout, PaneTab } from '#shared/contracts/focus-layout.ts';
+import type { FocusLayout, Pane } from '#shared/contracts/focus-layout.ts';
 import { el } from '../dom-helpers.ts';
-import { createPressable } from '../ui/pressable.ts';
 import { getFocusLayout, setFocusLayout } from '../ui-prefs.ts';
-import type { VisibleLayout } from './pane-layout-core.ts';
-import { activateTab, dropZoneAt, moveTab, resizeSplit, trailGroupIndex, visibleLayout } from './pane-layout-core.ts';
+import { dropZoneAt, moveBoard, resizeSplit } from './pane-layout-core.ts';
 
-const TAB_LABELS: Record<PaneTab, string> = { terminal: 'Terminal', board: 'Board' };
-const PANE_TABS: readonly PaneTab[] = ['terminal', 'board'];
+const PANES: readonly Pane[] = ['terminal', 'board'];
 const DIVIDER_KEY_STEP = 0.05;
-const DRAG_MIME = 'application/x-glimmervoid-pane-tab';
+const BOARD_DRAG_MIME = 'application/x-glimmervoid-board-pane';
 
-interface StripHost {
+interface HeaderHost {
   parent: HTMLElement;
   before: Element | null;
 }
 
-interface GroupParts {
-  group: HTMLElement;
-  strip: HTMLElement;
-  tabList: HTMLElement;
+interface PaneParts {
+  section: HTMLElement;
+  header: HTMLElement;
   body: HTMLElement;
 }
 
 export interface PaneLayout {
   element: HTMLElement;
   trailSlot: HTMLElement;
-  bodyOf: (tab: PaneTab) => HTMLElement;
-  titleSlotOf: (tab: PaneTab) => HTMLElement;
-  setStripHost: (tab: PaneTab, host: StripHost | null) => void;
-  showTabs: (shownTabs: ReadonlySet<PaneTab>) => void;
-  showTab: (tab: PaneTab) => void;
+  bodyOf: (pane: Pane) => HTMLElement;
+  boardTitleSlot: HTMLElement;
+  setHeaderHost: (pane: Pane, host: HeaderHost | null) => void;
+  showPanes: (shownPanes: ReadonlySet<Pane>) => void;
+  onBoardDrag: (listener: (isDragging: boolean) => void) => void;
 }
+
+const UNEDITABLE_DRAG_TARGETS = 'input, textarea, select, button, [contenteditable="true"]';
 
 export function createPaneLayout(): PaneLayout {
   let layout: FocusLayout = getFocusLayout();
-  let shownTabs: ReadonlySet<PaneTab> = new Set<PaneTab>(['terminal']);
-  let shown: VisibleLayout = visibleLayout(layout, shownTabs);
-  let draggedTab: PaneTab | null = null;
+  let shownPanes: ReadonlySet<Pane> = new Set<Pane>(['terminal']);
+  let isBoardDragging = false;
+  const boardDragListeners: ((isDragging: boolean) => void)[] = [];
 
   const element = el('div', 'pane-layout');
   const trailSlot = el('div', 'pane-trail');
@@ -45,84 +43,67 @@ export function createPaneLayout(): PaneLayout {
   divider.setAttribute('aria-label', 'Resize panes');
   divider.tabIndex = 0;
 
-  const bodyByTab: Record<PaneTab, HTMLElement> = { terminal: buildBody('terminal'), board: buildBody('board') };
-  const tabButtonByTab: Record<PaneTab, HTMLButtonElement> = { terminal: buildTabButton('terminal'), board: buildTabButton('board') };
-  const titleSlotByTab: Record<PaneTab, HTMLElement> = { terminal: buildTitleSlot('terminal'), board: buildTitleSlot('board') };
-  const stripHostByTab = new Map<PaneTab, StripHost>();
-  const groupParts: GroupParts[] = [buildGroup(0), buildGroup(1)];
+  const partsByPane: Record<Pane, PaneParts> = { terminal: buildPane('terminal'), board: buildPane('board') };
+  const boardTitleSlot = el('div', 'pane-title');
+  const headerHostByPane = new Map<Pane, HeaderHost>();
+  partsByPane.board.header.append(boardTitleSlot);
+  partsByPane.terminal.header.append(trailSlot);
+  wireBoardHeaderDrag(partsByPane.board.header);
+  wireTerminalDropZones(partsByPane.terminal.section);
 
-  function buildBody(tab: PaneTab): HTMLElement {
+  function buildPane(pane: Pane): PaneParts {
+    const section = el('section', 'pane-group');
+    section.dataset.pane = pane;
+    const header = el('div', 'pane-strip pane-header');
     const body = el('div', 'pane-body');
-    body.id = `focus-pane-${tab}`;
-    body.dataset.pane = tab;
-    body.setAttribute('role', 'tabpanel');
-    return body;
+    body.id = `focus-pane-${pane}`;
+    section.append(header, body);
+    return { section, header, body };
   }
 
-  function buildTitleSlot(tab: PaneTab): HTMLElement {
-    const slot = el('div', 'pane-title');
-    slot.dataset.tab = tab;
-    return slot;
+  function setBoardDragging(isDragging: boolean) {
+    if (isBoardDragging === isDragging) return;
+    isBoardDragging = isDragging;
+    element.toggleAttribute('data-dragging', isDragging);
+    if (!isDragging) delete partsByPane.terminal.section.dataset.dropZone;
+    for (const listener of boardDragListeners) listener(isDragging);
   }
 
-  function buildTabButton(tab: PaneTab): HTMLButtonElement {
-    const button = createPressable('pane-tab');
-    button.append(el('span', 'sr-only', TAB_LABELS[tab]));
-    button.draggable = true;
-    button.dataset.tab = tab;
-    button.setAttribute('role', 'tab');
-    button.setAttribute('aria-controls', `focus-pane-${tab}`);
-    button.addEventListener('click', () => commit(activateTab(layout, tab)));
-    button.addEventListener('dragstart', (event) => {
-      draggedTab = tab;
-      event.dataTransfer?.setData(DRAG_MIME, tab);
+  function wireBoardHeaderDrag(header: HTMLElement) {
+    header.draggable = true;
+    header.addEventListener('dragstart', (event) => {
+      if (event.target instanceof Element && event.target.closest(UNEDITABLE_DRAG_TARGETS)) {
+        event.preventDefault();
+        return;
+      }
+      event.dataTransfer?.setData(BOARD_DRAG_MIME, 'board');
       if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
-      element.dataset.dragging = '';
+      setBoardDragging(true);
     });
-    button.addEventListener('dragend', endDrag);
-    return button;
+    header.addEventListener('dragend', () => setBoardDragging(false));
   }
 
-  function buildGroup(visibleIndex: number): GroupParts {
-    const group = el('section', 'pane-group');
-    const strip = el('div', 'pane-strip pane-header');
-    const tabList = el('div', 'pane-tabs');
-    tabList.setAttribute('role', 'tablist');
-    strip.append(tabList);
-    const body = el('div', 'pane-group-body');
-    group.append(strip, body);
-    group.addEventListener('dragover', (event) => {
-      if (!draggedTab) return;
+  function wireTerminalDropZones(section: HTMLElement) {
+    const zoneOf = (event: DragEvent) => {
+      const rect = section.getBoundingClientRect();
+      return dropZoneAt(event.clientX - rect.left, event.clientY - rect.top, rect);
+    };
+    section.addEventListener('dragover', (event) => {
+      if (!isBoardDragging) return;
       event.preventDefault();
-      group.dataset.dropZone = dropZoneOver(group, strip, event);
+      section.dataset.dropZone = zoneOf(event);
     });
-    group.addEventListener('dragleave', (event) => {
-      if (event.relatedTarget instanceof Node && group.contains(event.relatedTarget)) return;
-      delete group.dataset.dropZone;
+    section.addEventListener('dragleave', (event) => {
+      if (event.relatedTarget instanceof Node && section.contains(event.relatedTarget)) return;
+      delete section.dataset.dropZone;
     });
-    group.addEventListener('drop', (event) => {
-      if (!draggedTab) return;
+    section.addEventListener('drop', (event) => {
+      if (!isBoardDragging) return;
       event.preventDefault();
-      const zone = dropZoneOver(group, strip, event);
-      const targetGroupIndex = shown.groupIndexes[visibleIndex];
-      const movedTab = draggedTab;
-      endDrag();
-      if (targetGroupIndex === undefined) return;
-      commit(moveTab(layout, movedTab, targetGroupIndex, zone));
+      const zone = zoneOf(event);
+      setBoardDragging(false);
+      commit(moveBoard(layout, zone));
     });
-    return { group, strip, tabList, body };
-  }
-
-  function dropZoneOver(group: HTMLElement, strip: HTMLElement, event: DragEvent) {
-    if (event.target instanceof Node && strip.contains(event.target)) return 'join';
-    const rect = group.getBoundingClientRect();
-    return dropZoneAt(event.clientX - rect.left, event.clientY - rect.top, rect);
-  }
-
-  function endDrag() {
-    draggedTab = null;
-    delete element.dataset.dragging;
-    for (const { group } of groupParts) delete group.dataset.dropZone;
   }
 
   function commit(next: FocusLayout) {
@@ -132,69 +113,40 @@ export function createPaneLayout(): PaneLayout {
     render();
   }
 
-  function placeChild(parent: HTMLElement, child: HTMLElement) {
-    if (child.parentElement !== parent) parent.append(child);
-  }
-
   function replaceChildrenIfChanged(parent: HTMLElement, children: HTMLElement[]) {
     const isUnchanged = parent.children.length === children.length && children.every((child, index) => parent.children[index] === child);
     if (!isUnchanged) parent.replaceChildren(...children);
   }
 
-  function placeStrip(parts: GroupParts, host: StripHost | undefined) {
+  function placeHeader(pane: Pane) {
+    const { section, header } = partsByPane[pane];
+    const host = headerHostByPane.get(pane);
     if (!host) {
-      if (parts.group.firstElementChild !== parts.strip) parts.group.prepend(parts.strip);
+      if (section.firstElementChild !== header) section.prepend(header);
       return;
     }
-    const isPlaced = parts.strip.parentElement === host.parent && (host.before === null || parts.strip.nextElementSibling === host.before);
-    if (!isPlaced) host.parent.insertBefore(parts.strip, host.before);
-  }
-
-  function placeTitleSlot(parts: GroupParts, activeTab: PaneTab, isStripOwnHeader: boolean) {
-    const activeSlot = titleSlotByTab[activeTab];
-    activeSlot.hidden = !isStripOwnHeader;
-    if (parts.tabList.nextElementSibling !== activeSlot) parts.tabList.after(activeSlot);
+    const isPlaced = header.parentElement === host.parent && (host.before === null || header.nextElementSibling === host.before);
+    if (!isPlaced) host.parent.insertBefore(header, host.before);
   }
 
   function render() {
-    shown = visibleLayout(layout, shownTabs);
-    for (const tab of PANE_TABS) {
-      titleSlotByTab[tab].hidden = true;
-      if (!shownTabs.has(tab)) bodyByTab[tab].hidden = true;
-    }
-    const trailIndex = trailGroupIndex(shown.groups);
-    element.dataset.direction = shown.direction ?? 'single';
-    const visibleGroups = shown.groups.map((group, visibleIndex) => ({ group, parts: groupParts[visibleIndex] }));
-    for (const { group, parts } of visibleGroups) {
-      if (!parts) continue;
-      replaceChildrenIfChanged(parts.tabList, group.tabs.map((tab) => tabButtonByTab[tab]));
-      for (const tab of group.tabs) {
-        const isActive = tab === group.activeTab;
-        tabButtonByTab[tab].setAttribute('aria-selected', String(isActive));
-        tabButtonByTab[tab].tabIndex = isActive ? 0 : -1;
-        placeChild(parts.body, bodyByTab[tab]);
-        bodyByTab[tab].hidden = !isActive;
-      }
-      const stripHost = stripHostByTab.get(group.activeTab);
-      placeStrip(parts, stripHost);
-      placeTitleSlot(parts, group.activeTab, stripHost === undefined);
-    }
-    const [firstParts, secondParts] = groupParts;
-    if (!firstParts || !secondParts) return;
-    const trailParts = groupParts[trailIndex] ?? firstParts;
-    placeChild(trailParts.strip, trailSlot);
-    const isSplit = shown.groups.length === 2;
-    const children = isSplit ? [firstParts.group, divider, secondParts.group] : [firstParts.group];
-    replaceChildrenIfChanged(element, children);
-    firstParts.group.style.flex = `${shown.firstShare} 1 0`;
-    secondParts.group.style.flex = `${1 - shown.firstShare} 1 0`;
-    divider.setAttribute('aria-orientation', shown.direction === 'row' ? 'vertical' : 'horizontal');
-    divider.setAttribute('aria-valuenow', String(Math.round(shown.firstShare * 100)));
+    const visiblePanes = [layout.first, layout.second].filter((pane) => shownPanes.has(pane));
+    const isSplit = visiblePanes.length === 2;
+    element.dataset.direction = isSplit ? layout.direction : 'single';
+    for (const pane of PANES) placeHeader(pane);
+    const [firstPane, secondPane] = visiblePanes;
+    const sections = visiblePanes.map((pane) => partsByPane[pane].section);
+    replaceChildrenIfChanged(element, isSplit ? sections.toSpliced(1, 0, divider) : sections);
+    const firstShare = isSplit ? layout.firstShare : 1;
+    if (firstPane) partsByPane[firstPane].section.style.flex = `${firstShare} 1 0`;
+    if (secondPane) partsByPane[secondPane].section.style.flex = `${1 - firstShare} 1 0`;
+    divider.setAttribute('aria-orientation', layout.direction === 'row' ? 'vertical' : 'horizontal');
+    divider.setAttribute('aria-valuenow', String(Math.round(firstShare * 100)));
   }
 
   function shareAt(event: PointerEvent): number {
     const rect = element.getBoundingClientRect();
-    if (shown.direction === 'row') return (event.clientX - rect.left) / rect.width;
+    if (layout.direction === 'row') return (event.clientX - rect.left) / rect.width;
     return (event.clientY - rect.top) / rect.height;
   }
 
@@ -220,7 +172,7 @@ export function createPaneLayout(): PaneLayout {
   divider.addEventListener('keydown', (event) => {
     const stepByKey: Record<string, number> = { ArrowLeft: -DIVIDER_KEY_STEP, ArrowUp: -DIVIDER_KEY_STEP, ArrowRight: DIVIDER_KEY_STEP, ArrowDown: DIVIDER_KEY_STEP };
     const step = stepByKey[event.key];
-    if (step === undefined || layout.kind !== 'split') return;
+    if (step === undefined) return;
     event.preventDefault();
     commit(resizeSplit(layout, layout.firstShare + step));
   });
@@ -230,17 +182,17 @@ export function createPaneLayout(): PaneLayout {
   return {
     element,
     trailSlot,
-    bodyOf: (tab) => bodyByTab[tab],
-    titleSlotOf: (tab) => titleSlotByTab[tab],
-    setStripHost: (tab, host) => {
-      if (host) stripHostByTab.set(tab, host);
-      if (!host) stripHostByTab.delete(tab);
+    bodyOf: (pane) => partsByPane[pane].body,
+    boardTitleSlot,
+    setHeaderHost: (pane, host) => {
+      if (host) headerHostByPane.set(pane, host);
+      if (!host) headerHostByPane.delete(pane);
       render();
     },
-    showTabs: (nextShownTabs) => {
-      shownTabs = nextShownTabs;
+    showPanes: (nextShownPanes) => {
+      shownPanes = nextShownPanes;
       render();
     },
-    showTab: (tab) => commit(activateTab(layout, tab)),
+    onBoardDrag: (listener) => { boardDragListeners.push(listener); },
   };
 }
