@@ -89,6 +89,68 @@ function defineTheme(palette: ThemePalette): ThemeDefinition {
 }
 
 const THEMES: Record<string, ThemeDefinition> = {
+  glimmer: defineTheme({
+    label: 'Glimmer',
+    mode: 'dark',
+    accentAnsiSlot: 'magenta',
+    chrome: {
+      'bg':           '#0f0e11',
+      'bg-card':      '#1a191d',
+      'bg-header':    '#141317',
+      'bg-surface':   '#201e23',
+      'border':       '#39373e',
+      'border-dim':   '#2a282e',
+      'border-hover': '#49464f',
+      'text':         '#cfccd5',
+      'text-dim':     '#afacb7',
+      'text-head':    '#efedf3',
+      'text-muted':   '#9d99a5',
+      'accent':       '#b39edc',
+      'accent-dim':   '#745f98',
+    },
+    states: {
+      running:      '#a0de93',
+      waiting:      '#fd9320',
+      failed:       '#f5626a',
+      monitoring:   '#90b2eb',
+      done:         '#7f979f',
+      initializing: '#9c8895',
+      idle:         '#848275',
+      starting:     '#d1a7c2',
+      complete:     '#46cdb7',
+    },
+  }),
+  'glimmer-light': defineTheme({
+    label: 'Glimmer Light',
+    mode: 'light',
+    accentAnsiSlot: 'magenta',
+    chrome: {
+      'bg':           '#f4f3f6',
+      'bg-card':      '#fcfbfd',
+      'bg-header':    '#ebeaee',
+      'bg-surface':   '#e3e2e7',
+      'border':       '#c2bfc8',
+      'border-dim':   '#d5d3da',
+      'border-hover': '#afacb7',
+      'text':         '#27252d',
+      'text-dim':     '#4c4854',
+      'text-head':    '#100e14',
+      'text-muted':   '#5c5865',
+      'accent':       '#5f4589',
+      'accent-dim':   '#492f70',
+    },
+    states: {
+      running:      '#1a3c12',
+      waiting:      '#6e3a00',
+      failed:       '#bf0231',
+      monitoring:   '#244885',
+      done:         '#606f74',
+      initializing: '#725969',
+      idle:         '#5b5b58',
+      starting:     '#754867',
+      complete:     '#05675a',
+    },
+  }),
   golgari: defineTheme({
     label: 'Golgari (Dark)',
     mode: 'dark',
@@ -308,7 +370,7 @@ const THEMES: Record<string, ThemeDefinition> = {
   }),
 };
 
-const DEFAULT_THEME = 'phyrexian';
+const DEFAULT_THEME = 'glimmer';
 
 let unicornThemeEnteredListener: (() => void) | null = null;
 let _currentThemeId: string | null = null;

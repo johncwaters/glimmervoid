@@ -12,7 +12,7 @@ export const BROWSER_APPEARANCE: SettingsSection = {
     {
       id: 'theme', path: 'pref:themeId', title: 'Theme',
       description: 'Color scheme for the dashboard.',
-      control: 'select', optionsFrom: 'themes', keywords: ['color', 'palette'], defaultValue: 'phyrexian', ...BROWSER_NOW,
+      control: 'select', optionsFrom: 'themes', keywords: ['color', 'palette'], defaultValue: 'glimmer', ...BROWSER_NOW,
     },
     {
       id: 'phone-arrow-pad', path: 'pref:phoneArrowPad', title: 'Swipe arrow pad on phone',

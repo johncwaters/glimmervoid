@@ -60,7 +60,7 @@ function normalizeReviewsTurnLimit(value: unknown): number {
 const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   soundEnabled: asBoolean(true),
   soundId: asString(DEFAULT_SOUND_ID),
-  themeId: asString('phyrexian'),
+  themeId: asString('glimmer'),
   flyingAnimalsEnabled: asBoolean(false),
   flyingAnimalsMinGapSeconds: asFiniteNumber(FLYING_ANIMALS_DEFAULTS.flyingAnimalsMinGapSeconds),
   flyingAnimalsMaxGapSeconds: asFiniteNumber(FLYING_ANIMALS_DEFAULTS.flyingAnimalsMaxGapSeconds),
@@ -130,7 +130,16 @@ export const setPhoneArrowPad = (enabled: boolean) => write('phoneArrowPad', ena
 export const getNextAttentionKeyCode = () => read('nextAttentionKeyCode');
 export const setNextAttentionKeyCode = (keyCode: string) => write('nextAttentionKeyCode', keyCode);
 
-export const getThemeId = () => read('themeId');
+const GLIMMER_MOVE_DONE_KEY = 'glimmervoid-theme-moved-to-glimmer';
+
+export function getThemeId(): string {
+  const themeId = read('themeId');
+  if (getJSON(GLIMMER_MOVE_DONE_KEY, false)) return themeId;
+  setJSON(GLIMMER_MOVE_DONE_KEY, true);
+  if (themeId !== 'phyrexian') return themeId;
+  write('themeId', 'glimmer');
+  return 'glimmer';
+}
 export const setThemeId = (id: string) => write('themeId', id);
 
 export const isFlyingAnimalsEnabled = () => read('flyingAnimalsEnabled');

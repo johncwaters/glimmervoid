@@ -596,6 +596,14 @@
     {
       "name": "project",
       "definition": "The repository a session works in, named by the session's configured project path; a whiteboard belongs to one project, the path of the session that created it or first used it"
+    },
+    {
+      "name": "theme",
+      "definition": "A named dashboard color palette (chrome and state colors) picked per browser in Settings > Appearance; Glimmer is the default, Glimmer Light, Phyrexian, Midnight, Golgari, Compleated and the rest are alternatives, and a pack can add more"
+    },
+    {
+      "name": "glimmer",
+      "definition": "The default dashboard theme: graphite surfaces with a muted lavender accent; Glimmer Light is its light counterpart"
     }
   ]
 }

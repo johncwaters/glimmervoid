@@ -1,130 +1,161 @@
 tokens:
   state-monitoring:
-    value: "#60a5fa"
+    value: "#90b2eb"
     role: state
-    name: Signal Sky
+    name: Monitoring
     use: A turn ended while background tasks still run.
   state-running:
-    value: "#22c55e"
+    value: "#a0de93"
     role: state
-    name: Signal Green
+    name: Working
     use: Working.
   state-waiting:
-    value: "#f59e0b"
+    value: "#fd9320"
     role: state
-    name: Signal Amber
+    name: Needs Input
     use: Needs input, needs attention, setup required.
   state-failed:
-    value: "#ef4444"
+    value: "#f5626a"
     role: state
-    name: Signal Red
+    name: Failed
     use: Failed, disconnected, destructive; also the red pen ink of the doc editor's Markup mode, the one decorative use.
   state-initializing:
-    value: "#6b7280"
+    value: "#9c8895"
     role: state
-    name: Signal Slate
+    name: Starting (initializing)
     use: Unused since worktree setup displays as Starting.
   state-idle:
-    value: "#eab308"
+    value: "#848275"
     role: state
-    name: Signal Gold
+    name: Idle
     use: Idle.
   bg:
-    value: "#0a0810"
+    value: "#0f0e11"
     role: surface
-    name: Near-Black Violet
+    name: Graphite
     use: Base canvas behind everything.
   bg-card:
-    value: "#100e18"
+    value: "#1a191d"
     role: surface
-    name: Ink Violet
+    name: Card Graphite
     use: Card and panel fills and the terminal pane.
   bg-header:
-    value: "#0c0a14"
+    value: "#141317"
     role: surface
-    name: Shadow Violet
+    name: Header Graphite
     use: The sticky header bar.
   bg-surface:
-    value: "#16122a"
+    value: "#201e23"
     role: surface
-    name: Deep Violet Slate
+    name: Inset Graphite
     use: Inset surfaces and inputs.
   border:
-    value: "#2a2440"
+    value: "#39373e"
     role: border
-    name: Violet Border
+    name: Rule
     use: Component edges.
   border-dim:
-    value: "#1e1a32"
+    value: "#2a282e"
     role: border
-    name: Dim Violet Border
+    name: Dim Rule
     use: Quiet internal dividers.
   border-hover:
-    value: "#3e3660"
+    value: "#49464f"
     role: border
-    name: Lifted Violet Border
+    name: Lifted Rule
     use: "Hover and elevated surfaces: menus, tooltips, dialogs."
   text:
-    value: "#c8c0e0"
+    value: "#cfccd5"
     role: text
-    name: Soft Lavender Grey
+    name: Pewter
     use: Default body text.
   text-dim:
-    value: "#8d82b9"
+    value: "#afacb7"
     role: text
-    name: Muted Lavender
+    name: Ash
     use: Secondary text and descriptions.
   text-head:
-    value: "#e8e0ff"
+    value: "#efedf3"
     role: text
-    name: Bright Lavender White
+    name: Paper
     use: Headings and emphasized text.
   text-muted:
-    value: "#8579b1"
+    value: "#9d99a5"
     role: text
-    name: Faint Lavender
+    name: Faint Ash
     use: Tertiary labels and captions, the quietest legible text.
   accent:
-    value: "#c084fc"
+    value: "#b39edc"
     role: brand
-    name: Iridescent Orchid
+    name: Muted Lavender
     use: "The one accent: primary actions, selection, focus rings, the active tab underline, the wordmark glyph."
   accent-dim:
-    value: "#9656d6"
+    value: "#745f98"
     role: brand
-    name: Deep Orchid
+    name: Dusk Plum
     use: Accent borders, CTA strokes and pulse low points where full accent would shout.
   state-done:
-    value: "#67e8f9"
+    value: "#7f979f"
     role: state
-    name: Signal Cyan
+    name: Exited
     use: "Exited: the agent process ended."
   state-starting:
-    value: "#f472b6"
+    value: "#d1a7c2"
     role: state
-    name: Signal Pink
+    name: Starting
     use: Starting, including worktree preparation.
   state-complete:
-    value: "#34d399"
+    value: "#46cdb7"
     role: state
-    name: Signal Emerald
+    name: Complete
     use: A finished turn not yet looked at; also success such as merged branches and passing checks.
   state-dormant:
-    value: "#5a527a"
+    value: "#56535d"
     role: state
-    name: Dormant Violet
+    name: Dormant Graphite
     use: A session not started yet.
   perms-warn:
-    value: "#d97706"
+    value: "#d98941"
     role: state
     name: Permissions Amber
     use: The SANE YOLO chip on sessions spawned with skipped permission prompts.
 themes:
+  glimmer:
+    label: Glimmer
+    mode: dark
+    overrides: {}
+  glimmer-light:
+    label: Glimmer Light
+    mode: light
+    overrides:
+      bg: "#f4f3f6"
+      bg-card: "#fcfbfd"
+      bg-header: "#ebeaee"
+      bg-surface: "#e3e2e7"
+      border: "#c2bfc8"
+      border-dim: "#d5d3da"
+      border-hover: "#afacb7"
+      text: "#27252d"
+      text-dim: "#4c4854"
+      text-head: "#100e14"
+      text-muted: "#5c5865"
+      accent: "#5f4589"
+      accent-dim: "#492f70"
+      state-running: "#1a3c12"
+      state-waiting: "#6e3a00"
+      state-failed: "#bf0231"
+      state-monitoring: "#244885"
+      state-done: "#606f74"
+      state-initializing: "#725969"
+      state-idle: "#5b5b58"
+      state-starting: "#754867"
+      state-complete: "#05675a"
+      state-dormant: "#93909b"
+      perms-warn: "#864900"
   golgari:
     label: Golgari (Dark)
     mode: dark
     overrides:
-      state-monitoring: "#22d3ee"
       bg: "#060b08"
       bg-card: "#0a120e"
       bg-header: "#081009"
@@ -138,13 +169,19 @@ themes:
       text-muted: "#7a9a80"
       accent: "#2dd4a0"
       accent-dim: "#1a9a6e"
+      state-running: "#22c55e"
+      state-waiting: "#f59e0b"
+      state-failed: "#ef4444"
+      state-monitoring: "#22d3ee"
       state-done: "#94a3b8"
+      state-initializing: "#6b7280"
+      state-idle: "#eab308"
       state-starting: "#a78bfa"
+      state-complete: "#34d399"
   midnight:
     label: Midnight (Dark)
     mode: dark
     overrides:
-      state-monitoring: "#22d3ee"
       bg: "#080816"
       bg-card: "#0e0e20"
       bg-header: "#0b0b1a"
@@ -158,13 +195,41 @@ themes:
       text-muted: "#7c7ca9"
       accent: "#5674f7"
       accent-dim: "#3a54c0"
+      state-running: "#22c55e"
+      state-waiting: "#f59e0b"
+      state-failed: "#ef4444"
+      state-monitoring: "#22d3ee"
       state-done: "#94a3b8"
+      state-initializing: "#6b7280"
+      state-idle: "#eab308"
       state-starting: "#a855f7"
       state-complete: "#60a5fa"
   phyrexian:
     label: Phyrexian (Dark)
     mode: dark
-    overrides: {}
+    overrides:
+      bg: "#0a0810"
+      bg-card: "#100e18"
+      bg-header: "#0c0a14"
+      bg-surface: "#16122a"
+      border: "#2a2440"
+      border-dim: "#1e1a32"
+      border-hover: "#3e3660"
+      text: "#c8c0e0"
+      text-dim: "#8d82b9"
+      text-head: "#e8e0ff"
+      text-muted: "#8579b1"
+      accent: "#c084fc"
+      accent-dim: "#9656d6"
+      state-running: "#22c55e"
+      state-waiting: "#f59e0b"
+      state-failed: "#ef4444"
+      state-monitoring: "#60a5fa"
+      state-done: "#67e8f9"
+      state-initializing: "#6b7280"
+      state-idle: "#eab308"
+      state-starting: "#f472b6"
+      state-complete: "#34d399"
   compleated:
     label: Compleated (Light)
     mode: light
@@ -187,6 +252,7 @@ themes:
       state-failed: "#cd2323"
       state-monitoring: "#0e728d"
       state-done: "#5a697e"
+      state-initializing: "#6b7280"
       state-idle: "#995d07"
       state-starting: "#7c3aed"
       state-complete: "#047a55"
@@ -268,7 +334,7 @@ themes:
       state-idle: "#ffce5c"
       state-starting: "#9a81ff"
       state-complete: "#29dbbb"
-defaultTheme: phyrexian
+defaultTheme: glimmer
 pairs:
   - { foreground: text, background: bg, minContrast: 4.5 }
   - { foreground: text, background: bg-card, minContrast: 4.5 }
