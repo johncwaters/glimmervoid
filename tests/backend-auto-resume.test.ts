@@ -402,6 +402,7 @@ test('forceRestart never persists wasActive:false during its transient kill-then
 
         await sess._handlePtyExit(0, null);
         assert.equal(sess.pendingRestart, false);
+        await waitFor(() => sess.ptyProcess !== null, 'the agent respawned after the kill');
 
         assert.deepEqual(writes, [true], 'never flipped false across the whole restart cycle');
         await store.idle();
@@ -412,6 +413,24 @@ test('forceRestart never persists wasActive:false during its transient kill-then
       }
     });
   });
+});
+
+test('finishing a live agent runs merge-and-reset once its process exits, and an agent that already exited finishes at once', async () => {
+  const sess = restartableSession('finish1', []);
+  try {
+    await sess.start();
+    sess.state = STATES.IDLE;
+    assert.deepEqual(sess.finishAndMerge(), { ok: true, pending: true });
+    await sess._handlePtyExit(0, null);
+    await waitFor(() => sess.state === STATES.DORMANT, 'reset to dormant after the exit');
+
+    await sess.start();
+    await sess._handlePtyExit(0, null);
+    assert.deepEqual(sess.finishAndMerge(), { ok: true });
+    await waitFor(() => sess.state === STATES.DORMANT, 'reset to dormant without waiting for an exit');
+  } finally {
+    sess.destroy();
+  }
 });
 
 test('a genuine kill (not a restart) still persists wasActive:false', async () => {
