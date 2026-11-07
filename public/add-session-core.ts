@@ -79,12 +79,6 @@ export function orderRecentRows(
   return rows.sort((first, second) => recencyOf(second) - recencyOf(first));
 }
 
-export function pickInitialRow(rows: readonly RecentRow[]): RecentRow | null {
-  const remembered = rows.filter((row) => row.lastStartedAtMs !== null);
-  if (remembered.length === 0) return rows[0] ?? null;
-  return remembered.reduce((newest, row) => ((row.lastStartedAtMs ?? 0) > (newest.lastStartedAtMs ?? 0) ? row : newest));
-}
-
 export function filterRows(rows: readonly RecentRow[], query: string): RecentRow[] {
   const needle = query.trim().toLowerCase();
   if (!needle) return [...rows];

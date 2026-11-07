@@ -20,7 +20,7 @@ import { needsAttention } from './focus-view/attention-core.ts';
 import { STATES } from '#shared/states.ts';
 import { formatRelativeAge } from './plan/plan-view-core.ts';
 import { getAddSessionStarts, setAddSessionStarts } from './ui-prefs.ts';
-import { decidePermissions, filterRows, lastPathSegment, orderRecentRows, pickInitialRow, rememberStart, sessionNameBase } from './add-session-core.ts';
+import { decidePermissions, filterRows, lastPathSegment, orderRecentRows, rememberStart, sessionNameBase } from './add-session-core.ts';
 import type { LiveSession, RecentRow, ScannedProject } from './add-session-core.ts';
 import { onSessionTick } from './session-card/session-tick.ts';
 import { formatAgo } from './poll-ago.ts';
@@ -68,6 +68,8 @@ function coderEnvironmentHint(environment: CoderEnvironmentOffer): string {
 }
 
 const CONNECTABLE_AGENT_NAMES: Readonly<Record<ConnectableAgent, string>> = Object.freeze({ 'claude-code': 'Claude Code', codex: 'Codex' });
+
+const NO_AGENT_ID = '';
 
 function connectableAgentOf(agentId: string): ConnectableAgent | null {
   const parsed = ConnectableAgent.safeParse(agentId);
@@ -319,7 +321,7 @@ export function createAddSessionDialog() {
   let recentRows: RecentRow[] = [];
   let agentOptions: { id: string; label: string }[] = [];
   let defaultAgentId = DEFAULT_AGENT_ID;
-  let selectedAgentId = DEFAULT_AGENT_ID;
+  let selectedAgentId = NO_AGENT_ID;
   let selectedHostId: string | null = null;
   let hostLoadGeneration = 0;
   let localCoderEnvironments: CoderEnvironmentOffer[] = [];
@@ -380,7 +382,10 @@ export function createAddSessionDialog() {
     rowEl.append(markEl, el('span', 'add-session-row-name', row.name));
     const meta = liveCountText(row) ?? (row.lastActivityMs !== null ? el('span', 'add-session-row-meta', formatRelativeAge(row.lastActivityMs, Date.now())) : null);
     if (meta) rowEl.append(meta);
-    rowEl.addEventListener('click', () => pickProject(row));
+    rowEl.addEventListener('click', () => {
+      setProjectTarget(row);
+      markPickedRow(rowEl);
+    });
     return rowEl;
   }
 
@@ -391,12 +396,19 @@ export function createAddSessionDialog() {
     listEl.append(buildChoiceRow('Any folder', pickFolder));
   }
 
-  function pickProject(row: RecentRow) {
+  function setProjectTarget(row: RecentRow) {
     target = { kind: 'project', row };
     lastProjectTarget = target;
     errorEl.textContent = '';
-    setAgent(row.agentId);
     renderRepoWord();
+  }
+
+  function markPickedRow(pickedRowEl: HTMLElement) {
+    for (const rowEl of listEl.querySelectorAll('[role="option"]')) rowEl.setAttribute('aria-selected', String(rowEl === pickedRowEl));
+  }
+
+  function pickProject(row: RecentRow) {
+    setProjectTarget(row);
     renderList();
   }
 
@@ -430,15 +442,6 @@ export function createAddSessionDialog() {
       pickProject(pickedRow);
       return;
     }
-    if (target.kind !== 'none') {
-      renderList();
-      return;
-    }
-    const initialRow = pickInitialRow(recentRows);
-    if (initialRow) {
-      pickProject(initialRow);
-      return;
-    }
     renderRepoWord();
     renderList();
   }
@@ -452,7 +455,7 @@ export function createAddSessionDialog() {
   function setAgent(agentId: string) {
     selectedAgentId = agentId;
     agentSelectEl.value = agentId;
-    paintAgentMark(agentMarkEl, agentId, agentLabelOf(agentId));
+    paintAgentMark(agentMarkEl, agentId === NO_AGENT_ID ? null : agentId, agentLabelOf(agentId));
     applyAgentRules();
   }
 
@@ -504,7 +507,7 @@ export function createAddSessionDialog() {
     selectedEnvironment = localCoderEnvironments.find((environment) => environment.name === environmentName) ?? null;
     environmentHintEl.hidden = selectedEnvironment === null;
     environmentHintEl.textContent = selectedEnvironment ? coderEnvironmentHint(selectedEnvironment) : '';
-    if (selectedEnvironment && isShellChosen()) setAgent(defaultAgentId);
+    if (selectedEnvironment && isShellChosen()) setAgent(NO_AGENT_ID);
     if (selectedEnvironment && target.kind === 'workspace') returnToProjects();
     renderPlaces();
     renderPermissionHint();
@@ -610,8 +613,8 @@ export function createAddSessionDialog() {
         const decision = decideAgentPicker(message.type === 'agents-listed' ? message.agents : []);
         agentOptions = decision.options;
         defaultAgentId = decision.selectedId;
-        agentSelectEl.replaceChildren(...agentOptions.map((agentOption) => option(agentOption.label, { value: agentOption.id })));
-        setAgent(defaultAgentId);
+        agentSelectEl.replaceChildren(option('an agent', { value: NO_AGENT_ID, disabled: true }), ...agentOptions.map((agentOption) => option(agentOption.label, { value: agentOption.id })));
+        setAgent(NO_AGENT_ID);
         rebuildRows();
       }))
       .catch(whileHostUnchanged((reason: unknown) => { showWarning(`Could not load the agent list (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}), so the session uses the default agent.`); }));
@@ -646,10 +649,14 @@ export function createAddSessionDialog() {
   }
 
   function buildRequest(): AddSessionRequest | null {
+    if (selectedAgentId === NO_AGENT_ID && agentOptions.length > 0) {
+      errorEl.textContent = 'Pick an agent.';
+      return null;
+    }
     const isShell = isShellChosen();
     const prompt = taskInput.value.trim();
     const shared: Record<string, unknown> = { ...permissionFields() };
-    if (selectedAgentId !== DEFAULT_AGENT_ID) shared.agent = selectedAgentId;
+    if (selectedAgentId !== NO_AGENT_ID && selectedAgentId !== DEFAULT_AGENT_ID) shared.agent = selectedAgentId;
     if (prompt && !isShell) shared.prompt = prompt;
     if (selectedEnvironment && target.kind !== 'workspace') shared.environment = selectedEnvironment.name;
     if (target.kind === 'project') {
@@ -684,7 +691,7 @@ export function createAddSessionDialog() {
 
   function rememberSuccessfulStart(rememberedPath: string | null) {
     if (rememberedPath === null) return;
-    setAddSessionStarts(rememberStart(getAddSessionStarts(), rememberedPath, selectedAgentId, Date.now()));
+    setAddSessionStarts(rememberStart(getAddSessionStarts(), rememberedPath, selectedAgentId === NO_AGENT_ID ? defaultAgentId : selectedAgentId, Date.now()));
   }
 
   function requestAddSession({ message, rememberedPath }: AddSessionRequest) {
@@ -731,7 +738,7 @@ export function createAddSessionDialog() {
     lastProjectTarget = NO_TARGET;
     repoRootsEl.hidden = true;
     pathInput.value = '';
-    setAgent(DEFAULT_AGENT_ID);
+    setAgent(NO_AGENT_ID);
     renderRepoWord();
     renderList();
   }

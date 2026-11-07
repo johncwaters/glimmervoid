@@ -1626,11 +1626,6 @@ html[data-layout="phone"] .add-session-dialog {
   animation: addSessionSheetIn 200ms ease;
 }
 
-html[data-layout="phone"] .add-session-dialog .add-session-list {
-  max-height: none;
-  overflow-y: visible;
-}
-
 html[data-layout="phone"] .add-session-dialog .dialog-actions {
   position: sticky;
   bottom: 0;
