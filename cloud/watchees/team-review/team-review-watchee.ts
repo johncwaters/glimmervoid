@@ -1,5 +1,6 @@
 import type { Watchee } from '../watchee.ts';
-import { createWatcheeGithubStore, observedPayloadEventKey } from '../github-store-watchee.ts';
+import { createWatcheeGithubStore } from '../github-store-watchee.ts';
+import { observedPayloadEventKey } from '../watchee-event-key.ts';
 import { createTeamReviewSearch } from './team-review-search.ts';
 
 const MS_PER_MINUTE = 60_000;

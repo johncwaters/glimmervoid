@@ -34,12 +34,24 @@ export const IssuesWatcheeSettings = z.object({
 
 export type IssuesWatcheeSettings = z.infer<typeof IssuesWatcheeSettings>;
 
+export const RadarWatcheeSettings = z.object({
+  enabled: z.boolean(),
+  host: z.string().min(1),
+  projects: z.union([z.literal('all'), z.array(z.union([z.string().min(1), z.number().int()]))]),
+  projectNames: z.record(z.string(), z.string()),
+  intervalMinutes: z.number().positive(),
+  traffic: z.object({ enabled: z.boolean(), baselineDays: z.number().positive() }).strict(),
+}).strict();
+
+export type RadarWatcheeSettings = z.infer<typeof RadarWatcheeSettings>;
+
 export const WatcheeSettingsFile = z.object({
   version: z.literal(1),
   teamReview: TeamReviewWatcheeSettings,
   myPrs: MyPrsWatcheeSettings,
   workflows: WorkflowsWatcheeSettings,
   issues: IssuesWatcheeSettings,
+  radar: RadarWatcheeSettings,
 }).strict();
 
 export type WatcheeSettingsFile = z.infer<typeof WatcheeSettingsFile>;

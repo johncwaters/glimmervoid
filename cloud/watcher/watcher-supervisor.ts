@@ -8,19 +8,32 @@ import { watcherHomeDir } from './watchee-settings.ts';
 
 const MS_PER_SECOND = 1000;
 
-function createWatcherSupervisor({ inboxUrl, token, log = console }: {
+function sameEnvironment(left: Record<string, string>, right: Record<string, string>): boolean {
+  const leftKeys = Object.keys(left);
+  return leftKeys.length === Object.keys(right).length && leftKeys.every((key) => left[key] === right[key]);
+}
+
+function createWatcherSupervisor({ inboxUrl, token, environment = () => ({}), log = console }: {
   inboxUrl: string;
   token: string;
+  environment?: () => Record<string, string>;
   log?: Pick<Console, 'log' | 'warn'>;
-}): { start(): void; stop(): void } {
+}): { start(): void; stop(): void; refreshEnvironment(): void } {
   let crashCount = 0;
-  let isStopped = false;
+  let supervision: 'watching' | 'restarting' | 'stopped' = 'watching';
+  let childEnvironment: Record<string, string> = {};
   let runningChild: ChildProcess | null = null;
   let pendingRestart: NodeJS.Timeout | null = null;
 
   function scheduleRestart(endedHow: string, runDurationMs: number): void {
     runningChild = null;
-    if (isStopped) return;
+    if (supervision === 'stopped') return;
+    if (supervision === 'restarting') {
+      supervision = 'watching';
+      log.log(`[watcher] child ${endedHow}, restarting with its new environment`);
+      start();
+      return;
+    }
     crashCount = nextCrashCount(crashCount, runDurationMs);
     const delayMs = restartDelayMs(crashCount);
     log.warn(`[watcher] child ${endedHow}, restarting in ${Math.round(delayMs / MS_PER_SECOND)}s`);
@@ -30,9 +43,10 @@ function createWatcherSupervisor({ inboxUrl, token, log = console }: {
 
   function spawnWatcherChild(): ChildProcess | Error {
     try {
+      childEnvironment = environment();
       return spawn(stableNodePath, [cliPath, 'watch', '--inbox', inboxUrl], {
         stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
-        env: { ...process.env, GLIMMERVOID_WATCHER_TOKEN: token, [WATCHER_HOME_ENV]: watcherHomeDir() },
+        env: { ...process.env, ...childEnvironment, GLIMMERVOID_WATCHER_TOKEN: token, [WATCHER_HOME_ENV]: watcherHomeDir() },
       });
     } catch (spawnError) {
       return spawnError instanceof Error ? spawnError : new Error(String(spawnError));
@@ -41,7 +55,7 @@ function createWatcherSupervisor({ inboxUrl, token, log = console }: {
 
   function start(): void {
     pendingRestart = null;
-    if (isStopped) return;
+    if (supervision === 'stopped') return;
     const startedAtMs = Date.now();
     let hasEnded = false;
     const endOnce = (endedHow: string) => {
@@ -61,12 +75,18 @@ function createWatcherSupervisor({ inboxUrl, token, log = console }: {
   }
 
   function stop(): void {
-    isStopped = true;
+    supervision = 'stopped';
     if (pendingRestart !== null) clearTimeout(pendingRestart);
     runningChild?.kill();
   }
 
-  return { start, stop };
+  function refreshEnvironment(): void {
+    if (supervision === 'stopped' || runningChild === null || sameEnvironment(childEnvironment, environment())) return;
+    supervision = 'restarting';
+    runningChild.kill();
+  }
+
+  return { start, stop, refreshEnvironment };
 }
 
 export { createWatcherSupervisor };

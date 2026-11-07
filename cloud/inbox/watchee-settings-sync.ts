@@ -4,11 +4,59 @@ import { readGithubTeams } from '../../server/github/core/github-teams-core.ts';
 import { POLL_INTERVAL_MINUTES as MY_PRS_POLL_INTERVAL_MINUTES } from '../../server/github/core/my-prs-core.ts';
 import type { TeamReviewSettingsSource } from '../../server/github/core/team-review-core.ts';
 import { WORKFLOWS_POLL_INTERVAL_MINUTES, resolveWorkflowsSettings, watchedWorkflowRepos, workflowsShouldStart } from '../../server/core/workflows-core.ts';
-import type { WatcheeSettingsFile } from '../../shared/contracts/watchee-settings.ts';
+import { DEFAULT_INTERVAL_MINUTES as RADAR_POLL_INTERVAL_MINUTES, radarShouldStart, resolvePosthogHost } from '../../server/radar/core/radar-lane-core.ts';
+import { DEFAULT_TRAFFIC_BASELINE_DAYS } from '../../server/core/traffic-spike-core.ts';
+import type { RadarWatcheeSettings, WatcheeSettingsFile } from '../../shared/contracts/watchee-settings.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { watcherHomeDir, writeWatcheeSettings } from '../watcher/watchee-settings.ts';
 
-type WatcheeSettingsSource = TeamReviewSettingsSource & { workflows?: unknown; issues?: { enabled?: unknown } | null };
+interface RadarSettingsSource {
+  posthog?: {
+    enabled?: boolean;
+    apiKey?: string;
+    host?: unknown;
+    intervalMinutes?: unknown;
+    projects?: unknown;
+    projectMap?: unknown;
+    trafficSpikeEnabled?: unknown;
+    trafficSpikeBaselineDays?: unknown;
+  } | null;
+  telegram?: { botToken?: string; chatId?: string } | null;
+}
+
+type WatcheeSettingsSource = TeamReviewSettingsSource & RadarSettingsSource & { workflows?: unknown; issues?: { enabled?: unknown } | null };
+
+function positiveNumberOr(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function isProjectId(value: unknown): value is string | number {
+  return (typeof value === 'string' && value !== '') || Number.isInteger(value);
+}
+
+function watchedProjects(projects: unknown): RadarWatcheeSettings['projects'] {
+  return Array.isArray(projects) ? projects.filter(isProjectId) : 'all';
+}
+
+function projectNamesFrom(projectMap: unknown): Record<string, string> {
+  if (projectMap === null || typeof projectMap !== 'object') return {};
+  return Object.fromEntries(Object.entries(projectMap).filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
+}
+
+function radarWatcheeSettings(config: RadarSettingsSource): RadarWatcheeSettings {
+  const posthog = config.posthog ?? {};
+  return {
+    enabled: radarShouldStart(config).start,
+    host: resolvePosthogHost(typeof posthog.host === 'string' ? posthog.host : null),
+    projects: watchedProjects(posthog.projects),
+    projectNames: projectNamesFrom(posthog.projectMap),
+    intervalMinutes: positiveNumberOr(posthog.intervalMinutes, RADAR_POLL_INTERVAL_MINUTES),
+    traffic: {
+      enabled: posthog.trafficSpikeEnabled !== false,
+      baselineDays: positiveNumberOr(posthog.trafficSpikeBaselineDays, DEFAULT_TRAFFIC_BASELINE_DAYS),
+    },
+  };
+}
 
 function watcheeSettingsFromConfig(config: WatcheeSettingsSource, issuesProjectRepos: readonly string[]): WatcheeSettingsFile {
   const { enabled, org, teams } = readTeamReviewSettings(config);
@@ -28,6 +76,7 @@ function watcheeSettingsFromConfig(config: WatcheeSettingsSource, issuesProjectR
       teams: readGithubTeams(config).map((team) => `${team.org}/${team.slug}`),
       intervalMinutes: ISSUES_POLL_INTERVAL_MINUTES,
     },
+    radar: radarWatcheeSettings(config),
   };
 }
 

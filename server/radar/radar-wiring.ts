@@ -22,12 +22,15 @@ import {
 } from '../lanes/ephemeral-session.ts';
 import type { JobResultFile, RecordLane, ResultFileOutcome, SpawnGate } from '../lanes/ephemeral-session.ts';
 import { createLaneRunner } from '../lanes/lane-runner.ts';
-import type { LaneRunnerGate, LaneStatusRecord } from '../lanes/lane-runner.ts';
+import type { LaneStatusRecord } from '../lanes/lane-runner.ts';
 import { emptyLaneStatus } from '../lanes/lane-status.ts';
 import { loadJsonStateFile, loadedJsonValue, writeJsonAtomic } from '../json-file.ts';
 import { createPosthogApi, extractRows } from './posthog-api.ts';
 import type { PosthogApi } from './posthog-api.ts';
 import { createRadarPoller } from './radar-poller.ts';
+import { createWatcheeFeed } from '../lanes/watchee-feed.ts';
+import { isOlderObservation } from '../lanes/core/watchee-feed-core.ts';
+import type { RadarProjectPayload } from '../../shared/contracts/radar-project.ts';
 import { bootStaggerDelay } from '../boot-stagger.ts';
 import type { PosthogState, SpawnInvestigationArgs } from './radar-poller.ts';
 import { DEFAULT_POSTHOG_REPORT_DIR } from './radar-report.ts';
@@ -130,11 +133,6 @@ interface RadarWiringOptions {
   prepareMcp?: typeof prepareLaneMcp;
 }
 
-interface ResolvedProject {
-  projectId: string | number;
-  name: string;
-}
-
 interface TranscriptTail {
   realPath: string | null;
   offset: number;
@@ -210,48 +208,8 @@ function resultErrorReason(outcome: ResultFileOutcome): RadarErrorReason | undef
   return outcome.kind === 'missing' ? 'no-result' : 'invalid-result';
 }
 
-function radarShouldStart(cfg: RadarWiringConfig): LaneRunnerGate {
-  const p = cfg.posthog;
-  if (!p || !p.enabled) return { start: false, reason: null };
-  if (!p.apiKey) return { start: false, reason: 'posthog.enabled but apiKey missing' };
-  const t = cfg.telegram;
-  if (!t || !t.botToken || !t.chatId) {
-    return { start: false, reason: 'posthog.enabled but telegram botToken/chatId missing' };
-  }
-  return { start: true, reason: null };
-}
-
 function posthogCfgKey(cfg: RadarWiringConfig): string {
   return stableConfigKey({ posthog: cfg.posthog || null, telegram: cfg.telegram || null });
-}
-
-function makeResolveProjects(api: PosthogApi, config: RadarWiringConfig): () => Promise<ResolvedProject[]> {
-  return async function resolveProjects() {
-    const configured = config.posthog?.projects;
-    const projectMap = config.posthog?.projectMap || {};
-    if (Array.isArray(configured)) {
-      return configured.map((projectId) => ({
-        projectId, name: projectMap[String(projectId)] || String(projectId),
-      }));
-    }
-    const orgs = await api.listOrganizations();
-    if (!orgs.ok) return [];
-    const orgBody = orgs.body as { results?: unknown } | null;
-    const orgRows = (Array.isArray(orgs.body) ? orgs.body : (orgBody?.results || [])) as { id: string; name?: string }[];
-    const out: ResolvedProject[] = [];
-    for (const org of orgRows) {
-      const res = await api.listProjects(org.id);
-      if (!res.ok) continue;
-      const body = res.body as { results?: unknown } | null;
-      const rows = (Array.isArray(res.body) ? res.body : (body?.results || [])) as { id: string | number; name?: string }[];
-      for (const project of rows) {
-        const isStockName = !project.name || project.name === 'Default project';
-        const fallbackName = (isStockName && org.name) || project.name || String(project.id);
-        out.push({ projectId: project.id, name: projectMap[String(project.id)] || fallbackName });
-      }
-    }
-    return out;
-  };
 }
 
 function createRadarWiring({
@@ -562,16 +520,26 @@ function createRadarWiring({
     forcedTick.schedule();
   }
 
+  const projectFeed = createWatcheeFeed<RadarProjectPayload>();
+  const latestPayloadByProjectId = new Map<string, RadarProjectPayload>();
+
+  async function acceptProject(job: { payload: RadarProjectPayload }): Promise<void> {
+    projectFeed.accept(job.payload);
+    const projectKey = `${job.payload.host} ${job.payload.projectId}`;
+    if (isOlderObservation(job.payload, latestPayloadByProjectId.get(projectKey) ?? null)) return;
+    latestPayloadByProjectId.set(projectKey, job.payload);
+  }
+
   const runner = createLaneRunner({
     tag: 'posthog-poller',
     gate: () => {
-      const verdict = radarShouldStart(config);
+      const verdict = core.radarShouldStart(config);
       if (verdict.reason) return verdict;
       return { start: verdict.start };
     },
     cfgKey: () => posthogCfgKey(config),
     emptyStatus: () => ({
-      ...emptyLaneStatus('radar-status', radarShouldStart(config)),
+      ...emptyLaneStatus('radar-status', core.radarShouldStart(config)),
       intervalMinutes: config.posthog?.intervalMinutes || core.DEFAULT_INTERVAL_MINUTES,
       investigations: [],
     }),
@@ -585,12 +553,11 @@ function createRadarWiring({
       }
       const botToken = telegramConfig.botToken;
       const chatId = telegramConfig.chatId;
-      const api = createPosthogApi({ host: posthogConfig.host, apiKey: posthogConfig.apiKey });
       return createRadarPoller({
         firstTickDelayMs: bootStaggerDelay,
-        api,
         host: posthogConfig.host,
-        resolveProjects: makeResolveProjects(api, config),
+        latestProjects: () => [...latestPayloadByProjectId.values()],
+        feedSilenceMs: projectFeed.silenceMs,
         spawnInvestigation: radarInvestigationSpawn,
         releasePendingFix: deletePendingFixBranch,
         telemetry,
@@ -611,7 +578,6 @@ function createRadarWiring({
         trafficSpikeMultiplier: posthogConfig.trafficSpikeMultiplier,
         trafficSpikeMinUsers: posthogConfig.trafficSpikeMinUsers,
         trafficSpikeCooldownMinutes: posthogConfig.trafficSpikeCooldownMinutes,
-        trafficSpikeBaselineDays: posthogConfig.trafficSpikeBaselineDays,
         onTickComplete,
         onInvestigationActivity: (activity) => broadcast({ ...activity }),
       });
@@ -663,8 +629,12 @@ function createRadarWiring({
 
   return {
     startPoller: runner.startPoller,
+    acceptProject,
     restartIfConfigChanged: runner.restartIfConfigChanged,
-    stopPoller: runner.stopPoller,
+    stopPoller: async () => {
+      projectFeed.stop();
+      await runner.stopPoller();
+    },
     getStatus: runner.getStatus,
     setIssueStatus,
     archiveInvestigation,

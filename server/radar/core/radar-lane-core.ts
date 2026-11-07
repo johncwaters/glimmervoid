@@ -716,6 +716,20 @@ const RADAR_EXCEPTION_EVENTS_QUERY = [
 const DAILY_VOLUME_DAYS = 14;
 const DAILY_VOLUME_MAX_ISSUES = 100;
 
+interface RadarStartSource {
+  posthog?: { enabled?: boolean; apiKey?: string } | null;
+  telegram?: { botToken?: string; chatId?: string } | null;
+}
+
+function radarShouldStart({ posthog, telegram }: RadarStartSource): { start: boolean; reason: string | null } {
+  if (!posthog || !posthog.enabled) return { start: false, reason: null };
+  if (!posthog.apiKey) return { start: false, reason: 'posthog.enabled but apiKey missing' };
+  if (!telegram || !telegram.botToken || !telegram.chatId) {
+    return { start: false, reason: 'posthog.enabled but telegram botToken/chatId missing' };
+  }
+  return { start: true, reason: null };
+}
+
 function dailyVolumeQuery(projectId: unknown, issueIds: readonly unknown[]): string | null {
   const validIds = [...new Set(issueIds.flatMap((issueId) => {
     const ref = validateIssueRef({ projectId, issueId });
@@ -802,4 +816,4 @@ function approvedFixSessionPrompt({ record, fix }: { record: InvestigationRecord
   ].join('\n');
 }
 
-export { toCount, issueKey, issueUrl, classifyIssueChange, investigationTrigger, slotDeferredInvestigationChange, underlyingInvestigationChange, belowMinimumInvestigationChange, planInvestigations, decideJobMode, normalizeJobMode, decideFixHandoff, normalizePrTitle, normalizePrBody, fixDetailLine, decideVanishedEntry, pingFor, nextState, summaryLineFromReportText, validateIssueRef, decideIssueAction, buildInvestigationRecord, appendInvestigation, markInvestigationArchived, pruneInvestigations, unarchivedInvestigations, validateInvestigationId, resolveIssueProject, isAbsolutePathish, projectParentDirs, pickDirectoryForProjectName, sanitizeSessionName, scrubForPaste, buildIssueSessionPrompt, claimPendingFix, claimExpiredPendingFixes, pendingFixesDropped, approvedFixSessionPrompt, PENDING_FIX_TTL_MS, radarUntrustedItems, dailyVolumeQuery, dailyVolumeSeries, RADAR_UNTRUSTED_SOURCE, RADAR_UNTRUSTED_ITEM_MAX_CHARS, RADAR_RESULT_FILENAME, RADAR_REPORT_FILENAME, RADAR_EXCEPTION_EVENTS_QUERY, JOB_MODES, FIX_VERDICTS, INVESTIGATIONS_KEY, DEFAULT_ARCHIVED_RETENTION_DAYS, DEFAULT_INTERVAL_MINUTES, DEFAULT_USER_ESCALATION_THRESHOLD, DEFAULT_MIN_USERS_TO_INVESTIGATE, DEFAULT_ENTRY_RETENTION_DAYS };
+export { toCount, issueKey, issueUrl, classifyIssueChange, investigationTrigger, slotDeferredInvestigationChange, underlyingInvestigationChange, belowMinimumInvestigationChange, planInvestigations, decideJobMode, normalizeJobMode, decideFixHandoff, normalizePrTitle, normalizePrBody, fixDetailLine, decideVanishedEntry, pingFor, nextState, summaryLineFromReportText, validateIssueRef, decideIssueAction, buildInvestigationRecord, appendInvestigation, markInvestigationArchived, pruneInvestigations, unarchivedInvestigations, validateInvestigationId, resolveIssueProject, isAbsolutePathish, projectParentDirs, pickDirectoryForProjectName, sanitizeSessionName, scrubForPaste, buildIssueSessionPrompt, claimPendingFix, claimExpiredPendingFixes, pendingFixesDropped, approvedFixSessionPrompt, PENDING_FIX_TTL_MS, radarUntrustedItems, radarShouldStart, dailyVolumeQuery, dailyVolumeSeries, RADAR_UNTRUSTED_SOURCE, RADAR_UNTRUSTED_ITEM_MAX_CHARS, RADAR_RESULT_FILENAME, RADAR_REPORT_FILENAME, RADAR_EXCEPTION_EVENTS_QUERY, JOB_MODES, FIX_VERDICTS, INVESTIGATIONS_KEY, DEFAULT_ARCHIVED_RETENTION_DAYS, DEFAULT_INTERVAL_MINUTES, DEFAULT_USER_ESCALATION_THRESHOLD, DEFAULT_MIN_USERS_TO_INVESTIGATE, DEFAULT_ENTRY_RETENTION_DAYS };
