@@ -437,6 +437,7 @@ export function createAddSessionDialog() {
 
   function buildPlaceRows() {
     const buildPlaceRow = (name: string, place: string) => buildSlotRow(place, name, place === chosenPlace, () => {
+      if (isAddPending) return;
       choosePlace(place);
       advance();
     });
