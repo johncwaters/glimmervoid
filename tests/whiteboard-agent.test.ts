@@ -864,6 +864,36 @@ test('once its code session is gone a board checks refs against its project, the
   assert.deepEqual(movedReview?.anchorWarnings.filter((warning) => warning.includes('could not be read')), []);
 });
 
+test('a new session first prompt names the five newest boards of its project in use, once', async () => {
+  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'project-notice-'));
+  let clockMs = Date.UTC(2026, 0, 1);
+  const wiring = createWhiteboardWiring({ boardsRoot, now: () => clockMs });
+  const project = path.join(boardsRoot, 'app');
+  const author = { id: 'notice-author', name: 'author', project };
+  const newBoardAt = async (caller: typeof author, title: string) => {
+    clockMs += 60_000;
+    const boardId = ((await wiring.handleAgent(caller, { sub: 'new', title })).body as { board: { id: string } }).board.id;
+    await wiring.handleAgent(caller, { sub: 'disconnect', board: boardId });
+    return boardId;
+  };
+  await newBoardAt(author, 'Archived plan');
+  clockMs += 31 * 24 * 60 * 60 * 1000;
+  const projectBoardIds: string[] = [];
+  for (const title of ['Plan 1', 'Plan 2', 'Plan 3', 'Plan 4', 'Plan 5', 'Plan 6']) projectBoardIds.push(await newBoardAt(author, title));
+  await newBoardAt({ id: 'notice-stranger', name: 'stranger', project: path.join(boardsRoot, 'other') }, 'Other plan');
+
+  const named = projectBoardIds.slice(1).reverse().map((boardId, index) => `"Plan ${6 - index}" (${boardId})`).join(', ');
+  assert.equal(wiring.takeBoardNotice('notice-newcomer', project), `This project has whiteboards from other sessions, newest first: ${named}. Read one with whiteboard get <id>, or connect to follow its changes.`);
+  assert.equal(wiring.takeBoardNotice('notice-newcomer', project), null);
+  assert.equal(wiring.takeBoardNotice('notice-elsewhere', path.join(boardsRoot, 'empty')), null);
+
+  const restarted = createWhiteboardWiring({ boardsRoot, now: () => clockMs });
+  await restarted.loaded;
+  await restarted.handleAgent({ ...author, id: 'notice-newcomer' }, { sub: 'connect', board: projectBoardIds[5] ?? '' });
+  assert.equal(restarted.takeBoardNotice(author.id, project), null);
+  assert.ok(!restarted.takeBoardNotice('notice-newcomer', project)?.includes('Plan 6'));
+});
+
 test('the next prompt tells a connected session once per new change to read the board before changing it, leaving the changes unread', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'prompt-notice-'));
   const wiring = createWhiteboardWiring({ boardsRoot });
@@ -872,23 +902,23 @@ test('the next prompt tells a connected session once per new change to read the 
   const boardId = (created.body as { board: { id: string } }).board.id;
   const notice = `Board "Prompt plan" (${boardId}) changed since your last read. Read it with whiteboard get ${boardId} before you change it.`;
   await wiring.handleAgent(agent, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'board', caption: 'agent caption' }]) });
-  assert.equal(wiring.takeBoardNotice(agent.id), null);
+  assert.equal(wiring.takeBoardNotice(agent.id, null), null);
 
   await wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'parse', title: 'Parse', at: { x: 40, y: 40 } } }]));
-  assert.equal(wiring.takeBoardNotice(agent.id), notice);
-  assert.equal(wiring.takeBoardNotice(agent.id), null);
+  assert.equal(wiring.takeBoardNotice(agent.id, null), notice);
+  assert.equal(wiring.takeBoardNotice(agent.id, null), null);
   assert.equal(wiring.snapshotMessage().boards.find((board) => board.id === boardId)?.queuedBySessionId[agent.id], 1);
 
   await wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'set', id: 'parse', fields: { title: 'Parse feed' } }]));
-  assert.equal(wiring.takeBoardNotice(agent.id), notice);
+  assert.equal(wiring.takeBoardNotice(agent.id, null), notice);
 
   const read = await wiring.handleAgent(agent, { sub: 'get', board: boardId });
   assert.deepEqual((read.body as { changes: { summary: string }[] }).changes.map((change) => change.summary), ['operator added box "Parse"; operator renamed "Parse" to "Parse feed"']);
-  assert.equal(wiring.takeBoardNotice(agent.id), null);
+  assert.equal(wiring.takeBoardNotice(agent.id, null), null);
 
   await wiring.handleAgent(agent, { sub: 'disconnect', board: boardId });
   await wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'add', element: { kind: 'note', id: 'n1', on: 'parse', text: 'handle drafts' } }]));
-  assert.equal(wiring.takeBoardNotice(agent.id), null);
+  assert.equal(wiring.takeBoardNotice(agent.id, null), null);
 });
 
 test('the same bytes attached at once under an svg and an html name are stored once as one kind', async () => {

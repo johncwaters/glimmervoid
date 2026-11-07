@@ -25,7 +25,7 @@ import type { PlanStep } from '../../shared/whiteboard-plan-core.ts';
 import { DEVICE_NAMES } from '../../shared/whiteboard-devices.ts';
 import { ICON_NAMES } from '../../shared/whiteboard-icons.ts';
 import {
-  upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, pickShowBoardId, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard, isFiledFor, isListedFor, isSameProject,
+  upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, pickShowBoardId, projectBoardsNoticeFor, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard, isFiledFor, isListedFor, isSameProject,
 } from '../core/whiteboard-store-core.ts';
 import { loadJsonStateFile } from '../json-file.ts';
 import { createKeyedSerialQueue } from '../spawn-gate.ts';
@@ -140,7 +140,7 @@ interface WhiteboardPort {
   };
   forgetSession(sessionId: string): Promise<void>;
   forgetClosedSessions(isClosedSession: (sessionId: string) => boolean): Promise<void>;
-  takeBoardNotice(sessionId: string): string | null;
+  takeBoardNotice(sessionId: string, sessionProject: string | null): string | null;
   isConnected(sessionId: string): boolean;
   snapshotMessage(): ServerMessageOf<'whiteboards-snapshot'>;
   tiles: Pick<BoardTileService, 'view' | 'forget' | 'operatorViewOf'>;
@@ -763,6 +763,7 @@ function createWhiteboardWiring({
   function forgetSession(sessionId: string): Promise<void> {
     agentFocusBySessionId.delete(sessionId);
     pagedFocusBySessionId.delete(sessionId);
+    announcedVersionByBoardIdBySessionId.delete(sessionId);
     return forgetClosedSessions((connectedSessionId) => connectedSessionId === sessionId);
   }
 
@@ -770,13 +771,16 @@ function createWhiteboardWiring({
     return [...recordsByBoardId.values()].some((record) => sessionId in record.cursorBySessionId);
   }
 
-  function takeBoardNotice(sessionId: string): string | null {
-    const announcedVersionByBoardId = announcedVersionByBoardIdBySessionId.get(sessionId) ?? new Map<string, number>();
-    const notice = boardNoticeFor([...recordsByBoardId.values()], sessionId, announcedVersionByBoardId);
-    if (!notice) return null;
-    for (const { boardId, version } of notice.announced) announcedVersionByBoardId.set(boardId, version);
+  function takeBoardNotice(sessionId: string, sessionProject: string | null): string | null {
+    const announcedBefore = announcedVersionByBoardIdBySessionId.get(sessionId);
+    const announcedVersionByBoardId = announcedBefore ?? new Map<string, number>();
     announcedVersionByBoardIdBySessionId.set(sessionId, announcedVersionByBoardId);
-    return notice.text;
+    const isFirstPrompt = announcedBefore === undefined;
+    const projectBoardsLine = isFirstPrompt && sessionProject !== null ? projectBoardsNoticeFor(recordsByBoardId.values(), { sessionId, project: sessionProject }, now()) : null;
+    const notice = boardNoticeFor([...recordsByBoardId.values()], sessionId, announcedVersionByBoardId);
+    for (const { boardId, version } of notice?.announced ?? []) announcedVersionByBoardId.set(boardId, version);
+    const lines = [projectBoardsLine, notice?.text ?? null].filter((line) => line !== null);
+    return lines.length === 0 ? null : lines.join('\n');
   }
 
   async function attachMedia(caller: WhiteboardCaller, requestedPath: string): Promise<WhiteboardReply> {

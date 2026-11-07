@@ -217,6 +217,25 @@ function boardNoticeFor(records: readonly BoardRecord[], sessionId: string, anno
   return { text: announced.map((entry) => entry.line).join('\n'), announced: announced.map(({ boardId, version }) => ({ boardId, version })) };
 }
 
+const PROJECT_BOARDS_NOTICE_LIMIT = 5;
+
+function isOwnBoard(record: BoardRecord, sessionId: string): boolean {
+  return record.createdBy === sessionId || isConnectedTo(record, sessionId);
+}
+
+function projectBoardsNoticeFor(records: Iterable<BoardRecord>, caller: { sessionId: string; project: string }, nowMs: number): string | null {
+  const newestBoards: Board[] = [];
+  for (const record of records) {
+    if (!isSameProject(record.board.project, caller.project) || isBoardArchived(record, nowMs) || isOwnBoard(record, caller.sessionId)) continue;
+    newestBoards.push(record.board);
+    newestBoards.sort((left, right) => right.updatedAt - left.updatedAt);
+    newestBoards.length = Math.min(newestBoards.length, PROJECT_BOARDS_NOTICE_LIMIT);
+  }
+  if (newestBoards.length === 0) return null;
+  const named = newestBoards.map((board) => `"${board.title}" (${board.id})`).join(', ');
+  return `This project has whiteboards from other sessions, newest first: ${named}. Read one with whiteboard get <id>, or connect to follow its changes.`;
+}
+
 function resolveBoardRef(boards: readonly Board[], ref: string): Board | { error: string } {
   const byId = boards.find((board) => board.id === ref);
   if (byId) return byId;
@@ -283,4 +302,4 @@ function shownBoxOp(board: Board, contentBounds: BoardBounds, card: ShownCard): 
 }
 
 export { pickShowBoardId, shownBoxOp };
-export { BOARD_CONTEXT_NOTE, upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, isFiledFor, isListedFor, isSameProject, markRead, recordPut, resolveBoardRef, summarizeBoard };
+export { BOARD_CONTEXT_NOTE, upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, isFiledFor, isListedFor, isSameProject, markRead, projectBoardsNoticeFor, recordPut, resolveBoardRef, summarizeBoard };
