@@ -473,7 +473,7 @@ export function createBoardInspector(options: BoardInspectorOptions) {
   }
 
   function sectionsFor(board: Board, selectedIds: ReadonlySet<string>): HTMLElement[] {
-    const selected = [...selectedIds].flatMap((selectedId) => board.elements[selectedId] ?? []);
+    const selected = [...selectedIds].flatMap((selectedId) => board.elements.get(selectedId) ?? []);
     if (selectedIds.size > 1) return [heading(`${selected.length} selected`), selectionActionsRow(selected, options)];
     const element = soleSelectedElement(board, selectedIds);
     if (!element) return boardSections(board, options.currentBoard, send, options.codeSessionChoices(), closeBoardSettings);
