@@ -54,6 +54,7 @@ const STEP_BY_DIRECTION = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x:
 const OUTWARD_DIRECTION_BY_SIDE: Record<Side, number> = { right: 0, left: 1, bottom: 2, top: 3 };
 const INWARD_DIRECTION_BY_SIDE: Record<Side, number> = { left: 0, right: 1, top: 2, bottom: 3 };
 const REVERSE_DIRECTION = [1, 0, 3, 2];
+const STRAIGHT_ROUTE_MARGIN = 1;
 
 interface AreaObstacles {
   hardRects: readonly Rect[];
@@ -380,16 +381,108 @@ function choicePortsOf(choices: readonly SideChoice[]): GraphPort[] {
   ]);
 }
 
-function applySideChoice(choice: SideChoice, chosen: SearchOutcome, points: Point[]): void {
-  choice.plan.exitSide = chosen.exit.side;
-  choice.plan.entrySide = chosen.entry.side;
-  choice.plan.found = { exitSide: chosen.exit.side, entrySide: chosen.entry.side, start: chosen.exit.point, end: chosen.entry.point, points };
+function applySideChoice(choice: SideChoice, exit: SideTerminal, entry: SideTerminal, points: Point[]): void {
+  choice.plan.exitSide = exit.side;
+  choice.plan.entrySide = entry.side;
+  choice.plan.found = { exitSide: exit.side, entrySide: entry.side, start: exit.point, end: entry.point, points };
+}
+
+function isOutwardAlong(exit: SideTerminal, entry: SideTerminal): boolean {
+  const delta = { x: entry.point.x - exit.point.x, y: entry.point.y - exit.point.y };
+  if (delta.x !== 0 && delta.y !== 0) return false;
+  const direction = delta.x > 0 ? OUTWARD_DIRECTION_BY_SIDE.right : delta.x < 0 ? OUTWARD_DIRECTION_BY_SIDE.left : delta.y > 0 ? OUTWARD_DIRECTION_BY_SIDE.bottom : OUTWARD_DIRECTION_BY_SIDE.top;
+  return (delta.x !== 0 || delta.y !== 0) && exit.direction === direction && entry.direction === direction;
+}
+
+function isHorizontalDirection(direction: number): boolean {
+  return direction === OUTWARD_DIRECTION_BY_SIDE.right || direction === OUTWARD_DIRECTION_BY_SIDE.left;
+}
+
+function directionFrom(from: Point, to: Point): number {
+  if (to.x > from.x) return OUTWARD_DIRECTION_BY_SIDE.right;
+  if (to.x < from.x) return OUTWARD_DIRECTION_BY_SIDE.left;
+  return to.y > from.y ? OUTWARD_DIRECTION_BY_SIDE.bottom : OUTWARD_DIRECTION_BY_SIDE.top;
+}
+
+function oneBendPointsOf(exit: SideTerminal, entry: SideTerminal): Point[] | null {
+  if (isHorizontalDirection(exit.direction) === isHorizontalDirection(entry.direction)) return null;
+  const corner = isHorizontalDirection(exit.direction) ? { x: entry.point.x, y: exit.point.y } : { x: exit.point.x, y: entry.point.y };
+  if (isSamePoint(corner, exit.point) || isSamePoint(corner, entry.point)) return null;
+  if (directionFrom(exit.point, corner) !== exit.direction || directionFrom(corner, entry.point) !== entry.direction) return null;
+  return [exit.point, corner, entry.point];
+}
+
+function isHardClear(points: readonly Point[], plan: WirePlan, input: RouteInput): boolean {
+  return segmentsOf([...points]).every((segment) => {
+    const corridor = pointBoundsOf(segment.from, segment.to);
+    const obstacles = input.obstaclesIn?.(inflated(corridor, STRAIGHT_ROUTE_MARGIN));
+    return obstacles !== undefined && !obstacles.hardRects.some((rect) => rect !== plan.from && rect !== plan.to && rectsOverlap(inflated(rect, STRAIGHT_ROUTE_MARGIN), corridor));
+  });
+}
+
+function pathLengthOf(points: readonly Point[]): number {
+  return segmentsOf([...points]).reduce((sum, segment) => sum + segmentLength(segment), 0);
+}
+
+function isCorridorClear(segment: Segment, plan: WirePlan, input: RouteInput, routedLines: RoutedLines): boolean {
+  const corridor = pointBoundsOf(segment.from, segment.to);
+  const obstacles = input.obstaclesIn?.(inflated(corridor, STRAIGHT_ROUTE_MARGIN));
+  if (!obstacles) return false;
+  if (obstacles.hardRects.some((rect) => rect !== plan.from && rect !== plan.to && rectsOverlap(inflated(rect, STRAIGHT_ROUTE_MARGIN), corridor))) return false;
+  if (obstacles.softRects.some((rect) => rectsOverlap(rect, corridor))) return false;
+  const crossables = crossablesIn(routedLines, corridor);
+  const others = isHorizontal(segment) ? crossables.verticals : crossables.horizontals;
+  return !others.some((other) => segmentsCross(segment, other));
+}
+
+interface ShortRoute {
+  exit: SideTerminal;
+  entry: SideTerminal;
+  points: Point[];
+}
+
+interface RouteCandidate {
+  exit: SideTerminal;
+  entry: SideTerminal;
+  points: Point[];
+  bends: number;
+  cost: number;
+}
+
+function candidatePointsOf(exit: SideTerminal, entry: SideTerminal): Point[] | null {
+  if (isOutwardAlong(exit, entry)) return [exit.point, entry.point];
+  return oneBendPointsOf(exit, entry);
+}
+
+function routeCandidatesOf(choice: SideChoice): RouteCandidate[] {
+  return choice.exits.flatMap((exit) => choice.entries.flatMap((entry) => {
+    const points = candidatePointsOf(exit, entry);
+    return points ? [{ exit, entry, points, bends: points.length - 2, cost: pathLengthOf(points) + exit.bias + entry.bias }] : [];
+  }));
+}
+
+function shortRouteOf(choice: SideChoice, input: RouteInput, routedLines: RoutedLines): ShortRoute | null {
+  const clearCandidates = routeCandidatesOf(choice).filter((candidate) => isHardClear(candidate.points, choice.plan, input));
+  const fewestBends = Math.min(...clearCandidates.map((candidate) => candidate.bends));
+  const rivals = clearCandidates.filter((candidate) => candidate.bends === fewestBends);
+  const cheapestCost = Math.min(...rivals.map((candidate) => candidate.cost));
+  const cheapest = rivals.filter((candidate) => candidate.cost === cheapestCost);
+  const [best] = cheapest;
+  if (!best || cheapest.length > 1) return null;
+  if (best.bends > 0 && !segmentsOf(best.points).every((segment) => isCorridorClear(segment, choice.plan, input, routedLines))) return null;
+  return { exit: best.exit, entry: best.entry, points: best.points };
 }
 
 function chooseSidesLocally(choices: readonly SideChoice[], input: RouteInput, reuse: RouteReuse): void {
   const buffers = createSearchBuffers();
   const routedLines = createRoutedLines();
   for (const choice of choices) {
+    const shortRoute = shortRouteOf(choice, input, routedLines);
+    if (shortRoute) {
+      applySideChoice(choice, shortRoute.exit, shortRoute.entry, shortRoute.points);
+      addRoutedLines(routedLines, segmentsOf(shortRoute.points));
+      continue;
+    }
     const window = windowOf(choice.plan, reuse);
     const obstacles = windowObstaclesOf(input, window);
     const graph = obstacles ? windowGraphOf(choicePortsOf([choice]), input, window, obstacles) : null;
@@ -397,7 +490,7 @@ function chooseSidesLocally(choices: readonly SideChoice[], input: RouteInput, r
     resetSearchBuffers(buffers);
     if (!graph || !chosen) continue;
     const points = pointsOfStates(graph, chosen.states);
-    applySideChoice(choice, chosen, points);
+    applySideChoice(choice, chosen.exit, chosen.entry, points);
     addRoutedLines(routedLines, segmentsOf(points));
   }
 }
