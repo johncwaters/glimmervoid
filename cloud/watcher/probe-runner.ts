@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { signedHeaders } from '../link/core/link-signing-core.ts';
-import { GITHUB_API_HOST, NUDGES_PATH } from '../../shared/contracts/watcher-link.ts';
+import { githubApiOrigin, NUDGES_PATH } from '../../shared/contracts/watcher-link.ts';
 import type { Nudge, Probe, ProbeSet, WatcherCredentials, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
 import { freshProbeMemory, memoryAfterCredentialChange, nextRunAtMs, probeOutcome, retryAfterMsFromHeaders } from './core/probe-core.ts';
 import type { ProbeMemory, ProbeResponse } from './core/probe-core.ts';
@@ -33,7 +33,8 @@ function authorizationFor(probe: Probe, credentials: WatcherCredentials): string
   const probeHost = new URL(probe.url).host;
   if (probe.credential === 'github') {
     if (credentials.github === null) return { refusal: 'no GitHub read credential yet' };
-    if (probeHost !== GITHUB_API_HOST) return { refusal: `a GitHub probe may only reach ${GITHUB_API_HOST}` };
+    const githubApiHost = new URL(githubApiOrigin(process.env)).host;
+    if (probeHost !== githubApiHost) return { refusal: `a GitHub probe may only reach ${githubApiHost}` };
     return `Bearer ${credentials.github}`;
   }
   if (credentials.posthog === null) return { refusal: 'no PostHog read credential yet' };

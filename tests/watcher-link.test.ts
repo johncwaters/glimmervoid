@@ -13,7 +13,7 @@ import { createGithubStorePoller } from '../server/github/github-store-poller.ts
 import { githubStoreProbes, watchProbeId } from '../server/github/github-store-probes.ts';
 import { createGithubStoreWiring } from '../server/github/github-store-wiring.ts';
 import { createPrGh } from '../server/github/pr-gh.ts';
-import { HEALTH_PATH, NUDGES_PATH } from '../shared/contracts/watcher-link.ts';
+import { githubApiOrigin, HEALTH_PATH, NUDGES_PATH, Probe as ProbeSchema } from '../shared/contracts/watcher-link.ts';
 import type { Nudge, Probe } from '../shared/contracts/watcher-link.ts';
 
 const QUIET_LOG = { log: () => {}, warn: () => {} };
@@ -371,4 +371,13 @@ test('a probe the watcher newly covers gets one catch-up read, and the same cove
   wiring.probeSource.onCoverageChange(coveredProbes);
   assert.equal(await firePendingTimers(), 0);
   assert.equal(searchedQualifiers.length, 1);
+});
+
+test('a GitHub API override moves probes only to a loopback address, and a plain http probe is refused anywhere else', () => {
+  const overrides = ['http://127.0.0.1:4010', 'http://[::1]:4010', 'https://evil.example', 'http://127.0.0.1.evil.example', 'not a url', ''];
+  assert.deepEqual(overrides.map((override) => githubApiOrigin({ GLIMMERVOID_GITHUB_API_BASE: override })), [
+    'http://127.0.0.1:4010', 'http://[::1]:4010', 'https://api.github.com', 'https://api.github.com', 'https://api.github.com', 'https://api.github.com',
+  ]);
+  const probeUrls = ['http://127.0.0.1:4010/notifications', 'http://api.github.com/notifications', 'https://api.github.com/notifications', 'not a url', 'http://'];
+  assert.deepEqual(probeUrls.map((url) => ProbeSchema.safeParse({ ...LIGHT_PROBE, url }).success), [true, false, true, false, false]);
 });

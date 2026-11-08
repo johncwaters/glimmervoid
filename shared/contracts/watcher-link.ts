@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isLoopbackHostname, loopbackOverrideOrigin } from '../loopback-hosts.ts';
 
 export const LINK_SECRET_ENV = 'GLIMMERVOID_LINK_SECRET';
 export const LINK_SERVER_URL_ENV = 'GLIMMERVOID_LINK_SERVER_URL';
@@ -16,12 +17,17 @@ export const WATCHER_LANE_IDS = Object.freeze(['github-store', 'issues', 'radar'
 export const PROBE_CREDENTIALS = Object.freeze(['github', 'posthog'] as const);
 const ProbeCredential = z.enum(PROBE_CREDENTIALS);
 
+const ProbeUrl = z.url({ protocol: /^https?$/ }).refine(
+  (probeUrl) => probeUrl.startsWith('https:') || isLoopbackHostname(URL.parse(probeUrl)?.hostname ?? ''),
+  'a probe reaches an https address, or plain http only on a loopback address',
+);
+
 export const Probe = z.strictObject({
   id: z.string().regex(/^[a-z0-9:._-]{1,120}$/),
   laneId: z.string().min(1).max(60),
   everyMs: z.number().int().min(MIN_PROBE_INTERVAL_MS),
   method: z.enum(['GET', 'POST']),
-  url: z.url({ protocol: /^https$/ }),
+  url: ProbeUrl,
   body: z.string().max(64 * 1024).nullable(),
   credential: ProbeCredential,
   answerField: z.string().regex(/^[a-z_]{1,40}$/).optional(),
@@ -67,4 +73,9 @@ export const WatcherCredentials = z.strictObject({
 });
 export type WatcherCredentials = z.infer<typeof WatcherCredentials>;
 
-export const GITHUB_API_HOST = 'api.github.com';
+const GITHUB_API_ORIGIN = 'https://api.github.com';
+export const GITHUB_API_BASE_VARIABLE = 'GLIMMERVOID_GITHUB_API_BASE';
+
+export function githubApiOrigin(environment: Readonly<Record<string, string | undefined>>): string {
+  return loopbackOverrideOrigin(environment[GITHUB_API_BASE_VARIABLE], GITHUB_API_ORIGIN);
+}

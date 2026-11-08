@@ -22,5 +22,5 @@ The watcher, a process that runs the probes the server compiles and nudges the s
 - The watcher holds no lane logic and never parses a response: a probe's answer is only hashed, so a new lane never needs a watcher change and a compromised watcher learns nothing it could act on.
 - `cloud/watcher/` imports only the link contract, the signing core and its own code, so it runs on a box with no server.
 - Each direction signs with its own key derived from the link secret, so a captured nudge can never be replayed as a probe set.
-- A GitHub credential only reaches `api.github.com` and a PostHog key only its own host, whatever URL a probe names.
+- A GitHub credential only reaches `api.github.com` and a PostHog key only its own host, whatever URL a probe names. `GLIMMERVOID_GITHUB_API_BASE` may move GitHub probes, but only to a loopback address (the end-to-end runs' fake GitHub), so a token never leaves the machine in plain http (`githubApiOrigin`).
 - A lane skips a timed read only while the watcher runs that exact request healthily and the lane already holds its first answer, because the watcher never nudges on a probe's first answer; anything else stays on the lane's timers, so the watcher only ever makes polling cheaper.

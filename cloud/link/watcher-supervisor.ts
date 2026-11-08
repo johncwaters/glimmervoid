@@ -6,7 +6,7 @@ import { nextBackoffMs } from '../../shared/backoff.ts';
 import type { WatcherChildEndKind } from '../../shared/contracts/telemetry.ts';
 import { isRecord } from '../../shared/coerce.ts';
 import { endKindOf } from './watcher-telemetry-core.ts';
-import { LINK_SECRET_ENV, LINK_SERVER_URL_ENV, WATCHER_HOME_ENV, WATCHER_LISTENING_MESSAGE } from '../../shared/contracts/watcher-link.ts';
+import { GITHUB_API_BASE_VARIABLE, githubApiOrigin, LINK_SECRET_ENV, LINK_SERVER_URL_ENV, WATCHER_HOME_ENV, WATCHER_LISTENING_MESSAGE } from '../../shared/contracts/watcher-link.ts';
 
 interface WatcherChildEnding {
   endKind: WatcherChildEndKind;
@@ -17,7 +17,7 @@ interface WatcherChildEnding {
 const RESTART_BASE_MS = 1000;
 const RESTART_MAX_MS = 5 * 60_000;
 const STABLE_RUN_MS = 60_000;
-const INHERITED_ENVIRONMENT_NAMES = ['PATH', 'HOME', 'USERPROFILE', 'SYSTEMROOT', 'WINDIR', 'TMPDIR', 'TEMP', 'TMP', 'LANG', 'TZ', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS', 'HTTPS_PROXY', 'https_proxy', 'NO_PROXY', 'no_proxy'];
+const INHERITED_ENVIRONMENT_NAMES = ['PATH', 'HOME', 'USERPROFILE', 'SYSTEMROOT', 'WINDIR', 'TMPDIR', 'TEMP', 'TMP', 'LANG', 'TZ', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS', 'HTTPS_PROXY', 'https_proxy', 'NO_PROXY', 'no_proxy', GITHUB_API_BASE_VARIABLE];
 
 function inheritedEnvironment(): Record<string, string> {
   const entries = INHERITED_ENVIRONMENT_NAMES.flatMap((name) => {
@@ -39,6 +39,8 @@ function createWatcherSupervisor({ linkSecret, serverUrl, watcherHome, onListeni
   let supervision: 'watching' | 'stopped' = 'watching';
   let runningChild: ChildProcess | null = null;
   let pendingRestart: NodeJS.Timeout | null = null;
+  const isGithubApiOverrideIgnored = Boolean(process.env[GITHUB_API_BASE_VARIABLE]) && githubApiOrigin(process.env) === githubApiOrigin({});
+  if (isGithubApiOverrideIgnored) log.warn(`[watcher] ${GITHUB_API_BASE_VARIABLE} does not name a loopback address, so GitHub probes keep reaching GitHub`);
 
   function scheduleRestart(endedHow: string, endKind: WatcherChildEndKind, runDurationMs: number): void {
     runningChild = null;

@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { GITHUB_API_HOST } from '../../shared/contracts/watcher-link.ts';
+import { githubApiOrigin } from '../../shared/contracts/watcher-link.ts';
 import type { Probe } from '../../shared/contracts/watcher-link.ts';
 import { GITHUB_STORE_BEHIND_INTERVAL_MS } from './core/github-store-core.ts';
 import { behindCountsQuery, githubPrsLightByKeyQuery, githubPrsLightSearchQuery } from './pr-gh/pr-gh-queries.ts';
@@ -16,8 +16,6 @@ interface GithubStoreProbeInputs {
 }
 
 const GITHUB_STORE_LANE_ID = 'github-store';
-const GRAPHQL_URL = `https://${GITHUB_API_HOST}/graphql`;
-const NOTIFICATIONS_URL = `https://${GITHUB_API_HOST}/notifications`;
 const WATCH_PROBE_PREFIX = 'github:watch:';
 const POLL_PROBE_PREFIX = 'github:';
 const LIGHT_BATCH_SIZE = 50;
@@ -35,7 +33,7 @@ function batchesOf<Item>(items: readonly Item[], batchSize: number): Item[][] {
 }
 
 function graphqlProbe(id: string, everyMs: number, query: string, variables: Record<string, string> = {}): Probe {
-  return { id, laneId: GITHUB_STORE_LANE_ID, everyMs, method: 'POST', url: GRAPHQL_URL, body: JSON.stringify({ query, variables }), credential: 'github' };
+  return { id, laneId: GITHUB_STORE_LANE_ID, everyMs, method: 'POST', url: new URL('/graphql', githubApiOrigin(process.env)).toString(), body: JSON.stringify({ query, variables }), credential: 'github' };
 }
 
 function watchProbeId(watchName: string): string {
@@ -61,7 +59,7 @@ function githubStoreProbes(inputs: GithubStoreProbeInputs): Probe[] {
   const lightProbes = batchesOf(inputs.knownPrs, LIGHT_BATCH_SIZE).map((batch, index) => graphqlProbe(`${POLL_PROBE_PREFIX}light:${index}`, LIGHT_EVERY_MS, githubPrsLightByKeyQuery(batch)));
   const behindProbes = batchesOf(inputs.behindPrs, BEHIND_BATCH_SIZE).map((batch, index) => graphqlProbe(`${POLL_PROBE_PREFIX}behind:${index}`, GITHUB_STORE_BEHIND_INTERVAL_MS, behindCountsQuery(batch)));
   const notificationsProbes: Probe[] = inputs.isNotificationsReadable
-    ? [{ id: `${POLL_PROBE_PREFIX}notifications`, laneId: GITHUB_STORE_LANE_ID, everyMs: NOTIFICATIONS_EVERY_MS, method: 'GET', url: NOTIFICATIONS_URL, body: null, credential: 'github' }]
+    ? [{ id: `${POLL_PROBE_PREFIX}notifications`, laneId: GITHUB_STORE_LANE_ID, everyMs: NOTIFICATIONS_EVERY_MS, method: 'GET', url: new URL('/notifications', githubApiOrigin(process.env)).toString(), body: null, credential: 'github' }]
     : [];
   return [...watchProbes, ...lightProbes, ...behindProbes, ...notificationsProbes];
 }

@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { GITHUB_API_HOST } from '../../shared/contracts/watcher-link.ts';
+import { githubApiOrigin } from '../../shared/contracts/watcher-link.ts';
 import type { Probe } from '../../shared/contracts/watcher-link.ts';
 import { ISSUES_LANE_ID } from './core/issues-core.ts';
 
@@ -21,13 +21,13 @@ function getProbe(id: string, everyMs: number, url: URL): Probe {
 }
 
 function repoListingProbe(repo: string): Probe {
-  const url = new URL(`https://${GITHUB_API_HOST}/repos/${repo}/issues`);
+  const url = new URL(`/repos/${repo}/issues`, githubApiOrigin(process.env));
   for (const [name, value] of [['state', 'all'], ['sort', 'updated'], ['direction', 'desc'], ['per_page', '1']]) url.searchParams.set(name, value);
   return getProbe(probeIdFor('repo', repo), REPO_LISTING_EVERY_MS, url);
 }
 
 function searchProbe(query: string): Probe {
-  const url = new URL(`https://${GITHUB_API_HOST}/search/issues`);
+  const url = new URL('/search/issues', githubApiOrigin(process.env));
   for (const [name, value] of [['q', query], ['sort', 'updated'], ['order', 'desc'], ['per_page', '1']]) url.searchParams.set(name, value);
   return getProbe(probeIdFor('search', query), SEARCH_EVERY_MS, url);
 }
