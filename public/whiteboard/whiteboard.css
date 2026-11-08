@@ -475,7 +475,8 @@
   height: calc(100dvh - 32px);
   max-width: none;
   max-height: none;
-  padding: 16px;
+  padding: 0;
+  gap: 0;
 }
 
 .wb-image-viewer-header {
@@ -483,6 +484,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  padding: 8px 8px 8px 16px;
 }
 
 .wb-image-viewer .dialog-title {
@@ -500,7 +502,6 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
-  border-radius: var(--radius-lg);
 }
 
 .wb-zoomable-media {
