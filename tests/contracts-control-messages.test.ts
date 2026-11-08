@@ -86,6 +86,7 @@ const SESSION = {
   effectiveBase: 'develop',
   linkedPrs: [{ repo: 'acme/app', number: 42, url: 'https://github.com/acme/app/pull/42', source: 'hook', linkedAt: NOW }],
   coherenceHooks: { active: false, reason: 'not installed' },
+  attentionNotes: [{ origin: 'coherence-verdict', note: 'Coherence invariant server/lane/lane boundary still fails after the agent\'s turn', at: NOW }],
   auditLog: [],
 };
 
