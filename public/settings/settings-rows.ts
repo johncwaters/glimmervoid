@@ -15,11 +15,11 @@ function renderSettingHeading(setting: SettingsSetting) {
   const section = sectionOfSetting(setting);
   const heading = el('h2', 'settings-view-setting-title', setting.title);
   heading.id = setting.id;
-  if (isExperimentalSetting(setting) && !isExperimentalSection(pageSectionOf(viewMap, section.id) ?? section)) heading.append(' ', buildExperimentalTag());
   heading.addEventListener('click', () => replaceSettingsHash(section.id, setting.id));
   const copy = button({ variant: 'quiet', size: 'small', label: '#', action: 'copy-setting-link' });
   copy.setAttribute('aria-label', 'Copy link');
   row.appendChild(heading);
+  if (isExperimentalSetting(setting) && !isExperimentalSection(pageSectionOf(viewMap, section.id) ?? section)) row.appendChild(buildExperimentalTag());
   appendCopyControl(row, copy, {
     copiedText: 'Link copied',
     textToCopy: () => new URL(settingsHash(section.id, setting.id), location.href).href,

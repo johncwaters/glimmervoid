@@ -96,6 +96,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A setting marked Experimental keeps its # link beside the title.** On a narrow screen the Experimental tag now wraps under the setting's title with the # link next to it, instead of pushing the # to the far side of the row.
 - **A restart while an agent is asking you a question no longer stops its work.** A session whose agent was mid-turn on a question or permission prompt when Glimmervoid restarted came back idle, so you had to type continue; it now resumes with the continue prompt like any other mid-turn session, and the agent asks its question again.
 - **Packages with install scripts work in a new session worktree.** Worktree installs still run no package scripts, so a package that builds or downloads something when installed (ffmpeg-static's ffmpeg for whiteboard media previews, node-pty's native module) used to arrive unbuilt. Now each such package is copied from the main checkout's node_modules when the main checkout has the same version installed, built output included. One with no matching install in the main checkout is named in the install warning with the `npm rebuild` command that builds it.
 - **Tapping a project in New session no longer highlights the agent.** The tapped project keeps focus instead of the agent picker taking it.

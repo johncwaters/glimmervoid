@@ -449,6 +449,14 @@ html[data-streamer] .settings-view-shell { grid-template-columns: minmax(0, 1fr)
   gap: 7px;
 }
 
+.settings-view-setting-heading:has(> .settings-view-experimental-tag) {
+  flex-wrap: wrap;
+}
+
+.settings-view-setting-heading > .settings-view-experimental-tag {
+  margin-left: 0;
+}
+
 @media (hover: hover) {
   .settings-view-setting:not(:hover) .settings-view-setting-heading:not(:focus-within) > [data-action="copy-setting-link"] {
     opacity: 0;
