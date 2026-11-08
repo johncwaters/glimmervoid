@@ -9,8 +9,8 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
 <section class="hero" id="top">
   <div class="sky" id="sky" aria-hidden="true" data-animals={skyAnimals}></div>
   <div class="hero-copy" id="hero-install">
-    <h1>Mission control <em>that ships</em>.</h1>
-    <p class="lede">Not a terminal multiplexer. Grids are for watching. <span class="unbroken">This is for working.</span></p>
+    <h1>See it <em>before it's built</em>.</h1>
+    <p class="lede">Your coding agent sketches the screen, draws the architecture and shows you the result on a whiteboard beside its terminal. You mark it up, and it works from your marks.</p>
     <div class="install-line">
       <code data-install-command title="Click to copy"><span data-install-for="default"><InstallCommand /></span><span data-install-for="linux" hidden><InstallCommand command={LINUX_INSTALL_COMMAND} /></span></code>
       <span class="install-actions">
@@ -26,7 +26,6 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
 <style>
   .hero { border-top: none; padding-block: 56px 96px; }
   .hero-copy { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 22px; position: relative; z-index: 2; }
-  .unbroken { white-space: nowrap; }
   .lede { color: var(--text-dim); font-size: clamp(17px, 2vw, 19px); max-width: 54ch; }
   .install-other-platforms { font-size: 14px; color: var(--text-dim); }
   .install-other-platforms:hover { color: var(--text-head); }

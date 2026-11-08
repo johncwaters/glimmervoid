@@ -8,7 +8,7 @@ tone:
     example: Push failed. The remote rejected the branch; rebase and push again.
   - context: Marketing site
     tone: Confident and concrete, still monospace, still no hype.
-    example: Mission control that ships.
+    example: See it before it's built.
   - context: Notifications
     tone: Names the session and the state, nothing else; the operator decides from the name alone.
     example: auth-refactor needs attention

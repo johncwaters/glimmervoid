@@ -6,7 +6,7 @@
 [![Node.js](https://img.shields.io/badge/node-%3E%3D24.15-brightgreen.svg)](https://nodejs.org)
 [![Platform: Windows | Linux | macOS](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-0078d4)](https://github.com/johncwaters/glimmervoid)
 
-**Mission control that ships. Not a terminal multiplexer. Grids are for watching. This is for shipping.**
+**See it before it's built. Your coding agent sketches the screen, draws the architecture and shows you the result on a whiteboard beside its terminal. You mark it up, and it works from your marks.**
 
 [glimmervoid.dev](https://glimmervoid.dev)
 
