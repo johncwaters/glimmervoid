@@ -210,6 +210,7 @@ function createConfigStore({
       recordSignals: config.recordSignals ?? effectiveDefaults.recordSignals,
       trace: pickBlock('trace', { ...DEFAULT_CONFIG.trace, ...config.trace }),
       telemetry: pickBlock('telemetry', { ...DEFAULT_CONFIG.telemetry, ...config.telemetry }),
+      vault: pickBlock('vault', { ...DEFAULT_CONFIG.vault, ...config.vault }),
       telemetryForcedOff: isTelemetryForcedOff(process.env),
       telemetryInstallId: readTelemetryInstallId?.() ?? null,
       saneYolo: config.saneYolo ?? effectiveDefaults.saneYolo,
@@ -286,6 +287,7 @@ function createConfigStore({
     if (newConfig.usage != null) config.usage = newConfig.usage;
     if (newConfig.telegram != null) config.telegram = newConfig.telegram;
     if (newConfig.telemetry != null) config.telemetry = newConfig.telemetry;
+    if (newConfig.vault != null) config.vault = { ...config.vault, ...newConfig.vault };
     if (newConfig.workflows == null) delete config.workflows;
     if (newConfig.workflows != null) config.workflows = newConfig.workflows;
     if (newConfig.coder == null) delete config.coder;

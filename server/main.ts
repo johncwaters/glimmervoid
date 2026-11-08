@@ -138,6 +138,24 @@ if (backend.remote.enabled) {
   });
 }
 
+function listenForVaultCompanion(): void {
+  const vaultBind = backend.vault.bind;
+  if (!vaultBind.listen) {
+    console.warn(`[vault] ${vaultBind.reason}; the vault companion listener is off`);
+    return;
+  }
+  const vaultServer = http.createServer();
+  backend.vault.attach(vaultServer);
+  vaultServer.on('error', (err) => {
+    console.warn(`[vault] listener on ${vaultBind.host}:${vaultBind.port} failed, the vault companion listener is off: ${err.message}`);
+  });
+  vaultServer.listen(vaultBind.port, vaultBind.host, () => {
+    console.log(`[vault] companion listener on ${vaultBind.host}:${listeningPort(vaultServer, vaultBind.port)}`);
+  });
+}
+
+listenForVaultCompanion();
+
 function exitWithClearedTerminalTitle(code?: number): never {
   writeTerminalTitle(buildTitleClearSequence());
   process.exit(code);

@@ -618,11 +618,11 @@
     },
     {
       "name": "vault companion",
-      "definition": "The glimmervoid vault process on the operator's machine that holds a WebSocket to a Glimmervoid server's job inbox and reads approved secrets from the operator's vault (1Password) through a vault adapter; with none connected an approved secret answers companion offline (also: companion)"
+      "definition": "The glimmervoid vault process on the operator's machine that holds a WebSocket to a Glimmervoid server's vault companion listener and reads approved secrets from the operator's vault (1Password) through a vault adapter; with none connected an approved secret answers companion offline (also: companion)"
     },
     {
       "name": "connection",
-      "definition": "A live WebSocket between two Glimmervoid parts: a dashboard's control or data WebSocket to the server, or the vault companion's WebSocket to a server's job inbox; a dropped one is retried with backoff"
+      "definition": "A live WebSocket between two Glimmervoid parts: a dashboard's control or data WebSocket to the server, or the vault companion's WebSocket to a server's vault companion listener; a dropped one is retried with backoff"
     },
     {
       "name": "pane",

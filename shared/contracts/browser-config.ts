@@ -223,6 +223,13 @@ const telemetryShape = { enabled: optionalBoolean('telemetry.enabled') };
 const TelemetrySettings = z.object(telemetryShape, { error: 'telemetry must be an object' }).strict().optional();
 export const TelemetryFileSettings = z.object(telemetryShape, { error: 'telemetry must be an object' }).passthrough().optional();
 
+const vaultShape = {
+  host: optionalString('vault.host', true),
+  port: z.number({ error: 'vault.port must be a port from 1 to 65535 or null' }).int().min(ranges.FIXED_PORT_RANGE.min).max(ranges.FIXED_PORT_RANGE.max).nullable().optional(),
+};
+const VaultSettings = z.object(vaultShape, { error: 'vault must be an object' }).strict().optional();
+export const VaultFileSettings = z.object({ ...vaultShape, token: z.string().optional() }, { error: 'vault must be an object' }).passthrough().optional();
+
 const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean) => ({
   port: z.number().int().min(ranges.PORT_RANGE.min).max(ranges.PORT_RANGE.max).optional(),
   notifyDebounceMs: z.number().finite().nonnegative().optional(),
@@ -264,6 +271,7 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   usage: createUsageSettings(isAbsolutePath),
   telegram: TelegramSettings,
   telemetry: TelemetrySettings,
+  vault: VaultSettings,
   workflows: WorkflowsSettings.nullable().optional(),
   prFlows: PrFlowsSettings.nullable().optional(),
 });

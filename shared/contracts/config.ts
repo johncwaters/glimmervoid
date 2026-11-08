@@ -4,7 +4,7 @@ import { TaskTitle } from './session.ts';
 import { SessionPrLinks } from './my-prs.ts';
 import { BranchGcControlSettings, GithubSettings,
   createBrowserConfig, optionalBoolean, optionalLooseObject,
-  PlanReviewSettings, TelemetryFileSettings, TraceSettings,
+  PlanReviewSettings, TelemetryFileSettings, TraceSettings, VaultFileSettings,
 } from './browser-config.ts';
 import { WorkflowsSettingsUpdate } from './workflows.ts';
 import { AgentHomeKind, AgentSetup } from './agent-models.ts';
@@ -212,6 +212,7 @@ export const Config = z.object({
     ownerLogin: z.string().optional(),
   }).passthrough().optional(),
   hosts: HostEntries.optional(),
+  vault: VaultFileSettings,
   projects: z.array(ProjectConfig),
 }).passthrough().superRefine((config, ctx) => {
   if (!Array.isArray(config.projects)) return;
@@ -241,7 +242,7 @@ export const Config = z.object({
 
 export const CONFIG_BLOCK_KEYS = Object.freeze([
   'taskTitle', 'branchGc', 'github', 'lanes', 'teamReview', 'benchmarks', 'coherence', 'issues', 'community', 'questionManager', 'posthog', 'usage', 'telegram',
-  'telemetry', 'workflows', 'coder',
+  'telemetry', 'vault', 'workflows', 'coder',
 ]);
 export const CONFIG_SCALAR_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE).filter((key) => {
   if (CONFIG_BLOCK_KEYS.includes(key)) return false;

@@ -5,8 +5,7 @@ import type { IncomingMessage, Server } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocket, WebSocketServer } from 'ws';
 
-import { authorizeInboxRequest } from '../../cloud/inbox/core/job-inbox-core.ts';
-import { watcherChildInboxUrl } from '../../cloud/watcher/core/watcher-core.ts';
+import { isAuthorizedCompanion, localCompanionSocketUrl } from '../core/vault-listener-core.ts';
 import { VAULT_REPLACED_CLOSE_CODE, VAULT_SOCKET_PATH, VaultCompanionMessage, VaultJob } from '../../shared/contracts/secrets.ts';
 import type { CreateJob, CreatedResult, ResolveJob, ResolvedResult } from '../../shared/contracts/secrets.ts';
 
@@ -114,12 +113,12 @@ function createVaultSocket({ envToken, companionFile, onCompanionChanged = () =>
   }
 
   function handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): void {
-    const pathname = new URL(request.url ?? '/', 'http://inbox').pathname;
+    const pathname = new URL(request.url ?? '/', 'http://vault').pathname;
     if (pathname !== VAULT_SOCKET_PATH) {
       refuseUpgrade(socket, '404 Not Found');
       return;
     }
-    if (!authorizeInboxRequest(request.headers.authorization, token)) {
+    if (!isAuthorizedCompanion(request.headers.authorization, token)) {
       refuseUpgrade(socket, '401 Unauthorized');
       return;
     }
@@ -162,10 +161,9 @@ function createVaultSocket({ envToken, companionFile, onCompanionChanged = () =>
 
   let publishedText: string | null = null;
 
-  async function publishLocalAddress(inboxHost: string, inboxPort: number): Promise<void> {
-    const inboxUrl = watcherChildInboxUrl(inboxHost, inboxPort);
-    if (inboxUrl === null) return;
-    const url = `${inboxUrl.replace(/^http/, 'ws')}${VAULT_SOCKET_PATH}`;
+  async function publishLocalAddress(boundHost: string, boundPort: number): Promise<void> {
+    const url = localCompanionSocketUrl(boundHost, boundPort);
+    if (url === null) return;
     const text = `${JSON.stringify(isPerBootToken ? { url, token } : { url })}\n`;
     await fsp.writeFile(companionFile, text, { mode: COMPANION_FILE_MODE });
     await fsp.chmod(companionFile, COMPANION_FILE_MODE);
@@ -180,16 +178,16 @@ function createVaultSocket({ envToken, companionFile, onCompanionChanged = () =>
     publishedText = null;
   }
 
-  function attach(inboxServer: Server): void {
-    inboxServer.on('upgrade', handleUpgrade);
-    inboxServer.once('close', () => {
+  function attach(listener: Server): void {
+    listener.on('upgrade', handleUpgrade);
+    listener.once('close', () => {
       if (heartbeat !== null) clearInterval(heartbeat);
       companion?.terminate();
       settleJobsOf(null);
       forgetLocalAddress();
     });
-    inboxServer.once('listening', () => {
-      const address = inboxServer.address();
+    listener.once('listening', () => {
+      const address = listener.address();
       if (address === null || typeof address === 'string') return;
       publishLocalAddress(address.address, address.port).catch((error: unknown) => {
         log.warn(`[vault] could not write ${companionFile}: ${error instanceof Error ? error.message : String(error)}`);

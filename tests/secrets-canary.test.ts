@@ -38,7 +38,7 @@ interface CanaryBackend {
   tmpDir: string;
   projectDir: string;
   server: Server;
-  inboxServer: Server;
+  vaultServer: Server;
   backend: Backend;
   base: string;
 }
@@ -60,10 +60,10 @@ async function bootCanaryBackend(): Promise<CanaryBackend> {
   const backend = createBackend(server, { staticDir: null });
   server.on('request', backend.app);
   await listenOnLoopback(server);
-  const inboxServer = http.createServer();
-  backend.jobInbox.attach(inboxServer);
-  await listenOnLoopback(inboxServer);
-  return { tmpDir, projectDir, server, inboxServer, backend, base: `http://127.0.0.1:${boundPort(server)}` };
+  const vaultServer = http.createServer();
+  backend.vault.attach(vaultServer);
+  await listenOnLoopback(vaultServer);
+  return { tmpDir, projectDir, server, vaultServer, backend, base: `http://127.0.0.1:${boundPort(server)}` };
 }
 
 async function runNeedCli(context: CanaryBackend, names: readonly string[]): Promise<{ exitCode: number; output: string }> {
@@ -169,9 +169,9 @@ test('a delivered canary reaches the env file only, never a trace, recording, MC
     await companionExit;
     await settleBackendShutdown(context.backend);
     context.server.closeAllConnections();
-    context.inboxServer.closeAllConnections();
+    context.vaultServer.closeAllConnections();
     await closeServer(context.server);
-    await closeServer(context.inboxServer);
+    await closeServer(context.vaultServer);
     fs.rmSync(context.tmpDir, { recursive: true, force: true });
     if (previousConfigPath === undefined) delete process.env.GLIMMERVOID_CONFIG;
     if (previousConfigPath !== undefined) process.env.GLIMMERVOID_CONFIG = previousConfigPath;

@@ -44,6 +44,10 @@ const DEFAULT_CONFIG = {
   telemetry: {
     enabled: true,
   },
+  vault: {
+    host: '127.0.0.1',
+    port: null,
+  },
 
   checkForUpdates: true,
   updateChannel: 'release' as const,

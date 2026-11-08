@@ -72,8 +72,8 @@ import { promptContextReplyOf } from '../../session/core/refocus-core.ts';
 import { lookupWhy } from '../why-lookup.ts';
 import { createSecretsBroker } from '../secrets/secrets-broker.ts';
 import { createVaultSocket } from '../secrets/vault-socket.ts';
+import { decideVaultBind } from '../core/vault-listener-core.ts';
 import { writeEnvFile } from '../secrets/env-file.ts';
-import { isRecord } from '../../shared/coerce.ts';
 import { wireSecretsBroker } from '../secrets/secrets-wiring.ts';
 import { createHostLinksWiring } from '../hosts/host-links-wiring.ts';
 import type { SpawnHostTunnel } from '../hosts/host-links-wiring.ts';
@@ -367,9 +367,10 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     usage,
   } = laneAssembly;
   gitWorkspace = assembledGitWorkspace;
-  const vaultConfig: unknown = config.vault;
+  const vaultEnvToken = config.vault?.token ?? null;
+  const vaultBind = decideVaultBind({ host: config.vault?.host ?? null, port: config.vault?.port ?? null, envToken: vaultEnvToken });
   const vaultSocket = createVaultSocket({
-    envToken: isRecord(vaultConfig) && typeof vaultConfig.token === 'string' ? vaultConfig.token : null,
+    envToken: vaultEnvToken,
     companionFile: path.join(glimmervoidHomeDir(), 'vault-companion.json'),
     onCompanionChanged: () => secretsBroker.refreshCards(),
   });
@@ -768,6 +769,13 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
         remoteHttpServer.on('request', app);
         remoteHttpServer.on('upgrade', handleUpgrade);
         lifecycleServers.push(remoteHttpServer);
+      },
+    },
+    vault: {
+      bind: vaultBind,
+      attach(vaultHttpServer: Server) {
+        vaultSocket.attach(vaultHttpServer);
+        lifecycleServers.push(vaultHttpServer);
       },
     },
   };

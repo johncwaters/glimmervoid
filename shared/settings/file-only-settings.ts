@@ -4,6 +4,7 @@ import { QuestionRule } from '../contracts/question-manager.ts';
 
 import {
   NON_NEGATIVE_NUMBER_RANGE,
+  FIXED_PORT_RANGE,
   PORT_RANGE,
   POSITIVE_NUMBER_RANGE,
   POSTHOG_FIX_TIMEOUT_RANGE,
@@ -104,6 +105,16 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     id: 'file-worktree-share', path: 'worktreeShare', title: 'Shared worktree paths', group: 'machine-detection-sessions',
     description: 'Local paths copied or linked during worktree preparation. A * matches names at the project root, never one containing production; name such a file in full to share it.',
     control: 'list', keywords: ['files', 'context', 'env'], defaultValue: ['.env*', '.claude'], takesEffect: 'new-sessions', fileOnlyReason: BY_RULE, ...FILE_ONLY,
+  },
+  {
+    id: 'file-vault-host', path: 'vault.host', title: 'Vault companion address', group: 'machine-detection-sessions',
+    description: 'Address the vault companion listener binds. Any address other than this machine needs GLIMMERVOID_VAULT_TOKEN and a fixed vault port.',
+    control: 'text', keywords: ['vault', 'secrets', '1password', 'listener'], defaultValue: '127.0.0.1', takesEffect: 'restart', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
+  },
+  {
+    id: 'file-vault-port', path: 'vault.port', title: 'Vault companion port', group: 'machine-detection-sessions',
+    description: 'Port the vault companion listener binds; empty picks any free port. Set one for a companion on another machine.',
+    control: 'number', nullable: true, range: FIXED_PORT_RANGE, unit: { label: 'port', storedPerDisplay: 1 }, keywords: ['vault', 'secrets', '1password', 'listener'], defaultValue: null, takesEffect: 'restart', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
   },
   {
     id: 'file-port', path: 'port', title: 'Local port', group: 'machine-detection-sessions',

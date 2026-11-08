@@ -32,7 +32,7 @@ function serverConnection(rawServerUrl: string, token: string): Connection {
 
 async function localConnection(companionFile: string, envToken: string): Promise<Connection> {
   const text = await fsp.readFile(companionFile, 'utf8').catch(() => null);
-  if (text === null) return { ok: false, reason: `${companionFile} is missing: no Glimmervoid is running on this machine, or its job inbox is off (watcher.autoStart is false with no GLIMMERVOID_WATCHER_TOKEN); start it, or pass --server` };
+  if (text === null) return { ok: false, reason: `${companionFile} is missing: no Glimmervoid is running on this machine, or its vault companion listener is off (see its log); start it, or pass --server` };
   const parsed = parsedCompanionFileOrNull(text);
   if (parsed === null) return { ok: false, reason: `${companionFile} is malformed; restart Glimmervoid` };
   const token = parsed.token ?? envToken;
