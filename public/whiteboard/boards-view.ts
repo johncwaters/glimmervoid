@@ -780,7 +780,7 @@ function newBoardFromDialog(): void {
   createBoardFromDialog(pickBoard);
 }
 
-export function createBoardFromDialog(onCreated: (boardId: string) => void): void {
+function createBoardFromDialog(onCreated: (boardId: string) => void): void {
   openTextDialog({
     title: 'New board',
     label: 'Board title',

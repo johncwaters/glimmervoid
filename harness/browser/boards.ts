@@ -948,11 +948,7 @@ async function verifyBoardRowsInRail(page: Page, panel: Locator, sessionId: stri
   await page.locator('#focus-pane-terminal').waitFor({ state: 'hidden' });
   await verifyMergeShortcutIgnoredWhileBoardCentered(page, projectDirectory);
   await verifyRailArrowsReachBoardRows(page, laterTitle);
-  const railTitle = `Rail plan ${sessionId.slice(0, 8)}`;
-  await page.getByRole('button', { name: 'New board', exact: true }).click();
-  await submitTextDialog(page, 'Board title', railTitle, 'Create board');
-  await openBoardTitle(panel, railTitle).waitFor();
-  await page.locator('.focus-rail .session-row[data-board-id].focused', { hasText: railTitle }).waitFor();
+  await laterRow.and(page.locator('.focused')).waitFor();
   const sessionRow = page.locator(`.focus-rail .session-row[data-id="${sessionId}"]`).first();
   await sessionRow.locator('.session-row-glyph').click();
   await page.locator('#focus-pane-terminal').waitFor({ state: 'visible' });

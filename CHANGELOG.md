@@ -104,6 +104,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dependencies**: `cc-safety-net` 2.7.1, so Sane YOLO now also refuses a `curl` or `wget` that sends a body or uploads a file to anything but this machine (`curl -d`, `--json`, `-F`, `-T`, `wget --post-data`), requests to a cloud metadata address such as `169.254.169.254`, `unshare` options that create a user namespace, a program fetched from the network and handed to `python3`, `node`, `perl`, `ruby` or PowerShell, and a file downloaded and then run in the same command. It also reads a shell script a command runs from disk and refuses it when a line in it breaks a rule. Posts to `localhost` and `127.0.0.1` still run. When an agent is refused one of these, run the command yourself.
 - **Dependencies**: `body-parser` 2.4.0, `qs` 6.17.1 and the website build's `undici` 8.12.3 clear the denial-of-service advisories npm audit reported against the versions before them (GHSA-27r3-jxmh-p828, GHSA-6pq8-jhm2-2vcw and eight against undici). `ws` 8.22.1 and `fs-native-extensions` 1.5.3 are bug-fix releases. `tailwindcss` 4.3.4 builds the dashboard styles; the compiled stylesheet is the same apart from spacing inside empty `var()` fallbacks and one Safari feature check.
 
+### Removed
+
+- **The New board button in the Focus rail.** It sat above the Status key. New board stays in an open board's menu, and agents still create boards.
+
 ### Fixed
 
 - **Wire routing on a large whiteboard makes less garbage.** The route search writes its queue entries straight into its typed arrays and keeps its visited list between searches, cutting about 15% of what a 300,000 element layout allocates and about 10% of its time, with the same drawing.

@@ -1,7 +1,6 @@
 import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
 import { wireColumnResizer } from '../column-resizer.ts';
 import { el } from '../dom-helpers.ts';
-import { button } from '../ui/button.ts';
 import { renderStatusLegend } from '../status-legend.ts';
 import { showFirstRunChecklist } from '../onboarding/first-run-loader.ts';
 import { getRestorableSessionId, isSessionShown, quickAddSession, readSessionRows, requestSessionOpen, requestSessionRemoval, selectSession, undoPendingClose } from '../session-actions.ts';
@@ -181,9 +180,6 @@ export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | 
   cardSlotEl = paneLayout.bodyOf('terminal');
   paneLayout.bodyOf('board').tabIndex = -1;
   paneLayout.onBoardDrag(paintUnsplitSlot);
-  const newBoardButton = button({ variant: 'secondary', size: 'small', label: 'New board', action: 'new-board', onClick: createBoardFromRail });
-  newBoardButton.classList.add('rail-new-board');
-  mountedRail.append(newBoardButton);
   unsplitSlotEl = el('div', 'rail-unsplit-slot', 'Drop here to unsplit');
   registerSessionPages();
   pageButtons = createSessionPageButtons({ style: 'header' });
@@ -525,16 +521,14 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
   const groupOrderKey = railGroups.groups.map((group) => group.key).join('\n');
   const groupsAlreadyInPlace = groupOrderKey === lastGroupOrderKey;
   lastGroupOrderKey = groupOrderKey;
-  const newBoardButton = mountedRail.querySelector(':scope > .rail-new-board');
   for (const group of railGroups.groups) {
     const { header, list } = ensureGroup(group);
-    if (!groupsAlreadyInPlace) mountedRail.insertBefore(header, newBoardButton);
-    if (!groupsAlreadyInPlace) mountedRail.insertBefore(list, newBoardButton);
+    if (!groupsAlreadyInPlace) mountedRail.append(header, list);
     const projectBoards = group.hostId === null ? boardsOfProject.get(group.key) : undefined;
     placeList(group.rows, list, projectBoards ? boardNodesOf(group.key, projectBoards, placedBoardIds) : []);
   }
   removeUnplacedBoardRows(placedBoardIds, presentKeys);
-  placeHostHeaders(mountedRail, { firstGroupHeaderOf: (hostId) => firstGroupHeaderOf(railGroups.groups, hostId), trailingNode: newBoardButton });
+  placeHostHeaders(mountedRail, { firstGroupHeaderOf: (hostId) => firstGroupHeaderOf(railGroups.groups, hostId), trailingNode: null });
 
   for (const [key, groupHeader] of [...groupHeaderById]) {
     if (!presentKeys.has(key)) {
@@ -657,10 +651,6 @@ function centerBoard(boardId: string) {
   centeredBoardId = boardId;
   setRailTabStop(null);
   refreshFocusRoster();
-}
-
-function createBoardFromRail() {
-  loadBoardsView().then((boardsView) => boardsView.createBoardFromDialog(centerBoard), reportBoardsViewLoadFailure);
 }
 
 function pickNeighborOfRemoved(previousRailOrder: readonly string[], removedId: string) {
