@@ -192,12 +192,13 @@ async function packInstallScriptPackage(mainCheckout: string, name: string): Pro
   return `file:vendor/${name}-1.0.0.tgz`;
 }
 
-test('an install-script package arrives built from a matching main checkout install, and one whose own or nested install differs is named', { skip: !CAN_INSTALL || CAN_CLONE }, async () => {
+test('an install-script package arrives built from a matching main checkout install, one whose own or nested install differs is named, and a banner-only one is not', { skip: !CAN_INSTALL || CAN_CLONE }, async () => {
   const { root, mainCheckout } = makeMainCheckout('gv-dependency-install-script-');
   const dependencies = {
     'built-pkg': await packInstallScriptPackage(mainCheckout, 'built-pkg'),
     'drifted-pkg': await packInstallScriptPackage(mainCheckout, 'drifted-pkg'),
     'nested-drift-pkg': await packInstallScriptPackage(mainCheckout, 'nested-drift-pkg'),
+    'core-js': await packInstallScriptPackage(mainCheckout, 'core-js'),
   };
   writeJson(path.join(mainCheckout, 'package.json'), { name: 'fixture', version: '1.0.0', dependencies });
   await writeLockfileFor(mainCheckout);
@@ -211,6 +212,7 @@ test('an install-script package arrives built from a matching main checkout inst
   const mainInstalledLockPath = path.join(mainCheckout, 'node_modules', '.package-lock.json');
   const mainInstalled = JSON.parse(fs.readFileSync(mainInstalledLockPath, 'utf8'));
   mainInstalled.packages['node_modules/drifted-pkg'].integrity = 'sha512-drifted';
+  mainInstalled.packages['node_modules/core-js'].integrity = 'sha512-drifted';
   mainInstalled.packages['node_modules/nested-drift-pkg/node_modules/left-pad'] = { version: '1.3.0', resolved: 'https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz', integrity: 'sha512-nested' };
   writeJson(mainInstalledLockPath, mainInstalled);
   const worktreeDir = path.join(root, 'session-worktree');

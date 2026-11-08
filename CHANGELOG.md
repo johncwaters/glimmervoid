@@ -101,6 +101,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Settings group headings stand out from the sections under them.** This browser, Sessions, Machine and Lanes in the settings sidebar are now bold, so they no longer read like one more section.
+- **No more npm rebuild warning for core-js in a new session worktree.** core-js and core-js-pure run an install script that only prints a donation banner, so the worktree install no longer names them as needing `npm rebuild`. Any other package whose build could not be copied from the main checkout is still named.
 - **The reconnecting dot beside the logo stays red.** It no longer fades in and out while the dashboard reconnects (or amber while it connects), so it reads like every other status color.
 - **The Split label is easy to read while you drag a board over a session.** The row behind dims and Split shows as a bordered chip on top of it.
 - **A setting marked Experimental keeps its # link beside the title.** On a narrow screen the Experimental tag now wraps under the setting's title with the # link next to it, instead of pushing the # to the far side of the row.

@@ -122,6 +122,8 @@ function isSameNpmPackage(wanted: NpmPackageEntry, installed: NpmPackageEntry): 
 
 type InstallScriptCopyPlan = { copies: string[]; unbuilt: string[] };
 
+const BANNER_ONLY_INSTALL_SCRIPT_PACKAGES: ReadonlySet<string> = new Set(['core-js', 'core-js-pure']);
+
 const INSTALLED_PACKAGE_PATH = /^node_modules\/(?:@[\w.-]+\/)?[\w.-]+(?:\/node_modules\/(?:@[\w.-]+\/)?[\w.-]+)*$/;
 
 export function planInstallScriptCopies(worktreeInstalledLockText: string | null, mainInstalledLockText: string | null): InstallScriptCopyPlan {
@@ -131,6 +133,7 @@ export function planInstallScriptCopies(worktreeInstalledLockText: string | null
   if (!installedPackages) return plan;
   for (const [installPath, installed] of installedPackages) {
     if (installed.hasInstallScript !== true || installed.link === true || !isPlainInstalledPackagePath(installPath)) continue;
+    if (BANNER_ONLY_INSTALL_SCRIPT_PACKAGES.has(packageNameOfInstallPath(installPath))) continue;
     const hasMatchingMainInstall = mainPackages !== null && typeof installed.integrity === 'string' && isSameInstalledTree(installPath, installedPackages, mainPackages);
     plan[hasMatchingMainInstall ? 'copies' : 'unbuilt'].push(installPath);
   }
